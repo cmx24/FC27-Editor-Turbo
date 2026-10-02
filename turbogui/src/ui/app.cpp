@@ -63,8 +63,12 @@ bool App::refresh() {
     next_retry = now + 5.0;
     db_error.clear();
     if (!bridge.meta_loaded()) {
-        db_error = bridge.meta_error().empty() ? "waiting for Turbo's Lua side (turbo_output\\bridge_meta.json)"
-                                               : bridge.meta_error();
+        if (!bridge.meta_error().empty())
+            db_error = bridge.meta_error();
+        else if (!bridge.state().meta_error.empty())
+            db_error = "Turbo's Lua side cannot read the game database: " + bridge.state().meta_error;
+        else
+            db_error = "waiting for Turbo's Lua side (turbo_output\\bridge_meta.json)";
         return false;
     }
     const auto& st = bridge.state();

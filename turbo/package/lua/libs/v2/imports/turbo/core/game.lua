@@ -109,12 +109,12 @@ function M.user_squad()
     return result, 0, "no squad rows found for team " .. teamid
 end
 
-local function valid_date(d)
-    return type(d) == "table"
-        and util.is_int(d.day) and util.is_int(d.month) and util.is_int(d.year)
-        and d.year >= 2000 and d.year <= 2200
-        and d.month >= 1 and d.month <= 12
-        and d.day >= 1 and d.day <= 31
+-- day, month, year of a date object (Lua table or userdata), or nil when it is not a plausible in-game date
+local function date_parts(d)
+    local day, month, year = util.index(d, "day"), util.index(d, "month"), util.index(d, "year")
+    if not (util.is_int(day) and util.is_int(month) and util.is_int(year)) then return nil end
+    if year < 2000 or year > 2200 or month < 1 or month > 12 or day < 1 or day > 31 then return nil end
+    return math.tointeger(day), math.tointeger(month), math.tointeger(year)
 end
 
 -- Current in-game date as {day, month, year, int=YYYYMMDD, source}. nil when unavailable.
@@ -126,8 +126,9 @@ function M.current_date()
     end
     for _, t in ipairs(tries) do
         local ok, d = pcall(t[2])
-        if ok and valid_date(d) then
-            local day, month, year = math.tointeger(d.day), math.tointeger(d.month), math.tointeger(d.year)
+        local day, month, year
+        if ok then day, month, year = date_parts(d) end
+        if day then
             return { day = day, month = month, year = year, int = year * 10000 + month * 100 + day, source = t[1] }
         end
     end

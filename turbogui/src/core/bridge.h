@@ -43,6 +43,7 @@ struct BridgeState {
     bool auto_form_enabled = false;
     int auto_form = 100, auto_morale = 100, auto_fitness = 0;
     bool auto_playstyles_enabled = false;
+    std::string meta_error;  // why Turbo's Lua side could not write bridge_meta.json (empty = no problem reported)
     std::string error;
 };
 

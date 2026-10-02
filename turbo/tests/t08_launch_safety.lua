@@ -173,7 +173,7 @@ H.case("a stale bridge_dll.json is never trusted: no memory is touched on its wo
     local json = require 'imports/external/json'
     local STALE = 0x7FF000001000
     local function write_dll(updated)
-        local t = { mailbox = string.format("0x%X", STALE), session = "OLD", gui_version = "0.2.3" }
+        local t = { mailbox = string.format("0x%X", STALE), session = "OLD", gui_version = "0.2.4" }
         if updated ~= nil then t.updated = updated end
         local f = assert(io.open(H.out("bridge_dll.json"), "wb"))
         f:write(json.encode(t))
@@ -199,7 +199,7 @@ H.case("a stale bridge_dll.json is never trusted: no memory is touched on its wo
     local MB = sim:alloc(0x2020, 16)
     sim:w32(MB, 0x4F425254)
     local f = assert(io.open(H.out("bridge_dll.json"), "wb"))
-    f:write(json.encode({ mailbox = string.format("0x%X", MB), session = "NOW", gui_version = "0.2.3", updated = os.time() }))
+    f:write(json.encode({ mailbox = string.format("0x%X", MB), session = "NOW", gui_version = "0.2.4", updated = os.time() }))
     f:close()
     TURBO_STATE.bridge.mailbox = nil
     bridge.poll_mailbox(true)

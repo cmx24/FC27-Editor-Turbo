@@ -1,4 +1,4 @@
-# FC 27 LE Turbo — technical reference (0.2.3)
+# FC 27 LE Turbo — technical reference (0.2.4)
 
 Turbo adds FC 26 Live Editor features to **FC 27 Live Editor** (public build v27.1.0 or newer). It is a user-owned add-on
 that runs next to an official, unmodified Live Editor. Offline Career Mode / Kick-Off only.
@@ -152,9 +152,9 @@ The Lua side polls the mailbox on every career event (`bridge.on_career_event`) 
 
 | Command | What it does | Needs |
 | --- | --- | --- |
-| `bash turbo/tests/run_tests.sh` | 103 Lua tests over a simulated game memory (incl. launch safety) | lua5.4, `turbo/le27/libs` |
+| `bash turbo/tests/run_tests.sh` | 105 Lua tests over a simulated game memory (incl. launch safety; `GetDBMeta` as Lua tables, as iterable C++ objects and as index-only C++ objects) | lua5.4, `turbo/le27/libs` |
 | `luacheck --config turbo/tests/.luacheckrc turbo/package/lua` | lint | luacheck |
-| `bash turbogui/tests/native/run_native.sh` | 3,279 native checks (engine vs Live Editor's Lua T3DB library, headless ImGui UI driving, ASan + UBSan). Includes clicking every GUI button that sends a command (28) and running each command through Turbo's real Lua bridge in a simulated career, the Players list filters against a brute-force oracle, and the Live Editor log reader against real FC 27 log lines | g++, lua5.4, `turbo/le27/libs` |
+| `bash turbogui/tests/native/run_native.sh` | 3,283 native checks (engine vs Live Editor's Lua T3DB library, headless ImGui UI driving, ASan + UBSan). Includes clicking every GUI button that sends a command (28) and running each command through Turbo's real Lua bridge in a simulated career, the Players list filters against a brute-force oracle, and the Live Editor log reader against real FC 27 log lines | g++, lua5.4, `turbo/le27/libs` |
 | `python3 scripts/check_field_names.py` | every table / field name in the GUI and Lua sources against EA's `db_meta.xml` (FIFA 21 Live Editor) and the names xAranaktu's FC 24–26 Live Editor scripts use | git, GitHub access |
 | `bash turbogui/scripts/build_win.sh` | cross-compiles `Turbo.dll` + `TurboProbe.exe` + `TurboInjector.exe` | mingw-w64 (posix) |
 | `bash turbogui/tests/win/run_smoke.sh` | loads the real `Turbo.dll` under Wine in 10 modes: imports, refusal without Live Editor, no hooking without a game window, kill switch, crash guard (clean exit / kill), mailbox, Lua-side start, and launch mode (touches nothing and loads no graphics DLL until Live Editor's `Initial setup done` for this process or a fresh `bridge_state.json`; earlier sessions, the launcher log and stale files do not count) | Wine, mingw-w64 |
@@ -171,12 +171,21 @@ mailbox; loaded in launch mode it touches nothing and loads no graphics DLL unti
 session; inside a running Direct3D 12 stand-in game (Wine + vkd3d) it waits for that line, hooks, draws its window on F8 and
 survives a resize, both with `TurboProbe.exe` and with the in-game fallback.
 
-Verified in FC 27 by the user (0.2.2, live_editor log of 02-10-2026): `turbo_boot.lua` runs at launch and the game launches
-(`[Turbo] Turbo 0.2.2 ready`, `Executing scripts from lua/autorun Done`, main menu reached).
+Verified in FC 27 by the user (02-10-2026):
+- 0.2.2 (Live Editor log): `turbo_boot.lua` runs at launch and the game launches.
+- 0.2.3 (screenshot, Live Editor v27.1.2, NVIDIA RTX 5090 laptop): the game launches with the launch-time `package.loadlib` of
+  `Turbo.dll`; `Turbo.dll` waited for Live Editor's `Initial setup done`, hooked Direct3D 12 and drew its window in game on F8,
+  next to Live Editor's own window. It did not connect to the database: the window stayed "waiting for Turbo's Lua side
+  (bridge_meta.json)" after `turbo_gui_load.lua`.
 
-**Not verified (cannot be executed outside Windows + the game):** that FC 27 still launches with 0.2.3's launch-time
-`package.loadlib` of the inert `Turbo.dll`; the DirectX 12 hooks and drawing inside FC 27 on a real Windows driver; the real
-`package.loadlib` call inside Live Editor; and the Lua-side bridge against the real FC 27 process. The simulator's memory
+That points at `bridge.write_meta`: it accepted `GetDBMeta()` only as plain Lua tables (the simulator's form), while Live
+Editor's own t3db code only indexes the result, which also works for C++ objects (userdata). 0.2.4 reads the meta by indexing,
+iterates it only inside `pcall`, and falls back to Live Editor's own table loader (`LE.db`); failures are reported in the
+message box, `turbo_boot.log`, Live Editor's log and the GUI (`meta_error` in `bridge_state.json`). The exact reason in 0.2.3
+was not logged (it was a debug-level line), so this is the most likely cause, not a confirmed one.
+
+**Not verified (cannot be executed outside Windows + the game):** 0.2.4's database connection in FC 27, the editors and tools
+against the real game database, and the Lua-side bridge (mailbox commands) against the real FC 27 process. The simulator's memory
 layout is derived from Live Editor's open Lua libraries; field names beyond those used by Live Editor's own scripts are
 confirmed only by `turbo_probe` on a real install. Use the in-game checklist in `TURBO_README.md`.
 

@@ -15,7 +15,7 @@
 
 namespace turbo {
 
-constexpr const char* kGuiVersion = "0.2.3";
+constexpr const char* kGuiVersion = "0.2.4";
 
 struct Toast {
     std::string text;

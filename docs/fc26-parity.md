@@ -1,4 +1,4 @@
-# FC 26 Live Editor → Turbo for FC 27: feature parity (Turbo 0.2.3)
+# FC 26 Live Editor → Turbo for FC 27: feature parity (Turbo 0.2.4)
 
 The 41 FC 26 Live Editor feature groups and 16 FC 26 Lua scripts below come from the assessment of your
 `C:\FC 26 Live Editor` and `C:\FC 27 Live Editor` installs (changelogs, Lua libraries, UI strings, `DOC.MD`).
@@ -17,7 +17,7 @@ The 41 FC 26 Live Editor feature groups and 16 FC 26 Lua scripts below come from
 
 ## Player editor
 
-| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.3 |
+| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.4 |
 | --- | --- | --- | --- | --- |
 | 1 | Player editor: attributes, positions, playstyles | v26.1.0 | yes | **Turbo GUI**: Profile, Attributes (grouped like the game), positions 1–7, PlayStyles / PlayStyles+ / Traits / Traits+, Appearance, dates as real calendar dates, all fields |
 | 2 | Edit player or VPRO in Player Career | v26.1.1 | yes (v27.1.1) | **Turbo GUI (partial)**: the editor works on your own player like any other; "Give my player every PlayStyle" (now or automatic). No dedicated VPRO page: use FC 27 LE's |
@@ -36,7 +36,7 @@ The 41 FC 26 Live Editor feature groups and 16 FC 26 Lua scripts below come from
 
 ## Team editor
 
-| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.3 |
+| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.4 |
 | --- | --- | --- | --- | --- |
 | 15 | Team editor: core | v26.1.0 | yes | **Turbo GUI**: Teams tab: overview fields, squad with kit numbers and line-up slots, all fields |
 | 16 | Team name, transfer budget, transfer bans | v26.1.2 | partly | **Turbo GUI (partial)**: `teamname` and `transferbudget` editable; transfer bans: list, ban every team, remove all (no single-team ban button). The game may show translated club names instead of `teamname` (FC 27 LE has a custom-names file for that) |
@@ -48,7 +48,7 @@ The 41 FC 26 Live Editor feature groups and 16 FC 26 Lua scripts below come from
 
 ## Manager editor
 
-| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.3 |
+| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.4 |
 | --- | --- | --- | --- | --- |
 | 22 | Manager editor: core | v26.2.7 | basic | **Turbo GUI**: Managers tab (names, team, nationality, personality, looks, all fields) |
 | 23 | Manager and team ID, name, miniface import / generate | v26.2.8 | not announced | **Turbo GUI (partial)**: IDs and names editable; minifaces **Not available** |
@@ -57,7 +57,7 @@ The 41 FC 26 Live Editor feature groups and 16 FC 26 Lua scripts below come from
 
 ## Career
 
-| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.3 |
+| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.4 |
 | --- | --- | --- | --- | --- |
 | 26 | Youth academy tools | v26.1.3 | partly | **FC 27 LE** (youth scout reports) |
 | 27 | Reveal player data | v26.1.4 | not announced | **Not available** |
@@ -72,7 +72,7 @@ The 41 FC 26 Live Editor feature groups and 16 FC 26 Lua scripts below come from
 
 ## Tool and scripting
 
-| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.3 |
+| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.4 |
 | --- | --- | --- | --- | --- |
 | 36 | Speedhack (menu, gameplay), hotkeys | v26.1.0–v26.3.6 | yes | **FC 27 LE** |
 | 37 | Lua script on hotkey, CJK font, font size | v26.3.6 | not announced | **FC 27 LE** for scripts; Turbo has its own show/hide key only |
@@ -117,10 +117,10 @@ claimed by this build.
 
 | Check | Result |
 | --- | --- |
-| Lua: 103 tests over a simulated game memory, run against xAranaktu's published Live Editor Lua code (GPL-3.0, identical to FC 27's where compared) plus the FC 27 files recovered from your install | all pass |
+| Lua: 105 tests over a simulated game memory, run against xAranaktu's published Live Editor Lua code (GPL-3.0, identical to FC 27's where compared) plus the FC 27 files recovered from your install | all pass |
 | Every GUI button that sends a command (28) clicked in the real GUI, its command run through Turbo's real Lua bridge in a simulated career | all succeed, except Turbo's own deliberate refusal to apply a real-face list of fewer than 100 players |
 | Players list filters, compared with a brute-force calculation over the same players | match |
 | Every table / field name Turbo uses (110) against EA's database schema and xAranaktu's FC 24–26 scripts (`scripts/check_field_names.py`) | 108 confirmed, 2 deliberately allowed, 0 unknown (2 wrong manager field names were found and fixed) |
-| Native engine and every UI panel, with AddressSanitizer + UBSan | 3,279 checks pass |
+| Native engine and every UI panel, with AddressSanitizer + UBSan | 3,283 checks pass |
 | The real `Turbo.dll` inside a running Direct3D 12 program (a stand-in, not FC 27) under Wine + vkd3d + software Vulkan: loaded in launch mode while the program renders, waits for Live Editor's `Initial setup done`, hooks, initialises on its queue, F8 shows the window (screenshot), survives a swap-chain resize, no errors (`turbogui/tests/win/run_overlay_wine.sh`) | passes, both with TurboProbe.exe and with the in-game fallback |
-| Inside FC 27 itself, with Live Editor | 0.2.2: the game launches with Turbo (your log of 02-10-2026); the GUI was not loaded because `turbo_gui_load.lua` did not run, which 0.2.3 no longer needs. 0.2.3 in game: **not run yet**, use the checklist in `TURBO_README.md` |
+| Inside FC 27 itself, with Live Editor | 0.2.3 (your screenshot of 02-10-2026): the game launches, the Turbo window draws in game on F8, but it did not connect to the database. 0.2.4 (database connection fix) in game: **not run yet**, use the checklist in `TURBO_README.md` |

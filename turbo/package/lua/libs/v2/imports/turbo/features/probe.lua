@@ -26,9 +26,9 @@ M.KEY_EVENTS = { "DAY_PASSED", "ABOUT_TO_ENTER_PREMATCH", "POST_LOAD_PREPARE", "
 local function all_table_names()
     if type(GetDBTablesNames) == "function" then
         local ok, names = pcall(GetDBTablesNames)
-        if ok and type(names) == "table" and #names > 0 then
+        if ok and util.len(names) > 0 then
             local out = {}
-            for _, n in ipairs(names) do out[#out + 1] = tostring(n) end
+            for i = 1, util.len(names) do out[#out + 1] = tostring(util.index(names, i)) end
             table.sort(out)
             return out, "GetDBTablesNames"
         end

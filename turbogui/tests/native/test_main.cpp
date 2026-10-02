@@ -450,6 +450,18 @@ static void test_core() {
         std::ofstream(dir / "bridge_state.json") << "{\"session\":\"S\",\"seq\":2,\"db_gen\":1,\"in_cm\":true,\"user_team\":1}";
         b.poll_files();
         CHECK(b.state().seq == 2, "complete file read on the next poll");
+        CHECK(b.state().meta_error.empty(), "no meta_error reported");
+        // Turbo's Lua side could not write bridge_meta.json: the GUI shows why instead of "waiting"
+        fs::path dir3 = g_out / "LE3" / "turbo_output";
+        fs::create_directories(dir3);
+        std::ofstream(dir3 / "bridge_state.json")
+            << "{\"session\":\"S\",\"seq\":1,\"db_gen\":1,\"in_cm\":false,\"meta_error\":\"GetDBMeta failed: not ready\"}";
+        App a3(mem, g_out / "LE3", 0, "meta-error");
+        a3.bridge.poll_files();
+        CHECK(a3.bridge.state().meta_error == "GetDBMeta failed: not ready", "meta_error parsed from bridge_state.json");
+        CHECK(!a3.refresh(), "no meta: not connected");
+        CHECK(a3.db_error.find("cannot read the game database: GetDBMeta failed: not ready") != std::string::npos,
+              "the reason is shown: " + a3.db_error);
     });
 
     run_case("mailbox protocol against Turbo's Lua bridge", [&] {

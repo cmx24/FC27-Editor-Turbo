@@ -1,6 +1,6 @@
 # FC27-Editor-Turbo
 
-**FC 27 LE Turbo 0.2.3**: FC 26 Live Editor features for **FC 27 Live Editor** (public build v27.1.0 or newer), plus an
+**FC 27 LE Turbo 0.2.4**: FC 26 Live Editor features for **FC 27 Live Editor** (public build v27.1.0 or newer), plus an
 in-game window (the **Turbo GUI**) with Players / Teams / Managers / Database editors and a button for every Turbo tool.
 
 Which FC 26 Live Editor feature is where (Turbo window, Database tab, FC 27 Live Editor itself, or not available yet):
@@ -12,7 +12,7 @@ unmodified Live Editor and never modifies, copies or redistributes its files.
 ## Install (the build to test)
 
 1. Install the official FC 27 Live Editor as usual.
-2. Unzip [`dist/FC27_LE_Turbo_0.2.3.zip`](dist/FC27_LE_Turbo_0.2.3.zip) into the Live Editor folder (the folder with `FCLiveEditor.DLL`). Nothing of Live Editor is overwritten.
+2. Unzip [`dist/FC27_LE_Turbo_0.2.4.zip`](dist/FC27_LE_Turbo_0.2.4.zip) into the Live Editor folder (the folder with `FCLiveEditor.DLL`). Nothing of Live Editor is overwritten.
 3. Start the game through Live Editor as usual. Nothing to run: about 20 seconds after the main menu appears, press **F8**.
 4. Load a career: the Turbo window's top line says **Connected**. (At the main menu, run `turbo_gui_load.lua` in Live Editor's
    Lua Engine to connect there.)
@@ -30,6 +30,12 @@ initialising the game). Since 0.2.1 none of that is on the launch path; see `doc
 nothing until Live Editor writes "Initial setup done" for this game session in its own log (about 15 s after the main menu).
 It connects to the database on the first career event. `gui.autoload = false` in `turbo_config.json` restores the 0.2.2 behaviour.
 
+**New in 0.2.4**: in FC 27, 0.2.3 launched, loaded and drew the Turbo window next to Live Editor's (user's screenshot), but it
+stayed "waiting for Turbo's Lua side (bridge_meta.json)" even after `turbo_gui_load.lua`. Turbo read `GetDBMeta()` only if it
+returned plain Lua tables; Live Editor's own t3db code only ever indexes it, which also works for C++ objects (userdata).
+0.2.4 reads it the same way (and, if it cannot be iterated, through Live Editor's own table loader `LE.db`), and every failure
+is reported: in `turbo_gui_load.lua`'s message box, in `turbo_boot.log`, in Live Editor's log and in the Turbo window.
+
 **New in 0.2.2**: Players list filters (position 1–7, PlayStyle / PlayStyle+, retiring, min OVR / POT, max age), Bulk edit
 players in Turbo Tools, Delete player (with confirmation), `TurboProbe.exe` (finds the Direct3D functions in a separate
 process, so nothing is created inside the game), fixes found by the new tests (Squad role button sent the wrong role, two
@@ -40,14 +46,14 @@ also polled, so they work when the game reads only raw input.
 
 | Check | Result |
 | --- | --- |
-| Lua feature pack + GUI bridge + launch safety, 103 tests over a simulated game memory (`turbo/tests/run_tests.sh`) | 103 passed, 0 failed |
+| Lua feature pack + GUI bridge + launch safety, 105 tests over a simulated game memory, with `GetDBMeta` as Lua tables and as C++ objects (`turbo/tests/run_tests.sh`) | 105 passed, 0 failed |
 | luacheck on `turbo/package/lua` | 0 warnings, 0 errors |
-| Native engine + every UI panel, 3,279 checks with AddressSanitizer + UBSan (`turbogui/tests/native/run_native.sh`), including every GUI button that sends a command (28) run through Turbo's real Lua side and the Live Editor log reader | 3,279 passed, 0 failed |
+| Native engine + every UI panel, 3,283 checks with AddressSanitizer + UBSan (`turbogui/tests/native/run_native.sh`), including every GUI button that sends a command (28) run through Turbo's real Lua side and the Live Editor log reader | 3,283 passed, 0 failed |
 | Every table / field name Turbo uses against EA's database schema and xAranaktu's FC 24–26 scripts (`scripts/check_field_names.py`) | 110 names: 108 known, 2 deliberately allowed, 0 unknown |
 | Windows `Turbo.dll` / `TurboProbe.exe` / `TurboInjector.exe` cross-build (mingw-w64) | builds with 0 warnings; `Turbo.dll` imports only KERNEL32, USER32, GDI32, msvcrt |
 | Real `Turbo.dll` loaded under Wine (`turbogui/tests/win/run_smoke.sh`): imports, refusal without Live Editor, no hooking without a game window, kill switch, crash guard (clean exit and kill), mailbox, Lua-side start, launch mode (inert until Live Editor's `Initial setup done` or the Lua side runs) | all 10 modes pass |
 | Real `Turbo.dll` inside a running Direct3D 12 program (a stand-in, not FC 27) under Wine + vkd3d + software Vulkan (`turbogui/tests/win/run_overlay_wine.sh`): loaded in launch mode, waits for Live Editor's line, hooks while it renders, F8 shows the window (screenshot), survives a swap-chain resize | passes with `TurboProbe.exe` and with the in-game fallback |
-| Inside FC 27 with Live Editor | 0.2.2 launches the game fine (user's log, 02-10-2026). 0.2.3 (launch-time load, hooks, drawing, bridge) **not run yet**; use the checklist in `TURBO_README.md` |
+| Inside FC 27 with Live Editor (user's tests, 02-10-2026) | 0.2.2: the game launches. 0.2.3: the game launches with the launch-time load, and F8 draws the Turbo window in game next to Live Editor's; the database was not connected (fixed in 0.2.4, **not yet run in game**) |
 
 ## Layout
 
@@ -58,7 +64,7 @@ also polled, so they work when the game reads only raw input.
 | `turbogui/` | C++ source of `Turbo.dll` / `TurboProbe.exe` / `TurboInjector.exe` (Dear ImGui + MinHook + nlohmann/json vendored in `third_party/`), native tests, Wine smoke and overlay tests |
 | `scripts/package.sh` | Builds `dist/FC27_LE_Turbo_<version>.zip` |
 | `scripts/check_field_names.py` | Checks every database name Turbo uses against independent schema sources |
-| `docs/fc26-parity.md` | Every FC 26 Live Editor feature group and script, and where it is in Turbo 0.2.3 |
+| `docs/fc26-parity.md` | Every FC 26 Live Editor feature group and script, and where it is in Turbo 0.2.4 |
 | `docs/turbo-reference.md` | Architecture, bridge contract, build/test commands, what is and is not verified |
 
 ## Build and test

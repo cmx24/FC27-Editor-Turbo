@@ -53,7 +53,7 @@ local bridge = require 'imports/turbo/bridge'
 
 -- bridge_dll.json as Turbo.dll writes it: the address plus a live timestamp
 local function dll_json(fields)
-    local t = { mailbox = string.format("0x%X", MB), session = "T", gui_version = "0.2.3", updated = os.time() }
+    local t = { mailbox = string.format("0x%X", MB), session = "T", gui_version = "0.2.4", updated = os.time() }
     for k, v in pairs(fields or {}) do t[k] = v end
     write_out("bridge_dll.json", t)
 end
@@ -313,6 +313,60 @@ H.case("turbo_gui_load.lua loads Turbo.dll in 'now' mode and says so; reports ev
     H.eq(okr, true, "the script itself does not raise")
     H.has(sim.boxes[#sim.boxes].text, "turbo_gui_load.lua failed")
     H.has(sim.boxes[#sim.boxes].text, "unzipped")
+end)
+
+local function deep_eq(a, b)
+    if type(a) ~= type(b) then return false end
+    if type(a) ~= "table" then return a == b end
+    for k, v in pairs(a) do if not deep_eq(v, b[k]) then return false end end
+    for k in pairs(b) do if a[k] == nil then return false end end
+    return true
+end
+
+H.case("GetDBMeta returning C++ objects (userdata), iterable or index-only, gives the same bridge_meta.json", function()
+    local bridge = require 'imports/turbo/bridge'
+    sim.meta_mode = "table"
+    local ok, err = bridge.write_meta(true)
+    H.eq(ok, true, err)
+    local plain = read_json("bridge_meta.json")
+    H.ok(plain and next(plain.shortname_name_tables_map) ~= nil, "plain tables: written")
+    for _, mode in ipairs({ "userdata", "userdata_noiter" }) do
+        sim.meta_mode = mode
+        os.remove(H.out("bridge_meta.json"))
+        ok, err = bridge.write_meta(true)
+        H.eq(ok, true, mode .. ": " .. tostring(err))
+        H.eq(TURBO_STATE.bridge.meta_source, mode == "userdata" and "GetDBMeta" or "LE.db",
+             mode .. ": read " .. (mode == "userdata" and "directly" or "through Live Editor's own t3db loader"))
+        local got = read_json("bridge_meta.json") or {}
+        H.ok(deep_eq(got.shortname_name_tables_map, plain.shortname_name_tables_map), mode .. ": same table names")
+        H.ok(deep_eq(got.field_desc_map, plain.field_desc_map), mode .. ": same fields, depths and minimums")
+    end
+    sim.meta_mode = "table"
+end)
+
+H.case("a database that cannot be read is reported (message box, state file, trace), and retried on career events", function()
+    local bridge = require 'imports/turbo/bridge'
+    TURBO_STATE.bridge.meta_written = false   -- a fresh game session: no bridge_meta.json yet
+    os.remove(H.out("bridge_meta.json"))
+    local saved = GetDBMeta
+    GetDBMeta = function() error("database not ready") end
+    local boxes = #sim.boxes
+    H.script("turbo_gui_load")
+    GetDBMeta = saved
+    H.ok(#sim.boxes > boxes, "the load script reports")
+    local text = sim.boxes[#sim.boxes].text
+    H.has(text, "Turbo GUI problem")
+    H.has(text, "database could not be read")
+    H.has(text, "database not ready")
+    H.has(read_json("bridge_state.json").meta_error or "", "database not ready", "the GUI is told why")
+    H.has(H.read(H.out("turbo_boot.log")), "bridge_meta.json NOT written")
+    H.eq(TURBO_STATE.bridge.meta_written, false, "not marked written")
+    sim:fire("post__CareerModeEvent", 0, 7, 0)
+    H.eq(TURBO_STATE.bridge.meta_written, true, "written on the next career event")
+    H.eq(read_json("bridge_state.json").meta_error, nil, "error cleared for the GUI")
+    local ok, msg = bridge.start()
+    H.eq(ok, true, msg)
+    H.has(msg, "Game database shared with the Turbo GUI")
 end)
 
 H.case("meta is not written while the database is empty, and is written once it appears", function()

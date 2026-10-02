@@ -8,6 +8,26 @@ Sim.__index = Sim
 
 local PAGE = 12
 
+-- A C++ object the way a native binding may hand it to Lua: a full userdata whose only behaviour is its metatable
+-- (a closed file handle given a new metatable; pure Lua cannot create userdata otherwise).
+local function make_userdata(mt)
+    local u = io.tmpfile()
+    u:close()
+    debug.setmetatable(u, mt)
+    return u
+end
+
+-- Userdata view of a Lua table: indexable; iterable (pairs, #) only when iterable is true
+local function proxy(t, iterable)
+    local mt = { __index = function(_, k) return t[k] end, __name = "sol.native_object" }
+    if iterable then
+        mt.__pairs = function() return next, t, nil end
+        mt.__len = function() return #t end
+    end
+    return make_userdata(mt)
+end
+Sim.proxy = proxy
+
 function Sim.new()
     local s = setmetatable({}, Sim)
     s.mem = {}
@@ -21,6 +41,9 @@ function Sim.new()
     s.plugins = {}
     s.in_cm = false
     s.meta = { shortname_name_tables_map = {}, field_desc_map = {} }
+    -- What GetDBMeta returns: "table" (plain Lua tables), "userdata" (C++ objects whose maps support pairs) or
+    -- "userdata_noiter" (C++ objects that can only be indexed, like Live Editor's own t3db code uses them)
+    s.meta_mode = "table"
     s.tables = {}
     s.managers = {}
     s.bans = {}
@@ -130,7 +153,7 @@ function Sim:install()
     MessageBox = function(title, text) table.insert(s.boxes, { title = title, text = text }) end
     IsInCM = function() return s.in_cm end
     GetPlugin = function(hash) return s.plugins[hash] or 0 end
-    GetDBMeta = function() return s.meta end
+    GetDBMeta = function() return s:db_meta() end
     GetSaveUID = function() return "TESTSAVE" end
 
     -- events
@@ -377,6 +400,21 @@ function Sim:make_vector(addr, count, size)
     self:w64(addr, b)
     self:w64(addr + 8, b + count * size)
     return b
+end
+
+function Sim:db_meta()
+    if self.meta_mode == "table" then return self.meta end
+    local iterable = self.meta_mode == "userdata"
+    local fmap = {}
+    for tshort, fm in pairs(self.meta.field_desc_map) do
+        local descs = {}
+        for fshort, d in pairs(fm) do descs[fshort] = proxy(d, false) end
+        fmap[tshort] = proxy(descs, iterable)
+    end
+    return proxy({
+        shortname_name_tables_map = proxy(self.meta.shortname_name_tables_map, iterable),
+        field_desc_map = proxy(fmap, iterable),
+    }, false)
 end
 
 return Sim

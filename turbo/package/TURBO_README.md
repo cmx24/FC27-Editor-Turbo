@@ -1,6 +1,6 @@
-# FC 27 LE Turbo 0.2.3
+# FC 27 LE Turbo 0.2.4
 
-Turbo adds FC 26 Live Editor features to **FC 27 Live Editor** (public build v27.1.0 or newer). Version 0.2.3 has an in-game window, the **Turbo GUI**, with player, team, manager and database editors and buttons for every Turbo tool. Turbo runs next to Live Editor, inside the same game session. Live Editor's own files are not modified.
+Turbo adds FC 26 Live Editor features to **FC 27 Live Editor** (public build v27.1.0 or newer). Version 0.2.4 has an in-game window, the **Turbo GUI**, with player, team, manager and database editors and buttons for every Turbo tool. Turbo runs next to Live Editor, inside the same game session. Live Editor's own files are not modified.
 
 Offline Career Mode / Kick-Off only. Never use Live Editor or Turbo in online modes.
 
@@ -24,7 +24,9 @@ Nothing to run:
 3. Load or start a career: the window's top line changes to **Connected** with the player and team counts.
 
 At the main menu the window opens but says "Not connected" (Live Editor gives Turbo's Lua side no events outside a career). To
-connect there, open Live Editor's **Lua Engine** and run `lua\scripts\turbo_gui_load.lua`; a message box confirms it.
+connect there, open Live Editor's **Lua Engine** and run `lua\scripts\turbo_gui_load.lua`: the message box says
+"Game database shared with the Turbo GUI", or exactly why not. If the database cannot be read, the reason is also shown in
+the Turbo window's top line.
 
 What happens at launch: `lua\autorun\turbo_boot.lua` reads Turbo's settings, registers Live Editor's documented career event and
 loads `turbo\Turbo.dll`. It calls no game function and reads no game memory. `Turbo.dll` then does nothing at all (no window

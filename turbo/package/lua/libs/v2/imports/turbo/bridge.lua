@@ -77,27 +77,70 @@ local function plugin(enum_name)
 end
 
 -- ---------------------------------------------------------------- Lua -> GUI
+-- GetDBMeta() may return plain Lua tables or C++ objects (userdata). Live Editor's own t3db code only indexes it
+-- (meta.shortname_name_tables_map[short], fld_meta[short].name / .depth / .min), so Turbo never relies on its Lua type.
+local function desc_entry(d)
+    local name = util.index(d, "name")
+    if type(name) ~= "string" or name == "" then return nil end
+    return { name = name, depth = tonumber(util.index(d, "depth")) or 0, min = tonumber(util.index(d, "min")) or 0 }
+end
+
+-- 1) Iterate the meta maps (Lua tables, or userdata containers that support pairs)
+local function meta_by_iteration(meta)
+    local names, fields = {}, {}
+    local ok1 = util.each(util.index(meta, "shortname_name_tables_map"), function(short, name)
+        if type(short) == "string" and type(name) == "string" then names[short] = name end
+    end)
+    local ok2 = util.each(util.index(meta, "field_desc_map"), function(tshort, fmap)
+        if type(tshort) ~= "string" then return end
+        local t = {}
+        util.each(fmap, function(fshort, d)
+            if type(fshort) == "string" then t[fshort] = desc_entry(d) end
+        end)
+        if next(t) ~= nil then fields[tshort] = t end
+    end)
+    if not ok1 or not ok2 then return nil, nil end
+    return names, fields
+end
+
+-- 2) The tables in game memory, loaded by Live Editor's own t3db library (LE.db), which looks each short name up in the
+-- meta by indexing only. Used when the meta cannot be iterated.
+local function meta_from_le_db()
+    if type(LE) ~= "table" or type(LE.db) ~= "table" or type(LE.db.Reset) ~= "function" then return nil, nil end
+    local ok = pcall(function() LE.db:Reset() end)
+    if not ok or type(LE.db.tables) ~= "table" then return nil, nil end
+    local names, fields = {}, {}
+    for name, tbl in pairs(LE.db.tables) do
+        local short = type(tbl) == "table" and tbl.shortname or nil
+        if type(name) == "string" and type(short) == "string" and short ~= "" then
+            names[short] = name
+            local t = {}
+            if type(tbl.fields) == "table" then
+                for _, fld in pairs(tbl.fields) do
+                    if type(fld) == "table" and type(fld.shortname) == "string" then t[fld.shortname] = desc_entry(fld.fld_desc) end
+                end
+            end
+            fields[short] = t
+        end
+    end
+    return names, fields
+end
+
 function M.write_meta(force)
     if S.meta_written and not force then return true end
     if type(GetDBMeta) ~= "function" then return false, "GetDBMeta is not available" end
     local ok, meta = pcall(GetDBMeta)
-    if not ok or type(meta) ~= "table" then return false, "GetDBMeta failed: " .. tostring(meta) end
-    local names, fields = {}, {}
-    for short, name in pairs(meta.shortname_name_tables_map or {}) do
-        if type(short) == "string" and type(name) == "string" then names[short] = name end
+    if not ok then return false, "GetDBMeta failed: " .. tostring(meta) end
+    if not util.is_object(meta) then return false, "GetDBMeta returned " .. type(meta) end
+    local names, fields = meta_by_iteration(meta)
+    local source = "GetDBMeta"
+    if not names or next(names) == nil or next(fields) == nil then
+        names, fields = meta_from_le_db()
+        source = "LE.db"
     end
-    for tshort, fmap in pairs(meta.field_desc_map or {}) do
-        if type(tshort) == "string" and type(fmap) == "table" then
-            local t = {}
-            for fshort, d in pairs(fmap) do
-                if type(fshort) == "string" and type(d) == "table" and type(d.name) == "string" then
-                    t[fshort] = { name = d.name, depth = tonumber(d.depth) or 0, min = tonumber(d.min) or 0 }
-                end
-            end
-            fields[tshort] = t
-        end
+    if not names or next(names) == nil or next(fields) == nil then
+        return false, "the database meta is empty (database not loaded yet?)"
     end
-    if next(names) == nil or next(fields) == nil then return false, "database meta is empty (database not loaded yet)" end
     local j = json()
     local dir = M.dir()
     if not j or not dir then return false, "json library or output folder missing" end
@@ -106,7 +149,23 @@ function M.write_meta(force)
     local okw, werr = util.write_file(util.join(dir, "bridge_meta.json"), text)
     if not okw then return false, tostring(werr) end
     S.meta_written = true
+    S.meta_source = source
     return true
+end
+
+-- write_meta, remembering why it failed (shown by the GUI through bridge_state.json and reported by bridge.start)
+local function try_write_meta(force)
+    local okc, ok, err = pcall(M.write_meta, force)
+    if not okc then ok, err = false, tostring(ok) end
+    if ok then
+        S.meta_error = nil
+        return true
+    end
+    err = tostring(err or "unknown error")
+    if S.meta_error ~= err then log.warn("bridge_meta.json not written: %s", err) end
+    -- the GUI is told only while it has no bridge_meta.json from this session to work with
+    if not S.meta_written then S.meta_error = err end
+    return false, err
 end
 
 -- Effective Turbo settings (turbo_config.json + gui_settings.json) shown by the GUI
@@ -131,6 +190,7 @@ function M.collect_state()
     return {
         settings = S.settings,
         session = S.session,
+        meta_error = S.meta_error,
         le_version = tostring(LE_VERSION or ""),
         db_service = hex(plugin("ENUM_djb2Database_CLSS") - 8),
         comm_service = hex(plugin("ENUM_djb2FeFceGMCommServiceInterface_CLSS")),
@@ -153,6 +213,7 @@ local function same_state(a, b)
     if not a or not b then return false end
     if a.settings ~= b.settings and not same_settings(a.settings, b.settings) then return false end
     if a.db_service ~= b.db_service or a.in_cm ~= b.in_cm or a.user_team ~= b.user_team then return false end
+    if a.meta_error ~= b.meta_error then return false end
     local ad, bd = a.date, b.date
     if (ad == nil) ~= (bd == nil) then return false end
     if ad and (ad.year ~= bd.year or ad.month ~= bd.month or ad.day ~= bd.day) then return false end
@@ -221,8 +282,9 @@ function M.execute(cmd)
         return TURBO.run(cmd.module, overrides, { silent = true })
     end
     if cmd.op == "refresh" then
-        M.write_meta(true)
+        local okm, merr = try_write_meta(true)
         M.write_state(true, true)
+        if not okm then return false, "bridge_meta.json not written: " .. tostring(merr) end
         return true, "bridge refreshed"
     end
     return false, "unknown op " .. tostring(cmd.op)
@@ -287,7 +349,7 @@ function M.on_career_event(event_id)
         if not ok then log.error("Turbo GUI start failed: %s", tostring(err)) end
         return
     end
-    if not S.meta_written then pcall(M.write_meta, false) end
+    if not S.meta_written then try_write_meta(false) end
     local okw, werr = pcall(M.write_state, false, reload_ids()[event_id] == true)
     if not okw then log.warn("bridge state: %s", tostring(werr)) end
     local okp, perr = pcall(M.poll_mailbox)
@@ -348,15 +410,25 @@ function M.start(cfg)
     local okr, rerr = events.ensure_registered()
     if not okr then log.warn("cannot register career events: %s", tostring(rerr)) end
     trace.step("bridge.start: writing bridge_meta.json (GetDBMeta)")
-    local ok_m, merr = pcall(M.write_meta, false)
-    if not ok_m or merr == false then log.debug("bridge meta not written yet") end
+    local ok_m, merr = try_write_meta(true)
+    trace.step("bridge.start: bridge_meta.json " .. (ok_m and ("written from " .. tostring(S.meta_source)) or ("NOT written: " .. tostring(merr))))
     trace.step("bridge.start: writing bridge_state.json (GetPlugin)")
-    pcall(M.write_state, true, false)
+    local okc, ok_s, serr = pcall(M.write_state, true, false)
+    if not okc then ok_s, serr = false, tostring(ok_s) end
+    trace.step("bridge.start: bridge_state.json " .. (ok_s and "written" or ("NOT written: " .. tostring(serr))))
     trace.step("bridge.start: loading turbo\\Turbo.dll (package.loadlib)")
     local ok, msg = M.load_gui()
     trace.step("bridge.start: load_gui returned " .. tostring(ok) .. " - " .. tostring(msg))
     if ok then log.info("%s", msg) else log.warn("Turbo GUI not loaded: %s", msg) end
-    return ok, msg
+    if not ok then return false, msg end
+    if not ok_m then
+        return false, msg .. "\nBut the game database could not be read: " .. tostring(merr)
+            .. "\nSee turbo_output\\turbo_boot.log; send it with Live Editor's log."
+    end
+    if not ok_s then
+        return false, msg .. "\nBut bridge_state.json could not be written: " .. tostring(serr)
+    end
+    return true, msg .. "\nGame database shared with the Turbo GUI (" .. tostring(S.meta_source) .. ")."
 end
 
 return M

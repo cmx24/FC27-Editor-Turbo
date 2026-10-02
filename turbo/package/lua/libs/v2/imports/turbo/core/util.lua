@@ -6,6 +6,35 @@ function M.is_int(v)
     return math.type(v) == "integer" or (type(v) == "number" and v == math.floor(v) and v == v and v ~= math.huge and v ~= -math.huge)
 end
 
+-- Live Editor's natives may return plain Lua tables or C++ objects (userdata) that can only be indexed, and maybe
+-- iterated (__pairs) or measured (__len). Live Editor's own Lua code only indexes them; these helpers do the same and
+-- never raise.
+function M.is_object(v)
+    local t = type(v)
+    return t == "table" or t == "userdata"
+end
+
+function M.index(obj, key)
+    if not M.is_object(obj) then return nil end
+    local ok, v = pcall(function() return obj[key] end)
+    if ok then return v end
+    return nil
+end
+
+-- pairs() over a table or an iterable userdata. Returns false when obj cannot be iterated (or fn raised).
+function M.each(obj, fn)
+    if not M.is_object(obj) then return false end
+    return (pcall(function()
+        for k, v in pairs(obj) do fn(k, v) end
+    end))
+end
+
+function M.len(obj)
+    if not M.is_object(obj) then return 0 end
+    local ok, n = pcall(function() return #obj end)
+    return ok and math.tointeger(n) or 0
+end
+
 -- Convert a JSON number / numeric string to a Lua integer. Returns nil when not an integer.
 function M.to_int(v)
     if type(v) == "string" then

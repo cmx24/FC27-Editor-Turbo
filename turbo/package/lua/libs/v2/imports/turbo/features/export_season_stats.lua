@@ -29,7 +29,7 @@ function M.run(ctx)
     if not ctx.out_dir then return false, "no writable output folder" end
 
     local ok, stats = pcall(GetPlayersStats)
-    if not ok or type(stats) ~= "table" then return false, "GetPlayersStats failed: " .. tostring(stats) end
+    if not ok or not util.is_object(stats) then return false, "GetPlayersStats failed: " .. tostring(stats) end
 
     local only_user = ctx.cfg.only_user_team == true
     local squad = {}
@@ -49,22 +49,23 @@ function M.run(ctx)
     end
 
     local rows, names, teams, comps = {}, {}, {}, {}
-    for i = 1, #stats do
-        local s = stats[i]
-        local pid = n(s.playerid)
-        local app = n(s.app)
+    for i = 1, util.len(stats) do
+        local s = util.index(stats, i)
+        local function f(k) return util.index(s, k) end
+        local pid = n(f("playerid"))
+        local app = n(f("app"))
         if pid > 0 and pid < 4294967295 and app > 0 and (not only_user or squad[pid]) then
             names[pid] = names[pid] or game.player_name(pid)
-            local tid = n(s.teamid)
+            local tid = n(f("teamid"))
             if tid <= 0 then tid = game.team_of_player(pid) end
             teams[tid] = teams[tid] or game.team_name(tid)
-            local cid = n(s.compobjid)
-            local compname = s.compname
+            local cid = n(f("compobjid"))
+            local compname = f("compname")
             if type(compname) ~= "string" or compname == "" then
                 comps[cid] = comps[cid] or game.competition_name(cid)
                 compname = comps[cid]
             end
-            local avg = n(s.avg) / app / 10
+            local avg = n(f("avg")) / app / 10
             rows[#rows + 1] = {
                 position = POS[positions[pid]] or "",
                 playerid = pid,
@@ -73,15 +74,15 @@ function M.run(ctx)
                 competition = compname,
                 appearances = app,
                 AVG = string.format("%.2f", avg),
-                MOTMs = n(s.motm),
-                goals = n(s.goals),
-                assists = n(s.assists),
-                yellow_cards = n(s.yellow),
-                two_yellow = n(s.two_yellow),
-                red_cards = n(s.red),
-                saves = n(s.saves),
-                goals_conceded = n(s.goals_conceded),
-                cleansheets = n(s.clean_sheets),
+                MOTMs = n(f("motm")),
+                goals = n(f("goals")),
+                assists = n(f("assists")),
+                yellow_cards = n(f("yellow")),
+                two_yellow = n(f("two_yellow")),
+                red_cards = n(f("red")),
+                saves = n(f("saves")),
+                goals_conceded = n(f("goals_conceded")),
+                cleansheets = n(f("clean_sheets")),
             }
         end
     end

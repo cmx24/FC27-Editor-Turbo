@@ -24,7 +24,7 @@ local okr, err = pcall(function()
         report(msg .. "\nPress F8 in game to show or hide the Turbo GUI.\n"
             .. "It appears a few seconds after loading; turbo_output\\turbo_gui.log shows each step.")
     else
-        report("The Turbo GUI could not be loaded: " .. tostring(msg))
+        report("Turbo GUI problem:\n" .. tostring(msg))
     end
 end)
 if not okr then
