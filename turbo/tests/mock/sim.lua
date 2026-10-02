@@ -164,6 +164,12 @@ function Sim:install()
     GetPlugin = function(hash) return s.plugins[hash] or 0 end
     GetDBMeta = function() return s:db_meta() end
     GetSaveUID = function() return "TESTSAVE" end
+    -- FC 27 LE natives (its v1 lib turns GetTransferBudget / SetTransferBudget into deprecation stubs)
+    GetUserTransferBudget = function() return s.in_cm and (s.transfer_budget or 0) or 0 end
+    SetUserTransferBudget = function(v)
+        s:record("SetUserTransferBudget", v)
+        if s.in_cm then s.transfer_budget = v end
+    end
     -- Live Editor's documented GetDBTableRows: every valid row, each field as { value = <text> }; decodes compressed text
     GetDBTableRows = function(name)
         s:record("GetDBTableRows", name)
@@ -215,11 +221,15 @@ function Sim:install()
     cTransferPlayer = function(...) s:record("cTransferPlayer", ...) end
     cLoanPlayer = function(...) s:record("cLoanPlayer", ...) end
     cReleasePlayer = function(...) s:record("cReleasePlayer", ...) end
-    cIsPlayerTransferListed = function() return false end
-    cIsPlayerLoanListed = function() return false end
-    cAddPlayerToTransferList = function(...) s:record("cAddPlayerToTransferList", ...) end
-    cAddPlayerToLoanList = function(...) s:record("cAddPlayerToLoanList", ...) end
-    cRemovePlayerFromLists = function(...) s:record("cRemovePlayerFromLists", ...) end
+    s.transfer_listed, s.loan_listed = {}, {}
+    cIsPlayerTransferListed = function(pid) return s.transfer_listed[pid] == true end
+    cIsPlayerLoanListed = function(pid) return s.loan_listed[pid] == true end
+    cAddPlayerToTransferList = function(pid, ...) s:record("cAddPlayerToTransferList", pid, ...); s.transfer_listed[pid] = true end
+    cAddPlayerToLoanList = function(pid, ...) s:record("cAddPlayerToLoanList", pid, ...); s.loan_listed[pid] = true end
+    cRemovePlayerFromLists = function(pid, ...)
+        s:record("cRemovePlayerFromLists", pid, ...)
+        s.transfer_listed[pid], s.loan_listed[pid] = nil, nil
+    end
     cRemovePlayerFromTransferList = function(...) s:record("cRemovePlayerFromTransferList", ...) end
     cRemovePlayerFromLoanList = function(...) s:record("cRemovePlayerFromLoanList", ...) end
     cGetTransferBans = function()

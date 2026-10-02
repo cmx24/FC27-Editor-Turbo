@@ -33,6 +33,7 @@ M.MODULES = {
     bulk_edit                = { path = 'imports/turbo/features/bulk_edit',                kind = "action", needs_cm = false, desc = "Filter players and set fields, fitness, form, morale, development" },
     player_moves             = { path = 'imports/turbo/features/player_moves',             kind = "action", needs_cm = true,  desc = "Transfer, loan, release, list or unlist players" },
     db_edit                  = { path = 'imports/turbo/features/db_edit',                  kind = "action", needs_cm = false, desc = "Edit any DB table rows matching conditions" },
+    transfer_budget          = { path = 'imports/turbo/features/transfer_budget',          kind = "action", needs_cm = true,  desc = "Read, set or add to your club's transfer budget" },
     export_table             = { path = 'imports/turbo/features/export_table',             kind = "action", needs_cm = false, desc = "Dump DB tables (rows + field ranges) to CSV" },
 }
 
@@ -99,6 +100,7 @@ function M.run(name, overrides, opts)
     end
 
     local ctx = make_ctx(cfg, name)
+    if opts and opts.dry == true then ctx.dry = true end  -- a forced dry run (self-test); never turns dry_run off
     log.info("run %s (Turbo %s)%s", name, M.version, ctx.dry and " [DRY RUN - no writes]" or "")
 
     local ok, res_ok, summary = pcall(mod.run, ctx)

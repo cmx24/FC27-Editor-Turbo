@@ -26,7 +26,9 @@ end
 add("turbo_diag.lua started; _VERSION=" .. tostring(_VERSION))
 for _, n in ipairs({ "require", "io", "os", "package", "string", "table", "pcall", "debug", "Log", "MessageBox",
                      "GetDBMeta", "GetPlugin", "GetDBTablesNames", "GetDBTableFields", "GetDBTableRows",
-                     "IsInCM", "AddEventHandler", "ReadPointer", "ReadInt", "LOGGER", "LE", "MEMORY" }) do
+                     "IsInCM", "AddEventHandler", "ReadPointer", "ReadInt", "LOGGER", "LE", "MEMORY",
+                     "GetUserTransferBudget", "SetUserTransferBudget", "GetCPUTransferBudget", "GetTransferBudget",
+                     "cGetTransferBans", "TransferPlayer", "cTransferPlayer", "SetPlayerForm", "GetPlayersStats" }) do
     describe(n, _G[n])
 end
 add("package.path=" .. tostring(package and package.path))
@@ -43,6 +45,12 @@ add("require imports/turbo/core/trace: " .. tostring(okreq) .. " " .. (okreq and
 if type(IsInCM) == "function" then
     local ok, v = pcall(IsInCM)
     add("IsInCM() -> " .. tostring(ok) .. " " .. tostring(v))
+end
+
+local get_budget = _G["GetUserTransferBudget"]
+if type(get_budget) == "function" and type(IsInCM) == "function" and IsInCM() then
+    local okb, b = pcall(get_budget)
+    add("GetUserTransferBudget() -> " .. tostring(okb) .. " " .. tostring(b) .. " (" .. type(b) .. ")")
 end
 
 if type(GetDBMeta) == "function" then

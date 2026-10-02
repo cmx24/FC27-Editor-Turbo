@@ -49,6 +49,7 @@ struct BridgeState {
     bool auto_playstyles_enabled = false;
     std::string meta_error;  // why Turbo's Lua side could not write bridge_meta.json (empty = no problem reported)
     long long names_count = 0;  // player names Lua exported to bridge_names.txt
+    long long transfer_budget = -1;  // your club's budget (career mode), -1 = not known
     std::string error;
 };
 

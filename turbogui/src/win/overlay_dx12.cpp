@@ -417,6 +417,9 @@ static void render_frame_impl(IDXGISwapChain3* sc) {
             log("overlay proven: %d frames ran without problems", kStartFrames);
             guard_release();
         }
+        // Which input APIs the game polls (once after about a minute, again after about ten)
+        static long frames_total = 0;
+        if (++frames_total == 3600 || frames_total == 36000) input_shield_report();
     } catch (const std::exception& e) {
         log("frame error: %s", e.what());
         if (ImGui::GetCurrentContext() && ImGui::GetCurrentContext()->WithinFrameScope) ImGui::EndFrame();
@@ -833,8 +836,12 @@ bool start_overlay(HMODULE) {
         return false;
     }
     log("hooks installed; press %s in game to show Turbo", turbo::key_name(g_app->toggle_vk));
+    install_input_shield();
     return true;
 }
+
+bool input_block_mouse() { return g_ready && g_visible && g_want_mouse; }
+bool input_block_keyboard() { return g_ready && g_visible && g_want_keyboard; }
 
 void stop_overlay() {
     MH_DisableHook(MH_ALL_HOOKS);

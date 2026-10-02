@@ -26,7 +26,7 @@ static const std::map<std::string, std::string>& label_map() {
         {"preferredfoot", "Preferred Foot"}, {"weakfootabilitytypecode", "Weak Foot"}, {"skillmoves", "Skill Moves"},
         {"attackingworkrate", "Att. Work Rate"}, {"defensiveworkrate", "Def. Work Rate"}, {"height", "Height (cm)"},
         {"weight", "Weight (kg)"}, {"nationality", "Nationality ID"}, {"birthdate", "Birth Date"},
-        {"contractvaliduntil", "Contract Until"}, {"isretiring", "Retiring"}, {"playerjointeamdate", "Joined Club"},
+        {"contractvaliduntil", "Contract Until"}, {"wage", "Wage"}, {"releaseclause", "Release Clause"}, {"isretiring", "Retiring"}, {"playerjointeamdate", "Joined Club"},
         {"internationalrep", "Int. Reputation"}, {"teamname", "Team Name"}, {"jerseynumber", "Jersey"},
         {"headassetid", "Head Asset ID"}, {"hashighqualityhead", "Real Face"}, {"headclasscode", "Head Class"},
         {"trait1", "PlayStyles"}, {"icontrait1", "PlayStyles+"}, {"trait2", "Traits"}, {"icontrait2", "Traits+"},
@@ -197,7 +197,9 @@ void field_grid(App& app, const Table& t, uint64_t rec, const std::vector<std::s
         for (const Field* f : present) {
             ImGui::TableNextColumn();
             std::string lbl = field_label(f->name);
-            field_editor(app, t, rec, *f, lbl.c_str(), S(90.0f));
+            // text fills its column; long numbers (budgets, wages, release clauses) get more room
+            float w = f->type == FieldType::String ? -1.0f : (f->depth > 20 ? S(130.0f) : S(90.0f));
+            field_editor(app, t, rec, *f, lbl.c_str(), w);
         }
         ImGui::EndTable();
     }

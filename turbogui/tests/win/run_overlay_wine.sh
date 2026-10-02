@@ -37,7 +37,7 @@ DISP="${DISP:-:97}"
 mkdir -p "$OUT/bin"
 rm -rf "$OUT/le" "$OUT"/*.png "$OUT/status.txt" "$OUT/game.log"
 "$CXX" -std=c++17 -O1 -municode -DWIDL_EXPLICIT_AGGREGATE_RETURNS -static -static-libgcc -static-libstdc++ \
-    "$ROOT/tests/win/game_stub.cpp" -o "$OUT/bin/game_stub.exe" -ld3d12 -ldxgi
+    "$ROOT/tests/win/game_stub.cpp" -o "$OUT/bin/game_stub.exe" -ld3d12 -ldxgi -ldinput8 -ldxguid
 "$CXX" -shared -static -static-libgcc -static-libstdc++ "$ROOT/tests/win/stub_le.cpp" -o "$OUT/bin/FCLiveEditor.DLL"
 
 LE="$OUT/le"
@@ -91,6 +91,8 @@ else
     check "without TurboProbe.exe Turbo falls back to probing inside the game" "has 'falling back'"
 fi
 check "hooks installed" "has 'hooks installed'"
+check "input shield hooked the game's DirectInput 8 mouse and raw input (4 hooks)" "has 'input shield: 4 input hooks installed'"
+check "the game's DirectInput mouse still works with the shield (polled every frame, no errors)" "grep -qE 'dinput_polls=[1-9][0-9]* dinput_ok=[1-9]' '$OUT/status.txt'"
 check "overlay picked the game's direct queue" "has 'overlay queue:'"
 check "Dear ImGui initialised on the game's swap chain" "has 'overlay ready'"
 check "start phase proven (300 frames)" "has 'overlay proven'"

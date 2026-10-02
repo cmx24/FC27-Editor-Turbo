@@ -130,6 +130,7 @@ static bool parse_state_impl(const std::string& text, BridgeState& out) {
     out.in_cm = j.value("in_cm", false);
     out.user_team = j.value("user_team", 0LL);
     out.names_count = j.value("names_count", 0LL);
+    out.transfer_budget = j.contains("transfer_budget") && j["transfer_budget"].is_number() ? j["transfer_budget"].get<long long>() : -1;
     if (j.contains("meta_error") && j["meta_error"].is_string()) out.meta_error = j["meta_error"].get<std::string>();
     if (j.contains("date") && j["date"].is_object()) {
         out.date.year = j["date"].value("year", 0);

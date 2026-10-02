@@ -961,6 +961,9 @@ static void test_ui() {
             press("Extend my squad's contracts");
             press("Extend every other club's contracts");
             header("Your squad");  // collapse, so the next sections stay in view
+            press("Set budget");
+            press("Add to budget");
+            header("Your club: transfer budget");
             header("Player Career");
             press("Give my player every PlayStyle");
             header("Player Career");
@@ -1010,9 +1013,11 @@ static void test_ui() {
             press("Delete player", "##delplayer");
             CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
 
-            CHECK(captured.size() == 28, fmt("commands captured: %zu", captured.size()));
-            CHECK(captured[26]["label"] == "Bulk edit (shown players)" && captured[26]["cmd"]["overrides"]["scope"]["playerids"] == json::array({1002}), "bulk edit scope = shown players");
-            CHECK(captured[27]["cmd"]["overrides"]["actions"][0]["confirm"].get<bool>(), "delete carries the confirmation");
+            CHECK(captured.size() == 30, fmt("commands captured: %zu", captured.size()));
+            CHECK(captured[4]["cmd"]["overrides"]["mode"] == "set" && captured[4]["cmd"]["overrides"]["amount"] == 50000000, "budget set");
+            CHECK(captured[5]["cmd"]["overrides"]["mode"] == "add", "budget add");
+            CHECK(captured[28]["label"] == "Bulk edit (shown players)" && captured[28]["cmd"]["overrides"]["scope"]["playerids"] == json::array({1002}), "bulk edit scope = shown players");
+            CHECK(captured[29]["cmd"]["overrides"]["actions"][0]["confirm"].get<bool>(), "delete carries the confirmation");
             std::ofstream(g_out / "gui_commands.json") << captured.dump(1);
             CHECK(run_lua("commands") == 0, "gui_world.lua commands");
             json results = read_json(g_out / "gui_commands_out.json");
@@ -1036,6 +1041,28 @@ static void test_ui() {
                                "'" + label + "' refused: " + text);
                 if (std::getenv("TURBO_TEST_DEBUG")) std::printf("      %-36s %s  %s\n", label.c_str(), ok ? "ok  " : "FAIL", text.c_str());
             }
+        });
+
+        run_case("UI: UI size follows the window height and the user's setting, and is saved", [&] {
+            float h = ImGui::GetIO().DisplaySize.y;
+            float expect = std::round(auto_ui_scale(h) * 20.0f) / 20.0f;
+            CHECK(std::fabs(app.ui_scale_applied - expect) < 0.001f, fmt("auto scale %.2f for height %.0f", app.ui_scale_applied, h));
+            CHECK(std::fabs(auto_ui_scale(1550.0f) - 1550.0f / 1080.0f) < 0.001f && auto_ui_scale(720.0f) == 1.0f &&
+                      auto_ui_scale(10000.0f) == 3.0f, "auto scale: height/1080, between 1 and 3");
+            app.ui_scale_user = 1.5f;
+            ui.frames(2);
+            CHECK(std::fabs(app.ui_scale_applied - std::round(expect * 1.5f * 20.0f) / 20.0f) < 0.001f, "user factor applied");
+            CHECK(std::fabs(g_ui_scale - app.ui_scale_applied) < 0.001f && std::fabs(S(100.0f) - 100.0f * app.ui_scale_applied) < 0.01f,
+                  "S() follows");
+            CHECK(std::fabs(ImGui::GetStyle().FontScaleDpi - app.ui_scale_applied) < 0.001f, "font scale follows");
+            CHECK(app.save_gui_settings(), "saved");
+            CHECK(std::fabs(read_json(le / "turbo_output" / "gui_settings.json")["gui"]["ui_scale"].get<double>() - 1.5) < 0.001,
+                  "ui_scale saved");
+            App again(mem, le, 0, "reload");
+            CHECK(std::fabs(again.ui_scale_user - 1.5f) < 0.001f, "ui_scale loaded");
+            app.ui_scale_user = 1.0f;
+            ui.frames(2);
+            CHECK(app.save_gui_settings(), "reset saved");
         });
 
         run_case("UI: database reload (another save) invalidates rows safely", [&] {

@@ -27,7 +27,7 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          third_party/imgui/backends/imgui_impl_dx12.cpp \
          src/core/t3db.cpp src/core/model.cpp src/core/bridge.cpp src/core/le_log.cpp \
          src/ui/app.cpp src/ui/widgets.cpp src/ui/ui_players.cpp src/ui/ui_teams.cpp src/ui/ui_database.cpp src/ui/ui_tools.cpp \
-         src/win/dllmain.cpp src/win/overlay_dx12.cpp src/win/lazy_imports.cpp; do
+         src/win/dllmain.cpp src/win/overlay_dx12.cpp src/win/lazy_imports.cpp src/win/input_shield.cpp; do
   compile_cxx "$s"
 done
 for s in third_party/minhook/src/hook.c third_party/minhook/src/buffer.c third_party/minhook/src/trampoline.c \
@@ -39,7 +39,7 @@ $CXX -shared -o "$OUT/Turbo.dll" "${objs[@]}" -static -static-libgcc -static-lib
   -lgdi32 -luser32 -limm32 -lole32 -Wl,--subsystem,windows
 # Turbo.dll may be loaded while the game starts: it must not import Direct3D 12, DXGI, the shader compiler, DWM or the shell
 # (src/win/lazy_imports.cpp loads those on first use). Fail the build if any of them is in its import table.
-if x86_64-w64-mingw32-objdump -p "$OUT/Turbo.dll" | grep -iE "DLL Name: (d3d12|dxgi|d3dcompiler|dwmapi|shell32)" ; then
+if x86_64-w64-mingw32-objdump -p "$OUT/Turbo.dll" | grep -iE "DLL Name: (d3d12|dxgi|d3dcompiler|dwmapi|shell32|dinput8)" ; then
   echo "Turbo.dll must not import the DLLs above"; exit 1
 fi
 $CXX -std=c++17 -O2 -municode -o "$OUT/TurboInjector.exe" "$ROOT/src/injector/main.cpp" -static -static-libgcc -static-libstdc++

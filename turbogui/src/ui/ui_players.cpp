@@ -407,7 +407,7 @@ static void player_editor(App& app) {
         }
         if (ImGui::BeginTabItem("Contract & Clubs")) {
             ImGui::BeginChild("##con");
-            field_grid(app, *t, p->rec, {"contractvaliduntil", "isretiring"}, "##congrid", 2);
+            field_grid(app, *t, p->rec, {"contractvaliduntil", "wage", "releaseclause", "isretiring"}, "##congrid", 2);
             ImGui::SeparatorText("Team links (teamplayerlinks)");
             const Table* lt = app.db.table("teamplayerlinks");
             if (lt) {

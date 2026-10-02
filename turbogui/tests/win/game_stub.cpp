@@ -14,6 +14,8 @@
 #include <windows.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>
+#define DIRECTINPUT_VERSION 0x0800
+#include <dinput.h>
 
 #include <cstdio>
 #include <fstream>
@@ -79,6 +81,21 @@ int wmain(int argc, wchar_t** argv) {
     g_hwnd = hwnd;
     ShowWindow(hwnd, SW_SHOW);
     SetForegroundWindow(hwnd);
+
+    // Like FC 27: the mouse is read through DirectInput 8 (polled every frame), so Turbo's input shield hooks it
+    IDirectInput8W* dinput = nullptr;
+    IDirectInputDevice8W* di_mouse = nullptr;
+    long di_polls = 0, di_ok = 0;
+    if (SUCCEEDED(DirectInput8Create(GetModuleHandleW(nullptr), DIRECTINPUT_VERSION, IID_IDirectInput8W,
+                                     reinterpret_cast<void**>(&dinput), nullptr)) &&
+        SUCCEEDED(dinput->CreateDevice(GUID_SysMouse, &di_mouse, nullptr))) {
+        di_mouse->SetDataFormat(&c_dfDIMouse);
+        di_mouse->SetCooperativeLevel(hwnd, DISCL_NONEXCLUSIVE | DISCL_BACKGROUND);
+        di_mouse->Acquire();
+        std::printf("GAME: DirectInput 8 mouse ready\n");
+    } else {
+        std::printf("GAME: no DirectInput 8 mouse\n");
+    }
 
     IDXGIFactory4* factory = nullptr;
     ID3D12Device* dev = nullptr;
@@ -228,10 +245,18 @@ int wmain(int argc, wchar_t** argv) {
         frame_fence[idx] = ++fence_value;
         queue->Signal(fence, frame_fence[idx]);
         ++frames;
+        if (di_mouse) {
+            DIMOUSESTATE ms{};
+            ++di_polls;
+            HRESULT dhr = di_mouse->GetDeviceState(sizeof(ms), &ms);
+            if (dhr == DIERR_INPUTLOST || dhr == DIERR_NOTACQUIRED) di_mouse->Acquire();
+            else if (SUCCEEDED(dhr)) ++di_ok;
+        }
     }
     wait_idle();
     if (FILE* f = _wfopen(status_file.c_str(), L"w")) {
-        std::fprintf(f, "frames=%d resized=%d errors=%d\n", frames, resized ? 1 : 0, errors);
+        std::fprintf(f, "frames=%d resized=%d errors=%d dinput_polls=%ld dinput_ok=%ld\n", frames, resized ? 1 : 0, errors,
+                     di_polls, di_ok);
         std::fclose(f);
     }
     std::printf("GAME: ran %d frames, errors %d\n", frames, errors);

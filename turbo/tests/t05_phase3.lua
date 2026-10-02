@@ -141,6 +141,31 @@ H.case("db_edit: edit teams by condition, float match, all-rows guard", function
     H.eq(sim:value("teams", r, "teamname"), "Everton FC", "unchanged after refusal")
 end)
 
+H.case("transfer_budget: get, set, add, range check, dry run, needs a career", function()
+    sim.transfer_budget = 1000000
+    local ok, msg = H.turbo().run("transfer_budget", { mode = "get" })
+    H.eq(ok, true, msg); H.has(msg, "transfer budget: 1000000")
+    ok, msg = H.turbo().run("transfer_budget", { mode = "set", amount = 50000000 })
+    H.eq(ok, true, msg); H.eq(sim.transfer_budget, 50000000, "set")
+    ok, msg = H.turbo().run("transfer_budget", { mode = "add", amount = 2500000 })
+    H.eq(ok, true, msg); H.eq(sim.transfer_budget, 52500000, "added")
+    ok, msg = H.turbo().run("transfer_budget", { mode = "set", amount = -5 })
+    H.eq(ok, false); H.has(msg, "outside")
+    ok, msg = H.turbo().run("transfer_budget", { mode = "set", amount = 3000000000 })
+    H.eq(ok, false); H.has(msg, "outside")
+    H.eq(sim.transfer_budget, 52500000, "unchanged after refusals")
+    H.write_config({ turbo = { dry_run = true } })
+    ok, msg = H.turbo().run("transfer_budget", { mode = "set", amount = 1 })
+    H.eq(ok, true, msg); H.has(msg, "dry run"); H.eq(sim.transfer_budget, 52500000, "dry run writes nothing")
+    H.write_config({ turbo = { dry_run = false } })
+    sim.in_cm = false
+    ok, msg = H.turbo().run("transfer_budget", { mode = "set", amount = 1 })
+    H.eq(ok, false); H.has(msg, "career")
+    sim.in_cm = true
+    local st = require('imports/turbo/bridge').collect_state()
+    H.eq(st.transfer_budget, 52500000, "budget reported to the GUI")
+end)
+
 H.case("no unmapped memory reads", function()
     H.eq(sim.unmapped_reads, 0, "unmapped reads")
 end)

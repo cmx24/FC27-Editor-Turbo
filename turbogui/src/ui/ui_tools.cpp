@@ -105,6 +105,24 @@ void draw_tools(App& app) {
         run_button(app, "Extend every other club's contracts", "extend_cpu_contracts", {{"years", cpu_years}}, false);
     }
 
+    // ---------------------------------------------------------------- club budget
+    if (ImGui::CollapsingHeader("Your club: transfer budget", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (st.transfer_budget >= 0)
+            ImGui::Text("Current budget: %lld", static_cast<long long>(st.transfer_budget));
+        else
+            ImGui::TextDisabled("Current budget: shown once a career is loaded");
+        static long long amount = 50000000;
+        ImGui::SetNextItemWidth(S(200.0f));
+        ImGui::InputScalar("amount##tb", ImGuiDataType_S64, &amount);
+        amount = std::max(0LL, std::min(amount, 2000000000LL));
+        ImGui::SameLine();
+        run_button(app, "Set budget", "transfer_budget", {{"mode", "set"}, {"amount", amount}}, true);
+        ImGui::SameLine();
+        run_button(app, "Add to budget", "transfer_budget", {{"mode", "add"}, {"amount", amount}}, true);
+        ImGui::TextDisabled("FC 27 keeps the budget in the career, not in the teams table: set it here (Live Editor's "
+                            "SetUserTransferBudget).");
+    }
+
     // ---------------------------------------------------------------- player career
     if (ImGui::CollapsingHeader("Player Career")) {
         run_button(app, "Give my player every PlayStyle", "pap_playstyles", json::object(), true);

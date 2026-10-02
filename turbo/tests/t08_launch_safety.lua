@@ -18,7 +18,7 @@ local NATIVES = {
     "cAddPlayerToTransferList", "cAddPlayerToLoanList", "cRemovePlayerFromLists",
     "cRemovePlayerFromTransferList", "cRemovePlayerFromLoanList", "cGetTransferBans", "cAddTransferBan",
     "cRemoveTransferBan", "cSaveTransferBans", "PlayerDevelopmentManagerLoad", "PlayerDevelopmentManagerSave",
-    "PlayerDevelopmentManagerAddPlayer", "PlayerDevelopmentManagerRemovePlayer", "GetDBTableRows",
+    "PlayerDevelopmentManagerAddPlayer", "PlayerDevelopmentManagerRemovePlayer", "GetDBTableRows", "GetUserTransferBudget", "SetUserTransferBudget",
 }
 
 local calls, mem_addrs, loadlib_calls, loadlib_paths = {}, {}, 0, {}

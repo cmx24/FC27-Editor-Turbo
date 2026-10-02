@@ -34,6 +34,14 @@ std::filesystem::file_time_type load_time();
 
 // Installs the DX12 hooks; returns false (and logs why) if the overlay cannot run
 bool start_overlay(HMODULE self);
+
+// Input shield (input_shield.cpp): while Turbo owns the mouse / keyboard the game's DirectInput and raw-input polls
+// return no input. Installed after the overlay hooks (MinHook initialised); best effort.
+void install_input_shield();
+void input_shield_report();
+// What the overlay wants right now (window shown and the mouse over it / a text field active)
+bool input_block_mouse();
+bool input_block_keyboard();
 void stop_overlay();
 
 }  // namespace host

@@ -237,6 +237,12 @@ function M.set_settings(cfg)
     }
 end
 
+local function transfer_budget()
+    local ok, tb = pcall(require, 'imports/turbo/features/transfer_budget')
+    if not ok then return nil end
+    return (tb.current())
+end
+
 function M.collect_state()
     local in_cm = game.in_cm()
     local d = in_cm and game.current_date() or nil
@@ -251,6 +257,7 @@ function M.collect_state()
         ifce = hex(plugin("ENUM_djb2IFCEInterface_CLSS")),
         in_cm = in_cm,
         user_team = in_cm and game.user_team_id() or 0,
+        transfer_budget = in_cm and transfer_budget() or nil,
         date = d and { year = d.year, month = d.month, day = d.day } or nil,
     }
 end
@@ -267,6 +274,7 @@ local function same_state(a, b)
     if not a or not b then return false end
     if a.settings ~= b.settings and not same_settings(a.settings, b.settings) then return false end
     if a.db_service ~= b.db_service or a.in_cm ~= b.in_cm or a.user_team ~= b.user_team then return false end
+    if a.transfer_budget ~= b.transfer_budget then return false end
     if a.meta_error ~= b.meta_error then return false end
     local ad, bd = a.date, b.date
     if (ad == nil) ~= (bd == nil) then return false end

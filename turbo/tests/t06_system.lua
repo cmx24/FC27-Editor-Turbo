@@ -91,7 +91,7 @@ H.case("every runner script executes and reports through a message box", functio
         n = n + 1
     end
     p:close()
-    H.eq(n, 26, "runner scripts")
+    H.eq(n, 28, "runner scripts")
     H.eq(sim.box_format_violations or 0, 0, "message boxes with an unescaped percent sign (would crash Live Editor)")
     for _, b in ipairs(sim.boxes) do
         H.ok(not tostring(b.text):find("crashed"), "crash reported: " .. tostring(b.text))
@@ -109,6 +109,29 @@ H.case("message box text with a percent sign is escaped for Live Editor", functi
     H.eq(sim.boxes[#sim.boxes].title, "Turbo 100%", "shown title")
     local long = util.message_box_text(string.rep("a", 5000))
     H.ok(#long <= util.MESSAGE_BOX_MAX + 10, "long text cut")
+end)
+
+H.case("turbo_selftest.lua: every tool runs, dry runs write nothing, the reversible checks are undone", function()
+    local sim2 = H.setup({ in_cm = true })
+    W.build(sim2, { career_playercontract = true })
+    sim2.transfer_budget = 4242
+    local snapshot = {}
+    for k, v in pairs(sim2.mem) do snapshot[k] = v end
+    H.script("turbo_selftest")
+    local text = H.read(H.out("turbo_selftest.log"))
+    H.ok(text, "log written")
+    H.has(text, " passed, 0 failed")
+    H.eq(sim2.transfer_budget, 4242, "budget restored")
+    H.eq(next(sim2.transfer_listed), nil, "nobody left on the transfer list")
+    H.eq(#(sim2.calls.cAddTransferBan or {}), 0, "no ban written")
+    -- game memory: only Turbo's own allocations may differ (nothing in the database records)
+    local changed = 0
+    for _, t in pairs(sim2.tables) do
+        for a = t.first, t.first + t.rec_size * t.n - 1 do
+            if sim2.mem[a] ~= snapshot[a] then changed = changed + 1 end
+        end
+    end
+    H.eq(changed, 0, "database bytes changed by the self-test")
 end)
 
 H.case("message boxes can be switched off", function()
