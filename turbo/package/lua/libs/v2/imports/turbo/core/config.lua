@@ -15,7 +15,9 @@ M.DEFAULTS = {
         show_message_box = true,  -- pop a summary box after each run
     },
     gui = {
-        autoload = true,          -- load turbo\Turbo.dll (the Turbo GUI) when Turbo boots
+        -- false (default): Turbo does nothing native at game launch; load the GUI with turbo_gui_load.lua.
+        -- true: load it on the first career-mode event (the game is fully running by then), never at launch.
+        autoload = false,
     },
     auto = {
         form_morale = {

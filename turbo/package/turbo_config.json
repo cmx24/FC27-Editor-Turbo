@@ -1,5 +1,5 @@
 {
-  "_help": "FC 27 LE Turbo settings. Edit, save, then run the matching lua\\scripts\\turbo_*.lua from Live Editor's Lua Engine. Automatic features: set enabled=true, then run turbo_enable_auto.lua (or restart Live Editor). Settings changed in the Turbo GUI are kept in turbo_output\\gui_settings.json and win over this file. See TURBO_README.md.",
+  "_help": "FC 27 LE Turbo settings. Edit, save, then run the matching lua\\scripts\\turbo_*.lua from Live Editor's Lua Engine. Automatic features: set enabled=true, then run turbo_enable_auto.lua (or restart Live Editor). The Turbo GUI is never loaded at game launch: run turbo_gui_load.lua in game (gui.autoload=true loads it on the first career event instead). Settings changed in the Turbo GUI are kept in turbo_output\\gui_settings.json and win over this file. See TURBO_README.md.",
 
   "turbo": {
     "dry_run": false,
@@ -9,7 +9,7 @@
   },
 
   "gui": {
-    "autoload": true
+    "autoload": false
   },
 
   "auto": {

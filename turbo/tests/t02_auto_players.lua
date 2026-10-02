@@ -16,10 +16,10 @@ H.case("FC 27 bundled script bug: old event constant names are nil", function()
     H.eq(events.resolve("NOT_AN_EVENT"), nil, "unknown")
 end)
 
-H.case("boot with nothing enabled: only Turbo's dispatcher (GUI bridge), no automatic features", function()
-    local enabled = H.turbo().boot()
+H.case("boot with nothing enabled registers no handler (game launch does nothing)", function()
+    local enabled = H.turbo().boot({ at_launch = true })
     H.eq(#enabled, 0, "none enabled")
-    H.eq(#(sim.handlers["post__CareerModeEvent"] or {}), 1, "one dispatcher")
+    H.eq(#(sim.handlers["post__CareerModeEvent"] or {}), 0, "no handler")
     local n = 0
     for _ in pairs(TURBO_STATE.listeners) do n = n + 1 end
     H.eq(n, 0, "no automatic listeners")

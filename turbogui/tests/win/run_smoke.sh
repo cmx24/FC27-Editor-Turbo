@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Windows smoke test for Turbo.dll, run under Wine (no game, no GPU needed).
 # Cross-compiles smoke_loader.exe and a stub FCLiveEditor.DLL (NOT Live Editor) with mingw, builds a fake
-# Live Editor folder around build/win/Turbo.dll and runs the three modes (refuse, start, lua).
+# Live Editor folder around build/win/Turbo.dll and runs every mode (refuse, start, lua, nowindow, disabled, guard, guardexit, guardkill).
 # Run scripts/build_win.sh first. On Windows, run smoke_loader.exe <folder> <mode> yourself instead.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -33,7 +33,7 @@ winpath() { printf 'Z:%s' "$(echo "$1" | sed 's#/#\\#g')"; }
 
 "$WINE" wineboot -i >/dev/null 2>&1 || true
 rc=0
-for mode in refuse start lua; do
+for mode in refuse start lua nowindow disabled guard guardexit guardkill; do
     d="$(make_folder "$mode")"
     echo "== smoke: $mode"
     if timeout 120 "$WINE" "$OUT/bin/smoke_loader.exe" "$(winpath "$d")" "$mode"; then
@@ -42,6 +42,11 @@ for mode in refuse start lua; do
         echo "   exit $? (FAIL); log:"; sed 's/^/     /' "$d/turbo_output/turbo_gui.log" 2>/dev/null || true
         rc=1
     fi
+    # the crash flag after the process is gone: a clean exit removes it, a killed process leaves it
+    case "$mode" in
+        guardexit) if [ -e "$d/turbo_output/turbo_gui_start.flag" ]; then echo "   FAIL flag still there after a clean exit"; rc=1; else echo "   PASS flag removed by the clean exit"; fi ;;
+        guardkill) if [ -e "$d/turbo_output/turbo_gui_start.flag" ]; then echo "   PASS flag kept after the process was killed"; else echo "   FAIL flag missing after a kill"; rc=1; fi ;;
+    esac
 done
 [ $rc -eq 0 ] && echo "ALL SMOKE MODES PASSED" || echo "SMOKE FAILED"
 exit $rc

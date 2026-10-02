@@ -7,6 +7,7 @@ local game = require 'imports/turbo/core/game'   -- loaded early: captures nativ
 local env = require 'imports/turbo/core/env'
 local config = require 'imports/turbo/core/config'
 local events = require 'imports/turbo/core/events'
+local trace = require 'imports/turbo/core/trace'
 
 local M = { version = version.version }
 
@@ -113,7 +114,15 @@ function M.run(name, overrides, opts)
 end
 
 -- Configure automatic features from turbo_config.json. Safe to call any number of times.
-function M.boot()
+--
+-- LAUNCH SAFETY: lua\autorun\turbo_boot.lua runs while Live Editor is still initialising the game
+-- (opts.at_launch). At that point boot does pure-Lua work only: it reads the config, registers
+-- Live Editor's career-event handler when a feature needs it, and never calls a game native, reads
+-- game memory or loads Turbo.dll. The Turbo GUI is loaded on demand (turbo_gui_load.lua) or, when
+-- gui.autoload is true, on the first career-mode event (the game is fully running by then).
+function M.boot(opts)
+    opts = opts or {}
+    trace.step("boot: start" .. (opts.at_launch and " (game launch)" or ""))
     log.reset()
     local cfg, info = config.load()
     if info.error then log.warn("%s", info.error) end
@@ -129,29 +138,34 @@ function M.boot()
                 local ctx = make_ctx(cfg, name)
                 events.set_listener(name, ids, function(event_id) mod.auto(ctx, event_id) end)
                 enabled[#enabled + 1] = name
-                -- Apply once right away when a career is already loaded
-                if game.in_cm() then pcall(mod.auto, ctx, -1) end
+                -- Apply once right away when a career is already loaded (never at game launch)
+                if not opts.at_launch and game.in_cm() then pcall(mod.auto, ctx, -1) end
             else
                 events.clear_listener(name)
             end
         end
     end
 
-    -- Turbo GUI bridge: state files, mailbox polling on every career event, Turbo.dll loading
+    -- Turbo GUI bridge (pure Lua here): remember the effective settings for the GUI; with gui.autoload, arm the
+    -- automatic start for the first career-mode event (never at launch)
+    local gui = type(cfg.gui) == "table" and cfg.gui or {}
     local okb, bridge = pcall(require, 'imports/turbo/bridge')
     if okb and type(bridge) == "table" then
-        events.set_tap("bridge", bridge.on_career_event)
-        local oks, serr = pcall(bridge.start, cfg)
-        if not oks then log.error("Turbo GUI bridge: %s", tostring(serr)) end
+        bridge.set_settings(cfg)
+        if gui.autoload == true then bridge.arm(cfg) end
     else
         log.error("cannot load the Turbo GUI bridge: %s", tostring(bridge))
     end
 
-    local ok, err = events.ensure_registered()
-    if not ok then log.error("cannot register career events: %s", tostring(err)) end
+    -- Live Editor's career-event handler is only registered when something needs it
+    if next(TURBO_STATE.listeners) ~= nil or next(TURBO_STATE.taps or {}) ~= nil then
+        local ok, err = events.ensure_registered()
+        if not ok then log.error("cannot register career events: %s", tostring(err)) end
+    end
 
     table.sort(enabled)
     log.info("Turbo %s ready. Auto features: %s", M.version, #enabled > 0 and table.concat(enabled, ", ") or "none")
+    trace.step("boot: done")
     return enabled
 end
 

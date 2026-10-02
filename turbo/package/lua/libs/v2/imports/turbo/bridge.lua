@@ -11,16 +11,24 @@
 --   +0x00 magic 'TRBO'  +0x08 command seq  +0x0C ack seq  +0x10 status  +0x14 heartbeat
 --   +0x20 command JSON (4096)  +0x1020 result text (4096)
 
+-- LAUNCH SAFETY: nothing in this file runs at game launch. The bridge starts (M.start) only from
+-- turbo_gui_load.lua, or on the first career-mode event when gui.autoload is true (M.arm).
+
 local util = require 'imports/turbo/core/util'
 local env = require 'imports/turbo/core/env'
 local log = require 'imports/turbo/core/log'
 local game = require 'imports/turbo/core/game'
+local trace = require 'imports/turbo/core/trace'
 
 local M = {}
 
 local MAGIC = 0x4F425254
 local OFF_SEQ, OFF_ACK, OFF_STATUS, OFF_HEARTBEAT = 0x08, 0x0C, 0x10, 0x14
 local OFF_CMD, OFF_RESULT, TEXT_SIZE = 0x20, 0x1020, 0x1000
+
+-- bridge_dll.json is stamped by the DLL every ~2 s while it runs. A file older than this is left over from an
+-- earlier game session: its mailbox address means nothing in this process and is never read.
+local DLL_FRESH_SECONDS = 15
 
 -- Event ids that mean "the database may have been replaced"
 local RELOAD_EVENTS = { "POST_LOAD_PREPARE", "ENTERED_HUB_FIRST_TIME", "CAREER_TYPE_SELECTED", "INITIAL_USER_ADDED" }
@@ -180,6 +188,9 @@ local function find_mailbox()
     if not util.file_exists(path) then return nil end
     local ok, data = pcall(j.decode, util.read_file(path) or "")
     if not ok or type(data) ~= "table" or type(data.mailbox) ~= "string" then return nil end
+    -- Never touch memory on the word of a stale file (a previous game session wrote it)
+    local updated = tonumber(data.updated)
+    if not updated or math.abs(os.time() - updated) > DLL_FRESH_SECONDS then return nil end
     local addr = tonumber((data.mailbox:gsub("^0[xX]", "")), 16)
     if not addr or addr < 0x10000 then return nil end
     addr = math.tointeger(addr)
@@ -267,16 +278,18 @@ local function reload_ids()
 end
 
 function M.on_career_event(event_id)
+    if S.autoload_pending then
+        -- gui.autoload: first career-mode event = the game is fully running; start the bridge now
+        S.autoload_pending = false
+        local ok, err = pcall(M.start, S.cfg)
+        if not ok then log.error("Turbo GUI start failed: %s", tostring(err)) end
+        return
+    end
     if not S.meta_written then pcall(M.write_meta, false) end
     local okw, werr = pcall(M.write_state, false, reload_ids()[event_id] == true)
     if not okw then log.warn("bridge state: %s", tostring(werr)) end
     local okp, perr = pcall(M.poll_mailbox)
     if not okp then log.warn("bridge mailbox: %s", tostring(perr)) end
-end
-
-function M.on_le_init_done()
-    M.write_meta(true)
-    M.write_state(true, true)
 end
 
 -- ---------------------------------------------------------------- GUI loader
@@ -300,22 +313,39 @@ function M.load_gui()
     return true, "Turbo GUI loaded from " .. path
 end
 
--- Called from TURBO.boot()
+-- gui.autoload: remember the settings and start on the first career-mode event (never at game launch)
+function M.arm(cfg)
+    local events = require 'imports/turbo/core/events'
+    S.cfg = cfg
+    if S.started then return end
+    S.autoload_pending = true
+    events.set_tap("bridge", M.on_career_event)
+    trace.step("bridge armed: the Turbo GUI starts on the first career-mode event")
+end
+
+-- Start the bridge and load the Turbo GUI. Call it only while the game is running (turbo_gui_load.lua).
+-- Every step is logged to turbo_output\turbo_boot.log before it runs. Returns ok, message
 function M.start(cfg)
+    local events = require 'imports/turbo/core/events'
+    if type(cfg) ~= "table" then cfg = (require 'imports/turbo/core/config').load() end
+    S.cfg = cfg
+    S.autoload_pending = false
+    S.started = true
+    trace.step("bridge.start: begin")
     M.set_settings(cfg)
+    events.set_tap("bridge", M.on_career_event)
+    local okr, rerr = events.ensure_registered()
+    if not okr then log.warn("cannot register career events: %s", tostring(rerr)) end
+    trace.step("bridge.start: writing bridge_meta.json (GetDBMeta)")
     local ok_m, merr = pcall(M.write_meta, false)
     if not ok_m or merr == false then log.debug("bridge meta not written yet") end
+    trace.step("bridge.start: writing bridge_state.json (GetPlugin)")
     pcall(M.write_state, true, false)
-    if type(AddEventHandler) == "function" and not S.init_registered then
-        S.init_handler = S.init_handler or function() pcall(M.on_le_init_done) end
-        pcall(AddEventHandler, "post__LEInitDoneEvent", S.init_handler)
-        S.init_registered = true
-    end
-    local gui = cfg and cfg.gui or {}
-    if gui.autoload ~= false then
-        local ok, msg = M.load_gui()
-        if ok then log.info("%s", msg) else log.warn("Turbo GUI not loaded: %s", msg) end
-    end
+    trace.step("bridge.start: loading turbo\\Turbo.dll (package.loadlib)")
+    local ok, msg = M.load_gui()
+    trace.step("bridge.start: load_gui returned " .. tostring(ok) .. " - " .. tostring(msg))
+    if ok then log.info("%s", msg) else log.warn("Turbo GUI not loaded: %s", msg) end
+    return ok, msg
 end
 
 return M

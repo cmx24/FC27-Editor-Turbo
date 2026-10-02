@@ -74,6 +74,15 @@ static WNDPROC g_orig_wndproc = nullptr;
 static std::atomic<bool> g_ready{false};
 static bool g_failed = false;
 static std::atomic<bool> g_in_frame{false};
+// Crash-guard bookkeeping (see host::guard_hold): the start phase is proven after kStartFrames frames, the first frames
+// drawn on screen after kDrawFrames submitted frames.
+constexpr int kStartFrames = 300;
+constexpr int kDrawFrames = 120;
+static int g_frames_run = 0;
+static bool g_start_proven = false;
+static int g_frames_drawn = 0;
+static bool g_draw_held = false;
+static bool g_draw_proven = false;
 static thread_local bool g_in_resize = false;
 // Serialises ImGui between the game's render thread (Present) and its window thread (WndProc)
 static std::recursive_mutex g_ui_mutex;
@@ -338,6 +347,11 @@ static void render_frame(IDXGISwapChain3* sc) {
         ImGui::GetIO().MouseDrawCursor = g_app->visible;
         g_app->draw();
         ImGui::Render();
+        if (!g_start_proven && ++g_frames_run >= kStartFrames) {
+            g_start_proven = true;
+            log("overlay proven: %d frames ran without problems", kStartFrames);
+            guard_release();
+        }
     } catch (const std::exception& e) {
         log("frame error: %s", e.what());
         if (ImGui::GetCurrentContext() && ImGui::GetCurrentContext()->WithinFrameScope) ImGui::EndFrame();
@@ -345,6 +359,11 @@ static void render_frame(IDXGISwapChain3* sc) {
     }
     ImDrawData* dd = ImGui::GetDrawData();
     if (!dd || dd->CmdLists.Size == 0) return;  // nothing visible: no GPU work at all
+    if (!g_draw_held && !g_draw_proven) {
+        g_draw_held = true;
+        log("first frame drawn on screen");
+        guard_hold("first frames drawn on screen");
+    }
 
     DXGI_SWAP_CHAIN_DESC desc{};
     if (!ensure_frames(sc, desc)) return;
@@ -382,6 +401,12 @@ static void render_frame(IDXGISwapChain3* sc) {
     fr.fence_value = ++g_fence_counter;
     g_queue->Signal(g_fence, fr.fence_value);
     rt->Release();
+    if (g_draw_held && !g_draw_proven && ++g_frames_drawn >= kDrawFrames) {
+        g_draw_proven = true;
+        g_draw_held = false;
+        log("drawing proven: %d frames submitted without problems", kDrawFrames);
+        guard_release();
+    }
 }
 
 // ---------------------------------------------------------------- hooks
@@ -520,7 +545,9 @@ bool start_overlay(HMODULE) {
     g_mem = new ProcessMemory();
     g_app = new turbo::App(*g_mem, le_root(), reinterpret_cast<uint64_t>(mailbox), session);
 
+    log("probing Direct3D 12 for the hook targets");
     if (!find_targets()) return false;
+    log("hook targets found; initialising MinHook");
     if (MH_Initialize() != MH_OK) {
         log("MinHook init failed");
         return false;
@@ -545,6 +572,7 @@ bool start_overlay(HMODULE) {
             return false;
         }
     }
+    log("hooks created; enabling them");
     MH_STATUS st = MH_EnableHook(MH_ALL_HOOKS);
     if (st != MH_OK) {
         log("enabling hooks failed: %s", MH_StatusToString(st));

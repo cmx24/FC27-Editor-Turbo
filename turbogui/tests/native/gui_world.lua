@@ -1,5 +1,6 @@
 -- Builds an FC 27-like database for the Turbo GUI native tests inside the Turbo Lua test simulator,
--- boots Turbo (so the real bridge writes bridge_meta.json / bridge_state.json), and dumps:
+-- starts Turbo's bridge the way turbo_gui_load.lua does (so the real bridge writes bridge_meta.json /
+-- bridge_state.json), and dumps:
 --   world.img       the simulated game memory (pages)
 --   expected.json   every value of every table as read by Live Editor's own Lua T3DB library,
 --                   plus the player/team/manager facts the GUI model must derive
@@ -369,6 +370,8 @@ if mode == "build" then
     os.execute(string.format("mkdir -p '%s/LE/turbo_output'", OUT))
     local TURBO = require 'imports/turbo/turbo'
     TURBO.boot()
+    os.execute(string.format("mkdir -p '%s/turbo' && printf 'MZ' > '%s/turbo/Turbo.dll'", H.LE, H.LE))
+    assert(require('imports/turbo/bridge').start())
     copy(H.out("bridge_meta.json"), OUT .. "/LE/turbo_output/bridge_meta.json")
     copy(H.out("bridge_state.json"), OUT .. "/LE/turbo_output/bridge_state.json")
     dump_expected(sim)
@@ -423,8 +426,10 @@ elseif mode == "mailbox" then
     local TURBO = require 'imports/turbo/turbo'
     TURBO.boot()
     load_image(sim, OUT .. "/mailbox_in.img")
+    os.execute(string.format("mkdir -p '%s/turbo' && printf 'MZ' > '%s/turbo/Turbo.dll'", H.LE, H.LE))
+    require('imports/turbo/bridge').start()
     local f = assert(io.open(H.out("bridge_dll.json"), "wb"))
-    f:write(json.encode({ mailbox = mb.mailbox, session = "native", gui_version = "test" }))
+    f:write(json.encode({ mailbox = mb.mailbox, session = "native", gui_version = "test", updated = os.time() }))
     f:close()
     TURBO_STATE.bridge.next_dll_check = 0
     local before = sim:count_calls("SetPlayerForm")

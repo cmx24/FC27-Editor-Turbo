@@ -49,8 +49,24 @@ package.loadlib = function(path, sym)
     return true
 end
 
-H.case("boot writes bridge_meta.json and bridge_state.json the GUI can read", function()
+local bridge = require 'imports/turbo/bridge'
+
+-- bridge_dll.json as Turbo.dll writes it: the address plus a live timestamp
+local function dll_json(fields)
+    local t = { mailbox = string.format("0x%X", MB), session = "T", gui_version = "0.2.1", updated = os.time() }
+    for k, v in pairs(fields or {}) do t[k] = v end
+    write_out("bridge_dll.json", t)
+end
+
+H.case("bridge.start writes bridge_meta.json and bridge_state.json the GUI can read, and loads Turbo.dll", function()
     H.turbo().boot()
+    H.eq(#loadlib_calls, 0, "boot alone loads nothing")
+    H.eq(read_json("bridge_state.json"), nil, "boot alone writes nothing")
+    os.execute(string.format("mkdir -p '%s/turbo' && printf 'MZ' > '%s/turbo/Turbo.dll'", H.LE, H.LE))
+    local ok, msg = bridge.start()
+    H.eq(ok, true, msg)
+    H.eq(#loadlib_calls, 1, "start loads Turbo.dll once")
+    H.eq(sim.handlers["post__LEInitDoneEvent"], nil, "no undocumented init event registered")
     local meta = read_json("bridge_meta.json")
     H.ok(meta, "meta written")
     H.eq(meta.shortname_name_tables_map.plyr, "players", "players table name")
@@ -100,7 +116,7 @@ H.case("leaving career mode is a structural change", function()
 end)
 
 H.case("mailbox: ping is answered on the next career event, with a heartbeat", function()
-    write_out("bridge_dll.json", { mailbox = string.format("0x%X", MB), session = "T", gui_version = "0.2.0" })
+    dll_json()
     TURBO_STATE.bridge.next_dll_check = 0  -- the bridge looks for bridge_dll.json at most once a second
     submit('{"op":"ping"}')
     sim:fire("post__CareerModeEvent", 0, 7, 0)
@@ -167,7 +183,7 @@ H.case("GUI settings: dry run from the GUI wins over turbo_config.json; bad file
     local cfg = require('imports/turbo/core/config').load()
     H.eq(cfg.turbo.dry_run, true, "dry run on")
     H.eq(cfg.auto.form_morale.enabled, false, "auto back to turbo_config.json")
-    H.eq(cfg.gui.autoload, true, "gui default")
+    H.eq(cfg.gui.autoload, false, "gui is never loaded automatically by default")
     write_out("gui_settings.json", "{ not json")
     local cfg2, info = require('imports/turbo/core/config').load()
     H.eq(cfg2.turbo.dry_run, false, "ignored")
@@ -198,7 +214,7 @@ H.case("mailbox with a wrong magic is not used", function()
     H.ok(sim:r32(MB + 0xC) ~= seq, "not acknowledged")
     sim:w32(MB, MAGIC)
     sim:fire("post__CareerModeEvent", 0, 7, 0)  -- reconnect after at most one second
-    local bridge = require 'imports/turbo/bridge'
+    dll_json()
     H.ok(bridge.poll_mailbox(true) or sim:r32(MB + 0xC) == seq, "forced reconnect")
     H.eq(sim:r32(MB + 0xC), seq, "acknowledged after reconnect")
 end)
@@ -221,6 +237,7 @@ end)
 H.case("Turbo.dll loading through package.loadlib", function()
     local bridge = require 'imports/turbo/bridge'
     TURBO_STATE.bridge.gui_loaded = false
+    os.execute(string.format("rm -rf '%s/turbo'", H.LE))
     local ok, msg = bridge.load_gui()
     H.eq(ok, false); H.has(msg, "Turbo.dll not found")
     os.execute(string.format("mkdir -p '%s/turbo' && printf 'MZ' > '%s/turbo/Turbo.dll'", H.LE, H.LE))
@@ -245,15 +262,20 @@ H.case("Turbo.dll loading through package.loadlib", function()
     package.loadlib = saved
 end)
 
-H.case("autoload follows turbo_config.json gui.autoload", function()
+H.case("gui.autoload=false: boot never starts the bridge; true: it waits for the first career event", function()
     TURBO_STATE.bridge.gui_loaded = false
+    TURBO_STATE.bridge.started = false
     H.write_config({ gui = { autoload = false } })
     local n = #loadlib_calls
     H.turbo().boot()
     H.eq(#loadlib_calls, n, "not loaded")
     H.write_config({ gui = { autoload = true } })
-    H.turbo().boot()
-    H.eq(#loadlib_calls, n + 1, "loaded")
+    H.turbo().boot({ at_launch = true })
+    H.eq(#loadlib_calls, n, "armed, still not loaded at launch")
+    sim:fire("post__CareerModeEvent", 0, 7, 0)
+    H.eq(#loadlib_calls, n + 1, "loaded on the first career event")
+    sim:fire("post__CareerModeEvent", 0, 7, 0)
+    H.eq(#loadlib_calls, n + 1, "only once")
     local boxes = #sim.boxes
     H.script("turbo_gui_load")
     H.ok(#sim.boxes > boxes, "load script reports")
@@ -264,6 +286,7 @@ H.case("meta is not written while the database is empty, and is written once it 
     local sim2 = H.setup({ in_cm = false })
     package.loadlib = function() return true end
     H.turbo().boot()
+    require('imports/turbo/bridge').start()
     H.eq(H.read(H.out("bridge_meta.json")), nil, "no meta yet")
     W.build(sim2, {})
     sim2.in_cm = true

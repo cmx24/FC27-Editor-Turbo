@@ -17,6 +17,7 @@ App::App(Memory& m, fs::path le_root, uint64_t mailbox_addr, std::string sess)
     if (mailbox_addr) {
         mailbox = std::make_unique<Mailbox>(mem, mailbox_addr);
         if (mailbox->init()) {
+            mailbox_addr_ = mailbox_addr;
             bridge.publish_mailbox(mailbox_addr, session, kGuiVersion);
         } else {
             mailbox.reset();
@@ -109,6 +110,10 @@ void App::tick(double t) {
         model_stale = false;
         model.rebuild(today());
         ++gen;
+    }
+    if (mailbox && t >= next_publish) {
+        next_publish = t + 2.0;
+        bridge.publish_mailbox(mailbox_addr_, session, kGuiVersion);
     }
     if (mailbox) {
         int hb = mailbox->heartbeat();

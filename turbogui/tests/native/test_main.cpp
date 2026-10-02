@@ -12,6 +12,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -650,6 +651,19 @@ static void test_ui() {
             CHECK(fs::exists(le / "turbo_output" / "bridge_dll.json"), "bridge_dll.json published");
             json dll = read_json(le / "turbo_output" / "bridge_dll.json");
             CHECK(dll["mailbox"].get<std::string>() == hex_addr(kMb), "mailbox address published");
+            // Lua only trusts bridge_dll.json while its time stamp is fresh (a file left by an earlier game session is
+            // never read), so the GUI must stamp it and keep it fresh
+            CHECK(dll.contains("updated") && dll["updated"].is_number_integer(), "bridge_dll.json carries a time stamp");
+            int64_t stamp = dll["updated"].get<int64_t>();
+            CHECK(std::llabs(stamp - static_cast<int64_t>(std::time(nullptr))) <= 5, "time stamp is current");
+            {
+                json old = dll;
+                old["updated"] = 1;
+                std::ofstream((le / "turbo_output" / "bridge_dll.json").string()) << old.dump();
+            }
+            app.tick(app.now + 3.0);
+            json dll2 = read_json(le / "turbo_output" / "bridge_dll.json");
+            CHECK(dll2["updated"].get<int64_t>() > 1000000000, "tick refreshes the time stamp");
             for (int tab = 0; tab < 6; ++tab) {
                 app.request_tab = tab;
                 ui.frames(3);

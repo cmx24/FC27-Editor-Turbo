@@ -2,11 +2,13 @@
 // TurboInjector.exe, only while Live Editor is running.
 #include <windows.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdarg>
 #include <cstdio>
 #include <ctime>
 #include <mutex>
+#include <string>
 
 #include "host.h"
 
@@ -75,8 +77,105 @@ static bool lua_side_just_ran() {
     return age < std::chrono::minutes(15) && age > -std::chrono::seconds(5);
 }
 
+// ---------------------------------------------------------------- crash guard
+static std::atomic<int> g_guard_holds{0};
+// Plain buffer, filled when the flag file is created: DllMain's detach path must not touch C++ statics
+wchar_t g_flag_w[1024] = {0};
+
+static fs::path guard_path() { return g_root / "turbo_output" / "turbo_gui_start.flag"; }
+static fs::path disable_path() { return g_root / "turbo_output" / "turbo_gui_disable.txt"; }
+
+void guard_hold(const char* why) {
+    if (g_guard_holds.fetch_add(1) != 0) return;
+    std::error_code ec;
+    fs::create_directories(g_root / "turbo_output", ec);
+    std::wstring path = guard_path().wstring();
+    FILE* f = _wfopen(path.c_str(), L"w");
+    if (!f) return;
+    if (path.size() < sizeof(g_flag_w) / sizeof(g_flag_w[0])) wcscpy_s(g_flag_w, path.c_str());
+    std::fprintf(f, "%s (process %lu, tick %lu)\n", why, static_cast<unsigned long>(GetCurrentProcessId()),
+                 static_cast<unsigned long>(GetTickCount()));
+    std::fclose(f);
+}
+
+void guard_release() {
+    int n = g_guard_holds.load();
+    while (n > 0 && !g_guard_holds.compare_exchange_weak(n, n - 1)) {}
+    if (n == 1) DeleteFileW(guard_path().wstring().c_str());
+}
+
+// ---------------------------------------------------------------- waiting for the game
+static int env_int(const wchar_t* name, int fallback) {
+    wchar_t buf[32];
+    DWORD n = GetEnvironmentVariableW(name, buf, 32);
+    if (n == 0 || n >= 32) return fallback;
+    return _wtoi(buf);
+}
+
+struct WindowSearch {
+    DWORD pid;
+    int w;
+    int h;
+};
+
+// A visible, un-owned top-level window of this process that is big enough to be the game window
+static BOOL CALLBACK enum_windows(HWND hwnd, LPARAM lp) {
+    auto* ws = reinterpret_cast<WindowSearch*>(lp);
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid != ws->pid || !IsWindowVisible(hwnd) || GetWindow(hwnd, GW_OWNER) != nullptr) return TRUE;
+    RECT r{};
+    if (!GetWindowRect(hwnd, &r)) return TRUE;
+    int w = r.right - r.left, h = r.bottom - r.top;
+    if (w >= 400 && h >= 300) {
+        ws->w = w;
+        ws->h = h;
+        return FALSE;
+    }
+    return TRUE;
+}
+
+// Nothing is probed or hooked until the game is really running: its window is up, Direct3D 12 and DXGI are loaded, and a
+// settle time has passed. Returns false (nothing touched) if that does not happen in time.
+static bool wait_for_game() {
+    if (env_int(L"TURBO_GUI_SKIP_WAIT", 0) == 1) {
+        log("TURBO_GUI_SKIP_WAIT is set: not waiting for the game window (test mode)");
+        return true;
+    }
+    const int wait_ms = env_int(L"TURBO_GUI_WAIT_MS", 180000);
+    const int settle_ms = env_int(L"TURBO_GUI_SETTLE_MS", 5000);
+    log("waiting for the game window and Direct3D 12 (up to %d s); nothing is hooked yet", wait_ms / 1000);
+    const DWORD t0 = GetTickCount();
+    bool window_logged = false;
+    for (;;) {
+        WindowSearch ws{GetCurrentProcessId(), 0, 0};
+        EnumWindows(enum_windows, reinterpret_cast<LPARAM>(&ws));
+        bool has_window = ws.w > 0;
+        bool has_d3d = GetModuleHandleW(L"d3d12.dll") != nullptr && GetModuleHandleW(L"dxgi.dll") != nullptr;
+        if (has_window && has_d3d) {
+            log("game window found (%dx%d), Direct3D 12 loaded; settling for %d ms", ws.w, ws.h, settle_ms);
+            Sleep(static_cast<DWORD>(settle_ms));
+            return true;
+        }
+        if (has_window && !window_logged) {
+            window_logged = true;
+            log("game window found (%dx%d); waiting for Direct3D 12", ws.w, ws.h);
+        }
+        if (GetTickCount() - t0 > static_cast<DWORD>(wait_ms)) {
+            log("no game window with Direct3D 12 appeared within %d s; not starting", wait_ms / 1000);
+            return false;
+        }
+        Sleep(500);
+    }
+}
+
 static DWORD WINAPI init_thread(LPVOID) {
     log("Turbo GUI loading in process %lu", static_cast<unsigned long>(GetCurrentProcessId()));
+    std::error_code ec;
+    if (fs::exists(disable_path(), ec) || env_int(L"TURBO_GUI_DISABLE", 0) == 1) {
+        log("kill switch present (turbo_output\\turbo_gui_disable.txt): Turbo GUI stays off");
+        return 0;
+    }
     if (!GetModuleHandleW(L"FCLiveEditor.DLL")) {
         if (!lua_side_just_ran()) {
             log("FCLiveEditor.DLL is not loaded in this process; Turbo GUI only runs together with Live Editor. Not starting.");
@@ -84,7 +183,32 @@ static DWORD WINAPI init_thread(LPVOID) {
         }
         log("FCLiveEditor.DLL is not in the module list, but Turbo's Lua side just ran in Live Editor: starting.");
     }
-    if (!start_overlay(g_self)) log("overlay not started");
+    if (fs::exists(guard_path(), ec)) {
+        std::string why;
+        if (FILE* f = _wfopen(guard_path().wstring().c_str(), L"r")) {
+            char buf[256] = {0};
+            if (std::fgets(buf, sizeof(buf), f)) why = buf;
+            std::fclose(f);
+        }
+        while (!why.empty() && (why.back() == '\n' || why.back() == '\r')) why.pop_back();
+        log("the previous Turbo GUI start did not finish (%s): the game may have crashed. Turbo GUI stays off. "
+            "Delete turbo_output\\turbo_gui_start.flag to try again.", why.empty() ? "no details" : why.c_str());
+        return 0;
+    }
+    if (!wait_for_game()) {
+        log("overlay not started");
+        return 0;
+    }
+    if (env_int(L"TURBO_GUI_TEST_HOLD_GUARD", 0) == 1) {  // test mode: lets the smoke test check how the flag behaves at exit
+        guard_hold("test hold");
+        log("test mode: crash guard held, overlay not started");
+        return 0;
+    }
+    guard_hold("hooks being installed / first frames");
+    if (!start_overlay(g_self)) {
+        guard_release();  // a clean refusal installed nothing: not a crash
+        log("overlay not started");
+    }
     return 0;
 }
 
@@ -103,7 +227,11 @@ void imgui_assert_failed(const char* expr, const char* file, int line) {
 }
 }  // namespace turbo
 
-extern "C" BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
+extern "C" BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved) {
+    if (reason == DLL_PROCESS_DETACH && reserved != nullptr && host::g_flag_w[0]) {
+        // The process is exiting normally: a clean exit is not a crash (a killed or crashed process never gets here)
+        DeleteFileW(host::g_flag_w);
+    }
     if (reason == DLL_PROCESS_ATTACH) {
         host::g_self = inst;
         DisableThreadLibraryCalls(inst);

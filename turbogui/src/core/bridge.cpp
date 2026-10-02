@@ -1,6 +1,7 @@
 #include "bridge.h"
 
 #include <cstdio>
+#include <ctime>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -243,6 +244,9 @@ bool Bridge::publish_mailbox(uint64_t mailbox_addr, const std::string& session, 
     j["mailbox"] = hex_addr(mailbox_addr);
     j["session"] = session;
     j["gui_version"] = gui_version;
+    // Live stamp (unix seconds): Lua only trusts this file while it is fresh, so an address left over from an
+    // earlier game session is never read. App::tick refreshes it every couple of seconds.
+    j["updated"] = static_cast<int64_t>(std::time(nullptr));
     return write_text_atomic(dir() / "bridge_dll.json", j.dump(2));
 }
 

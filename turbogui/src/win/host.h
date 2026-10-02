@@ -21,6 +21,12 @@ public:
     bool write(uint64_t addr, const void* in, size_t n) override;
 };
 
+// Crash guard: turbo_output\turbo_gui_start.flag exists while a risky phase (hooks installed but not yet proven by a
+// number of good frames; first frames drawn on screen) is running. If the game dies in that phase the file stays, and the
+// next start refuses to hook (see init_thread). guard_hold/guard_release are counted; a clean process exit removes it.
+void guard_hold(const char* why);
+void guard_release();
+
 // Installs the DX12 hooks; returns false (and logs why) if the overlay cannot run
 bool start_overlay(HMODULE self);
 void stop_overlay();
