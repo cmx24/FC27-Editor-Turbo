@@ -153,6 +153,59 @@ function M.write_meta(force)
     return true
 end
 
+-- Player names. playernames.name is a compressed text field (field type 13) in FC 27: Turbo.dll cannot read it from
+-- memory, but Live Editor's documented GetDBTableRows decodes it (43,000 names in ~0.3 s). The names go to
+-- bridge_names.txt: first line "#turbo-names <session> <count>", then one "nameid<TAB>name" line per name.
+M.NAME_TABLES = { "playernames" }
+
+local function row_value(row, key)
+    local cell = util.index(row, key)
+    if util.is_object(cell) then cell = util.index(cell, "value") end
+    return cell
+end
+
+function M.write_names()
+    local get_rows = _G["GetDBTableRows"]
+    if type(get_rows) ~= "function" then return false, "GetDBTableRows is not available" end
+    local dir = M.dir()
+    if not dir then return false, "output folder missing" end
+    local out, count = {}, 0
+    for _, tname in ipairs(M.NAME_TABLES) do
+        local ok, rows = pcall(get_rows, tname)
+        if ok and util.is_object(rows) then
+            for i = 1, util.len(rows) do
+                local row = util.index(rows, i)
+                local id = tonumber(row_value(row, "nameid"))
+                local name = row_value(row, "name")
+                if id and type(name) == "string" and name ~= "" then
+                    out[#out + 1] = string.format("%d\t%s", math.tointeger(id) or 0, (name:gsub("[\t\r\n]", " ")))
+                    count = count + 1
+                end
+            end
+        end
+    end
+    if count == 0 then return false, "no player names returned by GetDBTableRows" end
+    local text = string.format("#turbo-names %s %d\n", S.session, count) .. table.concat(out, "\n") .. "\n"
+    local okw, werr = util.write_file(util.join(dir, "bridge_names.txt"), text)
+    if not okw then return false, tostring(werr) end
+    S.names_count = count
+    return true, count
+end
+
+-- force = retry now even if the last attempt failed less than a minute ago
+local function try_write_names(force)
+    if not force and S.names_retry_at and os.time() < S.names_retry_at then return false, "retry later" end
+    local okc, ok, res = pcall(M.write_names)
+    if not okc then ok, res = false, tostring(ok) end
+    if ok then
+        S.names_retry_at = nil
+    else
+        S.names_retry_at = os.time() + 60
+        log.warn("bridge_names.txt not written: %s", tostring(res))
+    end
+    return ok, res
+end
+
 -- write_meta, remembering why it failed (shown by the GUI through bridge_state.json and reported by bridge.start)
 local function try_write_meta(force)
     local okc, ok, err = pcall(M.write_meta, force)
@@ -191,6 +244,7 @@ function M.collect_state()
         settings = S.settings,
         session = S.session,
         meta_error = S.meta_error,
+        names_count = S.names_count or 0,
         le_version = tostring(LE_VERSION or ""),
         db_service = hex(plugin("ENUM_djb2Database_CLSS") - 8),
         comm_service = hex(plugin("ENUM_djb2FeFceGMCommServiceInterface_CLSS")),
@@ -283,6 +337,7 @@ function M.execute(cmd)
     end
     if cmd.op == "refresh" then
         local okm, merr = try_write_meta(true)
+        try_write_names(true)
         M.write_state(true, true)
         if not okm then return false, "bridge_meta.json not written: " .. tostring(merr) end
         return true, "bridge refreshed"
@@ -350,7 +405,9 @@ function M.on_career_event(event_id)
         return
     end
     if not S.meta_written then try_write_meta(false) end
-    local okw, werr = pcall(M.write_state, false, reload_ids()[event_id] == true)
+    local reload = reload_ids()[event_id] == true
+    if reload or not S.names_count then try_write_names() end
+    local okw, werr = pcall(M.write_state, false, reload)
     if not okw then log.warn("bridge state: %s", tostring(werr)) end
     local okp, perr = pcall(M.poll_mailbox)
     if not okp then log.warn("bridge mailbox: %s", tostring(perr)) end
@@ -412,6 +469,9 @@ function M.start(cfg)
     trace.step("bridge.start: writing bridge_meta.json (GetDBMeta)")
     local ok_m, merr = try_write_meta(true)
     trace.step("bridge.start: bridge_meta.json " .. (ok_m and ("written from " .. tostring(S.meta_source)) or ("NOT written: " .. tostring(merr))))
+    trace.step("bridge.start: writing bridge_names.txt (GetDBTableRows playernames)")
+    local ok_n, nres = try_write_names(true)
+    trace.step("bridge.start: bridge_names.txt " .. (ok_n and ("written, " .. tostring(nres) .. " names") or ("NOT written: " .. tostring(nres))))
     trace.step("bridge.start: writing bridge_state.json (GetPlugin)")
     local okc, ok_s, serr = pcall(M.write_state, true, false)
     if not okc then ok_s, serr = false, tostring(ok_s) end

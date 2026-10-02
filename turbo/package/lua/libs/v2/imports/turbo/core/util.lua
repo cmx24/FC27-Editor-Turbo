@@ -35,6 +35,23 @@ function M.len(obj)
     return ok and math.tointeger(n) or 0
 end
 
+-- Live Editor's MessageBox treats its text as a printf format: a "%" in the text (a path, a percentage, Lua source)
+-- makes Live Editor read missing arguments and crashes the game when the box is drawn (seen in FC 27 LE v27.1.2,
+-- 02-10-2026). Every Turbo message box goes through here: "%" is doubled and the text is kept short.
+M.MESSAGE_BOX_MAX = 1500
+
+function M.message_box_text(text)
+    local s = tostring(text == nil and "" or text)
+    if #s > M.MESSAGE_BOX_MAX then s = s:sub(1, M.MESSAGE_BOX_MAX) .. "\n..." end
+    return (s:gsub("%%", "%%%%"))
+end
+
+function M.message_box(title, text)
+    local box = _G["MessageBox"]
+    if type(box) ~= "function" then return false end
+    return (pcall(box, M.message_box_text(title), M.message_box_text(text)))
+end
+
 -- Convert a JSON number / numeric string to a Lua integer. Returns nil when not an integer.
 function M.to_int(v)
     if type(v) == "string" then

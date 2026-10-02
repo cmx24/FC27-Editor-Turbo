@@ -21,11 +21,16 @@ public:
     bool write(uint64_t addr, const void* in, size_t n) override;
 };
 
-// Crash guard: turbo_output\turbo_gui_start.flag exists while a risky phase (hooks installed but not yet proven by a
-// number of good frames; first frames drawn on screen) is running. If the game dies in that phase the file stays, and the
-// next start refuses to hook (see init_thread). guard_hold/guard_release are counted; a clean process exit removes it.
+// Crash guard: turbo_output\turbo_gui_start.flag exists while Turbo does something inside the game that could crash it
+// (probing Direct3D 12 in the game, installing hooks, the first 300 frames, the first frames drawn on screen). Waiting for
+// Live Editor / the game window and running TurboProbe.exe (a separate process) are not guarded. If the game dies in a
+// guarded phase the file stays: the next start tries once more (the flag is rewritten as "RETRY: ..."), and after a second
+// failure in a row Turbo stays off until the file is deleted. guard_hold/guard_release are counted; a clean exit removes it.
 void guard_hold(const char* why);
 void guard_release();
+
+// Time the DLL was loaded: bridge files older than this minus 2 minutes belong to an earlier game session
+std::filesystem::file_time_type load_time();
 
 // Installs the DX12 hooks; returns false (and logs why) if the overlay cannot run
 bool start_overlay(HMODULE self);

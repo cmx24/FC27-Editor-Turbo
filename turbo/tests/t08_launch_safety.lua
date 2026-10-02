@@ -18,7 +18,7 @@ local NATIVES = {
     "cAddPlayerToTransferList", "cAddPlayerToLoanList", "cRemovePlayerFromLists",
     "cRemovePlayerFromTransferList", "cRemovePlayerFromLoanList", "cGetTransferBans", "cAddTransferBan",
     "cRemoveTransferBan", "cSaveTransferBans", "PlayerDevelopmentManagerLoad", "PlayerDevelopmentManagerSave",
-    "PlayerDevelopmentManagerAddPlayer", "PlayerDevelopmentManagerRemovePlayer",
+    "PlayerDevelopmentManagerAddPlayer", "PlayerDevelopmentManagerRemovePlayer", "GetDBTableRows",
 }
 
 local calls, mem_addrs, loadlib_calls, loadlib_paths = {}, {}, 0, {}
@@ -81,6 +81,33 @@ H.case("default launch: no game native; Turbo.dll loaded once in launch mode; on
     H.eq(evs[1], "post__CareerModeEvent", "only the documented career event")
     H.eq(H.read(H.out("bridge_state.json")), nil, "no bridge file written")
     H.eq(H.read(H.out("bridge_meta.json")), nil, "no meta file written")
+end)
+
+H.case("a crash flag from the last start is reported in Live Editor's log at launch (pure file I/O)", function()
+    local function logs_text(sim)
+        local t = {}
+        for _, l in ipairs(sim.logs) do t[#t + 1] = l.text end
+        return table.concat(t, "\n")
+    end
+    local sim = H.setup({ in_cm = false })
+    install_dll_stub()
+    local f = assert(io.open(H.out("turbo_gui_start.flag"), "wb"))
+    f:write("hooks being installed / first frames (process 1, tick 2)\n")
+    f:close()
+    instrument()
+    H.turbo().boot({ at_launch = true })
+    local n, names = native_calls()
+    H.eq(n, 0, "still no game native (" .. names .. ")")
+    H.has(logs_text(sim), "last start did not finish (hooks being installed / first frames (process 1, tick 2)): trying once more")
+    H.eq(loadlib_calls, 1, "Turbo.dll still loaded: it decides about the retry")
+    local sim2 = H.setup({ in_cm = false })
+    install_dll_stub()
+    f = assert(io.open(H.out("turbo_gui_start.flag"), "wb"))
+    f:write("RETRY: hooks being installed (process 3, tick 4)\n")
+    f:close()
+    H.turbo().boot({ at_launch = true })
+    H.has(logs_text(sim2), "Turbo GUI stays off: its last two starts did not finish")
+    H.has(logs_text(sim2), "Delete turbo_output\\turbo_gui_start.flag")
 end)
 
 H.case("gui.autoload=false: launch loads nothing and registers no event handler", function()

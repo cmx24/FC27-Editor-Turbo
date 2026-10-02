@@ -13,7 +13,9 @@
 #include <dxgi1_4.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdio>
+#include <cwctype>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -325,14 +327,11 @@ static Init init_imgui(IDXGISwapChain3* sc) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    g_ini_path = (le_root() / "turbo_output" / "turbo_gui_layout.ini").string();
+    // v2: window sizes follow the UI scale since 0.2.5; layouts saved by older versions (fixed small sizes) are not reused
+    g_ini_path = (le_root() / "turbo_output" / "turbo_gui_layout_v2.ini").string();
     io.IniFilename = g_ini_path.c_str();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    ImGui::StyleColorsDark();
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding = 6.0f;
-    style.FrameRounding = 4.0f;
-    style.TabRounding = 4.0f;
+    // Colours and sizes: App::update_style (scaled to the window height and the user's UI size) on the first tick
     wchar_t windir[MAX_PATH];
     UINT wn = GetWindowsDirectoryW(windir, MAX_PATH);
     std::filesystem::path font = std::filesystem::path(std::wstring(windir, wn)) / "Fonts" / "segoeui.ttf";
@@ -676,15 +675,33 @@ static bool find_targets_external() {
     HANDLE rd = nullptr, wr = nullptr;
     if (!CreatePipe(&rd, &wr, &sa, 0)) return false;
     SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0);
-    STARTUPINFOW si{};
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdOutput = wr;
-    si.hStdError = wr;
+    // Only the pipe's write end is handed to TurboProbe.exe: no other inheritable handle of the game reaches the child
+    STARTUPINFOEXW si{};
+    si.StartupInfo.cb = sizeof(si);
+    si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    si.StartupInfo.hStdOutput = wr;
+    si.StartupInfo.hStdError = wr;
+    SIZE_T attr_size = 0;
+    InitializeProcThreadAttributeList(nullptr, 1, 0, &attr_size);
+    std::vector<unsigned char> attr_buf(attr_size);
+    auto* attrs = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attr_buf.data());
+    HANDLE inherit[1] = {wr};
+    bool have_attrs = attr_size > 0 && InitializeProcThreadAttributeList(attrs, 1, 0, &attr_size) &&
+                      UpdateProcThreadAttribute(attrs, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherit, sizeof(inherit), nullptr,
+                                                nullptr);
+    if (!have_attrs) {
+        log("cannot limit the handles TurboProbe.exe inherits (error %lu); not running it", GetLastError());
+        CloseHandle(wr);
+        CloseHandle(rd);
+        return false;
+    }
+    si.lpAttributeList = attrs;
     PROCESS_INFORMATION pi{};
     std::wstring cmd = L"\"" + exe + L"\"";
     log("running TurboProbe.exe (a separate process) to find the hook targets");
-    BOOL started = CreateProcessW(exe.c_str(), &cmd[0], nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    BOOL started = CreateProcessW(exe.c_str(), &cmd[0], nullptr, nullptr, TRUE, CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
+                                  nullptr, nullptr, &si.StartupInfo, &pi);
+    DeleteProcThreadAttributeList(attrs);
     CloseHandle(wr);
     if (!started) {
         CloseHandle(rd);
@@ -742,6 +759,25 @@ static bool find_targets_external() {
     return true;
 }
 
+// FC 27 ships its own Direct3D 12 runtime (x64\D3D12Core.dll, Agility SDK). TurboProbe.exe loads the system one, so its
+// ExecuteCommandLists can never match the game's: running it only costs a process start, so it is skipped.
+static bool game_ships_own_d3d12core() {
+    HMODULE core = GetModuleHandleW(L"D3D12Core.dll");
+    if (!core) return false;
+    wchar_t path[MAX_PATH * 2] = {0}, sys[MAX_PATH] = {0};
+    DWORD n = GetModuleFileNameW(core, path, static_cast<DWORD>(sizeof(path) / sizeof(path[0])));
+    UINT sn = GetSystemDirectoryW(sys, MAX_PATH);
+    if (n == 0 || sn == 0) return false;
+    std::wstring p(path, n), d(sys, sn);
+    auto lower = [](std::wstring x) {
+        for (auto& c : x) c = static_cast<wchar_t>(towlower(c));
+        return x;
+    };
+    if (lower(p).rfind(lower(d) + L"\\", 0) == 0) return false;
+    log("the game uses its own Direct3D 12 runtime (%ls): TurboProbe.exe cannot match it, skipped", path);
+    return true;
+}
+
 bool start_overlay(HMODULE) {
     QueryPerformanceFrequency(&g_qpf);
     QueryPerformanceCounter(&g_qpc0);
@@ -754,11 +790,14 @@ bool start_overlay(HMODULE) {
                   static_cast<unsigned long>(GetTickCount()));
     g_mem = new ProcessMemory();
     g_app = new turbo::App(*g_mem, le_root(), reinterpret_cast<uint64_t>(mailbox), session);
+    g_app->bridge.set_min_file_time(load_time() - std::chrono::minutes(2));
     g_toggle_vk = g_app->toggle_vk;
 
-    if (!find_targets_external()) {
-        log("falling back to probing Direct3D 12 inside the game");
-        log("probing Direct3D 12 for the hook targets");
+    if (!game_ships_own_d3d12core() && find_targets_external()) {
+        guard_hold("hooks being installed / first frames");
+    } else {
+        log("falling back to probing Direct3D 12 inside the game for the hook targets");
+        guard_hold("probing Direct3D 12 in the game / hooks being installed / first frames");
         if (!find_targets()) return false;
     }
     log("hook targets found; initialising MinHook");

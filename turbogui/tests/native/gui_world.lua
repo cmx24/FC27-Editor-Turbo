@@ -131,7 +131,7 @@ local function build_world(sim)
         name = "playernames", short = "pnms",
         fields = {
             { name = "nameid", short = "nid_", depth = 17 },
-            { name = "name", short = "nam_", type = "string", depth = 8 * 32 },
+            { name = "name", short = "nam_", type = "compressed", depth = 8 * 32 },  -- FC 27: compressed text
             { name = "commentaryid", short = "cmid", depth = 20 },
         },
         rows = nrows,
@@ -374,6 +374,7 @@ if mode == "build" then
     assert(require('imports/turbo/bridge').start())
     copy(H.out("bridge_meta.json"), OUT .. "/LE/turbo_output/bridge_meta.json")
     copy(H.out("bridge_state.json"), OUT .. "/LE/turbo_output/bridge_state.json")
+    copy(H.out("bridge_names.txt"), OUT .. "/LE/turbo_output/bridge_names.txt")
     dump_expected(sim)
     save_image(sim, OUT .. "/world.img")
     print("world built: " .. OUT)

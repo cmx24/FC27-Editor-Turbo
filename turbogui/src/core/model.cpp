@@ -68,9 +68,14 @@ void Model::build_names() {
     name_by_nameid_.clear();
     edited_names_.clear();
     std::vector<std::string> sources;
+    bool compressed = false;
     for (const char* tname : {"playernames", "dcplayernames"}) {
         const Table* t = db_.table(tname);
         if (!t || !t->has("nameid") || !t->has("name")) continue;
+        if (t->field("name")->type != FieldType::String) {  // FC 27: compressed text, decoded by Live Editor (extra names)
+            compressed = true;
+            continue;
+        }
         Snapshot s;
         if (!s.load(db_.memory(), *t)) continue;
         const Field* fid = t->field("nameid");
@@ -80,6 +85,15 @@ void Model::build_names() {
             if (!name_by_nameid_.count(id)) name_by_nameid_[id] = s.get_str(i, *fname);
         }
         sources.push_back(tname);
+    }
+    if (extra_names_ && !extra_names_->empty()) {
+        size_t added = 0;
+        for (const auto& kv : *extra_names_) {
+            if (name_by_nameid_.emplace(kv.first, kv.second).second) ++added;
+        }
+        sources.push_back("playernames via Live Editor (" + std::to_string(added) + ")");
+    } else if (compressed) {
+        sources.push_back("playernames: waiting for Turbo's Lua side (bridge_names.txt)");
     }
     if (const Table* t = db_.table("editedplayernames")) {
         if (t->has("playerid")) {

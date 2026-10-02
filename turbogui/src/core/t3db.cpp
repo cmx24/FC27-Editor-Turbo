@@ -13,7 +13,7 @@ const char* Field::type_name() const {
         case FieldType::Int: return "int";
         case FieldType::Float: return "float";
         case FieldType::String: return "string";
-        default: return "unknown";
+        default: return raw_type == 13 ? "compressed text, read-only" : "unknown";
     }
 }
 
@@ -29,8 +29,15 @@ std::string Value::to_string() const {
         case FieldType::String:
             return s;
         default:
-            return "?";
+            return s.empty() ? "?" : s;
     }
+}
+
+// Shown for fields Turbo cannot read from memory (field type 13 = compressed text in FC 27, e.g. playernames.name)
+static Value unreadable(const Field& f) {
+    Value v;
+    v.s = f.raw_type == 13 ? "(compressed text)" : "(type " + std::to_string(f.raw_type) + ")";
+    return v;
 }
 
 bool Value::operator==(const Value& o) const {
@@ -126,7 +133,7 @@ Value Snapshot::get(uint32_t idx, const Field& f) const {
         case FieldType::Int: return Value::of_int(get_int(idx, f));
         case FieldType::Float: return Value::of_float(get_float(idx, f));
         case FieldType::String: return Value::of_str(get_str(idx, f));
-        default: return Value();
+        default: return unreadable(f);
     }
 }
 
@@ -251,6 +258,10 @@ bool Database::table_alive(const Table& t, uint64_t rec) {
 
 bool Database::get(const Table& t, uint64_t rec, const Field& f, Value& out) {
     (void)t;
+    if (f.type == FieldType::Unknown) {
+        out = unreadable(f);
+        return true;
+    }
     if (f.type == FieldType::String) {
         out = Value::of_str(mem_.read_cstr(rec + f.byte_off(), f.max_len()));
         return true;
@@ -295,7 +306,8 @@ std::string Database::validate(const Field& f, const Value& v) {
             }
             return "";
         default:
-            return f.name + " has an unsupported type";
+            return f.name + (f.raw_type == 13 ? " is compressed text: Turbo cannot edit it (edit names through editedplayernames)"
+                                               : " has an unsupported type");
     }
 }
 
@@ -318,7 +330,7 @@ std::string Database::parse(const Field& f, const std::string& text, Value& out)
         out = Value::of_float(v);
         return validate(f, out);
     }
-    return f.name + " has an unsupported type";
+    return validate(f, Value());
 }
 
 bool Database::set(const Table& t, uint64_t rec, const Field& f, const Value& v, std::string* err) {

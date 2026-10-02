@@ -2,6 +2,7 @@
 #pragma once
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -9,6 +10,9 @@
 #include "t3db.h"
 
 namespace turbo {
+
+// nameid -> player name (from bridge_names.txt)
+using NameMap = std::unordered_map<int64_t, std::string>;
 
 struct GameDate {
     int year = 0, month = 0, day = 0;
@@ -91,6 +95,10 @@ public:
     // Text that explains which name source worked (for the status panel)
     const std::string& name_source() const { return name_source_; }
 
+    // Names Live Editor decoded for Turbo (bridge_names.txt). Used for name tables whose text is compressed in memory
+    // (playernames.name in FC 27). Takes effect on the next rebuild.
+    void set_extra_names(std::shared_ptr<const NameMap> names) { extra_names_ = std::move(names); }
+
 private:
     void build_names();
     void build_teams();
@@ -111,6 +119,7 @@ private:
     std::unordered_map<int64_t, std::string> edited_names_;
     std::unordered_map<int64_t, int64_t> team_league_;
     std::string name_source_;
+    std::shared_ptr<const NameMap> extra_names_;
 };
 
 }  // namespace turbo

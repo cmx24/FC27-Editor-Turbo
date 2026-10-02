@@ -9,7 +9,8 @@ local function report(text)
     elseif type(Log) == "function" then
         pcall(Log, "[Turbo] " .. text)
     end
-    if type(MessageBox) == "function" then pcall(MessageBox, "Turbo GUI", text) end
+    local okmb, util = pcall(require, 'imports/turbo/core/util')
+    if okmb then util.message_box("Turbo GUI", text) end
 end
 
 local okt, trace = pcall(require, 'imports/turbo/core/trace')

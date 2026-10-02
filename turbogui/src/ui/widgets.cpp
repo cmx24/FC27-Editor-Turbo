@@ -74,7 +74,7 @@ bool field_editor(App& app, const Table& t, uint64_t rec, const Field& f, const 
     if (label) {
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(label);
-        ImGui::SameLine(150.0f);
+        ImGui::SameLine(S(150.0f));
     }
     ImGui::SetNextItemWidth(width);
     ImGuiID id = ImGui::GetID("##v");
@@ -129,7 +129,8 @@ bool field_editor(App& app, const Table& t, uint64_t rec, const Field& f, const 
             if (ImGui::IsItemDeactivatedAfterEdit() && v != cur.s) wrote = app.edit(t, rec, f, Value::of_str(v));
         }
     } else {
-        ImGui::TextDisabled("(unsupported type %d)", f.raw_type);
+        ImGui::TextDisabled("%s", cur.to_string().c_str());  // compressed text (type 13) or unknown: read-only
+        range_tooltip(f);
     }
     ImGui::PopID();
     return wrote;
@@ -143,13 +144,13 @@ bool date_field_editor(App& app, const Table& t, uint64_t rec, const Field& f, c
     ImGui::PushID(f.name.c_str());
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(label);
-    ImGui::SameLine(150.0f);
+    ImGui::SameLine(S(150.0f));
     int ymd[3] = {d.year, d.month, d.day};
     ImGuiID id = ImGui::GetID("##date");
     static ImGuiID active = 0;
     static int buf[3] = {0, 0, 0};
     int* p = active == id ? buf : ymd;
-    ImGui::SetNextItemWidth(170.0f);
+    ImGui::SetNextItemWidth(S(170.0f));
     ImGui::InputInt3("##date", p);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("year / month / day  (stored as %s = %lld)", f.name.c_str(), static_cast<long long>(cur.i));
     if (ImGui::IsItemActivated()) {
@@ -196,7 +197,7 @@ void field_grid(App& app, const Table& t, uint64_t rec, const std::vector<std::s
         for (const Field* f : present) {
             ImGui::TableNextColumn();
             std::string lbl = field_label(f->name);
-            field_editor(app, t, rec, *f, lbl.c_str(), 90.0f);
+            field_editor(app, t, rec, *f, lbl.c_str(), S(90.0f));
         }
         ImGui::EndTable();
     }
@@ -205,7 +206,7 @@ void field_grid(App& app, const Table& t, uint64_t rec, const std::vector<std::s
 void all_fields(App& app, const Table& t, uint64_t rec, const char* id) {
     ImGui::PushID(id);
     static char filter[64] = "";
-    ImGui::SetNextItemWidth(220.0f);
+    ImGui::SetNextItemWidth(S(220.0f));
     ImGui::InputTextWithHint("##filter", "filter fields", filter, sizeof(filter));
     ImGui::SameLine();
     ImGui::TextDisabled("%zu fields in %s", t.fields.size(), t.name.c_str());
@@ -214,8 +215,8 @@ void all_fields(App& app, const Table& t, uint64_t rec, const char* id) {
     if (ImGui::BeginTable("##all", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV,
                           ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("Field", ImGuiTableColumnFlags_WidthFixed, 220.0f);
-        ImGui::TableSetupColumn("Range", ImGuiTableColumnFlags_WidthFixed, 170.0f);
+        ImGui::TableSetupColumn("Field", ImGuiTableColumnFlags_WidthFixed, S(220.0f));
+        ImGui::TableSetupColumn("Range", ImGuiTableColumnFlags_WidthFixed, S(170.0f));
         ImGui::TableSetupColumn("Value");
         ImGui::TableHeadersRow();
         for (const auto& name : t.field_names()) {

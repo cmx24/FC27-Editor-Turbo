@@ -61,7 +61,7 @@ static void player_list(App& app) {
     static uint64_t last_version = ~uint64_t(0);
     static bool need_sort = true;
 
-    ImGui::SetNextItemWidth(220.0f);
+    ImGui::SetNextItemWidth(S(220.0f));
     ImGui::InputTextWithHint("##psearch", "name or ID", search, sizeof(search));
     ImGui::SameLine();
     bool can_my_club = app.bridge.state().user_team > 0;
@@ -72,7 +72,7 @@ static void player_list(App& app) {
         my_club = false;
     }
 
-    ImGui::SetNextItemWidth(130.0f);
+    ImGui::SetNextItemWidth(S(130.0f));
     if (ImGui::BeginCombo("##fpos", f_pos < 0 ? "Any position" : position_name(f_pos), ImGuiComboFlags_HeightLargest)) {
         if (ImGui::Selectable("Any position", f_pos < 0)) f_pos = -1;
         for (int p = 0; p < position_count(); ++p)
@@ -81,7 +81,7 @@ static void player_list(App& app) {
     }
     ImGui::SameLine();
     const auto& styles = playstyle1_names();
-    ImGui::SetNextItemWidth(170.0f);
+    ImGui::SetNextItemWidth(S(170.0f));
     if (ImGui::BeginCombo("##fstyle", f_style < 0 || !styles[static_cast<size_t>(f_style)] ? "Any PlayStyle"
                                                                                              : styles[static_cast<size_t>(f_style)],
                           ImGuiComboFlags_HeightLargest)) {
@@ -97,7 +97,7 @@ static void player_list(App& app) {
     for (auto* v : {&f_min_ovr, &f_min_pot, &f_max_age}) {
         const char* lbl = v == &f_min_ovr ? "Min OVR" : v == &f_min_pot ? "Min POT" : "Max age";
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(46.0f);
+        ImGui::SetNextItemWidth(S(46.0f));
         ImGui::InputInt(lbl, v, 0);
         *v = std::max(0, std::min(*v, 99));
     }
@@ -149,13 +149,13 @@ static void player_list(App& app) {
                          ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable;
     if (ImGui::BeginTable("##players", 7, fl, ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 62.0f);
+        ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, S(62.0f));
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort);
         ImGui::TableSetupColumn("Club", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Pos", ImGuiTableColumnFlags_WidthFixed, 38.0f);
-        ImGui::TableSetupColumn("OVR", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, 36.0f);
-        ImGui::TableSetupColumn("POT", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, 36.0f);
-        ImGui::TableSetupColumn("Age", ImGuiTableColumnFlags_WidthFixed, 34.0f);
+        ImGui::TableSetupColumn("Pos", ImGuiTableColumnFlags_WidthFixed, S(38.0f));
+        ImGui::TableSetupColumn("OVR", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, S(36.0f));
+        ImGui::TableSetupColumn("POT", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, S(36.0f));
+        ImGui::TableSetupColumn("Age", ImGuiTableColumnFlags_WidthFixed, S(34.0f));
         ImGui::TableHeadersRow();
 
         if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs()) {
@@ -221,8 +221,8 @@ static void positions_editor(App& app, const Table& t, uint64_t rec) {
         ImGui::PushID(k);
         ImGui::AlignTextToFramePadding();
         ImGui::Text("Position %d", k);
-        ImGui::SameLine(150.0f);
-        ImGui::SetNextItemWidth(110.0f);
+        ImGui::SameLine(S(150.0f));
+        ImGui::SetNextItemWidth(S(110.0f));
         const char* cur = v.i < 0 ? "None" : position_name(static_cast<int>(v.i));
         if (ImGui::BeginCombo("##pos", cur)) {
             if (f->min <= -1 && ImGui::Selectable("None", v.i < 0)) app.edit(t, rec, *f, Value::of_int(-1));
@@ -273,17 +273,17 @@ static void moves_popup(App& app, int64_t pid) {
     static int to_team = 0, fee = 0, wage = 10000, months = 36, loan_months = 12;
     if (ImGui::BeginPopup("##moves")) {
         ImGui::TextDisabled("Runs through Live Editor on the next career-mode event");
-        ImGui::SetNextItemWidth(120.0f);
+        ImGui::SetNextItemWidth(S(120.0f));
         ImGui::InputInt("To team ID", &to_team, 0);
         if (to_team > 0) {
             ImGui::SameLine();
             ImGui::TextDisabled("%s", app.model.team_name(to_team).c_str());
         }
-        ImGui::SetNextItemWidth(120.0f);
+        ImGui::SetNextItemWidth(S(120.0f));
         ImGui::InputInt("Fee", &fee, 0);
-        ImGui::SetNextItemWidth(120.0f);
+        ImGui::SetNextItemWidth(S(120.0f));
         ImGui::InputInt("Wage", &wage, 0);
-        ImGui::SetNextItemWidth(120.0f);
+        ImGui::SetNextItemWidth(S(120.0f));
         ImGui::InputInt("Contract months", &months, 0);
         bool valid_team = app.model.team(to_team) != nullptr;
         if (!valid_team) ImGui::BeginDisabled();
@@ -293,7 +293,7 @@ static void moves_popup(App& app, int64_t pid) {
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(80.0f);
+        ImGui::SetNextItemWidth(S(80.0f));
         ImGui::InputInt("##loanm", &loan_months, 0);
         ImGui::SameLine();
         if (ImGui::Button("Loan (months)")) {
@@ -416,8 +416,8 @@ static void player_editor(App& app) {
                     ImGui::AlignTextToFramePadding();
                     ImGui::Text("%s (ID %lld)%s", app.model.team_name(l.teamid).c_str(), static_cast<long long>(l.teamid),
                                 app.model.is_national_team(l.teamid) ? " [national team]" : "");
-                    if (const Field* jf = lt->field("jerseynumber")) field_editor(app, *lt, l.rec, *jf, "  Jersey", 80.0f);
-                    if (const Field* pf = lt->field("position")) field_editor(app, *lt, l.rec, *pf, "  Line-up slot", 80.0f);
+                    if (const Field* jf = lt->field("jerseynumber")) field_editor(app, *lt, l.rec, *jf, "  Jersey", S(80.0f));
+                    if (const Field* pf = lt->field("position")) field_editor(app, *lt, l.rec, *pf, "  Line-up slot", S(80.0f));
                     ImGui::PopID();
                 }
             }
@@ -437,7 +437,7 @@ void draw_players(App& app) {
         not_connected_hint();
         return;
     }
-    ImGui::BeginChild("##plist", ImVec2(470.0f, 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
+    ImGui::BeginChild("##plist", ImVec2(S(470.0f), 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
     player_list(app);
     ImGui::EndChild();
     ImGui::SameLine();

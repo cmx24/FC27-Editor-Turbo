@@ -24,17 +24,19 @@ static const std::vector<std::string>& team_overview_fields() {
 
 static void team_list(App& app) {
     static char search[64] = "";
-    ImGui::SetNextItemWidth(200.0f);
+    ImGui::SetNextItemWidth(S(200.0f));
     ImGui::InputTextWithHint("##tsearch", "team name or ID", search, sizeof(search));
-    ImGui::SameLine();
-    if (app.bridge.state().user_team > 0 && ImGui::Button("My club")) app.sel_team = app.bridge.state().user_team;
+    if (app.bridge.state().user_team > 0) {
+        ImGui::SameLine();
+        if (ImGui::Button("My club")) app.sel_team = app.bridge.state().user_team;
+    }
     std::string q = lower(search);
     if (ImGui::BeginTable("##teams", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV,
                           ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 62.0f);
+        ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, S(62.0f));
         ImGui::TableSetupColumn("Name");
-        ImGui::TableSetupColumn("OVR", ImGuiTableColumnFlags_WidthFixed, 36.0f);
+        ImGui::TableSetupColumn("OVR", ImGuiTableColumnFlags_WidthFixed, S(36.0f));
         ImGui::TableHeadersRow();
         std::vector<const TeamRow*> rows;
         for (const auto& t : app.model.teams()) {
@@ -70,19 +72,19 @@ static void squad_table(App& app, int64_t teamid) {
     if (ImGui::BeginTable("##squad", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV,
                           ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("Jersey", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+        ImGui::TableSetupColumn("Jersey", ImGuiTableColumnFlags_WidthFixed, S(80.0f));
         ImGui::TableSetupColumn("Player");
-        ImGui::TableSetupColumn("Pos", ImGuiTableColumnFlags_WidthFixed, 38.0f);
-        ImGui::TableSetupColumn("OVR", ImGuiTableColumnFlags_WidthFixed, 36.0f);
-        ImGui::TableSetupColumn("Age", ImGuiTableColumnFlags_WidthFixed, 34.0f);
-        ImGui::TableSetupColumn("Line-up slot", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+        ImGui::TableSetupColumn("Pos", ImGuiTableColumnFlags_WidthFixed, S(38.0f));
+        ImGui::TableSetupColumn("OVR", ImGuiTableColumnFlags_WidthFixed, S(36.0f));
+        ImGui::TableSetupColumn("Age", ImGuiTableColumnFlags_WidthFixed, S(34.0f));
+        ImGui::TableSetupColumn("Line-up slot", ImGuiTableColumnFlags_WidthFixed, S(90.0f));
         ImGui::TableHeadersRow();
         for (const auto& l : links) {
             const PlayerRow* p = app.model.player(l.playerid);
             ImGui::PushID(static_cast<int>(l.rec & 0x7FFFFFFF));
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            if (const Field* jf = lt->field("jerseynumber")) field_editor(app, *lt, l.rec, *jf, nullptr, 70.0f);
+            if (const Field* jf = lt->field("jerseynumber")) field_editor(app, *lt, l.rec, *jf, nullptr, S(70.0f));
             ImGui::TableNextColumn();
             std::string name = p ? p->name : app.model.player_name(l.playerid);
             if (ImGui::Selectable(name.c_str(), false)) {
@@ -96,7 +98,7 @@ static void squad_table(App& app, int64_t teamid) {
             ImGui::TableNextColumn();
             if (p && p->age >= 0) ImGui::Text("%d", p->age);
             ImGui::TableNextColumn();
-            if (const Field* pf = lt->field("position")) field_editor(app, *lt, l.rec, *pf, nullptr, 80.0f);
+            if (const Field* pf = lt->field("position")) field_editor(app, *lt, l.rec, *pf, nullptr, S(80.0f));
             ImGui::PopID();
         }
         ImGui::EndTable();
@@ -143,7 +145,7 @@ void draw_teams(App& app) {
         not_connected_hint();
         return;
     }
-    ImGui::BeginChild("##tlist", ImVec2(360.0f, 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
+    ImGui::BeginChild("##tlist", ImVec2(S(360.0f), 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
     team_list(app);
     ImGui::EndChild();
     ImGui::SameLine();
@@ -164,15 +166,15 @@ void draw_managers(App& app) {
         return;
     }
     const auto& mgrs = app.model.managers();
-    ImGui::BeginChild("##mlist", ImVec2(360.0f, 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
+    ImGui::BeginChild("##mlist", ImVec2(S(360.0f), 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
     static char search[64] = "";
-    ImGui::SetNextItemWidth(200.0f);
+    ImGui::SetNextItemWidth(S(200.0f));
     ImGui::InputTextWithHint("##msearch", "name or team", search, sizeof(search));
     std::string q = lower(search);
     if (ImGui::BeginTable("##mgrs", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV,
                           ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 62.0f);
+        ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, S(62.0f));
         ImGui::TableSetupColumn("Name");
         ImGui::TableSetupColumn("Team");
         ImGui::TableHeadersRow();

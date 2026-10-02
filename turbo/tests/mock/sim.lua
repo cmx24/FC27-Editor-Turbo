@@ -150,11 +150,33 @@ function Sim:install()
 
     -- core
     Log = function(text, level) table.insert(s.logs, { text = tostring(text), level = level or 1 }) end
-    MessageBox = function(title, text) table.insert(s.boxes, { title = title, text = text }) end
+    -- Live Editor formats message box text like printf: a lone "%" crashes the game (FC 27 LE v27.1.2). The sim records
+    -- such a call as a violation and shows the text the way Live Editor would ("%%" -> "%").
+    MessageBox = function(title, text)
+        local function shown(v)
+            local raw = tostring(v)
+            if raw:gsub("%%%%", ""):find("%%") then s.box_format_violations = (s.box_format_violations or 0) + 1 end
+            return (raw:gsub("%%%%", "%%"))
+        end
+        table.insert(s.boxes, { title = shown(title), text = shown(text), raw = text })
+    end
     IsInCM = function() return s.in_cm end
     GetPlugin = function(hash) return s.plugins[hash] or 0 end
     GetDBMeta = function() return s:db_meta() end
     GetSaveUID = function() return "TESTSAVE" end
+    -- Live Editor's documented GetDBTableRows: every valid row, each field as { value = <text> }; decodes compressed text
+    GetDBTableRows = function(name)
+        s:record("GetDBTableRows", name)
+        local t = s.tables[name]
+        local out = {}
+        if not t then return out end
+        for _, rec in ipairs(s:rows(name)) do
+            local row = { addr = string.format("%X", rec) }
+            for _, c in ipairs(t.cols) do row[c.name] = { value = tostring(s:get_field(rec, c)) } end
+            out[#out + 1] = row
+        end
+        return out
+    end
 
     -- events
     AddEventHandler = function(ev, fn)
@@ -238,9 +260,11 @@ function Sim:add_table(spec)
     local bit = 0
     for _, f in ipairs(spec.fields) do
         assert(#f.short == 4, "field shortname must be 4 chars: " .. f.name)
-        local typ = (f.type == "string" and 0) or (f.type == "float" and 4) or 3
-        local depth = f.depth or (f.type == "float" and 32) or 16
-        if typ == 0 then bit = (bit + 7) // 8 * 8 end
+        -- "compressed": FC 27's compressed text (field type 13, e.g. playernames.name). In memory it is not plain text
+        -- (the sim stores the bytes XOR 0xA5); only Live Editor's GetDBTableRows decodes it.
+        local typ = (f.type == "string" and 0) or (f.type == "float" and 4) or (f.type == "compressed" and 13) or 3
+        local depth = f.depth or (f.type == "float" and 32) or ((typ == 13) and 8 * 32) or 16
+        if typ == 0 or typ == 13 then bit = (bit + 7) // 8 * 8 end
         cols[#cols + 1] = { name = f.name, short = f.short, typ = typ, depth = depth, min = f.min or 0, bitoff = bit }
         bit = bit + depth
     end
@@ -263,7 +287,9 @@ function Sim:add_table(spec)
         self:w32(ca + 4, c.bitoff)
         for k = 1, 4 do self:w8(ca + 8 + k - 1, c.short:byte(k)) end
         self:w32(ca + 0xC, c.depth)
-        self.meta.field_desc_map[spec.short][c.short] = { name = c.name, depth = c.depth, min = c.min }
+        local max = (c.typ == 3 and c.depth < 63) and (c.min + (1 << c.depth) - 1) or 0
+        self.meta.field_desc_map[spec.short][c.short] = { name = c.name, depth = c.depth, min = c.min, max = max,
+                                                           field_type = c.typ, shortname = c.short, table_name = spec.name }
     end
 
     local t = { name = spec.name, hdr = hdr, first = first, rec_size = rec_size, cols = cols, n = n }
@@ -283,6 +309,15 @@ function Sim:add_table(spec)
 end
 
 function Sim:set_field(rec, c, v)
+    if c.typ == 13 then
+        local a = rec + c.bitoff // 8
+        local str = tostring(v)
+        for i = 0, c.depth // 8 - 1 do
+            local b = str:byte(i + 1)
+            self:wb(a + i, b and (b ~ 0xA5) or 0xA5)
+        end
+        return
+    end
     if c.typ == 0 then
         local a = rec + c.bitoff // 8
         for i = 0, c.depth // 8 - 1 do self:wb(a + i, 0) end
@@ -307,6 +342,15 @@ end
 
 function Sim:get_field(rec, c)
     if c.typ == 0 then return ReadString(rec + c.bitoff // 8) end
+    if c.typ == 13 then
+        local out = {}
+        for i = 0, c.depth // 8 - 1 do
+            local b = self:rb(rec + c.bitoff // 8 + i) ~ 0xA5
+            if b == 0 then break end
+            out[#out + 1] = string.char(b)
+        end
+        return table.concat(out)
+    end
     local q = self:r64(rec + c.bitoff // 8) >> (c.bitoff % 8)
     local raw = q & ((1 << c.depth) - 1)
     if c.typ == 4 then return (string.unpack("<f", string.pack("<I4", raw))) end

@@ -15,7 +15,13 @@
 
 namespace turbo {
 
-constexpr const char* kGuiVersion = "0.2.4";
+constexpr const char* kGuiVersion = "0.2.5";
+
+// UI scale (window height and the user's "UI size" setting): every fixed size in the panels goes through S()
+extern float g_ui_scale;
+inline float S(float px) { return px * g_ui_scale; }
+// UI size = automatic scale (window height / 1080, at least 1) x the user's factor, rounded to 0.05
+float auto_ui_scale(float display_height);
 
 struct Toast {
     std::string text;
@@ -27,8 +33,10 @@ class App {
 public:
     App(Memory& mem, std::filesystem::path le_root, uint64_t mailbox_addr, std::string session);
 
-    // Call once per frame before draw(); `now` in seconds
+    // Call once per frame before draw() and before ImGui::NewFrame(); `now` in seconds
     void tick(double now);
+    // Colours and sizes for the current UI scale (called by tick; needs an ImGui context)
+    void update_style();
     // Draw the Turbo window (only when visible)
     void draw();
 
@@ -43,6 +51,9 @@ public:
     // ---- state
     bool visible = false;
     int toggle_vk = 0x77;  // F8
+    float ui_scale_user = 1.0f;     // "UI size" setting (gui_settings.json gui.ui_scale), 0.6 .. 2.5
+    float ui_scale_applied = 0.0f;  // scale the style was last built for
+    float ui_scale_changed_from = 0.0f;  // previous scale when it changed this frame (main window follows)
     double now = 0.0;
     double next_poll = 0.0;
     double next_retry = 0.0;  // next automatic connection attempt while not connected
@@ -60,6 +71,8 @@ public:
     std::deque<std::string> log_lines;
     std::vector<Toast> toasts;
     nlohmann::json gui_settings;
+    std::shared_ptr<const NameMap> seen_names_;
+    struct { float x = 0.0f, y = 0.0f; } main_window_size_;  // last size of the main window (follows UI size changes)
     int lua_heartbeat_last = 0;
     double lua_heartbeat_seen_at = -1.0;
 

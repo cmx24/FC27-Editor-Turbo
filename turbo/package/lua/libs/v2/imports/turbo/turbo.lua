@@ -11,6 +11,8 @@ local trace = require 'imports/turbo/core/trace'
 
 local M = { version = version.version }
 
+local function util_join(a, b) return (require 'imports/turbo/core/util').join(a, b) end
+
 -- name -> { path, kind = "action" | "auto", needs_cm = bool, desc }
 M.MODULES = {
     probe                    = { path = 'imports/turbo/features/probe',                    kind = "action", needs_cm = false, desc = "Report LE version, API natives, DB tables/fields, calibration status" },
@@ -37,7 +39,8 @@ M.MODULES = {
 local function message_box(cfg, title, text, opts)
     if opts and opts.silent then return end
     if cfg and cfg.turbo and cfg.turbo.show_message_box == false then return end
-    if type(MessageBox) == "function" then pcall(MessageBox, title, text) end
+    local util = require 'imports/turbo/core/util'
+    util.message_box(title, text)
 end
 
 local function load_module(name)
@@ -156,6 +159,20 @@ function M.boot(opts)
         if gui.autoload ~= false then
             bridge.arm(cfg)
             if opts.at_launch then
+                -- The crash guard of the last start is still there: say so where the user looks (Live Editor's Logger).
+                -- Pure Lua file I/O, nothing else (launch safety).
+                local root = env.le_root()
+                local flag = root and util_join(util_join(root, "turbo_output"), "turbo_gui_start.flag") or nil
+                local fh = flag and io.open(flag, "rb")
+                if fh then
+                    local why = fh:read("l") or ""
+                    fh:close()
+                    if why:sub(1, 7) == "RETRY: " then
+                        log.warn("Turbo GUI stays off: its last two starts did not finish (%s). Delete turbo_output\\turbo_gui_start.flag to try again; see turbo_output\\turbo_gui.log", why)
+                    else
+                        log.warn("Turbo GUI's last start did not finish (%s): trying once more. See turbo_output\\turbo_gui.log", why)
+                    end
+                end
                 trace.step("boot: loading turbo\\Turbo.dll (it waits until Live Editor reports Initial setup done)")
                 local okl, lok, lmsg = pcall(bridge.load_gui, "launch")
                 local why = okl and lmsg or lok

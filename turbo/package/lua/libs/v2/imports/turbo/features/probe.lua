@@ -135,8 +135,48 @@ function M.collect()
     return r
 end
 
+-- Full database schema from GetDBMeta (every table and field with type, range and bit depth) as JSON, so field names
+-- and ranges can be checked against the real game. Returns path or nil, error.
+function M.write_schema(out_dir)
+    if type(GetDBMeta) ~= "function" then return nil, "GetDBMeta is not available" end
+    local ok, meta = pcall(GetDBMeta)
+    if not ok or not util.is_object(meta) then return nil, "GetDBMeta failed: " .. tostring(meta) end
+    local names = util.index(meta, "shortname_name_tables_map")
+    local fmap = util.index(meta, "field_desc_map")
+    local tables = {}
+    util.each(names, function(short, name)
+        if type(short) ~= "string" or type(name) ~= "string" then return end
+        local fields = {}
+        util.each(util.index(fmap, short), function(fshort, d)
+            local fname = util.index(d, "name")
+            if type(fname) ~= "string" then return end
+            fields[#fields + 1] = {
+                name = fname, shortname = fshort,
+                type = tonumber(util.index(d, "field_type")), depth = tonumber(util.index(d, "depth")),
+                min = tonumber(util.index(d, "min")), max = tonumber(util.index(d, "max")),
+                pkey = util.index(d, "is_pkey") == true,
+            }
+        end)
+        table.sort(fields, function(a, b) return a.name < b.name end)
+        tables[name] = { shortname = short, fields = fields }
+    end)
+    if next(tables) == nil then return nil, "the database meta is empty" end
+    local okj, json = pcall(require, 'imports/external/json')
+    if not okj then return nil, "json library missing" end
+    local oke, text = pcall(json.encode, { le_version = tostring(LE_VERSION or ""), tables = tables })
+    if not oke then return nil, "cannot encode schema: " .. tostring(text) end
+    local path = util.join(out_dir, "fc27_db_schema.json")
+    local okw, err = util.write_file(path, text)
+    if not okw then return nil, tostring(err) end
+    return path
+end
+
 function M.run(ctx)
     local lines = M.collect()
+    if ctx.out_dir then
+        local spath, serr = M.write_schema(ctx.out_dir)
+        lines[#lines + 1] = "Schema: " .. (spath and ("written to " .. spath) or ("not written: " .. tostring(serr)))
+    end
     local log = require 'imports/turbo/core/log'
     for _, l in ipairs(lines) do
         if l ~= "" then log.info("%s", l) end

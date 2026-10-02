@@ -91,10 +91,24 @@ H.case("every runner script executes and reports through a message box", functio
         n = n + 1
     end
     p:close()
-    H.eq(n, 25, "runner scripts")
+    H.eq(n, 26, "runner scripts")
+    H.eq(sim.box_format_violations or 0, 0, "message boxes with an unescaped percent sign (would crash Live Editor)")
     for _, b in ipairs(sim.boxes) do
         H.ok(not tostring(b.text):find("crashed"), "crash reported: " .. tostring(b.text))
     end
+end)
+
+H.case("message box text with a percent sign is escaped for Live Editor", function()
+    local util = require 'imports/turbo/core/util'
+    local before = #sim.boxes
+    local v0 = sim.box_format_violations or 0
+    util.message_box("Turbo 100%", "50% done in C:\\x%s\\%d")
+    H.eq(#sim.boxes, before + 1, "box shown")
+    H.eq(sim.box_format_violations or 0, v0, "no printf violation")
+    H.eq(sim.boxes[#sim.boxes].text, "50% done in C:\\x%s\\%d", "shown text")
+    H.eq(sim.boxes[#sim.boxes].title, "Turbo 100%", "shown title")
+    local long = util.message_box_text(string.rep("a", 5000))
+    H.ok(#long <= util.MESSAGE_BOX_MAX + 10, "long text cut")
 end)
 
 H.case("message boxes can be switched off", function()

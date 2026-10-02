@@ -66,7 +66,7 @@ void draw_database(App& app) {
     auto names = app.db.table_names();
     if (app.db_table.empty() && !names.empty()) app.db_table = std::find(names.begin(), names.end(), "players") != names.end() ? "players" : names[0];
 
-    ImGui::SetNextItemWidth(240.0f);
+    ImGui::SetNextItemWidth(S(240.0f));
     if (ImGui::BeginCombo("Table", app.db_table.c_str(), ImGuiComboFlags_HeightLarge)) {
         for (const auto& n : names) {
             if (ImGui::Selectable(n.c_str(), n == app.db_table)) {
@@ -80,10 +80,10 @@ void draw_database(App& app) {
     const Table* t = app.db.table(app.db_table);
     if (!t) return;
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(160.0f);
+    ImGui::SetNextItemWidth(S(160.0f));
     ImGui::InputTextWithHint("##ff", "field", g_view.filter_field, sizeof(g_view.filter_field));
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(140.0f);
+    ImGui::SetNextItemWidth(S(140.0f));
     ImGui::InputTextWithHint("##fv", "value", g_view.filter_value, sizeof(g_view.filter_value));
     ImGui::SameLine();
     bool reload = ImGui::Button("Apply / Reload");
@@ -131,7 +131,7 @@ void draw_database(App& app) {
         const Field* ef = t->field(g_view.edit_field);
         if (ef && g_view.edit_rec) {
             ImGui::Text("%s.%s", t->name.c_str(), ef->name.c_str());
-            if (field_editor(app, *t, g_view.edit_rec, *ef, nullptr, 220.0f)) ImGui::CloseCurrentPopup();
+            if (field_editor(app, *t, g_view.edit_rec, *ef, nullptr, S(220.0f))) ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
     }

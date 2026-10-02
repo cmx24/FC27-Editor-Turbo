@@ -194,6 +194,8 @@ static void test_core() {
         CHECK(bridge.state().date.as_int() == 20270115, "date 2027-01-15");
         CHECK(bridge.state().has_settings && !bridge.state().dry_run && bridge.state().auto_form == 100, "effective settings");
         CHECK(bridge.state().db_gen >= 1, "db_gen");
+        CHECK(bridge.names()->size() == 20, fmt("player names from bridge_names.txt: %zu", bridge.names()->size()));
+        CHECK(bridge.state().names_count == 20, "names count in bridge_state.json");
         CHECK(!bridge.poll_files(), "unchanged files are not re-read");
     });
 
@@ -258,7 +260,28 @@ static void test_core() {
     });
 
     Model model(db);
+    run_case("compressed text fields (FC 27 playernames.name) are read-only and never shown as text", [&] {
+        const Table* t = db.table("playernames");
+        CHECK(t != nullptr, "playernames");
+        const Field* f = t ? t->field("name") : nullptr;
+        CHECK(f && f->raw_type == 13 && f->type == FieldType::Unknown, "type 13 = compressed");
+        if (t && f) {
+            Value v;
+            uint64_t rec = t->record_addr(0);
+            CHECK(db.get(*t, rec, *f, v) && v.to_string() == "(compressed text)", "shown as (compressed text): " + v.to_string());
+            std::string err;
+            CHECK(!db.set(*t, rec, *f, Value::of_str("X"), &err) && err.find("compressed text") != std::string::npos,
+                  "write refused: " + err);
+        }
+        Model bare(db);
+        CHECK(bare.rebuild(kToday), "rebuild without names");
+        const PlayerRow* p = bare.player(1001);
+        CHECK(p && p->name == "#1001", "without bridge_names.txt players are shown by ID, never as garbage: " + (p ? p->name : ""));
+        CHECK(bare.name_source().find("waiting for Turbo's Lua side") != std::string::npos, "status explains: " + bare.name_source());
+    });
+
     run_case("model: players, names, clubs, ages", [&] {
+        model.set_extra_names(bridge.names());
         CHECK(model.rebuild(kToday), "rebuild");
         const auto& ep = exp["model"]["players"];
         CHECK(model.players().size() == ep.size(), fmt("players %zu", model.players().size()));
@@ -273,7 +296,7 @@ static void test_core() {
             CHECK(p->position == e["position"].get<int>(), fmt("%lld position", static_cast<long long>(pid)));
             CHECK(p->age == e["age"].get<int>(), fmt("%lld age %d vs %d", static_cast<long long>(pid), p->age, e["age"].get<int>()));
         }
-        CHECK(model.name_source().find("playernames") != std::string::npos, "name source: " + model.name_source());
+        CHECK(model.name_source().find("playernames via Live Editor (20)") != std::string::npos, "name source: " + model.name_source());
         CHECK(model.name_source().find("editedplayernames") != std::string::npos, "edited names used");
     });
 
@@ -462,6 +485,35 @@ static void test_core() {
         CHECK(!a3.refresh(), "no meta: not connected");
         CHECK(a3.db_error.find("cannot read the game database: GetDBMeta failed: not ready") != std::string::npos,
               "the reason is shown: " + a3.db_error);
+    });
+
+    run_case("bridge_names.txt: parsing, half-written files, stale files from an earlier session", [&] {
+        NameMap m;
+        std::string sess;
+        CHECK(Bridge::parse_names("#turbo-names ABC 2\n1\tSaka\n2\t\xC3\x98degaard\n", m, &sess), "parsed");
+        CHECK(sess == "ABC" && m.size() == 2 && m[2] == "\xC3\x98degaard", "session and UTF-8 name");
+        CHECK(!Bridge::parse_names("#turbo-names ABC 3\n1\tSaka\n2\tX", m), "fewer lines than announced = half written");
+        CHECK(!Bridge::parse_names("1\tSaka\n", m), "no header");
+        CHECK(Bridge::parse_names("#turbo-names ABC 1\r\n7\tKane\r\n\tbad\nx\ty\n", m) && m.size() == 1 && m[7] == "Kane",
+              "CRLF and bad lines");
+        fs::path dir = g_out / "LE4" / "turbo_output";
+        fs::create_directories(dir);
+        std::ofstream(dir / "bridge_names.txt") << "#turbo-names S 2\n1\tA\n";
+        Bridge b(g_out / "LE4");
+        b.poll_files();
+        CHECK(b.names()->empty(), "half-written names file not used");
+        std::ofstream(dir / "bridge_names.txt") << "#turbo-names S 2\n1\tA\n2\tB\n";
+        fs::last_write_time(dir / "bridge_names.txt", fs::file_time_type::clock::now() + std::chrono::seconds(3));
+        CHECK(b.poll_files() && b.names()->size() == 2, "complete file read on the next poll");
+        // files older than the DLL's load time belong to an earlier game session
+        Bridge c(g_out / "LE4");
+        c.set_min_file_time(fs::file_time_type::clock::now() + std::chrono::seconds(60));
+        c.poll_files();
+        CHECK(c.names()->empty() && !c.state().loaded, "stale files ignored");
+        Bridge d(g_out / "LE");
+        d.set_min_file_time(fs::file_time_type::clock::now() - std::chrono::minutes(5));
+        d.poll_files();
+        CHECK(d.meta_loaded() && d.state().loaded && d.names()->size() == 20, "fresh files used");
     });
 
     run_case("mailbox protocol against Turbo's Lua bridge", [&] {

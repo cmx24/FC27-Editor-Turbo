@@ -129,6 +129,7 @@ static bool parse_state_impl(const std::string& text, BridgeState& out) {
     out.ifce = addr_field(j, "ifce");
     out.in_cm = j.value("in_cm", false);
     out.user_team = j.value("user_team", 0LL);
+    out.names_count = j.value("names_count", 0LL);
     if (j.contains("meta_error") && j["meta_error"].is_string()) out.meta_error = j["meta_error"].get<std::string>();
     if (j.contains("date") && j["date"].is_object()) {
         out.date.year = j["date"].value("year", 0);
@@ -154,6 +155,37 @@ static bool parse_state_impl(const std::string& text, BridgeState& out) {
     }
     out.loaded = true;
     return true;
+}
+
+bool Bridge::parse_names(const std::string& text, NameMap& out, std::string* session) {
+    out.clear();
+    size_t pos = text.find('\n');
+    std::string header = text.substr(0, pos == std::string::npos ? text.size() : pos);
+    if (!header.empty() && header.back() == '\r') header.pop_back();
+    if (header.rfind("#turbo-names ", 0) != 0) return false;
+    size_t a = 13, b = header.find(' ', a);
+    if (session) *session = header.substr(a, b == std::string::npos ? std::string::npos : b - a);
+    long long expected = b == std::string::npos ? -1 : std::strtoll(header.c_str() + b + 1, nullptr, 10);
+    long long lines = 0;
+    while (pos != std::string::npos && pos + 1 < text.size()) {
+        size_t start = pos + 1;
+        pos = text.find('\n', start);
+        size_t end = pos == std::string::npos ? text.size() : pos;
+        if (end > start && text[end - 1] == '\r') --end;
+        size_t tab = text.find('\t', start);
+        if (tab == std::string::npos || tab >= end || tab == start) continue;
+        char* stop = nullptr;
+        std::string id_text = text.substr(start, tab - start);
+        long long id = std::strtoll(id_text.c_str(), &stop, 10);
+        if (!stop || *stop != '\0') continue;
+        std::string name = text.substr(tab + 1, end - tab - 1);
+        if (!name.empty()) {
+            out[static_cast<int64_t>(id)] = std::move(name);
+            ++lines;
+        }
+    }
+    // Lua rewrites the file in place: a read while it is being written sees fewer lines than the header announces
+    return expected < 0 || lines == expected;
 }
 
 // Wrong value types in the files must never throw into the game's render thread
@@ -194,7 +226,7 @@ bool Bridge::poll_files() {
     std::error_code ec;
     fs::path meta_p = locate("bridge_meta.json");
     auto mt = fs::last_write_time(meta_p, ec);
-    if (!ec && (!have_meta_time_ || mt != meta_time_)) {
+    if (!ec && !too_old(mt) && (!have_meta_time_ || mt != meta_time_)) {
         std::string text;
         if (read_text(meta_p, text)) {
             DbMeta m;
@@ -218,7 +250,7 @@ bool Bridge::poll_files() {
     ec.clear();
     fs::path state_p = locate("bridge_state.json");
     auto st = fs::last_write_time(state_p, ec);
-    if (!ec && (!have_state_time_ || st != state_time_)) {
+    if (!ec && !too_old(st) && (!have_state_time_ || st != state_time_)) {
         std::string text;
         if (read_text(state_p, text)) {
             BridgeState s;
@@ -234,6 +266,31 @@ bool Bridge::poll_files() {
                 have_state_time_ = true;
                 state_failures_ = 0;
                 changed = true;
+            }
+        }
+    }
+    ec.clear();
+    fs::path names_p = locate("bridge_names.txt");
+    auto nt = fs::last_write_time(names_p, ec);
+    if (!ec && !too_old(nt) && (!have_names_time_ || nt != names_time_)) {
+        std::string text;
+        if (read_text(names_p, text)) {
+            auto m = std::make_shared<NameMap>();
+            try {
+                if (parse_names(text, *m)) {
+                    names_ = std::move(m);
+                    changed = true;
+                    names_time_ = nt;
+                    have_names_time_ = true;
+                    names_failures_ = 0;
+                } else if (++names_failures_ >= 4) {  // not a names file: stop re-reading it until it changes
+                    names_time_ = nt;
+                    have_names_time_ = true;
+                    names_failures_ = 0;
+                }  // else: half written; read again on the next poll
+            } catch (const std::exception&) {
+                names_time_ = nt;  // out of memory or similar: keep the previous names
+                have_names_time_ = true;
             }
         }
     }

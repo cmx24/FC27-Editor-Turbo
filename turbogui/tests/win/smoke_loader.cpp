@@ -10,7 +10,10 @@
 //                                          is still launching): the DLL must wait, then give up without hooking
 //                                          anything, publishing a mailbox or leaving a crash flag
 //   smoke_loader.exe <LE folder> disabled  kill switch file present: the overlay must stay off at once
-//   smoke_loader.exe <LE folder> guard     crash flag present (previous start did not finish): must refuse to hook
+//   smoke_loader.exe <LE folder> guard     crash flag "RETRY: ..." present (the last two starts did not finish): must
+//                                          refuse to hook
+//   smoke_loader.exe <LE folder> guardretry plain crash flag present (one start did not finish): must try once more (here:
+//                                          no game window, so it gives up without touching anything and keeps the flag)
 //   smoke_loader.exe <LE folder> guardexit crash guard held (test mode), then a CLEAN process exit: run_smoke.sh checks
 //                                          that the flag is gone afterwards
 //   smoke_loader.exe <LE folder> guardkill crash guard held (test mode), then the process is killed: the flag must stay
@@ -67,7 +70,8 @@ int wmain(int argc, wchar_t** argv) {
     const std::wstring flag = le + L"\\turbo_output\\turbo_gui_start.flag";
     const std::wstring mailbox_file = le + L"\\turbo_output\\bridge_dll.json";
     if (mode == L"start" || mode == L"lua") SetEnvironmentVariableW(L"TURBO_GUI_SKIP_WAIT", L"1");
-    if (mode == L"nowindow" || mode == L"launch" || mode == L"launchlua") SetEnvironmentVariableW(L"TURBO_GUI_WAIT_MS", L"1500");
+    if (mode == L"nowindow" || mode == L"launch" || mode == L"launchlua" || mode == L"guardretry")
+        SetEnvironmentVariableW(L"TURBO_GUI_WAIT_MS", L"1500");
     // What turbo_gui_load.lua writes right before it loads the DLL in game: no wait for Live Editor's setup
     if (mode == L"nowindow") std::ofstream((le + L"\\turbo_output\\turbo_gui_load.json").c_str()) << "{\"mode\":\"now\",\"time\":1}";
 
@@ -149,22 +153,32 @@ int wmain(int argc, wchar_t** argv) {
         TerminateProcess(GetCurrentProcess(), fails == 0 ? 0 : 1);  // killed: nothing runs
         return 1;
     }
-    if (mode == L"nowindow" || mode == L"disabled" || mode == L"guard") {
+    if (mode == L"nowindow" || mode == L"disabled" || mode == L"guard" || mode == L"guardretry") {
         HMODULE stub = LoadLibraryW((le + L"\\FCLiveEditor.DLL").c_str());
         check(stub != nullptr, "stub FCLiveEditor.DLL loads");
         if (mode == L"disabled") std::ofstream((le + L"\\turbo_output\\turbo_gui_disable.txt").c_str()) << "off";
-        if (mode == L"guard") std::ofstream(flag.c_str()) << "hooks being installed (test)";
+        if (mode == L"guard") std::ofstream(flag.c_str()) << "RETRY: hooks being installed (test) (process 1, tick 1)";
+        if (mode == L"guardretry") {
+            std::ofstream(flag.c_str()) << "hooks being installed (test) (process 1, tick 1)";
+            std::ofstream((le + L"\\turbo_output\\turbo_gui_load.json").c_str()) << "{\"mode\":\"now\",\"time\":1}";
+        }
         HMODULE h = LoadLibraryW(dll.c_str());
         check(h != nullptr, "Turbo.dll loads");
         const char* needle = mode == L"nowindow" ? "not starting" : mode == L"disabled" ? "kill switch present"
-                                                                                         : "previous Turbo GUI start did not finish";
+                           : mode == L"guard" ? "last two Turbo GUI starts did not finish" : "Trying once more";
         check(wait_for(log, needle, 10000), mode == L"nowindow" ? "waits for the game window, then gives up" :
-                                            mode == L"disabled" ? "kill switch keeps the overlay off" : "crash guard refuses to hook");
-        if (mode == L"nowindow") check(wait_for(log, "overlay not started", 2000), "reports that the overlay is not started");
+                                            mode == L"disabled" ? "kill switch keeps the overlay off" :
+                                            mode == L"guard" ? "crash guard refuses after two failed starts" :
+                                                               "one failed start: tries once more");
+        if (mode == L"nowindow" || mode == L"guardretry")
+            check(wait_for(log, "overlay not started", 4000), "reports that the overlay is not started");
         check(read_file(log).find("hooks installed") == std::string::npos, "nothing hooked");
         check(read_file(log).find("probing Direct3D 12") == std::string::npos, "Direct3D 12 never probed");
         check(!exists(mailbox_file), "no mailbox published (the GUI never started)");
         if (mode == L"guard") check(exists(flag), "crash flag kept so the cause stays visible");
+        else if (mode == L"guardretry")
+            check(exists(flag) && read_file(flag).rfind("RETRY: ", 0) != 0,
+                  "nothing was tried in the game: the flag stays as it was (still one retry left)");
         else check(!exists(flag), "no crash flag left behind");
     } else if (mode == L"refuse") {
         HMODULE h = LoadLibraryW(dll.c_str());
@@ -199,7 +213,7 @@ int wmain(int argc, wchar_t** argv) {
                 check(ver == 1u, "mailbox version 1");
             }
         }
-        check(j.find("\"gui_version\": \"0.2.4\"") != std::string::npos, "gui_version 0.2.4");
+        check(j.find("\"gui_version\": \"0.2.5\"") != std::string::npos, "gui_version 0.2.5");
         check(j.find("\"updated\":") != std::string::npos, "bridge_dll.json carries a live time stamp");
         // The D3D12 probe either installs the hooks (real GPU) or reports why it cannot (no D3D12, or no
         // display as in headless Wine: "probe window failed" / "could not create the probe swap chain"),

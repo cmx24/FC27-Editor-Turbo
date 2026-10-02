@@ -13,4 +13,5 @@ elseif ran then
 else
     msg = "No queued command from the Turbo GUI (or the GUI is not loaded)."
 end
-if type(MessageBox) == "function" then pcall(MessageBox, "Turbo GUI", msg) end
+local okmb, util = pcall(require, 'imports/turbo/core/util')
+if okmb then util.message_box("Turbo GUI", msg) end

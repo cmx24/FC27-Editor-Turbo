@@ -3,6 +3,8 @@
 // Files in <Live Editor folder>\turbo_output (or the Live Editor folder itself as a fallback):
 //   bridge_meta.json   written by Lua: database meta from GetDBMeta()
 //   bridge_state.json  written by Lua: plugin addresses (hex strings), career state, in-game date
+//   bridge_names.txt   written by Lua: player names (nameid<TAB>name) decoded by Live Editor's GetDBTableRows, because
+//                      playernames.name is a compressed text field in FC 27 that cannot be read from memory directly
 //   bridge_dll.json    written by the GUI: mailbox address + session
 //
 // Mailbox (allocated by the GUI, polled by Lua on every career-mode event):
@@ -12,7 +14,9 @@
 #pragma once
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
+#include <unordered_map>
 
 #include "mem.h"
 #include "t3db.h"
@@ -44,6 +48,7 @@ struct BridgeState {
     int auto_form = 100, auto_morale = 100, auto_fitness = 0;
     bool auto_playstyles_enabled = false;
     std::string meta_error;  // why Turbo's Lua side could not write bridge_meta.json (empty = no problem reported)
+    long long names_count = 0;  // player names Lua exported to bridge_names.txt
     std::string error;
 };
 
@@ -65,10 +70,18 @@ public:
     const DbMeta& meta() const { return meta_; }
     bool meta_loaded() const { return !meta_.empty(); }
     std::string meta_error() const { return meta_error_; }
+    // Player names from bridge_names.txt (nameid -> name); never null
+    std::shared_ptr<const NameMap> names() const { return names_; }
+
+    // Files written before this time are left over from an earlier game session and are ignored (the DLL can be loaded
+    // at game launch, before Turbo's Lua side has run in this session)
+    void set_min_file_time(std::filesystem::file_time_type t) { min_time_ = t; have_min_time_ = true; }
 
     // Parse helpers (also used by tests)
     static bool parse_meta(const std::string& json_text, DbMeta& out, std::string* err);
     static bool parse_state(const std::string& json_text, BridgeState& out);
+    // bridge_names.txt: "#turbo-names <session> <count>" then "nameid\tname" lines. false when the header is missing.
+    static bool parse_names(const std::string& text, NameMap& out, std::string* session = nullptr);
 
     // Publish the mailbox so Lua can find it
     bool publish_mailbox(uint64_t mailbox_addr, const std::string& session, const std::string& gui_version);
@@ -81,9 +94,11 @@ private:
     BridgeState state_;
     DbMeta meta_;
     std::string meta_error_;
-    std::filesystem::file_time_type meta_time_{}, state_time_{};
-    bool have_meta_time_ = false, have_state_time_ = false;
-    int meta_failures_ = 0, state_failures_ = 0;
+    std::shared_ptr<const NameMap> names_ = std::make_shared<NameMap>();
+    std::filesystem::file_time_type meta_time_{}, state_time_{}, names_time_{}, min_time_{};
+    bool have_meta_time_ = false, have_state_time_ = false, have_names_time_ = false, have_min_time_ = false;
+    int meta_failures_ = 0, state_failures_ = 0, names_failures_ = 0;
+    bool too_old(const std::filesystem::file_time_type& t) const { return have_min_time_ && t < min_time_; }
 };
 
 // GUI side of the mailbox protocol

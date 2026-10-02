@@ -85,6 +85,10 @@ static bool lua_side_just_ran() {
 
 // ---------------------------------------------------------------- crash guard
 static std::atomic<int> g_guard_holds{0};
+static bool g_retry_mode = false;  // the previous start did not finish: this is the one retry
+static fs::file_time_type g_load_time{};
+
+fs::file_time_type load_time() { return g_load_time; }
 // Plain buffer, filled when the flag file is created: DllMain's detach path must not touch C++ statics
 wchar_t g_flag_w[1024] = {0};
 
@@ -99,8 +103,8 @@ void guard_hold(const char* why) {
     FILE* f = _wfopen(path.c_str(), L"w");
     if (!f) return;
     if (path.size() < sizeof(g_flag_w) / sizeof(g_flag_w[0])) wcscpy_s(g_flag_w, path.c_str());
-    std::fprintf(f, "%s (process %lu, tick %lu)\n", why, static_cast<unsigned long>(GetCurrentProcessId()),
-                 static_cast<unsigned long>(GetTickCount()));
+    std::fprintf(f, "%s%s (process %lu, tick %lu)\n", g_retry_mode ? "RETRY: " : "", why,
+                 static_cast<unsigned long>(GetCurrentProcessId()), static_cast<unsigned long>(GetTickCount()));
     std::fclose(f);
 }
 
@@ -289,6 +293,7 @@ static void wait_for_live_editor() {
 }
 
 static DWORD WINAPI init_thread(LPVOID) {
+    g_load_time = fs::file_time_type::clock::now();
     log("Turbo GUI loading in process %lu", static_cast<unsigned long>(GetCurrentProcessId()));
     std::error_code ec;
     if (fs::exists(disable_path(), ec) || env_int(L"TURBO_GUI_DISABLE", 0) == 1) {
@@ -310,9 +315,14 @@ static DWORD WINAPI init_thread(LPVOID) {
             std::fclose(f);
         }
         while (!why.empty() && (why.back() == '\n' || why.back() == '\r')) why.pop_back();
-        log("the previous Turbo GUI start did not finish (%s): the game may have crashed. Turbo GUI stays off. "
-            "Delete turbo_output\\turbo_gui_start.flag to try again.", why.empty() ? "no details" : why.c_str());
-        return 0;
+        if (why.rfind("RETRY: ", 0) == 0) {
+            log("the last two Turbo GUI starts did not finish (%s): the game may have crashed. Turbo GUI stays off. "
+                "Delete turbo_output\\turbo_gui_start.flag to try again.", why.c_str());
+            return 0;
+        }
+        g_retry_mode = true;
+        log("the previous Turbo GUI start did not finish (%s): the game may have crashed or been closed. Trying once more; "
+            "if this start does not finish either, Turbo GUI stays off.", why.empty() ? "no details" : why.c_str());
     }
     wait_for_live_editor();
     if (fs::exists(disable_path(), ec)) {
@@ -328,9 +338,10 @@ static DWORD WINAPI init_thread(LPVOID) {
         log("test mode: crash guard held, overlay not started");
         return 0;
     }
-    guard_hold("hooks being installed / first frames");
+    // start_overlay holds the crash guard itself around the work it does inside the game
     if (!start_overlay(g_self)) {
         guard_release();  // a clean refusal installed nothing: not a crash
+        if (g_retry_mode) DeleteFileW(guard_path().wstring().c_str());  // the retry ended cleanly: the old flag is moot
         log("overlay not started");
     }
     return 0;

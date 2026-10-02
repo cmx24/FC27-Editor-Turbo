@@ -384,5 +384,66 @@ H.case("meta is not written while the database is empty, and is written once it 
     H.eq(st.db_service, string.format("0x%X", sim2.plugins[0x0ae932d0] - 8), "db service now known")
 end)
 
+H.case("player names (compressed text in FC 27) are exported through GetDBTableRows to bridge_names.txt", function()
+    local sim3 = H.setup({ in_cm = true })
+    package.loadlib = function() return true end
+    W.build(sim3, {})
+    sim3:add_table({
+        name = "playernames", short = "pnms",
+        fields = {
+            { name = "nameid", short = "nid_", depth = 16 },
+            { name = "name", short = "nam_", type = "compressed", depth = 8 * 32 },
+        },
+        rows = { { nameid = 1, name = "Saka" }, { nameid = 2, name = "\195\152degaard" }, { nameid = 3, name = "Tab\tName" },
+                 { nameid = 4, name = "Deleted", __invalid = true } },
+    })
+    os.execute(string.format("mkdir -p '%s/turbo' && printf 'MZ' > '%s/turbo/Turbo.dll'", H.LE, H.LE))
+    local t = sim3.tables.playernames
+    local namecol
+    for _, c in ipairs(t.cols) do if c.short == "nam_" then namecol = c end end
+    H.ok(ReadString(t.first + namecol.bitoff // 8) ~= "Saka", "memory does not hold plain text")
+    H.turbo().boot()
+    local b = require('imports/turbo/bridge')
+    local ok, msg = b.start()
+    H.eq(ok, true, msg)
+    local text = H.read(H.out("bridge_names.txt"))
+    H.ok(text, "names written")
+    H.has(text, "#turbo-names " .. TURBO_STATE.bridge.session .. " 3\n")
+    H.has(text, "\n1\tSaka\n")
+    H.has(text, "\n2\t\195\152degaard\n")
+    H.has(text, "\n3\tTab Name\n", "tab in a name replaced")
+    H.ok(not text:find("Deleted"), "deleted row skipped")
+    H.has(H.read(H.out("turbo_boot.log")), "bridge_names.txt written, 3 names")
+    H.eq(read_json("bridge_state.json").names_count, 3, "count reported to the GUI")
+    -- a reload event rewrites the names (another save loaded)
+    os.remove(H.out("bridge_names.txt"))
+    sim3:fire("post__CareerModeEvent", 0, POST_LOAD_PREPARE, 0)
+    H.ok(H.read(H.out("bridge_names.txt")), "rewritten on a reload event")
+    -- an ordinary day does not re-read 43,000 names
+    local calls = #(sim3.calls.GetDBTableRows or {})
+    sim3:fire("post__CareerModeEvent", 0, DAY_PASSED, 0)
+    H.eq(#(sim3.calls.GetDBTableRows or {}), calls, "not on every event")
+end)
+
+H.case("names export failure is reported, retried later, and never raises", function()
+    local sim4 = H.setup({ in_cm = true })
+    package.loadlib = function() return true end
+    W.build(sim4, {})
+    os.execute(string.format("mkdir -p '%s/turbo' && printf 'MZ' > '%s/turbo/Turbo.dll'", H.LE, H.LE))
+    local saved = GetDBTableRows
+    GetDBTableRows = function() error("boom") end
+    H.turbo().boot()
+    local b = require('imports/turbo/bridge')
+    local ok, msg = b.start()
+    H.eq(ok, true, "the GUI still starts: " .. tostring(msg))
+    H.has(H.read(H.out("turbo_boot.log")), "bridge_names.txt NOT written")
+    local n = 0
+    GetDBTableRows = function() n = n + 1; error("boom") end
+    sim4:fire("post__CareerModeEvent", 0, DAY_PASSED, 0)
+    sim4:fire("post__CareerModeEvent", 0, DAY_PASSED, 0)
+    H.eq(n, 0, "not retried on every event within a minute")
+    GetDBTableRows = saved
+end)
+
 package.loadlib = real_loadlib
 H.finish()

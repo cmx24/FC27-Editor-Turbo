@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Windows smoke test for Turbo.dll, run under Wine (no game, no GPU needed).
 # Cross-compiles smoke_loader.exe and a stub FCLiveEditor.DLL (NOT Live Editor) with mingw, builds a fake
-# Live Editor folder around build/win/Turbo.dll and runs every mode (refuse, start, lua, nowindow, disabled, guard, guardexit, guardkill, launch, launchlua).
+# Live Editor folder around build/win/Turbo.dll and runs every mode (refuse, start, lua, nowindow, disabled, guard, guardretry, guardexit, guardkill, launch, launchlua).
 # Run scripts/build_win.sh first. On Windows, run smoke_loader.exe <folder> <mode> yourself instead.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -34,7 +34,7 @@ winpath() { printf 'Z:%s' "$(echo "$1" | sed 's#/#\\#g')"; }
 
 "$WINE" wineboot -i >/dev/null 2>&1 || true
 rc=0
-for mode in refuse start lua nowindow disabled guard guardexit guardkill launch launchlua; do
+for mode in refuse start lua nowindow disabled guard guardretry guardexit guardkill launch launchlua; do
     d="$(make_folder "$mode")"
     echo "== smoke: $mode"
     if timeout 120 "$WINE" "$OUT/bin/smoke_loader.exe" "$(winpath "$d")" "$mode"; then

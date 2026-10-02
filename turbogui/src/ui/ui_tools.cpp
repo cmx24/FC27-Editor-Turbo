@@ -61,11 +61,11 @@ void draw_tools(App& app) {
             fitness = fm.contains("fitness") ? fm.value("fitness", 0) : st.auto_fitness;
             init = true;
         }
-        ImGui::SetNextItemWidth(200.0f);
+        ImGui::SetNextItemWidth(S(200.0f));
         ImGui::SliderInt("Form (0 = leave)", &form, 0, 100);
-        ImGui::SetNextItemWidth(200.0f);
+        ImGui::SetNextItemWidth(S(200.0f));
         ImGui::SliderInt("Morale (0 = leave)", &morale, 0, 100);
-        ImGui::SetNextItemWidth(200.0f);
+        ImGui::SetNextItemWidth(S(200.0f));
         ImGui::SliderInt("Fitness (0 = leave, 5-95)", &fitness, 0, 95);
         if (fitness > 0 && fitness < 5) fitness = 5;
         run_button(app, "Apply now##fm", "form_morale", {{"form", form}, {"morale", morale}, {"fitness", fitness}}, true);
@@ -83,7 +83,7 @@ void draw_tools(App& app) {
         static int role = 2;  // combo index: 2 = "3 Rotation", Turbo's default squad role
         static bool loaned = false;
         const char* roles[] = {"1 Crucial", "2 Important", "3 Rotation", "4 Sporadic", "5 Prospect"};
-        ImGui::SetNextItemWidth(160.0f);
+        ImGui::SetNextItemWidth(S(160.0f));
         ImGui::Combo("Squad role", &role, [](void* d, int i) { return static_cast<const char**>(d)[i]; }, roles, 5);
         if (role < 0) role = 2;
         ImGui::SameLine();
@@ -93,12 +93,12 @@ void draw_tools(App& app) {
 
         ImGui::Separator();
         static int user_years = 4, cpu_years = 5;
-        ImGui::SetNextItemWidth(100.0f);
+        ImGui::SetNextItemWidth(S(100.0f));
         ImGui::InputInt("years##u", &user_years);
         user_years = std::max(1, std::min(user_years, 10));
         ImGui::SameLine();
         run_button(app, "Extend my squad's contracts", "extend_user_contracts", {{"years", user_years}}, true);
-        ImGui::SetNextItemWidth(100.0f);
+        ImGui::SetNextItemWidth(S(100.0f));
         ImGui::InputInt("years##c", &cpu_years);
         cpu_years = std::max(1, std::min(cpu_years, 20));
         ImGui::SameLine();
@@ -128,12 +128,12 @@ void draw_tools(App& app) {
         ImGui::SameLine();
         run_button(app, "Transfer history", "export_transfer_history", json::object(), true);
         static int jersey_team = 0;
-        ImGui::SetNextItemWidth(120.0f);
+        ImGui::SetNextItemWidth(S(120.0f));
         ImGui::InputInt("Team ID (0 = mine)", &jersey_team, 0);
         ImGui::SameLine();
         run_button(app, "Jersey numbers", "team_jersey_numbers", {{"teamid", jersey_team}}, false);
         static char tables[256] = "teams";
-        ImGui::SetNextItemWidth(260.0f);
+        ImGui::SetNextItemWidth(S(260.0f));
         ImGui::InputText("tables (comma separated)", tables, sizeof(tables));
         ImGui::SameLine();
         json list = json::array();
@@ -157,7 +157,7 @@ void draw_tools(App& app) {
     if (ImGui::CollapsingHeader("Transfer bans")) {
         static int until = 20990101;
         static bool exclude_mine = false;
-        ImGui::SetNextItemWidth(120.0f);
+        ImGui::SetNextItemWidth(S(120.0f));
         ImGui::InputInt("Ban until (YYYYMMDD)", &until, 0);
         ImGui::SameLine();
         ImGui::Checkbox("Exclude my club", &exclude_mine);
@@ -189,7 +189,7 @@ void draw_tools(App& app) {
         if (scope == 1)
             ImGui::TextDisabled("%zu players: choose them with the Players tab's search and filters", app.list_player_ids.size());
         if (scope == 2) {
-            ImGui::SetNextItemWidth(200.0f);
+            ImGui::SetNextItemWidth(S(200.0f));
             ImGui::InputTextWithHint("##beteams", "e.g. 1, 241", teams, sizeof(teams));
         }
         if (scope == 3) ImGui::Checkbox("Yes, every player in the database##be", &confirm_all);
@@ -199,32 +199,32 @@ void draw_tools(App& app) {
             char nl[16], vl[16];
             std::snprintf(nl, sizeof(nl), "##fn%d", i);
             std::snprintf(vl, sizeof(vl), "##fv%d", i);
-            ImGui::SetNextItemWidth(200.0f);
+            ImGui::SetNextItemWidth(S(200.0f));
             ImGui::InputTextWithHint(nl, "field, e.g. potential", fnames[i], sizeof(fnames[i]));
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(100.0f);
+            ImGui::SetNextItemWidth(S(100.0f));
             ImGui::InputInt(vl, &fvals[i], 0);
         }
         ImGui::SeparatorText("Career actions");
         ImGui::Checkbox("Fitness##be", &use_fit);
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(160.0f);
+        ImGui::SetNextItemWidth(S(160.0f));
         ImGui::SliderInt("##befit", &fit, 5, 95);
         ImGui::Checkbox("Form##be", &use_form);
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(160.0f);
+        ImGui::SetNextItemWidth(S(160.0f));
         ImGui::SliderInt("##beform", &form, 0, 100);
         ImGui::Checkbox("Morale##be", &use_morale);
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(160.0f);
+        ImGui::SetNextItemWidth(S(160.0f));
         ImGui::SliderInt("##bemorale", &morale, 0, 100);
         ImGui::Checkbox("Development##be", &use_dev);
         if (use_dev) {
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(90.0f);
+            ImGui::SetNextItemWidth(S(90.0f));
             ImGui::InputFloat("XP multiplier##be", &xp_mult, 0.0f, 0.0f, "%.1f");
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(90.0f);
+            ImGui::SetNextItemWidth(S(90.0f));
             ImGui::InputInt("Bonus XP##be", &bonus_xp, 0);
             ImGui::SameLine();
             ImGui::Checkbox("No decline##be", &no_decline);
@@ -281,7 +281,7 @@ void draw_tools(App& app) {
     // ---------------------------------------------------------------- maintenance
     if (ImGui::CollapsingHeader("Database maintenance")) {
         static int min_id = 460000;
-        ImGui::SetNextItemWidth(120.0f);
+        ImGui::SetNextItemWidth(S(120.0f));
         ImGui::InputInt("Generated players from ID", &min_id, 0);
         ImGui::SameLine();
         run_button(app, "Count", "delete_generated_players", {{"min_playerid", min_id}, {"confirm", false}}, false);
@@ -354,7 +354,7 @@ void draw_status(App& app) {
     }
 
     ImGui::SeparatorText("Settings");
-    ImGui::SetNextItemWidth(140.0f);
+    ImGui::SetNextItemWidth(S(140.0f));
     if (ImGui::BeginCombo("Show/hide key", key_name(app.toggle_vk))) {
         for (const auto& k : kKeys) {
             if (ImGui::Selectable(k.second, app.toggle_vk == k.first)) {
@@ -364,6 +364,17 @@ void draw_status(App& app) {
         }
         ImGui::EndCombo();
     }
+    ImGui::SetNextItemWidth(S(140.0f));
+    ImGui::SliderFloat("UI size", &app.ui_scale_user, 0.6f, 2.5f, "%.2fx", ImGuiSliderFlags_AlwaysClamp);
+    if (ImGui::IsItemDeactivatedAfterEdit() && !app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Reset size")) {
+        app.ui_scale_user = 1.0f;
+        if (!app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("now %.2fx (window height %.0f px)", static_cast<double>(app.ui_scale_applied),
+                        static_cast<double>(ImGui::GetIO().DisplaySize.y));
 
     ImGui::SeparatorText("Log");
     ImGui::BeginChild("##log", ImVec2(0, 0), ImGuiChildFlags_Borders);
