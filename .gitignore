@@ -1,0 +1,7 @@
+# build output
+turbogui/build/
+# Live Editor's own Lua libs (test fixtures, supplied by the user - see turbo/le27/README.txt)
+turbo/le27/*
+!turbo/le27/README.txt
+__pycache__/
+*.o
