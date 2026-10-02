@@ -66,6 +66,7 @@ also polled, so they work when the game reads only raw input.
 | `scripts/check_field_names.py` | Checks every database name Turbo uses against independent schema sources |
 | `docs/fc26-parity.md` | Every FC 26 Live Editor feature group and script, and where it is in Turbo 0.2.4 |
 | `docs/turbo-reference.md` | Architecture, bridge contract, build/test commands, what is and is not verified |
+| `docs/HANDOVER.md` | Where the work stands, what the user's in-game tests showed, next steps for a local session |
 
 ## Build and test
 
