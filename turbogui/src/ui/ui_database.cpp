@@ -60,7 +60,7 @@ static void reload_view(App& app, const Table& t) {
 
 void draw_database(App& app) {
     if (!app.connected()) {
-        ImGui::TextDisabled("Not connected to the game database yet. See the Status tab.");
+        not_connected_hint();
         return;
     }
     auto names = app.db.table_names();

@@ -434,7 +434,7 @@ static void player_editor(App& app) {
 
 void draw_players(App& app) {
     if (!app.connected()) {
-        ImGui::TextDisabled("Not connected to the game database yet. See the Status tab.");
+        not_connected_hint();
         return;
     }
     ImGui::BeginChild("##plist", ImVec2(470.0f, 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);

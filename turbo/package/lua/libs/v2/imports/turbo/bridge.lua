@@ -11,8 +11,10 @@
 --   +0x00 magic 'TRBO'  +0x08 command seq  +0x0C ack seq  +0x10 status  +0x14 heartbeat
 --   +0x20 command JSON (4096)  +0x1020 result text (4096)
 
--- LAUNCH SAFETY: nothing in this file runs at game launch. The bridge starts (M.start) only from
--- turbo_gui_load.lua, or on the first career-mode event when gui.autoload is true (M.arm).
+-- LAUNCH SAFETY: at game launch only M.arm (pure Lua) and M.load_gui("launch") run. load_gui("launch") loads Turbo.dll,
+-- which touches nothing until Live Editor reports "Initial setup done" in its log (or this Lua side runs in game).
+-- The bridge itself (M.start: GetDBMeta, GetPlugin, game memory) starts only from turbo_gui_load.lua or on the
+-- first career-mode event, when the game is fully running.
 
 local util = require 'imports/turbo/core/util'
 local env = require 'imports/turbo/core/env'
@@ -299,13 +301,22 @@ function M.gui_path()
     return util.join(util.join(root, "turbo"), "Turbo.dll")
 end
 
--- Load Turbo.dll into the game process through Lua's package.loadlib. Returns ok, message
-function M.load_gui()
+-- Load Turbo.dll into the game process through Lua's package.loadlib. Returns ok, message.
+-- mode "launch" (lua\autorun, the game is starting): Turbo.dll waits until Live Editor reports "Initial setup done" in its
+-- log or this Lua side runs in game. mode "now" (default: turbo_gui_load.lua, career event): the game is running.
+-- The mode is handed over in turbo_output\turbo_gui_load.json, written right before the DLL is loaded.
+function M.load_gui(mode)
     if S.gui_loaded then return true, "Turbo GUI already loaded" end
+    mode = mode == "launch" and "launch" or "now"
     local path = M.gui_path()
     if not path or not util.file_exists(path) then return false, "Turbo.dll not found at " .. tostring(path) end
     if type(package) ~= "table" or type(package.loadlib) ~= "function" then
         return false, "this Live Editor build has no package.loadlib; run turbo\\TurboInjector.exe instead"
+    end
+    local dir, j = M.dir(), json()
+    if dir and j then
+        local okj, text = pcall(j.encode, { mode = mode, time = os.time() })
+        if okj then util.write_file(util.join(dir, "turbo_gui_load.json"), text) end
     end
     local f, err = package.loadlib(path, "*")
     if not f then return false, "package.loadlib failed: " .. tostring(err) end
@@ -313,14 +324,14 @@ function M.load_gui()
     return true, "Turbo GUI loaded from " .. path
 end
 
--- gui.autoload: remember the settings and start on the first career-mode event (never at game launch)
+-- gui.autoload: remember the settings and start the bridge on the first career-mode event (pure Lua, safe at launch)
 function M.arm(cfg)
     local events = require 'imports/turbo/core/events'
     S.cfg = cfg
     if S.started then return end
     S.autoload_pending = true
     events.set_tap("bridge", M.on_career_event)
-    trace.step("bridge armed: the Turbo GUI starts on the first career-mode event")
+    trace.step("bridge armed: connects to the game database on the first career-mode event")
 end
 
 -- Start the bridge and load the Turbo GUI. Call it only while the game is running (turbo_gui_load.lua).

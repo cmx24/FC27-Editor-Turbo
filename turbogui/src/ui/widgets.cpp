@@ -176,6 +176,13 @@ bool date_field_editor(App& app, const Table& t, uint64_t rec, const Field& f, c
     return wrote;
 }
 
+void not_connected_hint() {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("Not connected to the game database yet. Turbo connects when you enter a career, or at once when you run "
+                       "lua\\scripts\\turbo_gui_load.lua in Live Editor's Lua Engine.");
+    ImGui::PopStyleColor();
+}
+
 void field_grid(App& app, const Table& t, uint64_t rec, const std::vector<std::string>& names, const char* id, int columns) {
     std::vector<const Field*> present;
     for (const auto& n : names) {

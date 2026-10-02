@@ -1,11 +1,14 @@
 // FC 27 LE Turbo GUI - Direct3D 12 stand-in "game" for the overlay test (Wine + vkd3d + software Vulkan, or Windows).
 // It is NOT FC 27: a window, a D3D12 device, a flip-model swap chain and one clear colour per frame. Part-way it loads the
-// stub FCLiveEditor.DLL and turbo\Turbo.dll exactly like Live Editor's Lua side would (LoadLibrary into the running
-// game), then presses the show/hide key with SendInput, resizes the swap chain, and keeps presenting.
+// stub FCLiveEditor.DLL and turbo\Turbo.dll the way Turbo's lua\autorun does while the game starts (mode "launch" in
+// turbo_output\turbo_gui_load.json), writes Live Editor's log lines for this process (<LE>\Logs\live_editor_<date>.log:
+// the session header with FCLiveEditor.DLL's base, later "Initial setup done"), presses the show/hide key with SendInput,
+// resizes the swap chain, and keeps presenting.
 //
-//   game_stub.exe <LE folder> <seconds> <load_turbo_ms> <toggle_ms> <resize_ms> <status file> [pause_ms]
+//   game_stub.exe <LE folder> <seconds> <load_turbo_ms> <toggle_ms> <resize_ms> <status file> [pause_ms] [le_done_ms]
 //
 // pause_ms: after loading Turbo, stop presenting for this long (like a loading screen) while still pumping messages.
+// le_done_ms: when Live Editor's log reports "Initial setup done" (default: load_turbo_ms + 500).
 //
 // The status file gets "frames=<n> resized=<0|1> errors=<n>" at exit. Exit code 0 = the game ran to the end.
 #include <windows.h>
@@ -13,6 +16,7 @@
 #include <dxgi1_4.h>
 
 #include <cstdio>
+#include <fstream>
 #include <string>
 
 static const UINT kBuffers = 2;
@@ -59,6 +63,8 @@ int wmain(int argc, wchar_t** argv) {
     const DWORD resize_ms = static_cast<DWORD>(_wtoi(argv[5]));
     const std::wstring status_file = argv[6];
     const DWORD pause_ms = argc > 7 ? static_cast<DWORD>(_wtoi(argv[7])) : 0;
+    const DWORD le_done_ms = argc > 8 ? static_cast<DWORD>(_wtoi(argv[8])) : load_ms + 500;
+    const std::wstring le_log = le + L"\\Logs\\live_editor_02-10-2026.log";
 
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
@@ -124,8 +130,17 @@ int wmain(int argc, wchar_t** argv) {
     };
 
     const DWORD t0 = GetTickCount();
-    bool loaded = false, toggled = false, resized = false;
+    bool loaded = false, toggled = false, resized = false, le_done = false;
     int frames = 0, errors = 0;
+    // Live Editor reports its setup on its own clock, also while the game shows a loading screen
+    auto maybe_le_done = [&] {
+        if (loaded && !le_done && GetTickCount() - t0 >= le_done_ms) {
+            le_done = true;
+            std::ofstream(le_log.c_str(), std::ios::binary | std::ios::app) << "20:24:42.331781\tINFO\tInitial setup done\n";
+            std::printf("GAME: frame %d, Live Editor log: Initial setup done\n", frames);
+            std::fflush(stdout);
+        }
+    };
     MSG msg;
     while (GetTickCount() - t0 < run_ms) {
         while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
@@ -136,6 +151,16 @@ int wmain(int argc, wchar_t** argv) {
         if (!loaded && now >= load_ms) {
             loaded = true;
             HMODULE stub = LoadLibraryW((le + L"\\FCLiveEditor.DLL").c_str());
+            // Live Editor's session header (written when it is injected, before its Lua autorun scripts run)
+            CreateDirectoryW((le + L"\\Logs").c_str(), nullptr);
+            char header[160];
+            std::snprintf(header, sizeof(header), "20:24:09.779458\tINFO\tModule <FCLiveEditor.DLL> 0x%llX-0x%llX\n",
+                          reinterpret_cast<unsigned long long>(stub), reinterpret_cast<unsigned long long>(stub) + 0xA6D000);
+            std::ofstream(le_log.c_str(), std::ios::binary | std::ios::app)
+                << "20:24:09.779039\tINFO\tFC 27 Live Editor - v27.1.2\n" << header
+                << "20:24:09.993802\tINFO\t[LUA] Execute: lua\\autorun\\turbo_boot.lua\n";
+            // what Turbo's autorun writes right before package.loadlib
+            std::ofstream((le + L"\\turbo_output\\turbo_gui_load.json").c_str()) << "{\"mode\":\"launch\",\"time\":1}";
             HMODULE turbo = LoadLibraryW((le + L"\\turbo\\Turbo.dll").c_str());
             std::printf("GAME: frame %d, loaded stub=%d Turbo=%d\n", frames, stub != nullptr, turbo != nullptr);
             std::fflush(stdout);
@@ -145,10 +170,12 @@ int wmain(int argc, wchar_t** argv) {
                     TranslateMessage(&msg);
                     DispatchMessageW(&msg);
                 }
+                maybe_le_done();
                 Sleep(10);
             }
             if (pause_ms) std::printf("GAME: resumed after a %lu ms pause\n", static_cast<unsigned long>(pause_ms));
         }
+        maybe_le_done();
         if (!toggled && now >= toggle_ms) {
             toggled = true;
             SetForegroundWindow(hwnd);

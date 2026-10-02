@@ -14,3 +14,5 @@ void imgui_assert_failed(const char* expr, const char* file, int line);
 #endif
 
 #define IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+// No ShellExecute (and no SHELL32 import): Turbo never opens links or files from ImGui
+#define IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS

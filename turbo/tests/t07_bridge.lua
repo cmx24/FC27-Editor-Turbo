@@ -53,7 +53,7 @@ local bridge = require 'imports/turbo/bridge'
 
 -- bridge_dll.json as Turbo.dll writes it: the address plus a live timestamp
 local function dll_json(fields)
-    local t = { mailbox = string.format("0x%X", MB), session = "T", gui_version = "0.2.2", updated = os.time() }
+    local t = { mailbox = string.format("0x%X", MB), session = "T", gui_version = "0.2.3", updated = os.time() }
     for k, v in pairs(fields or {}) do t[k] = v end
     write_out("bridge_dll.json", t)
 end
@@ -183,7 +183,7 @@ H.case("GUI settings: dry run from the GUI wins over turbo_config.json; bad file
     local cfg = require('imports/turbo/core/config').load()
     H.eq(cfg.turbo.dry_run, true, "dry run on")
     H.eq(cfg.auto.form_morale.enabled, false, "auto back to turbo_config.json")
-    H.eq(cfg.gui.autoload, false, "gui is never loaded automatically by default")
+    H.eq(cfg.gui.autoload, true, "the GUI loads by itself by default (launch mode)")
     write_out("gui_settings.json", "{ not json")
     local cfg2, info = require('imports/turbo/core/config').load()
     H.eq(cfg2.turbo.dry_run, false, "ignored")
@@ -262,24 +262,57 @@ H.case("Turbo.dll loading through package.loadlib", function()
     package.loadlib = saved
 end)
 
-H.case("gui.autoload=false: boot never starts the bridge; true: it waits for the first career event", function()
+H.case("gui.autoload=false: nothing at launch; true (default): Turbo.dll at launch in launch mode, bridge on the first career event", function()
     TURBO_STATE.bridge.gui_loaded = false
     TURBO_STATE.bridge.started = false
     H.write_config({ gui = { autoload = false } })
     local n = #loadlib_calls
-    H.turbo().boot()
-    H.eq(#loadlib_calls, n, "not loaded")
-    H.write_config({ gui = { autoload = true } })
     H.turbo().boot({ at_launch = true })
-    H.eq(#loadlib_calls, n, "armed, still not loaded at launch")
+    H.eq(#loadlib_calls, n, "autoload=false: not loaded at launch")
+    H.turbo().boot()
+    H.eq(#loadlib_calls, n, "autoload=false: not loaded by boot either")
+    H.write_config({ gui = { autoload = true } })
+    os.remove(H.out("bridge_state.json"))
+    os.remove(H.out("turbo_gui_load.json"))
+    H.turbo().boot({ at_launch = true })
+    H.eq(#loadlib_calls, n + 1, "autoload=true: Turbo.dll loaded at launch")
+    H.eq(read_json("turbo_gui_load.json").mode, "launch", "in launch mode: the DLL waits for Live Editor's setup")
+    H.eq(read_json("bridge_state.json"), nil, "the bridge does not start at launch")
     sim:fire("post__CareerModeEvent", 0, 7, 0)
-    H.eq(#loadlib_calls, n + 1, "loaded on the first career event")
+    H.eq(#loadlib_calls, n + 1, "the first career event does not load it again")
+    H.ok(read_json("bridge_state.json"), "the first career event starts the bridge (the DLL's other start signal)")
+    H.eq(read_json("turbo_gui_load.json").mode, "launch", "mode file left alone")
     sim:fire("post__CareerModeEvent", 0, 7, 0)
     H.eq(#loadlib_calls, n + 1, "only once")
     local boxes = #sim.boxes
     H.script("turbo_gui_load")
     H.ok(#sim.boxes > boxes, "load script reports")
     H.has(sim.boxes[#sim.boxes].text, "already loaded")
+end)
+
+H.case("turbo_gui_load.lua loads Turbo.dll in 'now' mode and says so; reports even a broken install", function()
+    TURBO_STATE.bridge.gui_loaded = false
+    local n = #loadlib_calls
+    local boxes = #sim.boxes
+    H.script("turbo_gui_load")
+    H.eq(#loadlib_calls, n + 1, "loaded")
+    H.eq(read_json("turbo_gui_load.json").mode, "now", "now mode: the game is running")
+    H.has(sim.boxes[#sim.boxes].text, "Press F8")
+    H.ok(#sim.boxes == boxes + 1, "one message box")
+    local trace = H.read(H.out("turbo_boot.log"))
+    H.has(trace, "turbo_gui_load.lua started")
+    H.has(trace, "bridge.start: load_gui returned true")
+    H.has(trace, "turbo_gui_load.lua finished")
+    -- Turbo's library missing (wrong unzip): the script still reports instead of failing silently
+    local lib = H.LE .. "/lua/libs/v2/imports/turbo/turbo.lua"
+    assert(os.rename(lib, lib .. ".gone"))
+    package.loaded["imports/turbo/turbo"] = nil
+    local okr = pcall(H.script, "turbo_gui_load")
+    assert(os.rename(lib .. ".gone", lib))
+    package.loaded["imports/turbo/turbo"] = nil
+    H.eq(okr, true, "the script itself does not raise")
+    H.has(sim.boxes[#sim.boxes].text, "turbo_gui_load.lua failed")
+    H.has(sim.boxes[#sim.boxes].text, "unzipped")
 end)
 
 H.case("meta is not written while the database is empty, and is written once it appears", function()

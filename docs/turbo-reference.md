@@ -1,4 +1,4 @@
-# FC 27 LE Turbo — technical reference (0.2.2)
+# FC 27 LE Turbo — technical reference (0.2.3)
 
 Turbo adds FC 26 Live Editor features to **FC 27 Live Editor** (public build v27.1.0 or newer). It is a user-owned add-on
 that runs next to an official, unmodified Live Editor. Offline Career Mode / Kick-Off only.
@@ -12,29 +12,49 @@ that runs next to an official, unmodified Live Editor. Offline Career Mode / Kic
   started by Live Editor, has just run).
 - Every database write is range-checked against the field's own metadata; destructive actions need a confirmation.
 
-## Launch safety (0.2.1)
+## Launch safety (0.2.1, revised in 0.2.3)
 
 Turbo 0.2.0 broke game launch: `lua\autorun\turbo_boot.lua` ran while Live Editor was still initialising the game
 (Live Editor injects ~100 ms after `FC27.exe` starts), and it immediately called `GetPlugin`/`GetDBMeta`, registered an
 undocumented `post__LEInitDoneEvent` handler, and loaded `Turbo.dll`, which probed Direct3D 12 and hooked DXGI/D3D12 before the
-game had a window. The simulator's "game" is always ready, so the tests could not see it. The rules since 0.2.1:
+game had a window. The user's Live Editor log shows the game dying inside that autorun call. Which of those steps did it was
+never isolated, so every one of them is removed or neutralised.
 
-1. **Launch is pure Lua.** `TURBO.boot({at_launch = true})` reads the config, remembers settings and, only if an automatic feature
-   is enabled, registers the documented `post__CareerModeEvent` handler. No game native (not even `IsInCM`), no memory access,
-   no `package.loadlib`, no other event name. `t08_launch_safety.lua` instruments every game native and `package.loadlib` and
-   fails on any call during launch (mutation-checked: re-adding each unsafe behaviour makes it fail).
-2. **The GUI starts on demand**: `turbo_gui_load.lua` (run in the Lua Engine in game) → `bridge.start()`. With `gui.autoload = true`
-   (default false) it starts on the first career-mode event instead. Never at launch.
-3. **`Turbo.dll` waits for the game** before touching Direct3D: a visible game window, `d3d12.dll` + `dxgi.dll` loaded, then a settle
+0.2.1 and 0.2.2 loaded nothing at launch: the GUI started only when the user ran `turbo_gui_load.lua`. In the first in-game test of
+0.2.2 the game launched fine, but F8 did nothing: `turbo_boot.log` shows that `turbo_gui_load.lua` never ran, so `Turbo.dll` was
+never loaded. 0.2.3 therefore loads `Turbo.dll` at launch again, but inert. The rules since 0.2.3:
+
+1. **No game native at launch.** `TURBO.boot({at_launch = true})` reads the config, registers the documented `post__CareerModeEvent`
+   handler (the bridge connects on the first career event) and calls `bridge.load_gui("launch")`. No game native (not even
+   `IsInCM`), no memory access, no other event name. `t08_launch_safety.lua` instruments every game native and `package.loadlib`:
+   at launch it allows exactly one `package.loadlib`, of `turbo\Turbo.dll`, in launch mode, and nothing else
+   (mutation-checked: starting the bridge at launch, or loading in "now" mode, makes it fail). `gui.autoload = false` restores
+   the 0.2.2 behaviour (nothing loaded at launch).
+2. **`Turbo.dll` imports no graphics DLL.** Its import table is `KERNEL32`, `USER32`, `GDI32`, `msvcrt` only; Direct3D 12, DXGI, the
+   shader compiler and DWM are resolved on first use (`src/win/lazy_imports.cpp`), and ImGui's shell functions are compiled out.
+   `build_win.sh` fails if any of them reappears in the import table, and the smoke test checks that loading `Turbo.dll` brings none
+   of them into the process (mutation-checked with the 0.2.2 DLL, which fails it). Its `DllMain` only pins the module, finds the
+   Live Editor folder and starts a thread.
+3. **Launch mode: wait for Live Editor.** The Lua side writes `turbo_output\turbo_gui_load.json` (`{"mode":"launch"}` from autorun,
+   `{"mode":"now"}` from `turbo_gui_load.lua` / a career event) right before it loads the DLL. In launch mode the DLL touches nothing
+   (no window search, no Direct3D) until Live Editor writes `Initial setup done` for this process in `Logs\live_editor_<date>.log`
+   (the session is found by the `Module <FCLiveEditor.DLL> 0x<base>-` header with this process's module base; the last such
+   header counts; launcher logs are ignored), or until Turbo's Lua side writes `bridge_state.json` after the DLL was loaded (career
+   event or `turbo_gui_load.lua`). In the user's logs `Initial setup done` comes ~15 s after `Main Menu reached`, after Live Editor
+   has installed its own Direct3D 12 hooks, so Turbo always hooks after Live Editor. A mode file older than 2 minutes counts as
+   launch mode; `TurboInjector.exe` loads in launch mode too (the line is already in the log then).
+4. **Then `Turbo.dll` waits for the game** before touching Direct3D: a visible game window, `d3d12.dll` + `dxgi.dll` loaded, then a settle
    time (defaults: up to 180 s, settle 5 s; env `TURBO_GUI_WAIT_MS`, `TURBO_GUI_SETTLE_MS`). Until then nothing is probed or hooked.
-4. **Kill switch**: `turbo_output\turbo_gui_disable.txt` (or env `TURBO_GUI_DISABLE=1`) keeps `Turbo.dll` from starting.
-5. **Crash guard**: `turbo_output\turbo_gui_start.flag` exists while hooks are being installed / proven (300 frames) and while the
+5. **Kill switch**: `turbo_output\turbo_gui_disable.txt` (or env `TURBO_GUI_DISABLE=1`) keeps `Turbo.dll` from starting; it is checked
+   at load and again after the wait for Live Editor.
+6. **Crash guard**: `turbo_output\turbo_gui_start.flag` exists while hooks are being installed / proven (300 frames) and while the
    first frames are drawn on screen (120 frames). A clean refusal or a clean process exit removes it; if the game dies in those
    phases it stays and the next start refuses to hook (message in `turbo_gui.log`; delete the file to try again).
-6. **Stale files are never trusted**: `bridge_dll.json` carries `updated` (unix seconds), refreshed every ~2 s by the DLL. Lua
+7. **Stale files are never trusted**: `bridge_dll.json` carries `updated` (unix seconds), refreshed every ~2 s by the DLL. Lua
    reads the mailbox address only from a file younger than 15 s; an address left by an earlier game session is never dereferenced.
-7. **Breadcrumbs**: every Lua start-up step is appended to `turbo_output\turbo_boot.log` *before* it runs (bounded to 64 KB), and the
-   DLL logs each step (waiting, probing, MinHook, hooks, first frame) to `turbo_gui.log`, so a failure shows where it stopped.
+8. **Breadcrumbs**: every Lua start-up step is appended to `turbo_output\turbo_boot.log` *before* it runs (bounded to 64 KB), the
+   GUI load result goes to Live Editor's log (`[Turbo]` lines), and the DLL logs each step (waiting for Live Editor, the game
+   window, probing, MinHook, hooks, first frame) to `turbo_gui.log`, so a failure shows where it stopped.
 
 ## Two parts
 
@@ -49,9 +69,11 @@ and run by Live Editor's Lua engine on the next career-mode event (or when the u
 
 ## Lua side (`turbo/package/lua`)
 
-- `autorun/turbo_boot.lua` → `TURBO.boot({at_launch = true})`: pure Lua (see Launch safety); registers automatic features only.
+- `autorun/turbo_boot.lua` → `TURBO.boot({at_launch = true})`: no game native (see Launch safety); registers the career event and
+  loads `turbo\Turbo.dll` in launch mode (`gui.autoload`, default true).
 - `scripts/turbo_gui_load.lua` → `bridge.start()`: writes the bridge files, registers the career-event tap and loads `turbo\Turbo.dll`
-  with `package.loadlib`.
+  with `package.loadlib` if it is not loaded yet. Every outcome, including a missing Turbo library, ends in a message box and a
+  `[Turbo]` line in Live Editor's log. The first career event does the same automatically.
 - `libs/v2/imports/turbo/turbo.lua`: module registry and `M.run(name, overrides, opts)` (`opts.silent` suppresses the message box).
 - `core/`: version, log, trace (start-up breadcrumbs), util, env, config, db (validated writes), game, mem, events, csv, calib, select.
 - `features/`: probe, form_morale, pap_playstyles, custom_headassets, custom_tattoos, delete_generated_players,
@@ -95,9 +117,11 @@ The Lua side polls the mailbox on every career event (`bridge.on_career_event`) 
 ## Native code (`turbogui/src`)
 
 - `core/`: `mem.h` (Memory interface), `t3db.*` (database walk, bit-exact read/write, validation, stale-table guard), `model.*`
-  (names, clubs, ages, teams, managers, dates), `bridge.*` (bridge files, mailbox).
+  (names, clubs, ages, teams, managers, dates), `bridge.*` (bridge files, mailbox), `le_log.*` (reads Live Editor's log for
+  this session's `Initial setup done`).
 - `ui/`: `app.*` (tick/draw, settings), `widgets.cpp` (validated field editors), `ui_players/teams/database/tools.cpp`, `playstyles.h`.
-- `win/`: `dllmain.cpp` (start-up checks, `luaopen_turbo_gui`), `overlay_dx12.cpp` (hooks, ImGui DX12 backend, WndProc), `host.h`.
+- `win/`: `dllmain.cpp` (start-up checks, launch-mode wait, `luaopen_turbo_gui`), `overlay_dx12.cpp` (hooks, ImGui DX12 backend,
+  WndProc), `lazy_imports.cpp` (Direct3D 12 / DXGI / D3DCompile / DWM resolved on first use), `host.h`.
 - `probe/main.cpp`: `TurboProbe.exe` (see Overlay below).
 - `injector/main.cpp`: `TurboInjector.exe` (waits for FC27.exe with Live Editor, then `CreateRemoteThread` + `LoadLibraryW`).
 
@@ -128,13 +152,13 @@ The Lua side polls the mailbox on every career event (`bridge.on_career_event`) 
 
 | Command | What it does | Needs |
 | --- | --- | --- |
-| `bash turbo/tests/run_tests.sh` | 100 Lua tests over a simulated game memory (incl. launch safety) | lua5.4, `turbo/le27/libs` |
+| `bash turbo/tests/run_tests.sh` | 103 Lua tests over a simulated game memory (incl. launch safety) | lua5.4, `turbo/le27/libs` |
 | `luacheck --config turbo/tests/.luacheckrc turbo/package/lua` | lint | luacheck |
-| `bash turbogui/tests/native/run_native.sh` | 3,268 native checks (engine vs Live Editor's Lua T3DB library, headless ImGui UI driving, ASan + UBSan). Includes clicking every GUI button that sends a command (28) and running each command through Turbo's real Lua bridge in a simulated career, and the Players list filters against a brute-force oracle | g++, lua5.4, `turbo/le27/libs` |
+| `bash turbogui/tests/native/run_native.sh` | 3,279 native checks (engine vs Live Editor's Lua T3DB library, headless ImGui UI driving, ASan + UBSan). Includes clicking every GUI button that sends a command (28) and running each command through Turbo's real Lua bridge in a simulated career, the Players list filters against a brute-force oracle, and the Live Editor log reader against real FC 27 log lines | g++, lua5.4, `turbo/le27/libs` |
 | `python3 scripts/check_field_names.py` | every table / field name in the GUI and Lua sources against EA's `db_meta.xml` (FIFA 21 Live Editor) and the names xAranaktu's FC 24–26 Live Editor scripts use | git, GitHub access |
 | `bash turbogui/scripts/build_win.sh` | cross-compiles `Turbo.dll` + `TurboProbe.exe` + `TurboInjector.exe` | mingw-w64 (posix) |
-| `bash turbogui/tests/win/run_smoke.sh` | loads the real `Turbo.dll` under Wine in 8 modes: imports, refusal without Live Editor, no hooking without a game window, kill switch, crash guard (clean exit / kill), mailbox, Lua-side start | Wine, mingw-w64 |
-| `bash turbogui/tests/win/run_overlay_wine.sh` (`MODE=probe` default, `MODE=fallback`) | runs `tests/win/game_stub.cpp`, a Direct3D 12 stand-in game (not FC 27), under Wine + vkd3d + Mesa lavapipe on Xvfb; it loads `Turbo.dll` while presenting, presses F8 from another thread and resizes its swap chain. Checks the log (waited, hooked, queue, ImGui ready, start and drawing proven, no errors, crash flag cleared) and screenshots (nothing drawn while hidden, the window after F8 and after the resize) | Wine, Xvfb, mesa-vulkan-drivers, ImageMagick |
+| `bash turbogui/tests/win/run_smoke.sh` | loads the real `Turbo.dll` under Wine in 10 modes: imports, refusal without Live Editor, no hooking without a game window, kill switch, crash guard (clean exit / kill), mailbox, Lua-side start, and launch mode (touches nothing and loads no graphics DLL until Live Editor's `Initial setup done` for this process or a fresh `bridge_state.json`; earlier sessions, the launcher log and stale files do not count) | Wine, mingw-w64 |
+| `bash turbogui/tests/win/run_overlay_wine.sh` (`MODE=probe` default, `MODE=fallback`) | runs `tests/win/game_stub.cpp`, a Direct3D 12 stand-in game (not FC 27), under Wine + vkd3d + Mesa lavapipe on Xvfb; it loads `Turbo.dll` in launch mode while presenting, writes Live Editor's `Initial setup done` half a second later, presses F8 from another thread and resizes its swap chain. Checks the log (waited for Live Editor before anything else, hooked, queue, ImGui ready, start and drawing proven, no errors, crash flag cleared) and screenshots (nothing drawn while hidden, the window after F8 and after the resize) | Wine, Xvfb, mesa-vulkan-drivers, ImageMagick |
 | `bash scripts/package.sh` | builds `dist/FC27_LE_Turbo_<version>.zip` (the files to copy into the Live Editor folder) | zip, built binaries |
 
 ## What is and is not verified
@@ -143,11 +167,16 @@ Verified by execution (see the commands above): the Lua feature pack and bridge 
 database engine, model and every UI panel against a memory image produced by the same simulator; every GUI command through
 the real Lua side; every database name against independent schema sources; the Windows `Turbo.dll` loads under Wine,
 exports `luaopen_turbo_gui`, refuses to start without Live Editor, starts from the Lua side's signal and publishes a valid
-mailbox; inside a running Direct3D 12 stand-in game (Wine + vkd3d) it hooks, draws its window on F8 and survives a resize,
-both with `TurboProbe.exe` and with the in-game fallback.
+mailbox; loaded in launch mode it touches nothing and loads no graphics DLL until Live Editor's `Initial setup done` for its
+session; inside a running Direct3D 12 stand-in game (Wine + vkd3d) it waits for that line, hooks, draws its window on F8 and
+survives a resize, both with `TurboProbe.exe` and with the in-game fallback.
 
-**Not verified (cannot be executed outside Windows + the game):** the DirectX 12 hooks and drawing inside FC 27 on a real
-Windows driver, the real `package.loadlib` call inside Live Editor, and the Lua-side bridge against the real FC 27 process. The simulator's memory
+Verified in FC 27 by the user (0.2.2, live_editor log of 02-10-2026): `turbo_boot.lua` runs at launch and the game launches
+(`[Turbo] Turbo 0.2.2 ready`, `Executing scripts from lua/autorun Done`, main menu reached).
+
+**Not verified (cannot be executed outside Windows + the game):** that FC 27 still launches with 0.2.3's launch-time
+`package.loadlib` of the inert `Turbo.dll`; the DirectX 12 hooks and drawing inside FC 27 on a real Windows driver; the real
+`package.loadlib` call inside Live Editor; and the Lua-side bridge against the real FC 27 process. The simulator's memory
 layout is derived from Live Editor's open Lua libraries; field names beyond those used by Live Editor's own scripts are
 confirmed only by `turbo_probe` on a real install. Use the in-game checklist in `TURBO_README.md`.
 

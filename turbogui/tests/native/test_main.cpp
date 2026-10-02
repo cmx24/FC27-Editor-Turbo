@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "core/bridge.h"
+#include "core/le_log.h"
 #include "core/model.h"
 #include "core/t3db.h"
 #include "imgui.h"
@@ -1008,6 +1009,48 @@ static void test_ui() {
     ImGui::DestroyContext();
 }
 
+// Live Editor's own log decides when a Turbo.dll loaded at game launch may start (src/win/dllmain.cpp)
+static void test_le_log() {
+    using turbo::LeLogState;
+    using turbo::le_log_state;
+    const uint64_t base = 0x7FFCD0B10000ULL;
+    // Lines exactly as FC 27 Live Editor v27.1.2 writes them (from a real live_editor_<date>.log)
+    const std::string other =
+        "17:38:59.206226\tINFO\tFC 27 Live Editor - v27.1.2\r\n"
+        "17:38:59.206952\tINFO\tProc <FC27.exe> 0x140000000-0x1611EF000\r\n"
+        "17:38:59.207163\tINFO\tModule <FCLiveEditor.DLL> 0x7FF8B36D0000-0x7FF8B413D000\r\n"
+        "17:39:20.000000\tINFO\tInitial setup done\r\n";
+    const std::string ours_start =
+        "20:24:09.779039\tINFO\tFC 27 Live Editor - v27.1.2\n"
+        "20:24:09.779342\tINFO\tProc <FC27.exe> 0x140000000-0x1611EF000\n"
+        "20:24:09.779458\tINFO\tModule <FCLiveEditor.DLL> 0x7FFCD0B10000-0x7FFCD157D000\n"
+        "20:24:09.993802\tINFO\t[LUA] Execute: C:\\FC 27 Live Editor\\lua\\autorun\\turbo_boot.lua\n"
+        "20:24:27.190355\tINFO\tMain Menu reached\n";
+    const std::string ours_done = ours_start + "20:24:42.331781\tINFO\tInitial setup done\n";
+    CHECK(turbo::le_log_header(base) == "Module <FCLiveEditor.DLL> 0x7FFCD0B10000-", "header text as Live Editor prints it");
+    CHECK(le_log_state("", base) == LeLogState::NoSession, "empty log: no session");
+    CHECK(le_log_state(other, base) == LeLogState::NoSession, "another session's 'Initial setup done' does not count");
+    CHECK(le_log_state(other + ours_start, base) == LeLogState::Waiting, "this session started: waiting");
+    CHECK(le_log_state(other + ours_done, base) == LeLogState::Done, "this session reported Initial setup done");
+    CHECK(le_log_state(ours_done, 0) == LeLogState::NoSession, "no Live Editor module: no session");
+    // The same module base reused by a later game session: only the last header counts
+    CHECK(le_log_state(ours_done + other + ours_start, base) == LeLogState::Waiting,
+          "an earlier session with the same base and 'done' does not count for the new one");
+    // A later session (another base) reporting done after ours started: not ours
+    std::string tail = other;
+    CHECK(le_log_state(ours_start + tail, base) == LeLogState::Waiting, "a later session's 'done' does not count");
+    // Lower-case hex and CRLF line ends
+    std::string lower = ours_done;
+    const size_t at = lower.find("0x7FFCD0B10000");
+    lower.replace(at, 14, "0x7ffcd0b10000");
+    CHECK(le_log_state(lower, base) == LeLogState::Done, "hex digits in either case");
+    CHECK(le_log_state("Module <FCLiveEditor.DLL> 0x7FFCD0B10000-0x7FFCD157D000\r\nInitial setup done\r\n", base) == LeLogState::Done,
+          "CRLF line ends");
+    // A base that is a prefix of another must not match it
+    CHECK(le_log_state("Module <FCLiveEditor.DLL> 0x7FFCD0B100000-0x7FFCD157D000\nInitial setup done\n", base) == LeLogState::NoSession,
+          "the base is matched whole (up to the '-')");
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) {
         std::printf("usage: %s <out_dir> <gui_world.lua>\n", argv[0]);
@@ -1017,6 +1060,8 @@ int main(int argc, char** argv) {
     g_lua = argv[2];
     std::printf("native core\n");
     test_core();
+    std::printf("native Live Editor log\n");
+    test_le_log();
     std::printf("native UI\n");
     try {
         test_ui();

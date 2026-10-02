@@ -1,6 +1,6 @@
-# FC 27 LE Turbo 0.2.2
+# FC 27 LE Turbo 0.2.3
 
-Turbo adds FC 26 Live Editor features to **FC 27 Live Editor** (public build v27.1.0 or newer). Version 0.2.2 has an in-game window, the **Turbo GUI**, with player, team, manager and database editors and buttons for every Turbo tool. Turbo runs next to Live Editor, inside the same game session. Live Editor's own files are not modified.
+Turbo adds FC 26 Live Editor features to **FC 27 Live Editor** (public build v27.1.0 or newer). Version 0.2.3 has an in-game window, the **Turbo GUI**, with player, team, manager and database editors and buttons for every Turbo tool. Turbo runs next to Live Editor, inside the same game session. Live Editor's own files are not modified.
 
 Offline Career Mode / Kick-Off only. Never use Live Editor or Turbo in online modes.
 
@@ -8,7 +8,7 @@ Offline Career Mode / Kick-Off only. Never use Live Editor or Turbo in online mo
 
 1. Install the official FC 27 Live Editor as usual.
 2. Copy everything in this package into the Live Editor folder (the folder with `FCLiveEditor.DLL`). Nothing of Live Editor is overwritten. You add:
-   - `turbo\Turbo.dll`, `turbo\TurboProbe.exe`, `turbo\TurboInjector.exe` (the Turbo GUI; not loaded until you run `turbo_gui_load.lua`)
+   - `turbo\Turbo.dll`, `turbo\TurboProbe.exe`, `turbo\TurboInjector.exe` (the Turbo GUI)
    - `turbo_config.json`, `TURBO_README.md`, `turbo_output\`
    - `lua\autorun\turbo_boot.lua`
    - `lua\scripts\turbo_*.lua` (25 scripts)
@@ -16,19 +16,30 @@ Offline Career Mode / Kick-Off only. Never use Live Editor or Turbo in online mo
 
 ## Open the Turbo GUI
 
-Turbo does **nothing native while the game is launching** (no game functions, no memory access, no DLL). At launch it only
-reads its config and, if you switched automatic features on, registers for career events. The GUI is loaded on demand:
+Nothing to run:
 
-1. Start the game through Live Editor as usual and wait until it is running (main menu or a loaded career).
-2. Open Live Editor's **Lua Engine** and run `turbo_gui_load.lua`. The message says whether `turbo\Turbo.dll` was loaded.
-3. Wait about ten seconds (Turbo.dll waits for the game window and lets it settle before it touches Direct3D), then press **F8**
-   to show or hide the Turbo window. The key can be changed on the Status tab.
+1. Start the game through Live Editor as usual.
+2. When the main menu appears, wait about 20 seconds, then press **F8** to show or hide the Turbo window. The key can be
+   changed on the Status tab.
+3. Load or start a career: the window's top line changes to **Connected** with the player and team counts.
 
-Optional: set `"gui": {"autoload": true}` in `turbo_config.json` to load the GUI automatically on the **first career-mode event**
-(never at launch). Leave it `false` until step 2 works for you.
+At the main menu the window opens but says "Not connected" (Live Editor gives Turbo's Lua side no events outside a career). To
+connect there, open Live Editor's **Lua Engine** and run `lua\scripts\turbo_gui_load.lua`; a message box confirms it.
+
+What happens at launch: `lua\autorun\turbo_boot.lua` reads Turbo's settings, registers Live Editor's documented career event and
+loads `turbo\Turbo.dll`. It calls no game function and reads no game memory. `Turbo.dll` then does nothing at all (no window
+search, no Direct3D) until Live Editor writes "Initial setup done" in its own log for this game session
+(`Logs\live_editor_<date>.log`, about 15 seconds after the main menu appears, once Live Editor's own window is ready), or until
+Turbo's Lua side runs in game. Only then does it wait for the game window, let it settle five seconds and hook Direct3D.
+
+To load nothing at launch, set `"gui": {"autoload": false}` in `turbo_config.json`; then run `turbo_gui_load.lua` in game to
+load the GUI.
 
 If F8 does nothing:
-- `turbo_output\turbo_gui.log` says what the GUI did (waiting for the game window, hooks, overlay, database connection).
+- `turbo_output\turbo_gui.log` says what the GUI did (waiting for Live Editor, the game window, hooks, overlay, database).
+  No such file: `Turbo.dll` was not loaded; `turbo_output\turbo_boot.log` and Live Editor's log (lines with `[Turbo]`) say why.
+- If Live Editor's log level is set above INFO it does not write "Initial setup done"; the GUI then starts when you enter a
+  career or run `turbo_gui_load.lua`.
 - If `turbo_gui_load.lua` says `package.loadlib` is missing, run `turbo\TurboInjector.exe` (as administrator) while the game is
   running through Live Editor. It loads Turbo only into an FC27.exe that already has Live Editor in it.
 
@@ -38,7 +49,7 @@ Nothing here modifies Live Editor or the game, so everything can be switched off
 
 | Problem | What to do |
 | --- | --- |
-| Game will not launch or hangs at start | Delete `lua\autorun\turbo_boot.lua`. That is the only thing Turbo runs at launch. Then send `turbo_output\turbo_boot.log`: its last line says what Turbo was doing. |
+| Game will not launch or hangs at start | Delete `lua\autorun\turbo_boot.lua` (or set `"gui": {"autoload": false}`). That is the only thing Turbo runs at launch. Then send `turbo_output\turbo_boot.log` and `turbo_output\turbo_gui.log`: their last lines say what Turbo was doing. |
 | Game crashes after loading the GUI | Create an empty file `turbo_output\turbo_gui_disable.txt` (kill switch: `Turbo.dll` never starts), or delete the `turbo` folder. Send `turbo_output\turbo_gui.log`. |
 | "previous Turbo GUI start did not finish" in `turbo_gui.log` | The game died while the GUI was starting, so Turbo keeps the overlay off. Delete `turbo_output\turbo_gui_start.flag` to try again. |
 | Remove Turbo completely | Delete `turbo\`, `turbo_config.json`, `TURBO_README.md`, `turbo_output\`, `lua\autorun\turbo_boot.lua`, `lua\scripts\turbo_*.lua` and `lua\libs\v2\imports\turbo\`. |
@@ -69,7 +80,7 @@ Every feature is also a script in `lua\scripts` named `turbo_<feature>.lua`, run
 
 | Script | What it does | Settings (`turbo_config.json`) |
 | --- | --- | --- |
-| `turbo_gui_load` | Loads the Turbo GUI now (never done at game launch) and says why if it cannot | `gui.autoload` (true = on the first career event) |
+| `turbo_gui_load` | Connects the Turbo GUI to the database now (needed only at the main menu), loads it if it is not loaded yet, and says why if it cannot | `gui.autoload` (true = loaded at launch, connects on the first career event) |
 | `turbo_exec` | Runs the command the GUI queued (needed outside a career) | none |
 | `turbo_probe` | Read-only report: LE version, available functions, DB tables and field ranges, memory checks | none |
 | `turbo_enable_auto` | Switches automatic features on/off from the config | `auto.*.enabled` |
@@ -103,7 +114,7 @@ Every feature is also a script in `lua\scripts` named `turbo_<feature>.lua`, run
 
 Back up your career save first.
 
-1. Start through Live Editor, load a career, run `turbo_gui_load.lua` from the Lua Engine, wait ten seconds and press F8: the Turbo window opens; the top line says Connected with player and team counts. If not, see the Status tab and `turbo_output\turbo_gui.log`.
+1. Start through Live Editor. At the main menu wait about 20 seconds and press F8: the Turbo window opens (Not connected). Load a career: the top line says Connected with player and team counts. If not, see the Status tab and `turbo_output\turbo_gui.log`.
 2. Players: search your best player, change Acceleration, close and reopen the game's player screen: the value changed. Try 200: it is refused with a message.
 3. Players > Profile: the birth date and age match the game's player profile.
 4. Teams > your club > Squad: change a kit number; the game's squad screen shows it.

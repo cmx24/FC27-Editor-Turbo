@@ -116,10 +116,11 @@ end
 -- Configure automatic features from turbo_config.json. Safe to call any number of times.
 --
 -- LAUNCH SAFETY: lua\autorun\turbo_boot.lua runs while Live Editor is still initialising the game
--- (opts.at_launch). At that point boot does pure-Lua work only: it reads the config, registers
--- Live Editor's career-event handler when a feature needs it, and never calls a game native, reads
--- game memory or loads Turbo.dll. The Turbo GUI is loaded on demand (turbo_gui_load.lua) or, when
--- gui.autoload is true, on the first career-mode event (the game is fully running by then).
+-- (opts.at_launch). At that point boot never calls a game native or reads game memory: it reads the config,
+-- registers Live Editor's documented career-event handler when something needs it and, with gui.autoload
+-- (default true), loads Turbo.dll in "launch" mode: the DLL touches nothing until Live Editor reports
+-- "Initial setup done" in its log (or this Lua side runs in game). The bridge (game database) starts on the
+-- first career-mode event or from turbo_gui_load.lua, when the game is fully running.
 function M.boot(opts)
     opts = opts or {}
     trace.step("boot: start" .. (opts.at_launch and " (game launch)" or ""))
@@ -146,13 +147,26 @@ function M.boot(opts)
         end
     end
 
-    -- Turbo GUI bridge (pure Lua here): remember the effective settings for the GUI; with gui.autoload, arm the
-    -- automatic start for the first career-mode event (never at launch)
+    -- Turbo GUI: remember the effective settings for the GUI; with gui.autoload, arm the bridge for the first career-mode
+    -- event and, at launch, load Turbo.dll in "launch" mode (it waits for Live Editor's "Initial setup done")
     local gui = type(cfg.gui) == "table" and cfg.gui or {}
     local okb, bridge = pcall(require, 'imports/turbo/bridge')
     if okb and type(bridge) == "table" then
         bridge.set_settings(cfg)
-        if gui.autoload == true then bridge.arm(cfg) end
+        if gui.autoload ~= false then
+            bridge.arm(cfg)
+            if opts.at_launch then
+                trace.step("boot: loading turbo\\Turbo.dll (it waits until Live Editor reports Initial setup done)")
+                local okl, lok, lmsg = pcall(bridge.load_gui, "launch")
+                local why = okl and lmsg or lok
+                trace.step("boot: load_gui returned " .. tostring(okl and lok) .. " - " .. tostring(why))
+                if okl and lok then
+                    log.info("Turbo GUI loaded: it starts when Live Editor has finished setting up the game; then press F8")
+                else
+                    log.warn("Turbo GUI not loaded at launch: %s (run turbo_gui_load.lua in game)", tostring(why))
+                end
+            end
+        end
     else
         log.error("cannot load the Turbo GUI bridge: %s", tostring(bridge))
     end

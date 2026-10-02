@@ -2,15 +2,21 @@
 // TurboInjector.exe, only while Live Editor is running.
 #include <windows.h>
 
+#include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cstdarg>
 #include <cstdio>
 #include <ctime>
 #include <mutex>
 #include <string>
+#include <utility>
+#include <vector>
 
+#include "core/le_log.h"
 #include "host.h"
+#include "nlohmann/json.hpp"
 
 namespace fs = std::filesystem;
 
@@ -169,6 +175,119 @@ static bool wait_for_game() {
     }
 }
 
+// ---------------------------------------------------------------- waiting for Live Editor (Turbo.dll loaded at game launch)
+// turbo_output\turbo_gui_load.json is written by Turbo's Lua side right before it loads Turbo.dll: {"mode":"launch"} from
+// lua\autorun while the game starts, {"mode":"now"} from turbo_gui_load.lua or a career-mode event (the game is running).
+static bool loaded_now_by_lua() {
+    std::error_code ec;
+    fs::path p = g_root / "turbo_output" / "turbo_gui_load.json";
+    auto t = fs::last_write_time(p, ec);
+    if (ec) return false;
+    auto age = fs::file_time_type::clock::now() - t;
+    if (age > std::chrono::minutes(2) || age < -std::chrono::seconds(5)) return false;
+    std::string text;
+    if (FILE* f = _wfopen(p.wstring().c_str(), L"rb")) {
+        char buf[512];
+        size_t n = std::fread(buf, 1, sizeof(buf), f);
+        text.assign(buf, n);
+        std::fclose(f);
+    }
+    nlohmann::json j = nlohmann::json::parse(text, nullptr, false);
+    return j.is_object() && j.contains("mode") && j["mode"].is_string() && j["mode"].get<std::string>() == "now";
+}
+
+// Up to the last 4 MB of a file Live Editor may still be writing (opened with full sharing)
+static std::string read_shared_tail(const fs::path& p) {
+    HANDLE h = CreateFileW(p.wstring().c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return std::string();
+    LARGE_INTEGER size{};
+    std::string out;
+    if (GetFileSizeEx(h, &size)) {
+        const LONGLONG cap = 4LL * 1024 * 1024;
+        LONGLONG start = size.QuadPart > cap ? size.QuadPart - cap : 0;
+        LARGE_INTEGER pos{};
+        pos.QuadPart = start;
+        if (SetFilePointerEx(h, pos, nullptr, FILE_BEGIN)) {
+            out.resize(static_cast<size_t>(size.QuadPart - start));
+            DWORD got = 0;
+            if (!out.empty() && (!ReadFile(h, &out[0], static_cast<DWORD>(out.size()), &got, nullptr))) got = 0;
+            out.resize(got);
+        }
+    }
+    CloseHandle(h);
+    return out;
+}
+
+// State of this game session in Live Editor's log files (<LE>\Logs\live_editor_<date>.log, newest first)
+static turbo::LeLogState live_editor_state() {
+    HMODULE le = GetModuleHandleW(L"FCLiveEditor.DLL");
+    if (!le) return turbo::LeLogState::NoSession;
+    std::error_code ec;
+    std::vector<std::pair<fs::file_time_type, fs::path>> logs;
+    const auto now = fs::file_time_type::clock::now();
+    for (fs::directory_iterator it(g_root / "Logs", ec), end; !ec && it != end; it.increment(ec)) {
+        const fs::path p = it->path();
+        std::string name = p.filename().string();
+        std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (name.rfind("live_editor_", 0) != 0 || name.rfind("live_editor_launcher", 0) == 0) continue;
+        if (p.extension() != ".log" && p.extension() != ".LOG") continue;
+        std::error_code tec;
+        auto t = fs::last_write_time(p, tec);
+        if (tec || now - t > std::chrono::hours(72)) continue;
+        logs.emplace_back(t, p);
+    }
+    std::sort(logs.begin(), logs.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+    const uint64_t base = reinterpret_cast<uint64_t>(le);
+    for (const auto& l : logs) {
+        turbo::LeLogState st = turbo::le_log_state(read_shared_tail(l.second), base);
+        if (st != turbo::LeLogState::NoSession) return st;
+    }
+    return turbo::LeLogState::NoSession;
+}
+
+static bool bridge_state_newer_than(fs::file_time_type t0) {
+    std::error_code ec;
+    auto t = fs::last_write_time(g_root / "turbo_output" / "bridge_state.json", ec);
+    return !ec && t > t0;
+}
+
+// Turbo.dll loaded by lua\autorun while the game is starting: touch nothing (no window search, no Direct3D) until Live Editor
+// reports that it has finished setting up the game (its own Direct3D 12 hooks are in place and the main menu is up), or
+// until Turbo's Lua side runs in game. Loaded from turbo_gui_load.lua or a career event, the game is already running.
+static void wait_for_live_editor() {
+    if (env_int(L"TURBO_GUI_SKIP_WAIT", 0) == 1) return;
+    if (loaded_now_by_lua()) {
+        log("loaded by Turbo's Lua side while the game is running");
+        return;
+    }
+    const auto t0 = fs::file_time_type::clock::now();
+    const DWORD tick0 = GetTickCount();
+    log("loaded while the game is starting: nothing is touched until Live Editor reports \"Initial setup done\" in "
+        "Logs\\live_editor_<date>.log, or Turbo's Lua side runs in game");
+    bool noted = false;
+    for (;;) {
+        turbo::LeLogState st = live_editor_state();
+        if (st == turbo::LeLogState::Done) {
+            log("Live Editor has finished setting up the game");
+            return;
+        }
+        if (bridge_state_newer_than(t0)) {
+            log("Turbo's Lua side ran in game (bridge_state.json updated)");
+            return;
+        }
+        if (!noted && GetTickCount() - tick0 > 120000) {
+            noted = true;
+            log(st == turbo::LeLogState::NoSession
+                    ? "Live Editor's log for this game session is not in Logs (log level above INFO?): the Turbo GUI starts "
+                      "when you enter a career or run turbo_gui_load.lua"
+                    : "Live Editor has not reported \"Initial setup done\" yet: still waiting (entering a career or running "
+                      "turbo_gui_load.lua also starts the Turbo GUI)");
+        }
+        Sleep(1000);
+    }
+}
+
 static DWORD WINAPI init_thread(LPVOID) {
     log("Turbo GUI loading in process %lu", static_cast<unsigned long>(GetCurrentProcessId()));
     std::error_code ec;
@@ -193,6 +312,11 @@ static DWORD WINAPI init_thread(LPVOID) {
         while (!why.empty() && (why.back() == '\n' || why.back() == '\r')) why.pop_back();
         log("the previous Turbo GUI start did not finish (%s): the game may have crashed. Turbo GUI stays off. "
             "Delete turbo_output\\turbo_gui_start.flag to try again.", why.empty() ? "no details" : why.c_str());
+        return 0;
+    }
+    wait_for_live_editor();
+    if (fs::exists(disable_path(), ec)) {
+        log("kill switch present (turbo_output\\turbo_gui_disable.txt): Turbo GUI stays off");
         return 0;
     }
     if (!wait_for_game()) {

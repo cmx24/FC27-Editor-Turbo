@@ -140,7 +140,7 @@ static void team_editor(App& app) {
 
 void draw_teams(App& app) {
     if (!app.connected()) {
-        ImGui::TextDisabled("Not connected to the game database yet. See the Status tab.");
+        not_connected_hint();
         return;
     }
     ImGui::BeginChild("##tlist", ImVec2(360.0f, 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
@@ -155,7 +155,7 @@ void draw_teams(App& app) {
 // ---------------------------------------------------------------- managers
 void draw_managers(App& app) {
     if (!app.connected()) {
-        ImGui::TextDisabled("Not connected to the game database yet. See the Status tab.");
+        not_connected_hint();
         return;
     }
     const Table* t = app.db.table("manager");

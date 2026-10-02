@@ -3,7 +3,7 @@ package.path = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "./") .. "
 local H = require 'h'
 local W = require 'world'
 
-print("t08 launch safety: while the game launches Turbo calls no game native, loads no DLL, reads no stale mailbox")
+print("t08 launch safety: while the game launches Turbo calls no game native, loads only Turbo.dll in launch mode, reads no stale mailbox")
 
 -- Every native that reaches into the game (everything the simulator provides except logging, message boxes and
 -- the event-handler registry, which Live Editor's own scripts use at any time)
@@ -21,12 +21,16 @@ local NATIVES = {
     "PlayerDevelopmentManagerAddPlayer", "PlayerDevelopmentManagerRemovePlayer",
 }
 
-local calls, mem_addrs, loadlib_calls = {}, {}, 0
+local calls, mem_addrs, loadlib_calls, loadlib_paths = {}, {}, 0, {}
 local real_loadlib = package.loadlib
-package.loadlib = function() loadlib_calls = loadlib_calls + 1 return true end
+package.loadlib = function(path)
+    loadlib_calls = loadlib_calls + 1
+    loadlib_paths[#loadlib_paths + 1] = path
+    return true
+end
 
 local function instrument()
-    calls, mem_addrs, loadlib_calls = {}, {}, 0
+    calls, mem_addrs, loadlib_calls, loadlib_paths = {}, {}, 0, {}
     for _, name in ipairs(NATIVES) do
         local orig = _G[name]
         if type(orig) == "function" then
@@ -57,32 +61,75 @@ local function install_dll_stub()
     os.execute(string.format("mkdir -p '%s/turbo' && printf 'MZ' > '%s/turbo/Turbo.dll'", H.LE, H.LE))
 end
 
-H.case("default launch: boot calls no game native, loads no DLL, registers no event handler", function()
+local function launch_mode()
+    local text = H.read(H.out("turbo_gui_load.json"))
+    return text and (require 'imports/external/json').decode(text).mode or nil
+end
+
+H.case("default launch: no game native; Turbo.dll loaded once in launch mode; only the documented career event", function()
     local sim = H.setup({ in_cm = false })
+    install_dll_stub()
+    instrument()
+    H.turbo().boot({ at_launch = true })
+    local n, names = native_calls()
+    H.eq(n, 0, "no game native called (" .. names .. ")")
+    H.eq(loadlib_calls, 1, "package.loadlib called once")
+    H.has(loadlib_paths[1] or "", "/turbo/Turbo.dll", "only Turbo.dll")
+    H.eq(launch_mode(), "launch", "launch mode: the DLL touches nothing until Live Editor reports Initial setup done")
+    local evs = handler_events(sim)
+    H.eq(#evs, 1, "one event")
+    H.eq(evs[1], "post__CareerModeEvent", "only the documented career event")
+    H.eq(H.read(H.out("bridge_state.json")), nil, "no bridge file written")
+    H.eq(H.read(H.out("bridge_meta.json")), nil, "no meta file written")
+end)
+
+H.case("gui.autoload=false: launch loads nothing and registers no event handler", function()
+    local sim = H.setup({ in_cm = false, config = { gui = { autoload = false } } })
+    install_dll_stub()
     instrument()
     H.turbo().boot({ at_launch = true })
     local n, names = native_calls()
     H.eq(n, 0, "no game native called (" .. names .. ")")
     H.eq(loadlib_calls, 0, "package.loadlib not called")
     H.eq(#handler_events(sim), 0, "no event handler registered")
-    H.eq(H.read(H.out("bridge_state.json")), nil, "no bridge file written")
-    H.eq(H.read(H.out("bridge_meta.json")), nil, "no meta file written")
+    H.eq(launch_mode(), nil, "no mode file")
 end)
 
-H.case("lua\\autorun\\turbo_boot.lua at launch: same, and every step is in turbo_boot.log", function()
+H.case("lua\\autorun\\turbo_boot.lua at launch: same as boot, and every step is in turbo_boot.log", function()
     local sim = H.setup({ in_cm = false })
+    install_dll_stub()
     instrument()
     dofile(H.LE .. "/lua/autorun/turbo_boot.lua")
     local n, names = native_calls()
     H.eq(n, 0, "no game native called (" .. names .. ")")
-    H.eq(loadlib_calls, 0, "package.loadlib not called")
-    H.eq(#handler_events(sim), 0, "no event handler registered")
+    H.eq(loadlib_calls, 1, "Turbo.dll loaded once")
+    H.eq(launch_mode(), "launch", "in launch mode")
+    H.eq(#handler_events(sim), 1, "one event handler")
     local trace = H.read(H.out("turbo_boot.log"))
     H.ok(trace, "turbo_boot.log written")
     H.has(trace, "autorun: turbo_boot.lua started")
     H.has(trace, "boot: start (game launch)")
+    H.has(trace, "boot: loading turbo\\Turbo.dll")
+    H.has(trace, "boot: load_gui returned true")
     H.has(trace, "boot: done")
     H.has(trace, "autorun: turbo_boot.lua finished")
+end)
+
+H.case("Turbo.dll missing or package.loadlib missing at launch: boot still finishes and says why", function()
+    H.setup({ in_cm = false })
+    instrument()
+    H.turbo().boot({ at_launch = true })
+    H.eq(loadlib_calls, 0, "no DLL file: nothing loaded")
+    H.has(H.read(H.out("turbo_boot.log")), "Turbo.dll not found")
+    install_dll_stub()
+    TURBO_STATE.bridge.gui_loaded = false
+    local saved = package.loadlib
+    package.loadlib = nil
+    local ok = pcall(H.turbo().boot, { at_launch = true })
+    package.loadlib = saved
+    H.eq(ok, true, "boot does not fail")
+    H.has(H.read(H.out("turbo_boot.log")), "TurboInjector.exe")
+    H.has(H.read(H.out("turbo_boot.log")), "boot: done")
 end)
 
 H.case("auto features enabled: launch registers only the documented career event and still calls no native", function()
@@ -98,7 +145,7 @@ H.case("auto features enabled: launch registers only the documented career event
     H.eq(loadlib_calls, 0, "no DLL")
 end)
 
-H.case("gui.autoload=true: armed at launch, starts on the first career event, once", function()
+H.case("gui.autoload=true: the bridge reads the game only from the first career event on; Turbo.dll loaded once", function()
     local sim = H.setup({ in_cm = false, config = { gui = { autoload = true } } })
     W.build(sim, {})
     install_dll_stub()
@@ -106,11 +153,12 @@ H.case("gui.autoload=true: armed at launch, starts on the first career event, on
     H.turbo().boot({ at_launch = true })
     local n, names = native_calls()
     H.eq(n, 0, "launch: no game native called (" .. names .. ")")
-    H.eq(loadlib_calls, 0, "launch: no DLL")
+    H.eq(loadlib_calls, 1, "launch: Turbo.dll in launch mode")
     sim.in_cm = true
     sim:fire("post__CareerModeEvent", 0, 15, 0)
-    H.eq(loadlib_calls, 1, "first career event loads Turbo.dll")
+    H.eq(loadlib_calls, 1, "the first career event does not load it again")
     H.ok(native_calls() > 0, "and only now reads the game")
+    H.ok(H.read(H.out("bridge_state.json")), "bridge state written on the first career event")
     sim:fire("post__CareerModeEvent", 0, 15, 0)
     H.eq(loadlib_calls, 1, "loaded once")
     local evs = handler_events(sim)
@@ -125,7 +173,7 @@ H.case("a stale bridge_dll.json is never trusted: no memory is touched on its wo
     local json = require 'imports/external/json'
     local STALE = 0x7FF000001000
     local function write_dll(updated)
-        local t = { mailbox = string.format("0x%X", STALE), session = "OLD", gui_version = "0.2.1" }
+        local t = { mailbox = string.format("0x%X", STALE), session = "OLD", gui_version = "0.2.3" }
         if updated ~= nil then t.updated = updated end
         local f = assert(io.open(H.out("bridge_dll.json"), "wb"))
         f:write(json.encode(t))
@@ -151,7 +199,7 @@ H.case("a stale bridge_dll.json is never trusted: no memory is touched on its wo
     local MB = sim:alloc(0x2020, 16)
     sim:w32(MB, 0x4F425254)
     local f = assert(io.open(H.out("bridge_dll.json"), "wb"))
-    f:write(json.encode({ mailbox = string.format("0x%X", MB), session = "NOW", gui_version = "0.2.1", updated = os.time() }))
+    f:write(json.encode({ mailbox = string.format("0x%X", MB), session = "NOW", gui_version = "0.2.3", updated = os.time() }))
     f:close()
     TURBO_STATE.bridge.mailbox = nil
     bridge.poll_mailbox(true)

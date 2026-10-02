@@ -3,11 +3,12 @@
 # (Mesa lavapipe) on a virtual X display. The program is tests/win/game_stub.cpp, a stand-in, NOT FC 27.
 #
 # Timeline: the stand-in game starts presenting frames; after 1 s it loads the stub FCLiveEditor.DLL and turbo\Turbo.dll
-# (like Live Editor's Lua side) WHILE it keeps presenting; after 6 s it presses F8 (SendInput, from another thread); after
-# 11 s it resizes its swap chain to 1280x720. Screenshots: Turbo hidden (5 s), shown (10 s), after the resize (14 s).
+# the way Turbo's lua\autorun does while the game starts (launch mode) WHILE it keeps presenting; at 1.5 s it writes Live
+# Editor's "Initial setup done" for this process into Logs\live_editor_<date>.log; after 6 s it presses F8 (SendInput, from
+# another thread); after 11 s it resizes its swap chain to 1280x720. Screenshots: hidden (5 s), shown (10 s), resized (14 s).
 #
 # MODE=probe (default): TurboProbe.exe finds the hook targets in a separate process (nothing created in the game).
-# MODE=fallback: no TurboProbe.exe, Turbo probes inside the game; the stand-in pauses presenting for 3 s after loading
+# MODE=fallback: no TurboProbe.exe, Turbo probes inside the game; the stand-in pauses presenting for 4 s after loading
 #   Turbo (a loading screen), because Wine + lavapipe deadlock when a DXGI factory is created while another thread
 #   presents (reproduced without any Turbo code).
 #
@@ -31,7 +32,7 @@ OUT="${1:-$ROOT/build/overlay_test}"
 RUN_S="${RUN_S:-16}"
 MODE="${MODE:-probe}"
 PAUSE_MS=0
-[ "$MODE" = "fallback" ] && PAUSE_MS=3000
+[ "$MODE" = "fallback" ] && PAUSE_MS=4000
 DISP="${DISP:-:97}"
 mkdir -p "$OUT/bin"
 rm -rf "$OUT/le" "$OUT"/*.png "$OUT/status.txt" "$OUT/game.log"
@@ -54,7 +55,7 @@ sleep 2
 export DISPLAY="$DISP" WINEPREFIX="$OUT/prefix" WINEDEBUG=-all VK_ICD_FILENAMES="$LVP" TURBO_GUI_SETTLE_MS=500
 "$WINE" wineboot -i >/dev/null 2>&1 || true
 
-"$WINE" "$OUT/bin/game_stub.exe" "$(winpath "$LE")" "$RUN_S" 1000 6000 11000 "$(winpath "$OUT/status.txt")" "$PAUSE_MS" > "$OUT/game.log" 2>&1 &
+"$WINE" "$OUT/bin/game_stub.exe" "$(winpath "$LE")" "$RUN_S" 1000 6000 11000 "$(winpath "$OUT/status.txt")" "$PAUSE_MS" 1500 > "$OUT/game.log" 2>&1 &
 GPID=$!
 sleep 5
 import -window root -display "$DISP" "$OUT/hidden.png" 2>/dev/null || true
@@ -80,6 +81,8 @@ echo "== overlay in a running Direct3D 12 program (Wine + vkd3d + lavapipe), mod
 sed 's/^/   game: /' "$OUT/game.log"
 check "the game ran to the end without D3D12 errors" "[ $GRC -eq 0 ] && grep -q 'errors=0' '$OUT/status.txt'"
 check "the game resized its swap chain with Turbo hooked" "grep -q 'resized=1' '$OUT/status.txt'"
+check "loaded in launch mode, Turbo waited for Live Editor's 'Initial setup done'" "has 'loaded while the game is starting' && has 'Live Editor has finished setting up the game'"
+check "nothing probed or hooked before Live Editor finished setting up" "[ \$(grep -n 'finished setting up' '$LOG' | head -1 | cut -d: -f1) -lt \$(grep -n 'hook targets\\|probing\\|TurboProbe' '$LOG' | head -1 | cut -d: -f1) ]"
 check "Turbo waited for the game window and Direct3D 12" "has 'game window found'"
 if [ "$MODE" = "probe" ]; then
     check "hook targets found by TurboProbe.exe, nothing created inside the game" "has 'verified in the game'"

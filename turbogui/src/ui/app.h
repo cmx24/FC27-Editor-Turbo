@@ -15,7 +15,7 @@
 
 namespace turbo {
 
-constexpr const char* kGuiVersion = "0.2.2";
+constexpr const char* kGuiVersion = "0.2.3";
 
 struct Toast {
     std::string text;
@@ -106,6 +106,8 @@ std::string field_label(const std::string& field);
 bool field_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label = nullptr, float width = 110.0f);
 // Grid of editors for the listed fields that exist in the table
 void field_grid(App& app, const Table& t, uint64_t rec, const std::vector<std::string>& names, const char* id, int columns = 3);
+// What to do while the GUI is not connected to the game database (wrapped, dimmed)
+void not_connected_hint();
 // Every field of a record, with a filter box
 void all_fields(App& app, const Table& t, uint64_t rec, const char* id);
 // Date editor for gregorian-day fields (birthdate, playerjointeamdate)

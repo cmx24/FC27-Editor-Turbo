@@ -1,6 +1,7 @@
--- FC 27 LE Turbo: runs while Live Editor initialises the game, so it does pure-Lua work only (see TURBO.boot):
--- no game natives, no memory access and no Turbo.dll. Each step is logged to turbo_output\turbo_boot.log.
--- Delete this file to switch Turbo's automatic features off completely.
+-- FC 27 LE Turbo: runs while Live Editor initialises the game (see TURBO.boot): no game native, no memory access.
+-- With gui.autoload (default) it loads turbo\Turbo.dll, which touches nothing until Live Editor reports "Initial setup
+-- done" in its log. Each step is logged to turbo_output\turbo_boot.log.
+-- Delete this file to switch Turbo's automatic start (GUI and automatic features) off completely.
 local okt, trace = pcall(require, 'imports/turbo/core/trace')
 if okt then trace.step("autorun: turbo_boot.lua started") end
 local ok, TURBO = pcall(require, 'imports/turbo/turbo')

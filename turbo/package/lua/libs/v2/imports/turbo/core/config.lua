@@ -15,9 +15,11 @@ M.DEFAULTS = {
         show_message_box = true,  -- pop a summary box after each run
     },
     gui = {
-        -- false (default): Turbo does nothing native at game launch; load the GUI with turbo_gui_load.lua.
-        -- true: load it on the first career-mode event (the game is fully running by then), never at launch.
-        autoload = false,
+        -- true (default): Turbo.dll is loaded while the game starts but touches nothing until Live Editor reports that it
+        -- has finished setting up the game ("Initial setup done" in its log) or Turbo's Lua side runs in game; it connects
+        -- to the database on the first career-mode event (or when turbo_gui_load.lua runs). No game native is called at launch.
+        -- false: nothing is loaded at launch; run turbo_gui_load.lua in game to load the GUI.
+        autoload = true,
     },
     auto = {
         form_morale = {

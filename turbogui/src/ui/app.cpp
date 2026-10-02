@@ -242,7 +242,7 @@ void App::draw() {
         ImGui::TextDisabled("| %zu players | %zu teams | %s | %s", model.players().size(), model.teams().size(),
                             st.in_cm ? "career loaded" : "no career loaded", st.le_version.c_str());
     } else {
-        ImGui::TextDisabled("| %s", db_error.empty() ? "waiting for Live Editor" : db_error.c_str());
+        ImGui::TextDisabled("| %s", db_error.empty() ? "waiting for Turbo's Lua side (enter a career)" : db_error.c_str());
     }
     ImGui::SameLine(ImGui::GetWindowWidth() - (busy() ? 380.0f : 230.0f));
     if (busy()) {

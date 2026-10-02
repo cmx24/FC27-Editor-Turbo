@@ -1,6 +1,6 @@
 # FC27-Editor-Turbo
 
-**FC 27 LE Turbo 0.2.2**: FC 26 Live Editor features for **FC 27 Live Editor** (public build v27.1.0 or newer), plus an
+**FC 27 LE Turbo 0.2.3**: FC 26 Live Editor features for **FC 27 Live Editor** (public build v27.1.0 or newer), plus an
 in-game window (the **Turbo GUI**) with Players / Teams / Managers / Database editors and a button for every Turbo tool.
 
 Which FC 26 Live Editor feature is where (Turbo window, Database tab, FC 27 Live Editor itself, or not available yet):
@@ -12,9 +12,10 @@ unmodified Live Editor and never modifies, copies or redistributes its files.
 ## Install (the build to test)
 
 1. Install the official FC 27 Live Editor as usual.
-2. Unzip [`dist/FC27_LE_Turbo_0.2.2.zip`](dist/FC27_LE_Turbo_0.2.2.zip) into the Live Editor folder (the folder with `FCLiveEditor.DLL`). Nothing of Live Editor is overwritten.
-3. Start the game through Live Editor as usual. Turbo does **nothing native while the game launches**.
-4. Once the game is running, open Live Editor's Lua Engine, run `turbo_gui_load.lua`, wait ten seconds, press **F8**.
+2. Unzip [`dist/FC27_LE_Turbo_0.2.3.zip`](dist/FC27_LE_Turbo_0.2.3.zip) into the Live Editor folder (the folder with `FCLiveEditor.DLL`). Nothing of Live Editor is overwritten.
+3. Start the game through Live Editor as usual. Nothing to run: about 20 seconds after the main menu appears, press **F8**.
+4. Load a career: the Turbo window's top line says **Connected**. (At the main menu, run `turbo_gui_load.lua` in Live Editor's
+   Lua Engine to connect there.)
 
 [`turbo/package/TURBO_README.md`](turbo/package/TURBO_README.md) has the in-game test checklist and the recovery steps
 (game will not launch: delete `lua\autorun\turbo_boot.lua`; kill switch: `turbo_output\turbo_gui_disable.txt`).
@@ -23,6 +24,11 @@ Back up your career save before testing.
 
 **0.2.0 broke game launch** (it loaded `Turbo.dll`, probed Direct3D 12 and called game natives while Live Editor was still
 initialising the game). Since 0.2.1 none of that is on the launch path; see `docs/turbo-reference.md` (Launch safety).
+
+**New in 0.2.3**: in the first in-game test of 0.2.2 the game launched, but F8 did nothing because the GUI was only loaded by
+`turbo_gui_load.lua`, which did not run. 0.2.3 loads `Turbo.dll` at launch, inert: it imports no Direct3D / DXGI DLL and does
+nothing until Live Editor writes "Initial setup done" for this game session in its own log (about 15 s after the main menu).
+It connects to the database on the first career event. `gui.autoload = false` in `turbo_config.json` restores the 0.2.2 behaviour.
 
 **New in 0.2.2**: Players list filters (position 1–7, PlayStyle / PlayStyle+, retiring, min OVR / POT, max age), Bulk edit
 players in Turbo Tools, Delete player (with confirmation), `TurboProbe.exe` (finds the Direct3D functions in a separate
@@ -34,14 +40,14 @@ also polled, so they work when the game reads only raw input.
 
 | Check | Result |
 | --- | --- |
-| Lua feature pack + GUI bridge + launch safety, 100 tests over a simulated game memory (`turbo/tests/run_tests.sh`) | 100 passed, 0 failed |
+| Lua feature pack + GUI bridge + launch safety, 103 tests over a simulated game memory (`turbo/tests/run_tests.sh`) | 103 passed, 0 failed |
 | luacheck on `turbo/package/lua` | 0 warnings, 0 errors |
-| Native engine + every UI panel, 3,268 checks with AddressSanitizer + UBSan (`turbogui/tests/native/run_native.sh`), including every GUI button that sends a command (28) run through Turbo's real Lua side | 3,268 passed, 0 failed |
+| Native engine + every UI panel, 3,279 checks with AddressSanitizer + UBSan (`turbogui/tests/native/run_native.sh`), including every GUI button that sends a command (28) run through Turbo's real Lua side and the Live Editor log reader | 3,279 passed, 0 failed |
 | Every table / field name Turbo uses against EA's database schema and xAranaktu's FC 24–26 scripts (`scripts/check_field_names.py`) | 110 names: 108 known, 2 deliberately allowed, 0 unknown |
-| Windows `Turbo.dll` / `TurboProbe.exe` / `TurboInjector.exe` cross-build (mingw-w64) | builds with 0 warnings |
-| Real `Turbo.dll` loaded under Wine (`turbogui/tests/win/run_smoke.sh`): imports, refusal without Live Editor, no hooking without a game window, kill switch, crash guard (clean exit and kill), mailbox, Lua-side start | all 8 modes pass |
-| Real `Turbo.dll` inside a running Direct3D 12 program (a stand-in, not FC 27) under Wine + vkd3d + software Vulkan (`turbogui/tests/win/run_overlay_wine.sh`): hooks while it renders, F8 shows the window (screenshot), survives a swap-chain resize | passes with `TurboProbe.exe` and with the in-game fallback |
-| Inside FC 27 with Live Editor: hooks and drawing, `package.loadlib`, the bridge against the real game | **not run** (needs Windows + the game); use the checklist in `TURBO_README.md` |
+| Windows `Turbo.dll` / `TurboProbe.exe` / `TurboInjector.exe` cross-build (mingw-w64) | builds with 0 warnings; `Turbo.dll` imports only KERNEL32, USER32, GDI32, msvcrt |
+| Real `Turbo.dll` loaded under Wine (`turbogui/tests/win/run_smoke.sh`): imports, refusal without Live Editor, no hooking without a game window, kill switch, crash guard (clean exit and kill), mailbox, Lua-side start, launch mode (inert until Live Editor's `Initial setup done` or the Lua side runs) | all 10 modes pass |
+| Real `Turbo.dll` inside a running Direct3D 12 program (a stand-in, not FC 27) under Wine + vkd3d + software Vulkan (`turbogui/tests/win/run_overlay_wine.sh`): loaded in launch mode, waits for Live Editor's line, hooks while it renders, F8 shows the window (screenshot), survives a swap-chain resize | passes with `TurboProbe.exe` and with the in-game fallback |
+| Inside FC 27 with Live Editor | 0.2.2 launches the game fine (user's log, 02-10-2026). 0.2.3 (launch-time load, hooks, drawing, bridge) **not run yet**; use the checklist in `TURBO_README.md` |
 
 ## Layout
 
@@ -52,7 +58,7 @@ also polled, so they work when the game reads only raw input.
 | `turbogui/` | C++ source of `Turbo.dll` / `TurboProbe.exe` / `TurboInjector.exe` (Dear ImGui + MinHook + nlohmann/json vendored in `third_party/`), native tests, Wine smoke and overlay tests |
 | `scripts/package.sh` | Builds `dist/FC27_LE_Turbo_<version>.zip` |
 | `scripts/check_field_names.py` | Checks every database name Turbo uses against independent schema sources |
-| `docs/fc26-parity.md` | Every FC 26 Live Editor feature group and script, and where it is in Turbo 0.2.2 |
+| `docs/fc26-parity.md` | Every FC 26 Live Editor feature group and script, and where it is in Turbo 0.2.3 |
 | `docs/turbo-reference.md` | Architecture, bridge contract, build/test commands, what is and is not verified |
 
 ## Build and test
