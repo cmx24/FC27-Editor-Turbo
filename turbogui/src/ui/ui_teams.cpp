@@ -203,8 +203,10 @@ void draw_managers(App& app) {
         } else {
             ImGui::Text("%s", m.name.c_str());
             ImGui::Separator();
-            field_grid(app, *t, m.rec, {"firstname", "surname", "teamid", "nationality", "managerid", "bodytypeid",
-                                         "personalityid", "headid", "outfitid", "skintonecode"},
+            // Names as in EA's manager table (bodytypecode / headassetid; checked against the official db meta)
+            field_grid(app, *t, m.rec, {"firstname", "surname", "commonname", "teamid", "nationality", "managerid",
+                                         "personalityid", "bodytypecode", "headassetid", "outfitid", "skintonecode",
+                                         "height", "weight"},
                        "##mgrid", 2);
             ImGui::SeparatorText("All fields");
             all_fields(app, *t, m.rec, "##mall");

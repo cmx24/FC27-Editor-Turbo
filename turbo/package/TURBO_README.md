@@ -1,6 +1,6 @@
-# FC 27 LE Turbo 0.2.1
+# FC 27 LE Turbo 0.2.2
 
-Turbo adds FC 26 Live Editor features to **FC 27 Live Editor** (public build v27.1.0 or newer). Version 0.2.1 has an in-game window, the **Turbo GUI**, with player, team, manager and database editors and buttons for every Turbo tool. Turbo runs next to Live Editor, inside the same game session. Live Editor's own files are not modified.
+Turbo adds FC 26 Live Editor features to **FC 27 Live Editor** (public build v27.1.0 or newer). Version 0.2.2 has an in-game window, the **Turbo GUI**, with player, team, manager and database editors and buttons for every Turbo tool. Turbo runs next to Live Editor, inside the same game session. Live Editor's own files are not modified.
 
 Offline Career Mode / Kick-Off only. Never use Live Editor or Turbo in online modes.
 
@@ -8,7 +8,7 @@ Offline Career Mode / Kick-Off only. Never use Live Editor or Turbo in online mo
 
 1. Install the official FC 27 Live Editor as usual.
 2. Copy everything in this package into the Live Editor folder (the folder with `FCLiveEditor.DLL`). Nothing of Live Editor is overwritten. You add:
-   - `turbo\Turbo.dll`, `turbo\TurboInjector.exe` (the Turbo GUI; not loaded until you run `turbo_gui_load.lua`)
+   - `turbo\Turbo.dll`, `turbo\TurboProbe.exe`, `turbo\TurboInjector.exe` (the Turbo GUI; not loaded until you run `turbo_gui_load.lua`)
    - `turbo_config.json`, `TURBO_README.md`, `turbo_output\`
    - `lua\autorun\turbo_boot.lua`
    - `lua\scripts\turbo_*.lua` (25 scripts)
@@ -47,14 +47,16 @@ Nothing here modifies Live Editor or the game, so everything can be switched off
 
 | Tab | What you can do |
 | --- | --- |
-| Players | Search by name, ID or club, "My club" filter, sort by any column. Edit: Profile (overall, potential, foot, skill moves, height, weight, ...), positions 1-7, birth date and join date as real dates, Attributes (grouped like the game), PlayStyles / PlayStyles+ / Traits / Traits+ as tick boxes with All/None, Appearance, kit number and line-up slot per team, All fields. Career buttons: Transfer, Loan, Release, Terminate loan, Transfer list, Loan list, Remove from lists. |
+| Players | Search by name, ID or club, "My club", filters: position (any of the 7 preferred positions), PlayStyle / PlayStyle+, retiring, minimum OVR / POT, maximum age; sort by any column. Edit: Profile (overall, potential, foot, skill moves, height, weight, ...), positions 1-7, birth date and join date as real dates, Attributes (grouped like the game), PlayStyles / PlayStyles+ / Traits / Traits+ as tick boxes with All/None, Appearance, kit number and line-up slot per team, All fields. Career buttons: Transfer, Loan, Release, Terminate loan, Transfer list, Loan list, Remove from lists, Delete player (with confirmation). |
 | Teams | Team list, overview fields (ratings, prestige, budget, ...), squad with editable kit numbers and slots (click a player to open him), All fields. |
 | Managers | Manager list and every field of the `manager` table. |
 | Database | Any table of the live database: filter by field = value, double-click a cell to edit it. |
-| Turbo Tools | Every Turbo 0.1 feature as a button: form/morale/fitness (now or every day), squad role, contract extensions, Player Career PlayStyles (now or automatic), season stats / fixtures / transfer history / any table to CSV, transfer bans, delete generated players, real-face head models, probe report, dry run. |
+| Turbo Tools | Bulk edit players (your squad, team IDs, exactly the players the Players list shows, or everyone): any players-table field, fitness / form / morale, development (XP multiplier, bonus XP, no decline). Every Turbo 0.1 feature as a button: form/morale/fitness (now or every day), squad role, contract extensions, Player Career PlayStyles (now or automatic), season stats / fixtures / transfer history / any table to CSV, transfer bans, delete generated players, real-face head models, probe report, dry run. |
 | Status | Connection details, show/hide key, log. |
 
 How it works:
+- When the GUI loads it runs `turbo\TurboProbe.exe` (a separate, windowless program) to find the Direct3D functions it draws with, so it creates nothing inside the game. It uses those addresses only after checking the game has loaded the very same Windows files. If that check fails it falls back to a short probe inside the game; `turbo_gui.log` says which.
+- F8 and the mouse work whether the game delivers normal window messages or only raw input. While Turbo is hidden it leaves the game's mouse cursor alone.
 - The editors read and write the game's database directly. Every value is checked against the field's own range before it is written; text that is too long is refused. Edits are live immediately, like in Live Editor.
 - The Turbo Tools buttons and the player career buttons run through Live Editor's Lua engine. In a career they usually run within a second. **Outside a career** Live Editor sends Lua no events, so after clicking a tool open the Lua Engine and run `turbo_exec.lua`. A queued command can be cancelled.
 - When you load another save the GUI re-reads the database on its own. While the window is hidden it waits until you open it again.

@@ -25,6 +25,7 @@ make_folder() {  # <name> -> prints the folder path; a fresh fake Live Editor fo
     local d="$OUT/$1"
     mkdir -p "$d/turbo" "$d/turbo_output"
     cp "$ROOT/build/win/Turbo.dll" "$d/turbo/Turbo.dll"
+    cp "$ROOT/build/win/TurboProbe.exe" "$d/turbo/TurboProbe.exe"   # as installed
     cp "$OUT/bin/FCLiveEditor.DLL" "$d/FCLiveEditor.DLL"
     echo '{}' > "$d/turbo_config.json"
     echo "$d"

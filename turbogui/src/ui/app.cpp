@@ -1,5 +1,7 @@
 #include "app.h"
 
+#include <algorithm>
+
 #include <cstdio>
 #include <ctime>
 #include <fstream>
@@ -216,8 +218,13 @@ void App::draw() {
 
     if (!visible) return;
 
-    ImGui::SetNextWindowSize(ImVec2(1180, 760), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(ImVec2(60, 60), ImGuiCond_FirstUseEver);
+    // First use: 1180x760 or 90% of the screen, whichever is smaller; never larger than the screen (smaller windowed
+    // resolutions, or a saved layout from a bigger screen)
+    const ImVec2 ds = ImGui::GetIO().DisplaySize;
+    const float max_w = ds.x > 100.0f ? ds.x : 1180.0f, max_h = ds.y > 100.0f ? ds.y : 760.0f;
+    ImGui::SetNextWindowSize(ImVec2(std::min(1180.0f, max_w * 0.9f), std::min(760.0f, max_h * 0.88f)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(std::min(60.0f, max_w * 0.04f), std::min(60.0f, max_h * 0.05f)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(std::min(480.0f, max_w), std::min(320.0f, max_h)), ImVec2(max_w, max_h));
     if (!ImGui::Begin("FC 27 LE Turbo", &visible, ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
         return;

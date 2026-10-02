@@ -52,6 +52,10 @@ static std::string lower(std::string s) {
 static void player_list(App& app) {
     static char search[64] = "";
     static bool my_club = false;
+    // Filters (FC 26 LE v26.3.2): position (any of the 7 preferred positions), PlayStyle / PlayStyle+, retiring,
+    // minimum overall / potential, maximum age
+    static int f_pos = -1, f_style = -1, f_min_ovr = 0, f_min_pot = 0, f_max_age = 0;
+    static bool f_plus = false, f_retiring = false;
     static std::vector<const PlayerRow*> rows;
     static std::string last_key;
     static uint64_t last_version = ~uint64_t(0);
@@ -68,7 +72,46 @@ static void player_list(App& app) {
         my_club = false;
     }
 
-    std::string key = lower(search) + (my_club ? "|1" : "|0");
+    ImGui::SetNextItemWidth(130.0f);
+    if (ImGui::BeginCombo("##fpos", f_pos < 0 ? "Any position" : position_name(f_pos), ImGuiComboFlags_HeightLargest)) {
+        if (ImGui::Selectable("Any position", f_pos < 0)) f_pos = -1;
+        for (int p = 0; p < position_count(); ++p)
+            if (ImGui::Selectable(position_name(p), f_pos == p)) f_pos = p;
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    const auto& styles = playstyle1_names();
+    ImGui::SetNextItemWidth(170.0f);
+    if (ImGui::BeginCombo("##fstyle", f_style < 0 || !styles[static_cast<size_t>(f_style)] ? "Any PlayStyle"
+                                                                                             : styles[static_cast<size_t>(f_style)],
+                          ImGuiComboFlags_HeightLargest)) {
+        if (ImGui::Selectable("Any PlayStyle", f_style < 0)) f_style = -1;
+        for (size_t b = 0; b < styles.size(); ++b)
+            if (styles[b] && ImGui::Selectable(styles[b], f_style == static_cast<int>(b))) f_style = static_cast<int>(b);
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    ImGui::Checkbox("+ only", &f_plus);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only players with the PlayStyle+ (icontrait1)");
+    ImGui::Checkbox("Retiring", &f_retiring);
+    for (auto* v : {&f_min_ovr, &f_min_pot, &f_max_age}) {
+        const char* lbl = v == &f_min_ovr ? "Min OVR" : v == &f_min_pot ? "Min POT" : "Max age";
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(46.0f);
+        ImGui::InputInt(lbl, v, 0);
+        *v = std::max(0, std::min(*v, 99));
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Clear##filters")) {
+        f_pos = f_style = -1;
+        f_min_ovr = f_min_pot = f_max_age = 0;
+        f_plus = f_retiring = false;
+    }
+
+    char fkey[96];
+    std::snprintf(fkey, sizeof(fkey), "|%d|%d|%d|%d|%d|%d|%d", f_pos, f_style, f_plus ? 1 : 0, f_retiring ? 1 : 0, f_min_ovr,
+                  f_min_pot, f_max_age);
+    std::string key = lower(search) + (my_club ? "|1" : "|0") + fkey;
     if (key != last_key || last_version != app.model.version()) {
         last_key = key;
         last_version = app.model.version();
@@ -80,6 +123,13 @@ static void player_list(App& app) {
         int64_t club = app.bridge.state().user_team;
         for (const auto& p : app.model.players()) {
             if (my_club && p.club != club) continue;
+            if (f_pos >= 0 && std::none_of(std::begin(p.positions), std::end(p.positions), [&](int x) { return x == f_pos; }))
+                continue;
+            if (f_style >= 0 && !(((f_plus ? p.playstyles_plus : p.playstyles) >> f_style) & 1)) continue;
+            if (f_retiring && !p.retiring) continue;
+            if (f_min_ovr > 0 && p.overall < f_min_ovr) continue;
+            if (f_min_pot > 0 && p.potential < f_min_pot) continue;
+            if (f_max_age > 0 && (p.age < 0 || p.age > f_max_age)) continue;
             if (!q.empty()) {
                 if (numeric) {
                     if (p.playerid != qid && std::to_string(p.playerid).find(q) != 0) continue;
@@ -90,7 +140,10 @@ static void player_list(App& app) {
             rows.push_back(&p);
         }
         need_sort = true;
+        app.list_player_ids.clear();
+        for (const PlayerRow* r : rows) app.list_player_ids.push_back(r->playerid);
     }
+    ImGui::TextDisabled("%zu players", rows.size());
 
     ImGuiTableFlags fl = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable |
                          ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable;
@@ -287,12 +340,26 @@ static void player_editor(App& app) {
     simple("Loan list", "loan_list");
     simple("Remove from lists", "unlist");
     ImGui::NewLine();
+    if (ImGui::Button("Delete player...")) ImGui::OpenPopup("##delplayer");
     if (!cm) {
         ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::TextDisabled("(moves need a loaded career)");
     }
     moves_popup(app, p->playerid);
+    if (ImGui::BeginPopupModal("##delplayer", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Delete %s (ID %lld)?", p->name.c_str(), static_cast<long long>(p->playerid));
+        ImGui::TextDisabled("Live Editor moves the player to Free Agents, then deletes his players and teamplayerlinks records.");
+        ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "This cannot be undone.");
+        if (ImGui::Button("Delete player")) {
+            json a = {{"action", "delete"}, {"playerid", p->playerid}, {"confirm", true}};
+            app.send({{"op", "run"}, {"module", "player_moves"}, {"overrides", {{"actions", json::array({a})}}}}, "Delete player");
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel##delplayer")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
     ImGui::Separator();
 
     if (ImGui::BeginTabBar("##ptabs")) {

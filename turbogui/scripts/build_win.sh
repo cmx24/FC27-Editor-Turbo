@@ -38,5 +38,7 @@ done
 $CXX -shared -o "$OUT/Turbo.dll" "${objs[@]}" -static -static-libgcc -static-libstdc++ \
   -ld3d12 -ldxgi -ld3dcompiler_47 -ldwmapi -lgdi32 -luser32 -limm32 -lole32 -Wl,--subsystem,windows
 $CXX -std=c++17 -O2 -municode -o "$OUT/TurboInjector.exe" "$ROOT/src/injector/main.cpp" -static -static-libgcc -static-libstdc++
-x86_64-w64-mingw32-strip "$OUT/Turbo.dll" "$OUT/TurboInjector.exe"
-ls -la "$OUT/Turbo.dll" "$OUT/TurboInjector.exe"
+$CXX -std=c++17 -O2 -Wall -Wextra -municode $DEFS -o "$OUT/TurboProbe.exe" "$ROOT/src/probe/main.cpp" -static -static-libgcc -static-libstdc++ \
+  -ld3d12 -ldxgi -Wl,--subsystem,windows
+x86_64-w64-mingw32-strip "$OUT/Turbo.dll" "$OUT/TurboInjector.exe" "$OUT/TurboProbe.exe"
+ls -la "$OUT/Turbo.dll" "$OUT/TurboInjector.exe" "$OUT/TurboProbe.exe"

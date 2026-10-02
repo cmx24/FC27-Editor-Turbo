@@ -32,6 +32,7 @@
 #include "imgui_internal.h"
 #include "nlohmann/json.hpp"
 #include "ui/app.h"
+#include "ui/playstyles.h"
 
 namespace fs = std::filesystem;
 using nlohmann::json;
@@ -696,6 +697,47 @@ static void test_ui() {
             CHECK(ui.find("1001", "##plist") != nullptr, "filter cleared");
         });
 
+        run_case("UI: Players list filters (position, PlayStyle, PlayStyle+, retiring, OVR, POT, age)", [&] {
+            // Oracle: the same rules computed directly from the model, compared with what the list shows
+            auto expect = [&](const std::function<bool(const PlayerRow&)>& keep) {
+                std::vector<int64_t> want, got = app.list_player_ids;
+                for (const auto& p : app.model.players())
+                    if (keep(p)) want.push_back(p.playerid);
+                std::sort(want.begin(), want.end());
+                std::sort(got.begin(), got.end());
+                return want == got;
+            };
+            const size_t all = app.model.players().size();
+            ui.frames(2);
+            CHECK(app.list_player_ids.size() == all, "no filter: everyone listed");
+            CHECK(ui.click("Retiring", "##plist"), "Retiring");
+            CHECK(expect([](const PlayerRow& p) { return p.retiring; }) && app.list_player_ids.size() == 1, "retiring: one player");
+            CHECK(ui.click("Retiring", "##plist"), "Retiring off");
+            CHECK(ui.click("##fstyle", "##plist"), "PlayStyle combo");
+            CHECK(ui.click(playstyle1_names()[0], "##Combo"), "first PlayStyle");
+            CHECK(expect([](const PlayerRow& p) { return (p.playstyles & 1) != 0; }) && !app.list_player_ids.empty(), "PlayStyle bit 0");
+            CHECK(ui.click("+ only", "##plist"), "+ only");
+            CHECK(expect([](const PlayerRow& p) { return (p.playstyles_plus & 1) != 0; }) && app.list_player_ids.size() == 1,
+                  "PlayStyle+ bit 0: one player");
+            CHECK(ui.click("Clear##filters", "##plist"), "Clear");
+            CHECK(app.list_player_ids.size() == all, "cleared");
+            CHECK(ui.click("##fpos", "##plist"), "position combo");
+            CHECK(ui.click(position_name(14), "##Combo"), "position 14");
+            CHECK(expect([](const PlayerRow& p) { return std::count(std::begin(p.positions), std::end(p.positions), 14) > 0; }) &&
+                      app.list_player_ids.size() > 1,
+                  "position 14 as any of the 7 preferred positions");
+            CHECK(ui.click("Clear##filters", "##plist"), "Clear");
+            CHECK(ui.type_into(ui.find("Min OVR", "##plist"), "87"), "min OVR");
+            CHECK(expect([](const PlayerRow& p) { return p.overall >= 87; }), "OVR >= 87");
+            CHECK(ui.type_into(ui.find("Max age", "##plist"), "25"), "max age");
+            CHECK(expect([](const PlayerRow& p) { return p.overall >= 87 && p.age >= 0 && p.age <= 25; }), "and age <= 25");
+            CHECK(ui.type_into(ui.find("Min POT", "##plist"), "90"), "min POT");
+            CHECK(expect([](const PlayerRow& p) { return p.overall >= 87 && p.potential >= 90 && p.age >= 0 && p.age <= 25; }),
+                  "and POT >= 90");
+            CHECK(ui.click("Clear##filters", "##plist"), "Clear");
+            CHECK(app.list_player_ids.size() == all, "cleared again");
+        });
+
         run_case("UI: PlayStyles All/None buttons and a single bit", [&] {
             CHECK(ui.click("PlayStyles", "##pedit"), "PlayStyles tab");
             const Table* p = app.db.table("players");
@@ -820,6 +862,115 @@ static void test_ui() {
             CHECK(ui.click("F5"), "F5");
             CHECK(app.toggle_vk == 0x74, "toggle key F5");
             CHECK(read_json(le / "turbo_output" / "gui_settings.json")["gui"]["toggle_key"].get<int>() == 0x74, "key saved");
+        });
+
+        run_case("UI: every Turbo Tools and player button sends a command Turbo's Lua side runs", [&] {
+            // Click every button that queues a command, record the exact JSON it put in the mailbox, cancel it so
+            // the next one can be sent, then run all of them through Turbo's real Lua bridge (gui_world.lua commands)
+            json captured = json::array();
+            auto take = [&](const std::string& label) {
+                if (!app.busy()) {
+                    CHECK(false, "no command queued by '" + label + "'");
+                    return;
+                }
+                std::string text = mem.read_cstr(kMb + 0x20, 0x1000);
+                json cmd = json::parse(text, nullptr, false);
+                CHECK(!cmd.is_discarded(), "valid JSON from '" + label + "': " + text);
+                captured.push_back({{"label", label}, {"cmd", cmd}});
+                CHECK(ui.click("Cancel"), "Cancel after '" + label + "'");
+                CHECK(!app.busy(), "cancelled '" + label + "'");
+            };
+            auto press = [&](const std::string& label, const std::string& win = "") {
+                CHECK(ui.click(label, win), "button '" + label + "'");
+                take(label);
+            };
+            auto press_as = [&](const std::string& label, const std::string& record, const std::string& win = "") {
+                CHECK(ui.click(label, win), "button '" + label + "'");
+                take(record);
+            };
+            auto header = [&](const std::string& label) { CHECK(ui.click(label), "header '" + label + "'"); };
+
+            CHECK(ui.click("Turbo Tools"), "Tools tab");
+            press("Apply now##fm");
+            press("Set role for whole squad");
+            press("Extend my squad's contracts");
+            press("Extend every other club's contracts");
+            header("Your squad");  // collapse, so the next sections stay in view
+            header("Player Career");
+            press("Give my player every PlayStyle");
+            header("Player Career");
+            header("Exports (CSV in turbo_output)");
+            for (const char* b : {"Season stats", "Fixtures & results", "Transfer history", "Jersey numbers", "Export tables", "Probe report"})
+                press(b);
+            header("Exports (CSV in turbo_output)");
+            header("Transfer bans");
+            for (const char* b : {"List bans", "Ban every team", "Remove all team bans"}) press(b);
+            header("Transfer bans");
+            header("Database maintenance");
+            press("Count");
+            CHECK(ui.click("Delete..."), "Delete... opens the confirmation");
+            press("Delete", "##confirmdel");
+            press("Capture real-face list");
+            press("Apply real-face list");
+            header("Database maintenance");
+
+            CHECK(ui.click("Players"), "Players tab");
+            CHECK(ui.click("1002", "##plist"), "player 1002");
+            for (const char* b : {"Release", "Terminate loan", "Transfer list", "Loan list", "Remove from lists"}) press(b, "##pedit");
+            CHECK(ui.click("Transfer / Loan..."), "moves popup");
+            CHECK(ui.type_into(ui.find("To team ID"), "7"), "destination team (Everton)");
+            press("Transfer", "##Popup");
+            CHECK(ui.click("Transfer / Loan..."), "moves popup again");
+            press("Loan (months)", "##Popup");
+
+            // Bulk edit: my squad, one field and an action
+            CHECK(ui.click("Turbo Tools"), "Tools tab again");
+            header("Bulk edit players");
+            CHECK(ui.type_into(ui.find("##fn0"), "potential"), "bulk field name");
+            CHECK(ui.type_into(ui.find("##fv0"), "80"), "bulk field value");
+            CHECK(ui.click("Form##be"), "bulk form action");
+            press_as("Apply bulk edit", "Bulk edit (my squad)");
+            // Bulk edit: exactly the players the Players list shows (searched down to 1002)
+            CHECK(ui.click("Players"), "Players tab for the search");
+            CHECK(ui.type_into(ui.find("##psearch", "##plist"), "1002"), "search 1002");
+            CHECK(app.list_player_ids.size() == 1 && app.list_player_ids[0] == 1002, "list shows 1002 only");
+            CHECK(ui.click("Turbo Tools"), "Tools tab");
+            CHECK(ui.click("Players shown in the Players list##be"), "list scope");
+            press_as("Apply bulk edit", "Bulk edit (shown players)");
+            header("Bulk edit players");
+            // Delete player (last: the other commands above use player 1002)
+            CHECK(ui.click("Players"), "Players tab for delete");
+            CHECK(ui.click("1002", "##plist"), "player 1002 again");
+            CHECK(ui.click("Delete player...", "##pedit"), "delete dialog");
+            press("Delete player", "##delplayer");
+            CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
+
+            CHECK(captured.size() == 28, fmt("commands captured: %zu", captured.size()));
+            CHECK(captured[26]["label"] == "Bulk edit (shown players)" && captured[26]["cmd"]["overrides"]["scope"]["playerids"] == json::array({1002}), "bulk edit scope = shown players");
+            CHECK(captured[27]["cmd"]["overrides"]["actions"][0]["confirm"].get<bool>(), "delete carries the confirmation");
+            std::ofstream(g_out / "gui_commands.json") << captured.dump(1);
+            CHECK(run_lua("commands") == 0, "gui_world.lua commands");
+            json results = read_json(g_out / "gui_commands_out.json");
+            CHECK(results.size() == captured.size(), "a result for every command");
+            // A command may be refused for a reason that belongs to the simulated world (expected below), never
+            // because the GUI and the Lua side disagree about modules, operations or settings.
+            // Every command must succeed except Turbo's own deliberate safety refusal: the test world's real-face
+            // list (41 players) is below min_list_size (100), so Apply refuses to touch any head
+            const std::map<std::string, std::string> expected_refusal = {
+                {"Apply real-face list", "fewer than min_list_size"},
+            };
+            CHECK(captured[1]["cmd"]["overrides"]["role"].get<int>() == 3, "squad role default is 3 (Rotation)");
+            for (const auto& r : results) {
+                std::string label = r["label"], text = r["text"];
+                bool ok = r["ok"].get<bool>();
+                for (const char* bad : {"unknown Turbo module", "unknown op", "crashed", "bad command", "module missing",
+                                        "unknown mode", "must be", "attempt to", "error:"})
+                    CHECK(text.find(bad) == std::string::npos, "'" + label + "' contract error: " + text);
+                auto ex = expected_refusal.find(label);
+                if (!ok) CHECK(ex != expected_refusal.end() && text.find(ex->second) != std::string::npos,
+                               "'" + label + "' refused: " + text);
+                if (std::getenv("TURBO_TEST_DEBUG")) std::printf("      %-36s %s  %s\n", label.c_str(), ok ? "ok  " : "FAIL", text.c_str());
+            }
         });
 
         run_case("UI: database reload (another save) invalidates rows safely", [&] {

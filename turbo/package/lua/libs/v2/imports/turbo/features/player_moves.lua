@@ -5,7 +5,8 @@
 --     { "action": "loan", "playerid": 20801, "to_teamid": 241, "months": 12, "loan_to_buy": -1 },
 --     { "action": "release", "playerid": 1 },
 --     { "action": "terminate_loan", "playerid": 1 },
---     { "action": "transfer_list" | "loan_list" | "unlist", "scope": { "user_team": true }, "filters": { "max_overall": 70 } }
+--     { "action": "transfer_list" | "loan_list" | "unlist", "scope": { "user_team": true }, "filters": { "max_overall": 70 } },
+--     { "action": "delete", "playerid": 1, "confirm": true }   -- FC 26 LE v26.1.5 "Delete player"; needs confirm
 --   ] }
 -- All actions are validated before the first one runs.
 
@@ -19,6 +20,7 @@ local NEEDS = {
     transfer = "TransferPlayer", loan = "LoanPlayer", release = "ReleasePlayerFromTeam",
     terminate_loan = "TerminateLoan", transfer_list = "AddPlayerToTransferList",
     loan_list = "AddPlayerToLoanList", unlist = "RemovePlayerFromLists",
+    delete = "DeletePlayer",   -- void DeletePlayer(int playerid, int player_current_teamid = 0) (FC 27 LE DOC.MD)
 }
 
 local function player_exists(pid, player_set)
@@ -55,6 +57,9 @@ local function check(a, i, team_set, player_set)
     out.playerid = util.to_int(a.playerid)
     if not out.playerid or not player_exists(out.playerid, player_set) then
         return nil, string.format("action %d: player %s not found", i, tostring(a.playerid))
+    end
+    if kind == "delete" and a.confirm ~= true then
+        return nil, string.format("action %d: deleting player %d needs \"confirm\": true (it cannot be undone)", i, out.playerid)
     end
     if kind == "transfer" or kind == "loan" then
         out.to_teamid = util.to_int(a.to_teamid)
@@ -107,6 +112,8 @@ function M.run(ctx)
             if call(ReleasePlayerFromTeam, a.playerid) then n = 1 end
         elseif a.action == "terminate_loan" then
             if call(TerminateLoan, a.playerid) then n = 1 end
+        elseif a.action == "delete" then
+            if call(DeletePlayer, a.playerid, 0) then n = 1 end
         else
             local fn = _G[NEEDS[a.action]]
             for _, pid in ipairs(a.playerids) do

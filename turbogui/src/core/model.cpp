@@ -158,6 +158,17 @@ bool Model::is_national_team(int64_t tid) const {
     return it != team_league_.end() && it->second == kInternationalLeague;
 }
 
+// Positions, retiring flag and PlayStyle bits of a player (Players list filters); get(field) reads one value
+template <class Get> static void fill_filter_fields(const Table& t, PlayerRow& r, Get get) {
+    for (int k = 0; k < 7; ++k) {
+        const Field* f = t.field("preferredposition" + std::to_string(k + 1));
+        r.positions[k] = f ? static_cast<int>(get(*f)) : -1;
+    }
+    if (const Field* f = t.field("isretiring")) r.retiring = get(*f) != 0;
+    if (const Field* f = t.field("trait1")) r.playstyles = static_cast<uint64_t>(get(*f) - f->min);
+    if (const Field* f = t.field("icontrait1")) r.playstyles_plus = static_cast<uint64_t>(get(*f) - f->min);
+}
+
 void Model::build_players(const GameDate& today) {
     players_.clear();
     player_index_.clear();
@@ -203,6 +214,7 @@ void Model::build_players(const GameDate& today) {
         r.potential = static_cast<int>(s.get_int(i, "potential", 0));
         r.position = static_cast<int>(s.get_int(i, "preferredposition1", -1));
         if (fbirth && today.valid()) r.age = age_on(date_from_gregorian_days(s.get_int(i, *fbirth)), today);
+        fill_filter_fields(*t, r, [&](const Field& f) { return s.get_int(i, f); });
         player_index_[r.playerid] = players_.size();
         players_.push_back(r);
     }
@@ -252,6 +264,7 @@ void Model::refresh_player(int64_t pid, const GameDate& today) {
     r.position = static_cast<int>(db_.get_int(*t, r.rec, "preferredposition1", r.position));
     if (t->has("birthdate") && today.valid())
         r.age = age_on(date_from_gregorian_days(db_.get_int(*t, r.rec, "birthdate", 0)), today);
+    fill_filter_fields(*t, r, [&](const Field& f) { return db_.get_int(*t, r.rec, f.name, 0); });
 }
 
 void Model::refresh_team(int64_t tid) {

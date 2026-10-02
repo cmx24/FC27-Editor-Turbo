@@ -1,6 +1,8 @@
 // FC 27 LE Turbo GUI - Turbo Tools tab (Turbo 0.1 features as buttons) and Status tab.
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
+#include <string>
 
 #include "app.h"
 #include "imgui.h"
@@ -78,7 +80,7 @@ void draw_tools(App& app) {
         }
 
         ImGui::Separator();
-        static int role = 3;
+        static int role = 2;  // combo index: 2 = "3 Rotation", Turbo's default squad role
         static bool loaned = false;
         const char* roles[] = {"1 Crucial", "2 Important", "3 Rotation", "4 Sporadic", "5 Prospect"};
         ImGui::SetNextItemWidth(160.0f);
@@ -164,6 +166,116 @@ void draw_tools(App& app) {
         run_button(app, "Ban every team", "transfer_bans", {{"mode", "ban_all_teams"}, {"ban_until", until}, {"exclude_user_team", exclude_mine}}, true);
         ImGui::SameLine();
         run_button(app, "Remove all team bans", "transfer_bans", {{"mode", "unban_all_teams"}}, true);
+    }
+
+    // ---------------------------------------------------------------- bulk edit (FC 26 LE v26.3.2 / v26.3.5)
+    if (ImGui::CollapsingHeader("Bulk edit players")) {
+        static int scope = 0;  // 0 my squad, 1 players shown in the Players list, 2 team IDs, 3 all players
+        static char teams[128] = "";
+        static bool confirm_all = false;
+        static char fnames[4][40] = {};
+        static int fvals[4] = {};
+        static bool use_fit = false, use_form = false, use_morale = false, use_dev = false, no_decline = false;
+        static int fit = 95, form = 100, morale = 100, bonus_xp = 0;
+        static float xp_mult = 2.0f;
+
+        ImGui::RadioButton("My squad##be", &scope, 0);
+        ImGui::SameLine();
+        ImGui::RadioButton("Players shown in the Players list##be", &scope, 1);
+        ImGui::SameLine();
+        ImGui::RadioButton("Team IDs##be", &scope, 2);
+        ImGui::SameLine();
+        ImGui::RadioButton("All players##be", &scope, 3);
+        if (scope == 1)
+            ImGui::TextDisabled("%zu players: choose them with the Players tab's search and filters", app.list_player_ids.size());
+        if (scope == 2) {
+            ImGui::SetNextItemWidth(200.0f);
+            ImGui::InputTextWithHint("##beteams", "e.g. 1, 241", teams, sizeof(teams));
+        }
+        if (scope == 3) ImGui::Checkbox("Yes, every player in the database##be", &confirm_all);
+
+        ImGui::SeparatorText("Set fields (players table, range-checked)");
+        for (int i = 0; i < 4; ++i) {
+            char nl[16], vl[16];
+            std::snprintf(nl, sizeof(nl), "##fn%d", i);
+            std::snprintf(vl, sizeof(vl), "##fv%d", i);
+            ImGui::SetNextItemWidth(200.0f);
+            ImGui::InputTextWithHint(nl, "field, e.g. potential", fnames[i], sizeof(fnames[i]));
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(100.0f);
+            ImGui::InputInt(vl, &fvals[i], 0);
+        }
+        ImGui::SeparatorText("Career actions");
+        ImGui::Checkbox("Fitness##be", &use_fit);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(160.0f);
+        ImGui::SliderInt("##befit", &fit, 5, 95);
+        ImGui::Checkbox("Form##be", &use_form);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(160.0f);
+        ImGui::SliderInt("##beform", &form, 0, 100);
+        ImGui::Checkbox("Morale##be", &use_morale);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(160.0f);
+        ImGui::SliderInt("##bemorale", &morale, 0, 100);
+        ImGui::Checkbox("Development##be", &use_dev);
+        if (use_dev) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(90.0f);
+            ImGui::InputFloat("XP multiplier##be", &xp_mult, 0.0f, 0.0f, "%.1f");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(90.0f);
+            ImGui::InputInt("Bonus XP##be", &bonus_xp, 0);
+            ImGui::SameLine();
+            ImGui::Checkbox("No decline##be", &no_decline);
+        }
+
+        // Build the command; explain why it cannot be sent yet
+        json sc, set = json::object(), actions = json::object();
+        std::string why;
+        if (scope == 0) {
+            sc = {{"user_team", true}};
+        } else if (scope == 1) {
+            sc = {{"playerids", app.list_player_ids}};
+            if (app.list_player_ids.empty()) why = "the Players list shows no players";
+        } else if (scope == 2) {
+            json ids = json::array();
+            std::string cur;
+            for (char c : std::string(teams) + ",") {
+                if (c == ',' || c == ' ') {
+                    if (!cur.empty()) ids.push_back(std::atoll(cur.c_str()));
+                    cur.clear();
+                } else if (c >= '0' && c <= '9') {
+                    cur += c;
+                } else {
+                    why = "team IDs: numbers separated by commas";
+                }
+            }
+            if (ids.empty() && why.empty()) why = "enter at least one team ID";
+            sc = {{"teamids", ids}};
+        } else {
+            sc = {{"all", true}};
+            if (!confirm_all) why = "tick the confirmation to edit every player";
+        }
+        for (int i = 0; i < 4; ++i)
+            if (fnames[i][0]) set[fnames[i]] = fvals[i];
+        if (use_fit) actions["fitness"] = fit;
+        if (use_form) actions["form"] = form;
+        if (use_morale) actions["morale"] = morale;
+        if (use_dev) actions["development"] = {{"xp_multiplier", xp_mult}, {"bonus_xp", bonus_xp}, {"no_decline", no_decline}};
+        if (why.empty() && set.empty() && actions.empty()) why = "set a field or tick an action";
+        json overrides = {{"scope", sc}, {"filters", json::object()}, {"set", set}, {"actions", actions},
+                          {"confirm_all", scope == 3 && confirm_all}};
+        json cmd = {{"op", "run"}, {"module", "bulk_edit"}, {"overrides", overrides}};
+        if (why.empty() && cmd.dump().size() > 3900)
+            why = "too many players for one command: narrow the Players list (about 400 at most) or use All players";
+        if (!why.empty()) ImGui::BeginDisabled();
+        run_button(app, "Apply bulk edit", "bulk_edit", overrides, false);
+        if (!why.empty()) {
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::TextDisabled("(%s)", why.c_str());
+        }
     }
 
     // ---------------------------------------------------------------- maintenance

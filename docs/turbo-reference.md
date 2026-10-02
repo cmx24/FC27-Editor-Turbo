@@ -1,4 +1,4 @@
-# FC 27 LE Turbo — technical reference (0.2.1)
+# FC 27 LE Turbo — technical reference (0.2.2)
 
 Turbo adds FC 26 Live Editor features to **FC 27 Live Editor** (public build v27.1.0 or newer). It is a user-owned add-on
 that runs next to an official, unmodified Live Editor. Offline Career Mode / Kick-Off only.
@@ -41,7 +41,7 @@ game had a window. The simulator's "game" is always ready, so the tests could no
 | Part | Where | What |
 | --- | --- | --- |
 | Turbo (Lua) | `turbo/package` | Feature pack that runs inside Live Editor's Lua engine: 19 feature modules, 25 `turbo_*.lua` runner scripts, auto features, config, and the GUI bridge. |
-| Turbo GUI (C++) | `turbogui/` | `Turbo.dll`: a Dear ImGui overlay (DirectX 12 `Present` hook via MinHook) with Players / Teams / Managers / Database editors and a button for every Turbo tool. `TurboInjector.exe` is an optional loader. |
+| Turbo GUI (C++) | `turbogui/` | `Turbo.dll`: a Dear ImGui overlay (DirectX 12 `Present` hook via MinHook) with Players / Teams / Managers / Database editors and a button for every Turbo tool. `TurboProbe.exe` finds the hook targets in a separate process. `TurboInjector.exe` is an optional loader. |
 
 Turbo.dll reads and writes the live database itself (`ReadProcessMemory`/`WriteProcessMemory` on the game process, using the
 T3DB layout below). Anything that needs game functions (transfers, bans, form, ...) is sent to the Lua side through a mailbox
@@ -98,7 +98,29 @@ The Lua side polls the mailbox on every career event (`bridge.on_career_event`) 
   (names, clubs, ages, teams, managers, dates), `bridge.*` (bridge files, mailbox).
 - `ui/`: `app.*` (tick/draw, settings), `widgets.cpp` (validated field editors), `ui_players/teams/database/tools.cpp`, `playstyles.h`.
 - `win/`: `dllmain.cpp` (start-up checks, `luaopen_turbo_gui`), `overlay_dx12.cpp` (hooks, ImGui DX12 backend, WndProc), `host.h`.
+- `probe/main.cpp`: `TurboProbe.exe` (see Overlay below).
 - `injector/main.cpp`: `TurboInjector.exe` (waits for FC27.exe with Live Editor, then `CreateRemoteThread` + `LoadLibraryW`).
+
+## Overlay (`win/overlay_dx12.cpp`)
+
+- **Hook targets**: `IDXGISwapChain::Present` / `Present1` / `ResizeBuffers`, `IDXGISwapChain3::ResizeBuffers1`,
+  `ID3D12CommandQueue::ExecuteCommandLists`. Since 0.2.2 they are found by `turbo\TurboProbe.exe`, a separate windowless process
+  that creates its own DXGI factory, D3D12 device and swap chain and prints, per function, the module path, image size, time
+  stamp, offset and 32 code bytes from offset 16 (past any inline hook another overlay placed at the start). `Turbo.dll` uses an
+  address only if the game has loaded that very module (same path, size and time stamp), the address is executable and the
+  code bytes match. Otherwise (no `TurboProbe.exe`, a different `D3D12Core.dll` such as a game-shipped Agility SDK, a 20 s
+  time-out) it falls back to the 0.2.1 probe inside the game. `turbo_gui.log` says which path was used. Reason: under Wine +
+  vkd3d, creating a DXGI factory inside a program while it presents deadlocks (reproduced without any Turbo code); the
+  separate process avoids that whole class of problem.
+- **Queue**: the overlay draws on the queue the swap chain was created on (DXGI returns it), or, if that is not available,
+  the last direct queue of the same device that submitted work (seen by the `ExecuteCommandLists` hook). ImGui uploads
+  fonts through its own queue.
+- **Input**: the window procedure only queues messages (it never waits for the render thread). The render thread polls the
+  show/hide key (`GetAsyncKeyState`, game in the foreground) and also counts key messages, so one press is seen whether the
+  game gets window messages or only raw input (presses within 250 ms count once). Mouse position and buttons are polled too.
+  While the Turbo window is shown and wants the mouse or keyboard, those messages are kept from the game.
+- **Failure handling**: every frame runs behind an exception barrier; any error switches the overlay off for the session and
+  the game keeps running. The main window is clamped to the screen size.
 - Third party (vendored in `turbogui/third_party`): Dear ImGui v1.92.9, MinHook v1.3.4, nlohmann/json 3.11.3.
 - Toolchain: mingw-w64 13 (posix threads) with `-DWIDL_EXPLICIT_AGGREGATE_RETURNS` (needed for the D3D12 descriptor-handle ABI), static linking.
 
@@ -106,22 +128,26 @@ The Lua side polls the mailbox on every career event (`bridge.on_career_event`) 
 
 | Command | What it does | Needs |
 | --- | --- | --- |
-| `bash turbo/tests/run_tests.sh` | 99 Lua tests over a simulated game memory (incl. launch safety) | lua5.4, `turbo/le27/libs` |
+| `bash turbo/tests/run_tests.sh` | 100 Lua tests over a simulated game memory (incl. launch safety) | lua5.4, `turbo/le27/libs` |
 | `luacheck --config turbo/tests/.luacheckrc turbo/package/lua` | lint | luacheck |
-| `bash turbogui/tests/native/run_native.sh` | 2,843 native checks (engine vs Live Editor's Lua T3DB library, headless ImGui UI driving, ASan + UBSan) | g++, lua5.4, `turbo/le27/libs` |
-| `bash turbogui/scripts/build_win.sh` | cross-compiles `Turbo.dll` + `TurboInjector.exe` | mingw-w64 (posix) |
+| `bash turbogui/tests/native/run_native.sh` | 3,268 native checks (engine vs Live Editor's Lua T3DB library, headless ImGui UI driving, ASan + UBSan). Includes clicking every GUI button that sends a command (28) and running each command through Turbo's real Lua bridge in a simulated career, and the Players list filters against a brute-force oracle | g++, lua5.4, `turbo/le27/libs` |
+| `python3 scripts/check_field_names.py` | every table / field name in the GUI and Lua sources against EA's `db_meta.xml` (FIFA 21 Live Editor) and the names xAranaktu's FC 24–26 Live Editor scripts use | git, GitHub access |
+| `bash turbogui/scripts/build_win.sh` | cross-compiles `Turbo.dll` + `TurboProbe.exe` + `TurboInjector.exe` | mingw-w64 (posix) |
 | `bash turbogui/tests/win/run_smoke.sh` | loads the real `Turbo.dll` under Wine in 8 modes: imports, refusal without Live Editor, no hooking without a game window, kill switch, crash guard (clean exit / kill), mailbox, Lua-side start | Wine, mingw-w64 |
+| `bash turbogui/tests/win/run_overlay_wine.sh` (`MODE=probe` default, `MODE=fallback`) | runs `tests/win/game_stub.cpp`, a Direct3D 12 stand-in game (not FC 27), under Wine + vkd3d + Mesa lavapipe on Xvfb; it loads `Turbo.dll` while presenting, presses F8 from another thread and resizes its swap chain. Checks the log (waited, hooked, queue, ImGui ready, start and drawing proven, no errors, crash flag cleared) and screenshots (nothing drawn while hidden, the window after F8 and after the resize) | Wine, Xvfb, mesa-vulkan-drivers, ImageMagick |
 | `bash scripts/package.sh` | builds `dist/FC27_LE_Turbo_<version>.zip` (the files to copy into the Live Editor folder) | zip, built binaries |
 
 ## What is and is not verified
 
 Verified by execution (see the commands above): the Lua feature pack and bridge against a simulated game memory; the native
-database engine, model and every UI panel against a memory image produced by the same simulator; the Windows `Turbo.dll`
-loads under Wine, exports `luaopen_turbo_gui`, refuses to start without Live Editor, starts from the Lua side's signal and
-publishes a valid mailbox.
+database engine, model and every UI panel against a memory image produced by the same simulator; every GUI command through
+the real Lua side; every database name against independent schema sources; the Windows `Turbo.dll` loads under Wine,
+exports `luaopen_turbo_gui`, refuses to start without Live Editor, starts from the Lua side's signal and publishes a valid
+mailbox; inside a running Direct3D 12 stand-in game (Wine + vkd3d) it hooks, draws its window on F8 and survives a resize,
+both with `TurboProbe.exe` and with the in-game fallback.
 
-**Not verified (cannot be executed outside Windows + the game):** the DirectX 12 hooks and drawing inside FC 27, the real
-`package.loadlib` call inside Live Editor, and the Lua-side bridge against the real FC 27 process. The simulator's memory
+**Not verified (cannot be executed outside Windows + the game):** the DirectX 12 hooks and drawing inside FC 27 on a real
+Windows driver, the real `package.loadlib` call inside Live Editor, and the Lua-side bridge against the real FC 27 process. The simulator's memory
 layout is derived from Live Editor's open Lua libraries; field names beyond those used by Live Editor's own scripts are
 confirmed only by `turbo_probe` on a real install. Use the in-game checklist in `TURBO_README.md`.
 
@@ -135,5 +161,5 @@ confirmed only by `turbo_probe` on a real install. Use the in-game checklist in 
 ## Not implemented yet
 
 Match setup overrides, gameplay toggles (CPU vs CPU, unlimited subs, never tired, match time/score), manager market / job security /
-fire, endless career, reveal player data, negotiation bypasses, match-fixing and job offers. These need code hooks inside FC27.exe
-and in-game analysis first.
+fire, endless career, reveal player data, negotiation bypasses, match-fixing, job offers and minifaces. These need code hooks
+inside FC27.exe and in-game analysis first. The full FC 26 → Turbo map is `docs/fc26-parity.md`.

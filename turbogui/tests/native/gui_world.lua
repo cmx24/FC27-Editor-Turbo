@@ -146,9 +146,9 @@ local function build_world(sim)
             birthdate = gdays(p[9], p[10], p[11]), playerjointeamdate = gdays(2020, 7, 1),
             acceleration = 60 + i, sprintspeed = 61 + i, finishing = 62 + i, shortpassing = 63 + i, dribbling = 64 + i,
             standingtackle = 30 + i, strength = 50 + i, gkdiving = 10 + i,
-            trait1 = (i == 1) and 5 or 0, icontrait1 = 0, trait2 = (i == 2) and 3 or 0, icontrait2 = 0,
+            trait1 = (i == 1) and 5 or 0, icontrait1 = (i == 1) and 1 or 0, trait2 = (i == 2) and 3 or 0, icontrait2 = 0,
             haircolorcode = i % 10, headassetid = p[1], hashighqualityhead = (i <= 6) and 1 or 0,
-            contractvaliduntil = 2028 + (i % 3), isretiring = 0, nationality = 14,
+            contractvaliduntil = 2028 + (i % 3), isretiring = (i == 3) and 1 or 0, nationality = 14,
         }
         for k, tid in ipairs(p[5]) do
             links[#links + 1] = { artificialkey = #links + 1, teamid = tid, playerid = p[1], jerseynumber = (k == 1) and (i + 1) or (i + 10),
@@ -419,6 +419,40 @@ elseif mode == "verify_writes" then
     end
     print(string.format("VERIFY_WRITES checked=%d mismatches=%d writes=%d", checked, bad, #writes))
     os.exit(bad == 0 and 0 or 1)
+
+elseif mode == "commands" then
+    -- Every command the GUI test clicked (gui_commands.json), run through Turbo's real bridge in the full Lua test
+    -- world (career with fixtures, transfer storage, squad-role vector, generated players, head models); Player
+    -- Career commands run in a Player Career world.
+    local W = require 'world'
+    local json = require 'imports/external/json'
+    local list = json.decode(assert(io.open(OUT .. "/gui_commands.json", "rb")):read("a"))
+    local function fresh(opts)
+        local s = H.setup({ in_cm = true })
+        W.build(s, opts)
+        package.loadlib = function() return true end
+        require('imports/turbo/turbo').boot()
+        return require 'imports/turbo/bridge'
+    end
+    local out = {}
+    local function run(bridge, c)
+        local okx, ok, text = pcall(bridge.execute, c.cmd)
+        if not okx then ok, text = false, "error: " .. tostring(ok) end
+        out[#out + 1] = { label = c.label, ok = ok == true, text = tostring(text or "") }
+    end
+    local bridge = fresh({ career_playercontract = true, playerloans = true })
+    local pap = {}
+    for _, c in ipairs(list) do
+        if c.cmd.module == "pap_playstyles" then pap[#pap + 1] = c else run(bridge, c) end
+    end
+    if #pap > 0 then
+        bridge = fresh({ player_career = true, career_playercontract = true, playerloans = true })
+        for _, c in ipairs(pap) do run(bridge, c) end
+    end
+    local g = assert(io.open(OUT .. "/gui_commands_out.json", "wb"))
+    g:write(json.encode(out))
+    g:close()
+    print("commands processed: " .. #out)
 
 elseif mode == "mailbox" then
     local json = require 'imports/external/json'

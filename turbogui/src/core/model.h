@@ -34,6 +34,10 @@ struct PlayerRow {
     int64_t club = 0;        // club team id (0 = none / free agent)
     std::string club_name;
     int overall = 0, potential = 0, position = -1, age = -1;
+    // used by the Players list filters
+    int positions[7] = {-1, -1, -1, -1, -1, -1, -1};  // preferredposition1..7 (-1 = none or field absent)
+    bool retiring = false;                           // isretiring
+    uint64_t playstyles = 0, playstyles_plus = 0;    // trait1 / icontrait1 bits
 };
 
 struct TeamRow {

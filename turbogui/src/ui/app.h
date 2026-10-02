@@ -15,7 +15,7 @@
 
 namespace turbo {
 
-constexpr const char* kGuiVersion = "0.2.1";
+constexpr const char* kGuiVersion = "0.2.2";
 
 struct Toast {
     std::string text;
@@ -47,6 +47,7 @@ public:
     double next_poll = 0.0;
     double next_retry = 0.0;  // next automatic connection attempt while not connected
     double next_publish = 0.0;  // next refresh of the bridge_dll.json time stamp
+    std::vector<int64_t> list_player_ids;  // players currently shown in the Players list (after filters)
     uint64_t mailbox_addr_ = 0;
     int gen = 0;  // bumps on every refresh/edit so cached views reload
     std::string db_error;

@@ -53,7 +53,7 @@ local bridge = require 'imports/turbo/bridge'
 
 -- bridge_dll.json as Turbo.dll writes it: the address plus a live timestamp
 local function dll_json(fields)
-    local t = { mailbox = string.format("0x%X", MB), session = "T", gui_version = "0.2.1", updated = os.time() }
+    local t = { mailbox = string.format("0x%X", MB), session = "T", gui_version = "0.2.2", updated = os.time() }
     for k, v in pairs(fields or {}) do t[k] = v end
     write_out("bridge_dll.json", t)
 end

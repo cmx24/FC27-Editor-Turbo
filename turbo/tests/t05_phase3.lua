@@ -102,6 +102,25 @@ H.case("player_moves runs transfer, loan, release, terminate, list by scope", fu
     H.has(msg, "transfer_list x5")
 end)
 
+H.case("player_moves delete: refused without confirm, then deletes exactly one player", function()
+    local before = sim:count_calls("DeletePlayer")
+    H.write_config({ modules = { player_moves = { actions = { { action = "delete", playerid = 2005 } } } } })
+    local ok, msg = H.turbo().run("player_moves")
+    H.eq(ok, false); H.has(msg, "needs \"confirm\": true")
+    H.eq(sim:count_calls("DeletePlayer"), before, "nothing deleted without confirm")
+    H.write_config({ modules = { player_moves = { actions = { { action = "delete", playerid = 2005, confirm = true } } } } })
+    ok, msg = H.turbo().run("player_moves")
+    H.eq(ok, true, msg)
+    H.has(msg, "delete x1")
+    H.eq(sim:count_calls("DeletePlayer"), before + 1, "one call")
+    local call = sim.calls.DeletePlayer[#sim.calls.DeletePlayer]
+    H.eq(call[1], 2005, "that player"); H.eq(call[2], 0, "team looked up by Live Editor")
+    H.eq(sim:find_row("players", "playerid", 2005), nil, "record marked deleted")
+    H.write_config({ modules = { player_moves = { actions = { { action = "delete", playerid = 99999999, confirm = true } } } } })
+    ok, msg = H.turbo().run("player_moves")
+    H.eq(ok, false); H.has(msg, "not found")
+end)
+
 H.case("db_edit: edit teams by condition, float match, all-rows guard", function()
     H.write_config({ modules = { db_edit = { edits = {
         { table = "teams", where = { teamid = 7 }, set = { teamname = "Everton FC", transferbudget = 50000000 } },

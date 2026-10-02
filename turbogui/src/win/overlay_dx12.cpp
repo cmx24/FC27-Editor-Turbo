@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "MinHook.h"
+#include "nlohmann/json.hpp"
 #include "host.h"
 #include "imgui.h"
 #include "imgui_impl_dx12.h"
@@ -84,8 +85,21 @@ static int g_frames_drawn = 0;
 static bool g_draw_held = false;
 static bool g_draw_proven = false;
 static thread_local bool g_in_resize = false;
-// Serialises ImGui between the game's render thread (Present) and its window thread (WndProc)
+// Guards ImGui and the App on the render thread (Present / resize). The game's window thread never takes it:
+// WndProc only queues messages (g_msg_mutex, held for a push) and decides from the previous frame's flags.
 static std::recursive_mutex g_ui_mutex;
+struct WinMsg {
+    UINT msg;
+    WPARAM wp;
+    LPARAM lp;
+};
+static std::mutex g_msg_mutex;
+static std::vector<WinMsg> g_msgs;
+static std::atomic<bool> g_visible{false};
+static std::atomic<bool> g_want_mouse{false};
+static std::atomic<bool> g_want_keyboard{false};
+static std::atomic<int> g_toggle_vk{0x77};
+static std::atomic<int> g_toggle_presses{0};  // first key-down messages of the show/hide key, consumed by poll_input
 
 static ProcessMemory* g_mem = nullptr;
 static turbo::App* g_app = nullptr;
@@ -167,28 +181,77 @@ static double now_seconds() {
 }
 
 // ---------------------------------------------------------------- input
+static bool is_toggle_key_msg(UINT msg, WPARAM wp) {
+    return (msg == WM_KEYDOWN || msg == WM_KEYUP || msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP) &&
+           static_cast<int>(wp) == g_toggle_vk.load();
+}
+
+// Runs on the game's window thread: never waits for the render thread.
 static LRESULT CALLBACK hk_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-    {
-        std::lock_guard<std::recursive_mutex> lock(g_ui_mutex);
-        if (g_app && (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && static_cast<int>(wp) == g_app->toggle_vk &&
-            !(lp & (1 << 30))) {
-            g_app->visible = !g_app->visible;
+    if (is_toggle_key_msg(msg, wp)) {  // the show/hide key is Turbo's; the render thread toggles (poll_input)
+        if ((msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && !(lp & (1 << 30))) ++g_toggle_presses;
+        return 0;
+    }
+    if (g_ready && g_visible) {
+        {
+            std::lock_guard<std::mutex> lock(g_msg_mutex);
+            if (g_msgs.size() < 1024) g_msgs.push_back({msg, wp, lp});
+        }
+        bool mouse_msg = (msg >= WM_MOUSEFIRST && msg <= WM_MOUSELAST) || msg == WM_INPUT;
+        bool key_msg = (msg >= WM_KEYFIRST && msg <= WM_KEYLAST);
+        if ((mouse_msg && g_want_mouse) || (key_msg && g_want_keyboard)) {
+            // Keep the game from seeing input meant for Turbo. Raw input still gets its system cleanup.
+            if (msg == WM_INPUT) return DefWindowProcW(hwnd, msg, wp, lp);
             return 0;
         }
-        if (g_ready && g_app && g_app->visible) {
-            ImGui_ImplWin32_WndProcHandler(hwnd, msg, wp, lp);
-            ImGuiIO& io = ImGui::GetIO();
-            bool mouse_msg = (msg >= WM_MOUSEFIRST && msg <= WM_MOUSELAST) || msg == WM_INPUT;
-            bool key_msg = (msg >= WM_KEYFIRST && msg <= WM_KEYLAST);
-            if ((mouse_msg && io.WantCaptureMouse) || (key_msg && io.WantCaptureKeyboard)) {
-                // Keep the game from seeing input meant for Turbo. Raw input still gets its system cleanup.
-                if (msg == WM_INPUT) return DefWindowProcW(hwnd, msg, wp, lp);
-                return 0;
-            }
-            if (msg == WM_SETCURSOR && io.WantCaptureMouse) return TRUE;
-        }
+        if (msg == WM_SETCURSOR && g_want_mouse) return TRUE;
     }
     return CallWindowProcW(g_orig_wndproc, hwnd, msg, wp, lp);
+}
+
+// Render thread, before each ImGui frame: show/hide key and mouse are polled (they work whether the game gets window
+// messages or only raw input), then the queued window messages (text, wheel, keys) go to ImGui.
+static void poll_input() {
+    ImGuiIO& io = ImGui::GetIO();
+    g_toggle_vk = g_app->toggle_vk;
+    HWND root = GetAncestor(g_hwnd, GA_ROOT);
+    const bool fg = GetForegroundWindow() == (root ? root : g_hwnd);
+    // Two sources for the show/hide key: the window message (catches even a very short tap) and polling (games that
+    // only read raw input send no key message). One press seen by both counts once.
+    static bool was_down = false;
+    static DWORD last_toggle = 0;
+    auto toggle = [&] {
+        DWORD now = GetTickCount();
+        if (now - last_toggle >= 250) {
+            g_app->visible = !g_app->visible;
+            last_toggle = now;
+        }
+    };
+    if (g_toggle_presses.exchange(0) > 0) toggle();
+    const bool down = fg && (GetAsyncKeyState(g_app->toggle_vk) & 0x8000) != 0;
+    if (down && !was_down) toggle();
+    was_down = down;
+    g_visible = g_app->visible;
+
+    std::vector<WinMsg> msgs;
+    {
+        std::lock_guard<std::mutex> lock(g_msg_mutex);
+        msgs.swap(g_msgs);
+    }
+    if (g_app->visible) {
+        for (const auto& m : msgs) ImGui_ImplWin32_WndProcHandler(g_hwnd, m.msg, m.wp, m.lp);
+        if (fg) {
+            POINT p;
+            if (GetCursorPos(&p) && ScreenToClient(g_hwnd, &p)) io.AddMousePosEvent(static_cast<float>(p.x), static_cast<float>(p.y));
+            const bool swapped = GetSystemMetrics(SM_SWAPBUTTON) != 0;
+            const int vks[3] = {swapped ? VK_RBUTTON : VK_LBUTTON, swapped ? VK_LBUTTON : VK_RBUTTON, VK_MBUTTON};
+            for (int b = 0; b < 3; ++b) io.AddMouseButtonEvent(b, (GetAsyncKeyState(vks[b]) & 0x8000) != 0);
+        }
+        io.ConfigFlags &= ~(ImGuiConfigFlags_NoMouse | ImGuiConfigFlags_NoMouseCursorChange);
+    } else {
+        // Hidden: leave the game's cursor and mouse alone
+        io.ConfigFlags |= ImGuiConfigFlags_NoMouse | ImGuiConfigFlags_NoMouseCursorChange;
+    }
 }
 
 // ---------------------------------------------------------------- init / render
@@ -324,7 +387,7 @@ static bool retarget(IDXGISwapChain3* sc) {
     return true;
 }
 
-static void render_frame(IDXGISwapChain3* sc) {
+static void render_frame_impl(IDXGISwapChain3* sc) {
     std::lock_guard<std::recursive_mutex> lock(g_ui_mutex);
     if (g_failed) return;
     if (!g_ready) {
@@ -341,12 +404,15 @@ static void render_frame(IDXGISwapChain3* sc) {
 
     try {
         g_app->tick(now_seconds());
+        poll_input();
         ImGui_ImplDX12_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
         ImGui::GetIO().MouseDrawCursor = g_app->visible;
         g_app->draw();
         ImGui::Render();
+        g_want_mouse = g_app->visible && ImGui::GetIO().WantCaptureMouse;
+        g_want_keyboard = g_app->visible && ImGui::GetIO().WantCaptureKeyboard;
         if (!g_start_proven && ++g_frames_run >= kStartFrames) {
             g_start_proven = true;
             log("overlay proven: %d frames ran without problems", kStartFrames);
@@ -406,6 +472,21 @@ static void render_frame(IDXGISwapChain3* sc) {
         g_draw_held = false;
         log("drawing proven: %d frames submitted without problems", kDrawFrames);
         guard_release();
+    }
+}
+
+// Nothing may unwind into the game: any exception switches the overlay off for this session.
+static void render_frame(IDXGISwapChain3* sc) {
+    try {
+        render_frame_impl(sc);
+    } catch (const std::exception& e) {
+        g_failed = true;
+        g_visible = false;
+        log("overlay error: %s; Turbo GUI disabled for this session (the game keeps running)", e.what());
+    } catch (...) {
+        g_failed = true;
+        g_visible = false;
+        log("unknown overlay error; Turbo GUI disabled for this session (the game keeps running)");
     }
 }
 
@@ -490,6 +571,7 @@ static bool find_targets() {
         log("probe window failed");
         return false;
     }
+    log("probe: window created");
     bool ok = false;
     IDXGIFactory4* factory = nullptr;
     ID3D12Device* dev = nullptr;
@@ -497,7 +579,9 @@ static bool find_targets() {
     IDXGISwapChain1* sc = nullptr;
     do {
         if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) break;
+        log("probe: DXGI factory");
         if (FAILED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev)))) break;
+        log("probe: D3D12 device");
         D3D12_COMMAND_QUEUE_DESC qd{};
         qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
         if (FAILED(dev->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue)))) break;
@@ -509,7 +593,9 @@ static bool find_targets() {
         d.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         d.BufferCount = 2;
         d.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+        log("probe: command queue");
         if (FAILED(factory->CreateSwapChainForHwnd(queue, hwnd, &d, nullptr, nullptr, &sc))) break;
+        log("probe: swap chain");
         IDXGISwapChain3* sc3 = nullptr;
         if (FAILED(sc->QueryInterface(IID_PPV_ARGS(&sc3))) || !sc3) break;
         void** sc_vt = *reinterpret_cast<void***>(sc3);
@@ -532,6 +618,130 @@ static bool find_targets() {
     return ok;
 }
 
+// ---------------------------------------------------------------- hook targets from TurboProbe.exe
+// TurboProbe.exe creates the throw-away window, device and swap chain in its own process and reports module, image size,
+// time stamp, offset and code bytes of each function. An address is used only if this process has loaded the very same
+// module (path, image size, time stamp) and the code bytes from offset 16 match (an inline hook placed by another tool
+// at the start does not matter). Nothing is created inside the game.
+static std::wstring widen(const std::string& s) {
+    int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    std::wstring w(n > 0 ? static_cast<size_t>(n - 1) : 0, L'\0');
+    if (n > 1) MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], n);
+    return w;
+}
+
+static void* resolve_target(const nlohmann::json& j, const char* name) {
+    if (!j.contains(name) || !j[name].is_object()) return nullptr;
+    const auto& t = j[name];
+    std::wstring module = widen(t.value("module", std::string()));
+    HMODULE m = module.empty() ? nullptr : GetModuleHandleW(module.c_str());
+    if (!m) {
+        log("probe: %s: %s is not loaded in the game", name, t.value("module", std::string()).c_str());
+        return nullptr;
+    }
+    auto* base = reinterpret_cast<const unsigned char*>(m);
+    auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+    if (nt->OptionalHeader.SizeOfImage != t.value("image_size", 0u) || nt->FileHeader.TimeDateStamp != t.value("timestamp", 0u)) {
+        log("probe: %s: the game's %s is another build than TurboProbe's", name, t.value("module", std::string()).c_str());
+        return nullptr;
+    }
+    uint64_t rva = t.value("rva", uint64_t(0));
+    if (rva == 0 || rva + 48 > nt->OptionalHeader.SizeOfImage) return nullptr;
+    const unsigned char* fn = base + rva;
+    MEMORY_BASIC_INFORMATION mbi{};
+    const DWORD exec = PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+    if (!VirtualQuery(fn, &mbi, sizeof(mbi)) || mbi.State != MEM_COMMIT || !(mbi.Protect & exec) ||
+        fn + 48 > static_cast<const unsigned char*>(mbi.BaseAddress) + mbi.RegionSize) {
+        log("probe: %s: not executable code at the reported offset", name);
+        return nullptr;
+    }
+    std::string want = t.value("code16", std::string());
+    char have[65] = {0};
+    for (int i = 0; i < 32; ++i) std::snprintf(have + i * 2, 3, "%02x", fn[16 + i]);
+    if (want != have) {
+        log("probe: %s: code differs from TurboProbe's", name);
+        return nullptr;
+    }
+    return const_cast<unsigned char*>(fn);
+}
+
+static bool find_targets_external() {
+    std::wstring exe = (le_root() / "turbo" / "TurboProbe.exe").wstring();
+    if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        log("TurboProbe.exe not found next to Turbo.dll");
+        return false;
+    }
+    SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
+    HANDLE rd = nullptr, wr = nullptr;
+    if (!CreatePipe(&rd, &wr, &sa, 0)) return false;
+    SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0);
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = wr;
+    si.hStdError = wr;
+    PROCESS_INFORMATION pi{};
+    std::wstring cmd = L"\"" + exe + L"\"";
+    log("running TurboProbe.exe (a separate process) to find the hook targets");
+    BOOL started = CreateProcessW(exe.c_str(), &cmd[0], nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    CloseHandle(wr);
+    if (!started) {
+        CloseHandle(rd);
+        log("cannot start TurboProbe.exe (error %lu)", GetLastError());
+        return false;
+    }
+    std::string text;
+    const DWORD t0 = GetTickCount();
+    for (;;) {
+        DWORD avail = 0;
+        while (PeekNamedPipe(rd, nullptr, 0, nullptr, &avail, nullptr) && avail > 0) {
+            char buf[4096];
+            DWORD got = 0;
+            if (!ReadFile(rd, buf, avail < sizeof(buf) ? avail : sizeof(buf), &got, nullptr) || got == 0) break;
+            text.append(buf, got);
+        }
+        if (WaitForSingleObject(pi.hProcess, 50) == WAIT_OBJECT_0) {
+            DWORD left = 0;
+            while (PeekNamedPipe(rd, nullptr, 0, nullptr, &left, nullptr) && left > 0) {
+                char buf[4096];
+                DWORD got = 0;
+                if (!ReadFile(rd, buf, left < sizeof(buf) ? left : sizeof(buf), &got, nullptr) || got == 0) break;
+                text.append(buf, got);
+            }
+            break;
+        }
+        if (GetTickCount() - t0 > 20000 || text.size() > 65536) {
+            TerminateProcess(pi.hProcess, 1);
+            log("TurboProbe.exe did not finish in 20 s");
+            break;
+        }
+    }
+    DWORD code = 1;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    CloseHandle(rd);
+    nlohmann::json j = nlohmann::json::parse(text, nullptr, false);
+    if (code != 0 || j.is_discarded() || !j.is_object()) {
+        log("TurboProbe.exe failed (exit %lu): %.200s", static_cast<unsigned long>(code), text.c_str());
+        return false;
+    }
+    void* p = resolve_target(j, "present");
+    void* p1 = resolve_target(j, "present1");
+    void* r = resolve_target(j, "resize");
+    void* r1 = resolve_target(j, "resize1");
+    void* e = resolve_target(j, "execute");
+    if (!p || !p1 || !r || !r1 || !e) return false;
+    t_present = p;
+    t_present1 = p1;
+    t_resize = r;
+    t_resize1 = r1;
+    t_execute = e;
+    log("hook targets found by TurboProbe.exe and verified in the game (nothing created inside the game)");
+    return true;
+}
+
 bool start_overlay(HMODULE) {
     QueryPerformanceFrequency(&g_qpf);
     QueryPerformanceCounter(&g_qpc0);
@@ -544,9 +754,13 @@ bool start_overlay(HMODULE) {
                   static_cast<unsigned long>(GetTickCount()));
     g_mem = new ProcessMemory();
     g_app = new turbo::App(*g_mem, le_root(), reinterpret_cast<uint64_t>(mailbox), session);
+    g_toggle_vk = g_app->toggle_vk;
 
-    log("probing Direct3D 12 for the hook targets");
-    if (!find_targets()) return false;
+    if (!find_targets_external()) {
+        log("falling back to probing Direct3D 12 inside the game");
+        log("probing Direct3D 12 for the hook targets");
+        if (!find_targets()) return false;
+    }
     log("hook targets found; initialising MinHook");
     if (MH_Initialize() != MH_OK) {
         log("MinHook init failed");
