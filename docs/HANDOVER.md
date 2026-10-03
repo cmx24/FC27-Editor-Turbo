@@ -98,15 +98,15 @@ and checks every `c<Name>(` it calls), so a Live Editor update that adds the nat
 4. **Full fixtures / results and live season stats**: not found yet. FC 26's FCEDataManager lists (+0x60/+0x88) hold other
    data in FC 27. User fixtures come from MainHubManager `+0x60` count / `+0x68` entries (0x130 bytes). Probe output
    files in `turbo_output\probe_*.txt` on the PC show the searches done.
-5. Release: `scripts/package.sh`, replace `dist/` zip, push the branch (the cloud workspace has no push credential; see 5).
+5. Push the patch series to GitHub (section 5); the 0.2.5 zip in `dist/` holds the Turbo.dll that was tested.
 
 ## 5. Getting commits to GitHub
 
-The cloud repo at `/home/claude/FC27-Editor-Turbo` has no remote credential. Earlier sessions downloaded the repo
-through the browser pane (GitHub signed in). To publish: `git bundle create turbo.bundle <base>..HEAD`, commit it to
-`C:\FC 27 Live Editor\turbo_dev\`, and on the PC run `git pull <path>\turbo.bundle claude/trusting-cannon-rkxwrw` in a
-clone, then push; or ask the user to push. The bundle for this handover is `turbo_dev\turbo_0.2.5.bundle` (made from
-`379554c`, the snapshot of `195cdb5`).
+The cloud repo at `/home/claude/FC27-Editor-Turbo` has no push credential, and its history starts at `379554c`, a snapshot
+whose tree equals GitHub's `195cdb5` (downloaded through the browser pane). The work since then is a patch series:
+`C:\FC 27 Live Editor\turbo_dev\turbo_0.2.5_patches.tar` (`patches/0001-...` to the last). To publish, in a clone of
+`cmx24/FC27-Editor-Turbo`: `git checkout claude/trusting-cannon-rkxwrw` (at `195cdb5`), `git am patches/*.patch`, `git push`.
+Applying the series to the snapshot reproduces the cloud tree exactly (checked: same tree hash).
 
 ## 6. Build and test
 
