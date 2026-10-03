@@ -183,7 +183,11 @@ function M.team_name(tid)
 end
 
 function M.team_of_player(pid)
-    if type(GetTeamIdFromPlayerId) ~= "function" then return 0 end
+    if type(GetTeamIdFromPlayerId) ~= "function" then
+        -- FC 27 LE v27.1.2 has no GetTeamIdFromPlayerId: the club link in teamplayerlinks
+        local okm, moves = pcall(require, 'imports/turbo/core/moves')
+        return okm and moves.team_of_player(pid) or 0
+    end
     local ok, tid = pcall(GetTeamIdFromPlayerId, pid)
     tid = ok and util.to_int(tid) or 0
     return tid or 0

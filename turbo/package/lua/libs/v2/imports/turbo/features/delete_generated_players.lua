@@ -6,6 +6,7 @@ local util = require 'imports/turbo/core/util'
 local db = require 'imports/turbo/core/db'
 local log = require 'imports/turbo/core/log'
 local env = require 'imports/turbo/core/env'
+local moves = require 'imports/turbo/core/moves'
 
 local M = {}
 
@@ -28,13 +29,18 @@ function M.run(ctx)
     table.sort(ids)
 
     if #ids == 0 then return true, string.format("no players with playerid >= %d", min_pid) end
-    -- Counting works with any Live Editor build; deleting needs Live Editor's DeletePlayer
-    local delete_player, why = env.api("DeletePlayer")
-    if ctx.cfg.confirm ~= true or ctx.dry then
-        return true, string.format("%d generated players found (playerid >= %d). %s", #ids, min_pid,
-            delete_player and "Set \"confirm\": true to delete them." or ("Deleting them is not possible here: " .. why))
+    -- Live Editor's DeletePlayer when it exists, else Turbo's own delete (core/moves.lua, same steps)
+    local delete_player = env.api("DeletePlayer")
+    if not delete_player then
+        delete_player = function(pid)
+            local okd, derr = moves.delete(pid, false)
+            if not okd then error(derr) end
+        end
     end
-    if not delete_player then return false, why end
+    if ctx.cfg.confirm ~= true or ctx.dry then
+        return true, string.format("%d generated players found (playerid >= %d). Set \"confirm\": true to delete them.",
+            #ids, min_pid)
+    end
 
     local deleted, failed = 0, 0
     for _, pid in ipairs(ids) do

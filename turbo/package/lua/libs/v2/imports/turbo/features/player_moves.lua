@@ -9,11 +9,14 @@
 --     { "action": "delete", "playerid": 1, "confirm": true }   -- FC 26 LE v26.1.5 "Delete player"; needs confirm
 --   ] }
 -- All actions are validated before the first one runs.
+-- When Live Editor lacks the native (FC 27 LE v27.1.2 has none of them), transfer / loan / release / terminate_loan /
+-- delete are done by Turbo itself in the game database (core/moves.lua).
 
 local util = require 'imports/turbo/core/util'
 local game = require 'imports/turbo/core/game'
 local sel = require 'imports/turbo/core/select'
 local env = require 'imports/turbo/core/env'
+local moves = require 'imports/turbo/core/moves'
 
 local M = {}
 
@@ -22,6 +25,16 @@ local NEEDS = {
     terminate_loan = "TerminateLoan", transfer_list = "AddPlayerToTransferList",
     loan_list = "AddPlayerToLoanList", unlist = "RemovePlayerFromLists",
     delete = "DeletePlayer",   -- void DeletePlayer(int playerid, int player_current_teamid = 0) (FC 27 LE DOC.MD)
+}
+
+-- Turbo's own implementation per action (used when Live Editor has no native for it)
+local TURBO_IMPL = {
+    transfer = function(a, dry) return moves.transfer(a.playerid, a.to_teamid, { months = a.months, wage = a.wage,
+        release_clause = a.release_clause }, dry) end,
+    loan = function(a, dry) return moves.loan(a.playerid, a.to_teamid, a.months, dry) end,
+    release = function(a, dry) return moves.release(a.playerid, dry) end,
+    terminate_loan = function(a, dry) return moves.terminate_loan(a.playerid, dry) end,
+    delete = function(a, dry) return moves.delete(a.playerid, dry) end,
 }
 
 local function player_exists(pid, player_set)
@@ -38,8 +51,9 @@ local function check(a, i, team_set, player_set)
     local kind = a.action
     if not NEEDS[kind] then return nil, string.format("action %d: unknown action %s", i, tostring(kind)) end
     local fn, why = env.api(NEEDS[kind])
-    if not fn then return nil, why end
-    local out = { action = kind, fn = fn }
+    local turbo = TURBO_IMPL[kind]
+    if not fn and not turbo then return nil, why end
+    local out = { action = kind, fn = fn, turbo = (not fn) and turbo or nil }
 
     if kind == "transfer_list" or kind == "loan_list" or kind == "unlist" then
         if a.playerid ~= nil then
@@ -104,9 +118,15 @@ function M.run(ctx)
         if not ok then failed = failed + 1 end
         return ok
     end
+    local notes = {}
     for _, a in ipairs(plan) do
         local n = 0
-        if a.action == "transfer" then
+        if a.turbo then
+            local okc, ok, msg = pcall(a.turbo, a, ctx.dry)
+            if not okc then ok, msg = false, "error: " .. tostring(ok) end
+            if ok then n = 1 else failed = failed + 1 end
+            notes[#notes + 1] = tostring(msg)
+        elseif a.action == "transfer" then
             if call(a.fn, a.playerid, a.to_teamid, a.fee, a.wage, a.months, 0, a.release_clause) then n = 1 end
         elseif a.action == "loan" then
             if call(a.fn, a.playerid, a.to_teamid, a.months, a.loan_to_buy, 0) then n = 1 end
@@ -122,6 +142,7 @@ function M.run(ctx)
         done[#done + 1] = string.format("%s x%d", a.action, n)
     end
     local summary = table.concat(done, ", ")
+    if #notes > 0 then summary = summary .. " (" .. table.concat(notes, "; ") .. ")" end
     if failed > 0 then summary = summary .. string.format("; %d calls failed", failed) end
     return failed == 0, summary
 end

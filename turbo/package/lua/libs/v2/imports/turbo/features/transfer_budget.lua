@@ -1,20 +1,23 @@
 -- Turbo feature: your club's transfer budget (career mode).
--- FC 27's teams table has no transferbudget field any more; the budget is read and set through Live Editor's natives
--- GetUserTransferBudget / SetUserTransferBudget (career mode only). DOC.MD still lists GetTransferBudget /
--- SetTransferBudget, but FC 27 Live Editor's lua\libs\v1\live_editor.lua turned those into deprecation stubs that do
--- nothing, so Turbo never calls them.
+-- FC 27's teams table has no transferbudget field any more. When Live Editor has the natives GetUserTransferBudget /
+-- SetUserTransferBudget they are used; FC 27 LE v27.1.2 does not ship them, so Turbo then reads and writes the budget
+-- in the career's own memory itself (core/budget.lua). DOC.MD still lists GetTransferBudget / SetTransferBudget, but
+-- FC 27 Live Editor's lua\libs\v1\live_editor.lua turned those into deprecation stubs that do nothing, so Turbo never
+-- calls them.
 --   "transfer_budget": { "mode": "get" | "set" | "add", "amount": 50000000 }
 
 local util = require 'imports/turbo/core/util'
 local game = require 'imports/turbo/core/game'
+local env = require 'imports/turbo/core/env'
+local budget = require 'imports/turbo/core/budget'
 
 local M = {}
 
 M.MAX = 2000000000   -- a 32-bit budget; Live Editor's int
 
 local function current()
-    local get = _G["GetUserTransferBudget"]
-    if type(get) ~= "function" then return nil, "GetUserTransferBudget is not available in this Live Editor build" end
+    local get = env.api("GetUserTransferBudget")
+    if not get then return budget.get() end
     local ok, v = pcall(get)
     if not ok then return nil, "GetUserTransferBudget failed: " .. tostring(v) end
     v = util.to_int(v)
@@ -40,10 +43,14 @@ function M.run(ctx)
         return false, string.format("budget %d is outside 0..%d", target, M.MAX)
     end
     if ctx.dry then return true, string.format("dry run: budget would change %d -> %d", before, target) end
-    local set = _G["SetUserTransferBudget"]
-    if type(set) ~= "function" then return false, "SetUserTransferBudget is not available in this Live Editor build" end
-    local ok, serr = pcall(set, target)
-    if not ok then return false, "SetUserTransferBudget failed: " .. tostring(serr) end
+    local set = env.api("SetUserTransferBudget")
+    if set then
+        local ok, serr = pcall(set, target)
+        if not ok then return false, "SetUserTransferBudget failed: " .. tostring(serr) end
+    else
+        local ok, serr = budget.set(target)
+        if not ok then return false, serr end
+    end
     local after = current()
     if after ~= target then
         return false, string.format("budget is %s after setting %d (the game did not take it)", tostring(after), target)

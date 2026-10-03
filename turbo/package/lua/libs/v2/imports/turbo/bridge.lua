@@ -440,6 +440,9 @@ function M.on_career_event(event_id)
     if not okw then log.warn("bridge state: %s", tostring(werr)) end
     local okp, perr = pcall(M.poll_mailbox)
     if not okp then log.warn("bridge mailbox: %s", tostring(perr)) end
+    -- game images the Turbo window asked for (core/legacy.lua): a quarter of a second per event
+    local okl, lerr = pcall(function() return (require 'imports/turbo/core/legacy').pump(0.25) end)
+    if not okl then log.warn("bridge images: %s", tostring(lerr)) end
 end
 
 -- ---------------------------------------------------------------- GUI loader

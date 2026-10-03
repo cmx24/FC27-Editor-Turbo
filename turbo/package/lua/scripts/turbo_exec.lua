@@ -5,6 +5,8 @@ local TURBO = require 'imports/turbo/turbo'
 local bridge = require 'imports/turbo/bridge'
 TURBO.boot()
 local ok, ran = pcall(bridge.poll_mailbox, true)
+-- and the game images the Turbo window is waiting for
+pcall(function() return (require 'imports/turbo/core/legacy').pump(5) end)
 local msg
 if not ok then
     msg = "Error: " .. tostring(ran)

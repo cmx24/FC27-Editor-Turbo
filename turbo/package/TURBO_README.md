@@ -1,6 +1,6 @@
-# FC 27 LE Turbo 0.2.5
+# FC 27 LE Turbo 0.3.0
 
-Turbo adds FC 26 Live Editor features to **FC 27 Live Editor** (public build v27.1.0 or newer). Version 0.2.5 has an in-game window, the **Turbo GUI**, with player, team, manager and database editors and buttons for every Turbo tool. Turbo runs next to Live Editor, inside the same game session. Live Editor's own files are not modified.
+Turbo adds FC 26 Live Editor features to **FC 27 Live Editor** (public build v27.1.0 or newer). Version 0.3.0 has an in-game window, the **Turbo GUI**, with player, team, manager and database editors and buttons for every Turbo tool. Turbo runs next to Live Editor, inside the same game session. Live Editor's own files are not modified.
 
 Offline Career Mode / Kick-Off only. Never use Live Editor or Turbo in online modes.
 
@@ -60,18 +60,29 @@ Nothing here modifies Live Editor or the game, so everything can be switched off
 
 | Tab | What you can do |
 | --- | --- |
-| Players | Search by name, ID or club, "My club", filters: position (any of the 7 preferred positions), PlayStyle / PlayStyle+, retiring, minimum OVR / POT, maximum age; sort by any column. Edit: Profile (overall, potential, foot, skill moves, height, weight, ...), positions 1-7, birth date and join date as real dates, Attributes (grouped like the game), PlayStyles / PlayStyles+ / Traits / Traits+ as tick boxes with All/None, Appearance, kit number and line-up slot per team, All fields. Career buttons: Transfer, Loan, Release, Terminate loan, Transfer list, Loan list, Remove from lists, Delete player (with confirmation). |
+| Players | Search by name, ID or club, "My club", filters: position (any of the 7 preferred positions), PlayStyle / PlayStyle+, retiring, minimum OVR / POT, maximum age; sort by any column. Edit: Profile (overall, potential, foot, skill moves, height, weight, ...), positions 1-7, birth date and join date as real dates, Attributes (grouped like the game), PlayStyles / PlayStyles+ / Traits / Traits+ as tick boxes with All/None, **Appearance** (real-face picker, tattoo picker, every appearance field), **Miniface**, kit number and line-up slot per team, All fields. Career buttons: Transfer, Loan, Release, Terminate loan, Delete player (with confirmation); Transfer list / Loan list / Remove from lists need Live Editor natives v27.1.2 does not have. |
 | Teams | Team list, overview fields (ratings, prestige, budget, ...), squad with editable kit numbers and slots (click a player to open him), All fields. |
-| Managers | Manager list and every field of the `manager` table. |
+| Managers | Manager list, every field of the `manager` table, and the manager's miniface. |
+| Competitions | League tables (`leagueteamlinks`): won, drawn, lost, goals for / against, points, table position per club, "Write table positions". See the note below: FC 27's own Standings screen does not read these numbers yet. |
 | Database | Any table of the live database: filter by field = value, double-click a cell to edit it. |
-| Turbo Tools | Bulk edit players (your squad, team IDs, exactly the players the Players list shows, or everyone): any players-table field, fitness / form / morale, development (XP multiplier, bonus XP, no decline). Every Turbo 0.1 feature as a button: form/morale/fitness (now or every day), squad role, contract extensions, Player Career PlayStyles (now or automatic), season stats / fixtures / transfer history / any table to CSV, transfer bans, delete generated players, real-face head models, probe report, dry run. |
-| Status | Connection details, show/hide key, log. |
+| Turbo Tools | Bulk edit players (your squad, team IDs, exactly the players the Players list shows, or everyone): any players-table field, fitness / form / morale, development (XP multiplier, bonus XP, no decline). Your club's transfer budget (read, set, add). Every Turbo 0.1 feature as a button: form/morale/fitness (now or every day), squad role, contract extensions, Player Career PlayStyles (now or automatic), season stats / fixtures / transfer history / any table to CSV, transfer bans, delete generated players, real-face head models, probe report, dry run. |
+| Status | Game images (cache, waiting images, empty the cache), connection details, show/hide key, log. |
+
+### Minifaces, real faces and tattoos (new in 0.3.0)
+
+- **Players > Miniface** shows the player's miniface: the game's own, or your custom file in Live Editor's `mods\legacy` folder. Make a new one **from an image file** (PNG, JPG, BMP, TGA, DDS; put pictures in the `turbo_minifaces` folder or browse to them), **from another player's miniface**, **from his head model's miniface** or **from his youth face**. Frame it with Size / Left-right / Up-down (or drag the picture, mouse wheel to zoom), optionally "Remove plain background", then **Save as miniface**. Turbo writes a 256x256 DXT5 DDS to `mods\legacy\data\ui\imgAssets\heads\p<playerid>.dds`. The game shows it the next time the screen is drawn (seen in FC 27: no restart needed).
+- **Managers > Miniface**: the same tools for `mods\legacy\data\ui\imgAssets\heads_staff\heads_staff_<headassetid>.dds` (512x512). Every manager using that head asset shows it.
+- **Remove custom miniface** brings the game's own back. Any file Turbo replaces or removes is copied to `turbo_output\miniface_backups` first, including minifaces you made with other tools.
+- **Players > Appearance > Choose a real face...**: a grid of every real-face head model (players with head class 0) with their minifaces and a search box. Click one to give the player that head (head asset ID, head class, real-face flag, head type, variation). Options: also hair, beard, eyes and skin; also his miniface.
+- **Players > Appearance > Tattoos**: per body area, the current tattoo with its preview and **Choose...**: a grid of the tattoos made for that area (FC 27's `tattoo` table) with the game's own previews.
+- The pictures come from the game's files through Live Editor's `LegacyFileExport`. Live Editor runs Turbo's Lua side only on career-mode events, so images arrive a few at a time while you play (advancing the calendar, opening screens). To load the waiting ones at once: hide Turbo (F8), open Live Editor's Lua Engine, run `lua\scripts\turbo_images.lua` (up to 20 seconds per run). They are kept in `turbo_output\cache\legacy`.
 
 How it works:
 - When the GUI loads it runs `turbo\TurboProbe.exe` (a separate, windowless program) to find the Direct3D functions it draws with, so it creates nothing inside the game. It uses those addresses only after checking the game has loaded the very same Windows files. If that check fails it falls back to a short probe inside the game; `turbo_gui.log` says which.
 - F8 and the mouse work whether the game delivers normal window messages or only raw input. While Turbo is hidden it leaves the game's mouse cursor alone.
 - The editors read and write the game's database directly. Every value is checked against the field's own range before it is written; text that is too long is refused. Edits are live immediately, like in Live Editor.
-- The Turbo Tools buttons and the player career buttons run through Live Editor's Lua engine. In a career they usually run within a second. **Outside a career** Live Editor sends Lua no events, so after clicking a tool open the Lua Engine and run `turbo_exec.lua`. A queued command can be cancelled.
+- The Turbo Tools buttons and the player career buttons run through Live Editor's Lua engine, on the next career-mode event (advancing the calendar, many screen changes). In menus where nothing happens they wait: run `turbo_exec.lua` in the Lua Engine to run the queued command at once. Outside a career this is always needed. A queued command can be cancelled.
+- While the Turbo window is open it takes the keyboard and mouse, so Live Editor's own window (Left Alt) does not react. Press F8 to hide Turbo first.
 - When you load another save the GUI re-reads the database on its own. While the window is hidden it waits until you open it again.
 - GUI settings (auto features, dry run, show/hide key) are saved in `turbo_output\gui_settings.json` and take priority over `turbo_config.json`.
 - Birth dates are shown as the real calendar date. (Live Editor's own Lua date function shows the next day for many dates; Turbo does not use it.)
@@ -83,7 +94,8 @@ Every feature is also a script in `lua\scripts` named `turbo_<feature>.lua`, run
 | Script | What it does | Settings (`turbo_config.json`) |
 | --- | --- | --- |
 | `turbo_gui_load` | Connects the Turbo GUI to the database now (needed only at the main menu), loads it if it is not loaded yet, and says why if it cannot | `gui.autoload` (true = loaded at launch, connects on the first career event) |
-| `turbo_exec` | Runs the command the GUI queued (needed outside a career) | none |
+| `turbo_exec` | Runs the command the GUI queued (needed outside a career) and loads 5 seconds of waiting game images | none |
+| `turbo_images` | Loads the game images the Turbo window is waiting for (minifaces, tattoo previews), up to 20 seconds per run | none |
 | `turbo_probe` | Read-only report: LE version, available functions, DB tables and field ranges, memory checks | none |
 | `turbo_enable_auto` | Switches automatic features on/off from the config | `auto.*.enabled` |
 | `turbo_form_morale_apply` | Sets form / morale / fitness of your squad now. Automatic: every in-game day, before matches, after loading | `auto.form_morale` (form 0-100, morale 0-100, fitness 5-95, 0 = leave alone) |
@@ -101,7 +113,7 @@ Every feature is also a script in `lua\scripts` named `turbo_<feature>.lua`, run
 | `turbo_squad_role` | Squad role for your players (1 Crucial ... 5 Prospect) | `role`, `include_loaned_in`, `use_memory` |
 | `turbo_team_jersey_numbers` | Kit numbers of a team, duplicates flagged | `teamid` (0 = your club) |
 | `turbo_bulk_edit` | Select players (your squad / teams / IDs / all + filters) and set fields, fitness, form, morale, development | `modules.bulk_edit` |
-| `turbo_player_moves` | Transfer, loan, release, terminate loan, transfer-list, loan-list, unlist | `modules.player_moves.actions` |
+| `turbo_player_moves` | Transfer, loan, release, terminate loan (done by Turbo in the database when Live Editor lacks the natives), transfer-list, loan-list, unlist | `modules.player_moves.actions` |
 | `turbo_db_edit` | Edit rows of any database table matching conditions | `modules.db_edit.edits` |
 | `turbo_export_table` | Dumps tables to CSV with every field's allowed range | `tables`, `max_rows` |
 
@@ -111,7 +123,8 @@ Every feature is also a script in `lua\scripts` named `turbo_<feature>.lua`, run
 - The GUI checks that a table is still where it was before every write; after a save is loaded it re-reads the database instead of writing to old memory.
 - Destructive actions need an explicit flag or a confirmation (`confirm`, `confirm_all`, `allow_all_rows`, the GUI's Delete dialog).
 - Game memory is read only where Turbo.dll's readable-memory map says it is readable (Live Editor's own memory reads crash the game on a bad address). Without the Turbo GUI running, the memory-based tools stop with a message instead of reading.
-- Tools that need a Live Editor native this Live Editor build does not have are greyed out in the Turbo window, with the reason when you hover them (FC 27 LE v27.1.2: transfer budget, transfers / loans / transfer lists, transfer bans, player deletion, player development, season stats). They work again once Live Editor adds the natives.
+- Tools that need a Live Editor native this Live Editor build does not have are greyed out in the Turbo window, with the reason when you hover them (FC 27 LE v27.1.2: transfer / loan lists, transfer bans, player development, live season stats). They work again once Live Editor adds the natives.
+- Without those natives Turbo does these itself: the **transfer budget** is read and written in the career's memory (your club's finance entry; both copies the game keeps); **transfers, loans, release, terminate loan and player deletion** are written into the career's tables (`teamplayerlinks`, `players`, `playerloans` through Live Editor's `InsertDBTableRow` / `DeleteDBTableRowByAddr`, your team sheet, set-piece takers). Seen in FC 27: a transferred player and a changed budget are still there after saving and reloading the career. A move shows on the game's squad screens after the career is saved and loaded again; the budget shows at once.
 - Fixtures, transfer history and the squad-role list are read from game memory. FC 27 may have moved them since FC 26, so Turbo searches for them and only uses memory whose contents look right. If nothing matches, the feature stops and says so.
 
 ## In-game test checklist
@@ -122,7 +135,10 @@ Back up your career save first.
 2. Players: search your best player, change Acceleration, close and reopen the game's player screen: the value changed. Try 200: it is refused with a message.
 3. Players > Profile: the birth date and age match the game's player profile.
 4. Teams > your club > Squad: change a kit number; the game's squad screen shows it.
-5. Turbo Tools > Your club: transfer budget. FC 27 has no `teams.transferbudget`; the budget needs Live Editor's `SetUserTransferBudget`, which FC 27 LE v27.1.2 does not have, so the section says so and its buttons are greyed out.
+5. Turbo Tools > Your club: transfer budget: Add 10,000,000. Office > Finances shows the new budget.
+5a. Players > a player of your club > Miniface > From an image file: pick a picture, Save as miniface. The game's Team Management shows the new face. Remove custom miniface brings the old one back.
+5b. Players > Appearance > Choose a real face: pick a face (load images with `turbo_images.lua` if the grid shows "..."). The player's miniface changes in the Squad Hub.
+5c. Players > Appearance > Tattoos > Choose...: pick one; the field shows the new ID and its preview.
 6. Turbo Tools > Your squad > Apply now (form 100): a green message appears within a second; squad form shows Excellent.
 7. Tick "Keep every day (auto)", sim a day: form stays at the set value.
 8. Exports: Transfer history and Fixtures & results: CSVs appear in `turbo_output` (FC 27: completed transfers and loans of the season; your club's remaining fixtures). Season stats without Live Editor's `GetPlayersStats` exports the database's league numbers, labelled as not live.
@@ -133,7 +149,8 @@ Send `turbo_output\turbo_boot.log`, `turbo_output\turbo_gui.log`, `turbo_output\
 
 ## Not included yet
 
-Match setup overrides, gameplay toggles (CPU vs CPU, unlimited subs, never tired, match time/score), manager market/job security/fire, endless career, reveal player data, negotiation bypasses, match-fixing and job offers. These need code hooks inside FC27.exe and in-game analysis first.
+- **League tables in the game's Standings screen.** The Competitions tab edits the career's `leagueteamlinks` table and the values survive saving, but FC 27's Standings screen reads the live table from the competition engine's memory, which Turbo has not located yet. **Match results** editing, **job offers** and **minifaces generated from the 3D head** (FC 27 has its own portrait capture for youth players) are in progress.
+- Match setup overrides, gameplay toggles (CPU vs CPU, unlimited subs, never tired, match time/score), manager market/job security/fire, endless career, reveal player data, negotiation bypasses and match-fixing need code hooks inside FC27.exe and in-game analysis first.
 
 ## Notes
 

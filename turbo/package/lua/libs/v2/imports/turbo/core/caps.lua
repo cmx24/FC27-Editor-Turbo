@@ -1,6 +1,7 @@
 -- FC 27 LE Turbo - which Turbo tools this Live Editor build can run.
--- Some tools call Live Editor natives that FC 27 Live Editor v27.1.2 does not ship (transfer budget, transfer bans,
--- transfer / loan list, player deletion, player development). The bridge publishes the result in bridge_state.json
+-- Some tools call Live Editor natives that FC 27 Live Editor v27.1.2 does not ship (transfer bans, transfer / loan
+-- list, player development). The transfer budget and player moves / deletion are done by Turbo itself when the
+-- natives are missing (core/budget.lua, core/moves.lua), so they are not listed. The bridge publishes the result in bridge_state.json
 -- ("unavailable": { tool = reason }) so the Turbo window can grey those buttons out and say why, instead of letting
 -- the user click a button that can only fail. A Live Editor update that adds the natives lights them up again.
 
@@ -10,14 +11,9 @@ local M = {}
 
 -- tool key (used by the Turbo window) -> Live Editor functions it needs
 M.NEEDS = {
-    transfer_budget = { "GetUserTransferBudget", "SetUserTransferBudget" },
     transfer_bans = { "cGetTransferBans", "cAddTransferBan", "cRemoveTransferBan" },
-    delete_players = { "DeletePlayer" },
-    -- player moves (Players tab), one key per action of the player_moves tool
-    move_transfer = { "TransferPlayer" },
-    move_loan = { "LoanPlayer" },
-    move_release = { "ReleasePlayerFromTeam" },
-    move_terminate_loan = { "TerminateLoan" },
+    -- player moves (Players tab): transfer / loan / release / terminate loan / delete are done by Turbo itself when
+    -- Live Editor lacks the native (core/moves.lua), so only the list flags are listed here
     move_transfer_list = { "AddPlayerToTransferList" },
     move_loan_list = { "AddPlayerToLoanList" },
     move_unlist = { "RemovePlayerFromLists" },
