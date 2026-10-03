@@ -1,6 +1,6 @@
 # FC27-Editor-Turbo
 
-**FC 27 LE Turbo 0.2.4**: FC 26 Live Editor features for **FC 27 Live Editor** (public build v27.1.0 or newer), plus an
+**FC 27 LE Turbo 0.2.5**: FC 26 Live Editor features for **FC 27 Live Editor** (public build v27.1.0 or newer), plus an
 in-game window (the **Turbo GUI**) with Players / Teams / Managers / Database editors and a button for every Turbo tool.
 
 Which FC 26 Live Editor feature is where (Turbo window, Database tab, FC 27 Live Editor itself, or not available yet):
@@ -12,7 +12,7 @@ unmodified Live Editor and never modifies, copies or redistributes its files.
 ## Install (the build to test)
 
 1. Install the official FC 27 Live Editor as usual.
-2. Unzip [`dist/FC27_LE_Turbo_0.2.4.zip`](dist/FC27_LE_Turbo_0.2.4.zip) into the Live Editor folder (the folder with `FCLiveEditor.DLL`). Nothing of Live Editor is overwritten.
+2. Unzip [`dist/FC27_LE_Turbo_0.2.5.zip`](dist/FC27_LE_Turbo_0.2.5.zip) into the Live Editor folder (the folder with `FCLiveEditor.DLL`). Nothing of Live Editor is overwritten.
 3. Start the game through Live Editor as usual. Nothing to run: about 20 seconds after the main menu appears, press **F8**.
 4. Load a career: the Turbo window's top line says **Connected**. (At the main menu, run `turbo_gui_load.lua` in Live Editor's
    Lua Engine to connect there.)
@@ -21,6 +21,22 @@ unmodified Live Editor and never modifies, copies or redistributes its files.
 (game will not launch: delete `lua\autorun\turbo_boot.lua`; kill switch: `turbo_output\turbo_gui_disable.txt`).
 
 Back up your career save before testing.
+
+**New in 0.2.5** (tested in a real FC 27 career, 02-10-2026: self-test 13 passed, 0 failed, 6 skipped):
+
+- Fixed the two in-career crashes: Live Editor's message box formats text like printf (a `%` crashed the game), and Live
+  Editor's memory reads crash on unreadable addresses. Turbo.dll now publishes a map of readable memory and Turbo's Lua
+  side reads game memory only inside it.
+- Player names in FC 27 are compressed in memory; they now come from Live Editor (`GetDBTableRows`).
+- FC 27 Live Editor v27.1.2 does not ship the natives behind transfer budget, transfers / loans / transfer lists, transfer
+  bans, player deletion, player development and season stats (the FC 26 Lua wrappers are there, the natives are not).
+  Turbo detects that, greys those buttons out with the reason, and they work again once Live Editor adds the natives.
+- FC 27 replacements Turbo does itself: transfer history (completed transfers and loans) and your club's remaining fixtures
+  read from the game, database league numbers instead of live season stats, generated-player count.
+- Your squad now includes the goalkeeper (FC 27's team sheet slot 0, which Live Editor's own helper skips).
+- UI size follows the screen and has a size slider; wage and release clause editors; input shield (the game does not see
+  keys typed into Turbo; the newest build also hides mouse clicks over the Turbo window, not yet tried in game);
+  crash guard retries once; TurboProbe is skipped for FC 27.
 
 **0.2.0 broke game launch** (it loaded `Turbo.dll`, probed Direct3D 12 and called game natives while Live Editor was still
 initialising the game). Since 0.2.1 none of that is on the launch path; see `docs/turbo-reference.md` (Launch safety).
@@ -46,14 +62,14 @@ also polled, so they work when the game reads only raw input.
 
 | Check | Result |
 | --- | --- |
-| Lua feature pack + GUI bridge + launch safety, 105 tests over a simulated game memory, with `GetDBMeta` as Lua tables and as C++ objects (`turbo/tests/run_tests.sh`) | 105 passed, 0 failed |
+| Lua feature pack + GUI bridge + launch and memory safety, 129 tests over a simulated game memory, including a mode with exactly the natives of FC 27 LE v27.1.2 (`turbo/tests/run_tests.sh`) | 129 passed, 0 failed |
 | luacheck on `turbo/package/lua` | 0 warnings, 0 errors |
-| Native engine + every UI panel, 3,283 checks with AddressSanitizer + UBSan (`turbogui/tests/native/run_native.sh`), including every GUI button that sends a command (28) run through Turbo's real Lua side and the Live Editor log reader | 3,283 passed, 0 failed |
-| Every table / field name Turbo uses against EA's database schema and xAranaktu's FC 24–26 scripts (`scripts/check_field_names.py`) | 110 names: 108 known, 2 deliberately allowed, 0 unknown |
+| Native engine + every UI panel, 3,336 checks with AddressSanitizer + UBSan (`turbogui/tests/native/run_native.sh`), including every GUI button that sends a command (30) run through Turbo's real Lua side, greyed-out tools, readable-memory map | 3,336 passed, 0 failed |
+| Every table / field name Turbo uses against the real FC 27 schema dumped from the game (`scripts/check_fc27_schema.py`) | 116 names: 106 present, 10 optional absent, 0 missing |
 | Windows `Turbo.dll` / `TurboProbe.exe` / `TurboInjector.exe` cross-build (mingw-w64) | builds with 0 warnings; `Turbo.dll` imports only KERNEL32, USER32, GDI32, msvcrt |
-| Real `Turbo.dll` loaded under Wine (`turbogui/tests/win/run_smoke.sh`): imports, refusal without Live Editor, no hooking without a game window, kill switch, crash guard (clean exit and kill), mailbox, Lua-side start, launch mode (inert until Live Editor's `Initial setup done` or the Lua side runs) | all 10 modes pass |
-| Real `Turbo.dll` inside a running Direct3D 12 program (a stand-in, not FC 27) under Wine + vkd3d + software Vulkan (`turbogui/tests/win/run_overlay_wine.sh`): loaded in launch mode, waits for Live Editor's line, hooks while it renders, F8 shows the window (screenshot), survives a swap-chain resize | passes with `TurboProbe.exe` and with the in-game fallback |
-| Inside FC 27 with Live Editor (user's tests, 02-10-2026) | 0.2.2: the game launches. 0.2.3: the game launches with the launch-time load, and F8 draws the Turbo window in game next to Live Editor's; the database was not connected (fixed in 0.2.4, **not yet run in game**) |
+| Real `Turbo.dll` loaded under Wine (`turbogui/tests/win/run_smoke.sh`): imports, refusal without Live Editor, no hooking without a game window, kill switch, crash guard (clean exit and kill), mailbox, Lua-side start, launch mode (inert until Live Editor's `Initial setup done` or the Lua side runs) | all 11 modes pass |
+| Real `Turbo.dll` inside a running Direct3D 12 program (a stand-in, not FC 27) under Wine + vkd3d + software Vulkan (`turbogui/tests/win/run_overlay_wine.sh`): loaded in launch mode, waits for Live Editor's line, hooks while it renders, F8 shows the window (screenshot), survives a swap-chain resize, 8 input-shield hooks leave the program's own input working | passes with `TurboProbe.exe` and with the in-game fallback |
+| Inside FC 27 with Live Editor (02-10-2026, career loaded) | 0.2.5: launches, F8 window, connected to the database (21,610 players, names), an Overall edit shows in the game's Team Management, in-game date correct, self-test 13 passed / 0 failed / 6 skipped (natives missing in LE v27.1.2), no crash. Not yet tried in game: the last input-shield hooks (mouse over the Turbo window) and the greyed-out buttons |
 
 ## Layout
 
@@ -63,8 +79,8 @@ also polled, so they work when the game reads only raw input.
 | `turbo/tests/` | Lua test suite and game-memory simulator |
 | `turbogui/` | C++ source of `Turbo.dll` / `TurboProbe.exe` / `TurboInjector.exe` (Dear ImGui + MinHook + nlohmann/json vendored in `third_party/`), native tests, Wine smoke and overlay tests |
 | `scripts/package.sh` | Builds `dist/FC27_LE_Turbo_<version>.zip` |
-| `scripts/check_field_names.py` | Checks every database name Turbo uses against independent schema sources |
-| `docs/fc26-parity.md` | Every FC 26 Live Editor feature group and script, and where it is in Turbo 0.2.4 |
+| `scripts/check_field_names.py` / `scripts/check_fc27_schema.py` | Check every database name Turbo uses against independent schema sources / the FC 27 schema dumped in game |
+| `docs/fc26-parity.md` | Every FC 26 Live Editor feature group and script, and where it is in Turbo 0.2.5 |
 | `docs/turbo-reference.md` | Architecture, bridge contract, build/test commands, what is and is not verified |
 | `docs/HANDOVER.md` | Where the work stands, what the user's in-game tests showed, next steps for a local session |
 

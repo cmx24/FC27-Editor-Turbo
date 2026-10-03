@@ -1,4 +1,4 @@
-# FC 27 LE Turbo — technical reference (0.2.4)
+# FC 27 LE Turbo — technical reference (0.2.5)
 
 Turbo adds FC 26 Live Editor features to **FC 27 Live Editor** (public build v27.1.0 or newer). It is a user-owned add-on
 that runs next to an official, unmodified Live Editor. Offline Career Mode / Kick-Off only.
@@ -184,10 +184,49 @@ iterates it only inside `pcall`, and falls back to Live Editor's own table loade
 message box, `turbo_boot.log`, Live Editor's log and the GUI (`meta_error` in `bridge_state.json`). The exact reason in 0.2.3
 was not logged (it was a debug-level line), so this is the most likely cause, not a confirmed one.
 
-**Not verified (cannot be executed outside Windows + the game):** 0.2.4's database connection in FC 27, the editors and tools
-against the real game database, and the Lua-side bridge (mailbox commands) against the real FC 27 process. The simulator's memory
-layout is derived from Live Editor's open Lua libraries; field names beyond those used by Live Editor's own scripts are
-confirmed only by `turbo_probe` on a real install. Use the in-game checklist in `TURBO_README.md`.
+Verified in FC 27 with 0.2.5 (career loaded, Live Editor v27.1.2, driven on the user's PC, 02-10-2026): the database connects
+on the first career event (21,610 players, 841 teams, names via `GetDBTableRows`); an `overallrating` edit in the Turbo window
+shows in the game's Team Management and was reverted; the in-game date (CalendarManager +0x34) matches the hub; the readable-memory
+map is published (14,462 regions) and the in-career self-test runs without crashing: **13 passed, 0 failed, 6 skipped**; FC 27
+transfer history (1,653 moves) and the user's remaining fixtures (36) export; keys typed into a Turbo text field do not reach the
+game.
+
+**Not verified in game yet:** the last input-shield hooks (GetAsyncKeyState / GetKeyState / GetKeyboardState / GetCursorPos;
+built and tested under Wine only), the greyed-out buttons (native UI tests only), mailbox commands sent from the Turbo Tools tab in
+the real process (the self-test runs the same Lua code directly), and anything that needs the natives FC 27 LE v27.1.2 lacks.
+
+## FC 27 Live Editor v27.1.2 API (globals dump from the game)
+
+Present natives: `GetDBMeta`, `GetDBTablesNames`, `GetDBTableFields`, `GetDBTableRows`, `EditDBTableField`, `InsertDBTableRow`,
+`DeleteDBTableRowByAddr`, `ExecuteSQL`, `GetPlugin`, `IsInCM`, `GetSaveUID`, `GetPlayerName`, `GetTeamName`,
+`SetPlayerForm/Morale/Fitness`, `PlayerHasDevelopementPlan`, `PlayerSetValueInDevelopementPlan`, event handlers, `Read*/Write*`,
+`AOBScan`, `AllocateMemory`, `MEMORY`, `LE` (`LE.db`, `LE.MEMORY`, ...), `LegacyFile*`, `SendHTTPRequest`, `SaveVPRO`.
+
+Missing although `lua\libs\v1\live_editor.lua` still defines their wrappers: every `c*` native (`cTransferPlayer`,
+`cLoanPlayer`, `cReleasePlayer`, `cIs/Add/RemovePlayer*List*`, `cGet/Add/RemoveTransferBan`, `cSaveTransferBans`), plus
+`GetUserTransferBudget`, `SetUserTransferBudget`, `GetCPUTransferBudget`, `GetPlayersStats`, `DeletePlayer`, `TerminateLoan`,
+`PlayerExists`, `GetTeamIdFromPlayerId`, `GetCompetitionNameByObjID`, `GetCurrentDate` (only the v2 Lua helper exists),
+`PlayerDevelopmentManager*`. Placeholders: `GetTransferBudget` / `SetTransferBudget` (print "deprecated"), `SetSquadRole`
+(prints "TODO: FC27").
+
+`core/env.lua` `env.api(name)` returns the function only when it is usable: for a Lua function from Live Editor's `lua\libs`
+it reads the function's source lines and refuses placeholders (TODO / NOT IMPLEMENTED / deprecated) and any `c<Name>(` call
+whose native is missing. `core/caps.lua` maps Turbo tools to the functions they need; the bridge publishes
+`"unavailable": {tool: reason}` in `bridge_state.json`, the Turbo window disables those buttons (tooltip = reason) and lists
+them in the Status tab, and the self-test reports them as SKIP. Tested with `H.setup({le_27_1_2 = true})` (t10).
+
+## FC 27 memory layouts found in game (values, not code)
+
+| What | Where | Used by |
+| --- | --- | --- |
+| In-game date | CalendarManager (type 24) +0x34 day, +0x38 month, +0x3C year | `game.calendar_date` |
+| Completed transfers / loans of the season | TransferManager (127): eastl lists, head `{first, last}` at +0x2998 (transfers) and +0x29D8 (loans); node +0x00 next, +0x08 prev, +0x10 playerid, +0x14 club he moves to, +0x18 club he leaves, +0x24 date YYYYMMDD, +0x30 fee (transfers) / small number (loans). Open AI offers +0x2978; offers for the user's players +0x29F8, +0x2A18. Completed lists are recognised by ≥ 50 % of players now at the +0x14 club | `export_transfer_history` (FC 26 storage first) |
+| User club's remaining fixtures | MainHubManager (58): count at +0x60, pointer at +0x68 to 0x130-byte entries; +0x2C competition object id, +0x38 date, +0x3C time HHMM, +0x128 home club, +0x12C away club | `export_fixtures` (FC 26 lists first) |
+| Squad roles | PlayerStatusManager (87) +0x18, 8-byte entries | `squad_role` (unchanged) |
+| AI clubs' finances (not the user's) | BudgetManager (23) +0x18 bucket array, +0x20 bucket count 823, key `teamid % 823`, node `{teamid, 2, value +0x08, value +0x10, ...}` | not used yet (research for the transfer budget) |
+
+Not found: FC 26's FCEDataManager fixture/standings lists (+0x60/+0x88 hold other objects in FC 27), live season stats, the user
+club's transfer budget. The probe scripts that found the above are in `C:\FC 27 Live Editor\turbo_dev\probe_*.lua` on the PC.
 
 ## FC 26 → FC 27 differences that matter
 
@@ -195,6 +234,11 @@ confirmed only by `turbo_probe` on a real install. Use the in-game checklist in 
 - `career_mode/helpers.lua`: `SetSquadRole` is a stub in FC 27 LE; user club team id = `ReadInt(ReadPointer(UserManager+0x18)+0x1F4)`.
 - Career event constants were renamed `ENUM_CM_EVENT_MSG_*` → `ENUM_FCEGameModesCM_EVENT_MSG_*` (same IDs). Turbo resolves both names.
 - Match sharpness no longer exists in FC 27 (`SetPlayerSharpness` removed).
+- `cm_teamsheets` numbers its slots `playerid0..playerid51`; FC 27 LE's `GetUserSeniorTeamPlayerIDs` starts at 1 and misses
+  slot 0 (the goalkeeper). Turbo's `game.user_squad` reads slot 0.
+- `teams` has no `transferbudget`; `playernames.name` is a compressed field (type 13) decoded only by `GetDBTableRows`;
+  the `transfers` and `fixtures` tables are empty in a career; `teamplayerlinks.leagueappearances` stays 0.
+- Live Editor's `MessageBox` is printf-formatted (`%` must be `%%`); its `MEMORY` reads crash the game on unreadable addresses.
 
 ## Not implemented yet
 

@@ -1,6 +1,6 @@
-# FC 27 LE Turbo 0.2.4
+# FC 27 LE Turbo 0.2.5
 
-Turbo adds FC 26 Live Editor features to **FC 27 Live Editor** (public build v27.1.0 or newer). Version 0.2.4 has an in-game window, the **Turbo GUI**, with player, team, manager and database editors and buttons for every Turbo tool. Turbo runs next to Live Editor, inside the same game session. Live Editor's own files are not modified.
+Turbo adds FC 26 Live Editor features to **FC 27 Live Editor** (public build v27.1.0 or newer). Version 0.2.5 has an in-game window, the **Turbo GUI**, with player, team, manager and database editors and buttons for every Turbo tool. Turbo runs next to Live Editor, inside the same game session. Live Editor's own files are not modified.
 
 Offline Career Mode / Kick-Off only. Never use Live Editor or Turbo in online modes.
 
@@ -11,7 +11,7 @@ Offline Career Mode / Kick-Off only. Never use Live Editor or Turbo in online mo
    - `turbo\Turbo.dll`, `turbo\TurboProbe.exe`, `turbo\TurboInjector.exe` (the Turbo GUI)
    - `turbo_config.json`, `TURBO_README.md`, `turbo_output\`
    - `lua\autorun\turbo_boot.lua`
-   - `lua\scripts\turbo_*.lua` (25 scripts)
+   - `lua\scripts\turbo_*.lua` (28 scripts, including `turbo_selftest.lua`)
    - `lua\libs\v2\imports\turbo\` (the Turbo library and the GUI bridge)
 
 ## Open the Turbo GUI
@@ -110,6 +110,8 @@ Every feature is also a script in `lua\scripts` named `turbo_<feature>.lua`, run
 - Every value is checked against the database field's own range before anything is written. One bad value stops a script run with nothing changed.
 - The GUI checks that a table is still where it was before every write; after a save is loaded it re-reads the database instead of writing to old memory.
 - Destructive actions need an explicit flag or a confirmation (`confirm`, `confirm_all`, `allow_all_rows`, the GUI's Delete dialog).
+- Game memory is read only where Turbo.dll's readable-memory map says it is readable (Live Editor's own memory reads crash the game on a bad address). Without the Turbo GUI running, the memory-based tools stop with a message instead of reading.
+- Tools that need a Live Editor native this Live Editor build does not have are greyed out in the Turbo window, with the reason when you hover them (FC 27 LE v27.1.2: transfer budget, transfers / loans / transfer lists, transfer bans, player deletion, player development, season stats). They work again once Live Editor adds the natives.
 - Fixtures, transfer history and the squad-role list are read from game memory. FC 27 may have moved them since FC 26, so Turbo searches for them and only uses memory whose contents look right. If nothing matches, the feature stops and says so.
 
 ## In-game test checklist
@@ -120,11 +122,12 @@ Back up your career save first.
 2. Players: search your best player, change Acceleration, close and reopen the game's player screen: the value changed. Try 200: it is refused with a message.
 3. Players > Profile: the birth date and age match the game's player profile.
 4. Teams > your club > Squad: change a kit number; the game's squad screen shows it.
-5. Database: open `teams`, double-click your club's `transferbudget`, change it; the game shows the new budget.
+5. Turbo Tools > Your club: transfer budget. FC 27 has no `teams.transferbudget`; the budget needs Live Editor's `SetUserTransferBudget`, which FC 27 LE v27.1.2 does not have, so the section says so and its buttons are greyed out.
 6. Turbo Tools > Your squad > Apply now (form 100): a green message appears within a second; squad form shows Excellent.
 7. Tick "Keep every day (auto)", sim a day: form stays at the set value.
-8. Exports: Season stats: the CSV appears in `turbo_output`.
-9. Save, reload the save: the changes are still there; the GUI reconnects on its own.
+8. Exports: Transfer history and Fixtures & results: CSVs appear in `turbo_output` (FC 27: completed transfers and loans of the season; your club's remaining fixtures). Season stats without Live Editor's `GetPlayersStats` exports the database's league numbers, labelled as not live.
+8a. Run `lua\scripts\turbo_selftest.lua` in Live Editor's Lua Engine with a career loaded: it runs every tool once (dry runs, plus a reversible check where possible) and writes `turbo_output\turbo_selftest.log`. Expected with FC 27 LE v27.1.2: 0 failed; SKIP lines name the missing natives.
+9. Optional, only on a test save: save, reload the save: the changes are still there; the GUI reconnects on its own.
 
 Send `turbo_output\turbo_boot.log`, `turbo_output\turbo_gui.log`, `turbo_output\turbo_probe_*.txt` and the day's `Logs\live_editor_*.log` with any report.
 

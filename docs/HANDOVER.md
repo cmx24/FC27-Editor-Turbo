@@ -1,133 +1,145 @@
 # Handover: FC 27 LE Turbo, continue locally (Claude Cowork)
 
-Written at commit `b32d74b` (Turbo **0.2.4**) on branch `claude/trusting-cannon-rkxwrw` of `cmx24/FC27-Editor-Turbo`.
-The previous work ran in a cloud container with no access to the game; this file is everything a local session needs
-to carry on with the game and Live Editor on the same PC.
+Written at Turbo **0.2.5** on branch `claude/trusting-cannon-rkxwrw` of `cmx24/FC27-Editor-Turbo` (see `git log` for the
+commit). The work runs in a cloud workspace linked to the user's PC (Claude desktop app): code is built and tested in the
+cloud, deployed into `C:\FC 27 Live Editor` and tested in the real game by driving it on the user's screen.
 
 ## 1. What this project is
 
-**FC 27 LE Turbo** brings FC 26 Live Editor features to **FC 27 Live Editor** (xAranaktu, v27.1.2 installed at
-`C:\FC 27 Live Editor`, game at `C:\Program Files\EA Games\EA SPORTS FC 27`, game version 1.0.140.64835). Two parts:
+**FC 27 LE Turbo** brings FC 26 Live Editor features to **FC 27 Live Editor** (xAranaktu, **v27.1.2** at
+`C:\FC 27 Live Editor`, game at `C:\Program Files\EA Games\EA SPORTS FC 27`). Two parts:
 
 | Part | Source | Installed as |
 | --- | --- | --- |
-| Lua feature pack + GUI bridge | `turbo/package/lua/...` | `lua\autorun\turbo_boot.lua`, `lua\scripts\turbo_*.lua` (25), `lua\libs\v2\imports\turbo\` |
+| Lua feature pack + GUI bridge | `turbo/package/lua/...` | `lua\autorun\turbo_boot.lua`, `lua\scripts\turbo_*.lua` (28), `lua\libs\v2\imports\turbo\` |
 | Turbo GUI (C++): Dear ImGui overlay drawn in the game via Direct3D 12 hooks | `turbogui/src` | `turbo\Turbo.dll`, `turbo\TurboProbe.exe`, `turbo\TurboInjector.exe` |
 
-Install = unzip `dist/FC27_LE_Turbo_0.2.4.zip` into `C:\FC 27 Live Editor` (it never overwrites Live Editor files).
-Reference docs: `docs/turbo-reference.md` (architecture, bridge contract, launch safety, tests),
-`docs/fc26-parity.md` (all 41 FC 26 feature groups and where they are), `turbo/package/TURBO_README.md` (user guide,
+Install = unzip `dist/FC27_LE_Turbo_0.2.5.zip` into `C:\FC 27 Live Editor` (never overwrites Live Editor files).
+Reference docs: `docs/turbo-reference.md` (architecture, bridge contract, launch safety, memory safety, FC 27 layouts,
+tests), `docs/fc26-parity.md` (FC 26 feature groups and where they are), `turbo/package/TURBO_README.md` (user guide,
 recovery table, in-game checklist).
 
 ### Ground rules (keep them)
 
-- Offline Career Mode / Kick-Off only. Never touch online modes.
+- Offline Career Mode / Kick-Off only. Never touch online modes. At "You are offline" choose **Play Offline**.
 - Never modify, decompile, disassemble or patch `FCLiveEditor.DLL` or the game. No bypassing Live Editor's Patreon
-  authentication, no anti-cheat work.
-- Never commit Live Editor's files (its `lua\libs` is used as a test fixture in `turbo/le27/libs`, which is gitignored).
+  authentication, no anti-cheat work. (Reading/writing game data through Live Editor's Lua API and Turbo's guarded
+  memory reads is the product; finding data layouts by reading values, never by reading code.)
+- Never commit Live Editor's files (its `lua\libs` is a test fixture in `turbo/le27/libs`, gitignored).
 - Never commit personal data: Live Editor's logs contain the user's Patreon ID and name. Quote only the lines you need.
 - Every database write is range-checked; destructive actions need confirmation.
-- Commit on `claude/trusting-cannon-rkxwrw`; no pull request unless the user asks. Commit trailer used so far:
-  `Co-Authored-By: Claude <noreply@anthropic.com>`.
+- **Never save the user's career.** Revert any test edit before leaving the career (the career save is backed up).
+- Commit on `claude/trusting-cannon-rkxwrw`; no pull request unless the user asks. Commit trailer:
+  `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` plus the `Claude-Session:` line.
 
-## 2. How it starts (0.2.3+)
+## 2. State at this handover (verified in game, 02-10-2026, career "Torino FC", in-game date 2026-08-30)
 
-1. At game launch Live Editor runs `lua\autorun\turbo_boot.lua` → `TURBO.boot({at_launch=true})`: **no game native** is called.
-   It registers the documented `post__CareerModeEvent` handler and loads `turbo\Turbo.dll` with `package.loadlib` in
-   "launch" mode (`turbo_output\turbo_gui_load.json` = `{"mode":"launch"}`). Disable with `"gui": {"autoload": false}`.
-2. `Turbo.dll` imports only KERNEL32/USER32/GDI32/msvcrt (D3D12, DXGI, D3DCompile, DWM resolved lazily in
-   `src/win/lazy_imports.cpp`). In launch mode it does nothing until Live Editor writes `Initial setup done` for this
-   process in `Logs\live_editor_<dd-mm-yyyy>.log` (session matched by `Module <FCLiveEditor.DLL> 0x<base>-`), or until
-   Turbo's Lua side writes `bridge_state.json` (`src/win/dllmain.cpp`, `src/core/le_log.*`).
-3. Then it waits for the game window + 5 s, finds hook targets (TurboProbe.exe, else an in-game probe), hooks
-   Present/Present1/ResizeBuffers/ResizeBuffers1/ExecuteCommandLists with MinHook and draws on F8.
-4. **Database connection** needs the Lua side to write `turbo_output\bridge_meta.json` (from `GetDBMeta()`) and
-   `bridge_state.json` (DB service address from `GetPlugin`). That happens in `bridge.start()`
-   (`lua\libs\v2\imports\turbo\bridge.lua`), called by `lua\scripts\turbo_gui_load.lua` (manual) or automatically on the
-   **first career-mode event**. Outside a career Live Editor gives Lua no events, so at the main menu only the script can do it.
-
-Logs to read: `turbo_output\turbo_boot.log` (every Lua start-up step, written before it runs),
-`turbo_output\turbo_gui.log` (every DLL step), `Logs\live_editor_<date>.log` (Live Editor; Turbo lines start with `[Turbo]`;
-also visible in Live Editor's in-game Logger window).
-
-## 3. What is verified in the real game (user tests, 02-10-2026)
-
-| Build | Result |
+| Area | Result |
 | --- | --- |
-| 0.2.0 | Broke game launch (game died inside the autorun call; it called GetPlugin/GetDBMeta, loaded the DLL and probed D3D12 at launch). |
-| 0.2.2 | Game launches. F8 did nothing: `turbo_gui_load.lua` never ran (no trace line), so the DLL was never loaded. |
-| 0.2.3 | Game launches with the launch-time DLL load. `turbo_gui.log`: waited for `Initial setup done` (58 s after load), TurboProbe could not match `execute` (FC 27 ships its own `x64\D3D12Core.dll`, Agility SDK) → in-game probe OK → hooks installed → queue = "last direct queue that submitted work" (so `IDXGISwapChain::GetDevice(ID3D12CommandQueue)` does **not** return the queue on Windows) → 3 back buffers, format 24 → overlay proven → F8 drew the window in game (screenshot, next to Live Editor's window). **Not connected**: "waiting for Turbo's Lua side (bridge_meta.json)". |
-| 0.2.4 | Session 18:10: DLL waited for Live Editor, started TurboProbe.exe at 18:10:45, then the log stops; the game process ended within ~20 s without a clean exit. The crash guard (`turbo_output\turbo_gui_start.flag`) was held, so the next launches (18:11:05, 18:11:09) refused to start Turbo ("previous Turbo GUI start did not finish"). The 0.2.4 database fix never ran. |
+| Launch | Game launches; Turbo.dll waits for Live Editor's "Initial setup done", skips TurboProbe (game ships its own D3D12Core.dll), probes in game, hooks, F8 shows the window. |
+| Readable-memory map | `readable-memory map for Turbo's Lua side: 14462 regions`. Since it, the in-career self-test never crashed the game (it did twice before). |
+| Database | Connects on the first career event; 21,610 players, 841 teams; names decoded (43,065 from `GetDBTableRows("playernames")`). |
+| Player edit | Jonathan Silva overallrating 70 → 71 in the Turbo window showed "Baseline OVR 71" in the game's Team Management; set back to 70 and confirmed in the database. |
+| In-game date | `2026-08-30 (calendar+0x34)` matches the career hub. |
+| Self-test (`turbo_selftest.lua`) | **13 passed, 0 failed, 6 skipped**. Skipped = this Live Editor build has no native for it (below). |
+| Exports | Transfer history 1,653 moves (FC 27 TransferManager lists); fixtures: 36 remaining Torino fixtures (MainHubManager); database league numbers 3,847 lines; jersey numbers; tables; probe report. |
+| Input | Keyboard typed into a Turbo text field did **not** reach the game (tested with a game hotkey and Enter). A mouse click on the Turbo window still moved the game's menu focus to the card under the cursor (0.2.5 build before the last one). The last build also hooks GetAsyncKeyState / GetKeyState / GetKeyboardState / GetCursorPos; it is **installed but not yet tried in game**. |
 
-Across all sessions `turbo_boot.log` has **no** `turbo_gui_load.lua started` line, although the user said they ran the
-script. Either it was never executed through Live Editor's Lua Engine, or Live Editor runs it in a way that fails before
-its first line. This is the first thing to find out (section 5).
+### FC 27 Live Editor v27.1.2 does not have these natives
 
-What 0.2.4 changed (untested in game): `bridge.write_meta` no longer requires `GetDBMeta()` to be plain Lua tables
-(Live Editor's own `t3db` code only indexes it, so it may be C++ userdata); it iterates only inside `pcall`, falls back to
-Live Editor's own loader (`LE.db:Reset()` → `LE.db.tables`), and every failure is reported (message box, `turbo_boot.log`,
-`[Turbo]` warning in Live Editor's log, `meta_error` in `bridge_state.json`, shown in the Turbo window's top line).
+Globals dump from the game (`_G` in Live Editor's Lua Engine): the FC 26 names still exist as Lua wrappers in
+`lua\libs\v1\live_editor.lua`, but the `c*` natives behind them are missing, and some v2 helpers print `TODO: FC27`.
 
-## 4. First steps on the user's PC
+| Missing | Turbo tools affected (greyed out with the reason; self-test SKIP) |
+| --- | --- |
+| `GetUserTransferBudget`, `SetUserTransferBudget` (and `GetTransferBudget` is a deprecation stub) | Your club: transfer budget |
+| `cTransferPlayer`, `cLoanPlayer`, `cReleasePlayer`, `cAdd/RemovePlayerTo/FromTransfer/LoanList`, `cIsPlayer*Listed`, `TerminateLoan` | Players tab: Transfer / Loan / Release / Terminate loan / Transfer list / Loan list / Remove from lists |
+| `cGetTransferBans`, `cAddTransferBan`, `cRemoveTransferBan` | Transfer bans |
+| `DeletePlayer` | Delete player, Delete generated players (counting still works) |
+| `PlayerDevelopmentManager*` | Bulk edit: development |
+| `GetPlayersStats` | Season stats: exports the database's league numbers instead, labelled as not live |
+| `SetSquadRole` (Lua placeholder) | none: Turbo writes squad roles through memory itself |
 
-1. Delete `C:\FC 27 Live Editor\turbo_output\turbo_gui_start.flag` (it blocks Turbo after the 18:10 session).
-2. Confirm 0.2.4 is installed: `lua\libs\v2\imports\turbo\core\version.lua` says `0.2.4`.
-3. Start the game through Live Editor. At the main menu wait ~20 s, press F8: the Turbo window should appear
-   ("Not connected"). Read `turbo_gui.log`.
-4. Run `lua\scripts\turbo_gui_load.lua` **through Live Editor's Lua Engine** (find out exactly how FC 27 LE runs a script:
-   its window, load/execute buttons). Expected: `turbo_boot.log` gets `turbo_gui_load.lua started` and
-   `bridge.start: bridge_meta.json written from GetDBMeta|LE.db` (or `NOT written: <reason>`), a message box
-   ("Game database shared with the Turbo GUI" or "Turbo GUI problem: ..."), and the Turbo window turns **Connected**.
-5. If nothing is traced, test the Lua Engine itself with a one-liner script, e.g.
-   `Log("[Turbo test] " .. type(GetDBMeta) .. " " .. type(require) .. " " .. type(io) .. " " .. tostring(package and package.loadlib))`
-   and `local m = GetDBMeta(); Log(type(m) .. " " .. type(m.field_desc_map) .. " " .. tostring(pcall(pairs, m.field_desc_map)))`.
-   These answer: is `require`/`io` available to manual scripts, and what does `GetDBMeta` really return.
-6. Load a career: the first career event should connect the GUI automatically (no script).
-7. Then run the in-game checklist in `TURBO_README.md` (edit an attribute, kit number, budget, Turbo Tools buttons).
+Present and used: `GetDBMeta`, `GetDBTableRows`, `GetDBTableFields`, `EditDBTableField`, `SetPlayerForm/Morale/Fitness`,
+`GetPlugin`, `IsInCM`, `MEMORY`, `LE.db`, event handlers. Detection is generic (`env.api()` reads the wrapper's source
+and checks every `c<Name>(` it calls), so a Live Editor update that adds the natives lights the tools up again.
 
-## 5. Planned 0.2.5 (designed, not implemented)
+## 3. How a test session works
 
-| Change | Where | Why |
-| --- | --- | --- |
-| Skip TurboProbe.exe when the game's loaded `D3D12Core.dll` is not the one in System32 (go straight to the in-game probe) | `turbogui/src/win/overlay_dx12.cpp` `start_overlay`, before `find_targets_external` | In FC 27 TurboProbe can never match `ExecuteCommandLists`; it only adds an external process and seconds (the 18:10 session ended during it). |
-| Hold the crash guard only around in-game work (in-game probe, MinHook enable, first 300 frames), not while waiting or while TurboProbe runs | move `guard_hold` from `init_thread` (`dllmain.cpp`) into `start_overlay`; `guard_release` on failure stays in `init_thread` | A game closed or crashing for any reason during the long wait/probe window switched Turbo off for good. |
-| Retry once: a plain flag → log and try again (write the flag as `RETRY: ...`); a `RETRY:` flag → stay off | `dllmain.cpp` `init_thread` flag check and `guard_hold` | One unlucky exit should not need manual file deletion; two in a row still protects the game. Update smoke modes `guard` (RETRY flag → refuse) and add `guardretry`. |
-| At launch, warn in Live Editor's log when the flag exists (pure Lua `io`) | `turbo.lua` `M.boot` (at_launch branch) | The user sees Live Editor's Logger window; today the reason is only in `turbo_gui.log`. |
-| Ignore a `bridge_state.json` older than the DLL load − 2 min | `turbogui/src/core/bridge.*` (`poll_files`, new `set_min_state_time`), set in `start_overlay` | With the launch-time load the DLL could read a previous game session's DB address. ReadProcessMemory makes it safe, but it must not be used. |
-| TurboProbe: inherit only the stdout pipe (`STARTUPINFOEXW` + `PROC_THREAD_ATTRIBUTE_HANDLE_LIST`) | `find_targets_external` | Today `bInheritHandles=TRUE` hands every inheritable game handle to the child. |
-| If `GetDBMeta` still fails in game: build the meta from the documented `GetDBTablesNames()` / `GetDBTableFields(name)` (DOC.MD: array of `DBFieldDescription`, `fields[i]["name"]`) | `bridge.lua` `write_meta` | Needs a check of what `DBFieldDescription` contains (short name? depth? min?) in `C:\FC 27 Live Editor\lua\DOC.MD`. |
+1. Build in the cloud (section 6), `WITH_BIN=1 bash /home/claude/bin/mkdeploy.sh` (or `scripts/package.sh`), commit the tar
+   to `C:\FC 27 Live Editor\turbo_dev\turbo_deploy.tar` and extract there with
+   `tar -xf turbo_dev/turbo_deploy.tar --overwrite --no-same-owner --no-same-permissions` (device shell). Compare the
+   Turbo.dll sha256. The game must be closed to replace Turbo.dll; Lua files can be replaced while it runs (clear
+   `package.loaded["imports/turbo/..."]` before running a script, see `turbo_dev/reload_selftest.lua`).
+2. Start the game with the desktop shortcut `LaunchFC27`. It first shows "Carica / Personal Settings 1": press Enter.
+   Then "EA Servers are unavailable": Enter. Maximise the window (it starts small).
+3. Loading the career: Manager Career > Play Offline > **Original** > Load. The "Original" entry does not react to
+   synthetic clicks or arrow keys; the user loaded the career each time. Hovering the mouse over a card and pressing Enter
+   works for most other menus. **Escape does not reach the game** from the automation; use `w` (shortcut menu) +
+   Enter, or the `x` / `c` tab keys. Never press Enter in the Calendar (it is "Sim To Date").
+4. Live Editor's UI toggles with **Left Alt**; Features > Lua Engine; paste
+   `assert(loadfile('C:/FC 27 Live Editor/lua/scripts/turbo_selftest.lua'))()` and click Execute. Results:
+   `turbo_output\turbo_selftest.log`. Probe scripts used to find FC 27 layouts are in `turbo_dev\probe_*.lua`.
+5. Turbo window: F8. Close the game with the window's X (no save).
+
+## 4. Next steps (in order)
+
+1. **Input shield in game**: with the newest Turbo.dll, click a Turbo button above a game menu card; the game's focus
+   must not move. After ~1 minute `turbo_gui.log` prints `input shield: game polled ... GetAsyncKeyState n, GetKeyState n,
+   GetKeyboardState n, GetCursorPos n; m blocked` — that line says which APIs FC 27 really reads.
+2. **Greyed-out tools in game**: Status tab lists "Not possible with this Live Editor build"; Players tab move buttons
+   and the budget / bans buttons are disabled with tooltips.
+3. **Transfer budget without Live Editor's native** (research, started): `BudgetManager` (career manager type 23) has an
+   AI-club hash table at `+0x18` (823 buckets at `+0x20`, `teamid % 823`, node `{teamid, 2, value@+0x08, value@+0x10,
+   ...}`); the user's club is **not** in it (bucket 54 empty). The UI showed Torino's budget as $40M (current) / $43M (total);
+   the game stores values already in the display currency (BudgetManager item ranges are multiples of 114,000 = 100,000 ×
+   1.14). Candidates seen: `TcmFinanceManager` (type 65). Only implement after a differential test (change the budget in
+   game by a legal action, diff, revert) proves the field.
+4. **Full fixtures / results and live season stats**: not found yet. FC 26's FCEDataManager lists (+0x60/+0x88) hold other
+   data in FC 27. User fixtures come from MainHubManager `+0x60` count / `+0x68` entries (0x130 bytes). Probe output
+   files in `turbo_output\probe_*.txt` on the PC show the searches done.
+5. Release: `scripts/package.sh`, replace `dist/` zip, push the branch (the cloud workspace has no push credential; see 5).
+
+## 5. Getting commits to GitHub
+
+The cloud repo at `/home/claude/FC27-Editor-Turbo` has no remote credential. Earlier sessions downloaded the repo
+through the browser pane (GitHub signed in). To publish: `git bundle create turbo.bundle <base>..HEAD`, commit it to
+`C:\FC 27 Live Editor\turbo_dev\`, and on the PC run `git pull <path>\turbo.bundle claude/trusting-cannon-rkxwrw` in a
+clone, then push; or ask the user to push. The bundle for this handover is `turbo_dev\turbo_0.2.5.bundle` (made from
+`379554c`, the snapshot of `195cdb5`).
 
 ## 6. Build and test
 
-The scripts are bash and were run on Ubuntu (use WSL Ubuntu locally). Packages: `mingw-w64` (posix threads,
-`x86_64-w64-mingw32-g++-posix`), `wine64`, `lua5.4`, `lua-check` (luacheck), `zip`, and for the overlay test `xvfb`,
-`mesa-vulkan-drivers`, `imagemagick`. Copy `C:\FC 27 Live Editor\lua\libs` to `turbo/le27/libs` first (test fixture, gitignored).
+Scripts are bash on Ubuntu (mingw-w64 posix, wine64, lua5.4, luacheck, zip, xvfb, mesa-vulkan-drivers, imagemagick).
+Copy `C:\FC 27 Live Editor\lua\libs` to `turbo/le27/libs` first (gitignored fixture; also `turbo/le27/fc27_db_schema.json`
+from `turbo_output\fc27_db_schema.json` for the schema check).
 
-| Command | Expected at 0.2.4 |
+| Command | Result at this handover |
 | --- | --- |
-| `bash turbo/tests/run_tests.sh` | TOTAL: 105 passed, 0 failed |
+| `bash turbo/tests/run_tests.sh` | TOTAL: 129 passed, 0 failed (10 files; t10 = FC 27 LE v27.1.2 natives only) |
 | `luacheck --config turbo/tests/.luacheckrc turbo/package/lua` | 0 warnings / 0 errors |
-| `bash turbogui/tests/native/run_native.sh` | RESULT 3283 passed, 0 failed (ASan + UBSan) |
-| `bash turbogui/scripts/build_win.sh` | 0 warnings; fails if Turbo.dll imports a graphics DLL |
-| `bash turbogui/tests/win/run_smoke.sh` | ALL SMOKE MODES PASSED (10 modes) |
-| `MODE=probe bash turbogui/tests/win/run_overlay_wine.sh` and `MODE=fallback ...` | OVERLAY TEST PASSED (18 and 17 checks) |
-| `python3 scripts/check_field_names.py` | 110 names: 108 known, 2 allowed, 0 unknown (needs GitHub access) |
-| `bash scripts/package.sh` | `dist/FC27_LE_Turbo_<version>.zip`; version in `core/version.lua` must equal `kGuiVersion` in `turbogui/src/ui/app.h` |
+| `bash turbogui/tests/native/run_native.sh` | RESULT 3336 passed, 0 failed (ASan + UBSan) |
+| `bash turbogui/scripts/build_win.sh` | 0 warnings |
+| `bash turbogui/tests/win/run_smoke.sh` | ALL SMOKE MODES PASSED (11 modes) |
+| `MODE=probe` / `MODE=fallback bash turbogui/tests/win/run_overlay_wine.sh` | OVERLAY TEST PASSED (8 input hooks, game's polled input still works) |
+| `python3 scripts/check_fc27_schema.py` | 116 names checked, 106 present, 10 optional absent, 0 missing |
+| `bash scripts/package.sh` | `dist/FC27_LE_Turbo_0.2.5.zip` |
 
-`smoke_loader.exe` (built by `run_smoke.sh` into `turbogui/build/smoke/bin`) also runs on Windows itself without Wine:
-`smoke_loader.exe <folder> <mode>` (see `run_smoke.sh` for the folder layout). Release routine used so far: bump `core/version.lua`, `kGuiVersion`, the smoke loader's `gui_version` check;
-run everything above; package; `git rm` the previous zip; verify the zip's DLL equals the tested build; commit; push.
+The simulator (`turbo/tests/mock/sim.lua`) models game memory and Live Editor natives; `H.setup({le_27_1_2 = true})`
+removes every native the real v27.1.2 lacks. `world.lua` options `fc27_transfer_lists` and `fc27_user_fixtures` build the
+FC 27 layouts seen in game.
 
-The simulator (`turbo/tests/mock/sim.lua`) models game memory and Live Editor natives; `sim.meta_mode` = `"table"`,
-`"userdata"` or `"userdata_noiter"` controls what `GetDBMeta` returns. Anything learned in game about natives' real return
-types should be added there.
+## 7. Facts worth keeping
 
-## 7. Facts from the user's logs worth keeping
-
-- Live Editor log lines: `Module <FCLiveEditor.DLL> 0x<base>-0x<end>` at injection; `[LUA] Execute: ...\turbo_boot.lua`;
-  `Main Menu reached`; `Initial setup done` ~15 s later (after Live Editor's own DX12 hooks and its Patreon check).
-- Live Editor hooks the same five functions (Present at `dxgi.dll+0x19530`, ExecuteCommandLists in the game's
-  `x64\D3D12Core.dll`); MinHook chains onto them and both overlays draw.
-- Live Editor's launcher sometimes sees two FC27.exe processes; in one session Turbo loaded into two processes 4 s apart.
-- GPU: NVIDIA RTX 5090 Laptop (hybrid with Intel iGPU), Windows build 26300; game window 2582x1550, swap chain format 24
-  (R10G10B10A2), 3 back buffers.
+- Live Editor log: `Initial setup done` ~30 s after start once the settings file is loaded; Lua Engine runs on the game
+  thread (a long script freezes the game until it ends — keep probes short).
+- Live Editor's MessageBox formats text like printf (`%` must be doubled). Its MEMORY natives crash on unreadable
+  addresses: Turbo reads only through `core/mem.lua` (readable-memory map published by Turbo.dll).
+- FC 27 DB: 268 tables; `playernames.name` is compressed (field type 13) and only `GetDBTableRows` decodes it;
+  `cm_teamsheets` has `playerid0..playerid51` (FC 27 LE's helper skips playerid0, the goalkeeper);
+  `transfers` and `fixtures` tables are empty in a career; `teamplayerlinks.leagueappearances` stays 0.
+- Career managers (comm service plugin, `GetManagerObjByTypeId` walk): CalendarManager 24 (date at +0x34/+0x38/+0x3C),
+  MainHubManager 58, BudgetManager 23, TransferManager 127 (eastl lists: +0x2998 completed transfers, +0x29D8 loans,
+  +0x2978 open AI offers, +0x29F8/+0x2A18 offers for the user's players; node +0x10 player, +0x14 to club, +0x18 from club,
+  +0x24 date, +0x30 fee), PlayerStatusManager 87 (squad roles at +0x18).
+- GPU: NVIDIA RTX 5090 Laptop; game window 2582x1550 maximised, swap chain format 24, 3 back buffers.

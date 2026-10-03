@@ -1,8 +1,15 @@
-# FC 26 Live Editor → Turbo for FC 27: feature parity (Turbo 0.2.4)
+# FC 26 Live Editor → Turbo for FC 27: feature parity (Turbo 0.2.5)
 
 The 41 FC 26 Live Editor feature groups and 16 FC 26 Lua scripts below come from the assessment of your
 `C:\FC 26 Live Editor` and `C:\FC 27 Live Editor` installs (changelogs, Lua libraries, UI strings, `DOC.MD`).
 "FC 27 LE" is what FC 27 Live Editor itself already offers (its own window, F-key menus), which Turbo runs next to.
+
+**FC 27 Live Editor v27.1.2 limits (found in game, 02-10-2026).** The natives behind transfers, loans, release, terminate loan,
+transfer / loan lists, transfer bans, the transfer budget, player deletion, player development and season stats are not in
+this Live Editor build (their FC 26 Lua wrappers are). Those rows are marked *needs LE native*: the Turbo buttons exist and
+are greyed out with the reason until Live Editor ships the native. FC 27 Live Editor's own "Miscellaneous Features"
+(`le_misc_features.json`) covers CPU vs CPU, unlimited subs, never tired, disabling the manager market, negative status
+checks, transfer / loan approval, reveal player data, stadium / weather / kick-off time / crowd overrides and unsackable.
 
 **Status key**
 
@@ -17,16 +24,16 @@ The 41 FC 26 Live Editor feature groups and 16 FC 26 Lua scripts below come from
 
 ## Player editor
 
-| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.4 |
+| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.5 |
 | --- | --- | --- | --- | --- |
 | 1 | Player editor: attributes, positions, playstyles | v26.1.0 | yes | **Turbo GUI**: Profile, Attributes (grouped like the game), positions 1–7, PlayStyles / PlayStyles+ / Traits / Traits+, Appearance, dates as real calendar dates, all fields |
 | 2 | Edit player or VPRO in Player Career | v26.1.1 | yes (v27.1.1) | **Turbo GUI (partial)**: the editor works on your own player like any other; "Give my player every PlayStyle" (now or automatic). No dedicated VPRO page: use FC 27 LE's |
-| 3 | Release clause | v26.1.2 | not announced | **Turbo GUI (partial)**: a release clause can be set with a transfer (Lua `release_clause`); no release-clause editor, because where FC 27 stores it is not confirmed |
-| 4 | Transfer, loan, terminate loan, release from team | v26.1.4 | not announced | **Turbo GUI**: Transfer / Loan / Release / Terminate loan buttons |
-| 5 | Delete player, generate miniface, change name | v26.1.5 | not announced | **Turbo GUI (partial)**: Delete player (new in 0.2.2, with confirmation). Names: edit the `editedplayernames` table in the Database tab. Minifaces: **Not available** (image pipeline) |
-| 6 | Season statistics | v26.1.7 | not announced | **Turbo GUI (partial)**: export to CSV; no in-window statistics table |
+| 3 | Release clause | v26.1.2 | not announced | **Turbo GUI**: `players.releaseclause` (and `wage`) editable in Players > Contract & Clubs (fields confirmed in the FC 27 schema dump) |
+| 4 | Transfer, loan, terminate loan, release from team | v26.1.4 | not announced | **Turbo GUI**, *needs LE native* (`cTransferPlayer`, `cLoanPlayer`, `cReleasePlayer`, `TerminateLoan` missing in v27.1.2) |
+| 5 | Delete player, generate miniface, change name | v26.1.5 | not announced | **Turbo GUI (partial)**: Delete player (with confirmation), *needs LE native* (`DeletePlayer` missing in v27.1.2). Names: edit the `editedplayernames` table in the Database tab. Minifaces: **Not available** (image pipeline) |
+| 6 | Season statistics | v26.1.7 | not announced | **Turbo GUI (partial)**: export to CSV, *needs LE native* `GetPlayersStats` for live stats; with v27.1.2 it exports the database's league goals / cards (labelled as not live) |
 | 7 | Team selection bias, development XP boost | v26.2.1 | not announced | **Turbo GUI (partial)**: Bulk edit → Development (XP multiplier, bonus XP, no decline). Team selection bias: **Not available** |
-| 8 | Transfer- and loan-listed flags | v26.2.2 | not announced | **Turbo GUI**: Transfer list / Loan list / Remove from lists |
+| 8 | Transfer- and loan-listed flags | v26.2.2 | not announced | **Turbo GUI**, *needs LE native* (`cAddPlayerToTransferList` etc. missing in v27.1.2) |
 | 9 | Create player, clone player, FUT card presets | v26.2.4 | partly | **Not available** in Turbo (FC 27 LE's preset manager loads) |
 | 10 | Sock style, Super Sub trait, tattoo picker | v26.3.1, v26.3.5 | not announced | **Turbo GUI (partial)**: sock and tattoo fields as values in Appearance; traits as tick boxes; no visual picker. Tattoo / head maps by ID: `turbo_custom_tattoos`, `turbo_custom_headassets` scripts |
 | 11 | Bulk edit players (release clause, fitness, heal, injury, never tired, dev XP, no decline) | v26.3.2, v26.3.5 | not announced | **Turbo GUI (partial)**: Bulk edit (new in 0.2.2) for your squad / team IDs / the players the list shows / everyone: any players-table field, fitness, form, morale, development XP and no decline. Heal, injury, never tired, release clause: **Not available** |
@@ -36,10 +43,10 @@ The 41 FC 26 Live Editor feature groups and 16 FC 26 Lua scripts below come from
 
 ## Team editor
 
-| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.4 |
+| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.5 |
 | --- | --- | --- | --- | --- |
 | 15 | Team editor: core | v26.1.0 | yes | **Turbo GUI**: Teams tab: overview fields, squad with kit numbers and line-up slots, all fields |
-| 16 | Team name, transfer budget, transfer bans | v26.1.2 | partly | **Turbo GUI (partial)**: `teamname` and `transferbudget` editable; transfer bans: list, ban every team, remove all (no single-team ban button). The game may show translated club names instead of `teamname` (FC 27 LE has a custom-names file for that) |
+| 16 | Team name, transfer budget, transfer bans | v26.1.2 | partly | **Turbo GUI (partial)**: `teamname` editable; FC 27 has no `teams.transferbudget` (Turbo Tools budget section, *needs LE native* `SetUserTransferBudget`); transfer bans: list, ban every team, remove all, *needs LE native* (`cGetTransferBans` missing in v27.1.2). The game may show translated club names instead of `teamname` (FC 27 LE has a custom-names file for that) |
 | 17 | Coaches, scouts, perfect staff | v26.1.4 | not announced | **Database tab** |
 | 18 | Standings, fixtures, match-fixing | v26.1.7 | not announced | **Turbo GUI (partial)**: fixtures and results to CSV. Standings view: no. Match-fixing: **Not available** |
 | 19 | Create job offer | v26.2.1 | not announced | **Not available** |
@@ -48,7 +55,7 @@ The 41 FC 26 Live Editor feature groups and 16 FC 26 Lua scripts below come from
 
 ## Manager editor
 
-| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.4 |
+| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.5 |
 | --- | --- | --- | --- | --- |
 | 22 | Manager editor: core | v26.2.7 | basic | **Turbo GUI**: Managers tab (names, team, nationality, personality, looks, all fields) |
 | 23 | Manager and team ID, name, miniface import / generate | v26.2.8 | not announced | **Turbo GUI (partial)**: IDs and names editable; minifaces **Not available** |
@@ -57,12 +64,12 @@ The 41 FC 26 Live Editor feature groups and 16 FC 26 Lua scripts below come from
 
 ## Career
 
-| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.4 |
+| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.5 |
 | --- | --- | --- | --- | --- |
 | 26 | Youth academy tools | v26.1.3 | partly | **FC 27 LE** (youth scout reports) |
 | 27 | Reveal player data | v26.1.4 | not announced | **Not available** |
 | 28 | Match setup: stadium, weather, kick-off time, crowd | v26.1.5 | not announced | **Not available** |
-| 29 | Transfer history | v26.1.8 | not announced | **Turbo GUI (partial)**: export to CSV |
+| 29 | Transfer history | v26.1.8 | not announced | **Turbo GUI (partial)**: export to CSV; in FC 27 read from the TransferManager's lists (completed transfers and loans of the season) |
 | 30 | Gameplay: CPU vs CPU, never tired, unlimited subs, match time and score | v26.2.0 | not announced | **Not available** |
 | 31 | Player Career: funds, wage, attribute points, personality, playstyle slots | v26.2.1 | yes (v27.1.1) | **FC 27 LE** |
 | 32 | Contract objectives bypass, negotiation check, always allow approach | v26.2.1, v26.2.5 | not announced | **Not available** |
@@ -72,7 +79,7 @@ The 41 FC 26 Live Editor feature groups and 16 FC 26 Lua scripts below come from
 
 ## Tool and scripting
 
-| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.4 |
+| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.5 |
 | --- | --- | --- | --- | --- |
 | 36 | Speedhack (menu, gameplay), hotkeys | v26.1.0–v26.3.6 | yes | **FC 27 LE** |
 | 37 | Lua script on hotkey, CJK font, font size | v26.3.6 | not announced | **FC 27 LE** for scripts; Turbo has its own show/hide key only |
