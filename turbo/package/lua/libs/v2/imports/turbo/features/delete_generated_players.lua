@@ -37,9 +37,23 @@ function M.run(ctx)
             if not okd then error(derr) end
         end
     end
+    -- Turbo's own delete never touches your club (core/moves.lua guard): those players are left alone and counted
+    local skipped = 0
+    if not env.api("DeletePlayer") then
+        local user = moves.user_team()
+        local keep = {}
+        for _, pid in ipairs(ids) do
+            local _, tid = moves.club_link(pid)
+            local lrec, loans = moves.loan_row(pid)
+            local owner = lrec and loans:GetRecordFieldValue(lrec, "teamidloanedfrom") or nil
+            if user <= 0 or tid == user or owner == user then skipped = skipped + 1 else keep[#keep + 1] = pid end
+        end
+        ids = keep
+    end
+    local skip_note = skipped > 0 and string.format("; %d in your club are kept (Turbo never deletes your players)", skipped) or ""
     if ctx.cfg.confirm ~= true or ctx.dry then
-        return true, string.format("%d generated players found (playerid >= %d). Set \"confirm\": true to delete them.",
-            #ids, min_pid)
+        return true, string.format("%d generated players found (playerid >= %d)%s. Set \"confirm\": true to delete them.",
+            #ids, min_pid, skip_note)
     end
 
     local deleted, failed = 0, 0
@@ -52,8 +66,8 @@ function M.run(ctx)
             log.warn("DeletePlayer(%d) failed: %s", pid, tostring(derr))
         end
     end
-    return failed == 0, string.format("deleted %d generated players%s", deleted,
-        failed > 0 and string.format(", %d failed", failed) or "")
+    return failed == 0, string.format("deleted %d generated players%s%s", deleted,
+        failed > 0 and string.format(", %d failed", failed) or "", skip_note)
 end
 
 return M

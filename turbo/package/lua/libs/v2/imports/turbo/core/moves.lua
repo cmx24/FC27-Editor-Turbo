@@ -10,6 +10,11 @@
 --   delete    : release, then his players / teamplayerlinks / editedplayernames / playerloans rows are deleted
 --               (what FC 26 Live Editor's DeletePlayer did).
 -- Every value is validated against the field's range before anything is written; a failed check writes nothing.
+--
+-- SAFETY (0.3.0): these database-only moves are not seen by the running career until the save is reloaded, and in the
+-- test career "turbolab" the game crashed while simulating after several of them (03-10-2026, root cause not found).
+-- So every move into or out of YOUR club (the career user's team), and deleting one of your players, is refused: use
+-- the game's own transfer screens for your club. Moves between other clubs stay available and are labelled unverified.
 
 local util = require 'imports/turbo/core/util'
 local db = require 'imports/turbo/core/db'
@@ -55,6 +60,24 @@ function M.club_link(pid)
         end
     end
     return nil, string.format("player %d has no club link in teamplayerlinks", pid)
+end
+
+-- Your club in the loaded career (0 = unknown). Overridable for tests.
+function M.user_team()
+    local ok, tid = pcall(game.user_team_id)
+    tid = ok and util.to_int(tid) or 0
+    return tid or 0
+end
+
+M.OWN_CLUB_REFUSED = "Turbo does not move players into or out of your own club (database-only moves can crash the " ..
+    "career, seen in FC 27): use the game's transfer screens for your club"
+
+-- Refuses a move that touches the user's club. Unknown user club (outside a career) = refuse too.
+function M.guard(from_team, to_team)
+    local user = M.user_team()
+    if user <= 0 then return false, "your club is not known (load a career first)" end
+    if from_team == user or to_team == user then return false, M.OWN_CLUB_REFUSED end
+    return true
 end
 
 function M.team_of_player(pid)
@@ -213,6 +236,8 @@ local function plan_move(plan, pid, to_team, opts)
     local rec, from_or_err, links = M.club_link(pid)
     if not rec then return nil, from_or_err end
     local from = from_or_err
+    local okg, gerr = M.guard(from, to_team)
+    if not okg then return nil, gerr end
     if from == to_team then return nil, string.format("player %d is already at team %d", pid, to_team) end
     local jersey = M.free_jersey(links, to_team, links:GetRecordFieldValue(rec, "jerseynumber"), pid)
     local ok, err = plan_write(plan, links, rec, "teamid", to_team)
@@ -354,6 +379,13 @@ end
 function M.delete(pid, dry)
     local players = db.get_table("players")
     if not players or not db.find(players, "playerid", pid) then return false, string.format("player %d not found", pid) end
+    do
+        local _, cur = M.club_link(pid)
+        local lrec, loans = M.loan_row(pid)
+        local owner = lrec and loans:GetRecordFieldValue(lrec, "teamidloanedfrom") or nil
+        local okg, gerr = M.guard(cur or M.FREE_AGENTS, owner or cur or M.FREE_AGENTS)
+        if not okg then return false, gerr end
+    end
     if dry then return true, string.format("player %d would be deleted", pid) end
     if M.loan_row(pid) then
         local ok, err = M.terminate_loan(pid, false)

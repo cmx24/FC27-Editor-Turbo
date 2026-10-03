@@ -49,6 +49,7 @@ function Sim.new()
     s.bans = {}
     s.stats = {}
     s.team_names = {}
+    s.legacy_files = {}
     s.date = { day = 15, month = 1, year = 2027 }
     return s
 end
@@ -250,6 +251,54 @@ function Sim:install()
             out[#out + 1] = row
         end
         return out
+    end
+
+    -- FC 27 LE: insert a row (fields as text) into a free record; returns the row like GetDBTableRows does
+    InsertDBTableRow = function(name, row)
+        s:record("InsertDBTableRow", name, row)
+        local t = s.tables[name]
+        if not t then error("no table " .. tostring(name)) end
+        for i = 0, t.n - 1 do
+            local rec = t.first + i * t.rec_size
+            if (s:rb(rec + t.rec_size - 1) & 0x80) ~= 0 then
+                for k = 0, t.rec_size - 2 do s:wb(rec + k, 0) end
+                for _, c in ipairs(t.cols) do
+                    local v = row[c.name]
+                    if v ~= nil then s:set_field(rec, c, (c.typ == 0) and tostring(v) or tonumber(v)) end
+                end
+                s:wb(rec + t.rec_size - 1, 0)
+                local out = {}
+                for _, c in ipairs(t.cols) do
+                    out[c.name] = { value = tostring(s:get_field(rec, c)), addr = string.format("%d", rec) }
+                end
+                return out
+            end
+        end
+        error("table " .. name .. " is full")
+    end
+    -- FC 27 LE: the record address as a decimal string
+    DeleteDBTableRowByAddr = function(name, addr)
+        s:record("DeleteDBTableRowByAddr", name, addr)
+        local t = s.tables[name]
+        local rec = math.tointeger(tonumber(addr))
+        if not t or not rec or rec < t.first or rec >= t.first + t.n * t.rec_size or (rec - t.first) % t.rec_size ~= 0 then
+            error("bad record address " .. tostring(addr))
+        end
+        s:wb(rec + t.rec_size - 1, 0x80)
+        return true
+    end
+    -- Legacy files (s.legacy_files: path -> bytes)
+    LegacyFileExist = function(p) return s.legacy_files[p] ~= nil end
+    LegacyFileExport = function(p, dest)
+        s:record("LegacyFileExport", p, dest)
+        local data = s.legacy_files[p]
+        if not data then return false end
+        os.execute(string.format("mkdir -p '%s'", dest:match("(.*)/") or "."))
+        local f = io.open(dest, "wb")
+        if not f then return false end
+        f:write(data)
+        f:close()
+        return true
     end
 
     -- events

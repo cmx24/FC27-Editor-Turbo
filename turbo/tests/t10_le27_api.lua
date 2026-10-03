@@ -44,14 +44,19 @@ end)
 H.case("v27.1.2: the tools this build cannot run are published for the Turbo window", function()
     local caps = require 'imports/turbo/core/caps'
     local u = caps.unavailable()
-    for _, k in ipairs({ "transfer_budget", "transfer_bans", "delete_players", "development", "move_transfer", "move_loan",
-                         "move_release", "move_terminate_loan", "move_transfer_list", "move_loan_list", "move_unlist" }) do
+    for _, k in ipairs({ "transfer_bans", "development", "move_transfer_list", "move_loan_list", "move_unlist" }) do
         H.ok(u[k], k .. " unavailable")
+    end
+    -- done by Turbo itself in 0.3.0 (core/budget.lua, core/moves.lua): not greyed out
+    for _, k in ipairs({ "transfer_budget", "delete_players", "move_transfer", "move_loan", "move_release",
+                         "move_terminate_loan" }) do
+        H.eq(u[k], nil, k .. " available through Turbo")
     end
     H.eq(u.form_morale, nil, "form/morale natives exist")
     local bridge = require 'imports/turbo/bridge'
     local st = bridge.collect_state()
-    H.ok(st.unavailable and st.unavailable.transfer_budget, "in bridge state")
+    H.ok(st.unavailable and st.unavailable.transfer_bans, "in bridge state")
+    H.eq(st.unavailable.transfer_budget, nil)
     H.has(st.unavailable.transfer_bans, "cGetTransferBans")
 end)
 
@@ -87,14 +92,11 @@ H.case("v27.1.2: without GetPlayersStats the database's league numbers are expor
     H.eq(#lines - 1, mine, "only my club")
 end)
 
-H.case("v27.1.2: generated players are counted; deleting says why it cannot", function()
+H.case("v27.1.2: generated players are counted, and only deleted with confirm (Turbo's own delete)", function()
     local ok, msg = H.turbo().run("delete_generated_players", { min_playerid = 460000, confirm = false })
     H.eq(ok, true, msg)
     H.has(msg, #W.GENERATED .. " generated players found")
-    H.has(msg, "DeletePlayer is not available")
-    ok, msg = H.turbo().run("delete_generated_players", { min_playerid = 460000, confirm = true })
-    H.eq(ok, false); H.has(msg, "DeletePlayer is not available")
-    H.ok(sim:find_row("players", "playerid", W.GENERATED[1]), "nobody deleted")
+    H.ok(sim:find_row("players", "playerid", W.GENERATED[1]), "nobody deleted without confirm")
 end)
 
 H.case("v27.1.2: the self-test skips what this build cannot do and fails nothing else", function()
@@ -105,11 +107,11 @@ H.case("v27.1.2: the self-test skips what this build cannot do and fails nothing
     H.ok(text, "log written")
     if os.getenv("TURBO_SHOW_SELFTEST") then print(text) end
     H.has(text, " 0 failed")
-    H.has(text, "SKIP budget +1 and back (real)")
+    H.has(text, "OK   budget restored")
     H.has(text, "SKIP transfer list + unlist (real)")
     H.has(text, "SKIP list transfer bans")
     local skipped = tonumber(text:match("(%d+) skipped"))
-    H.ok(skipped and skipped >= 4, "skipped " .. tostring(skipped))
+    H.ok(skipped and skipped >= 3, "skipped " .. tostring(skipped))
     local box = sim.boxes[#sim.boxes]
     H.has(box.text, "skipped")
     local changed = 0

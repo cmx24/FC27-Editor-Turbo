@@ -91,7 +91,7 @@ H.case("every runner script executes and reports through a message box", functio
         n = n + 1
     end
     p:close()
-    H.eq(n, 28, "runner scripts")
+    H.eq(n, 29, "runner scripts")
     H.eq(sim.box_format_violations or 0, 0, "message boxes with an unescaped percent sign (would crash Live Editor)")
     for _, b in ipairs(sim.boxes) do
         H.ok(not tostring(b.text):find("crashed"), "crash reported: " .. tostring(b.text))
@@ -143,11 +143,11 @@ H.case("message boxes can be switched off", function()
 end)
 
 H.case("a missing native gives a clear message, not a crash", function()
-    local saved = GetUserTransferBudget
-    GetUserTransferBudget = nil
-    local ok, msg = H.turbo().run("transfer_budget", { mode = "get" })
-    H.eq(ok, false); H.has(msg, "GetUserTransferBudget is not available in this Live Editor build")
-    GetUserTransferBudget = saved
+    local saved = cGetTransferBans
+    cGetTransferBans = nil
+    local ok, msg = H.turbo().run("transfer_bans", { mode = "list" })
+    H.eq(ok, false); H.has(msg, "not available in this Live Editor build")
+    cGetTransferBans = saved
 end)
 
 H.case("unknown module name", function()

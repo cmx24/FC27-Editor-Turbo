@@ -9,6 +9,7 @@
 --   storage_off (int|false)        TransferManager negotiations storage offset (default 0x1DD0)
 --   fc27_transfer_lists (bool)     FC 27 layout: linked lists of moves in the TransferManager (seen in game)
 --   fc27_user_fixtures (bool)      FC 27 layout: your club's remaining fixtures in the MainHubManager (seen in game)
+--   budget (int|false)             your club's transfer budget in the FC 27 finance list (default 81497280; false = none)
 
 local W = {}
 
@@ -165,7 +166,9 @@ function W.build(sim, opts)
                 { name = "teamidloanedfrom", short = "tilf", depth = 18 },
                 { name = "loandateend", short = "lden", depth = 25 },
             },
-            rows = { { playerid = W.LOANED_IN, teamidloanedfrom = 7, loandateend = 20270630 } },
+            -- spare (invalid) records: InsertDBTableRow reuses them, as the game's tables keep free records
+            rows = { { playerid = W.LOANED_IN, teamidloanedfrom = 7, loandateend = 20270630 },
+                     { __invalid = true }, { __invalid = true }, { __invalid = true } },
         })
     end
 
@@ -187,6 +190,20 @@ function W.build(sim, opts)
     sim:w32(user_info + 0x268, 0)
     sim:w32(user_mgr + 0x2F, opts.player_career and 1 or 0)
     sim:w32(user_mgr + 0x34, opts.player_career and 1001 or 0)
+    -- FC 27 finance list (core/budget.lua, seen in game 03-10-2026): *(user_info+0x2F8) -> list, *(list+0x08) -> E,
+    -- E+0x28 club id, budget at E-0x10 and E+0x08
+    if opts.budget ~= false then
+        local list = sim:alloc(0x40, 8)
+        local block = sim:alloc(0x80, 16)
+        local e = block + 0x20
+        sim:w64(user_info + 0x2F8, list)
+        sim:w64(list + 0x08, e)
+        sim:w32(e + 0x28, W.USER_TEAM)
+        local v = opts.budget or 81497280
+        sim:w32(e - 0x10, v)
+        sim:w32(e + 0x08, v)
+        W.BUDGET_A, W.BUDGET_B = e - 0x10, e + 0x08
+    end
 
     local cal = sim:add_manager(24, 0x100)
     sim:w32(cal + 0x34, sim.date.day)
