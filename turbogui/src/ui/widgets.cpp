@@ -30,6 +30,11 @@ static const std::map<std::string, std::string>& label_map() {
         {"internationalrep", "Int. Reputation"}, {"teamname", "Team Name"}, {"jerseynumber", "Jersey"},
         {"headassetid", "Head Asset ID"}, {"hashighqualityhead", "Real Face"}, {"headclasscode", "Head Class"},
         {"trait1", "PlayStyles"}, {"icontrait1", "PlayStyles+"}, {"trait2", "Traits"}, {"icontrait2", "Traits+"},
+        {"homewins", "Home wins"}, {"awaywins", "Away wins"}, {"homedraws", "Home draws"}, {"awaydraws", "Away draws"},
+        {"homelosses", "Home losses"}, {"awaylosses", "Away losses"}, {"homegf", "Home goals for"},
+        {"awaygf", "Away goals for"}, {"homega", "Home goals against"}, {"awayga", "Away goals against"},
+        {"points", "Points"}, {"nummatchesplayed", "Played"}, {"currenttableposition", "Table position"},
+        {"teamform", "Form"}, {"lastgameresult", "Last result"},
     };
     return m;
 }

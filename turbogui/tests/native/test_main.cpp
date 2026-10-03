@@ -25,6 +25,8 @@
 #include <vector>
 
 #include "core/bridge.h"
+#include "core/image.h"
+#include "core/legacy.h"
 #include "core/memmap.h"
 #include "core/le_log.h"
 #include "core/model.h"
@@ -35,6 +37,8 @@
 #include "nlohmann/json.hpp"
 #include "ui/app.h"
 #include "ui/playstyles.h"
+#include "ui/ui_images.h"
+#include "test_pictures.h"
 
 namespace fs = std::filesystem;
 using nlohmann::json;
@@ -747,6 +751,15 @@ public:
     }
 };
 
+static Rgba solid(int w, int h, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
+static std::vector<uint8_t> file_bytes(const fs::path& p);
+static std::string hex_bytes(const std::vector<uint8_t>& d) {
+    static const char* h = "0123456789abcdef";
+    std::string s;
+    for (uint8_t b : d) { s += h[b >> 4]; s += h[b & 15]; }
+    return s;
+}
+
 static void test_ui() {
     SimMemory mem;
     CHECK(mem.load(g_out / "world.img"), "world.img");
@@ -787,11 +800,11 @@ static void test_ui() {
             app.tick(app.now + 3.0);
             json dll2 = read_json(le / "turbo_output" / "bridge_dll.json");
             CHECK(dll2["updated"].get<int64_t>() > 1000000000, "tick refreshes the time stamp");
-            for (int tab = 0; tab < 6; ++tab) {
+            for (int tab = 0; tab < 7; ++tab) {
                 app.request_tab = tab;
                 ui.frames(3);
             }
-            CHECK(ui.find("Players") && ui.find("Status") && ui.find("Turbo Tools"), "tab items present");
+            CHECK(ui.find("Players") && ui.find("Status") && ui.find("Turbo Tools") && ui.find("Competitions"), "tab items present");
         });
 
         run_case("UI: Players list, select with the mouse, edit an attribute", [&] {
@@ -1199,8 +1212,174 @@ static void test_ui() {
             ui.frames(2);
         });
 
+
+        run_case("UI: Competitions tab: league table, points and table positions", [&] {
+            app.request_tab = 3;
+            ui.frames(3);
+            const Table* lt = app.db.table("leagueteamlinks");
+            CHECK(lt != nullptr, "leagueteamlinks");
+            CHECK(ui.find("League") != nullptr, "league combo");
+            CHECK(ui.find("2##lt1") != nullptr && ui.find("1##lt7") != nullptr, "Arsenal 2nd, Everton 1st (stale positions)");
+            CHECK(ui.click("Recalculate points"), "Recalculate points");
+            uint64_t ars = app.db.find(*lt, "teamid", 1), eve = app.db.find(*lt, "teamid", 7);
+            CHECK(app.db.get_int(*lt, ars, "points") == 10 && app.db.get_int(*lt, eve, "points") == 4, "3 per win, 1 per draw");
+            CHECK(app.db.get_int(*lt, ars, "nummatchesplayed") == 4, "played");
+            CHECK(ui.click("Write table positions"), "Write table positions");
+            CHECK(app.db.get_int(*lt, ars, "currenttableposition") == 1 && app.db.get_int(*lt, eve, "currenttableposition") == 2,
+                  "Arsenal top");
+            ui.frames(2);
+            CHECK(ui.click("1##lt1"), "select Arsenal");
+            CHECK(ui.find("##v", "##lteam", "homewins") != nullptr, "line editor shown");
+            CHECK(ui.type_into(ui.find("##v", "##lteam", "homewins"), "3"), "edit home wins");
+            CHECK(app.db.get_int(*lt, ars, "homewins") == 3, "home wins written");
+            CHECK(ui.toast_contains("Table positions:"), "result toast");
+        });
+
+        run_case("UI: Players > Miniface: picture file to custom DDS, backup, remove", [&] {
+            fs::path pics = le / "turbo_minifaces";
+            fs::create_directories(pics);
+            { std::ofstream f(pics / "face.png", std::ios::binary); f.write(reinterpret_cast<const char*>(kTestPng), sizeof(kTestPng)); }
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.click("1002", "##plist"), "player 1002");
+            CHECK(ui.click("Miniface", "##pedit"), "Miniface tab");
+            ui.frames(3);
+            std::string want = read_file(le / "turbo_output" / "cache" / "legacy" / "want.txt");
+            CHECK(want.find("data/ui/imgAssets/heads/p1002.dds") != std::string::npos, "his miniface asked from the game: " + want);
+            CHECK(ui.click("face.png", "##mffiles"), "picture in the Turbo minifaces folder");
+            ui.frames(2);
+            CHECK(ui.click("Save as miniface"), "Save as miniface");
+            fs::path out = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p1002.dds";
+            CHECK(fs::exists(out), "custom miniface written");
+            Rgba img;
+            std::string err;
+            CHECK(load_image_file(out, img, &err), "written file reads back: " + err);
+            CHECK(img.w == 256 && img.h == 256, fmt("256 x 256 (%dx%d)", img.w, img.h));
+            CHECK(img.at(64, 128)[0] > 200 && img.at(64, 128)[3] == 255, "left: opaque red");
+            CHECK(img.at(192, 128)[2] > 200 && std::abs(int(img.at(192, 128)[3]) - 128) <= 8, "right: blue, half transparent");
+            CHECK(ui.toast_contains("miniface written"), "toast");
+            ui.frames(2);
+            CHECK(app.legacy.locate(legacy_path::player_miniface(1002), nullptr) == LegacyImages::State::Custom, "now custom");
+            CHECK(ui.click("Save as miniface"), "save again");
+            size_t backups = 0;
+            for (auto& e : fs::directory_iterator(le / "turbo_output" / "miniface_backups")) { (void)e; ++backups; }
+            CHECK(backups == 1, "previous custom miniface backed up");
+            CHECK(ui.click("Remove custom miniface"), "Remove");
+            ui.frames(2);
+            CHECK(ui.click("Remove", "##rmminiface"), "confirm");
+            CHECK(!fs::exists(out), "custom miniface removed");
+            CHECK(ui.toast_contains("Custom miniface removed"), "toast");
+        });
+
+        run_case("UI: Managers > Miniface: 512 x 512 heads_staff file", [&] {
+            app.request_tab = 2;
+            ui.frames(2);
+            CHECK(ui.click("501##m0", "##mlist"), "manager Arteta");
+            CHECK(ui.click("Miniface", "##medit"), "Miniface tab");
+            ui.frames(2);
+            CHECK(ui.click("face.png", "##mffiles"), "picture");
+            ui.frames(2);
+            CHECK(ui.click("Save as miniface"), "save");
+            fs::path out = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads_staff" / "heads_staff_7501.dds";
+            Rgba img;
+            CHECK(load_image_file(out, img) && img.w == 512 && img.h == 512, "512 x 512 heads_staff_7501.dds");
+        });
+
+        run_case("UI: game pictures through Turbo's Lua side, real-face picker, tattoo picker", [&] {
+            // the simulated game has minifaces for the real faces and two tattoo previews
+            json files = json::object();
+            for (int pid = 1001; pid <= 1006; ++pid) {
+                Rgba face = solid(180, 180, uint8_t(pid - 1000) * 40, 80, 80);
+                std::vector<uint8_t> dds = encode_dds_dxt5(face);
+                files[legacy_path::player_miniface(pid)] = hex_bytes(dds);
+            }
+            for (int id : {11, 12}) {
+                std::vector<uint8_t> dds = encode_dds_dxt5(solid(64, 64, 10, 20, uint8_t(id)));
+                files[legacy_path::tattoo_preview(id)] = hex_bytes(dds);
+            }
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.click("3001", "##plist"), "player 3001 (Inter)");
+            CHECK(ui.click("Appearance", "##pedit"), "Appearance tab");
+            CHECK(ui.click("Choose a real face..."), "open picker");
+            ui.frames(3);
+            CHECK(real_face_count(app) == 6, fmt("6 real faces (%zu)", real_face_count(app)));
+            app.legacy.flush();
+            std::ofstream(g_out / "legacy_in.json") << json({{"files", files}}).dump();
+            CHECK(run_lua("legacy") == 0, "gui_world.lua legacy");
+            json lo = read_json(g_out / "legacy_out.json");
+            CHECK(lo["exported"].get<int>() >= 6, "Lua exported the faces: " + lo.dump());
+            ui.frames(30);
+            fs::path cached = le / "turbo_output" / "cache" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p1003.dds";
+            CHECK(fs::exists(cached), "p1003 in the cache");
+            CHECK(app.textures.size() >= 6, fmt("pictures shown: %zu", app.textures.size()));
+            CHECK(ui.click("face1003", "Choose a real face"), "pick head 1003");
+            const Table* t = app.db.table("players");
+            uint64_t rec = app.db.find(*t, "playerid", 3001);
+            CHECK(app.db.get_int(*t, rec, "headassetid") == 1003 && app.db.get_int(*t, rec, "headclasscode") == 0, "head given");
+            CHECK(app.db.get_int(*t, rec, "headtypecode") == 103, "head type copied");
+            CHECK(app.db.get_int(*t, rec, "skintonecode") == 9, "skin not copied unless asked");
+            fs::path copied = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p3001.dds";
+            CHECK(fs::exists(copied) && file_bytes(copied) == file_bytes(cached), "his miniface copied too");
+            CHECK(ui.toast_contains("his miniface is copied too"), "toast");
+            // tattoos: the first Choose... is the head (FC 27 area order)
+            ui.frames(2);
+            CHECK(ui.click("Choose..."), "Choose head tattoo");
+            ui.frames(3);
+            CHECK(ui.find("tattoo12") != nullptr && ui.find("tattoo11") == nullptr, "only head tattoos");
+            CHECK(ui.click("Show tattoos made for other areas too"), "all areas");
+            CHECK(ui.find("tattoo11") != nullptr, "now every tattoo");
+            CHECK(ui.click("tattoo12"), "pick 12");
+            CHECK(app.db.get_int(*t, rec, "tattoohead") == 12, "tattoohead = 12");
+        });
+
+        run_case("UI: Status: picture cache emptied", [&] {
+            app.request_tab = 6;
+            ui.frames(2);
+            uint64_t g0 = app.legacy.generation();
+            CHECK(ui.click("Empty the cache"), "Empty the cache");
+            CHECK(app.legacy.cached_files() == 0 && app.legacy.generation() > g0, "emptied, new generation");
+            CHECK(ui.toast_contains("Picture cache emptied"), "toast");
+        });
+
+        run_case("UI: moves Turbo makes itself are refused for your club", [&] {
+            std::ofstream(le / "turbo_output" / "bridge_state.json")
+                << "{\"session\":\"X\",\"seq\":200,\"db_gen\":7,\"in_cm\":true,\"user_team\":1,\"db_service\":\"" +
+                       hex_addr(app.bridge.state().db_service) +
+                       "\",\"date\":{\"year\":2027,\"month\":1,\"day\":16},\"unavailable\":{},"
+                       "\"turbo_made\":[\"delete_players\",\"move_loan\",\"move_release\",\"move_terminate_loan\",\"move_transfer\"]}";
+            fs::last_write_time(le / "turbo_output" / "bridge_state.json", fs::file_time_type::clock::now() + std::chrono::seconds(30));
+            ui.frames(40);
+            CHECK(app.bridge.state().turbo_made.size() == 5, "turbo_made read");
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.click("1002", "##plist"), "your player 1002");
+            ui.click("Release", "##pedit");
+            CHECK(!app.busy(), "Release refused for your player");
+            ui.click("Transfer / Loan...", "##pedit");
+            ui.frames(2);
+            CHECK(ui.find("Transfer", "##Popup") == nullptr, "moves popup does not open");
+            ui.click("Delete player...", "##pedit");
+            ui.frames(2);
+            CHECK(ui.find("Delete player", "##delplayer") == nullptr, "delete refused");
+            CHECK(ui.click("Transfer list", "##pedit"), "list flags are not limited");
+            CHECK(app.busy(), "Transfer list queued");
+            CHECK(ui.click("Cancel"), "cancel");
+            CHECK(ui.click("2001", "##plist"), "Everton player");
+            CHECK(ui.click("Release", "##pedit"), "Release");
+            CHECK(app.busy(), "Release of another club's player is sent");
+            CHECK(ui.click("Cancel"), "cancel");
+            CHECK(ui.click("Transfer / Loan...", "##pedit"), "moves popup");
+            CHECK(ui.type_into(ui.find("To team ID"), "1"), "destination: your club");
+            ui.click("Transfer", "##Popup");
+            CHECK(!app.busy(), "transfer into your club refused");
+            CHECK(ui.type_into(ui.find("To team ID"), "241"), "destination Inter");
+            CHECK(ui.click("Transfer", "##Popup"), "transfer");
+            CHECK(app.busy(), "transfer between two other clubs is sent");
+            CHECK(ui.click("Cancel"), "cancel");
+        });
         run_case("UI: no ImGui errors, layout stable over many frames", [&] {
-            for (int tab = 0; tab < 6; ++tab) {
+            for (int tab = 0; tab < 7; ++tab) {
                 app.request_tab = tab;
                 ui.frames(5);
             }
@@ -1213,6 +1392,202 @@ static void test_ui() {
     }
     ImGui_ImplNull_Shutdown();
     ImGui::DestroyContext();
+}
+
+
+// ================================================================ pictures: decode, frame, background, DDS, legacy files
+static std::vector<uint8_t> file_bytes(const fs::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
+static uint32_t le32(const std::vector<uint8_t>& d, size_t o) {
+    return uint32_t(d[o]) | uint32_t(d[o + 1]) << 8 | uint32_t(d[o + 2]) << 16 | uint32_t(d[o + 3]) << 24;
+}
+static Rgba solid(int w, int h, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    Rgba img;
+    img.w = w;
+    img.h = h;
+    img.px.resize(size_t(w) * size_t(h) * 4);
+    for (size_t i = 0; i < img.px.size(); i += 4) {
+        img.px[i] = r; img.px[i + 1] = g; img.px[i + 2] = b; img.px[i + 3] = a;
+    }
+    return img;
+}
+static Rgba halves(int w, int h) {  // left half red, right half blue
+    Rgba img = solid(w, h, 255, 0, 0);
+    for (int y = 0; y < h; ++y)
+        for (int x = w / 2; x < w; ++x) {
+            uint8_t* p = img.at(x, y);
+            p[0] = 0; p[2] = 255;
+        }
+    return img;
+}
+
+static void test_images() {
+    run_case("pictures: PNG and JPG decode (stb_image)", [&] {
+        Rgba img;
+        std::string err;
+        CHECK(decode_image(std::vector<uint8_t>(kTestPng, kTestPng + sizeof(kTestPng)), img, &err), "png: " + err);
+        CHECK(img.w == 4 && img.h == 2, fmt("png size %dx%d", img.w, img.h));
+        CHECK(img.at(0, 0)[0] == 255 && img.at(0, 0)[2] == 0 && img.at(0, 0)[3] == 255, "png left pixel opaque red");
+        CHECK(img.at(3, 1)[2] == 255 && img.at(3, 1)[3] == 128, "png right pixel blue, alpha 128");
+        CHECK(decode_image(std::vector<uint8_t>(kTestJpg, kTestJpg + sizeof(kTestJpg)), img, &err), "jpg: " + err);
+        CHECK(img.w == 16 && img.h == 16, "jpg size");
+        const uint8_t* p = img.at(8, 8);
+        CHECK(std::abs(int(p[0]) - 0) <= 4 && std::abs(int(p[1]) - 200) <= 4 && std::abs(int(p[2]) - 0) <= 4 && p[3] == 255,
+              fmt("jpg colour %d,%d,%d", p[0], p[1], p[2]));
+        CHECK(!decode_image(std::vector<uint8_t>{'h', 'e', 'l', 'l', 'o'}, img, &err) && !err.empty(), "garbage refused: " + err);
+    });
+
+    run_case("pictures: DXT5 DDS written like FC 27's minifaces and read back", [&] {
+        Rgba img(solid(64, 64, 0, 0, 0));
+        for (int y = 0; y < 64; ++y)
+            for (int x = 0; x < 64; ++x) {
+                uint8_t* p = img.at(x, y);
+                p[0] = uint8_t(x * 4); p[1] = uint8_t(y * 4); p[2] = 128;
+                p[3] = (x < 32 && y < 32) ? 0 : 255;  // transparent top-left quarter
+            }
+        std::vector<uint8_t> dds = encode_dds_dxt5(img);
+        CHECK(dds.size() == 128 + 16 * 16 * 16, fmt("size %zu", dds.size()));
+        CHECK(std::memcmp(dds.data(), "DDS ", 4) == 0 && le32(dds, 4) == 124 && le32(dds, 8) == 0x1007, "magic, header size, flags");
+        CHECK(le32(dds, 12) == 64 && le32(dds, 16) == 64 && le32(dds, 28) == 1, "height, width, one mip");
+        CHECK(le32(dds, 80) == 4 && std::memcmp(dds.data() + 84, "DXT5", 4) == 0 && le32(dds, 108) == 0x1000, "DXT5, caps");
+        Rgba back;
+        std::string err;
+        CHECK(decode_image(dds, back, &err), "decode: " + err);
+        CHECK(back.w == 64 && back.h == 64, "size back");
+        int worst = 0, alpha_bad = 0;
+        for (int y = 0; y < 64; ++y)
+            for (int x = 0; x < 64; ++x) {
+                const uint8_t *a = img.at(x, y), *b = back.at(x, y);
+                if (a[3] != b[3]) ++alpha_bad;
+                if (a[3] == 255)
+                    for (int c = 0; c < 3; ++c) worst = std::max(worst, std::abs(int(a[c]) - int(b[c])));
+            }
+        CHECK(alpha_bad == 0, fmt("alpha differs in %d pixels", alpha_bad));
+        CHECK(worst <= 24, fmt("colour error %d", worst));
+        CHECK(encode_dds_dxt5(solid(30, 30, 1, 2, 3)).empty(), "size not a multiple of 4: refused");
+    });
+
+    run_case("pictures: DDS formats: DXT1 with transparency, DXT3, 32-bit BGRA, cut-off files", [&] {
+        auto header = [](int w, int h, const char* four, uint32_t pf_flags, uint32_t bits = 0) {
+            std::vector<uint8_t> d(128, 0);
+            std::memcpy(d.data(), "DDS ", 4);
+            auto put = [&](size_t o, uint32_t v) { for (int i = 0; i < 4; ++i) d[o + size_t(i)] = uint8_t(v >> (8 * i)); };
+            put(4, 124); put(8, 0x1007); put(12, uint32_t(h)); put(16, uint32_t(w)); put(76, 32); put(80, pf_flags);
+            if (four) std::memcpy(d.data() + 84, four, 4);
+            put(88, bits);
+            if (!four) { put(92, 0x00FF0000); put(96, 0x0000FF00); put(100, 0x000000FF); put(104, 0xFF000000); }
+            return d;
+        };
+        // DXT1, c0 (pure red 0xF800) <= c1 (white 0xFFFF): 3 colours + transparent; texel 0 = c0, texel 1 = index 3
+        std::vector<uint8_t> d1 = header(4, 4, "DXT1", 4);
+        uint8_t blk[8] = {0x00, 0xF8, 0xFF, 0xFF, 0x0C, 0x00, 0x00, 0x00};  // indices: t0=0, t1=3, rest 0
+        d1.insert(d1.end(), blk, blk + 8);
+        Rgba img;
+        std::string err;
+        CHECK(decode_dds(d1, img, &err), "dxt1: " + err);
+        CHECK(img.at(0, 0)[0] == 255 && img.at(0, 0)[1] == 0 && img.at(0, 0)[3] == 255, "dxt1 c0 red");
+        CHECK(img.at(1, 0)[3] == 0, "dxt1 index 3 transparent");
+        // DXT3: explicit 4-bit alpha
+        std::vector<uint8_t> d3 = header(4, 4, "DXT3", 4);
+        uint8_t blk3[16] = {0x0F, 0, 0, 0, 0, 0, 0, 0, 0x1F, 0x00, 0x1F, 0x00, 0, 0, 0, 0};
+        d3.insert(d3.end(), blk3, blk3 + 16);
+        CHECK(decode_dds(d3, img, &err), "dxt3: " + err);
+        CHECK(img.at(0, 0)[3] == 255 && img.at(1, 0)[3] == 0 && img.at(0, 0)[2] == 255, "dxt3 alpha and blue");
+        // uncompressed 32-bit (A8R8G8B8 masks), 2x1
+        std::vector<uint8_t> d32 = header(2, 1, nullptr, 0x41, 32);
+        uint8_t px[8] = {0x10, 0x20, 0x30, 0x40, 0xFF, 0x00, 0x00, 0xFF};  // BGRA
+        d32.insert(d32.end(), px, px + 8);
+        CHECK(decode_dds(d32, img, &err), "bgra: " + err);
+        CHECK(img.at(0, 0)[0] == 0x30 && img.at(0, 0)[1] == 0x20 && img.at(0, 0)[2] == 0x10 && img.at(0, 0)[3] == 0x40, "bgra pixel");
+        d1.resize(d1.size() - 3);
+        CHECK(!decode_dds(d1, img, &err) && err.find("cut off") != std::string::npos, "cut-off file refused: " + err);
+    });
+
+    run_case("pictures: framing (centre crop, shift, zoom out), fit, plain background removal", [&] {
+        Rgba src = halves(400, 200);
+        Framing f;
+        Rgba out = frame_image(src, 100, f);
+        CHECK(out.w == 100 && out.h == 100, "framed size");
+        CHECK(out.at(10, 50)[0] > 200 && out.at(90, 50)[2] > 200, "centre crop: red left, blue right");
+        CHECK(out.at(0, 0)[3] == 255 && out.at(99, 99)[3] == 255, "zoom 1 fills the square");
+        f.dx = 0.3f;
+        out = frame_image(src, 100, f);
+        CHECK(out.at(70, 50)[0] > 200 && out.at(90, 50)[2] > 200, "shifted right: the boundary moves to x=80");
+        f = Framing();
+        f.zoom = 0.5f;
+        out = frame_image(src, 100, f);
+        CHECK(out.at(50, 5)[3] == 0 && out.at(50, 50)[3] == 255, "zoomed out: transparent above and below");
+        Rgba fit = fit_image(src, 100);
+        CHECK(fit.w == 100 && fit.h == 50, fmt("fit %dx%d", fit.w, fit.h));
+        CHECK(fit_image(src, 1000).w == 400, "no upscaling");
+        // red disc on white
+        Rgba disc = solid(50, 50, 255, 255, 255);
+        for (int y = 0; y < 50; ++y)
+            for (int x = 0; x < 50; ++x)
+                if ((x - 25) * (x - 25) + (y - 25) * (y - 25) < 15 * 15) {
+                    uint8_t* p = disc.at(x, y);
+                    p[1] = p[2] = 0;
+                }
+        size_t n = remove_plain_background(disc, 40);
+        CHECK(n > 1500 && n < 2000, fmt("%zu pixels removed", n));
+        CHECK(disc.at(0, 0)[3] == 0 && disc.at(49, 49)[3] == 0, "background transparent");
+        CHECK(disc.at(25, 25)[3] == 255, "subject kept");
+    });
+
+    run_case("legacy files: want list, states, custom files with backups, cache", [&] {
+        fs::path le = g_out / "legacy_le";
+        fs::remove_all(le);
+        LegacyImages L(le);
+        const std::string a = legacy_path::player_miniface(123), b = legacy_path::tattoo_preview(7);
+        CHECK(a == "data/ui/imgAssets/heads/p123.dds" && b == "data/ui/imgAssets/tattoo/item_7_0.dds", "paths");
+        CHECK(legacy_path::staff_miniface(9) == "data/ui/imgAssets/heads_staff/heads_staff_9.dds", "staff path");
+        CHECK(!legacy_path::valid("data/../x.dds") && !legacy_path::valid("C:/x.dds") && !legacy_path::valid("data/a b.dds"), "bad paths");
+        fs::path f;
+        CHECK(L.locate(a, &f) == LegacyImages::State::Waiting, "not cached: waiting");
+        CHECK(L.locate(b, &f) == LegacyImages::State::Waiting, "second waiting");
+        CHECK(L.locate("data/../evil.dds", &f) == LegacyImages::State::Invalid, "invalid");
+        L.tick(0.0);
+        std::string want = read_file(L.cache_dir() / "want.txt");
+        CHECK(want.rfind("#gen ", 0) == 0, "generation line first");
+        CHECK(want.find(b + "\n" + a + "\n") != std::string::npos, "most recent first: " + want);
+        CHECK(want.find("evil") == std::string::npos, "invalid never listed");
+        // Lua exported one, the other is missing
+        fs::create_directories(L.cache_dir() / "data" / "ui" / "imgAssets" / "heads");
+        std::ofstream(L.cache_dir() / "data" / "ui" / "imgAssets" / "heads" / "p123.dds") << "x";
+        std::ofstream(L.cache_dir() / "missing.txt") << b << "\n";
+        L.tick(2.0);
+        CHECK(L.locate(a, &f) == LegacyImages::State::Game && f.filename() == "p123.dds", "exported: game picture");
+        CHECK(L.locate(b, &f) == LegacyImages::State::Missing, "missing");
+        L.tick(3.0);
+        CHECK(L.waiting() == 0, "nothing waiting");
+        CHECK(read_file(L.cache_dir() / "want.txt").find(a) == std::string::npos, "arrived picture leaves the list");
+        // a custom file written by another tool in upper case wins
+        fs::create_directories(L.mods_dir() / "data" / "ui" / "imgAssets" / "heads");
+        std::ofstream(L.mods_dir() / "data" / "ui" / "imgAssets" / "heads" / "P123.DDS") << "old";
+        CHECK(L.locate(a, &f) == LegacyImages::State::Custom && f.filename() == "P123.DDS", "custom (any case) first");
+        CHECK(L.locate(a, &f, false) == LegacyImages::State::Game, "game picture when asked for the game's own");
+        std::string err;
+        fs::path bk;
+        CHECK(L.save_custom(a, {'n', 'e', 'w'}, &err, &bk), "save: " + err);
+        CHECK(!bk.empty() && read_file(bk) == "old", "old custom file backed up");
+        CHECK(read_file(L.custom_file(a)) == "new" && L.custom_file(a).filename() == "p123.dds", "new file, lower-case name");
+        CHECK(!fs::exists(L.mods_dir() / "data" / "ui" / "imgAssets" / "heads" / "P123.DDS"), "upper-case duplicate removed");
+        CHECK(L.remove_custom(a, &err, &bk), "remove: " + err);
+        CHECK(read_file(bk) == "new" && L.custom_file(a).empty(), "removed after backup");
+        CHECK(!L.remove_custom(a, &err) && err.find("no custom") != std::string::npos, "nothing to remove");
+        CHECK(!L.save_custom("data/../x.dds", {'x'}, &err), "invalid path refused");
+        size_t backups = 0;
+        for (auto& e : fs::directory_iterator(L.backup_dir())) { (void)e; ++backups; }
+        CHECK(backups == 2, fmt("backups %zu", backups));
+        uint64_t g0 = L.generation();
+        CHECK(L.cached_files() == 1, "one cached picture");
+        CHECK(L.clear_cache(&err), "clear: " + err);
+        CHECK(L.cached_files() == 0 && L.generation() > g0, "cache empty, new generation");
+        CHECK(read_file(L.cache_dir() / "want.txt").find("#gen " + std::to_string(L.generation())) == 0, "new generation published");
+        CHECK(L.locate(b, &f) == LegacyImages::State::Waiting, "missing list forgotten with the cache");
+    });
 }
 
 // Live Editor's own log decides when a Turbo.dll loaded at game launch may start (src/win/dllmain.cpp)
@@ -1266,6 +1641,8 @@ int main(int argc, char** argv) {
     g_lua = argv[2];
     std::printf("native core\n");
     test_core();
+    std::printf("native pictures\n");
+    test_images();
     std::printf("native Live Editor log\n");
     test_le_log();
     std::printf("native UI\n");

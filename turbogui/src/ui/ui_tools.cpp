@@ -6,6 +6,7 @@
 
 #include "app.h"
 #include "imgui.h"
+#include "ui_images.h"
 
 namespace turbo {
 
@@ -374,6 +375,7 @@ const char* key_name(int vk) {
 
 void draw_status(App& app) {
     const auto& st = app.bridge.state();
+    images_status(app);
     ImGui::SeparatorText("Connection");
     ImGui::Text("Live Editor folder: %s", app.bridge.root().string().c_str());
     ImGui::Text("Bridge files: %s", app.bridge.dir().string().c_str());

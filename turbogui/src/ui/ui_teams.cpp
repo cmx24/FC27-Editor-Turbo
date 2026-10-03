@@ -5,6 +5,7 @@
 
 #include "app.h"
 #include "imgui.h"
+#include "ui_images.h"
 
 namespace turbo {
 
@@ -205,13 +206,31 @@ void draw_managers(App& app) {
         } else {
             ImGui::Text("%s", m.name.c_str());
             ImGui::Separator();
-            // Names as in EA's manager table (bodytypecode / headassetid; checked against the official db meta)
-            field_grid(app, *t, m.rec, {"firstname", "surname", "commonname", "teamid", "nationality", "managerid",
-                                         "personalityid", "bodytypecode", "headassetid", "outfitid", "skintonecode",
-                                         "height", "weight"},
-                       "##mgrid", 2);
-            ImGui::SeparatorText("All fields");
-            all_fields(app, *t, m.rec, "##mall");
+            if (ImGui::BeginTabBar("##mtabs")) {
+                if (ImGui::BeginTabItem("Details")) {
+                    ImGui::BeginChild("##mdet");
+                    // Names as in EA's manager table (bodytypecode / headassetid; checked against the official db meta)
+                    field_grid(app, *t, m.rec, {"firstname", "surname", "commonname", "teamid", "nationality", "managerid",
+                                                 "personalityid", "bodytypecode", "headassetid", "outfitid", "skintonecode",
+                                                 "height", "weight"},
+                               "##mgrid", 2);
+                    ImGui::SeparatorText("All fields");
+                    all_fields(app, *t, m.rec, "##mall");
+                    ImGui::EndChild();
+                    ImGui::EndTabItem();
+                }
+                if (ImGui::BeginTabItem("Miniface")) {
+                    ImGui::BeginChild("##mmface");
+                    MinifaceTarget mt;
+                    mt.manager = true;
+                    mt.headassetid = app.db.get_int(*t, m.rec, "headassetid", 0);
+                    mt.path = legacy_path::staff_miniface(mt.headassetid);
+                    miniface_editor(app, mt);
+                    ImGui::EndChild();
+                    ImGui::EndTabItem();
+                }
+                ImGui::EndTabBar();
+            }
         }
     } else {
         ImGui::TextDisabled("Select a manager on the left.");

@@ -119,12 +119,40 @@ local function build_world(sim)
         },
         rows = trows,
     })
+    -- league tables (Competitions tab): Arsenal 3W 1D 0L 9:2, Everton 1W 1D 2L 3:6 in league 13; points left stale
+    local LT = { [1] = { 2, 1, 0, 1, 0, 0, 5, 1, 4, 1, 0, 2 }, [7] = { 1, 0, 1, 0, 1, 1, 2, 2, 1, 4, 9, 1 } }
     local lrows = {}
-    for _, t in ipairs(TEAMS) do lrows[#lrows + 1] = { leagueid = t[4], teamid = t[1] } end
+    for _, t in ipairs(TEAMS) do
+        local v = LT[t[1]] or { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }
+        lrows[#lrows + 1] = { leagueid = t[4], teamid = t[1], homewins = v[1], homedraws = v[2], homelosses = v[3],
+                              awaywins = v[4], awaydraws = v[5], awaylosses = v[6], homegf = v[7], homega = v[8],
+                              awaygf = v[9], awayga = v[10], points = v[11], currenttableposition = v[12],
+                              nummatchesplayed = 0 }
+    end
     sim:add_table({
         name = "leagueteamlinks", short = "ltl_",
-        fields = { { name = "leagueid", short = "lid_", depth = 11 }, { name = "teamid", short = "tid_", depth = 18 } },
+        fields = { { name = "leagueid", short = "lid_", depth = 11 }, { name = "teamid", short = "tid_", depth = 18 },
+                   { name = "homewins", short = "hwin", depth = 5 }, { name = "homedraws", short = "hdrw", depth = 5 },
+                   { name = "homelosses", short = "hlos", depth = 5 }, { name = "awaywins", short = "awin", depth = 5 },
+                   { name = "awaydraws", short = "adrw", depth = 5 }, { name = "awaylosses", short = "alos", depth = 5 },
+                   { name = "homegf", short = "hgf_", depth = 8 }, { name = "homega", short = "hga_", depth = 8 },
+                   { name = "awaygf", short = "agf_", depth = 8 }, { name = "awayga", short = "aga_", depth = 8 },
+                   { name = "points", short = "pnts", depth = 12 }, { name = "nummatchesplayed", short = "nmp_", depth = 6 },
+                   { name = "currenttableposition", short = "ctp_", depth = 8, min = 1 } },
         rows = lrows,
+    })
+    sim:add_table({
+        name = "leagues", short = "lgs_",
+        fields = { { name = "leagueid", short = "lid_", depth = 11 }, { name = "leaguename", short = "lnam", type = "string", depth = 8 * 32 } },
+        rows = { { leagueid = 13, leaguename = "English Premier League" }, { leagueid = 31, leaguename = "Serie A" } },
+    })
+    -- tattoos (picker): id, area flags
+    sim:add_table({
+        name = "tattoo", short = "ttoo",
+        fields = { { name = "tattooid", short = "ttid", depth = 11 }, { name = "tattooleftarm", short = "tla_", depth = 1 },
+                   { name = "tattoohead", short = "thd_", depth = 1 } },
+        rows = { { tattooid = 11, tattooleftarm = 1, tattoohead = 0 }, { tattooid = 12, tattooleftarm = 0, tattoohead = 1 },
+                 { tattooid = 13, tattooleftarm = 1, tattoohead = 0 } },
     })
     local nrows = {}
     for id = 1, 20 do nrows[#nrows + 1] = { nameid = id, name = NAMES[id], commentaryid = 900000 + id } end
@@ -149,6 +177,8 @@ local function build_world(sim)
             standingtackle = 30 + i, strength = 50 + i, gkdiving = 10 + i,
             trait1 = (i == 1) and 5 or 0, icontrait1 = (i == 1) and 1 or 0, trait2 = (i == 2) and 3 or 0, icontrait2 = 0,
             haircolorcode = i % 10, headassetid = p[1], hashighqualityhead = (i <= 6) and 1 or 0,
+            headclasscode = (i <= 6) and 0 or 1, headtypecode = 100 + i, headvariation = i % 4, skintonecode = i,
+            tattooleftarm = 0, tattoohead = 0,
             contractvaliduntil = 2028 + (i % 3), isretiring = (i == 3) and 1 or 0, nationality = 14,
         }
         for k, tid in ipairs(p[5]) do
@@ -194,6 +224,12 @@ local function build_world(sim)
             { name = "haircolorcode", short = "hcol", depth = 4 },
             { name = "headassetid", short = "hai_", depth = 21 },
             { name = "hashighqualityhead", short = "hqh_", depth = 1 },
+            { name = "headclasscode", short = "hcc_", depth = 2 },
+            { name = "headtypecode", short = "htc_", depth = 14 },
+            { name = "headvariation", short = "hvar", depth = 5 },
+            { name = "skintonecode", short = "stc_", depth = 7 },
+            { name = "tattooleftarm", short = "tla_", depth = 10 },
+            { name = "tattoohead", short = "thd_", depth = 10 },
             { name = "contractvaliduntil", short = "cvu_", depth = 11 },
             { name = "isretiring", short = "iret", depth = 1 },
             { name = "nationality", short = "nat_", depth = 8 },
@@ -224,7 +260,9 @@ local function build_world(sim)
                  { playerid = 3003, firstname = "Bo", surname = "Yu", commonname = "Bobo", playerjerseyname = "BOBO" } },
     })
     local mrows = {}
-    for _, m in ipairs(MANAGERS) do mrows[#mrows + 1] = { managerid = m[1], firstname = m[2], surname = m[3], teamid = m[4], nationality = 14 } end
+    for _, m in ipairs(MANAGERS) do
+        mrows[#mrows + 1] = { managerid = m[1], firstname = m[2], surname = m[3], teamid = m[4], nationality = 14, headassetid = 7000 + m[1] }
+    end
     sim:add_table({
         name = "manager", short = "mngr",
         fields = {
@@ -233,6 +271,7 @@ local function build_world(sim)
             { name = "surname", short = "snam", type = "string", depth = 8 * 20 },
             { name = "teamid", short = "tid_", depth = 18 },
             { name = "nationality", short = "nat_", depth = 8 },
+            { name = "headassetid", short = "hai_", depth = 19 },
         },
         rows = mrows,
     })
@@ -455,6 +494,28 @@ elseif mode == "commands" then
     g:write(json.encode(out))
     g:close()
     print("commands processed: " .. #out)
+
+elseif mode == "legacy" then
+    -- The GUI's want.txt (core/legacy.cpp) read by Turbo's Lua side (core/legacy.lua): legacy_in.json lists the files
+    -- the simulated game has; exported files are copied into the GUI test's Live Editor folder
+    local json = require 'imports/external/json'
+    local inp = json.decode(assert(io.open(OUT .. "/legacy_in.json", "rb")):read("a"))
+    local TURBO = require 'imports/turbo/turbo'
+    TURBO.boot()
+    -- contents arrive as hex (binary DDS files do not fit in JSON text)
+    for path, hex in pairs(inp.files) do
+        sim.legacy_files[path] = (hex:gsub("%x%x", function(b) return string.char(tonumber(b, 16)) end))
+    end
+    local legacy = require 'imports/turbo/core/legacy'
+    local dir = legacy.dir()
+    os.execute(string.format("mkdir -p '%s'", dir))
+    copy(OUT .. "/LE/turbo_output/cache/legacy/want.txt", dir .. "/want.txt")
+    local e, m, w = legacy.pump(5)
+    os.execute(string.format("cp -r '%s/.' '%s/LE/turbo_output/cache/legacy/'", dir, OUT))
+    local g = assert(io.open(OUT .. "/legacy_out.json", "wb"))
+    g:write(json.encode({ exported = e, missing = m, waiting = w }))
+    g:close()
+    print(string.format("legacy exported %s missing %s waiting %s", tostring(e), tostring(m), tostring(w)))
 
 elseif mode == "mailbox" then
     local json = require 'imports/external/json'

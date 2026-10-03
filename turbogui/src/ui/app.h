@@ -8,14 +8,16 @@
 #include <vector>
 
 #include "core/bridge.h"
+#include "core/legacy.h"
 #include "core/mem.h"
 #include "core/model.h"
 #include "core/t3db.h"
 #include "nlohmann/json.hpp"
+#include "textures.h"
 
 namespace turbo {
 
-constexpr const char* kGuiVersion = "0.2.5";
+constexpr const char* kGuiVersion = "0.3.0";
 
 // UI scale (window height and the user's "UI size" setting): every fixed size in the panels goes through S()
 extern float g_ui_scale;
@@ -47,6 +49,8 @@ public:
     Model model;
     std::unique_ptr<Mailbox> mailbox;
     std::string session;
+    LegacyImages legacy;     // game pictures and custom minifaces (core/legacy.h)
+    TextureCache textures;   // pictures shown in the window (textures.h)
 
     // ---- state
     bool visible = false;
@@ -81,7 +85,7 @@ public:
     int64_t sel_team = 0;
     int sel_manager = -1;
     std::string db_table;
-    int request_tab = -1;  // 0 players, 1 teams, 2 managers, 3 database, 4 tools, 5 status
+    int request_tab = -1;  // 0 players, 1 teams, 2 managers, 3 competitions, 4 database, 5 tools, 6 status
 
     // ---- helpers
     GameDate today() const;
@@ -106,6 +110,9 @@ public:
 void draw_players(App& app);
 void draw_teams(App& app);
 void draw_managers(App& app);
+void draw_competitions(App& app);
+// Competitions tab: points (3 / 1 / 0) and played games from wins / draws / losses; with positions also the table order
+bool recalc_league(App& app, int64_t league, bool positions, std::string* msg);
 void draw_database(App& app);
 void draw_tools(App& app);
 void draw_status(App& app);

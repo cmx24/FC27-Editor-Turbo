@@ -111,7 +111,7 @@ static LARGE_INTEGER g_qpf{}, g_qpc0{};
 // ---------------------------------------------------------------- SRV descriptors for ImGui textures
 static UINT g_srv_inc = 0;
 static std::vector<int> g_srv_free;
-static const int kSrvCount = 64;
+static const int kSrvCount = 512;  // font + the picture cache (ui/textures.cpp keeps at most 320)
 
 static void srv_alloc(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* cpu, D3D12_GPU_DESCRIPTOR_HANDLE* gpu) {
     int idx = 0;

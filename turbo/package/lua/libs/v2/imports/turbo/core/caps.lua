@@ -21,6 +21,24 @@ M.NEEDS = {
     form_morale = { "SetPlayerForm", "SetPlayerMorale", "SetPlayerFitness" },
 }
 
+-- Player moves Turbo does itself in the career database when Live Editor has no native for them (core/moves.lua).
+-- The Turbo window refuses those for the user's own club (they crashed a test career in FC 27), but not when Live
+-- Editor's own native does the move.
+M.TURBO_MADE = {
+    move_transfer = "TransferPlayer", move_loan = "LoanPlayer", move_release = "ReleasePlayerFromTeam",
+    move_terminate_loan = "TerminateLoan", delete_players = "DeletePlayer",
+}
+
+-- Sorted list of the tool keys Turbo does itself in this Live Editor build
+function M.turbo_made()
+    local out = {}
+    for key, name in pairs(M.TURBO_MADE) do
+        if not env.api(name) then out[#out + 1] = key end
+    end
+    table.sort(out)
+    return out
+end
+
 -- { key = reason } for every tool this Live Editor build cannot run (empty table when all can)
 function M.unavailable()
     local out = {}

@@ -63,7 +63,7 @@ void App::update_style() {
 }
 
 App::App(Memory& m, fs::path le_root, uint64_t mailbox_addr, std::string sess)
-    : mem(m), bridge(std::move(le_root)), db(m), model(db), session(std::move(sess)) {
+    : mem(m), bridge(std::move(le_root)), db(m), model(db), session(std::move(sess)), legacy(bridge.root()) {
     if (mailbox_addr) {
         mailbox = std::make_unique<Mailbox>(mem, mailbox_addr);
         if (mailbox->init()) {
@@ -141,6 +141,7 @@ bool App::refresh() {
 void App::tick(double t) {
     now = t;
     update_style();
+    legacy.tick(t);
     if (t >= next_poll) {
         next_poll = t + 0.5;
         bool changed = bridge.poll_files();
@@ -264,6 +265,7 @@ bool App::save_gui_settings() {
 
 // ---------------------------------------------------------------- main window
 void App::draw() {
+    textures.new_frame(now);
     // Toasts (top-right)
     if (!toasts.empty()) {
         const ImGuiViewport* vp = ImGui::GetMainViewport();
@@ -341,19 +343,20 @@ void App::draw() {
     ImGui::Separator();
 
     if (ImGui::BeginTabBar("##turbo_tabs")) {
-        const char* names[] = {"Players", "Teams", "Managers", "Database", "Turbo Tools", "Status"};
+        const char* names[] = {"Players", "Teams", "Managers", "Competitions", "Database", "Turbo Tools", "Status"};
         // Taken before drawing: a panel may request another tab (e.g. Squad -> player), for the next frame
         int req = request_tab;
         request_tab = -1;
-        for (int i = 0; i < 6; ++i) {
+        for (int i = 0; i < 7; ++i) {
             ImGuiTabItemFlags fl = (req == i) ? ImGuiTabItemFlags_SetSelected : 0;
             if (ImGui::BeginTabItem(names[i], nullptr, fl)) {
                 switch (i) {
                     case 0: draw_players(*this); break;
                     case 1: draw_teams(*this); break;
                     case 2: draw_managers(*this); break;
-                    case 3: draw_database(*this); break;
-                    case 4: draw_tools(*this); break;
+                    case 3: draw_competitions(*this); break;
+                    case 4: draw_database(*this); break;
+                    case 5: draw_tools(*this); break;
                     default: draw_status(*this); break;
                 }
                 ImGui::EndTabItem();

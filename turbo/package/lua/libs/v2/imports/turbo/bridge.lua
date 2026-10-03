@@ -254,6 +254,17 @@ local function unavailable_tools()
     return S.unavailable
 end
 
+-- Moves Turbo makes itself in this Live Editor build (worked out once)
+local function turbo_made_tools()
+    if S.turbo_made == nil then
+        local ok, caps = pcall(require, 'imports/turbo/core/caps')
+        local okc, list = false, nil
+        if ok then okc, list = pcall(caps.turbo_made) end
+        S.turbo_made = (okc and type(list) == "table") and list or {}
+    end
+    return S.turbo_made
+end
+
 function M.collect_state()
     local in_cm = game.in_cm()
     local d = in_cm and game.current_date() or nil
@@ -270,6 +281,7 @@ function M.collect_state()
         user_team = in_cm and game.user_team_id() or 0,
         transfer_budget = in_cm and transfer_budget() or nil,
         unavailable = unavailable_tools(),
+        turbo_made = turbo_made_tools(),
         date = d and { year = d.year, month = d.month, day = d.day } or nil,
     }
 end

@@ -18,6 +18,7 @@
 #include <map>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "mem.h"
 #include "t3db.h"
@@ -53,6 +54,13 @@ struct BridgeState {
     long long transfer_budget = -1;  // your club's budget (career mode), -1 = not known
     // Turbo tools this Live Editor build cannot run: tool key -> reason (see Lua core/caps.lua)
     std::map<std::string, std::string> unavailable;
+    // Player moves Turbo makes itself in the career database (no Live Editor native; Lua core/caps.lua turbo_made)
+    std::vector<std::string> turbo_made;
+    bool is_turbo_made(const char* key) const {
+        for (const auto& k : turbo_made)
+            if (key && k == key) return true;
+        return false;
+    }
     // Reason a tool cannot run, or nullptr when it can
     const std::string* unavailable_reason(const char* key) const {
         if (!key) return nullptr;

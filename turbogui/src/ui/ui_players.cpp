@@ -7,6 +7,7 @@
 #include "app.h"
 #include "imgui.h"
 #include "playstyles.h"
+#include "ui_images.h"
 
 namespace turbo {
 
@@ -269,20 +270,35 @@ static void playstyle_bits(App& app, const Table& t, uint64_t rec, const char* f
     ImGui::PopID();
 }
 
+// Why Turbo refuses a database-only move (Lua core/moves.lua guard): moves into or out of your club crashed a test
+// career in FC 27, so Turbo never makes them. Empty = allowed.
+static const char* kOwnClubBlocked =
+    "Turbo does not move players into or out of your own club (database-only moves can crash the career, seen in FC 27): "
+    "use the game's transfer screens for your club";
+
+// The database-only moves Turbo makes itself in this Live Editor build (v27.1.2 has no native for them; a build with
+// the native does them through Live Editor and they are not limited)
+static bool turbo_made_move(App& app, const char* key) { return app.bridge.state().is_turbo_made(key); }
+
 // A button for a player move; disabled with the reason as tooltip when this Live Editor build cannot do it
-// (key: Lua core/caps.lua, e.g. "move_transfer")
-static bool move_button(App& app, const char* label, const char* key) {
+// (key: Lua core/caps.lua, e.g. "move_transfer") or when it would touch your club (`blocked`)
+static bool move_button(App& app, const char* label, const char* key, const char* blocked = nullptr) {
     const std::string* missing = app.bridge.state().unavailable_reason(key);
-    if (missing) ImGui::BeginDisabled();
+    std::string why = missing ? *missing : (blocked ? std::string(blocked) : std::string());
+    bool off = !why.empty();
+    if (off) ImGui::BeginDisabled();
     bool clicked = ImGui::Button(label);
-    if (missing) {
+    if (off) {
         ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", missing->c_str());
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", why.c_str());
+    } else if (turbo_made_move(app, key) && ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Done by Turbo in the career database (unverified in FC 27: back up your save first; the squad "
+                          "screens show it after saving and loading the career)");
     }
-    return clicked && !missing;
+    return clicked && !off;
 }
 
-static void moves_popup(App& app, int64_t pid) {
+static void moves_popup(App& app, int64_t pid, bool from_user) {
     static int to_team = 0, fee = 0, wage = 10000, months = 36, loan_months = 12;
     if (ImGui::BeginPopup("##moves")) {
         ImGui::TextDisabled("Runs through Live Editor on the next career-mode event");
@@ -299,8 +315,14 @@ static void moves_popup(App& app, int64_t pid) {
         ImGui::SetNextItemWidth(S(120.0f));
         ImGui::InputInt("Contract months", &months, 0);
         bool valid_team = app.model.team(to_team) != nullptr;
+        int64_t user = app.bridge.state().user_team;
+        bool touches_user = from_user || (user > 0 && to_team == user);
+        const char* blocked_transfer = touches_user && turbo_made_move(app, "move_transfer") ? kOwnClubBlocked : nullptr;
+        const char* blocked_loan = touches_user && turbo_made_move(app, "move_loan") ? kOwnClubBlocked : nullptr;
+        if (user > 0 && to_team == user && (blocked_transfer || blocked_loan))
+            ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "That is your club: Turbo does not move players into it.");
         if (!valid_team) ImGui::BeginDisabled();
-        if (move_button(app, "Transfer", "move_transfer")) {
+        if (move_button(app, "Transfer", "move_transfer", blocked_transfer)) {
             json a = {{"action", "transfer"}, {"playerid", pid}, {"to_teamid", to_team}, {"fee", fee}, {"wage", wage}, {"months", months}};
             app.send({{"op", "run"}, {"module", "player_moves"}, {"overrides", {{"actions", json::array({a})}}}}, "Transfer");
             ImGui::CloseCurrentPopup();
@@ -309,7 +331,7 @@ static void moves_popup(App& app, int64_t pid) {
         ImGui::SetNextItemWidth(S(80.0f));
         ImGui::InputInt("##loanm", &loan_months, 0);
         ImGui::SameLine();
-        if (move_button(app, "Loan (months)", "move_loan")) {
+        if (move_button(app, "Loan (months)", "move_loan", blocked_loan)) {
             json a = {{"action", "loan"}, {"playerid", pid}, {"to_teamid", to_team}, {"months", loan_months}};
             app.send({{"op", "run"}, {"module", "player_moves"}, {"overrides", {{"actions", json::array({a})}}}}, "Loan");
             ImGui::CloseCurrentPopup();
@@ -337,11 +359,22 @@ static void player_editor(App& app) {
                         p->potential);
 
     bool cm = app.bridge.state().in_cm;
+    int64_t user_team = app.bridge.state().user_team;
+    // your player (club link at your club; a player loaned to your club too): Turbo's own moves are refused
+    const char* own = (user_team > 0 && p->club == user_team) ? kOwnClubBlocked : nullptr;
+    bool popup_off = own && turbo_made_move(app, "move_transfer") && turbo_made_move(app, "move_loan");
     if (!cm) ImGui::BeginDisabled();
+    if (popup_off) ImGui::BeginDisabled();
     if (ImGui::Button("Transfer / Loan...")) ImGui::OpenPopup("##moves");
+    if (popup_off) {
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", own);
+    }
     ImGui::SameLine();
     auto simple = [&](const char* label, const char* action) {
-        if (move_button(app, label, (std::string("move_") + action).c_str())) {
+        std::string key = std::string("move_") + action;
+        bool db_only = turbo_made_move(app, key.c_str());
+        if (move_button(app, label, key.c_str(), db_only ? own : nullptr)) {
             json a = {{"action", action}, {"playerid", p->playerid}};
             app.send({{"op", "run"}, {"module", "player_moves"}, {"overrides", {{"actions", json::array({a})}}}}, label);
         }
@@ -353,7 +386,12 @@ static void player_editor(App& app) {
     simple("Loan list", "loan_list");
     simple("Remove from lists", "unlist");
     ImGui::NewLine();
-    if (move_button(app, "Delete player...", "delete_players")) ImGui::OpenPopup("##delplayer");
+    if (move_button(app, "Delete player...", "delete_players", turbo_made_move(app, "delete_players") ? own : nullptr))
+        ImGui::OpenPopup("##delplayer");
+    if (own && turbo_made_move(app, "move_release")) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(your player: transfers, loans, release and delete through the game's own screens)");
+    }
     if (cm && app.bridge.state().unavailable_reason("move_transfer") && app.bridge.state().unavailable_reason("move_release")) {
         ImGui::SameLine();
         ImGui::TextDisabled("(player moves need Live Editor natives this build does not have: hover a button for details)");
@@ -363,10 +401,10 @@ static void player_editor(App& app) {
         ImGui::SameLine();
         ImGui::TextDisabled("(moves need a loaded career)");
     }
-    moves_popup(app, p->playerid);
+    moves_popup(app, p->playerid, own != nullptr);
     if (ImGui::BeginPopupModal("##delplayer", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Delete %s (ID %lld)?", p->name.c_str(), static_cast<long long>(p->playerid));
-        ImGui::TextDisabled("Live Editor moves the player to Free Agents, then deletes his players and teamplayerlinks records.");
+        ImGui::TextDisabled("Turbo moves the player to Free Agents, then deletes his players and teamplayerlinks records.");
         ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "This cannot be undone.");
         if (ImGui::Button("Delete player")) {
             json a = {{"action", "delete"}, {"playerid", p->playerid}, {"confirm", true}};
@@ -416,9 +454,27 @@ static void player_editor(App& app) {
         }
         if (ImGui::BeginTabItem("Appearance")) {
             ImGui::BeginChild("##app");
+            ImGui::SeparatorText("Head");
+            if (ImGui::Button("Choose a real face...")) ImGui::OpenPopup("Choose a real face");
+            ImGui::SameLine();
+            ImGui::TextDisabled("head asset %lld, head class %lld", static_cast<long long>(app.db.get_int(*t, p->rec, "headassetid", 0)),
+                                static_cast<long long>(app.db.get_int(*t, p->rec, "headclasscode", 0)));
+            real_face_picker(app, p->playerid);
+            ImGui::SeparatorText("Tattoos");
+            tattoo_editor(app, *t, p->rec);
+            ImGui::SeparatorText("Every appearance field");
             std::vector<std::string> names;
             for (const auto& n : t->field_names()) if (is_appearance_field(n)) names.push_back(n);
             field_grid(app, *t, p->rec, names, "##appgrid", 2);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Miniface")) {
+            ImGui::BeginChild("##mface");
+            MinifaceTarget mt;
+            mt.path = legacy_path::player_miniface(p->playerid);
+            mt.headassetid = app.db.get_int(*t, p->rec, "headassetid", 0);
+            miniface_editor(app, mt);
             ImGui::EndChild();
             ImGui::EndTabItem();
         }
