@@ -1,0 +1,108 @@
+{
+  "_help": "FC 27 LE Turbo settings. Edit, save, then run the matching lua\\scripts\\turbo_*.lua from Live Editor's Lua Engine. Automatic features: set enabled=true, then run turbo_enable_auto.lua (or restart Live Editor). Turbo GUI: with gui.autoload=true (default) it loads by itself and is ready about 20 s after the main menu appears (press F8); it connects to the database when you enter a career, or at once when you run turbo_gui_load.lua. gui.autoload=false: nothing is loaded at launch, run turbo_gui_load.lua in game. Settings changed in the Turbo GUI are kept in turbo_output\\gui_settings.json and win over this file. See TURBO_README.md.",
+
+  "turbo": {
+    "dry_run": false,
+    "verbose": false,
+    "output_dir": "",
+    "show_message_box": true
+  },
+
+  "gui": {
+    "autoload": true
+  },
+
+  "auto": {
+    "form_morale": {
+      "enabled": false,
+      "form": 100,
+      "morale": 100,
+      "fitness": 0,
+      "events": ["DAY_PASSED", "ABOUT_TO_ENTER_PREMATCH", "POST_LOAD_PREPARE"]
+    },
+    "pap_playstyles": {
+      "enabled": false,
+      "playstyles1": "max",
+      "playstyles2": 1535,
+      "events": ["DAY_PASSED", "USER_MATCH_COMPLETED", "USER_INTERNATIONAL_MATCH_COMPLETED", "ENTERED_HUB_FIRST_TIME", "POST_LOAD_PREPARE"]
+    }
+  },
+
+  "modules": {
+    "custom_headassets": {
+      "_example": { "158023": 20801 },
+      "map": {}
+    },
+    "custom_tattoos": {
+      "field": "tattooleftarm",
+      "_example": { "201942": 70 },
+      "map": {}
+    },
+    "delete_generated_players": {
+      "min_playerid": 460000,
+      "confirm": false
+    },
+    "export_season_stats": {
+      "only_user_team": false
+    },
+    "export_fixtures": {},
+    "export_transfer_history": {},
+    "extend_cpu_contracts": {
+      "years": 5
+    },
+    "extend_user_contracts": {
+      "years": 4
+    },
+    "headmodels": {
+      "mode": "capture",
+      "list_file": "headmodels_fc27.json",
+      "generic_for_others": true,
+      "min_list_size": 100
+    },
+    "transfer_bans": {
+      "mode": "list",
+      "ban_until": 20990101,
+      "exclude_user_team": false
+    },
+    "squad_role": {
+      "_roles": "1 Crucial, 2 Important, 3 Rotation, 4 Sporadic, 5 Prospect",
+      "role": 3,
+      "include_loaned_in": false,
+      "use_memory": true
+    },
+    "team_jersey_numbers": {
+      "_teamid": "0 = your club in career mode",
+      "teamid": 0
+    },
+    "bulk_edit": {
+      "_example": {
+        "scope": { "user_team": true },
+        "filters": { "max_age": 21 },
+        "set": { "isretiring": 0 },
+        "actions": { "fitness": 95, "development": { "xp_multiplier": 2.0, "bonus_xp": 0, "no_decline": true } }
+      },
+      "scope": { "user_team": true },
+      "filters": {},
+      "set": {},
+      "actions": {},
+      "confirm_all": false
+    },
+    "player_moves": {
+      "_example": [
+        { "action": "transfer_list", "scope": { "user_team": true }, "filters": { "max_overall": 65 } },
+        { "action": "loan", "playerid": 20801, "to_teamid": 241, "months": 12, "loan_to_buy": -1 }
+      ],
+      "actions": []
+    },
+    "db_edit": {
+      "_example": [
+        { "table": "teams", "where": { "teamid": 1 }, "set": { "teamname": "Arsenal FC" } }
+      ],
+      "edits": []
+    },
+    "export_table": {
+      "tables": ["teams"],
+      "max_rows": 0
+    }
+  }
+}
