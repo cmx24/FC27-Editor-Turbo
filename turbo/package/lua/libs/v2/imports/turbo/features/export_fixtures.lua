@@ -3,6 +3,11 @@
 -- (fixtures at +0x60, standings at +0x88). Turbo checks those first and, when FC 27 moved them,
 -- searches the manager for lists whose entries look like fixtures/standings (real team IDs,
 -- valid YYYYMMDD dates). Nothing is exported from a list that fails these checks.
+-- FC 27 (seen in game, 02-10-2026): the FC 26 lists are gone from FCEDataManager. What Turbo could find is the list of
+-- your club's remaining fixtures in the MainHubManager: a count followed by a pointer to 0x130-byte entries
+--   +0x2C competition object id   +0x38 date (YYYYMMDD)   +0x3C kick-off (HHMM)   +0x128 home club   +0x12C away club
+-- When the FC 26 lists are not there, Turbo exports that list instead (your club's upcoming fixtures, no results), after
+-- checking every entry: real dates in order, real clubs, your club in each match.
 --   "export_fixtures": {}
 
 local util = require 'imports/turbo/core/util'
@@ -154,8 +159,69 @@ function M.locate(team_set, hint)
     return nil, "no fixtures/standings lists matching real teams and dates were found"
 end
 
+------------------------------------------------------------------ FC 27: your club's remaining fixtures
+M.FC27_USER = { manager = 58, size = 0x130, comp = 0x2C, date = 0x38, time = 0x3C, home = 0x128, away = 0x12C,
+    max = 200, scan_to = 0x400 }
+
+local function read_user_list(mgr, off, team_set, user_team)
+    local L = M.FC27_USER
+    local b = mem.ptr(mgr + off)
+    local count = mem.int(mgr + off - 8)
+    if not b or not count or count < 1 or count > L.max then return nil end
+    if not mem.readable(b, count * L.size) then return nil end
+    local out, mine, last = {}, 0, 0
+    for i = 0, count - 1 do
+        local e = b + i * L.size
+        local date, home, away = mem.int(e + L.date), mem.int(e + L.home), mem.int(e + L.away)
+        if not util.is_yyyymmdd(date) or date < last then return nil end
+        if not (home and away and team_set[home] and team_set[away]) or home == away then return nil end
+        if home == user_team or away == user_team then mine = mine + 1 end
+        last = date
+        out[#out + 1] = { date = date, time = mem.int(e + L.time), compobjid = mem.int(e + L.comp), home = home, away = away }
+    end
+    if user_team > 0 and mine < count * 0.9 then return nil end
+    return out
+end
+
+-- Returns { off, fixtures } or nil, reason
+function M.locate_fc27(team_set, user_team, hint)
+    local id = _G["ENUM_FCEGameModesFCECareerModeMainHubManager"]
+    local mgr = mem.manager(type(id) == "number" and id or M.FC27_USER.manager)
+    if not mgr then return nil, "MainHubManager not found" end
+    local tries = {}
+    local h = type(hint) == "table" and util.to_int(hint.user_list_off)
+    if h then tries[#tries + 1] = h end
+    for off = 0x08, M.FC27_USER.scan_to, 8 do tries[#tries + 1] = off end
+    for _, off in ipairs(tries) do
+        local list = read_user_list(mgr, off, team_set, user_team)
+        if list then return { off = off, fixtures = list } end
+    end
+    return nil, "your club's fixture list was not found in the MainHubManager"
+end
+
 local COLUMNS = { "competition", "compobjid", "date", "time", "hometeamid", "hometeam", "homescore", "awayscore",
     "awayteam", "awayteamid", "completed" }
+
+function M.write_user_fixtures(ctx, mine)
+    local names, comps, rows = {}, {}, {}
+    for _, f in ipairs(mine.fixtures) do
+        names[f.home] = names[f.home] or game.team_name(f.home)
+        names[f.away] = names[f.away] or game.team_name(f.away)
+        comps[f.compobjid] = comps[f.compobjid] or game.competition_name(f.compobjid)
+        rows[#rows + 1] = {
+            competition = comps[f.compobjid], compobjid = f.compobjid, date = f.date, time = f.time,
+            hometeamid = f.home, hometeam = names[f.home], awayteamid = f.away, awayteam = names[f.away],
+            homescore = "", awayscore = "", completed = 0,
+        }
+    end
+    local path = util.join(ctx.out_dir, "turbo_fixtures_" .. util.timestamp_suffix(game.current_date()) .. ".csv")
+    if not ctx.dry then
+        local wok, werr = csv.write(path, COLUMNS, rows)
+        if not wok then return false, "cannot write " .. path .. ": " .. tostring(werr) end
+    end
+    return true, string.format("%d upcoming fixtures of your club saved to %s (FC 27 MainHubManager+0x%X; the full "
+        .. "fixture and results lists of FC 26 were not found in this game)", #rows, path, mine.off)
+end
 
 function M.run(ctx)
     if not ctx.out_dir then return false, "no writable output folder" end
@@ -164,9 +230,14 @@ function M.run(ctx)
 
     if not mem.map_available() then return false, mem.NO_MAP end
     local found, err = M.locate(team_set, calib.get(ctx.out_dir, "fixtures"))
-    if not found then return false, err end
+    if not found then
+        local user_team = game.in_cm() and game.user_team_id() or 0
+        local mine, err27 = M.locate_fc27(team_set, user_team, calib.get(ctx.out_dir, "fixtures_fc27"))
+        if not mine then return false, string.format("%s; %s", err, err27) end
+        calib.put(ctx.out_dir, "fixtures_fc27", { user_list_off = mine.off })
+        return M.write_user_fixtures(ctx, mine)
+    end
     calib.put(ctx.out_dir, "fixtures", { fixtures_off = found.fixtures_off, standings_off = found.standings_off })
-
     local names, comps, rows = {}, {}, {}
     for _, f in ipairs(found.fixtures) do
         local hs, as = found.standings[f.home], found.standings[f.away]

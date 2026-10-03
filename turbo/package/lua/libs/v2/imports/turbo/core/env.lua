@@ -142,6 +142,75 @@ function M.has(name)
     return type(_G[name]) == "function"
 end
 
+-- Is a Live Editor API function really usable?
+-- FC 27 LE v27.1.2 keeps the FC 26 Lua API names, but several of them are only Lua wrappers around natives that build
+-- does not have (TransferPlayer calls cTransferPlayer, which is missing) or placeholders that print "TODO: FC27" /
+-- "deprecated" and do nothing (SetSquadRole, GetTransferBudget). Calling those either raises "attempt to call a nil
+-- value" or silently does nothing, so Turbo checks the function first:
+--   * not a function                        -> missing
+--   * a Lua function from Live Editor's own lua\libs folder: its source lines are read; a placeholder (TODO / NOT
+--     IMPLEMENTED / deprecated) or a call to a c<Name> native that does not exist makes it unavailable
+-- Returns fn or nil, reason. Results are cached per function value.
+local api_cache = setmetatable({}, { __mode = "k" })
+
+local function source_lines(path, first, last)
+    local f = io.open(path, "r")
+    if not f then return nil end
+    local out, n = {}, 0
+    for line in f:lines() do
+        n = n + 1
+        if n >= first then out[#out + 1] = line end
+        if n >= last then break end
+    end
+    f:close()
+    return table.concat(out, "\n")
+end
+
+local function inspect_lua(name, fn)
+    if type(debug) ~= "table" or type(debug.getinfo) ~= "function" then return true end
+    local ok, info = pcall(debug.getinfo, fn, "S")
+    if not ok or type(info) ~= "table" or info.what ~= "Lua" then return true end
+    local src = type(info.source) == "string" and info.source or ""
+    if src:sub(1, 1) ~= "@" then return true end
+    local path = src:sub(2)
+    local lower = path:lower():gsub("/", "\\")
+    -- only Live Editor's own libraries; Turbo's files and anything else are taken as they are
+    if not lower:find("\\lua\\libs\\", 1, true) or lower:find("\\imports\\turbo\\", 1, true) then return true end
+    local body = source_lines(path, info.linedefined or 0, info.lastlinedefined or 0)
+    if not body then return true end
+    local code = body:gsub("%-%-[^\n]*", "")   -- drop comments
+    if code:find("NOT IMPLEMENTED", 1, true) or code:find("TODO", 1, true) or code:lower():find("deprecated", 1, true) then
+        return false, string.format("%s is a placeholder in this Live Editor build (it does nothing yet)", name)
+    end
+    for native in code:gmatch("[^%w_.:](c[A-Z][%w_]*)%s*%(") do
+        if type(_G[native]) ~= "function" then
+            return false, string.format("%s is not available in this Live Editor build (it needs the native %s, which "
+                .. "this Live Editor build does not have)", name, native)
+        end
+    end
+    return true
+end
+
+function M.api(name)
+    local fn = _G[name]
+    if type(fn) ~= "function" then return nil, name .. " is not available in this Live Editor build" end
+    local cached = api_cache[fn]
+    if cached == nil then
+        local ok, reason = inspect_lua(name, fn)
+        cached = ok and true or (reason or (name .. " is not available in this Live Editor build"))
+        api_cache[fn] = cached
+    end
+    if cached == true then return fn end
+    return nil, cached
+end
+
+-- Messages that mean "this Live Editor build cannot do it" (not a Turbo failure)
+function M.is_unavailable_message(msg)
+    msg = tostring(msg or "")
+    return msg:find("not available in this Live Editor build", 1, true) ~= nil
+        or msg:find("is a placeholder in this Live Editor build", 1, true) ~= nil
+end
+
 function M.functions_report()
     local present, missing = {}, {}
     for _, name in ipairs(M.WATCHED_FUNCTIONS) do

@@ -7,6 +7,8 @@
 --   role_stride (int)              entry size (default 8)
 --   fixtures_off / standings_off   FCEDataManager list offsets (default 0x60 / 0x88; false = broken)
 --   storage_off (int|false)        TransferManager negotiations storage offset (default 0x1DD0)
+--   fc27_transfer_lists (bool)     FC 27 layout: linked lists of moves in the TransferManager (seen in game)
+--   fc27_user_fixtures (bool)      FC 27 layout: your club's remaining fixtures in the MainHubManager (seen in game)
 
 local W = {}
 
@@ -81,7 +83,11 @@ function W.build(sim, opts)
         }
         for k, v in pairs(extra or {}) do r[k] = v end
         prow[#prow + 1] = r
-        links[#links + 1] = { artificialkey = key, teamid = tid, playerid = pid, jerseynumber = jersey }
+        -- FC 27 league stats kept per club link: every third player has played
+        local played = (pid % 3 == 0)
+        links[#links + 1] = { artificialkey = key, teamid = tid, playerid = pid, jerseynumber = jersey,
+            leagueappearances = played and 2 or 0, leaguegoals = played and (pid % 4) or 0,
+            yellows = played and (pid % 2) or 0, reds = 0 }
         key = key + 1
         player_team[pid] = tid
     end
@@ -111,18 +117,23 @@ function W.build(sim, opts)
             { name = "teamid", short = "tid_", depth = 18 },
             { name = "playerid", short = "pid_", depth = 21 },
             { name = "jerseynumber", short = "jnum", depth = 7 },
+            { name = "leagueappearances", short = "lapp", depth = 7 },
+            { name = "leaguegoals", short = "lgls", depth = 7 },
+            { name = "yellows", short = "ylws", depth = 7 },
+            { name = "reds", short = "reds", depth = 7 },
         },
         rows = links,
     })
 
-    -- cm_teamsheets: user team listed, -1 terminated
+    -- cm_teamsheets: user team listed, -1 terminated. FC 27 numbers the slots playerid0..playerid51 (seen in game:
+    -- playerid0 is the goalkeeper; FC 27 LE's own GetUserSeniorTeamPlayerIDs starts at 1 and misses that player)
     local sheet_fields = { { name = "teamid", short = "tid_", depth = 18 } }
     local sheet = { teamid = W.USER_TEAM }
     local other = { teamid = 2 }
-    for i = 1, 52 do
+    for i = 0, 51 do
         sheet_fields[#sheet_fields + 1] = { name = "playerid" .. i, short = string.format("p%03d", i), depth = 22, min = -1 }
-        sheet["playerid" .. i] = W.USER_PLAYERS[i] or -1
-        other["playerid" .. i] = (i <= 4) and (2000 + i) or -1
+        sheet["playerid" .. i] = W.USER_PLAYERS[i + 1] or -1
+        other["playerid" .. i] = (i < 4) and (2001 + i) or -1
     end
     sim:add_table({ name = "cm_teamsheets", short = "cmts", fields = sheet_fields, rows = { other, sheet } })
 
@@ -251,6 +262,37 @@ function W.build(sim, opts)
         for _, off in ipairs({ 0x18, 0x30, 0x40, 0x48 }) do sim:make_vector(vecs[off], 0, sizes[off]) end
     end
 
+    -- FC 27: moves kept in linked lists inside the TransferManager ({first, last} head; node +0x00 next, +0x08 prev,
+    -- +0x10 player, +0x14 club he moves to, +0x18 club he leaves, +0x24 date, +0x30 fee or loan length)
+    if opts.fc27_transfer_lists then
+        local function list(head_off, entries)
+            local head = tm + head_off
+            local prev = head
+            local nodes = {}
+            for _, e in ipairs(entries) do
+                local n = sim:alloc(0x40, 16)
+                sim:w64(n + 0x08, prev)
+                if prev ~= head then sim:w64(prev, n) else sim:w64(head, n) end
+                sim:w32(n + 0x10, e[1]) sim:w32(n + 0x14, e[2]) sim:w32(n + 0x18, e[3])
+                sim:w32(n + 0x24, e[4]) sim:w32(n + 0x30, e[5])
+                nodes[#nodes + 1] = n
+                prev = n
+            end
+            sim:w64(prev, head)          -- last node -> head
+            sim:w64(head + 0x08, prev)   -- head.last
+            return nodes
+        end
+        -- open offers: players still at the +0x18 club (left out of the history)
+        list(0x2978, { { 2003, 7, 2, 20260828, 7500000 }, { 2004, 8, 2, 20260829, 820000 } })
+        -- completed transfers: players now at the +0x14 club (2001 at team 2, 2006 at team 3, 2010 at team 4)
+        list(0x2998, { { 2001, 2, 5, 20260702, 4250000 }, { 2006, 3, 9, 20260715, 1200000 },
+                       { 2010, 4, 111592, 20260720, 0 } })
+        -- completed loans (+0x30 = loan length, small numbers)
+        list(0x29D8, { { 2013, 5, 6, 20260708, 12 }, { 2014, 5, 7, 20260709, 24 } })
+        -- an offer for one of the user's players
+        list(0x29F8, { { W.USER_PLAYERS[5], 6, W.USER_TEAM, 20260822, 6500000 } })
+    end
+
     -- FCEDataManager fixtures / standings
     local iface = sim:alloc(0x40, 16)
     sim.plugins[0x0a613b9a] = iface   -- ENUM_djb2IFCEInterface_CLSS
@@ -296,6 +338,24 @@ function W.build(sim, opts)
         sim:w64(junk + 0x28, sim:alloc(0x100, 16))
         sim:w64(dm + 0x60, junk)
         sim:w64(dm + 0x88, junk)
+    end
+
+    -- FC 27: your club's remaining fixtures, MainHubManager +0x60 count, +0x68 -> 0x130-byte entries
+    if opts.fc27_user_fixtures then
+        local hub = sim:add_manager(58, 0x400)
+        local list = {
+            { 20260905, 1400, 1118, 5, W.USER_TEAM }, { 20260913, 1130, 1118, W.USER_TEAM, 3 },
+            { 20260919, 1400, 1118, 241, W.USER_TEAM },
+        }
+        local entries = sim:alloc(0x130 * #list, 16)
+        for i, f in ipairs(list) do
+            local e = entries + (i - 1) * 0x130
+            sim:w32(e + 0x38, f[1]) sim:w32(e + 0x3C, f[2]) sim:w32(e + 0x2C, f[3])
+            sim:w32(e + 0x128, f[4]) sim:w32(e + 0x12C, f[5])
+        end
+        sim:w32(hub + 0x60, #list)
+        sim:w64(hub + 0x68, entries)
+        W.hub_entries = entries
     end
 
     -- season stats

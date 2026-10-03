@@ -131,6 +131,10 @@ static bool parse_state_impl(const std::string& text, BridgeState& out) {
     out.user_team = j.value("user_team", 0LL);
     out.names_count = j.value("names_count", 0LL);
     out.transfer_budget = j.contains("transfer_budget") && j["transfer_budget"].is_number() ? j["transfer_budget"].get<long long>() : -1;
+    out.unavailable.clear();
+    if (j.contains("unavailable") && j["unavailable"].is_object())  // an empty Lua table may arrive as []
+        for (auto it = j["unavailable"].begin(); it != j["unavailable"].end(); ++it)
+            if (it.value().is_string()) out.unavailable[it.key()] = it.value().get<std::string>();
     if (j.contains("meta_error") && j["meta_error"].is_string()) out.meta_error = j["meta_error"].get<std::string>();
     if (j.contains("date") && j["date"].is_object()) {
         out.date.year = j["date"].value("year", 0);

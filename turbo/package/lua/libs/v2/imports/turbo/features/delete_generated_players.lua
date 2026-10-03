@@ -5,6 +5,7 @@
 local util = require 'imports/turbo/core/util'
 local db = require 'imports/turbo/core/db'
 local log = require 'imports/turbo/core/log'
+local env = require 'imports/turbo/core/env'
 
 local M = {}
 
@@ -13,7 +14,6 @@ function M.run(ctx)
     if not min_pid or min_pid < 300000 then
         return false, "min_playerid must be an integer >= 300000 (generated players start at 460000 in FC 26)"
     end
-    if type(DeletePlayer) ~= "function" then return false, "DeletePlayer is not available in this Live Editor build" end
 
     local players, err = db.get_table("players")
     if not players then return false, err end
@@ -28,13 +28,17 @@ function M.run(ctx)
     table.sort(ids)
 
     if #ids == 0 then return true, string.format("no players with playerid >= %d", min_pid) end
+    -- Counting works with any Live Editor build; deleting needs Live Editor's DeletePlayer
+    local delete_player, why = env.api("DeletePlayer")
     if ctx.cfg.confirm ~= true or ctx.dry then
-        return true, string.format("%d generated players found (playerid >= %d). Set \"confirm\": true to delete them.", #ids, min_pid)
+        return true, string.format("%d generated players found (playerid >= %d). %s", #ids, min_pid,
+            delete_player and "Set \"confirm\": true to delete them." or ("Deleting them is not possible here: " .. why))
     end
+    if not delete_player then return false, why end
 
     local deleted, failed = 0, 0
     for _, pid in ipairs(ids) do
-        local ok, derr = pcall(DeletePlayer, pid, 0)
+        local ok, derr = pcall(delete_player, pid, 0)
         if ok then
             deleted = deleted + 1
         else

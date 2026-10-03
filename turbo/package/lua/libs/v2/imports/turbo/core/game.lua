@@ -79,12 +79,14 @@ function M.user_squad()
     if sheets and db.has_fields(sheets, { "teamid", "playerid1" }) then
         for rec in db.records(sheets) do
             if sheets:GetRecordFieldValue(rec, "teamid") == teamid then
-                for i = 1, 52 do
+                -- playerid0 is the first starter (seen in FC 27: the goalkeeper); FC 27 LE's own helper starts at 1
+                for i = 0, 52 do
                     local fname = "playerid" .. i
-                    if not db.has_field(sheets, fname) then break end
-                    local pid = sheets:GetRecordFieldValue(rec, fname)
-                    if pid == nil or pid == -1 then break end
-                    if pid > 0 and not result[pid] then
+                    local has = db.has_field(sheets, fname)
+                    if not has and i > 0 then break end
+                    local pid = has and sheets:GetRecordFieldValue(rec, fname) or nil
+                    if has and (pid == nil or pid == -1) then break end
+                    if pid and pid > 0 and not result[pid] then
                         result[pid] = true
                         count = count + 1
                     end

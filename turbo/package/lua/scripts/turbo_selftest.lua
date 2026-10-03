@@ -5,7 +5,7 @@
 -- off again, and the squad's form/morale only if you set "selftest_form": true in turbo_config.json's "turbo" section.
 -- Do not save the game after a self-test if you want to be sure nothing changed.
 local okt, TURBO = pcall(require, 'imports/turbo/turbo')
-local lines, passed, failed = {}, 0, 0
+local lines, passed, failed, skipped = {}, 0, 0, 0
 
 local function add(text) lines[#lines + 1] = text end
 
@@ -14,10 +14,14 @@ local function result(name, ok, msg)
     add(string.format("%-4s %-34s %s", ok and "OK" or "FAIL", name, tostring(msg or "")))
 end
 
+local env
+
 local function run(name, module, overrides, dry, skip_if)
     local okc, ok, msg = pcall(TURBO.run, module, overrides, { silent = true, dry = dry == true })
     if not okc then ok, msg = false, "raised: " .. tostring(ok) end
-    if not ok and skip_if and tostring(msg):find(skip_if, 1, true) then
+    -- "this Live Editor build cannot do it" is reported as SKIP (Turbo needs a Live Editor update for it), not FAIL
+    if not ok and ((skip_if and tostring(msg):find(skip_if, 1, true)) or env.is_unavailable_message(msg)) then
+        skipped = skipped + 1
         add(string.format("%-4s %-34s %s", "SKIP", name, tostring(msg)))
         return ok, msg
     end
@@ -32,7 +36,7 @@ end
 
 local game = require 'imports/turbo/core/game'
 local util = require 'imports/turbo/core/util'
-local env = require 'imports/turbo/core/env'
+env = require 'imports/turbo/core/env'
 local in_cm = game.in_cm()
 add(string.format("FC 27 LE Turbo %s self-test, %s, career loaded: %s, LE %s", TURBO.version, os.date("%Y-%m-%d %H:%M:%S"),
     tostring(in_cm), tostring(LE_VERSION)))
@@ -74,7 +78,8 @@ end
 -- reversible real changes, undone at once
 if in_cm then
     local okb, tb = pcall(require, 'imports/turbo/features/transfer_budget')
-    local before = okb and tb.current() or nil
+    local before, berr
+    if okb then before, berr = tb.current() else berr = tostring(tb) end
     if before then
         local ok1, m1 = run("budget +1 (real)", "transfer_budget", { mode = "add", amount = 1 })
         local ok2, m2 = run("budget back (real)", "transfer_budget", { mode = "set", amount = before })
@@ -82,14 +87,19 @@ if in_cm then
             tostring(tb.current())))
         local _ = ok1 and ok2
     else
-        result("budget read", false, "GetUserTransferBudget unavailable")
+        local unavailable = env.is_unavailable_message(berr)
+        if unavailable then skipped = skipped + 1 else failed = failed + 1 end
+        add(string.format("%-4s %-34s %s", unavailable and "SKIP" or "FAIL", "budget +1 and back (real)", tostring(berr)))
     end
     -- transfer list one squad player (the last one by id), then unlist
     local squad = game.user_squad()
     local pid
     for p in pairs(squad) do if not pid or p > pid then pid = p end end
-    local listed = _G["IsPlayerTransferListed"]
-    if pid and type(listed) == "function" then
+    local listed, why = env.api("IsPlayerTransferListed")
+    if pid and not listed then
+        skipped = skipped + 1
+        add(string.format("%-4s %-34s %s", "SKIP", "transfer list + unlist (real)", tostring(why)))
+    elseif pid then
         local was = select(2, pcall(listed, pid, game.user_team_id()))
         if was ~= true then
             run("transfer list player " .. pid .. " (real)", "player_moves",
@@ -109,11 +119,12 @@ if in_cm then
     end
 end
 
-add(string.format("%d passed, %d failed", passed, failed))
+add(string.format("%d passed, %d failed, %d skipped (not possible with this Live Editor build)", passed, failed, skipped))
 local dir = env.output_dir()
 local path = dir and util.join(dir, "turbo_selftest.log")
 if path then util.write_file(path, table.concat(lines, "\r\n") .. "\r\n") end
 if type(Log) == "function" then
     for _, l in ipairs(lines) do pcall(Log, "[Turbo self-test] " .. l) end
 end
-util.message_box("Turbo self-test", string.format("%d passed, %d failed.\nDetails: %s", passed, failed, tostring(path)))
+util.message_box("Turbo self-test", string.format("%d passed, %d failed, %d skipped.\nDetails: %s", passed, failed,
+    skipped, tostring(path)))

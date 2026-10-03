@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <map>
 #include <string>
 #include <unordered_map>
 
@@ -50,6 +51,14 @@ struct BridgeState {
     std::string meta_error;  // why Turbo's Lua side could not write bridge_meta.json (empty = no problem reported)
     long long names_count = 0;  // player names Lua exported to bridge_names.txt
     long long transfer_budget = -1;  // your club's budget (career mode), -1 = not known
+    // Turbo tools this Live Editor build cannot run: tool key -> reason (see Lua core/caps.lua)
+    std::map<std::string, std::string> unavailable;
+    // Reason a tool cannot run, or nullptr when it can
+    const std::string* unavailable_reason(const char* key) const {
+        if (!key) return nullptr;
+        auto it = unavailable.find(key);
+        return it == unavailable.end() ? nullptr : &it->second;
+    }
     std::string error;
 };
 

@@ -13,6 +13,7 @@
 local util = require 'imports/turbo/core/util'
 local game = require 'imports/turbo/core/game'
 local sel = require 'imports/turbo/core/select'
+local env = require 'imports/turbo/core/env'
 
 local M = {}
 
@@ -36,8 +37,9 @@ local function check(a, i, team_set, player_set)
     if type(a) ~= "table" then return nil, string.format("action %d is not an object", i) end
     local kind = a.action
     if not NEEDS[kind] then return nil, string.format("action %d: unknown action %s", i, tostring(kind)) end
-    if type(_G[NEEDS[kind]]) ~= "function" then return nil, NEEDS[kind] .. " is not available in this Live Editor build" end
-    local out = { action = kind }
+    local fn, why = env.api(NEEDS[kind])
+    if not fn then return nil, why end
+    local out = { action = kind, fn = fn }
 
     if kind == "transfer_list" or kind == "loan_list" or kind == "unlist" then
         if a.playerid ~= nil then
@@ -105,19 +107,16 @@ function M.run(ctx)
     for _, a in ipairs(plan) do
         local n = 0
         if a.action == "transfer" then
-            if call(TransferPlayer, a.playerid, a.to_teamid, a.fee, a.wage, a.months, 0, a.release_clause) then n = 1 end
+            if call(a.fn, a.playerid, a.to_teamid, a.fee, a.wage, a.months, 0, a.release_clause) then n = 1 end
         elseif a.action == "loan" then
-            if call(LoanPlayer, a.playerid, a.to_teamid, a.months, a.loan_to_buy, 0) then n = 1 end
-        elseif a.action == "release" then
-            if call(ReleasePlayerFromTeam, a.playerid) then n = 1 end
-        elseif a.action == "terminate_loan" then
-            if call(TerminateLoan, a.playerid) then n = 1 end
+            if call(a.fn, a.playerid, a.to_teamid, a.months, a.loan_to_buy, 0) then n = 1 end
+        elseif a.action == "release" or a.action == "terminate_loan" then
+            if call(a.fn, a.playerid) then n = 1 end
         elseif a.action == "delete" then
-            if call(DeletePlayer, a.playerid, 0) then n = 1 end
+            if call(a.fn, a.playerid, 0) then n = 1 end
         else
-            local fn = _G[NEEDS[a.action]]
             for _, pid in ipairs(a.playerids) do
-                if call(fn, pid, 0) then n = n + 1 end
+                if call(a.fn, pid, 0) then n = n + 1 end
             end
         end
         done[#done + 1] = string.format("%s x%d", a.action, n)

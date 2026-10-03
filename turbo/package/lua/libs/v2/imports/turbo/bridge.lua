@@ -243,6 +243,17 @@ local function transfer_budget()
     return (tb.current())
 end
 
+-- Tools this Live Editor build cannot run (fixed for a Live Editor build, so worked out once)
+local function unavailable_tools()
+    if S.unavailable == nil then
+        local ok, caps = pcall(require, 'imports/turbo/core/caps')
+        local okc, list = false, nil
+        if ok then okc, list = pcall(caps.unavailable) end
+        S.unavailable = (okc and type(list) == "table") and list or {}
+    end
+    return S.unavailable
+end
+
 function M.collect_state()
     local in_cm = game.in_cm()
     local d = in_cm and game.current_date() or nil
@@ -258,6 +269,7 @@ function M.collect_state()
         in_cm = in_cm,
         user_team = in_cm and game.user_team_id() or 0,
         transfer_budget = in_cm and transfer_budget() or nil,
+        unavailable = unavailable_tools(),
         date = d and { year = d.year, month = d.month, day = d.day } or nil,
     }
 end

@@ -164,6 +164,25 @@ function Sim:record(name, ...)
     table.insert(self.calls[name], { ... })
 end
 
+-- The natives FC 27 Live Editor v27.1.2 really has (globals dump from the game, 02-10-2026): every other native the
+-- simulator installs is removed, so the Lua wrappers of lua\libs\v1\live_editor.lua (TransferPlayer ->
+-- cTransferPlayer, ...) point at nothing, as they do in that build.
+Sim.LE_27_1_2_REMOVED = {
+    "GetUserTransferBudget", "SetUserTransferBudget", "GetCPUTransferBudget", "SetCPUTransferBudget",
+    "GetCurrentDate", "GetTeamIdFromPlayerId", "GetCompetitionNameByObjID", "GetCompetitionNameByID",
+    "GetPlayersStats", "PlayerExists", "DeletePlayer", "TerminateLoan",
+    "cTransferPlayer", "cLoanPlayer", "cReleasePlayer", "cIsPlayerTransferListed", "cIsPlayerLoanListed",
+    "cAddPlayerToTransferList", "cAddPlayerToLoanList", "cRemovePlayerFromLists", "cRemovePlayerFromTransferList",
+    "cRemovePlayerFromLoanList", "cGetTransferBans", "cAddTransferBan", "cRemoveTransferBan", "cSaveTransferBans",
+    "PlayerDevelopmentManagerLoad", "PlayerDevelopmentManagerSave", "PlayerDevelopmentManagerAddPlayer",
+    "PlayerDevelopmentManagerRemovePlayer",
+}
+
+function Sim:as_le_27_1_2()
+    for _, name in ipairs(Sim.LE_27_1_2_REMOVED) do _G[name] = nil end
+    LE_VERSION = "v27.1.2"
+end
+
 function Sim:count_calls(name)
     return self.calls[name] and #self.calls[name] or 0
 end

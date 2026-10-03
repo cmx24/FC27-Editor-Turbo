@@ -51,6 +51,7 @@ function H.setup(opts)
 
     local sim = Sim.new()
     sim:install()
+    if opts.le_27_1_2 then sim:as_le_27_1_2() end   -- only the natives FC 27 LE v27.1.2 has
     sim.in_cm = opts.in_cm == true
     LE_DATA_PATH = le
     H.sim = sim

@@ -474,6 +474,22 @@ static void test_core() {
         std::ofstream(dir / "bridge_state.json") << "{\"session\":\"S\",\"seq\":2,\"db_gen\":1,\"in_cm\":true,\"user_team\":1}";
         b.poll_files();
         CHECK(b.state().seq == 2, "complete file read on the next poll");
+        CHECK(b.state().unavailable.empty() && !b.state().unavailable_reason("transfer_budget"), "no unavailable tools");
+        // tools this Live Editor build cannot run (FC 27 LE v27.1.2 has no transfer-budget / ban natives)
+        std::ofstream(dir / "bridge_state.json") << "{\"session\":\"S\",\"seq\":3,\"db_gen\":1,\"in_cm\":true,\"user_team\":1,"
+                                                    "\"unavailable\":{\"transfer_budget\":\"GetUserTransferBudget is not available\",\"bad\":5}}";
+        fs::last_write_time(dir / "bridge_state.json", fs::file_time_type::clock::now() + std::chrono::seconds(10));
+        b.poll_files();
+        CHECK(b.state().seq == 3, "state 3");
+        CHECK(b.state().unavailable.size() == 1, "string reasons only");
+        CHECK(b.state().unavailable_reason("transfer_budget") && *b.state().unavailable_reason("transfer_budget") ==
+                  "GetUserTransferBudget is not available", "reason parsed");
+        CHECK(!b.state().unavailable_reason("transfer_bans") && !b.state().unavailable_reason(nullptr), "others usable");
+        std::ofstream(dir / "bridge_state.json") << "{\"session\":\"S\",\"seq\":4,\"db_gen\":1,\"in_cm\":true,\"user_team\":1,"
+                                                    "\"unavailable\":[]}";
+        fs::last_write_time(dir / "bridge_state.json", fs::file_time_type::clock::now() + std::chrono::seconds(20));
+        b.poll_files();
+        CHECK(b.state().seq == 4 && b.state().unavailable.empty(), "an empty Lua table ([]) means none");
         CHECK(b.state().meta_error.empty(), "no meta_error reported");
         // Turbo's Lua side could not write bridge_meta.json: the GUI shows why instead of "waiting"
         fs::path dir3 = g_out / "LE3" / "turbo_output";
@@ -491,8 +507,8 @@ static void test_core() {
     run_case("bridge_names.txt: parsing, half-written files, stale files from an earlier session", [&] {
         NameMap m;
         std::string sess;
-        CHECK(Bridge::parse_names("#turbo-names ABC 2\n1\tSaka\n2\t\xC3\x98degaard\n", m, &sess), "parsed");
-        CHECK(sess == "ABC" && m.size() == 2 && m[2] == "\xC3\x98degaard", "session and UTF-8 name");
+        CHECK(Bridge::parse_names("#turbo-names ABC 2\n1\tSaka\n2\t\xC3\x98" "degaard\n", m, &sess), "parsed");
+        CHECK(sess == "ABC" && m.size() == 2 && m[2] == "\xC3\x98" "degaard", "session and UTF-8 name");
         CHECK(!Bridge::parse_names("#turbo-names ABC 3\n1\tSaka\n2\tX", m), "fewer lines than announced = half written");
         CHECK(!Bridge::parse_names("1\tSaka\n", m), "no header");
         CHECK(Bridge::parse_names("#turbo-names ABC 1\r\n7\tKane\r\n\tbad\nx\ty\n", m) && m.size() == 1 && m[7] == "Kane",
@@ -1123,6 +1139,64 @@ static void test_ui() {
             CHECK(!app.refresh_pending, "nothing pending");
             CHECK(ui.find("1001", "##plist") != nullptr, "list rebuilt");
             CHECK(app.model.player(3003)->age == 18, "age follows the new date");
+        });
+
+        run_case("UI: tools this Live Editor build cannot run are greyed out and send nothing", [&] {
+            std::ofstream(le / "turbo_output" / "bridge_state.json")
+                << "{\"session\":\"X\",\"seq\":100,\"db_gen\":7,\"in_cm\":true,\"user_team\":1,\"db_service\":\"" +
+                       hex_addr(app.bridge.state().db_service) +
+                       "\",\"date\":{\"year\":2027,\"month\":1,\"day\":16},\"unavailable\":{"
+                       "\"transfer_budget\":\"GetUserTransferBudget is not available in this Live Editor build\","
+                       "\"transfer_bans\":\"cGetTransferBans is not available in this Live Editor build\","
+                       "\"delete_players\":\"DeletePlayer is not available in this Live Editor build\","
+                       "\"move_release\":\"ReleasePlayerFromTeam is not available in this Live Editor build\"}}";
+            fs::last_write_time(le / "turbo_output" / "bridge_state.json", fs::file_time_type::clock::now() + std::chrono::seconds(20));
+            ui.frames(40);
+            CHECK(app.bridge.state().seq == 100 && app.bridge.state().unavailable.size() == 4, "state with unavailable tools");
+            CHECK(ui.click("Turbo Tools"), "Tools tab");
+            CHECK(!app.busy(), "nothing queued");
+            // the previous case left these sections collapsed
+            CHECK(ui.click("Your squad"), "expand squad");
+            CHECK(ui.click("Your club: transfer budget"), "expand budget");
+            ui.frames(2);
+            CHECK(ui.find("Set budget") != nullptr, "Set budget shown");
+            ui.click("Set budget");
+            CHECK(!app.busy(), "Set budget is disabled");
+            ui.click("Add to budget");
+            CHECK(!app.busy(), "Add to budget is disabled");
+            CHECK(ui.click("Apply now##fm"), "form/morale still works");
+            CHECK(app.busy(), "form/morale queued");
+            CHECK(ui.click("Cancel"), "Cancel");
+            CHECK(ui.click("Your squad"), "collapse squad");
+            CHECK(ui.click("Your club: transfer budget"), "collapse budget");
+            CHECK(ui.click("Transfer bans"), "bans header");
+            ui.frames(2);
+            CHECK(ui.find("List bans") != nullptr, "List bans shown");
+            ui.click("List bans");
+            CHECK(!app.busy(), "List bans is disabled");
+            CHECK(ui.click("Transfer bans"), "collapse bans");
+            CHECK(ui.click("Database maintenance"), "maintenance header");
+            CHECK(ui.click("Count"), "Count still works");
+            CHECK(app.busy(), "count queued");
+            CHECK(ui.click("Cancel"), "Cancel count");
+            CHECK(ui.find("Delete...") != nullptr, "Delete... shown");
+            ui.click("Delete...");
+            ui.frames(2);
+            CHECK(ui.find("Delete", "##confirmdel") == nullptr, "Delete... is disabled: no confirmation dialog");
+            CHECK(ui.click("Database maintenance"), "collapse maintenance");
+            ui.frames(2);
+            // Players tab: Release is disabled, Transfer list still sends
+            CHECK(ui.click("Players"), "Players tab");
+            CHECK(ui.click("1001", "##plist"), "player 1001");
+            CHECK(ui.find("Release", "##pedit") != nullptr, "Release shown");
+            ui.click("Release", "##pedit");
+            CHECK(!app.busy(), "Release is disabled");
+            CHECK(ui.click("Transfer list", "##pedit"), "Transfer list");
+            CHECK(app.busy(), "Transfer list queued");
+            CHECK(ui.click("Cancel"), "Cancel transfer list");
+            CHECK(!app.busy(), "cancelled");
+            app.request_tab = 0;
+            ui.frames(2);
         });
 
         run_case("UI: no ImGui errors, layout stable over many frames", [&] {

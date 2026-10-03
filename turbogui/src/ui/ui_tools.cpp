@@ -11,13 +11,20 @@ namespace turbo {
 
 using nlohmann::json;
 
-static bool run_button(App& app, const char* label, const char* module, const json& overrides, bool needs_cm) {
-    bool cm = app.bridge.state().in_cm;
-    bool disabled = app.busy() || !app.mailbox || (needs_cm && !cm);
+// need: tool key from Lua's core/caps.lua; the button is disabled (with the reason as tooltip) when this Live Editor
+// build cannot run that tool
+static bool run_button(App& app, const char* label, const char* module, const json& overrides, bool needs_cm,
+                       const char* need = nullptr) {
+    const BridgeState& st = app.bridge.state();
+    bool cm = st.in_cm;
+    const std::string* missing = st.unavailable_reason(need);
+    bool disabled = app.busy() || !app.mailbox || (needs_cm && !cm) || missing;
     if (disabled) ImGui::BeginDisabled();
     bool clicked = ImGui::Button(label);
     if (disabled) ImGui::EndDisabled();
-    if (disabled && needs_cm && !cm && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    if (missing && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("%s", missing->c_str());
+    else if (disabled && needs_cm && !cm && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("Needs a loaded career save");
     if (clicked) app.send({{"op", "run"}, {"module", module}, {"overrides", overrides}}, label);
     return clicked;
@@ -68,7 +75,8 @@ void draw_tools(App& app) {
         ImGui::SetNextItemWidth(S(200.0f));
         ImGui::SliderInt("Fitness (0 = leave, 5-95)", &fitness, 0, 95);
         if (fitness > 0 && fitness < 5) fitness = 5;
-        run_button(app, "Apply now##fm", "form_morale", {{"form", form}, {"morale", morale}, {"fitness", fitness}}, true);
+        run_button(app, "Apply now##fm", "form_morale", {{"form", form}, {"morale", morale}, {"fitness", fitness}}, true,
+                   "form_morale");
         ImGui::SameLine();
         bool keep = fm.value("enabled", st.auto_form_enabled);
         if (ImGui::Checkbox("Keep every day (auto)##fm", &keep)) {
@@ -107,7 +115,10 @@ void draw_tools(App& app) {
 
     // ---------------------------------------------------------------- club budget
     if (ImGui::CollapsingHeader("Your club: transfer budget", ImGuiTreeNodeFlags_DefaultOpen)) {
-        if (st.transfer_budget >= 0)
+        const std::string* no_budget = st.unavailable_reason("transfer_budget");
+        if (no_budget)
+            ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "Not possible with this Live Editor build: %s", no_budget->c_str());
+        else if (st.transfer_budget >= 0)
             ImGui::Text("Current budget: %lld", static_cast<long long>(st.transfer_budget));
         else
             ImGui::TextDisabled("Current budget: shown once a career is loaded");
@@ -116,9 +127,9 @@ void draw_tools(App& app) {
         ImGui::InputScalar("amount##tb", ImGuiDataType_S64, &amount);
         amount = std::max(0LL, std::min(amount, 2000000000LL));
         ImGui::SameLine();
-        run_button(app, "Set budget", "transfer_budget", {{"mode", "set"}, {"amount", amount}}, true);
+        run_button(app, "Set budget", "transfer_budget", {{"mode", "set"}, {"amount", amount}}, true, "transfer_budget");
         ImGui::SameLine();
-        run_button(app, "Add to budget", "transfer_budget", {{"mode", "add"}, {"amount", amount}}, true);
+        run_button(app, "Add to budget", "transfer_budget", {{"mode", "add"}, {"amount", amount}}, true, "transfer_budget");
         ImGui::TextDisabled("FC 27 keeps the budget in the career, not in the teams table: set it here (Live Editor's "
                             "SetUserTransferBudget).");
     }
@@ -179,11 +190,14 @@ void draw_tools(App& app) {
         ImGui::InputInt("Ban until (YYYYMMDD)", &until, 0);
         ImGui::SameLine();
         ImGui::Checkbox("Exclude my club", &exclude_mine);
-        run_button(app, "List bans", "transfer_bans", {{"mode", "list"}}, true);
+        if (const std::string* r = st.unavailable_reason("transfer_bans"))
+            ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "Not possible with this Live Editor build: %s", r->c_str());
+        run_button(app, "List bans", "transfer_bans", {{"mode", "list"}}, true, "transfer_bans");
         ImGui::SameLine();
-        run_button(app, "Ban every team", "transfer_bans", {{"mode", "ban_all_teams"}, {"ban_until", until}, {"exclude_user_team", exclude_mine}}, true);
+        run_button(app, "Ban every team", "transfer_bans", {{"mode", "ban_all_teams"}, {"ban_until", until}, {"exclude_user_team", exclude_mine}}, true,
+                   "transfer_bans");
         ImGui::SameLine();
-        run_button(app, "Remove all team bans", "transfer_bans", {{"mode", "unban_all_teams"}}, true);
+        run_button(app, "Remove all team bans", "transfer_bans", {{"mode", "unban_all_teams"}}, true, "transfer_bans");
     }
 
     // ---------------------------------------------------------------- bulk edit (FC 26 LE v26.3.2 / v26.3.5)
@@ -282,6 +296,10 @@ void draw_tools(App& app) {
         if (use_morale) actions["morale"] = morale;
         if (use_dev) actions["development"] = {{"xp_multiplier", xp_mult}, {"bonus_xp", bonus_xp}, {"no_decline", no_decline}};
         if (why.empty() && set.empty() && actions.empty()) why = "set a field or tick an action";
+        if (why.empty() && use_dev)
+            if (const std::string* r = st.unavailable_reason("development")) why = "Development: " + *r;
+        if (why.empty() && (use_fit || use_form || use_morale))
+            if (const std::string* r = st.unavailable_reason("form_morale")) why = *r;
         json overrides = {{"scope", sc}, {"filters", json::object()}, {"set", set}, {"actions", actions},
                           {"confirm_all", scope == 3 && confirm_all}};
         json cmd = {{"op", "run"}, {"module", "bulk_edit"}, {"overrides", overrides}};
@@ -304,10 +322,17 @@ void draw_tools(App& app) {
         ImGui::SameLine();
         run_button(app, "Count", "delete_generated_players", {{"min_playerid", min_id}, {"confirm", false}}, false);
         ImGui::SameLine();
+        const std::string* no_delete = st.unavailable_reason("delete_players");
+        if (no_delete) ImGui::BeginDisabled();
         if (ImGui::Button("Delete...")) ImGui::OpenPopup("##confirmdel");
+        if (no_delete) {
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", no_delete->c_str());
+        }
         if (ImGui::BeginPopupModal("##confirmdel", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::Text("Delete every player with ID >= %d? This cannot be undone.", min_id);
-            if (run_button(app, "Delete", "delete_generated_players", {{"min_playerid", min_id}, {"confirm", true}}, false))
+            if (run_button(app, "Delete", "delete_generated_players", {{"min_playerid", min_id}, {"confirm", true}}, false,
+                           "delete_players"))
                 ImGui::CloseCurrentPopup();
             ImGui::SameLine();
             if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
@@ -360,6 +385,11 @@ void draw_status(App& app) {
         ImGui::Text("  DB service %s | career loaded: %s | your club: %lld", hex_addr(st.db_service).c_str(),
                     st.in_cm ? "yes" : "no", static_cast<long long>(st.user_team));
         if (st.date.valid()) ImGui::Text("  In-game date: %04d-%02d-%02d", st.date.year, st.date.month, st.date.day);
+        if (!st.unavailable.empty()) {
+            ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "  Not possible with this Live Editor build (%zu):",
+                               st.unavailable.size());
+            for (const auto& u : st.unavailable) ImGui::TextWrapped("    %s: %s", u.first.c_str(), u.second.c_str());
+        }
     }
     ImGui::Text("Database: %s", app.db.ready() ? (std::to_string(app.db.table_names().size()) + " tables found").c_str()
                                                : (app.db_error.empty() ? "not connected" : app.db_error.c_str()));

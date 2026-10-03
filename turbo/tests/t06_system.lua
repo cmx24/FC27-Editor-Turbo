@@ -143,11 +143,11 @@ H.case("message boxes can be switched off", function()
 end)
 
 H.case("a missing native gives a clear message, not a crash", function()
-    local saved = GetPlayersStats
-    GetPlayersStats = nil
-    local ok, msg = H.turbo().run("export_season_stats")
-    H.eq(ok, false); H.has(msg, "GetPlayersStats is not available")
-    GetPlayersStats = saved
+    local saved = GetUserTransferBudget
+    GetUserTransferBudget = nil
+    local ok, msg = H.turbo().run("transfer_budget", { mode = "get" })
+    H.eq(ok, false); H.has(msg, "GetUserTransferBudget is not available in this Live Editor build")
+    GetUserTransferBudget = saved
 end)
 
 H.case("unknown module name", function()

@@ -269,6 +269,19 @@ static void playstyle_bits(App& app, const Table& t, uint64_t rec, const char* f
     ImGui::PopID();
 }
 
+// A button for a player move; disabled with the reason as tooltip when this Live Editor build cannot do it
+// (key: Lua core/caps.lua, e.g. "move_transfer")
+static bool move_button(App& app, const char* label, const char* key) {
+    const std::string* missing = app.bridge.state().unavailable_reason(key);
+    if (missing) ImGui::BeginDisabled();
+    bool clicked = ImGui::Button(label);
+    if (missing) {
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", missing->c_str());
+    }
+    return clicked && !missing;
+}
+
 static void moves_popup(App& app, int64_t pid) {
     static int to_team = 0, fee = 0, wage = 10000, months = 36, loan_months = 12;
     if (ImGui::BeginPopup("##moves")) {
@@ -287,7 +300,7 @@ static void moves_popup(App& app, int64_t pid) {
         ImGui::InputInt("Contract months", &months, 0);
         bool valid_team = app.model.team(to_team) != nullptr;
         if (!valid_team) ImGui::BeginDisabled();
-        if (ImGui::Button("Transfer")) {
+        if (move_button(app, "Transfer", "move_transfer")) {
             json a = {{"action", "transfer"}, {"playerid", pid}, {"to_teamid", to_team}, {"fee", fee}, {"wage", wage}, {"months", months}};
             app.send({{"op", "run"}, {"module", "player_moves"}, {"overrides", {{"actions", json::array({a})}}}}, "Transfer");
             ImGui::CloseCurrentPopup();
@@ -296,7 +309,7 @@ static void moves_popup(App& app, int64_t pid) {
         ImGui::SetNextItemWidth(S(80.0f));
         ImGui::InputInt("##loanm", &loan_months, 0);
         ImGui::SameLine();
-        if (ImGui::Button("Loan (months)")) {
+        if (move_button(app, "Loan (months)", "move_loan")) {
             json a = {{"action", "loan"}, {"playerid", pid}, {"to_teamid", to_team}, {"months", loan_months}};
             app.send({{"op", "run"}, {"module", "player_moves"}, {"overrides", {{"actions", json::array({a})}}}}, "Loan");
             ImGui::CloseCurrentPopup();
@@ -328,7 +341,7 @@ static void player_editor(App& app) {
     if (ImGui::Button("Transfer / Loan...")) ImGui::OpenPopup("##moves");
     ImGui::SameLine();
     auto simple = [&](const char* label, const char* action) {
-        if (ImGui::Button(label)) {
+        if (move_button(app, label, (std::string("move_") + action).c_str())) {
             json a = {{"action", action}, {"playerid", p->playerid}};
             app.send({{"op", "run"}, {"module", "player_moves"}, {"overrides", {{"actions", json::array({a})}}}}, label);
         }
@@ -340,7 +353,11 @@ static void player_editor(App& app) {
     simple("Loan list", "loan_list");
     simple("Remove from lists", "unlist");
     ImGui::NewLine();
-    if (ImGui::Button("Delete player...")) ImGui::OpenPopup("##delplayer");
+    if (move_button(app, "Delete player...", "delete_players")) ImGui::OpenPopup("##delplayer");
+    if (cm && app.bridge.state().unavailable_reason("move_transfer") && app.bridge.state().unavailable_reason("move_release")) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(player moves need Live Editor natives this build does not have: hover a button for details)");
+    }
     if (!cm) {
         ImGui::EndDisabled();
         ImGui::SameLine();
