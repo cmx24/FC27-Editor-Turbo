@@ -173,6 +173,7 @@ function M.run(ctx)
     local player_set = game.player_ids()
     if util.count(player_set) == 0 then return false, "players table not readable" end
 
+    if not mem.map_available() then return false, mem.NO_MAP end
     local storage, off_or_err = M.locate(player_set, calib.get(ctx.out_dir, "transfer_history"))
     if not storage then return false, off_or_err end
     calib.put(ctx.out_dir, "transfer_history", { storage_off = off_or_err })

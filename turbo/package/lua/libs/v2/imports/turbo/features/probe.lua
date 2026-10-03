@@ -110,7 +110,8 @@ function M.collect()
     end
     add("")
 
-    if in_cm then
+    add("Readable-memory map from the Turbo GUI: %s", mem.map_available() and "available" or "NOT available (memory checks skipped)")
+    if in_cm and mem.map_available() then
         local squad, count = game.user_squad()
         local okr, sr = pcall(require, 'imports/turbo/features/squad_role')
         if okr then
@@ -130,7 +131,7 @@ function M.collect()
             add("export_transfer_history memory: %s", storage and string.format("storage at TransferManager+0x%X", off) or tostring(off))
         end
     else
-        add("Memory checks skipped: load a career save and run the probe again.")
+        add(in_cm and ("Memory checks skipped: " .. mem.NO_MAP) or "Memory checks skipped: load a career save and run the probe again.")
     end
     return r
 end

@@ -122,7 +122,11 @@ function M.run(ctx)
     -- 2) PlayerStatusManager memory
     local layout, lerr = nil, "memory pass disabled (use_memory = false)"
     if ctx.cfg.use_memory ~= false then
-        layout, lerr = M.locate(squad, count, calib.get(ctx.out_dir, "squad_role"))
+        if mem.map_available() then
+            layout, lerr = M.locate(squad, count, calib.get(ctx.out_dir, "squad_role"))
+        else
+            lerr = mem.NO_MAP
+        end
     end
     if layout then
         local n = 0

@@ -162,6 +162,7 @@ function M.run(ctx)
     local team_set = game.team_ids()
     if util.count(team_set) == 0 then return false, "teams table not readable" end
 
+    if not mem.map_available() then return false, mem.NO_MAP end
     local found, err = M.locate(team_set, calib.get(ctx.out_dir, "fixtures"))
     if not found then return false, err end
     calib.put(ctx.out_dir, "fixtures", { fixtures_off = found.fixtures_off, standings_off = found.standings_off })

@@ -211,6 +211,36 @@ int wmain(int argc, wchar_t** argv) {
                 std::memcpy(&ver, reinterpret_cast<void*>(addr + 4), 4);
                 check(magic == 0x4F425254u, "mailbox magic TRBO");
                 check(ver == 1u, "mailbox version 1");
+                // readable-memory map for Turbo's Lua side: its address at mailbox +0x18, and it lists the mailbox itself
+                unsigned long long map = 0;
+                for (int t = 0; t < 50 && !map; ++t) {
+                    std::memcpy(&map, reinterpret_cast<void*>(addr + 0x18), 8);
+                    if (!map) Sleep(100);
+                }
+                check(map != 0, "readable-memory map address in the mailbox");
+                if (map) {
+                    unsigned mm = 0, seq = 0, count = 0;
+                    std::memcpy(&mm, reinterpret_cast<void*>(map), 4);
+                    std::memcpy(&seq, reinterpret_cast<void*>(map + 8), 4);
+                    std::memcpy(&count, reinterpret_cast<void*>(map + 0x0C), 4);
+                    check(mm == 0x4D4D5254u && seq % 2 == 0 && count > 0, "map magic TRMM, complete, not empty");
+                    bool has_mb = false, has_null = false, sorted = true;
+                    unsigned long long prev_end = 0;
+                    for (unsigned i = 0; i < count; ++i) {
+                        unsigned long long st = 0, en = 0;
+                        std::memcpy(&st, reinterpret_cast<void*>(map + 0x20 + i * 16ull), 8);
+                        std::memcpy(&en, reinterpret_cast<void*>(map + 0x28 + i * 16ull), 8);
+                        if (st <= addr && addr + 0x2020 <= en) has_mb = true;
+                        if (st < 0x10000) has_null = true;
+                        if (st < prev_end || en <= st) sorted = false;
+                        prev_end = en;
+                    }
+                    check(has_mb, "the map lists the mailbox as readable");
+                    check(!has_null && sorted, "sorted, non-overlapping, nothing below 64 KB");
+                    MEMORY_BASIC_INFORMATION fm{};
+                    VirtualAlloc(nullptr, 0x10000, MEM_RESERVE, PAGE_NOACCESS);  // a no-access region must never be listed
+                    check(VirtualQuery(reinterpret_cast<void*>(map), &fm, sizeof(fm)) && fm.State == MEM_COMMIT, "map memory committed");
+                }
             }
         }
         check(j.find("\"gui_version\": \"0.2.5\"") != std::string::npos, "gui_version 0.2.5");

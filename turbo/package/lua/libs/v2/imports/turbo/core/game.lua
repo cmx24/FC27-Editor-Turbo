@@ -12,7 +12,8 @@ local M = {}
 local native_get_current_date = nil
 if type(GetCurrentDate) == "function" and debug and debug.getinfo then
     local info = debug.getinfo(GetCurrentDate, "S")
-    if info and info.what == "C" then native_get_current_date = GetCurrentDate end
+    local src = info and tostring(info.source) or ""
+    if info and (info.what == "C" or not src:find("other/helpers", 1, true)) then native_get_current_date = GetCurrentDate end
 end
 M._native_get_current_date = native_get_current_date
 
@@ -37,8 +38,10 @@ end
 -- Native v1 GetUserTeamID, captured before career_mode/helpers replaces the global
 local native_get_user_team_id = nil
 if type(GetUserTeamID) == "function" and debug and debug.getinfo then
+    -- anything but Live Editor's Lua replacement (its unchecked memory walk crashes outside a career)
     local info = debug.getinfo(GetUserTeamID, "S")
-    if info and info.what == "C" then native_get_user_team_id = GetUserTeamID end
+    local src = info and tostring(info.source) or ""
+    if info and (info.what == "C" or not src:find("career_mode", 1, true)) then native_get_user_team_id = GetUserTeamID end
 end
 
 -- User club team id in career mode, 0 when unknown.
@@ -118,18 +121,46 @@ local function date_parts(d)
 end
 
 -- Current in-game date as {day, month, year, int=YYYYMMDD, source}. nil when unavailable.
+-- The in-game date from the career CalendarManager, read only through the Turbo GUI's memory map (Live Editor's own Lua
+-- GetCurrentDate in other/helpers.lua reads the same place unchecked: outside a career, or if the manager is missing,
+-- that read crashes the game). FC 26 kept day/month/year at +0x34/+0x38/+0x3C; if FC 27 moved them, the first
+-- plausible day/month/year triple in the manager is used and its offset is reported.
+local function calendar_date()
+    local mem = require 'imports/turbo/core/mem'
+    pcall(require, 'imports/career_mode/enums')
+    local id = _G["ENUM_FCEGameModesFCECareerModeCalendarManager"]
+    if type(id) ~= "number" or not mem.map_available() then return nil end
+    local cal = mem.manager(id)
+    if not cal then return nil end
+    local function triple(off)
+        local d, m, y = mem.int(cal + off), mem.int(cal + off + 4), mem.int(cal + off + 8)
+        if d and m and y and d >= 1 and d <= 31 and m >= 1 and m <= 12 and y >= 2020 and y <= 2100 then
+            return { day = d, month = m, year = y }
+        end
+        return nil
+    end
+    local d = triple(0x34)
+    if d then d.offset = 0x34 return d end
+    for off = 0x08, 0x200, 4 do
+        d = triple(off)
+        if d then d.offset = off return d end
+    end
+    return nil
+end
+
+M._calendar_date = calendar_date
+
 function M.current_date()
     local tries = {}
     if native_get_current_date then tries[#tries + 1] = { "native", native_get_current_date } end
-    if type(GetCurrentDate) == "function" and GetCurrentDate ~= native_get_current_date then
-        tries[#tries + 1] = { "lua", GetCurrentDate }
-    end
+    tries[#tries + 1] = { "calendar", calendar_date }
     for _, t in ipairs(tries) do
         local ok, d = pcall(t[2])
         local day, month, year
         if ok then day, month, year = date_parts(d) end
         if day then
-            return { day = day, month = month, year = year, int = year * 10000 + month * 100 + day, source = t[1] }
+            local src = t[1] .. ((type(d) == "table" and math.type(d.offset) == "integer") and string.format("+0x%X", d.offset) or "")
+            return { day = day, month = month, year = year, int = year * 10000 + month * 100 + day, source = src }
         end
     end
     return nil

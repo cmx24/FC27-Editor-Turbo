@@ -99,6 +99,7 @@ local MANAGERS = {   -- managerid, first, surname, teamid
 }
 
 local function build_world(sim)
+    sim.user_team = 1   -- Live Editor's GetUserTeamID (the user-manager memory walk needs the GUI's memory map)
     DATE = require 'imports/core/date'
     -- teams
     local trows = {}
@@ -352,7 +353,7 @@ local function dump_expected(sim)
 end
 
 -- ------------------------------------------------------------------ main
-local sim = H.setup({ in_cm = true })
+local sim = H.setup({ in_cm = true, no_gui = true })  -- the C++ side plays Turbo.dll here (mailbox, memory map)
 sim.date = { day = 15, month = 1, year = 2027 }
 build_world(sim)
 package.loadlib = function() return true end
@@ -471,9 +472,16 @@ elseif mode == "mailbox" then
     sim:fire("post__CareerModeEvent", 0, 7, 0)
     local calls = {}
     for i = before + 1, sim:count_calls("SetPlayerForm") do calls[#calls + 1] = sim.calls.SetPlayerForm[i] end
+    -- Turbo's Lua reader on the readable-memory map the C++ side published (core/memmap.cpp): same answers
+    local mem = require 'imports/turbo/core/mem'
+    local readable = {}
+    for i, a in ipairs(mb.probe_addrs or {}) do
+        readable[i] = mem.readable(math.tointeger(tonumber((a[1]:gsub("^0[xX]", "")), 16)), a[2]) and 1 or 0
+    end
     save_image(sim, OUT .. "/mailbox_out.img")
     local g = assert(io.open(OUT .. "/mailbox_calls.json", "wb"))
-    g:write(json.encode({ set_player_form = calls, boxes = #sim.boxes }))
+    g:write(json.encode({ set_player_form = calls, boxes = #sim.boxes, readable = readable,
+                          unmapped_reads = sim.unmapped_reads }))
     g:close()
     print("mailbox processed")
 end

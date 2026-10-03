@@ -59,7 +59,56 @@ function Sim:alloc(size, align)
     local a = (self.next_alloc + align - 1) // align * align
     self.next_alloc = a + size + 0x40
     for p = a >> PAGE, (a + size + 16) >> PAGE do self.pages[p] = true end
+    if self.gui and not self.publishing then self:publish_map() end
     return a
+end
+
+-- What Turbo.dll does in game (turbogui/src/core/memmap.h): a mailbox whose +0x18 points to the readable-memory map,
+-- republished whenever the simulated process maps memory. le_dir: bridge_dll.json is written there.
+local MAP_CAPACITY = 8192
+function Sim:enable_gui(le_dir)
+    self.publishing = true
+    local mb = self:alloc(0x2020, 16)
+    local map = self:alloc(0x20 + MAP_CAPACITY * 16, 16)
+    self.publishing = false
+    self:w32(mb, 0x4F425254)
+    self:w32(mb + 4, 1)
+    self:w64(mb + 0x18, map)
+    self.gui = { mailbox = mb, map = map }
+    self:publish_map()
+    if le_dir then
+        local f = assert(io.open(le_dir .. "/turbo_output/bridge_dll.json", "wb"))
+        f:write(string.format('{"mailbox":"0x%X","session":"sim","gui_version":"sim","updated":%d}', mb, os.time()))
+        f:close()
+    end
+    return mb, map
+end
+
+function Sim:publish_map()
+    local map = self.gui.map
+    local pages = {}
+    for p in pairs(self.pages) do pages[#pages + 1] = p end
+    table.sort(pages)
+    local regions = {}
+    for _, p in ipairs(pages) do
+        local start, stop = p << PAGE, (p + 1) << PAGE
+        local last = regions[#regions]
+        if last and last[2] == start then last[2] = stop else regions[#regions + 1] = { start, stop } end
+    end
+    assert(#regions <= MAP_CAPACITY, "sim: too many regions for the map")
+    self.publishing = true
+    local seq = self:r32(map + 8)
+    self:w32(map + 8, seq + 1)   -- odd: being written
+    for i, r in ipairs(regions) do
+        self:w64(map + 0x20 + (i - 1) * 16, r[1])
+        self:w64(map + 0x20 + (i - 1) * 16 + 8, r[2])
+    end
+    self:w32(map, 0x4D4D5254)
+    self:w32(map + 4, 1)
+    self:w32(map + 0x0C, #regions)
+    self:w32(map + 0x10, MAP_CAPACITY)
+    self:w32(map + 8, seq + 2)   -- even: complete
+    self.publishing = false
 end
 
 function Sim:mapped(addr)
@@ -198,6 +247,8 @@ function Sim:install()
     ClearEventHandlersForEvent = function(ev) s.handlers[ev] = {} end
 
     -- API v1
+    -- documented v1 native (DOC.MD); FC 27 LE's career_mode/helpers.lua replaces the global with a memory walk
+    GetUserTeamID = function() return s.in_cm and (s.user_team or 0) or 0 end
     GetCurrentDate = function() return { day = s.date.day, month = s.date.month, year = s.date.year } end
     GetPlayerName = function(pid) return "Player " .. tostring(pid) end
     GetTeamName = function(tid) return s.team_names[tid] or ("Team " .. tostring(tid)) end

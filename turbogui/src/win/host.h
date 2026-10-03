@@ -39,6 +39,10 @@ bool start_overlay(HMODULE self);
 // return no input. Installed after the overlay hooks (MinHook initialised); best effort.
 void install_input_shield();
 void input_shield_report();
+// Readable-memory map for Turbo's Lua side (memmap_win.cpp, core/memmap.h): allocated, its address stored in the
+// mailbox, refreshed every second by a background thread. Returns the map address (0 if it could not be allocated).
+uint64_t start_memmap(uint64_t mailbox);
+
 // What the overlay wants right now (window shown and the mouse over it / a text field active)
 bool input_block_mouse();
 bool input_block_keyboard();

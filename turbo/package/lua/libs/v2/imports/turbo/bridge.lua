@@ -323,6 +323,15 @@ local function find_mailbox()
     return addr, data.session
 end
 
+-- Address of the Turbo GUI's mailbox in this game process (nil without a fresh bridge_dll.json); used by core/mem.lua
+-- to find the readable-memory map
+function M.mailbox_address()
+    if S.mailbox and MEMORY:ReadInt(S.mailbox) == MAGIC then return S.mailbox end
+    local addr = find_mailbox()
+    if addr then S.mailbox = addr end
+    return addr
+end
+
 local function read_text(addr)
     local s = MEMORY:ReadString(addr, TEXT_SIZE)
     if type(s) ~= "string" then return "" end

@@ -44,6 +44,7 @@ end
 
 function W.build(sim, opts)
     opts = opts or {}
+    sim.user_team = W.USER_TEAM
     local DATE = require 'imports/core/date'
     local function gdays(y, m, d)
         local x = DATE:new()

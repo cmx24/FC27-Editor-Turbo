@@ -8,7 +8,7 @@ print("t07 Turbo GUI bridge: state files, mailbox commands, GUI settings, Turbo.
 local MAGIC = 0x4F425254
 local DAY_PASSED, POST_LOAD_PREPARE = 15, 29
 
-local sim = H.setup({ in_cm = true })
+local sim = H.setup({ in_cm = true, no_gui = true })  -- this file drives its own mailbox
 W.build(sim, {})
 
 local json = require 'imports/external/json'

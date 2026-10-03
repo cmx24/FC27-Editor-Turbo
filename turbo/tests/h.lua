@@ -60,6 +60,8 @@ function H.setup(opts)
     dofile(le .. "/lua/libs/v2/main.lua")
 
     if opts.config then H.write_config(opts.config) end
+    -- The Turbo GUI running in game (mailbox + readable-memory map), unless a test needs it absent
+    if not opts.no_gui then sim:enable_gui(le) end
     return sim, le
 end
 

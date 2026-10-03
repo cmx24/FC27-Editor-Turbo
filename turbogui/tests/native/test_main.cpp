@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "core/bridge.h"
+#include "core/memmap.h"
 #include "core/le_log.h"
 #include "core/model.h"
 #include "core/t3db.h"
@@ -516,6 +517,25 @@ static void test_core() {
         CHECK(d.meta_loaded() && d.state().loaded && d.names()->size() == 20, "fresh files used");
     });
 
+    run_case("readable-memory map: merging and the reader", [&] {
+        auto m = merge_regions({{0x20000, 0x21000}, {0x21000, 0x23000}, {0x5000, 0x30000}, {0x40000, 0x40000},
+                                {0x50000, 0x51000}, {0x8000000000000ull, 0x8000000001000ull}});
+        CHECK(m.size() == 2 && m[0].start == kMinPtr && m[0].end == 0x30000 && m[1].start == 0x50000,
+              fmt("merged %zu regions", m.size()));
+        SimMemory sm;
+        const uint64_t map = 0x70000000;
+        sm.map(map, map_bytes(1));
+        CHECK(publish_map(sm, map, 1, m), "published (capacity 1: the higher region is left out)");
+        CHECK(map_contains(sm, map, 0x20000, 0x1000) && !map_contains(sm, map, 0x50000, 4), "capacity respected");
+        uint32_t seq = 0;
+        sm.rd(map + 8, seq);
+        CHECK(seq % 2 == 0, "even sequence when complete");
+        uint32_t odd = seq + 1;
+        sm.wr(map + 8, odd);
+        CHECK(!map_contains(sm, map, 0x20000, 4), "being rewritten: refused");
+        CHECK(!map_contains(sm, 0x7F000000, 0x20000, 4), "no map: refused");
+    });
+
     run_case("mailbox protocol against Turbo's Lua bridge", [&] {
         const uint64_t kMb = 0x30000000;
         mem.map(kMb, kMailboxSize);
@@ -531,8 +551,25 @@ static void test_core() {
         bool ok = false;
         std::string result;
         CHECK(!mb.take_result(ok, result), "no result yet");
+        // what Turbo.dll does in game: publish the readable-memory map and point the mailbox at it
+        const uint64_t kMap = 0x31000000;
+        mem.map(kMap, turbo::map_bytes(256));
+        std::vector<Region> regions;
+        for (const auto& pg : mem.pages) regions.push_back({pg.first * SimMemory::kPage, (pg.first + 1) * SimMemory::kPage});
+        regions = merge_regions(regions);
+        CHECK(publish_map(mem, kMap, 256, regions), "map published");
+        CHECK(mem.wr(kMb + kMailboxMapPtr, kMap), "map address in the mailbox");
+        json probes = json::array();
+        std::vector<int> want;
+        for (const auto& pa : std::vector<std::pair<uint64_t, uint64_t>>{
+                 {kMb, 8}, {kMb + kMailboxSize - 4, 4}, {kMap + 0x20, 16}, {0x3600000028ull, 4}, {0x10, 4},
+                 {regions.front().start, 8}, {regions.back().end - 8, 8}, {regions.back().end - 4, 8}}) {
+            probes.push_back({hex_addr(pa.first), pa.second});
+            want.push_back(map_contains(mem, kMap, pa.first, pa.second) ? 1 : 0);
+        }
+        CHECK(want[0] == 1 && want[3] == 0 && want[4] == 0 && want[7] == 0, "C++ reader: inside / outside / straddling the end");
         mem.save(g_out / "mailbox_in.img");
-        std::ofstream(g_out / "mailbox.json") << json({{"mailbox", hex_addr(kMb)}}).dump();
+        std::ofstream(g_out / "mailbox.json") << json({{"mailbox", hex_addr(kMb)}, {"probe_addrs", probes}}).dump();
         CHECK(run_lua("mailbox") == 0, "gui_world.lua mailbox");
         SimMemory after;
         CHECK(after.load(g_out / "mailbox_out.img"), "mailbox_out.img");
@@ -549,6 +586,10 @@ static void test_core() {
         for (const auto& c : calls["set_player_form"]) all77 = all77 && c[1].get<int>() == 77;
         CHECK(all77, "form value from the GUI");
         CHECK(calls["boxes"].get<int>() == 0, "no message box for GUI commands");
+        CHECK(calls["readable"].size() == want.size(), "Lua answered every map probe");
+        for (size_t i = 0; i < want.size() && i < calls["readable"].size(); ++i)
+            CHECK(calls["readable"][i].get<int>() == want[i], fmt("map probe %zu: Lua %d, C++ %d", i, calls["readable"][i].get<int>(), want[i]));
+        CHECK(calls["unmapped_reads"].get<int>() == 0, "Lua made no unmapped read");
         CHECK(mb.submit("{\"op\":\"ping\"}", &err), "next command accepted");
         mb.cancel();
         CHECK(!mb.pending() && !mb.take_result(ok, result), "cancelled command: not pending, no result");
