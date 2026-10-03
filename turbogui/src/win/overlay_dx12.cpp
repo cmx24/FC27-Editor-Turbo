@@ -402,6 +402,7 @@ static void render_frame_impl(IDXGISwapChain3* sc) {
     if (sc != g_swapchain && !retarget(sc)) return;
 
     try {
+        TurboInputScope own_input;  // Turbo's own key / mouse reads see the real state (the input shield is for the game)
         g_app->tick(now_seconds());
         poll_input();
         ImGui_ImplDX12_NewFrame();

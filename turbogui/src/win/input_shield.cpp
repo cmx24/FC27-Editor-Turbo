@@ -5,6 +5,12 @@
 // messages from the game; this hooks the polling APIs and hands the game "no input" while Turbo owns it:
 //   IDirectInputDevice8W::GetDeviceState / GetDeviceData   (vtable taken from a throw-away system mouse device)
 //   user32 GetRawInputBuffer / GetRawInputData
+//   user32 GetAsyncKeyState / GetKeyState / GetKeyboardState / GetCursorPos (polled key and mouse state: FC 27 polls raw
+//   input only about twice a second, yet a Turbo click moved the game's menu focus to the card under the mouse, seen in
+//   game 02-10-2026)
+// While Turbo has the mouse, the game gets mouse buttons up and the cursor where it was when Turbo took the mouse;
+// while Turbo has the keyboard (a text field), every key reads as up. Turbo's own reads run inside TurboInputScope and
+// get the real state.
 // Everything is best effort: a hook that cannot be installed is logged and Turbo runs without it. Nothing is changed
 // while Turbo does not want the input (the original call's result is returned untouched).
 #include <windows.h>
@@ -29,13 +35,36 @@ using GetDeviceStateFn = HRESULT(STDMETHODCALLTYPE*)(IDirectInputDevice8W*, DWOR
 using GetDeviceDataFn = HRESULT(STDMETHODCALLTYPE*)(IDirectInputDevice8W*, DWORD, LPDIDEVICEOBJECTDATA, LPDWORD, DWORD);
 using GetRawInputBufferFn = UINT(WINAPI*)(PRAWINPUT, PUINT, UINT);
 using GetRawInputDataFn = UINT(WINAPI*)(HRAWINPUT, UINT, LPVOID, PUINT, UINT);
+using GetAsyncKeyStateFn = SHORT(WINAPI*)(int);
+using GetKeyStateFn = SHORT(WINAPI*)(int);
+using GetKeyboardStateFn = BOOL(WINAPI*)(PBYTE);
+using GetCursorPosFn = BOOL(WINAPI*)(LPPOINT);
 
 GetDeviceStateFn o_state = nullptr;
 GetDeviceDataFn o_data = nullptr;
 GetRawInputBufferFn o_rawbuf = nullptr;
 GetRawInputDataFn o_rawdata = nullptr;
+GetAsyncKeyStateFn o_async = nullptr;
+GetKeyStateFn o_keystate = nullptr;
+GetKeyboardStateFn o_kbstate = nullptr;
+GetCursorPosFn o_cursor = nullptr;
 
 std::atomic<long> n_state{0}, n_data{0}, n_rawbuf{0}, n_rawdata{0}, n_blocked{0};
+std::atomic<long> n_async{0}, n_keystate{0}, n_kbstate{0}, n_cursor{0};
+
+thread_local int t_turbo = 0;  // > 0 while Turbo itself reads input (TurboInputScope)
+
+// Last cursor position the game saw while Turbo did not have the mouse
+std::atomic<long> g_cur_x{0}, g_cur_y{0};
+std::atomic<bool> g_cur_known{false};
+
+bool is_mouse_vk(int vk) { return vk == VK_LBUTTON || vk == VK_RBUTTON || vk == VK_MBUTTON || vk == VK_XBUTTON1 || vk == VK_XBUTTON2; }
+
+// Does the shield hide this virtual key from the game right now?
+bool block_vk(int vk) {
+    if (t_turbo > 0) return false;
+    return is_mouse_vk(vk) ? input_block_mouse() : input_block_keyboard();
+}
 
 // Device type per DirectInput device (mouse / keyboard / other), cached: GetDeviceInfo is not called every poll
 struct DevType {
@@ -134,6 +163,63 @@ UINT WINAPI hk_rawdata(HRAWINPUT h, UINT cmd, LPVOID data, PUINT size, UINT head
     return r;
 }
 
+SHORT WINAPI hk_async(int vk) {
+    if (t_turbo > 0) return o_async(vk);
+    ++n_async;
+    SHORT r = o_async(vk);
+    if (r != 0 && block_vk(vk)) {
+        ++n_blocked;
+        return 0;
+    }
+    return r;
+}
+
+SHORT WINAPI hk_keystate(int vk) {
+    if (t_turbo > 0) return o_keystate(vk);
+    ++n_keystate;
+    SHORT r = o_keystate(vk);
+    if ((r & 0x8000) && block_vk(vk)) {
+        ++n_blocked;
+        return static_cast<SHORT>(r & 0x0001);  // keep the toggle bit (Caps Lock and the like), report "up"
+    }
+    return r;
+}
+
+BOOL WINAPI hk_kbstate(PBYTE keys) {
+    if (t_turbo > 0) return o_kbstate(keys);
+    ++n_kbstate;
+    BOOL ok = o_kbstate(keys);
+    if (!ok || !keys) return ok;
+    const bool mouse = input_block_mouse(), kb = input_block_keyboard();
+    if (!mouse && !kb) return ok;
+    bool any = false;
+    for (int vk = 1; vk < 256; ++vk) {
+        if ((keys[vk] & 0x80) && (is_mouse_vk(vk) ? mouse : kb)) {
+            keys[vk] &= 0x01;
+            any = true;
+        }
+    }
+    if (any) ++n_blocked;
+    return ok;
+}
+
+BOOL WINAPI hk_cursor(LPPOINT p) {
+    if (t_turbo > 0) return o_cursor(p);
+    ++n_cursor;
+    BOOL ok = o_cursor(p);
+    if (!ok || !p) return ok;
+    if (input_block_mouse() && g_cur_known) {
+        p->x = g_cur_x;  // the game keeps the cursor where it was before Turbo took the mouse
+        p->y = g_cur_y;
+        ++n_blocked;
+    } else {
+        g_cur_x = p->x;
+        g_cur_y = p->y;
+        g_cur_known = true;
+    }
+    return ok;
+}
+
 bool hook(void* target, void* detour, void** original, const char* name) {
     if (!target) {
         log("input shield: %s not found", name);
@@ -163,6 +249,14 @@ void install_input_shield() {
                    reinterpret_cast<void**>(&o_rawbuf), "GetRawInputBuffer");
         ok += hook(reinterpret_cast<void*>(GetProcAddress(user32, "GetRawInputData")), reinterpret_cast<void*>(&hk_rawdata),
                    reinterpret_cast<void**>(&o_rawdata), "GetRawInputData");
+        ok += hook(reinterpret_cast<void*>(GetProcAddress(user32, "GetAsyncKeyState")), reinterpret_cast<void*>(&hk_async),
+                   reinterpret_cast<void**>(&o_async), "GetAsyncKeyState");
+        ok += hook(reinterpret_cast<void*>(GetProcAddress(user32, "GetKeyState")), reinterpret_cast<void*>(&hk_keystate),
+                   reinterpret_cast<void**>(&o_keystate), "GetKeyState");
+        ok += hook(reinterpret_cast<void*>(GetProcAddress(user32, "GetKeyboardState")), reinterpret_cast<void*>(&hk_kbstate),
+                   reinterpret_cast<void**>(&o_kbstate), "GetKeyboardState");
+        ok += hook(reinterpret_cast<void*>(GetProcAddress(user32, "GetCursorPos")), reinterpret_cast<void*>(&hk_cursor),
+                   reinterpret_cast<void**>(&o_cursor), "GetCursorPos");
     }
     // DirectInput 8: only when the game itself has loaded it (Turbo never loads dinput8.dll into a game that does not use it)
     HMODULE di = GetModuleHandleW(L"dinput8.dll");
@@ -191,9 +285,13 @@ void install_input_shield() {
 }
 
 void input_shield_report() {
-    log("input shield: game polled DirectInput state %ld / data %ld, raw input buffer %ld / data %ld; %ld blocked while "
-        "Turbo had the input",
-        n_state.load(), n_data.load(), n_rawbuf.load(), n_rawdata.load(), n_blocked.load());
+    log("input shield: game polled DirectInput state %ld / data %ld, raw input buffer %ld / data %ld, GetAsyncKeyState %ld, "
+        "GetKeyState %ld, GetKeyboardState %ld, GetCursorPos %ld; %ld blocked while Turbo had the input",
+        n_state.load(), n_data.load(), n_rawbuf.load(), n_rawdata.load(), n_async.load(), n_keystate.load(),
+        n_kbstate.load(), n_cursor.load(), n_blocked.load());
 }
+
+TurboInputScope::TurboInputScope() { ++t_turbo; }
+TurboInputScope::~TurboInputScope() { --t_turbo; }
 
 }  // namespace host

@@ -73,6 +73,13 @@ LOG="$LE/turbo_output/turbo_gui.log"
 fails=0
 check() { if eval "$2"; then echo "  PASS $1"; else echo "  FAIL $1"; fails=$((fails + 1)); fi; }
 has() { grep -q -- "$1" "$LOG" 2>/dev/null; }
+# the stand-in game polled GetCursorPos + GetKeyboardState every frame and both succeeded every time
+state_reads_ok() {
+    local p o
+    p=$(sed -nE 's/.*state_polls=([0-9]+).*/\1/p' "$OUT/status.txt")
+    o=$(sed -nE 's/.*state_ok=([0-9]+).*/\1/p' "$OUT/status.txt")
+    [ -n "$p" ] && [ -n "$o" ] && [ "$p" -gt 0 ] && [ "$o" -eq $((2 * p)) ]
+}
 # pixels in the game window area that are not the stand-in game's own clear colour (rgb 26,77,51)
 foreign() { convert "$1" -crop 1000x700+12+40 +repage -fill black -fuzz 4% -opaque "rgb(26,77,51)" -fill white +opaque black \
             -format "%[fx:round(mean*w*h)]" info: 2>/dev/null || echo -1; }
@@ -91,8 +98,9 @@ else
     check "without TurboProbe.exe Turbo falls back to probing inside the game" "has 'falling back'"
 fi
 check "hooks installed" "has 'hooks installed'"
-check "input shield hooked the game's DirectInput 8 mouse and raw input (4 hooks)" "has 'input shield: 4 input hooks installed'"
+check "input shield hooked DirectInput 8, raw input and the polled key/mouse state (8 hooks)" "has 'input shield: 8 input hooks installed'"
 check "the game's DirectInput mouse still works with the shield (polled every frame, no errors)" "grep -qE 'dinput_polls=[1-9][0-9]* dinput_ok=[1-9]' '$OUT/status.txt'"
+check "the game's GetCursorPos / GetKeyboardState still work with the shield (both succeed every frame)" "state_reads_ok"
 check "overlay picked the game's direct queue" "has 'overlay queue:'"
 check "Dear ImGui initialised on the game's swap chain" "has 'overlay ready'"
 check "start phase proven (300 frames)" "has 'overlay proven'"
