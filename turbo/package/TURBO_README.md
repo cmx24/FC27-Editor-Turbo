@@ -11,7 +11,7 @@ Offline Career Mode / Kick-Off only. Never use Live Editor or Turbo in online mo
    - `turbo\Turbo.dll`, `turbo\TurboProbe.exe`, `turbo\TurboInjector.exe` (the Turbo GUI)
    - `turbo_config.json`, `TURBO_README.md`, `turbo_output\`
    - `lua\autorun\turbo_boot.lua`
-   - `lua\scripts\turbo_*.lua` (28 scripts, including `turbo_selftest.lua`)
+   - `lua\scripts\turbo_*.lua` (29 scripts, including `turbo_selftest.lua` and `turbo_images.lua`)
    - `lua\libs\v2\imports\turbo\` (the Turbo library and the GUI bridge)
 
 ## Open the Turbo GUI
@@ -60,10 +60,10 @@ Nothing here modifies Live Editor or the game, so everything can be switched off
 
 | Tab | What you can do |
 | --- | --- |
-| Players | Search by name, ID or club, "My club", filters: position (any of the 7 preferred positions), PlayStyle / PlayStyle+, retiring, minimum OVR / POT, maximum age; sort by any column. Edit: Profile (overall, potential, foot, skill moves, height, weight, ...), positions 1-7, birth date and join date as real dates, Attributes (grouped like the game), PlayStyles / PlayStyles+ / Traits / Traits+ as tick boxes with All/None, **Appearance** (real-face picker, tattoo picker, every appearance field), **Miniface**, kit number and line-up slot per team, All fields. Career buttons: Transfer, Loan, Release, Terminate loan, Delete player (with confirmation); Transfer list / Loan list / Remove from lists need Live Editor natives v27.1.2 does not have. |
+| Players | Search by name, ID or club, "My club", filters: position (any of the 7 preferred positions), PlayStyle / PlayStyle+, retiring, minimum OVR / POT, maximum age; sort by any column. Edit: Profile (overall, potential, foot, skill moves, height, weight, ...), positions 1-7, birth date and join date as real dates, Attributes (grouped like the game), PlayStyles / PlayStyles+ / Traits / Traits+ as tick boxes with All/None, **Appearance** (real-face picker, tattoo picker, every appearance field), **Miniface**, kit number and line-up slot per team, All fields. Career buttons: Transfer, Loan, Release, Terminate loan, Delete player (with confirmation), done by Turbo in the career database because FC 27 LE v27.1.2 has no native for them: **never for your own club** (moves into or out of it, and deleting your players, are refused: such database-only moves crashed a test career in FC 27; use the game's transfer screens for your club). Between other clubs they are not verified in game yet: back up your save first; squad screens show a move after saving and loading the career. Transfer list / Loan list / Remove from lists need Live Editor natives v27.1.2 does not have. |
 | Teams | Team list, overview fields (ratings, prestige, budget, ...), squad with editable kit numbers and slots (click a player to open him), All fields. |
 | Managers | Manager list, every field of the `manager` table, and the manager's miniface. |
-| Competitions | League tables (`leagueteamlinks`): won, drawn, lost, goals for / against, points, table position per club, "Write table positions". See the note below: FC 27's own Standings screen does not read these numbers yet. |
+| Competitions | League tables (`leagueteamlinks`): won, drawn, lost, goals for / against, points, table position per club, "Recalculate points" (3 per win, 1 per draw), "Write table positions". See the note below: FC 27's own Standings screen does not read these numbers yet. |
 | Database | Any table of the live database: filter by field = value, double-click a cell to edit it. |
 | Turbo Tools | Bulk edit players (your squad, team IDs, exactly the players the Players list shows, or everyone): any players-table field, fitness / form / morale, development (XP multiplier, bonus XP, no decline). Your club's transfer budget (read, set, add). Every Turbo 0.1 feature as a button: form/morale/fitness (now or every day), squad role, contract extensions, Player Career PlayStyles (now or automatic), season stats / fixtures / transfer history / any table to CSV, transfer bans, delete generated players, real-face head models, probe report, dry run. |
 | Status | Game images (cache, waiting images, empty the cache), connection details, show/hide key, log. |

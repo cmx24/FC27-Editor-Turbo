@@ -52,7 +52,7 @@ Xvfb "$DISP" -screen 0 1920x1080x24 -nolisten tcp >/dev/null 2>&1 &
 XPID=$!
 trap 'kill $XPID 2>/dev/null || true' EXIT
 sleep 2
-export DISPLAY="$DISP" WINEPREFIX="$OUT/prefix" WINEDEBUG=-all VK_ICD_FILENAMES="$LVP" TURBO_GUI_SETTLE_MS=500
+export DISPLAY="$DISP" WINEPREFIX="$OUT/prefix" WINEDEBUG=-all VK_ICD_FILENAMES="$LVP" TURBO_GUI_SETTLE_MS=500 TURBO_GUI_TEST_TEXTURES=1
 "$WINE" wineboot -i >/dev/null 2>&1 || true
 
 "$WINE" "$OUT/bin/game_stub.exe" "$(winpath "$LE")" "$RUN_S" 1000 6000 11000 "$(winpath "$OUT/status.txt")" "$PAUSE_MS" 1500 > "$OUT/game.log" 2>&1 &
@@ -106,6 +106,7 @@ check "Dear ImGui initialised on the game's swap chain" "has 'overlay ready'"
 check "start phase proven (300 frames)" "has 'overlay proven'"
 check "F8 showed the window: first frame drawn on screen" "has 'first frame drawn on screen'"
 check "drawing proven (120 frames submitted)" "has 'drawing proven'"
+check "pictures: the renderer created and destroyed textures (picture panels' path)" "grep -qE 'texture test: [1-9][0-9]* created, [1-9][0-9]* destroyed and freed' '$LOG'"
 check "no overlay error logged" "! grep -qiE 'error|failed|disabled for this session' '$LOG'"
 check "crash flag cleared" "[ ! -e '$LE/turbo_output/turbo_gui_start.flag' ]"
 H=$(foreign "$OUT/hidden.png"); S=$(foreign "$OUT/shown.png"); Z=$(foreign "$OUT/resized.png")

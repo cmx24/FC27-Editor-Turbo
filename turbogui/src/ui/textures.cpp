@@ -31,6 +31,7 @@ ImTextureData* TextureCache::upload(const Rgba& img) {
     t->UsedRect.w = static_cast<unsigned short>(img.w);
     t->UsedRect.h = static_cast<unsigned short>(img.h);
     ImGui::RegisterUserTexture(t);
+    ++created_;
     return t;
 }
 
@@ -48,6 +49,7 @@ void TextureCache::new_frame(double now) {
         if (t->Status == ImTextureStatus_Destroyed) {
             if (ImGui::GetCurrentContext()) ImGui::UnregisterUserTexture(t);
             IM_DELETE(t);
+            ++freed_;
             dying_[i] = dying_.back();
             dying_.pop_back();
         } else {

@@ -21,6 +21,17 @@ REPOS = ["FIFA-21-Live-Editor", "FC-24-Live-Editor", "FC-25-Live-Editor", "FC-26
 
 # Names not in either source, kept on purpose. The GUI drops a field silently when the game's table lacks it.
 ALLOWED = {
+    "cksupport1": "in FC 27's own cm_teamsheets / teams (fc27_db_schema.json dumped in game, 03-10-2026)",
+    "cksupport2": "in FC 27's own cm_teamsheets / teams (fc27_db_schema.json dumped in game, 03-10-2026)",
+    "cksupport3": "in FC 27's own cm_teamsheets / teams (fc27_db_schema.json dumped in game, 03-10-2026)",
+    "cksupport4": "in FC 27's own cm_teamsheets / teams (fc27_db_schema.json dumped in game, 03-10-2026)",
+    "cksupport5": "in FC 27's own cm_teamsheets / teams (fc27_db_schema.json dumped in game, 03-10-2026)",
+    "cksupport6": "in FC 27's own cm_teamsheets / teams (fc27_db_schema.json dumped in game, 03-10-2026)",
+    "cksupport7": "in FC 27's own cm_teamsheets / teams (fc27_db_schema.json dumped in game, 03-10-2026)",
+    "cksupport8": "in FC 27's own cm_teamsheets / teams (fc27_db_schema.json dumped in game, 03-10-2026)",
+    "cksupport9": "in FC 27's own cm_teamsheets / teams (fc27_db_schema.json dumped in game, 03-10-2026)",
+    "throwerleft": "in FC 27's own cm_teamsheets / teams (fc27_db_schema.json dumped in game, 03-10-2026)",
+    "throwerright": "in FC 27's own cm_teamsheets / teams (fc27_db_schema.json dumped in game, 03-10-2026)",
     "physioaccess_senior": "teams overview: newer CM facility field, unverified; shown only if FC 27 has it",
     "preferredposition5": "FC 26 added preferred positions 5-7 (LE v26.3.2); shown only if present",
     "preferredposition6": "same",

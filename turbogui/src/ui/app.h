@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <deque>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -78,6 +79,11 @@ public:
     std::shared_ptr<const NameMap> seen_names_;
     struct { float x = 0.0f, y = 0.0f; } main_window_size_;  // last size of the main window (follows UI size changes)
     int lua_heartbeat_last = 0;
+    // TURBO_GUI_TEST_TEXTURES=1 (overlay tests): a small window whose picture is replaced every few frames, so the
+    // renderer creates and destroys textures the way the picture panels do
+    bool texture_test = false;
+    std::function<void(const std::string&)> log_hook;  // writes to turbo_gui.log (set by the Windows host)
+    int texture_test_frames = 0;
     double lua_heartbeat_seen_at = -1.0;
 
     // ---- selections / UI state

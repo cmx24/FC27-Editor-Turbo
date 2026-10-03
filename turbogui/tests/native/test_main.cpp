@@ -27,6 +27,7 @@
 #include "core/bridge.h"
 #include "core/image.h"
 #include "core/legacy.h"
+#include "core/devops.h"
 #include "core/memmap.h"
 #include "core/le_log.h"
 #include "core/model.h"
@@ -1590,6 +1591,87 @@ static void test_images() {
     });
 }
 
+
+// ================================================================ dev service (memory tools)
+static void test_devops() {
+    run_case("dev service: read, ptrs, write, find, scan / refine, dump, multi, bad requests", [&] {
+        SimMemory mem;
+        const uint64_t A = 0x50000000, B = 0x50100000;
+        mem.map(A, 0x4000);
+        mem.map(B, 0x2000);
+        uint32_t v = 4242;
+        mem.wr(A + 0x100, v);
+        mem.wr(A + 0x3000, v);
+        mem.wr(B + 0x10, v);
+        uint64_t p = B + 0x10;
+        mem.wr(A + 0x200, p);
+        uint8_t sig[] = {0x48, 0x8B, 0x05, 0x11, 0x22};
+        mem.write(B + 0x800, sig, sizeof(sig));
+        float fl = 3.25f;
+        mem.wr(A + 0x400, fl);
+        DevEnv env;
+        env.mem = &mem;
+        env.regions = [&]() {
+            return std::vector<DevRegion>{{A, A + 0x4000, true, "private"}, {B, B + 0x2000, false, "image"}};
+        };
+        double clock = 0.0;
+        env.clock = [&]() { return clock; };
+        std::vector<int> keys;
+        env.key = [&](int vk, int ms, bool* sent) { keys.push_back(vk); *sent = true; return std::string(); };
+        env.sleep = [&](int ms) { clock += ms / 1000.0; };
+        env.out_dir = g_out;
+        DevService d(env);
+        json r = d.run({{"id", 1}, {"op", "read"}, {"addr", "0x50000100"}, {"len", 4}});
+        CHECK(r["ok"] && r["hex"] == "92100000" && r["id"] == 1, "read: " + r.dump());
+        r = d.run({{"op", "ptrs"}, {"addr", "0x50000200"}, {"count", 1}});
+        CHECK(r["values"][0] == "0x50100010", "ptrs: " + r.dump());
+        r = d.run({{"op", "read"}, {"addr", "0x60000000"}});
+        CHECK(!r["ok"] && r["error"].get<std::string>().find("unreadable") != std::string::npos, "unreadable refused");
+        r = d.run({{"op", "find"}, {"pattern", "48 8B ?? 11"}});
+        CHECK(r["ok"] && r["hits"].size() == 1 && r["hits"][0] == "0x50100800", "find with wildcard: " + r.dump());
+        r = d.run({{"op", "find"}, {"pattern", "48 8B ?? 11"}, {"writable", true}});
+        CHECK(r["hits"].empty(), "find limited to writable regions");
+        r = d.run({{"op", "scan"}, {"type", "i32"}, {"value", 4242}});
+        CHECK(r["count"] == 3, "scan i32: " + r.dump());
+        uint32_t v2 = 4243;
+        mem.wr(A + 0x3000, v2);
+        r = d.run({{"op", "changed"}});
+        CHECK(r["count"] == 1 && r["first"][0] == "0x50003000", "changed: " + r.dump());
+        r = d.run({{"op", "refine"}, {"value", 4243}});
+        CHECK(r["count"] == 1, "refine value");
+        r = d.run({{"op", "list"}});
+        CHECK(r["candidates"][0]["value"] == 4243, "list with values");
+        r = d.run({{"op", "scan"}, {"type", "f32"}, {"value", 3.25}, {"writable", true}});
+        CHECK(r["count"] == 1 && r["first"][0] == "0x50000400", "scan f32: " + r.dump());
+        r = d.run({{"op", "write"}, {"addr", "0x50000100"}, {"hex", "01020304"}});
+        uint32_t back = 0;
+        mem.rd(A + 0x100, back);
+        CHECK(r["ok"] && back == 0x04030201, "write");
+        r = d.run({{"op", "write"}, {"addr", "0x60000000"}, {"hex", "01"}});
+        CHECK(!r["ok"], "write to unmapped memory refused");
+        r = d.run({{"op", "dump"}, {"addr", "0x50100800"}, {"len", 5}, {"file", "dev_dump.bin"}});
+        CHECK(r["ok"] && file_bytes(g_out / "dev_dump.bin") == std::vector<uint8_t>(sig, sig + 5), "dump");
+        r = d.run({{"op", "dump"}, {"addr", "0x50100800"}, {"len", 5}, {"file", "../evil.bin"}});
+        CHECK(!r["ok"], "dump file name must be plain");
+        r = d.run({{"op", "seq"}, {"steps", {{{"op", "key"}, {"vk", 27}, {"ms", 150}}, {{"op", "sleep"}, {"ms", 500}}, {{"op", "ping"}}}}});
+        CHECK(r["ok"] && keys.size() == 1 && keys[0] == 27 && clock >= 0.5, "seq: key, sleep, ping: " + r.dump());
+        r = d.run({{"op", "multi"}, {"ops", {{{"op", "multi"}, {"ops", json::array()}}}}});
+        CHECK(!r["ok"], "nested multi refused");
+        r = d.run({{"op", "region"}, {"addr", "0x50100004"}});
+        CHECK(r["ok"] && r["start"] == "0x50100000" && r["kind"] == "image" && !r["writable"], "region");
+        r = d.run({{"op", "nonsense"}});
+        CHECK(!r["ok"], "unknown op");
+        r = d.run(json::array());
+        CHECK(!r["ok"], "not an object");
+        // time budget: a scan stops when the clock runs out
+        env.time_budget = 0.0;
+        DevService d2(env);
+        env.clock = nullptr;
+        r = d2.run({{"op", "find"}, {"pattern", "FF FF FF FF FF"}});
+        CHECK(r["ok"], "find with no hits");
+    });
+}
+
 // Live Editor's own log decides when a Turbo.dll loaded at game launch may start (src/win/dllmain.cpp)
 static void test_le_log() {
     using turbo::LeLogState;
@@ -1643,6 +1725,8 @@ int main(int argc, char** argv) {
     test_core();
     std::printf("native pictures\n");
     test_images();
+    std::printf("native dev service\n");
+    test_devops();
     std::printf("native Live Editor log\n");
     test_le_log();
     std::printf("native UI\n");

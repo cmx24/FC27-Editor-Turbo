@@ -795,6 +795,7 @@ bool start_overlay(HMODULE) {
     g_mem = new ProcessMemory();
     g_app = new turbo::App(*g_mem, le_root(), reinterpret_cast<uint64_t>(mailbox), session);
     g_app->bridge.set_min_file_time(load_time() - std::chrono::minutes(2));
+    g_app->log_hook = [](const std::string& s) { log("%s", s.c_str()); };
     if (g_app->mailbox) start_memmap(reinterpret_cast<uint64_t>(mailbox));
     g_toggle_vk = g_app->toggle_vk;
 
@@ -839,8 +840,11 @@ bool start_overlay(HMODULE) {
     }
     log("hooks installed; press %s in game to show Turbo", turbo::key_name(g_app->toggle_vk));
     install_input_shield();
+    start_devtools();
     return true;
 }
+
+HWND game_window() { return g_hwnd; }
 
 bool input_block_mouse() { return g_ready && g_visible && g_want_mouse; }
 bool input_block_keyboard() { return g_ready && g_visible && g_want_keyboard; }

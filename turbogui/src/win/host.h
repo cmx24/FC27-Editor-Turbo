@@ -52,5 +52,9 @@ uint64_t start_memmap(uint64_t mailbox);
 bool input_block_mouse();
 bool input_block_keyboard();
 void stop_overlay();
+// The game window the overlay draws on (null before the overlay found it)
+HWND game_window();
+// Dev service (devtools_win.cpp, core/devops.h): memory tools answering turbo_output\turbo_dev_request.json
+void start_devtools();
 
 }  // namespace host

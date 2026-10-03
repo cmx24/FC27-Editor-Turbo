@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <fstream>
 #include <sstream>
@@ -74,6 +75,7 @@ App::App(Memory& m, fs::path le_root, uint64_t mailbox_addr, std::string sess)
         }
     }
     load_gui_settings();
+    if (const char* tt = std::getenv("TURBO_GUI_TEST_TEXTURES")) texture_test = tt[0] == '1';
     log(std::string("Turbo GUI ") + kGuiVersion + " started");
 }
 
@@ -266,6 +268,25 @@ bool App::save_gui_settings() {
 // ---------------------------------------------------------------- main window
 void App::draw() {
     textures.new_frame(now);
+    if (texture_test && visible) {
+        ++texture_test_frames;
+        uint64_t version = static_cast<uint64_t>(texture_test_frames / 5);
+        Rgba img;
+        img.w = img.h = 64;
+        img.px.assign(64 * 64 * 4, 255);
+        for (size_t i = 0; i < img.px.size(); i += 4) img.px[i] = static_cast<uint8_t>(version * 37);
+        TextureCache::Pic pic = textures.pixels("texture_test", version, img);
+        ImGui::SetNextWindowPos(ImVec2(S(20.0f), S(20.0f)), ImGuiCond_Always);
+        ImGui::Begin("##texture_test", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize);
+        if (pic.tex) ImGui::Image(pic.tex->GetTexRef(), ImVec2(64, 64));
+        ImGui::End();
+        if (texture_test_frames % 120 == 0) {
+            char buf[128];
+            std::snprintf(buf, sizeof(buf), "texture test: %zu created, %zu destroyed and freed", textures.created(), textures.freed());
+            log(buf);
+            if (log_hook) log_hook(buf);
+        }
+    }
     // Toasts (top-right)
     if (!toasts.empty()) {
         const ImGuiViewport* vp = ImGui::GetMainViewport();

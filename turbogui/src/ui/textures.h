@@ -41,6 +41,9 @@ public:
     // Release everything (window closed, cache emptied)
     void clear();
     size_t size() const { return entries_.size(); }
+    // Counters (tests): textures created, and released ones the renderer has destroyed and Turbo has freed
+    size_t created() const { return created_; }
+    size_t freed() const { return freed_; }
 
 private:
     struct Entry {
@@ -61,6 +64,7 @@ private:
     std::vector<ImTextureData*> dying_;
     double now_ = 0.0;
     int decodes_left_ = kDecodesPerFrame;
+    size_t created_ = 0, freed_ = 0;
 };
 
 }  // namespace turbo
