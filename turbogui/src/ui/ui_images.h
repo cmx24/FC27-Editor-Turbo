@@ -40,6 +40,10 @@ size_t real_face_count(App& app);
 bool apply_real_face(App& app, int64_t target_pid, int64_t owner_pid, const RealFaceOptions& o, std::string* msg);
 // Tattoo per body area with preview and picker
 void tattoo_editor(App& app, const Table& t, uint64_t rec);
+// Hair, facial hair, boots, GK gloves and accessories with the game's preview pictures, picker grids and favourites
+void item_galleries(App& app, const Table& t, uint64_t rec);
+// Item ids the game has previews for (legacy_filename_hash_list.csv), per imgAssets folder (hairstyle, boots, ...)
+std::vector<int64_t> gallery_ids(App& app, const std::string& folder);
 // Status tab: picture cache
 void images_status(App& app);
 

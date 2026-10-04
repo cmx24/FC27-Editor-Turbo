@@ -526,6 +526,8 @@ static void player_editor(App& app) {
             real_face_picker(app, p->playerid);
             ImGui::SeparatorText("Tattoos");
             tattoo_editor(app, *t, p->rec);
+            ImGui::SeparatorText("Hair, boots, gloves and accessories");
+            item_galleries(app, *t, p->rec);
             ImGui::SeparatorText("Every appearance field");
             std::vector<std::string> names;
             for (const auto& n : t->field_names()) if (is_appearance_field(n)) names.push_back(n);

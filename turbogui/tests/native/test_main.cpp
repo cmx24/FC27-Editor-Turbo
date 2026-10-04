@@ -1028,6 +1028,40 @@ static void test_ui() {
             app.callnames.set_active("");
         });
 
+        run_case("UI: Appearance galleries (hair, boots, gloves, accessories) from the game's preview list, favourites", [&] {
+            std::ofstream(le / "legacy_filename_hash_list.csv")
+                << "hash;file_name\n1;data/ui/imgAssets/hairstyle/item_3261_0.dds\n2;data/ui/imgAssets/hairstyle/item_1053_0.dds\n"
+                   "3;data/ui/imgAssets/boots/item_678_0.dds\n4;data/ui/imgAssets/gkglove/gkglove_41.dds\n"
+                   "5;data/ui/imgAssets/accessories/item_52_0.dds\n6;data/ui/imgAssets/accessories/item_52_3.dds\n7;data/ui/imgAssets/heads/p1.dds\n";
+            CHECK(gallery_ids(app, "hairstyle").size() == 2 && gallery_ids(app, "boots") == std::vector<int64_t>{678}, "ids per folder");
+            CHECK(gallery_ids(app, "accessories") == std::vector<int64_t>{52} && gallery_ids(app, "gkglove") == std::vector<int64_t>{41}, "variants collapse to one id");
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.click("3001", "##plist"), "player 3001");
+            CHECK(ui.click("Appearance", "##pedit"), "Appearance tab");
+            ui.frames(2);
+            const ItemRec* btn = nullptr;
+            // the first enabled Choose... of the galleries table is Hair (hairtypecode is in the test players table)
+            for (const auto& kv : g_items) {
+                const ItemRec& r = kv.second;
+                if (r.frame != g_frame || r.label != "Choose..." || r.window.find("##app") == std::string::npos) continue;
+                if (ImHashStr("0", 0, r.seed2) != r.seed) continue;  // PushID(0) of the galleries table
+                btn = &r;
+            }
+            CHECK(btn != nullptr, "Hair Choose... button");
+            CHECK(ui.click(btn), "open the hair gallery");
+            ui.frames(3);
+            CHECK(ui.find("hairtypecode3261", "##gallerypick") != nullptr && ui.find("hairtypecode1053", "##gallerypick") != nullptr, "both hair previews listed");
+            const Table* t = app.db.table("players");
+            uint64_t rec = app.db.find(*t, "playerid", 3001);
+            CHECK(ui.click("hairtypecode1053", "##gallerypick"), "pick hair 1053");
+            CHECK(app.db.get_int(*t, rec, "hairtypecode") == 1053, "hairtypecode = 1053");
+            CHECK(ui.toast_contains("Hair: 1053"), "toast");
+            CHECK(app.undo(3001) && app.db.get_int(*t, rec, "hairtypecode") != 1053, "undo");
+            std::string want = read_file(le / "turbo_output" / "cache" / "legacy" / "want.txt");
+            CHECK(want.find("data/ui/imgAssets/hairstyle/item_3261_0.dds") != std::string::npos, "previews asked from the game: " + want);
+        });
+
         run_case("UI: Teams, squad jersey edit, jump to player", [&] {
             CHECK(ui.click("Teams"), "Teams tab");
             CHECK(ui.click("7", "##tlist"), "Everton row");
@@ -1122,6 +1156,7 @@ static void test_ui() {
             CHECK(app.toggle_vk == 0x74, "toggle key F5");
             CHECK(read_json(le / "turbo_output" / "gui_settings.json")["gui"]["toggle_key"].get<int>() == 0x74, "key saved");
         });
+
 
         run_case("UI: every Turbo Tools and player button sends a command Turbo's Lua side runs", [&] {
             // Click every button that queues a command, record the exact JSON it put in the mailbox, cancel it so
@@ -1456,6 +1491,7 @@ static void test_ui() {
             CHECK(ui.click("tattoo12"), "pick 12");
             CHECK(app.db.get_int(*t, rec, "tattoohead") == 12, "tattoohead = 12");
         });
+
 
         run_case("UI: Status: picture cache emptied", [&] {
             app.request_tab = 6;
