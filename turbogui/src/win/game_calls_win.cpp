@@ -7,6 +7,7 @@
 
 #include "game_hooks.h"
 #include "host.h"
+#include "reveal_win.h"
 #include "standings_refresh_win.h"
 
 namespace host {
@@ -208,6 +209,7 @@ std::vector<std::string> game_calls_status() {
         if (!g_last.empty()) out.push_back("  last: " + g_last);
     }
     for (const auto& l : standings_refresh_status()) out.push_back(l);
+    for (const auto& l : reveal_status()) out.push_back(l);
     return out;
 }
 
@@ -293,6 +295,13 @@ extern "C" __declspec(dllexport) int turbo_game_call(void*) {
                     req.ifce = static_cast<uint64_t>(b.args[3]);
                     req.label = "Lua";
                     standings_refresh_request(req, b.seq);
+                } else if (b.op == turbo::kCallOpReveal) {
+                    turbo::pdrm::Request req;
+                    req.pdrm = static_cast<uint64_t>(b.args[0]);
+                    req.mode = b.args[1] == 1 ? turbo::pdrm::Mode::Team : turbo::pdrm::Mode::Player;
+                    req.id = static_cast<int>(b.args[2]);
+                    req.managers = static_cast<uint64_t>(b.args[3]);
+                    reveal_request(req, b.seq);
                 } else {
                     turbo::JobOfferResult r;
                     r.message = "unknown game call op " + std::to_string(b.op);

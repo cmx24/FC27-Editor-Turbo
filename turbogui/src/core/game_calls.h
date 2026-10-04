@@ -123,6 +123,10 @@ constexpr int32_t kCallOpJobOffer = 1;
 // standings_refresh (core/standings_refresh.h): args = svm, managers, comm service, ifce (each 0 = let the DLL find
 // it); outputs = competitions re-requested, map keys found
 constexpr int32_t kCallOpStandingsRefresh = 2;
+// reveal player data (core/reveal.h): args = PlayerDataRevealManager (0 = the captured one), mode (0 player / 1 team),
+// player or team id, manager table (0 = skip the slot-78 cross-check); outputs = scouting points after the call
+// (player) or record count after (team), record count before
+constexpr int32_t kCallOpReveal = 3;
 
 struct GameCallBlock {
     int32_t op = 0, status = 0, seq = 0, result_seq = 0;
