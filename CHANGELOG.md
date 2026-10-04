@@ -11,8 +11,25 @@ master workbooks into `turbo\callnames\masters\<language>.json`, and press Refre
 an FC 27 master (`<name>_master_fc27.xlsm`, the same format, built from the game) when there is one, else your FC 26
 `<name>_master.xlsm`.
 
+### FC 27 callname master (built from the game's own commentary files)
+
+- `turbo/tools/fc27_commentary` reads the commentary pack on disk (toc / cas, Oodle through the game's own
+  `oo2core_9_win64.dll`, the speech bank's data sets, EA Opus audio through ffmpeg) and gives what FIFA Editor Tool's
+  "Export Data Set" gave for FC 26: every `pSIMPLE_SURNAME` (generic) and `pPLAYER_NAMES_SIMPLE` / `_LINK` (real)
+  row with SegmentID, VariationId and id, plus each segment as a wav. Italian: 3,443 generic rows (2,533 commentary
+  ids), 6,878 real rows (4,039 players; 4,046 with the LINK lines), 9,263 wavs. FIFA Editor Tool has no FC 27 support.
+- `turbo/tools/build_callname_master.py` writes the master in your FC 26 workbook format (same sheets, styles and Play
+  macro) plus Turbo's `masters\<language>.json`. Delivered: `C:\FC_Tools\My Mods\i27\italy_master_fc27.xlsm` with its
+  own `real\` and `generic\` audio; its Play macro points at `i27` (your FC 26 workbook and audio are untouched).
+  Column H "nameid" gives, for generic rows, the name id to set as a player's last / common name.
+- Checked: Bianchi 900762 keeps FC 26's segments 931 / 1419 / 1420; 2,113 of 2,114 FC 26 generic rows keep their
+  VariationId; Gutierrez 261865, Lobotka 216435 and Rrahmani 244263 are real recordings.
+
 ### Fixed
 
+- **A common name without a callname was skipped.** FC 27's match code uses a player's common name whenever he has
+  one, even a name without a callname, and never falls back to his last name (`docs/re/inmatch-callnames.md`). Turbo
+  now resolves the same way and tells you to use "Assign as common name" for such players (Gutierrez is one).
 - **Callname tab said "none" for players who have their own recording.** The game says a player's own recording
   (bound to his player id) before any callname. Turbo only knew these players from the game's audio service, which
   found 751 in Italian; your FC 26 list has 4,127 (Lobotka and Rrahmani among the missing ones). Turbo now also reads
