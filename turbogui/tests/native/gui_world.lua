@@ -247,6 +247,13 @@ local function build_world(sim)
         },
         rows = links,
     })
+    -- FC 27 playernamemap: a player-specific callname (commentary id) that wins over the common / last name's
+    sim:add_table({
+        name = "playernamemap", short = "VGQZ",
+        fields = { { name = "commentaryid", short = "cmid", depth = 20, min = -1 }, { name = "playerid", short = "pid_", depth = 19, min = -1 } },
+        rows = { { playerid = 1003, commentaryid = 900010 }, { playerid = 2001, commentaryid = 950000 },
+                 { playerid = 0, commentaryid = 0, __invalid = true }, { playerid = 0, commentaryid = 0, __invalid = true } },
+    })
     sim:add_table({
         name = "editedplayernames", short = "edpn",
         fields = {

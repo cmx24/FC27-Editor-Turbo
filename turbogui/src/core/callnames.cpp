@@ -1,0 +1,349 @@
+// FC 27 LE Turbo GUI - player callnames for the loaded commentary language (see callnames.h and docs/callnames.md)
+#include "callnames.h"
+
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
+#include <fstream>
+#include <sstream>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
+namespace turbo {
+
+namespace fs = std::filesystem;
+
+static const char* kPackPrefix = "commentaryfull_";
+
+static std::string lower(std::string s) {
+    for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+}
+
+// "ita_it" from "commentaryfull_ita_it" / "commentaryfull_ita_it.toc"; "" when the name is not a language pack
+static std::string pack_code(const std::string& file_name, bool toc) {
+    std::string n = lower(file_name);
+    if (n.rfind(kPackPrefix, 0) != 0) return "";
+    std::string code = n.substr(std::string(kPackPrefix).size());
+    if (toc) {
+        if (code.size() < 5 || code.substr(code.size() - 4) != ".toc") return "";
+        code = code.substr(0, code.size() - 4);
+    }
+    // xxx_yy: three letters, underscore, two letters
+    if (code.size() != 6 || code[3] != '_') return "";
+    for (size_t i = 0; i < code.size(); ++i)
+        if (i != 3 && !std::isalpha(static_cast<unsigned char>(code[i]))) return "";
+    return code;
+}
+
+std::vector<CommentaryPack> installed_commentary_packs(const fs::path& game_root) {
+    std::vector<CommentaryPack> out;
+    if (game_root.empty()) return out;
+    auto add = [&](const std::string& code, bool downloaded) {
+        for (auto& p : out)
+            if (p.code == code) {
+                p.downloaded = p.downloaded || downloaded;
+                return;
+            }
+        out.push_back({code, downloaded});
+    };
+    std::error_code ec;
+    // languages the user added: <game>\commentary\commentaryfull_<lang>\ (folder with cas files) + .toc beside it
+    for (const auto& e : fs::directory_iterator(game_root / "commentary", ec)) {
+        std::string code = pack_code(e.path().filename().string(), !e.is_directory(ec));
+        if (!code.empty()) add(code, true);
+    }
+    // the base game data: <game>\Data\Win32\commentaryfull_<lang>.toc
+    for (const auto& e : fs::directory_iterator(game_root / "Data" / "Win32", ec)) {
+        std::string code = pack_code(e.path().filename().string(), !e.is_directory(ec));
+        if (!code.empty()) add(code, false);
+    }
+    std::sort(out.begin(), out.end(), [](const CommentaryPack& a, const CommentaryPack& b) { return a.code < b.code; });
+    return out;
+}
+
+std::string pick_commentary_language(const std::vector<CommentaryPack>& packs, const std::string& chosen, std::string* why) {
+    std::string note;
+    auto set_why = [&](const std::string& s) { if (why) *why = note + s; };
+    if (packs.empty()) {
+        set_why("no commentary language pack found in the game folder");
+        return "";
+    }
+    std::string want = lower(chosen);
+    if (!want.empty()) {
+        for (const auto& p : packs)
+            if (p.code == want) {
+                set_why("chosen in Turbo's settings");
+                return p.code;
+            }
+        note = "'" + chosen + "' is not installed; detected instead: ";
+    }
+    std::vector<const CommentaryPack*> downloaded;
+    for (const auto& p : packs)
+        if (p.downloaded) downloaded.push_back(&p);
+    if (downloaded.size() == 1) {
+        set_why("the one commentary language downloaded into <game>\\commentary (the game downloads the language picked "
+                "in its audio settings)");
+        return downloaded[0]->code;
+    }
+    if (downloaded.size() > 1) {
+        set_why("several downloaded languages: pick the one the game uses");
+        return downloaded[0]->code;
+    }
+    for (const auto& p : packs)
+        if (p.code == "eng_us") {
+            set_why("no downloaded language: the base game's English commentary");
+            return p.code;
+        }
+    set_why("the only language pack found");
+    return packs[0].code;
+}
+
+bool parse_spoken_list(const std::string& text, std::unordered_set<int64_t>& out, std::string* lang, std::string* err) {
+    out.clear();
+    if (lang) lang->clear();
+    long long expected = -1;
+    std::istringstream in(text);
+    std::string line;
+    bool first = true;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (first && line.rfind("#turbo-spoken ", 0) == 0) {
+            std::istringstream h(line.substr(14));
+            std::string l;
+            h >> l >> expected;
+            if (lang) *lang = l;
+            first = false;
+            continue;
+        }
+        first = false;
+        size_t start = line.find_first_not_of(" \t");
+        if (start == std::string::npos || line[start] == '#') continue;
+        char* stop = nullptr;
+        long long id = std::strtoll(line.c_str() + start, &stop, 10);
+        if (!stop || stop == line.c_str() + start) continue;
+        if (*stop != '\0' && *stop != '\t' && *stop != ' ' && *stop != '#' && *stop != ',' && *stop != ';') continue;
+        if (id < kCallnameMin || id > kCallnameMax) continue;
+        out.insert(static_cast<int64_t>(id));
+    }
+    if (out.empty()) {
+        if (err) *err = "no commentary ids (900000..965000) in the list";
+        return false;
+    }
+    if (expected >= 0 && static_cast<long long>(out.size()) != expected) {
+        if (err) *err = "the header announces " + std::to_string(expected) + " ids but the file holds " + std::to_string(out.size());
+        return false;
+    }
+    return true;
+}
+
+fs::path spoken_list_path(const fs::path& le_root, const std::string& lang) {
+    return le_root / "turbo" / "callnames" / ("spoken_" + lang + ".txt");
+}
+
+const char* callname_source_name(CallnameSource s) {
+    switch (s) {
+        case CallnameSource::PlayerSpecific: return "player-specific (playernamemap)";
+        case CallnameSource::CommonName: return "common name";
+        case CallnameSource::LastName: return "last name";
+        default: return "none";
+    }
+}
+
+CallnameInfo resolve_callname(int64_t playerid, int64_t commonnameid, int64_t lastnameid,
+                              const std::unordered_map<int64_t, int64_t>& playernamemap,
+                              const std::unordered_map<int64_t, int64_t>& name_commentary) {
+    CallnameInfo info;
+    auto pm = playernamemap.find(playerid);
+    if (pm != playernamemap.end() && pm->second > kNoCallname) {
+        info.commentaryid = pm->second;
+        info.source = CallnameSource::PlayerSpecific;
+        return info;
+    }
+    if (commonnameid > 0) {
+        auto it = name_commentary.find(commonnameid);
+        if (it != name_commentary.end() && it->second > kNoCallname) {
+            info.commentaryid = it->second;
+            info.source = CallnameSource::CommonName;
+            info.nameid = commonnameid;
+            return info;
+        }
+    }
+    if (lastnameid > 0) {
+        auto it = name_commentary.find(lastnameid);
+        if (it != name_commentary.end() && it->second > kNoCallname) {
+            info.commentaryid = it->second;
+            info.source = CallnameSource::LastName;
+            info.nameid = lastnameid;
+            return info;
+        }
+    }
+    return info;
+}
+
+bool callname_filter_match(const std::string& text, const std::string& name, int64_t id) {
+    if (text.empty()) return true;
+    std::string t = lower(text);
+    size_t start = t.find_first_not_of(" \t");
+    if (start == std::string::npos) return true;
+    t = t.substr(start);
+    bool digits = !t.empty() && std::all_of(t.begin(), t.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); });
+    if (digits && std::to_string(id).rfind(t, 0) == 0) return true;
+    return lower(name).find(t) != std::string::npos;
+}
+
+void CallnameIndex::clear() {
+    playernamemap.clear();
+    playernamemap_rec.clear();
+    name_commentary.clear();
+    name_users.clear();
+    used_ids.clear();
+    names.clear();
+    players.clear();
+    model_version = 0;
+    built = false;
+}
+
+static bool read_text(const fs::path& p, std::string& out) {
+    std::ifstream f(p, std::ios::binary);
+    if (!f) return false;
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    out = ss.str();
+    return true;
+}
+
+void Callnames::refresh(const fs::path& le_root, const fs::path& game_root, const std::string& chosen) {
+    no_game_root = game_root.empty();
+    packs = installed_commentary_packs(game_root);
+    lang = pick_commentary_language(packs, chosen, &lang_why);
+    spoken = SpokenSet{};
+    list_error.clear();
+    list_path.clear();
+    spoken.lang = lang;
+    if (!lang.empty()) {
+        fs::path p = spoken_list_path(le_root, lang);
+        list_path = p.string();
+        std::string text;
+        std::error_code ec;
+        if (fs::exists(p, ec)) {
+            std::string file_lang, err;
+            if (!read_text(p, text)) {
+                list_error = "cannot read " + p.string();
+            } else if (!parse_spoken_list(text, spoken.ids, &file_lang, &err)) {
+                list_error = p.filename().string() + ": " + err;
+                spoken.ids.clear();
+            } else if (!file_lang.empty() && lower(file_lang) != lang) {
+                list_error = p.filename().string() + " is a list for '" + file_lang + "', not '" + lang + "'";
+                spoken.ids.clear();
+            } else {
+                spoken.verified = true;
+                spoken.source = p.filename().string() + " (" + std::to_string(spoken.ids.size()) + " spoken ids)";
+            }
+        }
+    }
+    if (!spoken.verified) {
+        spoken.source = "no spoken-id list for this language: every commentary id playernames uses counts as spoken (unverified)";
+        spoken.ids = index.used_ids;
+    }
+    refreshed = true;
+}
+
+void Callnames::build_index(Database& db, const Model& model, const std::unordered_map<int64_t, std::string>& names) {
+    index.clear();
+    index.model_version = model.version();
+    if (const Table* t = db.table("playernames"); t && t->has("nameid") && t->has("commentaryid")) {
+        Snapshot s;
+        if (s.load(db.memory(), *t)) {
+            const Field& fid = *t->field("nameid");
+            const Field& fc = *t->field("commentaryid");
+            for (uint32_t i : s.valid) {
+                int64_t cid = s.get_int(i, fc);
+                index.name_commentary[s.get_int(i, fid)] = cid;
+                if (cid > kNoCallname) index.used_ids.insert(cid);
+            }
+        }
+    }
+    if (const Table* t = db.table("playernamemap"); t && t->has("playerid") && t->has("commentaryid")) {
+        Snapshot s;
+        if (s.load(db.memory(), *t)) {
+            const Field& fp = *t->field("playerid");
+            const Field& fc = *t->field("commentaryid");
+            for (uint32_t i : s.valid) {
+                int64_t pid = s.get_int(i, fp);
+                index.playernamemap[pid] = s.get_int(i, fc);
+                index.playernamemap_rec[pid] = s.addr(i);
+            }
+        }
+    }
+    if (const Table* t = db.table("players"); t && t->has("playerid")) {
+        Snapshot s;
+        if (s.load(db.memory(), *t)) {
+            const Field* fl = t->field("lastnameid");
+            const Field* fc = t->field("commonnameid");
+            for (uint32_t i : s.valid) {
+                int64_t cn = fc ? s.get_int(i, *fc) : 0, ln = fl ? s.get_int(i, *fl) : 0;
+                if (cn > 0) ++index.name_users[cn];
+                else if (ln > 0) ++index.name_users[ln];
+            }
+        }
+    }
+    // the fallback spoken set follows the names in the database
+    if (!spoken.verified) spoken.ids = index.used_ids;
+    for (const auto& kv : index.name_commentary) {
+        if (!spoken.spoken(kv.second)) continue;
+        NameChoice c;
+        c.nameid = kv.first;
+        c.commentaryid = kv.second;
+        auto n = names.find(kv.first);
+        c.name = n != names.end() ? n->second : ("name " + std::to_string(kv.first));
+        auto u = index.name_users.find(kv.first);
+        c.users = u != index.name_users.end() ? u->second : 0;
+        index.names.push_back(std::move(c));
+    }
+    std::sort(index.names.begin(), index.names.end(), [](const NameChoice& a, const NameChoice& b) {
+        std::string la = lower(a.name), lb = lower(b.name);
+        return la != lb ? la < lb : a.nameid < b.nameid;
+    });
+    for (const auto& kv : index.playernamemap) {
+        if (!spoken.spoken(kv.second)) continue;
+        PlayerChoice c;
+        c.playerid = kv.first;
+        c.commentaryid = kv.second;
+        if (const PlayerRow* p = model.player(kv.first)) {
+            c.name = p->name;
+            c.club = p->club_name;
+        } else {
+            c.name = "player " + std::to_string(kv.first);
+        }
+        index.players.push_back(std::move(c));
+    }
+    std::sort(index.players.begin(), index.players.end(), [](const PlayerChoice& a, const PlayerChoice& b) {
+        std::string la = lower(a.name), lb = lower(b.name);
+        return la != lb ? la < lb : a.playerid < b.playerid;
+    });
+    index.built = true;
+}
+
+CallnameInfo Callnames::resolve(const PlayerRow& p, Database& db) const {
+    const Table* t = db.table("players");
+    int64_t cn = t ? db.get_int(*t, p.rec, "commonnameid", 0) : 0;
+    int64_t ln = t ? db.get_int(*t, p.rec, "lastnameid", 0) : 0;
+    return resolve_callname(p.playerid, cn, ln, index.playernamemap, index.name_commentary);
+}
+
+fs::path game_root_from_process() {
+#ifdef _WIN32
+    wchar_t buf[MAX_PATH * 4];
+    DWORD n = GetModuleFileNameW(nullptr, buf, static_cast<DWORD>(sizeof(buf) / sizeof(buf[0])));
+    if (n == 0 || n >= sizeof(buf) / sizeof(buf[0])) return {};
+    return fs::path(buf).parent_path();
+#else
+    return {};
+#endif
+}
+
+}  // namespace turbo

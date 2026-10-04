@@ -65,6 +65,7 @@ void App::update_style() {
 
 App::App(Memory& m, fs::path le_root, uint64_t mailbox_addr, std::string sess)
     : mem(m), bridge(std::move(le_root)), db(m), model(db), session(std::move(sess)), legacy(bridge.root()) {
+    game_root = game_root_from_process();
     if (mailbox_addr) {
         mailbox = std::make_unique<Mailbox>(mem, mailbox_addr);
         if (mailbox->init()) {
