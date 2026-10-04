@@ -223,8 +223,11 @@ void Callnames::refresh(const fs::path& le_root, const fs::path& game_root, cons
     spoken = SpokenSet{};
     list_error.clear();
     list_path.clear();
+    cache_error.clear();
+    cache_path.clear();
     spoken.lang = lang;
     if (!lang.empty()) {
+        // 1. the hand-made list (an override)
         fs::path p = spoken_list_path(le_root, lang);
         list_path = p.string();
         std::string text;
@@ -241,15 +244,83 @@ void Callnames::refresh(const fs::path& le_root, const fs::path& game_root, cons
                 spoken.ids.clear();
             } else {
                 spoken.verified = true;
-                spoken.source = p.filename().string() + " (" + std::to_string(spoken.ids.size()) + " spoken ids)";
+                spoken.from = SpokenSet::From::ListFile;
+                spoken.source = p.filename().string() + " (" + std::to_string(spoken.ids.size()) + " spoken ids, hand-made list)";
+            }
+        }
+        // 2. Turbo's capture of the loaded bank (cached)
+        fs::path c = spoken_cache_path(le_root, lang);
+        cache_path = c.string();
+        if (fs::exists(c, ec)) {
+            BankCache cache;
+            std::string err;
+            if (!read_text(c, text)) {
+                cache_error = "cannot read " + c.string();
+            } else if (!parse_bank_cache_json(text, cache, &err)) {
+                cache_error = c.filename().string() + ": " + err;
+            } else if (!cache.lang.empty() && lower(cache.lang) != lang) {
+                cache_error = c.filename().string() + " is a capture for '" + cache.lang + "', not '" + lang + "'";
+            } else if (spoken.verified) {
+                // the hand-made list wins for the surnames; the players with recordings still come from the capture
+                spoken.players = cache.players;
+                spoken.source += "; players with recordings from the bank capture";
+            } else {
+                spoken.verified = true;
+                spoken.from = SpokenSet::From::BankCapture;
+                spoken.ids = cache.surnames;
+                spoken.players = cache.players;
+                spoken.source = cache.source;
             }
         }
     }
     if (!spoken.verified) {
-        spoken.source = "no spoken-id list for this language: every commentary id playernames uses counts as spoken (unverified)";
+        spoken.from = SpokenSet::From::Fallback;
+        spoken.source = "no spoken-id list or bank capture for this language: every commentary id playernames uses counts as spoken (unverified)";
         spoken.ids = index.used_ids;
     }
     refreshed = true;
+}
+
+bool Callnames::apply_capture(const BankCapture& c, const fs::path& le_root, const std::string& when, const std::string& build,
+                              std::string* err) {
+    if (lang.empty()) {
+        if (err) *err = "no commentary language detected";
+        return false;
+    }
+    if (!c.ok) {
+        if (err) *err = c.note.empty() ? "the capture found nothing" : c.note;
+        return false;
+    }
+    fs::path p = spoken_cache_path(le_root, lang);
+    cache_path = p.string();
+    std::error_code ec;
+    fs::create_directories(p.parent_path(), ec);
+    {
+        std::ofstream f(p, std::ios::binary | std::ios::trunc);
+        if (!f) {
+            if (err) *err = "cannot write " + p.string();
+            return false;
+        }
+        f << bank_cache_json(c, lang, when, build);
+    }
+    cache_error.clear();
+    BankCache cache;
+    std::string perr;
+    std::string text;
+    if (!read_text(p, text) || !parse_bank_cache_json(text, cache, &perr)) {
+        if (err) *err = "the cache just written cannot be read back: " + perr;
+        return false;
+    }
+    if (spoken.from == SpokenSet::From::ListFile) {
+        spoken.players = cache.players;  // the hand-made list keeps the surnames
+    } else {
+        spoken.verified = true;
+        spoken.from = SpokenSet::From::BankCapture;
+        spoken.ids = cache.surnames;
+        spoken.players = cache.players;
+        spoken.source = cache.source;
+    }
+    return true;
 }
 
 void Callnames::build_index(Database& db, const Model& model, const std::unordered_map<int64_t, std::string>& names) {
@@ -332,7 +403,9 @@ CallnameInfo Callnames::resolve(const PlayerRow& p, Database& db) const {
     const Table* t = db.table("players");
     int64_t cn = t ? db.get_int(*t, p.rec, "commonnameid", 0) : 0;
     int64_t ln = t ? db.get_int(*t, p.rec, "lastnameid", 0) : 0;
-    return resolve_callname(p.playerid, cn, ln, index.playernamemap, index.name_commentary);
+    CallnameInfo info = resolve_callname(p.playerid, cn, ln, index.playernamemap, index.name_commentary);
+    info.real = spoken.real(p.playerid);
+    return info;
 }
 
 fs::path game_root_from_process() {

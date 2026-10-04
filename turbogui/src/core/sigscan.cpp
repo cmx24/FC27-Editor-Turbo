@@ -122,6 +122,9 @@ static const SignatureTable kBuiltin[] = {
      {
          {"game_tick", "", "none", 0,
           "per-frame game-thread function: not identified yet (docs/re/game_thread.md); the dispatcher uses the Lua pump"},
+         {"speech_system_ptr", "48 8B 0D ?? ?? ?? ?? 48 8B 01 FF 90 F0 00 00 00 48 8D 54 24 20 48 8B 08 4C 8B 81 D8 00 00 00", "rip", 0,
+          "global pointer to the SpeechSystem (0x14C27D590 on this build): [+0x50] the commentary event registry, [+0x58] the "
+          "variation selector (docs/callnames.md section 6); read by the commentary-bank notes, not hooked"},
      }},
 };
 

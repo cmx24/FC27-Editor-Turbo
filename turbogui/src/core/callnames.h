@@ -7,11 +7,13 @@
 //   language); which of them have spoken audio depends on the commentary language pack the game loaded.
 //
 // Language packs on disk: <game>\commentary\commentaryfull_<lang>\ (a language the user downloaded, e.g. ita_it) and
-// <game>\Data\Win32\commentaryfull_<lang>.toc (the base language, eng_us). The banks themselves are Frostbite
-// superbundles (Oodle-compressed cas chunks, EBX selection tables) that Turbo does not parse; the spoken ids of a
-// language come from a list file <Live Editor>\turbo\callnames\spoken_<lang>.txt (one commentary id per line, made
-// from a FIFA Editor Tool export of the language's pSIMPLE_SURNAME selection table, see docs/callnames.md). Without
-// the file, every commentary id used by playernames counts as spoken, and the UI says so.
+// <game>\Data\Win32\commentaryfull_<lang>.toc (the base language, eng_us). Which ids are spoken comes, in this order:
+//   1. a hand-made list <Live Editor>	urbo\callnames\spoken_<lang>.txt (one commentary id per line, e.g. from a FIFA
+//      Editor Tool export of pSIMPLE_SURNAME) - an override that always wins when present;
+//   2. Turbo's own capture of the loaded bank's selection tables from the game's memory (core/commentary_bank.h),
+//      cached in <Live Editor>	urbo_output\callnames\spoken_<lang>.json: the surname ids with a recording and the
+//      player ids with a player-specific ("Real") recording;
+//   3. else every commentary id used by playernames counts as spoken, and the UI says so.
 #pragma once
 #include <cstdint>
 #include <filesystem>
@@ -20,6 +22,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "commentary_bank.h"
 #include "model.h"
 #include "t3db.h"
 
@@ -51,10 +54,14 @@ std::filesystem::path spoken_list_path(const std::filesystem::path& le_root, con
 
 struct SpokenSet {
     std::string lang;
-    std::unordered_set<int64_t> ids;
-    bool verified = false;  // true: from a bank list file; false: fallback = every commentary id playernames uses
+    std::unordered_set<int64_t> ids;              // commentary ids (surnames) with a recording
+    std::unordered_map<int64_t, int> players;     // player ids with a player-specific recording -> tables it is in
+    bool verified = false;  // true: from a list file or a bank capture; false: fallback = every id playernames uses
+    enum class From { None, ListFile, BankCapture, Fallback } from = From::None;
     std::string source;     // where the set came from (shown in the UI)
     bool spoken(int64_t id) const { return id != kNoCallname && ids.count(id) > 0; }
+    // the bank has recordings of this player's own name (spoken even when the rule above says "none")
+    bool real(int64_t playerid) const { return players.count(playerid) > 0; }
 };
 
 enum class CallnameSource { None, PlayerSpecific, CommonName, LastName };
@@ -64,6 +71,7 @@ struct CallnameInfo {
     int64_t commentaryid = kNoCallname;
     CallnameSource source = CallnameSource::None;
     int64_t nameid = 0;  // the name whose commentary id is used (common or last name), 0 for player-specific/none
+    bool real = false;   // the loaded bank has recordings of this player's own name (player-keyed selection table)
 };
 
 // The game rule above, on plain maps (playernamemap: playerid -> commentaryid; name_commentary: nameid -> commentaryid).
@@ -105,8 +113,12 @@ struct CallnameIndex {
 
 class Callnames {
 public:
-    // Find the packs, pick the language and load its spoken list. `chosen` = gui_settings callnames.language ("" = auto).
+    // Find the packs, pick the language and load its spoken set: the hand-made list, else the bank capture cache.
+    // `chosen` = gui_settings callnames.language ("" = auto).
     void refresh(const std::filesystem::path& le_root, const std::filesystem::path& game_root, const std::string& chosen);
+    // A capture of the loaded bank (core/commentary_bank.h) just finished: cache it (turbo_output\callnames    // spoken_<lang>.json) and use it unless a hand-made list overrides it. Returns false (with err) when not usable.
+    bool apply_capture(const BankCapture& c, const std::filesystem::path& le_root, const std::string& when, const std::string& build,
+                       std::string* err);
     // Rebuild the index from the live tables (names: nameid -> name, from the model)
     void build_index(Database& db, const Model& model, const std::unordered_map<int64_t, std::string>& names);
     CallnameInfo resolve(const PlayerRow& p, Database& db) const;
@@ -116,6 +128,8 @@ public:
     SpokenSet spoken;
     std::string list_path;   // the list file looked for
     std::string list_error;  // why it was not used ("" = used or none present)
+    std::string cache_path;  // the bank capture cache looked for
+    std::string cache_error; // why it was not used ("" = used or none present)
     CallnameIndex index;
     bool refreshed = false;
     bool no_game_root = false;  // refresh() was given no game folder

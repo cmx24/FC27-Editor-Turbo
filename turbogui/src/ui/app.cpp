@@ -1,6 +1,7 @@
 #include "app.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -110,6 +111,81 @@ void App::notify(const std::string& text, bool error) {
 
 bool App::lua_alive() const { return lua_heartbeat_seen_at >= 0.0 && (now - lua_heartbeat_seen_at) < 600.0; }
 
+App::~App() {
+    bank_cancel_ = true;
+    if (bank_thread_.joinable()) bank_thread_.join();
+}
+
+// ---- spoken-set capture from the loaded commentary bank (core/commentary_bank.h)
+bool App::start_bank_capture(bool automatic) {
+    if (bank_running_.load()) return false;
+    if (!regions_hook) {
+        bank_capture_status = "not available: no memory region lister in this build";
+        return false;
+    }
+    if (bank_thread_.joinable()) bank_thread_.join();
+    bank_cancel_ = false;
+    bank_running_ = true;
+    {
+        std::lock_guard<std::mutex> lock(bank_m_);
+        bank_done_ = false;
+    }
+    bank_capture_status = automatic ? "capturing the loaded bank's selection tables (automatic)..." : "capturing the loaded bank's selection tables...";
+    log("callnames: bank capture started" + std::string(automatic ? " (automatic)" : ""));
+    Memory* m = &mem;
+    std::function<std::vector<Region>()> lister = regions_hook;
+    bank_thread_ = std::thread([this, m, lister]() {
+        BankCapture c;
+        try {
+            std::vector<Region> regions = lister();
+            const auto t0 = std::chrono::steady_clock::now();
+            auto clock = [t0]() { return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(); };
+            c = capture_commentary_bank(*m, regions, [this]() { return bank_cancel_.load(); }, clock);
+        } catch (const std::exception& e) {
+            c = BankCapture{};
+            c.note = std::string("capture failed: ") + e.what();
+        }
+        std::lock_guard<std::mutex> lock(bank_m_);
+        bank_result_ = std::move(c);
+        bank_done_ = true;
+        bank_running_ = false;
+    });
+    return true;
+}
+
+void App::finish_bank_capture() {
+    BankCapture c;
+    {
+        std::lock_guard<std::mutex> lock(bank_m_);
+        if (!bank_done_) return;
+        bank_done_ = false;
+        c = std::move(bank_result_);
+    }
+    if (bank_thread_.joinable()) bank_thread_.join();
+    char when[32];
+    std::time_t t = std::time(nullptr);
+    const std::tm* tmv = std::localtime(&t);  // render thread only
+    if (!tmv || std::strftime(when, sizeof(when), "%Y-%m-%d %H:%M", tmv) == 0) std::snprintf(when, sizeof(when), "%lld", static_cast<long long>(t));
+    std::string build = hook_report ? hook_report().build : std::string();
+    std::string err;
+    char line[256];
+    std::snprintf(line, sizeof(line), "%.1f s, %zu regions, %.0f MB: %s", c.seconds, c.regions, double(c.bytes) / 1e6, c.note.c_str());
+    if (c.cancelled) {
+        bank_capture_status = "capture cancelled";
+    } else if (!c.ok) {
+        bank_capture_status = line;
+        notify("Callnames: " + c.note, true);
+    } else if (!callnames.apply_capture(c, bridge.root(), when, build, &err)) {
+        bank_capture_status = std::string(line) + " - not used: " + err;
+        notify("Callnames: capture not used: " + err, true);
+    } else {
+        bank_capture_status = line;
+        notify("Callnames: " + c.note);
+        ++gen;  // the Callname tab rebuilds its pickers
+    }
+    log("callnames: bank capture " + bank_capture_status);
+}
+
 bool App::refresh() {
     next_retry = now + 5.0;
     db_error.clear();
@@ -145,6 +221,7 @@ void App::tick(double t) {
     now = t;
     update_style();
     legacy.tick(t);
+    finish_bank_capture();
     if (t >= next_poll) {
         next_poll = t + 0.5;
         bool changed = bridge.poll_files();

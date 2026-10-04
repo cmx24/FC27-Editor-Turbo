@@ -39,11 +39,14 @@ static void refresh_all(App& app) {
 static void ensure_ready(App& app) {
     if (!app.callnames.refreshed) {
         refresh_all(app);
-        return;
-    }
-    if (!app.callnames.index.built || app.callnames.index.model_version != app.model.version() || g_index_gen != app.gen) {
+    } else if (!app.callnames.index.built || app.callnames.index.model_version != app.model.version() || g_index_gen != app.gen) {
         app.callnames.build_index(app.db, app.model, app.model.names_by_id());
         g_index_gen = app.gen;
+    }
+    // No hand-made list and no capture yet for this language: read the loaded bank's selection tables once by itself
+    if (!app.bank_auto_tried && !app.callnames.lang.empty() && !app.callnames.spoken.verified && app.regions_hook) {
+        app.bank_auto_tried = true;
+        app.start_bank_capture(true);
     }
 }
 
@@ -161,12 +164,32 @@ static void language_line(App& app) {
     ImGui::TextDisabled("%s", cn.lang_why.c_str());
     if (cn.no_game_root) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "Game folder unknown: the tests or the host must set it.");
     if (cn.spoken.verified) {
-        ImGui::Text("Spoken callnames: %s", cn.spoken.source.c_str());
+        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1), "Spoken set from %s: %zu names, %zu player callnames", cn.spoken.source.c_str(),
+                           cn.spoken.ids.size(), cn.spoken.players.size());
     } else {
         ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "Unverified: %s", cn.spoken.source.c_str());
-        if (!cn.list_error.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", cn.list_error.c_str());
-        if (!cn.list_path.empty()) ImGui::TextDisabled("Spoken-id list looked for: %s (docs/callnames.md tells how to make one)", cn.list_path.c_str());
     }
+    if (!cn.list_error.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", cn.list_error.c_str());
+    if (!cn.cache_error.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", cn.cache_error.c_str());
+    // capture of the loaded bank's selection tables (core/commentary_bank.h), on a background thread
+    bool running = app.bank_capture_running();
+    if (running) ImGui::BeginDisabled();
+    if (ImGui::Button("Capture from the loaded bank##cn")) app.start_bank_capture(false);
+    if (running) ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Reads the selection tables of the commentary bank the game has in memory (surname and player-keyed\n"
+                          "families) and caches them as turbo_output\\callnames\\spoken_<lang>.json. The full bank is loaded during a\n"
+                          "match; in the menus only the launch bank (name previews) is resident. A hand-made spoken_<lang>.txt\n"
+                          "under turbo\\callnames overrides the capture.");
+    if (running) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", app.bank_capture_status.c_str());
+    } else if (!app.bank_capture_status.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("last capture: %s", app.bank_capture_status.c_str());
+    }
+    if (!cn.spoken.verified && !cn.list_path.empty())
+        ImGui::TextDisabled("Override list looked for: %s; capture cache: %s", cn.list_path.c_str(), cn.cache_path.c_str());
 }
 
 static void by_name_picker(App& app, const Table& t, const PlayerRow& p) {
@@ -286,8 +309,17 @@ void callname_editor(App& app, const Table& t, const PlayerRow& p) {
 
     CallnameInfo info = cn.resolve(p, app.db);
     ImGui::AlignTextToFramePadding();
+    if (info.real) {
+        auto it = cn.spoken.players.find(p.playerid);
+        int tables = it != cn.spoken.players.end() ? it->second : 0;
+        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1), "Recorded by name in %s: the bank has this player's own recordings (%d player-keyed table%s)",
+                           cn.lang.c_str(), tables, tables == 1 ? "" : "s");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Player-specific (\"Real\") recordings are bound to the player id inside the bank, not to a commentary id:\n"
+                              "the commentary says this name whatever the callname rule below gives.");
+    }
     if (info.source == CallnameSource::None) {
-        ImGui::Text("Current callname: none (the commentary does not say this player's name)");
+        ImGui::Text("Current callname: none (%s)", info.real ? "the recordings above are used" : "the commentary does not say this player's name");
     } else {
         std::string via;
         if (info.nameid > 0) {

@@ -1,12 +1,15 @@
 // FC 27 LE Turbo GUI - application state and panels (Dear ImGui).
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include <deque>
 #include <filesystem>
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "core/bridge.h"
@@ -38,6 +41,7 @@ struct Toast {
 class App {
 public:
     App(Memory& mem, std::filesystem::path le_root, uint64_t mailbox_addr, std::string session);
+    ~App();
 
     // Call once per frame before draw() and before ImGui::NewFrame(); `now` in seconds
     void tick(double now);
@@ -104,6 +108,13 @@ public:
     int texture_test_frames = 0;
     double lua_heartbeat_seen_at = -1.0;
     uint64_t game_base = 0;  // FC27.exe image base (set by the Windows host; 0 in tests = skip vtable checks)
+    // ---- spoken-set capture from the loaded commentary bank (core/commentary_bank.h) on a background thread:
+    // the host lists the game's readable private regions; tests give a synthetic list over the simulated memory
+    std::function<std::vector<Region>()> regions_hook;
+    bool start_bank_capture(bool automatic = false);  // false when one is running or no region lister is set
+    bool bank_capture_running() const { return bank_running_.load(); }
+    std::string bank_capture_status;  // last capture result (one line for the Callname tab)
+    bool bank_auto_tried = false;     // an automatic capture was started once this session
 
     // ---- selections / UI state
     int64_t sel_player = 0;
@@ -129,6 +140,15 @@ public:
 
     void load_gui_settings();
     bool save_gui_settings();
+
+private:
+    void finish_bank_capture();  // tick: take a finished capture, cache it, rebuild the pickers
+    std::mutex bank_m_;
+    std::thread bank_thread_;
+    std::atomic<bool> bank_running_{false};
+    std::atomic<bool> bank_cancel_{false};
+    bool bank_done_ = false;
+    BankCapture bank_result_;
 };
 
 // panels

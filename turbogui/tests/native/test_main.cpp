@@ -26,7 +26,11 @@
 #include <vector>
 
 #include "core/bridge.h"
+#include <chrono>
+#include <thread>
+
 #include "core/callnames.h"
+#include "core/commentary_bank.h"
 #include "core/image.h"
 #include "core/legacy.h"
 #include "core/devops.h"
@@ -168,6 +172,29 @@ public:
         return static_cast<bool>(f);
     }
 };
+
+// ---------------------------------------------------------------- synthetic commentary-bank selection rows (core/commentary_bank.h)
+static void put_bank_row(SimMemory& mem, uint64_t addr, uint32_t value, uint32_t index) {
+    uint8_t row[64] = {0};
+    auto w32 = [&](size_t o, uint32_t v) { std::memcpy(row + o, &v, 4); };
+    auto w64 = [&](size_t o, uint64_t v) { std::memcpy(row + o, &v, 8); };
+    w32(0x00, value);
+    w64(0x08, 0x3D9462030ull | 3);
+    w32(0x10, 2);
+    w32(0x18, 0xf8156985u ^ (index * 2654435761u));
+    w32(0x1c, 0x88u | (index << 8));
+    w64(0x20, 0x128ff9d20ull | 3);
+    w64(0x28, 0x3D943A720ull | 3);
+    w64(0x30, 0x128ff9d20ull | 3);
+    w32(0x38, 1);
+    if (!mem.write(addr, row, sizeof(row))) throw std::runtime_error("put_bank_row: page not mapped");
+}
+// A Frostbite array of rows: the element count (bit 31 set) 4 bytes before the first row
+static void put_bank_table(SimMemory& mem, uint64_t start, const std::vector<uint32_t>& values) {
+    uint32_t count = uint32_t(values.size()) | 0x80000000u;
+    if (!mem.write(start - 4, &count, 4)) throw std::runtime_error("put_bank_table: page not mapped");
+    for (size_t i = 0; i < values.size(); ++i) put_bank_row(mem, start + i * kBankRowSize, values[i], uint32_t(i));
+}
 
 static std::string read_file(const fs::path& p) {
     std::ifstream f(p, std::ios::binary);
@@ -468,6 +495,119 @@ static void test_core() {
         CHECK(cn.index.names.size() == 20 && cn.index.players.size() == 1 && cn.index.players[0].playerid == 1003, "fallback pickers: 950000 is not in playernames");
         cn.refresh(le, "", "");
         CHECK(cn.no_game_root && cn.lang.empty() && !cn.spoken.verified, "no game folder: nothing detected, fallback stays");
+    });
+
+    // ---- commentary bank (core/commentary_bank.h): selection rows in memory, tables, capture, cache
+    run_case("commentary bank: row signature, tables, capture over regions, cache json", [&] {
+        SimMemory bm;
+        bm.map(0x6F0000000ull, 0x4000);
+        bm.map(0x6F1000000ull, 0x2000);
+        bm.map(0x6F1800000ull, 0x1000);
+        // surname table across a 4 KB chunk border: 10 ids, two rows each (intensity duplicates, like the bank)
+        std::vector<uint32_t> surn;
+        for (uint32_t id = 900001; id <= 900010; ++id) {
+            surn.push_back(id);
+            surn.push_back(id);
+        }
+        put_bank_table(bm, 0x6F0000F10ull, surn);
+        // two player-keyed tables (ids overlap: 5001..5003 are in both), one tiny run and one mixed table (both unknown)
+        put_bank_table(bm, 0x6F1000020ull, {5001, 5001, 5002, 5002, 5003, 5003, 5004, 5004, 5005, 5005, 5006, 5006});
+        put_bank_table(bm, 0x6F1000800ull, {5001, 5002, 5003, 5001, 5002, 5003, 7000, 5001, 5002, 5003});
+        put_bank_table(bm, 0x6F1001000ull, {900100, 900100, 900101});
+        put_bank_table(bm, 0x6F1800010ull, {900200, 50, 900201, 51, 900202, 52, 900203, 53});
+        uint8_t row[64];
+        CHECK(bm.read(0x6F0000F10ull, row, 64), "row readable");
+        BankRow r;
+        CHECK(parse_bank_row(row, r) && r.value == 900001 && r.intensity == 2 && r.index == 0 && r.cm == 1, "row parsed");
+        row[0x1c] = 0x87;
+        CHECK(!parse_bank_row(row, r), "tag byte must be 0x88");
+        row[0x1c] = 0x88;
+        row[0x08] = 0x30;  // pointer without the tag bits
+        CHECK(!parse_bank_row(row, r), "tagged pointers required");
+        std::vector<BankRow> rows;
+        std::vector<uint8_t> buf;
+        CHECK(bm.read_block(0x6F0000000ull, 0x4000, buf) && find_bank_rows(buf.data(), buf.size(), 0x6F0000000ull, rows) == 20, fmt("20 rows found in the page: %zu", rows.size()));
+        std::vector<size_t> row_table;
+        auto tabs = group_bank_tables(rows, &bm, &row_table);
+        CHECK(tabs.size() == 1 && tabs[0].rows == 20 && tabs[0].distinct == 10 && tabs[0].header_ok && tabs[0].header == 20 && tabs[0].kind == BankTableKind::Surnames &&
+                  tabs[0].start == 0x6F0000F10ull && tabs[0].end == 0x6F0000F10ull + 20 * 64,
+              "one surname table with its array header");
+        CHECK(classify_bank_table(1, 300000, 12) == BankTableKind::Players && classify_bank_table(900001, 965000, 8) == BankTableKind::Surnames &&
+                  classify_bank_table(50, 900203, 8) == BankTableKind::Unknown && classify_bank_table(900100, 900101, 3) == BankTableKind::Unknown,
+              "classification by values and size");
+        std::vector<Region> regions = {{0x6F0000000ull, 0x6F0004000ull}, {0x6F1000000ull, 0x6F1002000ull}, {0x6F1800000ull, 0x6F1801000ull}, {0x6F2000000ull, 0x6F2001000ull}};
+        int ticks = 0;
+        BankCapture c = capture_commentary_bank(bm, regions, {}, [&]() { return double(ticks++); }, 4096);
+        CHECK(c.ok && c.rows == 53 && c.regions == 4 && c.bytes >= 0x7000 && c.bytes < 0x7400, fmt("capture: ok=%d rows=%zu regions=%zu bytes=%llu", int(c.ok), c.rows, c.regions, static_cast<unsigned long long>(c.bytes)));
+        CHECK(c.tables.size() == 5, fmt("5 runs: %zu", c.tables.size()));
+        CHECK(c.surnames.size() == 10 && c.surnames.count(900001) && c.surnames.count(900010) && !c.surnames.count(900100) && !c.surnames.count(900200),
+              fmt("spoken surnames from the surname table only: %zu", c.surnames.size()));
+        CHECK(c.players.size() == 7 && c.players.at(5001) == 2 && c.players.at(5004) == 1 && c.players.at(7000) == 1, fmt("players with recordings, counted per table: %zu", c.players.size()));
+        CHECK(c.note.find("10 spoken surnames") != std::string::npos && c.note.find("7 players") != std::string::npos, "summary: " + c.note);
+        BankCapture cc = capture_commentary_bank(bm, regions, []() { return true; }, {}, 4096);
+        CHECK(!cc.ok && cc.cancelled, "cancelled capture");
+        BankCapture none = capture_commentary_bank(bm, {{0x6F2000000ull, 0x6F2001000ull}}, {}, {}, 4096);
+        CHECK(!none.ok && none.note.find("no selection table") != std::string::npos, "nothing found: " + none.note);
+        std::string js = bank_cache_json(c, "ita_it", "2026-10-04 12:00", "6AB9813C-211EF000");
+        BankCache cache;
+        std::string err;
+        CHECK(parse_bank_cache_json(js, cache, &err), "cache parsed: " + err);
+        CHECK(cache.lang == "ita_it" && cache.when == "2026-10-04 12:00" && cache.build == "6AB9813C-211EF000" && cache.surnames == c.surnames && cache.players == c.players,
+              "cache round trip");
+        CHECK(cache.tables.size() == 4 && cache.tables[0].kind == BankTableKind::Surnames && cache.tables[0].header_ok && cache.source.find("10 spoken surnames") != std::string::npos,
+              fmt("tables kept (runs of 8+ rows): %zu; %s", cache.tables.size(), cache.source.c_str()));
+        CHECK(!parse_bank_cache_json("{\"turbo_spoken\": 1}", cache, &err) && !parse_bank_cache_json("nonsense", cache, &err) &&
+                  !parse_bank_cache_json("{\"turbo_spoken\": 2, \"surnames\": [], \"players\": []}", cache, &err) && err.find("no spoken ids") != std::string::npos,
+              "bad caches refused: " + err);
+        CHECK(spoken_cache_path("C:/LE", "ita_it") == fs::path("C:/LE") / "turbo_output" / "callnames" / "spoken_ita_it.json", "cache path");
+    });
+    run_case("callnames: bank capture cache, hand-made list override, Real recordings", [&] {
+        fs::path game = g_out / "fakegame";
+        fs::path le = g_out / "LE";
+        fs::path cache = spoken_cache_path(le, "ita_it");
+        fs::remove(cache);
+        fs::remove(le / "turbo" / "callnames" / "spoken_ita_it.txt");
+        Callnames cn;
+        cn.refresh(le, game, "");
+        CHECK(cn.lang == "ita_it" && !cn.spoken.verified && cn.spoken.from == SpokenSet::From::Fallback && cn.cache_path == cache.string(), "no list, no cache: fallback");
+        BankCapture c;
+        c.ok = true;
+        c.note = "test capture";
+        c.surnames = {900002, 900004, 900010};
+        c.players = {{1001, 2}, {2001, 1}};
+        c.rows = 10;
+        std::string err;
+        CHECK(cn.apply_capture(c, le, "2026-10-04 12:00", "6AB9813C-211EF000", &err), "capture applied: " + err);
+        CHECK(fs::exists(cache) && cn.spoken.verified && cn.spoken.from == SpokenSet::From::BankCapture && cn.spoken.ids.size() == 3 && cn.spoken.real(1001) && !cn.spoken.real(1002),
+              "cache written, set in use: " + cn.spoken.source);
+        cn.refresh(le, game, "");
+        CHECK(cn.spoken.verified && cn.spoken.from == SpokenSet::From::BankCapture && cn.spoken.ids.count(900010) && cn.spoken.players.size() == 2 && cn.cache_error.empty(),
+              "cache loaded on refresh: " + cn.spoken.source);
+        model.set_extra_names(bridge.names());
+        CHECK(model.rebuild(kToday), "rebuild");
+        cn.build_index(db, model, model.names_by_id());
+        CHECK(cn.index.names.size() == 3 && cn.index.players.size() == 1 && cn.index.players[0].playerid == 1003, fmt("pickers from the capture: %zu names", cn.index.names.size()));
+        CallnameInfo r = cn.resolve(*model.player(1001), db);
+        CHECK(r.real && r.commentaryid == 900002, "Saka: recorded by name and spoken surname");
+        CHECK(!cn.resolve(*model.player(1005), db).real, "1005: no own recording");
+        // the hand-made list wins for the surnames; the players with recordings stay
+        std::ofstream((le / "turbo" / "callnames" / "spoken_ita_it.txt").string()) << "#turbo-spoken ita_it 2\n900015\n900017\n";
+        cn.refresh(le, game, "");
+        CHECK(cn.spoken.from == SpokenSet::From::ListFile && cn.spoken.ids.size() == 2 && cn.spoken.ids.count(900015) && cn.spoken.real(2001) &&
+                  cn.spoken.source.find("players with recordings") != std::string::npos,
+              "list overrides the surnames, players from the cache: " + cn.spoken.source);
+        BankCapture c2 = c;
+        c2.players = {{1005, 1}};
+        CHECK(cn.apply_capture(c2, le, "2026-10-04 13:00", "", &err) && cn.spoken.from == SpokenSet::From::ListFile && cn.spoken.ids.size() == 2 && cn.spoken.real(1005) && !cn.spoken.real(1001),
+              "a new capture under a list: only the players change");
+        // a cache for another language is not used
+        std::ofstream(cache.string()) << "{\"turbo_spoken\": 2, \"lang\": \"por_br\", \"surnames\": [900002], \"players\": []}";
+        fs::remove(le / "turbo" / "callnames" / "spoken_ita_it.txt");
+        cn.refresh(le, game, "");
+        CHECK(!cn.spoken.verified && cn.cache_error.find("por_br") != std::string::npos, "cache for another language rejected: " + cn.cache_error);
+        BankCapture bad;
+        CHECK(!cn.apply_capture(bad, le, "", "", &err) && !err.empty(), "an empty capture is refused: " + err);
+        fs::remove(cache);
     });
 
     // ---- writes, verified afterwards by Live Editor's Lua library
@@ -1805,6 +1945,48 @@ static void test_ui() {
             CHECK(ui.click("Transfer", "##Popup"), "transfer");
             CHECK(app.busy(), "transfer between two other clubs is sent");
             CHECK(ui.click("Cancel"), "cancel");
+        });
+        run_case("UI: Players > Callname: capture of the loaded bank on a background thread, Real recordings", [&] {
+            fs::path game = g_out / "fakegame";
+            fs::path cache = spoken_cache_path(le, "ita_it");
+            fs::remove(cache);
+            fs::remove(le / "turbo" / "callnames" / "spoken_ita_it.txt");
+            // synthetic selection tables in the simulated memory; the region lister points the capture at them
+            mem.map(0x6F2000000ull, 0x4000);
+            mem.map(0x6F3000000ull, 0x2000);
+            put_bank_table(mem, 0x6F2000F10ull, {900002, 900002, 900004, 900004, 900010, 900010, 900015, 900015, 900017, 900017});
+            put_bank_table(mem, 0x6F3000020ull, {1001, 1001, 1003, 1003, 2001, 2001, 1005, 1005});
+            app.regions_hook = []() { return std::vector<Region>{{0x6F2000000ull, 0x6F2004000ull}, {0x6F3000000ull, 0x6F3002000ull}}; };
+            app.game_root = game;
+            app.callnames.refreshed = false;
+            app.bank_auto_tried = false;
+            app.bank_capture_status.clear();
+            app.request_tab = 0;
+            ui.frames(3);
+            CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
+            CHECK(ui.click("1001", "##plist"), "row 1001 (Saka)");
+            CHECK(ui.click("Callname", "##pedit"), "Callname tab");
+            ui.frames(2);
+            CHECK(app.bank_auto_tried, "no list and no cache: the capture starts by itself");
+            for (int i = 0; i < 500 && app.bank_capture_running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            CHECK(!app.bank_capture_running(), "capture thread finished");
+            ui.frames(2);
+            CHECK(app.callnames.spoken.verified && app.callnames.spoken.from == SpokenSet::From::BankCapture && app.callnames.spoken.ids.size() == 5 && app.callnames.spoken.players.size() == 4,
+                  "spoken set from the capture: " + app.callnames.spoken.source);
+            CHECK(fs::exists(cache), "cache written");
+            CHECK(app.bank_capture_status.find("spoken surnames") != std::string::npos, "status line: " + app.bank_capture_status);
+            CHECK(app.callnames.index.built && app.callnames.index.names.size() == 5, fmt("pickers rebuilt from the capture: %zu names", app.callnames.index.names.size()));
+            CallnameInfo r = app.callnames.resolve(*app.model.player(1001), app.db);
+            CHECK(r.real && r.commentaryid == 900002, "Saka: recorded by name");
+            CHECK(ui.find("Capture from the loaded bank##cn") != nullptr, "capture button");
+            // a manual capture while nothing changed gives the same set
+            CHECK(ui.click("Capture from the loaded bank##cn"), "manual capture");
+            for (int i = 0; i < 500 && app.bank_capture_running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            ui.frames(2);
+            CHECK(app.callnames.spoken.from == SpokenSet::From::BankCapture && app.callnames.spoken.ids.size() == 5, "manual capture applied");
+            fs::remove(cache);
+            app.regions_hook = nullptr;
+            app.callnames.refreshed = false;
         });
         run_case("UI: Players > Callname: language, current callname, pickers, name and player assignment", [&] {
             fs::path game = g_out / "fakegame";
