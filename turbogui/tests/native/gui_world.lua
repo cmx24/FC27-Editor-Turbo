@@ -93,9 +93,9 @@ local TEAMS = {   -- id, name, ovr, league
     { 1318, "England", 85, 78 }, { 111592, "Free Agents", 50, 76 },
 }
 
-local MANAGERS = {   -- managerid, first, surname, teamid
-    { 501, "Mikel", "Arteta", 1 }, { 502, "David", "Moyes", 7 }, { 503, "Cristian", "Chivu", 241 },
-    { 504, "Thomas", "Tuchel", 1318 },
+local MANAGERS = {   -- managerid, first, surname, teamid, headclasscode, headtypecode, skintonecode, haircolorcode
+    { 501, "Mikel", "Arteta", 1, 0, 1501, 30, 0 }, { 502, "David", "Moyes", 7, 0, 2001, 10, 9 }, { 503, "Cristian", "Chivu", 241, 1, 7, 20, 3 },
+    { 504, "Thomas", "Tuchel", 1318, 0, 2005, 20, 8 },
 }
 
 local function build_world(sim)
@@ -217,6 +217,7 @@ local function build_world(sim)
             trait1 = (i == 1) and 5 or 0, icontrait1 = (i == 1) and 1 or 0, trait2 = (i == 2) and 3 or 0, icontrait2 = 0,
             haircolorcode = i % 10, hairtypecode = 100 + i, shoetypecode = 600 + i, gkglovetypecode = 40 + i, accessorycode1 = 0, accessorycolourcode1 = 0, headassetid = p[1], hashighqualityhead = (i <= 6) and 1 or 0,
             headclasscode = (i <= 6) and 0 or 1, headtypecode = 100 + i, headvariation = i % 4, skintonecode = i,
+            facialhairtypecode = (i % 3 == 0) and 0 or (240 + i), facialhaircolorcode = i % 4, eyecolorcode = 1 + i % 3,  -- real-face chooser filters
             tattooleftarm = 0, tattoohead = 0,
             contractvaliduntil = 2028 + (i % 3), isretiring = (i == 3) and 1 or 0, nationality = 14,
         }
@@ -272,6 +273,9 @@ local function build_world(sim)
             { name = "headtypecode", short = "htc_", depth = 14 },
             { name = "headvariation", short = "hvar", depth = 5 },
             { name = "skintonecode", short = "stc_", depth = 7 },
+            { name = "facialhairtypecode", short = "fhty", depth = 10 },
+            { name = "facialhaircolorcode", short = "fhco", depth = 6 },
+            { name = "eyecolorcode", short = "eyec", depth = 7 },
             { name = "tattooleftarm", short = "tla_", depth = 10 },
             { name = "tattoohead", short = "thd_", depth = 10 },
             { name = "contractvaliduntil", short = "cvu_", depth = 11 },
@@ -312,7 +316,8 @@ local function build_world(sim)
     })
     local mrows = {}
     for _, m in ipairs(MANAGERS) do
-        mrows[#mrows + 1] = { managerid = m[1], firstname = m[2], surname = m[3], teamid = m[4], nationality = 14, headassetid = 7000 + m[1] }
+        mrows[#mrows + 1] = { managerid = m[1], firstname = m[2], surname = m[3], teamid = m[4], nationality = 14, headassetid = 7000 + m[1],
+                              headclasscode = m[5], headtypecode = m[6], skintonecode = m[7], haircolorcode = m[8] }
     end
     sim:add_table({
         name = "manager", short = "mngr",
@@ -323,6 +328,10 @@ local function build_world(sim)
             { name = "teamid", short = "tid_", depth = 18 },
             { name = "nationality", short = "nat_", depth = 8 },
             { name = "headassetid", short = "hai_", depth = 19 },
+            { name = "headclasscode", short = "hcc_", depth = 2 },
+            { name = "headtypecode", short = "htc_", depth = 14 },
+            { name = "skintonecode", short = "stc_", depth = 7 },
+            { name = "haircolorcode", short = "hcol", depth = 4 },
         },
         rows = mrows,
     })

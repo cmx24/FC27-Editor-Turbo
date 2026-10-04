@@ -5,6 +5,7 @@
 
 #include "app.h"
 #include "imgui.h"
+#include "ui_faces.h"
 #include "ui_identity.h"
 #include "ui_images.h"
 
@@ -522,6 +523,10 @@ void draw_managers(App& app) {
                     ImGui::SeparatorText("All fields");
                     all_fields(app, *t, m.rec, "##mall");
                     ImGui::EndChild();
+                    ImGui::EndTabItem();
+                }
+                if (ImGui::BeginTabItem("Appearance")) {
+                    manager_appearance(app, *t, m);  // real-face chooser (ui_faces.cpp)
                     ImGui::EndTabItem();
                 }
                 if (ImGui::BeginTabItem("Miniface")) {

@@ -11,12 +11,14 @@ Not yet released or checked in game.
 
 - **Pictures load by themselves in the background.** From the first F8 (or when a career connects) Turbo lists every
   picture its screens show (real-face minifaces, tattoo previews, hair / facial hair / boots / gloves / accessory
-  previews, club crests) and asks Turbo's Lua side for the missing ones after what is on screen. While Turbo is shown it
-  sends its synthetic career event every 250 ms, and Lua exports for 0.08 s each time, so they arrive without
-  `lua\scripts\turbo_images.lua` and without stalling the window. Files at hand are decoded on a worker thread (at most
-  128 MB in memory); the grids then only upload them (16 per frame). The top bar shows "Loading pictures: N of M".
-  Exported files stay in `turbo_output\cache\legacy`, so the next session only decodes them. The callname language and
-  spoken set are read at the same time. (ui/preload.h, LegacyImages background list, TextureCache::preload)
+  previews, club crests, managers' real-face heads) and asks Turbo's Lua side for the missing ones after what is on
+  screen. While Turbo is shown it sends its synthetic career event every 250 ms, and Lua exports for 0.08 s each
+  time, so they arrive without `lua\scripts\turbo_images.lua` and without stalling the window. Files at hand are
+  decoded on a worker thread (at most 128 MB in memory); the grids then only upload them (16 per frame). The top bar
+  shows "Loading pictures: N of M". Exported files stay in `turbo_output\cache\legacy`, so the next session only
+  decodes them. The callname language and spoken set are read at the same time. The picture hints (real faces,
+  tattoos, items, crest editor) no longer send you to `turbo_images.lua`. (ui/preload.h, LegacyImages background
+  list, TextureCache::preload)
 - **Show/hide key: any key, with Ctrl / Alt / Shift.** Status > Settings > Change, then press the key (Esc cancels);
   "Reset to F8". Saved in `gui_settings.json` (`gui.toggle_key`, `gui.toggle_mods`) and used at once. While Turbo is
   shown, and for half a second after it hides, the game never sees that key (window messages, DirectInput state and
@@ -27,6 +29,14 @@ Not yet released or checked in game.
 - **Players list: club filter.** A combo next to "My club" with a search box (club name or ID, Enter picks the first
   match). It lists players of that club or national team and works with the other filters. Picking a club unticks
   "My club"; Clear resets it.
+- **Real-face chooser filters.** Players > Appearance > Choose a real face: filters for **Ethnicity**, **Skin tone**,
+  **Hair colour**, **Hair** (with the game's hairstyle pictures), **Facial hair** (clean-shaven, any, or a style),
+  **Facial hair colour** and **Eyes**. Each filter lists how many heads have each value, with a picture, and they
+  combine. **Sort** by name, overall, skin tone, hair colour or newest head. FC 27 has no ethnicity field: Turbo groups
+  the game's head types (headtypecode).
+- **Real faces for managers.** Managers > a manager > **Appearance** > Choose a real face: the same chooser, with
+  **Player heads** or **Manager heads**. A player's head also gives the manager that player's miniface (saved as the
+  head's 512 x 512 heads_staff picture). The tab also shows the manager's appearance fields.
 
 ### Changed
 
@@ -41,7 +51,8 @@ Not yet released or checked in game.
   the career stays consistent: the new club has room (52 players at most) and a free shirt number, a club with a
   match squad keeps at least 18 players, a club's only goalkeeper stays, a loaned player's loan ends before a transfer
   or release, and a player on your transfer or loan list comes off it through the game's own remove before he leaves.
-  Your team sheet follows: a starter who leaves is replaced by the first substitute. Back up your save; the squad screens show a move after saving and loading the career.
+  Your team sheet follows: a starter who leaves is replaced by the first substitute. Back up your save; the squad
+  screens show a move after saving and loading the career.
 - **Clone, create and import as new player work for your club too.** He joins as a reserve and goes on your team sheet.
 - **No more greyed buttons without a reason.** A move that cannot run for the selected player stays clickable, says
   why on hover ("Not possible for him: ...") and on click, and sends nothing. Example: Transfer list on another

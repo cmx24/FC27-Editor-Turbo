@@ -25,6 +25,9 @@ struct RealFaceOptions {
     bool miniface = true;
 };
 
+// One clickable cell of a picture grid (game picture, caption under it); true when clicked
+bool picture_cell(App& app, const std::string& path, bool custom_first, float cell, const std::string& caption,
+                  const char* id, bool selected, bool none = false);
 // Picture of a file fitted into side x side; returns true when it was drawn
 bool draw_file_picture(App& app, const std::filesystem::path& f, float side);
 // Game picture (or custom file); placeholder while it loads
@@ -37,7 +40,7 @@ std::vector<std::pair<std::string, std::filesystem::path>> browser_shortcuts();
 bool file_browser_modal(const char* id, std::filesystem::path& cur_dir, std::filesystem::path& out);
 
 void miniface_editor(App& app, const MinifaceTarget& t);
-// "Choose a real face" modal (open it with ImGui::OpenPopup("Choose a real face"))
+// "Choose a real face" modal (open it with ImGui::OpenPopup("Choose a real face")); ui_faces.cpp, managers: ui_faces.h
 void real_face_picker(App& app, int64_t target_pid);
 size_t real_face_count(App& app);
 // Give target the head model of owner (validated writes); used by the picker and by tests

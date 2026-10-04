@@ -1,7 +1,8 @@
 // FC 27 LE Turbo GUI - background loading of what Turbo's screens show (1.1.1).
 // Starts at the first show (F8) and when a career connects, never blocks a frame:
 //   * game pictures: real-face minifaces (the "Choose a real face" grid), tattoo previews, hair / facial hair / boots /
-//     gloves / accessory previews, club crests. Missing ones are asked from Turbo's Lua side after everything on screen
+//     gloves / accessory previews, club crests, managers' real-face heads (heads_staff, Managers > Appearance).
+//     Missing ones are asked from Turbo's Lua side after everything on screen
 //     (LegacyImages::want_background); while Turbo is shown the host nudges Lua with its synthetic career event
 //     (App::lua_images_wanted), so they arrive without lua\scripts\turbo_images.lua. Exported files stay in
 //     turbo_output\cache\legacy for later sessions (the disk cache), so the next start only decodes them.
@@ -20,6 +21,7 @@
 #include <vector>
 
 #include "app.h"
+#include "ui_faces.h"
 #include "ui_images.h"
 
 namespace turbo {
@@ -123,7 +125,7 @@ private:
     void add(const std::string& p) {
         if (seen_.insert(p).second) items_.push_back({p, false});
     }
-    // Most wanted first: the real-face grid, tattoos, item previews, crests
+    // Most wanted first: the real-face grid, tattoos, item previews, crests, managers' real-face heads
     void collect(App& app) {
         if (const Table* t = app.db.table("players")) {
             const Field* hc = t->field("headclasscode");
@@ -173,6 +175,9 @@ private:
             }
         }
         for (const auto& tr : app.model.teams()) add(crest_main_path(tr.teamid));
+        // Managers > Appearance > Choose a real face, "Manager heads" (ui_faces.cpp): their heads_staff pictures
+        for (const auto& f : manager_faces(app))
+            if (f.real) add(legacy_path::staff_miniface(f.headassetid));
     }
 
     bool started_ = false, collected_ = false, callnames_done_ = false;

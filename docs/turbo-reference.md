@@ -131,6 +131,15 @@ The Lua side polls the mailbox on every career event (`bridge.on_career_event`) 
   (names, clubs, ages, teams, managers, dates), `bridge.*` (bridge files, mailbox), `le_log.*` (reads Live Editor's log for
   this session's `Initial setup done`).
 - `ui/`: `app.*` (tick/draw, settings), `widgets.cpp` (validated field editors), `ui_players/teams/database/tools.cpp`, `playstyles.h`.
+- Real-face chooser (Players > Appearance and Managers > Appearance, `ui/ui_faces.*`, filters in `core/face_filter.*`): heads
+  from `players` (headclasscode 0 + hashighqualityhead 1) or `manager` (headclasscode 0); filters on headtypecode (ethnicity:
+  ranges of 500 grouped as European / Mediterranean / Latin / African / Asian / Mixed, named from the skin tones and nations
+  of the FC 27 players in each range - FC 27 players and managers have no ethnicity field), skintonecode (10..100, Live
+  Editor's labels Caucasian 1..African 3), haircolorcode / facialhaircolorcode (Live Editor's haircolor_0..14), hairtypecode
+  and facialhairtypecode (the game's `imgAssets/hairstyle` / `facialhairstyle` previews), eyecolorcode. Giving a head copies
+  headassetid, headclasscode, hashighqualityhead, headtypecode, headvariation (+ hair / beard / eyes / skin fields on request)
+  into the target's own table; for a manager given a player's head, the player's miniface is written (512 x 512 DXT5) to
+  `mods\legacy\data\ui\imgAssets\heads_staff\heads_staff_<headassetid>.dds`.
 - Callnames (Players > Callname tab, `core/callnames.*`, `ui/ui_callnames.cpp`, Lua `features/callnames.lua`): the name the
   commentary speaks for the loaded commentary language (packs found in the game folder; spoken ids asked from the game's
   own audio service on the game thread - `core/commentary_audio.*`, `win/commentary_audio_win.cpp`, the Create Player
