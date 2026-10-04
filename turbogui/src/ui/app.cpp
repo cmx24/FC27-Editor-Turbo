@@ -335,9 +335,9 @@ void App::tick(double t) {
     if (standings_refresh) {
         svm::Result r;
         while (standings_refresh->poll(r)) {
-            standings_refresh_status = (r.ok ? "" : "failed: ") + r.message;
-            notify("Standings refresh: " + r.message, !r.ok);
-            log("standings refresh [" + r.stage + "]: " + r.message);
+            standings_refresh_status = (r.ok ? (r.warning ? "warning: " : "") : "failed: ") + r.message;
+            notify("Standings refresh: " + r.message, !r.ok || r.warning);
+            log("standings refresh [" + r.stage + (r.warning ? ", warning" : "") + "]: " + r.message);
         }
     }
     // Player names decoded by Live Editor arrived or changed: rebuild the lists (now if shown, else when shown)

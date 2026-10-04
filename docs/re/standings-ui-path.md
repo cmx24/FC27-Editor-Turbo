@@ -4,7 +4,9 @@ Static analysis of `C:\FC 27 Live Editor\turbo_output\fc27_image.bin` (FC27.exe 
 0x140000000), 2026-10-03, with `scripts/re/rx.py` / `rx_jobs.py` / `sig_jobs.py`; **corrected 2026-10-04 after the crash
 analysis of section 0 and verified in the live game (dev-service reads, two sessions)**. Confidence: [H] read in code or
 in the live game, [M] strong inference, [L] guess. Companion of `C3-live-standings.md` and `standings-fixtures-notes.md`
-(FCE side); this note covers the career-mode side between FCE and the UI.
+(FCE side); this note covers the career-mode side between FCE and the UI. **Section 0c (track E9, 04-10-2026 02:37) holds
+the live proof of what the screen reads and why the first edit stayed invisible: the refresh call works, the edited row
+was the wrong one.**
 
 ## 0. The crash of 04-10-2026 01:26 (build a464cab) and what it corrected
 
@@ -92,13 +94,72 @@ the right outcome.
 * The fallback through the listener is opt-in (`turbo_output\call_standings_refresh_full.txt`); an empty or
   inconsistent map is reported and nothing is called.
 
+
+## 0c. E9 (04-10-2026 02:27 / 02:37, two sessions): what the Standings screen reads, proven live
+
+Setting: career "turbo04" (SSC Napoli, team 48), 1 July, hub. Turbo wrote "its" Napoli row (id 3322, group 1066, home wins
+2, GF 4, GA 1, points 6), the refresh game call ran (`0x147da5310(svm, 1118)`, "ok [done] ... re-read 1 competition (comp
+ids 1118)"), and the Office tile / Standings screen (opened without advancing) still showed Napoli 15th, played 0, 0 pts.
+Dev-service reads (read-only) of the live objects, second session: svm `0x6E2278C0`, managers `0x3B8A2B110`, ifce
+`0x66F9DA60`:
+
+| what | live value |
+|---|---|
+| SVM (slot 108) | vtable 0x14975EA38, ctx == managers, pending flags all 0, `mStandings[]` only 'hmcs' set, map +0x250 one node, critical section free, map2 (+0x380) one node, +0x488 set, +0x490 = 1 |
+| `mLiveStandings[1118]` | LiveStandings 0x66D9CEB0 (vtable 0x14B016148) -> data 0x670B0680 |
+| the data | an **FCEI::CompObject tree** (vtable 0x14AAE1A18, 0x80 bytes: +0x10 children*, +0x18 count, +0x20 compObjId, +0x24 type, +0x28 parent id, +0x2C short name, +0x34 desc): **1118 'C31' TrophyName_Abbr15_31 (type 3) -> 1119 'S1' FCE_League_Stage (type 4) -> 1120 'G1' (type 5) -> StandingObject list** (vtable 0x14AAE1D38, 0x38 bytes: +0x20 row count 20, +0x28 rows, +0x30 group 1120) |
+| the 20 rows (0xA0 bytes each: +0 FCE standing id, +4 team id, +0x68 points, +0x78.. the ten counters as int32) | **ids 3487..3506**, all counters 0, all points 0; **Napoli = row id 3506 at index 14** (= "15th") |
+| +0x488 (user copy) | the same tree, same ids, same zeros |
+| FCE `DataManager+0x88` rows of team 48 | id 656 (group 179, all 0), **id 3322 (group 1066: HW 2, HGF 4, HGA 1, pts 6 = Turbo's edit)**, id 3442 (group 1097), **id 3506 (group 1120: all 0)** |
+| groups with 20 rows | 632, 820, 1029, **1066**, 1067, **1120**, 1123, 1325, 1424; 1066 and 1120 hold the same 20 Serie A clubs |
+| FCE `DataManager+0x50` CompObjectDataList (`{i32 capacity 2500; i32 count 1926; +8 data}`, 0x30-byte records: +0 u16 id, +4 u16 parent, +6 u8 type, +7 short name, +0xE desc, +0x2F used) | 1058 'ITAL' (nation) -> **1118 'C31' (Serie A) -> 1119 'S1' FCE_League_Stage -> 1120 'G1'**; 1064 **'C210' (Coppa Italia) -> 1065 'S1' FCE_Setup_Stage -> 1066 'G1' (the Serie A pool) / 1067 'G2' (the Serie B pool)**, then 1068 FCE_Setup_Stage_2, 1070 FCE_Round_1 (16 groups), ..., 1096 FCE_Round_of_16_Draw (1097 = Napoli's third row), ..., 1116 FCE_Final |
+
+So, [H] for every line:
+
+1. **The screen and the tile show exactly the map value**: Napoli at index 14 of the all-zero, re-sorted table = "15th,
+   played 0, 0 pts". The refresh call did its job (the value is a fresh clone; the re-read happened at 02:37:29).
+2. **The map value is built from the FCE rows of group 1120** (comp 1118's current stage 1119 -> its one group): the row ids
+   in the clone are the DataManager row indexes 3487..3506. That is `RequestGetStandings` 0x148a54b00 -> comp node 1118 ->
+   stage by `CompetitionInfo.stageIndex` (0x148a2c638) -> standings under it (0x148a25960) -> 0x148a4a518 builds the
+   tree and sorts, exactly as section 4 says.
+3. **Turbo's edit went to row 3322 = group 1066 = the Coppa Italia's setup pool** (same 20 clubs, never shown as a table:
+   the cup's stage 1 is the pool the draw takes from). The "Live standings (game)" view labelled 1066 "Serie A Enilive"
+   because 20 of its 20 clubs are Serie A clubs (leagueteamlinks majority) and auto-selected it because its id is lower than
+   1120. Group 1120 (the real table) carried the same label, further down the list. **The row the screen shows (3506) was
+   never written.**
+4. There is no second cache between the map and the screen: the UI's `StandingsView::DataReady` events (0x147da2f8c,
+   career event 0x1b) only announce the per-tag `mStandings[]` responses the career managers ask for themselves ('pmcc' for
+   the season state machine's "LeagueStandingsHarvester" 0x147bdb268 etc.); the hub tile goes through
+   `LeagueCache::CreateLiveStandingsByTeamId` 0x147aca434 -> 0x147d9cb44 -> `GetLiveStandingsCopy` on the map. The
+   StaffManager's slot 10 (0x147da3ae8) only *checks* the map value exists before a situation evaluation (0x147da3b70);
+   it is not the screen feed (section 2.1 corrected).
+
+**What Turbo does now (E9):**
+
+* `core/fce_standings`: reads the CompObjectDataList and describes a group by its parents (`describe_group`: stage desc,
+  competition short name "C31" -> league id 31 -> `leagues.leaguename`, nation). The view labels groups by their
+  competition and stage ("Serie A (20 clubs, comp 1120)", "Competition 210 - setup stage (20 clubs, comp 1066)") instead
+  of the club majority.
+* `core/standings_refresh`: `shown_groups` walks every map value's tree (node kinds told apart by the two vtables, both
+  resolved by signature from the clone allocator 0x144040198: `fcei_compobject_vtable` +0x4B, `fcei_standinglist_vtable`
+  +0x89; bounded: 64 children, 64 rows, depth 8, 256 nodes) and returns, per competition key, the group and the FCE row ids
+  / teams / points the view holds. The view marks those groups "[shown by the game as competition 1118]", warns on the
+  others and auto-selects a shown group of the user's club.
+* The refresh request carries the row ids just written; after the re-read the outcome says whether they are among the
+  view's rows ("row 3506 (team 48) is shown by competition 1118 (group 1120) with 6 points") or warns ("WARNING: row 3322
+  is not among the rows the game's standings view shows (it shows the groups 1120 (comp 1118)): the Standings screen
+  keeps its values, edit the group marked as shown by the game"); a warning is an error toast and "ok with warning" in the
+  log. Nothing else is called: no new game function is needed, the refresh of section 5.2 is the complete missing step.
+
 ## 0b. Answer
 
 1. **The Standings screen and the Office tile do not ask FCE.** They read a cached copy kept by the career manager
    `FCECareerModeStandingsViewManager` (SVM, Live Editor type id 108): `StandingsViewManager::mLiveStandings`, an
    `eastl::map<int compObjId, LiveStandings*>` at `svm+0x250` (critical section at `svm+0x280`). Readers copy
    `mLiveStandings[comp]` out through `GetLiveStandingsCopy` 0x147d9f6b8 (section 2.1). Nothing on the screen-open path
-   sends `FCEI::RequestGetStandings`. [H]
+   sends `FCEI::RequestGetStandings`. [H] **The value is a tree whose leaf rows name the FCE DataManager rows they were
+   built from (section 0c): for Serie A those are the rows of group 1120 (comp 1118's league stage), not the rows of
+   the Coppa Italia pool 1066 that hold the same clubs.** [H, live]
 2. **The cache is rebuilt only when a `ResponseStandingsList` with tag `'rmvs'` (type 0x12) or a type-0x13 response
    reaches the SVM** (`StandingsViewManager::HandleFCEMessage` 0x147da1240 -> cache writer 0x147da6f04). The game
    sends those on career events 22 MAIN_COMPETITION_SCHEDULED / 23 SEASON_RESET / 29 POST_LOAD_PREPARE /
@@ -113,7 +174,8 @@ the right outcome.
    `0x147da5310(svm, k)` (synchronous `RequestGetStandings`, tag `'rmvs'`, immediate), with the object and every word
    on the request path validated first (section 5). FCE answers inside the call (mailbox dispatch is synchronous), the
    SVM replaces `mLiveStandings[k]` with a fresh clone of the live rows and posts the `LiveTableUpdate` event (0x75)
-   that the UI listens to. [H for the mechanism; the in-game run is still to do, section 10]
+   that the UI listens to. [H, run live 04-10-2026: the clone was replaced; section 0c] Afterwards Turbo reads the new
+   clone back and reports whether the rows it wrote are in it (E9).
 
 ## 1. Career manager table ("ctx")
 
@@ -177,14 +239,15 @@ Known request tags (index -> tag, 0x147d9f4a4): 0 hmcs, 1 pmcc, 2 port, 3 tlcl, 
   into a new `LiveStandings`, LeaveCriticalSection; returns 0 when the key is absent. **No request on a miss.** [H]
   Wrappers: 0x147d9caac(out, svm, comp), 0x147d9c6e4 (A), 0x147d9c7d0 (B: comp = user's league via 0x147abd100,
   or the team's comp via 0x147c9d264/0x147c9d20c on the ActiveCompetitionsManager), 0x147d9cadc, 0x147d9cb44.
-* **Standings screen feed, corrected:** 0x147da3ae8(this, arg) is **slot 10 of the StaffManager vtable 0x14B0160D8**
-  (`cmp byte [rcx+0x18], 0` is the StaffManager's flag). It fetches the SVM itself: `ctx = [this+8]`,
-  `svm = [[ctx+0xd98]]` (slot 108), `comp = [[ctx+0x3b8]]+0x9c8` (the competition selected on the screen), then
-  `0x147d9caac(&out, svm, comp)` -> `GetLiveStandingsCopy` -> if found and comp != -1 -> `0x14892ec20(copy)` (career UI
-  layer) -> `0x147da3b70`. The UI action object 0x144f1984c does `ctx = [[0x14c2a6c90]]->vt[0x180]()`, then
-  `[[ctx+0xd98]]->vt[0x50]()`: on the SVM's own vtable slot 10 is `ret 0` (0x142b2b858), so that `vt[0x180]()` table is
-  not the career manager table, or the call is a no-op; the only confirmed screen feed is the StaffManager method above.
-  [H for the code; M that it is the screen's only path]
+* **StaffManager slot 10, corrected again (E9):** 0x147da3ae8(this, arg) is **slot 10 of the StaffManager vtable
+  0x14B0160D8** (`cmp byte [rcx+0x18], 0` is the StaffManager's flag). It fetches the SVM itself: `ctx = [this+8]`,
+  `svm = [[ctx+0xd98]]` (slot 108), `comp = [[ctx+0x3b8]]+0x9c8`, then `0x147d9caac(&out, svm, comp)` ->
+  `GetLiveStandingsCopy`; if a copy exists and comp != -1 it calls `0x14892ec20()` (no argument: fetches the
+  SituationService 0xf619809 and pokes it) and then `0x147da3b70(this, arg)` (a 0x2c90-byte frame reading `arg+0x128`: a
+  situation evaluation), and frees the copy. **It is not the screen feed**, it is a "standings exist" check before a staff
+  situation. The UI action object 0x144f1984c (`[[0x14c2a6c90]]->vt[0x180]()` then `[[ctx+0xd98]]->vt[0x50]()`) calls
+  the SVM's own slot 10 = `ret 0` (0x142b2b858): a no-op on this build. The screen feed is the map value itself (section
+  0c): the clone handed out by `GetLiveStandingsCopy` is what the table renders. [H]
 * **Office hub tile / league cache:** `LeagueCache::CreateLiveStandingsByTeamId` 0x147aca434 ->
   0x147d9cb44 -> user-comp copy from the map. [M]
 * Many managers read `mStandings[idx]` for their own tags (sync requests through 0x147da546c, 24 call sites); those
@@ -358,6 +421,7 @@ answered at once (server+0x170 re-entrancy byte): the hook runs after the frame 
 | `svm_check_early_results` (SimDayManager) | 0x147da67b0 | `40 53 48 83 EC 30 48 8B 41 08 48 8B D9 48 8B 90 58 07 00 00 48 8B 02 48 8B 50 08` |
 | `fcei_request_get_standings_ctor` | 0x144036e6c | `48 89 5C 24 08 57 48 83 EC 20 48 8B F9 48 8D 05 ?? ?? ?? ?? 48 89 01 33 C0 89 41 08 87 41 08 48 8D 0D ?? ?? ?? ?? 48 C7 47 10 30 00 00 00` |
 | `fce_response_type13_builder` | 0x148a541d8 | `48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 55 41 56 41 57 48 8B EC 48 83 EC 70 48 8B 41 18` |
+| `fcei_compobject_clone_alloc` (E9: the node vtables of the view's rows; rip +0x4B -> 0x14AAE1A18 CompObject, rip +0x89 -> 0x14AAE1D38 StandingObject list) | 0x144040198 | `48 89 5C 24 08 57 48 83 EC 20 33 DB 48 8B F9 85 D2 75 51 48 8B 0D ?? ?? ?? ?? 4C 8D 05 ?? ?? ?? ?? 45 33 C9 BA 80 00 00 00` |
 
 `svm_get_user_comp_copy_B` 0x147d9c7d0 has a twin (0x147d9c6e4) with identical code: not signable, not needed.
 Vtables (RVA): **SVM 0x975EA38**, StaffManager 0xB0160D8, LiveStandings 0xB016148, IFCEInterface 0xB180DF0, mailbox
@@ -374,6 +438,8 @@ Turbo.dll's built-in table (`turbogui/src/core/sigscan.cpp`):
 | `svm_vtable` (= `svm_ctor`, rip +0x13) | 0x147d9a700 -> 0x14975EA38 | rip |
 | `svm_allocator` (the `svm_refresh_comp` pattern, rip +0x2A) | 0x147da5310 -> 0x14C269EA8 | rip |
 | `fce_iface_post` | 0x148a35d3c | none |
+| `fcei_compobject_vtable` (E9) | 0x144040198 -> 0x14AAE1A18 | rip +0x4B |
+| `fcei_standinglist_vtable` (E9) | 0x144040198 -> 0x14AAE1D38 | rip +0x89 |
 
 ## 7. Key addresses
 
@@ -399,6 +465,10 @@ Turbo.dll's built-in table (`turbogui/src/core/sigscan.cpp`):
 | 0x144036258 / 0x14244d564 / 0x14230f760 / 0x141bbc7c0 | MailBox ctor / server ctor / server Post / synchronous dispatch |
 | 0x142a60d5c | FCE: post a response (tag copy) to mResponseServer |
 | 0x148a541d8 / 0x148a54c33 | ResponseStandingsList builders: type 0x13 (for 0x2c) / type 0x12 (for 0x30) |
+| 0x144040198 / 0x14403fc30 | FCEI::CompObject clone allocator (kinds 0 CompObject 0x80, 1 StandingObject list 0x38, 2 StatisticData) / deep copy of a tree (vt[1]() = kind, 0x14403afdc copies the children, 0x14403bbbc the 0xA0-byte rows) |
+| 0x147da2f8c / 0x147d9be20 | "StandingsView::DataReady" (career event 0x1b, +0x1c = tag) posted after a known-tag `mStandings[]` response; 'rmvs' is not announced |
+| 0x147bdb268 / 0x147bdae14 / 0x147bb2db8 | "LeagueStandingsHarvester" (tag 'pmcc' through 0x147da546c / 0x147da4db8) and the LeagueStandings / CupStandings model of the season state machine: not the screen |
+| 0x148a2c7a8 / 0x148a2c638 | FCE comp structure: Find(compObjId) (node: +0 children*, +0x10 data (+2 u16 compObjId), +0x18 / +0x1c counts) / stage by index |
 
 FCEI message types seen here: 0x12 ResponseStandingsList, 0x13 ResponseStandingsList (early-results flavour),
 0x1e RequestSwapCompetitionTeams, 0x23 ResponseCompetitionStageInfo, 0x2a RequestUpdateMatchResult,
@@ -407,7 +477,9 @@ FCEI message types seen here: 0x12 ResponseStandingsList, 0x13 ResponseStandings
 ## 8. Open points
 
 * `svm+0x488` (user-comp copy) has writers but no reader was found; if some tile reads it, the full-refresh
-  alternative (5.2) covers it. [L]
+  alternative (5.2) covers it. [L] Live (0c) it held the same tree as the map value, so a reader would see the same rows.
+* The in-game "15th" position is the index of the all-zero sorted clone; the game's tie-break order (0x148a36878 with the
+  comp's sort settings) is not modelled by Turbo's view, which sorts by points / GD / GF / name. Not needed for the fix.
 * The global 0x14c2a6c90 whose `vt[0x180]` is called by the UI action 0x144f1984c: on the SVM itself slot 10 is `ret 0`,
   so either that table is not the career manager table or the action is a no-op on this build. Not needed by Turbo. [L]
 * Which career event, if any, fires on a plain day advance without fixtures was not traced; the observed behaviour
@@ -470,7 +542,31 @@ bound) reported with nothing called; the opt-in fallback once and never on an in
 the one-shot gate; the five signatures against the image bytes (vtable via the SVM ctor's lea, allocator via the rip
 operand); and the UI driver case (a row write queues the request with the published addresses, outcome as a toast).
 
-## 10. In-game test plan (E7: not run yet; the a464cab run crashed, section 0)
+### 9b. Track E9 (04-10-2026): the row the screen shows
+
+* `core/fce_standings`: `Located` carries the CompObjectDataList (`DataManager+0x50`, `{cap, count, data}`, 0x30-byte
+  records; optional: an odd header leaves it out and the rows stay usable); `read_compobjs`, `decode_compobj`,
+  `describe_group` (parents walked, at most 8 levels, loops and bad parents stop the walk) -> `GroupInfo` {stage desc,
+  competition short name / description / number, nation}.
+* `core/standings_refresh`: `Fns` gains `compobj_vtable` / `standinglist_vtable` (signatures `fcei_compobject_vtable`,
+  `fcei_standinglist_vtable`; the host falls back to the RVAs 0xAAE1A18 / 0xAAE1D38 + image base); `shown_groups` (the map
+  walk reused, every value's tree read with both vtables required, bounds 64 / 64 / 8 / 256); `describe_rows`; `Request::rows`
+  (the standing ids just written) and `Result::shown` / `Result::warning`. `refresh()` appends the proof to its message
+  after the re-read (or after the opt-in full refresh); an unreadable tree is reported as "could not be checked", never
+  as a failure of the call. `RefreshService::fns()` exposes the anchors to the UI.
+* `ui/ui_standings.cpp`: groups labelled by the tree ("Serie A (20 clubs, comp 1120) [shown by the game as competition
+  1118]", "Competition 210 - setup stage (20 clubs, comp 1066) [not shown by the game]"; the leagueteamlinks majority only
+  without a tree), the shown groups read from the SVM on every reload (`validate` + `shown_groups`, read-only), the
+  user's club's shown group auto-selected (then a league stage, then a league-named group), a warning line when the
+  selected group is not shown, the written row ids passed to the refresh request, warning outcomes shown as error toasts.
+* Tests: `test_fce_compobjs` (records, parent chain, pool vs league stage, refusals, odd headers); `shown_groups` on
+  synthetic trees (two competitions, rows / teams / points, every bound and corruption refused with nothing walked, the
+  anchors required, null values skipped); `refresh()` with the 04-10-2026 case (row 3322 written while the view shows
+  3506: ok with warning; the right row: shown with its points; no anchors: "could not be checked"; RVA fallback); the two
+  signatures against the clone allocator's bytes; the UI case (tree-named groups, marks, warning line, request rows,
+  warning toast, the hint without anchors).
+
+## 10. In-game test plan (E7: run 04-10-2026 02:27 and 02:37: steps 0-2 passed, step 3 failed for the reason of section 0c)
 
 Preconditions: Turbo 0.4.x with track E7, Live Editor v27.1.2, a Manager Career loaded, Turbo GUI running (F8),
 Status tab > Game calls shows `standings_refresh: ready` with the five addresses (0x...DA5310, 0x...DA0E10,
@@ -511,3 +607,28 @@ stale / critical section / interface / Post / allocator) and means the layout di
 until it is understood; a `walk` failure with a reason other than "map is empty" means the rbtree layout differs;
 `busy` means the SimDayManager was processing or a refresh was in flight; `dispatcher_failed` growing means a C++
 exception inside the call (an SEH exception would still end the process, section 8).
+
+## 11. In-game test plan (E9: edit the row the screen shows)
+
+Preconditions as in section 10; `turbo_gui.log` shows `standings_refresh resolved (... compobj vtable 0x14AAE1A18,
+standinglist vtable 0x14AAE1D38 ...)`.
+
+1. Hub, 1 July (no fixtures played). Turbo (F8) > Competitions > Live standings (game). Expect the combo to list
+   "Serie A (20 clubs, comp 1120) [shown by the game as competition 1118]" **selected**, and further down "Competition 210 -
+   setup stage (20 clubs, comp 1066) [not shown by the game]" (the Coppa Italia pool). Under the status line: "The game's
+   Standings screen reads: 1118 -> group 1120 (20 rows)".
+2. Select Napoli (row 3506), Home wins 2, Home goals for 4, against 1, Points 6 (or "Points from W/D/L"), Apply. Expect the
+   toasts "Standings: SSC Napoli updated in the game" and "Standings refresh: SSC Napoli row: the game's standings view
+   re-read 1 competition (comp ids 1118); row 3506 (team 48) is shown by competition 1118 (group 1120) with 6 points"
+   (not an error toast); log line `ok [done]`.
+3. Open the Office Standings tile / the Standings screen **without advancing**: Napoli 1st, played 2, W 2, GF 4, GA 1, 6 pts.
+   Close and reopen: unchanged. Go back to the hub: the tile preview shows 1st.
+4. Counter-check: pick "Competition 210 - setup stage ... comp 1066", select Napoli (row 3322), set points 9, Apply.
+   Expect the orange line "This group is not one the game's Standings screen shows ..." before the edit, and after it an
+   **error toast** "... WARNING: row 3322 is not among the rows the game's standings view shows (it shows the groups 1120
+   (comp 1118)) ...", log `ok with warning [done]`. The screen keeps 6 pts. Set the row back to 6 (or leave it: the pool
+   is only used by the cup draw).
+5. Change result / advance a day / Sim To Date: as section 10 steps 6-8; the toasts now also name the shown rows.
+6. Another career (e.g. a Premier League club): the selected group must read "<league name> (20 clubs, comp N) [shown by
+   the game as competition K]"; if the combo shows no "[shown ...]" mark at all, read the hint under the status line (the
+   SVM not published, the vtables unknown, or the tree layout differing) and report it with the log.

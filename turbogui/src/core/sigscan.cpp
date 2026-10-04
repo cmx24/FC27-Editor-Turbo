@@ -197,6 +197,15 @@ static const SignatureTable kBuiltin[] = {
          {"fce_iface_post", "40 53 48 83 EC 20 48 8B 01 48 8B DA FF 50 40 8B 53 10 4C 8B C3 48 8B C8", "none", 0,
           "FCE::FCEInterfaceImpl::Post (vtable slot 4, 0x148A35D3C): what svm_refresh_comp calls through [[ctx+0x38]]; checked "
           "against the career's interface vtable before the call"},
+         // The view's rows (docs/re/standings-ui-path.md section 0c): the two node kinds of a LiveStandings tree are told
+         // apart by their vtables, both written by the FCEI::CompObject clone allocator 0x144040198 (kind 0 at +0x4B,
+         // kind 1 "FCEI::StandingObject" at +0x89)
+         {"fcei_compobject_vtable",
+          "48 89 5C 24 08 57 48 83 EC 20 33 DB 48 8B F9 85 D2 75 51 48 8B 0D ?? ?? ?? ?? 4C 8D 05 ?? ?? ?? ?? 45 33 C9 BA 80 00 00 00",
+          "rip", 0x4B, "FCEI::CompObject vtable (0x14AAE1A18): the lea rax,[rip+..] at +0x4B of the clone allocator 0x144040198"},
+         {"fcei_standinglist_vtable",
+          "48 89 5C 24 08 57 48 83 EC 20 33 DB 48 8B F9 85 D2 75 51 48 8B 0D ?? ?? ?? ?? 4C 8D 05 ?? ?? ?? ?? 45 33 C9 BA 80 00 00 00",
+          "rip", 0x89, "StandingObject list vtable (0x14AAE1D38): the lea rcx,[rip+..] at +0x89 of the same allocator (kind 1)"},
          {"speech_system_ptr", "48 8B 0D ?? ?? ?? ?? 48 8B 01 FF 90 F0 00 00 00 48 8D 54 24 20 48 8B 08 4C 8B 81 D8 00 00 00", "rip", 0,
           "global pointer to the SpeechSystem (0x14C27D590 on this build): [+0x50] the commentary event registry, [+0x58] the "
           "variation selector (docs/callnames.md section 6); read by the commentary-bank notes, not hooked"},

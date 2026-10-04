@@ -160,7 +160,11 @@
       "StaffManager_note": "ctor 0x147d9a5c8 (allocates 'StaffManager::mScoutManagerData'), dtor 0x147d9af90; slot 10 = 0x147da3ae8 (reads the SVM through [[ctx+0xd98]]). Mistaken for the SVM vtable until 04-10-2026",
       "LiveStandings": "0xB016148",
       "IFCEInterface": "0xB180DF0",
-      "MailBoxServer": "0x972FB80"
+      "MailBoxServer": "0x972FB80",
+      "FCEI_CompObject": "0xAAE1A18",
+      "FCEI_CompObject_note": "the nodes of a LiveStandings tree (competition / stage / group, 0x80 bytes: +0x10 children*, +0x18 count, +0x20 compObjId, +0x24 type 3/4/5, +0x28 parent id, +0x2C short name); written by the clone allocator 0x144040198 at +0x4B",
+      "FCEI_StandingObjectList": "0xAAE1D38",
+      "FCEI_StandingObjectList_note": "the leaf of a LiveStandings tree (0x38 bytes: +0x20 row count, +0x28 rows of 0xA0 bytes, +0x30 group compObjId); row +0 = FCE standing id (== DataManager row index), +4 team id, +0x68 points, +0x78.. counters; clone allocator +0x89"
     },
     "svm_ctor": {
       "va": "0x147d9a700",
@@ -207,6 +211,22 @@
           "sig": "40 53 48 83 EC 20 48 8B 01 48 8B DA FF 50 40 8B 53 10 4C 8B C3 48 8B C8",
           "va": "0x148a35d3c",
           "resolve": "none"
+        },
+        {
+          "name": "fcei_compobject_vtable",
+          "sig": "48 89 5C 24 08 57 48 83 EC 20 33 DB 48 8B F9 85 D2 75 51 48 8B 0D ?? ?? ?? ?? 4C 8D 05 ?? ?? ?? ?? 45 33 C9 BA 80 00 00 00",
+          "va": "0x144040198",
+          "resolve": "rip",
+          "offset": "0x4B",
+          "target": "0x14aae1a18"
+        },
+        {
+          "name": "fcei_standinglist_vtable",
+          "sig": "48 89 5C 24 08 57 48 83 EC 20 33 DB 48 8B F9 85 D2 75 51 48 8B 0D ?? ?? ?? ?? 4C 8D 05 ?? ?? ?? ?? 45 33 C9 BA 80 00 00 00",
+          "va": "0x144040198",
+          "resolve": "rip",
+          "offset": "0x89",
+          "target": "0x14aae1d38"
         }
       ]
     },
@@ -357,6 +377,20 @@
     "crash_2026_10_04": {
       "minidump": "minidump-2026_10_04_01_26_18.dmp: STATUS_INVALID_HANDLE (0xC0000008, flags 0x81) raised by ntdll!RtlRaiseStatus from the contended path of RtlEnterCriticalSection, called at 0x147d9f6e6 (GetLiveStandingsCopy 0x147d9f6b8) <- 0x147d9c7fa <- 0x147da1015 (listener event-29 loop) <- Turbo.dll; this = 0x6C4C78F0 = the StaffManager (slot 107), comp 0x45E = 1118",
       "cause": "Turbo's svm_vtable constant 0x14B0160D8 is the StaffManager's; locate() searched the table for that vtable, found slot 107, refused the real SVM (slot 108), the map walk on staff+0x250 failed, the fallback ran SVM::OnCareerEvent(staff, 29, 0)"
+    },
+    "view_rows": {
+      "doc": "docs/re/standings-ui-path.md section 0c (E9, live 04-10-2026 02:37)",
+      "note": "The Standings screen and the Office tile show mLiveStandings[comp]: comp 1118 = 'C31' Serie A -> stage 1119 FCE_League_Stage -> group 1120 -> 20 FCEI::StandingObjects whose +0 ids are the DataManager rows 3487..3506 (Napoli = 3506). Turbo's 04-10-2026 edit went to row 3322 of group 1066 = the Coppa Italia ('C210', comp 1064) setup pool, which the view never shows.",
+      "compobj_list": {
+        "offset": "DataManager+0x50",
+        "header": "{i32 capacity; i32 count; +0x08 data}",
+        "record": "0x30 bytes: +0 u16 id, +2 u16 id, +4 u16 parent, +6 u8 type (0 root, 2 nation, 3 competition, 4 stage, 5 group), +7 char[7] short ('C31', 'S1', 'G1'), +0xE char[33] desc ('TrophyName_Abbr15_31', 'FCE_League_Stage', 'FCE_Setup_Stage'), +0x2F u8 used",
+        "live": "capacity 2500, count 1926, data 0x3B8B14110; 1058 ITAL -> 1118 C31 -> 1119 S1 FCE_League_Stage -> 1120 G1; 1064 C210 -> 1065 S1 FCE_Setup_Stage -> 1066 G1 / 1067 G2"
+      },
+      "clone_allocator": {
+        "va": "0x144040198",
+        "note": "FCEI::CompObject(kind 0, 0x80) / StandingObject list (kind 1, 0x38) / StatisticData (kind 2) allocation used by the LiveStandings deep copy 0x14403fc30"
+      }
     }
   }
 }

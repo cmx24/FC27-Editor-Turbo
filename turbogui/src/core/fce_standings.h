@@ -27,6 +27,16 @@ constexpr uint64_t kOffImplHub = 0x18, kOffHubConnector = 0x18, kOffConnectorMan
 constexpr uint64_t kOffFixtureList = 0x60, kOffStandingsList = 0x88;
 constexpr uint32_t kStandingSize = 0x18, kFixtureSize = 0x18;
 constexpr uint32_t kMaxRows = 65535, kMaxFixtures = 20000;
+// DataManager +0x50 CompObjectDataList {i32 capacity; i32 count; +0x08 CompObjData* data}: the competition tree as a flat
+// list, id == index (live 04-10-2026: capacity 2500, 1926 entries). CompObjData = 0x30 bytes: +0x00 u16 id, +0x02 u16 id
+// again, +0x04 u16 parent id (0xFFFF for the root), +0x06 u8 type (0 root "FIFA", 2 nation, 3 competition, 4 stage,
+// 5 group), +0x07 char[7] short name ("C31", "S1", "G1"), +0x0E char[33] description ("TrophyName_Abbr15_31",
+// "FCE_League_Stage", "FCE_Setup_Stage"), +0x2F u8 used. A standing row's compObjId (+0x02) is a group node (type 5);
+// the group's competition is reached through the parents (group -> stage -> competition "C<leagueid>" -> nation).
+constexpr uint64_t kOffCompObjList = 0x50;
+constexpr uint32_t kCompObjSize = 0x30, kMaxCompObjs = 65535;
+constexpr uint32_t kCompObjShortLen = 7, kCompObjDescLen = 33;
+constexpr uint8_t kCompTypeRoot = 0, kCompTypeNation = 2, kCompTypeCompetition = 3, kCompTypeStage = 4, kCompTypeGroup = 5;
 // vtables inside FC27.exe (image-relative; checked only when the image base is known)
 constexpr uint64_t kRvaInterfaceVtable = 0xB180DF0, kRvaDataManagerVtable = 0xB180CA8;
 
@@ -81,12 +91,39 @@ inline Outcome outcome_of(int home_score, int away_score) {
     return Outcome::Draw;
 }
 
+// One CompObjectDataList entry (0x30 bytes): a node of the competition tree
+struct CompObj {
+    uint16_t id = 0;        // +0x00 (== index)
+    uint16_t parent = 0;    // +0x04 (0xFFFF = none)
+    uint8_t type = 0;       // +0x06 (kCompType*)
+    uint8_t used = 0;       // +0x2F
+    std::string short_name; // +0x07 "C31" (competition: 'C' + the league / cup id of the database), "S1", "G1"
+    std::string desc;       // +0x0E "TrophyName_Abbr15_31", "FCE_League_Stage", "FCE_Setup_Stage", ...
+    // "C31" -> 31; -1 when the short name is not C<number>
+    int comp_number() const;
+};
+
+// Where a standings group sits in the competition tree (describe_group)
+struct GroupInfo {
+    uint16_t group = 0, stage = 0, comp = 0, nation = 0;  // node ids (0 = not found above the group)
+    std::string stage_desc;   // "FCE_League_Stage", "FCE_Setup_Stage", "FCE_Group_Stage", ...
+    std::string comp_short;   // "C31"
+    std::string comp_desc;    // "TrophyName_Abbr15_31"
+    std::string nation_short; // "ITAL"
+    int comp_number = -1;     // 31 (the leagues / cups id of the database), -1 when unknown
+    // A league table: the stage the competition's table lives in. Setup stages (the pools a cup draws from, which hold the
+    // same clubs as a league) and knockout groups are not tables the game shows as standings.
+    bool league_stage() const { return stage_desc == "FCE_League_Stage"; }
+    bool setup_stage() const { return stage_desc.rfind("FCE_Setup_Stage", 0) == 0; }
+};
+
 // The located engine objects (addresses in the game process)
 struct Located {
     uint64_t impl = 0, hub = 0, connector = 0, manager = 0;
     uint64_t standings_list = 0, rows_begin = 0, rows_end = 0;
     uint64_t fixture_list = 0, fixtures_data = 0;
-    uint32_t row_count = 0, fixture_count = 0;
+    uint64_t compobj_list = 0, compobjs_data = 0;  // 0 when the list is absent (older layout): the tree is optional
+    uint32_t row_count = 0, fixture_count = 0, compobj_count = 0;
     bool ok() const { return manager != 0; }
 };
 
@@ -103,6 +140,12 @@ bool decode_fixture(const uint8_t* p, uint64_t addr, Fixture& out);
 // All rows / fixtures (unused entries included; filter on `used`)
 bool read_rows(Memory& mem, const Located& loc, std::vector<StandingRow>& out);
 bool read_fixtures(Memory& mem, const Located& loc, std::vector<Fixture>& out);
+// The competition tree (CompObjectDataList; index == id; empty when the list is absent). false = not readable
+bool read_compobjs(Memory& mem, const Located& loc, std::vector<CompObj>& out);
+bool decode_compobj(const uint8_t* p, CompObj& out);
+// Where group `group` sits: its stage, competition and nation (parents walked, at most 8 levels). false when the group
+// is not a used node of the list; the fields found so far are still filled.
+bool describe_group(const std::vector<CompObj>& objs, uint16_t group, GroupInfo& out);
 
 // Limits of a row: every counter 0..255, points -32768..32767. "" = fine
 std::string check_row(const StandingRow& row);

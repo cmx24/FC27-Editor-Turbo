@@ -2,6 +2,7 @@
 #include "standings_refresh.h"
 
 #include <cstdio>
+#include <cstring>
 
 namespace turbo {
 namespace svm {
@@ -148,7 +149,26 @@ std::string validate_request_path(Memory& mem, uint64_t svm, uint64_t ifce_expec
     return "";
 }
 
+namespace {
+struct MapEntry {
+    int32_t key;
+    uint64_t value;  // LiveStandings*
+};
+}  // namespace
+
+// In-order walk of mLiveStandings (see map_keys); every entry's key and LiveStandings pointer
+static std::string walk_map(Memory& mem, uint64_t svm, std::vector<MapEntry>& entries, uint64_t live_vtable);
+
 std::string map_keys(Memory& mem, uint64_t svm, std::vector<int32_t>& keys, uint64_t live_vtable) {
+    keys.clear();
+    std::vector<MapEntry> entries;
+    std::string err = walk_map(mem, svm, entries, live_vtable);
+    if (!err.empty()) return err;
+    for (const MapEntry& e : entries) keys.push_back(e.key);
+    return "";
+}
+
+static std::string walk_map(Memory& mem, uint64_t svm, std::vector<MapEntry>& keys, uint64_t live_vtable) {
     keys.clear();
     if (!is_ptr(svm, 8)) return "no StandingsViewManager";
     const uint64_t anchor = svm + kOffMap;
@@ -162,11 +182,11 @@ std::string map_keys(Memory& mem, uint64_t svm, std::vector<int32_t>& keys, uint
     }
     if (size > kMaxKeys) return "the standings map counts " + std::to_string(size) + " entries (layout mismatch?)";
     struct Frame {
-        uint64_t node, right;
+        uint64_t node, right, value;
         int32_t key;
     };
     std::vector<Frame> stack;
-    std::vector<int32_t> out;
+    std::vector<MapEntry> out;
     uint64_t node = root, expect_parent = anchor;
     size_t visited = 0;
     bool first = true;
@@ -198,7 +218,7 @@ std::string map_keys(Memory& mem, uint64_t svm, std::vector<int32_t>& keys, uint
                 keys.clear();
                 return "the standings map has more than " + std::to_string(kMaxKeys) + " nodes (cycle or layout mismatch)";
             }
-            stack.push_back({node, right, key});
+            stack.push_back({node, right, value, key});
             expect_parent = node;
             node = left;
         }
@@ -210,7 +230,7 @@ std::string map_keys(Memory& mem, uint64_t svm, std::vector<int32_t>& keys, uint
         }
         first = false;
         last = f.key;
-        out.push_back(f.key);
+        out.push_back({f.key, f.value});
         expect_parent = f.node;
         node = f.right;
     }
@@ -222,6 +242,123 @@ std::string map_keys(Memory& mem, uint64_t svm, std::vector<int32_t>& keys, uint
     return "";
 }
 
+// ---------------------------------------------------------------- the view's rows (LiveStandings trees)
+namespace {
+struct TreeWalk {
+    Memory& mem;
+    uint64_t compobj_vt, list_vt;
+    size_t nodes = 0;
+    std::vector<ShownGroup>& out;
+
+    std::string node(uint64_t n, int depth, int32_t key) {
+        if (!is_ptr(n, 8)) return "bad node pointer " + hex(n);
+        if (depth > int(kMaxTreeDepth)) return "the tree is deeper than " + std::to_string(kMaxTreeDepth) + " levels";
+        if (++nodes > kMaxTreeNodes) return "more than " + std::to_string(kMaxTreeNodes) + " nodes (cycle or layout mismatch)";
+        uint64_t vt = 0;
+        if (!mem.rd(n, vt)) return "node " + hex(n) + " is not readable";
+        if (vt == list_vt) return list(n, key);
+        if (vt != compobj_vt)
+            return "node " + hex(n) + " has vtable " + hex(vt) + ": neither a CompObject (" + hex(compobj_vt) + ") nor a StandingObject list (" +
+                   hex(list_vt) + ")";
+        uint64_t children = 0;
+        uint32_t count = 0;
+        if (!mem.rd(n + kCoChildren, children) || !mem.rd(n + kCoChildCount, count)) return "node " + hex(n) + " is cut off";
+        if (count == 0) return "";
+        if (count > kMaxChildren) return "node " + hex(n) + " claims " + std::to_string(count) + " children";
+        if (!is_ptr(children, 8)) return "node " + hex(n) + " has a bad children pointer " + hex(children);
+        std::vector<uint8_t> buf;
+        if (!mem.read_block(children, size_t(count) * 8, buf)) return "the children of node " + hex(n) + " are not readable";
+        for (uint32_t i = 0; i < count; ++i) {
+            uint64_t child = 0;
+            std::memcpy(&child, buf.data() + size_t(i) * 8, 8);
+            std::string err = node(child, depth + 1, key);
+            if (!err.empty()) return err;
+        }
+        return "";
+    }
+    std::string list(uint64_t n, int32_t key) {
+        int32_t count = 0, group = 0;
+        uint64_t rows = 0;
+        if (!mem.rd(n + kSlRowCount, count) || !mem.rd(n + kSlRows, rows) || !mem.rd(n + kSlGroup, group)) return "list " + hex(n) + " is cut off";
+        if (count < 0 || size_t(count) > kMaxTreeRows) return "list " + hex(n) + " claims " + std::to_string(count) + " rows";
+        if (group < 0 || group > 0xFFFF) return "list " + hex(n) + " has group id " + std::to_string(group);
+        ShownGroup g;
+        g.key = key;
+        g.group = uint16_t(group);
+        if (count > 0) {
+            if (!is_ptr(rows, 8)) return "list " + hex(n) + " has a bad rows pointer " + hex(rows);
+            std::vector<uint8_t> buf;
+            if (!mem.read_block(rows, size_t(count) * kRowSize, buf)) return "the rows of list " + hex(n) + " are not readable";
+            for (int32_t i = 0; i < count; ++i) {
+                const uint8_t* p = buf.data() + size_t(i) * kRowSize;
+                int32_t id = 0, pts = 0;
+                uint32_t team = 0;
+                std::memcpy(&id, p + kRowId, 4);
+                std::memcpy(&team, p + kRowTeam, 4);
+                std::memcpy(&pts, p + kRowPoints, 4);
+                if (id < 0 || id > 0xFFFF) return "list " + hex(n) + " row " + std::to_string(i) + " has standing id " + std::to_string(id);
+                g.rows.push_back({uint16_t(id), team, pts});
+            }
+        }
+        out.push_back(std::move(g));
+        return "";
+    }
+};
+}  // namespace
+
+std::string shown_groups(Memory& mem, uint64_t svm, uint64_t live_vtable, uint64_t compobj_vtable, uint64_t standinglist_vtable,
+                         std::vector<ShownGroup>& out) {
+    out.clear();
+    if (!compobj_vtable || !standinglist_vtable || compobj_vtable == standinglist_vtable)
+        return "the FCEI::CompObject / StandingObject list vtables are not known on this game build";
+    std::vector<MapEntry> entries;
+    std::string err = walk_map(mem, svm, entries, live_vtable);
+    if (!err.empty()) return err;
+    TreeWalk walk{mem, compobj_vtable, standinglist_vtable, 0, out};
+    for (const MapEntry& e : entries) {
+        uint64_t data = 0;
+        if (!mem.rd(e.value + 8, data)) {
+            out.clear();
+            return "LiveStandings " + hex(e.value) + " (comp " + std::to_string(e.key) + ") is not readable";
+        }
+        if (data == 0) continue;  // an empty value: the game stores one when a response carried no tree
+        err = walk.node(data, 0, e.key);
+        if (!err.empty()) {
+            out.clear();
+            return "comp " + std::to_string(e.key) + ": " + err;
+        }
+    }
+    return "";
+}
+
+bool describe_rows(const std::vector<ShownGroup>& shown, const std::vector<uint16_t>& rows, std::string& msg) {
+    bool hidden = false;
+    for (uint16_t id : rows) {
+        const ShownGroup* in = nullptr;
+        const ShownRow* row = nullptr;
+        for (const ShownGroup& g : shown) {
+            for (const ShownRow& r : g.rows)
+                if (r.id == id) {
+                    in = &g;
+                    row = &r;
+                    break;
+                }
+            if (in) break;
+        }
+        if (in) {
+            msg += "; row " + std::to_string(id) + " (team " + std::to_string(row->team) + ") is shown by competition " + std::to_string(in->key) +
+                   " (group " + std::to_string(in->group) + ") with " + std::to_string(row->points) + " points";
+        } else {
+            hidden = true;
+            std::string groups;
+            for (const ShownGroup& g : shown) groups += (groups.empty() ? "" : ", ") + std::to_string(g.group) + " (comp " + std::to_string(g.key) + ")";
+            msg += "; WARNING: row " + std::to_string(id) + " is not among the rows the game's standings view shows (it shows the groups " +
+                   (groups.empty() ? std::string("none") : groups) + "): the Standings screen keeps its values, edit the group marked as shown by the game";
+        }
+    }
+    return hidden;
+}
+
 std::string sim_busy(Memory& mem, uint64_t managers) {
     std::string err;
     const uint64_t sdm = manager_at(mem, managers, kSimDayTypeId, err);
@@ -230,6 +367,19 @@ std::string sim_busy(Memory& mem, uint64_t managers) {
     if (!mem.rd(sdm + kOffSimDayState, state)) return "the SimDayManager " + hex(sdm) + " is not readable";
     if (state != 0) return "the game is processing a match day (SimDayManager state " + std::to_string(state) + "): try again when the hub is back";
     return "";
+}
+
+// After the call: what the view holds now, and whether the rows just written are among them (the proof the edit is
+// visible; docs/re/standings-ui-path.md section 0c: a row of a group the view does not show never reaches the screen)
+static void report_shown(Memory& mem, const Fns& fns, const Request& req, uint64_t svm, uint64_t live_vtable, Result& r) {
+    const uint64_t co = fns.compobj_vtable ? fns.compobj_vtable : (req.image_base ? req.image_base + kRvaCompObjectVtable : 0);
+    const uint64_t sl = fns.standinglist_vtable ? fns.standinglist_vtable : (req.image_base ? req.image_base + kRvaStandingListVtable : 0);
+    std::string err = shown_groups(mem, svm, live_vtable, co, sl, r.shown);
+    if (!err.empty()) {
+        if (!req.rows.empty()) r.message += "; whether the edited row is shown could not be checked: " + err;
+        return;
+    }
+    if (!req.rows.empty()) r.warning = describe_rows(r.shown, req.rows, r.message);
 }
 
 static Result fail(Result r, const char* stage, const std::string& msg) {
@@ -305,6 +455,7 @@ Result refresh(Memory& mem, Caller& call, const Fns& fns, const Request& req) {
                     (r.refreshed == 1 ? "" : "s") + " (comp ids " + list_keys(r.keys) + ")";
         if (!again.empty()) r.message += "; the map could not be re-read afterwards: " + again;
         else if (after.size() != r.keys.size()) r.message += "; the map now holds " + std::to_string(after.size()) + " competitions";
+        report_shown(mem, fns, req, svm, live_vtable, r);
         return r;
     }
     // 6. an empty or inconsistent map: reported. The game's own load-time refresh (event 29 through the listener) runs
@@ -322,6 +473,7 @@ Result refresh(Memory& mem, Caller& call, const Fns& fns, const Request& req) {
     r.stage = "done";
     r.message = what + why + ": the game's full standings refresh (POST_LOAD_PREPARE) was run instead";
     if (again.empty()) r.message += "; the map now holds " + std::to_string(after.size()) + " competition" + (after.size() == 1 ? "" : "s");
+    report_shown(mem, fns, req, svm, live_vtable, r);
     return r;
 }
 

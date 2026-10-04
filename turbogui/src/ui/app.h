@@ -181,6 +181,10 @@ void draw_competitions(App& app);
 bool recalc_league(App& app, int64_t league, bool positions, std::string* msg);
 // Competitions tab, "Live standings" view: the game engine's own table rows (ui_standings.cpp)
 void draw_live_standings(App& app);
+// The live view's lines about the game's standings view (what the tests read back): what the game's Standings screen
+// reads (or why it could not be read), and the warning when the selected group is not one it shows ("" = none)
+std::string live_standings_view_line();
+std::string live_standings_view_warning();
 void draw_database(App& app);
 void draw_tools(App& app);
 void draw_status(App& app);
