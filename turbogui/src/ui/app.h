@@ -289,6 +289,7 @@ struct CallnameTabState {
     bool confirm_open = false;  // the "has his own recording: assign anyway?" popup is open
     std::string takeover_line;  // By player: whose playernamemap row a write takes over (the table is full), or why none can be
     std::string confirm_takeover;  // the same, in the confirmation popup
+    std::string route_line;     // By name / All callnames: the route a generic callname takes (1.0.3), shown before the click
 };
 const CallnameTabState& callname_tab_state();
 // What giving a player a player-specific callname did (write_player_callname)

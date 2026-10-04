@@ -742,6 +742,19 @@ static void test_core() {
             CHECK(n == 2 && q.size() == 2 && b.find("\"playerid\":1") == npos, "queue: popped in order");
             q.pop(5);
             CHECK(q.empty(), "queue: pop more than held");
+            // 1.0.3: a kept-name row and the name id it protects are one entry, never split across two commands
+            q.push_group({R"({"action":"set_display_name","playerid":7})", R"({"action":"set_name_ids","playerid":7,"lastnameid":17})"});
+            q.push(R"({"action":"set_display_name","playerid":8})");
+            CHECK(q.size() == 2, "queue: a group is one entry (one player)");
+            b = q.batch(70, n);
+            const nlohmann::json gb = nlohmann::json::parse(b, nullptr, false);
+            CHECK(n == 1 && gb.is_array() && gb.size() == 2 && gb[0].value("action", "") == "set_display_name" && gb[1].value("action", "") == "set_name_ids" &&
+                      b.find("\"playerid\":8") == npos,
+                  "queue: the whole group in one batch, in order, even past the size: " + b);
+            q.pop(n);
+            b = q.batch(4096, n);
+            CHECK(n == 1 && b.find("\"playerid\":8") != npos, "queue: the next player after the group");
+            q.clear();
         }
         CHECK(parse_master_list_json(R"({"language": "ita_it", "game": 27, "real_players": [5]})", "ita_it", ml, &err) && ml.game == "fc26",
               "an odd game field: taken as the FC 26 list, not refused");
@@ -3896,36 +3909,123 @@ static void test_ui() {
             CHECK(ui.find("Refresh##cn") && ui.find("##cnsearch") && ui.find("Assign as last name") == nullptr, "language line and name search; no assignment before a pick");
             const Table* pt = app.db.table("players");
             uint64_t rec1001 = app.db.find(*pt, "playerid", 1001);
-            // BY NAME: Kane (name 17, callname 900017) as Saka's last name; the shown name is kept through Turbo's Lua side
+            // BY NAME (1.0.3 route choice): Kane (name 17, callname 900017, in the spoken list) for Saka, who has no
+            // playernamemap row while the table has room: the player-specific route (a new row, through Lua), no name changes
+            const auto npos = std::string::npos;
+            const CallnameTabState& rst = callname_tab_state();
             CHECK(ui.type_into(ui.find("##cnsearch"), "kan"), "type kan");
             CHECK(ui.find("17", "##cnames") != nullptr && ui.find("2", "##cnames") == nullptr, "type-ahead shows Kane only");
             CHECK(ui.click("17", "##cnames"), "pick Kane");
-            CHECK(ui.click("Assign as last name"), "assign as last name");
-            CHECK(app.db.get_int(*pt, rec1001, "lastnameid") == 17, fmt("lastnameid = %lld", static_cast<long long>(app.db.get_int(*pt, rec1001, "lastnameid"))));
-            CHECK(app.busy(), "editedplayernames row queued (player 1001 has none)");
+            ui.frames(1);
+            CHECK(rst.route_line.find("Route: player-specific callname (a new playernamemap row). No name changes.") == 0,
+                  "the route is named before the click: " + rst.route_line);
+            CHECK(ui.find("Assign as last name") == nullptr && ui.find("Assign callname") != nullptr, "one button on the player-specific route");
+            const int64_t saka_last = app.db.get_int(*pt, rec1001, "lastnameid");
+            CHECK(ui.click("Assign callname"), "assign callname");
+            CHECK(app.db.get_int(*pt, rec1001, "lastnameid") == saka_last, "no name id written");
+            CHECK(app.busy(), "playernamemap row queued (player 1001 has none)");
             {
                 json cmd = json::parse(mem.read_cstr(kMb + 0x20, 0x1000), nullptr, false);
-                CHECK(!cmd.is_discarded() && cmd["module"] == "callnames", "callnames command");
+                CHECK(!cmd.is_discarded() && cmd["module"] == "callnames" && cmd["overrides"]["actions"].size() == 1, "callnames command");
                 const json& a = cmd["overrides"]["actions"][0];
-                CHECK(a["action"] == "set_display_name" && a["playerid"] == 1001 && a["firstname"] == "Bukayo" && a["surname"] == "Saka" && a["commonname"] == "",
-                      "keeps the name shown before the change: " + a.dump());
+                CHECK(a["action"] == "set_playernamemap" && a["playerid"] == 1001 && a["commentaryid"] == 900017 && a.value("room", false),
+                      "his playernamemap row, with the room check: " + a.dump());
             }
+            CHECK(app.reapply.callname(1001) && app.reapply.callname(1001)->commentaryid == 900017 &&
+                      app.reapply.callname(1001)->from.find("generic 'Kane'") != npos,
+                  "kept for every career load");
             CHECK(ui.click("Cancel"), "cancel");
-            CallnameInfo now = app.callnames.resolve(*app.model.player(1001), app.db);
-            CHECK(now.commentaryid == 900017 && now.source == CallnameSource::LastName, "callname follows the new last name");
-            // a player with an editedplayernames row: the row is edited in place, nothing queued
+            app.forget_player_callname(1001);
+            // THE NAME ROUTE when no playernamemap row can be used: a full table whose rows all hold a spoken callname
+            const Table* mt0 = app.db.table("playernamemap");
+            const Table* et = app.db.table("editedplayernames");
+            uint16_t pm_written = 0, pm_cap = 0, ep_written = 0, ep_cap = 0;
+            CHECK(mem.rd(mt0->header + 0x7C, pm_written) && mem.rd(mt0->header + 0x78, pm_cap) && mem.rd(et->header + 0x7C, ep_written) &&
+                      mem.rd(et->header + 0x78, ep_cap),
+                  "header counts");
+            CHECK(mem.wr(mt0->header + 0x78, pm_written) && mem.wr(mt0->header + 0x7A, pm_written), "playernamemap made full");
+            ui.frames(1);
+            CHECK(rst.route_line.find("Route: name id (no playernamemap row free)") == 0 && rst.route_line.find("until the career is reloaded") != npos,
+                  "the name route, named before the click: " + rst.route_line);
+            // Saka has no editedplayernames row: ONE Lua command, the kept-name row first, then the name id; nothing written here
+            app.toasts.clear();
+            CHECK(ui.click("Assign as last name"), "assign as last name");
+            CHECK(app.db.get_int(*pt, rec1001, "lastnameid") == saka_last, "the name id is not written before the kept-name row");
+            CHECK(app.busy(), "one command sent");
+            {
+                json cmd = json::parse(mem.read_cstr(kMb + 0x20, 0x1000), nullptr, false);
+                const json acts = cmd.is_discarded() ? json::array() : cmd["overrides"]["actions"];
+                CHECK(acts.size() == 2, "two actions in one command: " + acts.dump());
+                if (acts.size() == 2) {
+                    const json& a = acts[0];
+                    CHECK(a["action"] == "set_display_name" && a["playerid"] == 1001 && a["firstname"] == "Bukayo" && a["surname"] == "Saka" &&
+                              a["commonname"] == "" && a.value("room", false),
+                          "the kept-name row first, with the room check: " + a.dump());
+                    CHECK(a.value("playerjerseyname", std::string()) == "Saka", "his shirt name (playerjerseynameid's text), never empty: " + a.dump());
+                    const json& b = acts[1];
+                    CHECK(b["action"] == "set_name_ids" && b["playerid"] == 1001 && b.value("lastnameid", 0) == 17 && !b.contains("commonnameid"),
+                          "then the name id: " + b.dump());
+                }
+            }
+            CHECK(ui.toast_contains("The game shows the new name until the career is reloaded"), "the toast says so");
+            CHECK(ui.click("Cancel"), "cancel");
+            // a player with an editedplayernames row (3002, his shirt name emptied as 1.0.2's rows left it): the row is
+            // edited in place FIRST (shown names and his shirt name), then the name id; nothing queued
             CHECK(ui.click("3002", "##plist"), "row 3002 (Ali Zed)");
             CHECK(ui.click("Callname", "##pedit"), "Callname tab");
+            uint64_t erec = app.db.find(*et, "playerid", 3002);
+            CHECK(erec && app.db.set(*et, erec, *et->field("playerjerseyname"), Value::of_str("")), "his shirt name emptied");
             CHECK(ui.type_into(ui.find("##cnsearch"), "saka"), "type saka");
             CHECK(ui.click("2", "##cnames"), "pick Saka");
+            ui.frames(1);
+            CHECK(rst.route_line.find("Route: name id") == 0, "name route for 3002 too: " + rst.route_line);
+            app.log_lines.clear();
             CHECK(ui.click("Assign as common name"), "assign as common name");
             uint64_t rec3002 = app.db.find(*pt, "playerid", 3002);
             CHECK(app.db.get_int(*pt, rec3002, "commonnameid") == 2, "commonnameid = 2");
             CHECK(!app.busy(), "nothing queued: editedplayernames edited in place");
-            const Table* et = app.db.table("editedplayernames");
-            uint64_t erec = app.db.find(*et, "playerid", 3002);
             Value sv;
             CHECK(app.db.get(*et, erec, *et->field("surname"), sv) && sv.to_string() == "Zed", "shown surname kept: " + sv.to_string());
+            CHECK(app.db.get(*et, erec, *et->field("playerjerseyname"), sv) && sv.to_string() == "Generic",
+                  "shirt name filled from his playerjerseynameid: " + sv.to_string());
+            {
+                int row_at = -1, id_at = -1, i = 0;
+                for (const auto& l : app.log_lines) {
+                    if (row_at < 0 && l.rfind("editedplayernames.", 0) == 0) row_at = i;
+                    if (id_at < 0 && l.rfind("players.commonnameid = 2", 0) == 0) id_at = i;
+                    ++i;
+                }
+                CHECK(row_at >= 0 && id_at > row_at, fmt("the kept-name row is written before the name id (row %d, id %d)", row_at, id_at));
+            }
+            // a full editedplayernames table and no row of his (1002): nothing written, nothing queued (never an insert
+            // into a full table)
+            CHECK(mem.wr(et->header + 0x78, ep_written) && mem.wr(et->header + 0x7A, ep_written), "editedplayernames made full");
+            CHECK(ui.click("1002", "##plist") && ui.click("Callname", "##pedit"), "row 1002");
+            CHECK(ui.type_into(ui.find("##cnsearch"), "kan") && ui.click("17", "##cnames"), "pick Kane");
+            uint64_t rec1002 = app.db.find(*pt, "playerid", 1002);
+            const int64_t last1002 = app.db.get_int(*pt, rec1002, "lastnameid");
+            app.toasts.clear();
+            CHECK(ui.click("Assign as last name"), "assign as last name");
+            CHECK(!app.busy() && app.lua_queue.empty() && app.db.get_int(*pt, rec1002, "lastnameid") == last1002,
+                  "a full editedplayernames table: nothing written or queued");
+            CHECK(ui.toast_contains("editedplayernames table is full"), "the toast says why");
+            CHECK(mem.wr(et->header + 0x78, ep_cap) && mem.wr(et->header + 0x7A, ep_cap), "editedplayernames capacity restored");
+            // a SPARE row (its player is not in the database): the player-specific route again, through that row
+            const uint64_t r1003 = app.db.find(*mt0, "playerid", 1003);
+            CHECK(r1003 && app.db.set_int(*mt0, r1003, "playerid", 424242), "1003's row given to a player not in the database");
+            CHECK(ui.click("Refresh##cn"), "refresh the index");
+            ui.frames(1);
+            CHECK(rst.route_line.find("Route: player-specific callname (a spare playernamemap row)") == 0, "a spare row: " + rst.route_line);
+            CHECK(ui.click("Assign callname"), "assign callname");
+            CHECK(!app.busy() && app.db.get_int(*mt0, r1003, "playerid") == 1002 && app.db.get_int(*mt0, r1003, "commentaryid") == 900017 &&
+                      app.db.get_int(*pt, rec1002, "lastnameid") == last1002,
+                  "the spare row carries 1002's callname; no name changes");
+            CHECK(app.reapply.callname(1002) && app.reapply.callname(1002)->commentaryid == 900017, "kept for every career load");
+            app.forget_player_callname(1002);
+            CHECK(app.db.set_int(*mt0, r1003, "playerid", 1003) && app.db.set_int(*mt0, r1003, "commentaryid", 900010), "row restored");
+            CHECK(mem.wr(mt0->header + 0x78, pm_cap) && mem.wr(mt0->header + 0x7A, pm_cap), "playernamemap capacity restored");
+            CHECK(ui.click("Refresh##cn"), "refresh the index");
+            CHECK(ui.click("3002", "##plist") && ui.click("Callname", "##pedit"), "back to 3002");
             // BY PLAYER: copy player 1003's callname (900010) to 3002 -> no playernamemap row yet: queued for Lua
             CHECK(ui.click("By player", "##cname"), "By player tab");
             CHECK(ui.type_into(ui.find("##cpsearch"), "saliba"), "type saliba");
@@ -4080,6 +4180,12 @@ static void test_ui() {
             fs::remove(le / "turbo" / "callnames" / "spoken_ita_it.txt");
             CHECK(ui.click("Refresh##cn"), "refresh");
             CHECK(!app.callnames.spoken.verified && app.callnames.index.names.size() == 20, fmt("fallback pickers: %zu names", app.callnames.index.names.size()));
+            // the game says a player-specific callname only when it has a recording: unverified, so the name route even
+            // though 2001 has his own playernamemap row (1.0.3)
+            CHECK(ui.click("By name", "##cname") && ui.type_into(ui.find("##cnsearch"), "kan") && ui.click("17", "##cnames"), "By name: Kane");
+            ui.frames(1);
+            CHECK(rst.route_line.find("Route: name id (no recording known") == 0 && ui.find("Assign as last name") != nullptr,
+                  "no known recording: the name route: " + rst.route_line);
             // the language can be chosen and is saved in gui_settings.json
             app.gui_settings["callnames"]["language"] = "eng_us";
             CHECK(app.save_gui_settings(), "save");
@@ -4121,7 +4227,12 @@ static void test_ui() {
                       st.current_line.find("none") == npos,
                   "current callname line: " + st.current_line);
             CHECK(st.rule_line.find("Not used") != npos && st.rule_line.find("900017") != npos, "the rule's result, marked unused: " + st.rule_line);
-            // BY NAME: warning, then a confirmation popup; Cancel writes nothing; Assign anyway writes
+            // BY NAME: warning, then a confirmation popup; Cancel writes nothing; Assign anyway writes. A full playernamemap
+            // whose rows all hold a spoken callname, so the name route is the one taken (1.0.3)
+            uint16_t pm_written = 0, pm_cap = 0;
+            CHECK(mem.rd(mt->header + 0x7C, pm_written) && mem.rd(mt->header + 0x78, pm_cap) && mem.wr(mt->header + 0x78, pm_written) &&
+                      mem.wr(mt->header + 0x7A, pm_written),
+                  "playernamemap made full");
             CHECK(ui.click("By name", "##cname"), "By name tab");
             CHECK(ui.type_into(ui.find("##cnsearch"), "saka"), "type saka");
             CHECK(ui.click("2", "##cnames"), "pick Saka (name 2)");
@@ -4139,7 +4250,14 @@ static void test_ui() {
             CHECK(st.confirm_open, "asked again (the confirmation is per write)");
             CHECK(ui.click("Assign anyway##cnown", "##cnown"), "assign anyway");
             ui.frames(2);
-            CHECK(!st.confirm_open && app.db.get_int(*pt, rec1001, "lastnameid") == 2, "written after the confirmation");
+            CHECK(!st.confirm_open && app.busy(), "sent after the confirmation");
+            {
+                json cmd = json::parse(mem.read_cstr(kMb + 0x20, 0x1000), nullptr, false);
+                const json acts = cmd.is_discarded() ? json::array() : cmd["overrides"]["actions"];
+                CHECK(acts.size() == 2 && acts[0].value("action", "") == "set_display_name" && acts[1].value("action", "") == "set_name_ids" &&
+                          acts[1].value("lastnameid", 0) == 2,
+                      "the kept-name row, then the name id, in one command: " + acts.dump());
+            }
             if (app.busy()) CHECK(ui.click("Cancel"), "cancel the queued shown-name row");
             // the common name asks too: nothing written before the confirmation
             const int64_t common_before = app.db.get_int(*pt, rec1001, "commonnameid");
@@ -4167,6 +4285,7 @@ static void test_ui() {
             ui.frames(2);
             CHECK(st.playerid == 1001 && !st.confirm_open && app.db.get_int(*pt, rec1001, "lastnameid") == last1001 && !app.busy(),
                   "back on Saka: nothing was written");
+            CHECK(mem.wr(mt->header + 0x78, pm_cap) && mem.wr(mt->header + 0x7A, pm_cap), "playernamemap capacity restored");
             // BY PLAYER: the same gate before the playernamemap row is queued
             CHECK(ui.click("By player", "##cname"), "By player tab");
             CHECK(ui.type_into(ui.find("##cpsearch"), "1003"), "type 1003");
@@ -4247,11 +4366,31 @@ static void test_ui() {
             CHECK(!st.warning_shown, "no warning for 1002");
             uint64_t rec1002 = app.db.find(*pt, "playerid", 1002);
             const int64_t last1002 = app.db.get_int(*pt, rec1002, "lastnameid");
-            CHECK(ui.click("Assign as last name"), "assign");
+            // the table has room again and 900017 is spoken: the player-specific route (1.0.3), no name changes
+            CHECK(st.route_line.find("Route: player-specific callname") == 0, "route: " + st.route_line);
+            CHECK(ui.click("Assign callname"), "assign");
             ui.frames(1);
-            CHECK(!st.confirm_open && app.db.get_int(*pt, rec1002, "lastnameid") == 17, "written at once, no popup");
-            if (app.busy()) CHECK(ui.click("Cancel"), "cancel the queued shown-name row");
-            CHECK(app.db.set_int(*pt, rec1002, "lastnameid", last1002), "1002 restored");
+            CHECK(!st.confirm_open && app.busy() && app.db.get_int(*pt, rec1002, "lastnameid") == last1002, "queued at once, no popup, no name change");
+            if (app.busy()) CHECK(ui.click("Cancel"), "cancel the queued playernamemap row");
+            app.forget_player_callname(1002);
+            // ALL CALLNAMES: the master's generic id 900002 (name row Saka) takes the same route: player-specific first,
+            // the name row when no playernamemap row can be used
+            CHECK(ui.click("All callnames", "##cname"), "All callnames tab");
+            CHECK(ui.type_into(ui.find("##cnallsearch"), "900002") && ui.click("900002##gen", "##cnall"), "pick 900002");
+            ui.frames(1);
+            CHECK(st.route_line.find("Route: player-specific callname") == 0 && ui.find("Assign callname##all") != nullptr &&
+                      ui.find("Assign as last name##all") == nullptr,
+                  "all callnames, player-specific: " + st.route_line);
+            {
+                uint16_t w = 0, c = 0;
+                CHECK(mem.rd(mt->header + 0x7C, w) && mem.rd(mt->header + 0x78, c) && mem.wr(mt->header + 0x78, w) && mem.wr(mt->header + 0x7A, w),
+                      "playernamemap made full");
+                ui.frames(1);
+                CHECK(st.route_line.find("Route: name id (no playernamemap row free)") == 0 && ui.find("Assign as last name##all") != nullptr,
+                      "all callnames, a full table: the name row: " + st.route_line);
+                CHECK(mem.wr(mt->header + 0x78, c) && mem.wr(mt->header + 0x7A, c), "capacity restored");
+            }
+            CHECK(ui.click("By name", "##cname"), "back to By name");
             // the list gone: the line says an own recording would not be known
             fs::remove(mp);
             CHECK(ui.click("Refresh##cn"), "refresh");
@@ -4481,13 +4620,15 @@ static void test_ui() {
             CHECK(app.db.set_int(*KT(), k11, "teamcolorprimr", 99), "changed in the Database tab");
             hooked.clear();
             app.toasts.clear();
-            publish(false, true, 7, 20);
+            publish(false, true, 7, 40);  // 40 frames (0.67 s) cover the 0.5 s state poll whatever its phase
             CHECK(app.bridge.state().user_team == 7 && app.db.get_int(*KT(), k11, "teamcolorprimr") == 99 && hooked_line("re-apply").empty(),
-                  "a club change is not a career load: nothing written");
-            publish(false, true, 1, 20);
+                  fmt("a club change is not a career load: nothing written (user_team %lld, teamcolorprimr %lld) ", static_cast<long long>(app.bridge.state().user_team),
+                      static_cast<long long>(app.db.get_int(*KT(), k11, "teamcolorprimr"))) +
+                      hooked_line("re-apply"));
+            publish(false, true, 1, 40);
             CHECK(app.db.get_int(*KT(), k11, "teamcolorprimr") == 99 && hooked_line("re-apply").empty(), "back to the first club: still nothing");
             // ---- the career left (main menu): another load_gen, but no career database: nothing written
-            publish(true, false, 0, 20);
+            publish(true, false, 0, 40);
             CHECK(!app.reapply_due() && app.db.get_int(*KT(), k11, "teamcolorprimr") == 99 && hooked_line("re-apply").empty(), "outside a career: nothing");
 
             // ---- career load 3 (the tables not reloaded this time): Arsenal's primary colour back; then load 4 with every

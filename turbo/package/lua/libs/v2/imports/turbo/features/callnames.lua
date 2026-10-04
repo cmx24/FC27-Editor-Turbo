@@ -5,9 +5,12 @@
 --                                                                                   -- playernamemap row is updated or added
 --     { "action": "remove_playernamemap", "playerid": 1002 },                       -- back to the common/last name rule
 --     { "action": "set_display_name", "playerid": 1002, "firstname": "Yuri", "surname": "Alberto", "commonname": "" },
---                                                   -- editedplayernames row updated or added (the shown name)
+--                                                   -- editedplayernames row updated or added (the shown name);
+--                                                   -- "playerjerseyname" too, else it is filled (jersey_name): never empty
 --     { "action": "set_name_ids", "playerid": 1002, "lastnameid": 39795 }           -- and/or "commonnameid"
 --   ] }
+-- Actions run in their order: the Turbo window sends a kept name and the name id it protects as
+-- [set_display_name, set_name_ids] in one command, so the row is written first and a refused row stops the name id.
 -- Game rule: playernamemap (playerid -> commentaryid) wins; otherwise the commentary id of the player's common name
 -- (players.commonnameid -> playernames.commentaryid), else of his last name. commentaryid 900000 = no callname.
 -- Rows are added through Live Editor's InsertDBTableRow and removed through DeleteDBTableRowByAddr (the record
@@ -78,6 +81,26 @@ local function room_now(table_name, a)
         return false, string.format("the %s table is full now (%d of %d rows; Live Editor crashes the game on a full table)", table_name, n, a.capacity)
     end
     return true
+end
+
+-- The shirt name a kept-name row carries (1.0.3). The game prints editedplayernames.playerjerseyname on the shirt and
+-- its own rows always fill it; an empty one printed no name. The name given (the Turbo window sends the player's
+-- current shirt name: his playerjerseynameid's text, else his shown surname), else the row's own when it has one (kept:
+-- nil), else the surname kept, else the row's surname, else the common name. nil = nothing to write.
+local function jersey_name(a, tbl, rec)
+    if not db.has_field(tbl, "playerjerseyname") then return nil end
+    local given = a.names.playerjerseyname
+    if given and given ~= "" then return given end
+    local function row_text(f)
+        if not rec or not db.has_field(tbl, f) then return "" end
+        local v = tbl:GetRecordFieldValue(rec, f)
+        return type(v) == "string" and v or ""
+    end
+    if row_text("playerjerseyname") ~= "" then return nil end
+    for _, v in ipairs({ a.names.surname or "", row_text("surname"), a.names.commonname or "", row_text("commonname") }) do
+        if v ~= "" and db.validate(tbl, "playerjerseyname", v) ~= nil then return v end
+    end
+    return nil
 end
 
 local function delete_rec(table_name, rec)
@@ -209,8 +232,15 @@ local function apply(a, dry)
             return true, string.format("player %d: display name %s (%s)", pid, table.concat(fields, ", "), rec and "row updated" or "row added")
         end
         if rec then
+            local jersey = jersey_name(a, tbl, rec)
             for _, f in ipairs(fields) do
-                local ok, err = db.set(tbl, rec, f, a.names[f], false)
+                if f ~= "playerjerseyname" then
+                    local ok, err = db.set(tbl, rec, f, a.names[f], false)
+                    if not ok then return false, err end
+                end
+            end
+            if jersey then
+                local ok, err = db.set(tbl, rec, "playerjerseyname", jersey, false)
                 if not ok then return false, err end
             end
             return true, string.format("player %d: display name updated (%s)", pid, table.concat(fields, ", "))
@@ -221,6 +251,8 @@ local function apply(a, dry)
         for _, f in ipairs(NAME_FIELDS) do
             if db.has_field(tbl, f) then row[f] = a.names[f] or "" end
         end
+        local jersey = jersey_name(a, tbl, nil)
+        if jersey then row.playerjerseyname = jersey end
         local ok, err = insert_row("editedplayernames", row, "playerid", pid)
         if not ok then return false, err end
         return true, string.format("player %d: display name added (%s)", pid, table.concat(fields, ", "))

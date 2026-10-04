@@ -166,10 +166,13 @@ What was tried and dropped:
   from the callname rule (no own recording known), i.e. the ones a callname test can be heard on; a click opens the
   player. The club's players with their own recording are named below the list.
 * **By name**: type-ahead over `playernames` names whose commentary id is spoken (name, name id, commentary id, how
-  many players use the name as common or last name). *Assign as last name* / *Assign as common name* write
-  `players.lastnameid` / `commonnameid` directly (`Database::set`, range-checked). With *Keep the shown name* (default)
-  the name parts shown before the change go to `editedplayernames`: edited in place when the player has a row, else
-  added by Turbo's Lua side (`InsertDBTableRow`) through the mailbox command `callnames` / `set_display_name`.
+  many players use the name as common or last name). The route is chosen first (1.0.3, §11) and named in one line
+  above the button: the player-specific route (*Assign callname*) when it can be used, else *Assign as last name* /
+  *Assign as common name*, which write `players.lastnameid` / `commonnameid` (`Database::set`, range-checked). With
+  *Keep the shown name* (default) the name parts shown before the change and his shirt name go to `editedplayernames`
+  **before** the name id: edited in place when the player has a row (a failed write stops the name id), else Turbo's
+  Lua side adds the row and then writes the name id, in one mailbox command `callnames` /
+  `[set_display_name, set_name_ids]`.
 * **By player**: type-ahead over players whose `playernamemap` callname is spoken (player, club, commentary id).
   *Use this player's callname* writes this player's `playernamemap.commentaryid` in place when the row exists (the
   index's row address is used only while that row still holds him, else the row is looked up again), else queues
@@ -678,10 +681,11 @@ a player with his own recording (Gutierrez 261865) keeps it whatever his name id
 **All callnames (picker tab, `all_callnames`).** One type-ahead list (`##cnallsearch`, `##cnall`) of every callname the
 master lists: each generic id (commentary id, its `generic_names` text, the `playernames` rows with that commentary id
 and the players using them) sorted by text, then each player with his own recording (named by the database, else by
-the master). A generic id is assigned through the name row most players use (`request_name`: last name, shown name
-kept, same code path as By name); when no name row has it, through the player-specific path (`request_player_callname`
--> `assign_player_callname`: edit in place, room check, spare-row takeover, never an insert into a full table; kept for
-the re-apply at career load). An own recording of another player is shown, not assignable ("The game always uses a
+the master). 1.0.3 (§11): a generic id goes through the player-specific path when it can be used
+(`request_generic_callname` -> `request_player_callname` -> `assign_player_callname`: edit in place, room check,
+spare-row takeover, never an insert into a full table; kept for the re-apply at career load), else through the name row
+most players use (`request_name`: last name, shown name kept, same code path as By name), else nothing is written and
+the route line says why. An own recording of another player is shown, not assignable ("The game always uses a
 player's own recording; giving it to another player is not possible yet."). The own-recording popup (`##cnown`) still
 comes before any write for a player with his own recording.
 
@@ -741,3 +745,50 @@ Verified in game the same day: a generic surname set as a player's last name (sh
 `editedplayernames`) is spoken (Bianchi 900762, Pirlo 926385, Del Piero 922149), and a player with his own recording
 (Miguel Gutierrez 261865) keeps it whatever his name ids say. The audio service's player set (751 players, LINK only,
 §9) is incomplete; the FC 27 master is the reference. `import_callname_masters.py` (§9) takes it over the FC 26 list.
+
+## 11. Assigning a callname keeps the shown and printed names (Turbo 1.0.3)
+
+**Why.** Seen in game on 2026-10-04 (1.0.2): when Turbo writes a last name id, the game *shows* the new surname
+(squad screens, match HUD: Vergara appeared as "Del Piero") until the career is reloaded; only then does the
+`editedplayernames` row (added by Turbo's Lua at the next career event) bring the original name back. Turbo's rows also
+left `playerjerseyname` empty, while the game's own rows fill it.
+
+**Route choice** (`ui_callnames.cpp` `plan_generic_route`, By name and All callnames). A generic callname is written as
+the player's **player-specific callname** whenever that is possible, because it changes no name: his `playernamemap`
+row in place, else a row added by Lua when the table has room (with the room check of §4), else a spare row
+(`Callnames::spare_playernamemap_row`, the full-table takeover of §4); it is kept in `reapply_edits.json` and written
+again at every career load (1.0.2). The game says a player-specific callname only when it has audio (else it falls back
+to the name ids), so this route is taken only when the callname has a known recording: the verified spoken set (§3)
+or the master's generic ids (§9, §10); the unverified fallback set does not count. Otherwise the **name route**
+(`assign_name`, *Assign as last name* / *common name*) is used, and its toast says "The game shows the new name until
+the career is reloaded." When neither is possible (All callnames: no free row and no name row with that id) nothing is
+written. One line above the button names the route before the click ("Route: player-specific callname (a spare
+playernamemap row). No name changes." / "Route: name id (no playernamemap row free). The game shows the new name until
+the career is reloaded."; its tooltip names a taken-over row); the tests read it as `CallnameTabState::route_line`.
+A player with his own recording still gets the confirmation popup first (§9); his player-specific callname is written
+for the session and not kept, as in §4.
+
+**Kept-name rows** (the name route with *Keep the shown name*):
+
+* `playerjerseyname` is always filled: the player's current shirt name = his row's `playerjerseyname`, else the text
+  of `players.playerjerseynameid`, else his shown surname (`ShownName::jersey`). Lua's `set_display_name` fills it too
+  when the action gives none or gives "" (the row's own, else the surname kept, else the row's surname, else the common
+  name; an existing shirt name is never cleared).
+* **Order.** The row is written before the name id. A player with a row: `firstname`, `surname`, `commonname`,
+  `playerjerseyname` are edited in place, then `lastnameid` / `commonnameid`; a failed row write stops the name id.
+  A player without a row: one Lua command `[set_display_name (room, capacity, load_gen), set_name_ids]`, queued as one
+  entry (`LuaActionQueue::push_group`, never split across two commands); Lua runs the actions in order and a refused
+  row (table full by then, a career loaded since) stops the name id. Nothing is written natively in that case.
+* A full `editedplayernames` table writes nothing (1.0.2 wrote the name id and lost the shown name); untick *Keep the
+  shown name* to write the name id anyway.
+
+Tests: `turbo/tests/t12_callnames.lua` "1.0.3: a kept-name row never leaves playerjerseyname empty ..." and
+"1.0.3: [set_display_name, set_name_ids] in one command: the kept-name row first, a refused row stops the name id";
+`turbogui/tests/native/test_main.cpp` the queue's group in "callnames: your FC 26 list (masters json) ...", and in "UI:
+Players > Callname: language, current callname, pickers, name and player assignment" the player-specific route on a
+table with room (no name id written), the name route on a full table (one command, row first, shirt name, the toast),
+the in-place edit (shirt name filled from `playerjerseynameid`, row written before the name id), a full
+`editedplayernames` table (nothing written), a spare row (player-specific again) and the unverified set (name route);
+"UI: Players > Callname: own recordings ..." (the name route's single command after *Assign anyway*, the
+player-specific route without a popup for a player without his own recording, All callnames: player-specific first,
+the name row on a full table). Not yet checked in game.

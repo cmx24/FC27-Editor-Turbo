@@ -278,10 +278,17 @@ public:
 
 // Lua actions (set_display_name: "keep shown name") waiting for Turbo's mailbox, which holds one command at a time:
 // the GUI queues them and sends them, batched into one callnames command, as soon as the mailbox is free (the top bar
-// shows how many wait). Each entry is one action as JSON object text.
+// shows how many wait). Each entry is one action as JSON object text, or a group of actions that must reach Lua in one
+// command and in this order (push_group, 1.0.3: a kept-name row, then the name id it protects).
 class LuaActionQueue {
 public:
     void push(std::string action_json) { q_.push_back(std::move(action_json)); }
+    // One entry (one player) holding several actions: never split across two batches
+    void push_group(const std::vector<std::string>& actions) {
+        std::string g;
+        for (const auto& a : actions) g += (g.empty() ? "" : ",") + a;
+        if (!g.empty()) q_.push_back(std::move(g));
+    }
     size_t size() const { return q_.size(); }
     bool empty() const { return q_.empty(); }
     void clear() { q_.clear(); }

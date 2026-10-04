@@ -1,7 +1,8 @@
 // FC 27 LE Turbo GUI - Players > Callname tab: the name the commentary speaks for the loaded commentary language,
 // where it comes from (player-specific / common name / last name), and two type-ahead pickers to assign another one:
-//   BY NAME   a playernames name whose commentary id is spoken -> written to lastnameid or commonnameid (the shown name
-//             can be kept through editedplayernames)
+//   BY NAME   a playernames name whose commentary id is spoken -> his player-specific callname when a playernamemap
+//             row can be used (1.0.3: no name changes, plan_generic_route), else written to lastnameid or commonnameid
+//             (the shown name kept through editedplayernames, written first)
 //   BY PLAYER a player whose playernamemap callname is spoken -> written to this player's playernamemap row (added
 //             through Turbo's Lua side when missing, which counts the rows again first; when the table is full, a row
 //             from which no player hears a callname is taken over, and its player is named before the write); kept in
@@ -73,6 +74,9 @@ static void ensure_ready(App& app) {
 // The three name parts the game shows for the player: editedplayernames when it has a row, else the name ids
 struct ShownName {
     std::string first, last, common;
+    // the shirt name (1.0.3): his row's playerjerseyname, else his playerjerseynameid's text, else the shown surname.
+    // A kept-name row always carries it: the game prints the row's playerjerseyname, and an empty one printed nothing.
+    std::string jersey;
     uint64_t edited_rec = 0;
 };
 static ShownName shown_name(App& app, const Table& t, const PlayerRow& p) {
@@ -94,8 +98,11 @@ static ShownName shown_name(App& app, const Table& t, const PlayerRow& p) {
             if (const Field* f = e->field("firstname"); f && app.db.get(*e, rec, *f, v) && !v.to_string().empty()) n.first = v.to_string();
             if (const Field* f = e->field("surname"); f && app.db.get(*e, rec, *f, v) && !v.to_string().empty()) n.last = v.to_string();
             if (const Field* f = e->field("commonname"); f && app.db.get(*e, rec, *f, v) && !v.to_string().empty()) n.common = v.to_string();
+            if (const Field* f = e->field("playerjerseyname"); f && app.db.get(*e, rec, *f, v)) n.jersey = v.to_string();
         }
     }
+    if (n.jersey.empty() && t.has("playerjerseynameid")) n.jersey = name_of("playerjerseynameid");
+    if (n.jersey.empty()) n.jersey = n.last;
     return n;
 }
 
@@ -112,48 +119,62 @@ static void add_room_check(App& app, json& a, uint32_t capacity) {
     if (app.bridge.state().load_gen >= 0) a["load_gen"] = app.bridge.state().load_gen;
 }
 
-// BY NAME: write the name id, then keep the shown name (editedplayernames row edited in place, or added through Lua)
+// The game shows the new name while the career stays loaded, whatever editedplayernames says (seen in game, 1.0.2)
+static const char* const kNameRouteNote = ". The game shows the new name until the career is reloaded.";
+
+// BY NAME, the name route (1.0.3): the kept-name row first, then the name id. A player with an editedplayernames row:
+// the row is edited in place (shown names and his shirt name) and a refused write stops the name id. A player without
+// one: Turbo's Lua side adds the row and then writes the name id, in ONE command ([set_display_name, set_name_ids],
+// queued until the mailbox is free; a refused row stops the name id). Never an insert into a full table.
 static void assign_name(App& app, const Table& t, const PlayerRow& p, const NameChoice& c, bool as_common, bool keep_display) {
-    const Field* f = t.field(as_common ? "commonnameid" : "lastnameid");
+    const char* id_field = as_common ? "commonnameid" : "lastnameid";
+    const Field* f = t.field(id_field);
     if (!f) {
-        app.notify("players has no " + std::string(as_common ? "commonnameid" : "lastnameid") + " field", true);
+        app.notify("players has no " + std::string(id_field) + " field", true);
         return;
     }
     ShownName before = shown_name(app, t, p);
-    if (!app.edit(t, p.rec, *f, Value::of_int(c.nameid))) return;
     std::string msg = p.name + ": " + (as_common ? "common name" : "last name") + " -> '" + c.name + "' (name " +
                       std::to_string(c.nameid) + ", callname " + std::to_string(c.commentaryid) + ")";
-    if (keep_display) {
-        const Table* e = app.db.table("editedplayernames");
-        if (!e) {
-            app.notify(msg + "; no editedplayernames table: the shown name follows the new name id", true);
+    const Table* e = keep_display ? app.db.table("editedplayernames") : nullptr;
+    if (!e) {
+        if (!app.edit(t, p.rec, *f, Value::of_int(c.nameid))) return;
+        app.notify(keep_display ? msg + "; no editedplayernames table: the shown name follows the new name id" : msg, keep_display);
+        return;
+    }
+    if (before.edited_rec) {
+        bool ok = true;
+        if (const Field* ff = e->field("firstname")) ok = ok && app.edit(*e, before.edited_rec, *ff, Value::of_str(before.first));
+        if (const Field* ff = e->field("surname")) ok = ok && app.edit(*e, before.edited_rec, *ff, Value::of_str(before.last));
+        if (const Field* ff = e->field("commonname")) ok = ok && app.edit(*e, before.edited_rec, *ff, Value::of_str(before.common));
+        if (const Field* ff = e->field("playerjerseyname"); ff && !before.jersey.empty())
+            ok = ok && app.edit(*e, before.edited_rec, *ff, Value::of_str(before.jersey));
+        if (!ok) {
+            app.notify(p.name + ": the shown name could not be kept, so the " + id_field + " was not written", true);
             return;
         }
-        if (before.edited_rec) {
-            bool ok = true;
-            if (const Field* ff = e->field("firstname")) ok = ok && app.edit(*e, before.edited_rec, *ff, Value::of_str(before.first));
-            if (const Field* ff = e->field("surname")) ok = ok && app.edit(*e, before.edited_rec, *ff, Value::of_str(before.last));
-            if (const Field* ff = e->field("commonname")) ok = ok && app.edit(*e, before.edited_rec, *ff, Value::of_str(before.common));
-            if (ok) app.notify(msg + "; shown name kept (editedplayernames updated)");
-        } else {
-            uint32_t used = 0, cap = 0;
-            if (!app.db.rows_in_use(*e, used, cap) || used >= cap) {
-                app.notify(msg + "; shown name NOT kept: the game's editedplayernames table is full (Live Editor cannot add a row)", true);
-                return;
-            }
-            json a = {{"action", "set_display_name"}, {"playerid", p.playerid}, {"firstname", before.first},
-                      {"surname", before.last}, {"commonname", before.common}};
-            add_room_check(app, a, cap);
-            // queued in the GUI (Turbo's mailbox holds one command at a time) and sent, batched, as soon as it is free
-            app.lua_queue.push(a.dump());
-            const bool waiting = app.busy();
-            app.flush_lua_queue();
-            app.notify(msg + (waiting ? "; shown name queued: sent to Turbo's Lua side as soon as the running command ends"
-                                      : "; editedplayernames row queued for Turbo's Lua side (next career event)"));
-        }
-    } else {
-        app.notify(msg);
+        if (!app.edit(t, p.rec, *f, Value::of_int(c.nameid))) return;
+        app.notify(msg + "; shown name kept (editedplayernames written first)" + kNameRouteNote);
+        return;
     }
+    uint32_t used = 0, cap = 0;
+    if (!app.db.rows_in_use(*e, used, cap) || used >= cap) {
+        app.notify(p.name + ": nothing written: the editedplayernames table is full, so the shown name cannot be kept "
+                            "(untick 'Keep the shown name' to write the name anyway)",
+                   true);
+        return;
+    }
+    json row = {{"action", "set_display_name"}, {"playerid", p.playerid}, {"firstname", before.first},
+                {"surname", before.last}, {"commonname", before.common}, {"playerjerseyname", before.jersey}};
+    add_room_check(app, row, cap);
+    const json ids = {{"action", "set_name_ids"}, {"playerid", p.playerid}, {id_field, c.nameid}};
+    // one command, the row first (queued in the GUI: Turbo's mailbox holds one command at a time)
+    app.lua_queue.push_group({row.dump(), ids.dump()});
+    const bool waiting = app.busy();
+    app.flush_lua_queue();
+    app.notify(msg + (waiting ? ": queued for Turbo's Lua side (kept-name row first, then the name id), sent when the running command ends"
+                              : ": sent to Turbo's Lua side (kept-name row first, then the name id; next career event)") +
+               kNameRouteNote);
 }
 
 // How a player-specific callname is written for a player: his playernamemap row edited in place; else a row added
@@ -519,6 +540,59 @@ static void request_player_callname(App& app, const PlayerRow& p, const PlayerCh
     g_open_own_confirm = true;
 }
 
+// 1.0.3: how a generic callname (By name, All callnames) reaches a player. The player-specific route (playernamemap:
+// his row in place, a row added when the table has room, else a spare row: plan_player_write) changes no name and is
+// written again at every career load (1.0.2); it is taken when the callname has a known recording, because the game
+// says a playernamemap callname only then (else it falls back to his name ids): the verified spoken set or the
+// master's generic ids. Else the name route (assign_name): the game shows the new name until the career is reloaded.
+struct GenericRoute {
+    bool player = false;  // the player-specific route
+    bool audio = false;   // the callname has a known recording
+    PlayerWritePlan plan;
+};
+static GenericRoute plan_generic_route(App& app, const PlayerRow& p, int64_t commentaryid) {
+    using K = PlayerWritePlan::Kind;
+    const Callnames& cn = app.callnames;
+    GenericRoute r;
+    r.audio = commentaryid > kNoCallname &&
+              ((cn.spoken.verified && cn.spoken.spoken(commentaryid)) || cn.masters.generic_ids.count(commentaryid) > 0);
+    r.plan = plan_player_write(app, p);
+    r.player = r.audio && (r.plan.kind == K::InPlace || r.plan.kind == K::AddRow || r.plan.kind == K::TakeOver);
+    return r;
+}
+// The one line shown before the click (kept in g_state.route_line); a taken-over row is named in its tooltip
+static void route_line(App& app, const GenericRoute& r, bool has_name_row) {
+    using K = PlayerWritePlan::Kind;
+    std::string line;
+    if (r.player) {
+        line = std::string("Route: player-specific callname (") +
+               (r.plan.kind == K::InPlace ? "his playernamemap row" : r.plan.kind == K::AddRow ? "a new playernamemap row" : "a spare playernamemap row") +
+               "). No name changes.";
+    } else {
+        const std::string why = r.audio ? "no playernamemap row free" : "no recording known for a player-specific callname";
+        line = has_name_row ? "Route: name id (" + why + "). The game shows the new name until the career is reloaded."
+                            : "Nothing can be written: " + why + ", and no name row has this callname.";
+    }
+    g_state.route_line = line;
+    ImGui::PushStyleColor(ImGuiCol_Text, r.player ? kGreen : kYellow);
+    ImGui::TextWrapped("%s", line.c_str());
+    ImGui::PopStyleColor();
+    if (ImGui::IsItemHovered()) {
+        if (r.player && r.plan.kind == K::TakeOver)
+            ImGui::SetTooltip("Takes over the row of %s.", spare_row_text(app, r.plan.spare).c_str());
+        else if (!r.player)
+            ImGui::SetTooltip("%s", takeover_text(app, r.plan).empty() ? "The player-specific route needs a known recording of this callname."
+                                                                       : takeover_text(app, r.plan).c_str());
+    }
+}
+// The player-specific route for a generic callname (the own-recording popup first, as By player)
+static void request_generic_callname(App& app, const PlayerRow& p, const std::string& text, int64_t commentaryid, int own) {
+    PlayerChoice c;
+    c.name = "generic " + (text.empty() ? std::to_string(commentaryid) : "'" + text + "'");
+    c.commentaryid = commentaryid;
+    request_player_callname(app, p, c, own);
+}
+
 static void by_name_picker(App& app, const Table& t, const PlayerRow& p) {
     const CallnameIndex& ix = app.callnames.index;
     ImGui::SetNextItemWidth(S(260.0f));
@@ -527,8 +601,8 @@ static void by_name_picker(App& app, const Table& t, const PlayerRow& p) {
     ImGui::TextDisabled("%zu spoken names", ix.names.size());
     const int own = app.callnames.own_recording(p.playerid);
     const ImGuiStyle& style = ImGui::GetStyle();
-    // under the list: the "Selected" line, the keep-name checkbox, the warning, the buttons
-    const float below = ImGui::GetTextLineHeightWithSpacing() + 2.0f * ImGui::GetFrameHeightWithSpacing() + own_warning_height(app, own) +
+    // under the list: the "Selected" line, the route line (up to two lines), the keep-name checkbox, the warning, the buttons
+    const float below = 3.0f * ImGui::GetTextLineHeightWithSpacing() + 2.0f * ImGui::GetFrameHeightWithSpacing() + own_warning_height(app, own) +
                         style.WindowPadding.y;
     ImGui::BeginChild("##cnames", ImVec2(0, list_height(below)), ImGuiChildFlags_Borders);
     int shown = 0, total = 0;
@@ -568,6 +642,16 @@ static void by_name_picker(App& app, const Table& t, const PlayerRow& p) {
     }
     ImGui::Text("Selected: %s (name %lld, callname %lld, %d player%s)", sel->name.c_str(), static_cast<long long>(sel->nameid),
                 static_cast<long long>(sel->commentaryid), sel->users, sel->users == 1 ? "" : "s");
+    // 1.0.3: the player-specific route when it can be used (no name changes), else the name ids below
+    const GenericRoute route = plan_generic_route(app, p, sel->commentaryid);
+    route_line(app, route, true);
+    if (route.player) {
+        if (own) own_recording_warning(app, p, own);
+        if (ImGui::Button("Assign callname")) request_generic_callname(app, p, sel->name, sel->commentaryid, own);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(his playernamemap row; written again at every career load)");
+        return;
+    }
     ImGui::Checkbox("Keep the shown name (editedplayernames)", &g_keep_display);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("The game shows editedplayernames first, so the player keeps his name on screen while the commentary speaks the chosen one");
@@ -611,7 +695,7 @@ static void all_callnames_picker(App& app, const Table& t, const PlayerRow& p) {
     ImGui::TextDisabled("%zu generic callnames + %zu own recordings (%s)", cn.masters.generic_ids.size(), cn.masters.real_players.size(),
                         cn.masters.label().c_str());
     const int own = cn.own_recording(p.playerid);
-    const float below = ImGui::GetTextLineHeightWithSpacing() * 2.0f + 2.0f * ImGui::GetFrameHeightWithSpacing() + own_warning_height(app, own) +
+    const float below = ImGui::GetTextLineHeightWithSpacing() * 4.0f + 2.0f * ImGui::GetFrameHeightWithSpacing() + own_warning_height(app, own) +
                         ImGui::GetStyle().WindowPadding.y;
     ImGui::BeginChild("##cnall", ImVec2(0, list_height(below)), ImGuiChildFlags_Borders);
     int shown = 0, total = 0;
@@ -659,8 +743,15 @@ static void all_callnames_picker(App& app, const Table& t, const PlayerRow& p) {
     }
     ImGui::Text("Selected: '%s' (callname %lld, %d name row%s, %d player%s)", sel->text.c_str(), static_cast<long long>(sel->commentaryid),
                 sel->name_rows, sel->name_rows == 1 ? "" : "s", sel->users, sel->users == 1 ? "" : "s");
+    // 1.0.3: the player-specific route when it can be used (no name changes), else the name row, else nothing
+    const GenericRoute route = plan_generic_route(app, p, sel->commentaryid);
+    route_line(app, route, sel->nameid != 0);
     if (own) own_recording_warning(app, p, own);
-    if (sel->nameid) {
+    if (route.player) {
+        if (ImGui::Button("Assign callname##all")) request_generic_callname(app, p, sel->text, sel->commentaryid, own);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(his playernamemap row; written again at every career load)");
+    } else if (sel->nameid) {
         // through the name row (as By name: his last name, the shown name kept)
         ImGui::Checkbox("Keep the shown name (editedplayernames)##all", &g_keep_display);
         if (!t.has("lastnameid")) ImGui::BeginDisabled();
@@ -676,15 +767,6 @@ static void all_callnames_picker(App& app, const Table& t, const PlayerRow& p) {
         if (!t.has("lastnameid")) ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::TextDisabled("(name %lld)", static_cast<long long>(sel->nameid));
-    } else {
-        // no name row has it: the player-specific path (edit in place, room check, spare-row takeover; kept for career loads)
-        ImGui::TextDisabled("No name row has this callname: it is written as his player-specific callname (playernamemap).");
-        if (ImGui::Button("Assign as player-specific callname##all")) {
-            PlayerChoice c;
-            c.name = sel->text.empty() ? "generic " + std::to_string(sel->commentaryid) : sel->text;
-            c.commentaryid = sel->commentaryid;
-            request_player_callname(app, p, c, own);
-        }
     }
 }
 

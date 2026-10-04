@@ -26,6 +26,8 @@ sim:add_table({
     },
     rows = { { playerid = 1003, firstname = "Ali", surname = "Zed", commonname = "", playerjerseyname = "ZED" },
              { playerid = 0, firstname = "", surname = "", commonname = "", playerjerseyname = "", __invalid = true },
+             { playerid = 0, firstname = "", surname = "", commonname = "", playerjerseyname = "", __invalid = true },
+             { playerid = 0, firstname = "", surname = "", commonname = "", playerjerseyname = "", __invalid = true },
              { playerid = 0, firstname = "", surname = "", commonname = "", playerjerseyname = "", __invalid = true } },
 })
 
@@ -132,6 +134,36 @@ H.case("set_display_name updates the editedplayernames row, or adds one", functi
     H.eq(sim:value("editedplayernames", rec, "commonname"), "", "unset names are empty")
 end)
 
+H.case("1.0.3: a kept-name row never leaves playerjerseyname empty (the game prints it on the shirt)", function()
+    -- the name given (the Turbo window sends the player's shirt name) goes into a new row
+    local ok, msg = run({ { action = "set_display_name", playerid = 1005, firstname = "Gabriel", surname = "Jesus",
+                            playerjerseyname = "G. JESUS", room = true, capacity = 515 } })
+    H.ok(ok, msg)
+    local rec = sim:find_row("editedplayernames", "playerid", 1005)
+    H.eq(sim:value("editedplayernames", rec, "playerjerseyname"), "G. JESUS", "the shirt name given")
+    -- none given (turbo_config.json): the surname kept
+    ok, msg = run({ { action = "set_display_name", playerid = 1008, firstname = "Leandro", surname = "Trossard", room = true, capacity = 515 } })
+    H.ok(ok, msg)
+    rec = sim:find_row("editedplayernames", "playerid", 1008)
+    H.eq(sim:value("editedplayernames", rec, "playerjerseyname"), "Trossard", "filled with the surname kept")
+    -- an existing row: its own shirt name is kept when none is given ...
+    ok, msg = run({ { action = "set_display_name", playerid = 1003, surname = "Zed" } })
+    H.ok(ok, msg)
+    rec = sim:find_row("editedplayernames", "playerid", 1003)
+    H.eq(sim:value("editedplayernames", rec, "playerjerseyname"), "ZED", "the row's own shirt name kept")
+    -- ... an empty one is filled, and "" given never clears one
+    sim:set_field(rec, sim.tables.editedplayernames.playerjerseyname, "")
+    ok, msg = run({ { action = "set_display_name", playerid = 1003, surname = "Zed", playerjerseyname = "" } })
+    H.ok(ok, msg)
+    H.eq(sim:value("editedplayernames", rec, "playerjerseyname"), "Zed", "an empty shirt name filled from the surname")
+    ok, msg = run({ { action = "set_display_name", playerid = 1003, firstname = "Ali", playerjerseyname = "" } })
+    H.ok(ok, msg)
+    H.eq(sim:value("editedplayernames", rec, "playerjerseyname"), "Zed", "never cleared")
+    ok, msg = run({ { action = "set_display_name", playerid = 1003, playerjerseyname = "A. ZED" } })
+    H.ok(ok, msg)
+    H.eq(sim:value("editedplayernames", rec, "playerjerseyname"), "A. ZED", "a shirt name given is written")
+end)
+
 H.case("every action is validated before the first one runs; ranges and text lengths are checked", function()
     local before = map_of(1001)
     local ok, msg = run({ { action = "set_playernamemap", playerid = 1001, commentaryid = 930009 },
@@ -208,6 +240,51 @@ H.case("set_name_ids writes lastnameid / commonnameid with range checks (outside
     ok, msg = run({ { action = "set_name_ids", playerid = 50 } })
     H.ok(not ok, "no id refused")
     H.has(msg, "no name id given")
+end)
+
+-- 1.0.3: the Turbo window sends a kept name and the name id it protects in ONE command, the row first
+sim2:add_table({
+    name = "editedplayernames", short = "nQVU",
+    fields = {
+        { name = "playerid", short = "pid_", depth = 19, min = -1 },
+        { name = "firstname", short = "fnam", type = "string", depth = 360 },
+        { name = "surname", short = "snam", type = "string", depth = 360 },
+        { name = "commonname", short = "cnam", type = "string", depth = 360 },
+        { name = "playerjerseyname", short = "pjnm", type = "string", depth = 360 },
+    },
+    rows = { { playerid = 0, firstname = "", surname = "", commonname = "", playerjerseyname = "", __invalid = true },
+             { playerid = 0, firstname = "", surname = "", commonname = "", playerjerseyname = "", __invalid = true } },
+})
+
+H.case("1.0.3: [set_display_name, set_name_ids] in one command: the kept-name row first, a refused row stops the name id", function()
+    local rec = sim2:find_row("players", "playerid", 50)
+    sim2:set_field(rec, sim2.tables.players.lastnameid, 2)
+    -- the table is full when the command runs (2 rows written, the window saw a capacity of 2): the row is refused and
+    -- the name id is not written
+    local ok, msg = run({ { action = "set_display_name", playerid = 50, firstname = "Ann", surname = "Old", commonname = "",
+                            playerjerseyname = "OLD", room = true, capacity = 2 },
+                          { action = "set_name_ids", playerid = 50, lastnameid = 39795 } })
+    H.ok(not ok, "refused: " .. tostring(msg))
+    H.has(msg, "editedplayernames")
+    H.has(msg, "done before the error: 0 of 2")
+    H.eq(sim2:value("players", rec, "lastnameid"), 2, "the name id is not written without the kept-name row")
+    H.eq(sim2:find_row("editedplayernames", "playerid", 50), nil, "no row")
+    -- room: the row is added, then the name id is written
+    local inserts = sim2:count_calls("InsertDBTableRow")
+    ok, msg = run({ { action = "set_display_name", playerid = 50, firstname = "Ann", surname = "Old", commonname = "",
+                      playerjerseyname = "OLD", room = true, capacity = 515 },
+                    { action = "set_name_ids", playerid = 50, lastnameid = 39795 } })
+    H.ok(ok, msg)
+    H.eq(sim2:count_calls("InsertDBTableRow"), inserts + 1, "one row added")
+    local erec = sim2:find_row("editedplayernames", "playerid", 50)
+    H.ok(erec ~= nil, "kept-name row added")
+    H.eq(sim2:value("editedplayernames", erec, "surname"), "Old", "shown surname kept")
+    H.eq(sim2:value("editedplayernames", erec, "playerjerseyname"), "OLD", "shirt name filled")
+    H.eq(sim2:value("players", rec, "lastnameid"), 39795, "then the name id")
+    local lines = {}
+    for l in tostring(msg):gmatch("[^\n]+") do lines[#lines + 1] = l end
+    H.has(lines[1] or "", "display name added")
+    H.has(lines[2] or "", "lastnameid=39795")
 end)
 
 H.case("no unmapped memory reads", function() H.eq(sim2.unmapped_reads, 0) end)

@@ -3,6 +3,29 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.0.3 (callnames: assigning a callname keeps the player's shown and printed names)
+
+Install as 1.0.2. Not yet checked in game.
+
+### Changed
+
+- **A generic callname now goes to the player's own callname row first.** By name and All callnames write the pick as
+  his player-specific callname (`playernamemap`: his row, a new row when the table has room, else a spare row that no
+  player hears) whenever that is possible. No name changes, and Turbo writes it again at every career load (1.0.2).
+  This is used only when the callname has a known recording (the spoken set or the master's generic ids), because the
+  game says a player-specific callname only then. Otherwise the name id is written as before, and the toast says that
+  the game shows the new name until the career is reloaded. A line above the button says which way will be used.
+
+### Fixed
+
+- **Turbo's kept-name rows had no shirt name.** `editedplayernames` rows that Turbo added or edited left
+  `playerjerseyname` empty (the game's own rows fill it). They now carry the player's current shirt name: his row's
+  own, else the text of his `playerjerseynameid`, else his shown surname. Lua fills it too when a command gives none.
+- **The name id was written before the kept name.** Turbo now writes the `editedplayernames` row first. When the row
+  exists it is edited in place, then the name id is written; a failed row write stops the name id. When the row must
+  be added, Turbo's Lua side gets one command (add the row, then write the name id), so a refused row also stops the
+  name id. A full `editedplayernames` table now writes nothing (before, the name id was written and the shown name lost).
+
 ## 1.0.2 (callnames: players with their own recording; kit colours and player callnames kept across career loads)
 
 Install as 1.0.1: unzip `FC27_LE_Turbo_1.0.2.zip` into the FC 27 Live Editor folder with the game closed. Back up your
