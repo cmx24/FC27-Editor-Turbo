@@ -10212,6 +10212,9 @@ static void test_match_setup() {
     });
 }
 
+// club customisation hub + career settings unlock (Turbo 1.1.1)
+#include "test_club_tools.h"
+
 int main(int argc, char** argv) {
     if (argc < 3) {
         std::printf("usage: %s <out_dir> <gui_world.lua>\n", argv[0]);
@@ -10250,6 +10253,8 @@ int main(int argc, char** argv) {
     test_player_capture();
     std::printf("native kept edits store\n");
     test_reapply_store();
+    std::printf("native club customisation and career settings\n");
+    club_tools_test::run();
     std::printf("native voice swaps\n");
     test_callname_voice();
     test_callname_voice_host();

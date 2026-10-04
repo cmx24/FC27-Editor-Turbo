@@ -243,6 +243,10 @@ static const SignatureTable kBuiltin[] = {
           "40 53 48 83 EC 20 C6 81 E1 01 00 00 01 4C 8D 05 ?? ?? ?? ??", "none", 0,
           "void JobSwitchManager::SackManager(this) 0x147DDF900 (its own name string): sets mWasSacked (+0x1E1) and posts career event "
           "0xAD; Turbo's unsackable hook refuses it (the original is not called) while the switch is on"},
+         // Club customisation hub (research/edit_unlock_plan.md section 2, core/hub_customise.h; unique in the image)
+         {"mhm_vtable", "48 89 51 08 48 8D 05 ?? ?? ?? ?? 48 89 01 83 CE FF 89 71 10 48 8D 05", "rip", 4,
+          "MainHubManager vtable: the lea rax,[rip+..] at 0x147DB6F0C of its ctor 0x147DB6EF4 -> 0x14B016730 (manager type 58, "
+          "0x8A8 bytes; +0x511 licensed stadium, +0x512 customised this season)"},
          // Standings refresh (docs/re/standings-ui-path.md, core/standings_refresh.h; every pattern unique in the image)
          {"svm_refresh_comp", "83 FA FF 74 65 48 89 5C 24 08 57 48 83 EC 20 48 8B 41 08 4C 8D 05 ?? ?? ?? ??", "none", 0,
           "void StandingsViewManager::RequestStandingsSync(this, compObjId) 0x147DA5310: immediate 'rmvs' RequestGetStandings, "
