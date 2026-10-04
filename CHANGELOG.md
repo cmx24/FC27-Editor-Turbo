@@ -3,6 +3,33 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.1.0 (voice swaps) - draft
+
+Not yet released or checked in game.
+
+### Added
+
+- **Voice swaps: call a player with another player's own recording, in matches only.** Players > Callname > All
+  callnames: an own-recording row has **Use his voice**. After a confirmation ("Marianucci will be called Lobotka in
+  matches. His name on screen stays Marianucci.") the commentary uses Lobotka's recordings for Marianucci. Nothing is
+  written to the database or the save, so his name on screen, his shirt and the career stay as they are. His surname
+  lines are silent by default.
+- **Turn a player's own recording off.** A player with his own recording has a **Use his own recording** checkbox.
+  Untick it, then pick a generic callname with **Use in matches**: he is called by that callname in matches.
+- **Voice swaps tab** (Players > Callname): every swap, what he is called, his other lines, *Name lines only*,
+  Remove and *Forget all*. Swaps are kept in `turbo_output\callnames\voice_swaps.json` for every career; a player
+  not in the loaded career is marked so.
+- The "Current callname" line shows the swap ("In matches: Lobotka's own recording (voice swap)"), with the game's
+  own rule greyed below it, and its play button plays what he is called. When the source has no recording in the
+  loaded language the line says so ("... has no recording in ita_it: silent").
+- Status tab: "Voice swaps: on | 3 swaps | lines changed 57 | kick-off set 2".
+- When the game build is not the known one (or a kill switch is on) the tab says "Voice swaps are off: <why>" and
+  shows only the database buttons. Kill switch: `turbo_output\callname_voice_off.txt`.
+
+### Changed
+
+- All callnames: the database buttons now sit under "Change the name in the database", below the voice-swap button.
+
 ## 1.0.3 (callnames: assigning a callname keeps the player's shown and printed names)
 
 Install as 1.0.2. Not yet checked in game.

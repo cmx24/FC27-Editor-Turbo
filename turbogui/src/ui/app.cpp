@@ -78,6 +78,7 @@ App::App(Memory& m, fs::path le_root, uint64_t mailbox_addr, std::string sess)
     }
     load_gui_settings();
     load_reapply();  // kit colours and player-specific callnames written again at every career load (ui_reapply.cpp)
+    load_voice();    // voice swaps (ui_callnames.cpp): no career needed; published once the host gives the service
     if (const char* tt = std::getenv("TURBO_GUI_TEST_TEXTURES")) texture_test = tt[0] == '1';
     log(std::string("Turbo GUI ") + kGuiVersion + " started");
 }
@@ -498,6 +499,15 @@ void App::tick(double t) {
         }
     }
     legacy.tick(t);
+    // Voice swaps: the store goes to the service the host gave (once per service, then after every edit); the kill
+    // switches are re-read every 2 s (the detours only read cached atomics)
+    if (voice_service) {
+        if (voice_published_to_ != voice_service) voice_publish();
+        if (t >= voice_next_switches_) {
+            voice_next_switches_ = t + 2.0;
+            voice_service->refresh_switches();
+        }
+    }
     finish_bank_capture();
     finish_spoken_build();
     spoken_watch_tick();
