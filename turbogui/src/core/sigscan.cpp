@@ -177,6 +177,39 @@ static const SignatureTable kBuiltin[] = {
          {"calendar_today_int",
           "48 83 EC 28 83 CA FF E8 ?? ?? ?? ?? 3C 01 75 0C 6B 41 08 64 03 41 04 6B D0 64 03 11", "none", 0,
           "int TodayInt(CalendarDate*) 0x142AA5824: yyyymmdd of the career calendar"},
+         // Transfer / loan lists (docs/re/transfer_lists.md, core/transfer_list.h, scripts/re/transfer_list_signatures.json;
+         // every pattern unique in the image). The three helper functions of the career's UserActionsHandlingHelperImpl
+         // (what the Transfer Hub's actions call) and the vtables the call checks before it runs.
+         {"uah_add_transfer_list",
+          "48 89 5C 24 08 57 48 83 EC 20 48 8B 41 08 48 8B D9 45 33 C9 45 33 C0 8B FA 48 8B 88 F8 0F 00 00 48 8B 09 E8 ?? ?? ?? ?? "
+          "48 8B 0D ?? ?? ?? ?? 4C 8D 05 ?? ?? ?? ?? 45 33 C9 48 8B 01 41 8D 51 20 FF 50 10 4C 8B C0 BA 79 00 00 00",
+          "none", 0, "void UserActionsHandlingHelperImpl::AddToTransferList(this, playerId) 0x147F68368 (vtable slot 32): TransferManager::"
+                     "AddToTransferList + the UserTransferlisted (0x79) career event"},
+         {"uah_add_loan_list",
+          "48 89 5C 24 08 57 48 83 EC 20 48 8B 41 08 48 8B D9 45 33 C9 45 33 C0 8B FA 48 8B 88 F8 0F 00 00 48 8B 09 E8 ?? ?? ?? ?? "
+          "48 8B 0D ?? ?? ?? ?? 4C 8D 05 ?? ?? ?? ?? 45 33 C9 48 8B 01 41 8D 51 20 FF 50 10 4C 8B C0 BA 7A 00 00 00",
+          "none", 0, "void UserActionsHandlingHelperImpl::AddToLoanList(this, playerId) 0x147F68214 (vtable slot 33): TransferManager::"
+                     "AddToLoanList + the UserLoanlisted (0x7A) career event"},
+         {"uah_try_remove_from_list", "89 54 24 10 53 55 56 57 41 55 41 56 41 57 48 83 EC 30 4C 8B F9 48 63 EA", "none", 0,
+          "bool UserActionsHandlingHelperImpl::TryToRemoveFromList(this, playerId, bool loanList) 0x147F8E300 (vtable slot 31): "
+          "TransferManager::RemoveFromLists + the events"},
+         {"uah_vtable", "48 8D 05 ?? ?? ?? ?? 49 89 B7 70 04 00 00 45 33 C9 49 89 87 78 04 00 00", "rip", 0,
+          "UserActionsHandlingHelperImpl vtable (0x14B029440): the lea rax,[rip+..] at 0x147F0F267 of the CareerDaoFactoryImpl ctor "
+          "(the sub-object at dao+0x478 whose +0x8 is the manager table)"},
+         {"dao_vtable",
+          "4C 89 44 24 18 48 89 54 24 10 48 89 4C 24 08 53 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 48 4C 8B F1", "rip", 0x22,
+          "CareerDaoFactoryImpl vtable (0x14B025C48): the lea rax,[rip+..] at +0x22 of its ctor 0x147F0EB10 (the object [[comm+0x20]+0x30])"},
+         {"tm_vtable",
+          "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 41 54 41 55 41 56 41 57 48 8D 68 C8 48 81 EC 80 01 00 00", "rip", 0x31,
+          "TransferManager vtable (0x14B0055A8): the lea rax,[rip+..] at +0x31 of its ctor 0x147C26450 (manager type 127, 0x2FA0 bytes)"},
+         {"pcm_vtable",
+          "40 53 48 83 EC 20 48 8D 05 ?? ?? ?? ?? 48 89 51 08 48 89 01 48 8B D9 48 83 C1 10 E8 ?? ?? ?? ?? 48 8D 8B 40 01 00 00", "rip", 0x6,
+          "PlayerContractManager vtable (0x14B01E240): the lea rax,[rip+..] at +0x6 of its ctor 0x147E54FB0 (manager type 77, 0x458 bytes; "
+          "the contract records with the transfer / loan listed status)"},
+         {"um_vtable",
+          "48 89 5C 24 10 48 89 74 24 18 57 48 81 EC 80 00 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 44 24 70 48 89 51 08", "rip", 0x25,
+          "UserManager vtable (0x14AFDF150): the lea rax,[rip+..] at +0x25 of its ctor 0x147AB2EB8 (manager type 129, 0xB20 bytes; "
+          "the user's team id the list helpers use)"},
          // Standings refresh (docs/re/standings-ui-path.md, core/standings_refresh.h; every pattern unique in the image)
          {"svm_refresh_comp", "83 FA FF 74 65 48 89 5C 24 08 57 48 83 EC 20 48 8B 41 08 4C 8D 05 ?? ?? ?? ??", "none", 0,
           "void StandingsViewManager::RequestStandingsSync(this, compObjId) 0x147DA5310: immediate 'rmvs' RequestGetStandings, "

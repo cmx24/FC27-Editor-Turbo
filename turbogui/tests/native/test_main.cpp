@@ -45,6 +45,7 @@
 #include "core/sigscan.h"
 #include "core/standings_refresh.h"
 #include "core/t3db.h"
+#include "core/transfer_list.h"
 #include "imgui.h"
 #include "imgui_impl_null.h"
 #include "imgui_internal.h"
@@ -2873,6 +2874,7 @@ static void test_ui() {
             CHECK(app.busy(), "transfer between two other clubs is sent");
             CHECK(ui.click("Cancel"), "cancel");
         });
+
         run_case("UI: Players > Callname: capture of the loaded bank on a background thread, Real recordings", [&] {
             fs::path game = g_out / "fakegame";
             fs::path cache = spoken_cache_path(le, "ita_it");
@@ -4696,6 +4698,473 @@ static void test_game_calls() {
     });
 }
 
+// ---------------------------------------------------------------- transfer / loan lists (core/transfer_list.h)
+// A synthetic career: comm service -> owner -> manager table + CareerDaoFactoryImpl (with the user-actions helper
+// sub-object), TransferManager (slot 127), PlayerContractManager (slot 77, hash table of contract records), the
+// event dispatcher (slot 39) and the UserManager (slot 129, the user's team). The vtables live at their real
+// addresses so the slot checks read real-looking memory.
+struct ListWorld {
+    SimMemory mem;
+    static constexpr uint64_t kComm = 0x30000000ULL, kOwner = 0x30001000ULL, kManagers = 0x30010000ULL, kDao = 0x30020000ULL,
+                              kTm = 0x30030000ULL, kPcm = 0x30040000ULL, kBuckets = 0x30050000ULL, kNodes = 0x30060000ULL,
+                              kObjs = 0x30070000ULL, kTypes = 0x30080000ULL, kHolders = 0x30081000ULL, kUm = 0x30090000ULL,
+                              kUsers = 0x300A0000ULL;
+    static constexpr uint64_t kHelperVt = 0x14B029440ULL, kDaoVt = 0x14B025C48ULL, kTmVt = 0x14B0055A8ULL, kPcmVt = 0x14B01E240ULL,
+                              kUmVt = 0x14AFDF150ULL;
+    static constexpr uint64_t kFnRemove = 0x147F8E300ULL, kFnAddT = 0x147F68368ULL, kFnAddL = 0x147F68214ULL;
+    static constexpr uint32_t kCount = 8;
+    static constexpr int kNapoli = 48;  // the user's club
+    int next_node = 0, next_obj = 0;
+    ListWorld() {
+        using namespace turbo::tl;
+        mem.map(kComm, 0x100);
+        mem.map(kOwner, 0x100);
+        mem.map(kManagers, 0x20 * 200);
+        mem.map(kDao, kDaoSize);
+        mem.map(kTm, kTmSize);
+        mem.map(kPcm, kPcmSize);
+        mem.map(kBuckets, 0x1000);
+        mem.map(kNodes, 0x8000);
+        mem.map(kObjs, 0x4000);
+        mem.map(kTypes, 0x2000);
+        mem.map(kHolders, 0x1000);
+        mem.map(kUm, kUmSize);
+        mem.map(kUsers, 2 * kUserSize);
+        mem.map(kHelperVt, 0x400);
+        mem.map(kDaoVt, 0x40);
+        mem.map(kTmVt, 0x40);
+        mem.map(kPcmVt, 0x40);
+        mem.map(kUmVt, 0x40);
+        mem.wr(kComm + kCommOwner, kOwner);
+        mem.wr(kOwner + kOwnerManagers, kManagers);
+        mem.wr(kOwner + kOwnerDao, kDao);
+        mem.wr(kDao, kDaoVt);
+        mem.wr(kDao + kDaoHelper, kHelperVt);
+        mem.wr(kDao + kDaoHelper + kHelperManagers, kManagers);
+        mem.wr(kHelperVt + kHelperSlotTryRemove * 8, kFnRemove);
+        mem.wr(kHelperVt + kHelperSlotAddTransfer * 8, kFnAddT);
+        mem.wr(kHelperVt + kHelperSlotAddLoan * 8, kFnAddL);
+        slot(kTypeTransferManager, kTm);
+        slot(kTypePlayerContractManager, kPcm);
+        slot(kTypeDispatcher, obj());
+        slot(kTypeUserManager, kUm);
+        mem.wr(kTm, kTmVt);
+        for (uint64_t off : {kTmListsStore, kTmListener, kTmNotifier}) mem.wr(kTm + off, obj());
+        mem.wr(kPcm, kPcmVt);
+        mem.wr(kPcm + kPcmBucketCount, kCount);
+        mem.wr(kPcm + kPcmBuckets, kBuckets);
+        mem.wr(kBuckets + kCount * 8, ~0ULL);  // EASTL end sentinel
+        // one user (index 0) managing Napoli; a second user slot with another team proves the index is used
+        mem.wr(kUm, kUmVt);
+        mem.wr(kUm + kUmIndex, static_cast<int32_t>(0));
+        mem.wr(kUm + kUmUsersBegin, kUsers);
+        mem.wr(kUm + kUmUsersEnd, kUsers + 2 * kUserSize);
+        mem.wr(kUsers + kUserTeam, static_cast<int32_t>(ListWorld::kNapoli));
+        mem.wr(kUsers + kUserSize + kUserTeam, static_cast<int32_t>(1));
+    }
+    uint64_t obj() {
+        uint64_t o = kObjs + static_cast<uint64_t>(next_obj++) * 0x100;
+        mem.wr(o, 0x140002000ULL + static_cast<uint64_t>(next_obj) * 0x100);  // a vtable-shaped first word
+        return o;
+    }
+    void slot(int type, uint64_t object) {
+        const uint64_t s = kManagers + 0x20 * static_cast<uint64_t>(type);
+        const uint64_t t = kTypes + static_cast<uint64_t>(type) * 0x20, h = kHolders + static_cast<uint64_t>(type) * 0x10;
+        mem.wr(s + turbo::tl::kSlotCount, static_cast<int32_t>(1));
+        mem.wr(s + turbo::tl::kSlotType, t);
+        mem.wr(t + turbo::tl::kTypeFlag, static_cast<int32_t>(1));
+        mem.wr(s + turbo::tl::kSlotHolder, h);
+        mem.wr(h, object);
+    }
+    // a contract record at the head of the player's bucket chain
+    uint64_t add_player(int pid, int32_t status) {
+        using namespace turbo::tl;
+        uint64_t node = kNodes + static_cast<uint64_t>(next_node++) * kPcmNodeSize;
+        mem.wr(node + kPcmNodeKey, static_cast<int32_t>(pid));
+        mem.wr(node + kPcmNodeStatus, status);
+        const uint64_t s = kBuckets + (static_cast<uint64_t>(pid) % kCount) * 8;
+        uint64_t head = 0;
+        mem.rd(s, head);
+        mem.wr(node + kPcmNodeNext, head);
+        mem.wr(s, node);
+        return node;
+    }
+    int32_t status(int pid) {
+        bool found = false;
+        int32_t st = -1;
+        turbo::tl::contract_status(mem, kPcm, pid, found, st);
+        return found ? st : -1;
+    }
+    void set_status(int pid, int32_t st) {
+        bool found = false;
+        int32_t cur = 0;
+        uint64_t node = 0;
+        turbo::tl::contract_status(mem, kPcm, pid, found, cur, &node);
+        if (found) mem.wr(node + turbo::tl::kPcmNodeStatus, st);
+    }
+};
+
+// What the game's helper functions do to the contract status (docs/re/transfer_lists.md): AddTo*List sets 7 / 8 (9 with
+// the other list), TryToRemoveFromList checks that the player is on the list its flag names, then clears BOTH lists
+struct FakeListGame : turbo::tl::Caller {
+    ListWorld& w;
+    int adds_t = 0, adds_l = 0, removes = 0;
+    bool noop = false, fail = false;
+    uint64_t last_helper = 0;
+    bool last_loan_flag = false;
+    explicit FakeListGame(ListWorld& world) : w(world) {}
+    bool add_transfer(uint64_t helper, int pid, std::string& err) override {
+        ++adds_t;
+        last_helper = helper;
+        if (fail) {
+            err = "boom";
+            return false;
+        }
+        if (!noop) {
+            int32_t s = w.status(pid);
+            if (s == 0) w.set_status(pid, 7);
+            else if (s == 8) w.set_status(pid, 9);
+        }
+        return true;
+    }
+    bool add_loan(uint64_t helper, int pid, std::string& err) override {
+        ++adds_l;
+        last_helper = helper;
+        if (fail) {
+            err = "boom";
+            return false;
+        }
+        if (!noop) {
+            int32_t s = w.status(pid);
+            if (s == 0) w.set_status(pid, 8);
+            else if (s == 7) w.set_status(pid, 9);
+        }
+        return true;
+    }
+    bool try_remove(uint64_t helper, int pid, bool loan_list, bool& removed, std::string& err) override {
+        ++removes;
+        last_helper = helper;
+        last_loan_flag = loan_list;
+        if (fail) {
+            err = "boom";
+            return false;
+        }
+        removed = false;
+        if (noop) return true;
+        const int32_t s = w.status(pid);
+        const bool on = loan_list ? turbo::tl::is_loan_listed(s) : turbo::tl::is_transfer_listed(s);
+        if (!on) return true;  // the game's pre-check: nothing is done (it returns false; Turbo sees the status unchanged)
+        w.set_status(pid, 0);  // RemoveFromLists(mask 1) clears both lists
+        removed = true;
+        return true;
+    }
+};
+
+static void test_transfer_list() {
+    using namespace turbo;
+    using namespace turbo::tl;
+    const Fns fns{ListWorld::kFnAddT, ListWorld::kFnAddL, ListWorld::kFnRemove, ListWorld::kHelperVt, ListWorld::kDaoVt, ListWorld::kTmVt,
+                  ListWorld::kPcmVt, ListWorld::kUmVt};
+    auto req_for = [](int action, int pid, int club = ListWorld::kNapoli) {
+        Request q;
+        q.action = action;
+        q.player = pid;
+        q.club = club;
+        q.comm = ListWorld::kComm;
+        q.managers = ListWorld::kManagers;
+        return q;
+    };
+
+    run_case("transfer lists: list, loan-list and unlist one of your players end to end on the synthetic career", [&] {
+        ListWorld w;
+        FakeListGame g(w);
+        w.add_player(2001, 0);
+        Result r = run(w.mem, g, fns, req_for(kActionQuery, 2001));
+        CHECK(r.ok && r.stage == "done" && r.before == 0 && r.after == 0 && !r.called, "query: " + r.message);
+        CHECK(r.at.helper == ListWorld::kDao + kDaoHelper && r.at.tm == ListWorld::kTm && r.at.pcm == ListWorld::kPcm && r.at.managers == ListWorld::kManagers &&
+                  r.at.um == ListWorld::kUm && r.at.user_team == ListWorld::kNapoli,
+              "objects located, user team read from the UserManager");
+        CHECK(r.message.find("not listed") != std::string::npos, "query text: " + r.message);
+        r = run(w.mem, g, fns, req_for(kActionTransferList, 2001));
+        CHECK(r.ok && r.called && r.before == 0 && r.after == kStatusTransferListed && g.adds_t == 1, "transfer listed: " + r.message);
+        CHECK(g.last_helper == ListWorld::kDao + kDaoHelper, "the helper sub-object is passed as this");
+        CHECK(r.message.find("transfer listed") != std::string::npos, "message: " + r.message);
+        r = run(w.mem, g, fns, req_for(kActionTransferList, 2001));
+        CHECK(!r.ok && r.stage == "status" && r.message.find("already") != std::string::npos && g.adds_t == 1, "already listed refused: " + r.message);
+        r = run(w.mem, g, fns, req_for(kActionLoanList, 2001));
+        CHECK(r.ok && r.after == kStatusBothLists && g.adds_l == 1, "both lists: " + r.message);
+        r = run(w.mem, g, fns, req_for(kActionQuery, 2001));
+        CHECK(r.ok && is_transfer_listed(r.after) && is_loan_listed(r.after), "query sees both: " + r.message);
+        // on both lists the game's remove would clear both: a single-list removal is refused before the call
+        r = run(w.mem, g, fns, req_for(kActionUnlistTransfer, 2001));
+        CHECK(!r.ok && r.stage == "status" && r.message.find("both lists") != std::string::npos && g.removes == 0, "single removal refused: " + r.message);
+        r = run(w.mem, g, fns, req_for(kActionUnlistLoan, 2001));
+        CHECK(!r.ok && r.message.find("remove from lists") != std::string::npos && g.removes == 0, "single loan removal refused: " + r.message);
+        r = run(w.mem, g, fns, req_for(kActionUnlist, 2001));
+        CHECK(r.ok && r.after == kStatusNone && g.removes == 1 && !g.last_loan_flag, "unlisted (flag names the transfer list): " + r.message);
+        r = run(w.mem, g, fns, req_for(kActionUnlist, 2001));
+        CHECK(!r.ok && r.stage == "status" && r.message.find("not on the transfer list or the loan list") != std::string::npos && g.removes == 1,
+              "unlist when not listed refused: " + r.message);
+        // loan list only: the removal names the loan list (the game's pre-check needs the list he is on)
+        r = run(w.mem, g, fns, req_for(kActionLoanList, 2001));
+        CHECK(r.ok && r.after == kStatusLoanListed, "loan listed: " + r.message);
+        r = run(w.mem, g, fns, req_for(kActionUnlistTransfer, 2001));
+        CHECK(!r.ok && r.message.find("not on the transfer list") != std::string::npos, "not on the transfer list: " + r.message);
+        r = run(w.mem, g, fns, req_for(kActionUnlistLoan, 2001));
+        CHECK(r.ok && g.last_loan_flag && r.after == kStatusNone, "removed from the loan list: " + r.message);
+        r = run(w.mem, g, fns, req_for(kActionLoanList, 2001));
+        r = run(w.mem, g, fns, req_for(kActionUnlist, 2001));
+        CHECK(r.ok && g.last_loan_flag && r.after == kStatusNone, "remove from lists on the loan list names the loan list: " + r.message);
+        r = run(w.mem, g, fns, req_for(kActionTransferList, 2001));
+        r = run(w.mem, g, fns, req_for(kActionUnlistTransfer, 2001));
+        CHECK(r.ok && !g.last_loan_flag && r.after == kStatusNone, "removed from the transfer list: " + r.message);
+        // bucket chains: 2009 and 2017 share bucket 1 with 2001
+        w.add_player(2009, 8);
+        w.add_player(2017, 3);
+        CHECK(w.status(2009) == 8 && w.status(2017) == 3 && w.status(2001) == 0 && w.status(2002) == -1, "chain walk finds each record");
+        r = run(w.mem, g, fns, req_for(kActionTransferList, 2017));
+        CHECK(!r.ok && r.stage == "status" && r.message.find("status 0, 7 or 8") != std::string::npos, "ineligible status refused: " + r.message);
+        r = run(w.mem, g, fns, req_for(kActionTransferList, 2002));
+        CHECK(!r.ok && r.stage == "status" && r.message.find("no contract record") != std::string::npos, "unknown player refused: " + r.message);
+        CHECK(g.adds_t == 2 && g.adds_l == 3 && g.removes == 4, "the game was called only for the eligible requests");
+        CHECK(w.mem.failed_reads == 0, "no read outside the synthetic memory");
+    });
+
+    run_case("transfer lists: only the user's own players (the helper lists on the user's club whoever the player is)", [&] {
+        ListWorld w;
+        FakeListGame g(w);
+        w.add_player(3001, 0);
+        Result r = run(w.mem, g, fns, req_for(kActionTransferList, 3001, 1));
+        CHECK(!r.ok && r.stage == "validate" && r.message.find("not your club (team 48)") != std::string::npos, "another club refused: " + r.message);
+        r = run(w.mem, g, fns, req_for(kActionLoanList, 3001, 0));
+        CHECK(!r.ok && r.message.find("club is not known") != std::string::npos, "unknown club refused: " + r.message);
+        r = run(w.mem, g, fns, req_for(kActionUnlist, 3001, 1));
+        CHECK(!r.ok && r.stage == "validate", "removal for another club refused: " + r.message);
+        r = run(w.mem, g, fns, req_for(kActionQuery, 3001, 0));
+        CHECK(r.ok && r.after == 0, "the status query reads any player: " + r.message);
+        CHECK(g.adds_t == 0 && g.adds_l == 0 && g.removes == 0, "the game was never called");
+        // the active user index picks the team: user 1 manages team 1
+        w.mem.wr(ListWorld::kUm + kUmIndex, static_cast<int32_t>(1));
+        r = run(w.mem, g, fns, req_for(kActionTransferList, 3001, 1));
+        CHECK(r.ok && r.at.user_team == 1 && r.after == kStatusTransferListed, "second user's club: " + r.message);
+        // a UserManager that does not look like one stops everything
+        w.mem.wr(ListWorld::kUm + kUmIndex, static_cast<int32_t>(2));
+        r = run(w.mem, g, fns, req_for(kActionQuery, 3001));
+        CHECK(!r.ok && r.message.find("user index 2 is out of range") != std::string::npos, "index out of range: " + r.message);
+        w.mem.wr(ListWorld::kUm + kUmIndex, static_cast<int32_t>(-1));
+        r = run(w.mem, g, fns, req_for(kActionQuery, 3001));
+        CHECK(!r.ok && r.message.find("no active user") != std::string::npos, "no user: " + r.message);
+        w.mem.wr(ListWorld::kUm + kUmIndex, static_cast<int32_t>(0));
+        w.mem.wr(ListWorld::kUm + kUmUsersEnd, ListWorld::kUsers + 0x100);
+        r = run(w.mem, g, fns, req_for(kActionQuery, 3001));
+        CHECK(!r.ok && r.message.find("0x348-byte users") != std::string::npos, "users not a whole number of users: " + r.message);
+        w.mem.wr(ListWorld::kUm + kUmUsersEnd, ListWorld::kUsers + 2 * kUserSize);
+        w.mem.wr(ListWorld::kUsers + kUserTeam, static_cast<int32_t>(0));
+        r = run(w.mem, g, fns, req_for(kActionQuery, 3001));
+        CHECK(!r.ok && r.message.find("team id (0) is not valid") != std::string::npos, "team 0: " + r.message);
+        w.mem.wr(ListWorld::kUsers + kUserTeam, static_cast<int32_t>(ListWorld::kNapoli));
+        w.mem.wr(ListWorld::kUm, 0x14B000000ULL);
+        r = run(w.mem, g, fns, req_for(kActionQuery, 3001));
+        CHECK(!r.ok && r.message.find("not the UserManager") != std::string::npos, "um vtable: " + r.message);
+        CHECK(g.adds_t == 1 && g.removes == 0, "only the one valid request reached the game");
+    });
+
+    run_case("transfer lists: every check stops before the game is called (functions, objects, vtables, slots, the game refusing)", [&] {
+        ListWorld w;
+        FakeListGame g(w);
+        w.add_player(2001, 0);
+        Request q = req_for(kActionTransferList, 2001);
+        Fns none;
+        Result r = run(w.mem, g, none, q);
+        CHECK(!r.ok && r.stage == "validate" && r.message.find("uah_add_transfer_list") != std::string::npos, "functions missing: " + r.message);
+        Fns part = fns;
+        part.pcm_vtable = 0;
+        r = run(w.mem, g, part, q);
+        CHECK(!r.ok && r.message.find("pcm_vtable") != std::string::npos, "vtable missing: " + r.message);
+        part = fns;
+        part.um_vtable = 0;
+        r = run(w.mem, g, part, q);
+        CHECK(!r.ok && r.message.find("um_vtable") != std::string::npos, "um vtable missing: " + r.message);
+        q.image_base = 0x140000000ULL;
+        q.image_size = 0x1000;
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("outside FC27.exe") != std::string::npos, "address outside the image: " + r.message);
+        q.image_base = q.image_size = 0;
+        q.action = 9;
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("unknown transfer-list action") != std::string::npos, "unknown action: " + r.message);
+        q.action = kActionTransferList;
+        q.player = 0;
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("positive") != std::string::npos, "player 0: " + r.message);
+        q.player = 2001;
+        q.comm = 0x10;
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("comm service") != std::string::npos, "bad comm: " + r.message);
+        q.comm = 0x31000000ULL;
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("owner") != std::string::npos, "unmapped comm: " + r.message);
+        q.comm = ListWorld::kComm;
+        q.managers = 0x30010100ULL;
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("manager table mismatch") != std::string::npos, "published table differs: " + r.message);
+        q.managers = 0;  // derived from the comm service
+        w.mem.wr(ListWorld::kDao, 0x14B000000ULL);
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("not the CareerDaoFactoryImpl") != std::string::npos, "dao vtable: " + r.message);
+        w.mem.wr(ListWorld::kDao, ListWorld::kDaoVt);
+        w.mem.wr(ListWorld::kDao + kDaoHelper, 0x14B000000ULL);
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("not the UserActionsHandlingHelperImpl") != std::string::npos, "helper vtable: " + r.message);
+        w.mem.wr(ListWorld::kDao + kDaoHelper, ListWorld::kHelperVt);
+        w.mem.wr(ListWorld::kHelperVt + kHelperSlotAddTransfer * 8, 0x147F00000ULL);
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("slot 32") != std::string::npos && r.message.find("layout mismatch") != std::string::npos, "vtable slot: " + r.message);
+        w.mem.wr(ListWorld::kHelperVt + kHelperSlotAddTransfer * 8, ListWorld::kFnAddT);
+        w.mem.wr(ListWorld::kDao + kDaoHelper + kHelperManagers, ListWorld::kOwner);
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("helper's manager table") != std::string::npos, "helper table: " + r.message);
+        w.mem.wr(ListWorld::kDao + kDaoHelper + kHelperManagers, ListWorld::kManagers);
+        const uint64_t tm_slot = ListWorld::kManagers + 0x20 * static_cast<uint64_t>(kTypeTransferManager);
+        w.mem.wr(tm_slot + kSlotCount, static_cast<int32_t>(0));
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("slot 127") != std::string::npos, "no TransferManager: " + r.message);
+        w.mem.wr(tm_slot + kSlotCount, static_cast<int32_t>(1));
+        w.mem.wr(ListWorld::kTm, 0x14B000000ULL);
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("not the TransferManager") != std::string::npos, "tm vtable: " + r.message);
+        w.mem.wr(ListWorld::kTm, ListWorld::kTmVt);
+        w.mem.wr(ListWorld::kTm + kTmListsStore, 0ULL);
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("TransferManager+0x2B80") != std::string::npos, "lists store missing: " + r.message);
+        w.mem.wr(ListWorld::kTm + kTmListsStore, ListWorld::kObjs);
+        w.mem.wr(ListWorld::kPcm, 0x14B000000ULL);
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("not the PlayerContractManager") != std::string::npos, "pcm vtable: " + r.message);
+        w.mem.wr(ListWorld::kPcm, ListWorld::kPcmVt);
+        const uint64_t um_slot = ListWorld::kManagers + 0x20 * static_cast<uint64_t>(kTypeUserManager);
+        w.mem.wr(um_slot + kSlotCount, static_cast<int32_t>(0));
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("slot 129") != std::string::npos, "no UserManager: " + r.message);
+        w.mem.wr(um_slot + kSlotCount, static_cast<int32_t>(1));
+        w.mem.wr(ListWorld::kPcm + kPcmBucketCount, 0u);
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.stage == "status" && r.message.find("bucket count") != std::string::npos, "bucket count 0: " + r.message);
+        w.mem.wr(ListWorld::kPcm + kPcmBucketCount, ListWorld::kCount);
+        CHECK(g.adds_t == 0 && g.adds_l == 0 && g.removes == 0, "the game was never called");
+        // the game refuses / fails
+        g.fail = true;
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.stage == "call" && r.message.find("AddToTransferList: boom") != std::string::npos, "call failed: " + r.message);
+        g.fail = false;
+        g.noop = true;
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.stage == "check" && r.message.find("the game refused") != std::string::npos && r.called, "status unchanged: " + r.message);
+        g.noop = false;
+        // broken chains are bounded errors, not crashes
+        std::string err;
+        bool found = false;
+        int32_t st = 0;
+        uint64_t node = 0;
+        err = contract_status(w.mem, ListWorld::kPcm, 2001, found, st, &node);
+        CHECK(err.empty() && found && node != 0, "record present");
+        w.mem.wr(node + kPcmNodeNext, node);
+        err = contract_status(w.mem, ListWorld::kPcm, 2009, found, st);
+        CHECK(!found && err.find("longer than") != std::string::npos, "loop bounded: " + err);
+        w.mem.wr(node + kPcmNodeNext, 0x8ULL);
+        err = contract_status(w.mem, ListWorld::kPcm, 2009, found, st);
+        CHECK(!found && err.find("bad pointer") != std::string::npos, "bad next: " + err);
+        w.mem.wr(node + kPcmNodeNext, 0x31000000ULL);
+        err = contract_status(w.mem, ListWorld::kPcm, 2009, found, st);
+        CHECK(!found && err.find("not readable") != std::string::npos, "unmapped next: " + err);
+        w.mem.wr(node + kPcmNodeNext, 0ULL);
+        err = contract_status(w.mem, ListWorld::kPcm, 2009, found, st);
+        CHECK(err.empty() && !found, "absent player: no error");
+        // the end sentinel ends a chain too
+        w.mem.wr(node + kPcmNodeNext, ~0ULL);
+        err = contract_status(w.mem, ListWorld::kPcm, 2009, found, st);
+        CHECK(err.empty() && !found, "sentinel ends the chain");
+    });
+
+    run_case("signatures: the built-in transfer-list entries resolve on the game's bytes (vtables through the constructors' lea)", [&] {
+        const SignatureTable* t = builtin_signature_table("6AB9813C-211EF000");
+        CHECK(t != nullptr, "built-in table");
+        if (!t) return;
+        // bytes read from fc27_image.bin (FC27.exe 1.0.140.64835) at each anchor (scripts/re/sig_transfer_lists.py --bytes)
+        struct Blob { const char* name; uint64_t va; uint64_t target; std::vector<uint8_t> bytes; };
+        const std::vector<Blob> blobs = {
+            {"uah_add_transfer_list", 0x147F68368ULL, 0x147F68368ULL,
+             {0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0x41, 0x08, 0x48, 0x8B, 0xD9, 0x45, 0x33, 0xC9, 0x45, 0x33,
+              0xC0, 0x8B, 0xFA, 0x48, 0x8B, 0x88, 0xF8, 0x0F, 0x00, 0x00, 0x48, 0x8B, 0x09, 0xE8, 0xD0, 0x77, 0xCD, 0xFF, 0x48, 0x8B, 0x0D, 0x11,
+              0x1B, 0x30, 0x04, 0x4C, 0x8D, 0x05, 0x7A, 0x3C, 0x0C, 0x03, 0x45, 0x33, 0xC9, 0x48, 0x8B, 0x01, 0x41, 0x8D, 0x51, 0x20, 0xFF, 0x50,
+              0x10, 0x4C, 0x8B, 0xC0, 0xBA, 0x79, 0x00, 0x00, 0x00, 0x33, 0xC0}},
+            {"uah_add_loan_list", 0x147F68214ULL, 0x147F68214ULL,
+             {0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0x41, 0x08, 0x48, 0x8B, 0xD9, 0x45, 0x33, 0xC9, 0x45, 0x33,
+              0xC0, 0x8B, 0xFA, 0x48, 0x8B, 0x88, 0xF8, 0x0F, 0x00, 0x00, 0x48, 0x8B, 0x09, 0xE8, 0x20, 0x77, 0xCD, 0xFF, 0x48, 0x8B, 0x0D, 0x65,
+              0x1C, 0x30, 0x04, 0x4C, 0x8D, 0x05, 0x46, 0x3D, 0x0C, 0x03, 0x45, 0x33, 0xC9, 0x48, 0x8B, 0x01, 0x41, 0x8D, 0x51, 0x20, 0xFF, 0x50,
+              0x10, 0x4C, 0x8B, 0xC0, 0xBA, 0x7A, 0x00, 0x00, 0x00, 0x33, 0xC0}},
+            {"uah_try_remove_from_list", 0x147F8E300ULL, 0x147F8E300ULL,
+             {0x89, 0x54, 0x24, 0x10, 0x53, 0x55, 0x56, 0x57, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x30, 0x4C, 0x8B, 0xF9, 0x48,
+              0x63, 0xEA, 0x48, 0x8B, 0x49, 0x08, 0x41, 0x8A, 0xF8, 0x33, 0xF6, 0x48, 0x8B, 0x81, 0xF8, 0x0F, 0x00, 0x00}},
+            {"uah_vtable", 0x147F0F267ULL, 0x14B029440ULL,
+             {0x48, 0x8D, 0x05, 0xD2, 0xA1, 0x11, 0x03, 0x49, 0x89, 0xB7, 0x70, 0x04, 0x00, 0x00, 0x45, 0x33, 0xC9, 0x49, 0x89, 0x87, 0x78, 0x04,
+              0x00, 0x00, 0x41, 0xB0, 0x01, 0x49, 0x89, 0xB7, 0x80, 0x04, 0x00, 0x00}},
+            {"dao_vtable", 0x147F0EB10ULL, 0x14B025C48ULL,
+             {0x4C, 0x89, 0x44, 0x24, 0x18, 0x48, 0x89, 0x54, 0x24, 0x10, 0x48, 0x89, 0x4C, 0x24, 0x08, 0x53, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41,
+              0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x48, 0x4C, 0x8B, 0xF1, 0x48, 0x8D, 0x05, 0x0F, 0x71, 0x11, 0x03, 0x48, 0x89, 0x01,
+              0x48, 0x8B, 0xF2}},
+            {"tm_vtable", 0x147C26450ULL, 0x14B0055A8ULL,
+             {0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x08, 0x48, 0x89, 0x70, 0x10, 0x48, 0x89, 0x78, 0x18, 0x55, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56,
+              0x41, 0x57, 0x48, 0x8D, 0x68, 0xC8, 0x48, 0x81, 0xEC, 0x80, 0x01, 0x00, 0x00, 0x48, 0x8B, 0x05, 0x06, 0x9F, 0x00, 0x04, 0x48, 0x33,
+              0xC4, 0x48, 0x89, 0x45, 0x00, 0x48, 0x8D, 0x05, 0x20, 0xF1, 0x3D, 0x03, 0x48, 0x89, 0x51, 0x08}},
+            {"pcm_vtable", 0x147E54FB0ULL, 0x14B01E240ULL,
+             {0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8D, 0x05, 0x83, 0x92, 0x1C, 0x03, 0x48, 0x89, 0x51, 0x08, 0x48, 0x89, 0x01, 0x48, 0x8B,
+              0xD9, 0x48, 0x83, 0xC1, 0x10, 0xE8, 0x94, 0x07, 0x00, 0x00, 0x48, 0x8D, 0x8B, 0x40, 0x01, 0x00, 0x00, 0xE8}},
+            {"um_vtable", 0x147AB2EB8ULL, 0x14AFDF150ULL,
+             {0x48, 0x89, 0x5C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x57, 0x48, 0x81, 0xEC, 0x80, 0x00, 0x00, 0x00, 0x48, 0x8B, 0x05, 0xAF,
+              0xD4, 0x17, 0x04, 0x48, 0x33, 0xC4, 0x48, 0x89, 0x44, 0x24, 0x70, 0x48, 0x89, 0x51, 0x08, 0x48, 0x8D, 0x05, 0x6C, 0xC2, 0x52, 0x03,
+              0x48, 0x89, 0x01}},
+        };
+        // each anchor at its real VA (a buffer based 0x100 below it) so the rip-relative lea resolves to the real vtable
+        for (const auto& b : blobs) {
+            const Signature* s = t->find(b.name);
+            CHECK(s != nullptr && !s->pattern.empty(), std::string("entry ") + b.name);
+            if (!s) continue;
+            std::vector<uint8_t> code(0x200, 0xCC);
+            std::memcpy(code.data() + 0x100, b.bytes.data(), b.bytes.size());
+            SigResult r = resolve_signature(*s, code.data(), code.size(), b.va - 0x100);
+            CHECK(r.state == SigState::Found && r.match == b.va && r.address == b.target,
+                  std::string(b.name) + " resolves: " + r.error + " (match " + hex_addr(r.match) + ", address " + hex_addr(r.address) + ")");
+        }
+        // all blobs in one buffer: no entry matches twice (the two add-list helpers differ only by the event id)
+        std::vector<uint8_t> all(0x1000, 0xCC);
+        for (size_t i = 0; i < blobs.size(); ++i) std::memcpy(all.data() + 0x100 + i * 0x100, blobs[i].bytes.data(), blobs[i].bytes.size());
+        for (size_t i = 0; i < blobs.size(); ++i) {
+            SigResult r = resolve_signature(*t->find(blobs[i].name), all.data(), all.size(), 0x147000000ULL);
+            CHECK(r.hits == 1 && r.match == 0x147000000ULL + 0x100 + i * 0x100, std::string(blobs[i].name) + " unique among the eight");
+        }
+        // the signature JSON next to the RE scripts carries the same patterns as the built-in table
+        // the tests run from turbogui/ (run_native.sh); the repository root is one level up
+        fs::path json_path = fs::path("..") / "scripts" / "re" / "transfer_list_signatures.json";
+        std::error_code ec;
+        if (!fs::exists(json_path, ec)) json_path = fs::path("scripts") / "re" / "transfer_list_signatures.json";
+        std::ifstream jf(json_path);
+        CHECK(static_cast<bool>(jf), "transfer_list_signatures.json found at " + json_path.string());
+        if (jf) {
+            std::string text((std::istreambuf_iterator<char>(jf)), std::istreambuf_iterator<char>());
+            SignatureTable file;
+            std::string err;
+            CHECK(parse_signature_table(text, file, err), "transfer_list_signatures.json parses: " + err);
+            for (const auto& b : blobs) {
+                const Signature* a = t->find(b.name);
+                const Signature* f = file.find(b.name);
+                CHECK(a && f && a->pattern == f->pattern && a->offset == f->offset && a->resolve == f->resolve,
+                      std::string(b.name) + ": built-in entry equals the JSON");
+            }
+        }
+    });
+}
+
 // Live Editor's own log decides when a Turbo.dll loaded at game launch may start (src/win/dllmain.cpp)
 static void test_le_log() {
     using turbo::LeLogState;
@@ -5623,6 +6092,8 @@ int main(int argc, char** argv) {
     test_game_calls();
     std::printf("native game-thread dispatcher\n");
     test_gamethread();
+    std::printf("native transfer lists\n");
+    test_transfer_list();
     std::printf("native Live Editor log\n");
     test_le_log();
     std::printf("native live standings\n");
