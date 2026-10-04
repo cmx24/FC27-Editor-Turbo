@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <deque>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -38,6 +39,7 @@
 #include "core/model.h"
 #include "core/player_capture.h"
 #include "core/sigscan.h"
+#include "core/standings_refresh.h"
 #include "core/t3db.h"
 #include "imgui.h"
 #include "imgui_impl_null.h"
@@ -919,6 +921,169 @@ struct FakeCapture : capture::CaptureService {
     }
     const capture::Template* learned() override { return nullptr; }
 };
+
+// ---------------------------------------------------------------- live standings (FCE DataManager) on synthetic memory
+namespace {
+struct FceWorld {
+    SimMemory mem;
+    uint64_t ifce = 0x30000000, hub = 0x30001000, dc = 0x30002000, dm = 0x30003000;
+    uint64_t slist = 0x30004000, rows = 0x30005000, flist = 0x30006000, fx = 0x30007000;
+    static constexpr uint64_t kBase = 0x140000000ull;
+    void w64(uint64_t a, uint64_t v) { mem.wr(a, v); }
+    void w32(uint64_t a, uint32_t v) { mem.wr(a, v); }
+    void w16(uint64_t a, uint16_t v) { mem.wr(a, v); }
+    void w8(uint64_t a, uint8_t v) { mem.wr(a, v); }
+    void row(int id, uint16_t comp, uint32_t team, int hw, int hd, int hl, int hgf, int hga, int aw, int ad, int al, int agf, int aga, int pts) {
+        uint64_t a = rows + uint64_t(id) * fce::kStandingSize;
+        w16(a, uint16_t(id)); w16(a + 2, comp); w32(a + 4, team); w8(a + 8, uint8_t(id));
+        uint8_t c[] = {uint8_t(hw), uint8_t(hd), uint8_t(hl), uint8_t(hgf), uint8_t(hga), uint8_t(aw), uint8_t(ad), uint8_t(al), uint8_t(agf), uint8_t(aga)};
+        mem.write(a + 9, c, 10);
+        w16(a + 0x14, uint16_t(int16_t(pts))); w8(a + 0x16, 1);
+    }
+    void fixture(int id, uint16_t comp, int home, int away, int hs, int as, uint8_t completion, uint32_t date = 20260815) {
+        uint64_t a = fx + uint64_t(id) * fce::kFixtureSize;
+        w32(a, date); w16(a + 4, 1500); w16(a + 6, uint16_t(id)); w16(a + 8, comp);
+        w16(a + 0xA, uint16_t(int16_t(home))); w16(a + 0xC, uint16_t(int16_t(away)));
+        w8(a + 0xF, uint8_t(int8_t(hs))); w8(a + 0x10, 0xFF); w8(a + 0x11, uint8_t(int8_t(as))); w8(a + 0x12, 0xFF);
+        w8(a + 0x13, completion); w8(a + 0x14, 1);
+    }
+    FceWorld(int nrows = 4, int nfix = 3, bool vtables = true) {
+        for (uint64_t a : {ifce, hub, dc, dm, slist, rows, flist, fx}) mem.map(a, 0x1000);
+        if (vtables) { w64(ifce, kBase + fce::kRvaInterfaceVtable); w64(dm, kBase + fce::kRvaDataManagerVtable); }
+        w64(ifce + 0x18, hub); w64(hub + 0x18, dc); w64(dc + 0x80, dm); w64(dm + 0x28, dc);
+        w64(dm + 0x88, slist); w64(slist, rows); w64(slist + 8, rows + uint64_t(nrows) * fce::kStandingSize);
+        w64(dm + 0x60, flist); w32(flist, uint32_t(nfix)); w64(flist + 8, fx);
+        // league 100: Arsenal(1) 2W 1D, Everton(7) 1W 1D 1L, Inter(241) 0W 1D 2L; row 3 unused
+        row(0, 100, 1, 1, 1, 0, 4, 1, 1, 0, 0, 2, 1, 7);
+        row(1, 100, 7, 1, 1, 0, 3, 1, 0, 0, 1, 1, 2, 4);
+        row(2, 100, 241, 0, 1, 0, 1, 1, 0, 0, 2, 1, 5, 1);
+        fixture(0, 100, 0, 1, 2, 1, 1);  // Arsenal 2-1 Everton (home row 0, away row 1)
+        fixture(1, 100, 1, 2, 3, 0, 1);  // Everton 3-0 Inter
+        fixture(2, 100, 2, 0, 1, 1, 0);  // Inter v Arsenal: not played yet (completion 0) although scores set
+    }
+};
+}  // namespace
+
+// ---------------------------------------------------------------- standings refresh (core/standings_refresh.h) on synthetic memory
+// A career manager table reached from the comm service ([[comm+0x20]+0x10]) with the StandingsViewManager in slot 108
+// and the FCE interface in slot 1; the SVM's mLiveStandings as a real red-black-tree layout (anchor at +0x250, nodes
+// with right / left / parent / key / value, size counter at +0x270); a fake game that records the calls; and a fake
+// RefreshService for the UI tests.
+namespace {
+struct SvmWorld {
+    SimMemory mem;
+    static constexpr uint64_t kBase = 0x140000000ULL;
+    static constexpr uint64_t kComm = 0x50000000ULL, kX = 0x50001000ULL, kManagers = 0x50002000ULL, kTypes = 0x50006000ULL,
+                              kHolders = 0x50008000ULL, kSvm = 0x50010000ULL, kIfce = 0x50012000ULL, kNodes = 0x50014000ULL,
+                              kOther = 0x50018000ULL;
+    static constexpr uint64_t kVtable = kBase + svm::kRvaVtable, kVtablePage = 0x14B016000ULL, kSlot10 = 0x147DA3AE8ULL;
+    std::vector<int32_t> keys;
+    explicit SvmWorld(std::vector<int32_t> ks = {1200, 1300, 1400}) {
+        for (uint64_t a : {kComm, kX, kTypes, kHolders, kSvm, kIfce, kOther, kVtablePage}) mem.map(a, 0x1000);
+        mem.map(kManagers, 0x20 * 256 + 0x100);
+        mem.map(kNodes, 0x4000);
+        mem.wr(kComm + svm::kCommManagersA, kX);
+        mem.wr(kX + svm::kCommManagersB, kManagers);
+        add_slot(svm::kTypeId, kSvm);
+        add_slot(svm::kIfceTypeId, kIfce);
+        mem.wr(kSvm, kVtable);
+        mem.wr(kVtable + svm::kVtableSlot10, kSlot10);
+        mem.wr(kSvm + svm::kOffCtx, kManagers);
+        mem.wr(kSvm + svm::kOffEnabled, uint8_t(1));
+        mem.wr(kIfce, kBase + fce::kRvaInterfaceVtable);
+        set_map(ks);
+    }
+    void add_slot(int id, uint64_t obj) {
+        const uint64_t slot = kManagers + svm::kSlotSize * uint64_t(id), typ = kTypes + uint64_t(id) * 0x20, holder = kHolders + uint64_t(id) * 0x10;
+        mem.wr(slot + svm::kSlotCount, int32_t(1));
+        mem.wr(slot + svm::kSlotType, typ);
+        mem.wr(typ + svm::kTypeFlag, int32_t(1));
+        mem.wr(slot + svm::kSlotHolder, holder);
+        mem.wr(holder, obj);
+    }
+    uint64_t node(int i) const { return kNodes + uint64_t(i) * 0x40; }
+    // balanced tree over keys[lo, hi) under `parent`; returns the subtree root (0 when empty)
+    uint64_t build(int lo, int hi, uint64_t parent, int& next) {
+        if (lo >= hi) return 0;
+        const int mid = (lo + hi) / 2;
+        const uint64_t n = node(next++);
+        mem.wr(n + svm::kNodeParent, parent);
+        mem.wr(n + svm::kNodeKey, keys[size_t(mid)]);
+        mem.wr(n + svm::kNodeValue, kOther + uint64_t(mid) * 0x10);
+        const uint64_t l = build(lo, mid, n, next), r = build(mid + 1, hi, n, next);
+        mem.wr(n + svm::kNodeLeft, l);
+        mem.wr(n + svm::kNodeRight, r);
+        return n;
+    }
+    void set_map(std::vector<int32_t> ks) {
+        keys = std::move(ks);
+        std::vector<uint8_t> zero(0x4000, 0);
+        mem.write(kNodes, zero.data(), zero.size());
+        int next = 0;
+        const uint64_t root = build(0, int(keys.size()), kSvm + svm::kOffMap, next);
+        uint64_t l = root, r = root, t = 0;
+        while (l && mem.rd(l + svm::kNodeLeft, t) && t) l = t;
+        while (r && mem.rd(r + svm::kNodeRight, t) && t) r = t;
+        mem.wr(kSvm + svm::kOffMapRoot, root);
+        mem.wr(kSvm + svm::kOffMap + svm::kNodeLeft, l);
+        mem.wr(kSvm + svm::kOffMap + svm::kNodeRight, r);
+        mem.wr(kSvm + svm::kOffMapSize, uint32_t(keys.size()));
+    }
+    uint64_t node_of(int32_t key) const {
+        for (size_t i = 0; i < keys.size(); ++i) {
+            int32_t k = 0;
+            SimMemory& m = const_cast<SimMemory&>(mem);
+            if (m.rd(node(int(i)) + svm::kNodeKey, k) && k == key) return node(int(i));
+        }
+        return 0;
+    }
+};
+
+struct FakeSvmGame : svm::Caller {
+    std::vector<std::pair<uint64_t, int32_t>> refreshes, events;
+    int fail_after = -1;  // refresh_comp fails once this many ran
+    bool fail_event = false;
+    bool refresh_comp(uint64_t s, int32_t comp, std::string& err) override {
+        if (fail_after >= 0 && int(refreshes.size()) == fail_after) {
+            err = "boom";
+            return false;
+        }
+        refreshes.push_back({s, comp});
+        return true;
+    }
+    bool career_event(uint64_t s, int32_t id, std::string& err) override {
+        if (fail_event) {
+            err = "boom";
+            return false;
+        }
+        events.push_back({s, id});
+        return true;
+    }
+};
+
+// Stand-in for the Windows host's refresh service (src/win/standings_refresh_win.cpp): records requests, answers when told
+struct FakeRefresh : svm::RefreshService {
+    std::vector<svm::Request> requests;
+    std::deque<svm::Result> results;
+    bool off = false;
+    std::string why;
+    bool request(const svm::Request& r, std::string& w) override {
+        if (off) {
+            w = why;
+            return false;
+        }
+        requests.push_back(r);
+        return true;
+    }
+    bool poll(svm::Result& out) override {
+        if (results.empty()) return false;
+        out = results.front();
+        results.pop_front();
+        return true;
+    }
+    std::string status() override { return "standings_refresh: fake"; }
+};
+}  // namespace
 
 static void test_ui() {
     SimMemory mem;
@@ -2164,6 +2329,119 @@ static void test_ui() {
             app.save_gui_settings();
             app.game_root.clear();
         });
+        run_case("UI: Competitions > Live standings: a row write queues the standings refresh; its outcome arrives as a toast", [&] {
+            // the engine rows (FceWorld) and the career managers (SvmWorld), mapped into the App's memory
+            FceWorld fw;
+            SvmWorld sw;
+            for (const auto& kv : fw.mem.pages) mem.pages[kv.first] = kv.second;
+            for (const auto& kv : sw.mem.pages) mem.pages[kv.first] = kv.second;
+            auto fake = std::make_shared<FakeRefresh>();
+            app.standings_refresh = fake;
+            app.standings_refresh_status.clear();
+            fs::path state_file = le / "turbo_output" / "bridge_state.json";
+            json st = read_json(state_file);
+            const json saved = st;
+            int bumps = 0;
+            auto write_state_file = [&]() {
+                {
+                    std::ofstream f(state_file.string(), std::ios::binary | std::ios::trunc);
+                    f << st.dump();
+                }
+                fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(2 * ++bumps));
+            };
+            st["ifce"] = hex_addr(fw.ifce);
+            st["svm"] = hex_addr(SvmWorld::kSvm);
+            st["managers"] = hex_addr(SvmWorld::kManagers);
+            st["comm_service"] = hex_addr(SvmWorld::kComm);
+            st["seq"] = st.value("seq", 0LL) + 1;
+            write_state_file();
+            app.next_poll = 0.0;
+            app.request_tab = 3;
+            ui.frames(3);
+            CHECK(app.bridge.state().svm == SvmWorld::kSvm && app.bridge.state().managers == SvmWorld::kManagers &&
+                      app.bridge.state().ifce == fw.ifce,
+                  "bridge_state carries ifce / svm / managers");
+            CHECK(ui.click("Live standings (game)"), "live view tab (the earlier case left the database view)");
+            ui.frames(2);
+            CHECK(ui.find("Try again") == nullptr && ui.find("Reload") != nullptr, "live view reachable through the published ifce");
+            CHECK(ui.click("1##ls0"), "select the leader (Arsenal, row 0)");
+            ui.frames(2);
+            const ItemRec* pts = ui.find("Points", "##lsedit");
+            CHECK(pts != nullptr, "points editor shown");
+            CHECK(ui.type_into(pts, "9"), "type 9 points");
+            CHECK(ui.click("Apply to the game", "##lsedit"), "Apply to the game");
+            ui.frames(2);
+            CHECK(fake->requests.size() == 1, fmt("one refresh request (%zu)", fake->requests.size()));
+            if (!fake->requests.empty()) {
+                const svm::Request& rq = fake->requests[0];
+                CHECK(rq.svm == SvmWorld::kSvm && rq.managers == SvmWorld::kManagers && rq.comm == SvmWorld::kComm && rq.ifce == fw.ifce,
+                      "request carries the published addresses");
+                CHECK(rq.image_base == app.game_base, "request carries the image base");
+                CHECK(rq.label.find("Arsenal") != std::string::npos && rq.label.find("row") != std::string::npos, "label: " + rq.label);
+            }
+            CHECK(app.standings_refresh_status.find("queued") != std::string::npos, "status line: " + app.standings_refresh_status);
+            fce::Located loc;
+            std::vector<fce::StandingRow> rows;
+            CHECK(fce::locate(mem, fw.ifce, 0, loc).empty() && fce::read_rows(mem, loc, rows) && rows.size() == 4 && rows[0].points == 9,
+                  "the row itself was written");
+            CHECK(ui.toast_contains("Arsenal updated in the game"), "row toast");
+            // the outcome arrives from the game thread: App::tick turns it into a toast and the status line
+            svm::Result r;
+            r.ok = true;
+            r.stage = "done";
+            r.refreshed = 3;
+            r.message = "Arsenal row: the game's standings view re-read 3 competitions (comp ids 1200, 1300, 1400)";
+            fake->results.push_back(r);
+            ui.frames(2);
+            CHECK(ui.toast_contains("Standings refresh: Arsenal row: the game's standings view re-read 3 competitions"), "outcome toast");
+            CHECK(app.standings_refresh_status.find("re-read 3") != std::string::npos, "status line updated: " + app.standings_refresh_status);
+            bool err_toast = false;
+            for (const auto& tt : app.toasts) err_toast = err_toast || (tt.text.find("Standings refresh:") != std::string::npos && tt.error);
+            CHECK(!err_toast, "a good outcome is not an error toast");
+            // a failed outcome is an error toast
+            r.ok = false;
+            r.stage = "validate";
+            r.message = "the career's StandingsViewManager is not known: load a career";
+            fake->results.push_back(r);
+            ui.frames(2);
+            err_toast = false;
+            for (const auto& tt : app.toasts) err_toast = err_toast || (tt.text.find("not known") != std::string::npos && tt.error);
+            CHECK(err_toast, "failed outcome shown as an error");
+            // the service refuses (kill switch): the row is still written, the user is told at once
+            fake->off = true;
+            fake->why = "kill switch turbo_output\\call_standings_refresh_off.txt is present";
+            app.toasts.clear();
+            CHECK(ui.click("1##ls0"), "select the leader again");
+            ui.frames(2);
+            pts = ui.find("Points", "##lsedit");
+            CHECK(pts != nullptr && ui.type_into(pts, "11"), "type 11 points");
+            CHECK(ui.click("Apply to the game", "##lsedit"), "Apply again");
+            ui.frames(2);
+            CHECK(fake->requests.size() == 1, "refused request not recorded");
+            CHECK(ui.toast_contains("Standings refresh: kill switch"), "refusal toast");
+            fce::read_rows(mem, loc, rows);
+            CHECK(rows.size() == 4 && rows[0].points == 11, "row written although the refresh is off");
+            // no service at all (a host without the game calls): only a log line
+            app.standings_refresh = nullptr;
+            app.toasts.clear();
+            CHECK(ui.click("1##ls0"), "select the leader once more");
+            ui.frames(2);
+            pts = ui.find("Points", "##lsedit");
+            CHECK(pts != nullptr && ui.type_into(pts, "12"), "type 12 points");
+            CHECK(ui.click("Apply to the game", "##lsedit"), "Apply without a service");
+            ui.frames(2);
+            CHECK(app.standings_refresh_status.find("no refresh service") != std::string::npos, "status without a service");
+            CHECK(!ui.toast_contains("Standings refresh:"), "no refresh toast without a service");
+            // restore the state for the cases after this one
+            st = saved;
+            st["seq"] = st.value("seq", 0LL) + 2;
+            write_state_file();
+            app.next_poll = 0.0;
+            app.standings_refresh_status.clear();
+            ui.frames(3);
+            CHECK(ui.find("Try again") != nullptr, "live view unreachable again without the ifce");
+        });
+
         run_case("UI: no ImGui errors, layout stable over many frames", [&] {
             for (int tab = 0; tab < 7; ++tab) {
                 app.request_tab = tab;
@@ -3197,47 +3475,6 @@ static void test_le_log() {
           "the base is matched whole (up to the '-')");
 }
 
-// ---------------------------------------------------------------- live standings (FCE DataManager) on synthetic memory
-namespace {
-struct FceWorld {
-    SimMemory mem;
-    uint64_t ifce = 0x30000000, hub = 0x30001000, dc = 0x30002000, dm = 0x30003000;
-    uint64_t slist = 0x30004000, rows = 0x30005000, flist = 0x30006000, fx = 0x30007000;
-    static constexpr uint64_t kBase = 0x140000000ull;
-    void w64(uint64_t a, uint64_t v) { mem.wr(a, v); }
-    void w32(uint64_t a, uint32_t v) { mem.wr(a, v); }
-    void w16(uint64_t a, uint16_t v) { mem.wr(a, v); }
-    void w8(uint64_t a, uint8_t v) { mem.wr(a, v); }
-    void row(int id, uint16_t comp, uint32_t team, int hw, int hd, int hl, int hgf, int hga, int aw, int ad, int al, int agf, int aga, int pts) {
-        uint64_t a = rows + uint64_t(id) * fce::kStandingSize;
-        w16(a, uint16_t(id)); w16(a + 2, comp); w32(a + 4, team); w8(a + 8, uint8_t(id));
-        uint8_t c[] = {uint8_t(hw), uint8_t(hd), uint8_t(hl), uint8_t(hgf), uint8_t(hga), uint8_t(aw), uint8_t(ad), uint8_t(al), uint8_t(agf), uint8_t(aga)};
-        mem.write(a + 9, c, 10);
-        w16(a + 0x14, uint16_t(int16_t(pts))); w8(a + 0x16, 1);
-    }
-    void fixture(int id, uint16_t comp, int home, int away, int hs, int as, uint8_t completion, uint32_t date = 20260815) {
-        uint64_t a = fx + uint64_t(id) * fce::kFixtureSize;
-        w32(a, date); w16(a + 4, 1500); w16(a + 6, uint16_t(id)); w16(a + 8, comp);
-        w16(a + 0xA, uint16_t(int16_t(home))); w16(a + 0xC, uint16_t(int16_t(away)));
-        w8(a + 0xF, uint8_t(int8_t(hs))); w8(a + 0x10, 0xFF); w8(a + 0x11, uint8_t(int8_t(as))); w8(a + 0x12, 0xFF);
-        w8(a + 0x13, completion); w8(a + 0x14, 1);
-    }
-    FceWorld(int nrows = 4, int nfix = 3, bool vtables = true) {
-        for (uint64_t a : {ifce, hub, dc, dm, slist, rows, flist, fx}) mem.map(a, 0x1000);
-        if (vtables) { w64(ifce, kBase + fce::kRvaInterfaceVtable); w64(dm, kBase + fce::kRvaDataManagerVtable); }
-        w64(ifce + 0x18, hub); w64(hub + 0x18, dc); w64(dc + 0x80, dm); w64(dm + 0x28, dc);
-        w64(dm + 0x88, slist); w64(slist, rows); w64(slist + 8, rows + uint64_t(nrows) * fce::kStandingSize);
-        w64(dm + 0x60, flist); w32(flist, uint32_t(nfix)); w64(flist + 8, fx);
-        // league 100: Arsenal(1) 2W 1D, Everton(7) 1W 1D 1L, Inter(241) 0W 1D 2L; row 3 unused
-        row(0, 100, 1, 1, 1, 0, 4, 1, 1, 0, 0, 2, 1, 7);
-        row(1, 100, 7, 1, 1, 0, 3, 1, 0, 0, 1, 1, 2, 4);
-        row(2, 100, 241, 0, 1, 0, 1, 1, 0, 0, 2, 1, 5, 1);
-        fixture(0, 100, 0, 1, 2, 1, 1);  // Arsenal 2-1 Everton (home row 0, away row 1)
-        fixture(1, 100, 1, 2, 3, 0, 1);  // Everton 3-0 Inter
-        fixture(2, 100, 2, 0, 1, 1, 0);  // Inter v Arsenal: not played yet (completion 0) although scores set
-    }
-};
-}  // namespace
 
 static void test_fce_standings() {
     run_case("FCE: locate the DataManager through the interface chain, validate, read rows and fixtures", [&] {
@@ -3352,6 +3589,260 @@ static void test_fce_standings() {
         CHECK(fce::edit_result(w2.mem, loc2, 1, 0, 1, shoot).empty(), "draw -> away win");
         fce::read_rows(w2.mem, loc2, rows);
         CHECK(rows[1].hd == 0 && rows[1].hl == 1 && rows[1].points == 5 && rows[2].ad == 0 && rows[2].aw == 1 && rows[2].points == 4, "points with a loss worth 1");
+    });
+}
+
+static void test_standings_refresh() {
+    const svm::Fns fns{0x147DA5310ULL, 0x147DA0E10ULL, 0, SvmWorld::kSlot10};
+    run_case("standings refresh: SVM located through the comm service, map walked in key order, one sync request per key", [&] {
+        SvmWorld w;
+        std::string err;
+        CHECK(svm::manager_table(w.mem, SvmWorld::kComm) == SvmWorld::kManagers, "manager table from the comm service");
+        CHECK(svm::manager_at(w.mem, SvmWorld::kManagers, svm::kTypeId, err) == SvmWorld::kSvm && err.empty(), "slot 108: " + err);
+        CHECK(svm::manager_at(w.mem, SvmWorld::kManagers, svm::kIfceTypeId, err) == SvmWorld::kIfce, "slot 1: " + err);
+        CHECK(svm::manager_at(w.mem, SvmWorld::kManagers, 53, err) == 0 && err.find("0 instances") != std::string::npos, "empty slot: " + err);
+        uint64_t s = 0;
+        CHECK(svm::locate(w.mem, SvmWorld::kManagers, s).empty() && s == SvmWorld::kSvm, "locate");
+        CHECK(svm::validate(w.mem, SvmWorld::kSvm, SvmWorld::kManagers, SvmWorld::kVtable, SvmWorld::kSlot10).empty(), "validate");
+        CHECK(svm::validate(w.mem, SvmWorld::kSvm, 0, 0, 0).empty(), "validate without anchors (back-pointer + slot 108 only)");
+        std::vector<int32_t> keys;
+        CHECK(svm::map_keys(w.mem, SvmWorld::kSvm, keys).empty() && keys.size() == 3 && keys[0] == 1200 && keys[1] == 1300 && keys[2] == 1400,
+              "keys in order");
+        FakeSvmGame g;
+        svm::Request req;
+        req.comm = SvmWorld::kComm;
+        req.image_base = SvmWorld::kBase;
+        req.label = "Napoli row";
+        svm::Result r = svm::refresh(w.mem, g, fns, req);
+        CHECK(r.ok && r.stage == "done", "ok: " + r.message);
+        CHECK(r.svm == SvmWorld::kSvm && r.managers == SvmWorld::kManagers, "located objects reported");
+        CHECK(r.keys.size() == 3 && r.refreshed == 3 && !r.fallback, "three keys refreshed");
+        CHECK(g.refreshes.size() == 3 && g.events.empty(), "three sync requests, no listener call");
+        bool same = g.refreshes.size() == 3;
+        for (size_t i = 0; same && i < 3; ++i) same = g.refreshes[i].first == SvmWorld::kSvm && g.refreshes[i].second == keys[i];
+        CHECK(same, "each request on the SVM with the map key");
+        CHECK(r.message.find("Napoli row: ") == 0 && r.message.find("3 competitions") != std::string::npos &&
+                  r.message.find("1200, 1300, 1400") != std::string::npos,
+              "message: " + r.message);
+        // the published addresses (Lua) are used as they are; the FCE interface cross-check passes
+        g = FakeSvmGame();
+        req = svm::Request();
+        req.svm = SvmWorld::kSvm;
+        req.managers = SvmWorld::kManagers;
+        req.ifce = SvmWorld::kIfce;
+        req.image_base = SvmWorld::kBase;
+        r = svm::refresh(w.mem, g, fns, req);
+        CHECK(r.ok && g.refreshes.size() == 3, "published svm / managers / ifce: " + r.message);
+        // the vtable from the signature instead of the RVA
+        svm::Fns sig = fns;
+        sig.vtable = SvmWorld::kVtable;
+        req.image_base = 0;
+        r = svm::refresh(w.mem, g, sig, req);
+        CHECK(r.ok, "vtable from the signature: " + r.message);
+        // a single key, singular wording
+        w.set_map({77});
+        g = FakeSvmGame();
+        r = svm::refresh(w.mem, g, fns, req);
+        CHECK(r.ok && g.refreshes.size() == 1 && g.refreshes[0].second == 77 && r.message.find("1 competition (") != std::string::npos, r.message);
+        // a disabled view manager is reported, the refresh still runs
+        w.mem.wr(SvmWorld::kSvm + svm::kOffEnabled, uint8_t(0));
+        r = svm::refresh(w.mem, g, fns, req);
+        CHECK(r.ok && !r.enabled && r.message.find("disabled") != std::string::npos, "disabled flag: " + r.message);
+    });
+
+    run_case("standings refresh: validation refuses wrong objects, mismatches and unresolved functions; nothing is called", [&] {
+        SvmWorld w;
+        FakeSvmGame g;
+        svm::Request req;
+        req.comm = SvmWorld::kComm;
+        req.image_base = SvmWorld::kBase;
+        svm::Fns none, part;
+        part.refresh_comp = fns.refresh_comp;
+        svm::Result r = svm::refresh(w.mem, g, none, req);
+        CHECK(!r.ok && r.stage == "validate" && r.message.find("svm_refresh_comp") != std::string::npos, r.message);
+        r = svm::refresh(w.mem, g, part, req);
+        CHECK(!r.ok && r.message.find("svm_listener") != std::string::npos, r.message);
+        // nothing known at all
+        r = svm::refresh(w.mem, g, fns, svm::Request());
+        CHECK(!r.ok && r.stage == "validate" && r.message.find("not known") != std::string::npos, r.message);
+        // the published object is not the SVM (zeroed page: no vtable)
+        req.svm = SvmWorld::kOther;
+        r = svm::refresh(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("not the StandingsViewManager") != std::string::npos, "wrong vtable: " + r.message);
+        // right vtable, wrong slot 10
+        req.svm = 0;
+        w.mem.wr(SvmWorld::kVtable + svm::kVtableSlot10, uint64_t(0x140001000ULL));
+        r = svm::refresh(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("slot 10") != std::string::npos, "slot 10: " + r.message);
+        w.mem.wr(SvmWorld::kVtable + svm::kVtableSlot10, SvmWorld::kSlot10);
+        // back-pointer to another table
+        w.mem.wr(SvmWorld::kSvm + svm::kOffCtx, SvmWorld::kOther);
+        r = svm::refresh(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("belongs to manager table") != std::string::npos, "back-pointer: " + r.message);
+        svm::Request pub;
+        pub.svm = SvmWorld::kSvm;
+        pub.image_base = SvmWorld::kBase;
+        r = svm::refresh(w.mem, g, fns, pub);
+        CHECK(!r.ok && r.message.find("slot 108") != std::string::npos, "published svm, its own table has no slot 108: " + r.message);
+        w.mem.wr(SvmWorld::kSvm + svm::kOffCtx, SvmWorld::kManagers);
+        // slot 108 holds another object
+        w.mem.wr(SvmWorld::kHolders + uint64_t(svm::kTypeId) * 0x10, SvmWorld::kIfce);
+        r = svm::refresh(w.mem, g, fns, pub);
+        CHECK(!r.ok && r.message.find("slot 108 holds") != std::string::npos, "slot 108 mismatch: " + r.message);
+        w.mem.wr(SvmWorld::kHolders + uint64_t(svm::kTypeId) * 0x10, SvmWorld::kSvm);
+        // no career: slot 108 has no instance
+        w.mem.wr(SvmWorld::kManagers + svm::kSlotSize * uint64_t(svm::kTypeId) + svm::kSlotCount, int32_t(0));
+        r = svm::refresh(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("no career loaded") != std::string::npos, "no instance: " + r.message);
+        w.mem.wr(SvmWorld::kManagers + svm::kSlotSize * uint64_t(svm::kTypeId) + svm::kSlotCount, int32_t(1));
+        // the FCE interface Turbo wrote to is not the career's
+        req.ifce = SvmWorld::kOther;
+        r = svm::refresh(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("not the career's") != std::string::npos, "ifce mismatch: " + r.message);
+        req.ifce = 0;
+        // unmapped / cut-off objects
+        pub.svm = 0x60000000ULL;
+        r = svm::refresh(w.mem, g, fns, pub);
+        CHECK(!r.ok && r.message.find("not readable") != std::string::npos, "unmapped: " + r.message);
+        pub.svm = SvmWorld::kOther + 0x1FF0;  // readable first word at the end of the mapped block, +0x490 is not
+        w.mem.wr(SvmWorld::kOther + 0x1FF0, SvmWorld::kVtable);
+        r = svm::refresh(w.mem, g, fns, pub);
+        CHECK(!r.ok && r.message.find("cut off") != std::string::npos, "cut off: " + r.message);
+        pub.svm = 3;
+        r = svm::refresh(w.mem, g, fns, pub);
+        CHECK(!r.ok && r.message.find("not a pointer") != std::string::npos, "bad address: " + r.message);
+        CHECK(g.refreshes.empty() && g.events.empty(), "nothing was called");
+        // and the world is intact afterwards
+        r = svm::refresh(w.mem, g, fns, req);
+        CHECK(r.ok && g.refreshes.size() == 3, "intact: " + r.message);
+    });
+
+    run_case("standings refresh: the map walk stops on every inconsistency and the game's full refresh runs instead", [&] {
+        SvmWorld w;
+        svm::Request req;
+        req.comm = SvmWorld::kComm;
+        req.image_base = SvmWorld::kBase;
+        auto expect_fallback = [&](const char* what, const char* text) {
+            FakeSvmGame g;
+            svm::Result r = svm::refresh(w.mem, g, fns, req);
+            CHECK(r.ok && r.fallback && r.stage == "done", std::string(what) + ": " + r.message);
+            CHECK(g.refreshes.empty() && g.events.size() == 1 && g.events[0].first == SvmWorld::kSvm &&
+                      g.events[0].second == svm::kEventPostLoadPrepare,
+                  std::string(what) + ": listener(svm, 29) only");
+            CHECK(r.message.find(text) != std::string::npos, std::string(what) + ": reason in the message: " + r.message);
+            std::vector<int32_t> keys;
+            CHECK(!svm::map_keys(w.mem, SvmWorld::kSvm, keys).empty() || keys.empty(), std::string(what) + ": walk refused");
+        };
+        // empty map
+        w.set_map({});
+        expect_fallback("empty map", "map is empty");
+        // no root but a count
+        w.mem.wr(SvmWorld::kSvm + svm::kOffMapSize, uint32_t(3));
+        expect_fallback("no root with a count", "no root");
+        // wrong parent link
+        w.set_map({1200, 1300, 1400});
+        w.mem.wr(w.node_of(1200) + svm::kNodeParent, SvmWorld::kOther);
+        expect_fallback("parent link", "has parent");
+        // keys out of order
+        w.set_map({1200, 1300, 1400});
+        w.mem.wr(w.node_of(1400) + svm::kNodeKey, int32_t(1250));
+        expect_fallback("key order", "not ascending");
+        // size counter disagrees
+        w.set_map({1200, 1300, 1400});
+        w.mem.wr(SvmWorld::kSvm + svm::kOffMapSize, uint32_t(2));
+        expect_fallback("size mismatch", "counts 2 entries but 3");
+        // a node pointer that is no pointer / unmapped
+        w.set_map({1200, 1300, 1400});
+        w.mem.wr(w.node_of(1300) + svm::kNodeLeft, uint64_t(3));
+        expect_fallback("bad node pointer", "bad node pointer");
+        w.set_map({1200, 1300, 1400});
+        w.mem.wr(w.node_of(1300) + svm::kNodeLeft, uint64_t(0x60000000ULL));
+        expect_fallback("unmapped node", "not readable");
+        // a cycle (right child pointing back at the root): the parent check catches it
+        w.set_map({1200, 1300, 1400});
+        w.mem.wr(w.node_of(1400) + svm::kNodeRight, w.node_of(1300));
+        expect_fallback("cycle", "has parent");
+        // too many nodes for a standings map (size counter) and a tree bigger than the bound (walk)
+        std::vector<int32_t> many;
+        for (int i = 0; i < 70; ++i) many.push_back(100 + i);
+        w.set_map(many);
+        expect_fallback("size over the bound", "70 entries");
+        w.mem.wr(SvmWorld::kSvm + svm::kOffMapSize, uint32_t(3));
+        expect_fallback("walk over the bound", "more than 64 nodes");
+        // the anchor itself unreadable
+        w.set_map({1200, 1300, 1400});
+        w.mem.wr(SvmWorld::kSvm + svm::kOffMapRoot, uint64_t(0x60000000ULL));
+        expect_fallback("unmapped root", "not readable");
+        // fallback refused by the request, and a failing fallback
+        w.set_map({});
+        req.allow_fallback = false;
+        FakeSvmGame g;
+        svm::Result r = svm::refresh(w.mem, g, fns, req);
+        CHECK(!r.ok && r.stage == "walk" && g.events.empty(), "no fallback allowed: " + r.message);
+        req.allow_fallback = true;
+        g.fail_event = true;
+        r = svm::refresh(w.mem, g, fns, req);
+        CHECK(!r.ok && r.stage == "fallback" && r.message.find("boom") != std::string::npos, "fallback failed: " + r.message);
+        // the fallback reports what the map holds afterwards (the fake game does not fill it: still empty)
+        g = FakeSvmGame();
+        r = svm::refresh(w.mem, g, fns, req);
+        CHECK(r.ok && r.message.find("POST_LOAD_PREPARE") != std::string::npos && r.message.find("now holds 0") != std::string::npos, r.message);
+    });
+
+    run_case("standings refresh: a failing sync request stops the sequence and the message counts what ran", [&] {
+        SvmWorld w;
+        FakeSvmGame g;
+        g.fail_after = 1;
+        svm::Request req;
+        req.comm = SvmWorld::kComm;
+        req.image_base = SvmWorld::kBase;
+        svm::Result r = svm::refresh(w.mem, g, fns, req);
+        CHECK(!r.ok && r.stage == "refresh" && r.refreshed == 1 && g.refreshes.size() == 1 && g.events.empty(), r.message);
+        CHECK(r.message.find("1 of 3") != std::string::npos && r.message.find("1300") != std::string::npos && r.message.find("boom") != std::string::npos,
+              "message: " + r.message);
+    });
+
+    run_case("signatures: the built-in standings-refresh entries resolve on the game's bytes (vtable via the ctor's lea)", [&] {
+        const SignatureTable* t = builtin_signature_table("6AB9813C-211EF000");
+        CHECK(t != nullptr, "built-in table");
+        if (!t) return;
+        const char* names[] = {"svm_refresh_comp", "svm_listener", "svm_vtable", "svm_slot10"};
+        for (const char* n : names) CHECK(t->find(n) && !t->find(n)->pattern.empty(), std::string("entry ") + n);
+        // bytes read from fc27_image.bin (FC27.exe 1.0.140.64835) at the functions' VAs
+        const uint8_t ctor[] = {0x4C, 0x8B, 0xDC, 0x49, 0x89, 0x5B, 0x10, 0x49, 0x89, 0x73, 0x18, 0x57, 0x48, 0x83, 0xEC, 0x70,
+                                0x48, 0x8B, 0x05, 0xA1, 0x5D, 0xE9, 0x03, 0x48, 0x33, 0xC4, 0x48, 0x89, 0x44, 0x24, 0x60, 0xC5,
+                                0xFE, 0x6F, 0x05, 0x71, 0xEA, 0x3F, 0x03, 0xC5, 0xFA, 0x6F, 0x0D, 0x19, 0x92, 0x3F, 0x03, 0x48,
+                                0x89, 0x51, 0x08, 0x48, 0x8D, 0x05, 0xD6, 0xBA, 0x27, 0x03, 0x48, 0x89, 0x01, 0x4D, 0x8D, 0x43};
+        const uint8_t refresh[] = {0x83, 0xFA, 0xFF, 0x74, 0x65, 0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48,
+                                   0x8B, 0x41, 0x08, 0x4C, 0x8D, 0x05, 0xF6, 0x09, 0x27, 0x03, 0x45, 0x33, 0xC9, 0x8B, 0xDA, 0x48,
+                                   0x8B, 0x48, 0x38, 0x41, 0x8D, 0x51, 0x70, 0x48, 0x8B, 0x39, 0x48, 0x8B, 0x0D, 0x67, 0x4B, 0x4C};
+        const uint8_t listener[] = {0x48, 0x89, 0x5C, 0x24, 0x10, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57,
+                                    0x48, 0x8B, 0xEC, 0x48, 0x83, 0xEC, 0x60, 0x48, 0x8B, 0x05, 0x52, 0xF5, 0xE8, 0x03, 0x48, 0x33,
+                                    0xC4, 0x48, 0x89, 0x45, 0xF8, 0x49, 0x8B, 0xD8, 0x48, 0x8B, 0xF9, 0x40, 0x32, 0xF6, 0xC5, 0xF9};
+        const uint8_t slot10[] = {0x48, 0x89, 0x6C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x80,
+                                  0x79, 0x18, 0x00, 0x48, 0x8B, 0xEA, 0x48, 0x8B, 0xF9, 0x74, 0x5A, 0x48, 0x8B, 0x51, 0x08, 0x48};
+        // the ctor sits at +0x100 of a buffer based so that its VA is the real one: the lea then resolves to the real vtable
+        const uint64_t base = 0x147D9A5C8ULL - 0x100;
+        std::vector<uint8_t> code(0x1000, 0xCC);
+        std::memcpy(code.data() + 0x100, ctor, sizeof(ctor));
+        std::memcpy(code.data() + 0x300, refresh, sizeof(refresh));
+        std::memcpy(code.data() + 0x400, listener, sizeof(listener));
+        std::memcpy(code.data() + 0x500, slot10, sizeof(slot10));
+        SigResult r = resolve_signature(*t->find("svm_vtable"), code.data(), code.size(), base);
+        CHECK(r.state == SigState::Found && r.match == 0x147D9A5C8ULL && r.address == 0x14B0160D8ULL,
+              "svm_vtable resolves to base+0xB0160D8 (= svm::kRvaVtable): " + r.error);
+        CHECK(0x14B0160D8ULL - 0x140000000ULL == svm::kRvaVtable, "constant agrees with the ctor");
+        struct Exp { const char* name; uint64_t off; } exp[] = {{"svm_refresh_comp", 0x300}, {"svm_listener", 0x400}, {"svm_slot10", 0x500}};
+        for (const auto& e : exp) {
+            r = resolve_signature(*t->find(e.name), code.data(), code.size(), base);
+            CHECK(r.state == SigState::Found && r.address == base + e.off, std::string(e.name) + ": " + r.error);
+        }
+        for (const char* n : names) {
+            r = resolve_signature(*t->find(n), code.data(), code.size(), base);
+            CHECK(r.hits == 1, std::string(n) + " unique");
+        }
+        // the mailbox op the Lua native uses
+        CHECK(kCallOpStandingsRefresh == 2, "call op 2");
     });
 }
 
@@ -3545,6 +4036,8 @@ int main(int argc, char** argv) {
     test_le_log();
     std::printf("native live standings\n");
     test_fce_standings();
+    std::printf("native standings refresh\n");
+    test_standings_refresh();
     std::printf("native player capture\n");
     test_player_capture();
     std::printf("native UI\n");

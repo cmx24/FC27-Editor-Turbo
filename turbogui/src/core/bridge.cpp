@@ -127,6 +127,8 @@ static bool parse_state_impl(const std::string& text, BridgeState& out) {
     out.db_service = addr_field(j, "db_service");
     out.comm_service = addr_field(j, "comm_service");
     out.ifce = addr_field(j, "ifce");
+    out.svm = addr_field(j, "svm");
+    out.managers = addr_field(j, "managers");
     out.in_cm = j.value("in_cm", false);
     out.user_team = j.value("user_team", 0LL);
     out.names_count = j.value("names_count", 0LL);

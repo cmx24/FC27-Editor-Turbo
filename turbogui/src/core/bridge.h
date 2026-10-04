@@ -41,6 +41,10 @@ struct BridgeState {
     uint64_t db_service = 0;
     uint64_t comm_service = 0;
     uint64_t ifce = 0;
+    // The career's StandingsViewManager (manager type 108) and the manager table it sits in (core/standings_refresh.h);
+    // 0 outside a career or when Turbo's Lua side could not walk the table
+    uint64_t svm = 0;
+    uint64_t managers = 0;
     bool in_cm = false;
     int64_t user_team = 0;
     GameDate date;

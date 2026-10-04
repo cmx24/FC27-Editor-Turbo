@@ -71,6 +71,17 @@
       "critical_section": "0x280", "user_comp_copy": "0x488", "first_update_done": "0x490"
     },
     "vtables_rva": {"StandingsViewManager": "0xB0160D8", "StandingsViewManager_listener": "0x975EA28", "LiveStandings": "0xB016148", "MailBoxServer": "0x972FB80"},
+    "svm_ctor": {"va": "0x147d9a5c8", "note": "StandingsViewManager ctor: [rcx+8] = ctx, lea rax,[rip+..] at +0x33 -> 0x14B0160D8 (0x147d9a570 is another class, vtable 0xB016160; verified 2026-10-04)"},
+    "map_size": {"offset": "0x270", "type": "u32", "note": "anchor+0x20, incremented by the rbtree insert helper 0x147d9d4c4 (inc dword [rsi+0x20])"},
+    "turbo": {
+      "note": "Entries of Turbo.dll's built-in signature table (turbogui/src/core/sigscan.cpp) for the standings_refresh game call (core/standings_refresh.h); every pattern unique in the image",
+      "signatures": [
+        {"name": "svm_refresh_comp", "sig": "83 FA FF 74 65 48 89 5C 24 08 57 48 83 EC 20 48 8B 41 08 4C 8D 05 ?? ?? ?? ??", "va": "0x147da5310", "resolve": "none"},
+        {"name": "svm_listener", "sig": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 60 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 45 F8 49 8B D8", "va": "0x147da0e10", "resolve": "none"},
+        {"name": "svm_vtable", "sig": "4C 8B DC 49 89 5B 10 49 89 73 18 57 48 83 EC 70 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 44 24 60 C5 FE 6F 05 ?? ?? ?? ?? C5 FA 6F 0D ?? ?? ?? ?? 48 89 51 08 48 8D 05 ?? ?? ?? ?? 48 89 01", "va": "0x147d9a5c8", "resolve": "rip", "offset": "0x33", "target": "0x14b0160d8"},
+        {"name": "svm_slot10", "sig": "48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 80 79 18 00 48 8B EA 48 8B F9", "va": "0x147da3ae8", "resolve": "none"}
+      ]
+    },
     "globals": {"game_allocator": {"rva": "0xC269EA8", "note": "used inside the request builders"}},
     "message_types": {"ResponseStandingsList": "0x12", "ResponseStandingsList_early_results": "0x13", "RequestSwapCompetitionTeams": "0x1e", "ResponseCompetitionStageInfo": "0x23", "RequestStandingsCheckEarlyResults": "0x2c", "RequestGetStandings": "0x30", "RequestCompetitionStageInfo": "0x3c"},
     "career_events_refreshing_cache": {"MAIN_COMPETITION_SCHEDULED": 22, "SEASON_RESET": 23, "POST_LOAD_PREPARE": 29, "COMPETITION_COMPLETE": 33},

@@ -71,6 +71,8 @@ void want_lua_pump(bool wanted);
 turbo::HookReport game_hooks_report();
 // Build key of the running game ("" before install_game_hooks)
 std::string game_build_key();
+// Image base of FC27.exe (0 before install_game_hooks located it)
+uint64_t game_image_base();
 
 // Body of every detour: swallow and count every C++ exception so a bug in Turbo never unwinds into game code.
 // Usage:  HOOK_BODY("my_hook", { ...work... });  then call the original.

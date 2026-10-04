@@ -380,6 +380,7 @@ void* hk_tick(void* a, void* b, void* c, void* d) {
 // ---------------------------------------------------------------- public API
 bool game_hooks_allowed() { return g_installed && g_allowed && !g_global_off.load(); }
 std::string game_build_key() { return g_build; }
+uint64_t game_image_base() { return g_base; }
 
 uint64_t game_signature(const char* name) {
     std::lock_guard<std::mutex> lock(g_mutex);

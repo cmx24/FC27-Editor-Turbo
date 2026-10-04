@@ -146,16 +146,22 @@ function M.vector(addr, elem_size, max_count)
     return b, e, count
 end
 
--- Manager object by FCE type id: the walk of Live Editor's GetManagerObjByTypeId (career_mode/helpers.lua), with every
--- read checked (Live Editor's own version reads unchecked and crashes outside a career)
-function M.manager(type_id)
-    if math.type(type_id) ~= "integer" and type(type_id) ~= "number" then return nil end
+-- The career manager table ("ctx"): managers = [[comm+0x20]+0x10] of the FeFceGMCommService plugin, the table Live
+-- Editor's GetManagerObjByTypeId walks (career_mode/helpers.lua). nil when the plugin or a hop is missing.
+function M.manager_table()
     pcall(require, 'imports/services/enums')
     local id = _G["ENUM_djb2FeFceGMCommServiceInterface_CLSS"]
     if type(GetPlugin) ~= "function" or type(id) ~= "number" then return nil end
     local ok, comm = pcall(GetPlugin, id)
     if not ok or math.type(comm) ~= "integer" or comm <= 0 then return nil end
-    local managers = M.chain(comm, { 0x20, 0x10 })
+    return M.chain(comm, { 0x20, 0x10 })
+end
+
+-- Manager object by FCE type id: the walk of Live Editor's GetManagerObjByTypeId (career_mode/helpers.lua), with every
+-- read checked (Live Editor's own version reads unchecked and crashes outside a career)
+function M.manager(type_id)
+    if math.type(type_id) ~= "integer" and type(type_id) ~= "number" then return nil end
+    local managers = M.manager_table()
     if not managers then return nil end
     local slot = managers + 0x20 * math.tointeger(type_id)
     if M.int(slot + 0x10) ~= 1 then return nil end

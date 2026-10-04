@@ -171,6 +171,15 @@ void App::tick(double t) {
             else refresh_pending = true;
         }
     }
+    // A standings refresh queued after a live table edit finished on the game thread (core/standings_refresh.h)
+    if (standings_refresh) {
+        svm::Result r;
+        while (standings_refresh->poll(r)) {
+            standings_refresh_status = (r.ok ? "" : "failed: ") + r.message;
+            notify("Standings refresh: " + r.message, !r.ok);
+            log("standings refresh [" + r.stage + "]: " + r.message);
+        }
+    }
     // Player names decoded by Live Editor arrived or changed: rebuild the lists (now if shown, else when shown)
     if (db.ready() && bridge.names() != seen_names_) {
         seen_names_ = bridge.names();

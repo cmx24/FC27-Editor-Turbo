@@ -126,6 +126,35 @@ void counter(const char* label, uint8_t& v) {
     ImGui::InputScalar(label, ImGuiDataType_U8, &v, &step, nullptr, "%u");
 }
 
+// After a row / result write: make the game's Standings screen and Office tile re-read the rows. The screen shows a
+// cache (StandingsViewManager::mLiveStandings) that the game rebuilds only on match days and a few career events, so
+// Turbo asks the manager to re-request the standings on the game thread (core/standings_refresh.h). The outcome comes
+// back through App::tick (toast + log); the row write itself is done either way.
+void queue_refresh(App& app, const std::string& label) {
+    if (!app.standings_refresh) {
+        app.standings_refresh_status = "no refresh service: the game's Standings screen shows the rows after the next match day";
+        app.log("live standings: " + app.standings_refresh_status);
+        return;
+    }
+    const BridgeState& st = app.bridge.state();
+    svm::Request req;
+    req.svm = st.svm;
+    req.managers = st.managers;
+    req.comm = st.comm_service;
+    req.ifce = st.ifce;
+    req.image_base = app.game_base;
+    req.label = label;
+    std::string why;
+    if (app.standings_refresh->request(req, why)) {
+        app.standings_refresh_status = "refresh of the game's standings view queued";
+        app.log("live standings: " + app.standings_refresh_status + " (" + label + ")");
+    } else {
+        app.standings_refresh_status = "failed: " + why;
+        app.notify("Standings refresh: " + why + " (the rows are written; the screen shows them after the next match day)", true);
+        app.log("live standings: refresh not run: " + why);
+    }
+}
+
 }  // namespace
 
 void draw_live_standings(App& app) {
@@ -155,8 +184,9 @@ void draw_live_standings(App& app) {
     ImGui::SameLine();
     ImGui::TextDisabled("%zu rows, %zu fixtures", st.rows.size(), st.fixtures.size());
     ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f),
-                       "These are the game's own table rows: FC 27's Standings screen shows them the next time it opens. "
-                       "Do not edit while a match or Sim To Date is running.");
+                       "These are the game's own table rows. After an edit Turbo makes the game's standings view re-read them, "
+                       "so the Standings screen and the Office tile show the change. Do not edit while a match or Sim To Date is running.");
+    if (!app.standings_refresh_status.empty()) ImGui::TextDisabled("Standings view: %s", app.standings_refresh_status.c_str());
 
     std::vector<size_t> idx = st.have_group ? st.groups[st.group] : std::vector<size_t>();
     std::stable_sort(idx.begin(), idx.end(), [&](size_t a, size_t b) {
@@ -252,9 +282,11 @@ void draw_live_standings(App& app) {
         if (ImGui::Button("Apply to the game")) {
             std::string err = fce::write_row(app.mem, st.loc, st.edit);
             if (err.empty()) {
-                app.notify("Standings: " + app.model.team_name(cur_row->teamid) + " updated in the game");
+                const std::string team = app.model.team_name(cur_row->teamid);
+                app.notify("Standings: " + team + " updated in the game");
                 app.log("live standings: row " + std::to_string(cur_row->id) + " team " + std::to_string(cur_row->teamid) + " written");
                 reload(app);
+                queue_refresh(app, team + " row");
             } else {
                 app.notify("Standings: " + err, true);
                 reload(app);
@@ -301,10 +333,12 @@ void draw_live_standings(App& app) {
                     app.notify("Result changed in the game (fixture and both table rows)");
                     app.log("live standings: fixture " + std::to_string(st.sel_fixture) + " set to " + std::to_string(st.new_home) + "-" +
                             std::to_string(st.new_away));
+                    reload(app);
+                    queue_refresh(app, "fixture " + std::to_string(st.sel_fixture));
                 } else {
                     app.notify("Result: " + err, true);
+                    reload(app);
                 }
-                reload(app);
             }
             ImGui::TextDisabled("Old outcome removed from both rows, new one added (points per Win / Draw / Loss above).");
         }

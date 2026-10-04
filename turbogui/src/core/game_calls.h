@@ -120,6 +120,9 @@ constexpr uint64_t kMbCallEnd = kMbCallText + kMbCallTextSize;  // 0x2260
 
 constexpr int32_t kCallIdle = 0, kCallOk = 1, kCallFailed = -1, kCallQueued = 2, kCallRunning = 3;
 constexpr int32_t kCallOpJobOffer = 1;
+// standings_refresh (core/standings_refresh.h): args = svm, managers, comm service, ifce (each 0 = let the DLL find
+// it); outputs = competitions re-requested, map keys found
+constexpr int32_t kCallOpStandingsRefresh = 2;
 
 struct GameCallBlock {
     int32_t op = 0, status = 0, seq = 0, result_seq = 0;

@@ -171,6 +171,19 @@ static const SignatureTable kBuiltin[] = {
          {"calendar_today_int",
           "48 83 EC 28 83 CA FF E8 ?? ?? ?? ?? 3C 01 75 0C 6B 41 08 64 03 41 04 6B D0 64 03 11", "none", 0,
           "int TodayInt(CalendarDate*) 0x142AA5824: yyyymmdd of the career calendar"},
+         // Standings refresh (docs/re/standings-ui-path.md, core/standings_refresh.h; every pattern unique in the image)
+         {"svm_refresh_comp", "83 FA FF 74 65 48 89 5C 24 08 57 48 83 EC 20 48 8B 41 08 4C 8D 05 ?? ?? ?? ??", "none", 0,
+          "void StandingsViewManager::RequestStandingsSync(this, compObjId) 0x147DA5310: immediate 'rmvs' RequestGetStandings, "
+          "the Standings screen cache is rebuilt before it returns"},
+         {"svm_listener",
+          "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 60 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 45 F8 49 8B D8",
+          "none", 0, "void StandingsViewManager::OnCareerEvent(this, eventId, Event*) 0x147DA0E10: 29 = full refresh (fallback)"},
+         {"svm_vtable",
+          "4C 8B DC 49 89 5B 10 49 89 73 18 57 48 83 EC 70 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 44 24 60 C5 FE 6F 05 ?? ?? ?? ?? "
+          "C5 FA 6F 0D ?? ?? ?? ?? 48 89 51 08 48 8D 05 ?? ?? ?? ?? 48 89 01",
+          "rip", 0x33, "StandingsViewManager vtable: the lea rax,[rip+..] in the manager's constructor (0x147D9A5C8 -> 0x14B0160D8)"},
+         {"svm_slot10", "48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 80 79 18 00 48 8B EA 48 8B F9", "none", 0,
+          "StandingsViewManager vtable slot 10 (0x147DA3AE8): the Standings screen feed; checked against the located object"},
      }},
 };
 

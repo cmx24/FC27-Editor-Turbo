@@ -31,6 +31,8 @@ turbo::JobMarketFns job_market_fns();
 bool job_offer_ready(std::string* why);
 // Status lines for the Status tab (game_hooks_report appends them)
 std::vector<std::string> game_calls_status();
+// Mailbox call block (core/game_calls.h): write a result for request `seq` (used by every game call)
+void publish_call_result(int32_t seq, int32_t status, int64_t out0, int64_t out1, const std::string& text);
 // Create a job offer from `team` through the game's own code. jmm = 0 uses the captured manager. Synchronous when
 // called on the game thread (result returned); otherwise queued (result.stage == "queued", the mailbox call block
 // receives the outcome when the dispatcher runs it). `seq` tags the mailbox result.

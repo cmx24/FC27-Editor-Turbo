@@ -16,6 +16,7 @@
 #include "core/model.h"
 #include "core/player_capture.h"
 #include "core/sigscan.h"
+#include "core/standings_refresh.h"
 #include "core/t3db.h"
 #include "nlohmann/json.hpp"
 #include "textures.h"
@@ -103,6 +104,9 @@ public:
     std::function<void(const std::string&)> log_hook;  // writes to turbo_gui.log (set by the Windows host)
     std::function<HookReport()> hook_report;           // game-code hook status for the Status tab (Windows host)
     std::shared_ptr<capture::CaptureService> capture;   // miniface from the game's 3D model (Windows host; tests use a fake)
+    // Standings refresh after a live table edit (core/standings_refresh.h; Windows host; tests use a fake; null = none)
+    std::shared_ptr<svm::RefreshService> standings_refresh;
+    std::string standings_refresh_status;  // last outcome shown in the Live standings view
     int texture_test_frames = 0;
     double lua_heartbeat_seen_at = -1.0;
     uint64_t game_base = 0;  // FC27.exe image base (set by the Windows host; 0 in tests = skip vtable checks)
