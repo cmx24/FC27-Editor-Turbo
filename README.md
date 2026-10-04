@@ -1,18 +1,40 @@
 # FC27-Editor-Turbo
 
-**FC 27 LE Turbo 0.2.5**: FC 26 Live Editor features for **FC 27 Live Editor** (public build v27.1.0 or newer), plus an
+**FC 27 LE Turbo 1.0.0**: FC 26 Live Editor features for **FC 27 Live Editor** (public build v27.1.0 or newer), plus an
 in-game window (the **Turbo GUI**) with Players / Teams / Managers / Database editors and a button for every Turbo tool.
 
-Which FC 26 Live Editor feature is where (Turbo window, Database tab, FC 27 Live Editor itself, or not available yet):
-[`docs/fc26-parity.md`](docs/fc26-parity.md).
+Which FC 26 Live Editor feature is where, and its status in 1.0.0 (verified in game, untested in a match, not in Turbo 1.0,
+not possible in FC 27): [`docs/fc26-parity.md`](docs/fc26-parity.md). What changed: [`CHANGELOG.md`](CHANGELOG.md).
 
 Offline Career Mode / Kick-Off only. Never use Live Editor or Turbo in online modes. Turbo runs next to an official,
 unmodified Live Editor and never modifies, copies or redistributes its files.
 
-## Install (the build to test)
+## What Turbo 1.0 does
+
+Turbo 1.0 is for Manager Career players. Many of its features call the game's own code, so the game makes the change
+and its own screens show it. Seen working in a test career:
+
+- **Players**: a full editor (sliders, combos, check boxes, PlayStyles and traits, star-head, tattoo, hair and item
+  galleries, undo), minifaces from the game's 3D model, export / import / clone (Live Editor preset CSV and Turbo JSON),
+  develop to potential, reveal player data through the game's own scouting.
+- **Callnames**: the commentators speak the name you pick, in the commentary language the game has loaded
+  (Italian: 2,462 surnames, 751 player recordings).
+- **Career**: a real job offer from the club you pick; league table edits shown on the game's Standings screen at once;
+  injuries-off switch.
+- **Editors** for teams, managers and any database table, and a Status tab. Buttons work at once, no day advance needed.
+- Also in 1.0, being checked in game now: transfer / loan lists for your own players, job security and unsackable,
+  transfer budget, team name / colours / crest, create a player from a template, miniface from an image file, manager
+  moves, youth academy tools, match setup switches and fixture swaps. <!-- verify -->
+
+Built but not yet seen in a played match: forced results, injuries off during a match, editing a played result, weekly
+forced growth. Not in 1.0: transfers of your own club through the game's engine, live season stats, stadium override and
+the features FC 27 Live Editor already has. Not possible in FC 27: transfer bans, VAR off, match sharpness.
+
+## Install
 
 1. Install the official FC 27 Live Editor as usual.
-2. Unzip [`dist/FC27_LE_Turbo_0.2.5.zip`](dist/FC27_LE_Turbo_0.2.5.zip) into the Live Editor folder (the folder with `FCLiveEditor.DLL`). Nothing of Live Editor is overwritten.
+2. Unzip `FC27_LE_Turbo_1.0.0.zip` into the Live Editor folder (the folder with `FCLiveEditor.DLL`). Same layout as 0.3.0
+   and 0.4.0. Nothing of Live Editor is overwritten.
 3. Start the game through Live Editor as usual. Nothing to run: about 20 seconds after the main menu appears, press **F8**.
 4. Load a career: the Turbo window's top line says **Connected**. (At the main menu, run `turbo_gui_load.lua` in Live Editor's
    Lua Engine to connect there.)
@@ -20,7 +42,9 @@ unmodified Live Editor and never modifies, copies or redistributes its files.
 [`turbo/package/TURBO_README.md`](turbo/package/TURBO_README.md) has the in-game test checklist and the recovery steps
 (game will not launch: delete `lua\autorun\turbo_boot.lua`; kill switch: `turbo_output\turbo_gui_disable.txt`).
 
-Back up your career save before testing.
+Back up your career save before testing. Offline career only. If one feature misbehaves, turn just that one off with an
+empty file in `turbo_output`: `call_<name>_off.txt` for a game call, `hook_<name>_off.txt` for a game hook (the Status tab
+lists the names).
 
 **New in 0.2.5** (tested in a real FC 27 career, 02-10-2026: self-test 13 passed, 0 failed, 6 skipped):
 
@@ -80,7 +104,8 @@ also polled, so they work when the game reads only raw input.
 | `turbogui/` | C++ source of `Turbo.dll` / `TurboProbe.exe` / `TurboInjector.exe` (Dear ImGui + MinHook + nlohmann/json vendored in `third_party/`), native tests, Wine smoke and overlay tests |
 | `scripts/package.sh` | Builds `dist/FC27_LE_Turbo_<version>.zip` |
 | `scripts/check_field_names.py` / `scripts/check_fc27_schema.py` | Check every database name Turbo uses against independent schema sources / the FC 27 schema dumped in game |
-| `docs/fc26-parity.md` | Every FC 26 Live Editor feature group and script, and where it is in Turbo 0.2.5 |
+| `docs/fc26-parity.md` | Every FC 26 Live Editor feature group and script, and its status in Turbo 1.0.0 |
+| `CHANGELOG.md` | What changed in each release |
 | `docs/turbo-reference.md` | Architecture, bridge contract, build/test commands, what is and is not verified |
 | `docs/HANDOVER.md` | Where the work stands, what the user's in-game tests showed, next steps for a local session |
 
@@ -99,8 +124,5 @@ python3 scripts/check_field_names.py          # needs git + GitHub access
 bash scripts/package.sh                       # needs zip
 ```
 
-Not included yet: match setup overrides, gameplay toggles, reveal player data, negotiation bypasses, unsupported leagues
-and match-fixing (they need code hooks inside FC27.exe found by in-game analysis first). Job offers are in (Managers > Job
-offers: the game's own job market makes the offer through a Turbo.dll game call, `docs/re/job_offer.md`), and so are job
-security, unsackable and the manager market (Managers > Manager rules / Manager market, `docs/re/manager_rules.md`).
-See `docs/fc26-parity.md`.
+Not included yet: see "What Turbo 1.0 does" above and `docs/fc26-parity.md` (rows marked **Not in Turbo 1.0** and
+**Not possible in FC 27**).

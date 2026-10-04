@@ -1,0 +1,84 @@
+# Changelog
+
+All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
+Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
+
+## 1.0.0 (since 0.3.0)
+
+Install: unzip `FC27_LE_Turbo_1.0.0.zip` into the FC 27 Live Editor folder (same layout as 0.3.0 and 0.4.0), start the
+game through Live Editor, press F8 to show Turbo. Offline career only. Back up your saves.
+
+### Foundation
+
+- Game-hook foundation: Turbo.dll calls the game's own code, so the game makes the change and its own screens show it.
+- Game-thread tick: game calls run on the game's own thread, at a safe moment.
+- Live Editor career-event integration: Turbo's commands run through the career event Live Editor really hooks.
+- 37+ game signatures for FC 27 build 1.0.140.64835. A feature whose code is not found stays off, and the Status tab says why.
+- Kill switches: an empty `call_<name>_off.txt` or `hook_<name>_off.txt` in `turbo_output` turns one game call or hook off.
+
+### Verified in game
+
+- Player editor: sliders, combos, check boxes, PlayStyles / traits, star-head, tattoo, hair and item galleries, undo.
+- Miniface from the game's 3D model, for players and managers.
+- Callnames spoken in the loaded commentary language. Turbo builds the spoken set from the game's own audio check when
+  the game binds the bank (Create Player screen or a match). Italian: 2,462 surnames, 751 player recordings. Assign by
+  name or by player.
+- Create job offer from a chosen club: a real contract offer in the game.
+- League table edits shown on the game's own Standings screen, without advancing the calendar.
+- Export / import (Live Editor preset CSV and Turbo JSON, names included) and clone.
+- Instant overlay commands: no day advance needed.
+- Develop to potential.
+- Reveal player data, through the game's own scouting.
+- Injuries-off switch, accepted by the game.
+- Teams, managers and database editors.
+- Status tab.
+- Transfer list / loan list / remove from lists for your own players, through the game's Transfer Hub. <!-- verify -->
+- Job security levels and unsackable. <!-- verify -->
+- Transfer budget. <!-- verify -->
+- Team name, colours and crest. <!-- verify -->
+- Create player from a template. <!-- verify -->
+- Miniface from an image file. <!-- verify -->
+- Move a manager / make a manager available. <!-- verify -->
+- Youth academy tools. <!-- verify -->
+- Match setup switches (weather, time of day, difficulty, CPU substitutions off), fixture swap and opponent change. <!-- verify -->
+
+### Untested in a match
+
+Built and tested offline. Their effect only shows during or after a played match, which has not been checked yet.
+
+- Forced result for a chosen fixture (opt-in).
+- Injuries off during a match.
+- Editing a played result.
+- Weekly forced growth.
+- Callname heard in a match.
+
+### Not in Turbo 1.0
+
+FC 27 Live Editor's own features cover these, or later Turbo versions will.
+
+- Player moves of your own club through the game's engine. Turbo refuses database-only moves for your club, for safety.
+- Live season statistics.
+- Negotiation and approach bypasses.
+- Unsupported leagues.
+- Remove suspension.
+- Player Career funds, wage and attribute points.
+- CPU vs CPU, unlimited subs, match length.
+- Offsides and referee as switches.
+- Formation editor UI (Database tab only).
+- Speedhack, hotkeys, legacy file browser, Gameplay Attribulator.
+- Stadium override: left out on purpose. A stadium id the game cannot load stalls the match load.
+
+### Not possible in FC 27
+
+- Transfer bans: the game has no ban list.
+- Asking price or loan terms when listing: the game's listing takes only the player.
+- Endless-career switch: not needed, FC 27 has no season limit or forced end.
+- VAR off: the game has no such setting.
+- Fatigue off as a match switch: FC 27 Live Editor's "never tired" covers it.
+- FC 26's development XP multiplier: the natives are gone. Weekly forced growth replaces it.
+- Match sharpness: removed from FC 27.
+
+## 0.3.0 and earlier
+
+- 0.3.0: minifaces, real-face picker and tattoo picker in the Turbo window (see `turbo/package/TURBO_README.md`).
+- 0.2.x: see the "New in 0.2.x" notes in [`README.md`](README.md).
