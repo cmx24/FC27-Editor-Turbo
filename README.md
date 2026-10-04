@@ -104,6 +104,7 @@ also polled, so they work when the game reads only raw input.
 | `turbogui/` | C++ source of `Turbo.dll` / `TurboProbe.exe` / `TurboInjector.exe` (Dear ImGui + MinHook + nlohmann/json vendored in `third_party/`), native tests, Wine smoke and overlay tests |
 | `scripts/package.sh` | Builds `dist/FC27_LE_Turbo_<version>.zip` |
 | `scripts/check_field_names.py` / `scripts/check_fc27_schema.py` | Check every database name Turbo uses against independent schema sources / the FC 27 schema dumped in game |
+| `scripts/callname_voice_log.py` / `scripts/playtest_monitor.py` | Summarize the voice-swap observe log / watch a long play session for errors and crash dumps (`docs/callnames.md` section 12) |
 | `docs/fc26-parity.md` | Every FC 26 Live Editor feature group and script, and its status in Turbo 1.0.2 |
 | `CHANGELOG.md` | What changed in each release |
 | `docs/turbo-reference.md` | Architecture, bridge contract, build/test commands, what is and is not verified |
