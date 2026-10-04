@@ -24,8 +24,10 @@ Tables and ranges (from the in-game schema dump `turbo/le27/fc27_db_schema.json`
 Rule implemented in `core/callnames.cpp` `resolve_callname()`:
 
 1. `playernamemap[playerid]` with a commentary id other than 900000 wins (the user's research D-011: it is a per-player
-   override of the generic surname bank; 106 rows in the FC 26 PT-BR database, 38 of them in a dangling `980xxx` range
-   that no bank or `commentarynames` row knows, so Turbo refuses ids outside 900000..965000 when writing);
+   override of the generic surname bank; 106 rows in the FC 26 PT-BR database, 38 of them in a `980xxx` range that no
+   `commentarynames` row knows. Turbo writes only ids in 900000..965000. Correction (1.0.2): ids above 965000 are not
+   "dangling" everywhere - the user's lists hold generic recordings there in some languages (eng_us 980001..980034,
+   ita_it 999931..999952, spa_es and dut_nl 9999xx), so a row holding one may be spoken (§4, full table);
 2. else the commentary id of `players.commonnameid` through `playernames.commentaryid`, when the common name is set
    and its id is not 900000 ("no callname"; D-019: writing only `lastnameid` is a silent no-op for players that carry
    a common name);
@@ -144,11 +146,14 @@ What was tried and dropped:
   or the orange "Unverified" line followed by the watcher's "spoken set not built yet: open the game's Create Player
   screen … or start a match, Turbo builds it there (…)" line, §3), the *Rebuild from the game's audio service* button with its progress ("building:
   names 1200 / 4849 (310 with audio), batch 400") or last result, the diagnostic *Capture from the loaded bank* button
-  with its status line, the user's FC 26 list ("Your FC 26 list: 4127 players with their own recording, 1202 generic
-  names", §9), and the player's current callname: commentary id, source (player-specific / common name / last name,
-  with the name and name id), whether it is spoken in the loaded language - or, when the player has his own recording
-  (the game's audio service or the FC 26 list says so, §9), "Current callname: his own recording in ita_it (your FC 26
-  list)" in green with the rule's result below it as "Not used while he has it: …". Never "none" for such a player.
+  with its status line, the master list ("Your FC 26 list: 4127 players with their own recording, 1202 generic
+  names", or "FC 27 master: …" for a list built from the game, §9), and the player's current callname: commentary id,
+  source (player-specific / common name / last name, with the name and name id), whether it is spoken in the loaded
+  language - or, when the player has his own recording (the game's audio service or the master list says so, §9),
+  "Current callname: his own recording in ita_it (your FC 26 list)" (or "(the FC 27 master)") in green with the rule's
+  result below it as "Not used while he has it: …". Never "none" for such a player. When only the FC 26 list says so
+  and the game's audio service asked about players without listing him, the line adds "not confirmed by the game's
+  audio service, whose list is incomplete" (`Callnames::own_unconfirmed`; the list's answer still counts).
 * **Own recording gate** (§9): for a player with his own recording both pickers show an orange line above their
   buttons ("He has his own recording (…): a callname set here will not be heard. Writing asks to confirm.") and the
   buttons open a confirmation (*Assign anyway* / *Cancel*) instead of writing; nothing is written or queued before
@@ -162,16 +167,49 @@ What was tried and dropped:
   the name parts shown before the change go to `editedplayernames`: edited in place when the player has a row, else
   added by Turbo's Lua side (`InsertDBTableRow`) through the mailbox command `callnames` / `set_display_name`.
 * **By player**: type-ahead over players whose `playernamemap` callname is spoken (player, club, commentary id).
-  *Use this player's callname* writes this player's `playernamemap.commentaryid` in place when the row exists, else
-  queues `set_playernamemap` (row inserted by Lua). *Remove player-specific callname…* asks for confirmation and queues
+  *Use this player's callname* writes this player's `playernamemap.commentaryid` in place when the row exists (the
+  index's row address is used only while that row still holds him, else the row is looked up again), else queues
+  `set_playernamemap` (row inserted by Lua) when the table has room. The command carries `"room": true`, the table's
+  `"capacity"` and the bridge's `"load_gen"`; Lua counts the rows again right before `InsertDBTableRow` and refuses when
+  they reach the capacity or a career was loaded since (the command runs at the next career event, and FC 27 reloads
+  the table full). On a full table (FC 27: 106 of 106) a row is taken over only when no player hears a callname from it
+  (`Callnames::spare_playernamemap_row`): first a row whose player is not in the database, then one whose callname is
+  none, then one whose callname has no recording in the loaded language (`Callnames::spoken_answer`: the spoken set
+  for 900001..965000, the master list's generic ids above); a row whose callname is spoken or cannot be checked is
+  never taken. The line above the button and the confirmation popup name that row's player before anything is
+  written; without such a row the button says why and suggests By name. *Remove player-specific callname…* asks for confirmation and queues
   `remove_playernamemap` (`DeleteDBTableRowByAddr`). A player's *own* recordings cannot be given to another player from
   the database: they are bound to the player id inside the bank (`player_db_pID`, D-016), which Turbo only asks about.
+* **Kept across career loads (1.0.2).** FC 27 reloads `playernamemap` from its base data every time a career loads
+  (measured 2026-10-04 on 1.0.140.64835: a row edit was gone after save + reload, while `players.lastnameid` and
+  `editedplayernames` were kept), so a player-specific callname lasted one session. Every callname *Use this player's
+  callname* writes or queues is also kept in `turbo_output\reapply_edits.json` (`"playernamemap": [{"playerid",
+  "commentaryid", "player", "from", "when"}]`, one entry per player, the last assignment wins) and written again the
+  first time Turbo connects to a newly loaded career (`App::reapply_stored_edits`, once per Lua session + `load_gen`,
+  even with the window hidden). `load_gen` is published by Lua's `bridge.lua` next to `db_gen` and changes only when a
+  career is loaded, entered or left (a reload event, `in_cm` flipping, another database service); `db_gen` also changes
+  when the manager changes club or on a refresh command, which reload nothing, so a club change mid-career or a press
+  of Refresh does not re-apply. The write is the tab's own (`write_player_callname` with `allow_insert` false): the
+  player's row in place (an id already in place is not written again), else a row taken over as above; it never adds
+  a row (its room check would be read while the game reloads the table: "he has no playernamemap row in this career;
+  assign the callname again"). Never written, and not an error: a player who is not in the career's database, and a
+  player with his own recording (`Callnames::own_recording`: the master list or the game's audio service; the game says
+  that recording and never a player-specific callname). Such a player's callname is not even kept: *Use this
+  player's callname* / *Assign anyway* writes it for the session and says "Not kept for the next career loads: he has
+  his own recording …", dropping an older kept one. Without a known commentary language nothing is written (own
+  recordings cannot be checked). The tab shows "Kept for every career load: player-specific callname N (from …)" with a
+  **Forget** button (the callname stays until the career is loaded again), and *Remove player-specific callname…*
+  forgets it too. One summary line (`re-apply at career load: re-applied N kit colours, M player callnames (K already in
+  place); J not written: …; I left alone: …`) goes to the GUI log and `turbo_gui.log` and is shown in this tab and in
+  Teams > Colours; a toast only when something was written (an error toast when a write failed), none for entries left
+  alone. Kill switch: `turbo_output\reapply_off.txt`. Generic callnames (By name) need none of this: `lastnameid` /
+  `commonnameid` and `editedplayernames` are saved with the career.
 * Lua module `features/callnames.lua` (also `lua\scripts\turbo_callnames.lua` with `modules.callnames.actions` in
   `turbo_config.json`): `set_playernamemap`, `remove_playernamemap`, `set_display_name`, `set_name_ids`; every action is
   validated before the first one runs; dry run supported. The audio-service build needs no Lua: the GUI asks the host
   (`App::commentary_audio`, a `caudio::Service`), the host queues the steps on the game thread.
 
-Tests: `turbo/tests/t12_callnames.lua` (9 cases) and in `turbogui/tests/native/test_main.cpp` the cases "callnames:
+Tests: `turbo/tests/t12_callnames.lua` and in `turbogui/tests/native/test_main.cpp` the cases "callnames:
 language packs, spoken list, resolution rule, index", "commentary bank: row signature, tables, capture over regions,
 cache json", "callnames: bank capture cache, hand-made list override, Real recordings", "commentary audio: name batch
 and canary, pointer chain checks, the stepped build with a fake caller, cache record and precedence", "commentary
@@ -181,10 +219,23 @@ answers; the id cache serves a build without the database", "signatures: the
 built-in commentary-audio entries resolve on the game's bytes (registry + getter from one call site, strings by
 offset)", "UI: Players > Callname: spoken set from the game's audio service (fake service): automatic build, status
 line, Rebuild, pickers", "UI: Players > Callname: capture of the loaded bank on a background thread, Real recordings",
-"UI: Players > Callname: language, current callname, pickers, name and player assignment", and for §9 "callnames: your
-FC 26 list (masters json): loader, own-recording sources and precedence" and "UI: Players > Callname: own recordings
-from your FC 26 list: current callname line, warning and confirmation before any write, players without own
-recording".
+"UI: Players > Callname: language, current callname, pickers, name and player assignment" (also: a full table's row
+choice and the takeover named before the write, the Lua add carrying the table's capacity, an assigned callname kept and
+a removed one not), and for §9 "callnames: your FC 26 list (masters json): loader, own-recording sources and
+precedence" (with the FC 27 master's name and the "not confirmed" note), "callnames: a full playernamemap: the row
+taken over never holds a callname spoken in the loaded language" and "UI: Players > Callname: own recordings from your
+FC 26 list: current callname line, warning and confirmation before any write, players without own recording" (also
+the common-name button, a player with his own recording and a row, a question dropped when another player is opened,
+the FC 27 master's name, an own-recording player's callname not kept). The kept edits (§4, 1.0.2): "kept edits store:
+upsert, forget, save and load back, missing file" (two kits of one type, the colour-channel whitelist), "kept edits
+store: a bad file is reported, never overwritten silently; malformed entries are dropped" and "UI: kept edits: kit
+colours and player-specific callnames are written again when a newly loaded career connects" (the tables copied back
+from the world image as the game's reload; row present, a silent 980001 row taken over with the master list loaded, a
+full table with no free row, own recordings from the game and from the master list left alone, a stale index entry, a
+removed callname, the hidden window, no added row on a table with room, a club change and leaving the career without a
+re-apply, no toast when nothing changed, the kill switch, two kits of one type, a hand-edited key column). Lua:
+`turbo/tests/t12_callnames.lua` "the room is checked again right before the insert …" and `t07_bridge.lua` "the
+manager changing club bumps db_gen (re-read) but not load_gen (no career load)".
 
 ## 5. How the game decides that a name has audio (reverse engineering, FC27.exe build 6AB9813C-211EF000)
 
@@ -492,16 +543,25 @@ not Turbo's or holds no commentary id is ignored.
    turns the hook off at run time). Record the game's output to hear it: Windows loopback capture of the default
    playback device.
 4d. **A full playernamemap.** FC 27's `playernamemap` holds 106 of 106 rows (header +0x78 capacity, +0x7C rows in use).
-   *Use this player's callname* on a player without a row takes over one of the 38 rows whose commentary id no bank
-   knows (980xxx) and says so; it never asks Live Editor to add a row to a full table (that crashes the game).
+   *Use this player's callname* on a player without a row names, before the click, the row it takes over: a row whose
+   player is not in the database, whose callname is none, or whose callname has no recording in ita_it (with the
+   Italian master list loaded, a 980xxx row; without a list a 980xxx row cannot be checked and is left alone). It never
+   asks Live Editor to add a row to a full table (that crashes the game).
+4e. **Kept across a career load (1.0.2).** After 4d, save, go back to the main menu and load the career again. Expected:
+   `turbo_gui.log` has `re-apply at career load: re-applied 0 kit colours, 1 player callname` (plus any kit colours),
+   the player's Callname tab shows the callname again with "Kept for every career load", and the speech log of 4c shows
+   the id asked for him in the next match. *Forget*, save, reload: the line says nothing about him and the base
+   callname is back. Change club through Job offers: no `re-apply at career load` line (not a career load).
 5. **An unlisted id stays silent.** Write `turbo\callnames\spoken_ita_it.txt` with one id the picker does **not** list
    (e.g. one that commentarynames has but the build dropped), press Refresh (the tab shows "hand-made list"; the
    players with recordings still come from the game-built cache), assign it, play a match: expected silence for that
    player. Delete the file, Refresh: the game-built set is back.
 6. **A player with his own recordings.** Open a famous player whose cached `players` value is non-zero: the green
    "Current callname: his own recording in ita_it (the game's audio service)" line (its tooltip names PLAYER_LOW_SIMPLE /
-   PLAYER_LOW_LINK); in a match his own name is said whatever his name ids say. With the FC 26 list in place (§9): open
-   Lobotka (216435) - "… (your FC 26 list)", the rule's result greyed below it, and *Assign as last name* asks first.
+   PLAYER_LOW_LINK); in a match his own name is said whatever his name ids say. With the master list in place (§9):
+   open Lobotka (216435) - "… (your FC 26 list; not confirmed by the game's audio service …)" or "(the FC 27 master)",
+   the rule's result greyed below it, and *Assign as last name* asks first. Miguel Gutierrez (261865) is the check for
+   an FC 27 master: the game said his own recording on 2026-10-04 although the audio-service set lacks him.
 7. **The diagnostic scan.** *Capture from the loaded bank* still runs on a background thread and reports "no selection
    table found (… runs rejected …)" without touching the cache.
 
@@ -527,7 +587,7 @@ not Turbo's or holds no commentary id is ignored.
   them on a new image, and a build that is not in the signature table turns the call off (the tab falls back).
 * The memory scan's row signature (§6.1) still matches the sample index only; it is kept as a diagnostic.
 
-## 9. Players with their own recording: the user's FC 26 lists (Turbo 1.0.2)
+## 9. Players with their own recording: the master list per language (Turbo 1.0.2)
 
 **Why.** Step 0 of the game's rule (§1, §5.3): a player with his own recording (bound to his player id in the bank,
 `PLAYER_LOW_SIMPLE` / `PLAYER_LOW_LINK` with `player_db_pID`) is said from it, whatever `playernamemap` or his name ids
@@ -544,6 +604,15 @@ VariationId, playerid, name, type, Play Audio, …` (the later columns differ pe
 holds the commentary id 9xxxxx of a generic surname). They describe FC 26; FC 27 mostly reuses the recordings, so the
 GUI shows them as "your FC 26 list".
 
+**One list per language, FC 27 first.** The concept is generic: one master list per commentary language, in the same
+workbook format. An FC 27 master built from the game's own data is named `<name>_master_fc27.xlsm` (or `.xlsx`; e.g.
+`italy_master_fc27.xlsm`) and lives under `<Live Editor>\turbo_dev\masters` (or next to the FC 26 workbook). When a
+language has both, the tool takes the FC 27 master and writes `"game": "fc27"` into `masters\<lang>.json`; the FC 26
+list gets `"game": "fc26"` (a file without the field, as the first 1.0.2 tool wrote, counts as FC 26). The GUI names
+the source accordingly: "FC 27 master" / "the FC 27 master" or "Your FC 26 list" / "your FC 26 list"
+(`MasterList::label`). Only for an FC 26 list does the tab add that the game's audio service did not confirm a player
+(`Callnames::own_unconfirmed`: own == list only, FC 26 list, the audio service asked about players).
+
 | folder | workbook | FC 27 language | real players (rows) | generic ids (rows) | real ids over 999,999 / generic ids outside 900001..965000 |
 |---|---|---|---|---|---|
 | `br` | `br_master.xlsm` | `por_br` | 3,532 (6,760) | 1,703 (1,703) | 9 / 0 |
@@ -558,46 +627,56 @@ GUI shows them as "your FC 26 list".
 `commentaryfull_<code>` / `commentarywc_<code>.toc` in `Data\Win32`. Ids over 999,999 - e.g. 999999143 'Aade' - are
 bank oddities that match no player; generic ids outside the commentary range are kept as listed.)
 
-**The tool.** `python turbo/tools/import_callname_masters.py [--root "C:\FC_Tools\My Mods"] [--le "C:\FC 27 Live
-Editor"] [--out DIR] [--lang ita_it …] [--dry-run] [--self-test]` (Python 3.11 + openpyxl; the workbooks are opened
-read-only). It maps each workbook to its language by folder (`br`, `eng`, `fra`, `ger`, `ita`, `ned`, `spa`), else by
-the workbook's name, prefers `.xlsm` over `.xlsx` (then the newest) when a folder has both, skips blank rows, rows of
+**The tool.** `python turbo/tools/import_callname_masters.py [--root DIR …] [--le "C:\FC 27 Live Editor"] [--out DIR]
+[--lang ita_it …] [--dry-run] [--self-test]` (Python 3.11 + openpyxl; the workbooks are opened read-only). `--root` is
+repeatable; by default it reads `C:\FC_Tools\My Mods` and `<le>\turbo_dev\masters` (each when present). It maps each
+workbook to its language by folder (`br`, `eng`, `fra`, `ger`, `ita`, `ned`, `spa`), else by the workbook's name
+without `_master` / `_master_fc27`, prefers an FC 27 master, then `.xlsm` over `.xlsx`, then the newest, reports every
+workbook it skipped, skips blank rows, rows of
 another type and rows whose id is not a positive whole number (counted), keeps the most frequent spelling as a
 player's name, and writes `<le>\turbo\callnames\masters\<lang>.json` atomically:
 
 ```
-{"turbo_masters": 1, "language": "ita_it", "source": "C:\\FC_Tools\\My Mods\\ita\\italy_master.xlsm",
+{"turbo_masters": 1, "language": "ita_it", "game": "fc26", "source": "C:\\FC_Tools\\My Mods\\ita\\italy_master.xlsm",
  "built": "2026-10-04T12:07:12-04:00", "note": "...", "counts": {"rows": 9090, "real_players": 4127, ...},
  "real_players": [27, ...], "generic_ids": [900002, ...], "names": {"216435": "Stanislav Lobotka", ...}}
 ```
 
 One unreadable workbook (no `callnames` sheet, missing columns) is reported and skipped; the others are written.
-`--self-test` builds small workbooks in a temporary folder and checks the mapping, the duplicate, the skipped rows and
-the JSON.
+`--self-test` builds small workbooks in a temporary folder and checks the mapping, the duplicate, the skipped rows,
+the JSON and an FC 27 master winning over the FC 26 list (in another folder and in the same folder).
 
 **What Turbo does with it** (`core/callnames.{h,cpp}`): `Callnames::refresh` reads `masters\<lang>.json` for the
 loaded language into `Callnames::masters` (`parse_master_list_json`: never throws, skips entries of the wrong type,
 refuses a file that is not JSON, holds no id or names another language - the tab shows the reason in orange; a missing
 file is not an error). `Callnames::own_recording(playerid)` is a bit mask: `kOwnFromGame` (the audio service's or the
 bank capture's `players`) | `kOwnFromMasters` (the list's `real_players`); **either one counts**, and
-`own_recording_source_name` names them ("the game's audio service", "your FC 26 list", "the game's audio service and
-your FC 26 list"). `resolve()` sets `CallnameInfo::own` and `real` (= own != 0); the callname rule is still computed
-and shown as not used. Turbo never writes the list.
+`own_recording_source_name` names them ("the game's audio service", "your FC 26 list" / "the FC 27 master", "the
+game's audio service and your FC 26 list"; the game's side is named by where the players came from,
+`SpokenSet::players_from`, also under a hand-made spoken list). `resolve()` sets `CallnameInfo::own` and `real` (= own
+!= 0); the callname rule is still computed and shown as not used. The list's generic ids decide whether a
+`playernamemap` row above 965000 is spoken (`spoken_answer`, the full-table takeover of §4). The re-apply at career load
+never writes, and the tab never keeps, a player-specific callname for a player with his own recording (§4). Turbo never
+writes the list.
 
 **In the tab** (§4): the language block's "Your FC 26 list: N players with their own recording, M generic names"
-line (tooltip: file, workbook, date), or "No FC 26 list for ita_it …" with the path looked for; the current callname
+(or "FC 27 master: …") line (tooltip: file, workbook, date, FC 26 or FC 27 data), or "No master list for ita_it …"
+with the path looked for, or "Master list not used: …" with the reason; the current callname
 "his own recording in ita_it (your FC 26 list)" with the rule's result greyed below; the one-line warning above the
 assignment buttons and the confirmation popup (`##cnown`) before any write for such a player; the third picker tab
 *Players without own recording* for the player's club. Without a list, a player whose rule gives nothing reads
-"Current callname: none from the callname rule (no FC 26 list for ita_it: an own recording of his would not be known
+"Current callname: none from the callname rule (no master list for ita_it: an own recording of his would not be known
 here)". The picker lists now take the height the tab has left (80..200 px), so the assignment buttons stay visible in
 the default window with the extra lines; the reason for the detected language moved into a "(?)" tooltip unless it
 needs attention.
 
-**Limits.** The lists are FC 26 data: a recording FC 27 dropped is still flagged (the write stays possible after the
-confirmation), and a player FC 27 recorded anew is only known once a match build of the audio service sees him. The
-generic ids are loaded and counted but not used to decide what is spoken (the spoken set of §3 does that).
+**Limits.** An FC 26 list is FC 26 data: a recording FC 27 dropped is still flagged (the write stays possible after
+the confirmation), and a player FC 27 recorded anew (Miguel Gutierrez 261865, heard in game on 2026-10-04) is only
+known once an FC 27 master lists him. The audio-service build of 2026-10-04 13:39 during a match returned the same 751
+players as the Create Player build, so its player query is incomplete, not only its timing. The generic ids decide only
+about ids above 965000; the spoken set of §3 decides 900001..965000.
 
 **Install.** The tool is not part of the package zip: the operator runs `python turbo\tools\import_callname_masters.py`
-once (defaults: the workbooks under `C:\FC_Tools\My Mods`, the JSON files into `C:\FC 27 Live Editor\turbo\callnames\
-masters`), then *Refresh* in the Callname tab loads the list for the loaded language.
+once (defaults: the workbooks under `C:\FC_Tools\My Mods` and `C:\FC 27 Live Editor\turbo_dev\masters`, the JSON
+files into `C:\FC 27 Live Editor\turbo\callnames\masters`), and again after an FC 27 master is added; then *Refresh*
+in the Callname tab loads the list for the loaded language.

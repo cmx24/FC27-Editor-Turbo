@@ -123,6 +123,7 @@ static bool parse_state_impl(const std::string& text, BridgeState& out) {
     out.session = j.value("session", std::string());
     out.seq = j.value("seq", 0LL);
     out.db_gen = j.value("db_gen", 0LL);
+    out.load_gen = j.contains("load_gen") && j["load_gen"].is_number_integer() ? j["load_gen"].get<long long>() : -1;
     out.le_version = j.value("le_version", std::string());
     out.db_service = addr_field(j, "db_service");
     out.comm_service = addr_field(j, "comm_service");

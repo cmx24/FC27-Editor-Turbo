@@ -24,9 +24,13 @@ M.NO_CALLNAME = 900000
 M.CALLNAME_MIN = 900000
 M.CALLNAME_MAX = 965000
 -- Live Editor's InsertDBTableRow crashes the game when the table is full ("Reached max rows"; FC 27's playernamemap is
--- full at 106 rows) and Lua cannot read a table's capacity, so a row is added only when the action says "room": true,
--- which the Turbo window sets after reading the table header (core/t3db.h Database::rows_in_use)
-M.NO_ROOM = "adding a row needs \"room\": true from the Turbo window, which checks the table has room first (Live Editor crashes the game on a full table)"
+-- full at 106 rows) and Lua cannot read a table's capacity, so a row is added only when the action says "room": true
+-- with the table's "capacity", which the Turbo window reads from the table header (core/t3db.h Database::rows_in_use).
+-- The window's check can be old by the time the command runs (it runs at the next career event, after a career load
+-- maybe, and FC 27 reloads playernamemap full at every load): so the rows are counted again right before the insert,
+-- and the insert is refused when they reach the capacity or when the career was loaded again since the window
+-- checked ("load_gen", the bridge's load generation).
+M.NO_ROOM = "adding a row needs \"room\": true and the table's \"capacity\" from the Turbo window, which checks the table has room first (Live Editor crashes the game on a full table)"
 
 local NAME_FIELDS = { "firstname", "surname", "commonname", "playerjerseyname" }
 
@@ -49,6 +53,33 @@ local function insert_row(table_name, row, key_field, key_value)
     return true
 end
 
+-- Rows the table holds now: the valid records counted on a freshly opened table (the table object caches its record
+-- count) and the table's own written count, whichever is higher
+local function rows_now(table_name)
+    local tbl = db.get_table(table_name)
+    if not tbl then return nil end
+    local n = 0
+    for _ in db.records(tbl) do n = n + 1 end
+    return math.max(n, math.tointeger(tonumber(tbl.written_records) or 0) or 0)
+end
+
+-- The window's room check, done again right before an insert. Returns true, or false and why.
+local function room_now(table_name, a)
+    if not a.room or not a.capacity then return false, M.NO_ROOM end
+    local bridge = TURBO_STATE and TURBO_STATE.bridge
+    local gen = bridge and bridge.load_gen
+    if a.load_gen and type(gen) == "number" and gen ~= a.load_gen then
+        return false, string.format("the career was loaded again since the Turbo window checked the %s table (load %d, now %d): assign again",
+            table_name, a.load_gen, gen)
+    end
+    local n = rows_now(table_name)
+    if not n then return false, table_name .. " table not available" end
+    if n >= a.capacity then
+        return false, string.format("the %s table is full now (%d of %d rows; Live Editor crashes the game on a full table)", table_name, n, a.capacity)
+    end
+    return true
+end
+
 local function delete_rec(table_name, rec)
     local del = _G["DeleteDBTableRowByAddr"]
     if type(del) ~= "function" then return false, "DeleteDBTableRowByAddr is not available in this Live Editor build" end
@@ -66,6 +97,16 @@ local function check(a, i)
     local rec, perr = player_rec(pid)
     if not rec then return nil, string.format("action %d: %s", i, perr) end
     local out = { action = kind, playerid = pid, room = a.room == true }
+    if a.capacity ~= nil then
+        local cap = util.to_int(a.capacity)
+        if not cap or cap < 1 then return nil, string.format("action %d: capacity must be a positive whole number", i) end
+        out.capacity = cap
+    end
+    if a.load_gen ~= nil then
+        local g = util.to_int(a.load_gen)
+        if not g then return nil, string.format("action %d: load_gen must be a whole number", i) end
+        out.load_gen = g
+    end
 
     if kind == "set_playernamemap" then
         local cid = util.to_int(a.commentaryid)
@@ -140,7 +181,8 @@ local function apply(a, dry)
             if not ok then return false, err end
             return true, string.format("player %d: callname %d (row updated)", pid, a.commentaryid)
         end
-        if not a.room then return false, string.format("player %d: no playernamemap row added: %s", pid, M.NO_ROOM) end
+        local room, why = room_now("playernamemap", a)
+        if not room then return false, string.format("player %d: no playernamemap row added: %s", pid, why) end
         local ok, err = insert_row("playernamemap", { playerid = tostring(pid), commentaryid = tostring(a.commentaryid) }, "playerid", pid)
         if not ok then return false, err end
         return true, string.format("player %d: callname %d (row added)", pid, a.commentaryid)
@@ -173,7 +215,8 @@ local function apply(a, dry)
             end
             return true, string.format("player %d: display name updated (%s)", pid, table.concat(fields, ", "))
         end
-        if not a.room then return false, string.format("player %d: no editedplayernames row added: %s", pid, M.NO_ROOM) end
+        local room, why = room_now("editedplayernames", a)
+        if not room then return false, string.format("player %d: no editedplayernames row added: %s", pid, why) end
         local row = { playerid = tostring(pid) }
         for _, f in ipairs(NAME_FIELDS) do
             if db.has_field(tbl, f) then row[f] = a.names[f] or "" end

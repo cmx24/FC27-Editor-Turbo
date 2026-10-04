@@ -107,11 +107,13 @@ Files in `<LE>\turbo_output` (falling back to `<LE>`):
 | File | Written by | Content |
 | --- | --- | --- |
 | `bridge_meta.json` | Lua | `{session, shortname_name_tables_map{short: name}, field_desc_map{tshort: {fshort: {name, depth, min}}}}` |
-| `bridge_state.json` | Lua | `session, seq, db_gen, le_version, db_service (hex), comm_service, ifce, in_cm, user_team, date{year,month,day}` |
+| `bridge_state.json` | Lua | `session, seq, db_gen, load_gen, le_version, db_service (hex), comm_service, ifce, in_cm, user_team, date{year,month,day}` |
 | `bridge_dll.json` | DLL | `{mailbox (hex address), session, gui_version, updated (unix seconds, refreshed every ~2 s)}` |
 | `gui_settings.json` | DLL | `gui{toggle_key}`, `auto{form_morale{enabled,form,morale,fitness}, pap_playstyles{enabled}}`, `turbo{dry_run}` |
 
-The DLL rebuilds its model only when `db_gen` or `db_service` changes (not on every in-game day).
+The DLL rebuilds its model only when `db_gen` or `db_service` changes (not on every in-game day). `db_gen` also changes
+when the manager changes club or on a `refresh` command; `load_gen` (1.0.2) only when a career is loaded, entered or left
+(a reload event, `in_cm` flipping, another database service): the kept edits are written again once per `load_gen`.
 
 Mailbox (`VirtualAlloc`ed by the DLL, 0x2020 bytes): `+0x00` magic `0x4F425254` ("TRBO"), `+0x04` version 1, `+0x08` command seq,
 `+0x0C` ack seq, `+0x10` status (1 = ok), `+0x14` Lua heartbeat, `+0x20` command JSON (4096 bytes), `+0x1020` result (4096 bytes).
@@ -261,6 +263,24 @@ club's transfer budget. The probe scripts that found the above are in `C:\FC 27 
   `teamkits` (`teamtechid == teamid`, grouped by `teamkittypetechid`), `teamcolorprim/sec/tert`, `jerseynamecolor`,
   `jerseynameoutlinecolor`, `jerseynumbercolorprim/sec/ter`, `shortsnumbercolorprim/sec/ter` plus the percent / font / template
   ints. A picker's value is written once the mouse is up (or after 0.8 s), three validated `Database::set` calls (r, g, b).
+- **Kit colours across career loads (1.0.2)**: FC 27 reloads `teamkits` (and `playernamemap`) from its base data every
+  time a career loads; `teams.teamcolor1..3` are kept by the save. So every `teamkits` colour a picker writes
+  (`write_colour` -> `App::remember_kit_colour`) is also kept in `turbo_output\reapply_edits.json` (`core/reapply.*`):
+  `"kits": [{"teamtechid", "teamkittypetechid", "teamkitid", "team", "when", "fields": {"teamcolorprimr": 12, …}}]`, one
+  entry per kit row (teamtechid, teamkittypetechid, teamkitid: two kits of one type keep their own colours), the latest
+  value per field; only the colour channels of the Colours tab's pickers (`kit_colour_field`: `teamcolorprim/sec/tert`,
+  `jerseynamecolor`, `jerseynameoutlinecolor`, `jerseynumbercolorprim/sec/ter`, `shortsnumbercolorprim/sec/ter`, each
+  `r` / `g` / `b`) are kept, read back from the file and written. The first time Turbo connects to a newly loaded career
+  (`App::refresh` -> `reapply_stored_edits`, once per Lua session + `load_gen`, even with the window hidden; not on a
+  Refresh, not when the manager changes club) each entry is written to its row (the row with its `teamkitid`; the single
+  row of that type only when no other kit of that type is kept; else left alone rather than guessed) through
+  `Database::set` (range-checked, stale-table guard, no undo step), fields already in place are left alone. A colour set back to the game's own value keeps its entry (Turbo does not know the
+  base value; writing it again changes nothing); **Forget** under the kit's header drops it (the colours shown stay until
+  the career is loaded again). Only the picker colours are kept, not the percent / font / template ints. One summary
+  line (`re-apply at career load: re-applied N kit colours, M player callnames (K already in place); J not written: …;
+  I left alone: …`) goes to the GUI log, `turbo_gui.log` and the Colours / Callname tabs; a toast only when something
+  was written (an error toast when a write failed). Kill switch: `turbo_output\reapply_off.txt`. An unreadable store is
+  set aside as `reapply_edits.unreadable.json` at the next edit. Player callnames: `docs/callnames.md` §4.
 - **Crest**: a club's crest is a set of legacy files `data/ui/imgAssets/crest{,16x16,32x32,50x50,512x512,1024x1024}/{light,dark,custom}/l<teamid>.dds`
   (`crest_variants()`; which ones exist differs per club, see `legacy_filename_hash_list.csv`). The editor asks the Lua
   exporter for every variant, reads each exported file's DDS header (`parse_dds_format`) and writes the new picture with

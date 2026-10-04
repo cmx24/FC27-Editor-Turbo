@@ -3,11 +3,14 @@
 //   BY NAME   a playernames name whose commentary id is spoken -> written to lastnameid or commonnameid (the shown name
 //             can be kept through editedplayernames)
 //   BY PLAYER a player whose playernamemap callname is spoken -> written to this player's playernamemap row (added
-//             through Turbo's Lua side when missing; when the table is full, a row from which no player hears a callname
-//             is taken over, and its player is named before the write)
-// A player with his OWN recording (the game's audio service or the user's FC 26 list says so) is spoken from it
-// whatever either picker writes (docs/callnames.md section 1 step 0): the tab says so in the "Current callname" line,
-// warns above the assignment buttons and asks for a confirmation before anything is written for him.
+//             through Turbo's Lua side when missing, which counts the rows again first; when the table is full, a row
+//             from which no player hears a callname is taken over, and its player is named before the write); kept in
+//             turbo_output\reapply_edits.json and written again at every career load, because FC 27 reloads
+//             playernamemap then (ui_reapply.cpp)
+// A player with his OWN recording (the game's audio service or the master list says so: an FC 27 master or the user's
+// FC 26 list) is spoken from it whatever either picker writes (docs/callnames.md section 1 step 0): the tab says so in
+// the "Current callname" line, warns above the assignment buttons and asks for a confirmation before anything is
+// written for him; a callname written for him anyway is not kept for the next career loads.
 // See core/callnames.h and docs/callnames.md.
 #include <algorithm>
 #include <cstdio>
@@ -99,6 +102,15 @@ static bool send_actions(App& app, const json& actions, const std::string& label
     return app.send({{"op", "run"}, {"module", "callnames"}, {"overrides", {{"actions", actions}}}}, label);
 }
 
+// What a Lua insert carries so that Turbo's Lua side counts the rows again right before it adds one
+// (features/callnames.lua room_now): the table's capacity as read now, and the career load it was read in. The command
+// runs at the next career event, and FC 27 reloads playernamemap full (106 of 106 rows) at every career load.
+static void add_room_check(App& app, json& a, uint32_t capacity) {
+    a["room"] = true;
+    a["capacity"] = capacity;
+    if (app.bridge.state().load_gen >= 0) a["load_gen"] = app.bridge.state().load_gen;
+}
+
 // BY NAME: write the name id, then keep the shown name (editedplayernames row edited in place, or added through Lua)
 static void assign_name(App& app, const Table& t, const PlayerRow& p, const NameChoice& c, bool as_common, bool keep_display) {
     const Field* f = t.field(as_common ? "commonnameid" : "lastnameid");
@@ -123,12 +135,14 @@ static void assign_name(App& app, const Table& t, const PlayerRow& p, const Name
             if (const Field* ff = e->field("commonname")) ok = ok && app.edit(*e, before.edited_rec, *ff, Value::of_str(before.common));
             if (ok) app.notify(msg + "; shown name kept (editedplayernames updated)");
         } else {
-            if (!app.db.has_room(*e)) {
+            uint32_t used = 0, cap = 0;
+            if (!app.db.rows_in_use(*e, used, cap) || used >= cap) {
                 app.notify(msg + "; shown name NOT kept: the game's editedplayernames table is full (Live Editor cannot add a row)", true);
                 return;
             }
             json a = {{"action", "set_display_name"}, {"playerid", p.playerid}, {"firstname", before.first},
-                      {"surname", before.last}, {"commonname", before.common}, {"room", true}};
+                      {"surname", before.last}, {"commonname", before.common}};
+            add_room_check(app, a, cap);
             if (send_actions(app, json::array({a}), "Keep shown name"))
                 app.notify(msg + "; editedplayernames row queued for Turbo's Lua side (next career event)");
             else
@@ -139,10 +153,11 @@ static void assign_name(App& app, const Table& t, const PlayerRow& p, const Name
     }
 }
 
-// How "Use this player's callname" writes for a player: his playernamemap row edited in place; else a row added through
-// Lua when the table has room; else (FC 27's table is full: 106 of 106 rows, and Live Editor's InsertDBTableRow crashes
-// the game on a full table, so a full table never reaches it) a row taken over that no player hears a callname from
-// (Callnames::spare_playernamemap_row), else nothing. Computed for the line shown before the write and again at the write.
+// How a player-specific callname is written for a player: his playernamemap row edited in place; else a row added
+// through Lua when the table has room; else (FC 27's table is full: 106 of 106 rows, and Live Editor's
+// InsertDBTableRow crashes the game on a full table, so a full table never reaches it) a row taken over that no player
+// hears a callname from (Callnames::spare_playernamemap_row), else nothing. Computed for the line shown before the
+// write and again at the write.
 struct PlayerWritePlan {
     enum class Kind { NoTable, InPlace, AddRow, TakeOver, Full } kind = Kind::NoTable;
     uint64_t rec = 0;       // InPlace: his row
@@ -152,16 +167,26 @@ struct PlayerWritePlan {
     bool no_players = false;  // Full because the model has no players (whose row is whose cannot be told)
 };
 
+// This player's playernamemap row: the index's address while that row still holds him (Lua may have added or removed
+// rows since the index was built, a career load replaces them all), else looked up again; 0 when he has none. So a
+// write never lands in another player's row.
+static uint64_t own_playernamemap_row(App& app, const Table& m, int64_t playerid) {
+    const CallnameIndex& ix = app.callnames.index;
+    if (auto it = ix.playernamemap_rec.find(playerid); it != ix.playernamemap_rec.end() && app.db.table_alive(m, it->second) &&
+                                                       app.db.record_valid(m, it->second) && app.db.get_int(m, it->second, "playerid", -1) == playerid)
+        return it->second;
+    return app.db.find(m, "playerid", playerid);
+}
+
 static PlayerWritePlan plan_player_write(App& app, const PlayerRow& p) {
     PlayerWritePlan plan;
     const Table* m = app.db.table("playernamemap");
     const Field* fp = m ? m->field("playerid") : nullptr;
     const Field* fc = m ? m->field("commentaryid") : nullptr;
     if (!m || !fp || !fc) return plan;
-    auto own = app.callnames.index.playernamemap_rec.find(p.playerid);
-    if (own != app.callnames.index.playernamemap_rec.end()) {
+    if (const uint64_t rec = own_playernamemap_row(app, *m, p.playerid)) {
         plan.kind = PlayerWritePlan::Kind::InPlace;
-        plan.rec = own->second;
+        plan.rec = rec;
         return plan;
     }
     plan.counted = app.db.rows_in_use(*m, plan.used, plan.cap);
@@ -213,52 +238,114 @@ static std::string takeover_text(App& app, const PlayerWritePlan& plan) {
         // what is missing for an answer (Callnames::spoken_answer): the spoken set for 900001..965000, the list above
         const Callnames& cn = app.callnames;
         const char* missing = cn.masters.loaded()  ? "the spoken set is not built yet"
-                              : cn.spoken.verified ? "ids above 965000 need your FC 26 list"
-                                                   : "the spoken set is not built yet and there is no FC 26 list";
+                              : cn.spoken.verified ? "ids above 965000 need a master list (an FC 27 master or your FC 26 list)"
+                                                   : "the spoken set is not built yet and there is no master list";
         why += ", " + std::to_string(plan.spare.unknown) + (plan.spare.unknown == 1 ? " row a callname" : " rows a callname") +
                " Turbo cannot check (" + missing + ")";
     }
     return why + ". Pick the callname By name instead (Assign as last name / common name).";
 }
 
-// BY PLAYER: the write itself (plan_player_write decides how)
-static void assign_player_callname(App& app, const PlayerRow& p, int64_t commentaryid, const std::string& from) {
+// One playernamemap field through Database::set (range-checked; table and record checked alive). No undo step:
+// playernamemap edits never had one. The Callname tab and the re-apply at career load write this way.
+static bool put_int(App& app, const Table& t, uint64_t rec, const Field& f, int64_t v, std::string& err) {
+    if (!app.db.set(t, rec, f, Value::of_int(v), &err)) return false;
+    ++app.gen;
+    app.log(t.name + "." + f.name + " = " + std::to_string(v));
+    return true;
+}
+
+// BY PLAYER (and the re-apply at career load, ui_reapply.cpp, with allow_insert false): plan_player_write decides how
+PlayerCallnameWrite write_player_callname(App& app, const PlayerRow& p, int64_t commentaryid, const std::string& from, bool allow_insert) {
     using K = PlayerWritePlan::Kind;
+    using How = PlayerCallnameWrite::How;
+    PlayerCallnameWrite r;
     const PlayerWritePlan plan = plan_player_write(app, p);
     const Table* m = app.db.table("playernamemap");
     if (plan.kind == K::NoTable || !m) {
-        app.notify("FC 27's database has no playernamemap table (or it lacks playerid / commentaryid)", true);
-        return;
+        r.message = "FC 27's database has no playernamemap table (or it lacks playerid / commentaryid)";
+        return r;
     }
-    const Field* fp = m->field("playerid");
-    const Field* fc = m->field("commentaryid");
+    const Field& fp = *m->field("playerid");
+    const Field& fc = *m->field("commentaryid");
+    CallnameIndex& ix = app.callnames.index;
+    const std::string what = p.name + ": player-specific callname " + std::to_string(commentaryid) + " (from " + from + ")";
+    std::string err;
     if (plan.kind == K::InPlace) {
-        if (app.edit(*m, plan.rec, *fc, Value::of_int(commentaryid)))
-            app.notify(p.name + ": player-specific callname " + std::to_string(commentaryid) + " (from " + from + ")");
-        return;
+        ix.playernamemap_rec[p.playerid] = plan.rec;
+        r.message = what;
+        if (app.db.get_int(*m, plan.rec, "commentaryid", -1) == commentaryid) {
+            r.how = How::Unchanged;
+            return r;
+        }
+        if (!put_int(app, *m, plan.rec, fc, commentaryid, err)) {
+            r.message = p.name + ": playernamemap.commentaryid not written: " + err;
+            return r;
+        }
+        ix.playernamemap[p.playerid] = commentaryid;
+        r.how = How::Updated;
+        return r;
     }
     if (plan.kind == K::AddRow) {
-        json a = {{"action", "set_playernamemap"}, {"playerid", p.playerid}, {"commentaryid", commentaryid}, {"room", true}};
-        if (send_actions(app, json::array({a}), "Player callname"))
-            app.notify(p.name + ": playernamemap row (" + std::to_string(commentaryid) + ", from " + from + ") queued for Turbo's Lua side");
-        return;
+        if (!allow_insert) {
+            r.how = How::NeedsRow;
+            r.message = p.name + ": he has no playernamemap row in this career; Turbo adds one only when you assign the callname again in "
+                                 "Players > Callname";
+            return r;
+        }
+        json a = {{"action", "set_playernamemap"}, {"playerid", p.playerid}, {"commentaryid", commentaryid}};
+        add_room_check(app, a, plan.cap);
+        if (!send_actions(app, json::array({a}), "Player callname")) {
+            r.message = p.name + ": playernamemap row not queued: Turbo's command channel is busy or not available";
+            r.notified = true;  // send() showed why
+            return r;
+        }
+        r.how = How::Queued;
+        r.message = p.name + ": playernamemap row (" + std::to_string(commentaryid) + ", from " + from + ") queued for Turbo's Lua side";
+        return r;
     }
     if (plan.kind == K::TakeOver) {
         const std::string taken = spare_row_text(app, plan.spare);
-        // the player id first: should the second write fail, this player holds a callname nobody hears, rather than
-        // the row's old player saying a name that is not his
-        if (!app.edit(*m, plan.spare.rec, *fp, Value::of_int(p.playerid))) return;
-        if (!app.edit(*m, plan.spare.rec, *fc, Value::of_int(commentaryid))) {
-            app.notify(p.name + ": the row of " + taken + " now belongs to him, but its callname could not be set to " + std::to_string(commentaryid), true);
-            return;
+        // Both values are checked before the first write. The callname first, then the player id; when the second write
+        // fails the row gets its callname back (half a takeover would hand this callname to the row's old player)
+        std::string verr = Database::validate(fc, Value::of_int(commentaryid));
+        if (verr.empty()) verr = Database::validate(fp, Value::of_int(p.playerid));
+        if (!verr.empty()) {
+            r.message = p.name + ": no player-specific callname written: " + verr;
+            return r;
         }
-        app.callnames.index.playernamemap_rec.erase(plan.spare.playerid);
-        app.callnames.index.playernamemap_rec[p.playerid] = plan.spare.rec;
-        app.notify(p.name + ": player-specific callname " + std::to_string(commentaryid) + " (from " + from +
-                   "); the table is full, so the row of " + taken + " was taken over");
-        return;
+        if (!put_int(app, *m, plan.spare.rec, fc, commentaryid, err)) {
+            r.message = p.name + ": the row of " + taken + " was not written: " + err;
+            return r;
+        }
+        if (!put_int(app, *m, plan.spare.rec, fp, p.playerid, err)) {
+            std::string ignored;
+            app.db.set(*m, plan.spare.rec, fc, Value::of_int(plan.spare.commentaryid), &ignored);
+            r.message = p.name + ": the row of " + taken + " was not written (put back as it was): " + err;
+            return r;
+        }
+        ix.playernamemap_rec.erase(plan.spare.playerid);
+        ix.playernamemap.erase(plan.spare.playerid);
+        ix.playernamemap_rec[p.playerid] = plan.spare.rec;
+        ix.playernamemap[p.playerid] = commentaryid;
+        r.how = How::TookOver;
+        r.message = what + "; the table is full, so the row of " + taken + " was taken over";
+        return r;
     }
-    app.notify(p.name + ": no player-specific callname written. " + takeover_text(app, plan), true);
+    r.message = p.name + ": no player-specific callname written. " + takeover_text(app, plan);
+    return r;
+}
+
+static void assign_player_callname(App& app, const PlayerRow& p, int64_t commentaryid, const std::string& from) {
+    const PlayerCallnameWrite r = write_player_callname(app, p, commentaryid, from, true);
+    std::string msg = r.message;
+    if (r.ok()) {
+        // FC 27 reloads playernamemap at every career load: Turbo keeps the callname and writes it again then
+        // (ui_reapply.cpp) - not for a player with his own recording, whom the game never speaks by it
+        std::string why;
+        if (!app.remember_player_callname(p.playerid, commentaryid, p.name, from, &why) && !why.empty()) msg += ". " + why;
+    }
+    if (!r.notified) app.notify(msg, !r.ok());
 }
 
 static void language_line(App& app) {
@@ -287,7 +374,7 @@ static void language_line(App& app) {
     }
     ImGui::SameLine();
     if (ImGui::Button("Refresh##cn")) refresh_all(app);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Look for language packs, the spoken-id list and your FC 26 list again, rebuild the pickers");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Look for language packs, the spoken-id list and the master list again, rebuild the pickers");
     // Why this language: on its own line when it needs attention, else behind "(?)" (the tab is short of height: the
     // assignment buttons must stay visible in the default window)
     const bool attention = cn.lang.empty() || cn.lang_why.find("not installed") != std::string::npos ||
@@ -315,22 +402,24 @@ static void language_line(App& app) {
     }
     if (!cn.list_error.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", cn.list_error.c_str());
     if (!cn.cache_error.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", cn.cache_error.c_str());
-    // The user's FC 26 list: the second (and usually the bigger) source of "has his own recording"
+    // The master list (an FC 27 master, else the user's FC 26 list): the second (and usually the bigger) source of "has
+    // his own recording"
     if (cn.masters.loaded()) {
-        ImGui::TextColored(kGreen, "Your FC 26 list: %zu players with their own recording, %zu generic names", cn.masters.real_players.size(),
-                           cn.masters.generic_ids.size());
+        ImGui::TextColored(kGreen, "%s: %zu players with their own recording, %zu generic names", cn.masters.label(true).c_str(),
+                           cn.masters.real_players.size(), cn.masters.generic_ids.size());
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("%s\nmade from %s (%s) by turbo\\tools\\import_callname_masters.py.\n"
-                              "FC 26 data: FC 27 mostly reuses these recordings, so a player listed 'real' there is treated as\n"
-                              "having his own recording, like the players the game's audio service names.",
-                              cn.masters.file.c_str(), cn.masters.source.empty() ? "?" : cn.masters.source.c_str(),
-                              cn.masters.built.empty() ? "date unknown" : cn.masters.built.c_str());
+            ImGui::SetTooltip("%s\nmade from %s (%s) by turbo\\tools\\import_callname_masters.py.\n%s", cn.masters.file.c_str(),
+                              cn.masters.source.empty() ? "?" : cn.masters.source.c_str(), cn.masters.built.empty() ? "date unknown" : cn.masters.built.c_str(),
+                              cn.masters.fc27() ? "FC 27 data, built from the game: a player listed 'real' there has his own recording."
+                                                : "FC 26 data: FC 27 mostly reuses these recordings, so a player listed 'real' there is treated as\n"
+                                                  "having his own recording, like the players the game's audio service names.");
     } else if (!cn.masters_error.empty()) {
-        ImGui::TextColored(kOrange, "Your FC 26 list not used: %s", cn.masters_error.c_str());
+        ImGui::TextColored(kOrange, "Master list not used: %s", cn.masters_error.c_str());
     } else if (!cn.lang.empty()) {
-        ImGui::TextDisabled("No FC 26 list for %s: players with their own recording are known only from the game's audio service", cn.lang.c_str());
+        ImGui::TextDisabled("No master list for %s: players with their own recording are known only from the game's audio service", cn.lang.c_str());
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Looked for %s.\nMake it with: python turbo\\tools\\import_callname_masters.py (reads your *_master workbooks)",
+            ImGui::SetTooltip("Looked for %s.\nMake it with: python turbo\\tools\\import_callname_masters.py (reads an FC 27 master\n"
+                              "<name>_master_fc27.xlsm when there is one, else your FC 26 <name>_master.xlsm workbooks)",
                               cn.masters_path.c_str());
     }
     // One row: the spoken set from the game's audio service (core/commentary_audio.h; the default, built on the game
@@ -547,7 +636,7 @@ static void by_player_picker(App& app, const PlayerRow& p) {
             ImGui::SetTooltip("FC 27 reloads playernamemap from its base data at every career load, so a taken-over row is back with\n"
                               "its player after the next load. Turbo takes only a row whose player is not in the database, whose\n"
                               "callname is none, or whose callname has no recording in %s (the game's audio service for\n"
-                              "900001..965000, your FC 26 list above): no player loses a callname he hears.",
+                              "900001..965000, the master list above): no player loses a callname he hears.",
                               app.callnames.lang.c_str());
     };
     if (!sel) {
@@ -575,14 +664,14 @@ static std::string rule_result(App& app, const CallnameInfo& info) {
     return std::to_string(info.commentaryid) + " from " + callname_source_name(info.source) + via;
 }
 
-// "PLAYER_LOW_SIMPLE + PLAYER_LOW_LINK" / "2 player-keyed tables" for the game's side, the list's name for the FC 26 side
+// "PLAYER_LOW_SIMPLE + PLAYER_LOW_LINK" / "2 player-keyed tables" for the game's side, the list's name for the master list
 static std::string own_details(const Callnames& cn, int64_t playerid, int own) {
     std::string out;
     if (own & kOwnFromGame) {
         auto it = cn.spoken.players.find(playerid);
         int v = it != cn.spoken.players.end() ? it->second : 0;
         std::string how;
-        if (cn.spoken.from == SpokenSet::From::BankCapture) {
+        if (cn.spoken.players_from == SpokenSet::From::BankCapture) {
             how = std::to_string(v) + (v == 1 ? " player-keyed table" : " player-keyed tables");
         } else {
             if (v & caudio::kPlayerLowSimple) how += "PLAYER_LOW_SIMPLE";
@@ -592,7 +681,7 @@ static std::string own_details(const Callnames& cn, int64_t playerid, int own) {
     }
     if (own & kOwnFromMasters) {
         auto it = cn.masters.names.find(playerid);
-        out += std::string(out.empty() ? "" : "; ") + "your FC 26 list: " +
+        out += std::string(out.empty() ? "" : "; ") + cn.masters.label() + ": " +
                (it != cn.masters.names.end() ? "'" + it->second + "'" : std::string("listed as 'real'"));
     }
     return out;
@@ -612,7 +701,8 @@ static void club_players_tab(App& app, const PlayerRow& p) {
     ImGui::Text("%s: %zu of %zu players have no own recording in %s", p.club_name.c_str(), without.size(), without.size() + with.size(),
                 cn.lang.empty() ? "the loaded language" : cn.lang.c_str());
     ImGui::SameLine();
-    ImGui::TextDisabled(cn.masters.loaded() ? "(game's audio service + your FC 26 list)" : "(game's audio service only: no FC 26 list)");
+    const std::string sources = cn.masters.loaded() ? "(game's audio service + " + cn.masters.label() + ")" : "(game's audio service only: no master list)";
+    ImGui::TextDisabled("%s", sources.c_str());
     // under the list: one line naming the players with their own recording
     const float below = ImGui::GetTextLineHeightWithSpacing() * 2.0f + ImGui::GetStyle().WindowPadding.y;
     ImGui::BeginChild("##cnclublist", ImVec2(0, list_height(below)), ImGuiChildFlags_Borders);
@@ -662,7 +752,11 @@ static void own_confirm_popup(App& app, const Table& t, const PlayerRow& p) {
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + S(560.0f));
     ImGui::TextWrapped("The game uses a player's own recording before playernamemap and his name ids, so the commentator keeps "
                        "saying his own name: the callname written now will not be heard while that recording exists.");
+    if (cn.own_unconfirmed(own))
+        ImGui::TextWrapped("Only your FC 26 list (FC 26 data) says so: the game's audio service did not list him, but its list is known "
+                           "to miss players.");
     if (g_pending.kind == PendingAssign::Kind::Player) {
+        ImGui::TextWrapped("For this career session only: Turbo does not write it again at the next career load.");
         // a full table: the other player whose row the write takes over is named here too, before anything is written
         const PlayerWritePlan plan = plan_player_write(app, p);
         g_state.confirm_takeover = takeover_text(app, plan);
@@ -705,7 +799,8 @@ void callname_editor(App& app, const Table& t, const PlayerRow& p) {
     ImGui::AlignTextToFramePadding();
     if (info.own) {
         // Step 0 of the game's rule: his own recording wins, so the line names it - never "none"
-        g_state.current_line = "Current callname: his own recording in " + cn.lang + " (" + cn.own_source(info.own) + ")";
+        g_state.current_line = "Current callname: his own recording in " + cn.lang + " (" + cn.own_source(info.own) +
+                               (cn.own_unconfirmed(info.own) ? "; not confirmed by the game's audio service, whose list is incomplete" : "") + ")";
         ImGui::TextColored(kGreen, "%s", g_state.current_line.c_str());
         if (ImGui::IsItemHovered()) {
             const std::string details = own_details(cn, p.playerid, info.own);
@@ -716,11 +811,11 @@ void callname_editor(App& app, const Table& t, const PlayerRow& p) {
         g_state.rule_line = "Not used while he has it: the callname rule gives " + (rule.empty() ? std::string("none") : rule);
         ImGui::TextDisabled("%s", g_state.rule_line.c_str());
     } else if (info.source == CallnameSource::None) {
-        // Without the FC 26 list the game's audio service is the only source, and it misses most own recordings: say so
+        // Without a master list the game's audio service is the only source, and it misses most own recordings: say so
         // rather than a flat "the commentary does not say his name"
         g_state.current_line = cn.masters.loaded()
                                    ? std::string("Current callname: none (the commentary does not say this player's name)")
-                                   : "Current callname: none from the callname rule (no FC 26 list for " + cn.lang +
+                                   : "Current callname: none from the callname rule (no master list for " + cn.lang +
                                          ": an own recording of his would not be known here)";
         ImGui::Text("%s", g_state.current_line.c_str());
     } else {
@@ -737,12 +832,17 @@ void callname_editor(App& app, const Table& t, const PlayerRow& p) {
         ImGui::SameLine();
         ImGui::TextDisabled("(back to the common / last name rule)");
     }
+    // the callname Turbo keeps for this player and writes again at every career load (ui_reapply.cpp), with Forget
+    reapply_callname_line(app, p);
+    reapply_status_line(app);
     if (ImGui::BeginPopupModal("##rmcallname", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Remove the playernamemap row of %s (ID %lld)?", p.name.c_str(), static_cast<long long>(p.playerid));
         ImGui::TextDisabled("The commentary falls back to his common or last name. Done by Turbo's Lua side on the next career event.");
         if (ImGui::Button("Remove")) {
             json a = {{"action", "remove_playernamemap"}, {"playerid", p.playerid}};
             send_actions(app, json::array({a}), "Remove player callname");
+            // meant for good: a kept callname is not written again at the next career load
+            app.forget_player_callname(p.playerid);
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();

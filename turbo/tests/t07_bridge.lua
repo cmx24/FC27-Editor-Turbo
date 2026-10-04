@@ -85,6 +85,7 @@ H.case("bridge.start writes bridge_meta.json and bridge_state.json the GUI can r
     H.eq(st.date.year, 2027); H.eq(st.date.month, 1); H.eq(st.date.day, 15)
     H.eq(st.le_version, "v27.1.0", "LE version")
     H.ok(st.db_gen >= 1, "db_gen set")
+    H.ok(st.load_gen >= 1, "load_gen set")
     H.eq(st.settings.dry_run, false, "settings: dry run")
     H.eq(st.settings.auto.form_morale.enabled, false, "settings: auto form")
 end)
@@ -101,6 +102,21 @@ H.case("a new day updates the state without a new database generation; a save lo
     H.eq(read_json("bridge_state.json").seq, st1.seq, "unchanged state not rewritten")
     sim:fire("post__CareerModeEvent", 0, POST_LOAD_PREPARE, 0)
     H.eq(read_json("bridge_state.json").db_gen, st1.db_gen + 1, "db_gen bumped on load")
+    H.eq(read_json("bridge_state.json").load_gen, st1.load_gen + 1, "load_gen bumped on load")
+end)
+
+H.case("the manager changing club bumps db_gen (re-read) but not load_gen (no career load)", function()
+    local st0 = read_json("bridge_state.json")
+    local team = sim.user_team
+    sim.user_team = team + 1
+    sim:fire("post__CareerModeEvent", 0, 7, 0)
+    local st1 = read_json("bridge_state.json")
+    H.eq(st1.user_team, team + 1, "new club")
+    H.eq(st1.db_gen, st0.db_gen + 1, "db_gen bumped: the GUI re-reads")
+    H.eq(st1.load_gen, st0.load_gen, "load_gen unchanged: kept edits are not written again mid-career")
+    sim.user_team = team
+    sim:fire("post__CareerModeEvent", 0, 7, 0)
+    H.eq(read_json("bridge_state.json").load_gen, st0.load_gen, "still unchanged")
 end)
 
 H.case("leaving career mode is a structural change", function()
@@ -112,10 +128,12 @@ H.case("leaving career mode is a structural change", function()
     H.eq(st1.user_team, 0, "no user team outside career")
     H.eq(st1.date, nil, "no date outside career")
     H.eq(st1.db_gen, st0.db_gen + 1, "db_gen bumped")
+    H.eq(st1.load_gen, st0.load_gen + 1, "load_gen bumped")
     sim.in_cm = true
     sim:fire("post__CareerModeEvent", 0, 7, 0)
     local st2 = read_json("bridge_state.json")
     H.eq(st2.in_cm, true); H.eq(st2.db_gen, st0.db_gen + 2, "bumped again")
+    H.eq(st2.load_gen, st0.load_gen + 2, "load_gen bumped again (career entered)")
 end)
 
 H.case("mailbox: ping is answered on the next career event, with a heartbeat", function()
@@ -201,6 +219,7 @@ end)
 
 H.case("mailbox: refresh rewrites meta and bumps the database generation", function()
     local g = read_json("bridge_state.json").db_gen
+    local lg = read_json("bridge_state.json").load_gen
     os.remove(H.out("bridge_meta.json"))
     submit('{"op":"refresh"}')
     sim:fire("post__CareerModeEvent", 0, 7, 0)
@@ -208,6 +227,7 @@ H.case("mailbox: refresh rewrites meta and bumps the database generation", funct
     H.eq(status, 1)
     H.ok(read_json("bridge_meta.json"), "meta rewritten")
     H.eq(read_json("bridge_state.json").db_gen, g + 1, "db_gen bumped")
+    H.eq(read_json("bridge_state.json").load_gen, lg, "load_gen unchanged (not a career load)")
 end)
 
 H.case("mailbox with a wrong magic is not used", function()

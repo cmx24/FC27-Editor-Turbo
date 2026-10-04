@@ -10,7 +10,7 @@
 //
 // Language packs on disk: <game>\commentary\commentaryfull_<lang>\ (a language the user downloaded, e.g. ita_it) and
 // <game>\Data\Win32\commentaryfull_<lang>.toc (the base language, eng_us). Which ids are spoken comes, in this order:
-//   1. a hand-made list <Live Editor>	urbo\callnames\spoken_<lang>.txt (one commentary id per line, e.g. from a FIFA
+//   1. a hand-made list <Live Editor>\turbo\callnames\spoken_<lang>.txt (one commentary id per line, e.g. from a FIFA
 //      Editor Tool export of pSIMPLE_SURNAME) - an override that always wins when present;
 //   2. the set the game itself answered (core/commentary_audio.h: every commentary id asked through the audio service
 //      the way the Create Player list is filtered, every player id asked for its own recordings) or, as a diagnostic,
@@ -20,10 +20,12 @@
 //
 // Players with their OWN recording (bound to the player id in the bank; the game says them whatever playernamemap or
 // the name ids give, docs/callnames.md section 1 step 0) come from two sources, and either one is enough:
-//   - the game's audio service (SpokenSet::players; only answered during a match, so often incomplete);
-//   - the user's FC 26 list <Live Editor>\turbo\callnames\masters\<lang>.json (MasterList), made by
-//     turbo/tools/import_callname_masters.py from the *_master workbooks ('real' rows). FC 27 mostly reuses those
-//     recordings; the UI calls it "your FC 26 list".
+//   - the game's audio service (SpokenSet::players; its list is known to be incomplete);
+//   - the master list of the language <Live Editor>\turbo\callnames\masters\<lang>.json (MasterList), made by
+//     turbo/tools/import_callname_masters.py from a master workbook ('real' rows): an FC 27 master built from the
+//     game's own data (<name>_master_fc27.xlsm, "game": "fc27", the UI says "FC 27 master") when there is one, else
+//     the user's FC 26 list (<name>_master.xlsm, "game": "fc26", "your FC 26 list"; FC 27 mostly reuses those
+//     recordings).
 #pragma once
 #include <cstdint>
 #include <filesystem>
@@ -69,15 +71,21 @@ struct SpokenSet {
     std::unordered_map<int64_t, int> players;     // player ids with their own recordings -> events / tables they are in
     bool verified = false;  // true: from a list file, the game's audio service or a bank capture; false: fallback
     enum class From { None, ListFile, GameAudio, BankCapture, Fallback } from = From::None;
+    // where `players` came from (GameAudio or BankCapture; a hand-made list never holds players) and how many player
+    // ids that build asked about (0 = not known)
+    From players_from = From::None;
+    size_t players_checked = 0;
     std::string source;     // where the set came from (shown in the UI)
     bool spoken(int64_t id) const { return id != kNoCallname && ids.count(id) > 0; }
     // the bank has recordings of this player's own name (spoken even when the rule above says "none")
     bool real(int64_t playerid) const { return players.count(playerid) > 0; }
 };
 
-// The user's FC 26 list for one language (turbo\callnames\masters\<lang>.json, read-only for Turbo)
+// The master list for one language (turbo\callnames\masters\<lang>.json, read-only for Turbo): an FC 27 master built
+// from the game, or the user's FC 26 list
 struct MasterList {
     std::string lang;
+    std::string game = "fc26";  // "fc27" (an FC 27 master) or "fc26" (the user's FC 26 list; also a file without "game")
     std::string file;    // the JSON read
     std::string source;  // the workbook it was made from
     std::string built;   // when it was made (ISO time, as written by the tool)
@@ -86,6 +94,13 @@ struct MasterList {
     std::unordered_map<int64_t, std::string> names;    // playerid -> the name the list gives his recording
     bool loaded() const { return !real_players.empty() || !generic_ids.empty(); }
     bool real(int64_t playerid) const { return real_players.count(playerid) > 0; }
+    bool fc27() const { return game == "fc27"; }
+    // What the UI calls it: "the FC 27 master" / "your FC 26 list" ("FC 27 master" / "Your FC 26 list" at the start
+    // of a line)
+    std::string label(bool line_start = false) const {
+        if (fc27()) return line_start ? "FC 27 master" : "the FC 27 master";
+        return line_start ? "Your FC 26 list" : "your FC 26 list";
+    }
 };
 // Parses the JSON the import tool writes. Entries of the wrong type are skipped; a file without any id, with the
 // wrong "language" (when `lang` is not empty) or that is not JSON is refused (err says why). Never throws.
@@ -95,9 +110,11 @@ std::filesystem::path master_list_path(const std::filesystem::path& le_root, con
 
 // Who says a player has his own recording (bit mask)
 constexpr int kOwnFromGame = 1;     // the game's audio service or the bank capture (SpokenSet::players)
-constexpr int kOwnFromMasters = 2;  // the user's FC 26 list (MasterList::real_players)
-// "the game's audio service", "your FC 26 list", "the game's audio service and your FC 26 list" ("" for 0)
-std::string own_recording_source_name(int own, SpokenSet::From game_from = SpokenSet::From::GameAudio);
+constexpr int kOwnFromMasters = 2;  // the master list (MasterList::real_players)
+// "the game's audio service", "your FC 26 list", "the game's audio service and your FC 26 list" ("" for 0);
+// `masters` = MasterList::label() of the list loaded ("FC 27 master" for an FC 27 master)
+std::string own_recording_source_name(int own, SpokenSet::From game_from = SpokenSet::From::GameAudio,
+                                      const std::string& masters = "your FC 26 list");
 
 enum class CallnameSource { None, PlayerSpecific, CommonName, LastName };
 const char* callname_source_name(CallnameSource s);
@@ -181,7 +198,7 @@ struct CallnameIndex {
 class Callnames {
 public:
     // Find the packs, pick the language and load its spoken set: the hand-made list, else the bank capture cache;
-    // plus the user's FC 26 list of players with their own recording (absent or bad = not used, the reason kept).
+    // plus the master list of players with their own recording (absent or bad = not used, the reason kept).
     // `chosen` = gui_settings callnames.language ("" = auto).
     void refresh(const std::filesystem::path& le_root, const std::filesystem::path& game_root, const std::string& chosen);
     // A spoken set just arrived (the game's audio service, core/commentary_audio.h, or a bank capture,
@@ -196,13 +213,19 @@ public:
     int own_recording(int64_t playerid) const {
         return (spoken.real(playerid) ? kOwnFromGame : 0) | (masters.real(playerid) ? kOwnFromMasters : 0);
     }
-    std::string own_source(int own) const { return own_recording_source_name(own, spoken.from); }
+    std::string own_source(int own) const { return own_recording_source_name(own, spoken.players_from, masters.label()); }
+    // Only the user's FC 26 list (FC 26 data) says the player has his own recording, while the game's audio service
+    // checked players and did not list him: the UI says so (the service's list is known to miss players, so the
+    // list's answer still counts)
+    bool own_unconfirmed(int own) const {
+        return own == kOwnFromMasters && !masters.fc27() && spoken.players_from == SpokenSet::From::GameAudio && spoken.players_checked > 0;
+    }
     // Is commentary id `cid` spoken in the loaded language? Spoken when the spoken set or the FC 26 list's generic names
     // hold it. Silent only where a loaded source covers the id and lacks it: 900001..965000 with a verified spoken set
     // (the game's audio service, a hand-made list or a bank capture; Turbo asks the game about this range only), any
     // other id with the FC 26 list loaded (the user mapped every recording of the language there; e.g. eng_us has
     // generic names 980001..980034, ita_it 999931..999952). Else Unknown (the fallback set; an id above 965000 without
-    // a list). "No callname" ids (<= 900000) are Silent.
+    // a list). "No callname" ids (<= 900000) are Silent. "FC 26 list" here and below: the master list, either kind.
     SpokenAnswer spoken_answer(int64_t cid) const;
     // For a Silent id: which source says it has no recording ("the game's audio service and your FC 26 list")
     std::string silent_source(int64_t cid) const;
@@ -220,7 +243,7 @@ public:
     std::string list_error;  // why it was not used ("" = used or none present)
     std::string cache_path;  // the bank capture cache looked for
     std::string cache_error; // why it was not used ("" = used or none present)
-    MasterList masters;          // the user's FC 26 list for the language (empty when absent or refused)
+    MasterList masters;          // the master list for the language (empty when absent or refused)
     std::string masters_path;    // the list looked for
     std::string masters_error;   // why it was not used ("" = used or none present)
     CallnameIndex index;

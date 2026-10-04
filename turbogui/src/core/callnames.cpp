@@ -170,6 +170,8 @@ bool parse_master_list_json(const std::string& text, const std::string& lang, Ma
         out.lang = str("language");
         out.source = str("source");
         out.built = str("built");
+        // "fc27": an FC 27 master; anything else (or none: the 1.0.2 tool's first lists) is the user's FC 26 list
+        out.game = lower(str("game")) == "fc27" ? "fc27" : "fc26";
         if (!lang.empty() && !out.lang.empty() && lower(out.lang) != lower(lang))
             return fail("a list for '" + out.lang + "', not '" + lang + "'");
         // ids are positive integers; a whole-number float (a spreadsheet's 216435.0) is accepted, anything else skipped
@@ -208,11 +210,11 @@ bool parse_master_list_json(const std::string& text, const std::string& lang, Ma
     }
 }
 
-std::string own_recording_source_name(int own, SpokenSet::From game_from) {
+std::string own_recording_source_name(int own, SpokenSet::From game_from, const std::string& masters) {
     const char* game = game_from == SpokenSet::From::BankCapture ? "the bank capture" : "the game's audio service";
-    if ((own & kOwnFromGame) && (own & kOwnFromMasters)) return std::string(game) + " and your FC 26 list";
+    if ((own & kOwnFromGame) && (own & kOwnFromMasters)) return std::string(game) + " and " + masters;
     if (own & kOwnFromGame) return game;
-    if (own & kOwnFromMasters) return "your FC 26 list";
+    if (own & kOwnFromMasters) return masters;
     return "";
 }
 
@@ -352,6 +354,8 @@ void Callnames::refresh(const fs::path& le_root, const fs::path& game_root, cons
             } else if (spoken.verified) {
                 // the hand-made list wins for the surnames; the players with recordings still come from the cache
                 spoken.players = cache.players;
+                spoken.players_from = cache.kind == "game audio service" ? SpokenSet::From::GameAudio : SpokenSet::From::BankCapture;
+                spoken.players_checked = cache.checked_players;
                 spoken.source += cache.kind == "game audio service" ? "; players with recordings from the game's audio service"
                                                                    : "; players with recordings from the bank capture";
             } else {
@@ -359,6 +363,8 @@ void Callnames::refresh(const fs::path& le_root, const fs::path& game_root, cons
                 spoken.from = cache.kind == "game audio service" ? SpokenSet::From::GameAudio : SpokenSet::From::BankCapture;
                 spoken.ids = cache.surnames;
                 spoken.players = cache.players;
+                spoken.players_from = spoken.from;
+                spoken.players_checked = cache.checked_players;
                 spoken.source = cache.source;
             }
         }
@@ -410,6 +416,8 @@ bool Callnames::apply_capture(const BankCapture& c, const fs::path& le_root, con
         spoken.players = cache.players;
         spoken.source = cache.source;
     }
+    spoken.players_from = cache.kind == "game audio service" ? SpokenSet::From::GameAudio : SpokenSet::From::BankCapture;
+    spoken.players_checked = cache.checked_players;
     return true;
 }
 
@@ -502,14 +510,14 @@ SpokenAnswer Callnames::spoken_answer(int64_t cid) const {
 
 std::string Callnames::silent_source(int64_t cid) const {
     if (cid <= kNoCallname) return "no callname";
-    if (cid > kCallnameMax) return "your FC 26 list (the game is not asked about ids above " + std::to_string(kCallnameMax) + ")";
+    if (cid > kCallnameMax) return masters.label() + " (the game is not asked about ids above " + std::to_string(kCallnameMax) + ")";
     std::string game;
     switch (spoken.from) {
         case SpokenSet::From::ListFile: game = "your spoken-id list"; break;
         case SpokenSet::From::BankCapture: game = "the bank capture"; break;
         default: game = "the game's audio service"; break;
     }
-    return masters.loaded() ? game + " and your FC 26 list" : game;
+    return masters.loaded() ? game + " and " + masters.label() : game;
 }
 
 SpareRow Callnames::spare_playernamemap_row(const std::vector<NameMapRow>& rows, const std::function<bool(int64_t)>& in_database,

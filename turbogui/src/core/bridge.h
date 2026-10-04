@@ -36,7 +36,9 @@ struct BridgeState {
     bool loaded = false;
     std::string session;
     long long seq = 0;
-    long long db_gen = 0;  // changes when a save is loaded / career entered or left
+    long long db_gen = 0;  // changes when a save is loaded / career entered or left, the manager changes club, a refresh
+    // changes only when a career is loaded, entered or left (Lua bridge.lua write_state); -1 = an older Lua without it
+    long long load_gen = -1;
     std::string le_version;
     uint64_t db_service = 0;
     uint64_t comm_service = 0;

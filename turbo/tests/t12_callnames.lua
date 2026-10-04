@@ -58,10 +58,40 @@ H.case("set_playernamemap never asks Live Editor to add a row without the window
     ok, msg = run({ { action = "set_display_name", playerid = 1006, surname = "Nope" } })
     H.ok(not ok, "display name row refused too: " .. tostring(msg))
     H.eq(sim:count_calls("InsertDBTableRow"), inserts, "still no insert")
+    ok, msg = run({ { action = "set_playernamemap", playerid = 1005, commentaryid = 930671, room = true } })
+    H.ok(not ok, "room without the table's capacity: refused: " .. tostring(msg))
+    H.has(msg, "capacity")
+    H.eq(sim:count_calls("InsertDBTableRow"), inserts, "still no insert")
+end)
+
+H.case("the room is checked again right before the insert: a table full by then, or a career loaded again, refuses it", function()
+    local inserts = sim:count_calls("InsertDBTableRow")
+    -- the window saw room (1 of 2 rows, say), but the table holds 2 rows when the command runs (FC 27 reloads
+    -- playernamemap full at every career load): counted again, refused
+    local ok, msg = run({ { action = "set_playernamemap", playerid = 1005, commentaryid = 930671, room = true, capacity = 2 } })
+    H.ok(not ok, "refused: " .. tostring(msg))
+    H.has(msg, "is full now")
+    H.eq(sim:count_calls("InsertDBTableRow"), inserts, "InsertDBTableRow not called")
+    ok, msg = run({ { action = "set_display_name", playerid = 1006, surname = "Nope", room = true, capacity = 1 } })
+    H.ok(not ok, "display name row refused on a full table: " .. tostring(msg))
+    H.has(msg, "editedplayernames table is full now")
+    -- the career was loaded again since the window checked: refused whatever the count says
+    TURBO_STATE.bridge = TURBO_STATE.bridge or {}
+    local saved = TURBO_STATE.bridge.load_gen
+    TURBO_STATE.bridge.load_gen = 8
+    ok, msg = run({ { action = "set_playernamemap", playerid = 1005, commentaryid = 930671, room = true, capacity = 600, load_gen = 7 } })
+    H.ok(not ok, "refused: " .. tostring(msg))
+    H.has(msg, "loaded again")
+    H.eq(sim:count_calls("InsertDBTableRow"), inserts, "still no insert")
+    ok, msg = run({ { action = "set_playernamemap", playerid = 1005, commentaryid = 930671, room = true, capacity = "x" } })
+    H.ok(not ok, "a capacity that is not a number is refused before anything runs: " .. tostring(msg))
+    H.has(msg, "capacity must be")
+    TURBO_STATE.bridge.load_gen = saved
+    H.eq(map_of(1005), nil, "no row")
 end)
 
 H.case("set_playernamemap adds a row through InsertDBTableRow when the player has none", function()
-    local ok, msg = run({ { action = "set_playernamemap", playerid = 1005, commentaryid = 930671, room = true } })
+    local ok, msg = run({ { action = "set_playernamemap", playerid = 1005, commentaryid = 930671, room = true, capacity = 517 } })
     H.ok(ok, msg)
     H.has(msg, "row added")
     H.eq(map_of(1005), 930671, "new row carries the callname")
@@ -93,7 +123,7 @@ H.case("set_display_name updates the editedplayernames row, or adds one", functi
     H.eq(sim:value("editedplayernames", rec, "surname"), "Zeta", "surname")
     H.eq(sim:value("editedplayernames", rec, "commonname"), "Zizi", "common name")
     H.eq(sim:value("editedplayernames", rec, "firstname"), "Ali", "first name kept")
-    ok, msg = run({ { action = "set_display_name", playerid = 1004, firstname = "Yuri", surname = "Alberto", room = true } })
+    ok, msg = run({ { action = "set_display_name", playerid = 1004, firstname = "Yuri", surname = "Alberto", room = true, capacity = 515 } })
     H.ok(ok, msg)
     H.has(msg, "display name added")
     rec = sim:find_row("editedplayernames", "playerid", 1004)

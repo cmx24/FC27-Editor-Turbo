@@ -52,12 +52,13 @@ local RELOAD_EVENTS = { "POST_LOAD_PREPARE", "ENTERED_HUB_FIRST_TIME", "CAREER_T
 
 TURBO_STATE = TURBO_STATE or { listeners = {} }
 TURBO_STATE.bridge = TURBO_STATE.bridge or {
-    seq = 0, db_gen = 0, last_state = nil, meta_written = false,
+    seq = 0, db_gen = 0, load_gen = 0, last_state = nil, meta_written = false,
     mailbox = nil, mailbox_session = nil, next_dll_check = 0, heartbeat = 0,
     session = string.format("%X", math.floor(os.time() % 0x7FFFFFFF)),
     gui_loaded = false, reload_ids = nil,
 }
 local S = TURBO_STATE.bridge
+S.load_gen = S.load_gen or 0  -- a bridge state kept from an older Turbo in this Lua session has none
 
 local function json()
     local ok, j = pcall(require, 'imports/external/json')
@@ -389,16 +390,22 @@ local function same_state(a, b)
 end
 
 -- Write bridge_state.json when something changed (or force). reload = the database may have moved.
-function M.write_state(force, reload)
+-- db_gen changes whenever the GUI should re-read the database (also when the manager changes club, or on a "refresh"
+-- command); load_gen only when a career was (re)loaded, entered or left: a reload event (load_event), in_cm flipping
+-- or another database service. The GUI writes kept edits again once per load_gen (turbogui ui_reapply.cpp): FC 27
+-- reloads teamkits and playernamemap from its base data at a career load, not when the manager changes club.
+function M.write_state(force, reload, load_event)
     local st = M.collect_state()
     local prev = S.last_state
-    local structural = reload or not prev or prev.db_service ~= st.db_service or prev.in_cm ~= st.in_cm
-        or prev.user_team ~= st.user_team
+    local loaded = load_event or not prev or prev.db_service ~= st.db_service or prev.in_cm ~= st.in_cm
+    local structural = reload or loaded or prev.user_team ~= st.user_team
     if not force and not structural and same_state(prev, st) then return true end
     if structural then S.db_gen = S.db_gen + 1 end
+    if loaded then S.load_gen = (S.load_gen or 0) + 1 end
     S.seq = S.seq + 1
     st.seq = S.seq
     st.db_gen = S.db_gen
+    st.load_gen = S.load_gen
     local j = json()
     local dir = M.dir()
     if not j or not dir then return false, "json library or output folder missing" end
@@ -549,7 +556,7 @@ function M.on_career_event(event_id)
     local reload = reload_ids()[event_id] == true
     if reload or not S.names_count then try_write_names() end
     -- (write_state also connects the mailbox on the way, through core/mem.lua's map lookup)
-    local okw, werr = pcall(M.write_state, false, reload)
+    local okw, werr = pcall(M.write_state, false, reload, reload)
     if not okw then log.warn("bridge state: %s", tostring(werr)) end
     -- queued native work for the game thread (Turbo.dll's game-thread dispatcher, src/win/game_hooks.cpp): this
     -- handler runs on the thread that posts career-mode events, so pumping here runs it on the game's own thread.

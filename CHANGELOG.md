@@ -3,32 +3,59 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
-## 1.0.2 (callnames: players with their own recording)
+## 1.0.2 (callnames: players with their own recording; kit colours and player callnames kept across career loads)
 
-Install as 1.0.1. Then, once: `python turbo\tools\import_callname_masters.py` (from the repository; needs openpyxl)
-to turn your FC 26 `*_master` workbooks into `turbo\callnames\masters\<language>.json`, and press Refresh in
-Players > Callname.
+Install as 1.0.1: unzip `FC27_LE_Turbo_1.0.2.zip` into the FC 27 Live Editor folder with the game closed. Back up your
+saves. Then, once: `python turbo\tools\import_callname_masters.py` (from the repository; needs openpyxl) to turn your
+master workbooks into `turbo\callnames\masters\<language>.json`, and press Refresh in Players > Callname. The tool uses
+an FC 27 master (`<name>_master_fc27.xlsm`, the same format, built from the game) when there is one, else your FC 26
+`<name>_master.xlsm`.
 
 ### Fixed
 
 - **Callname tab said "none" for players who have their own recording.** The game says a player's own recording
   (bound to his player id) before any callname. Turbo only knew these players from the game's audio service, which
   found 751 in Italian; your FC 26 list has 4,127 (Lobotka and Rrahmani among the missing ones). Turbo now also reads
-  your list. Such a player now shows "Current callname: his own recording in ita_it (your FC 26 list)".
+  the master list. Such a player now shows "Current callname: his own recording in ita_it (your FC 26 list)", or
+  "(the FC 27 master)". When only the FC 26 list says so, the line adds that the game's audio service did not confirm
+  it (its list is known to miss players).
 - **A callname could be written for such a player without notice, and never heard.** Both By name and By player now
   warn above the buttons and ask "Assign anyway?" before writing anything for him.
+- **A full playernamemap could give away a callname that is spoken** (1.0.1 note corrected). 1.0.1 took over rows whose
+  commentary id is above 965000, believing no commentary uses them. Your lists show generic recordings there in some
+  languages (English 980001..980034, Italian 999931..999952, Spanish and Dutch 9999xx). Turbo now takes only a row
+  whose player is not in the database, whose callname is none, or whose callname has no recording in the loaded
+  language (the game's audio service for 900001..965000, the master list above that), and names that player before
+  writing. A row Turbo cannot check is left alone.
+- **A row could still be added to a full table.** The Turbo window checks the room when you click, but Turbo's Lua side
+  adds the row at the next career event, maybe after a career load (FC 27 reloads `playernamemap` full). Lua now counts
+  the rows again right before it adds one and refuses when the table is full by then or a career was loaded in between.
 
 ### Added
 
+- **Kit colours and player-specific callnames are written again at every career load.** FC 27 reloads `teamkits` and
+  `playernamemap` from its base data whenever a career loads, so these edits used to last one session (1.0.1 Known
+  limits). Turbo now keeps them in `turbo_output\reapply_edits.json` (kit colours from Teams > Colours, per kit;
+  player-specific callnames from Players > Callname, per player) and writes them again when it connects to a newly
+  loaded career, also with the Turbo window hidden. Once per career load: not when the manager changes club, not on
+  Refresh. A callname goes to the player's own row, else to a row nobody hears a callname from; this never adds a row
+  (re-assign it in the Callname tab if he has none). Never written: a callname for a player with his own recording
+  (not even kept), and anything for a club or player not in the loaded career. Only the colour channels are written,
+  each kit separately (two kits of one type keep their own colours). One line in `turbo_gui.log` and in both tabs says
+  what was written, what could not be and what was left alone; a toast only when something was written or failed. A
+  **Forget** button (per kit, per player) drops a kept edit; *Remove player-specific callname* drops it too.
+  `turbo_output\reapply_off.txt` turns the re-apply off.
 - Players > Callname > **Players without own recording**: the players of the same club whose callname the game does
   use, to pick a player a callname test can be heard on.
-- `turbo/tools/import_callname_masters.py`: reads the seven `*_master` workbooks (por_br, eng_us, fre_fr, ger_de,
-  ita_it, dut_nl, spa_es; the Dutch `.xlsm` is used, not the older `.xlsx`) and writes one list per language.
+- `turbo/tools/import_callname_masters.py`: reads the master workbooks of the seven languages (por_br, eng_us, fre_fr,
+  ger_de, ita_it, dut_nl, spa_es) and writes one list per language, with `"game": "fc27"` or `"fc26"`. An FC 27 master
+  (`<name>_master_fc27.xlsm` / `.xlsx`, under `C:\FC_Tools\My Mods` or `<Live Editor>\turbo_dev\masters`) wins over the
+  FC 26 list of its language; among FC 26 lists the `.xlsm` wins (the older Dutch `.xlsx` is skipped).
 
 ### Not yet seen in game
 
 - Built and tested on the test world only (native and Lua suites). The FC 26 lists are FC 26 data: FC 27 mostly
-  reuses those recordings, but a recording FC 27 dropped is still listed.
+  reuses those recordings, but a recording FC 27 dropped is still listed until an FC 27 master replaces the list.
 
 ## 1.0.1 (fixes from the in-game check of team name, team colours and callnames)
 
@@ -43,7 +70,7 @@ Install as 1.0.0: unzip `FC27_LE_Turbo_1.0.1.zip` into the FC 27 Live Editor fol
 - **Crash on Players > Callname > By player > Use this player's callname.** FC 27's `playernamemap` table is full
   (106 of 106 rows), and Live Editor crashes the game when asked to add a row to a full table. Turbo now reads the
   table's capacity first. When the table is full, it takes over one of the 38 rows whose callname no commentary uses,
-  so no other player loses a spoken callname. If no such row is left, Turbo says so and suggests By name instead.
+  so no other player loses a spoken callname (corrected in 1.0.2: some languages do speak ids above 965000). If no such row is left, Turbo says so and suggests By name instead.
   The same check guards the row that keeps a player's shown name.
 
 ### Added
@@ -67,7 +94,7 @@ Install as 1.0.0: unzip `FC27_LE_Turbo_1.0.1.zip` into the FC 27 Live Editor fol
 
 - **Kit colours and player-specific callnames last for the session only.** FC 27 reloads `teamkits` and `playernamemap`
   from its base data at every career load, so these edits are gone after the career is loaded again. Club colours,
-  names and generic callnames are saved with the career. Re-applying them on load is planned.
+  names and generic callnames are saved with the career. Re-applying them on load: 1.0.2.
 - **Keep the shown name** takes effect on all screens after the career is loaded again. Until then, the team sheet may
   show the new surname.
 - Callname audio is per language. With the game's "Localized Commentary" on, a match abroad (for example a pre-season

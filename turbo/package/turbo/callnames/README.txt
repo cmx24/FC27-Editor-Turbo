@@ -20,12 +20,15 @@ Without a list for the loaded language the GUI falls back to every commentary id
 pickers "unverified". See docs/callnames.md in the repository for the details and the evidence.
 
 Players with their OWN recording (bound to the player id: the game says it whatever callname he has) are read from
-the game's audio service and from your FC 26 lists in
+the game's audio service and from the master list of the language in
 
     turbo\callnames\masters\<lang>.json
 
-made by turbo\tools\import_callname_masters.py (in the repository) from your *_master workbooks. The Callname tab
-warns and asks for a confirmation before writing a callname for such a player. See docs/callnames.md section 9.
+made by turbo\tools\import_callname_masters.py (in the repository) from a master workbook: an FC 27 master built
+from the game (<name>_master_fc27.xlsm) when there is one, else your FC 26 list (<name>_master.xlsm); the file's
+"game" field ("fc27" / "fc26") says which, and the Callname tab names it ("FC 27 master" / "your FC 26 list"). The
+Callname tab warns and asks for a confirmation before writing a callname for such a player, and does not keep it for
+the next career loads. See docs/callnames.md section 9.
 
 spoken_por_br.txt here comes from the FC 26 PT-BR generic surname bank (1,703 segments, exported with the FIFA Editor
 Tool in 2026-08); FC 27 keeps the commentary ids of commentarynames, but check a few in game before relying on it.

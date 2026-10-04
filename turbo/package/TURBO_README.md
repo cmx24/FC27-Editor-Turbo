@@ -1,4 +1,4 @@
-# FC 27 LE Turbo 1.0.1
+# FC 27 LE Turbo 1.0.2
 
 Turbo adds FC 26 Live Editor features to **FC 27 Live Editor** (public build v27.1.0 or newer). It has an in-game window, the **Turbo GUI**, with player, team, manager and database editors and buttons for every Turbo tool. Turbo runs next to Live Editor, inside the same game session. Live Editor's own files are not modified.
 
@@ -33,6 +33,7 @@ Offline Career Mode / Kick-Off only. Never use Live Editor or Turbo in online mo
 - Move a manager to another club, or make a manager available.
 - Match setup switches (the game accepts weather and difficulty) and the home / away swap of a fixture.
 Built and tested offline, not yet seen on a game screen in 1.0: loan list; team name (Live Editor shows a new name after its next start) and team colours; youth academy tools; time of day and CPU-substitutions switches; changing a fixture's opponent.
+Kept across career loads (1.0.2, built and tested offline, not yet seen in game): FC 27 reloads kit colours and player-specific callnames from its base data whenever a career loads, so Turbo keeps the kit colours you set in Teams > Colours and the callnames you give in Players > Callname > By player in `turbo_output\reapply_edits.json` and writes them again once per career load (not when your manager changes club). A callname for a player with his own recording is never kept or written again (the game says his recording instead), and Turbo never adds a row at a career load. `turbo_gui.log` and both tabs say what was written, what could not be and what was left alone; Forget (per kit, per player) drops a kept edit; `turbo_output\reapply_off.txt` turns this off.
 
 
 **Untested in a match** (built and tested offline; you only see the effect during or after a played match)
@@ -72,7 +73,7 @@ The full table, feature by feature, is in `docs/fc26-parity.md` in the Turbo sou
 ## Install
 
 1. Install the official FC 27 Live Editor as usual.
-2. Unzip `FC27_LE_Turbo_1.0.1.zip` into the Live Editor folder (the folder with `FCLiveEditor.DLL`). The layout is the same as in 0.3.0 and 0.4.0, so you can unzip over an older Turbo. Nothing of Live Editor is overwritten. You add:
+2. Unzip `FC27_LE_Turbo_1.0.2.zip` into the Live Editor folder (the folder with `FCLiveEditor.DLL`). The layout is the same as in 0.3.0 and 0.4.0, so you can unzip over an older Turbo. Nothing of Live Editor is overwritten. You add:
    - `turbo\Turbo.dll`, `turbo\TurboProbe.exe`, `turbo\TurboInjector.exe` (the Turbo GUI)
    - `turbo_config.json`, `TURBO_README.md`, `turbo_output\`
    - `lua\autorun\turbo_boot.lua`
@@ -156,7 +157,7 @@ The commentators call a player by the callname bound to his **common name id whe
 - **Choose a spoken name...** lists every name id and every real-bank player that triggers a callname in the active language (type at least 2 letters). Clicking a name writes it to the binding field (common name when set, else last name; or force one); clicking a player copies his name ids. Undo puts them back.
 - Lists of spoken ids per language live in `turbo_output\callnames\<lang>*.csv`, one or more files per language code (`ita_it`, `eng_us`, `por_br`, ...). They are header-driven: a `commentaryid` column lists generic-bank ids with audio, a `playerid` / `donor_playerid` column lists real-bank players, `kind,id` works too; comma, semicolon or tab separated, `#` comments, UTF-8 BOM accepted. Bank exports in the PT-BR callname project's format (`donors_generic.csv`, `donors_real.csv`) can be copied there unchanged (for example as `por_br.generic.csv` and `por_br.real.csv`). Without a list for the loaded language, Turbo shows what the database's `commentarynames` table knows and says it is unverified.
 - `gui_settings.json`: `commentary.language` (the pack to use), `commentary.game_dir` (the game folder, normally found from the running FC27.exe). The Status tab lists the packs and lists found.
-- **Players with their own recording** (1.0.2): the game says such a player's own recording before any callname. Turbo knows them from the game's audio service and from your FC 26 lists (`turbo\callnames\masters\<lang>.json`, made once with `turbo\tools\import_callname_masters.py` from your `*_master` workbooks). Players > Callname then shows "Current callname: his own recording in <lang> (your FC 26 list)", warns and asks "Assign anyway?" before writing a callname for him, and its *Players without own recording* tab lists the club's players a callname can be heard on.
+- **Players with their own recording** (1.0.2): the game says such a player's own recording before any callname. Turbo knows them from the game's audio service and from the master list of the language (`turbo\callnames\masters\<lang>.json`, made with `turbo\tools\import_callname_masters.py`: from an FC 27 master `<name>_master_fc27.xlsm` built from the game when there is one, else from your FC 26 `<name>_master.xlsm`). Players > Callname then shows "Current callname: his own recording in <lang> (your FC 26 list)" or "(the FC 27 master)", warns and asks "Assign anyway?" before writing a callname for him, and its *Players without own recording* tab lists the club's players a callname can be heard on. On a full playernamemap, By player takes over only a row nobody hears a callname from, and names its player first.
 - The pictures come from the game's files through Live Editor's `LegacyFileExport`. Live Editor runs Turbo's Lua side only on career-mode events, so images arrive a few at a time while you play (advancing the calendar, opening screens). To load the waiting ones at once: hide Turbo (F8), open Live Editor's Lua Engine, run `lua\scripts\turbo_images.lua` (up to 20 seconds per run). They are kept in `turbo_output\cache\legacy`.
 
 How it works:
