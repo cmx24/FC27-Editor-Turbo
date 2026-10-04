@@ -23,7 +23,14 @@ local NATIVES = {
 
 local calls, mem_addrs, loadlib_calls, loadlib_paths = {}, {}, 0, {}
 local real_loadlib = package.loadlib
-package.loadlib = function(path)
+-- Counts loads of Turbo.dll (link mode "*"). A later symbol lookup in the already loaded DLL (the game-thread pump,
+-- loadlib(path, "turbo_game_pump") from the bridge's career-event handler, t12) is not a load and is counted apart.
+local pump_lookups = 0
+package.loadlib = function(path, sym)
+    if sym == "turbo_game_pump" then
+        pump_lookups = pump_lookups + 1
+        return nil, "stub"
+    end
     loadlib_calls = loadlib_calls + 1
     loadlib_paths[#loadlib_paths + 1] = path
     return true
@@ -188,6 +195,7 @@ H.case("gui.autoload=true: the bridge reads the game only from the first career 
     H.ok(H.read(H.out("bridge_state.json")), "bridge state written on the first career event")
     sim:fire("post__CareerModeEvent", 0, 15, 0)
     H.eq(loadlib_calls, 1, "loaded once")
+    H.ok(pump_lookups <= 1, "the game-thread pump symbol is looked up at most once here")
     local evs = handler_events(sim)
     H.eq(#evs, 1, "one event")
     H.eq(evs[1], "post__CareerModeEvent", "never an undocumented init event")

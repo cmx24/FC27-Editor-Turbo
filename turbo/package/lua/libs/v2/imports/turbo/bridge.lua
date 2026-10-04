@@ -452,9 +452,41 @@ function M.on_career_event(event_id)
     if not okw then log.warn("bridge state: %s", tostring(werr)) end
     local okp, perr = pcall(M.poll_mailbox)
     if not okp then log.warn("bridge mailbox: %s", tostring(perr)) end
+    -- queued native work for the game thread (Turbo.dll's game-thread dispatcher, src/win/game_hooks.cpp): this
+    -- handler runs on the thread that posts career-mode events, so pumping here runs it on the game's own thread
+    local okg, gerr = pcall(M.pump_native)
+    if not okg then log.warn("bridge native pump: %s", tostring(gerr)) end
     -- game images the Turbo window asked for (core/legacy.lua): a quarter of a second per event
     local okl, lerr = pcall(function() return (require 'imports/turbo/core/legacy').pump(0.25) end)
     if not okl then log.warn("bridge images: %s", tostring(lerr)) end
+end
+
+-- Runs Turbo.dll's exported turbo_game_pump() on this thread (the game thread that posts career-mode events): queued
+-- work from host::run_on_game_thread executes here when the DLL has no per-frame game hook. The function is looked up
+-- once through package.loadlib and only while the GUI's mailbox is live (so nothing is loaded that is not running);
+-- a failed lookup is retried at most every PUMP_RETRY_EVENTS events. Returns true when the pump ran.
+local PUMP_RETRY_EVENTS = 60
+function M.pump_native()
+    if not S.mailbox then return false end
+    if S.pump == nil or S.pump == false then
+        S.pump_tries = (S.pump_tries or 0) + 1
+        if S.pump == false and (S.pump_tries % PUMP_RETRY_EVENTS) ~= 1 then return false end
+        local path = M.gui_path()
+        if not path or type(package) ~= "table" or type(package.loadlib) ~= "function" then
+            S.pump = false
+            return false
+        end
+        local f = package.loadlib(path, "turbo_game_pump")
+        if type(f) ~= "function" then
+            S.pump = false
+            return false
+        end
+        S.pump = f
+        log.info("game-thread pump: turbo_game_pump found in Turbo.dll")
+    end
+    S.pump()
+    S.pumps = (S.pumps or 0) + 1
+    return true
 end
 
 -- ---------------------------------------------------------------- GUI loader
