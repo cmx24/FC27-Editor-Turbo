@@ -53,13 +53,41 @@ uint64_t manager_at(Memory& mem, uint64_t managers, int type_id, std::string& er
     return obj;
 }
 
-std::string locate(Memory& mem, uint64_t managers, uint64_t& out) {
+// Index of the manager slot whose holder points at obj, -1 when none (bounded walk of the table)
+int slot_of(Memory& mem, uint64_t managers, uint64_t obj) {
+    if (!is_ptr(managers, 8) || !obj) return -1;
+    for (int i = 0; i < kMaxSlots; ++i) {
+        const uint64_t slot = managers + kSlotSize * static_cast<uint64_t>(i);
+        int32_t count = 0;
+        if (!mem.rd(slot + kSlotCount, count)) return -1;  // the table ended
+        if (count != 1) continue;
+        if (mem.chain(slot, {kSlotHolder, 0}) == obj) return i;
+    }
+    return -1;
+}
+
+// The documented slot first; when the object there has another vtable (seen in game 04-10-2026: slot 108 held a
+// 0x14975EA38 object, the StandingsViewManager sat in slot 107) every slot is tried for the expected vtable.
+std::string locate(Memory& mem, uint64_t managers, uint64_t& out, uint64_t vtable) {
     out = 0;
     std::string err;
     uint64_t svm = manager_at(mem, managers, kTypeId, err);
-    if (!svm) return "StandingsViewManager: " + err;
-    out = svm;
-    return "";
+    uint64_t vt = 0;
+    if (svm && (!vtable || (mem.rd(svm, vt) && vt == vtable))) {
+        out = svm;
+        return "";
+    }
+    if (!vtable) return "StandingsViewManager: " + err;
+    for (int i = 0; i < kMaxSlots; ++i) {
+        std::string e2;
+        uint64_t obj = manager_at(mem, managers, i, e2);
+        if (!obj || !mem.rd(obj, vt) || vt != vtable) continue;
+        if (mem.ptr(obj + kOffCtx) != managers) continue;
+        out = obj;
+        return "";
+    }
+    return "no manager slot holds an object with the StandingsViewManager vtable " + hex(vtable) +
+           (svm ? " (slot " + std::to_string(kTypeId) + " holds another class)" : " (" + err + ")");
 }
 
 std::string validate(Memory& mem, uint64_t svm, uint64_t managers, uint64_t vtable, uint64_t slot10) {
@@ -79,10 +107,7 @@ std::string validate(Memory& mem, uint64_t svm, uint64_t managers, uint64_t vtab
     if (!ctx) return "StandingsViewManager has no manager table pointer (+0x8)";
     if (managers && ctx != managers)
         return "StandingsViewManager " + hex(svm) + " belongs to manager table " + hex(ctx) + ", not " + hex(managers) + " (another career?)";
-    std::string err;
-    uint64_t back = manager_at(mem, ctx, kTypeId, err);
-    if (!back) return "the manager table's slot 108 is not readable: " + err;
-    if (back != svm) return "the manager table's slot 108 holds " + hex(back) + ", not " + hex(svm);
+    if (slot_of(mem, ctx, svm) < 0) return "no slot of the manager table " + hex(ctx) + " holds " + hex(svm);
     return "";
 }
 
@@ -181,11 +206,21 @@ Result refresh(Memory& mem, Caller& call, const Fns& fns, const Request& req) {
         if (!managers)
             return fail(r, "validate",
                         "the career's StandingsViewManager is not known: load a career (Turbo's Lua side publishes it in bridge_state.json)");
-        err = locate(mem, managers, svm);
-        if (!err.empty()) return fail(r, "validate", err);
     }
     const uint64_t vtable = fns.vtable ? fns.vtable : (req.image_base ? req.image_base + kRvaVtable : 0);
+    if (!svm) {
+        err = locate(mem, managers, svm, vtable);
+        if (!err.empty()) return fail(r, "validate", err);
+    }
     err = validate(mem, svm, managers, vtable, fns.slot10);
+    if (!err.empty() && managers) {
+        // the published object is not it (the Lua side reads the documented slot): find it by its vtable
+        uint64_t again = 0;
+        if (locate(mem, managers, again, vtable).empty() && again != svm) {
+            svm = again;
+            err = validate(mem, svm, managers, vtable, fns.slot10);
+        }
+    }
     if (!err.empty()) return fail(r, "validate", err);
     if (!managers) managers = mem.ptr(svm + kOffCtx);
     r.svm = svm;

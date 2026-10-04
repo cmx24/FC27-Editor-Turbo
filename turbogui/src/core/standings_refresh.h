@@ -33,6 +33,7 @@ namespace svm {
 
 // StandingsViewManager and manager-table layout, FC27.exe 1.0.140.64835 (docs/re/standings-ui-path.md, [H])
 constexpr int kTypeId = 108;      // ENUM_FCEGameModesFCECareerModeStandingsViewManager
+constexpr int kMaxSlots = 200;   // manager table slots walked when the documented slot holds another class
 constexpr int kIfceTypeId = 1;    // IFCEInterface (the holder the career's requests go through)
 constexpr uint64_t kCommManagersA = 0x20, kCommManagersB = 0x10;  // managers = [[comm+0x20]+0x10]
 constexpr uint64_t kSlotSize = 0x20, kSlotType = 0x08, kSlotCount = 0x10, kSlotHolder = 0x18;
@@ -95,7 +96,8 @@ uint64_t manager_table(Memory& mem, uint64_t comm);
 // when the slot is empty or unreadable
 uint64_t manager_at(Memory& mem, uint64_t managers, int type_id, std::string& err);
 // Locate the SVM through the table (manager_at(kTypeId)); "" and `out` on success, else the reason
-std::string locate(Memory& mem, uint64_t managers, uint64_t& out);
+std::string locate(Memory& mem, uint64_t managers, uint64_t& out, uint64_t vtable = 0);
+int slot_of(Memory& mem, uint64_t managers, uint64_t obj);
 // Validate an SVM pointer: readable to +0x490, vtable (0 = skip), slot10 (0 = skip), back-pointer to `managers`
 // (0 = take the object's own and check that its slot 108 holds the object). "" = fine, else the reason
 std::string validate(Memory& mem, uint64_t svm, uint64_t managers, uint64_t vtable, uint64_t slot10);
