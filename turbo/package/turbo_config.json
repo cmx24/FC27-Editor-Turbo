@@ -126,13 +126,14 @@
       "confirm": false
     },
     "player_presets": {
-      "_help": "turbo_export_player: playerids -> CSV in preset_dir (empty = extensions\\player_presets) + JSON in turbo_output\\players; turbo_import_player: file onto playerid, groups = profile|attributes|positions|playstyles|appearance|contract|names|miniface (empty = all)",
+      "_help": "turbo_export_player: playerids -> CSV in preset_dir (empty = extensions\\player_presets) + JSON in json_dir (empty = turbo_output\\players); turbo_import_player: file onto playerid, groups = profile|attributes|positions|playstyles|appearance|contract|names|miniface (empty = all)",
       "playerids": [],
       "name": "",
       "csv": true,
       "json": true,
       "miniface": true,
       "preset_dir": "",
+      "json_dir": "",
       "file": "",
       "playerid": 0,
       "groups": [],

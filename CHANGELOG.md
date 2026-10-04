@@ -3,6 +3,26 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.1.1 (playtest fixes)
+
+Not yet released or checked in game.
+
+### Fixed
+
+- **Export no longer drops the game to the desktop.** The export started a Windows `mkdir` command for its folders,
+  and its console window took the game out of full screen (the screen blinked). Turbo now makes the folders itself,
+  and the Lua side only runs `mkdir` for a folder that really is missing.
+
+### Changed
+
+- **Every Browse... opens inside the overlay** (Export, Import, crest and miniface pictures): folders, files, Up,
+  drive letters, shortcuts and **New folder**. No Windows dialog opens, so the game stays in full screen.
+  **Open in Explorer** is a separate button, marked "(leaves full screen)".
+- Export: pick the JSON folder, the CSV folder, and the file name (**Browse...** next to File name). Defaults:
+  `turbo_output\players` (JSON and miniface) and `extensions\player_presets` (CSV). If a file already exists, Export
+  lists it and asks first (**Replace and export** / **Back**). File formats are unchanged.
+- Each picker remembers its last folder (`turbo_output\gui_folders.json`).
+
 ## 1.1.0 (voice swaps: any player gets any real or generic callname in matches)
 
 Not yet released or checked in game.

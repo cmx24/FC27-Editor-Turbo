@@ -9,6 +9,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "file_picker.h"
 #include "imgui.h"
 
 namespace turbo {
@@ -79,6 +80,7 @@ App::App(Memory& m, fs::path le_root, uint64_t mailbox_addr, std::string sess)
     load_gui_settings();
     load_reapply();  // kit colours and player-specific callnames written again at every career load (ui_reapply.cpp)
     load_voice();    // voice swaps (ui_callnames.cpp): no career needed; published once the host gives the service
+    folder_store(bridge.dir() / "gui_folders.json");  // last folder of each in-overlay file picker (file_picker.cpp)
     if (const char* tt = std::getenv("TURBO_GUI_TEST_TEXTURES")) texture_test = tt[0] == '1';
     log(std::string("Turbo GUI ") + kGuiVersion + " started");
 }

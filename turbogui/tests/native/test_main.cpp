@@ -2959,6 +2959,8 @@ struct FakeMatchSetup : msetup::Service {
 };
 }  // namespace
 
+#include "test_file_picker.h"   // in-overlay file picker and the Export / Import dialogs (test_file_picker_ui)
+
 static void test_ui() {
     SimMemory mem;
     CHECK(mem.load(g_out / "world.img"), "world.img");
@@ -6093,6 +6095,8 @@ static void test_ui() {
             ui.frames(3);
             CHECK(ui.find("Not available: this Turbo has no game calls.") == nullptr || true, "no service: renders");
         });
+
+        test_file_picker_ui(app, ui, mem, kMb);
 
         run_case("UI: no ImGui errors, layout stable over many frames", [&] {
             for (int tab = 0; tab < 7; ++tab) {

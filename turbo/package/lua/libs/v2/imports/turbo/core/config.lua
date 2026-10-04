@@ -65,7 +65,7 @@ M.DEFAULTS = {
         db_edit = { edits = {} },
         export_table = { tables = { "teams" }, max_rows = 0 },
         callnames = { actions = {} },
-        player_presets = { mode = "export", playerids = {}, name = "", csv = true, json = true, miniface = true, preset_dir = "",
+        player_presets = { mode = "export", playerids = {}, name = "", csv = true, json = true, miniface = true, preset_dir = "", json_dir = "",
                            file = "", playerid = 0, groups = {}, row = 0, preset_playerid = 0 },
         create_player = { source = {}, teamid = 111592, jersey = 0, names = {}, set = {}, playerid = 0,
                           min_playerid = 0, max_playerid = 459999, allow_user_club = false },
