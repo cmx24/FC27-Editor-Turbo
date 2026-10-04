@@ -118,6 +118,7 @@ static void test_file_picker_ui(App& app, Ui& ui, SimMemory& mem, uint64_t mailb
         CHECK(ui.click("Back##pexport", "##pexport"), "Back");
         CHECK(ui.find("Export player", "##pexport") != nullptr && !app.busy(), "back to the dialog, nothing sent");
         CHECK(ui.click("Export player", "##pexport"), "Export player");
+        ui.frames(2);  // the auto-resizing dialog grows one frame after the confirmation appears (clipped until then)
         CHECK(ui.click("Replace and export", "##pexport"), "replace");
         json again = take("Replace and export");
         CHECK(again["overrides"].value("name", "") == base, "sent after the confirmation");
