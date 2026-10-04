@@ -82,6 +82,10 @@ Not yet released or checked in game.
 
 ### Fixed
 
+- **Moving one of your players never leaves him on your transfer / loan list.** A transfer, loan, release or delete
+  out of your club is refused (nothing written, with the reason) when his list status cannot be read (Turbo GUI not
+  running, another game call still pending) or the game's remove is only queued; a loan whose club move fails takes
+  its new playerloans row back out, and a move that ends a loan needs Live Editor's row delete before it writes.
 - Scrollbars no longer turn into big grey ovals after resizing the game window or changing the UI size: every size
   change rebuilt the style on top of the already scaled sizes. Scrollbars and grabs are also thinner.
 - Clubs stored as an unresolved name key (`*TeamName_Abbr15_112264`) show a readable name in the Club column, the Teams

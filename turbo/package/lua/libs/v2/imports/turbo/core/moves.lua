@@ -491,26 +491,66 @@ end
 
 -- Before a player leaves your club (transfer, loan, release, delete) he comes off your transfer / loan list through the
 -- game's own remove, so the Transfer Hub lists and the AI clubs' offers never point at a player your club no longer
--- has. Returns ok, note (note = what was done, for the summary).
+-- has. Returns ok, note (note = what was done, for the summary). One of your players is moved only when the game
+-- answered his list status ("ok") and, when he was listed, its remove answered "ok" with him off both lists: without
+-- the Turbo GUI's game call, with another game call still pending, with an answer "queued" for later or any other
+-- failure the move is refused (false, reason) and nothing is written. Other clubs' players are never on your lists.
+local function lists_unchecked(pid, why)
+    return false, string.format("player %d not moved: could not check your transfer / loan list right now (%s); " ..
+        "nothing was changed, try again in a moment", pid, why)
+end
+
 function M.leave_lists(pid, from)
     local user = M.user_team()
     if user <= 0 or from ~= user or M.loan_row(pid) then return true end   -- loaned-in players are never on your lists
-    if not M.list_native() then return true, "list status not read: the Turbo GUI is not running" end
-    local ok, _, status, before = M.list(pid, "list_status", { teamid = from })
-    before = math.tointeger(before) or 0
-    if not ok or status ~= "ok" or (before ~= 7 and before ~= 8 and before ~= 9) then return true end
-    local ok2, msg2 = M.list(pid, "unlist", { teamid = from })
-    if not ok2 then
-        return false, string.format("player %d is %s and the game's remove failed: %s", pid,
-            M.LIST_STATUS_NAME[before] or "listed", tostring(msg2))
+    if not M.list_native() then
+        return false, string.format("player %d not moved: could not check your transfer / loan list (%s); nothing was " ..
+            "changed", pid, M.LIST_NATIVE_MISSING)
+    end
+    local ok, msg, status, before = M.list(pid, "list_status", { teamid = from })
+    before = math.tointeger(before)
+    if status == "queued" then return lists_unchecked(pid, "the game queued the status read instead of answering") end
+    if not ok or status ~= "ok" then
+        -- bridge.game_call: "game call #N (...) is still queued" while an earlier call waits for the game thread
+        if tostring(msg):find("still queued", 1, true) then return lists_unchecked(pid, "another game call is running") end
+        return lists_unchecked(pid, tostring(msg))
+    end
+    if not before then return lists_unchecked(pid, "the game gave no list status") end
+    if before ~= 7 and before ~= 8 and before ~= 9 then return true end
+    local name = M.LIST_STATUS_NAME[before] or "listed"
+    local ok2, msg2, status2, _, after = M.list(pid, "unlist", { teamid = from })
+    after = math.tointeger(after)
+    if status2 == "queued" then
+        return false, string.format("player %d not moved: he is %s and the game's remove is queued for the next game " ..
+            "tick, not done; nothing was changed, try again in a moment", pid, name)
+    end
+    if not ok2 or status2 ~= "ok" then
+        return false, string.format("player %d is %s and the game's remove failed: %s", pid, name, tostring(msg2))
+    end
+    if after == nil or after == 7 or after == 8 or after == 9 then
+        return false, string.format("player %d not moved: he is %s and after the game's remove he is still %s; " ..
+            "nothing was changed", pid, name, after and (M.LIST_STATUS_NAME[after] or "listed") or "of unknown list status")
     end
     return true, "taken off your transfer / loan list first"
+end
+
+-- Live Editor's row delete ends a loan (his playerloans row goes): checked before the first write of a move that ends
+-- one, so a build without it refuses instead of moving him and leaving the old loan row behind
+local function can_delete_rows()
+    if type(_G["DeleteDBTableRowByAddr"]) ~= "function" then
+        return false, "DeleteDBTableRowByAddr is not available in this Live Editor build"
+    end
+    return true
 end
 
 local function with_note(text, note) return note and (text .. " (" .. note .. ")") or text end
 
 -- Runs a planned move: your lists first, then the database writes, then (ending a loan) his playerloans row
 local function run_move(plan, pid, from, end_loan)
+    if end_loan then
+        local okd, derr = can_delete_rows()
+        if not okd then return false, derr end
+    end
     local okl, note = M.leave_lists(pid, from)
     if not okl then return false, note end
     local ok, err = apply(plan, false)
@@ -592,16 +632,25 @@ function M.loan(pid, to_team, months, dry)
     if dry then return true, text end
     local insert = _G["InsertDBTableRow"]
     if type(insert) ~= "function" then return false, "InsertDBTableRow is not available in this Live Editor build" end
+    -- the row delete takes the new playerloans row back out when the club move fails after the insert
+    local okd, derr = can_delete_rows()
+    if not okd then return false, derr end
     local okl, note = M.leave_lists(pid, from)
     if not okl then return false, note end
     -- InsertDBTableRow returns the new row (DOC.MD: DBRow, each field { value, addr }); the row is then looked up in
-    -- the table itself, so a call that returned something but added nothing is caught
+    -- the table itself, so a call that returned something but added nothing is caught (and a row it did add goes)
     local okc, res = pcall(insert, "playerloans", row)
     if not okc or type(res) ~= "table" or not M.loan_row(pid) then
+        if M.loan_row(pid) then delete_rows("playerloans", pid) end
         return false, "could not add the playerloans row: " .. tostring(res)
     end
     ok, err = apply(plan, false)
-    if not ok then return false, err end
+    if not ok then
+        -- he was not on loan before (checked above): the new playerloans row goes, so no loan row without the move
+        local n, rerr = delete_rows("playerloans", pid)
+        if not n then err = tostring(err) .. "; removing the new playerloans row also failed: " .. tostring(rerr) end
+        return false, err
+    end
     return true, with_note(text, note)
 end
 
@@ -616,6 +665,8 @@ function M.terminate_loan(pid, dry)
     if not from then return false, merr end
     local text = string.format("player %d: loan at %d ended, back to %d", pid, from, back)
     if dry then return true, text end
+    local okd, derr = can_delete_rows()
+    if not okd then return false, derr end
     local ok, err = apply(plan, false)
     if not ok then return false, err end
     local n, derr = delete_rows("playerloans", pid)
@@ -629,6 +680,10 @@ function M.delete(pid, dry)
     if not players or not db.find(players, "playerid", pid) then return false, string.format("player %d not found", pid) end
     local okg, gerr = M.guard()
     if not okg then return false, gerr end
+    if not dry then
+        local okd, derr = can_delete_rows()
+        if not okd then return false, derr end
+    end
     local _, tid = M.club_link(pid)
     if tid and tid ~= M.FREE_AGENTS then
         local ok, err = M.release(pid, dry)
