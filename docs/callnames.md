@@ -131,6 +131,10 @@ What was tried and dropped:
   the EBX with the selection tables is inside compressed chunks (cas_02.cas's 256 KB blocks of type 0x0070..0x0074 are
   the uncompressed audio streams, cas_01 holds the compressed metadata). A Frostbite superbundle + EBX reader with
   decompression would be needed: out of scope and fragile across title updates.
+  *Done since (2026-10-04, outside Turbo.dll):* `turbo/tools/fc27_commentary/fc27_commentary.py` reads the whole chain
+  (toc, bundle manifest, Oodle blocks, the families' `SBle` data sets, the EA Opus audio) and writes every
+  `pSIMPLE_SURNAME` / `pPLAYER_NAMES_SIMPLE` / `pPLAYER_NAMES_LINK` row plus the wavs; the formats, counts and the
+  cross-checks against the game's own answers are in `docs/re/fc27-commentary-bank.md`.
 * **Reading the selection tables from memory** (§6): the only record shape found is the bank's sample index; the
   per-variation selector values are stored in a form that was not located. Asking the game (§5) needs no table.
 * **A guarded hook on the game's "has audio" lookup**: not needed either; the lookup is *called*, with the game's own
