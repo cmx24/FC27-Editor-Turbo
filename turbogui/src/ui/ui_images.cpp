@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <system_error>
@@ -92,6 +93,35 @@ std::vector<fs::path> picture_files(const fs::path& dir) {
     return out;
 }
 
+// Folders worth a shortcut button in the browser: Desktop and Pictures (plain and under OneDrive), the Turbo minifaces folder
+static fs::path g_minifaces_folder;
+std::vector<std::pair<std::string, fs::path>> browser_shortcuts() {
+    std::vector<std::pair<std::string, fs::path>> out;
+    std::error_code ec;
+    auto add = [&](const std::string& label, const fs::path& p) {
+        if (!p.empty() && fs::is_directory(p, ec)) out.emplace_back(label, p);
+    };
+    const char* home = std::getenv("USERPROFILE");
+    if (!home) home = std::getenv("HOME");
+    if (home) {
+        fs::path h(home);
+        add("Desktop", h / "Desktop");
+        add("Pictures", h / "Pictures");
+        add("OneDrive Desktop", h / "OneDrive" / "Desktop");
+        add("OneDrive Pictures", h / "OneDrive" / "Pictures");
+        if (const char* od = std::getenv("OneDrive")) {
+            fs::path o(od);
+            if (o != h / "OneDrive") {
+                add("OneDrive Desktop", o / "Desktop");
+                add("OneDrive Pictures", o / "Pictures");
+            }
+        }
+        add("Downloads", h / "Downloads");
+    }
+    add("turbo_minifaces", g_minifaces_folder);
+    return out;
+}
+
 // Modal browser; returns true when a picture file was chosen (out)
 static bool file_browser_modal(const char* id, fs::path& cur_dir, fs::path& out) {
     bool chosen = false;
@@ -116,6 +146,12 @@ static bool file_browser_modal(const char* id, fs::path& cur_dir, fs::path& out)
         }
         ImGui::SameLine();
         if (ImGui::Button("Up") && cur_dir.has_parent_path() && cur_dir.parent_path() != cur_dir) cur_dir = cur_dir.parent_path();
+        // shortcuts: Desktop, Pictures (also under OneDrive), the Turbo minifaces folder
+        for (const auto& sc : browser_shortcuts()) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton(sc.first.c_str())) cur_dir = sc.second;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", sc.second.string().c_str());
+        }
 #ifdef _WIN32
         // drive letters
         for (char d = 'C'; d <= 'Z'; ++d) {
@@ -273,6 +309,7 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
         ed.browse_dir = keep_dir;
     }
     if (ed.browse_dir.empty()) ed.browse_dir = app.bridge.root() / "turbo_minifaces";
+    g_minifaces_folder = app.bridge.root() / "turbo_minifaces";
 
     // waiting for a game picture chosen as the source
     if (!ed.pending_legacy.empty()) {
@@ -489,6 +526,7 @@ static bool picture_cell(App& app, const std::string& path, bool custom_first, f
 struct FaceRow {
     int64_t playerid = 0;
     int64_t headassetid = 0;
+    bool real = false;  // headclasscode 0 and hashighqualityhead 1 (a star head)
     std::string name;
     std::string lname;
 };
@@ -507,13 +545,15 @@ static void build_faces(App& app) {
     const Field* hc = t->field("headclasscode");
     const Field* ha = t->field("headassetid");
     const Field* pid = t->field("playerid");
+    const Field* hq = t->field("hashighqualityhead");
     if (!hc || !ha || !pid) return;
     for (uint32_t idx : snap.valid) {
-        if (snap.get_int(idx, *hc) != 0) continue;
         FaceRow r;
         r.playerid = snap.get_int(idx, *pid);
         r.headassetid = snap.get_int(idx, *ha);
         if (r.headassetid <= 0) continue;
+        r.real = snap.get_int(idx, *hc) == 0 && (!hq || snap.get_int(idx, *hq) != 0);
+        if (!r.real && snap.get_int(idx, *hc) != 0 && r.headassetid != r.playerid) continue;  // generic head: nothing to pick
         r.name = app.model.player_name(r.playerid);
         r.lname = lower(r.name);
         g_faces.push_back(std::move(r));
@@ -523,7 +563,9 @@ static void build_faces(App& app) {
 
 size_t real_face_count(App& app) {
     build_faces(app);
-    return g_faces.size();
+    size_t n = 0;
+    for (const auto& f : g_faces) n += f.real ? 1 : 0;
+    return n;
 }
 
 // Fields copied from the chosen head model's player (only those FC 27's players table has)
@@ -597,8 +639,12 @@ void real_face_picker(App& app, int64_t target_pid) {
     ImGui::SetNextWindowSize(ImVec2(S(820.0f), S(600.0f)), ImGuiCond_Appearing);
     if (!ImGui::BeginPopupModal("Choose a real face", nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
     build_faces(app);
+    static bool real_only = true;
     ImGui::SetNextItemWidth(S(220.0f));
-    ImGui::InputTextWithHint("##facesearch", "name or ID", search, sizeof(search));
+    ImGui::InputTextWithHint("##facesearch", "name or ID (at least 2 letters)", search, sizeof(search));
+    ImGui::SameLine();
+    ImGui::Checkbox("Real faces only (head class 0)", &real_only);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only players with headclasscode 0 (a real face head model) and hashighqualityhead 1");
     ImGui::SameLine();
     ImGui::Checkbox("Hair", &opts.hair);
     ImGui::SameLine();
@@ -613,6 +659,7 @@ void real_face_picker(App& app, int64_t target_pid) {
     bool numeric = !q.empty() && std::all_of(q.begin(), q.end(), ::isdigit);
     std::vector<const FaceRow*> rows;
     for (const auto& f : g_faces) {
+        if (real_only && !f.real) continue;
         if (!q.empty()) {
             if (numeric ? (std::to_string(f.playerid).find(q) != 0 && std::to_string(f.headassetid).find(q) != 0)
                         : f.lname.find(q) == std::string::npos)
@@ -620,7 +667,8 @@ void real_face_picker(App& app, int64_t target_pid) {
         }
         rows.push_back(&f);
     }
-    ImGui::TextDisabled("%zu heads (head models of real players, with their minifaces)", rows.size());
+    if (!q.empty() && !numeric && q.size() < 2) ImGui::TextDisabled("Type at least 2 letters");
+    ImGui::TextDisabled("%zu heads (head models of %s, with their minifaces)", rows.size(), real_only ? "real-face players" : "every player with a head model");
     const float cell = S(96.0f);
     ImGui::BeginChild("##facegrid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 2.2f), ImGuiChildFlags_Borders);
     int cols = std::max(1, int((ImGui::GetContentRegionAvail().x + ImGui::GetStyle().ItemSpacing.x) / (cell + ImGui::GetStyle().ItemSpacing.x)));

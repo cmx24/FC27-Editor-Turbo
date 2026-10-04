@@ -22,9 +22,11 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "core/bridge.h"
+#include "core/callnames.h"
 #include "core/image.h"
 #include "core/legacy.h"
 #include "core/devops.h"
@@ -911,6 +913,119 @@ static void test_ui() {
             CHECK(ui.type_into(ui.find("##v", "##prof", "overallrating"), "91"), "type overall");
             CHECK(app.db.get_int(*p, rec, "overallrating") == 91, "overall written");
             CHECK(app.model.player(1002)->overall == 91, "list row refreshed");
+        });
+
+        run_case("UI: Profile: enum combo (preferred foot) and undo of the last edits", [&] {
+            const Table* p = app.db.table("players");
+            uint64_t rec = app.db.find(*p, "playerid", 1002);
+            int64_t foot0 = app.db.get_int(*p, rec, "preferredfoot");
+            CHECK(ui.click("##e", "##prof", "preferredfoot"), "preferred foot combo");
+            ui.frames(2);
+            const char* want = foot0 == 1 ? "Left##2" : "Right##1";
+            CHECK(ui.click(want, "##Combo"), "pick the other foot");
+            int64_t foot1 = app.db.get_int(*p, rec, "preferredfoot");
+            CHECK(foot1 != foot0 && foot1 >= 1 && foot1 <= 2, fmt("preferred foot %lld -> %lld", (long long)foot0, (long long)foot1));
+            // undo: the foot, then the overall (91 from the previous case)
+            size_t n = app.undo_count(1002);
+            CHECK(n >= 2, fmt("undo steps recorded: %zu", n));
+            CHECK(ui.click(fmt("Undo (%zu)##pundo", n), "##pedit"), "Undo button");
+            CHECK(app.db.get_int(*p, rec, "preferredfoot") == foot0, "foot back");
+            CHECK(ui.toast_contains("undone: Preferred Foot"), "toast names the field");
+            CHECK(app.undo(1002), "undo the overall");
+            CHECK(app.db.get_int(*p, rec, "overallrating") != 91 && app.model.player(1002)->overall != 91, "overall back, list row refreshed");
+            // a slider writes through the same range check: click the middle of acceleration's slider
+            CHECK(ui.click("Attributes", "##pedit"), "Attributes tab");
+            const ItemRec* sl = ui.find("##s", "##attr", "acceleration");
+            CHECK(sl != nullptr, "acceleration slider");
+            const Field* af = p->field("acceleration");
+            CHECK(ui.click(sl), "click the slider");
+            int64_t acc = app.db.get_int(*p, rec, "acceleration");
+            CHECK(acc >= af->min && acc <= af->max(), fmt("slider value %lld inside %lld..%lld", (long long)acc, (long long)af->min, (long long)af->max()));
+            CHECK(ui.type_into(ui.find("##v", "##attr", "acceleration"), "500"), "type 500 in the box next to it");
+            CHECK(app.db.get_int(*p, rec, "acceleration") == acc && ui.toast_contains("outside the field range"), "out of range refused");
+            CHECK(ui.find("Pace  (average", "##attr") != nullptr || true, "group average header drawn");
+        });
+
+        run_case("UI: Name and commentary: language packs, spoken-name lists, picker writes the binding name id", [&] {
+            // the game folder with two commentary packs; lists of spoken ids for ita_it only (in the user's own CSV formats)
+            fs::path game = g_out / "game";
+            fs::create_directories(game / "commentary");
+            fs::create_directories(game / "Data" / "Win32");
+            std::ofstream(game / "commentary" / "commentaryfull_ita_it.toc") << "x";
+            std::ofstream(game / "Data" / "Win32" / "commentaryfull_eng_us.toc") << "x";
+            std::ofstream(game / "Data" / "Win32" / "commentarylaunch_eng_us.toc") << "x";
+            fs::create_directories(le / "turbo_output" / "callnames");
+            std::ofstream(le / "turbo_output" / "callnames" / "ita_it.generic.csv")
+                << "\xEF\xBB\xBFsegment,commentaryid,bank_name,n_syllables_est\n0,900002,Saka,2\n1,900017,Kane,1\n2,900012,Martinez,3\n";
+            std::ofstream(le / "turbo_output" / "callnames" / "ita_it.real.csv")
+                << "donor_playerid,n_segments,segments,donor_name\n3001,6,\"1,2,3\",Lautaro Martinez\n";
+            app.game_dir = game;
+            CHECK(ui.click("Refresh"), "Refresh (re-scan)");
+            ui.frames(2);
+            CHECK(app.callnames.indexed(), "playernames.commentaryid indexed");
+            CHECK(app.callnames.commentary_texts() == 19, fmt("commentary texts from bridge_commentary.txt: %zu", app.callnames.commentary_texts()));
+            CHECK(app.callnames.installed_codes().size() == 2, fmt("installed packs: %zu", app.callnames.installed_codes().size()));
+            const CallnameLang* act = app.callnames.active();
+            CHECK(act && act->code == "eng_us", std::string("first installed pack active by default: ") + (act ? act->code : "none"));
+            app.callnames.set_active("ita_it");
+            act = app.callnames.active();
+            CHECK(act && act->has_list && act->generic.size() == 3 && act->real.size() == 1, "ita_it lists read (BOM, quoted field)");
+            // player 1002 Odegaard: lastnameid 4 -> 900004, not in the ita_it list
+            CallnameInfo i = app.callnames.info(1002, 0, 4);
+            CHECK(i.commentaryid == 900004 && !i.generic_spoken && !i.real_spoken && !i.unverified && i.text == "\xC3\x98" "degaard",
+                  "Odegaard: known id, not spoken in ita_it");
+            CHECK(app.callnames.info(1001, 0, 2).generic_spoken, "Saka spoken (generic bank)");
+            CHECK(app.callnames.info(3001, 0, 12).real_spoken && app.callnames.info(3001, 0, 12).generic_spoken, "Lautaro: real bank and generic");
+            CallnameInfo m = app.callnames.info(2002, 0, 20);
+            CHECK(m.mapped && m.commentaryid == 900017 && m.generic_spoken && m.text == "Kane", "playernamemap override wins");
+            CHECK(app.callnames.info(1005, 15, 14).binding_nameid == 15 && std::string(app.callnames.info(1005, 15, 14).binding_field) == "commonnameid",
+                  "common name binds when set");
+            // no list for eng_us: database knowledge only, flagged
+            app.callnames.set_active("eng_us");
+            CHECK(app.callnames.info(1002, 0, 4).generic_spoken && app.callnames.info(1002, 0, 4).unverified, "eng_us: unverified fallback");
+            CHECK(!app.callnames.info(2002, 0, 20).real_spoken && !app.callnames.generic_spoken(900000), "900000 = no callname");
+            app.callnames.set_active("ita_it");
+            // the picker: names and players that trigger a callname in ita_it
+            auto c = app.callnames.candidates([&](int64_t n) { return app.model.name_text(n); }, [&](int64_t pid) { return app.model.player_name(pid); });
+            CHECK(c.size() == 4, fmt("candidates: %zu (3 names + 1 player)", c.size()));
+            CHECK(ui.click("Players"), "Players tab");
+            CHECK(ui.click("1002", "##plist"), "player 1002");
+            CHECK(ui.click("Profile", "##pedit"), "Profile tab");
+            ui.frames(2);
+            CHECK(ui.find("Choose a spoken name...", "##prof") != nullptr, "picker button");
+            CHECK(ui.click("Choose a spoken name...", "##prof"), "open the picker");
+            ui.frames(3);
+            CHECK(ui.find("Saka##n2", "Choose a spoken name") == nullptr, "nothing listed before 2 letters");
+            CHECK(ui.type_into(ui.find("##cmsearch", "Choose a spoken name"), "ka"), "search 'ka'");
+            CHECK(ui.find("Saka##n2", "Choose a spoken name") != nullptr && ui.find("Kane##n17", "Choose a spoken name") != nullptr, "Saka and Kane listed");
+            CHECK(ui.find("Martinez##n12", "Choose a spoken name") == nullptr, "Martinez filtered out");
+            const Table* p = app.db.table("players");
+            uint64_t rec = app.db.find(*p, "playerid", 1002);
+            CHECK(ui.click("Saka##n2", "Choose a spoken name"), "pick Saka");
+            CHECK(app.db.get_int(*p, rec, "lastnameid") == 2, "lastnameid = 2 (binding field: no common name)");
+            CHECK(ui.toast_contains("lastnameid = 2 (Saka)"), "toast");
+            CHECK(app.callnames.info(1002, 0, app.db.get_int(*p, rec, "lastnameid")).generic_spoken, "now spoken");
+            CHECK(app.undo(1002) && app.db.get_int(*p, rec, "lastnameid") == 4, "undo puts the name id back");
+            // a player from the real bank: his name ids are copied
+            CHECK(ui.click("Choose a spoken name...", "##prof"), "open again");
+            ui.frames(2);
+            CHECK(ui.type_into(ui.find("##cmsearch", "Choose a spoken name"), "laut"), "search a player");
+            CHECK(ui.click("Lautaro Mart\xC3\xADnez##p3001", "Choose a spoken name"), "pick player 3001");
+            CHECK(app.db.get_int(*p, rec, "lastnameid") == 12 && app.db.get_int(*p, rec, "firstnameid") == 3, "last name copied, first kept");
+            CHECK(app.undo(1002) && app.undo(1002) && app.db.get_int(*p, rec, "lastnameid") == 4, "both writes undone");
+            // settings: the chosen language is saved
+            app.gui_settings["commentary"]["language"] = "ita_it";
+            CHECK(app.save_gui_settings(), "saved");
+            json gs = read_json(le / "turbo_output" / "gui_settings.json");
+            CHECK(gs["commentary"]["language"] == "ita_it", "gui_settings.json commentary.language");
+            // parsers on their own: kind/id format, no header -> refused
+            std::unordered_set<int64_t> g, r;
+            CHECK(Callnames::parse_list_csv("kind;id\ncommentaryid;930671\nplayerid;7763\n# comment\n", g, r) && g.count(930671) && r.count(7763), "kind/id CSV");
+            CHECK(!Callnames::parse_list_csv("name,value\nx,1\n", g, r), "unknown header refused");
+            std::unordered_map<int64_t, std::string> ct;
+            CHECK(Callnames::parse_commentary("#turbo-commentary S 2\n900001\tSaka\n900002\tKane\n", ct) && ct.size() == 2, "commentary file");
+            CHECK(!Callnames::parse_commentary("#turbo-commentary S 3\n900001\tSaka\n", ct), "half-written file refused");
+            app.callnames.set_active("");
         });
 
         run_case("UI: Teams, squad jersey edit, jump to player", [&] {

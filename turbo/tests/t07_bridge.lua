@@ -397,6 +397,15 @@ H.case("player names (compressed text in FC 27) are exported through GetDBTableR
         rows = { { nameid = 1, name = "Saka" }, { nameid = 2, name = "\195\152degaard" }, { nameid = 3, name = "Tab\tName" },
                  { nameid = 4, name = "Deleted", __invalid = true } },
     })
+    sim3:add_table({
+        name = "commentarynames", short = "cmnm",
+        fields = {
+            { name = "commentaryid", short = "cmid", depth = 20 },
+            { name = "commentarystring", short = "cmst", type = "compressed", depth = 8 * 45 },
+        },
+        rows = { { commentaryid = 900001, commentarystring = "Saka" }, { commentaryid = 900002, commentarystring = "Odegaard" },
+                 { commentaryid = 900003, commentarystring = "Gone", __invalid = true } },
+    })
     os.execute(string.format("mkdir -p '%s/turbo' && printf 'MZ' > '%s/turbo/Turbo.dll'", H.LE, H.LE))
     local t = sim3.tables.playernames
     local namecol
@@ -415,6 +424,14 @@ H.case("player names (compressed text in FC 27) are exported through GetDBTableR
     H.ok(not text:find("Deleted"), "deleted row skipped")
     H.has(H.read(H.out("turbo_boot.log")), "bridge_names.txt written, 3 names")
     H.eq(read_json("bridge_state.json").names_count, 3, "count reported to the GUI")
+    -- commentary names (callname text) go out next to the player names
+    local ctext = H.read(H.out("bridge_commentary.txt"))
+    H.ok(ctext, "bridge_commentary.txt written")
+    H.has(ctext, "#turbo-commentary " .. TURBO_STATE.bridge.session .. " 2\n")
+    H.has(ctext, "\n900001\tSaka\n")
+    H.has(ctext, "\n900002\tOdegaard\n")
+    H.ok(not ctext:find("Gone"), "deleted commentary row skipped")
+    H.eq(read_json("bridge_state.json").commentary_count, 2, "commentary count reported to the GUI")
     -- a reload event rewrites the names (another save loaded)
     os.remove(H.out("bridge_names.txt"))
     sim3:fire("post__CareerModeEvent", 0, POST_LOAD_PREPARE, 0)

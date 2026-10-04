@@ -81,6 +81,12 @@ public:
 
     std::string player_name(int64_t pid) const;
     std::string team_name(int64_t tid) const;
+    // Text of a playernames/dcplayernames id ("#<id>" when unknown)
+    std::string name_text(int64_t nameid) const {
+        auto it = name_by_nameid_.find(nameid);
+        return it == name_by_nameid_.end() ? "#" + std::to_string(nameid) : it->second;
+    }
+    bool has_name(int64_t nameid) const { return name_by_nameid_.count(nameid) > 0; }
     const PlayerRow* player(int64_t pid) const;
     const TeamRow* team(int64_t tid) const;
     std::vector<LinkRow> links_of_player(int64_t pid) const;

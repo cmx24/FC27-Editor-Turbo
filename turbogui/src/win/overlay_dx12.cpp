@@ -796,6 +796,10 @@ bool start_overlay(HMODULE) {
     g_app = new turbo::App(*g_mem, le_root(), reinterpret_cast<uint64_t>(mailbox), session);
     g_app->bridge.set_min_file_time(load_time() - std::chrono::minutes(2));
     g_app->log_hook = [](const std::string& s) { log("%s", s.c_str()); };
+    if (g_app->game_dir.empty()) {  // the game's folder (commentary language packs); gui_settings.json may override it
+        wchar_t exe[MAX_PATH] = {0};
+        if (GetModuleFileNameW(nullptr, exe, MAX_PATH) > 0) g_app->game_dir = std::filesystem::path(exe).parent_path();
+    }
     if (g_app->mailbox) start_memmap(reinterpret_cast<uint64_t>(mailbox));
     g_toggle_vk = g_app->toggle_vk;
 

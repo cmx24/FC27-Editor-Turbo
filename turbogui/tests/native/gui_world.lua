@@ -155,7 +155,26 @@ local function build_world(sim)
                  { tattooid = 13, tattooleftarm = 1, tattoohead = 0 } },
     })
     local nrows = {}
-    for id = 1, 20 do nrows[#nrows + 1] = { nameid = id, name = NAMES[id], commentaryid = 900000 + id } end
+    -- commentaryid 900000 = no callname (name 20 "Generic"); the others map to 9000<id>
+    for id = 1, 20 do nrows[#nrows + 1] = { nameid = id, name = NAMES[id], commentaryid = (id == 20) and 900000 or (900000 + id) } end
+    -- commentary names (text compressed in FC 27, decoded by Live Editor for bridge_commentary.txt) and the per-player override
+    local crows = {}
+    for id = 1, 19 do crows[#crows + 1] = { commentaryid = 900000 + id, commentarystring = NAMES[id], commentarystartingletter = 1, commentarypreview = 1 } end
+    sim:add_table({
+        name = "commentarynames", short = "cmnm",
+        fields = {
+            { name = "commentaryid", short = "cmid", depth = 20 },
+            { name = "commentarypreview", short = "cmpv", depth = 1 },
+            { name = "commentarystartingletter", short = "cmsl", depth = 5, min = 1 },
+            { name = "commentarystring", short = "cmst", type = "compressed", depth = 8 * 45 },
+        },
+        rows = crows,
+    })
+    sim:add_table({
+        name = "playernamemap", short = "pnmp",
+        fields = { { name = "commentaryid", short = "cmid", depth = 20, min = -1 }, { name = "playerid", short = "pid_", depth = 19, min = -1 } },
+        rows = { { playerid = 2002, commentaryid = 900017 } },   -- player 2002 (Generic Generic) is called "Kane"
+    })
     sim:add_table({
         name = "playernames", short = "pnms",
         fields = {
@@ -415,6 +434,7 @@ if mode == "build" then
     copy(H.out("bridge_meta.json"), OUT .. "/LE/turbo_output/bridge_meta.json")
     copy(H.out("bridge_state.json"), OUT .. "/LE/turbo_output/bridge_state.json")
     copy(H.out("bridge_names.txt"), OUT .. "/LE/turbo_output/bridge_names.txt")
+    copy(H.out("bridge_commentary.txt"), OUT .. "/LE/turbo_output/bridge_commentary.txt")
     dump_expected(sim)
     save_image(sim, OUT .. "/world.img")
     print("world built: " .. OUT)

@@ -64,7 +64,7 @@ void App::update_style() {
 }
 
 App::App(Memory& m, fs::path le_root, uint64_t mailbox_addr, std::string sess)
-    : mem(m), bridge(std::move(le_root)), db(m), model(db), session(std::move(sess)), legacy(bridge.root()) {
+    : mem(m), bridge(std::move(le_root)), db(m), model(db), session(std::move(sess)), legacy(bridge.root()), callnames(bridge.root()) {
     if (mailbox_addr) {
         mailbox = std::make_unique<Mailbox>(mem, mailbox_addr);
         if (mailbox->init()) {
@@ -132,6 +132,9 @@ bool App::refresh() {
     seen_names_ = bridge.names();
     model.set_extra_names(seen_names_);
     model.rebuild(today());
+    callnames.set_game_dir(game_dir);
+    callnames.scan();
+    callnames.index_db(db);
     ++gen;
     char buf[160];
     std::snprintf(buf, sizeof(buf), "database connected: %d tables, %zu players, %zu teams", n, model.players().size(),
@@ -175,7 +178,13 @@ void App::tick(double t) {
     if (visible && model_stale && db.ready()) {
         model_stale = false;
         model.rebuild(today());
+        callnames.index_db(db);
         ++gen;
+    }
+    if (visible && t >= next_callname_scan) {  // new list files / bridge_commentary.txt / commentary packs
+        next_callname_scan = t + 3.0;
+        callnames.set_game_dir(game_dir);
+        callnames.scan();
     }
     if (mailbox && t >= next_publish) {
         next_publish = t + 2.0;
@@ -204,6 +213,8 @@ void App::tick(double t) {
 
 bool App::edit(const Table& t, uint64_t rec, const Field& f, const Value& v) {
     std::string err;
+    Value before;
+    bool have_before = db.get(t, rec, f, before);
     if (!db.set(t, rec, f, v, &err)) {
         notify(f.name + ": " + err, true);
         return false;
@@ -211,6 +222,11 @@ bool App::edit(const Table& t, uint64_t rec, const Field& f, const Value& v) {
     if (t.name == "players") {
         int64_t pid = db.get_int(t, rec, "playerid", 0);
         model.refresh_player(pid, today());
+        if (have_before && !(before == v)) {
+            auto& steps = undo_[pid];
+            steps.push_back({t.name, rec, f.name, before});
+            while (steps.size() > kUndoSteps) steps.pop_front();
+        }
     } else if (t.name == "teams") {
         model.refresh_team(db.get_int(t, rec, "teamid", 0));
     } else if (t.name == "teamplayerlinks") {
@@ -218,6 +234,34 @@ bool App::edit(const Table& t, uint64_t rec, const Field& f, const Value& v) {
     }
     ++gen;
     log(t.name + "." + f.name + " = " + v.to_string());
+    return true;
+}
+
+size_t App::undo_count(int64_t playerid) const {
+    auto it = undo_.find(playerid);
+    return it == undo_.end() ? 0 : it->second.size();
+}
+
+bool App::undo(int64_t playerid) {
+    auto it = undo_.find(playerid);
+    if (it == undo_.end() || it->second.empty()) return false;
+    UndoStep step = it->second.back();
+    it->second.pop_back();
+    const Table* t = db.table(step.table);
+    const Field* f = t ? t->field(step.field) : nullptr;
+    if (!t || !f || !db.table_alive(*t, step.rec)) {
+        notify("undo: the database changed (save loaded?) - press Refresh", true);
+        return false;
+    }
+    std::string err;
+    if (!db.set(*t, step.rec, *f, step.before, &err)) {
+        notify("undo " + step.field + ": " + err, true);
+        return false;
+    }
+    model.refresh_player(playerid, today());
+    ++gen;
+    log("undo " + step.table + "." + step.field + " = " + step.before.to_string());
+    notify("undone: " + field_label(step.field) + " back to " + step.before.to_string());
     return true;
 }
 
@@ -256,6 +300,12 @@ void App::load_gui_settings() {
             double us = g["ui_scale"].get<double>();
             if (us >= 0.6 && us <= 2.5) ui_scale_user = static_cast<float>(us);
         }
+    }
+    if (gui_settings.contains("commentary") && gui_settings["commentary"].is_object()) {
+        const json& c = gui_settings["commentary"];
+        if (c.contains("game_dir") && c["game_dir"].is_string() && !c["game_dir"].get<std::string>().empty())
+            game_dir = fs::path(c["game_dir"].get<std::string>());
+        if (c.contains("language") && c["language"].is_string()) callnames.set_active(c["language"].get<std::string>());
     }
 }
 

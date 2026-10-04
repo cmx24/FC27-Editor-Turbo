@@ -29,6 +29,8 @@ bool draw_file_picture(App& app, const std::filesystem::path& f, float side);
 LegacyImages::State draw_legacy_picture(App& app, const std::string& path, float side, bool custom_first);
 // Pictures in a folder (PNG, JPG, BMP, TGA, DDS), sorted by name
 std::vector<std::filesystem::path> picture_files(const std::filesystem::path& dir);
+// Folder shortcuts of the picture browser (Desktop, Pictures incl. OneDrive, Downloads, turbo_minifaces) that exist
+std::vector<std::pair<std::string, std::filesystem::path>> browser_shortcuts();
 
 void miniface_editor(App& app, const MinifaceTarget& t);
 // "Choose a real face" modal (open it with ImGui::OpenPopup("Choose a real face"))

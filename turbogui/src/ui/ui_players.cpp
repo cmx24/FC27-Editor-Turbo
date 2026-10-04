@@ -3,6 +3,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <cfloat>
 
 #include "app.h"
 #include "imgui.h"
@@ -417,6 +418,41 @@ static void player_editor(App& app) {
     }
     ImGui::Separator();
 
+    // undo of the last direct edits of this player (at most App::kUndoSteps)
+    {
+        size_t n = app.undo_count(p->playerid);
+        if (n == 0) ImGui::BeginDisabled();
+        char ulbl[48];
+        std::snprintf(ulbl, sizeof(ulbl), "Undo (%zu)##pundo", n);
+        if (ImGui::Button(ulbl)) app.undo(p->playerid);
+        if (n == 0) ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Puts back the previous value of the last field edited here (%zu steps per player)", App::kUndoSteps);
+        ImGui::SameLine();
+        static char fsearch[48] = "";
+        ImGui::SetNextItemWidth(S(180.0f));
+        ImGui::InputTextWithHint("##fieldsearch", "find a field", fsearch, sizeof(fsearch));
+        if (fsearch[0]) {
+            std::string q = lower(fsearch);
+            std::vector<std::string> hits;
+            for (const auto& n2 : t->field_names())
+                if (n2.find(q) != std::string::npos || lower(field_label(n2)).find(q) != std::string::npos) hits.push_back(n2);
+            ImGui::SameLine();
+            ImGui::TextDisabled("%zu fields", hits.size());
+            if (!hits.empty() && ImGui::BeginTable("##fsearch", 2, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_BordersOuter)) {
+                size_t shown = 0;
+                for (const auto& n2 : hits) {
+                    if (shown++ >= 8) break;
+                    ImGui::TableNextColumn();
+                    const Field* f = t->field(n2);
+                    if (is_enum_field(n2)) enum_editor(app, *t, p->rec, *f, field_label(n2).c_str(), S(130.0f));
+                    else field_editor(app, *t, p->rec, *f, field_label(n2).c_str(), f->type == FieldType::String ? -1.0f : S(100.0f));
+                }
+                ImGui::EndTable();
+                if (hits.size() > 8) ImGui::TextDisabled("(first 8 shown: type more of the name)");
+            }
+        }
+    }
     if (ImGui::BeginTabBar("##ptabs")) {
         if (ImGui::BeginTabItem("Profile")) {
             ImGui::BeginChild("##prof");
@@ -427,14 +463,42 @@ static void player_editor(App& app) {
             for (const char* dn : {"birthdate", "playerjointeamdate"}) {
                 if (const Field* f = t->field(dn)) date_field_editor(app, *t, p->rec, *f, field_label(dn).c_str());
             }
+            ImGui::SeparatorText("Name and commentary");
+            callname_section(app, *t, p->rec, p->playerid);
+            ImGui::SeparatorText("Roles and body");
+            field_grid(app, *t, p->rec, {"role1", "role2", "role3", "role4", "role5", "role6", "role7", "role8", "role9", "bodytypecode",
+                                          "gender", "personality", "emotion", "growthprofile", "skillmoveslikelihood", "gkkickstyle",
+                                          "runstylecode", "usercaneditname", "iscustomized"}, "##rolegrid", 3);
             ImGui::EndChild();
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Attributes")) {
             ImGui::BeginChild("##attr");
+            ImGui::TextDisabled("Stored overall %lld, potential %lld (the game recalculates the shown overall from the attributes when "
+                                "the player card is drawn).", static_cast<long long>(app.db.get_int(*t, p->rec, "overallrating", 0)),
+                                static_cast<long long>(app.db.get_int(*t, p->rec, "potential", 0)));
             for (const auto& g : attribute_groups()) {
-                ImGui::SeparatorText(g.first);
-                field_grid(app, *t, p->rec, g.second, g.first, 3);
+                // group average over the fields present
+                long long sum = 0;
+                int cnt = 0;
+                for (const auto& fn : g.second)
+                    if (t->has(fn)) { sum += app.db.get_int(*t, p->rec, fn, 0); ++cnt; }
+                char hdr[96];
+                if (cnt) std::snprintf(hdr, sizeof(hdr), "%s  (average %.1f)", g.first, double(sum) / cnt);
+                else std::snprintf(hdr, sizeof(hdr), "%s", g.first);
+                ImGui::SeparatorText(hdr);
+                std::vector<const Field*> present;
+                for (const auto& fn : g.second)
+                    if (const Field* f = t->field(fn)) present.push_back(f);
+                ImGui::PushID(g.first);
+                if (!present.empty() && ImGui::BeginTable("##sl", 3, ImGuiTableFlags_SizingStretchSame)) {
+                    for (const Field* f : present) {
+                        ImGui::TableNextColumn();
+                        slider_editor(app, *t, p->rec, *f, field_label(f->name).c_str(), -FLT_MIN);
+                    }
+                    ImGui::EndTable();
+                }
+                ImGui::PopID();
             }
             ImGui::EndChild();
             ImGui::EndTabItem();

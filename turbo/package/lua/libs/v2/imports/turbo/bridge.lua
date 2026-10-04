@@ -189,6 +189,35 @@ function M.write_names()
     local okw, werr = util.write_file(util.join(dir, "bridge_names.txt"), text)
     if not okw then return false, tostring(werr) end
     S.names_count = count
+    pcall(M.write_commentary_names)
+    return true, count
+end
+
+-- Commentary names ("callnames"): commentarynames.commentarystring is compressed text too. The ids and their text go to
+-- bridge_commentary.txt: "#turbo-commentary <session> <count>", then "commentaryid<TAB>text" lines. Which of these
+-- ids are spoken in the commentary language the game has loaded is decided on the GUI side (per-language lists).
+function M.write_commentary_names()
+    local get_rows = _G["GetDBTableRows"]
+    if type(get_rows) ~= "function" then return false, "GetDBTableRows is not available" end
+    local dir = M.dir()
+    if not dir then return false, "output folder missing" end
+    local ok, rows = pcall(get_rows, "commentarynames")
+    if not ok or not util.is_object(rows) then return false, "commentarynames not readable" end
+    local out, count = {}, 0
+    for i = 1, util.len(rows) do
+        local row = util.index(rows, i)
+        local id = tonumber(row_value(row, "commentaryid"))
+        local text = row_value(row, "commentarystring")
+        if id and type(text) == "string" and text ~= "" then
+            out[#out + 1] = string.format("%d\t%s", math.tointeger(id) or 0, (text:gsub("[\t\r\n]", " ")))
+            count = count + 1
+        end
+    end
+    if count == 0 then return false, "no commentary names" end
+    local body = string.format("#turbo-commentary %s %d\n", S.session, count) .. table.concat(out, "\n") .. "\n"
+    local okw, werr = util.write_file(util.join(dir, "bridge_commentary.txt"), body)
+    if not okw then return false, tostring(werr) end
+    S.commentary_count = count
     return true, count
 end
 
@@ -273,6 +302,7 @@ function M.collect_state()
         session = S.session,
         meta_error = S.meta_error,
         names_count = S.names_count or 0,
+        commentary_count = S.commentary_count or 0,
         le_version = tostring(LE_VERSION or ""),
         db_service = hex(plugin("ENUM_djb2Database_CLSS") - 8),
         comm_service = hex(plugin("ENUM_djb2FeFceGMCommServiceInterface_CLSS")),

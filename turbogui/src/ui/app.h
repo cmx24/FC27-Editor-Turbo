@@ -4,11 +4,13 @@
 #include <deque>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "core/bridge.h"
+#include "core/callnames.h"
 #include "core/legacy.h"
 #include "core/mem.h"
 #include "core/model.h"
@@ -52,6 +54,23 @@ public:
     std::string session;
     LegacyImages legacy;     // game pictures and custom minifaces (core/legacy.h)
     TextureCache textures;   // pictures shown in the window (textures.h)
+    Callnames callnames;     // spoken names per commentary language (core/callnames.h)
+    // The game's folder (FC27.exe); set by the Windows host, or gui_settings.json commentary.game_dir
+    std::filesystem::path game_dir;
+    double next_callname_scan = 0.0;
+
+    // ---- undo of direct edits, per player (players table), newest last; at most kUndoSteps each
+    struct UndoStep {
+        std::string table;
+        uint64_t rec = 0;
+        std::string field;
+        Value before;
+    };
+    static constexpr size_t kUndoSteps = 20;
+    std::map<int64_t, std::deque<UndoStep>> undo_;
+    size_t undo_count(int64_t playerid) const;
+    // Undo the last edit of this player (players table or his teamplayerlinks rows). Returns false when nothing to undo
+    bool undo(int64_t playerid);
 
     // ---- state
     bool visible = false;
@@ -138,5 +157,16 @@ void not_connected_hint();
 void all_fields(App& app, const Table& t, uint64_t rec, const char* id);
 // Date editor for gregorian-day fields (birthdate, playerjointeamdate)
 bool date_field_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label);
+// Slider over the field's whole range (attributes); a typed value outside it is refused by Database::set
+bool slider_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float width);
+// Combo with readable labels for an enumerated field (preferred foot, work rates, stars ...); false = no labels known
+bool enum_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float width);
+// Labels for enumerated fields: nullptr when the field is not enumerated; label for value v, or nullptr
+const char* enum_label(const std::string& field, int64_t v);
+bool is_enum_field(const std::string& field);
+
+// callnames (ui_callnames.cpp): the "Name and commentary" section of the Profile tab and its picker
+void callname_section(App& app, const Table& t, uint64_t rec, int64_t playerid);
+void callnames_status(App& app);
 
 }  // namespace turbo
