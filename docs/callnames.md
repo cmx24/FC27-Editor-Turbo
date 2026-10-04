@@ -712,3 +712,32 @@ about ids above 965000; the spoken set of §3 decides 900001..965000.
 once (defaults: the workbooks under `C:\FC_Tools\My Mods` and `C:\FC 27 Live Editor\turbo_dev\masters`, the JSON
 files into `C:\FC 27 Live Editor\turbo\callnames\masters`), and again after an FC 27 master is added; then *Refresh*
 in the Callname tab loads the list for the loaded language.
+
+## 10. FC 27 master
+
+**How it is made.** Two steps, both offline (nothing touches the running game):
+
+1. `turbo/tools/fc27_commentary` extracts the commentary bank of one language from the game's commentary files on disk
+   into `<lang>_bank.json`: every recording bound to a player id (`real`: `PLAYER_NAMES_SIMPLE`; `real_link`:
+   `PLAYER_NAMES_LINK`) and every generic surname recording (`generic`, by commentary id).
+2. `python turbo/tools/build_callname_master.py --bank <lang>_bank.json --players turbo_table_players.csv
+   --edited turbo_table_editedplayernames.csv --names bridge_names.txt --commentary bridge_commentary.txt
+   --template <FC 26 *_master.xlsm> --out-xlsm <name>_master_fc27.xlsm --out-json <lang>.json [--lang <lang>]`
+   (Python 3.11 + openpyxl; the CSVs are Turbo's *Export tables* of the career database, the two text files the
+   name id / commentary id texts from the bridge). It copies the user's FC 26 workbook (never written), replaces the
+   `callnames` rows (one per recording, sorted accent-insensitively by name like the user's sheet; FC 27 names first,
+   the FC 26 sheet's name and category as fallback, the category of an unknown player guessed from his nationality)
+   and the `names` sheet, keeps styles, widths and the VBA project byte for byte, and writes the Turbo masters JSON
+   (`"game": "fc27"`, `real_players` = SIMPLE | LINK, plus `real_simple_players`, `real_link_players`, `generic_ids`,
+   `names`, `generic_names`). `--self-test` builds a tiny template with a dummy `vbaProject.bin` and checks the rows,
+   the sort order, the copied styles, the VBA bytes and the JSON keys.
+
+The user's *Play* macro hard-codes `C:\FC_Tools\My Mods\<lang folder>\` as the audio base (the FC 26 recordings); the
+FC 27 workbook is shipped with its own `real\` and `generic\` folders of FC 27 recordings next to it.
+
+**`ita_it` (FC 27 1.0.140.64835, built 2026-10-04):** 10,321 rows, 6,878 real / 3,443 generic; 4,046 players with
+their own recording (4,039 SIMPLE, 985 LINK; 3,038 of the SIMPLE ones in the career database), 2,533 generic ids.
+Verified in game the same day: a generic surname set as a player's last name (shown name kept through
+`editedplayernames`) is spoken (Bianchi 900762, Pirlo 926385, Del Piero 922149), and a player with his own recording
+(Miguel Gutierrez 261865) keeps it whatever his name ids say. The audio service's player set (751 players, LINK only,
+§9) is incomplete; the FC 27 master is the reference. `import_callname_masters.py` (§9) takes it over the FC 26 list.
