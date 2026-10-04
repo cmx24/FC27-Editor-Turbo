@@ -68,9 +68,9 @@ checks, transfer / loan approval, reveal player data, stadium / weather / kick-o
 | --- | --- | --- | --- | --- |
 | 26 | Youth academy tools | v26.1.3 | partly | **FC 27 LE** (youth scout reports) + **Turbo (youth)**: list the academy, set a youth player's potential, position, tier and potential range width |
 | 27 | Reveal player data | v26.1.4 | not announced | **Turbo (reveal, game call)**: one player, a club or a league marked fully scouted through the game's own PlayerDataRevealManager (Turbo.dll, kill switch call_reveal_off.txt; docs/re/development.md) |
-| 28 | Match setup: stadium, weather, kick-off time, crowd | v26.1.5 | not announced | **Not available** |
+| 28 | Match setup: stadium, weather, kick-off time, crowd | v26.1.5 | yes (misc features) | **Turbo GUI (partial)**: Competitions > Match setup: weather, time of day, difficulty for the next matches, venue swap / another opponent for an unplayed fixture; stadium, kick-off time, crowd: FC 27 LE's misc features (docs/re/match_setup.md) |
 | 29 | Transfer history | v26.1.8 | not announced | **Turbo GUI (partial)**: export to CSV; in FC 27 read from the TransferManager's lists (completed transfers and loans of the season) |
-| 30 | Gameplay: CPU vs CPU, never tired, unlimited subs, match time and score | v26.2.0 | not announced | **Not available** |
+| 30 | Gameplay: CPU vs CPU, never tired, unlimited subs, match time and score | v26.2.0 | partly (misc features) | **Turbo GUI (partial)**: injuries off, injury sliders beyond the menu, CPU subs off, a fixed result for a chosen fixture (opt-in hooks); CPU vs CPU, never tired, unlimited subs: FC 27 LE's misc features |
 | 31 | Player Career: funds, wage, attribute points, personality, playstyle slots | v26.2.1 | yes (v27.1.1) | **FC 27 LE** |
 | 32 | Contract objectives bypass, negotiation check, always allow approach | v26.2.1, v26.2.5 | negotiation status check, transfer / loan approval (Misc Features) | **FC 27 LE** for now; Turbo's own not built (leads: `docs/re/manager_rules.md` section 8) |
 | 33 | Unsupported CM teams and leagues | v26.2.6 | not announced | **Not available** (a pre-career `modeavailability` gate; leads: `docs/re/manager_rules.md` section 9) |

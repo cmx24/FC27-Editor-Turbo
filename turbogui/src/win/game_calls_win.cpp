@@ -11,6 +11,7 @@
 #include "manager_rules_win.h"
 #include "standings_refresh_win.h"
 #include "transfer_list_win.h"
+#include "match_setup_win.h"
 
 namespace host {
 
@@ -214,6 +215,7 @@ std::vector<std::string> game_calls_status() {
     for (const auto& l : transfer_list_status()) out.push_back(l);
     for (const auto& l : reveal_status()) out.push_back(l);
     for (const auto& l : manager_rules_status()) out.push_back(l);
+    for (const auto& l : match_setup_status()) out.push_back(l);
     return out;
 }
 

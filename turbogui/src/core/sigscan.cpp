@@ -272,6 +272,34 @@ static const SignatureTable kBuiltin[] = {
          {"fcei_standinglist_vtable",
           "48 89 5C 24 08 57 48 83 EC 20 33 DB 48 8B F9 85 D2 75 51 48 8B 0D ?? ?? ?? ?? 4C 8D 05 ?? ?? ?? ?? 45 33 C9 BA 80 00 00 00",
           "rip", 0x89, "StandingObject list vtable (0x14AAE1D38): the lea rcx,[rip+..] at +0x89 of the same allocator (kind 1)"},
+         // Match setup (docs/re/match_setup.md, core/match_setup.h): the game-variable store and the FCE result handlers
+         {"gamevar_get_int",
+          "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 48 8B F1 48 8D 1D ?? ?? ?? ?? 48 8B CB 44 8B F2 E8 "
+          "?? ?? ?? ?? 48 8B 2D ?? ?? ?? ?? 48 8B FE 41 B9 01 00 00 00",
+          "none", 0, "int GameVars::GetInt(name, default) 0x140856DB4: reader lock, djb2 (NUL included), the stored value or the default"},
+         {"gamevar_table_slot",
+          "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 48 8B F1 48 8D 1D ?? ?? ?? ?? 48 8B CB 44 8B F2 E8 "
+          "?? ?? ?? ?? 48 8B 2D ?? ?? ?? ?? 48 8B FE 41 B9 01 00 00 00",
+          "rip", 0x2E, "the global holding the variable table (0x14D26E528 = the store + 0x18): mov rbp,[rip+..] at +0x2E of GetInt"},
+         {"gamevar_lock",
+          "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 48 8B F1 48 8D 1D ?? ?? ?? ?? 48 8B CB 44 8B F2 E8 "
+          "?? ?? ?? ?? 48 8B 2D ?? ?? ?? ?? 48 8B FE 41 B9 01 00 00 00",
+          "rip", 0x1C, "the store's reader-writer lock word (0x14C193230; 0x01000000 = free): lea rbx,[rip+..] at +0x1C of GetInt"},
+         {"gamevar_set_int",
+          "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 40 48 8B F1 41 8B D8 48 8D 0D ?? ?? ?? ?? 48 8B FA E8 ?? ?? ?? ?? 4C 8D 44 24 20 "
+          "C7 44 24 20 02 00 00 00",
+          "none", 0, "void GameVars::SetInt(store, name, value) 0x14154F384: writer lock, {type 2, value}, insert (0x14154F3E0)"},
+         {"gamevar_set_lock",
+          "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 40 48 8B F1 41 8B D8 48 8D 0D ?? ?? ?? ?? 48 8B FA E8 ?? ?? ?? ?? 4C 8D 44 24 20 "
+          "C7 44 24 20 02 00 00 00",
+          "rip", 0x15, "SetInt's lock word (lea rcx,[rip+..] at +0x15): must be GetInt's"},
+         {"gamevar_object", "4C 8D 2D ?? ?? ?? ?? 8B F8 49 8B CD 48 8D 15 ?? ?? ?? ?? E8", "rip", 0,
+          "the GameVars store (0x14D26E510): lea r13,[rip+..] in the match injury setup 0x140FEBDB4 (passed to Exists 0x140FEC134)"},
+         {"fce_sched_handle_message", "40 53 48 83 EC 20 8B 42 10 B3 01 83 F8 24 0F 84 ?? ?? ?? ?? 83 F8 25 75 ?? 80 7A 48 00", "none", 0,
+          "FCESchedulingManager::HandleMessage 0x148A4E80C (vtable 0x14B1854A8 slot 5): type 0x2A writes the fixture's score"},
+         {"fce_standings_handle_message",
+          "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 8B 42 10 48 8B DA 48 8B F9 40 B6 01 83 F8 2A 75 0A E8", "none", 0,
+          "FCEStandingsManager::HandleMessage 0x148A4E8FC (vtable 0x14B1852E8 slot 5): type 0x2A adds the result to the rows"},
          {"speech_system_ptr", "48 8B 0D ?? ?? ?? ?? 48 8B 01 FF 90 F0 00 00 00 48 8D 54 24 20 48 8B 08 4C 8B 81 D8 00 00 00", "rip", 0,
           "global pointer to the SpeechSystem (0x14C27D590 on this build): [+0x50] the commentary event registry, [+0x58] the "
           "variation selector (docs/callnames.md section 6); read by the commentary-bank notes, not hooked"},

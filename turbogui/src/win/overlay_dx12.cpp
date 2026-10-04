@@ -28,6 +28,7 @@
 #include "manager_rules_win.h"
 #include "standings_refresh_win.h"
 #include "transfer_list_win.h"
+#include "match_setup_win.h"
 #include "game_hooks.h"
 #include "host.h"
 #include "imgui.h"
@@ -944,6 +945,10 @@ bool start_overlay(HMODULE) {
     // ClubObjectivesManager, JobSwitchManager and JobMarketManager; the SackManager hook is pass-through until the
     // user switches unsackable on
     install_manager_rules();
+    // match setup (match_setup_win.cpp): game variables through the game's SetInt on the game thread; result fixing hooks
+    // installed on the first fix
+    install_match_setup();
+    g_app->match_setup = match_setup_service();
     // spoken callnames through the game's audio service (commentary_audio_win.cpp): calls on the game thread, no hook
     install_commentary_audio(*g_app);
     g_app->hook_report = []() {
