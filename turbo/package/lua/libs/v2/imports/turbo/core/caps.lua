@@ -13,14 +13,32 @@ local M = {}
 M.NEEDS = {
     transfer_bans = { "cGetTransferBans", "cAddTransferBan", "cRemoveTransferBan" },
     -- player moves (Players tab): transfer / loan / release / terminate loan / delete are done by Turbo itself when
-    -- Live Editor lacks the native (core/moves.lua), so only the list flags are listed here
+    -- Live Editor lacks the native (core/moves.lua), so only the list actions are listed here; Turbo.dll's game call
+    -- provides them (M.PROVIDED below)
     move_transfer_list = { "AddPlayerToTransferList" },
     move_loan_list = { "AddPlayerToLoanList" },
     move_unlist = { "RemovePlayerFromLists" },
+    move_list_status = { "IsPlayerTransferListed" },
     development = { "PlayerDevelopmentManagerAddPlayer", "PlayerDevelopmentManagerSave" },
     form_morale = { "SetPlayerForm", "SetPlayerMorale", "SetPlayerFitness" },
     -- job offer creation calls the game through Turbo.dll (hook foundation); the DLL registers this Lua native
     job_offer = { "TurboJobOfferCreate" },
+}
+
+-- Tools a Turbo native makes available whatever Live Editor has (defined by bridge.install_natives once Turbo.dll's
+-- game-call export is found): tool key -> Turbo native
+M.PROVIDED = {
+    move_transfer_list = "TurboTransferList", move_loan_list = "TurboTransferList", move_unlist = "TurboTransferList",
+    move_list_status = "TurboTransferList",
+}
+
+-- Why a tool stays unavailable even with Turbo.dll (appended to Live Editor's reason)
+M.NOTES = {
+    transfer_bans = "FC 27 has no transfer-ban list Turbo could call (docs/re/transfer_lists.md section 6)",
+    move_transfer_list = "Turbo.dll's game call provides it while the Turbo GUI runs in a career",
+    move_loan_list = "Turbo.dll's game call provides it while the Turbo GUI runs in a career",
+    move_unlist = "Turbo.dll's game call provides it while the Turbo GUI runs in a career",
+    move_list_status = "Turbo.dll's game call provides it while the Turbo GUI runs in a career",
 }
 
 -- Player moves Turbo does itself in the career database when Live Editor has no native for them (core/moves.lua).
@@ -47,11 +65,14 @@ end
 function M.unavailable()
     local out = {}
     for key, names in pairs(M.NEEDS) do
-        for _, name in ipairs(names) do
-            local fn, why = env.api(name)
-            if not fn then
-                out[key] = why
-                break
+        local provider = M.PROVIDED[key]
+        if not (provider and type(_G[provider]) == "function") then
+            for _, name in ipairs(names) do
+                local fn, why = env.api(name)
+                if not fn then
+                    out[key] = M.NOTES[key] and (tostring(why) .. "; " .. M.NOTES[key]) or why
+                    break
+                end
             end
         end
     end

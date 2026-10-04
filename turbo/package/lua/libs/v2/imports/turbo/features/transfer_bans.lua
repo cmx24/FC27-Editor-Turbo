@@ -3,6 +3,11 @@
 -- against a constant that is local to the library) and transfer_ban_all_teams.lua.
 --   "transfer_bans": { "mode": "list" | "ban_all_teams" | "unban_all_teams", "ban_until": 20990101,
 --                      "exclude_user_team": false }
+--   one club or player (Teams tab / player editor > Contract & Clubs):
+--   "transfer_bans": { "mode": "ban_team" | "unban_team" | "ban_player" | "unban_player", "id": 48, "ban_until": 20990101 }
+-- These need Live Editor's ban natives (cGetTransferBans & co.). FC 27 Live Editor v27.1.2 has none, and FC 27 itself
+-- has no transfer-ban list Turbo could call instead (docs/re/transfer_lists.md section 6), so in FC 27 every mode is
+-- refused with that reason and the window greys the buttons out (core/caps.lua).
 
 local util = require 'imports/turbo/core/util'
 local db = require 'imports/turbo/core/db'
@@ -92,12 +97,45 @@ local function unban_all(ctx)
     return true, string.format("%d team bans removed", n)
 end
 
+-- One club or one player. (Live Editor's own TRANSFER_BAN_MANAGER:RemovePlayer passes the team type for a player; Turbo
+-- passes the player type.)
+local function one(ctx, ban, member_type)
+    local names = ban and { "cAddTransferBan", "cSaveTransferBans" } or { "cRemoveTransferBan", "cSaveTransferBans" }
+    local ok, err = need(names)
+    if not ok then return false, err end
+    local id = util.to_int(ctx.cfg.id)
+    if not id or id <= 0 then return false, "id must be a positive team or player id" end
+    local kind = member_type == TYPE_PLAYER and "player" or "team"
+    local name = kind == "player" and game.player_name(id) or game.team_name(id)
+    if kind == "team" and not game.team_ids()[id] then return false, string.format("team %d not found", id) end
+    if kind == "player" and not game.player_ids()[id] then return false, string.format("player %d not found", id) end
+    if ban then
+        local until_date = util.to_int(ctx.cfg.ban_until)
+        if not until_date or not util.is_yyyymmdd(until_date) then return false, "ban_until must be a date as YYYYMMDD" end
+        if not ctx.dry then
+            cAddTransferBan(id, until_date, member_type)
+            cSaveTransferBans()
+        end
+        return true, string.format("%s %s (ID %d) transfer-banned until %d", kind, tostring(name), id, until_date)
+    end
+    if not ctx.dry then
+        cRemoveTransferBan(id, member_type)
+        cSaveTransferBans()
+    end
+    return true, string.format("transfer ban of %s %s (ID %d) removed", kind, tostring(name), id)
+end
+
 function M.run(ctx)
     local mode = ctx.cfg.mode
     if mode == "list" then return list(ctx) end
     if mode == "ban_all_teams" then return ban_all(ctx) end
     if mode == "unban_all_teams" then return unban_all(ctx) end
-    return false, "mode must be \"list\", \"ban_all_teams\" or \"unban_all_teams\""
+    if mode == "ban_team" then return one(ctx, true, TYPE_TEAM) end
+    if mode == "unban_team" then return one(ctx, false, TYPE_TEAM) end
+    if mode == "ban_player" then return one(ctx, true, TYPE_PLAYER) end
+    if mode == "unban_player" then return one(ctx, false, TYPE_PLAYER) end
+    return false, "mode must be \"list\", \"ban_all_teams\", \"unban_all_teams\", \"ban_team\", \"unban_team\", " ..
+        "\"ban_player\" or \"unban_player\""
 end
 
 return M

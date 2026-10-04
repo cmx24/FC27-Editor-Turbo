@@ -204,6 +204,12 @@ function M.api(name)
     return nil, cached
 end
 
+-- Forget every verdict: natives defined later (Turbo.dll's game calls define the c-natives Live Editor v27.1.2 lacks)
+-- make wrappers usable that were not
+function M.reset_api_cache()
+    for k in pairs(api_cache) do api_cache[k] = nil end
+end
+
 -- Messages that mean "this Live Editor build cannot do it" (not a Turbo failure)
 function M.is_unavailable_message(msg)
     msg = tostring(msg or "")

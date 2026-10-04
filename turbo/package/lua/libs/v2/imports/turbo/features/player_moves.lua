@@ -6,11 +6,14 @@
 --     { "action": "release", "playerid": 1 },
 --     { "action": "terminate_loan", "playerid": 1 },
 --     { "action": "transfer_list" | "loan_list" | "unlist", "scope": { "user_team": true }, "filters": { "max_overall": 70 } },
+--     { "action": "unlist_transfer" | "unlist_loan" | "list_status", "playerid": 1 },
 --     { "action": "delete", "playerid": 1, "confirm": true }   -- FC 26 LE v26.1.5 "Delete player"; needs confirm
 --   ] }
 -- All actions are validated before the first one runs.
 -- When Live Editor lacks the native (FC 27 LE v27.1.2 has none of them), transfer / loan / release / terminate_loan /
--- delete are done by Turbo itself in the game database (core/moves.lua).
+-- delete are done by Turbo itself in the game database (core/moves.lua). The list actions (transfer_list, loan_list,
+-- unlist, unlist_transfer, unlist_loan, list_status) are the game's own Transfer Hub actions run by Turbo.dll's game
+-- call (core/moves.lua M.list) whenever that call is there: your own players only, each one checked and reported.
 
 local util = require 'imports/turbo/core/util'
 local game = require 'imports/turbo/core/game'
@@ -24,8 +27,25 @@ local NEEDS = {
     transfer = "TransferPlayer", loan = "LoanPlayer", release = "ReleasePlayerFromTeam",
     terminate_loan = "TerminateLoan", transfer_list = "AddPlayerToTransferList",
     loan_list = "AddPlayerToLoanList", unlist = "RemovePlayerFromLists",
+    unlist_transfer = "RemovePlayerFromTransferList", unlist_loan = "RemovePlayerFromLoanList",
+    list_status = "IsPlayerTransferListed",
     delete = "DeletePlayer",   -- void DeletePlayer(int playerid, int player_current_teamid = 0) (FC 27 LE DOC.MD)
 }
+
+-- The list actions: the game call when Turbo.dll provides it (it checks and reports every player), else Live Editor's
+-- native if a Live Editor build has one
+local LIST = { transfer_list = true, loan_list = true, unlist = true, unlist_transfer = true, unlist_loan = true,
+    list_status = true }
+
+local function list_impl(a, dry)
+    local notes, all_ok = {}, true
+    for _, pid in ipairs(a.playerids) do
+        local ok, msg = moves.list(pid, a.action, { dry = dry })
+        if not ok then all_ok = false end
+        notes[#notes + 1] = tostring(msg)
+    end
+    return all_ok, table.concat(notes, "; "), #a.playerids
+end
 
 -- Turbo's own implementation per action (used when Live Editor has no native for it)
 local TURBO_IMPL = {
@@ -36,6 +56,7 @@ local TURBO_IMPL = {
     terminate_loan = function(a, dry) return moves.terminate_loan(a.playerid, dry) end,
     delete = function(a, dry) return moves.delete(a.playerid, dry) end,
 }
+for kind in pairs(LIST) do TURBO_IMPL[kind] = list_impl end
 
 local function player_exists(pid, player_set)
     if type(PlayerExists) == "function" then
@@ -52,10 +73,14 @@ local function check(a, i, team_set, player_set)
     if not NEEDS[kind] then return nil, string.format("action %d: unknown action %s", i, tostring(kind)) end
     local fn, why = env.api(NEEDS[kind])
     local turbo = TURBO_IMPL[kind]
+    if LIST[kind] then
+        if moves.list_native() then fn = nil else turbo = nil end
+        if not fn and not turbo then why = tostring(why) .. "; " .. moves.LIST_NATIVE_MISSING end
+    end
     if not fn and not turbo then return nil, why end
     local out = { action = kind, fn = fn, turbo = (not fn) and turbo or nil }
 
-    if kind == "transfer_list" or kind == "loan_list" or kind == "unlist" then
+    if LIST[kind] then
         if a.playerid ~= nil then
             out.playerids = { util.to_int(a.playerid) }
             if not out.playerids[1] or not player_exists(out.playerids[1], player_set) then
@@ -122,9 +147,9 @@ function M.run(ctx)
     for _, a in ipairs(plan) do
         local n = 0
         if a.turbo then
-            local okc, ok, msg = pcall(a.turbo, a, ctx.dry)
+            local okc, ok, msg, count = pcall(a.turbo, a, ctx.dry)
             if not okc then ok, msg = false, "error: " .. tostring(ok) end
-            if ok then n = 1 else failed = failed + 1 end
+            if ok then n = count or 1 else failed = failed + 1 end
             notes[#notes + 1] = tostring(msg)
         elseif a.action == "transfer" then
             if call(a.fn, a.playerid, a.to_teamid, a.fee, a.wage, a.months, 0, a.release_clause) then n = 1 end
