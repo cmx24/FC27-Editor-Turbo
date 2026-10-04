@@ -2,6 +2,7 @@
 #include "callname_audio.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -67,7 +68,9 @@ double disk_seconds(const fs::path& p) {
 }  // namespace
 
 void parse_master_audio(const nlohmann::json& j, MasterAudio& out) {
+    static std::atomic<uint64_t> parses{0};
     out = MasterAudio{};
+    out.gen = ++parses;
     if (!j.is_object()) return;
     try {
         if (auto it = j.find("wav_dir"); it != j.end() && it->is_string()) out.wav_dir = it->get<std::string>();
@@ -77,7 +80,9 @@ void parse_master_audio(const nlohmann::json& j, MasterAudio& out) {
             read_bank(*it, "real_link", out.real_link);
         }
     } catch (const std::exception&) {
+        const uint64_t gen = out.gen;
         out = MasterAudio{};
+        out.gen = gen;
     }
 }
 
@@ -137,9 +142,12 @@ bool CallnamePlayer::file_ok(const fs::path& p) {
 }
 
 std::vector<fs::path> CallnamePlayer::playable(const MasterAudio& a, CallnameAudioKind kind, int64_t id) {
-    if (a.wav_dir != files_dir_) {  // another master (Refresh, another language): check the files again
+    // another wav folder, or the master read again (Refresh, another language): check the files again, the missing
+    // ones too (a wav copied into the same folder since is found)
+    if (a.wav_dir != files_dir_ || a.gen != files_gen_) {
         files_.clear();
         files_dir_ = a.wav_dir;
+        files_gen_ = a.gen;
     }
     std::vector<fs::path> out;
     for (auto& p : callname_wavs(a, kind, id))

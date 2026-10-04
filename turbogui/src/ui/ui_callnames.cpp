@@ -43,7 +43,8 @@ struct PendingAssign {
     int64_t playerid = 0;
     int64_t nameid = 0;        // By name: the picked name
     int64_t commentaryid = 0;  // By player: the callname to copy
-    std::string from;          // By player: whose callname it is
+    std::string from;          // By player: whose callname it is; a generic callname: "the generic callname 'Kane'"
+    bool generic = false;      // By name / All callnames: a generic callname on the player-specific route
     bool keep_display = true;
     NameChoice alt;            // All callnames: the picked name row (it may not be among the index's spoken names)
 };
@@ -515,6 +516,18 @@ static float list_height(float below) {
     return std::max(S(80.0f), std::min(S(200.0f), avail));
 }
 
+// A list row's play button under the row's own ID scope: several rows can carry the same commentary id (FC 27's
+// playernamemap gives 922045 to 11 players), and "##play_g<id>" alone would be one ImGui ID for all of them (the red
+// "conflicting ID" tooltip in game). `row` is the row's key: the name id (By name), the player id (By player), the
+// list key (All callnames).
+static void row_play_button(App& app, int64_t row, CallnameAudioKind kind, int64_t id) {
+    char scope[32];
+    std::snprintf(scope, sizeof(scope), "##row%lld", static_cast<long long>(row));
+    ImGui::PushID(scope);
+    callname_play_button(app, kind, id);
+    ImGui::PopID();
+}
+
 // Straight to the write for a player without his own recording; else parked until the popup confirms it
 static void request_name(App& app, const Table& t, const PlayerRow& p, const NameChoice& c, bool as_common, int own) {
     if (!own) {
@@ -528,7 +541,7 @@ static void request_name(App& app, const Table& t, const PlayerRow& p, const Nam
     g_pending.keep_display = g_keep_display;
     g_open_own_confirm = true;
 }
-static void request_player_callname(App& app, const PlayerRow& p, const PlayerChoice& c, int own) {
+static void request_player_callname(App& app, const PlayerRow& p, const PlayerChoice& c, int own, bool generic = false) {
     if (!own) {
         assign_player_callname(app, p, c.commentaryid, c.name);
         return;
@@ -538,6 +551,7 @@ static void request_player_callname(App& app, const PlayerRow& p, const PlayerCh
     g_pending.playerid = p.playerid;
     g_pending.commentaryid = c.commentaryid;
     g_pending.from = c.name;
+    g_pending.generic = generic;
     g_open_own_confirm = true;
 }
 
@@ -586,12 +600,21 @@ static void route_line(App& app, const GenericRoute& r, bool has_name_row) {
                                                                        : takeover_text(app, r.plan).c_str());
     }
 }
+// The line next to "Assign callname": a player with his own recording is not kept for the next career loads
+// (App::remember_player_callname refuses him), so his write lasts this career session only
+static void assign_callname_note(int own) {
+    g_state.assign_note = own ? "(his playernamemap row; this career session only: he has his own recording)"
+                              : "(his playernamemap row; written again at every career load)";
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", g_state.assign_note.c_str());
+}
 // The player-specific route for a generic callname (the own-recording popup first, as By player)
 static void request_generic_callname(App& app, const PlayerRow& p, const std::string& text, int64_t commentaryid, int own) {
+    // "the generic callname 'Kane'": kept as the callname's origin (reapply_edits.json, toasts) and named in the popup
     PlayerChoice c;
-    c.name = "generic " + (text.empty() ? std::to_string(commentaryid) : "'" + text + "'");
+    c.name = "the generic callname " + (text.empty() ? std::to_string(commentaryid) : "'" + text + "'");
     c.commentaryid = commentaryid;
-    request_player_callname(app, p, c, own);
+    request_player_callname(app, p, c, own, true);
 }
 
 static void by_name_picker(App& app, const Table& t, const PlayerRow& p) {
@@ -625,7 +648,7 @@ static void by_name_picker(App& app, const Table& t, const PlayerRow& p) {
             ImGui::SetNextItemAllowOverlap();  // the play button below takes its own clicks
             if (ImGui::Selectable(idbuf, g_sel_name == c.nameid, ImGuiSelectableFlags_SpanAllColumns)) g_sel_name = c.nameid;
             ImGui::TableNextColumn();
-            callname_play_button(app, CallnameAudioKind::Generic, c.commentaryid);
+            row_play_button(app, c.nameid, CallnameAudioKind::Generic, c.commentaryid);
             ImGui::SameLine();
             ImGui::TextUnformatted(c.name.c_str());
             ImGui::TableNextColumn();
@@ -652,8 +675,7 @@ static void by_name_picker(App& app, const Table& t, const PlayerRow& p) {
     if (route.player) {
         if (own) own_recording_warning(app, p, own);
         if (ImGui::Button("Assign callname")) request_generic_callname(app, p, sel->name, sel->commentaryid, own);
-        ImGui::SameLine();
-        ImGui::TextDisabled("(his playernamemap row; written again at every career load)");
+        assign_callname_note(own);
         return;
     }
     ImGui::Checkbox("Keep the shown name (editedplayernames)", &g_keep_display);
@@ -726,7 +748,7 @@ static void all_callnames_picker(App& app, const Table& t, const PlayerRow& p) {
                 sel = &r;
             }
             ImGui::TableNextColumn();
-            callname_play_button(app, r.own() ? CallnameAudioKind::Own : CallnameAudioKind::Generic, r.own() ? r.playerid : r.commentaryid);
+            row_play_button(app, key, r.own() ? CallnameAudioKind::Own : CallnameAudioKind::Generic, r.own() ? r.playerid : r.commentaryid);
             ImGui::SameLine();
             ImGui::TextUnformatted(r.text.empty() ? "(no text)" : r.text.c_str());
             ImGui::TableNextColumn();
@@ -756,24 +778,29 @@ static void all_callnames_picker(App& app, const Table& t, const PlayerRow& p) {
     if (own) own_recording_warning(app, p, own);
     if (route.player) {
         if (ImGui::Button("Assign callname##all")) request_generic_callname(app, p, sel->text, sel->commentaryid, own);
-        ImGui::SameLine();
-        ImGui::TextDisabled("(his playernamemap row; written again at every career load)");
+        assign_callname_note(own);
     } else if (sel->nameid) {
-        // through the name row (as By name: his last name, the shown name kept)
+        // through the name row (as By name, the shown name kept): a player with a common name (commonnameid > 0) is
+        // called by it and never by his last name (resolve_callname), so his common name gets it; else his last name
+        const bool as_common = t.has("commonnameid") && app.db.get_int(t, p.rec, "commonnameid", 0) > 0;
+        const char* field = as_common ? "commonnameid" : "lastnameid";
         ImGui::Checkbox("Keep the shown name (editedplayernames)##all", &g_keep_display);
-        if (!t.has("lastnameid")) ImGui::BeginDisabled();
-        if (ImGui::Button("Assign as last name##all")) {
+        if (!t.has(field)) ImGui::BeginDisabled();
+        if (ImGui::Button(as_common ? "Assign as common name##all" : "Assign as last name##all")) {
             NameChoice c;
             c.nameid = sel->nameid;
             c.name = sel->text;
             c.commentaryid = sel->commentaryid;
             c.users = sel->users;
-            request_name(app, t, p, c, false, own);
+            request_name(app, t, p, c, as_common, own);
             if (own) g_pending.alt = c;
         }
-        if (!t.has("lastnameid")) ImGui::EndDisabled();
+        if (!t.has(field)) ImGui::EndDisabled();
         ImGui::SameLine();
-        ImGui::TextDisabled("(name %lld)", static_cast<long long>(sel->nameid));
+        if (as_common)
+            ImGui::TextDisabled("(name %lld; he has a common name: the game says it, never his last name)", static_cast<long long>(sel->nameid));
+        else
+            ImGui::TextDisabled("(name %lld)", static_cast<long long>(sel->nameid));
     }
 }
 
@@ -815,7 +842,7 @@ static void by_player_picker(App& app, const PlayerRow& p) {
             ImGui::SetNextItemAllowOverlap();  // the play button below takes its own clicks
             if (ImGui::Selectable(idbuf, g_sel_player == c.playerid, ImGuiSelectableFlags_SpanAllColumns)) g_sel_player = c.playerid;
             ImGui::TableNextColumn();
-            callname_play_button(app, CallnameAudioKind::Generic, c.commentaryid);  // the callname that would be copied
+            row_play_button(app, c.playerid, CallnameAudioKind::Generic, c.commentaryid);  // the callname that would be copied
             ImGui::SameLine();
             ImGui::TextUnformatted(c.name.c_str());
             ImGui::TableNextColumn();
@@ -948,11 +975,16 @@ static void own_confirm_popup(App& app, const Table& t, const PlayerRow& p) {
         if (c.nameid == g_pending.nameid) name = &c;
     if (!name && g_pending.alt.nameid && g_pending.alt.nameid == g_pending.nameid) name = &g_pending.alt;
     std::string what;
-    if (g_pending.kind == PendingAssign::Kind::Player)
+    if (g_pending.kind == PendingAssign::Kind::Player && g_pending.generic)  // "write the generic callname 'Kane' (900017) to ..."
+        what = "write " + g_pending.from +
+               (g_pending.from.find('\'') != std::string::npos ? " (" + std::to_string(g_pending.commentaryid) + ")" : std::string()) +
+               " to his playernamemap row";
+    else if (g_pending.kind == PendingAssign::Kind::Player)
         what = "write callname " + std::to_string(g_pending.commentaryid) + " (" + g_pending.from + "'s) to his playernamemap row";
     else
         what = std::string("assign '") + (name ? name->name : "?") + "' (callname " + (name ? std::to_string(name->commentaryid) : std::string("?")) +
                ") as his " + (g_pending.kind == PendingAssign::Kind::CommonName ? "common" : "last") + " name";
+    g_state.confirm_what = what;
     ImGui::TextColored(kOrange, "%s (ID %lld) has his own recording in %s (%s).", p.name.c_str(), static_cast<long long>(p.playerid),
                        cn.lang.c_str(), cn.own_source(own).c_str());
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + S(560.0f));

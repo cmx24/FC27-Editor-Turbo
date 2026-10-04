@@ -31,10 +31,14 @@ struct MasterAudio {
     std::unordered_map<int64_t, std::vector<int64_t>> generic;    // commentary id -> segments (pSIMPLE_SURNAME)
     std::unordered_map<int64_t, std::vector<int64_t>> real;       // player id -> segments (pPLAYER_NAMES_SIMPLE)
     std::unordered_map<int64_t, std::vector<int64_t>> real_link;  // player id -> segments (pPLAYER_NAMES_LINK)
+    // set by every parse_master_audio (a new number each time, 0 = never parsed): the play buttons check the wav files
+    // again when it changes, so Refresh finds a wav added since (even a "missing" one) in the same wav folder
+    uint64_t gen = 0;
     bool any() const { return !generic.empty() || !real.empty() || !real_link.empty(); }
 };
 
-// Reads "wav_dir" and "segments" of a parsed master (anything of the wrong type is skipped; never throws)
+// Reads "wav_dir" and "segments" of a parsed master (anything of the wrong type is skipped; never throws); gives the
+// result a new `gen`
 void parse_master_audio(const nlohmann::json& j, MasterAudio& out);
 
 // <wav_dir>\generic\pSIMPLE_SURNAME_<seg>_<seg>.wav / <wav_dir>\real\pPLAYER_NAMES_SIMPLE|LINK_<seg>_<seg>.wav
@@ -87,6 +91,7 @@ private:
     Exists exists_;
     Seconds seconds_;
     std::string files_dir_;                          // wav_dir the cache below belongs to
+    uint64_t files_gen_ = 0;                         // and the MasterAudio::gen it was filled for
     std::unordered_map<std::string, bool> files_;    // wav path -> exists
     std::unordered_map<int64_t, size_t> next_;       // key -> next wav index
     int64_t key_ = 0;

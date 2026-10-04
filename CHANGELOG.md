@@ -15,6 +15,11 @@ Install as 1.0.2. Not yet checked in game.
   This is used only when the callname has a known recording (the spoken set or the master's generic ids), because the
   game says a player-specific callname only then. Otherwise the name id is written as before, and the toast says that
   the game shows the new name until the career is reloaded. A line above the button says which way will be used.
+  The line next to "Assign callname" says "this career session only" for a player with his own recording: Turbo
+  does not keep his callname for the next career loads.
+- **All callnames uses the common name of a player who has one.** When no callname row can be used, All callnames
+  now offers "Assign as common name" for a player with a common name, because the game then says his common name
+  and never his last name. Players without a common name still get "Assign as last name".
 
 ### Fixed
 
@@ -25,6 +30,9 @@ Install as 1.0.2. Not yet checked in game.
   exists it is edited in place, then the name id is written; a failed row write stops the name id. When the row must
   be added, Turbo's Lua side gets one command (add the row, then write the name id), so a refused row also stops the
   name id. A full `editedplayernames` table now writes nothing (before, the name id was written and the shown name lost).
+- **The confirmation for a player with his own recording misnamed a generic callname.** It said "callname 900017
+  (generic 'Kane''s)". It now says "write the generic callname 'Kane' (900017) to his playernamemap row", and the
+  kept callname is noted as coming from "the generic callname 'Kane'".
 
 ### Hear a callname in Turbo
 
@@ -33,6 +41,9 @@ Install as 1.0.2. Not yet checked in game.
   like the Play cells of your master workbook. Click again to hear the next variation; click while it plays to stop.
   When it cannot play, the button is greyed and its tooltip says why (no audio folder in the master, no recording of
   that id, or the wav is missing). Windows plays the sound; the game is not involved.
+- Rows that share a callname (FC 27 gives 922045 to 11 players) each have their own button. Before this fix, the game
+  showed a red "conflicting ID" message.
+- Refresh checks the wav files again. A wav copied into the audio folder after it was reported missing can now be played.
 - Needs the new master JSON: `turbo/tools/build_callname_master.py` now writes `wav_dir` and `segments`. Copy the new
   `ita_it.json` to `turbo\callnames\masters\` and press Refresh.
 
@@ -41,6 +52,17 @@ Install as 1.0.2. Not yet checked in game.
 - `turbo/tools/build_callname_master.py` now gives exactly what `build_master_v0.py` gives: column H "nameid", the Play
   macro pointed at `i27` (`--vba-from` / `--vba-to`, with `turbo/tools/vba_tool.py`), `--copy-to`, and
   `<name>_new.xlsm` when the workbook is open in Excel. New options `--wav-dir` (checks every row's wav).
+- Names for 'real' rows whose player is not in the FC 27 database or the template now come from
+  `--extra-names` (default `turbo_dev\masters\raw\extra_player_names.json` when it exists), then from
+  `--names-from <other FC 26 master>` (repeatable; its callnames, 'names' and 'fc26 heads' sheets). For Italian, 3
+  rows are still without a name (ids 80815, 272258, 272260). The callnames sheet is the same as
+  `C:\FC_Tools\My Mods\i27\italy_master_fc27.xlsm`, cell for cell.
+- Safer writes. The tool refuses to run when any file it would write is the template. It compares paths the way
+  Windows does (case-insensitive, links resolved). This covers the workbook, its `_new` name, the `--copy-to` copies
+  and the JSON, and `--copy-to` may not be the template's folder. A `--vba-from` text that is not found, or a patch
+  that leaves the old text in a module, now fails and leaves no file. `--vba-from` and `--vba-to` must have the same
+  length. The JSON is written before the `--copy-to` copy. The copy keeps the requested file name and becomes
+  `<name>_new.xlsm` when the old copy is open in Excel. A `--copy-to` that is not a folder is skipped with a note.
 
 ## 1.0.2 (callnames: players with their own recording; kit colours and player callnames kept across career loads)
 

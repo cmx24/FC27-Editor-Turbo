@@ -291,6 +291,8 @@ struct CallnameTabState {
     std::string takeover_line;  // By player: whose playernamemap row a write takes over (the table is full), or why none can be
     std::string confirm_takeover;  // the same, in the confirmation popup
     std::string route_line;     // By name / All callnames: the route a generic callname takes (1.0.3), shown before the click
+    std::string assign_note;    // the line next to "Assign callname": kept for every career load, or this session only
+    std::string confirm_what;   // the confirmation popup's "Write it anyway: <what>?"
 };
 const CallnameTabState& callname_tab_state();
 // What giving a player a player-specific callname did (write_player_callname)

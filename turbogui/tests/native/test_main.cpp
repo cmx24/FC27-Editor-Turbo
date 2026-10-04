@@ -841,6 +841,21 @@ static void test_core() {
             CHECK(pl.click(b2, CallnameAudioKind::Generic, 900002, 30.0).find("7_7") != npos && pl.playing(CallnameAudioKind::Generic, 900002, 31.9) &&
                       !pl.playing(CallnameAudioKind::Generic, 900002, 32.1),
                   "unknown length: two seconds");
+            // a missing wav copied into the SAME wav folder: still cached as missing until the master is read again
+            // (Refresh parses it: a new MasterAudio::gen), then checked again and playable
+            const json m3j = json::parse(R"({"wav_dir": "W3", "segments": {"generic": {"900004": [44]}}})");
+            MasterAudio m3;
+            parse_master_audio(m3j, m3);
+            CHECK(m3.gen != 0 && !pl.button(m3, CallnameAudioKind::Generic, 900004, 40.0).enabled, "missing wav: disabled");
+            files.insert("pSIMPLE_SURNAME_44_44.wav");
+            CHECK(!pl.button(m3, CallnameAudioKind::Generic, 900004, 40.1).enabled, "the same master: the file check stays cached");
+            MasterAudio m4;
+            parse_master_audio(m3j, m4);
+            CHECK(m4.wav_dir == m3.wav_dir && m4.gen != m3.gen, "read again: same folder, a new generation");
+            CallnamePlayer::Button b4 = pl.button(m4, CallnameAudioKind::Generic, 900004, 40.2);
+            CHECK(b4.enabled && b4.tip == "Play", "read again (Refresh): checked again, the wav is found: " + b4.tip);
+            CHECK(pl.click(m4, CallnameAudioKind::Generic, 900004, 40.3).find("44_44") != npos, "and played");
+            pl.stop();
         }
         // All callnames: every generic id of the master (with the name rows that use it) and every own recording
         {
@@ -4066,6 +4081,7 @@ static void test_ui() {
             CHECK(rst.route_line.find("Route: player-specific callname (a new playernamemap row). No name changes.") == 0,
                   "the route is named before the click: " + rst.route_line);
             CHECK(ui.find("Assign as last name") == nullptr && ui.find("Assign callname") != nullptr, "one button on the player-specific route");
+            CHECK(rst.assign_note == "(his playernamemap row; written again at every career load)", "no own recording: kept for every load: " + rst.assign_note);
             const int64_t saka_last = app.db.get_int(*pt, rec1001, "lastnameid");
             CHECK(ui.click("Assign callname"), "assign callname");
             CHECK(app.db.get_int(*pt, rec1001, "lastnameid") == saka_last, "no name id written");
@@ -4078,7 +4094,7 @@ static void test_ui() {
                       "his playernamemap row, with the room check: " + a.dump());
             }
             CHECK(app.reapply.callname(1001) && app.reapply.callname(1001)->commentaryid == 900017 &&
-                      app.reapply.callname(1001)->from.find("generic 'Kane'") != npos,
+                      app.reapply.callname(1001)->from == "the generic callname 'Kane'",
                   "kept for every career load");
             CHECK(ui.click("Cancel"), "cancel");
             app.forget_player_callname(1001);
@@ -4573,7 +4589,80 @@ static void test_ui() {
                 ui.frames(1);
                 CHECK(st.route_line.find("Route: name id (no playernamemap row free)") == 0 && ui.find("Assign as last name##all") != nullptr,
                       "all callnames, a full table: the name row: " + st.route_line);
+                // A PLAYER WITH A COMMON NAME (1005, common name 15): the game says his common name's callname and never
+                // his last name, so the name route goes through his common name (a full table, no spare row)
+                const int64_t common1005 = app.db.get_int(*pt, rec1005, "commonnameid");
+                const int64_t lastname1005 = app.db.get_int(*pt, rec1005, "lastnameid");
+                app.sel_player = 1005;
+                ui.frames(3);
+                CHECK(st.playerid == 1005 && common1005 == 15 && st.route_line.find("Route: name id (no playernamemap row free)") == 0,
+                      "1005, a full table: the name route: " + st.route_line);
+                CHECK(ui.find("Assign as common name##all") != nullptr && ui.find("Assign as last name##all") == nullptr,
+                      "a player with a common name: offered as his common name, not his last name");
+                app.toasts.clear();
+                CHECK(ui.click("Assign as common name##all"), "assign as common name");
+                CHECK(app.db.get_int(*pt, rec1005, "commonnameid") == common1005 && app.db.get_int(*pt, rec1005, "lastnameid") == lastname1005,
+                      "nothing written before the kept-name row");
+                {
+                    json cmd = json::parse(mem.read_cstr(kMb + 0x20, 0x1000), nullptr, false);
+                    const json acts = cmd.is_discarded() ? json::array() : cmd["overrides"]["actions"];
+                    CHECK(acts.size() == 2 && acts[0].value("action", "") == "set_display_name" && acts[1].value("action", "") == "set_name_ids" &&
+                              acts[1].value("commonnameid", 0) == 2 && !acts[1].contains("lastnameid"),
+                          "the kept-name row, then his COMMON name id: " + acts.dump());
+                }
+                if (app.busy()) CHECK(ui.click("Cancel"), "cancel the queued command");
                 CHECK(mem.wr(mt->header + 0x78, c) && mem.wr(mt->header + 0x7A, c), "capacity restored");
+                app.sel_player = 1002;
+                ui.frames(3);
+                CHECK(st.playerid == 1002, "back to 1002");
+            }
+            // A PLAYER WITH HIS OWN RECORDING (1001) on the player-specific route: the note says this career session only
+            // (he is not kept for the next loads), and the popup names the generic callname with its id
+            app.sel_player = 1001;
+            ui.frames(3);
+            CHECK(ui.click("By name", "##cname"), "By name tab (1001)");
+            CHECK(ui.type_into(ui.find("##cnsearch"), "kan") && ui.click("17", "##cnames"), "pick Kane");
+            ui.frames(1);
+            CHECK(st.playerid == 1001 && st.own != 0 && st.route_line.find("Route: player-specific callname") == 0, "1001: " + st.route_line);
+            CHECK(st.assign_note == "(his playernamemap row; this career session only: he has his own recording)",
+                  "own recording: this career session only: " + st.assign_note);
+            CHECK(ui.click("Assign callname"), "assign callname");
+            ui.frames(2);
+            CHECK(st.confirm_open && st.confirm_what == "write the generic callname 'Kane' (900017) to his playernamemap row",
+                  "the popup names the generic callname: " + st.confirm_what);
+            CHECK(ui.click("Cancel##cnown", "##cnown"), "cancel");
+            ui.frames(2);
+            CHECK(!st.confirm_open && !app.busy(), "cancelled: nothing queued");
+            // PLAY BUTTONS OF ROWS SHARING A COMMENTARY ID: one ImGui ID each (FC 27 gives 922045 to 11 players)
+            auto play_buttons = [&](const std::string& label, const std::string& win) {
+                std::set<ImGuiID> ids;
+                for (const auto& kv : g_items)
+                    if (kv.second.frame == g_frame && kv.second.label == label && kv.second.window.find(win) != std::string::npos) ids.insert(kv.first);
+                return ids.size();
+            };
+            {
+                // By name: names 2 (Saka) and 17 (Kane) both with callname 900002 ("ka" lists just these two)
+                const Table* nt = app.db.table("playernames");
+                const uint64_t n17 = nt ? app.db.find(*nt, "nameid", 17) : 0;
+                CHECK(n17 && app.db.set_int(*nt, n17, "commentaryid", 900002), "name 17 given callname 900002");
+                CHECK(ui.click("Refresh##cn") && ui.type_into(ui.find("##cnsearch"), "ka"), "refresh, type ka");
+                ui.frames(1);
+                CHECK(play_buttons("##play_g900002", "##cnames") == 2, fmt("By name: two rows of 900002, two play button IDs (%zu)",
+                                                                             play_buttons("##play_g900002", "##cnames")));
+                CHECK(n17 && app.db.set_int(*nt, n17, "commentaryid", 900017), "name 17 restored");
+                // By player: 1003 and 2001 both with playernamemap callname 900010 (1002 open: both listed)
+                app.sel_player = 1002;
+                ui.frames(3);
+                const uint64_t r2001 = app.db.find(*mt, "playerid", 2001);
+                const int64_t c2001 = app.db.get_int(*mt, r2001, "commentaryid");
+                CHECK(r2001 && app.db.set_int(*mt, r2001, "commentaryid", 900010), "2001 given callname 900010");
+                CHECK(ui.click("Refresh##cn") && ui.click("By player", "##cname") && ui.type_into(ui.find("##cpsearch"), ""), "By player, search cleared");
+                ui.frames(1);
+                CHECK(play_buttons("##play_g900010", "##cplayers") == 2, fmt("By player: two rows of 900010, two play button IDs (%zu)",
+                                                                               play_buttons("##play_g900010", "##cplayers")));
+                CHECK(r2001 && app.db.set_int(*mt, r2001, "commentaryid", c2001), "2001 restored");
+                CHECK(ui.click("Refresh##cn") && ui.click("All callnames", "##cname"), "refresh, back to All callnames");
+                ui.frames(1);
             }
             CHECK(ui.click("By name", "##cname"), "back to By name");
             // the list gone: the line says an own recording would not be known

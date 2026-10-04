@@ -25,7 +25,18 @@ Inputs:
                 same-length text patch of the copied workbook's VBA project (vba_tool.patch_text: module source,
                 p-code and __SRP caches), e.g. the Play macro's audio base C:\\FC_Tools\\My Mods\\ita\\ ->
                 C:\\FC_Tools\\My Mods\\i27\\ (the FC 27 audio). Without them the VBA project stays byte-identical.
-  --copy-to     also copy the finished workbook into this folder (build_master_v0 delivers it to the FC 27 audio folder)
+                Both must have the same cp1252 byte length. The build fails (nothing written) when the text is not
+                found, or when afterwards a module's source still holds --vba-from or none holds --vba-to.
+  --copy-to     also copy the finished workbook into this folder (build_master_v0 delivers it to the FC 27 audio folder),
+                after the JSON is written, as <that folder>\\<basename of --out-xlsm> (open in Excel: <name>_new.xlsm);
+                skipped with a note when it is not a folder
+  --extra-names JSON of names for 'real' rows whose player is neither in the FC 27 database nor in the template
+                ({"names": {"<playerid>": {"name": ..., "source": ...}}} as turbo_dev\\masters\\raw\\extra_player_names.json,
+                or {"<playerid>": [name, source]}); default: C:\\FC 27 Live Editor\\turbo_dev\\masters\\raw\\
+                extra_player_names.json when it exists ('' = none)
+  --names-from  another FC 26 master workbook (repeatable; the first one naming an id wins): its 'callnames' rows
+                (column D of 'real' rows, by column C) and its 'names' / 'fc26 heads' sheets (id, name), the last
+                fallback for 'real' rows: FC 27 database name, else template, else --extra-names, else these
 
 Outputs:
   --out-xlsm    <name>_master_fc27.xlsm: sheet 'callnames' (SegmentID, VariationId, playerid, name, type, Play, category,
@@ -34,7 +45,9 @@ Outputs:
                 text equals the commentary name (exact text, else case-insensitive; several joined with ','): the id a
                 player's last / common name must be set to for that recording. Sheet 'names' (id, name). The VBA
                 project byte-identical unless --vba-from/--vba-to. When the file is open in Excel, <name>_new.xlsm is
-                written instead.
+                written instead. No destination (--out-xlsm, its _new name, the --copy-to copies, --out-json) may be the
+                template, compared as the system does (Windows: case-insensitive, links resolved); --copy-to may not be
+                the template's folder. Checked before anything is written.
   --out-json    <lang>.json for Turbo (turbo\\callnames\\masters):
                 {"turbo_masters": 1, "language", "game": "fc27", "game_build", "source", "built", "counts": {...},
                  "real_players" (PLAYER_NAMES_SIMPLE | PLAYER_NAMES_LINK ids = players with their own recording),
@@ -50,6 +63,7 @@ The FC 27 workbook is shipped with its own real\\ and generic\\ folders of FC 27
 usage: python turbo/tools/build_callname_master.py --bank B --players P --edited E --names N --commentary C
                                                     --template T --out-xlsm X --out-json J [--lang ita_it]
                                                     [--wav-dir W] [--vba-from OLD --vba-to NEW] [--copy-to D]
+                                                    [--extra-names X.json] [--names-from OTHER_master.xlsm ...]
        python turbo/tools/build_callname_master.py --self-test
 ita_it as build_master_v0: --wav-dir "C:\\FC_Tools\\My Mods\\i27" --vba-from "C:\\FC_Tools\\My Mods\\ita\\"
                            --vba-to "C:\\FC_Tools\\My Mods\\i27\\" --copy-to "C:\\FC_Tools\\My Mods\\i27"
@@ -68,6 +82,9 @@ import zipfile
 from copy import copy
 
 PLAY = '\u25b6 Play'
+# names of 'real' recordings whose player is in neither the FC 27 database nor the Italian FC 26 master (the lead's
+# build_master_v0.py reads the same file)
+DEFAULT_EXTRA_NAMES = r'C:\FC 27 Live Editor\turbo_dev\masters\raw\extra_player_names.json'
 WAV_PREFIX = {'real': 'pPLAYER_NAMES_SIMPLE', 'real_link': 'pPLAYER_NAMES_LINK', 'generic': 'pSIMPLE_SURNAME'}
 WAV_SUB = {'real': 'real', 'real_link': 'real', 'generic': 'generic'}
 
@@ -107,6 +124,115 @@ def vba(path):
         return z.read('xl/vbaProject.bin')
 
 
+def _vba_tool():
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import vba_tool  # same folder; stdlib only (OLE + MS-OVBA)
+    return vba_tool
+
+
+def vba_module_sources(vba_bin):
+    """{module name: source text}: every module of a vbaProject.bin decompressed (vba_tool), in its code page"""
+    vt = _vba_tool()
+    ole = vt.Ole(vba_bin)
+    mods, cp = vt.parse_dir(ole)
+    return {m['name']: vt.decompress(ole.read('VBA/' + m['stream'])[m['offset']:]).decode('cp%d' % cp, errors='replace')
+            for m in mods}
+
+
+def new_name(path):
+    """<name>_new.xlsm: written instead of <name>.xlsm while that one is open in Excel"""
+    root, ext = os.path.splitext(path)
+    return root + '_new' + (ext or '.xlsm')
+
+
+def same_path(a, b):
+    """True when a and b name the same file as the system sees it: os.path.samefile when both exist, else the
+    normalized real paths (normcase: case-insensitive on Windows)"""
+    try:
+        if os.path.exists(a) and os.path.exists(b) and os.path.samefile(a, b):
+            return True
+    except OSError:
+        pass
+    return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+
+
+def check_destinations(template, out_xlsm, out_json=None, copy_to=None):
+    """Raise ValueError when a file the build writes would be the template (which is only ever read), before anything
+    is written: --out-xlsm, its .building and _new names, the --copy-to copies, --out-json, or --copy-to = the
+    template's folder (its copy could be the template under another name)"""
+    dests = [('--out-xlsm', out_xlsm), ('--out-xlsm (_new)', new_name(out_xlsm)),
+             ('--out-xlsm (temporary)', out_xlsm + '.building.xlsm')]
+    if out_json:
+        dests.append(('--out-json', out_json))
+    if copy_to:
+        if same_path(copy_to, os.path.dirname(os.path.abspath(template))):
+            raise ValueError(f'--copy-to {copy_to} is the template\'s folder: the template is never written')
+        base = os.path.join(copy_to, os.path.basename(out_xlsm))
+        dests += [('--copy-to', base), ('--copy-to (_new)', new_name(base))]
+    for what, d in dests:
+        if same_path(d, template):
+            raise ValueError(f'{what} {d} is the template {template}: the template is never written')
+
+
+def _id(v):
+    """An id cell (int, whole float or digit text) as an int, else None"""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
+    if isinstance(v, str) and v.strip().isdigit():
+        return int(v.strip())
+    return None
+
+
+def read_extra_names(path):
+    """{playerid: name} from {"names": {"<id>": {"name": ...}}} or {"<id>": [name, source]} (a plain name string is
+    accepted too); keys that are not ids ("note") and empty names are skipped"""
+    with open(path, encoding='utf-8') as f:
+        j = json.load(f)
+    if not isinstance(j, dict):
+        raise ValueError(f'{path}: not a JSON object')
+    src = j['names'] if isinstance(j.get('names'), dict) else j
+    out = {}
+    for k, v in src.items():
+        i = _id(k)
+        if i is None:
+            continue
+        n = v.get('name') if isinstance(v, dict) else v[0] if isinstance(v, (list, tuple)) and v else v
+        if isinstance(n, str) and n.strip():
+            out[i] = n
+    return out
+
+
+def read_workbook_names(path):
+    """{playerid: name} from another FC 26 master: 'callnames' column D of 'real' rows (id in C), then the 'names' and
+    'fc26 heads' sheets (id, name); formulas and empty names skipped, the first name of an id kept"""
+    import openpyxl
+
+    out = {}
+
+    def put(i, n):
+        if i is not None and isinstance(n, str) and n.strip() and not n.startswith('='):
+            out.setdefault(i, n)
+
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        if 'callnames' in wb.sheetnames:
+            for row in wb['callnames'].iter_rows(min_row=2, values_only=True):
+                if len(row) >= 5 and row[4] == 'real':
+                    put(_id(row[2]), row[3])
+        for sheet in ('names', 'fc26 heads'):
+            if sheet in wb.sheetnames:
+                for row in wb[sheet].iter_rows(min_row=2, values_only=True):
+                    if len(row) >= 2:
+                        put(_id(row[0]), row[1])
+    finally:
+        wb.close()
+    return out
+
+
 def nameid_index(names):
     """name text -> name ids, exact and case-insensitive (column H)"""
     exact, folded = collections.defaultdict(list), collections.defaultdict(list)
@@ -139,8 +265,28 @@ def segments_by_id(rows, key):
 
 
 def build(bank_path, players_path, edited_path, names_path, comm_path, template, out_xlsm, out_json, lang=None,
-          wav_dir=None, vba_from=None, vba_to=None, copy_to=None, log=print):
+          wav_dir=None, vba_from=None, vba_to=None, copy_to=None, log=print, extra_names=None, names_from=()):
     import openpyxl
+
+    check_destinations(template, out_xlsm, out_json, copy_to)  # before anything is written
+    if bool(vba_from) != bool(vba_to):
+        raise ValueError('--vba-from and --vba-to go together')
+    if vba_from:
+        try:
+            if len(vba_from.encode('cp1252')) != len(vba_to.encode('cp1252')):
+                raise ValueError('--vba-from and --vba-to must have the same cp1252 byte length')
+        except UnicodeEncodeError as e:
+            raise ValueError(f'--vba-from / --vba-to must be cp1252 text: {e}')
+    # the last fallbacks for 'real' rows: --extra-names, then the --names-from workbooks (the first naming an id wins)
+    extra = read_extra_names(extra_names) if extra_names else {}
+    if extra_names:
+        log(f'extra names: {len(extra)} from {extra_names}')
+    other = {}
+    for wbp in names_from or ():
+        got = read_workbook_names(wbp)
+        for i, n in got.items():
+            other.setdefault(i, n)
+        log(f'names from {wbp}: {len(got)}')
 
     with open(bank_path, encoding='utf-8') as f:
         bank = json.load(f)
@@ -192,11 +338,18 @@ def build(bank_path, players_path, edited_path, names_path, comm_path, template,
 
     rows = []
     missing_names = collections.Counter()
+    name_from = collections.Counter()   # where the 'real' rows' names came from (logged)
     for typ, key, src in (('real', 'playerid', bank['real']), ('generic', 'commentaryid', bank['generic'])):
         for b in src:
             i = int(b[key])
             if typ == 'real':
-                n = player_name(i) or name26.get(('real', i))
+                n = None
+                for where, get in (('fc27 db', player_name), ('template', lambda x: name26.get(('real', x))),
+                                   ('extra names', extra.get), ('other masters', other.get)):
+                    n = get(i)
+                    if n:
+                        name_from[where] += 1
+                        break
                 cat = cat26.get(('real', i)) or (nat_cat.get(players[i].get('nationality')) if i in players else None)
             else:
                 n = comm.get(i) or name26.get(('generic', i))
@@ -206,6 +359,7 @@ def build(bank_path, players_path, edited_path, names_path, comm_path, template,
                 n = ''
             rows.append((int(b['segment']), int(b['variation']), i, n, typ, cat))
     rows.sort(key=lambda r: (sort_key(r[3]) or '~', r[4] != 'real', r[2], r[0], r[1]))
+    log(f'real row names: {dict(name_from)}; without a name: {dict(missing_names)}')
 
     # column H 'nameid' (generic rows): the playernames id(s) whose text equals the commentary name
     exact, folded = nameid_index(names)
@@ -216,54 +370,24 @@ def build(bank_path, players_path, edited_path, names_path, comm_path, template,
     os.makedirs(out_dir, exist_ok=True)
     building = out_xlsm + '.building.xlsm'
     shutil.copyfile(template, building)
-    wb = openpyxl.load_workbook(building, keep_vba=True)
-    ws = wb['callnames']
-    style_row = [copy(c._style) for c in ws[3]]   # a plain 'real' row of the template
-    head_style = copy(ws.cell(row=1, column=7)._style)
-    ws.delete_rows(2, ws.max_row)
-    for r_i, (seg, var, i, n, typ, cat) in enumerate(rows, start=2):
-        nid = nameids_for(n, exact, folded, nameid_stats) if typ == 'generic' else None
-        for c_i, v in enumerate((seg, var, i, n, typ, PLAY, cat, nid), start=1):
-            c = ws.cell(row=r_i, column=c_i, value=v)
-            c._style = copy(style_row[c_i - 1] if c_i != 8 else style_row[2])  # H styled like C (an id)
-    h = ws.cell(row=1, column=8, value='nameid')
-    h._style = head_style
-    ws.column_dimensions['H'].width = max(ws.column_dimensions['C'].width or 12, 14)
-    ws.auto_filter.ref = f'A1:H{len(rows) + 1}'
-    ws.freeze_panes = 'A2'
-
-    wn = wb['names']
-    wn.delete_rows(2, wn.max_row)
+    try:
+        _fill_workbook(building, rows, exact, folded, nameid_stats, template, vba_from, vba_to, log)
+    except BaseException:
+        if os.path.exists(building):   # never leave a half-built workbook behind
+            os.remove(building)
+        raise
+    requested = out_xlsm
+    try:
+        os.replace(building, out_xlsm)
+    except PermissionError:   # the previous build is open in Excel
+        out_xlsm = new_name(out_xlsm)
+        os.replace(building, out_xlsm)
+        log('NOTE: the previous workbook is open in Excel; wrote ' + out_xlsm)
+    log('nameid (generic rows): ' + str(dict(nameid_stats)))
     idnames = {}
     for seg, var, i, n, typ, cat in rows:
         if n:
             idnames.setdefault(i, n)
-    for r_i, (i, n) in enumerate(sorted(idnames.items()), start=2):
-        wn.cell(row=r_i, column=1, value=i)
-        wn.cell(row=r_i, column=2, value=n)
-    wb.save(building)
-
-    if vba(building) != vba(template):
-        os.remove(building)
-        raise RuntimeError('VBA project changed by openpyxl')
-    if vba_from or vba_to:
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        import vba_tool  # same folder; stdlib only (OLE + MS-OVBA)
-        vba_new, report = vba_tool.patch_text(vba(template), vba_from or '', vba_to or '')
-        vba_tool.replace_zip_member(building, 'xl/vbaProject.bin', vba_new)
-        if vba(building) != vba_new:
-            raise RuntimeError('VBA project not replaced')
-        log('VBA patched: ' + '; '.join(report))
-    try:
-        os.replace(building, out_xlsm)
-    except PermissionError:   # the previous build is open in Excel
-        out_xlsm = out_xlsm[:-5] + '_new.xlsm'
-        os.replace(building, out_xlsm)
-        log('NOTE: the previous workbook is open in Excel; wrote ' + out_xlsm)
-    if copy_to:
-        shutil.copyfile(out_xlsm, os.path.join(copy_to, os.path.basename(out_xlsm)))
-        log('copied to ' + copy_to)
-    log('nameid (generic rows): ' + str(dict(nameid_stats)))
 
     # audio: the folder Turbo's play buttons read (every row's wav is checked there) and the segments of every id
     wav_dir = wav_dir if wav_dir is not None else (bank.get('wav_dir') or '')
@@ -297,7 +421,76 @@ def build(bank_path, players_path, edited_path, names_path, comm_path, template,
     os.makedirs(out_json_dir, exist_ok=True)
     with open(out_json, 'w', encoding='utf-8') as f:
         json.dump(out, f, ensure_ascii=False, indent=1)
+    # the copy last (the JSON is written whatever happens to it), under the requested name
+    if copy_to:
+        if not os.path.isdir(copy_to):
+            log(f'copy skipped: --copy-to {copy_to} is not a folder')
+        else:
+            dest = os.path.join(copy_to, os.path.basename(requested))
+            if same_path(dest, out_xlsm):
+                log(f'copy skipped: {dest} is the workbook just written')
+            else:
+                try:
+                    shutil.copyfile(out_xlsm, dest)
+                except PermissionError:   # that copy is open in Excel
+                    dest = new_name(dest)
+                    shutil.copyfile(out_xlsm, dest)
+                    log('NOTE: the copy in --copy-to is open in Excel; copied to ' + dest)
+                else:
+                    log('copied to ' + dest)
     return out
+
+
+def _fill_workbook(building, rows, exact, folded, nameid_stats, template, vba_from, vba_to, log):
+    """The copied template's sheets 'callnames' and 'names' replaced by the rows; its VBA project kept byte for byte,
+    or patched (--vba-from / --vba-to) and checked. Raises on any problem (build removes the file)."""
+    import openpyxl
+
+    wb = openpyxl.load_workbook(building, keep_vba=True)
+    ws = wb['callnames']
+    style_row = [copy(c._style) for c in ws[3]]   # a plain 'real' row of the template
+    head_style = copy(ws.cell(row=1, column=7)._style)
+    ws.delete_rows(2, ws.max_row)
+    for r_i, (seg, var, i, n, typ, cat) in enumerate(rows, start=2):
+        nid = nameids_for(n, exact, folded, nameid_stats) if typ == 'generic' else None
+        for c_i, v in enumerate((seg, var, i, n, typ, PLAY, cat, nid), start=1):
+            c = ws.cell(row=r_i, column=c_i, value=v)
+            c._style = copy(style_row[min(c_i, len(style_row)) - 1] if c_i != 8 else style_row[2])  # H styled like C (an id)
+    h = ws.cell(row=1, column=8, value='nameid')
+    h._style = head_style
+    ws.column_dimensions['H'].width = max(ws.column_dimensions['C'].width or 12, 14)
+    ws.auto_filter.ref = f'A1:H{len(rows) + 1}'
+    ws.freeze_panes = 'A2'
+
+    wn = wb['names']
+    wn.delete_rows(2, wn.max_row)
+    idnames = {}
+    for seg, var, i, n, typ, cat in rows:
+        if n:
+            idnames.setdefault(i, n)
+    for r_i, (i, n) in enumerate(sorted(idnames.items()), start=2):
+        wn.cell(row=r_i, column=1, value=i)
+        wn.cell(row=r_i, column=2, value=n)
+    wb.save(building)
+
+    if vba(building) != vba(template):
+        raise RuntimeError('VBA project changed by openpyxl')
+    if not (vba_from or vba_to):
+        return
+    vt = _vba_tool()
+    vba_new, report = vt.patch_text(vba(template), vba_from, vba_to)
+    if not report:
+        raise RuntimeError(f'--vba-from text not found in the VBA project: {vba_from!r} (nothing patched)')
+    vt.replace_zip_member(building, 'xl/vbaProject.bin', vba_new)
+    if vba(building) != vba_new:
+        raise RuntimeError('VBA project not replaced')
+    # as build_master_v0: every module decompressed again; the old text gone, the new one there
+    src = ''.join(vba_module_sources(vba_new).values())
+    if vba_from in src:
+        raise RuntimeError(f'--vba-from text still in a VBA module after the patch: {vba_from!r}')
+    if vba_to not in src:
+        raise RuntimeError(f'--vba-to text in no VBA module after the patch: {vba_to!r}')
+    log('VBA patched: ' + '; '.join(report))
 
 
 # ---------------------------------------------------------------------------------------------------------- self-test
@@ -442,6 +635,147 @@ def self_test():
         out2 = build(p('ita_it_bank.json'), p('players.csv'), p('edited.csv'), p('names.txt'), p('comm.txt'),
                      template, p(os.path.join('out2', 'm.xlsm')), p(os.path.join('out2', 'ita_it.json')), log=logged.append)
         check(out2['wav_dir'] == '' and sorted(out2['segments']) == ['generic', 'real'], 'no wav folder: segments only')
+
+        args = (p('ita_it_bank.json'), p('players.csv'), p('edited.csv'), p('names.txt'), p('comm.txt'), template)
+
+        # --extra-names (both shapes) and --names-from: the last fallbacks for 'real' rows (player 400 has no name)
+        with open(p('extra_a.json'), 'w', encoding='utf-8') as f:
+            json.dump({'note': 'x', 'names': {'400': {'name': 'Extra Four', 'source': 'br_master.xlsm'},
+                                              '100': {'name': 'Never Used', 'source': 'x'}}}, f)
+        with open(p('extra_b.json'), 'w', encoding='utf-8') as f:
+            json.dump({'400': ['Extra Four B', 'FC Editor'], 'note': ['not an id', 'x']}, f)
+        other = p('other_master.xlsx')
+        wbo = openpyxl.Workbook()
+        wbo.active.title = 'callnames'
+        wbo['callnames'].append(HEADER)
+        wbo['callnames'].append((1, 1, 999, 'Callnames Nine', 'real', PLAY, None))
+        wbo['callnames'].append((1, 1, 400, '=formula', 'real', PLAY, None))
+        wbo.create_sheet('names').append(('ID', 'origname'))
+        wbo['names'].append((400, ''))
+        wbo.create_sheet('fc26 heads').append(('ID', 'Name'))
+        wbo['fc26 heads'].append((400, 'Heads Four'))
+        wbo.save(other)
+        check(read_workbook_names(other) == {999: 'Callnames Nine', 400: 'Heads Four'},
+              "--names-from: 'callnames' D of real rows, then 'names' / 'fc26 heads' (formulas, empty names skipped)")
+        for tag, kw, want400 in (('a', {'extra_names': p('extra_a.json')}, 'Extra Four'),
+                                 ('b', {'extra_names': p('extra_b.json')}, 'Extra Four B'),
+                                 ('c', {'names_from': [other]}, 'Heads Four'),
+                                 ('d', {'extra_names': p('extra_a.json'), 'names_from': [other]}, 'Extra Four')):
+            o = build(*args, p(os.path.join('o' + tag, 'm.xlsm')), p(os.path.join('o' + tag, 'j.json')), log=logged.append, **kw)
+            check(o['names'].get('400') == want400 and o['names']['100'] == 'Émile Zola' and o['counts']['missing_names'] == {},
+                  f'fallback names ({tag}): 400 = {o["names"].get("400")!r}, the FC 27 database first')
+
+        # the template is never a destination, compared as the system does (case variant, '.', its folder for --copy-to)
+        def refused(what, **kw):
+            o_x = kw.pop('out_xlsm', p(os.path.join('og', 'm.xlsm')))
+            o_j = kw.pop('out_json', p(os.path.join('og', 'j.json')))
+            try:
+                build(*args, o_x, o_j, log=logged.append, **kw)
+            except ValueError as e:
+                check('template' in str(e) and not os.path.exists(p('og')), f'refused before writing: {what}')
+                return
+            check(False, f'refused: {what} (it was written)')
+
+        stamp = os.path.getmtime(template), os.path.getsize(template)
+        variant = os.path.join(os.path.dirname(template), os.path.basename(template).upper())
+        if os.path.exists(variant):   # a case-insensitive file system (Windows): the same file
+            refused('--out-xlsm, a case variant of the template', out_xlsm=variant)
+        refused("--out-xlsm, the template through '.'", out_xlsm=os.path.join(d, '.', 'test_master.xlsm'))
+        refused("--copy-to, the template's folder", copy_to=d.upper() if os.path.exists(d.upper()) else d)
+        refused('--out-json, the template', out_json=template)
+        t_new = p('t2_new.xlsm')   # a template named like another workbook's _new name
+        shutil.copyfile(template, t_new)
+        try:
+            build(*args[:5], t_new, p('t2.xlsm'), p(os.path.join('og', 'j.json')), log=logged.append)
+            check(False, '--out-xlsm whose _new name is the template: refused')
+        except ValueError as e:
+            check('_new' in str(e) and not os.path.exists(p('og')) and not os.path.exists(p('t2.xlsm')),
+                  '--out-xlsm whose _new name is the template: refused')
+        check((os.path.getmtime(template), os.path.getsize(template)) == stamp, 'the template untouched')
+        try:
+            main(['--bank', args[0], '--players', args[1], '--edited', args[2], '--names', args[3], '--commentary', args[4],
+                  '--template', template, '--out-xlsm', os.path.join(d, '.', 'test_master.xlsm'), '--out-json', p('j.json')])
+            check(False, 'main refuses the template as --out-xlsm')
+        except SystemExit as e:
+            check(e.code == 2 and not os.path.exists(p('j.json')), 'main refuses the template as --out-xlsm (usage error)')
+
+        # --vba-from / --vba-to: any failure leaves nothing (no .building file, no workbook, no JSON)
+        def vba_fails(what, fake_patch=None, fake_sources=None, vba_from='ita\\', vba_to='i27\\'):
+            o_x, o_j = p(os.path.join('ov', 'm.xlsm')), p(os.path.join('ov', 'j.json'))
+            g = globals()
+            saved = g['_vba_tool'], g['vba_module_sources']
+            try:
+                if fake_patch:
+                    real = saved[0]()
+
+                    class Fake:
+                        patch_text = staticmethod(fake_patch)
+                        replace_zip_member = staticmethod(real.replace_zip_member)
+                    g['_vba_tool'] = lambda: Fake
+                if fake_sources:
+                    g['vba_module_sources'] = fake_sources
+                try:
+                    build(*args, o_x, o_j, log=logged.append, vba_from=vba_from, vba_to=vba_to)
+                except (RuntimeError, ValueError, AssertionError) as e:
+                    left = sorted(os.listdir(p('ov'))) if os.path.isdir(p('ov')) else []
+                    check(left == [], f'{what}: failed, nothing left ({e}; {left})')
+                    return
+                check(False, f'{what}: should fail')
+            finally:
+                g['_vba_tool'], g['vba_module_sources'] = saved
+
+        vba_fails('not a VBA project (the real vba_tool)')
+        vba_fails('--vba-from not found (patch_text reports nothing)', fake_patch=lambda b, o, n: (b, []))
+        patched = DUMMY_VBA.replace(b'dummy', b'dumbo')
+        vba_fails('--vba-from still in a module afterwards', fake_patch=lambda b, o, n: (patched, ['VBA/Module1: source 1']),
+                  fake_sources=lambda b: {'Module1': 'x = "ita\\" & y'})
+        vba_fails('--vba-to in no module afterwards', fake_patch=lambda b, o, n: (patched, ['VBA/Module1: source 1']),
+                  fake_sources=lambda b: {'Module1': 'x = "zzz\\" & y'})
+        vba_fails('a different cp1252 byte length', vba_from='ita\\', vba_to='i2\\')
+        g = globals()
+        saved = g['_vba_tool'], g['vba_module_sources']
+        try:
+            real = saved[0]()
+
+            class Fake:
+                patch_text = staticmethod(lambda b, o, n: (patched, ['VBA/Module1: source 1']))
+                replace_zip_member = staticmethod(real.replace_zip_member)
+            g['_vba_tool'] = lambda: Fake
+            g['vba_module_sources'] = lambda b: {'Module1': 'x = "i27\\" & y'}
+            o = build(*args, p(os.path.join('ov2', 'm.xlsm')), p(os.path.join('ov2', 'j.json')), log=logged.append,
+                      vba_from='ita\\', vba_to='i27\\')
+            check(vba(o['source']) == patched and any(s.startswith('VBA patched') for s in logged), 'a checked patch is written')
+        finally:
+            g['_vba_tool'], g['vba_module_sources'] = saved
+
+        # --copy-to: after the JSON, as <copy_to>\<requested basename>; open in Excel -> <name>_new.xlsm; not a folder -> skipped
+        dest_dir = p('deliver')
+        os.makedirs(dest_dir)
+        real_copy = shutil.copyfile
+        seen = []
+
+        def copy_locked(src, dst):
+            seen.append((os.path.basename(dst), os.path.exists(p(os.path.join('oc', 'j.json')))))
+            if os.path.basename(dst) == 'italy_master_fc27.xlsm':
+                raise PermissionError('open in Excel')
+            return real_copy(src, dst)
+
+        shutil.copyfile = copy_locked
+        try:
+            build(*args, p(os.path.join('oc', 'italy_master_fc27.xlsm')), p(os.path.join('oc', 'j.json')), log=logged.append,
+                  copy_to=dest_dir)
+        finally:
+            shutil.copyfile = real_copy
+        check([s for s in seen if s[0] != 'test_master.xlsm' and not s[0].endswith('.building.xlsm')] ==
+              [('italy_master_fc27.xlsm', True), ('italy_master_fc27_new.xlsm', True)],
+              f'copy after the JSON; locked copy -> _new: {seen}')
+        check(sorted(os.listdir(dest_dir)) == ['italy_master_fc27_new.xlsm'] and any('copied to' in s and '_new' in s for s in logged),
+              'the copy written as <name>_new.xlsm and logged')
+        logged.clear()
+        o = build(*args, p(os.path.join('od', 'm.xlsm')), p(os.path.join('od', 'j.json')), log=logged.append,
+                  copy_to=p('no_such_folder'))
+        check(os.path.isfile(o['source']) and not os.path.exists(p('no_such_folder')) and any('not a folder' in s for s in logged),
+              '--copy-to not a folder: skipped with a note')
     print('SELF-TEST ' + ('PASS' if not fails else f'FAIL ({len(fails)})'))
     return 0 if not fails else 1
 
@@ -461,6 +795,8 @@ def main(argv=None):
     ap.add_argument('--vba-from')
     ap.add_argument('--vba-to')
     ap.add_argument('--copy-to')
+    ap.add_argument('--extra-names', help=f'default: {DEFAULT_EXTRA_NAMES} when it exists; \'\' = none')
+    ap.add_argument('--names-from', action='append', default=[], metavar='WORKBOOK')
     ap.add_argument('--self-test', action='store_true')
     a = ap.parse_args(argv)
     if a.self_test:
@@ -469,12 +805,32 @@ def main(argv=None):
     missing = ['--' + k.replace('_', '-') for k in need if not getattr(a, k)]
     if missing:
         ap.error('missing ' + ', '.join(missing))
-    if os.path.abspath(a.out_xlsm) == os.path.abspath(a.template):
-        ap.error('--out-xlsm must not be the template (the template is never written)')
+    try:
+        check_destinations(a.template, a.out_xlsm, a.out_json, a.copy_to)
+    except ValueError as e:
+        ap.error(str(e))
     if bool(a.vba_from) != bool(a.vba_to):
         ap.error('--vba-from and --vba-to go together')
+    if a.vba_from:
+        try:
+            same = len(a.vba_from.encode('cp1252')) == len(a.vba_to.encode('cp1252'))
+        except UnicodeEncodeError as e:
+            ap.error(f'--vba-from / --vba-to must be cp1252 text: {e}')
+        if not same:
+            ap.error('--vba-from and --vba-to must have the same cp1252 byte length')
+        if a.vba_from == a.vba_to:
+            ap.error('--vba-from and --vba-to are the same text')
+    extra = a.extra_names
+    if extra is None:
+        extra = DEFAULT_EXTRA_NAMES if os.path.isfile(DEFAULT_EXTRA_NAMES) else ''
+    if extra and not os.path.isfile(extra):
+        ap.error(f'--extra-names {extra} not found')
+    for wbp in a.names_from:
+        if not os.path.isfile(wbp):
+            ap.error(f'--names-from {wbp} not found')
     out = build(a.bank, a.players, a.edited, a.names, a.commentary, a.template, a.out_xlsm, a.out_json, a.lang,
-                wav_dir=a.wav_dir, vba_from=a.vba_from, vba_to=a.vba_to, copy_to=a.copy_to)
+                wav_dir=a.wav_dir, vba_from=a.vba_from, vba_to=a.vba_to, copy_to=a.copy_to, extra_names=extra or None,
+                names_from=a.names_from)
     print(json.dumps(out['counts'], indent=1))
     print(f"wrote {out['source']}\nwrote {a.out_json}")
     return 0
