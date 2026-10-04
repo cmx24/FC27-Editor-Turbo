@@ -40,6 +40,18 @@ Not yet released or checked in game.
 
 ### Changed
 
+- **Competitions tab: a searchable competition picker instead of the long combo** (Live standings, Match setup, Career
+  database copy). Type to filter by name, country, kind or id (accents ignored; Up / Down, Enter, Esc; Right / Left show or
+  hide a competition's stages). Your club's competitions on top, then leagues grouped by country, cups, continental and the
+  rest; sort by country, name, clubs or id; "Leagues only" on by default (a search still looks at every kind). A
+  competition's internal stages (knockout playoff pots, round of 16 pots, setup pools ...) are collapsed under it instead of
+  being separate entries. The last choice, the toggle and the sort are remembered per picker (`gui_settings.json`
+  `competitions.live / match / database`). Match setup gets a competition filter over your next fixtures.
+- **Readable competition names**: "Competition 223" is now "UEFA Champions League" (Europe (UEFA), continental). FC 27's
+  database names only leagues and Live Editor 27.1.2 has no `GetGameLocString` / `GetCompetitionNameByObjID`, so cups and
+  continental competitions are named from Turbo's own list of FC's competition ids (Coppa Italia, FA Cup, Copa del Rey,
+  UEFA Europa League, CONMEBOL Libertadores ...); the rest get a label from the competition tree ("Italy cup 5000").
+  Match setup's fixture lines name the competition too (they said "competition 1120", the group node, before).
 - **Every Browse... opens inside the overlay** (Export, Import, crest and miniface pictures): folders, files, Up,
   drive letters, shortcuts and **New folder**. No Windows dialog opens, so the game stays in full screen.
   **Open in Explorer** is a separate button, marked "(leaves full screen)".

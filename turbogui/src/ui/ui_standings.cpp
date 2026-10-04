@@ -5,6 +5,8 @@
 #include <map>
 
 #include "app.h"
+#include "comp_picker.h"
+#include "core/comp_list.h"
 #include "core/fce_standings.h"
 #include "core/standings_refresh.h"
 #include "imgui.h"
@@ -21,7 +23,9 @@ struct LiveState {
     std::vector<fce::StandingRow> rows;
     std::vector<fce::Fixture> fixtures;
     std::map<uint16_t, std::vector<size_t>> groups;  // compobj -> row indexes (used rows only)
-    std::map<uint16_t, std::string> group_names;
+    std::vector<comps::Entry> entries;               // one per group, for the picker (core/comp_list.h)
+    std::map<uint16_t, int> entry_of;                // group -> index in entries
+    int sel_entry = -1;
     std::vector<fce::CompObj> compobjs;              // the competition tree (empty when the list is not there)
     std::map<uint16_t, fce::GroupInfo> infos;        // group -> where it sits in the tree
     std::vector<svm::ShownGroup> shown;              // what the game's standings view holds (docs/re/standings-ui-path.md 0c)
@@ -38,6 +42,7 @@ struct LiveState {
 };
 
 LiveState g_live;
+CompPicker g_picker("live");
 
 // The league of most of a group's clubs (leagueteamlinks), -1 when none makes up 80 %
 int64_t majority_league(App& app, const std::vector<size_t>& idx) {
@@ -61,58 +66,44 @@ int64_t majority_league(App& app, const std::vector<size_t>& idx) {
     return (best >= 0 && best_n * 10 >= int(idx.size()) * 8) ? best : -1;
 }
 
-std::string league_name(App& app, int64_t leagueid) {
-    std::string name;
-    if (const Table* lg = app.db.table("leagues")) {
-        Snapshot ls;
-        const Field* nf = lg->field("leaguename");
-        if (nf && ls.load(app.db.memory(), *lg))
-            for (uint32_t r : ls.valid)
-                if (ls.get_int(r, "leagueid", -1) == leagueid) name = ls.get_str(r, *nf);
-    }
-    return name;
-}
-
-// "FCE_Setup_Stage" -> "setup stage", "FCE_Round_of_16" -> "round of 16"
-std::string stage_words(const std::string& desc) {
-    std::string w = desc.rfind("FCE_", 0) == 0 ? desc.substr(4) : desc;
-    for (char& c : w) {
-        if (c == '_') c = ' ';
-        else if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
-    }
-    return w;
-}
-
-// Group label. With the competition tree (FCE CompObjectDataList) the group's competition names it: "C31" is the
-// league 31 of the database (Serie A), "C210" the Coppa Italia whose setup pool holds the same 20 clubs. Without the tree
-// the league whose clubs make up most of the group (leagueteamlinks) is used. The game's standings view shows only the
-// groups it holds (st.shown_by): those are marked, the others warned about, because a row of any other group never
-// reaches the Standings screen (04-10-2026: the edit of pool 1066 stayed invisible while the screen read group 1120).
-std::string group_label(App& app, uint16_t compobj, const std::vector<size_t>& idx) {
-    std::string name, stage;
-    auto it = g_live.infos.find(compobj);
-    if (it != g_live.infos.end() && it->second.comp) {
-        const fce::GroupInfo& gi = it->second;
-        if (gi.comp_number >= 0) name = league_name(app, gi.comp_number);
-        if (name.empty()) {
-            int64_t lid = majority_league(app, idx);
-            if (lid >= 0 && gi.league_stage()) name = league_name(app, lid);
-        }
-        if (name.empty()) name = "Competition " + (gi.comp_number >= 0 ? std::to_string(gi.comp_number) : gi.comp_short);
-        if (!gi.league_stage()) stage = " - " + stage_words(gi.stage_desc);
+// The picker entry of a group. With the competition tree (FCE CompObjectDataList) the group's competition names it:
+// "C31" is the league 31 of the database (Serie A), "C223" a competition the database has no name for (Turbo's built-in
+// list: UEFA Champions League); the stage tells the league table from the pots, rounds and setup pools collapsed under it
+// in the picker. Without the tree the league whose clubs make up most of the group (leagueteamlinks) is used. The game's
+// standings view shows only the groups it holds (st.shown_by): those are marked, the others warned about, because a row
+// of any other group never reaches the Standings screen (04-10-2026: the edit of pool 1066 stayed invisible while the
+// screen read group 1120).
+comps::Entry group_entry(App& app, uint16_t compobj, const std::vector<size_t>& idx, std::string& group_short) {
+    const comps::NameSources& src = comp_name_sources(app);
+    comps::Entry e;
+    const comps::TreeInfo ti = comps::tree_info(g_live.compobjs, compobj);
+    if (ti.found && ti.comp_node >= 0) {
+        comps::TreeInfo use = ti;
+        // a competition node without a C<number>: a league stage is named after its clubs' league
+        if (use.comp < 0 && ti.stage_desc == "FCE_League_Stage") use.comp = int(majority_league(app, idx));
+        e = comps::describe(src, use, compobj);
+        group_short = ti.group_short;
     } else {
-        int64_t lid = majority_league(app, idx);
-        if (lid >= 0) name = league_name(app, lid);
-        if (lid >= 0 && name.empty()) name = "League " + std::to_string(lid);
+        const int64_t lid = majority_league(app, idx);
+        comps::TreeInfo none;
+        none.comp = int(lid);
+        e = comps::describe(src, none, compobj);
+        if (lid < 0) {
+            e.name = "Competition group " + std::to_string(compobj);
+        } else {
+            e.main_stage = true;
+            if (!e.named) e.name = "League " + std::to_string(lid);
+        }
     }
-    if (name.empty()) name = "Competition group";
-    std::string mark;
+    e.key = compobj;
+    e.clubs = int(idx.size());
+    const int64_t user = app.bridge.state().user_team;
+    for (size_t i : idx) e.user = e.user || (user > 0 && int64_t(g_live.rows[i].teamid) == user);
     auto sh = g_live.shown_by.find(compobj);
-    if (sh != g_live.shown_by.end()) mark = " [shown by the game as competition " + std::to_string(sh->second) + "]";
-    else if (g_live.shown_err.empty() && !g_live.shown.empty()) mark = " [not shown by the game]";
-    char buf[260];
-    std::snprintf(buf, sizeof(buf), "%s%s (%zu clubs, comp %u)%s", name.c_str(), stage.c_str(), idx.size(), unsigned(compobj), mark.c_str());
-    return buf;
+    e.shown = sh != g_live.shown_by.end();
+    if (e.shown) e.note = "shown by the game as competition " + std::to_string(sh->second);
+    else if (g_live.shown_err.empty() && !g_live.shown.empty()) e.note = "not shown by the game";
+    return e;
 }
 
 // The rows the game's standings view holds (core/standings_refresh.h shown_groups): read-only, through the published
@@ -142,7 +133,8 @@ bool reload(App& app) {
     g_live.rows.clear();
     g_live.fixtures.clear();
     g_live.groups.clear();
-    g_live.group_names.clear();
+    g_live.entries.clear();
+    g_live.entry_of.clear();
     g_live.edit_loaded = false;
     if (!g_live.loc.ok()) return false;
     if (!fce::read_rows(app.mem, g_live.loc, g_live.rows) || !fce::read_fixtures(app.mem, g_live.loc, g_live.fixtures)) {
@@ -160,7 +152,19 @@ bool reload(App& app) {
             if (fce::describe_group(g_live.compobjs, kv.first, gi)) g_live.infos[kv.first] = gi;
         }
     read_shown(app);
-    for (const auto& kv : g_live.groups) g_live.group_names[kv.first] = group_label(app, kv.first, kv.second);
+    std::vector<std::string> group_shorts;
+    for (const auto& kv : g_live.groups) {
+        std::string gs;
+        g_live.entry_of[kv.first] = int(g_live.entries.size());
+        g_live.entries.push_back(group_entry(app, kv.first, kv.second, gs));
+        group_shorts.push_back(gs);
+    }
+    comps::tag_groups(g_live.entries, group_shorts);
+    if (!g_live.have_group || !g_live.groups.count(g_live.group)) {
+        // the competition picked last time (gui_settings.json competitions.live), when this career has it
+        const int r = comp_picker_restore(app, g_picker, g_live.entries);
+        if (r >= 0) g_live.group = uint16_t(g_live.entries[size_t(r)].key), g_live.have_group = true;
+    }
     if (!g_live.groups.count(g_live.group)) {
         // the user's club's table: the group the game's standings view shows wins, then a league stage of the tree, then a
         // group named after a league (leagueteamlinks majority); a cup's setup pool lists the same clubs but is never shown
@@ -176,7 +180,7 @@ bool reload(App& app) {
             const bool in_tree = info != g_live.infos.end() && info->second.comp;
             if (g_live.shown_by.count(kv.first)) rank = 3;
             else if (in_tree && info->second.league_stage()) rank = 2;
-            else if (!in_tree && g_live.group_names[kv.first].rfind("Competition group", 0) != 0) rank = 1;
+            else if (!in_tree && g_live.entries[size_t(g_live.entry_of[kv.first])].named) rank = 1;
             if (rank > best_rank) g_live.group = kv.first, g_live.have_group = true, best_rank = rank;
         }
         if (!g_live.have_group && !g_live.groups.empty()) g_live.group = g_live.groups.begin()->first, g_live.have_group = true;
@@ -266,18 +270,16 @@ void draw_live_standings(App& app) {
         if (ImGui::Button("Try again")) st.located_gen = -1;
         return;
     }
-    ImGui::SetNextItemWidth(S(420.0f));
-    const char* cur = st.have_group ? st.group_names[st.group].c_str() : "none";
-    if (ImGui::BeginCombo("Competition", cur, ImGuiComboFlags_HeightLarge)) {
-        for (const auto& kv : st.group_names)
-            if (ImGui::Selectable(kv.second.c_str(), kv.first == st.group)) {
-                st.group = kv.first;
-                st.have_group = true;
-                st.sel_row = -1;
-                st.sel_fixture = -1;
-                st.edit_loaded = false;
-            }
-        ImGui::EndCombo();
+    {
+        auto it = st.have_group ? st.entry_of.find(st.group) : st.entry_of.end();
+        st.sel_entry = it != st.entry_of.end() ? it->second : -1;
+    }
+    if (comp_picker(app, g_picker, "Competition", st.entries, st.sel_entry, S(460.0f)) && st.sel_entry >= 0) {
+        st.group = uint16_t(st.entries[size_t(st.sel_entry)].key);
+        st.have_group = true;
+        st.sel_row = -1;
+        st.sel_fixture = -1;
+        st.edit_loaded = false;
     }
     ImGui::SameLine();
     if (ImGui::Button("Reload")) reload(app);

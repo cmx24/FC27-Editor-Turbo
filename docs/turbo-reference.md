@@ -276,6 +276,32 @@ club's transfer budget. The probe scripts that found the above are in `C:\FC 27 
   the `transfers` and `fixtures` tables are empty in a career; `teamplayerlinks.leagueappearances` stays 0.
 - Live Editor's `MessageBox` is printf-formatted (`%` must be `%%`); its `MEMORY` reads crash the game on unreadable addresses.
 
+## Competition pickers and names (Competitions tab, 1.1.1)
+
+Every competition list of the Competitions tab (Live standings, Match setup filter, Career database copy) is one picker:
+`ui/comp_picker.h` (the ImGui widget, defined in `ui_competitions.cpp`) over `core/comp_list.h` (pure, native-tested).
+
+- **One row per competition.** A standings group sits in FCE's competition tree as group -> stage -> competition `C<id>` ->
+  nation (`NationName_<nationid>`) -> confederation (type 1: `UEFA`, `CNBL`, `CCAF`, `AFC`, `CAF`, `OFC`) -> root. The groups of
+  one `C<id>` are collapsed under it; the row picks the group the game's Standings view shows, else the league stage, else the
+  biggest non-setup table. Stages (`FCE_Knockout_Playoff_Pots`, `FCE_Round_of_16_Pots`, `FCE_Setup_Stage` ...) open with
+  `+` / Right arrow; two groups of one stage are told apart by their short name (`G1`, `G2`).
+- **Names**: `leagues.leaguename` for leagues (with `leagues.level` and `countryid`); FC 27's database has no name for cups or
+  continental competitions (the `competition` table has none), and Live Editor 27.1.2 lacks `GetGameLocString` and
+  `GetCompetitionNameByObjID` (globals dump), so the tree's `TrophyName_Abbr15_<id>` cannot be looked up. Turbo's built-in list
+  (`comps::known_competitions()`, ids as in FC's `compobj.txt`: 223 Champions League, 224 Europa League, 226 Conference League,
+  232 Super Cup, 210 Coppa Italia, 201 FA Cup, 208 Copa del Rey, 1003 Libertadores ...) names them; anything else gets
+  "<country> cup <id>" / "<confederation> competition <id>". Kinds: the list, else a league of the `leagues` table, else the
+  tree's shape (under a confederation = continental, under a nation = cup, under the root = international).
+- **Order**: your club's competitions (league first), then leagues grouped by country (tier order), cups (cups, super cups,
+  playoffs), continental, other. Sort: country (default), name, clubs, id. "Leagues only" (default on) hides the non-league
+  sections while the search box is empty; a search (every word in name, country, kind, id or stage; case and Latin-1 accents
+  ignored) looks at every kind and opens the competitions whose stage matched.
+- **Keyboard**: the search box takes the keyboard when the picker opens (it keeps Up / Down through a history callback, so
+  ImGui's keyboard navigation does not move the focus away); Up / Down move, Enter picks, Esc clears the search, then closes.
+- **Remembered** in `gui_settings.json` `competitions.<live|match|database>`: `{key, comp, stage, leagues_only, sort}`. The
+  choice comes back by the same key (group node), else the same competition's same stage, else the competition's row.
+
 ## Team name, colours and crest (Teams tab, 0.4)
 
 - **Name** (`ui/ui_identity.cpp`, `core/teamnames.*`): writes `teams.teamname` (validated through `Database::set`) and the
