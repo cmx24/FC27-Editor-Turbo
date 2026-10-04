@@ -8,6 +8,10 @@
 
 #include "core/mem.h"
 
+namespace turbo {
+class App;
+}
+
 namespace host {
 
 // Folder that holds turbo_config.json (the Live Editor folder)
@@ -56,5 +60,8 @@ void stop_overlay();
 HWND game_window();
 // Dev service (devtools_win.cpp, core/devops.h): memory tools answering turbo_output\turbo_dev_request.json
 void start_devtools();
+// Miniface from the game's 3D model (player_capture_win.cpp, core/player_capture.h): resolves the game's capture entry
+// points, installs the learning hooks and gives the App its capture service. Call after install_game_hooks().
+void install_player_capture(turbo::App& app);
 
 }  // namespace host

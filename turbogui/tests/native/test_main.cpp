@@ -35,6 +35,7 @@
 #include "core/memmap.h"
 #include "core/le_log.h"
 #include "core/model.h"
+#include "core/player_capture.h"
 #include "core/sigscan.h"
 #include "core/t3db.h"
 #include "imgui.h"
@@ -872,6 +873,51 @@ static std::string hex_bytes(const std::vector<uint8_t>& d) {
     for (uint8_t b : d) { s += h[b >> 4]; s += h[b & 15]; }
     return s;
 }
+
+// Stand-in for the Windows host's capture service (src/win/player_capture_win.cpp): records requests, answers when told
+struct FakeCapture : capture::CaptureService {
+    capture::Status st;
+    std::vector<capture::Request> requests;
+    capture::Request current;
+    bool pending = false;
+    bool deliver = false;  // the next poll answers with `next`
+    capture::Result next;
+    int cancels = 0;
+    capture::Status status() override {
+        capture::Status s = st;
+        s.busy = pending;
+        s.busy_label = pending ? current.label : "";
+        return s;
+    }
+    bool request(const capture::Request& r, std::string* err) override {
+        if (!st.installed || !st.available) {
+            if (err) *err = "fake: unavailable";
+            return false;
+        }
+        if (pending) {
+            if (err) *err = "fake: busy";
+            return false;
+        }
+        requests.push_back(r);
+        current = r;
+        pending = true;
+        return true;
+    }
+    bool poll(capture::Result& out) override {
+        if (!pending || !deliver) return false;
+        out = next;
+        out.id = current.id;
+        out.label = current.label;
+        pending = false;
+        deliver = false;
+        return true;
+    }
+    void cancel() override {
+        ++cancels;
+        pending = false;
+    }
+    const capture::Template* learned() override { return nullptr; }
+};
 
 static void test_ui() {
     SimMemory mem;
@@ -1711,6 +1757,123 @@ static void test_ui() {
             fs::path out = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads_staff" / "heads_staff_7501.dds";
             Rgba img;
             CHECK(load_image_file(out, img) && img.w == 512 && img.h == 512, "512 x 512 heads_staff_7501.dds");
+        });
+
+        run_case("UI: Players > Miniface > The 3D model: no service, unavailable, generate, picture, save, failure", [&] {
+            // no service at all (a build without the game hooks): the button is there, disabled, with the reason
+            app.capture.reset();
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.click("1002", "##plist"), "player 1002");
+            CHECK(ui.click("Miniface", "##pedit"), "Miniface tab");
+            CHECK(ui.click("The 3D model", "##mface"), "3D model tab");
+            ui.frames(2);
+            CHECK(ui.find("Generate from 3D model") != nullptr, "button drawn without a service");
+            // a service that is not available yet: the button stays disabled, a click asks nothing
+            auto fake = std::make_shared<FakeCapture>();
+            app.capture = fake;
+            fake->st.installed = true;
+            fake->st.available = false;
+            fake->st.reason = "the game's frontend renderer is not up";
+            ui.frames(2);
+            CHECK(ui.click("Generate from 3D model"), "button present");
+            ui.frames(2);
+            CHECK(fake->requests.empty(), "nothing asked while unavailable");
+            // available: Generate asks for this player with his club as the second id, default camera
+            fake->st.available = true;
+            fake->st.reason = "ready";
+            ui.frames(2);
+            CHECK(ui.click("Generate from 3D model"), "Generate");
+            ui.frames(2);
+            CHECK(fake->requests.size() == 1, fmt("one request (%zu)", fake->requests.size()));
+            if (!fake->requests.empty()) {
+                const capture::Request& r = fake->requests.back();
+                const PlayerRow* p = app.model.player(1002);
+                CHECK(r.id == 1002 && !r.manager && p && r.second_id == int32_t(p->club) && r.camera == 0 && r.use_template && r.mode_override == -1 && r.extra_override == -1,
+                      fmt("request id %d second %d manager %d camera %d", r.id, r.second_id, int(r.manager), r.camera));
+                CHECK(r.label.find("1002") != std::string::npos, "label: " + r.label);
+            }
+            CHECK(ui.find("Cancel##capture") != nullptr, "Cancel shown while pending");
+            // the picture arrives: it becomes the New miniface's source, saving writes the DDS from it
+            fake->next = capture::Result();
+            fake->next.ok = true;
+            fake->next.format = "DDS DXT5 256x256";
+            fake->next.bytes = 12345;
+            fake->next.image = solid(256, 256, 10, 200, 40);
+            fake->deliver = true;
+            ui.frames(3);
+            CHECK(ui.toast_contains("3D model rendered"), "toast");
+            CHECK(!fake->pending, "consumed");
+            fs::path out = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p1002.dds";
+            fs::remove(out);
+            CHECK(ui.click("Save as miniface"), "Save as miniface");
+            Rgba img;
+            CHECK(load_image_file(out, img) && img.w == 256 && img.h == 256, "p1002.dds written from the capture");
+            if (!img.empty()) {
+                const uint8_t* px = img.at(128, 128);
+                // the capture is a plain picture: with "remove plain background" switched on by the capture the solid colour
+                // becomes transparent around the edge, the middle keeps the colour or is cleared too (flood fill); either is
+                // a picture made from the capture, not the previous custom file
+                CHECK(px[3] == 0 || (std::abs(int(px[1]) - 200) <= 8 && std::abs(int(px[0]) - 10) <= 8), fmt("pixel %d,%d,%d,%d", px[0], px[1], px[2], px[3]));
+            }
+            // a failed capture reports the reason and leaves the editor usable
+            CHECK(ui.click("Generate from 3D model"), "Generate again");
+            ui.frames(2);
+            CHECK(fake->requests.size() == 2, "second request");
+            fake->next = capture::Result();
+            fake->next.ok = false;
+            fake->next.error = "the game did not finish the capture in 20 s";
+            fake->deliver = true;
+            ui.frames(3);
+            CHECK(ui.toast_contains("3D model capture failed"), "failure toast");
+            CHECK(!fake->pending, "failure consumed");
+            // cancel while pending
+            CHECK(ui.click("Generate from 3D model"), "Generate a third time");
+            ui.frames(2);
+            CHECK(ui.click("Cancel##capture"), "Cancel");
+            ui.frames(2);
+            CHECK(fake->cancels == 1 && !fake->pending, "cancelled");
+            // the request is refused by the service: the error shows, nothing pends
+            fake->st.available = true;
+            fake->pending = true;  // busy inside the service
+            ui.frames(2);
+            CHECK(ui.find("Generate from 3D model") != nullptr, "button while the service is busy");
+            fake->pending = false;
+            fs::remove(out);
+        });
+
+        run_case("UI: Managers > Miniface > The 3D model asks for the manager's head id", [&] {
+            auto fake = std::make_shared<FakeCapture>();
+            fake->st.installed = true;
+            fake->st.available = true;
+            fake->st.reason = "ready";
+            app.capture = fake;
+            app.request_tab = 2;
+            ui.frames(2);
+            CHECK(ui.click("501##m0", "##mlist"), "manager Arteta");
+            CHECK(ui.click("Miniface", "##medit"), "Miniface tab");
+            CHECK(ui.click("The 3D model", "##mmface"), "3D model tab");
+            ui.frames(2);
+            CHECK(ui.click("Generate from 3D model"), "Generate");
+            ui.frames(2);
+            CHECK(fake->requests.size() == 1, "one request");
+            if (!fake->requests.empty()) {
+                const capture::Request& r = fake->requests.back();
+                CHECK(r.manager && r.id == 7501 && r.second_id == -1, fmt("manager request id %d second %d manager %d", r.id, r.second_id, int(r.manager)));
+            }
+            fake->next = capture::Result();
+            fake->next.ok = true;
+            fake->next.format = "raw RGBA 540x540";
+            fake->next.image = solid(540, 540, 90, 90, 200);
+            fake->deliver = true;
+            ui.frames(3);
+            CHECK(ui.toast_contains("3D model rendered for manager head 7501"), "toast names the manager head");
+            fs::path out = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads_staff" / "heads_staff_7501.dds";
+            fs::remove(out);
+            CHECK(ui.click("Save as miniface"), "save");
+            Rgba img;
+            CHECK(load_image_file(out, img) && img.w == 512 && img.h == 512, "512 x 512 heads_staff_7501.dds from the capture");
+            app.capture.reset();
         });
 
         run_case("UI: game pictures through Turbo's Lua side, real-face picker, tattoo picker", [&] {
@@ -2800,6 +2963,173 @@ static void test_fce_standings() {
     });
 }
 
+// ---------------------------------------------------------------- miniface from the 3D model (core/player_capture.h)
+static void test_player_capture() {
+    using namespace capture;
+    run_case("player capture: the game's default descriptor and the request plan", [&] {
+        PlayerDesc d = default_desc(1234, 7, true, false);
+        CHECK(sizeof(PlayerDesc) == 0x6C && kPlayerDescSize == 0x6C, "0x6C bytes");
+        CHECK(d.id() == 1234 && d.i32(0x04) == -1 && d.second_id() == 7 && d.i32(0x0C) == -1 && d.i32(0x10) == -1, "ids and -1s");
+        CHECK(d.i32(0x14) == 0 && d.i32(0x18) == 0 && d.i32(0x1C) == 0, "+14..+1F zero");
+        CHECK(d.i32(0x20) == -1 && d.i32(0x24) == 1 && d.i32(0x28) == 0 && d.i32(0x2C) == 0, "+20 block");
+        for (size_t off = 0x30; off < 0x4C; off += 4) CHECK(d.i32(off) == 0, fmt("+%02zX zero", off));
+        CHECK(d.i32(0x4C) == -1 && d.i32(0x50) == 1 && d.i32(0x54) == -1 && d.i32(0x58) == -1, "+4C block");
+        CHECK(d.i32(0x5C) == 0 && d.i32(0x60) == 0, "+5C zero");
+        CHECK(d.flag64() && !d.flag68() && d.b[0x65] == 0 && d.b[0x69] == 0, "flags");
+        PlayerDesc m = default_desc(9999, -1, false, true);
+        CHECK(!m.flag64() && m.flag68() && m.second_id() == -1, "manager flags");
+        std::string txt = describe_desc(d);
+        CHECK(txt.find("+00=1234") == 0 && txt.find("+08=7") != std::string::npos && txt.find("+64=1") != std::string::npos, "describe: " + txt);
+        CHECK(describe_desc(PlayerDesc()) == "(all zero)", "describe zero");
+        uint8_t hb[18];
+        for (int i = 0; i < 18; ++i) hb[i] = uint8_t(i * 17);
+        std::string hx = hex_bytes(hb, 18);
+        CHECK(hx.rfind("00 11 22", 0) == 0 && hx.find("|") == 16 * 3 - 1 && hx.size() == 18 * 3 - 1, "hex dump: " + hx);
+        // plan: default descriptor, presets
+        Request r;
+        r.id = 55;
+        r.second_id = 9;
+        r.camera = 0;
+        Plan p = plan_request(r, nullptr);
+        CHECK(p.desc.id() == 55 && p.desc.second_id() == 9 && p.desc.flag64() && p.mode == 0 && p.extra == 0 && p.note == "default descriptor", "default plan");
+        r.camera = 2;
+        p = plan_request(r, nullptr);
+        CHECK(p.mode == cameras()[2].mode && p.extra == cameras()[2].extra, "preset 2");
+        r.camera = kCameraLearned;
+        p = plan_request(r, nullptr);
+        CHECK(p.mode == cameras()[0].mode && p.extra == cameras()[0].extra, "learned camera without a template falls back to preset 0");
+        r.mode_override = 1;
+        r.extra_override = 3;
+        p = plan_request(r, nullptr);
+        CHECK(p.mode == 1 && p.extra == 3, "overrides");
+        // plan from a learned template: the template's bytes with the id replaced
+        Template t;
+        t.learned = true;
+        t.desc = default_desc(777, 42, true, false);
+        t.desc.set_i32(0x30, 123456);
+        t.mode = 1;
+        t.extra = 3;
+        Request r2;
+        r2.id = 88;
+        r2.second_id = -1;
+        r2.camera = kCameraLearned;
+        p = plan_request(r2, &t);
+        CHECK(p.desc.id() == 88 && p.desc.second_id() == 42 && p.desc.i32(0x30) == 123456 && p.mode == 1 && p.extra == 3, "template plan: " + describe_desc(p.desc));
+        CHECK(p.note.find("learned descriptor") == 0 && p.note.find("learned mode/extra") != std::string::npos, "note: " + p.note);
+        r2.second_id = 5;
+        r2.camera = 0;
+        r2.use_template = false;
+        p = plan_request(r2, &t);
+        CHECK(p.desc.second_id() == 5 && p.desc.i32(0x30) == 0 && p.mode == 0 && p.note == "default descriptor", "template declined");
+        r2.manager = true;
+        r2.id = 7501;
+        p = plan_request(r2, nullptr);
+        CHECK(!p.desc.flag64() && p.desc.id() == 7501 && p.desc.second_id() == 5, "manager plan");
+    });
+
+    run_case("player capture: the game's callback object (eastl::function shape)", [&] {
+        int ctx = 5;
+        auto inv = reinterpret_cast<void*>(&test_player_capture);
+        Delegate d = make_delegate(&ctx, inv);
+        CHECK(sizeof(Delegate) == 0x20 && d.storage[0] == &ctx && d.storage[1] == nullptr && d.manager == reinterpret_cast<void*>(&delegate_manager) && d.invoker == inv, "shape");
+        CHECK(delegate_context(&d) == &ctx && delegate_context(d.storage) == &ctx, "context from the storage pointer");
+        Delegate copy;
+        CHECK(delegate_manager(&copy, &d, kMgrCopy) == nullptr && copy.storage[0] == &ctx && copy.manager == nullptr, "copy op copies the 16-byte storage only");
+        Delegate moved;
+        delegate_manager(&moved, &d, kMgrMove);
+        CHECK(moved.storage[0] == &ctx, "move op");
+        Delegate untouched;
+        untouched.storage[0] = &untouched;
+        delegate_manager(&untouched, nullptr, kMgrDestruct);
+        CHECK(untouched.storage[0] == &untouched, "destruct op leaves the storage alone");
+        delegate_manager(&untouched, &d, 3);
+        delegate_manager(&untouched, &d, 4);
+        CHECK(untouched.storage[0] == &untouched, "query ops do nothing");
+        delegate_manager(&d, &d, kMgrCopy);
+        CHECK(d.storage[0] == &ctx, "self copy");
+        // the vector the game reads: begin / end over one descriptor
+        PlayerDesc one = default_desc(1, 2, true, false);
+        DescVector v;
+        v.begin = &one;
+        v.end = &one + 1;
+        CHECK(sizeof(DescVector) == 0x20 && reinterpret_cast<const uint8_t*>(v.end) - reinterpret_cast<const uint8_t*>(v.begin) == 0x6C, "vector shape");
+    });
+
+    run_case("player capture: picture bytes (DDS, PNG, raw RGBA, garbage)", [&] {
+        Rgba src = solid(64, 64, 200, 30, 10);
+        std::vector<uint8_t> dds = encode_dds_dxt5(src);
+        Rgba out;
+        std::string fmt_, err;
+        CHECK(decode_slice(dds.data(), dds.size(), out, &fmt_, &err), "dds: " + err);
+        CHECK(out.w == 64 && out.h == 64 && fmt_ == "DDS DXT5 64x64", "dds format: " + fmt_);
+        const uint8_t* p = out.at(10, 10);
+        CHECK(std::abs(int(p[0]) - 200) <= 8 && std::abs(int(p[1]) - 30) <= 8 && p[3] == 255, fmt("dds colour %d,%d,%d", p[0], p[1], p[2]));
+        CHECK(decode_slice(kTestPng, sizeof(kTestPng), out, &fmt_, &err) && out.w == 4 && out.h == 2 && fmt_ == "PNG 4x2", "png: " + fmt_ + " " + err);
+        std::vector<uint8_t> raw(32 * 32 * 4, 0);
+        for (size_t i = 0; i < raw.size(); i += 4) {
+            raw[i] = 1;
+            raw[i + 1] = 2;
+            raw[i + 2] = 3;
+            raw[i + 3] = 255;
+        }
+        CHECK(decode_slice(raw.data(), raw.size(), out, &fmt_, &err) && out.w == 32 && out.h == 32 && fmt_ == "raw RGBA 32x32", "raw: " + fmt_);
+        CHECK(out.at(5, 5)[0] == 1 && out.at(5, 5)[2] == 3 && out.at(31, 31)[3] == 255, "raw pixels");
+        CHECK(raw_square_side(64 * 64 * 4) == 64 && raw_square_side(540 * 540 * 4) == 540 && raw_square_side(kSliceSizeMode0) == 0 &&
+                  raw_square_side(kSliceSizeMode1) == 0 && raw_square_side(0) == 0 && raw_square_side(63 * 63 * 4 + 4) == 0,
+              "raw square guesses");
+        std::vector<uint8_t> junk(1000, 0x5A);
+        CHECK(!decode_slice(junk.data(), junk.size(), out, &fmt_, &err) && err.find("unknown picture format") == 0, "junk refused: " + err);
+        CHECK(!decode_slice(nullptr, 0, out, &fmt_, &err) && !decode_slice(junk.data(), 8, out, &fmt_, &err), "empty refused");
+        std::vector<uint8_t> bad_dds(dds.begin(), dds.begin() + 100);
+        CHECK(!decode_slice(bad_dds.data(), bad_dds.size(), out, &fmt_, &err) && err.rfind("DDS: ", 0) == 0, "truncated dds: " + err);
+    });
+
+    run_case("player capture: built-in signatures resolve the controller's globals", [&] {
+        const SignatureTable* b = builtin_signature_table("6AB9813C-211EF000");
+        CHECK(b != nullptr, "table");
+        if (!b) return;
+        for (const char* n : {"PlayerCaptureController_GetOrCreate", "PlayerCapture_RequestStatic_B", "PlayerCaptureController_Start", "PlayerCapture_Settings",
+                              "PlayerCapture_ListenerHub", "PlayerCapture_Renderer", "PlayerCaptureStream_OnSlot"})
+            CHECK(b->find(n) && !b->find(n)->pattern.empty(), std::string("entry ") + n);
+        const Signature* st = b->find("PlayerCaptureController_Start");
+        const Signature* se = b->find("PlayerCapture_Settings");
+        const Signature* hb = b->find("PlayerCapture_ListenerHub");
+        const Signature* rd = b->find("PlayerCapture_Renderer");
+        if (!st || !se || !hb || !rd) return;
+        CHECK(se->pattern == st->pattern && hb->pattern == st->pattern && rd->pattern == st->pattern, "the globals share Start's pattern");
+        CHECK(se->resolve == "rip" && se->offset == 0x24 && hb->resolve == "rip" && hb->offset == 0xB4 && rd->resolve == "rip" && rd->offset == 0x141, "rip offsets");
+        // synthetic Start: the prologue bytes of the real function, then mov rcx,[rip+d] at +0xB4 and mov rbx,[rip+d] at +0x141
+        std::vector<uint8_t> code(0x1000, 0xCC);
+        const uint64_t base = 0x147000000ULL, fn = 0x100;
+        const uint8_t pro[] = {0x48, 0x89, 0x5C, 0x24, 0x18, 0x48, 0x89, 0x74, 0x24, 0x20, 0x57, 0x48, 0x81, 0xEC, 0xC0, 0x04, 0x00, 0x00,
+                               0x48, 0x8B, 0x05, 0x11, 0x22, 0x33, 0x44, 0x48, 0x33, 0xC4, 0x48, 0x89, 0x84, 0x24, 0xB0, 0x04, 0x00, 0x00,
+                               0x48, 0x8B, 0x05, 0x00, 0x00, 0x00, 0x00};
+        std::memcpy(code.data() + fn, pro, sizeof(pro));
+        auto put_rip = [&](size_t at, uint8_t modrm, uint64_t target) {
+            code[fn + at] = 0x48;
+            code[fn + at + 1] = 0x8B;
+            code[fn + at + 2] = modrm;
+            int32_t disp = int32_t(int64_t(target) - int64_t(base + fn + at + 7));
+            std::memcpy(code.data() + fn + at + 3, &disp, 4);
+        };
+        put_rip(0x24, 0x05, base + 0x800);   // settings
+        put_rip(0xB4, 0x0D, base + 0x808);   // hub
+        put_rip(0x141, 0x1D, base + 0x810);  // renderer
+        SigResult r = resolve_signature(*st, code.data(), code.size(), base);
+        CHECK(r.state == SigState::Found && r.address == base + fn, "Start found: " + r.error);
+        r = resolve_signature(*se, code.data(), code.size(), base);
+        CHECK(r.state == SigState::Found && r.address == base + 0x800, "settings global: " + r.error);
+        r = resolve_signature(*hb, code.data(), code.size(), base);
+        CHECK(r.state == SigState::Found && r.address == base + 0x808, "hub global: " + r.error);
+        r = resolve_signature(*rd, code.data(), code.size(), base);
+        CHECK(r.state == SigState::Found && r.address == base + 0x810, "renderer global: " + r.error);
+        // every capture pattern must be unique in a buffer that holds Start once (no accidental double match)
+        std::memcpy(code.data() + 0x900, pro, sizeof(pro));
+        r = resolve_signature(*st, code.data(), code.size(), base);
+        CHECK(r.state == SigState::Ambiguous, "two copies are ambiguous");
+    });
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) {
         std::printf("usage: %s <out_dir> <gui_world.lua>\n", argv[0]);
@@ -2821,6 +3151,8 @@ int main(int argc, char** argv) {
     test_le_log();
     std::printf("native live standings\n");
     test_fce_standings();
+    std::printf("native player capture\n");
+    test_player_capture();
     std::printf("native UI\n");
     try {
         test_ui();

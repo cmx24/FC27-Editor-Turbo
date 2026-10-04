@@ -248,6 +248,8 @@ void draw_managers(App& app) {
                     mt.manager = true;
                     mt.headassetid = app.db.get_int(*t, m.rec, "headassetid", 0);
                     mt.path = legacy_path::staff_miniface(mt.headassetid);
+                    mt.id = m.managerid;
+                    mt.teamid = m.teamid;
                     miniface_editor(app, mt);
                     ImGui::EndChild();
                     ImGui::EndTabItem();

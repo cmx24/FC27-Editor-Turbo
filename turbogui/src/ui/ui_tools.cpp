@@ -408,6 +408,14 @@ void draw_hook_status(App& app) {
                 (r.tick_thread_id && r.pump_thread_id && r.tick_thread_id != r.pump_thread_id) ? "  (DIFFERENT: Lua stays on career events)" : "");
     ImGui::TextWrapped("Prompt Lua commands (synthetic career event): %s | sent %lld | Lua pumped %lld",
                        r.lua_trigger.empty() ? "not available" : r.lua_trigger.c_str(), r.lua_triggers, r.lua_trigger_pumps);
+    // Miniface from the 3D model (src/win/player_capture_win.cpp)
+    if (app.capture) {
+        const capture::Status cs = app.capture->status();
+        ImGui::Text("3D-model capture: %s | %s | game captures seen %d (descriptor %s) | Turbo renders %d ok, %d failed%s%s",
+                    cs.installed ? "installed" : "off", cs.busy ? ("busy: " + cs.busy_label).c_str() : cs.reason.c_str(), cs.seen,
+                    cs.learned ? "learned" : "not learned", cs.done, cs.failed, cs.last_format.empty() ? "" : " | last picture ",
+                    cs.last_format.c_str());
+    }
 }
 
 void draw_status(App& app) {

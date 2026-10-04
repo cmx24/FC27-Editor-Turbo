@@ -540,6 +540,8 @@ static void player_editor(App& app) {
             MinifaceTarget mt;
             mt.path = legacy_path::player_miniface(p->playerid);
             mt.headassetid = app.db.get_int(*t, p->rec, "headassetid", 0);
+            mt.id = p->playerid;
+            mt.teamid = p->club;
             miniface_editor(app, mt);
             ImGui::EndChild();
             ImGui::EndTabItem();
