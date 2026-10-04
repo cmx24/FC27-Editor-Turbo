@@ -87,6 +87,8 @@ H.case("manager rules: the native gets the right sub-op, manager and team; keep 
     end
     local com = sim:add_manager(133, 0x300)
     local jsm = sim:add_manager(54, 0x200)
+    -- like the game's constructors: +0x8 = the career manager table the object is registered in
+    sim:w64(com + 0x08, sim.mode_managers); sim:w64(jsm + 0x08, sim.mode_managers)
     local ok, msg = run("manager_rules", { enabled = true, job_security = "safe", confirm = true })
     H.eq(ok, true, msg); H.has(msg, "locked safe")
     H.eq(#calls, 1); H.eq(calls[1].sub, mr.SUB_SET_LEVEL); H.eq(calls[1].value, 3); H.eq(calls[1].addr, com, "ClubObjectivesManager passed")
@@ -135,6 +137,37 @@ H.case("manager rules: the native gets the right sub-op, manager and team; keep 
     sim.in_cm = false
     H.eq(bridge.collect_state().manager_rules, nil, "nothing outside a career")
     sim.in_cm = true
+    _G.TurboManagerRules = nil
+end)
+
+-- the live game of 04-10-2026: slot 133 / 54 hold the managers and each points back at the table from +0x8; an object
+-- that does not is never passed to Turbo.dll nor read for the window
+H.case("manager rules: locate needs the slot's object to point back at the manager table (+0x8)", function()
+    local mr = require 'imports/turbo/features/manager_rules'
+    local bridge = require 'imports/turbo/bridge'
+    local com, jsm = sim.managers[133], sim.managers[54]
+    H.eq(mr.locate(133), com, "ClubObjectivesManager"); H.eq(mr.locate(54), jsm, "JobSwitchManager")
+    local calls = {}
+    _G.TurboManagerRules = function(sub, addr, value, team)
+        calls[#calls + 1] = { sub = sub, addr = addr }
+        return true, "done", "ok", 0, 0
+    end
+    sim:w64(com + 0x08, com)   -- not the table
+    local a, why = mr.locate(133)
+    H.eq(a, nil); H.has(why, "does not point back")
+    local ok, msg = run("manager_rules", { enabled = true, job_security = "insecure", confirm = true })
+    H.eq(ok, false); H.has(msg, "does not point back"); H.eq(#calls, 0, "the DLL is not asked with an unproven object")
+    H.eq(bridge.collect_state().manager_rules.score, nil, "the window does not read it either")
+    sim:w64(com + 0x08, sim.mode_managers)
+    ok, msg = run("manager_rules", { enabled = true, job_security = "insecure", confirm = true })
+    H.eq(ok, true, msg); H.eq(calls[1].sub, mr.SUB_SET_LEVEL); H.eq(calls[1].addr, com)
+    -- a JobSwitchManager that does not point back: 0 goes to the DLL (it uses the one its HandleEvent hook saw)
+    sim:w64(jsm + 0x08, 0)
+    H.eq(mr.locate(54), nil)
+    ok, msg = run("manager_rules", { enabled = true, unsackable = true, keep = false, confirm = true })
+    H.eq(ok, true, msg); H.eq(calls[2].sub, mr.SUB_UNSACKABLE); H.eq(calls[2].addr, 0, "no unproven JobSwitchManager passed")
+    H.eq(bridge.collect_state().manager_rules.sack_pending, nil, "flags not read from it")
+    sim:w64(jsm + 0x08, sim.mode_managers)
     _G.TurboManagerRules = nil
 end)
 

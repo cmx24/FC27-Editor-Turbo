@@ -28,9 +28,22 @@
 
 namespace turbo {
 
+// The career manager table ("ctx") every manager keeps at +0x8: the hub builder passes the same table to each
+// constructor (0x147F2B3E8 = [builder+0x10]) and registers the new object in it (0x147EC0750: slot 133, 0x147EC07C0:
+// slot 54) [H]; live 04-10-2026: ClubObjectivesManager+0x8 == JobSwitchManager+0x8 == bridge_state.json "managers".
+// It is NOT an object with a vtable: its first qword is slot 0's type id (0). Slots: core/standings_refresh.h
+// (svm::manager_at). An object is proven when the slot of its own type id in the table at its +0x8 holds it.
+namespace mtab {
+constexpr int kCalendar = 24;          // CalendarManager       (ClubObjectivesManager+0x248, set by 0x147E06AAC)    [H]
+constexpr int kEventsMailBox = 39;     // EventsMailBox         (career events are posted to [[table+0x4F8]])        [H]
+constexpr int kJobSwitch = 54;         // JobSwitchManager      (ClubObjectivesManager+0x250, set by 0x147E06AAC)    [H]
+constexpr int kLiveServices = 55;      // LiveServicesManager   (ClubObjectivesManager+0x258, set by 0x147E06AAC)    [H]
+constexpr int kClubObjectives = 133;   // ClubObjectivesManager
+}  // namespace mtab
+
 // ClubObjectivesManager layout (docs/re/manager_rules.md section 2)
 namespace com {
-constexpr uint64_t kHub = 0x08;                 // CareerHub* (ctor: [rcx+8] = hub)                       [H]
+constexpr uint64_t kTable = 0x08;               // career manager table (ctor: [rcx+8] = rdx = the table)  [H, live]
 constexpr uint64_t kSettings = 0x10;            // OBJECTIVES/* settings block (ctor passes this+0x10)     [H]
 constexpr uint64_t kSetVeryInsecure = 0x38;     // OBJECTIVES/JOB_SECURITY_VERY_INSECURE (loader +0x28)    [H]
 constexpr uint64_t kSetInsecure = 0x3C;         // OBJECTIVES/JOB_SECURITY_INSECURE                        [H]
@@ -51,6 +64,21 @@ constexpr uint64_t kLvlInsecure = 0x27C;        // score <  this: very insecure
 constexpr uint64_t kLvlOkay = 0x280;            // score <  this: insecure
 constexpr uint64_t kLvlSafe = 0x284;            // score <  this: okay, else safe
 constexpr uint64_t kLvlFired = 0x288;
+// what UpdateJobSecurityScore (0x147E07E2C) and its score function 0x147E5F664 dereference besides the fields above
+// (docs/re/manager_rules.md section 2.5; every one checked on the live game 04-10-2026) [H]
+constexpr uint64_t kObjBegin = 0x218, kObjEnd = 0x220;  // eastl::vector<Objective*>: vtable slots 0..4 are called
+constexpr uint64_t kObjSlots = 5;               // slots +0x00, +0x08, +0x10, +0x18, +0x20 (0x147E5F664, 0x147E682E0)
+constexpr uint64_t kMaxObjectives = 64;         // a sane bound (the live career has 2)
+constexpr uint64_t kCalendarMgr = 0x248;        // CalendarManager*: +0x10..+0x40 read (dates)
+constexpr uint64_t kCalendarSpan = 0x40;
+constexpr uint64_t kJobSwitchMgr = 0x250;       // JobSwitchManager*: +0x1B8 read (mLastJobSwitchDate)
+constexpr uint64_t kLiveServicesMgr = 0x258;    // LiveServicesManager*: +0x18..+0x38 read (0x147DD6760 / 0x147DD03B8)
+constexpr uint64_t kLiveServicesSpan = 0x38;
+constexpr uint64_t kLevelVt = 0x268;            // the level object (vtable 0x14B019638 inline); slot 6 = level function
+constexpr uint64_t kLevelFn = 0x30;             // [[this+0x268]+0x30] is called twice
+constexpr uint64_t kLevelScore = 0x270;         // the level object's pointer to mJobSecurityScore (ctor: this + 0x11C)
+constexpr uint64_t kMailBoxHolder = 0x4F8;      // [[table+0x4F8]] = EventsMailBox (slot 39), the PostEvent target
+constexpr uint64_t kPostFn = 0x30;              // PostEvent 0x14060124C: [[mailbox]] vtable, slot +0x30 called
 constexpr uint64_t kReadSize = 0x2A0;           // bytes that must be readable
 constexpr int kScoreMin = 0, kScoreMax = 100;   // the clamp in the score computation 0x147E5F664          [H]
 constexpr int kAddonLock = 100;                 // |addon| that pins the score to 100 / 0 whatever the objectives say
@@ -59,7 +87,7 @@ constexpr int kAddonLock = 100;                 // |addon| that pins the score t
 // JobSwitchManager layout (docs/re/manager_rules.md section 3)
 namespace jsm {
 constexpr uint64_t kSize = 0x1E8;               // allocation size at the hub builder 0x147F18F41          [H]
-constexpr uint64_t kHub = 0x08;                 // CareerHub*                                              [H]
+constexpr uint64_t kTable = 0x08;               // career manager table (ctor: [rcx+8] = rdx)              [H, live]
 constexpr uint64_t kLastSwitchDate = 0x1B8;     // mLastJobSwitchDate (serialised block starts here)       [H]
 constexpr uint64_t kPreviousTeam = 0x1BC;       // mPreviousTeamId                                         [H]
 constexpr uint64_t kSackPending = 0x1E0;        // mPendingSack (u8): DAY_PASSED calls SackManager when set [H]
@@ -93,11 +121,18 @@ const char* job_security_level_name(int level);   // "very insecure" / "insecure
 // Level index for a name ("safe", "okay", "insecure", "very insecure" / "very_insecure"), -1 = not a level
 int job_security_level_from_name(const std::string& name);
 
-// The pointer is a readable ClubObjectivesManager: vtable (when known), its serialised block points back at it,
-// manager mode, a user team (expect_team > 0 must match), a score in 0..100, a readable hub. Nothing is written.
+// The pointer is a readable ClubObjectivesManager: vtable (when known), the career manager table at its +0x8 holds it
+// in slot 133, its serialised block points back at it, manager mode, a user team (expect_team > 0 must match), a
+// score in 0..100. Nothing is written.
 bool validate_com(Memory& mem, uint64_t com, uint64_t vtable, int expect_team, std::string& err);
-// The pointer is a readable JobSwitchManager: vtable, size, both sack flags 0/1, a readable hub
+// The pointer is a readable JobSwitchManager: vtable, size, the table at its +0x8 holds it in slot 54, both sack
+// flags 0/1
 bool validate_jsm(Memory& mem, uint64_t jsm, uint64_t vtable, std::string& err);
+// Everything ClubObjectivesManager::UpdateJobSecurityScore dereferences, on a validated `com`, before Turbo calls it:
+// +0x248 / +0x250 / +0x258 are the table's CalendarManager / JobSwitchManager (vtable `jsm_vtable` when known) /
+// LiveServicesManager (0x147E06AAC ran: the career is set up), the level object's vtable slot 6 and its score pointer,
+// every objective's vtable slots 0..4, and the event post chain [[[[table+0x4F8]]]]+0x30. Reads only.
+bool check_update_path(Memory& mem, uint64_t com, uint64_t jsm_vtable, std::string& err);
 
 bool read_job_security(Memory& mem, uint64_t com, JobSecurity& out, std::string& err);
 

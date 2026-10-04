@@ -9,7 +9,8 @@
 --                 on again in every game session (the switch lives in Turbo.dll, never in the save)
 --
 -- How it works (docs/re/manager_rules.md): the score 0..100 sits in the career's ClubObjectivesManager (Live Editor
--- manager type 133). The game recomputes it as clamp(objectives part + a saved "addon", 0, 100); Turbo.dll writes the
+-- manager type 133, located by M.locate: slot 133 of the career manager table, whose object points back at the table).
+-- The game recomputes it as clamp(objectives part + a saved "addon", 0, 100); Turbo.dll writes the
 -- addon and calls the game's own ClubObjectivesManager::UpdateJobSecurityScore on the game thread, so the score, the
 -- level and the board's level-change event all come from the game. The addon is saved with the career (the game resets
 -- it when you take a new job). The sack is JobSwitchManager::SackManager (type 54), which Turbo.dll's hook refuses
@@ -32,7 +33,10 @@ M.JSM_TYPE = 54    -- ENUM_FCEGameModesFCECareerModeJobSwitchManager
 M.SUB_GET, M.SUB_SET_LEVEL, M.SUB_SET_SCORE, M.SUB_RESTORE, M.SUB_UNSACKABLE, M.SUB_FLAGS = 1, 2, 3, 4, 5, 6
 M.KEEP_FILE = "manager_rules_keep.json"
 -- ClubObjectivesManager / JobSwitchManager offsets read here (same as manager_rules.h; [H] in docs/re/manager_rules.md)
-M.OFF = { owner = 0x108, manager_mode = 0x110, user_team = 0x114, addon = 0x118, prev = 0x120, score = 0x124,
+-- table: every career manager keeps the career manager table it is registered in at +0x8 (the constructor's second
+-- argument; proven in the live game 04-10-2026: ClubObjectivesManager and JobSwitchManager both point at the table
+-- mem.manager walks). It is not an object of its own: Turbo.dll checks that the table's slot holds the object.
+M.OFF = { table = 0x08, owner = 0x108, manager_mode = 0x110, user_team = 0x114, addon = 0x118, prev = 0x120, score = 0x124,
           lvl_insecure = 0x27C, lvl_okay = 0x280, lvl_safe = 0x284, sack_pending = 0x1E0, sacked = 0x1E1 }
 M.COM_VTABLE, M.JSM_VTABLE = 0x14B019370, 0x14B016598   -- FC27.exe 1.0.140.64835 (the DLL resolves them by signature)
 
@@ -89,6 +93,23 @@ end
 
 function M.reset_cache() keep_cache = nil; M._applied = nil end
 
+-- ---------------------------------------------------------------- locate
+-- The career's manager of a type id (133 ClubObjectivesManager, 54 JobSwitchManager): the object of that slot of the
+-- manager table, and that object's own +0x8 must be the same table (the game's constructor stores it there). Returns
+-- address or nil, reason. Turbo.dll checks the vtable and the slot again before it reads or writes anything.
+function M.locate(type_id)
+    local managers = mem.manager_table()
+    if not managers then return nil, "the career manager table was not found (load a Manager Career first)" end
+    local obj = mem.manager(type_id)
+    if not obj then return nil, string.format("manager slot %d of the career manager table is empty (load a Manager Career first)", type_id) end
+    local back = mem.ptr(obj + M.OFF.table)
+    if back ~= managers then
+        return nil, string.format("the object in manager slot %d (0x%X) does not point back at the manager table (+0x8 = %s)", type_id, obj,
+            back and string.format("0x%X", back) or "unreadable")
+    end
+    return obj
+end
+
 -- ---------------------------------------------------------------- run
 -- Validates the request. Returns plan or nil, reason.
 function M.plan(cfg)
@@ -141,8 +162,8 @@ function M.run(ctx)
     local team = game.user_team_id()
     local out = {}
     if plan.job_security then
-        local com = mem.manager(M.COM_TYPE)
-        if not com then return false, "the career's ClubObjectivesManager was not found (load a Manager Career first)" end
+        local com, cwhy = M.locate(M.COM_TYPE)
+        if not com then return false, "the career's ClubObjectivesManager was not found: " .. tostring(cwhy) end
         local p = plan.job_security
         local sub, value = M.SUB_SET_LEVEL, p.level
         if p.restore then sub, value = M.SUB_RESTORE, 0 elseif p.score then sub, value = M.SUB_SET_SCORE, p.score end
@@ -151,7 +172,7 @@ function M.run(ctx)
         out[#out + 1] = (status == "queued" and "job security queued: " or "") .. tostring(msg)
     end
     if plan.unsackable ~= nil then
-        local jsm = mem.manager(M.JSM_TYPE) or 0
+        local jsm = M.locate(M.JSM_TYPE) or 0   -- 0: the DLL uses the JobSwitchManager its HandleEvent hook saw
         local ok, msg, status = call(native, M.SUB_UNSACKABLE, jsm, plan.unsackable and 1 or 0, team)
         if not ok then return false, "unsackable: " .. tostring(msg) end
         out[#out + 1] = (status == "queued" and "queued: " or "") .. tostring(msg)
@@ -173,7 +194,7 @@ end
 function M.state()
     if not game.in_cm() or not mem.map_available() then return nil end
     local st = {}
-    local com = mem.manager(M.COM_TYPE)
+    local com = M.locate(M.COM_TYPE)
     -- only a ClubObjectivesManager whose serialised block points back at it, in manager mode, with a 0..100 score
     if com and mem.chain(com, { M.OFF.owner }) == com and mem.byte(com + M.OFF.manager_mode) == 1 then
         local score = mem.int(com + M.OFF.score)
@@ -189,7 +210,7 @@ function M.state()
             st.locked = (st.addon >= 100 and "safe") or (st.addon <= -100 and "very insecure") or nil
         end
     end
-    local jsm = mem.manager(M.JSM_TYPE)
+    local jsm = M.locate(M.JSM_TYPE)
     if jsm then
         local p, s = mem.byte(jsm + M.OFF.sack_pending), mem.byte(jsm + M.OFF.sacked)
         if p ~= nil and s ~= nil and p <= 1 and s <= 1 then
@@ -209,7 +230,7 @@ function M.reapply()
     if not native then return false end   -- the DLL is not up yet: try again on the next event
     if not mem.map_available() then return false end
     M._applied = true
-    local ok, msg = call(native, M.SUB_UNSACKABLE, mem.manager(M.JSM_TYPE) or 0, 1, game.user_team_id())
+    local ok, msg = call(native, M.SUB_UNSACKABLE, M.locate(M.JSM_TYPE) or 0, 1, game.user_team_id())
     if ok then log.info("manager rules: kept unsackable switched on: %s", tostring(msg))
     else log.warn("manager rules: kept unsackable not switched on: %s", tostring(msg)) end
     return true
