@@ -40,6 +40,7 @@
 #include "imgui_internal.h"
 #include "ui/app.h"
 #include "core/hotkey.h"
+#include "core/hub_customise.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
@@ -937,6 +938,7 @@ bool start_overlay(HMODULE) {
     g_app = new turbo::App(*g_mem, le_root(), reinterpret_cast<uint64_t>(mailbox), session);
     g_app->bridge.set_min_file_time(load_time() - std::chrono::minutes(2));
     g_app->game_base = reinterpret_cast<uint64_t>(GetModuleHandleW(nullptr));  // FC27.exe (live standings vtable checks)
+    turbo::mhm::set_signature_lookup([](const char* n) { return host::game_signature(n); });  // club customisation hub
     g_app->log_hook = [](const std::string& s) { log("%s", s.c_str()); };
     g_app->regions_hook = []() { return private_regions(64 * 1024); };  // commentary-bank capture (Callname tab)
     g_app->callname_player.set_player(callname_wav_player());  // Callname tab play buttons (callname_audio_win.cpp)

@@ -119,6 +119,23 @@ Not yet released or checked in game.
   kill switch `turbo_output\edit_unlock_hook_off.txt`; Status tab line "Game editors hook: on | configs patched N |
   fields unlocked M". Tools > Game editors holds the switches (gui_settings `edit_unlock`, on by default).
 
+- **Reopen club customisation** (Turbo Tools > *Your club: customisation hub*, Manager Career). One button brings the
+  hub's *Customise club* tile back. Your created club (Create a Club) gets the kits, crest and stadium designer at any
+  time, not once per season. Other clubs get the stadium hub. Leave the hub and come back after pressing it; a new season
+  locks the tile again, so press it again then. Turbo checks the career's MainHubManager first (signature `mhm_vtable`,
+  manager slot 58, link back to the manager table, flag values) and writes nothing when a check fails. *Licensed stadium
+  too...* is opt-in because it can replace a club's real stadium in the save. It first offers to copy your Manager Career
+  saves (`CmMgrC*`) to `turbo_output\save_backups`. The Create a Club setup steps (name, rival, squad, budget) cannot be
+  reopened.
+- **Career settings unlock (advanced, off by default)** (Turbo Tools > *Career settings unlock*). 27 of the 32 settings
+  the hub's Settings screen locks in a running career become editable: match setup, training and development rates,
+  transfers, negotiation and scouting, board expectations, job offers, manager market, unexpected events, pitch wear and
+  points deduction. Competition, currency, deeper simulation, financial takeover and youth academy stay locked. A warning
+  says that these change the simulation mid-career. Experimental option: the Squad settings (edit injuries, edit
+  suspensions, release players). Turbo builds the file on your PC from the game's own exported
+  `gamesettings_context_Career.json` and keeps the original in `turbo_output\edit_unlock\original`. It writes the file to
+  `mods\legacy` and unticking removes it. A file in `mods\legacy` that Turbo did not write is never overwritten or removed.
+
 ## 1.1.0 (voice swaps: any player gets any real or generic callname in matches)
 
 Not yet released or checked in game.

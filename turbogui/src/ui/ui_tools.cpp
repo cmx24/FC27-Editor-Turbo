@@ -8,6 +8,7 @@
 #include "hotkey_setting.h"
 #include "imgui.h"
 #include "ui_edit_unlock.h"
+#include "ui_club_tools.h"
 #include "ui_images.h"
 
 namespace turbo {
@@ -199,6 +200,9 @@ void draw_tools(App& app) {
         ImGui::TextDisabled("FC 27 keeps the budget in the career, not in the teams table: set it here (Live Editor's "
                             "SetUserTransferBudget).");
     }
+
+    // ---------------------------------------------------------------- club customisation hub, career settings (ui_club_tools.cpp)
+    draw_club_tools(app);
 
     // ---------------------------------------------------------------- player career
     if (ImGui::CollapsingHeader("Player Career")) {
