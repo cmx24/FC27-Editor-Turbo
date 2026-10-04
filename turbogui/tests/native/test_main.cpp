@@ -721,6 +721,82 @@ static void test_core() {
         cn.refresh(le, game, "");
         CHECK(!cn.masters.loaded() && cn.masters_error.empty() && cn.own_recording(1001) == 0, "both gone: no own recording known");
     });
+    // ---- a full playernamemap (FC 27: 106 of 106 rows): which row a By player write may take over. Never one whose
+    // callname is spoken in the loaded language: 980xxx (eng_us) and 9999xx (ita_it, spa_es, dut_nl) are real generic
+    // recordings in the user's FC 26 lists, and Turbo never asks the game about ids above 965000
+    run_case("callnames: a full playernamemap: the row taken over never holds a callname spoken in the loaded language", [&] {
+        Callnames cn;
+        cn.lang = "ita_it";
+        cn.spoken.lang = "ita_it";
+        cn.spoken.verified = true;
+        cn.spoken.from = SpokenSet::From::GameAudio;
+        cn.spoken.ids = {900010, 900015};
+        cn.masters.lang = "ita_it";
+        cn.masters.real_players = {216435};
+        cn.masters.generic_ids = {980001, 999950, 912000};
+        // what is known about an id
+        CHECK(cn.spoken_answer(900010) == SpokenAnswer::Spoken, "in the spoken set: spoken");
+        CHECK(cn.spoken_answer(980001) == SpokenAnswer::Spoken && cn.spoken_answer(999950) == SpokenAnswer::Spoken,
+              "above 965000 in the FC 26 list (980xxx English, 9999xx Italian): spoken");
+        CHECK(cn.spoken_answer(912000) == SpokenAnswer::Spoken, "in range, the game said no but the FC 26 list has it: spoken (either source)");
+        CHECK(cn.spoken_answer(912345) == SpokenAnswer::Silent && cn.silent_source(912345) == "the game's audio service and your FC 26 list",
+              "in range, in neither: silent (" + cn.silent_source(912345) + ")");
+        CHECK(cn.spoken_answer(980002) == SpokenAnswer::Silent && cn.silent_source(980002).find("your FC 26 list") == 0,
+              "above 965000, not in the FC 26 list: silent (" + cn.silent_source(980002) + ")");
+        CHECK(cn.spoken_answer(900000) == SpokenAnswer::Silent && cn.spoken_answer(0) == SpokenAnswer::Silent && cn.spoken_answer(-1) == SpokenAnswer::Silent,
+              "no callname: silent");
+        // the rows, in table order; players 1003, 2001..2004 are in the database, 7777 is not
+        const std::unordered_set<int64_t> db_players = {1003, 2001, 2002, 2003, 2004, 3002};
+        auto in_db = [&](int64_t pid) { return db_players.count(pid) > 0; };
+        std::vector<NameMapRow> rows = {
+            {1003, 900010, 0x100},  // spoken (the game)
+            {2001, 980001, 0x200},  // spoken (FC 26 list, above 965000): the 1.0.1 bug took this one
+            {2002, 980002, 0x300},  // silent above 965000 (FC 26 list loaded, not in it)
+            {2003, 912345, 0x400},  // silent in range (the game said no, not in the list)
+            {2004, 900000, 0x500},  // no callname
+            {7777, 900015, 0x600},  // its player is not in the database
+        };
+        SpareRow s = cn.spare_playernamemap_row(rows, in_db, 3002);
+        CHECK(s.rec == 0x600 && s.why == SpareWhy::NoPlayer && s.playerid == 7777, "a row whose player is missing comes first");
+        rows.pop_back();
+        s = cn.spare_playernamemap_row(rows, in_db, 3002);
+        CHECK(s.rec == 0x500 && s.why == SpareWhy::NoCallname, "then a row with no callname");
+        rows.pop_back();
+        s = cn.spare_playernamemap_row(rows, in_db, 3002);
+        CHECK(s.rec == 0x300 && s.why == SpareWhy::NotSpoken && s.commentaryid == 980002, "then a silent callname (table order)");
+        rows.erase(rows.begin() + 2);
+        s = cn.spare_playernamemap_row(rows, in_db, 3002);
+        CHECK(s.rec == 0x400 && s.why == SpareWhy::NotSpoken && s.commentaryid == 912345, "a silent id in range");
+        rows.pop_back();
+        s = cn.spare_playernamemap_row(rows, in_db, 3002);
+        CHECK(s.rec == 0 && s.why == SpareWhy::None && s.spoken == 2 && s.unknown == 0,
+              fmt("only spoken callnames left (980001 among them): none taken (spoken %d, unknown %d)", s.spoken, s.unknown));
+        // without the FC 26 list an id above 965000 cannot be checked: kept, counted as unknown
+        cn.masters = MasterList{};
+        rows.push_back({2002, 980002, 0x300});
+        CHECK(cn.spoken_answer(980002) == SpokenAnswer::Unknown && cn.spoken_answer(980001) == SpokenAnswer::Unknown, "no list: above 965000 unknown");
+        s = cn.spare_playernamemap_row(rows, in_db, 3002);
+        CHECK(s.rec == 0 && s.spoken == 1 && s.unknown == 2, fmt("no list: 980xxx rows kept (spoken %d, unknown %d)", s.spoken, s.unknown));
+        // the fallback set (every id playernames uses) proves nothing about a playernamemap id: unknown, kept
+        cn.spoken.verified = false;
+        cn.spoken.from = SpokenSet::From::Fallback;
+        CHECK(cn.spoken_answer(912345) == SpokenAnswer::Unknown && cn.spoken_answer(900010) == SpokenAnswer::Spoken, "fallback set: unknown / spoken");
+        rows.push_back({2003, 912345, 0x400});
+        s = cn.spare_playernamemap_row(rows, in_db, 3002);
+        CHECK(s.rec == 0 && s.unknown == 3, fmt("fallback set: nothing taken (unknown %d)", s.unknown));
+        // a missing player's row is free whatever its callname; the player's own row and empty entries are never picked
+        rows.push_back({7777, 980001, 0x700});
+        rows.push_back({0, 0, 0});
+        s = cn.spare_playernamemap_row(rows, in_db, 3002);
+        CHECK(s.rec == 0x700 && s.why == SpareWhy::NoPlayer, "missing player: taken");
+        s = cn.spare_playernamemap_row({{3002, 900000, 0x800}}, in_db, 3002);
+        CHECK(s.rec == 0, "never the row of the player written for");
+        s = cn.spare_playernamemap_row(rows, nullptr, 3002);
+        CHECK(s.rec == 0 && s.unknown == 4, fmt("no database lookup: no row counts as playerless (unknown %d)", s.unknown));
+        rows.push_back({-1, 950000, 0x900});
+        s = cn.spare_playernamemap_row(rows, nullptr, 3002);
+        CHECK(s.rec == 0x900 && s.why == SpareWhy::NoPlayer, "an entry with no player id (-1) is free");
+    });
 
     // ---- the game's audio service (core/commentary_audio.h): batch layout, pointer chain, the stepped build, cache record
     run_case("commentary audio: name batch and canary, pointer chain checks, the stepped build with a fake caller, cache record and precedence", [&] {
@@ -3633,27 +3709,92 @@ static void test_ui() {
                       fmt("room read from the header: %u of %u", used, cap));
                 CHECK(mem.wr(mt->header + 0x78, written) && mem.wr(mt->header + 0x7A, written), "table made full");
                 CHECK(!app.db.has_room(*mt), "no room");
+                const CallnameTabState& st = callname_tab_state();
+                const auto npos = std::string::npos;
+                auto refused_with = [&](const std::string& part) {
+                    bool refused = false;
+                    for (const auto& tt : app.toasts)
+                        refused = refused || (tt.error && tt.text.find("playernamemap table is full") != npos && tt.text.find(part) != npos);
+                    return refused;
+                };
+                ui.frames(1);
+                CHECK(st.takeover_line.find("no row can be taken over") != npos && st.takeover_line.find("2 rows hold a callname spoken in ita_it") != npos,
+                      "named before the click: no row can be taken (" + st.takeover_line + ")");
                 app.toasts.clear();
                 CHECK(ui.click("Use this player's callname"), "use callname on a full table");
                 CHECK(!app.busy(), "nothing queued for Live Editor's insert");
-                bool refused = false;
-                for (const auto& tt : app.toasts) refused = refused || (tt.error && tt.text.find("playernamemap table is full") != std::string::npos);
-                CHECK(refused, "refused with the reason (every row belongs to a player)");
+                CHECK(refused_with("no row can be taken over"), "refused with the reason (every row holds a spoken callname)");
                 CHECK(app.db.find(*mt, "playerid", 3002) == 0, "no row for 3002");
-                // a row whose commentary id no bank uses (980001) is taken over in place
+                // 1003's row on 980001: Turbo never asks the game above 965000, and without the FC 26 list it cannot tell
+                // whether the id is spoken (eng_us has a generic recording there): kept
                 uint64_t r1003 = app.db.find(*mt, "playerid", 1003);
-                CHECK(r1003 && app.db.set_int(*mt, r1003, "commentaryid", 980001), "1003's row made dangling");
+                uint64_t r2001 = app.db.find(*mt, "playerid", 2001);
+                CHECK(r1003 && r2001 && app.db.set_int(*mt, r1003, "commentaryid", 980001), "1003's row on 980001");
+                ui.frames(1);
+                CHECK(st.takeover_line.find("no row can be taken over") != npos && st.takeover_line.find("FC 26 list") != npos,
+                      "980001 without the FC 26 list: kept (" + st.takeover_line + ")");
+                app.toasts.clear();
+                CHECK(ui.click("Use this player's callname"), "use callname: 980001 unknown");
+                CHECK(!app.busy() && refused_with("cannot check") && app.db.get_int(*mt, r1003, "playerid") == 1003, "refused: the row stays 1003's");
+                // an FC 26 list where 980001 is a generic recording (as in eng_us): spoken, kept. After Refresh Saliba is no
+                // longer in the picker (980001 is not in the spoken-id list), so 2001's callname (950000) is the one copied
+                fs::path mp = master_list_path(le, "ita_it");
+                fs::create_directories(mp.parent_path());
+                std::ofstream(mp.string()) << R"({"language": "ita_it", "real_players": [1004], "generic_ids": [980001]})";
+                CHECK(ui.click("Refresh##cn") && app.callnames.masters.loaded(), "list with 980001 loaded");
+                ui.frames(1);
+                CHECK(st.takeover_line.find("no row can be taken over") != npos && st.takeover_line.find("2 rows hold a callname spoken") != npos,
+                      "980001 in the list: spoken, kept (" + st.takeover_line + ")");
+                CHECK(ui.type_into(ui.find("##cpsearch"), "2001") && ui.click("2001", "##cplayers"), "pick 2001 (950000)");
+                app.toasts.clear();
+                CHECK(ui.click("Use this player's callname"), "use callname: 980001 spoken");
+                CHECK(!app.busy() && refused_with("no row can be taken over") && app.db.get_int(*mt, r1003, "playerid") == 1003, "refused again");
+                // the Italian list (no 980xxx; its generic names above 965000 are 9999xx): 980001 has no recording in
+                // ita_it, so Saliba's row can be taken; 3002 has his own recording in this list, so a popup asks first and
+                // names Saliba too
+                std::ofstream(mp.string()) << R"({"language": "ita_it", "real_players": [1004, 3002], "generic_ids": [999950]})";
+                CHECK(ui.click("Refresh##cn") && app.callnames.masters.loaded() && app.callnames.own_recording(3002) == kOwnFromMasters, "Italian list loaded");
+                ui.frames(1);
+                CHECK(st.takeover_line.find("takes over the row of William Saliba (ID 1003, callname 980001: no recording in ita_it per your FC 26 list") != npos,
+                      "the line names whose row is taken: " + st.takeover_line);
+                CHECK(ui.click("Use this player's callname"), "use callname (own recording: asks first)");
+                ui.frames(2);
+                CHECK(st.confirm_open && st.confirm_takeover.find("William Saliba (ID 1003, callname 980001") != npos, "the popup names Saliba: " + st.confirm_takeover);
+                CHECK(ui.click("Cancel##cnown", "##cnown"), "cancel");
+                ui.frames(2);
+                CHECK(app.db.get_int(*mt, r1003, "playerid") == 1003 && app.db.get_int(*mt, r1003, "commentaryid") == 980001, "cancelled: Saliba's row untouched");
                 CHECK(ui.click("Use this player's callname"), "use callname again");
-                CHECK(!app.busy(), "still nothing queued");
-                CHECK(app.db.get_int(*mt, r1003, "playerid") == 3002 && app.db.get_int(*mt, r1003, "commentaryid") == 900010,
-                      "the dangling row now carries 3002's callname");
+                ui.frames(2);
+                CHECK(ui.click("Assign anyway##cnown", "##cnown"), "assign anyway");
+                ui.frames(2);
+                CHECK(!app.busy() && app.db.get_int(*mt, r1003, "playerid") == 3002 && app.db.get_int(*mt, r1003, "commentaryid") == 950000 &&
+                          app.db.get_int(*mt, r2001, "playerid") == 2001,
+                      "Saliba's silent row now carries 3002's callname; 2001 keeps his");
+                CHECK(ui.toast_contains("the row of William Saliba"), "the toast names the row taken");
                 CHECK(app.callnames.index.playernamemap_rec.count(3002) == 1 && app.callnames.index.playernamemap_rec.count(1003) == 0,
                       "index follows the row");
+                // a row whose player is not in the database is free whatever its callname (preferred over a silent one:
+                // core case "a full playernamemap")
+                CHECK(app.db.set_int(*mt, r1003, "playerid", 424242), "the row given to a player not in the database");
+                CHECK(ui.click("Refresh##cn") && app.callnames.index.playernamemap_rec.count(3002) == 0, "index rebuilt");
+                ui.frames(1);
+                CHECK(st.takeover_line.find("takes over the row of player 424242 (not in the database") != npos, "a missing player's row: " + st.takeover_line);
+                CHECK(ui.click("Use this player's callname"), "use callname");
+                ui.frames(2);
+                CHECK(st.confirm_open && st.confirm_takeover.find("player 424242") != npos && app.db.get_int(*mt, r1003, "playerid") == 424242,
+                      "the popup names the row, nothing written yet: " + st.confirm_takeover);
+                CHECK(ui.click("Assign anyway##cnown", "##cnown"), "assign anyway");
+                ui.frames(2);
+                CHECK(!app.busy() && app.db.get_int(*mt, r1003, "playerid") == 3002, "the missing player's row now carries 3002's callname");
+                CHECK(ui.toast_contains("the row of player 424242"), "the toast names the row taken");
                 // put the world back for the cases below
+                fs::remove(mp);
                 CHECK(app.db.set_int(*mt, r1003, "playerid", 1003) && app.db.set_int(*mt, r1003, "commentaryid", 900010), "row restored");
                 CHECK(mem.wr(mt->header + 0x78, cap_before) && mem.wr(mt->header + 0x7A, cap_before), "capacity restored");
                 CHECK(ui.click("Refresh##cn"), "refresh the index");
-                CHECK(app.callnames.index.playernamemap_rec.count(1003) == 1 && app.callnames.index.playernamemap_rec.count(3002) == 0, "index rebuilt");
+                CHECK(app.callnames.index.playernamemap_rec.count(1003) == 1 && app.callnames.index.playernamemap_rec.count(3002) == 0 &&
+                          !app.callnames.masters.loaded(),
+                      "index rebuilt, no list");
             }
             // a player with a playernamemap row (2001, 950000): edited in place; then its removal asks for confirmation and queues Lua
             CHECK(ui.click("2001", "##plist"), "row 2001");

@@ -4,7 +4,9 @@
 //   playernamemap (playerid -> commentaryid) is a player-specific callname and wins; otherwise the commentary id of the
 //   player's common name (players.commonnameid -> playernames.commentaryid), else of his last name (lastnameid).
 //   commentaryid 900000 means "no callname". The ids live in 900000..965000 (commentarynames lists them all, for every
-//   language); which of them have spoken audio depends on the commentary language pack the game loaded.
+//   language); which of them have spoken audio depends on the commentary language pack the game loaded. Some banks also
+//   have generic names above that range (the user's FC 26 lists: eng_us 980001..980034, ita_it 999931..999952, spa_es
+//   and dut_nl 9999xx), used by playernamemap rows; Turbo never asks the game about them, only the FC 26 list knows.
 //
 // Language packs on disk: <game>\commentary\commentaryfull_<lang>\ (a language the user downloaded, e.g. ita_it) and
 // <game>\Data\Win32\commentaryfull_<lang>.toc (the base language, eng_us). Which ids are spoken comes, in this order:
@@ -25,6 +27,7 @@
 #pragma once
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -130,6 +133,37 @@ struct PlayerChoice {
 // Case-insensitive substring match used by the type-ahead pickers (also matches an id prefix when `text` is a number)
 bool callname_filter_match(const std::string& text, const std::string& name, int64_t id);
 
+// What Turbo knows about a commentary id being spoken in the loaded language (Callnames::spoken_answer)
+enum class SpokenAnswer {
+    Spoken,   // the spoken set or the FC 26 list's generic names hold it
+    Silent,   // the source that covers its range lacks it (see Callnames::spoken_answer)
+    Unknown,  // nothing that covers it was loaded: Turbo cannot tell, so it counts as spoken wherever a callname could be lost
+};
+
+// One playernamemap row as read from the table
+struct NameMapRow {
+    int64_t playerid = 0;
+    int64_t commentaryid = 0;
+    uint64_t rec = 0;  // record address
+};
+
+// A playernamemap row that can be given to another player when the table is full (FC 27: 106 of 106 rows, and Live
+// Editor crashes the game when asked to add a row to a full table). Callnames::spare_playernamemap_row.
+enum class SpareWhy {
+    None,
+    NoPlayer,    // its player is not in the database: nobody needs the row
+    NoCallname,  // its commentary id is "no callname" (900000, 0, -1): the row gives its player nothing
+    NotSpoken,   // its callname has no recording in the loaded language (SpokenAnswer::Silent): its player hears nothing from it
+};
+struct SpareRow {
+    uint64_t rec = 0;  // 0 = no row can be taken over
+    int64_t playerid = 0;
+    int64_t commentaryid = 0;
+    SpareWhy why = SpareWhy::None;
+    int spoken = 0;   // rows kept because their callname is spoken in the loaded language
+    int unknown = 0;  // rows kept because Turbo cannot tell (SpokenAnswer::Unknown)
+};
+
 // Everything the Callname editor needs, rebuilt from the database when the model changes
 struct CallnameIndex {
     std::unordered_map<int64_t, int64_t> playernamemap;        // playerid -> commentaryid
@@ -163,6 +197,21 @@ public:
         return (spoken.real(playerid) ? kOwnFromGame : 0) | (masters.real(playerid) ? kOwnFromMasters : 0);
     }
     std::string own_source(int own) const { return own_recording_source_name(own, spoken.from); }
+    // Is commentary id `cid` spoken in the loaded language? Spoken when the spoken set or the FC 26 list's generic names
+    // hold it. Silent only where a loaded source covers the id and lacks it: 900001..965000 with a verified spoken set
+    // (the game's audio service, a hand-made list or a bank capture; Turbo asks the game about this range only), any
+    // other id with the FC 26 list loaded (the user mapped every recording of the language there; e.g. eng_us has
+    // generic names 980001..980034, ita_it 999931..999952). Else Unknown (the fallback set; an id above 965000 without
+    // a list). "No callname" ids (<= 900000) are Silent.
+    SpokenAnswer spoken_answer(int64_t cid) const;
+    // For a Silent id: which source says it has no recording ("the game's audio service and your FC 26 list")
+    std::string silent_source(int64_t cid) const;
+    // The row to take over for `for_player` when playernamemap is full, so that no other player loses a callname he
+    // hears: first a row whose player is not in the database, then a row with no callname, then a row whose callname
+    // is Silent; rows whose callname is Spoken or Unknown are never taken. `in_database` says whether a player id is in
+    // the database. rec 0 when there is none (spoken / unknown count the rows kept).
+    SpareRow spare_playernamemap_row(const std::vector<NameMapRow>& rows, const std::function<bool(int64_t)>& in_database,
+                                     int64_t for_player) const;
 
     std::vector<CommentaryPack> packs;
     std::string lang, lang_why;

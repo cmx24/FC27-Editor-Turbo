@@ -489,6 +489,71 @@ void Callnames::build_index(Database& db, const Model& model, const std::unorder
     index.built = true;
 }
 
+SpokenAnswer Callnames::spoken_answer(int64_t cid) const {
+    if (cid <= kNoCallname) return SpokenAnswer::Silent;
+    if (spoken.spoken(cid) || masters.generic_ids.count(cid)) return SpokenAnswer::Spoken;
+    // The spoken set answers for the range Turbo asks the game about (and a hand-made list holds only that range);
+    // the fallback set is every id playernames uses, which says nothing about a playernamemap id
+    if (cid <= kCallnameMax && spoken.verified) return SpokenAnswer::Silent;
+    // Above 965000 the game is never asked: only the FC 26 list, which maps every recording of the language, can say no
+    if (cid > kCallnameMax && masters.loaded()) return SpokenAnswer::Silent;
+    return SpokenAnswer::Unknown;
+}
+
+std::string Callnames::silent_source(int64_t cid) const {
+    if (cid <= kNoCallname) return "no callname";
+    if (cid > kCallnameMax) return "your FC 26 list (the game is not asked about ids above " + std::to_string(kCallnameMax) + ")";
+    std::string game;
+    switch (spoken.from) {
+        case SpokenSet::From::ListFile: game = "your spoken-id list"; break;
+        case SpokenSet::From::BankCapture: game = "the bank capture"; break;
+        default: game = "the game's audio service"; break;
+    }
+    return masters.loaded() ? game + " and your FC 26 list" : game;
+}
+
+SpareRow Callnames::spare_playernamemap_row(const std::vector<NameMapRow>& rows, const std::function<bool(int64_t)>& in_database,
+                                            int64_t for_player) const {
+    // One pass, the first row of each kind kept; the best kind wins (table order inside a kind)
+    SpareRow best[3];
+    SpareRow out;
+    for (const NameMapRow& r : rows) {
+        if (!r.rec || (r.playerid == for_player && for_player > 0)) continue;
+        SpareRow s;
+        s.rec = r.rec;
+        s.playerid = r.playerid;
+        s.commentaryid = r.commentaryid;
+        // without a lookup a player's absence cannot be told: such rows are judged by their callname alone
+        if (r.playerid <= 0 || (in_database && !in_database(r.playerid))) {
+            s.why = SpareWhy::NoPlayer;
+        } else if (r.commentaryid <= kNoCallname) {
+            s.why = SpareWhy::NoCallname;
+        } else {
+            const SpokenAnswer a = spoken_answer(r.commentaryid);
+            if (a == SpokenAnswer::Spoken) {
+                ++out.spoken;
+                continue;
+            }
+            if (a == SpokenAnswer::Unknown) {
+                ++out.unknown;
+                continue;
+            }
+            s.why = SpareWhy::NotSpoken;
+        }
+        const int k = s.why == SpareWhy::NoPlayer ? 0 : s.why == SpareWhy::NoCallname ? 1 : 2;
+        if (!best[k].rec) best[k] = s;
+    }
+    for (const SpareRow& b : best)
+        if (b.rec) {
+            out.rec = b.rec;
+            out.playerid = b.playerid;
+            out.commentaryid = b.commentaryid;
+            out.why = b.why;
+            break;
+        }
+    return out;
+}
+
 CallnameInfo Callnames::resolve(const PlayerRow& p, Database& db) const {
     const Table* t = db.table("players");
     int64_t cn = t ? db.get_int(*t, p.rec, "commonnameid", 0) : 0;

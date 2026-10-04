@@ -3,7 +3,8 @@
 //   BY NAME   a playernames name whose commentary id is spoken -> written to lastnameid or commonnameid (the shown name
 //             can be kept through editedplayernames)
 //   BY PLAYER a player whose playernamemap callname is spoken -> written to this player's playernamemap row (added
-//             through Turbo's Lua side when missing)
+//             through Turbo's Lua side when missing; when the table is full, a row from which no player hears a callname
+//             is taken over, and its player is named before the write)
 // A player with his OWN recording (the game's audio service or the user's FC 26 list says so) is spoken from it
 // whatever either picker writes (docs/callnames.md section 1 step 0): the tab says so in the "Current callname" line,
 // warns above the assignment buttons and asks for a confirmation before anything is written for him.
@@ -29,7 +30,7 @@ static int64_t g_sel_name = 0;
 static int64_t g_sel_player = 0;
 static bool g_keep_display = true;
 static const int kMaxRows = 300;
-static const ImVec4 kGreen(0.4f, 0.9f, 0.4f, 1), kOrange(1, 0.6f, 0.3f, 1);
+static const ImVec4 kGreen(0.4f, 0.9f, 0.4f, 1), kOrange(1, 0.6f, 0.3f, 1), kYellow(1, 0.85f, 0.4f, 1);
 
 // An assignment to a player with his own recording waits here for the confirmation popup (##cnown)
 struct PendingAssign {
@@ -138,68 +139,126 @@ static void assign_name(App& app, const Table& t, const PlayerRow& p, const Name
     }
 }
 
-// A playernamemap row no player needs: its player is not in the database, or its commentary id is outside the range
-// every commentary bank uses (900001..965000; the FC 26 database had a dangling 980xxx run). Players first. 0 if none.
-static uint64_t spare_playernamemap_row(App& app, const Table& m) {
-    const Field* fp = m.field("playerid");
-    const Field* fc = m.field("commentaryid");
-    if (!fp || !fc) return 0;
-    std::unordered_set<int64_t> known;
-    known.reserve(app.model.players().size() * 2);
-    for (const auto& pr : app.model.players()) known.insert(pr.playerid);
-    Snapshot snap;
-    if (known.empty() || !snap.load(app.db.memory(), m)) return 0;
-    uint64_t dangling = 0;
-    for (uint32_t i : snap.valid) {
-        int64_t pid = snap.get_int(i, *fp), cid = snap.get_int(i, *fc);
-        if (pid <= 0 || !known.count(pid)) return snap.addr(i);
-        if (!dangling && (cid <= 900000 || cid > 965000)) dangling = snap.addr(i);
+// How "Use this player's callname" writes for a player: his playernamemap row edited in place; else a row added through
+// Lua when the table has room; else (FC 27's table is full: 106 of 106 rows, and Live Editor's InsertDBTableRow crashes
+// the game on a full table, so a full table never reaches it) a row taken over that no player hears a callname from
+// (Callnames::spare_playernamemap_row), else nothing. Computed for the line shown before the write and again at the write.
+struct PlayerWritePlan {
+    enum class Kind { NoTable, InPlace, AddRow, TakeOver, Full } kind = Kind::NoTable;
+    uint64_t rec = 0;       // InPlace: his row
+    bool counted = false;   // the table's row count was read (used / cap)
+    uint32_t used = 0, cap = 0;
+    SpareRow spare;         // TakeOver: the row taken; Full: the rows kept and why
+    bool no_players = false;  // Full because the model has no players (whose row is whose cannot be told)
+};
+
+static PlayerWritePlan plan_player_write(App& app, const PlayerRow& p) {
+    PlayerWritePlan plan;
+    const Table* m = app.db.table("playernamemap");
+    const Field* fp = m ? m->field("playerid") : nullptr;
+    const Field* fc = m ? m->field("commentaryid") : nullptr;
+    if (!m || !fp || !fc) return plan;
+    auto own = app.callnames.index.playernamemap_rec.find(p.playerid);
+    if (own != app.callnames.index.playernamemap_rec.end()) {
+        plan.kind = PlayerWritePlan::Kind::InPlace;
+        plan.rec = own->second;
+        return plan;
     }
-    return dangling;
+    plan.counted = app.db.rows_in_use(*m, plan.used, plan.cap);
+    if (plan.counted && plan.used < plan.cap) {
+        plan.kind = PlayerWritePlan::Kind::AddRow;
+        return plan;
+    }
+    // Full (or its count unreadable: never risk Live Editor's insert): look for a row to take over
+    plan.kind = PlayerWritePlan::Kind::Full;
+    if (app.model.players().empty()) {
+        plan.no_players = true;
+        return plan;
+    }
+    std::vector<NameMapRow> rows;
+    Snapshot snap;
+    if (snap.load(app.db.memory(), *m))
+        for (uint32_t i : snap.valid) rows.push_back({snap.get_int(i, *fp), snap.get_int(i, *fc), snap.addr(i)});
+    plan.spare = app.callnames.spare_playernamemap_row(rows, [&](int64_t pid) { return app.model.player(pid) != nullptr; }, p.playerid);
+    if (plan.spare.rec) plan.kind = PlayerWritePlan::Kind::TakeOver;
+    return plan;
 }
 
-// BY PLAYER: this player's playernamemap row: edited in place when it exists; else added through Lua when the table has
-// room; else a row no player needs (spare_playernamemap_row) is taken over. Live Editor's InsertDBTableRow crashes the
-// game on a full table (FC 27's playernamemap is full: 106 of 106 rows), so a full table never reaches it.
+// "William Saliba (ID 1003, callname 980001: no recording in ita_it per your FC 26 list (...); he falls back to his
+// name's callname)" - whose row is taken and why he hears nothing less
+static std::string spare_row_text(App& app, const SpareRow& s) {
+    const Callnames& cn = app.callnames;
+    const std::string lang = cn.lang.empty() ? "the loaded language" : cn.lang;
+    if (s.why == SpareWhy::NoPlayer)
+        return "player " + std::to_string(s.playerid) + " (not in the database: no player uses the row; callname " + std::to_string(s.commentaryid) + ")";
+    const PlayerRow* owner = app.model.player(s.playerid);
+    std::string who = (owner ? owner->name : "player " + std::to_string(s.playerid)) + " (ID " + std::to_string(s.playerid) + ", callname " +
+                      std::to_string(s.commentaryid);
+    if (s.why == SpareWhy::NoCallname) return who + " = none: the row gives him nothing)";
+    return who + ": no recording in " + lang + " per " + cn.silent_source(s.commentaryid) + "; he falls back to his name's callname)";
+}
+
+// The line shown before a By player write that does not edit the player's own row ("" when it edits it or adds a row)
+static std::string takeover_text(App& app, const PlayerWritePlan& plan) {
+    using K = PlayerWritePlan::Kind;
+    if (plan.kind != K::TakeOver && plan.kind != K::Full) return "";
+    const std::string count = plan.counted ? " (" + std::to_string(plan.used) + " of " + std::to_string(plan.cap) + " rows)" : " (its row count could not be read)";
+    if (plan.kind == K::TakeOver)
+        return "The playernamemap table is full" + count + ": this takes over the row of " + spare_row_text(app, plan.spare) + ".";
+    if (plan.no_players) return "The playernamemap table is full" + count + " and the players are not loaded: no row can be taken over.";
+    std::string why = "The playernamemap table is full" + count + " and no row can be taken over: " + std::to_string(plan.spare.spoken) +
+                      (plan.spare.spoken == 1 ? " row holds a callname" : " rows hold a callname") + " spoken in " +
+                      (app.callnames.lang.empty() ? std::string("the loaded language") : app.callnames.lang);
+    if (plan.spare.unknown > 0) {
+        // what is missing for an answer (Callnames::spoken_answer): the spoken set for 900001..965000, the list above
+        const Callnames& cn = app.callnames;
+        const char* missing = cn.masters.loaded()  ? "the spoken set is not built yet"
+                              : cn.spoken.verified ? "ids above 965000 need your FC 26 list"
+                                                   : "the spoken set is not built yet and there is no FC 26 list";
+        why += ", " + std::to_string(plan.spare.unknown) + (plan.spare.unknown == 1 ? " row a callname" : " rows a callname") +
+               " Turbo cannot check (" + missing + ")";
+    }
+    return why + ". Pick the callname By name instead (Assign as last name / common name).";
+}
+
+// BY PLAYER: the write itself (plan_player_write decides how)
 static void assign_player_callname(App& app, const PlayerRow& p, int64_t commentaryid, const std::string& from) {
+    using K = PlayerWritePlan::Kind;
+    const PlayerWritePlan plan = plan_player_write(app, p);
     const Table* m = app.db.table("playernamemap");
-    if (!m) {
-        app.notify("FC 27's database has no playernamemap table", true);
+    if (plan.kind == K::NoTable || !m) {
+        app.notify("FC 27's database has no playernamemap table (or it lacks playerid / commentaryid)", true);
         return;
     }
-    auto rec = app.callnames.index.playernamemap_rec.find(p.playerid);
-    if (rec != app.callnames.index.playernamemap_rec.end()) {
-        const Field* f = m->field("commentaryid");
-        if (f && app.edit(*m, rec->second, *f, Value::of_int(commentaryid)))
+    const Field* fp = m->field("playerid");
+    const Field* fc = m->field("commentaryid");
+    if (plan.kind == K::InPlace) {
+        if (app.edit(*m, plan.rec, *fc, Value::of_int(commentaryid)))
             app.notify(p.name + ": player-specific callname " + std::to_string(commentaryid) + " (from " + from + ")");
         return;
     }
-    uint32_t used = 0, cap = 0;
-    const bool counted = app.db.rows_in_use(*m, used, cap);
-    if (counted && used < cap) {
+    if (plan.kind == K::AddRow) {
         json a = {{"action", "set_playernamemap"}, {"playerid", p.playerid}, {"commentaryid", commentaryid}, {"room", true}};
         if (send_actions(app, json::array({a}), "Player callname"))
             app.notify(p.name + ": playernamemap row (" + std::to_string(commentaryid) + ", from " + from + ") queued for Turbo's Lua side");
         return;
     }
-    const Field* fp = m->field("playerid");
-    const Field* fc = m->field("commentaryid");
-    if (uint64_t spare = fp && fc ? spare_playernamemap_row(app, *m) : 0) {
-        Value old_pid;
-        app.db.get(*m, spare, *fp, old_pid);
-        if (app.edit(*m, spare, *fc, Value::of_int(commentaryid)) && app.edit(*m, spare, *fp, Value::of_int(p.playerid))) {
-            if (old_pid.type == FieldType::Int) app.callnames.index.playernamemap_rec.erase(old_pid.i);
-            app.callnames.index.playernamemap_rec[p.playerid] = spare;
-            app.notify(p.name + ": player-specific callname " + std::to_string(commentaryid) + " (from " + from +
-                       "); the table is full, so the row of " + (old_pid.type == FieldType::Int ? "player " + std::to_string(old_pid.i) : std::string("an unused entry")) +
-                       ", which no player in the database or no commentary uses, was taken over");
+    if (plan.kind == K::TakeOver) {
+        const std::string taken = spare_row_text(app, plan.spare);
+        // the player id first: should the second write fail, this player holds a callname nobody hears, rather than
+        // the row's old player saying a name that is not his
+        if (!app.edit(*m, plan.spare.rec, *fp, Value::of_int(p.playerid))) return;
+        if (!app.edit(*m, plan.spare.rec, *fc, Value::of_int(commentaryid))) {
+            app.notify(p.name + ": the row of " + taken + " now belongs to him, but its callname could not be set to " + std::to_string(commentaryid), true);
+            return;
         }
+        app.callnames.index.playernamemap_rec.erase(plan.spare.playerid);
+        app.callnames.index.playernamemap_rec[p.playerid] = plan.spare.rec;
+        app.notify(p.name + ": player-specific callname " + std::to_string(commentaryid) + " (from " + from +
+                   "); the table is full, so the row of " + taken + " was taken over");
         return;
     }
-    std::string count = counted ? " (" + std::to_string(used) + " of " + std::to_string(cap) + " rows)" : " (its row count could not be read)";
-    app.notify(p.name + ": no player-specific callname written: the game's playernamemap table is full" + count +
-                   " and every row belongs to a player. Pick the callname By name instead (Assign as last name / common name).",
-               true);
+    app.notify(p.name + ": no player-specific callname written. " + takeover_text(app, plan), true);
 }
 
 static void language_line(App& app) {
@@ -436,8 +495,15 @@ static void by_player_picker(App& app, const PlayerRow& p) {
     ImGui::SameLine();
     ImGui::TextDisabled("%zu players with a spoken player-specific callname", ix.players.size());
     const int own = app.callnames.own_recording(p.playerid);
-    // under the list: the "Selected" line, the warning, the button
-    const float below = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetFrameHeightWithSpacing() + own_warning_height(app, own) +
+    // A full table: whose row the write takes over, named before anything is written (or why none can be)
+    const PlayerWritePlan plan = plan_player_write(app, p);
+    const std::string takeover = takeover_text(app, plan);
+    g_state.takeover_line = takeover;
+    const float takeover_h =
+        takeover.empty() ? 0.0f
+                         : ImGui::CalcTextSize(takeover.c_str(), nullptr, false, ImGui::GetContentRegionAvail().x).y + ImGui::GetStyle().ItemSpacing.y;
+    // under the list: the "Selected" line, the takeover line, the warning, the button
+    const float below = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetFrameHeightWithSpacing() + takeover_h + own_warning_height(app, own) +
                         ImGui::GetStyle().WindowPadding.y;
     ImGui::BeginChild("##cplayers", ImVec2(0, list_height(below)), ImGuiChildFlags_Borders);
     int shown = 0, total = 0;
@@ -472,12 +538,26 @@ static void by_player_picker(App& app, const PlayerRow& p) {
     const PlayerChoice* sel = nullptr;
     for (const auto& c : ix.players)
         if (c.playerid == g_sel_player) sel = &c;
+    auto takeover_line = [&]() {
+        if (takeover.empty()) return;
+        ImGui::PushStyleColor(ImGuiCol_Text, plan.kind == PlayerWritePlan::Kind::Full ? kOrange : kYellow);
+        ImGui::TextWrapped("%s", takeover.c_str());
+        ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("FC 27 reloads playernamemap from its base data at every career load, so a taken-over row is back with\n"
+                              "its player after the next load. Turbo takes only a row whose player is not in the database, whose\n"
+                              "callname is none, or whose callname has no recording in %s (the game's audio service for\n"
+                              "900001..965000, your FC 26 list above): no player loses a callname he hears.",
+                              app.callnames.lang.c_str());
+    };
     if (!sel) {
         ImGui::TextDisabled("Pick a player above: his player-specific callname is copied to this player.");
+        takeover_line();
         return;
     }
     ImGui::Text("Selected: %s (%s, player %lld) speaks callname %lld", sel->name.c_str(), sel->club.empty() ? "no club" : sel->club.c_str(),
                 static_cast<long long>(sel->playerid), static_cast<long long>(sel->commentaryid));
+    takeover_line();
     if (own) own_recording_warning(app, p, own);
     if (ImGui::Button("Use this player's callname")) request_player_callname(app, p, *sel, own);
     ImGui::SameLine();
@@ -582,6 +662,13 @@ static void own_confirm_popup(App& app, const Table& t, const PlayerRow& p) {
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + S(560.0f));
     ImGui::TextWrapped("The game uses a player's own recording before playernamemap and his name ids, so the commentator keeps "
                        "saying his own name: the callname written now will not be heard while that recording exists.");
+    if (g_pending.kind == PendingAssign::Kind::Player) {
+        // a full table: the other player whose row the write takes over is named here too, before anything is written
+        const PlayerWritePlan plan = plan_player_write(app, p);
+        g_state.confirm_takeover = takeover_text(app, plan);
+        if (!g_state.confirm_takeover.empty())
+            ImGui::TextColored(plan.kind == PlayerWritePlan::Kind::Full ? kOrange : kYellow, "%s", g_state.confirm_takeover.c_str());
+    }
     ImGui::PopTextWrapPos();
     ImGui::Text("Write it anyway: %s?", what.c_str());
     if (ImGui::Button("Assign anyway##cnown")) {

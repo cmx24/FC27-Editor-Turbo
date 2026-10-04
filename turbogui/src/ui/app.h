@@ -253,6 +253,8 @@ struct CallnameTabState {
     std::string rule_line;      // with an own recording: what the callname rule would give instead
     bool warning_shown = false; // the own-recording warning above the assignment buttons was drawn
     bool confirm_open = false;  // the "has his own recording: assign anyway?" popup is open
+    std::string takeover_line;  // By player: whose playernamemap row a write takes over (the table is full), or why none can be
+    std::string confirm_takeover;  // the same, in the confirmation popup
 };
 const CallnameTabState& callname_tab_state();
 // Slider over the field's whole range (attributes); a typed value outside it is refused by Database::set
