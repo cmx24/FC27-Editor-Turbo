@@ -460,7 +460,8 @@ static void test_edit_unlock() {
         CHECK(flag(at(d, "INFO/ABOUT_ME/HEIGHT"), "isVisible", false), "height shown");
         CHECK((*at(d, "INFO/ABOUT_ME/FIRST_NAME"))["minLength"] == 2 && (*at(d, "INFO/ABOUT_ME/FIRST_NAME"))["maxLength"] == 12, "first name 2..12");
         CHECK((*at(d, "INFO/ABOUT_ME/APPELLATIVE"))["maxLength"] == 17, "appellative 2..17");
-        CHECK(!at(d, "INFO/ABOUT_ME/BIRTH_YEAR")->contains("minValue"), "no number ranges copied");
+        CHECK((*at(d, "INFO/ABOUT_ME/BIRTH_YEAR"))["minValue"] == 1930 && (*at(d, "INFO/ABOUT_ME/BIRTH_YEAR"))["maxValue"] == 2010,
+              "editable birth year bounded 1930..2010 (not copied from creation)");
         CHECK(!flag(at(d, "INFO/ABOUT_ME/GENDER"), "isEditable"), "GENDER locked");
         CHECK(has_dep(d, {"BIRTH_MONTH", "BIRTH_YEAR"}, "BIRTH_DAY") && has_dep(d, {"GENDER"}, "HEAD"), "dependencies merged");
         CHECK(!has_dep(d, {"GENDER"}, "OUTFITSHOE"), "no outfit dependency without the outfit picker");
@@ -475,6 +476,68 @@ static void test_edit_unlock() {
         ojson cr = ojson::parse(eu::build(MCR, originals(), o).text);
         CHECK(!flag(at(cr, "INFO/ABOUT_ME/GENDER"), "isEditable") && flag(at(cr, "INFO/ABOUT_ME/FIRST_NAME"), "isEditable", false),
               "career start: names, never the gender");
+        // a real manager's name can be longer than the creation limits: no lengths on the real-manager files
+        for (const char* screen : {"managercareer_edit_retiredreal", "managercareer_create_real"}) {
+            eu::RecipeResult rr = eu::build(eu::avatar_path(screen), originals(), eu::Options());
+            CHECK(rr.ok, rr.error);
+            const ojson* fn = rr.ok ? at(ojson::parse(rr.text), "INFO/ABOUT_ME/FIRST_NAME") : nullptr;
+            CHECK(rr.ok && rr.text.find("maxLength") == std::string::npos && (!fn || !fn->contains("minLength")),
+                  std::string("no name lengths: ") + screen);
+        }
+    });
+
+    run_case("edit unlock: every editable BIRTH_YEAR has a range (players 1960..2040, managers 1930..2010)", [&] {
+        int checked = 0;
+        for (const auto& f : eu::files()) {
+            if (f.group == eu::Group::Source || f.group == eu::Group::CareerSettings) continue;
+            eu::RecipeResult r = eu::build(f.path, originals(), eu::Options());
+            CHECK(r.ok, f.path + ": " + r.error);
+            if (!r.ok) continue;
+            const ojson d = ojson::parse(r.text);
+            std::function<void(const ojson&)> walk = [&](const ojson& j) {
+                if (j.is_object()) {
+                    if (j.value("name", std::string()) == "BIRTH_YEAR" && !(j.contains("isEditable") && j["isEditable"] == false)) {
+                        ++checked;
+                        CHECK(j.contains("minValue") && j.contains("maxValue"), f.path + ": BIRTH_YEAR without a range");
+                        if (j.contains("minValue") && j.contains("maxValue") && !j.contains("filters"))
+                            CHECK(j["minValue"].get<int>() < j["maxValue"].get<int>(), f.path + ": BIRTH_YEAR range order");
+                    }
+                    for (const auto& kv : j.items()) walk(kv.value());
+                } else if (j.is_array()) {
+                    for (const auto& v : j) walk(v);
+                }
+            };
+            walk(d);
+            const ojson* by = at(d, "INFO/ABOUT_ME/BIRTH_YEAR");
+            if (by && f.path == eu::avatar_path("managercareer_editplayers"))
+                CHECK((*by)["minValue"] == 1960 && (*by)["maxValue"] == 2040, "career Edit Player: 1960..2040");
+        }
+        CHECK(checked == 4, fmt("the 4 editable birth years of the fixtures checked (%d)", checked));
+        // a range EA set is kept
+        const ojson c = ojson::parse(eu::build(eu::avatar_path("managercareer_edit_custom_player"), originals(), eu::Options()).text);
+        CHECK((*at(c, "INFO/ABOUT_ME/BIRTH_YEAR"))["minValue"] == 1990 && (*at(c, "INFO/ABOUT_ME/BIRTH_YEAR"))["maxValue"] == 2008,
+              "EA's own range kept");
+    });
+
+    run_case("edit unlock: Re-read the game's files drops the cached exports and the originals", [&] {
+        const fs::path le = g_out / "eu_reread";
+        fs::remove_all(le);
+        LegacyImages L(le);
+        eu::EditUnlock s(L, le);
+        const std::string EP = eu::avatar_path("managercareer_editplayers");
+        for (const auto& kv : originals()) put(rel(L.cache_dir(), kv.first), kv.second);
+        eu::Options o;
+        s.collect(o);
+        s.apply(o);
+        CHECK(s.has_original(EP) && s.wrote(EP) && fs::exists(rel(L.mods_dir(), EP)), "unlocked");
+        const std::string r = s.reread(o);
+        CHECK(r.find("re-reading") != std::string::npos, r);
+        CHECK(!fs::exists(rel(L.mods_dir(), EP)) && s.written_count() == 0, "Turbo's files removed");
+        CHECK(!s.has_original(EP) && !fs::exists(rel(L.cache_dir(), EP)), "original and cached export dropped");
+        CHECK(fs::exists(rel(L.cache_dir(), eu::kCareerSettingsPath)), "a file the options do not need is left alone");
+        put(rel(L.cache_dir(), EP), crlf(kEditPlayers));  // the game exports it again
+        s.collect(o);
+        CHECK(s.has_original(EP), "the fresh export is the new original");
     });
 
     run_case("edit unlock: EA's missing brace in the real-manager file is repaired", [&] {
@@ -510,6 +573,11 @@ static void test_edit_unlock() {
         o.experimental = true;
         ojson x = ojson::parse(eu::build(eu::kCareerSettingsPath, originals(), o).text);
         CHECK(x["contexts"][0]["categories"][1]["name"] == "CAREER_SQUAD", "squad settings before transfers");
+        // fed its own output: nothing locked is left, so it is not the game's file
+        auto again = originals();
+        again[eu::kCareerSettingsPath] = r.text;
+        eu::RecipeResult a = eu::build(eu::kCareerSettingsPath, again, eu::Options());
+        CHECK(!a.ok && a.error.find("no locked setting") != std::string::npos, "already unlocked: " + a.error);
     });
 
     run_case("edit unlock: validation refuses bad output", [&] {
@@ -654,8 +722,11 @@ static void test_edit_unlock() {
 
     run_case("edit unlock: options in gui_settings, defaults", [&] {
         eu::Options d;
-        CHECK(d.career_players && d.created_players && d.manager && d.main_menu && !d.career_settings && !d.experimental,
-              "stage 1 on, advanced and experiments off");
+        CHECK(d.enabled && d.hook && d.career_players && d.created_players && d.manager && d.main_menu && !d.career_settings &&
+                  !d.experimental,
+              "stage 1 and the in-memory fallback on, advanced and experiments off");
+        CHECK(eu::Options::load(json::object()).signature() == d.signature() && eu::Options::load(json{{"edit_unlock", 3}}).enabled,
+              "load: no or malformed object = defaults");
         eu::Options o = eu::Options::from_json(json{{"experimental", true}, {"files_off", json::array({MM})}});
         CHECK(o.experimental && o.career_players && o.files_off.count(MM) && !o.file_on(MM) && o.file_on(MC), "from json");
         CHECK(eu::Options::from_json(o.to_json()).signature() == o.signature(), "round trip");
@@ -708,6 +779,21 @@ static void test_edit_unlock_ui(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.click("Unlock everything (experimental)"), "experiments off");
         ui.frames(70);
         CHECK(read_file(out).find("CRANIUM_HEAD") == std::string::npos, "back to stage 1");
+        // one section: the in-memory fallback's switch lives inside it and saves into the same object
+        CHECK(!ui.find("Game editors (unlock the game's own Edit Player / Edit Manager)"), "one Game editors section");
+        const char* fallback = "Also patch the editors in memory (fallback when Live Editor ignores the files)";
+        std::vector<std::pair<ImGuiWindow*, float>> scroll;  // put back afterwards: the buttons above are clicked next
+        for (ImGuiWindow* w : GImGui->Windows)
+            if (std::string(w->Name).find("##tools") != std::string::npos) scroll.push_back({w, w->Scroll.y});
+        eu_scroll_bottom(ui, "##tools");  // the fallback sits at the end of the section, the last one of the tab
+        CHECK(ui.click(fallback), "in-memory fallback off");
+        gs = read_json(le / "turbo_output" / "gui_settings.json");
+        CHECK(gs["edit_unlock"]["hook"] == false && gs["edit_unlock"]["enabled"] == true && gs["edit_unlock"]["career_players"] == true &&
+                  gs["edit_unlock"]["files_off"].is_array(),
+              "one settings object: " + gs["edit_unlock"].dump());
+        CHECK(ui.click(fallback), "in-memory fallback on");
+        for (const auto& ws : scroll) ImGui::SetScrollY(ws.first, ws.second);
+        ui.frames(2);
         CHECK(ui.click("Restore the game's originals"), "restore");
         CHECK(!fs::exists(out) && s.written_count() == 0, "removed");
         CHECK(read_json(le / "turbo_output" / "gui_settings.json")["edit_unlock"]["enabled"] == false, "switch off after Restore");

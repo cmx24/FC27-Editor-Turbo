@@ -111,23 +111,24 @@ Not yet released or checked in game.
   time the screen opens. Turbo asks the game for its own files, keeps them with their SHA-256 in
   `turbo_output\edit_unlock\originals\`, applies a name-based recipe and writes the result to Live Editor's
   `mods\legacy\data\avatar\` (`manifest.json` lists what Turbo wrote). **Restore the game's originals** removes exactly
-  those files (a file changed since by another tool is left alone). Online, Manager Live, Player Career, Clubs and
+  those files (a file changed since by another tool is left alone). After a game update, **Re-read the game's files**
+  removes them, exports the game's own again and rebuilds them. Online, Manager Live, Player Career, Clubs and
   tournament files are never written. Nothing EA made ships with Turbo: the files are built on your PC.
 - **Unlock everything (experimental)**, off by default, with a warning: head editor for real players and real managers,
   Composure and Defensive awareness bars, the manager outfit picker, every goal celebration, the manager's gender.
-- **Career settings too (advanced)**, off by default: 27 of the 32 hub settings EA locks mid-career (with the
-  experiments also the squad settings); competition, currency, deeper simulation, takeover and youth academy stay locked.
+- **Career settings too (advanced)**, off by default, in the same section: 27 of the 32 settings the hub's Settings
+  screen locks in a running career (match setup, training and development rates, transfers, negotiation and scouting,
+  board expectations, job offers, manager market, unexpected events, pitch wear, points deduction). Competition,
+  currency, deeper simulation, financial takeover and youth academy stay locked. With "Unlock everything" the hub also
+  gets the Squad settings (edit injuries, edit suspensions, release players). These change the simulation mid-career.
+- **In-memory fallback** (same section, on by default): when Live Editor does not apply the files, a guarded hook on the
+  game's editor config loader turns on the greyed fields the game loaded, with the same keep-list (TEAM, player
+  GENDER, PREFERRED_POSITION and BODY_TYPE stay as shipped; Edit Manager's gender only with "Unlock everything"). It
+  cannot add a section the game's file lacks (Attributes, Brand animations, head editor, outfit picker). Installed only
+  when the loader, eight layout guards and the four keep-list ids resolve on the game build; kill switch
+  `turbo_output\edit_unlock_hook_off.txt`; its status lines show in the section and on the Status tab.
 - Details: a switch per screen and per file, and a status line per file (waiting for the game's export / original
-  exported / unlocked / restored / failed: why).
-
-- **Game editors: in-memory fallback.** When Live Editor does not apply the editor config overrides, Turbo's guarded
-  post-hook on the game's editor config loader turns greyed-out fields on and hidden ones visible in career Edit
-  Player, Create-a-Club players, Edit Manager and the main-menu Edit Players, with the same keep-list as the file
-  override (TEAM, player GENDER, PREFERRED_POSITION and BODY_TYPE stay as shipped; manager gender only under "Unlock
-  everything (experimental)"). It cannot add missing sections (Attributes, Brand animations, head editor, outfit
-  picker). Installed only when the loader, eight layout guards and the four keep-list ids resolve on the game build;
-  kill switch `turbo_output\edit_unlock_hook_off.txt`; Status tab line "Game editors hook: on | configs patched N |
-  fields unlocked M". Tools > Game editors holds the switches (gui_settings `edit_unlock`, on by default).
+  exported / unlocked / restored / failed: why). All switches are one `gui_settings.json` entry (`edit_unlock`).
 
 - **Reopen club customisation** (Turbo Tools > *Your club: customisation hub*, Manager Career). One button brings the
   hub's *Customise club* tile back. Your created club (Create a Club) gets the kits, crest and stadium designer at any
@@ -136,15 +137,7 @@ Not yet released or checked in game.
   manager slot 58, link back to the manager table, flag values) and writes nothing when a check fails. *Licensed stadium
   too...* is opt-in because it can replace a club's real stadium in the save. It first offers to copy your Manager Career
   saves (`CmMgrC*`) to `turbo_output\save_backups`. The Create a Club setup steps (name, rival, squad, budget) cannot be
-  reopened.
-- **Career settings unlock (advanced, off by default)** (Turbo Tools > *Career settings unlock*). 27 of the 32 settings
-  the hub's Settings screen locks in a running career become editable: match setup, training and development rates,
-  transfers, negotiation and scouting, board expectations, job offers, manager market, unexpected events, pitch wear and
-  points deduction. Competition, currency, deeper simulation, financial takeover and youth academy stay locked. A warning
-  says that these change the simulation mid-career. Experimental option: the Squad settings (edit injuries, edit
-  suspensions, release players). Turbo builds the file on your PC from the game's own exported
-  `gamesettings_context_Career.json` and keeps the original in `turbo_output\edit_unlock\original`. It writes the file to
-  `mods\legacy` and unticking removes it. A file in `mods\legacy` that Turbo did not write is never overwritten or removed.
+  reopened. The career settings unlock is in Turbo Tools > Game editors (*Career settings too*).
 
 ## 1.1.0 (voice swaps: any player gets any real or generic callname in matches)
 

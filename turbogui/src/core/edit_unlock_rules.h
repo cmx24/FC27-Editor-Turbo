@@ -3,7 +3,7 @@
 // The greyed-out / hidden fields of the game's player and manager editors come from one JSON config per screen,
 // data/avatar/avatarcustomizationcfg_<context>.json, read by the config loader 0x1470F0D50 through the legacy-file
 // service. Turbo unlocks them in two ways that share THIS table (self-contained: no other Turbo header):
-//   * the data override (Live Editor's mods\legacy folder): name-based recipe, keep_name();
+//   * the data override (Live Editor's mods\legacy folder, core/edit_unlock.h): name-based recipe, keep_name();
 //   * the in-memory fallback (win/edit_unlock_hook_win.cpp): a post-hook on the loader walks the parsed config and sets
 //     isEditable / isVisible, keep_id() with the attribute ids the host verified against the game's own enum table.
 //
@@ -21,8 +21,6 @@
 #include <cstdint>
 #include <string>
 
-#include "nlohmann/json.hpp"
-
 namespace turbo {
 namespace edit_unlock {
 
@@ -32,7 +30,8 @@ enum class Group { CareerPlayers, CreateClubPlayers, Manager, MainMenu };
 struct Context {
     const char* name;   // <context> of avatarcustomizationcfg_<context>.json
     Group group;
-    bool manager;       // a manager editor (GENDER may be unlocked by the experimental switch)
+    bool manager;       // a manager editor
+    bool gender_x;      // GENDER may be unlocked by the experimental switch (Edit Manager only, never at career start)
     const char* label;  // GUI label ("Details")
 };
 
@@ -47,7 +46,8 @@ const char* group_label(Group g);
 
 // ---------------------------------------------------------------- the keep-list
 // Fields that stay as the game ships them: TEAM (a transfer outside the transfer engine), GENDER (model, kit and
-// commentary; a manager's only under the experimental switch), PREFERRED_POSITION (set by ROLE), BODY_TYPE.
+// commentary; a manager's in Edit Manager only under the experimental switch), PREFERRED_POSITION (set by ROLE),
+// BODY_TYPE. The file override (eu::keep_list) and the in-memory walk (keep_id) both read this one table.
 struct KeptAttribute {
     const char* name;
     int id;  // AttributeName enum value on build 6AB9813C-211EF000 (the host re-checks it against the game's table)
@@ -68,18 +68,16 @@ KeepIds expected_keep_ids();
 // In-memory: keep the item whose group id / attribute id is this?
 bool keep_id(int id, const KeepIds& ids, const Context& c, bool experimental);
 
-// ---------------------------------------------------------------- settings (gui_settings.json "edit_unlock")
-// {"enabled": true, "experimental": false, "hook": true, "off": ["mainmenu_edit_real", ...]}
+// ---------------------------------------------------------------- the switches, as the in-memory fallback sees them
+// Derived from the one settings object, eu::Options (gui_settings.json "edit_unlock", core/edit_unlock.h,
+// Options::hook_settings): plain values only, so the detour copies it without allocating.
 struct Settings {
-    bool enabled = true;        // "Game editors": stage 1 is on by default
+    bool enabled = true;        // "Unlock the game's editors": on by default
     bool experimental = false;  // "Unlock everything (experimental)"
     bool hook = true;           // the in-memory fallback may patch what the game loaded
-    uint32_t context_off = 0;   // bit i = context_at(i) switched off in "Details"
+    uint32_t context_off = 0;   // bit i = context_at(i) switched off (its screen group or its file in "Details")
     bool context_on(int i) const { return i >= 0 && i < kContextCount && !(context_off & (1u << i)); }
 };
-constexpr const char* kSettingsKey = "edit_unlock";
-Settings settings_from_json(const nlohmann::json& gui_settings);
-void settings_to_json(const Settings& s, nlohmann::json& gui_settings);
 
 // ---------------------------------------------------------------- the parsed-config walk
 struct Layout {

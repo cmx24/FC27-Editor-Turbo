@@ -40,6 +40,7 @@
 #include "imgui_internal.h"
 #include "ui/app.h"
 #include "core/hotkey.h"
+#include "core/edit_unlock.h"
 #include "core/hub_customise.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
@@ -1014,7 +1015,7 @@ bool start_overlay(HMODULE) {
     // gui_settings "edit_unlock" (stage 1 on by default)
     install_edit_unlock_hook();
     g_app->edit_unlock_hook = edit_unlock_hook_service();
-    g_app->edit_unlock_hook->configure(turbo::edit_unlock::settings_from_json(g_app->gui_settings));
+    g_app->edit_unlock_hook->configure(turbo::eu::Options::load(g_app->gui_settings).hook_settings());
     // spoken callnames through the game's audio service (commentary_audio_win.cpp): calls on the game thread, no hook
     install_commentary_audio(*g_app);
     g_app->hook_report = []() {

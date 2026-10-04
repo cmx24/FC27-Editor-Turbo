@@ -99,7 +99,8 @@ std::string Options::signature() const {
 }
 
 json Options::to_json() const {
-    json j = {{"career_players", career_players}, {"created_players", created_players}, {"manager", manager},
+    json j = {{"enabled", enabled}, {"hook", hook},
+              {"career_players", career_players}, {"created_players", created_players}, {"manager", manager},
               {"main_menu", main_menu},           {"career_settings", career_settings}, {"experimental", experimental}};
     j["files_off"] = json::array();
     for (const auto& p : files_off) j["files_off"].push_back(p);
@@ -110,6 +111,8 @@ Options Options::from_json(const json& j) {
     Options o;
     if (!j.is_object()) return o;
     auto b = [&](const char* k, bool d) { return j.contains(k) && j[k].is_boolean() ? j[k].get<bool>() : d; };
+    o.enabled = b("enabled", o.enabled);
+    o.hook = b("hook", o.hook);
     o.career_players = b("career_players", o.career_players);
     o.created_players = b("created_players", o.created_players);
     o.manager = b("manager", o.manager);
@@ -120,6 +123,30 @@ Options Options::from_json(const json& j) {
         for (const auto& p : j["files_off"])
             if (p.is_string()) o.files_off.insert(p.get<std::string>());
     return o;
+}
+
+Options Options::load(const json& gui_settings) {
+    if (!gui_settings.is_object()) return Options();
+    auto it = gui_settings.find(kSettingsKey);
+    return it != gui_settings.end() ? from_json(*it) : Options();
+}
+
+void Options::save(json& gui_settings) const {
+    if (!gui_settings.is_object()) gui_settings = json::object();
+    json& e = gui_settings[kSettingsKey];
+    if (!e.is_object()) e = json::object();
+    const json mine = to_json();
+    for (const auto& kv : mine.items()) e[kv.key()] = kv.value();
+}
+
+edit_unlock::Settings Options::hook_settings() const {
+    edit_unlock::Settings h;
+    h.enabled = enabled;
+    h.experimental = experimental;
+    h.hook = hook;
+    for (int i = 0; i < edit_unlock::kContextCount; ++i)
+        if (!file_on(avatar_path(edit_unlock::context_at(i).name))) h.context_off |= 1u << i;
+    return h;
 }
 
 std::vector<std::string> sources_for(const std::string& target, const Options& opt) {
@@ -284,10 +311,13 @@ static bool manager_screen(const std::string& s) {
 }
 
 std::set<std::string> keep_list(const std::string& target, const Options& opt) {
-    std::set<std::string> k = {"TEAM", "PREFERRED_POSITION", "BODY_TYPE", "GENDER"};
-    const std::string s = screen_of(target);
-    // manager gender (the game runs UpdateManagerGender when Edit Manager closes): experimental, never at career start
-    if (opt.experimental && (s == "managercareer_edit" || s == "managercareer_edit_retiredreal")) k.erase("GENDER");
+    std::set<std::string> k;
+    const int ci = edit_unlock::context_index(target);
+    for (int i = 0; i < edit_unlock::kKeptCount; ++i) {
+        const char* n = edit_unlock::kept_at(i).name;
+        // the shared table; a file that is not an editor context keeps all four
+        if (ci < 0 || edit_unlock::keep_name(n, edit_unlock::context_at(ci), opt.experimental)) k.insert(n);
+    }
     return k;
 }
 
@@ -559,26 +589,39 @@ RecipeResult build(const std::string& target, const std::map<std::string, std::s
                 }
         };
         walk(*hub);
+        if (n == 0) {
+            r.error = "no locked setting to unlock in FROM_CAREER_MANAGER_HUB (not the game's file)";
+            return r;
+        }
         std::snprintf(buf, sizeof(buf), "%d locked settings unlocked", n);
         r.notes.push_back(buf);
         ojson setup;
         if (opt.experimental && source(kCareerSetupPath, setup) && setup.contains("contexts") && setup["contexts"].is_array() &&
             hub->contains("categories") && (*hub)["categories"].is_array()) {
+            // CAREER_SQUAD (edit injuries, edit suspensions, release players) from any context of the setup file
             const ojson* squad = nullptr;
             for (auto& c : setup["contexts"])
-                if (name_of(c) == "FROM_CAREER_MANAGER_SETUP" && c.contains("categories") && c["categories"].is_array())
+                if (!squad && c.contains("categories") && c["categories"].is_array())
                     for (auto& cat : c["categories"])
-                        if (name_of(cat) == "CAREER_SQUAD") squad = &cat;
+                        if (!squad && name_of(cat) == "CAREER_SQUAD") squad = &cat;
             ojson& cats = (*hub)["categories"];
             bool there = false;
             size_t at = cats.size();
             for (size_t i = 0; i < cats.size(); ++i) {
-                if (name_of(cats[i]) == "CAREER_SQUAD") there = true;
-                if (name_of(cats[i]) == "CAREER_TRANSFERS_SCOUTING") at = i;
+                const std::string cn = name_of(cats[i]);
+                if (cn == "CAREER_SQUAD") there = true;
+                if (cn == "CAREER_TRANSFERS_SCOUTING" && at == cats.size()) at = i;
             }
+            if (at == cats.size())  // no transfers and scouting: after training, else last
+                for (size_t i = 0; i < cats.size(); ++i)
+                    if (name_of(cats[i]) == "CAREER_TRAINING") at = i + 1;
             if (squad && !there) {
-                cats.insert(cats.begin() + static_cast<std::ptrdiff_t>(at), *squad);
+                ojson copy = *squad;
+                walk(copy);  // the copy's own locks go too
+                cats.insert(cats.begin() + static_cast<std::ptrdiff_t>(at), copy);
                 r.notes.push_back("squad settings added (experimental)");
+            } else if (!squad) {
+                r.notes.push_back("squad settings: Career_Setup.json has no CAREER_SQUAD");
             }
         }
     } else {
@@ -632,7 +675,8 @@ RecipeResult build(const std::string& target, const std::map<std::string, std::s
             ojson create;
             int links = 0;
             if (source(avatar_path("managercareer_create"), create)) {
-                if (int n = copy_name_lengths(doc, create)) {
+                // the creation limits (2-12, known-as 2-17) fit a created manager only: real names can be longer
+                if (int n = s == "managercareer_edit" ? copy_name_lengths(doc, create) : 0) {
                     std::snprintf(buf, sizeof(buf), "%d name lengths set", n);
                     r.notes.push_back(buf);
                 }
@@ -664,6 +708,19 @@ RecipeResult build(const std::string& target, const std::map<std::string, std::s
         int n = unlock(doc, keep);
         std::snprintf(buf, sizeof(buf), "%d fields unlocked", n);
         r.notes.insert(r.notes.begin(), buf);
+        // EA bounds every editable BIRTH_YEAR; without minValue / maxValue the game's item init leaves -1..-1
+        const bool mgr = manager_screen(s);
+        int ranged = 0;
+        each_node(doc, [&](ojson& node, const std::string&) {
+            if (kids(node) || name_of(node) != "BIRTH_YEAR") return;
+            auto ed = node.find("isEditable");
+            if (ed != node.end() && !(ed->is_boolean() && ed->get<bool>())) return;
+            if (node.contains("minValue") && node.contains("maxValue")) return;
+            if (!node.contains("minValue")) node["minValue"] = mgr ? 1930 : 1960;
+            if (!node.contains("maxValue")) node["maxValue"] = mgr ? 2010 : 2040;
+            ++ranged;
+        });
+        if (ranged) r.notes.push_back(mgr ? "birth year range 1930-2010 set" : "birth year range 1960-2040 set");
     }
 
     r.text = dump(doc, crlf);
@@ -951,6 +1008,26 @@ static std::set<std::string> needed(const Options& opt) {
         for (const auto& src : sources_for(f.path, opt)) s.insert(src);
     }
     return s;
+}
+
+std::string EditUnlock::reread(const Options& opt) {
+    if (manifest_unreadable_) return manifest_error_;
+    const std::string restored = restore();
+    if (written_count() > 0) return restored + " (the game's files are not re-read while one of Turbo's is still in place)";
+    int dropped = 0;
+    std::error_code ec;
+    for (const auto& path : needed(opt)) {
+        if (fs::remove(under(legacy_.cache_dir(), path), ec)) ++dropped;  // Lua exports it again
+        fs::remove(under(originals_dir(), path), ec);
+        manifest_["originals"].erase(path);
+        status_.erase(path);
+        source_state_.erase(path);
+    }
+    save_manifest();
+    char b[200];
+    std::snprintf(b, sizeof(b), "Game editors: re-reading the game's files (%d cached exports dropped); the unlocked files are "
+                  "written again once they are exported", dropped);
+    return b;
 }
 
 std::vector<std::string> EditUnlock::collect(const Options& opt) {

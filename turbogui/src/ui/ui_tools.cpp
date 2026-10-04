@@ -201,7 +201,7 @@ void draw_tools(App& app) {
                             "SetUserTransferBudget).");
     }
 
-    // ---------------------------------------------------------------- club customisation hub, career settings (ui_club_tools.cpp)
+    // ---------------------------------------------------------------- club customisation hub (ui_club_tools.cpp)
     draw_club_tools(app);
 
     // ---------------------------------------------------------------- player career
@@ -418,7 +418,6 @@ void draw_tools(App& app) {
     }
 
     // ---------------------------------------------------------------- safety
-    draw_edit_unlock_hook(app);  // "Game editors" (ui_edit_unlock_hook.cpp)
     if (ImGui::CollapsingHeader("Safety")) {
         json& t = app.gui_settings["turbo"];
         if (!t.is_object()) t = json::object();
@@ -429,7 +428,7 @@ void draw_tools(App& app) {
         }
         ImGui::TextDisabled("Editors in the other tabs always write immediately, after range checks.");
     }
-    draw_game_editors(app);  // FC 27's own edit screens unlocked (ui_edit_unlock.cpp)
+    draw_game_editors(app);  // "Game editors": FC 27's own edit screens unlocked (ui_edit_unlock.cpp)
     ImGui::EndChild();
 }
 

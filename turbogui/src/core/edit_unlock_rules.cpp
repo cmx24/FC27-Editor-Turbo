@@ -6,18 +6,17 @@
 namespace turbo {
 namespace edit_unlock {
 
-using nlohmann::json;
-
 namespace {
 
 const Context kContexts[kContextCount] = {
-    {"managercareer_editplayers", Group::CareerPlayers, false, "Career > Squad > Edit Player"},
-    {"managercareer_edit_custom_player", Group::CreateClubPlayers, false, "Create a Club > squad > edit player"},
-    {"managercareer_edit", Group::Manager, true, "Edit Manager (your created manager)"},
-    {"managercareer_edit_retiredreal", Group::Manager, true, "Edit Manager (real or licensed manager)"},
-    {"managercareer_create_real", Group::Manager, true, "Career start with a real manager"},
-    {"mainmenu_edit_real", Group::MainMenu, false, "Main menu > Customise > Edit Players (real)"},
-    {"mainmenu_edit_created", Group::MainMenu, false, "Main menu > Customise > Edit Players (created)"},
+    {"managercareer_editplayers", Group::CareerPlayers, false, false, "Career > Squad > Edit Player"},
+    {"managercareer_edit_custom_player", Group::CreateClubPlayers, false, false, "Create a Club > squad > edit player"},
+    {"managercareer_edit", Group::Manager, true, true, "Edit Manager (your created manager)"},
+    {"managercareer_edit_retiredreal", Group::Manager, true, true, "Edit Manager (real or licensed manager)"},
+    // the game runs UpdateManagerGender when Edit Manager closes; at career start the gender stays as shipped
+    {"managercareer_create_real", Group::Manager, true, false, "Career start with a real manager"},
+    {"mainmenu_edit_real", Group::MainMenu, false, false, "Main menu > Customise > Edit Players (real)"},
+    {"mainmenu_edit_created", Group::MainMenu, false, false, "Main menu > Customise > Edit Players (created)"},
 };
 
 // AttributeName values: the game's own name -> id table (0x142369C28 on build 6AB9813C-211EF000)
@@ -38,7 +37,7 @@ bool istarts(const char* s, size_t n, const char* lit) {
 }
 
 bool kept_by_index(int i, const Context& c, bool experimental) {
-    if (i == kGenderIndex && c.manager && experimental) return false;  // X4: manager gender, experimental only
+    if (i == kGenderIndex && c.gender_x && experimental) return false;  // X4: manager gender, experimental only
     return true;
 }
 
@@ -186,37 +185,6 @@ bool keep_id(int id, const KeepIds& ids, const Context& c, bool experimental) {
     for (int i = 0; i < kKeptCount; ++i)
         if (ids.ids[i] == id) return kept_by_index(i, c, experimental);
     return false;
-}
-
-Settings settings_from_json(const json& gui_settings) {
-    Settings s;
-    if (!gui_settings.is_object() || !gui_settings.contains(kSettingsKey)) return s;
-    const json& e = gui_settings[kSettingsKey];
-    if (!e.is_object()) return s;
-    if (e.contains("enabled") && e["enabled"].is_boolean()) s.enabled = e["enabled"].get<bool>();
-    if (e.contains("experimental") && e["experimental"].is_boolean()) s.experimental = e["experimental"].get<bool>();
-    if (e.contains("hook") && e["hook"].is_boolean()) s.hook = e["hook"].get<bool>();
-    if (e.contains("off") && e["off"].is_array())
-        for (const auto& v : e["off"]) {
-            if (!v.is_string()) continue;
-            const std::string name = v.get<std::string>();
-            for (int i = 0; i < kContextCount; ++i)
-                if (name == kContexts[i].name) s.context_off |= 1u << i;
-        }
-    return s;
-}
-
-void settings_to_json(const Settings& s, json& gui_settings) {
-    if (!gui_settings.is_object()) gui_settings = json::object();
-    json& e = gui_settings[kSettingsKey];
-    if (!e.is_object()) e = json::object();
-    e["enabled"] = s.enabled;
-    e["experimental"] = s.experimental;
-    e["hook"] = s.hook;
-    json off = json::array();
-    for (int i = 0; i < kContextCount; ++i)
-        if (s.context_off & (1u << i)) off.push_back(kContexts[i].name);
-    e["off"] = off;
 }
 
 WalkResult unlock_parsed_config(uint8_t* config, const Context& c, bool experimental, const KeepIds& ids,

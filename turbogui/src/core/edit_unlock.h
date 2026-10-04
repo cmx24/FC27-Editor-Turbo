@@ -9,7 +9,8 @@
 //      with their SHA-256, to turbo_output\edit_unlock\originals\<path> before Turbo writes anything. An export whose hash
 //      is one Turbo wrote, or equals the custom file now in mods\legacy, is never taken as an original.
 //   2. A name-based recipe (below) is applied to the originals: isEditable / isVisible false -> true except the keep-list
-//      (TEAM, PREFERRED_POSITION, BODY_TYPE, player GENDER; manager GENDER unless "Unlock everything"), sections copied
+//      (core/edit_unlock_rules.h, shared with the in-memory fallback: TEAM, PREFERRED_POSITION, BODY_TYPE, player
+//      GENDER; Edit Manager's GENDER unless "Unlock everything"), sections copied
 //      only from the game's own sibling files, dependency entries merged, EA's missing brace in
 //      managercareer_edit_retiredreal.json repaired. Every other key is left as it is.
 //   3. The result is validated (parses back, known names only, numbers in range, keep-list untouched, < 256 KB) and
@@ -18,7 +19,10 @@
 //   4. turbo_output\edit_unlock\manifest.json lists the originals and every file Turbo wrote (with hashes). Restore
 //      removes exactly those files, and only while they still hold what Turbo wrote.
 // Never written, whatever the options: *_online, managerlive_*, playercareer_*, clubs*, tournament_* or any file that is
-// not one of the eight targets.
+// not one of the eight targets. This module is the only owner of gamesettings_context_Career.json (career hub settings:
+// 27 of the 32 FROM_CAREER_MANAGER_HUB locks removed, CAREER_SQUAD copied in under "Unlock everything").
+// When Live Editor does not apply the files, the in-memory fallback (core/edit_unlock_hook.h) turns on the greyed fields
+// the game loaded; it cannot add a section the game's file lacks.
 #pragma once
 #include <cstdint>
 #include <filesystem>
@@ -27,6 +31,7 @@
 #include <string>
 #include <vector>
 
+#include "core/edit_unlock_rules.h"
 #include "core/legacy.h"
 #include "nlohmann/json.hpp"
 
@@ -55,7 +60,13 @@ extern const char* const kCareerSetupPath;           // data/gamesettings/gamese
 // Only the 8 targets, and never an online / Manager Live / Player Career / Clubs / tournament file
 bool write_allowed(const std::string& path);
 
+// The one settings object of "Game editors" (file override and in-memory fallback): gui_settings.json "edit_unlock",
+// {"enabled", "hook", "career_players", "created_players", "manager", "main_menu", "career_settings", "experimental",
+//  "files_off": [legacy paths]}
+constexpr const char* kSettingsKey = "edit_unlock";
 struct Options {
+    bool enabled = true;           // "Unlock the game's editors" (stage 1 on by default)
+    bool hook = true;              // the in-memory fallback may patch what the game loaded
     bool career_players = true;    // Career > Squad > Edit Player
     bool created_players = true;   // Create a Club > squad > edit player
     bool manager = true;           // Edit Manager (created and real managers), career start with a real manager
@@ -66,9 +77,14 @@ struct Options {
     std::set<std::string> files_off;  // per-file switches (Details): targets not to write
     bool group_on(Group g) const;
     bool file_on(const std::string& path) const;  // a target whose group is on and that is not switched off
-    std::string signature() const;                // recorded in the manifest
+    std::string signature() const;                // recorded in the manifest (the file switches only)
     nlohmann::json to_json() const;
     static Options from_json(const nlohmann::json& j);  // missing keys keep the defaults above
+    // gui_settings.json["edit_unlock"] in / out; save() merges, so a key it does not know is never dropped
+    static Options load(const nlohmann::json& gui_settings);
+    void save(nlohmann::json& gui_settings) const;
+    // What the in-memory fallback needs (a context is off when its group or its file is switched off)
+    edit_unlock::Settings hook_settings() const;
 };
 
 // Read-only files a target needs (stage 1 and, with experimental, the experiments')
@@ -84,8 +100,9 @@ std::string repair_missing_brace(const std::string& text);
 
 // FC 27's avatar-config vocabulary (categories, fields, dependency names: 120 names)
 bool known_name(const std::string& name);
-// Fields the unlock never touches. Players: TEAM (a move outside the transfer engine), GENDER, PREFERRED_POSITION (set
-// by ROLE), BODY_TYPE. Managers: GENDER stays unless manager_gender.
+// Fields the unlock never touches (edit_unlock::keep_name, the table the in-memory fallback uses too). Players: TEAM
+// (a move outside the transfer engine), GENDER, PREFERRED_POSITION (set by ROLE), BODY_TYPE. Edit Manager: GENDER
+// stays unless experimental.
 std::set<std::string> keep_list(const std::string& target, const Options& opt);
 
 struct RecipeResult {
@@ -128,6 +145,9 @@ public:
     std::string apply(const Options& opt);
     // Remove exactly the files the manifest lists (only while they still hold what Turbo wrote). Summary line.
     std::string restore();
+    // After a title update: restore, then drop the needed files' cached exports and saved originals, so the next export
+    // is taken fresh (an export is not taken as an original while Turbo's file is in place). Summary line.
+    std::string reread(const Options& opt);
 
     FileStatus status(const std::string& path) const;
     static const char* state_name(State s);
