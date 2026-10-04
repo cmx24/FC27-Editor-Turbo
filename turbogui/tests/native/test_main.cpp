@@ -31,6 +31,7 @@
 #include <chrono>
 #include <thread>
 
+#include "core/callname_voice.h"
 #include "core/callnames.h"
 #include "core/commentary_bank.h"
 #include "core/image.h"
@@ -1784,6 +1785,381 @@ static void test_reapply_store() {
         ReapplyStore u;
         u.set_callname(9, 900001, std::string("Bad \xC3 name"), "", "");
         CHECK(!reapply_json(u).empty() && parse_reapply_json(reapply_json(u), back, &err) && back.callname(9), "broken UTF-8 survives: " + err);
+    });
+}
+
+// ================================================================ core: voice swaps (core/callname_voice.h)
+namespace {
+// A fake SpeechQuery laid out at the offsets of core/callname_voice.h: the query, its event context, the ParamValue*
+// array, and one ParamValue + descriptor per parameter (stable addresses: a deque never moves its elements)
+struct FakeQuery {
+    struct Param {
+        alignas(8) uint8_t pv[0x50] = {};
+        alignas(8) uint8_t desc[0x50] = {};
+        std::string name;
+    };
+    alignas(8) uint8_t q[0x90] = {};
+    alignas(8) uint8_t ctx[0x50] = {};
+    std::deque<Param> params;
+    std::vector<uint8_t*> arr;
+    bool no_ctx = false, no_array = false;
+    int64_t count = -1;  // -1 = the number of parameters
+
+    template <typename T>
+    static void put(uint8_t* at, T v) { std::memcpy(at, &v, sizeof(v)); }
+    FakeQuery(uint32_t group, uint32_t event) {
+        put<uint32_t>(ctx + voice::kCtxGroup, group);
+        put<uint32_t>(ctx + voice::kCtxEventId, event);
+    }
+    size_t add(const char* name, int32_t value, uint32_t type = 1, uint8_t multi = 0) {
+        params.emplace_back();
+        Param& p = params.back();
+        p.name = name;
+        put<int32_t>(p.pv + voice::kPvValue, value);
+        put<const uint8_t*>(p.pv + voice::kPvDesc, p.desc);
+        put<const char*>(p.desc + voice::kDescName, p.name.c_str());
+        put<uint32_t>(p.desc + voice::kDescType, type);
+        p.desc[voice::kDescMulti] = multi;
+        arr.push_back(p.pv);
+        return params.size() - 1;
+    }
+    void set(size_t i, int32_t v) { put<int32_t>(params[i].pv + voice::kPvValue, v); }
+    int32_t value(size_t i) const {
+        int32_t v;
+        std::memcpy(&v, params[i].pv + voice::kPvValue, 4);
+        return v;
+    }
+    uint8_t set_flag(size_t i) const { return params[i].pv[voice::kPvIsSet]; }
+    // the query's own fields, written just before a pass (the array may have moved while parameters were added)
+    uint8_t* sync() {
+        put<uint32_t>(q + voice::kQueryCount, uint32_t(count < 0 ? arr.size() : size_t(count)));
+        put<uint8_t*>(q + voice::kQueryParams, no_array ? nullptr : reinterpret_cast<uint8_t*>(arr.data()));
+        put<uint8_t*>(q + voice::kQueryCtx, no_ctx ? nullptr : static_cast<uint8_t*>(ctx));
+        return q;
+    }
+};
+
+// djb2-xor, the game's event / group / parameter hash (docs/re/inmatch-callnames.md 1.1)
+uint32_t djb2_xor(const char* s) {
+    uint32_t h = 5381;
+    for (; *s; ++s) h = (h * 33u) ^ uint8_t(*s);
+    return h;
+}
+
+voice::Entry voice_entry(int64_t pid, std::optional<int64_t> voice_of, std::optional<int64_t> kickoff, bool names_only = false,
+                         const std::string& player = "", const std::string& from = "", const std::string& when = "") {
+    voice::Entry e;
+    e.playerid = pid;
+    e.voice_of = voice_of;
+    e.kickoff = kickoff;
+    e.names_only = names_only;
+    e.player = player;
+    e.from = from;
+    e.when = when;
+    return e;
+}
+}  // namespace
+
+static void test_callname_voice() {
+    constexpr uint32_t kLowSimple = 0x9D0D5E6C, kGoal = 0x1D7F2C11;  // PLAYER_LOW_SIMPLE; any other event
+    constexpr int32_t kMarianucci = 278319, kLobotka = 216435, kGutierrez = 261865;
+
+    run_case("voice swaps: the 12 name events, the _pID match", [&] {
+        const char* names[] = {"PLAYER_LOW_SIMPLE", "PLAYER_LOW_SIMPLE_LOC", "PLAYER_LOW_LINK", "PLAYER_SPECULATIVE_SIMPLE",
+                               "PLAYER_SPECULATIVE_LINK", "PLAYER_SPECULATIVE_RETURN", "PLAYER_LONG_RUN", "PLAYER_LONG_RUN_LOC",
+                               "PLAYER_AND_CLUB", "PLAYER_BANTER", "PLAYER_BANTER_LOC", "PLAYER_NAME_HIGH"};
+        bool all = true;
+        for (const char* n : names) all = all && voice::is_name_event(djb2_xor(n));
+        CHECK(all, "every name event id is the hash of its name");
+        CHECK(djb2_xor("CommentaryDbEvents") == voice::kGroupCommentaryDb && djb2_xor("PLAYER_LOW_SIMPLE") == kLowSimple, "group and event hashes");
+        CHECK(!voice::is_name_event(djb2_xor("PLAYER_NAME")) && !voice::is_name_event(djb2_xor("PLAYER_LOW_SURNAME")) &&
+                  !voice::is_name_event(djb2_xor("GOAL_SCORED")) && !voice::is_name_event(0) && !voice::is_name_event(kGoal),
+              "surname-only and situation events are not");
+        CHECK(voice::contains_pid("player_db_pID") && voice::contains_pid("keeper_pID") && voice::contains_pid("pass_from_pID") &&
+                  voice::contains_pid("ptw_player_db_pID") && voice::contains_pid("_pID"),
+              "_pID names");
+        CHECK(!voice::contains_pid("player_db_gID") && !voice::contains_pid("surname_ID") && !voice::contains_pid("player_db_pid") &&
+                  !voice::contains_pid("pID") && !voice::contains_pid("") && !voice::contains_pid(nullptr) && !voice::contains_pid("cm_sim"),
+              "other names");
+        const std::string long_name = std::string(100, 'x') + "_pID";
+        CHECK(!voice::contains_pid(long_name.c_str()), "the scan is bounded (64 chars)");
+    });
+
+    run_case("voice swaps: the table (rules, sorted, last wins)", [&] {
+        voice::VoiceStore s;
+        CHECK(voice::build_table(s).empty(), "an empty store is an empty table");
+        s.upsert(voice_entry(kMarianucci, kLobotka, std::nullopt));  // voice swap: kick-off -1 by default
+        s.upsert(voice_entry(kGutierrez, 0, 922149));                 // own recording off + a generic
+        s.upsert(voice_entry(100, 0, std::nullopt));                  // own recording off, the game's rule
+        s.upsert(voice_entry(200, std::nullopt, 999931));             // kick-off only
+        s.upsert(voice_entry(300, 300, std::nullopt));                // his own voice: no swap
+        s.upsert(voice_entry(50, 60, 922150, true));                  // explicit kick-off kept, names only
+        const voice::Table t = voice::build_table(s);
+        CHECK(t.voices.size() == 4 && t.kickoffs.size() == 4, fmt("4 voices, 4 kick-offs (%zu, %zu)", t.voices.size(), t.kickoffs.size()));
+        const bool sorted =
+            std::is_sorted(t.voices.begin(), t.voices.end(), [](const voice::Table::Voice& a, const voice::Table::Voice& b) { return a.pid < b.pid; }) &&
+            std::is_sorted(t.kickoffs.begin(), t.kickoffs.end(), [](const voice::Table::Kick& a, const voice::Table::Kick& b) { return a.pid < b.pid; });
+        CHECK(sorted, "sorted by pid");
+        const auto* m = t.voice(kMarianucci);
+        const auto* mk = t.kickoff(kMarianucci);
+        CHECK(m && m->to == kLobotka && !m->names_only && mk && mk->id == -1, "voice swap: A's id, surname lines silent");
+        const auto* g = t.voice(kGutierrez);
+        const auto* gk = t.kickoff(kGutierrez);
+        CHECK(g && g->to == 0 && gk && gk->id == 922149, "own recording off + a generic at kick-off");
+        CHECK(t.voice(100) && t.voice(100)->to == 0 && !t.kickoff(100), "own recording off keeps the game's rule at kick-off");
+        CHECK(!t.voice(200) && t.kickoff(200) && t.kickoff(200)->id == 999931, "kick-off only");
+        CHECK(!t.voice(300) && !t.kickoff(300), "his own voice is no swap");
+        CHECK(t.voice(50) && t.voice(50)->names_only && t.voice(50)->to == 60 && t.kickoff(50) && t.kickoff(50)->id == 922150,
+              "explicit kick-off, names only");
+        CHECK(!t.voice(1) && !t.voice(999999) && !t.kickoff(kLobotka) && !t.voice(0) && !t.voice(-1), "not found");
+        // a store built by hand with two entries for one player: the last one wins
+        voice::VoiceStore d;
+        d.entries.push_back(voice_entry(7, 8, std::nullopt));
+        d.entries.push_back(voice_entry(7, 9, 922149));
+        const voice::Table td = voice::build_table(d);
+        CHECK(td.voices.size() == 1 && td.voice(7) && td.voice(7)->to == 9 && td.kickoffs.size() == 1 && td.kickoff(7) && td.kickoff(7)->id == 922149,
+              "the last edit wins");
+    });
+
+    run_case("voice swaps: process_query rewrites single int *_pID values of CommentaryDb lines", [&] {
+        voice::VoiceStore s;
+        s.upsert(voice_entry(kMarianucci, kLobotka, std::nullopt));
+        s.upsert(voice_entry(5001, 5002, std::nullopt));
+        s.upsert(voice_entry(6001, 0, std::nullopt));
+        const voice::Table t = voice::build_table(s);
+        voice::Stats st;
+        voice::Guard gd;
+        FakeQuery f(voice::kGroupCommentaryDb, kGoal);
+        const size_t cm = f.add("cm_sim", 1), pid = f.add("player_db_pID", kMarianucci), gid = f.add("player_db_gID", kMarianucci),
+                     keeper = f.add("keeper_pID", 5001), from = f.add("pass_from_pID", 6001), sur = f.add("surname_ID", kMarianucci),
+                     flt = f.add("ptw_player_db_pID", kMarianucci, 2), multi = f.add("sub_on_pID", kMarianucci, 1, 1),
+                     other = f.add("sub_off_pID", 4242);
+        CHECK(voice::process_query(f.sync(), t, gd, st, false) == 3, "three values rewritten");
+        CHECK(f.value(pid) == kLobotka && f.set_flag(pid) == 1, "player_db_pID -> A, set flag 1");
+        CHECK(f.value(keeper) == 5002 && f.set_flag(keeper) == 1, "keeper_pID");
+        CHECK(f.value(from) == 0 && f.set_flag(from) == 1, "pass_from_pID -> 0 (own recording off)");
+        CHECK(f.value(cm) == 1 && f.value(gid) == kMarianucci && f.value(sur) == kMarianucci && f.set_flag(gid) == 0 && f.set_flag(sur) == 0,
+              "names without _pID untouched (B keeps his own gender)");
+        CHECK(f.value(flt) == kMarianucci && f.value(multi) == kMarianucci && f.set_flag(flt) == 0 && f.set_flag(multi) == 0,
+              "a non-int or a value-list descriptor untouched");
+        CHECK(f.value(other) == 4242, "a player with no swap untouched");
+        const voice::StatsSnapshot ss = voice::snapshot(st);
+        CHECK(ss.queries == 1 && ss.rewrites == 3 && ss.guard_skips == 0 && ss.own_skips == 0 && ss.bounded == 0, "counted");
+    });
+
+    run_case("voice swaps: process_query filters (group, own query, v <= 0, names only, empty table, null pointers)", [&] {
+        voice::VoiceStore s;
+        s.upsert(voice_entry(kMarianucci, kLobotka, std::nullopt));
+        s.upsert(voice_entry(kGutierrez, 0, 922149, true));
+        const voice::Table t = voice::build_table(s);
+        voice::Stats st;
+        voice::Guard gd;
+        {
+            FakeQuery f(0x12345678, kLowSimple);  // not CommentaryDbEvents (crowd, SFX, bridge)
+            const size_t p = f.add("player_db_pID", kMarianucci);
+            CHECK(voice::process_query(f.sync(), t, gd, st, false) == 0 && f.value(p) == kMarianucci && f.set_flag(p) == 0, "group filter");
+            f.no_ctx = true;
+            CHECK(voice::process_query(f.sync(), t, gd, st, false) == 0 && f.value(p) == kMarianucci, "no event context");
+        }
+        {
+            FakeQuery f(voice::kGroupCommentaryDb, kLowSimple);
+            const size_t p = f.add("player_db_pID", kMarianucci);
+            CHECK(voice::process_query(f.sync(), t, gd, st, true) == 0 && f.value(p) == kMarianucci, "Turbo's own audit query left alone");
+            CHECK(voice::snapshot(st).own_skips == 1, "own skip counted");
+            f.no_array = true;
+            CHECK(voice::process_query(f.sync(), t, gd, st, false) == 0 && f.value(p) == kMarianucci, "no parameter array");
+            f.no_array = false;
+            f.arr.push_back(nullptr);  // a null ParamValue
+            f.count = 2;
+            CHECK(voice::process_query(f.sync(), t, gd, st, false) == 1 && f.value(p) == kLobotka, "a null ParamValue skipped");
+            voice::Stats st0;
+            f.set(p, kMarianucci);
+            CHECK(voice::process_query(f.sync(), voice::Table{}, gd, st0, false) == 0 && f.value(p) == kMarianucci && voice::snapshot(st0).queries == 0,
+                  "an empty table changes nothing and counts nothing");
+        }
+        {
+            // values <= 0 are never looked up (a table that would match them, built by hand)
+            voice::Table neg;
+            neg.voices = {{-1, kLobotka, false}, {0, kLobotka, false}};
+            FakeQuery f(voice::kGroupCommentaryDb, kLowSimple);
+            const size_t a = f.add("player_db_pID", 0), b = f.add("keeper_pID", -1);
+            CHECK(voice::process_query(f.sync(), neg, gd, st, false) == 0 && f.value(a) == 0 && f.value(b) == -1 && f.set_flag(a) == 0, "v <= 0 skipped");
+        }
+        {
+            // names only: Gutierrez's name events change, his situation lines keep his own recording
+            FakeQuery name(voice::kGroupCommentaryDb, kLowSimple), situation(voice::kGroupCommentaryDb, kGoal);
+            const size_t pn = name.add("player_db_pID", kGutierrez), ps = situation.add("player_db_pID", kGutierrez);
+            CHECK(voice::process_query(name.sync(), t, gd, st, false) == 1 && name.value(pn) == 0, "a name event rewritten");
+            CHECK(voice::process_query(situation.sync(), t, gd, st, false) == 0 && situation.value(ps) == kGutierrez, "another event left alone");
+            const size_t pm = situation.add("pass_from_pID", kMarianucci);
+            CHECK(voice::process_query(situation.sync(), t, gd, st, false) == 1 && situation.value(pm) == kLobotka && situation.value(ps) == kGutierrez,
+                  "an all-lines swap in the same line still applies");
+        }
+    });
+
+    run_case("voice swaps: a double pass over one query never chains a swap pair", [&] {
+        constexpr int32_t kA = 10, kB = 20, kC = 30;
+        voice::VoiceStore s;
+        s.upsert(voice_entry(kA, kB, std::nullopt));  // A speaks with B's recordings
+        s.upsert(voice_entry(kB, 0, 922149));          // B's own recording off
+        const voice::Table t = voice::build_table(s);
+        voice::Stats st;
+        voice::Guard gd;
+        FakeQuery f(voice::kGroupCommentaryDb, kLowSimple);
+        const size_t p = f.add("player_db_pID", kA), k = f.add("keeper_pID", kC);
+        CHECK(voice::process_query(f.sync(), t, gd, st, false) == 1 && f.value(p) == kB, "first pass: A -> B");
+        CHECK(voice::process_query(f.sync(), t, gd, st, false) == 0 && f.value(p) == kB, "second pass: B stays B (not 0)");
+        CHECK(voice::snapshot(st).guard_skips == 1, "guard skip counted");
+        // the original set A again before the second pass: rewritten again
+        FakeQuery g(voice::kGroupCommentaryDb, kLowSimple);
+        const size_t gp = g.add("player_db_pID", kA);
+        CHECK(voice::process_query(g.sync(), t, gd, st, false) == 1 && g.value(gp) == kB, "first pass");
+        g.set(gp, kA);
+        CHECK(voice::process_query(g.sync(), t, gd, st, false) == 1 && g.value(gp) == kB, "a second pass with A again: B again");
+        // a new query at a reused address is not blocked by the query pointer alone
+        f.set(p, kA);
+        f.set(k, kC);
+        CHECK(voice::process_query(f.sync(), t, gd, st, false) == 1 && f.value(p) == kB && f.value(k) == kC, "a new query at the same address: A -> B");
+        // a line about B himself (another query) is rewritten: B's own recording off
+        FakeQuery h(voice::kGroupCommentaryDb, kLowSimple);
+        const size_t hp = h.add("player_db_pID", kB);
+        CHECK(voice::process_query(h.sync(), t, gd, st, false) == 1 && h.value(hp) == 0, "B's own line: B -> 0");
+        // the mark is what stops the chain: a guard that has not seen the first pass would take B on to 0
+        FakeQuery x(voice::kGroupCommentaryDb, kLowSimple);
+        const size_t xp = x.add("player_db_pID", kA);
+        CHECK(voice::process_query(x.sync(), t, gd, st, false) == 1 && x.value(xp) == kB, "x first pass");
+        voice::Guard fresh;
+        CHECK(voice::process_query(x.sync(), t, fresh, st, false) == 1 && x.value(xp) == 0, "without the mark it would chain");
+        CHECK(voice::snapshot(st).guard_skips == 1, "one guard skip in all");
+    });
+
+    run_case("voice swaps: a parameter count above 64 is skipped", [&] {
+        voice::VoiceStore s;
+        s.upsert(voice_entry(kMarianucci, kLobotka, std::nullopt));
+        const voice::Table t = voice::build_table(s);
+        voice::Stats st;
+        voice::Guard gd;
+        FakeQuery f(voice::kGroupCommentaryDb, kLowSimple);
+        for (int i = 0; i < 65; ++i) f.add("player_db_pID", kMarianucci);
+        CHECK(voice::process_query(f.sync(), t, gd, st, false) == 0 && f.value(0) == kMarianucci && f.value(64) == kMarianucci, "65: nothing written");
+        CHECK(voice::snapshot(st).bounded == 1, "bounded counted");
+        f.count = 64;
+        CHECK(voice::process_query(f.sync(), t, gd, st, false) == 64 && f.value(63) == kLobotka && f.value(64) == kMarianucci, "64: all rewritten");
+    });
+
+    run_case("voice swaps: the kick-off override", [&] {
+        voice::VoiceStore s;
+        s.upsert(voice_entry(kMarianucci, kLobotka, std::nullopt));
+        s.upsert(voice_entry(kGutierrez, 0, 922149));
+        s.upsert(voice_entry(100, 0, std::nullopt));
+        const voice::Table t = voice::build_table(s);
+        voice::Stats st;
+        CHECK(voice::kickoff_override(t, kMarianucci, 900762, st) == -1, "voice swap: surname lines silent");
+        CHECK(voice::kickoff_override(t, kGutierrez, -1, st) == 922149, "own recording off: the chosen generic");
+        CHECK(voice::kickoff_override(t, 100, 900000, st) == 900000 && voice::kickoff_override(t, 12345, 900010, st) == 900010,
+              "no kick-off entry: the game's result");
+        CHECK(voice::snapshot(st).kickoffs == 2, "two results replaced");
+        CHECK(voice::kickoff_override(voice::Table{}, kMarianucci, 900762, st) == 900762, "empty table");
+    });
+
+    run_case("voice swaps: store round trip, upsert, forget", [&] {
+        const fs::path dir = g_out / "voice_store";
+        fs::create_directories(dir);
+        const fs::path p = voice::store_path(dir);
+        CHECK(p == dir / "turbo_output" / "callnames" / "voice_swaps.json", "turbo_output\\callnames\\voice_swaps.json");
+        voice::VoiceStore s;
+        s.upsert(voice_entry(1, 2, std::nullopt));
+        std::string err;
+        CHECK(s.load(p, &err) && s.entries.empty() && err.empty(), "a missing file is an empty store");
+        s.upsert(voice_entry(kMarianucci, kGutierrez, std::nullopt, false, "Luca Marianucci", "Miguel", "2026-10-05 09:00"));
+        s.upsert(voice_entry(kMarianucci, kLobotka, -1, false, "Luca Marianucci", "Stanislav Lobotka", "2026-10-05 10:00"));
+        s.upsert(voice_entry(kGutierrez, 0, 922149, true, "Miguel Guti\xC3\xA9rrez", "Del Piero (generic)", "2026-10-05 10:01"));
+        s.upsert(voice_entry(200, std::nullopt, 999931));
+        CHECK(s.entries.size() == 3 && s.find(kMarianucci) && s.find(kMarianucci)->voice_of == kLobotka && s.find(kMarianucci)->from == "Stanislav Lobotka",
+              "one per player, the last edit wins");
+        CHECK(s.save(p, &err) && fs::exists(p) && !fs::exists(fs::path(p.string() + ".tmp")), "saved: " + err);
+        const std::string text = read_file(p);
+        CHECK(text.find("\"turbo_voice\": 1") != std::string::npos && text.find("\"lines\": \"names\"") != std::string::npos &&
+                  text.find("\"voice_of\": null") != std::string::npos,
+              "readable JSON");
+        voice::VoiceStore back;
+        CHECK(back.load(p, &err) && err.empty(), "loaded back: " + err);
+        bool same = back.entries.size() == s.entries.size();
+        for (size_t i = 0; same && i < s.entries.size(); ++i) {
+            const voice::Entry &a = s.entries[i], &b = back.entries[i];
+            same = a.playerid == b.playerid && a.voice_of == b.voice_of && a.kickoff == b.kickoff && a.names_only == b.names_only &&
+                   a.player == b.player && a.from == b.from && a.when == b.when;
+        }
+        CHECK(same, "every field round trips");
+        CHECK(back.find(200) && !back.find(200)->voice_of && back.find(200)->kickoff == 999931, "null voice_of kept as unchanged");
+        CHECK(back.forget(kGutierrez) && !back.forget(kGutierrez) && !back.find(kGutierrez), "forget once");
+        CHECK(back.save(p, &err), "saved after forget");
+        voice::VoiceStore again, parsed;
+        CHECK(again.load(p, &err) && again.entries.size() == 2 && !again.find(kGutierrez), "the forgotten entry is gone from the file");
+        CHECK(voice::parse_entries_json(voice::entries_json(again), parsed, &err) && parsed.entries.size() == 2, "entries_json parses back");
+        // a name with broken UTF-8 (read from game memory) is written, not thrown on
+        voice::VoiceStore u;
+        u.upsert(voice_entry(9, 10, std::nullopt, false, std::string("Bad \xC3 name")));
+        CHECK(voice::parse_entries_json(voice::entries_json(u), parsed, &err) && parsed.find(9), "broken UTF-8 survives: " + err);
+    });
+
+    run_case("voice swaps: a bad file is set aside, malformed entries are dropped", [&] {
+        const fs::path dir = g_out / "voice_store_bad";
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        const fs::path p = voice::store_path(dir);
+        fs::create_directories(p.parent_path());
+        auto set_aside = [&]() {
+            std::vector<fs::path> out;
+            for (const auto& de : fs::directory_iterator(p.parent_path()))
+                if (de.path().filename().string().rfind("voice_swaps.json.bad-", 0) == 0) out.push_back(de.path());
+            return out;
+        };
+        std::ofstream(p.string(), std::ios::binary) << "{\"turbo_voice\": 1, \"entries\": [";  // half-written
+        voice::VoiceStore s;
+        s.upsert(voice_entry(1, 2, std::nullopt));
+        std::string err;
+        CHECK(s.load(p, &err) && s.entries.empty(), "a bad file gives an empty store: " + err);
+        CHECK(err.find("set aside") != std::string::npos && !fs::exists(p) && set_aside().size() == 1, "renamed to .bad-<stamp>: " + err);
+        CHECK(set_aside().size() == 1 && read_file(set_aside()[0]) == "{\"turbo_voice\": 1, \"entries\": [", "its text kept");
+        // not a Turbo file, entries not a list: set aside too (a second one in the same second gets its own name)
+        for (const char* bad : {"{\"entries\": []}", "{\"turbo_voice\": 1, \"entries\": {}}", "[1, 2]"}) {
+            std::ofstream(p.string(), std::ios::binary | std::ios::trunc) << bad;
+            err.clear();
+            CHECK(s.load(p, &err) && s.entries.empty() && !fs::exists(p), std::string("set aside: ") + bad + " / " + err);
+        }
+        CHECK(set_aside().size() == 4, fmt("four files set aside (%zu)", set_aside().size()));
+        s.upsert(voice_entry(kMarianucci, kLobotka, std::nullopt));
+        CHECK(s.save(p, &err) && fs::exists(p), "a new file is written: " + err);
+        // malformed entries: dropped one by one, the rest is kept
+        const char* mixed = R"({"turbo_voice": 1, "entries": [
+            {"playerid": 278319, "voice_of": 216435, "kickoff": null, "lines": "all"},
+            {"playerid": 261865, "voice_of": 0, "kickoff": 922149, "lines": "names"},
+            {"playerid": 261865, "voice_of": 0, "kickoff": 922150},
+            {"playerid": 300, "kickoff": -1},
+            {"voice_of": 5},
+            {"playerid": 0, "voice_of": 5},
+            {"playerid": -4, "voice_of": 5},
+            {"playerid": "7", "voice_of": 5},
+            {"playerid": 3000000000, "voice_of": 5},
+            {"playerid": 8, "voice_of": -5},
+            {"playerid": 8, "voice_of": "216435"},
+            {"playerid": 8, "voice_of": 3000000000},
+            {"playerid": 8, "kickoff": 0},
+            {"playerid": 8, "kickoff": -2},
+            {"playerid": 8, "voice_of": 5, "lines": "some"},
+            {"playerid": 8, "voice_of": 5, "lines": 1},
+            {"playerid": 8},
+            {"playerid": 8, "voice_of": null, "kickoff": null},
+            "not an object", 12]})";
+        std::ofstream(p.string(), std::ios::binary | std::ios::trunc) << mixed;
+        err.clear();
+        CHECK(s.load(p, &err) && fs::exists(p) && set_aside().size() == 4, "a file with bad entries is not set aside: " + err);
+        CHECK(s.entries.size() == 3 && s.find(278319) && s.find(278319)->voice_of == 216435 && !s.find(278319)->kickoff && !s.find(8),
+              fmt("the three good entries kept (%zu)", s.entries.size()));
+        CHECK(s.find(261865) && s.find(261865)->kickoff == 922150 && !s.find(261865)->names_only, "a duplicate player: the last one wins");
+        CHECK(s.find(300) && !s.find(300)->voice_of && s.find(300)->kickoff == -1, "kick-off only kept");
+        CHECK(err.find("16 bad entries dropped") != std::string::npos, "the note: " + err);
     });
 }
 
@@ -9285,6 +9661,8 @@ int main(int argc, char** argv) {
     test_player_capture();
     std::printf("native kept edits store\n");
     test_reapply_store();
+    std::printf("native voice swaps\n");
+    test_callname_voice();
     std::printf("native UI\n");
     try {
         test_ui();
