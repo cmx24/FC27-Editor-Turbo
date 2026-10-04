@@ -10,6 +10,7 @@
 #include "playstyles.h"
 #include "ui_images.h"
 #include "ui_presets.h"
+#include "ui_team_filter.h"
 
 namespace turbo {
 
@@ -59,21 +60,28 @@ static void player_list(App& app) {
     // minimum overall / potential, maximum age
     static int f_pos = -1, f_style = -1, f_min_ovr = 0, f_min_pot = 0, f_max_age = 0;
     static bool f_plus = false, f_retiring = false;
+    static int64_t f_team = 0;  // club filter (0 = any)
+    static char f_team_search[64] = "";
+    static std::unordered_set<int64_t> team_players;  // players linked to f_team (rebuilt with the rows)
     static std::vector<const PlayerRow*> rows;
     static std::string last_key;
     static uint64_t last_version = ~uint64_t(0);
     static bool need_sort = true;
 
-    ImGui::SetNextItemWidth(S(220.0f));
+    ImGui::SetNextItemWidth(S(180.0f));
     ImGui::InputTextWithHint("##psearch", "name or ID", search, sizeof(search));
     ImGui::SameLine();
     bool can_my_club = app.bridge.state().user_team > 0;
     if (!can_my_club) ImGui::BeginDisabled();
-    ImGui::Checkbox("My club", &my_club);
+    if (ImGui::Checkbox("My club", &my_club) && my_club) f_team = 0;
     if (!can_my_club) {
         ImGui::EndDisabled();
         my_club = false;
     }
+    // Club filter (club or national team, ui_team_filter.h): picking one unticks "My club"
+    ImGui::SameLine();
+    const float team_w = std::max(S(140.0f), ImGui::GetContentRegionAvail().x);
+    if (team_filter_combo(app, "##fteam", f_team, f_team_search, sizeof(f_team_search), team_w) && f_team > 0) my_club = false;
 
     ImGui::SetNextItemWidth(S(130.0f));
     if (ImGui::BeginCombo("##fpos", f_pos < 0 ? "Any position" : position_name(f_pos), ImGuiComboFlags_HeightLargest)) {
@@ -109,11 +117,12 @@ static void player_list(App& app) {
         f_pos = f_style = -1;
         f_min_ovr = f_min_pot = f_max_age = 0;
         f_plus = f_retiring = false;
+        f_team = 0;
     }
 
-    char fkey[96];
-    std::snprintf(fkey, sizeof(fkey), "|%d|%d|%d|%d|%d|%d|%d", f_pos, f_style, f_plus ? 1 : 0, f_retiring ? 1 : 0, f_min_ovr,
-                  f_min_pot, f_max_age);
+    char fkey[128];
+    std::snprintf(fkey, sizeof(fkey), "|%d|%d|%d|%d|%d|%d|%d|%lld", f_pos, f_style, f_plus ? 1 : 0, f_retiring ? 1 : 0, f_min_ovr,
+                  f_min_pot, f_max_age, static_cast<long long>(f_team));
     std::string key = lower(search) + (my_club ? "|1" : "|0") + fkey;
     if (key != last_key || last_version != app.model.version()) {
         last_key = key;
@@ -124,8 +133,12 @@ static void player_list(App& app) {
         bool numeric = !q.empty() && std::all_of(q.begin(), q.end(), ::isdigit);
         if (numeric) qid = std::atoll(q.c_str());
         int64_t club = app.bridge.state().user_team;
+        team_players.clear();
+        if (f_team > 0)
+            for (const LinkRow& l : app.model.links_of_team(f_team)) team_players.insert(l.playerid);
         for (const auto& p : app.model.players()) {
             if (my_club && p.club != club) continue;
+            if (f_team > 0 && !team_players.count(p.playerid)) continue;
             if (f_pos >= 0 && std::none_of(std::begin(p.positions), std::end(p.positions), [&](int x) { return x == f_pos; }))
                 continue;
             if (f_style >= 0 && !(((f_plus ? p.playstyles_plus : p.playstyles) >> f_style) & 1)) continue;

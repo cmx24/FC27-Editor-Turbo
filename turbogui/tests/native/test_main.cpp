@@ -2959,6 +2959,8 @@ struct FakeMatchSetup : msetup::Service {
 };
 }  // namespace
 
+#include "test_playtest_fixes.h"  // 1.1.1 playtest fixes (playtest_fix_cases, run near the end of test_ui)
+
 static void test_ui() {
     SimMemory mem;
     CHECK(mem.load(g_out / "world.img"), "world.img");
@@ -6093,6 +6095,8 @@ static void test_ui() {
             ui.frames(3);
             CHECK(ui.find("Not available: this Turbo has no game calls.") == nullptr || true, "no service: renders");
         });
+
+        playtest_fix_cases(app, ui, le);
 
         run_case("UI: no ImGui errors, layout stable over many frames", [&] {
             for (int tab = 0; tab < 7; ++tab) {

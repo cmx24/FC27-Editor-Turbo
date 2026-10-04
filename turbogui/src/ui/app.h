@@ -40,6 +40,8 @@ constexpr const char* kGuiVersion = "1.1.0";
 // UI scale (window height and the user's "UI size" setting): every fixed size in the panels goes through S()
 extern float g_ui_scale;
 inline float S(float px) { return px * g_ui_scale; }
+// Range of the user's UI size factor (Turbo Tools slider, Ctrl + mouse wheel: ui_zoom.h)
+constexpr float kUiScaleMin = 0.6f, kUiScaleMax = 2.5f;
 // UI size = automatic scale (window height / 1080, at least 1) x the user's factor, rounded to 0.05
 float auto_ui_scale(float display_height);
 
@@ -92,6 +94,14 @@ public:
     float ui_scale_user = 1.0f;     // "UI size" setting (gui_settings.json gui.ui_scale), 0.6 .. 2.5
     float ui_scale_applied = 0.0f;  // scale the style was last built for
     float ui_scale_changed_from = 0.0f;  // previous scale when it changed this frame (main window follows)
+    // Ctrl + mouse wheel zoom (ui_zoom.cpp). The Windows host polls Ctrl itself (the game may send no key messages) and
+    // hands a Ctrl + wheel over here instead of to Dear ImGui (no scrolling); tests use io.KeyCtrl + io.MouseWheel
+    struct {
+        float wheel = 0.0f;   // notches from the host since the last frame (positive = bigger)
+        bool reset = false;   // the host saw Ctrl + 0
+        double save_at = 0.0; // gui_settings.json is written then (once the wheel rests); 0 = nothing to save
+        bool by_host = false; // the host feeds wheel / reset: Dear ImGui's own Ctrl state is not used (can be stale in game)
+    } zoom;
     double now = 0.0;
     double next_poll = 0.0;
     double next_retry = 0.0;  // next automatic connection attempt while not connected

@@ -106,6 +106,11 @@ public:
     // Names Live Editor decoded for Turbo (bridge_names.txt). Used for name tables whose text is compressed in memory
     // (playernames.name in FC 27). Takes effect on the next rebuild.
     void set_extra_names(std::shared_ptr<const NameMap> names) { extra_names_ = std::move(names); }
+    // teamid -> readable club name for teams whose teams.teamname is an unresolved localization key
+    // ("*TeamName_Abbr15_112264", core/teamnames.h); without one such a club shows as "Team <id>". Next rebuild.
+    void set_team_name_fallback(std::shared_ptr<const NameMap> names) { team_fallback_ = std::move(names); }
+    // The name shown for a club whose stored name is `stored` (the stored name unless it is empty or a key)
+    std::string readable_team_name(int64_t tid, const std::string& stored) const;
 
 private:
     void build_names();
@@ -128,6 +133,7 @@ private:
     std::unordered_map<int64_t, int64_t> team_league_;
     std::string name_source_;
     std::shared_ptr<const NameMap> extra_names_;
+    std::shared_ptr<const NameMap> team_fallback_;
 };
 
 }  // namespace turbo

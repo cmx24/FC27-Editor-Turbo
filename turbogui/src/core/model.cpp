@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "teamnames.h"
+
 namespace turbo {
 
 // ---------------------------------------------------------------- dates
@@ -137,8 +139,7 @@ void Model::build_teams() {
         TeamRow r;
         r.teamid = s.get_int(i, "teamid");
         r.rec = s.addr(i);
-        r.name = fname ? s.get_str(i, *fname) : "";
-        if (r.name.empty()) r.name = "Team " + std::to_string(r.teamid);
+        r.name = readable_team_name(r.teamid, fname ? s.get_str(i, *fname) : "");
         r.overall = static_cast<int>(s.get_int(i, "overallrating", 0));
         auto lg = team_league_.find(r.teamid);
         r.league = lg == team_league_.end() ? -1 : lg->second;
@@ -289,8 +290,17 @@ void Model::refresh_team(int64_t tid) {
     r.overall = static_cast<int>(db_.get_int(*t, r.rec, "overallrating", r.overall));
     if (const Field* f = t->field("teamname")) {
         Value v;
-        if (db_.get(*t, r.rec, *f, v) && !v.s.empty()) r.name = v.s;
+        if (db_.get(*t, r.rec, *f, v) && !v.s.empty()) r.name = readable_team_name(tid, v.s);
     }
+}
+
+std::string Model::readable_team_name(int64_t tid, const std::string& stored) const {
+    if (!stored.empty() && !is_unresolved_team_name(stored)) return stored;
+    if (team_fallback_) {
+        auto it = team_fallback_->find(tid);
+        if (it != team_fallback_->end() && !it->second.empty() && !is_unresolved_team_name(it->second)) return it->second;
+    }
+    return "Team " + std::to_string(tid);
 }
 
 std::string Model::player_name(int64_t pid) const {
