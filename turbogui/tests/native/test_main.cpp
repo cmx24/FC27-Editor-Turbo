@@ -2555,6 +2555,7 @@ public:
 
 static Rgba solid(int w, int h, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
 static std::vector<uint8_t> file_bytes(const fs::path& p);
+#include "test_preload_hotkey.h"  // 1.1.1: show/hide key setting, background loading
 static std::string hex_bytes(const std::vector<uint8_t>& d) {
     static const char* h = "0123456789abcdef";
     std::string s;
@@ -3743,12 +3744,12 @@ static void test_ui() {
             CHECK(ui.click("Dry run (Turbo Tools report only, write nothing)"), "dry run checkbox");
             CHECK(read_json(le / "turbo_output" / "gui_settings.json")["turbo"]["dry_run"].get<bool>(), "dry run saved");
             CHECK(ui.click("Status"), "Status tab");
-            CHECK(ui.click("Show/hide key"), "key combo");
-            CHECK(ui.find("F12") == nullptr, "keys below the combo's visible height are not clickable without scrolling");
-            CHECK(ui.click("F5"), "F5");
+            CHECK(ui.click("Change##hotkey"), "Change the show/hide key");
+            ui.key(ImGuiKey_F5);  // picked by pressing it (1.1.1)
             CHECK(app.toggle_vk == 0x74, "toggle key F5");
             CHECK(read_json(le / "turbo_output" / "gui_settings.json")["gui"]["toggle_key"].get<int>() == 0x74, "key saved");
         });
+        ui_cases_preload_hotkey(app, ui, le);  // test_preload_hotkey.h
 
 
         run_case("UI: every Turbo Tools and player button sends a command Turbo's Lua side runs", [&] {
@@ -10250,6 +10251,8 @@ int main(int argc, char** argv) {
     test_player_capture();
     std::printf("native kept edits store\n");
     test_reapply_store();
+    std::printf("native show/hide key and background loading\n");
+    test_hotkey_and_background();
     std::printf("native voice swaps\n");
     test_callname_voice();
     test_callname_voice_host();

@@ -3,6 +3,24 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.1.1 (playtest fixes)
+
+Not yet released or checked in game.
+
+- **Pictures load by themselves in the background.** From the first F8 (or when a career connects) Turbo lists every
+  picture its screens show (real-face minifaces, tattoo previews, hair / facial hair / boots / gloves / accessory
+  previews, club crests) and asks Turbo's Lua side for the missing ones after what is on screen. While Turbo is shown it
+  sends its synthetic career event every 250 ms, and Lua exports for 0.08 s each time, so they arrive without
+  `lua\scripts\turbo_images.lua` and without stalling the window. Files at hand are decoded on a worker thread (at most
+  128 MB in memory); the grids then only upload them (16 per frame). The top bar shows "Loading pictures: N of M".
+  Exported files stay in `turbo_output\cache\legacy`, so the next session only decodes them. The callname language and
+  spoken set are read at the same time. (ui/preload.h, LegacyImages background list, TextureCache::preload)
+- **Show/hide key: any key, with Ctrl / Alt / Shift.** Status > Settings > Change, then press the key (Esc cancels);
+  "Reset to F8". Saved in `gui_settings.json` (`gui.toggle_key`, `gui.toggle_mods`) and used at once. While Turbo is
+  shown, and for half a second after it hides, the game never sees that key (window messages, DirectInput state and
+  buffered data, raw input, GetAsyncKeyState / GetKeyState / GetKeyboardState). A key that types text goes to a Turbo
+  text box that has the keyboard. (core/hotkey.h, ui/hotkey_setting.h, win/overlay_dx12.cpp, win/input_shield.cpp)
+
 ## 1.1.0 (voice swaps: any player gets any real or generic callname in matches)
 
 Not yet released or checked in game.

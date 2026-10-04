@@ -45,6 +45,18 @@ public:
     size_t created() const { return created_; }
     size_t freed() const { return freed_; }
 
+    // ---- background decoding (ui/preload.h): files are decoded on a worker thread to at most `side` pixels and kept
+    // in memory (at most kPreloadBytes; past it, later ones are decoded when shown). file() then takes the decoded picture without reading
+    // the disk: kUploadsPerFrame such uploads per frame, besides the kDecodesPerFrame decodes on the spot.
+    static constexpr size_t kPreloadBytes = size_t(128) << 20;
+    static constexpr int kUploadsPerFrame = 16;
+    void preload(const std::filesystem::path& p, int side);  // queued; nothing when already decoded or queued
+    size_t preload_queued() const;   // waiting for the worker
+    size_t preload_decoded() const;  // decoded pictures in memory
+    size_t preload_done() const;     // decoded or unreadable since the start (progress)
+    // Tests: wait until the worker has nothing left (at most `seconds`); true when idle
+    bool preload_wait(double seconds);
+
 private:
     struct Entry {
         ImTextureData* tex = nullptr;
@@ -64,7 +76,22 @@ private:
     std::vector<ImTextureData*> dying_;
     double now_ = 0.0;
     int decodes_left_ = kDecodesPerFrame;
+    int uploads_left_ = kUploadsPerFrame;
     size_t created_ = 0, freed_ = 0;
+
+    // background decoding (worker thread; everything below is guarded by pre_->m)
+    struct Decoded {
+        std::filesystem::file_time_type mtime{};
+        uintmax_t fsize = 0;
+        int side = 0;       // asked size; the picture is complete when it was not larger than that
+        bool whole = false; // the file's picture was not scaled down (fits any size it is drawn at)
+        Rgba img;
+    };
+    struct Preload;
+    Preload* pre_ = nullptr;
+    // A decoded picture for this file at max_side (moved out of the store); false when there is none
+    bool take_decoded(const std::filesystem::path& p, std::filesystem::file_time_type mtime, uintmax_t fsize, int max_side,
+                      Rgba& out);
 };
 
 }  // namespace turbo

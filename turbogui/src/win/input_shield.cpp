@@ -63,7 +63,15 @@ bool is_mouse_vk(int vk) { return vk == VK_LBUTTON || vk == VK_RBUTTON || vk == 
 // Does the shield hide this virtual key from the game right now?
 bool block_vk(int vk) {
     if (t_turbo > 0) return false;
+    if (input_block_vk(vk)) return true;  // the show/hide key (Status tab > Settings) is Turbo's
     return is_mouse_vk(vk) ? input_block_mouse() : input_block_keyboard();
+}
+
+// DirectInput keyboard offset (DIK_*) of a virtual key (extended keys: + 0x80), 0 when unknown
+DWORD dik_of_vk(int vk) {
+    UINT sc = MapVirtualKeyW(static_cast<UINT>(vk), MAPVK_VK_TO_VSC_EX);
+    if (!sc) return 0;
+    return (sc & 0xFF) | (((sc & 0xFF00) == 0xE000) ? 0x80 : 0);
 }
 
 // Device type per DirectInput device (mouse / keyboard / other), cached: GetDeviceInfo is not called every poll
@@ -103,6 +111,14 @@ HRESULT STDMETHODCALLTYPE hk_state(IDirectInputDevice8W* dev, DWORD cb, LPVOID d
     if (SUCCEEDED(hr) && data && cb > 0 && block_for_device(dev)) {
         std::memset(data, 0, cb);  // no movement, no buttons, no keys down
         ++n_blocked;
+    } else if (SUCCEEDED(hr) && data && cb == 256) {
+        // the show/hide key alone (keyboard state: one byte per DIK offset)
+        const int vk = input_hidden_vk();
+        const DWORD dik = vk ? dik_of_vk(vk) : 0;
+        if (dik && dik < 256 && device_type(dev) == DI8DEVTYPE_KEYBOARD && (static_cast<BYTE*>(data)[dik] & 0x80)) {
+            static_cast<BYTE*>(data)[dik] = 0;
+            ++n_blocked;
+        }
     }
     return hr;
 }
@@ -113,6 +129,24 @@ HRESULT STDMETHODCALLTYPE hk_data(IDirectInputDevice8W* dev, DWORD cb, LPDIDEVIC
     if (SUCCEEDED(hr) && inout && block_for_device(dev)) {
         *inout = 0;  // the events were taken from the buffer; the game gets none of them
         ++n_blocked;
+    } else if (SUCCEEDED(hr) && inout && rg && *inout > 0 && cb >= sizeof(DIDEVICEOBJECTDATA) && !(flags & DIGDD_PEEK)) {
+        // the show/hide key's events are dropped from the keyboard's buffered data
+        const int vk = input_hidden_vk();
+        const DWORD dik = vk ? dik_of_vk(vk) : 0;
+        if (dik && device_type(dev) == DI8DEVTYPE_KEYBOARD) {
+            auto* base = reinterpret_cast<unsigned char*>(rg);
+            DWORD kept = 0;
+            for (DWORD i = 0; i < *inout; ++i) {
+                auto* e = reinterpret_cast<DIDEVICEOBJECTDATA*>(base + size_t(i) * cb);
+                if (e->dwOfs == dik) continue;
+                if (kept != i) std::memmove(base + size_t(kept) * cb, e, cb);
+                ++kept;
+            }
+            if (kept != *inout) {
+                n_blocked += static_cast<long>(*inout - kept);
+                *inout = kept;
+            }
+        }
     }
     return hr;
 }
@@ -121,11 +155,19 @@ bool block_raw_type(DWORD type) {
     return (type == RIM_TYPEMOUSE && input_block_mouse()) || (type == RIM_TYPEKEYBOARD && input_block_keyboard());
 }
 
+// One raw-input entry the game must not get: its device is blocked, or it is the show/hide key
+bool block_raw(const RAWINPUT* ri, size_t avail) {
+    if (block_raw_type(ri->header.dwType)) return true;
+    return ri->header.dwType == RIM_TYPEKEYBOARD && avail >= sizeof(RAWINPUTHEADER) + sizeof(RAWKEYBOARD) &&
+           input_block_vk(ri->data.keyboard.VKey);
+}
+
 UINT WINAPI hk_rawbuf(PRAWINPUT data, PUINT size, UINT header) {
     ++n_rawbuf;
     UINT n = o_rawbuf(data, size, header);
     if (t_turbo > 0) return n;  // Turbo's own read (TurboInputScope): the real data
-    if (!data || n == 0 || n == static_cast<UINT>(-1) || (!input_block_mouse() && !input_block_keyboard())) return n;
+    if (!data || n == 0 || n == static_cast<UINT>(-1) || (!input_block_mouse() && !input_block_keyboard() && !input_hidden_vk()))
+        return n;
     // Drop the blocked entries and pack the rest to the front (entries are 8-byte aligned, as NEXTRAWINPUTBLOCK walks)
     auto align = [](size_t v) { return (v + 7) & ~static_cast<size_t>(7); };
     unsigned char* base = reinterpret_cast<unsigned char*>(data);
@@ -134,7 +176,7 @@ UINT WINAPI hk_rawbuf(PRAWINPUT data, PUINT size, UINT header) {
     for (UINT i = 0; i < n; ++i) {
         auto* ri = reinterpret_cast<RAWINPUT*>(base + rd);
         size_t len = align(ri->header.dwSize);
-        if (!block_raw_type(ri->header.dwType)) {
+        if (!block_raw(ri, ri->header.dwSize)) {
             if (wr != rd) std::memmove(base + wr, base + rd, ri->header.dwSize);
             wr += len;
             ++kept;
@@ -152,7 +194,7 @@ UINT WINAPI hk_rawdata(HRAWINPUT h, UINT cmd, LPVOID data, PUINT size, UINT head
     if (t_turbo > 0) return r;  // Turbo's own read (TurboInputScope, overlay queue_raw_mouse): the real data
     if (cmd != RID_INPUT || !data || r == 0 || r == static_cast<UINT>(-1)) return r;
     auto* ri = static_cast<RAWINPUT*>(data);
-    if (!block_raw_type(ri->header.dwType)) return r;
+    if (!block_raw(ri, r)) return r;
     ++n_blocked;
     if (ri->header.dwType == RIM_TYPEMOUSE && r >= sizeof(RAWINPUTHEADER) + sizeof(RAWMOUSE)) {
         std::memset(&ri->data.mouse, 0, sizeof(RAWMOUSE));
@@ -193,6 +235,11 @@ BOOL WINAPI hk_kbstate(PBYTE keys) {
     BOOL ok = o_kbstate(keys);
     if (!ok || !keys) return ok;
     const bool mouse = input_block_mouse(), kb = input_block_keyboard();
+    const int hidden = input_hidden_vk();  // the show/hide key (Status tab > Settings)
+    if (hidden > 0 && hidden < 256 && (keys[hidden] & 0x80)) {
+        keys[hidden] &= 0x01;
+        ++n_blocked;
+    }
     if (!mouse && !kb) return ok;
     bool any = false;
     for (int vk = 1; vk < 256; ++vk) {

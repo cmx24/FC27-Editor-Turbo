@@ -34,6 +34,7 @@ namespace turbo {
 namespace voice {
 class Service;  // core/callname_voice.h
 }
+class Preloader;  // ui/preload.h (background loading)
 
 constexpr const char* kGuiVersion = "1.1.0";
 
@@ -89,6 +90,15 @@ public:
     // ---- state
     bool visible = false;
     int toggle_vk = 0x77;  // F8
+    int toggle_mods = 0;   // with Ctrl / Alt / Shift (core/hotkey.h kHotkey*; gui_settings.json gui.toggle_mods)
+    bool hotkey_capture = false;  // Status tab waits for the new show/hide key: the host does not toggle meanwhile
+    int hotkey_capture_frame = -1;  // ImGui frame the setting was last drawn in (another tab shown: the wait ends)
+    // ---- background loading of what the screens show (ui/preload.h): starts at the first show (F8) and when a career
+    // connects; pictures are asked from Turbo's Lua side and decoded on a worker thread, callnames are read
+    std::unique_ptr<Preloader> preloader;
+    void preload_start(const char* why);
+    std::string preload_line() const;     // "Loading pictures: 812 of 4120" ("" when nothing is loading)
+    bool lua_images_wanted() const;       // pictures are waiting and Turbo is shown: the host nudges Lua (synthetic event)
     float ui_scale_user = 1.0f;     // "UI size" setting (gui_settings.json gui.ui_scale), 0.6 .. 2.5
     float ui_scale_applied = 0.0f;  // scale the style was last built for
     float ui_scale_changed_from = 0.0f;  // previous scale when it changed this frame (main window follows)

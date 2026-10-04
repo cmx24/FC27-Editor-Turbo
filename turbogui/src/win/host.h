@@ -60,6 +60,9 @@ std::vector<turbo::Region> private_regions(uint64_t min_size);
 // What the overlay wants right now (window shown and the mouse over it / a text field active)
 bool input_block_mouse();
 bool input_block_keyboard();
+// The show/hide key while Turbo is shown and just after a toggle: the game never sees it (input_shield.cpp)
+bool input_block_vk(int vk);
+int input_hidden_vk();  // that key right now, or 0
 void stop_overlay();
 // The game window the overlay draws on (null before the overlay found it)
 HWND game_window();

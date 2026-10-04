@@ -140,6 +140,39 @@ void LegacyImages::want(const std::string& path, bool front) {
     dirty_ = true;
 }
 
+bool LegacyImages::want_background(const std::string& path) {
+    if (!legacy_path::valid(path) || missing_.count(path) || want_set_.count(path) || bg_set_.count(path)) return false;
+    if (bg_.size() >= kMaxBackground) return false;
+    std::error_code ec;
+    if (fs::is_regular_file(under(cache_dir(), path), ec)) return false;
+    bg_.push_back(path);
+    bg_set_.insert(path);
+    dirty_ = true;
+    return true;
+}
+
+LegacyImages::State LegacyImages::peek(const std::string& path, fs::path* file) const {
+    if (!legacy_path::valid(path)) return State::Invalid;
+    std::error_code ec;
+    fs::path g = under(cache_dir(), path);
+    if (fs::is_regular_file(g, ec) && fs::file_size(g, ec) > 0) {
+        if (file) *file = g;
+        return State::Game;
+    }
+    return missing_.count(path) ? State::Missing : State::Waiting;
+}
+
+void LegacyImages::drop_background(const std::function<bool(const std::string&)>& gone) {
+    size_t before = bg_.size();
+    bg_.erase(std::remove_if(bg_.begin(), bg_.end(), [&](const std::string& p) {
+                  if (!gone(p)) return false;
+                  bg_set_.erase(p);
+                  return true;
+              }),
+              bg_.end());
+    if (bg_.size() != before) dirty_ = true;
+}
+
 LegacyImages::State LegacyImages::locate(const std::string& path, fs::path* file, bool custom_first) {
     if (!legacy_path::valid(path)) return State::Invalid;
     std::error_code ec;
@@ -167,6 +200,8 @@ LegacyImages::State LegacyImages::locate(const std::string& path, fs::path* file
 bool LegacyImages::flush() {
     std::string text = "#gen " + std::to_string(gen_) + "\n";
     for (const auto& p : want_) text += p + "\n";
+    for (const auto& p : bg_)  // background loading: after everything on screen
+        if (!want_set_.count(p)) text += p + "\n";
     dirty_ = false;
     return write_atomic(cache_dir() / "want.txt", text, nullptr);
 }
@@ -193,6 +228,7 @@ void LegacyImages::read_missing() {
             want_set_.insert(want_.begin(), want_.end());
             dirty_ = true;
         }
+        drop_background([&](const std::string& p) { return missing_.count(p) > 0; });
     }
     std::ifstream sf(cache_dir() / "status.txt", std::ios::binary);
     if (sf) {
@@ -216,6 +252,17 @@ void LegacyImages::tick(double now) {
             want_set_.clear();
             want_set_.insert(want_.begin(), want_.end());
             dirty_ = true;
+        }
+        // background list: a slice per second (thousands of paths), round robin
+        if (!bg_.empty()) {
+            constexpr size_t kSlice = 400;
+            if (bg_check_ >= bg_.size()) bg_check_ = 0;
+            const size_t from = bg_check_, to = std::min(bg_.size(), from + kSlice);
+            std::unordered_set<std::string> arrived;
+            for (size_t i = from; i < to; ++i)
+                if (fs::is_regular_file(under(cache_dir(), bg_[i]), ec)) arrived.insert(bg_[i]);
+            bg_check_ = to - arrived.size();
+            if (!arrived.empty()) drop_background([&](const std::string& p) { return arrived.count(p) > 0; });
         }
     }
     if (dirty_ && (last_write_ < 0.0 || now - last_write_ >= 0.5)) {

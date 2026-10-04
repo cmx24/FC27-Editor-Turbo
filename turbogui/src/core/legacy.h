@@ -9,6 +9,7 @@
 #pragma once
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -61,13 +62,20 @@ public:
     State locate(const std::string& path, std::filesystem::path* file, bool custom_first = true);
     // Ask for a game file without looking (pre-loading a picker page); `front` puts it first
     void want(const std::string& path, bool front = true);
+    // Background loading (ui/preload.h): asked after everything on screen, at most kMaxBackground; false when the path
+    // is invalid, missing, already asked or already at hand
+    static constexpr size_t kMaxBackground = 20000;
+    bool want_background(const std::string& path);
+    // Where the game's picture is, without asking for it and without looking at custom files (the background loader)
+    State peek(const std::string& path, std::filesystem::path* file = nullptr) const;
+    size_t waiting_background() const { return bg_.size(); }
 
     // Call regularly: writes want.txt when it changed (at most every 0.5 s), re-reads missing.txt / status.txt
     void tick(double now);
     // Force want.txt out now (tests, before running turbo_images.lua)
     bool flush();
 
-    size_t waiting() const { return want_.size(); }
+    size_t waiting() const { return want_.size() + bg_.size(); }
     size_t missing_count() const { return missing_.size(); }
     const std::string& lua_status() const { return status_; }
     size_t cached_files() const;
@@ -96,6 +104,10 @@ private:
     std::filesystem::path root_;
     std::vector<std::string> want_;            // most wanted first
     std::unordered_set<std::string> want_set_;
+    std::vector<std::string> bg_;              // background loading, after want_ (paths in want_set_ are skipped)
+    std::unordered_set<std::string> bg_set_;
+    size_t bg_check_ = 0;                      // round-robin position of the arrival check (tick)
+    void drop_background(const std::function<bool(const std::string&)>& gone);
     std::unordered_set<std::string> missing_;
     std::string status_;
     uint64_t gen_ = 0;
