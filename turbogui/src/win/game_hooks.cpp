@@ -17,13 +17,7 @@ namespace host {
 
 namespace fs = std::filesystem;
 
-namespace {
-
-struct ExecSection {
-    std::string name;
-    uint64_t start = 0, end = 0;  // [start, end) virtual addresses
-};
-
+// One installed hook (declared in game_hooks.h as the target of a HookHandle). Never freed.
 struct HookRec {
     std::string name;
     void* target = nullptr;
@@ -31,7 +25,14 @@ struct HookRec {
     std::atomic<long long> errors{0};
     std::atomic<bool> killed{false};
     std::string note;
-    bool active = false;
+    std::atomic<bool> active{false};  // enabled in MinHook (game_hook_live reads it from detours)
+};
+
+namespace {
+
+struct ExecSection {
+    std::string name;
+    uint64_t start = 0, end = 0;  // [start, end) virtual addresses
 };
 
 std::mutex g_mutex;  // state below (not the counters)
@@ -424,6 +425,12 @@ bool game_hook_enabled(const char* name) {
     return h && !h->killed.load();
 }
 
+HookHandle game_hook_handle(const char* name) { return name ? find_hook(name) : nullptr; }
+
+bool game_hook_live(HookHandle h) { return h && !g_global_off.load() && h->active.load() && !h->killed.load(); }
+
+void game_hooks_refresh_switches() { refresh_switches(); }
+
 void game_hook_error(const char* name, const char* what) {
     HookRec* h = find_hook(name);
     if (h) {
@@ -526,7 +533,7 @@ turbo::HookReport game_hooks_report() {
     for (HookRec* h : g_hooks) {
         turbo::HookStatus s;
         s.name = h->name;
-        s.active = h->active;
+        s.active = h->active.load();
         s.killed = h->killed.load();
         s.target = reinterpret_cast<uint64_t>(h->target);
         s.calls = h->calls.load();

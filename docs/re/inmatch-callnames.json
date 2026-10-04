@@ -167,6 +167,30 @@
    "expect": "0x1407B4344",
    "note": "int ParamValue::GetInt(pv, k): -1 unless desc type 1; pv+0x00 (or the k-th list value)"
   },
+  "speech_param_name_layout": {
+   "pattern": "3B 51 18 73 13 48 8B 40 20 8B CA 48 8B 0C C8 48 8B 41 30 48 83 C0 20 C3",
+   "resolve": "none",
+   "offset": 0,
+   "expect": "0x1414A95C3",
+   "unique_in": "image",
+   "note": "voice-swap layout guard (Turbo's built-in table): the body of 0x1414A95C0 from +3, the name getter Preprocess calls per parameter: cmp edx,[rcx+0x18] (count); [[q+0x20][i]+0x30]+0x20 (params array, param desc, desc name). Unique in the whole image"
+  },
+  "speech_param_get_int_layout": {
+   "pattern": "3B 51 18 73 0F 48 8B 41 20 8B D2 48 8B 0C D0 48 85 C9 75 04 83 C8 FF C3",
+   "resolve": "none",
+   "offset": 0,
+   "expect": "0x1414A9AE0",
+   "unique_in": "image",
+   "note": "voice-swap layout guard: GetInt by index (Preprocess's call after the '_pID' find): -1 for an index past [q+0x18] or a null [q+0x20][i], else jmp ParamValue::GetInt 0x1407B4344. Unique in the whole image"
+  },
+  "speech_param_set_int_store": {
+   "pattern": "41 80 78 44 00 75 3D 44 89 26 C6 46 44 01",
+   "resolve": "none",
+   "offset": 0,
+   "expect": "0x1407AFAA7",
+   "unique_in": "image",
+   "note": "voice-swap layout guard inside ParamValue::SetInt 0x1407AFA58: cmp byte [desc+0x44],0 (single value); mov [pv],r12d; mov byte [pv+0x44],1: the store the voice detour copies. Unique in the whole image"
+  },
   "getcallname_playernamemap_call": {
    "pattern": "(same as commentary_get_callname)",
    "resolve": "rip",

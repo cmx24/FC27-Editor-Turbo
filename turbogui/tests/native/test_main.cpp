@@ -31,6 +31,7 @@
 #include <chrono>
 #include <thread>
 
+#include "core/callname_voice.h"
 #include "core/callnames.h"
 #include "core/commentary_bank.h"
 #include "core/image.h"
@@ -6501,6 +6502,94 @@ static void test_game_calls() {
             if (sg) fn.*(fs_.field) = 1;
         }
         CHECK(fn.missing_names() == nullptr && fn.missing_players() == nullptr, "every signature of both paths is in the built-in table");
+    });
+
+    run_case("signatures: voice-swap entries resolve on the game's bytes", [&] {
+        const SignatureTable* t = builtin_signature_table("6AB9813C-211EF000");
+        CHECK(t != nullptr, "built-in table");
+        if (!t) return;
+        // FC27.exe bytes (fc27_image.bin, 1.0.140.64835) at the VAs in the comments
+        const uint8_t preprocess[] = {  // 0x1414A90C8 Preprocess
+            0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x48, 0x89, 0x7C, 0x24, 0x18, 0x55,
+            0x41, 0x56, 0x41, 0x57, 0x48, 0x8B, 0xEC, 0x48, 0x83, 0xEC, 0x50, 0x65, 0x48, 0x8B, 0x04, 0x25,
+            0x58, 0x00, 0x00, 0x00, 0x48, 0x8B, 0xD9, 0xB9, 0x34, 0x07, 0x00, 0x00, 0x48, 0x8B, 0xFA, 0x48,
+            0x8B, 0x00, 0x8B, 0x04, 0x01, 0x39, 0x05, 0x81,
+        };
+        const uint8_t get_callname[] = {  // 0x14294A0F4 GetCallname
+            0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x20, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56,
+            0x41, 0x57, 0x48, 0x8D, 0xA8, 0x28, 0xF3, 0xFF, 0xFF, 0x48, 0x81, 0xEC, 0xA0, 0x0D, 0x00, 0x00,
+            0xC5, 0xF8, 0x29, 0x70, 0xB8, 0xC5, 0xF8, 0x29, 0x78, 0xA8, 0x48, 0x8B, 0x05, 0x5B, 0x62, 0x2E,
+            0x09, 0x48, 0x33, 0xC4,
+        };
+        const uint8_t param_name[] = {  // 0x1414A95C0 (the guard is at +3)
+            0x48, 0x8B, 0xC1, 0x3B, 0x51, 0x18, 0x73, 0x13, 0x48, 0x8B, 0x40, 0x20, 0x8B, 0xCA, 0x48, 0x8B,
+            0x0C, 0xC8, 0x48, 0x8B, 0x41, 0x30, 0x48, 0x83, 0xC0, 0x20, 0xC3, 0x48, 0x8D, 0x05, 0x46, 0x02,
+        };
+        const uint8_t get_int[] = {  // 0x1414A9AE0 GetInt by index
+            0x3B, 0x51, 0x18, 0x73, 0x0F, 0x48, 0x8B, 0x41, 0x20, 0x8B, 0xD2, 0x48, 0x8B, 0x0C, 0xD0, 0x48,
+            0x85, 0xC9, 0x75, 0x04, 0x83, 0xC8, 0xFF, 0xC3, 0x33, 0xD2, 0xE9, 0x45, 0xA8, 0x30, 0xFF, 0xCC,
+        };
+        const uint8_t set_int[] = {  // 0x1407AFAA0 inside ParamValue::SetInt (the guard is at +7)
+            0xE1, 0xFF, 0xFF, 0xFF, 0x7F, 0x77, 0x10, 0x41, 0x80, 0x78, 0x44, 0x00, 0x75, 0x3D, 0x44, 0x89,
+            0x26, 0xC6, 0x46, 0x44, 0x01, 0xEB, 0xC8, 0x83, 0xCB, 0xFF, 0x44, 0x8B, 0xD3, 0x33, 0xD2, 0x41,
+        };
+        struct Exp {
+            const char* name;
+            const uint8_t* bytes;
+            size_t n;
+            uint64_t va;
+            uint64_t expect;
+        } exp[] = {
+            {"speech_query_preprocess", preprocess, sizeof(preprocess), 0x1414A90C8ULL, 0x1414A90C8ULL},
+            {"commentary_get_callname", get_callname, sizeof(get_callname), 0x14294A0F4ULL, 0x14294A0F4ULL},
+            {"speech_param_name_layout", param_name, sizeof(param_name), 0x1414A95C0ULL, 0x1414A95C3ULL},
+            {"speech_param_get_int_layout", get_int, sizeof(get_int), 0x1414A9AE0ULL, 0x1414A9AE0ULL},
+            {"speech_param_set_int_store", set_int, sizeof(set_int), 0x1407AFAA0ULL, 0x1407AFAA7ULL},
+        };
+        // every snippet at +0x100 of a buffer based so that its VA is the real one
+        for (const auto& e : exp) {
+            const Signature* s = t->find(e.name);
+            CHECK(s && !s->pattern.empty() && s->resolve == "none" && s->offset == 0, std::string("entry ") + e.name);
+            if (!s) continue;
+            std::vector<uint8_t> code(0x400, 0xCC);
+            std::memcpy(code.data() + 0x100, e.bytes, e.n);
+            SigResult r = resolve_signature(*s, code.data(), code.size(), e.va - 0x100);
+            CHECK(r.state == SigState::Found && r.address == e.expect,
+                  fmt("%s resolves to 0x%llX (got 0x%llX, %s): %s", e.name, static_cast<unsigned long long>(e.expect),
+                      static_cast<unsigned long long>(r.address), sig_state_name(r.state), r.error.c_str()));
+        }
+        // a buffer that holds every snippet: no entry matches twice
+        {
+            std::vector<uint8_t> all(0x1000, 0xCC);
+            size_t off = 0x100;
+            for (const auto& e : exp) {
+                std::memcpy(all.data() + off, e.bytes, e.n);
+                off += 0x200;
+            }
+            for (const auto& e : exp) {
+                const Signature* s = t->find(e.name);
+                SigResult r = s ? resolve_signature(*s, all.data(), all.size(), 0x150000000ULL) : SigResult();
+                CHECK(r.state == SigState::Found && r.hits == 1, std::string(e.name) + " unique");
+            }
+        }
+        // the guards are the game's own reads and writes of the offsets core/callname_voice.h uses
+        auto byte_at = [&](const char* name, size_t i) -> uint64_t {
+            const Signature* s = t->find(name);
+            std::vector<uint8_t> b;
+            std::vector<bool> m;
+            if (!s || !parse_pattern(s->pattern, b, m) || i >= b.size() || !m[i]) return ~0ULL;
+            return b[i];
+        };
+        CHECK(byte_at("speech_param_name_layout", 2) == voice::kQueryCount && byte_at("speech_param_name_layout", 8) == voice::kQueryParams &&
+                  byte_at("speech_param_name_layout", 18) == voice::kPvDesc && byte_at("speech_param_name_layout", 22) == voice::kDescName,
+              "name guard: count +0x18, params +0x20, desc +0x30, name +0x20");
+        CHECK(byte_at("speech_param_get_int_layout", 2) == voice::kQueryCount && byte_at("speech_param_get_int_layout", 8) == voice::kQueryParams,
+              "GetInt guard: count +0x18, params +0x20");
+        // cmp byte [r8+0x44],0 / mov [rsi],r12d (ModRM 26: no displacement) / mov byte [rsi+0x44],1
+        CHECK(byte_at("speech_param_set_int_store", 3) == voice::kDescMulti && byte_at("speech_param_set_int_store", 4) == 0 &&
+                  byte_at("speech_param_set_int_store", 9) == 0x26 && voice::kPvValue == 0 &&
+                  byte_at("speech_param_set_int_store", 12) == voice::kPvIsSet && byte_at("speech_param_set_int_store", 13) == 1,
+              "SetInt guard: single value at desc +0x44, value +0x00, set flag +0x44 = 1");
     });
 }
 
