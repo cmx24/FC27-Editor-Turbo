@@ -671,6 +671,16 @@ generic ids + the game's audio service set". Verified in game on 2026-10-04: a g
 name (keeping the shown name through `editedplayernames`) is spoken (Bianchi 900762, Pirlo 926385, Del Piero 922149);
 a player with his own recording (Gutierrez 261865) keeps it whatever his name ids say.
 
+**All callnames (picker tab, `all_callnames`).** One type-ahead list (`##cnallsearch`, `##cnall`) of every callname the
+master lists: each generic id (commentary id, its `generic_names` text, the `playernames` rows with that commentary id
+and the players using them) sorted by text, then each player with his own recording (named by the database, else by
+the master). A generic id is assigned through the name row most players use (`request_name`: last name, shown name
+kept, same code path as By name); when no name row has it, through the player-specific path (`request_player_callname`
+-> `assign_player_callname`: edit in place, room check, spare-row takeover, never an insert into a full table; kept for
+the re-apply at career load). An own recording of another player is shown, not assignable ("The game always uses a
+player's own recording; giving it to another player is not possible yet."). The own-recording popup (`##cnown`) still
+comes before any write for a player with his own recording.
+
 **Keep shown name queue.** Turbo's Lua mailbox holds one command at a time; 1.0.2 as first built refused the second
 "keep shown name" (`set_display_name`) of players assigned in a row ("a command is still running"). The GUI now queues
 these actions (`LuaActionQueue`, `App::lua_queue`) and sends them, batched into one `callnames` command

@@ -202,6 +202,21 @@ struct CallnameIndex {
     void clear();
 };
 
+// One row of the "All callnames" picker: a generic surname recording of the language, or a player's own recording
+struct AllCallnameRow {
+    int64_t commentaryid = 0;  // generic: its commentary id (0 for an own recording)
+    int64_t playerid = 0;      // own recording: the player (0 for a generic id)
+    std::string text;          // the generic surname's text / the player's name
+    int64_t nameid = 0;        // generic: a playernames row with this commentary id (the one most players use), 0 = none
+    int name_rows = 0;         // generic: playernames rows with this commentary id
+    int users = 0;             // generic: players whose common or last name is one of those rows
+    bool own() const { return playerid != 0; }
+};
+// Every callname of the language the master lists: its generic ids (by text, then id), then the players with their own
+// recording (by name, then id). `player_name` gives a player's name ("" = the master's name for him, else his id).
+std::vector<AllCallnameRow> all_callnames(const MasterList& m, const CallnameIndex& ix,
+                                          const std::function<std::string(int64_t)>& player_name);
+
 class Callnames {
 public:
     // Find the packs, pick the language and load its spoken set: the hand-made list, else the bank capture cache;

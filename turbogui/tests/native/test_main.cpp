@@ -693,6 +693,32 @@ static void test_core() {
         CHECK(parse_master_list_json(R"({"language": "ita_it", "game": "fc27", "real_simple_players": [1, 2], "real_link_players": [2, 3]})", "ita_it",
                                      ml, &err) && ml.real_players.size() == 3 && ml.real(3),
               "no real_players: the union of the two banks");
+        // All callnames: every generic id of the master (with the name rows that use it) and every own recording
+        {
+            MasterList am;
+            am.game = "fc27";
+            am.generic_ids = {926385, 980010, 922149};
+            am.generic_names = {{926385, "Pirlo"}, {922149, "Del Piero"}};
+            am.real_players = {261865, 7};
+            am.names = {{7, "Seven"}};
+            CallnameIndex aix;
+            aix.name_commentary = {{50, 926385}, {51, 926385}, {52, 900017}};
+            aix.name_users = {{50, 1}, {51, 3}, {52, 9}};
+            const auto rows = all_callnames(am, aix, [](int64_t pid) { return pid == 261865 ? std::string("Gutierrez") : std::string(); });
+            CHECK(rows.size() == 5, fmt("all callnames: 3 generic + 2 own (%zu)", rows.size()));
+            if (rows.size() == 5) {
+                CHECK(!rows[0].own() && rows[0].commentaryid == 980010 && rows[0].nameid == 0 && rows[0].name_rows == 0,
+                      "a generic id no name row has: no name id (the player-specific route)");
+                CHECK(rows[1].text == "Del Piero" && rows[2].text == "Pirlo", "generic ids sorted by text");
+                CHECK(rows[2].nameid == 51 && rows[2].name_rows == 2 && rows[2].users == 4,
+                      fmt("a generic id with name rows: the most used row carries it (name %lld, %d rows, %d players)",
+                          static_cast<long long>(rows[2].nameid), rows[2].name_rows, rows[2].users));
+                CHECK(rows[3].own() && rows[3].playerid == 261865 && rows[3].text == "Gutierrez" && rows[4].text == "Seven",
+                      "own recordings after the generic ids, named by the database, else by the master");
+            }
+            MasterList none;
+            CHECK(all_callnames(none, aix, nullptr).empty(), "no master: no rows");
+        }
         // the GUI's queue of "keep shown name" actions (Turbo's mailbox holds one command at a time)
         {
             LuaActionQueue q;

@@ -55,6 +55,12 @@ an FC 27 master (`<name>_master_fc27.xlsm`, the same format, built from the game
   what was written, what could not be and what was left alone; a toast only when something was written or failed. A
   **Forget** button (per kit, per player) drops a kept edit; *Remove player-specific callname* drops it too.
   `turbo_output\reapply_off.txt` turns the re-apply off.
+- Players > Callname > **All callnames**: one type-ahead list of every callname the master lists for the loaded
+  language: each generic surname (commentary id, text, how many name rows and players use it) and each player's own
+  recording. A generic callname goes to the edited player through a name row that has it (his last name, the shown
+  name kept, as By name), else as his player-specific callname (as By player: his row edited, a row added when there
+  is room, else a spare row taken over; kept for career loads). Own recordings are listed but cannot be given to
+  another player yet. The own-recording confirmation still comes before any write.
 - Players > Callname > **Players without own recording**: the players of the same club whose callname the game does
   use, to pick a player a callname test can be heard on.
 - `turbo/tools/import_callname_masters.py`: reads the master workbooks of the seven languages (por_br, eng_us, fre_fr,
