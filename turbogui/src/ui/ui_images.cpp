@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <system_error>
 #include <unordered_set>
@@ -74,6 +75,13 @@ LegacyImages::State draw_legacy_picture(App& app, const std::string& path, float
         default: placeholder(side, "?"); break;
     }
     return st;
+}
+
+// "" = an item the game has no picture for (GearPictureIndex): final at once, nothing asked from the game
+static LegacyImages::State draw_item_picture(App& app, const std::string& path, float side) {
+    if (!path.empty()) return draw_legacy_picture(app, path, side, true);
+    placeholder(side, "no picture in the game");
+    return LegacyImages::State::Missing;
 }
 
 static void waiting_hint() {
@@ -599,6 +607,7 @@ bool picture_cell(App& app, const std::string& path, bool custom_first, float ce
     ImVec2 p0 = ImGui::GetCursorScreenPos();
     const float line = ImGui::GetTextLineHeight();
     if (none) placeholder(cell, "none");
+    else if (path.empty()) placeholder(cell, "no picture in the game");
     else draw_legacy_picture(app, path, cell, custom_first);
     ImGui::SetCursorScreenPos(p0);
     bool clicked = ImGui::InvisibleButton(id, ImVec2(cell, cell + line));
@@ -613,6 +622,7 @@ bool picture_cell(App& app, const std::string& path, bool custom_first, float ce
 // The real-face chooser (players and managers) is in ui_faces.cpp.
 
 // ---------------------------------------------------------------- tattoos
+static std::string tattoo_path(App& app, int64_t id);  // item galleries below
 static const char* kTattooAreas[][2] = {
     {"tattoohead", "Head"},          {"tattoofront", "Front"},        {"tattooback", "Back"},
     {"tattooleftarm", "Left arm"},   {"tattoorightarm", "Right arm"}, {"tattooleftleg", "Left leg"},
@@ -668,7 +678,7 @@ void tattoo_editor(App& app, const Table& t, uint64_t rec) {
             ImGui::TableNextColumn();
             Value v;
             app.db.get(t, rec, *f, v);
-            if (v.i > 0) draw_legacy_picture(app, legacy_path::tattoo_preview(v.i), thumb, true);
+            if (v.i > 0) draw_item_picture(app, tattoo_path(app, v.i), thumb);
             else placeholder(thumb, "none");
             ImGui::TableNextColumn();
             field_editor(app, t, rec, *f, "##tval", S(80.0f));
@@ -707,7 +717,7 @@ void tattoo_editor(App& app, const Table& t, uint64_t rec) {
                                 ImGui::PushID(static_cast<int>(id));
                                 char bid[48];
                                 std::snprintf(bid, sizeof(bid), "tattoo%lld", static_cast<long long>(id));
-                                if (picture_cell(app, id ? legacy_path::tattoo_preview(id) : std::string(), true, cell,
+                                if (picture_cell(app, id ? tattoo_path(app, id) : std::string(), true, cell,
                                                  id ? std::to_string(id) : std::string("None"), bid, v.i == id, id == 0))
                                     picked = id;
                                 ImGui::PopID();
@@ -738,54 +748,97 @@ void tattoo_editor(App& app, const Table& t, uint64_t rec) {
     if (app.legacy.waiting() > 0) waiting_hint();
 }
 
-// ---------------------------------------------------------------- item galleries (hair, boots, gloves, accessories)
+// ---------------------------------------------------------------- item galleries (hair, boots, gloves, accessories, outfits)
 // The game has preview pictures for these items (legacy files listed in <Live Editor>\legacy_filename_hash_list.csv):
-//   hairtypecode        data/ui/imgAssets/hairstyle/item_<id>_0.dds
-//   facialhairtypecode  data/ui/imgAssets/facialhairstyle/item_<id>_0.dds
-//   shoetypecode        data/ui/imgAssets/boots/item_<id>_0.dds
+//   hairtypecode        data/ui/imgAssets/craniumhair/hair_<id>_0.dds (FC 27: every id; else hairstyle/item_<id>_0.dds)
+//   facialhairtypecode  data/ui/imgAssets/craniumfacialhair/Facial_hair_<id>_0.dds, else facialhairstyle/item_<id>_0.dds
+//   shoetypecode        data/ui/imgAssets/shoe/shoe_<id>_0.dds (FC 27; else the older boots/item_<id>_<n...>.dds)
 //   gkglovetypecode     data/ui/imgAssets/gkglove/gkglove_<id>.dds
-//   accessorycode1..4   data/ui/imgAssets/accessories/item_<id>_<colour>.dds (colour = accessorycolourcodeN, else 0)
-// The ids come from that list, so the gallery shows exactly what the game can draw.
+//   accessorycode1..4   data/ui/imgAssets/accessories/item_<id>_<colour>.dds (colour = accessorycolourcodeN, else _0,
+//                       else the first one listed: some accessories have no _0)
+//   managers' outfitid  data/ui/imgAssets/outfit/item_<id>[_0].dds, else genericManagerOutfits/gmo_<id>_<n>.dds
+// The ids and file names come from that list (GearPictureIndex), so a gallery shows exactly what the game can draw and
+// an item the game has no picture for says so at once instead of waiting for the game.
+struct GallerySource {
+    const char* folder;  // under data/ui/imgAssets/ (nullptr = unused)
+    const char* prefix;  // file name prefix before the id
+    const char* rest;    // after the id when the list is not at hand ("_0" or "")
+};
 struct GalleryDef {
     const char* field;
     const char* title;
-    const char* folder;   // under data/ui/imgAssets/
-    const char* prefix;   // file name prefix before the id
-    bool variant;         // _<n> after the id
+    GallerySource src[2];  // the first that lists the id wins
     const char* colour_field;
 };
 static const GalleryDef kGalleries[] = {
-    {"hairtypecode", "Hair", "hairstyle", "item_", true, nullptr},
-    {"facialhairtypecode", "Facial hair", "facialhairstyle", "item_", true, nullptr},
-    {"shoetypecode", "Boots", "boots", "item_", true, nullptr},
-    {"gkglovetypecode", "GK gloves", "gkglove", "gkglove_", false, nullptr},
-    {"accessorycode1", "Accessory 1", "accessories", "item_", true, "accessorycolourcode1"},
-    {"accessorycode2", "Accessory 2", "accessories", "item_", true, "accessorycolourcode2"},
-    {"accessorycode3", "Accessory 3", "accessories", "item_", true, "accessorycolourcode3"},
-    {"accessorycode4", "Accessory 4", "accessories", "item_", true, "accessorycolourcode4"},
+    {"hairtypecode", "Hair", {{"craniumhair", "hair_", "_0"}, {"hairstyle", "item_", "_0"}}, nullptr},
+    {"facialhairtypecode", "Facial hair", {{"craniumfacialhair", "Facial_hair_", "_0"}, {"facialhairstyle", "item_", "_0"}}, nullptr},
+    {"shoetypecode", "Boots", {{"shoe", "shoe_", "_0"}, {"boots", "item_", "_0"}}, nullptr},
+    {"gkglovetypecode", "GK gloves", {{"gkglove", "gkglove_", ""}, {nullptr, nullptr, nullptr}}, nullptr},
+    {"accessorycode1", "Accessory 1", {{"accessories", "item_", "_0"}, {nullptr, nullptr, nullptr}}, "accessorycolourcode1"},
+    {"accessorycode2", "Accessory 2", {{"accessories", "item_", "_0"}, {nullptr, nullptr, nullptr}}, "accessorycolourcode2"},
+    {"accessorycode3", "Accessory 3", {{"accessories", "item_", "_0"}, {nullptr, nullptr, nullptr}}, "accessorycolourcode3"},
+    {"accessorycode4", "Accessory 4", {{"accessories", "item_", "_0"}, {nullptr, nullptr, nullptr}}, "accessorycolourcode4"},
+};
+static const GalleryDef kManagerGalleries[] = {
+    {"outfitid", "Outfit", {{"outfit", "item_", "_0"}, {"genericManagerOutfits", "gmo_", "_0"}}, nullptr},
 };
 
-static std::string item_path(const GalleryDef& g, int64_t id, int64_t colour) {
-    char buf[200];
-    if (g.variant) std::snprintf(buf, sizeof(buf), "data/ui/imgAssets/%s/%s%lld_%lld.dds", g.folder, g.prefix, static_cast<long long>(id), static_cast<long long>(colour));
-    else std::snprintf(buf, sizeof(buf), "data/ui/imgAssets/%s/%s%lld.dds", g.folder, g.prefix, static_cast<long long>(id));
-    return buf;
+void GearPictureIndex::add(const std::string& path) {
+    static const std::string pre = "data/ui/imgAssets/";
+    if (path.size() <= pre.size() + 4 || path.compare(0, pre.size(), pre) != 0) return;
+    const size_t slash = path.find('/', pre.size());
+    if (slash == std::string::npos || path.find('/', slash + 1) != std::string::npos) return;
+    if (lower(path.substr(path.size() - 4)) != ".dds") return;
+    const std::string fn = path.substr(slash + 1, path.size() - 4 - slash - 1);
+    size_t d = 0;
+    while (d < fn.size() && !std::isdigit(static_cast<unsigned char>(fn[d]))) ++d;
+    size_t e = d;
+    while (e < fn.size() && e - d < 12 && std::isdigit(static_cast<unsigned char>(fn[e]))) ++e;
+    if (d == 0 || e == d) return;  // "notfound.dds", "item__0.dds"
+    // key in lower case (the list mixes "hair_" and "Hair_"), the name as listed
+    const std::string name = path.substr(pre.size(), path.size() - 4 - pre.size());
+    auto& names = files[lower(path.substr(pre.size(), slash - pre.size()) + "/" + fn.substr(0, d))][std::atoll(fn.substr(d, e - d).c_str())];
+    if (std::find(names.begin(), names.end(), name) == names.end()) names.push_back(name);
 }
 
-// ids per folder from the hash list (read once per Live Editor folder)
-static std::map<std::string, std::vector<int64_t>> g_gallery_ids;
-static std::map<std::string, std::unordered_set<int64_t>> g_gallery_variants;  // "<folder>/<id>_<variant>"
-static fs::path g_gallery_root;
-static bool g_gallery_loaded = false;
+std::vector<int64_t> GearPictureIndex::ids(const std::string& folder, const std::string& prefix) const {
+    std::vector<int64_t> out;
+    auto it = files.find(lower(folder + "/" + prefix));
+    if (it != files.end())
+        for (const auto& kv : it->second) out.push_back(kv.first);
+    return out;
+}
 
-std::vector<int64_t> gallery_ids(App& app, const std::string& folder) {
+std::string GearPictureIndex::find(const std::string& folder, const std::string& prefix, int64_t id, int64_t colour) const {
+    auto it = files.find(lower(folder + "/" + prefix));
+    if (it == files.end()) return "";
+    auto jt = it->second.find(id);
+    if (jt == it->second.end() || jt->second.empty()) return "";
+    const size_t head = folder.size() + 1 + prefix.size() + std::to_string(id).size();  // "<folder>/<prefix><id>"
+    const std::vector<std::string>& names = jt->second;
+    std::string best = *std::min_element(names.begin(), names.end());
+    for (const std::string& want : {"_" + std::to_string(colour), std::string("_0"), std::string()}) {
+        auto nt = std::find_if(names.begin(), names.end(), [&](const std::string& n) { return n.compare(head, std::string::npos, want) == 0; });
+        if (nt != names.end()) {
+            best = *nt;
+            break;
+        }
+    }
+    return "data/ui/imgAssets/" + best + ".dds";
+}
+
+// read once per Live Editor folder
+static GearPictureIndex g_gear;
+static fs::path g_gear_root;
+static bool g_gear_loaded = false;
+
+const GearPictureIndex& gear_pictures(App& app) {
     fs::path root = app.bridge.root();
-    if (!g_gallery_loaded || g_gallery_root != root) {
-        g_gallery_loaded = true;
-        g_gallery_root = root;
-        g_gallery_ids.clear();
-        g_gallery_variants.clear();
-        std::map<std::string, std::unordered_set<int64_t>> seen;
+    if (!g_gear_loaded || g_gear_root != root) {
+        g_gear_loaded = true;
+        g_gear_root = root;
+        g_gear = GearPictureIndex();
         for (const fs::path& csv : {root / "legacy_filename_hash_list.csv", root / "extensions" / "legacy_filename_hash_list.csv"}) {
             std::ifstream in(csv, std::ios::binary);
             std::string line;
@@ -794,43 +847,54 @@ std::vector<int64_t> gallery_ids(App& app, const std::string& folder) {
                 if (semi == std::string::npos) continue;
                 std::string p = line.substr(semi + 1);
                 while (!p.empty() && (p.back() == '\r' || p.back() == ' ')) p.pop_back();
-                const std::string pre = "data/ui/imgAssets/";
-                if (p.rfind(pre, 0) != 0) continue;
-                size_t slash = p.find('/', pre.size());
-                if (slash == std::string::npos) continue;
-                std::string fld = p.substr(pre.size(), slash - pre.size());
-                for (const GalleryDef& g : kGalleries) {
-                    if (fld != g.folder) continue;
-                    std::string fn = p.substr(slash + 1);
-                    std::string pfx = g.prefix;
-                    if (fn.rfind(pfx, 0) != 0 || fn.size() < pfx.size() + 5 || fn.substr(fn.size() - 4) != ".dds") continue;
-                    std::string mid = fn.substr(pfx.size(), fn.size() - pfx.size() - 4);
-                    int64_t id = 0, var = 0;
-                    size_t us = mid.find('_');
-                    if (g.variant) {
-                        if (us == std::string::npos) continue;
-                        id = std::atoll(mid.substr(0, us).c_str());
-                        var = std::atoll(mid.substr(us + 1).c_str());
-                    } else {
-                        if (us != std::string::npos) continue;
-                        id = std::atoll(mid.c_str());
-                    }
-                    if (id < 0) continue;
-                    if (seen[fld].insert(id).second) g_gallery_ids[fld].push_back(id);
-                    g_gallery_variants[fld].insert(id * 1000 + var);
-                    break;
-                }
+                g_gear.add(p);
             }
         }
-        for (auto& kv : g_gallery_ids) std::sort(kv.second.begin(), kv.second.end());
     }
-    auto it = g_gallery_ids.find(folder);
-    return it == g_gallery_ids.end() ? std::vector<int64_t>() : it->second;
+    return g_gear;
 }
 
-static bool has_variant(const std::string& folder, int64_t id, int64_t var) {
-    auto it = g_gallery_variants.find(folder);
-    return it != g_gallery_variants.end() && it->second.count(id * 1000 + var) > 0;
+static std::vector<int64_t> gallery_ids(App& app, const GalleryDef& g) {
+    const GearPictureIndex& gx = gear_pictures(app);
+    std::vector<int64_t> ids;
+    for (const GallerySource& s : g.src)
+        if (s.folder)
+            for (int64_t id : gx.ids(s.folder, s.prefix)) ids.push_back(id);
+    std::sort(ids.begin(), ids.end());
+    ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+    return ids;
+}
+
+// The picture of item id; "" when the game has none. Without the list: the usual file name (asked from the game).
+static std::string item_path(App& app, const GalleryDef& g, int64_t id, int64_t colour) {
+    const GearPictureIndex& gx = gear_pictures(app);
+    if (gx.empty())
+        return std::string("data/ui/imgAssets/") + g.src[0].folder + "/" + g.src[0].prefix + std::to_string(id) + g.src[0].rest + ".dds";
+    for (const GallerySource& s : g.src) {
+        if (!s.folder) continue;
+        std::string p = gx.find(s.folder, s.prefix, id, colour);
+        if (!p.empty()) return p;
+    }
+    return "";
+}
+
+// Tattoo preview of id; "" when the list is at hand and the game has none
+static std::string tattoo_path(App& app, int64_t id) {
+    const GearPictureIndex& gx = gear_pictures(app);
+    return gx.empty() ? legacy_path::tattoo_preview(id) : gx.find("tattoo", "item_", id);
+}
+
+std::vector<std::string> gallery_preload_paths(App& app) {
+    std::vector<std::string> out;
+    if (gear_pictures(app).empty()) return out;  // nothing listed: asking would keep the galleries waiting
+    auto add = [&](const GalleryDef* b, const GalleryDef* e) {
+        for (const GalleryDef* g = b; g != e; ++g)
+            for (int64_t id : gallery_ids(app, *g)) out.push_back(item_path(app, *g, id, 0));
+    };
+    add(std::begin(kGalleries), std::end(kGalleries));
+    add(std::begin(kManagerGalleries), std::end(kManagerGalleries));
+    for (int64_t id : gear_pictures(app).ids("tattoo", "item_")) out.push_back(tattoo_path(app, id));
+    return out;
 }
 
 // favourites per gallery: gui_settings.json favourites.<field> = [ids]
@@ -854,18 +918,20 @@ static void toggle_favourite(App& app, const char* field, int64_t id) {
     app.save_gui_settings();
 }
 
-void item_galleries(App& app, const Table& t, uint64_t rec) {
+void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
     static int open_gal = -1;
     static bool fav_only = false;
     const float thumb = S(56.0f);
     bool any = false;
+    const GalleryDef* defs = manager ? kManagerGalleries : kGalleries;
+    const size_t ndefs = manager ? std::size(kManagerGalleries) : std::size(kGalleries);
     if (ImGui::BeginTable("##galleries", 4, ImGuiTableFlags_SizingFixedFit)) {
-        for (size_t gi = 0; gi < sizeof(kGalleries) / sizeof(kGalleries[0]); ++gi) {
-            const GalleryDef& g = kGalleries[gi];
+        for (size_t gi = 0; gi < ndefs; ++gi) {
+            const GalleryDef& g = defs[gi];
             const Field* f = t.field(g.field);
             if (!f) continue;
             any = true;
-            std::vector<int64_t> ids = gallery_ids(app, g.folder);
+            std::vector<int64_t> ids = gallery_ids(app, g);
             int64_t colour = g.colour_field ? app.db.get_int(t, rec, g.colour_field, 0) : 0;
             ImGui::PushID(static_cast<int>(gi));
             ImGui::TableNextRow();
@@ -876,8 +942,7 @@ void item_galleries(App& app, const Table& t, uint64_t rec) {
             Value v;
             app.db.get(t, rec, *f, v);
             if (v.i > 0) {
-                int64_t var = has_variant(g.folder, v.i, colour) ? colour : 0;
-                draw_legacy_picture(app, item_path(g, v.i, var), thumb, true);
+                draw_item_picture(app, item_path(app, g, v.i, colour), thumb);
             } else {
                 placeholder(thumb, "none");
             }
@@ -929,9 +994,8 @@ void item_galleries(App& app, const Table& t, uint64_t rec) {
                                 char bid[64];
                                 std::snprintf(bid, sizeof(bid), "%s%lld", g.field, static_cast<long long>(id));
                                 bool fav = id && is_favourite(app, g.field, id);
-                                int64_t var = has_variant(g.folder, id, colour) ? colour : 0;
                                 std::string cap = id ? (fav ? "* " : "") + std::to_string(id) : std::string("None");
-                                if (picture_cell(app, id ? item_path(g, id, var) : std::string(), true, cell, cap, bid, v.i == id, id == 0))
+                                if (picture_cell(app, id ? item_path(app, g, id, colour) : std::string(), true, cell, cap, bid, v.i == id, id == 0))
                                     picked = id;
                                 if (id && ImGui::IsItemClicked(ImGuiMouseButton_Right)) toggle_favourite(app, g.field, id);
                                 ImGui::PopID();
@@ -959,7 +1023,8 @@ void item_galleries(App& app, const Table& t, uint64_t rec) {
         }
         ImGui::EndTable();
     }
-    if (!any) ImGui::TextDisabled("None of the hair / boots / gloves / accessory fields exist in this players table.");
+    if (!any) ImGui::TextDisabled(manager ? "The outfitid field does not exist in this manager table."
+                                          : "None of the hair / boots / gloves / accessory fields exist in this players table.");
     if (app.legacy.waiting() > 0) waiting_hint();
 }
 

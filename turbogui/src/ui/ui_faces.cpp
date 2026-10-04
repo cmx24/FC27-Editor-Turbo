@@ -480,6 +480,8 @@ void manager_appearance(App& app, const Table& t, const ManagerRow& m) {
     ImGui::TextDisabled("Miniface: heads_staff_%lld (edit or render it in the Miniface tab)", static_cast<long long>(head));
     ImGui::EndGroup();
     manager_real_face_picker(app, m.managerid);
+    ImGui::SeparatorText("Outfit");
+    item_galleries(app, t, m.rec, true);  // the game's outfit pictures (ui_images.cpp)
     ImGui::SeparatorText("Appearance fields");
     field_grid(app, t, m.rec,
                {"headassetid", "headclasscode", "hashighqualityhead", "headtypecode", "headvariation", "skintonecode", "skintypecode",

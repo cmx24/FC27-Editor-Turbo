@@ -145,7 +145,8 @@ private:
                 for (const auto& f : faces) add(legacy_path::player_miniface(f.second));
             }
         }
-        if (const Table* t = app.db.table("tattoo")) {
+        // tattoos: from the table only without the hash list (with it, gallery_preload_paths has the ones with a picture)
+        if (const Table* t = gear_pictures(app).empty() ? app.db.table("tattoo") : nullptr) {
             const Field* idf = t->field("tattooid");
             Snapshot snap;
             if (idf && snap.load(app.db.memory(), *t)) {
@@ -156,24 +157,9 @@ private:
                 for (int64_t id : ids) add(legacy_path::tattoo_preview(id));
             }
         }
-        // item previews (ui_images.cpp kGalleries: same file names). gallery_ids reads Live Editor's hash list once per
-        // session: without the list there is nothing to load, and asking would keep the galleries empty until restart
-        static const struct { const char* folder; const char* prefix; bool variant; } kItems[] = {
-            {"hairstyle", "item_", true}, {"facialhairstyle", "item_", true}, {"boots", "item_", true},
-            {"gkglove", "gkglove_", false}, {"accessories", "item_", true}};
-        std::error_code ec;
-        const std::filesystem::path root = app.bridge.root();
-        const bool have_list = std::filesystem::is_regular_file(root / "legacy_filename_hash_list.csv", ec) ||
-                               std::filesystem::is_regular_file(root / "extensions" / "legacy_filename_hash_list.csv", ec);
-        for (const auto& g : kItems) {
-            if (!have_list) break;
-            for (int64_t id : gallery_ids(app, g.folder)) {
-                char buf[200];
-                if (g.variant) std::snprintf(buf, sizeof(buf), "data/ui/imgAssets/%s/%s%lld_0.dds", g.folder, g.prefix, static_cast<long long>(id));
-                else std::snprintf(buf, sizeof(buf), "data/ui/imgAssets/%s/%s%lld.dds", g.folder, g.prefix, static_cast<long long>(id));
-                add(buf);
-            }
-        }
+        // gear previews (players' hair, boots, gloves, accessories, tattoos; managers' outfits): exactly the files Live
+        // Editor's hash list names (ui_images.cpp, same paths as the galleries); none without the list
+        for (const std::string& p : gallery_preload_paths(app)) add(p);
         for (const auto& tr : app.model.teams()) add(crest_main_path(tr.teamid));
         // Managers > Appearance > Choose a real face, "Manager heads" (ui_faces.cpp): their heads_staff pictures
         for (const auto& f : manager_faces(app))

@@ -2,6 +2,7 @@
 #pragma once
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -47,10 +48,24 @@ size_t real_face_count(App& app);
 bool apply_real_face(App& app, int64_t target_pid, int64_t owner_pid, const RealFaceOptions& o, std::string* msg);
 // Tattoo per body area with preview and picker
 void tattoo_editor(App& app, const Table& t, uint64_t rec);
-// Hair, facial hair, boots, GK gloves and accessories with the game's preview pictures, picker grids and favourites
-void item_galleries(App& app, const Table& t, uint64_t rec);
-// Item ids the game has previews for (legacy_filename_hash_list.csv), per imgAssets folder (hairstyle, boots, ...)
-std::vector<int64_t> gallery_ids(App& app, const std::string& folder);
+// Hair, facial hair, boots, GK gloves and accessories (players) or the outfit (managers: manager = true) with the game's
+// preview pictures, picker grids and favourites
+void item_galleries(App& app, const Table& t, uint64_t rec, bool manager = false);
+// Gear preview pictures the game has (legacy_filename_hash_list.csv paths under data/ui/imgAssets/), by folder and file
+// name prefix (any letter case): "shoe/shoe_192_0.dds", "accessories/item_150_3.dds", "boots/item_1_0_0_0.dds", "outfit/item_6067.dds"
+struct GearPictureIndex {
+    std::map<std::string, std::map<int64_t, std::vector<std::string>>> files;  // lower-case "<folder>/<prefix>" -> id -> "<folder>/<file>" as listed
+    void add(const std::string& path);  // one listed path (others are ignored)
+    bool empty() const { return files.empty(); }
+    std::vector<int64_t> ids(const std::string& folder, const std::string& prefix) const;
+    // The listed picture of item id: colour variant _<colour>, else _0, else no suffix, else the first listed one;
+    // "" when the game has none (show "no picture in the game", never ask the game for it)
+    std::string find(const std::string& folder, const std::string& prefix, int64_t id, int64_t colour = 0) const;
+};
+// Live Editor's list (<LE> and <LE>\extensions), read once per Live Editor folder
+const GearPictureIndex& gear_pictures(App& app);
+// Every gallery picture (players' and managers' gear, tattoos) the game has, for the background loading (ui/preload.h)
+std::vector<std::string> gallery_preload_paths(App& app);
 // Status tab: picture cache
 void images_status(App& app);
 
