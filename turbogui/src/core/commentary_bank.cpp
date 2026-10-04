@@ -72,18 +72,23 @@ const char* bank_table_kind_name(BankTableKind k) {
     switch (k) {
         case BankTableKind::Surnames: return "surnames";
         case BankTableKind::Players: return "players";
+        case BankTableKind::Index: return "index";
+        case BankTableKind::Rejected: return "rejected";
         default: return "unknown";
     }
 }
 
-BankTableKind classify_bank_table(uint32_t min_value, uint32_t max_value, size_t rows) {
+BankTableKind classify_bank_table(uint32_t min_value, uint32_t max_value, size_t rows, size_t distinct) {
     if (rows < kBankMinTableRows) return BankTableKind::Unknown;
+    const double span = double(max_value) - double(min_value) + 1.0;
+    if (distinct > 2 && double(distinct) / span > kBankMaxDensity) return BankTableKind::Index;
     if (min_value >= uint32_t(kCallnameMin) && max_value <= uint32_t(kCallnameMax)) return BankTableKind::Surnames;
     if (min_value >= 1 && max_value <= kBankMaxPlayerId) return BankTableKind::Players;
     return BankTableKind::Unknown;
 }
 
-std::vector<BankTable> group_bank_tables(std::vector<BankRow>& rows, Memory* mem, std::vector<size_t>* row_table) {
+std::vector<BankTable> group_bank_tables(std::vector<BankRow>& rows, Memory* mem, std::vector<size_t>* row_table,
+                                         const std::unordered_set<int64_t>* known) {
     std::sort(rows.begin(), rows.end(), [](const BankRow& a, const BankRow& b) { return a.addr < b.addr; });
     std::vector<BankTable> out;
     if (row_table) row_table->assign(rows.size(), 0);
@@ -112,7 +117,13 @@ std::vector<BankTable> group_bank_tables(std::vector<BankRow>& rows, Memory* mem
                 t.header_ok = t.header == t.rows;
             }
         }
-        t.kind = classify_bank_table(t.min_value, t.max_value, t.rows);
+        t.kind = classify_bank_table(t.min_value, t.max_value, t.rows, t.distinct);
+        if (t.kind == BankTableKind::Surnames && known) {
+            size_t hit = 0;
+            for (uint32_t v : vals)
+                if (known->count(v)) ++hit;
+            if (double(hit) < kBankMinKnownShare * double(vals.size())) t.kind = BankTableKind::Rejected;
+        }
         out.push_back(t);
         i = j;
     }
@@ -120,7 +131,7 @@ std::vector<BankTable> group_bank_tables(std::vector<BankRow>& rows, Memory* mem
 }
 
 BankCapture capture_commentary_bank(Memory& mem, const std::vector<Region>& regions, const std::function<bool()>& cancelled,
-                                    const std::function<double()>& clock, size_t chunk) {
+                                    const std::function<double()>& clock, size_t chunk, const std::unordered_set<int64_t>* known) {
     BankCapture c;
     const double t0 = clock ? clock() : 0.0;
     if (chunk < kBankRowSize * 2) chunk = kBankRowSize * 2;
@@ -153,7 +164,7 @@ BankCapture capture_commentary_bank(Memory& mem, const std::vector<Region>& regi
     rows.erase(std::unique(rows.begin(), rows.end(), [](const BankRow& x, const BankRow& y) { return x.addr == y.addr; }), rows.end());
     c.rows = rows.size();
     std::vector<size_t> row_table;
-    c.tables = group_bank_tables(rows, &mem, &row_table);
+    c.tables = group_bank_tables(rows, &mem, &row_table, known);
     for (size_t k = 0; k < rows.size(); ++k) {
         const BankTable& t = c.tables[row_table[k]];
         if (t.kind == BankTableKind::Surnames) c.surnames.insert(rows[k].value);
@@ -170,12 +181,14 @@ BankCapture capture_commentary_bank(Memory& mem, const std::vector<Region>& regi
     for (const auto& t : c.tables) {
         if (t.kind == BankTableKind::Surnames) ++surname_tables;
         if (t.kind == BankTableKind::Players) ++player_tables;
+        if (t.kind == BankTableKind::Index || t.kind == BankTableKind::Rejected) ++c.rejected;
     }
     c.ok = !c.surnames.empty() || !c.players.empty();
+    std::string rej = c.rejected ? " (" + std::to_string(c.rejected) + " runs rejected: dense index or unknown ids)" : "";
     c.note = c.ok ? std::to_string(c.rows) + " rows in " + std::to_string(c.tables.size()) + " tables (" + std::to_string(surname_tables) +
                         " surname, " + std::to_string(player_tables) + " player-keyed): " + std::to_string(c.surnames.size()) +
-                        " spoken surnames, " + std::to_string(c.players.size()) + " players with recordings"
-                  : "no selection table found in memory (is a commentary bank loaded?)";
+                        " spoken surnames, " + std::to_string(c.players.size()) + " players with recordings" + rej
+                  : "no selection table found in memory" + rej + " (the bank's sample index is not a selection table; docs/callnames.md section 6)";
     return c;
 }
 
@@ -200,6 +213,7 @@ std::string bank_cache_json(const BankCapture& c, const std::string& lang, const
     j["source"] = "live bank capture";
     j["note"] = c.note;
     j["rows"] = c.rows;
+    j["rejected"] = c.rejected;
     j["regions"] = c.regions;
     j["bytes"] = c.bytes;
     j["seconds"] = c.seconds;
@@ -256,7 +270,8 @@ bool parse_bank_cache_json(const std::string& text, BankCache& out, std::string*
             b.header = t.value("header", 0u);
             b.header_ok = t.value("header_ok", false);
             std::string k = t.value("kind", std::string());
-            b.kind = k == "surnames" ? BankTableKind::Surnames : k == "players" ? BankTableKind::Players : BankTableKind::Unknown;
+            b.kind = k == "surnames" ? BankTableKind::Surnames : k == "players" ? BankTableKind::Players
+                   : k == "index" ? BankTableKind::Index : k == "rejected" ? BankTableKind::Rejected : BankTableKind::Unknown;
             out.tables.push_back(b);
         }
     if (out.surnames.empty() && out.players.empty()) {

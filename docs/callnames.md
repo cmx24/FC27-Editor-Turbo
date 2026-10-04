@@ -87,12 +87,15 @@ Three sources, in this order (`Callnames::refresh`):
    FIFA Editor Tool "Export Data Set" of the language's `pSIMPLE_SURNAME` selection table, whose `surname_ID` column is
    the commentary id). It is an **override**: when present its ids are the spoken surnames, whatever the capture says.
    `turbo/package/turbo/callnames/spoken_por_br.txt` ships as an example (FC 26 PT-BR generic bank, 1,703 ids).
-2. **Turbo's own capture of the loaded bank** (`core/commentary_bank.cpp`, §6): the selection tables of the commentary
-   families the game has in memory are read on a background thread, the surname ids with a recording and the player
-   ids with their own recordings are cached in `<Live Editor>\turbo_output\callnames\spoken_<lang>.json` (format §6.4)
-   and used from then on. The capture starts by itself the first time the Callname tab is opened without a list or a
-   cache, and on the button *Capture from the loaded bank*. The players with recordings come from the capture even
-   when a hand-made list overrides the surnames.
+2. **Turbo's own capture of the loaded bank** (`core/commentary_bank.cpp`, §6): a background thread scans the game's
+   private memory for the bank's selection rows, groups them into tables, and caches the surname ids with a recording
+   and the player ids with their own recordings in `<Live Editor>\turbo_output\callnames\spoken_<lang>.json` (format
+   §6.4). The capture starts by itself the first time the Callname tab is opened without a list or a cache, and on the
+   button *Capture from the loaded bank*. **Status (2026-10-04): the record shape the capture looks for turned out to
+   be the bank's sample index, not a selection table (§6.2); the capture now rejects such runs (dense consecutive keys,
+   values the database does not know) and reports "no selection table found", so the tab keeps the fallback until the
+   real tables are located.** The players with recordings come from the capture even when a hand-made list overrides
+   the surnames.
 3. **Fallback**: every commentary id that `playernames` uses (other than 900000) counts as spoken; the tab says
    "Unverified: …" in orange and names the files it looked for.
 
@@ -181,95 +184,105 @@ The sibling 0x1480aef9c (`GetCommentaryName(id)`) returns `NAME` and `PREVIEW_AV
 rows of the letter, filtered by the bank's own audio check — exactly what Turbo's capture reproduces from the tables,
 without the per-letter paging.
 
-## 6. The loaded bank's selection tables in memory (what Turbo reads)
+## 6. The loaded bank in memory: what was found, what Turbo reads
 
-### 6.1 Finding them
+### 6.1 The 64-byte records (the bank's sample index, not a selection table)
 
 The selection tables are not reachable through names (the asset names `pSIMPLE_SURNAME` / `pPLAYER_NAMES_SIMPLE` and
 the bundle name `ita_it_FULL` exist nowhere in memory: Frostbite hashes them) and, outside a match, not through the
-event registry either (§5.1). They were found by their *content*: a `find` for the little-endian commentary ids of
-names known from the FC 26 PT-BR export (920014 Abbiati, 930142 Carrillo, 930671 Yun, 930456 Murillo) gave, besides
-Turbo's own tables and the dev service's pattern buffer, two hits per id 64 bytes apart or further in private heap
-memory around 0x3D74xxxxx–0x3D94xxxxx, each inside a run of 64-byte records with the same shape. The shape (row = one
-recorded variation; selector values as FET shows them in the family's Data Set):
+event registry either (§5.1). A `find` for the little-endian commentary ids of names known from the FC 26 PT-BR export
+(920014 Abbiati, 930142 Carrillo, 930671 Yun, 930456 Murillo) gave two hits per id in private heap memory around
+0x3D74xxxxx–0x3D97xxxxx, each inside long runs of 64-byte, 16-byte-aligned records of one shape:
 
 ```
-+0x00 u32 selector value     surname_ID (commentary id) or player_db_pID (player id) or a team id
-+0x04 u32 0
-+0x08 ptr|3                  the variation object (tagged pointer, both low bits set)
-+0x10 u32 player_intensity   2 in every row seen
-+0x14 u32 0
-+0x18 u32 variation hash     FET's VariationId
-+0x1c u32 0x88 | index << 8  row index inside the table (0x88 = the EBX type tag of every row)
-+0x20 ptr|3, +0x28 ptr|3, +0x30 ptr|3   selector objects (two of them shared by many rows, e.g. 0x128FF9D20)
-+0x38 u32 cm_sim             1 in every row seen
-+0x3c u32 0
++0x00 u32 key            +0x04 u32 0
++0x08 ptr|3              a record of the same shape (tagged pointer, low bits set)
++0x10 u32 2              +0x14 u32 0
++0x18 u32 hash           +0x1c u32 0x88 | index << 8   (the EBX instance tag every object of the partition carries)
++0x20 ptr|1 / ptr|3      +0x28 ptr|3      +0x30 ptr|1 / ptr|3
++0x38 u32 1              +0x3c u32 0
 ```
 
-Rows are 16-byte aligned and contiguous inside a Frostbite array whose element count (bit 31 set) sits 4 bytes before
-the first row. The two rows of one id differ in the variation hash, the index and the pointers (the two recordings of
-the name), never in the selector values — the "two selection rows per surname_ID, all player_intensity = 2" the
-user measured in FET for FC 26 PT-BR.
+Reading every run back (`docs/re/E4-callnames-live/tables_live_2026-10-04.json`, 149 runs, 138,802 records with a
+key in the 0x0D/0x0E byte range alone) showed what they are: **one key-sorted sequence**, each run's highest key being
+the next run's lowest (851,962 → 947,313; the runs are only split by the 4 KB guard pages between the 68 KB heap
+regions), two records per key with a few singles, 35,486 distinct keys in 900000..947313 alone — far more than the
+4,849 ids of `commentarynames`. The keys are the bank's sample numbers, the records are the nodes of a map/tree over
+them (`+0x20` and `+0x30` of leaf nodes point at two shared sentinel nodes, 0x128FF9D20 / 0x128FF9460; `+0x08` and
+`+0x28` at other nodes), and the known commentary ids were found simply because every integer of the range is a key.
+Selector values packed as int or float triples (cm_sim, surname_ID, player_intensity in any order, for 920014) exist
+nowhere in memory: the selection data is stored in another form (per-variation parameter objects with hashed names,
+§5.1's `part+0x38` list, most likely), which was not reached before the game restart of 2026-10-04 00:15.
 
-Turbo (`capture_commentary_bank`) scans the game's committed private regions (host: `VirtualQuery`, MEM_PRIVATE,
-readable, at least 64 KB) in 1 MB chunks with a 48-byte overlap, keeps every 16-byte aligned record that passes
-`parse_bank_row` (zero words, intensity and cm_sim in 1..15, tag 0x88, four tagged user-mode pointers), groups the
-rows 64 bytes apart into tables, reads each table's array header, and classifies a table of 8+ rows by its values:
-all in 900000..965000 → a **surname family** (its ids are spoken surnames); all in 1..400000 → a **player-keyed
-family** (its ids are players with their own recordings). Teams are keyed by small ids too (`team_ID`), so a
-player-keyed table may be a team-name family: the player set is therefore "players whose id appears in a player-keyed
-table", and the cache keeps per player in how many such tables it appears. Everything else (tiny runs, mixed values)
-is ignored. The scan of this PC's game (6.9 GB readable, 3.8 GB private) takes a few seconds on the capture thread.
+So the row shape that `capture_commentary_bank` matches is this index. The capture keeps the mechanism (scan of the
+private regions on a background thread, run grouping, cache, UI) but **rejects** what it finds unless it looks like a
+selection table:
+
+* a run whose distinct keys cover more than half of their own range is an *Index* (`classify_bank_table`,
+  `kBankMaxDensity`); the sample index covers ~100 %;
+* a surname table must consist, for at least 90 % of its values, of commentary ids the database knows
+  (`commentarynames.commentaryid`, else the ids `playernames` uses; `App::commentary_ids`), otherwise *Rejected*;
+* player-keyed tables (values 1..400000) are only accepted when sparse, like the surname ones.
+
+On this PC's hub the result is therefore "no selection table found (N runs rejected: dense index or unknown ids)", the
+cache is not written and the tab keeps the fallback. The native tests feed synthetic sparse tables and a dense run.
 
 ### 6.2 What is resident in the career hub (2026-10-04, ita_it)
 
-The dev-service scan (`scripts/re/callnames_bank.py scan`) over 0x3D4000000..0x3DC000000: see the numbers in the
-report of track E4 and in `turbo_output\callnames\spoken_ita_it.json` once Turbo has run its capture. Surname-range
-rows alone exceed 44,000 in that area, i.e. many surname-keyed families (the full bank, not only the launch bank, is
-resident while the career is loaded), each with the same ids; the union of their ids is the spoken surname set.
+* The sample index above: ~140k records / ~95k keys (851,962..947,313 and below), i.e. the whole full bank's samples
+  are indexed while the career is loaded, not only the launch bank's.
+* The base `CommentaryDb` (EBX partition 0x309250000.., 10,201 named events, candidate arrays empty) and the event
+  registry (15,173 buckets, 8,297 used, 12,395 nodes); the language db's event map is empty (count 1, sentinel):
+  nothing bound outside a match.
+* The speech bank descriptors of all 14 languages (`…/ita_it/ita_it_commentary_brt`, `_launch_`, `_wc_`, PENTA) and
+  the file-system list of the four installed commentary superbundles (§2).
+* Live Editor's / the game's own name tables in EBX form (32-byte `playernames`-like rows with commentaryid 900000 at
+  0x3FFD26xxx, 56-byte `commentarynames`-like rows with the name text inline at 0x40037Bxxx).
 
 ### 6.3 Static anchors (for later tracks)
 
 | item | address | signature |
 |---|---|---|
 | `SpeechSystem*` global | 0x14C27D590 | `speech_system_ptr`: `48 8B 0D ?? ?? ?? ?? 48 8B 01 FF 90 F0 00 00 00 48 8D 54 24 20 48 8B 08 4C 8B 81 D8 00 00 00` (rip, unique at 0x1444f6b2d) |
-| global sound system | `[0x14C255BB8]` (vtable 0x1496FB5A8, slot 1 = variation selection 0x142f57718) | — |
+| `[SpeechSystem+0x50]` | the commentary event registry (§5.1) | — |
+| `[SpeechSystem+0x58]` | the variation selector (vtable 0x14AB5CB20; slot 0xd8 = 0x141a8a2fc, a cache keyed by the part descriptor in front of a callback) | — |
+| global sound system | `[0x14C255BB8]` (vtable 0x1496FB5A8, slot 1 = 0x142f57718, the Frostbite sound-entity start with parameters) | — |
 | audio service used by the Create Player list | `[0x14C2A8590]` | — |
-| `CommentaryBridge` vtable | 0x14A8DC8C0 (slot 23 = HasAudio 0x14294fca0, slot 33 = GetName) | object at 0x82D58940 on this run (+0x70 sub-object) |
+| `CommentaryBridge` vtable | 0x14A8DC8C0 (slot 23 = HasAudio 0x14294fca0, slot 33 = GetName) | object at 0x82D58940 on that run (+0x70 sub-object) |
 
 ### 6.4 The cache file
 
 `turbo_output\callnames\spoken_<lang>.json`: `{"turbo_spoken": 2, "lang", "when", "build", "source", "note", "rows",
-"regions", "bytes", "seconds", "surnames": [ids…], "players": [[playerid, tables]…], "tables": [{start, end, rows,
-distinct, min, max, header, header_ok, kind}…]}`. A cache for another language or with no ids is rejected (the tab
-says why). Delete the file to force a new capture, or press *Capture from the loaded bank*.
+"rejected", "regions", "bytes", "seconds", "surnames": [ids…], "players": [[playerid, tables]…], "tables": [{start,
+end, rows, distinct, min, max, header, header_ok, kind}…]}`. A cache for another language or with no ids is rejected
+(the tab says why). Delete the file to force a new capture, or press *Capture from the loaded bank*.
 
 ## 7. In-game test plan
 
-1. In the career hub open Players > a Napoli player > Callname. Expected: "Spoken set from live bank capture …:
-   N names, M player callnames" within a few seconds of the first visit (the log says `callnames: bank capture
-   started` / `… rows in … tables`); `turbo_output\callnames\spoken_ita_it.json` exists.
-2. Cross-check with the game: Create Player > commentary name list for one letter must equal the names of that
-   letter in Turbo's By-name picker (the game's list is `commentarynames` of the letter filtered by the bank, §5.2).
-3. Pick a spoken surname (e.g. *Abbiati*, 920014, or any Italian name from the picker) for a Napoli starter with
-   *Assign as last name* + *Keep the shown name*; play a short match (Napoli, 2-minute halves). Expected: the
-   commentator says the chosen surname, the name on screen is unchanged.
-4. Create the override file `turbo\callnames\spoken_ita_it.txt` with one id that the capture does **not** list
-   (an id from `commentarynames` with `commentarypreview` 0 for a name that is not Italian-recorded), press Refresh,
-   assign it, play a match: expected silence for that player (no name spoken). Delete the file and press Refresh:
-   the capture set is back.
-5. Players with their own recordings: a star player (Turbo shows "Recorded by name in ita_it") is spoken by name even
-   after *Remove player-specific callname…* — the recordings are bound to the player id in the bank.
-6. During the match press *Capture from the loaded bank* once more and compare the counts with the hub's capture
-   (the full bank is loaded for the match).
+1. Career hub, Players > a Napoli player > Callname. Expected today: the orange "Unverified" line, a capture that
+   starts by itself and ends within seconds with "no selection table found (… runs rejected …)" in the status line
+   (log: `callnames: bank capture started` / `… rejected …`); no `spoken_ita_it.json` is written; the pickers list every
+   name `playernames` uses.
+2. Cross-check against the game while the real tables are still being located: Create Player > commentary name list
+   of one letter is `commentarynames` of that letter filtered by the bank (§5.2); a name present there is spoken.
+3. Pick a name that Create Player lists (e.g. an Italian surname) for a Napoli starter with *Assign as last name* +
+   *Keep the shown name*; play a short match (2-minute halves). Expected: the commentator says the chosen surname, the
+   name on screen is unchanged.
+4. Override: write `turbo\callnames\spoken_ita_it.txt` with one id that Create Player does **not** list, press
+   Refresh (the tab shows "hand-made list"), assign it, play a match: expected silence for that player. Delete the
+   file, Refresh: the fallback is back.
+5. During a match press *Capture from the loaded bank* and read the status line: it reports how many runs were seen
+   and rejected (the sample index of the full bank), which is the data for the next RE step, not a spoken set.
 
 ## 8. Open points
 
-* The language of a resident table is inferred from the installed packs (one downloaded language) — if the base
-  English bank were resident at the same time its ids would be captured too; the counts per table in the cache show
-  whether more than one family set is present.
-* The player-keyed tables are not told apart from team-keyed ones (same value range); a player id that happens to
-  equal a team id with a recording would be marked "recorded by name" wrongly. Reading the selector-parameter name
-  through the row's pointers (`+0x20..+0x30` objects) would settle it; not done.
-* The per-event binding (language db, §5.1) was only seen empty (career hub); confirming the asset pointers
-  (`part+0x28`) against the captured tables during a match is a follow-up for the in-game test.
+* **The selection tables are still to be located.** Known: the event → part → `part+0x28` asset / `part+0x38`
+  selector-parameter list is only bound while a match runs (§5.1); the sound system's variation selection
+  (0x142f57718 → 0x142f573c0) takes the parameters as (hash, value) pairs. Next step: during a match, read the
+  `PLAYER_NAME_FE` / `PLAYER_LOW_SIMPLE` candidates through the language db (`scripts/re/callnames_bank.py chain`),
+  dump `part+0x28` and `part+0x38`, and find where the per-variation selector values live; or hook 0x145acd02c and
+  log (asset, parameter hashes, values) for one spoken name.
+* The capture's row signature should then be replaced by the real table layout; the scan/grouping/cache/UI stay.
+* The language of a resident table would be inferred from the installed packs (one downloaded language); if the base
+  English bank were resident too, its ids would be captured as well.
+* Player-keyed tables are not told apart from team-keyed ones by value range; the selector-parameter name settles it.

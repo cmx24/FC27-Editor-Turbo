@@ -52,7 +52,7 @@ bool parse_bank_row(const uint8_t* p, BankRow& out);
 // Every row in buf (its first byte at address `base`), tried at 16-byte steps; appended to `out`. Returns how many.
 size_t find_bank_rows(const uint8_t* buf, size_t len, uint64_t base, std::vector<BankRow>& out);
 
-enum class BankTableKind { Unknown, Surnames, Players };
+enum class BankTableKind { Unknown, Surnames, Players, Index, Rejected };
 const char* bank_table_kind_name(BankTableKind k);
 
 struct BankTable {
@@ -66,14 +66,21 @@ struct BankTable {
 };
 
 // Which family a table belongs to, from its values alone: every value a commentary id -> Surnames; every value a
-// small id (1..kBankMaxPlayerId) -> Players; anything else (mixed, tiny) -> Unknown.
+// small id (1..kBankMaxPlayerId) -> Players; anything else (mixed, tiny) -> Unknown. A run whose values cover more
+// than kBankMaxDensity of their own range is an index of consecutive keys (the bank's sample map, seen 2026-10-04 with
+// keys 851962..947313, two rows each), never a selection table: Index.
 constexpr uint32_t kBankMaxPlayerId = 400000;
 constexpr size_t kBankMinTableRows = 8;
-BankTableKind classify_bank_table(uint32_t min_value, uint32_t max_value, size_t rows);
+constexpr double kBankMaxDensity = 0.5;
+constexpr double kBankMinKnownShare = 0.9;  // share of a surname table's values that must be known commentary ids
+BankTableKind classify_bank_table(uint32_t min_value, uint32_t max_value, size_t rows, size_t distinct);
 
 // Sorted rows -> tables (runs of rows 64 bytes apart). With `mem` the array header before each run is read and
-// compared with the run length; `row_table` (optional) receives the table index of every row.
-std::vector<BankTable> group_bank_tables(std::vector<BankRow>& rows, Memory* mem, std::vector<size_t>* row_table);
+// compared with the run length; `row_table` (optional) receives the table index of every row. With `known` (the
+// commentary ids of the database's commentarynames table) a surname table whose values are not at least
+// kBankMinKnownShare known ids is Rejected.
+std::vector<BankTable> group_bank_tables(std::vector<BankRow>& rows, Memory* mem, std::vector<size_t>* row_table,
+                                         const std::unordered_set<int64_t>* known = nullptr);
 
 struct BankCapture {
     bool ok = false;
@@ -81,6 +88,7 @@ struct BankCapture {
     std::unordered_set<int64_t> surnames;             // commentary ids with a recording (surname families)
     std::unordered_map<int64_t, int> players;         // player id -> number of player-keyed tables it is in
     std::vector<BankTable> tables;
+    size_t rejected = 0;                              // runs of 8+ rows that are an index or failed the known-id check
     size_t rows = 0;                                  // rows found (all tables, including unknown ones)
     size_t regions = 0;
     uint64_t bytes = 0;
@@ -89,9 +97,11 @@ struct BankCapture {
 };
 
 // Scan `regions` through `mem` in chunks (rows crossing a chunk border are caught by a 64-byte overlap), group the
-// rows and build the spoken sets. `cancelled` (optional) is polled between chunks; `clock` (seconds) times the scan.
+// rows and build the spoken sets. `cancelled` (optional) is polled between chunks; `clock` (seconds) times the scan;
+// `known` (optional) = the commentary ids of commentarynames, see group_bank_tables.
 BankCapture capture_commentary_bank(Memory& mem, const std::vector<Region>& regions, const std::function<bool()>& cancelled = {},
-                                    const std::function<double()>& clock = {}, size_t chunk = 1u << 20);
+                                    const std::function<double()>& clock = {}, size_t chunk = 1u << 20,
+                                    const std::unordered_set<int64_t>* known = nullptr);
 
 // Cache file: <Live Editor>\turbo_output\callnames\spoken_<lang>.json
 std::filesystem::path spoken_cache_path(const std::filesystem::path& le_root, const std::string& lang);

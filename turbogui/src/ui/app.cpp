@@ -111,6 +111,22 @@ void App::notify(const std::string& text, bool error) {
 
 bool App::lua_alive() const { return lua_heartbeat_seen_at >= 0.0 && (now - lua_heartbeat_seen_at) < 600.0; }
 
+std::unordered_set<int64_t> App::commentary_ids() {
+    std::unordered_set<int64_t> out;
+    if (const Table* t = db.table("commentarynames"); t && t->has("commentaryid")) {
+        Snapshot s;
+        if (s.load(db.memory(), *t)) {
+            const Field& f = *t->field("commentaryid");
+            for (uint32_t i : s.valid) {
+                int64_t id = s.get_int(i, f);
+                if (id >= kCallnameMin && id <= kCallnameMax) out.insert(id);
+            }
+        }
+    }
+    if (out.empty()) out = callnames.index.used_ids;
+    return out;
+}
+
 App::~App() {
     bank_cancel_ = true;
     if (bank_thread_.joinable()) bank_thread_.join();
@@ -134,13 +150,16 @@ bool App::start_bank_capture(bool automatic) {
     log("callnames: bank capture started" + std::string(automatic ? " (automatic)" : ""));
     Memory* m = &mem;
     std::function<std::vector<Region>()> lister = regions_hook;
-    bank_thread_ = std::thread([this, m, lister]() {
+    // the commentary ids the database knows (commentarynames; else the ids playernames uses): a surname table must
+    // consist of them, which keeps the bank's dense sample index out of the spoken set
+    auto known = std::make_shared<std::unordered_set<int64_t>>(commentary_ids());
+    bank_thread_ = std::thread([this, m, lister, known]() {
         BankCapture c;
         try {
             std::vector<Region> regions = lister();
             const auto t0 = std::chrono::steady_clock::now();
             auto clock = [t0]() { return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(); };
-            c = capture_commentary_bank(*m, regions, [this]() { return bank_cancel_.load(); }, clock);
+            c = capture_commentary_bank(*m, regions, [this]() { return bank_cancel_.load(); }, clock, 1u << 20, known->empty() ? nullptr : known.get());
         } catch (const std::exception& e) {
             c = BankCapture{};
             c.note = std::string("capture failed: ") + e.what();

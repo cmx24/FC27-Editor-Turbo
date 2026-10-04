@@ -10,6 +10,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 #include "core/bridge.h"
@@ -112,6 +113,7 @@ public:
     // the host lists the game's readable private regions; tests give a synthetic list over the simulated memory
     std::function<std::vector<Region>()> regions_hook;
     bool start_bank_capture(bool automatic = false);  // false when one is running or no region lister is set
+    std::unordered_set<int64_t> commentary_ids();     // commentaryid of every commentarynames row (else playernames' ids)
     bool bank_capture_running() const { return bank_running_.load(); }
     std::string bank_capture_status;  // last capture result (one line for the Callname tab)
     bool bank_auto_tried = false;     // an automatic capture was started once this session

@@ -503,18 +503,26 @@ static void test_core() {
         bm.map(0x6F0000000ull, 0x4000);
         bm.map(0x6F1000000ull, 0x2000);
         bm.map(0x6F1800000ull, 0x1000);
-        // surname table across a 4 KB chunk border: 10 ids, two rows each (intensity duplicates, like the bank)
+        // surname table across a 4 KB chunk border: 10 sparse ids, two rows each (intensity duplicates, like the bank)
         std::vector<uint32_t> surn;
-        for (uint32_t id = 900001; id <= 900010; ++id) {
+        for (uint32_t id = 900001; id <= 900145; id += 16) {
             surn.push_back(id);
             surn.push_back(id);
         }
         put_bank_table(bm, 0x6F0000F10ull, surn);
-        // two player-keyed tables (ids overlap: 5001..5003 are in both), one tiny run and one mixed table (both unknown)
-        put_bank_table(bm, 0x6F1000020ull, {5001, 5001, 5002, 5002, 5003, 5003, 5004, 5004, 5005, 5005, 5006, 5006});
-        put_bank_table(bm, 0x6F1000800ull, {5001, 5002, 5003, 5001, 5002, 5003, 7000, 5001, 5002, 5003});
+        // two player-keyed tables (ids overlap: 5001..5201 are in both), one tiny run and one mixed table (both unknown)
+        put_bank_table(bm, 0x6F1000020ull, {5001, 5001, 5101, 5101, 5201, 5201, 5301, 5301, 5401, 5401, 5501, 5501});
+        put_bank_table(bm, 0x6F1000800ull, {5001, 5101, 5201, 5001, 5101, 5201, 7000, 5001, 5101, 5201});
         put_bank_table(bm, 0x6F1001000ull, {900100, 900100, 900101});
         put_bank_table(bm, 0x6F1800010ull, {900200, 50, 900201, 51, 900202, 52, 900203, 53});
+        // a dense run of consecutive keys (the bank's sample index, two rows each): never a selection table
+        std::vector<uint32_t> dense;
+        for (uint32_t id = 930000; id < 930040; ++id) {
+            dense.push_back(id);
+            dense.push_back(id);
+        }
+        bm.map(0x6F1900000ull, 0x2000);
+        put_bank_table(bm, 0x6F1900010ull, dense);
         uint8_t row[64];
         CHECK(bm.read(0x6F0000F10ull, row, 64), "row readable");
         BankRow r;
@@ -532,18 +540,27 @@ static void test_core() {
         CHECK(tabs.size() == 1 && tabs[0].rows == 20 && tabs[0].distinct == 10 && tabs[0].header_ok && tabs[0].header == 20 && tabs[0].kind == BankTableKind::Surnames &&
                   tabs[0].start == 0x6F0000F10ull && tabs[0].end == 0x6F0000F10ull + 20 * 64,
               "one surname table with its array header");
-        CHECK(classify_bank_table(1, 300000, 12) == BankTableKind::Players && classify_bank_table(900001, 965000, 8) == BankTableKind::Surnames &&
-                  classify_bank_table(50, 900203, 8) == BankTableKind::Unknown && classify_bank_table(900100, 900101, 3) == BankTableKind::Unknown,
-              "classification by values and size");
-        std::vector<Region> regions = {{0x6F0000000ull, 0x6F0004000ull}, {0x6F1000000ull, 0x6F1002000ull}, {0x6F1800000ull, 0x6F1801000ull}, {0x6F2000000ull, 0x6F2001000ull}};
+        CHECK(classify_bank_table(1, 300000, 12, 6) == BankTableKind::Players && classify_bank_table(900001, 965000, 8, 4) == BankTableKind::Surnames &&
+                  classify_bank_table(50, 900203, 8, 8) == BankTableKind::Unknown && classify_bank_table(900100, 900101, 3, 2) == BankTableKind::Unknown &&
+                  classify_bank_table(930000, 930039, 80, 40) == BankTableKind::Index && classify_bank_table(930000, 930039, 80, 12) == BankTableKind::Surnames,
+              "classification by values, size and density");
+        std::vector<Region> regions = {{0x6F0000000ull, 0x6F0004000ull}, {0x6F1000000ull, 0x6F1002000ull}, {0x6F1800000ull, 0x6F1801000ull},
+                                       {0x6F1900000ull, 0x6F1902000ull}, {0x6F2000000ull, 0x6F2001000ull}};
         int ticks = 0;
         BankCapture c = capture_commentary_bank(bm, regions, {}, [&]() { return double(ticks++); }, 4096);
-        CHECK(c.ok && c.rows == 53 && c.regions == 4 && c.bytes >= 0x7000 && c.bytes < 0x7400, fmt("capture: ok=%d rows=%zu regions=%zu bytes=%llu", int(c.ok), c.rows, c.regions, static_cast<unsigned long long>(c.bytes)));
-        CHECK(c.tables.size() == 5, fmt("5 runs: %zu", c.tables.size()));
-        CHECK(c.surnames.size() == 10 && c.surnames.count(900001) && c.surnames.count(900010) && !c.surnames.count(900100) && !c.surnames.count(900200),
+        CHECK(c.ok && c.rows == 133 && c.regions == 5 && c.bytes >= 0x9000 && c.bytes < 0x9400, fmt("capture: ok=%d rows=%zu regions=%zu bytes=%llu", int(c.ok), c.rows, c.regions, static_cast<unsigned long long>(c.bytes)));
+        CHECK(c.tables.size() == 6 && c.rejected == 1, fmt("6 runs, 1 rejected (dense index): %zu / %zu", c.tables.size(), c.rejected));
+        CHECK(c.surnames.size() == 10 && c.surnames.count(900001) && c.surnames.count(900145) && !c.surnames.count(900100) && !c.surnames.count(900200) && !c.surnames.count(930000),
               fmt("spoken surnames from the surname table only: %zu", c.surnames.size()));
-        CHECK(c.players.size() == 7 && c.players.at(5001) == 2 && c.players.at(5004) == 1 && c.players.at(7000) == 1, fmt("players with recordings, counted per table: %zu", c.players.size()));
-        CHECK(c.note.find("10 spoken surnames") != std::string::npos && c.note.find("7 players") != std::string::npos, "summary: " + c.note);
+        CHECK(c.players.size() == 7 && c.players.at(5001) == 2 && c.players.at(5301) == 1 && c.players.at(7000) == 1, fmt("players with recordings, counted per table: %zu", c.players.size()));
+        CHECK(c.note.find("10 spoken surnames") != std::string::npos && c.note.find("7 players") != std::string::npos && c.note.find("1 runs rejected") != std::string::npos, "summary: " + c.note);
+        // the known-id filter: a surname table whose values the database does not know is rejected
+        std::unordered_set<int64_t> known = {900001, 900017, 900033, 900049, 900065, 900081, 900097, 900113, 900129, 900145};
+        BankCapture ck = capture_commentary_bank(bm, regions, {}, {}, 4096, &known);
+        CHECK(ck.ok && ck.surnames.size() == 10 && ck.rejected == 1, "every surname known: accepted");
+        std::unordered_set<int64_t> few = {900001, 900017};
+        BankCapture cf = capture_commentary_bank(bm, regions, {}, {}, 4096, &few);
+        CHECK(cf.ok && cf.surnames.empty() && cf.rejected == 2 && cf.players.size() == 7, "surname table of mostly unknown ids rejected, players kept: " + cf.note);
         BankCapture cc = capture_commentary_bank(bm, regions, []() { return true; }, {}, 4096);
         CHECK(!cc.ok && cc.cancelled, "cancelled capture");
         BankCapture none = capture_commentary_bank(bm, {{0x6F2000000ull, 0x6F2001000ull}}, {}, {}, 4096);
@@ -554,7 +571,8 @@ static void test_core() {
         CHECK(parse_bank_cache_json(js, cache, &err), "cache parsed: " + err);
         CHECK(cache.lang == "ita_it" && cache.when == "2026-10-04 12:00" && cache.build == "6AB9813C-211EF000" && cache.surnames == c.surnames && cache.players == c.players,
               "cache round trip");
-        CHECK(cache.tables.size() == 4 && cache.tables[0].kind == BankTableKind::Surnames && cache.tables[0].header_ok && cache.source.find("10 spoken surnames") != std::string::npos,
+        CHECK(cache.tables.size() == 5 && cache.tables[0].kind == BankTableKind::Surnames && cache.tables[0].header_ok && cache.tables[4].kind == BankTableKind::Index &&
+                  cache.source.find("10 spoken surnames") != std::string::npos,
               fmt("tables kept (runs of 8+ rows): %zu; %s", cache.tables.size(), cache.source.c_str()));
         CHECK(!parse_bank_cache_json("{\"turbo_spoken\": 1}", cache, &err) && !parse_bank_cache_json("nonsense", cache, &err) &&
                   !parse_bank_cache_json("{\"turbo_spoken\": 2, \"surnames\": [], \"players\": []}", cache, &err) && err.find("no spoken ids") != std::string::npos,
