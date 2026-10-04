@@ -412,6 +412,7 @@ void draw_tools(App& app) {
     }
 
     // ---------------------------------------------------------------- safety
+    draw_edit_unlock_hook(app);  // "Game editors" (ui_edit_unlock_hook.cpp)
     if (ImGui::CollapsingHeader("Safety")) {
         json& t = app.gui_settings["turbo"];
         if (!t.is_object()) t = json::object();

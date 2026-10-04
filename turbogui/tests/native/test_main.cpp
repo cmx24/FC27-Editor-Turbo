@@ -79,6 +79,7 @@ void imgui_assert_failed(const char* expr, const char* file, int line) {
 
 // ---------------------------------------------------------------- mini test framework
 static int g_pass = 0, g_fail = 0;
+void test_edit_unlock_hook(int& pass, int& fail);  // test_edit_unlock_hook.cpp (game editors' in-memory fallback)
 static std::string g_case;
 
 static void check_impl(bool ok, const std::string& what, const char* file, int line) {
@@ -10253,6 +10254,8 @@ int main(int argc, char** argv) {
     std::printf("native voice swaps\n");
     test_callname_voice();
     test_callname_voice_host();
+    std::printf("native game editors hook\n");
+    test_edit_unlock_hook(g_pass, g_fail);
     std::printf("native UI\n");
     try {
         test_ui();

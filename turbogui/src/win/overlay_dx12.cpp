@@ -25,6 +25,7 @@
 #include "callname_audio_win.h"
 #include "callname_voice_win.h"
 #include "commentary_audio_win.h"
+#include "edit_unlock_hook_win.h"
 #include "game_calls_win.h"
 #include "reveal_win.h"
 #include "manager_rules_win.h"
@@ -952,6 +953,11 @@ bool start_overlay(HMODULE) {
     // installed on the first fix
     install_match_setup();
     g_app->match_setup = match_setup_service();
+    // game editors' in-memory fallback (edit_unlock_hook_win.cpp): post-hook on the editor config loader, switches from
+    // gui_settings "edit_unlock" (stage 1 on by default)
+    install_edit_unlock_hook();
+    g_app->edit_unlock_hook = edit_unlock_hook_service();
+    g_app->edit_unlock_hook->configure(turbo::edit_unlock::settings_from_json(g_app->gui_settings));
     // spoken callnames through the game's audio service (commentary_audio_win.cpp): calls on the game thread, no hook
     install_commentary_audio(*g_app);
     g_app->hook_report = []() {
@@ -959,6 +965,7 @@ bool start_overlay(HMODULE) {
         r.calls = game_calls_status();
         for (const auto& line : commentary_audio_status()) r.calls.push_back(line);
         for (const auto& line : callname_voice_status()) r.calls.push_back(line);
+        for (const auto& line : edit_unlock_hook_status()) r.calls.push_back(line);
         return r;
     };
     install_player_capture(*g_app);  // miniface from the 3D model (player_capture_win.cpp): needs the game hooks above

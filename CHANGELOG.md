@@ -3,6 +3,19 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.1.1 (playtest fixes)
+
+Not yet released or checked in game.
+
+- **Game editors: in-memory fallback.** When Live Editor does not apply the editor config overrides, Turbo's guarded
+  post-hook on the game's editor config loader turns greyed-out fields on and hidden ones visible in career Edit
+  Player, Create-a-Club players, Edit Manager and the main-menu Edit Players, with the same keep-list as the file
+  override (TEAM, player GENDER, PREFERRED_POSITION and BODY_TYPE stay as shipped; manager gender only under "Unlock
+  everything (experimental)"). It cannot add missing sections (Attributes, Brand animations, head editor, outfit
+  picker). Installed only when the loader, eight layout guards and the four keep-list ids resolve on the game build;
+  kill switch `turbo_output\edit_unlock_hook_off.txt`; Status tab line "Game editors hook: on | configs patched N |
+  fields unlocked M". Tools > Game editors holds the switches (gui_settings `edit_unlock`, on by default).
+
 ## 1.1.0 (voice swaps: any player gets any real or generic callname in matches)
 
 Not yet released or checked in game.
