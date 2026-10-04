@@ -40,6 +40,7 @@
 #include "core/gamethread.h"
 #include "core/memmap.h"
 #include "core/le_log.h"
+#include "core/manager_rules.h"
 #include "core/model.h"
 #include "core/player_capture.h"
 #include "core/reveal.h"
@@ -2330,6 +2331,122 @@ static void test_ui() {
             ui.frames(2);
         });
 
+        run_case("UI: Managers > Manager rules and Manager market: gated by the capability, buttons send manager_rules / manager_move", [&] {
+            app.mailbox->cancel();
+            app.request_tab = 2;
+            ui.frames(2);
+            CHECK(ui.click("Manager rules: job security, unsackable (Manager Career)", "##medit"), "rules header opens");
+            ui.frames(2);
+            // no Turbo.dll native in the simulated Lua side: the capability is missing, the buttons do nothing
+            CHECK(app.bridge.state().unavailable_reason("manager_rules") != nullptr, "manager_rules unavailable in the test world");
+            const ItemRec* safe = ui.find("Safe (locked)", "##medit");
+            CHECK(safe != nullptr, "Safe button drawn");
+            ui.click(safe);
+            ui.frames(2);
+            CHECK(!app.mailbox->pending(), "disabled button sends nothing");
+            // the native shows up and Lua publishes the job security it read (bridge_state.json manager_rules)
+            fs::path state_file = le / "turbo_output" / "bridge_state.json";
+            json st = read_json(state_file);
+            int bumps = 0;
+            auto write_state_file = [&]() {
+                {
+                    std::ofstream f(state_file.string(), std::ios::binary | std::ios::trunc);
+                    f << st.dump();
+                }
+                fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(10 + 2 * ++bumps));
+            };
+            st["unavailable"].erase("manager_rules");
+            st["manager_rules"] = {{"score", 42}, {"addon", 0}, {"level", "insecure"}, {"insecure", 30}, {"okay", 50}, {"safe", 70},
+                                   {"sack_pending", true}, {"sacked", false}, {"keep_unsackable", false}};
+            st["seq"] = st.value("seq", 0LL) + 1;
+            write_state_file();
+            app.next_poll = 0.0;
+            ui.frames(3);
+            const BridgeState& bs = app.bridge.state();
+            CHECK(bs.unavailable_reason("manager_rules") == nullptr, "capability picked up");
+            CHECK(bs.job_security_score == 42 && bs.job_security_level == "insecure" && bs.job_security_safe == 70 && bs.sack_pending && !bs.sacked,
+                  "job security parsed");
+            CHECK(ui.click("Safe (locked)", "##medit"), "Safe");
+            ui.frames(2);
+            CHECK(app.mailbox->pending(), "command sent to Lua");
+            std::string cmd = mem.read_cstr(kMb + kMbCmd, kMbTextSize);
+            json j = json::parse(cmd, nullptr, false);
+            CHECK(!j.is_discarded() && j.value("module", "") == "manager_rules" && j.contains("overrides") &&
+                      j["overrides"].value("job_security", "") == "safe" && j["overrides"].value("enabled", false) && j["overrides"].value("confirm", false),
+                  "manager_rules with job_security safe: " + cmd);
+            CHECK(app.pending_label == "Manager rules: job security safe", "label: " + app.pending_label);
+            // Lua answers: the outcome shows in place
+            mem.wr(kMb + kMbStatus, static_cast<int32_t>(1));
+            std::vector<uint8_t> text(kMbTextSize, 0);
+            const char* msg = "job security 42 -> 100 (locked safe): job security 100/100 (safe; addon 100)";
+            std::memcpy(text.data(), msg, std::strlen(msg));
+            mem.write(kMb + kMbResult, text.data(), text.size());
+            mem.wr(kMb + kMbAckSeq, app.mailbox->seq());
+            ui.frames(3);
+            CHECK(app.manager_rules_status.find("locked safe") != std::string::npos, "status: " + app.manager_rules_status);
+            app.mailbox->cancel();
+            ui.frames(1);
+            CHECK(ui.click("Unsackable ON (keep)", "##medit"), "Unsackable ON");
+            ui.frames(2);
+            j = json::parse(mem.read_cstr(kMb + kMbCmd, kMbTextSize), nullptr, false);
+            CHECK(!j.is_discarded() && j.value("module", "") == "manager_rules" && j["overrides"].value("unsackable", false) &&
+                      j["overrides"].value("keep", false),
+                  "unsackable on, kept");
+            app.mailbox->cancel();
+            ui.frames(1);
+            app.manager_rules_score = 64;
+            CHECK(ui.click("Set score", "##medit"), "Set score");
+            ui.frames(2);
+            j = json::parse(mem.read_cstr(kMb + kMbCmd, kMbTextSize), nullptr, false);
+            CHECK(!j.is_discarded() && j["overrides"].value("job_security", 0) == 64, "score 64 sent");
+            app.mailbox->cancel();
+            ui.click("Manager rules: job security, unsackable (Manager Career)", "##medit");  // fold
+            ui.frames(2);
+            // manager market: your own club's manager cannot be moved; Moyes (502, Everton) to Inter (241)
+            CHECK(ui.click("Manager market: move a manager, make one available", "##medit"), "market header opens");
+            ui.frames(2);
+            CHECK(ui.click("501##m0", "##mlist"), "Arteta (your club)");
+            ui.frames(2);
+            const ItemRec* mv = ui.find("Move to the picked club", "##medit");
+            CHECK(mv != nullptr, "move button drawn");
+            app.manager_move_team = 241;
+            ui.frames(1);
+            ui.click("Move to the picked club", "##medit");
+            ui.frames(2);
+            CHECK(!app.mailbox->pending() && ui.find("Move", "Move manager?") == nullptr, "own club's manager: nothing opens");
+            CHECK(ui.click("502##m1", "##mlist"), "Moyes");
+            ui.frames(2);
+            CHECK(ui.find("7##mm", "##medit") == nullptr && ui.find("1##mm", "##medit") == nullptr, "his club and yours are not offered");
+            CHECK(ui.click("241##mm", "##medit"), "pick Inter");
+            CHECK(app.manager_move_team == 241, "club picked");
+            CHECK(ui.click("Move to the picked club", "##medit"), "move");
+            ui.frames(2);
+            CHECK(ui.click("Move", "Move manager?"), "confirm");
+            ui.frames(2);
+            j = json::parse(mem.read_cstr(kMb + kMbCmd, kMbTextSize), nullptr, false);
+            CHECK(!j.is_discarded() && j.value("module", "") == "manager_move" && j["overrides"].value("managerid", 0) == 502 &&
+                      j["overrides"].value("teamid", 0) == 241 && j["overrides"].value("confirm", false),
+                  "manager_move 502 -> 241");
+            app.mailbox->cancel();
+            ui.frames(1);
+            CHECK(ui.click("Make available (free agent)", "##medit"), "release");
+            ui.frames(2);
+            CHECK(ui.click("Make available", "Release manager?"), "confirm release");
+            ui.frames(2);
+            j = json::parse(mem.read_cstr(kMb + kMbCmd, kMbTextSize), nullptr, false);
+            CHECK(!j.is_discarded() && j.value("module", "") == "manager_move" && j["overrides"].value("teamid", -1) == 0, "release sends teamid 0");
+            app.mailbox->cancel();
+            app.manager_move_team = 0;
+            // restore the world's state file for the cases after this one
+            st.erase("manager_rules");
+            st["unavailable"]["manager_rules"] = "TurboManagerRules is not available in this Live Editor build";
+            write_state_file();
+            app.next_poll = 0.0;
+            ui.frames(3);
+            ui.click("Manager market: move a manager, make one available", "##medit");  // fold
+            ui.frames(2);
+        });
+
         run_case("UI: Database tab, pick a table, double-click a float cell, edit", [&] {
             CHECK(ui.click("Database"), "Database tab");
             CHECK(ui.click("Table"), "table combo");
@@ -2827,7 +2944,8 @@ static void test_ui() {
             CHECK(fake->requests.size() == 1, "one request");
             if (!fake->requests.empty()) {
                 const capture::Request& r = fake->requests.back();
-                CHECK(r.manager && r.id == 7501 && r.second_id == -1, fmt("manager request id %d second %d manager %d", r.id, r.second_id, int(r.manager)));
+                // like the game's manager-head builder 0x147D94218: the head id, and the manager's club as the second id
+                CHECK(r.manager && r.id == 7501 && r.second_id == 1, fmt("manager request id %d second %d manager %d", r.id, r.second_id, int(r.manager)));
             }
             fake->next = capture::Result();
             fake->next.ok = true;
@@ -6442,7 +6560,18 @@ static void test_player_capture() {
         r2.manager = true;
         r2.id = 7501;
         p = plan_request(r2, nullptr);
-        CHECK(!p.desc.flag64() && p.desc.id() == 7501 && p.desc.second_id() == 5, "manager plan");
+        CHECK(!p.desc.flag64() && !p.desc.flag68() && p.desc.id() == 7501 && p.desc.second_id() == 5, "manager plan");
+        // the user's created avatar (head id 9999): +0x68 set, as the game's builder does
+        r2.id = kUserAvatarHeadId;
+        p = plan_request(r2, nullptr);
+        CHECK(!p.desc.flag64() && p.desc.flag68() && p.desc.id() == 9999, "avatar plan: " + describe_desc(p.desc));
+        // a template learned from a PLAYER request (flag64 1) used for a manager: made a staff head
+        r2.id = 7501;
+        r2.use_template = true;
+        r2.camera = kCameraLearned;
+        p = plan_request(r2, &t);
+        CHECK(!p.desc.flag64() && !p.desc.flag68() && p.desc.id() == 7501 && p.desc.second_id() == 5 && p.desc.i32(0x30) == 123456,
+              "manager from a player template: " + describe_desc(p.desc));
     });
 
     run_case("player capture: the game's callback object (eastl::function shape)", [&] {
@@ -6548,6 +6677,309 @@ static void test_player_capture() {
     });
 }
 
+// ================================================================ manager rules (core/manager_rules.h)
+// A synthetic career: ClubObjectivesManager + JobSwitchManager + hub, and a fake game whose UpdateJobSecurityScore
+// does what 0x147E07E2C does (previous = score; score = clamp(objectives part + addon, 0, 100)).
+struct ManagerWorld {
+    SimMemory mem;
+    static constexpr uint64_t kCom = 0x30000000ULL, kJsm = 0x30010000ULL, kHub = 0x30020000ULL, kHolder = 0x30030000ULL,
+                              kComVt = 0x14B019370ULL, kJsmVt = 0x14B016598ULL;
+    ManagerWorld() {
+        mem.map(kCom, 0x400);
+        mem.map(kJsm, 0x200);
+        mem.map(kHub, 0x2000);
+        mem.map(kHolder, 0x100);
+        mem.wr(kCom, kComVt);
+        mem.wr(kCom + com::kHub, kHub);
+        mem.wr(kCom + com::kBlockOwner, kCom);
+        mem.wr(kCom + com::kIsManagerMode, static_cast<uint8_t>(1));
+        mem.wr(kCom + com::kUserTeam, static_cast<int32_t>(48));
+        mem.wr(kCom + com::kScore, static_cast<int32_t>(55));
+        mem.wr(kCom + com::kPrevScore, static_cast<int32_t>(55));
+        mem.wr(kCom + com::kAddon, static_cast<int32_t>(0));
+        // the game's bands (settings and the level copies): very insecure 0, insecure 30, okay 50, safe 70, fired 15
+        const int32_t bands[] = {0, 30, 50, 70};
+        for (int i = 0; i < 4; ++i) {
+            mem.wr(kCom + com::kSetVeryInsecure + 4 * i, bands[i]);
+            mem.wr(kCom + com::kLvlVeryInsecure + 4 * i, bands[i]);
+        }
+        mem.wr(kCom + com::kLvlFired, static_cast<int32_t>(15));
+        mem.wr(kJsm, kJsmVt);
+        mem.wr(kJsm + jsm::kHub, kHub);
+        mem.wr(kHub, kHolder);  // a readable first word
+    }
+    int32_t i32(uint64_t a) {
+        int32_t v = 0;
+        mem.rd(a, v);
+        return v;
+    }
+    uint8_t u8(uint64_t a) {
+        uint8_t v = 0;
+        mem.rd(a, v);
+        return v;
+    }
+};
+
+struct FakeScoreGame : JobSecurityCaller {
+    ManagerWorld& w;
+    int part = 55;      // what the objectives produce right now
+    int calls = 0;
+    bool fail = false;
+    explicit FakeScoreGame(ManagerWorld& world) : w(world) {}
+    bool update_job_security(uint64_t c, std::string& err) override {
+        ++calls;
+        if (fail) {
+            err = "simulated failure";
+            return false;
+        }
+        int32_t addon = 0, score = 0;
+        w.mem.rd(c + com::kAddon, addon);
+        w.mem.rd(c + com::kScore, score);
+        w.mem.wr(c + com::kPrevScore, score);
+        w.mem.wr(c + com::kScore, static_cast<int32_t>(std::max(0, std::min(100, part + addon))));
+        return true;
+    }
+};
+
+static void test_manager_rules() {
+    using namespace turbo;
+    const ManagerRulesFns fns{ManagerWorld::kComVt, ManagerWorld::kJsmVt, 0x147E07E2CULL, 0x147DDF900ULL};
+    auto req = [](int64_t sub, uint64_t addr, int64_t value, int team = 48) {
+        ManagerRulesRequest r;
+        r.sub = sub;
+        r.addr = addr;
+        r.value = value;
+        r.expect_team = team;
+        return r;
+    };
+
+    run_case("manager rules: the game's level rule and names (bands 30/50/70)", [&] {
+        JobSecurity js;
+        CHECK(job_security_level(80, js) == -1, "unknown bands: -1");
+        js.insecure = 30;
+        js.okay = 50;
+        js.safe = 70;
+        js.thresholds_ok = true;
+        CHECK(job_security_level(0, js) == 0 && job_security_level(29, js) == 0 && job_security_level(30, js) == 1 &&
+                  job_security_level(49, js) == 1 && job_security_level(50, js) == 2 && job_security_level(69, js) == 2 &&
+                  job_security_level(70, js) == 3 && job_security_level(100, js) == 3,
+              "score < insecure / okay / safe, else safe (0x147DF9A8C)");
+        CHECK(job_security_level_from_name("Very insecure") == 0 && job_security_level_from_name("very_insecure") == 0 &&
+                  job_security_level_from_name("insecure") == 1 && job_security_level_from_name("OK") == 2 && job_security_level_from_name("safe") == 3 &&
+                  job_security_level_from_name("sacked") == -1,
+              "names");
+        CHECK(std::string(job_security_level_name(3)) == "safe" && std::string(job_security_level_name(7)) == "unknown", "level names");
+        bool lock = false;
+        int v = 0;
+        std::string err;
+        CHECK(level_plan(3, js, lock, v, err) && lock && v == 100, "safe: lock +100");
+        CHECK(level_plan(0, js, lock, v, err) && lock && v == -100, "very insecure: lock -100");
+        CHECK(level_plan(2, js, lock, v, err) && !lock && v == 60, "okay: middle of 50..70");
+        CHECK(level_plan(1, js, lock, v, err) && !lock && v == 40, "insecure: middle of 30..50");
+        CHECK(!level_plan(4, js, lock, v, err) && err.find("0..3") != std::string::npos, "level 4 refused");
+        js.thresholds_ok = false;
+        CHECK(!level_plan(2, js, lock, v, err) && err.find("not readable") != std::string::npos, "okay needs the bands");
+        CHECK(level_plan(3, js, lock, v, err) && v == 100, "safe works without the bands");
+    });
+
+    run_case("manager rules: job security through the game's own update (lock, aim, score, restore, read)", [&] {
+        ManagerWorld w;
+        FakeScoreGame g(w);
+        ManagerRulesResult r = job_security_call(w.mem, g, fns, req(kMrGet, ManagerWorld::kCom, 0));
+        CHECK(r.ok && r.out0 == 55 && r.out1 == 0 && g.calls == 0, "read only: " + r.message);
+        CHECK(r.message.find("okay") != std::string::npos && r.message.find("safe from 70") != std::string::npos, "bands in the text: " + r.message);
+        // safe: addon +100, the game's update gives 100 whatever the objectives say
+        r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 3));
+        CHECK(r.ok && g.calls == 1 && w.i32(ManagerWorld::kCom + com::kAddon) == 100 && w.i32(ManagerWorld::kCom + com::kScore) == 100,
+              "locked safe: " + r.message);
+        CHECK(r.out0 == 100 && r.out1 == 100 && r.message.find("locked safe") != std::string::npos && r.message.find("(safe;") != std::string::npos,
+              "message: " + r.message);
+        CHECK(w.i32(ManagerWorld::kCom + com::kPrevScore) == 55, "the game's update kept the previous score (level-change event)");
+        g.part = 10;  // a terrible run of results: still safe
+        std::string err;
+        g.update_job_security(ManagerWorld::kCom, err);
+        CHECK(w.i32(ManagerWorld::kCom + com::kScore) == 100, "the lock holds when the objectives collapse");
+        // okay: the middle of the band, addon = 60 - objectives part (100 - 100 = 0)... the last update was clamped, so
+        // Turbo uses score - addon = 0 as the part; the game's part is 10: it lands on 70 - the drift note says so
+        r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 2));
+        CHECK(r.ok && w.i32(ManagerWorld::kCom + com::kAddon) == 60 && w.i32(ManagerWorld::kCom + com::kScore) == 70 &&
+                  r.message.find("70 instead of 60") != std::string::npos,
+              "okay after a clamped lock: " + r.message);
+        // again: now the part is known exactly (70 - 60 = 10): addon 50, score 60
+        r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 2));
+        CHECK(r.ok && w.i32(ManagerWorld::kCom + com::kAddon) == 50 && w.i32(ManagerWorld::kCom + com::kScore) == 60, "okay aimed at 60: " + r.message);
+        // insecure / very insecure
+        r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 1));
+        CHECK(r.ok && w.i32(ManagerWorld::kCom + com::kScore) == 40, "insecure aimed at 40: " + r.message);
+        r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 0));
+        CHECK(r.ok && w.i32(ManagerWorld::kCom + com::kAddon) == -100 && w.i32(ManagerWorld::kCom + com::kScore) == 0, "locked very insecure: " + r.message);
+        // a score after the game's own addon of 5 and objectives part 45 (score 50)
+        g.part = 45;
+        w.mem.wr(ManagerWorld::kCom + com::kAddon, static_cast<int32_t>(5));
+        g.update_job_security(ManagerWorld::kCom, err);
+        r = job_security_call(w.mem, g, fns, req(kMrSetScore, ManagerWorld::kCom, 77));
+        CHECK(r.ok && w.i32(ManagerWorld::kCom + com::kAddon) == 32 && w.i32(ManagerWorld::kCom + com::kScore) == 77, "score 77: " + r.message);
+        CHECK(r.message.find("instead of") == std::string::npos, "no drift note when it lands: " + r.message);
+        // the objectives part moved since the last update: the result says so
+        g.part = 50;
+        r = job_security_call(w.mem, g, fns, req(kMrSetScore, ManagerWorld::kCom, 77));
+        CHECK(r.ok && w.i32(ManagerWorld::kCom + com::kScore) == 82 && r.message.find("82 instead of 77") != std::string::npos, "drift reported: " + r.message);
+        // restore: addon 0, the game's own score
+        r = job_security_call(w.mem, g, fns, req(kMrRestore, ManagerWorld::kCom, 0));
+        CHECK(r.ok && w.i32(ManagerWorld::kCom + com::kAddon) == 0 && w.i32(ManagerWorld::kCom + com::kScore) == 50 &&
+                  r.message.find("own score") != std::string::npos,
+              "restored: " + r.message);
+        CHECK(w.mem.failed_reads == 0, "no read outside the synthetic memory");
+    });
+
+    run_case("manager rules: every refusal stops before the game is called and before anything is written", [&] {
+        ManagerWorld w;
+        FakeScoreGame g(w);
+        ManagerRulesFns none;
+        ManagerRulesResult r = job_security_call(w.mem, g, none, req(kMrSetLevel, ManagerWorld::kCom, 3));
+        CHECK(!r.ok && r.stage == "validate" && r.message.find("com_vtable") != std::string::npos, "functions missing: " + r.message);
+        ManagerRulesFns part = fns;
+        part.update_score = 0;
+        r = job_security_call(w.mem, g, part, req(kMrSetLevel, ManagerWorld::kCom, 3));
+        CHECK(!r.ok && r.message.find("com_update_job_security") != std::string::npos, "update missing: " + r.message);
+        r = job_security_call(w.mem, g, fns, req(kMrSetLevel, 0x10, 3));
+        CHECK(!r.ok && r.message.find("not a pointer") != std::string::npos, "bad pointer: " + r.message);
+        r = job_security_call(w.mem, g, fns, req(kMrSetLevel, 0x31000000ULL, 3));
+        CHECK(!r.ok && r.message.find("not readable") != std::string::npos, "unmapped: " + r.message);
+        r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kJsm, 3));
+        CHECK(!r.ok && r.message.find("not the ClubObjectivesManager") != std::string::npos, "the JobSwitchManager is refused: " + r.message);
+        w.mem.wr(ManagerWorld::kCom + com::kBlockOwner, 0x30000100ULL);
+        r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 3));
+        CHECK(!r.ok && r.message.find("point back") != std::string::npos, "owner pointer: " + r.message);
+        w.mem.wr(ManagerWorld::kCom + com::kBlockOwner, ManagerWorld::kCom);
+        w.mem.wr(ManagerWorld::kCom + com::kIsManagerMode, static_cast<uint8_t>(0));
+        r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 3));
+        CHECK(!r.ok && r.message.find("not a Manager Career") != std::string::npos, "player career: " + r.message);
+        w.mem.wr(ManagerWorld::kCom + com::kIsManagerMode, static_cast<uint8_t>(1));
+        r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 3, 7));
+        CHECK(!r.ok && r.message.find("not your club 7") != std::string::npos, "another club: " + r.message);
+        w.mem.wr(ManagerWorld::kCom + com::kScore, static_cast<int32_t>(140));
+        r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 3));
+        CHECK(!r.ok && r.message.find("outside 0..100") != std::string::npos, "score out of range: " + r.message);
+        w.mem.wr(ManagerWorld::kCom + com::kScore, static_cast<int32_t>(55));
+        w.mem.wr(ManagerWorld::kCom + com::kHub, 0ULL);
+        r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 3));
+        CHECK(!r.ok && r.message.find("career hub") != std::string::npos, "no hub: " + r.message);
+        w.mem.wr(ManagerWorld::kCom + com::kHub, ManagerWorld::kHub);
+        r = job_security_call(w.mem, g, fns, req(kMrSetScore, ManagerWorld::kCom, 101));
+        CHECK(!r.ok && r.message.find("0..100") != std::string::npos, "score 101: " + r.message);
+        r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 9));
+        CHECK(!r.ok && r.message.find("0..3") != std::string::npos, "level 9: " + r.message);
+        r = job_security_call(w.mem, g, fns, req(kMrUnsackable, ManagerWorld::kCom, 1));
+        CHECK(!r.ok && r.message.find("not a job security sub-op") != std::string::npos, "wrong sub-op: " + r.message);
+        CHECK(g.calls == 0 && w.i32(ManagerWorld::kCom + com::kAddon) == 0, "the game was never called, nothing written");
+        // bands not plausible: okay is refused, safe still works
+        w.mem.wr(ManagerWorld::kCom + com::kLvlOkay, static_cast<int32_t>(90));
+        r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 2));
+        CHECK(!r.ok && r.message.find("bands are not readable") != std::string::npos && g.calls == 0, "odd bands: " + r.message);
+        r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 3));
+        CHECK(r.ok && r.message.find("were not trusted") != std::string::npos, "safe without bands: " + r.message);
+        // the game call fails: the addon goes back
+        w.mem.wr(ManagerWorld::kCom + com::kLvlOkay, static_cast<int32_t>(50));
+        w.mem.wr(ManagerWorld::kCom + com::kAddon, static_cast<int32_t>(7));
+        g.fail = true;
+        r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 3));
+        CHECK(!r.ok && r.stage == "call" && w.i32(ManagerWorld::kCom + com::kAddon) == 7 && r.message.find("put back") != std::string::npos,
+              "failed call reverted: " + r.message);
+    });
+
+    run_case("manager rules: unsackable switch, pending sack, flags and the SackManager hook's decision", [&] {
+        ManagerWorld w;
+        UnsackableState st;
+        std::string why;
+        // switch off: the hook lets the game sack
+        CHECK(!sack_should_refuse(w.mem, fns, ManagerWorld::kJsm, st, why) && st.passed == 1 && why.find("off") != std::string::npos, "off: " + why);
+        // on with a pending sack: cleared at once, never touches mWasSacked
+        w.mem.wr(ManagerWorld::kJsm + jsm::kSackPending, static_cast<uint8_t>(1));
+        ManagerRulesResult r = unsackable_call(w.mem, fns, req(kMrUnsackable, ManagerWorld::kJsm, 1), st);
+        CHECK(r.ok && st.on && r.out0 == 1 && w.u8(ManagerWorld::kJsm + jsm::kSackPending) == 0 && r.message.find("cancelled") != std::string::npos,
+              "on + pending cancelled: " + r.message);
+        // the game asks again (contract ended / DAY_PASSED with pending set): refused, pending cleared
+        w.mem.wr(ManagerWorld::kJsm + jsm::kSackPending, static_cast<uint8_t>(1));
+        CHECK(sack_should_refuse(w.mem, fns, ManagerWorld::kJsm, st, why) && st.refused == 1 && w.u8(ManagerWorld::kJsm + jsm::kSackPending) == 0 &&
+                  w.u8(ManagerWorld::kJsm + jsm::kSacked) == 0,
+              "refused: " + why);
+        // a this-pointer that is not a JobSwitchManager: still refused (not calling is always safe), nothing written
+        w.mem.wr(ManagerWorld::kCom + 0x1E0, static_cast<uint8_t>(1));
+        CHECK(sack_should_refuse(w.mem, fns, ManagerWorld::kCom, st, why) && why.find("nothing written") != std::string::npos &&
+                  w.u8(ManagerWorld::kCom + 0x1E0) == 1,
+              "foreign object untouched: " + why);
+        r = unsackable_call(w.mem, fns, req(kMrFlags, ManagerWorld::kJsm, 0), st);
+        CHECK(r.ok && r.out0 == 1 && r.out1 == 0 && r.message.find("refused 2") != std::string::npos, "flags: " + r.message);
+        // already sacked: said, not undone
+        w.mem.wr(ManagerWorld::kJsm + jsm::kSacked, static_cast<uint8_t>(1));
+        r = unsackable_call(w.mem, fns, req(kMrUnsackable, ManagerWorld::kJsm, 1), st);
+        CHECK(r.ok && r.out1 == 2 && r.message.find("already marked") != std::string::npos, "sacked: " + r.message);
+        w.mem.wr(ManagerWorld::kJsm + jsm::kSacked, static_cast<uint8_t>(0));
+        // no JobSwitchManager known yet: armed anyway; off again
+        r = unsackable_call(w.mem, fns, req(kMrUnsackable, 0, 1), st);
+        CHECK(r.ok && st.on && r.message.find("armed anyway") != std::string::npos, "armed: " + r.message);
+        r = unsackable_call(w.mem, fns, req(kMrUnsackable, ManagerWorld::kJsm, 0), st);
+        CHECK(r.ok && !st.on && r.out0 == 0 && r.message.find("may sack you") != std::string::npos, "off: " + r.message);
+        // refusals
+        r = unsackable_call(w.mem, fns, req(kMrUnsackable, ManagerWorld::kCom, 1), st);
+        CHECK(!r.ok && r.message.find("not the JobSwitchManager") != std::string::npos && !st.on, "wrong object: " + r.message);
+        w.mem.wr(ManagerWorld::kJsm + jsm::kSackPending, static_cast<uint8_t>(7));
+        r = unsackable_call(w.mem, fns, req(kMrUnsackable, ManagerWorld::kJsm, 1), st);
+        CHECK(!r.ok && r.message.find("layout mismatch") != std::string::npos, "odd flags: " + r.message);
+        ManagerRulesFns none;
+        r = unsackable_call(w.mem, none, req(kMrUnsackable, ManagerWorld::kJsm, 1), st);
+        CHECK(!r.ok && r.message.find("signature") != std::string::npos, "functions missing: " + r.message);
+        r = unsackable_call(w.mem, fns, req(kMrGet, ManagerWorld::kJsm, 1), st);
+        CHECK(!r.ok && r.message.find("not an unsackable sub-op") != std::string::npos, "wrong sub-op: " + r.message);
+    });
+
+    run_case("signatures: the built-in manager-rules entries resolve on the game's bytes (vtables via the ctors' lea)", [&] {
+        const SignatureTable* t = builtin_signature_table("6AB9813C-211EF000");
+        CHECK(t != nullptr, "built-in table");
+        if (!t) return;
+        // bytes read from fc27_image.bin (FC27.exe 1.0.140.64835) at the functions' VAs (scripts/re/dump_bytes.py)
+        const uint8_t com_ctor[] = {0x48, 0x89, 0x5C, 0x24, 0x10, 0x48, 0x89, 0x6C, 0x24, 0x18, 0x48, 0x89, 0x74, 0x24, 0x20, 0x57,
+                                    0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8D, 0x05, 0x7D,
+                                    0x50, 0x22, 0x03, 0x48, 0x89, 0x51, 0x08, 0x48, 0x8D, 0x79, 0x10, 0x48, 0x89, 0x01, 0x4C, 0x8B};
+        const uint8_t update[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48,
+                                  0x8B, 0xF1, 0x48, 0x8D, 0x91, 0x1C, 0x01, 0x00, 0x00, 0x8B, 0x42, 0x08, 0x89, 0x81, 0x20, 0x01};
+        const uint8_t jsm_ctor[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48,
+                                    0x89, 0x51, 0x08, 0x48, 0x8D, 0x05, 0xFA, 0xFB, 0x25, 0x03, 0x48, 0x89, 0x01, 0x33, 0xF6, 0x48,
+                                    0x89, 0x71, 0x10, 0x48, 0x8B, 0xD9, 0x48, 0x89, 0x71, 0x18, 0x83, 0xCF, 0xFF, 0x48, 0x89, 0x71};
+        const uint8_t handle[] = {0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xD9, 0x83, 0xFA, 0x17, 0x0F, 0x85, 0x84, 0x00,
+                                  0x00, 0x00, 0x41, 0x80, 0x78, 0x18, 0x00, 0x4D, 0x8D, 0x48, 0x2C, 0x74, 0x26, 0x48, 0x8B, 0x41};
+        const uint8_t sack[] = {0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0xC6, 0x81, 0xE1, 0x01, 0x00, 0x00, 0x01, 0x4C, 0x8D, 0x05,
+                                0xAC, 0x7B, 0x23, 0x03, 0x48, 0x8B, 0xD9, 0x45, 0x33, 0xC9, 0x48, 0x8B, 0x0D, 0x87, 0xA5, 0x48};
+        // two buffers based at the real VAs of the two constructors: each lea resolves to the real vtable
+        {
+            const uint64_t base = 0x147DF42D0ULL - 0x100;
+            std::vector<uint8_t> code(0x800, 0xCC);
+            std::memcpy(code.data() + 0x100, com_ctor, sizeof(com_ctor));
+            std::memcpy(code.data() + 0x300, update, sizeof(update));
+            std::memcpy(code.data() + 0x400, handle, sizeof(handle));
+            std::memcpy(code.data() + 0x500, sack, sizeof(sack));
+            SigResult r = resolve_signature(*t->find("com_vtable"), code.data(), code.size(), base);
+            CHECK(r.state == SigState::Found && r.match == 0x147DF42D0ULL && r.address == 0x14B019370ULL, "com_vtable -> 0x14B019370: " + r.error);
+            struct Exp { const char* name; uint64_t off; } exp[] = {{"com_update_job_security", 0x300}, {"jsm_handle_event", 0x400}, {"jsm_sack_manager", 0x500}};
+            for (const auto& e : exp) {
+                r = resolve_signature(*t->find(e.name), code.data(), code.size(), base);
+                CHECK(r.state == SigState::Found && r.address == base + e.off && r.hits == 1, std::string(e.name) + ": " + r.error);
+            }
+        }
+        {
+            const uint64_t base = 0x147DB6984ULL - 0x80;
+            std::vector<uint8_t> code(0x400, 0xCC);
+            std::memcpy(code.data() + 0x80, jsm_ctor, sizeof(jsm_ctor));
+            SigResult r = resolve_signature(*t->find("jsm_vtable"), code.data(), code.size(), base);
+            CHECK(r.state == SigState::Found && r.match == 0x147DB6984ULL && r.address == 0x14B016598ULL, "jsm_vtable -> 0x14B016598: " + r.error);
+            // the ClubObjectivesManager ctor pattern does not match the JobSwitchManager ctor
+            r = resolve_signature(*t->find("com_vtable"), code.data(), code.size(), base);
+            CHECK(r.state != SigState::Found, "com_vtable does not match the JobSwitchManager ctor");
+        }
+    });
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) {
         std::printf("usage: %s <out_dir> <gui_world.lua>\n", argv[0]);
@@ -6565,6 +6997,8 @@ int main(int argc, char** argv) {
     test_sigscan();
     std::printf("native game calls\n");
     test_game_calls();
+    std::printf("native manager rules\n");
+    test_manager_rules();
     std::printf("native game-thread dispatcher\n");
     test_gamethread();
     std::printf("native transfer lists\n");

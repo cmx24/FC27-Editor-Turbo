@@ -81,13 +81,20 @@ const std::vector<Camera>& cameras() {
 Plan plan_request(const Request& r, const Template* t) {
     Plan p;
     const bool from_template = r.use_template && t && t->learned;
+    // the game's manager-head builder 0x147D94218 (docs/re/manager_rules.md section 6): +0x64 = 0 for a staff head,
+    // +0x68 = (id == 9999, the user's created avatar), second id = the manager's team id
+    const bool avatar = r.manager && r.id == kUserAvatarHeadId;
     if (from_template) {
         p.desc = t->desc;
         p.desc.set_id(r.id);
         if (r.second_id >= 0) p.desc.set_second_id(r.second_id);
+        if (r.manager) {  // a template learned from a player request: make it a staff head
+            p.desc.set_flag64(false);
+            p.desc.set_flag68(avatar);
+        }
         p.note = "learned descriptor";
     } else {
-        p.desc = default_desc(r.id, r.second_id, !r.manager, false);
+        p.desc = default_desc(r.id, r.second_id, !r.manager, avatar);
         p.note = "default descriptor";
     }
     const auto& cams = cameras();

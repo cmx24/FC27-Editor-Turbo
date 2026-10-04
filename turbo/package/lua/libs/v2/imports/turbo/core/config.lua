@@ -74,6 +74,8 @@ M.DEFAULTS = {
         development = { scope = {}, mode = "none", attributes = {}, delta = 0, potential = 0,
                         growthprofile = -1, confirm = false },
         youth = { mode = "list", playerid = 0, potential = 0, position = -1, tier = -1, variance = -1, confirm = false },
+        manager_rules = { enabled = false, job_security = "", keep = true, confirm = false },
+        manager_move = { enabled = false, managerid = 0, teamid = 0, replacement = 0, confirm = false },
     },
 }
 

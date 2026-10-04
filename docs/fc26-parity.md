@@ -59,7 +59,7 @@ checks, transfer / loan approval, reveal player data, stadium / weather / kick-o
 | --- | --- | --- | --- | --- |
 | 22 | Manager editor: core | v26.2.7 | basic | **Turbo GUI**: Managers tab (names, team, nationality, personality, looks, all fields) |
 | 23 | Manager and team ID, name, miniface import / generate | v26.2.8 | not announced | **Turbo GUI (partial)**: IDs and names editable; minifaces **Not available** |
-| 24 | Transfer or fire manager, job security, unsackable | v26.2.9 | not announced | **Not available** |
+| 24 | Transfer or fire manager, job security, unsackable | v26.2.9 | unsackable (Misc Features) | **Turbo GUI**: Managers > Manager rules (job security safe / okay / insecure / very insecure / a score / the game's own, through the game's own `UpdateJobSecurityScore`; unsackable: an opt-in hook refuses `JobSwitchManager::SackManager`) and Manager market (move a manager, swapping with the club's manager; make one a free agent: career database `manager.teamid`, what the game's AI hiring reads). `docs/re/manager_rules.md`; needs the in-game test |
 | 25 | Manager traits | v26.3.1 | not announced | **Database tab** (`manager` table) |
 
 ## Career
@@ -72,10 +72,10 @@ checks, transfer / loan approval, reveal player data, stadium / weather / kick-o
 | 29 | Transfer history | v26.1.8 | not announced | **Turbo GUI (partial)**: export to CSV; in FC 27 read from the TransferManager's lists (completed transfers and loans of the season) |
 | 30 | Gameplay: CPU vs CPU, never tired, unlimited subs, match time and score | v26.2.0 | not announced | **Not available** |
 | 31 | Player Career: funds, wage, attribute points, personality, playstyle slots | v26.2.1 | yes (v27.1.1) | **FC 27 LE** |
-| 32 | Contract objectives bypass, negotiation check, always allow approach | v26.2.1, v26.2.5 | not announced | **Not available** |
-| 33 | Unsupported CM teams and leagues | v26.2.6 | not announced | **Not available** |
-| 34 | Disable manager market | v26.2.9 | not announced | **Not available** |
-| 35 | Endless manager career | v26.3.4 | not announced | **Not available** |
+| 32 | Contract objectives bypass, negotiation check, always allow approach | v26.2.1, v26.2.5 | negotiation status check, transfer / loan approval (Misc Features) | **FC 27 LE** for now; Turbo's own not built (leads: `docs/re/manager_rules.md` section 8) |
+| 33 | Unsupported CM teams and leagues | v26.2.6 | not announced | **Not available** (a pre-career `modeavailability` gate; leads: `docs/re/manager_rules.md` section 9) |
+| 34 | Disable manager market | v26.2.9 | yes (Misc Features) | **FC 27 LE**; Turbo moves managers and makes them free agents (row 24) |
+| 35 | Endless manager career | v26.3.4 | not announced | **Not needed**: FC 27's career code has no season limit or forced end for your manager (`docs/re/manager_rules.md` section 7) |
 
 ## Tool and scripting
 

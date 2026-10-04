@@ -25,6 +25,7 @@
 #include "commentary_audio_win.h"
 #include "game_calls_win.h"
 #include "reveal_win.h"
+#include "manager_rules_win.h"
 #include "standings_refresh_win.h"
 #include "transfer_list_win.h"
 #include "game_hooks.h"
@@ -939,6 +940,10 @@ bool start_overlay(HMODULE) {
     install_transfer_list();
     // reveal player data (reveal_win.cpp): the game's own PlayerDataRevealManager marks a player / a club fully scouted
     install_reveal();
+    // manager rules (manager_rules_win.cpp): job security / unsackable / retirement age through the game's own
+    // ClubObjectivesManager, JobSwitchManager and JobMarketManager; the SackManager hook is pass-through until the
+    // user switches unsackable on
+    install_manager_rules();
     // spoken callnames through the game's audio service (commentary_audio_win.cpp): calls on the game thread, no hook
     install_commentary_audio(*g_app);
     g_app->hook_report = []() {

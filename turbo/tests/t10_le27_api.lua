@@ -139,7 +139,8 @@ H.case("all natives: wrappers are usable", function()
     -- job_offer needs Turbo.dll's own game-call native (TurboJobOfferCreate), never a Live Editor one
     H.ok(u.job_offer, "job_offer waits for Turbo.dll")
     H.ok(u.reveal, "reveal waits for Turbo.dll")
-    u.job_offer, u.reveal = nil, nil
+    H.ok(u.manager_rules, "manager_rules waits for Turbo.dll")
+    u.job_offer, u.reveal, u.manager_rules = nil, nil, nil
     H.eq(next(u), nil, "every tool available with all natives")
 end)
 

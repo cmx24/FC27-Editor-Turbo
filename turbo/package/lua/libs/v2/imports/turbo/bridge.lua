@@ -41,6 +41,7 @@ M.CALL_OP_STANDINGS_REFRESH = 2  -- args: svm, managers, comm service, ifce (tur
 -- before / after (turbogui/src/core/transfer_list.h)
 M.CALL_OP_TRANSFER_LIST = 10
 M.CALL_OP_REVEAL = 3             -- args: PlayerDataRevealManager, mode (0 player / 1 team), id, manager table (core/reveal.h)
+M.CALL_OP_MANAGER_RULES = 4      -- args: sub-op, manager address, value, user team (turbogui/src/core/manager_rules.h)
 
 -- bridge_dll.json is stamped by the DLL every ~2 s while it runs. A file older than this is left over from an
 -- earlier game session: its mailbox address means nothing in this process and is never read.
@@ -325,6 +326,17 @@ local function standings_view_manager(in_cm)
 end
 M._standings_view_manager = standings_view_manager
 
+-- Job security / sack flags of the user's manager for the Turbo window (features/manager_rules.lua state(): checked
+-- reads only, nothing is called); nil outside a career or without the memory map
+local function manager_rules_state(in_cm)
+    if not in_cm then return nil end
+    local okm, mr = pcall(require, 'imports/turbo/features/manager_rules')
+    if not okm or type(mr) ~= "table" then return nil end
+    local ok, st = pcall(mr.state)
+    if ok and type(st) == "table" then return st end
+    return nil
+end
+
 function M.collect_state()
     local in_cm = game.in_cm()
     local d = in_cm and game.current_date() or nil
@@ -349,6 +361,7 @@ function M.collect_state()
         date = d and { year = d.year, month = d.month, day = d.day } or nil,
         -- outcome of the last game call that finished after being queued (M.game_call): the GUI shows it as a toast
         game_call = S.game_call,
+        manager_rules = manager_rules_state(in_cm),
     }
 end
 
@@ -368,6 +381,7 @@ local function same_state(a, b)
     if a.transfer_budget ~= b.transfer_budget then return false end
     if a.meta_error ~= b.meta_error then return false end
     if (a.game_call and a.game_call.seq or 0) ~= (b.game_call and b.game_call.seq or 0) then return false end
+    if not same_settings(a.manager_rules, b.manager_rules) then return false end
     local ad, bd = a.date, b.date
     if (ad == nil) ~= (bd == nil) then return false end
     if ad and (ad.year ~= bd.year or ad.month ~= bd.month or ad.day ~= bd.day) then return false end
@@ -548,6 +562,11 @@ function M.on_career_event(event_id)
     if not okn then log.warn("bridge natives: %s", tostring(installed)) end
     local okc, finished = pcall(M.check_game_call)
     if not okc then log.warn("bridge game call: %s", tostring(finished)) end
+    -- a kept "unsackable" (features/manager_rules.lua) is switched on again once per game session
+    if S.natives_installed then
+        local okr, rerr = pcall(function() return (require 'imports/turbo/features/manager_rules').reapply() end)
+        if not okr then log.warn("manager rules: %s", tostring(rerr)) end
+    end
     -- natives just installed (the capability list changed) or a queued game call finished: publish it now
     if (okn and installed == true) or (okc and finished == true) then
         local okw2, werr2 = pcall(M.write_state, true, false)
@@ -729,13 +748,21 @@ function M.install_natives()
         if status == "ok" or status == "queued" then return true, text, status, out0, out1 end
         return false, text, status, out0, out1
     end
+    --   TurboManagerRules(sub, address, value, team) -> ok, message, status, out0, out1: job security / unsackable
+    --   (features/manager_rules.lua; the sub-ops of turbogui/src/core/manager_rules.h)
+    _G.TurboManagerRules = function(sub, addr, value, team)
+        local args = { math.tointeger(sub) or 0, math.tointeger(addr) or 0, math.tointeger(value) or 0, math.tointeger(team) or 0 }
+        local status, text, out0, out1 = M.game_call(M.CALL_OP_MANAGER_RULES, args, string.format("manager rules (sub-op %d)", args[1]))
+        if status == "ok" or status == "queued" then return true, text, status, out0, out1 end
+        return false, text, status
+    end
     -- Live Editor's missing natives (cAddPlayerToTransferList & co.) on top of it: its own wrappers work again
     local okm, moves = pcall(require, 'imports/turbo/core/moves')
     local le_names = (okm and type(moves) == "table") and moves.install_le_natives() or {}
     env.reset_api_cache()   -- wrappers that were unavailable because their c-native was missing are usable now
     S.natives_installed = true
-    S.unavailable = nil   -- caps changed: bridge_state.json lists job_offer / the list moves / reveal as available from now on
-    log.info("Turbo natives installed: TurboJobOfferCreate, TurboStandingsRefresh, TurboTransferList, TurboRevealPlayerData (Turbo.dll game calls)%s",
+    S.unavailable = nil   -- caps changed: bridge_state.json lists job_offer / the list moves / reveal / manager_rules as available from now on
+    log.info("Turbo natives installed: TurboJobOfferCreate, TurboStandingsRefresh, TurboTransferList, TurboRevealPlayerData, TurboManagerRules (Turbo.dll game calls)%s",
         #le_names > 0 and ("; Live Editor natives: " .. table.concat(le_names, ", ")) or "")
     return true
 end

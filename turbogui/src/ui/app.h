@@ -145,6 +145,12 @@ public:
     int64_t job_offer_team = 0;
     std::string job_offer_status;
     char job_offer_search[64] = "";
+    // Managers > Manager rules (features/manager_rules.lua) and Manager market (features/manager_move.lua)
+    std::string manager_rules_status;
+    int manager_rules_score = 70;     // score typed for "Set score"
+    std::string manager_move_status;
+    int64_t manager_move_team = 0;    // club picked for "Move to the picked club"
+    char manager_move_search[64] = "";
 
     // ---- selections / UI state
     int64_t sel_player = 0;

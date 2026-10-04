@@ -558,6 +558,10 @@ void App::tick(double t) {
             notify(pending_label + ": " + (result.empty() ? (ok ? "done" : "failed") : result), !ok);
             if (pending_label.rfind("Job offer", 0) == 0)  // Managers > Job offers shows the outcome in place
                 job_offer_status = (ok ? "" : "Failed: ") + (result.empty() ? std::string(ok ? "done" : "failed") : result);
+            if (pending_label.rfind("Manager rules", 0) == 0)  // Managers > Manager rules shows the outcome in place
+                manager_rules_status = (ok ? "" : "Failed: ") + (result.empty() ? std::string(ok ? "done" : "failed") : result);
+            if (pending_label.rfind("Manager move", 0) == 0)  // Managers > Manager market
+                manager_move_status = (ok ? "" : "Failed: ") + (result.empty() ? std::string(ok ? "done" : "failed") : result);
             pending_label.clear();
             // Lua may have changed the database (transfers, bulk edits): re-read the lists
             if (db.ready()) model_stale = true;

@@ -8,6 +8,7 @@
 #include "game_hooks.h"
 #include "host.h"
 #include "reveal_win.h"
+#include "manager_rules_win.h"
 #include "standings_refresh_win.h"
 #include "transfer_list_win.h"
 
@@ -212,6 +213,7 @@ std::vector<std::string> game_calls_status() {
     for (const auto& l : standings_refresh_status()) out.push_back(l);
     for (const auto& l : transfer_list_status()) out.push_back(l);
     for (const auto& l : reveal_status()) out.push_back(l);
+    for (const auto& l : manager_rules_status()) out.push_back(l);
     return out;
 }
 
@@ -311,6 +313,8 @@ extern "C" __declspec(dllexport) int turbo_game_call(void*) {
                     req.id = static_cast<int>(b.args[2]);
                     req.managers = static_cast<uint64_t>(b.args[3]);
                     reveal_request(req, b.seq);
+                } else if (b.op == turbo::kCallOpManagerRules) {
+                    manager_rules_request(b.args[0], static_cast<uint64_t>(b.args[1]), b.args[2], b.args[3], b.seq);
                 } else {
                     turbo::JobOfferResult r;
                     r.message = "unknown game call op " + std::to_string(b.op);

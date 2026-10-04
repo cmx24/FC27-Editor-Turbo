@@ -1,0 +1,56 @@
+{
+  "_about": "FC 27 manager rules (job security / unsackable) code signatures. Derived from fc27_image.bin (FC27.exe 1.0.140.64835, base 0x140000000) on 2026-10-04. Every 'va' is for that build only; resolve by 'sig' on other builds (scripts/re/manager_rules_verify.py also re-checks the proofs behind the offsets). 'rip' = the entry resolves the rip-relative lea at 'rip_at' bytes into the match. Same bytes as the built-in table turbogui/src/core/sigscan.cpp.",
+  "game_version": "1.0.140.64835",
+  "image_base": "0x140000000",
+  "managers": {
+    "ClubObjectivesManager": { "type_id": 133, "vtable": "0x14b019370", "ctor": "0x147df42d0", "hub_builder_name_lea": "0x147f19471" },
+    "JobSwitchManager": { "type_id": 54, "vtable": "0x14b016598", "ctor": "0x147db6984", "size": "0x1e8", "hub_builder_name_lea": "0x147f18f30" }
+  },
+  "functions": {
+    "com_vtable": {
+      "va": "0x147df42d0", "rip_at": "0x1c", "resolves_to": "0x14b019370",
+      "sig": "48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 41 54 41 55 41 56 41 57 48 83 EC 20 48 8D 05 ?? ?? ?? ?? 48 89 51 08",
+      "note": "ClubObjectivesManager ctor(this, hub): lea rax,[vtable]; [rcx+8] = hub; [this+0x108] = this; [this+0x110] = 1"
+    },
+    "com_update_job_security": {
+      "va": "0x147e07e2c",
+      "sig": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B F1 48 8D 91 1C 01 00 00",
+      "proto": "void ClubObjectivesManager::UpdateJobSecurityScore(ClubObjectivesManager* this)",
+      "note": "string 'ClubObjectivesManager::UpdateJobSecurityScore'; [+0x120] = [+0x124]; [+0x124] = 0x147e5f664(this+0x218, this+0x11c, [+0x118]); level change -> PostEvent(0xA7)"
+    },
+    "jsm_vtable": {
+      "va": "0x147db6984", "rip_at": "0x13", "resolves_to": "0x14b016598",
+      "sig": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 89 51 08 48 8D 05 ?? ?? ?? ?? 48 89 01 33 F6 48 89 71 10 48 8B D9 48 89 71 18 83 CF FF",
+      "note": "JobSwitchManager ctor(this, hub)"
+    },
+    "jsm_handle_event": {
+      "va": "0x147dd2a30",
+      "sig": "40 53 48 83 EC 20 48 8B D9 83 FA 17 0F 85 ?? ?? ?? ?? 41 80 78 18 00 4D 8D 48 2C",
+      "proto": "void JobSwitchManager::HandleEvent(JobSwitchManager* this, int eventId, Event* ev)",
+      "note": "vtable slot 1. 0x17: job switch (mLastJobSwitchDate/mPreviousTeamId, word [+0x1E0] = 0); 0x0F DAY_PASSED: tail-jumps to SackManager when byte [+0x1E0] != 0; 0x3B"
+    },
+    "jsm_sack_manager": {
+      "va": "0x147ddf900",
+      "sig": "40 53 48 83 EC 20 C6 81 E1 01 00 00 01 4C 8D 05 ?? ?? ?? ??",
+      "proto": "void JobSwitchManager::SackManager(JobSwitchManager* this)",
+      "note": "string 'JobSwitchManager::SackManager'; byte [+0x1E1] = 1; PostEvent(dispatcher, 0xAD, ev). Callers: jsm_handle_event (tail jump), 0x147f57d14 (CM_Manager_Contract_Ended)"
+    }
+  },
+  "fields": {
+    "ClubObjectivesManager": {
+      "0x38": "OBJECTIVES/JOB_SECURITY_VERY_INSECURE (settings block +0x28; loader 0x147e00e7c)",
+      "0x3C": "OBJECTIVES/JOB_SECURITY_INSECURE",
+      "0x40": "OBJECTIVES/JOB_SECURITY_OKAY",
+      "0x44": "OBJECTIVES/JOB_SECURITY_SAFE",
+      "0x4C": "OBJECTIVES/JOB_SECURITY_FIRED_POINTS",
+      "0x108": "serialised block (serialiser 0x147edb3a8): +0 owner pointer",
+      "0x110": "mIsManagerMode", "0x114": "mUserTeamId", "0x118": "mJobSecurityScoreAddon",
+      "0x11C": "mJobSecurityScore.mPreviousSeasonFinalScore", "0x120": "mPreviousScore", "0x124": "mScore",
+      "0x278..0x288": "level thresholds copied by 0x147e06aac (very insecure, insecure, okay, safe, fired); level function 0x147df9a8c"
+    },
+    "JobSwitchManager": {
+      "0x1B8": "mLastJobSwitchDate (serialiser 0x147edf91c block)", "0x1BC": "mPreviousTeamId",
+      "0x1E0": "mPendingSack", "0x1E1": "mWasSacked"
+    }
+  }
+}

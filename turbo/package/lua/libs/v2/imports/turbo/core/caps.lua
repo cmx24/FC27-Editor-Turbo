@@ -29,6 +29,8 @@ M.NEEDS = {
     -- registers these Lua natives
     job_offer = { "TurboJobOfferCreate" },
     reveal = { "TurboRevealPlayerData" },
+    -- job security / unsackable call the game through Turbo.dll too (core/manager_rules.h)
+    manager_rules = { "TurboManagerRules" },
 }
 
 -- Tools a Turbo native makes available whatever Live Editor has (defined by bridge.install_natives once Turbo.dll's

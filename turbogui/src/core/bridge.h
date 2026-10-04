@@ -66,6 +66,14 @@ struct BridgeState {
     long long game_call_seq = 0;
     bool game_call_ok = false;
     std::string game_call_text;
+    // Your job security as Lua read it from the career's ClubObjectivesManager (features/manager_rules.lua state(),
+    // core/manager_rules.h): score 0..100, the saved addon, the level name, the game's bands, "safe" / "very insecure"
+    // when the addon locks it; score -1 = not read (no career / no memory map). Sack flags from the JobSwitchManager.
+    int job_security_score = -1, job_security_addon = 0;
+    std::string job_security_level, job_security_locked;
+    int job_security_okay = -1, job_security_safe = -1, job_security_insecure = -1;
+    bool sack_pending = false, sacked = false;
+    bool keep_unsackable = false;  // turbo_output\manager_rules_keep.json asks for unsackable in every session
     bool is_turbo_made(const char* key) const {
         for (const auto& k : turbo_made)
             if (key && k == key) return true;

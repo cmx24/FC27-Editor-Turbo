@@ -42,6 +42,8 @@ M.MODULES = {
     reveal                   = { path = 'imports/turbo/features/reveal',                   kind = "action", needs_cm = true,  desc = "Reveal the true attributes and potential of players, a club or a league (scouting)" },
     development              = { path = 'imports/turbo/features/development',              kind = "both",   needs_cm = true,  desc = "Grow players (to potential, +N, set) in the database and the game's development plans; weekly forced growth (auto)" },
     youth                    = { path = 'imports/turbo/features/youth',                    kind = "action", needs_cm = true,  desc = "Youth academy: list the academy, set a youth player's potential, position or tier" },
+    manager_rules            = { path = 'imports/turbo/features/manager_rules',            kind = "action", needs_cm = true,  desc = "Job security level / score and unsackable for your manager (feature flag)" },
+    manager_move             = { path = 'imports/turbo/features/manager_move',             kind = "action", needs_cm = true,  desc = "Move a manager to another club or make him a free agent (feature flag)" },
 }
 
 local function message_box(cfg, title, text, opts)

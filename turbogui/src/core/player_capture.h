@@ -73,9 +73,12 @@ struct Camera {
 const std::vector<Camera>& cameras();
 constexpr int kCameraLearned = -1;  // use the template's mode / extra (falls back to preset 0)
 
+// Head id the game's manager-head builder treats as the user's created avatar (+0x68 = 1)
+constexpr int32_t kUserAvatarHeadId = 9999;
+
 struct Request {
     int32_t id = 0;            // player id (players) or head id (managers)
-    int32_t second_id = -1;    // team id for players, -1 for managers
+    int32_t second_id = -1;    // team id (players: their club; managers: the club they manage, like the game's builder), -1 = none
     bool manager = false;
     int camera = 0;            // index into cameras(), or kCameraLearned
     int mode_override = -1;    // >= 0: explicit mode (advanced)

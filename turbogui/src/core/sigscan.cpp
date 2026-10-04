@@ -221,6 +221,28 @@ static const SignatureTable kBuiltin[] = {
           "48 89 5C 24 10 48 89 74 24 18 57 48 81 EC 80 00 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 44 24 70 48 89 51 08", "rip", 0x25,
           "UserManager vtable (0x14AFDF150): the lea rax,[rip+..] at +0x25 of its ctor 0x147AB2EB8 (manager type 129, 0xB20 bytes; "
           "the user's team id the list helpers use)"},
+         // Manager rules (docs/re/manager_rules.md, scripts/re/manager_rules_signatures.json; every pattern unique in the image)
+         {"com_vtable",
+          "48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 41 54 41 55 41 56 41 57 48 83 EC 20 48 8D 05 ?? ?? ?? ?? 48 89 51 08",
+          "rip", 0x1C, "ClubObjectivesManager vtable: the lea rax,[rip+..] in the manager's constructor (0x147DF42D0 -> 0x14B019370; the "
+          "ctor is the one the hub builder calls right after the \"ClubObjectivesManager\" allocation at 0x147F19471)"},
+         {"com_update_job_security",
+          "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B F1 48 8D 91 1C 01 00 00", "none", 0,
+          "void ClubObjectivesManager::UpdateJobSecurityScore(this) 0x147E07E2C (its own name string): score = clamp(objectives + "
+          "addon); called by Turbo after it writes the addon, hooked (pass-through) to capture the manager"},
+         {"jsm_vtable",
+          "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 89 51 08 48 8D 05 ?? ?? ?? ?? 48 89 01 33 F6 48 89 71 10 48 8B D9 "
+          "48 89 71 18 83 CF FF",
+          "rip", 0x13, "JobSwitchManager vtable: the lea rax,[rip+..] in the manager's constructor (0x147DB6984 -> 0x14B016598; the "
+          "ctor the hub builder calls after the 0x1E8-byte \"JobSwitchManager\" allocation at 0x147F18F30; slot 1 = jsm_handle_event)"},
+         {"jsm_handle_event",
+          "40 53 48 83 EC 20 48 8B D9 83 FA 17 0F 85 ?? ?? ?? ?? 41 80 78 18 00 4D 8D 48 2C", "none", 0,
+          "void JobSwitchManager::HandleEvent(this, eventId, Event*) 0x147DD2A30: DAY_PASSED calls SackManager when +0x1E0 is set; "
+          "hooked (pass-through) to capture the manager"},
+         {"jsm_sack_manager",
+          "40 53 48 83 EC 20 C6 81 E1 01 00 00 01 4C 8D 05 ?? ?? ?? ??", "none", 0,
+          "void JobSwitchManager::SackManager(this) 0x147DDF900 (its own name string): sets mWasSacked (+0x1E1) and posts career event "
+          "0xAD; Turbo's unsackable hook refuses it (the original is not called) while the switch is on"},
          // Standings refresh (docs/re/standings-ui-path.md, core/standings_refresh.h; every pattern unique in the image)
          {"svm_refresh_comp", "83 FA FF 74 65 48 89 5C 24 08 57 48 83 EC 20 48 8B 41 08 4C 8D 05 ?? ?? ?? ??", "none", 0,
           "void StandingsViewManager::RequestStandingsSync(this, compObjId) 0x147DA5310: immediate 'rmvs' RequestGetStandings, "

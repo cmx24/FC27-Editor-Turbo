@@ -321,7 +321,7 @@ static void capture_tab(App& app, MinifaceEditor& ed, const MinifaceTarget& t) {
     if (ImGui::Button("Generate from 3D model")) {
         capture::Request r;
         r.id = ed.capture_id;
-        r.second_id = t.manager ? -1 : static_cast<int32_t>(t.teamid);
+        r.second_id = t.teamid > 0 ? static_cast<int32_t>(t.teamid) : -1;  // managers too: the game's builder passes the team id
         r.manager = t.manager;
         r.camera = ed.capture_camera;
         r.use_template = ed.capture_use_template;
