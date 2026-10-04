@@ -39,6 +39,8 @@ M.MODULES = {
     player_presets           = { path = 'imports/turbo/features/player_presets',           kind = "action", needs_cm = false, desc = "Export players to Live Editor preset CSV / Turbo JSON, or import a preset onto a player" },
     create_player            = { path = 'imports/turbo/features/create_player',            kind = "action", needs_cm = false, desc = "Create a new player (copy of a player, from a preset file, or blank) in a club" },
     job_offer                = { path = 'imports/turbo/features/job_offer',                kind = "action", needs_cm = true,  desc = "Create a job offer from a chosen club (feature flag)" },
+    manager_rules            = { path = 'imports/turbo/features/manager_rules',            kind = "action", needs_cm = true,  desc = "Job security level / score and unsackable for your manager (feature flag)" },
+    manager_move             = { path = 'imports/turbo/features/manager_move',             kind = "action", needs_cm = true,  desc = "Move a manager to another club or make him a free agent (feature flag)" },
 }
 
 local function message_box(cfg, title, text, opts)

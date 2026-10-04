@@ -136,7 +136,9 @@ H.case("all natives: wrappers are usable", function()
     H.eq(u.move_transfer_list, nil); H.eq(u.move_transfer, nil); H.eq(u.transfer_budget, nil); H.eq(u.transfer_bans, nil)
     -- job_offer needs Turbo.dll's own game-call native (TurboJobOfferCreate), never a Live Editor one
     H.ok(u.job_offer, "job_offer waits for Turbo.dll")
+    H.ok(u.manager_rules, "manager_rules waits for Turbo.dll")
     u.job_offer = nil
+    u.manager_rules = nil
     H.eq(next(u), nil, "every tool available with all natives")
 end)
 

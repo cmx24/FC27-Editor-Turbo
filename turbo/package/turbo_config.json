@@ -110,6 +110,21 @@
       "teamid": 0,
       "confirm": false
     },
+    "manager_rules": {
+      "_help": "turbo_manager_rules: job_security = safe | very insecure (locked) | okay | insecure | 0..100 | game (the game's own score again); unsackable = true / false (keep = true: switched on again in every game session). Through Turbo.dll's game calls (needs the Turbo GUI running in game). The Turbo window's Managers > Manager rules section does the same.",
+      "enabled": false,
+      "job_security": "",
+      "keep": true,
+      "confirm": false
+    },
+    "manager_move": {
+      "_help": "turbo_manager_move: managerid to club teamid (the club's manager takes his old job, or becomes a free agent), or teamid 0 = make him a free agent (a free agent, replacement or the first one, takes his club). Career database edit; never your own club.",
+      "enabled": false,
+      "managerid": 0,
+      "teamid": 0,
+      "replacement": 0,
+      "confirm": false
+    },
     "player_presets": {
       "_help": "turbo_export_player: playerids -> CSV in preset_dir (empty = extensions\\player_presets) + JSON in turbo_output\\players; turbo_import_player: file onto playerid, groups = profile|attributes|positions|playstyles|appearance|contract|names|miniface (empty = all)",
       "playerids": [],

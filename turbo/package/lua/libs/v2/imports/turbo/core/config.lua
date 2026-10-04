@@ -60,6 +60,8 @@ M.DEFAULTS = {
         create_player = { source = {}, teamid = 111592, jersey = 0, names = {}, set = {}, playerid = 0,
                           min_playerid = 0, max_playerid = 459999, allow_user_club = false },
         job_offer = { enabled = false, teamid = 0, confirm = false },
+        manager_rules = { enabled = false, job_security = "", keep = true, confirm = false },
+        manager_move = { enabled = false, managerid = 0, teamid = 0, replacement = 0, confirm = false },
     },
 }
 

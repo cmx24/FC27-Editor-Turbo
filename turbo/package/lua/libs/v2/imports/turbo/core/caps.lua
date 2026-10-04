@@ -21,6 +21,8 @@ M.NEEDS = {
     form_morale = { "SetPlayerForm", "SetPlayerMorale", "SetPlayerFitness" },
     -- job offer creation calls the game through Turbo.dll (hook foundation); the DLL registers this Lua native
     job_offer = { "TurboJobOfferCreate" },
+    -- job security / unsackable call the game through Turbo.dll too (core/manager_rules.h)
+    manager_rules = { "TurboManagerRules" },
 }
 
 -- Player moves Turbo does itself in the career database when Live Editor has no native for them (core/moves.lua).
