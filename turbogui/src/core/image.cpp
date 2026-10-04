@@ -466,6 +466,8 @@ const char* DdsFormat::name() const {
     return "?";
 }
 
+static size_t level_bytes(const DdsFormat& f, int w, int h);
+
 bool parse_dds_format(const std::vector<uint8_t>& d, DdsFormat& out, std::string* err) {
     out = DdsFormat();
     if (d.size() < 128 || std::memcmp(d.data(), "DDS ", 4) != 0) return fail(err, "not a DDS file");
@@ -475,7 +477,10 @@ bool parse_dds_format(const std::vector<uint8_t>& d, DdsFormat& out, std::string
     out.h = int(rd32(h + 8));
     out.w = int(rd32(h + 12));
     if (out.w <= 0 || out.h <= 0 || out.w > kMaxImageSide || out.h > kMaxImageSide) return fail(err, "DDS size out of range");
-    out.mips = (flags & 0x20000) ? int(rd32(h + 24)) : 1;
+    // dwMipMapCount is what the game reads: FC 27's crest files carry 4 levels and say so there while leaving
+    // DDSD_MIPMAPCOUNT out of the flags, so the count is trusted whenever it says more than one level
+    const uint32_t claimed = rd32(h + 24);
+    out.mips = ((flags & 0x20000) || claimed > 1) ? int(claimed) : 1;
     if (out.mips < 1) out.mips = 1;
     if (out.mips > 16) return fail(err, "DDS has more than 16 mip levels");
     const uint8_t* pf = h + 72;
@@ -511,7 +516,32 @@ bool parse_dds_format(const std::vector<uint8_t>& d, DdsFormat& out, std::string
     } else {
         return fail(err, "DDS pixel format not supported for writing");
     }
+    // Never more levels than the data holds (a header-only buffer keeps the count it states)
+    if (d.size() > hsize) {
+        size_t off = hsize;
+        int w = out.w, hh = out.h, present = 0;
+        while (present < out.mips) {
+            size_t need = level_bytes(out, w, hh);
+            if (off + need > d.size()) break;
+            off += need;
+            ++present;
+            w = std::max(1, w / 2);
+            hh = std::max(1, hh / 2);
+        }
+        out.mips = std::max(1, present);
+    }
     out.header.assign(d.begin(), d.begin() + long(hsize));
+    return true;
+}
+
+bool repair_dds_mip_count(std::vector<uint8_t>& d, int* claimed_out, int* present_out) {
+    DdsFormat f;
+    if (!parse_dds_format(d, f, nullptr)) return false;
+    const uint32_t claimed = rd32(d.data() + 28);
+    if (claimed_out) *claimed_out = int(claimed);
+    if (present_out) *present_out = f.mips;
+    if (claimed <= uint32_t(f.mips)) return false;
+    put32(d, 28, uint32_t(f.mips));
     return true;
 }
 
@@ -660,6 +690,9 @@ std::vector<uint8_t> encode_dds(const Rgba& img, const DdsFormat& f, std::string
         uint32_t flags = rd32(header.data() + 8);
         if (flags & 0x80000) put32(header, 20, uint32_t(level_bytes(f, f.w, f.h)));
         else if (flags & 0x8) put32(header, 20, uint32_t(f.w * (f.pixel == DdsFormat::Pixel::BGR8 ? 3 : 4)));
+        // the level count the game reads must match the levels written below (1.0.0 kept the original's 4 and wrote
+        // one: the game read past the file and crashed while loading the career)
+        put32(header, 28, uint32_t(mips));
     }
     size_t total = header.size();
     int w = f.w, h = f.h;

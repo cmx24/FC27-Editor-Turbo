@@ -421,6 +421,10 @@ function Sim:add_table(spec)
     for i = 1, 4 do self:w8(hdr + 0x40 + i - 1, spec.short:byte(i)) end
     self:w32(hdr + 0x44, rec_size)
     self:w16(hdr + 0x7C, n)
+    -- rows the table can hold (FC 27: +0x78 and +0x7A, equal; playernamemap is full at 106 of 106)
+    local cap = spec.capacity or (n + 512)
+    self:w16(hdr + 0x78, cap)
+    self:w16(hdr + 0x7A, cap)
     self:w8(hdr + 0x82, #cols)
     self.meta.shortname_name_tables_map[spec.short] = spec.name
     self.meta.field_desc_map[spec.short] = {}

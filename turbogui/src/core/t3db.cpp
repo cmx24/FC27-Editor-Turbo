@@ -168,6 +168,8 @@ bool Database::parse_table(uint64_t hdr, const DbMeta& meta, Table& out) {
     out.first_record = first;
     out.record_size = static_cast<uint32_t>(rec_size);
     out.written = written;
+    uint16_t cap_a = 0, cap_b = 0;
+    if (mem_.rd(hdr + 0x78, cap_a) && mem_.rd(hdr + 0x7A, cap_b)) out.capacity = (cap_a && cap_b) ? std::min(cap_a, cap_b) : std::max(cap_a, cap_b);
 
     std::vector<uint8_t> coldata;
     if (!mem_.read_block(hdr + 0x84, size_t(cols) * 0x10, coldata)) return false;
@@ -239,6 +241,24 @@ bool Database::record_valid(const Table& t, uint64_t rec) {
     uint8_t last = 0;
     if (!mem_.rd(rec + t.record_size - 1, last)) return false;
     return (last & 0x80) == 0;
+}
+
+bool Database::rows_in_use(const Table& t, uint32_t& used, uint32_t& capacity) {
+    used = capacity = 0;
+    char sn[4];
+    if (!mem_.read(t.header + 0x40, sn, 4) || std::string(sn, 4) != t.shortname) return false;
+    uint16_t cap_a = 0, cap_b = 0, written = 0;
+    if (!mem_.rd(t.header + 0x78, cap_a) || !mem_.rd(t.header + 0x7A, cap_b) || !mem_.rd(t.header + 0x7C, written)) return false;
+    uint32_t cap = (cap_a && cap_b) ? std::min(cap_a, cap_b) : std::max(cap_a, cap_b);
+    if (cap == 0 || written > cap) return false;
+    used = written;
+    capacity = cap;
+    return true;
+}
+
+bool Database::has_room(const Table& t, uint32_t n) {
+    uint32_t used = 0, cap = 0;
+    return rows_in_use(t, used, cap) && used + n <= cap;
 }
 
 bool Database::table_alive(const Table& t, uint64_t rec) {

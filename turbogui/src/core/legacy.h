@@ -82,6 +82,11 @@ public:
     // Back up and delete the custom file(s) for `path`. false when there was none (err says so) or deleting failed.
     bool remove_custom(const std::string& path, std::string* err = nullptr, std::filesystem::path* backup = nullptr);
 
+    // Fix custom DDS files under mods\legacy\data\ui\imgAssets whose mip count claims more levels than the file holds
+    // (crests written by Turbo 1.0.0 crash the game while it loads the career). The original goes to the backups.
+    // One line per file repaired or failed; empty when every file is fine.
+    std::vector<std::string> repair_dds_files();
+
     uint64_t generation() const { return gen_; }
 
 private:

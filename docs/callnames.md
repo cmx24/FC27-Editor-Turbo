@@ -470,6 +470,17 @@ not Turbo's or holds no commentary id is ignored.
 4. **A spoken surname in a match.** Pick a name the picker lists for a Napoli starter with *Assign as last name* +
    *Keep the shown name*; play a short match (2-minute halves). Expected: the commentator says the chosen surname, the
    name on screen is unchanged.
+4c. **Proof from the game's own requests (diagnostic, opt-in).** Create an empty
+   `turbo_output\commentary_speech_log_on.txt` before starting the game. Turbo then hooks the game's
+   `SpeechQuery::SetInt` (0x1407B03E4, the same helper §5.4 calls) and counts every `surname_ID` and `player_db_pID`
+   the commentary asks about, Turbo's own spoken-set checks excluded. Every 5 s the counts go to
+   `turbo_output\commentary_speech_log.txt`. After a match, the id assigned in the Callname tab appears there when the
+   commentary looked it up for that player. Delete the file again afterwards (`hook_commentary_speech_log_off.txt`
+   turns the hook off at run time). Record the game's output to hear it: Windows loopback capture of the default
+   playback device.
+4d. **A full playernamemap.** FC 27's `playernamemap` holds 106 of 106 rows (header +0x78 capacity, +0x7C rows in use).
+   *Use this player's callname* on a player without a row takes over one of the 38 rows whose commentary id no bank
+   knows (980xxx) and says so; it never asks Live Editor to add a row to a full table (that crashes the game).
 5. **An unlisted id stays silent.** Write `turbo\callnames\spoken_ita_it.txt` with one id the picker does **not** list
    (e.g. one that commentarynames has but the build dropped), press Refresh (the tab shows "hand-made list"; the
    players with recordings still come from the game-built cache), assign it, play a match: expected silence for that

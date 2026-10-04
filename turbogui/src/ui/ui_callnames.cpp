@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <unordered_set>
 
 #include "app.h"
 #include "imgui.h"
@@ -100,8 +101,12 @@ static void assign_name(App& app, const Table& t, const PlayerRow& p, const Name
             if (const Field* ff = e->field("commonname")) ok = ok && app.edit(*e, before.edited_rec, *ff, Value::of_str(before.common));
             if (ok) app.notify(msg + "; shown name kept (editedplayernames updated)");
         } else {
+            if (!app.db.has_room(*e)) {
+                app.notify(msg + "; shown name NOT kept: the game's editedplayernames table is full (Live Editor cannot add a row)", true);
+                return;
+            }
             json a = {{"action", "set_display_name"}, {"playerid", p.playerid}, {"firstname", before.first},
-                      {"surname", before.last}, {"commonname", before.common}};
+                      {"surname", before.last}, {"commonname", before.common}, {"room", true}};
             if (send_actions(app, json::array({a}), "Keep shown name"))
                 app.notify(msg + "; editedplayernames row queued for Turbo's Lua side (next career event)");
             else
@@ -112,19 +117,68 @@ static void assign_name(App& app, const Table& t, const PlayerRow& p, const Name
     }
 }
 
-// BY PLAYER: this player's playernamemap row (edited in place when it exists, else added through Lua)
+// A playernamemap row no player needs: its player is not in the database, or its commentary id is outside the range
+// every commentary bank uses (900001..965000; the FC 26 database had a dangling 980xxx run). Players first. 0 if none.
+static uint64_t spare_playernamemap_row(App& app, const Table& m) {
+    const Field* fp = m.field("playerid");
+    const Field* fc = m.field("commentaryid");
+    if (!fp || !fc) return 0;
+    std::unordered_set<int64_t> known;
+    known.reserve(app.model.players().size() * 2);
+    for (const auto& pr : app.model.players()) known.insert(pr.playerid);
+    Snapshot snap;
+    if (known.empty() || !snap.load(app.db.memory(), m)) return 0;
+    uint64_t dangling = 0;
+    for (uint32_t i : snap.valid) {
+        int64_t pid = snap.get_int(i, *fp), cid = snap.get_int(i, *fc);
+        if (pid <= 0 || !known.count(pid)) return snap.addr(i);
+        if (!dangling && (cid <= 900000 || cid > 965000)) dangling = snap.addr(i);
+    }
+    return dangling;
+}
+
+// BY PLAYER: this player's playernamemap row: edited in place when it exists; else added through Lua when the table has
+// room; else a row no player needs (spare_playernamemap_row) is taken over. Live Editor's InsertDBTableRow crashes the
+// game on a full table (FC 27's playernamemap is full: 106 of 106 rows), so a full table never reaches it.
 static void assign_player_callname(App& app, const PlayerRow& p, int64_t commentaryid, const std::string& from) {
     const Table* m = app.db.table("playernamemap");
+    if (!m) {
+        app.notify("FC 27's database has no playernamemap table", true);
+        return;
+    }
     auto rec = app.callnames.index.playernamemap_rec.find(p.playerid);
-    if (m && rec != app.callnames.index.playernamemap_rec.end()) {
+    if (rec != app.callnames.index.playernamemap_rec.end()) {
         const Field* f = m->field("commentaryid");
         if (f && app.edit(*m, rec->second, *f, Value::of_int(commentaryid)))
             app.notify(p.name + ": player-specific callname " + std::to_string(commentaryid) + " (from " + from + ")");
         return;
     }
-    json a = {{"action", "set_playernamemap"}, {"playerid", p.playerid}, {"commentaryid", commentaryid}};
-    if (send_actions(app, json::array({a}), "Player callname"))
-        app.notify(p.name + ": playernamemap row (" + std::to_string(commentaryid) + ", from " + from + ") queued for Turbo's Lua side");
+    uint32_t used = 0, cap = 0;
+    const bool counted = app.db.rows_in_use(*m, used, cap);
+    if (counted && used < cap) {
+        json a = {{"action", "set_playernamemap"}, {"playerid", p.playerid}, {"commentaryid", commentaryid}, {"room", true}};
+        if (send_actions(app, json::array({a}), "Player callname"))
+            app.notify(p.name + ": playernamemap row (" + std::to_string(commentaryid) + ", from " + from + ") queued for Turbo's Lua side");
+        return;
+    }
+    const Field* fp = m->field("playerid");
+    const Field* fc = m->field("commentaryid");
+    if (uint64_t spare = fp && fc ? spare_playernamemap_row(app, *m) : 0) {
+        Value old_pid;
+        app.db.get(*m, spare, *fp, old_pid);
+        if (app.edit(*m, spare, *fc, Value::of_int(commentaryid)) && app.edit(*m, spare, *fp, Value::of_int(p.playerid))) {
+            if (old_pid.type == FieldType::Int) app.callnames.index.playernamemap_rec.erase(old_pid.i);
+            app.callnames.index.playernamemap_rec[p.playerid] = spare;
+            app.notify(p.name + ": player-specific callname " + std::to_string(commentaryid) + " (from " + from +
+                       "); the table is full, so the row of " + (old_pid.type == FieldType::Int ? "player " + std::to_string(old_pid.i) : std::string("an unused entry")) +
+                       ", which no player in the database or no commentary uses, was taken over");
+        }
+        return;
+    }
+    std::string count = counted ? " (" + std::to_string(used) + " of " + std::to_string(cap) + " rows)" : " (its row count could not be read)";
+    app.notify(p.name + ": no player-specific callname written: the game's playernamemap table is full" + count +
+                   " and every row belongs to a player. Pick the callname By name instead (Assign as last name / common name).",
+               true);
 }
 
 static void language_line(App& app) {

@@ -3534,8 +3534,42 @@ static void test_ui() {
                 json cmd = json::parse(mem.read_cstr(kMb + 0x20, 0x1000), nullptr, false);
                 const json& a = cmd["overrides"]["actions"][0];
                 CHECK(a["action"] == "set_playernamemap" && a["playerid"] == 3002 && a["commentaryid"] == 900010, "set_playernamemap command: " + a.dump());
+                CHECK(a.value("room", false) == true, "the window checked the table has room: " + a.dump());
             }
             CHECK(ui.click("Cancel"), "cancel");
+            // A FULL TABLE (FC 27's playernamemap holds 106 of 106 rows): Live Editor's InsertDBTableRow crashes the game
+            // there, so nothing is queued; a row no player needs is taken over, else the assignment is refused
+            {
+                const Table* mt = app.db.table("playernamemap");
+                uint16_t written = 0, cap_before = 0;
+                CHECK(mem.rd(mt->header + 0x7C, written) && mem.rd(mt->header + 0x78, cap_before) && cap_before > written, "header counts");
+                uint32_t used = 0, cap = 0;
+                CHECK(app.db.rows_in_use(*mt, used, cap) && used == written && cap == cap_before && app.db.has_room(*mt),
+                      fmt("room read from the header: %u of %u", used, cap));
+                CHECK(mem.wr(mt->header + 0x78, written) && mem.wr(mt->header + 0x7A, written), "table made full");
+                CHECK(!app.db.has_room(*mt), "no room");
+                app.toasts.clear();
+                CHECK(ui.click("Use this player's callname"), "use callname on a full table");
+                CHECK(!app.busy(), "nothing queued for Live Editor's insert");
+                bool refused = false;
+                for (const auto& tt : app.toasts) refused = refused || (tt.error && tt.text.find("playernamemap table is full") != std::string::npos);
+                CHECK(refused, "refused with the reason (every row belongs to a player)");
+                CHECK(app.db.find(*mt, "playerid", 3002) == 0, "no row for 3002");
+                // a row whose commentary id no bank uses (980001) is taken over in place
+                uint64_t r1003 = app.db.find(*mt, "playerid", 1003);
+                CHECK(r1003 && app.db.set_int(*mt, r1003, "commentaryid", 980001), "1003's row made dangling");
+                CHECK(ui.click("Use this player's callname"), "use callname again");
+                CHECK(!app.busy(), "still nothing queued");
+                CHECK(app.db.get_int(*mt, r1003, "playerid") == 3002 && app.db.get_int(*mt, r1003, "commentaryid") == 900010,
+                      "the dangling row now carries 3002's callname");
+                CHECK(app.callnames.index.playernamemap_rec.count(3002) == 1 && app.callnames.index.playernamemap_rec.count(1003) == 0,
+                      "index follows the row");
+                // put the world back for the cases below
+                CHECK(app.db.set_int(*mt, r1003, "playerid", 1003) && app.db.set_int(*mt, r1003, "commentaryid", 900010), "row restored");
+                CHECK(mem.wr(mt->header + 0x78, cap_before) && mem.wr(mt->header + 0x7A, cap_before), "capacity restored");
+                CHECK(ui.click("Refresh##cn"), "refresh the index");
+                CHECK(app.callnames.index.playernamemap_rec.count(1003) == 1 && app.callnames.index.playernamemap_rec.count(3002) == 0, "index rebuilt");
+            }
             // a player with a playernamemap row (2001, 950000): edited in place; then its removal asks for confirmation and queues Lua
             CHECK(ui.click("2001", "##plist"), "row 2001");
             CHECK(ui.click("Callname", "##pedit"), "Callname tab");
@@ -4148,6 +4182,55 @@ static void test_images() {
         CHECK(parse_dds_format(hdr, from_file, &err) && from_file.header.size() == 128, "header kept");
         std::vector<uint8_t> again = encode_dds(gradient(256), from_file, &err);
         CHECK(again.size() == hdr.size() && again[32] == 'T' && again[33] == 'X', "original header bytes written back");
+        // FC 27's own 256 x 256 crests: BGRA8, 4 levels in the file, dwMipMapCount = 4 but DDSD_MIPMAPCOUNT left out of the
+        // flags. Turbo 1.0.0 read that as one level, wrote one and kept the count of 4: the game read past the file and
+        // crashed while loading the career. The count is trusted now, and written to match the levels written.
+        {
+            DdsFormat four;
+            four.pixel = DdsFormat::Pixel::BGRA8; four.w = four.h = 256; four.mips = 4;
+            std::vector<uint8_t> game = encode_dds(gradient(256), four, &err);
+            CHECK(game.size() == 128 + size_t(256 * 256 + 128 * 128 + 64 * 64 + 32 * 32) * 4, fmt("4-level crest %zu", game.size()));
+            uint32_t fl = le32(game, 8) & ~0x20000u;  // the game's files leave the flag out
+            std::memcpy(game.data() + 8, &fl, 4);
+            DdsFormat crest;
+            CHECK(parse_dds_format(game, crest, &err) && crest.mips == 4, fmt("count of 4 trusted without the flag: %d", crest.mips));
+            std::vector<uint8_t> custom = encode_dds(gradient(256), crest, &err);
+            CHECK(custom.size() == game.size() && le32(custom, 28) == 4, fmt("custom crest has the 4 levels the game reads (%zu bytes)", custom.size()));
+            // a 1.0.0 crest: count 4, one level of data -> parsed as what the data holds, and repaired
+            std::vector<uint8_t> broken(game.begin(), game.begin() + 128 + 256 * 256 * 4);
+            DdsFormat bf;
+            CHECK(parse_dds_format(broken, bf, &err) && bf.mips == 1, fmt("never more levels than the data holds: %d", bf.mips));
+            std::vector<uint8_t> re = encode_dds(gradient(256), bf, &err);
+            CHECK(re.size() == broken.size() && le32(re, 28) == 1, "written again: the count says 1");
+            int was = 0, now_l = 0;
+            CHECK(repair_dds_mip_count(broken, &was, &now_l) && was == 4 && now_l == 1 && le32(broken, 28) == 1, fmt("repaired %d -> %d", was, now_l));
+            CHECK(!repair_dds_mip_count(broken) && !repair_dds_mip_count(game), "a consistent file is left alone");
+            // header-only buffers keep the count they state
+            std::vector<uint8_t> head_only(game.begin(), game.begin() + 128);
+            CHECK(parse_dds_format(head_only, bf, &err) && bf.mips == 4, "header only: count kept");
+            // the startup scan repairs such files under mods\legacy and backs up the original
+            fs::path le_root = fs::temp_directory_path() / "turbo_dds_repair_test";
+            fs::remove_all(le_root);
+            LegacyImages lg(le_root);
+            fs::path crest_file = lg.mods_dir() / "data" / "ui" / "imgAssets" / "crest" / "light" / "l48.dds";
+            fs::create_directories(crest_file.parent_path());
+            std::vector<uint8_t> bad(game.begin(), game.begin() + 128 + 256 * 256 * 4);
+            { std::ofstream o(crest_file, std::ios::binary); o.write(reinterpret_cast<const char*>(bad.data()), std::streamsize(bad.size())); }
+            fs::path ok_file = lg.mods_dir() / "data" / "ui" / "imgAssets" / "crest" / "dark" / "l48.dds";
+            fs::create_directories(ok_file.parent_path());
+            { std::ofstream o(ok_file, std::ios::binary); o.write(reinterpret_cast<const char*>(game.data()), std::streamsize(game.size())); }
+            std::vector<std::string> lines = lg.repair_dds_files();
+            CHECK(lines.size() == 1 && lines[0].find("crest/light/l48.dds") != std::string::npos && lines[0].find("4 -> 1") != std::string::npos,
+                  "one file repaired: " + (lines.empty() ? std::string("(none)") : lines[0]));
+            std::vector<uint8_t> after;
+            { std::ifstream i(crest_file, std::ios::binary); after.assign(std::istreambuf_iterator<char>(i), std::istreambuf_iterator<char>()); }
+            CHECK(after.size() == bad.size() && le32(after, 28) == 1, "count on disk now 1, data unchanged in size");
+            CHECK(lg.repair_dds_files().empty(), "second scan: nothing to do");
+            bool backed_up = false;
+            for (auto& e : fs::recursive_directory_iterator(lg.crest_backup_dir())) backed_up = backed_up || e.is_regular_file();
+            CHECK(backed_up, "original backed up");
+            fs::remove_all(le_root);
+        }
         // DXT5 with a full mip chain (256 -> 1 = 9 levels)
         f.pixel = DdsFormat::Pixel::DXT5; f.mips = 9;
         dds = encode_dds(gradient(256), f, &err);

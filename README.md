@@ -1,9 +1,9 @@
 # FC27-Editor-Turbo
 
-**FC 27 LE Turbo 1.0.0**: FC 26 Live Editor features for **FC 27 Live Editor** (public build v27.1.0 or newer), plus an
+**FC 27 LE Turbo 1.0.1**: FC 26 Live Editor features for **FC 27 Live Editor** (public build v27.1.0 or newer), plus an
 in-game window (the **Turbo GUI**) with Players / Teams / Managers / Database editors and a button for every Turbo tool.
 
-Which FC 26 Live Editor feature is where, and its status in 1.0.0 (verified in game, untested in a match, not in Turbo 1.0,
+Which FC 26 Live Editor feature is where, and its status in 1.0.1 (verified in game, untested in a match, not in Turbo 1.0,
 not possible in FC 27): [`docs/fc26-parity.md`](docs/fc26-parity.md). What changed: [`CHANGELOG.md`](CHANGELOG.md).
 
 Offline Career Mode / Kick-Off only. Never use Live Editor or Turbo in online modes. Turbo runs next to an official,
@@ -33,7 +33,7 @@ the features FC 27 Live Editor already has. Not possible in FC 27: transfer bans
 ## Install
 
 1. Install the official FC 27 Live Editor as usual.
-2. Unzip `FC27_LE_Turbo_1.0.0.zip` into the Live Editor folder (the folder with `FCLiveEditor.DLL`). Same layout as 0.3.0
+2. Unzip `FC27_LE_Turbo_1.0.1.zip` into the Live Editor folder (the folder with `FCLiveEditor.DLL`). Same layout as 0.3.0
    and 0.4.0. Nothing of Live Editor is overwritten.
 3. Start the game through Live Editor as usual. Nothing to run: about 20 seconds after the main menu appears, press **F8**.
 4. Load a career: the Turbo window's top line says **Connected**. (At the main menu, run `turbo_gui_load.lua` in Live Editor's
@@ -104,7 +104,7 @@ also polled, so they work when the game reads only raw input.
 | `turbogui/` | C++ source of `Turbo.dll` / `TurboProbe.exe` / `TurboInjector.exe` (Dear ImGui + MinHook + nlohmann/json vendored in `third_party/`), native tests, Wine smoke and overlay tests |
 | `scripts/package.sh` | Builds `dist/FC27_LE_Turbo_<version>.zip` |
 | `scripts/check_field_names.py` / `scripts/check_fc27_schema.py` | Check every database name Turbo uses against independent schema sources / the FC 27 schema dumped in game |
-| `docs/fc26-parity.md` | Every FC 26 Live Editor feature group and script, and its status in Turbo 1.0.0 |
+| `docs/fc26-parity.md` | Every FC 26 Live Editor feature group and script, and its status in Turbo 1.0.1 |
 | `CHANGELOG.md` | What changed in each release |
 | `docs/turbo-reference.md` | Architecture, bridge contract, build/test commands, what is and is not verified |
 | `docs/HANDOVER.md` | Where the work stands, what the user's in-game tests showed, next steps for a local session |

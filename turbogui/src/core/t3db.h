@@ -73,6 +73,7 @@ public:
     uint64_t first_record = 0;
     uint32_t record_size = 0;
     uint32_t written = 0;
+    uint32_t capacity = 0;  // rows the table can hold (header +0x78 / +0x7A; 0 = unknown)
     std::vector<Field> fields;
     std::map<std::string, int> by_name;
 
@@ -129,6 +130,13 @@ public:
 
     bool set(const Table& t, uint64_t rec, const Field& f, const Value& v, std::string* err = nullptr);
     bool set_int(const Table& t, uint64_t rec, const std::string& field, int64_t v, std::string* err = nullptr);
+
+    // Rows in use and rows the table can hold, read live from the table header (rows added since the last refresh
+    // count). false when the header no longer describes this table or the capacity is unknown. Live Editor's
+    // InsertDBTableRow crashes the game on a full table ("Reached max rows"), so every insert asks this first.
+    bool rows_in_use(const Table& t, uint32_t& used, uint32_t& capacity);
+    // rows_in_use says there is room for `n` more rows
+    bool has_room(const Table& t, uint32_t n = 1);
 
     // First valid record where field == v (integer fields), 0 if none
     uint64_t find(const Table& t, const std::string& field, int64_t v);

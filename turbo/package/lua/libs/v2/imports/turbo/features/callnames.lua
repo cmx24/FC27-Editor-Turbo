@@ -23,6 +23,10 @@ local M = {}
 M.NO_CALLNAME = 900000
 M.CALLNAME_MIN = 900000
 M.CALLNAME_MAX = 965000
+-- Live Editor's InsertDBTableRow crashes the game when the table is full ("Reached max rows"; FC 27's playernamemap is
+-- full at 106 rows) and Lua cannot read a table's capacity, so a row is added only when the action says "room": true,
+-- which the Turbo window sets after reading the table header (core/t3db.h Database::rows_in_use)
+M.NO_ROOM = "adding a row needs \"room\": true from the Turbo window, which checks the table has room first (Live Editor crashes the game on a full table)"
 
 local NAME_FIELDS = { "firstname", "surname", "commonname", "playerjerseyname" }
 
@@ -61,7 +65,7 @@ local function check(a, i)
     if not pid then return nil, string.format("action %d: playerid missing", i) end
     local rec, perr = player_rec(pid)
     if not rec then return nil, string.format("action %d: %s", i, perr) end
-    local out = { action = kind, playerid = pid }
+    local out = { action = kind, playerid = pid, room = a.room == true }
 
     if kind == "set_playernamemap" then
         local cid = util.to_int(a.commentaryid)
@@ -136,6 +140,7 @@ local function apply(a, dry)
             if not ok then return false, err end
             return true, string.format("player %d: callname %d (row updated)", pid, a.commentaryid)
         end
+        if not a.room then return false, string.format("player %d: no playernamemap row added: %s", pid, M.NO_ROOM) end
         local ok, err = insert_row("playernamemap", { playerid = tostring(pid), commentaryid = tostring(a.commentaryid) }, "playerid", pid)
         if not ok then return false, err end
         return true, string.format("player %d: callname %d (row added)", pid, a.commentaryid)
@@ -168,6 +173,7 @@ local function apply(a, dry)
             end
             return true, string.format("player %d: display name updated (%s)", pid, table.concat(fields, ", "))
         end
+        if not a.room then return false, string.format("player %d: no editedplayernames row added: %s", pid, M.NO_ROOM) end
         local row = { playerid = tostring(pid) }
         for _, f in ipairs(NAME_FIELDS) do
             if db.has_field(tbl, f) then row[f] = a.names[f] or "" end

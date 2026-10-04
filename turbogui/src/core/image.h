@@ -59,6 +59,11 @@ struct DdsFormat {
 };
 // Read the format of a DDS file. false with a reason for formats Turbo cannot write back.
 bool parse_dds_format(const std::vector<uint8_t>& bytes, DdsFormat& out, std::string* err = nullptr);
+// A DDS whose dwMipMapCount claims more levels than its data holds gets the count of the levels present (Turbo 1.0.0
+// wrote 256 x 256 crests with the original's count of 4 and one level; the game read past them and crashed).
+// Returns true when `d` was changed; claimed / present get the counts (when the format is one Turbo can parse).
+bool repair_dds_mip_count(std::vector<uint8_t>& d, int* claimed = nullptr, int* present = nullptr);
+
 // Write `img` (which must be f.w x f.h) as a DDS file in that format, with f.mips mip levels (box filtered).
 // Sizes that are not multiples of 4 are allowed for the compressed formats (edge texels repeat, as DirectX does).
 std::vector<uint8_t> encode_dds(const Rgba& img, const DdsFormat& f, std::string* err = nullptr);

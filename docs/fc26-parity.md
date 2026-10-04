@@ -1,4 +1,4 @@
-# FC 26 Live Editor → Turbo for FC 27: feature parity (Turbo 1.0.0)
+# FC 26 Live Editor → Turbo for FC 27: feature parity (Turbo 1.0.1)
 
 The 41 FC 26 Live Editor feature groups and 16 FC 26 Lua scripts below come from the assessment of your
 `C:\FC 26 Live Editor` and `C:\FC 27 Live Editor` installs (changelogs, Lua libraries, UI strings, `DOC.MD`).
@@ -28,7 +28,7 @@ overrides and remove suspension.
 
 ## Player editor
 
-| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 1.0.0 |
+| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 1.0.1 |
 | --- | --- | --- | --- | --- |
 | 1 | Player editor: attributes, positions, playstyles | v26.1.0 | yes | **Verified in game**: sliders, combos, check boxes, PlayStyles / PlayStyles+ / Traits / Traits+, star-head (real face), tattoo, hair and item galleries, undo |
 | 2 | Edit player or VPRO in Player Career | v26.1.1 | yes (v27.1.1) | **Verified in game**: the player editor works on your own player like any other. No dedicated VPRO page: use FC 27 LE's |
@@ -47,7 +47,7 @@ overrides and remove suspension.
 
 ## Team editor
 
-| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 1.0.0 |
+| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 1.0.1 |
 | --- | --- | --- | --- | --- |
 | 15 | Team editor: core | v26.1.0 | yes | **Verified in game**: Teams tab |
 | 16 | Team name, transfer budget, transfer bans | v26.1.2 | partly | Team crest: **Verified in game**. Team name and colours: built, not yet seen on a game screen (a new name shows after Live Editor's next start). Transfer budget: **Verified in game**. Transfer bans: **Not possible in FC 27** (no ban list in the game) |
@@ -59,7 +59,7 @@ overrides and remove suspension.
 
 ## Manager editor
 
-| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 1.0.0 |
+| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 1.0.1 |
 | --- | --- | --- | --- | --- |
 | 22 | Manager editor: core | v26.2.7 | basic | **Verified in game**: Managers tab |
 | 23 | Manager and team ID, name, miniface import / generate | v26.2.8 | not announced | IDs and names: **Verified in game**. Miniface from the game's 3D model: **Verified in game**. Miniface from an image file: **Verified in game** |
@@ -68,7 +68,7 @@ overrides and remove suspension.
 
 ## Career
 
-| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 1.0.0 |
+| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 1.0.1 |
 | --- | --- | --- | --- | --- |
 | 26 | Youth academy tools | v26.1.3 | partly | **Built, not yet seen in game**: list the academy, set a youth player's potential, position, tier and potential range. FC 27 LE has youth scout reports |
 | 27 | Reveal player data | v26.1.4 | not announced | **Verified in game**: one player, a club or a league marked fully scouted by the game's own scouting |
@@ -83,7 +83,7 @@ overrides and remove suspension.
 
 ## Tool and scripting
 
-| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 1.0.0 |
+| # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 1.0.1 |
 | --- | --- | --- | --- | --- |
 | 36 | Speedhack (menu, gameplay), hotkeys | v26.1.0–v26.3.6 | yes | **Not in Turbo 1.0** (FC 27 LE has it) |
 | 37 | Lua script on hotkey, CJK font, font size | v26.3.6 | not announced | **FC 27 LE** for scripts; Turbo has its own show/hide key only |
@@ -94,7 +94,7 @@ overrides and remove suspension.
 
 ## Turbo 1.0 features FC 26 Live Editor did not have
 
-| Feature | Turbo 1.0.0 |
+| Feature | Turbo 1.0.1 |
 | --- | --- |
 | Callnames: the commentators speak the name you pick, in the commentary language the game has loaded (assign by name or by player) | **Verified in game**. Turbo builds the spoken set from the game's own audio check when the game binds the bank (Create Player screen or a match). Italian: 2,462 surnames, 751 player recordings |
 | Callname heard in a match | **Untested in a match** |

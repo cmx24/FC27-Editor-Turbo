@@ -29,7 +29,7 @@
 
 namespace turbo {
 
-constexpr const char* kGuiVersion = "1.0.0";
+constexpr const char* kGuiVersion = "1.0.1";
 
 // UI scale (window height and the user's "UI size" setting): every fixed size in the panels goes through S()
 extern float g_ui_scale;
@@ -182,6 +182,7 @@ public:
     bool save_gui_settings();
 
 private:
+    bool legacy_repaired_ = false;  // repair_dds_files ran (first tick)
     void finish_bank_capture();  // tick: take a finished capture, cache it, rebuild the pickers
     void finish_spoken_build();  // tick: take a finished audio-service build, cache it, rebuild the pickers
     void spoken_watch_tick();    // tick: run the watcher, start the probe / build it asks for

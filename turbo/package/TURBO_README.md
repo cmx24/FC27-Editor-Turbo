@@ -1,4 +1,4 @@
-# FC 27 LE Turbo 1.0.0
+# FC 27 LE Turbo 1.0.1
 
 Turbo adds FC 26 Live Editor features to **FC 27 Live Editor** (public build v27.1.0 or newer). It has an in-game window, the **Turbo GUI**, with player, team, manager and database editors and buttons for every Turbo tool. Turbo runs next to Live Editor, inside the same game session. Live Editor's own files are not modified.
 
@@ -72,7 +72,7 @@ The full table, feature by feature, is in `docs/fc26-parity.md` in the Turbo sou
 ## Install
 
 1. Install the official FC 27 Live Editor as usual.
-2. Unzip `FC27_LE_Turbo_1.0.0.zip` into the Live Editor folder (the folder with `FCLiveEditor.DLL`). The layout is the same as in 0.3.0 and 0.4.0, so you can unzip over an older Turbo. Nothing of Live Editor is overwritten. You add:
+2. Unzip `FC27_LE_Turbo_1.0.1.zip` into the Live Editor folder (the folder with `FCLiveEditor.DLL`). The layout is the same as in 0.3.0 and 0.4.0, so you can unzip over an older Turbo. Nothing of Live Editor is overwritten. You add:
    - `turbo\Turbo.dll`, `turbo\TurboProbe.exe`, `turbo\TurboInjector.exe` (the Turbo GUI)
    - `turbo_config.json`, `TURBO_README.md`, `turbo_output\`
    - `lua\autorun\turbo_boot.lua`

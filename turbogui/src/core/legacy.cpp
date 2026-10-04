@@ -1,5 +1,7 @@
 #include "legacy.h"
 
+#include "image.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -318,6 +320,46 @@ bool LegacyImages::remove_custom(const std::string& path, std::string* err, fs::
         existing = custom_file(path);
     }
     return true;
+}
+
+std::vector<std::string> LegacyImages::repair_dds_files() {
+    std::vector<std::string> out;
+    std::error_code ec;
+    fs::path root = mods_dir() / "data" / "ui" / "imgAssets";
+    if (!fs::is_directory(root, ec)) return out;
+    for (fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end; !ec && it != end;
+         it.increment(ec)) {
+        if (!it->is_regular_file(ec) || lower(it->path().extension().string()) != ".dds") continue;
+        const fs::path file = it->path();
+        uint8_t head[32] = {};
+        {
+            std::ifstream f(file, std::ios::binary);
+            if (!f.read(reinterpret_cast<char*>(head), sizeof(head))) continue;
+        }
+        const uint32_t claimed = uint32_t(head[28]) | uint32_t(head[29]) << 8 | uint32_t(head[30]) << 16 | uint32_t(head[31]) << 24;
+        if (claimed <= 1) continue;  // the only case the repair handles: a count of several levels
+        std::vector<uint8_t> bytes;
+        {
+            std::ifstream f(file, std::ios::binary);
+            bytes.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+        }
+        int was = 0, now_levels = 0;
+        if (!repair_dds_mip_count(bytes, &was, &now_levels)) continue;
+        std::string rel = fs::relative(file, mods_dir(), ec).generic_string();
+        std::string err;
+        if (!backup(file, backup_dir_for(rel), nullptr, &err)) {
+            out.push_back("legacy repair: " + rel + ": not repaired, backup failed: " + err);
+            continue;
+        }
+        if (!write_atomic(file, std::string(bytes.begin(), bytes.end()), &err)) {
+            out.push_back("legacy repair: " + rel + ": writing failed: " + err);
+            continue;
+        }
+        out.push_back("legacy repair: " + rel + ": mip count " + std::to_string(was) + " -> " + std::to_string(now_levels) +
+                      " (the file holds " + std::to_string(now_levels) + " level" + (now_levels == 1 ? "" : "s") +
+                      "; the game read past it while loading)");
+    }
+    return out;
 }
 
 }  // namespace turbo

@@ -7,8 +7,13 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <algorithm>
+#include <fstream>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <thread>
+#include <vector>
 
 #include "core/commentary_audio.h"
 #include "game_hooks.h"
@@ -119,6 +124,90 @@ struct ServiceRef {
     }
 };
 
+// ---------------------------------------------------------------- speech request log (diagnostic, opt-in)
+// With turbo_output\commentary_speech_log_on.txt present when the game starts, Turbo hooks the game's
+// SpeechQuery::SetInt and counts every surname_ID and player_db_pID the commentary asks about (Turbo's own checks are
+// not counted). The counts go to turbo_output\commentary_speech_log.txt every 5 s: after a match it lists the callname
+// ids the commentary looked up, e.g. the one given to a player in the Callname tab.
+using SpeechSetIntFn = void (*)(void*, const char*, int);
+SpeechSetIntFn g_speech_set_int = nullptr;
+thread_local int t_own_query = 0;  // > 0 while Turbo itself builds a query (its spoken-set checks)
+std::mutex g_speech_mutex;
+std::map<int, uint32_t> g_speech_surnames;
+std::map<int, uint32_t> g_speech_players;
+std::atomic<uint64_t> g_speech_seq{0};
+
+struct OwnQuery {
+    OwnQuery() { ++t_own_query; }
+    ~OwnQuery() { --t_own_query; }
+};
+
+void speech_set_int_detour(void* query, const char* name, int value) {
+    HOOK_BODY("commentary_speech_log", {
+        if (t_own_query == 0 && name) {
+            int which = 0;
+            if (name[0] == 's' && std::strcmp(name, "surname_ID") == 0) which = 1;
+            else if (name[0] == 'p' && std::strcmp(name, "player_db_pID") == 0) which = 2;
+            if (which && game_hook_enabled("commentary_speech_log")) {
+                std::lock_guard<std::mutex> lock(g_speech_mutex);
+                ++(which == 1 ? g_speech_surnames : g_speech_players)[value];
+                ++g_speech_seq;
+            }
+        }
+    });
+    g_speech_set_int(query, name, value);
+}
+
+void write_speech_log() {
+    std::vector<std::pair<int, uint32_t>> sur, pid;
+    {
+        std::lock_guard<std::mutex> lock(g_speech_mutex);
+        sur.assign(g_speech_surnames.begin(), g_speech_surnames.end());
+        pid.assign(g_speech_players.begin(), g_speech_players.end());
+    }
+    auto by_count = [](const std::pair<int, uint32_t>& a, const std::pair<int, uint32_t>& b) {
+        return a.second != b.second ? a.second > b.second : a.first < b.first;
+    };
+    std::sort(sur.begin(), sur.end(), by_count);
+    std::sort(pid.begin(), pid.end(), by_count);
+    const fs::path out = le_root() / "turbo_output" / "commentary_speech_log.txt";
+    const fs::path tmp = out.string() + ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+        if (!f) return;
+        f << "# Turbo commentary speech log: what the game's commentary asked about since the game started (Turbo's own\n"
+             "# checks not counted). surname_ID = a callname id (commentarynames), player_db_pID = a player's own recordings.\n";
+        f << "# requests " << g_speech_seq.load() << "\n";
+        for (const auto& e : sur) f << "surname_ID " << e.first << " x" << e.second << "\n";
+        for (const auto& e : pid) f << "player_db_pID " << e.first << " x" << e.second << "\n";
+    }
+    std::error_code ec;
+    fs::rename(tmp, out, ec);
+}
+
+void install_speech_log() {
+    if (!file_exists(le_root() / "turbo_output" / "commentary_speech_log_on.txt")) return;
+    if (!g_fns.query_set_int) {
+        log("commentary speech log: SpeechQuery::SetInt is not resolved: not installed");
+        return;
+    }
+    if (!install_game_hook_at("commentary_speech_log", reinterpret_cast<void*>(static_cast<uintptr_t>(g_fns.query_set_int)),
+                              reinterpret_cast<void*>(&speech_set_int_detour), reinterpret_cast<void**>(&g_speech_set_int)))
+        return;
+    std::thread([] {
+        uint64_t written = ~0ull;
+        for (;;) {
+            std::this_thread::sleep_for(std::chrono::seconds(5));
+            const uint64_t seq = g_speech_seq.load();
+            if (seq != written) {
+                write_speech_log();
+                written = seq;
+            }
+        }
+    }).detach();
+    log("commentary speech log: on (turbo_output\\commentary_speech_log.txt, every 5 s)");
+}
+
 struct RealCaller : Caller {
     // eastl::vector<uint64_t> as FilterNames reads it: {begin, end, capacity, allocator}; only end is written (shrinks)
     struct Vec {
@@ -129,6 +218,7 @@ struct RealCaller : Caller {
     };
 
     bool filter_names(std::vector<uint64_t>& batch, size_t& survivors, std::string& err) override {
+        OwnQuery own;
         if (const char* m = g_fns.missing_names()) {
             err = std::string("signature ") + m + " is not resolved";
             return false;
@@ -154,6 +244,7 @@ struct RealCaller : Caller {
     }
 
     bool player_audio(const std::vector<int64_t>& pids, std::vector<int>& flags, std::string& err) override {
+        OwnQuery own;
         flags.assign(pids.size(), 0);
         if (!g_players_off.empty()) {
             err = g_players_off;
@@ -411,6 +502,7 @@ void install_commentary_audio(turbo::App& app) {
                     hex(g_fns.query_ctor).c_str(), hex(g_fns.query_set_int).c_str(), hex(g_fns.query_dtor).c_str(),
                     hex(g_fns.scope_ctor).c_str(), hex(g_fns.scope_dtor).c_str());
             }
+            install_speech_log();
         }
     }
     app.commentary_audio = std::make_shared<GameCommentaryAudio>();

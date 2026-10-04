@@ -3,6 +3,30 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.0.1 (fixes from the in-game check of team name, team colours and callnames)
+
+Install as 1.0.0: unzip `FC27_LE_Turbo_1.0.1.zip` into the FC 27 Live Editor folder with the game closed. Back up your saves.
+
+### Fixed
+
+- **Crash when loading a career after changing a crest.** FC 27's 256 x 256 crest files hold 4 mip levels. Turbo 1.0.0
+  wrote one level but kept the original's count of 4, so the game read past the file and crashed while loading the
+  career. Turbo now writes every level the game expects. At start, Turbo also repairs crest and miniface files that
+  1.0.0 wrote (the original goes to `turbo_output\crest_backups` or `miniface_backups`; `turbo_gui.log` lists each one).
+- **Crash on Players > Callname > By player > Use this player's callname.** FC 27's `playernamemap` table is full
+  (106 of 106 rows), and Live Editor crashes the game when asked to add a row to a full table. Turbo now reads the
+  table's capacity first. When the table is full, it takes over one of the 38 rows whose callname no commentary uses,
+  so no other player loses a spoken callname. If no such row is left, Turbo says so and suggests By name instead.
+  The same check guards the row that keeps a player's shown name.
+
+### Added
+
+- Commentary speech log (diagnostic, opt-in). With an empty `turbo_output\commentary_speech_log_on.txt` at game
+  start, Turbo counts every callname id and player recording the game's commentary asks about, in
+  `turbo_output\commentary_speech_log.txt`. It shows that the commentary used the callname you gave a player.
+
+### Verified in game (1.0.1)
+
 ## 1.0.0 (since 0.3.0)
 
 Install: unzip `FC27_LE_Turbo_1.0.0.zip` into the FC 27 Live Editor folder (same layout as 0.3.0 and 0.4.0), start the

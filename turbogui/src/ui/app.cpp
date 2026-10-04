@@ -485,6 +485,14 @@ bool App::refresh() {
 void App::tick(double t) {
     now = t;
     update_style();
+    if (!legacy_repaired_) {
+        // once, before the game shows a crest: custom files with a wrong mip count crash it (legacy.h)
+        legacy_repaired_ = true;
+        for (const auto& line : legacy.repair_dds_files()) {
+            log(line);
+            if (log_hook) log_hook(line);
+        }
+    }
     legacy.tick(t);
     finish_bank_capture();
     finish_spoken_build();
