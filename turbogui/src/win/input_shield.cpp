@@ -21,6 +21,7 @@
 #include <cstring>
 
 #include "MinHook.h"
+#include "core/hotkey.h"
 #include "host.h"
 
 namespace host {
@@ -130,7 +131,7 @@ HRESULT STDMETHODCALLTYPE hk_data(IDirectInputDevice8W* dev, DWORD cb, LPDIDEVIC
         *inout = 0;  // the events were taken from the buffer; the game gets none of them
         ++n_blocked;
     } else if (SUCCEEDED(hr) && inout && rg && *inout > 0 && cb >= sizeof(DIDEVICEOBJECTDATA) && !(flags & DIGDD_PEEK)) {
-        // the show/hide key's events are dropped from the keyboard's buffered data
+        // the show/hide key's key-downs are dropped from the keyboard's buffered data (its key-ups always pass)
         const int vk = input_hidden_vk();
         const DWORD dik = vk ? dik_of_vk(vk) : 0;
         if (dik && device_type(dev) == DI8DEVTYPE_KEYBOARD) {
@@ -138,7 +139,7 @@ HRESULT STDMETHODCALLTYPE hk_data(IDirectInputDevice8W* dev, DWORD cb, LPDIDEVIC
             DWORD kept = 0;
             for (DWORD i = 0; i < *inout; ++i) {
                 auto* e = reinterpret_cast<DIDEVICEOBJECTDATA*>(base + size_t(i) * cb);
-                if (e->dwOfs == dik) continue;
+                if (turbo::hotkey_hides_event(static_cast<int>(dik), static_cast<int>(e->dwOfs), !(e->dwData & 0x80))) continue;
                 if (kept != i) std::memmove(base + size_t(kept) * cb, e, cb);
                 ++kept;
             }
@@ -155,11 +156,11 @@ bool block_raw_type(DWORD type) {
     return (type == RIM_TYPEMOUSE && input_block_mouse()) || (type == RIM_TYPEKEYBOARD && input_block_keyboard());
 }
 
-// One raw-input entry the game must not get: its device is blocked, or it is the show/hide key
+// One raw-input entry the game must not get: its device is blocked, or it is a key-down of the show/hide key
 bool block_raw(const RAWINPUT* ri, size_t avail) {
     if (block_raw_type(ri->header.dwType)) return true;
     return ri->header.dwType == RIM_TYPEKEYBOARD && avail >= sizeof(RAWINPUTHEADER) + sizeof(RAWKEYBOARD) &&
-           input_block_vk(ri->data.keyboard.VKey);
+           turbo::hotkey_hides_event(input_hidden_vk(), ri->data.keyboard.VKey, (ri->data.keyboard.Flags & RI_KEY_BREAK) != 0);
 }
 
 UINT WINAPI hk_rawbuf(PRAWINPUT data, PUINT size, UINT header) {

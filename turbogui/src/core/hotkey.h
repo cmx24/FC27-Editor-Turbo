@@ -97,4 +97,11 @@ inline bool hotkey_types_text(int vk, int mods) {
            (vk >= 0xBA && vk <= 0xC0) || (vk >= 0xDB && vk <= 0xDE);
 }
 
+// Input shield (raw input, DirectInput buffered data): a key event the game must not get. Only key-downs of the
+// hidden show/hide key: the press that shows Turbo reaches the game before Turbo is shown, so hiding its key-up would
+// leave that key held down in the game (an extra key-up is harmless).
+inline bool hotkey_hides_event(int hidden_key, int key, bool key_up) {
+    return hidden_key > 0 && key == hidden_key && !key_up;
+}
+
 }  // namespace turbo
