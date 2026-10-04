@@ -360,7 +360,25 @@ static void poll_input() {
         msgs.swap(g_msgs);
     }
     if (g_app->visible) {
-        for (const auto& m : msgs) ImGui_ImplWin32_WndProcHandler(g_hwnd, m.msg, m.wp, m.lp);
+        // Ctrl + wheel zooms Turbo (ui_zoom.h). Ctrl is polled here: the game may send no key messages, and the backend
+        // reads modifiers with GetKeyState on this thread. Such a wheel goes to the zoom, never to Dear ImGui's scrolling.
+        const bool ctrl = fg && (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+        g_app->zoom.by_host = true;
+        for (const auto& m : msgs) {
+            if (m.msg == WM_MOUSEWHEEL && ctrl) {
+                g_app->zoom.wheel += static_cast<float>(GET_WHEEL_DELTA_WPARAM(m.wp)) / static_cast<float>(WHEEL_DELTA);
+                continue;
+            }
+            ImGui_ImplWin32_WndProcHandler(g_hwnd, m.msg, m.wp, m.lp);
+        }
+        static bool zero_was = false;
+        const bool zero = ctrl && ((GetAsyncKeyState('0') & 0x8000) != 0 || (GetAsyncKeyState(VK_NUMPAD0) & 0x8000) != 0);
+        // the show/hide key wins (core/hotkey.h): Ctrl + 0 picked as that key, or pressed while Status > Settings waits
+        // for a new key, does not also reset the zoom
+        const bool zero_is_hotkey = g_toggle_capture.load() ||
+                                    ((g_app->toggle_vk == '0' || g_app->toggle_vk == VK_NUMPAD0) && (g_app->toggle_mods & turbo::kHotkeyCtrl));
+        if (zero && !zero_was && !zero_is_hotkey) g_app->zoom.reset = true;
+        zero_was = zero;
         if (fg) {
             POINT p;
             if (GetCursorPos(&p) && ScreenToClient(g_hwnd, &p)) io.AddMousePosEvent(static_cast<float>(p.x), static_cast<float>(p.y));

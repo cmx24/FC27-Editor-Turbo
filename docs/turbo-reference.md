@@ -155,6 +155,15 @@ The Lua side polls the mailbox on every career event (`bridge.on_career_event`) 
   show/hide key (`GetAsyncKeyState`, game in the foreground) and also counts key messages, so one press is seen whether the
   game gets window messages or only raw input (presses within 250 ms count once). Mouse position and buttons are polled too.
   While the Turbo window is shown and wants the mouse or keyboard, those messages are kept from the game.
+- **Zoom (1.1.1, `ui/ui_zoom.*`)**: Ctrl + mouse wheel over a Turbo window changes the user's UI size factor
+  (`App::ui_scale_user`, 0.1 per notch, 0.6 .. 2.5, the Turbo Tools "UI size" slider); Ctrl + 0 goes back to 1.00x. The
+  render thread polls Ctrl (`GetAsyncKeyState`, game in the foreground) and hands such a wheel to `App::zoom` instead of
+  Dear ImGui, so it never scrolls; Ctrl + 0 is polled the same way. The size is written to `gui_settings.json`
+  (`gui.ui_scale`) once the wheel rests for 1 s. `App::update_style` rebuilds the style from Dear ImGui's unscaled sizes
+  (`ImGuiStyle()` + theme, then `ScaleAllSizes`) and sets `style.FontScaleDpi`; Dear ImGui 1.92's dynamic fonts bake the
+  glyphs for the new size on demand (the DX12 backend has `RendererHasTextures`), so the atlas is never rebuilt as a
+  whole. Before 1.1.1 every scale change multiplied the already scaled sizes again (scrollbars and grabs grew into big
+  grey ovals after a few window resizes).
 - **Failure handling**: every frame runs behind an exception barrier; any error switches the overlay off for the session and
   the game keeps running. The main window is clamped to the screen size.
 - Third party (vendored in `turbogui/third_party`): Dear ImGui v1.92.9, MinHook v1.3.4, nlohmann/json 3.11.3.
@@ -260,6 +269,11 @@ club's transfer budget. The probe scripts that found the above are in `C:\FC 27 
   `TeamName_Abbr3_<id>`, `TeamName_Abbr10_<id>`, `TeamName_Abbr15_<id>`; `key;value`, other rows kept, written as
   `.tmp` + rename, previous file copied to `turbo_output\team_name_backups`). Live Editor reads that file when it starts,
   so the game shows the new name after Live Editor's next start; the UI says so.
+- **Readable club names (1.1.1)**: some careers store a club's `teams.teamname` as a localization key the game could not
+  resolve (`*TeamName_Abbr15_112264`). `Model` shows such a club (players' Club column, Teams list, every picker) by
+  Live Editor's custom name for it (`custom_team_names.csv`: `TeamName_<id>`, else Abbr15 / Abbr10 / Abbr3; read at every
+  `App::refresh`), else as `Team <id>` (`core/teamnames.*` `is_unresolved_team_name`, `Model::readable_team_name`).
+  The Name tab still shows and edits the stored value.
 - **Colours**: `ImGui::ColorEdit3` pickers for `teams.teamcolor1..3`, `goalnetstanchioncolor1..2` and, per kit row of
   `teamkits` (`teamtechid == teamid`, grouped by `teamkittypetechid`), `teamcolorprim/sec/tert`, `jerseynamecolor`,
   `jerseynameoutlinecolor`, `jerseynumbercolorprim/sec/ter`, `shortsnumbercolorprim/sec/ter` plus the percent / font / template

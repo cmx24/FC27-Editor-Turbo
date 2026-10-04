@@ -1,6 +1,8 @@
 #include "teamnames.h"
 
+#include <cctype>
 #include <ctime>
+#include <string>
 #include <fstream>
 #include <sstream>
 #include <system_error>
@@ -200,6 +202,50 @@ void TeamNamesCsv::set_team_names(int64_t teamid, const std::string& full, const
     set(k.abbr3, clean_team_name(a3, 3));
     set(k.abbr10, clean_team_name(a10, 10));
     set(k.abbr15, clean_team_name(a15, 15));
+}
+
+// ---------------------------------------------------------------- readable club names
+bool is_unresolved_team_name(const std::string& s) {
+    auto ident = [](const std::string& t, size_t from) {
+        if (from >= t.size()) return false;
+        for (size_t i = from; i < t.size(); ++i) {
+            const unsigned char c = static_cast<unsigned char>(t[i]);
+            if (!std::isalnum(c) && c != '_') return false;
+        }
+        return true;
+    };
+    if (!s.empty() && s[0] == '*') return ident(s, 1) && s.find('_') != std::string::npos;
+    return s.compare(0, 9, "TeamName_") == 0 && ident(s, 9);
+}
+
+std::unordered_map<int64_t, std::string> readable_team_names(const TeamNamesCsv& csv) {
+    // rank: 0 full name, 1 Abbr15, 2 Abbr10, 3 Abbr3 (lower wins); the prefixes are tried longest first
+    static const std::pair<const char*, int> kinds[] = {
+        {"TeamName_Abbr15_", 1}, {"TeamName_Abbr10_", 2}, {"TeamName_Abbr3_", 3}, {"TeamName_", 0}};
+    std::unordered_map<int64_t, std::pair<int, std::string>> best;
+    for (const auto& r : csv.rows()) {
+        if (r.key.empty() || r.value.empty() || is_unresolved_team_name(r.value)) continue;
+        for (const auto& k : kinds) {
+            const size_t n = std::char_traits<char>::length(k.first);
+            if (r.key.compare(0, n, k.first) != 0) continue;
+            const std::string id = r.key.substr(n);
+            if (id.empty() || id.size() > 12 || id.find_first_not_of("0123456789") != std::string::npos) break;
+            const int64_t tid = std::stoll(id);
+            auto it = best.find(tid);
+            if (it == best.end() || k.second < it->second.first) best[tid] = {k.second, r.value};
+            break;
+        }
+    }
+    std::unordered_map<int64_t, std::string> out;
+    for (auto& kv : best) out.emplace(kv.first, std::move(kv.second.second));
+    return out;
+}
+
+std::shared_ptr<const std::unordered_map<int64_t, std::string>> load_readable_team_names(const fs::path& le_root) {
+    auto out = std::make_shared<std::unordered_map<int64_t, std::string>>();
+    TeamNamesCsv csv;
+    if (csv.load(team_names_file(le_root))) *out = readable_team_names(csv);
+    return out;
 }
 
 }  // namespace turbo

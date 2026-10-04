@@ -10,8 +10,10 @@
 #include <sstream>
 
 #include "core/hotkey.h"
+#include "core/teamnames.h"
 #include "imgui.h"
 #include "preload.h"
+#include "ui_zoom.h"
 
 namespace turbo {
 
@@ -60,15 +62,27 @@ static void turbo_theme(ImGuiStyle& st) {
     c[ImGuiCol_TitleBgActive] = ImVec4(0.12f, 0.20f, 0.36f, 1.0f);
     c[ImGuiCol_TableRowBgAlt] = ImVec4(1.0f, 1.0f, 1.0f, 0.05f);
     c[ImGuiCol_TableHeaderBg] = ImVec4(0.14f, 0.17f, 0.24f, 1.0f);
+    // Thin bars with a small rounding (Dear ImGui's default rounding 9 turns a short grab into an oval)
+    st.ScrollbarSize = 12.0f;
+    st.ScrollbarRounding = 3.0f;
+    st.GrabMinSize = 12.0f;
+    st.GrabRounding = 3.0f;
 }
 
 void App::update_style() {
     if (!ImGui::GetCurrentContext()) return;
     ImGuiIO& io = ImGui::GetIO();
-    float want = auto_ui_scale(io.DisplaySize.y) * std::max(0.6f, std::min(2.5f, ui_scale_user));
+    float want = auto_ui_scale(io.DisplaySize.y) * std::max(kUiScaleMin, std::min(kUiScaleMax, ui_scale_user));
     want = std::round(want * 20.0f) / 20.0f;
     if (want == ui_scale_applied) return;
     ImGuiStyle& st = ImGui::GetStyle();
+    // Start from Dear ImGui's unscaled sizes every time: ScaleAllSizes multiplies what is there, and turbo_theme only
+    // resets a few sizes, so each scale change (window height, UI size, Ctrl + wheel) used to grow the scrollbars,
+    // grabs and paddings again (big grey ovals after a few resizes). The font size base is kept.
+    const float font_base = st.FontSizeBase, font_main = st.FontScaleMain;
+    st = ImGuiStyle();
+    st.FontSizeBase = font_base;
+    st.FontScaleMain = font_main;
     turbo_theme(st);
     st.ScaleAllSizes(want);
     st.FontScaleDpi = want;
@@ -489,6 +503,8 @@ bool App::refresh() {
     }
     seen_names_ = bridge.names();
     model.set_extra_names(seen_names_);
+    // clubs stored as an unresolved key ("*TeamName_Abbr15_<id>") show Live Editor's custom team name, else "Team <id>"
+    model.set_team_name_fallback(load_readable_team_names(bridge.root()));
     model.rebuild(today());
     ++gen;
     char buf[160];
@@ -731,7 +747,7 @@ void App::load_gui_settings() {
         }
         if (g.contains("ui_scale") && g["ui_scale"].is_number()) {
             double us = g["ui_scale"].get<double>();
-            if (us >= 0.6 && us <= 2.5) ui_scale_user = static_cast<float>(us);
+            if (std::isfinite(us) && us > 0.0) ui_scale_user = std::max(kUiScaleMin, std::min(kUiScaleMax, static_cast<float>(us)));
         }
     }
 }
@@ -746,6 +762,7 @@ bool App::save_gui_settings() {
 // ---------------------------------------------------------------- main window
 void App::draw() {
     textures.new_frame(now);
+    zoom_input(*this);  // Ctrl + mouse wheel / Ctrl + 0 (ui_zoom.h); the style follows on the next tick
     if (texture_test && visible) {
         ++texture_test_frames;
         uint64_t version = static_cast<uint64_t>(texture_test_frames / 5);

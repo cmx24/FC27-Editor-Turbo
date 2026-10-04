@@ -8,7 +8,9 @@
 #pragma once
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace turbo {
@@ -61,5 +63,15 @@ std::filesystem::path team_names_backup_dir(const std::filesystem::path& le_root
 // A value Live Editor can read: no ';', no line breaks, trimmed, at most max_bytes (teams.teamname holds 59 + NUL),
 // never cutting a UTF-8 sequence in half
 std::string clean_team_name(const std::string& s, size_t max_bytes = 59);
+
+// ---- readable club names (1.1.1)
+// A name that is a localization key the game could not resolve: FC 27 shows "*" + key for a string missing from the
+// loaded language ("*TeamName_Abbr15_112264"); a bare "TeamName_..." key counts too
+bool is_unresolved_team_name(const std::string& s);
+// teamid -> a readable name from Live Editor's custom team names: TeamName_<id>, else TeamName_Abbr15 / Abbr10 / Abbr3
+// (empty values and values that are keys themselves are skipped)
+std::unordered_map<int64_t, std::string> readable_team_names(const TeamNamesCsv& csv);
+// The same, read from team_names_file(le_root) (empty when the file is missing or unreadable)
+std::shared_ptr<const std::unordered_map<int64_t, std::string>> load_readable_team_names(const std::filesystem::path& le_root);
 
 }  // namespace turbo

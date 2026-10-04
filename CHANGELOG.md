@@ -7,6 +7,8 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
 Not yet released or checked in game.
 
+### Added
+
 - **Pictures load by themselves in the background.** From the first F8 (or when a career connects) Turbo lists every
   picture its screens show (real-face minifaces, tattoo previews, hair / facial hair / boots / gloves / accessory
   previews, club crests) and asks Turbo's Lua side for the missing ones after what is on screen. While Turbo is shown it
@@ -20,6 +22,18 @@ Not yet released or checked in game.
   shown, and for half a second after it hides, the game never sees that key (window messages, DirectInput state and
   buffered data, raw input, GetAsyncKeyState / GetKeyState / GetKeyboardState). A key that types text goes to a Turbo
   text box that has the keyboard. (core/hotkey.h, ui/hotkey_setting.h, win/overlay_dx12.cpp, win/input_shield.cpp)
+- **Ctrl + mouse wheel zooms the whole Turbo window** (text, spacing and pictures together, 0.60x to 2.50x). Ctrl + 0
+  goes back to 1.00x. A toast shows the size; it is kept in `gui_settings.json` like the Turbo Tools "UI size" slider.
+- **Players list: club filter.** A combo next to "My club" with a search box (club name or ID, Enter picks the first
+  match). It lists players of that club or national team and works with the other filters. Picking a club unticks
+  "My club"; Clear resets it.
+
+### Fixed
+
+- Scrollbars no longer turn into big grey ovals after resizing the game window or changing the UI size: every size
+  change rebuilt the style on top of the already scaled sizes. Scrollbars and grabs are also thinner.
+- Clubs stored as an unresolved name key (`*TeamName_Abbr15_112264`) show a readable name in the Club column, the Teams
+  list and every club picker: Live Editor's custom team name when there is one, else "Team <id>".
 
 ## 1.1.0 (voice swaps: any player gets any real or generic callname in matches)
 
