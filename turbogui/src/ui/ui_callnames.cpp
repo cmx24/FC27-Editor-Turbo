@@ -24,11 +24,7 @@ static int64_t g_sel_player = 0;
 static bool g_keep_display = true;
 static const int kMaxRows = 300;
 
-static std::string chosen_language(App& app) {
-    if (app.gui_settings.is_object() && app.gui_settings.contains("callnames") && app.gui_settings["callnames"].is_object())
-        return app.gui_settings["callnames"].value("language", std::string());
-    return "";
-}
+static std::string chosen_language(App& app) { return app.chosen_commentary_language(); }
 
 static void refresh_all(App& app) {
     app.callnames.refresh(app.bridge.root(), app.game_root, chosen_language(app));
@@ -43,11 +39,8 @@ static void ensure_ready(App& app) {
         app.callnames.build_index(app.db, app.model, app.model.names_by_id());
         g_index_gen = app.gen;
     }
-    // No hand-made list and no cached set yet for this language: ask the game's audio service once by itself
-    if (!app.spoken_auto_tried && !app.callnames.lang.empty() && !app.callnames.spoken.verified && app.commentary_audio) {
-        app.spoken_auto_tried = true;
-        app.start_spoken_build(true);
-    }
+    // No hand-made list and no cached set yet for this language: App::spoken_watch_tick probes the game every few seconds
+    // and starts the build by itself where the game answers (the Create Player screen, a match); nothing to start here
 }
 
 // The three name parts the game shows for the player: editedplayernames when it has a row, else the name ids
@@ -168,6 +161,13 @@ static void language_line(App& app) {
                            cn.spoken.ids.size(), cn.spoken.players.size());
     } else {
         ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "Unverified: %s", cn.spoken.source.c_str());
+        if (!app.spoken_watch_line().empty()) {
+            ImGui::TextWrapped("%s", app.spoken_watch_line().c_str());
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("In the career hub the game's commentary bank is not bound: every name answers 'no audio'. Turbo asks the\n"
+                                  "game about a few ids every few seconds and builds the whole set as soon as the game answers 'yes' (on the\n"
+                                  "Create Player screen, main menu or career, or in a match); the result is cached for the next sessions.");
+        }
     }
     if (!cn.list_error.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", cn.list_error.c_str());
     if (!cn.cache_error.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", cn.cache_error.c_str());

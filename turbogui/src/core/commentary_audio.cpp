@@ -3,6 +3,11 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
+#include <set>
+
+#include "callnames.h"
+#include "nlohmann/json.hpp"
 
 namespace turbo {
 namespace caudio {
@@ -153,6 +158,7 @@ bool unpack_name_batch(const std::vector<uint64_t>& batch, size_t survivors, con
 
 // ---------------------------------------------------------------- the build
 Build::Build(BuildRequest req, std::function<double()> clock) : req_(std::move(req)), clock_(std::move(clock)) {
+    r_.probe = req_.probe;
     if (req_.batch_min < 1) req_.batch_min = 1;
     if (req_.batch_max < req_.batch_min) req_.batch_max = req_.batch_min;
     batch_ = std::min(std::max(req_.batch_start, req_.batch_min), req_.batch_max);
@@ -213,6 +219,10 @@ bool Build::step(Caller& c) {
         }
         std::unordered_set<int64_t> kept;
         if (!unpack_name_batch(batch, survivors, asked, kept, err)) {
+            if (err.find("canary") != std::string::npos) {
+                std::lock_guard<std::mutex> lock(m_);
+                r_.no_filter = true;
+            }
             finish(false, err);
             return false;
         }
@@ -257,6 +267,10 @@ bool Build::step(Caller& c) {
     // done: an empty answer means the bank is not bound in this screen, not a bank without names
     BuildResult snap = result();
     if (snap.names.empty() && snap.names_checked > 0) {
+        {
+            std::lock_guard<std::mutex> lock(m_);
+            r_.unbound = true;
+        }
         finish(false, "the game answered 'no audio' for every one of the " + std::to_string(snap.names_checked) +
                           " commentary ids: the loaded bank is not bound in this screen (the Create Player screen or a match binds it)");
         return false;
@@ -284,6 +298,230 @@ BankCapture to_capture(const BuildResult& r) {
     c.seconds = r.elapsed > 0.0 ? r.elapsed : r.seconds;
     c.cancelled = r.cancelled;
     return c;
+}
+
+// ---------------------------------------------------------------- the probe sample
+std::vector<int64_t> probe_sample(const std::vector<int64_t>& ids, const std::vector<int64_t>& preferred, size_t spread, size_t preferred_max) {
+    std::vector<int64_t> out;
+    std::set<int64_t> seen;
+    auto add = [&](int64_t id) {
+        if (id <= 0 || id >= (1 << 20) || !seen.insert(id).second) return;
+        out.push_back(id);
+    };
+    size_t taken = 0;
+    for (int64_t id : preferred) {
+        if (taken >= preferred_max) break;
+        const size_t before = out.size();
+        add(id);
+        if (out.size() > before) ++taken;
+    }
+    if (!ids.empty() && spread > 0) {
+        const size_t n = std::min(spread, ids.size());
+        for (size_t i = 0; i < n; ++i) add(ids[(i * ids.size()) / n]);
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------- the id list cache
+using json = nlohmann::json;
+
+std::filesystem::path id_cache_path(const std::filesystem::path& le_root) { return le_root / "turbo_output" / "callnames" / "ids.json"; }
+
+std::string id_cache_json(const IdCache& c) {
+    json j;
+    j["turbo_ids"] = 1;
+    j["when"] = c.when;
+    j["session"] = c.session;
+    j["source"] = c.source;
+    j["names"] = c.names;
+    j["preview"] = c.preview;
+    j["players"] = c.players;
+    return j.dump();
+}
+
+static bool read_id_array(const json& j, const char* key, std::vector<int64_t>& out, int64_t lo, int64_t hi) {
+    out.clear();
+    auto it = j.find(key);
+    if (it == j.end() || !it->is_array()) return false;
+    for (const auto& v : *it) {
+        if (!v.is_number_integer()) continue;
+        const int64_t id = v.get<int64_t>();
+        if (id >= lo && id <= hi) out.push_back(id);
+    }
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return true;
+}
+
+bool parse_id_cache_json(const std::string& text, IdCache& out, std::string* err) {
+    out = IdCache{};
+    json j = json::parse(text, nullptr, false);
+    if (!j.is_object() || j.value("turbo_ids", 0) != 1) {
+        if (err) *err = "not an id cache written by Turbo";
+        return false;
+    }
+    out.when = j.value("when", std::string());
+    out.session = j.value("session", std::string());
+    out.source = j.value("source", std::string());
+    read_id_array(j, "names", out.names, 1, (1 << 20) - 1);
+    read_id_array(j, "preview", out.preview, 1, (1 << 20) - 1);
+    read_id_array(j, "players", out.players, 1, 0x7FFFFFFF);
+    if (out.names.empty()) {
+        if (err) *err = "the id cache holds no commentary ids";
+        return false;
+    }
+    return true;
+}
+
+bool parse_commentary_list(const std::string& text, std::vector<int64_t>& ids, std::string* session, std::string* err) {
+    ids.clear();
+    size_t pos = text.find('\n');
+    std::string header = text.substr(0, pos == std::string::npos ? text.size() : pos);
+    if (!header.empty() && header.back() == '\r') header.pop_back();
+    const std::string tag = "#turbo-commentary ";
+    if (header.rfind(tag, 0) != 0) {
+        if (err) *err = "not a commentary list written by Turbo's Lua side (no #turbo-commentary header)";
+        return false;
+    }
+    size_t a = tag.size(), b = header.find(' ', a);
+    if (session) *session = header.substr(a, b == std::string::npos ? std::string::npos : b - a);
+    long long expected = b == std::string::npos ? -1 : std::strtoll(header.c_str() + b + 1, nullptr, 10);
+    long long lines = 0;
+    while (pos != std::string::npos && pos + 1 < text.size()) {
+        size_t start = pos + 1;
+        pos = text.find('\n', start);
+        size_t end = pos == std::string::npos ? text.size() : pos;
+        if (end > start && text[end - 1] == '\r') --end;
+        size_t tab = text.find('\t', start);
+        if (tab == std::string::npos || tab >= end || tab == start) continue;
+        char* stop = nullptr;
+        std::string id_text = text.substr(start, tab - start);
+        long long id = std::strtoll(id_text.c_str(), &stop, 10);
+        if (!stop || *stop != '\0') continue;
+        ++lines;
+        if (id >= kCallnameMin && id <= kCallnameMax) ids.push_back(static_cast<int64_t>(id));
+    }
+    std::sort(ids.begin(), ids.end());
+    ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+    if (expected >= 0 && lines != expected) {
+        if (err) *err = "the list announces " + std::to_string(expected) + " rows but holds " + std::to_string(lines) + " (being rewritten?)";
+        ids.clear();
+        return false;
+    }
+    if (ids.empty()) {
+        if (err) *err = "the list holds no commentary id in the name range";
+        return false;
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------- the watcher
+SpokenWatch::Action SpokenWatch::tick(double now, const Inputs& in) {
+    if (in.verified) {
+        if (state_ != State::Idle) {
+            state_ = State::Idle;
+            pending_ = false;
+            current_interval_ = 0.0;
+        }
+        line_.clear();
+        return Action::None;
+    }
+    if (!in.service || !in.have_ids) {
+        state_ = State::Idle;
+        pending_ = false;
+        line_ = "spoken set not built yet: " + (in.why_not.empty() ? std::string(in.service ? "no commentary id list at hand" : "no audio-service call") : in.why_not);
+        return Action::None;
+    }
+    if (state_ == State::Idle) {
+        state_ = State::Waiting;
+        pending_ = false;
+        current_interval_ = interval;
+        next_probe_ = now;  // the first check runs at once
+    }
+    std::string tail;
+    if (state_ == State::Building)
+        tail = "building the set now";
+    else if (!last_probe.empty())
+        tail = "last check" + (last_probe_clock.empty() ? std::string() : " " + last_probe_clock) + ": " + last_probe + "; checking again every " +
+               std::to_string(static_cast<int>(current_interval_ + 0.5)) + " s";
+    else
+        tail = "checking whether the bank is bound in this screen";
+    line_ = "spoken set not built yet: open the game's Create Player screen (Customise > Create Player > Commentary name) or start a match, "
+            "Turbo builds it there (" + tail + ")";
+    if (pending_) return Action::None;  // a probe or a build (ours or the user's) is running: wait for its result
+    if (!in.available) return Action::None;
+    if (state_ == State::Building) return Action::Build;  // a probe answered "bound": the full build starts now
+    if (now < next_probe_) return Action::None;
+    return Action::Probe;
+}
+
+void SpokenWatch::refused(double now, const std::string& why) {
+    pending_ = false;
+    if (current_interval_ <= 0.0) current_interval_ = interval;
+    if (state_ == State::Building) last_build = "not started: " + why;
+    else last_probe = "not started: " + why;
+    state_ = State::Waiting;
+    current_interval_ = std::min(max_interval, current_interval_ * 2.0);
+    next_probe_ = now + current_interval_;
+}
+
+void SpokenWatch::started(double now, bool probe) {
+    pending_ = true;
+    pending_probe_ = probe;
+    if (probe) {
+        ++probes_;
+        state_ = State::Waiting;
+    } else {
+        state_ = State::Building;
+    }
+    next_probe_ = now + (current_interval_ > 0.0 ? current_interval_ : interval);
+}
+
+void SpokenWatch::on_result(double now, const BuildResult& r) {
+    pending_ = false;
+    if (current_interval_ <= 0.0) current_interval_ = interval;
+    if (r.probe) {
+        if (r.ok) {
+            last_probe = "bound: " + std::to_string(r.names.size()) + " of " + std::to_string(r.names_checked) + " sample ids have audio";
+            ++bound_seen_;
+            current_interval_ = interval;
+            state_ = State::Building;  // the App starts the full build at once (Action::Build on the next tick)
+            next_probe_ = now;
+        } else if (r.cancelled) {
+            last_probe = "cancelled";
+            state_ = State::Waiting;
+            next_probe_ = now + current_interval_;
+        } else if (r.unbound) {
+            last_probe = "the bank is not bound in this screen";
+            current_interval_ = interval;
+            state_ = State::Waiting;
+            next_probe_ = now + current_interval_;
+        } else if (r.no_filter) {
+            last_probe = "the game's name filter did not run here (no commentary bridge in this screen)";
+            current_interval_ = interval;
+            state_ = State::Waiting;
+            next_probe_ = now + current_interval_;
+        } else {
+            last_probe = "error: " + r.note;
+            current_interval_ = std::min(max_interval, current_interval_ * 2.0);
+            state_ = State::Waiting;
+            next_probe_ = now + current_interval_;
+        }
+        return;
+    }
+    last_build = (r.ok ? "ok: " : "failed: ") + r.note;
+    if (r.ok) {
+        state_ = State::Idle;  // the App applied the cache: the next tick sees `verified`
+        current_interval_ = interval;
+    } else if (r.unbound || r.no_filter || r.cancelled) {
+        state_ = State::Waiting;
+        current_interval_ = interval;
+        next_probe_ = now + current_interval_;
+    } else {
+        state_ = State::Waiting;
+        current_interval_ = std::min(max_interval, current_interval_ * 2.0);
+        next_probe_ = now + current_interval_;
+    }
 }
 
 }  // namespace caudio

@@ -29,8 +29,10 @@ std::string g_off;          // why the call is off at install time ("" = the sur
 std::string g_players_off;  // why the player path is off ("" = resolved)
 std::atomic<long long> g_runs{0};
 std::atomic<long long> g_steps{0};
+std::atomic<long long> g_probes{0};
 std::mutex g_mutex;
-std::string g_last;  // outcome of the last build (Status tab)
+std::string g_last;        // outcome of the last build (Status tab)
+std::string g_last_probe;  // outcome of the last probe (logged only when it changes: a probe runs every few seconds)
 
 std::string hex(uint64_t v) {
     char b[32];
@@ -280,14 +282,16 @@ public:
             b = std::make_shared<Build>(r, clock_now);
             build_ = b;
         }
-        ++g_runs;
+        if (r.probe) ++g_probes;
+        else ++g_runs;
         const char* via = queue_step(b);
         {
             std::lock_guard<std::mutex> lock(m_);
             dispatch_ = via;
         }
-        log("game call commentary_has_audio: build started (%zu commentary ids, %zu players, via %s)", r.names.size(), r.players.size(),
-            std::string(via).empty() ? "nothing yet: queued" : via);
+        if (!r.probe)
+            log("game call commentary_has_audio: build started (%zu commentary ids, %zu players, via %s)", r.names.size(), r.players.size(),
+                std::string(via).empty() ? "nothing yet: queued" : via);
         return true;
     }
 
@@ -331,9 +335,20 @@ private:
             return;
         }
         BuildResult r = b->result();
-        log("game call commentary_has_audio: build %s: %s", r.ok ? "ok" : (r.cancelled ? "cancelled" : "failed"), r.note.c_str());
+        if (r.probe) {
+            // a probe (SpokenWatch): quiet, logged when its outcome changes
+            const std::string outcome = r.ok ? "bound (" + std::to_string(r.names.size()) + " of " + std::to_string(r.names_checked) + " sample ids have audio)"
+                                             : (r.unbound ? "not bound in this screen" : (r.no_filter ? "no commentary bridge in this screen" : "failed: " + r.note));
+            std::lock_guard<std::mutex> l2(g_mutex);
+            if (outcome != g_last_probe) {
+                g_last_probe = outcome;
+                log("game call commentary_has_audio: probe (%zu ids): %s", r.names_checked, outcome.c_str());
+            }
+        } else {
+            log("game call commentary_has_audio: build %s: %s", r.ok ? "ok" : (r.cancelled ? "cancelled" : "failed"), r.note.c_str());
+        }
         std::lock_guard<std::mutex> lock(m_);
-        {
+        if (!r.probe) {
             std::lock_guard<std::mutex> l2(g_mutex);
             g_last = std::string(r.ok ? "ok: " : "failed: ") + r.note;
         }
@@ -357,15 +372,16 @@ std::vector<std::string> commentary_audio_status() {
     if (call_ready(&why))
         std::snprintf(line, sizeof(line),
                       "commentary_has_audio: ready | names: FilterNames %s, GetCommentaryService %s, registry slot %s | players: %s | "
-                      "runs %lld | steps %lld",
+                      "runs %lld | probes %lld | steps %lld",
                       hex(g_fns.filter_names).c_str(), hex(g_fns.get_service).c_str(), hex(g_fns.registry).c_str(),
                       g_players_off.empty() ? "ready (Turbo-built PLAYER_LOW_SIMPLE / PLAYER_LOW_LINK queries)" : ("off: " + g_players_off).c_str(),
-                      g_runs.load(), g_steps.load());
+                      g_runs.load(), g_probes.load(), g_steps.load());
     else
         std::snprintf(line, sizeof(line), "commentary_has_audio: off (%s)", why.c_str());
     out.push_back(line);
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_last.empty()) out.push_back("  last: " + g_last);
+    if (!g_last_probe.empty()) out.push_back("  last probe: " + g_last_probe);
     return out;
 }
 
