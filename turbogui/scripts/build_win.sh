@@ -43,8 +43,8 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/ui/file_picker.cpp \
          src/core/callname_audio.cpp src/ui/ui_callname_play.cpp src/win/callname_audio_win.cpp src/core/callname_voice.cpp src/core/callname_voice_host.cpp src/win/callname_voice_win.cpp \
          src/ui/ui_zoom.cpp src/ui/ui_team_filter.cpp \
-
          src/core/edit_unlock.cpp src/ui/ui_edit_unlock.cpp \
+         src/core/edit_unlock_rules.cpp src/core/edit_unlock_hook.cpp src/ui/ui_edit_unlock_hook.cpp src/win/edit_unlock_hook_win.cpp \
          src/win/dllmain.cpp src/win/overlay_dx12.cpp src/win/lazy_imports.cpp src/win/input_shield.cpp src/win/memmap_win.cpp src/win/devtools_win.cpp src/win/game_hooks.cpp src/win/player_capture_win.cpp src/win/game_calls_win.cpp src/win/standings_refresh_win.cpp src/win/transfer_list_win.cpp src/win/commentary_audio_win.cpp src/win/reveal_win.cpp src/win/manager_rules_win.cpp src/win/match_setup_win.cpp; do
   compile_cxx "$s"
 done

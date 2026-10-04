@@ -384,6 +384,47 @@ static const SignatureTable kBuiltin[] = {
          {"speech_param_set_int_store", "41 80 78 44 00 75 3D 44 89 26 C6 46 44 01", "none", 0,
           "layout guard 0x1407AFAA7 (in ParamValue::SetInt 0x1407AFA58): single value when desc +0x44 == 0, then value +0x00 "
           "and set flag +0x44 = 1 (the store the voice detour copies)"},
+         // Game editors' in-memory fallback (research/edit_unlock_plan.md section 5, core/edit_unlock_hook.h): the config
+         // loader, layout guards for every offset / stride the walk uses, and the four keep-list attribute ids in the
+         // game's own AttributeName registration 0x142369C28 (the imm32 is in the pattern; "rip" resolves the name string,
+         // which the host compares). Every pattern is unique in the whole image.
+         {"edit_cfg_loader",
+          "48 89 5C 24 20 55 56 57 48 81 EC 70 01 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 84 24 60 01 00 00 41 F6 40 0F 80 "
+          "49 8B F8 48 8B EA C7 44 24 30 00 00 00 00 48 8B F1 74 03 49 8B 38 48 8B 99 18 05 00 00 BA 5A 46 91 0D",
+          "none", 0, "Config* Load(this, Config* out, const eastl::string* path) 0x1470F0D50: legacy-file service 0x0D91465A "
+                     "vfunc+0x20 read, vtable slot 1 parse into out, +0x28 free; path heap flag byte +0xF; hooked by edit_unlock"},
+         {"edit_cfg_category_stride", "48 8B 57 08 48 3B 57 10 73 13 48 8D 42 58 4C 8D 45 A0 48 89 47 08 E8", "none", 0,
+          "layout guard 0x1470CCE58 (categories array parser 0x1470CCDA8): push_back of a 0x58-byte Category"},
+         {"edit_cfg_category_items",
+          "48 8B D9 48 83 C1 40 E8 ?? ?? ?? ?? 48 8D 4B 28 E8 ?? ?? ?? ?? 48 8D 4B 08 48 83 C4 20 5B E9 77 5D 99 F9", "none", 0,
+          "layout guard 0x1470D6176 (Category dtor 0x1470D6170): strings +0x40 / +0x28, the items vector at +0x08 freed by "
+          "the item-vector dtor 0x140A6BF10"},
+         {"edit_cfg_item_vector",
+          "48 8B 71 08 48 8B F9 48 8B 19 EB 0F 48 8B CB E8 71 00 00 00 48 81 C3 A8 00 00 00 48 3B DE 75 EC", "none", 0,
+          "layout guard 0x140A6BF1F (item-vector dtor 0x140A6BF10): 0xA8-byte Items, each destroyed by 0x140A6BFA4"},
+         {"edit_cfg_item_children",
+          "40 53 48 83 EC 20 48 8B D9 48 81 C1 88 00 00 00 E8 57 FF FF FF 48 8D 4B 08 48 83 C4 20 5B E9", "none", 0,
+          "layout guard 0x140A6BFA4 (Item dtor): children vector at +0x88 (same item-vector dtor), attribute info at +0x08"},
+         {"edit_cfg_item_flags", "4C 8D 44 24 3E EB 0C 4C 8D 44 24 3D EB 05 4C 8D 44 24 3C 48 8B D7 E8", "none", 0,
+          "layout guard 0x14235C20A (item parser 0x14235C0CC, item at rsp+0x30): isVisible +0x0E, isMandatory +0x0D, "
+          "isEditable +0x0C read as JSON bools"},
+         {"edit_cfg_item_ids",
+          "48 8B D7 45 84 E4 74 0F 4C 8D 44 24 38 E8 ?? ?? ?? ?? E9 ?? ?? ?? ?? 4C 8D 44 24 30 E8", "none", 0,
+          "layout guard 0x14235C346 (same parser): \"name\" -> AttributeName id at +0x08 (map 0x14D289FF0) or group id at +0x00"},
+         {"edit_cfg_item_stride", "49 8B 4E 08 48 8D 54 24 30 49 3B 4E 10 73 12 48 8D 81 A8 00 00 00", "none", 0,
+          "layout guard 0x14235C390 (same parser): push_back of the 0xA8-byte Item"},
+         {"edit_attr_body_type",
+          "48 8D 15 ?? ?? ?? ?? C6 45 EF 0F 48 8D 4D E0 48 89 5D F0 E8 ?? ?? ?? ?? 48 8D 55 E0 E8 A7 15 00 00 48 8D 4D E0 C7 00 0B 00 00 00",
+          "rip", 0, "AttributeName BODY_TYPE = 11 (0x142369EC0): resolves to the name string"},
+         {"edit_attr_gender",
+          "48 8D 15 ?? ?? ?? ?? C6 45 EF 0F 48 8D 4D E0 48 89 5D F0 E8 ?? ?? ?? ?? 48 8D 55 E0 E8 93 11 00 00 48 8D 4D E0 C7 00 1D 00 00 00",
+          "rip", 0, "AttributeName GENDER = 29 (0x14236A2D4): resolves to the name string"},
+         {"edit_attr_preferred_position",
+          "48 8D 15 ?? ?? ?? ?? C6 45 EF 0F 48 8D 4D E0 48 89 5D F0 E8 ?? ?? ?? ?? 48 8D 55 E0 E8 B3 06 00 00 48 8D 4D E0 C7 00 4D 00 00 00",
+          "rip", 0, "AttributeName PREFERRED_POSITION = 77 (0x14236ADB4): resolves to the name string"},
+         {"edit_attr_team",
+          "48 8D 15 ?? ?? ?? ?? C6 45 EF 0F 48 8D 4D E0 48 89 5D F0 E8 ?? ?? ?? ?? 48 8D 55 E0 E8 7D 01 00 00 48 8D 4D E0 C7 00 64 00 00 00",
+          "rip", 0, "AttributeName TEAM = 100 (0x14236B2EA): resolves to the name string"},
      }},
 };
 

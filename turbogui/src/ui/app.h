@@ -17,6 +17,7 @@
 #include "core/callname_voice.h"
 #include "core/callnames.h"
 #include "core/commentary_audio.h"
+#include "core/edit_unlock_hook.h"
 #include "core/legacy.h"
 #include "core/match_setup.h"
 #include "core/mem.h"
@@ -212,6 +213,9 @@ public:
     std::string voice_error;                  // the store's last load / save note ("" = fine)
     bool voice_available() const { return voice_service && voice_service->available(); }
     std::string voice_why_off() const;        // "" when available
+    // ---- game editors' in-memory fallback (core/edit_unlock_hook.h, Tools > Game editors): the host's post-hook on the
+    // editor config loader; nullptr = no game hooks (tests). The switches live in gui_settings "edit_unlock".
+    turbo::edit_unlock::HookService* edit_unlock_hook = nullptr;
     // Add or replace the player's entry (stamped now), save, publish. false (voice_error set) when not saved; the swap
     // is published for this session anyway
     bool voice_upsert(voice::Entry e);
@@ -307,6 +311,9 @@ std::string live_standings_status();
 void draw_match_setup(App& app);
 void draw_database(App& app);
 void draw_tools(App& app);
+// Tools tab, "Game editors": the unlock switches (gui_settings "edit_unlock") and the in-memory fallback's status
+// (ui_edit_unlock_hook.cpp)
+void draw_edit_unlock_hook(App& app);
 void draw_status(App& app);
 // Game-code hook status (part of the Status tab; App::hook_report supplies the data)
 void draw_hook_status(App& app);
