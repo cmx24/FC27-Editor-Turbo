@@ -12,6 +12,7 @@
 #include <unordered_set>
 
 #include "app.h"
+#include "file_picker.h"
 #include "imgui.h"
 #include "ui_images.h"
 
@@ -127,76 +128,24 @@ std::vector<std::pair<std::string, fs::path>> browser_shortcuts() {
     return out;
 }
 
-// Modal browser; returns true when a picture file was chosen (out)
+// Modal picture browser: Turbo's in-overlay picker (file_picker.cpp; no Windows dialog, so the game stays in full
+// screen). Returns true when a picture file was chosen (out). One picker per id, its last folder remembered per id.
 bool file_browser_modal(const char* id, fs::path& cur_dir, fs::path& out) {
-    bool chosen = false;
-    ImGui::SetNextWindowSize(ImVec2(S(640.0f), S(480.0f)), ImGuiCond_Appearing);
-    if (ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_NoSavedSettings)) {
-        static char path_buf[1024];
-        static fs::path shown;
-        std::error_code ec;
-        if (cur_dir.empty() || !fs::is_directory(cur_dir, ec)) cur_dir = fs::current_path(ec);
-        if (shown != cur_dir) {
-            shown = cur_dir;
-            std::snprintf(path_buf, sizeof(path_buf), "%s", cur_dir.string().c_str());
-        }
-        ImGui::SetNextItemWidth(-S(70.0f));
-        if (ImGui::InputText("##bpath", path_buf, sizeof(path_buf), ImGuiInputTextFlags_EnterReturnsTrue)) {
-            fs::path typed(path_buf);
-            if (fs::is_directory(typed, ec)) cur_dir = typed;
-            else if (fs::is_regular_file(typed, ec) && is_picture_file(typed)) {
-                out = typed;
-                chosen = true;
-            }
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Up") && cur_dir.has_parent_path() && cur_dir.parent_path() != cur_dir) cur_dir = cur_dir.parent_path();
-        // shortcuts: Desktop, Pictures (also under OneDrive), the Turbo minifaces folder
-        for (const auto& sc : browser_shortcuts()) {
-            ImGui::SameLine();
-            if (ImGui::SmallButton(sc.first.c_str())) cur_dir = sc.second;
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", sc.second.string().c_str());
-        }
-#ifdef _WIN32
-        // drive letters
-        for (char d = 'C'; d <= 'Z'; ++d) {
-            char root[4] = {d, ':', '\\', 0};
-            if (fs::is_directory(fs::path(root), ec)) {
-                ImGui::SameLine();
-                char lbl[8] = {d, ':', 0};
-                if (ImGui::SmallButton(lbl)) cur_dir = fs::path(root);
-            }
-        }
-#endif
-        ImGui::BeginChild("##bfiles", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), ImGuiChildFlags_Borders);
-        std::vector<fs::path> dirs, files;
-        for (fs::directory_iterator it(cur_dir, ec), end; !ec && it != end; it.increment(ec)) {
-            std::error_code e2;
-            if (it->is_directory(e2)) dirs.push_back(it->path());
-            else if (it->is_regular_file(e2) && is_picture_file(it->path())) files.push_back(it->path());
-            if (dirs.size() + files.size() > 5000) break;
-        }
-        auto by_name = [](const fs::path& a, const fs::path& b) { return lower(a.filename().string()) < lower(b.filename().string()); };
-        std::sort(dirs.begin(), dirs.end(), by_name);
-        std::sort(files.begin(), files.end(), by_name);
-        for (const auto& d : dirs) {
-            std::string lbl = "[" + d.filename().string() + "]";
-            if (ImGui::Selectable(lbl.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) && ImGui::IsMouseDoubleClicked(0)) cur_dir = d;
-        }
-        for (const auto& f : files) {
-            if (ImGui::Selectable(f.filename().string().c_str())) {
-                out = f;
-                chosen = true;
-            }
-        }
-        if (dirs.empty() && files.empty()) ImGui::TextDisabled("No folders or pictures here.");
-        ImGui::EndChild();
-        ImGui::TextDisabled("Double-click a folder to open it, click a picture to use it.");
-        ImGui::SameLine(ImGui::GetWindowWidth() - S(90.0f));
-        if (ImGui::Button("Cancel##browser")) ImGui::CloseCurrentPopup();
-        if (chosen) ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
+    static std::map<std::string, FilePicker> pickers;
+    FilePicker& fp = pickers[id];
+    if (fp.key.empty()) {
+        fp.mode = PickMode::Open;
+        fp.title = "Choose a picture (PNG, JPG, BMP, TGA, DDS)";
+        fp.exts = {".png", ".jpg", ".jpeg", ".bmp", ".tga", ".dds"};
+        fp.key = std::string("pictures") + id;
     }
+    if (!ImGui::IsPopupOpen(id)) {
+        fp.start = cur_dir;
+        fp.dir = cur_dir;
+        fp.places = browser_shortcuts();
+    }
+    bool chosen = file_picker_modal(id, fp, out);
+    if (!fp.dir.empty()) cur_dir = fp.dir;
     return chosen;
 }
 

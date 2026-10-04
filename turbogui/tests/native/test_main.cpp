@@ -2961,6 +2961,7 @@ struct FakeMatchSetup : msetup::Service {
 }  // namespace
 
 #include "test_playtest_fixes.h"  // 1.1.1 playtest fixes (playtest_fix_cases, run near the end of test_ui)
+#include "test_file_picker.h"   // in-overlay file picker and the Export / Import dialogs (test_file_picker_ui)
 
 static void test_ui() {
     SimMemory mem;
@@ -6098,6 +6099,7 @@ static void test_ui() {
         });
 
         playtest_fix_cases(app, ui, le);
+        test_file_picker_ui(app, ui, mem, kMb);
 
         run_case("UI: no ImGui errors, layout stable over many frames", [&] {
             for (int tab = 0; tab < 7; ++tab) {

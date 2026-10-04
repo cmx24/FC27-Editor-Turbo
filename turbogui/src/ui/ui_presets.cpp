@@ -10,10 +10,13 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <set>
 #include <sstream>
 
 #include "app.h"
+#include "file_picker.h"
 #include "imgui.h"
+#include "ui_images.h"
 
 namespace turbo {
 
@@ -23,11 +26,6 @@ namespace fs = std::filesystem;
 static std::string lower(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return s;
-}
-
-static bool is_preset_file(const fs::path& p) {
-    std::string e = lower(p.extension().string());
-    return e == ".csv" || e == ".json";
 }
 
 // One CSV line (RFC 4180 quoting) into cells
@@ -121,73 +119,6 @@ PresetPreview preview_preset_file(const fs::path& file) {
     return pv;
 }
 
-// ---------------------------------------------------------------- shared widgets
-// Modal file browser for preset files (CSV / JSON); returns true when a file was chosen
-static bool preset_file_browser(const char* id, fs::path& cur_dir, fs::path& out) {
-    bool chosen = false;
-    ImGui::SetNextWindowSize(ImVec2(S(640.0f), S(480.0f)), ImGuiCond_Appearing);
-    if (ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_NoSavedSettings)) {
-        static char path_buf[1024];
-        static fs::path shown;
-        std::error_code ec;
-        if (cur_dir.empty() || !fs::is_directory(cur_dir, ec)) cur_dir = fs::current_path(ec);
-        if (shown != cur_dir) {
-            shown = cur_dir;
-            std::snprintf(path_buf, sizeof(path_buf), "%s", cur_dir.string().c_str());
-        }
-        ImGui::SetNextItemWidth(-S(70.0f));
-        if (ImGui::InputText("##ppath", path_buf, sizeof(path_buf), ImGuiInputTextFlags_EnterReturnsTrue)) {
-            fs::path typed(path_buf);
-            if (fs::is_directory(typed, ec)) cur_dir = typed;
-            else if (fs::is_regular_file(typed, ec) && is_preset_file(typed)) {
-                out = typed;
-                chosen = true;
-            }
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Up") && cur_dir.has_parent_path() && cur_dir.parent_path() != cur_dir) cur_dir = cur_dir.parent_path();
-#ifdef _WIN32
-        for (char d = 'C'; d <= 'Z'; ++d) {
-            char root[4] = {d, ':', '\\', 0};
-            if (fs::is_directory(fs::path(root), ec)) {
-                ImGui::SameLine();
-                char lbl[8] = {d, ':', 0};
-                if (ImGui::SmallButton(lbl)) cur_dir = fs::path(root);
-            }
-        }
-#endif
-        ImGui::BeginChild("##pfiles", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), ImGuiChildFlags_Borders);
-        std::vector<fs::path> dirs, files;
-        for (fs::directory_iterator it(cur_dir, ec), end; !ec && it != end; it.increment(ec)) {
-            std::error_code e2;
-            if (it->is_directory(e2)) dirs.push_back(it->path());
-            else if (it->is_regular_file(e2) && is_preset_file(it->path())) files.push_back(it->path());
-            if (dirs.size() + files.size() > 5000) break;
-        }
-        auto by_name = [](const fs::path& a, const fs::path& b) { return lower(a.filename().string()) < lower(b.filename().string()); };
-        std::sort(dirs.begin(), dirs.end(), by_name);
-        std::sort(files.begin(), files.end(), by_name);
-        for (const auto& d : dirs) {
-            std::string lbl = "[" + d.filename().string() + "]";
-            if (ImGui::Selectable(lbl.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) && ImGui::IsMouseDoubleClicked(0)) cur_dir = d;
-        }
-        for (const auto& f : files) {
-            if (ImGui::Selectable(f.filename().string().c_str())) {
-                out = f;
-                chosen = true;
-            }
-        }
-        if (dirs.empty() && files.empty()) ImGui::TextDisabled("No folders or preset files (.csv, .json) here.");
-        ImGui::EndChild();
-        ImGui::TextDisabled("Double-click a folder to open it, click a file to use it.");
-        ImGui::SameLine(ImGui::GetWindowWidth() - S(90.0f));
-        if (ImGui::Button("Cancel##pbrowser")) ImGui::CloseCurrentPopup();
-        if (chosen) ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
-    }
-    return chosen;
-}
-
 // Club picker: an ID box plus a searchable list of clubs (national teams are shown but refused by Lua)
 static void club_picker(App& app, int& teamid, char* search, size_t search_size) {
     ImGui::SetNextItemWidth(S(110.0f));
@@ -233,60 +164,218 @@ static json names_json(const char* first, const char* last, const char* common, 
 }
 
 // ---------------------------------------------------------------- dialogs
+// Folders: the export goes to turbo_output\players (Turbo JSON + miniface) and Live Editor's extensions\player_presets
+// (preset CSV) unless the user picks others; every Browse... is Turbo's in-overlay picker (file_picker.cpp) and the
+// folders are created here, in this process: Lua's fallback is cmd.exe "mkdir", whose console window took the game out
+// of full screen on every export (1.1.0 playtest).
+static fs::path players_folder(App& app) { return app.bridge.dir() / "players"; }
+static fs::path presets_folder(App& app) { return app.bridge.root() / "extensions" / "player_presets"; }
+
+static std::vector<std::pair<std::string, fs::path>> preset_places(App& app) {
+    std::vector<std::pair<std::string, fs::path>> v = {
+        {"turbo_output\\players", players_folder(app)}, {"Live Editor presets", presets_folder(app)}, {"turbo_output", app.bridge.dir()}};
+    for (auto& sc : browser_shortcuts())
+        if (sc.first == "Desktop" || sc.first == "OneDrive Desktop" || sc.first == "Downloads") v.push_back(sc);
+    return v;
+}
+
+// Folder box with a Browse... button (in-overlay folder picker)
+static void folder_row(App& app, const char* label, char* buf, size_t size, FilePicker& fp, const char* popup, const fs::path& start) {
+    ImGui::SetNextItemWidth(S(400.0f));
+    ImGui::InputText(label, buf, size);
+    ImGui::SameLine();
+    std::string browse = std::string("Browse...") + popup;
+    if (ImGui::Button(browse.c_str())) {
+        fp.mode = PickMode::Folder;
+        fp.dir = text_path(buf);
+        fp.start = start;
+        fp.places = preset_places(app);
+        fp.key.clear();   // the export remembers its folders itself, when it runs
+        ImGui::OpenPopup(popup);
+    }
+    fs::path chosen;
+    if (file_picker_modal(popup, fp, chosen)) std::snprintf(buf, size, "%s", path_text(chosen).c_str());
+}
+
+// Name typed for the export: safe for Windows, without a .csv / .json / .dds the user may have typed
+static std::string export_base(const char* typed) {
+    std::string n = safe_file_name(typed);
+    std::string l = lower(n);
+    for (const char* e : {".csv", ".json", ".dds"}) {
+        size_t k = std::strlen(e);
+        if (l.size() > k && l.compare(l.size() - k, k, e) == 0) {
+            n.resize(n.size() - k);
+            break;
+        }
+    }
+    return safe_file_name(n);
+}
+
+// Files an export would replace (ui_presets.h)
+std::vector<fs::path> export_clashes(const fs::path& json_dir, const fs::path& csv_dir, bool want_json, bool want_csv, bool want_mini,
+                                     const std::string& base, const std::vector<int64_t>& list_ids) {
+    std::vector<fs::path> out;
+    if (!base.empty()) {
+        std::vector<fs::path> t;
+        if (want_json) t.push_back(json_dir / text_path(base + ".json"));
+        if (want_json && want_mini) t.push_back(json_dir / text_path(base + ".dds"));
+        if (want_csv) t.push_back(csv_dir / text_path(base + ".csv"));
+        return existing_files(t);
+    }
+    std::set<std::string> suffixes;
+    for (int64_t id : list_ids) suffixes.insert("_" + std::to_string(id));
+    auto scan = [&](const fs::path& dir, const std::vector<std::string>& exts) {
+        std::vector<fs::path> dirs, files;
+        list_folder(dir, exts, dirs, files);
+        for (const auto& f : files) {
+            std::string stem = path_text(f.stem());
+            size_t us = stem.rfind('_');
+            if (us != std::string::npos && suffixes.count(stem.substr(us))) out.push_back(f);
+        }
+    };
+    if (want_json) scan(json_dir, want_mini ? std::vector<std::string>{".json", ".dds"} : std::vector<std::string>{".json"});
+    if (want_csv) scan(csv_dir, {".csv"});
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
 static void export_dialog(App& app, const PlayerRow& p) {
-    static char name[64] = "";
-    static char preset_dir[512] = "";
+    static char name[128] = "";
+    static char json_dir[1024] = "";
+    static char csv_dir[1024] = "";
     static bool want_csv = true, want_json = true, want_mini = true;
     static int scope = 0;
     static int64_t for_pid = 0;
+    static std::vector<fs::path> clash;   // files the export would replace: confirmation shown
+    static FilePicker name_fp, json_fp, csv_fp;
     if (ImGui::BeginPopupModal("##pexport", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (ImGui::IsWindowAppearing()) clash.clear();
         if (for_pid != p.playerid) {
             for_pid = p.playerid;
             name[0] = 0;
+            clash.clear();
         }
-        if (!preset_dir[0]) std::snprintf(preset_dir, sizeof(preset_dir), "%s", (app.bridge.root() / "extensions" / "player_presets").string().c_str());
+        if (!json_dir[0]) {
+            fs::path r = remembered_folder("export.json");
+            std::snprintf(json_dir, sizeof(json_dir), "%s", path_text(r.empty() ? players_folder(app) : r).c_str());
+        }
+        if (!csv_dir[0]) {
+            fs::path r = remembered_folder("export.csv");
+            std::snprintf(csv_dir, sizeof(csv_dir), "%s", path_text(r.empty() ? presets_folder(app) : r).c_str());
+        }
+        const std::string def_base = preset_safe_name(p.name) + "_" + std::to_string(p.playerid);
         ImGui::Text("Export %s (ID %lld)", p.name.c_str(), static_cast<long long>(p.playerid));
         ImGui::RadioButton("This player", &scope, 0);
         ImGui::SameLine();
         char lbl[96];
         std::snprintf(lbl, sizeof(lbl), "Every player shown in the list (%zu)", app.list_player_ids.size());
         ImGui::RadioButton(lbl, &scope, 1);
-        ImGui::Checkbox("Live Editor preset CSV (its Import from preset reads it)", &want_csv);
-        ImGui::SetNextItemWidth(S(420.0f));
-        ImGui::InputText("Preset folder", preset_dir, sizeof(preset_dir));
-        ImGui::Checkbox("Turbo player JSON in turbo_output\\players (every field, names, club links, loan)", &want_json);
-        ImGui::Checkbox("Copy the miniface next to the JSON", &want_mini);
         if (scope == 0) {
             ImGui::SetNextItemWidth(S(260.0f));
-            ImGui::InputTextWithHint("File name", "empty = player name + ID", name, sizeof(name));
+            ImGui::InputTextWithHint("File name", def_base.c_str(), name, sizeof(name));
+            ImGui::SameLine();
+            if (ImGui::Button("Browse...##pexname")) {
+                name_fp.mode = PickMode::Save;
+                name_fp.title = "Folder and file name of the export";
+                name_fp.exts = want_json ? std::vector<std::string>{".json", ".csv"} : std::vector<std::string>{".csv", ".json"};
+                name_fp.dir = text_path(want_json ? json_dir : csv_dir);
+                name_fp.start = want_json ? players_folder(app) : presets_folder(app);
+                name_fp.places = preset_places(app);
+                name_fp.ask_overwrite = false;   // the export itself lists every file it would replace
+                std::snprintf(name_fp.name, sizeof(name_fp.name), "%s", name[0] ? name : def_base.c_str());
+                ImGui::OpenPopup("##pexnamepick");
+            }
+            fs::path chosen;
+            if (file_picker_modal("##pexnamepick", name_fp, chosen)) {
+                std::snprintf(name, sizeof(name), "%s", export_base(path_text(chosen.filename()).c_str()).c_str());
+                std::snprintf(want_json ? json_dir : csv_dir, sizeof(json_dir), "%s", path_text(chosen.parent_path()).c_str());
+                clash.clear();
+            }
         }
-        bool can = (want_csv || want_json) && (scope == 0 || !app.list_player_ids.empty());
-        if (!can) ImGui::BeginDisabled();
-        if (ImGui::Button(scope == 0 ? "Export player" : "Export list")) {
-            json o = {{"mode", "export"}, {"csv", want_csv}, {"json", want_json}, {"miniface", want_mini}, {"preset_dir", preset_dir}};
+        if (ImGui::Checkbox("Turbo player JSON (every field, names, club links, loan)", &want_json)) clash.clear();
+        if (want_json) {
+            ImGui::Indent();
+            if (ImGui::Checkbox("Copy the miniface next to the JSON", &want_mini)) clash.clear();
+            folder_row(app, "JSON folder", json_dir, sizeof(json_dir), json_fp, "##pexjsonpick", players_folder(app));
+            ImGui::Unindent();
+        }
+        if (ImGui::Checkbox("Live Editor preset CSV (its Import from preset reads it)", &want_csv)) clash.clear();
+        if (want_csv) {
+            ImGui::Indent();
+            folder_row(app, "CSV folder", csv_dir, sizeof(csv_dir), csv_fp, "##pexcsvpick", presets_folder(app));
+            ImGui::Unindent();
+        }
+        std::string base = scope == 0 ? (export_base(name).empty() ? def_base : export_base(name)) : std::string();
+        if (scope == 0) {
+            std::string files;
+            if (want_json) files += base + ".json" + (want_mini ? ", " + base + ".dds" : std::string());
+            if (want_csv) files += (files.empty() ? "" : ", ") + base + ".csv";
+            if (!files.empty()) ImGui::TextDisabled("Writes %s", files.c_str());
+        } else {
+            ImGui::TextDisabled("One file set per player, named <name>_<ID>");
+        }
+        bool can = (want_csv || want_json) && (scope == 0 || !app.list_player_ids.empty()) && (!want_json || json_dir[0]) &&
+                   (!want_csv || csv_dir[0]);
+        auto run = [&]() {
+            std::string err;
+            if ((want_json && !ensure_folder(text_path(json_dir), &err)) || (want_csv && !ensure_folder(text_path(csv_dir), &err))) {
+                app.notify("Export: " + err, true);
+                return;
+            }
+            json o = {{"mode", "export"}, {"csv", want_csv}, {"json", want_json}, {"miniface", want_mini}, {"preset_dir", csv_dir},
+                      {"json_dir", json_dir}};
             if (scope == 0) {
                 o["playerid"] = p.playerid;
-                if (name[0]) o["name"] = name;
+                o["name"] = base;
             } else {
                 o["playerids"] = app.list_player_ids;
             }
             json cmd = {{"op", "run"}, {"module", "player_presets"}, {"overrides", o}};
-            if (cmd.dump().size() > 3900)
+            if (cmd.dump().size() > 3900) {
                 app.notify("Too many players for one export (" + std::to_string(app.list_player_ids.size()) + "): narrow the list with the filters", true);
-            else
-                app.send(cmd, scope == 0 ? "Export player" : "Export list");
+                return;
+            }
+            if (want_json) remember_folder("export.json", text_path(json_dir));
+            if (want_csv) remember_folder("export.csv", text_path(csv_dir));
+            app.send(cmd, scope == 0 ? "Export player" : "Export list");
+        };
+        if (!clash.empty()) {
+            ImGui::TextColored(ImVec4(1, 0.8f, 0.3f, 1), "%zu file%s already exist%s and will be replaced:", clash.size(), clash.size() == 1 ? "" : "s",
+                               clash.size() == 1 ? "s" : "");
+            for (size_t i = 0; i < clash.size() && i < 6; ++i) ImGui::BulletText("%s", path_text(clash[i]).c_str());
+            if (clash.size() > 6) ImGui::TextDisabled("and %zu more", clash.size() - 6);
+            if (ImGui::Button("Replace and export")) {
+                run();
+                clash.clear();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Back##pexport")) clash.clear();
+        } else {
+            if (!can) ImGui::BeginDisabled();
+            if (ImGui::Button(scope == 0 ? "Export player" : "Export list")) {
+                clash = export_clashes(text_path(json_dir), text_path(csv_dir), want_json, want_csv, want_mini, base,
+                                       scope == 0 ? std::vector<int64_t>() : app.list_player_ids);
+                if (clash.empty()) {
+                    run();
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            if (!can) ImGui::EndDisabled();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel##pexport")) {
+            clash.clear();
             ImGui::CloseCurrentPopup();
         }
-        if (!can) ImGui::EndDisabled();
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel##pexport")) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
 }
 
 static void import_dialog(App& app, const PlayerRow& p) {
     static char file[1024] = "";
-    static fs::path browse_dir;
+    static FilePicker picker;
     static std::string previewed;
     static PresetPreview pv;
     static bool groups[8] = {true, true, true, true, true, true, true, true};
@@ -297,17 +386,25 @@ static void import_dialog(App& app, const PlayerRow& p) {
     static int teamid = 111592;
     static char club_search[64] = "";
     if (ImGui::BeginPopupModal("##pimport", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        if (browse_dir.empty()) browse_dir = app.bridge.root() / "extensions" / "player_presets";
         ImGui::Text("Import a preset onto %s (ID %lld) or as a new player", p.name.c_str(), static_cast<long long>(p.playerid));
         ImGui::SetNextItemWidth(S(480.0f));
         ImGui::InputTextWithHint("##pfile", "C:\\...\\player.csv or .json", file, sizeof(file));
         ImGui::SameLine();
-        if (ImGui::Button("Browse...##preset")) ImGui::OpenPopup("##pfbrowser");
+        if (ImGui::Button("Browse...##preset")) {
+            picker.mode = PickMode::Open;
+            picker.title = "Choose a player preset (Live Editor CSV or Turbo JSON)";
+            picker.exts = {".csv", ".json"};
+            picker.key = "import.preset";
+            picker.start = players_folder(app);
+            picker.places = preset_places(app);
+            if (file[0]) picker.dir = text_path(file).parent_path();
+            ImGui::OpenPopup("##pfbrowser");
+        }
         fs::path chosen;
-        if (preset_file_browser("##pfbrowser", browse_dir, chosen)) std::snprintf(file, sizeof(file), "%s", chosen.string().c_str());
+        if (file_picker_modal("##pfbrowser", picker, chosen)) std::snprintf(file, sizeof(file), "%s", path_text(chosen).c_str());
         if (previewed != file) {
             previewed = file;
-            pv = file[0] ? preview_preset_file(fs::path(file)) : PresetPreview();
+            pv = file[0] ? preview_preset_file(text_path(file)) : PresetPreview();
         }
         if (file[0] && !pv.ok) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", pv.error.c_str());
         if (pv.ok) {
@@ -331,6 +428,12 @@ static void import_dialog(App& app, const PlayerRow& p) {
         bool can = pv.ok && (target == 1 ? (app.model.team(teamid) != nullptr && !own_club(app, teamid)) : any_group);
         if (!can) ImGui::BeginDisabled();
         if (ImGui::Button(target == 0 ? "Import onto player" : "Import as new player")) {
+            // a miniface goes to <Live Editor>\mods\legacy\data\ui\imgAssets\heads (the old one to turbo_output\miniface_backups):
+            // folders made here, so Lua never needs cmd.exe for them
+            if (!pv.miniface.empty() && (target == 1 || groups[7])) {
+                ensure_folder(app.bridge.root() / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads");
+                ensure_folder(app.bridge.dir() / "miniface_backups");
+            }
             if (target == 0) {
                 json g = json::array();
                 for (int i = 0; i < 8; ++i) if (groups[i]) g.push_back(group_names[i]);

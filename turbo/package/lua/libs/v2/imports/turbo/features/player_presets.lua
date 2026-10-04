@@ -6,7 +6,8 @@
 --     "csv": true,                              -- Live Editor preset CSV (its "Import from preset" reads it)
 --     "json": true,                             -- Turbo player JSON (every field, names, club links, loan, miniface)
 --     "miniface": true,                         -- copy the miniface next to the JSON
---     "preset_dir": ""                          -- "" = <Live Editor>\extensions\player_presets
+--     "preset_dir": "",                         -- "" = <Live Editor>\extensions\player_presets
+--     "json_dir": ""                            -- "" = <output>\players (Turbo JSON and miniface)
 --   }
 --   "player_presets": {
 --     "mode": "import", "file": "C:\\...\\rossi.csv", "playerid": 158023,
@@ -29,15 +30,31 @@ local M = {}
 
 M.MINIFACE_PATH = "data/ui/imgAssets/heads/p%d.dds"
 
+-- True when the folder exists, without starting a process. os.rename(dir, dir) succeeds for a folder nobody holds
+-- open, but fails for one in use (the Live Editor folder while the game runs); opening a folder as a file fails with
+-- EACCES (13) on Windows where a missing path fails with ENOENT (2), and succeeds on POSIX.
+local function dir_exists(dir)
+    if os.rename(dir, dir) then return true end
+    local f, _, code = io.open(dir, "rb")
+    if f then
+        f:close()
+        return true
+    end
+    return code == 13
+end
+M.dir_exists = dir_exists
+
 -- Creates a folder and its parents. Works with cmd.exe (Live Editor's Lua) and sh (the test harness): every prefix of
--- the path is created on its own when it does not exist yet (os.rename(dir, dir) succeeds for an existing folder).
+-- the path that does not exist yet is created on its own. cmd.exe opens a console window, which takes the game out of
+-- full screen (1.1.0 playtest: "Export goes to the desktop and blinks"): the Turbo GUI creates its folders itself
+-- before it sends a command, so this only runs mkdir for a folder that really is missing.
 local function mkdir(dir)
     if not dir or dir == "" then return false end
     local pos = 1
     while true do
         local s = dir:find("[\\/]", pos + 1)
         local prefix = s and dir:sub(1, s - 1) or dir
-        if #prefix > 0 and not prefix:match("^%a:$") and not os.rename(prefix, prefix) then
+        if #prefix > 0 and not prefix:match("^%a:$") and not dir_exists(prefix) then
             os.execute(string.format('mkdir "%s"', prefix))
         end
         if not s then break end
@@ -53,6 +70,13 @@ function M.preset_dir(cfg)
     local root = env.le_root()
     if not root then return nil end
     return util.join(util.join(root, "extensions"), "player_presets")
+end
+
+-- Folder of the Turbo JSON (and miniface): json_dir, else <output>\players
+function M.json_dir(ctx)
+    local d = ctx.cfg.json_dir
+    if type(d) == "string" and d ~= "" then return d end
+    return util.join(ctx.out_dir, "players")
 end
 
 -- Name texts of a player: the editedplayernames row, else the game's display name as commonname (like LE's export)
@@ -141,7 +165,7 @@ local function export_one(ctx, players, pid, opts)
     if opts.json then
         local j, jerr = preset.json()
         if not j then return nil, jerr end
-        local dir = util.join(ctx.out_dir, "players")
+        local dir = M.json_dir(ctx)
         local path = util.join(dir, base .. ".json")
         local links = {}
         local lt = db.get_table("teamplayerlinks")
@@ -232,7 +256,7 @@ local function run_export(ctx)
     elseif #files > 0 then
         parts[#parts + 1] = string.format("exported %d players (%d files)", #ids - #failed, #files)
         if opts.csv then parts[#parts + 1] = "CSV in " .. tostring(M.preset_dir(cfg)) end
-        if opts.json then parts[#parts + 1] = "JSON in " .. util.join(ctx.out_dir, "players") end
+        if opts.json then parts[#parts + 1] = "JSON in " .. M.json_dir(ctx) end
     end
     if #failed > 0 then parts[#parts + 1] = "failed: " .. table.concat(failed, "; ") end
     return #failed == 0, table.concat(parts, "; ")

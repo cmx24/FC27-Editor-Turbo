@@ -25,4 +25,9 @@ PresetPreview preview_preset_file(const std::filesystem::path& file);
 // Buttons "Export...", "Import...", "Clone...", "Create player..." and their dialogs, for the selected player
 void player_preset_buttons(App& app, const PlayerRow& p);
 
+// Files an export would replace (the Export dialog asks first). base = the one player's file name; "" = the list
+// list_ids, whose file sets Lua names "<name>_<playerid>" (a file ending in "_<playerid>.<ext>" counts)
+std::vector<std::filesystem::path> export_clashes(const std::filesystem::path& json_dir, const std::filesystem::path& csv_dir, bool want_json,
+                                                  bool want_csv, bool want_mini, const std::string& base, const std::vector<int64_t>& list_ids);
+
 }  // namespace turbo

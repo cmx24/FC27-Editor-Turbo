@@ -28,12 +28,25 @@ Not yet released or checked in game.
   match). It lists players of that club or national team and works with the other filters. Picking a club unticks
   "My club"; Clear resets it.
 
+### Changed
+
+- **Every Browse... opens inside the overlay** (Export, Import, crest and miniface pictures): folders, files, Up,
+  drive letters, shortcuts and **New folder**. No Windows dialog opens, so the game stays in full screen.
+  **Open in Explorer** is a separate button, marked "(leaves full screen)".
+- Export: pick the JSON folder, the CSV folder, and the file name (**Browse...** next to File name). Defaults:
+  `turbo_output\players` (JSON and miniface) and `extensions\player_presets` (CSV). If a file already exists, Export
+  lists it and asks first (**Replace and export** / **Back**). File formats are unchanged.
+- Each picker remembers its last folder (`turbo_output\gui_folders.json`).
+
 ### Fixed
 
 - Scrollbars no longer turn into big grey ovals after resizing the game window or changing the UI size: every size
   change rebuilt the style on top of the already scaled sizes. Scrollbars and grabs are also thinner.
 - Clubs stored as an unresolved name key (`*TeamName_Abbr15_112264`) show a readable name in the Club column, the Teams
   list and every club picker: Live Editor's custom team name when there is one, else "Team <id>".
+- **Export no longer drops the game to the desktop.** The export started a Windows `mkdir` command for its folders,
+  and its console window took the game out of full screen (the screen blinked). Turbo now makes the folders itself,
+  and the Lua side only runs `mkdir` for a folder that really is missing.
 
 ## 1.1.0 (voice swaps: any player gets any real or generic callname in matches)
 

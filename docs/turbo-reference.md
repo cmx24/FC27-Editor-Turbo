@@ -83,6 +83,11 @@ and run by Live Editor's Lua engine on the next career-mode event (or when the u
   `turbo_output\players`; import a preset onto a player by groups), create_player (new player rows via InsertDBTableRow:
   copy of a player, from a preset file, or blank; `core/preset.lua` parses LE CSV / FC 26 cards CSV / Turbo JSON).
   GUI: Players tab buttons Export... / Import... / Clone... / Create player... (`turbogui/src/ui/ui_presets.cpp`).
+  Every Browse... of Turbo (export folders and file name, import file, crest and miniface pictures) is the in-overlay
+  picker `turbogui/src/ui/file_picker.cpp`: no Windows file dialog, Explorer or console window opens by itself, because
+  any other window takes the game out of full screen. The GUI creates the folders it sends to Lua (`ensure_folder`);
+  `player_presets.lua` runs cmd.exe `mkdir` only for a folder that really is missing (`dir_exists` needs no process).
+  Last folder per picker: `turbo_output\gui_folders.json`. `player_presets.json_dir` = the JSON / miniface folder.
 - Settings: `turbo_config.json`; settings changed in the GUI are saved in `turbo_output\gui_settings.json` and win over the file.
 - Memory-based features (fixtures, transfer history, squad roles) try the FC 26 layout, then search, and only accept memory whose
   contents look right (real teams/players/dates); results are cached per build key (`LE_VERSION|LE_GAME_MODULE_SIZE`).

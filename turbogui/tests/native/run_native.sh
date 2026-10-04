@@ -23,11 +23,12 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          third_party/imgui/imgui_widgets.cpp third_party/imgui/backends/imgui_impl_null.cpp \
          src/core/t3db.cpp src/core/model.cpp src/core/bridge.cpp src/core/le_log.cpp src/core/memmap.cpp src/core/image.cpp src/core/legacy.cpp src/core/devops.cpp src/core/callnames.cpp src/core/teamnames.cpp src/core/sigscan.cpp src/core/gamethread.cpp src/core/fce_standings.cpp src/core/player_capture.cpp src/core/game_calls.cpp src/core/standings_refresh.cpp src/core/transfer_list.cpp src/core/commentary_bank.cpp src/core/commentary_audio.cpp src/core/reveal.cpp src/core/manager_rules.cpp src/core/match_setup.cpp src/core/reapply.cpp \
          src/ui/app.cpp src/ui/widgets.cpp src/ui/ui_players.cpp src/ui/ui_teams.cpp src/ui/ui_database.cpp src/ui/ui_tools.cpp src/ui/textures.cpp src/ui/ui_images.cpp src/ui/ui_competitions.cpp src/ui/ui_callnames.cpp src/ui/ui_presets.cpp src/ui/ui_identity.cpp src/ui/ui_standings.cpp src/ui/ui_match.cpp src/ui/ui_reapply.cpp \
+         src/ui/file_picker.cpp \
          src/core/callname_audio.cpp src/ui/ui_callname_play.cpp src/core/callname_voice.cpp src/core/callname_voice_host.cpp \
          src/ui/ui_zoom.cpp src/ui/ui_team_filter.cpp \
          tests/native/test_main.cpp; do
   o="$BIN/obj/$(echo "$s" | sed 's#[/.]#_#g').o"
-  if [ ! -f "$o" ] || [ "$ROOT/$s" -nt "$o" ] || [ "$0" -nt "$o" ] || [ -n "$(find "$ROOT/src" -name '*.h' -newer "$o" -print -quit)" ]; then
+  if [ ! -f "$o" ] || [ "$ROOT/$s" -nt "$o" ] || [ "$0" -nt "$o" ] || [ -n "$(find "$ROOT/src" "$ROOT/tests/native" -name '*.h' -newer "$o" -print -quit)" ]; then
     g++ $FLAGS -c "$ROOT/$s" -o "$o"
   fi
   objs+=("$o")
