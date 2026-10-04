@@ -133,6 +133,7 @@ static void team_editor(App& app) {
         if (ImGui::BeginTabItem("Overview")) {
             ImGui::BeginChild("##tov");
             field_grid(app, *t, tr->rec, team_overview_fields(), "##tgrid", 2);
+            if (!app.model.is_national_team(tr->teamid)) transfer_ban_section(app, "team", tr->teamid);
             ImGui::EndChild();
             ImGui::EndTabItem();
         }

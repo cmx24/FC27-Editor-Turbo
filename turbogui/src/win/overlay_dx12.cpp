@@ -25,6 +25,7 @@
 #include "commentary_audio_win.h"
 #include "game_calls_win.h"
 #include "standings_refresh_win.h"
+#include "transfer_list_win.h"
 #include "game_hooks.h"
 #include "host.h"
 #include "imgui.h"
@@ -931,6 +932,10 @@ bool start_overlay(HMODULE) {
     // the standings on the game thread, so the Standings screen and the Office tile show the edit
     install_standings_refresh();
     g_app->standings_refresh = standings_refresh_service();
+    // transfer / loan lists (transfer_list_win.cpp): the game's own user-actions helper lists / unlists one of your
+    // players on the game thread; Lua reaches it through the mailbox call block (op 3) and defines Live Editor's
+    // missing cAddPlayerToTransferList & co. on top of it
+    install_transfer_list();
     // spoken callnames through the game's audio service (commentary_audio_win.cpp): calls on the game thread, no hook
     install_commentary_audio(*g_app);
     g_app->hook_report = []() {

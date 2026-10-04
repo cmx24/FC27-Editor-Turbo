@@ -37,6 +37,9 @@ local CALL_ARGS, CALL_OUT, CALL_TEXT, CALL_TEXT_SIZE = 0x2030, 0x2050, 0x2060, 0
 local CALL_IDLE, CALL_OK, CALL_FAILED, CALL_QUEUED = 0, 1, -1, 2
 M.CALL_OP_JOB_OFFER = 1
 M.CALL_OP_STANDINGS_REFRESH = 2  -- args: svm, managers, comm service, ifce (turbogui/src/core/standings_refresh.h)
+-- args: action (core/moves.lua LIST_ACTION), player id, comm service, the player's club; outputs: contract status
+-- before / after (turbogui/src/core/transfer_list.h)
+M.CALL_OP_TRANSFER_LIST = 10
 
 -- bridge_dll.json is stamped by the DLL every ~2 s while it runs. A file older than this is left over from an
 -- earlier game session: its mailbox address means nothing in this process and is never read.
@@ -691,9 +694,28 @@ function M.install_natives()
         if status == "ok" or status == "queued" then return true, text, status end
         return false, text, status
     end
+    --   TurboTransferList(action, playerid, club) -> ok, message, status, status before, status after: the game's own
+    --   Transfer Hub actions (add to the transfer / loan list, remove from the lists, read the list status) for one of
+    --   your players (core/moves.lua M.list checks the player first; the DLL checks again against the game)
+    _G.TurboTransferList = function(action, playerid, club)
+        local a = math.tointeger(action) or 0
+        local p = math.tointeger(playerid) or 0
+        local c = math.tointeger(club) or 0
+        local comm = plugin("ENUM_djb2FeFceGMCommServiceInterface_CLSS")
+        local names = { "transfer list", "loan list", "unlist", "unlist (transfer list)", "unlist (loan list)", "list status" }
+        local status, text, before, after = M.game_call(M.CALL_OP_TRANSFER_LIST, { a, p, comm, c },
+            string.format("%s player %d", names[a] or ("list action " .. a), p))
+        if status == "ok" or status == "queued" then return true, text, status, before, after end
+        return false, text, status
+    end
+    -- Live Editor's missing natives (cAddPlayerToTransferList & co.) on top of it: its own wrappers work again
+    local okm, moves = pcall(require, 'imports/turbo/core/moves')
+    local le_names = (okm and type(moves) == "table") and moves.install_le_natives() or {}
+    env.reset_api_cache()   -- wrappers that were unavailable because their c-native was missing are usable now
     S.natives_installed = true
-    S.unavailable = nil   -- caps changed: bridge_state.json lists job_offer as available from now on
-    log.info("Turbo natives installed: TurboJobOfferCreate, TurboStandingsRefresh (Turbo.dll game calls)")
+    S.unavailable = nil   -- caps changed: bridge_state.json lists job_offer / the list moves as available from now on
+    log.info("Turbo natives installed: TurboJobOfferCreate, TurboStandingsRefresh, TurboTransferList (Turbo.dll game calls)%s",
+        #le_names > 0 and ("; Live Editor natives: " .. table.concat(le_names, ", ")) or "")
     return true
 end
 

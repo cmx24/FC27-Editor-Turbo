@@ -376,6 +376,105 @@ function M.terminate_loan(pid, dry)
     return true, string.format("player %d: loan at %d ended, back to %d", pid, from, back)
 end
 
+-- ---------------------------------------------------------------- transfer / loan lists (the game's own helper)
+-- Unlike the moves above these are not database writes: Turbo.dll calls the game's own UserActionsHandlingHelperImpl
+-- (what the Transfer Hub's "Add to transfer list" / "Add to loan list" / "Remove from list" run) on the game thread
+-- (turbogui/src/core/transfer_list.h, docs/re/transfer_lists.md), so the Transfer Hub lists, the news and the
+-- USER_TRANSFERLISTED / USER_LOANLISTED events all come from the game. bridge.install_natives defines
+-- TurboTransferList(action, playerid, club) once Turbo.dll's game-call export is found.
+-- The game lists on YOUR club whoever the player is, so only your own players under contract are accepted (checked
+-- here and again in the DLL against the game's UserManager). FC 27 sets no asking price when listing (AI clubs make
+-- offers, you negotiate) and the game's remove always takes the player off both lists.
+M.LIST_ACTION = { transfer_list = 1, loan_list = 2, unlist = 3, unlist_transfer = 4, unlist_loan = 5, list_status = 6 }
+M.LIST_LABEL = { transfer_list = "add to the transfer list", loan_list = "add to the loan list", unlist = "remove from the lists",
+    unlist_transfer = "remove from the transfer list", unlist_loan = "remove from the loan list", list_status = "list status" }
+M.LIST_STATUS_NAME = { [0] = "not listed", [7] = "transfer listed", [8] = "loan listed", [9] = "transfer and loan listed" }
+
+function M.list_native()
+    local f = _G["TurboTransferList"]
+    if type(f) == "function" then return f end
+    return nil
+end
+
+M.LIST_NATIVE_MISSING = "the transfer / loan lists are a Turbo.dll game call: start the Turbo GUI in a career (its " ..
+    "game-call export defines TurboTransferList)"
+
+-- One list action for one player. opts: { teamid = his club (0 / nil = from teamplayerlinks), dry = true }.
+-- Returns ok, message, status ("ok" | "queued" | "failed" | "dry"), status before, status after (contract status:
+-- 0 not listed, 7 transfer listed, 8 loan listed, 9 both; only with "ok").
+function M.list(pid, action, opts)
+    opts = opts or {}
+    local code = M.LIST_ACTION[action]
+    if not code then return false, "unknown list action " .. tostring(action), "failed" end
+    local native = M.list_native()
+    if not native then return false, M.LIST_NATIVE_MISSING, "failed" end
+    pid = util.to_int(pid)
+    if not pid or pid <= 0 then return false, "player id must be a positive whole number", "failed" end
+    local club = util.to_int(opts.teamid) or 0
+    if club <= 0 then
+        local rec, tid = M.club_link(pid)
+        club = (rec and tid) or 0
+    end
+    if action ~= "list_status" then
+        local user = M.user_team()
+        if user <= 0 then return false, "your club is not known (load a career first)", "failed" end
+        if club <= 0 then return false, string.format("player %d has no club link in teamplayerlinks", pid), "failed" end
+        if club ~= user then
+            return false, string.format("player %d plays for team %d, not your club (%d): the game lists only your own players",
+                pid, club, user), "failed"
+        end
+        if M.loan_row(pid) then
+            return false, string.format("player %d is on loan (playerloans): the game lists only players under contract " ..
+                "at your club", pid), "failed"
+        end
+    end
+    if opts.dry then return true, string.format("player %d: %s (dry run)", pid, M.LIST_LABEL[action]), "dry" end
+    local okc, ok, text, status, before, after = pcall(native, code, pid, club)
+    if not okc then return false, "game call error: " .. tostring(ok), "failed" end
+    if ok and status == "queued" then
+        return true, string.format("player %d: %s queued for the game thread (%s)", pid, M.LIST_LABEL[action], tostring(text)), status
+    end
+    return ok == true, tostring(text or ""), status or (ok and "ok" or "failed"), before, after
+end
+
+-- Live Editor's own Lua API on top of the game call: FC 27 LE v27.1.2 keeps the FC 26 wrappers (AddPlayerToTransferList
+-- -> cAddPlayerToTransferList, ...) but not the natives; the missing natives are defined here, so the wrappers (and
+-- scripts written for FC 26 Live Editor) work again. A native Live Editor ships itself is never replaced.
+-- Returns the names defined.
+function M.install_le_natives()
+    local function act(action)
+        return function(pid, teamid)
+            local ok, msg = M.list(pid, action, { teamid = teamid })
+            return ok, msg
+        end
+    end
+    local function is(listed)
+        return function(pid, teamid)
+            local ok, _, status, before = M.list(pid, "list_status", { teamid = teamid })
+            if not ok or status ~= "ok" then return false end
+            return listed(math.tointeger(before) or -1)
+        end
+    end
+    local defs = {
+        cAddPlayerToTransferList = act("transfer_list"),
+        cAddPlayerToLoanList = act("loan_list"),
+        cRemovePlayerFromLists = act("unlist"),
+        cRemovePlayerFromTransferList = act("unlist_transfer"),
+        cRemovePlayerFromLoanList = act("unlist_loan"),
+        cIsPlayerTransferListed = is(function(s) return s == 7 or s == 9 end),
+        cIsPlayerLoanListed = is(function(s) return s == 8 or s == 9 end),
+    }
+    local names = {}
+    for name, fn in pairs(defs) do
+        if type(_G[name]) ~= "function" then
+            _G[name] = fn
+            names[#names + 1] = name
+        end
+    end
+    table.sort(names)
+    return names
+end
+
 function M.delete(pid, dry)
     local players = db.get_table("players")
     if not players or not db.find(players, "playerid", pid) then return false, string.format("player %d not found", pid) end

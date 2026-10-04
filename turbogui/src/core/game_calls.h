@@ -123,6 +123,10 @@ constexpr int32_t kCallOpJobOffer = 1;
 // standings_refresh (core/standings_refresh.h): args = svm, managers, comm service, ifce (each 0 = let the DLL find
 // it); outputs = competitions re-requested, map keys found
 constexpr int32_t kCallOpStandingsRefresh = 2;
+// transfer_list (core/transfer_list.h): args = action (kAction*), player id, comm service, the player's club (team id
+// from his teamplayerlinks row; must be the user's team); outputs = contract status before, contract status after.
+// (10, not the next free number: the parallel game-call tracks each took their own range)
+constexpr int32_t kCallOpTransferList = 10;
 
 struct GameCallBlock {
     int32_t op = 0, status = 0, seq = 0, result_seq = 0;

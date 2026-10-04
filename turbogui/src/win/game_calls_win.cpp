@@ -8,6 +8,7 @@
 #include "game_hooks.h"
 #include "host.h"
 #include "standings_refresh_win.h"
+#include "transfer_list_win.h"
 
 namespace host {
 
@@ -208,6 +209,7 @@ std::vector<std::string> game_calls_status() {
         if (!g_last.empty()) out.push_back("  last: " + g_last);
     }
     for (const auto& l : standings_refresh_status()) out.push_back(l);
+    for (const auto& l : transfer_list_status()) out.push_back(l);
     return out;
 }
 
@@ -293,6 +295,13 @@ extern "C" __declspec(dllexport) int turbo_game_call(void*) {
                     req.ifce = static_cast<uint64_t>(b.args[3]);
                     req.label = "Lua";
                     standings_refresh_request(req, b.seq);
+                } else if (b.op == turbo::kCallOpTransferList) {
+                    turbo::tl::Request req;
+                    req.action = static_cast<int>(b.args[0]);
+                    req.player = static_cast<int>(b.args[1]);
+                    req.comm = static_cast<uint64_t>(b.args[2]);
+                    req.club = static_cast<int>(b.args[3]);
+                    transfer_list_request(req, b.seq);
                 } else {
                     turbo::JobOfferResult r;
                     r.message = "unknown game call op " + std::to_string(b.op);

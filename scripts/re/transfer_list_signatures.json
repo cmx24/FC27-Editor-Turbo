@@ -1,0 +1,70 @@
+{
+ "build": "6AB9813C-211EF000",
+ "game": "FC27.exe",
+ "signatures": {
+  "uah_add_transfer_list": {
+   "pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8B 41 08 48 8B D9 45 33 C9 45 33 C0 8B FA 48 8B 88 F8 0F 00 00 48 8B 09 E8 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? 4C 8D 05 ?? ?? ?? ?? 45 33 C9 48 8B 01 41 8D 51 20 FF 50 10 4C 8B C0 BA 79 00 00 00",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void UserActionsHandlingHelperImpl::AddToTransferList(this, playerId) 0x147F68368: TransferManager::AddToTransferList + UserTransferlisted (0x79) event",
+   "va": "0x147F68368",
+   "target": "0x147F68368"
+  },
+  "uah_add_loan_list": {
+   "pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8B 41 08 48 8B D9 45 33 C9 45 33 C0 8B FA 48 8B 88 F8 0F 00 00 48 8B 09 E8 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? 4C 8D 05 ?? ?? ?? ?? 45 33 C9 48 8B 01 41 8D 51 20 FF 50 10 4C 8B C0 BA 7A 00 00 00",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void UserActionsHandlingHelperImpl::AddToLoanList(this, playerId) 0x147F68214: TransferManager::AddToLoanList + UserLoanlisted (0x7A) event",
+   "va": "0x147F68214",
+   "target": "0x147F68214"
+  },
+  "uah_try_remove_from_list": {
+   "pattern": "89 54 24 10 53 55 56 57 41 55 41 56 41 57 48 83 EC 30 4C 8B F9 48 63 EA",
+   "resolve": "none",
+   "offset": 0,
+   "note": "bool UserActionsHandlingHelperImpl::TryToRemoveFromList(this, playerId, bool loanList) 0x147F8E300: TransferManager::RemoveFromLists + the events",
+   "va": "0x147F8E300",
+   "target": "0x147F8E300"
+  },
+  "uah_vtable": {
+   "pattern": "48 8D 05 ?? ?? ?? ?? 49 89 B7 70 04 00 00 45 33 C9 49 89 87 78 04 00 00",
+   "resolve": "rip",
+   "offset": 0,
+   "note": "UserActionsHandlingHelperImpl vtable (0x14B029440): the lea rax,[rip+..] at 0x147F0F267 of the CareerDaoFactoryImpl ctor (sub-object at +0x478, managers at +0x480)",
+   "va": "0x147F0F267",
+   "target": "0x14B029440"
+  },
+  "dao_vtable": {
+   "pattern": "4C 89 44 24 18 48 89 54 24 10 48 89 4C 24 08 53 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 48 4C 8B F1",
+   "resolve": "rip",
+   "offset": 34,
+   "note": "CareerDaoFactoryImpl vtable (0x14B025C48): the lea rax,[rip+..] at +0x22 of its ctor 0x147F0EB10 (the object [[comm+0x20]+0x30])",
+   "va": "0x147F0EB10",
+   "target": "0x14B025C48"
+  },
+  "tm_vtable": {
+   "pattern": "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 41 54 41 55 41 56 41 57 48 8D 68 C8 48 81 EC 80 01 00 00",
+   "resolve": "rip",
+   "offset": 49,
+   "note": "TransferManager vtable (0x14B0055A8): the lea rax,[rip+..] at +0x31 of its ctor 0x147C26450 (manager type 127, 0x2FA0 bytes)",
+   "va": "0x147C26450",
+   "target": "0x14B0055A8"
+  },
+  "pcm_vtable": {
+   "pattern": "40 53 48 83 EC 20 48 8D 05 ?? ?? ?? ?? 48 89 51 08 48 89 01 48 8B D9 48 83 C1 10 E8 ?? ?? ?? ?? 48 8D 8B 40 01 00 00",
+   "resolve": "rip",
+   "offset": 6,
+   "note": "PlayerContractManager vtable (0x14B01E240): the lea rax,[rip+..] at +0x6 of its ctor 0x147E54FB0 (manager type 77, 0x458 bytes)",
+   "va": "0x147E54FB0",
+   "target": "0x14B01E240"
+  },
+  "um_vtable": {
+   "pattern": "48 89 5C 24 10 48 89 74 24 18 57 48 81 EC 80 00 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 44 24 70 48 89 51 08",
+   "resolve": "rip",
+   "offset": 37,
+   "note": "UserManager vtable (0x14AFDF150): the lea rax,[rip+..] at +0x25 of its ctor 0x147AB2EB8 (manager type 129, 0xB20 bytes; +0x14 user index, +0x18 users (0x348 bytes each), user +0x1F4 = the user's team id)",
+   "va": "0x147AB2EB8",
+   "target": "0x14AFDF150"
+  }
+ }
+}

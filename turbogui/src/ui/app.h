@@ -195,6 +195,9 @@ private:
 // panels
 void draw_players(App& app);
 void draw_teams(App& app);
+// "Transfer bans" section for a club (what = "team") or a player ("player"): ui_players.cpp; Teams tab > Overview and
+// the player editor's Contract & Clubs tab
+void transfer_ban_section(App& app, const char* what, int64_t id);
 void draw_managers(App& app);
 void draw_competitions(App& app);
 // Competitions tab: points (3 / 1 / 0) and played games from wins / draws / losses; with positions also the table order
