@@ -53,7 +53,8 @@ public:
     std::filesystem::path mods_dir() const;      // <LE>\mods\legacy
     std::filesystem::path backup_dir() const;    // turbo_output\miniface_backups
     std::filesystem::path crest_backup_dir() const;  // turbo_output\crest_backups
-    // Backups of crest files (data/ui/imgAssets/crest*/...) go to crest_backup_dir(), everything else to backup_dir()
+    // Backups of crest files (data/ui/imgAssets/crest*/...) go to crest_backup_dir(), game editor configs (data/avatar/...,
+    // data/gamesettings/...) to turbo_output\edit_unlock\backups, everything else to backup_dir()
     std::filesystem::path backup_dir_for(const std::string& path) const;
 
     // Where the picture for `path` is. custom_first: a custom file under mods\legacy wins (what the game shows).

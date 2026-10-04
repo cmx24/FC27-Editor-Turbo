@@ -3,6 +3,32 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.1.1 (playtest fixes)
+
+Not yet released or checked in game.
+
+### Added
+
+- **Game editors: FC 27's own edit screens unlocked** (Turbo Tools > Game editors, on by default). Career > Squad >
+  Edit Player no longer greys out first / last / known-as name, commentary name, kit name and number, nationality,
+  birth date, height, weight, position, role and preferred foot, and gets the **Attributes** (33 bars) and **Brand
+  animations** sections the game defines for Create-a-Club players. Edit Manager (created or real manager): names,
+  nationality and birth date editable, height and weight shown. Create-a-Club players get the commentary name; the main
+  menu's Edit Players unlocks names, nationality, birth date, height and weight. Team stays locked (Turbo's moves do
+  transfers) and a player's gender stays hidden.
+- How: the game reads one small config per editor screen (`data/avatar/avatarcustomizationcfg_<screen>.json`) each
+  time the screen opens. Turbo asks the game for its own files, keeps them with their SHA-256 in
+  `turbo_output\edit_unlock\originals\`, applies a name-based recipe and writes the result to Live Editor's
+  `mods\legacy\data\avatar\` (`manifest.json` lists what Turbo wrote). **Restore the game's originals** removes exactly
+  those files (a file changed since by another tool is left alone). Online, Manager Live, Player Career, Clubs and
+  tournament files are never written. Nothing EA made ships with Turbo: the files are built on your PC.
+- **Unlock everything (experimental)**, off by default, with a warning: head editor for real players and real managers,
+  Composure and Defensive awareness bars, the manager outfit picker, every goal celebration, the manager's gender.
+- **Career settings too (advanced)**, off by default: 27 of the 32 hub settings EA locks mid-career (with the
+  experiments also the squad settings); competition, currency, deeper simulation, takeover and youth academy stay locked.
+- Details: a switch per screen and per file, and a status line per file (waiting for the game's export / original
+  exported / unlocked / restored / failed: why).
+
 ## 1.1.0 (voice swaps: any player gets any real or generic callname in matches)
 
 Not yet released or checked in game.

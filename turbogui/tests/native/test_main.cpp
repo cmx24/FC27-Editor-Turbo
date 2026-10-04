@@ -2959,6 +2959,8 @@ struct FakeMatchSetup : msetup::Service {
 };
 }  // namespace
 
+#include "test_edit_unlock.h"  // game editors unlock: core and UI cases (synthetic fixtures)
+
 static void test_ui() {
     SimMemory mem;
     CHECK(mem.load(g_out / "world.img"), "world.img");
@@ -6093,6 +6095,8 @@ static void test_ui() {
             ui.frames(3);
             CHECK(ui.find("Not available: this Turbo has no game calls.") == nullptr || true, "no service: renders");
         });
+
+        test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
 
         run_case("UI: no ImGui errors, layout stable over many frames", [&] {
             for (int tab = 0; tab < 7; ++tab) {
@@ -10253,6 +10257,8 @@ int main(int argc, char** argv) {
     std::printf("native voice swaps\n");
     test_callname_voice();
     test_callname_voice_host();
+    std::printf("native game editors unlock\n");
+    test_edit_unlock();
     std::printf("native UI\n");
     try {
         test_ui();

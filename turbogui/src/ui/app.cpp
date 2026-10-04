@@ -10,6 +10,7 @@
 #include <sstream>
 
 #include "imgui.h"
+#include "ui_edit_unlock.h"
 
 namespace turbo {
 
@@ -499,6 +500,7 @@ void App::tick(double t) {
         }
     }
     legacy.tick(t);
+    edit_unlock_tick(*this);  // Game editors: originals in, unlocked files out (ui_edit_unlock.cpp)
     // Voice swaps: the store goes to the service the host gave (once per service, then after every edit); the kill
     // switches are re-read every 2 s (the detours only read cached atomics)
     if (voice_service) {

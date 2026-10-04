@@ -6,6 +6,7 @@
 
 #include "app.h"
 #include "imgui.h"
+#include "ui_edit_unlock.h"
 #include "ui_images.h"
 
 namespace turbo {
@@ -422,6 +423,7 @@ void draw_tools(App& app) {
         }
         ImGui::TextDisabled("Editors in the other tabs always write immediately, after range checks.");
     }
+    draw_game_editors(app);  // FC 27's own edit screens unlocked (ui_edit_unlock.cpp)
     ImGui::EndChild();
 }
 

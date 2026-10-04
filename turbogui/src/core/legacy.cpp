@@ -103,6 +103,9 @@ fs::path LegacyImages::mods_dir() const { return root_ / "mods" / "legacy"; }
 fs::path LegacyImages::backup_dir() const { return root_ / "turbo_output" / "miniface_backups"; }
 fs::path LegacyImages::crest_backup_dir() const { return root_ / "turbo_output" / "crest_backups"; }
 fs::path LegacyImages::backup_dir_for(const std::string& path) const {
+    // game editor configs (core/edit_unlock.h) keep their own backups
+    if (path.compare(0, 12, "data/avatar/") == 0 || path.compare(0, 18, "data/gamesettings/") == 0)
+        return root_ / "turbo_output" / "edit_unlock" / "backups";
     return path.compare(0, 23, "data/ui/imgAssets/crest") == 0 ? crest_backup_dir() : backup_dir();
 }
 
