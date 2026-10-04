@@ -9,6 +9,8 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
 - **Create job offer no longer crashes the game**: the game posts career-mode events while it makes the offer, and Turbo picked the same, still unanswered command up again from each of them (1.0.2-1.1.2), nesting until FC 27 died. Turbo's event handler, the Turbo window's commands and actions now never nest: the command runs once and the offer arrives as in 0.4.0.
 
+- The mouse wheel scrolls Turbo's lists again and Ctrl + wheel zooms again: the wheel hook was skipped for the whole session after a single legacy mouse message, and a hook Windows removed was never put back; the wheel now comes from one live source (hook, else raw input, else window messages) and the hook is reinstalled when it goes quiet.
+
 ## 1.1.2 (live team names)
 
 Not yet released or checked in game.

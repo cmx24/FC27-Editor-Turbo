@@ -63,6 +63,9 @@ bool input_block_keyboard();
 // The show/hide key while Turbo is shown and just after a toggle: the game never sees it (input_shield.cpp)
 bool input_block_vk(int vk);
 int input_hidden_vk();  // that key right now, or 0
+// A wheel entry the game read with GetRawInputBuffer (input shield): Turbo takes it while the low-level wheel hook is
+// gone (core/wheel.h). `delta` = RAWMOUSE::usButtonData, 120 per notch.
+void input_raw_wheel(unsigned short delta);
 void stop_overlay();
 // The game window the overlay draws on (null before the overlay found it)
 HWND game_window();
