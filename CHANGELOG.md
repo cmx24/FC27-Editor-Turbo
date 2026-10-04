@@ -26,6 +26,22 @@ Install as 1.0.2. Not yet checked in game.
   be added, Turbo's Lua side gets one command (add the row, then write the name id), so a refused row also stops the
   name id. A full `editedplayernames` table now writes nothing (before, the name id was written and the shown name lost).
 
+### Hear a callname in Turbo
+
+- Players > Callname has a small play button on the "Current callname" line and on every row of By name, By player
+  and All callnames. It plays the recording from your FC 27 audio folder (`C:\FC_Tools\My Mods\i27` for Italian),
+  like the Play cells of your master workbook. Click again to hear the next variation; click while it plays to stop.
+  When it cannot play, the button is greyed and its tooltip says why (no audio folder in the master, no recording of
+  that id, or the wav is missing). Windows plays the sound; the game is not involved.
+- Needs the new master JSON: `turbo/tools/build_callname_master.py` now writes `wav_dir` and `segments`. Copy the new
+  `ita_it.json` to `turbo\callnames\masters\` and press Refresh.
+
+### FC 27 callname master
+
+- `turbo/tools/build_callname_master.py` now gives exactly what `build_master_v0.py` gives: column H "nameid", the Play
+  macro pointed at `i27` (`--vba-from` / `--vba-to`, with `turbo/tools/vba_tool.py`), `--copy-to`, and
+  `<name>_new.xlsm` when the workbook is open in Excel. New options `--wav-dir` (checks every row's wav).
+
 ## 1.0.2 (callnames: players with their own recording; kit colours and player callnames kept across career loads)
 
 Install as 1.0.1: unzip `FC27_LE_Turbo_1.0.2.zip` into the FC 27 Live Editor folder with the game closed. Back up your

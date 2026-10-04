@@ -39,6 +39,7 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          third_party/imgui/backends/imgui_impl_dx12.cpp \
          src/core/t3db.cpp src/core/model.cpp src/core/bridge.cpp src/core/le_log.cpp src/core/memmap.cpp src/core/image.cpp src/core/legacy.cpp src/core/devops.cpp src/core/callnames.cpp src/core/teamnames.cpp src/core/sigscan.cpp src/core/gamethread.cpp src/core/fce_standings.cpp src/core/player_capture.cpp src/core/game_calls.cpp src/core/standings_refresh.cpp src/core/transfer_list.cpp src/core/commentary_bank.cpp src/core/commentary_audio.cpp src/core/reveal.cpp src/core/manager_rules.cpp src/core/match_setup.cpp src/core/reapply.cpp \
          src/ui/app.cpp src/ui/widgets.cpp src/ui/ui_players.cpp src/ui/ui_teams.cpp src/ui/ui_database.cpp src/ui/ui_tools.cpp src/ui/textures.cpp src/ui/ui_images.cpp src/ui/ui_competitions.cpp src/ui/ui_callnames.cpp src/ui/ui_presets.cpp src/ui/ui_identity.cpp src/ui/ui_standings.cpp src/ui/ui_match.cpp src/ui/ui_reapply.cpp \
+         src/core/callname_audio.cpp src/ui/ui_callname_play.cpp src/win/callname_audio_win.cpp \
          src/win/dllmain.cpp src/win/overlay_dx12.cpp src/win/lazy_imports.cpp src/win/input_shield.cpp src/win/memmap_win.cpp src/win/devtools_win.cpp src/win/game_hooks.cpp src/win/player_capture_win.cpp src/win/game_calls_win.cpp src/win/standings_refresh_win.cpp src/win/transfer_list_win.cpp src/win/commentary_audio_win.cpp src/win/reveal_win.cpp src/win/manager_rules_win.cpp src/win/match_setup_win.cpp; do
   compile_cxx "$s"
 done
@@ -50,8 +51,9 @@ done
 $CXX -shared -o "$OUT/Turbo.dll" "${objs[@]}" -static -static-libgcc -static-libstdc++ \
   -lgdi32 -luser32 -limm32 -lole32 -Wl,--subsystem,windows
 # Turbo.dll may be loaded while the game starts: it must not import Direct3D 12, DXGI, the shader compiler, DWM or the shell
-# (src/win/lazy_imports.cpp loads those on first use). Fail the build if any of them is in its import table.
-if $OBJDUMP -p "$OUT/Turbo.dll" | grep -iE "DLL Name: (d3d12|dxgi|d3dcompiler|dwmapi|shell32|dinput8)" ; then
+# (src/win/lazy_imports.cpp loads those on first use; winmm for the Callname play buttons: src/win/callname_audio_win.cpp).
+# Fail the build if any of them is in its import table.
+if $OBJDUMP -p "$OUT/Turbo.dll" | grep -iE "DLL Name: (d3d12|dxgi|d3dcompiler|dwmapi|shell32|dinput8|winmm)" ; then
   echo "Turbo.dll must not import the DLLs above"; exit 1
 fi
 $CXX -std=c++17 -O2 -municode -o "$OUT/TurboInjector.exe" "$ROOT/src/injector/main.cpp" -static -static-libgcc -static-libstdc++

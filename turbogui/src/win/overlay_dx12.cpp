@@ -22,6 +22,7 @@
 
 #include "MinHook.h"
 #include "nlohmann/json.hpp"
+#include "callname_audio_win.h"
 #include "commentary_audio_win.h"
 #include "game_calls_win.h"
 #include "reveal_win.h"
@@ -882,6 +883,7 @@ bool start_overlay(HMODULE) {
     g_app->game_base = reinterpret_cast<uint64_t>(GetModuleHandleW(nullptr));  // FC27.exe (live standings vtable checks)
     g_app->log_hook = [](const std::string& s) { log("%s", s.c_str()); };
     g_app->regions_hook = []() { return private_regions(64 * 1024); };  // commentary-bank capture (Callname tab)
+    g_app->callname_player.set_player(callname_wav_player());  // Callname tab play buttons (callname_audio_win.cpp)
     if (g_app->mailbox) start_memmap(reinterpret_cast<uint64_t>(mailbox));
     g_toggle_vk = g_app->toggle_vk;
     if (HANDLE th = CreateThread(nullptr, 0, ll_mouse_thread, nullptr, 0, nullptr)) CloseHandle(th);  // mouse wheel for Turbo

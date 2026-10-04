@@ -22,6 +22,7 @@
 
 #include "app.h"
 #include "imgui.h"
+#include "ui_callname_play.h"
 
 namespace turbo {
 
@@ -621,8 +622,11 @@ static void by_name_picker(App& app, const Table& t, const PlayerRow& p) {
             ImGui::TableNextColumn();
             char idbuf[32];
             std::snprintf(idbuf, sizeof(idbuf), "%lld", static_cast<long long>(c.nameid));
+            ImGui::SetNextItemAllowOverlap();  // the play button below takes its own clicks
             if (ImGui::Selectable(idbuf, g_sel_name == c.nameid, ImGuiSelectableFlags_SpanAllColumns)) g_sel_name = c.nameid;
             ImGui::TableNextColumn();
+            callname_play_button(app, CallnameAudioKind::Generic, c.commentaryid);
+            ImGui::SameLine();
             ImGui::TextUnformatted(c.name.c_str());
             ImGui::TableNextColumn();
             ImGui::Text("%lld", static_cast<long long>(c.commentaryid));
@@ -716,11 +720,14 @@ static void all_callnames_picker(App& app, const Table& t, const PlayerRow& p) {
             ImGui::TableNextColumn();
             char idbuf[48];
             std::snprintf(idbuf, sizeof(idbuf), "%lld##%s", static_cast<long long>(r.own() ? r.playerid : r.commentaryid), r.own() ? "own" : "gen");
+            ImGui::SetNextItemAllowOverlap();  // the play button below takes its own clicks
             if (ImGui::Selectable(idbuf, g_sel_all == key, ImGuiSelectableFlags_SpanAllColumns)) {
                 g_sel_all = key;
                 sel = &r;
             }
             ImGui::TableNextColumn();
+            callname_play_button(app, r.own() ? CallnameAudioKind::Own : CallnameAudioKind::Generic, r.own() ? r.playerid : r.commentaryid);
+            ImGui::SameLine();
             ImGui::TextUnformatted(r.text.empty() ? "(no text)" : r.text.c_str());
             ImGui::TableNextColumn();
             if (r.own())
@@ -805,8 +812,11 @@ static void by_player_picker(App& app, const PlayerRow& p) {
             ImGui::TableNextColumn();
             char idbuf[32];
             std::snprintf(idbuf, sizeof(idbuf), "%lld", static_cast<long long>(c.playerid));
+            ImGui::SetNextItemAllowOverlap();  // the play button below takes its own clicks
             if (ImGui::Selectable(idbuf, g_sel_player == c.playerid, ImGuiSelectableFlags_SpanAllColumns)) g_sel_player = c.playerid;
             ImGui::TableNextColumn();
+            callname_play_button(app, CallnameAudioKind::Generic, c.commentaryid);  // the callname that would be copied
+            ImGui::SameLine();
             ImGui::TextUnformatted(c.name.c_str());
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(c.club.c_str());
@@ -993,6 +1003,11 @@ void callname_editor(App& app, const Table& t, const PlayerRow& p) {
     g_state.own = info.own;
     const std::string rule = rule_result(app, info);
     ImGui::AlignTextToFramePadding();
+    // hear what the game says: his own recording, else the rule's callname
+    if (info.own || info.source != CallnameSource::None) {
+        callname_play_button(app, info.own ? CallnameAudioKind::Own : CallnameAudioKind::Generic, info.own ? p.playerid : info.commentaryid);
+        ImGui::SameLine();
+    }
     if (info.own) {
         // Step 0 of the game's rule: his own recording wins, so the line names it - never "none"
         g_state.current_line = "Current callname: his own recording in " + cn.lang + " (" + cn.own_source(info.own) +

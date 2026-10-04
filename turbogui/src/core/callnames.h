@@ -37,6 +37,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "callname_audio.h"
 #include "commentary_bank.h"
 #include "model.h"
 #include "t3db.h"
@@ -99,6 +100,7 @@ struct MasterList {
     // "real_players")
     std::unordered_map<int64_t, std::string> generic_names;
     std::unordered_set<int64_t> real_simple_players, real_link_players;
+    MasterAudio audio;  // FC 27 master: the wav folder and the segments of every id (the play buttons, callname_audio.h)
     bool loaded() const { return !real_players.empty() || !generic_ids.empty(); }
     bool real(int64_t playerid) const { return real_players.count(playerid) > 0; }
     bool fc27() const { return game == "fc27"; }

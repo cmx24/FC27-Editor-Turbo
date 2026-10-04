@@ -736,8 +736,40 @@ in the Callname tab loads the list for the loaded language.
    `names`, `generic_names`). `--self-test` builds a tiny template with a dummy `vbaProject.bin` and checks the rows,
    the sort order, the copied styles, the VBA bytes and the JSON keys.
 
+   Since 1.0.3 the tool reproduces `turbo_dev\masters\build_master_v0.py` exactly (checked on `ita_it`: same
+   `callnames` and `names` cells, same patched `vbaProject.bin`, same JSON apart from the new keys): column H `nameid`
+   (generic rows: the `playernames` id(s) whose text is the commentary name, exact text first, else case-insensitive,
+   several joined with `,`; Italian: 3,424 rows found, 19 without a name row), `--vba-from` / `--vba-to` (a
+   same-length text patch of the VBA project with `turbo/tools/vba_tool.py`, a copy of the masters folder's tool:
+   module source, p-code and `__SRP_` caches) and `--copy-to` (v0 delivers the workbook next to the FC 27 audio). New
+   JSON keys for Turbo's play buttons: `wav_dir` (`--wav-dir`, default the bank's own `wav_dir`; every row's wav is
+   checked there) and `segments` = `{"generic": {"<commentaryid>": [seg, ...]}, "real": {"<playerid>": [seg, ...]}}`
+   (`PLAYER_NAMES_SIMPLE`), plus `"real_link"` only for `PLAYER_NAMES_LINK` segments whose wav exists (none yet: the
+   extraction wrote SIMPLE and generic wavs only). Italian, as v0 built it:
+
+   ```
+   python turbo/tools/build_callname_master.py --bank raw\ita_it_bank.json --players raw\turbo_table_players.csv
+     --edited raw\turbo_table_editedplayernames.csv --names raw\bridge_names.txt --commentary raw\bridge_commentary.txt
+     --template "C:\FC_Tools\My Mods\ita\italy_master.xlsm" --out-xlsm ita\italy_master_fc27.xlsm --out-json ita_it.json
+     --wav-dir "C:\FC_Tools\My Mods\i27" --vba-from "C:\FC_Tools\My Mods\ita\" --vba-to "C:\FC_Tools\My Mods\i27\"
+     [--copy-to "C:\FC_Tools\My Mods\i27"]
+   ```
+
 The user's *Play* macro hard-codes `C:\FC_Tools\My Mods\<lang folder>\` as the audio base (the FC 26 recordings); the
-FC 27 workbook is shipped with its own `real\` and `generic\` folders of FC 27 recordings next to it.
+FC 27 workbook is shipped with its own `real\` and `generic\` folders of FC 27 recordings next to it, and its macro is
+patched to point there (`i27`, the same length as `ita`, so the compound file keeps its stream sizes).
+
+**Hear a callname in Turbo (1.0.3).** A small play button (a triangle; a square while it plays) sits on the "Current
+callname" line (his own recording, else the rule's callname) and on every row of By name (the name's callname), By
+player (the callname that would be copied) and All callnames (generic rows and own recordings). It plays
+`<wav_dir>\generic\pSIMPLE_SURNAME_<seg>_<seg>.wav` or `<wav_dir>\real\pPLAYER_NAMES_SIMPLE_<seg>_<seg>.wav` (then
+`pPLAYER_NAMES_LINK_...` when the master lists LINK segments); every click plays the id's next segment (its
+variations in turn), a click while it plays stops it. Disabled, with the reason in its tooltip, without a wav folder
+in the master, without a segment for the id, or when no wav of the id is in the folder. Playback is Windows'
+`PlaySoundW` (`SND_ASYNC | SND_FILENAME | SND_NODEFAULT`) from `winmm.dll`, loaded at run time and called on a worker
+thread (`src/win/callname_audio_win.cpp`), behind `WavPlayer` (`core/callname_audio.h`; native tests fake it). File
+checks are cached per wav folder; a wav's length is read from its header to know when it ends. Nothing touches the
+game. Needs the master JSON with the new keys in `<Live Editor>\turbo\callnames\masters\<lang>.json`, then *Refresh*.
 
 **`ita_it` (FC 27 1.0.140.64835, built 2026-10-04):** 10,321 rows, 6,878 real / 3,443 generic; 4,046 players with
 their own recording (4,039 SIMPLE, 985 LINK; 3,038 of the SIMPLE ones in the career database), 2,533 generic ids.

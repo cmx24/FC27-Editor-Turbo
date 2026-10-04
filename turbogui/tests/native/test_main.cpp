@@ -19,6 +19,7 @@
 #include <fstream>
 #include <functional>
 #include <map>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -696,6 +697,151 @@ static void test_core() {
         CHECK(parse_master_list_json(R"({"language": "ita_it", "game": "fc27", "real_simple_players": [1, 2], "real_link_players": [2, 3]})", "ita_it",
                                      ml, &err) && ml.real_players.size() == 3 && ml.real(3),
               "no real_players: the union of the two banks");
+        // ---- play buttons (core/callname_audio.h): the master's "wav_dir" and "segments"
+        CHECK(parse_master_list_json(R"({"language": "ita_it", "game": "fc27", "real_players": [261865], "generic_ids": [900762],
+              "wav_dir": "C:\\FC_Tools\\My Mods\\i27",
+              "segments": {"generic": {"900762": [931, 1419, 1419, 1420.0], "x": [1], "900001": "7", "900002": [-1, "z", 2.5]},
+                           "real": {"261865": [5041, 5042]}, "real_link": {"261865": [535]}, "other": 1}})",
+                                     "ita_it", ml, &err),
+              "master with audio parsed: " + err);
+        CHECK(ml.audio.wav_dir == "C:\\FC_Tools\\My Mods\\i27" && ml.audio.generic.size() == 1 &&
+                  ml.audio.generic[900762] == std::vector<int64_t>({931, 1419, 1420}) && ml.audio.real[261865] == std::vector<int64_t>({5041, 5042}) &&
+                  ml.audio.real_link[261865] == std::vector<int64_t>({535}),
+              "wav_dir and segments (duplicates, bad ids and bad segments skipped)");
+        CHECK(parse_master_list_json(R"({"language": "ita_it", "real_players": [5], "wav_dir": 3, "segments": [1]})", "ita_it", ml, &err) &&
+                  ml.audio.wav_dir.empty() && !ml.audio.any(),
+              "audio keys of the wrong type: no audio, the list still loads");
+        CHECK(parse_master_list_json(R"({"language": "ita_it", "real_players": [5]})", "ita_it", ml, &err) && !ml.audio.any() && ml.audio.wav_dir.empty(),
+              "a master without audio keys");
+        CHECK(!parse_master_list_json(R"({"language": "ita_it", "wav_dir": "W", "segments": {"generic": {"900001": [1]}}})", "ita_it", ml, &err) &&
+                  !ml.audio.any(),
+              "a refused list keeps no audio");
+        {
+            // wav paths: the names fc27_commentary writes and the workbook's Play macro reads
+            CHECK(callname_wav_path("W", CallnameAudioKind::Generic, 931) == fs::path("W") / "generic" / "pSIMPLE_SURNAME_931_931.wav" &&
+                      callname_wav_path("W", CallnameAudioKind::Own, 5041) == fs::path("W") / "real" / "pPLAYER_NAMES_SIMPLE_5041_5041.wav" &&
+                      callname_wav_path("W", CallnameAudioKind::Own, 535, true) == fs::path("W") / "real" / "pPLAYER_NAMES_LINK_535_535.wav" &&
+                      callname_wav_path("W", CallnameAudioKind::Generic, 0) == fs::path("W") / "generic" / "pSIMPLE_SURNAME_0_0.wav",
+                  "wav paths");
+            MasterAudio a;
+            a.wav_dir = "W";
+            a.generic[900762] = {931, 1419, 1420};
+            a.generic[900002] = {7};
+            a.real[261865] = {5041};
+            a.real_link[261865] = {535};
+            const auto own = callname_wavs(a, CallnameAudioKind::Own, 261865);
+            CHECK(own.size() == 2 && own[0].filename() == "pPLAYER_NAMES_SIMPLE_5041_5041.wav" && own[1].filename() == "pPLAYER_NAMES_LINK_535_535.wav",
+                  "own recording: SIMPLE then LINK");
+            CHECK(callname_wavs(a, CallnameAudioKind::Generic, 900762).size() == 3 && callname_wavs(a, CallnameAudioKind::Own, 900762).empty() &&
+                      callname_wavs(a, CallnameAudioKind::Generic, 261865).empty(),
+                  "generic and own ids are separate");
+            MasterAudio nodir = a;
+            nodir.wav_dir.clear();
+            CHECK(callname_wavs(nodir, CallnameAudioKind::Generic, 900762).empty(), "no wav folder: no wav");
+
+            // wav length from the header: 48 kHz 16-bit mono = 96000 bytes a second
+            auto wav_head = [](uint32_t data_size, bool list_chunk) {
+                std::string h = "RIFF";
+                auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; ++i) h += static_cast<char>((v >> (8 * i)) & 0xff); };
+                auto u16 = [&](uint16_t v) { h += static_cast<char>(v & 0xff); h += static_cast<char>(v >> 8); };
+                u32(36 + data_size);
+                h += "WAVEfmt ";
+                u32(16);
+                u16(1), u16(1), u32(48000), u32(96000), u16(2), u16(16);
+                if (list_chunk) {
+                    h += "LIST";
+                    u32(3);
+                    h += std::string("abc") + '\0';  // odd size: one pad byte
+                }
+                h += "data";
+                u32(data_size);
+                return h;
+            };
+            const std::string h1 = wav_head(48000, false);
+            CHECK(std::fabs(wav_seconds(h1, h1.size() + 48000) - 0.5) < 1e-9, fmt("0.5 s (%.3f)", wav_seconds(h1, h1.size() + 48000)));
+            const std::string h2 = wav_head(96000, true);
+            CHECK(std::fabs(wav_seconds(h2, h2.size() + 96000) - 1.0) < 1e-9, "a chunk before data (odd size, padded)");
+            const std::string h3 = wav_head(0, false);
+            CHECK(std::fabs(wav_seconds(h3, h3.size() + 192000) - 2.0) < 1e-9, "a streamed wav (data size 0): the file size counts");
+            CHECK(std::fabs(wav_seconds(h1, h1.size() + 9600) - 0.1) < 1e-9, "a cut file: the bytes there count");
+            CHECK(wav_seconds("RIFX....", 100) == 0.0 && wav_seconds("", 0) == 0.0 && wav_seconds(h1.substr(0, 30), 1000) == 0.0, "not a wav: 0");
+
+            // the buttons: a fake player, fake files
+            struct FakeWav : WavPlayer {
+                std::vector<std::string> played;
+                int stops = 0;
+                bool ok = true;
+                bool play(const fs::path& p) override {
+                    played.push_back(p.filename().u8string());
+                    return ok;
+                }
+                void stop() override { ++stops; }
+            };
+            CallnamePlayer pl;
+            std::set<std::string> files = {"pSIMPLE_SURNAME_931_931.wav", "pSIMPLE_SURNAME_1420_1420.wav", "pPLAYER_NAMES_SIMPLE_5041_5041.wav",
+                                           "pPLAYER_NAMES_LINK_535_535.wav"};
+            int checks = 0;
+            pl.set_exists([&](const fs::path& p) {
+                ++checks;
+                return files.count(p.filename().u8string()) > 0;
+            });
+            pl.set_seconds([](const fs::path&) { return 1.0; });
+            CallnamePlayer::Button b = pl.button(a, CallnameAudioKind::Generic, 900762, 0.0);
+            CHECK(!b.enabled && b.tip.find("not available") != npos && pl.click(a, CallnameAudioKind::Generic, 900762, 0.0).empty(),
+                  "no player: disabled: " + b.tip);
+            auto fake = std::make_shared<FakeWav>();
+            pl.set_player(fake);
+            b = pl.button(nodir, CallnameAudioKind::Generic, 900762, 0.0);
+            CHECK(!b.enabled && b.tip.find("no wav folder") != npos, "no wav folder: disabled: " + b.tip);
+            b = pl.button(a, CallnameAudioKind::Generic, 900001, 0.0);
+            CHECK(!b.enabled && b.tip.find("No recording") != npos, "no segment for the id: disabled: " + b.tip);
+            b = pl.button(a, CallnameAudioKind::Own, 5, 0.0);
+            CHECK(!b.enabled && b.tip.find("No own recording") != npos, "no own recording: disabled: " + b.tip);
+            b = pl.button(a, CallnameAudioKind::Generic, 900002, 0.0);
+            CHECK(!b.enabled && b.tip.find("Wav not found") != npos && b.tip.find("pSIMPLE_SURNAME_7_7.wav") != npos, "missing file: disabled: " + b.tip);
+            b = pl.button(a, CallnameAudioKind::Generic, 900762, 0.0);
+            CHECK(b.enabled && !b.playing && b.tip == "Play (1 of 2)", "two of three wavs there: " + b.tip);
+            const int checked = checks;
+            pl.button(a, CallnameAudioKind::Generic, 900762, 0.0);
+            CHECK(checks == checked, "file checks are cached");
+            // clicks cycle through the segments; a click while it plays stops it
+            CHECK(pl.click(a, CallnameAudioKind::Generic, 900762, 0.0).find("pSIMPLE_SURNAME_931_931.wav") != npos, "first click: segment 931");
+            b = pl.button(a, CallnameAudioKind::Generic, 900762, 0.5);
+            CHECK(b.playing && b.tip == "Stop" && pl.playing(CallnameAudioKind::Generic, 900762, 0.5), "playing: the button stops");
+            CHECK(pl.click(a, CallnameAudioKind::Generic, 900762, 0.5).empty() && fake->stops == 1 &&
+                      !pl.playing(CallnameAudioKind::Generic, 900762, 0.5),
+                  "second click while playing: stop");
+            CHECK(pl.button(a, CallnameAudioKind::Generic, 900762, 0.6).tip == "Play (2 of 2)", "next: the second wav");
+            CHECK(pl.click(a, CallnameAudioKind::Generic, 900762, 0.6).find("1420") != npos, "then segment 1420 (1419 has no wav)");
+            CHECK(!pl.playing(CallnameAudioKind::Generic, 900762, 1.7), "it ends after its length");
+            CHECK(pl.click(a, CallnameAudioKind::Generic, 900762, 1.7).find("931") != npos, "and back to the first");
+            // another id while one plays: it replaces the sound (no stop)
+            CHECK(pl.click(a, CallnameAudioKind::Own, 261865, 2.0).find("pPLAYER_NAMES_SIMPLE_5041_5041.wav") != npos && fake->stops == 1 &&
+                      pl.playing(CallnameAudioKind::Own, 261865, 2.0) && !pl.playing(CallnameAudioKind::Generic, 900762, 2.0),
+                  "another id replaces the sound");
+            CHECK(pl.click(a, CallnameAudioKind::Own, 261865, 3.5).find("pPLAYER_NAMES_LINK_535_535.wav") != npos, "own recording: then its LINK line");
+            CHECK(fake->played == std::vector<std::string>({"pSIMPLE_SURNAME_931_931.wav", "pSIMPLE_SURNAME_1420_1420.wav", "pSIMPLE_SURNAME_931_931.wav",
+                                                            "pPLAYER_NAMES_SIMPLE_5041_5041.wav", "pPLAYER_NAMES_LINK_535_535.wav"}),
+                  "the files played");
+            // the player cannot start: nothing plays
+            fake->ok = false;
+            CHECK(pl.click(a, CallnameAudioKind::Generic, 900762, 10.0).empty() && !pl.playing(CallnameAudioKind::Generic, 900762, 10.0),
+                  "a failed start: not playing");
+            fake->ok = true;
+            // another wav folder (Refresh): the files are checked again
+            MasterAudio b2 = a;
+            b2.wav_dir = "W2";
+            const int before = checks;
+            CHECK(pl.button(b2, CallnameAudioKind::Generic, 900762, 20.0).enabled && checks > before, "another wav folder: checked again");
+            // an unknown length: two seconds
+            pl.set_seconds([](const fs::path&) { return 0.0; });
+            pl.click(b2, CallnameAudioKind::Generic, 900002, 30.0);
+            files.insert("pSIMPLE_SURNAME_7_7.wav");
+            pl.set_exists([&](const fs::path& p) { return files.count(p.filename().u8string()) > 0; });
+            CHECK(pl.click(b2, CallnameAudioKind::Generic, 900002, 30.0).find("7_7") != npos && pl.playing(CallnameAudioKind::Generic, 900002, 31.9) &&
+                      !pl.playing(CallnameAudioKind::Generic, 900002, 32.1),
+                  "unknown length: two seconds");
+        }
         // All callnames: every generic id of the master (with the name rows that use it) and every own recording
         {
             MasterList am;
@@ -4336,6 +4482,45 @@ static void test_ui() {
             ui.frames(3);
             CHECK(st.playerid == 1001 && st.current_line.find("the FC 27 master") != npos && st.current_line.find("FC 26") == npos,
                   "named as the FC 27 master: " + st.current_line);
+            {
+                // play buttons: the FC 27 master's wav folder and segments; a fake player (no sound in tests)
+                struct FakeWav : WavPlayer {
+                    std::vector<std::string> played;
+                    int stops = 0;
+                    bool play(const fs::path& p) override {
+                        played.push_back(p.filename().u8string());
+                        return true;
+                    }
+                    void stop() override { ++stops; }
+                };
+                auto fake = std::make_shared<FakeWav>();
+                app.callname_player.set_player(fake);
+                const fs::path wd = g_out / "callname_wavs";
+                fs::create_directories(wd / "real");
+                fs::create_directories(wd / "generic");
+                std::ofstream((wd / "real" / "pPLAYER_NAMES_SIMPLE_41_41.wav").string()) << "x";
+                std::ofstream((wd / "generic" / "pSIMPLE_SURNAME_12_12.wav").string()) << "x";
+                json m = json::parse(R"({"language": "ita_it", "game": "fc27", "real_players": [1001, 1004], "generic_ids": [900002],
+                                         "segments": {"generic": {"900002": [12]}, "real": {"1001": [41], "1004": [77]}}})");
+                m["wav_dir"] = wd.u8string();
+                std::ofstream(mp.string()) << m.dump();
+                CHECK(ui.click("Refresh##cn") && app.callnames.masters.audio.real.size() == 2 && app.callnames.masters.audio.wav_dir == wd.u8string(),
+                      "FC 27 master with a wav folder loaded");
+                ui.frames(2);
+                CHECK(ui.click("##play_o1001"), "Current callname: play button");
+                CHECK(fake->played == std::vector<std::string>({"pPLAYER_NAMES_SIMPLE_41_41.wav"}), "his own recording played");
+                CHECK(ui.click("##play_o1001") && fake->stops == 1 && fake->played.size() == 1, "a click while it plays stops it");
+                CHECK(ui.click("All callnames", "##cname"), "All callnames tab");
+                CHECK(ui.type_into(ui.find("##cnallsearch"), "900002") && ui.click("##play_g900002", "##cnall"), "play a generic row");
+                CHECK(fake->played.size() == 2 && fake->played[1] == "pSIMPLE_SURNAME_12_12.wav", "the generic wav played");
+                // 1004's own recording has no wav in the folder: the button is there, disabled
+                CHECK(ui.type_into(ui.find("##cnallsearch"), "1004") && ui.find("##play_o1004", "##cnall") != nullptr, "1004's row has a button");
+                ui.click("##play_o1004", "##cnall");
+                CHECK(fake->played.size() == 2, "no wav: nothing played");
+                CHECK(ui.type_into(ui.find("##cnallsearch"), ""), "search cleared");
+                app.callname_player.stop();
+                app.callname_player.set_player(nullptr);
+            }
             std::ofstream(mp.string()) << R"({"language": "ita_it", "source": "italy_master.xlsm", "built": "2026-10-04T12:00:00",
                                              "real_players": [1001, 1004], "generic_ids": [900002], "names": {"1001": "Bukayo Saka"}})";
             CHECK(ui.click("Refresh##cn") && app.callnames.masters.loaded() && !app.callnames.masters.fc27(), "back to the FC 26 list");
