@@ -28,9 +28,14 @@ std::string clean_team_name(const std::string& s, size_t max_bytes) {
     out = b == std::string::npos ? std::string() : out.substr(b, e - b + 1);
     if (out.size() > max_bytes) {
         out.resize(max_bytes);
-        // do not cut a UTF-8 sequence in half
-        while (!out.empty() && (static_cast<unsigned char>(out.back()) & 0xC0) == 0x80) out.pop_back();
-        if (!out.empty() && (static_cast<unsigned char>(out.back()) & 0xC0) == 0xC0) out.pop_back();
+        // do not cut a UTF-8 sequence in half: drop an incomplete last sequence
+        size_t lead = out.size();
+        while (lead > 0 && (static_cast<unsigned char>(out[lead - 1]) & 0xC0) == 0x80) --lead;
+        if (lead > 0) {
+            unsigned char c = static_cast<unsigned char>(out[lead - 1]);
+            size_t need = (c & 0x80) == 0 ? 1 : (c & 0xE0) == 0xC0 ? 2 : (c & 0xF0) == 0xE0 ? 3 : (c & 0xF8) == 0xF0 ? 4 : 1;
+            if (out.size() - (lead - 1) < need) out.resize(lead - 1);
+        }
     }
     return out;
 }

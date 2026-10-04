@@ -61,20 +61,22 @@ static std::string derive_abbr(const std::string& full, size_t n) {
 
 bool apply_team_names(App& app, int64_t teamid, const std::string& full0, const std::string& a3, const std::string& a10,
                       const std::string& a15, std::string* msg) {
-    std::string full = clean_team_name(full0, 60);
-    if (full.empty()) {
-        if (msg) *msg = "the team name is empty";
-        return false;
-    }
     const Table* t = app.db.table("teams");
     const TeamRow* tr = app.model.team(teamid);
     if (!t || !tr) {
         if (msg) *msg = "team not found";
         return false;
     }
+    const Field* nf = t->field("teamname");
+    // the field's own limit (59 bytes in FC 27) is what both the database and Live Editor's file get
+    std::string full = clean_team_name(full0, nf && nf->max_len() > 1 ? nf->max_len() - 1 : 59);
+    if (full.empty()) {
+        if (msg) *msg = "the team name is empty";
+        return false;
+    }
     std::string note;
     // 1. database (validated: length, type, stale guard)
-    if (const Field* f = t->field("teamname")) {
+    if (const Field* f = nf) {
         Value v = Value::of_str(full);
         std::string verr = Database::validate(*f, v);
         if (!verr.empty()) {

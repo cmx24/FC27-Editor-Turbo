@@ -101,7 +101,7 @@ fs::path LegacyImages::mods_dir() const { return root_ / "mods" / "legacy"; }
 fs::path LegacyImages::backup_dir() const { return root_ / "turbo_output" / "miniface_backups"; }
 fs::path LegacyImages::crest_backup_dir() const { return root_ / "turbo_output" / "crest_backups"; }
 fs::path LegacyImages::backup_dir_for(const std::string& path) const {
-    return path.compare(0, 22, "data/ui/imgAssets/crest") == 0 ? crest_backup_dir() : backup_dir();
+    return path.compare(0, 23, "data/ui/imgAssets/crest") == 0 ? crest_backup_dir() : backup_dir();
 }
 
 fs::path LegacyImages::custom_file(const std::string& path) const {

@@ -240,6 +240,26 @@ club's transfer budget. The probe scripts that found the above are in `C:\FC 27 
   the `transfers` and `fixtures` tables are empty in a career; `teamplayerlinks.leagueappearances` stays 0.
 - Live Editor's `MessageBox` is printf-formatted (`%` must be `%%`); its `MEMORY` reads crash the game on unreadable addresses.
 
+## Team name, colours and crest (Teams tab, 0.4)
+
+- **Name** (`ui/ui_identity.cpp`, `core/teamnames.*`): writes `teams.teamname` (validated through `Database::set`) and the
+  four rows Live Editor itself reads from `<LE>\extensions\global\custom_team_names.csv` (`TeamName_<id>`,
+  `TeamName_Abbr3_<id>`, `TeamName_Abbr10_<id>`, `TeamName_Abbr15_<id>`; `key;value`, other rows kept, written as
+  `.tmp` + rename, previous file copied to `turbo_output\team_name_backups`). Live Editor reads that file when it starts,
+  so the game shows the new name after Live Editor's next start; the UI says so.
+- **Colours**: `ImGui::ColorEdit3` pickers for `teams.teamcolor1..3`, `goalnetstanchioncolor1..2` and, per kit row of
+  `teamkits` (`teamtechid == teamid`, grouped by `teamkittypetechid`), `teamcolorprim/sec/tert`, `jerseynamecolor`,
+  `jerseynameoutlinecolor`, `jerseynumbercolorprim/sec/ter`, `shortsnumbercolorprim/sec/ter` plus the percent / font / template
+  ints. A picker's value is written once the mouse is up (or after 0.8 s), three validated `Database::set` calls (r, g, b).
+- **Crest**: a club's crest is a set of legacy files `data/ui/imgAssets/crest{,16x16,32x32,50x50,512x512,1024x1024}/{light,dark,custom}/l<teamid>.dds`
+  (`crest_variants()`; which ones exist differs per club, see `legacy_filename_hash_list.csv`). The editor asks the Lua
+  exporter for every variant, reads each exported file's DDS header (`parse_dds_format`) and writes the new picture with
+  `encode_dds` in the SAME size, pixel format (B8G8R8A8 / R8G8B8A8 / X8 / 24-bit, DXT1 / DXT3 / DXT5, legacy or DX10
+  header; the original header bytes are reused) and mip count. Save is disabled until every variant is known (exported or
+  in `missing.txt`). Files go to `<LE>\mods\legacy\...`, backups to `turbo_output\crest_backups`; "Remove custom crest"
+  deletes them all (confirmation). "Another club's crest" copies the other club's files byte for byte per variant, or
+  uses its big crest as a picture to reframe. Minifaces keep their own `encode_dds_dxt5` path.
+
 ## Not implemented yet
 
 Match setup overrides, gameplay toggles (CPU vs CPU, unlimited subs, never tired, match time/score), manager market / job security /

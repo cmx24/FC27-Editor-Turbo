@@ -58,7 +58,8 @@ private:
 std::filesystem::path team_names_file(const std::filesystem::path& le_root);
 // Where Turbo keeps copies of the previous file
 std::filesystem::path team_names_backup_dir(const std::filesystem::path& le_root);
-// A value Live Editor can read: no ';', no line breaks, at most 60 bytes (the DB field is 59 + NUL)
-std::string clean_team_name(const std::string& s, size_t max_bytes = 60);
+// A value Live Editor can read: no ';', no line breaks, trimmed, at most max_bytes (teams.teamname holds 59 + NUL),
+// never cutting a UTF-8 sequence in half
+std::string clean_team_name(const std::string& s, size_t max_bytes = 59);
 
 }  // namespace turbo
