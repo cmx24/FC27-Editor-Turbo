@@ -27,6 +27,38 @@ Install as 1.0.0: unzip `FC27_LE_Turbo_1.0.1.zip` into the FC 27 Live Editor fol
 
 ### Verified in game (1.0.1)
 
+- **Team name**: the new name shows on the career card, the contract offer ("TURBO NAPOLI FC"), the hub header (10-letter
+  name), the fixture panel ("TURBO NAPOLI"), news items and the tournament invitation. It is kept across save and reload.
+- **Team colours 1 to 3** (club colours): written, and kept in the career save across save and reload. Their use on match
+  screens was not seen, because no match loads on the test PC (see Known issue).
+- **Generic callname** (Players > Callname > By name): Totti assigned to Lobotka as last name, "spoken in ita_it",
+  shown name kept. Kept across save and reload. Not heard yet, because no match loads (see Known issue).
+- **Player-specific callname** (By player): works on FC 27's full table (row takeover), no crash.
+- **Crest repair**: a career with a 1.0.0 crest loads again (startup repair logged in turbo_gui.log).
+
+### Known limits (found in this check)
+
+- **Kit colours and player-specific callnames last for the session only.** FC 27 reloads `teamkits` and `playernamemap`
+  from its base data at every career load, so these edits are gone after the career is loaded again. Club colours,
+  names and generic callnames are saved with the career. Re-applying them on load is planned.
+- **Keep the shown name** takes effect on all screens after the career is loaded again. Until then, the team sheet may
+  show the new surname.
+- Callname audio is per language. With the game's "Localized Commentary" on, a match abroad (for example a pre-season
+  match in England) uses that country's commentary, not the language Turbo's spoken set was built for.
+
+### Known issue: no match loads on the test PC (not Turbo)
+
+Every match load (Kick-Off and career, Play Match and Tactical View) crashes on the test PC with FC 27 1.0.140.64835
+and Live Editor 27.1.2. It crashes the same way with Turbo.dll not in the game (Turbo's start script removed), with
+Turbo's game hooks off, with Turbo's image files moved out, in Kick-Off, and with a 1280 x 720 window.
+
+Cause, measured in the running game: Live Editor's offsets file for this build (entries for 0x14216E818 and 0x14F414398)
+points the game's front-end SetMousePosition (UI input manager, called with -1, -1 on the front-end thread during match
+load) straight into the game's protected code at 0x14F414398. During match load the protection rewrites the jump at
+0x14F4143B2 into a call (E9 -> E8, observed at 11:39:06 and 11:44:31; it reads E9 at the main menu). The stack ends up
+8 bytes off and the game faults at 0x14216E881 two seconds later. Report it to Live Editor's author, or check for a Live
+Editor update for this game build.
+
 ## 1.0.0 (since 0.3.0)
 
 Install: unzip `FC27_LE_Turbo_1.0.0.zip` into the FC 27 Live Editor folder (same layout as 0.3.0 and 0.4.0), start the
