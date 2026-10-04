@@ -19,6 +19,9 @@ static void test_hotkey_and_background() {
         CHECK(hotkey_types_text('K', 0) && hotkey_types_text(0x20, kHotkeyShift) && !hotkey_types_text('K', kHotkeyCtrl) &&
                   !hotkey_types_text(0x77, 0),
               "keys that type text");
+        CHECK(hotkey_hides_event(0x77, 0x77, false) && !hotkey_hides_event(0x77, 0x77, true) &&
+                  !hotkey_hides_event(0x77, 0x41, false) && !hotkey_hides_event(0, 0, false),
+              "input shield hides the key's key-downs only (never its key-up, nothing while no key is hidden)");
     });
 
     run_case("legacy files: background list after the screen's, peek, arrivals and missing ones leave it", [&] {

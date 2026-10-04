@@ -22,8 +22,10 @@ Not yet released or checked in game.
 - **Show/hide key: any key, with Ctrl / Alt / Shift.** Status > Settings > Change, then press the key (Esc cancels);
   "Reset to F8". Saved in `gui_settings.json` (`gui.toggle_key`, `gui.toggle_mods`) and used at once. While Turbo is
   shown, and for half a second after it hides, the game never sees that key (window messages, DirectInput state and
-  buffered data, raw input, GetAsyncKeyState / GetKeyState / GetKeyboardState). A key that types text goes to a Turbo
-  text box that has the keyboard. (core/hotkey.h, ui/hotkey_setting.h, win/overlay_dx12.cpp, win/input_shield.cpp)
+  buffered data, raw input, GetAsyncKeyState / GetKeyState / GetKeyboardState). Its key-ups still reach DirectInput
+  buffered data and raw input, so the press that shows Turbo (which the game may already have seen) is never left
+  held down in the game. A key that types text goes to a Turbo text box that has the keyboard. (core/hotkey.h,
+  ui/hotkey_setting.h, win/overlay_dx12.cpp, win/input_shield.cpp)
 - **Ctrl + mouse wheel zooms the whole Turbo window** (text, spacing and pictures together, 0.60x to 2.50x). Ctrl + 0
   goes back to 1.00x. A toast shows the size; it is kept in `gui_settings.json` like the Turbo Tools "UI size" slider.
 - **Players list: club filter.** A combo next to "My club" with a search box (club name or ID, Enter picks the first
