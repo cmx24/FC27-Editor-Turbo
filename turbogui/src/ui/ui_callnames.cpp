@@ -3,7 +3,8 @@
 //   BY NAME   a playernames name whose commentary id is spoken -> written to lastnameid or commonnameid (the shown name
 //             can be kept through editedplayernames)
 //   BY PLAYER a player whose playernamemap callname is spoken -> written to this player's playernamemap row (added
-//             through Turbo's Lua side when missing)
+//             through Turbo's Lua side when missing); kept in turbo_output\reapply_edits.json and written again at every
+//             career load, because FC 27 reloads playernamemap then (ui_reapply.cpp)
 // See core/callnames.h and docs/callnames.md.
 #include <cstdio>
 #include <cstring>
@@ -137,48 +138,106 @@ static uint64_t spare_playernamemap_row(App& app, const Table& m) {
     return dangling;
 }
 
-// BY PLAYER: this player's playernamemap row: edited in place when it exists; else added through Lua when the table has
-// room; else a row no player needs (spare_playernamemap_row) is taken over. Live Editor's InsertDBTableRow crashes the
-// game on a full table (FC 27's playernamemap is full: 106 of 106 rows), so a full table never reaches it.
-static void assign_player_callname(App& app, const PlayerRow& p, int64_t commentaryid, const std::string& from) {
+// One playernamemap field through Database::set (range-checked; table and record checked alive). No undo step:
+// playernamemap edits never had one. The Callname tab and the re-apply at career load write this way.
+static bool put_int(App& app, const Table& t, uint64_t rec, const Field& f, int64_t v, std::string& err) {
+    if (!app.db.set(t, rec, f, Value::of_int(v), &err)) return false;
+    ++app.gen;
+    app.log(t.name + "." + f.name + " = " + std::to_string(v));
+    return true;
+}
+
+// BY PLAYER (and the re-apply at career load, ui_reapply.cpp): this player's playernamemap row: edited in place when it
+// exists; else added through Lua when the table has room; else a row no player needs (spare_playernamemap_row) is taken
+// over. Live Editor's InsertDBTableRow crashes the game on a full table (FC 27's playernamemap is full: 106 of 106
+// rows), so a full table never reaches it.
+PlayerCallnameWrite write_player_callname(App& app, const PlayerRow& p, int64_t commentaryid, const std::string& from) {
+    PlayerCallnameWrite r;
     const Table* m = app.db.table("playernamemap");
-    if (!m) {
-        app.notify("FC 27's database has no playernamemap table", true);
-        return;
+    const Field* fp = m ? m->field("playerid") : nullptr;
+    const Field* fc = m ? m->field("commentaryid") : nullptr;
+    if (!m || !fp || !fc) {
+        r.message = "FC 27's database has no playernamemap table";
+        return r;
     }
-    auto rec = app.callnames.index.playernamemap_rec.find(p.playerid);
-    if (rec != app.callnames.index.playernamemap_rec.end()) {
-        const Field* f = m->field("commentaryid");
-        if (f && app.edit(*m, rec->second, *f, Value::of_int(commentaryid)))
-            app.notify(p.name + ": player-specific callname " + std::to_string(commentaryid) + " (from " + from + ")");
-        return;
+    CallnameIndex& ix = app.callnames.index;
+    const std::string what = p.name + ": player-specific callname " + std::to_string(commentaryid) + " (from " + from + ")";
+    // The player's own row: the index's address while that row still holds this player (Lua may have added or removed
+    // rows since the index was built), else looked up again - a write must never land in another player's row
+    uint64_t rec = 0;
+    if (auto it = ix.playernamemap_rec.find(p.playerid); it != ix.playernamemap_rec.end() && app.db.table_alive(*m, it->second) &&
+                                                          app.db.record_valid(*m, it->second) && app.db.get_int(*m, it->second, "playerid", -1) == p.playerid)
+        rec = it->second;
+    else
+        rec = app.db.find(*m, "playerid", p.playerid);
+    if (rec) {
+        ix.playernamemap_rec[p.playerid] = rec;
+        r.message = what;
+        if (app.db.get_int(*m, rec, "commentaryid", -1) == commentaryid) {
+            r.how = PlayerCallnameWrite::How::Unchanged;
+            return r;
+        }
+        std::string err;
+        if (!put_int(app, *m, rec, *fc, commentaryid, err)) {
+            r.message = p.name + ": playernamemap.commentaryid not written: " + err;
+            return r;
+        }
+        ix.playernamemap[p.playerid] = commentaryid;
+        r.how = PlayerCallnameWrite::How::Updated;
+        return r;
     }
     uint32_t used = 0, cap = 0;
     const bool counted = app.db.rows_in_use(*m, used, cap);
     if (counted && used < cap) {
         json a = {{"action", "set_playernamemap"}, {"playerid", p.playerid}, {"commentaryid", commentaryid}, {"room", true}};
-        if (send_actions(app, json::array({a}), "Player callname"))
-            app.notify(p.name + ": playernamemap row (" + std::to_string(commentaryid) + ", from " + from + ") queued for Turbo's Lua side");
-        return;
-    }
-    const Field* fp = m->field("playerid");
-    const Field* fc = m->field("commentaryid");
-    if (uint64_t spare = fp && fc ? spare_playernamemap_row(app, *m) : 0) {
-        Value old_pid;
-        app.db.get(*m, spare, *fp, old_pid);
-        if (app.edit(*m, spare, *fc, Value::of_int(commentaryid)) && app.edit(*m, spare, *fp, Value::of_int(p.playerid))) {
-            if (old_pid.type == FieldType::Int) app.callnames.index.playernamemap_rec.erase(old_pid.i);
-            app.callnames.index.playernamemap_rec[p.playerid] = spare;
-            app.notify(p.name + ": player-specific callname " + std::to_string(commentaryid) + " (from " + from +
-                       "); the table is full, so the row of " + (old_pid.type == FieldType::Int ? "player " + std::to_string(old_pid.i) : std::string("an unused entry")) +
-                       ", which no player in the database or no commentary uses, was taken over");
+        if (!send_actions(app, json::array({a}), "Player callname")) {
+            r.message = p.name + ": playernamemap row not queued: Turbo's command channel is busy or not available";
+            r.notified = true;  // send() showed why
+            return r;
         }
-        return;
+        r.how = PlayerCallnameWrite::How::Queued;
+        r.message = p.name + ": playernamemap row (" + std::to_string(commentaryid) + ", from " + from + ") queued for Turbo's Lua side";
+        return r;
+    }
+    if (uint64_t spare = spare_playernamemap_row(app, *m)) {
+        Value old_pid, old_cid;
+        app.db.get(*m, spare, *fp, old_pid);
+        app.db.get(*m, spare, *fc, old_cid);
+        std::string err;
+        if (!put_int(app, *m, spare, *fc, commentaryid, err)) {
+            r.message = p.name + ": the spare playernamemap row was not written: " + err;
+            return r;
+        }
+        if (!put_int(app, *m, spare, *fp, p.playerid, err)) {
+            // half a takeover would hand this callname to the row's old player: put the row back as it was
+            std::string ignored;
+            if (old_cid.type == FieldType::Int) app.db.set(*m, spare, *fc, old_cid, &ignored);
+            r.message = p.name + ": the spare playernamemap row was not written: " + err;
+            return r;
+        }
+        if (old_pid.type == FieldType::Int) {
+            ix.playernamemap_rec.erase(old_pid.i);
+            ix.playernamemap.erase(old_pid.i);
+        }
+        ix.playernamemap_rec[p.playerid] = spare;
+        ix.playernamemap[p.playerid] = commentaryid;
+        r.how = PlayerCallnameWrite::How::TookOver;
+        r.message = what + "; the table is full, so the row of " +
+                    (old_pid.type == FieldType::Int ? "player " + std::to_string(old_pid.i) : std::string("an unused entry")) +
+                    ", which no player in the database or no commentary uses, was taken over";
+        return r;
     }
     std::string count = counted ? " (" + std::to_string(used) + " of " + std::to_string(cap) + " rows)" : " (its row count could not be read)";
-    app.notify(p.name + ": no player-specific callname written: the game's playernamemap table is full" + count +
-                   " and every row belongs to a player. Pick the callname By name instead (Assign as last name / common name).",
-               true);
+    r.message = p.name + ": no player-specific callname written: the game's playernamemap table is full" + count +
+                " and every row belongs to a player. Pick the callname By name instead (Assign as last name / common name).";
+    return r;
+}
+
+static void assign_player_callname(App& app, const PlayerRow& p, int64_t commentaryid, const std::string& from) {
+    const PlayerCallnameWrite r = write_player_callname(app, p, commentaryid, from);
+    if (!r.notified) app.notify(r.message, !r.ok());
+    // FC 27 reloads playernamemap at every career load: Turbo keeps the callname and writes it again then (ui_reapply.cpp)
+    if (r.ok()) app.remember_player_callname(p.playerid, commentaryid, p.name, from);
 }
 
 static void language_line(App& app) {
@@ -413,12 +472,17 @@ void callname_editor(App& app, const Table& t, const PlayerRow& p) {
         ImGui::SameLine();
         ImGui::TextDisabled("(back to the common / last name rule)");
     }
+    // the callname Turbo keeps for this player and writes again at every career load (ui_reapply.cpp), with Forget
+    reapply_callname_line(app, p);
+    reapply_status_line(app);
     if (ImGui::BeginPopupModal("##rmcallname", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Remove the playernamemap row of %s (ID %lld)?", p.name.c_str(), static_cast<long long>(p.playerid));
         ImGui::TextDisabled("The commentary falls back to his common or last name. Done by Turbo's Lua side on the next career event.");
         if (ImGui::Button("Remove")) {
             json a = {{"action", "remove_playernamemap"}, {"playerid", p.playerid}};
             send_actions(app, json::array({a}), "Remove player callname");
+            // meant for good: a kept callname is not written again at the next career load
+            app.forget_player_callname(p.playerid);
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();

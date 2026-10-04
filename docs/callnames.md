@@ -156,6 +156,23 @@ What was tried and dropped:
   queues `set_playernamemap` (row inserted by Lua). *Remove player-specific callname…* asks for confirmation and queues
   `remove_playernamemap` (`DeleteDBTableRowByAddr`). A player's *own* recordings cannot be given to another player from
   the database: they are bound to the player id inside the bank (`player_db_pID`, D-016), which Turbo only asks about.
+* **Kept across career loads (1.0.2).** FC 27 reloads `playernamemap` from its base data every time a career loads
+  (measured 2026-10-04 on 1.0.140.64835: a row edit was gone after save + reload, while `players.lastnameid` and
+  `editedplayernames` were kept), so a player-specific callname lasted one session. Every callname *Use this player's
+  callname* writes or queues is also kept in `turbo_output\reapply_edits.json` (`"playernamemap": [{"playerid",
+  "commentaryid", "player", "from", "when"}]`, one entry per player, the last assignment wins) and written again the
+  first time Turbo connects to a newly loaded career (`App::reapply_stored_edits`, once per Lua session + `db_gen`, even
+  with the window hidden; a press of Refresh in the same career does not re-apply). The write is the tab's own
+  (`write_player_callname`): the player's row in place (an id already in place is not written again), else Turbo's Lua
+  side when the table has room, else a spare row taken over, else skipped with the reason; never Live Editor's insert
+  on a full table. Skipped as well: a player who is not in the career's database, and a player the spoken set lists
+  with his own recordings (the game says those and never a player-specific callname, so the row would only be an extra
+  write into the commentary tables). The tab shows "Kept for every career load: player-specific callname N (from …)"
+  with a **Forget** button (the callname stays until the career is loaded again), and *Remove player-specific
+  callname…* forgets it too. One summary line (`re-apply at career load: re-applied N kit colours, M player callnames;
+  K skipped: …`) goes to the GUI log and `turbo_gui.log` and is shown in this tab and in Teams > Colours. Kill switch:
+  `turbo_output\reapply_off.txt`. Generic callnames (By name) need none of this: `lastnameid` / `commonnameid` and
+  `editedplayernames` are saved with the career.
 * Lua module `features/callnames.lua` (also `lua\scripts\turbo_callnames.lua` with `modules.callnames.actions` in
   `turbo_config.json`): `set_playernamemap`, `remove_playernamemap`, `set_display_name`, `set_name_ids`; every action is
   validated before the first one runs; dry run supported. The audio-service build needs no Lua: the GUI asks the host
@@ -171,7 +188,13 @@ answers; the id cache serves a build without the database", "signatures: the
 built-in commentary-audio entries resolve on the game's bytes (registry + getter from one call site, strings by
 offset)", "UI: Players > Callname: spoken set from the game's audio service (fake service): automatic build, status
 line, Rebuild, pickers", "UI: Players > Callname: capture of the loaded bank on a background thread, Real recordings"
-and "UI: Players > Callname: language, current callname, pickers, name and player assignment".
+and "UI: Players > Callname: language, current callname, pickers, name and player assignment" (which also checks that
+an assigned callname is kept and a removed one is not), plus "kept edits store: upsert, forget, save and load back,
+missing file", "kept edits store: a bad file is reported, never overwritten silently; malformed entries are dropped" and
+"UI: kept edits: kit colours and player-specific callnames are written again when a newly loaded career connects" (the
+tables copied back from the world image as the game's reload; row present, absent + spare row, absent + full table with
+no spare row, a player with his own recordings, a removed callname, the hidden window, a Refresh of the same career,
+the kill switch).
 
 ## 5. How the game decides that a name has audio (reverse engineering, FC27.exe build 6AB9813C-211EF000)
 
@@ -481,6 +504,11 @@ not Turbo's or holds no commentary id is ignored.
 4d. **A full playernamemap.** FC 27's `playernamemap` holds 106 of 106 rows (header +0x78 capacity, +0x7C rows in use).
    *Use this player's callname* on a player without a row takes over one of the 38 rows whose commentary id no bank
    knows (980xxx) and says so; it never asks Live Editor to add a row to a full table (that crashes the game).
+4e. **Kept across a career load (1.0.2).** After 4d, save, go back to the main menu and load the career again. Expected:
+   `turbo_gui.log` has `re-apply at career load: re-applied 0 kit colours, 1 player callname` (plus any kit colours),
+   the player's Callname tab shows the callname again with "Kept for every career load", and the speech log of 4c shows
+   the id asked for him in the next match. *Forget*, save, reload: the line says nothing about him and the base
+   callname is back.
 5. **An unlisted id stays silent.** Write `turbo\callnames\spoken_ita_it.txt` with one id the picker does **not** list
    (e.g. one that commentarynames has but the build dropped), press Refresh (the tab shows "hand-made list"; the
    players with recordings still come from the game-built cache), assign it, play a match: expected silence for that

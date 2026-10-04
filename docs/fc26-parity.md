@@ -50,7 +50,7 @@ overrides and remove suspension.
 | # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 1.0.1 |
 | --- | --- | --- | --- | --- |
 | 15 | Team editor: core | v26.1.0 | yes | **Verified in game**: Teams tab |
-| 16 | Team name, transfer budget, transfer bans | v26.1.2 | partly | Team crest: **Verified in game**. Team name: **Verified in game** (career card, contract offer, hub, fixtures, news; Live Editor shows it after its next start). Club colours: kept in the save, not yet seen in a match. Kit colours: session only (the game reloads kits at career load). Transfer budget: **Verified in game**. Transfer bans: **Not possible in FC 27** (no ban list in the game) |
+| 16 | Team name, transfer budget, transfer bans | v26.1.2 | partly | Team crest: **Verified in game**. Team name: **Verified in game** (career card, contract offer, hub, fixtures, news; Live Editor shows it after its next start). Club colours: kept in the save, not yet seen in a match. Kit colours: the game reloads kits at every career load; Turbo 1.0.2 keeps them and writes them again then (built and tested offline, not yet seen in game). Transfer budget: **Verified in game**. Transfer bans: **Not possible in FC 27** (no ban list in the game) |
 | 17 | Coaches, scouts, perfect staff | v26.1.4 | not announced | **Database tab** |
 | 18 | Standings, fixtures, match-fixing | v26.1.7 | not announced | League table edits shown on the game's own Standings screen without advancing: **Verified in game**. Editing a played result: **Untested in a match**. Forced result for a chosen fixture (opt-in): **Untested in a match**. Fixtures CSV: **In Turbo (from 0.x)** |
 | 19 | Create job offer | v26.2.1 | not announced | **Verified in game**: Managers > Job offers; pick a club and the game makes a real contract offer |
@@ -97,7 +97,7 @@ overrides and remove suspension.
 | Feature | Turbo 1.0.1 |
 | --- | --- |
 | Callnames: the commentators speak the name you pick, in the commentary language the game has loaded (assign by name or by player) | **Verified in game**. Turbo builds the spoken set from the game's own audio check when the game binds the bank (Create Player screen or a match). Italian: 2,462 surnames, 751 player recordings |
-| Callname heard in a match | **Untested in a match**: no match loads on the test PC with Live Editor 27.1.2 (see CHANGELOG 1.0.1, Known issue). Player-specific callnames last for the session only |
+| Callname heard in a match | **Untested in a match**: no match loads on the test PC with Live Editor 27.1.2 (see CHANGELOG 1.0.1, Known issue). Player-specific callnames: the game reloads them at every career load; Turbo 1.0.2 keeps them and writes them again then (not yet seen in game) |
 | Instant overlay commands: Turbo's buttons work at once, no day advance needed | **Verified in game** |
 | Status tab: connection, game calls, hooks, log | **Verified in game** |
 

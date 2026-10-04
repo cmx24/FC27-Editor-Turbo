@@ -1238,6 +1238,92 @@ static void test_core() {
     });
 }
 
+// ================================================================ kept edits: the store (core/reapply.h)
+static void test_reapply_store() {
+    run_case("kept edits store: upsert, forget, save and load back, missing file", [&] {
+        const fs::path dir = g_out / "reapply_store";
+        fs::create_directories(dir);
+        const fs::path p = reapply_store_path(dir);
+        CHECK(p == dir / "turbo_output" / "reapply_edits.json", "turbo_output\\reapply_edits.json");
+        ReapplyStore s;
+        std::string err;
+        CHECK(load_reapply_store(p, s, &err) && s.empty() && err.empty(), "a missing file is an empty store");
+        s.set_kit_field(7, 0, 70, "Everton", "2026-10-04 11:00", "teamcolorprimr", 1);
+        s.set_kit_field(7, 0, 70, "Everton", "2026-10-04 11:00", "teamcolorprimg", 2);
+        s.set_kit_field(7, 0, -1, "", "2026-10-04 11:05", "teamcolorprimr", 9);  // upsert: value replaced, kit id and team kept
+        s.set_kit_field(1, 1, 11, "Arsenal", "2026-10-04 11:06", "jerseynamecolorb", 255);
+        s.set_callname(3002, 900010, "Ali Zed", "William Saliba", "2026-10-04 11:07");
+        s.set_callname(3002, 900017, "Ali Zed", "Harry Kane", "2026-10-04 11:08");  // the last assignment wins
+        s.set_callname(2001, 950000, "Jordan Pickford", "", "");
+        CHECK(s.kits.size() == 2 && s.callnames.size() == 2 && s.size() == 4, "two kits, two players");
+        const KitEdit* k = s.kit(7, 0);
+        CHECK(k && k->fields.size() == 2 && k->fields.at("teamcolorprimr") == 9 && k->teamkitid == 70 && k->team == "Everton" && k->when == "2026-10-04 11:05",
+              "kit upsert");
+        CHECK(s.callname(3002) && s.callname(3002)->commentaryid == 900017 && s.callname(3002)->from == "Harry Kane", "callname upsert");
+        CHECK(save_reapply_store(p, s, &err) && fs::exists(p) && !fs::exists(fs::path(p.string() + ".tmp")), "saved: " + err);
+        const std::string text = read_file(p);
+        CHECK(text.find("\"turbo_reapply\": 1") != std::string::npos && text.find("\"teamkittypetechid\"") != std::string::npos &&
+                  text.find("\"playernamemap\"") != std::string::npos,
+              "readable JSON");
+        ReapplyStore back;
+        size_t dropped = 99;
+        CHECK(load_reapply_store(p, back, &err, &dropped) && dropped == 0, "loaded back: " + err);
+        CHECK(back.kits.size() == 2 && back.kit(7, 0) && back.kit(7, 0)->fields == s.kit(7, 0)->fields && back.kit(7, 0)->teamkitid == 70 &&
+                  back.kit(1, 1) && back.kit(1, 1)->fields.at("jerseynamecolorb") == 255 && back.kit(1, 1)->team == "Arsenal",
+              "kits round trip");
+        CHECK(back.callnames.size() == 2 && back.callname(3002)->commentaryid == 900017 && back.callname(3002)->player == "Ali Zed" &&
+                  back.callname(2001)->commentaryid == 950000,
+              "callnames round trip");
+        CHECK(back.forget_kit(7, 0) && !back.forget_kit(7, 0) && back.forget_callname(3002) && !back.forget_callname(3002), "forget once");
+        CHECK(save_reapply_store(p, back, &err), "saved after forget");
+        ReapplyStore again;
+        CHECK(load_reapply_store(p, again, &err) && again.kits.size() == 1 && !again.kit(7, 0) && again.callnames.size() == 1 && !again.callname(3002),
+              "the forgotten entries are gone from the file");
+    });
+    run_case("kept edits store: a bad file is reported, never overwritten silently; malformed entries are dropped", [&] {
+        const fs::path dir = g_out / "reapply_store_bad";
+        const fs::path p = reapply_store_path(dir);
+        fs::create_directories(p.parent_path());
+        std::ofstream(p.string(), std::ios::binary) << "{\"turbo_reapply\": 1, \"kits\": [";  // half-written
+        ReapplyStore s;
+        s.set_callname(1, 900001, "x", "", "");
+        std::string err;
+        CHECK(!load_reapply_store(p, s, &err) && s.empty() && err.find("reapply_edits.json") != std::string::npos, "bad JSON refused: " + err);
+        std::ofstream(p.string(), std::ios::binary | std::ios::trunc) << "{\"kits\": []}";
+        err.clear();
+        CHECK(!load_reapply_store(p, s, &err) && err.find("turbo_reapply") != std::string::npos, "not a Turbo store: " + err);
+        std::ofstream(p.string(), std::ios::binary | std::ios::trunc) << "[1, 2, 3]";
+        CHECK(!load_reapply_store(p, s, &err), "not an object");
+        // saving over an unreadable store sets it aside first
+        std::ofstream(p.string(), std::ios::binary | std::ios::trunc) << "garbage that was once a store";
+        s.set_kit_field(7, 0, 70, "Everton", "", "teamcolorprimr", 5);
+        CHECK(save_reapply_store(p, s, &err, true), "saved with set_aside: " + err);
+        CHECK(read_file(reapply_unreadable_path(p)) == "garbage that was once a store", "the unreadable file kept as reapply_edits.unreadable.json");
+        ReapplyStore back;
+        CHECK(load_reapply_store(p, back, &err) && back.kit(7, 0) && back.kit(7, 0)->fields.at("teamcolorprimr") == 5, "the new store reads back");
+        // malformed entries: dropped one by one, the rest is kept
+        const char* mixed = R"({"turbo_reapply": 1,
+            "kits": [{"teamtechid": 7, "teamkittypetechid": 0, "fields": {"teamcolorprimr": 1, "TeamColor": 2, "teamcolorprimg": "3"}},
+                     {"teamkittypetechid": 1, "fields": {"teamcolorprimr": 1}},
+                     {"teamtechid": 1, "teamkittypetechid": 1, "fields": {}},
+                     "not an object"],
+            "playernamemap": [{"playerid": 3002, "commentaryid": 900010}, {"playerid": 3003, "commentaryid": 900000},
+                              {"playerid": 3004, "commentaryid": 980001}, {"playerid": -5, "commentaryid": 900010}, {"commentaryid": 900010},
+                              {"playerid": 3005, "commentaryid": "900010"}]})";
+        size_t dropped = 0;
+        CHECK(parse_reapply_json(mixed, back, &err, &dropped), "parsed: " + err);
+        CHECK(back.kits.size() == 1 && back.kit(7, 0) && back.kit(7, 0)->fields.size() == 1 && back.kit(7, 0)->fields.at("teamcolorprimr") == 1 &&
+                  back.kit(7, 0)->teamkitid == -1,
+              "the one good kit field kept");
+        CHECK(back.callnames.size() == 1 && back.callname(3002) && back.callname(3002)->commentaryid == 900010, "the one good callname kept");
+        CHECK(dropped == 10, fmt("10 malformed entries dropped (%zu)", dropped));
+        // a name with broken UTF-8 (read from game memory) is written, not thrown on
+        ReapplyStore u;
+        u.set_callname(9, 900001, std::string("Bad \xC3 name"), "", "");
+        CHECK(!reapply_json(u).empty() && parse_reapply_json(reapply_json(u), back, &err) && back.callname(9), "broken UTF-8 survives: " + err);
+    });
+}
+
 // ================================================================ UI: driven by synthetic input
 struct ItemRec {
     ImGuiID id = 0;
@@ -2128,6 +2214,19 @@ static void test_ui() {
             uint8_t kv[3] = {1, 2, 3};
             CHECK(write_colour(app, *kt, krec, "teamcolorprim", kv, &msg) && app.db.get_int(*kt, krec, "teamcolorprimb") == 3, "kit colour written");
             CHECK(kit_type_name(0) == std::string("Home") && kit_type_name(3) == std::string("Goalkeeper home"), "kit type names");
+            // FC 27 reloads teamkits at every career load: the kit colour is kept (and written again then), the club
+            // colour (teams, saved with the career) is not
+            const KitEdit* kept = app.reapply.kit(7, 0);
+            CHECK(kept && kept->teamkitid == 70 && kept->fields.size() == 3 && kept->fields.at("teamcolorprimr") == 1 && kept->fields.at("teamcolorprimb") == 3,
+                  "kit colour kept for the next career load");
+            CHECK(app.reapply.kits.size() == 1 && app.reapply.callnames.empty(), "only the teamkits colour is kept");
+            ui.frames(2);
+            CHECK(ui.find("Forget##kitkeep", "##tcolours") != nullptr, "the kit header shows the kept colours with Forget");
+            CHECK(ui.click("Forget##kitkeep", "##tcolours"), "Forget");
+            CHECK(app.reapply.empty(), "forgotten");
+            ReapplyStore on_disk;
+            std::string err;
+            CHECK(load_reapply_store(reapply_store_path(le), on_disk, &err) && on_disk.empty(), "the store on disk is empty again: " + err);
         });
 
         run_case("UI: Teams > Crest: picture -> custom files in each game variant's own format, backups, copy, remove", [&] {
@@ -3564,6 +3663,9 @@ static void test_ui() {
                       "the dangling row now carries 3002's callname");
                 CHECK(app.callnames.index.playernamemap_rec.count(3002) == 1 && app.callnames.index.playernamemap_rec.count(1003) == 0,
                       "index follows the row");
+                // kept for the next career load (FC 27 reloads playernamemap then)
+                CHECK(app.reapply.callname(3002) && app.reapply.callname(3002)->commentaryid == 900010 && app.reapply.callname(3002)->from.find("Saliba") != std::string::npos,
+                      "the callname is kept for the next career load");
                 // put the world back for the cases below
                 CHECK(app.db.set_int(*mt, r1003, "playerid", 1003) && app.db.set_int(*mt, r1003, "commentaryid", 900010), "row restored");
                 CHECK(mem.wr(mt->header + 0x78, cap_before) && mem.wr(mt->header + 0x7A, cap_before), "capacity restored");
@@ -3582,9 +3684,13 @@ static void test_ui() {
             CHECK(!app.busy(), "edited in place");
             const Table* mt = app.db.table("playernamemap");
             CHECK(app.db.get_int(*mt, app.db.find(*mt, "playerid", 2001), "commentaryid") == 900010, "playernamemap row updated");
+            CHECK(app.reapply.callname(2001) && app.reapply.callname(2001)->commentaryid == 900010, "kept for the next career load");
+            ui.frames(2);
+            CHECK(ui.find("Forget##cnkeep") != nullptr, "the tab shows the kept callname with Forget");
             CHECK(ui.click("Remove player-specific callname..."), "remove button");
             CHECK(ui.click("Remove", "##rmcallname"), "confirm");
             CHECK(app.busy(), "removal queued");
+            CHECK(app.reapply.callname(2001) == nullptr, "a removed callname is no longer kept");
             {
                 json cmd = json::parse(mem.read_cstr(kMb + 0x20, 0x1000), nullptr, false);
                 const json& a = cmd["overrides"]["actions"][0];
@@ -3603,6 +3709,187 @@ static void test_ui() {
             app.gui_settings["callnames"].erase("language");
             app.save_gui_settings();
             app.game_root.clear();
+        });
+        run_case("UI: kept edits: kit colours and player-specific callnames are written again when a newly loaded career connects", [&] {
+            std::vector<std::string> hooked;  // turbo_gui.log
+            app.log_hook = [&](const std::string& s) { hooked.push_back(s); };
+            auto hooked_line = [&](const std::string& part) {
+                for (const auto& s : hooked)
+                    if (s.find(part) != std::string::npos) return s;
+                return std::string();
+            };
+            // an empty store to start with (the Callname case above kept 3002's callname)
+            {
+                std::vector<int64_t> pids;
+                for (const auto& kv : app.reapply.callnames) pids.push_back(kv.first);
+                for (int64_t pid : pids) app.forget_player_callname(pid);
+                std::vector<ReapplyStore::KitKey> keys;
+                for (const auto& kv : app.reapply.kits) keys.push_back(kv.first);
+                for (const auto& k : keys) app.forget_kit_edit(k.first, k.second);
+            }
+            CHECK(app.reapply.empty(), "empty store");
+            // FC 27 reloads teamkits and playernamemap from its base data at a career load: here the rows are copied back
+            // from the world image (and the table header's capacity / row count with them)
+            SimMemory base;
+            CHECK(base.load(g_out / "world.img"), "the game's base data");
+            // looked up again every time: a career load re-reads the database, which replaces every Table
+            auto KT = [&]() { return app.db.table("teamkits"); };
+            auto MT = [&]() { return app.db.table("playernamemap"); };
+            auto reload_from_base = [&](const Table* t) {
+                std::vector<uint8_t> b(size_t(t->record_size) * t->written);
+                uint8_t h[6];
+                return base.read(t->first_record, b.data(), b.size()) && mem.write(t->first_record, b.data(), b.size()) &&
+                       base.read(t->header + 0x78, h, sizeof(h)) && mem.write(t->header + 0x78, h, sizeof(h));
+            };
+            const fs::path state_file = le / "turbo_output" / "bridge_state.json";
+            int loads = 0;
+            auto career_load = [&](int frames) {  // Lua reports a newly loaded career (another db_gen)
+                ++loads;
+                std::ofstream(state_file.string(), std::ios::binary | std::ios::trunc)
+                    << "{\"session\":\"K\",\"seq\":" << 300 + loads << ",\"db_gen\":" << 40 + loads << ",\"in_cm\":true,\"user_team\":1,\"db_service\":\"" +
+                           hex_addr(app.bridge.state().db_service) + "\",\"date\":{\"year\":2027,\"month\":1,\"day\":16}}";
+                fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(60 + loads));
+                ui.frames(frames);
+            };
+            auto colour = [&](uint64_t rec, const char* prefix) {
+                std::string p(prefix);
+                return fmt("%lld,%lld,%lld", static_cast<long long>(app.db.get_int(*KT(), rec, p + "r")), static_cast<long long>(app.db.get_int(*KT(), rec, p + "g")),
+                           static_cast<long long>(app.db.get_int(*KT(), rec, p + "b")));
+            };
+            auto callname_of = [&](int64_t pid) {
+                uint64_t r = app.db.find(*MT(), "playerid", pid);
+                return r ? app.db.get_int(*MT(), r, "commentaryid") : -1;
+            };
+
+            // ---- the edits, through the panels' own code: Arsenal's away kit (two colours), Everton's home kit (one)
+            const uint64_t k11 = app.db.find(*KT(), "teamkitid", 11), k70 = app.db.find(*KT(), "teamkitid", 70);
+            std::string msg;
+            const uint8_t c1[3] = {10, 20, 30}, c2[3] = {40, 50, 60}, c3[3] = {70, 80, 90};
+            CHECK(write_colour(app, *KT(), k11, "teamcolorprim", c1, &msg) && write_colour(app, *KT(), k11, "jerseynamecolor", c2, &msg) &&
+                      write_colour(app, *KT(), k70, "teamcolorsec", c3, &msg),
+                  "kit colours written: " + msg);
+            const Table* tt = app.db.table("teams");
+            CHECK(write_colour(app, *tt, app.db.find(*tt, "teamid", 1), "teamcolor2", c1, &msg), "club colour written (saved with the career: not kept)");
+            CHECK(app.reapply.kits.size() == 2 && app.reapply.kit(1, 1) && app.reapply.kit(1, 1)->fields.size() == 6 && app.reapply.kit(1, 1)->teamkitid == 11 &&
+                      app.reapply.kit(7, 0) && app.reapply.kit(7, 0)->fields.at("teamcolorsecg") == 80,
+                  fmt("kept: %zu kits", app.reapply.kits.size()));
+            // callnames (as Players > Callname keeps them): 2001 has a row in the base data; 1006 and 3001 have none; 1004 is
+            // spoken by his own recordings
+            app.remember_player_callname(2001, 900002, "Jordan Pickford", "Bukayo Saka");
+            app.remember_player_callname(1006, 900015, "Ben White", "Gabriel Jesus");
+            app.remember_player_callname(3001, 900017, "Lautaro Martinez", "Harry Kane");
+            app.remember_player_callname(1004, 900019, "Declan Rice", "Ben White");
+            app.remember_player_callname(1005, 900000, "Gabriel Jesus", "no callname");  // 900000 = none: never kept
+            CHECK(app.reapply.callnames.size() == 4 && !app.reapply.callname(1005), "4 callnames kept, 'no callname' is not");
+            {
+                ReapplyStore disk;
+                std::string err;
+                CHECK(load_reapply_store(reapply_store_path(le), disk, &err) && disk.kits.size() == 2 && disk.callnames.size() == 4 &&
+                          disk.callname(3001)->commentaryid == 900017 && disk.kit(1, 1)->fields.at("jerseynamecolorb") == 60,
+                      "the store on disk: " + err);
+            }
+            app.callnames.spoken.players[1004] = caudio::kPlayerLowSimple;
+
+            // ---- career load 1: base data back, playernamemap full (106 of 106 in FC 27) with one row no player needs
+            CHECK(reload_from_base(KT()) && reload_from_base(MT()), "tables reloaded from the base data");
+            CHECK(colour(k11, "teamcolorprim") == "255,230,0" && colour(k70, "teamcolorsec") == "255,255,255" && callname_of(2001) == 950000,
+                  "the edits are gone, as in the game");
+            {
+                uint16_t written = 0;
+                CHECK(mem.rd(MT()->header + 0x7C, written) && mem.wr(MT()->header + 0x78, written) && mem.wr(MT()->header + 0x7A, written), "table full");
+                CHECK(app.db.set_int(*MT(), app.db.find(*MT(), "playerid", 1003), "playerid", 444444), "1003's row now belongs to no player in the database");
+            }
+            hooked.clear();
+            app.toasts.clear();
+            career_load(40);
+            CHECK(colour(k11, "teamcolorprim") == "10,20,30" && colour(k11, "jerseynamecolor") == "40,50,60" && colour(k70, "teamcolorsec") == "70,80,90",
+                  "kit colours written again: " + colour(k11, "teamcolorprim") + " / " + colour(k11, "jerseynamecolor") + " / " + colour(k70, "teamcolorsec"));
+            CHECK(app.db.get_int(*KT(), k11, "teamcolorprimpercent") == 70 && colour(k11, "teamcolorsec") == "0,0,60", "other kit fields untouched");
+            CHECK(callname_of(2001) == 900002, fmt("row present: edited in place (%lld)", static_cast<long long>(callname_of(2001))));
+            CHECK(callname_of(1006) == 900015 && app.db.find(*MT(), "playerid", 444444) == 0, "row absent, table full: the spare row taken over");
+            CHECK(callname_of(3001) == -1, "row absent, table full, no spare row left: skipped");
+            CHECK(callname_of(1004) == -1, "a player with his own recordings: not written");
+            CHECK(!app.busy(), "nothing queued for Live Editor's insert on a full table");
+            const std::string line = hooked_line("re-apply at career load:");
+            CHECK(line.find("re-applied 3 kit colours, 2 player callnames") != std::string::npos && line.find("2 skipped") != std::string::npos &&
+                      line.find("own recordings") != std::string::npos && line.find("every row belongs to a player") != std::string::npos,
+                  "one summary line in turbo_gui.log: " + line);
+            CHECK(app.reapply_status.find("re-applied 3 kit colours") != std::string::npos, "summary for the tabs: " + app.reapply_status);
+            bool warned = false;
+            for (const auto& t : app.toasts) warned = warned || (t.error && t.text.find("Kept edits") != std::string::npos);
+            CHECK(warned, "a toast says something was skipped");
+
+            // ---- the same career again (Refresh): no re-apply, what the user changed since stays
+            CHECK(app.db.set_int(*KT(), k11, "teamcolorprimr", 99), "changed in the Database tab");
+            hooked.clear();
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.click("Refresh"), "Refresh");
+            CHECK(app.db.get_int(*KT(), k11, "teamcolorprimr") == 99 && hooked_line("re-apply").empty(), "no re-apply for the same career");
+
+            // ---- the panels: the status line and Forget (Teams > Colours: Everton's home kit), Remove (Callname: 1006)
+            app.request_tab = 1;
+            ui.frames(2);
+            CHECK(ui.click("7", "##tlist"), "Everton row");
+            CHECK(ui.click("Colours", "##tedit"), "Colours tab");
+            ui.frames(2);
+            CHECK(ui.click("Forget##kitkeep", "##tcolours"), "Forget Everton's home kit");
+            CHECK(!app.reapply.kit(7, 0) && app.reapply.kit(1, 1), "Everton's kit forgotten, Arsenal's kept");
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
+            CHECK(ui.click("1006", "##plist"), "row 1006");
+            CHECK(ui.click("Callname", "##pedit"), "Callname tab");
+            ui.frames(2);
+            CHECK(ui.find("Forget##cnkeep") != nullptr, "kept callname shown with Forget");
+            CHECK(ui.click("Remove player-specific callname..."), "remove button");
+            CHECK(ui.click("Remove", "##rmcallname"), "confirm");
+            CHECK(!app.reapply.callname(1006), "removed: no longer kept");
+            CHECK(ui.click("Cancel"), "cancel the queued removal");
+
+            // ---- career load 2 with the window hidden: the re-read is not deferred; the table has room again
+            CHECK(reload_from_base(KT()) && reload_from_base(MT()), "tables reloaded from the base data");
+            hooked.clear();
+            app.visible = false;
+            career_load(40);
+            CHECK(!app.refresh_pending, "connected at once although hidden");
+            CHECK(colour(k11, "teamcolorprim") == "10,20,30" && colour(k11, "jerseynamecolor") == "40,50,60", "Arsenal's away kit written again");
+            CHECK(colour(k70, "teamcolorsec") == "255,255,255", "Everton's forgotten kit keeps the game's colours");
+            CHECK(callname_of(2001) == 900002, "2001 written again");
+            CHECK(callname_of(1006) == -1 && callname_of(1003) == 900010, "a removed callname is not written again; 1003 keeps his row");
+            CHECK(app.busy(), "3001 (no row, the table has room) queued for Turbo's Lua side");
+            {
+                json cmd = json::parse(mem.read_cstr(kMb + 0x20, 0x1000), nullptr, false);
+                const json a = cmd.is_discarded() ? json() : cmd["overrides"]["actions"][0];
+                CHECK(!cmd.is_discarded() && cmd["module"] == "callnames" && a["action"] == "set_playernamemap" && a["playerid"] == 3001 &&
+                          a["commentaryid"] == 900017 && a.value("room", false),
+                      "set_playernamemap with room: " + a.dump());
+            }
+            const std::string line2 = hooked_line("re-apply at career load:");
+            CHECK(line2.find("re-applied 2 kit colours, 1 player callname, 1 player callname queued") != std::string::npos &&
+                      line2.find("1 skipped") != std::string::npos,
+                  "summary: " + line2);
+            app.visible = true;
+            ui.frames(2);
+            CHECK(ui.click("Cancel"), "cancel the queued row");
+
+            // ---- the kill switch: nothing written, the store kept
+            std::ofstream((le / "turbo_output" / "reapply_off.txt").string()) << "";
+            CHECK(reload_from_base(KT()) && reload_from_base(MT()), "tables reloaded from the base data");
+            hooked.clear();
+            career_load(40);
+            CHECK(colour(k11, "teamcolorprim") == "255,230,0" && callname_of(2001) == 950000, "nothing written");
+            CHECK(hooked_line("re-apply at career load: off").find("4 kept edits not written") != std::string::npos, "says so: " + hooked_line("re-apply"));
+            CHECK(app.reapply.size() == 4, "the store is kept");
+            fs::remove(le / "turbo_output" / "reapply_off.txt");
+
+            // put the world back for the cases below: an empty store, the base tables
+            app.callnames.spoken.players.erase(1004);
+            for (int64_t pid : {2001, 3001, 1004}) CHECK(app.forget_player_callname(pid), fmt("forget %lld", static_cast<long long>(pid)));
+            CHECK(app.forget_kit_edit(1, 1) && app.reapply.empty(), "store emptied");
+            CHECK(reload_from_base(KT()) && reload_from_base(MT()), "tables back to the base data");
+            app.log_hook = nullptr;
+            ui.frames(2);
         });
         run_case("UI: Competitions > Live standings: a row write queues the standings refresh; its outcome arrives as a toast", [&] {
             // the engine rows (FceWorld) and the career managers (SvmWorld), mapped into the App's memory
@@ -7998,6 +8285,8 @@ int main(int argc, char** argv) {
     test_reveal();
     std::printf("native player capture\n");
     test_player_capture();
+    std::printf("native kept edits store\n");
+    test_reapply_store();
     std::printf("native UI\n");
     try {
         test_ui();

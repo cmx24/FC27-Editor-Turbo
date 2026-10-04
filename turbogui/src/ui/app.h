@@ -21,6 +21,7 @@
 #include "core/mem.h"
 #include "core/model.h"
 #include "core/player_capture.h"
+#include "core/reapply.h"
 #include "core/sigscan.h"
 #include "core/standings_refresh.h"
 #include "core/t3db.h"
@@ -149,6 +150,25 @@ public:
     int64_t job_offer_team = 0;
     std::string job_offer_status;
     char job_offer_search[64] = "";
+    // ---- edits FC 27 forgets at every career load (core/reapply.h, ui_reapply.cpp): the kit colours of Teams > Colours
+    // and the player-specific callnames of Players > Callname are kept in turbo_output\reapply_edits.json and written
+    // again the first time Turbo connects to a newly loaded career. Kill switch: turbo_output\reapply_off.txt
+    ReapplyStore reapply;
+    std::string reapply_status;  // summary of the last re-apply ("" = none ran this session)
+    std::string reapply_error;   // the store could not be read or written ("" = fine)
+    // Keep what write_colour just wrote to a teamkits row (other tables are kept by the game's save)
+    void remember_kit_colour(const Table& t, uint64_t rec, const std::string& prefix, const uint8_t rgb[3]);
+    // Keep a player-specific callname the Callname tab just wrote (or queued); `from` = whose callname it is
+    void remember_player_callname(int64_t playerid, int64_t commentaryid, const std::string& player, const std::string& from);
+    bool forget_kit_edit(int64_t teamtechid, int64_t kittype);  // the Forget buttons; false = nothing was kept
+    bool forget_player_callname(int64_t playerid);
+    // Write every kept entry into the connected database: kit fields in place (Database::set, range-checked, no undo
+    // step), callnames through write_player_callname. Returns the summary line, which also goes to the GUI log,
+    // turbo_gui.log (log_hook) and reapply_status. Runs by itself from refresh() once per newly loaded career.
+    std::string reapply_stored_edits();
+    // A newly loaded career is reported (another Lua session or db_gen than the last re-apply) and entries are kept:
+    // tick then connects at once even while the window is hidden, so the edits are back before the first match
+    bool reapply_due() const;
     // Managers > Manager rules (features/manager_rules.lua) and Manager market (features/manager_move.lua)
     std::string manager_rules_status;
     int manager_rules_score = 70;     // score typed for "Set score"
@@ -183,6 +203,12 @@ public:
 
 private:
     bool legacy_repaired_ = false;  // repair_dds_files ran (first tick)
+    void load_reapply();             // constructor: turbo_output\reapply_edits.json
+    bool save_reapply();             // after every change of the store; false (reapply_error set) when not written
+    void maybe_reapply();            // refresh(): re-apply once per newly loaded career
+    std::string reapply_key() const;  // "<Lua session>#<db_gen>" of the career Lua reports
+    bool reapply_unreadable_ = false;  // the file on disk could not be read: set it aside at the next save
+    std::string reapplied_key_;        // reapply_key() of the career the kept edits were last written to
     void finish_bank_capture();  // tick: take a finished capture, cache it, rebuild the pickers
     void finish_spoken_build();  // tick: take a finished audio-service build, cache it, rebuild the pickers
     void spoken_watch_tick();    // tick: run the watcher, start the probe / build it asks for
@@ -245,6 +271,24 @@ void all_fields(App& app, const Table& t, uint64_t rec, const char* id);
 bool date_field_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label);
 // Players > Callname tab: the spoken name for the loaded commentary language, pickers and assignment (ui_callnames.cpp)
 void callname_editor(App& app, const Table& t, const PlayerRow& p);
+// What giving a player a player-specific callname did (write_player_callname)
+struct PlayerCallnameWrite {
+    enum class How { Updated, Unchanged, Queued, TookOver, Refused };
+    How how = How::Refused;
+    std::string message;    // for a toast (Callname tab) or the re-apply log
+    bool notified = false;  // the reason was already shown as a toast (the command channel refused the Lua command)
+    bool ok() const { return how != How::Refused; }
+};
+// The player's playernamemap row gets `commentaryid`: edited in place when the row exists; else added by Turbo's Lua
+// side when the table has room (queued on the mailbox); else a row no player needs is taken over; else refused. Live
+// Editor's InsertDBTableRow crashes the game on a full table (FC 27's playernamemap is full: 106 of 106 rows), so a
+// full table never reaches it. Shared by the Callname tab and the re-apply at career load (ui_callnames.cpp).
+PlayerCallnameWrite write_player_callname(App& app, const PlayerRow& p, int64_t commentaryid, const std::string& from);
+// Kept edits in the panels (ui_reapply.cpp): the last re-apply summary and a store problem (Teams > Colours, Players >
+// Callname); a kit row's kept colours with Forget (inside the kit's header); the player's kept callname with Forget
+void reapply_status_line(App& app);
+void reapply_kit_line(App& app, const Table& kt, uint64_t rec);
+void reapply_callname_line(App& app, const PlayerRow& p);
 // Slider over the field's whole range (attributes); a typed value outside it is refused by Database::set
 bool slider_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float width);
 // Combo with readable labels for an enumerated field (preferred foot, work rates, stars ...); false = no labels known

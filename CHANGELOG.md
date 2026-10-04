@@ -3,6 +3,21 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.0.2
+
+### Added
+
+- **Kit colours and player-specific callnames are written again at every career load.** FC 27 reloads `teamkits` and
+  `playernamemap` from its base data whenever a career loads, so these edits used to last one session (1.0.1 Known
+  limits). Turbo now keeps them in `turbo_output\reapply_edits.json` (kit colours from Teams > Colours, per club and kit
+  type; player-specific callnames from Players > Callname, per player) and writes them again the first time it connects
+  to a newly loaded career, also with the Turbo window hidden. A callname is written the way the Callname tab writes it:
+  the player's row in place, else Turbo's Lua side when the table has room, else a row no player needs; never Live
+  Editor's insert on a full table. Skipped, with the reason: a player not in the career, and a player the game speaks by
+  his own recordings. One line in `turbo_gui.log` and in both tabs says what was written and what was skipped. A
+  **Forget** button (per kit, per player) drops a kept edit; *Remove player-specific callname* drops it too.
+  `turbo_output\reapply_off.txt` turns the re-apply off. Built and tested offline, not yet seen in game.
+
 ## 1.0.1 (fixes from the in-game check of team name, team colours and callnames)
 
 Install as 1.0.0: unzip `FC27_LE_Turbo_1.0.1.zip` into the FC 27 Live Editor folder with the game closed. Back up your saves.

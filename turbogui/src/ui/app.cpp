@@ -77,6 +77,7 @@ App::App(Memory& m, fs::path le_root, uint64_t mailbox_addr, std::string sess)
         }
     }
     load_gui_settings();
+    load_reapply();  // kit colours and player-specific callnames written again at every career load (ui_reapply.cpp)
     if (const char* tt = std::getenv("TURBO_GUI_TEST_TEXTURES")) texture_test = tt[0] == '1';
     log(std::string("Turbo GUI ") + kGuiVersion + " started");
 }
@@ -479,6 +480,9 @@ bool App::refresh() {
     std::snprintf(buf, sizeof(buf), "database connected: %d tables, %zu players, %zu teams", n, model.players().size(),
                   model.teams().size());
     log(buf);
+    // FC 27 reloads teamkits and playernamemap from its base data at every career load: the kept edits go back in once
+    // per newly loaded career (ui_reapply.cpp)
+    maybe_reapply();
     return true;
 }
 
@@ -518,8 +522,9 @@ void App::tick(double t) {
             (st.db_gen != seen_db_gen || st.db_service != seen_service || !db.ready())) {
             seen_db_gen = st.db_gen;
             // A full re-read takes a moment on a big database: while the window is hidden it waits
-            // until the window is shown again (the first connection is made right away)
-            if (visible || !db.ready()) refresh();
+            // until the window is shown again (the first connection is made right away), unless kept edits wait
+            // for the newly loaded career (kit colours, callnames: they must be back before the first match)
+            if (visible || !db.ready() || reapply_due()) refresh();
             else refresh_pending = true;
         }
     }

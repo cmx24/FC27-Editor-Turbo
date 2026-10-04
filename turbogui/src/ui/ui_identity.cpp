@@ -223,6 +223,9 @@ bool write_colour(App& app, const Table& t, uint64_t rec, const std::string& pre
             return false;
         }
     }
+    // FC 27 reloads teamkits at every career load: a kit colour is kept and written again then (ui_reapply.cpp); the
+    // teams colours are saved with the career and are not kept
+    app.remember_kit_colour(t, rec, prefix, rgb);
     if (msg) *msg = prefix + " = " + std::to_string(rgb[0]) + "," + std::to_string(rgb[1]) + "," + std::to_string(rgb[2]);
     return true;
 }
@@ -350,6 +353,7 @@ void team_colours_editor(App& app, const Table& t, uint64_t rec, int64_t teamid)
                       static_cast<long long>(app.db.get_int(*kt, k.first, "teamkitid", 0)));
         ImGui::SetNextItemOpen(k.second == 0, ImGuiCond_Once);
         if (ImGui::CollapsingHeader(hdr)) {
+            reapply_kit_line(app, *kt, k.first);  // the colours Turbo writes again at every career load, with Forget
             ImGui::TextDisabled("Preview");
             ImGui::SameLine(S(170.0f));
             swatch_row(app, *kt, k.first, {"teamcolorprim", "teamcolorsec", "teamcolortert", "jerseynamecolor", "jerseynumbercolorprim"}, S(28.0f));
@@ -371,6 +375,8 @@ void team_colours_editor(App& app, const Table& t, uint64_t rec, int64_t teamid)
         ImGui::PopID();
     }
     ImGui::TextDisabled("Written to the career database at once (range-checked); the game uses them when a kit or screen is loaded again.");
+    ImGui::TextDisabled("FC 27 reloads kit colours at every career load: Turbo keeps the kit colours set here and writes them again then.");
+    reapply_status_line(app);
 }
 
 // ================================================================ crest

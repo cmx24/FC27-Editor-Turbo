@@ -33,6 +33,7 @@ Offline Career Mode / Kick-Off only. Never use Live Editor or Turbo in online mo
 - Move a manager to another club, or make a manager available.
 - Match setup switches (the game accepts weather and difficulty) and the home / away swap of a fixture.
 Built and tested offline, not yet seen on a game screen in 1.0: loan list; team name (Live Editor shows a new name after its next start) and team colours; youth academy tools; time of day and CPU-substitutions switches; changing a fixture's opponent.
+Kept across career loads (1.0.2, built and tested offline, not yet seen in game): FC 27 reloads kit colours and player-specific callnames from its base data whenever a career loads, so Turbo keeps the kit colours you set in Teams > Colours and the callnames you give in Players > Callname > By player in `turbo_outputeapply_edits.json` and writes them again when it connects to the loaded career. `turbo_gui.log` and both tabs say what was written or skipped; Forget (per kit, per player) drops a kept edit; `turbo_outputeapply_off.txt` turns this off.
 
 
 **Untested in a match** (built and tested offline; you only see the effect during or after a played match)
