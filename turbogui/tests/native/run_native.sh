@@ -27,6 +27,8 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/ui/file_picker.cpp \
          src/core/callname_audio.cpp src/ui/ui_callname_play.cpp src/core/callname_voice.cpp src/core/callname_voice_host.cpp \
          src/ui/ui_zoom.cpp src/ui/ui_team_filter.cpp \
+
+         src/core/edit_unlock.cpp src/ui/ui_edit_unlock.cpp \
          tests/native/test_main.cpp; do
   o="$BIN/obj/$(echo "$s" | sed 's#[/.]#_#g').o"
   if [ ! -f "$o" ] || [ "$ROOT/$s" -nt "$o" ] || [ "$0" -nt "$o" ] || [ -n "$(find "$ROOT/src" "$ROOT/tests/native" -name '*.h' -newer "$o" -print -quit)" ]; then
