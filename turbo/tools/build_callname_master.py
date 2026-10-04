@@ -51,10 +51,16 @@ Outputs:
   --out-json    <lang>.json for Turbo (turbo\\callnames\\masters):
                 {"turbo_masters": 1, "language", "game": "fc27", "game_build", "source", "built", "counts": {...},
                  "real_players" (PLAYER_NAMES_SIMPLE | PLAYER_NAMES_LINK ids = players with their own recording),
-                 "real_simple_players", "real_link_players", "generic_ids", "names" {"<playerid>": name, SIMPLE only},
+                 "real_simple_players", "real_link_players", "generic_ids", "real_high_players" (PLAYER_NAMES_HIGH by
+                 player id; not in real_players: the game's kick-off check asks SIMPLE / LINK only), "generic_high_ids"
+                 (PLAYER_NAMES_HIGH by surname_ID), "names" {"<playerid>": name, SIMPLE only},
                  "generic_names" {"<commentaryid>": text}, "wav_dir" (--wav-dir),
                  "segments" {"generic": {"<commentaryid>": [seg, ...]}, "real": {"<playerid>": [seg, ...]} (SIMPLE),
-                             "real_link": {...} only when wav_dir holds pPLAYER_NAMES_LINK wavs (only those segments)}}
+                             "real_link" / "real_high" / "generic_high": {...} only the segments whose wav is in
+                             wav_dir\\real_link, real_high, generic_high}}
+                The bank's real_link / real_high / generic_high rows are added to 'callnames' as types "real link",
+                "real high", "generic high" (column F = HYPERLINK to the wav: the Play macro plays only "real" and
+                "generic"); the FC 26 types' rows stay exactly as before.
 
 Audio: the user's Play macro hard-codes C:\\FC_Tools\\My Mods\\<lang folder>\\ as the audio base (the FC 26 folders).
 The FC 27 workbook is shipped with its own real\\ and generic\\ folders of FC 27 recordings next to it (--vba-from /
@@ -85,13 +91,32 @@ PLAY = '\u25b6 Play'
 # names of 'real' recordings whose player is in neither the FC 27 database nor the Italian FC 26 master (the lead's
 # build_master_v0.py reads the same file)
 DEFAULT_EXTRA_NAMES = r'C:\FC 27 Live Editor\turbo_dev\masters\raw\extra_player_names.json'
-WAV_PREFIX = {'real': 'pPLAYER_NAMES_SIMPLE', 'real_link': 'pPLAYER_NAMES_LINK', 'generic': 'pSIMPLE_SURNAME'}
-WAV_SUB = {'real': 'real', 'real_link': 'real', 'generic': 'generic'}
+# every family of recordings: workbook type (column E), bank key, id key, wav folder, wav prefix. The first two are the
+# FC 26 workbook's types (the Play macro plays them); the others are added rows whose Play cell is a HYPERLINK to the wav
+# (the macro exits for any other type).
+KINDS = (('real', 'real', 'playerid', 'real', 'pPLAYER_NAMES_SIMPLE'),
+         ('generic', 'generic', 'commentaryid', 'generic', 'pSIMPLE_SURNAME'),
+         ('real link', 'real_link', 'playerid', 'real_link', 'pPLAYER_NAMES_LINK'),
+         ('real high', 'real_high', 'playerid', 'real_high', 'pPLAYER_NAMES_HIGH'),
+         ('generic high', 'generic_high', 'commentaryid', 'generic_high', 'pPLAYER_NAMES_HIGH'))
+OLD_TYPES = ('real', 'generic')
+TYPE_RANK = {'real': 0, 'real link': 1, 'real high': 2, 'generic': 3, 'generic high': 4}   # real before generic, as before
+# by workbook type and by bank key
+WAV_PREFIX = {k: prefix for typ, key, _i, _s, prefix in KINDS for k in (typ, key)}
+WAV_SUB = {k: sub for typ, key, _i, sub, _p in KINDS for k in (typ, key)}
 
 
 def wav_path(wav_dir, kind, seg):
-    """<wav_dir>\\real|generic\\<prefix>_<seg>_<seg>.wav (the names fc27_commentary and the Play macro use)"""
+    """<wav_dir>\\<family folder>\\<prefix>_<seg>_<seg>.wav (the names fc27_commentary writes; real and generic are the
+    ones the Play macro reads); kind = a workbook type or a bank key"""
     return os.path.join(wav_dir, WAV_SUB[kind], f'{WAV_PREFIX[kind]}_{seg}_{seg}.wav')
+
+
+def play_cell(wav_dir, typ, seg):
+    """Column F: the Play macro's text for the FC 26 types; for the added types a HYPERLINK that opens the wav"""
+    if typ in OLD_TYPES or not wav_dir:
+        return PLAY
+    return '=HYPERLINK("%s","%s")' % (wav_path(wav_dir, typ, seg).replace('"', '""'), PLAY)
 
 
 def read_tsv_map(path):
@@ -339,10 +364,10 @@ def build(bank_path, players_path, edited_path, names_path, comm_path, template,
     rows = []
     missing_names = collections.Counter()
     name_from = collections.Counter()   # where the 'real' rows' names came from (logged)
-    for typ, key, src in (('real', 'playerid', bank['real']), ('generic', 'commentaryid', bank['generic'])):
-        for b in src:
+    for typ, bkey, key, _sub, _prefix in KINDS:
+        for b in bank.get(bkey, []) if typ not in OLD_TYPES else bank[bkey]:
             i = int(b[key])
-            if typ == 'real':
+            if key == 'playerid':
                 n = None
                 for where, get in (('fc27 db', player_name), ('template', lambda x: name26.get(('real', x))),
                                    ('extra names', extra.get), ('other masters', other.get)):
@@ -358,8 +383,10 @@ def build(bank_path, players_path, edited_path, names_path, comm_path, template,
                 missing_names[typ] += 1
                 n = ''
             rows.append((int(b['segment']), int(b['variation']), i, n, typ, cat))
-    rows.sort(key=lambda r: (sort_key(r[3]) or '~', r[4] != 'real', r[2], r[0], r[1]))
-    log(f'real row names: {dict(name_from)}; without a name: {dict(missing_names)}')
+    # real before generic as in v0 (the added types between / after them: the old rows keep their order)
+    rows.sort(key=lambda r: (sort_key(r[3]) or '~', TYPE_RANK[r[4]], r[2], r[0], r[1]))
+    log(f'player row names: {dict(name_from)}; without a name: {dict(missing_names)}')
+    wav_dir = wav_dir if wav_dir is not None else (bank.get('wav_dir') or '')
 
     # column H 'nameid' (generic rows): the playernames id(s) whose text equals the commentary name
     exact, folded = nameid_index(names)
@@ -371,7 +398,7 @@ def build(bank_path, players_path, edited_path, names_path, comm_path, template,
     building = out_xlsm + '.building.xlsm'
     shutil.copyfile(template, building)
     try:
-        _fill_workbook(building, rows, exact, folded, nameid_stats, template, vba_from, vba_to, log)
+        _fill_workbook(building, rows, exact, folded, nameid_stats, template, vba_from, vba_to, log, wav_dir)
     except BaseException:
         if os.path.exists(building):   # never leave a half-built workbook behind
             os.remove(building)
@@ -390,30 +417,40 @@ def build(bank_path, players_path, edited_path, names_path, comm_path, template,
             idnames.setdefault(i, n)
 
     # audio: the folder Turbo's play buttons read (every row's wav is checked there) and the segments of every id
-    wav_dir = wav_dir if wav_dir is not None else (bank.get('wav_dir') or '')
     if wav_dir and os.path.isdir(wav_dir):
         miss = [(typ, seg, i) for seg, var, i, n, typ, cat in rows if not os.path.isfile(wav_path(wav_dir, typ, seg))]
         log(f'wav_dir {wav_dir}: rows without a wav: {len(miss)} {miss[:10]}')
     elif wav_dir:
         log(f'wav_dir {wav_dir} is not a folder here: the wavs were not checked')
     segments = {'generic': segments_by_id(bank['generic'], 'commentaryid'), 'real': segments_by_id(bank['real'], 'playerid')}
-    link = [b for b in bank.get('real_link', [])
-            if wav_dir and os.path.isfile(wav_path(wav_dir, 'real_link', int(b['segment'])))]
-    if link:
-        segments['real_link'] = segments_by_id(link, 'playerid')
+    for _typ, bkey, key, _sub, _prefix in KINDS[2:]:   # the added families: only the segments whose wav is there
+        have = [b for b in bank.get(bkey, [])
+                if wav_dir and os.path.isfile(wav_path(wav_dir, bkey, int(b['segment'])))]
+        if have:
+            segments[bkey] = segments_by_id(have, key)
     real_ids = sorted({int(b['playerid']) for b in bank['real']})
     link_ids = sorted({int(b['playerid']) for b in bank.get('real_link', [])})
+    high_ids = sorted({int(b['playerid']) for b in bank.get('real_high', [])})
     gen_ids = sorted({int(b['commentaryid']) for b in bank['generic']})
+    gen_high_ids = sorted({int(b['commentaryid']) for b in bank.get('generic_high', [])})
     real_set = set(real_ids)
     counts = {'rows': len(rows), 'real_rows': sum(r[4] == 'real' for r in rows),
               'generic_rows': sum(r[4] == 'generic' for r in rows), 'real_players': len(real_ids),
               'real_link_players': len(link_ids), 'own_recording_players': len(real_set | set(link_ids)),
               'generic_ids': len(gen_ids), 'real_in_fc27_db': sum(1 for i in real_ids if i in players),
-              'missing_names': dict(missing_names), 'category_empty': sum(1 for r in rows if not r[5])}
+              'missing_names': dict(missing_names), 'category_empty': sum(1 for r in rows if not r[5]),
+              'real_link_rows': sum(r[4] == 'real link' for r in rows),
+              'real_high_rows': sum(r[4] == 'real high' for r in rows),
+              'generic_high_rows': sum(r[4] == 'generic high' for r in rows),
+              'real_high_players': len(high_ids), 'generic_high_ids': len(gen_high_ids),
+              'any_recording_players': len(real_set | set(link_ids) | set(high_ids))}
+    # real_players stays SIMPLE | LINK: the game's kick-off check (GetCallname) asks PLAYER_LOW_SIMPLE / _LINK only
+    # (docs/re/inmatch-callnames.md section 0.2), so a HIGH-only player still gets his database callname
     out = {'turbo_masters': 1, 'language': lang, 'game': 'fc27', 'game_build': bank.get('game_build'),
            'source': out_xlsm, 'built': datetime.datetime.now().isoformat(timespec='seconds'), 'counts': counts,
            'real_players': sorted(real_set | set(link_ids)), 'real_simple_players': real_ids,
            'real_link_players': link_ids, 'generic_ids': gen_ids,
+           'real_high_players': high_ids, 'generic_high_ids': gen_high_ids,
            'names': {str(i): n for i, n in sorted(idnames.items()) if i in real_set},
            'generic_names': {str(i): comm.get(i, '') for i in gen_ids},
            'wav_dir': wav_dir, 'segments': segments}
@@ -441,7 +478,7 @@ def build(bank_path, players_path, edited_path, names_path, comm_path, template,
     return out
 
 
-def _fill_workbook(building, rows, exact, folded, nameid_stats, template, vba_from, vba_to, log):
+def _fill_workbook(building, rows, exact, folded, nameid_stats, template, vba_from, vba_to, log, wav_dir=''):
     """The copied template's sheets 'callnames' and 'names' replaced by the rows; its VBA project kept byte for byte,
     or patched (--vba-from / --vba-to) and checked. Raises on any problem (build removes the file)."""
     import openpyxl
@@ -452,8 +489,8 @@ def _fill_workbook(building, rows, exact, folded, nameid_stats, template, vba_fr
     head_style = copy(ws.cell(row=1, column=7)._style)
     ws.delete_rows(2, ws.max_row)
     for r_i, (seg, var, i, n, typ, cat) in enumerate(rows, start=2):
-        nid = nameids_for(n, exact, folded, nameid_stats) if typ == 'generic' else None
-        for c_i, v in enumerate((seg, var, i, n, typ, PLAY, cat, nid), start=1):
+        nid = nameids_for(n, exact, folded, nameid_stats) if typ in ('generic', 'generic high') else None
+        for c_i, v in enumerate((seg, var, i, n, typ, play_cell(wav_dir, typ, seg), cat, nid), start=1):
             c = ws.cell(row=r_i, column=c_i, value=v)
             c._style = copy(style_row[min(c_i, len(style_row)) - 1] if c_i != 8 else style_row[2])  # H styled like C (an id)
     h = ws.cell(row=1, column=8, value='nameid')
@@ -557,6 +594,8 @@ def self_test():
                          {'segment': 8, 'variation': 1, 'playerid': 400}],
                 'real_link': [{'segment': 9, 'variation': 1, 'playerid': 100},
                               {'segment': 10, 'variation': 2, 'playerid': 500}],
+                'real_high': [{'segment': 11, 'variation': 3, 'playerid': 100}],
+                'generic_high': [{'segment': 12, 'variation': 4, 'commentaryid': 900001}],
                 'generic': [{'segment': 1, 'variation': 10, 'commentaryid': 900001},
                             {'segment': 2, 'variation': 11, 'commentaryid': 900002}]}
         with open(p('ita_it_bank.json'), 'w', encoding='utf-8') as f:
@@ -573,7 +612,8 @@ def self_test():
             f.write('900001\tRossi\n900002\tÄbel\n')
         wav_dir = p('wavs')
         for sub, name in (('generic', 'pSIMPLE_SURNAME_1_1.wav'), ('real', 'pPLAYER_NAMES_SIMPLE_5_5.wav'),
-                          ('real', 'pPLAYER_NAMES_LINK_9_9.wav')):   # the LINK wav of segment 10 is missing
+                          ('real_link', 'pPLAYER_NAMES_LINK_9_9.wav'),   # the LINK wav of segment 10 is missing
+                          ('real_high', 'pPLAYER_NAMES_HIGH_11_11.wav')):   # the generic HIGH wav of 12 is missing
             os.makedirs(os.path.join(wav_dir, sub), exist_ok=True)
             open(os.path.join(wav_dir, sub, name), 'wb').close()
         out_xlsm, out_json = p(os.path.join('out', 'test_master_fc27.xlsm')), p(os.path.join('out', 'ita_it.json'))
@@ -584,14 +624,19 @@ def self_test():
         wb = openpyxl.load_workbook(out_xlsm, keep_vba=True)
         ws = wb['callnames']
         got = [tuple(c.value for c in r) for r in ws.iter_rows(min_row=1, max_row=ws.max_row)]
+        link = lambda sub, pre, s: '=HYPERLINK("%s","%s")' % (os.path.join(wav_dir, sub, f'{pre}_{s}_{s}.wav'), PLAY)  # noqa: E731
         want = [HEADER + ('nameid',),
                 (2, 11, 900002, 'Äbel', 'generic', PLAY, None, 8),
                 (6, 1, 200, 'Ángel Álvarez', 'real', PLAY, 'Liga', None),
                 (7, 1, 300, 'Beta', 'real', PLAY, 'Serie A', None),
                 (5, 1, 100, 'Émile Zola', 'real', PLAY, 'Serie A', None),
                 (5, 2, 100, 'Émile Zola', 'real', PLAY, 'Serie A', None),
+                (9, 1, 100, 'Émile Zola', 'real link', link('real_link', 'pPLAYER_NAMES_LINK', 9), 'Serie A', None),
+                (11, 3, 100, 'Émile Zola', 'real high', link('real_high', 'pPLAYER_NAMES_HIGH', 11), 'Serie A', None),
                 (1, 10, 900001, 'Rossi', 'generic', PLAY, 'Generic', '6,9'),
-                (8, 1, 400, None, 'real', PLAY, None, None)]   # '' is written as an empty cell
+                (12, 4, 900001, 'Rossi', 'generic high', link('generic_high', 'pPLAYER_NAMES_HIGH', 12), 'Generic', '6,9'),
+                (8, 1, 400, None, 'real', PLAY, None, None),   # '' is written as an empty cell
+                (10, 2, 500, None, 'real link', link('real_link', 'pPLAYER_NAMES_LINK', 10), None, None)]
         check(got[0] == want[0], 'header row kept, H = nameid')
         check(len(got) == len(want), f'rows: {len(got) - 1} data rows (want {len(want) - 1})')
         check(got == want, 'sort order (accent-insensitive by name, nameless last), names, categories, nameid (generic)')
@@ -614,22 +659,27 @@ def self_test():
         with open(out_json, encoding='utf-8') as f:
             j = json.load(f)
         check(list(j) == ['turbo_masters', 'language', 'game', 'game_build', 'source', 'built', 'counts',
-                          'real_players', 'real_simple_players', 'real_link_players', 'generic_ids', 'names',
-                          'generic_names', 'wav_dir', 'segments'], 'json keys')
+                          'real_players', 'real_simple_players', 'real_link_players', 'generic_ids',
+                          'real_high_players', 'generic_high_ids', 'names', 'generic_names', 'wav_dir', 'segments'],
+              'json keys')
         check(j['wav_dir'] == wav_dir, 'json wav_dir')
         check(j['segments'] == {'generic': {'900001': [1], '900002': [2]},
                                 'real': {'100': [5], '200': [6], '300': [7], '400': [8]},
-                                'real_link': {'100': [9]}}, 'json segments (LINK only where its wav exists)')
-        check(any('rows without a wav: 4' in s for s in logged), 'missing wavs counted: ' + '; '.join(logged))
+                                'real_link': {'100': [9]}, 'real_high': {'100': [11]}},
+              'json segments (LINK / HIGH only where their wav exists)')
+        check(any('rows without a wav: 6' in s for s in logged), 'missing wavs counted: ' + '; '.join(logged))
+        check(j['real_high_players'] == [100] and j['generic_high_ids'] == [900001], 'json HIGH id lists')
         check(j['turbo_masters'] == 1 and j['language'] == 'ita_it' and j['game'] == 'fc27'
               and j['game_build'] == '1.0.test' and j['source'] == out_xlsm, 'json header fields')
         check(j['real_players'] == [100, 200, 300, 400, 500] and j['real_simple_players'] == [100, 200, 300, 400]
               and j['real_link_players'] == [100, 500] and j['generic_ids'] == [900001, 900002], 'json id lists')
         check(j['names'] == {'100': 'Émile Zola', '200': 'Ángel Álvarez', '300': 'Beta'}, 'json names (SIMPLE only)')
         check(j['generic_names'] == {'900001': 'Rossi', '900002': 'Äbel'}, 'json generic names')
-        check(j['counts'] == {'rows': 7, 'real_rows': 5, 'generic_rows': 2, 'real_players': 4, 'real_link_players': 2,
+        check(j['counts'] == {'rows': 11, 'real_rows': 5, 'generic_rows': 2, 'real_players': 4, 'real_link_players': 2,
                               'own_recording_players': 5, 'generic_ids': 2, 'real_in_fc27_db': 3,
-                              'missing_names': {'real': 1}, 'category_empty': 2}, 'json counts')
+                              'missing_names': {'real': 1, 'real link': 1}, 'category_empty': 3, 'real_link_rows': 2,
+                              'real_high_rows': 1, 'generic_high_rows': 1, 'real_high_players': 1, 'generic_high_ids': 1,
+                              'any_recording_players': 5}, 'json counts')
         check(out == j, 'returned dict equals the written JSON')
         # no --wav-dir and none in the bank: an empty wav_dir, the SIMPLE / generic segments, no real_link
         out2 = build(p('ita_it_bank.json'), p('players.csv'), p('edited.csv'), p('names.txt'), p('comm.txt'),
@@ -662,7 +712,8 @@ def self_test():
                                  ('c', {'names_from': [other]}, 'Heads Four'),
                                  ('d', {'extra_names': p('extra_a.json'), 'names_from': [other]}, 'Extra Four')):
             o = build(*args, p(os.path.join('o' + tag, 'm.xlsm')), p(os.path.join('o' + tag, 'j.json')), log=logged.append, **kw)
-            check(o['names'].get('400') == want400 and o['names']['100'] == 'Émile Zola' and o['counts']['missing_names'] == {},
+            check(o['names'].get('400') == want400 and o['names']['100'] == 'Émile Zola'
+                  and o['counts']['missing_names'] == {'real link': 1},
                   f'fallback names ({tag}): 400 = {o["names"].get("400")!r}, the FC 27 database first')
 
         # the template is never a destination, compared as the system does (case variant, '.', its folder for --copy-to)

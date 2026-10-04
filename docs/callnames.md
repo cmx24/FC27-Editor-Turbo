@@ -744,8 +744,8 @@ in the Callname tab loads the list for the loaded language.
    module source, p-code and `__SRP_` caches) and `--copy-to` (v0 delivers the workbook next to the FC 27 audio). New
    JSON keys for Turbo's play buttons: `wav_dir` (`--wav-dir`, default the bank's own `wav_dir`; every row's wav is
    checked there) and `segments` = `{"generic": {"<commentaryid>": [seg, ...]}, "real": {"<playerid>": [seg, ...]}}`
-   (`PLAYER_NAMES_SIMPLE`), plus `"real_link"` only for `PLAYER_NAMES_LINK` segments whose wav exists (none yet: the
-   extraction wrote SIMPLE and generic wavs only). Italian, as v0 built it:
+   (`PLAYER_NAMES_SIMPLE`), plus `"real_link"` only for `PLAYER_NAMES_LINK` segments whose wav exists (in `real_link\`
+   since the 1.0.3 extraction below). Italian, as v0 built it:
 
    ```
    python turbo/tools/build_callname_master.py --bank raw\ita_it_bank.json --players raw\turbo_table_players.csv
@@ -755,6 +755,52 @@ in the Callname tab loads the list for the loaded language.
      [--copy-to "C:\FC_Tools\My Mods\i27"]
    ```
 
+**Every name family (1.0.3).** The bank has four name families; the master now carries all of them, one row per
+unique (id, SegmentID, VariationId) and type (`ita_it`, FC 27 1.0.140.64835):
+
+| family | type (column E) | wav folder | selection rows | unique (id, seg, var) | ids | segments | segments shared by several ids |
+|---|---|---|---|---|---|---|---|
+| `pSIMPLE_SURNAME` | `generic` | `generic\` | 6,886 | 3,443 | 2,533 | 3,443 | 0 |
+| `pPLAYER_NAMES_SIMPLE` | `real` | `real\` | 13,756 | 6,878 | 4,039 | 5,820 | 362 |
+| `pPLAYER_NAMES_LINK` | `real link` | `real_link\` | 3,424 | 1,712 | 985 | 1,599 | 43 |
+| `pPLAYER_NAMES_HIGH` | `real high` | `real_high\` | 6,612 | 3,306 | 2,214 | 2,746 | 194 |
+| `pPLAYER_NAMES_HIGH` by `surname_ID` | `generic high` | `generic_high\` | 0 | 0 | 0 | 0 | 0 |
+
+Every selection row exists for `cm_sim` 0 and 1, so the unique rows are half the selection rows. `PLAYER_NAME_HIGH`
+(the event) declares both `surname_ID` and `player_db_pID`, but the FC 27 `ita_it` family is keyed by
+`cm_sim, player_db_pID, player_intensity` only (intensity 1): all 6,612 rows by player id, none by `surname_ID`. The
+extractor splits HIGH by the selector each row holds, so a pack that keys some rows by `surname_ID` gets `generic_high`
+rows and a `generic_high\` folder; this one has none.
+
+- `fc27_commentary.py` writes `real_high` / `generic_high` rows next to the old keys (which stay byte-identical, as do
+  the `generic\` / `real\` wavs: re-extracted and compared file by file), wavs for LINK and HIGH
+  (`real_link\pPLAYER_NAMES_LINK_<seg>_<seg>.wav`, `real_high\pPLAYER_NAMES_HIGH_<seg>_<seg>.wav`), a
+  `family_summary` (the table above) and `other_player_families`: a count, without audio, of the other 120 `p*`
+  families (`ita_it`: 80 keyed by a player id, 534,933 selection rows, 35 of them by `player_db_pID`, others by
+  `ptw_player_db_pID`, `player_target_pID`, `pass_from_pID`, `player_db_pID_A`, ...; 8 keyed by selectors whose names
+  are not in the image's strings; 32 whose Selection index has no data over several parameters, not decoded).
+- `build_callname_master.py` keeps every `real` / `generic` row exactly (same cells, same order) and adds the rows of
+  types `real link`, `real high`, `generic high`, sorted by the same rule (name accent-insensitively, then type: real,
+  real link, real high, generic, generic high; then id, segment, variation). Names and categories as for `real` /
+  `generic` rows. Column F of an added row is `=HYPERLINK("<wav>","▶ Play")`: the *Play* macro plays only `real` and
+  `generic` and exits for any other type, so a click opens the wav in the default player. The `names` sheet covers the
+  new ids. JSON: `real_high_players`, `generic_high_ids`, `segments.real_link` / `real_high` / `generic_high` (only
+  segments whose wav exists), counts per type. `real_players` stays SIMPLE ∪ LINK: the game's kick-off check
+  (`GetCallname`) asks `PLAYER_LOW_SIMPLE` / `PLAYER_LOW_LINK` only (`docs/re/inmatch-callnames.md` §0.2), so the 51
+  players with a HIGH recording and no SIMPLE / LINK one still get their database callname.
+- Turbo's play button reads LINK wavs from `<wav_dir>\real_link\` (was `real\`; no master listed LINK segments before).
+
+`ita_it` master: **15,339 rows** (10,321 before: 6,878 real + 3,443 generic, unchanged; + 1,712 real link + 3,306 real
+high), 0 duplicate (type, id, segment, variation), every row's wav present under `C:\FC_Tools\My Mods\i27`; 4,097
+players with any own recording (4,046 SIMPLE ∪ LINK). Player rows without a name: 3 real, 6 real link, 17 real high.
+
+**Unique names vs unique ids.** One recording can be bound to several player ids (the same man in several database
+entries: base, icon, hero, special cards), so a name is not an id: Alan Shearer is ids 51, 239598, 239599 and 246487,
+which all share SIMPLE segments 1459, 1460, 4533, 4534, 4535 and HIGH segments 398, 1298 (each id has its own rows,
+the segments are the same). SIMPLE: 4,039 ids, 3,764 names, 107 names on several ids, 362 segments on several ids;
+LINK: 985 ids, 930 names; HIGH: 2,214 ids, 1,958 names. The master is unique by (type, id, segment, variation), not
+by name.
+
 The user's *Play* macro hard-codes `C:\FC_Tools\My Mods\<lang folder>\` as the audio base (the FC 26 recordings); the
 FC 27 workbook is shipped with its own `real\` and `generic\` folders of FC 27 recordings next to it, and its macro is
 patched to point there (`i27`, the same length as `ita`, so the compound file keeps its stream sizes).
@@ -763,7 +809,7 @@ patched to point there (`i27`, the same length as `ita`, so the compound file ke
 callname" line (his own recording, else the rule's callname) and on every row of By name (the name's callname), By
 player (the callname that would be copied) and All callnames (generic rows and own recordings). It plays
 `<wav_dir>\generic\pSIMPLE_SURNAME_<seg>_<seg>.wav` or `<wav_dir>\real\pPLAYER_NAMES_SIMPLE_<seg>_<seg>.wav` (then
-`pPLAYER_NAMES_LINK_...` when the master lists LINK segments); every click plays the id's next segment (its
+`<wav_dir>\real_link\pPLAYER_NAMES_LINK_...` when the master lists LINK segments); every click plays the id's next segment (its
 variations in turn), a click while it plays stops it. Disabled, with the reason in its tooltip, without a wav folder
 in the master, without a segment for the id, or when no wav of the id is in the folder. Playback is Windows'
 `PlaySoundW` (`SND_ASYNC | SND_FILENAME | SND_NODEFAULT`) from `winmm.dll`, loaded at run time and called on a worker

@@ -89,7 +89,7 @@ void parse_master_audio(const nlohmann::json& j, MasterAudio& out) {
 fs::path callname_wav_path(const std::string& wav_dir, CallnameAudioKind kind, int64_t segment, bool link) {
     const std::string seg = std::to_string(segment);
     const char* prefix = kind == CallnameAudioKind::Generic ? "pSIMPLE_SURNAME_" : link ? "pPLAYER_NAMES_LINK_" : "pPLAYER_NAMES_SIMPLE_";
-    return fs::u8path(wav_dir) / (kind == CallnameAudioKind::Generic ? "generic" : "real") / (prefix + seg + "_" + seg + ".wav");
+    return fs::u8path(wav_dir) / (kind == CallnameAudioKind::Generic ? "generic" : link ? "real_link" : "real") / (prefix + seg + "_" + seg + ".wav");
 }
 
 std::vector<fs::path> callname_wavs(const MasterAudio& a, CallnameAudioKind kind, int64_t id) {

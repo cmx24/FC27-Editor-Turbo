@@ -4,8 +4,14 @@
 What it gives, for a downloaded commentary pack (<game>\\commentary\\commentaryfull_<lang>.toc + cas files):
   * every row of the pSIMPLE_SURNAME selection data set: SegmentID, VariationId, surname_ID (= commentary id);
   * every row of pPLAYER_NAMES_SIMPLE (SegmentID, VariationId, player_db_pID = player id) and of pPLAYER_NAMES_LINK;
+  * every row of pPLAYER_NAMES_HIGH, split by the selector each row is keyed by: player_db_pID -> real_high (player id),
+    surname_ID -> generic_high (commentary id); FC 27 1.0.140 ita_it keys all of them by player_db_pID;
   * with --wav, each segment's audio as a 48 kHz 16-bit mono PCM wav, named like FIFA Editor Tool's exports
-    (generic\\pSIMPLE_SURNAME_<seg>_<seg>.wav, real\\pPLAYER_NAMES_SIMPLE_<seg>_<seg>.wav).
+    (generic\\pSIMPLE_SURNAME_<seg>_<seg>.wav, real\\pPLAYER_NAMES_SIMPLE_<seg>_<seg>.wav,
+    real_link\\pPLAYER_NAMES_LINK_<seg>_<seg>.wav, real_high\\ and generic_high\\pPLAYER_NAMES_HIGH_<seg>_<seg>.wav);
+  * "family_summary": per family rows, unique (id, segment, variation), ids, segments, segments shared by several ids;
+  * "other_player_families": a count (no audio) of the other p* families: selection rows and the ids of each *_pID
+    selector they are keyed by.
 
 usage: python fc27_commentary.py --lang ita_it [--game DIR] [--out FILE.json] [--wav DIR] [--ffmpeg EXE] [--list]
        python fc27_commentary.py --self-test [--game DIR]
@@ -50,7 +56,11 @@ FAMILIES = {                        # output key -> (family name in the bank, se
     "real": ("pplayer_names_simple", "player_db_pID", "pPLAYER_NAMES_SIMPLE"),
     "real_link": ("pplayer_names_link", "player_db_pID", "pPLAYER_NAMES_LINK"),
 }
-WAV_FAMILIES = ("generic", "real")
+# pPLAYER_NAMES_HIGH: each row goes to the output key of the selector its key holds (both keys when it holds both)
+HIGH_FAMILY = "pplayer_names_high"
+HIGH = {"real_high": ("player_db_pID", "pPLAYER_NAMES_HIGH"), "generic_high": ("surname_ID", "pPLAYER_NAMES_HIGH")}
+WAV_FAMILIES = ("generic", "real", "real_link", "real_high", "generic_high")
+NAME_FAMILIES = ("psimple_surname", "pplayer_names_simple", "pplayer_names_link", HIGH_FAMILY)
 
 
 class FormatError(Exception):
@@ -68,7 +78,15 @@ def djb2x(name):
 # Names resolved by hashing the strings of the game's own image (turbo_output\fc27_image.bin), see the doc.
 NAMES = {djb2x(n): n for n in (
     "Selection", "Variations", "Segments", "Chunks", "VariationId", "SegmentCount", "StreamChunkIndex", "Duration",
-    "ChunkSize", "ChunkId", "ChunkIndex", "cm_sim", "surname_ID", "player_db_pID", "player_intensity")}
+    "ChunkSize", "ChunkId", "ChunkIndex", "cm_sim", "surname_ID", "player_db_pID", "player_intensity",
+    # the other player-id parameter names of the image (docs/re/inmatch-callnames.json player_param_names) and the
+    # group selectors next to them
+    "assist_player_pID", "challenger_pID", "keeper_pID", "marker_player_pID", "pass_from_pID", "passer_db_pID",
+    "player_db_pID_A", "player_db_pID_B", "player_target_pID", "possessor_pID", "ptw_player_b_db_pID",
+    "ptw_player_db_pID", "receiver_db_pID", "replay_defender_db_pID", "replay_keeper_db_pID", "replay_shot_taker_db_pID",
+    "replay_starter_player_db_pID", "shot_taker_pID", "storyline_player_db_pID", "sub_off_pID", "sub_on_pID",
+    "target_player_pID", "tr_player_db_pID", "ts_def_C_db_pID", "ts_fwd_C_db_pID", "ts_mid_C_db_pID",
+    "ut_ms_player_db_pID", "player_db_gID", "team_gID", "opposite_team_gID")}
 H_SEGMENT = 0x6AC4E4EA        # the Selection column FIFA Editor Tool calls SegmentID (name not found in the image)
 H_SEG_OFFSET = 0xE8E591DD     # Segments: byte offset of the segment's stream in the family chunk (low 2 bits = 3)
 H_SEG_CHUNK = 0xD506D74E      # Segments: index of the chunk (constant 0 in the ita_it families)
@@ -305,7 +323,7 @@ class DataSet:
                   min, max, value list pointer (values are min + stored; no list = every value min..max).
     """
 
-    def __init__(self, d, o):
+    def __init__(self, d, o, with_fields=True):
         if d[o:o + 4] != b"TESD":
             raise FormatError("no DSET at %#x" % o)
         self.offset = o
@@ -315,7 +333,7 @@ class DataSet:
         fo, io, po = _u16(d, o + 0x40), _u16(d, o + 0x42), _u32(d, o + 0x44)
         self.fields = {}
         self.field_flags = {}
-        for k in range(nf):
+        for k in range(nf if with_fields else 0):     # without fields: the keys only (the count of other families)
             h, fl, base, _pad, ptr = struct.unpack_from("<5I", d, o + fo + k * 0x18)
             width = fl >> 24
             if ptr == 0 or width == 0:
@@ -363,6 +381,9 @@ class DataSet:
             return {r: {params[0]["name"]: params[0]["values"][r]} for r in range(self.rows)}
         width = 2 if self.rows <= 0xFFFF else 4
         pref = _ints(self._d, index["ptr"], total + 1, width)
+        if self.rows <= 0xFF and (pref[0] != 0 or pref[-1] != self.rows):
+            # a data set of up to 255 rows (none of the name families): the prefix sum is stored in bytes
+            pref = _ints(self._d, index["ptr"], total + 1, 1)
         if pref[0] != 0 or pref[-1] != self.rows or any(b < a for a, b in zip(pref, pref[1:])):
             raise FormatError("DSET %s: index is not a prefix sum over %d rows" % (hname(self.name), self.rows))
         out = {}
@@ -384,12 +405,16 @@ class DataSet:
         return out
 
 
-def parse_sble(d):
-    """SBle resource: 'SBle', u32 size, u16 data set count, ..., +0x18 pointer to the data set pointer array."""
+def parse_sble(d, with_fields=True, only=None):
+    """SBle resource: 'SBle', u32 size, u16 data set count, ..., +0x18 pointer to the data set pointer array.
+    only: the name of the one data set to parse (the others are skipped)."""
     if d[:4] != b"SBle":
         raise FormatError("not an SBle resource (%s)" % d[:4].hex())
     n, arr = _u16(d, 8), _u32(d, 0x18)
-    sets = [DataSet(d, _u32(d, arr + 8 * k)) for k in range(n)]
+    offs = [_u32(d, arr + 8 * k) for k in range(n)]
+    if only is not None:
+        offs = [o for o in offs if hname(_u32(d, o + 8)) == only]
+    sets = [DataSet(d, o, with_fields) for o in offs]
     return {hname(s.name): s for s in sets}
 
 
@@ -438,6 +463,17 @@ class Bank:
         ebx = self.cas.read(*a["ebx"])
         return {"name": name, "res": res, "ebx": ebx, "sets": parse_sble(res)}
 
+    def load_selection_keys(self, family):
+        """The family's Selection data set, keys only (no fields, no EBX): for the count of the other families."""
+        a = self.assets.get(self.family_name(family))
+        if not a or "res" not in a:
+            raise FormatError("family %s not found in the %s bank" % (family, self.lang))
+        toc_path, loc, _r = a["res"]
+        sel = parse_sble(self.cas.read(toc_path, loc), with_fields=False, only="Selection").get("Selection")
+        if sel is None:
+            raise FormatError("%s: no Selection data set" % family)
+        return sel
+
     def chunk_guids(self, ebx):
         """GUIDs of the toc chunks this EBX refers to, in the order they appear."""
         found = []
@@ -485,6 +521,81 @@ def merge_rows(rows, id_key):
     for (s, v, i), a in sorted(acc.items(), key=lambda x: (x[0][2], x[0][0])):
         out.append({"segment": s, "variation": v, id_key: i, "intensity": sorted(a["intensity"]),
                     "cm_sim": sorted(a["cm_sim"])})
+    return out
+
+
+def high_rows(fam):
+    """pPLAYER_NAMES_HIGH: {output key: selection rows} by the selector each row's key holds (HIGH), and the number of
+    rows whose key holds both selectors."""
+    sel = fam["sets"].get("Selection")
+    if sel is None:
+        raise FormatError("%s: no Selection data set" % fam["name"])
+    if H_SEGMENT not in sel.fields or djb2x("VariationId") not in sel.fields:
+        raise FormatError("%s: Selection has no SegmentID / VariationId column" % fam["name"])
+    keys = sel.row_keys()
+    seg, var = sel.fields[H_SEGMENT], sel.fields[djb2x("VariationId")]
+    out = {k: [] for k in HIGH}
+    both = 0
+    for r in range(sel.rows):
+        k = keys[r]
+        hit = [key for key, (selector, _p) in HIGH.items() if selector in k]
+        if not hit:
+            raise FormatError("%s: Selection row %d is keyed by none of %s (%s)" % (
+                fam["name"], r, ", ".join(s for s, _p in HIGH.values()), list(k)))
+        both += len(hit) > 1
+        for key in hit:
+            out[key].append({"segment": seg[r], "variation": var[r], "id": k[HIGH[key][0]], "cm_sim": k.get("cm_sim"),
+                             "intensity": k.get("player_intensity")})
+    return out, both
+
+
+def family_summary(selection_rows_n, merged, id_key):
+    """rows, unique (id, segment, variation), ids, segments, segments shared by several ids."""
+    by_seg = {}
+    for r in merged:
+        by_seg.setdefault(r["segment"], set()).add(r[id_key])
+    return {"selection_rows": selection_rows_n, "unique_rows": len(merged),
+            "ids": len({r[id_key] for r in merged}), "segments": len(by_seg),
+            "shared_segments": sum(1 for v in by_seg.values() if len(v) > 1)}
+
+
+def other_player_families(bank, log):
+    """Count (no audio) of the language's p* families other than the name ones: selection rows and, per *_pID
+    selector, the ids. Families whose Selection cannot be read are listed with the reason."""
+    out = {}
+    for f in bank.families():
+        if not f.startswith("p") or f in NAME_FAMILIES:
+            continue
+        try:
+            sel = bank.load_selection_keys(f)
+            index = max(sel.indexes, key=lambda x: len(x["params"]))
+            params = [p["name"] for p in index["params"]]
+            pid = [p for p in params if "_pID" in p]
+            e = {"selection_rows": sel.rows, "selectors": params}
+            if pid:
+                keys, err = None, None
+                # the widest index first; when it cannot be read, a narrower one that still holds the player ids
+                for ix in sorted(sel.indexes, key=lambda x: -len(x["params"])):
+                    if not any(p["name"] in pid for p in ix["params"]):
+                        continue
+                    try:
+                        keys = sel.row_keys(ix)
+                        break
+                    except FormatError as ex:
+                        err = err or ex
+                if keys is None:
+                    raise err
+                ids = {p: {k[p] for k in keys.values() if p in k} for p in pid}
+                e["player_ids"] = len(set().union(*ids.values()))
+                e["ids_per_selector"] = {p: len(v) for p, v in ids.items()}
+        except FormatError as ex:
+            e = {"error": str(ex)}
+        out[f] = e
+    keyed = [e for e in out.values() if "player_ids" in e]
+    log("other p* families: %d, %d keyed by a player id (%d selection rows), %d not keyed by one, %d unreadable" % (
+        len(out), len(keyed), sum(e["selection_rows"] for e in keyed),
+        sum(1 for e in out.values() if "selectors" in e and "player_ids" not in e),
+        sum(1 for e in out.values() if "error" in e)))
     return out
 
 
@@ -729,6 +840,30 @@ def run(a, log=print):
                              key, fam["name"].rsplit("/", 1)[1], sel.rows, ", ".join(params), len(merged), selector,
                              len(ids), len(segs), fam["sets"]["Segments"].rows, check_variations(fam, rows)))
             log("%s: %d rows, %d ids" % (key, len(merged), len(ids)))
+        # pPLAYER_NAMES_HIGH, split by selector (new keys after the existing ones, which stay as they were)
+        hfam = bank.load_family(HIGH_FAMILY)
+        split, both = high_rows(hfam)
+        hsel = hfam["sets"]["Selection"]
+        hparams = [p["name"] for p in max(hsel.indexes, key=lambda x: len(x["params"]))["params"]]
+        for key, (selector, _prefix) in HIGH.items():
+            rows = split[key]
+            raw[key] = (hfam, rows)
+            id_key = "commentaryid" if selector == "surname_ID" else "playerid"
+            merged = merge_rows(rows, id_key)
+            result[key] = [{"segment": r["segment"], "variation": r["variation"], id_key: r[id_key],
+                            "intensity": r["intensity"], "cm_sim": r["cm_sim"]} for r in merged]
+            log("%s: %d rows, %d ids" % (key, len(merged), len({r[id_key] for r in merged})))
+        notes.append("pplayer_names_high: %d selection rows keyed by %s: %d by player_db_pID (real_high), %d by "
+                     "surname_ID (generic_high), %d by both; %d segments of %d; Variations check: %s" % (
+                         hsel.rows, ", ".join(hparams), len(split["real_high"]), len(split["generic_high"]), both,
+                         len({r["segment"] for v in split.values() for r in v}), hfam["sets"]["Segments"].rows,
+                         check_variations(hfam, split["real_high"] + split["generic_high"])))
+        summary = {}
+        for key in WAV_FAMILIES:
+            fam, rows = raw[key]
+            id_key = "commentaryid" if key in ("generic", "generic_high") else "playerid"
+            summary[key] = dict(family=fam["name"].rsplit("/", 1)[1], **family_summary(len(rows), result[key], id_key))
+            log("summary %-12s %s" % (key, ", ".join("%s %s" % (k, v) for k, v in summary[key].items())))
         result["wav_dir"] = None
         if a.wav:
             ffmpeg = a.ffmpeg or shutil.which("ffmpeg")
@@ -737,13 +872,18 @@ def run(a, log=print):
             problems = []
             for key in WAV_FAMILIES:
                 fam, rows = raw[key]
-                prefix = FAMILIES[key][2]
+                if not rows:        # e.g. generic_high: no HIGH row is keyed by surname_ID in FC 27 ita_it
+                    log("  %s: no rows, no folder" % key)
+                    continue
+                prefix = FAMILIES[key][2] if key in FAMILIES else HIGH[key][1]
                 folder = os.path.join(a.wav, key)
                 problems += write_wavs(bank, fam, prefix, folder, ffmpeg, {r["segment"] for r in rows}, log)
             result["wav_dir"] = os.path.abspath(a.wav)
             notes.append("audio: EA SNS streams, codec %s, decoded with %s; %d problems%s" % (
                 "EA Opus (mono, 48 kHz)", ffmpeg or "nothing (Ogg Opus files)", len(problems),
                 (": " + "; ".join(problems[:20])) if problems else ""))
+        result["family_summary"] = summary
+        result["other_player_families"] = other_player_families(bank, log)
         result["notes"] = notes
         if a.out:
             os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
@@ -804,6 +944,17 @@ def self_test(game, log=print):
           [(931, 1005, 900762, 0), (1419, 1006, 900762, 0), (7, 1009, 900762, 1)])
     merged = merge_rows(rows + rows, "commentaryid")
     check("merge: one row per (segment, variation, id)", len(merged) == 3 and merged[0]["commentaryid"] == 900762)
+    split, both = high_rows({"name": "synthetic", "sets": sets})
+    check("HIGH: rows keyed by surname_ID go to generic_high, none to real_high",
+          len(split["generic_high"]) == 3 and split["real_high"] == [] and both == 0)
+    shared = [{"segment": 5, "variation": 1, "playerid": 51}, {"segment": 5, "variation": 1, "playerid": 239598},
+              {"segment": 6, "variation": 2, "playerid": 51}]
+    check("summary: rows, unique rows, ids, segments, segments shared by several ids",
+          family_summary(6, shared, "playerid") == {"selection_rows": 6, "unique_rows": 3, "ids": 2, "segments": 2,
+                                                    "shared_segments": 1})
+    keys_only = parse_sble(_synthetic_sble(), with_fields=False, only="Selection")["Selection"]
+    check("keys only: no fields, the same keys", keys_only.fields == {} and
+          [k["surname_ID"] for _r, k in sorted(keys_only.row_keys().items())] == [900762, 900762, 900762])
     blocks = struct.pack(">I", 5) + struct.pack("<H", 0x7000) + struct.pack(">H", 5) + b"hello" + \
         struct.pack(">I", 3) + struct.pack("<H", 0x7000) + struct.pack(">H", 3) + b"abc"
     check("blocks: stored blocks are joined", read_blocks(blocks, None) == b"helloabc")
@@ -839,6 +990,9 @@ def self_test(game, log=print):
                   {r["segment"] for r in real if r["playerid"] == 261865} == {5041, 5042})
             check("Lobotka 216435 = variation 1605821 (FC 26's recording)",
                   {r["variation"] for r in real if r["playerid"] == 216435} == {1605821})
+            hsplit, _both = high_rows(bank.load_family(HIGH_FAMILY))
+            check("pPLAYER_NAMES_HIGH rows are keyed by player_db_pID (Shearer 51 among them)",
+                  len(hsplit["real_high"]) > 1000 and 51 in {r["id"] for r in hsplit["real_high"]})
             s, d, o = segment_streams(bank, fam)[0]
             head, packets = parse_sns(d, o)
             check("segment 0 is an EA Opus SNS stream, mono 48 kHz, samples = header",
@@ -872,7 +1026,8 @@ def main(argv=None):
     ap.add_argument("--lang", help="commentary language as the game names its pack, e.g. ita_it")
     ap.add_argument("--game", default=DEFAULT_GAME, help="game folder (default: %(default)s)")
     ap.add_argument("--out", help="output json (turbo_bank 1)")
-    ap.add_argument("--wav", help="folder for the audio: <wav>\\generic and <wav>\\real")
+    ap.add_argument("--wav", help="folder for the audio: <wav>\\generic, real, real_link, real_high "
+                                         "(and generic_high when a HIGH row is keyed by surname_ID)")
     ap.add_argument("--ffmpeg", help="ffmpeg.exe to decode the Opus audio (default: the one on PATH)")
     ap.add_argument("--list", action="store_true", help="list the language's soundwave families and stop")
     ap.add_argument("--self-test", action="store_true", help="run the built-in checks (and the ita_it ones on disk)")

@@ -2,9 +2,10 @@
 // of the user's master workbook.
 //
 // The FC 27 master (turbo\callnames\masters\<lang>.json, turbo/tools/build_callname_master.py --wav-dir) gives the
-// folder of the segment wavs ("wav_dir", holding real\ and generic\) and the segments of every id ("segments"):
+// folder of the segment wavs ("wav_dir", holding real\, real_link\ and generic\) and the segments of every id
+// ("segments"; its real_high / generic_high keys are not played here):
 //   generic id  -> <wav_dir>\generic\pSIMPLE_SURNAME_<seg>_<seg>.wav
-//   own (real)  -> <wav_dir>\real\pPLAYER_NAMES_SIMPLE_<seg>_<seg>.wav, then real\pPLAYER_NAMES_LINK_<seg>_<seg>.wav
+//   own (real)  -> <wav_dir>\real\pPLAYER_NAMES_SIMPLE_<seg>_<seg>.wav, then real_link\pPLAYER_NAMES_LINK_<seg>_<seg>.wav
 //                  (the master lists LINK segments only when their wavs exist)
 // Every click plays the id's next segment (its variations, in turn); a click while it plays stops it. The sound is
 // played by Windows (PlaySoundW, src/win/callname_audio_win.cpp) behind WavPlayer, so native tests use a fake one.

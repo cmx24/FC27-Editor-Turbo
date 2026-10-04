@@ -21,6 +21,13 @@ Install as 1.0.2. Not yet checked in game.
   now offers "Assign as common name" for a player with a common name, because the game then says his common name
   and never his last name. Players without a common name still get "Assign as last name".
 
+- **The FC 27 master carries every name family.** `fc27_commentary` also extracts `pPLAYER_NAMES_HIGH` (split by
+  selector; Italian: all 3,306 unique rows by player id, none by surname) and writes LINK / HIGH wavs (`real_link\`,
+  `real_high\`), a per-family summary and a count of the other 120 `p*` families; the existing outputs are unchanged.
+  The master adds `real link` / `real high` / `generic high` rows (Play cell = a link to the wav) to the unchanged
+  `real` / `generic` rows: Italian 15,339 rows, 0 duplicates; JSON `real_high_players`, `generic_high_ids` and their
+  segments. Turbo plays LINK wavs from `real_link\`. See `docs/callnames.md` §10.
+
 ### Fixed
 
 - **Turbo's kept-name rows had no shirt name.** `editedplayernames` rows that Turbo added or edited left

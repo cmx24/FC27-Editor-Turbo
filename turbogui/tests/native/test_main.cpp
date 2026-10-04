@@ -720,7 +720,7 @@ static void test_core() {
             // wav paths: the names fc27_commentary writes and the workbook's Play macro reads
             CHECK(callname_wav_path("W", CallnameAudioKind::Generic, 931) == fs::path("W") / "generic" / "pSIMPLE_SURNAME_931_931.wav" &&
                       callname_wav_path("W", CallnameAudioKind::Own, 5041) == fs::path("W") / "real" / "pPLAYER_NAMES_SIMPLE_5041_5041.wav" &&
-                      callname_wav_path("W", CallnameAudioKind::Own, 535, true) == fs::path("W") / "real" / "pPLAYER_NAMES_LINK_535_535.wav" &&
+                      callname_wav_path("W", CallnameAudioKind::Own, 535, true) == fs::path("W") / "real_link" / "pPLAYER_NAMES_LINK_535_535.wav" &&
                       callname_wav_path("W", CallnameAudioKind::Generic, 0) == fs::path("W") / "generic" / "pSIMPLE_SURNAME_0_0.wav",
                   "wav paths");
             MasterAudio a;
