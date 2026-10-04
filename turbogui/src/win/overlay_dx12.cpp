@@ -920,6 +920,7 @@ bool start_overlay(HMODULE) {
     install_input_shield();
     install_game_hooks();  // game-code hooks (game_hooks.cpp): signature scan, kill switches, game-thread dispatcher
     g_app->hook_report = []() { return game_hooks_report(); };
+    install_player_capture(*g_app);  // miniface from the 3D model (player_capture_win.cpp): needs the game hooks above
     start_devtools();
     return true;
 }

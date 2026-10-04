@@ -122,6 +122,28 @@ static const SignatureTable kBuiltin[] = {
      {
          {"game_tick", "", "none", 0,
           "per-frame game-thread function: not identified yet (docs/re/game_thread.md); the dispatcher uses the Lua pump"},
+         // Miniface from the 3D model (docs/re/player_capture.md, scripts/re/player_capture_signatures.json)
+         {"PlayerCaptureController_GetOrCreate",
+          "48 8B C4 48 89 58 10 48 89 70 18 48 89 78 20 48 89 48 08 41 56 48 83 EC 60 48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 65 48 8B 0C 25 58 00 00 00",
+          "none", 0, "PlayerCaptureController* GetOrCreate() (0x1470E291C): the controller singleton"},
+         {"PlayerCapture_RequestStatic_B",
+          "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 81 EC 80 00 00 00 49 8B F9 49 8B D8 48 8B F2 E8 ?? ?? ?? ?? 48 8B D7 48 8D 4C 24 60",
+          "none", 0, "RequestStatic_B(unused, vector<PlayerDesc>*, Delegate* onSlot, Delegate* onDone, int mode, int extra) (0x1470DB908)"},
+         {"PlayerCaptureController_Start",
+          "48 89 5C 24 18 48 89 74 24 20 57 48 81 EC C0 04 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 84 24 B0 04 00 00 48 8B 05 ?? ?? ?? ??",
+          "none", 0, "Start(this, const vector<PlayerDesc>*) (0x1470E49CC): hooked to learn the game's own requests"},
+         {"PlayerCapture_Settings",
+          "48 89 5C 24 18 48 89 74 24 20 57 48 81 EC C0 04 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 84 24 B0 04 00 00 48 8B 05 ?? ?? ?? ??",
+          "rip", 0x24, "settings singleton pointer (0x14C1ED820): byte +0x1F6 gates Start"},
+         {"PlayerCapture_ListenerHub",
+          "48 89 5C 24 18 48 89 74 24 20 57 48 81 EC C0 04 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 84 24 B0 04 00 00 48 8B 05 ?? ?? ?? ??",
+          "rip", 0xB4, "listener hub pointer (0x14C267B48): must be non-null"},
+         {"PlayerCapture_Renderer",
+          "48 89 5C 24 18 48 89 74 24 20 57 48 81 EC C0 04 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 84 24 B0 04 00 00 48 8B 05 ?? ?? ?? ??",
+          "rip", 0x141, "capture renderer / message sender pointer (0x14C267B98): must be non-null"},
+         {"PlayerCaptureStream_OnSlot",
+          "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 54 41 55 41 56 41 57 48 83 EC 30 48 8B D9 B8 08 AF 2F 00 B9 80 F8 02 00",
+          "none", 0, "per-picture handler (this, int slot, size_t bytes) (0x1470F2A80): hooked to log the game's own pictures"},
      }},
 };
 

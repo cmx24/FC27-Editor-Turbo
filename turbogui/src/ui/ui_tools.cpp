@@ -403,6 +403,14 @@ void draw_hook_status(App& app) {
     ImGui::Text("Game-thread dispatcher: %s | ticks %lld | Lua pumps %lld | jobs run %lld | queued %zu | thread %lu",
                 r.dispatcher_hooked ? "prompt (game_tick hook)" : "on career-mode events (Lua pump)", r.dispatcher_ticks,
                 r.dispatcher_pumps, r.dispatcher_ran, r.queued, static_cast<unsigned long>(r.game_thread_id));
+    // Miniface from the 3D model (src/win/player_capture_win.cpp)
+    if (app.capture) {
+        const capture::Status cs = app.capture->status();
+        ImGui::Text("3D-model capture: %s | %s | game captures seen %d (descriptor %s) | Turbo renders %d ok, %d failed%s%s",
+                    cs.installed ? "installed" : "off", cs.busy ? ("busy: " + cs.busy_label).c_str() : cs.reason.c_str(), cs.seen,
+                    cs.learned ? "learned" : "not learned", cs.done, cs.failed, cs.last_format.empty() ? "" : " | last picture ",
+                    cs.last_format.c_str());
+    }
 }
 
 void draw_status(App& app) {

@@ -267,9 +267,18 @@ club's transfer budget. The probe scripts that found the above are in `C:\FC 27 
   in `missing.txt`). Files go to `<LE>\mods\legacy\...`, backups to `turbo_output\crest_backups`; "Remove custom crest"
   deletes them all (confirmation). "Another club's crest" copies the other club's files byte for byte per variant, or
   uses its big crest as a picture to reframe. Minifaces keep their own `encode_dds_dxt5` path.
+- **Miniface from the 3D model** (Miniface editor tab "The 3D model", players and managers): Turbo asks the game's own
+  `PlayerCaptureController` to render the player (or the manager's head) and uses the picture as the New source, then
+  the usual "Save as miniface" writes the DDS. Needs the game hooks (known build) and a menu screen (career hub, squad
+  screens); the first request may need the game to have captured a portrait itself (squad hub / player bio), which
+  Turbo learns from and logs to `turbo_output\player_capture.log`. Camera presets are the game's (mode, extra) pairs,
+  the exact framings are to be confirmed in game; "Advanced" exposes the two numbers. Off switches:
+  `turbo_output\player_capture_off.txt`, `hook_pc_start_off.txt`, `hook_pc_slot_off.txt`. Code: `core/player_capture.*`
+  (descriptor, callback shape, picture decode; tested), `win/player_capture_win.cpp` (hooks, request, callbacks),
+  RE notes `docs/re/player_capture.md`.
 
 ## Not implemented yet
 
 Match setup overrides, gameplay toggles (CPU vs CPU, unlimited subs, never tired, match time/score), manager market / job security /
-fire, endless career, reveal player data, negotiation bypasses, match-fixing, job offers and minifaces. These need code hooks
-inside FC27.exe and in-game analysis first. The full FC 26 → Turbo map is `docs/fc26-parity.md`.
+fire, endless career, reveal player data, negotiation bypasses, match-fixing and job offers. These need code hooks
+inside FC27.exe and in-game analysis first (minifaces from the 3D model are in, pending the first in-game run). The full FC 26 → Turbo map is `docs/fc26-parity.md`.
