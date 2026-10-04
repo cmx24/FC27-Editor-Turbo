@@ -1,9 +1,9 @@
-// Native tests (Turbo 1.1.1): reopen the club customisation hub (core/hub_customise.h) and the career settings unlock
-// (core/career_settings.h). Included by test_main.cpp after its framework (CHECK, run_case, SimMemory, g_out,
+// Native tests (Turbo 1.1.1): reopen the club customisation hub (core/hub_customise.h) and the career settings recipe
+// (owned by "Game editors", core/edit_unlock.h). Included by test_main.cpp after its framework (CHECK, run_case, SimMemory, g_out,
 // read_file). Every game file here is SYNTHETIC: it mimics the schema of gamesettings_context_Career.json (contexts ->
 // categories -> settings with "alwaysLocked"), never EA's file.
 #pragma once
-#include "core/career_settings.h"
+#include "core/edit_unlock.h"
 #include "core/hub_customise.h"
 
 namespace club_tools_test {
@@ -253,20 +253,26 @@ static void run() {
         CHECK(read_file(saves / "CmMgrC20261004130000000") == "career two", "the save itself untouched");
     });
 
-    // ------------------------------------------------------------ career settings recipe
+    // ------------------------------------------------------------ career settings recipe (eu::build, the one owner of the file)
+    auto career = [](const std::string& text, const std::string& setup) {
+        std::map<std::string, std::string> m = {{eu::kCareerSettingsPath, text}};
+        if (!setup.empty()) m[eu::kCareerSetupPath] = setup;
+        return m;
+    };
+    const std::vector<std::string> keep_locked = {"CAREER_COMPETITION", "CAREER_CURRENCY", "CAREER_DEEPER_SIMULATION",
+                                                  "CAREER_FINANCIAL_TAKEOVER", "CAREER_YOUTH_ACADEMY"};
     run_case("career settings: the recipe unlocks 27 of the 32 hub settings and nothing else", [&] {
-        std::string out;
-        csu::RecipeReport rep;
-        CHECK(csu::apply_recipe(career_fixture(), "", csu::RecipeOptions(), out, rep), "recipe: " + rep.error);
-        CHECK(rep.unlocked.size() == 27 && rep.kept_locked.size() == 5, fmt("%zu unlocked, %zu kept", rep.unlocked.size(), rep.kept_locked.size()));
-        json o = json::parse(out);
+        eu::RecipeResult r = eu::build(eu::kCareerSettingsPath, career(career_fixture(), ""), eu::Options());
+        CHECK(r.ok, "recipe: " + r.error);
+        CHECK(!r.notes.empty() && r.notes[0] == "27 locked settings unlocked", r.notes.empty() ? "no notes" : r.notes[0]);
+        json o = json::parse(r.text);
         const json& hub = o["contexts"][0];
         for (const char* n : {"CAREER_QUICK_SIM", "CAREER_DEVELOPMENT_RATE_SENIORS", "CAREER_TRANSFER", "CAREER_BOARD_EXPECTATIONS",
                               "CAREER_MANAGER_MARKET", "CAREER_PITCH_WEAR", "CAREER_POINTS_DEDUCTION"}) {
             const json* s = find_named(hub, n);
             CHECK(s && !s->contains("alwaysLocked"), std::string("unlocked: ") + n);
         }
-        for (const std::string& n : csu::keep_locked()) {
+        for (const std::string& n : keep_locked) {
             const json* s = find_named(hub, n);
             CHECK(s && s->value("alwaysLocked", false), "kept locked: " + n);
         }
@@ -276,96 +282,36 @@ static void run() {
         const json* ret = find_named(o["contexts"][1], "CAREER_RETIREMENT");
         CHECK(loan && loan->value("alwaysLocked", false) && ret && ret->value("alwaysLocked", false) && ret->value("checker", "") == "IsRealOrLegendaryPlayer",
               "the player career context is left alone");
-        CHECK(out.compare(0, 3, "\xEF\xBB\xBF") != 0 && out.find("{\n  \"contexts\"") == 0, "no BOM, plain JSON");
         // the order of keys and entries is the game's (name first)
-        CHECK(out.find("\"name\": \"CAREER_COMPETITION\",\n") != std::string::npos, "name stays first");
+        CHECK(r.text.find("\"name\": \"CAREER_COMPETITION\",") != std::string::npos, "name stays first");
         CHECK(hub["categories"][1]["categories"].size() == 2, "nested categories kept");
         // feeding the result back: nothing left to unlock
-        std::string again;
-        CHECK(!csu::apply_recipe(out, "", csu::RecipeOptions(), again, rep) && rep.error.find("no locked setting") != std::string::npos,
-              "already unlocked: " + rep.error);
+        eu::RecipeResult again = eu::build(eu::kCareerSettingsPath, career(r.text, ""), eu::Options());
+        CHECK(!again.ok && again.error.find("no locked setting") != std::string::npos, "already unlocked: " + again.error);
     });
 
-    run_case("career settings: the Squad settings experiment and the refusals", [&] {
-        std::string out;
-        csu::RecipeReport rep;
-        csu::RecipeOptions opt;
-        opt.squad_settings = true;
-        CHECK(csu::apply_recipe(career_fixture(false), setup_fixture(), opt, out, rep) && rep.squad_added, "with squad: " + rep.error);
-        json o = json::parse(out);
+    run_case("career settings: the Squad settings come with Unlock everything; the refusals", [&] {
+        eu::Options x;
+        x.experimental = true;
+        eu::RecipeResult r = eu::build(eu::kCareerSettingsPath, career(career_fixture(false), setup_fixture()), x);
+        CHECK(r.ok, "with squad: " + r.error);
+        json o = json::parse(r.text);
         const json& cats = o["contexts"][0]["categories"];
         CHECK(cats.size() == 6 && cats[3]["name"] == "CAREER_SQUAD" && cats[4]["name"] == "CAREER_TRANSFERS_SCOUTING" &&
                   cats[3]["settings"].size() == 3 && cats[3]["settings"][2]["checker"] == "IsNotTeamWithLegends",
               "inserted before transfers and scouting");
-        CHECK(csu::apply_recipe(career_fixture(), "", opt, out, rep) && !rep.squad_added && rep.squad_note.find("not available") != std::string::npos,
-              "no setup file: " + rep.squad_note);
-        CHECK(csu::apply_recipe(career_fixture(), "{\"contexts\": []}", opt, out, rep) && !rep.squad_added &&
-                  rep.squad_note.find("no CAREER_SQUAD") != std::string::npos,
-              "setup without the category: " + rep.squad_note);
-        CHECK(!csu::apply_recipe("{\"contexts\": [", "", csu::RecipeOptions(), out, rep) && rep.error.find("does not parse") != std::string::npos && out.empty(),
-              "broken file: " + rep.error);
-        CHECK(!csu::apply_recipe("{\"contexts\": [{\"name\": \"FROM_CAREER_PLAYER_HUB\", \"categories\": []}]}", "", csu::RecipeOptions(), out, rep) &&
-                  rep.error.find("FROM_CAREER_MANAGER_HUB") != std::string::npos,
-              "no hub context: " + rep.error);
-        CHECK(!csu::apply_recipe("[1, 2]", "", csu::RecipeOptions(), out, rep), "not an object");
-        CHECK(csu::content_hash("abc") == csu::content_hash("abc") && csu::content_hash("abc") != csu::content_hash("abd") &&
-                  csu::content_hash("").size() == 16,
-              "hash");
-    });
-
-    run_case("career settings: export -> original kept -> override written -> restore (hash-guarded)", [&] {
-        const fs::path le = g_out / "career_settings_le";
-        fs::remove_all(le);
-        LegacyImages L(le);
-        csu::Store st(L, le);
-        csu::Store::Status s = st.status();
-        CHECK(!s.original && s.waiting && !s.written && s.line.find("waiting") != std::string::npos, "nothing exported yet: " + s.line);
-        L.flush();
-        const std::string want = read_file(L.cache_dir() / "want.txt");
-        CHECK(want.find(csu::kPath) != std::string::npos && want.find(csu::kSetupPath) != std::string::npos, "asked the game: " + want);
-        std::string msg;
-        CHECK(!st.apply(csu::RecipeOptions(), msg) && msg.find("not exported yet") != std::string::npos, "apply before the export: " + msg);
-        // Lua's LegacyFileExport delivered the game's file
-        const std::string original = career_fixture();
-        put(L.cache_dir() / "data" / "gamesettings" / "gamesettings_context_Career.json", original);
-        s = st.status();
-        CHECK(s.original && read_file(st.original_file(csu::kPath)) == original, "original kept: " + s.line);
-        json man = json::parse(read_file(st.manifest_file()));
-        CHECK(man["original_hash"] == csu::content_hash(original) && man["written_hash"] == "", "manifest: " + man.dump());
-        // the squad experiment needs Career_Setup.json
-        csu::RecipeOptions sq;
-        sq.squad_settings = true;
-        CHECK(!st.apply(sq, msg) && msg.find("Career_Setup.json") != std::string::npos, "squad without the setup file: " + msg);
-        CHECK(st.apply(csu::RecipeOptions(), msg) && msg.find("27 settings") != std::string::npos, "apply: " + msg);
-        const fs::path custom = L.mods_dir() / "data" / "gamesettings" / "gamesettings_context_Career.json";
-        CHECK(fs::exists(custom) && find_named(json::parse(read_file(custom)), "CAREER_SCOUTING")->count("alwaysLocked") == 0, "override in mods\\legacy");
-        s = st.status();
-        CHECK(s.written && !s.foreign && !s.squad_settings && s.line.find("Unlocked") == 0, "status: " + s.line);
-        // a fresh export that returns Turbo's own override is never taken as the original
-        fs::remove(st.original_file(csu::kPath));
-        put(L.cache_dir() / "data" / "gamesettings" / "gamesettings_context_Career.json", read_file(custom));
-        s = st.status();
-        CHECK(!s.original && !fs::exists(st.original_file(csu::kPath)), "override refused as original: " + s.line);
-        put(L.cache_dir() / "data" / "gamesettings" / "gamesettings_context_Career.json", original);
-        CHECK(st.status().original, "the real export is taken again");
-        // the squad experiment once Career_Setup.json is exported
-        put(L.cache_dir() / "data" / "gamesettings" / "gamesettings_context_Career_Setup.json", setup_fixture());
-        CHECK(st.apply(sq, msg) && msg.find("Squad settings") != std::string::npos, "apply with squad: " + msg);
-        CHECK(st.status().squad_settings, "status says squad");
-        // restore: Turbo's file goes (backed up), the second restore has nothing to do
-        CHECK(st.restore(msg) && !fs::exists(custom) && msg.find("backed up") != std::string::npos, "restore: " + msg);
-        CHECK(!st.status().written && !st.restore(msg) && msg.find("nothing to restore") != std::string::npos, "nothing left: " + msg);
-        // another mod's file: kept by Restore, Apply refused, never overwritten
-        put(custom, "{\"contexts\": []}");
-        s = st.status();
-        CHECK(s.foreign && !s.written, "foreign file seen: " + s.line);
-        CHECK(!st.apply(csu::RecipeOptions(), msg) && read_file(custom) == "{\"contexts\": []}", "apply refused: " + msg);
-        CHECK(!st.restore(msg) && fs::exists(custom) && msg.find("not written by Turbo") != std::string::npos, "restore keeps it: " + msg);
-        // a new Store (next game session) reads the manifest
-        fs::remove(custom);
-        CHECK(st.apply(csu::RecipeOptions(), msg), "apply again: " + msg);
-        csu::Store st2(L, le);
-        CHECK(st2.status().written && st2.restore(msg), "next session restores: " + msg);
+        r = eu::build(eu::kCareerSettingsPath, career(career_fixture(), setup_fixture()), eu::Options());
+        CHECK(r.ok && json::parse(r.text)["contexts"][0]["categories"].size() == 5, "no squad settings without Unlock everything");
+        r = eu::build(eu::kCareerSettingsPath, career(career_fixture(), ""), x);
+        CHECK(r.ok && json::parse(r.text)["contexts"][0]["categories"].size() == 5, "no setup file: no squad settings");
+        r = eu::build(eu::kCareerSettingsPath, career(career_fixture(), "{\"contexts\": []}"), x);
+        CHECK(r.ok && json::parse(r.text)["contexts"][0]["categories"].size() == 5, "setup without the category");
+        r = eu::build(eu::kCareerSettingsPath, career("{\"contexts\": [", ""), eu::Options());
+        CHECK(!r.ok && r.error.find("does not parse") != std::string::npos && r.text.empty(), "broken file: " + r.error);
+        r = eu::build(eu::kCareerSettingsPath, career("{\"contexts\": [{\"name\": \"FROM_CAREER_PLAYER_HUB\", \"categories\": []}]}", ""),
+                      eu::Options());
+        CHECK(!r.ok && r.error.find("FROM_CAREER_MANAGER_HUB") != std::string::npos, "no hub context: " + r.error);
+        CHECK(!eu::build(eu::kCareerSettingsPath, career("[1, 2]", ""), eu::Options()).ok, "not an object");
     });
 }
 

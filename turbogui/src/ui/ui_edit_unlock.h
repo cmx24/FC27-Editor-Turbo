@@ -12,9 +12,10 @@ struct Options;
 // App::tick, every second: while the switch is on (the default) the game's originals are collected and the unlocked
 // files are written again whenever an original or a switch changed
 void edit_unlock_tick(App& app);
-// Turbo Tools tab: the "Game editors" section
+// Turbo Tools tab: the one "Game editors" section (file override, career settings, in-memory fallback's switch and status)
 void draw_game_editors(App& app);
-// The switches (gui_settings.json "edit_unlock"; stage 1 on, career settings and experiments off by default)
+// The switches (eu::Options, gui_settings.json "edit_unlock"; stage 1 and the in-memory fallback on, career settings and
+// experiments off by default)
 bool edit_unlock_enabled(const App& app);
 eu::Options edit_unlock_options(const App& app);
 // The service for this App (tests)

@@ -3,11 +3,13 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "core/devops.h"
+#include "core/edit_unlock.h"
 #include "core/edit_unlock_hook.h"
 #include "core/edit_unlock_rules.h"
 #include "core/sigscan.h"
@@ -197,23 +199,46 @@ void test_edit_unlock_hook(int& pass, int& fail) {
         EU_CHECK(!keep_id(-1, ids, player, false) && !keep_id(24, ids, player, false), "-1 and other ids are not kept");
         KeepIds none;
         EU_CHECK(!none.complete() && !keep_id(-2, none, player, false), "an unresolved table keeps nothing and is not complete");
+        EU_CHECK(keep_name("GENDER", context_at(4), true), "career start with a real manager: GENDER stays even when experimental");
+        // the file override (eu::keep_list) reads this same table, context by context, with and without experiments
+        bool same = true;
+        for (int i = 0; i < kContextCount; ++i)
+            for (int x = 0; x < 2; ++x) {
+                turbo::eu::Options o;
+                o.experimental = x == 1;
+                const std::set<std::string> k = turbo::eu::keep_list(turbo::eu::avatar_path(context_at(i).name), o);
+                for (int j = 0; j < kKeptCount; ++j)
+                    same = same && (k.count(kept_at(j).name) == 1) == keep_name(kept_at(j).name, context_at(i), x == 1);
+                same = same && k.size() <= static_cast<size_t>(kKeptCount);
+            }
+        EU_CHECK(same, "file override and in-memory fallback keep exactly the same fields");
     }
-    // ---------------------------------------------------------------- settings
+    // ---------------------------------------------------------------- settings: one object (eu::Options), the hook's view of it
     {
+        namespace eu = turbo::eu;
         nlohmann::json g = nlohmann::json::object();
-        Settings d = settings_from_json(g);
+        const Settings d = eu::Options::load(g).hook_settings();
         EU_CHECK(d.enabled && !d.experimental && d.hook && d.context_off == 0, "defaults: stage 1 on, experimental off, hook on");
-        Settings s;
-        s.experimental = true;
-        s.context_off = (1u << 5) | (1u << 6);
-        settings_to_json(s, g);
-        g[kSettingsKey]["off"].push_back("clubs_edit");  // unknown names are ignored
-        g[kSettingsKey]["off"].push_back(7);
-        const Settings r = settings_from_json(g);
-        EU_CHECK(r.enabled && r.experimental && r.hook && r.context_off == s.context_off && !r.context_on(5) && r.context_on(0),
-                 "settings round-trip through gui_settings");
-        g[kSettingsKey]["enabled"] = "yes";
-        EU_CHECK(settings_from_json(g).enabled, "a malformed value keeps the default");
+        eu::Options o;
+        o.experimental = true;
+        o.main_menu = false;                                        // contexts 5 and 6
+        o.files_off.insert(eu::avatar_path("managercareer_edit"));  // context 2
+        o.save(g);
+        g[eu::kSettingsKey]["files_off"].push_back(7);  // malformed entries are ignored
+        const Settings r = eu::Options::load(g).hook_settings();
+        EU_CHECK(r.enabled && r.experimental && r.hook && r.context_off == ((1u << 2) | (1u << 5) | (1u << 6)) && !r.context_on(5) &&
+                     r.context_on(0),
+                 "the hook follows the file override's screen and file switches");
+        g[eu::kSettingsKey]["enabled"] = "yes";
+        EU_CHECK(eu::Options::load(g).hook_settings().enabled, "a malformed value keeps the default");
+        g[eu::kSettingsKey]["note"] = "kept";
+        eu::Options h = eu::Options::load(g);
+        h.hook = false;
+        h.save(g);
+        const eu::Options back = eu::Options::load(g);
+        EU_CHECK(!back.hook && back.experimental && !back.main_menu && back.files_off.count(eu::avatar_path("managercareer_edit")) &&
+                     !back.career_settings && g[eu::kSettingsKey]["note"] == "kept",
+                 "saving the hook switch keeps every file switch (one load / save path)");
         EU_CHECK(!Settings().context_on(-1) && !Settings().context_on(kContextCount), "context_on is bounded");
     }
     // ---------------------------------------------------------------- the walk: nested children and the keep-list

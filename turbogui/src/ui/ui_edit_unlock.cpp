@@ -1,4 +1,5 @@
-// FC 27 LE Turbo GUI - "Game editors" section of the Turbo Tools tab (core/edit_unlock.h).
+// FC 27 LE Turbo GUI - "Game editors" section of the Turbo Tools tab: the file override (core/edit_unlock.h) and,
+// inside it, the in-memory fallback's switch and status (core/edit_unlock_hook.h).
 #include "ui_edit_unlock.h"
 
 #include <memory>
@@ -35,18 +36,11 @@ Panel& panel(App& app) {
     return *p;
 }
 
-const json* settings(const App& app) {
-    const json& g = app.gui_settings;
-    if (!g.is_object()) return nullptr;
-    auto it = g.find("edit_unlock");
-    return it != g.end() && it->is_object() ? &*it : nullptr;
-}
-
-void save(App& app, bool enabled, const eu::Options& o) {
-    json j = o.to_json();
-    j["enabled"] = enabled;
-    app.gui_settings["edit_unlock"] = j;
+// The one save path of gui_settings "edit_unlock": the file switches and the in-memory fallback's together
+void save(App& app, const eu::Options& o) {
+    o.save(app.gui_settings);
     if (!app.save_gui_settings()) app.notify("cannot write turbo_output\\gui_settings.json", true);
+    if (app.edit_unlock_hook) app.edit_unlock_hook->configure(o.hook_settings());
 }
 
 void log_line(App& app, const std::string& line) {
@@ -83,15 +77,9 @@ void file_line(eu::EditUnlock& s, const eu::FileSpec& f) {
 }
 }  // namespace
 
-bool edit_unlock_enabled(const App& app) {
-    const json* s = settings(app);
-    return !(s && s->contains("enabled") && (*s)["enabled"].is_boolean()) || (*s)["enabled"].get<bool>();
-}
+bool edit_unlock_enabled(const App& app) { return edit_unlock_options(app).enabled; }
 
-eu::Options edit_unlock_options(const App& app) {
-    const json* s = settings(app);
-    return s ? eu::Options::from_json(*s) : eu::Options();
-}
+eu::Options edit_unlock_options(const App& app) { return eu::Options::load(app.gui_settings); }
 
 eu::EditUnlock& edit_unlock_service(App& app) { return *panel(app).svc; }
 
@@ -108,7 +96,7 @@ void draw_game_editors(App& app) {
     Panel& p = panel(app);
     eu::EditUnlock& s = *p.svc;
     eu::Options o = edit_unlock_options(app);
-    bool on = edit_unlock_enabled(app);
+    bool& on = o.enabled;
     bool changed = false;
     const ImVec4 warn(1, 0.75f, 0.35f, 1);
     ImGui::PushID("gameeditors");
@@ -124,7 +112,7 @@ void draw_game_editors(App& app) {
             log_line(app, r);
             app.notify(r);
         }
-        save(app, on, o);
+        save(app, o);
         p.next = 0.0;
         p.applied_sig.clear();
     }
@@ -142,12 +130,22 @@ void draw_game_editors(App& app) {
         std::string r = s.restore();
         log_line(app, r);
         app.notify(r);
-        save(app, false, o);  // the switch goes off, or the next tick would write them again
-        on = false;
+        on = false;  // the switch goes off, or the next tick would write them again
+        save(app, o);
         p.applied_sig.clear();
     }
     if (!can_restore) ImGui::EndDisabled();
+    ImGui::SameLine();
     ImGui::BeginDisabled(!on);
+    if (ImGui::Button("Re-read the game's files")) {
+        std::string r = s.reread(o);
+        log_line(app, r);
+        app.notify(r);
+        p.next = 0.0;
+        p.applied_sig.clear();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("After a game update: removes Turbo's files, exports the game's own again and rebuilds them");
     if (ImGui::Checkbox("Unlock everything (experimental)", &o.experimental)) changed = true;
     ImGui::PushStyleColor(ImGuiCol_Text, warn);
     ImGui::TextWrapped(
@@ -166,8 +164,9 @@ void draw_game_editors(App& app) {
     ImGui::EndDisabled();
     ImGui::TextWrapped(
         "The game reads these files each time an editor screen opens: reopen the screen, no game restart needed when Live "
-        "Editor's override applies. A field still greyed after reopening and after a game restart means Live Editor did "
-        "not apply the override (Turbo has no fallback for that yet).");
+        "Editor's override applies. When Live Editor does not apply the files, the in-memory fallback below turns on the "
+        "greyed fields the game loaded; it cannot add a section the game's file lacks (Attributes, Brand animations, the "
+        "head editor, the outfit picker).");
     if (!s.manifest_error().empty()) ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "%s", s.manifest_error().c_str());
     if (on && !s.ready(o)) {
         ImGui::PushStyleColor(ImGuiCol_Text, warn);
@@ -178,6 +177,18 @@ void draw_game_editors(App& app) {
     if (!p.last_summary.empty()) ImGui::TextDisabled("%s", p.last_summary.c_str());
     for (const auto& f : eu::files())
         if (f.group != eu::Group::Source && o.file_on(f.path)) file_line(s, f);
+    // ---- the in-memory fallback (core/edit_unlock_hook.h): same switches, same keep-list
+    ImGui::BeginDisabled(!on);
+    changed |= ImGui::Checkbox("Also patch the editors in memory (fallback when Live Editor ignores the files)", &o.hook);
+    ImGui::EndDisabled();
+    if (app.edit_unlock_hook) {
+        for (const auto& line : app.edit_unlock_hook->status()) ImGui::TextDisabled("%s", line.c_str());
+    } else {
+        ImGui::TextDisabled("Game editors hook: off (no game hooks in this host)");
+    }
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextDisabled("%s", edit_unlock::kCannotAddNote);
+    ImGui::PopTextWrapPos();
     if (ImGui::TreeNode("Details")) {
         ImGui::BeginDisabled(!on);
         ImGui::TextDisabled("Screens");
@@ -211,7 +222,7 @@ void draw_game_editors(App& app) {
     }
     ImGui::PopID();
     if (changed) {
-        save(app, on, o);
+        save(app, o);
         p.next = 0.0;
     }
 }
