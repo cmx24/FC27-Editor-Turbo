@@ -16,6 +16,7 @@
 #include "app.h"
 #include "file_picker.h"
 #include "imgui.h"
+#include "move_rules.h"
 #include "ui_images.h"
 
 namespace turbo {
@@ -146,12 +147,23 @@ static void club_picker(App& app, int& teamid, char* search, size_t search_size)
 }
 
 static const char* kOwnClubCreate =
-    "That is your club: Turbo creates players there only with \"allow_user_club\": true in turbo_config.json "
-    "(the running career knows the new player after the save is reloaded; unverified in FC 27)";
+    "Your club: he joins your squad as a reserve and your team sheet (back up your save; the squad screens show him "
+    "after saving and loading the career)";
 
 static bool own_club(App& app, int teamid) {
     int64_t user = app.bridge.state().user_team;
     return user > 0 && teamid == user;
+}
+
+// The club notes shown before the click (1.1.1: any club, yours included; Lua create_player checks the same squad
+// rule and refuses with the same reason)
+static void club_notes(App& app, int teamid) {
+    if (own_club(app, teamid)) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", kOwnClubCreate);
+    if (teamid != move_rules::kFreeAgents && app.model.team(teamid)) {
+        const size_t n = app.model.links_of_team(teamid).size();
+        if (n >= static_cast<size_t>(move_rules::kMaxSquad))
+            ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "Not possible: this club has %zu players, the most a squad holds", n);
+    }
 }
 
 static json names_json(const char* first, const char* last, const char* common, const char* jersey) {
@@ -419,13 +431,13 @@ static void import_dialog(App& app, const PlayerRow& p) {
         ImGui::RadioButton("A new player in a club", &target, 1);
         if (target == 1) {
             club_picker(app, teamid, club_search, sizeof(club_search));
-            if (own_club(app, teamid)) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", kOwnClubCreate);
+            club_notes(app, teamid);
         } else {
             ImGui::SeparatorText("What to copy");
             for (int i = 0; i < 8; ++i) ImGui::Checkbox(group_labels[i], &groups[i]);
         }
         bool any_group = std::any_of(std::begin(groups), std::end(groups), [](bool b) { return b; });
-        bool can = pv.ok && (target == 1 ? (app.model.team(teamid) != nullptr && !own_club(app, teamid)) : any_group);
+        bool can = pv.ok && (target == 1 ? (app.model.team(teamid) != nullptr) : any_group);
         if (!can) ImGui::BeginDisabled();
         if (ImGui::Button(target == 0 ? "Import onto player" : "Import as new player")) {
             // a miniface goes to <Live Editor>\mods\legacy\data\ui\imgAssets\heads (the old one to turbo_output\miniface_backups):
@@ -463,7 +475,7 @@ static void clone_dialog(App& app, const PlayerRow& p) {
         ImGui::Text("Clone %s (ID %lld): a new player with the same fields", p.name.c_str(), static_cast<long long>(p.playerid));
         ImGui::TextDisabled("The copy gets the first free player ID below 460000, a free shirt number and the reserve slot.");
         club_picker(app, teamid, club_search, sizeof(club_search));
-        if (own_club(app, teamid)) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", kOwnClubCreate);
+        club_notes(app, teamid);
         ImGui::SetNextItemWidth(S(110.0f));
         ImGui::InputInt("Shirt number (0 = first free)", &jersey, 0);
         jersey = std::max(0, std::min(jersey, 99));
@@ -476,7 +488,7 @@ static void clone_dialog(App& app, const PlayerRow& p) {
         ImGui::InputText("Common name", common, sizeof(common));
         ImGui::SetNextItemWidth(S(200.0f));
         ImGui::InputText("Jersey name", jname, sizeof(jname));
-        bool can = app.model.team(teamid) != nullptr && !own_club(app, teamid);
+        bool can = app.model.team(teamid) != nullptr;
         if (!can) ImGui::BeginDisabled();
         if (ImGui::Button("Clone player")) {
             json o = {{"source", {{"playerid", p.playerid}}}, {"teamid", teamid}, {"jersey", jersey}};
@@ -526,7 +538,7 @@ static void create_dialog(App& app, const PlayerRow& p) {
         ImGui::InputText("Jersey name", jname, sizeof(jname));
         ImGui::SeparatorText("Club");
         club_picker(app, teamid, club_search, sizeof(club_search));
-        if (own_club(app, teamid)) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", kOwnClubCreate);
+        club_notes(app, teamid);
         ImGui::SeparatorText("Profile");
         ImGui::SetNextItemWidth(S(110.0f));
         if (ImGui::BeginCombo("Position", position_name(position))) {
@@ -556,7 +568,7 @@ static void create_dialog(App& app, const PlayerRow& p) {
         potential = std::max(1, std::min(potential, 99));
         birth_year = std::max(1950, std::min(birth_year, 2030));
         bool has_name = first[0] || last[0] || common[0];
-        bool can = has_name && app.model.team(teamid) != nullptr && !own_club(app, teamid);
+        bool can = has_name && app.model.team(teamid) != nullptr;
         if (!has_name) ImGui::TextDisabled("Give the player a name.");
         if (!can) ImGui::BeginDisabled();
         if (ImGui::Button("Create player")) {

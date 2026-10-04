@@ -148,8 +148,7 @@
       "set": {},
       "playerid": 0,
       "min_playerid": 0,
-      "max_playerid": 459999,
-      "allow_user_club": false
+      "max_playerid": 459999
     }
   }
 }

@@ -196,12 +196,10 @@ H.case("create from a preset file as a new player; blank player gets field minim
     H.ok(util.file_exists(H.LE .. "/mods/legacy/data/ui/imgAssets/heads/p2061.dds"), "miniface for the new id")
 end)
 
-H.case("create refusals: your own club, unknown team, bad source, used id, bad set field, id range", function()
+H.case("create refusals: unknown team, bad source, used id, bad set field, id range; your club allowed", function()
     local snap = db_bytes()
     local calls = sim:count_calls("InsertDBTableRow")
-    local ok, msg = run("create_player", { source = { playerid = 2005 }, teamid = W.USER_TEAM })
-    H.eq(ok, false); H.has(msg, "your own club")
-    ok, msg = run("create_player", { source = { playerid = 2005 }, teamid = 99999 })
+    local ok, msg = run("create_player", { source = { playerid = 2005 }, teamid = 99999 })
     H.eq(ok, false); H.has(msg, "team 99999 not found")
     ok, msg = run("create_player", { source = { playerid = 777777 }, teamid = 3 })
     H.eq(ok, false); H.has(msg, "source player 777777 not found")
@@ -217,11 +215,20 @@ H.case("create refusals: your own club, unknown team, bad source, used id, bad s
     H.eq(ok, false); H.has(msg, "no free player id below 2050")
     H.eq(changed_since(snap), 0, "nothing written by a refused run")
     H.eq(sim:count_calls("InsertDBTableRow"), calls, "no row added by a refused run")
-    -- allowed into your club when asked for
-    ok, msg = run("create_player", { source = { playerid = 2005 }, teamid = W.USER_TEAM, allow_user_club = true })
+    -- into your club (an old config's "allow_user_club": false is no longer read): club link and your team sheet
+    ok, msg = run("create_player", { source = { playerid = 2005 }, teamid = W.USER_TEAM, allow_user_club = false })
     H.eq(ok, true, msg)
-    H.has(msg, "your club: not on the team sheet")
+    H.has(msg, "added to your team sheet")
     H.eq(link_of(2062), W.USER_TEAM)
+    local on_sheet = false
+    for _, rec in ipairs(sim:rows("cm_teamsheets")) do
+        if sim:value("cm_teamsheets", rec, "teamid") == W.USER_TEAM then
+            for i = 0, 51 do
+                if sim:value("cm_teamsheets", rec, "playerid" .. i) == 2062 then on_sheet = true end
+            end
+        end
+    end
+    H.ok(on_sheet, "new player on your team sheet")
 end)
 
 H.case("runner scripts: export, import and create show a message box", function()

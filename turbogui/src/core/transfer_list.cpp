@@ -249,6 +249,15 @@ Result run(Memory& mem, Caller& call, const Fns& fns, const Request& req) {
             return fail(r, "validate", who + " plays for team " + std::to_string(req.club) + ", not your club (team " + std::to_string(r.at.user_team) +
                                            "): the game lists only your own players");
     }
+    // List status of a player the PlayerContractManager has no record of (another club's player, or one Turbo moved
+    // since the career was loaded): the listed state lives only in that record, so he is on none of the game's lists
+    if (!r.found && req.action == kActionQuery) {
+        r.ok = true;
+        r.stage = "done";
+        r.before = r.after = kStatusNone;
+        r.message = who + " is not listed (the career keeps no contract record for him)";
+        return r;
+    }
     if (!r.found)
         return fail(r, "status", who + " has no contract record in the career (not a player of this career, or not under contract)");
     const bool tl = is_transfer_listed(r.before), ll = is_loan_listed(r.before);

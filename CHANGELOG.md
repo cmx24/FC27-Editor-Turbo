@@ -37,6 +37,18 @@ Not yet released or checked in game.
   `turbo_output\players` (JSON and miniface) and `extensions\player_presets` (CSV). If a file already exists, Export
   lists it and asks first (**Replace and export** / **Back**). File formats are unchanged.
 - Each picker remembers its last folder (`turbo_output\gui_folders.json`).
+- **Transfer, loan, release, terminate loan and delete work for every club, yours included.** Turbo checks first that
+  the career stays consistent: the new club has room (52 players at most) and a free shirt number, a club with a
+  match squad keeps at least 18 players, a club's only goalkeeper stays, a loaned player's loan ends before a transfer
+  or release, and a player on your transfer or loan list comes off it through the game's own remove before he leaves.
+  Your team sheet follows: a starter who leaves is replaced by the first substitute. Back up your save; the squad screens show a move after saving and loading the career.
+- **Clone, create and import as new player work for your club too.** He joins as a reserve and goes on your team sheet.
+- **No more greyed buttons without a reason.** A move that cannot run for the selected player stays clickable, says
+  why on hover ("Not possible for him: ...") and on click, and sends nothing. Example: Transfer list on another
+  club's player (the game's lists are your club's only).
+- **List status works for any player.** A player the career keeps no contract record for is "not listed" instead of
+  an error.
+- Rules and reasons: `docs/turbo-reference.md`, "Player moves for every club".
 
 ### Fixed
 
