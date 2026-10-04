@@ -6,6 +6,8 @@
 #include <map>
 
 #include "app.h"
+#include "comp_picker.h"
+#include "core/comp_list.h"
 #include "core/fce_standings.h"
 #include "core/match_setup.h"
 #include "imgui.h"
@@ -60,30 +62,23 @@ uint32_t team_of(int16_t sid) {
     return r.used == 1 ? r.teamid : 0;
 }
 
-std::string league_name(App& app, int64_t leagueid) {
-    std::string name;
-    if (const Table* lg = app.db.table("leagues")) {
-        Snapshot ls;
-        const Field* nf = lg->field("leaguename");
-        if (nf && ls.load(app.db.memory(), *lg))
-            for (uint32_t r : ls.valid)
-                if (ls.get_int(r, "leagueid", -1) == leagueid) name = ls.get_str(r, *nf);
-    }
-    return name;
+// The competition of a fixture's node (core/comp_list.h): one entry per competition, whatever the round
+comps::Entry competition_entry(App& app, const fce::Fixture& f) {
+    const comps::TreeInfo ti = comps::tree_info(g_ms.compobjs, f.compobj);
+    comps::Entry e = comps::describe(comp_name_sources(app), ti, f.compobj);
+    if (!ti.found) e.name = "competition " + std::to_string(f.compobj);
+    e.key = e.parent_key;
+    e.stage.clear();
+    e.main_stage = true;
+    e.user = true;
+    return e;
 }
 
-// "Serie A" for a fixture of competition node C31; "competition 1118" when the tree does not name it
+// "Serie A" for a fixture of competition node C31, "UEFA Champions League - round of 16" for a cup round
 std::string competition_of(App& app, const fce::Fixture& f) {
-    if (f.compobj < g_ms.compobjs.size()) {
-        const fce::CompObj& c = g_ms.compobjs[f.compobj];
-        const int n = c.comp_number();
-        if (n >= 0) {
-            std::string name = league_name(app, n);
-            if (!name.empty()) return name;
-            return "competition " + std::to_string(n);
-        }
-    }
-    return "competition " + std::to_string(f.compobj);
+    const comps::TreeInfo ti = comps::tree_info(g_ms.compobjs, f.compobj);
+    if (!ti.found) return "competition " + std::to_string(f.compobj);
+    return comps::title(comps::describe(comp_name_sources(app), ti, f.compobj));
 }
 
 // A fixed draw is only safe where a draw is a final result: the group of the user's row must be a league stage
@@ -102,12 +97,14 @@ std::string fixture_line(App& app, const fce::Fixture& f) {
     return buf;
 }
 
-// The user's unplayed fixtures from today on, earliest first (at most `n`)
-std::vector<const fce::Fixture*> upcoming(uint32_t team, uint32_t today, size_t n) {
+// The user's unplayed fixtures from today on, earliest first (at most `n`; with `filter` only those of the competition
+// whose picker key is `comp_key`)
+std::vector<const fce::Fixture*> upcoming(App& app, uint32_t team, uint32_t today, size_t n, bool filter = false, int comp_key = 0) {
     std::vector<const fce::Fixture*> out;
     for (const fce::Fixture& f : g_ms.fixtures) {
         if (f.used != 1 || f.played() || f.home_score >= 0 || f.away_score >= 0 || f.date < today) continue;
         if (team_of(f.home_sid) != team && team_of(f.away_sid) != team) continue;
+        if (filter && competition_entry(app, f).key != comp_key) continue;
         out.push_back(&f);
     }
     std::sort(out.begin(), out.end(), [](const fce::Fixture* a, const fce::Fixture* b) {
@@ -296,8 +293,35 @@ void draw_match_setup(App& app) {
         if (!user) {
             ImGui::TextDisabled("Your club is not known yet (Live Editor publishes it when a career is loaded).");
         } else {
-            std::vector<const fce::Fixture*> next = upcoming(user, today, 8);
-            if (next.empty()) ImGui::TextDisabled("No unplayed fixture of your club from today on.");
+            // the competitions of your next fixtures, to show one of them only (remembered: competitions.match)
+            static CompPicker picker("match");
+            static std::vector<comps::Entry> comps_of;
+            static int built_gen = -1, chosen = -1;
+            static size_t built_n = 0;
+            const std::vector<const fce::Fixture*> all = upcoming(app, user, today, 10000);
+            if (built_gen != app.gen || built_n != all.size()) {
+                built_gen = app.gen;
+                built_n = all.size();
+                const int64_t keep = chosen >= 0 && size_t(chosen) < comps_of.size() ? comps_of[size_t(chosen)].key : -1;
+                comps_of.clear();
+                std::map<int, size_t> at;
+                for (const fce::Fixture* f : all) {
+                    comps::Entry e = competition_entry(app, *f);
+                    auto it = at.find(e.parent_key);
+                    if (it == at.end()) {
+                        at[e.parent_key] = comps_of.size();
+                        comps_of.push_back(e);
+                    }
+                }
+                chosen = -1;
+                for (size_t i = 0; i < comps_of.size(); ++i)
+                    if (keep >= 0 && comps_of[i].key == keep) chosen = int(i);
+                if (keep < 0) chosen = comp_picker_restore(app, picker, comps_of);
+            }
+            comp_picker(app, picker, "Competition##msc", comps_of, chosen, S(380.0f), "All competitions");
+            const bool filter = chosen >= 0 && size_t(chosen) < comps_of.size();
+            std::vector<const fce::Fixture*> next = upcoming(app, user, today, 8, filter, filter ? int(comps_of[size_t(chosen)].key) : 0);
+            if (next.empty()) ImGui::TextDisabled("No unplayed fixture of your club from today on%s.", filter ? " in this competition" : "");
             for (const fce::Fixture* f : next) {
                 char id[32];
                 std::snprintf(id, sizeof(id), "##mf%u", unsigned(f->id));

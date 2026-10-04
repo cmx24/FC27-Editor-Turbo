@@ -35,6 +35,7 @@
 #include "core/callname_voice_host.h"
 #include "core/callnames.h"
 #include "core/commentary_bank.h"
+#include "core/comp_list.h"
 #include "core/image.h"
 #include "core/legacy.h"
 #include "core/devops.h"
@@ -5917,8 +5918,10 @@ static void test_ui() {
             ui.frames(2);
             CHECK(ui.click("Reload"), "Reload (the located chain is the same, the rows grew)");
             ui.frames(2);
-            const std::string league = "English Premier League (3 clubs, comp 100) [shown by the game as competition 1200]";
-            const std::string pool = "Competition 210 - setup stage (3 clubs, comp 101) [not shown by the game]";
+            // 1.1.1: the picker names C210 from Turbo's built-in list (the database has no cup names) and lists your club's
+            // competitions first; the stage and the game-view mark stay in the row
+            const std::string league = "English Premier League  [shown by the game as competition 1200]##cp100";
+            const std::string pool = "Coppa Italia - setup stage  [not shown by the game]##cp101";
             CHECK(ui.find("Competition") != nullptr, "competition combo");
             CHECK(ui.click("Competition"), "open the combo");
             ui.frames(2);
@@ -5969,9 +5972,9 @@ static void test_ui() {
             ui.frames(2);
             CHECK(ui.find("Competition") != nullptr && ui.click("Competition"), "open the combo");
             ui.frames(2);
-            CHECK(ui.find("English Premier League (3 clubs, comp 100)", "##Combo") != nullptr, "league named by the tree, no mark");
-            CHECK(ui.find("Competition 210 - setup stage (3 clubs, comp 101)", "##Combo") != nullptr, "pool named by the tree, no mark");
-            CHECK(ui.click("English Premier League (3 clubs, comp 100)", "##Combo"), "close the combo");
+            CHECK(ui.find("English Premier League##cp100", "##Combo") != nullptr, "league named by the tree, no mark");
+            CHECK(ui.find("Coppa Italia - setup stage##cp101", "##Combo") != nullptr, "pool named by the tree, no mark");
+            CHECK(ui.click("English Premier League##cp100", "##Combo"), "close the combo");
             ui.frames(2);
             CHECK(live_standings_view_line() == "The game's standings view could not be read (the FCEI::CompObject / StandingObject list vtables are not "
                                                 "known on this game build).",
@@ -5984,6 +5987,96 @@ static void test_ui() {
             write_state_file();
             app.next_poll = 0.0;
             app.standings_refresh_status.clear();
+            ui.frames(3);
+            CHECK(ui.find("Try again") != nullptr, "live view unreachable again without the ifce");
+        });
+
+        run_case("UI: Competitions > picker (1.1.1): search, stages collapsed under their competition, keyboard, remembered choice", [&] {
+            // playtest 04-10-2026: hundreds of entries such as "Competition 223 - round of 16 pots (2 clubs, comp 206)". Here:
+            // league 13 (group 100), the cup pool C210 (101) and C223 under the UEFA confederation with its league stage
+            // (102) and its knockout playoff pots (103)
+            FceWorld fw;
+            fw.compobj(6, 0, 1, "UEFA", "European FA");
+            fw.compobj(7, 6, fce::kCompTypeCompetition, "C223", "TrophyName_Abbr15_223");
+            fw.compobj(8, 7, fce::kCompTypeStage, "S1", "FCE_League_Stage");
+            fw.compobj(9, 7, fce::kCompTypeStage, "S2", "FCE_Knockout_Playoff_Pots");
+            fw.compobj(102, 8, fce::kCompTypeGroup, "G1", "");
+            fw.compobj(103, 9, fce::kCompTypeGroup, "G1", "");
+            fw.w32(fw.col + 4, 104);
+            fw.add_pool();
+            fw.row(7, 102, 1, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 3);
+            fw.row(8, 102, 241, 0, 0, 0, 0, 0, 0, 0, 1, 0, 2, 0);
+            fw.row(9, 103, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+            fw.row(10, 103, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+            fw.w64(fw.slist + 8, fw.rows + 11 * fce::kStandingSize);
+            for (const auto& kv : fw.mem.pages) mem.pages[kv.first] = kv.second;
+            fs::path state_file = le / "turbo_output" / "bridge_state.json";
+            json st = read_json(state_file);
+            const json saved = st;
+            int bumps = 300;
+            auto write_state_file = [&]() {
+                {
+                    std::ofstream f(state_file.string(), std::ios::binary | std::ios::trunc);
+                    f << st.dump();
+                }
+                fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(2 * ++bumps));
+            };
+            st["ifce"] = hex_addr(fw.ifce);
+            st["user_team"] = 241;
+            st["seq"] = st.value("seq", 0LL) + 1;
+            write_state_file();
+            app.next_poll = 0.0;
+            app.request_tab = 3;
+            ui.frames(3);
+            CHECK(ui.click("Live standings (game)"), "live view tab");
+            ui.frames(2);
+            CHECK(ui.click("Reload"), "Reload");
+            ui.frames(2);
+            CHECK(ui.click("Competition"), "open the picker");
+            ui.frames(2);
+            // C223 is one row named by Turbo's list; its pots are collapsed under it
+            CHECK(ui.find("UEFA Champions League##cp102", "##Combo") != nullptr, "C223 named, its league stage is the row");
+            CHECK(ui.find("knockout playoff pots##cc103", "##Combo") == nullptr, "the pots are collapsed");
+            CHECK(ui.click("+##op223", "##Combo"), "open the competition's stages");
+            ui.frames(2);
+            CHECK(ui.find("knockout playoff pots##cc103", "##Combo") != nullptr, "the pots listed under it");
+            CHECK(ui.find("Leagues only") == nullptr, "every competition here has your club (Inter): listed once, no leagues-only toggle");
+            // search: a word of a stage finds it (the competition drawn open), Enter picks the first match
+            CHECK(ui.click("##compsearch", "##Combo"), "search box");
+            ImGui::GetIO().AddInputCharactersUTF8("pots");
+            ui.frames(2);
+            CHECK(ui.find("knockout playoff pots##cc103", "##Combo") != nullptr, "the matching stage is listed");
+            CHECK(ui.find("English Premier League##cp100", "##Combo") == nullptr, "the league does not match");
+            ui.key(ImGuiKey_DownArrow);
+            ui.key(ImGuiKey_Enter);
+            ui.frames(2);
+            CHECK(ui.find("##compsearch", "##Combo") == nullptr, "Enter picked and closed the picker");
+            CHECK(ui.find("1##ls9") != nullptr && ui.find("2##ls10") != nullptr, "the pots' two rows are shown");
+            const json& rem = app.gui_settings["competitions"]["live"];
+            CHECK(rem.value("comp", -1) == 223 && rem.value("key", -1) == 103 && rem.value("stage", std::string()) == "knockout playoff pots",
+                  "remembered: " + rem.dump());
+            // a search on the country / the id; Esc clears the search, a second Esc closes
+            CHECK(ui.click("Competition"), "open the picker again");
+            ui.frames(2);
+            CHECK(ui.click("##compsearch", "##Combo"), "search box");
+            ImGui::GetIO().AddInputCharactersUTF8("coppa");
+            ui.frames(2);
+            CHECK(ui.find("Coppa Italia - setup stage##cp101", "##Combo") != nullptr, "the cup found although leagues only is on");
+            CHECK(ui.find("UEFA Champions League##cp102", "##Combo") == nullptr, "no Champions League for 'coppa'");
+            ui.key(ImGuiKey_Escape);
+            ui.frames(2);
+            CHECK(ui.find("UEFA Champions League##cp102", "##Combo") != nullptr, "Esc cleared the search");
+            ui.key(ImGuiKey_Escape);
+            ui.frames(2);
+            CHECK(ui.find("##compsearch", "##Combo") == nullptr, "a second Esc closed the picker");
+            // the remembered competition comes back on a fresh view (another reload of the same career)
+            CHECK(ui.click("Reload"), "Reload");
+            ui.frames(2);
+            CHECK(ui.find("1##ls9") != nullptr, "still the pots");
+            st = saved;
+            st["seq"] = st.value("seq", 0LL) + 2;
+            write_state_file();
+            app.next_poll = 0.0;
             ui.frames(3);
             CHECK(ui.find("Try again") != nullptr, "live view unreachable again without the ifce");
         });
@@ -6018,10 +6111,11 @@ static void test_ui() {
             CHECK(ui.click("Match setup"), "Match setup view");
             ui.frames(2);
             const std::string ars = app.model.team_name(1), eve = app.model.team_name(7), inter = app.model.team_name(241);
-            const std::string away_line = "22.08.2026 15:00  " + eve + " v " + ars + "  (competition 100)##mf3";
+            const std::string away_line = "22.08.2026 15:00  " + eve + " v " + ars + "  (English Premier League)##mf3";
             CHECK(ui.find(away_line) != nullptr, "the next fixture is listed: " + away_line);
-            CHECK(ui.find("29.08.2026 15:00  " + inter + " v " + eve + "  (competition 100)##mf4") == nullptr, "a fixture without the user's club is not");
-            CHECK(ui.find("15.08.2026 15:00  " + ars + " v " + eve + "  (competition 100)##mf0") == nullptr, "a played fixture is not");
+            CHECK(ui.find("29.08.2026 15:00  " + inter + " v " + eve + "  (English Premier League)##mf4") == nullptr, "a fixture without the user's club is not");
+            CHECK(ui.find("Competition##msc") != nullptr, "1.1.1: a competition filter over the fixtures (All competitions by default)");
+            CHECK(ui.find("15.08.2026 15:00  " + ars + " v " + eve + "  (English Premier League)##mf0") == nullptr, "a played fixture is not");
             CHECK(ui.click(away_line), "select it");
             ui.frames(2);
             // venue
@@ -6032,7 +6126,7 @@ static void test_ui() {
             CHECK(fce::locate(mem, fw.ifce, 0, loc).empty() && fce::read_fixtures(mem, loc, fx) && fx.size() == 5, "fixtures readable");
             CHECK(fx[3].home_sid == 0 && fx[3].away_sid == 1, "Arsenal at home now");
             CHECK(ui.toast_contains("home and away swapped"), "swap toast");
-            const std::string home_line = "22.08.2026 15:00  " + ars + " v " + eve + "  (competition 100)##mf3";
+            const std::string home_line = "22.08.2026 15:00  " + ars + " v " + eve + "  (English Premier League)##mf3";
             CHECK(ui.find(home_line) != nullptr, "the list shows the new venue");
             // opponent: the only other club of the group is Inter
             CHECK(ui.click("Play this opponent"), "new opponent");
@@ -8253,6 +8347,162 @@ static void test_fce_compobjs() {
     });
 }
 
+// ---------------------------------------------------------------- competition pickers (core/comp_list.h, 1.1.1)
+static void test_comp_list() {
+    // FIFA -> UEFA (confederation) -> C223 -> league stage G1 (10) / knockout playoff pots G1 (11) / round of 16 pots G1 (12)
+    //      -> ITAL (NationName_27) -> C31 -> league stage G1 (20); C210 -> setup stage G1 (21); C5000 -> setup stage G1 (22)
+    //      -> TURK (NationName_48) -> C68 league stage G1 (30), G2 (31: two groups of one stage)
+    //      -> C900 (under the root) -> S1 -> G1 (40)
+    std::vector<fce::CompObj> objs(64);
+    auto node = [&](uint16_t id, uint16_t parent, uint8_t type, const char* sn, const char* desc) {
+        fce::CompObj& c = objs[id];
+        c.id = id, c.parent = parent, c.type = type, c.used = 1, c.short_name = sn, c.desc = desc;
+    };
+    node(0, 0xFFFF, fce::kCompTypeRoot, "FIFA", "FIFA");
+    node(1, 0, 1, "UEFA", "European FA");
+    node(2, 1, fce::kCompTypeCompetition, "C223", "TrophyName_Abbr15_223");
+    node(3, 2, fce::kCompTypeStage, "S1", "FCE_League_Stage");
+    node(4, 2, fce::kCompTypeStage, "S2", "FCE_Knockout_Playoff_Pots");
+    node(5, 2, fce::kCompTypeStage, "S3", "FCE_Round_of_16_Pots");
+    node(10, 3, fce::kCompTypeGroup, "G1", "");
+    node(11, 4, fce::kCompTypeGroup, "G1", "");
+    node(12, 5, fce::kCompTypeGroup, "G1", "");
+    node(6, 1, fce::kCompTypeNation, "ITAL", "NationName_27");
+    node(7, 6, fce::kCompTypeCompetition, "C31", "TrophyName_Abbr15_31");
+    node(8, 7, fce::kCompTypeStage, "S1", "FCE_League_Stage");
+    node(20, 8, fce::kCompTypeGroup, "G1", "");
+    node(13, 6, fce::kCompTypeCompetition, "C210", "TrophyName_Abbr15_210");
+    node(14, 13, fce::kCompTypeStage, "S1", "FCE_Setup_Stage");
+    node(21, 14, fce::kCompTypeGroup, "G1", "");
+    node(15, 6, fce::kCompTypeCompetition, "C5000", "TrophyName_Abbr15_5000");
+    node(16, 15, fce::kCompTypeStage, "S1", "FCE_Setup_Stage");
+    node(22, 16, fce::kCompTypeGroup, "G1", "");
+    node(17, 1, fce::kCompTypeNation, "TURK", "NationName_48");
+    node(18, 17, fce::kCompTypeCompetition, "C68", "TrophyName_Abbr15_68");
+    node(19, 18, fce::kCompTypeStage, "S1", "FCE_League_Stage");
+    node(30, 19, fce::kCompTypeGroup, "G1", "");
+    node(31, 19, fce::kCompTypeGroup, "G2", "");
+    node(23, 0, fce::kCompTypeCompetition, "C900", "TrophyName_Abbr15_900");
+    node(24, 23, fce::kCompTypeStage, "S1", "FCE_Setup_Stage");
+    node(40, 24, fce::kCompTypeGroup, "G1", "");
+    comps::NameSources src;
+    src.leagues[31] = {"Serie A", 1, 27};
+    src.leagues[68] = {"S\xC3\xBCper Lig", 1, 48};
+    src.nations[27] = "Italy";
+    src.nations[48] = "Turkey";
+    std::vector<comps::Entry> es;
+    std::vector<std::string> shorts;
+    auto add = [&](uint16_t group, int clubs, bool user = false) {
+        const comps::TreeInfo ti = comps::tree_info(objs, group);
+        comps::Entry e = comps::describe(src, ti, group);
+        e.clubs = clubs;
+        e.user = user;
+        es.push_back(e);
+        shorts.push_back(ti.group_short);
+        return e;
+    };
+
+    run_case("competition names: database leagues, Turbo's list for cups / continental (C223 is no longer 'Competition 223'), a label from the tree", [&] {
+        comps::Entry ucl = add(10, 36);
+        CHECK(ucl.name == "UEFA Champions League" && ucl.named && ucl.kind == comps::Kind::Continental && ucl.country == "Europe (UEFA)" &&
+                  ucl.stage.empty() && ucl.main_stage && ucl.comp == 223 && ucl.parent_key == 223,
+              "C223: " + comps::summary(ucl));
+        comps::Entry pots = add(11, 2);
+        CHECK(pots.name == "UEFA Champions League" && pots.stage == "knockout playoff pots" && !pots.main_stage && pots.parent_key == 223,
+              "pots: " + comps::title(pots));
+        add(12, 2);
+        comps::Entry sa = add(20, 20, true);
+        CHECK(sa.name == "Serie A" && sa.kind == comps::Kind::League && sa.country == "Italy" && sa.level == 1, "C31: " + comps::summary(sa));
+        comps::Entry ci = add(21, 20, true);
+        CHECK(ci.name == "Coppa Italia" && ci.kind == comps::Kind::Cup && ci.country == "Italy" && ci.stage == "setup stage" && ci.setup_stage,
+              "C210: " + comps::summary(ci));
+        comps::Entry unk = add(22, 4);
+        CHECK(unk.name == "Italy cup 5000" && !unk.named && unk.kind == comps::Kind::Cup, "C5000 named from the tree: " + unk.name);
+        add(30, 9);
+        add(31, 9);
+        comps::Entry fr = add(40, 6);
+        CHECK(fr.name == "Friendlies" && fr.kind == comps::Kind::Friendly && fr.country == "World", "C900: " + comps::summary(fr));
+        // no nations table: the tree's short code; no tree at all: "Competition"
+        comps::NameSources bare;
+        comps::Entry b = comps::describe(bare, comps::tree_info(objs, 21), 21);
+        CHECK(b.name == "Coppa Italia" && b.country == "ITAL", "without the nations table: " + comps::summary(b));
+        comps::Entry none = comps::describe(bare, comps::TreeInfo(), 77);
+        CHECK(none.name == "Competition group 77" && none.parent_key == -78, "nothing known: " + none.name);
+        comps::Entry conf = comps::describe(bare, comps::tree_info(objs, 10), 10);
+        CHECK(conf.name == "UEFA Champions League" && conf.country == "Europe (UEFA)", "confederation region");
+        CHECK(comps::fold("S\xC3\xBCper Lig \xC3\x89LITE") == "super lig elite", "accents folded: " + comps::fold("S\xC3\xBCper Lig \xC3\x89LITE"));
+    });
+
+    run_case("competition picker: stages collapse under their competition, two groups of one stage are told apart", [&] {
+        comps::tag_groups(es, shorts);
+        CHECK(es[6].stage == "G1" && es[7].stage == "G2", "Super Lig groups: '" + es[6].stage + "' / '" + es[7].stage + "'");
+        const std::vector<comps::Parent> ps = comps::build_parents(es);
+        CHECK(ps.size() == 6, fmt("6 competitions from 9 tables (%zu)", ps.size()));
+        const comps::Parent& ucl = ps[0];
+        CHECK(ucl.parent_key == 223 && ucl.primary == 0 && ucl.children.size() == 2 && ucl.clubs == 36, "C223: the league stage is the row, 2 stages under it");
+        CHECK(es[ucl.children[0]].stage == "knockout playoff pots" && es[ucl.children[1]].stage == "round of 16 pots", "stages in order");
+        // the stage the game shows wins over the league stage
+        std::vector<comps::Entry> e2 = es;
+        e2[2].shown = true;
+        CHECK(comps::build_parents(e2)[0].primary == 2, "the shown table is the competition's row");
+    });
+
+    run_case("competition picker: sections, leagues only, search on name / country / id / stage, sorting, the remembered choice", [&] {
+        const std::vector<comps::Parent> ps = comps::build_parents(es);
+        comps::View v;
+        comps::Arranged a = comps::arrange(es, ps, v);
+        CHECK(a.sections[comps::kSectionYours].size() == 2, "your club's: Serie A and Coppa Italia");
+        CHECK(es[ps[a.sections[comps::kSectionYours][0].parent].primary].name == "Serie A", "your league first");
+        CHECK(a.sections[comps::kSectionLeagues].size() == 2 && a.sections[comps::kSectionCups].empty() && a.sections[comps::kSectionContinental].empty(),
+              "leagues only (default): no cups, no continental");
+        CHECK(a.sections[comps::kSectionLeagues][0].group == "Italy" && a.sections[comps::kSectionLeagues][1].group == "Turkey", "leagues grouped by country");
+        v.leagues_only = false;
+        a = comps::arrange(es, ps, v);
+        CHECK(a.sections[comps::kSectionCups].size() == 2 && a.sections[comps::kSectionContinental].size() == 1 && a.sections[comps::kSectionOther].size() == 1,
+              "every kind without the toggle");
+        CHECK(a.sections[comps::kSectionContinental][0].children.size() == 2 && !a.sections[comps::kSectionContinental][0].open_by_search,
+              "the stages listed (collapsed) under the competition");
+        v.leagues_only = true;
+        v.search = "champions";
+        a = comps::arrange(es, ps, v);
+        CHECK(a.sections[comps::kSectionContinental].size() == 1 && a.sections[comps::kSectionLeagues].empty(), "a search looks at every kind");
+        v.search = "round 16";
+        a = comps::arrange(es, ps, v);
+        CHECK(a.count() == 1 && a.sections[comps::kSectionContinental][0].open_by_search && a.sections[comps::kSectionContinental][0].children.size() == 1 &&
+                  es[a.sections[comps::kSectionContinental][0].children[0]].stage == "round of 16 pots",
+              "a stage found by its words: its competition drawn open with that stage only");
+        v.search = "ITALY";
+        a = comps::arrange(es, ps, v);
+        CHECK(a.sections[comps::kSectionLeagues].size() == 1 && a.sections[comps::kSectionCups].size() == 2, "by country (case-insensitive)");
+        v.search = "210";
+        a = comps::arrange(es, ps, v);
+        CHECK(a.sections[comps::kSectionCups].size() == 1 && es[ps[a.sections[comps::kSectionCups][0].parent].primary].comp == 210, "by id");
+        v.search = "super lig";
+        a = comps::arrange(es, ps, v);
+        CHECK(a.sections[comps::kSectionLeagues].size() == 1, "accents ignored ('Super Lig' finds 'S\xC3\xBCper Lig')");
+        v.search = "nothing like this";
+        CHECK(comps::arrange(es, ps, v).count() == 0, "no match: empty");
+        v.search.clear();
+        v.leagues_only = false;
+        v.sort = comps::Sort::Clubs;
+        a = comps::arrange(es, ps, v);
+        CHECK(es[ps[a.sections[comps::kSectionCups][0].parent].primary].name == "Coppa Italia", "by clubs: the 20-club cup first");
+        v.sort = comps::Sort::Name;
+        a = comps::arrange(es, ps, v);
+        CHECK(es[ps[a.sections[comps::kSectionLeagues][0].parent].primary].name == "Serie A" && a.sections[comps::kSectionLeagues][0].group.empty(),
+              "by name, no country headings");
+        v.sort = comps::Sort::Id;
+        a = comps::arrange(es, ps, v);
+        CHECK(es[ps[a.sections[comps::kSectionLeagues][0].parent].primary].comp == 31, "by id: 31 before 68");
+        // remembered: same key, else the competition's same stage, else its row
+        CHECK(comps::find_remembered(es, 11, 223, "knockout playoff pots") == 1, "same key");
+        CHECK(comps::find_remembered(es, 999, 223, "round of 16 pots") == 2, "another key (another career), same stage");
+        CHECK(comps::find_remembered(es, 999, 223, "final") == 0, "stage gone: the competition's row");
+        CHECK(comps::find_remembered(es, 999, 4242, "") == -1, "competition gone");
+        CHECK(comps::summary(es[3]) == "Serie A (Italy, league, 20 clubs)", "summary: " + comps::summary(es[3]));
+    });
+}
+
 static void test_standings_refresh() {
     const svm::Fns fns = SvmWorld::fns();
     run_case("standings refresh: SVM = manager slot 108, map walked in key order, every dereference checked, one sync request per key", [&] {
@@ -10240,6 +10490,8 @@ int main(int argc, char** argv) {
     std::printf("native live standings\n");
     test_fce_standings();
     test_fce_compobjs();
+    std::printf("native competition pickers\n");
+    test_comp_list();
     std::printf("native standings refresh\n");
     test_standings_refresh();
     std::printf("native match setup\n");

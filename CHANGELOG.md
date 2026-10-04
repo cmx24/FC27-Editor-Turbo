@@ -3,6 +3,25 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.1.1 (playtest fixes)
+
+Not yet released or checked in game.
+
+### Changed
+
+- **Competitions tab: a searchable competition picker instead of the long combo** (Live standings, Match setup, Career
+  database copy). Type to filter by name, country, kind or id (accents ignored; Up / Down, Enter, Esc; Right / Left show or
+  hide a competition's stages). Your club's competitions on top, then leagues grouped by country, cups, continental and the
+  rest; sort by country, name, clubs or id; "Leagues only" on by default (a search still looks at every kind). A
+  competition's internal stages (knockout playoff pots, round of 16 pots, setup pools ...) are collapsed under it instead of
+  being separate entries. The last choice, the toggle and the sort are remembered per picker (`gui_settings.json`
+  `competitions.live / match / database`). Match setup gets a competition filter over your next fixtures.
+- **Readable competition names**: "Competition 223" is now "UEFA Champions League" (Europe (UEFA), continental). FC 27's
+  database names only leagues and Live Editor 27.1.2 has no `GetGameLocString` / `GetCompetitionNameByObjID`, so cups and
+  continental competitions are named from Turbo's own list of FC's competition ids (Coppa Italia, FA Cup, Copa del Rey,
+  UEFA Europa League, CONMEBOL Libertadores ...); the rest get a label from the competition tree ("Italy cup 5000").
+  Match setup's fixture lines name the competition too (they said "competition 1120", the group node, before).
+
 ## 1.1.0 (voice swaps: any player gets any real or generic callname in matches)
 
 Not yet released or checked in game.
