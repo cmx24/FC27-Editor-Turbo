@@ -4,9 +4,12 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <map>
 #include <system_error>
+#include <unordered_set>
 
 #include "app.h"
 #include "imgui.h"
@@ -92,6 +95,35 @@ std::vector<fs::path> picture_files(const fs::path& dir) {
     return out;
 }
 
+// Folders worth a shortcut button in the browser: Desktop and Pictures (plain and under OneDrive), the Turbo minifaces folder
+static fs::path g_minifaces_folder;
+std::vector<std::pair<std::string, fs::path>> browser_shortcuts() {
+    std::vector<std::pair<std::string, fs::path>> out;
+    std::error_code ec;
+    auto add = [&](const std::string& label, const fs::path& p) {
+        if (!p.empty() && fs::is_directory(p, ec)) out.emplace_back(label, p);
+    };
+    const char* home = std::getenv("USERPROFILE");
+    if (!home) home = std::getenv("HOME");
+    if (home) {
+        fs::path h(home);
+        add("Desktop", h / "Desktop");
+        add("Pictures", h / "Pictures");
+        add("OneDrive Desktop", h / "OneDrive" / "Desktop");
+        add("OneDrive Pictures", h / "OneDrive" / "Pictures");
+        if (const char* od = std::getenv("OneDrive")) {
+            fs::path o(od);
+            if (o != h / "OneDrive") {
+                add("OneDrive Desktop", o / "Desktop");
+                add("OneDrive Pictures", o / "Pictures");
+            }
+        }
+        add("Downloads", h / "Downloads");
+    }
+    add("turbo_minifaces", g_minifaces_folder);
+    return out;
+}
+
 // Modal browser; returns true when a picture file was chosen (out)
 static bool file_browser_modal(const char* id, fs::path& cur_dir, fs::path& out) {
     bool chosen = false;
@@ -116,6 +148,12 @@ static bool file_browser_modal(const char* id, fs::path& cur_dir, fs::path& out)
         }
         ImGui::SameLine();
         if (ImGui::Button("Up") && cur_dir.has_parent_path() && cur_dir.parent_path() != cur_dir) cur_dir = cur_dir.parent_path();
+        // shortcuts: Desktop, Pictures (also under OneDrive), the Turbo minifaces folder
+        for (const auto& sc : browser_shortcuts()) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton(sc.first.c_str())) cur_dir = sc.second;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", sc.second.string().c_str());
+        }
 #ifdef _WIN32
         // drive letters
         for (char d = 'C'; d <= 'Z'; ++d) {
@@ -273,6 +311,7 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
         ed.browse_dir = keep_dir;
     }
     if (ed.browse_dir.empty()) ed.browse_dir = app.bridge.root() / "turbo_minifaces";
+    g_minifaces_folder = app.bridge.root() / "turbo_minifaces";
 
     // waiting for a game picture chosen as the source
     if (!ed.pending_legacy.empty()) {
@@ -489,6 +528,7 @@ static bool picture_cell(App& app, const std::string& path, bool custom_first, f
 struct FaceRow {
     int64_t playerid = 0;
     int64_t headassetid = 0;
+    bool real = false;  // headclasscode 0 and hashighqualityhead 1 (a star head)
     std::string name;
     std::string lname;
 };
@@ -507,13 +547,15 @@ static void build_faces(App& app) {
     const Field* hc = t->field("headclasscode");
     const Field* ha = t->field("headassetid");
     const Field* pid = t->field("playerid");
+    const Field* hq = t->field("hashighqualityhead");
     if (!hc || !ha || !pid) return;
     for (uint32_t idx : snap.valid) {
-        if (snap.get_int(idx, *hc) != 0) continue;
         FaceRow r;
         r.playerid = snap.get_int(idx, *pid);
         r.headassetid = snap.get_int(idx, *ha);
         if (r.headassetid <= 0) continue;
+        r.real = snap.get_int(idx, *hc) == 0 && (!hq || snap.get_int(idx, *hq) != 0);
+        if (!r.real && snap.get_int(idx, *hc) != 0 && r.headassetid != r.playerid) continue;  // generic head: nothing to pick
         r.name = app.model.player_name(r.playerid);
         r.lname = lower(r.name);
         g_faces.push_back(std::move(r));
@@ -523,7 +565,9 @@ static void build_faces(App& app) {
 
 size_t real_face_count(App& app) {
     build_faces(app);
-    return g_faces.size();
+    size_t n = 0;
+    for (const auto& f : g_faces) n += f.real ? 1 : 0;
+    return n;
 }
 
 // Fields copied from the chosen head model's player (only those FC 27's players table has)
@@ -597,8 +641,12 @@ void real_face_picker(App& app, int64_t target_pid) {
     ImGui::SetNextWindowSize(ImVec2(S(820.0f), S(600.0f)), ImGuiCond_Appearing);
     if (!ImGui::BeginPopupModal("Choose a real face", nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
     build_faces(app);
+    static bool real_only = true;
     ImGui::SetNextItemWidth(S(220.0f));
-    ImGui::InputTextWithHint("##facesearch", "name or ID", search, sizeof(search));
+    ImGui::InputTextWithHint("##facesearch", "name or ID (at least 2 letters)", search, sizeof(search));
+    ImGui::SameLine();
+    ImGui::Checkbox("Real faces only (head class 0)", &real_only);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only players with headclasscode 0 (a real face head model) and hashighqualityhead 1");
     ImGui::SameLine();
     ImGui::Checkbox("Hair", &opts.hair);
     ImGui::SameLine();
@@ -613,6 +661,7 @@ void real_face_picker(App& app, int64_t target_pid) {
     bool numeric = !q.empty() && std::all_of(q.begin(), q.end(), ::isdigit);
     std::vector<const FaceRow*> rows;
     for (const auto& f : g_faces) {
+        if (real_only && !f.real) continue;
         if (!q.empty()) {
             if (numeric ? (std::to_string(f.playerid).find(q) != 0 && std::to_string(f.headassetid).find(q) != 0)
                         : f.lname.find(q) == std::string::npos)
@@ -620,7 +669,8 @@ void real_face_picker(App& app, int64_t target_pid) {
         }
         rows.push_back(&f);
     }
-    ImGui::TextDisabled("%zu heads (head models of real players, with their minifaces)", rows.size());
+    if (!q.empty() && !numeric && q.size() < 2) ImGui::TextDisabled("Type at least 2 letters");
+    ImGui::TextDisabled("%zu heads (head models of %s, with their minifaces)", rows.size(), real_only ? "real-face players" : "every player with a head model");
     const float cell = S(96.0f);
     ImGui::BeginChild("##facegrid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 2.2f), ImGuiChildFlags_Borders);
     int cols = std::max(1, int((ImGui::GetContentRegionAvail().x + ImGui::GetStyle().ItemSpacing.x) / (cell + ImGui::GetStyle().ItemSpacing.x)));
@@ -782,6 +832,231 @@ void tattoo_editor(App& app, const Table& t, uint64_t rec) {
         }
         ImGui::EndTable();
     }
+    if (app.legacy.waiting() > 0) waiting_hint();
+}
+
+// ---------------------------------------------------------------- item galleries (hair, boots, gloves, accessories)
+// The game has preview pictures for these items (legacy files listed in <Live Editor>\legacy_filename_hash_list.csv):
+//   hairtypecode        data/ui/imgAssets/hairstyle/item_<id>_0.dds
+//   facialhairtypecode  data/ui/imgAssets/facialhairstyle/item_<id>_0.dds
+//   shoetypecode        data/ui/imgAssets/boots/item_<id>_0.dds
+//   gkglovetypecode     data/ui/imgAssets/gkglove/gkglove_<id>.dds
+//   accessorycode1..4   data/ui/imgAssets/accessories/item_<id>_<colour>.dds (colour = accessorycolourcodeN, else 0)
+// The ids come from that list, so the gallery shows exactly what the game can draw.
+struct GalleryDef {
+    const char* field;
+    const char* title;
+    const char* folder;   // under data/ui/imgAssets/
+    const char* prefix;   // file name prefix before the id
+    bool variant;         // _<n> after the id
+    const char* colour_field;
+};
+static const GalleryDef kGalleries[] = {
+    {"hairtypecode", "Hair", "hairstyle", "item_", true, nullptr},
+    {"facialhairtypecode", "Facial hair", "facialhairstyle", "item_", true, nullptr},
+    {"shoetypecode", "Boots", "boots", "item_", true, nullptr},
+    {"gkglovetypecode", "GK gloves", "gkglove", "gkglove_", false, nullptr},
+    {"accessorycode1", "Accessory 1", "accessories", "item_", true, "accessorycolourcode1"},
+    {"accessorycode2", "Accessory 2", "accessories", "item_", true, "accessorycolourcode2"},
+    {"accessorycode3", "Accessory 3", "accessories", "item_", true, "accessorycolourcode3"},
+    {"accessorycode4", "Accessory 4", "accessories", "item_", true, "accessorycolourcode4"},
+};
+
+static std::string item_path(const GalleryDef& g, int64_t id, int64_t colour) {
+    char buf[200];
+    if (g.variant) std::snprintf(buf, sizeof(buf), "data/ui/imgAssets/%s/%s%lld_%lld.dds", g.folder, g.prefix, static_cast<long long>(id), static_cast<long long>(colour));
+    else std::snprintf(buf, sizeof(buf), "data/ui/imgAssets/%s/%s%lld.dds", g.folder, g.prefix, static_cast<long long>(id));
+    return buf;
+}
+
+// ids per folder from the hash list (read once per Live Editor folder)
+static std::map<std::string, std::vector<int64_t>> g_gallery_ids;
+static std::map<std::string, std::unordered_set<int64_t>> g_gallery_variants;  // "<folder>/<id>_<variant>"
+static fs::path g_gallery_root;
+static bool g_gallery_loaded = false;
+
+std::vector<int64_t> gallery_ids(App& app, const std::string& folder) {
+    fs::path root = app.bridge.root();
+    if (!g_gallery_loaded || g_gallery_root != root) {
+        g_gallery_loaded = true;
+        g_gallery_root = root;
+        g_gallery_ids.clear();
+        g_gallery_variants.clear();
+        std::map<std::string, std::unordered_set<int64_t>> seen;
+        for (const fs::path& csv : {root / "legacy_filename_hash_list.csv", root / "extensions" / "legacy_filename_hash_list.csv"}) {
+            std::ifstream in(csv, std::ios::binary);
+            std::string line;
+            while (std::getline(in, line)) {
+                size_t semi = line.find(';');
+                if (semi == std::string::npos) continue;
+                std::string p = line.substr(semi + 1);
+                while (!p.empty() && (p.back() == '\r' || p.back() == ' ')) p.pop_back();
+                const std::string pre = "data/ui/imgAssets/";
+                if (p.rfind(pre, 0) != 0) continue;
+                size_t slash = p.find('/', pre.size());
+                if (slash == std::string::npos) continue;
+                std::string fld = p.substr(pre.size(), slash - pre.size());
+                for (const GalleryDef& g : kGalleries) {
+                    if (fld != g.folder) continue;
+                    std::string fn = p.substr(slash + 1);
+                    std::string pfx = g.prefix;
+                    if (fn.rfind(pfx, 0) != 0 || fn.size() < pfx.size() + 5 || fn.substr(fn.size() - 4) != ".dds") continue;
+                    std::string mid = fn.substr(pfx.size(), fn.size() - pfx.size() - 4);
+                    int64_t id = 0, var = 0;
+                    size_t us = mid.find('_');
+                    if (g.variant) {
+                        if (us == std::string::npos) continue;
+                        id = std::atoll(mid.substr(0, us).c_str());
+                        var = std::atoll(mid.substr(us + 1).c_str());
+                    } else {
+                        if (us != std::string::npos) continue;
+                        id = std::atoll(mid.c_str());
+                    }
+                    if (id < 0) continue;
+                    if (seen[fld].insert(id).second) g_gallery_ids[fld].push_back(id);
+                    g_gallery_variants[fld].insert(id * 1000 + var);
+                    break;
+                }
+            }
+        }
+        for (auto& kv : g_gallery_ids) std::sort(kv.second.begin(), kv.second.end());
+    }
+    auto it = g_gallery_ids.find(folder);
+    return it == g_gallery_ids.end() ? std::vector<int64_t>() : it->second;
+}
+
+static bool has_variant(const std::string& folder, int64_t id, int64_t var) {
+    auto it = g_gallery_variants.find(folder);
+    return it != g_gallery_variants.end() && it->second.count(id * 1000 + var) > 0;
+}
+
+// favourites per gallery: gui_settings.json favourites.<field> = [ids]
+static bool is_favourite(App& app, const char* field, int64_t id) {
+    const auto& fav = app.gui_settings["favourites"];
+    if (!fav.is_object() || !fav.contains(field) || !fav[field].is_array()) return false;
+    for (const auto& v : fav[field]) if (v.is_number_integer() && v.get<int64_t>() == id) return true;
+    return false;
+}
+static void toggle_favourite(App& app, const char* field, int64_t id) {
+    auto& arr = app.gui_settings["favourites"][field];
+    if (!arr.is_array()) arr = nlohmann::json::array();
+    for (auto it = arr.begin(); it != arr.end(); ++it) {
+        if (it->is_number_integer() && it->get<int64_t>() == id) {
+            arr.erase(it);
+            app.save_gui_settings();
+            return;
+        }
+    }
+    arr.push_back(id);
+    app.save_gui_settings();
+}
+
+void item_galleries(App& app, const Table& t, uint64_t rec) {
+    static int open_gal = -1;
+    static bool fav_only = false;
+    const float thumb = S(56.0f);
+    bool any = false;
+    if (ImGui::BeginTable("##galleries", 4, ImGuiTableFlags_SizingFixedFit)) {
+        for (size_t gi = 0; gi < sizeof(kGalleries) / sizeof(kGalleries[0]); ++gi) {
+            const GalleryDef& g = kGalleries[gi];
+            const Field* f = t.field(g.field);
+            if (!f) continue;
+            any = true;
+            std::vector<int64_t> ids = gallery_ids(app, g.folder);
+            int64_t colour = g.colour_field ? app.db.get_int(t, rec, g.colour_field, 0) : 0;
+            ImGui::PushID(static_cast<int>(gi));
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(g.title);
+            ImGui::TableNextColumn();
+            Value v;
+            app.db.get(t, rec, *f, v);
+            if (v.i > 0) {
+                int64_t var = has_variant(g.folder, v.i, colour) ? colour : 0;
+                draw_legacy_picture(app, item_path(g, v.i, var), thumb, true);
+            } else {
+                placeholder(thumb, "none");
+            }
+            ImGui::TableNextColumn();
+            field_editor(app, t, rec, *f, "##gval", S(80.0f));
+            ImGui::TableNextColumn();
+            if (ids.empty()) ImGui::BeginDisabled();
+            if (ImGui::Button("Choose...##gal")) {
+                open_gal = static_cast<int>(gi);
+                ImGui::OpenPopup("##gallerypick");
+            }
+            if (ids.empty()) {
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                ImGui::TextDisabled("(no previews listed in legacy_filename_hash_list.csv)");
+            } else {
+                ImGui::SameLine();
+                ImGui::TextDisabled("%zu in the game", ids.size());
+            }
+            if (open_gal == static_cast<int>(gi)) {
+                ImGui::SetNextWindowSize(ImVec2(S(760.0f), S(560.0f)), ImGuiCond_Appearing);
+                if (ImGui::BeginPopupModal("##gallerypick", nullptr, ImGuiWindowFlags_NoSavedSettings)) {
+                    ImGui::Text("%s (%s)", g.title, g.field);
+                    ImGui::SameLine();
+                    ImGui::Checkbox("Favourites only", &fav_only);
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("right-click a picture to star it");
+                    std::vector<int64_t> shown;
+                    for (int64_t id : ids)
+                        if (!fav_only || is_favourite(app, g.field, id)) shown.push_back(id);
+                    const float cell = S(100.0f);
+                    ImGui::BeginChild("##ggrid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.5f), ImGuiChildFlags_Borders);
+                    int cols = std::max(1, int((ImGui::GetContentRegionAvail().x + ImGui::GetStyle().ItemSpacing.x) /
+                                               (cell + ImGui::GetStyle().ItemSpacing.x)));
+                    size_t total = shown.size() + 1;
+                    int nrows = int((total + size_t(cols) - 1) / size_t(cols));
+                    ImGuiListClipper clip;
+                    clip.Begin(nrows, cell + ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y);
+                    int64_t picked = -1;
+                    while (clip.Step()) {
+                        for (int r = clip.DisplayStart; r < clip.DisplayEnd; ++r) {
+                            for (int c = 0; c < cols; ++c) {
+                                size_t i = size_t(r) * size_t(cols) + size_t(c);
+                                if (i >= total) break;
+                                int64_t id = i == 0 ? 0 : shown[i - 1];
+                                if (c) ImGui::SameLine();
+                                ImGui::BeginGroup();
+                                ImGui::PushID(static_cast<int>(id));
+                                char bid[64];
+                                std::snprintf(bid, sizeof(bid), "%s%lld", g.field, static_cast<long long>(id));
+                                bool fav = id && is_favourite(app, g.field, id);
+                                int64_t var = has_variant(g.folder, id, colour) ? colour : 0;
+                                std::string cap = id ? (fav ? "* " : "") + std::to_string(id) : std::string("None");
+                                if (picture_cell(app, id ? item_path(g, id, var) : std::string(), true, cell, cap, bid, v.i == id, id == 0))
+                                    picked = id;
+                                if (id && ImGui::IsItemClicked(ImGuiMouseButton_Right)) toggle_favourite(app, g.field, id);
+                                ImGui::PopID();
+                                ImGui::EndGroup();
+                            }
+                        }
+                    }
+                    ImGui::EndChild();
+                    if (picked >= 0) {
+                        if (app.edit(t, rec, *f, Value::of_int(picked)))
+                            app.notify(std::string(g.title) + ": " + (picked ? std::to_string(picked) : std::string("none")));
+                        ImGui::CloseCurrentPopup();
+                        open_gal = -1;
+                    }
+                    if (ImGui::Button("Close##gallery")) {
+                        ImGui::CloseCurrentPopup();
+                        open_gal = -1;
+                    }
+                    ImGui::EndPopup();
+                } else {
+                    open_gal = -1;
+                }
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    if (!any) ImGui::TextDisabled("None of the hair / boots / gloves / accessory fields exist in this players table.");
     if (app.legacy.waiting() > 0) waiting_hint();
 }
 

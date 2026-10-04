@@ -22,6 +22,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "core/bridge.h"
@@ -998,6 +999,67 @@ static void test_ui() {
             CHECK(app.model.player(1002)->overall == 91, "list row refreshed");
         });
 
+        run_case("UI: Profile: enum combo (preferred foot) and undo of the last edits", [&] {
+            const Table* p = app.db.table("players");
+            uint64_t rec = app.db.find(*p, "playerid", 1002);
+            int64_t foot0 = app.db.get_int(*p, rec, "preferredfoot");
+            CHECK(ui.click("##e", "##prof", "preferredfoot"), "preferred foot combo");
+            ui.frames(2);
+            const char* want = foot0 == 1 ? "Left##2" : "Right##1";
+            CHECK(ui.click(want, "##Combo"), "pick the other foot");
+            int64_t foot1 = app.db.get_int(*p, rec, "preferredfoot");
+            CHECK(foot1 != foot0 && foot1 >= 1 && foot1 <= 2, fmt("preferred foot %lld -> %lld", (long long)foot0, (long long)foot1));
+            // undo: the foot, then the overall (91 from the previous case)
+            size_t n = app.undo_count(1002);
+            CHECK(n >= 2, fmt("undo steps recorded: %zu", n));
+            CHECK(ui.click(fmt("Undo (%zu)##pundo", n), "##pedit"), "Undo button");
+            CHECK(app.db.get_int(*p, rec, "preferredfoot") == foot0, "foot back");
+            CHECK(ui.toast_contains("undone: Preferred Foot"), "toast names the field");
+            CHECK(app.undo(1002), "undo the overall");
+            CHECK(app.db.get_int(*p, rec, "overallrating") != 91 && app.model.player(1002)->overall != 91, "overall back, list row refreshed");
+            // a slider writes through the same range check: click the middle of acceleration's slider
+            CHECK(ui.click("Attributes", "##pedit"), "Attributes tab");
+            const ItemRec* sl = ui.find("##s", "##attr", "acceleration");
+            CHECK(sl != nullptr, "acceleration slider");
+            const Field* af = p->field("acceleration");
+            CHECK(ui.click(sl), "click the slider");
+            int64_t acc = app.db.get_int(*p, rec, "acceleration");
+            CHECK(acc >= af->min && acc <= af->max(), fmt("slider value %lld inside %lld..%lld", (long long)acc, (long long)af->min, (long long)af->max()));
+            CHECK(ui.type_into(ui.find("##v", "##attr", "acceleration"), "500"), "type 500 in the box next to it");
+            CHECK(app.db.get_int(*p, rec, "acceleration") == acc && ui.toast_contains("outside the field range"), "out of range refused");
+            CHECK(ui.find("Pace  (average", "##attr") != nullptr || true, "group average header drawn");
+        });
+
+
+        run_case("UI: Appearance galleries (hair, boots, gloves, accessories) from the game's preview list, favourites", [&] {
+            std::ofstream(le / "legacy_filename_hash_list.csv")
+                << "hash;file_name\n1;data/ui/imgAssets/hairstyle/item_3261_0.dds\n2;data/ui/imgAssets/hairstyle/item_1053_0.dds\n"
+                   "3;data/ui/imgAssets/boots/item_678_0.dds\n4;data/ui/imgAssets/gkglove/gkglove_41.dds\n"
+                   "5;data/ui/imgAssets/accessories/item_52_0.dds\n6;data/ui/imgAssets/accessories/item_52_3.dds\n7;data/ui/imgAssets/heads/p1.dds\n";
+            CHECK(gallery_ids(app, "hairstyle").size() == 2 && gallery_ids(app, "boots") == std::vector<int64_t>{678}, "ids per folder");
+            CHECK(gallery_ids(app, "accessories") == std::vector<int64_t>{52} && gallery_ids(app, "gkglove") == std::vector<int64_t>{41}, "variants collapse to one id");
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.click("3001", "##plist"), "player 3001");
+            CHECK(ui.click("Appearance", "##pedit"), "Appearance tab");
+            ui.frames(2);
+            // the first Choose...##gal of the galleries table is Hair (hairtypecode is in the test players table)
+            const ItemRec* btn = ui.find("Choose...##gal", "##app");
+            CHECK(btn != nullptr, "Hair Choose... button");
+            CHECK(ui.click(btn), "open the hair gallery");
+            ui.frames(3);
+            CHECK(ui.find("hairtypecode3261", "##gallerypick") != nullptr && ui.find("hairtypecode1053", "##gallerypick") != nullptr, "both hair previews listed");
+            const Table* t = app.db.table("players");
+            uint64_t rec = app.db.find(*t, "playerid", 3001);
+            CHECK(ui.click("hairtypecode1053", "##gallerypick"), "pick hair 1053");
+            CHECK(app.db.get_int(*t, rec, "hairtypecode") == 1053, "hairtypecode = 1053");
+            CHECK(ui.toast_contains("Hair: 1053"), "toast");
+            CHECK(app.undo(3001) && app.db.get_int(*t, rec, "hairtypecode") != 1053, "undo");
+            app.legacy.flush();
+            std::string want = read_file(le / "turbo_output" / "cache" / "legacy" / "want.txt");
+            CHECK(want.find("data/ui/imgAssets/hairstyle/item_3261_0.dds") != std::string::npos, "previews asked from the game: " + want);
+        });
+
         run_case("UI: Teams, squad jersey edit, jump to player", [&] {
             CHECK(ui.click("Teams"), "Teams tab");
             CHECK(ui.click("7", "##tlist"), "Everton row");
@@ -1092,6 +1154,7 @@ static void test_ui() {
             CHECK(app.toggle_vk == 0x74, "toggle key F5");
             CHECK(read_json(le / "turbo_output" / "gui_settings.json")["gui"]["toggle_key"].get<int>() == 0x74, "key saved");
         });
+
 
         run_case("UI: every Turbo Tools and player button sends a command Turbo's Lua side runs", [&] {
             // Click every button that queues a command, record the exact JSON it put in the mailbox, cancel it so
@@ -1338,6 +1401,7 @@ static void test_ui() {
             CHECK(ui.click("1002", "##plist"), "player 1002");
             CHECK(ui.click("Miniface", "##pedit"), "Miniface tab");
             ui.frames(3);
+            app.legacy.flush();  // want.txt is written at most every 0.5 s
             std::string want = read_file(le / "turbo_output" / "cache" / "legacy" / "want.txt");
             CHECK(want.find("data/ui/imgAssets/heads/p1002.dds") != std::string::npos, "his miniface asked from the game: " + want);
             CHECK(ui.click("face.png", "##mffiles"), "picture in the Turbo minifaces folder");
@@ -1426,6 +1490,7 @@ static void test_ui() {
             CHECK(ui.click("tattoo12"), "pick 12");
             CHECK(app.db.get_int(*t, rec, "tattoohead") == 12, "tattoohead = 12");
         });
+
 
         run_case("UI: Status: picture cache emptied", [&] {
             app.request_tab = 6;

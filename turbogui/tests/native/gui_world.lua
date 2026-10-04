@@ -155,7 +155,26 @@ local function build_world(sim)
                  { tattooid = 13, tattooleftarm = 1, tattoohead = 0 } },
     })
     local nrows = {}
-    for id = 1, 20 do nrows[#nrows + 1] = { nameid = id, name = NAMES[id], commentaryid = 900000 + id } end
+    -- commentaryid 900000 = no callname (name 20 "Generic"); the others map to 9000<id>
+    for id = 1, 20 do nrows[#nrows + 1] = { nameid = id, name = NAMES[id], commentaryid = (id == 20) and 900000 or (900000 + id) } end
+    -- commentary names (text compressed in FC 27, decoded by Live Editor for bridge_commentary.txt) and the per-player override
+    local crows = {}
+    for id = 1, 19 do crows[#crows + 1] = { commentaryid = 900000 + id, commentarystring = NAMES[id], commentarystartingletter = 1, commentarypreview = 1 } end
+    sim:add_table({
+        name = "commentarynames", short = "cmnm",
+        fields = {
+            { name = "commentaryid", short = "cmid", depth = 20 },
+            { name = "commentarypreview", short = "cmpv", depth = 1 },
+            { name = "commentarystartingletter", short = "cmsl", depth = 5, min = 1 },
+            { name = "commentarystring", short = "cmst", type = "compressed", depth = 8 * 45 },
+        },
+        rows = crows,
+    })
+    sim:add_table({
+        name = "playernamemap", short = "pnmp",
+        fields = { { name = "commentaryid", short = "cmid", depth = 20, min = -1 }, { name = "playerid", short = "pid_", depth = 19, min = -1 } },
+        rows = { { playerid = 2002, commentaryid = 900017 } },   -- player 2002 (Generic Generic) is called "Kane"
+    })
     sim:add_table({
         name = "playernames", short = "pnms",
         fields = {
@@ -176,7 +195,7 @@ local function build_world(sim)
             acceleration = 60 + i, sprintspeed = 61 + i, finishing = 62 + i, shortpassing = 63 + i, dribbling = 64 + i,
             standingtackle = 30 + i, strength = 50 + i, gkdiving = 10 + i,
             trait1 = (i == 1) and 5 or 0, icontrait1 = (i == 1) and 1 or 0, trait2 = (i == 2) and 3 or 0, icontrait2 = 0,
-            haircolorcode = i % 10, headassetid = p[1], hashighqualityhead = (i <= 6) and 1 or 0,
+            haircolorcode = i % 10, hairtypecode = 100 + i, shoetypecode = 600 + i, gkglovetypecode = 40 + i, accessorycode1 = 0, accessorycolourcode1 = 0, headassetid = p[1], hashighqualityhead = (i <= 6) and 1 or 0,
             headclasscode = (i <= 6) and 0 or 1, headtypecode = 100 + i, headvariation = i % 4, skintonecode = i,
             tattooleftarm = 0, tattoohead = 0,
             contractvaliduntil = 2028 + (i % 3), isretiring = (i == 3) and 1 or 0, nationality = 14,
@@ -222,6 +241,11 @@ local function build_world(sim)
             { name = "trait2", short = "tr2_", depth = 14 },
             { name = "icontrait2", short = "itr2", depth = 14 },
             { name = "haircolorcode", short = "hcol", depth = 4 },
+            { name = "hairtypecode", short = "htyp", depth = 14 },
+            { name = "shoetypecode", short = "shoe", depth = 12 },
+            { name = "gkglovetypecode", short = "gkgl", depth = 10 },
+            { name = "accessorycode1", short = "acc1", depth = 11 },
+            { name = "accessorycolourcode1", short = "acl1", depth = 8 },
             { name = "headassetid", short = "hai_", depth = 21 },
             { name = "hashighqualityhead", short = "hqh_", depth = 1 },
             { name = "headclasscode", short = "hcc_", depth = 2 },
@@ -422,6 +446,7 @@ if mode == "build" then
     copy(H.out("bridge_meta.json"), OUT .. "/LE/turbo_output/bridge_meta.json")
     copy(H.out("bridge_state.json"), OUT .. "/LE/turbo_output/bridge_state.json")
     copy(H.out("bridge_names.txt"), OUT .. "/LE/turbo_output/bridge_names.txt")
+    copy(H.out("bridge_commentary.txt"), OUT .. "/LE/turbo_output/bridge_commentary.txt")
     dump_expected(sim)
     save_image(sim, OUT .. "/world.img")
     print("world built: " .. OUT)

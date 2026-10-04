@@ -35,6 +35,16 @@ static const std::map<std::string, std::string>& label_map() {
         {"awaygf", "Away goals for"}, {"homega", "Home goals against"}, {"awayga", "Away goals against"},
         {"points", "Points"}, {"nummatchesplayed", "Played"}, {"currenttableposition", "Table position"},
         {"teamform", "Form"}, {"lastgameresult", "Last result"},
+        {"firstnameid", "First name ID"}, {"lastnameid", "Last name ID"}, {"commonnameid", "Common name ID"},
+        {"playerjerseynameid", "Jersey name ID"}, {"bodytypecode", "Body type"}, {"gender", "Gender"},
+        {"skillmoveslikelihood", "Skill moves likelihood"}, {"gkkickstyle", "GK kick style"}, {"runstylecode", "Run style"},
+        {"socklengthcode", "Sock length"}, {"sockstylecode", "Sock style"}, {"shoetypecode", "Boots"}, {"shoecolorcode1", "Boot colour 1"},
+        {"shoecolorcode2", "Boot colour 2"}, {"shoedesigncode", "Boot design"}, {"gkglovetypecode", "GK gloves"},
+        {"hairtypecode", "Hair"}, {"haircolorcode", "Hair colour"}, {"hairstylecode", "Hair style"},
+        {"facialhairtypecode", "Facial hair"}, {"facialhaircolorcode", "Facial hair colour"}, {"eyecolorcode", "Eye colour"},
+        {"skintonecode", "Skin tone"}, {"headtypecode", "Head type"}, {"jerseyfit", "Jersey fit"},
+        {"jerseysleevelengthcode", "Sleeves"}, {"jerseystylecode", "Jersey style"}, {"shortstyle", "Shorts"},
+        {"growthprofile", "Growth profile"}, {"emotion", "Emotion"}, {"personality", "Personality"},
     };
     return m;
 }
@@ -182,6 +192,124 @@ bool date_field_editor(App& app, const Table& t, uint64_t rec, const Field& f, c
     return wrote;
 }
 
+bool slider_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float width) {
+    Value cur;
+    if (!app.db.get(t, rec, f, cur) || f.type != FieldType::Int || f.depth > 30) return field_editor(app, t, rec, f, label, width);
+    bool wrote = false;
+    ImGui::PushID(f.name.c_str());
+    if (label) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(label);
+        ImGui::SameLine(S(150.0f));
+    }
+    ImGui::SetNextItemWidth(width < 0.0f ? -S(60.0f) : width);
+    ImGuiID id = ImGui::GetID("##s");
+    bool mine = g_edit.id == id;
+    int tmp = static_cast<int>(cur.i);
+    int tmpe = static_cast<int>(g_edit.i);
+    int* p = mine ? &tmpe : &tmp;
+    // the slider itself stays inside the field's range; a value typed with Ctrl+click is checked by Database::set
+    ImGui::SliderInt("##s", p, static_cast<int>(f.min), static_cast<int>(f.max()), "%d");
+    range_tooltip(f);
+    if (ImGui::IsItemActivated()) {
+        g_edit.id = id;
+        g_edit.i = *p;
+    }
+    if (mine) g_edit.i = *p;
+    if (ImGui::IsItemDeactivated() && g_edit.id == id) {
+        long long v = g_edit.i;
+        g_edit.id = 0;
+        if (ImGui::IsItemDeactivatedAfterEdit() && v != cur.i) wrote = app.edit(t, rec, f, Value::of_int(v));
+    }
+    ImGui::PopID();
+    // a small number box next to the slider (typed values go through the same range check)
+    ImGui::SameLine();
+    if (field_editor(app, t, rec, f, nullptr, S(52.0f))) wrote = true;
+    return wrote;
+}
+
+// Readable labels for enumerated fields (FC 26/27 Live Editor labels)
+struct EnumDef {
+    const char* field;
+    int64_t base;  // value of labels[0]
+    std::vector<const char*> labels;
+};
+static const std::vector<EnumDef>& enum_defs() {
+    static const std::vector<EnumDef> d = {
+        {"preferredfoot", 1, {"Right", "Left"}},
+        {"weakfootabilitytypecode", 1, {"1 star", "2 stars", "3 stars", "4 stars", "5 stars"}},
+        {"skillmoves", 0, {"1 star", "2 stars", "3 stars", "4 stars", "5 stars"}},
+        {"internationalrep", 1, {"1 star", "2 stars", "3 stars", "4 stars", "5 stars"}},
+        {"attackingworkrate", 0, {"Low", "Medium", "High"}},
+        {"defensiveworkrate", 0, {"Low", "Medium", "High"}},
+        {"gender", 0, {"Male", "Female"}},
+        {"headclasscode", 0, {"Real face (specific)", "Generic", "Generic (custom)", "Youth / created"}},
+        {"gkkickstyle", 0, {"Default", "Power", "Precision", "Mixed"}},
+        {"skillmoveslikelihood", 0, {"Low", "Medium", "High", "Very high"}},
+        {"emotion", 1, {"Neutral", "Happy", "Sad", "Angry", "Frustrated", "Confident"}},
+        {"personality", 1, {"Neutral", "Maverick", "Heartbeat", "Virtuoso"}},
+        {"jerseyfit", 0, {"Regular", "Loose", "Tight"}},
+        {"jerseysleevelengthcode", 0, {"Short", "Long", "Short (both)", "Long (both)"}},
+        {"jerseystylecode", 0, {"Tucked in", "Untucked"}},
+        {"shortstyle", 0, {"Regular", "Long"}},
+        {"undershortstyle", 0, {"None", "Visible"}},
+        {"socklengthcode", 0, {"Low", "Normal", "High", "Very high"}},
+        {"sockstylecode", 0, {"Standard", "Tape", "Cut-off", "Rolled", "Grip"}},
+        {"shoedesigncode", 0, {"Standard", "Laced", "Laceless", "High-cut"}},
+        {"muscularitycode", 0, {"Regular", "Muscular"}},
+        {"runstylecode", 0, {"Default", "Short step", "Long step", "Smooth", "Upright", "Hunched", "Bouncy", "Mixed"}},
+        {"growthprofile", 0, {"Default", "Early", "Normal", "Late", "Very late"}},
+    };
+    return d;
+}
+
+bool is_enum_field(const std::string& field) {
+    for (const auto& d : enum_defs())
+        if (field == d.field) return true;
+    return false;
+}
+
+const char* enum_label(const std::string& field, int64_t v) {
+    for (const auto& d : enum_defs()) {
+        if (field != d.field) continue;
+        int64_t k = v - d.base;
+        if (k >= 0 && k < static_cast<int64_t>(d.labels.size())) return d.labels[static_cast<size_t>(k)];
+        return nullptr;
+    }
+    return nullptr;
+}
+
+bool enum_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float width) {
+    if (!is_enum_field(f.name) || f.type != FieldType::Int) return field_editor(app, t, rec, f, label, width);
+    Value cur;
+    if (!app.db.get(t, rec, f, cur)) return false;
+    bool wrote = false;
+    ImGui::PushID(f.name.c_str());
+    if (label) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(label);
+        ImGui::SameLine(S(150.0f));
+    }
+    ImGui::SetNextItemWidth(width);
+    const char* curl = enum_label(f.name, cur.i);
+    char shown[64];
+    if (curl) std::snprintf(shown, sizeof(shown), "%s", curl);
+    else std::snprintf(shown, sizeof(shown), "%lld", static_cast<long long>(cur.i));
+    if (ImGui::BeginCombo("##e", shown)) {
+        for (int64_t v = f.min; v <= f.max() && v < f.min + 64; ++v) {
+            const char* l = enum_label(f.name, v);
+            char item[80];
+            if (l) std::snprintf(item, sizeof(item), "%s##%lld", l, static_cast<long long>(v));
+            else std::snprintf(item, sizeof(item), "%lld", static_cast<long long>(v));
+            if (ImGui::Selectable(item, v == cur.i) && v != cur.i) wrote = app.edit(t, rec, f, Value::of_int(v));
+        }
+        ImGui::EndCombo();
+    }
+    range_tooltip(f);
+    ImGui::PopID();
+    return wrote;
+}
+
 void not_connected_hint() {
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     ImGui::TextWrapped("Not connected to the game database yet. Turbo connects when you enter a career, or at once when you run "
@@ -204,7 +332,8 @@ void field_grid(App& app, const Table& t, uint64_t rec, const std::vector<std::s
             std::string lbl = field_label(f->name);
             // text fills its column; long numbers (budgets, wages, release clauses) get more room
             float w = f->type == FieldType::String ? -1.0f : (f->depth > 20 ? S(130.0f) : S(90.0f));
-            field_editor(app, t, rec, *f, lbl.c_str(), w);
+            if (is_enum_field(f->name)) enum_editor(app, t, rec, *f, lbl.c_str(), S(130.0f));
+            else field_editor(app, t, rec, *f, lbl.c_str(), w);
         }
         ImGui::EndTable();
     }

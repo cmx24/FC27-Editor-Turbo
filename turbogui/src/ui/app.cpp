@@ -205,6 +205,8 @@ void App::tick(double t) {
 
 bool App::edit(const Table& t, uint64_t rec, const Field& f, const Value& v) {
     std::string err;
+    Value before;
+    bool have_before = db.get(t, rec, f, before);
     if (!db.set(t, rec, f, v, &err)) {
         notify(f.name + ": " + err, true);
         return false;
@@ -212,6 +214,11 @@ bool App::edit(const Table& t, uint64_t rec, const Field& f, const Value& v) {
     if (t.name == "players") {
         int64_t pid = db.get_int(t, rec, "playerid", 0);
         model.refresh_player(pid, today());
+        if (have_before && !(before == v)) {
+            auto& steps = undo_[pid];
+            steps.push_back({t.name, rec, f.name, before});
+            while (steps.size() > kUndoSteps) steps.pop_front();
+        }
     } else if (t.name == "teams") {
         model.refresh_team(db.get_int(t, rec, "teamid", 0));
     } else if (t.name == "teamplayerlinks") {
@@ -219,6 +226,34 @@ bool App::edit(const Table& t, uint64_t rec, const Field& f, const Value& v) {
     }
     ++gen;
     log(t.name + "." + f.name + " = " + v.to_string());
+    return true;
+}
+
+size_t App::undo_count(int64_t playerid) const {
+    auto it = undo_.find(playerid);
+    return it == undo_.end() ? 0 : it->second.size();
+}
+
+bool App::undo(int64_t playerid) {
+    auto it = undo_.find(playerid);
+    if (it == undo_.end() || it->second.empty()) return false;
+    UndoStep step = it->second.back();
+    it->second.pop_back();
+    const Table* t = db.table(step.table);
+    const Field* f = t ? t->field(step.field) : nullptr;
+    if (!t || !f || !db.table_alive(*t, step.rec)) {
+        notify("undo: the database changed (save loaded?) - press Refresh", true);
+        return false;
+    }
+    std::string err;
+    if (!db.set(*t, step.rec, *f, step.before, &err)) {
+        notify("undo " + step.field + ": " + err, true);
+        return false;
+    }
+    model.refresh_player(playerid, today());
+    ++gen;
+    log("undo " + step.table + "." + step.field + " = " + step.before.to_string());
+    notify("undone: " + field_label(step.field) + " back to " + step.before.to_string());
     return true;
 }
 

@@ -4,6 +4,7 @@
 #include <deque>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -55,6 +56,18 @@ public:
     TextureCache textures;   // pictures shown in the window (textures.h)
     Callnames callnames;     // commentary language and spoken callnames (core/callnames.h)
     std::filesystem::path game_root;  // folder of FC27.exe (language packs); tests point it at a fake game folder
+    // ---- undo of direct edits, per player (players table), newest last; at most kUndoSteps each
+    struct UndoStep {
+        std::string table;
+        uint64_t rec = 0;
+        std::string field;
+        Value before;
+    };
+    static constexpr size_t kUndoSteps = 20;
+    std::map<int64_t, std::deque<UndoStep>> undo_;
+    size_t undo_count(int64_t playerid) const;
+    // Undo the last edit of this player (players table or his teamplayerlinks rows). Returns false when nothing to undo
+    bool undo(int64_t playerid);
 
     // ---- state
     bool visible = false;
@@ -143,5 +156,12 @@ void all_fields(App& app, const Table& t, uint64_t rec, const char* id);
 bool date_field_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label);
 // Players > Callname tab: the spoken name for the loaded commentary language, pickers and assignment (ui_callnames.cpp)
 void callname_editor(App& app, const Table& t, const PlayerRow& p);
+// Slider over the field's whole range (attributes); a typed value outside it is refused by Database::set
+bool slider_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float width);
+// Combo with readable labels for an enumerated field (preferred foot, work rates, stars ...); false = no labels known
+bool enum_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float width);
+// Labels for enumerated fields: nullptr when the field is not enumerated; label for value v, or nullptr
+const char* enum_label(const std::string& field, int64_t v);
+bool is_enum_field(const std::string& field);
 
 }  // namespace turbo
