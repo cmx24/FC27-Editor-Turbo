@@ -115,10 +115,10 @@ public:
     virtual bool update_job_security(uint64_t com, std::string& err) = 0;
 };
 
-// ---------------------------------------------------------------- mailbox game call (core/game_calls.h op 3)
+// ---------------------------------------------------------------- mailbox game call (core/game_calls.h op 4)
 // args[0] = sub-op, args[1] = object address (ClubObjectivesManager / JobSwitchManager from Lua's checked walk;
 // 0 = the pointer the capture hooks saw), args[2] = value, args[3] = expected user team (0 = skip the check).
-constexpr int32_t kCallOpManagerRules = 3;
+constexpr int32_t kCallOpManagerRules = 4;
 constexpr int64_t kMrGet = 1;           // out0 = score, out1 = addon, text = level + bands
 constexpr int64_t kMrSetLevel = 2;      // value = level 0..3: safe / very insecure lock, okay / insecure aim at the band
 constexpr int64_t kMrSetScore = 3;      // value = target score 0..100 (addon = target - objectives part)

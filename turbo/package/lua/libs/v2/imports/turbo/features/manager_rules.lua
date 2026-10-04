@@ -28,7 +28,7 @@ local M = {}
 M.NATIVE = "TurboManagerRules"
 M.COM_TYPE = 133   -- ENUM_FCEGameModesFCECareerModeClubObjectivesManager
 M.JSM_TYPE = 54    -- ENUM_FCEGameModesFCECareerModeJobSwitchManager
--- sub-ops of game call op 3 (turbogui/src/core/manager_rules.h)
+-- sub-ops of game call op 4 (turbogui/src/core/manager_rules.h)
 M.SUB_GET, M.SUB_SET_LEVEL, M.SUB_SET_SCORE, M.SUB_RESTORE, M.SUB_UNSACKABLE, M.SUB_FLAGS = 1, 2, 3, 4, 5, 6
 M.KEEP_FILE = "manager_rules_keep.json"
 -- ClubObjectivesManager / JobSwitchManager offsets read here (same as manager_rules.h; [H] in docs/re/manager_rules.md)

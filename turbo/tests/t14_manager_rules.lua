@@ -161,8 +161,8 @@ H.case("manager rules: a kept unsackable is switched on again once per game sess
     _G.TurboManagerRules = nil
 end)
 
--- TurboManagerRules is defined by bridge.install_natives on top of Turbo.dll's turbo_game_call: op 3, four arguments
-H.case("bridge: TurboManagerRules travels as game call op 3 (sub-op, address, value, team) and returns the outputs", function()
+-- TurboManagerRules is defined by bridge.install_natives on top of Turbo.dll's turbo_game_call: op 4, four arguments
+H.case("bridge: TurboManagerRules travels as game call op 4 (sub-op, address, value, team) and returns the outputs", function()
     local bridge = require 'imports/turbo/bridge'
     TURBO_STATE.bridge.next_dll_check = 0
     local mb = bridge.mailbox_address()
@@ -188,7 +188,7 @@ H.case("bridge: TurboManagerRules travels as game call op 3 (sub-op, address, va
     H.eq(caps.unavailable().manager_rules, nil, "manager_rules now available")
     local ok, text, status, o0, o1 = _G.TurboManagerRules(2, 0x1234, 3, 1)
     H.eq(ok, true, text); H.eq(status, "ok"); H.eq(o0, 100); H.eq(o1, 100); H.has(text, "locked safe")
-    H.eq(seen[1].op, 3, "op manager_rules"); H.eq(seen[1].a[1], 2); H.eq(seen[1].a[2], 0x1234); H.eq(seen[1].a[3], 3); H.eq(seen[1].a[4], 1)
+    H.eq(seen[1].op, 4, "op manager_rules"); H.eq(seen[1].a[1], 2); H.eq(seen[1].a[2], 0x1234); H.eq(seen[1].a[3], 3); H.eq(seen[1].a[4], 1)
     -- the feature end to end through the mailbox
     local ok2, msg = run("manager_rules", { enabled = true, job_security = "safe", confirm = true })
     H.eq(ok2, true, msg); H.eq(seen[2].a[2], sim.managers[133], "the career's ClubObjectivesManager")

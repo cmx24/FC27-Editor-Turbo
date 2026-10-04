@@ -37,7 +37,7 @@ local CALL_ARGS, CALL_OUT, CALL_TEXT, CALL_TEXT_SIZE = 0x2030, 0x2050, 0x2060, 0
 local CALL_IDLE, CALL_OK, CALL_FAILED, CALL_QUEUED = 0, 1, -1, 2
 M.CALL_OP_JOB_OFFER = 1
 M.CALL_OP_STANDINGS_REFRESH = 2  -- args: svm, managers, comm service, ifce (turbogui/src/core/standings_refresh.h)
-M.CALL_OP_MANAGER_RULES = 3      -- args: sub-op, manager address, value, user team (turbogui/src/core/manager_rules.h)
+M.CALL_OP_MANAGER_RULES = 4      -- args: sub-op, manager address, value, user team (turbogui/src/core/manager_rules.h)
 
 -- bridge_dll.json is stamped by the DLL every ~2 s while it runs. A file older than this is left over from an
 -- earlier game session: its mailbox address means nothing in this process and is never read.
