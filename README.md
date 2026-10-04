@@ -99,7 +99,8 @@ python3 scripts/check_field_names.py          # needs git + GitHub access
 bash scripts/package.sh                       # needs zip
 ```
 
-Not included yet: match setup overrides, gameplay toggles, manager market / job security / firing, endless career, reveal
-player data, negotiation bypasses, match-fixing and minifaces (they need code hooks inside FC27.exe found by in-game
-analysis first). Job offers are in (Managers > Job offers: the game's own job market makes the offer through a Turbo.dll
-game call, `docs/re/job_offer.md`). See `docs/fc26-parity.md`.
+Not included yet: match setup overrides, gameplay toggles, reveal player data, negotiation bypasses, unsupported leagues
+and match-fixing (they need code hooks inside FC27.exe found by in-game analysis first). Job offers are in (Managers > Job
+offers: the game's own job market makes the offer through a Turbo.dll game call, `docs/re/job_offer.md`), and so are job
+security, unsackable and the manager market (Managers > Manager rules / Manager market, `docs/re/manager_rules.md`).
+See `docs/fc26-parity.md`.
