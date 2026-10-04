@@ -35,6 +35,7 @@ M.MODULES = {
     db_edit                  = { path = 'imports/turbo/features/db_edit',                  kind = "action", needs_cm = false, desc = "Edit any DB table rows matching conditions" },
     transfer_budget          = { path = 'imports/turbo/features/transfer_budget',          kind = "action", needs_cm = true,  desc = "Read, set or add to your club's transfer budget" },
     export_table             = { path = 'imports/turbo/features/export_table',             kind = "action", needs_cm = false, desc = "Dump DB tables (rows + field ranges) to CSV" },
+    job_offer                = { path = 'imports/turbo/features/job_offer',                kind = "action", needs_cm = true,  desc = "Create a job offer from a chosen club (feature flag)" },
 }
 
 local function message_box(cfg, title, text, opts)
