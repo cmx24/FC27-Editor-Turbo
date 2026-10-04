@@ -22,6 +22,7 @@
 
 #include "MinHook.h"
 #include "nlohmann/json.hpp"
+#include "game_hooks.h"
 #include "host.h"
 #include "imgui.h"
 #include "imgui_impl_dx12.h"
@@ -879,6 +880,8 @@ bool start_overlay(HMODULE) {
     }
     log("hooks installed; press %s in game to show Turbo", turbo::key_name(g_app->toggle_vk));
     install_input_shield();
+    install_game_hooks();  // game-code hooks (game_hooks.cpp): signature scan, kill switches, game-thread dispatcher
+    g_app->hook_report = []() { return game_hooks_report(); };
     start_devtools();
     return true;
 }

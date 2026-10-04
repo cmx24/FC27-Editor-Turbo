@@ -373,6 +373,38 @@ const char* key_name(int vk) {
     return "?";
 }
 
+// Game-code hooks (src/win/game_hooks.cpp): build, signature table, every signature's status, hooks, dispatcher
+void draw_hook_status(App& app) {
+    ImGui::SeparatorText("Game hooks");
+    if (!app.hook_report) {
+        ImGui::TextDisabled("not available in this build");
+        return;
+    }
+    const HookReport r = app.hook_report();
+    ImGui::Text("Game build: %s | signature table: %s | hooks: %s", r.build.empty() ? "unknown" : r.build.c_str(),
+                r.table_source.empty() ? "none" : r.table_source.c_str(), r.enabled ? "allowed" : "off");
+    if (!r.note.empty()) ImGui::TextWrapped("  %s", r.note.c_str());
+    int found = 0;
+    for (const auto& s : r.signatures)
+        if (s.state == SigState::Found) ++found;
+    ImGui::Text("Signatures: %d of %zu found", found, r.signatures.size());
+    for (const auto& s : r.signatures) {
+        if (s.state == SigState::Found)
+            ImGui::Text("  %s: found at 0x%llX", s.name.c_str(), static_cast<unsigned long long>(s.address));
+        else
+            ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "  %s: %s (%s)", s.name.c_str(), sig_state_name(s.state), s.error.c_str());
+    }
+    ImGui::Text("Hooks active: %zu", r.hooks.size());
+    for (const auto& h : r.hooks)
+        ImGui::Text("  %s: %s at 0x%llX | calls %lld | errors %lld%s%s", h.name.c_str(),
+                    h.killed ? "KILLED (hook_<name>_off.txt)" : h.active ? "active" : "not active",
+                    static_cast<unsigned long long>(h.target), h.calls, h.errors, h.note.empty() ? "" : " | ",
+                    h.note.c_str());
+    ImGui::Text("Game-thread dispatcher: %s | ticks %lld | Lua pumps %lld | jobs run %lld | queued %zu | thread %lu",
+                r.dispatcher_hooked ? "prompt (game_tick hook)" : "on career-mode events (Lua pump)", r.dispatcher_ticks,
+                r.dispatcher_pumps, r.dispatcher_ran, r.queued, static_cast<unsigned long>(r.game_thread_id));
+}
+
 void draw_status(App& app) {
     const auto& st = app.bridge.state();
     images_status(app);
@@ -402,6 +434,7 @@ void draw_status(App& app) {
     } else {
         ImGui::Text("Command channel: unavailable");
     }
+    draw_hook_status(app);
 
     ImGui::SeparatorText("Settings");
     ImGui::SetNextItemWidth(S(140.0f));

@@ -14,6 +14,7 @@
 #include "core/legacy.h"
 #include "core/mem.h"
 #include "core/model.h"
+#include "core/sigscan.h"
 #include "core/t3db.h"
 #include "nlohmann/json.hpp"
 #include "textures.h"
@@ -99,6 +100,7 @@ public:
     // renderer creates and destroys textures the way the picture panels do
     bool texture_test = false;
     std::function<void(const std::string&)> log_hook;  // writes to turbo_gui.log (set by the Windows host)
+    std::function<HookReport()> hook_report;           // game-code hook status for the Status tab (Windows host)
     int texture_test_frames = 0;
     double lua_heartbeat_seen_at = -1.0;
 
@@ -138,6 +140,8 @@ bool recalc_league(App& app, int64_t league, bool positions, std::string* msg);
 void draw_database(App& app);
 void draw_tools(App& app);
 void draw_status(App& app);
+// Game-code hook status (part of the Status tab; App::hook_report supplies the data)
+void draw_hook_status(App& app);
 
 // Name of a show/hide key ("F8"); "?" for keys the Status tab does not offer
 const char* key_name(int vk);

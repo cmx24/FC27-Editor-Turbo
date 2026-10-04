@@ -33,6 +33,7 @@
 #include "core/memmap.h"
 #include "core/le_log.h"
 #include "core/model.h"
+#include "core/sigscan.h"
 #include "core/t3db.h"
 #include "imgui.h"
 #include "imgui_impl_null.h"
@@ -903,6 +904,33 @@ static void test_ui() {
                 ui.frames(3);
             }
             CHECK(ui.find("Players") && ui.find("Status") && ui.find("Turbo Tools") && ui.find("Competitions"), "tab items present");
+            // Status tab: the game-hook report (filled by the Windows host) renders in every state
+            int reports = 0;
+            app.hook_report = [&]() {
+                ++reports;
+                HookReport r;
+                r.build = "6AB9813C-211EF000";
+                r.table_source = "built-in";
+                r.enabled = true;
+                r.note = "build known";
+                r.signatures.push_back({"game_tick", SigState::Skipped, 0, 0, 0, "placeholder"});
+                r.signatures.push_back({"found_one", SigState::Found, 0x140001000ULL, 0x140002000ULL, 1, ""});
+                r.signatures.push_back({"two", SigState::Ambiguous, 0, 0, 2, "more than one match"});
+                HookStatus h;
+                h.name = "found_one";
+                h.active = true;
+                h.target = 0x140002000ULL;
+                h.calls = 5;
+                r.hooks.push_back(h);
+                r.dispatcher_pumps = 2;
+                r.game_thread_id = 1234;
+                return r;
+            };
+            app.request_tab = 6;
+            ui.frames(3);
+            CHECK(reports >= 1, "hook report drawn on the Status tab");
+            app.hook_report = nullptr;
+            ui.frames(2);
         });
 
         run_case("presets: the Import dialog's preview reads Live Editor CSV (newest row), cards CSV and Turbo JSON", [&] {
@@ -2263,6 +2291,152 @@ static void test_devops() {
     });
 }
 
+// Signature scanning for game-code hooks (core/sigscan.h; the Windows host src/win/game_hooks.cpp builds on it)
+static void test_sigscan() {
+    using namespace turbo;
+    run_case("signatures: pattern scan over a synthetic code buffer (unique, ambiguous, missing)", [&] {
+        std::vector<uint8_t> code(0x1000, 0xCC);
+        const uint64_t base = 0x140001000ULL;
+        // a "function" at +0x100: 48 89 5C 24 08 57 48 83 EC 20 ...
+        const uint8_t fn[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xF9};
+        std::memcpy(code.data() + 0x100, fn, sizeof(fn));
+        // the same prologue again at +0x800 (ambiguous for a short pattern), but a different body
+        std::memcpy(code.data() + 0x800, fn, 10);
+        std::vector<uint8_t> b;
+        std::vector<bool> m;
+        CHECK(parse_pattern("48 89 5C 24 ?? 57 48 83 EC 20 48 8B F9", b, m) && b.size() == 13 && !m[4], "pattern parsed");
+        auto hits = scan_pattern(code.data(), code.size(), base, b, m, 10);
+        CHECK(hits.size() == 1 && hits[0] == base + 0x100, fmt("unique hit: %zu", hits.size()));
+        CHECK(parse_pattern("48 89 5C 24 08 57", b, m), "short pattern");
+        hits = scan_pattern(code.data(), code.size(), base, b, m, 10);
+        CHECK(hits.size() == 2 && hits[1] == base + 0x800, "two hits");
+        hits = scan_pattern(code.data(), code.size(), base, b, m, 1);
+        CHECK(hits.size() == 1, "max_hits honoured");
+        CHECK(parse_pattern("?? ?? 5C 24 08 57 00", b, m), "pattern with leading wildcards");
+        hits = scan_pattern(code.data(), code.size(), base, b, m, 10);
+        CHECK(hits.empty(), "leading wildcards and a mismatching tail: no hit");
+        CHECK(parse_pattern("?? ?? 5C 24 08 57", b, m), "leading wildcards");
+        hits = scan_pattern(code.data(), code.size(), base, b, m, 10);
+        CHECK(hits.size() == 2 && hits[0] == base + 0x100, "leading wildcards: match starts before the first fixed byte");
+        CHECK(parse_pattern("?? ??", b, m), "only wildcards parse");
+        CHECK(scan_pattern(code.data(), code.size(), base, b, m, 10).empty(), "only wildcards never match");
+        // a pattern at the very end of the buffer
+        code[0xFFE] = 0xAB;
+        code[0xFFF] = 0xCD;
+        CHECK(parse_pattern("AB CD", b, m), "tail pattern");
+        hits = scan_pattern(code.data(), code.size(), base, b, m, 10);
+        CHECK(hits.size() == 1 && hits[0] == base + 0xFFE, "match at the end of the buffer");
+        CHECK(scan_pattern(code.data(), 1, base, b, m, 10).empty(), "buffer shorter than the pattern");
+    });
+    run_case("signatures: rip-relative operands (call/jmp rel32, jcc, call [rip], mov/lea/cmp [rip], mov imm)", [&] {
+        using V = std::vector<uint8_t>;
+        uint64_t t = 0;
+        std::string err;
+        const uint64_t at = 0x140010000ULL;
+        V call = {0xE8, 0x10, 0x00, 0x00, 0x00};
+        CHECK(resolve_rip(call.data(), call.size(), at, t, err) && t == at + 5 + 0x10, "E8 rel32");
+        V jmp = {0xE9, 0xF0, 0xFF, 0xFF, 0xFF};
+        CHECK(resolve_rip(jmp.data(), jmp.size(), at, t, err) && t == at + 5 - 0x10, "E9 negative rel32");
+        V jcc = {0x0F, 0x84, 0x00, 0x01, 0x00, 0x00};
+        CHECK(resolve_rip(jcc.data(), jcc.size(), at, t, err) && t == at + 6 + 0x100, "0F 84 rel32");
+        V callrip = {0xFF, 0x15, 0x00, 0x00, 0x01, 0x00};
+        CHECK(resolve_rip(callrip.data(), callrip.size(), at, t, err) && t == at + 6 + 0x10000, "FF 15 [rip]: the slot");
+        V movrax = {0x48, 0x8B, 0x05, 0x34, 0x12, 0x00, 0x00, 0x90};
+        CHECK(resolve_rip(movrax.data(), movrax.size(), at, t, err) && t == at + 7 + 0x1234, "48 8B 05 disp32");
+        V learcx = {0x48, 0x8D, 0x0D, 0xFC, 0xFF, 0xFF, 0xFF};
+        CHECK(resolve_rip(learcx.data(), learcx.size(), at, t, err) && t == at + 7 - 4, "48 8D 0D negative disp32");
+        V lea_r8 = {0x4C, 0x8D, 0x05, 0x00, 0x10, 0x00, 0x00};
+        CHECK(resolve_rip(lea_r8.data(), lea_r8.size(), at, t, err) && t == at + 7 + 0x1000, "4C 8D 05 (REX.R)");
+        V mov32 = {0x8B, 0x0D, 0x08, 0x00, 0x00, 0x00};
+        CHECK(resolve_rip(mov32.data(), mov32.size(), at, t, err) && t == at + 6 + 8, "8B 0D without REX");
+        V cmpq = {0x48, 0x83, 0x3D, 0x10, 0x00, 0x00, 0x00, 0x00};
+        CHECK(resolve_rip(cmpq.data(), cmpq.size(), at, t, err) && t == at + 8 + 0x10, "48 83 3D disp32 imm8");
+        V movimm = {0xC7, 0x05, 0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00};
+        CHECK(resolve_rip(movimm.data(), movimm.size(), at, t, err) && t == at + 10 + 0x10, "C7 05 disp32 imm32");
+        V movsxd = {0x48, 0x63, 0x05, 0x04, 0x00, 0x00, 0x00};
+        CHECK(resolve_rip(movsxd.data(), movsxd.size(), at, t, err) && t == at + 7 + 4, "48 63 05 (movsxd)");
+        V notrip = {0x48, 0x8B, 0x45, 0x10};
+        CHECK(!resolve_rip(notrip.data(), notrip.size(), at, t, err) && err.find("rip-relative") != std::string::npos, "mov rax,[rbp+10] refused");
+        V cut = {0xE8, 0x10, 0x00};
+        CHECK(!resolve_rip(cut.data(), cut.size(), at, t, err), "cut-off instruction refused");
+        V other = {0x90, 0x90, 0x90, 0x90, 0x90};
+        CHECK(!resolve_rip(other.data(), other.size(), at, t, err) && err.find("opcode 90") != std::string::npos, "nop refused");
+        CHECK(!resolve_rip(nullptr, 0, at, t, err), "null refused");
+    });
+    run_case("signatures: table JSON, build keys, built-in fallback, end-to-end resolution", [&] {
+        CHECK(build_key(0x6AB9813C, 0x211EF000) == "6AB9813C-211EF000", "build key format");
+        CHECK(build_key(0, 1) == "00000000-00000001", "build key zero padded");
+        SignatureTable t;
+        std::string err;
+        const std::string good =
+            "{\"build\":\"6AB9813C-211EF000\",\"game\":\"FC27.exe\",\"signatures\":{"
+            "\"call_site\":{\"pattern\":\"E8 ?? ?? ?? ?? 48 8B D8 EB\",\"resolve\":\"rip\",\"note\":\"x\"},"
+            "\"plain\":{\"pattern\":\"48 89 5C 24 08 57 48 83 EC 20\",\"offset\":2},"
+            "\"later\":{\"pattern\":\"\"}}}";
+        CHECK(parse_signature_table(good, t, err), "table parses: " + err);
+        CHECK(t.build == "6AB9813C-211EF000" && t.sigs.size() == 3 && t.find("plain") && t.find("plain")->offset == 2 &&
+                  t.find("call_site")->resolve == "rip" && t.find("later")->pattern.empty() && !t.find("nope"),
+              "table contents");
+        CHECK(!parse_signature_table("[]", t, err) && !err.empty(), "array refused");
+        CHECK(!parse_signature_table("{\"signatures\":{}}", t, err) && err.find("build") != std::string::npos, "build missing");
+        CHECK(!parse_signature_table("{\"build\":\"x\",\"signatures\":{\"a\":{\"pattern\":\"ZZ\"}}}", t, err) &&
+                  err.find("malformed") != std::string::npos,
+              "bad pattern refused");
+        CHECK(!parse_signature_table("{\"build\":\"x\",\"signatures\":{\"a\":{\"pattern\":\"90\",\"resolve\":\"lea\"}}}", t, err),
+              "unknown resolve refused");
+        CHECK(!parse_signature_table("{\"build\":\"x\",\"signatures\":{\"a\":{\"offset\":99999}}}", t, err), "offset range");
+        CHECK(!parse_signature_table("{\"build\":\"x\",\"signatures\":[]}", t, err), "signatures must be an object");
+        CHECK(parse_signature_table("{\"build\":\"x\"}", t, err) && t.sigs.empty() && t.game == "FC27.exe", "no signatures is fine");
+        // round trip through signature_table_json
+        CHECK(parse_signature_table(good, t, err), "reparse");
+        SignatureTable t2;
+        CHECK(parse_signature_table(signature_table_json(t), t2, err) && t2.sigs.size() == 3 && t2.find("plain")->offset == 2 &&
+                  t2.find("call_site")->resolve == "rip" && t2.find("call_site")->note == "x",
+              "JSON round trip");
+        // built-in table: the 2026-10-03 build is known, a made-up build is not
+        const SignatureTable* b = builtin_signature_table("6AB9813C-211EF000");
+        CHECK(b && b->find("game_tick") && b->find("game_tick")->pattern.empty(), "built-in table for the known build");
+        CHECK(builtin_signature_table("00000000-00000000") == nullptr, "unknown build has no table");
+        CHECK(!builtin_builds().empty() && builtin_builds()[0] == "6AB9813C-211EF000", "builtin_builds lists it");
+        for (const auto& bt : builtin_builds()) {
+            const SignatureTable* tb = builtin_signature_table(bt);
+            SignatureTable rt;
+            CHECK(tb && parse_signature_table(signature_table_json(*tb), rt, err) && rt.sigs.size() == tb->sigs.size(),
+                  "built-in table " + bt + " is well formed");
+        }
+        // end to end over a synthetic buffer
+        std::vector<uint8_t> code(0x400, 0xCC);
+        const uint64_t base = 0x140002000ULL;
+        const uint8_t fn[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20};
+        std::memcpy(code.data() + 0x40, fn, sizeof(fn));
+        const uint8_t site[] = {0xE8, 0xFB, 0xFF, 0xFF, 0xFF, 0x48, 0x8B, 0xD8, 0xEB};  // call rel -5 -> itself
+        std::memcpy(code.data() + 0x200, site, sizeof(site));
+        SigResult r = resolve_signature(*t.find("plain"), code.data(), code.size(), base);
+        CHECK(r.state == SigState::Found && r.match == base + 0x40 && r.address == base + 0x42, "plain + offset");
+        r = resolve_signature(*t.find("call_site"), code.data(), code.size(), base);
+        CHECK(r.state == SigState::Found && r.match == base + 0x200 && r.address == base + 0x200, "rip resolved: " + r.error);
+        r = resolve_signature(*t.find("later"), code.data(), code.size(), base);
+        CHECK(r.state == SigState::Skipped && r.address == 0, "placeholder skipped");
+        Signature miss{"miss", "AA BB CC DD EE FF", "none", 0, ""};
+        r = resolve_signature(miss, code.data(), code.size(), base);
+        CHECK(r.state == SigState::Missing && r.hits == 0, "missing");
+        Signature amb{"amb", "CC CC CC", "none", 0, ""};
+        r = resolve_signature(amb, code.data(), code.size(), base);
+        CHECK(r.state == SigState::Ambiguous && r.hits == 2 && r.address == 0, "ambiguous never resolves");
+        Signature bad{"bad", "48 89 5C 24 08 57 48 83 EC 20", "rip", 0, ""};
+        r = resolve_signature(bad, code.data(), code.size(), base);
+        CHECK(r.state == SigState::BadPattern && r.error.find("rip-relative") != std::string::npos, "non-rip instruction refused");
+        Signature off{"off", "48 89 5C 24 08 57 48 83 EC 20", "none", 0x1000, ""};
+        r = resolve_signature(off, code.data(), code.size(), base);
+        CHECK(r.state == SigState::BadPattern, "offset outside the buffer refused");
+        Signature badpat{"badpat", "4", "none", 0, ""};
+        r = resolve_signature(badpat, code.data(), code.size(), base);
+        CHECK(r.state == SigState::BadPattern, "malformed pattern");
+        CHECK(std::string(sig_state_name(SigState::Found)) == "found" && std::string(sig_state_name(SigState::Ambiguous)) == "ambiguous",
+              "state names");
+    });
+}
+
 // Live Editor's own log decides when a Turbo.dll loaded at game launch may start (src/win/dllmain.cpp)
 static void test_le_log() {
     using turbo::LeLogState;
@@ -2318,6 +2492,8 @@ int main(int argc, char** argv) {
     test_images();
     std::printf("native dev service\n");
     test_devops();
+    std::printf("native signature scanning\n");
+    test_sigscan();
     std::printf("native Live Editor log\n");
     test_le_log();
     std::printf("native UI\n");
