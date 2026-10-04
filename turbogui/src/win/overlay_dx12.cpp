@@ -226,6 +226,8 @@ static bool is_toggle_key_msg(UINT msg, WPARAM wp) {
     return true;
 }
 
+static WORD wheel_keys();  // Ctrl at a wheel notch (below)
+
 // FC 27 reads the mouse through raw input only (no legacy WM_LBUTTONDOWN / WM_MOUSEWHEEL reach the window), so a click
 // shorter than one frame was missed by the per-frame poll. While no legacy mouse message has been seen, button and wheel
 // changes are taken from WM_INPUT itself and queued as the equivalent window messages. Once a legacy mouse message
@@ -265,8 +267,15 @@ static void queue_raw_mouse(HWND hwnd, LPARAM lp, std::vector<WinMsg>& out) {
     if ((f & RI_MOUSE_WHEEL) && turbo::wheel_take(turbo::WheelSource::RawInput, ll_wheel_alive(), false)) {
         ++g_wheel_raw;
         const short delta = static_cast<short>(ri.data.mouse.usButtonData);
-        out.push_back({WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(delta)), MAKELPARAM(static_cast<short>(screen.x), static_cast<short>(screen.y))});
+        out.push_back({WM_MOUSEWHEEL, MAKEWPARAM(wheel_keys(), static_cast<WORD>(delta)), MAKELPARAM(static_cast<short>(screen.x), static_cast<short>(screen.y))});
     }
+}
+
+// Ctrl held when a wheel notch happens, as MK_CONTROL in the queued WM_MOUSEWHEEL (its low word, like Windows' own):
+// poll_input runs a frame later, and a quick Ctrl + wheel can be over by then
+static WORD wheel_keys() {
+    TurboInputScope own_input;  // Turbo's own read: the input shield hides Ctrl from the game's reads
+    return (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 ? static_cast<WORD>(MK_CONTROL) : static_cast<WORD>(0);
 }
 
 // Mouse wheel: FC 27 registers the mouse for raw input and reads it by polling, so while Turbo is shown no legacy
@@ -285,7 +294,7 @@ static LRESULT CALLBACK ll_mouse_proc(int code, WPARAM wp, LPARAM lp) {
             ++g_wheel_ll;
             std::lock_guard<std::mutex> lock(g_msg_mutex);
             if (g_msgs.size() < 1024)
-                g_msgs.push_back({WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(delta)),
+                g_msgs.push_back({WM_MOUSEWHEEL, MAKEWPARAM(wheel_keys(), static_cast<WORD>(delta)),
                                   MAKELPARAM(static_cast<short>(m->pt.x), static_cast<short>(m->pt.y))});
         }
     }
@@ -324,8 +333,9 @@ static DWORD WINAPI ll_mouse_thread(LPVOID) {
 void input_raw_wheel(unsigned short delta) {
     if (!g_ready || !g_visible || !turbo::wheel_take(turbo::WheelSource::RawInput, ll_wheel_alive(), g_legacy_mouse_seen.load())) return;
     ++g_wheel_raw;
+    const WORD keys = wheel_keys();
     std::lock_guard<std::mutex> lock(g_msg_mutex);
-    if (g_msgs.size() < 1024) g_msgs.push_back({WM_MOUSEWHEEL, MAKEWPARAM(0, delta), 0});
+    if (g_msgs.size() < 1024) g_msgs.push_back({WM_MOUSEWHEEL, MAKEWPARAM(keys, delta), 0});
 }
 
 // Runs on the game's window thread: never waits for the render thread.
@@ -405,7 +415,7 @@ static void poll_input() {
         const bool ctrl = fg && (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
         g_app->zoom.by_host = true;
         for (const auto& m : msgs) {
-            if (m.msg == WM_MOUSEWHEEL && ctrl) {
+            if (m.msg == WM_MOUSEWHEEL && (ctrl || (LOWORD(m.wp) & MK_CONTROL) != 0)) {  // Ctrl now or at the notch
                 g_app->zoom.wheel += static_cast<float>(GET_WHEEL_DELTA_WPARAM(m.wp)) / static_cast<float>(WHEEL_DELTA);
                 continue;
             }
