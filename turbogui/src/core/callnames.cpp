@@ -221,6 +221,7 @@ bool parse_master_list_json(const std::string& text, const std::string& lang, Ma
                 long long pid = std::strtoll(n.key().c_str(), &stop, 10);
                 if (stop && *stop == '\0' && pid > 0) out.names[static_cast<int64_t>(pid)] = n.value().get<std::string>();
             }
+        parse_master_audio(j, out.audio);  // "wav_dir" and "segments" (play buttons)
         if (out.real_players.empty() && out.generic_ids.empty()) return fail("the list holds no player or commentary ids");
         out.lang = out.lang.empty() ? lang : lower(out.lang);
         return true;
