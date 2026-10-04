@@ -103,6 +103,7 @@ public:
     std::function<HookReport()> hook_report;           // game-code hook status for the Status tab (Windows host)
     int texture_test_frames = 0;
     double lua_heartbeat_seen_at = -1.0;
+    uint64_t game_base = 0;  // FC27.exe image base (set by the Windows host; 0 in tests = skip vtable checks)
 
     // ---- selections / UI state
     int64_t sel_player = 0;
@@ -137,6 +138,8 @@ void draw_managers(App& app);
 void draw_competitions(App& app);
 // Competitions tab: points (3 / 1 / 0) and played games from wins / draws / losses; with positions also the table order
 bool recalc_league(App& app, int64_t league, bool positions, std::string* msg);
+// Competitions tab, "Live standings" view: the game engine's own table rows (ui_standings.cpp)
+void draw_live_standings(App& app);
 void draw_database(App& app);
 void draw_tools(App& app);
 void draw_status(App& app);

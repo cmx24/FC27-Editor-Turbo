@@ -1,0 +1,61 @@
+{
+  "game": "FC27.exe 1.0.140.64835",
+  "image": "C:\\FC 27 Live Editor\\turbo_output\\fc27_image.bin",
+  "image_base": "0x140000000",
+  "verified": "2026-10-03",
+  "offsets": {
+    "FCEInterfaceImpl.hub": "0x18",
+    "ManagerHub.dataConnector": "0x18",
+    "ManagerHub.managerList": "0x10",
+    "DataConnector.dataManager": "0x80",
+    "DataManager.dataConnector": "0x28",
+    "DataManager.fixtureDataList": "0x60",
+    "DataManager.settingsDataList": "0x78",
+    "DataManager.standingsDataList": "0x88",
+    "StandingsDataList.begin": "0x00",
+    "StandingsDataList.end": "0x08",
+    "FixtureDataList.count": "0x00",
+    "FixtureDataList.data": "0x08",
+    "StandingData.size": "0x18",
+    "FixtureData.size": "0x18"
+  },
+  "vtables_rva": {
+    "FCE::FCEInterfaceImpl": "0xB180DF0",
+    "FCE::DataManager": "0xB180CA8",
+    "FCE::ManagerHub": "0xB180C28",
+    "FCE::StandingsManager": "0xB1852E8"
+  },
+  "globals": {
+    "service_registry": {"va": "0x14c2a8590", "rva": "0xC2A8590", "note": "ServiceRegistry*; vfunc +0x30 Register, +0x38 Unregister, +0x40 Get(id)"}
+  },
+  "plugin_ids": {
+    "ENUM_djb2IFCEInterface_CLSS": "0x0a613b9a",
+    "note": "Live Editor GetPlugin(0x0a613b9a) returns FCE::FCEInterfaceImpl; Turbo's bridge_state.json field 'ifce'"
+  },
+  "signatures": [
+    {"name": "fce_registry_get_site", "sig": "BA 9A 3B 61 0A 49 8B C8 FF 50 40", "va": "0x147c15bab", "unique": true, "role": "call site of ServiceRegistry::Get(0x0A613B9A) -> FCEInterfaceImpl"},
+    {"name": "fce_registry_global", "sig": "48 8B 0D ?? ?? ?? ?? BA 9A 3B 61 0A 48 8B 01 FF 50 (30|38)", "va": "0x148a0412d", "unique": false, "hits": 2, "rip_target": "0x14c2a8590", "role": "rip-relative load of the ServiceRegistry global (Register / Unregister sites)"},
+    {"name": "fce_standings_getitem", "sig": "45 33 C0 44 8B CA 85 D2 78 32 4C 8B 11 48 B8 AB AA AA AA AA AA AA 2A 48 8B 49 08", "va": "0x148a2d1d4", "unique": true, "role": "StandingsDataList::GetItem(id): begin + id*0x18 with (end-begin)/0x18 bound"},
+    {"name": "fce_request_get_standings", "sig": "48 8B 41 18 4C 8B EA 8B 5A 20 4C 8B F9 8B D3 89 5C 24 30 4C 8B 70 18 49 8B 8E 88 00 00 00 E8", "va": "0x148a54b31", "unique": true, "role": "RequestGetStandings handler body (function start 0x148a54b00)"},
+    {"name": "fce_datamanager_ctor_vtable", "sig": "48 8D 05 ?? ?? ?? ?? 48 89 07 4C 8D 05 ?? ?? ?? ?? 48 C7 47 28 00 00 00 00", "va": "0x148a1664d", "unique": true, "rip_target": "0x14b180ca8", "role": "DataManager ctor: lea of the DataManager vtable"},
+    {"name": "fce_result_update_rows", "sig": "FE 43 09 FE C0 80 7C 24 20 01 88 47 10", "va": "0x148a5bf2a", "unique": true, "role": "incremental standings update on RequestUpdateMatchResult (home win branch)"},
+    {"name": "fce_fixture_score_write", "sig": "88 42 0F 8A 46 24 88 42 11 8A 01 88 42 10 8A 46 3C 88 42 12", "va": "0x148a5bba4", "unique": true, "role": "fixture +0x0F/+0x11/+0x10/+0x12 written from the match result message"}
+  ],
+  "functions": {
+    "DataManager_ctor": "0x148a1661c",
+    "ManagerHub_Init": "0x148a2ee24",
+    "FCEInterfaceImpl_ctor": "0x148a16b20",
+    "StandingData_reflection": "0x148a0d230",
+    "FixtureData_reflection": "0x148a0cb20",
+    "Standings_GetItem": "0x148a2d1d4",
+    "Fixture_by_id": "0x148a22168",
+    "RequestGetStandings_handler": "0x148a54b00",
+    "Standings_response_and_sort": "0x148a4a518",
+    "Standings_incremental_update": "0x148a5bc04",
+    "Fixture_score_write": "0x148a5bb40",
+    "Comp_setting_lookup": "0x148a4e5bc",
+    "RequestUpdateMatchResult_ctor": "0x1440376b8",
+    "RequestGetStandings_ctor": "0x144036e6c"
+  },
+  "settings_ids": {"win": "0x1F", "draw": "0x20", "loss": "0x21", "note": "SettingsDataList entry layout not verified; Turbo defaults to 3/1/0"}
+}

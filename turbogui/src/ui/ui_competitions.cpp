@@ -1,6 +1,6 @@
-// FC 27 LE Turbo GUI - Competitions tab: league tables of the career database (leagueteamlinks).
-// FC 27's own Standings screen reads the live table of the competition engine, not these numbers (seen in game,
-// 03-10-2026), so the tab says so; the values are kept in the save.
+// FC 27 LE Turbo GUI - Competitions tab. Two views: the game engine's live table rows (ui_standings.cpp, what FC 27's
+// Standings screen shows) and the career database's copy (leagueteamlinks, kept in the save; FC 27's Standings screen
+// does not read it - seen in game, 03-10-2026).
 #include <algorithm>
 #include <cstdio>
 #include <map>
@@ -82,11 +82,27 @@ bool recalc_league(App& app, int64_t league, bool positions, std::string* msg) {
     return true;
 }
 
+static void draw_database_copy(App& app);
+
 void draw_competitions(App& app) {
     if (!app.connected()) {
         not_connected_hint();
         return;
     }
+    if (ImGui::BeginTabBar("##compviews")) {
+        if (ImGui::BeginTabItem("Live standings (game)")) {
+            draw_live_standings(app);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Career database copy")) {
+            draw_database_copy(app);
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+}
+
+static void draw_database_copy(App& app) {
     const Table* t = app.db.table("leagueteamlinks");
     if (!t) {
         ImGui::TextDisabled("This database has no leagueteamlinks table.");
@@ -146,8 +162,8 @@ void draw_competitions(App& app) {
         app.notify("Table positions: " + msg, !ok);
     }
     ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
-                       "These are the career database's league numbers (kept in the save). FC 27's own Standings screen does "
-                       "not read them yet.");
+                       "These are the career database's league numbers (kept in the save). FC 27's own Standings screen shows "
+                       "the 'Live standings (game)' view instead.");
 
     std::vector<LeagueRow> rows = league >= 0 ? league_rows(app, *t, league) : std::vector<LeagueRow>();
     ImGui::BeginChild("##ltable", ImVec2(S(560.0f), 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
