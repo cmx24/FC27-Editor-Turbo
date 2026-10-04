@@ -238,13 +238,13 @@ CallnameInfo resolve_callname(int64_t playerid, int64_t commonnameid, int64_t la
         return info;
     }
     if (commonnameid > 0) {
+        // FC 27's match code (docs/re/inmatch-callnames.md): a player with a common name is called by that name's
+        // commentary id even when it has none; it never falls back to the last name
         auto it = name_commentary.find(commonnameid);
-        if (it != name_commentary.end() && it->second > kNoCallname) {
-            info.commentaryid = it->second;
-            info.source = CallnameSource::CommonName;
-            info.nameid = commonnameid;
-            return info;
-        }
+        info.source = CallnameSource::CommonName;
+        info.nameid = commonnameid;
+        if (it != name_commentary.end() && it->second > kNoCallname) info.commentaryid = it->second;
+        return info;
     }
     if (lastnameid > 0) {
         auto it = name_commentary.find(lastnameid);

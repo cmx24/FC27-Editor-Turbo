@@ -826,6 +826,8 @@ void callname_editor(App& app, const Table& t, const PlayerRow& p) {
         const std::string tail = std::string(!spoken ? "NOT spoken in " : cn.spoken.verified ? "spoken in " : "used by playernames (unverified) in ") + cn.lang;
         g_state.current_line += tail;
         ImGui::TextColored(spoken ? kGreen : kOrange, "%s", tail.c_str());
+        if (info.source == CallnameSource::CommonName && !spoken)
+            ImGui::TextDisabled("He has a common name, so the game uses it and never his last name: use 'Assign as common name'.");
     }
     if (cn.index.playernamemap.count(p.playerid)) {
         if (ImGui::Button("Remove player-specific callname...")) ImGui::OpenPopup("##rmcallname");

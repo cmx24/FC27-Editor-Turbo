@@ -463,7 +463,10 @@ static void test_core() {
         CallnameInfo i2 = resolve_callname(1, 15, 2, pm, nc);
         CHECK(i2.commentaryid == 900015 && i2.source == CallnameSource::CommonName && i2.nameid == 15, "common name over last name");
         CallnameInfo i3 = resolve_callname(8, 20, 2, pm, nc);
-        CHECK(i3.commentaryid == 900002 && i3.source == CallnameSource::LastName && i3.nameid == 2, "'no callname' rows (900000) fall through to the last name");
+        CHECK(i3.commentaryid == kNoCallname && i3.source == CallnameSource::CommonName && i3.nameid == 20,
+              "a common name without a callname stays silent: the game never falls back to the last name");
+        CallnameInfo i5 = resolve_callname(8, 0, 2, pm, nc);
+        CHECK(i5.commentaryid == 900002 && i5.source == CallnameSource::LastName && i5.nameid == 2, "'no callname' playernamemap rows (900000) fall through");
         CallnameInfo i4 = resolve_callname(9, 0, 20, pm, nc);
         CHECK(i4.commentaryid == kNoCallname && i4.source == CallnameSource::None, "none");
         CHECK(std::string(callname_source_name(CallnameSource::PlayerSpecific)).find("playernamemap") != std::string::npos, "source text");
