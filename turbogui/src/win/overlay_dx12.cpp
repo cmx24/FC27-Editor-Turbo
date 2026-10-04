@@ -188,16 +188,55 @@ static bool is_toggle_key_msg(UINT msg, WPARAM wp) {
            static_cast<int>(wp) == g_toggle_vk.load();
 }
 
+// FC 27 reads the mouse through raw input only (no legacy WM_LBUTTONDOWN / WM_MOUSEWHEEL reach the window), so a click
+// shorter than one frame was missed by the per-frame poll. While no legacy mouse message has been seen, button and wheel
+// changes are taken from WM_INPUT itself and queued as the equivalent window messages. Once a legacy mouse message
+// arrives the game delivers them and this stops, so nothing is counted twice.
+static std::atomic<bool> g_legacy_mouse_seen{false};
+
+static void queue_raw_mouse(HWND hwnd, LPARAM lp, std::vector<WinMsg>& out) {
+    if (g_legacy_mouse_seen.load()) return;
+    host::TurboInputScope scope;  // Turbo's own read: the input shield passes the real data through
+    RAWINPUT ri{};
+    UINT size = sizeof(ri);
+    UINT got = GetRawInputData(reinterpret_cast<HRAWINPUT>(lp), RID_INPUT, &ri, &size, sizeof(RAWINPUTHEADER));
+    if (got == static_cast<UINT>(-1) || got < sizeof(RAWINPUTHEADER) + sizeof(RAWMOUSE) || ri.header.dwType != RIM_TYPEMOUSE) return;
+    const USHORT f = ri.data.mouse.usButtonFlags;
+    if (!f) return;
+    POINT screen{}, client{};
+    GetCursorPos(&screen);
+    client = screen;
+    ScreenToClient(hwnd, &client);
+    const LPARAM at = MAKELPARAM(static_cast<short>(client.x), static_cast<short>(client.y));
+    struct Map { USHORT flag; UINT msg; WPARAM wp; };
+    static const Map maps[] = {
+        {RI_MOUSE_LEFT_BUTTON_DOWN, WM_LBUTTONDOWN, MK_LBUTTON}, {RI_MOUSE_LEFT_BUTTON_UP, WM_LBUTTONUP, 0},
+        {RI_MOUSE_RIGHT_BUTTON_DOWN, WM_RBUTTONDOWN, MK_RBUTTON}, {RI_MOUSE_RIGHT_BUTTON_UP, WM_RBUTTONUP, 0},
+        {RI_MOUSE_MIDDLE_BUTTON_DOWN, WM_MBUTTONDOWN, MK_MBUTTON}, {RI_MOUSE_MIDDLE_BUTTON_UP, WM_MBUTTONUP, 0},
+    };
+    for (const auto& m : maps)
+        if (f & m.flag) out.push_back({m.msg, m.wp, at});
+    if (f & RI_MOUSE_WHEEL) {
+        const short delta = static_cast<short>(ri.data.mouse.usButtonData);
+        out.push_back({WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(delta)), MAKELPARAM(static_cast<short>(screen.x), static_cast<short>(screen.y))});
+    }
+}
+
 // Runs on the game's window thread: never waits for the render thread.
 static LRESULT CALLBACK hk_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (is_toggle_key_msg(msg, wp)) {  // the show/hide key is Turbo's; the render thread toggles (poll_input)
         if ((msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && !(lp & (1 << 30))) ++g_toggle_presses;
         return 0;
     }
+    if ((msg >= WM_LBUTTONDOWN && msg <= WM_MBUTTONDBLCLK) || msg == WM_MOUSEWHEEL) g_legacy_mouse_seen = true;
     if (g_ready && g_visible) {
         {
+            std::vector<WinMsg> raw;
+            if (msg == WM_INPUT) queue_raw_mouse(hwnd, lp, raw);
             std::lock_guard<std::mutex> lock(g_msg_mutex);
             if (g_msgs.size() < 1024) g_msgs.push_back({msg, wp, lp});
+            for (const auto& r : raw)
+                if (g_msgs.size() < 1024) g_msgs.push_back(r);
         }
         bool mouse_msg = (msg >= WM_MOUSEFIRST && msg <= WM_MOUSELAST) || msg == WM_INPUT;
         bool key_msg = (msg >= WM_KEYFIRST && msg <= WM_KEYLAST);
