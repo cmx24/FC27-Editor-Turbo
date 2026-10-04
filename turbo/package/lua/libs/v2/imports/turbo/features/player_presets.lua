@@ -280,8 +280,11 @@ local function plan_names(pid, names, dry)
         local srow = { playerid = tostring(pid) }
         for f, v in pairs(row) do srow[f] = tostring(v) end
         local okc, res = pcall(insert, "editedplayernames", srow)
-        if not okc or type(res) ~= "table" or not db.find(edited, "playerid", pid) then
-            return false, "could not add the editedplayernames row: " .. tostring(res)
+        -- the table object caches its record count (t3db TABLE:Load reads written_records once), so a table that
+        -- had no rows before the insert must be opened again to see the new row (seen in game, 03-10-2026)
+        local fresh = db.get_table("editedplayernames")
+        if not okc or type(res) ~= "table" or not fresh or not db.find(fresh, "playerid", pid) then
+            return false, "could not add the editedplayernames row: " .. (type(res) == "table" and "row not found after the insert" or tostring(res))
         end
         return true
     end
