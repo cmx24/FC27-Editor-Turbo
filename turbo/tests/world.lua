@@ -108,8 +108,25 @@ function W.build(sim, opts)
     -- one deleted row that must be skipped by every iteration
     prow[#prow + 1] = { playerid = 999999, overallrating = 1, potential = 1, preferredposition1 = 0,
         birthdate = gdays(2000, 1, 1), contractvaliduntil = 2026, __invalid = true }
+    -- spare (invalid) records: InsertDBTableRow reuses them (create_player adds players / links / names rows)
+    for _ = 1, 8 do
+        prow[#prow + 1] = { __invalid = true }
+        links[#links + 1] = { __invalid = true }
+    end
     sim.player_team = player_team
     sim:add_table(players_spec(prow))
+    sim:add_table({
+        name = "editedplayernames", short = "edpn",
+        fields = {
+            { name = "playerid", short = "pid_", depth = 21 },
+            { name = "firstname", short = "fnam", type = "string", depth = 8 * 45 },
+            { name = "surname", short = "snam", type = "string", depth = 8 * 45 },
+            { name = "commonname", short = "cnam", type = "string", depth = 8 * 45 },
+            { name = "playerjerseyname", short = "pjnm", type = "string", depth = 8 * 45 },
+        },
+        rows = { { __invalid = true }, { __invalid = true }, { __invalid = true }, { __invalid = true },
+                 { __invalid = true }, { __invalid = true }, { __invalid = true }, { __invalid = true } },
+    })
 
     sim:add_table({
         name = "teamplayerlinks", short = "tpl_",

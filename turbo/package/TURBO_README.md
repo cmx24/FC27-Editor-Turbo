@@ -116,6 +116,9 @@ Every feature is also a script in `lua\scripts` named `turbo_<feature>.lua`, run
 | `turbo_player_moves` | Transfer, loan, release, terminate loan (done by Turbo in the database when Live Editor lacks the natives), transfer-list, loan-list, unlist | `modules.player_moves.actions` |
 | `turbo_db_edit` | Edit rows of any database table matching conditions | `modules.db_edit.edits` |
 | `turbo_export_table` | Dumps tables to CSV with every field's allowed range | `tables`, `max_rows` |
+| `turbo_export_player` | Exports players to Live Editor preset CSV (`extensions\player_presets`, readable by Live Editor's own Import from preset) and Turbo player JSON + miniface (`turbo_output\players`) | `modules.player_presets` (`playerids`, `csv`, `json`, `miniface`, `preset_dir`) |
+| `turbo_import_player` | Imports a preset file (Live Editor CSV, FC 26 files too, or Turbo JSON) onto an existing player; pick the groups | `modules.player_presets` (`file`, `playerid`, `groups`, `row`) |
+| `turbo_create_player` | Creates a new player: a copy of a player, from a preset file, or blank, in a club (Free Agents by default); refuses your own club unless `allow_user_club` | `modules.create_player` (`source`, `teamid`, `jersey`, `names`, `set`, `max_playerid`) |
 
 ### Safety rules built in
 

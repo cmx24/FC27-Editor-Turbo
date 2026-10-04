@@ -6,7 +6,7 @@ local H = {}
 
 local function abs_dir(src)
     local d = src:sub(2):match("(.*/)") or "./"
-    if d:sub(1, 1) ~= "/" then
+    if d:sub(1, 1) ~= "/" and not d:match("^%a:[/\\]") then   -- "C:/..." (MSYS2 hands Windows paths to lua) is absolute too
         local pwd = os.getenv("PWD") or "."
         d = pwd .. "/" .. d:gsub("^%./", "")
     end

@@ -51,6 +51,7 @@ H.case("global dry run: no memory byte and no game API call changes", function()
             bulk_edit = { scope = { user_team = true }, set = { potential = 99 }, actions = { form = 50 } },
             player_moves = { actions = { { action = "release", playerid = 2001 } } },
             db_edit = { edits = { { table = "teams", where = { teamid = 1 }, set = { transferbudget = 5 } } } },
+            create_player = { source = { playerid = 2001 }, teamid = 3 },
         },
     })
     local snapshot = {}
@@ -58,7 +59,8 @@ H.case("global dry run: no memory byte and no game API call changes", function()
     local api_before = {}
     for k, v in pairs(sim.calls) do api_before[k] = #v end
     for _, name in ipairs({ "form_morale", "custom_headassets", "custom_tattoos", "delete_generated_players",
-        "extend_cpu_contracts", "extend_user_contracts", "squad_role", "bulk_edit", "player_moves", "db_edit" }) do
+        "extend_cpu_contracts", "extend_user_contracts", "squad_role", "bulk_edit", "player_moves", "db_edit",
+        "create_player" }) do
         local ok, msg = H.turbo().run(name)
         H.eq(ok, true, name .. ": " .. tostring(msg))
         H.has(msg, "[DRY RUN]", name)
@@ -91,7 +93,7 @@ H.case("every runner script executes and reports through a message box", functio
         n = n + 1
     end
     p:close()
-    H.eq(n, 29, "runner scripts")
+    H.eq(n, 32, "runner scripts")
     H.eq(sim.box_format_violations or 0, 0, "message boxes with an unescaped percent sign (would crash Live Editor)")
     for _, b in ipairs(sim.boxes) do
         H.ok(not tostring(b.text):find("crashed"), "crash reported: " .. tostring(b.text))

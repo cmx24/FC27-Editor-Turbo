@@ -103,6 +103,31 @@
     "export_table": {
       "tables": ["teams"],
       "max_rows": 0
+    },
+    "player_presets": {
+      "_help": "turbo_export_player: playerids -> CSV in preset_dir (empty = extensions\\player_presets) + JSON in turbo_output\\players; turbo_import_player: file onto playerid, groups = profile|attributes|positions|playstyles|appearance|contract|names|miniface (empty = all)",
+      "playerids": [],
+      "name": "",
+      "csv": true,
+      "json": true,
+      "miniface": true,
+      "preset_dir": "",
+      "file": "",
+      "playerid": 0,
+      "groups": [],
+      "row": 0
+    },
+    "create_player": {
+      "_help": "source = { \"playerid\": 158023 } | { \"file\": \"C:\\\\...\\\\preset.csv\" } | { \"blank\": true }; teamid 111592 = Free Agents; names / set override the source",
+      "source": {},
+      "teamid": 111592,
+      "jersey": 0,
+      "names": {},
+      "set": {},
+      "playerid": 0,
+      "min_playerid": 0,
+      "max_playerid": 459999,
+      "allow_user_club": false
     }
   }
 }

@@ -66,6 +66,14 @@ end
 run("DRY extend other clubs' contracts", "extend_cpu_contracts", { years = 1 }, true)
 run("DRY bulk edit (form 100)", "bulk_edit", { scope = in_cm and { user_team = true } or { teamids = { 1 } },
     filters = {}, set = {}, actions = { form = 100 } }, true)
+local some_pid = (function()
+    local okd, dbm = pcall(require, 'imports/turbo/core/db')
+    local players = okd and dbm.get_table("players")
+    if players then for rec in dbm.records(players) do return players:GetRecordFieldValue(rec, "playerid") end end
+    return 1
+end)()
+run("DRY export a player (CSV + JSON)", "player_presets", { mode = "export", playerid = some_pid, miniface = false }, true)
+run("DRY create player (copy of a player)", "create_player", { source = { playerid = some_pid }, teamid = 111592 }, true)
 run("DRY db edit (teams 1 name unchanged)", "db_edit", { edits = { { table = "teams", where = { teamid = 1 },
     set = { teamid = 1 } } } }, true)
 if in_cm then
