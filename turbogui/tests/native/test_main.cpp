@@ -2571,6 +2571,7 @@ static void open_standings_advanced(Ui& ui) {
 static Rgba solid(int w, int h, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
 static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_preload_hotkey.h"  // 1.1.1: show/hide key setting, background loading
+#include "test_wheel.h"  // 1.1.3: mouse wheel source (hook, raw input, window messages)
 static std::string hex_bytes(const std::vector<uint8_t>& d) {
     static const char* h = "0123456789abcdef";
     std::string s;
@@ -11341,6 +11342,8 @@ int main(int argc, char** argv) {
     test_reapply_store();
     std::printf("native show/hide key and background loading\n");
     test_hotkey_and_background();
+    std::printf("native mouse wheel source\n");
+    test_wheel_sources();
     std::printf("native club customisation and career settings\n");
     club_tools_test::run();
     std::printf("native voice swaps\n");

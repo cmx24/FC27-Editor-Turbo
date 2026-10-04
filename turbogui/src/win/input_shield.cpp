@@ -167,11 +167,20 @@ UINT WINAPI hk_rawbuf(PRAWINPUT data, PUINT size, UINT header) {
     ++n_rawbuf;
     UINT n = o_rawbuf(data, size, header);
     if (t_turbo > 0) return n;  // Turbo's own read (TurboInputScope): the real data
-    if (!data || n == 0 || n == static_cast<UINT>(-1) || (!input_block_mouse() && !input_block_keyboard() && !input_hidden_vk()))
-        return n;
-    // Drop the blocked entries and pack the rest to the front (entries are 8-byte aligned, as NEXTRAWINPUTBLOCK walks)
+    if (!data || n == 0 || n == static_cast<UINT>(-1)) return n;
+    // Entries are 8-byte aligned, as NEXTRAWINPUTBLOCK walks
     auto align = [](size_t v) { return (v + 7) & ~static_cast<size_t>(7); };
     unsigned char* base = reinterpret_cast<unsigned char*>(data);
+    // Wheel notches the game drained from the buffer never reach the window: the overlay may take them (core/wheel.h)
+    for (UINT i = 0, rd = 0; i < n; ++i) {
+        auto* ri = reinterpret_cast<RAWINPUT*>(base + rd);
+        if (ri->header.dwType == RIM_TYPEMOUSE && ri->header.dwSize >= sizeof(RAWINPUTHEADER) + sizeof(RAWMOUSE) &&
+            (ri->data.mouse.usButtonFlags & RI_MOUSE_WHEEL))
+            input_raw_wheel(ri->data.mouse.usButtonData);
+        rd += static_cast<UINT>(align(ri->header.dwSize));
+    }
+    if (!input_block_mouse() && !input_block_keyboard() && !input_hidden_vk()) return n;
+    // Drop the blocked entries and pack the rest to the front
     size_t rd = 0, wr = 0;
     UINT kept = 0;
     for (UINT i = 0; i < n; ++i) {

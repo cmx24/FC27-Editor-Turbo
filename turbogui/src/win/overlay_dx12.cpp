@@ -41,6 +41,7 @@
 #include "imgui_internal.h"
 #include "ui/app.h"
 #include "core/hotkey.h"
+#include "core/wheel.h"
 #include "core/edit_unlock.h"
 #include "core/hub_customise.h"
 
@@ -230,7 +231,14 @@ static bool is_toggle_key_msg(UINT msg, WPARAM wp) {
 // changes are taken from WM_INPUT itself and queued as the equivalent window messages. Once a legacy mouse message
 // arrives the game delivers them and this stops, so nothing is counted twice.
 static std::atomic<bool> g_legacy_mouse_seen{false};
-static std::atomic<bool> g_ll_wheel{false};  // set once the low-level mouse hook (wheel) is installed
+static std::atomic<bool> g_ll_wheel{false};          // set once the low-level mouse hook (wheel) is installed
+static std::atomic<double> g_ll_last_call{-1.0};     // now_seconds() of the hook's last call (any mouse event)
+static std::atomic<DWORD> g_ll_thread{0};            // the hook's thread (reinstall requests)
+static std::atomic<long> g_wheel_ll{0}, g_wheel_raw{0}, g_wheel_msg{0}, g_ll_reinstalls{0};  // stats line
+constexpr UINT kLlReinstallMsg = WM_APP + 1;
+
+// The wheel comes from exactly one source (core/wheel.h): the low-level hook while it is alive
+static bool ll_wheel_alive() { return turbo::wheel_hook_alive(g_ll_wheel.load(), now_seconds(), g_ll_last_call.load()); }
 
 static void queue_raw_mouse(HWND hwnd, LPARAM lp, std::vector<WinMsg>& out) {
     if (g_legacy_mouse_seen.load()) return;
@@ -254,7 +262,8 @@ static void queue_raw_mouse(HWND hwnd, LPARAM lp, std::vector<WinMsg>& out) {
     };
     for (const auto& m : maps)
         if (f & m.flag) out.push_back({m.msg, m.wp, at});
-    if ((f & RI_MOUSE_WHEEL) && !g_ll_wheel.load()) {  // with the low-level hook the wheel is queued there
+    if ((f & RI_MOUSE_WHEEL) && turbo::wheel_take(turbo::WheelSource::RawInput, ll_wheel_alive(), false)) {
+        ++g_wheel_raw;
         const short delta = static_cast<short>(ri.data.mouse.usButtonData);
         out.push_back({WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(delta)), MAKELPARAM(static_cast<short>(screen.x), static_cast<short>(screen.y))});
     }
@@ -264,12 +273,16 @@ static void queue_raw_mouse(HWND hwnd, LPARAM lp, std::vector<WinMsg>& out) {
 // WM_MOUSEWHEEL and no WM_INPUT reaches the window procedure (seen in game, 03-10-2026: nothing scrolled). A low-level
 // mouse hook on its own thread sees every wheel notch regardless and queues it for ImGui while Turbo is visible and the
 // game is the foreground window. Buttons stay on the per-frame poll and the raw-input path.
+// Windows removes a low-level hook without a word once one call is late; poll_input notices the hook has gone quiet
+// while the mouse moves and has this thread install it again (core/wheel.h). Until then raw input carries the wheel.
 static LRESULT CALLBACK ll_mouse_proc(int code, WPARAM wp, LPARAM lp) {
-    if (code == HC_ACTION && wp == WM_MOUSEWHEEL && g_ready && g_visible && !g_legacy_mouse_seen.load()) {
+    if (code == HC_ACTION) g_ll_last_call = now_seconds();
+    if (code == HC_ACTION && wp == WM_MOUSEWHEEL && g_ready && g_visible) {
         const auto* m = reinterpret_cast<const MSLLHOOKSTRUCT*>(lp);
         HWND root = g_hwnd ? GetAncestor(g_hwnd, GA_ROOT) : nullptr;
         if (g_hwnd && GetForegroundWindow() == (root ? root : g_hwnd)) {
             const short delta = static_cast<short>(HIWORD(m->mouseData));
+            ++g_wheel_ll;
             std::lock_guard<std::mutex> lock(g_msg_mutex);
             if (g_msgs.size() < 1024)
                 g_msgs.push_back({WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(delta)),
@@ -279,6 +292,9 @@ static LRESULT CALLBACK ll_mouse_proc(int code, WPARAM wp, LPARAM lp) {
     return CallNextHookEx(nullptr, code, wp, lp);
 }
 static DWORD WINAPI ll_mouse_thread(LPVOID) {
+    MSG msg;
+    PeekMessageW(&msg, nullptr, WM_USER, WM_USER, PM_NOREMOVE);  // this thread's message queue (reinstall requests)
+    g_ll_thread = GetCurrentThreadId();
     HHOOK h = SetWindowsHookExW(WH_MOUSE_LL, ll_mouse_proc, GetModuleHandleW(nullptr), 0);
     if (!h) {
         log("mouse wheel hook not installed (error %lu): the wheel will not scroll Turbo", static_cast<unsigned long>(GetLastError()));
@@ -286,13 +302,30 @@ static DWORD WINAPI ll_mouse_thread(LPVOID) {
     }
     g_ll_wheel = true;
     log("mouse wheel hook installed (low-level mouse hook on its own thread)");
-    MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        if (msg.message == kLlReinstallMsg && !msg.hwnd) {
+            UnhookWindowsHookEx(h);  // already gone when Windows removed it; harmless then
+            h = SetWindowsHookExW(WH_MOUSE_LL, ll_mouse_proc, GetModuleHandleW(nullptr), 0);
+            if (++g_ll_reinstalls <= 3)
+                log("mouse wheel hook went quiet while the mouse moved: installed again (%s)", h ? "ok" : "failed");
+            if (!h) {
+                g_ll_wheel = false;  // raw input carries the wheel from now on
+                return 0;
+            }
+            continue;
+        }
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
     UnhookWindowsHookEx(h);
     return 0;
+}
+
+void input_raw_wheel(unsigned short delta) {
+    if (!g_ready || !g_visible || !turbo::wheel_take(turbo::WheelSource::RawInput, ll_wheel_alive(), g_legacy_mouse_seen.load())) return;
+    ++g_wheel_raw;
+    std::lock_guard<std::mutex> lock(g_msg_mutex);
+    if (g_msgs.size() < 1024) g_msgs.push_back({WM_MOUSEWHEEL, MAKEWPARAM(0, delta), 0});
 }
 
 // Runs on the game's window thread: never waits for the render thread.
@@ -306,8 +339,11 @@ static LRESULT CALLBACK hk_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         {
             std::vector<WinMsg> raw;
             if (msg == WM_INPUT) queue_raw_mouse(hwnd, lp, raw);
+            // a WM_MOUSEWHEEL the low-level hook has already queued is not queued again (it is still kept from the game)
+            const bool take = msg != WM_MOUSEWHEEL || turbo::wheel_take(turbo::WheelSource::WindowMessage, ll_wheel_alive(), true);
+            if (take && msg == WM_MOUSEWHEEL) ++g_wheel_msg;
             std::lock_guard<std::mutex> lock(g_msg_mutex);
-            if (g_msgs.size() < 1024) g_msgs.push_back({msg, wp, lp});
+            if (take && g_msgs.size() < 1024) g_msgs.push_back({msg, wp, lp});
             for (const auto& r : raw)
                 if (g_msgs.size() < 1024) g_msgs.push_back(r);
         }
@@ -385,6 +421,18 @@ static void poll_input() {
         zero_was = zero;
         if (fg) {
             POINT p;
+            // the wheel hook's watchdog (core/wheel.h): a cursor move calls the hook; a hook that stays quiet is gone
+            static POINT last_screen{LONG_MIN, LONG_MIN};
+            static double moved_at = -1.0, retry_at = -1.0;
+            const double now = now_seconds();
+            if (GetCursorPos(&p) && (p.x != last_screen.x || p.y != last_screen.y)) {
+                if (last_screen.x != LONG_MIN) moved_at = now;
+                last_screen = p;
+            }
+            if (turbo::wheel_hook_reinstall(g_ll_wheel.load(), now, g_ll_last_call.load(), moved_at, retry_at) && g_ll_thread.load()) {
+                retry_at = now;
+                PostThreadMessageW(g_ll_thread.load(), kLlReinstallMsg, 0, 0);
+            }
             if (GetCursorPos(&p) && ScreenToClient(g_hwnd, &p)) io.AddMousePosEvent(static_cast<float>(p.x), static_cast<float>(p.y));
             const bool swapped = GetSystemMetrics(SM_SWAPBUTTON) != 0;
             const int vks[3] = {swapped ? VK_RBUTTON : VK_LBUTTON, swapped ? VK_LBUTTON : VK_RBUTTON, VK_MBUTTON};
@@ -564,7 +612,12 @@ static void render_frame_impl(IDXGISwapChain3* sc) {
         }
         // Which input APIs the game polls (once after about a minute, again after about ten)
         static long frames_total = 0;
-        if (++frames_total == 3600 || frames_total == 36000) input_shield_report();
+        if (++frames_total == 3600 || frames_total == 36000) {
+            input_shield_report();
+            log("mouse wheel: %ld notches from the low-level hook, %ld from raw input, %ld from window messages; hook %s, "
+                "installed again %ld times", g_wheel_ll.load(), g_wheel_raw.load(), g_wheel_msg.load(),
+                ll_wheel_alive() ? "alive" : "quiet", g_ll_reinstalls.load());
+        }
     } catch (const std::exception& e) {
         log("frame error: %s", e.what());
         if (ImGui::GetCurrentContext() && ImGui::GetCurrentContext()->WithinFrameScope) ImGui::EndFrame();
