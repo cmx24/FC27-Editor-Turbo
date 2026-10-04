@@ -210,9 +210,12 @@ std::string bank_cache_json(const BankCapture& c, const std::string& lang, const
     j["lang"] = lang;
     j["when"] = when;
     j["build"] = build;
-    j["source"] = "live bank capture";
+    j["source"] = c.source;
     j["note"] = c.note;
     j["rows"] = c.rows;
+    j["checked_names"] = c.checked_names;
+    j["checked_players"] = c.checked_players;
+    j["steps"] = c.steps;
     j["rejected"] = c.rejected;
     j["regions"] = c.regions;
     j["bytes"] = c.bytes;
@@ -246,6 +249,9 @@ bool parse_bank_cache_json(const std::string& text, BankCache& out, std::string*
     out.lang = j.value("lang", std::string());
     out.when = j.value("when", std::string());
     out.build = j.value("build", std::string());
+    out.kind = j.value("source", std::string("live bank capture"));
+    out.checked_names = j.value("checked_names", size_t(0));
+    out.checked_players = j.value("checked_players", size_t(0));
     if (j.contains("surnames") && j["surnames"].is_array())
         for (const auto& v : j["surnames"])
             if (v.is_number_integer()) {
@@ -277,6 +283,10 @@ bool parse_bank_cache_json(const std::string& text, BankCache& out, std::string*
     if (out.surnames.empty() && out.players.empty()) {
         if (err) *err = "the cache holds no spoken ids";
         return false;
+    }
+    if (out.kind == "game audio service") {
+        out.source = "the game's audio service (built " + out.when + ")";
+        return true;
     }
     size_t st = 0, pt = 0;
     for (const auto& t : out.tables) {

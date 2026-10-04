@@ -43,10 +43,10 @@ static void ensure_ready(App& app) {
         app.callnames.build_index(app.db, app.model, app.model.names_by_id());
         g_index_gen = app.gen;
     }
-    // No hand-made list and no capture yet for this language: read the loaded bank's selection tables once by itself
-    if (!app.bank_auto_tried && !app.callnames.lang.empty() && !app.callnames.spoken.verified && app.regions_hook) {
-        app.bank_auto_tried = true;
-        app.start_bank_capture(true);
+    // No hand-made list and no cached set yet for this language: ask the game's audio service once by itself
+    if (!app.spoken_auto_tried && !app.callnames.lang.empty() && !app.callnames.spoken.verified && app.commentary_audio) {
+        app.spoken_auto_tried = true;
+        app.start_spoken_build(true);
     }
 }
 
@@ -171,23 +171,37 @@ static void language_line(App& app) {
     }
     if (!cn.list_error.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", cn.list_error.c_str());
     if (!cn.cache_error.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", cn.cache_error.c_str());
-    // capture of the loaded bank's selection tables (core/commentary_bank.h), on a background thread
-    bool running = app.bank_capture_running();
+    // One row: the spoken set from the game's audio service (core/commentary_audio.h; the default, built on the game
+    // thread, one batch per frame) and, as a diagnostic, the memory scan of the loaded bank (core/commentary_bank.h,
+    // background thread); one status line for whichever ran last
+    caudio::ServiceStatus st;
+    if (app.commentary_audio) st = app.commentary_audio->status();
+    const bool can_build = app.commentary_audio && st.available;
+    if (!can_build) ImGui::BeginDisabled();
+    if (ImGui::Button("Rebuild from the game's audio service##cn")) app.start_spoken_build(false);
+    if (!can_build) ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Asks the game's own audio service, id by id, whether the loaded commentary bank has a recording: the same\n"
+                          "check the Create Player screen runs on its name list (PLAYER_NAME_FE / surname_ID), plus the in-match check\n"
+                          "for players with their own recordings (PLAYER_LOW_SIMPLE / PLAYER_LOW_LINK with player_db_pID). Runs on the\n"
+                          "game thread in small batches, one per frame; cached as turbo_output\\callnames\\spoken_<lang>.json.");
+    ImGui::SameLine();
+    const bool running = app.bank_capture_running();
     if (running) ImGui::BeginDisabled();
     if (ImGui::Button("Capture from the loaded bank##cn")) app.start_bank_capture(false);
     if (running) ImGui::EndDisabled();
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Reads the selection tables of the commentary bank the game has in memory (surname and player-keyed\n"
-                          "families) and caches them as turbo_output\\callnames\\spoken_<lang>.json. The full bank is loaded during a\n"
-                          "match; in the menus only the launch bank (name previews) is resident. A hand-made spoken_<lang>.txt\n"
-                          "under turbo\\callnames overrides the capture.");
-    if (running) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", app.bank_capture_status.c_str());
-    } else if (!app.bank_capture_status.empty()) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("last capture: %s", app.bank_capture_status.c_str());
-    }
+        ImGui::SetTooltip("Diagnostic: scans the game's memory for the loaded bank's selection tables and caches what it finds as\n"
+                          "turbo_output\\callnames\\spoken_<lang>.json (the audio-service build is the normal way). A hand-made\n"
+                          "spoken_<lang>.txt under turbo\\callnames overrides either.");
+    ImGui::SameLine();
+    if (st.busy) ImGui::TextDisabled("building: %s", st.progress.c_str());
+    else if (running) ImGui::TextDisabled("%s", app.bank_capture_status.c_str());
+    else if (!app.spoken_build_status.empty()) ImGui::TextDisabled("%s", app.spoken_build_status.c_str());
+    else if (!app.bank_capture_status.empty()) ImGui::TextDisabled("last capture: %s", app.bank_capture_status.c_str());
+    else if (!app.commentary_audio) ImGui::TextDisabled("audio-service build not available in this build of Turbo");
+    else if (!st.installed) ImGui::TextDisabled("not available: %s", st.reason.c_str());
+    else ImGui::TextDisabled("%s", st.reason.empty() ? "ready" : st.reason.c_str());
     if (!cn.spoken.verified && !cn.list_path.empty())
         ImGui::TextDisabled("Override list looked for: %s; capture cache: %s", cn.list_path.c_str(), cn.cache_path.c_str());
 }
@@ -311,9 +325,17 @@ void callname_editor(App& app, const Table& t, const PlayerRow& p) {
     ImGui::AlignTextToFramePadding();
     if (info.real) {
         auto it = cn.spoken.players.find(p.playerid);
-        int tables = it != cn.spoken.players.end() ? it->second : 0;
-        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1), "Recorded by name in %s: the bank has this player's own recordings (%d player-keyed table%s)",
-                           cn.lang.c_str(), tables, tables == 1 ? "" : "s");
+        int v = it != cn.spoken.players.end() ? it->second : 0;
+        std::string how;
+        if (cn.spoken.from == SpokenSet::From::GameAudio) {
+            if (v & caudio::kPlayerLowSimple) how += "PLAYER_LOW_SIMPLE";
+            if (v & caudio::kPlayerLowLink) how += std::string(how.empty() ? "" : " + ") + "PLAYER_LOW_LINK";
+            if (how.empty()) how = "the game's audio service";
+        } else {
+            how = std::to_string(v) + (v == 1 ? " player-keyed table" : " player-keyed tables");
+        }
+        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1), "Recorded by name in %s: the bank has this player's own recordings (%s)", cn.lang.c_str(),
+                           how.c_str());
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Player-specific (\"Real\") recordings are bound to the player id inside the bank, not to a commentary id:\n"
                               "the commentary says this name whatever the callname rule below gives.");

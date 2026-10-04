@@ -1,0 +1,105 @@
+{
+  "build": "6AB9813C-211EF000",
+  "game": "FC27.exe",
+  "image": "C:\\FC 27 Live Editor\\turbo_output\\fc27_image.bin (dumped 2026-10-03, base 0x140000000)",
+  "note": "Spoken callnames through the game's audio service (docs/callnames.md section 5, turbogui/src/core/commentary_audio.h). Same entries as the built-in table in turbogui/src/core/sigscan.cpp. Check with: bash scripts/re/py.sh scripts/re/verify_callnames.py. Several entries share one pattern and differ by offset: the resolver reads the rip-relative instruction at match + offset, so the strings come out as the game's own constants.",
+  "signatures": {
+    "commentary_service_registry": {
+      "pattern": "48 8B 15 ?? ?? ?? ?? 48 8D 4C 24 38 E8 ?? ?? ?? ?? 48 8B 4C 24 38 48 85 C9 74 ?? 48 8B 01 FF 50 60 48 85 C0 74 ?? 48 8B 08 48 8D 54 24 50 4C 8B",
+      "resolve": "rip",
+      "offset": 0,
+      "expect": "0x14C2A8590",
+      "match": "0x1480B255F",
+      "note": "the Create Player list reader 0x1480B2128 loads the service registry pointer here before GetCommentaryService; [slot] = the registry (1,117 code references in the image)"
+    },
+    "commentary_service_get": {
+      "pattern": "48 8B 15 ?? ?? ?? ?? 48 8D 4C 24 38 E8 ?? ?? ?? ?? 48 8B 4C 24 38 48 85 C9 74 ?? 48 8B 01 FF 50 60 48 85 C0 74 ?? 48 8B 08 48 8D 54 24 50 4C 8B",
+      "resolve": "rip",
+      "offset": 12,
+      "expect": "0x142A52420",
+      "match": "0x1480B255F",
+      "note": "void** GetCommentaryService(void** out, Registry*): registry->vcall(0x40)(0xA621C80) then entry->vcall(0x18)(0xA621C86) (returns the entry itself, 0x142899DF4); the caller releases through the service's vcall 0x8 (lock xadd -1 on service+0x10)"
+    },
+    "commentary_filter_names": {
+      "pattern": "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 41 56 48 81 EC 00 01 00 00 48 8B D9 48 8B FA 48 8B 49 10 48 8D 15 ?? ?? ?? ?? 48 8B 01 FF 90 E0 00 00 00 4C 8B F0 48 85 C0",
+      "resolve": "none",
+      "offset": 0,
+      "expect": "0x1439074C8",
+      "note": "void FilterNames(Inner*, eastl::vector<{int row, int commentaryid}>*): bridge = [inner+0x10]->vcall(0xE0)(\"CommentaryBridge\"); ctx = audio->vcall(0x48)(\"CommentaryDbEvents\", \"PLAYER_NAME_FE\"); one SpeechQuery {player_intensity = 2}; per element surname_ID = id, bridge->vcall(0xB8)(query), erase in place on false. Reached by the game through names vtable slot 24 (0x1438AEE38: this+8 -> inner)"
+    },
+    "commentary_str_bridge": {"pattern": "(same as commentary_filter_names)", "resolve": "rip", "offset": 34, "expect": "0x14978BC38", "note": "\"CommentaryBridge\""},
+    "commentary_str_player_name_fe": {"pattern": "(same as commentary_filter_names)", "resolve": "rip", "offset": 66, "expect": "0x14A8D4900", "note": "\"PLAYER_NAME_FE\""},
+    "commentary_str_db_events": {"pattern": "(same as commentary_filter_names)", "resolve": "rip", "offset": 80, "expect": "0x1497A5680", "note": "\"CommentaryDbEvents\""},
+    "commentary_str_player_intensity": {"pattern": "(same as commentary_filter_names)", "resolve": "rip", "offset": 127, "expect": "0x1497A5698", "note": "\"player_intensity\""},
+    "commentary_str_surname_id": {"pattern": "(same as commentary_filter_names)", "resolve": "rip", "offset": 153, "expect": "0x1496A7408", "note": "\"surname_ID\""},
+    "speech_query_ctor": {
+      "pattern": "40 53 48 83 EC 20 48 8B D9 48 8D 05 ?? ?? ?? ?? 33 C9 89 4B 08 48 89 03 48 8D 05 ?? ?? ?? ?? 48 89 53 10 89 4B 18 48 89 4B 20 48 89",
+      "resolve": "none",
+      "offset": 0,
+      "expect": "0x1407B0EC0",
+      "note": "SpeechQuery* ctor(SpeechQuery* q, ScratchScope* scope, EventCtx* ctx): q+0 vtable 0x149621F80, +0x10/+0x38/+0x68 scope, +0x18 param count, +0x20..0x30 param array, +0x48 0x14BCAD848, +0x50 1, +0x58 1.0f, +0x5C 2.0f, +0x80 0; ctx != null -> 0x1407B0F3C(q, ctx). Object 0x84 bytes"
+    },
+    "speech_query_set_int": {
+      "pattern": "48 89 5C 24 08 57 48 83 EC 20 41 8B F8 48 8B D9 E8 ?? ?? ?? ?? 3B 43 18 73 ?? 8B D0 48 8B 43 20 48 8B 0C D0 48 85 C9 75 ?? 48 8B 5C",
+      "resolve": "none",
+      "offset": 0,
+      "expect": "0x1407B03E4",
+      "note": "void SetInt(SpeechQuery*, const char* name, int): 0x1407AEF2C hashes the name (djb2-xor) and finds the parameter index; an existing parameter is overwritten, else one is added from the scope"
+    },
+    "speech_query_dtor": {
+      "pattern": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 54 41 56 41 57 48 83 EC 20 33 F6 48 8D 05 ?? ?? ?? ?? 48 8D 79 20 48 8B D9 48 89 01 39 71 18 76 ?? 48",
+      "resolve": "none",
+      "offset": 0,
+      "expect": "0x1407B0B6C",
+      "note": "void ~SpeechQuery(this)"
+    },
+    "scratch_scope_ctor": {
+      "pattern": "40 53 48 83 EC 20 48 8D 05 ?? ?? ?? ?? C7 41 08 01 00 00 00 48 89 01 48 8B D9 C7 41 0C 01 00 00 00 48 C7 41 10 00 00 00 00 E8 ?? ?? ?? ?? 48 89 43 18",
+      "resolve": "none",
+      "offset": 0,
+      "expect": "0x140670BF4",
+      "note": "ScratchScope* ctor(ScratchScope*): vtable 0x14960E268, +0x18 the thread's scratch allocator (0x140539FD4), +0x28/+0x30 its saved position; 0x40 bytes. Destroyed in LIFO order by scratch_scope_dtor"
+    },
+    "scratch_scope_dtor": {
+      "pattern": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 48 8B F9 48 8D 05 ?? ?? ?? ?? 48 89 01 48 83 79 38 00 75 ?? 4C 8B 77 28 8B",
+      "resolve": "none",
+      "offset": 0,
+      "expect": "0x14053A030",
+      "note": "void ~ScratchScope(this): rewinds the allocator to the saved position"
+    },
+    "commentary_service_vtable": {
+      "pattern": "48 8D 0D ?? ?? ?? ?? 48 89 53 18 48 89 0B 48 8D 05 ?? ?? ?? ?? 44 8D 75 10 48 89 43",
+      "resolve": "rip",
+      "offset": 0,
+      "expect": "0x14A8C6D70",
+      "match": "0x1438A149A",
+      "note": "CommentaryService vtable from its constructor 0x1438A145C (the only other reference: 0x1438A253B). Slot 1 (0x8) Release 0x141D4281C, slot 3 (0x18) QueryInterface 0x142899DF4 (ids 0xEE3F516E / 0xA621C86 -> this), slot 12 (0x60) 0x1438A59A0 = [this+0x40]"
+    },
+    "commentary_names_vtable": {
+      "pattern": "48 8D 0D ?? ?? ?? ?? 48 89 68 08 48 89 08 EB ?? 48 8B C5 48 8B D6 48 89 43 40 49 8B CE E8",
+      "resolve": "rip",
+      "offset": 0,
+      "expect": "0x14A8C5F48",
+      "match": "0x1438A1509",
+      "note": "vtable of the names object the service constructor allocates (0x140670D24) and stores at service+0x40, with +0x08 = null until the audio binds it. Slot 24 (0xC0) 0x1438AEE38 = FilterNames([this+8], vector) when [this+8] != null"
+    },
+    "commentary_str_player_low_simple": {
+      "pattern": "49 8B 4D 08 4C 8D 05 ?? ?? ?? ?? 48 8D 15 ?? ?? ?? ?? 48 8B 01 FF 50 48 48 8D 4D D0 4C 8B F8 E8 ?? ?? ?? ?? C7 45 28 00",
+      "resolve": "rip",
+      "offset": 4,
+      "expect": "0x1497A56C0",
+      "match": "0x14294A15B",
+      "note": "\"PLAYER_LOW_SIMPLE\": inside the frontend per-player check 0x14294A0F4 (int GetCallname(this, int playerid, int mode): -1 when PLAYER_LOW_SIMPLE / PLAYER_LOW_LINK have audio for player_db_pID = playerid, else the playernamemap id when PLAYER_NAME_FE has it, else the name ids' commentary id); its only caller is 0x1438EB8B0, so Turbo builds the queries itself"
+    },
+    "commentary_str_player_db_pid": {"pattern": "(same as commentary_str_player_low_simple)", "resolve": "rip", "offset": 197, "expect": "0x149622398", "note": "\"player_db_pID\""},
+    "commentary_str_player_low_link": {"pattern": "(same as commentary_str_player_low_simple)", "resolve": "rip", "offset": 239, "expect": "0x1497A56B0", "note": "\"PLAYER_LOW_LINK\""}
+  },
+  "layout": {
+    "service+0x10": "reference count (Release: lock xadd -1)",
+    "service+0x40": "names object (vcall 0x60)",
+    "names+0x08": "inner object FilterNames takes (null while the audio is not bound)",
+    "inner+0x10": "audio system: vcall 0xE0 GetSubsystem(name), vcall 0x48 GetEventContext(category, event)",
+    "CommentaryBridge vtable 0x14A8DC8C0": "slot 23 (0xB8) HasAudio(SpeechQuery*) -> 0x14294FCA0 -> 0x1444F340C (event registry at SpeechSystem+0x50, handler 0x1414A9D14, event lookup by name 0x1414AAEF4: a linear strcmp over the 10,201 base-db events, which is why Turbo budgets its batches per frame)",
+    "vector element": "u64: low 32 bits = row (position), high 32 bits = commentaryid (FilterNames reads +4)"
+  }
+}

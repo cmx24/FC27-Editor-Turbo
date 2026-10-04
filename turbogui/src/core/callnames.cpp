@@ -261,12 +261,13 @@ void Callnames::refresh(const fs::path& le_root, const fs::path& game_root, cons
             } else if (!cache.lang.empty() && lower(cache.lang) != lang) {
                 cache_error = c.filename().string() + " is a capture for '" + cache.lang + "', not '" + lang + "'";
             } else if (spoken.verified) {
-                // the hand-made list wins for the surnames; the players with recordings still come from the capture
+                // the hand-made list wins for the surnames; the players with recordings still come from the cache
                 spoken.players = cache.players;
-                spoken.source += "; players with recordings from the bank capture";
+                spoken.source += cache.kind == "game audio service" ? "; players with recordings from the game's audio service"
+                                                                   : "; players with recordings from the bank capture";
             } else {
                 spoken.verified = true;
-                spoken.from = SpokenSet::From::BankCapture;
+                spoken.from = cache.kind == "game audio service" ? SpokenSet::From::GameAudio : SpokenSet::From::BankCapture;
                 spoken.ids = cache.surnames;
                 spoken.players = cache.players;
                 spoken.source = cache.source;
@@ -315,7 +316,7 @@ bool Callnames::apply_capture(const BankCapture& c, const fs::path& le_root, con
         spoken.players = cache.players;  // the hand-made list keeps the surnames
     } else {
         spoken.verified = true;
-        spoken.from = SpokenSet::From::BankCapture;
+        spoken.from = cache.kind == "game audio service" ? SpokenSet::From::GameAudio : SpokenSet::From::BankCapture;
         spoken.ids = cache.surnames;
         spoken.players = cache.players;
         spoken.source = cache.source;

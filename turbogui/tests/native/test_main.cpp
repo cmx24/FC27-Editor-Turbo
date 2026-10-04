@@ -631,6 +631,184 @@ static void test_core() {
         fs::remove(cache);
     });
 
+    // ---- the game's audio service (core/commentary_audio.h): batch layout, pointer chain, the stepped build, cache record
+    run_case("commentary audio: name batch and canary, pointer chain checks, the stepped build with a fake caller, cache record and precedence", [&] {
+        using namespace caudio;
+        // the batch: rows follow the asked list, ids outside 1..2^20-1 are skipped, the canary closes it
+        std::vector<int64_t> asked = {900001, 0, 900002, 1 << 20, 950000};
+        std::vector<uint64_t> b = pack_name_batch(asked);
+        CHECK(b.size() == 4 && batch_row(b[0]) == 0 && batch_id(b[0]) == 900001 && batch_row(b[1]) == 2 && batch_id(b[1]) == 900002 &&
+                  batch_row(b[2]) == 4 && batch_id(b[2]) == 950000 && batch_row(b[3]) == 5 && batch_id(b[3]) == kCanaryId,
+              "packed {row, id} elements + canary");
+        std::unordered_set<int64_t> kept;
+        std::string err;
+        CHECK(!unpack_name_batch(b, 4, asked, kept, err) && err.find("canary") != std::string::npos, "canary survived = the filter did not run: " + err);
+        CHECK(unpack_name_batch(b, 3, asked, kept, err) && kept.size() == 3 && kept.count(950000), "every id kept");
+        std::vector<uint64_t> f = {b[0], b[2]};  // the filter erased 900002 in place
+        CHECK(unpack_name_batch(f, 2, asked, kept, err) && kept.size() == 2 && kept.count(900001) && kept.count(950000) && !kept.count(900002), "erased element gone");
+        CHECK(unpack_name_batch(f, 0, asked, kept, err) && kept.empty(), "nothing kept");
+        std::vector<uint64_t> bad = {batch_elem(0, 900009)};
+        CHECK(!unpack_name_batch(bad, 1, asked, kept, err) && err.find("layout") != std::string::npos, "an id that was not asked at that row: " + err);
+        std::vector<uint64_t> re = {b[2], b[0]};
+        CHECK(!unpack_name_batch(re, 2, asked, kept, err) && err.find("reordered") != std::string::npos, "reordered: " + err);
+        CHECK(!unpack_name_batch(f, 5, asked, kept, err), "more survivors than elements");
+        // the pointer chain on synthetic memory: service (vtable) -> +0x40 names (vtable) -> +0x08 inner -> +0x10 audio
+        SimMemory cm;
+        cm.map(0x6A0000000ull, 0x4000);
+        Fns fn;
+        fn.registry = 0x14C2A8590ull;
+        fn.get_service = 0x142A52420ull;
+        fn.filter_names = 0x1439074C8ull;
+        fn.service_vtable = 0x14A8C6D70ull;
+        fn.names_vtable = 0x14A8C5F48ull;
+        const uint64_t svc = 0x6A0000100ull, names = 0x6A0001000ull, inner = 0x6A0002000ull, audio = 0x6A0003000ull;
+        cm.wr(svc, fn.service_vtable);
+        cm.wr(svc + kServiceNames, names);
+        cm.wr(names, fn.names_vtable);
+        cm.wr(names + kNamesInner, inner);
+        cm.wr(inner + kInnerAudio, audio);
+        cm.wr(audio, uint64_t(0x1496FB5A8ull));
+        Chain ch;
+        CHECK(resolve_chain(cm, svc, fn, ch, err) && ch.service == svc && ch.names == names && ch.inner == inner && ch.audio == audio, "chain resolved: " + err);
+        CHECK(fn.missing_names() == nullptr && std::string(fn.missing_players()) == "speech_query_ctor", "missing pieces named per path");
+        Fns none;
+        CHECK(std::string(none.missing_names()) == "commentary_service_registry" && fn_signatures().size() == 18, "first missing; 18 signatures");
+        cm.wr(svc, uint64_t(0x14A8C6D78ull));
+        CHECK(!resolve_chain(cm, svc, fn, ch, err) && err.find("not the commentary service") != std::string::npos, "wrong service vtable: " + err);
+        cm.wr(svc, fn.service_vtable);
+        cm.wr(names, uint64_t(0x14A8C5F50ull));
+        CHECK(!resolve_chain(cm, svc, fn, ch, err) && err.find("not the commentary names object") != std::string::npos, "wrong names vtable: " + err);
+        cm.wr(names, fn.names_vtable);
+        cm.wr(names + kNamesInner, uint64_t(0));
+        CHECK(!resolve_chain(cm, svc, fn, ch, err) && err.find("not bound") != std::string::npos, "null inner: " + err);
+        cm.wr(names + kNamesInner, inner);
+        cm.wr(inner + kInnerAudio, uint64_t(0x6A0FF0000ull));
+        CHECK(!resolve_chain(cm, svc, fn, ch, err) && err.find("audio system") != std::string::npos, "unreadable audio: " + err);
+        CHECK(!resolve_chain(cm, 0x6B0000000ull, fn, ch, err) && !resolve_chain(cm, 7, fn, ch, err), "unreadable / non-pointer service");
+        // the build: a fake game whose bank speaks every third id and records every even player (link too for multiples of 10)
+        struct FakeAudio : Caller {
+            bool drop_canary = true, players_ok = true, all_no = false;
+            int name_calls = 0, player_calls = 0;
+            bool filter_names(std::vector<uint64_t>& batch, size_t& survivors, std::string&) override {
+                ++name_calls;
+                size_t w = 0;
+                for (size_t i = 0; i < batch.size(); ++i) {
+                    const int64_t id = batch_id(batch[i]);
+                    const bool keep = id == kCanaryId ? !drop_canary : (!all_no && id % 3 == 0);
+                    if (keep) batch[w++] = batch[i];
+                }
+                survivors = w;
+                return true;
+            }
+            bool player_audio(const std::vector<int64_t>& pids, std::vector<int>& flags, std::string& e) override {
+                ++player_calls;
+                if (!players_ok) {
+                    e = "player path off in the fake";
+                    return false;
+                }
+                flags.assign(pids.size(), 0);
+                for (size_t i = 0; i < pids.size(); ++i) {
+                    if (pids[i] % 2 == 0) flags[i] |= kPlayerLowSimple;
+                    if (pids[i] % 10 == 0) flags[i] |= kPlayerLowLink;
+                }
+                return true;
+            }
+        };
+        BuildRequest req;
+        for (int64_t id = 900001; id <= 901000; ++id) req.names.push_back(id);
+        for (int64_t pid = 1; pid <= 500; ++pid) req.players.push_back(pid);
+        double t = 0.0;  // a fast game: a step costs 0.5 ms -> the batch doubles up to the maximum
+        auto clock = [&t]() { t += 0.0005; return t; };
+        FakeAudio fake;
+        Build build(req, clock);
+        CHECK(build.batch() == 100, "starts with batch_start");
+        int steps = 1;
+        while (build.step(fake)) ++steps;
+        BuildResult r = build.result();
+        CHECK(build.done() && r.ok, "build done ok: " + r.note);
+        CHECK(r.names.size() == 333 && r.names.count(900003) && !r.names.count(900004) && r.names_checked == 1000, fmt("333 of 1000 names: %zu", r.names.size()));
+        CHECK(r.players.size() == 250 && r.players.at(10) == 3 && r.players.at(2) == 1 && !r.players.count(3) && r.players_checked == 500,
+              fmt("250 players with recordings: %zu", r.players.size()));
+        CHECK(build.batch() == 400 && steps == 6 && r.steps == 6 && fake.name_calls == 4 && fake.player_calls == 2, fmt("batch grew to 400: %d steps", steps));
+        CHECK(r.note.find("333 of 1000") != std::string::npos && r.note.find("250 of 500") != std::string::npos && r.seconds > 0.0 && r.elapsed > 0.0, "summary: " + r.note);
+        CHECK(!build.step(fake), "no step after done");
+        // a slow game: the batch halves down to the minimum
+        double ts = 0.0;
+        auto slow = [&ts]() { ts += 0.01; return ts; };
+        Build b2(req, slow);
+        FakeAudio f2;
+        b2.step(f2);
+        CHECK(b2.batch() == 50, fmt("batch halved after a slow step: %zu", b2.batch()));
+        for (int i = 0; i < 3 && b2.step(f2); ++i) {}
+        CHECK(b2.batch() == 25, fmt("batch stays at the minimum: %zu", b2.batch()));
+        CHECK(b2.progress().find("names") != std::string::npos && b2.progress().find("/ 1000") != std::string::npos, "progress: " + b2.progress());
+        b2.cancel();
+        CHECK(!b2.step(f2) && b2.result().cancelled && !b2.result().ok, "cancelled");
+        // the canary survives: the filter did not run (no bridge) -> failed, nothing counted as spoken
+        FakeAudio f3;
+        f3.drop_canary = false;
+        Build b3(req, clock);
+        while (b3.step(f3)) {}
+        CHECK(!b3.result().ok && b3.result().note.find("canary") != std::string::npos && b3.result().names.empty(), "unanswered batch: " + b3.result().note);
+        // every answer 'no': the bank is not bound in this screen -> failed (never cached as an empty set)
+        FakeAudio f4;
+        f4.all_no = true;
+        Build b4(req, clock);
+        while (b4.step(f4)) {}
+        CHECK(!b4.result().ok && b4.result().note.find("not bound") != std::string::npos, "all-no: " + b4.result().note);
+        // the player path off: the names stand, the note says why, the player pass stops after one call
+        FakeAudio f5;
+        f5.players_ok = false;
+        Build b5(req, clock);
+        while (b5.step(f5)) {}
+        CHECK(b5.result().ok && b5.result().names.size() == 333 && b5.result().players.empty() && b5.result().players_note.find("fake") != std::string::npos &&
+                  b5.result().note.find("players not checked") != std::string::npos && f5.player_calls == 1,
+              "names only: " + b5.result().note);
+        Build b6(BuildRequest{}, clock);
+        CHECK(!b6.step(fake) && !b6.result().ok && b6.result().note.find("nothing to check") != std::string::npos, "empty request");
+        Build b7(req, clock);
+        b7.abort("boom");
+        CHECK(b7.done() && !b7.result().ok && b7.result().note == "boom" && !b7.step(fake), "abort");
+        // the cache record: source "game audio service", read back with the audio-service source line
+        BankCapture c = to_capture(r);
+        CHECK(c.ok && c.source == kAudioSource && c.surnames.size() == 333 && c.players.size() == 250 && c.checked_names == 1000 && c.checked_players == 500 &&
+                  c.steps == r.steps,
+              "to_capture");
+        std::string js = bank_cache_json(c, "ita_it", "2026-10-04 00:40", "6AB9813C-211EF000");
+        BankCache cache;
+        CHECK(parse_bank_cache_json(js, cache, &err) && cache.kind == kAudioSource && cache.surnames.size() == 333 && cache.players.size() == 250 &&
+                  cache.players.at(10) == 3 && cache.checked_names == 1000 && cache.checked_players == 500 &&
+                  cache.source == "the game's audio service (built 2026-10-04 00:40)",
+              "cache round trip: " + cache.source + " / " + err);
+        BankCapture scan;
+        scan.ok = true;
+        scan.surnames = {900001};
+        BankCache c2;
+        CHECK(parse_bank_cache_json(bank_cache_json(scan, "ita_it", "x", ""), c2, &err) && c2.kind == "live bank capture" && c2.source.find("live bank capture") == 0,
+              "a memory-scan cache keeps its source");
+        // precedence: hand-made list > game-built set > fallback
+        fs::path game = g_out / "fakegame";
+        fs::path le = g_out / "LE";
+        fs::path cpath = spoken_cache_path(le, "ita_it");
+        fs::remove(cpath);
+        fs::remove(le / "turbo" / "callnames" / "spoken_ita_it.txt");
+        Callnames cn;
+        cn.refresh(le, game, "");
+        CHECK(cn.spoken.from == SpokenSet::From::Fallback, "fallback first");
+        CHECK(cn.apply_capture(c, le, "2026-10-04 00:40", "6AB9813C-211EF000", &err) && cn.spoken.from == SpokenSet::From::GameAudio && cn.spoken.verified &&
+                  cn.spoken.ids.size() == 333 && cn.spoken.real(10) && !cn.spoken.real(3) && cn.spoken.source.find("audio service") != std::string::npos,
+              "game-built set applied: " + cn.spoken.source + " " + err);
+        cn.refresh(le, game, "");
+        CHECK(cn.spoken.from == SpokenSet::From::GameAudio && cn.spoken.ids.size() == 333 && cn.spoken.players.size() == 250,
+              "game-built set loaded from the cache: " + cn.spoken.source);
+        std::ofstream((le / "turbo" / "callnames" / "spoken_ita_it.txt").string()) << "900015\n";
+        cn.refresh(le, game, "");
+        CHECK(cn.spoken.from == SpokenSet::From::ListFile && cn.spoken.ids.size() == 1 && cn.spoken.real(10) && cn.spoken.source.find("audio service") != std::string::npos,
+              "hand-made list over the game-built set, players kept: " + cn.spoken.source);
+        fs::remove(le / "turbo" / "callnames" / "spoken_ita_it.txt");
+        fs::remove(cpath);
+    });
+
     // ---- writes, verified afterwards by Live Editor's Lua library
     json writes = json::array();
     auto write = [&](const std::string& table, int64_t key, const std::string& key_field, const std::string& field, const Value& v) {
@@ -2237,7 +2415,7 @@ static void test_ui() {
             app.regions_hook = []() { return std::vector<Region>{{0x6F2000000ull, 0x6F2004000ull}, {0x6F3000000ull, 0x6F3002000ull}}; };
             app.game_root = game;
             app.callnames.refreshed = false;
-            app.bank_auto_tried = false;
+            app.spoken_auto_tried = true;  // no automatic audio-service build in this case (no service set)
             app.bank_capture_status.clear();
             app.request_tab = 0;
             ui.frames(3);
@@ -2245,7 +2423,7 @@ static void test_ui() {
             CHECK(ui.click("1001", "##plist"), "row 1001 (Saka)");
             CHECK(ui.click("Callname", "##pedit"), "Callname tab");
             ui.frames(2);
-            CHECK(app.bank_auto_tried, "no list and no cache: the capture starts by itself");
+            CHECK(ui.click("Capture from the loaded bank##cn"), "the memory scan is manual now (the audio service is the automatic path)");
             for (int i = 0; i < 500 && app.bank_capture_running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
             CHECK(!app.bank_capture_running(), "capture thread finished");
             ui.frames(2);
@@ -2264,6 +2442,105 @@ static void test_ui() {
             CHECK(app.callnames.spoken.from == SpokenSet::From::BankCapture && app.callnames.spoken.ids.size() == 5, "manual capture applied");
             fs::remove(cache);
             app.regions_hook = nullptr;
+            app.callnames.refreshed = false;
+        });
+        run_case("UI: Players > Callname: spoken set from the game's audio service (fake service): automatic build, status line, Rebuild, pickers", [&] {
+            fs::path game = g_out / "fakegame";
+            fs::path cache = spoken_cache_path(le, "ita_it");
+            fs::remove(cache);
+            fs::remove(le / "turbo" / "callnames" / "spoken_ita_it.txt");
+            // a fake service: every request is answered at once by a fake game whose bank speaks 900002 / 900004 / 900010
+            // and has player 1001's (PLAYER_LOW_SIMPLE) and 2001's (both events) own recordings
+            struct FakeService : caudio::Service {
+                int requests = 0;
+                bool installed = true;
+                caudio::BuildRequest last;
+                std::deque<caudio::BuildResult> out;
+                caudio::ServiceStatus status() override {
+                    caudio::ServiceStatus s;
+                    s.installed = installed;
+                    s.available = installed;
+                    s.players = true;
+                    s.reason = installed ? "" : "off in the test";
+                    s.runs = requests;
+                    return s;
+                }
+                bool request(const caudio::BuildRequest& r, std::string* err) override {
+                    if (!installed) {
+                        if (err) *err = "off in the test";
+                        return false;
+                    }
+                    ++requests;
+                    last = r;
+                    struct C : caudio::Caller {
+                        bool filter_names(std::vector<uint64_t>& b, size_t& n, std::string&) override {
+                            size_t w = 0;
+                            for (uint64_t e : b) {
+                                const int64_t id = caudio::batch_id(e);
+                                if (id == 900002 || id == 900004 || id == 900010) b[w++] = e;
+                            }
+                            n = w;
+                            return true;
+                        }
+                        bool player_audio(const std::vector<int64_t>& p, std::vector<int>& f, std::string&) override {
+                            f.assign(p.size(), 0);
+                            for (size_t i = 0; i < p.size(); ++i)
+                                if (p[i] == 1001) f[i] = caudio::kPlayerLowSimple;
+                                else if (p[i] == 2001) f[i] = caudio::kPlayerLowSimple | caudio::kPlayerLowLink;
+                            return true;
+                        }
+                    } c;
+                    caudio::Build b(r);
+                    while (b.step(c)) {}
+                    out.push_back(b.result());
+                    return true;
+                }
+                bool poll(caudio::BuildResult& r) override {
+                    if (out.empty()) return false;
+                    r = out.front();
+                    out.pop_front();
+                    return true;
+                }
+                void cancel() override {}
+            };
+            auto svc = std::make_shared<FakeService>();
+            app.commentary_audio = svc;
+            app.game_root = game;
+            app.callnames.refreshed = false;
+            app.spoken_auto_tried = false;
+            app.spoken_build_status.clear();
+            app.request_tab = 0;
+            ui.frames(3);
+            CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
+            CHECK(ui.click("1001", "##plist"), "row 1001 (Saka)");
+            CHECK(ui.click("Callname", "##pedit"), "Callname tab");
+            ui.frames(3);
+            CHECK(app.spoken_auto_tried && svc->requests == 1, "no list and no cache: the build starts by itself");
+            CHECK(svc->last.names.size() >= 5 && std::count(svc->last.names.begin(), svc->last.names.end(), 900010) == 1 && !svc->last.players.empty() &&
+                      std::is_sorted(svc->last.names.begin(), svc->last.names.end()),
+                  fmt("request: %zu ids, %zu players", svc->last.names.size(), svc->last.players.size()));
+            CHECK(app.callnames.spoken.verified && app.callnames.spoken.from == SpokenSet::From::GameAudio && app.callnames.spoken.ids.size() == 3 &&
+                      app.callnames.spoken.players.size() == 2,
+                  "spoken set from the service: " + app.callnames.spoken.source);
+            CHECK(fs::exists(cache), "cache written");
+            CHECK(app.spoken_build_status.find("3 of") != std::string::npos, "status line: " + app.spoken_build_status);
+            CHECK(app.callnames.index.built && app.callnames.index.names.size() == 3, fmt("pickers from the set: %zu names", app.callnames.index.names.size()));
+            CallnameInfo r = app.callnames.resolve(*app.model.player(1001), app.db);
+            CHECK(r.real && r.commentaryid == 900002, "Saka: recorded by name");
+            CHECK(ui.find("Rebuild from the game's audio service##cn") != nullptr && ui.find("Capture from the loaded bank##cn") != nullptr,
+                  "rebuild button (default) and the capture button (diagnostic)");
+            CHECK(ui.click("Rebuild from the game's audio service##cn"), "rebuild");
+            ui.frames(3);
+            CHECK(svc->requests == 2 && app.callnames.spoken.from == SpokenSet::From::GameAudio && app.callnames.spoken.ids.size() == 3, "rebuilt");
+            // the service off: no request goes out; the cache still serves the set
+            svc->installed = false;
+            app.callnames.refreshed = false;
+            ui.frames(2);
+            ui.click("Rebuild from the game's audio service##cn");
+            ui.frames(2);
+            CHECK(svc->requests == 2 && app.callnames.spoken.from == SpokenSet::From::GameAudio, "no request while unavailable, cache still in use");
+            fs::remove(cache);
+            app.commentary_audio = nullptr;
             app.callnames.refreshed = false;
         });
         run_case("UI: Players > Callname: language, current callname, pickers, name and player assignment", [&] {
@@ -3352,6 +3629,178 @@ static void test_game_calls() {
             r = resolve_signature(*t->find(n), code.data(), code.size(), base);
             CHECK(r.hits == 1, std::string(n) + " unique");
         }
+    });
+
+    run_case("signatures: the built-in commentary-audio entries resolve on the game's bytes (registry + getter from one call site, strings by offset)", [&] {
+        const SignatureTable* t = builtin_signature_table("6AB9813C-211EF000");
+        CHECK(t != nullptr, "built-in table");
+        if (!t) return;
+        for (const auto& fs_ : caudio::fn_signatures()) CHECK(t->find(fs_.signature) && !t->find(fs_.signature)->pattern.empty(), std::string("entry ") + fs_.signature);
+        // call_site: FC27.exe bytes at 0x1480B255F (64 bytes)
+        const uint8_t call_site[] = {
+            0x48, 0x8B, 0x15, 0x2A, 0x60, 0x1F, 0x04, 0x48, 0x8D, 0x4C, 0x24, 0x38, 0xE8, 0xB0, 0xFE, 0x99,
+            0xFA, 0x48, 0x8B, 0x4C, 0x24, 0x38, 0x48, 0x85, 0xC9, 0x74, 0x20, 0x48, 0x8B, 0x01, 0xFF, 0x50,
+            0x60, 0x48, 0x85, 0xC0, 0x74, 0x15, 0x48, 0x8B, 0x08, 0x48, 0x8D, 0x54, 0x24, 0x50, 0x4C, 0x8B,
+            0x81, 0xC0, 0x00, 0x00, 0x00, 0x48, 0x8B, 0xC8, 0x41, 0xFF, 0xD0, 0x48, 0x8B, 0xB5, 0xF0, 0x01,
+        };
+        const uint64_t call_site_va = 0x1480B255FULL;
+        // filter: FC27.exe bytes at 0x1439074C8 (164 bytes)
+        const uint8_t filter[] = {
+            0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x48, 0x89, 0x7C, 0x24, 0x18, 0x41,
+            0x56, 0x48, 0x81, 0xEC, 0x00, 0x01, 0x00, 0x00, 0x48, 0x8B, 0xD9, 0x48, 0x8B, 0xFA, 0x48, 0x8B,
+            0x49, 0x10, 0x48, 0x8D, 0x15, 0x47, 0x47, 0xE8, 0x05, 0x48, 0x8B, 0x01, 0xFF, 0x90, 0xE0, 0x00,
+            0x00, 0x00, 0x4C, 0x8B, 0xF0, 0x48, 0x85, 0xC0, 0x0F, 0x84, 0xBB, 0x00, 0x00, 0x00, 0x48, 0x8B,
+            0x4B, 0x10, 0x4C, 0x8D, 0x05, 0xEF, 0xD3, 0xFC, 0x06, 0x48, 0x8B, 0x11, 0x4C, 0x8B, 0x4A, 0x48,
+            0x48, 0x8D, 0x15, 0x61, 0xE1, 0xE9, 0x05, 0x41, 0xFF, 0xD1, 0x48, 0x8D, 0x4C, 0x24, 0x20, 0x48,
+            0x8B, 0xD8, 0xE8, 0xC5, 0x96, 0xD6, 0xFC, 0x4C, 0x8B, 0xC3, 0x48, 0x8D, 0x54, 0x24, 0x20, 0x48,
+            0x8D, 0x4C, 0x24, 0x70, 0xE8, 0x7F, 0x99, 0xEA, 0xFC, 0x41, 0xB8, 0x02, 0x00, 0x00, 0x00, 0x48,
+            0x8D, 0x15, 0x4A, 0xE1, 0xE9, 0x05, 0x48, 0x8D, 0x4C, 0x24, 0x70, 0xE8, 0x8C, 0x8E, 0xEA, 0xFC,
+            0x48, 0x8B, 0x1F, 0xEB, 0x4A, 0x44, 0x8B, 0x43, 0x04, 0x48, 0x8D, 0x15, 0xA0, 0xFE, 0xD9, 0x05,
+            0xE8, 0x77, 0x8E, 0xEA,
+        };
+        const uint64_t filter_va = 0x1439074C8ULL;
+        // fe_check: FC27.exe bytes at 0x14294A15B (250 bytes)
+        const uint8_t fe_check[] = {
+            0x49, 0x8B, 0x4D, 0x08, 0x4C, 0x8D, 0x05, 0x5A, 0xB5, 0xE5, 0x06, 0x48, 0x8D, 0x15, 0x13, 0xB5,
+            0xE5, 0x06, 0x48, 0x8B, 0x01, 0xFF, 0x50, 0x48, 0x48, 0x8D, 0x4D, 0xD0, 0x4C, 0x8B, 0xF8, 0xE8,
+            0x75, 0x6A, 0xD2, 0xFD, 0xC7, 0x45, 0x28, 0x00, 0x00, 0x00, 0x00, 0x48, 0x8D, 0x05, 0xF3, 0x7D,
+            0xCD, 0x06, 0x48, 0x89, 0x45, 0x20, 0x48, 0x8D, 0x45, 0xD0, 0x48, 0x89, 0x45, 0x30, 0x48, 0x8D,
+            0x45, 0xD0, 0x48, 0x89, 0x45, 0x58, 0x48, 0x8D, 0x45, 0xD0, 0x48, 0x89, 0x85, 0x88, 0x00, 0x00,
+            0x00, 0x48, 0x8D, 0x05, 0x95, 0x36, 0x36, 0x09, 0x48, 0x89, 0x45, 0x68, 0x8D, 0x5F, 0x02, 0xC7,
+            0x45, 0x38, 0x00, 0x00, 0x00, 0x00, 0x48, 0xC7, 0x45, 0x50, 0x00, 0x00, 0x00, 0x00, 0x48, 0x89,
+            0x5D, 0x70, 0xC7, 0x85, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC7, 0x85, 0xA0, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC5, 0xFA, 0x10, 0x35, 0xD7, 0xF2, 0xD3, 0x06, 0xC5, 0xFA,
+            0x10, 0x3D, 0x2F, 0xA0, 0xCD, 0x06, 0xC5, 0xF9, 0xEF, 0xC0, 0xC5, 0xFA, 0x11, 0x75, 0x78, 0xC5,
+            0xFA, 0x11, 0x7D, 0x7C, 0xC5, 0xFA, 0x7F, 0x45, 0x40, 0xC5, 0xFA, 0x7F, 0x85, 0x90, 0x00, 0x00,
+            0x00, 0x4D, 0x85, 0xFF, 0x74, 0x0C, 0x49, 0x8B, 0xD7, 0x48, 0x8D, 0x4D, 0x20, 0xE8, 0x1F, 0x6D,
+            0xE6, 0xFD, 0x45, 0x8B, 0xC6, 0x48, 0x8D, 0x15, 0x71, 0x81, 0xCD, 0x06, 0x48, 0x8D, 0x4D, 0x20,
+            0xE8, 0xB4, 0x61, 0xE6, 0xFD, 0x41, 0xB8, 0x02, 0x00, 0x00, 0x00, 0x48, 0x8D, 0x15, 0x5B, 0xB4,
+            0xE5, 0x06, 0x48, 0x8D, 0x4D, 0x20, 0xE8, 0x9E, 0x61, 0xE6, 0xFD, 0x49, 0x8B, 0x4D, 0x08, 0x4C,
+            0x8D, 0x05, 0x5F, 0xB4, 0xE5, 0x06, 0x48, 0x8D, 0x15, 0x28,
+        };
+        const uint64_t fe_check_va = 0x14294A15BULL;
+        // query_ctor: FC27.exe bytes at 0x1407B0EC0 (48 bytes)
+        const uint8_t query_ctor[] = {
+            0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xD9, 0x48, 0x8D, 0x05, 0xB0, 0x10, 0xE7, 0x08,
+            0x33, 0xC9, 0x89, 0x4B, 0x08, 0x48, 0x89, 0x03, 0x48, 0x8D, 0x05, 0x69, 0xC9, 0x4F, 0x0B, 0x48,
+            0x89, 0x53, 0x10, 0x89, 0x4B, 0x18, 0x48, 0x89, 0x4B, 0x20, 0x48, 0x89, 0x4B, 0x28, 0x48, 0x89,
+        };
+        const uint64_t query_ctor_va = 0x1407B0EC0ULL;
+        // query_set_int: FC27.exe bytes at 0x1407B03E4 (48 bytes)
+        const uint8_t query_set_int[] = {
+            0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x41, 0x8B, 0xF8, 0x48, 0x8B, 0xD9,
+            0xE8, 0x33, 0xEB, 0xFF, 0xFF, 0x3B, 0x43, 0x18, 0x73, 0x0F, 0x8B, 0xD0, 0x48, 0x8B, 0x43, 0x20,
+            0x48, 0x8B, 0x0C, 0xD0, 0x48, 0x85, 0xC9, 0x75, 0x0B, 0x48, 0x8B, 0x5C, 0x24, 0x30, 0x48, 0x83,
+        };
+        const uint64_t query_set_int_va = 0x1407B03E4ULL;
+        // query_dtor: FC27.exe bytes at 0x1407B0B6C (56 bytes)
+        const uint8_t query_dtor[] = {
+            0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x08, 0x48, 0x89, 0x68, 0x10, 0x48, 0x89, 0x70, 0x18, 0x48,
+            0x89, 0x78, 0x20, 0x41, 0x54, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x33, 0xF6, 0x48,
+            0x8D, 0x05, 0xEE, 0x13, 0xE7, 0x08, 0x48, 0x8D, 0x79, 0x20, 0x48, 0x8B, 0xD9, 0x48, 0x89, 0x01,
+            0x39, 0x71, 0x18, 0x76, 0x30, 0x48, 0x8B, 0x07,
+        };
+        const uint64_t query_dtor_va = 0x1407B0B6CULL;
+        // scope_ctor: FC27.exe bytes at 0x140670BF4 (52 bytes)
+        const uint8_t scope_ctor[] = {
+            0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8D, 0x05, 0x67, 0xD6, 0xF9, 0x08, 0xC7, 0x41, 0x08,
+            0x01, 0x00, 0x00, 0x00, 0x48, 0x89, 0x01, 0x48, 0x8B, 0xD9, 0xC7, 0x41, 0x0C, 0x01, 0x00, 0x00,
+            0x00, 0x48, 0xC7, 0x41, 0x10, 0x00, 0x00, 0x00, 0x00, 0xE8, 0xB2, 0x93, 0xEC, 0xFF, 0x48, 0x89,
+            0x43, 0x18, 0x48, 0xC7,
+        };
+        const uint64_t scope_ctor_va = 0x140670BF4ULL;
+        // scope_dtor: FC27.exe bytes at 0x14053A030 (52 bytes)
+        const uint8_t scope_dtor[] = {
+            0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x08, 0x48, 0x89, 0x68, 0x10, 0x48, 0x89, 0x70, 0x18, 0x48,
+            0x89, 0x78, 0x20, 0x41, 0x56, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xF9, 0x48, 0x8D, 0x05, 0x15,
+            0x42, 0x0D, 0x09, 0x48, 0x89, 0x01, 0x48, 0x83, 0x79, 0x38, 0x00, 0x75, 0x68, 0x4C, 0x8B, 0x77,
+            0x28, 0x8B, 0x6F, 0x30,
+        };
+        const uint64_t scope_dtor_va = 0x14053A030ULL;
+        // svc_ctor: FC27.exe bytes at 0x1438A149A (32 bytes)
+        const uint8_t svc_ctor[] = {
+            0x48, 0x8D, 0x0D, 0xCF, 0x58, 0x02, 0x07, 0x48, 0x89, 0x53, 0x18, 0x48, 0x89, 0x0B, 0x48, 0x8D,
+            0x05, 0xB9, 0x57, 0x02, 0x07, 0x44, 0x8D, 0x75, 0x10, 0x48, 0x89, 0x43, 0x08, 0x41, 0x8B, 0xCE,
+        };
+        const uint64_t svc_ctor_va = 0x1438A149AULL;
+        // names_ctor: FC27.exe bytes at 0x1438A1509 (36 bytes)
+        const uint8_t names_ctor[] = {
+            0x48, 0x8D, 0x0D, 0x38, 0x4A, 0x02, 0x07, 0x48, 0x89, 0x68, 0x08, 0x48, 0x89, 0x08, 0xEB, 0x03,
+            0x48, 0x8B, 0xC5, 0x48, 0x8B, 0xD6, 0x48, 0x89, 0x43, 0x40, 0x49, 0x8B, 0xCE, 0xE8, 0xF9, 0xF7,
+            0xDC, 0xFC, 0x48, 0x85,
+        };
+        const uint64_t names_ctor_va = 0x1438A1509ULL;
+        // expected string targets (the lea operands), checked against the image's string bytes
+        // commentary_str_bridge              0x14978BC38 = "CommentaryBridge"
+        // commentary_str_player_name_fe      0x14A8D4900 = "PLAYER_NAME_FE"
+        // commentary_str_db_events           0x1497A5680 = "CommentaryDbEvents"
+        // commentary_str_player_intensity    0x1497A5698 = "player_intensity"
+        // commentary_str_surname_id          0x1496A7408 = "surname_ID"
+        // commentary_str_player_low_simple   0x1497A56C0 = "PLAYER_LOW_SIMPLE"
+        // commentary_str_player_db_pid       0x149622398 = "player_db_pID"
+        // commentary_str_player_low_link     0x1497A56B0 = "PLAYER_LOW_LINK"
+        const uint64_t str_va[] = {0x14978BC38ULL, 0x14A8D4900ULL, 0x1497A5680ULL, 0x1497A5698ULL, 0x1496A7408ULL, 0x1497A56C0ULL, 0x149622398ULL, 0x1497A56B0ULL};
+
+        struct Exp {
+            const char* name;
+            const uint8_t* bytes;
+            size_t n;
+            uint64_t va;
+            uint64_t expect;
+        } exp[] = {
+            {"commentary_service_registry", call_site, sizeof(call_site), call_site_va, 0x14C2A8590ULL},
+            {"commentary_service_get", call_site, sizeof(call_site), call_site_va, 0x142A52420ULL},
+            {"commentary_filter_names", filter, sizeof(filter), filter_va, filter_va},
+            {"commentary_str_bridge", filter, sizeof(filter), filter_va, str_va[0]},
+            {"commentary_str_player_name_fe", filter, sizeof(filter), filter_va, str_va[1]},
+            {"commentary_str_db_events", filter, sizeof(filter), filter_va, str_va[2]},
+            {"commentary_str_player_intensity", filter, sizeof(filter), filter_va, str_va[3]},
+            {"commentary_str_surname_id", filter, sizeof(filter), filter_va, str_va[4]},
+            {"commentary_str_player_low_simple", fe_check, sizeof(fe_check), fe_check_va, str_va[5]},
+            {"commentary_str_player_db_pid", fe_check, sizeof(fe_check), fe_check_va, str_va[6]},
+            {"commentary_str_player_low_link", fe_check, sizeof(fe_check), fe_check_va, str_va[7]},
+            {"speech_query_ctor", query_ctor, sizeof(query_ctor), query_ctor_va, query_ctor_va},
+            {"speech_query_set_int", query_set_int, sizeof(query_set_int), query_set_int_va, query_set_int_va},
+            {"speech_query_dtor", query_dtor, sizeof(query_dtor), query_dtor_va, query_dtor_va},
+            {"scratch_scope_ctor", scope_ctor, sizeof(scope_ctor), scope_ctor_va, scope_ctor_va},
+            {"scratch_scope_dtor", scope_dtor, sizeof(scope_dtor), scope_dtor_va, scope_dtor_va},
+            {"commentary_service_vtable", svc_ctor, sizeof(svc_ctor), svc_ctor_va, 0x14A8C6D70ULL},
+            {"commentary_names_vtable", names_ctor, sizeof(names_ctor), names_ctor_va, 0x14A8C5F48ULL},
+        };
+        // every snippet sits at +0x100 of a buffer based so that its VA is the real one: rip operands resolve to the real targets
+        for (const auto& e : exp) {
+            std::vector<uint8_t> code(0x400, 0xCC);
+            std::memcpy(code.data() + 0x100, e.bytes, e.n);
+            const uint64_t base = e.va - 0x100;
+            SigResult r = resolve_signature(*t->find(e.name), code.data(), code.size(), base);
+            CHECK(r.state == SigState::Found && r.address == e.expect,
+                  fmt("%s resolves to 0x%llX (got 0x%llX, %s): %s", e.name, static_cast<unsigned long long>(e.expect), static_cast<unsigned long long>(r.address),
+                      sig_state_name(r.state), r.error.c_str()));
+        }
+        // a buffer that holds every snippet: no entry matches twice (distinct patterns)
+        {
+            std::vector<uint8_t> all(0x2000, 0xCC);
+            size_t off = 0x100;
+            for (const auto& e : exp) {
+                bool dup = false;
+                for (const auto& o : exp)
+                    if (o.bytes == e.bytes && &o < &e) dup = true;
+                if (dup) continue;
+                std::memcpy(all.data() + off, e.bytes, e.n);
+                off += 0x200;
+            }
+            for (const auto& e : exp) {
+                SigResult r = resolve_signature(*t->find(e.name), all.data(), all.size(), 0x150000000ULL);
+                CHECK(r.hits == 1, std::string(e.name) + " unique");
+            }
+        }
+        // the host fills Fns from the table in fn_signatures() order: every name is in the table
+        caudio::Fns fn;
+        for (const auto& fs_ : caudio::fn_signatures()) {
+            const Signature* sg = t->find(fs_.signature);
+            if (sg) fn.*(fs_.field) = 1;
+        }
+        CHECK(fn.missing_names() == nullptr && fn.missing_players() == nullptr, "every signature of both paths is in the built-in table");
     });
 }
 

@@ -181,10 +181,7 @@ void App::finish_bank_capture() {
         c = std::move(bank_result_);
     }
     if (bank_thread_.joinable()) bank_thread_.join();
-    char when[32];
-    std::time_t t = std::time(nullptr);
-    const std::tm* tmv = std::localtime(&t);  // render thread only
-    if (!tmv || std::strftime(when, sizeof(when), "%Y-%m-%d %H:%M", tmv) == 0) std::snprintf(when, sizeof(when), "%lld", static_cast<long long>(t));
+    const std::string when = time_stamp();
     std::string build = hook_report ? hook_report().build : std::string();
     std::string err;
     char line[256];
@@ -203,6 +200,72 @@ void App::finish_bank_capture() {
         ++gen;  // the Callname tab rebuilds its pickers
     }
     log("callnames: bank capture " + bank_capture_status);
+}
+
+std::string App::time_stamp() const {
+    char when[32];
+    std::time_t t = std::time(nullptr);
+    const std::tm* tmv = std::localtime(&t);  // render thread only
+    if (!tmv || std::strftime(when, sizeof(when), "%Y-%m-%d %H:%M", tmv) == 0) std::snprintf(when, sizeof(when), "%lld", static_cast<long long>(t));
+    return when;
+}
+
+// ---- the spoken set asked from the game's audio service (core/commentary_audio.h): a build on the game thread
+bool App::start_spoken_build(bool automatic) {
+    if (!commentary_audio) {
+        spoken_build_status = "not available: no audio-service call in this build";
+        return false;
+    }
+    caudio::BuildRequest req;
+    // every commentary id the database knows or uses: commentarynames, playernames.commentaryid, playernamemap.commentaryid
+    std::unordered_set<int64_t> ids = commentary_ids();
+    for (int64_t id : callnames.index.used_ids) ids.insert(id);
+    for (const auto& kv : callnames.index.playernamemap)
+        if (kv.second > kNoCallname && kv.second <= kCallnameMax) ids.insert(kv.second);
+    req.names.assign(ids.begin(), ids.end());
+    std::sort(req.names.begin(), req.names.end());
+    for (const auto& p : model.players()) req.players.push_back(p.playerid);
+    std::string err;
+    if (!commentary_audio->request(req, &err)) {
+        spoken_build_status = "not started: " + err;
+        if (!automatic) notify("Callnames: " + spoken_build_status, true);
+        log("callnames: audio-service build " + spoken_build_status);
+        return false;
+    }
+    char line[200];
+    std::snprintf(line, sizeof(line), "asking the game's audio service about %zu commentary ids and %zu players%s...", req.names.size(), req.players.size(),
+                  automatic ? " (automatic)" : "");
+    spoken_build_status = line;
+    log("callnames: " + spoken_build_status);
+    return true;
+}
+
+void App::finish_spoken_build() {
+    if (!commentary_audio) return;
+    caudio::BuildResult r;
+    if (!commentary_audio->poll(r)) return;
+    const std::string when = time_stamp();
+    std::string build = hook_report ? hook_report().build : std::string();
+    BankCapture c = caudio::to_capture(r);
+    std::string err;
+    char line[400];
+    std::snprintf(line, sizeof(line), "%.1f s, %zu steps: %s", c.seconds, c.steps, r.note.c_str());
+    if (r.cancelled) {
+        spoken_build_status = "build cancelled";
+    } else if (!r.ok) {
+        spoken_build_status = line;
+        notify("Callnames: " + r.note, true);
+    } else if (!callnames.apply_capture(c, bridge.root(), when, build, &err)) {
+        spoken_build_status = std::string(line) + " - not used: " + err;
+        notify("Callnames: audio-service set not used: " + err, true);
+    } else {
+        spoken_build_status = line;
+        std::snprintf(line, sizeof(line), "Callnames: spoken set from the game's audio service: %zu names, %zu player callnames", c.surnames.size(),
+                      c.players.size());
+        notify(line);
+        ++gen;  // the Callname tab rebuilds its pickers
+    }
+    log("callnames: audio-service build " + spoken_build_status);
 }
 
 bool App::refresh() {
@@ -241,6 +304,7 @@ void App::tick(double t) {
     update_style();
     legacy.tick(t);
     finish_bank_capture();
+    finish_spoken_build();
     if (t >= next_poll) {
         next_poll = t + 0.5;
         bool changed = bridge.poll_files();

@@ -10,9 +10,10 @@
 // <game>\Data\Win32\commentaryfull_<lang>.toc (the base language, eng_us). Which ids are spoken comes, in this order:
 //   1. a hand-made list <Live Editor>	urbo\callnames\spoken_<lang>.txt (one commentary id per line, e.g. from a FIFA
 //      Editor Tool export of pSIMPLE_SURNAME) - an override that always wins when present;
-//   2. Turbo's own capture of the loaded bank's selection tables from the game's memory (core/commentary_bank.h),
-//      cached in <Live Editor>	urbo_output\callnames\spoken_<lang>.json: the surname ids with a recording and the
-//      player ids with a player-specific ("Real") recording;
+//   2. the set the game itself answered (core/commentary_audio.h: every commentary id asked through the audio service
+//      the way the Create Player list is filtered, every player id asked for its own recordings) or, as a diagnostic,
+//      Turbo's scan of the loaded bank's memory (core/commentary_bank.h); either is cached in
+//      <Live Editor>\turbo_output\callnames\spoken_<lang>.json (its "source" field says which);
 //   3. else every commentary id used by playernames counts as spoken, and the UI says so.
 #pragma once
 #include <cstdint>
@@ -55,9 +56,9 @@ std::filesystem::path spoken_list_path(const std::filesystem::path& le_root, con
 struct SpokenSet {
     std::string lang;
     std::unordered_set<int64_t> ids;              // commentary ids (surnames) with a recording
-    std::unordered_map<int64_t, int> players;     // player ids with a player-specific recording -> tables it is in
-    bool verified = false;  // true: from a list file or a bank capture; false: fallback = every id playernames uses
-    enum class From { None, ListFile, BankCapture, Fallback } from = From::None;
+    std::unordered_map<int64_t, int> players;     // player ids with their own recordings -> events / tables they are in
+    bool verified = false;  // true: from a list file, the game's audio service or a bank capture; false: fallback
+    enum class From { None, ListFile, GameAudio, BankCapture, Fallback } from = From::None;
     std::string source;     // where the set came from (shown in the UI)
     bool spoken(int64_t id) const { return id != kNoCallname && ids.count(id) > 0; }
     // the bank has recordings of this player's own name (spoken even when the rule above says "none")
@@ -116,7 +117,9 @@ public:
     // Find the packs, pick the language and load its spoken set: the hand-made list, else the bank capture cache.
     // `chosen` = gui_settings callnames.language ("" = auto).
     void refresh(const std::filesystem::path& le_root, const std::filesystem::path& game_root, const std::string& chosen);
-    // A capture of the loaded bank (core/commentary_bank.h) just finished: cache it (turbo_output\callnames    // spoken_<lang>.json) and use it unless a hand-made list overrides it. Returns false (with err) when not usable.
+    // A spoken set just arrived (the game's audio service, core/commentary_audio.h, or a bank capture,
+    // core/commentary_bank.h): cache it (turbo_output\callnames\spoken_<lang>.json) and use it unless a hand-made list
+    // overrides it. Returns false (with err) when not usable.
     bool apply_capture(const BankCapture& c, const std::filesystem::path& le_root, const std::string& when, const std::string& build,
                        std::string* err);
     // Rebuild the index from the live tables (names: nameid -> name, from the model)

@@ -15,6 +15,7 @@
 
 #include "core/bridge.h"
 #include "core/callnames.h"
+#include "core/commentary_audio.h"
 #include "core/legacy.h"
 #include "core/mem.h"
 #include "core/model.h"
@@ -118,7 +119,12 @@ public:
     std::unordered_set<int64_t> commentary_ids();     // commentaryid of every commentarynames row (else playernames' ids)
     bool bank_capture_running() const { return bank_running_.load(); }
     std::string bank_capture_status;  // last capture result (one line for the Callname tab)
-    bool bank_auto_tried = false;     // an automatic capture was started once this session
+    // ---- the spoken set asked from the game's audio service (core/commentary_audio.h): the default source. The host
+    // gives the service (a build runs on the game thread, one batch per frame); tests give a fake one
+    std::shared_ptr<caudio::Service> commentary_audio;
+    bool start_spoken_build(bool automatic = false);  // every commentarynames / playernames / playernamemap id + every player
+    std::string spoken_build_status;  // last build result (one line for the Callname tab)
+    bool spoken_auto_tried = false;   // an automatic build was started once this session
     long long game_call_seen = -1;  // last game-call outcome shown as a toast (bridge_state.json game_call.seq; -1 = none yet)
     // Job offers section (Managers tab): the club picked and the last request label
     int64_t job_offer_team = 0;
@@ -152,6 +158,8 @@ public:
 
 private:
     void finish_bank_capture();  // tick: take a finished capture, cache it, rebuild the pickers
+    void finish_spoken_build();  // tick: take a finished audio-service build, cache it, rebuild the pickers
+    std::string time_stamp() const;  // "2026-10-04 00:40" (render thread)
     std::mutex bank_m_;
     std::thread bank_thread_;
     std::atomic<bool> bank_running_{false};

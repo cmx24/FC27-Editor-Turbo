@@ -125,7 +125,9 @@ The Lua side polls the mailbox on every career event (`bridge.on_career_event`) 
   this session's `Initial setup done`).
 - `ui/`: `app.*` (tick/draw, settings), `widgets.cpp` (validated field editors), `ui_players/teams/database/tools.cpp`, `playstyles.h`.
 - Callnames (Players > Callname tab, `core/callnames.*`, `ui/ui_callnames.cpp`, Lua `features/callnames.lua`): the name the
-  commentary speaks for the loaded commentary language (packs found in the game folder, spoken ids from
+  commentary speaks for the loaded commentary language (packs found in the game folder; spoken ids asked from the game's
+  own audio service on the game thread - `core/commentary_audio.*`, `win/commentary_audio_win.cpp`, the Create Player
+  list's filter plus the in-match player check, cached in `turbo_output\callnames\spoken_<lang>.json` - overridden by
   `turbo\callnames\spoken_<lang>.txt`, fallback = every id playernames uses), pickers by name and by player, writes to
   `players.lastnameid/commonnameid`, `editedplayernames` and `playernamemap` (rows added/removed through Lua). See `docs/callnames.md`.
 - `win/`: `dllmain.cpp` (start-up checks, launch-mode wait, `luaopen_turbo_gui`), `overlay_dx12.cpp` (hooks, ImGui DX12 backend,

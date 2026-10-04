@@ -85,6 +85,9 @@ std::vector<BankTable> group_bank_tables(std::vector<BankRow>& rows, Memory* mem
 struct BankCapture {
     bool ok = false;
     std::string note;                                 // why not ok, or a summary
+    std::string source = "live bank capture";         // who produced it: this scan, or the game's audio service (commentary_audio.h)
+    size_t checked_names = 0, checked_players = 0;    // audio service: ids / players asked
+    size_t steps = 0;                                 // audio service: game-thread ticks used
     std::unordered_set<int64_t> surnames;             // commentary ids with a recording (surname families)
     std::unordered_map<int64_t, int> players;         // player id -> number of player-keyed tables it is in
     std::vector<BankTable> tables;
@@ -109,8 +112,10 @@ std::filesystem::path spoken_cache_path(const std::filesystem::path& le_root, co
 struct BankCache {
     std::string lang;
     std::string when;    // ISO-like time stamp of the capture
-    std::string source;  // one line for the UI ("live bank capture 2026-10-04 12:00: 3 tables")
+    std::string source;  // one line for the UI ("the game's audio service (built 2026-10-04 12:00)", "live bank capture ...")
+    std::string kind;    // the file's "source" field: "live bank capture" or "game audio service"
     std::string build;   // game build key the capture was made on
+    size_t checked_names = 0, checked_players = 0;
     std::unordered_set<int64_t> surnames;
     std::unordered_map<int64_t, int> players;
     std::vector<BankTable> tables;

@@ -22,6 +22,7 @@
 
 #include "MinHook.h"
 #include "nlohmann/json.hpp"
+#include "commentary_audio_win.h"
 #include "game_calls_win.h"
 #include "game_hooks.h"
 #include "host.h"
@@ -925,9 +926,12 @@ bool start_overlay(HMODULE) {
     // game calls (game_calls_win.cpp): job-offer functions + the JobMarketManager capture hook; Lua reaches them
     // through the mailbox call block and the exported turbo_game_call()
     install_game_calls(g_app->mailbox ? g_app->mailbox->addr() : 0);
+    // spoken callnames through the game's audio service (commentary_audio_win.cpp): calls on the game thread, no hook
+    install_commentary_audio(*g_app);
     g_app->hook_report = []() {
         turbo::HookReport r = game_hooks_report();
         r.calls = game_calls_status();
+        for (const auto& line : commentary_audio_status()) r.calls.push_back(line);
         return r;
     };
     install_player_capture(*g_app);  // miniface from the 3D model (player_capture_win.cpp): needs the game hooks above
