@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "core/bridge.h"
+#include "core/callnames.h"
 #include "core/image.h"
 #include "core/legacy.h"
 #include "core/devops.h"
@@ -379,6 +380,88 @@ static void test_core() {
         const Field* fx = db.table("formations")->field("offset1x");
         CHECK(Database::parse(*fx, "-1.25", v).empty() && v.f == -1.25f, "parse float");
         CHECK(!Database::validate(*fx, Value::of_float(NAN)).empty(), "NaN refused");
+    });
+
+    // ---- callnames (core/callnames.h): language packs on disk, the spoken-id list, the game rule, the pickers' index
+    run_case("callnames: language packs, spoken list, resolution rule, index", [&] {
+        fs::path game = g_out / "fakegame";
+        fs::create_directories(game / "commentary" / "commentaryfull_ita_it");
+        fs::create_directories(game / "commentary" / "commentarylaunch_ita_it");
+        std::ofstream((game / "commentary" / "commentaryfull_ita_it.toc").string()) << "x";
+        std::ofstream((game / "commentary" / "commentarylaunch_ita_it.toc").string()) << "x";
+        fs::create_directories(game / "Data" / "Win32");
+        std::ofstream((game / "Data" / "Win32" / "commentaryfull_eng_us.toc").string()) << "x";
+        std::ofstream((game / "Data" / "Win32" / "commentarywc_por_br.toc").string()) << "x";   // World Cup banks: not a language pack
+        std::ofstream((game / "Data" / "Win32" / "commentarylicensed_eng_us.toc").string()) << "x";
+        auto packs = installed_commentary_packs(game);
+        CHECK(packs.size() == 2 && packs[0].code == "eng_us" && !packs[0].downloaded && packs[1].code == "ita_it" && packs[1].downloaded,
+              fmt("packs found: %zu", packs.size()));
+        CHECK(installed_commentary_packs(g_out / "nowhere").empty() && installed_commentary_packs("").empty(), "no packs without a game folder");
+        std::string why;
+        CHECK(pick_commentary_language(packs, "", &why) == "ita_it" && why.find("downloaded") != std::string::npos, "auto: the downloaded language: " + why);
+        CHECK(pick_commentary_language(packs, "ENG_US", &why) == "eng_us" && why.find("chosen") != std::string::npos, "chosen language (any case): " + why);
+        CHECK(pick_commentary_language(packs, "por_br", &why) == "ita_it" && why.find("not installed") != std::string::npos, "unknown choice falls back: " + why);
+        CHECK(pick_commentary_language({{"eng_us", false}}, "", &why) == "eng_us", "base game only -> eng_us");
+        CHECK(pick_commentary_language({}, "", &why).empty() && why.find("no commentary language pack") != std::string::npos, "no packs");
+
+        std::unordered_set<int64_t> ids;
+        std::string lang, err;
+        CHECK(parse_spoken_list("#turbo-spoken ita_it 3\n900002 Saka\n# comment\n\n930671\t\"Yun\"\n 965000\n1\n970000\n", ids, &lang, &err),
+              "list parsed: " + err);
+        CHECK(lang == "ita_it" && ids.size() == 3 && ids.count(900002) && ids.count(930671) && ids.count(965000), "ids and language from the header");
+        CHECK(parse_spoken_list("900010\n900011,x\n", ids, &lang, &err) && lang.empty() && ids.size() == 2, "no header is fine");
+        CHECK(!parse_spoken_list("#turbo-spoken ita_it 5\n900010\n", ids, &lang, &err) && err.find("announces 5") != std::string::npos, "count mismatch: " + err);
+        CHECK(!parse_spoken_list("# nothing\n12\n", ids, &lang, &err) && err.find("no commentary ids") != std::string::npos, "empty list refused: " + err);
+        CHECK(spoken_list_path("C:/LE", "ita_it") == fs::path("C:/LE") / "turbo" / "callnames" / "spoken_ita_it.txt", "list path");
+
+        std::unordered_map<int64_t, int64_t> pm = {{7, 950000}, {8, 900000}}, nc = {{2, 900002}, {15, 900015}, {20, 900000}};
+        CallnameInfo i1 = resolve_callname(7, 15, 2, pm, nc);
+        CHECK(i1.commentaryid == 950000 && i1.source == CallnameSource::PlayerSpecific && i1.nameid == 0, "player-specific wins");
+        CallnameInfo i2 = resolve_callname(1, 15, 2, pm, nc);
+        CHECK(i2.commentaryid == 900015 && i2.source == CallnameSource::CommonName && i2.nameid == 15, "common name over last name");
+        CallnameInfo i3 = resolve_callname(8, 20, 2, pm, nc);
+        CHECK(i3.commentaryid == 900002 && i3.source == CallnameSource::LastName && i3.nameid == 2, "'no callname' rows (900000) fall through to the last name");
+        CallnameInfo i4 = resolve_callname(9, 0, 20, pm, nc);
+        CHECK(i4.commentaryid == kNoCallname && i4.source == CallnameSource::None, "none");
+        CHECK(std::string(callname_source_name(CallnameSource::PlayerSpecific)).find("playernamemap") != std::string::npos, "source text");
+        CHECK(callname_filter_match("", "Saka", 2) && callname_filter_match("SAK", "Saka", 2) && callname_filter_match("90001", "x", 900015) &&
+              !callname_filter_match("kane", "Saka", 2) && !callname_filter_match("3", "Saka", 2), "type-ahead filter");
+
+        // the runtime object: list file for the language, verified / fallback, and the index over the test world
+        fs::path le = g_out / "LE";
+        fs::create_directories(le / "turbo" / "callnames");
+        std::ofstream((le / "turbo" / "callnames" / "spoken_ita_it.txt").string())
+            << "#turbo-spoken ita_it 6\n900002\n900004\n900010\n900015\n900017\n950000\n";
+        Callnames cn;
+        cn.refresh(le, game, "");
+        CHECK(cn.lang == "ita_it" && cn.spoken.verified && cn.spoken.ids.size() == 6 && cn.list_error.empty(), "verified list loaded: " + cn.list_error);
+        model.set_extra_names(bridge.names());
+        CHECK(model.rebuild(kToday), "rebuild");
+        cn.build_index(db, model, model.names_by_id());
+        CHECK(cn.index.built && cn.index.name_commentary.size() == 20 && cn.index.playernamemap.size() == 2, "index over playernames and playernamemap");
+        CHECK(cn.index.names.size() == 5, fmt("spoken names in the picker: %zu (Saka, Odegaard, Pickford, Gabriel Jesus, Kane)", cn.index.names.size()));
+        CHECK(cn.index.names[0].name == "Gabriel Jesus" && cn.index.names[0].users == 1 && cn.index.names[3].name == "Saka" && cn.index.names[3].users == 1 && cn.index.names[4].name == "\303\230degaard",
+              "sorted by name, users counted (common name first, else last name)");
+        CHECK(cn.index.players.size() == 2 && cn.index.players[0].playerid == 2001 && cn.index.players[0].club == "Everton" && cn.index.players[1].playerid == 1003,
+              fmt("players with a spoken player-specific callname: %zu", cn.index.players.size()));
+        const PlayerRow* saka = model.player(1001);
+        CallnameInfo r = cn.resolve(*saka, db);
+        CHECK(r.commentaryid == 900002 && r.source == CallnameSource::LastName && cn.spoken.spoken(900002), "Saka: last name, spoken");
+        CallnameInfo r2 = cn.resolve(*model.player(1003), db);
+        CHECK(r2.commentaryid == 900010 && r2.source == CallnameSource::PlayerSpecific, "player 1003: playernamemap row");
+        CallnameInfo r3 = cn.resolve(*model.player(1005), db);
+        CHECK(r3.commentaryid == 900015 && r3.source == CallnameSource::CommonName && r3.nameid == 15, "player 1005: common name");
+        // wrong language in the header, then no file: the fallback counts every commentary id playernames uses
+        std::ofstream((le / "turbo" / "callnames" / "spoken_ita_it.txt").string()) << "#turbo-spoken por_br 1\n900002\n";
+        cn.refresh(le, game, "");
+        CHECK(!cn.spoken.verified && cn.list_error.find("por_br") != std::string::npos, "list for another language rejected: " + cn.list_error);
+        fs::remove(le / "turbo" / "callnames" / "spoken_ita_it.txt");
+        cn.refresh(le, game, "");
+        cn.build_index(db, model, model.names_by_id());
+        CHECK(!cn.spoken.verified && cn.spoken.source.find("unverified") != std::string::npos && cn.spoken.ids.size() == 20, "fallback = ids in playernames");
+        CHECK(cn.index.names.size() == 20 && cn.index.players.size() == 1 && cn.index.players[0].playerid == 1003, "fallback pickers: 950000 is not in playernames");
+        cn.refresh(le, "", "");
+        CHECK(cn.no_game_root && cn.lang.empty() && !cn.spoken.verified, "no game folder: nothing detected, fallback stays");
     });
 
     // ---- writes, verified afterwards by Live Editor's Lua library
@@ -1388,6 +1471,104 @@ static void test_ui() {
             CHECK(ui.click("Transfer", "##Popup"), "transfer");
             CHECK(app.busy(), "transfer between two other clubs is sent");
             CHECK(ui.click("Cancel"), "cancel");
+        });
+        run_case("UI: Players > Callname: language, current callname, pickers, name and player assignment", [&] {
+            fs::path game = g_out / "fakegame";
+            fs::create_directories(game / "commentary" / "commentaryfull_ita_it");
+            fs::create_directories(game / "Data" / "Win32");
+            std::ofstream((game / "Data" / "Win32" / "commentaryfull_eng_us.toc").string()) << "x";
+            fs::create_directories(le / "turbo" / "callnames");
+            std::ofstream((le / "turbo" / "callnames" / "spoken_ita_it.txt").string())
+                << "#turbo-spoken ita_it 6\n900002\n900004\n900010\n900015\n900017\n950000\n";
+            app.game_root = game;
+            app.callnames.refreshed = false;
+            app.request_tab = 0;
+            ui.frames(3);
+            CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
+            CHECK(ui.click("1001", "##plist"), "row 1001 (Saka)");
+            CHECK(ui.click("Callname", "##pedit"), "Callname tab");
+            ui.frames(2);
+            CHECK(app.callnames.lang == "ita_it" && app.callnames.spoken.verified, "language detected on first draw: " + app.callnames.lang);
+            CHECK(app.callnames.index.built && app.callnames.index.names.size() == 5, fmt("picker index built: %zu names", app.callnames.index.names.size()));
+            CHECK(ui.find("Refresh##cn") && ui.find("##cnsearch") && ui.find("Assign as last name") == nullptr, "language line and name search; no assignment before a pick");
+            const Table* pt = app.db.table("players");
+            uint64_t rec1001 = app.db.find(*pt, "playerid", 1001);
+            // BY NAME: Kane (name 17, callname 900017) as Saka's last name; the shown name is kept through Turbo's Lua side
+            CHECK(ui.type_into(ui.find("##cnsearch"), "kan"), "type kan");
+            CHECK(ui.find("17", "##cnames") != nullptr && ui.find("2", "##cnames") == nullptr, "type-ahead shows Kane only");
+            CHECK(ui.click("17", "##cnames"), "pick Kane");
+            CHECK(ui.click("Assign as last name"), "assign as last name");
+            CHECK(app.db.get_int(*pt, rec1001, "lastnameid") == 17, fmt("lastnameid = %lld", static_cast<long long>(app.db.get_int(*pt, rec1001, "lastnameid"))));
+            CHECK(app.busy(), "editedplayernames row queued (player 1001 has none)");
+            {
+                json cmd = json::parse(mem.read_cstr(kMb + 0x20, 0x1000), nullptr, false);
+                CHECK(!cmd.is_discarded() && cmd["module"] == "callnames", "callnames command");
+                const json& a = cmd["overrides"]["actions"][0];
+                CHECK(a["action"] == "set_display_name" && a["playerid"] == 1001 && a["firstname"] == "Bukayo" && a["surname"] == "Saka" && a["commonname"] == "",
+                      "keeps the name shown before the change: " + a.dump());
+            }
+            CHECK(ui.click("Cancel"), "cancel");
+            CallnameInfo now = app.callnames.resolve(*app.model.player(1001), app.db);
+            CHECK(now.commentaryid == 900017 && now.source == CallnameSource::LastName, "callname follows the new last name");
+            // a player with an editedplayernames row: the row is edited in place, nothing queued
+            CHECK(ui.click("3002", "##plist"), "row 3002 (Ali Zed)");
+            CHECK(ui.click("Callname", "##pedit"), "Callname tab");
+            CHECK(ui.type_into(ui.find("##cnsearch"), "saka"), "type saka");
+            CHECK(ui.click("2", "##cnames"), "pick Saka");
+            CHECK(ui.click("Assign as common name"), "assign as common name");
+            uint64_t rec3002 = app.db.find(*pt, "playerid", 3002);
+            CHECK(app.db.get_int(*pt, rec3002, "commonnameid") == 2, "commonnameid = 2");
+            CHECK(!app.busy(), "nothing queued: editedplayernames edited in place");
+            const Table* et = app.db.table("editedplayernames");
+            uint64_t erec = app.db.find(*et, "playerid", 3002);
+            Value sv;
+            CHECK(app.db.get(*et, erec, *et->field("surname"), sv) && sv.to_string() == "Zed", "shown surname kept: " + sv.to_string());
+            // BY PLAYER: copy player 1003's callname (900010) to 3002 -> no playernamemap row yet: queued for Lua
+            CHECK(ui.click("By player", "##cname"), "By player tab");
+            CHECK(ui.type_into(ui.find("##cpsearch"), "saliba"), "type saliba");
+            CHECK(ui.find("1003", "##cplayers") != nullptr && ui.find("2001", "##cplayers") == nullptr, "type-ahead by player name");
+            CHECK(ui.click("1003", "##cplayers"), "pick 1003");
+            CHECK(ui.click("Use this player's callname"), "use callname");
+            CHECK(app.busy(), "playernamemap row queued");
+            {
+                json cmd = json::parse(mem.read_cstr(kMb + 0x20, 0x1000), nullptr, false);
+                const json& a = cmd["overrides"]["actions"][0];
+                CHECK(a["action"] == "set_playernamemap" && a["playerid"] == 3002 && a["commentaryid"] == 900010, "set_playernamemap command: " + a.dump());
+            }
+            CHECK(ui.click("Cancel"), "cancel");
+            // a player with a playernamemap row (2001, 950000): edited in place; then its removal asks for confirmation and queues Lua
+            CHECK(ui.click("2001", "##plist"), "row 2001");
+            CHECK(ui.click("Callname", "##pedit"), "Callname tab");
+            CallnameInfo r2001 = app.callnames.resolve(*app.model.player(2001), app.db);
+            CHECK(r2001.commentaryid == 950000 && r2001.source == CallnameSource::PlayerSpecific, "player-specific callname shown");
+            CHECK(ui.click("By player", "##cname"), "By player tab");
+            CHECK(ui.type_into(ui.find("##cpsearch"), "1003"), "type 1003");
+            CHECK(ui.click("1003", "##cplayers"), "pick 1003");
+            CHECK(ui.click("Use this player's callname"), "use callname");
+            CHECK(!app.busy(), "edited in place");
+            const Table* mt = app.db.table("playernamemap");
+            CHECK(app.db.get_int(*mt, app.db.find(*mt, "playerid", 2001), "commentaryid") == 900010, "playernamemap row updated");
+            CHECK(ui.click("Remove player-specific callname..."), "remove button");
+            CHECK(ui.click("Remove", "##rmcallname"), "confirm");
+            CHECK(app.busy(), "removal queued");
+            {
+                json cmd = json::parse(mem.read_cstr(kMb + 0x20, 0x1000), nullptr, false);
+                const json& a = cmd["overrides"]["actions"][0];
+                CHECK(a["action"] == "remove_playernamemap" && a["playerid"] == 2001, "remove_playernamemap command: " + a.dump());
+            }
+            CHECK(ui.click("Cancel"), "cancel");
+            // no list file: Refresh falls back to every id playernames uses and says so
+            fs::remove(le / "turbo" / "callnames" / "spoken_ita_it.txt");
+            CHECK(ui.click("Refresh##cn"), "refresh");
+            CHECK(!app.callnames.spoken.verified && app.callnames.index.names.size() == 20, fmt("fallback pickers: %zu names", app.callnames.index.names.size()));
+            // the language can be chosen and is saved in gui_settings.json
+            app.gui_settings["callnames"]["language"] = "eng_us";
+            CHECK(app.save_gui_settings(), "save");
+            CHECK(ui.click("Refresh##cn"), "refresh");
+            CHECK(app.callnames.lang == "eng_us" && app.callnames.lang_why.find("chosen") != std::string::npos, "chosen language: " + app.callnames.lang_why);
+            app.gui_settings["callnames"].erase("language");
+            app.save_gui_settings();
+            app.game_root.clear();
         });
         run_case("UI: no ImGui errors, layout stable over many frames", [&] {
             for (int tab = 0; tab < 7; ++tab) {

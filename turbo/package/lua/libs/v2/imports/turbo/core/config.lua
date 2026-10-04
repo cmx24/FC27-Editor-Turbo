@@ -54,6 +54,7 @@ M.DEFAULTS = {
         player_moves = { actions = {} },
         db_edit = { edits = {} },
         export_table = { tables = { "teams" }, max_rows = 0 },
+        callnames = { actions = {} },
     },
 }
 

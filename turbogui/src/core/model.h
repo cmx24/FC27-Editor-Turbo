@@ -94,6 +94,8 @@ public:
 
     // Text that explains which name source worked (for the status panel)
     const std::string& name_source() const { return name_source_; }
+    // nameid -> name (playernames / dcplayernames / bridge_names.txt), as of the last rebuild
+    const std::unordered_map<int64_t, std::string>& names_by_id() const { return name_by_nameid_; }
 
     // Names Live Editor decoded for Turbo (bridge_names.txt). Used for name tables whose text is compressed in memory
     // (playernames.name in FC 27). Takes effect on the next rebuild.

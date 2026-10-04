@@ -120,6 +120,10 @@ The Lua side polls the mailbox on every career event (`bridge.on_career_event`) 
   (names, clubs, ages, teams, managers, dates), `bridge.*` (bridge files, mailbox), `le_log.*` (reads Live Editor's log for
   this session's `Initial setup done`).
 - `ui/`: `app.*` (tick/draw, settings), `widgets.cpp` (validated field editors), `ui_players/teams/database/tools.cpp`, `playstyles.h`.
+- Callnames (Players > Callname tab, `core/callnames.*`, `ui/ui_callnames.cpp`, Lua `features/callnames.lua`): the name the
+  commentary speaks for the loaded commentary language (packs found in the game folder, spoken ids from
+  `turbo\callnames\spoken_<lang>.txt`, fallback = every id playernames uses), pickers by name and by player, writes to
+  `players.lastnameid/commonnameid`, `editedplayernames` and `playernamemap` (rows added/removed through Lua). See `docs/callnames.md`.
 - `win/`: `dllmain.cpp` (start-up checks, launch-mode wait, `luaopen_turbo_gui`), `overlay_dx12.cpp` (hooks, ImGui DX12 backend,
   WndProc), `lazy_imports.cpp` (Direct3D 12 / DXGI / D3DCompile / DWM resolved on first use), `host.h`.
 - `probe/main.cpp`: `TurboProbe.exe` (see Overlay below).

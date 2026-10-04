@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "core/bridge.h"
+#include "core/callnames.h"
 #include "core/legacy.h"
 #include "core/mem.h"
 #include "core/model.h"
@@ -52,6 +53,8 @@ public:
     std::string session;
     LegacyImages legacy;     // game pictures and custom minifaces (core/legacy.h)
     TextureCache textures;   // pictures shown in the window (textures.h)
+    Callnames callnames;     // commentary language and spoken callnames (core/callnames.h)
+    std::filesystem::path game_root;  // folder of FC27.exe (language packs); tests point it at a fake game folder
 
     // ---- state
     bool visible = false;
@@ -138,5 +141,7 @@ void not_connected_hint();
 void all_fields(App& app, const Table& t, uint64_t rec, const char* id);
 // Date editor for gregorian-day fields (birthdate, playerjointeamdate)
 bool date_field_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label);
+// Players > Callname tab: the spoken name for the loaded commentary language, pickers and assignment (ui_callnames.cpp)
+void callname_editor(App& app, const Table& t, const PlayerRow& p);
 
 }  // namespace turbo

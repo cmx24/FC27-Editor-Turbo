@@ -497,6 +497,12 @@ static void player_editor(App& app) {
             ImGui::EndChild();
             ImGui::EndTabItem();
         }
+        if (ImGui::BeginTabItem("Callname")) {
+            ImGui::BeginChild("##cname");
+            callname_editor(app, *t, *p);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
         if (ImGui::BeginTabItem("All fields")) {
             all_fields(app, *t, p->rec, "##pall");
             ImGui::EndTabItem();
