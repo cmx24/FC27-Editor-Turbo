@@ -2994,7 +2994,9 @@ static void test_team_names_live() {
         const char* no[] = {"", "T", "TeamName", "TeamName_", "TeamName_7x", "TeamName_x7", "TeamName_-7", "TeamName_+7", "TeamName_0",
                             "TeamName_07", "TeamName_2147483648", "TeamName_12345678901", "TeamName_Abbr3_", "TeamName_Abbr5_7",
                             "TeamName_Abbr1_7", "TeamName_Abbr_7", "TeamNameX_7", "TeamName%s_%d", "IWL_IWL_TeamName_7", "IWLTeamName_7",
-                            "LeagueName_7", "TeamName_7_upper", "TeamName_7 ", " TeamName_7", "PlayerName_7", "TeamNames_7"};
+                            "LeagueName_7", "TeamName_7_upper", "TeamName_7 ", " TeamName_7", "PlayerName_7", "TeamNames_7",
+                            // 1.1.4: FC 27 has no long-name key (docs/re/team_names.md); none of these is a club string
+                            "TeamName_Long_7", "TeamNameLong_7", "TeamName_Full_7", "TeamNameFull_7", "TeamName_Abbr100_7"};
         bool all = true;
         for (const char* k : no) {
             if (tnames::match_key(k, m)) {
@@ -3080,6 +3082,32 @@ static void test_team_names_live() {
                   f->text[tnames::Abbr3] == "\xC3\x96ST",
               "cleaned, cut by characters: " + (f ? f->text[tnames::Abbr3] : std::string()));
         CHECK(c.find(11) && c.find(11)->name() == "Last wins", "duplicates: the last one wins");
+        // 1.1.4: the long name ("long"): kept, cleaned, round trip; files without it (1.1.x) load; a wrong type drops the entry
+        tnames::Store l;
+        CHECK(tnames::parse_store_json(R"({"turbo_team_names": 1, "teams": [
+                {"teamid": 47, "name": "AC Milan", "long": " Associazione;Calcio\nMilan ", "abbr15": "Milan", "abbr10": "Milan", "abbr3": "ACM"},
+                {"teamid": 48, "name": "Old file"}, {"teamid": 49, "long": "Only the long name"}, {"teamid": 50, "name": "x", "long": 3},
+                {"teamid": 51, "name": "Null long", "long": null}, {"teamid": 52, "name": "Cut", "long": ")" + std::string(150, 'L') + R"("}]})",
+                                       l, &err),
+              "parsed: " + err);
+        CHECK(err == "1 bad entry dropped" && l.entries.size() == 5 && !l.find(50), "a long name that is not text drops the entry: " + err);
+        CHECK(l.find(47) && l.find(47)->long_name == "AssociazioneCalcioMilan" && l.find(47)->name() == "AC Milan" &&
+                  l.find(47)->text[tnames::Abbr3] == "ACM",
+              "long name cleaned like the name: " + (l.find(47) ? l.find(47)->long_name : std::string()));
+        CHECK(l.find(48) && l.find(48)->long_name.empty() && l.find(51) && l.find(51)->long_name.empty(), "an old file (no \"long\") loads");
+        CHECK(l.find(49) && l.find(49)->name().empty() && l.find(49)->long_name == "Only the long name" && !l.find(49)->empty(),
+              "an entry with only a long name is kept");
+        CHECK(l.find(52) && l.find(52)->long_name.size() == tnames::kMaxLongLen, "cut to 100 bytes");
+        {
+            tnames::Store back;
+            CHECK(tnames::parse_store_json(tnames::store_json(l), back, &err) && back.find(47)->long_name == "AssociazioneCalcioMilan" &&
+                      tnames::store_json(back) == tnames::store_json(l),
+                  "round trip with the long name");
+            CHECK(tnames::store_json(l).find("\"long\": \"AssociazioneCalcioMilan\"") != std::string::npos, "written as \"long\"");
+            const tnames::Snapshot t = tnames::build_snapshot(l);
+            CHECK(!t.lookup("TeamName_49", 1) && !t.lookup("TeamName_Abbr15_49", 1) && t.lookup("TeamName_47", 1) == std::string("AC Milan"),
+                  "the long name is never given to the game");
+        }
         CHECK(!tnames::parse_store_json("[]", c, &err) && !tnames::parse_store_json(R"({"teams": []})", c, &err) &&
                   err.find("turbo_team_names") != std::string::npos,
               "not Turbo's file refused");
@@ -3566,8 +3594,10 @@ static void test_ui() {
                   "the fallback line says why and when: " + st.mode_line);
             CHECK(ui.find("Reload", "##tname") == nullptr && ui.find("Save names", "##tname") == nullptr && ui.find("Save", "##tname") != nullptr,
                   "one Save button, no Reload");
-            CHECK(ui.find("##nfull", "##tname") && ui.find("##nshort", "##tname") && ui.find("##ncode", "##tname") && !ui.find("##na10", "##tname"),
-                  "Name, Short name, 3-letter code");
+            CHECK(ui.find("##nfull", "##tname") && ui.find("##nlong", "##tname") && ui.find("##nshort", "##tname") && ui.find("##ncode", "##tname") &&
+                      !ui.find("##na10", "##tname"),
+                  "Display name, Long name, Short name, Abbreviation");
+            CHECK(st.long_line.find("FC 27 has no long-name string") != std::string::npos, "the form says the game does not show the long name");
             CHECK(ui.type_into(ui.find("##nfull", "##tname"), "Everton Blues"), "type the name");
             CHECK(ui.click("Save", "##tname"), "Save");
             CHECK(app.db.get(*t, rec, *t->field("teamname"), v) && v.s == "Everton Blues", "teams.teamname = Everton Blues (" + v.s + ")");
@@ -3625,6 +3655,29 @@ static void test_ui() {
             // the form shows what was saved (the code upper case)
             ui.frames(1);
             CHECK(ui.find("##ncode", "##tname") != nullptr, "form still there");
+
+            // ---- 1.1.4: the long name, kept by Turbo only (FC 27 has no string for it)
+            CHECK(ui.type_into(ui.find("##nlong", "##tname"), "Everton Football Club"), "type the long name");
+            CHECK(ui.click("Save", "##tname"), "Save");
+            {
+                json j = read_json(store);
+                CHECK(j["teams"][0]["long"] == "Everton Football Club" && j["teams"][0]["name"] == "Everton FC", "long name in the store: " + j.dump());
+            }
+            CHECK(fake.shows("TeamName_7") == "Everton FC" && read_file(csvf).find("Everton Football Club") == std::string::npos &&
+                      app.db.get(*t, rec, *t->field("teamname"), v) && v.s == "Everton FC",
+                  "the game, Live Editor's file and the database keep the display name");
+            // the form was filled again from the store: an untouched Save keeps the long name and the typed short forms
+            CHECK(ui.click("Save", "##tname"), "Save again");
+            CHECK(app.team_names.find(7) && app.team_names.find(7)->long_name == "Everton Football Club" &&
+                      app.team_names.find(7)->text[tnames::Abbr15] == "Toffees" && app.team_names.find(7)->text[tnames::Abbr3] == "TOF",
+                  "prefilled with what was typed");
+            // the long name the same as the display name is not kept (it follows the name, like the made short forms)
+            CHECK(ui.type_into(ui.find("##nlong", "##tname"), "Everton FC"), "long = display");
+            CHECK(ui.click("Save", "##tname"), "Save");
+            CHECK(app.team_names.find(7)->long_name.empty(), "long = display name: not kept");
+            CHECK(ui.type_into(ui.find("##nlong", "##tname"), ""), "clear the long name");
+            CHECK(ui.click("Save", "##tname"), "Save");
+            CHECK(app.team_names.find(7)->long_name.empty() && read_json(store)["teams"][0]["long"] == "", "empty long name");
 
             // ---- the hook switched off (kill switch): Save falls back, the line says why
             fake.on = false;

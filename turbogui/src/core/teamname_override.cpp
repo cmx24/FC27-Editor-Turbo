@@ -19,6 +19,7 @@ using nlohmann::json;
 namespace {
 
 const char* const kJsonKey[kKinds] = {"name", "abbr15", "abbr10", "abbr3"};
+const char* const kJsonLong = "long";
 
 std::string stamp_now() {
     std::time_t t = std::time(nullptr);
@@ -140,6 +141,10 @@ bool entry_of(const json& o, Entry& e) {
         if (!v->is_string()) return false;
         e.text[k] = clean_value(v->get<std::string>(), static_cast<Kind>(k));
     }
+    if (auto l = o.find(kJsonLong); l != o.end() && !l->is_null()) {
+        if (!l->is_string()) return false;
+        e.long_name = clean_long_name(l->get<std::string>());
+    }
     if (auto w = o.find("when"); w != o.end() && w->is_string()) e.when = w->get<std::string>();
     return !e.empty();
 }
@@ -161,7 +166,10 @@ std::string clean_value(const std::string& s, Kind k) {
     return k == Full ? clean_team_name(s, kMaxLen[Full]) : clean_team_abbr(s, kMaxLen[k]);
 }
 
+std::string clean_long_name(const std::string& s) { return clean_team_name(s, kMaxLongLen); }
+
 bool Entry::empty() const {
+    if (!long_name.empty()) return false;
     for (const auto& s : text)
         if (!s.empty()) return false;
     return true;
@@ -198,6 +206,7 @@ std::string store_json(const Store& s) {
         json o = json::object();
         o["teamid"] = e.teamid;
         for (int k = 0; k < kKinds; ++k) o[kJsonKey[k]] = e.text[k];
+        o[kJsonLong] = e.long_name;
         o["when"] = e.when;
         list.push_back(o);
     }
@@ -390,7 +399,9 @@ Snapshot build_snapshot(const Store& s, UpperFn upper) {
     Snapshot snap;
     snap.items.reserve(s.entries.size());
     for (const Entry& e : s.entries) {
-        if (e.teamid <= 0 || e.empty()) continue;
+        bool any = false;  // the long name is never given to the game (FC 27 has no string for it)
+        for (const auto& t : e.text) any = any || !t.empty();
+        if (e.teamid <= 0 || !any) continue;
         Snapshot::Item it;
         it.teamid = e.teamid;
         for (int k = 0; k < kKinds; ++k) {

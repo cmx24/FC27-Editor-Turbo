@@ -83,3 +83,13 @@ exist, but no listener was found, so posting one is not known to be safe.
   `loc_get_team_name` (by team id and abbreviation, after the call) would cover them. Not needed for any club seen so far.
 - Strings the game formats with arguments (`0x142561A60` & co.) call GetString directly, but team names reach them
   already localized.
+
+## Long name (checked 04-10-2026 for 1.1.4)
+
+FC 27 has no localization key for a club's long or official name. Every `TeamName` string format in the image is one of
+the four above (`TeamName_%d`, `TeamName_Abbr3_%d`, `TeamName_Abbr10_%d`, `TeamName_Abbr15_%d`, plus `TeamName%s_%d` and
+`TeamName_Abbr%d_%d` building the same keys); no `TeamName_Long`, `TeamNameLong`, `TeamFullName`, `OfficialName` or
+`_Full_` key exists (`scripts/re/strings_grep.py "TeamName|FullName|OfficialName|ClubName|LongName"`). "Full" in the
+UI names (`TeamNameFull`, `mTeamNameFull`, `teamNameFull`, the debug line `TeamName-LOCFull`) is `TeamName_%d` itself,
+next to `TeamName15` / `TeamName10` / `TeamName3` (Abbr15 / Abbr10 / Abbr3). The `teams` table has only `teamname`.
+So the Name form's long name is kept in `turbo_output\team_names.json` (`"long"`) only; the game never shows it.
