@@ -113,14 +113,15 @@ end)
 H.case("Windows-style roots from package.path and LE_DATA_PATH are recognised", function()
     local env = require 'imports/turbo/core/env'
     local util = require 'imports/turbo/core/util'
-    local saved_path, saved_data = package.path, LE_DATA_PATH
+    local saved_path, saved_data, saved_flag = package.path, LE_DATA_PATH, TURBO_NO_DEFAULT_ROOT
+    TURBO_NO_DEFAULT_ROOT = nil   -- this case checks the default install-folder fallback itself
     package.path = "C:\\Games\\LE27\\lua\\libs\\v2\\?.lua;" .. saved_path
     LE_DATA_PATH = "D:\\Mods\\LE"
     local c = table.concat(env.candidate_roots(), "|")
     H.has(c, "C:\\Games\\LE27", "from package.path")
     H.has(c, "D:\\Mods\\LE", "from LE_DATA_PATH")
     H.has(c, "C:\\FC 27 Live Editor", "default install folder")
-    package.path, LE_DATA_PATH = saved_path, saved_data
+    package.path, LE_DATA_PATH, TURBO_NO_DEFAULT_ROOT = saved_path, saved_data, saved_flag
     H.eq(util.join("C:\\FC 27 Live Editor", "turbo_config.json"), "C:\\FC 27 Live Editor\\turbo_config.json", "backslash join")
     H.eq(util.join("C:\\FC 27 Live Editor\\", "x"), "C:\\FC 27 Live Editor\\x", "trailing slash")
 end)

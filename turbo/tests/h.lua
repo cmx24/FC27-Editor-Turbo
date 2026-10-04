@@ -4,9 +4,12 @@
 
 local H = {}
 
+local function is_abs(p)
+    return p:sub(1, 1) == "/" or p:match("^%a:/") ~= nil   -- POSIX or Windows drive path (C:/...)
+end
 local function abs_dir(src)
-    local d = src:sub(2):match("(.*/)") or "./"
-    if d:sub(1, 1) ~= "/" then
+    local d = src:sub(2):gsub("\\", "/"):match("(.*/)") or "./"
+    if not is_abs(d) then
         local pwd = os.getenv("PWD") or "."
         d = pwd .. "/" .. d:gsub("^%./", "")
     end

@@ -485,6 +485,8 @@ static void test_core() {
         b.poll_files();
         CHECK(b.state().loaded && b.state().seq == 1, "half-written file ignored, last state kept");
         std::ofstream(dir / "bridge_state.json") << "{\"session\":\"S\",\"seq\":2,\"db_gen\":1,\"in_cm\":true,\"user_team\":1}";
+        // stamp it explicitly: two writes within one file-system clock tick (Windows) keep the same time stamp
+        fs::last_write_time(dir / "bridge_state.json", fs::file_time_type::clock::now() + std::chrono::seconds(7));
         b.poll_files();
         CHECK(b.state().seq == 2, "complete file read on the next poll");
         CHECK(b.state().unavailable.empty() && !b.state().unavailable_reason("transfer_budget"), "no unavailable tools");
@@ -1575,14 +1577,21 @@ static void test_images() {
         // a custom file written by another tool in upper case wins
         fs::create_directories(L.mods_dir() / "data" / "ui" / "imgAssets" / "heads");
         std::ofstream(L.mods_dir() / "data" / "ui" / "imgAssets" / "heads" / "P123.DDS") << "old";
+#ifdef _WIN32
+        // Windows file names are case-insensitive: P123.DDS and p123.dds are the same file
+        CHECK(L.locate(a, &f) == LegacyImages::State::Custom && read_file(f) == "old", "custom (any case) first");
+#else
         CHECK(L.locate(a, &f) == LegacyImages::State::Custom && f.filename() == "P123.DDS", "custom (any case) first");
+#endif
         CHECK(L.locate(a, &f, false) == LegacyImages::State::Game, "game picture when asked for the game's own");
         std::string err;
         fs::path bk;
         CHECK(L.save_custom(a, {'n', 'e', 'w'}, &err, &bk), "save: " + err);
         CHECK(!bk.empty() && read_file(bk) == "old", "old custom file backed up");
         CHECK(read_file(L.custom_file(a)) == "new" && L.custom_file(a).filename() == "p123.dds", "new file, lower-case name");
+#ifndef _WIN32
         CHECK(!fs::exists(L.mods_dir() / "data" / "ui" / "imgAssets" / "heads" / "P123.DDS"), "upper-case duplicate removed");
+#endif
         CHECK(L.remove_custom(a, &err, &bk), "remove: " + err);
         CHECK(read_file(bk) == "new" && L.custom_file(a).empty(), "removed after backup");
         CHECK(!L.remove_custom(a, &err) && err.find("no custom") != std::string::npos, "nothing to remove");
