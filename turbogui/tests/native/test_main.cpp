@@ -2553,6 +2553,15 @@ public:
     }
 };
 
+// Competitions > Live standings: the Advanced section (home / away counters) below the table, closed by default; its
+// open state lives in ImGui and so carries over from one case to the next: open it only when it is closed
+static const char* const kStandingsAdvanced = "Advanced: home / away counters, points per result, played results##lsadv";
+static void open_standings_advanced(Ui& ui) {
+    if (ui.find("Win", "##lsedit") != nullptr) return;
+    ui.click(kStandingsAdvanced);
+    ui.frames(2);
+}
+
 static Rgba solid(int w, int h, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
 static std::vector<uint8_t> file_bytes(const fs::path& p);
 static std::string hex_bytes(const std::vector<uint8_t>& d) {
@@ -5801,8 +5810,11 @@ static void test_ui() {
             CHECK(ui.click("Live standings (game)"), "live view tab (the earlier case left the database view)");
             ui.frames(2);
             CHECK(ui.find("Try again") == nullptr && ui.find("Reload") != nullptr, "live view reachable through the published ifce");
+            // the precise home / away counters are under Advanced, closed by default (the table cells are the main way)
+            CHECK(ui.find(kStandingsAdvanced) != nullptr && ui.find("Win", "##lsedit") == nullptr, "Advanced closed by default");
             CHECK(ui.click("1##ls0"), "select the leader (Arsenal, row 0)");
             ui.frames(2);
+            open_standings_advanced(ui);
             const ItemRec* pts = ui.find("Points", "##lsedit");
             CHECK(pts != nullptr, "points editor shown");
             CHECK(ui.type_into(pts, "9"), "type 9 points");
@@ -5821,7 +5833,10 @@ static void test_ui() {
             std::vector<fce::StandingRow> rows;
             CHECK(fce::locate(mem, fw.ifce, 0, loc).empty() && fce::read_rows(mem, loc, rows) && rows.size() == 4 && rows[0].points == 9,
                   "the row itself was written");
-            CHECK(ui.toast_contains("Arsenal updated in the game"), "row toast");
+            CHECK(live_standings_status().find("Arsenal") != std::string::npos &&
+                      live_standings_status().find(": Pts 7 -> 9 (applied)") != std::string::npos,
+                  "one-line status: " + live_standings_status());
+            CHECK(ui.find("Undo##lsundo") != nullptr, "the Advanced apply can be undone too");
             // the outcome arrives from the game thread: App::tick turns it into a toast and the status line
             svm::Result r;
             r.ok = true;
@@ -5870,6 +5885,155 @@ static void test_ui() {
             CHECK(app.standings_refresh_status.find("no refresh service") != std::string::npos, "status without a service");
             CHECK(!ui.toast_contains("Standings refresh:"), "no refresh toast without a service");
             // restore the state for the cases after this one
+            st = saved;
+            st["seq"] = st.value("seq", 0LL) + 2;
+            write_state_file();
+            app.next_poll = 0.0;
+            app.standings_refresh_status.clear();
+            ui.frames(3);
+            CHECK(ui.find("Try again") != nullptr, "live view unreachable again without the ifce");
+        });
+
+        run_case("UI: Competitions > Live standings: double-click a cell, Enter / a click elsewhere applies, Esc cancels; derived cells, refusals, Undo, sorting", [&] {
+            FceWorld fw;  // Arsenal (row 0) home 1W 1D, away 1W, GF 4+2, GA 1+1, 7 pts; Everton 4 pts; Inter 1 pt; 4 fixtures a club
+            SvmWorld sw;
+            for (const auto& kv : fw.mem.pages) mem.pages[kv.first] = kv.second;
+            for (const auto& kv : sw.mem.pages) mem.pages[kv.first] = kv.second;
+            auto fake = std::make_shared<FakeRefresh>();
+            app.standings_refresh = fake;
+            app.standings_refresh_status.clear();
+            fs::path state_file = le / "turbo_output" / "bridge_state.json";
+            json st = read_json(state_file);
+            const json saved = st;
+            int bumps = 50;
+            auto write_state_file = [&]() {
+                {
+                    std::ofstream f(state_file.string(), std::ios::binary | std::ios::trunc);
+                    f << st.dump();
+                }
+                fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(2 * ++bumps));
+            };
+            st["ifce"] = hex_addr(fw.ifce);
+            st["svm"] = hex_addr(SvmWorld::kSvm);
+            st["managers"] = hex_addr(SvmWorld::kManagers);
+            st["comm_service"] = hex_addr(SvmWorld::kComm);
+            st["seq"] = st.value("seq", 0LL) + 1;
+            write_state_file();
+            app.next_poll = 0.0;
+            app.request_tab = 3;
+            ui.frames(3);
+            CHECK(ui.click("Live standings (game)"), "live view tab");
+            ui.frames(2);
+            CHECK(ui.find("Try again") == nullptr, "live view reachable");
+            auto row0 = [&]() {
+                fce::Located loc;
+                std::vector<fce::StandingRow> rows;
+                if (!fce::locate(mem, fw.ifce, 0, loc).empty() || !fce::read_rows(mem, loc, rows) || rows.empty()) return fce::StandingRow();
+                return rows[0];
+            };
+            auto open_cell = [&](const std::string& label) -> const ItemRec* {
+                const ItemRec* c = ui.find(label);
+                if (!c) {
+                    ui.dump("cell not found: " + label);
+                    return nullptr;
+                }
+                ui.click(c, true);
+                ui.frames(1);
+                return ui.find("##cell");
+            };
+            auto status_has = [&](const std::string& s) { return live_standings_status().find(s) != std::string::npos; };
+            auto y_of = [&](const std::string& label) {
+                const ItemRec* r = ui.find(label);
+                return r ? r->rect.Min.y : -1.0f;
+            };
+            // W 2 -> 3: an input box in place, Enter applies at once (split to the away side), Pts and P follow
+            const ItemRec* box = open_cell("2##c0_W");
+            CHECK(box != nullptr, "input box in place of the cell");
+            CHECK(box && ui.type_into(box, "3"), "type 3, Enter");
+            fce::StandingRow r = row0();
+            CHECK(r.hw == 1 && r.aw == 2 && r.points == 10, fmt("written: hw %d aw %d pts %d", r.hw, r.aw, r.points));
+            CHECK(fake->requests.size() == 1 && fake->requests[0].rows == std::vector<uint16_t>{0}, "the standings refresh is queued for row 0");
+            CHECK(status_has(": W 2 -> 3, Pts 7 -> 10 (applied)"), "status: " + live_standings_status());
+            CHECK(ui.find("##cell") == nullptr, "the box is gone");
+            CHECK(ui.find("3##c0_W") != nullptr && ui.find("4##c0_P") != nullptr && ui.find("10##c0_Pts") != nullptr, "W, P and Pts shown");
+            // Undo: one click puts the line back (and refreshes the view again)
+            CHECK(ui.click("Undo##lsundo"), "Undo");
+            ui.frames(2);
+            r = row0();
+            CHECK(r.aw == 1 && r.wins() == 2 && r.points == 7, "undone");
+            CHECK(fake->requests.size() == 2, "refresh after the undo");
+            CHECK(status_has("undone, W 3 -> 2, Pts 10 -> 7"), "undo status: " + live_standings_status());
+            CHECK(ui.find("Undo##lsundo") == nullptr, "one step of undo");
+            // Esc cancels: nothing written
+            box = open_cell("2##c0_W");
+            CHECK(box != nullptr && ui.click(box), "box again");
+            ui.key(ImGuiKey_A, true);
+            ImGui::GetIO().AddInputCharactersUTF8("9");
+            ui.frame();
+            ui.key(ImGuiKey_Escape);
+            ui.frames(2);
+            r = row0();
+            CHECK(r.wins() == 2 && r.points == 7 && fake->requests.size() == 2 && ui.find("##cell") == nullptr, "Esc: nothing written");
+            // a click elsewhere applies: GA 2 -> 5 (to the side with fewer goals against), GD follows
+            box = open_cell("2##c0_GA");
+            CHECK(box != nullptr && ui.click(box), "GA box");
+            ui.key(ImGuiKey_A, true);
+            ImGui::GetIO().AddInputCharactersUTF8("5");
+            ui.frame();
+            CHECK(ui.click("2##ls1"), "click Everton's row");
+            ui.frames(2);
+            r = row0();
+            CHECK(r.hga == 3 && r.aga == 2 && r.points == 7, fmt("GA written on the click elsewhere (home %d away %d)", r.hga, r.aga));
+            CHECK(status_has(": GA 2 -> 5 (applied)") && ui.find("1##c0_GD") != nullptr, "GD follows: " + live_standings_status());
+            // refusals: past the club's fixtures, negatives; nothing written, no refresh
+            const size_t nreq = fake->requests.size();
+            box = open_cell("2##c0_W");
+            CHECK(box && ui.type_into(box, "4"), "W 4");
+            CHECK(status_has("W not changed: P would be 5, more than the 4 fixtures of this club"), "P cap: " + live_standings_status());
+            box = open_cell("6##c0_GF");
+            CHECK(box && ui.type_into(box, "-1"), "GF -1");
+            CHECK(status_has("GF not changed: GF cannot be negative"), "negative: " + live_standings_status());
+            r = row0();
+            CHECK(r.wins() == 2 && r.gf() == 6 && fake->requests.size() == nreq, "refused: nothing written");
+            // P and GD follow the other cells: a double-click only says so
+            const ItemRec* pc = ui.find("3##c0_P");
+            CHECK(pc != nullptr && ui.click(pc, true), "double-click P");
+            ui.frames(1);
+            CHECK(ui.find("##cell") == nullptr && status_has("P is W + D + L"), "P is derived: " + live_standings_status());
+            // Pts typed is kept as typed, also when W / D / L change afterwards
+            box = open_cell("7##c0_Pts");
+            CHECK(box && ui.type_into(box, "50"), "Pts 50");
+            CHECK(row0().points == 50, "Pts typed");
+            box = open_cell("1##c0_D");
+            CHECK(box && ui.type_into(box, "2"), "D 2");
+            r = row0();
+            CHECK(r.draws() == 2 && r.ad == 1 && r.points == 50, fmt("D written, Pts kept (%d)", r.points));
+            CHECK(status_has(": D 1 -> 2, Pts kept at 50 (typed) (applied)"), "status: " + live_standings_status());
+            // sorting: a header click sorts by that column (GA: most first); Pos sorts back to the table order
+            CHECK(ui.click("GA"), "sort by GA");
+            ui.frames(2);
+            CHECK(y_of("3##ls2") >= 0 && y_of("3##ls2") < y_of("1##ls0") && y_of("1##ls0") < y_of("2##ls1"), "GA: Inter 6, Arsenal 5, Everton 3");
+            CHECK(ui.click("Pos"), "sort by position");
+            ui.frames(2);
+            CHECK(y_of("1##ls0") >= 0 && y_of("1##ls0") < y_of("2##ls1") && y_of("2##ls1") < y_of("3##ls2"), "table order again");
+            // home / away columns: the same in-place edit on one side's counter, its own fixtures as the limit
+            CHECK(ui.click("Home / away columns"), "home / away columns");
+            ui.frames(2);
+            CHECK(ui.find("1##c0_HW") != nullptr && ui.find("2##c0_AGF") != nullptr && ui.find("2##c0_W") == nullptr, "split cells shown");
+            box = open_cell("1##c0_HW");
+            CHECK(box && ui.type_into(box, "2"), "home W 2");
+            CHECK(status_has("home W not changed: home P would be 3, more than the 2 home fixtures of this club"), "home cap: " + live_standings_status());
+            box = open_cell("2##c0_AGF");
+            CHECK(box && ui.type_into(box, "4"), "away GF 4");
+            r = row0();
+            CHECK(r.agf == 4 && r.hgf == 4 && status_has(": GF 6 -> 8 (applied)"), "away GF written: " + live_standings_status());
+            CHECK(ui.click("Home / away columns"), "back to the totals");
+            ui.frames(2);
+            // the Advanced section shows the selected club's precise counters
+            open_standings_advanced(ui);
+            CHECK(ui.find("Home wins", "##lsedit") != nullptr && ui.find("Apply to the game", "##lsedit") != nullptr, "Advanced: counters");
+            // restore the state for the cases after this one
+            app.standings_refresh = nullptr;
             st = saved;
             st["seq"] = st.value("seq", 0LL) + 2;
             write_state_file();
@@ -5932,6 +6096,7 @@ static void test_ui() {
             // is higher here, so make the choice visible: select the pool, then force a re-selection through the group map
             CHECK(ui.click("1##ls4"), "select the pool's leader (row 4)");
             ui.frames(2);
+            open_standings_advanced(ui);
             const ItemRec* pts = ui.find("Points", "##lsedit");
             CHECK(pts != nullptr && ui.type_into(pts, "6"), "type 6 points");
             CHECK(ui.click("Apply to the game", "##lsedit"), "Apply on the pool row");
@@ -8211,6 +8376,68 @@ static void test_fce_standings() {
         CHECK(fce::edit_result(w2.mem, loc2, 1, 0, 1, shoot).empty(), "draw -> away win");
         fce::read_rows(w2.mem, loc2, rows);
         CHECK(rows[1].hd == 0 && rows[1].hl == 1 && rows[1].points == 5 && rows[2].ad == 0 && rows[2].aw == 1 && rows[2].points == 4, "points with a loss worth 1");
+    });
+
+    run_case("FCE: set_cell splits a total home / away, Pts follows W / D, P is capped by the fixtures, refusals leave the row alone", [&] {
+        FceWorld w;
+        fce::Located loc;
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::kBase, loc).empty(), "located");
+        std::vector<fce::StandingRow> rows;
+        std::vector<fce::Fixture> fx;
+        fce::read_rows(w.mem, loc, rows);
+        fce::read_fixtures(w.mem, loc, fx);
+        // each club has 1 home and 1 away fixture in the list; 3 clubs: at least a double round robin = 2 a side
+        const fce::FixtureCap cap = fce::fixture_cap(fx, 0, 3);
+        CHECK(cap.home == 2 && cap.away == 2, fmt("cap %d / %d", cap.home, cap.away));
+        fce::FixtureCap big = fce::fixture_cap(fx, 0, 20);
+        CHECK(big.home == 19 && big.away == 19, "a fixture list that is not complete never caps below a double round robin");
+        fce::FixtureCap none = fce::fixture_cap({}, 0, 1);
+        CHECK(none.home == 255 && none.away == 255, "nothing known: the byte limit only");
+        fce::Points pts;
+        // Arsenal: home 1W 1D (2 played), away 1W (1 played), 7 pts. W 2 -> 3: the away side (fewer played, room left)
+        fce::StandingRow r = rows[0];
+        CHECK(fce::set_cell(r, fce::Cell::W, 3, pts, cap, false).empty(), "W 2 -> 3");
+        CHECK(r.hw == 1 && r.aw == 2 && r.points == 10 && r.played() == 4, fmt("split away, Pts +3 (hw %d aw %d pts %d)", r.hw, r.aw, r.points));
+        CHECK(fce::describe_change(rows[0], r) == "W 2 -> 3, Pts 7 -> 10", "described: " + fce::describe_change(rows[0], r));
+        // one more game is past the 4 fixtures: refused, row unchanged
+        fce::StandingRow keep = r;
+        std::string err = fce::set_cell(r, fce::Cell::D, 2, pts, cap, false);
+        CHECK(err == "P would be 5, more than the 4 fixtures of this club", "P cap: " + err);
+        CHECK(fce::same_counters(r, keep), "unchanged after the refusal");
+        // removing comes off the side with more games played; Pts follows (never below 0)
+        CHECK(fce::set_cell(r, fce::Cell::D, 0, pts, cap, false).empty() && r.hd == 0 && r.points == 9, "D 1 -> 0 from home, Pts -1");
+        fce::StandingRow z = rows[2];  // Inter 1 pt
+        CHECK(fce::set_cell(z, fce::Cell::D, 0, pts, cap, false).empty() && z.points == 0, "Pts stops at 0");
+        // goals: to a side with games, fewer goals first; off the side with more
+        fce::StandingRow g = rows[0];  // GA home 1, away 1
+        CHECK(fce::set_cell(g, fce::Cell::GA, 5, pts, cap, false).empty() && g.hga == 3 && g.aga == 2 && g.points == 7, "GA 2 -> 5, Pts untouched");
+        CHECK(fce::set_cell(g, fce::Cell::GF, 1, pts, cap, false).empty() && g.hgf == 0 && g.agf == 1,
+              fmt("GF 6 -> 1 off the side with more (home %d away %d)", g.hgf, g.agf));
+        CHECK(fce::describe_change(rows[0], g) == "GF 6 -> 1, GA 2 -> 5", "goals described");
+        fce::StandingRow empty = rows[0];
+        empty.hw = empty.hd = empty.hl = empty.aw = empty.ad = empty.al = 0;
+        CHECK(fce::set_cell(empty, fce::Cell::GF, 9, pts, cap, false) == "no game played yet: set the W / D / L first", "goals need a game");
+        // typed Pts: kept as typed, and kept when W changes (keep_points)
+        fce::StandingRow p = rows[0];
+        CHECK(fce::set_cell(p, fce::Cell::Pts, 50, pts, cap, false).empty() && p.points == 50 && p.wins() == 2, "Pts typed");
+        CHECK(fce::set_cell(p, fce::Cell::W, 3, pts, cap, true).empty() && p.points == 50 && p.wins() == 3, "Pts kept when W changes");
+        // validation
+        fce::StandingRow v = rows[0];
+        CHECK(fce::set_cell(v, fce::Cell::GF, -1, pts, cap, false) == "GF cannot be negative", "negative refused");
+        CHECK(fce::set_cell(v, fce::Cell::Pts, -3, pts, cap, false) == "Pts cannot be negative", "negative Pts refused");
+        CHECK(!fce::set_cell(v, fce::Cell::P, 2, pts, cap, false).empty() && !fce::set_cell(v, fce::Cell::GD, 0, pts, cap, false).empty(), "P / GD derived");
+        CHECK(fce::same_counters(v, rows[0]), "refusals change nothing");
+        // home / away cells: the side's own fixtures
+        err = fce::set_cell(v, fce::Cell::HW, 2, pts, cap, false);
+        CHECK(err == "home P would be 3, more than the 2 home fixtures of this club", "home cap: " + err);
+        CHECK(fce::set_cell(v, fce::Cell::AL, 1, pts, cap, false).empty() && v.al == 1 && v.points == 7, "away L 0 -> 1, a loss is 0 pts");
+        CHECK(fce::set_cell(v, fce::Cell::AGF, 300, pts, cap, false) == "away GF at most 255", "byte limit");
+        CHECK(fce::set_cell(v, fce::Cell::AGA, 4, pts, cap, false).empty() && v.aga == 4, "away GA");
+        CHECK(fce::cell_value(v, fce::Cell::P) == 4 && fce::cell_value(v, fce::Cell::GD) == 6 - 5, "P / GD follow");
+        fce::StandingRow s = rows[0];
+        std::swap(s.hw, s.aw);
+        s.hd = 0, s.ad = 1;
+        CHECK(fce::describe_change(rows[0], s) == "home / away split" && fce::describe_change(rows[0], rows[0]).empty(), "split only / nothing");
     });
 }
 

@@ -300,6 +300,26 @@ club's transfer budget. The probe scripts that found the above are in `C:\FC 27 
   (descriptor, callback shape, picture decode; tested), `win/player_capture_win.cpp` (hooks, request, callbacks),
   RE notes `docs/re/player_capture.md`.
 
+## Live league table (Competitions > Live standings, 1.1.1)
+
+- The table shows the rows of the game's competition engine (`core/fce_standings.*`, FCE StandingsDataList); edits go
+  straight into them. **Double-click** a W / D / L / GF / GA / Pts cell (or, with "Home / away columns", a home or away
+  counter) for an input box in place; Enter or a click elsewhere commits, Esc cancels. The commit re-reads the row
+  (identity checked), `fce::set_cell` changes it, `fce::write_row` writes it, then the rows are re-read and the
+  standings view refresh is queued (`core/standings_refresh.h`), the same path as Advanced > Apply to the game.
+- `fce::set_cell`: a total is split home / away the way the game stores it (a game added goes to the side with fewer
+  games played that still has a fixture free, one removed comes off the side with more; goals go to a side with games,
+  fewer first). P (W + D + L) and GD (GF - GA) are derived and not editable. Pts moves by the points per Win / Draw /
+  Loss (3 / 1 / 0, Advanced) for each W / D / L added or removed, never below 0, so a deduction stays; a Pts the user
+  typed is kept as typed (also when W / D / L change later in the session). Refused with a reason, row unchanged:
+  negatives, a counter past 255, P past the club's fixtures (`fce::fixture_cap`: the used fixtures naming the row on
+  each side, at least a double round robin of its group), goals while no game is played.
+- **Undo** (one step) writes the row back only while it still holds what Turbo wrote (a match day in between is not
+  overwritten). The status is one line (`Torino FC: W 2 -> 3, Pts 0 -> 3 (applied)`); what the game's standings view
+  reads and the last refresh outcome are in the (?) tooltip and the GUI log. Column headers sort (position by
+  default). The per-side +/- counters, the points per result and the played results (Change result) are under
+  **Advanced**, closed by default.
+
 ## Not implemented yet
 
 Match setup overrides, gameplay toggles (CPU vs CPU, unlimited subs, never tired, match time/score), manager market / job security /

@@ -1,8 +1,10 @@
 // FC 27 LE Turbo GUI - Competitions tab, "Live standings" view: the rows of the game's competition engine
 // (FCE::DataManager StandingsDataList), which FC 27's own Standings screen shows. See core/fce_standings.h.
 #include <algorithm>
+#include <cfloat>
 #include <cstdio>
 #include <map>
+#include <set>
 
 #include "app.h"
 #include "core/fce_standings.h"
@@ -35,6 +37,30 @@ struct LiveState {
     int sel_fixture = -1;
     int new_home = 0, new_away = 0;
     fce::Points pts;
+    // inline editing: the cell with an input box (double-click), the edit to apply once the table is drawn
+    struct CellEdit {
+        bool open = false, focus = false, seen_active = false, drawn = false;
+        uint16_t row = 0;
+        fce::Cell cell = fce::Cell::W;
+        int value = 0;
+    } cell;
+    struct Pending {
+        bool due = false;
+        uint16_t row = 0;
+        fce::Cell cell = fce::Cell::W;
+        int value = 0;
+    } pending;
+    // the last edit, for Undo: the row as it was and as Turbo wrote it
+    struct Undo {
+        bool valid = false;
+        fce::StandingRow before, after;
+        bool typed_before = false;
+    } undo;
+    std::set<uint16_t> typed_pts;  // rows whose Pts the user typed: kept when W / D / L change
+    std::string status;            // one line: "Torino FC: W 2 -> 3, Pts 0 -> 3 (applied)"
+    bool status_error = false;
+    bool home_away = false;        // the table shows the home / away counters
+    bool adv_open = false;         // the Advanced section was open last frame
 };
 
 LiveState g_live;
@@ -190,6 +216,15 @@ void ensure_located(App& app) {
     bool fresh = g_live.loc.ok() && g_live.located_ifce == ifce && g_live.located_gen == app.gen &&
                  fce::validate(app.mem, g_live.loc, app.game_base);
     if (fresh) return;
+    if (g_live.located_ifce != ifce) {
+        // another career: the last edit cannot be undone, typed points belong to the old rows (Undo itself also checks
+        // that the row still holds what Turbo wrote)
+        g_live.undo = LiveState::Undo();
+        g_live.typed_pts.clear();
+        g_live.status.clear();
+    }
+    g_live.cell = LiveState::CellEdit();
+    g_live.pending = LiveState::Pending();
     g_live.located_ifce = ifce;
     g_live.located_gen = app.gen;
     g_live.err = fce::locate(app.mem, ifce, app.game_base, g_live.loc);
@@ -238,7 +273,164 @@ void queue_refresh(App& app, const std::string& label, const std::vector<uint16_
     }
 }
 
+void set_status(const std::string& s, bool error) {
+    g_live.status = s;
+    g_live.status_error = error;
+}
+
+// The row as the game holds it now (the cached copy may be a match day old). false + status when it is not the same row
+bool row_now(App& app, uint16_t id, fce::StandingRow& out) {
+    LiveState& st = g_live;
+    if (size_t(id) >= st.rows.size()) return false;
+    const fce::StandingRow& cached = st.rows[id];
+    uint8_t buf[fce::kStandingSize];
+    if (!app.mem.read(cached.addr, buf, sizeof(buf)) || !fce::decode_row(buf, cached.addr, out) || out.id != cached.id ||
+        out.teamid != cached.teamid || out.compobj != cached.compobj || out.used != 1) {
+        set_status("The table changed in the game (new season or save loaded?): reloaded, try again.", true);
+        reload(app);
+        return false;
+    }
+    return true;
+}
+
+// Write `after` over the row that holds `before`, keep it for Undo, report it in one line, re-read and refresh the view
+bool apply_row(App& app, const fce::StandingRow& before, const fce::StandingRow& after, const std::string& extra, bool typed_before) {
+    LiveState& st = g_live;
+    const std::string team = app.model.team_name(before.teamid);
+    const std::string err = fce::write_row(app.mem, st.loc, after);
+    if (!err.empty()) {
+        set_status(team + ": not written: " + err, true);
+        app.notify("Standings: " + team + ": " + err, true);
+        reload(app);
+        return false;
+    }
+    st.undo.valid = true;
+    st.undo.before = before;
+    st.undo.after = after;
+    st.undo.typed_before = typed_before;
+    const std::string what = fce::describe_change(before, after);
+    set_status(team + ": " + (what.empty() ? "no change" : what) + extra + " (applied)", false);
+    app.log("live standings: row " + std::to_string(before.id) + " team " + std::to_string(before.teamid) + " written: " + what + extra);
+    const std::vector<uint16_t> written = {before.id};
+    reload(app);
+    queue_refresh(app, team + " row", written);
+    return true;
+}
+
+int group_size(const LiveState& st, uint16_t compobj) {
+    auto it = st.groups.find(compobj);
+    return it == st.groups.end() ? 0 : int(it->second.size());
+}
+
+// The typed value of a table cell, applied once the table is drawn (a write re-reads the rows the table iterates)
+void commit_cell(App& app, uint16_t id, fce::Cell c, int value) {
+    LiveState& st = g_live;
+    fce::StandingRow before;
+    if (!row_now(app, id, before)) return;
+    const std::string team = app.model.team_name(before.teamid);
+    if (fce::cell_value(before, c) == value) {
+        set_status(team + ": " + fce::cell_name(c) + " stays " + std::to_string(value) + " (no change)", false);
+        return;
+    }
+    fce::StandingRow after = before;
+    const bool typed = st.typed_pts.count(id) != 0;
+    const bool keep = typed && c != fce::Cell::Pts;
+    const std::string err = fce::set_cell(after, c, value, st.pts, fce::fixture_cap(st.fixtures, id, group_size(st, before.compobj)), keep);
+    if (!err.empty()) {
+        set_status(team + ": " + fce::cell_name(c) + " not changed: " + err + ".", true);
+        return;
+    }
+    const bool results_moved = after.wins() != before.wins() || after.draws() != before.draws() || after.losses() != before.losses();
+    if (!apply_row(app, before, after, keep && results_moved ? ", Pts kept at " + std::to_string(after.points) + " (typed)" : "", typed)) return;
+    if (c == fce::Cell::Pts) st.typed_pts.insert(id);
+}
+
+// Undo: the row back as it was, only while it still holds what Turbo wrote (a match day in between would be lost)
+void undo_last(App& app) {
+    LiveState& st = g_live;
+    if (!st.undo.valid) return;
+    const LiveState::Undo u = st.undo;
+    st.undo.valid = false;
+    fce::StandingRow now;
+    if (!row_now(app, u.before.id, now)) return;
+    const std::string team = app.model.team_name(u.before.teamid);
+    if (!fce::same_counters(now, u.after)) {
+        set_status(team + ": cannot undo, the row changed since the edit (a match was played?).", true);
+        return;
+    }
+    const std::string err = fce::write_row(app.mem, st.loc, u.before);
+    if (!err.empty()) {
+        set_status(team + ": undo not written: " + err, true);
+        reload(app);
+        return;
+    }
+    if (u.typed_before) st.typed_pts.insert(u.before.id);
+    else st.typed_pts.erase(u.before.id);
+    set_status(team + ": undone, " + fce::describe_change(u.after, u.before) + " (applied)", false);
+    app.log("live standings: row " + std::to_string(u.before.id) + " undone");
+    const std::vector<uint16_t> written = {u.before.id};
+    reload(app);
+    queue_refresh(app, team + " row (undo)", written);
+}
+
+// One number of the table: a selectable (click = select the club, double-click = edit), or the input box while edited.
+// Enter or a click elsewhere commits (once the table is drawn), Esc cancels.
+void draw_cell(const fce::StandingRow& r, fce::Cell c, bool selected) {
+    LiveState& st = g_live;
+    if (st.cell.open && st.cell.row == r.id && st.cell.cell == c) {
+        st.cell.drawn = true;
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (st.cell.focus) {
+            ImGui::SetKeyboardFocusHere();
+            st.cell.focus = false;
+        }
+        ImGui::InputInt("##cell", &st.cell.value, 0, 0, ImGuiInputTextFlags_AutoSelectAll);
+        const bool active = ImGui::IsItemActive();
+        if (active) {
+            st.cell.seen_active = true;
+        } else if (st.cell.seen_active) {
+            // Esc reverts and leaves the box in the same frame; Enter or a click elsewhere leaves it with the typed value
+            if (!ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+                st.pending.due = true;
+                st.pending.row = r.id;
+                st.pending.cell = c;
+                st.pending.value = st.cell.value;
+            }
+            st.cell.open = false;
+        } else if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+                   (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsItemHovered())) {
+            st.cell.open = false;  // the box never took the focus: Esc or a click elsewhere closes it
+        }
+        return;
+    }
+    char label[48];
+    std::snprintf(label, sizeof(label), "%d##c%u_%s", fce::cell_value(r, c), unsigned(r.id), fce::cell_code(c));
+    if (ImGui::Selectable(label, selected, ImGuiSelectableFlags_AllowDoubleClick)) {
+        if (st.sel_row != int(r.id)) st.edit_loaded = false;
+        st.sel_row = int(r.id);
+        if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+            if (!fce::cell_editable(c)) {
+                set_status(c == fce::Cell::P ? "P is W + D + L (home + away): change those, P follows."
+                                             : "GD is GF - GA: change those, GD follows.",
+                           false);
+            } else {
+                st.cell = LiveState::CellEdit();
+                st.cell.open = st.cell.focus = true;
+                st.cell.drawn = true;  // its club is in the table this frame: the box is drawn from the next one
+                st.cell.row = r.id;
+                st.cell.cell = c;
+                st.cell.value = fce::cell_value(r, c);
+            }
+        }
+    }
+}
+
+// Sort keys of the table columns (ColumnUserID): the cells, plus the position and the club name
+constexpr int kColPos = 100, kColClub = 101;
+
 }  // namespace
+
+std::string live_standings_status() { return g_live.status; }
 
 std::string live_standings_view_line() {
     const LiveState& st = g_live;
@@ -283,14 +475,38 @@ void draw_live_standings(App& app) {
     if (ImGui::Button("Reload")) reload(app);
     ImGui::SameLine();
     ImGui::TextDisabled("%zu rows, %zu fixtures", st.rows.size(), st.fixtures.size());
-    ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f),
-                       "These are the game's own table rows. After an edit Turbo makes the game's standings view re-read them, "
-                       "so the Standings screen and the Office tile show the change. Do not edit while a match or Sim To Date is running.");
-    if (!app.standings_refresh_status.empty()) ImGui::TextDisabled("Standings view: %s", app.standings_refresh_status.c_str());
+    // One line of help; the technical lines (what the game's standings view reads, the last refresh) in its tooltip
+    ImGui::Checkbox("Home / away columns", &st.home_away);
+    ImGui::SameLine();
+    ImGui::TextDisabled("Double-click a number to change it: Enter applies it to the game, Esc cancels. (?)");
+    if (ImGui::IsItemHovered()) {
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(S(560.0f));
+        ImGui::TextUnformatted("These are the game's own table rows. After an edit Turbo makes the game's standings view re-read them, so the "
+                               "Standings screen and the Office tile show the change. Do not edit while a match or Sim To Date is running.");
+        ImGui::TextUnformatted("P follows W + D + L and GD follows GF - GA. Pts moves with W / D / L (points per Win / Draw / Loss under "
+                               "Advanced) unless you typed Pts yourself. Click a column header to sort.");
+        if (!app.standings_refresh_status.empty()) ImGui::Text("Standings view: %s", app.standings_refresh_status.c_str());
+        const std::string line = live_standings_view_line();
+        if (!line.empty()) ImGui::TextUnformatted(line.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
     {
-        const std::string line = live_standings_view_line(), warning = live_standings_view_warning();
-        if (!line.empty()) ImGui::TextDisabled("%s", line.c_str());
+        const std::string warning = live_standings_view_warning();
         if (!warning.empty()) ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.35f, 1.0f), "%s", warning.c_str());
+    }
+    if (!st.status.empty()) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(st.status_error ? ImVec4(0.95f, 0.55f, 0.45f, 1.0f) : ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "%s", st.status.c_str());
+        if (ImGui::IsItemHovered() && !app.standings_refresh_status.empty())
+            ImGui::SetTooltip("Standings view: %s", app.standings_refresh_status.c_str());
+    }
+    if (st.undo.valid && st.undo.before.compobj == st.group) {
+        if (!st.status.empty()) ImGui::SameLine();
+        if (ImGui::Button("Undo##lsundo")) undo_last(app);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Put %s's line back as it was before the last edit", app.model.team_name(st.undo.before.teamid).c_str());
     }
 
     std::vector<size_t> idx = st.have_group ? st.groups[st.group] : std::vector<size_t>();
@@ -301,157 +517,215 @@ void draw_live_standings(App& app) {
         if (ra.gf() != rb.gf()) return ra.gf() > rb.gf();
         return app.model.team_name(ra.teamid) < app.model.team_name(rb.teamid);
     });
+    std::map<uint16_t, int> pos_of;  // standing id -> position (points, goal difference, goals for)
+    for (size_t k = 0; k < idx.size(); ++k) pos_of[st.rows[idx[k]].id] = int(k) + 1;
 
-    ImGui::BeginChild("##lstable", ImVec2(S(560.0f), 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
-    if (ImGui::BeginTable("##live", 10, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV,
-                          ImVec2(0, ImGui::GetContentRegionAvail().y))) {
+    using fce::Cell;
+    static const Cell kCells[] = {Cell::P, Cell::W, Cell::D, Cell::L, Cell::GF, Cell::GA, Cell::GD, Cell::Pts};
+    static const Cell kCellsHomeAway[] = {Cell::P,  Cell::HW, Cell::HD, Cell::HL,  Cell::HGF, Cell::HGA, Cell::AW,
+                                          Cell::AD, Cell::AL, Cell::AGF, Cell::AGA, Cell::GD,  Cell::Pts};
+    const Cell* cells = st.home_away ? kCellsHomeAway : kCells;
+    const int ncells = st.home_away ? int(sizeof(kCellsHomeAway) / sizeof(Cell)) : int(sizeof(kCells) / sizeof(Cell));
+
+    // the whole table when it fits; with Advanced open it shares the height with it
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float need = (float(idx.size()) + 1.0f) * (ImGui::GetTextLineHeight() + 2.0f * style.CellPadding.y) + ImGui::GetFrameHeight();
+    const float avail = ImGui::GetContentRegionAvail().y;
+    const float room = st.adv_open ? std::max(avail * 0.5f, S(160.0f)) : avail - ImGui::GetFrameHeightWithSpacing() - style.ItemSpacing.y;
+    const float table_h = std::max(S(120.0f), std::min(need, room));
+
+    st.cell.drawn = false;
+    const ImGuiTableFlags tf = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_BordersOuter |
+                               ImGuiTableFlags_Sortable;
+    if (ImGui::BeginTable(st.home_away ? "##live_ha" : "##live", 2 + ncells, tf, ImVec2(0, table_h))) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        const char* heads[] = {"Pos", "Club", "P", "W", "D", "L", "GF", "GA", "GD", "Pts"};
-        for (int i = 0; i < 10; ++i)
-            ImGui::TableSetupColumn(heads[i], i == 1 ? ImGuiTableColumnFlags_WidthStretch : ImGuiTableColumnFlags_WidthFixed,
-                                    i == 1 ? 0.0f : S(34.0f));
+        ImGui::TableSetupColumn("Pos", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_DefaultSort, S(34.0f), ImGuiID(kColPos));
+        ImGui::TableSetupColumn("Club", ImGuiTableColumnFlags_WidthStretch, 0.0f, ImGuiID(kColClub));
+        for (int k = 0; k < ncells; ++k)
+            ImGui::TableSetupColumn(fce::cell_code(cells[k]), ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending,
+                                    S(40.0f), ImGuiID(static_cast<int>(cells[k])));
         ImGui::TableHeadersRow();
-        int pos = 0;
-        for (size_t i : idx) {
+        // click a header to sort by it (the position first); the position column always shows the table position
+        int sort_col = kColPos;
+        bool desc = false;
+        if (ImGuiTableSortSpecs* ss = ImGui::TableGetSortSpecs()) {
+            if (ss->SpecsCount > 0) {
+                sort_col = int(ss->Specs[0].ColumnUserID);
+                desc = ss->Specs[0].SortDirection == ImGuiSortDirection_Descending;
+            }
+            ss->SpecsDirty = false;
+        }
+        std::vector<size_t> order = idx;
+        if (sort_col != kColPos || desc)
+            std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+                const fce::StandingRow &ra = st.rows[a], &rb = st.rows[b];
+                const int pa = pos_of[ra.id], pb = pos_of[rb.id];
+                if (sort_col == kColClub) {
+                    const std::string na = app.model.team_name(ra.teamid), nb = app.model.team_name(rb.teamid);
+                    if (na != nb) return desc ? nb < na : na < nb;
+                    return pa < pb;
+                }
+                const int va = sort_col == kColPos ? pa : fce::cell_value(ra, Cell(sort_col));
+                const int vb = sort_col == kColPos ? pb : fce::cell_value(rb, Cell(sort_col));
+                if (va != vb) return desc ? va > vb : va < vb;
+                return pa < pb;
+            });
+        for (size_t i : order) {
             const fce::StandingRow& r = st.rows[i];
-            ++pos;
+            const bool sel = st.sel_row == int(r.id);
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             char idb[48];
-            std::snprintf(idb, sizeof(idb), "%d##ls%u", pos, unsigned(r.id));
-            if (ImGui::Selectable(idb, st.sel_row == int(r.id), ImGuiSelectableFlags_SpanAllColumns)) {
+            std::snprintf(idb, sizeof(idb), "%d##ls%u", pos_of[r.id], unsigned(r.id));
+            if (ImGui::Selectable(idb, sel)) {
+                if (!sel) st.edit_loaded = false;
                 st.sel_row = int(r.id);
-                st.edit_loaded = false;
             }
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(app.model.team_name(r.teamid).c_str());
-            int vals[] = {r.played(), r.wins(), r.draws(), r.losses(), r.gf(), r.ga(), r.gd(), int(r.points)};
-            for (int v : vals) {
+            char club[160];
+            std::snprintf(club, sizeof(club), "%s##club%u", app.model.team_name(r.teamid).c_str(), unsigned(r.id));
+            if (ImGui::Selectable(club, sel)) {
+                if (!sel) st.edit_loaded = false;
+                st.sel_row = int(r.id);
+            }
+            for (int k = 0; k < ncells; ++k) {
                 ImGui::TableNextColumn();
-                ImGui::Text("%d", v);
+                draw_cell(r, cells[k], sel);
             }
         }
         ImGui::EndTable();
     }
-    ImGui::EndChild();
+    if (st.cell.open && !st.cell.drawn) st.cell.open = false;  // its club left the table (another competition picked)
+    if (st.pending.due) {
+        st.pending.due = false;
+        commit_cell(app, st.pending.row, st.pending.cell, st.pending.value);
+    }
+
+    // Advanced (closed by default): the precise home / away counters, the points per result and the played results
+    st.adv_open = ImGui::CollapsingHeader("Advanced: home / away counters, points per result, played results##lsadv");
+    if (!st.adv_open) return;
+    ImGui::BeginChild("##lsedit", ImVec2(0, 0), ImGuiChildFlags_Borders);
+    ImGui::SetNextItemWidth(S(60.0f));
+    ImGui::InputInt("Win", &st.pts.win, 0);
     ImGui::SameLine();
-    ImGui::BeginChild("##lsedit");
+    ImGui::SetNextItemWidth(S(60.0f));
+    ImGui::InputInt("Draw", &st.pts.draw, 0);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(S(60.0f));
+    ImGui::InputInt("Loss", &st.pts.loss, 0);
+    ImGui::SameLine();
+    ImGui::TextDisabled("points per result (table edits and result changes)");
     const fce::StandingRow* cur_row = nullptr;
     if (st.sel_row >= 0 && size_t(st.sel_row) < st.rows.size() && st.rows[size_t(st.sel_row)].compobj == st.group)
         cur_row = &st.rows[size_t(st.sel_row)];
     if (!cur_row) {
-        ImGui::TextDisabled("Select a club on the left to edit its line.");
-    } else {
-        if (!st.edit_loaded) {
-            st.edit = *cur_row;
-            st.edit_loaded = true;
-        }
-        ImGui::Text("%s", app.model.team_name(cur_row->teamid).c_str());
-        ImGui::SameLine();
-        ImGui::TextDisabled("(row %u, team %u)", unsigned(cur_row->id), unsigned(cur_row->teamid));
-        ImGui::Separator();
-        ImGui::PushID("##lsgrid");
-        ImGui::Columns(2, nullptr, false);
-        counter("Home wins", st.edit.hw);
-        counter("Home draws", st.edit.hd);
-        counter("Home losses", st.edit.hl);
-        counter("Home goals for", st.edit.hgf);
-        counter("Home goals against", st.edit.hga);
-        ImGui::NextColumn();
-        counter("Away wins", st.edit.aw);
-        counter("Away draws", st.edit.ad);
-        counter("Away losses", st.edit.al);
-        counter("Away goals for", st.edit.agf);
-        counter("Away goals against", st.edit.aga);
-        ImGui::Columns(1);
-        ImGui::SetNextItemWidth(S(70.0f));
-        int16_t pstep = 1;
-        ImGui::InputScalar("Points", ImGuiDataType_S16, &st.edit.points, &pstep, nullptr, "%d");
-        ImGui::SameLine();
-        ImGui::TextDisabled("played %d, GD %+d", st.edit.played(), st.edit.gd());
-        ImGui::PopID();
-        ImGui::SetNextItemWidth(S(60.0f));
-        ImGui::InputInt("Win", &st.pts.win, 0);
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(S(60.0f));
-        ImGui::InputInt("Draw", &st.pts.draw, 0);
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(S(60.0f));
-        ImGui::InputInt("Loss", &st.pts.loss, 0);
-        ImGui::SameLine();
-        if (ImGui::Button("Points from W/D/L")) {
-            long long p = (long long)st.edit.wins() * st.pts.win + (long long)st.edit.draws() * st.pts.draw +
-                          (long long)st.edit.losses() * st.pts.loss;
-            st.edit.points = int16_t(std::max(-32768LL, std::min(32767LL, p)));
-        }
-        if (ImGui::Button("Apply to the game")) {
-            std::string err = fce::write_row(app.mem, st.loc, st.edit);
-            if (err.empty()) {
-                const std::string team = app.model.team_name(cur_row->teamid);
-                app.notify("Standings: " + team + " updated in the game");
-                app.log("live standings: row " + std::to_string(cur_row->id) + " team " + std::to_string(cur_row->teamid) + " written");
-                const std::vector<uint16_t> written = {cur_row->id};
-                reload(app);
-                queue_refresh(app, team + " row", written);
-            } else {
-                app.notify("Standings: " + err, true);
-                reload(app);
-            }
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Discard")) st.edit_loaded = false;
-        ImGui::TextDisabled("Played games and goal difference follow the counters; the position is sorted by the game.");
-
-        ImGui::Separator();
-        ImGui::TextUnformatted("Played results of this club");
-        std::vector<const fce::Fixture*> played;
-        for (const fce::Fixture& f : st.fixtures) {
-            if (!f.played()) continue;
-            if (f.home_sid != int(cur_row->id) && f.away_sid != int(cur_row->id)) continue;
-            played.push_back(&f);
-        }
-        std::sort(played.begin(), played.end(), [](const fce::Fixture* a, const fce::Fixture* b) { return a->date > b->date; });
-        ImGui::BeginChild("##lsfix", ImVec2(0, S(160.0f)), ImGuiChildFlags_Borders);
-        for (const fce::Fixture* f : played) {
-            const fce::StandingRow* h = size_t(f->home_sid) < st.rows.size() ? &st.rows[size_t(f->home_sid)] : nullptr;
-            const fce::StandingRow* a = size_t(f->away_sid) < st.rows.size() ? &st.rows[size_t(f->away_sid)] : nullptr;
-            char line[200];
-            std::snprintf(line, sizeof(line), "%u  %s %d - %d %s##fx%u", unsigned(f->date), h ? app.model.team_name(h->teamid).c_str() : "?",
-                          int(f->home_score), int(f->away_score), a ? app.model.team_name(a->teamid).c_str() : "?", unsigned(f->id));
-            if (ImGui::Selectable(line, st.sel_fixture == int(f->id))) {
-                st.sel_fixture = int(f->id);
-                st.new_home = f->home_score;
-                st.new_away = f->away_score;
-            }
-        }
-        if (played.empty()) ImGui::TextDisabled("none");
+        ImGui::TextDisabled("Click a club in the table to see its home / away counters here.");
         ImGui::EndChild();
-        if (st.sel_fixture >= 0 && size_t(st.sel_fixture) < st.fixtures.size()) {
-            ImGui::SetNextItemWidth(S(60.0f));
-            ImGui::InputInt("Home", &st.new_home, 0);
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(S(60.0f));
-            ImGui::InputInt("Away", &st.new_away, 0);
-            ImGui::SameLine();
-            if (ImGui::Button("Change result")) {
-                const fce::Fixture& fx = st.fixtures[size_t(st.sel_fixture)];
-                std::vector<uint16_t> written;
-                if (fx.home_sid >= 0) written.push_back(uint16_t(fx.home_sid));
-                if (fx.away_sid >= 0) written.push_back(uint16_t(fx.away_sid));
-                std::string err = fce::edit_result(app.mem, st.loc, uint16_t(st.sel_fixture), st.new_home, st.new_away, st.pts);
-                if (err.empty()) {
-                    app.notify("Result changed in the game (fixture and both table rows)");
-                    app.log("live standings: fixture " + std::to_string(st.sel_fixture) + " set to " + std::to_string(st.new_home) + "-" +
-                            std::to_string(st.new_away));
-                    reload(app);
-                    queue_refresh(app, "fixture " + std::to_string(st.sel_fixture), written);
-                } else {
-                    app.notify("Result: " + err, true);
-                    reload(app);
-                }
-            }
-            ImGui::TextDisabled("Old outcome removed from both rows, new one added (points per Win / Draw / Loss above).");
+        return;
+    }
+    if (!st.edit_loaded) {
+        st.edit = *cur_row;
+        st.edit_loaded = true;
+    }
+    const uint16_t cur_id = cur_row->id;
+    ImGui::Separator();
+    ImGui::Text("%s", app.model.team_name(cur_row->teamid).c_str());
+    ImGui::SameLine();
+    ImGui::TextDisabled("(row %u, team %u)", unsigned(cur_row->id), unsigned(cur_row->teamid));
+    ImGui::PushID("##lsgrid");
+    ImGui::Columns(2, nullptr, false);
+    counter("Home wins", st.edit.hw);
+    counter("Home draws", st.edit.hd);
+    counter("Home losses", st.edit.hl);
+    counter("Home goals for", st.edit.hgf);
+    counter("Home goals against", st.edit.hga);
+    ImGui::NextColumn();
+    counter("Away wins", st.edit.aw);
+    counter("Away draws", st.edit.ad);
+    counter("Away losses", st.edit.al);
+    counter("Away goals for", st.edit.agf);
+    counter("Away goals against", st.edit.aga);
+    ImGui::Columns(1);
+    ImGui::SetNextItemWidth(S(70.0f));
+    int16_t pstep = 1;
+    ImGui::InputScalar("Points", ImGuiDataType_S16, &st.edit.points, &pstep, nullptr, "%d");
+    ImGui::SameLine();
+    ImGui::TextDisabled("played %d, GD %+d", st.edit.played(), st.edit.gd());
+    ImGui::PopID();
+    if (ImGui::Button("Points from W/D/L")) {
+        long long p = (long long)st.edit.wins() * st.pts.win + (long long)st.edit.draws() * st.pts.draw +
+                      (long long)st.edit.losses() * st.pts.loss;
+        st.edit.points = int16_t(std::max(-32768LL, std::min(32767LL, p)));
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Apply to the game")) {
+        fce::StandingRow before;
+        if (row_now(app, cur_id, before)) {
+            fce::StandingRow after = before;
+            after.hw = st.edit.hw, after.hd = st.edit.hd, after.hl = st.edit.hl, after.hgf = st.edit.hgf, after.hga = st.edit.hga;
+            after.aw = st.edit.aw, after.ad = st.edit.ad, after.al = st.edit.al, after.agf = st.edit.agf, after.aga = st.edit.aga;
+            after.points = st.edit.points;
+            apply_row(app, before, after, "", st.typed_pts.count(cur_id) != 0);
         }
+        ImGui::EndChild();
+        return;  // the rows were re-read: cur_row is not to be used any more this frame
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Discard")) st.edit_loaded = false;
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Played results of this club");
+    std::vector<const fce::Fixture*> played;
+    for (const fce::Fixture& f : st.fixtures) {
+        if (!f.played()) continue;
+        if (f.home_sid != int(cur_id) && f.away_sid != int(cur_id)) continue;
+        played.push_back(&f);
+    }
+    std::sort(played.begin(), played.end(), [](const fce::Fixture* a, const fce::Fixture* b) { return a->date > b->date; });
+    ImGui::BeginChild("##lsfix", ImVec2(0, S(160.0f)), ImGuiChildFlags_Borders);
+    for (const fce::Fixture* f : played) {
+        const fce::StandingRow* h = size_t(f->home_sid) < st.rows.size() ? &st.rows[size_t(f->home_sid)] : nullptr;
+        const fce::StandingRow* a = size_t(f->away_sid) < st.rows.size() ? &st.rows[size_t(f->away_sid)] : nullptr;
+        char line[200];
+        std::snprintf(line, sizeof(line), "%u  %s %d - %d %s##fx%u", unsigned(f->date), h ? app.model.team_name(h->teamid).c_str() : "?",
+                      int(f->home_score), int(f->away_score), a ? app.model.team_name(a->teamid).c_str() : "?", unsigned(f->id));
+        if (ImGui::Selectable(line, st.sel_fixture == int(f->id))) {
+            st.sel_fixture = int(f->id);
+            st.new_home = f->home_score;
+            st.new_away = f->away_score;
+        }
+    }
+    if (played.empty()) ImGui::TextDisabled("none");
+    ImGui::EndChild();
+    if (st.sel_fixture >= 0 && size_t(st.sel_fixture) < st.fixtures.size()) {
+        ImGui::SetNextItemWidth(S(60.0f));
+        ImGui::InputInt("Home", &st.new_home, 0);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(S(60.0f));
+        ImGui::InputInt("Away", &st.new_away, 0);
+        ImGui::SameLine();
+        if (ImGui::Button("Change result")) {
+            const fce::Fixture& fx = st.fixtures[size_t(st.sel_fixture)];
+            std::vector<uint16_t> written;
+            if (fx.home_sid >= 0) written.push_back(uint16_t(fx.home_sid));
+            if (fx.away_sid >= 0) written.push_back(uint16_t(fx.away_sid));
+            std::string err = fce::edit_result(app.mem, st.loc, uint16_t(st.sel_fixture), st.new_home, st.new_away, st.pts);
+            if (err.empty()) {
+                st.undo.valid = false;  // both rows and the fixture changed: Undo would put back only one row
+                set_status("Result changed to " + std::to_string(st.new_home) + " - " + std::to_string(st.new_away) +
+                               " (fixture and both table rows, applied)",
+                           false);
+                app.log("live standings: fixture " + std::to_string(st.sel_fixture) + " set to " + std::to_string(st.new_home) + "-" +
+                        std::to_string(st.new_away));
+                reload(app);
+                queue_refresh(app, "fixture " + std::to_string(st.sel_fixture), written);
+            } else {
+                set_status("Result not changed: " + err, true);
+                app.notify("Result: " + err, true);
+                reload(app);
+            }
+        }
+        ImGui::TextDisabled("Old outcome removed from both rows, new one added (points per Win / Draw / Loss above).");
     }
     ImGui::EndChild();
 }

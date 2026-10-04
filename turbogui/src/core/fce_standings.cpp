@@ -1,6 +1,8 @@
 // FC 27 LE Turbo GUI - live league tables of the game's competition engine (see fce_standings.h).
 #include "fce_standings.h"
 
+#include <algorithm>
+#include <cstdio>
 #include <cstring>
 
 namespace turbo {
@@ -444,6 +446,211 @@ const Fixture* next_fixture(const std::vector<Fixture>& fixtures, const std::vec
         if (!best || f.date < best->date || (f.date == best->date && f.time < best->time)) best = &f;
     }
     return best;
+}
+
+// ---------------------------------------------------------------- inline table edits
+const char* cell_code(Cell c) {
+    switch (c) {
+        case Cell::P: return "P";
+        case Cell::W: return "W";
+        case Cell::D: return "D";
+        case Cell::L: return "L";
+        case Cell::GF: return "GF";
+        case Cell::GA: return "GA";
+        case Cell::GD: return "GD";
+        case Cell::Pts: return "Pts";
+        case Cell::HW: return "HW";
+        case Cell::HD: return "HD";
+        case Cell::HL: return "HL";
+        case Cell::HGF: return "HGF";
+        case Cell::HGA: return "HGA";
+        case Cell::AW: return "AW";
+        case Cell::AD: return "AD";
+        case Cell::AL: return "AL";
+        case Cell::AGF: return "AGF";
+        case Cell::AGA: return "AGA";
+    }
+    return "?";
+}
+
+const char* cell_name(Cell c) {
+    switch (c) {
+        case Cell::HW: return "home W";
+        case Cell::HD: return "home D";
+        case Cell::HL: return "home L";
+        case Cell::HGF: return "home GF";
+        case Cell::HGA: return "home GA";
+        case Cell::AW: return "away W";
+        case Cell::AD: return "away D";
+        case Cell::AL: return "away L";
+        case Cell::AGF: return "away GF";
+        case Cell::AGA: return "away GA";
+        default: return cell_code(c);
+    }
+}
+
+bool cell_editable(Cell c) { return c != Cell::P && c != Cell::GD; }
+
+int cell_value(const StandingRow& r, Cell c) {
+    switch (c) {
+        case Cell::P: return r.played();
+        case Cell::W: return r.wins();
+        case Cell::D: return r.draws();
+        case Cell::L: return r.losses();
+        case Cell::GF: return r.gf();
+        case Cell::GA: return r.ga();
+        case Cell::GD: return r.gd();
+        case Cell::Pts: return r.points;
+        case Cell::HW: return r.hw;
+        case Cell::HD: return r.hd;
+        case Cell::HL: return r.hl;
+        case Cell::HGF: return r.hgf;
+        case Cell::HGA: return r.hga;
+        case Cell::AW: return r.aw;
+        case Cell::AD: return r.ad;
+        case Cell::AL: return r.al;
+        case Cell::AGF: return r.agf;
+        case Cell::AGA: return r.aga;
+    }
+    return 0;
+}
+
+FixtureCap fixture_cap(const std::vector<Fixture>& fixtures, uint16_t sid, int group_size) {
+    int home = 0, away = 0;
+    for (const Fixture& f : fixtures) {
+        if (f.used != 1) continue;
+        if (f.home_sid == int(sid)) ++home;
+        if (f.away_sid == int(sid)) ++away;
+    }
+    const int rr = group_size >= 2 ? group_size - 1 : 0;
+    FixtureCap cap;
+    cap.home = std::min(255, std::max(home, rr));
+    cap.away = std::min(255, std::max(away, rr));
+    if (home == 0 && away == 0 && rr == 0) cap.home = cap.away = 255;  // nothing known: only the byte limit
+    return cap;
+}
+
+namespace {
+// The home and away counter of a total cell (W / D / L / GF / GA)
+void side_counters(StandingRow& r, Cell c, uint8_t*& home, uint8_t*& away) {
+    switch (c) {
+        case Cell::W: home = &r.hw, away = &r.aw; break;
+        case Cell::D: home = &r.hd, away = &r.ad; break;
+        case Cell::L: home = &r.hl, away = &r.al; break;
+        case Cell::GF: home = &r.hgf, away = &r.agf; break;
+        case Cell::GA: home = &r.hga, away = &r.aga; break;
+        default: home = away = nullptr; break;
+    }
+}
+// The counter of a split cell (HW .. AGA) and its side
+uint8_t* split_counter(StandingRow& r, Cell c, bool& home) {
+    home = true;
+    switch (c) {
+        case Cell::HW: return &r.hw;
+        case Cell::HD: return &r.hd;
+        case Cell::HL: return &r.hl;
+        case Cell::HGF: return &r.hgf;
+        case Cell::HGA: return &r.hga;
+        default: break;
+    }
+    home = false;
+    switch (c) {
+        case Cell::AW: return &r.aw;
+        case Cell::AD: return &r.ad;
+        case Cell::AL: return &r.al;
+        case Cell::AGF: return &r.agf;
+        case Cell::AGA: return &r.aga;
+        default: return nullptr;
+    }
+}
+int home_played(const StandingRow& r) { return r.hw + r.hd + r.hl; }
+int away_played(const StandingRow& r) { return r.aw + r.ad + r.al; }
+bool is_result_cell(Cell c) {
+    return c == Cell::W || c == Cell::D || c == Cell::L || c == Cell::HW || c == Cell::HD || c == Cell::HL || c == Cell::AW ||
+           c == Cell::AD || c == Cell::AL;
+}
+}  // namespace
+
+std::string set_cell(StandingRow& row, Cell c, int value, const Points& pts, const FixtureCap& cap, bool keep_points) {
+    if (!cell_editable(c)) return c == Cell::P ? "P is W + D + L: change those" : "GD is GF - GA: change those";
+    if (value < 0) return std::string(cell_name(c)) + " cannot be negative";
+    StandingRow r = row;
+    char buf[160];
+    if (c == Cell::Pts) {
+        if (value > 32767) return "Pts at most 32767";
+        r.points = int16_t(value);
+        row = r;
+        return "";
+    }
+    bool home_side = true;
+    if (uint8_t* v = split_counter(r, c, home_side)) {
+        if (value > 255) return std::string(cell_name(c)) + " at most 255";
+        *v = uint8_t(value);
+        if (is_result_cell(c)) {
+            const int played = home_side ? home_played(r) : away_played(r), limit = home_side ? cap.home : cap.away;
+            if (played > limit && played > (home_side ? home_played(row) : away_played(row))) {
+                std::snprintf(buf, sizeof(buf), "%s P would be %d, more than the %d %s fixtures of this club", home_side ? "home" : "away",
+                              played, limit, home_side ? "home" : "away");
+                return buf;
+            }
+        } else if (value > *split_counter(row, c, home_side) && (home_side ? home_played(r) : away_played(r)) == 0) {
+            return std::string("no ") + (home_side ? "home" : "away") + " game played: set the W / D / L first";
+        }
+    } else {
+        uint8_t *h = nullptr, *a = nullptr;
+        side_counters(r, c, h, a);
+        if (!h || !a) return "not a table cell";
+        const int cur = *h + *a, delta = value - cur;
+        const bool result = is_result_cell(c);
+        if (delta > 0 && !result && home_played(r) + away_played(r) == 0) return "no game played yet: set the W / D / L first";
+        for (int i = 0; i < delta; ++i) {
+            const int hp = home_played(r), ap = away_played(r);
+            bool h_room = *h < 255, a_room = *a < 255;
+            if (result) h_room = h_room && hp < cap.home, a_room = a_room && ap < cap.away;
+            else h_room = h_room && hp > 0, a_room = a_room && ap > 0;
+            if (!h_room && !a_room) {
+                if (result)
+                    std::snprintf(buf, sizeof(buf), "P would be %d, more than the %d fixtures of this club", row.played() + delta,
+                                  cap.home + cap.away);
+                else
+                    std::snprintf(buf, sizeof(buf), "%s at most 255 a side (home and away)", cell_name(c));
+                return buf;
+            }
+            const bool home = h_room && (!a_room || (result ? hp <= ap : *h <= *a));
+            ++*(home ? h : a);
+        }
+        for (int i = 0; i < -delta; ++i) {
+            const int hp = home_played(r), ap = away_played(r);
+            const bool h_ok = *h > 0, a_ok = *a > 0;
+            const bool home = h_ok && (!a_ok || (result ? (hp > ap || (hp == ap && *h >= *a)) : *h >= *a));
+            --*(home ? h : a);
+        }
+    }
+    if (!keep_points) {
+        const long long p = (long long)r.points + (long long)(r.wins() - row.wins()) * pts.win +
+                            (long long)(r.draws() - row.draws()) * pts.draw + (long long)(r.losses() - row.losses()) * pts.loss;
+        if (p > 32767) return "Pts would pass 32767";
+        r.points = int16_t(std::max(0LL, p));
+    }
+    row = r;
+    return "";
+}
+
+std::string describe_change(const StandingRow& b, const StandingRow& a) {
+    std::string out;
+    const Cell cells[] = {Cell::W, Cell::D, Cell::L, Cell::GF, Cell::GA, Cell::Pts};
+    for (Cell c : cells) {
+        const int x = cell_value(b, c), y = cell_value(a, c);
+        if (x == y) continue;
+        out += (out.empty() ? "" : ", ") + std::string(cell_code(c)) + " " + std::to_string(x) + " -> " + std::to_string(y);
+    }
+    if (out.empty() && !same_counters(b, a)) out = "home / away split";
+    return out;
+}
+
+bool same_counters(const StandingRow& a, const StandingRow& b) {
+    return a.hw == b.hw && a.hd == b.hd && a.hl == b.hl && a.hgf == b.hgf && a.hga == b.hga && a.aw == b.aw && a.ad == b.ad &&
+           a.al == b.al && a.agf == b.agf && a.aga == b.aga && a.points == b.points;
 }
 
 }  // namespace fce

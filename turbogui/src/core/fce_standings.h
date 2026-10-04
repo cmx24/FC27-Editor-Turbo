@@ -175,5 +175,31 @@ std::string pairing_conflict(const std::vector<Fixture>& fixtures, const std::ve
 // to `team`. nullptr when none. `rows` resolves the row ids.
 const Fixture* next_fixture(const std::vector<Fixture>& fixtures, const std::vector<StandingRow>& rows, uint32_t team, uint32_t today);
 
+// ---- inline table edits (Competitions > Live standings, ui/ui_standings.cpp): one cell of a row set to a typed value.
+// P (W + D + L, home + away) and GD (GF - GA) are not stored: they follow the other cells.
+enum class Cell { P, W, D, L, GF, GA, GD, Pts, HW, HD, HL, HGF, HGA, AW, AD, AL, AGF, AGA };
+const char* cell_code(Cell c);   // "W", "HGF", ... (column header, test labels)
+const char* cell_name(Cell c);   // "W", "home GF", ... (status lines)
+bool cell_editable(Cell c);      // false for P and GD
+int cell_value(const StandingRow& r, Cell c);
+// The games a row can have at home / away: the used fixtures of the list naming it on that side, at least a double round
+// robin of its group (group_size - 1 a side), so a fixture list that is not complete never blocks a real value
+struct FixtureCap {
+    int home = 255, away = 255;
+};
+FixtureCap fixture_cap(const std::vector<Fixture>& fixtures, uint16_t sid, int group_size);
+// Set cell `c` of `row` to `value`. A total (W, D, L, GF, GA) is split home / away the way the game stores it: a game
+// added goes to the side with fewer games played (that still has a fixture free), one removed comes off the side with
+// more; goals go to a side with games played, fewer goals first, and come off the side with more. Pts moves by
+// pts.win / draw / loss per W / D / L added or removed (never below 0) unless keep_points; Pts typed is kept as typed.
+// Refused (row unchanged, the reason returned): negatives, P (or a side's P) past the fixtures of `cap`, a counter past
+// 255, goals while no game is played, P / GD (they follow the other cells).
+std::string set_cell(StandingRow& row, Cell c, int value, const Points& pts, const FixtureCap& cap, bool keep_points);
+// "W 2 -> 3, Pts 0 -> 3": the totals (W, D, L, GF, GA, Pts) that differ; "home / away split" when only the split moved;
+// "" when nothing changed
+std::string describe_change(const StandingRow& before, const StandingRow& after);
+// The counters and points of two row states are the same
+bool same_counters(const StandingRow& a, const StandingRow& b);
+
 }  // namespace fce
 }  // namespace turbo
