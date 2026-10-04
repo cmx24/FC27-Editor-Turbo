@@ -767,7 +767,9 @@ static void request_voice(App& app, const Table& t, const PlayerRow& p, const Al
     voice::Entry e;
     e.playerid = p.playerid;
     e.player = p.name;
-    if (const voice::Entry* old = app.voice_store.find(p.playerid)) e.names_only = old->names_only;
+    // Name lines only belongs to a voice swap (the list shows it only there): never carried into own recording off,
+    // where it would turn his own recording off in the name lines only
+    if (const voice::Entry* old = app.voice_store.find(p.playerid); old && r.own()) e.names_only = old->names_only;
     std::string called;
     if (r.own()) {
         const PlayerRow* a = app.model.player(r.playerid);
@@ -893,6 +895,8 @@ static void voice_swaps_tab(App& app, const Table& t) {
         for (const voice::Entry& e : entries) {
             ++g_state.voice_rows;
             const std::string id = std::to_string(e.playerid);
+            // one ID scope per row: two swaps from one source draw the same play button (##play_o<A>)
+            ImGui::PushID(id.c_str());
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             const PlayerRow* pr = app.model.player(e.playerid);
@@ -924,6 +928,7 @@ static void voice_swaps_tab(App& app, const Table& t) {
             ImGui::TextUnformatted(voice_other_lines(e).c_str());
             ImGui::TableNextColumn();
             if (ImGui::SmallButton(("Remove##vs" + id).c_str())) remove = e.playerid;
+            ImGui::PopID();
         }
         ImGui::EndTable();
     }

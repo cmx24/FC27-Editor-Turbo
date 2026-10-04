@@ -5067,6 +5067,13 @@ static void test_ui() {
             }
             ui.frames(1);
             CHECK(st.voice_rows == 3 && st.voice_absent == 1, fmt("three rows, one not in this career (%d, %d)", st.voice_rows, st.voice_absent));
+            {
+                // 1002 and 999999 both have Saka's voice: each row's play button has its own ID
+                int plays = 0;
+                for (const auto& kv : g_items)
+                    if (kv.second.frame == g_frame && kv.second.label == "##play_o1001" && kv.second.window.find("vslist") != npos) ++plays;
+                CHECK(plays == 2, fmt("two play buttons for Saka's voice, two IDs (%d)", plays));
+            }
             app.sel_player = 1005;
             ui.frames(3);
             CHECK(st.playerid == 1005 && st.voice_warning == "Saliba has no recording in ita_it: silent", "silent source: " + st.voice_warning);
@@ -5084,6 +5091,12 @@ static void test_ui() {
             CHECK(e && e->voice_of && *e->voice_of == 0 && !e->kickoff && fv.last.voice(1001) && fv.last.voice(1001)->to == 0 && !fv.last.kickoff(1001),
                   "own recording off: voice_of 0, the game's rule at kick-off");
             CHECK(st.current_line.find("In matches: own recording off") == 0 && !st.voice_turn_off_shown, "current line: " + st.current_line);
+            if (e) {
+                // a Name lines only flag left from an earlier swap is not carried into own recording off
+                voice::Entry n = *e;
+                n.names_only = true;
+                CHECK(app.voice_upsert(n), "names only left on 1001");
+            }
             CHECK(ui.click("Use in matches##all"), "Use in matches");
             ui.frames(2);
             CHECK(st.voice_confirm_open && st.voice_confirm_line.find(" will be called Saka in matches.") != npos, "the confirmation: " + st.voice_confirm_line);
@@ -5092,6 +5105,7 @@ static void test_ui() {
             e = app.voice_store.find(1001);
             CHECK(e && e->voice_of && *e->voice_of == 0 && e->kickoff && *e->kickoff == 900002 && fv.last.kickoff(1001) && fv.last.kickoff(1001)->id == 900002,
                   "voice_of 0 + kick-off 900002");
+            CHECK(e && !e->names_only && fv.last.voice(1001) && !fv.last.voice(1001)->names_only, "own recording off in every line (names only dropped)");
             CHECK(st.current_line == "In matches: Saka (generic), own recording off" && st.rule_line.find("Not used while the swap is on: his own recording") == 0,
                   "current line: " + st.current_line + " | " + st.rule_line);
             CHECK(ui.click("Use his own recording##vs"), "tick it again");

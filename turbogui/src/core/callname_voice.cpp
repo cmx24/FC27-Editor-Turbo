@@ -264,7 +264,9 @@ bool VoiceStore::save(const fs::path& file, std::string* err) const {
             return false;
         }
         f << entries_json(*this);
+        f.close();  // a small file is written only here: a failed flush must not replace the good file
         if (!f) {
+            fs::remove(tmp, ec);
             if (err) *err = "writing " + tmp.string() + " failed";
             return false;
         }
