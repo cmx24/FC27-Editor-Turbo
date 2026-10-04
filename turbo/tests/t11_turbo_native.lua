@@ -130,6 +130,85 @@ H.case("your club: a failed remove from your list stops the move before anything
     _G.TurboTransferList = nil
 end)
 
+H.case("your club: list status unreadable or the remove only queued -> refused, nothing written; other clubs unaffected", function()
+    local mine = W.USER_PLAYERS[8]
+    local calls
+    local function native(status_answer, unlist_answer)
+        calls = {}
+        _G.TurboTransferList = function(code, pid, club)
+            calls[#calls + 1] = code
+            if code == 6 then return table.unpack(status_answer) end
+            return table.unpack(unlist_answer)
+        end
+    end
+    local function refused(answer_status, answer_unlist, want)
+        native(answer_status, answer_unlist or { true, "removed", "ok", 7, 0 })
+        local snap = db_bytes()
+        for _, a in ipairs({ { action = "transfer", playerid = mine, to_teamid = 2 }, { action = "release", playerid = mine },
+                             { action = "loan", playerid = mine, to_teamid = 3, months = 6 },
+                             { action = "delete", playerid = mine, confirm = true } }) do
+            local ok, msg = moves_run({ a })
+            H.eq(ok, false, a.action .. ": " .. tostring(msg)); H.has(msg, want)
+        end
+        H.eq(changed_since(snap), 0, "nothing written")
+        H.eq(link_team(mine), W.USER_TEAM)
+        H.eq(sim:find_row("playerloans", "playerid", mine), nil, "no loan row")
+    end
+    -- another game call still pending (bridge.game_call's answer), the DLL not answering, a status read only queued
+    refused({ false, "game call #4 (job offer from team 3) is still queued; wait for the next career-mode event", "failed" },
+        nil, "another game call is running")
+    refused({ false, "Turbo.dll did not answer the game call (result #0)", "failed" }, nil, "did not answer")
+    refused({ true, "player status queued for the game thread", "queued" }, nil, "could not check your transfer / loan list")
+    refused({ true, "status", "ok" }, nil, "no list status")
+    -- listed: the game's remove came back queued (not done yet), or ok but he is still listed
+    refused({ true, "status", "ok", 7, 7 }, { true, "queued for the game thread", "queued" }, "remove is queued")
+    H.eq(calls[2], 3, "the remove was asked")
+    refused({ true, "status", "ok", 9, 9 }, { true, "done", "ok", 9, 8 }, "still loan listed")
+    -- another club's player is never on your lists: moved without any list call, with or without the native
+    native({ false, "must not be called", "failed" }, { false, "must not be called", "failed" })
+    local pid = ai_player(8)
+    local ok, msg = moves_run({ { action = "transfer", playerid = pid, to_teamid = 9 } })
+    H.eq(ok, true, msg); H.eq(link_team(pid), 9); H.eq(#calls, 0, "no list call")
+    _G.TurboTransferList = nil
+    ok, msg = moves_run({ { action = "release", playerid = pid } })
+    H.eq(ok, true, msg); H.eq(link_team(pid), require("imports/turbo/core/moves").FREE_AGENTS)
+end)
+
+H.case("loan: a club move that fails after the playerloans insert takes the new row back out", function()
+    local db = require 'imports/turbo/core/db'
+    local pid = ai_player(10)
+    local real_set = db.set
+    db.set = function(tbl, rec, field, value, dry)
+        if field == "teamid" then return false, "write refused (test)" end
+        return real_set(tbl, rec, field, value, dry)
+    end
+    local ok, msg = moves_run({ { action = "loan", playerid = pid, to_teamid = 12, months = 6 } })
+    db.set = real_set
+    H.eq(ok, false, msg); H.has(msg, "write refused")
+    H.eq(sim:find_row("playerloans", "playerid", pid), nil, "the new loan row was removed")
+    H.eq(link_team(pid), 10)
+end)
+
+H.case("ending a loan without DeleteDBTableRowByAddr: refused before anything is written", function()
+    local pid = ai_player(11)
+    local ok, msg = moves_run({ { action = "loan", playerid = pid, to_teamid = 13, months = 6 } })
+    H.eq(ok, true, msg)
+    local real_del = _G.DeleteDBTableRowByAddr
+    _G.DeleteDBTableRowByAddr = nil
+    local snap = db_bytes()
+    for _, a in ipairs({ { action = "transfer", playerid = pid, to_teamid = 14 }, { action = "release", playerid = pid },
+                         { action = "terminate_loan", playerid = pid } }) do
+        ok, msg = moves_run({ a })
+        H.eq(ok, false, a.action .. ": " .. tostring(msg)); H.has(msg, "DeleteDBTableRowByAddr")
+    end
+    ok, msg = moves_run({ { action = "loan", playerid = ai_player(12), to_teamid = 14, months = 6 } })
+    H.eq(ok, false, msg); H.has(msg, "DeleteDBTableRowByAddr")
+    H.eq(changed_since(snap), 0, "nothing written")
+    _G.DeleteDBTableRowByAddr = real_del
+    ok, msg = moves_run({ { action = "terminate_loan", playerid = pid } })
+    H.eq(ok, true, msg); H.eq(link_team(pid), 11)
+end)
+
 H.case("squad rules: full squad, minimum squad, last goalkeeper, loans; a refusal writes nothing", function()
     local moves = require 'imports/turbo/core/moves'
     local snap = db_bytes()
@@ -184,9 +263,15 @@ H.case("your team sheet: a starter who leaves is replaced by the first substitut
     end
     local before = sheet()
     local leaving = before[2]
+    -- no Turbo GUI: his list status cannot be read, so the move is refused and nothing is written
+    local snap = db_bytes()
     local ok, msg = moves_run({ { action = "transfer", playerid = leaving, to_teamid = 2 } })
+    H.eq(ok, false, msg); H.has(msg, "could not check your transfer / loan list"); H.has(msg, "Turbo GUI")
+    H.eq(changed_since(snap), 0, "nothing written")
+    fake_list_native()
+    ok, msg = moves_run({ { action = "transfer", playerid = leaving, to_teamid = 2 } })
+    _G.TurboTransferList = nil
     H.eq(ok, true, msg)
-    H.has(msg, "list status not read")   -- no Turbo GUI in this test: said in the summary
     local after = sheet()
     H.eq(after[2], before[11], "the first substitute takes his slot")
     H.eq(after[11], before[12], "the bench moves up")
