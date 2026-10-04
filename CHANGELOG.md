@@ -3,7 +3,7 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
-## 1.1.0 (voice swaps) - draft
+## 1.1.0 (voice swaps: any player gets any real or generic callname in matches)
 
 Not yet released or checked in game.
 
