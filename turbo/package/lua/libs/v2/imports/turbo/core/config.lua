@@ -29,6 +29,16 @@ M.DEFAULTS = {
             fitness = 0,          -- 5..95, 0 = leave alone
             events = { "DAY_PASSED", "ABOUT_TO_ENTER_PREMATCH", "POST_LOAD_PREPARE" },
         },
+        -- forced weekly growth (features/development.lua): listed players (and the squad with user_team) gain `weekly`
+        -- points per attribute of their group each week while below their potential; no_decline puts back drops
+        development = {
+            enabled = false,
+            players = {},
+            user_team = false,
+            weekly = 1,           -- 0..5
+            no_decline = true,
+            events = { "WEEK_PASSED", "POST_LOAD_PREPARE" },
+        },
         pap_playstyles = {
             enabled = false,
             playstyles1 = "max",  -- "max" = every bit the trait1 field can hold, or an integer bitmask
@@ -60,6 +70,10 @@ M.DEFAULTS = {
         create_player = { source = {}, teamid = 111592, jersey = 0, names = {}, set = {}, playerid = 0,
                           min_playerid = 0, max_playerid = 459999, allow_user_club = false },
         job_offer = { enabled = false, teamid = 0, confirm = false },
+        reveal = { scope = { user_team = true }, confirm = false, allow_evict = false },
+        development = { scope = {}, mode = "none", attributes = {}, delta = 0, potential = 0,
+                        growthprofile = -1, confirm = false },
+        youth = { mode = "list", playerid = 0, potential = 0, position = -1, tier = -1, variance = -1, confirm = false },
     },
 }
 

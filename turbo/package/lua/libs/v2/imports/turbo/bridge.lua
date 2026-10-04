@@ -37,6 +37,7 @@ local CALL_ARGS, CALL_OUT, CALL_TEXT, CALL_TEXT_SIZE = 0x2030, 0x2050, 0x2060, 0
 local CALL_IDLE, CALL_OK, CALL_FAILED, CALL_QUEUED = 0, 1, -1, 2
 M.CALL_OP_JOB_OFFER = 1
 M.CALL_OP_STANDINGS_REFRESH = 2  -- args: svm, managers, comm service, ifce (turbogui/src/core/standings_refresh.h)
+M.CALL_OP_REVEAL = 3             -- args: PlayerDataRevealManager, mode (0 player / 1 team), id, manager table (core/reveal.h)
 
 -- bridge_dll.json is stamped by the DLL every ~2 s while it runs. A file older than this is left over from an
 -- earlier game session: its mailbox address means nothing in this process and is never read.
@@ -691,9 +692,29 @@ function M.install_natives()
         if status == "ok" or status == "queued" then return true, text, status end
         return false, text, status
     end
+    --   TurboRevealPlayerData(pdrm_address, mode, id) -> ok, message, status, out0, out1: the game's own
+    --   PlayerDataRevealManager marks one player (mode 0, id = player id) or every player of a club (mode 1, id = team
+    --   id) fully scouted, so the Player Bio and the GTN show the true attributes and potential (core/reveal.h).
+    --   pdrm 0 = the manager the DLL captured from the game's own events. The manager table goes along for the
+    --   slot-78 cross-check (0 when unknown: the DLL skips it).
+    _G.TurboRevealPlayerData = function(pdrm, mode, id)
+        local a = math.tointeger(pdrm) or 0
+        local m = math.tointeger(mode) or 0
+        local i = math.tointeger(id) or 0
+        local managers = 0
+        local okm, memmod = pcall(require, 'imports/turbo/core/mem')
+        if okm and type(memmod) == "table" and memmod.map_available() then
+            local okt, tbl = pcall(memmod.manager_table)
+            if okt and math.type(tbl) == "integer" then managers = tbl end
+        end
+        local status, text, out0, out1 = M.game_call(M.CALL_OP_REVEAL, { a, m, i, managers },
+            string.format("reveal %s %d", m == 1 and "team" or "player", i))
+        if status == "ok" or status == "queued" then return true, text, status, out0, out1 end
+        return false, text, status, out0, out1
+    end
     S.natives_installed = true
-    S.unavailable = nil   -- caps changed: bridge_state.json lists job_offer as available from now on
-    log.info("Turbo natives installed: TurboJobOfferCreate, TurboStandingsRefresh (Turbo.dll game calls)")
+    S.unavailable = nil   -- caps changed: bridge_state.json lists job_offer / reveal as available from now on
+    log.info("Turbo natives installed: TurboJobOfferCreate, TurboStandingsRefresh, TurboRevealPlayerData (Turbo.dll game calls)")
     return true
 end
 
