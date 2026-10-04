@@ -40,6 +40,13 @@ Not yet released or checked in game.
 
 ### Changed
 
+- **Live league table: double-click a number to change it.** Competitions > Live standings: double-click W, D, L,
+  GF, GA or Pts of a club, type the value, Enter (or a click elsewhere) writes it to the game at once and the
+  Standings screen and Office tile re-read it; Esc cancels. P and GD follow by themselves, Pts moves with W / D / L
+  (3 / 1 / 0) unless you typed Pts. Refused with a short reason: negatives, more games than the club's fixtures.
+  **Undo** puts the last edited line back. One status line ("Torino FC: W 2 -> 3, Pts 0 -> 3 (applied)"); the
+  technical lines moved to the (?) tooltip. Click a column header to sort; "Home / away columns" shows (and edits)
+  the home and away counters. The old +/- counters are under **Advanced**, closed by default.
 - **Competitions tab: a searchable competition picker instead of the long combo** (Live standings, Match setup, Career
   database copy). Type to filter by name, country, kind or id (accents ignored; Up / Down, Enter, Esc; Right / Left show or
   hide a competition's stages). Your club's competitions on top, then leagues grouped by country, cups, continental and the
