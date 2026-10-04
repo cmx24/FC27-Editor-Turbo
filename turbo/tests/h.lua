@@ -6,7 +6,7 @@ local H = {}
 
 local function abs_dir(src)
     local d = src:sub(2):match("(.*/)") or "./"
-    if d:sub(1, 1) ~= "/" then
+    if d:sub(1, 1) ~= "/" and not d:match("^%a:[/\\]") then  -- Windows drive paths (MSYS-converted env) are absolute too
         local pwd = os.getenv("PWD") or "."
         d = pwd .. "/" .. d:gsub("^%./", "")
     end

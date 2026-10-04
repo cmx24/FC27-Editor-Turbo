@@ -1040,14 +1040,8 @@ static void test_ui() {
             CHECK(ui.click("3001", "##plist"), "player 3001");
             CHECK(ui.click("Appearance", "##pedit"), "Appearance tab");
             ui.frames(2);
-            const ItemRec* btn = nullptr;
-            // the first enabled Choose... of the galleries table is Hair (hairtypecode is in the test players table)
-            for (const auto& kv : g_items) {
-                const ItemRec& r = kv.second;
-                if (r.frame != g_frame || r.label != "Choose..." || r.window.find("##app") == std::string::npos) continue;
-                if (ImHashStr("0", 0, r.seed2) != r.seed) continue;  // PushID(0) of the galleries table
-                btn = &r;
-            }
+            // the first Choose...##gal of the galleries table is Hair (hairtypecode is in the test players table)
+            const ItemRec* btn = ui.find("Choose...##gal", "##app");
             CHECK(btn != nullptr, "Hair Choose... button");
             CHECK(ui.click(btn), "open the hair gallery");
             ui.frames(3);
@@ -1058,6 +1052,7 @@ static void test_ui() {
             CHECK(app.db.get_int(*t, rec, "hairtypecode") == 1053, "hairtypecode = 1053");
             CHECK(ui.toast_contains("Hair: 1053"), "toast");
             CHECK(app.undo(3001) && app.db.get_int(*t, rec, "hairtypecode") != 1053, "undo");
+            app.legacy.flush();
             std::string want = read_file(le / "turbo_output" / "cache" / "legacy" / "want.txt");
             CHECK(want.find("data/ui/imgAssets/hairstyle/item_3261_0.dds") != std::string::npos, "previews asked from the game: " + want);
         });
@@ -1403,6 +1398,7 @@ static void test_ui() {
             CHECK(ui.click("1002", "##plist"), "player 1002");
             CHECK(ui.click("Miniface", "##pedit"), "Miniface tab");
             ui.frames(3);
+            app.legacy.flush();  // want.txt is written at most every 0.5 s
             std::string want = read_file(le / "turbo_output" / "cache" / "legacy" / "want.txt");
             CHECK(want.find("data/ui/imgAssets/heads/p1002.dds") != std::string::npos, "his miniface asked from the game: " + want);
             CHECK(ui.click("face.png", "##mffiles"), "picture in the Turbo minifaces folder");

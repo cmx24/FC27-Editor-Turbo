@@ -982,7 +982,7 @@ void item_galleries(App& app, const Table& t, uint64_t rec) {
             field_editor(app, t, rec, *f, "##gval", S(80.0f));
             ImGui::TableNextColumn();
             if (ids.empty()) ImGui::BeginDisabled();
-            if (ImGui::Button("Choose...")) {
+            if (ImGui::Button("Choose...##gal")) {
                 open_gal = static_cast<int>(gi);
                 ImGui::OpenPopup("##gallerypick");
             }
