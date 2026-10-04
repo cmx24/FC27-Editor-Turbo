@@ -824,3 +824,69 @@ the in-place edit (shirt name filled from `playerjerseynameid`, row written befo
 "UI: Players > Callname: own recordings ..." (the name route's single command after *Assign anyway*, the
 player-specific route without a popup for a player without his own recording, All callnames: player-specific first,
 the name row on a full table). Not yet checked in game.
+
+## 12. Voice swaps (in matches)
+
+A voice swap gives a player another player's own recordings, or turns his own recording off and gives him any generic
+callname, in matches only; nothing is written to the database or the save. Design: `turbo_dev/research/
+real_callnames_plan.md` sections 4-7; game side: `docs/re/inmatch-callnames.md` section 4; contract:
+`turbogui/src/core/callname_voice.h` (two hooks: `Preprocess` 0x1414A90C8 rewrites every single-value int `*_pID`
+parameter, `GetCallname` 0x14294A0F4 sets the kick-off callname).
+
+### 12.1 The observe log (`turbo_output\callname_voice_log.txt`)
+
+`turbo_output\callname_voice_log_on.txt` turns on a fixed ring of 4,096 entries in the hooks; a background thread
+appends it to `turbo_output\callname_voice_log.txt` every 5 s, oldest entry first. One line per entry, tokens
+separated by one space, no value contains a space; `#` starts a comment line (the writer's header, `# dropped <n>`
+when the ring overflowed). Extra `key=value` tokens are allowed and ignored by the reader.
+
+Query line (the `Preprocess` hook, one per CommentaryDb query it looked at):
+
+```
+t=<ms> tid=<n> ev=<event id> q=<hex> pid_before=<name>:<v>,... pid_after=<name>:<v>,... surname=<id> intensity=<n> flags=<hex> guard=<0|1>
+```
+
+| token | value |
+|---|---|
+| `t` | milliseconds, monotonic (`GetTickCount64`) |
+| `tid` | `GetCurrentThreadId()` |
+| `ev` | the event id `[ctx+0x44]` as `0x%08X` (decimal is accepted); djb2-xor of the event name |
+| `q` | the `SpeechQuery` address |
+| `pid_before` | every single-value int parameter whose name contains `_pID`, in parameter order, as the game's `Preprocess` left it: `name:value` pairs joined by `,`; `-` when there is none |
+| `pid_after` | the same parameters in the same order after Turbo's rewrite (equal to `pid_before` when nothing changed) |
+| `surname` | the `surname_ID` value, `-` when the event does not declare it |
+| `intensity` | the `player_intensity` value, `-` when not declared |
+| `flags` | OR over the line's `_pID` descriptors: `0x1` a value list (the u32 count at `[desc+0x18]-4` is not 0), `0x2` `[desc+0x45] != 0`, `0x4` a `_pID` parameter left out because it is not a single-value int, `0x8` the query was bounded (count above `kMaxParams`); other bits reserved |
+| `guard` | `1` = the double-pass guard skipped a rewrite on this query |
+
+Kick-off line (the `GetCallname` hook, one per call; observe mode logs every call):
+
+```
+t=<ms> kickoff pid=<n> game=<id> override=<id|->
+```
+
+`game` is the game's own result (-1 = surname lines silent, else a commentary id); `override` is the table's kick-off
+id that replaced it, `-` when the table has none.
+
+`python scripts/callname_voice_log.py [log] [--player 278319,216435] [--event PLAYER_LOW_SIMPLE] [--raw]` names the
+events (from `docs/re/inmatch-callnames.json`, then `docs/re/E4-callnames-live/registry_events_*.json`: 10,311 names,
+all equal to djb2-xor) and prints: threads, events per name (with the players each named), players seen (parameters,
+events, `surname_ID`, what they were rewritten to), rewrites (`name before -> after`), guard hits and queries seen
+twice in a row on one thread (the double pass of section 5.1 of the plan), descriptor flags, `player_intensity`, and
+the kick-off results per player (`900762 -> -1` = the game's result and Turbo's override). `--raw` adds every
+selected line with its event name (which event said "Gutierrez": `--player 261865 --raw`). `--self-test` checks the
+parser and the summary on a temporary file.
+
+### 12.2 Watching a long play session (`scripts/playtest_monitor.py`)
+
+A read-only watcher for the lead while the user plays: it follows `turbo_output\turbo_gui.log`, `turbo_boot.log` and
+today's `Logs\live_editor_<dd-mm-yyyy>.log` from their end, watches the dump folders this PC uses
+(`%LOCALAPPDATA%\EA SPORTS FC 27\CrashDumps`: the game's own `CrashDump_<date>.mdmp` + `minidump-<date>.dmp` pair per
+crash; `%LOCALAPPDATA%\CrashDumps`: `FC27.exe.<pid>.dmp`; the Windows error reports `AppCrash_FC27.exe_*` in
+`C:\ProgramData\Microsoft\Windows\WER\ReportArchive` / `ReportQueue`), lists FC27.exe with `tasklist` every 10 s,
+and writes `turbo_dev\playtest\monitor_<yyyy-mm-dd>.log`. Hook exceptions, Turbo errors, Lua errors in Turbo code,
+new FC 27 dumps and error reports are events; `--until-event` exits with code 3 after the first one (10 s later, so
+the dump pair and the exit are logged too), `--until-exit` with 4 when the game exits. Repeated lines are written
+three times and then counted; Live Editor's DX12 `Present` errors and Patreon retries are only counted. Over the
+2026-09-27..10-04 logs of this PC it flags 2 Turbo errors (both "Turbo GUI stays off" after an unfinished start) and
+2 Lua errors (`bridge.lua` in `bridge state`). `--self-test` runs on temporary folders.
