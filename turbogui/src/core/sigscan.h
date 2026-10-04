@@ -99,6 +99,8 @@ struct HookReport {
     std::string lua_trigger;         // state in words ("ready", "off: ...", "waiting ...")
     long long lua_triggers = 0;      // synthetic events sent
     long long lua_trigger_pumps = 0; // of those, how many made Turbo's Lua side pump (proof the handlers ran)
+    // Game calls (core/game_calls.h): one status line per call, e.g. "job_offer: ready (JobMarketManager seen ...)"
+    std::vector<std::string> calls;
 };
 
 }  // namespace turbo

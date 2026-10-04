@@ -5,11 +5,14 @@
 -- How it works (docs/re/job_offer.md): the game keeps your applications and the offers that answer them in the
 -- career's JobMarketManager (Live Editor manager type 53). Turbo asks the game, on its own thread, to apply for the
 -- job and to make the club answer at once (JobMarketManager::MakeOffer), so the inbox email and the Job Offers screen
--- come from the game's own code. The game call itself lives in Turbo.dll (hook foundation) and is reached through the
--- native TurboJobOfferCreate(jobmarket_address, teamid) -> ok, message. This module validates everything first and
--- refuses when that native is not present, so the Turbo window greys the button (caps key "job_offer").
+-- come from the game's own code. The game call itself lives in Turbo.dll (turbogui/src/win/game_calls_win.cpp) and is
+-- reached through TurboJobOfferCreate(jobmarket_address, teamid) -> ok, message, status, a Lua function the bridge
+-- defines once it finds the DLL's turbo_game_call export (bridge.install_natives; the arguments and the result travel
+-- through the mailbox call block). This module validates everything first and refuses when that native is not
+-- present, so the Turbo window greys the button (caps key "job_offer").
 --
--- v1 is club jobs only: national teams (teamnationlinks) are refused, as is your own club.
+-- v1 is club jobs only: national teams (teamnationlinks) are refused, as is your own club and a team that is in no
+-- league (leagueteamlinks) when that table is readable.
 
 local util = require 'imports/turbo/core/util'
 local db = require 'imports/turbo/core/db'
@@ -43,6 +46,11 @@ function M.plan(cfg)
     if moves.national_teams()[tid] then
         return nil, string.format("%s is a national team: Turbo creates club job offers only (v1)", team_name(tid))
     end
+    -- a club outside every league cannot hire a manager in career mode (the Job Offers screen lists league clubs)
+    local links = db.get_table("leagueteamlinks")
+    if links and db.has_field(links, "teamid") and not db.find(links, "teamid", tid) then
+        return nil, string.format("%s (%d) is in no league (leagueteamlinks): the game cannot make it hire you", team_name(tid), tid)
+    end
     local mine = moves.user_team()
     if mine == 0 then return nil, "your club is unknown (is the Turbo window running?)" end
     if tid == mine then return nil, "that is your own club" end
@@ -66,11 +74,17 @@ function M.run(ctx)
     if not mem.map_available() then return false, mem.NO_MAP end
     local jmm = mem.manager(M.MANAGER_TYPE)
     if not jmm then return false, "the career's JobMarketManager was not found (load a Manager Career first)" end
-    local ok, res, msg = pcall(native, jmm, plan.teamid)
+    local ok, res, msg, status = pcall(native, jmm, plan.teamid)
     if not ok then return false, "job offer creation failed: " .. tostring(res) end
     if res ~= true then return false, "job offer creation failed: " .. tostring(msg or res) end
-    return true, string.format("job offer created: %s (%d) wants you as manager; check your inbox and Job Offers",
-        plan.name, plan.teamid)
+    if status == "queued" then
+        -- the call was made from a thread that is not the game thread (e.g. Live Editor's script runner): Turbo.dll
+        -- runs it on the next career-mode event and the outcome is logged / shown by the Turbo window then
+        return true, string.format("job offer from %s (%d) queued for the game thread: %s", plan.name, plan.teamid,
+            tostring(msg))
+    end
+    return true, string.format("job offer created: %s (%d) wants you as manager (%s); check your inbox and Job Offers",
+        plan.name, plan.teamid, tostring(msg))
 end
 
 return M

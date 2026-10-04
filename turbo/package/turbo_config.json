@@ -104,6 +104,12 @@
       "tables": ["teams"],
       "max_rows": 0
     },
+    "job_offer": {
+      "_help": "turbo_job_offer: a job offer for your manager from club teamid, made by the game's own job market through Turbo.dll (needs the Turbo GUI running in game). The Turbo window's Managers > Job offers section does the same with a club picker.",
+      "enabled": false,
+      "teamid": 0,
+      "confirm": false
+    },
     "player_presets": {
       "_help": "turbo_export_player: playerids -> CSV in preset_dir (empty = extensions\\player_presets) + JSON in turbo_output\\players; turbo_import_player: file onto playerid, groups = profile|attributes|positions|playstyles|appearance|contract|names|miniface (empty = all)",
       "playerids": [],

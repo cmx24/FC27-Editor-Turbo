@@ -69,11 +69,11 @@ end
 local MAP_CAPACITY = 8192
 function Sim:enable_gui(le_dir)
     self.publishing = true
-    local mb = self:alloc(0x2020, 16)
+    local mb = self:alloc(0x2300, 16)   -- turbo::kMailboxSize (version 2: game-call block at +0x2020)
     local map = self:alloc(0x20 + MAP_CAPACITY * 16, 16)
     self.publishing = false
     self:w32(mb, 0x4F425254)
-    self:w32(mb + 4, 1)
+    self:w32(mb + 4, 2)
     self:w64(mb + 0x18, map)
     self.gui = { mailbox = mb, map = map }
     self:publish_map()

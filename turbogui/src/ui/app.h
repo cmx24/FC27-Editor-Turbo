@@ -106,6 +106,11 @@ public:
     int texture_test_frames = 0;
     double lua_heartbeat_seen_at = -1.0;
     uint64_t game_base = 0;  // FC27.exe image base (set by the Windows host; 0 in tests = skip vtable checks)
+    long long game_call_seen = -1;  // last game-call outcome shown as a toast (bridge_state.json game_call.seq; -1 = none yet)
+    // Job offers section (Managers tab): the club picked and the last request label
+    int64_t job_offer_team = 0;
+    std::string job_offer_status;
+    char job_offer_search[64] = "";
 
     // ---- selections / UI state
     int64_t sel_player = 0;

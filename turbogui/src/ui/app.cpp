@@ -149,6 +149,17 @@ void App::tick(double t) {
         next_poll = t + 0.5;
         bool changed = bridge.poll_files();
         const auto& st = bridge.state();
+        // A game call Lua queued on the game thread finished (core/game_calls.h): Lua reports it in bridge_state.json
+        if (changed && st.loaded) {
+            if (game_call_seen < 0) game_call_seen = st.game_call_seq;  // outcomes from before this window started
+            else if (st.game_call_seq != game_call_seen) {
+                game_call_seen = st.game_call_seq;
+                if (!st.game_call_text.empty()) {
+                    notify("Game call: " + st.game_call_text, !st.game_call_ok);
+                    job_offer_status = st.game_call_text;
+                }
+            }
+        }
         // Rebuild lists only when the database itself may have moved (save loaded, career entered/left),
         // not on every in-game day.
         if (changed && bridge.meta_loaded() && st.loaded &&
@@ -192,6 +203,8 @@ void App::tick(double t) {
         std::string result;
         if (mailbox->take_result(ok, result)) {
             notify(pending_label + ": " + (result.empty() ? (ok ? "done" : "failed") : result), !ok);
+            if (pending_label.rfind("Job offer", 0) == 0)  // Managers > Job offers shows the outcome in place
+                job_offer_status = (ok ? "" : "Failed: ") + (result.empty() ? std::string(ok ? "done" : "failed") : result);
             pending_label.clear();
             // Lua may have changed the database (transfers, bulk edits): re-read the lists
             if (db.ready()) model_stale = true;

@@ -416,6 +416,10 @@ void draw_hook_status(App& app) {
                     cs.learned ? "learned" : "not learned", cs.done, cs.failed, cs.last_format.empty() ? "" : " | last picture ",
                     cs.last_format.c_str());
     }
+    if (!r.calls.empty()) {
+        ImGui::Text("Game calls (Managers > Job offers):");
+        for (const auto& c : r.calls) ImGui::TextWrapped("  %s", c.c_str());
+    }
 }
 
 void draw_status(App& app) {
