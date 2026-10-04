@@ -17,7 +17,15 @@
       "offset": 6,
       "expect": "0x14060124C",
       "match": "0x147B9019C",
-      "note": "PostEvent(dispatcher, int type, Event*) through its call in DataController::InsertTeamPlayer; the function itself carries Live Editor's inline hook at run time, so the call site is the anchor (section 4)"
+      "note": "PostEvent(dispatcher, int type, Event*) through its call in DataController::InsertTeamPlayer (section 4); kept as the fallback entry for a Live Editor build that hooks it"
+    },
+    "career_event_dispatch": {
+      "pattern": "41 57 48 83 EC 30 48 8B F9 8B EA 48 8B 49 18 48 8B 01 FF 90 F8 00 00 00 8D 45 E3 83 F8 01 77 3D",
+      "resolve": "none",
+      "offset": -24,
+      "expect": "0x147B8C0D8",
+      "match": "0x147B8C0F0",
+      "note": "CareerEventDispatcher::Dispatch(this, int id, Event*) (vtable 0x14AFF69B8 slot 1): the function Live Editor v27.1.2 hooks for pre__/post__CareerModeEvent. Its first 24 bytes carry Live Editor's hook at run time (and an older hook's residue in the dumped image), so the anchor is the first untouched instruction at +24 (section 4)"
     }
   },
   "landmarks": {
@@ -29,6 +37,10 @@
     "MainLoop thread creation": "0x1459E16CC",
     "MainLoop::vtable slot 49 (run frame inline?) = 'xor al,al; ret'": "0x1459E09D0",
     "PostEvent": "0x14060124C",
+    "CareerEventDispatcher::Dispatch(this, id, Event*) (Live Editor's post__CareerModeEvent hook sits on its first bytes)": "0x147B8C0D8",
+    "CareerEventDispatcher vtable (slot 1 = Dispatch; the live object: +0x18 helper, +0x20 hub, +0x28/+0x30 listener vector, +0x48 rbtree anchor, +0xA0 filter)": "0x14AFF69B8",
+    "helper vtable ([dispatcher+0x18], slot 31 = 0x147F2D41C is what Dispatch calls first)": "0x14B026938",
+    "other functions Live Editor v27.1.2 hooks (not used by Turbo): 'cmplayers' query 0x147B70518, 0x146A1D1A0, 0x146A1FFC8": "0x147B70518",
     "DataController::InsertTeamPlayer (call site of PostEvent used as the anchor)": "0x147B90074",
     "JobMarketManager::HandleEvent (vtable slot 107 of 0x14B0160D8)": "0x147DD232C"
   }

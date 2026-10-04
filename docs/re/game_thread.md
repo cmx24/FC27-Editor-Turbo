@@ -121,9 +121,12 @@ them, so a detour must only touch memory it has validated (use `ProcessMemory::r
 
 `run_on_game_thread` returns which path will run the job (`"hook"`, `"lua"`, or `""` when neither has shown up yet),
 so a feature can tell the user "runs on the next career event". The Status tab shows ticks, pumps, jobs run / failed /
-dropped, the queue length and three thread ids: the tick's, the Lua pump's and the last drain's. The tick thread and
-the pump thread are expected to be the same thread (section 3); a mismatch is logged once as a WARNING and shown in
-the Status tab, and in that case the prompt Lua trigger (section 4) stays off while native jobs still run on the tick.
+dropped, the queue length and three thread ids: the tick's, the Lua pump's and the last drain's. Seen in game
+04-10-2026: both the frame body (the `"mainJob"`) and the career managers that post events run on the game's job-pool
+threads, so the tick thread and the thread Live Editor last ran Lua on differ and change from frame to frame (tick
+12192 then 27948, pump 38112 then 17876). A difference is logged once (`WARNING the game tick runs on thread ...`) and
+shown in the Status tab, but it is not a gate: what serializes the Lua state is that real career events and Turbo's
+synthetic one (section 4) are both sent from inside the frame body.
 
 ## 3. The per-frame game-thread function (found: the MainLoop frame body)
 
@@ -154,9 +157,10 @@ thread for the whole session (the job scheduler has a dedicated `JobScheduler_Ma
 ref `0x1473661CC` [M]). The career-mode managers (the FCE `HubDino::FCEGameModesFCECareerMode*` objects) post their
 events (`PostEvent` below) from inside this update, so this is also the thread Live Editor's `post__CareerModeEvent`
 Lua handlers run on: Turbo's Lua pump recorded thread 31512 / 41428 in the two sessions logged on 2026-10-03, and the
-tick records its own thread id; the Status tab shows both. The expectation `tick thread == pump thread` is **checked at
-run time** and the Lua trigger (section 4) depends on it; native jobs run on the tick regardless, because the frame
-body's thread is the game's update thread by construction.
+tick records its own thread id; the Status tab shows both. In game both turned out to be job-pool threads that change
+from frame to frame (section 2), so equality is logged, not required; native jobs run on the tick regardless, because
+the frame body's thread is the game's update thread by construction, and the synthetic event (section 4) is sent from
+the same place real events come from.
 
 Signature `game_tick` (unique over `.text1`/`.xpdata`/`.debug`, checked by `scripts/re/verify_game_thread.py` and by the
 native tests against the dumped bytes):
@@ -189,70 +193,143 @@ post function, for `pre__`/`post__CareerModeEvent` handlers. Its Lua API has no 
 | Call Live Editor's Lua state from the tick (lua_State* is handed to `turbo_game_pump`) | rejected: undocumented LE internals, races with the launcher's script runs |
 | Re-implement the commands natively in Turbo.dll (native `InsertDBTableRow`, export, clone...) | robust in the long run but a rewrite of every Lua feature; not done here, noted as follow-up |
 | Post a real game event with an unused id through the game's dispatcher | rejected: whatever the dispatcher does with an unknown id (bookkeeping, persistent events) is game state |
-| **Hand the game's `PostEvent` entry Turbo's own dispatcher/event objects** | chosen: the game is never reached, only Live Editor's hook runs; harmless with or without that hook |
+| **Hand the game entry Live Editor hooks Turbo's own dispatcher/event objects** | chosen: the game is never reached, only Live Editor's hook runs; harmless with or without that hook |
+
+### Where Live Editor's hook really is (found 04-10-2026, Live Editor v27.1.2)
+
+The first version of this track assumed Live Editor hooks the `PostEvent` shell. In game (build 634f049) the Status tab
+kept saying `waiting: no inline hook on post_career_event` after real career events had run Live Editor's Lua: the
+shell's bytes are untouched. So the hook was located from the live process through Turbo's dev service (read-only
+reads / pattern finds, `scripts/re` for the image), without touching Live Editor's files:
+
+1. **Hook stubs.** Live Editor's DLL (`FCLiveEditor.DLL`, 0xA6D000 bytes) was at `0x7FFD043C0000`; a find over all
+   readable memory for 8-byte pointers into its `.text` found exactly four inside `FC27.exe`'s code, each inside a
+   23-byte stub `lea rsp,[rsp-0x80]; push rax; movabs rax,<detour>; xchg [rsp],rax; ret 0x80`
+   (`48 8D 64 24 80 50 48 B8 imm64 48 87 04 24 C2 80 00`), padded to the next instruction boundary with `90`:
+   `0x147B8C0D8` (detour DLL+0x33A100), `0x147B70518` (DLL+0x3388A0, a `"cmplayers"` / `"gender"` /
+   `"modeavailability"` query), `0x146A1D1A0` (DLL+0x339120) and `0x146A1FFC8` (DLL+0x3391D0). After the game was
+   restarted (DLL at `0x7FFCFE750000`) three of them had become 6-byte `jmp qword ptr [rip+disp32]` hooks through 8-byte
+   slots in pages Live Editor maps just below the exe (`0x13FB70000` for `0x147B8C0D8`, `0x13FB80000`, `0x13FFF0000`),
+   each followed by the residue `?? ?? 66 90`; the fourth kept the stub. So Live Editor uses the near `jmp [rip]` when it
+   can map a slot page within ±2 GB and the absolute stub otherwise, and `detect_inline_hook` knows both forms
+   (`JmpIndirect` reads the slot; `LeaPushMovabsRet` takes the immediate). Live Editor's trampolines (the copied
+   prologues) were not located and are not needed. No vtable of the exe is patched (the dispatcher's vtable below is
+   byte-identical to the image live), and `PostEvent` and its four virtual callees are untouched.
+   **The dumped image `fc27_image.bin` is not pristine there**: it was taken with Live Editor loaded and carries the
+   `jmp [rip]` residue at `0x147B8C0D8` / `0x147B70518` and the stubs at the two `0x146A1...` functions, which is why
+   `verify_game_thread.py` prints a `jmp` as the dispatch's first instruction. Only the first 23/24 bytes of each are
+   affected; everything after is the game's code (checked against the live bytes).
+2. **What `0x147B8C0D8` is: `CareerEventDispatcher::Dispatch(this, int id, Event* ev)`** [H]. Its body (from +24 on,
+   the bytes neither hook touches):
+
+   ```
+   rcx = [this+0x18]; rax = [rcx]; call [rax+0xF8]          ; helper->vf[31]()            (0x147F2D41C: a switch on an int)
+   if (id - 0x1D <= 1) { copy [[ [this+0x20]+0x318 ]]+0x34/+0x3C into this+0x78..0x98 }   ; hub->Calendar: today's date
+   n = ([this+0x30] - [this+0x28]) >> 3                      ; eastl::vector<Listener*>
+   node = lower_bound([this+0x48] rbtree, id)                ; per-id callback lists, root at [this+0x58]
+   for each listener (i < n): if ([this+0xA0] == 0 || [this+0xA0]->vf[1](listener, id))
+                                  listener->vf[1](id, ev)    ; Manager::OnCareerEvent(id, Event*)
+                              then every callback of node ->vf[1](progress)
+   return 1
+   ```
+
+   The live object (`0x679884B0` in the session of 01:30, found as the object with `+0x20 == managers` from
+   `bridge_state.json`): vtable `0x14AFF69B8` whose **slot 1 is `0x147B8C0D8`** (the only reference to the function
+   in the image: it is reached virtually), `+8` refcount 0xBE, `+0x10` a second vtable (`0x14AFF6640`), `+0x18` helper
+   (vtable `0x14B026938`), `+0x20` the manager table (`hub`, `+0x318` = Calendar, cf. `job_offer.md`), **90 listeners**
+   at `[+0x28..+0x30)` whose `vf[1]` are the career managers' event handlers (e.g. `0x147B8AD20` starts with
+   `cmp edx,0x1D`; the StandingsViewManager's listener `0x147DA0A8C` handles id 5 and reads `[ev+0x10]`, `[ev+0x3C]`),
+   `+0x58` root 0, `+0xA0` filter 0, `+0x78..0x98` the career date 2026-07-01. This is the fan-out every career event
+   goes through, and it is the function whose arguments are exactly what Live Editor's Lua handlers receive:
+   `(events_manager, event_id, event)` (`lua\scripts\track_cm_events.lua`).
+3. **What is not hooked**: `PostEvent` (`0x14060124C`), its four virtual callees, the dispatcher's vtable (live == image),
+   the `.rdata` IAT runs (the only other DLL pointers inside the exe image are its normal imports of other system
+   DLLs). `PostEvent`'s wrapper is `*(hub+0x4F8)` (`job_offer.md`: `MakeOffer` posts through it); live,
+   `[wrapper]` is an engine event-system object (vtable `0x14972FB80`, core code at `0x1432xxxxx`) whose `vf[6]`
+   (`0x14230F760`, `(this, type, ev, r9)`) hands the event to its two handler lists (`this->vf[23](type, ev, +0x108,
+   +0x148)` and `(+0xA0, +0xE0)`); one of those handlers is what reaches `CareerEventDispatcher::Dispatch` (the
+   hop between them was not traced; it is not needed, Turbo calls `Dispatch` directly).
 
 ### How it works
 
-`PostEvent(dispatcher_wrapper, int type, Event* ev)` at `0x14060124C` [H] is a 20-instruction shell (it has 157 direct
-callers in the career code, e.g. `DataController::InsertTeamPlayer` `0x147B90074`, `JobMarketManager::MakeOffer`):
+Turbo now has **two candidate entries** (`g_lua_entries` in `game_hooks.cpp`, tried in this order) and calls whichever
+carries another module's inline hook:
 
-```
-rax = [ev];              call [rax+8]      ; ev->vf[1]()               (prepare / add-ref)
-rax = [ev];              call [rax+0x20]   ; ev->vf[4]()
-rcx = [wrapper]; rax = [rcx]; r9 = 0; call [rax+0x30]  ; dispatcher->vf[6](type, ev, 0)   (the dispatch)
-rax = [ev];              jmp  [rax+0x10]   ; ev->vf[2]()               (release; its result is returned)
-```
+| Entry | Signature | Call | Needed object shape |
+| --- | --- | --- | --- |
+| `Dispatch(dispatcher, id, ev)` `0x147B8C0D8` | `career_event_dispatch` (pattern at +24, offset -24: the first bytes carry the hook) | `Dispatch(synthetic.dispatcher, 0x7E7E0001, synthetic.event)` | `[+0x18]` -> an object whose vf[31] is a no-op (the dispatcher itself), `[+0x28] == [+0x30]` (no listener), `[+0x58] = 0` (empty tree), `[+0xA0] = 0` (no filter); the hub at `+0x20` is only read for ids 0x1D/0x1E |
+| `PostEvent(wrapper, type, ev)` `0x14060124C` | `post_career_event` (through its call site) | `PostEvent(synthetic.wrapper, 0x7E7E0001, synthetic.event)` | `ev->vf[1]/vf[4]/vf[2]` and `(*wrapper)->vf[6]` no-ops |
 
-Everything it does is a virtual call on the two objects it is given. Turbo builds (`turbo::build_synthetic_event`) three
-4 KB objects and a 64-slot vtable whose every slot is `synthetic_noop` (returns its `this`): `wrapper -> dispatcher`,
-`dispatcher -> vtable`, `event -> vtable`, `event+8 = 0` (reference count), `event+0x10 = 0x7E7E0001` (the type id, where
-the game's career events keep theirs), and every other qword of each object holds the object's own address, so any
-code that follows pointer fields of these objects (Live Editor passes `events_manager`, `event_id`, `event` to Lua)
-stays inside Turbo-owned, readable memory. Calling `PostEvent(wrapper, 0x7E7E0001, event)` therefore touches nothing of
-the game: four no-op calls. What makes it useful is Live Editor's inline hook on `PostEvent`: its detour runs the
-`post__CareerModeEvent` Lua handlers, among them Turbo's dispatcher (`core/events.lua`), whose bridge tap sees
-`SYNTHETIC_ID` and only polls the GUI mailbox (`bridge.lua on_synthetic_event`: `poll_mailbox(true)`, `pump_native`,
-the picture pump; no state files, no reload logic). Id-keyed listeners (every Turbo feature) never match the id;
-Live Editor's bundled sample handlers compare `event_id` with enum values and do nothing.
+`PostEvent` is a 20-instruction shell (157 direct callers in the career code, e.g. `DataController::InsertTeamPlayer`
+`0x147B90074`): `ev->vf[1](); ev->vf[4](); (*wrapper)->vf[6](type, ev, 0); return ev->vf[2]()`. Turbo builds
+(`turbo::build_synthetic_event`) three 4 KB objects and a 64-slot vtable whose every slot is `synthetic_noop` (returns
+its `this`): `wrapper -> dispatcher`, `dispatcher -> vtable`, `dispatcher+0x18 -> dispatcher`, `dispatcher+0x58 = 0`,
+`dispatcher+0xA0 = 0`, `event -> vtable`, `event+8 = 0` (reference count), `event+0x10 = 0x7E7E0001` (the type id, where
+the game's career events keep theirs), and every other qword of each object holds the object's own address (so
+`+0x28 == +0x30`: no listener), so any code that follows pointer fields of these objects (Live Editor passes
+`events_manager`, `event_id`, `event` to Lua) stays inside Turbo-owned, readable memory. With these objects
+`Dispatch` does: one no-op virtual call, skips the hub branch (`0x7E7E0001 - 0x1D > 1`), finds an empty tree and zero
+listeners, returns 1; `PostEvent` does four no-op calls. Neither touches the game. What makes the call useful is Live
+Editor's hook on the entry: its detour runs the `pre__`/`post__CareerModeEvent` Lua handlers around the original (which
+walks Turbo's objects as above), among them Turbo's dispatcher (`core/events.lua`), whose bridge tap sees `SYNTHETIC_ID`
+and only polls the GUI mailbox (`bridge.lua on_synthetic_event`: `poll_mailbox(true)`, `pump_native`, the picture pump;
+no state files, no reload logic). Id-keyed listeners (every Turbo feature) never match the id; Live Editor's bundled
+sample handlers compare `event_id` with enum values and do nothing.
 
 Gates, all checked on every attempt (`maybe_trigger_lua`, run from the tick after the frame body returned):
 
 1. the GUI reported a waiting mailbox command (`want_lua_pump(App::busy())`, every frame from the Present hook);
-2. the `game_tick` hook is active and `post_career_event` resolved (otherwise: "Lua commands run on the next event");
+2. the `game_tick` hook is active and at least one entry signature resolved (otherwise: "Lua commands run on the next
+   event");
 3. `turbo_output\lua_trigger_off.txt` is absent (re-read every 2 s);
-4. a real career-mode event has already made Turbo's Lua side pump (`g_pump_tid != 0`), **and that thread is the
-   tick's thread**: Live Editor's Lua provably runs on this thread, so the synthetic call cannot race the Lua state.
-   Before the first real event (a career is being loaded: `POST_LOAD_PREPARE` etc. fire then) commands wait for it;
-5. `PostEvent`'s first bytes carry another module's inline hook (`detect_inline_hook`: `jmp rel32`, `jmp [rip]`,
-   `movabs+jmp` or `push+ret` whose target is outside `FC27.exe` and `Turbo.dll`; re-read every 2 s while absent). Without
-   a hook the call would be a harmless no-op, so it is simply not made;
+4. a real career-mode event has already made Turbo's Lua side pump (`g_pump_tid != 0`). Before the first real event
+   (a career is being loaded: `POST_LOAD_PREPARE` etc. fire then) commands wait for it. The pump thread and the tick
+   thread are both job-pool threads that change from frame to frame (logged once, not a gate: what serializes the Lua
+   state is that real events and the synthetic one are both sent from inside the frame body);
+5. one entry's first bytes carry another module's inline hook (`detect_inline_hook`: `jmp rel32`, `jmp [rip]` (the
+   slot is read), `movabs+jmp`, `push+ret` or the `lea/push/movabs/ret` stub, whose target is outside `FC27.exe` and
+   `Turbo.dll`; re-read every 2 s while none is found; `kInlineHookProbeBytes` = 32 bytes are read). Without a hook the
+   call would be a harmless no-op, so it is simply not made; the first hooked entry in table order is used for the
+   session;
 6. at most one synthetic event per 250 ms (`kTriggerIntervalMs`), and the objects are re-verified
-   (`verify_synthetic_event`) right before each one: any modification disables the trigger for the session.
+   (`verify_synthetic_event`, which also checks the dispatcher's empty-listener / null-root / null-filter fields)
+   right before each one: any modification disables the trigger for the session.
 
 Proof that it worked: `turbo_game_pump` entered while the synthetic call is in progress means Live Editor ran Turbo's
 Lua handler ("Lua pumped N" in the Status tab, `lua_trigger_pumps`). The command itself is acknowledged in the mailbox
-as usual, so the overlay's "Queued: ..." label clears within one frame plus Lua's work.
+as usual, so the overlay's "Queued: ..." label clears within one frame plus Lua's work. The Status line reads
+`ready (jmp [rip] -> FCLiveEditor.DLL on career_event_dispatch)` (or `lea/push/movabs/ret -> ...`).
 
 Side effects, by design: Live Editor's `pre__CareerModeEvent` handlers also run (its optional sample logger would print
 `Career Mode Event 2122186753`); user scripts registered on `post__CareerModeEvent` receive the id `0x7E7E0001` and the
 pointers to Turbo's objects. Nothing of the game's event system is involved, so nothing is persisted or dispatched.
+What Live Editor's native detour itself reads from the three arguments before and after calling the original is not
+known (its DLL is not decompiled); the self-referential objects keep any such read inside Turbo's memory, and the
+pointers it hands to Lua are plain integers there.
 
 ### Known limits
 
-* Needs Live Editor's hook on `PostEvent` specifically. If a Live Editor update hooks a different function, the Status
-  tab shows "waiting: no inline hook on post_career_event" and commands run on real events as before.
-* Needs one real career-mode event first (to learn the Lua thread); loading a career provides it.
+* Needs Live Editor's hook on `Dispatch` or on `PostEvent`. If a Live Editor update hooks a different function, the
+  Status tab shows `waiting: no inline hook on career_event_dispatch / post_career_event yet` and commands run on real
+  events as before; section "Where Live Editor's hook really is" is the recipe to find the new one (pointer find into the
+  DLL's `.text` over the exe's code, then `detect_inline_hook`).
+* Needs one real career-mode event first (to know Live Editor's Lua is up); loading a career provides it.
 * The mailbox still runs one command per poll; the GUI submits one at a time anyway.
 
 ## 5. In-game test plan (integrator)
 
-1. Start the game with Turbo as usual; open the Turbo window, Status tab. Expect under "Game hooks": `Signatures: 2 of 2
-   found`, `game_tick: found at 0x1459E2E7C`, `post_career_event: found at 0x14060124C`, `Hooks active: 1`, `game_tick:
-   active ... calls N` with N rising every frame (about 60/s in menus), `Game-thread dispatcher: prompt (game_tick hook)`.
-   `turbo_gui.log` has `game hook game_tick installed at 0x1459E2E7C` and `game thread: game_tick hook runs on thread T`.
-2. Load a Manager Career. Expect `threads: tick T | Lua pump P` with **T == P** and no `(DIFFERENT ...)` marker; the log
-   has no `WARNING the game tick runs on thread`. Expect `Prompt Lua commands: ready (jmp rel32 -> FCLiveEditor.DLL)`
-   (or `waiting: no inline hook ...` if Live Editor hooks elsewhere: then stop here and report the Status line).
+1. Start the game with Turbo as usual; open the Turbo window, Status tab. Expect under "Game hooks": every signature
+   `found`, among them `game_tick: found at 0x1459E2E7C`, `post_career_event: found at 0x14060124C` and
+   `career_event_dispatch: found at 0x147B8C0D8`, `game_tick: active ... calls N` with N rising every frame (about 60/s
+   in menus), `Game-thread dispatcher: prompt (game_tick hook)`. `turbo_gui.log` has `game hook game_tick installed at
+   0x1459E2E7C`, `game thread: game_tick hook runs on thread T` and `prompt Lua commands armed: entries
+   career_event_dispatch 0x147B8C0D8, post_career_event 0x14060124C`.
+2. Load a Manager Career. Expect `Prompt Lua commands: ready (jmp [rip] -> FCLiveEditor.DLL on career_event_dispatch)`
+   (or `lea/push/movabs/ret -> FCLiveEditor.DLL on career_event_dispatch`: Live Editor picks one of its two hook forms
+   per session) within 2 s of the first career event, and in the log `career_event_dispatch at 0x147B8C0D8 carries an
+   inline hook (... -> 0x7FF... in FCLiveEditor.DLL)`. The `threads:` line shows job-pool thread ids that differ and
+   change; that is expected. If the line says `waiting: no inline hook on career_event_dispatch / post_career_event yet`
+   after a day was advanced, stop here and report the Status line.
 3. In a career menu, **without advancing the calendar**: Turbo Tools -> export a table (or any mailbox command). Expect
    the "Queued: ..." label to clear and the result toast within about a second; `sent` and `Lua pumped` in the Status
    tab both increase by one or two (never more than four per second); the exported file exists.
@@ -269,13 +346,20 @@ pointers to Turbo's objects. Nothing of the game's event system is involved, so 
 8. Live Editor's own features still work (its log shows its career events; no `[LE::...]` errors mentioning event
    2122186753 other than its sample logger line if that script is enabled).
 
-If step 2 shows T != P: report both ids and the `WARNING` log line; the trigger stays off by itself, native jobs still
-run on the tick. If step 3 does not complete within 2 s while the Status line says `ready`: report `sent` / `Lua pumped`
-(`sent > 0, Lua pumped 0` means Live Editor's detour ran but not Turbo's handler: check `lua\autorun` / the bridge log).
+If step 3 does not complete within 2 s while the Status line says `ready`: report `sent` / `Lua pumped`
+(`sent > 0, Lua pumped 0` means Live Editor's detour ran but not Turbo's handler: check `lua\autorun` / the bridge log;
+`sent > 0` with a crash or a Live Editor error mentioning event 2122186753 means its native detour reads something of
+the dispatcher Turbo's layout does not provide: report the error text and the log's last lines). Section 4 step 2 above
+lists the fields the game's own `Dispatch` reads; the synthetic dispatcher satisfies every one of them.
 
 ## 6. Follow-ups
 
 * Native execution of the mailbox commands (a native `InsertDBTableRow` equivalent plus the export/clone logic) would
   remove the dependency on Live Editor's hook entirely; the tick hook and dispatcher are ready for it.
+* The hop from the engine event system's handler lists (`0x14230F760`, section 4) to `CareerEventDispatcher::Dispatch`
+  (which handler forwards, whether anything queues, and on which thread) was not traced; it would show whether events
+  are ever dispatched outside the frame body.
+* Live Editor's three other hooks (`0x147B70518` "cmplayers" query, `0x146A1D1A0`, `0x146A1FFC8`) were not identified;
+  they do not matter for Turbo but are the obvious places to look if a Live Editor update moves the event hook.
 * `docs/re/game_thread-signatures.json` + `scripts/re/verify_game_thread.py` are the recipe for a title update: dump
   the new image, run the script, fix the two patterns, drop them into `turbo\signatures_<build>.json` (no rebuild).

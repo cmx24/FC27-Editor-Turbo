@@ -129,7 +129,13 @@ static const SignatureTable kBuiltin[] = {
          // Career-event post entry PostEvent(dispatcher, int type, Event*) (0x14060124C), resolved through its call in
          // DataController::InsertTeamPlayer so Live Editor's inline hook on the function itself does not hide it.
          {"post_career_event", "4C 8B C0 48 8B CF E8 ?? ?? ?? ?? 48 8D 8C 24 90 00 00 00 E8 ?? ?? ?? ??", "rip", 6,
-          "PostEvent(dispatcher, type, event): the entry Live Editor hooks for post__CareerModeEvent (docs/re/game_thread.md s.4)"},
+          "PostEvent(dispatcher, type, event): the 20-instruction shell every career manager calls (docs/re/game_thread.md s.4)"},
+         // The career-event dispatcher's Dispatch(this, int id, Event*) (0x147B8C0D8, vtable 0x14AFF69B8 slot 1): fans an
+         // event out to the ~90 registered career managers. Live Editor v27.1.2 hooks its first bytes for
+         // pre__/post__CareerModeEvent, so the anchor is at +24 (the first bytes it leaves alone) with offset -24.
+         {"career_event_dispatch",
+          "41 57 48 83 EC 30 48 8B F9 8B EA 48 8B 49 18 48 8B 01 FF 90 F8 00 00 00 8D 45 E3 83 F8 01 77 3D", "none", -24,
+          "CareerEventDispatcher::Dispatch(this, id, event) (0x147B8C0D8): the entry Live Editor hooks for post__CareerModeEvent (docs/re/game_thread.md s.4)"},
          // Miniface from the 3D model (docs/re/player_capture.md, scripts/re/player_capture_signatures.json)
          {"PlayerCaptureController_GetOrCreate",
           "48 8B C4 48 89 58 10 48 89 70 18 48 89 78 20 48 89 48 08 41 56 48 83 EC 60 48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 65 48 8B 0C 25 58 00 00 00",
