@@ -82,6 +82,9 @@ Not yet released or checked in game.
 
 ### Fixed
 
+- The in-overlay file picker no longer stops on a folder holding a file whose extension the Windows code page cannot
+  show (it read the extension as ANSI text).
+- Players club filter: Enter with nothing typed keeps the current choice instead of picking the first club.
 - Scrollbars no longer turn into big grey ovals after resizing the game window or changing the UI size: every size
   change rebuilt the style on top of the already scaled sizes. Scrollbars and grabs are also thinner.
 - Clubs stored as an unresolved name key (`*TeamName_Abbr15_112264`) show a readable name in the Club column, the Teams

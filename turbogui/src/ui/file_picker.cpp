@@ -81,7 +81,7 @@ std::string preset_safe_name(const std::string& s) {
 
 bool has_ext(const fs::path& p, const std::vector<std::string>& exts) {
     if (exts.empty()) return true;
-    std::string e = lower_s(p.extension().string());
+    std::string e = lower_s(path_text(p.extension()));  // u8: string() throws on a name outside the code page
     return std::find(exts.begin(), exts.end(), e) != exts.end();
 }
 

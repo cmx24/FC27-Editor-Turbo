@@ -37,7 +37,7 @@ class Service;  // core/callname_voice.h
 }
 class Preloader;  // ui/preload.h (background loading)
 
-constexpr const char* kGuiVersion = "1.1.0";
+constexpr const char* kGuiVersion = "1.1.1";
 
 // UI scale (window height and the user's "UI size" setting): every fixed size in the panels goes through S()
 extern float g_ui_scale;

@@ -40,7 +40,7 @@ bool team_filter_combo(App& app, const char* id, int64_t& teamid, char* search, 
         std::vector<const TeamRow*> hits;
         for (const auto& t : app.model.teams())
             if (team_matches(t, q)) hits.push_back(&t);
-        if (enter && !hits.empty()) {
+        if (enter && !q.empty() && !hits.empty()) {  // Enter with nothing typed keeps the current choice
             teamid = hits.front()->teamid;
             ImGui::CloseCurrentPopup();
         }
