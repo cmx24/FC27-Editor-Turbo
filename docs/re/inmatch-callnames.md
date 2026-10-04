@@ -345,6 +345,7 @@ intensities (for §3.1), the thread, and which event said "Gutierrez".
 | `trigger_set_int`, `trigger_post`, `trigger_post_set_int_call`, `trigger_pass` | 0x141A5B550, 0x141A5B6BC, 0x1407B03E4, 0x143906B1C | trigger side |
 | `speech_registry_dispatch`, `speech_registry_has_audio`, `speech_run_preprocessors` | 0x1407AFD88, 0x1444F340C, 0x1424C2B18 | registry (the pre-runner has a byte-identical twin at 0x142501234: resolved from its call in HasAudio) |
 | `speech_query_set_ctx`, `speech_query_find_param`, `speech_param_set_int`, `speech_param_get_int` | 0x1407B0F3C, 0x1407AEF2C, 0x1407AFA58, 0x1407B4344 | query internals |
+| `speech_param_name_layout`, `speech_param_get_int_layout`, `speech_param_set_int_store` | 0x1414A95C3, 0x1414A9AE0, 0x1407AFAA7 | voice-swap layout guards (unique in the whole image): count +0x18, params +0x20, desc +0x30, name +0x20; single value desc +0x44, value +0x00, set flag +0x44 |
 
 All `rip` entries use instruction forms Turbo's resolver supports (`E8 rel32`, `48 8D/8B [rip+disp32]`).
 

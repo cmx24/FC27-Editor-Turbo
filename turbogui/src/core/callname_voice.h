@@ -55,7 +55,8 @@ struct Entry {
 struct VoiceStore {
     std::vector<Entry> entries;           // one per playerid, the last edit wins
     // A missing file is an empty store (true). A bad file is renamed to voice_swaps.json.bad-<stamp> and gives an
-    // empty store (true, *err says so). Malformed entries are dropped with a note in *err.
+    // empty store (true, *err says so). Malformed entries are dropped with a note in *err. false (empty store, *err)
+    // only when the file cannot be opened or a bad file cannot be set aside.
     bool load(const std::filesystem::path& file, std::string* err);
     bool save(const std::filesystem::path& file, std::string* err) const;   // atomic write (tmp + rename)
     void upsert(const Entry& e);
@@ -97,11 +98,19 @@ StatsSnapshot snapshot(const Stats& s);
 // Names of the name events (PLAYER_LOW_SIMPLE, PLAYER_LOW_LINK, ...): is_name_event(event id) for names_only.
 bool is_name_event(uint32_t event_id);
 bool contains_pid(const char* name);     // the parameter name contains "_pID"
-// Thread-local double-pass guard: the pre-runner may run Preprocess twice over the same query; a query already
-// rewritten on this thread is not rewritten again (so a swap pair A<->B never chains).
+// Thread-local double-pass guard: the pre-runner may run Preprocess twice over the same query; a value already
+// rewritten on this thread (same query, same ParamValue, holding the id it got) is not rewritten again, so a swap pair
+// (A -> B, B -> 0) never chains. Keyed on more than the query pointer: a new query at a reused address is still
+// rewritten, and so is a second pass where the original wrote the player's own id again. A mark is used once, so a new
+// query at the same address that legitimately holds that id loses at most one line (counted in guard_skips).
 struct Guard {
-    const void* last_query = nullptr;
-    void reset() { last_query = nullptr; }
+    struct Mark { const void* query = nullptr; const void* pv = nullptr; int32_t to = 0; };
+    static constexpr int kMarks = 8;      // the last 8 rewrites on this thread
+    Mark marks[kMarks];
+    int next = 0;
+    void reset() { for (Mark& m : marks) m = Mark{}; next = 0; }
+    bool seen(const void* query, const void* pv, int32_t value);   // true (once) for a remembered rewrite
+    void remember(const void* query, const void* pv, int32_t to);
 };
 // Rewrites the query in place per the table. Reads only what the original Preprocess just dereferenced. Returns the
 // number of values rewritten. own_query = Turbo's own audit is running on this thread (nothing changes).
