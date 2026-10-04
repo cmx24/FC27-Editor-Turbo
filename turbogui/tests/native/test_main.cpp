@@ -42,6 +42,7 @@
 #include "core/le_log.h"
 #include "core/model.h"
 #include "core/player_capture.h"
+#include "core/reveal.h"
 #include "core/sigscan.h"
 #include "core/standings_refresh.h"
 #include "core/t3db.h"
@@ -2263,6 +2264,69 @@ static void test_ui() {
             app.next_poll = 0.0;
             ui.frames(3);
             ui.click("Job offers (Manager Career)", "##medit");  // fold the section again
+            ui.frames(2);
+        });
+
+        run_case("UI: Players > Reveal data / Develop to potential: gated by the capabilities, send the reveal / development modules", [&] {
+            app.mailbox->cancel();
+            app.request_tab = 0;
+            ui.frames(3);
+            CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
+            CHECK(ui.click("1001", "##plist"), "row 1001");
+            ui.frames(2);
+            CHECK(ui.click("Growth", "##pedit"), "Growth tab");
+            ui.frames(2);
+            fs::path state_file = le / "turbo_output" / "bridge_state.json";
+            json st = read_json(state_file);
+            int bumps = 0;
+            auto write_state_file = [&]() {
+                {
+                    std::ofstream f(state_file.string(), std::ios::binary | std::ios::trunc);
+                    f << st.dump();
+                }
+                fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(10 + 2 * ++bumps));
+                app.next_poll = 0.0;
+                ui.frames(3);
+            };
+            const json saved = st;
+            st["in_cm"] = true;
+            st["unavailable"]["reveal"] = "TurboRevealPlayerData is not available in this Live Editor build";
+            st["seq"] = st.value("seq", 0LL) + 1;
+            write_state_file();
+            CHECK(app.bridge.state().unavailable_reason("reveal") != nullptr, "reveal unavailable");
+            const ItemRec* btn = ui.find("Reveal data");
+            CHECK(btn != nullptr, "Reveal data drawn");
+            ui.click(btn);
+            ui.frames(2);
+            CHECK(!app.mailbox->pending(), "disabled: nothing sent");
+            st["unavailable"].erase("reveal");
+            st["unavailable"].erase("development");
+            st["seq"] = st.value("seq", 0LL) + 1;
+            write_state_file();
+            CHECK(app.bridge.state().unavailable_reason("reveal") == nullptr, "capability picked up");
+            CHECK(ui.click("Reveal data"), "Reveal data");
+            ui.frames(2);
+            CHECK(app.mailbox->pending(), "command sent");
+            json j = json::parse(mem.read_cstr(kMb + kMbCmd, kMbTextSize), nullptr, false);
+            CHECK(!j.is_discarded() && j.value("module", "") == "reveal" && j["overrides"]["scope"].value("playerid", 0) == 1001,
+                  "reveal of player 1001: " + j.dump());
+            app.mailbox->cancel();
+            ui.frames(2);
+            const PlayerRow* p = app.model.player(1001);
+            CHECK(p != nullptr, "player row");
+            char lbl[64];
+            std::snprintf(lbl, sizeof(lbl), "Develop to potential (%d)", p ? p->potential : 0);
+            CHECK(ui.click(lbl), std::string("button ") + lbl);
+            ui.frames(2);
+            j = json::parse(mem.read_cstr(kMb + kMbCmd, kMbTextSize), nullptr, false);
+            CHECK(!j.is_discarded() && j.value("module", "") == "development" && j["overrides"].value("mode", "") == "to_potential" &&
+                      j["overrides"]["scope"].value("playerid", 0) == 1001,
+                  "development to potential: " + j.dump());
+            app.mailbox->cancel();
+            st = saved;
+            st["seq"] = st.value("seq", 0LL) + 1;
+            write_state_file();
+            ui.click("Profile", "##pedit");
             ui.frames(2);
         });
 
@@ -5995,6 +6059,328 @@ static void test_standings_refresh() {
     });
 }
 
+// ---------------------------------------------------------------- reveal player data (core/reveal.h)
+// A synthetic PlayerDataRevealManager: the object, its hub (slot +0x9D8 pointing back at it, calendar / teams slots),
+// the manager table with slot 78, and the sorted record vector at +0x790.
+struct RevealWorld {
+    SimMemory mem;
+    static constexpr uint64_t kPdrm = 0x22000000ULL, kHub = 0x22010000ULL, kHolders = 0x22020000ULL, kObjs = 0x22030000ULL,
+                              kRecs = 0x22040000ULL, kManagers = 0x22050000ULL, kVtable = 0x14B01D5B0ULL;
+    static constexpr uint64_t kCapacity = 64;  // records the vector can hold in this world
+    int today = 20270115;
+    RevealWorld() {
+        using namespace pdrm;
+        mem.map(kPdrm, 0x1000);
+        mem.map(kHub, 0x2000);
+        mem.map(kHolders, 0x1000);
+        mem.map(kObjs, 0x4000);
+        mem.map(kRecs, 0x2000);
+        mem.map(kManagers, 0x2000);
+        mem.wr(kPdrm, kVtable);
+        mem.wr(kPdrm + pdrm::kHub, kHub);  // the class member kHub is the hub's address; pdrm::kHub the field offset
+        // hub slots: +0x9D8 -> holder -> this manager; calendar and teams -> objects with a vtable-shaped first word
+        const uint64_t slots[] = {kHubPdrm, kHubCalendar, kHubTeams};
+        int k = 0;
+        for (uint64_t s : slots) {
+            const uint64_t holder = kHolders + static_cast<uint64_t>(k) * 0x10, obj = kObjs + static_cast<uint64_t>(k) * 0x1000;
+            mem.wr(kHub + s, holder);
+            mem.wr(holder, s == kHubPdrm ? kPdrm : obj);
+            if (s != kHubPdrm) mem.wr(obj, 0x140001000ULL + static_cast<uint64_t>(k) * 0x100);
+            if (s == kHubCalendar) mem.wr(obj + kCalendarDate, static_cast<int32_t>(2027));
+            ++k;
+        }
+        // manager table slot 78 (the standings_refresh walk: count 1, type descriptor flag 1, holder -> object)
+        const uint64_t slot = kManagers + svm::kSlotSize * static_cast<uint64_t>(kTypeId), type = kManagers + 0x1800, holder = kManagers + 0x1900;
+        mem.wr(slot + svm::kSlotCount, static_cast<int32_t>(1));
+        mem.wr(slot + svm::kSlotType, type);
+        mem.wr(type + svm::kTypeFlag, static_cast<int32_t>(1));
+        mem.wr(slot + svm::kSlotHolder, holder);
+        mem.wr(holder, kPdrm);
+        // empty record vector with room for kCapacity records
+        mem.wr(kPdrm + kRecords, kRecs);
+        mem.wr(kPdrm + kRecordsEnd, kRecs);
+        mem.wr(kPdrm + kRecordsCap, kRecs + kCapacity * kRecordSize);
+    }
+    size_t count() {
+        uint64_t b = 0, e = 0;
+        mem.rd(kPdrm + pdrm::kRecords, b);
+        mem.rd(kPdrm + pdrm::kRecordsEnd, e);
+        return static_cast<size_t>((e - b) / pdrm::kRecordSize);
+    }
+    // What the game's insert does: lower_bound by player id, overwrite or shift-insert
+    void put(int player, int points, int day, int16_t scout = -1, uint16_t flags = 0) {
+        using namespace pdrm;
+        std::vector<Record> recs;
+        read_records(mem, kPdrm, recs);
+        size_t pos = 0;
+        while (pos < recs.size() && recs[pos].player < player) ++pos;
+        Record r;
+        r.player = player;
+        r.scout = scout;
+        r.flags = flags;
+        r.points = points;
+        r.day = day;
+        if (pos < recs.size() && recs[pos].player == player) recs[pos] = r;
+        else recs.insert(recs.begin() + static_cast<long>(pos), r);
+        for (size_t i = 0; i < recs.size(); ++i) {
+            const uint64_t a = kRecs + i * kRecordSize;
+            mem.wr(a + kRecPlayer, recs[i].player);
+            mem.wr(a + kRecScout, recs[i].scout);
+            mem.wr(a + kRecFlags, recs[i].flags);
+            mem.wr(a + kRecPoints, recs[i].points);
+            mem.wr(a + kRecDay, recs[i].day);
+            mem.wr(a + kRecTail, static_cast<uint8_t>(0xFF));
+        }
+        mem.wr(kPdrm + kRecordsEnd, kRecs + recs.size() * kRecordSize);
+    }
+};
+struct FakeReveal : pdrm::Caller {
+    RevealWorld& w;
+    int players = 0, teams = 0;
+    int stamp = -1;  // day written into the records (-1 = the world's calendar day)
+    bool fail = false, noop = false, partial = false, today_ok = true;
+    std::map<int, std::vector<int>> squads;  // team -> players (RevealTeamFully)
+    explicit FakeReveal(RevealWorld& world) : w(world) {}
+    int day() const { return stamp >= 0 ? stamp : w.today; }
+    bool reveal_player(uint64_t, int player, std::string& err) override {
+        ++players;
+        if (fail) {
+            err = "boom";
+            return false;
+        }
+        if (noop) return true;  // the game found no such player row
+        w.put(player, partial ? 100 : pdrm::kFullPoints, day());
+        return true;
+    }
+    bool reveal_team(uint64_t, int team, std::string& err) override {
+        ++teams;
+        if (fail) {
+            err = "boom";
+            return false;
+        }
+        for (int p : squads[team]) w.put(p, pdrm::kFullPoints, day());
+        return true;
+    }
+    bool today(uint64_t, int& out, std::string& err) override {
+        if (!today_ok) {
+            err = "no calendar";
+            return false;
+        }
+        out = w.today;
+        return true;
+    }
+};
+
+static void test_reveal() {
+    using namespace turbo;
+    const pdrm::Fns fns{RevealWorld::kVtable, 0x147E325F0ULL, 0x147E32678ULL, 0x142AA5824ULL};
+    run_case("reveal: a player and a club on a synthetic PlayerDataRevealManager (validate, call, read the record back)", [&] {
+        RevealWorld w;
+        FakeReveal g(w);
+        pdrm::Request req;
+        req.pdrm = RevealWorld::kPdrm;
+        req.managers = RevealWorld::kManagers;
+        req.id = 158023;
+        pdrm::Result r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(r.ok && r.stage == "done", "player revealed: " + r.message + " [" + r.stage + "]");
+        CHECK(g.players == 1 && r.points_before == -1 && r.points_after == 204 && r.day == 20270115 && r.records_after == 1, "record made by the game");
+        CHECK(r.message.find("204/204") != std::string::npos && r.message.find("no record before") != std::string::npos, "message: " + r.message);
+        pdrm::Record rec;
+        CHECK(pdrm::find_record(w.mem, RevealWorld::kPdrm, 158023, rec) && rec.points == 204 && rec.scout == -1 && rec.flags == 0, "find_record");
+        CHECK(!pdrm::find_record(w.mem, RevealWorld::kPdrm, 7, rec), "absent player");
+        // a partially scouted player: the existing record is reported, the call upgrades it
+        w.put(1000, 50, 20270101, 3, 0x21);
+        req.id = 1000;
+        r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(r.ok && r.points_before == 50 && r.points_after == 204 && g.players == 2 && r.message.find("was 50") != std::string::npos, "upgrade: " + r.message);
+        // already fully revealed: no call
+        r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(r.ok && g.players == 2 && r.message.find("already fully revealed") != std::string::npos, "already: " + r.message);
+        // the calendar disagrees with the stamp: still ok, said so; no calendar: plain message
+        g.today_ok = false;
+        req.id = 2000;
+        r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(r.ok && r.message.find("calendar") == std::string::npos, "no calendar: " + r.message);
+        g.today_ok = true;
+        w.today = 20270116;
+        req.id = 2001;
+        r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(r.ok && r.message.find("dated 20270116") != std::string::npos, "stamped with the fake's day: " + r.message);
+        // the record is older than the calendar says: reported, still ok
+        w.put(3000, 10, 20270101);
+        g.stamp = 20270120;  // the fake stamps with its own day...
+        w.today = 20270118;  // ...and the calendar answers another
+        req.id = 3000;
+        r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(r.ok && r.message.find("calendar says 20270118") != std::string::npos, "date mismatch reported: " + r.message);
+    });
+
+    run_case("reveal: a whole club, and the records stay sorted", [&] {
+        RevealWorld w;
+        FakeReveal g(w);
+        g.squads[45] = {300, 100, 200};
+        w.put(150, 20, 20270101);
+        pdrm::Request req;
+        req.pdrm = RevealWorld::kPdrm;
+        req.mode = pdrm::Mode::Team;
+        req.id = 45;
+        pdrm::Result r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(r.ok && g.teams == 1 && r.records_before == 1 && r.records_after == 4, "club revealed: " + r.message);
+        CHECK(r.message.find("3 fully revealed today") != std::string::npos, "count of today's full records: " + r.message);
+        std::vector<pdrm::Record> recs;
+        CHECK(pdrm::read_records(w.mem, RevealWorld::kPdrm, recs).empty() && recs.size() == 4 && recs[0].player == 100 && recs[3].player == 300, "sorted");
+        CHECK(pdrm::validate(w.mem, RevealWorld::kPdrm, RevealWorld::kVtable, RevealWorld::kManagers).empty(), "still valid");
+        CHECK(w.mem.failed_reads == 0, "no read outside the synthetic memory");
+    });
+
+    run_case("reveal: every refusal path stops before the game is called", [&] {
+        RevealWorld w;
+        FakeReveal g(w);
+        pdrm::Request req;
+        req.pdrm = RevealWorld::kPdrm;
+        req.managers = RevealWorld::kManagers;
+        req.id = 5;
+        pdrm::Fns none;
+        pdrm::Result r = pdrm::reveal(w.mem, g, none, req);
+        CHECK(!r.ok && r.stage == "validate" && r.message.find("pdrm_vtable") != std::string::npos, "functions missing: " + r.message);
+        pdrm::Fns part = fns;
+        part.reveal_team = 0;
+        r = pdrm::reveal(w.mem, g, part, req);
+        CHECK(!r.ok && r.message.find("pdrm_reveal_team") != std::string::npos, "reveal_team missing: " + r.message);
+        req.id = 0;
+        r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("positive") != std::string::npos, "id 0: " + r.message);
+        req.id = 5;
+        req.pdrm = 0x10;
+        r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("not a pointer") != std::string::npos, "bad pointer: " + r.message);
+        req.pdrm = 0x30000000ULL;
+        r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("not readable") != std::string::npos, "unmapped: " + r.message);
+        req.pdrm = RevealWorld::kPdrm;
+        w.mem.wr(RevealWorld::kPdrm, 0x14B000000ULL);
+        r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("not the PlayerDataRevealManager") != std::string::npos, "wrong vtable: " + r.message);
+        w.mem.wr(RevealWorld::kPdrm, RevealWorld::kVtable);
+        // the hub's own slot does not point back: wrong object
+        uint64_t holder = 0;
+        w.mem.rd(RevealWorld::kHub + pdrm::kHubPdrm, holder);
+        w.mem.wr(holder, RevealWorld::kObjs);
+        r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("hub+0x9D8") != std::string::npos, "hub slot mismatch: " + r.message);
+        w.mem.wr(holder, RevealWorld::kPdrm);
+        uint64_t saved = 0;
+        w.mem.rd(RevealWorld::kHub + pdrm::kHubTeams, saved);
+        w.mem.wr(RevealWorld::kHub + pdrm::kHubTeams, 0ULL);
+        r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("teams manager") != std::string::npos, "hub slot unreadable: " + r.message);
+        w.mem.wr(RevealWorld::kHub + pdrm::kHubTeams, saved);
+        // manager table: slot 78 holds another object / is empty
+        const uint64_t slot = RevealWorld::kManagers + svm::kSlotSize * static_cast<uint64_t>(pdrm::kTypeId);
+        w.mem.wr(slot + svm::kSlotCount, static_cast<int32_t>(0));
+        r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("manager table") != std::string::npos, "slot empty: " + r.message);
+        w.mem.wr(slot + svm::kSlotCount, static_cast<int32_t>(1));
+        req.managers = 0;  // skipped when unknown
+        // record vector shapes: unsorted, odd size, too many, unreadable
+        w.put(10, 1, 1);
+        w.put(20, 1, 1);
+        w.mem.wr(RevealWorld::kRecs + pdrm::kRecPlayer, static_cast<int32_t>(30));
+        r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("not sorted") != std::string::npos, "unsorted: " + r.message);
+        w.mem.wr(RevealWorld::kRecs + pdrm::kRecPlayer, static_cast<int32_t>(10));
+        w.mem.wr(RevealWorld::kPdrm + pdrm::kRecordsEnd, RevealWorld::kRecs + 3);
+        r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("whole") != std::string::npos, "odd size: " + r.message);
+        w.mem.wr(RevealWorld::kPdrm + pdrm::kRecordsEnd, RevealWorld::kRecs + 2000 * pdrm::kRecordSize);
+        w.mem.wr(RevealWorld::kPdrm + pdrm::kRecordsCap, RevealWorld::kRecs + 2000 * pdrm::kRecordSize);
+        r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("1500") != std::string::npos, "too many: " + r.message);
+        w.mem.wr(RevealWorld::kPdrm + pdrm::kRecords, 0x30000000ULL);
+        w.mem.wr(RevealWorld::kPdrm + pdrm::kRecordsEnd, 0x30000000ULL + 2 * pdrm::kRecordSize);
+        w.mem.wr(RevealWorld::kPdrm + pdrm::kRecordsCap, 0x30000000ULL + 4 * pdrm::kRecordSize);
+        r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("not readable") != std::string::npos, "unmapped records: " + r.message);
+        w.mem.wr(RevealWorld::kPdrm + pdrm::kRecords, RevealWorld::kRecs);
+        w.mem.wr(RevealWorld::kPdrm + pdrm::kRecordsEnd, RevealWorld::kRecs + 2 * pdrm::kRecordSize);
+        w.mem.wr(RevealWorld::kPdrm + pdrm::kRecordsCap, RevealWorld::kRecs + RevealWorld::kCapacity * pdrm::kRecordSize);
+        CHECK(g.players == 0 && g.teams == 0, "the game was never called");
+        // the game refuses / does nothing / reveals only partly
+        g.fail = true;
+        r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(!r.ok && r.stage == "call" && r.message.find("RevealPlayerFully: boom") != std::string::npos, "call failed: " + r.message);
+        g.fail = false;
+        g.noop = true;
+        r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(!r.ok && r.stage == "check" && r.message.find("no reveal record") != std::string::npos, "no record made: " + r.message);
+        g.noop = false;
+        g.partial = true;
+        r = pdrm::reveal(w.mem, g, fns, req);
+        CHECK(!r.ok && r.stage == "check" && r.message.find("100/204") != std::string::npos, "partial: " + r.message);
+    });
+
+    run_case("reveal: which manager pointer the call uses (Lua's, the captured one, or a refusal)", [&] {
+        std::string err;
+        CHECK(pdrm::choose(0, 0, 0, err) == 0 && err.find("not known yet") != std::string::npos, "nothing known: " + err);
+        CHECK(pdrm::choose(0, 0, 0x5000, err) == 0x5000 && err.empty(), "Lua gave none: the captured one");
+        CHECK(pdrm::choose(0x6000, 0, 0, err) == 0x6000 && err.empty(), "nothing captured yet: Lua's (validated)");
+        CHECK(pdrm::choose(0x6000, 0, 0x6000, err) == 0x6000 && err.empty(), "they agree");
+        CHECK(pdrm::choose(0x6000, 0, 0x5000, err) == 0 && err.find("mismatch") != std::string::npos, "disagree, no table: " + err);
+        CHECK(pdrm::choose(0x6000, 0x7000, 0x5000, err) == 0x6000 && err.empty(),
+              "disagree with the manager table: Lua's (slot 78 decides in validate; the captured one may be the last career's)");
+        // and validate does refuse a Lua pointer that slot 78 does not hold
+        RevealWorld w;
+        CHECK(pdrm::validate(w.mem, RevealWorld::kPdrm, RevealWorld::kVtable, RevealWorld::kManagers).empty(), "the right one passes");
+        const uint64_t slot = RevealWorld::kManagers + svm::kSlotSize * static_cast<uint64_t>(pdrm::kTypeId);
+        uint64_t holder = 0;
+        w.mem.rd(slot + svm::kSlotHolder, holder);
+        w.mem.wr(holder, RevealWorld::kObjs);
+        CHECK(pdrm::validate(w.mem, RevealWorld::kPdrm, RevealWorld::kVtable, RevealWorld::kManagers).find("slot 78") != std::string::npos,
+              "slot 78 holds another object: refused");
+    });
+
+    run_case("signatures: the built-in reveal entries resolve on the game's prologue bytes (vtable via the ctor's lea at +0xF)", [&] {
+        const SignatureTable* t = builtin_signature_table("6AB9813C-211EF000");
+        CHECK(t != nullptr, "built-in table");
+        if (!t) return;
+        const char* names[] = {"pdrm_vtable", "pdrm_handle_event", "pdrm_reveal_player", "pdrm_reveal_team"};
+        for (const char* n : names) CHECK(t->find(n) && !t->find(n)->pattern.empty(), std::string("entry ") + n);
+        // bytes read from fc27_image.bin (FC27.exe 1.0.140.64835) at the functions' VAs
+        const uint8_t ctor[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48,
+                                0x8D, 0x05, 0x96, 0x14, 0x1F, 0x03, 0x48, 0x89, 0x51, 0x08, 0x48, 0x89, 0x01, 0x48, 0x8B, 0xD9,
+                                0x48, 0x83, 0xC1, 0x10, 0xE8, 0x03, 0x08, 0x00, 0x00, 0x48, 0x8D, 0x8B, 0x68, 0x03, 0x00, 0x00};
+        const uint8_t handle[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x18, 0x55, 0x57, 0x41, 0x54, 0x41, 0x56,
+                                  0x41, 0x57, 0x48, 0x8D, 0xAC, 0x24, 0x10, 0xFF, 0xFF, 0xFF, 0x48, 0x81, 0xEC, 0xF0, 0x01, 0x00,
+                                  0x00, 0x49, 0x8B, 0xF8, 0x48, 0x8B, 0xD9, 0x83, 0xFA, 0x0F, 0x75, 0x0A, 0xE8, 0xC3, 0x11, 0x00};
+        const uint8_t player[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x40, 0x4C,
+                                  0x8B, 0x41, 0x08, 0x48, 0x8B, 0xF9, 0x8B, 0xDA, 0x49, 0x8B, 0x80, 0x18, 0x03, 0x00, 0x00, 0x48,
+                                  0x8B, 0x08, 0x48, 0x83, 0xC1, 0x34, 0xE8, 0x09, 0x32, 0xC7, 0xFA, 0x49, 0x8B, 0x88, 0x18, 0x04};
+        const uint8_t team[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x40, 0x48,
+                                0x8B, 0x41, 0x08, 0x48, 0x8B, 0xF9, 0xC5, 0xF9, 0xEF, 0xC0, 0x45, 0x33, 0xC9, 0x4C, 0x8B, 0x80,
+                                0x18, 0x04, 0x00, 0x00, 0x49, 0x8B, 0x08, 0x44, 0x8B, 0xC2, 0x48, 0x8D, 0x54, 0x24, 0x20, 0xC5};
+        // the ctor sits at +0x100 of a buffer based so that its VA is the real one: the lea then resolves to the real vtable
+        const uint64_t base = 0x147E2C104ULL - 0x100;
+        std::vector<uint8_t> code(0x1000, 0xCC);
+        std::memcpy(code.data() + 0x100, ctor, sizeof(ctor));
+        std::memcpy(code.data() + 0x300, handle, sizeof(handle));
+        std::memcpy(code.data() + 0x400, player, sizeof(player));
+        std::memcpy(code.data() + 0x500, team, sizeof(team));
+        SigResult r = resolve_signature(*t->find("pdrm_vtable"), code.data(), code.size(), base);
+        CHECK(r.state == SigState::Found && r.match == 0x147E2C104ULL && r.address == 0x14B01D5B0ULL,
+              "pdrm_vtable resolves to base+0xB01D5B0: " + r.error);
+        CHECK(r.address == 0x140000000ULL + pdrm::kRvaVtable, "the RVA constant agrees");
+        struct Exp { const char* name; uint64_t off; } exp[] = {{"pdrm_handle_event", 0x300}, {"pdrm_reveal_player", 0x400}, {"pdrm_reveal_team", 0x500}};
+        for (const auto& e : exp) {
+            r = resolve_signature(*t->find(e.name), code.data(), code.size(), base);
+            CHECK(r.state == SigState::Found && r.address == base + e.off, std::string(e.name) + ": " + r.error);
+        }
+        for (const char* n : names) {
+            r = resolve_signature(*t->find(n), code.data(), code.size(), base);
+            CHECK(r.hits == 1, std::string(n) + " unique");
+        }
+    });
+}
+
 // ---------------------------------------------------------------- miniface from the 3D model (core/player_capture.h)
 static void test_player_capture() {
     using namespace capture;
@@ -6190,6 +6576,8 @@ int main(int argc, char** argv) {
     test_fce_compobjs();
     std::printf("native standings refresh\n");
     test_standings_refresh();
+    std::printf("native reveal player data\n");
+    test_reveal();
     std::printf("native player capture\n");
     test_player_capture();
     std::printf("native UI\n");

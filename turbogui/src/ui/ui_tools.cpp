@@ -114,6 +114,69 @@ void draw_tools(App& app) {
         run_button(app, "Extend every other club's contracts", "extend_cpu_contracts", {{"years", cpu_years}}, false);
     }
 
+    // ---------------------------------------------------------------- scouting, development, youth academy
+    if (ImGui::CollapsingHeader("Scouting, development and youth academy")) {
+        // reveal player data (features/reveal.lua -> Turbo.dll -> the game's PlayerDataRevealManager)
+        static int reveal_team = 0, reveal_league = 0;
+        static bool reveal_confirm = false;
+        run_button(app, "Reveal my club##rv", "reveal", {{"scope", {{"user_team", true}}}}, true, "reveal");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(S(110.0f));
+        ImGui::InputInt("##rvteam", &reveal_team, 0);
+        ImGui::SameLine();
+        if (reveal_team > 0) run_button(app, "Reveal club ID##rv", "reveal", {{"scope", {{"teamid", reveal_team}}}}, true, "reveal");
+        else ImGui::TextDisabled("club ID");
+        ImGui::SetNextItemWidth(S(110.0f));
+        ImGui::InputInt("##rvleague", &reveal_league, 0);
+        ImGui::SameLine();
+        ImGui::Checkbox("every club of the league##rvc", &reveal_confirm);
+        ImGui::SameLine();
+        if (reveal_league > 0 && reveal_confirm)
+            run_button(app, "Reveal league ID##rv", "reveal", {{"scope", {{"leagueid", reveal_league}}}, {"confirm", true}}, true, "reveal");
+        else ImGui::TextDisabled("league ID + tick to reveal a league");
+        ImGui::TextDisabled("The game keeps at most 1500 scouted players: Turbo refuses a reveal that would make it forget older reports.");
+
+        ImGui::Separator();
+        // development (features/development.lua): squad-wide forced growth
+        json& dv = auto_cfg(app, "development");
+        static int squad_weekly = 1;
+        static bool squad_no_decline = true;
+        ImGui::SetNextItemWidth(S(160.0f));
+        ImGui::SliderInt("Points per week##dv", &squad_weekly, 1, 5);
+        ImGui::SameLine();
+        ImGui::Checkbox("No decline##dv", &squad_no_decline);
+        bool squad = dv.value("user_team", false);
+        if (ImGui::Checkbox("Grow my whole squad every week (auto)##dv", &squad)) {
+            dv["user_team"] = squad;
+            dv["weekly"] = squad_weekly;
+            dv["no_decline"] = squad_no_decline;
+            const bool any = dv.contains("players") && dv["players"].is_array() && !dv["players"].empty();
+            dv["enabled"] = squad || any;
+            apply_auto(app, "Weekly growth");
+        }
+        run_button(app, "Develop my squad to potential now##dv", "development",
+                   {{"scope", {{"user_team", true}}}, {"mode", "to_potential"}, {"confirm", true}}, true, "development");
+        ImGui::TextDisabled("One player: Players tab > Develop to potential / Growth... (weekly growth per player).");
+
+        ImGui::Separator();
+        // youth academy (features/youth.lua)
+        static int yid = 0, ypot = 0, ypos = -1, ytier = -1, yvar = -1;
+        run_button(app, "List my youth academy##yt", "youth", {{"mode", "list"}}, true);
+        ImGui::SetNextItemWidth(S(110.0f));
+        ImGui::InputInt("Youth player ID##yt", &yid, 0);
+        ImGui::SetNextItemWidth(S(110.0f));
+        ImGui::InputInt("Potential (0 = leave)##yt", &ypot, 0);
+        ImGui::SetNextItemWidth(S(110.0f));
+        ImGui::InputInt("Position 0-27 (-1 = leave)##yt", &ypos, 0);
+        ImGui::SetNextItemWidth(S(110.0f));
+        ImGui::InputInt("Tier (-1 = leave)##yt", &ytier, 0);
+        ImGui::SetNextItemWidth(S(110.0f));
+        ImGui::InputInt("Potential range width (0 = exact, -1 = leave)##yt", &yvar, 0);
+        if (yid > 0)
+            run_button(app, "Set youth player##yt", "youth",
+                       {{"mode", "set"}, {"playerid", yid}, {"potential", ypot}, {"position", ypos}, {"tier", ytier}, {"variance", yvar}}, true);
+    }
+
     // ---------------------------------------------------------------- club budget
     if (ImGui::CollapsingHeader("Your club: transfer budget", ImGuiTreeNodeFlags_DefaultOpen)) {
         const std::string* no_budget = st.unavailable_reason("transfer_budget");
@@ -298,7 +361,7 @@ void draw_tools(App& app) {
         if (use_dev) actions["development"] = {{"xp_multiplier", xp_mult}, {"bonus_xp", bonus_xp}, {"no_decline", no_decline}};
         if (why.empty() && set.empty() && actions.empty()) why = "set a field or tick an action";
         if (why.empty() && use_dev)
-            if (const std::string* r = st.unavailable_reason("development")) why = "Development: " + *r;
+            if (const std::string* r = st.unavailable_reason("development_xp")) why = "Development: " + *r;
         if (why.empty() && (use_fit || use_form || use_morale))
             if (const std::string* r = st.unavailable_reason("form_morale")) why = *r;
         json overrides = {{"scope", sc}, {"filters", json::object()}, {"set", set}, {"actions", actions},

@@ -40,6 +40,7 @@ M.CALL_OP_STANDINGS_REFRESH = 2  -- args: svm, managers, comm service, ifce (tur
 -- args: action (core/moves.lua LIST_ACTION), player id, comm service, the player's club; outputs: contract status
 -- before / after (turbogui/src/core/transfer_list.h)
 M.CALL_OP_TRANSFER_LIST = 10
+M.CALL_OP_REVEAL = 3             -- args: PlayerDataRevealManager, mode (0 player / 1 team), id, manager table (core/reveal.h)
 
 -- bridge_dll.json is stamped by the DLL every ~2 s while it runs. A file older than this is left over from an
 -- earlier game session: its mailbox address means nothing in this process and is never read.
@@ -708,13 +709,33 @@ function M.install_natives()
         if status == "ok" or status == "queued" then return true, text, status, before, after end
         return false, text, status
     end
+    --   TurboRevealPlayerData(pdrm_address, mode, id) -> ok, message, status, out0, out1: the game's own
+    --   PlayerDataRevealManager marks one player (mode 0, id = player id) or every player of a club (mode 1, id = team
+    --   id) fully scouted, so the Player Bio and the GTN show the true attributes and potential (core/reveal.h).
+    --   pdrm 0 = the manager the DLL captured from the game's own events. The manager table goes along for the
+    --   slot-78 cross-check (0 when unknown: the DLL skips it).
+    _G.TurboRevealPlayerData = function(pdrm, mode, id)
+        local a = math.tointeger(pdrm) or 0
+        local m = math.tointeger(mode) or 0
+        local i = math.tointeger(id) or 0
+        local managers = 0
+        local okm, memmod = pcall(require, 'imports/turbo/core/mem')
+        if okm and type(memmod) == "table" and memmod.map_available() then
+            local okt, tbl = pcall(memmod.manager_table)
+            if okt and math.type(tbl) == "integer" then managers = tbl end
+        end
+        local status, text, out0, out1 = M.game_call(M.CALL_OP_REVEAL, { a, m, i, managers },
+            string.format("reveal %s %d", m == 1 and "team" or "player", i))
+        if status == "ok" or status == "queued" then return true, text, status, out0, out1 end
+        return false, text, status, out0, out1
+    end
     -- Live Editor's missing natives (cAddPlayerToTransferList & co.) on top of it: its own wrappers work again
     local okm, moves = pcall(require, 'imports/turbo/core/moves')
     local le_names = (okm and type(moves) == "table") and moves.install_le_natives() or {}
     env.reset_api_cache()   -- wrappers that were unavailable because their c-native was missing are usable now
     S.natives_installed = true
-    S.unavailable = nil   -- caps changed: bridge_state.json lists job_offer / the list moves as available from now on
-    log.info("Turbo natives installed: TurboJobOfferCreate, TurboStandingsRefresh, TurboTransferList (Turbo.dll game calls)%s",
+    S.unavailable = nil   -- caps changed: bridge_state.json lists job_offer / the list moves / reveal as available from now on
+    log.info("Turbo natives installed: TurboJobOfferCreate, TurboStandingsRefresh, TurboTransferList, TurboRevealPlayerData (Turbo.dll game calls)%s",
         #le_names > 0 and ("; Live Editor natives: " .. table.concat(le_names, ", ")) or "")
     return true
 end

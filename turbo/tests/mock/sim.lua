@@ -326,6 +326,20 @@ function Sim:install()
     SetPlayerForm = function(pid, v) s:record("SetPlayerForm", pid, v) end
     SetPlayerMorale = function(pid, v) s:record("SetPlayerMorale", pid, v) end
     SetPlayerFitness = function(pid, v) s:record("SetPlayerFitness", pid, v) end
+    -- FC 27 LE v27.1.2 natives (DOC.MD): a development plan exists for the user's own players only; values set
+    -- through the plan are remembered per player and field (s.dev_plans[pid][field])
+    s.dev_plans = {}
+    PlayerHasDevelopementPlan = function(pid)
+        s:record("PlayerHasDevelopementPlan", pid)
+        if not s.in_cm then error("not in career mode") end
+        return s.player_team ~= nil and s.player_team[pid] == s.user_team
+    end
+    PlayerSetValueInDevelopementPlan = function(pid, field, value)
+        s:record("PlayerSetValueInDevelopementPlan", pid, field, value)
+        if not s.in_cm then error("not in career mode") end
+        s.dev_plans[pid] = s.dev_plans[pid] or {}
+        s.dev_plans[pid][field] = value
+    end
     GetPlayersStats = function() return s.stats end
     PlayerExists = function(pid) return s:find_row("players", "playerid", pid) ~= nil end
     DeletePlayer = function(pid, tid)

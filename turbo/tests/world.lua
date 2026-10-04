@@ -10,6 +10,8 @@
 --   fc27_transfer_lists (bool)     FC 27 layout: linked lists of moves in the TransferManager (seen in game)
 --   fc27_user_fixtures (bool)      FC 27 layout: your club's remaining fixtures in the MainHubManager (seen in game)
 --   budget (int|false)             your club's transfer budget in the FC 27 finance list (default 81497280; false = none)
+--   development (bool)             the 34 attributes + growthprofile in players (value 40 + playerid % 30), leagueteamlinks
+--                                  (league 13: teams 1-7, league 31: teams 8-14), career_youthplayers (the generated players)
 
 local W = {}
 
@@ -20,8 +22,14 @@ W.LOANED_IN = 1026
 W.GENERATED = { 460001, 460002, 460003, 460004, 460005 }
 W.TEAMS = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 241, 111592 }
 
-local function players_spec(rows)
-    return {
+W.ATTRS = { "acceleration", "sprintspeed", "agility", "balance", "jumping", "stamina", "strength", "reactions",
+    "aggression", "composure", "interceptions", "positioning", "vision", "ballcontrol", "crossing", "dribbling",
+    "finishing", "freekickaccuracy", "headingaccuracy", "longpassing", "shortpassing", "defensiveawareness", "shotpower",
+    "longshots", "standingtackle", "slidingtackle", "volleys", "curve", "penalties", "gkdiving", "gkhandling",
+    "gkkicking", "gkreflexes", "gkpositioning" }
+
+local function players_spec(rows, extra)
+    local spec = {
         name = "players", short = "plyr",
         fields = {
             { name = "playerid", short = "pid_", depth = 21 },
@@ -47,6 +55,8 @@ local function players_spec(rows)
         },
         rows = rows,
     }
+    for _, f in ipairs(extra or {}) do spec.fields[#spec.fields + 1] = f end
+    return spec
 end
 
 function W.build(sim, opts)
@@ -120,7 +130,32 @@ function W.build(sim, opts)
         links[#links + 1] = { __invalid = true }
     end
     sim.player_team = player_team
-    sim:add_table(players_spec(prow))
+    local extra = nil
+    if opts.development then
+        extra = { { name = "growthprofile", short = "grpf", depth = 4 } }
+        for i, a in ipairs(W.ATTRS) do extra[#extra + 1] = { name = a, short = string.format("a%03d", i), depth = 7 } end
+        for _, r in ipairs(prow) do
+            if r.playerid then
+                r.growthprofile = 2
+                for _, a in ipairs(W.ATTRS) do r[a] = 40 + r.playerid % 30 end
+            end
+        end
+    end
+    sim:add_table(players_spec(prow, extra))
+    if opts.development then
+        local ltl = {}
+        for _, tid in ipairs(W.TEAMS) do
+            if tid >= 1 and tid <= 14 then ltl[#ltl + 1] = { leagueid = tid <= 7 and 13 or 31, teamid = tid } end
+        end
+        sim:add_table({ name = "leagueteamlinks", short = "ltl_",
+            fields = { { name = "leagueid", short = "lid_", depth = 15 }, { name = "teamid", short = "tid_", depth = 18 } }, rows = ltl })
+        local yrows = {}
+        for i = 1, 3 do yrows[#yrows + 1] = { playerid = W.GENERATED[i], potentialvariance = 3, playertier = 1, monthsinsquad = 2 } end
+        sim:add_table({ name = "career_youthplayers", short = "cyp_",
+            fields = { { name = "playerid", short = "pid_", depth = 19 }, { name = "potentialvariance", short = "ptvr", depth = 3 },
+                       { name = "playertier", short = "pltr", depth = 2 }, { name = "monthsinsquad", short = "mnsq", depth = 6 } },
+            rows = yrows })
+    end
     -- opts.edited_names = false: the test adds its own editedplayernames table
     if opts.edited_names ~= false then
         sim:add_table({

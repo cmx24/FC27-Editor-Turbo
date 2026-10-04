@@ -39,6 +39,9 @@ M.MODULES = {
     player_presets           = { path = 'imports/turbo/features/player_presets',           kind = "action", needs_cm = false, desc = "Export players to Live Editor preset CSV / Turbo JSON, or import a preset onto a player" },
     create_player            = { path = 'imports/turbo/features/create_player',            kind = "action", needs_cm = false, desc = "Create a new player (copy of a player, from a preset file, or blank) in a club" },
     job_offer                = { path = 'imports/turbo/features/job_offer',                kind = "action", needs_cm = true,  desc = "Create a job offer from a chosen club (feature flag)" },
+    reveal                   = { path = 'imports/turbo/features/reveal',                   kind = "action", needs_cm = true,  desc = "Reveal the true attributes and potential of players, a club or a league (scouting)" },
+    development              = { path = 'imports/turbo/features/development',              kind = "both",   needs_cm = true,  desc = "Grow players (to potential, +N, set) in the database and the game's development plans; weekly forced growth (auto)" },
+    youth                    = { path = 'imports/turbo/features/youth',                    kind = "action", needs_cm = true,  desc = "Youth academy: list the academy, set a youth player's potential, position or tier" },
 }
 
 local function message_box(cfg, title, text, opts)

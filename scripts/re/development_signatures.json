@@ -1,0 +1,31 @@
+{
+  "_about": "FC 27 reveal-player-data (PlayerDataRevealManager) code signatures, the ones Turbo.dll ships in sigscan.cpp kBuiltin. Derived from fc27_image.bin (FC27.exe 1.0.140.64835, base 0x140000000) on 2026-10-04 (docs/re/development.md). Check: bash scripts/re/py.sh scripts/re/check_signatures.py scripts/re/development_signatures.json",
+  "game": "FC27.exe 1.0.140.64835",
+  "image_base": "0x140000000",
+  "manager_type_id": 78,
+  "manager_type_id_source": "ENUM_FCEGameModesFCECareerModePlayerDataRevealManager in Live Editor lua/libs/v2/imports/career_mode/enums.lua",
+  "pdrm_size": "0x7D0",
+  "signatures": [
+    {"name": "PDRM_ctor (pdrm_vtable, resolve rip at +0xF)", "va": "0x147e2c104", "unique": true,
+     "sig": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8D 05 ?? ?? ?? ?? 48 89 51 08 48 89 01 48 8B D9 48 83 C1 10 E8 ?? ?? ?? ?? 48 8D 8B 68 03 00 00",
+     "proto": "PlayerDataRevealManager* ctor(this, CareerHub* hub)", "note": "called right after the 0x7D0-byte allocation tagged \"PlayerDataRevealManager\" in the hub builder (0x147F19108..0x147F19139); lea rax -> vtable 0x14B01D5B0"},
+    {"name": "pdrm_handle_event", "va": "0x147e3dac8", "unique": true,
+     "sig": "48 89 5C 24 08 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8D AC 24 10 FF FF FF 48 81 EC F0 01 00 00 49 8B F8",
+     "proto": "void HandleEvent(PDRM* this, int eventId, Event* ev)", "note": "0x3E/0x4A/0x60 -> RevealPlayerFully(ev+0x18) when ev+0x1C is the user's team; 0x73 -> RevealTeamFully(ev+0x20); 0x4E scout report; 0x0F/0x10 day / week passed"},
+    {"name": "pdrm_reveal_player", "va": "0x147e325f0", "unique": true,
+     "sig": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 40 4C 8B 41 08 48 8B F9 8B DA",
+     "proto": "void RevealPlayerFully(PDRM* this, int playerId)", "note": "today = TodayInt([[hub+0x318]]+0x34); if PlayerExists([[hub+0x418]], pid) (players row query) insert {pid, -1, 0, 0xCC, today, 0xFF} through 0x147E2ECD0 (vector at this+0x790)"},
+    {"name": "pdrm_reveal_team", "va": "0x147e32678", "unique": true,
+     "sig": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 40 48 8B 41 08 48 8B F9 C5 F9 EF C0",
+     "proto": "void RevealTeamFully(PDRM* this, int teamId)", "note": "players of the team from [[hub+0x418]] (0x147B7281C, 0x130-byte rows), RevealPlayerFully for each"},
+    {"name": "calendar_today_int", "va": "0x142aa5824", "unique": true,
+     "sig": "48 83 EC 28 83 CA FF E8 ?? ?? ?? ?? 3C 01 75 0C 6B 41 08 64 03 41 04 6B D0 64 03 11",
+     "proto": "int TodayInt(CalendarDate*)", "note": "shared with the job offer; yyyymmdd"}
+  ],
+  "vtables_rva": {"PlayerDataRevealManager": "0xB01D5B0"},
+  "functions_unhooked": {
+    "PDRM_RecordInsert": "0x147e2ecd0 bool (vector*, Record*): lower_bound by player id, overwrite or insert; when count+1 >= 1500 (0x5DC) sorts with its comparator and keeps 1400 (0x6D60 bytes), then re-sorts by player id",
+    "PDRM_GetPlayerRevealData": "0x147e38d54 (PDRM*, int pid, PlayerRevealData* out, ...): what every screen asks; 34 attributes, level 7 = exact",
+    "PDRM_FindRecord": "0x147e389fc (vector*, int pid, Record* out)"
+  }
+}

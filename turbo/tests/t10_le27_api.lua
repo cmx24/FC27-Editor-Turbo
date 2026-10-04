@@ -44,9 +44,11 @@ end)
 H.case("v27.1.2: the tools this build cannot run are published for the Turbo window", function()
     local caps = require 'imports/turbo/core/caps'
     local u = caps.unavailable()
-    for _, k in ipairs({ "transfer_bans", "development", "move_transfer_list", "move_loan_list", "move_unlist" }) do
+    for _, k in ipairs({ "transfer_bans", "development_xp", "move_transfer_list", "move_loan_list", "move_unlist" }) do
         H.ok(u[k], k .. " unavailable")
     end
+    -- Turbo's development works through the two development-plan natives v27.1.2 ships
+    H.eq(u.development, nil, "development available through the plan natives")
     -- done by Turbo itself in 0.3.0 (core/budget.lua, core/moves.lua): not greyed out
     for _, k in ipairs({ "transfer_budget", "delete_players", "move_transfer", "move_loan", "move_release",
                          "move_terminate_loan" }) do
@@ -136,7 +138,8 @@ H.case("all natives: wrappers are usable", function()
     H.eq(u.move_transfer_list, nil); H.eq(u.move_transfer, nil); H.eq(u.transfer_budget, nil); H.eq(u.transfer_bans, nil)
     -- job_offer needs Turbo.dll's own game-call native (TurboJobOfferCreate), never a Live Editor one
     H.ok(u.job_offer, "job_offer waits for Turbo.dll")
-    u.job_offer = nil
+    H.ok(u.reveal, "reveal waits for Turbo.dll")
+    u.job_offer, u.reveal = nil, nil
     H.eq(next(u), nil, "every tool available with all natives")
 end)
 

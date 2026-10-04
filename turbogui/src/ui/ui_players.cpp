@@ -408,6 +408,89 @@ static void moves_popup(App& app, int64_t pid, bool from_user) {
     }
 }
 
+// Scouting and development of one player (Manager Career): features/reveal.lua (the game's own PlayerDataRevealManager
+// through Turbo.dll, caps key "reveal") and features/development.lua (players table + the game's development plan,
+// caps key "development")
+static bool career_button(App& app, const char* label, const char* key, const char* tip) {
+    const BridgeState& st = app.bridge.state();
+    const std::string* missing = st.unavailable_reason(key);
+    const bool off = app.busy() || !app.mailbox || !st.in_cm || missing;
+    if (off) ImGui::BeginDisabled();
+    const bool clicked = ImGui::Button(label);
+    if (off) ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("%s", missing ? missing->c_str() : !st.in_cm ? "Needs a loaded Manager Career" : tip);
+    return clicked && !off;
+}
+
+static void career_dev_tab(App& app, const PlayerRow& p) {
+    static int delta = 1, potential = 0, weekly = 1;
+    static bool no_decline = true;
+    ImGui::TextDisabled("Manager Career: these run through Turbo's Lua side on the next career-mode event.");
+    ImGui::SeparatorText("Scouting");
+    if (career_button(app, "Reveal data", "reveal",
+                      "The game marks him fully scouted: his Player Bio shows the true attributes and potential")) {
+        json o = {{"scope", {{"playerid", p.playerid}}}};
+        app.send({{"op", "run"}, {"module", "reveal"}, {"overrides", o}}, "Reveal " + p.name);
+    }
+    if (p.club > 0) {
+        ImGui::SameLine();
+        if (career_button(app, "Reveal his club", "reveal", "Every player of his club fully scouted")) {
+            json o = {{"scope", {{"teamid", p.club}}}};
+            app.send({{"op", "run"}, {"module", "reveal"}, {"overrides", o}}, "Reveal " + p.club_name);
+        }
+    }
+    ImGui::SeparatorText("Development");
+    char lbl[64];
+    std::snprintf(lbl, sizeof(lbl), "Develop to potential (%d)", p.potential);
+    if (career_button(app, lbl, "development",
+                      "Every attribute of his group rises by potential - overall and his overall becomes his potential; "
+                      "your players' development plans follow")) {
+        json o = {{"scope", {{"playerid", p.playerid}}}, {"mode", "to_potential"}};
+        app.send({{"op", "run"}, {"module", "development"}, {"overrides", o}}, "Develop " + p.name);
+    }
+    ImGui::SetNextItemWidth(S(120.0f));
+    ImGui::InputInt("Points per attribute##dvd", &delta, 1);
+    delta = std::max(-20, std::min(delta, 20));
+    ImGui::SameLine();
+    if (career_button(app, "Add now##dvd", "development", "Adds the points to every attribute of his group (and to his overall)") && delta != 0) {
+        json o = {{"scope", {{"playerid", p.playerid}}}, {"mode", "add"}, {"delta", delta}};
+        app.send({{"op", "run"}, {"module", "development"}, {"overrides", o}}, "Growth " + p.name);
+    }
+    ImGui::SetNextItemWidth(S(120.0f));
+    ImGui::InputInt("New potential##dvp", &potential, 1);
+    potential = std::max(0, std::min(potential, 99));
+    ImGui::SameLine();
+    if (career_button(app, "Set potential##dvp", "development", "players.potential (the game's growth aims at it)") && potential > 0) {
+        json o = {{"scope", {{"playerid", p.playerid}}}, {"mode", "none"}, {"potential", potential}};
+        app.send({{"op", "run"}, {"module", "development"}, {"overrides", o}}, "Potential " + p.name);
+    }
+    ImGui::SeparatorText("Weekly forced growth (auto)");
+    json& a = app.gui_settings["auto"]["development"];
+    if (!a.is_object()) a = json::object();
+    const json players = a.contains("players") && a["players"].is_array() ? a["players"] : json::array();
+    bool listed = std::find(players.begin(), players.end(), json(p.playerid)) != players.end();
+    ImGui::SetNextItemWidth(S(120.0f));
+    ImGui::SliderInt("Points per week##dvw", &weekly, 1, 5);
+    ImGui::SameLine();
+    ImGui::Checkbox("No decline##dvw", &no_decline);
+    if (ImGui::Checkbox("Grow him every week while below his potential##dvw", &listed)) {
+        json out = json::array();
+        for (const auto& x : players)
+            if (x != json(p.playerid)) out.push_back(x);
+        if (listed) out.push_back(p.playerid);
+        a["players"] = out;
+        a["weekly"] = weekly;
+        a["no_decline"] = no_decline;
+        a["enabled"] = !out.empty() || a.value("user_team", false);
+        if (app.save_gui_settings()) app.send({{"op", "boot"}}, "Weekly growth");
+        else app.notify("cannot write turbo_output\\gui_settings.json", true);
+    }
+    const size_t n = a.contains("players") && a["players"].is_array() ? a["players"].size() : 0;
+    ImGui::TextDisabled("%zu players listed for weekly growth%s", n, a.value("user_team", false) ? " (plus your whole squad)" : "");
+    ImGui::TextDisabled("Potential, growth profile and every attribute are also in the Attributes and All fields tabs.");
+}
+
 static void player_editor(App& app) {
     const Table* t = app.db.table("players");
     const PlayerRow* p = app.model.player(app.sel_player);
@@ -642,6 +725,12 @@ static void player_editor(App& app) {
         }
         if (ImGui::BeginTabItem("All fields")) {
             all_fields(app, *t, p->rec, "##pall");
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Growth")) {
+            ImGui::BeginChild("##pgrowth");
+            career_dev_tab(app, *p);
+            ImGui::EndChild();
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
