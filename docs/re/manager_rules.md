@@ -8,6 +8,10 @@ tags: `[H]` read directly from the code, `[M]` strong inference, `[L]` guess. Ev
 Live check (dev service, 2026-10-04, main menu): the running game's vtables `0x14B019370` (slots `0x147DF7F8C,
 0x147DFFFA0, 0x147E02E74`) and `0x14B016598` (slots `0x147DBAEC0, 0x147DD2A30, 0x147DBAF60`) match the image; no career
 was loaded, so no live object was read (the in-game plan below covers it).
+**Live proof (dev service, 2026-10-04 08:50, career `turbo04` in the hub, SSC Napoli = team 48): section 1.1.** It found
+the one wrong assumption of the first build (c86ed3f): the object at +0x8 of every career manager is the career
+**manager table**, not a "career hub" object with a vtable; Turbo refused the real ClubObjectivesManager because of it
+(section 1.2). `scripts/re/manager_rules_live.py` repeats the live proof (read-only) on any running career.
 
 Scope: the user's own offline Manager Career. Only career-mode game logic was looked at.
 
@@ -38,33 +42,81 @@ The career hub builder allocates each manager with its name string, then calls i
 0x147F19471  lea r9,"ClubObjectivesManager" ; ...                                ; call 0x147DF42D0 (ctor)
 ```
 
-* `ClubObjectivesManager` ctor `0x147DF42D0(this, hub)`: `lea rax,[0x14B019370]; [rcx+8] = hub; [rcx] = rax;
-  [this+0x108] = this; [this+0x110] = 1; [this+0x114] = -1; [this+0x118] = 0; [+0x11C..+0x124] = 80` `[H]`.
+* `ClubObjectivesManager` ctor `0x147DF42D0(this, table)`: `lea rax,[0x14B019370]; [rcx+8] = table; [rcx] = rax;
+  [this+0x108] = this; [this+0x110] = 1; [this+0x114] = -1; [this+0x118] = 0; [+0x11C..+0x124] = 80;
+  [+0x248/+0x250/+0x258] = 0; [+0x268] = 0x14B019638 (level object); [+0x270] = this+0x11C` `[H]`.
   Live Editor type id 133 (`ENUM_FCEGameModesFCECareerModeClubObjectivesManager`), found by Lua through `mem.manager(133)`.
-* `JobSwitchManager` ctor `0x147DB6984(this, hub)`: `[rcx+8] = hub; lea rax,[0x14B016598]; [rcx] = rax` `[H]`; type id 54.
-  Vtable slot 1 = `HandleEvent 0x147DD2A30` `[H]`.
-* Hub slots are `type * 0x20 + 0x18` (`+0x318` calendar = type 24, `+0x6D8` = type 54 JobSwitchManager, `+0x1038`
-  user = 129) `[H]`; the JobMarketManager reads `[[hub+0x6D8]]+0x1E1` (mWasSacked) in `ApplyForJob`, consistent.
+* `JobSwitchManager` ctor `0x147DB6984(this, table)`: `[rcx+8] = table; lea rax,[0x14B016598]; [rcx] = rax` `[H]`; type
+  id 54. Vtable slot 1 = `HandleEvent 0x147DD2A30` `[H]`.
+* **The second argument is the career manager table** (the "ctx" of `standings-ui-path.md`): the builder passes
+  `0x147F2B3E8(r14)` = `[r14+0x10]`, and registers the new object in the same table right after the constructor:
+  `0x147EC0750(table, obj)` = `holder [table+0x10B8][count [table+0x10B0]++] = obj` = **slot 133**; `0x147EC07C0` =
+  `+0x6D8 / +0x6D0` = **slot 54** `[H]`. Slot n = `table + n*0x20`: `+0 i32 type id`, `+8 type descriptor (+0x10 == 1)`,
+  `+0x10 i32 instance count`, `+0x18 holder -> object` (the layout Live Editor's `GetManagerObjByTypeId` walks). The
+  "hub slots" `+0x318` (24 CalendarManager), `+0x4F8` (39 EventsMailBox), `+0x6D8` (54 JobSwitchManager), `+0x6F8` (55
+  LiveServicesManager), `+0x1038` (129 user) are these holders. The table is **not an object**: its first qword is slot
+  0's type id, 0.
 
 Turbo resolves both vtables from the constructors' `lea` (`com_vtable` rip at +0x1C, `jsm_vtable` rip at +0x13) and checks
-every object against them before reading or writing; the capture hooks only record a `this` whose vtable matches.
+every object against them **and against the table at its +0x8, whose slot of the object's own type id must hold it**,
+before reading or writing; the capture hooks only record a `this` whose vtable matches.
+
+### 1.1 Live proof (dev service, 2026-10-04 08:50, career turbo04 in the hub, team 48)
+
+`scripts/re/manager_rules_live.py` (read-only; same checks as `validate_com` / `validate_jsm` / `check_update_path`):
+
+| what | live value | proves |
+|---|---|---|
+| manager table (`bridge_state.json managers`) | `0x6C39E010`, first qword **0** (slot 0) | the "hub" is no object: the c86ed3f check `[[obj+8]]` must be a pointer fails on it |
+| slot 133 | type id 133, count 1, holder `0x670261B0` -> **`0x6F83FAA0`** (the address Lua passed) | Lua's slot is the right one |
+| `0x6F83FAA0` | vtable **`0x14B019370`**, `+0x8` = `0x6C39E010`, `+0x108` = itself, `+0x110` = 1, `+0x114` = **48**, addon 0, scores 80 / 80 / 80 | the ClubObjectivesManager (ctor layout; the UI's "80/100 safe" is `+0x124`) |
+| bands `+0x278..+0x288` | 40 / 55 / 65 / 80 / 35 == settings `+0x38/+0x3C/+0x40/+0x44/+0x4C` | the threshold copies of 0x147E06AAC (very insecure < 55 <= insecure < 65 <= okay < 80 <= safe) |
+| `+0x248 / +0x250 / +0x258` | `0x6BD6E260` (slot 24, vtable 0x14AFDC498) / `0x6BAA2990` (slot 54) / `0x3A456B050` (slot 55, vtable 0x14B016390) | 0x147E06AAC ran: the career is set up |
+| `+0x268 / +0x270` | `0x14B019638` (slot 6 = `0x147DF9A8C`) / `this+0x11C` | the inline level object |
+| objectives `+0x218..+0x220` | 2: `0x6F83FE00` (vtable 0x14B019870), `0x6F83FE38` (0x14B0192C8); slots 0..4 in code; both +0x20 = `this+0x10` (the settings) | |
+| `[[table+0x4F8]]` | `0x672166A0` == slot 39 (EventsMailBox); `[+0]` dispatcher `0x6DE05E20`, vtable `0x14972FB80`, `+0x30` = `0x14230F760` | the event post chain |
+| global allocator `[0x14C269EA8]` | `0x7C4C9AF0`, vtable `0x14970F668` (slot 2 `0x142F95928`) | the event allocation (same as the standings refresh) |
+| slot 54 | holder `0x6702A290` -> **`0x6BAA2990`**: vtable **`0x14B016598`**, `+0x8` = the table, `+0x1B8` mLastJobSwitchDate 20260630, `+0x1BC` mPreviousTeamId -1, `+0x1E0/+0x1E1` = 0/0 | the JobSwitchManager |
+| Turbo log 08:43:14 | `manager rules: JobSwitchManager seen at 0x6BAA2990` (the vtable-checked `this` of the game's own `HandleEvent` calls) | the game itself dispatches JobSwitchManager events to that object |
+
+No RTTI in this build (`vtable[-1]` points into code), so the class names rest on the builder's name strings, the
+registrars' slots, the constructors' vtables, the name strings inside `UpdateJobSecurityScore` / `SackManager`, and the
+live objects above.
+
+### 1.2 What went wrong in c86ed3f (04-10-2026 08:46)
+
+Managers > Manager rules > "Insecure" was refused before any game call: `ClubObjectivesManager at 0x6F83FAA0 has no
+readable career hub (+0x8): is a career loaded?`. Lua's pointer was right (slot 133, vtable matched). `object_ok` then
+required `[[obj+0x8]]` to be a pointer (it assumed a hub object with a vtable at +0x8), but `[obj+0x8]` is the manager
+table and its first qword is slot 0's type id 0. The same check sat in `validate_jsm`, so "Unsackable" with Lua's
+JobSwitchManager would have been refused too, and the SackManager hook would have refused a sack without clearing
+mPendingSack. The status line's "ClubObjectivesManager not seen yet (0 score updates seen)" was correct and harmless: the
+game had not run `UpdateJobSecurityScore` in that session (its callers are career handlers, section 2.3), so only
+Lua's pointer was available.
+
+Fix: `object_ok` takes the type id and requires `svm::manager_at(table, type) == obj` (the slot of its own type in the
+table at its +0x8 holds it: a stronger proof than any vtable), and `check_update_path` (section 2.5) checks every pointer
+the update dereferences before Turbo calls it. Lua's `M.locate` (features/manager_rules.lua) also requires the slot's
+object to point back at the table before it passes or reads it.
 
 ## 2. ClubObjectivesManager: job security
 
 ### 2.1 Fields
 
 ```
-ClubObjectivesManager                                                     [H]
-+0x008 CareerHub*
+ClubObjectivesManager                                                     [H, live 1.1]
++0x008 career manager table (section 1; not an object)
 +0x010 OBJECTIVES/* settings block (ctor passes this+0x10 to 0x147DF5D14; the loader 0x147E00E7C fills it)
        +0x38 JOB_SECURITY_VERY_INSECURE  +0x3C JOB_SECURITY_INSECURE  +0x40 JOB_SECURITY_OKAY
        +0x44 JOB_SECURITY_SAFE           +0x4C JOB_SECURITY_FIRED_POINTS
 +0x108 serialised block (serialiser 0x147EDB3A8 gets this+0x108): +0 = the manager itself
        +0x110 u8  mIsManagerMode    +0x114 i32 mUserTeamId    +0x118 i32 mJobSecurityScoreAddon
        +0x11C mJobSecurityScore { +0 mPreviousSeasonFinalScore, +4 mPreviousScore (+0x120), +8 mScore (+0x124) }
-+0x218 score logic: eastl::vector<Objective*> (+0x218/+0x220/+0x228), +0x248 calendar, +0x250 JobSwitchManager,
-       +0x258 hub+0x6F8 manager, +0x268 level object (vtable 0x14B019638), +0x278..+0x288 level thresholds
-       (copies of +0x38, +0x3C, +0x40, +0x44, +0x4C made by 0x147E06AAC)
++0x218 score logic: eastl::vector<Objective*> (+0x218/+0x220/+0x228), +0x248 CalendarManager ([[table+0x318]]),
+       +0x250 JobSwitchManager ([[table+0x6D8]]), +0x258 LiveServicesManager ([[table+0x6F8]]) - the three set by
+       0x147E06AAC when the career is set up (0 after the ctor) -, +0x260/+0x264 copies of settings +0x18/+0x1C,
+       +0x268 inline level object (vtable 0x14B019638), +0x270 its pointer to mJobSecurityScore (this+0x11C),
+       +0x278..+0x288 level thresholds (copies of +0x38, +0x3C, +0x40, +0x44, +0x4C made by 0x147E06AAC)
 ```
 
 ### 2.2 Threshold loader: the store follows the NEXT name
@@ -80,7 +132,7 @@ ClubObjectivesManager                                                     [H]
 * `UpdateJobSecurityScore(this)` `0x147E07E2C` (its own name string) `[H]`:
   `[+0x120] = [+0x124]; [+0x124] = 0x147E5F664(this+0x218, this+0x11C, [this+0x118]);` then compares
   `level(new)` with `level(previous)` through the level object (`[this+0x268]` vtable slot 6) and on a change posts career
-  event `0xA7` (`PostEvent(*(hub+0x4F8), 0xA7, ev)`).
+  event `0xA7` (`PostEvent([[table+0x4F8]], 0xA7, ev)`: the EventsMailBox of slot 39).
 * `0x147E5F664`: averages the objectives' scores, blends from `mPreviousSeasonFinalScore` over the influence days, then
   `result = clamp(blend + addon, 0, 100)` (`add eax, ebx; js -> 0; cmp eax,0x64; cmovg`) `[H]`.
 * Level function `0x147DF9A8C` (this = manager+0x268): `score >= [+0x1C] (safe) -> 3`, else the first `i` in 1..3 with
@@ -94,8 +146,9 @@ ClubObjectivesManager                                                     [H]
 ### 2.4 Turbo's job security call (core/manager_rules.h)
 
 `job_security_call(mem, game, fns, req)` on the game thread:
-1. `validate_com`: vtable `0x14B019370`, 0x2A0 bytes readable, `[+0x108] == this`, `mIsManagerMode == 1`, `mUserTeamId > 0`
-   and equal to the user's club Lua passes, score 0..100, readable hub.
+1. `validate_com`: vtable `0x14B019370`, 0x2A0 bytes readable, **the manager table at +0x8 holds it in slot 133**,
+   `[+0x108] == this`, `mIsManagerMode == 1`, `mUserTeamId > 0` and equal to the user's club Lua passes, score 0..100.
+   For set / restore also `check_update_path` (section 2.5); a get only reads.
 2. The addon: Safe -> `+100` (locked: any objectives part clamps to 100), Very insecure -> `-100` (locked at 0), Okay /
    Insecure -> the middle of the band (`(okay+safe)/2`, `(insecure+okay)/2`), a score -> `target - (score - addon)` (the
    objectives part of the last update), "game's own" -> 0. Clamped to +-100.
@@ -105,11 +158,30 @@ ClubObjectivesManager                                                     [H]
 
 Nothing else is written. The level shown in the board screen is the game's own result.
 
+### 2.5 What `UpdateJobSecurityScore` dereferences (checked by `check_update_path` before every call)
+
+From the code (`0x147E07E2C`, the score function `0x147E5F664` with `r15 = this+0x218`, `0x147E682E0`, `0x147DD6760`,
+`0x147DD03B8`, `PostEvent 0x14060124C`) `[H]`, each checked on the live object (section 1.1):
+
+| read | where | Turbo's check |
+|---|---|---|
+| `+0x118..+0x124` | the update | `validate_com` (0x2A0 bytes) |
+| `[+0x218 .. +0x220)` Objective*, null entries skipped; vtable slots `+0x00` `+0x08` `+0x10` `+0x18` `+0x20` called | 0x147E5F664, 0x147E682E0 | begin <= end, 8-byte entries, at most 64, every non-null entry's slots 0..4 readable code pointers |
+| `[+0x248]` +0x10..+0x40 (dates) | 0x147E5F664, 0x147E682E0 | == the table's slot 24 object, 0x40 bytes readable |
+| `[+0x250]` +0x1B8 | 0x147E5F664 | == slot 54 object and a valid JobSwitchManager (vtable, table, flags) |
+| `[+0x258]` +0x18..+0x38 | 0x147DD6760 / 0x147DD03B8 | == slot 55 object, 0x38 bytes readable |
+| `+0x260/+0x264` | 0x147E5F664 | inside the 0x2A0 bytes |
+| `[[+0x268]+0x30]` (level function, twice) | the update | readable code pointer; `[+0x270] == this+0x11C` |
+| on a level change: `[0x14C269EA8]` allocator, `[[[ [table+0x4F8] ]]]+0x30` | the update, PostEvent | the mailbox == slot 39 object via the holder at `table+0x4F8`, its dispatcher's vtable `+0x30` readable (the allocator is the game's global one, read live in 1.1) |
+
+A career whose 0x147E06AAC has not run (fields still 0 from the ctor) or a torn-down career is refused with the reason;
+the native tests break each of these one at a time.
+
 ## 3. JobSwitchManager: the sack
 
 ```
-JobSwitchManager (0x1E8)                                                   [H]
-+0x008 CareerHub*
+JobSwitchManager (0x1E8)                                                   [H, live 1.1]
++0x008 career manager table (registered in slot 54 by 0x147EC07C0)
 +0x1B8 serialised block (serialiser 0x147EDF91C): +0 mLastJobSwitchDate, +4 mPreviousTeamId, +8 ..., +0x28 mPendingSack
        (+0x1E0), +0x29 mWasSacked (+0x1E1)
 ```
@@ -117,7 +189,7 @@ JobSwitchManager (0x1E8)                                                   [H]
 * `HandleEvent(this, id, ev)` `0x147DD2A30` (vtable slot 1): `0x17` (job switch): date / previous team, `word [+0x1E0] = 0`;
   `0x0F` DAY_PASSED: `if byte [+0x1E0] != 0: jmp SackManager`; `0x3B`: an entry into the +0x1C0 list `[H]`.
 * `SackManager(this)` `0x147DDF900` (its own name string): `byte [+0x1E1] = 1`, allocates a 0x18 event and
-  `PostEvent(*(hub+0x4F8), 0xAD, ev)` - the game's "you have been sacked" flow `[H]`.
+  `PostEvent([[table+0x4F8]], 0xAD, ev)` - the game's "you have been sacked" flow `[H]`.
 * Callers: the DAY_PASSED tail jump above and `0x147F57D14`, the `CM_Manager_Contract_Ended` handler (adds that message,
   then `SackManager`) `[H]`. Who sets `mPendingSack` was not found as a direct byte store in the career code (the block is
   copied whole by `0x147DB9900` / `0x147DB9C04`); it does not matter for the hook, which sits on the one function both
@@ -129,8 +201,11 @@ JobSwitchManager (0x1E8)                                                   [H]
 
 The detour on `SackManager` is the only refusing hook in Turbo. With the switch off, or with
 `turbo_output\call_manager_rules_off.txt`, `hook_jsm_sack_manager_off.txt` or `game_hooks_off.txt` present, it calls the
-original. With the switch on it counts the attempt, clears `mPendingSack` on a validated JobSwitchManager (so DAY_PASSED
-does not ask again; `mWasSacked` is never touched) and returns without calling the original. Skipping the call is safe for
+original. With the switch on it counts the attempt, clears `mPendingSack` on a validated JobSwitchManager (vtable, and slot 54 of
+the table at its +0x8 holds it; so DAY_PASSED does not ask again; `mWasSacked` is never touched) and returns without
+calling the original. On an object that does not validate it still refuses (not calling `SackManager` is always safe) but
+writes nothing. Live: the hook is installed at `0x147DDF900` and the HandleEvent capture saw `this` = `0x6BAA2990`, the
+object of slot 54 (section 1.1). Skipping the call is safe for
 both callers: `SackManager` is `void`, the DAY_PASSED path tail-jumps into it and the contract-ended handler only frees its
 string afterwards. The switch is off at every game start; "keep" (`turbo_output\manager_rules_keep.json`) makes the Lua
 bridge switch it on again once per session as soon as the native is installed.
@@ -144,14 +219,15 @@ ever rewrites the first bytes of `SackManager`, Turbo's signature no longer matc
 
 | Layer | File | What |
 |---|---|---|
-| core | `turbogui/src/core/manager_rules.h/.cpp` | layouts above, `validate_com` / `validate_jsm`, `read_job_security`, `level_plan`, `job_security_call`, `unsackable_call`, `sack_should_refuse` (tested on synthetic memory with a fake `UpdateJobSecurityScore`) |
+| core | `turbogui/src/core/manager_rules.h/.cpp` | layouts above, `validate_com` / `validate_jsm` (vtable + the table's own slot), `check_update_path` (section 2.5), `read_job_security`, `level_plan`, `job_security_call`, `unsackable_call`, `sack_should_refuse` (tested on synthetic memory laid out like the live career of 1.1, with a fake `UpdateJobSecurityScore`) |
 | signatures | `turbogui/src/core/sigscan.cpp` | `com_vtable`, `com_update_job_security`, `jsm_vtable`, `jsm_handle_event`, `jsm_sack_manager` (same bytes as `scripts/re/manager_rules_signatures.json`; the native test resolves them on the image's bytes) |
 | Windows host | `turbogui/src/win/manager_rules_win.cpp` | resolves the entries; pass-through capture hooks `com_update_job_security` / `jsm_handle_event` (vtable-checked `this`; an independent check of Lua's `mem.manager` pointers); the guarded `jsm_sack_manager` hook; the call (game call op 4) runs at once on the game thread or is queued; Status tab line "manager_rules: ready / off (why)" with managers seen, refused / passed sacks, last outcome |
 | mailbox | game call op 4 | args `sub-op, address, value, user team`; sub-ops 1 get, 2 set level, 3 set score, 4 restore, 5 unsackable, 6 flags |
 | Lua bridge | `imports/turbo/bridge.lua` | `TurboManagerRules(sub, addr, value, team) -> ok, text, status, out0, out1`; `bridge_state.json` `manager_rules` {score, addon, level, bands, locked, sack_pending, sacked, keep_unsackable} read with checked reads; re-applies a kept unsackable |
-| Lua features | `features/manager_rules.lua` (`turbo_manager_rules.lua`), `features/manager_move.lua` (`turbo_manager_move.lua`) | feature flags `modules.manager_rules` / `modules.manager_move`, validation, dry run, confirm |
+| Lua features | `features/manager_rules.lua` (`turbo_manager_rules.lua`), `features/manager_move.lua` (`turbo_manager_move.lua`) | feature flags `modules.manager_rules` / `modules.manager_move`, validation, dry run, confirm; `M.locate(type)`: the slot's object must point back at the table (+0x8) |
 | GUI | `ui_teams.cpp` Managers tab | "Manager rules: job security, unsackable (Manager Career)" and "Manager market: move a manager, make one available" |
 | tests | `turbo/tests/t14_manager_rules.lua`, `test_main.cpp` `test_manager_rules` + UI case | |
+| RE / live | `scripts/re/manager_rules_verify.py` (static, the image), `scripts/re/manager_rules_live.py` (read-only, the running career) | |
 
 Kill switches: `turbo_output\call_manager_rules_off.txt` (the call and the refusing hook), `hook_com_update_job_security_off.txt`,
 `hook_jsm_handle_event_off.txt`, `hook_jsm_sack_manager_off.txt`, `game_hooks_off.txt`.
@@ -219,9 +295,15 @@ Not done in this pass.
 
 1. Status tab > Game hooks: `com_vtable`, `com_update_job_security`, `jsm_vtable`, `jsm_handle_event`, `jsm_sack_manager`
    found; hooks `com_update_job_security`, `jsm_handle_event`, `jsm_sack_manager` active; "manager_rules: ready". Advance a
-   day: "ClubObjectivesManager seen at 0x..", "JobSwitchManager seen at 0x.." (the capture hooks).
-2. Managers tab > Manager rules: the score and level match the board / job security screen. "Very insecure (locked)":
-   toast "job security N -> 0 (locked very insecure)"; open the board screen: very insecure. "Safe (locked)": 100, safe.
+   day: "JobSwitchManager 0x.. (N events seen)"; "ClubObjectivesManager 0x.. (N score updates seen)" only once the game
+   updates the score itself (until then: "Lua's, checked against manager slot 133" after the first call).
+2. Managers tab > Manager rules (career loaded, in the hub; the first check after the 08:46 refusal): "Insecure" with the
+   score at 80 (bands 40/55/65/80) -> toast / log `game call manager_rules(sub 2, 0x.., value 1): ok [done] job security
+   80 -> 60 (aimed at 60): job security 60/100 (insecure; addon -20; ...)`; the panel shows 60/100 insecure; the board /
+   job security screen says insecure (when the game's own objectives part is no longer 80 the text adds "the score is X
+   instead of 60": apply again). Then "Game's own" -> back to the game's score (addon 0). If it is refused, the reason
+   names the exact field (section 2.5). "Very insecure (locked)": toast "job security N -> 0 (locked very insecure)";
+   open the board screen: very insecure. "Safe (locked)": 100, safe.
    "Okay": the middle of the band. "Game's own": the game's score. Advance a week with each lock: it stays.
 3. Unsackable ON (this session), then "Very insecure (locked)" and sim a few weeks: the log shows "the game called
    JobSwitchManager::SackManager ... refused" and you keep the job (Status line: refused N). OFF + very insecure: the

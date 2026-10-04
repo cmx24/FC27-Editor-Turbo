@@ -1,6 +1,8 @@
 // FC 27 LE Turbo GUI - manager rules (see manager_rules.h and docs/re/manager_rules.md)
 #include "manager_rules.h"
 
+#include "standings_refresh.h"  // svm::manager_at: the manager-table walk (the slot of a type id -> its object)
+
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -51,7 +53,15 @@ int job_security_level_from_name(const std::string& name) {
     return -1;
 }
 
-static bool object_ok(Memory& mem, uint64_t obj, uint64_t vtable, uint64_t size, const char* what, std::string& err) {
+// The object the career manager table `table` holds for `type_id`; 0 (err) when the slot is empty or unreadable
+static uint64_t table_object(Memory& mem, uint64_t table, int type_id, std::string& err) {
+    return svm::manager_at(mem, table, type_id, err);
+}
+
+// Readable, vtable (when known), `size` bytes, and the career manager table at +0x8 holds it in the slot of its own
+// type id. The table is not an object with a vtable (its first qword is slot 0's type id, 0): the 0.4 check that read
+// it as a "career hub" with a vtable refused the real ClubObjectivesManager on 04-10-2026.
+static bool object_ok(Memory& mem, uint64_t obj, uint64_t vtable, uint64_t size, int type_id, const char* what, std::string& err) {
     if (!is_ptr(obj, 8)) {
         err = std::string(what) + " address " + hex(obj) + " is not a pointer";
         return false;
@@ -70,16 +80,23 @@ static bool object_ok(Memory& mem, uint64_t obj, uint64_t vtable, uint64_t size,
         err = std::string(what) + " at " + hex(obj) + " is cut off (" + hex(size) + " bytes expected)";
         return false;
     }
-    uint64_t hub = mem.ptr(obj + 8);
-    if (!hub || !mem.ptr(hub)) {
-        err = std::string(what) + " at " + hex(obj) + " has no readable career hub (+0x8): is a career loaded?";
+    const uint64_t table = mem.ptr(obj + com::kTable);
+    if (!table) {
+        err = std::string(what) + " at " + hex(obj) + " has no career manager table at +0x8: is a career loaded?";
+        return false;
+    }
+    std::string e;
+    const uint64_t own = table_object(mem, table, type_id, e);
+    if (own != obj) {
+        err = "the career manager table at " + hex(table) + " (" + what + "+0x8) does not hold " + hex(obj) + " in slot " + std::to_string(type_id) +
+              " (" + (own ? "it holds " + hex(own) : e) + "): not the career's " + what + ", or no career loaded";
         return false;
     }
     return true;
 }
 
 bool validate_com(Memory& mem, uint64_t com, uint64_t vtable, int expect_team, std::string& err) {
-    if (!object_ok(mem, com, vtable, com::kReadSize, "ClubObjectivesManager", err)) return false;
+    if (!object_ok(mem, com, vtable, com::kReadSize, mtab::kClubObjectives, "ClubObjectivesManager", err)) return false;
     uint64_t owner = 0;
     uint8_t manager_mode = 0;
     int32_t team = 0, score = 0;
@@ -113,7 +130,7 @@ bool validate_com(Memory& mem, uint64_t com, uint64_t vtable, int expect_team, s
 }
 
 bool validate_jsm(Memory& mem, uint64_t jsm, uint64_t vtable, std::string& err) {
-    if (!object_ok(mem, jsm, vtable, jsm::kSize, "JobSwitchManager", err)) return false;
+    if (!object_ok(mem, jsm, vtable, jsm::kSize, mtab::kJobSwitch, "JobSwitchManager", err)) return false;
     uint8_t pending = 0, sacked = 0;
     if (!mem.rd(jsm + jsm::kSackPending, pending) || !mem.rd(jsm + jsm::kSacked, sacked)) {
         err = "JobSwitchManager sack flags are not readable";
@@ -121,6 +138,99 @@ bool validate_jsm(Memory& mem, uint64_t jsm, uint64_t vtable, std::string& err) 
     }
     if (pending > 1 || sacked > 1) {
         err = "JobSwitchManager sack flags hold " + std::to_string(pending) + "/" + std::to_string(sacked) + " (layout mismatch?)";
+        return false;
+    }
+    return true;
+}
+
+// [[obj]+slot] is a readable code pointer (the game calls it)
+static bool vcall_ok(Memory& mem, uint64_t obj, uint64_t slot) {
+    const uint64_t vt = mem.ptr(obj);
+    if (!vt) return false;
+    const uint64_t fn = mem.ptr(vt + slot, 1);
+    uint8_t b = 0;
+    return fn && mem.rd(fn, b);
+}
+
+// The manager `com`+field points at must be the one the table holds for `type_id` (0x147E06AAC copies them from the
+// table when the career is set up; the ctor leaves them 0), readable for `span` bytes
+static bool linked_manager(Memory& mem, uint64_t com, uint64_t table, uint64_t field, int type_id, uint64_t span, const char* what,
+                           std::string& err) {
+    const uint64_t p = mem.ptr(com + field);
+    std::string e;
+    const uint64_t own = table_object(mem, table, type_id, e);
+    if (!p || p != own) {
+        err = "ClubObjectivesManager+" + hex(field) + " (" + hex(p) + ") is not the career's " + what + " (manager slot " + std::to_string(type_id) +
+              ": " + (own ? hex(own) : e) + "): the career is not set up yet";
+        return false;
+    }
+    std::vector<uint8_t> buf;
+    if (!mem.read_block(p, static_cast<size_t>(span), buf)) {
+        err = std::string("the career's ") + what + " at " + hex(p) + " is not readable";
+        return false;
+    }
+    return true;
+}
+
+bool check_update_path(Memory& mem, uint64_t com, uint64_t jsm_vtable, std::string& err) {
+    const uint64_t table = mem.ptr(com + com::kTable);
+    if (!table) {
+        err = "ClubObjectivesManager has no career manager table at +0x8";
+        return false;
+    }
+    // the score function's managers: calendar (dates), JobSwitchManager (+0x1B8), LiveServicesManager (+0x18..+0x38)
+    if (!linked_manager(mem, com, table, com::kCalendarMgr, mtab::kCalendar, com::kCalendarSpan, "CalendarManager", err)) return false;
+    if (!linked_manager(mem, com, table, com::kJobSwitchMgr, mtab::kJobSwitch, jsm::kSize, "JobSwitchManager", err)) return false;
+    std::string e;
+    if (!validate_jsm(mem, mem.ptr(com + com::kJobSwitchMgr), jsm_vtable, e)) {
+        err = "ClubObjectivesManager+0x250: " + e;
+        return false;
+    }
+    if (!linked_manager(mem, com, table, com::kLiveServicesMgr, mtab::kLiveServices, com::kLiveServicesSpan, "LiveServicesManager", err))
+        return false;
+    // the level object (inline at +0x268): vtable slot 6 is called with the new and the previous score
+    if (!vcall_ok(mem, com + com::kLevelVt, com::kLevelFn)) {
+        err = "the job security level object (ClubObjectivesManager+0x268) has no readable level function (vtable slot 6)";
+        return false;
+    }
+    if (mem.ptr(com + com::kLevelScore, 4) != com + com::kPrevSeasonFinal) {
+        err = "the job security level object does not point at the manager's score (+0x270 != this+0x11C): layout mismatch?";
+        return false;
+    }
+    // the objectives: every non-null entry's vtable slots 0..4 are called
+    uint64_t b = 0, en = 0;
+    if (!mem.rd(com + com::kObjBegin, b) || !mem.rd(com + com::kObjEnd, en)) {
+        err = "the ClubObjectivesManager's objectives vector is not readable";
+        return false;
+    }
+    if (b || en) {
+        if (!is_ptr(b, 8) || !is_ptr(en, 8) || en < b || (en - b) % 8 != 0 || (en - b) / 8 > com::kMaxObjectives) {
+            err = "the ClubObjectivesManager's objectives vector is not plausible (" + hex(b) + ".." + hex(en) + ")";
+            return false;
+        }
+        for (uint64_t a = b; a < en; a += 8) {
+            uint64_t o = 0;
+            if (!mem.rd(a, o)) {
+                err = "objective entry " + hex(a) + " is not readable";
+                return false;
+            }
+            if (!o) continue;  // the game skips null entries
+            for (uint64_t k = 0; k < com::kObjSlots; ++k)
+                if (!is_ptr(o, 8) || !vcall_ok(mem, o, 8 * k)) {
+                    err = "objective " + hex(o) + " (entry " + std::to_string((a - b) / 8) + ") has no readable vtable slot " + std::to_string(k);
+                    return false;
+                }
+        }
+    }
+    // a level change posts career event 0xA7: PostEvent([[table+0x4F8]]) calls [[[mailbox]]+0x30]
+    const uint64_t mbox = table_object(mem, table, mtab::kEventsMailBox, e);
+    if (!mbox || mem.chain(table, {com::kMailBoxHolder, 0}) != mbox) {
+        err = "the career's EventsMailBox (manager slot 39, [table+0x4F8]) is not readable: " + (mbox ? std::string("holder mismatch") : e);
+        return false;
+    }
+    const uint64_t disp = mem.ptr(mbox);
+    if (!disp || !vcall_ok(mem, disp, com::kPostFn)) {
+        err = "the career's EventsMailBox at " + hex(mbox) + " has no readable event dispatcher ([[mailbox]]+0x30)";
         return false;
     }
     return true;
@@ -235,6 +345,8 @@ ManagerRulesResult job_security_call(Memory& mem, JobSecurityCaller& game, const
     if (!validate_com(mem, req.addr, fns.com_vtable, req.expect_team, err)) return fail("validate", err);
     JobSecurity before;
     if (!read_job_security(mem, req.addr, before, err)) return fail("validate", err);
+    if (req.sub != kMrGet && !check_update_path(mem, req.addr, fns.jsm_vtable, err))
+        return fail("validate", "the game's job security update cannot run on this object: " + err);
     if (req.sub == kMrGet) {
         ManagerRulesResult r;
         r.ok = true;

@@ -123,6 +123,31 @@ lv = " ".join(dis_text(0x147df9a8c, 12))
 check("[rcx + 0x1c]" in lv and "mov eax, 3" in lv, "level function: >= [this+0x1c] (com+0x284) -> 3 (safe)")
 check(rx.u64(0x14b019638 + 0x30) == 0x147df9a8c, "level object vtable 0x14b019638 slot 6 = 0x147df9a8c")
 
+print("+0x8 is the career manager table, not a hub object (the 04-10-2026 refusal; live proof: manager_rules_live.py)")
+ctx = " ".join(dis_text(0x147f2b3e8, 2))
+check("mov rax, qword ptr [rcx + 0x10]" in ctx and "ret" in ctx, "0x147f2b3e8 (the ctors' 2nd argument) = [builder+0x10]")
+for at, ctor, reg, slot in ((0x147f19468, 0x147df42d0, 0x147ec0750, 133), (0x147f18f27, 0x147db6984, 0x147ec07c0, 54)):
+    seq_txt = " ".join(dis_text(at, 22))
+    check("mov rdi, qword ptr [r14 + 0x10]" in seq_txt and ("call 0x%x" % ctor) in seq_txt and ("call 0x%x" % reg) in seq_txt,
+          "builder at %x: rdi = [r14+0x10] (the table), ctor %x, registrar %x(rdi, obj)" % (at, ctor, reg))
+    r = " ".join(dis_text(reg, 4))
+    check(("[rcx + 0x%x]" % (slot * 0x20 + 0x10)) in r and ("[rcx + 0x%x]" % (slot * 0x20 + 0x18)) in r,
+          "registrar %x writes slot %d (count +0x%x, holder +0x%x)" % (reg, slot, slot * 0x20 + 0x10, slot * 0x20 + 0x18))
+init = " ".join(dis_text(0x147e06aac, 40))
+for src, dst in ((0x318, 0x248), (0x6d8, 0x250), (0x6f8, 0x258)):
+    check(("[rdx + 0x%x]" % src) in init and ("[rbx + 0x%x], rcx" % dst) in init,
+          "0x147e06aac: com+0x%x = [[table+0x%x]] (slot %d)" % (dst, src, (src - 0x18) // 0x20))
+ct = dis_text(0x147df4363, 80)
+st = [i for i, l in enumerate(ct) if "mov qword ptr [r12 + 0x270], rcx" in l]
+last_rcx = [l for l in ct[:st[0]] if re.search(r"^\S+ (?:mov|lea|call|xor|add|sub|pop) rcx|^\S+ call ", l)] if st else []
+check(bool(st) and last_rcx and "lea rcx, [r12 + 0x11c]" in last_rcx[-1],
+      "ctor: level object +0x270 = this+0x11C (last rcx write: %s)" % (last_rcx[-1] if last_rcx else None))
+up = " ".join(dis_text(0x147e07e2c, 60))
+check("mov rax, qword ptr [rsi + 8]" in up and "mov rcx, qword ptr [rax + 0x4f8]" in up and "call 0x14060124c" in up,
+      "UpdateJobSecurityScore posts through [[[this+8]+0x4F8]] (EventsMailBox, slot 39)")
+pe = " ".join(dis_text(0x14060124c, 26))
+check("mov rcx, qword ptr [rbx]" in pe and "call qword ptr [rax + 0x30]" in pe, "PostEvent 0x14060124c calls [[[mailbox]]+0x30]")
+
 print("sack paths")
 he = " ".join(dis_text(0x147dd2a30, 60))
 check("cmp byte ptr [rcx + 0x1e0], 0" in he and "jmp 0x147ddf900" in he, "DAY_PASSED: [+0x1E0] -> SackManager")

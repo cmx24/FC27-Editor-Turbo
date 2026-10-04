@@ -20,6 +20,9 @@ ManagerRulesFns g_fns;
 bool g_installed = false;
 std::string g_off;  // why the call is off at install time ("" = resolved)
 std::atomic<uint64_t> g_com{0}, g_jsm{0};
+// the last pointers Lua passed that validated (vtable + the career manager table's own slot): shown in the Status
+// line while the game has not called UpdateJobSecurityScore / HandleEvent on them yet
+std::atomic<uint64_t> g_com_checked{0}, g_jsm_checked{0};
 std::atomic<bool> g_sack_hooked{false};
 std::atomic<long long> g_com_updates{0}, g_jsm_events{0}, g_runs{0};
 std::mutex g_mutex;          // g_unsack, g_last
@@ -136,7 +139,9 @@ ManagerRulesResult run_now(int64_t sub, uint64_t addr, int64_t value, int64_t te
         if (addr && seen && addr != seen)
             return fail("validate", "JobSwitchManager mismatch: Lua found " + hex(addr) + " but the game's events come from " + hex(seen));
         std::lock_guard<std::mutex> lock(g_mutex);
-        return unsackable_call(mem, g_fns, req, g_unsack);
+        ManagerRulesResult r = unsackable_call(mem, g_fns, req, g_unsack);
+        if (r.ok && req.addr) g_jsm_checked = req.addr;
+        return r;
     }
     req.addr = addr ? addr : g_com.load();
     if (!req.addr) return fail("validate", "the career's ClubObjectivesManager is not known yet: load a Manager Career and let a day pass");
@@ -144,7 +149,21 @@ ManagerRulesResult run_now(int64_t sub, uint64_t addr, int64_t value, int64_t te
     if (seen && req.addr != seen)
         return fail("validate", "ClubObjectivesManager mismatch: Lua found " + hex(req.addr) + " but the game's updates come from " + hex(seen));
     RealCaller game;
-    return job_security_call(mem, game, g_fns, req);
+    ManagerRulesResult r = job_security_call(mem, game, g_fns, req);
+    if (r.ok) g_com_checked = req.addr;
+    return r;
+}
+
+// "0x.. (N score updates seen)" / "0x.. (Lua's, checked against manager slot 133; no game update seen yet)" / "not seen yet"
+std::string seen_text(uint64_t seen, uint64_t checked, long long n, const char* what, int slot) {
+    char b[200];
+    if (seen)
+        std::snprintf(b, sizeof(b), "%s (%lld %s seen)", hex(seen).c_str(), n, what);
+    else if (checked)
+        std::snprintf(b, sizeof(b), "%s (Lua's, checked against manager slot %d; no %s seen yet)", hex(checked).c_str(), slot, what);
+    else
+        std::snprintf(b, sizeof(b), "not seen yet (%lld %s seen; Lua's pointer is checked against manager slot %d)", n, what, slot);
+    return b;
 }
 
 ManagerRulesResult run_logged(int64_t sub, uint64_t addr, int64_t value, int64_t team) {
@@ -200,12 +219,10 @@ std::vector<std::string> manager_rules_status() {
         last = g_last;
     }
     if (manager_rules_ready(&why))
-        std::snprintf(line, sizeof(line),
-                      "manager_rules: ready | ClubObjectivesManager %s (%lld score updates seen), JobSwitchManager %s (%lld events seen) | "
-                      "unsackable %s (SackManager refused %lld, let through %lld) | runs %lld",
-                      g_com.load() ? hex(g_com.load()).c_str() : "not seen yet", g_com_updates.load(),
-                      g_jsm.load() ? hex(g_jsm.load()).c_str() : "not seen yet", g_jsm_events.load(), st.on ? "ON" : "off", st.refused,
-                      st.passed, g_runs.load());
+        std::snprintf(line, sizeof(line), "manager_rules: ready | ClubObjectivesManager %s, JobSwitchManager %s | unsackable %s (SackManager refused %lld, let through %lld) | runs %lld",
+                      seen_text(g_com.load(), g_com_checked.load(), g_com_updates.load(), "score updates", mtab::kClubObjectives).c_str(),
+                      seen_text(g_jsm.load(), g_jsm_checked.load(), g_jsm_events.load(), "events", mtab::kJobSwitch).c_str(), st.on ? "ON" : "off",
+                      st.refused, st.passed, g_runs.load());
     else
         std::snprintf(line, sizeof(line), "manager_rules: off (%s)", why.c_str());
     out.push_back(line);

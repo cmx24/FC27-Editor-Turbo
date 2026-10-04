@@ -6845,19 +6845,50 @@ static void test_player_capture() {
 }
 
 // ================================================================ manager rules (core/manager_rules.h)
-// A synthetic career: ClubObjectivesManager + JobSwitchManager + hub, and a fake game whose UpdateJobSecurityScore
+// A synthetic career laid out like the live game of 04-10-2026 (docs/re/manager_rules.md section 1.1): the career
+// manager table (slot 0 empty, so its first qword is 0), ClubObjectivesManager in slot 133 and JobSwitchManager in slot
+// 54, both pointing back at the table from +0x8, the calendar (24), the EventsMailBox (39) and the LiveServicesManager
+// (55) the job security update reaches, two objectives, the level object; and a fake game whose UpdateJobSecurityScore
 // does what 0x147E07E2C does (previous = score; score = clamp(objectives part + addon, 0, 100)).
 struct ManagerWorld {
     SimMemory mem;
-    static constexpr uint64_t kCom = 0x30000000ULL, kJsm = 0x30010000ULL, kHub = 0x30020000ULL, kHolder = 0x30030000ULL,
-                              kComVt = 0x14B019370ULL, kJsmVt = 0x14B016598ULL;
+    static constexpr uint64_t kCom = 0x30000000ULL, kJsm = 0x30010000ULL, kTable = 0x30020000ULL, kHolders = 0x30030000ULL,
+                              kTypeDesc = 0x30031000ULL, kCal = 0x30040000ULL, kLive = 0x30041000ULL, kMbox = 0x30042000ULL,
+                              kDisp = 0x30043000ULL, kObj1 = 0x30044000ULL, kObj2 = 0x30044100ULL, kObjVec = 0x30045000ULL,
+                              kOther = 0x30046000ULL, kComVt = 0x14B019370ULL, kJsmVt = 0x14B016598ULL, kLevelVt = 0x14B019638ULL,
+                              kObjVt1 = 0x14B019870ULL, kObjVt2 = 0x14B0192C8ULL, kDispVt = 0x14972FB80ULL, kCalVt = 0x14AFDC498ULL,
+                              kLiveVt = 0x14B016390ULL, kCode = 0x147E00000ULL;
+    // registers `obj` in slot `type` the way the hub builder's registrars do (0x147EC0750 slot 133, 0x147EC07C0 slot 54)
+    void put_slot(int type, uint64_t obj) {
+        const uint64_t slot = kTable + 0x20ULL * static_cast<uint64_t>(type);
+        mem.wr(slot, static_cast<int32_t>(type));
+        mem.wr(slot + 0x08, kTypeDesc);
+        mem.wr(slot + 0x10, static_cast<int32_t>(1));
+        const uint64_t holder = kHolders + 8ULL * static_cast<uint64_t>(type);
+        mem.wr(slot + 0x18, holder);
+        mem.wr(holder, obj);
+    }
+    void vtable(uint64_t vt, int slots) {
+        for (int i = 0; i < slots; ++i) mem.wr(vt + 8ULL * static_cast<uint64_t>(i), kCode + 0x10ULL * static_cast<uint64_t>(i));
+    }
     ManagerWorld() {
         mem.map(kCom, 0x400);
         mem.map(kJsm, 0x200);
-        mem.map(kHub, 0x2000);
-        mem.map(kHolder, 0x100);
+        mem.map(kTable, 0x20 * 200);
+        mem.map(kHolders, 0x800);
+        mem.map(kTypeDesc, 0x20);
+        for (uint64_t a : {kCal, kLive, kMbox, kDisp, kObj1, kObjVec, kOther}) mem.map(a, 0x200);
+        mem.map(0x14B019000ULL, 0x1000);  // the vtables the update calls through (level object, objectives)
+        mem.map(0x14972F000ULL, 0x1000);  // the event dispatcher's vtable
+        mem.map(kCode, 0x100);            // the "code" every vtable slot points at
+        mem.wr(kTypeDesc + 0x10, static_cast<int32_t>(1));
+        put_slot(24, kCal);
+        put_slot(39, kMbox);
+        put_slot(54, kJsm);
+        put_slot(55, kLive);
+        put_slot(133, kCom);
         mem.wr(kCom, kComVt);
-        mem.wr(kCom + com::kHub, kHub);
+        mem.wr(kCom + com::kTable, kTable);
         mem.wr(kCom + com::kBlockOwner, kCom);
         mem.wr(kCom + com::kIsManagerMode, static_cast<uint8_t>(1));
         mem.wr(kCom + com::kUserTeam, static_cast<int32_t>(48));
@@ -6871,9 +6902,33 @@ struct ManagerWorld {
             mem.wr(kCom + com::kLvlVeryInsecure + 4 * i, bands[i]);
         }
         mem.wr(kCom + com::kLvlFired, static_cast<int32_t>(15));
+        // what UpdateJobSecurityScore reaches: objectives, the managers 0x147E06AAC links, the inline level object
+        mem.wr(kCom + com::kObjBegin, kObjVec);
+        mem.wr(kCom + com::kObjEnd, kObjVec + 16);
+        mem.wr(kCom + com::kObjEnd + 8, kObjVec + 16);
+        mem.wr(kObjVec, kObj1);
+        mem.wr(kObjVec + 8, kObj2);
+        mem.wr(kObj1, kObjVt1);
+        mem.wr(kObj2, kObjVt2);
+        vtable(kObjVt1, 8);
+        vtable(kObjVt2, 8);
+        mem.wr(kCom + com::kCalendarMgr, kCal);
+        mem.wr(kCom + com::kJobSwitchMgr, kJsm);
+        mem.wr(kCom + com::kLiveServicesMgr, kLive);
+        mem.wr(kCom + com::kLevelVt, kLevelVt);
+        vtable(kLevelVt, 8);
+        mem.wr(kCom + com::kLevelScore, kCom + com::kPrevSeasonFinal);
+        mem.wr(kCal, kCalVt);
+        mem.wr(kCal + 8, kTable);
+        mem.wr(kLive, kLiveVt);
+        mem.wr(kLive + 8, kTable);
+        mem.wr(kMbox, kDisp);  // EventsMailBox: +0 the dispatcher PostEvent calls through
+        mem.wr(kDisp, kDispVt);
+        vtable(kDispVt, 8);
         mem.wr(kJsm, kJsmVt);
-        mem.wr(kJsm + jsm::kHub, kHub);
-        mem.wr(kHub, kHolder);  // a readable first word
+        mem.wr(kJsm + jsm::kTable, kTable);
+        mem.wr(kJsm + jsm::kLastSwitchDate, static_cast<int32_t>(20260630));
+        mem.wr(kJsm + jsm::kPreviousTeam, static_cast<int32_t>(-1));
     }
     int32_t i32(uint64_t a) {
         int32_t v = 0;
@@ -7029,10 +7084,10 @@ static void test_manager_rules() {
         r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 3));
         CHECK(!r.ok && r.message.find("outside 0..100") != std::string::npos, "score out of range: " + r.message);
         w.mem.wr(ManagerWorld::kCom + com::kScore, static_cast<int32_t>(55));
-        w.mem.wr(ManagerWorld::kCom + com::kHub, 0ULL);
+        w.mem.wr(ManagerWorld::kCom + com::kTable, 0ULL);
         r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 3));
-        CHECK(!r.ok && r.message.find("career hub") != std::string::npos, "no hub: " + r.message);
-        w.mem.wr(ManagerWorld::kCom + com::kHub, ManagerWorld::kHub);
+        CHECK(!r.ok && r.message.find("no career manager table") != std::string::npos, "no table: " + r.message);
+        w.mem.wr(ManagerWorld::kCom + com::kTable, ManagerWorld::kTable);
         r = job_security_call(w.mem, g, fns, req(kMrSetScore, ManagerWorld::kCom, 101));
         CHECK(!r.ok && r.message.find("0..100") != std::string::npos, "score 101: " + r.message);
         r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 9));
@@ -7053,6 +7108,117 @@ static void test_manager_rules() {
         r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 3));
         CHECK(!r.ok && r.stage == "call" && w.i32(ManagerWorld::kCom + com::kAddon) == 7 && r.message.find("put back") != std::string::npos,
               "failed call reverted: " + r.message);
+    });
+
+    run_case("manager rules: the live layout of 04-10-2026 - the table at +0x8 is no object (first qword 0) and both managers pass", [&] {
+        ManagerWorld w;
+        uint64_t first = 1;
+        CHECK(w.mem.rd(ManagerWorld::kTable, first) && first == 0, "slot 0 is empty: the table's first qword is 0 (the 0.4 check read it as a hub vtable)");
+        std::string err;
+        CHECK(validate_com(w.mem, ManagerWorld::kCom, ManagerWorld::kComVt, 48, err), "ClubObjectivesManager accepted: " + err);
+        CHECK(validate_jsm(w.mem, ManagerWorld::kJsm, ManagerWorld::kJsmVt, err), "JobSwitchManager accepted: " + err);
+        CHECK(check_update_path(w.mem, ManagerWorld::kCom, ManagerWorld::kJsmVt, err), "the update's dereferences are all there: " + err);
+        // insecure from 80/100 (the live career: bands 40/55/65/80) -> the middle of 55..65
+        w.mem.wr(ManagerWorld::kCom + com::kLvlVeryInsecure, static_cast<int32_t>(40));
+        w.mem.wr(ManagerWorld::kCom + com::kLvlInsecure, static_cast<int32_t>(55));
+        w.mem.wr(ManagerWorld::kCom + com::kLvlOkay, static_cast<int32_t>(65));
+        w.mem.wr(ManagerWorld::kCom + com::kLvlSafe, static_cast<int32_t>(80));
+        w.mem.wr(ManagerWorld::kCom + com::kScore, static_cast<int32_t>(80));
+        FakeScoreGame g(w);
+        g.part = 80;
+        ManagerRulesRequest q;
+        q.sub = kMrSetLevel;
+        q.addr = ManagerWorld::kCom;
+        q.value = 1;
+        q.expect_team = 48;
+        ManagerRulesResult r = job_security_call(w.mem, g, fns, q);
+        CHECK(r.ok && g.calls == 1 && w.i32(ManagerWorld::kCom + com::kAddon) == -20 && w.i32(ManagerWorld::kCom + com::kScore) == 60 &&
+                  r.message.find("80 -> 60") != std::string::npos && r.message.find("(insecure;") != std::string::npos,
+              "insecure: " + r.message);
+        // unsackable with Lua's JobSwitchManager (the 0.4 check refused it the same way)
+        UnsackableState st;
+        r = unsackable_call(w.mem, fns, req(kMrUnsackable, ManagerWorld::kJsm, 1), st);
+        CHECK(r.ok && st.on, "unsackable on: " + r.message);
+        w.mem.wr(ManagerWorld::kJsm + jsm::kSackPending, static_cast<uint8_t>(1));
+        std::string why;
+        CHECK(sack_should_refuse(w.mem, fns, ManagerWorld::kJsm, st, why) && w.u8(ManagerWorld::kJsm + jsm::kSackPending) == 0 &&
+                  why.find("pending sack was cleared") != std::string::npos,
+              "the hook clears the pending sack on the proven object: " + why);
+        CHECK(w.mem.failed_reads == 0, "no read outside the synthetic memory");
+    });
+
+    run_case("manager rules: the table must hold the object in its own slot (another object / another slot / no career)", [&] {
+        ManagerWorld w;
+        FakeScoreGame g(w);
+        std::string err;
+        // a copy of the ClubObjectivesManager elsewhere (same vtable, same +0x8): the table holds the real one
+        w.mem.map(ManagerWorld::kOther, 0x400);
+        std::vector<uint8_t> copy;
+        w.mem.read_block(ManagerWorld::kCom, 0x2A0, copy);
+        w.mem.write(ManagerWorld::kOther, copy.data(), copy.size());
+        w.mem.wr(ManagerWorld::kOther + com::kBlockOwner, ManagerWorld::kOther);
+        ManagerRulesResult r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kOther, 3));
+        CHECK(!r.ok && r.stage == "validate" && r.message.find("does not hold") != std::string::npos &&
+                  r.message.find("it holds 0x30000000") != std::string::npos,
+              "a look-alike is refused: " + r.message);
+        // the slot is empty (no career / torn down)
+        w.mem.wr(ManagerWorld::kTable + 0x20ULL * 133 + 0x10, static_cast<int32_t>(0));
+        r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 3));
+        CHECK(!r.ok && r.message.find("slot 133") != std::string::npos && r.message.find("instances") != std::string::npos, "empty slot: " + r.message);
+        w.mem.wr(ManagerWorld::kTable + 0x20ULL * 133 + 0x10, static_cast<int32_t>(1));
+        // a JobSwitchManager whose table lists another object in slot 54
+        w.put_slot(54, ManagerWorld::kOther);
+        CHECK(!validate_jsm(w.mem, ManagerWorld::kJsm, ManagerWorld::kJsmVt, err) && err.find("slot 54") != std::string::npos, "jsm slot: " + err);
+        UnsackableState st;
+        st.on = true;
+        w.mem.wr(ManagerWorld::kJsm + jsm::kSackPending, static_cast<uint8_t>(1));
+        std::string why;
+        CHECK(sack_should_refuse(w.mem, fns, ManagerWorld::kJsm, st, why) && why.find("nothing written") != std::string::npos &&
+                  w.u8(ManagerWorld::kJsm + jsm::kSackPending) == 1,
+              "refused, nothing written on an unproven object: " + why);
+        CHECK(g.calls == 0 && w.i32(ManagerWorld::kCom + com::kAddon) == 0, "the game was never called, nothing written");
+    });
+
+    run_case("manager rules: every dereference of UpdateJobSecurityScore is checked before the call (a career not set up is refused)", [&] {
+        auto expect_refused = [&](const char* what, const std::function<void(ManagerWorld&)>& breakit, const char* needle) {
+            ManagerWorld w;
+            FakeScoreGame g(w);
+            breakit(w);
+            ManagerRulesResult r = job_security_call(w.mem, g, fns, req(kMrSetLevel, ManagerWorld::kCom, 3));
+            CHECK(!r.ok && r.stage == "validate" && r.message.find("cannot run") != std::string::npos && r.message.find(needle) != std::string::npos,
+                  std::string(what) + ": " + r.message);
+            CHECK(g.calls == 0 && w.i32(ManagerWorld::kCom + com::kAddon) == 0, std::string(what) + ": not called, nothing written");
+            r = job_security_call(w.mem, g, fns, req(kMrGet, ManagerWorld::kCom, 0));
+            CHECK(r.ok && r.out0 == 55, std::string(what) + ": reading still works: " + r.message);
+        };
+        expect_refused("calendar not linked yet (ctor state)", [](ManagerWorld& w) { w.mem.wr(ManagerWorld::kCom + com::kCalendarMgr, 0ULL); },
+                       "not set up yet");
+        expect_refused("calendar is another object", [](ManagerWorld& w) { w.mem.wr(ManagerWorld::kCom + com::kCalendarMgr, ManagerWorld::kLive); },
+                       "CalendarManager");
+        expect_refused("JobSwitchManager link", [](ManagerWorld& w) { w.mem.wr(ManagerWorld::kCom + com::kJobSwitchMgr, ManagerWorld::kOther); },
+                       "JobSwitchManager");
+        expect_refused("JobSwitchManager vtable", [](ManagerWorld& w) { w.mem.wr(ManagerWorld::kJsm, ManagerWorld::kComVt); }, "+0x250");
+        expect_refused("LiveServicesManager link", [](ManagerWorld& w) { w.mem.wr(ManagerWorld::kCom + com::kLiveServicesMgr, 0ULL); },
+                       "LiveServicesManager");
+        expect_refused("level function", [](ManagerWorld& w) { w.mem.wr(ManagerWorld::kLevelVt + com::kLevelFn, 0ULL); }, "level function");
+        expect_refused("level object score pointer", [](ManagerWorld& w) { w.mem.wr(ManagerWorld::kCom + com::kLevelScore, ManagerWorld::kCom); },
+                       "+0x270");
+        expect_refused("objective vtable", [](ManagerWorld& w) { w.mem.wr(ManagerWorld::kObj2, 0x10ULL); }, "objective");
+        expect_refused("objective slot 4", [](ManagerWorld& w) { w.mem.wr(ManagerWorld::kObjVt1 + 0x20, 0x31000000ULL); }, "vtable slot 4");
+        expect_refused("objectives vector", [](ManagerWorld& w) { w.mem.wr(ManagerWorld::kCom + com::kObjEnd, ManagerWorld::kObjVec - 8); },
+                       "not plausible");
+        expect_refused("event mailbox slot", [](ManagerWorld& w) { w.mem.wr(ManagerWorld::kTable + 0x20ULL * 39 + 0x10, static_cast<int32_t>(0)); },
+                       "EventsMailBox");
+        expect_refused("event dispatcher", [](ManagerWorld& w) { w.mem.wr(ManagerWorld::kDispVt + com::kPostFn, 0ULL); }, "dispatcher");
+        // an empty objectives vector and null entries are what the game skips: accepted
+        ManagerWorld w;
+        std::string err;
+        w.mem.wr(ManagerWorld::kObjVec + 8, 0ULL);
+        CHECK(check_update_path(w.mem, ManagerWorld::kCom, ManagerWorld::kJsmVt, err), "a null objective is skipped: " + err);
+        w.mem.wr(ManagerWorld::kCom + com::kObjBegin, 0ULL);
+        w.mem.wr(ManagerWorld::kCom + com::kObjEnd, 0ULL);
+        CHECK(check_update_path(w.mem, ManagerWorld::kCom, ManagerWorld::kJsmVt, err), "no objectives: " + err);
+        CHECK(w.mem.failed_reads == 0, "no read outside the synthetic memory");
     });
 
     run_case("manager rules: unsackable switch, pending sack, flags and the SackManager hook's decision", [&] {
