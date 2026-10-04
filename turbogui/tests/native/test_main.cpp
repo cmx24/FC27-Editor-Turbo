@@ -2875,6 +2875,95 @@ static void test_ui() {
             CHECK(ui.click("Cancel"), "cancel");
         });
 
+        run_case("UI: transfer / loan lists for your own players, list status, transfer bans sections (player, club)", [&] {
+            auto state = [&](long long seq, const std::string& unavailable) {
+                std::ofstream(le / "turbo_output" / "bridge_state.json")
+                    << "{\"session\":\"X\",\"seq\":" + std::to_string(seq) + ",\"db_gen\":7,\"in_cm\":true,\"user_team\":1,\"db_service\":\"" +
+                           hex_addr(app.bridge.state().db_service) + "\",\"date\":{\"year\":2027,\"month\":1,\"day\":16},\"unavailable\":" + unavailable +
+                           ",\"turbo_made\":[]}";
+                fs::last_write_time(le / "turbo_output" / "bridge_state.json", fs::file_time_type::clock::now() + std::chrono::seconds(30 + seq));
+                ui.frames(40);
+            };
+            auto last_cmd = [&]() { return json::parse(mem.read_cstr(kMb + 0x20, 0x1000), nullptr, false); };
+            state(210, "{\"transfer_bans\":\"cGetTransferBans is not available in this Live Editor build; FC 27 has no transfer-ban list\"}");
+            CHECK(app.bridge.state().seq == 210 && app.bridge.state().unavailable_reason("transfer_bans"), "state read");
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
+            // another club's player: the list actions are refused in the window (the game lists only your own players)
+            CHECK(ui.click("2001", "##plist"), "Everton player");
+            CHECK(ui.find("Transfer list", "##pedit") != nullptr, "Transfer list shown");
+            ui.click("Transfer list", "##pedit");
+            ui.click("Loan list", "##pedit");
+            ui.click("Remove from lists", "##pedit");
+            CHECK(!app.busy(), "list actions disabled for another club's player");
+            CHECK(ui.click("Contract & Clubs", "##pedit"), "Contract & Clubs tab");
+            ui.frames(2);
+            ui.click("Transfer list", "##con");
+            CHECK(!app.busy(), "disabled in the tab too");
+            CHECK(ui.click("List status", "##con"), "List status");
+            CHECK(app.busy(), "the status query is sent for any player");
+            {
+                json cmd = last_cmd();
+                CHECK(!cmd.is_discarded() && cmd["module"] == "player_moves" && cmd["overrides"]["actions"][0]["action"] == "list_status" &&
+                          cmd["overrides"]["actions"][0]["playerid"] == 2001,
+                      "list_status for 2001: " + cmd.dump());
+            }
+            CHECK(ui.click("Cancel"), "cancel");
+            CHECK(ui.click("Profile", "##pedit"), "back to Profile");
+            // your player: header buttons and the Contract & Clubs tab both send the game's list actions
+            CHECK(ui.click("1002", "##plist"), "your player 1002");
+            CHECK(ui.click("Transfer list", "##pedit"), "Transfer list");
+            CHECK(app.busy(), "sent");
+            {
+                json cmd = last_cmd();
+                CHECK(cmd["overrides"]["actions"][0]["action"] == "transfer_list" && cmd["overrides"]["actions"][0]["playerid"] == 1002,
+                      "transfer_list for 1002: " + cmd.dump());
+            }
+            CHECK(ui.click("Cancel"), "cancel");
+            CHECK(ui.click("Contract & Clubs", "##pedit"), "Contract & Clubs tab");
+            ui.frames(2);
+            CHECK(ui.click("Remove from lists", "##con"), "Remove from lists in the tab");
+            CHECK(app.busy(), "sent");
+            CHECK(last_cmd()["overrides"]["actions"][0]["action"] == "unlist", "unlist");
+            CHECK(ui.click("Cancel"), "cancel");
+            CHECK(ui.find("Ban this player", "##con") != nullptr, "player ban section shown");
+            ui.click("Ban this player", "##con");
+            CHECK(!app.busy(), "bans greyed out: FC 27 has none");
+            // a Live Editor build with the ban natives: the section sends the transfer_bans module
+            state(211, "{}");
+            CHECK(ui.click("Ban this player", "##con"), "Ban this player");
+            CHECK(app.busy(), "sent");
+            {
+                json cmd = last_cmd();
+                CHECK(cmd["module"] == "transfer_bans" && cmd["overrides"]["mode"] == "ban_player" && cmd["overrides"]["id"] == 1002 &&
+                          cmd["overrides"]["ban_until"] == 20990101,
+                      "ban_player 1002: " + cmd.dump());
+            }
+            CHECK(ui.click("Cancel"), "cancel");
+            CHECK(ui.click("Profile", "##pedit"), "back to Profile");
+            // Teams > Overview: the club's ban section
+            app.request_tab = 1;
+            ui.frames(2);
+            CHECK(ui.click("7", "##tlist"), "Everton row");
+            CHECK(ui.click("Overview", "##tedit"), "Overview tab");
+            ui.frames(2);
+            CHECK(ui.click("Ban this club", "##tedit"), "Ban this club");
+            CHECK(app.busy(), "sent");
+            {
+                json cmd = last_cmd();
+                CHECK(cmd["module"] == "transfer_bans" && cmd["overrides"]["mode"] == "ban_team" && cmd["overrides"]["id"] == 7, "ban_team 7: " + cmd.dump());
+            }
+            CHECK(ui.click("Cancel"), "cancel");
+            CHECK(ui.click("Remove ban", "##tedit"), "Remove ban");
+            CHECK(app.busy() && last_cmd()["overrides"]["mode"] == "unban_team", "unban_team");
+            CHECK(ui.click("Cancel"), "cancel");
+            state(212, "{\"transfer_bans\":\"cGetTransferBans is not available in this Live Editor build\"}");
+            ui.click("Ban this club", "##tedit");
+            CHECK(!app.busy(), "greyed out again");
+            app.request_tab = 0;
+            ui.frames(2);
+        });
         run_case("UI: Players > Callname: capture of the loaded bank on a background thread, Real recordings", [&] {
             fs::path game = g_out / "fakegame";
             fs::path cache = spoken_cache_path(le, "ita_it");

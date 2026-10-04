@@ -300,6 +300,71 @@ static bool move_button(App& app, const char* label, const char* key, const char
     return clicked && !off;
 }
 
+// The transfer / loan list actions are the game's own Transfer Hub actions (Turbo.dll game call, Lua core/moves.lua
+// M.list): the game lists on YOUR club whoever the player is, so they are offered for your own players only
+static const char* kListOwnOnly = "The game's transfer and loan lists hold your own players only: pick one of your players";
+
+// "Transfer list" / "Loan list" / "Remove from lists" (+ "List status" with_status) for one player (player_moves module)
+static void list_buttons(App& app, int64_t pid, int64_t club, bool with_status) {
+    const BridgeState& st = app.bridge.state();
+    const char* not_mine = (st.user_team > 0 && club != st.user_team) ? kListOwnOnly : nullptr;
+    struct B { const char* label; const char* action; const char* key; const char* tip; };
+    const B buttons[] = {
+        {"Transfer list", "transfer_list", "move_transfer_list",
+         "Adds him to your club's transfer list through the game's own Transfer Hub action (AI clubs then make offers; "
+         "FC 27 sets no asking price)"},
+        {"Loan list", "loan_list", "move_loan_list", "Adds him to your club's loan list through the game's own Transfer Hub action"},
+        {"Remove from lists", "unlist", "move_unlist", "Takes him off the transfer list and the loan list (the game's remove clears both)"},
+        {"List status", "list_status", "move_list_status", "Reads whether the game has him on the transfer / loan list"},
+    };
+    bool first = true;
+    for (const B& b : buttons) {
+        const bool status_only = std::string(b.action) == "list_status";
+        if (status_only && !with_status) continue;
+        if (!first) ImGui::SameLine();
+        first = false;
+        if (move_button(app, b.label, b.key, status_only ? nullptr : not_mine)) {
+            json a = {{"action", b.action}, {"playerid", pid}};
+            app.send({{"op", "run"}, {"module", "player_moves"}, {"overrides", {{"actions", json::array({a})}}}}, b.label);
+        } else if (ImGui::IsItemHovered() && !app.bridge.state().unavailable_reason(b.key) && !(not_mine && !status_only)) {
+            ImGui::SetTooltip("%s", b.tip);
+        }
+    }
+}
+
+// Transfer bans for a club or a player (features/transfer_bans.lua modes ban_team / unban_team / ban_player /
+// unban_player). FC 27 has no ban list Turbo could call (docs/re/transfer_lists.md section 6): the section says so and
+// stays greyed out, and lights up only with a Live Editor build that ships the ban natives.
+void transfer_ban_section(App& app, const char* what, int64_t id) {
+    const BridgeState& st = app.bridge.state();
+    const bool team = std::string(what) == "team";
+    ImGui::PushID(team ? "tbteam" : "tbplayer");
+    ImGui::SeparatorText("Transfer bans");
+    const std::string* missing = st.unavailable_reason("transfer_bans");
+    if (missing) ImGui::TextWrapped("Not available: %s", missing->c_str());
+    static int until = 20990101;
+    const bool off = missing || !st.in_cm || id <= 0;
+    if (off) ImGui::BeginDisabled();
+    ImGui::SetNextItemWidth(S(110.0f));
+    ImGui::InputInt("Banned until (YYYYMMDD)", &until, 0);
+    if (ImGui::Button(team ? "Ban this club" : "Ban this player")) {
+        json o = {{"mode", team ? "ban_team" : "ban_player"}, {"id", id}, {"ban_until", until}};
+        app.send({{"op", "run"}, {"module", "transfer_bans"}, {"overrides", o}}, team ? "Ban club" : "Ban player");
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Remove ban")) {
+        json o = {{"mode", team ? "unban_team" : "unban_player"}, {"id", id}};
+        app.send({{"op", "run"}, {"module", "transfer_bans"}, {"overrides", o}}, "Remove ban");
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("List bans")) app.send({{"op", "run"}, {"module", "transfer_bans"}, {"overrides", {{"mode", "list"}}}}, "List bans");
+    if (off) {
+        ImGui::EndDisabled();
+        if (!missing && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Needs a loaded career");
+    }
+    ImGui::PopID();
+}
+
 static void moves_popup(App& app, int64_t pid, bool from_user) {
     static int to_team = 0, fee = 0, wage = 10000, months = 36, loan_months = 12;
     if (ImGui::BeginPopup("##moves")) {
@@ -384,10 +449,7 @@ static void player_editor(App& app) {
     };
     simple("Release", "release");
     simple("Terminate loan", "terminate_loan");
-    simple("Transfer list", "transfer_list");
-    simple("Loan list", "loan_list");
-    simple("Remove from lists", "unlist");
-    ImGui::NewLine();
+    list_buttons(app, p->playerid, p->club, false);  // ends the row (no SameLine after the last button); List status: Contract & Clubs
     if (move_button(app, "Delete player...", "delete_players", turbo_made_move(app, "delete_players") ? own : nullptr))
         ImGui::OpenPopup("##delplayer");
     if (own && turbo_made_move(app, "move_release")) {
@@ -549,6 +611,13 @@ static void player_editor(App& app) {
         if (ImGui::BeginTabItem("Contract & Clubs")) {
             ImGui::BeginChild("##con");
             field_grid(app, *t, p->rec, {"contractvaliduntil", "wage", "releaseclause", "isretiring"}, "##congrid", 2);
+            ImGui::SeparatorText("Transfer / loan lists (the game's own Transfer Hub actions)");
+            ImGui::PushID("conlists");
+            if (!app.bridge.state().in_cm) ImGui::BeginDisabled();
+            list_buttons(app, p->playerid, p->club, true);
+            if (!app.bridge.state().in_cm) ImGui::EndDisabled();
+            ImGui::PopID();
+            transfer_ban_section(app, "player", p->playerid);
             ImGui::SeparatorText("Team links (teamplayerlinks)");
             const Table* lt = app.db.table("teamplayerlinks");
             if (lt) {
