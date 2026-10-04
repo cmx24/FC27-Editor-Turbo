@@ -27,6 +27,12 @@ static std::string lower(std::string s) {
 static const ImVec4 kWarn(1.0f, 0.7f, 0.3f, 1.0f);
 static const ImVec4 kGood(0.55f, 0.95f, 0.55f, 1.0f);
 
+// Track C1: miniface rendered by the game from the player's 3D model (docs/re/player_capture.md). The game-side
+// hook (PlayerCaptureController request + completion listener via game_hooks.h) is not wired yet, so the button is
+// shown greyed out with the reason. Flip to true once PlayerCaptureHook::available() exists.
+static constexpr bool kPlayerCaptureHook = false;
+static const char* kPlayerCaptureUnavailable = "not available yet: needs the game hook (track C1, docs/re/player_capture.md)";
+
 // ---------------------------------------------------------------- picture boxes
 static void placeholder(float side, const char* text) {
     ImVec2 p = ImGui::GetCursorScreenPos();
@@ -494,6 +500,20 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
         }
         if (t.manager && ImGui::BeginTabItem("The current one")) {
             if (ImGui::Button("Start from the current miniface")) source_from_legacy(app, ed, t.path, "current miniface", true);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("The 3D model")) {
+            ImGui::TextWrapped("Ask the game to render this %s's head from the 3D model (like FC 26 Live Editor's Generate Miniface) and use "
+                               "the picture as the new miniface.", t.manager ? "manager" : "player");
+            if (!kPlayerCaptureHook) ImGui::BeginDisabled();
+            if (ImGui::Button("Generate from 3D model")) {
+                // kPlayerCaptureHook: PlayerCaptureHook::request(id, is_manager) -> picture arrives in ed.source (see docs/re/player_capture.md)
+            }
+            if (!kPlayerCaptureHook) {
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", kPlayerCaptureUnavailable);
+            }
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();

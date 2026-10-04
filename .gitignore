@@ -5,3 +5,4 @@ turbo/le27/*
 !turbo/le27/README.txt
 __pycache__/
 *.o
+scripts/re/ripscan.exe
