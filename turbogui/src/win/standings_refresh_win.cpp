@@ -3,6 +3,7 @@
 #include "standings_refresh_win.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <deque>
 #include <mutex>
@@ -24,7 +25,10 @@ std::string g_off;  // why the call is off at install time ("" = resolved)
 std::mutex g_mutex;
 std::string g_last;                 // last outcome (Status tab)
 std::deque<svm::Result> g_results;  // outcomes not yet polled by the App (bounded)
-std::atomic<long long> g_runs{0}, g_queued{0};
+svm::OneShotGate g_gate;            // one refresh per edit, one in flight (guarded by g_mutex)
+std::chrono::steady_clock::time_point g_gate_since;  // when the in-flight run was taken (guarded by g_mutex)
+constexpr std::chrono::seconds kGateTimeout{30};     // a run that never reported back releases the gate
+std::atomic<long long> g_runs{0}, g_queued{0}, g_refused{0};
 constexpr size_t kMaxResults = 16;
 
 std::string hex(uint64_t v) {
@@ -34,6 +38,8 @@ std::string hex(uint64_t v) {
 }
 
 fs::path call_off_path() { return le_root() / "turbo_output" / "call_standings_refresh_off.txt"; }
+// Opt-in for the game's full refresh through the career-event listener when the map is empty (core: allow_fallback)
+fs::path call_full_path() { return le_root() / "turbo_output" / "call_standings_refresh_full.txt"; }
 
 bool file_exists(const fs::path& p) {
     std::error_code ec;
@@ -72,7 +78,16 @@ void remember(const svm::Result& r) {
     while (g_results.size() > kMaxResults) g_results.pop_front();
 }
 
+// Releases the gate when the run is over, whatever happened
+struct GateRelease {
+    ~GateRelease() {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_gate.done();
+    }
+};
+
 svm::Result run_now(svm::Request req) {
+    GateRelease release;
     svm::Result r;
     std::string why;
     if (!standings_refresh_ready(&why)) {
@@ -80,14 +95,16 @@ svm::Result run_now(svm::Request req) {
         r.message = why;
     } else {
         if (!req.image_base) req.image_base = game_image_base();
+        if (!req.image_size) req.image_size = game_image_size();
+        req.allow_fallback = file_exists(call_full_path());
         ProcessMemory mem;
         RealCaller caller;
         r = svm::refresh(mem, caller, g_fns, req);
     }
     ++g_runs;
-    log("game call standings_refresh(svm %s, managers %s, comm %s, ifce %s): %s [%s] %s", hex(req.svm).c_str(),
-        hex(req.managers).c_str(), hex(req.comm).c_str(), hex(req.ifce).c_str(), r.ok ? "ok" : "failed", r.stage.c_str(),
-        r.message.c_str());
+    log("game call standings_refresh(svm %s, managers %s, comm %s, ifce %s%s): %s [%s] %s", hex(req.svm).c_str(),
+        hex(req.managers).c_str(), hex(req.comm).c_str(), hex(req.ifce).c_str(), req.allow_fallback ? ", full refresh allowed" : "",
+        r.ok ? "ok" : "failed", r.stage.c_str(), r.message.c_str());
     remember(r);
     return r;
 }
@@ -101,7 +118,7 @@ struct HostService : svm::RefreshService {
     bool request(const svm::Request& req, std::string& why) override {
         if (!standings_refresh_ready(&why)) return false;
         svm::Result r = standings_refresh_request(req, 0);
-        if (r.stage == "off") {
+        if (r.stage == "off" || r.stage == "busy") {
             why = r.message;
             return false;
         }
@@ -150,12 +167,20 @@ bool standings_refresh_ready(std::string* why) {
 std::vector<std::string> standings_refresh_status() {
     std::vector<std::string> out;
     std::string why;
-    char line[512];
+    char line[640];
+    bool inflight = false;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        inflight = g_gate.in_flight();
+    }
     if (standings_refresh_ready(&why))
         std::snprintf(line, sizeof(line),
-                      "standings_refresh: ready | refresh_comp %s, listener %s, vtable %s, slot10 %s | runs %lld, queued %lld",
+                      "standings_refresh: ready | refresh_comp %s, listener %s, vtable %s, iface_post %s, allocator %s | runs %lld, queued "
+                      "%lld, refused %lld%s%s",
                       hex(g_fns.refresh_comp).c_str(), hex(g_fns.listener).c_str(), hex(g_fns.vtable).c_str(),
-                      hex(g_fns.slot10).c_str(), g_runs.load(), g_queued.load());
+                      hex(g_fns.iface_post).c_str(), hex(g_fns.allocator).c_str(), g_runs.load(), g_queued.load(), g_refused.load(),
+                      file_exists(call_full_path()) ? " | full refresh (event 29) allowed by call_standings_refresh_full.txt" : "",
+                      inflight ? " | one in flight" : "");
     else
         std::snprintf(line, sizeof(line), "standings_refresh: off (%s)", why.c_str());
     out.push_back(line);
@@ -172,6 +197,26 @@ svm::Result standings_refresh_request(const svm::Request& req, int32_t seq) {
         r.message = why;
         publish(seq, r, kCallFailed);
         return r;
+    }
+    {
+        // one refresh per edit (the request is the edit's), none while another is queued or running. A run that never
+        // reported back (its job dropped by a full dispatcher queue, or no dispatcher at all) must not block forever.
+        std::lock_guard<std::mutex> lock(g_mutex);
+        const auto now = std::chrono::steady_clock::now();
+        if (g_gate.in_flight() && now - g_gate_since > kGateTimeout) {
+            log("game call standings_refresh: the previous run (%s) never reported back after %lld s: gate released",
+                g_gate.label().c_str(), static_cast<long long>(std::chrono::duration_cast<std::chrono::seconds>(now - g_gate_since).count()));
+            g_gate.done();
+        }
+        if (!g_gate.arm(req.label.empty() ? "edit" : req.label, why) || !g_gate.take(why)) {
+            ++g_refused;
+            r.stage = "busy";
+            r.message = why;
+            publish(seq, r, kCallFailed);
+            log("game call standings_refresh refused: %s", why.c_str());
+            return r;
+        }
+        g_gate_since = now;
     }
     const uint32_t tid = GetCurrentThreadId();
     const uint32_t game = game_thread_id();
@@ -212,7 +257,8 @@ void install_standings_refresh() {
     g_fns.refresh_comp = game_signature("svm_refresh_comp");
     g_fns.listener = game_signature("svm_listener");
     g_fns.vtable = game_signature("svm_vtable");
-    g_fns.slot10 = game_signature("svm_slot10");
+    g_fns.iface_post = game_signature("fce_iface_post");
+    g_fns.allocator = game_signature("svm_allocator");
     if (const char* m = g_fns.missing()) {
         g_off = std::string("signature ") + m + " was not found on this game build";
         log("game calls: standings_refresh off (%s)", g_off.c_str());
@@ -220,9 +266,12 @@ void install_standings_refresh() {
     }
     if (!g_fns.vtable) log("game calls: standings_refresh: svm_vtable not found, the built-in RVA 0x%llX is used",
                            static_cast<unsigned long long>(svm::kRvaVtable));
-    log("game calls: standings_refresh resolved (refresh_comp %s, listener %s, vtable %s, slot10 %s; kill switch "
-        "turbo_output\\call_standings_refresh_off.txt)",
-        hex(g_fns.refresh_comp).c_str(), hex(g_fns.listener).c_str(), hex(g_fns.vtable).c_str(), hex(g_fns.slot10).c_str());
+    if (!g_fns.iface_post || !g_fns.allocator)
+        log("game calls: standings_refresh: fce_iface_post / svm_allocator not found: the request path is checked for shape only");
+    log("game calls: standings_refresh resolved (refresh_comp %s, listener %s, vtable %s, iface_post %s, allocator %s; kill switch "
+        "turbo_output\\call_standings_refresh_off.txt, full refresh opt-in turbo_output\\call_standings_refresh_full.txt)",
+        hex(g_fns.refresh_comp).c_str(), hex(g_fns.listener).c_str(), hex(g_fns.vtable).c_str(), hex(g_fns.iface_post).c_str(),
+        hex(g_fns.allocator).c_str());
 }
 
 }  // namespace host

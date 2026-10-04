@@ -26,20 +26,69 @@
     "FCE::StandingsManager": "0xB1852E8"
   },
   "globals": {
-    "service_registry": {"va": "0x14c2a8590", "rva": "0xC2A8590", "note": "ServiceRegistry*; vfunc +0x30 Register, +0x38 Unregister, +0x40 Get(id)"}
+    "service_registry": {
+      "va": "0x14c2a8590",
+      "rva": "0xC2A8590",
+      "note": "ServiceRegistry*; vfunc +0x30 Register, +0x38 Unregister, +0x40 Get(id)"
+    }
   },
   "plugin_ids": {
     "ENUM_djb2IFCEInterface_CLSS": "0x0a613b9a",
     "note": "Live Editor GetPlugin(0x0a613b9a) returns FCE::FCEInterfaceImpl; Turbo's bridge_state.json field 'ifce'"
   },
   "signatures": [
-    {"name": "fce_registry_get_site", "sig": "BA 9A 3B 61 0A 49 8B C8 FF 50 40", "va": "0x147c15bab", "unique": true, "role": "call site of ServiceRegistry::Get(0x0A613B9A) -> FCEInterfaceImpl"},
-    {"name": "fce_registry_global", "sig": "48 8B 0D ?? ?? ?? ?? BA 9A 3B 61 0A 48 8B 01 FF 50 (30|38)", "va": "0x148a0412d", "unique": false, "hits": 2, "rip_target": "0x14c2a8590", "role": "rip-relative load of the ServiceRegistry global (Register / Unregister sites)"},
-    {"name": "fce_standings_getitem", "sig": "45 33 C0 44 8B CA 85 D2 78 32 4C 8B 11 48 B8 AB AA AA AA AA AA AA 2A 48 8B 49 08", "va": "0x148a2d1d4", "unique": true, "role": "StandingsDataList::GetItem(id): begin + id*0x18 with (end-begin)/0x18 bound"},
-    {"name": "fce_request_get_standings", "sig": "48 8B 41 18 4C 8B EA 8B 5A 20 4C 8B F9 8B D3 89 5C 24 30 4C 8B 70 18 49 8B 8E 88 00 00 00 E8", "va": "0x148a54b31", "unique": true, "role": "RequestGetStandings handler body (function start 0x148a54b00)"},
-    {"name": "fce_datamanager_ctor_vtable", "sig": "48 8D 05 ?? ?? ?? ?? 48 89 07 4C 8D 05 ?? ?? ?? ?? 48 C7 47 28 00 00 00 00", "va": "0x148a1664d", "unique": true, "rip_target": "0x14b180ca8", "role": "DataManager ctor: lea of the DataManager vtable"},
-    {"name": "fce_result_update_rows", "sig": "FE 43 09 FE C0 80 7C 24 20 01 88 47 10", "va": "0x148a5bf2a", "unique": true, "role": "incremental standings update on RequestUpdateMatchResult (home win branch)"},
-    {"name": "fce_fixture_score_write", "sig": "88 42 0F 8A 46 24 88 42 11 8A 01 88 42 10 8A 46 3C 88 42 12", "va": "0x148a5bba4", "unique": true, "role": "fixture +0x0F/+0x11/+0x10/+0x12 written from the match result message"}
+    {
+      "name": "fce_registry_get_site",
+      "sig": "BA 9A 3B 61 0A 49 8B C8 FF 50 40",
+      "va": "0x147c15bab",
+      "unique": true,
+      "role": "call site of ServiceRegistry::Get(0x0A613B9A) -> FCEInterfaceImpl"
+    },
+    {
+      "name": "fce_registry_global",
+      "sig": "48 8B 0D ?? ?? ?? ?? BA 9A 3B 61 0A 48 8B 01 FF 50 (30|38)",
+      "va": "0x148a0412d",
+      "unique": false,
+      "hits": 2,
+      "rip_target": "0x14c2a8590",
+      "role": "rip-relative load of the ServiceRegistry global (Register / Unregister sites)"
+    },
+    {
+      "name": "fce_standings_getitem",
+      "sig": "45 33 C0 44 8B CA 85 D2 78 32 4C 8B 11 48 B8 AB AA AA AA AA AA AA 2A 48 8B 49 08",
+      "va": "0x148a2d1d4",
+      "unique": true,
+      "role": "StandingsDataList::GetItem(id): begin + id*0x18 with (end-begin)/0x18 bound"
+    },
+    {
+      "name": "fce_request_get_standings",
+      "sig": "48 8B 41 18 4C 8B EA 8B 5A 20 4C 8B F9 8B D3 89 5C 24 30 4C 8B 70 18 49 8B 8E 88 00 00 00 E8",
+      "va": "0x148a54b31",
+      "unique": true,
+      "role": "RequestGetStandings handler body (function start 0x148a54b00)"
+    },
+    {
+      "name": "fce_datamanager_ctor_vtable",
+      "sig": "48 8D 05 ?? ?? ?? ?? 48 89 07 4C 8D 05 ?? ?? ?? ?? 48 C7 47 28 00 00 00 00",
+      "va": "0x148a1664d",
+      "unique": true,
+      "rip_target": "0x14b180ca8",
+      "role": "DataManager ctor: lea of the DataManager vtable"
+    },
+    {
+      "name": "fce_result_update_rows",
+      "sig": "FE 43 09 FE C0 80 7C 24 20 01 88 47 10",
+      "va": "0x148a5bf2a",
+      "unique": true,
+      "role": "incremental standings update on RequestUpdateMatchResult (home win branch)"
+    },
+    {
+      "name": "fce_fixture_score_write",
+      "sig": "88 42 0F 8A 46 24 88 42 11 8A 01 88 42 10 8A 46 3C 88 42 12",
+      "va": "0x148a5bba4",
+      "unique": true,
+      "role": "fixture +0x0F/+0x11/+0x10/+0x12 written from the match result message"
+    }
   ],
   "functions": {
     "DataManager_ctor": "0x148a1661c",
@@ -57,34 +106,131 @@
     "RequestUpdateMatchResult_ctor": "0x1440376b8",
     "RequestGetStandings_ctor": "0x144036e6c"
   },
-  "settings_ids": {"win": "0x1F", "draw": "0x20", "loss": "0x21", "note": "SettingsDataList entry layout not verified; Turbo defaults to 3/1/0"},
+  "settings_ids": {
+    "win": "0x1F",
+    "draw": "0x20",
+    "loss": "0x21",
+    "note": "SettingsDataList entry layout not verified; Turbo defaults to 3/1/0"
+  },
   "ui_path": {
     "doc": "docs/re/standings-ui-path.md",
-    "note": "The Standings screen reads StandingsViewManager::mLiveStandings (a cache); after a row write Turbo must re-request the standings through the SVM on the game thread.",
+    "note": "The Standings screen reads StandingsViewManager::mLiveStandings (a cache); after a row write Turbo re-requests the standings through the SVM on the game thread. Corrected 04-10-2026 after the crash analysis (standings-ui-path.md section 0): the SVM is the slot-108 object with vtable 0x14975EA38; 0x14B0160D8 is the StaffManager (slot 107).",
     "manager_table": {
       "walk": "comm = GetPlugin(0x1297f047 ENUM_djb2FeFceGMCommServiceInterface_CLSS); managers = *(*(comm+0x20)+0x10); slot = managers + 0x20*id; *(int*)(slot+0x10) == 1; manager = **(void***)(slot+0x18)",
-      "type_ids": {"IFCEInterface": 1, "ActiveCompetitionsManager": 20, "CalendarManager": 24, "ConcurrentMatchManager": 29, "EventsMailBox": 39, "FCECommsManager": 41, "FixtureManager": 46, "MainHubManager": 58, "SimDayManager": 103, "StandingsViewManager": 108, "UserManager": 129}
+      "type_ids": {
+        "IFCEInterface": 1,
+        "ActiveCompetitionsManager": 20,
+        "CalendarManager": 24,
+        "ConcurrentMatchManager": 29,
+        "EventsMailBox": 39,
+        "FCECommsManager": 41,
+        "FixtureManager": 46,
+        "MainHubManager": 58,
+        "SimDayManager": 103,
+        "StandingsViewManager": 108,
+        "UserManager": 129,
+        "StaffManager": 107
+      },
+      "note": "Verified live 04-10-2026: slot 107 type id 0x6B -> vtable 0x14B0160D8 (StaffManager), slot 108 type id 0x6C -> vtable 0x14975EA38 (StandingsViewManager), slot 1 -> IFCEInterface (vtable 0x14B180DF0, slot 4 = 0x148A35D3C). The manager factory 0x147b01b17 allocates 0x4B8 bytes, calls the SVM ctor 0x147d9a700 and stores the object in holder[table+0xD98][table+0xD90] = slot 108."
     },
     "svm_offsets": {
-      "ctx": "0x08", "enabled": "0x18", "mStandings_by_tag": "0x30 + idx*8", "mLiveStandings_anchor": "0x250", "mLiveStandings_root": "0x260",
-      "map_node": {"right": "0x00", "left": "0x08", "parent": "0x10", "key_compObjId": "0x20", "value_LiveStandings": "0x28"},
-      "critical_section": "0x280", "user_comp_copy": "0x488", "first_update_done": "0x490"
+      "ctx": "0x08",
+      "pending_tag_flags": "0x10 + idx (27 u8; +0x18 is tag index 8, not an enable flag)",
+      "stage_entries": "0x108 + 12*i (27 entries {i32 -1, u64 0} in the ctor)",
+      "mLiveStandings_anchor": "0x250 (+0 rightmost, +8 leftmost: the anchor itself when empty; +0x10 root; +0x18 color; +0x20 u32 count)",
+      "mLiveStandings_root": "0x260",
+      "map_node": {
+        "right": "0x00",
+        "left": "0x08",
+        "parent": "0x10",
+        "color": "0x18",
+        "key_compObjId": "0x20",
+        "value_LiveStandings": "0x28"
+      },
+      "critical_section": "0x280 (InitializeCriticalSectionAndSpinCount(cs, 0x100) in the ctor; live: DebugInfo -1, LockCount -1, no owner)",
+      "second_map": "0x380 (type-0x10 'rmvs' responses)",
+      "user_comp_copy": "0x488",
+      "first_update_done": "0x490",
+      "object_size": "0x4B8"
     },
-    "vtables_rva": {"StandingsViewManager": "0xB0160D8", "StandingsViewManager_listener": "0x975EA28", "LiveStandings": "0xB016148", "MailBoxServer": "0x972FB80"},
-    "svm_ctor": {"va": "0x147d9a5c8", "note": "StandingsViewManager ctor: [rcx+8] = ctx, lea rax,[rip+..] at +0x33 -> 0x14B0160D8 (0x147d9a570 is another class, vtable 0xB016160; verified 2026-10-04)"},
-    "map_size": {"offset": "0x270", "type": "u32", "note": "anchor+0x20, incremented by the rbtree insert helper 0x147d9d4c4 (inc dword [rsi+0x20])"},
+    "vtables_rva": {
+      "StandingsViewManager": "0x975EA38",
+      "StandingsViewManager_note": "written by the SVM ctor 0x147d9a700 (+0x13) and its dtor 0x14260ffac; slot 0 = dtor, slot 1 = OnCareerEvent 0x147da0e10, slot 10 = 0x142b2b858 (ret)",
+      "StaffManager": "0xB0160D8",
+      "StaffManager_note": "ctor 0x147d9a5c8 (allocates 'StaffManager::mScoutManagerData'), dtor 0x147d9af90; slot 10 = 0x147da3ae8 (reads the SVM through [[ctx+0xd98]]). Mistaken for the SVM vtable until 04-10-2026",
+      "LiveStandings": "0xB016148",
+      "IFCEInterface": "0xB180DF0",
+      "MailBoxServer": "0x972FB80"
+    },
+    "svm_ctor": {
+      "va": "0x147d9a700",
+      "note": "StandingsViewManager ctor: [rcx+8] = ctx, lea rax,[rip+..] at +0x13 -> 0x14975EA38, map anchors at +0x250 / +0x380, InitializeCriticalSectionAndSpinCount(this+0x280, 0x100), +0x488 / +0x490 zeroed. 0x147d9a5c8 is the StaffManager ctor (vtable 0x14B0160D8): the 'verified 2026-10-04' note that named it the SVM ctor was wrong and caused the crash of 04-10-2026"
+    },
+    "map_size": {
+      "offset": "0x270",
+      "type": "u32",
+      "note": "anchor+0x20, zeroed by the ctor (mov dword [rax+0x20], edi), incremented by the rbtree insert helper 0x147d9d4c4"
+    },
     "turbo": {
-      "note": "Entries of Turbo.dll's built-in signature table (turbogui/src/core/sigscan.cpp) for the standings_refresh game call (core/standings_refresh.h); every pattern unique in the image",
+      "note": "Entries of Turbo.dll's built-in signature table (turbogui/src/core/sigscan.cpp) for the standings_refresh game call (core/standings_refresh.h); every pattern unique in the image. svm_slot10 (0x147da3ae8, the StaffManager's slot 10) was removed 04-10-2026",
       "signatures": [
-        {"name": "svm_refresh_comp", "sig": "83 FA FF 74 65 48 89 5C 24 08 57 48 83 EC 20 48 8B 41 08 4C 8D 05 ?? ?? ?? ??", "va": "0x147da5310", "resolve": "none"},
-        {"name": "svm_listener", "sig": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 60 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 45 F8 49 8B D8", "va": "0x147da0e10", "resolve": "none"},
-        {"name": "svm_vtable", "sig": "4C 8B DC 49 89 5B 10 49 89 73 18 57 48 83 EC 70 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 44 24 60 C5 FE 6F 05 ?? ?? ?? ?? C5 FA 6F 0D ?? ?? ?? ?? 48 89 51 08 48 8D 05 ?? ?? ?? ?? 48 89 01", "va": "0x147d9a5c8", "resolve": "rip", "offset": "0x33", "target": "0x14b0160d8"},
-        {"name": "svm_slot10", "sig": "48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 80 79 18 00 48 8B EA 48 8B F9", "va": "0x147da3ae8", "resolve": "none"}
+        {
+          "name": "svm_refresh_comp",
+          "sig": "83 FA FF 74 65 48 89 5C 24 08 57 48 83 EC 20 48 8B 41 08 4C 8D 05 ?? ?? ?? ??",
+          "va": "0x147da5310",
+          "resolve": "none"
+        },
+        {
+          "name": "svm_listener",
+          "sig": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 60 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 45 F8 49 8B D8",
+          "va": "0x147da0e10",
+          "resolve": "none"
+        },
+        {
+          "name": "svm_vtable",
+          "sig": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 89 51 08 48 8D 05 ?? ?? ?? ?? BA 0C 00 00 00 48 89 01 48 8B D9 4C 8D 0D ?? ?? ?? ?? 48 81 C1 08 01 00 00",
+          "va": "0x147d9a700",
+          "resolve": "rip",
+          "offset": "0x13",
+          "target": "0x14975ea38"
+        },
+        {
+          "name": "svm_allocator",
+          "sig": "83 FA FF 74 65 48 89 5C 24 08 57 48 83 EC 20 48 8B 41 08 4C 8D 05 ?? ?? ?? ??",
+          "va": "0x147da5310",
+          "resolve": "rip",
+          "offset": "0x2A",
+          "target": "0x14c269ea8"
+        },
+        {
+          "name": "fce_iface_post",
+          "sig": "40 53 48 83 EC 20 48 8B 01 48 8B DA FF 50 40 8B 53 10 4C 8B C3 48 8B C8",
+          "va": "0x148a35d3c",
+          "resolve": "none"
+        }
       ]
     },
-    "globals": {"game_allocator": {"rva": "0xC269EA8", "note": "used inside the request builders"}},
-    "message_types": {"ResponseStandingsList": "0x12", "ResponseStandingsList_early_results": "0x13", "RequestSwapCompetitionTeams": "0x1e", "ResponseCompetitionStageInfo": "0x23", "RequestStandingsCheckEarlyResults": "0x2c", "RequestGetStandings": "0x30", "RequestCompetitionStageInfo": "0x3c"},
-    "career_events_refreshing_cache": {"MAIN_COMPETITION_SCHEDULED": 22, "SEASON_RESET": 23, "POST_LOAD_PREPARE": 29, "COMPETITION_COMPLETE": 33},
+    "globals": {
+      "game_allocator": {
+        "rva": "0xC269EA8",
+        "note": "used inside the request builders"
+      }
+    },
+    "message_types": {
+      "ResponseStandingsList": "0x12",
+      "ResponseStandingsList_early_results": "0x13",
+      "RequestSwapCompetitionTeams": "0x1e",
+      "ResponseCompetitionStageInfo": "0x23",
+      "RequestStandingsCheckEarlyResults": "0x2c",
+      "RequestGetStandings": "0x30",
+      "RequestCompetitionStageInfo": "0x3c"
+    },
+    "career_events_refreshing_cache": {
+      "MAIN_COMPETITION_SCHEDULED": 22,
+      "SEASON_RESET": 23,
+      "POST_LOAD_PREPARE": 29,
+      "COMPETITION_COMPLETE": 33
+    },
     "functions": {
       "svm_request_standings_sync_rmvs": "0x147da5310",
       "svm_on_career_event": "0x147da0e10",
@@ -105,20 +251,112 @@
       "mailbox_server_dispatch": "0x141bbc7c0"
     },
     "signatures": [
-      {"name": "svm_request_standings_sync_rmvs", "sig": "83 FA FF 74 65 48 89 5C 24 08 57 48 83 EC 20 48 8B 41 08 4C 8D 05 ?? ?? ?? ??", "va": "0x147da5310", "unique": true, "role": "__fastcall(svm, int compObjId): immediate RequestGetStandings tag 'rmvs'; the SVM cache for compObjId is rebuilt before it returns"},
-      {"name": "svm_on_career_event", "sig": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 60 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 45 F8 49 8B D8", "va": "0x147da0e10", "unique": true, "role": "__fastcall(svm, int eventId, event*): 29 = full refresh of all user competitions (event pointer unused)"},
-      {"name": "svm_user_comp_id", "sig": "48 83 EC 28 4C 8B C9 E8 ?? ?? ?? ?? 80 79 2C 00 44 8B 90 08 03 00 00 74 30", "va": "0x147abd100", "unique": true, "role": "__fastcall(svm) -> user's league compObjId"},
-      {"name": "svm_user_comp_list", "sig": "48 89 5C 24 08 48 89 74 24 18 57 48 83 EC 40 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 44 24 30 48 8B 41 08", "va": "0x147d9b6b0", "unique": true, "role": "builds the list of the user's competitions used by the full refresh"},
-      {"name": "svm_request_standings_sync_rmvs_b", "sig": "48 89 5C 24 08 57 48 83 EC 20 48 8B 01 4C 8D 05 ?? ?? ?? ?? 45 33 C9 8B FA", "va": "0x147d9b250", "unique": true, "role": "__fastcall(svm**, int compObjId): same as svm_request_standings_sync_rmvs, rcx points to the svm pointer"},
-      {"name": "svm_request_standings_mmbj", "sig": "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 20 8B FA 48 8B D9 BA 6D 6D 62 6A", "va": "0x147da53a8", "unique": true, "role": "queued RequestGetStandings tag 'mmbj' (+ RequestCompetitionStageInfo); result goes to mStandings[8], not the cache"},
-      {"name": "svm_cache_writer", "sig": "48 89 5C 24 10 48 89 6C 24 20 44 89 44 24 18 56 57 41 54 41 56 41 57 48 83 EC 30 4C 8D A1 80 02 00 00", "va": "0x147da6f04", "unique": true, "role": "__fastcall(svm, list, int compObjId): replaces mLiveStandings[compObjId], posts LiveTableFirstUpdate 0x5d / LiveTableUpdate 0x75 (hook point)"},
-      {"name": "svm_get_live_standings_copy", "sig": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 48 8D A9 80 02 00 00", "va": "0x147d9f6b8", "unique": true, "role": "__fastcall(svm, allocator, int compObjId) -> LiveStandings* clone or 0 (no request on a miss)"},
-      {"name": "svm_handle_fce_message", "sig": "4D 85 C0 0F 84 ?? ?? ?? ?? 48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 D9", "va": "0x147da1240", "unique": true, "role": "__fastcall(svm, int type, msg): 0x12 with tag 'rmvs' and 0x13 -> cache writer"},
-      {"name": "svm_slot10_refresh_screen", "sig": "48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 80 79 18 00 48 8B EA 48 8B F9", "va": "0x147da3ae8", "unique": true, "role": "SVM vtable slot 10: feeds the Standings screen from the cache (map key = ConcurrentMatchManager+0x9c8)"},
-      {"name": "svm_check_early_results", "sig": "40 53 48 83 EC 30 48 8B 41 08 48 8B D9 48 8B 90 58 07 00 00 48 8B 02 48 8B 50 08", "va": "0x147da67b0", "unique": true, "role": "SimDayManager: sends RequestStandingsCheckEarlyResults (0x2c) on match days -> type-0x13 response -> cache"},
-      {"name": "fcei_request_get_standings_ctor", "sig": "48 89 5C 24 08 57 48 83 EC 20 48 8B F9 48 8D 05 ?? ?? ?? ?? 48 89 01 33 C0 89 41 08 87 41 08 48 8D 0D ?? ?? ?? ?? 48 C7 47 10 30 00 00 00", "va": "0x144036e6c", "unique": true, "role": "FCEI::RequestGetStandings ctor (0x70 bytes; +0x10 type 0x30, +0x18 tag -1, +0x6c/+0x6d 0)"},
-      {"name": "fce_iface_post", "sig": "40 53 48 83 EC 20 48 8B 01 48 8B DA FF 50 40 8B 53 10 4C 8B C3 48 8B C8", "va": "0x148a35d3c", "unique": true, "role": "FCEInterfaceImpl vtable slot 4: Post(request) to hub->mailbox->mRequestServer (synchronous dispatch)"},
-      {"name": "fce_response_type13_builder", "sig": "48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 55 41 56 41 57 48 8B EC 48 83 EC 70 48 8B 41 18", "va": "0x148a541d8", "unique": true, "role": "FCE: builds the type-0x13 ResponseStandingsList (reply to RequestStandingsCheckEarlyResults)"}
-    ]
+      {
+        "name": "svm_request_standings_sync_rmvs",
+        "sig": "83 FA FF 74 65 48 89 5C 24 08 57 48 83 EC 20 48 8B 41 08 4C 8D 05 ?? ?? ?? ??",
+        "va": "0x147da5310",
+        "unique": true,
+        "role": "__fastcall(svm, int compObjId): immediate RequestGetStandings tag 'rmvs'; the SVM cache for compObjId is rebuilt before it returns"
+      },
+      {
+        "name": "svm_on_career_event",
+        "sig": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 60 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 45 F8 49 8B D8",
+        "va": "0x147da0e10",
+        "unique": true,
+        "role": "__fastcall(svm, int eventId, event*): 29 = full refresh of all user competitions (event pointer unused)"
+      },
+      {
+        "name": "svm_user_comp_id",
+        "sig": "48 83 EC 28 4C 8B C9 E8 ?? ?? ?? ?? 80 79 2C 00 44 8B 90 08 03 00 00 74 30",
+        "va": "0x147abd100",
+        "unique": true,
+        "role": "__fastcall(svm) -> user's league compObjId"
+      },
+      {
+        "name": "svm_user_comp_list",
+        "sig": "48 89 5C 24 08 48 89 74 24 18 57 48 83 EC 40 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 44 24 30 48 8B 41 08",
+        "va": "0x147d9b6b0",
+        "unique": true,
+        "role": "builds the list of the user's competitions used by the full refresh"
+      },
+      {
+        "name": "svm_request_standings_sync_rmvs_b",
+        "sig": "48 89 5C 24 08 57 48 83 EC 20 48 8B 01 4C 8D 05 ?? ?? ?? ?? 45 33 C9 8B FA",
+        "va": "0x147d9b250",
+        "unique": true,
+        "role": "__fastcall(svm**, int compObjId): same as svm_request_standings_sync_rmvs, rcx points to the svm pointer"
+      },
+      {
+        "name": "svm_request_standings_mmbj",
+        "sig": "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 20 8B FA 48 8B D9 BA 6D 6D 62 6A",
+        "va": "0x147da53a8",
+        "unique": true,
+        "role": "queued RequestGetStandings tag 'mmbj' (+ RequestCompetitionStageInfo); result goes to mStandings[8], not the cache"
+      },
+      {
+        "name": "svm_cache_writer",
+        "sig": "48 89 5C 24 10 48 89 6C 24 20 44 89 44 24 18 56 57 41 54 41 56 41 57 48 83 EC 30 4C 8D A1 80 02 00 00",
+        "va": "0x147da6f04",
+        "unique": true,
+        "role": "__fastcall(svm, list, int compObjId): replaces mLiveStandings[compObjId], posts LiveTableFirstUpdate 0x5d / LiveTableUpdate 0x75 (hook point)"
+      },
+      {
+        "name": "svm_get_live_standings_copy",
+        "sig": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 48 8D A9 80 02 00 00",
+        "va": "0x147d9f6b8",
+        "unique": true,
+        "role": "__fastcall(svm, allocator, int compObjId) -> LiveStandings* clone or 0 (no request on a miss)"
+      },
+      {
+        "name": "svm_handle_fce_message",
+        "sig": "4D 85 C0 0F 84 ?? ?? ?? ?? 48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 D9",
+        "va": "0x147da1240",
+        "unique": true,
+        "role": "__fastcall(svm, int type, msg): 0x12 with tag 'rmvs' and 0x13 -> cache writer"
+      },
+      {
+        "name": "svm_slot10_refresh_screen",
+        "sig": "48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 80 79 18 00 48 8B EA 48 8B F9",
+        "va": "0x147da3ae8",
+        "unique": true,
+        "role": "SVM vtable slot 10: feeds the Standings screen from the cache (map key = ConcurrentMatchManager+0x9c8)"
+      },
+      {
+        "name": "svm_check_early_results",
+        "sig": "40 53 48 83 EC 30 48 8B 41 08 48 8B D9 48 8B 90 58 07 00 00 48 8B 02 48 8B 50 08",
+        "va": "0x147da67b0",
+        "unique": true,
+        "role": "SimDayManager: sends RequestStandingsCheckEarlyResults (0x2c) on match days -> type-0x13 response -> cache"
+      },
+      {
+        "name": "fcei_request_get_standings_ctor",
+        "sig": "48 89 5C 24 08 57 48 83 EC 20 48 8B F9 48 8D 05 ?? ?? ?? ?? 48 89 01 33 C0 89 41 08 87 41 08 48 8D 0D ?? ?? ?? ?? 48 C7 47 10 30 00 00 00",
+        "va": "0x144036e6c",
+        "unique": true,
+        "role": "FCEI::RequestGetStandings ctor (0x70 bytes; +0x10 type 0x30, +0x18 tag -1, +0x6c/+0x6d 0)"
+      },
+      {
+        "name": "fce_iface_post",
+        "sig": "40 53 48 83 EC 20 48 8B 01 48 8B DA FF 50 40 8B 53 10 4C 8B C3 48 8B C8",
+        "va": "0x148a35d3c",
+        "unique": true,
+        "role": "FCEInterfaceImpl vtable slot 4: Post(request) to hub->mailbox->mRequestServer (synchronous dispatch)"
+      },
+      {
+        "name": "fce_response_type13_builder",
+        "sig": "48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 55 41 56 41 57 48 8B EC 48 83 EC 70 48 8B 41 18",
+        "va": "0x148a541d8",
+        "unique": true,
+        "role": "FCE: builds the type-0x13 ResponseStandingsList (reply to RequestStandingsCheckEarlyResults)"
+      }
+    ],
+    "request_path": {
+      "note": "What svm_refresh_comp(svm, comp) dereferences (04-10-2026): comp == -1 -> return; rax = [svm+8] (ctx); rcx = [rax+0x38] (slot-1 holder); rdi = [rcx] (IFCEInterface); alloc = [0x14C269EA8]; [[alloc]+0x10](alloc, 0x70, 'FCEI::RequestGetStandings', 0); ctor 0x144036e6c; req+0x6C = 1, req+0x20 = comp, req+0x18 = 'rmvs'; [[rdi]+0x20](rdi, req). The key is only stored. [svm] is never read.",
+      "sim_day_manager": "type 103, state i32 at +0x14 (0 = idle, 1..9 = day processing, state machine 0x147da6e58); Turbo refuses the call when != 0"
+    },
+    "crash_2026_10_04": {
+      "minidump": "minidump-2026_10_04_01_26_18.dmp: STATUS_INVALID_HANDLE (0xC0000008, flags 0x81) raised by ntdll!RtlRaiseStatus from the contended path of RtlEnterCriticalSection, called at 0x147d9f6e6 (GetLiveStandingsCopy 0x147d9f6b8) <- 0x147d9c7fa <- 0x147da1015 (listener event-29 loop) <- Turbo.dll; this = 0x6C4C78F0 = the StaffManager (slot 107), comp 0x45E = 1118",
+      "cause": "Turbo's svm_vtable constant 0x14B0160D8 is the StaffManager's; locate() searched the table for that vtable, found slot 107, refused the real SVM (slot 108), the map walk on staff+0x250 failed, the fallback ran SVM::OnCareerEvent(staff, 29, 0)"
+    }
   }
 }

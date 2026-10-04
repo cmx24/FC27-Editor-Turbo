@@ -185,11 +185,18 @@ static const SignatureTable kBuiltin[] = {
           "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 60 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 45 F8 49 8B D8",
           "none", 0, "void StandingsViewManager::OnCareerEvent(this, eventId, Event*) 0x147DA0E10: 29 = full refresh (fallback)"},
          {"svm_vtable",
-          "4C 8B DC 49 89 5B 10 49 89 73 18 57 48 83 EC 70 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 44 24 60 C5 FE 6F 05 ?? ?? ?? ?? "
-          "C5 FA 6F 0D ?? ?? ?? ?? 48 89 51 08 48 8D 05 ?? ?? ?? ?? 48 89 01",
-          "rip", 0x33, "StandingsViewManager vtable: the lea rax,[rip+..] in the manager's constructor (0x147D9A5C8 -> 0x14B0160D8)"},
-         {"svm_slot10", "48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 80 79 18 00 48 8B EA 48 8B F9", "none", 0,
-          "StandingsViewManager vtable slot 10 (0x147DA3AE8): the Standings screen feed; checked against the located object"},
+          "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 89 51 08 48 8D 05 ?? ?? ?? ?? BA 0C 00 00 00 48 89 01 48 8B D9 "
+          "4C 8D 0D ?? ?? ?? ?? 48 81 C1 08 01 00 00",
+          "rip", 0x13,
+          "StandingsViewManager vtable: the lea rax,[rip+..] in the SVM constructor 0x147D9A700 -> 0x14975EA38 (the ctor "
+          "initialises the map anchor at +0x250 and the critical section at +0x280). Not 0x147D9A5C8 / 0x14B0160D8: that is the "
+          "StaffManager (crash of 04-10-2026, docs/re/standings-ui-path.md section 0)"},
+         {"svm_allocator", "83 FA FF 74 65 48 89 5C 24 08 57 48 83 EC 20 48 8B 41 08 4C 8D 05 ?? ?? ?? ??", "rip", 0x2A,
+          "the game allocator global (0x14C269EA8) read by svm_refresh_comp (mov rcx,[rip+..] at +0x2A): checked to hold an "
+          "object with an allocate function before the call"},
+         {"fce_iface_post", "40 53 48 83 EC 20 48 8B 01 48 8B DA FF 50 40 8B 53 10 4C 8B C3 48 8B C8", "none", 0,
+          "FCE::FCEInterfaceImpl::Post (vtable slot 4, 0x148A35D3C): what svm_refresh_comp calls through [[ctx+0x38]]; checked "
+          "against the career's interface vtable before the call"},
          {"speech_system_ptr", "48 8B 0D ?? ?? ?? ?? 48 8B 01 FF 90 F0 00 00 00 48 8D 54 24 20 48 8B 08 4C 8B 81 D8 00 00 00", "rip", 0,
           "global pointer to the SpeechSystem (0x14C27D590 on this build): [+0x50] the commentary event registry, [+0x58] the "
           "variation selector (docs/callnames.md section 6); read by the commentary-bank notes, not hooked"},

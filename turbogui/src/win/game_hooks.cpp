@@ -41,6 +41,7 @@ std::string g_build;
 std::string g_table_source;
 std::string g_note;
 uint64_t g_base = 0;
+uint64_t g_image_size = 0;  // SizeOfImage of FC27.exe (function pointers the game calls check are inside)
 std::vector<ExecSection> g_sections;
 turbo::SignatureTable g_table;
 std::vector<turbo::SigResult> g_results;
@@ -146,6 +147,7 @@ bool locate_game(std::string& err) {
         return false;
     }
     g_base = reinterpret_cast<uint64_t>(base);
+    g_image_size = nt->OptionalHeader.SizeOfImage;
     g_build = turbo::build_key(nt->FileHeader.TimeDateStamp, nt->OptionalHeader.SizeOfImage);
     g_sections.clear();
     const IMAGE_SECTION_HEADER* sec = IMAGE_FIRST_SECTION(nt);
@@ -406,6 +408,7 @@ void* hk_tick(void* a, void* b, void* c, void* d) {
 bool game_hooks_allowed() { return g_installed && g_allowed && !g_global_off.load(); }
 std::string game_build_key() { return g_build; }
 uint64_t game_image_base() { return g_base; }
+uint64_t game_image_size() { return g_image_size; }
 
 uint64_t game_signature(const char* name) {
     std::lock_guard<std::mutex> lock(g_mutex);

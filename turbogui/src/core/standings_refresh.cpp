@@ -53,65 +53,102 @@ uint64_t manager_at(Memory& mem, uint64_t managers, int type_id, std::string& er
     return obj;
 }
 
-// Index of the manager slot whose holder points at obj, -1 when none (bounded walk of the table)
-int slot_of(Memory& mem, uint64_t managers, uint64_t obj) {
-    if (!is_ptr(managers, 8) || !obj) return -1;
-    for (int i = 0; i < kMaxSlots; ++i) {
-        const uint64_t slot = managers + kSlotSize * static_cast<uint64_t>(i);
-        int32_t count = 0;
-        if (!mem.rd(slot + kSlotCount, count)) return -1;  // the table ended
-        if (count != 1) continue;
-        if (mem.chain(slot, {kSlotHolder, 0}) == obj) return i;
-    }
-    return -1;
-}
-
-// The documented slot first; when the object there has another vtable (seen in game 04-10-2026: slot 108 held a
-// 0x14975EA38 object, the StandingsViewManager sat in slot 107) every slot is tried for the expected vtable.
+// Slot 108 only. The game's manager factory stores the StandingsViewManager it constructs in slot 108 (holder array
+// [table+0xd98], count [table+0xd90]); searching other slots for "an object with the SVM vtable" is what found the
+// StaffManager on 04-10-2026 when the vtable constant was wrong, so a mismatch here is reported, never worked around.
 std::string locate(Memory& mem, uint64_t managers, uint64_t& out, uint64_t vtable) {
     out = 0;
     std::string err;
-    uint64_t svm = manager_at(mem, managers, kTypeId, err);
+    uint64_t obj = manager_at(mem, managers, kTypeId, err);
+    if (!obj) return "StandingsViewManager: " + err;
     uint64_t vt = 0;
-    if (svm && (!vtable || (mem.rd(svm, vt) && vt == vtable))) {
-        out = svm;
-        return "";
+    if (vtable) {
+        if (!mem.rd(obj, vt)) return "the object in manager slot " + std::to_string(kTypeId) + " (" + hex(obj) + ") is not readable";
+        if (vt != vtable)
+            return "the object in manager slot " + std::to_string(kTypeId) + " (" + hex(obj) + ") is not the StandingsViewManager (vtable " +
+                   hex(vt) + ", expected " + hex(vtable) + "): the layout of this game build differs";
     }
-    if (!vtable) return "StandingsViewManager: " + err;
-    for (int i = 0; i < kMaxSlots; ++i) {
-        std::string e2;
-        uint64_t obj = manager_at(mem, managers, i, e2);
-        if (!obj || !mem.rd(obj, vt) || vt != vtable) continue;
-        if (mem.ptr(obj + kOffCtx) != managers) continue;
-        out = obj;
-        return "";
-    }
-    return "no manager slot holds an object with the StandingsViewManager vtable " + hex(vtable) +
-           (svm ? " (slot " + std::to_string(kTypeId) + " holds another class)" : " (" + err + ")");
+    out = obj;
+    return "";
 }
 
-std::string validate(Memory& mem, uint64_t svm, uint64_t managers, uint64_t vtable, uint64_t slot10) {
+// An initialised, free CRITICAL_SECTION: LockCount -1, no recursion, no owner. The game thread owns the map's section
+// only inside its own calls, so at the time of Turbo's call (after the frame body) it must be free; anything else is
+// either another thread inside the SVM or memory that is no critical section (the StaffManager's +0x280 read
+// LockCount 0x38547280 in the crash: EnterCriticalSection then waited on a garbage "semaphore").
+static std::string check_critical_section(Memory& mem, uint64_t cs) {
+    int32_t lock = 0, rec = 0;
+    uint64_t owner = 0;
+    if (!mem.rd(cs + kCsLockCount, lock) || !mem.rd(cs + kCsRecursion, rec) || !mem.rd(cs + kCsOwner, owner))
+        return "the standings map's critical section at " + hex(cs) + " is not readable";
+    if (lock != -1 || rec != 0 || owner != 0)
+        return "the standings map's critical section at " + hex(cs) + " is not an initialised, free critical section (LockCount " +
+               std::to_string(lock) + ", RecursionCount " + std::to_string(rec) + ", owner " + hex(owner) + ")";
+    return "";
+}
+
+std::string validate(Memory& mem, uint64_t svm, uint64_t managers, uint64_t vtable, uint64_t listener) {
     if (!is_ptr(svm, 8)) return "StandingsViewManager address " + hex(svm) + " is not a pointer";
     uint64_t vt = 0;
     if (!mem.rd(svm, vt)) return "StandingsViewManager at " + hex(svm) + " is not readable";
     if (vtable && vt != vtable)
         return "the object at " + hex(svm) + " is not the StandingsViewManager (vtable " + hex(vt) + ", expected " + hex(vtable) + ")";
-    if (slot10) {
+    if (listener) {
         uint64_t fn = 0;
-        if (!is_ptr(vt, 8) || !mem.rd(vt + kVtableSlot10, fn) || fn != slot10)
-            return "the object at " + hex(svm) + " has another vtable (slot 10 " + hex(fn) + ", expected " + hex(slot10) + ")";
+        if (!is_ptr(vt, 8) || !mem.rd(vt + kVtableSlotListener, fn) || fn != listener)
+            return "the vtable of the object at " + hex(svm) + " (" + hex(vt) + ") does not hold the SVM's career-event listener in slot 1 (" +
+                   hex(fn) + ", expected " + hex(listener) + ")";
     }
     uint8_t tail = 0;
-    if (!mem.rd(svm + kOffLastField, tail)) return "StandingsViewManager at " + hex(svm) + " is cut off (0x498 bytes expected)";
+    if (!mem.rd(svm + kObjectSize - 1, tail)) return "StandingsViewManager at " + hex(svm) + " is cut off (0x4B8 bytes expected)";
     uint64_t ctx = mem.ptr(svm + kOffCtx);
     if (!ctx) return "StandingsViewManager has no manager table pointer (+0x8)";
     if (managers && ctx != managers)
         return "StandingsViewManager " + hex(svm) + " belongs to manager table " + hex(ctx) + ", not " + hex(managers) + " (another career?)";
-    if (slot_of(mem, ctx, svm) < 0) return "no slot of the manager table " + hex(ctx) + " holds " + hex(svm);
+    std::string err;
+    if (manager_at(mem, ctx, kTypeId, err) != svm)
+        return "manager slot " + std::to_string(kTypeId) + " of the table " + hex(ctx) + " does not hold " + hex(svm) + (err.empty() ? "" : " (" + err + ")");
+    return check_critical_section(mem, svm + kOffCritSec);
+}
+
+static bool in_image(uint64_t p, uint64_t base, uint64_t size) {
+    if (!is_ptr(p)) return false;
+    if (!base || !size) return true;
+    return p >= base && p < base + size;
+}
+
+std::string validate_request_path(Memory& mem, uint64_t svm, uint64_t ifce_expected, uint64_t iface_post, uint64_t allocator,
+                                  uint64_t image_base, uint64_t image_size) {
+    // refresh_comp: rax = [svm+8]; rcx = [rax+0x38]; rdi = [rcx]; ... call [[rdi]+0x20](rdi, request)
+    const uint64_t ctx = mem.ptr(svm + kOffCtx);
+    if (!ctx) return "StandingsViewManager has no manager table pointer (+0x8)";
+    const uint64_t holder = mem.ptr(ctx + kCtxIfceHolder);
+    if (!holder) return "the manager table " + hex(ctx) + " has no FCE interface holder at +0x38 (slot 1)";
+    const uint64_t ifce = mem.ptr(holder);
+    if (!ifce) return "the FCE interface holder " + hex(holder) + " does not point at an object";
+    if (ifce_expected && ifce != ifce_expected)
+        return "the FCE interface the request would go through (" + hex(ifce) + ") is not the one Turbo edited (" + hex(ifce_expected) +
+               "): the rows edited are not the ones the game shows";
+    const uint64_t ivt = mem.ptr(ifce);
+    if (!ivt) return "the FCE interface " + hex(ifce) + " has no vtable";
+    uint64_t post = 0;
+    if (!mem.rd(ivt + kIfceVtablePost, post) || !in_image(post, image_base, image_size))
+        return "the FCE interface vtable " + hex(ivt) + " has no function in slot 4 (" + hex(post) + ")";
+    if (iface_post && post != iface_post)
+        return "the FCE interface vtable " + hex(ivt) + " slot 4 is " + hex(post) + ", not the game's Post function " + hex(iface_post);
+    // the request allocation: rcx = [allocator global]; rax = [rcx]; call [rax+0x10]
+    if (allocator) {
+        const uint64_t alloc = mem.ptr(allocator);
+        if (!alloc) return "the game allocator global " + hex(allocator) + " holds no object";
+        const uint64_t avt = mem.ptr(alloc);
+        uint64_t fn = 0;
+        if (!avt || !mem.rd(avt + kAllocVtableAlloc, fn) || !in_image(fn, image_base, image_size))
+            return "the game allocator " + hex(alloc) + " has no allocate function in its vtable (" + hex(fn) + ")";
+    }
     return "";
 }
 
-std::string map_keys(Memory& mem, uint64_t svm, std::vector<int32_t>& keys) {
+std::string map_keys(Memory& mem, uint64_t svm, std::vector<int32_t>& keys, uint64_t live_vtable) {
     keys.clear();
     if (!is_ptr(svm, 8)) return "no StandingsViewManager";
     const uint64_t anchor = svm + kOffMap;
@@ -140,16 +177,22 @@ std::string map_keys(Memory& mem, uint64_t svm, std::vector<int32_t>& keys) {
                 keys.clear();
                 return "the standings map holds a bad node pointer " + hex(node);
             }
-            uint64_t right = 0, left = 0, parent = 0;
+            uint64_t right = 0, left = 0, parent = 0, value = 0;
             int32_t key = 0;
             if (!mem.rd(node + kNodeRight, right) || !mem.rd(node + kNodeLeft, left) || !mem.rd(node + kNodeParent, parent) ||
-                !mem.rd(node + kNodeKey, key)) {
+                !mem.rd(node + kNodeKey, key) || !mem.rd(node + kNodeValue, value)) {
                 keys.clear();
                 return "standings map node " + hex(node) + " is not readable";
             }
             if (parent != expect_parent) {
                 keys.clear();
                 return "standings map node " + hex(node) + " has parent " + hex(parent) + ", expected " + hex(expect_parent);
+            }
+            uint64_t vvt = 0;
+            if (!is_ptr(value, 8) || !mem.rd(value, vvt) || (live_vtable && vvt != live_vtable)) {
+                keys.clear();
+                return "standings map node " + hex(node) + " (comp " + std::to_string(key) + ") does not hold a LiveStandings object (" + hex(value) +
+                       ", vtable " + hex(vvt) + ")";
             }
             if (++visited > kMaxKeys) {
                 keys.clear();
@@ -179,6 +222,16 @@ std::string map_keys(Memory& mem, uint64_t svm, std::vector<int32_t>& keys) {
     return "";
 }
 
+std::string sim_busy(Memory& mem, uint64_t managers) {
+    std::string err;
+    const uint64_t sdm = manager_at(mem, managers, kSimDayTypeId, err);
+    if (!sdm) return "the SimDayManager is not available (" + err + ")";
+    int32_t state = 0;
+    if (!mem.rd(sdm + kOffSimDayState, state)) return "the SimDayManager " + hex(sdm) + " is not readable";
+    if (state != 0) return "the game is processing a match day (SimDayManager state " + std::to_string(state) + "): try again when the hub is back";
+    return "";
+}
+
 static Result fail(Result r, const char* stage, const std::string& msg) {
     r.ok = false;
     r.stage = stage;
@@ -200,42 +253,41 @@ Result refresh(Memory& mem, Caller& call, const Fns& fns, const Request& req) {
     // 1. the manager table: published, else from the comm service
     uint64_t managers = req.managers;
     if (!managers && req.comm) managers = manager_table(mem, req.comm);
-    // 2. the SVM: published, else located through the table
-    uint64_t svm = req.svm;
-    if (!svm) {
-        if (!managers)
-            return fail(r, "validate",
-                        "the career's StandingsViewManager is not known: load a career (Turbo's Lua side publishes it in bridge_state.json)");
-    }
     const uint64_t vtable = fns.vtable ? fns.vtable : (req.image_base ? req.image_base + kRvaVtable : 0);
-    if (!svm) {
+    const uint64_t live_vtable = req.image_base ? req.image_base + kRvaLiveStandingsVtable : 0;
+    // 2. the SVM: the object of manager slot 108, which must be the published one when both are known
+    uint64_t svm = 0;
+    if (managers) {
         err = locate(mem, managers, svm, vtable);
         if (!err.empty()) return fail(r, "validate", err);
+        if (req.svm && req.svm != svm)
+            return fail(r, "validate", "the published StandingsViewManager " + hex(req.svm) + " is not the object of manager slot " +
+                                           std::to_string(kTypeId) + " (" + hex(svm) + "): bridge_state.json is stale (reload the career)");
+    } else if (req.svm) {
+        svm = req.svm;  // its own table is checked below
+    } else {
+        return fail(r, "validate",
+                    "the career's StandingsViewManager is not known: load a career (Turbo's Lua side publishes it in bridge_state.json)");
     }
-    err = validate(mem, svm, managers, vtable, fns.slot10);
-    if (!err.empty() && managers) {
-        // the published object is not it (the Lua side reads the documented slot): find it by its vtable
-        uint64_t again = 0;
-        if (locate(mem, managers, again, vtable).empty() && again != svm) {
-            svm = again;
-            err = validate(mem, svm, managers, vtable, fns.slot10);
-        }
-    }
+    err = validate(mem, svm, managers, vtable, fns.listener);
     if (!err.empty()) return fail(r, "validate", err);
     if (!managers) managers = mem.ptr(svm + kOffCtx);
     r.svm = svm;
     r.managers = managers;
-    // 3. the FCE interface Turbo wrote to must be the career's (manager slot 1)
-    if (req.ifce) {
-        uint64_t career_ifce = manager_at(mem, managers, kIfceTypeId, err);
-        if (career_ifce && career_ifce != req.ifce)
-            return fail(r, "validate", "the FCE interface Turbo edited (" + hex(req.ifce) + ") is not the career's (" + hex(career_ifce) +
-                                           "): the rows edited are not the ones the game shows");
+    // 3. everything refresh_comp dereferences on its way to FCE: the career's interface (slot 1), its Post function,
+    //    the allocator; and the interface must be the one Turbo wrote to
+    uint64_t ifce_expected = req.ifce;
+    if (!ifce_expected) {
+        const uint64_t career_ifce = manager_at(mem, managers, kIfceTypeId, err);
+        if (career_ifce) ifce_expected = career_ifce;
     }
-    uint8_t enabled = 1;
-    if (mem.rd(svm + kOffEnabled, enabled)) r.enabled = enabled != 0;
-    // 4. the keys the game itself requested with
-    std::string walk = map_keys(mem, svm, r.keys);
+    err = validate_request_path(mem, svm, ifce_expected, fns.iface_post, fns.allocator, req.image_base, req.image_size);
+    if (!err.empty()) return fail(r, "validate", err);
+    // 4. never while the game processes a match day
+    err = sim_busy(mem, managers);
+    if (!err.empty()) return fail(r, "busy", err);
+    // 5. the keys the game itself requested with
+    std::string walk = map_keys(mem, svm, r.keys, live_vtable);
     const std::string what = req.label.empty() ? "" : req.label + ": ";
     if (walk.empty() && !r.keys.empty()) {
         for (int32_t k : r.keys) {
@@ -246,30 +298,59 @@ Result refresh(Memory& mem, Caller& call, const Fns& fns, const Request& req) {
             ++r.refreshed;
         }
         std::vector<int32_t> after;
-        std::string again = map_keys(mem, svm, after);
+        std::string again = map_keys(mem, svm, after, live_vtable);
         r.ok = true;
         r.stage = "done";
         r.message = what + "the game's standings view re-read " + std::to_string(r.refreshed) + " competition" +
                     (r.refreshed == 1 ? "" : "s") + " (comp ids " + list_keys(r.keys) + ")";
         if (!again.empty()) r.message += "; the map could not be re-read afterwards: " + again;
         else if (after.size() != r.keys.size()) r.message += "; the map now holds " + std::to_string(after.size()) + " competitions";
-        if (!r.enabled) r.message += " (the view manager is disabled: the screen may not show them yet)";
         return r;
     }
-    // 5. fallback: the game's own load-time refresh (event 29) when the map is empty or cannot be walked
+    // 6. an empty or inconsistent map: reported. The game's own load-time refresh (event 29 through the listener) runs
+    //    only when the request opts in; a walk inconsistency means the layout is not what Turbo knows and nothing is called.
     const std::string why = walk.empty() ? "the standings map is empty" : walk;
-    if (!req.allow_fallback) return fail(r, "walk", what + why);
+    if (!walk.empty()) return fail(r, "walk", what + why + " (nothing was called)");
+    if (!req.allow_fallback)
+        return fail(r, "walk", what + why + ": nothing to re-request (the game fills it when a career loads; the full refresh is "
+                                            "opt-in: turbo_output\\call_standings_refresh_full.txt)");
     if (!call.career_event(svm, kEventPostLoadPrepare, err)) return fail(r, "fallback", what + why + "; the full refresh failed: " + err);
     r.fallback = true;
     std::vector<int32_t> after;
-    std::string again = map_keys(mem, svm, after);
+    std::string again = map_keys(mem, svm, after, live_vtable);
     r.ok = true;
     r.stage = "done";
     r.message = what + why + ": the game's full standings refresh (POST_LOAD_PREPARE) was run instead";
     if (again.empty()) r.message += "; the map now holds " + std::to_string(after.size()) + " competition" + (after.size() == 1 ? "" : "s");
-    if (!r.enabled) r.message += " (the view manager is disabled: the screen may not show them yet)";
     return r;
 }
+
+// ---------------------------------------------------------------- one-shot gate
+bool OneShotGate::arm(const std::string& label, std::string& why) {
+    if (running_) {
+        why = "a standings refresh is still running (" + label_ + ")";
+        return false;
+    }
+    armed_ = true;
+    label_ = label;
+    return true;
+}
+
+bool OneShotGate::take(std::string& why) {
+    if (running_) {
+        why = "a standings refresh is still running (" + label_ + ")";
+        return false;
+    }
+    if (!armed_) {
+        why = "no edit armed a standings refresh";
+        return false;
+    }
+    armed_ = false;
+    running_ = true;
+    return true;
+}
+
+void OneShotGate::done() { running_ = false; }
 
 }  // namespace svm
 }  // namespace turbo

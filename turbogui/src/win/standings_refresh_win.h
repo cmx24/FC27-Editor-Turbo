@@ -1,13 +1,17 @@
 // FC 27 LE Turbo GUI - "standings_refresh" game call inside FC27.exe (the Windows host of core/standings_refresh.h).
 //
 //   * install_standings_refresh(): after install_game_hooks(). Resolves svm_refresh_comp / svm_listener (required) and
-//     svm_vtable / svm_slot10 (validation anchors) from the signature table. Nothing is hooked.
-//   * standings_refresh_request(req, seq): the call. Runs AT ONCE when the caller is the game thread (the thread the
-//     dispatcher last ran on), else it is queued for the dispatcher (run_on_game_thread) and the outcome arrives later:
-//     in the mailbox call block when seq != 0 (Lua), and always through the RefreshService's poll() (the overlay shows
-//     it as a toast). Never runs on the render thread.
+//     svm_vtable / fce_iface_post / svm_allocator (validation anchors) from the signature table. Nothing is hooked.
+//   * standings_refresh_request(req, seq): the call. One-shot: the request (an edit, or Lua's explicit call) arms the
+//     gate and takes it; while that run is queued or running every further request is refused (stage "busy"). Runs
+//     AT ONCE when the caller is the game thread (the thread the dispatcher last ran on), else it is queued for the
+//     dispatcher (run_on_game_thread) and the outcome arrives later: in the mailbox call block when seq != 0 (Lua), and
+//     always through the RefreshService's poll() (the overlay shows it as a toast). Never runs on the render thread.
+//     The core refuses the call while the SimDayManager processes a match day.
 //   * kill switches: turbo_output\call_standings_refresh_off.txt (this call), plus every game-hook switch (a build
-//     that is not in the table or game_hooks_off.txt turns the calls off as well).
+//     that is not in the table or game_hooks_off.txt turns the calls off as well). Opt-in:
+//     turbo_output\call_standings_refresh_full.txt lets the game's full refresh (career event 29 through the SVM's
+//     listener) run when the map is empty; without it an empty map is only reported.
 #pragma once
 #include <cstdint>
 #include <memory>
