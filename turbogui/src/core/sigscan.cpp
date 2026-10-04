@@ -363,6 +363,27 @@ static const SignatureTable kBuiltin[] = {
          {"commentary_str_player_low_link",
           "49 8B 4D 08 4C 8D 05 ?? ?? ?? ?? 48 8D 15 ?? ?? ?? ?? 48 8B 01 FF 50 48 48 8D 4D D0 4C 8B F8 E8 ?? ?? ?? ?? C7 45 28 00",
           "rip", 0xEF, "the string \"PLAYER_LOW_LINK\""},
+         // Voice swaps (docs/re/inmatch-callnames.md, core/callname_voice.h): the two hooked functions and three layout
+         // guards. Each guard is the game's own code that reads the fields the detours touch, so a title update that
+         // moves one of them leaves a guard unmatched and nothing is installed. Every pattern is unique in the whole image.
+         {"speech_query_preprocess",
+          "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 55 41 56 41 57 48 8B EC 48 83 EC 50 65 48 8B 04 25 58 00 00 00 48 8B D9 "
+          "B9 34 07 00 00 48 8B FA 48 8B 00",
+          "none", 0, "void Preprocess(IQueryPreprocessor*, SpeechQuery*) 0x1414A90C8: the pre-handler of every CommentaryDb line "
+                     "played or asked (sets the *_gID twin of every *_pID parameter); hooked by callname_voice"},
+         {"commentary_get_callname",
+          "48 8B C4 48 89 58 20 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 28 F3 FF FF 48 81 EC A0 0D 00 00 C5 F8 29 70 B8 C5 F8 "
+          "29 78 A8 48 8B 05 ?? ?? ?? ??",
+          "none", 0, "int GetCallname(SpeechEventHandler*, playerid, mode) 0x14294A0F4: once per player at kick-off (-1 = own "
+                     "recordings, else a commentary id); hooked by callname_kickoff"},
+         {"speech_param_name_layout", "3B 51 18 73 13 48 8B 40 20 8B CA 48 8B 0C C8 48 8B 41 30 48 83 C0 20 C3", "none", 0,
+          "layout guard 0x1414A95C3 (in 0x1414A95C0, called by Preprocess): query count +0x18, params +0x20, param desc +0x30, "
+          "desc name +0x20"},
+         {"speech_param_get_int_layout", "3B 51 18 73 0F 48 8B 41 20 8B D2 48 8B 0C D0 48 85 C9 75 04 83 C8 FF C3", "none", 0,
+          "layout guard 0x1414A9AE0 (Preprocess's GetInt by index): query count +0x18, params +0x20, null param = -1"},
+         {"speech_param_set_int_store", "41 80 78 44 00 75 3D 44 89 26 C6 46 44 01", "none", 0,
+          "layout guard 0x1407AFAA7 (in ParamValue::SetInt 0x1407AFA58): single value when desc +0x44 == 0, then value +0x00 "
+          "and set flag +0x44 = 1 (the store the voice detour copies)"},
      }},
 };
 

@@ -55,6 +55,19 @@ bool install_game_hook_at(const char* name, void* target, void* detour, void** o
 // Per-hook kill switch (turbo_output\hook_<name>_off.txt), cached and re-read every 2 s; also false when the global
 // switch is on. A detour calls this first and, when it returns false, only calls the original.
 bool game_hook_enabled(const char* name);
+// The same check without Turbo's lock or a file check, for detours that run under a game lock (the voice-swap
+// detours run under the speech registry lock): take the handle once after install_game_hook (game_hook_handle takes
+// Turbo's lock, never call it from a detour), then the detour calls game_hook_live, which reads atomics only.
+struct HookRec;
+using HookHandle = const HookRec*;
+// The installed hook of that name (nullptr when there is none); valid for the life of the process
+HookHandle game_hook_handle(const char* name);
+// True when the hook is enabled in MinHook and neither its kill switch nor the global one was present at the last
+// switch refresh. nullptr = false.
+bool game_hook_live(HookHandle h);
+// Re-reads the kill-switch files into the cached atomics, at most every 2 s (returns at once in between). The GUI tick
+// calls it, so game_hook_live follows the files even while no detour calls game_hook_enabled.
+void game_hooks_refresh_switches();
 // Counts an exception caught inside a detour (HOOK_BODY uses it)
 void game_hook_error(const char* name, const char* what);
 void game_hook_called(const char* name);
