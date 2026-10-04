@@ -2266,6 +2266,69 @@ static void test_ui() {
             ui.frames(2);
         });
 
+        run_case("UI: Players > Reveal data / Develop to potential: gated by the capabilities, send the reveal / development modules", [&] {
+            app.mailbox->cancel();
+            app.request_tab = 0;
+            ui.frames(3);
+            CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
+            CHECK(ui.click("1001", "##plist"), "row 1001");
+            ui.frames(2);
+            CHECK(ui.click("Growth", "##pedit"), "Growth tab");
+            ui.frames(2);
+            fs::path state_file = le / "turbo_output" / "bridge_state.json";
+            json st = read_json(state_file);
+            int bumps = 0;
+            auto write_state_file = [&]() {
+                {
+                    std::ofstream f(state_file.string(), std::ios::binary | std::ios::trunc);
+                    f << st.dump();
+                }
+                fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(10 + 2 * ++bumps));
+                app.next_poll = 0.0;
+                ui.frames(3);
+            };
+            const json saved = st;
+            st["in_cm"] = true;
+            st["unavailable"]["reveal"] = "TurboRevealPlayerData is not available in this Live Editor build";
+            st["seq"] = st.value("seq", 0LL) + 1;
+            write_state_file();
+            CHECK(app.bridge.state().unavailable_reason("reveal") != nullptr, "reveal unavailable");
+            const ItemRec* btn = ui.find("Reveal data");
+            CHECK(btn != nullptr, "Reveal data drawn");
+            ui.click(btn);
+            ui.frames(2);
+            CHECK(!app.mailbox->pending(), "disabled: nothing sent");
+            st["unavailable"].erase("reveal");
+            st["unavailable"].erase("development");
+            st["seq"] = st.value("seq", 0LL) + 1;
+            write_state_file();
+            CHECK(app.bridge.state().unavailable_reason("reveal") == nullptr, "capability picked up");
+            CHECK(ui.click("Reveal data"), "Reveal data");
+            ui.frames(2);
+            CHECK(app.mailbox->pending(), "command sent");
+            json j = json::parse(mem.read_cstr(kMb + kMbCmd, kMbTextSize), nullptr, false);
+            CHECK(!j.is_discarded() && j.value("module", "") == "reveal" && j["overrides"]["scope"].value("playerid", 0) == 1001,
+                  "reveal of player 1001: " + j.dump());
+            app.mailbox->cancel();
+            ui.frames(2);
+            const PlayerRow* p = app.model.player(1001);
+            CHECK(p != nullptr, "player row");
+            char lbl[64];
+            std::snprintf(lbl, sizeof(lbl), "Develop to potential (%d)", p ? p->potential : 0);
+            CHECK(ui.click(lbl), std::string("button ") + lbl);
+            ui.frames(2);
+            j = json::parse(mem.read_cstr(kMb + kMbCmd, kMbTextSize), nullptr, false);
+            CHECK(!j.is_discarded() && j.value("module", "") == "development" && j["overrides"].value("mode", "") == "to_potential" &&
+                      j["overrides"]["scope"].value("playerid", 0) == 1001,
+                  "development to potential: " + j.dump());
+            app.mailbox->cancel();
+            st = saved;
+            st["seq"] = st.value("seq", 0LL) + 1;
+            write_state_file();
+            ui.click("Profile", "##pedit");
+            ui.frames(2);
+        });
+
         run_case("UI: Database tab, pick a table, double-click a float cell, edit", [&] {
             CHECK(ui.click("Database"), "Database tab");
             CHECK(ui.click("Table"), "table combo");
