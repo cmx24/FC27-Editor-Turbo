@@ -64,6 +64,7 @@ const char* inline_hook_name(InlineHook h) {
         case InlineHook::JmpIndirect: return "jmp [rip]";
         case InlineHook::MovabsJmp: return "movabs+jmp";
         case InlineHook::PushRet: return "push+ret";
+        case InlineHook::LeaPushMovabsRet: return "lea/push/movabs/ret";
         case InlineHook::Truncated: return "truncated";
     }
     return "?";
@@ -86,6 +87,19 @@ InlineHook detect_inline_hook(const uint8_t* code, size_t len, uint64_t addr, ui
         if (len < 6) return InlineHook::Truncated;
         if (target) *target = addr + 6 + static_cast<int64_t>(rd_i32(code + 2));
         return InlineHook::JmpIndirect;
+    }
+    // lea rsp,[rsp-0x80] ; push rax ; movabs rax, imm64 ; xchg [rsp], rax ; ret 0x80   (Live Editor v27.1.2)
+    static const uint8_t kLeaPush[] = {0x48, 0x8D, 0x64, 0x24, 0x80, 0x50, 0x48, 0xB8};
+    static const uint8_t kXchgRet[] = {0x48, 0x87, 0x04, 0x24, 0xC2, 0x80, 0x00};
+    if (len >= 2 && code[0] == 0x48 && code[1] == 0x8D) {
+        const size_t head = len < sizeof(kLeaPush) ? len : sizeof(kLeaPush);
+        if (std::memcmp(code, kLeaPush, head) != 0) return InlineHook::None;
+        if (len < 23) return InlineHook::Truncated;
+        if (std::memcmp(code + 16, kXchgRet, sizeof(kXchgRet)) != 0) return InlineHook::None;
+        uint64_t v = 0;
+        std::memcpy(&v, code + 8, 8);
+        if (target) *target = v;
+        return InlineHook::LeaPushMovabsRet;
     }
     if (code[0] == 0x48 && len >= 2 && code[1] == 0xB8) {  // movabs rax, imm64 ; jmp rax
         if (len < 12) return InlineHook::Truncated;
@@ -130,6 +144,12 @@ void build_synthetic_event(SyntheticEvent& s, void* noop, int32_t type) {
     std::memcpy(s.event + 8, &zero, 8);   // reference count 0: nothing to release
     const uint64_t t = static_cast<uint64_t>(static_cast<uint32_t>(type));
     std::memcpy(s.event + kSyntheticTypeOffset, &t, 8);
+    // what the dispatcher's Dispatch(id, event) reads: the helper at +0x18 (its vf[31] is called: the dispatcher itself,
+    // whose vtable is all no-ops), the listener vector (+0x28 == +0x30 from the filler: none), the per-id callback
+    // tree root (+0x58 = 0: empty) and the listener filter (+0xA0 = 0: none)
+    std::memcpy(s.dispatcher + kDispatchHelperOffset, &disp, 8);
+    std::memcpy(s.dispatcher + kDispatchTreeRootOffset, &zero, 8);
+    std::memcpy(s.dispatcher + kDispatchFilterOffset, &zero, 8);
 }
 
 bool verify_synthetic_event(const SyntheticEvent& s, void* noop, int32_t type) {
@@ -146,16 +166,31 @@ bool verify_synthetic_event(const SyntheticEvent& s, void* noop, int32_t type) {
     if (v != 0) return false;
     std::memcpy(&v, s.event + kSyntheticTypeOffset, 8);
     if (v != static_cast<uint64_t>(static_cast<uint32_t>(type))) return false;
-    auto self_filled = [](const uint8_t* block, size_t from) {
+    // the dispatcher fields Dispatch(id, event) reads
+    std::memcpy(&v, s.dispatcher + kDispatchHelperOffset, 8);
+    if (v != reinterpret_cast<uint64_t>(s.dispatcher)) return false;
+    uint64_t lb = 0, le = 0;
+    std::memcpy(&lb, s.dispatcher + kDispatchListenersBegin, 8);
+    std::memcpy(&le, s.dispatcher + kDispatchListenersEnd, 8);
+    if (lb != le || lb != reinterpret_cast<uint64_t>(s.dispatcher)) return false;
+    std::memcpy(&v, s.dispatcher + kDispatchTreeRootOffset, 8);
+    if (v != 0) return false;
+    std::memcpy(&v, s.dispatcher + kDispatchFilterOffset, 8);
+    if (v != 0) return false;
+    auto self_filled = [](const uint8_t* block, size_t from, const size_t* skip, size_t nskip) {
         const uint64_t self = reinterpret_cast<uint64_t>(block);
         for (size_t off = from; off + 8 <= kSyntheticBlock; off += 8) {
+            bool skipped = false;
+            for (size_t k = 0; k < nskip; ++k) skipped = skipped || skip[k] == off;
+            if (skipped) continue;
             uint64_t q = 0;
             std::memcpy(&q, block + off, 8);
             if (q != self) return false;
         }
         return true;
     };
-    return self_filled(s.wrapper, 8) && self_filled(s.dispatcher, 8) && self_filled(s.event, 0x18);
+    const size_t zeros[] = {kDispatchTreeRootOffset, kDispatchFilterOffset};
+    return self_filled(s.wrapper, 8, nullptr, 0) && self_filled(s.dispatcher, 8, zeros, 2) && self_filled(s.event, 0x18, nullptr, 0);
 }
 
 }  // namespace turbo

@@ -17,10 +17,12 @@
 //     when that signature is known, otherwise on the next career-mode event: Turbo's Lua side calls the exported
 //     turbo_game_pump() from its event handler, which runs on the thread that posts career events;
 //   * prompt Lua commands: while the GUI has a mailbox command waiting (want_lua_pump), the tick hands the game's
-//     career-event post entry a synthetic event whose dispatcher and event objects are Turbo's own no-op objects, so
-//     Live Editor's hook on that entry runs Turbo's Lua handler (which polls the mailbox) and the game itself sees
-//     nothing. Only after a real career-mode event showed that Live Editor's Lua runs on the tick's thread, only while
-//     that entry carries another module's inline hook, at most four times a second (docs/re/game_thread.md section 4).
+//     hooked career-event entry (the dispatcher's Dispatch(id, event) on Live Editor v27.1.2, else the PostEvent shell)
+//     a synthetic event whose dispatcher and event objects are Turbo's own no-op objects, so Live Editor's hook on that
+//     entry runs Turbo's Lua handler (which polls the mailbox) and the game itself sees nothing. Only after a real
+//     career-mode event ran Turbo's Lua side, only while one of those entries carries another module's inline hook
+//     (jmp rel32 / jmp [rip] / movabs+jmp / push+ret / Live Editor's lea-push-movabs-ret stub), at most four times a
+//     second (docs/re/game_thread.md section 4).
 //
 // Nothing here runs before start_overlay has initialised MinHook; hooks are enabled one at a time (MH_EnableHook on the
 // target, never MH_ALL_HOOKS).

@@ -2955,6 +2955,9 @@ static void test_sigscan() {
                   b->find("post_career_event") && b->find("post_career_event")->resolve == "rip" &&
                   b->find("post_career_event")->offset == 6,
               "built-in table for the known build carries the tick and the event post");
+        CHECK(b && b->find("career_event_dispatch") && b->find("career_event_dispatch")->resolve == "none" &&
+                  b->find("career_event_dispatch")->offset == -24,
+              "built-in table carries the career-event dispatch anchored past Live Editor's hook bytes");
         CHECK(builtin_signature_table("00000000-00000000") == nullptr, "unknown build has no table");
         CHECK(!builtin_builds().empty() && builtin_builds()[0] == "6AB9813C-211EF000", "builtin_builds lists it");
         for (const auto& bt : builtin_builds()) {
@@ -3053,6 +3056,31 @@ static void test_gamethread() {
         CHECK(detect_inline_hook(jmp, sizeof(jmp), at, nullptr) == InlineHook::JmpRel32, "target may be null");
         CHECK(std::string(inline_hook_name(InlineHook::JmpRel32)) == "jmp rel32" && std::string(inline_hook_name(InlineHook::None)) == "none",
               "names");
+        // Live Editor v27.1.2's two forms, as read from the running game at the career-event dispatch 0x147B8C0D8:
+        // the 23-byte stub (04-10-2026 00:51, detour 0x7FFD046FA100 = FCLiveEditor.DLL+0x33A100) and, after a restart,
+        // the 6-byte jmp [rip+disp32] through a slot page below the exe (slot 0x13FB70000), each followed by the bytes
+        // Live Editor leaves behind (a 90 / the 89 44 66 90 residue).
+        const uint8_t stub[] = {0x48, 0x8D, 0x64, 0x24, 0x80, 0x50, 0x48, 0xB8, 0x00, 0xA1, 0x6F, 0x04, 0xFD, 0x7F, 0x00, 0x00,
+                                0x48, 0x87, 0x04, 0x24, 0xC2, 0x80, 0x00, 0x90, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x30, 0x48, 0x8B};
+        const uint64_t disp = 0x147B8C0D8ULL;
+        CHECK(detect_inline_hook(stub, sizeof(stub), disp, &t) == InlineHook::LeaPushMovabsRet && t == 0x7FFD046FA100ULL,
+              "lea rsp/push rax/movabs/xchg/ret stub: the detour");
+        CHECK(detect_inline_hook(stub, 23, disp, &t) == InlineHook::LeaPushMovabsRet && t == 0x7FFD046FA100ULL, "exactly 23 bytes suffice");
+        CHECK(detect_inline_hook(stub, 22, disp, &t) == InlineHook::Truncated && detect_inline_hook(stub, 5, disp, &t) == InlineHook::Truncated,
+              "fewer bytes is no verdict");
+        uint8_t broken[sizeof(stub)];
+        std::memcpy(broken, stub, sizeof(stub));
+        broken[20] = 0xC3;  // ret without the 0x80: not the stub
+        CHECK(detect_inline_hook(broken, sizeof(broken), disp, &t) == InlineHook::None && t == 0, "a different tail is not the stub");
+        const uint8_t lea_code[] = {0x48, 0x8D, 0x6C, 0x24, 0xD1, 0x48, 0x81, 0xEC, 0xC0, 0x00, 0x00, 0x00, 0x41, 0x8B, 0xD8, 0x4C,
+                                    0x8B, 0xFA, 0x48, 0x8B, 0xF9, 0x4C, 0x8D, 0x05, 0x02, 0xE4, 0x20, 0x03, 0xBA, 0x01, 0x00, 0x00};
+        CHECK(detect_inline_hook(lea_code, sizeof(lea_code), disp, &t) == InlineHook::None, "a plain lea prologue is code");
+        const uint8_t jmprip[] = {0xFF, 0x25, 0x22, 0x3F, 0xFE, 0xF7, 0x89, 0x44, 0x66, 0x90, 0x48, 0x89, 0x4C, 0x24, 0x08, 0x55,
+                                  0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x30, 0x48, 0x8B};
+        CHECK(detect_inline_hook(jmprip, sizeof(jmprip), disp, &t) == InlineHook::JmpIndirect && t == 0x13FB70000ULL,
+              "jmp [rip+disp32]: the slot page below the exe");
+        CHECK(std::string(inline_hook_name(InlineHook::LeaPushMovabsRet)) == "lea/push/movabs/ret" && kInlineHookProbeBytes >= 23,
+              "name and probe size");
     });
 
     run_case("synthetic career event: layout the game's PostEvent walks lands only in Turbo's objects", [&] {
@@ -3077,14 +3105,44 @@ static void test_gamethread() {
             CHECK(s->vtable[i] == reinterpret_cast<void*>(&noop_a), fmt("slot %zu", i));
         CHECK(q(s->event + 8) == 0, "reference count 0");
         CHECK(q(s->event + kSyntheticTypeOffset) == static_cast<uint64_t>(kSyntheticCareerEvent), "type id at +0x10");
+        // what the career-event dispatcher's Dispatch(this, id, event) (0x147B8C0D8, the function Live Editor hooks) reads
+        // on this build: rcx=[this+0x18]; rax=[rcx]; call [rax+0xF8]  (helper vf[31])
+        //                for id 0x1D/0x1E only: [this+0x20]->+0x318 (hub: skipped, the synthetic id is far away)
+        //                rsi = ([this+0x30]-[this+0x28])>>3 listeners; rax=[this+0x58] tree root; [this+0xA0] filter
+        void* helper = reinterpret_cast<void*>(q(s->dispatcher + kDispatchHelperOffset));
+        CHECK(helper == s->dispatcher, "helper at +0x18 is the dispatcher itself");
+        void** helper_vt = reinterpret_cast<void**>(q(static_cast<uint8_t*>(helper)));
+        CHECK(helper_vt == s->vtable && kDispatchHelperSlot < kSyntheticVtableSlots && helper_vt[kDispatchHelperSlot] == reinterpret_cast<void*>(&noop_a),
+              "helper vf[31] is the no-op");
+        CHECK(q(s->dispatcher + kDispatchListenersBegin) == q(s->dispatcher + kDispatchListenersEnd), "no listener: begin == end");
+        CHECK(q(s->dispatcher + kDispatchTreeRootOffset) == 0, "per-id callback tree empty (null root)");
+        CHECK(q(s->dispatcher + kDispatchFilterOffset) == 0, "no listener filter");
+        CHECK(static_cast<uint32_t>(kSyntheticCareerEvent) - 0x1Du > 1u, "the synthetic id never takes the hub-reading branch");
         // every other qword points at the object itself: a reader that follows fields never leaves Turbo's memory
         bool self = true;
         for (size_t off = 0x18; off + 8 <= kSyntheticBlock; off += 8) self = self && q(s->event + off) == reinterpret_cast<uint64_t>(s->event);
         for (size_t off = 8; off + 8 <= kSyntheticBlock; off += 8) {
             self = self && q(s->wrapper + off) == reinterpret_cast<uint64_t>(s->wrapper);
+            if (off == kDispatchTreeRootOffset || off == kDispatchFilterOffset) continue;
             self = self && q(s->dispatcher + off) == reinterpret_cast<uint64_t>(s->dispatcher);
         }
         CHECK(self, "self-referential filler");
+        // a dispatcher whose tree root or filter was filled in is refused (the walk would leave Turbo's memory)
+        {
+            SyntheticEvent* d = new SyntheticEvent();
+            build_synthetic_event(*d, reinterpret_cast<void*>(&noop_a), kSyntheticCareerEvent);
+            const uint64_t me = reinterpret_cast<uint64_t>(d->dispatcher);
+            std::memcpy(d->dispatcher + kDispatchTreeRootOffset, &me, 8);
+            CHECK(!verify_synthetic_event(*d, reinterpret_cast<void*>(&noop_a), kSyntheticCareerEvent), "tree root set: refused");
+            build_synthetic_event(*d, reinterpret_cast<void*>(&noop_a), kSyntheticCareerEvent);
+            std::memcpy(d->dispatcher + kDispatchFilterOffset, &me, 8);
+            CHECK(!verify_synthetic_event(*d, reinterpret_cast<void*>(&noop_a), kSyntheticCareerEvent), "filter set: refused");
+            build_synthetic_event(*d, reinterpret_cast<void*>(&noop_a), kSyntheticCareerEvent);
+            const uint64_t other = me + 8;
+            std::memcpy(d->dispatcher + kDispatchListenersEnd, &other, 8);
+            CHECK(!verify_synthetic_event(*d, reinterpret_cast<void*>(&noop_a), kSyntheticCareerEvent), "a listener: refused");
+            delete d;
+        }
         // the no-op returns its first argument, so a chain of virtual calls never produces a null
         using Fn = void* (*)(void*, void*, void*, void*);
         CHECK(reinterpret_cast<Fn>(evt_vt[1])(s->event, nullptr, nullptr, nullptr) == s->event, "no-op returns self");
@@ -3112,15 +3170,32 @@ static void test_gamethread() {
                                 0x5f, 0x10, 0x48, 0x8b, 0xcb, 0xff, 0x15, 0xa1, 0x82, 0x67, 0x09, 0x48, 0x8b, 0x4f, 0x10, 0xe8};
         const uint8_t site[] = {0x4c, 0x8b, 0xc0, 0x48, 0x8b, 0xcf, 0xe8, 0xa5, 0x10, 0xa7, 0xf8, 0x48,
                                 0x8d, 0x8c, 0x24, 0x90, 0x00, 0x00, 0x00, 0xe8, 0xf0, 0x83, 0x70, 0xfa};
-        // one buffer standing for the code section: the site at its real address, the tick body 0x1000 later
+        // the career-event dispatch 0x147B8C0D8 as the running game shows it on 04-10-2026 (Live Editor's 23-byte stub
+        // over the prologue, then the function's own bytes from +24 on, where the signature is anchored)
+        const uint8_t dispatch[] = {0x48, 0x8D, 0x64, 0x24, 0x80, 0x50, 0x48, 0xB8, 0x00, 0xA1, 0x6F, 0x04, 0xFD, 0x7F, 0x00, 0x00,
+                                    0x48, 0x87, 0x04, 0x24, 0xC2, 0x80, 0x00, 0x90, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x30, 0x48, 0x8B,
+                                    0xF9, 0x8B, 0xEA, 0x48, 0x8B, 0x49, 0x18, 0x48, 0x8B, 0x01, 0xFF, 0x90, 0xF8, 0x00, 0x00, 0x00,
+                                    0x8D, 0x45, 0xE3, 0x83, 0xF8, 0x01, 0x77, 0x3D, 0x48, 0x8B, 0x47, 0x20, 0x48, 0x8B, 0x88, 0x18};
+        // one buffer standing for the code section: the site at its real address, the tick body 0x1000 later, the
+        // dispatch 0x1400 later
         const uint64_t base = 0x147B9019CULL;
         std::vector<uint8_t> code(0x2000, 0xCC);
         std::memcpy(code.data(), site, sizeof(site));
         std::memcpy(code.data() + 0x1000, tick, sizeof(tick));
+        std::memcpy(code.data() + 0x1400, dispatch, sizeof(dispatch));
         SigResult r = resolve_signature(*b->find("post_career_event"), code.data(), code.size(), base);
         CHECK(r.state == SigState::Found && r.match == base && r.address == 0x14060124CULL, "PostEvent resolved through the call site: " + r.error);
         r = resolve_signature(*b->find("game_tick"), code.data(), code.size(), base);
         CHECK(r.state == SigState::Found && r.address == base + 0x1000 && r.match == r.address, "frame body found: " + r.error);
+        r = resolve_signature(*b->find("career_event_dispatch"), code.data(), code.size(), base);
+        CHECK(r.state == SigState::Found && r.match == base + 0x1400 + 24 && r.address == base + 0x1400,
+              "dispatch found past the hook bytes, address 24 bytes back: " + r.error);
+        // the same function with Live Editor's other hook form (jmp [rip+disp32] + residue) resolves identically
+        const uint8_t jmprip[] = {0xFF, 0x25, 0x22, 0x3F, 0xFE, 0xF7, 0x89, 0x44, 0x66, 0x90, 0x48, 0x89, 0x4C, 0x24, 0x08, 0x55,
+                                  0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56};
+        std::memcpy(code.data() + 0x1400, jmprip, sizeof(jmprip));
+        r = resolve_signature(*b->find("career_event_dispatch"), code.data(), code.size(), base);
+        CHECK(r.state == SigState::Found && r.address == base + 0x1400, "the anchor ignores the first 24 bytes");
         // a second copy of either makes it ambiguous: a title update that duplicates code never hooks the wrong one
         std::memcpy(code.data() + 0x1800, tick, sizeof(tick));
         r = resolve_signature(*b->find("game_tick"), code.data(), code.size(), base);
