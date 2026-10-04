@@ -680,6 +680,40 @@ static void test_core() {
                   ml.label() == "the FC 27 master" && ml.label(true) == "FC 27 master",
               "an FC 27 master");
         CHECK(parse_master_list_json(R"({"language": "ita_it", "game": "fc26", "real_players": [5]})", "ita_it", ml, &err) && !ml.fc27(), "an FC 26 list");
+        // the FC 27 master's full shape: the two banks, the generic surnames with their text
+        CHECK(parse_master_list_json(R"({"turbo_masters": 1, "language": "ita_it", "game": "fc27", "game_build": "x", "counts": {"real_players": 3},
+              "real_players": [261865, 5, 7], "real_simple_players": [261865, 5], "real_link_players": [7, "z"],
+              "generic_ids": [926385, 922149], "generic_names": {"926385": "Pirlo", "922149": "Del Piero", "bad": "x", "900762": 3},
+              "names": {"261865": "Gutierrez"}})", "ita_it", ml, &err) && ml.fc27(),
+              "FC 27 master parsed: " + err);
+        CHECK(ml.real_players.size() == 3 && ml.real_simple_players.size() == 2 && ml.real_link_players.size() == 1 && ml.real_link_players.count(7),
+              "FC 27 master: simple and link banks");
+        CHECK(ml.generic_ids.size() == 2 && ml.generic_names.size() == 2 && ml.generic_names[922149] == "Del Piero",
+              "FC 27 master: generic names, numeric keys with a text value only");
+        CHECK(parse_master_list_json(R"({"language": "ita_it", "game": "fc27", "real_simple_players": [1, 2], "real_link_players": [2, 3]})", "ita_it",
+                                     ml, &err) && ml.real_players.size() == 3 && ml.real(3),
+              "no real_players: the union of the two banks");
+        // the GUI's queue of "keep shown name" actions (Turbo's mailbox holds one command at a time)
+        {
+            LuaActionQueue q;
+            size_t n = 9;
+            CHECK(q.empty() && q.batch(4096, n).empty() && n == 0, "queue: empty batch");
+            q.push(R"({"action":"set_display_name","playerid":1})");
+            q.push(R"({"action":"set_display_name","playerid":2})");
+            q.push(R"({"action":"set_display_name","playerid":3})");
+            CHECK(q.size() == 3, "queue: three waiting (three players assigned in a row)");
+            std::string b = q.batch(4096, n);
+            CHECK(n == 3 && b.front() == '[' && b.back() == ']' && b.find("\"playerid\":3") != npos && b.find("},{") != npos,
+                  "queue: one batch for all three: " + b);
+            CHECK(q.size() == 3, "queue: kept until popped");
+            b = q.batch(60, n);
+            CHECK(n == 1 && b.find("\"playerid\":1") != npos, fmt("queue: a small mailbox takes one at a time (%zu)", n));
+            q.pop(1);
+            b = q.batch(4096, n);
+            CHECK(n == 2 && q.size() == 2 && b.find("\"playerid\":1") == npos, "queue: popped in order");
+            q.pop(5);
+            CHECK(q.empty(), "queue: pop more than held");
+        }
         CHECK(parse_master_list_json(R"({"language": "ita_it", "game": 27, "real_players": [5]})", "ita_it", ml, &err) && ml.game == "fc26",
               "an odd game field: taken as the FC 26 list, not refused");
         CHECK(own_recording_source_name(kOwnFromMasters, SpokenSet::From::GameAudio, "the FC 27 master") == "the FC 27 master" &&
@@ -750,6 +784,24 @@ static void test_core() {
         CHECK(cn.masters.fc27() && cn.own_source(cn.own_recording(1004)) == "the FC 27 master" && !cn.own_unconfirmed(cn.own_recording(1004)),
               "an FC 27 master: named so, no note: " + cn.own_source(cn.own_recording(1004)));
         CHECK(cn.silent_source(980002).rfind("the FC 27 master", 0) == 0, "silent above 965000 per the FC 27 master: " + cn.silent_source(980002));
+        // precedence for "has his own recording": an FC 27 master decides alone (the game's set, 1001 and 2001 here,
+        // is known to be wrong); its generic ids are spoken together with the spoken set
+        CHECK(cn.own_recording(1001) == kOwnFromMasters && cn.own_recording(2001) == 0 && cn.own_recording(1004) == kOwnFromMasters,
+              fmt("FC 27 master > audio-service set (1001 %d, 2001 %d)", cn.own_recording(1001), cn.own_recording(2001)));
+        std::ofstream(mp.string()) << R"({"language": "ita_it", "game": "fc27", "real_players": [1001], "generic_ids": [980002, 926385],
+                                         "generic_names": {"980002": "Bianchi", "926385": "Pirlo"}})";
+        cn.refresh(le, game, "");
+        CHECK(cn.spoken_answer(980002) == SpokenAnswer::Spoken && cn.spoken_answer(926385) == SpokenAnswer::Spoken &&
+                  cn.spoken_answer(900002) == SpokenAnswer::Spoken && cn.spoken_answer(980003) == SpokenAnswer::Silent,
+              "FC 27 master generic ids spoken, union with the spoken set");
+        CHECK(cn.masters.generic_names.size() == 2 && cn.masters.generic_names[926385] == "Pirlo", "generic names read on refresh");
+        // the FC 26 list keeps the old rule: either source is enough
+        std::ofstream(mp.string()) << R"({"language": "ita_it", "game": "fc26", "real_players": [1004]})";
+        cn.refresh(le, game, "");
+        bool game_counts = !cn.spoken.players.empty();
+        for (const auto& gp : cn.spoken.players)
+            if (gp.first != 1004 && cn.own_recording(gp.first) != kOwnFromGame) game_counts = false;
+        CHECK(game_counts && (cn.own_recording(1004) & kOwnFromMasters), fmt("FC 26 list: audio-service set still counts (%zu)", cn.spoken.players.size()));
         // a list for another language, then junk: not used, the reason kept; the game's side stays
         std::ofstream(mp.string()) << R"({"language": "por_br", "real_players": [1001]})";
         cn.refresh(le, game, "");

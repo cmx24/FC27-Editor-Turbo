@@ -195,6 +195,24 @@ bool parse_master_list_json(const std::string& text, const std::string& lang, Ma
         if (auto it = j.find("generic_ids"); it != j.end() && it->is_array())
             for (const auto& v : *it)
                 if (id_of(v, id)) out.generic_ids.insert(id);
+        if (auto it = j.find("real_simple_players"); it != j.end() && it->is_array())
+            for (const auto& v : *it)
+                if (id_of(v, id)) out.real_simple_players.insert(id);
+        if (auto it = j.find("real_link_players"); it != j.end() && it->is_array())
+            for (const auto& v : *it)
+                if (id_of(v, id)) out.real_link_players.insert(id);
+        // an FC 27 master always lists real_players; a file with only the two banks gets their union
+        if (j.find("real_players") == j.end()) {
+            out.real_players.insert(out.real_simple_players.begin(), out.real_simple_players.end());
+            out.real_players.insert(out.real_link_players.begin(), out.real_link_players.end());
+        }
+        if (auto it = j.find("generic_names"); it != j.end() && it->is_object())
+            for (auto n = it->begin(); n != it->end(); ++n) {
+                if (!n.value().is_string()) continue;
+                char* stop = nullptr;
+                long long cid = std::strtoll(n.key().c_str(), &stop, 10);
+                if (stop && *stop == '\0' && cid > 0) out.generic_names[static_cast<int64_t>(cid)] = n.value().get<std::string>();
+            }
         if (auto it = j.find("names"); it != j.end() && it->is_object())
             for (auto n = it->begin(); n != it->end(); ++n) {
                 if (!n.value().is_string()) continue;

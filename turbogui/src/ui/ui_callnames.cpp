@@ -143,10 +143,12 @@ static void assign_name(App& app, const Table& t, const PlayerRow& p, const Name
             json a = {{"action", "set_display_name"}, {"playerid", p.playerid}, {"firstname", before.first},
                       {"surname", before.last}, {"commonname", before.common}};
             add_room_check(app, a, cap);
-            if (send_actions(app, json::array({a}), "Keep shown name"))
-                app.notify(msg + "; editedplayernames row queued for Turbo's Lua side (next career event)");
-            else
-                app.notify(msg + "; shown name NOT kept: Turbo's Lua side is busy, use 'Keep shown name' again", true);
+            // queued in the GUI (Turbo's mailbox holds one command at a time) and sent, batched, as soon as it is free
+            app.lua_queue.push(a.dump());
+            const bool waiting = app.busy();
+            app.flush_lua_queue();
+            app.notify(msg + (waiting ? "; shown name queued: sent to Turbo's Lua side as soon as the running command ends"
+                                      : "; editedplayernames row queued for Turbo's Lua side (next career event)"));
         }
     } else {
         app.notify(msg);
@@ -405,8 +407,12 @@ static void language_line(App& app) {
     // The master list (an FC 27 master, else the user's FC 26 list): the second (and usually the bigger) source of "has
     // his own recording"
     if (cn.masters.loaded()) {
-        ImGui::TextColored(kGreen, "%s: %zu players with their own recording, %zu generic names", cn.masters.label(true).c_str(),
-                           cn.masters.real_players.size(), cn.masters.generic_ids.size());
+        if (cn.masters.fc27())
+            ImGui::TextColored(kGreen, "FC 27 master: %zu players with their own recording (decides alone); spoken surnames = its %zu generic ids"
+                               " + the game's audio service set", cn.masters.real_players.size(), cn.masters.generic_ids.size());
+        else
+            ImGui::TextColored(kGreen, "%s: %zu players with their own recording, %zu generic names", cn.masters.label(true).c_str(),
+                               cn.masters.real_players.size(), cn.masters.generic_ids.size());
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%s\nmade from %s (%s) by turbo\\tools\\import_callname_masters.py.\n%s", cn.masters.file.c_str(),
                               cn.masters.source.empty() ? "?" : cn.masters.source.c_str(), cn.masters.built.empty() ? "date unknown" : cn.masters.built.c_str(),
@@ -701,7 +707,9 @@ static void club_players_tab(App& app, const PlayerRow& p) {
     ImGui::Text("%s: %zu of %zu players have no own recording in %s", p.club_name.c_str(), without.size(), without.size() + with.size(),
                 cn.lang.empty() ? "the loaded language" : cn.lang.c_str());
     ImGui::SameLine();
-    const std::string sources = cn.masters.loaded() ? "(game's audio service + " + cn.masters.label() + ")" : "(game's audio service only: no master list)";
+    const std::string sources = cn.masters.loaded() && cn.masters.fc27() ? std::string("(FC 27 master)")
+                                : cn.masters.loaded() ? "(game's audio service + " + cn.masters.label() + ")"
+                                                      : "(game's audio service only: no master list)";
     ImGui::TextDisabled("%s", sources.c_str());
     // under the list: one line naming the players with their own recording
     const float below = ImGui::GetTextLineHeightWithSpacing() * 2.0f + ImGui::GetStyle().WindowPadding.y;

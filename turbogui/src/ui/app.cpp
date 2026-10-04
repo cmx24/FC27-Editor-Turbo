@@ -585,10 +585,12 @@ void App::tick(double t) {
             if (pending_label.rfind("Manager move", 0) == 0)  // Managers > Manager market
                 manager_move_status = (ok ? "" : "Failed: ") + (result.empty() ? std::string(ok ? "done" : "failed") : result);
             pending_label.clear();
+            flush_lua_queue();  // the mailbox is free: the next queued "keep shown name" actions
             // Lua may have changed the database (transfers, bulk edits): re-read the lists
             if (db.ready()) model_stale = true;
         }
     }
+    flush_lua_queue();
     for (size_t i = 0; i < toasts.size();) {
         if (toasts[i].until < t) toasts.erase(toasts.begin() + static_cast<long>(i));
         else ++i;
@@ -650,6 +652,20 @@ bool App::undo(int64_t playerid) {
 }
 
 bool App::busy() { return mailbox && mailbox->pending(); }
+
+void App::flush_lua_queue() {
+    if (lua_queue.empty() || !mailbox || mailbox->pending()) return;
+    // the command wraps the actions: {"op":"run","module":"callnames","overrides":{"actions":[...]}} (kMbTextSize max)
+    size_t n = 0;
+    const std::string arr = lua_queue.batch(kMbTextSize - 128, n);
+    json actions = json::parse(arr, nullptr, false);
+    if (!n || actions.is_discarded()) {
+        lua_queue.pop(n ? n : 1);
+        return;
+    }
+    const std::string label = "Keep shown name" + (n > 1 ? " (" + std::to_string(n) + " players)" : std::string());
+    if (send({{"op", "run"}, {"module", "callnames"}, {"overrides", {{"actions", actions}}}}, label)) lua_queue.pop(n);
+}
 
 bool App::send(const json& cmd, const std::string& label) {
     if (!mailbox) {
@@ -769,6 +785,12 @@ void App::draw() {
                             st.in_cm ? "career loaded" : "no career loaded", st.le_version.c_str());
     } else {
         ImGui::TextDisabled("| %s", db_error.empty() ? "waiting for Turbo's Lua side (enter a career)" : db_error.c_str());
+    }
+    if (!lua_queue.empty()) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "| %zu 'keep shown name' waiting", lua_queue.size());
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Turbo's Lua side runs one command at a time: these are sent, batched, as soon as it is free");
     }
     ImGui::SameLine(ImGui::GetWindowWidth() - (busy() ? S(380.0f) : S(230.0f)));
     if (busy()) {

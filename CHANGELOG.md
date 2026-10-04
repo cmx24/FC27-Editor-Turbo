@@ -31,6 +31,16 @@ an FC 27 master (`<name>_master_fc27.xlsm`, the same format, built from the game
   adds the row at the next career event, maybe after a career load (FC 27 reloads `playernamemap` full). Lua now counts
   the rows again right before it adds one and refuses when the table is full by then or a career was loaded in between.
 
+- **"Keep shown name: a command is still running" when assigning several players in a row.** Turbo's Lua mailbox
+  holds one command at a time, so the second player's shown name was refused. The Turbo window now queues these
+  actions and sends them, batched into one command, as soon as the mailbox is free; the top bar says how many wait.
+- **The FC 27 master decides who has his own recording.** When the language's master is an FC 27 master (built from
+  the game's commentary files: `real_players` = PLAYER_NAMES_SIMPLE + PLAYER_NAMES_LINK), it alone says whether a
+  player has his own recording; the game's audio-service set (751 players in Italian, LINK only) is no longer added on
+  top. Order: FC 27 master, else the audio-service set and your FC 26 list (either is enough). Its generic ids count as
+  spoken surnames together with the spoken set, and the tab's source line says so. The master's `generic_names`,
+  `real_simple_players` and `real_link_players` are read.
+
 ### Added
 
 - **Kit colours and player-specific callnames are written again at every career load.** FC 27 reloads `teamkits` and

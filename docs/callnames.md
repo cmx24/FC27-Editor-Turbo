@@ -659,6 +659,24 @@ game's audio service and your FC 26 list"; the game's side is named by where the
 never writes, and the tab never keeps, a player-specific callname for a player with his own recording (§4). Turbo never
 writes the list.
 
+**FC 27 master (2026-10-04).** A master built from the game's commentary files (`turbo_dev\masters\build_master_v0.py`,
+`"game": "fc27"`) also holds `real_simple_players` (PLAYER_NAMES_SIMPLE), `real_link_players` (PLAYER_NAMES_LINK),
+`generic_ids` (commentary ids with a generic surname recording) and `generic_names` (commentary id -> its text);
+`parse_master_list_json` reads them all (a file without `real_players` gets the union of the two banks). Precedence for
+"has his own recording": **the FC 27 master decides alone** (`own_recording` returns only `kOwnFromMasters` or 0: the
+audio service's set is LINK only and known to be wrong); without one, the audio service's set and the FC 26 list,
+either one enough, as above. The master's generic ids are spoken (`spoken_answer`), in union with the spoken set of §3;
+the tab's source line reads "FC 27 master: N players with their own recording (decides alone); spoken surnames = its M
+generic ids + the game's audio service set". Verified in game on 2026-10-04: a generic surname set as a player's last
+name (keeping the shown name through `editedplayernames`) is spoken (Bianchi 900762, Pirlo 926385, Del Piero 922149);
+a player with his own recording (Gutierrez 261865) keeps it whatever his name ids say.
+
+**Keep shown name queue.** Turbo's Lua mailbox holds one command at a time; 1.0.2 as first built refused the second
+"keep shown name" (`set_display_name`) of players assigned in a row ("a command is still running"). The GUI now queues
+these actions (`LuaActionQueue`, `App::lua_queue`) and sends them, batched into one `callnames` command
+(`LuaActionQueue::batch`, within the mailbox's text size), as soon as the mailbox is free (`App::flush_lua_queue`, every
+tick and right after a result); the top bar shows "N 'keep shown name' waiting".
+
 **In the tab** (§4): the language block's "Your FC 26 list: N players with their own recording, M generic names"
 (or "FC 27 master: …") line (tooltip: file, workbook, date, FC 26 or FC 27 data), or "No master list for ita_it …"
 with the path looked for, or "Master list not used: …" with the reason; the current callname
