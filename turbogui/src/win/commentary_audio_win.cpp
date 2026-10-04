@@ -15,6 +15,7 @@
 #include <thread>
 #include <vector>
 
+#include "callname_voice_win.h"
 #include "core/commentary_audio.h"
 #include "game_hooks.h"
 #include "host.h"
@@ -504,8 +505,12 @@ void install_commentary_audio(turbo::App& app) {
             }
             install_speech_log();
         }
+        install_callname_voice();  // voice swaps (callname_voice_win.cpp): only when every signature resolved
     }
     app.commentary_audio = std::make_shared<GameCommentaryAudio>();
+    app.voice_service = callname_voice_service();
 }
+
+int own_query_depth() { return t_own_query; }
 
 }  // namespace host

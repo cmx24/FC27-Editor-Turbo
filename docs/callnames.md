@@ -856,10 +856,11 @@ t=<ms> tid=<n> ev=<event id> q=<hex> pid_before=<name>:<v>,... pid_after=<name>:
 | `pid_after` | the same parameters in the same order after Turbo's rewrite (equal to `pid_before` when nothing changed) |
 | `surname` | the `surname_ID` value, `-` when the event does not declare it |
 | `intensity` | the `player_intensity` value, `-` when not declared |
-| `flags` | OR over the line's `_pID` descriptors: `0x1` a value list (the u32 count at `[desc+0x18]-4` is not 0), `0x2` `[desc+0x45] != 0`, `0x4` a `_pID` parameter left out because it is not a single-value int, `0x8` the query was bounded (count above `kMaxParams`); other bits reserved |
+| `flags` | OR over the line's `_pID` descriptors: `0x1` a value list (`[desc+0x44]` set and the u32 count at `[desc+0x18]-4` is not 0; Turbo reads the count only when `+0x44` is set, as the game's own `SetInt` does), `0x2` `[desc+0x45] != 0`, `0x4` a `_pID` parameter left out because it is not a single-value int, `0x8` the query was bounded (count above `kMaxParams`); other bits reserved |
 | `guard` | `1` = the double-pass guard skipped a rewrite on this query |
+| `more` | only when the query has more than 8 single-value int `_pID` parameters: how many are not listed |
 
-Kick-off line (the `GetCallname` hook, one per call; observe mode logs every call):
+Kick-off line (the `GetCallname` hook, one per call; observe mode logs every call; Turbo adds `tid=<n>` at the end):
 
 ```
 t=<ms> kickoff pid=<n> game=<id> override=<id|->
@@ -890,3 +891,45 @@ the dump pair and the exit are logged too), `--until-exit` with 4 when the game 
 three times and then counted; Live Editor's DX12 `Present` errors and Patreon retries are only counted. Over the
 2026-09-27..10-04 logs of this PC it flags 2 Turbo errors (both "Turbo GUI stays off" after an unfinished start) and
 2 Lua errors (`bridge.lua` in `bridge state`). `--self-test` runs on temporary folders.
+
+### 12.3 The hooks in Turbo.dll (`win/callname_voice_win.cpp`, `core/callname_voice_host.cpp`)
+
+**Install.** `install_commentary_audio` calls `install_callname_voice()` next to `install_speech_log()` and gives the
+App its `voice::Service` (`App::voice_service`). Both hooks are installed only when the build is known and all 5
+signatures resolved: `speech_query_preprocess`, `commentary_get_callname` and the 3 layout guards
+(`speech_param_name_layout`, `speech_param_get_int_layout`, `speech_param_set_int_store`). Otherwise neither detour
+does anything and the service says why: `game build` (unknown build or a signature missing) or `hooks off`
+(`game_hooks_off.txt`, `TURBO_GUI_NO_GAME_HOOKS=1`, a `hook_callname_*_off.txt` or a MinHook failure).
+
+| hook | target | what the detour does |
+|---|---|---|
+| `callname_voice` | `Preprocess` 0x1414A90C8 | calls the original first (the game's `cm_sim` / `*_gID` from the real player id), then `voice::process_query` on the published table; Turbo's own audit queries (`own_query_depth() > 0`, exported by `commentary_audio_win.cpp`) are counted and left alone |
+| `callname_kickoff` | `GetCallname` 0x14294A0F4 | calls the original first (every side effect kept), then returns `voice::kickoff_override` (the table's kick-off id, else the game's result) |
+
+**Inside the detours** (they run under the speech registry lock): no lock, no allocation, no file check, no game call.
+They read only atomics: the published table (`std::atomic<const voice::Table*>`; every published table is kept for
+the life of the process, and publishing an unchanged table makes no copy), `game_hook_live()` of their own hook
+handle, and three cached flags. A detour is on when both hooks are installed, `callname_voice_off.txt` is absent, and
+the table has entries of its kind (voice swaps / kick-off entries) or observe mode is on. The double-pass guard is a
+`thread_local voice::Guard`. The body is wrapped in `HOOK_BODY` like every Turbo detour.
+
+**Switches.** `Service::refresh_switches()` (the App calls it from its tick; it returns at once in between) re-reads
+at most every 2 s: game_hooks' own switch files (`game_hooks_refresh_switches()`), `callname_voice_off.txt` and
+`callname_voice_log_on.txt`; a publish recomputes the flags at once. Creating `callname_voice_off.txt` during a match
+turns both detours into pass-through within 2 s, and deleting it turns them back on.
+
+**Observe mode.** When `callname_voice_log_on.txt` is first seen, Turbo creates a ring of 4,096 entries (about
+1.6 MB, never freed) and a writer thread. The detours fill it with a sequence-numbered compare-and-swap (no lock, no
+allocation, no system call; a full ring drops the entry and counts it). The thread appends the lines of section 12.1
+to `callname_voice_log.txt` every 5 s, with one `#` header per game session and `# dropped <n>` after an overflow.
+Above 64 MB the file is no longer written (logged once in `turbo_gui.log`). Turbo's own audit queries are not logged.
+
+**Status tab.** Game hooks > calls: `callname_voice: on | 2 voice swaps, 2 kick-off entries | queries .. | lines
+changed .. | kick-offs set .. | guard skips .. | own skips .. | bounded ..` or `callname_voice: off (game build)`,
+plus the observe log line (lines written, dropped, not written) once observe mode was on. `turbo_gui.log` has one line
+per install outcome, per publish and per switch change.
+
+**Tests** (native, `voice swaps host: ...`): the 2 s switch cache and the rules for when each detour is on; the
+observe capture on a fake query (before / after the rewrite, `surname_ID` without case, `player_intensity`, flags
+0x1 / 0x2 / 0x4 / 0x8, more than 8 `_pID` values); the exact line format of both kinds (checked by hand against
+`scripts/callname_voice_log.py`); the ring (order, full, wrap, two writer threads with one reader, bounded drain).

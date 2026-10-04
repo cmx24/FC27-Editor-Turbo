@@ -21,8 +21,12 @@ class App;
 
 namespace host {
 
+// Also installs the voice-swap hooks (callname_voice_win.cpp) and gives the App its voice::Service
 void install_commentary_audio(turbo::App& app);
 // Status lines for the Status tab (appended to HookReport::calls)
 std::vector<std::string> commentary_audio_status();
+// > 0 while Turbo itself builds a SpeechQuery on this thread (its spoken-set checks): the voice-swap detour leaves those
+// queries alone. Reads a thread_local only (safe inside a detour).
+int own_query_depth();
 
 }  // namespace host

@@ -23,6 +23,7 @@
 #include "MinHook.h"
 #include "nlohmann/json.hpp"
 #include "callname_audio_win.h"
+#include "callname_voice_win.h"
 #include "commentary_audio_win.h"
 #include "game_calls_win.h"
 #include "reveal_win.h"
@@ -957,6 +958,7 @@ bool start_overlay(HMODULE) {
         turbo::HookReport r = game_hooks_report();
         r.calls = game_calls_status();
         for (const auto& line : commentary_audio_status()) r.calls.push_back(line);
+        for (const auto& line : callname_voice_status()) r.calls.push_back(line);
         return r;
     };
     install_player_capture(*g_app);  // miniface from the 3D model (player_capture_win.cpp): needs the game hooks above

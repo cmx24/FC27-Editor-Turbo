@@ -32,6 +32,7 @@
 #include <thread>
 
 #include "core/callname_voice.h"
+#include "core/callname_voice_host.h"
 #include "core/callnames.h"
 #include "core/commentary_bank.h"
 #include "core/image.h"
@@ -2160,6 +2161,233 @@ static void test_callname_voice() {
         CHECK(s.find(261865) && s.find(261865)->kickoff == 922150 && !s.find(261865)->names_only, "a duplicate player: the last one wins");
         CHECK(s.find(300) && !s.find(300)->voice_of && s.find(300)->kickoff == -1, "kick-off only kept");
         CHECK(err.find("16 bad entries dropped") != std::string::npos, "the note: " + err);
+    });
+}
+
+// The host's testable part (core/callname_voice_host.h): cached switches, observe capture, log lines, the ring
+static std::set<std::string> g_voice_files;  // files the fake file check reports present (by name)
+static int g_voice_checks = 0;
+static bool voice_fake_exists(const fs::path& p) {
+    ++g_voice_checks;
+    return g_voice_files.count(p.filename().string()) > 0;
+}
+
+static void test_callname_voice_host() {
+    constexpr uint32_t kLowSimple = 0x9D0D5E6C;
+    constexpr int32_t kMarianucci = 278319, kLobotka = 216435, kGutierrez = 261865;
+
+    run_case("voice swaps host: switches re-read at most every 2 s, the live rules", [&] {
+        voice::Every every(2000);
+        CHECK(every.due(5000) && !every.due(5001) && !every.due(6999) && every.due(7000) && !every.due(7000), "every 2 s, the first call due");
+        every.force();
+        CHECK(every.due(7001), "forced");
+        g_voice_files.clear();
+        g_voice_checks = 0;
+        voice::FileSwitches sw;
+        const fs::path dir = "turbo_output";
+        CHECK(sw.refresh(1000, dir, &voice_fake_exists) && g_voice_checks == 2 && !sw.feature_off && !sw.observe, "the first refresh reads both files");
+        g_voice_files = {"callname_voice_off.txt", "callname_voice_log_on.txt"};
+        CHECK(!sw.refresh(1500, dir, &voice_fake_exists) && !sw.refresh(2999, dir, &voice_fake_exists) && g_voice_checks == 2 && !sw.feature_off &&
+                  !sw.observe,
+              "cached in between: no file check");
+        CHECK(sw.refresh(3000, dir, &voice_fake_exists) && g_voice_checks == 4 && sw.feature_off && sw.observe, "re-read after 2 s");
+        g_voice_files.clear();
+        CHECK(sw.refresh(3001, dir, &voice_fake_exists, true) && g_voice_checks == 6 && !sw.feature_off && !sw.observe, "a forced refresh (install)");
+        CHECK(voice::feature_off_path(dir) == dir / "callname_voice_off.txt" && voice::observe_on_path(dir) == dir / "callname_voice_log_on.txt" &&
+                  voice::observe_log_path(dir) == dir / "callname_voice_log.txt",
+              "file names");
+        auto live = [](bool installed, bool off, bool observe, bool voices, bool kicks) {
+            voice::SwitchState s;
+            s.installed = installed;
+            s.feature_off = off;
+            s.observe = observe;
+            s.voices = voices;
+            s.kickoffs = kicks;
+            const voice::Live l = voice::live_from(s);
+            return (l.voice ? 4 : 0) | (l.kickoff ? 2 : 0) | (l.observe ? 1 : 0);
+        };
+        CHECK(live(false, false, true, true, true) == 0, "not installed: nothing");
+        CHECK(live(true, true, true, true, true) == 0, "kill switch: nothing, observe included");
+        CHECK(live(true, false, false, false, false) == 0, "an empty table without observe: both detours only call the original");
+        CHECK(live(true, false, false, true, false) == 4 && live(true, false, false, false, true) == 2 && live(true, false, false, true, true) == 6,
+              "each detour on with its own entries");
+        CHECK(live(true, false, true, false, false) == 7, "observe mode with an empty table: both detours log");
+    });
+
+    run_case("voice swaps host: observe capture before and after the rewrite", [&] {
+        voice::VoiceStore s;
+        s.upsert(voice_entry(kMarianucci, kLobotka, std::nullopt));
+        s.upsert(voice_entry(5001, 0, std::nullopt));
+        const voice::Table t = voice::build_table(s);
+        voice::Stats st;
+        voice::Guard gd;
+        FakeQuery f(voice::kGroupCommentaryDb, kLowSimple);
+        f.add("cm_sim", 1);
+        f.add("player_db_pID", kMarianucci);
+        f.add("player_db_gID", 1);
+        const size_t keeper = f.add("keeper_pID", 5001);
+        f.add("Surname_id", 900762);  // the game's FindParam ignores case
+        f.add("player_intensity", 2);
+        f.add("ptw_player_db_pID", 7, 2);                // not an int: left out
+        const size_t listed = f.add("sub_on_pID", 8, 1, 1);  // a value list: left out, its count read
+        f.add("sub_off_pID", 9, 1, 1);                   // the list flag without a list pointer: left out, nothing read
+        f.params[keeper].desc[0x45] = 1;
+        alignas(8) uint8_t list[16] = {};
+        FakeQuery::put<uint32_t>(list, 3);
+        FakeQuery::put<const uint8_t*>(f.params[listed].desc + 0x18, list + 4);
+        uint8_t* q = f.sync();
+        voice::LogEntry e;
+        const uint8_t* pvs[voice::kLogPids] = {};
+        CHECK(voice::observe_before(q, e, pvs) && e.kind == voice::LogEntry::Query && e.n == 2 && e.more == 0, "a CommentaryDb query gives a line");
+        CHECK(voice::process_query(q, t, gd, st, false) == 2, "two values rewritten");
+        voice::observe_after(e, pvs);
+        e.t_ms = 1234;
+        e.tid = 77;
+        std::string want = fmt("t=1234 tid=77 ev=0x9D0D5E6C q=0x%llX pid_before=player_db_pID:278319,keeper_pID:5001 "
+                               "pid_after=player_db_pID:216435,keeper_pID:0 surname=900762 intensity=2 flags=0x7 guard=0",
+                               static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(q)));
+        CHECK(voice::format_entry(e) == want, "the query line: " + voice::format_entry(e));
+
+        voice::LogEntry none;
+        CHECK(!voice::observe_before(nullptr, none, pvs) && none.kind == voice::LogEntry::None, "no query");
+        f.no_ctx = true;
+        CHECK(!voice::observe_before(f.sync(), none, pvs), "no event context: no line");
+        FakeQuery other(0x12345678, kLowSimple);
+        other.add("player_db_pID", kMarianucci);
+        CHECK(!voice::observe_before(other.sync(), none, pvs), "not CommentaryDbEvents: no line");
+
+        FakeQuery bounded(voice::kGroupCommentaryDb, 0x0A3EC8A2);
+        bounded.add("player_db_pID", kGutierrez);
+        bounded.count = voice::kMaxParams + 1;
+        voice::LogEntry b;
+        CHECK(voice::observe_before(bounded.sync(), b, pvs) && b.n == 0 && b.flags == voice::kFlagBounded, "a count above 64: a line, nothing read");
+        b.t_ms = 1;
+        b.tid = 2;
+        want = fmt("t=1 tid=2 ev=0x0A3EC8A2 q=0x%llX pid_before=- pid_after=- surname=- intensity=- flags=0x8 guard=0",
+                   static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(bounded.q)));
+        CHECK(voice::format_entry(b) == want, "the bounded line: " + voice::format_entry(b));
+
+        FakeQuery many(voice::kGroupCommentaryDb, kLowSimple);
+        std::vector<std::string> names;
+        for (int i = 0; i < voice::kLogPids + 2; ++i) names.push_back("p" + std::to_string(i) + "_pID");
+        for (int i = 0; i < voice::kLogPids + 2; ++i) many.add(names[i].c_str(), 100 + i);
+        voice::LogEntry m;
+        CHECK(voice::observe_before(many.sync(), m, pvs) && m.n == voice::kLogPids && m.more == 2 && std::strcmp(m.pids[7].name, "p7_pID") == 0 &&
+                  m.pids[7].before == 107,
+              "8 pids kept, the rest counted");
+        const std::string ml = voice::format_entry(m);
+        CHECK(ml.size() > 7 && ml.compare(ml.size() - 7, 7, " more=2") == 0, "more=<n> at the end: " + ml);
+    });
+
+    run_case("voice swaps host: log lines (kick-off, names as one token)", [&] {
+        voice::LogEntry k;
+        k.kind = voice::LogEntry::Kickoff;
+        k.t_ms = 5;
+        k.tid = 9;
+        k.pid = kGutierrez;
+        k.game = 900000;
+        k.override_id = 922149;
+        k.has_override = true;
+        CHECK(voice::format_entry(k) == "t=5 kickoff pid=261865 game=900000 override=922149 tid=9", "an override: " + voice::format_entry(k));
+        k.has_override = false;
+        k.override_id = 900000;
+        k.game = -1;
+        CHECK(voice::format_entry(k) == "t=5 kickoff pid=261865 game=-1 override=- tid=9", "no override: " + voice::format_entry(k));
+        voice::LogEntry q;
+        q.kind = voice::LogEntry::Query;
+        q.ev = 0x1D7F2C11;
+        q.q = 0x7FF6A0001230ull;
+        q.n = 2;
+        std::strcpy(q.pids[0].name, "a b,c:d=e_pID");
+        q.pids[0].before = 1;
+        q.pids[0].after = 2;
+        q.pids[1].name[0] = 0;
+        q.pids[1].before = q.pids[1].after = -5;
+        q.has_surname = true;
+        q.surname = -1;
+        q.guard = 1;
+        q.flags = 0x12;
+        CHECK(voice::format_entry(q) ==
+                  "t=0 tid=0 ev=0x1D7F2C11 q=0x7FF6A0001230 pid_before=a?b?c?d?e_pID:1,?:-5 pid_after=a?b?c?d?e_pID:2,?:-5 surname=-1 intensity=- "
+                  "flags=0x12 guard=1",
+              "a query line: " + voice::format_entry(q));
+        CHECK(voice::format_entry(voice::LogEntry{}).empty(), "an empty entry: no line");
+    });
+
+    run_case("voice swaps host: the observe ring (order, full, drops, wrap, two writers)", [&] {
+        voice::LogRing r(8);
+        voice::LogEntry e, out;
+        e.kind = voice::LogEntry::Kickoff;
+        int pushed = 0;
+        for (int i = 0; i < 10; ++i) {
+            e.pid = i;
+            pushed += r.push(e) ? 1 : 0;
+        }
+        CHECK(r.size() == 8 && pushed == 8 && r.dropped() == 2, "a full ring drops and counts");
+        bool order = true;
+        for (int i = 0; i < 8; ++i) order = order && r.pop(out) && out.pid == i;
+        CHECK(order && !r.pop(out), "oldest first, then empty");
+        bool wrap = true;
+        for (int i = 0; i < 1000; ++i) {
+            e.pid = i;
+            wrap = wrap && r.push(e) && r.pop(out) && out.pid == i;
+        }
+        CHECK(wrap && r.dropped() == 2, "wraps around");
+        CHECK(voice::LogRing(voice::kRingSize).size() == 4096 && voice::LogRing(5).size() == 8, "4,096 entries; sizes rounded up to a power of 2");
+
+        voice::LogRing big(voice::kRingSize);
+        constexpr int kPer = 20000;
+        std::atomic<int> done{0};
+        auto writer = [&](uint32_t tid) {
+            voice::LogEntry x;
+            x.kind = voice::LogEntry::Kickoff;
+            x.tid = tid;
+            for (int i = 0; i < kPer; ++i) {
+                x.pid = i;
+                big.push(x);
+            }
+            ++done;
+        };
+        std::thread a(writer, 1u), b(writer, 2u);
+        int last[3] = {-1, -1, -1};
+        uint64_t got = 0;
+        bool in_order = true;
+        voice::LogEntry y;
+        for (;;) {
+            const bool finished = done.load() == 2;
+            while (big.pop(y)) {
+                ++got;
+                const bool ok = y.tid == 1 || y.tid == 2;
+                in_order = in_order && ok && y.pid > last[ok ? y.tid : 0];
+                if (ok) last[y.tid] = y.pid;
+            }
+            if (finished) break;
+            std::this_thread::yield();
+        }
+        a.join();
+        b.join();
+        CHECK(in_order && got + big.dropped() == 2u * kPer && got > 0,
+              fmt("two writers, one reader: every entry read or counted, each writer in order (%llu read, %llu dropped)",
+                  static_cast<unsigned long long>(got), static_cast<unsigned long long>(big.dropped())));
+
+        voice::LogRing r2(8);
+        voice::LogEntry k;
+        k.kind = voice::LogEntry::Kickoff;
+        k.t_ms = 1;
+        k.tid = 3;
+        k.game = -1;
+        k.pid = 5;
+        r2.push(k);
+        r2.push(voice::LogEntry{});
+        k.pid = 6;
+        r2.push(k);
+        std::string text;
+        CHECK(voice::drain_lines(r2, text, 100) == 2 && text == "t=1 kickoff pid=5 game=-1 override=- tid=3\nt=1 kickoff pid=6 game=-1 override=- tid=3\n",
+              "drain: " + text);
+        r2.push(k);
+        r2.push(k);
+        text.clear();
+        CHECK(voice::drain_lines(r2, text, 1) == 1 && voice::drain_lines(r2, text, 5) == 1 && voice::drain_lines(r2, text, 5) == 0, "drain is bounded");
     });
 }
 
@@ -9751,6 +9979,7 @@ int main(int argc, char** argv) {
     test_reapply_store();
     std::printf("native voice swaps\n");
     test_callname_voice();
+    test_callname_voice_host();
     std::printf("native UI\n");
     try {
         test_ui();

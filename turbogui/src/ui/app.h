@@ -30,6 +30,10 @@
 
 namespace turbo {
 
+namespace voice {
+class Service;  // core/callname_voice.h
+}
+
 constexpr const char* kGuiVersion = "1.0.2";
 
 // UI scale (window height and the user's "UI size" setting): every fixed size in the panels goes through S()
@@ -134,6 +138,9 @@ public:
     // ---- the spoken set asked from the game's audio service (core/commentary_audio.h): the default source. The host
     // gives the service (a build runs on the game thread, one batch per frame); tests give a fake one
     std::shared_ptr<caudio::Service> commentary_audio;
+    // Voice swaps in matches (core/callname_voice.h): the host's service, set at Turbo start (win/callname_voice_win.cpp);
+    // nullptr in native tests unless a test sets a fake = "Voice swaps are off"
+    voice::Service* voice_service = nullptr;
     bool start_spoken_build(bool automatic = false);  // every commentarynames / playernames / playernamemap id + every player
     std::string spoken_build_status;  // last build result (one line for the Callname tab)
     bool spoken_auto_tried = false;   // an automatic build was started once this session (by the watcher)
