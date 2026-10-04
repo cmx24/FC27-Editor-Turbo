@@ -530,6 +530,10 @@ void draw_status(App& app) {
     if (app.voice_available()) ImGui::Text("%s", app.voice_status_line().c_str());
     else ImGui::TextDisabled("%s", app.voice_status_line().c_str());
     if (!app.voice_error.empty()) ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "  %s", app.voice_error.c_str());
+    // Live team names (Teams > Name; core/teamname_override.h)
+    if (app.team_names_live()) ImGui::Text("%s", app.team_names_status_line().c_str());
+    else ImGui::TextDisabled("%s", app.team_names_status_line().c_str());
+    if (!app.team_names_error.empty()) ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "  %s", app.team_names_error.c_str());
 
     ImGui::SeparatorText("Settings");
     hotkey_setting(app);  // hotkey_setting.h: pick the key by pressing it, Reset to F8

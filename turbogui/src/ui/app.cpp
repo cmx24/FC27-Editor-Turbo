@@ -111,6 +111,7 @@ App::App(Memory& m, fs::path le_root, uint64_t mailbox_addr, std::string sess)
     load_reapply();  // kit colours and player-specific callnames written again at every career load (ui_reapply.cpp)
     load_voice();    // voice swaps (ui_callnames.cpp): no career needed; published once the host gives the service
     folder_store(bridge.dir() / "gui_folders.json");  // last folder of each in-overlay file picker (file_picker.cpp)
+    load_team_names();  // live team names (ui_identity.cpp): published once the host gives the service
     if (const char* tt = std::getenv("TURBO_GUI_TEST_TEXTURES")) texture_test = tt[0] == '1';
     log(std::string("Turbo GUI ") + kGuiVersion + " started");
 }
@@ -547,6 +548,14 @@ void App::tick(double t) {
         if (t >= voice_next_switches_) {
             voice_next_switches_ = t + 2.0;
             voice_service->refresh_switches();
+        }
+    }
+    // Live team names: the same pattern (published once per service, then after every save; switches every 2 s)
+    if (team_names_service) {
+        if (team_names_published_to_ != team_names_service) team_names_publish();
+        if (t >= team_names_next_switches_) {
+            team_names_next_switches_ = t + 2.0;
+            team_names_service->refresh_switches();
         }
     }
     finish_bank_capture();

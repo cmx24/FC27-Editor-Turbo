@@ -1,6 +1,7 @@
-// FC 27 LE Turbo GUI - team identity: name (database + Live Editor's custom_team_names.csv), colours (teams and
-// teamkits) and the club crest (custom legacy files in every size the game has). Panels live in ui_identity.cpp and
-// are drawn inside the Teams tab; the helpers below are what the panels and the native tests call.
+// FC 27 LE Turbo GUI - team identity: name (live through Turbo's hook, plus the database and Live Editor's
+// custom_team_names.csv), colours (teams and teamkits) and the club crest (custom legacy files in every size the game
+// has). Panels live in ui_identity.cpp and are drawn inside the Teams tab; the helpers below are what the panels and
+// the native tests call.
 #pragma once
 #include <cstdint>
 #include <string>
@@ -14,12 +15,33 @@ namespace turbo {
 
 class App;
 
-// ---- name
+// ---- name: one form (Name, Short name, 3-letter code) and one Save
 void team_name_editor(App& app, const Table& t, uint64_t rec, int64_t teamid);
-// Write teams.teamname (validated) and the four Live Editor names (custom_team_names.csv, atomic, backed up).
-// Empty abbreviations are derived from the full name. msg gets what happened.
-bool apply_team_names(App& app, int64_t teamid, const std::string& full, const std::string& abbr3, const std::string& abbr10,
-                      const std::string& abbr15, std::string* msg);
+struct TeamNameSave {
+    bool ok = false;       // saved: shown in the game now (live), or after Live Editor's next start (its file written)
+    bool live = false;     // given to the game at once by Turbo's hook
+    bool warning = false;  // saved, but something was not written (named in `line`)
+    std::string line;      // the one line next to Save (also the toast)
+    std::string detail;    // what was written where (GUI log)
+};
+// Save: the names are published to the hook first (the game's next lookup shows them) and kept in
+// turbo_output\team_names.json, then teams.teamname (validated) and Live Editor's custom_team_names.csv (atomic, backed
+// up; what shows after Live Editor's next start when the hook is off) are written. An empty short name / code is made
+// from the name; the 10-letter form from the short name. Nothing is written when the name is empty or refused.
+TeamNameSave save_team_name(App& app, int64_t teamid, const std::string& name, const std::string& short_name, const std::string& code);
+// A short form of a name: whole when it fits, else cut at a word end when that keeps half the letters, else cut
+std::string team_short_form(const std::string& name, size_t max_chars);
+// The first three letters or digits of a name, upper case ("Everton Blues" -> "EVE")
+std::string team_code_from(const std::string& name);
+// What the Name tab drew in its last frame (plain text is not an ImGui item, so the tests read it here)
+struct TeamNameTabState {
+    int64_t teamid = 0;
+    bool live = false;        // live names on
+    std::string mode_line;    // "Live names are on: ..." / "Live names are off (<why>): ... after Live Editor's next start."
+    std::string result_line;  // the last Save's line ("" before a Save)
+    std::string screen_line;  // after a live Save: an open game screen shows the name once it is built again
+};
+const TeamNameTabState& team_name_tab_state();
 
 // ---- colours
 void team_colours_editor(App& app, const Table& t, uint64_t rec, int64_t teamid);

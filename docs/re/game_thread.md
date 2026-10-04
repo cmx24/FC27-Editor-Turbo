@@ -219,6 +219,11 @@ reads / pattern finds, `scripts/re` for the image), without touching Live Editor
    `jmp [rip]` residue at `0x147B8C0D8` / `0x147B70518` and the stubs at the two `0x146A1...` functions, which is why
    `verify_game_thread.py` prints a `jmp` as the dispatch's first instruction. Only the first 23/24 bytes of each are
    affected; everything after is the game's code (checked against the live bytes).
+   **Correction (04-10-2026, `docs/re/team_names.md`)**: the image carries 12 Live Editor patch sites, not 4. The pointer
+   scan above only sees the stubs' immediates; the `jmp [rip]` slots live outside the exe. The 10 `jmp [rip]` sites:
+   `0x140B1C034` (StrTab::GetString: Live Editor's custom team names), `0x1417BC630`, `0x14199EE80`, `0x14199F08C`,
+   `0x1419B8800`, `0x141CCDF74` (ViewManager::ProcessAction), `0x142B24E08`, `0x147B70518`, `0x147B8C0D8`, `0x147F2E998`;
+   the 2 stubs: `0x146A1D1A0`, `0x146A1FFC8`. Never hook any of them (Turbo's hooks sit above or beside them).
 2. **What `0x147B8C0D8` is: `CareerEventDispatcher::Dispatch(this, int id, Event* ev)`** [H]. Its body (from +24 on,
    the bytes neither hook touches):
 

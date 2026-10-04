@@ -1,4 +1,5 @@
-// FC 27 LE Turbo GUI - team identity panels: name, colours, crest (drawn inside the Teams tab).
+// FC 27 LE Turbo GUI - team identity panels: name (live, core/teamname_override.h), colours, crest (drawn inside the
+// Teams tab).
 #include "ui_identity.h"
 
 #include <algorithm>
@@ -44,150 +45,202 @@ static bool read_bytes(const fs::path& f, std::vector<uint8_t>& out) {
 }
 
 // ================================================================ name
-static std::string derive_abbr(const std::string& full, size_t n) {
-    std::string s = clean_team_name(full, 60);
-    if (n == 3) {
-        // first three letters, upper case (ASCII only; other letters are kept as they are)
-        std::string out;
-        for (char c : s) {
-            if (c == ' ') continue;
-            out += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-            if (out.size() >= 3) break;
-        }
-        return out;
-    }
-    return clean_team_name(s, n);
+// Short forms made from a longer name: the whole name when it fits, else cut at the last word end (a space or a dash)
+// that keeps at least half of the letters, else cut (never inside a UTF-8 sequence)
+std::string team_short_form(const std::string& name, size_t max_chars) {
+    const std::string s = clean_team_name(name, 60);
+    const std::string cut = clean_team_abbr(s, max_chars);
+    if (cut.size() == s.size() || s[cut.size()] == ' ' || s[cut.size()] == '-') return cut;  // fits, or the cut ends a word
+    const size_t sp = cut.find_last_of(" -");
+    if (sp != std::string::npos && sp >= cut.size() / 2) return clean_team_abbr(cut.substr(0, sp), max_chars);
+    return cut;
 }
 
-bool apply_team_names(App& app, int64_t teamid, const std::string& full0, const std::string& a3, const std::string& a10,
-                      const std::string& a15, std::string* msg) {
+// The scoreboard code: the first three letters or digits of the name, upper case ("Everton Blues" -> "EVE")
+std::string team_code_from(const std::string& name) {
+    std::string letters;
+    const std::string s = clean_team_name(name, 60);
+    for (char c : s) {
+        const unsigned char u = static_cast<unsigned char>(c);
+        if (u < 0x80 && !std::isalnum(u)) continue;  // spaces, dots, dashes
+        letters += c;
+    }
+    return tnames::utf8_upper_basic(clean_team_abbr(letters, 3));
+}
+
+TeamNameSave save_team_name(App& app, int64_t teamid, const std::string& name, const std::string& short_name, const std::string& code) {
+    TeamNameSave res;
     const Table* t = app.db.table("teams");
     const TeamRow* tr = app.model.team(teamid);
     if (!t || !tr) {
-        if (msg) *msg = "team not found";
-        return false;
+        res.line = "Not saved: club " + std::to_string(teamid) + " is not in the loaded database.";
+        return res;
     }
     const Field* nf = t->field("teamname");
-    // the field's own limit (59 bytes in FC 27) is what both the database and Live Editor's file get
-    std::string full = clean_team_name(full0, nf && nf->max_len() > 1 ? nf->max_len() - 1 : 59);
+    // the field's own limit (59 bytes in FC 27) is what the database, Live Editor's file and the game all get
+    const size_t max_bytes = nf && nf->max_len() > 1 ? std::min<size_t>(nf->max_len() - 1, tnames::kMaxLen[tnames::Full]) : tnames::kMaxLen[tnames::Full];
+    const std::string full = clean_team_name(name, max_bytes);
     if (full.empty()) {
-        if (msg) *msg = "the team name is empty";
-        return false;
+        res.line = "Not saved: the name is empty.";
+        return res;
     }
-    std::string note;
-    // 1. database (validated: length, type, stale guard)
-    if (const Field* f = nf) {
-        Value v = Value::of_str(full);
-        std::string verr = Database::validate(*f, v);
+    const Value v = Value::of_str(full);
+    if (nf) {
+        const std::string verr = Database::validate(*nf, v);
         if (!verr.empty()) {
-            if (msg) *msg = verr;
-            return false;
+            res.line = "Not saved: " + verr;
+            return res;
         }
-        if (!app.edit(*t, tr->rec, *f, v)) {
-            if (msg) *msg = "writing teams.teamname failed";
-            return false;
-        }
-        note = "teams.teamname written";
+    }
+    tnames::Entry e;
+    e.teamid = teamid;
+    e.text[tnames::Full] = full;
+    const std::string s15 = clean_team_abbr(short_name, tnames::kMaxLen[tnames::Abbr15]);
+    e.text[tnames::Abbr15] = s15.empty() ? team_short_form(full, tnames::kMaxLen[tnames::Abbr15]) : s15;
+    e.text[tnames::Abbr10] = team_short_form(e.text[tnames::Abbr15], tnames::kMaxLen[tnames::Abbr10]);
+    const std::string c3 = tnames::utf8_upper_basic(clean_team_abbr(code, tnames::kMaxLen[tnames::Abbr3]));
+    e.text[tnames::Abbr3] = c3.empty() ? team_code_from(full) : c3;
+
+    // 1. Turbo's names: published to the hook first (the game's next lookup shows them), then saved for the next starts
+    std::string problems, err;
+    if (!app.team_names_keep(e, &err)) problems += "; " + err;
+    res.live = app.team_names_live();
+    // 2. the database name (what Turbo's lists and other tools read)
+    if (nf) {
+        if (app.edit(*t, tr->rec, *nf, v)) res.detail = "teams.teamname written";
+        else problems += "; teams.teamname not written";
     } else {
-        note = "teams.teamname not in this database";
+        res.detail = "teams.teamname not in this database";
     }
-    // 2. Live Editor's own file (what the game shows)
+    // 3. Live Editor's file: what the game shows after Live Editor's next start when Turbo's hook is off
+    bool csv_ok = false;
     TeamNamesCsv csv;
-    std::string err;
-    fs::path file = team_names_file(app.bridge.root());
+    const fs::path file = team_names_file(app.bridge.root());
     if (!csv.load(file, &err)) {
-        if (msg) *msg = note + "; custom_team_names.csv: " + err;
-        return false;
+        problems += "; custom_team_names.csv: " + err;
+    } else {
+        csv.set_team_names(teamid, e.text[tnames::Full], e.text[tnames::Abbr3], e.text[tnames::Abbr10], e.text[tnames::Abbr15]);
+        fs::path backup;
+        if (csv.save(file, team_names_backup_dir(app.bridge.root()), &err, &backup)) {
+            csv_ok = true;
+            res.detail += "; custom_team_names.csv updated";
+            if (!backup.empty()) res.detail += " (previous file copied to " + backup.filename().string() + ")";
+        } else {
+            problems += "; custom_team_names.csv: " + err;
+        }
     }
-    csv.set_team_names(teamid, full, a3.empty() ? derive_abbr(full, 3) : a3, a10.empty() ? derive_abbr(full, 10) : a10,
-                       a15.empty() ? derive_abbr(full, 15) : a15);
-    fs::path backup;
-    if (!csv.save(file, team_names_backup_dir(app.bridge.root()), &err, &backup)) {
-        if (msg) *msg = note + "; custom_team_names.csv: " + err;
-        return false;
+    res.ok = res.live || csv_ok;
+    res.warning = !problems.empty();
+    if (res.live) {
+        res.line = "Saved: shown in the game now.";
+        if (!problems.empty()) res.line += " Not written: " + problems.substr(2) + ".";
+    } else if (csv_ok) {
+        res.line = "Saved. The game shows it after Live Editor's next start (live names are off: " + app.team_names_why_off() + ").";
+        if (!problems.empty()) res.line += " Not written: " + problems.substr(2) + ".";
+    } else {
+        res.line = "Not saved: " + problems.substr(2) + " (live names are off: " + app.team_names_why_off() + ").";
     }
-    note += "; custom_team_names.csv updated (Live Editor shows it after its next start)";
-    if (!backup.empty()) note += "; previous file copied to " + backup.filename().string();
-    if (msg) *msg = note;
-    return true;
+    res.detail = full + " | " + e.text[tnames::Abbr15] + " | " + e.text[tnames::Abbr10] + " | " + e.text[tnames::Abbr3] + ": " +
+                 (res.live ? "given to the game now" : "not live") + "; " + res.detail + problems;
+    app.log("team name " + std::to_string(teamid) + ": " + res.detail);
+    return res;
 }
 
-struct NameEditor {
+// The Name tab: one form, one Save
+struct NameForm {
     int64_t teamid = 0;
-    char full[64] = "";
-    char a3[8] = "";
-    char a10[16] = "";
-    char a15[24] = "";
-    bool loaded_csv = false;
-    std::string csv_full, csv_a3, csv_a10, csv_a15;
-    std::string csv_error;
+    char name[64] = "";
+    char short_name[64] = "";  // up to 15 letters
+    char code[16] = "";        // up to 3 letters
+    TeamNameSave last;         // the last Save (shown under the button)
+    bool saved = false;
 };
-static NameEditor g_name;
+static NameForm g_name;
+static TeamNameTabState g_name_state;
 
-static void load_name_editor(App& app, const Table& t, uint64_t rec, int64_t teamid) {
-    g_name = NameEditor();
+const TeamNameTabState& team_name_tab_state() { return g_name_state; }
+
+// What the game shows for the club now, as far as Turbo knows: its own names, else Live Editor's file, else the database
+static void load_name_form(App& app, const Table& t, uint64_t rec, int64_t teamid) {
+    g_name = NameForm();
     g_name.teamid = teamid;
-    Value v;
-    if (const Field* f = t.field("teamname"))
-        if (app.db.get(t, rec, *f, v)) std::snprintf(g_name.full, sizeof(g_name.full), "%s", v.s.c_str());
-    TeamNamesCsv csv;
-    if (csv.load(team_names_file(app.bridge.root()), &g_name.csv_error)) {
-        g_name.loaded_csv = true;
-        csv.team_names(teamid, g_name.csv_full, g_name.csv_a3, g_name.csv_a10, g_name.csv_a15);
-        if (!g_name.csv_full.empty()) std::snprintf(g_name.full, sizeof(g_name.full), "%s", g_name.csv_full.c_str());
-        std::snprintf(g_name.a3, sizeof(g_name.a3), "%s", g_name.csv_a3.c_str());
-        std::snprintf(g_name.a10, sizeof(g_name.a10), "%s", g_name.csv_a10.c_str());
-        std::snprintf(g_name.a15, sizeof(g_name.a15), "%s", g_name.csv_a15.c_str());
+    std::string name, short_name, code;
+    if (const tnames::Entry* e = app.team_names.find(teamid)) {
+        name = e->text[tnames::Full];
+        short_name = e->text[tnames::Abbr15];
+        code = e->text[tnames::Abbr3];
+    } else {
+        TeamNamesCsv csv;
+        std::string a10;
+        if (csv.load(team_names_file(app.bridge.root()))) csv.team_names(teamid, name, code, a10, short_name);
     }
+    if (name.empty()) {
+        Value v;
+        if (const Field* f = t.field("teamname"))
+            if (app.db.get(t, rec, *f, v)) name = v.s;
+    }
+    std::snprintf(g_name.name, sizeof(g_name.name), "%s", name.c_str());
+    std::snprintf(g_name.short_name, sizeof(g_name.short_name), "%s", short_name.c_str());
+    std::snprintf(g_name.code, sizeof(g_name.code), "%s", code.c_str());
 }
 
 void team_name_editor(App& app, const Table& t, uint64_t rec, int64_t teamid) {
-    if (g_name.teamid != teamid) load_name_editor(app, t, rec, teamid);
-    ImGui::TextWrapped("The game shows the name from Live Editor's file extensions\\global\\custom_team_names.csv when it has one; "
-                       "the database name (teams.teamname) is what menus and other tools read. Turbo writes both.");
-    ImGui::Spacing();
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted("Full name");
-    ImGui::SameLine(S(150.0f));
-    ImGui::SetNextItemWidth(S(320.0f));
-    ImGui::InputText("##nfull", g_name.full, sizeof(g_name.full));
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("teams.teamname and TeamName_%lld (at most 59 bytes)", static_cast<long long>(teamid));
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted("3 letters");
-    ImGui::SameLine(S(150.0f));
-    ImGui::SetNextItemWidth(S(80.0f));
-    ImGui::InputText("##na3", g_name.a3, 4);
-    ImGui::SameLine();
-    ImGui::TextDisabled("TeamName_Abbr3 (scoreboard)");
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted("10 letters");
-    ImGui::SameLine(S(150.0f));
-    ImGui::SetNextItemWidth(S(140.0f));
-    ImGui::InputText("##na10", g_name.a10, 11);
-    ImGui::SameLine();
-    ImGui::TextDisabled("TeamName_Abbr10");
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted("15 letters");
-    ImGui::SameLine(S(150.0f));
-    ImGui::SetNextItemWidth(S(190.0f));
-    ImGui::InputText("##na15", g_name.a15, 16);
-    ImGui::SameLine();
-    ImGui::TextDisabled("TeamName_Abbr15");
-    ImGui::TextDisabled("Empty abbreviations are made from the full name.");
-    ImGui::Spacing();
-    if (ImGui::Button("Save names")) {
-        std::string msg;
-        bool ok = apply_team_names(app, teamid, g_name.full, g_name.a3, g_name.a10, g_name.a15, &msg);
-        app.notify(ok ? "Team name: " + msg : "Team name: " + msg, !ok);
-        if (ok) load_name_editor(app, t, rec, teamid);
+    if (g_name.teamid != teamid) load_name_form(app, t, rec, teamid);
+    TeamNameTabState& st = g_name_state;
+    st = TeamNameTabState();
+    st.teamid = teamid;
+    st.live = app.team_names_live();
+    if (st.live) {
+        st.mode_line = "Live names are on: Save shows the new name in the game at once.";
+        ImGui::TextColored(kGood, "%s", st.mode_line.c_str());
+    } else {
+        st.mode_line = "Live names are off (" + app.team_names_why_off() + "): a saved name shows after Live Editor's next start.";
+        ImGui::PushStyleColor(ImGuiCol_Text, kWarn);
+        ImGui::TextWrapped("%s", st.mode_line.c_str());
+        ImGui::PopStyleColor();
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Reload")) load_name_editor(app, t, rec, teamid);
     ImGui::Spacing();
-    if (!g_name.loaded_csv) ImGui::TextColored(kWarn, "custom_team_names.csv: %s", g_name.csv_error.c_str());
-    else if (g_name.csv_full.empty()) ImGui::TextDisabled("Live Editor's file has no entry for this team yet (the game shows the database name).");
-    else ImGui::TextDisabled("Live Editor's file: %s | %s | %s | %s", g_name.csv_full.c_str(), g_name.csv_a3.c_str(), g_name.csv_a10.c_str(), g_name.csv_a15.c_str());
-    ImGui::TextColored(kWarn, "Live Editor reads custom_team_names.csv when it starts: the new name shows after Live Editor's next start.");
+    const float label_w = S(120.0f);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Name");
+    ImGui::SameLine(label_w);
+    ImGui::SetNextItemWidth(S(320.0f));
+    ImGui::InputText("##nfull", g_name.name, sizeof(g_name.name));
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The club's full name (at most 59 bytes)");
+    const std::string hint15 = team_short_form(g_name.name, tnames::kMaxLen[tnames::Abbr15]);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Short name");
+    ImGui::SameLine(label_w);
+    ImGui::SetNextItemWidth(S(200.0f));
+    ImGui::InputTextWithHint("##nshort", hint15.c_str(), g_name.short_name, sizeof(g_name.short_name));
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lists and fixtures (at most 15 letters); empty = made from the name");
+    const std::string hint3 = team_code_from(g_name.name);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("3-letter code");
+    ImGui::SameLine(label_w);
+    ImGui::SetNextItemWidth(S(80.0f));
+    ImGui::InputTextWithHint("##ncode", hint3.c_str(), g_name.code, sizeof(g_name.code));
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The scoreboard in matches; empty = made from the name");
+    ImGui::Spacing();
+    if (ImGui::Button("Save")) {
+        TeamNameSave r = save_team_name(app, teamid, g_name.name, g_name.short_name, g_name.code);
+        app.notify("Team name: " + r.line, !r.ok || r.warning);
+        if (r.ok) load_name_form(app, t, rec, teamid);  // shows the short forms that were made
+        g_name.last = r;
+        g_name.saved = true;
+    }
+    if (g_name.saved) {
+        st.result_line = g_name.last.line;
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Text, g_name.last.ok && !g_name.last.warning ? kGood : kWarn);
+        ImGui::TextWrapped("%s", st.result_line.c_str());
+        ImGui::PopStyleColor();
+        // A game screen that is already open built its text before the save: it shows the new name once it is built again
+        if (g_name.last.live) {
+            st.screen_line = "A game screen that is already open shows it once you leave that screen and come back.";
+            ImGui::TextDisabled("%s", st.screen_line.c_str());
+        }
+    }
 }
 
 // ================================================================ colours
@@ -808,6 +861,63 @@ void crest_editor(App& app, int64_t teamid) {
         ImGui::EndTabBar();
     }
     ImGui::TextDisabled("Custom crests are files under <Live Editor>\\mods\\legacy\\data\\ui\\imgAssets\\crest*\\; the game shows them the next time the screen is drawn.");
+}
+
+// ================================================================ App: live team names (core/teamname_override.h)
+
+void App::load_team_names() {
+    const fs::path p = tnames::store_path(bridge.root());
+    std::string err;
+    team_names = tnames::Store{};
+    team_names_error.clear();
+    team_names_unreadable_ = !team_names.load(p, &err);
+    // a note even when it loaded: a bad file set aside, bad entries dropped
+    if (team_names_unreadable_) team_names_error = (err.empty() ? "cannot read " + p.string() : err) + ": no renamed clubs loaded";
+    else team_names_error = err;
+    if (!team_names_error.empty()) log("team names: " + team_names_error);
+    if (!team_names.entries.empty()) log("team names: " + std::to_string(team_names.entries.size()) + " renamed clubs kept in " + p.string());
+}
+
+void App::team_names_publish() {
+    if (!team_names_service) return;
+    team_names_service->publish(team_names);
+    team_names_published_to_ = team_names_service;
+}
+
+bool App::team_names_keep(tnames::Entry e, std::string* err) {
+    e.when = time_stamp();
+    team_names.upsert(e);
+    team_names_publish();  // the hook reads the new table on the game's next lookup
+    const fs::path p = tnames::store_path(bridge.root());
+    std::string why;
+    if (team_names_unreadable_) {
+        // never overwrite a file that could not be read: this session's names stay until Turbo closes
+        why = "turbo_output\\team_names.json (it could not be read at start-up, left as it is; the name is kept for this session)";
+    } else if (!team_names.save(p, &why)) {
+        why = "turbo_output\\team_names.json (" + why + ")";
+    } else {
+        team_names_error.clear();
+        return true;
+    }
+    team_names_error = "team names not saved: " + why;
+    log(team_names_error);
+    if (err) *err = why;
+    return false;
+}
+
+std::string App::team_names_why_off() const {
+    if (!team_names_service) return "not in this build of Turbo";
+    if (team_names_service->available()) return "";
+    const std::string why = team_names_service->why_off();
+    return why.empty() ? "the hook is not installed" : why;
+}
+
+std::string App::team_names_status_line() const {
+    const size_t n = team_names.entries.size();
+    const std::string clubs = std::to_string(n) + (n == 1 ? " renamed club" : " renamed clubs");
+    if (!team_names_live()) return "Live team names: off (" + team_names_why_off() + ") | " + clubs;
+    const tnames::StatsSnapshot st = team_names_service->stats();
+    return "Live team names: on | " + clubs + " | names given to the game " + std::to_string(st.given);
 }
 
 }  // namespace turbo
