@@ -46,6 +46,7 @@
 #include "core/match_setup.h"
 #include "core/manager_rules.h"
 #include "core/model.h"
+#include "move_rules.h"
 #include "core/player_capture.h"
 #include "core/reveal.h"
 #include "core/sigscan.h"
@@ -4262,7 +4263,7 @@ static void test_ui() {
             CHECK(ui.toast_contains("Picture cache emptied"), "toast");
         });
 
-        run_case("UI: moves Turbo makes itself are refused for your club", [&] {
+        run_case("UI: moves Turbo makes itself run for every club, your own included; impossible ones say why", [&] {
             std::ofstream(le / "turbo_output" / "bridge_state.json")
                 << "{\"session\":\"X\",\"seq\":200,\"db_gen\":7,\"in_cm\":true,\"user_team\":1,\"db_service\":\"" +
                        hex_addr(app.bridge.state().db_service) +
@@ -4273,30 +4274,61 @@ static void test_ui() {
             CHECK(app.bridge.state().turbo_made.size() == 5, "turbo_made read");
             app.request_tab = 0;
             ui.frames(2);
+            auto last_cmd = [&]() { return json::parse(mem.read_cstr(kMb + 0x20, 0x1000), nullptr, false); };
             CHECK(ui.click("1002", "##plist"), "your player 1002");
-            ui.click("Release", "##pedit");
-            CHECK(!app.busy(), "Release refused for your player");
-            ui.click("Transfer / Loan...", "##pedit");
-            ui.frames(2);
-            CHECK(ui.find("Transfer", "##Popup") == nullptr, "moves popup does not open");
-            ui.click("Delete player...", "##pedit");
-            ui.frames(2);
-            CHECK(ui.find("Delete player", "##delplayer") == nullptr, "delete refused");
-            CHECK(ui.click("Transfer list", "##pedit"), "list flags are not limited");
-            CHECK(app.busy(), "Transfer list queued");
-            CHECK(ui.click("Cancel"), "cancel");
-            CHECK(ui.click("2001", "##plist"), "Everton player");
             CHECK(ui.click("Release", "##pedit"), "Release");
-            CHECK(app.busy(), "Release of another club's player is sent");
+            CHECK(app.busy(), "Release of your player is sent");
+            CHECK(last_cmd()["overrides"]["actions"][0]["action"] == "release", "release command");
             CHECK(ui.click("Cancel"), "cancel");
+            CHECK(ui.click("Transfer / Loan...", "##pedit"), "moves popup opens for your player");
+            ui.frames(2);
+            CHECK(ui.find("Transfer", "##Popup") != nullptr, "Transfer shown");
+            CHECK(ui.type_into(ui.find("To team ID"), "7"), "destination Everton");
+            CHECK(ui.click("Transfer", "##Popup"), "transfer");
+            CHECK(app.busy(), "transfer out of your club is sent");
+            CHECK(ui.click("Cancel"), "cancel");
+            CHECK(ui.click("Delete player...", "##pedit"), "Delete player...");
+            ui.frames(2);
+            CHECK(ui.find("Delete player", "##delplayer") != nullptr, "delete dialog opens for your player");
+            CHECK(ui.click("Cancel##delplayer", "##delplayer"), "close the dialog");
+            ui.frames(2);
+            // a click outside an open popup only closes it (the item under the mouse is not hovered that frame): a
+            // click on the player list closes the moves popup, a second one selects the row
+            auto close_popup_and_select = [&](const char* row) {
+                ui.click(row, "##plist");
+                ui.frames(2);
+                CHECK(ui.click(row, "##plist"), std::string("row ") + row);
+                ui.frames(2);
+            };
+            // another club's player into your club
+            CHECK(ui.click("2002", "##plist"), "Everton player");
             CHECK(ui.click("Transfer / Loan...", "##pedit"), "moves popup");
             CHECK(ui.type_into(ui.find("To team ID"), "1"), "destination: your club");
-            ui.click("Transfer", "##Popup");
-            CHECK(!app.busy(), "transfer into your club refused");
-            CHECK(ui.type_into(ui.find("To team ID"), "241"), "destination Inter");
-            CHECK(ui.click("Transfer", "##Popup"), "transfer");
-            CHECK(app.busy(), "transfer between two other clubs is sent");
+            ui.frames(2);
+            CHECK(ui.click("Transfer", "##Popup"), "transfer into your club");
+            CHECK(app.busy(), "transfer into your club is sent");
+            CHECK(last_cmd()["overrides"]["actions"][0]["to_teamid"] == 1, "to your club");
             CHECK(ui.click("Cancel"), "cancel");
+            // an impossible move: the button is enabled, the click says why and sends nothing
+            CHECK(ui.click("Transfer / Loan...", "##pedit"), "moves popup again");
+            CHECK(ui.type_into(ui.find("To team ID"), "99999"), "no such team");
+            ui.frames(2);
+            CHECK(ui.click("Transfer", "##Popup"), "the button is enabled");
+            CHECK(!app.busy(), "nothing sent");
+            CHECK(ui.toast_contains("no team has this ID"), "the reason is shown");
+            close_popup_and_select("2001");
+            // the game's lists cannot hold another club's player: enabled, says why, sends nothing
+            CHECK(ui.click("Transfer list", "##pedit"), "Transfer list is enabled for another club's player");
+            CHECK(!app.busy(), "nothing sent");
+            CHECK(ui.toast_contains("cannot list another club's player"), "the reason is shown");
+            // Everton's only goalkeeper (2001) cannot leave: enabled, says why, sends nothing
+            CHECK(ui.click("Transfer / Loan...", "##pedit"), "moves popup for the goalkeeper");
+            CHECK(ui.type_into(ui.find("To team ID"), "1"), "destination: your club");
+            ui.frames(2);
+            CHECK(ui.click("Transfer", "##Popup"), "the Transfer button is enabled");
+            CHECK(!app.busy(), "nothing sent for a club's only goalkeeper");
+            CHECK(ui.toast_contains("only goalkeeper"), "the reason is shown");
+            close_popup_and_select("2001");
         });
 
         run_case("UI: transfer / loan lists for your own players, list status, transfer bans sections (player, club)", [&] {
@@ -7656,6 +7688,68 @@ static void test_transfer_list() {
         return q;
     };
 
+    run_case("player moves: the window's rules for every club (move_rules.h, mirrors Lua core/moves.lua)", [&] {
+        using namespace move_rules;
+        Facts mine;
+        mine.user_team = 1;
+        mine.club = 1;
+        mine.squad = 25;
+        // your own player: every move runs (the same path as any club)
+        for (const char* a : {"release", "transfer", "loan", "delete", "transfer_list", "loan_list", "unlist"})
+            CHECK(why_not(a, mine).empty(), std::string("your player: ") + a + ": " + why_not(a, mine));
+        CHECK(why_not("terminate_loan", mine) == "He is not on loan", "not on loan");
+        Facts unknown_loans = mine;
+        unknown_loans.loans_known = false;
+        CHECK(why_not("terminate_loan", unknown_loans).empty(), "no playerloans table: Lua decides");
+        // another club's player: moves run, the game's lists cannot hold him
+        Facts other;
+        other.user_team = 1;
+        other.club = 7;
+        other.squad = 30;
+        for (const char* a : {"release", "transfer", "loan", "delete"}) CHECK(why_not(a, other).empty(), std::string("other club: ") + a);
+        for (const char* a : {"transfer_list", "loan_list", "unlist"})
+            CHECK(why_not(a, other).find("cannot list another club's player") != std::string::npos, std::string("list: ") + a);
+        // squads: minimum 18 for a club that has a match squad, the only goalkeeper, a full club
+        Facts at18 = other;
+        at18.squad = 18;
+        CHECK(why_not("release", at18).find("fewer than the 18") != std::string::npos, "18 -> 17 refused");
+        CHECK(why_not("delete", at18).find("fewer than the 18") != std::string::npos, "delete too");
+        Facts loan18 = at18;
+        loan18.on_loan = true;
+        loan18.loaned_from = 3;
+        CHECK(why_not("terminate_loan", loan18).empty(), "a loan ends whatever the squad");
+        Facts small = other;
+        small.squad = 5;
+        CHECK(why_not("release", small).empty(), "a club below a match squad is not limited");
+        Facts keeper = other;
+        keeper.last_keeper = true;
+        CHECK(why_not("transfer", keeper).find("only goalkeeper") != std::string::npos, "only goalkeeper");
+        CHECK(why_not_to("transfer", other, 3, true, false, 52).find("the most a squad holds") != std::string::npos, "full club");
+        CHECK(why_not_to("transfer", other, 3, true, false, 51).empty(), "room for one more");
+        CHECK(why_not_to("transfer", other, kFreeAgents, true, false, 900).empty(), "Free Agents has no limit");
+        CHECK(why_not_to("transfer", other, 7, true, false, 30) == "He already plays there", "same club");
+        CHECK(why_not_to("transfer", other, 99999, false, false, -1).find("no team has this ID") != std::string::npos, "unknown club");
+        CHECK(why_not_to("loan", other, 1318, true, true, 20).find("national team") != std::string::npos, "national team");
+        CHECK(why_not_to("loan", other, kFreeAgents, true, false, 0).find("not a club") != std::string::npos, "loan to Free Agents");
+        // loans and free agents
+        Facts loaned = mine;
+        loaned.on_loan = true;
+        loaned.loaned_from = 7;
+        CHECK(why_not("terminate_loan", loaned).empty(), "end the loan");
+        CHECK(why_not("loan", loaned).find("already on loan") != std::string::npos, "loaned twice");
+        CHECK(why_not("transfer", loaned).empty(), "a transfer ends the loan");
+        CHECK(why_not("transfer_list", loaned).find("parent club") != std::string::npos, "loaned in: only his parent club lists him");
+        Facts fa;
+        fa.user_team = 1;
+        fa.club = kFreeAgents;
+        CHECK(why_not("release", fa) == "He is already a free agent", "free agent release");
+        CHECK(why_not("loan", fa).find("free agent") != std::string::npos, "free agent loan");
+        CHECK(why_not_to("transfer", fa, 1, true, false, 25).empty(), "sign a free agent into your club");
+        Facts nocareer = other;
+        nocareer.user_team = 0;
+        CHECK(why_not("transfer_list", nocareer).empty(), "club unknown: the Lua side answers");
+    });
+
     run_case("transfer lists: list, loan-list and unlist one of your players end to end on the synthetic career", [&] {
         ListWorld w;
         FakeListGame g(w);
@@ -7707,6 +7801,9 @@ static void test_transfer_list() {
         CHECK(!r.ok && r.stage == "status" && r.message.find("status 0, 7 or 8") != std::string::npos, "ineligible status refused: " + r.message);
         r = run(w.mem, g, fns, req_for(kActionTransferList, 2002));
         CHECK(!r.ok && r.stage == "status" && r.message.find("no contract record") != std::string::npos, "unknown player refused: " + r.message);
+        r = run(w.mem, g, fns, req_for(kActionQuery, 2002));
+        CHECK(r.ok && r.after == kStatusNone && r.message.find("not listed") != std::string::npos,
+              "List status of a player with no contract record: not listed: " + r.message);
         CHECK(g.adds_t == 2 && g.adds_l == 3 && g.removes == 4, "the game was called only for the eligible requests");
         CHECK(w.mem.failed_reads == 0, "no read outside the synthetic memory");
     });

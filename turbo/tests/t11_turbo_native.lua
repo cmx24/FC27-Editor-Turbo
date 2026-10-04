@@ -2,7 +2,7 @@ package.path = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "./") .. "
 local H = require 'h'
 local W = require 'world'
 
-print("t11 Turbo-native tools (0.3.0): own-club safety gate, moves, transfer budget, game images")
+print("t11 Turbo-native tools: moves for every club (squad, shirt, loan and list checks), transfer budget, game images")
 
 -- FC 27 LE v27.1.2: none of the move / budget natives exist, so Turbo's own implementations run
 local sim = H.setup({ in_cm = true, le_27_1_2 = true })
@@ -43,34 +43,154 @@ local function moves_run(actions)
     return H.turbo().run("player_moves", { actions = actions })
 end
 
-H.case("safety: no move into or out of your club, and nothing is written", function()
-    local mine = W.USER_PLAYERS[5]
-    local other = ai_player(2)
-    local snap = db_bytes()
-    local cases = {
-        { action = "transfer", playerid = mine, to_teamid = 2 },
-        { action = "transfer", playerid = other, to_teamid = W.USER_TEAM },
-        { action = "loan", playerid = mine, to_teamid = 3, months = 6 },
-        { action = "loan", playerid = other, to_teamid = W.USER_TEAM, months = 6 },
-        { action = "release", playerid = mine },
-        { action = "delete", playerid = mine, confirm = true },
-    }
-    for _, a in ipairs(cases) do
-        local ok, msg = moves_run({ a })
-        H.eq(ok, false, a.action .. " " .. tostring(msg))
-        H.has(msg, "your own club")
+local function on_sheet(team, pid)
+    for _, rec in ipairs(sim:rows("cm_teamsheets")) do
+        if sim:value("cm_teamsheets", rec, "teamid") == team then
+            for i = 0, 51 do
+                if sim:value("cm_teamsheets", rec, "playerid" .. i) == pid then return true end
+            end
+        end
     end
-    H.eq(changed_since(snap), 0, "database bytes changed")
-    H.eq(link_team(mine), W.USER_TEAM)
-    H.eq(link_team(other), 2)
-    H.ok(sim:find_row("players", "playerid", mine), "not deleted")
+    return false
+end
+
+-- Turbo.dll's game call for the lists (core/moves.lua M.list): a fake with a status per player
+local list_calls, list_status = {}, {}
+local function fake_list_native()
+    list_status = {}
+    list_calls = {}
+    _G.TurboTransferList = function(code, pid, club)
+        list_calls[#list_calls + 1] = { code = code, pid = pid, club = club }
+        local before = list_status[pid] or 0
+        if code == 6 then return true, string.format("player %d status %d", pid, before), "ok", before, before end
+        if code == 3 then list_status[pid] = 0; return true, "removed", "ok", before, 0 end
+        return false, "unexpected action " .. code, "failed", before, before
+    end
+end
+
+H.case("your club, same safe path: transfer out comes off your lists and your team sheet, transfer in joins it", function()
+    fake_list_native()
+    local mine = W.USER_PLAYERS[5]
+    list_status[mine] = 7   -- on your transfer list
+    local ok, msg = moves_run({ { action = "transfer", playerid = mine, to_teamid = 2 } })
+    H.eq(ok, true, msg)
+    H.has(msg, "taken off your transfer / loan list first")
+    H.eq(link_team(mine), 2)
+    H.eq(list_calls[1].code, 6, "status read first"); H.eq(list_calls[2].code, 3, "then the game's remove")
+    H.eq(list_calls[2].club, W.USER_TEAM)
+    H.eq(on_sheet(W.USER_TEAM, mine), false, "off your team sheet")
+    -- an AI player into your club: club link, a free shirt number, your team sheet
+    local other = ai_player(3)
+    ok, msg = moves_run({ { action = "transfer", playerid = other, to_teamid = W.USER_TEAM, months = 24, wage = 900 } })
+    H.eq(ok, true, msg)
+    H.eq(link_team(other), W.USER_TEAM)
+    H.ok(on_sheet(W.USER_TEAM, other), "on your team sheet")
+    local seen = {}
+    for _, rec in ipairs(sim:rows("teamplayerlinks")) do
+        if sim:value("teamplayerlinks", rec, "teamid") == W.USER_TEAM then
+            local j = sim:value("teamplayerlinks", rec, "jerseynumber")
+            H.eq(seen[j], nil, "shirt " .. j .. " used twice at your club")
+            seen[j] = true
+        end
+    end
+    -- not listed: no remove call
+    list_calls = {}
+    ok, msg = moves_run({ { action = "loan", playerid = W.USER_PLAYERS[6], to_teamid = 3, months = 6 } })
+    H.eq(ok, true, msg)
+    H.eq(#list_calls, 1, "status only")
+    H.eq(sim:value("playerloans", sim:find_row("playerloans", "playerid", W.USER_PLAYERS[6]), "teamidloanedfrom"), W.USER_TEAM)
+    ok, msg = moves_run({ { action = "terminate_loan", playerid = W.USER_PLAYERS[6] } })
+    H.eq(ok, true, msg)
+    H.eq(link_team(W.USER_PLAYERS[6]), W.USER_TEAM)
+    H.ok(on_sheet(W.USER_TEAM, W.USER_PLAYERS[6]), "back on your team sheet")
+    -- a player loaned TO your club goes back to his parent club (7)
+    ok, msg = moves_run({ { action = "terminate_loan", playerid = W.LOANED_IN } })
+    H.eq(ok, true, msg)
+    H.eq(link_team(W.LOANED_IN), 7)
+    H.eq(sim:find_row("playerloans", "playerid", W.LOANED_IN), nil, "loan row deleted")
+    -- release and delete one of your players
+    ok, msg = moves_run({ { action = "delete", playerid = W.USER_PLAYERS[7], confirm = true } })
+    H.eq(ok, true, msg)
+    H.eq(sim:find_row("players", "playerid", W.USER_PLAYERS[7]), nil, "deleted")
+    H.eq(on_sheet(W.USER_TEAM, W.USER_PLAYERS[7]), false)
+    _G.TurboTransferList = nil
 end)
 
-H.case("safety: ending the loan of a player loaned TO your club is refused (his club link would move)", function()
-    local ok, msg = moves_run({ { action = "terminate_loan", playerid = W.LOANED_IN } })
-    H.eq(ok, false, msg)
-    H.has(msg, "your own club")
-    H.ok(sim:find_row("playerloans", "playerid", W.LOANED_IN), "loan row kept")
+H.case("your club: a failed remove from your list stops the move before anything is written", function()
+    _G.TurboTransferList = function(code, pid, club)
+        if code == 6 then return true, "status", "ok", 9, 9 end
+        return false, "the game refused", "failed", 9, 9
+    end
+    local mine = W.USER_PLAYERS[8]
+    local snap = db_bytes()
+    local ok, msg = moves_run({ { action = "release", playerid = mine } })
+    H.eq(ok, false, msg); H.has(msg, "the game's remove failed")
+    H.eq(changed_since(snap), 0, "nothing written")
+    H.eq(link_team(mine), W.USER_TEAM)
+    _G.TurboTransferList = nil
+end)
+
+H.case("squad rules: full squad, minimum squad, last goalkeeper, loans; a refusal writes nothing", function()
+    local moves = require 'imports/turbo/core/moves'
+    local snap = db_bytes()
+    -- 1001 is your only goalkeeper (world.lua: preferredposition1 0)
+    local ok, msg = moves.transfer(W.USER_PLAYERS[1], 2, {}, false)
+    H.eq(ok, false); H.has(msg, "only goalkeeper")
+    -- the club he joins is full
+    local max0, min0 = moves.MAX_SQUAD, moves.MIN_SQUAD
+    moves.MAX_SQUAD = moves.squad_size(4)
+    ok, msg = moves.transfer(ai_player(2), 4, {}, false)
+    H.eq(ok, false); H.has(msg, "the most a squad holds")
+    ok, msg = moves.loan(W.USER_PLAYERS[9], 4, 6, false)
+    H.eq(ok, false); H.has(msg, "the most a squad holds")
+    moves.MAX_SQUAD = max0
+    -- a match squad never drops below the minimum
+    moves.MIN_SQUAD = moves.squad_size(W.USER_TEAM)
+    ok, msg = moves.release(W.USER_PLAYERS[9], false)
+    H.eq(ok, false); H.has(msg, "fewer than")
+    ok, msg = moves.delete(W.USER_PLAYERS[9], false)
+    H.eq(ok, false); H.has(msg, "fewer than")
+    moves.MIN_SQUAD = min0
+    H.eq(changed_since(snap), 0, "nothing written by a refused move")
+    -- a free agent cannot be loaned; Free Agents is not a loan club
+    local fa = ai_player(9)
+    ok, msg = moves.release(fa, false)
+    H.eq(ok, true, msg)
+    ok, msg = moves.loan(fa, 3, 6, false)
+    H.eq(ok, false); H.has(msg, "free agent")
+    ok, msg = moves.loan(ai_player(10), moves.FREE_AGENTS, 6, false)
+    H.eq(ok, false); H.has(msg, "not a club")
+    -- a loaned player: loaned again is refused; a transfer ends the loan (his parent club sells)
+    local pid = ai_player(11)
+    ok, msg = moves.loan(pid, 12, 6, false)
+    H.eq(ok, true, msg)
+    ok, msg = moves.loan(pid, 13, 6, false)
+    H.eq(ok, false); H.has(msg, "already on loan")
+    ok, msg = moves.transfer(pid, 13, {}, false)
+    H.eq(ok, true, msg); H.has(msg, "loan from 11 ended")
+    H.eq(link_team(pid), 13)
+    H.eq(sim:find_row("playerloans", "playerid", pid), nil, "loan row deleted")
+end)
+
+H.case("your team sheet: a starter who leaves is replaced by the first substitute, the other starters keep their slots", function()
+    local function sheet()
+        for _, rec in ipairs(sim:rows("cm_teamsheets")) do
+            if sim:value("cm_teamsheets", rec, "teamid") == W.USER_TEAM then
+                local ids = {}
+                for i = 0, 51 do ids[i] = sim:value("cm_teamsheets", rec, "playerid" .. i) end
+                return ids
+            end
+        end
+    end
+    local before = sheet()
+    local leaving = before[2]
+    local ok, msg = moves_run({ { action = "transfer", playerid = leaving, to_teamid = 2 } })
+    H.eq(ok, true, msg)
+    H.has(msg, "list status not read")   -- no Turbo GUI in this test: said in the summary
+    local after = sheet()
+    H.eq(after[2], before[11], "the first substitute takes his slot")
+    H.eq(after[11], before[12], "the bench moves up")
+    for _, i in ipairs({ 0, 1, 3, 4, 10 }) do H.eq(after[i], before[i], "starter slot " .. i .. " kept") end
 end)
 
 H.case("safety: outside a career (club unknown) every Turbo move is refused", function()

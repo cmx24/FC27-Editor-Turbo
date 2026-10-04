@@ -50,8 +50,8 @@ M.NOTES = {
 }
 
 -- Player moves Turbo does itself in the career database when Live Editor has no native for them (core/moves.lua).
--- The Turbo window refuses those for the user's own club (they crashed a test career in FC 27), but not when Live
--- Editor's own native does the move.
+-- 1.1.1: they run for every club, the user's included, after the squad / shirt / loan / list checks of core/moves.lua;
+-- the Turbo window shows its "done by Turbo in the career database" note for these.
 M.TURBO_MADE = {
     move_transfer = "TransferPlayer", move_loan = "LoanPlayer", move_release = "ReleasePlayerFromTeam",
     move_terminate_loan = "TerminateLoan", delete_players = "DeletePlayer",

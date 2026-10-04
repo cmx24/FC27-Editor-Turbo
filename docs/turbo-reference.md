@@ -300,6 +300,53 @@ club's transfer budget. The probe scripts that found the above are in `C:\FC 27 
   (descriptor, callback shape, picture decode; tested), `win/player_capture_win.cpp` (hooks, request, callbacks),
   RE notes `docs/re/player_capture.md`.
 
+## Player moves for every club (1.1.1)
+
+Players tab: Transfer / Loan..., Release, Terminate loan, Delete player, Transfer list, Loan list, Remove from lists, List
+status; Clone / Create / Import as new player. Up to 1.1.0 every move into or out of the user's club was refused (a test
+career crashed while simulating after several database-only moves, 03-10-2026, root cause not found; that career had
+none of the checks below) and the list buttons were greyed for other clubs' players.
+
+**Who does what.** FC 27 Live Editor v27.1.2 has no native for transfer, loan, release, terminate loan or delete
+(`core/caps.lua` M.TURBO_MADE), and Turbo has no RE of the game's transfer engine (no "complete transfer" call), so these
+are written by Turbo into the career database (`core/moves.lua`): `teamplayerlinks` (club, shirt number, reserve slot),
+`players` (join date, contract end, wage, release clause), `playerloans`, `cm_teamsheets` (the user's team sheet and
+set-piece takers), `teams` set-piece takers. The only game routines Turbo has for these screens are the Transfer Hub
+list actions (`docs/re/transfer_lists.md`: add to transfer / loan list, remove, contract status), which Turbo uses where
+they apply. Every rule below is checked before the first write; a refused move writes nothing.
+
+| rule | why (career consistency) | where |
+|---|---|---|
+| a loaded career (user club known) | the user's team sheet and lists need it | `moves.guard` |
+| the club he joins has fewer than 52 players (Free Agents: no limit) | the team sheet has 52 slots (`cm_teamsheets` playerid0..51) | `moves.check_squads`, `move_rules::why_not_to` |
+| a club with 18 or more players never drops below 18 (a club already below 18 is not limited) | a match squad is 11 starters + 7 substitutes | same |
+| a club's only goalkeeper (`preferredposition1` 0) does not leave it | a club with no goalkeeper cannot field a team | same |
+| a free shirt number at the new club, else refused | two players with one number at a club | `moves.free_jersey` (nil when none) |
+| transfer / release of a loaned player ends the loan first (his `playerloans` row is deleted; the parent club is the seller) | a club link and a loan row must agree | `moves.transfer`, `moves.release` |
+| a player on loan cannot be loaned again; a free agent cannot be loaned; Free Agents is not a loan club | `playerloans.teamidloanedfrom` must be his real club | `moves.loan` |
+| terminate loan: the parent club must have room; the loan club's minimum is not checked | the game ends loans whatever the squad | `moves.terminate_loan` |
+| leaving the user's club (transfer, loan, release, delete): if the game has him on the user's transfer / loan list (contract status 7 / 8 / 9) he comes off through the game's own remove first; if that remove fails the move is refused | the Transfer Hub lists and AI offers must not point at a player the club no longer has | `moves.leave_lists` |
+| moves into the user's club add him to the end of the team sheet (reserve); moves out remove him: a starter's slot (playerid0..10) goes to the first substitute (the goalkeeper's slot to the first goalkeeper on the bench or in reserve), so the other starters keep their positions; the bench and reserves move up; set-piece takers that were him become the sheet's first player | the team sheet lists the squad and the line-up | `plan_sheet_add` / `plan_sheet_remove` |
+| delete = release (all the rules above), then his `players`, `teamplayerlinks`, `editedplayernames`, `playerloans` rows | | `moves.delete` |
+| create / clone / import as new: any club, the user's included (the old `allow_user_club` key is no longer read); the club must have room and a free number; in the user's club he goes on the team sheet as a reserve | | `features/create_player.lua` |
+
+**What truly cannot be done.** The game's transfer / loan list helper lists the player on the **user's** club whoever he
+plays for (`docs/re/transfer_lists.md` section 0), and AI clubs' lists have no call Turbo knows: Transfer list / Loan
+list / Remove from lists for another club's player (or a player loaned to the user's club) cannot run. List status runs
+for anyone; a player the PlayerContractManager has no record of (another club's player, or one Turbo moved since the
+career was loaded) is answered "not listed" (Turbo.dll `tl::run`, query action).
+
+**In the window** (`turbogui/src/ui/move_rules.h`, used by `ui_players.cpp` and `ui_presets.cpp`): a button is greyed
+only when the build cannot run the tool at all (tooltip: the reason from `core/caps.lua`). When a move cannot run for
+the selected player the button stays enabled, its label is dimmed, hovering says "Not possible for him: <reason>" and a
+click shows the reason as a toast and sends nothing. The window knows the club link, the loan row, the squad sizes and
+the goalkeepers; Lua checks everything again (whole database) and refuses with the same reasons. Moves that touch the
+user's club show the note "Your club: Turbo writes the move into the career database ...".
+
+**Still to verify in game** (throwaway career only, save backed up): a transfer out of and into the user's club, then
+save, reload and simulate several weeks; a listed player transferred out (he leaves the Transfer Hub list); delete of
+one of the user's players; clone into the user's club.
+
 ## Not implemented yet
 
 Match setup overrides, gameplay toggles (CPU vs CPU, unlimited subs, never tired, match time/score), manager market / job security /

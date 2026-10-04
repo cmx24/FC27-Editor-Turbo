@@ -8,9 +8,9 @@
 --     "set": { "overallrating": 70 },   -- players fields written on top of the source
 --     "playerid": 0,                 -- 0 = the first free id above every existing one (below max_playerid)
 --     "min_playerid": 0, "max_playerid": 459999,   -- the id range Turbo may use (460000+ is the game's own range)
---     "allow_user_club": false       -- true = allowed into your own club (unverified in FC 27: the career has no
---                                    --   memory of the player until the save is reloaded; the team sheet is not changed)
 --   }
+-- Any club, your own included (1.1.1; "allow_user_club" is no longer read): the club must have room (fewer than 52
+-- players) and a free shirt number; in your club he is added to your team sheet as a reserve.
 -- Rows are added with Live Editor's InsertDBTableRow: players (every field: the source's value, else the field's
 -- minimum), teamplayerlinks (free shirt number, position 29 = reserve) and editedplayernames when names are given.
 -- Everything is validated before the first row is written; a dry run reports the plan.
@@ -24,8 +24,6 @@ local preset = require 'imports/turbo/core/preset'
 local M = {}
 
 M.GENERATED_MIN = 460000   -- the game numbers its own generated players from here
-M.USER_CLUB_REFUSED = "Turbo does not create players in your own club unless \"allow_user_club\" is set (the running " ..
-    "career does not know the new player until the save is reloaded; unverified in FC 27)"
 
 -- The first free player id: above every id below `max_id`, at least `min_id`
 function M.free_playerid(min_id, max_id)
@@ -112,7 +110,8 @@ function M.run(ctx)
     if not game.team_ids()[teamid] then return false, string.format("team %d not found", teamid) end
     if moves.national_teams()[teamid] then return false, string.format("team %d is a national team", teamid) end
     local user = moves.user_team()
-    if user > 0 and teamid == user and cfg.allow_user_club ~= true then return false, M.USER_CLUB_REFUSED end
+    local oks, serr = moves.check_squads(nil, nil, teamid)
+    if not oks then return false, serr end
 
     -- id
     local min_id = math.max(0, util.to_int(cfg.min_playerid) or 0)
@@ -165,6 +164,7 @@ function M.run(ctx)
     end
     -- club link
     local jersey = moves.free_jersey(links, teamid, util.to_int(cfg.jersey) or 0, pid)
+    if not jersey then return false, string.format("%s (%d) has no free shirt number", game.team_name(teamid), teamid) end
     local link = {}
     for _, f in ipairs(db.field_names(links)) do
         local info = db.field_info(links, f)
@@ -210,7 +210,7 @@ function M.run(ctx)
         defaults > 0 and string.format(", %d fields at their minimum", defaults) or "",
         name_row and ", names in editedplayernames" or "")
     if skipped and #skipped > 0 then summary = summary .. "; out of range, minimum used: " .. table.concat(skipped, ", ") end
-    if user > 0 and teamid == user then summary = summary .. " (your club: not on the team sheet until you set it up in game)" end
+    if user > 0 and teamid == user then summary = summary .. " (your club: added to your team sheet as a reserve)" end
     if ctx.dry then return true, summary end
 
     -- write: players, then the club link, then the names; a later failure removes what was added
@@ -229,6 +229,10 @@ function M.run(ctx)
             delete_row("players", pres)
             return false, nerr
         end
+    end
+    if user > 0 and teamid == user then
+        local oks2, sherr = moves.add_to_sheet(teamid, pid)
+        if not oks2 then summary = summary .. "; team sheet not changed: " .. tostring(sherr) end
     end
     -- miniface from a Turbo JSON next to the file
     if parsed and parsed.kind == "turbo_json" and type(parsed.miniface) == "string" and parsed.miniface ~= "" then
