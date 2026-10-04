@@ -120,8 +120,16 @@ static const SignatureTable kBuiltin[] = {
     {"6AB9813C-211EF000",  // FC27.exe as dumped 2026-10-03 (TimeDateStamp 0x6AB9813C, SizeOfImage 0x211EF000)
      "FC27.exe",
      {
-         {"game_tick", "", "none", 0,
-          "per-frame game-thread function: not identified yet (docs/re/game_thread.md); the dispatcher uses the Lua pump"},
+         // MainLoop frame body (0x1459E2E7C on this build): runs once per frame on the thread the game's "MainLoop"
+         // job runs on, void(MainLoop*, int64* dt). Hooked as the game-thread dispatcher (docs/re/game_thread.md s.3).
+         {"game_tick",
+          "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 48 8B 79 60 48 8B F1 48 8B EA 48 8B 5F 10 48 8B CB "
+          "FF 15 ?? ?? ?? ?? 48 8B 4F 10 E8",
+          "none", 0, "MainLoop frame body: per-frame, game thread (docs/re/game_thread.md)"},
+         // Career-event post entry PostEvent(dispatcher, int type, Event*) (0x14060124C), resolved through its call in
+         // DataController::InsertTeamPlayer so Live Editor's inline hook on the function itself does not hide it.
+         {"post_career_event", "4C 8B C0 48 8B CF E8 ?? ?? ?? ?? 48 8D 8C 24 90 00 00 00 E8 ?? ?? ?? ??", "rip", 6,
+          "PostEvent(dispatcher, type, event): the entry Live Editor hooks for post__CareerModeEvent (docs/re/game_thread.md s.4)"},
      }},
 };
 

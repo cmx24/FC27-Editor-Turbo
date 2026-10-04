@@ -86,11 +86,19 @@ struct HookReport {
     std::vector<SigResult> signatures;
     std::vector<HookStatus> hooks;
     bool dispatcher_hooked = false;  // game_tick hook active
-    long long dispatcher_ticks = 0;  // game-thread ticks seen (hook) + Lua pumps
-    long long dispatcher_pumps = 0;  // pumps from Turbo's Lua side (career events)
+    long long dispatcher_ticks = 0;  // game-thread ticks seen (hook)
+    long long dispatcher_pumps = 0;  // pumps from Turbo's Lua side (career events and the synthetic trigger)
     long long dispatcher_ran = 0;    // queued jobs run
+    long long dispatcher_failed = 0;   // queued jobs that threw
+    long long dispatcher_dropped = 0;  // queued jobs dropped (queue full)
     size_t queued = 0;
     uint32_t game_thread_id = 0;     // thread the queue ran on last (0 = never)
+    uint32_t tick_thread_id = 0;     // thread the game_tick hook runs on (0 = not seen yet)
+    uint32_t pump_thread_id = 0;     // thread Turbo's Lua side pumps from (= where Live Editor runs Lua; 0 = not seen)
+    // Prompt Lua commands (the synthetic career event, docs/re/game_thread.md s.4)
+    std::string lua_trigger;         // state in words ("ready", "off: ...", "waiting ...")
+    long long lua_triggers = 0;      // synthetic events sent
+    long long lua_trigger_pumps = 0; // of those, how many made Turbo's Lua side pump (proof the handlers ran)
 };
 
 }  // namespace turbo

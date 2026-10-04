@@ -9,6 +9,16 @@ local M = {}
 
 M.EVENT_NAME = "post__CareerModeEvent"
 
+-- Turbo.dll's synthetic career-mode event (turbogui/src/core/gamethread.h kSyntheticCareerEvent): sent from the game's
+-- per-frame tick while the Turbo window has a command waiting, so Live Editor runs this dispatcher at once instead of
+-- on the next real event. It carries no game event: only the GUI bridge tap acts on it (bridge.on_career_event), every
+-- id-keyed listener ignores it because no feature registers this id.
+M.SYNTHETIC_ID = 0x7E7E0001
+
+function M.is_synthetic(event_id)
+    return event_id == M.SYNTHETIC_ID
+end
+
 local enums_loaded = false
 local function load_enums()
     if enums_loaded then return end
