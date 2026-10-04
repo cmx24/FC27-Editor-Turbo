@@ -3,6 +3,16 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.1.4 (playtest round 2)
+
+### Added
+
+- Managers > Appearance: an **Outfit** gallery (outfitid) with the game's outfit pictures (outfit/item_<id>, genericManagerOutfits/gmo_<id>).
+
+### Fixed
+
+- **Gear pictures show again**: boots come from FC 27's shoe/shoe_<id> pictures (every boot in use now has one, 47 of 183 before), hair and facial hair from craniumhair / craniumfacialhair (any letter case; 543 of 543 hair styles in use have a picture, 2 before), accessories without a _0 picture use the one the game lists, and boots with long variant names (item_1_0_0_0) are found. An item the game has no picture for shows "no picture in the game" at once instead of waiting forever, and the background loading asks only for pictures the game lists.
+
 ## 1.1.3 (hotfix)
 
 ### Fixed

@@ -2571,6 +2571,7 @@ static void open_standings_advanced(Ui& ui) {
 static Rgba solid(int w, int h, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
 static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_preload_hotkey.h"  // 1.1.1: show/hide key setting, background loading
+#include "test_gear_pictures.h"  // 1.1.4: gear preview pictures from the hash list
 #include "test_wheel.h"  // 1.1.3: mouse wheel source (hook, raw input, window messages)
 static std::string hex_bytes(const std::vector<uint8_t>& d) {
     static const char* h = "0123456789abcdef";
@@ -3472,8 +3473,9 @@ static void test_ui() {
                 << "hash;file_name\n1;data/ui/imgAssets/hairstyle/item_3261_0.dds\n2;data/ui/imgAssets/hairstyle/item_1053_0.dds\n"
                    "3;data/ui/imgAssets/boots/item_678_0.dds\n4;data/ui/imgAssets/gkglove/gkglove_41.dds\n"
                    "5;data/ui/imgAssets/accessories/item_52_0.dds\n6;data/ui/imgAssets/accessories/item_52_3.dds\n7;data/ui/imgAssets/heads/p1.dds\n";
-            CHECK(gallery_ids(app, "hairstyle").size() == 2 && gallery_ids(app, "boots") == std::vector<int64_t>{678}, "ids per folder");
-            CHECK(gallery_ids(app, "accessories") == std::vector<int64_t>{52} && gallery_ids(app, "gkglove") == std::vector<int64_t>{41}, "variants collapse to one id");
+            const GearPictureIndex& gx = gear_pictures(app);
+            CHECK(gx.ids("hairstyle", "item_").size() == 2 && gx.ids("boots", "item_") == std::vector<int64_t>{678}, "ids per folder");
+            CHECK(gx.ids("accessories", "item_") == std::vector<int64_t>{52} && gx.ids("gkglove", "gkglove_") == std::vector<int64_t>{41}, "variants collapse to one id");
             app.request_tab = 0;
             ui.frames(2);
             CHECK(ui.click("3001", "##plist"), "player 3001");
@@ -11342,6 +11344,7 @@ int main(int argc, char** argv) {
     test_reapply_store();
     std::printf("native show/hide key and background loading\n");
     test_hotkey_and_background();
+    test_gear_pictures();
     std::printf("native mouse wheel source\n");
     test_wheel_sources();
     std::printf("native club customisation and career settings\n");
