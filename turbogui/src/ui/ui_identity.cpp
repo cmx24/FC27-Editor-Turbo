@@ -418,7 +418,7 @@ bool apply_crest(App& app, int64_t teamid, const Rgba& src0, const Framing& fram
     }
     CrestPlan plan = crest_plan(app, teamid);
     if (!plan.ready()) {
-        if (msg) *msg = std::to_string(plan.waiting) + " of the game's crest files are not loaded yet (play on, or run lua\\scripts\\turbo_images.lua)";
+        if (msg) *msg = std::to_string(plan.waiting) + " of the game's crest files are not loaded yet (they load in the background while Turbo is open)";
         return false;
     }
     if (plan.writable == 0) {
@@ -755,8 +755,7 @@ void crest_editor(App& app, int64_t teamid) {
             ImGui::EndTable();
         }
         if (ed.plan.waiting > 0) {
-            ImGui::TextDisabled("Pictures still loading arrive while you play (advance the calendar, open screens).");
-            ImGui::TextDisabled("All at once: hide Turbo (F8), Live Editor's Lua Engine, run lua\\scripts\\turbo_images.lua.");
+            ImGui::TextDisabled("Pictures still loading arrive in the background while Turbo is open (and as you play).");
         }
         ImGui::TreePop();
     }

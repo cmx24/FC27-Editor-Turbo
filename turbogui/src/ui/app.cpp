@@ -9,7 +9,9 @@
 #include <fstream>
 #include <sstream>
 
+#include "core/hotkey.h"
 #include "imgui.h"
+#include "preload.h"
 
 namespace turbo {
 
@@ -17,6 +19,17 @@ namespace fs = std::filesystem;
 using nlohmann::json;
 
 float g_ui_scale = 1.0f;
+
+// ---- background loading (ui/preload.h)
+void App::preload_start(const char* why) {
+    if (preloader) preloader->start(why);
+}
+
+std::string App::preload_line() const { return preloader ? preloader->line(*this) : std::string(); }
+
+bool App::lua_images_wanted() const {
+    return visible && preloader && preloader->loading() && legacy.waiting_background() > 0;
+}
 
 float auto_ui_scale(float display_height) {
     float s = display_height > 0.0f ? display_height / 1080.0f : 1.0f;
@@ -66,6 +79,7 @@ void App::update_style() {
 
 App::App(Memory& m, fs::path le_root, uint64_t mailbox_addr, std::string sess)
     : mem(m), bridge(std::move(le_root)), db(m), model(db), session(std::move(sess)), legacy(bridge.root()) {
+    preloader = std::make_unique<Preloader>();
     game_root = game_root_from_process();
     if (mailbox_addr) {
         mailbox = std::make_unique<Mailbox>(mem, mailbox_addr);
@@ -499,6 +513,11 @@ void App::tick(double t) {
         }
     }
     legacy.tick(t);
+    // Background loading: from the first show (F8) or the first career connection, whichever comes first
+    if (preloader) {
+        if (!preloader->started() && (visible || connected())) preload_start(visible ? "first show" : "career connected");
+        preloader->tick(*this);
+    }
     // Voice swaps: the store goes to the service the host gave (once per service, then after every edit); the kill
     // switches are re-read every 2 s (the detours only read cached atomics)
     if (voice_service) {
@@ -703,9 +722,13 @@ void App::load_gui_settings() {
         if (!j.is_discarded() && j.is_object()) gui_settings = j;
     }
     if (gui_settings.contains("gui") && gui_settings["gui"].is_object()) {
-        int vk = gui_settings["gui"].value("toggle_key", 0x77);
-        if (vk > 0 && vk < 256) toggle_vk = vk;
         const json& g = gui_settings["gui"];
+        int vk = g.contains("toggle_key") && g["toggle_key"].is_number_integer() ? g["toggle_key"].get<int>() : 0x77;
+        int mods = g.contains("toggle_mods") && g["toggle_mods"].is_number_integer() ? g["toggle_mods"].get<int>() : 0;
+        if (hotkey_valid_vk(vk)) {
+            toggle_vk = vk;
+            toggle_mods = mods & 7;
+        }
         if (g.contains("ui_scale") && g["ui_scale"].is_number()) {
             double us = g["ui_scale"].get<double>();
             if (us >= 0.6 && us <= 2.5) ui_scale_user = static_cast<float>(us);
@@ -715,6 +738,7 @@ void App::load_gui_settings() {
 
 bool App::save_gui_settings() {
     gui_settings["gui"]["toggle_key"] = toggle_vk;
+    gui_settings["gui"]["toggle_mods"] = toggle_mods;
     gui_settings["gui"]["ui_scale"] = std::round(ui_scale_user * 100.0f) / 100.0f;
     return bridge.write_gui_settings(gui_settings.dump(2));
 }
@@ -802,6 +826,15 @@ void App::draw() {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Turbo's Lua side runs one command at a time: these are sent, batched, as soon as it is free");
     }
+    {
+        const std::string pl = preload_line();  // ui/preload.h
+        if (!pl.empty()) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.55f, 0.8f, 1.0f, 1.0f), "| %s", pl.c_str());
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Faces, tattoos, item previews and crests load in the background while Turbo is open");
+        }
+    }
     ImGui::SameLine(ImGui::GetWindowWidth() - (busy() ? S(380.0f) : S(230.0f)));
     if (busy()) {
         ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Queued: %s", pending_label.c_str());
@@ -845,6 +878,8 @@ void App::draw() {
         }
         ImGui::EndTabBar();
     }
+    // the show/hide key setting was not drawn this frame (another tab): stop waiting for a key (hotkey_setting.h)
+    if (hotkey_capture && hotkey_capture_frame != ImGui::GetFrameCount()) hotkey_capture = false;
     ImGui::End();
 }
 

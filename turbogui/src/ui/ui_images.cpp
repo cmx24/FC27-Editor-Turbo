@@ -76,8 +76,7 @@ LegacyImages::State draw_legacy_picture(App& app, const std::string& path, float
 }
 
 static void waiting_hint() {
-    ImGui::TextDisabled("Pictures still loading arrive while you play (advance the calendar, open screens).");
-    ImGui::TextDisabled("All at once: hide Turbo (F8), Live Editor's Lua Engine, run lua\\scripts\\turbo_images.lua.");
+    ImGui::TextDisabled("Pictures still loading arrive in the background while Turbo is open (and as you play).");
 }
 
 // ---------------------------------------------------------------- file browser (pictures on the PC)
@@ -836,7 +835,7 @@ void real_face_picker(App& app, int64_t target_pid) {
         }
     }
     ImGui::EndChild();
-    if (app.legacy.waiting() > 0) ImGui::TextDisabled("%zu pictures loading (lua\\scripts\\turbo_images.lua loads them at once)", app.legacy.waiting());
+    if (app.legacy.waiting() > 0) ImGui::TextDisabled("%zu pictures loading in the background", app.legacy.waiting());
     if (picked) {
         std::string msg;
         bool ok = apply_real_face(app, target_pid, picked, opts, &msg);

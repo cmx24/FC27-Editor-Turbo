@@ -5,6 +5,7 @@
 #include <string>
 
 #include "app.h"
+#include "hotkey_setting.h"
 #include "imgui.h"
 #include "ui_images.h"
 
@@ -426,14 +427,10 @@ void draw_tools(App& app) {
 }
 
 // ---------------------------------------------------------------- status
-static const std::pair<int, const char*> kKeys[] = {
-    {0x70, "F1"}, {0x71, "F2"}, {0x72, "F3"}, {0x73, "F4"}, {0x74, "F5"}, {0x75, "F6"}, {0x76, "F7"},
-    {0x77, "F8"}, {0x78, "F9"}, {0x7A, "F11"}, {0x7B, "F12"}, {0x2D, "Insert"}, {0x24, "Home"}, {0x23, "End"},
-    {0x21, "Page Up"}, {0x22, "Page Down"}, {0x13, "Pause"}};
-
 const char* key_name(int vk) {
-    for (const auto& k : kKeys) if (k.first == vk) return k.second;
-    return "?";
+    static thread_local std::string name;
+    name = vk_name(vk);
+    return name.c_str();
 }
 
 // Game-code hooks (src/win/game_hooks.cpp): build, signature table, every signature's status, hooks, dispatcher
@@ -529,16 +526,7 @@ void draw_status(App& app) {
     if (!app.voice_error.empty()) ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "  %s", app.voice_error.c_str());
 
     ImGui::SeparatorText("Settings");
-    ImGui::SetNextItemWidth(S(140.0f));
-    if (ImGui::BeginCombo("Show/hide key", key_name(app.toggle_vk))) {
-        for (const auto& k : kKeys) {
-            if (ImGui::Selectable(k.second, app.toggle_vk == k.first)) {
-                app.toggle_vk = k.first;
-                if (!app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);
-            }
-        }
-        ImGui::EndCombo();
-    }
+    hotkey_setting(app);  // hotkey_setting.h: pick the key by pressing it, Reset to F8
     ImGui::SetNextItemWidth(S(140.0f));
     ImGui::SliderFloat("UI size", &app.ui_scale_user, 0.6f, 2.5f, "%.2fx", ImGuiSliderFlags_AlwaysClamp);
     if (ImGui::IsItemDeactivatedAfterEdit() && !app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);

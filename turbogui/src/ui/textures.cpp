@@ -1,8 +1,14 @@
 #include "textures.h"
 
 #include <algorithm>
+#include <chrono>
+#include <condition_variable>
 #include <cstring>
+#include <deque>
+#include <mutex>
 #include <system_error>
+#include <thread>
+#include <unordered_set>
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -11,7 +17,127 @@ namespace turbo {
 
 namespace fs = std::filesystem;
 
+// ---------------------------------------------------------------- background decoding
+struct TextureCache::Preload {
+    std::mutex m;
+    std::condition_variable cv;
+    std::thread worker;
+    bool stop = false;
+    bool working = false;
+    std::deque<std::pair<fs::path, int>> queue;
+    std::unordered_set<std::string> queued;          // path strings in `queue`
+    std::unordered_map<std::string, Decoded> store;  // path string -> decoded picture
+    size_t bytes = 0;
+    size_t done = 0;
+
+    void run() {
+        for (;;) {
+            std::pair<fs::path, int> job;
+            {
+                std::unique_lock<std::mutex> lock(m);
+                cv.wait(lock, [&] { return stop || !queue.empty(); });
+                if (stop) return;
+                job = std::move(queue.front());
+                queue.pop_front();
+                working = true;
+            }
+            Decoded d;
+            std::error_code ec;
+            d.mtime = fs::last_write_time(job.first, ec);
+            if (!ec) d.fsize = fs::file_size(job.first, ec);
+            d.side = job.second;
+            Rgba img;
+            const bool ok = !ec && load_image_file(job.first, img, nullptr);
+            if (ok) {
+                d.whole = std::max(img.w, img.h) <= job.second;
+                d.img = d.whole ? std::move(img) : fit_image(img, job.second);
+            }
+            std::lock_guard<std::mutex> lock(m);
+            const std::string key = job.first.string();
+            queued.erase(key);
+            working = false;
+            ++done;
+            if (!ok || d.img.empty()) continue;
+            auto it = store.find(key);
+            const size_t old_size = it != store.end() ? it->second.img.px.size() : 0;
+            // full: the first ones asked (the most wanted, ui/preload.h orders them) stay; later ones load on demand
+            if (bytes - old_size + d.img.px.size() > kPreloadBytes) continue;
+            bytes = bytes - old_size + d.img.px.size();
+            store[key] = std::move(d);
+        }
+    }
+};
+
+void TextureCache::preload(const fs::path& p, int side) {
+    if (side <= 0) return;
+    if (!pre_) {
+        pre_ = new Preload();
+        pre_->worker = std::thread([this] { pre_->run(); });
+    }
+    const std::string key = p.string();
+    std::lock_guard<std::mutex> lock(pre_->m);
+    if (pre_->queued.count(key)) return;
+    auto it = pre_->store.find(key);
+    if (it != pre_->store.end() && (it->second.whole || it->second.side >= side)) return;
+    pre_->queued.insert(key);
+    pre_->queue.emplace_back(p, side);
+    pre_->cv.notify_one();
+}
+
+size_t TextureCache::preload_queued() const {
+    if (!pre_) return 0;
+    std::lock_guard<std::mutex> lock(pre_->m);
+    return pre_->queue.size() + (pre_->working ? 1 : 0);
+}
+
+size_t TextureCache::preload_decoded() const {
+    if (!pre_) return 0;
+    std::lock_guard<std::mutex> lock(pre_->m);
+    return pre_->store.size();
+}
+
+size_t TextureCache::preload_done() const {
+    if (!pre_) return 0;
+    std::lock_guard<std::mutex> lock(pre_->m);
+    return pre_->done;
+}
+
+bool TextureCache::preload_wait(double seconds) {
+    const auto until = std::chrono::steady_clock::now() + std::chrono::duration<double>(seconds);
+    while (preload_queued() > 0) {
+        if (std::chrono::steady_clock::now() >= until) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    return true;
+}
+
+bool TextureCache::take_decoded(const fs::path& p, fs::file_time_type mtime, uintmax_t fsize, int max_side, Rgba& out) {
+    if (!pre_) return false;
+    std::lock_guard<std::mutex> lock(pre_->m);
+    auto it = pre_->store.find(p.string());
+    if (it == pre_->store.end()) return false;
+    const Decoded& d = it->second;
+    if (d.mtime != mtime || d.fsize != fsize) {  // the file changed since: decode it again
+        pre_->bytes -= d.img.px.size();
+        pre_->store.erase(it);
+        return false;
+    }
+    if (!d.whole && d.side < max_side) return false;  // decoded smaller than it is drawn now
+    out = fit_image(d.img, max_side);  // copy (the store keeps it for other sizes and after an eviction)
+    return !out.empty();
+}
+
 TextureCache::~TextureCache() {
+    if (pre_) {
+        {
+            std::lock_guard<std::mutex> lock(pre_->m);
+            pre_->stop = true;
+        }
+        pre_->cv.notify_all();
+        if (pre_->worker.joinable()) pre_->worker.join();
+        delete pre_;
+        pre_ = nullptr;
+    }
     std::vector<ImTextureData*> all = dying_;
     for (auto& kv : entries_)
         if (kv.second.tex) all.push_back(kv.second.tex);
@@ -44,6 +170,7 @@ void TextureCache::release(ImTextureData* t) {
 void TextureCache::new_frame(double now) {
     now_ = now;
     decodes_left_ = kDecodesPerFrame;
+    uploads_left_ = kUploadsPerFrame;
     for (size_t i = 0; i < dying_.size();) {
         ImTextureData* t = dying_[i];
         if (t->Status == ImTextureStatus_Destroyed) {
@@ -121,15 +248,23 @@ TextureCache::Pic TextureCache::file(const fs::path& path, int max_side) {
         release(e.tex);
         entries_.erase(it);
     }
-    if (decodes_left_ <= 0) return pic_of(nullptr, 0, 0, false, "");
-    --decodes_left_;
+    Rgba img;
+    bool decoded = false;
+    // decoded in the background already (ui/preload.h): an upload only, no disk read
+    if (uploads_left_ > 0 && take_decoded(path, mtime, fsize, max_side, img)) {
+        --uploads_left_;
+        decoded = true;
+    }
+    if (!decoded) {
+        if (decodes_left_ <= 0) return pic_of(nullptr, 0, 0, false, "");
+        --decodes_left_;
+    }
     Entry e;
     e.mtime = mtime;
     e.fsize = fsize;
     e.last_used = now_;
-    Rgba img;
     std::string err;
-    if (!load_image_file(path, img, &err)) {
+    if (!decoded && !load_image_file(path, img, &err)) {
         e.failed = true;
         e.error = err;
     } else {

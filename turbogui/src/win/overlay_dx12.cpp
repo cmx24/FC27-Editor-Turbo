@@ -38,6 +38,7 @@
 #include "imgui_impl_win32.h"
 #include "imgui_internal.h"
 #include "ui/app.h"
+#include "core/hotkey.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
@@ -111,6 +112,11 @@ static std::atomic<bool> g_visible{false};
 static std::atomic<bool> g_want_mouse{false};
 static std::atomic<bool> g_want_keyboard{false};
 static std::atomic<int> g_toggle_vk{0x77};
+static std::atomic<int> g_toggle_mods{0};        // Ctrl / Alt / Shift with it (core/hotkey.h)
+static std::atomic<bool> g_toggle_capture{false};  // the Status tab waits for a new key: the key goes to ImGui
+static std::atomic<bool> g_toggle_typing{false};   // a Turbo text field has the keyboard and the key types text
+static std::atomic<bool> g_toggle_swallowed{false};  // its key-down was kept from the game: so is the key-up
+static std::atomic<unsigned long long> g_toggle_hide_until{0};  // the game does not see the key until then (ms)
 static std::atomic<int> g_toggle_presses{0};  // first key-down messages of the show/hide key, consumed by poll_input
 
 static ProcessMemory* g_mem = nullptr;
@@ -193,9 +199,26 @@ static double now_seconds() {
 }
 
 // ---------------------------------------------------------------- input
+// Ctrl / Alt / Shift held right now (Turbo's own read: the input shield passes the real state)
+static void modifiers_down(bool& ctrl, bool& alt, bool& shift) {
+    host::TurboInputScope scope;
+    ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+    alt = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+    shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+}
+
+// A key message of the show/hide key (with exactly its modifiers). While the Status tab captures a new key, or the key
+// would type into a Turbo text field, it is not the show/hide key.
 static bool is_toggle_key_msg(UINT msg, WPARAM wp) {
-    return (msg == WM_KEYDOWN || msg == WM_KEYUP || msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP) &&
-           static_cast<int>(wp) == g_toggle_vk.load();
+    const bool down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN, up = msg == WM_KEYUP || msg == WM_SYSKEYUP;
+    if ((!down && !up) || static_cast<int>(wp) != g_toggle_vk.load()) return false;
+    if (up) return g_toggle_swallowed.exchange(false);  // the key-up of a swallowed press (modifiers may be up already)
+    if (g_toggle_capture.load() || g_toggle_typing.load()) return false;
+    bool ctrl, alt, shift;
+    modifiers_down(ctrl, alt, shift);
+    if (!turbo::hotkey_matches(g_toggle_vk.load(), g_toggle_mods.load(), static_cast<int>(wp), ctrl, alt, shift)) return false;
+    g_toggle_swallowed = true;
+    return true;
 }
 
 // FC 27 reads the mouse through raw input only (no legacy WM_LBUTTONDOWN / WM_MOUSEWHEEL reach the window), so a click
@@ -301,6 +324,10 @@ static LRESULT CALLBACK hk_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 static void poll_input() {
     ImGuiIO& io = ImGui::GetIO();
     g_toggle_vk = g_app->toggle_vk;
+    g_toggle_mods = g_app->toggle_mods;
+    g_toggle_capture = g_app->visible && g_app->hotkey_capture;
+    // a key that types text goes to a Turbo text field that has the keyboard (previous frame's state)
+    g_toggle_typing = g_app->visible && io.WantTextInput && turbo::hotkey_types_text(g_app->toggle_vk, g_app->toggle_mods);
     HWND root = GetAncestor(g_hwnd, GA_ROOT);
     const bool fg = GetForegroundWindow() == (root ? root : g_hwnd);
     // Two sources for the show/hide key: the window message (catches even a very short tap) and polling (games that
@@ -312,10 +339,17 @@ static void poll_input() {
         if (now - last_toggle >= 250) {
             g_app->visible = !g_app->visible;
             last_toggle = now;
+            // hiding: the game must not see the key that hid Turbo (its key-up and a few polls after)
+            g_toggle_hide_until = GetTickCount64() + 500;
         }
     };
     if (g_toggle_presses.exchange(0) > 0) toggle();
-    const bool down = fg && (GetAsyncKeyState(g_app->toggle_vk) & 0x8000) != 0;
+    bool down = false;
+    if (fg && !g_toggle_capture.load() && !g_toggle_typing.load() && (GetAsyncKeyState(g_app->toggle_vk) & 0x8000) != 0) {
+        bool ctrl, alt, shift;
+        modifiers_down(ctrl, alt, shift);
+        down = turbo::hotkey_matches(g_app->toggle_vk, g_app->toggle_mods, g_app->toggle_vk, ctrl, alt, shift);
+    }
     if (down && !was_down) toggle();
     was_down = down;
     g_visible = g_app->visible;
@@ -489,7 +523,9 @@ static void render_frame_impl(IDXGISwapChain3* sc) {
     try {
         TurboInputScope own_input;  // Turbo's own key / mouse reads see the real state (the input shield is for the game)
         g_app->tick(now_seconds());
-        want_lua_pump(g_app->busy());  // a mailbox command is waiting: the game tick nudges Live Editor's Lua (game_hooks.cpp)
+        // a mailbox command is waiting, or pictures for the background loading (ui/preload.h) while Turbo is shown: the
+        // game tick nudges Live Editor's Lua (game_hooks.cpp)
+        want_lua_pump(g_app->busy() || g_app->lua_images_wanted());
         poll_input();
         ImGui_ImplDX12_NewFrame();
         ImGui_ImplWin32_NewFrame();
@@ -887,6 +923,7 @@ bool start_overlay(HMODULE) {
     g_app->callname_player.set_player(callname_wav_player());  // Callname tab play buttons (callname_audio_win.cpp)
     if (g_app->mailbox) start_memmap(reinterpret_cast<uint64_t>(mailbox));
     g_toggle_vk = g_app->toggle_vk;
+    g_toggle_mods = g_app->toggle_mods;
     if (HANDLE th = CreateThread(nullptr, 0, ll_mouse_thread, nullptr, 0, nullptr)) CloseHandle(th);  // mouse wheel for Turbo
 
     if (!game_ships_own_d3d12core() && find_targets_external()) {
@@ -928,7 +965,7 @@ bool start_overlay(HMODULE) {
         MH_Uninitialize();
         return false;
     }
-    log("hooks installed; press %s in game to show Turbo", turbo::key_name(g_app->toggle_vk));
+    log("hooks installed; press %s in game to show Turbo", turbo::hotkey_name(g_app->toggle_vk, g_app->toggle_mods).c_str());
     install_input_shield();
     install_game_hooks();  // game-code hooks (game_hooks.cpp): signature scan, kill switches, game-thread dispatcher
     // game calls (game_calls_win.cpp): job-offer functions + the JobMarketManager capture hook; Lua reaches them
@@ -970,6 +1007,12 @@ HWND game_window() { return g_hwnd; }
 
 bool input_block_mouse() { return g_ready && g_visible && g_want_mouse; }
 bool input_block_keyboard() { return g_ready && g_visible && g_want_keyboard; }
+int input_hidden_vk() {
+    if (!g_ready) return 0;
+    // shown (Turbo has the input) or just toggled: the show/hide key is Turbo's, the game never sees it
+    return (g_visible.load() || GetTickCount64() < g_toggle_hide_until.load()) ? g_toggle_vk.load() : 0;
+}
+bool input_block_vk(int vk) { return vk > 0 && vk == input_hidden_vk(); }
 
 void stop_overlay() {
     MH_DisableHook(MH_ALL_HOOKS);

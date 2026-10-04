@@ -539,9 +539,14 @@ local function on_synthetic_event()
     if not okp then log.warn("bridge mailbox: %s", tostring(perr)) end
     local okg, gerr = pcall(M.pump_native)
     if not okg then log.warn("bridge native pump: %s", tostring(gerr)) end
-    local okl, lerr = pcall(function() return (require 'imports/turbo/core/legacy').pump(0.25) end)
+    -- the GUI also sends this event every 250 ms while it loads pictures in the background and is shown (1.1.1,
+    -- ui/preload.h): a short slice each time, so the game and the Turbo window keep running smoothly
+    local okl, lerr = pcall(function() return (require 'imports/turbo/core/legacy').pump(M.IMAGE_SLICE_SYNTHETIC) end)
     if not okl then log.warn("bridge images: %s", tostring(lerr)) end
 end
+
+-- seconds of image exports per synthetic event (career-mode events keep a quarter of a second)
+M.IMAGE_SLICE_SYNTHETIC = 0.08
 
 function M.on_career_event(event_id)
     if (require 'imports/turbo/core/events').is_synthetic(event_id) then return on_synthetic_event() end
