@@ -523,6 +523,10 @@ void draw_status(App& app) {
         ImGui::Text("Command channel: unavailable");
     }
     draw_hook_status(app);
+    // Voice swaps (Players > Callname > All callnames / Voice swaps; core/callname_voice.h)
+    if (app.voice_available()) ImGui::Text("%s", app.voice_status_line().c_str());
+    else ImGui::TextDisabled("%s", app.voice_status_line().c_str());
+    if (!app.voice_error.empty()) ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "  %s", app.voice_error.c_str());
 
     ImGui::SeparatorText("Settings");
     ImGui::SetNextItemWidth(S(140.0f));

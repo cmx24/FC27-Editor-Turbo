@@ -22,7 +22,7 @@ spaces. Lines starting with '#' are comments (the writer's header, "# dropped <n
       pid_after   the same parameters, same order, after Turbo's rewrite (equal to pid_before when nothing changed)
       surname     the surname_ID value, '-' when the event does not declare it
       intensity   the player_intensity value, '-' when not declared
-      flags       OR over the line's "_pID" descriptors: 0x1 a value list (the u32 count at [desc+0x18]-4 is not 0),
+      flags       OR over the line's "_pID" descriptors: 0x1 an allowed-values list (the u32 count at [desc+0x18]-4 is not 0),
                   0x2 [desc+0x45] != 0, 0x4 a "_pID" parameter left out because it is not a single-value int,
                   0x8 the query was bounded (count above kMaxParams); other bits reserved
       guard       1 = the double-pass guard skipped a rewrite on this query

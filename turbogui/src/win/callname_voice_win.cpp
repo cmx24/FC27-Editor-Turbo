@@ -87,10 +87,12 @@ void observe_query(uint8_t* q, const voice::Table& t, voice::LogRing& ring) {
     ring.push(e);
 }
 
+const voice::Table kNoTable;  // before the first publish: observe mode still logs, process_query leaves the query alone
+
 void voice_body(uint8_t* q) {
     if (!game_hook_live(g_voice_hook.load(std::memory_order_acquire))) return;
     const voice::Table* t = g_table.load(std::memory_order_acquire);
-    if (!t) return;
+    if (!t) t = &kNoTable;
     const bool own = own_query_depth() > 0;  // Turbo's own audit queries: never rewritten, never logged
     voice::LogRing* ring = (!own && g_observe_live.load(std::memory_order_relaxed)) ? g_ring.load(std::memory_order_acquire) : nullptr;
     if (ring) observe_query(q, *t, *ring);

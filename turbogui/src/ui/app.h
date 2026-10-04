@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "core/bridge.h"
+#include "core/callname_voice.h"
 #include "core/callnames.h"
 #include "core/commentary_audio.h"
 #include "core/legacy.h"
@@ -138,9 +139,6 @@ public:
     // ---- the spoken set asked from the game's audio service (core/commentary_audio.h): the default source. The host
     // gives the service (a build runs on the game thread, one batch per frame); tests give a fake one
     std::shared_ptr<caudio::Service> commentary_audio;
-    // Voice swaps in matches (core/callname_voice.h): the host's service, set at Turbo start (win/callname_voice_win.cpp);
-    // nullptr in native tests unless a test sets a fake = "Voice swaps are off"
-    voice::Service* voice_service = nullptr;
     bool start_spoken_build(bool automatic = false);  // every commentarynames / playernames / playernamemap id + every player
     std::string spoken_build_status;  // last build result (one line for the Callname tab)
     bool spoken_auto_tried = false;   // an automatic build was started once this session (by the watcher)
@@ -185,6 +183,22 @@ public:
     // A newly loaded career is reported (another Lua session or load_gen than the last re-apply) and entries are kept:
     // tick then connects at once even while the window is hidden, so the edits are back before the first match
     bool reapply_due() const;
+    // ---- voice swaps (core/callname_voice.h, Players > Callname): in matches only, a player is called with another
+    // player's own recording, or his own recording is turned off and a generic callname used. Nothing is written to the
+    // database or the save. The store (turbo_output\callnames\voice_swaps.json, all careers) is loaded at start-up and
+    // published to the host's hooks then and after every edit; the GUI tick refreshes the kill switches every 2 s.
+    voice::Service* voice_service = nullptr;  // the host's (win/callname_voice_win.cpp); nullptr = off; tests set a fake
+    voice::VoiceStore voice_store;
+    std::string voice_error;                  // the store's last load / save note ("" = fine)
+    bool voice_available() const { return voice_service && voice_service->available(); }
+    std::string voice_why_off() const;        // "" when available
+    // Add or replace the player's entry (stamped now), save, publish. false (voice_error set) when not saved; the swap
+    // is published for this session anyway
+    bool voice_upsert(voice::Entry e);
+    bool voice_forget(int64_t playerid);      // false = no entry
+    bool voice_forget_all();
+    void voice_publish();                     // build_table(voice_store) to the service (nothing without one)
+    std::string voice_status_line() const;    // "Voice swaps: on | 3 swaps | lines changed 57 | kick-off set 2"
     // Managers > Manager rules (features/manager_rules.lua) and Manager market (features/manager_move.lua)
     std::string manager_rules_status;
     int manager_rules_score = 70;     // score typed for "Set score"
@@ -219,6 +233,11 @@ public:
 
 private:
     bool legacy_repaired_ = false;  // repair_dds_files ran (first tick)
+    void load_voice();               // constructor: turbo_output\callnames\voice_swaps.json
+    bool save_voice();
+    const voice::Service* voice_published_to_ = nullptr;  // the service the store was last published to
+    double voice_next_switches_ = 0.0;                    // next refresh_switches() (every 2 s)
+    bool voice_unreadable_ = false;  // the store could not be read at start-up: never overwritten
     void load_reapply();             // constructor: turbo_output\reapply_edits.json
     bool save_reapply();             // after every change of the store; false (reapply_error set) when not written
     void maybe_reapply();            // refresh(): re-apply once per newly loaded career
@@ -300,6 +319,14 @@ struct CallnameTabState {
     std::string route_line;     // By name / All callnames: the route a generic callname takes (1.0.3), shown before the click
     std::string assign_note;    // the line next to "Assign callname": kept for every career load, or this session only
     std::string confirm_what;   // the confirmation popup's "Write it anyway: <what>?"
+    // voice swaps (1.1.0)
+    std::string voice_warning;        // "<A> has no recording in <lang>: silent" ("" = none)
+    std::string voice_off_line;       // "Voice swaps are off: <why>" when drawn
+    bool voice_turn_off_shown = false;  // All callnames: "Turn off his own recording first" (Use in matches greyed)
+    bool voice_confirm_open = false;  // the "will be called ... in matches" popup is open
+    std::string voice_confirm_line;   // its text
+    int voice_rows = 0;               // Voice swaps list: rows drawn
+    int voice_absent = 0;             // of them "not in this career"
 };
 const CallnameTabState& callname_tab_state();
 // What giving a player a player-specific callname did (write_player_callname)

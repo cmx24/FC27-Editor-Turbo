@@ -5278,6 +5278,190 @@ static void test_ui() {
             app.game_root.clear();
             app.callnames.refreshed = false;
         });
+        // Voice swaps (1.1.0, core/callname_voice.h): in matches only, through the host's service (a fake here). Nothing is
+        // written to the database; the store is turbo_output\callnames\voice_swaps.json, published on every edit
+        run_case("UI: Players > Callname: voice swaps: service on and off, publish on edit, current line, own recording off, names only, forget", [&] {
+            const auto npos = std::string::npos;
+            struct FakeVoice : voice::Service {
+                bool on = true;
+                int publishes = 0, refreshes = 0;
+                voice::Table last;
+                voice::StatsSnapshot st;
+                bool available() const override { return on; }
+                std::string why_off() const override { return on ? "" : "game build"; }
+                void publish(const voice::Table& t) override {
+                    ++publishes;
+                    last = t;
+                }
+                voice::StatsSnapshot stats() const override { return st; }
+                bool observe_on() const override { return false; }
+                void refresh_switches() override { ++refreshes; }
+            };
+            FakeVoice fv;
+            struct Unset {  // the fake lives in this case only
+                App& a;
+                ~Unset() { a.voice_service = nullptr; }
+            } unset{app};
+            auto read_store = [&]() {
+                std::ifstream f(voice::store_path(le).string());
+                std::stringstream ss;
+                ss << f.rdbuf();
+                return json::parse(ss.str(), nullptr, false);
+            };
+            CHECK(app.voice_service == nullptr && app.voice_status_line() == "Voice swaps: off (not in this build of Turbo)",
+                  "no service: off: " + app.voice_status_line());
+            // an FC 27 master: Saka (1001) and 1004 have their own recording; 900002 is a generic callname (name row Saka)
+            const fs::path mp = master_list_path(le, "ita_it");
+            fs::create_directories(mp.parent_path());
+            std::ofstream(mp.string()) << R"({"language": "ita_it", "game": "fc27", "real_players": [1001, 1004], "generic_ids": [900002],
+                                             "names": {"1001": "Bukayo Saka"}})";
+            app.game_root = g_out / "fakegame";
+            app.callnames.refreshed = false;
+            app.voice_service = &fv;
+            app.request_tab = 0;
+            ui.frames(3);
+            CHECK(fv.publishes == 1 && fv.last.empty() && fv.refreshes >= 1,
+                  fmt("published once the service is there (%d), switches refreshed (%d)", fv.publishes, fv.refreshes));
+            CHECK(app.voice_status_line() == "Voice swaps: on | 0 swaps | lines changed 0 | kick-off set 0", "status: " + app.voice_status_line());
+            CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
+            CHECK(ui.click("1002", "##plist"), "row 1002");
+            CHECK(ui.click("Callname", "##pedit"), "Callname tab");
+            ui.frames(2);
+            const CallnameTabState& st = callname_tab_state();
+            CHECK(st.playerid == 1002 && st.own == 0 && app.callnames.masters.fc27(), "1002 opened, the FC 27 master loaded: " + app.callnames.masters_error);
+            const Table* pt = app.db.table("players");
+            const uint64_t rec1002 = app.db.find(*pt, "playerid", 1002);
+            const int64_t last1002 = app.db.get_int(*pt, rec1002, "lastnameid");
+            // ALL CALLNAMES: Saka's own recording > Use his voice > the confirmation > one store entry, no database write
+            CHECK(ui.click("All callnames", "##cname"), "All callnames tab");
+            CHECK(ui.type_into(ui.find("##cnallsearch"), "1001") && ui.click("1001##own", "##cnall"), "pick Saka's own recording");
+            ui.frames(1);
+            CHECK(ui.click("Use his voice##all"), "Use his voice");
+            ui.frames(2);
+            CHECK(st.voice_confirm_open && st.voice_confirm_line.find(" will be called Saka in matches. His name on screen stays ") != npos,
+                  "the confirmation: " + st.voice_confirm_line);
+            CHECK(app.voice_store.entries.empty() && fv.publishes == 1, "nothing kept before the confirmation");
+            CHECK(ui.click("Use his voice##vsconfirm", "##vsconfirm"), "confirm");
+            ui.frames(2);
+            const voice::Entry* e = app.voice_store.find(1002);
+            CHECK(e && e->voice_of && *e->voice_of == 1001 && e->kickoff && *e->kickoff == -1 && !e->names_only,
+                  "entry: 1002 gets 1001's voice, his surname lines silent");
+            CHECK(fv.publishes == 2 && fv.last.voice(1002) && fv.last.voice(1002)->to == 1001 && fv.last.kickoff(1002) && fv.last.kickoff(1002)->id == -1,
+                  fmt("published on the edit (%d)", fv.publishes));
+            {
+                json j = read_store();
+                CHECK(j.is_object() && j.value("turbo_voice", 0) == 1 && j["entries"].size() == 1 && j["entries"][0].value("voice_of", 0) == 1001,
+                      "saved: " + j.dump());
+            }
+            CHECK(app.db.get_int(*pt, rec1002, "lastnameid") == last1002 && !app.busy(), "no database write, nothing queued");
+            CHECK(st.current_line == "In matches: Saka's own recording (voice swap)" && st.rule_line.find("Not used while the swap is on: ") == 0,
+                  "current line: " + st.current_line + " | " + st.rule_line);
+            CHECK(st.voice_warning.empty(), "Saka has a recording: no warning");
+            // the Voice swaps tab: the row, Name lines only (published), the status line with the service's counters
+            CHECK(ui.click("Voice swaps", "##cname"), "Voice swaps tab");
+            ui.frames(1);
+            CHECK(st.voice_rows == 1 && st.voice_absent == 0, fmt("one row (%d)", st.voice_rows));
+            CHECK(ui.click("Name lines only##vs1002"), "Name lines only");
+            ui.frames(1);
+            e = app.voice_store.find(1002);
+            CHECK(e && e->names_only && fv.last.voice(1002) && fv.last.voice(1002)->names_only && fv.publishes == 3, "names only: kept and published");
+            CHECK(read_store()["entries"][0].value("lines", "") == "names", "names only: saved");
+            fv.st.rewrites = 57;
+            fv.st.kickoffs = 2;
+            CHECK(app.voice_status_line() == "Voice swaps: on | 1 swap | lines changed 57 | kick-off set 2", "status: " + app.voice_status_line());
+            // a source without a recording in the language: the warning; a player not in this career: marked in the list
+            {
+                voice::Entry s;
+                s.playerid = 1005;
+                s.voice_of = 1003;  // not in the FC 27 master's real players
+                s.from = "William Saliba";
+                CHECK(app.voice_upsert(s), "1005 gets 1003's voice");
+                voice::Entry gone;
+                gone.playerid = 999999;
+                gone.voice_of = 1001;
+                gone.player = "Somebody Else";
+                CHECK(app.voice_upsert(gone), "a player of another career");
+            }
+            ui.frames(1);
+            CHECK(st.voice_rows == 3 && st.voice_absent == 1, fmt("three rows, one not in this career (%d, %d)", st.voice_rows, st.voice_absent));
+            {
+                // 1002 and 999999 both have Saka's voice: each row's play button has its own ID
+                int plays = 0;
+                for (const auto& kv : g_items)
+                    if (kv.second.frame == g_frame && kv.second.label == "##play_o1001" && kv.second.window.find("vslist") != npos) ++plays;
+                CHECK(plays == 2, fmt("two play buttons for Saka's voice, two IDs (%d)", plays));
+            }
+            app.sel_player = 1005;
+            ui.frames(3);
+            CHECK(st.playerid == 1005 && st.voice_warning == "Saliba has no recording in ita_it: silent", "silent source: " + st.voice_warning);
+            // a player with his own recording (Saka): Use in matches needs it off first; unticking = voice_of 0
+            app.sel_player = 1001;
+            ui.frames(3);
+            CHECK(st.playerid == 1001 && st.own != 0, "Saka opened");
+            CHECK(ui.click("All callnames", "##cname"), "All callnames tab");
+            CHECK(ui.type_into(ui.find("##cnallsearch"), "900002") && ui.click("900002##gen", "##cnall"), "pick 900002");
+            ui.frames(1);
+            CHECK(st.voice_turn_off_shown, "'Turn off his own recording first'");
+            CHECK(ui.click("Use his own recording##vs"), "untick Use his own recording");
+            ui.frames(1);
+            e = app.voice_store.find(1001);
+            CHECK(e && e->voice_of && *e->voice_of == 0 && !e->kickoff && fv.last.voice(1001) && fv.last.voice(1001)->to == 0 && !fv.last.kickoff(1001),
+                  "own recording off: voice_of 0, the game's rule at kick-off");
+            CHECK(st.current_line.find("In matches: own recording off") == 0 && !st.voice_turn_off_shown, "current line: " + st.current_line);
+            if (e) {
+                // a Name lines only flag left from an earlier swap is not carried into own recording off
+                voice::Entry n = *e;
+                n.names_only = true;
+                CHECK(app.voice_upsert(n), "names only left on 1001");
+            }
+            CHECK(ui.click("Use in matches##all"), "Use in matches");
+            ui.frames(2);
+            CHECK(st.voice_confirm_open && st.voice_confirm_line.find(" will be called Saka in matches.") != npos, "the confirmation: " + st.voice_confirm_line);
+            CHECK(ui.click("Use in matches##vsconfirm", "##vsconfirm"), "confirm");
+            ui.frames(2);
+            e = app.voice_store.find(1001);
+            CHECK(e && e->voice_of && *e->voice_of == 0 && e->kickoff && *e->kickoff == 900002 && fv.last.kickoff(1001) && fv.last.kickoff(1001)->id == 900002,
+                  "voice_of 0 + kick-off 900002");
+            CHECK(e && !e->names_only && fv.last.voice(1001) && !fv.last.voice(1001)->names_only, "own recording off in every line (names only dropped)");
+            CHECK(st.current_line == "In matches: Saka (generic), own recording off" && st.rule_line.find("Not used while the swap is on: his own recording") == 0,
+                  "current line: " + st.current_line + " | " + st.rule_line);
+            CHECK(ui.click("Use his own recording##vs"), "tick it again");
+            ui.frames(1);
+            CHECK(!app.voice_store.find(1001) && !fv.last.voice(1001) && !fv.last.kickoff(1001), "ticked: his entry forgotten");
+            // the service off: the game's line again, the reason, and only the database buttons
+            fv.on = false;
+            app.sel_player = 1002;
+            ui.frames(3);
+            CHECK(app.voice_status_line() == "Voice swaps: off (game build)", "status: " + app.voice_status_line());
+            CHECK(st.playerid == 1002 && st.current_line.find("Current callname: ") == 0 && st.voice_off_line == "Voice swaps are off: game build",
+                  "off: " + st.current_line + " | " + st.voice_off_line);
+            CHECK(ui.click("All callnames", "##cname") && ui.type_into(ui.find("##cnallsearch"), "1001") && ui.click("1001##own", "##cnall"), "pick 1001");
+            ui.frames(1);
+            CHECK(ui.find("Use his voice##all") == nullptr && st.voice_off_line == "Voice swaps are off: game build", "off: no Use his voice");
+            CHECK(ui.type_into(ui.find("##cnallsearch"), "900002") && ui.click("900002##gen", "##cnall"), "pick 900002");
+            ui.frames(1);
+            CHECK(ui.find("Use in matches##all") == nullptr && (ui.find("Assign callname##all") || ui.find("Assign as last name##all")),
+                  "off: only the database buttons");
+            fv.on = true;
+            // Remove one, then Forget all (asked first)
+            CHECK(ui.click("Voice swaps", "##cname"), "Voice swaps tab");
+            CHECK(ui.click("Remove##vs1005"), "Remove 1005");
+            ui.frames(1);
+            CHECK(!app.voice_store.find(1005) && !fv.last.voice(1005) && app.voice_store.entries.size() == 2, "1005 removed and published");
+            CHECK(ui.click("Forget all##vs"), "Forget all");
+            ui.frames(2);
+            CHECK(app.voice_store.entries.size() == 2, "asked first: nothing forgotten yet");
+            CHECK(ui.click("Forget all##vsforgetall", "##vsforgetall"), "confirm Forget all");
+            ui.frames(1);
+            CHECK(app.voice_store.entries.empty() && fv.last.empty() && read_store()["entries"].empty(), "all forgotten, published and saved");
+            CHECK(app.db.get_int(*pt, rec1002, "lastnameid") == last1002 && !app.busy(), "still no database write");
+            CHECK(ui.click("All callnames", "##cname") && ui.type_into(ui.find("##cnallsearch"), ""), "search cleared");
+            app.voice_service = nullptr;
+            fs::remove(mp);
+            fs::remove(voice::store_path(le));
+            app.game_root.clear();
+            app.callnames.refreshed = false;
+        });
         run_case("UI: kept edits: kit colours and player-specific callnames are written again when a newly loaded career connects", [&] {
             const auto npos = std::string::npos;
             std::vector<std::string> hooked;  // turbo_gui.log

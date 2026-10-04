@@ -1,7 +1,6 @@
 // FC 27 LE Turbo GUI - voice swaps: cached switches, observe ring and log lines (see callname_voice_host.h)
 #include "callname_voice_host.h"
 
-#include <cctype>
 #include <cstdio>
 #include <cstring>
 
@@ -13,7 +12,7 @@ namespace fs = std::filesystem;
 namespace {
 
 // Descriptor fields only observe mode reads (docs/re/inmatch-callnames.json "param descriptor")
-constexpr uint64_t kDescList = 0x18;    // allowed values (float array, u32 count at -4); read only when +0x44 is set
+constexpr uint64_t kDescList = 0x18;    // allowed values (float array, u32 count at -4), read for every int descriptor
 constexpr uint64_t kDescStrict = 0x45;  // u8
 
 uint32_t rd32(const uint8_t* p) {
@@ -32,11 +31,13 @@ const uint8_t* rdptr(const uint8_t* p) {
     return v;
 }
 
-// Case-insensitive, bounded (the game's FindParam compares names without case)
+// Case-insensitive (ASCII fold: no CRT locale call inside a detour), bounded (the game's FindParam compares names without case)
 bool same_name(const char* a, const char* b) {
     for (int i = 0; i < kLogName; ++i) {
         const unsigned char x = static_cast<unsigned char>(a[i]), y = static_cast<unsigned char>(b[i]);
-        if (std::tolower(x) != std::tolower(y)) return false;
+        const unsigned char fx = (x >= 'A' && x <= 'Z') ? static_cast<unsigned char>(x + 32) : x;
+        const unsigned char fy = (y >= 'A' && y <= 'Z') ? static_cast<unsigned char>(y + 32) : y;
+        if (fx != fy) return false;
         if (!x) return true;
     }
     return false;
@@ -118,10 +119,10 @@ bool observe_before(const uint8_t* query, LogEntry& e, const uint8_t* pvs[kLogPi
         if (!name) continue;
         const bool one_int = rd32(desc + kDescType) == 1 && desc[kDescMulti] == 0;
         if (contains_pid(name)) {
-            if (desc[kDescStrict] != 0) e.flags |= kFlagStrict;
-            if (desc[kDescMulti] != 0) {  // the game reads the list itself only then
+            if (rd32(desc + kDescType) == 1) {  // SetInt 0x1407AFA58 reads [desc+0x18] / [list-4] for every int descriptor
+                if (desc[kDescStrict] != 0) e.flags |= kFlagOutsideOk;
                 const uint8_t* list = rdptr(desc + kDescList);
-                if (list && rd32(list - 4) != 0) e.flags |= kFlagValueList;
+                if (list && (rd32(list - 4) & 0x7FFFFFFF) != 0) e.flags |= kFlagValueList;
             }
             if (!one_int) {
                 e.flags |= kFlagLeftOut;

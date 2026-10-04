@@ -12,10 +12,15 @@
 // FC 26 list) is spoken from it whatever either picker writes (docs/callnames.md section 1 step 0): the tab says so in
 // the "Current callname" line, warns above the assignment buttons and asks for a confirmation before anything is
 // written for him; a callname written for him anyway is not kept for the next career loads.
+// VOICE SWAPS (1.1.0, core/callname_voice.h): in matches only, nothing written to the database. All callnames gives a
+// player another player's own recording ("Use his voice") or a generic callname ("Use in matches"; a player with his own
+// recording unticks "Use his own recording" first); the Voice swaps tab lists them. The older database buttons follow
+// under "Change the name in the database"; they are all that shows while the host's hooks are off.
 // See core/callnames.h and docs/callnames.md.
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -694,6 +699,266 @@ static void by_name_picker(App& app, const Table& t, const PlayerRow& p) {
     ImGui::TextDisabled("(a common name wins over the last name; a player-specific callname wins over both)");
 }
 
+// ---------------------------------------------------------------- voice swaps (1.1.0, core/callname_voice.h)
+// In matches only: B is called with A's own recording ("Use his voice"), or a generic callname is used for him ("Use in
+// matches"; for a player with his own recording only once it is turned off). Kept in voice_swaps.json under
+// turbo_output\callnames for every career and published to the host's hooks (App::voice_upsert); nothing is written to
+// the database, so the name on screen stays his.
+
+// The name the screen shows for a player (common name, else last name), else the last word of `fallback`
+static std::string screen_surname(App& app, const Table& t, int64_t playerid, const std::string& fallback) {
+    std::string full = fallback;
+    if (const PlayerRow* r = app.model.player(playerid)) {
+        const ShownName n = shown_name(app, t, *r);
+        if (!n.common.empty()) return n.common;
+        if (!n.last.empty()) return n.last;
+        if (full.empty()) full = r->name;
+    }
+    const size_t sp = full.find_last_of(' ');
+    if (!full.empty() && sp != std::string::npos && sp + 1 < full.size()) return full.substr(sp + 1);
+    return full.empty() ? "player " + std::to_string(playerid) : full;
+}
+
+// Who he is called after: A's surname for a voice swap, the generic callname's text, else its id
+static std::string voice_source(App& app, const Table& t, const voice::Entry& e) {
+    if (e.voice_of && *e.voice_of > 0) return screen_surname(app, t, *e.voice_of, e.from);
+    if (e.kickoff && *e.kickoff > 0) return e.from.empty() ? "callname " + std::to_string(*e.kickoff) : e.from;
+    return "";
+}
+
+// "Lobotka's own recording (voice swap)", "Del Piero (generic), own recording off", "own recording off"
+static std::string voice_called(App& app, const Table& t, const voice::Entry& e) {
+    const std::string src = voice_source(app, t, e);
+    if (e.voice_of && *e.voice_of > 0) return src + "'s own recording (voice swap)";
+    if (e.voice_of) return src.empty() ? "own recording off" : src + ", own recording off";
+    return src.empty() ? "surname lines silent" : src;
+}
+
+// The surname lines (the callname set at kick-off): "silent", the generic callname, or the game's rule
+static std::string voice_other_lines(const voice::Entry& e) {
+    if (e.kickoff && *e.kickoff == -1) return "silent";
+    if (e.kickoff) return e.from.empty() ? "callname " + std::to_string(*e.kickoff) : e.from;
+    if (e.voice_of && *e.voice_of > 0) return "silent";  // build_table's default for a swap
+    return "the callname rule";
+}
+
+// "<A> has no recording in <lang>: silent" when the FC 27 master (or the verified spoken set, for a generic id) says
+// the source has none; "" when it has one or nobody can tell
+static std::string voice_silent_text(App& app, const Table& t, const voice::Entry& e) {
+    const Callnames& cn = app.callnames;
+    const std::string lang = cn.lang.empty() ? "the loaded language" : cn.lang;
+    const std::string who = voice_source(app, t, e);
+    if (e.voice_of && *e.voice_of > 0) {
+        if (!cn.masters.fc27() || cn.own_recording(*e.voice_of)) return "";
+        return who + " has no recording in " + lang + ": silent";
+    }
+    if (e.kickoff && *e.kickoff > 0) {
+        const bool known = cn.masters.fc27() || cn.spoken.verified;
+        const bool has = cn.masters.generic_ids.count(*e.kickoff) > 0 || (cn.spoken.verified && cn.spoken.spoken(*e.kickoff));
+        if (!known || has) return "";
+        return who + " has no recording in " + lang + ": silent";
+    }
+    return "";
+}
+
+static void voice_off_line(App& app) {
+    g_state.voice_off_line = "Voice swaps are off: " + app.voice_why_off();
+    ImGui::TextDisabled("%s", g_state.voice_off_line.c_str());
+}
+
+// The play button for what he is called in matches: A's own recording, else the generic callname
+static void voice_play_button(App& app, const voice::Entry& e) {
+    if (e.voice_of && *e.voice_of > 0) callname_play_button(app, CallnameAudioKind::Own, *e.voice_of);
+    else if (e.kickoff && *e.kickoff > 0) callname_play_button(app, CallnameAudioKind::Generic, *e.kickoff);
+    else return;
+    ImGui::SameLine();
+}
+
+// A swap waits here for its confirmation (##vsconfirm)
+struct PendingVoice {
+    int64_t playerid = 0;
+    voice::Entry entry;
+    std::string line;    // "Marianucci will be called Lobotka in matches. His name on screen stays Marianucci."
+    std::string button;  // "Use his voice" / "Use in matches"
+};
+static PendingVoice g_pvoice;
+static bool g_open_voice_confirm = false;
+
+// All callnames: "Use his voice" (an own-recording row) or "Use in matches" (a generic row), parked for the popup
+static void request_voice(App& app, const Table& t, const PlayerRow& p, const AllCallnameRow& r, int own) {
+    voice::Entry e;
+    e.playerid = p.playerid;
+    e.player = p.name;
+    // Name lines only belongs to a voice swap (the list shows it only there): never carried into own recording off,
+    // where it would turn his own recording off in the name lines only
+    if (const voice::Entry* old = app.voice_store.find(p.playerid); old && r.own()) e.names_only = old->names_only;
+    std::string called;
+    if (r.own()) {
+        const PlayerRow* a = app.model.player(r.playerid);
+        e.voice_of = r.playerid;
+        e.kickoff = -1;  // his surname lines silent: the game's own pattern for a player with his own recording
+        e.from = a ? a->name : (r.text.empty() ? "player " + std::to_string(r.playerid) : r.text);
+        called = screen_surname(app, t, r.playerid, e.from);
+    } else {
+        if (own) e.voice_of = 0;  // his own recording off (the checkbox), the generic callname instead
+        e.kickoff = r.commentaryid;
+        called = r.text.empty() ? "callname " + std::to_string(r.commentaryid) : r.text;
+        e.from = called + " (generic)";
+    }
+    const std::string b = screen_surname(app, t, p.playerid, p.name);
+    g_pvoice = PendingVoice{};
+    g_pvoice.playerid = p.playerid;
+    g_pvoice.entry = e;
+    g_pvoice.line = b + " will be called " + called + " in matches. His name on screen stays " + b + ".";
+    g_pvoice.button = r.own() ? "Use his voice" : "Use in matches";
+    g_open_voice_confirm = true;
+}
+
+static void voice_confirm_popup(App& app, const Table& t, const PlayerRow& p) {
+    if (g_open_voice_confirm) {
+        ImGui::OpenPopup("##vsconfirm");
+        g_open_voice_confirm = false;
+    }
+    if (!ImGui::BeginPopupModal("##vsconfirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+    g_state.voice_confirm_open = true;
+    if (g_pvoice.playerid != p.playerid) {
+        // another player was opened meanwhile: nothing to confirm for this one
+        g_pvoice = PendingVoice{};
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    g_state.voice_confirm_line = g_pvoice.line;
+    ImGui::TextUnformatted(g_pvoice.line.c_str());
+    ImGui::TextDisabled("In matches only. Nothing is written to the database.");
+    if (ImGui::Button((g_pvoice.button + "##vsconfirm").c_str())) {
+        const voice::Entry e = g_pvoice.entry;
+        g_pvoice = PendingVoice{};
+        if (app.voice_upsert(e)) app.notify(p.name + ": " + voice_called(app, t, e) + " in matches");
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel##vsconfirm")) {
+        g_pvoice = PendingVoice{};
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+// The voice-swap button under the All callnames pick (the database buttons follow under "Change the name in the
+// database"); false when the service is off (the off line is drawn, only the database buttons follow)
+static bool voice_pick_buttons(App& app, const Table& t, const PlayerRow& p, const AllCallnameRow& r, int own) {
+    if (!app.voice_available()) {
+        voice_off_line(app);
+        return false;
+    }
+    const voice::Entry* ve = app.voice_store.find(p.playerid);
+    if (r.own()) {
+        const bool self = r.playerid == p.playerid;
+        if (self) ImGui::BeginDisabled();
+        if (ImGui::Button("Use his voice##all")) request_voice(app, t, p, r, own);
+        if (self) ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", self ? "(his own recording)" : "(in matches only; no database write)");
+        return true;
+    }
+    // a player with his own recording on: the game says it first, so a generic callname needs it off
+    const bool own_on = own && !(ve && ve->voice_of);
+    if (own_on) {
+        g_state.voice_turn_off_shown = true;
+        ImGui::TextColored(kOrange, "Turn off his own recording first");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Untick 'Use his own recording' above.");
+        ImGui::BeginDisabled();
+    }
+    if (ImGui::Button("Use in matches##all")) request_voice(app, t, p, r, own);
+    if (own_on) ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::TextDisabled("(in matches only; no database write)");
+    return true;
+}
+
+// Fifth picker tab: every voice swap kept (all careers), Name lines only, Remove, Forget all
+static void voice_swaps_tab(App& app, const Table& t) {
+    if (!app.voice_error.empty()) ImGui::TextColored(kOrange, "%s", app.voice_error.c_str());
+    if (!app.voice_available()) voice_off_line(app);
+    auto& entries = app.voice_store.entries;
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%zu voice swap%s (every career)", entries.size(), entries.size() == 1 ? "" : "s");
+    if (!entries.empty()) {
+        ImGui::SameLine();
+        if (ImGui::Button("Forget all##vs")) ImGui::OpenPopup("##vsforgetall");
+    }
+    if (ImGui::BeginPopupModal("##vsforgetall", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Forget all %zu voice swaps?", entries.size());
+        ImGui::TextDisabled("Every player is called as the game says again.");
+        if (ImGui::Button("Forget all##vsforgetall")) {
+            app.voice_forget_all();
+            app.notify("Voice swaps: all forgotten");
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel##vsforgetall")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+    if (entries.empty()) {
+        ImGui::TextDisabled("None yet: All callnames > 'Use his voice' or 'Use in matches'.");
+        return;
+    }
+    int64_t remove = 0;
+    voice::Entry toggled;
+    bool toggle = false;
+    ImGui::BeginChild("##vslist", ImVec2(0, list_height(ImGui::GetStyle().WindowPadding.y)), ImGuiChildFlags_Borders);
+    if (ImGui::BeginTable("##vstable", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Player");
+        ImGui::TableSetupColumn("Called");
+        ImGui::TableSetupColumn("Other lines", ImGuiTableColumnFlags_WidthFixed, S(130.0f));
+        ImGui::TableSetupColumn("Remove", ImGuiTableColumnFlags_WidthFixed, S(70.0f));
+        ImGui::TableHeadersRow();
+        for (const voice::Entry& e : entries) {
+            ++g_state.voice_rows;
+            const std::string id = std::to_string(e.playerid);
+            // one ID scope per row: two swaps from one source draw the same play button (##play_o<A>)
+            ImGui::PushID(id.c_str());
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            const PlayerRow* pr = app.model.player(e.playerid);
+            const std::string who = (pr ? pr->name : (e.player.empty() ? std::string("player") : e.player)) + " (" + id + ")";
+            if (pr) {
+                if (ImGui::Selectable((who + "##vsp" + id).c_str(), app.sel_player == e.playerid)) app.sel_player = e.playerid;
+            } else {
+                ImGui::TextUnformatted(who.c_str());
+                if (app.model.built()) {
+                    ++g_state.voice_absent;
+                    ImGui::TextDisabled("not in this career");
+                }
+            }
+            ImGui::TableNextColumn();
+            voice_play_button(app, e);
+            ImGui::TextUnformatted(voice_called(app, t, e).c_str());
+            if (e.voice_of && *e.voice_of > 0) {
+                bool names = e.names_only;
+                if (ImGui::Checkbox(("Name lines only##vs" + id).c_str(), &names)) {
+                    toggled = e;
+                    toggled.names_only = names;
+                    toggle = true;
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only the lines that say his name use the other voice; his other lines stay his.");
+            }
+            const std::string silent = voice_silent_text(app, t, e);
+            if (!silent.empty()) ImGui::TextColored(kOrange, "%s", silent.c_str());
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(voice_other_lines(e).c_str());
+            ImGui::TableNextColumn();
+            if (ImGui::SmallButton(("Remove##vs" + id).c_str())) remove = e.playerid;
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    ImGui::EndChild();
+    if (toggle) app.voice_upsert(toggled);
+    if (remove && app.voice_forget(remove)) app.notify("Voice swap removed (player " + std::to_string(remove) + ")");
+}
+
 // ALL CALLNAMES: every callname of the language the master lists (generic surnames and players' own recordings)
 static char g_all_search[64] = "";
 static int64_t g_sel_all = 0;  // > 0: a generic commentary id; < 0: -playerid of an own recording
@@ -721,7 +986,8 @@ static void all_callnames_picker(App& app, const Table& t, const PlayerRow& p) {
     ImGui::TextDisabled("%zu generic callnames + %zu own recordings (%s)", cn.masters.generic_ids.size(), cn.masters.real_players.size(),
                         cn.masters.label().c_str());
     const int own = cn.own_recording(p.playerid);
-    const float below = ImGui::GetTextLineHeightWithSpacing() * 4.0f + 2.0f * ImGui::GetFrameHeightWithSpacing() + own_warning_height(app, own) +
+    // + the voice-swap button and the "Change the name in the database" title (1.1.0)
+    const float below = ImGui::GetTextLineHeightWithSpacing() * 6.0f + 3.0f * ImGui::GetFrameHeightWithSpacing() + own_warning_height(app, own) +
                         ImGui::GetStyle().WindowPadding.y;
     ImGui::BeginChild("##cnall", ImVec2(0, list_height(below)), ImGuiChildFlags_Borders);
     int shown = 0, total = 0;
@@ -767,11 +1033,15 @@ static void all_callnames_picker(App& app, const Table& t, const PlayerRow& p) {
     }
     if (sel->own()) {
         ImGui::Text("Selected: %s (ID %lld), own recording", sel->text.c_str(), static_cast<long long>(sel->playerid));
-        ImGui::TextColored(kYellow, "The game always uses a player's own recording; giving it to another player is not possible yet.");
+        // 1.1.0: a voice swap gives it to this player in matches; the database cannot
+        if (!voice_pick_buttons(app, t, p, *sel, own))
+            ImGui::TextColored(kYellow, "The game always uses a player's own recording; the database cannot give it to another player.");
         return;
     }
     ImGui::Text("Selected: '%s' (callname %lld, %d name row%s, %d player%s)", sel->text.c_str(), static_cast<long long>(sel->commentaryid),
                 sel->name_rows, sel->name_rows == 1 ? "" : "s", sel->users, sel->users == 1 ? "" : "s");
+    // 1.1.0: in matches only (a voice swap), then the older database buttons
+    if (voice_pick_buttons(app, t, p, *sel, own)) ImGui::SeparatorText("Change the name in the database");
     // 1.0.3: the player-specific route when it can be used (no name changes), else the name row, else nothing
     const GenericRoute route = plan_generic_route(app, p, sel->commentaryid);
     route_line(app, route, sel->nameid != 0);
@@ -1034,13 +1304,30 @@ void callname_editor(App& app, const Table& t, const PlayerRow& p) {
     CallnameInfo info = cn.resolve(p, app.db);
     g_state.own = info.own;
     const std::string rule = rule_result(app, info);
+    const voice::Entry* ve = app.voice_store.find(p.playerid);
+    const bool voice_on = app.voice_available();
+    const bool swapped = ve && voice_on;
     ImGui::AlignTextToFramePadding();
     // hear what the game says: his own recording, else the rule's callname
-    if (info.own || info.source != CallnameSource::None) {
+    if (!swapped && (info.own || info.source != CallnameSource::None)) {
         callname_play_button(app, info.own ? CallnameAudioKind::Own : CallnameAudioKind::Generic, info.own ? p.playerid : info.commentaryid);
         ImGui::SameLine();
     }
-    if (info.own) {
+    if (swapped && ve->voice_of && *ve->voice_of == 0 && !ve->kickoff) {
+        // 1.1.0: his own recording off, no generic callname: the callname rule speaks his surname lines
+        g_state.current_line = "In matches: own recording off; the callname rule gives " + (rule.empty() ? std::string("none") : rule);
+        ImGui::TextColored(kGreen, "%s", g_state.current_line.c_str());
+    } else if (swapped) {
+        // 1.1.0: a voice swap decides what the commentary says in matches; the game's rule is shown greyed below it
+        voice_play_button(app, *ve);
+        g_state.current_line = "In matches: " + voice_called(app, t, *ve);
+        ImGui::TextColored(kGreen, "%s", g_state.current_line.c_str());
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("A voice swap: in matches only, nothing written to the database. His name on screen stays his.");
+        const std::string game = info.own ? "his own recording in " + cn.lang : rule.empty() ? std::string("no callname") : rule;
+        g_state.rule_line = "Not used while the swap is on: " + game;
+        ImGui::TextDisabled("%s", g_state.rule_line.c_str());
+    } else if (info.own) {
         // Step 0 of the game's rule: his own recording wins, so the line names it - never "none"
         g_state.current_line = "Current callname: his own recording in " + cn.lang + " (" + cn.own_source(info.own) +
                                (cn.own_unconfirmed(info.own) ? "; not confirmed by the game's audio service, whose list is incomplete" : "") + ")";
@@ -1071,6 +1358,34 @@ void callname_editor(App& app, const Table& t, const PlayerRow& p) {
         ImGui::TextColored(spoken ? kGreen : kOrange, "%s", tail.c_str());
         if (info.source == CallnameSource::CommonName && !spoken)
             ImGui::TextDisabled("He has a common name, so the game uses it and never his last name: use 'Assign as common name'.");
+    }
+    if (ve) {
+        g_state.voice_warning = voice_silent_text(app, t, *ve);
+        if (!g_state.voice_warning.empty()) ImGui::TextColored(kOrange, "%s", g_state.voice_warning.c_str());
+        if (!voice_on) voice_off_line(app);
+    }
+    // 1.1.0: a player with his own recording can have it off in matches (then All callnames > Use in matches)
+    if (info.own && voice_on) {
+        bool use_own = !(ve && ve->voice_of);
+        if (ImGui::Checkbox("Use his own recording##vs", &use_own)) {
+            if (use_own) {
+                if (app.voice_forget(p.playerid)) app.notify(p.name + ": his own recording is used again in matches");
+            } else {
+                voice::Entry e;
+                e.playerid = p.playerid;
+                e.player = p.name;
+                e.voice_of = 0;
+                if (ve && ve->kickoff) {
+                    e.kickoff = ve->kickoff;
+                    e.from = ve->from;
+                }
+                if (app.voice_upsert(e)) app.notify(p.name + ": own recording off in matches");
+            }
+            ve = app.voice_store.find(p.playerid);
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Off: in matches the commentary does not use his own recording. Then pick a generic callname\n"
+                              "(All callnames > Use in matches) or another player's voice (Use his voice).");
     }
     if (cn.index.playernamemap.count(p.playerid)) {
         if (ImGui::Button("Remove player-specific callname...")) ImGui::OpenPopup("##rmcallname");
@@ -1112,10 +1427,96 @@ void callname_editor(App& app, const Table& t, const PlayerRow& p) {
             club_players_tab(app, p);
             ImGui::EndTabItem();
         }
+        if (ImGui::BeginTabItem("Voice swaps")) {
+            voice_swaps_tab(app, t);
+            ImGui::EndTabItem();
+        }
         ImGui::EndTabBar();
     }
     // outside the tab items: both pickers park their request here (an ID pushed by a tab item would hide the popup)
     own_confirm_popup(app, t, p);
+    voice_confirm_popup(app, t, p);
+}
+
+// ---------------------------------------------------------------- App: the voice-swap store (core/callname_voice.h)
+
+void App::load_voice() {
+    const std::filesystem::path p = voice::store_path(bridge.root());
+    std::string err;
+    voice_store = voice::VoiceStore{};
+    voice_error.clear();
+    voice_unreadable_ = !voice_store.load(p, &err);
+    // a note even when it loaded: a bad file set aside, bad entries dropped
+    if (voice_unreadable_) voice_error = (err.empty() ? "cannot read " + p.string() : err) + ": no voice swaps loaded";
+    else voice_error = err;
+    if (!voice_error.empty()) log("voice swaps: " + voice_error);
+    if (!voice_store.entries.empty()) log("voice swaps: " + std::to_string(voice_store.entries.size()) + " kept in " + p.string());
+}
+
+bool App::save_voice() {
+    const std::filesystem::path p = voice::store_path(bridge.root());
+    std::string err;
+    if (voice_unreadable_) {
+        // never overwrite a file that could not be read: this session's swaps stay until Turbo closes
+        voice_error = "voice swaps not saved: " + p.filename().string() + " could not be read at start-up (left as it is)";
+        notify(voice_error, true);
+        return false;
+    }
+    if (!voice_store.save(p, &err)) {
+        voice_error = "voice swaps not saved: " + err;
+        notify(voice_error, true);
+        return false;
+    }
+    voice_error.clear();
+    return true;
+}
+
+void App::voice_publish() {
+    if (!voice_service) return;
+    voice_service->publish(voice::build_table(voice_store));
+    voice_published_to_ = voice_service;
+}
+
+bool App::voice_upsert(voice::Entry e) {
+    e.when = time_stamp();
+    voice_store.upsert(e);
+    const bool saved = save_voice();
+    voice_publish();
+    log("voice swaps: player " + std::to_string(e.playerid) + ": voice_of " + (e.voice_of ? std::to_string(*e.voice_of) : std::string("-")) +
+        ", kick-off " + (e.kickoff ? std::to_string(*e.kickoff) : std::string("-")) + (e.names_only ? ", name lines only" : ""));
+    return saved;
+}
+
+bool App::voice_forget(int64_t playerid) {
+    if (!voice_store.forget(playerid)) return false;
+    save_voice();
+    voice_publish();
+    log("voice swaps: player " + std::to_string(playerid) + " forgotten");
+    return true;
+}
+
+bool App::voice_forget_all() {
+    if (voice_store.entries.empty()) return false;
+    voice_store.entries.clear();
+    save_voice();
+    voice_publish();
+    log("voice swaps: all forgotten");
+    return true;
+}
+
+std::string App::voice_why_off() const {
+    if (!voice_service) return "not in this build of Turbo";
+    if (voice_service->available()) return "";
+    const std::string why = voice_service->why_off();
+    return why.empty() ? "hooks not installed" : why;
+}
+
+std::string App::voice_status_line() const {
+    if (!voice_available()) return "Voice swaps: off (" + voice_why_off() + ")";
+    const voice::StatsSnapshot st = voice_service->stats();
+    const size_t n = voice_store.entries.size();
+    return "Voice swaps: on | " + std::to_string(n) + (n == 1 ? " swap" : " swaps") + " | lines changed " + std::to_string(st.rewrites) +
+           " | kick-off set " + std::to_string(st.kickoffs);
 }
 
 }  // namespace turbo

@@ -61,8 +61,8 @@ constexpr uint32_t kRingSize = 4096;  // entries (a power of 2)
 constexpr int kLogPids = 8;           // "_pID" parameters kept per line (the rest are counted: more=<n>)
 constexpr int kLogName = 32;          // parameter name bytes kept, NUL included
 // flags (OR over the line's "_pID" descriptors)
-constexpr uint32_t kFlagValueList = 0x1;  // [desc+0x44] set and the u32 count at [desc+0x18]-4 not 0
-constexpr uint32_t kFlagStrict = 0x2;     // [desc+0x45] != 0
+constexpr uint32_t kFlagValueList = 0x1;  // an int descriptor with an allowed-values list (u32 count at [desc+0x18]-4 not 0)
+constexpr uint32_t kFlagOutsideOk = 0x2;  // [desc+0x45] != 0: values outside that list are accepted (SetInt 0x1407AFAB7)
 constexpr uint32_t kFlagLeftOut = 0x4;    // a "_pID" parameter that is not a single-value int (never rewritten)
 constexpr uint32_t kFlagBounded = 0x8;    // the parameter count is above kMaxParams (nothing read)
 

@@ -902,7 +902,7 @@ t=<ms> tid=<n> ev=<event id> q=<hex> pid_before=<name>:<v>,... pid_after=<name>:
 | `pid_after` | the same parameters in the same order after Turbo's rewrite (equal to `pid_before` when nothing changed) |
 | `surname` | the `surname_ID` value, `-` when the event does not declare it |
 | `intensity` | the `player_intensity` value, `-` when not declared |
-| `flags` | OR over the line's `_pID` descriptors: `0x1` a value list (`[desc+0x44]` set and the u32 count at `[desc+0x18]-4` is not 0; Turbo reads the count only when `+0x44` is set, as the game's own `SetInt` does), `0x2` `[desc+0x45] != 0`, `0x4` a `_pID` parameter left out because it is not a single-value int, `0x8` the query was bounded (count above `kMaxParams`); other bits reserved |
+| `flags` | OR over the line's `_pID` descriptors: `0x1` an int descriptor with an allowed-values list (the u32 count at `[desc+0x18]-4` is not 0; the game's `SetInt` reads it for every int descriptor), `0x2` `[desc+0x45] != 0` (values outside that list are accepted), `0x4` a `_pID` parameter left out because it is not a single-value int, `0x8` the query was bounded (count above `kMaxParams`); other bits reserved |
 | `guard` | `1` = the double-pass guard skipped a rewrite on this query |
 | `more` | only when the query has more than 8 single-value int `_pID` parameters: how many are not listed |
 
@@ -979,3 +979,50 @@ per install outcome, per publish and per switch change.
 observe capture on a fake query (before / after the rewrite, `surname_ID` without case, `player_intensity`, flags
 0x1 / 0x2 / 0x4 / 0x8, more than 8 `_pID` values); the exact line format of both kinds (checked by hand against
 `scripts/callname_voice_log.py`); the ring (order, full, wrap, two writer threads with one reader, bounded drain).
+## 13. Voice swaps: the Callname tab (Turbo 1.1.0)
+
+**What.** In matches only, a player (B) is called with another player's own recording (A: "Use his voice"), or his own
+recording is turned off and a generic callname is used instead ("Use in matches"). Nothing is written to the database
+or the save: his name on screen, his face and his stats stay his, and none of the side effects of §11 (a new surname on
+screen until a reload, the full `playernamemap`, the re-apply at career load) apply. Plan and reverse engineering:
+`turbo_dev/research/real_callnames_plan.md` §4-7, [`docs/re/inmatch-callnames.md`](re/inmatch-callnames.md); the
+contract between the parts is `turbogui/src/core/callname_voice.h`.
+
+**How it works (short).** Two guarded game hooks read a table Turbo publishes: the commentary's pre-handler rewrites
+B's id to A's (or to 0 = own recording off) in every player-id parameter of a line, and the kick-off callname of B is
+replaced (-1 = his surname lines silent, the default for a swap, or the generic callname's id). The host part
+(`win/callname_voice_win.cpp`, kill switch `turbo_output\callname_voice_off.txt`) is described with its build.
+
+**Store.** `turbo_output\callnames\voice_swaps.json`, one entry per player for every career (player ids are the same
+in all careers). Loaded when Turbo starts (no career needed) and published to the hooks at once and after every edit;
+written atomically. A file that is not a voice-swap file is set aside as `voice_swaps.json.bad-<date>` and Turbo starts
+empty; malformed entries are dropped. The note shows on the Status tab and in the Voice swaps tab. A file that cannot
+be read is never overwritten (that session's swaps are not saved).
+
+**Players > Callname** (`ui_callnames.cpp`):
+
+* **Current callname** line, when the player has a swap: "In matches: Lobotka's own recording (voice swap)" or "In
+  matches: Del Piero (generic), own recording off", with the game's own rule greyed below ("Not used while the swap is
+  on: ..."). Its play button plays what he is called: A's own recording, else the generic callname.
+* **Use his own recording** (a checkbox, only for a player with his own recording): untick it to turn the recording
+  off in matches (`voice_of: 0`; his surname lines keep the callname rule); tick it to forget his entry.
+* **All callnames**: an own-recording row gets **Use his voice**, a generic row **Use in matches**. Both ask first:
+  "Marianucci will be called Lobotka in matches. His name on screen stays Marianucci." and write only the store. For
+  a player with his own recording on, Use in matches is greyed with "Turn off his own recording first"; once it is off
+  the entry becomes `voice_of: 0` + `kickoff: <id>`. The older database buttons follow under "Change the name in the
+  database".
+* **Voice swaps** (a fifth picker tab: the Callname tab has no height for a section below the pickers): Player |
+  Called | Other lines | Remove. *Other lines* are his surname lines (silent, a generic callname, or the callname
+  rule). *Name lines only* (per swap) keeps his other lines in his own voice. *Forget all* asks first. A player not in
+  the loaded career is marked "not in this career"; his entry stays.
+* **No recording**: when the FC 27 master (or the verified spoken set, for a generic id) says the source has no
+  recording in the loaded language, the line says "Lobotka has no recording in ita_it: silent".
+* **Off**: when the host's hooks are not installed (another game build, a kill switch, game hooks off) the tab says
+  "Voice swaps are off: <why>" and shows only the database buttons; the entries are kept.
+
+**Status tab.** "Voice swaps: on | 3 swaps | lines changed 57 | kick-off set 2", or "Voice swaps: off (<why>)".
+
+Tests: `turbogui/tests/native/test_main.cpp` "UI: Players > Callname: voice swaps: ..." (a fake service: off without
+one, published once it is there, Use his voice with its confirmation, the current line, Name lines only, the status
+counters, a silent source, a player of another career, own recording off and Use in matches, the service off, Remove,
+Forget all; never a database write), plus the core cases "voice swaps: ...". Not yet checked in game (plan §7).
