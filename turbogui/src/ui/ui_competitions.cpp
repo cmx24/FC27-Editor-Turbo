@@ -94,6 +94,10 @@ void draw_competitions(App& app) {
             draw_live_standings(app);
             ImGui::EndTabItem();
         }
+        if (ImGui::BeginTabItem("Match setup")) {
+            draw_match_setup(app);
+            ImGui::EndTabItem();
+        }
         if (ImGui::BeginTabItem("Career database copy")) {
             draw_database_copy(app);
             ImGui::EndTabItem();

@@ -524,6 +524,15 @@ void App::tick(double t) {
             log("standings refresh [" + r.stage + (r.warning ? ", warning" : "") + "]: " + r.message);
         }
     }
+    // A game-variable set / clear ran on the game thread (core/match_setup.h)
+    if (match_setup) {
+        msetup::VarResult r;
+        while (match_setup->poll(r)) {
+            match_setup_status = (r.ok ? "" : "failed: ") + r.message;
+            notify("Match setup: " + r.message, !r.ok);
+            log("match setup: " + r.message);
+        }
+    }
     // Player names decoded by Live Editor arrived or changed: rebuild the lists (now if shown, else when shown)
     if (db.ready() && bridge.names() != seen_names_) {
         seen_names_ = bridge.names();

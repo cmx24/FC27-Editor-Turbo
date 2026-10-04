@@ -17,6 +17,7 @@
 #include "core/callnames.h"
 #include "core/commentary_audio.h"
 #include "core/legacy.h"
+#include "core/match_setup.h"
 #include "core/mem.h"
 #include "core/model.h"
 #include "core/player_capture.h"
@@ -113,6 +114,9 @@ public:
     // Standings refresh after a live table edit (core/standings_refresh.h; Windows host; tests use a fake; null = none)
     std::shared_ptr<svm::RefreshService> standings_refresh;
     std::string standings_refresh_status;  // last outcome shown in the Live standings view
+    // Match setup: game variables and result fixing (core/match_setup.h; Windows host; tests use a fake; null = none)
+    std::shared_ptr<msetup::Service> match_setup;
+    std::string match_setup_status;  // last variable outcome shown in the Match setup view
     int texture_test_frames = 0;
     double lua_heartbeat_seen_at = -1.0;
     uint64_t game_base = 0;  // FC27.exe image base (set by the Windows host; 0 in tests = skip vtable checks)
@@ -205,6 +209,9 @@ void draw_live_standings(App& app);
 // reads (or why it could not be read), and the warning when the selected group is not one it shows ("" = none)
 std::string live_standings_view_line();
 std::string live_standings_view_warning();
+// Competitions tab, "Match setup" view: the user's next fixtures (venue, opponent, fixed result) and the gameplay switches
+// (game variables) for the next matches (ui_match.cpp)
+void draw_match_setup(App& app);
 void draw_database(App& app);
 void draw_tools(App& app);
 void draw_status(App& app);

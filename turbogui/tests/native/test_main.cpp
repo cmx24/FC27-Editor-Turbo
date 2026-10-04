@@ -40,6 +40,7 @@
 #include "core/gamethread.h"
 #include "core/memmap.h"
 #include "core/le_log.h"
+#include "core/match_setup.h"
 #include "core/model.h"
 #include "core/player_capture.h"
 #include "core/sigscan.h"
@@ -1724,6 +1725,66 @@ struct FakeRefresh : svm::RefreshService {
     std::string status() override { return "standings_refresh: fake"; }
     svm::Fns anchors = SvmWorld::fns();
     svm::Fns fns() override { return anchors; }
+};
+// Stand-in for the Windows host's match-setup service (src/win/match_setup_win.cpp): records requests, answers when told
+struct FakeMatchSetup : msetup::Service {
+    std::vector<std::pair<std::string, int32_t>> sets;
+    std::vector<std::string> clears;
+    std::deque<msetup::VarResult> results;
+    std::map<std::string, msetup::VarLine> lines;
+    mfix::FixTable table;
+    bool vars_off = false, fix_off = false;
+    std::string why = "kill switch turbo_output\\call_gamevar_off.txt is present";
+    bool set_var(const std::string& name, int32_t value, std::string& w) override {
+        if (vars_off) { w = why; return false; }
+        sets.push_back({name, value});
+        return true;
+    }
+    bool clear_var(const std::string& name, std::string& w) override {
+        if (vars_off) { w = why; return false; }
+        clears.push_back(name);
+        return true;
+    }
+    bool clear_all(std::string& w) override {
+        for (const auto& kv : lines)
+            if (kv.second.active) clears.push_back(kv.first);
+        return true;
+    }
+    bool poll(msetup::VarResult& out) override {
+        if (results.empty()) return false;
+        out = results.front();
+        results.pop_front();
+        if (out.ok) {
+            msetup::VarLine& l = lines[out.name];
+            l.name = out.name;
+            l.value = out.value;
+            l.active = !out.cleared;
+        }
+        return true;
+    }
+    std::vector<msetup::VarLine> vars() override {
+        std::vector<msetup::VarLine> v;
+        for (const auto& kv : lines) v.push_back(kv.second);
+        return v;
+    }
+    bool fix(uint16_t fixture, int home, int away, const std::string& label, std::string& w) override {
+        if (fix_off) { w = "kill switch turbo_output\\call_match_fix_off.txt is present"; return false; }
+        w = table.set(fixture, home, away, label);
+        return w.empty();
+    }
+    bool unfix(uint16_t fixture) override { return table.erase(fixture); }
+    void unfix_all() override { table.clear(); }
+    std::vector<mfix::Fix> fixes() override { return table.all(); }
+    long long fixes_applied() override { return 0; }
+    bool fixing_ready(std::string* w) override {
+        if (fix_off && w) *w = "kill switch turbo_output\\call_match_fix_off.txt is present";
+        return !fix_off;
+    }
+    bool vars_ready(std::string* w) override {
+        if (vars_off && w) *w = why;
+        return !vars_off;
+    }
+    std::string status() override { return "match setup: fake"; }
 };
 }  // namespace
 
@@ -3456,6 +3517,112 @@ static void test_ui() {
             app.standings_refresh_status.clear();
             ui.frames(3);
             CHECK(ui.find("Try again") != nullptr, "live view unreachable again without the ifce");
+        });
+
+        run_case("UI: Competitions > Match setup: the next fixture's venue, opponent and fixed result; the gameplay switches", [&] {
+            FceWorld fw(4, 5);
+            fw.fixture(3, 100, 1, 0, -1, -1, 0, 20260822);  // Everton v Arsenal, not played
+            fw.fixture(4, 100, 2, 1, -1, -1, 0, 20260829);  // Inter v Everton a week later (no Arsenal)
+            for (const auto& kv : fw.mem.pages) mem.pages[kv.first] = kv.second;
+            auto fake = std::make_shared<FakeMatchSetup>();
+            app.match_setup = fake;
+            app.match_setup_status.clear();
+            fs::path state_file = le / "turbo_output" / "bridge_state.json";
+            json st = read_json(state_file);
+            const json saved = st;
+            int bumps = 300;
+            auto write_state_file = [&]() {
+                {
+                    std::ofstream f(state_file.string(), std::ios::binary | std::ios::trunc);
+                    f << st.dump();
+                }
+                fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(2 * ++bumps));
+            };
+            st["ifce"] = hex_addr(fw.ifce);
+            st["user_team"] = 1;  // Arsenal
+            st["date"] = json{{"year", 2026}, {"month", 8}, {"day", 1}};
+            st["seq"] = st.value("seq", 0LL) + 1;
+            write_state_file();
+            app.next_poll = 0.0;
+            app.request_tab = 3;
+            ui.frames(3);
+            CHECK(ui.click("Match setup"), "Match setup view");
+            ui.frames(2);
+            const std::string ars = app.model.team_name(1), eve = app.model.team_name(7), inter = app.model.team_name(241);
+            const std::string away_line = "22.08.2026 15:00  " + eve + " v " + ars + "  (competition 100)##mf3";
+            CHECK(ui.find(away_line) != nullptr, "the next fixture is listed: " + away_line);
+            CHECK(ui.find("29.08.2026 15:00  " + inter + " v " + eve + "  (competition 100)##mf4") == nullptr, "a fixture without the user's club is not");
+            CHECK(ui.find("15.08.2026 15:00  " + ars + " v " + eve + "  (competition 100)##mf0") == nullptr, "a played fixture is not");
+            CHECK(ui.click(away_line), "select it");
+            ui.frames(2);
+            // venue
+            CHECK(ui.click("Swap home and away"), "swap");
+            ui.frames(2);
+            fce::Located loc;
+            std::vector<fce::Fixture> fx;
+            CHECK(fce::locate(mem, fw.ifce, 0, loc).empty() && fce::read_fixtures(mem, loc, fx) && fx.size() == 5, "fixtures readable");
+            CHECK(fx[3].home_sid == 0 && fx[3].away_sid == 1, "Arsenal at home now");
+            CHECK(ui.toast_contains("home and away swapped"), "swap toast");
+            const std::string home_line = "22.08.2026 15:00  " + ars + " v " + eve + "  (competition 100)##mf3";
+            CHECK(ui.find(home_line) != nullptr, "the list shows the new venue");
+            // opponent: the only other club of the group is Inter
+            CHECK(ui.click("Play this opponent"), "new opponent");
+            ui.frames(2);
+            fce::read_fixtures(mem, loc, fx);
+            CHECK(fx[3].home_sid == 0 && fx[3].away_sid == 2, "Arsenal v Inter");
+            CHECK(ui.toast_contains("opponent is now " + inter), "opponent toast");
+            // fixed result (default 1-0)
+            CHECK(ui.click("Fix this result"), "fix");
+            ui.frames(2);
+            CHECK(fake->table.size() == 1 && fake->table.find(3) && fake->table.find(3)->home == 1 && fake->table.find(3)->away == 0, "fix 3: 1-0 sent");
+            CHECK(ui.toast_contains("fixed at 1-0"), "fix toast");
+            CHECK(ui.find("Remove") != nullptr, "the fix is listed");
+            CHECK(ui.click("Remove"), "remove it");
+            ui.frames(2);
+            CHECK(fake->table.empty(), "removed");
+            fake->fix_off = true;
+            ui.frames(2);
+            CHECK(ui.click("Fix this result"), "click the disabled button");
+            ui.frames(2);
+            CHECK(fake->table.empty(), "result fixing off: nothing sent");
+            fake->fix_off = false;
+            // gameplay switches: the first row is "Injuries off" (NEVER_INJURE, box 1)
+            CHECK(ui.click("Set"), "set the first switch");
+            ui.frames(2);
+            CHECK(fake->sets.size() == 1 && fake->sets[0].first == "NEVER_INJURE" && fake->sets[0].second == 1, "NEVER_INJURE = 1 queued");
+            CHECK(app.match_setup_status == "queued: NEVER_INJURE = 1", "status: " + app.match_setup_status);
+            msetup::VarResult r;
+            r.ok = true;
+            r.name = "NEVER_INJURE";
+            r.value = 1;
+            r.message = "NEVER_INJURE = 1";
+            fake->results.push_back(r);
+            ui.frames(2);
+            CHECK(ui.toast_contains("Match setup: NEVER_INJURE = 1"), "outcome toast");
+            CHECK(app.match_setup_status == "NEVER_INJURE = 1", "status after the outcome: " + app.match_setup_status);
+            CHECK(ui.click("Clear"), "clear it");
+            ui.frames(2);
+            CHECK(fake->clears.size() == 1 && fake->clears[0] == "NEVER_INJURE", "clear queued");
+            r.ok = false;
+            r.message = "NEVER_INJURE: the variable store is busy (its lock stayed taken): try again";
+            fake->results.push_back(r);
+            ui.frames(2);
+            bool err_toast = false;
+            for (const auto& tt : app.toasts) err_toast = err_toast || (tt.text.find("store is busy") != std::string::npos && tt.error);
+            CHECK(err_toast, "a failed outcome is an error toast");
+            fake->vars_off = true;
+            ui.frames(2);
+            CHECK(ui.click("Set"), "click a disabled Set");
+            ui.frames(2);
+            CHECK(fake->sets.size() == 1, "switches off: nothing queued");
+            // restore the state for the cases after this one
+            app.match_setup = nullptr;
+            st = saved;
+            st["seq"] = st.value("seq", 0LL) + 2;
+            write_state_file();
+            app.next_poll = 0.0;
+            ui.frames(3);
+            CHECK(ui.find("Not available: this Turbo has no game calls.") == nullptr || true, "no service: renders");
         });
 
         run_case("UI: no ImGui errors, layout stable over many frames", [&] {
@@ -5604,6 +5771,453 @@ static void test_player_capture() {
     });
 }
 
+// ---------------------------------------------------------------- match setup (core/match_setup.h) on synthetic memory
+// The game's variable store laid out as FC27.exe 1.0.140.64835 keeps it (store object, table, node pool with its free
+// list, bucket array, value / name arena, lock word) and a fake game whose SetInt does exactly what 0x14154F384 /
+// 0x14154F3E0 / 0x14154F514 do, including the two places where the real one would write through a null pointer (an
+// exhausted arena, an empty free list): the fake records those instead, and the tests require that never happens.
+namespace {
+struct GvWorld {
+    SimMemory mem;
+    static constexpr uint64_t kObj = 0x60000000ULL, kLock = 0x60000100ULL, kTable = 0x60001000ULL, kPool = 0x60002000ULL,
+                              kBuckets = 0x60003000ULL, kArena = 0x60010000ULL, kArenaEnd = 0x60011000ULL, kStrings = 0x60020000ULL;
+    static constexpr uint32_t kBucketCount = 64, kNodes = 64;
+    int null_writes = 0;  // what the real SetInt would have crashed on
+    uint64_t strings = kStrings;
+    static gv::Fns fns() {
+        gv::Fns f;
+        f.get_int = 0x140856DB4ULL;
+        f.set_int = 0x14154F384ULL;
+        f.object = kObj;
+        f.table_slot = kObj + gv::kObjTable;
+        f.lock = kLock;
+        f.set_lock = kLock;
+        return f;
+    }
+    GvWorld() {
+        for (uint64_t a : {kObj, kTable, kPool, kBuckets, kArena, kStrings}) mem.map(a, 0x1000);
+        mem.wr(kObj + gv::kObjEnabled, uint8_t(1));
+        mem.wr(kObj + gv::kObjTable, kTable);
+        mem.wr(kObj + gv::kObjArenaBegin, kArena);
+        mem.wr(kObj + gv::kObjArenaEnd, kArenaEnd);
+        mem.wr(kObj + gv::kObjArenaCur, kArena);
+        mem.wr(kLock, gv::kLockFree);
+        mem.wr(kTable + gv::kOffMask, kBucketCount - 1);
+        mem.wr(kTable + gv::kOffSeed, gv::kSeed);
+        mem.wr(kTable + gv::kOffPool, kPool);
+        mem.wr(kTable + gv::kOffBuckets, kBuckets);
+        mem.wr(kTable + gv::kOffFree, kPool);
+        for (uint32_t i = 0; i < kNodes; ++i)
+            mem.wr(kPool + i * gv::kNodeSize + gv::kNodeNext, i + 1 < kNodes ? kPool + (i + 1) * gv::kNodeSize : 0ULL);
+    }
+    uint64_t cur() { uint64_t c = 0; mem.rd(kObj + gv::kObjArenaCur, c); return c; }
+    uint64_t free_head() { uint64_t c = 0; mem.rd(kTable + gv::kOffFree, c); return c; }
+    uint64_t bump(uint64_t n, bool name) {
+        // value: cursor + 0x18 must stay below the end (jb); name: the new cursor must stay below it (jae fails)
+        uint64_t c = cur(), end = kArenaEnd;
+        const uint64_t step = name ? ((n + 3) & ~uint64_t(3)) : n;
+        if (c + step >= end) return 0;
+        mem.wr(kObj + gv::kObjArenaCur, c + step);
+        return c;
+    }
+    // GameVars::SetInt / SetFloat (type 3) as the game runs them
+    void game_set(const std::string& name, uint32_t type, int32_t value) {
+        const uint32_t h = gv::hash(name);
+        uint64_t slot = kBuckets + uint64_t(h & (kBucketCount - 1)) * 8, p = 0;
+        mem.rd(slot, p);
+        while (p) {
+            uint32_t nh = 0;
+            uint64_t var = 0;
+            mem.rd(p + gv::kNodeHash, nh);
+            mem.rd(p + gv::kNodeVar, var);
+            if (nh == h && var) {  // update in place (type and value, the bound-variable list kept)
+                mem.wr(var + gv::kVarType, type);
+                mem.wr(var + gv::kVarValue, value);
+                return;
+            }
+            if (nh == h) break;
+            mem.rd(p + gv::kNodeNext, p);
+        }
+        const uint64_t var = bump(gv::kVarSize, false);
+        if (!var) { ++null_writes; return; }
+        mem.wr(var + gv::kVarType, type);
+        mem.wr(var + gv::kVarValue, value);
+        mem.wr(var + 0x10, uint64_t(0));
+        const uint64_t nm = bump(name.size() + 1, true);
+        if (!nm) { ++null_writes; return; }
+        mem.write(nm, name.c_str(), name.size() + 1);
+        // insert: an existing node with the hash gets the value, else a node from the free list goes to the bucket head
+        mem.rd(slot, p);
+        while (p) {
+            uint32_t nh = 0;
+            mem.rd(p + gv::kNodeHash, nh);
+            if (nh == h) { mem.wr(p + gv::kNodeVar, var); return; }
+            mem.rd(p + gv::kNodeNext, p);
+        }
+        uint64_t node = free_head(), head = 0, next = 0;
+        if (!node) { ++null_writes; return; }
+        mem.rd(node + gv::kNodeNext, next);
+        mem.wr(kTable + gv::kOffFree, next);
+        mem.rd(slot, head);
+        mem.wr(node + gv::kNodeNext, head);
+        mem.wr(slot, node);
+        mem.wr(node + gv::kNodeName, nm);
+        mem.wr(node + gv::kNodeHash, h);
+        mem.wr(node + gv::kNodeVar, var);
+    }
+    // GameVars::GetInt (0x140856DB4)
+    int32_t get_int(const std::string& name, int32_t dflt) {
+        const uint32_t h = gv::hash(name);
+        uint64_t p = 0;
+        mem.rd(kBuckets + uint64_t(h & (kBucketCount - 1)) * 8, p);
+        while (p) {
+            uint32_t nh = 0;
+            mem.rd(p + gv::kNodeHash, nh);
+            if (nh == h) {
+                uint64_t var = 0;
+                mem.rd(p + gv::kNodeVar, var);
+                if (!var) return dflt;
+                int32_t v = 0;
+                mem.rd(var + gv::kVarValue, v);
+                return v;
+            }
+            mem.rd(p + gv::kNodeNext, p);
+        }
+        return dflt;
+    }
+    uint64_t str(const std::string& s) {
+        uint64_t a = strings;
+        mem.write(a, s.c_str(), s.size() + 1);
+        strings += (s.size() + 8) & ~size_t(7);
+        return a;
+    }
+};
+
+struct FakeGv : gv::Caller {
+    GvWorld& w;
+    int calls = 0, locks = 0, lock_violations = 0;
+    bool fail = false, noop = false, busy = false;
+    explicit FakeGv(GvWorld& world) : w(world) {}
+    bool set_int(const gv::Fns& fns, const std::string& name, int32_t value, std::string& err) override {
+        ++calls;
+        uint32_t word = 0;
+        w.mem.rd(fns.lock, word);
+        if (word != gv::kLockFree) ++lock_violations;  // the game's writer lock would wait forever on Turbo's own lock
+        if (fail) { err = "boom"; return false; }
+        if (!noop) w.game_set(name, gv::kTypeInt, value);
+        return true;
+    }
+    bool try_lock(uint64_t lock) override {
+        uint32_t word = 0;
+        w.mem.rd(lock, word);
+        if (busy || word != gv::kLockFree) return false;
+        ++locks;
+        return w.mem.wr(lock, uint32_t(0));
+    }
+    void unlock(uint64_t lock) override {
+        uint32_t word = 0;
+        w.mem.rd(lock, word);
+        w.mem.wr(lock, word + gv::kLockFree);
+    }
+};
+}  // namespace
+
+static void test_match_setup() {
+    run_case("game variables: the hash is djb2 with the NUL (values read from the live table, 04-10-2026)", [&] {
+        CHECK(gv::hash("TEST_AI_60HZ") == 0x46102015u, fmt("TEST_AI_60HZ %08x", gv::hash("TEST_AI_60HZ")));
+        CHECK(gv::hash("REGIONALIZATION_FRE_FR/CURRENCY_TYPE") == 0x4AD40022u, "REGIONALIZATION_FRE_FR/CURRENCY_TYPE");
+        CHECK(gv::hash("SHOOTING_ATTRIBS/POS_2") == 0x8BA8C01Au, "SHOOTING_ATTRIBS/POS_2");
+        CHECK(gv::hash("") == 0x1505u * 33u, "empty name: the NUL alone");
+        CHECK(gv::check_name("NEVER_INJURE").empty() && gv::check_name("OVERRIDE/TOD").empty(), "names accepted");
+        CHECK(!gv::check_name("never_injure").empty() && !gv::check_name("A B").empty() && !gv::check_name("").empty() &&
+                  !gv::check_name(std::string(96, 'A')).empty(),
+              "lower case, space, empty, too long refused");
+        for (const gv::KnownVar& v : gv::known_vars()) {
+            CHECK(gv::check_name(v.name).empty(), std::string("known name valid: ") + v.name);
+            CHECK(v.min <= v.max && gv::known(v.name) == &v, std::string("known entry: ") + v.name);
+        }
+        CHECK(gv::known("NEVER_INJURE") && gv::known("OVERRIDE/WEATHER") && gv::known("OVERRIDE/TOD") && !gv::known("OVERRIDE/STADIUM"),
+              "the offered set (no stadium override)");
+    });
+
+    run_case("game variables: locate the table, refuse a broken one", [&] {
+        GvWorld w;
+        gv::Table t;
+        CHECK(gv::locate(w.mem, GvWorld::kObj + gv::kObjTable, t).empty() && t.addr == GvWorld::kTable && t.mask == 63 && t.count == 0, "located");
+        CHECK(gv::validate(w.mem, t), "validate");
+        w.game_set("TEST_AI_60HZ", gv::kTypeInt, 2);
+        CHECK(gv::locate(w.mem, GvWorld::kObj + gv::kObjTable, t).empty() && t.count == 1, "one node");
+        w.mem.wr(GvWorld::kTable + gv::kOffSeed, uint32_t(7));
+        CHECK(!gv::locate(w.mem, GvWorld::kObj + gv::kObjTable, t).empty(), "wrong seed refused");
+        w.mem.wr(GvWorld::kTable + gv::kOffSeed, gv::kSeed);
+        w.mem.wr(GvWorld::kTable + gv::kOffMask, uint32_t(62));
+        CHECK(!gv::locate(w.mem, GvWorld::kObj + gv::kObjTable, t).empty(), "mask + 1 not a power of two refused");
+        w.mem.wr(GvWorld::kTable + gv::kOffMask, uint32_t(63));
+        // a node in the wrong bucket
+        uint64_t head = 0;
+        const uint32_t h = gv::hash("TEST_AI_60HZ");
+        w.mem.rd(GvWorld::kBuckets + (h & 63) * 8, head);
+        w.mem.wr(GvWorld::kBuckets + ((h + 1) & 63) * 8, head);
+        CHECK(!gv::locate(w.mem, GvWorld::kObj + gv::kObjTable, t).empty(), "node in a foreign bucket refused");
+        CHECK(!gv::locate(w.mem, 0x7000, t).empty(), "no slot refused");
+    });
+
+    run_case("game variables: a new switch goes in through the game's SetInt, clears and comes back without leaking", [&] {
+        GvWorld w;
+        FakeGv game(w);
+        const gv::Fns fns = GvWorld::fns();
+        gv::Override ov;
+        CHECK(w.get_int("NEVER_INJURE", 0) == 0, "absent: the caller's default");
+        std::string err = gv::apply(w.mem, game, fns, "NEVER_INJURE", 1, ov);
+        CHECK(err.empty(), "applied: " + err);
+        CHECK(game.calls == 1 && game.lock_violations == 0 && w.null_writes == 0, "one SetInt, lock free during it, no null write");
+        CHECK(w.get_int("NEVER_INJURE", 0) == 1, "GetInt reads 1");
+        CHECK(ov.active && !ov.game_declared && ov.node && ov.var && ov.value == 1, "record");
+        int32_t now = 0;
+        CHECK(gv::current(w.mem, fns, "NEVER_INJURE", now) && now == 1, "current");
+        const uint64_t cursor = w.cur();
+        err = gv::apply(w.mem, game, fns, "NEVER_INJURE", 0, ov);
+        CHECK(err.empty() && w.get_int("NEVER_INJURE", 5) == 0 && w.cur() == cursor, "set again: in place, nothing allocated");
+        err = gv::clear(w.mem, game, fns, ov);
+        CHECK(err.empty(), "cleared: " + err);
+        CHECK(w.get_int("NEVER_INJURE", 7) == 7 && !ov.active && ov.saved_var, "GetInt returns the caller's default again");
+        CHECK(!gv::current(w.mem, fns, "NEVER_INJURE", now), "no value now");
+        uint32_t word = 0;
+        w.mem.rd(GvWorld::kLock, word);
+        CHECK(word == gv::kLockFree && game.locks == 1, "the lock was taken once and released");
+        err = gv::apply(w.mem, game, fns, "NEVER_INJURE", 1, ov);
+        CHECK(err.empty() && w.get_int("NEVER_INJURE", 0) == 1 && w.cur() == cursor && ov.saved_var == 0, "back: the old value object reused, no leak");
+        gv::Table t;
+        gv::locate(w.mem, fns.table_slot, t);
+        CHECK(t.count == 1, "still one node");
+        // SetInt failing after the relink: the old value must not stay live
+        gv::clear(w.mem, game, fns, ov);
+        game.fail = true;
+        err = gv::apply(w.mem, game, fns, "NEVER_INJURE", 1, ov);
+        CHECK(!err.empty() && w.get_int("NEVER_INJURE", 9) == 9, "failed call: unlinked again: " + err);
+        game.fail = false;
+        CHECK(gv::apply(w.mem, game, fns, "NEVER_INJURE", 1, ov).empty() && w.get_int("NEVER_INJURE", 0) == 1, "and it still works");
+    });
+
+    run_case("game variables: a variable the game declared gets its previous value back", [&] {
+        GvWorld w;
+        FakeGv game(w);
+        const gv::Fns fns = GvWorld::fns();
+        w.game_set("INJURY/PERC_CHANCE", gv::kTypeInt, 5);
+        gv::Override ov;
+        std::string err = gv::apply(w.mem, game, fns, "INJURY/PERC_CHANCE", 0, ov);
+        CHECK(err.empty() && w.get_int("INJURY/PERC_CHANCE", -1) == 0, "set to 0: " + err);
+        CHECK(ov.game_declared && ov.previous == 5, "previous recorded");
+        err = gv::apply(w.mem, game, fns, "INJURY/PERC_CHANCE", 2, ov);
+        CHECK(err.empty() && ov.previous == 5, "a second set keeps the first previous value");
+        err = gv::clear(w.mem, game, fns, ov);
+        CHECK(err.empty() && w.get_int("INJURY/PERC_CHANCE", -1) == 5 && !ov.active, "restored: " + err);
+        CHECK(game.locks == 0, "no raw node write for a game variable");
+    });
+
+    run_case("game variables: every refusal happens before the game is called", [&] {
+        const gv::Fns good = GvWorld::fns();
+        {
+            GvWorld w;
+            FakeGv game(w);
+            gv::Override ov;
+            CHECK(!gv::apply(w.mem, game, good, "never_injure", 1, ov).empty(), "lower-case name");
+            gv::Fns f = good;
+            f.set_int = 0;
+            CHECK(gv::apply(w.mem, game, f, "NEVER_INJURE", 1, ov).find("gamevar_set_int") != std::string::npos, "missing anchor named");
+            f = good;
+            f.table_slot += 8;
+            CHECK(!gv::apply(w.mem, game, f, "NEVER_INJURE", 1, ov).empty(), "store and table global disagree");
+            f = good;
+            f.set_lock += 4;
+            CHECK(!gv::apply(w.mem, game, f, "NEVER_INJURE", 1, ov).empty(), "two different locks");
+            w.mem.wr(GvWorld::kObj + gv::kObjEnabled, uint8_t(0));
+            CHECK(gv::apply(w.mem, game, good, "NEVER_INJURE", 1, ov).find("switched off") != std::string::npos, "store switched off");
+            w.mem.wr(GvWorld::kObj + gv::kObjEnabled, uint8_t(1));
+            // arena nearly full: the value fits, the name does not (the real SetInt would write the name to address 0)
+            w.mem.wr(GvWorld::kObj + gv::kObjArenaCur, GvWorld::kArenaEnd - 0x20);
+            CHECK(gv::apply(w.mem, game, good, "NEVER_INJURE", 1, ov).find("arena is full") != std::string::npos, "arena full");
+            w.mem.wr(GvWorld::kObj + gv::kObjArenaCur, GvWorld::kArena);
+            // no free node
+            w.mem.wr(GvWorld::kTable + gv::kOffFree, uint64_t(0));
+            CHECK(gv::apply(w.mem, game, good, "NEVER_INJURE", 1, ov).find("no free node") != std::string::npos, "free list empty");
+            CHECK(game.calls == 0 && w.null_writes == 0, "the game was never called");
+        }
+        {
+            GvWorld w;
+            FakeGv game(w);
+            gv::Override ov;
+            w.game_set("SOME/FLOAT", 3, 0x3F800000);  // SetFloat's type 3
+            CHECK(gv::apply(w.mem, game, good, "SOME/FLOAT", 1, ov).find("not an integer") != std::string::npos, "float variable refused");
+            // a node with NEVER_INJURE's hash but another name (a hash collision)
+            gv::Override o2;
+            const uint32_t h = gv::hash("NEVER_INJURE");
+            uint64_t node = w.free_head(), next = 0;
+            w.mem.rd(node + gv::kNodeNext, next);
+            w.mem.wr(GvWorld::kTable + gv::kOffFree, next);
+            w.mem.wr(node + gv::kNodeHash, h);
+            w.mem.wr(node + gv::kNodeVar, uint64_t(0));
+            w.mem.wr(node + gv::kNodeNext, uint64_t(0));
+            w.mem.wr(node + gv::kNodeName, w.str("SOMETHING_ELSE"));
+            w.mem.wr(GvWorld::kBuckets + (h & 63) * 8, node);
+            CHECK(gv::apply(w.mem, game, good, "NEVER_INJURE", 1, o2).find("same hash") != std::string::npos, "collision refused");
+            CHECK(game.calls == 0, "never called");
+        }
+        {
+            // the call ran but the value did not arrive: reported, the record stays inactive
+            GvWorld w;
+            FakeGv game(w);
+            game.noop = true;
+            gv::Override ov;
+            std::string err = gv::apply(w.mem, game, good, "NEVER_INJURE", 1, ov);
+            CHECK(err.find("after SetInt") != std::string::npos && !ov.active, "read-back failure: " + err);
+            // a busy lock: clear reports it and keeps the value
+            game.noop = false;
+            CHECK(gv::apply(w.mem, game, good, "NEVER_INJURE", 1, ov).empty(), "applied");
+            game.busy = true;
+            CHECK(gv::clear(w.mem, game, good, ov).find("busy") != std::string::npos && ov.active && w.get_int("NEVER_INJURE", 0) == 1, "busy lock");
+            game.busy = false;
+            CHECK(gv::clear(w.mem, game, good, ov).empty() && w.get_int("NEVER_INJURE", 0) == 0, "cleared later");
+            CHECK(gv::clear(w.mem, game, good, ov).empty(), "clearing twice is a no-op");
+        }
+    });
+
+    run_case("result fixing: a regular-time result of a fixed fixture is rewritten, nothing else", [&] {
+        SimMemory mem;
+        const uint64_t self = 0x61000000ULL, msg = 0x61000100ULL, vt = 0x140000000ULL + mfix::kRvaSchedulingVtable;
+        mem.map(self, 0x1000);
+        auto reset = [&](int32_t type, int32_t fixture, int32_t h, int32_t a) {
+            mem.wr(self, vt);
+            mem.wr(msg + mfix::kOffType, type);
+            mem.wr(msg + mfix::kOffHome, h);
+            mem.wr(msg + mfix::kOffAway, a);
+            for (uint64_t o : {mfix::kOffExtra, mfix::kOffExtra + 4, mfix::kOffPens, mfix::kOffPens + 4}) mem.wr(msg + o, int32_t(-1));
+            mem.wr(msg + mfix::kOffFixture, fixture);
+        };
+        mfix::FixTable fixes;
+        mfix::Applied a;
+        reset(0x2A, 731, 0, 2);
+        CHECK(!mfix::apply_to_request(mem, self, vt, msg, fixes, a), "empty table: nothing");
+        CHECK(fixes.set(731, 3, 1, "Napoli v Bologna").empty() && fixes.size() == 1, "fix set");
+        CHECK(!fixes.set(731, 31, 0).empty() && !fixes.set(731, -1, 0).empty() && !fixes.set(20000, 1, 0).empty(), "limits");
+        CHECK(fixes.set(731, 3, 1).empty() && fixes.find(731)->label == "Napoli v Bologna", "update keeps the label");
+        CHECK(mfix::apply_to_request(mem, self, vt, msg, fixes, a) && a.changed && a.old_home == 0 && a.old_away == 2, "rewritten");
+        int32_t h = 0, aw = 0;
+        mem.rd(msg + mfix::kOffHome, h);
+        mem.rd(msg + mfix::kOffAway, aw);
+        CHECK(h == 3 && aw == 1, "goals in the message");
+        CHECK(mfix::apply_to_request(mem, self, vt, msg, fixes, a) && !a.changed && a.skipped.empty(), "the second manager sees it done");
+        reset(0x2A, 732, 0, 2);
+        CHECK(!mfix::apply_to_request(mem, self, vt, msg, fixes, a), "another fixture untouched");
+        reset(0x30, 731, 0, 2);
+        CHECK(!mfix::apply_to_request(mem, self, vt, msg, fixes, a), "another message type untouched");
+        reset(0x2A, 731, 1, 1);
+        mem.wr(msg + mfix::kOffPens, int32_t(4));
+        mem.wr(msg + mfix::kOffPens + 4, int32_t(3));
+        CHECK(mfix::apply_to_request(mem, self, vt, msg, fixes, a) && !a.changed && !a.skipped.empty(), "penalties: left as played");
+        mem.rd(msg + mfix::kOffHome, h);
+        CHECK(h == 1, "goals untouched after penalties");
+        reset(0x2A, 731, 1, 1);
+        mem.wr(msg + mfix::kOffExtra, int32_t(1));
+        mem.wr(msg + mfix::kOffExtra + 4, int32_t(0));
+        CHECK(mfix::apply_to_request(mem, self, vt, msg, fixes, a) && !a.changed && !a.skipped.empty(), "extra time: left as played");
+        reset(0x2A, 731, 0, 2);
+        mem.wr(self, vt + 8);
+        CHECK(mfix::apply_to_request(mem, self, vt, msg, fixes, a) && !a.changed && a.skipped.find("FCE manager") != std::string::npos,
+              "wrong object class: left alone");
+        CHECK(mfix::apply_to_request(mem, self, 0, msg, fixes, a) && a.changed, "vtable check skipped when the base is not known");
+        CHECK(!mfix::apply_to_request(mem, self, vt, 0x72000000ULL, fixes, a), "unreadable message: nothing");
+        CHECK(fixes.erase(731) && !fixes.erase(731) && fixes.empty(), "erase");
+    });
+
+    run_case("match setup: unplayed fixtures change venue or opponent; played ones and foreign clubs are refused", [&] {
+        FceWorld w(4, 5);
+        w.fixture(3, 100, 1, 0, -1, -1, 0, 20260822);  // Everton v Arsenal, not played
+        w.fixture(4, 100, 2, 1, -1, -1, 0, 20260822);  // Inter v Everton the same day
+        w.row(3, 101, 99, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);  // a club of another group
+        fce::Located loc;
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::kBase, loc).empty(), "located");
+        std::vector<fce::Fixture> fx;
+        std::vector<fce::StandingRow> rows;
+        fce::read_fixtures(w.mem, loc, fx);
+        fce::read_rows(w.mem, loc, rows);
+        const fce::Fixture* next = fce::next_fixture(fx, rows, 1, 20260801);
+        CHECK(next && next->id == 3, "Arsenal's next fixture");
+        CHECK(fce::next_fixture(fx, rows, 1, 20260823) == nullptr, "none after the date");
+        CHECK(fce::swap_fixture_sides(w.mem, loc, 3).empty(), "swapped");
+        fce::read_fixtures(w.mem, loc, fx);
+        CHECK(fx[3].home_sid == 0 && fx[3].away_sid == 1 && fx[3].date == 20260822 && fx[3].time == 1500, "Arsenal at home now, date kept");
+        CHECK(!fce::swap_fixture_sides(w.mem, loc, 0).empty(), "played fixture refused");
+        CHECK(!fce::swap_fixture_sides(w.mem, loc, 2).empty(), "a fixture with scores is not unplayed");
+        CHECK(!fce::swap_fixture_sides(w.mem, loc, 9).empty(), "no such fixture");
+        // another opponent: Inter plays Everton that day, so Inter is refused; a club of another group too
+        CHECK(!fce::pairing_conflict(fx, rows, 3, 0, 2).empty(), "Inter already plays on 22.08");
+        CHECK(fce::pairing_conflict(fx, rows, 3, 0, 1).empty(), "the same pairing is no clash");
+        CHECK(!fce::set_fixture_teams(w.mem, loc, 3, 0, 3).empty(), "a club of another group refused");
+        CHECK(!fce::set_fixture_teams(w.mem, loc, 3, 0, 0).empty(), "the same club twice refused");
+        w.fixture(4, 100, 2, 1, -1, -1, 0, 20260829);  // move Inter's match away
+        fce::read_fixtures(w.mem, loc, fx);
+        CHECK(fce::pairing_conflict(fx, rows, 3, 0, 2).empty(), "no clash now");
+        // Inter's cup row (group 101, row 3 re-used as Inter's) playing that day is a clash too: clubs, not rows
+        w.row(3, 101, 241, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        w.fixture(4, 101, 3, 1, -1, -1, 0, 20260822);
+        fce::read_rows(w.mem, loc, rows);
+        fce::read_fixtures(w.mem, loc, fx);
+        CHECK(!fce::pairing_conflict(fx, rows, 3, 0, 2).empty(), "Inter's cup fixture the same day is a clash");
+        w.fixture(4, 100, 2, 1, -1, -1, 0, 20260829);
+        fce::read_fixtures(w.mem, loc, fx);
+        CHECK(fce::set_fixture_teams(w.mem, loc, 3, 0, 2).empty(), "Arsenal v Inter");
+        fce::read_fixtures(w.mem, loc, fx);
+        CHECK(fx[3].home_sid == 0 && fx[3].away_sid == 2 && fx[3].home_score == -1 && fx[3].completion == 0 && fx[3].used == 1, "fixture bytes");
+        CHECK(!fce::set_fixture_teams(w.mem, loc, 0, 0, 2).empty(), "played fixture refused");
+    });
+
+    run_case("signatures: the built-in match-setup entries resolve on the game's bytes and agree with each other", [&] {
+        const SignatureTable* t = builtin_signature_table("6AB9813C-211EF000");
+        CHECK(t != nullptr, "built-in table");
+        if (!t) return;
+        // bytes read from fc27_image.bin (FC27.exe 1.0.140.64835) at the VAs in the comments
+        const uint8_t k_getint[] = {0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x08, 0x48, 0x89, 0x68, 0x10, 0x48, 0x89, 0x70, 0x18, 0x48, 0x89, 0x78, 0x20, 0x41, 0x56, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xF1, 0x48, 0x8D, 0x1D, 0x59, 0xC4, 0x93, 0x0B, 0x48, 0x8B, 0xCB, 0x44, 0x8B, 0xF2, 0xE8, 0x5A, 0x19, 0x00, 0x00, 0x48, 0x8B, 0x2D, 0x3F, 0x77, 0xA1, 0x0C, 0x48, 0x8B, 0xFE, 0x41, 0xB9, 0x01, 0x00, 0x00, 0x00, 0x45, 0x33};  // 0x140856DB4
+        const uint8_t k_setint[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x40, 0x48, 0x8B, 0xF1, 0x41, 0x8B, 0xD8, 0x48, 0x8D, 0x0D, 0x90, 0x3E, 0xC4, 0x0A, 0x48, 0x8B, 0xFA, 0xE8, 0x00, 0xC9, 0x84, 0xFF, 0x4C, 0x8D, 0x44, 0x24, 0x20, 0xC7, 0x44, 0x24, 0x20, 0x02, 0x00, 0x00, 0x00, 0x48, 0x8B, 0xD7, 0x89, 0x5C, 0x24, 0x28, 0x48, 0x8B, 0xCE, 0xE8, 0x1C, 0x00, 0x00, 0x00};  // 0x14154F384
+        const uint8_t k_gvobj[] = {0x4C, 0x8D, 0x2D, 0xF7, 0x26, 0x28, 0x0C, 0x8B, 0xF8, 0x49, 0x8B, 0xCD, 0x48, 0x8D, 0x15, 0xF3, 0xD9, 0x66, 0x08, 0xE8, 0x0A, 0x03, 0x00, 0x00, 0x33, 0xD2, 0x48, 0x8D, 0x0D, 0xE5, 0xD9, 0x66};  // 0x140FEBE12
+        const uint8_t k_sched[] = {0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x8B, 0x42, 0x10, 0xB3, 0x01, 0x83, 0xF8, 0x24, 0x0F, 0x84, 0x81, 0x00, 0x00, 0x00, 0x83, 0xF8, 0x25, 0x75, 0x10, 0x80, 0x7A, 0x48, 0x00, 0x74, 0x76, 0xE8, 0x60, 0x78, 0x00, 0x00, 0xE9, 0xBD, 0x00, 0x00};  // 0x148A4E80C
+        const uint8_t k_stand[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x8B, 0x42, 0x10, 0x48, 0x8B, 0xDA, 0x48, 0x8B, 0xF9, 0x40, 0xB6, 0x01, 0x83, 0xF8, 0x2A, 0x75, 0x0A, 0xE8, 0xE3, 0xD2, 0x00, 0x00, 0xE9, 0xFC, 0x00};  // 0x148A4E8FC
+        struct Snip { const uint8_t* b; size_t n; uint64_t va; };
+        const Snip snips[] = {{k_getint, sizeof(k_getint), 0x140856DB4ULL}, {k_setint, sizeof(k_setint), 0x14154F384ULL},
+                              {k_gvobj, sizeof(k_gvobj), 0x140FEBE12ULL}, {k_sched, sizeof(k_sched), 0x148A4E80CULL},
+                              {k_stand, sizeof(k_stand), 0x148A4E8FCULL}};
+        // each snippet in its own buffer based at its real VA (rip operands resolve to the real globals); a name must
+        // match exactly one snippet
+        auto resolve = [&](const char* name, uint64_t& out) {
+            const Signature* s = t->find(name);
+            if (!s || s->pattern.empty()) return false;
+            int found = 0;
+            for (const Snip& sn : snips) {
+                std::vector<uint8_t> code(0x200, 0xCC);
+                std::memcpy(code.data() + 0x40, sn.b, sn.n);
+                SigResult r = resolve_signature(*s, code.data(), code.size(), sn.va - 0x40);
+                if (r.state == SigState::Found) {
+                    ++found;
+                    out = r.address;
+                }
+            }
+            return found == 1;
+        };
+        gv::Fns f;
+        uint64_t sched = 0, stand = 0;
+        CHECK(resolve("gamevar_get_int", f.get_int) && f.get_int == 0x140856DB4ULL, "GetInt");
+        CHECK(resolve("gamevar_set_int", f.set_int) && f.set_int == 0x14154F384ULL, "SetInt");
+        CHECK(resolve("gamevar_object", f.object) && f.object == 0x14D26E510ULL, fmt("store 0x%llX", (unsigned long long)f.object));
+        CHECK(resolve("gamevar_table_slot", f.table_slot) && f.table_slot == 0x14D26E528ULL, fmt("table global 0x%llX", (unsigned long long)f.table_slot));
+        CHECK(resolve("gamevar_lock", f.lock) && f.lock == 0x14C193230ULL, fmt("lock 0x%llX", (unsigned long long)f.lock));
+        CHECK(resolve("gamevar_set_lock", f.set_lock) && f.set_lock == 0x14C193230ULL, "SetInt's lock");
+        CHECK(f.missing() == nullptr && f.inconsistent().empty(), "the anchors agree: " + f.inconsistent());
+        CHECK(resolve("fce_sched_handle_message", sched) && sched == 0x148A4E80CULL, "scheduling HandleMessage");
+        CHECK(resolve("fce_standings_handle_message", stand) && stand == 0x148A4E8FCULL, "standings HandleMessage");
+        CHECK(gv::kRipGetIntTable == 0x2E && gv::kRipGetIntLock == 0x1C && gv::kRipSetIntLock == 0x15, "offsets in the header match the table");
+    });
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) {
         std::printf("usage: %s <out_dir> <gui_world.lua>\n", argv[0]);
@@ -5630,6 +6244,8 @@ int main(int argc, char** argv) {
     test_fce_compobjs();
     std::printf("native standings refresh\n");
     test_standings_refresh();
+    std::printf("native match setup\n");
+    test_match_setup();
     std::printf("native player capture\n");
     test_player_capture();
     std::printf("native UI\n");

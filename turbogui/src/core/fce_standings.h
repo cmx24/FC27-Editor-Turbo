@@ -158,5 +158,22 @@ std::string apply_result(StandingRow& home, StandingRow& away, int home_score, i
 // Change the score of a played fixture: the fixture bytes and both rows are patched consistently. "" = done
 std::string edit_result(Memory& mem, const Located& loc, uint16_t fixture_id, int new_home, int new_away, const Points& pts);
 
+// ---- match setup: edits of fixtures that have not been played yet (docs/re/match_setup.md section 4). FixtureData is
+// what the engine's scheduler plays or simulates on its date (+0x0A / +0x0C are the two standing rows, so the home side
+// is the venue). The career's hub keeps its own list of the user's fixtures, re-requested from FCE on career events and
+// match days, so the hub may show the old pairing until the next day advance: the callers say so.
+// Swap the home and away rows of an unplayed fixture (the venue changes side). "" = done
+std::string swap_fixture_sides(Memory& mem, const Located& loc, uint16_t fixture_id);
+// Put the rows `home_sid` / `away_sid` on an unplayed fixture (two different used rows of the same group as the rows the
+// fixture holds now). "" = done
+std::string set_fixture_teams(Memory& mem, const Located& loc, uint16_t fixture_id, int16_t home_sid, int16_t away_sid);
+// A new pairing must not put a club into two fixtures on one day, in any competition (clubs compared by team id through
+// `rows`): "" or the clash (fixtures and rows indexed by id)
+std::string pairing_conflict(const std::vector<Fixture>& fixtures, const std::vector<StandingRow>& rows, uint16_t fixture_id, int16_t home_sid,
+                             int16_t away_sid);
+// The team's next fixture on or after `today` (YYYYMMDD): the earliest unplayed used fixture whose home or away row belongs
+// to `team`. nullptr when none. `rows` resolves the row ids.
+const Fixture* next_fixture(const std::vector<Fixture>& fixtures, const std::vector<StandingRow>& rows, uint32_t team, uint32_t today);
+
 }  // namespace fce
 }  // namespace turbo

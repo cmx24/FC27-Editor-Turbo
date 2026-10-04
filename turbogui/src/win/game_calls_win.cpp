@@ -8,6 +8,7 @@
 #include "game_hooks.h"
 #include "host.h"
 #include "standings_refresh_win.h"
+#include "match_setup_win.h"
 
 namespace host {
 
@@ -208,6 +209,7 @@ std::vector<std::string> game_calls_status() {
         if (!g_last.empty()) out.push_back("  last: " + g_last);
     }
     for (const auto& l : standings_refresh_status()) out.push_back(l);
+    for (const auto& l : match_setup_status()) out.push_back(l);
     return out;
 }
 

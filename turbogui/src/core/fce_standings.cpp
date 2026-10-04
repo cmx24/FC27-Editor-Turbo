@@ -352,5 +352,99 @@ std::string edit_result(Memory& mem, const Located& loc, uint16_t fixture_id, in
     return "";
 }
 
+// ---------------------------------------------------------------- match setup: unplayed fixtures
+namespace {
+// Read an unplayed, used fixture `id` into f (its address in fa). "" or the reason
+std::string unplayed_fixture(Memory& mem, const Located& loc, uint16_t id, Fixture& f, uint64_t& fa) {
+    if (!loc.ok()) return "the standings are not located";
+    if (id >= loc.fixture_count) return "no such fixture";
+    fa = loc.fixtures_data + uint64_t(id) * kFixtureSize;
+    uint8_t fb[kFixtureSize];
+    if (!mem.read(fa, fb, kFixtureSize)) return "the fixture is not readable";
+    decode_fixture(fb, fa, f);
+    if (f.used != 1 || f.id != id) return "the fixture slot is not in use";
+    if (f.completion != 0 || f.home_score >= 0 || f.away_score >= 0) return "the match has been played already: only unplayed fixtures can be set up";
+    return "";
+}
+bool row_at(Memory& mem, const Located& loc, int16_t sid, StandingRow& r) {
+    if (sid < 0 || uint32_t(sid) >= loc.row_count) return false;
+    const uint64_t a = loc.rows_begin + uint64_t(sid) * kStandingSize;
+    uint8_t b[kStandingSize];
+    if (!mem.read(a, b, kStandingSize)) return false;
+    decode_row(b, a, r);
+    return r.used == 1 && r.id == uint16_t(sid);
+}
+}  // namespace
+
+std::string swap_fixture_sides(Memory& mem, const Located& loc, uint16_t fixture_id) {
+    Fixture f;
+    uint64_t fa = 0;
+    std::string err = unplayed_fixture(mem, loc, fixture_id, f, fa);
+    if (!err.empty()) return err;
+    StandingRow h, a;
+    if (!row_at(mem, loc, f.home_sid, h) || !row_at(mem, loc, f.away_sid, a)) return "the fixture's standing rows are not usable";
+    uint8_t b[4];
+    const int16_t nh = f.away_sid, na = f.home_sid;
+    std::memcpy(b, &nh, 2);
+    std::memcpy(b + 2, &na, 2);
+    if (!mem.write(fa + 0x0A, b, 4)) return "writing the fixture rows failed";
+    return "";
+}
+
+std::string set_fixture_teams(Memory& mem, const Located& loc, uint16_t fixture_id, int16_t home_sid, int16_t away_sid) {
+    Fixture f;
+    uint64_t fa = 0;
+    std::string err = unplayed_fixture(mem, loc, fixture_id, f, fa);
+    if (!err.empty()) return err;
+    if (home_sid == away_sid) return "home and away must be different clubs";
+    StandingRow ch, ca, nh, na;
+    if (!row_at(mem, loc, f.home_sid, ch) || !row_at(mem, loc, f.away_sid, ca)) return "the fixture's current standing rows are not usable";
+    if (!row_at(mem, loc, home_sid, nh) || !row_at(mem, loc, away_sid, na)) return "a chosen row is not a used standing row";
+    if (nh.compobj != ch.compobj || na.compobj != ch.compobj) return "both clubs must belong to the fixture's competition group";
+    if (nh.teamid == 0 || na.teamid == 0) return "a chosen row has no team";
+    if (home_sid == f.home_sid && away_sid == f.away_sid) return "";
+    uint8_t b[4];
+    std::memcpy(b, &home_sid, 2);
+    std::memcpy(b + 2, &away_sid, 2);
+    if (!mem.write(fa + 0x0A, b, 4)) return "writing the fixture rows failed";
+    return "";
+}
+
+std::string pairing_conflict(const std::vector<Fixture>& fixtures, const std::vector<StandingRow>& rows, uint16_t fixture_id, int16_t home_sid,
+                             int16_t away_sid) {
+    if (fixture_id >= fixtures.size()) return "no such fixture";
+    auto team_of = [&](int16_t sid) -> uint32_t {
+        if (sid < 0 || size_t(sid) >= rows.size()) return 0;
+        return rows[size_t(sid)].used == 1 ? rows[size_t(sid)].teamid : 0;
+    };
+    const Fixture& f = fixtures[fixture_id];
+    const uint32_t now_home = team_of(f.home_sid), now_away = team_of(f.away_sid);
+    for (int16_t sid : {home_sid, away_sid}) {
+        const uint32_t team = team_of(sid);
+        if (!team || team == now_home || team == now_away) continue;  // a club of this fixture keeps its day
+        // the club in any competition (a club has one row per group): another fixture that day is a clash
+        for (const Fixture& o : fixtures)
+            if (o.used == 1 && o.id != fixture_id && o.date == f.date && (team_of(o.home_sid) == team || team_of(o.away_sid) == team))
+                return "a chosen club already plays fixture " + std::to_string(o.id) + " on the same day";
+    }
+    return "";
+}
+
+const Fixture* next_fixture(const std::vector<Fixture>& fixtures, const std::vector<StandingRow>& rows, uint32_t team, uint32_t today) {
+    const Fixture* best = nullptr;
+    for (const Fixture& f : fixtures) {
+        if (f.used != 1 || f.completion != 0 || f.home_score >= 0 || f.away_score >= 0) continue;
+        if (f.date < today) continue;
+        auto team_of = [&](int16_t sid) -> uint32_t {
+            if (sid < 0 || size_t(sid) >= rows.size()) return 0;
+            const StandingRow& r = rows[size_t(sid)];
+            return r.used == 1 ? r.teamid : 0;
+        };
+        if (team_of(f.home_sid) != team && team_of(f.away_sid) != team) continue;
+        if (!best || f.date < best->date || (f.date == best->date && f.time < best->time)) best = &f;
+    }
+    return best;
+}
+
 }  // namespace fce
 }  // namespace turbo
