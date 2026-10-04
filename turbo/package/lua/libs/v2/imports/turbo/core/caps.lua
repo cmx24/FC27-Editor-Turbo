@@ -19,6 +19,8 @@ M.NEEDS = {
     move_unlist = { "RemovePlayerFromLists" },
     development = { "PlayerDevelopmentManagerAddPlayer", "PlayerDevelopmentManagerSave" },
     form_morale = { "SetPlayerForm", "SetPlayerMorale", "SetPlayerFitness" },
+    -- job offer creation calls the game through Turbo.dll (hook foundation); the DLL registers this Lua native
+    job_offer = { "TurboJobOfferCreate" },
 }
 
 -- Player moves Turbo does itself in the career database when Live Editor has no native for them (core/moves.lua).

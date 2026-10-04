@@ -59,6 +59,7 @@ M.DEFAULTS = {
                            file = "", playerid = 0, groups = {}, row = 0, preset_playerid = 0 },
         create_player = { source = {}, teamid = 111592, jersey = 0, names = {}, set = {}, playerid = 0,
                           min_playerid = 0, max_playerid = 459999, allow_user_club = false },
+        job_offer = { enabled = false, teamid = 0, confirm = false },
     },
 }
 
