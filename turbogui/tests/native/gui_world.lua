@@ -155,9 +155,8 @@ local function build_world(sim)
                  { tattooid = 13, tattooleftarm = 1, tattoohead = 0 } },
     })
     local nrows = {}
-    -- commentaryid 900000 = no callname (name 20 "Generic"); the others map to 9000<id>
-    for id = 1, 20 do nrows[#nrows + 1] = { nameid = id, name = NAMES[id], commentaryid = (id == 20) and 900000 or (900000 + id) } end
-    -- commentary names (text compressed in FC 27, decoded by Live Editor for bridge_commentary.txt) and the per-player override
+    for id = 1, 20 do nrows[#nrows + 1] = { nameid = id, name = NAMES[id], commentaryid = 900000 + id } end
+    -- commentary names (text compressed in FC 27, decoded by Live Editor for bridge_commentary.txt)
     local crows = {}
     for id = 1, 19 do crows[#crows + 1] = { commentaryid = 900000 + id, commentarystring = NAMES[id], commentarystartingletter = 1, commentarypreview = 1 } end
     sim:add_table({
@@ -169,11 +168,6 @@ local function build_world(sim)
             { name = "commentarystring", short = "cmst", type = "compressed", depth = 8 * 45 },
         },
         rows = crows,
-    })
-    sim:add_table({
-        name = "playernamemap", short = "pnmp",
-        fields = { { name = "commentaryid", short = "cmid", depth = 20, min = -1 }, { name = "playerid", short = "pid_", depth = 19, min = -1 } },
-        rows = { { playerid = 2002, commentaryid = 900017 } },   -- player 2002 (Generic Generic) is called "Kane"
     })
     sim:add_table({
         name = "playernames", short = "pnms",
