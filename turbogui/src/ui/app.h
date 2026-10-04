@@ -99,6 +99,8 @@ public:
     bool model_stale = false;      // Lua changed the database: rebuild lists when shown
     uint64_t seen_service = 0;
     std::string pending_label;
+    LuaActionQueue lua_queue;  // "keep shown name" actions waiting for the mailbox (flush_lua_queue, every tick)
+    void flush_lua_queue();
     double pending_since = 0.0;
     std::deque<std::string> log_lines;
     std::vector<Toast> toasts;

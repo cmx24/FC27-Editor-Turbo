@@ -43,6 +43,7 @@ struct PendingAssign {
     int64_t commentaryid = 0;  // By player: the callname to copy
     std::string from;          // By player: whose callname it is
     bool keep_display = true;
+    NameChoice alt;            // All callnames: the picked name row (it may not be among the index's spoken names)
 };
 static PendingAssign g_pending;
 static bool g_open_own_confirm = false;
@@ -143,10 +144,12 @@ static void assign_name(App& app, const Table& t, const PlayerRow& p, const Name
             json a = {{"action", "set_display_name"}, {"playerid", p.playerid}, {"firstname", before.first},
                       {"surname", before.last}, {"commonname", before.common}};
             add_room_check(app, a, cap);
-            if (send_actions(app, json::array({a}), "Keep shown name"))
-                app.notify(msg + "; editedplayernames row queued for Turbo's Lua side (next career event)");
-            else
-                app.notify(msg + "; shown name NOT kept: Turbo's Lua side is busy, use 'Keep shown name' again", true);
+            // queued in the GUI (Turbo's mailbox holds one command at a time) and sent, batched, as soon as it is free
+            app.lua_queue.push(a.dump());
+            const bool waiting = app.busy();
+            app.flush_lua_queue();
+            app.notify(msg + (waiting ? "; shown name queued: sent to Turbo's Lua side as soon as the running command ends"
+                                      : "; editedplayernames row queued for Turbo's Lua side (next career event)"));
         }
     } else {
         app.notify(msg);
@@ -405,8 +408,12 @@ static void language_line(App& app) {
     // The master list (an FC 27 master, else the user's FC 26 list): the second (and usually the bigger) source of "has
     // his own recording"
     if (cn.masters.loaded()) {
-        ImGui::TextColored(kGreen, "%s: %zu players with their own recording, %zu generic names", cn.masters.label(true).c_str(),
-                           cn.masters.real_players.size(), cn.masters.generic_ids.size());
+        if (cn.masters.fc27())
+            ImGui::TextColored(kGreen, "FC 27 master: %zu players with their own recording (decides alone); spoken surnames = its %zu generic ids"
+                               " + the game's audio service set", cn.masters.real_players.size(), cn.masters.generic_ids.size());
+        else
+            ImGui::TextColored(kGreen, "%s: %zu players with their own recording, %zu generic names", cn.masters.label(true).c_str(),
+                               cn.masters.real_players.size(), cn.masters.generic_ids.size());
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%s\nmade from %s (%s) by turbo\\tools\\import_callname_masters.py.\n%s", cn.masters.file.c_str(),
                               cn.masters.source.empty() ? "?" : cn.masters.source.c_str(), cn.masters.built.empty() ? "date unknown" : cn.masters.built.c_str(),
@@ -577,6 +584,110 @@ static void by_name_picker(App& app, const Table& t, const PlayerRow& p) {
     ImGui::TextDisabled("(a common name wins over the last name; a player-specific callname wins over both)");
 }
 
+// ALL CALLNAMES: every callname of the language the master lists (generic surnames and players' own recordings)
+static char g_all_search[64] = "";
+static int64_t g_sel_all = 0;  // > 0: a generic commentary id; < 0: -playerid of an own recording
+static void all_callnames_picker(App& app, const Table& t, const PlayerRow& p) {
+    Callnames& cn = app.callnames;
+    if (!cn.masters.loaded()) {
+        ImGui::TextDisabled("No master list for %s: this list needs one (turbo\\callnames\\masters\\%s.json).", cn.lang.c_str(), cn.lang.c_str());
+        return;
+    }
+    // rebuilt when the master list or the database changes (Refresh, a new model)
+    static std::vector<AllCallnameRow> rows;
+    static std::string rows_key;
+    const std::string key = cn.masters.file + "|" + cn.masters.built + "|" + std::to_string(cn.masters.generic_ids.size()) + "|" +
+                            std::to_string(cn.masters.real_players.size()) + "|" + std::to_string(cn.index.model_version);
+    if (key != rows_key) {
+        rows = all_callnames(cn.masters, cn.index, [&](int64_t pid) {
+            const PlayerRow* r = app.model.player(pid);
+            return r ? r->name : std::string();
+        });
+        rows_key = key;
+    }
+    ImGui::SetNextItemWidth(S(260.0f));
+    ImGui::InputTextWithHint("##cnallsearch", "type a callname, player or id", g_all_search, sizeof(g_all_search));
+    ImGui::SameLine();
+    ImGui::TextDisabled("%zu generic callnames + %zu own recordings (%s)", cn.masters.generic_ids.size(), cn.masters.real_players.size(),
+                        cn.masters.label().c_str());
+    const int own = cn.own_recording(p.playerid);
+    const float below = ImGui::GetTextLineHeightWithSpacing() * 2.0f + 2.0f * ImGui::GetFrameHeightWithSpacing() + own_warning_height(app, own) +
+                        ImGui::GetStyle().WindowPadding.y;
+    ImGui::BeginChild("##cnall", ImVec2(0, list_height(below)), ImGuiChildFlags_Borders);
+    int shown = 0, total = 0;
+    const AllCallnameRow* sel = nullptr;
+    if (ImGui::BeginTable("##cnalltable", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, S(80.0f));
+        ImGui::TableSetupColumn("Callname");
+        ImGui::TableSetupColumn("Used by", ImGuiTableColumnFlags_WidthFixed, S(200.0f));
+        ImGui::TableHeadersRow();
+        for (const auto& r : rows) {
+            const int64_t key = r.own() ? -r.playerid : r.commentaryid;
+            if (key == g_sel_all) sel = &r;
+            if (!callname_filter_match(g_all_search, r.text, r.own() ? r.playerid : r.commentaryid)) continue;
+            ++total;
+            if (shown >= kMaxRows) continue;
+            ++shown;
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            char idbuf[48];
+            std::snprintf(idbuf, sizeof(idbuf), "%lld##%s", static_cast<long long>(r.own() ? r.playerid : r.commentaryid), r.own() ? "own" : "gen");
+            if (ImGui::Selectable(idbuf, g_sel_all == key, ImGuiSelectableFlags_SpanAllColumns)) {
+                g_sel_all = key;
+                sel = &r;
+            }
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(r.text.empty() ? "(no text)" : r.text.c_str());
+            ImGui::TableNextColumn();
+            if (r.own())
+                ImGui::TextDisabled("own recording");
+            else
+                ImGui::Text("%d name row%s, %d player%s", r.name_rows, r.name_rows == 1 ? "" : "s", r.users, r.users == 1 ? "" : "s");
+        }
+        ImGui::EndTable();
+    }
+    if (total > shown) ImGui::TextDisabled("%d more: type more of the callname", total - shown);
+    ImGui::EndChild();
+    if (!sel) {
+        ImGui::TextDisabled("Pick a callname above.");
+        return;
+    }
+    if (sel->own()) {
+        ImGui::Text("Selected: %s (ID %lld), own recording", sel->text.c_str(), static_cast<long long>(sel->playerid));
+        ImGui::TextColored(kYellow, "The game always uses a player's own recording; giving it to another player is not possible yet.");
+        return;
+    }
+    ImGui::Text("Selected: '%s' (callname %lld, %d name row%s, %d player%s)", sel->text.c_str(), static_cast<long long>(sel->commentaryid),
+                sel->name_rows, sel->name_rows == 1 ? "" : "s", sel->users, sel->users == 1 ? "" : "s");
+    if (own) own_recording_warning(app, p, own);
+    if (sel->nameid) {
+        // through the name row (as By name: his last name, the shown name kept)
+        ImGui::Checkbox("Keep the shown name (editedplayernames)##all", &g_keep_display);
+        if (!t.has("lastnameid")) ImGui::BeginDisabled();
+        if (ImGui::Button("Assign as last name##all")) {
+            NameChoice c;
+            c.nameid = sel->nameid;
+            c.name = sel->text;
+            c.commentaryid = sel->commentaryid;
+            c.users = sel->users;
+            request_name(app, t, p, c, false, own);
+            if (own) g_pending.alt = c;
+        }
+        if (!t.has("lastnameid")) ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled("(name %lld)", static_cast<long long>(sel->nameid));
+    } else {
+        // no name row has it: the player-specific path (edit in place, room check, spare-row takeover; kept for career loads)
+        ImGui::TextDisabled("No name row has this callname: it is written as his player-specific callname (playernamemap).");
+        if (ImGui::Button("Assign as player-specific callname##all")) {
+            PlayerChoice c;
+            c.name = sel->text.empty() ? "generic " + std::to_string(sel->commentaryid) : sel->text;
+            c.commentaryid = sel->commentaryid;
+            request_player_callname(app, p, c, own);
+        }
+    }
+}
+
 static void by_player_picker(App& app, const PlayerRow& p) {
     const CallnameIndex& ix = app.callnames.index;
     ImGui::SetNextItemWidth(S(260.0f));
@@ -701,7 +812,9 @@ static void club_players_tab(App& app, const PlayerRow& p) {
     ImGui::Text("%s: %zu of %zu players have no own recording in %s", p.club_name.c_str(), without.size(), without.size() + with.size(),
                 cn.lang.empty() ? "the loaded language" : cn.lang.c_str());
     ImGui::SameLine();
-    const std::string sources = cn.masters.loaded() ? "(game's audio service + " + cn.masters.label() + ")" : "(game's audio service only: no master list)";
+    const std::string sources = cn.masters.loaded() && cn.masters.fc27() ? std::string("(FC 27 master)")
+                                : cn.masters.loaded() ? "(game's audio service + " + cn.masters.label() + ")"
+                                                      : "(game's audio service only: no master list)";
     ImGui::TextDisabled("%s", sources.c_str());
     // under the list: one line naming the players with their own recording
     const float below = ImGui::GetTextLineHeightWithSpacing() * 2.0f + ImGui::GetStyle().WindowPadding.y;
@@ -741,6 +854,7 @@ static void own_confirm_popup(App& app, const Table& t, const PlayerRow& p) {
     const NameChoice* name = nullptr;
     for (const auto& c : cn.index.names)
         if (c.nameid == g_pending.nameid) name = &c;
+    if (!name && g_pending.alt.nameid && g_pending.alt.nameid == g_pending.nameid) name = &g_pending.alt;
     std::string what;
     if (g_pending.kind == PendingAssign::Kind::Player)
         what = "write callname " + std::to_string(g_pending.commentaryid) + " (" + g_pending.from + "'s) to his playernamemap row";
@@ -859,6 +973,10 @@ void callname_editor(App& app, const Table& t, const PlayerRow& p) {
         }
         if (ImGui::BeginTabItem("By player")) {
             by_player_picker(app, p);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("All callnames")) {
+            all_callnames_picker(app, t, p);
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Players without own recording")) {

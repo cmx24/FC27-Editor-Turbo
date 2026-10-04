@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 
 #include "nlohmann/json.hpp"
@@ -195,6 +196,24 @@ bool parse_master_list_json(const std::string& text, const std::string& lang, Ma
         if (auto it = j.find("generic_ids"); it != j.end() && it->is_array())
             for (const auto& v : *it)
                 if (id_of(v, id)) out.generic_ids.insert(id);
+        if (auto it = j.find("real_simple_players"); it != j.end() && it->is_array())
+            for (const auto& v : *it)
+                if (id_of(v, id)) out.real_simple_players.insert(id);
+        if (auto it = j.find("real_link_players"); it != j.end() && it->is_array())
+            for (const auto& v : *it)
+                if (id_of(v, id)) out.real_link_players.insert(id);
+        // an FC 27 master always lists real_players; a file with only the two banks gets their union
+        if (j.find("real_players") == j.end()) {
+            out.real_players.insert(out.real_simple_players.begin(), out.real_simple_players.end());
+            out.real_players.insert(out.real_link_players.begin(), out.real_link_players.end());
+        }
+        if (auto it = j.find("generic_names"); it != j.end() && it->is_object())
+            for (auto n = it->begin(); n != it->end(); ++n) {
+                if (!n.value().is_string()) continue;
+                char* stop = nullptr;
+                long long cid = std::strtoll(n.key().c_str(), &stop, 10);
+                if (stop && *stop == '\0' && cid > 0) out.generic_names[static_cast<int64_t>(cid)] = n.value().get<std::string>();
+            }
         if (auto it = j.find("names"); it != j.end() && it->is_object())
             for (auto n = it->begin(); n != it->end(); ++n) {
                 if (!n.value().is_string()) continue;
@@ -267,6 +286,63 @@ bool callname_filter_match(const std::string& text, const std::string& name, int
     bool digits = !t.empty() && std::all_of(t.begin(), t.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); });
     if (digits && std::to_string(id).rfind(t, 0) == 0) return true;
     return lower(name).find(t) != std::string::npos;
+}
+
+std::vector<AllCallnameRow> all_callnames(const MasterList& m, const CallnameIndex& ix,
+                                          const std::function<std::string(int64_t)>& player_name) {
+    std::vector<AllCallnameRow> gen, own;
+    std::unordered_map<int64_t, size_t> at;  // commentary id -> index in gen
+    gen.reserve(m.generic_ids.size());
+    for (int64_t cid : m.generic_ids) {
+        AllCallnameRow r;
+        r.commentaryid = cid;
+        auto t = m.generic_names.find(cid);
+        if (t != m.generic_names.end()) r.text = t->second;
+        at[cid] = gen.size();
+        gen.push_back(std::move(r));
+    }
+    for (const auto& [nameid, cid] : ix.name_commentary) {
+        auto it = at.find(cid);
+        if (it == at.end()) continue;
+        AllCallnameRow& r = gen[it->second];
+        auto u = ix.name_users.find(nameid);
+        const int users = u != ix.name_users.end() ? u->second : 0;
+        ++r.name_rows;
+        r.users += users;
+        // the name row most players use (the lowest id on a tie) carries the assignment
+        if (!r.nameid) {
+            r.nameid = nameid;
+        } else {
+            auto bu = ix.name_users.find(r.nameid);
+            const int best = bu != ix.name_users.end() ? bu->second : 0;
+            if (users > best || (users == best && nameid < r.nameid)) r.nameid = nameid;
+        }
+    }
+    for (auto& r : gen)
+        if (r.text.empty())
+            for (const auto& c : ix.names)
+                if (c.nameid == r.nameid) r.text = c.name;
+    std::sort(gen.begin(), gen.end(), [](const AllCallnameRow& a, const AllCallnameRow& b) {
+        const std::string la = lower(a.text), lb = lower(b.text);
+        return la != lb ? la < lb : a.commentaryid < b.commentaryid;
+    });
+    own.reserve(m.real_players.size());
+    for (int64_t pid : m.real_players) {
+        AllCallnameRow r;
+        r.playerid = pid;
+        r.text = player_name ? player_name(pid) : std::string();
+        if (r.text.empty()) {
+            auto n = m.names.find(pid);
+            r.text = n != m.names.end() ? n->second : std::to_string(pid);
+        }
+        own.push_back(std::move(r));
+    }
+    std::sort(own.begin(), own.end(), [](const AllCallnameRow& a, const AllCallnameRow& b) {
+        const std::string la = lower(a.text), lb = lower(b.text);
+        return la != lb ? la < lb : a.playerid < b.playerid;
+    });
+    gen.insert(gen.end(), std::make_move_iterator(own.begin()), std::make_move_iterator(own.end()));
+    return gen;
 }
 
 void CallnameIndex::clear() {

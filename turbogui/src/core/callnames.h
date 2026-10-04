@@ -27,6 +27,8 @@
 //     the user's FC 26 list (<name>_master.xlsm, "game": "fc26", "your FC 26 list"; FC 27 mostly reuses those
 //     recordings).
 #pragma once
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -92,6 +94,11 @@ struct MasterList {
     std::unordered_set<int64_t> real_players;          // player ids with their own ('real') recording
     std::unordered_set<int64_t> generic_ids;           // commentary ids of generic surname recordings
     std::unordered_map<int64_t, std::string> names;    // playerid -> the name the list gives his recording
+    // FC 27 master only: commentary id -> the text of its generic surname recording; and the two banks the own
+    // recordings come from (PLAYER_NAMES_SIMPLE / PLAYER_NAMES_LINK; real_players is their union when the file has no
+    // "real_players")
+    std::unordered_map<int64_t, std::string> generic_names;
+    std::unordered_set<int64_t> real_simple_players, real_link_players;
     bool loaded() const { return !real_players.empty() || !generic_ids.empty(); }
     bool real(int64_t playerid) const { return real_players.count(playerid) > 0; }
     bool fc27() const { return game == "fc27"; }
@@ -195,6 +202,21 @@ struct CallnameIndex {
     void clear();
 };
 
+// One row of the "All callnames" picker: a generic surname recording of the language, or a player's own recording
+struct AllCallnameRow {
+    int64_t commentaryid = 0;  // generic: its commentary id (0 for an own recording)
+    int64_t playerid = 0;      // own recording: the player (0 for a generic id)
+    std::string text;          // the generic surname's text / the player's name
+    int64_t nameid = 0;        // generic: a playernames row with this commentary id (the one most players use), 0 = none
+    int name_rows = 0;         // generic: playernames rows with this commentary id
+    int users = 0;             // generic: players whose common or last name is one of those rows
+    bool own() const { return playerid != 0; }
+};
+// Every callname of the language the master lists: its generic ids (by text, then id), then the players with their own
+// recording (by name, then id). `player_name` gives a player's name ("" = the master's name for him, else his id).
+std::vector<AllCallnameRow> all_callnames(const MasterList& m, const CallnameIndex& ix,
+                                          const std::function<std::string(int64_t)>& player_name);
+
 class Callnames {
 public:
     // Find the packs, pick the language and load its spoken set: the hand-made list, else the bank capture cache;
@@ -210,7 +232,10 @@ public:
     void build_index(Database& db, const Model& model, const std::unordered_map<int64_t, std::string>& names);
     CallnameInfo resolve(const PlayerRow& p, Database& db) const;
     // kOwnFromGame | kOwnFromMasters for this player (0 = no own recording known: the callname rule decides)
+    // Precedence: an FC 27 master (built from the game's own files) decides alone; else the game's audio service and
+    // the FC 26 list (either one is enough, the UI says when only the FC 26 list does)
     int own_recording(int64_t playerid) const {
+        if (masters.fc27() && masters.loaded()) return masters.real(playerid) ? kOwnFromMasters : 0;
         return (spoken.real(playerid) ? kOwnFromGame : 0) | (masters.real(playerid) ? kOwnFromMasters : 0);
     }
     std::string own_source(int own) const { return own_recording_source_name(own, spoken.players_from, masters.label()); }
@@ -249,6 +274,35 @@ public:
     CallnameIndex index;
     bool refreshed = false;
     bool no_game_root = false;  // refresh() was given no game folder
+};
+
+// Lua actions (set_display_name: "keep shown name") waiting for Turbo's mailbox, which holds one command at a time:
+// the GUI queues them and sends them, batched into one callnames command, as soon as the mailbox is free (the top bar
+// shows how many wait). Each entry is one action as JSON object text.
+class LuaActionQueue {
+public:
+    void push(std::string action_json) { q_.push_back(std::move(action_json)); }
+    size_t size() const { return q_.size(); }
+    bool empty() const { return q_.empty(); }
+    void clear() { q_.clear(); }
+    // The next batch: as many queued actions (in order) as fit, written as a JSON array ("[a,b]"), in `max_bytes`
+    // (always at least one, whatever its size). `count` = how many it holds; "" when the queue is empty. The actions
+    // stay queued until pop(count) (call it once the command was accepted).
+    std::string batch(size_t max_bytes, size_t& count) const {
+        count = 0;
+        std::string out = "[";
+        for (const auto& a : q_) {
+            if (count > 0 && out.size() + 1 + a.size() + 1 > max_bytes) break;
+            if (count > 0) out += ",";
+            out += a;
+            ++count;
+        }
+        return count ? out + "]" : std::string();
+    }
+    void pop(size_t n) { q_.erase(q_.begin(), q_.begin() + static_cast<std::ptrdiff_t>(std::min(n, q_.size()))); }
+
+private:
+    std::vector<std::string> q_;
 };
 
 // Folder of the running game (FC27.exe) on Windows; empty elsewhere
