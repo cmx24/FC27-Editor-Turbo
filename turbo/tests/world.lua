@@ -40,6 +40,10 @@ local function players_spec(rows)
             { name = "icontrait2", short = "itr2", depth = 14 },
             { name = "isretiring", short = "iret", depth = 1 },
             { name = "socklengthcode", short = "sock", depth = 2 },
+            { name = "height", short = "hgt_", depth = 7, min = 130 },
+            { name = "weight", short = "wgt_", depth = 7, min = 30 },
+            { name = "nationality", short = "nat_", depth = 12 },
+            { name = "preferredfoot", short = "pft_", depth = 1, min = 1 },
         },
         rows = rows,
     }
@@ -81,6 +85,7 @@ function W.build(sim, opts)
             hashighqualityhead = (pid % 2 == 0) and 1 or 0, headclasscode = (pid % 2 == 0) and 0 or 1,
             headassetid = (pid % 2 == 0) and pid or 0, tattooleftarm = 0, trait1 = 0, icontrait1 = 0,
             trait2 = 0, icontrait2 = 0, isretiring = 0, socklengthcode = 0,
+            height = 180, weight = 75, nationality = 14, preferredfoot = 1,
         }
         for k, v in pairs(extra or {}) do r[k] = v end
         prow[#prow + 1] = r
@@ -107,9 +112,30 @@ function W.build(sim, opts)
     for _, g in ipairs(W.GENERATED) do add_player(g, 5, 50, 80, 25, 2009, 40) end
     -- one deleted row that must be skipped by every iteration
     prow[#prow + 1] = { playerid = 999999, overallrating = 1, potential = 1, preferredposition1 = 0,
-        birthdate = gdays(2000, 1, 1), contractvaliduntil = 2026, __invalid = true }
+        birthdate = gdays(2000, 1, 1), contractvaliduntil = 2026, height = 180, weight = 75, nationality = 14,
+        preferredfoot = 1, __invalid = true }
+    -- spare (invalid) records: InsertDBTableRow reuses them (create_player adds players / links / names rows)
+    for _ = 1, 8 do
+        prow[#prow + 1] = { __invalid = true }
+        links[#links + 1] = { __invalid = true }
+    end
     sim.player_team = player_team
     sim:add_table(players_spec(prow))
+    -- opts.edited_names = false: the test adds its own editedplayernames table
+    if opts.edited_names ~= false then
+        sim:add_table({
+            name = "editedplayernames", short = "edpn",
+            fields = {
+                { name = "playerid", short = "pid_", depth = 21 },
+                { name = "firstname", short = "fnam", type = "string", depth = 8 * 45 },
+                { name = "surname", short = "snam", type = "string", depth = 8 * 45 },
+                { name = "commonname", short = "cnam", type = "string", depth = 8 * 45 },
+                { name = "playerjerseyname", short = "pjnm", type = "string", depth = 8 * 45 },
+            },
+            rows = { { __invalid = true }, { __invalid = true }, { __invalid = true }, { __invalid = true },
+                     { __invalid = true }, { __invalid = true }, { __invalid = true }, { __invalid = true } },
+        })
+    end
 
     sim:add_table({
         name = "teamplayerlinks", short = "tpl_",

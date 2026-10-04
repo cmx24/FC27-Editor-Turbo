@@ -5,7 +5,7 @@ local W = require 'world'
 print("t12 callnames: playernamemap rows, display names (editedplayernames), name ids, dry run, validation")
 
 local sim = H.setup({ in_cm = true, le_27_1_2 = true })
-W.build(sim, {})
+W.build(sim, { edited_names = false })
 
 -- FC 27 layout: playernamemap (commentaryid 20 bits min -1, playerid 19 bits min -1), editedplayernames (text 45 bytes)
 sim:add_table({

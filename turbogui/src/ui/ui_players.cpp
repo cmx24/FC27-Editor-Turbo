@@ -9,6 +9,7 @@
 #include "imgui.h"
 #include "playstyles.h"
 #include "ui_images.h"
+#include "ui_presets.h"
 
 namespace turbo {
 
@@ -403,6 +404,7 @@ static void player_editor(App& app) {
         ImGui::TextDisabled("(moves need a loaded career)");
     }
     moves_popup(app, p->playerid, own != nullptr);
+    player_preset_buttons(app, *p);   // Export... / Import... / Clone... / Create player... (ui_presets.cpp)
     if (ImGui::BeginPopupModal("##delplayer", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Delete %s (ID %lld)?", p->name.c_str(), static_cast<long long>(p->playerid));
         ImGui::TextDisabled("Turbo moves the player to Free Agents, then deletes his players and teamplayerlinks records.");

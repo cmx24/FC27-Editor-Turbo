@@ -78,7 +78,11 @@ and run by Live Editor's Lua engine on the next career-mode event (or when the u
 - `core/`: version, log, trace (start-up breadcrumbs), util, env, config, db (validated writes), game, mem, events, csv, calib, select.
 - `features/`: probe, form_morale, pap_playstyles, custom_headassets, custom_tattoos, delete_generated_players,
   export_season_stats, export_fixtures, export_transfer_history, extend_cpu_contracts, extend_user_contracts, headmodels,
-  transfer_bans, squad_role, team_jersey_numbers, bulk_edit, player_moves, db_edit, export_table.
+  transfer_bans, squad_role, team_jersey_numbers, bulk_edit, player_moves, db_edit, export_table, player_presets
+  (export to Live Editor preset CSV `extensions\player_presets` + Turbo player JSON with the miniface in
+  `turbo_output\players`; import a preset onto a player by groups), create_player (new player rows via InsertDBTableRow:
+  copy of a player, from a preset file, or blank; `core/preset.lua` parses LE CSV / FC 26 cards CSV / Turbo JSON).
+  GUI: Players tab buttons Export... / Import... / Clone... / Create player... (`turbogui/src/ui/ui_presets.cpp`).
 - Settings: `turbo_config.json`; settings changed in the GUI are saved in `turbo_output\gui_settings.json` and win over the file.
 - Memory-based features (fixtures, transfer history, squad roles) try the FC 26 layout, then search, and only accept memory whose
   contents look right (real teams/players/dates); results are cached per build key (`LE_VERSION|LE_GAME_MODULE_SIZE`).

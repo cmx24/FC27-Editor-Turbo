@@ -36,6 +36,8 @@ M.MODULES = {
     transfer_budget          = { path = 'imports/turbo/features/transfer_budget',          kind = "action", needs_cm = true,  desc = "Read, set or add to your club's transfer budget" },
     export_table             = { path = 'imports/turbo/features/export_table',             kind = "action", needs_cm = false, desc = "Dump DB tables (rows + field ranges) to CSV" },
     callnames                = { path = 'imports/turbo/features/callnames',                kind = "action", needs_cm = false, desc = "Player callnames: playernamemap rows, display names (editedplayernames), name ids" },
+    player_presets           = { path = 'imports/turbo/features/player_presets',           kind = "action", needs_cm = false, desc = "Export players to Live Editor preset CSV / Turbo JSON, or import a preset onto a player" },
+    create_player            = { path = 'imports/turbo/features/create_player',            kind = "action", needs_cm = false, desc = "Create a new player (copy of a player, from a preset file, or blank) in a club" },
 }
 
 local function message_box(cfg, title, text, opts)

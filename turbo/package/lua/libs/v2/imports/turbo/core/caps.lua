@@ -27,6 +27,8 @@ M.NEEDS = {
 M.TURBO_MADE = {
     move_transfer = "TransferPlayer", move_loan = "LoanPlayer", move_release = "ReleasePlayerFromTeam",
     move_terminate_loan = "TerminateLoan", delete_players = "DeletePlayer",
+    -- new players (clone / create / import as new) are rows Turbo adds with InsertDBTableRow (features/create_player.lua)
+    create_player = "CreatePlayer",
 }
 
 -- Sorted list of the tool keys Turbo does itself in this Live Editor build

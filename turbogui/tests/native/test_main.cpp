@@ -41,6 +41,7 @@
 #include "ui/app.h"
 #include "ui/playstyles.h"
 #include "ui/ui_images.h"
+#include "ui/ui_presets.h"
 #include "test_pictures.h"
 
 namespace fs = std::filesystem;
@@ -902,6 +903,37 @@ static void test_ui() {
             CHECK(ui.find("Players") && ui.find("Status") && ui.find("Turbo Tools") && ui.find("Competitions"), "tab items present");
         });
 
+        run_case("presets: the Import dialog's preview reads Live Editor CSV (newest row), cards CSV and Turbo JSON", [&] {
+            {
+                std::ofstream f(g_out / "pv_le.csv", std::ios::binary);
+                f << "playerid,firstname,surname,playerjerseyname,commonname,overallrating,potential,preferredposition1\r\n"
+                  << "279980,,,,Old Name,54,60,-1\r\n279980,,,,\"Rossi, Mattia\",69,82,25\r\n";
+            }
+            PresetPreview pv = preview_preset_file(g_out / "pv_le.csv");
+            CHECK(pv.ok && pv.kind == "Live Editor preset CSV" && pv.rows == 2 && pv.columns == 8, "LE CSV recognised: " + pv.error);
+            CHECK(pv.name == "Rossi, Mattia" && pv.overall == "69" && pv.potential == "82" && pv.position == "25" && pv.playerid == "279980",
+                  "newest row, quoted comma kept");
+            {
+                std::ofstream f(g_out / "pv_cards.csv", std::ios::binary);
+                f << "uid,name,revision,origin,playerid,overallrating,preferredposition1\r\n1,Cha Bum Kun,Debut Icon,N/A,191208,85,25\r\n";
+            }
+            pv = preview_preset_file(g_out / "pv_cards.csv");
+            CHECK(pv.ok && pv.kind == "Live Editor cards CSV" && pv.name == "Cha Bum Kun" && pv.overall == "85", "cards CSV: name column used");
+            {
+                std::ofstream f(g_out / "pv_turbo.json", std::ios::binary);
+                f << R"({"format":"turbo-player-preset","playerid":1001,"name":"Bukayo Saka","miniface":"x.dds","players":{"overallrating":88,"potential":91,"preferredposition1":23}})";
+            }
+            pv = preview_preset_file(g_out / "pv_turbo.json");
+            CHECK(pv.ok && pv.kind == "Turbo player JSON" && pv.name == "Bukayo Saka" && pv.overall == "88" && pv.miniface == "x.dds", "Turbo JSON");
+            {
+                std::ofstream f(g_out / "pv_bad.csv", std::ios::binary);
+                f << "a,b\r\n1,2\r\n";
+            }
+            pv = preview_preset_file(g_out / "pv_bad.csv");
+            CHECK(!pv.ok && pv.error.find("not a Live Editor player preset") != std::string::npos, "other CSV refused: " + pv.error);
+            CHECK(!preview_preset_file(g_out / "missing.csv").ok, "missing file refused");
+        });
+
         run_case("UI: Players list, select with the mouse, edit an attribute", [&] {
             CHECK(ui.click("Players"), "Players tab");
             CHECK(ui.click("1002", "##plist"), "row 1002");
@@ -1233,6 +1265,37 @@ static void test_ui() {
             CHECK(ui.click("Players shown in the Players list##be"), "list scope");
             press_as("Apply bulk edit", "Bulk edit (shown players)");
             header("Bulk edit players");
+            // Player presets (ui_presets.cpp): export this player and the shown list, import a preset file onto the
+            // player and as a new player, clone, create (the list still shows 1002 only)
+            {
+                std::ofstream pf(g_out / "preset_1001.csv", std::ios::binary);
+                pf << "playerid,firstname,surname,playerjerseyname,commonname,overallrating,potential,preferredposition1\r\n"
+                   << "1001,,,,Old Row,70,75,3\r\n1001,Pre,Set,PRESET,,77,88,25\r\n";
+            }
+            std::string preset_file = (g_out / "preset_1001.csv").string();
+            CHECK(ui.click("Players"), "Players tab for presets");
+            CHECK(ui.click("1002", "##plist"), "player 1002 for presets");
+            CHECK(ui.click("Export...", "##pedit"), "export dialog");
+            press("Export player", "##pexport");
+            CHECK(ui.click("Export...", "##pedit"), "export dialog again");
+            CHECK(ui.click("Every player shown in the list (1)", "##pexport"), "list scope");
+            press("Export list", "##pexport");
+            CHECK(ui.click("Import...", "##pedit"), "import dialog");
+            CHECK(ui.type_into(ui.find("##pfile", "##pimport"), preset_file), "preset file path");
+            ui.frames(2);
+            CHECK(ui.find("Import onto player", "##pimport") != nullptr, "preview accepted the file");
+            press("Import onto player", "##pimport");
+            CHECK(ui.click("Import...", "##pedit"), "import dialog for a new player");
+            CHECK(ui.click("A new player in a club", "##pimport"), "new player target");
+            press("Import as new player", "##pimport");
+            CHECK(ui.click("Clone...", "##pedit"), "clone dialog");
+            press("Clone player", "##pclone");
+            CHECK(ui.click("Create player...", "##pedit"), "create dialog");
+            CHECK(ui.find("Create player", "##pcreate") != nullptr, "create button shown");
+            CHECK(ui.type_into(ui.find("First name", "##pcreate"), "Neo"), "first name");
+            CHECK(ui.type_into(ui.find("Surname", "##pcreate"), "Turbo"), "surname");
+            press("Create player", "##pcreate");
+
             // Delete player (last: the other commands above use player 1002)
             CHECK(ui.click("Players"), "Players tab for delete");
             CHECK(ui.click("1002", "##plist"), "player 1002 again");
@@ -1240,11 +1303,23 @@ static void test_ui() {
             press("Delete player", "##delplayer");
             CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
 
-            CHECK(captured.size() == 30, fmt("commands captured: %zu", captured.size()));
+            CHECK(captured.size() == 36, fmt("commands captured: %zu", captured.size()));
             CHECK(captured[4]["cmd"]["overrides"]["mode"] == "set" && captured[4]["cmd"]["overrides"]["amount"] == 50000000, "budget set");
             CHECK(captured[5]["cmd"]["overrides"]["mode"] == "add", "budget add");
             CHECK(captured[28]["label"] == "Bulk edit (shown players)" && captured[28]["cmd"]["overrides"]["scope"]["playerids"] == json::array({1002}), "bulk edit scope = shown players");
-            CHECK(captured[29]["cmd"]["overrides"]["actions"][0]["confirm"].get<bool>(), "delete carries the confirmation");
+            CHECK(captured[29]["cmd"]["module"] == "player_presets" && captured[29]["cmd"]["overrides"]["mode"] == "export" &&
+                      captured[29]["cmd"]["overrides"]["playerid"] == 1002 && captured[29]["cmd"]["overrides"]["csv"].get<bool>(),
+                  "export: this player, CSV on");
+            CHECK(captured[30]["cmd"]["overrides"]["playerids"] == json::array({1002}), "export list = shown players");
+            CHECK(captured[31]["cmd"]["overrides"]["mode"] == "import" && captured[31]["cmd"]["overrides"]["playerid"] == 1002 &&
+                      captured[31]["cmd"]["overrides"]["groups"].size() == 8 && captured[31]["cmd"]["overrides"]["file"] == preset_file,
+                  "import onto the player with every group");
+            CHECK(captured[32]["cmd"]["module"] == "create_player" && captured[32]["cmd"]["overrides"]["source"]["file"] == preset_file &&
+                      captured[32]["cmd"]["overrides"]["teamid"] == 111592, "import as a new free agent");
+            CHECK(captured[33]["cmd"]["module"] == "create_player" && captured[33]["cmd"]["overrides"]["source"]["playerid"] == 1002, "clone 1002");
+            CHECK(captured[34]["cmd"]["overrides"]["names"]["firstname"] == "Neo" && captured[34]["cmd"]["overrides"]["set"].contains("birthdate") &&
+                      captured[34]["cmd"]["overrides"]["source"]["playerid"] == 1002, "create: names, profile fields, template");
+            CHECK(captured[35]["cmd"]["overrides"]["actions"][0]["confirm"].get<bool>(), "delete carries the confirmation");
             std::ofstream(g_out / "gui_commands.json") << captured.dump(1);
             CHECK(run_lua("commands") == 0, "gui_world.lua commands");
             json results = read_json(g_out / "gui_commands_out.json");
