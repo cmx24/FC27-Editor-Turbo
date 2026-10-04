@@ -1,0 +1,30 @@
+{
+  "game": "FC27.exe 1.0.140.64835",
+  "build": "6AB9813C-211EF000",
+  "image": "C:/FC 27 Live Editor/turbo_output/fc27_image.bin",
+  "image_base": "0x140000000",
+  "verified": "2026-10-04",
+  "note": "Match setup (docs/re/match_setup.md). Same patterns as the built-in table in turbogui/src/core/sigscan.cpp; the rip-resolved entries (gamevar_table_slot +0x2E, gamevar_lock +0x1C, gamevar_set_lock +0x15, gamevar_object +0) share these patterns. Check with: bash scripts/re/py.sh scripts/re/check_signatures.py docs/re/match_setup-signatures.json",
+  "signatures": [
+    {"name": "gamevar_get_int", "va": "0x140856DB4", "unique": true,
+     "sig": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 48 8B F1 48 8D 1D ?? ?? ?? ?? 48 8B CB 44 8B F2 E8 ?? ?? ?? ?? 48 8B 2D ?? ?? ?? ?? 48 8B FE 41 B9 01 00 00 00"},
+    {"name": "gamevar_set_int", "va": "0x14154F384", "unique": true,
+     "sig": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 40 48 8B F1 41 8B D8 48 8D 0D ?? ?? ?? ?? 48 8B FA E8 ?? ?? ?? ?? 4C 8D 44 24 20 C7 44 24 20 02 00 00 00"},
+    {"name": "gamevar_object (lea r13 in the injury setup 0x140FEBDB4)", "va": "0x140FEBE12", "unique": true,
+     "sig": "4C 8D 2D ?? ?? ?? ?? 8B F8 49 8B CD 48 8D 15 ?? ?? ?? ?? E8"},
+    {"name": "fce_sched_handle_message", "va": "0x148A4E80C", "unique": true,
+     "sig": "40 53 48 83 EC 20 8B 42 10 B3 01 83 F8 24 0F 84 ?? ?? ?? ?? 83 F8 25 75 ?? 80 7A 48 00"},
+    {"name": "fce_standings_handle_message", "va": "0x148A4E8FC", "unique": true,
+     "sig": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 8B 42 10 48 8B DA 48 8B F9 40 B6 01 83 F8 2A 75 0A E8"}
+  ],
+  "resolved": {
+    "gamevar_object": "0x14D26E510",
+    "gamevar_table_slot": "0x14D26E528",
+    "gamevar_lock": "0x14C193230",
+    "gamevar_set_lock": "0x14C193230"
+  },
+  "vtables_rva": {
+    "FCESchedulingManager (slot 5 = 0x148A4E80C)": "0xB1854A8",
+    "FCEStandingsManager (slot 5 = 0x148A4E8FC)": "0xB1852E8"
+  }
+}
