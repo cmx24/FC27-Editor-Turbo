@@ -32,7 +32,7 @@ checks, transfer / loan approval, reveal player data, stadium / weather / kick-o
 | 4 | Transfer, loan, terminate loan, release from team | v26.1.4 | not announced | **Turbo GUI**, *needs LE native* (`cTransferPlayer`, `cLoanPlayer`, `cReleasePlayer`, `TerminateLoan` missing in v27.1.2) |
 | 5 | Delete player, generate miniface, change name | v26.1.5 | not announced | **Turbo GUI (partial)**: Delete player (with confirmation), *needs LE native* (`DeletePlayer` missing in v27.1.2). Names: edit the `editedplayernames` table in the Database tab. Minifaces: **Not available** (image pipeline) |
 | 6 | Season statistics | v26.1.7 | not announced | **Turbo GUI (partial)**: export to CSV, *needs LE native* `GetPlayersStats` for live stats; with v27.1.2 it exports the database's league goals / cards (labelled as not live) |
-| 7 | Team selection bias, development XP boost | v26.2.1 | not announced | **Turbo GUI (partial)**: Bulk edit → Development (XP multiplier, bonus XP, no decline). Team selection bias: **Not available** |
+| 7 | Team selection bias, development XP boost | v26.2.1 | not announced | **Turbo (development)**: Players > Growth tab and Tools > Scouting, development and youth academy: develop to potential, +N per attribute, set potential / growth profile, weekly forced growth with no decline (auto), written to the players table and the game's development plan (docs/re/development.md). FC 26's XP multiplier natives are not in FC 27 LE (Bulk edit's Development stays greyed). Team selection bias: **Not available** |
 | 8 | Transfer- and loan-listed flags | v26.2.2 | not announced | **Turbo GUI**, *needs LE native* (`cAddPlayerToTransferList` etc. missing in v27.1.2) |
 | 9 | Create player, clone player, FUT card presets | v26.2.4 | partly | **Not available** in Turbo (FC 27 LE's preset manager loads) |
 | 10 | Sock style, Super Sub trait, tattoo picker | v26.3.1, v26.3.5 | not announced | **Turbo GUI (partial)**: sock and tattoo fields as values in Appearance; traits as tick boxes; no visual picker. Tattoo / head maps by ID: `turbo_custom_tattoos`, `turbo_custom_headassets` scripts |
@@ -66,8 +66,8 @@ checks, transfer / loan approval, reveal player data, stadium / weather / kick-o
 
 | # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 0.2.5 |
 | --- | --- | --- | --- | --- |
-| 26 | Youth academy tools | v26.1.3 | partly | **FC 27 LE** (youth scout reports) |
-| 27 | Reveal player data | v26.1.4 | not announced | **Not available** |
+| 26 | Youth academy tools | v26.1.3 | partly | **FC 27 LE** (youth scout reports) + **Turbo (youth)**: list the academy, set a youth player's potential, position, tier and potential range width |
+| 27 | Reveal player data | v26.1.4 | not announced | **Turbo (reveal, game call)**: one player, a club or a league marked fully scouted through the game's own PlayerDataRevealManager (Turbo.dll, kill switch call_reveal_off.txt; docs/re/development.md) |
 | 28 | Match setup: stadium, weather, kick-off time, crowd | v26.1.5 | not announced | **Not available** |
 | 29 | Transfer history | v26.1.8 | not announced | **Turbo GUI (partial)**: export to CSV; in FC 27 read from the TransferManager's lists (completed transfers and loans of the season) |
 | 30 | Gameplay: CPU vs CPU, never tired, unlimited subs, match time and score | v26.2.0 | not announced | **Not available** |
