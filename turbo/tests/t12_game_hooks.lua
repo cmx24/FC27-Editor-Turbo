@@ -49,7 +49,7 @@ H.case("without the GUI mailbox nothing is looked up", function()
 end)
 
 H.case("a Turbo.dll without turbo_game_pump (older build): one lookup, retried every 60 events, never an error", function()
-    write_out("bridge_dll.json", { mailbox = string.format("0x%X", MB), session = "T", gui_version = "0.3.0", updated = os.time() })
+    write_out("bridge_dll.json", { mailbox = string.format("0x%X", MB), session = "T", gui_version = "0.4.0", updated = os.time() })
     pump_result = nil
     TURBO_STATE.bridge.pump, TURBO_STATE.bridge.pump_tries = nil, nil
     local n = #loadlib_calls

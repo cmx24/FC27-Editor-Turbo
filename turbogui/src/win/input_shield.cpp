@@ -124,6 +124,7 @@ bool block_raw_type(DWORD type) {
 UINT WINAPI hk_rawbuf(PRAWINPUT data, PUINT size, UINT header) {
     ++n_rawbuf;
     UINT n = o_rawbuf(data, size, header);
+    if (t_turbo > 0) return n;  // Turbo's own read (TurboInputScope): the real data
     if (!data || n == 0 || n == static_cast<UINT>(-1) || (!input_block_mouse() && !input_block_keyboard())) return n;
     // Drop the blocked entries and pack the rest to the front (entries are 8-byte aligned, as NEXTRAWINPUTBLOCK walks)
     auto align = [](size_t v) { return (v + 7) & ~static_cast<size_t>(7); };
@@ -148,6 +149,7 @@ UINT WINAPI hk_rawbuf(PRAWINPUT data, PUINT size, UINT header) {
 UINT WINAPI hk_rawdata(HRAWINPUT h, UINT cmd, LPVOID data, PUINT size, UINT header) {
     ++n_rawdata;
     UINT r = o_rawdata(h, cmd, data, size, header);
+    if (t_turbo > 0) return r;  // Turbo's own read (TurboInputScope, overlay queue_raw_mouse): the real data
     if (cmd != RID_INPUT || !data || r == 0 || r == static_cast<UINT>(-1)) return r;
     auto* ri = static_cast<RAWINPUT*>(data);
     if (!block_raw_type(ri->header.dwType)) return r;

@@ -85,12 +85,18 @@ bool reload(App& app) {
         if (g_live.rows[i].used == 1 && g_live.rows[i].teamid > 0) g_live.groups[g_live.rows[i].compobj].push_back(i);
     for (const auto& kv : g_live.groups) g_live.group_names[kv.first] = group_label(app, kv.first, kv.second);
     if (!g_live.groups.count(g_live.group)) {
-        // prefer the user's club's league
+        // prefer the user's club's league: a group that is named after a league (leagueteamlinks majority) wins over a
+        // cup / continental group that also lists the club (the Champions League phase has a lower comp id than Serie A)
         g_live.have_group = false;
         int64_t user = app.bridge.state().user_team;
-        for (const auto& kv : g_live.groups)
-            for (size_t i : kv.second)
-                if (!g_live.have_group && user > 0 && int64_t(g_live.rows[i].teamid) == user) g_live.group = kv.first, g_live.have_group = true;
+        bool named = false;
+        for (const auto& kv : g_live.groups) {
+            bool has_user = false;
+            for (size_t i : kv.second) has_user = has_user || (user > 0 && int64_t(g_live.rows[i].teamid) == user);
+            if (!has_user) continue;
+            bool is_league = g_live.group_names[kv.first].rfind("Competition group", 0) != 0;
+            if (!g_live.have_group || (is_league && !named)) g_live.group = kv.first, g_live.have_group = true, named = is_league;
+        }
         if (!g_live.have_group && !g_live.groups.empty()) g_live.group = g_live.groups.begin()->first, g_live.have_group = true;
     }
     return true;

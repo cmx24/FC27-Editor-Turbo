@@ -194,6 +194,7 @@ static bool is_toggle_key_msg(UINT msg, WPARAM wp) {
 // changes are taken from WM_INPUT itself and queued as the equivalent window messages. Once a legacy mouse message
 // arrives the game delivers them and this stops, so nothing is counted twice.
 static std::atomic<bool> g_legacy_mouse_seen{false};
+static std::atomic<bool> g_ll_wheel{false};  // set once the low-level mouse hook (wheel) is installed
 
 static void queue_raw_mouse(HWND hwnd, LPARAM lp, std::vector<WinMsg>& out) {
     if (g_legacy_mouse_seen.load()) return;
@@ -217,10 +218,45 @@ static void queue_raw_mouse(HWND hwnd, LPARAM lp, std::vector<WinMsg>& out) {
     };
     for (const auto& m : maps)
         if (f & m.flag) out.push_back({m.msg, m.wp, at});
-    if (f & RI_MOUSE_WHEEL) {
+    if ((f & RI_MOUSE_WHEEL) && !g_ll_wheel.load()) {  // with the low-level hook the wheel is queued there
         const short delta = static_cast<short>(ri.data.mouse.usButtonData);
         out.push_back({WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(delta)), MAKELPARAM(static_cast<short>(screen.x), static_cast<short>(screen.y))});
     }
+}
+
+// Mouse wheel: FC 27 registers the mouse for raw input and reads it by polling, so while Turbo is shown no legacy
+// WM_MOUSEWHEEL and no WM_INPUT reaches the window procedure (seen in game, 03-10-2026: nothing scrolled). A low-level
+// mouse hook on its own thread sees every wheel notch regardless and queues it for ImGui while Turbo is visible and the
+// game is the foreground window. Buttons stay on the per-frame poll and the raw-input path.
+static LRESULT CALLBACK ll_mouse_proc(int code, WPARAM wp, LPARAM lp) {
+    if (code == HC_ACTION && wp == WM_MOUSEWHEEL && g_ready && g_visible && !g_legacy_mouse_seen.load()) {
+        const auto* m = reinterpret_cast<const MSLLHOOKSTRUCT*>(lp);
+        HWND root = g_hwnd ? GetAncestor(g_hwnd, GA_ROOT) : nullptr;
+        if (g_hwnd && GetForegroundWindow() == (root ? root : g_hwnd)) {
+            const short delta = static_cast<short>(HIWORD(m->mouseData));
+            std::lock_guard<std::mutex> lock(g_msg_mutex);
+            if (g_msgs.size() < 1024)
+                g_msgs.push_back({WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(delta)),
+                                  MAKELPARAM(static_cast<short>(m->pt.x), static_cast<short>(m->pt.y))});
+        }
+    }
+    return CallNextHookEx(nullptr, code, wp, lp);
+}
+static DWORD WINAPI ll_mouse_thread(LPVOID) {
+    HHOOK h = SetWindowsHookExW(WH_MOUSE_LL, ll_mouse_proc, GetModuleHandleW(nullptr), 0);
+    if (!h) {
+        log("mouse wheel hook not installed (error %lu): the wheel will not scroll Turbo", static_cast<unsigned long>(GetLastError()));
+        return 0;
+    }
+    g_ll_wheel = true;
+    log("mouse wheel hook installed (low-level mouse hook on its own thread)");
+    MSG msg;
+    while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+    UnhookWindowsHookEx(h);
+    return 0;
 }
 
 // Runs on the game's window thread: never waits for the render thread.
@@ -839,6 +875,7 @@ bool start_overlay(HMODULE) {
     g_app->log_hook = [](const std::string& s) { log("%s", s.c_str()); };
     if (g_app->mailbox) start_memmap(reinterpret_cast<uint64_t>(mailbox));
     g_toggle_vk = g_app->toggle_vk;
+    if (HANDLE th = CreateThread(nullptr, 0, ll_mouse_thread, nullptr, 0, nullptr)) CloseHandle(th);  // mouse wheel for Turbo
 
     if (!game_ships_own_d3d12core() && find_targets_external()) {
         guard_hold("hooks being installed / first frames");

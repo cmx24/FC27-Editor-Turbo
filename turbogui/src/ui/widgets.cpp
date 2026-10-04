@@ -86,7 +86,7 @@ bool field_editor(App& app, const Table& t, uint64_t rec, const Field& f, const 
     }
     bool wrote = false;
     ImGui::PushID(f.name.c_str());
-    if (label) {
+    if (label && std::strncmp(label, "##", 2) != 0) {  // a "##..." label is hidden, as in ImGui
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(label);
         ImGui::SameLine(S(150.0f));
