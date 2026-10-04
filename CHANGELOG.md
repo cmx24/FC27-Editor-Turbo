@@ -3,6 +3,33 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.0.2 (callnames: players with their own recording)
+
+Install as 1.0.1. Then, once: `python turbo\tools\import_callname_masters.py` (from the repository; needs openpyxl)
+to turn your FC 26 `*_master` workbooks into `turbo\callnames\masters\<language>.json`, and press Refresh in
+Players > Callname.
+
+### Fixed
+
+- **Callname tab said "none" for players who have their own recording.** The game says a player's own recording
+  (bound to his player id) before any callname. Turbo only knew these players from the game's audio service, which
+  found 751 in Italian; your FC 26 list has 4,127 (Lobotka and Rrahmani among the missing ones). Turbo now also reads
+  your list. Such a player now shows "Current callname: his own recording in ita_it (your FC 26 list)".
+- **A callname could be written for such a player without notice, and never heard.** Both By name and By player now
+  warn above the buttons and ask "Assign anyway?" before writing anything for him.
+
+### Added
+
+- Players > Callname > **Players without own recording**: the players of the same club whose callname the game does
+  use, to pick a player a callname test can be heard on.
+- `turbo/tools/import_callname_masters.py`: reads the seven `*_master` workbooks (por_br, eng_us, fre_fr, ger_de,
+  ita_it, dut_nl, spa_es; the Dutch `.xlsm` is used, not the older `.xlsx`) and writes one list per language.
+
+### Not yet seen in game
+
+- Built and tested on the test world only (native and Lua suites). The FC 26 lists are FC 26 data: FC 27 mostly
+  reuses those recordings, but a recording FC 27 dropped is still listed.
+
 ## 1.0.1 (fixes from the in-game check of team name, team colours and callnames)
 
 Install as 1.0.0: unzip `FC27_LE_Turbo_1.0.1.zip` into the FC 27 Live Editor folder with the game closed. Back up your saves.

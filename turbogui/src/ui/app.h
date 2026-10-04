@@ -29,7 +29,7 @@
 
 namespace turbo {
 
-constexpr const char* kGuiVersion = "1.0.1";
+constexpr const char* kGuiVersion = "1.0.2";
 
 // UI scale (window height and the user's "UI size" setting): every fixed size in the panels goes through S()
 extern float g_ui_scale;
@@ -245,6 +245,16 @@ void all_fields(App& app, const Table& t, uint64_t rec, const char* id);
 bool date_field_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label);
 // Players > Callname tab: the spoken name for the loaded commentary language, pickers and assignment (ui_callnames.cpp)
 void callname_editor(App& app, const Table& t, const PlayerRow& p);
+// What the Callname tab drew in its last frame (plain text is not an ImGui item, so the tests read it here)
+struct CallnameTabState {
+    int64_t playerid = 0;       // the player shown
+    int own = 0;                // kOwnFromGame | kOwnFromMasters: he has his own recording (core/callnames.h)
+    std::string current_line;   // "Current callname: ..."
+    std::string rule_line;      // with an own recording: what the callname rule would give instead
+    bool warning_shown = false; // the own-recording warning above the assignment buttons was drawn
+    bool confirm_open = false;  // the "has his own recording: assign anyway?" popup is open
+};
+const CallnameTabState& callname_tab_state();
 // Slider over the field's whole range (attributes); a typed value outside it is refused by Database::set
 bool slider_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float width);
 // Combo with readable labels for an enumerated field (preferred foot, work rates, stars ...); false = no labels known

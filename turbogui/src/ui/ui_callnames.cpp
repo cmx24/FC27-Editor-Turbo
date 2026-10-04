@@ -4,11 +4,16 @@
 //             can be kept through editedplayernames)
 //   BY PLAYER a player whose playernamemap callname is spoken -> written to this player's playernamemap row (added
 //             through Turbo's Lua side when missing)
+// A player with his OWN recording (the game's audio service or the user's FC 26 list says so) is spoken from it
+// whatever either picker writes (docs/callnames.md section 1 step 0): the tab says so in the "Current callname" line,
+// warns above the assignment buttons and asks for a confirmation before anything is written for him.
 // See core/callnames.h and docs/callnames.md.
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <string>
 #include <unordered_set>
+#include <vector>
 
 #include "app.h"
 #include "imgui.h"
@@ -24,6 +29,22 @@ static int64_t g_sel_name = 0;
 static int64_t g_sel_player = 0;
 static bool g_keep_display = true;
 static const int kMaxRows = 300;
+static const ImVec4 kGreen(0.4f, 0.9f, 0.4f, 1), kOrange(1, 0.6f, 0.3f, 1);
+
+// An assignment to a player with his own recording waits here for the confirmation popup (##cnown)
+struct PendingAssign {
+    enum class Kind { None, LastName, CommonName, Player } kind = Kind::None;
+    int64_t playerid = 0;
+    int64_t nameid = 0;        // By name: the picked name
+    int64_t commentaryid = 0;  // By player: the callname to copy
+    std::string from;          // By player: whose callname it is
+    bool keep_display = true;
+};
+static PendingAssign g_pending;
+static bool g_open_own_confirm = false;
+static CallnameTabState g_state;
+
+const CallnameTabState& callname_tab_state() { return g_state; }
 
 static std::string chosen_language(App& app) { return app.chosen_commentary_language(); }
 
@@ -207,8 +228,18 @@ static void language_line(App& app) {
     }
     ImGui::SameLine();
     if (ImGui::Button("Refresh##cn")) refresh_all(app);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Look for language packs and the spoken-id list again, rebuild the pickers");
-    ImGui::TextDisabled("%s", cn.lang_why.c_str());
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Look for language packs, the spoken-id list and your FC 26 list again, rebuild the pickers");
+    // Why this language: on its own line when it needs attention, else behind "(?)" (the tab is short of height: the
+    // assignment buttons must stay visible in the default window)
+    const bool attention = cn.lang.empty() || cn.lang_why.find("not installed") != std::string::npos ||
+                           cn.lang_why.find("several") != std::string::npos;
+    if (attention) {
+        ImGui::TextDisabled("%s", cn.lang_why.c_str());
+    } else {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", cn.lang_why.c_str());
+    }
     if (cn.no_game_root) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "Game folder unknown: the tests or the host must set it.");
     if (cn.spoken.verified) {
         ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1), "Spoken set from %s: %zu names, %zu player callnames", cn.spoken.source.c_str(),
@@ -225,6 +256,24 @@ static void language_line(App& app) {
     }
     if (!cn.list_error.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", cn.list_error.c_str());
     if (!cn.cache_error.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", cn.cache_error.c_str());
+    // The user's FC 26 list: the second (and usually the bigger) source of "has his own recording"
+    if (cn.masters.loaded()) {
+        ImGui::TextColored(kGreen, "Your FC 26 list: %zu players with their own recording, %zu generic names", cn.masters.real_players.size(),
+                           cn.masters.generic_ids.size());
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s\nmade from %s (%s) by turbo\\tools\\import_callname_masters.py.\n"
+                              "FC 26 data: FC 27 mostly reuses these recordings, so a player listed 'real' there is treated as\n"
+                              "having his own recording, like the players the game's audio service names.",
+                              cn.masters.file.c_str(), cn.masters.source.empty() ? "?" : cn.masters.source.c_str(),
+                              cn.masters.built.empty() ? "date unknown" : cn.masters.built.c_str());
+    } else if (!cn.masters_error.empty()) {
+        ImGui::TextColored(kOrange, "Your FC 26 list not used: %s", cn.masters_error.c_str());
+    } else if (!cn.lang.empty()) {
+        ImGui::TextDisabled("No FC 26 list for %s: players with their own recording are known only from the game's audio service", cn.lang.c_str());
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Looked for %s.\nMake it with: python turbo\\tools\\import_callname_masters.py (reads your *_master workbooks)",
+                              cn.masters_path.c_str());
+    }
     // One row: the spoken set from the game's audio service (core/commentary_audio.h; the default, built on the game
     // thread, one batch per frame) and, as a diagnostic, the memory scan of the loaded bank (core/commentary_bank.h,
     // background thread); one status line for whichever ran last
@@ -260,13 +309,73 @@ static void language_line(App& app) {
         ImGui::TextDisabled("Override list looked for: %s; capture cache: %s", cn.list_path.c_str(), cn.cache_path.c_str());
 }
 
+// Above the assignment buttons of a player with his own recording: what will (not) happen. Kept short (the popup and
+// the tooltip explain); its height is reserved below the picker list (list_height).
+static std::string own_warning_text(const App& app, int own) {
+    return "He has his own recording (" + app.callnames.own_source(own) + "): a callname set here will not be heard. Writing asks to confirm.";
+}
+static float own_warning_height(const App& app, int own) {
+    if (!own) return 0.0f;
+    return ImGui::CalcTextSize(own_warning_text(app, own).c_str(), nullptr, false, ImGui::GetContentRegionAvail().x).y +
+           ImGui::GetStyle().ItemSpacing.y;
+}
+static void own_recording_warning(App& app, const PlayerRow& p, int own) {
+    g_state.warning_shown = true;
+    ImGui::PushStyleColor(ImGuiCol_Text, kOrange);
+    ImGui::TextWrapped("%s", own_warning_text(app, own).c_str());
+    ImGui::PopStyleColor();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s has his own recording in %s: the game says it before playernamemap and his name ids, so a name\n"
+                          "picked here is written but not heard. To hear a callname, test it on a player without one\n"
+                          "(tab 'Players without own recording').",
+                          p.name.c_str(), app.callnames.lang.c_str());
+}
+
+// Height of a picker list: what the tab has left once `below` (the lines under the list) is kept, 80..200 px. The
+// default window is short: with a fixed 200 px the assignment buttons ended below the visible part of the tab.
+static float list_height(float below) {
+    const float avail = ImGui::GetContentRegionAvail().y - ImGui::GetStyle().ItemSpacing.y - below;
+    return std::max(S(80.0f), std::min(S(200.0f), avail));
+}
+
+// Straight to the write for a player without his own recording; else parked until the popup confirms it
+static void request_name(App& app, const Table& t, const PlayerRow& p, const NameChoice& c, bool as_common, int own) {
+    if (!own) {
+        assign_name(app, t, p, c, as_common, g_keep_display);
+        return;
+    }
+    g_pending = PendingAssign{};
+    g_pending.kind = as_common ? PendingAssign::Kind::CommonName : PendingAssign::Kind::LastName;
+    g_pending.playerid = p.playerid;
+    g_pending.nameid = c.nameid;
+    g_pending.keep_display = g_keep_display;
+    g_open_own_confirm = true;
+}
+static void request_player_callname(App& app, const PlayerRow& p, const PlayerChoice& c, int own) {
+    if (!own) {
+        assign_player_callname(app, p, c.commentaryid, c.name);
+        return;
+    }
+    g_pending = PendingAssign{};
+    g_pending.kind = PendingAssign::Kind::Player;
+    g_pending.playerid = p.playerid;
+    g_pending.commentaryid = c.commentaryid;
+    g_pending.from = c.name;
+    g_open_own_confirm = true;
+}
+
 static void by_name_picker(App& app, const Table& t, const PlayerRow& p) {
     const CallnameIndex& ix = app.callnames.index;
     ImGui::SetNextItemWidth(S(260.0f));
     ImGui::InputTextWithHint("##cnsearch", "type a name or a name id", g_name_search, sizeof(g_name_search));
     ImGui::SameLine();
     ImGui::TextDisabled("%zu spoken names", ix.names.size());
-    ImGui::BeginChild("##cnames", ImVec2(0, S(200.0f)), ImGuiChildFlags_Borders);
+    const int own = app.callnames.own_recording(p.playerid);
+    const ImGuiStyle& style = ImGui::GetStyle();
+    // under the list: the "Selected" line, the keep-name checkbox, the warning, the buttons
+    const float below = ImGui::GetTextLineHeightWithSpacing() + 2.0f * ImGui::GetFrameHeightWithSpacing() + own_warning_height(app, own) +
+                        style.WindowPadding.y;
+    ImGui::BeginChild("##cnames", ImVec2(0, list_height(below)), ImGuiChildFlags_Borders);
     int shown = 0, total = 0;
     if (ImGui::BeginTable("##cntable", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("Name ID", ImGuiTableColumnFlags_WidthFixed, S(70.0f));
@@ -307,13 +416,14 @@ static void by_name_picker(App& app, const Table& t, const PlayerRow& p) {
     ImGui::Checkbox("Keep the shown name (editedplayernames)", &g_keep_display);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("The game shows editedplayernames first, so the player keeps his name on screen while the commentary speaks the chosen one");
+    if (own) own_recording_warning(app, p, own);
     bool has_common = t.has("commonnameid"), has_last = t.has("lastnameid");
     if (!has_last) ImGui::BeginDisabled();
-    if (ImGui::Button("Assign as last name")) assign_name(app, t, p, *sel, false, g_keep_display);
+    if (ImGui::Button("Assign as last name")) request_name(app, t, p, *sel, false, own);
     if (!has_last) ImGui::EndDisabled();
     ImGui::SameLine();
     if (!has_common) ImGui::BeginDisabled();
-    if (ImGui::Button("Assign as common name")) assign_name(app, t, p, *sel, true, g_keep_display);
+    if (ImGui::Button("Assign as common name")) request_name(app, t, p, *sel, true, own);
     if (!has_common) ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::TextDisabled("(a common name wins over the last name; a player-specific callname wins over both)");
@@ -325,7 +435,11 @@ static void by_player_picker(App& app, const PlayerRow& p) {
     ImGui::InputTextWithHint("##cpsearch", "type a player name, club or id", g_player_search, sizeof(g_player_search));
     ImGui::SameLine();
     ImGui::TextDisabled("%zu players with a spoken player-specific callname", ix.players.size());
-    ImGui::BeginChild("##cplayers", ImVec2(0, S(200.0f)), ImGuiChildFlags_Borders);
+    const int own = app.callnames.own_recording(p.playerid);
+    // under the list: the "Selected" line, the warning, the button
+    const float below = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetFrameHeightWithSpacing() + own_warning_height(app, own) +
+                        ImGui::GetStyle().WindowPadding.y;
+    ImGui::BeginChild("##cplayers", ImVec2(0, list_height(below)), ImGuiChildFlags_Borders);
     int shown = 0, total = 0;
     if (ImGui::BeginTable("##cptable", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("Player ID", ImGuiTableColumnFlags_WidthFixed, S(80.0f));
@@ -364,49 +478,172 @@ static void by_player_picker(App& app, const PlayerRow& p) {
     }
     ImGui::Text("Selected: %s (%s, player %lld) speaks callname %lld", sel->name.c_str(), sel->club.empty() ? "no club" : sel->club.c_str(),
                 static_cast<long long>(sel->playerid), static_cast<long long>(sel->commentaryid));
-    if (ImGui::Button("Use this player's callname")) assign_player_callname(app, p, sel->commentaryid, sel->name);
+    if (own) own_recording_warning(app, p, own);
+    if (ImGui::Button("Use this player's callname")) request_player_callname(app, p, *sel, own);
     ImGui::SameLine();
     ImGui::TextDisabled("(writes this player's playernamemap row; the shown name does not change)");
+}
+
+// The database rule's result ("900017 from last name 'Kane' (name 17)"), "" when it gives none
+static std::string rule_result(App& app, const CallnameInfo& info) {
+    if (info.source == CallnameSource::None) return "";
+    std::string via;
+    if (info.nameid > 0) {
+        auto it = app.model.names_by_id().find(info.nameid);
+        via = " '" + (it != app.model.names_by_id().end() ? it->second : std::string("?")) + "' (name " + std::to_string(info.nameid) + ")";
+    }
+    return std::to_string(info.commentaryid) + " from " + callname_source_name(info.source) + via;
+}
+
+// "PLAYER_LOW_SIMPLE + PLAYER_LOW_LINK" / "2 player-keyed tables" for the game's side, the list's name for the FC 26 side
+static std::string own_details(const Callnames& cn, int64_t playerid, int own) {
+    std::string out;
+    if (own & kOwnFromGame) {
+        auto it = cn.spoken.players.find(playerid);
+        int v = it != cn.spoken.players.end() ? it->second : 0;
+        std::string how;
+        if (cn.spoken.from == SpokenSet::From::BankCapture) {
+            how = std::to_string(v) + (v == 1 ? " player-keyed table" : " player-keyed tables");
+        } else {
+            if (v & caudio::kPlayerLowSimple) how += "PLAYER_LOW_SIMPLE";
+            if (v & caudio::kPlayerLowLink) how += std::string(how.empty() ? "" : " + ") + "PLAYER_LOW_LINK";
+        }
+        if (!how.empty()) out = "the game: " + how;
+    }
+    if (own & kOwnFromMasters) {
+        auto it = cn.masters.names.find(playerid);
+        out += std::string(out.empty() ? "" : "; ") + "your FC 26 list: " +
+               (it != cn.masters.names.end() ? "'" + it->second + "'" : std::string("listed as 'real'"));
+    }
+    return out;
+}
+
+// Third picker tab: the players of this player's club without their own recording, i.e. the ones on whom an assigned
+// callname can be heard (a test player). A click opens the player. A tab, not a button line: the tab has no height to spare.
+static void club_players_tab(App& app, const PlayerRow& p) {
+    const Callnames& cn = app.callnames;
+    if (p.club <= 0) {
+        ImGui::TextDisabled("%s has no club: open a club player to see his team-mates without their own recording.", p.name.c_str());
+        return;
+    }
+    std::vector<const PlayerRow*> without, with;
+    for (const auto& pr : app.model.players())
+        if (pr.club == p.club) (cn.own_recording(pr.playerid) ? with : without).push_back(&pr);
+    ImGui::Text("%s: %zu of %zu players have no own recording in %s", p.club_name.c_str(), without.size(), without.size() + with.size(),
+                cn.lang.empty() ? "the loaded language" : cn.lang.c_str());
+    ImGui::SameLine();
+    ImGui::TextDisabled(cn.masters.loaded() ? "(game's audio service + your FC 26 list)" : "(game's audio service only: no FC 26 list)");
+    // under the list: one line naming the players with their own recording
+    const float below = ImGui::GetTextLineHeightWithSpacing() * 2.0f + ImGui::GetStyle().WindowPadding.y;
+    ImGui::BeginChild("##cnclublist", ImVec2(0, list_height(below)), ImGuiChildFlags_Borders);
+    for (const PlayerRow* w : without) {
+        std::string label = w->name + " (" + std::to_string(w->playerid) + ")##cnclub";
+        if (ImGui::Selectable(label.c_str(), w->playerid == p.playerid)) app.sel_player = w->playerid;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Open %s: a callname assigned to him is the one the game says", w->name.c_str());
+    }
+    if (without.empty()) ImGui::TextDisabled("Every player of %s has his own recording.", p.club_name.c_str());
+    ImGui::EndChild();
+    if (!with.empty()) {
+        std::string names;
+        for (const PlayerRow* w : with) names += (names.empty() ? "" : ", ") + w->name;
+        ImGui::TextDisabled("With their own recording (a callname is not heard): %s", names.c_str());
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", names.c_str());
+    }
+}
+
+// The confirmation of an assignment to a player with his own recording (parked by request_name / request_player_callname)
+static void own_confirm_popup(App& app, const Table& t, const PlayerRow& p) {
+    if (g_open_own_confirm) {
+        ImGui::OpenPopup("##cnown");
+        g_open_own_confirm = false;
+    }
+    if (!ImGui::BeginPopupModal("##cnown", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+    g_state.confirm_open = true;
+    if (g_pending.kind == PendingAssign::Kind::None || g_pending.playerid != p.playerid) {
+        // another player was opened meanwhile: nothing to confirm for this one
+        g_pending = PendingAssign{};
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    Callnames& cn = app.callnames;
+    const int own = cn.own_recording(p.playerid);
+    const NameChoice* name = nullptr;
+    for (const auto& c : cn.index.names)
+        if (c.nameid == g_pending.nameid) name = &c;
+    std::string what;
+    if (g_pending.kind == PendingAssign::Kind::Player)
+        what = "write callname " + std::to_string(g_pending.commentaryid) + " (" + g_pending.from + "'s) to his playernamemap row";
+    else
+        what = std::string("assign '") + (name ? name->name : "?") + "' (callname " + (name ? std::to_string(name->commentaryid) : std::string("?")) +
+               ") as his " + (g_pending.kind == PendingAssign::Kind::CommonName ? "common" : "last") + " name";
+    ImGui::TextColored(kOrange, "%s (ID %lld) has his own recording in %s (%s).", p.name.c_str(), static_cast<long long>(p.playerid),
+                       cn.lang.c_str(), cn.own_source(own).c_str());
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + S(560.0f));
+    ImGui::TextWrapped("The game uses a player's own recording before playernamemap and his name ids, so the commentator keeps "
+                       "saying his own name: the callname written now will not be heard while that recording exists.");
+    ImGui::PopTextWrapPos();
+    ImGui::Text("Write it anyway: %s?", what.c_str());
+    if (ImGui::Button("Assign anyway##cnown")) {
+        const PendingAssign a = g_pending;
+        g_pending = PendingAssign{};
+        if (a.kind == PendingAssign::Kind::Player) {
+            assign_player_callname(app, p, a.commentaryid, a.from);
+        } else if (name) {
+            assign_name(app, t, p, *name, a.kind == PendingAssign::Kind::CommonName, a.keep_display);
+        } else {
+            app.notify(p.name + ": the picked name is no longer in the list; nothing written", true);
+        }
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel##cnown")) {
+        g_pending = PendingAssign{};
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
 }
 
 void callname_editor(App& app, const Table& t, const PlayerRow& p) {
     ensure_ready(app);
     Callnames& cn = app.callnames;
+    g_state = CallnameTabState{};
+    g_state.playerid = p.playerid;
     language_line(app);
     ImGui::Separator();
 
     CallnameInfo info = cn.resolve(p, app.db);
+    g_state.own = info.own;
+    const std::string rule = rule_result(app, info);
     ImGui::AlignTextToFramePadding();
-    if (info.real) {
-        auto it = cn.spoken.players.find(p.playerid);
-        int v = it != cn.spoken.players.end() ? it->second : 0;
-        std::string how;
-        if (cn.spoken.from == SpokenSet::From::GameAudio) {
-            if (v & caudio::kPlayerLowSimple) how += "PLAYER_LOW_SIMPLE";
-            if (v & caudio::kPlayerLowLink) how += std::string(how.empty() ? "" : " + ") + "PLAYER_LOW_LINK";
-            if (how.empty()) how = "the game's audio service";
-        } else {
-            how = std::to_string(v) + (v == 1 ? " player-keyed table" : " player-keyed tables");
+    if (info.own) {
+        // Step 0 of the game's rule: his own recording wins, so the line names it - never "none"
+        g_state.current_line = "Current callname: his own recording in " + cn.lang + " (" + cn.own_source(info.own) + ")";
+        ImGui::TextColored(kGreen, "%s", g_state.current_line.c_str());
+        if (ImGui::IsItemHovered()) {
+            const std::string details = own_details(cn, p.playerid, info.own);
+            ImGui::SetTooltip("Own (\"Real\") recordings are bound to the player id inside the bank, not to a commentary id: the\n"
+                              "commentator says this name whatever playernamemap or the name ids give.%s%s",
+                              details.empty() ? "" : "\n", details.c_str());
         }
-        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1), "Recorded by name in %s: the bank has this player's own recordings (%s)", cn.lang.c_str(),
-                           how.c_str());
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Player-specific (\"Real\") recordings are bound to the player id inside the bank, not to a commentary id:\n"
-                              "the commentary says this name whatever the callname rule below gives.");
-    }
-    if (info.source == CallnameSource::None) {
-        ImGui::Text("Current callname: none (%s)", info.real ? "the recordings above are used" : "the commentary does not say this player's name");
+        g_state.rule_line = "Not used while he has it: the callname rule gives " + (rule.empty() ? std::string("none") : rule);
+        ImGui::TextDisabled("%s", g_state.rule_line.c_str());
+    } else if (info.source == CallnameSource::None) {
+        // Without the FC 26 list the game's audio service is the only source, and it misses most own recordings: say so
+        // rather than a flat "the commentary does not say his name"
+        g_state.current_line = cn.masters.loaded()
+                                   ? std::string("Current callname: none (the commentary does not say this player's name)")
+                                   : "Current callname: none from the callname rule (no FC 26 list for " + cn.lang +
+                                         ": an own recording of his would not be known here)";
+        ImGui::Text("%s", g_state.current_line.c_str());
     } else {
-        std::string via;
-        if (info.nameid > 0) {
-            auto it = app.model.names_by_id().find(info.nameid);
-            via = " '" + (it != app.model.names_by_id().end() ? it->second : std::string("?")) + "' (name " + std::to_string(info.nameid) + ")";
-        }
         bool spoken = cn.spoken.spoken(info.commentaryid);
-        ImGui::Text("Current callname: %lld from %s%s - ", static_cast<long long>(info.commentaryid), callname_source_name(info.source), via.c_str());
+        g_state.current_line = "Current callname: " + rule + " - ";
+        ImGui::Text("%s", g_state.current_line.c_str());
         ImGui::SameLine();
-        if (spoken) ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1), cn.spoken.verified ? "spoken in %s" : "used by playernames (unverified) in %s", cn.lang.c_str());
-        else ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "NOT spoken in %s", cn.lang.c_str());
+        const std::string tail = std::string(!spoken ? "NOT spoken in " : cn.spoken.verified ? "spoken in " : "used by playernames (unverified) in ") + cn.lang;
+        g_state.current_line += tail;
+        ImGui::TextColored(spoken ? kGreen : kOrange, "%s", tail.c_str());
     }
     if (cn.index.playernamemap.count(p.playerid)) {
         if (ImGui::Button("Remove player-specific callname...")) ImGui::OpenPopup("##rmcallname");
@@ -435,8 +672,14 @@ void callname_editor(App& app, const Table& t, const PlayerRow& p) {
             by_player_picker(app, p);
             ImGui::EndTabItem();
         }
+        if (ImGui::BeginTabItem("Players without own recording")) {
+            club_players_tab(app, p);
+            ImGui::EndTabItem();
+        }
         ImGui::EndTabBar();
     }
+    // outside the tab items: both pickers park their request here (an ID pushed by a tab item would hide the popup)
+    own_confirm_popup(app, t, p);
 }
 
 }  // namespace turbo

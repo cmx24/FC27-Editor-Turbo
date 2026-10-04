@@ -636,6 +636,91 @@ static void test_core() {
         CHECK(!cn.apply_capture(bad, le, "", "", &err) && !err.empty(), "an empty capture is refused: " + err);
         fs::remove(cache);
     });
+    // ---- the user's FC 26 list (turbo\callnames\masters\<lang>.json from turbo/tools/import_callname_masters.py): a
+    // second source of "this player has his own recording", next to the game's audio service; either one is enough
+    run_case("callnames: your FC 26 list (masters json): loader, own-recording sources and precedence", [&] {
+        const auto npos = std::string::npos;
+        fs::path game = g_out / "fakegame";
+        fs::path le = g_out / "LE";
+        fs::path cache = spoken_cache_path(le, "ita_it");
+        fs::path mp = master_list_path(le, "ita_it");
+        CHECK(mp == le / "turbo" / "callnames" / "masters" / "ita_it.json", "list path");
+        fs::remove(cache);
+        fs::remove(mp);
+        fs::remove(le / "turbo" / "callnames" / "spoken_ita_it.txt");
+        MasterList ml;
+        std::string err;
+        CHECK(parse_master_list_json(R"({"turbo_masters": 1, "language": "ita_it", "source": "C:\\FC_Tools\\My Mods\\ita\\italy_master.xlsm",
+              "built": "2026-10-04T12:00:00-04:00", "real_players": [216435, 244263, "x", -5, 1001.0, 1.5, null, 1e300],
+              "generic_ids": [920014, "920015"], "names": {"216435": "Stanislav Lobotka", "abc": "x", "244263": 7}})",
+                                     "ita_it", ml, &err),
+              "parsed: " + err);
+        CHECK(ml.real_players.size() == 3 && ml.real(216435) && ml.real(244263) && ml.real(1001) && !ml.real(-5),
+              fmt("real players: integers and whole floats, the rest skipped (%zu)", ml.real_players.size()));
+        CHECK(ml.generic_ids.size() == 1 && ml.generic_ids.count(920014), "generic ids: numbers only");
+        CHECK(ml.names.size() == 1 && ml.names[216435] == "Stanislav Lobotka", "names: numeric keys with a text value");
+        CHECK(ml.lang == "ita_it" && ml.built.rfind("2026-10-04", 0) == 0 && ml.source.find("italy_master") != npos, "header fields");
+        CHECK(parse_master_list_json(R"({"language": "ITA_IT", "real_players": [5]})", "ita_it", ml, &err) && ml.lang == "ita_it", "language in any case");
+        CHECK(parse_master_list_json(R"({"real_players": [7]})", "ita_it", ml, &err) && ml.lang == "ita_it", "no language field: the one asked");
+        CHECK(!parse_master_list_json(R"({"language": "por_br", "real_players": [5]})", "ita_it", ml, &err) && err.find("por_br") != npos &&
+                  ml.real_players.empty(),
+              "a list for another language is refused: " + err);
+        CHECK(!parse_master_list_json("{not json", "ita_it", ml, &err) && err.find("not JSON") != npos, "bad JSON refused: " + err);
+        CHECK(!parse_master_list_json("[1, 2]", "ita_it", ml, &err) && !parse_master_list_json("", "ita_it", ml, &err), "not an object");
+        CHECK(!parse_master_list_json(R"({"language": "ita_it", "real_players": "216435", "generic_ids": {}, "names": []})", "ita_it", ml, &err) &&
+                  err.find("no player") != npos,
+              "wrong types everywhere: no ids, refused without a throw: " + err);
+        CHECK(own_recording_source_name(0).empty() && own_recording_source_name(kOwnFromMasters) == "your FC 26 list" &&
+                  own_recording_source_name(kOwnFromGame) == "the game's audio service" &&
+                  own_recording_source_name(kOwnFromGame | kOwnFromMasters) == "the game's audio service and your FC 26 list" &&
+                  own_recording_source_name(kOwnFromGame, SpokenSet::From::BankCapture) == "the bank capture",
+              "source names");
+        // the runtime object: no list is fine; a list is loaded on refresh; either source counts, both are named
+        Callnames cn;
+        cn.refresh(le, game, "");
+        CHECK(cn.lang == "ita_it" && !cn.masters.loaded() && cn.masters_error.empty() && cn.masters_path == mp.string(), "no list: nothing loaded, no error");
+        fs::create_directories(mp.parent_path());
+        std::ofstream(mp.string()) << R"({"language": "ita_it", "source": "italy_master.xlsm", "real_players": [1001, 1004], "generic_ids": [900002],
+                                         "names": {"1001": "Bukayo Saka"}})";
+        cn.refresh(le, game, "");
+        CHECK(cn.masters.loaded() && cn.masters.real_players.size() == 2 && cn.masters_error.empty() && cn.masters.file == mp.string(),
+              "list loaded on refresh: " + cn.masters_error);
+        model.set_extra_names(bridge.names());
+        CHECK(model.rebuild(kToday), "rebuild");
+        cn.build_index(db, model, model.names_by_id());
+        CHECK(cn.own_recording(1001) == kOwnFromMasters && cn.own_recording(1004) == kOwnFromMasters && cn.own_recording(1002) == 0, "the list alone");
+        CallnameInfo r = cn.resolve(*model.player(1001), db);
+        CHECK(r.real && r.own == kOwnFromMasters && r.commentaryid == 900002 && r.source == CallnameSource::LastName,
+              "resolve: own recording from the list; the rule's result is still computed");
+        CHECK(!cn.resolve(*model.player(1002), db).real && cn.resolve(*model.player(1002), db).own == 0, "1002: no own recording");
+        // the game's side adds its players: 1001 from both, 2001 from the game only, 1004 from the list only
+        BankCapture c;
+        c.ok = true;
+        c.note = "test capture";
+        c.surnames = {900002};
+        c.players = {{1001, 1}, {2001, 3}};
+        c.rows = 4;
+        CHECK(cn.apply_capture(c, le, "2026-10-04 12:00", "", &err), "capture applied: " + err);
+        CHECK(cn.own_recording(1001) == (kOwnFromGame | kOwnFromMasters) && cn.own_recording(2001) == kOwnFromGame &&
+                  cn.own_recording(1004) == kOwnFromMasters,
+              "both / the game / the list");
+        CHECK(cn.own_source(cn.own_recording(1001)) == "the bank capture and your FC 26 list", "both named: " + cn.own_source(cn.own_recording(1001)));
+        CHECK(cn.resolve(*model.player(2001), db).real, "2001: own recording from the game only");
+        cn.refresh(le, game, "");
+        CHECK(cn.masters.loaded() && cn.own_recording(1001) == (kOwnFromGame | kOwnFromMasters), "refresh: the cache and the list together");
+        // a list for another language, then junk: not used, the reason kept; the game's side stays
+        std::ofstream(mp.string()) << R"({"language": "por_br", "real_players": [1001]})";
+        cn.refresh(le, game, "");
+        CHECK(!cn.masters.loaded() && cn.masters_error.find("por_br") != npos && cn.own_recording(1004) == 0 && cn.own_recording(1001) == kOwnFromGame,
+              "another language's list is not used: " + cn.masters_error);
+        std::ofstream(mp.string()) << "garbage";
+        cn.refresh(le, game, "");
+        CHECK(!cn.masters.loaded() && cn.masters_error.find("not JSON") != npos, "junk is not used: " + cn.masters_error);
+        fs::remove(mp);
+        fs::remove(cache);
+        cn.refresh(le, game, "");
+        CHECK(!cn.masters.loaded() && cn.masters_error.empty() && cn.own_recording(1001) == 0, "both gone: no own recording known");
+    });
 
     // ---- the game's audio service (core/commentary_audio.h): batch layout, pointer chain, the stepped build, cache record
     run_case("commentary audio: name batch and canary, pointer chain checks, the stepped build with a fake caller, cache record and precedence", [&] {
@@ -3603,6 +3688,123 @@ static void test_ui() {
             app.gui_settings["callnames"].erase("language");
             app.save_gui_settings();
             app.game_root.clear();
+        });
+        // A player with his own recording (here from the user's FC 26 list) is spoken from it whatever is assigned: the
+        // tab says so, warns, and writes nothing without a deliberate confirmation (docs/callnames.md section 4)
+        run_case("UI: Players > Callname: own recordings from your FC 26 list: current callname line, warning and confirmation before any write, players without own recording", [&] {
+            const auto npos = std::string::npos;
+            fs::path game = g_out / "fakegame";
+            fs::path mp = master_list_path(le, "ita_it");
+            fs::create_directories(mp.parent_path());
+            std::ofstream((le / "turbo" / "callnames" / "spoken_ita_it.txt").string())
+                << "#turbo-spoken ita_it 6\n900002\n900004\n900010\n900015\n900017\n950000\n";
+            // Saka (1001) and 1004 have their own recording in the list; the other Arsenal players do not
+            std::ofstream(mp.string()) << R"({"language": "ita_it", "source": "italy_master.xlsm", "built": "2026-10-04T12:00:00",
+                                             "real_players": [1001, 1004], "generic_ids": [900002], "names": {"1001": "Bukayo Saka"}})";
+            const Table* pt = app.db.table("players");
+            const Table* mt = app.db.table("playernamemap");
+            uint64_t rec1001 = app.db.find(*pt, "playerid", 1001);
+            const int64_t last_before = app.db.get_int(*pt, rec1001, "lastnameid");
+            CHECK(app.db.set_int(*pt, rec1001, "lastnameid", 17), "Saka's last name = Kane (17) to start from");
+            app.game_root = game;
+            app.callnames.refreshed = false;
+            app.request_tab = 0;
+            ui.frames(3);
+            CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
+            CHECK(ui.click("1001", "##plist"), "row 1001 (Saka)");
+            CHECK(ui.click("Callname", "##pedit"), "Callname tab");
+            ui.frames(2);
+            const CallnameTabState& st = callname_tab_state();
+            CHECK(app.callnames.masters.loaded() && app.callnames.masters.real_players.size() == 2, "the FC 26 list is loaded: " + app.callnames.masters_error);
+            CHECK(st.playerid == 1001 && st.own == kOwnFromMasters, fmt("own recording from the list (own %d)", st.own));
+            CHECK(st.current_line.find("his own recording in ita_it") != npos && st.current_line.find("your FC 26 list") != npos &&
+                      st.current_line.find("none") == npos,
+                  "current callname line: " + st.current_line);
+            CHECK(st.rule_line.find("Not used") != npos && st.rule_line.find("900017") != npos, "the rule's result, marked unused: " + st.rule_line);
+            // BY NAME: warning, then a confirmation popup; Cancel writes nothing; Assign anyway writes
+            CHECK(ui.click("By name", "##cname"), "By name tab");
+            CHECK(ui.type_into(ui.find("##cnsearch"), "saka"), "type saka");
+            CHECK(ui.click("2", "##cnames"), "pick Saka (name 2)");
+            ui.frames(1);
+            CHECK(st.warning_shown, "the own-recording warning is drawn above the buttons");
+            CHECK(ui.click("Assign as last name"), "assign as last name");
+            ui.frames(2);
+            CHECK(st.confirm_open, "a confirmation is asked first");
+            CHECK(app.db.get_int(*pt, rec1001, "lastnameid") == 17 && !app.busy(), "nothing written or queued before the confirmation");
+            CHECK(ui.click("Cancel##cnown", "##cnown"), "cancel");
+            ui.frames(2);
+            CHECK(!st.confirm_open && app.db.get_int(*pt, rec1001, "lastnameid") == 17 && !app.busy(), "cancelled: nothing written");
+            CHECK(ui.click("Assign as last name"), "assign again");
+            ui.frames(2);
+            CHECK(st.confirm_open, "asked again (the confirmation is per write)");
+            CHECK(ui.click("Assign anyway##cnown", "##cnown"), "assign anyway");
+            ui.frames(2);
+            CHECK(!st.confirm_open && app.db.get_int(*pt, rec1001, "lastnameid") == 2, "written after the confirmation");
+            if (app.busy()) CHECK(ui.click("Cancel"), "cancel the queued shown-name row");
+            // BY PLAYER: the same gate before the playernamemap row is queued
+            CHECK(ui.click("By player", "##cname"), "By player tab");
+            CHECK(ui.type_into(ui.find("##cpsearch"), "1003"), "type 1003");
+            CHECK(ui.click("1003", "##cplayers"), "pick 1003");
+            ui.frames(1);
+            CHECK(st.warning_shown, "warning in By player too");
+            CHECK(ui.click("Use this player's callname"), "use callname");
+            ui.frames(2);
+            CHECK(st.confirm_open && !app.busy() && app.db.find(*mt, "playerid", 1001) == 0, "asked first: nothing queued, no row");
+            CHECK(ui.click("Assign anyway##cnown", "##cnown"), "assign anyway");
+            ui.frames(2);
+            CHECK(app.busy(), "playernamemap row queued after the confirmation");
+            {
+                json cmd = json::parse(mem.read_cstr(kMb + 0x20, 0x1000), nullptr, false);
+                const bool has = cmd.is_object() && cmd.contains("overrides") && cmd["overrides"].is_object() &&
+                                 cmd["overrides"].contains("actions") && cmd["overrides"]["actions"].is_array() && !cmd["overrides"]["actions"].empty();
+                CHECK(has, "a callnames command in the mailbox");
+                if (has) {
+                    const json& a = cmd["overrides"]["actions"][0];
+                    CHECK(a.value("action", "") == "set_playernamemap" && a.value("playerid", 0) == 1001 && a.value("commentaryid", 0) == 900010,
+                          "set_playernamemap command: " + a.dump());
+                }
+            }
+            CHECK(ui.click("Cancel"), "cancel");
+            // the club helper: Arsenal's players without their own recording; a click opens the player
+            auto club_item = [&](int64_t pid) -> const ItemRec* {
+                const std::string tail = "(" + std::to_string(pid) + ")##cnclub";
+                for (const auto& kv : g_items) {
+                    const ItemRec& r = kv.second;
+                    if (r.frame == g_frame && r.label.size() >= tail.size() && r.label.compare(r.label.size() - tail.size(), tail.size(), tail) == 0)
+                        return &r;
+                }
+                return nullptr;
+            };
+            CHECK(ui.click("Players without own recording", "##cname"), "the helper tab");
+            ui.frames(2);
+            CHECK(club_item(1002) && club_item(1003) && club_item(1005) && club_item(1006), "Arsenal players without one listed");
+            CHECK(!club_item(1001) && !club_item(1004) && !club_item(2001), "players with one (and other clubs) not listed");
+            CHECK(ui.click(club_item(1002)), "open 1002 from the helper");
+            ui.frames(2);
+            CHECK(app.sel_player == 1002 && st.playerid == 1002, fmt("1002 opened (%lld)", static_cast<long long>(app.sel_player)));
+            // a player without an own recording: the rule's line, no warning, the write goes straight through
+            CHECK(st.own == 0 && st.current_line.find("own recording") == npos && st.current_line.find("Current callname: ") == 0,
+                  "1002: the callname rule's line: " + st.current_line);
+            CHECK(ui.click("By name", "##cname"), "By name tab");
+            CHECK(ui.type_into(ui.find("##cnsearch"), "kan"), "type kan");
+            CHECK(ui.click("17", "##cnames"), "pick Kane");
+            ui.frames(1);
+            CHECK(!st.warning_shown, "no warning for 1002");
+            uint64_t rec1002 = app.db.find(*pt, "playerid", 1002);
+            const int64_t last1002 = app.db.get_int(*pt, rec1002, "lastnameid");
+            CHECK(ui.click("Assign as last name"), "assign");
+            ui.frames(1);
+            CHECK(!st.confirm_open && app.db.get_int(*pt, rec1002, "lastnameid") == 17, "written at once, no popup");
+            if (app.busy()) CHECK(ui.click("Cancel"), "cancel the queued shown-name row");
+            CHECK(app.db.set_int(*pt, rec1002, "lastnameid", last1002), "1002 restored");
+            // the list gone: the line says an own recording would not be known
+            fs::remove(mp);
+            CHECK(ui.click("Refresh##cn"), "refresh");
+            CHECK(!app.callnames.masters.loaded() && app.callnames.own_recording(1004) == 0, "no list: 1004 no longer known");
+            CHECK(app.db.set_int(*pt, rec1001, "lastnameid", last_before), "Saka restored");
+            fs::remove(le / "turbo" / "callnames" / "spoken_ita_it.txt");
+            app.game_root.clear();
+            app.callnames.refreshed = false;
         });
         run_case("UI: Competitions > Live standings: a row write queues the standings refresh; its outcome arrives as a toast", [&] {
             // the engine rows (FceWorld) and the career managers (SvmWorld), mapped into the App's memory

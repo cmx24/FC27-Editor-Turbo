@@ -7,6 +7,8 @@
 #include <fstream>
 #include <sstream>
 
+#include "nlohmann/json.hpp"
+
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -144,6 +146,76 @@ fs::path spoken_list_path(const fs::path& le_root, const std::string& lang) {
     return le_root / "turbo" / "callnames" / ("spoken_" + lang + ".txt");
 }
 
+fs::path master_list_path(const fs::path& le_root, const std::string& lang) {
+    return le_root / "turbo" / "callnames" / "masters" / (lang + ".json");
+}
+
+bool parse_master_list_json(const std::string& text, const std::string& lang, MasterList& out, std::string* err) {
+    using nlohmann::json;
+    out = MasterList{};
+    auto fail = [&](const std::string& why) {
+        out = MasterList{};
+        if (err) *err = why;
+        return false;
+    };
+    // The file is written by the user's tool and may be edited by hand: every access is type-checked, and the parse
+    // runs without exceptions (a json type error must never reach the GUI's frame)
+    try {
+        json j = json::parse(text, nullptr, false);
+        if (j.is_discarded() || !j.is_object()) return fail("not JSON (make it again with turbo\\tools\\import_callname_masters.py)");
+        auto str = [&](const char* key) {
+            auto it = j.find(key);
+            return it != j.end() && it->is_string() ? it->get<std::string>() : std::string();
+        };
+        out.lang = str("language");
+        out.source = str("source");
+        out.built = str("built");
+        if (!lang.empty() && !out.lang.empty() && lower(out.lang) != lower(lang))
+            return fail("a list for '" + out.lang + "', not '" + lang + "'");
+        // ids are positive integers; a whole-number float (a spreadsheet's 216435.0) is accepted, anything else skipped
+        auto id_of = [](const json& v, int64_t& id) {
+            if (v.is_number_integer()) {
+                id = v.get<int64_t>();
+            } else if (v.is_number_float()) {
+                const double d = v.get<double>();
+                // range first: converting a double outside int64 is undefined
+                if (!(d > 0.0 && d < 9.0e15) || d != static_cast<double>(static_cast<int64_t>(d))) return false;
+                id = static_cast<int64_t>(d);
+            } else {
+                return false;
+            }
+            return id > 0;
+        };
+        int64_t id = 0;
+        if (auto it = j.find("real_players"); it != j.end() && it->is_array())
+            for (const auto& v : *it)
+                if (id_of(v, id)) out.real_players.insert(id);
+        if (auto it = j.find("generic_ids"); it != j.end() && it->is_array())
+            for (const auto& v : *it)
+                if (id_of(v, id)) out.generic_ids.insert(id);
+        if (auto it = j.find("names"); it != j.end() && it->is_object())
+            for (auto n = it->begin(); n != it->end(); ++n) {
+                if (!n.value().is_string()) continue;
+                char* stop = nullptr;
+                long long pid = std::strtoll(n.key().c_str(), &stop, 10);
+                if (stop && *stop == '\0' && pid > 0) out.names[static_cast<int64_t>(pid)] = n.value().get<std::string>();
+            }
+        if (out.real_players.empty() && out.generic_ids.empty()) return fail("the list holds no player or commentary ids");
+        out.lang = out.lang.empty() ? lang : lower(out.lang);
+        return true;
+    } catch (const std::exception& e) {
+        return fail(std::string("unreadable: ") + e.what());
+    }
+}
+
+std::string own_recording_source_name(int own, SpokenSet::From game_from) {
+    const char* game = game_from == SpokenSet::From::BankCapture ? "the bank capture" : "the game's audio service";
+    if ((own & kOwnFromGame) && (own & kOwnFromMasters)) return std::string(game) + " and your FC 26 list";
+    if (own & kOwnFromGame) return game;
+    if (own & kOwnFromMasters) return "your FC 26 list";
+    return "";
+}
+
 const char* callname_source_name(CallnameSource s) {
     switch (s) {
         case CallnameSource::PlayerSpecific: return "player-specific (playernamemap)";
@@ -225,8 +297,25 @@ void Callnames::refresh(const fs::path& le_root, const fs::path& game_root, cons
     list_path.clear();
     cache_error.clear();
     cache_path.clear();
+    masters = MasterList{};
+    masters_path.clear();
+    masters_error.clear();
     spoken.lang = lang;
     if (!lang.empty()) {
+        // 0. the user's FC 26 list: players with their own recording, independent of the spoken surnames below
+        fs::path m = master_list_path(le_root, lang);
+        masters_path = m.string();
+        std::error_code mec;
+        if (fs::exists(m, mec)) {
+            std::string mtext, merr;
+            if (!read_text(m, mtext)) {
+                masters_error = "cannot read " + m.string();
+            } else if (!parse_master_list_json(mtext, lang, masters, &merr)) {
+                masters_error = m.filename().string() + ": " + merr;
+            } else {
+                masters.file = m.string();
+            }
+        }
         // 1. the hand-made list (an override)
         fs::path p = spoken_list_path(le_root, lang);
         list_path = p.string();
@@ -405,7 +494,8 @@ CallnameInfo Callnames::resolve(const PlayerRow& p, Database& db) const {
     int64_t cn = t ? db.get_int(*t, p.rec, "commonnameid", 0) : 0;
     int64_t ln = t ? db.get_int(*t, p.rec, "lastnameid", 0) : 0;
     CallnameInfo info = resolve_callname(p.playerid, cn, ln, index.playernamemap, index.name_commentary);
-    info.real = spoken.real(p.playerid);
+    info.own = own_recording(p.playerid);
+    info.real = info.own != 0;
     return info;
 }
 
