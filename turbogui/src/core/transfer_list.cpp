@@ -66,6 +66,13 @@ static std::string check_object(Memory& mem, uint64_t obj, uint64_t size, uint64
     return "";
 }
 
+// A manager whose +0x08 must be the career's manager table (the game reaches the other managers through it)
+static std::string same_managers(Memory& mem, uint64_t obj, uint64_t managers, const char* what) {
+    const uint64_t m = mem.ptr(obj + kMgrManagers);
+    if (m != managers) return std::string("the ") + what + "'s manager table (" + hex(m) + ") is not the career's (" + hex(managers) + ")";
+    return "";
+}
+
 // The object in manager slot `type` of the table: instance count 1, type flag 1, holder -> object
 static std::string manager_at(Memory& mem, uint64_t managers, int type, uint64_t& out, const char* what) {
     out = 0;
@@ -123,38 +130,64 @@ std::string locate(Memory& mem, const Request& req, const Fns& fns, Located& out
     if (!err.empty()) return err;
     err = check_object(mem, out.tm, kTmSize, fns.tm_vtable, "TransferManager");
     if (!err.empty()) return err;
+    err = same_managers(mem, out.tm, out.managers, "TransferManager");
+    if (!err.empty()) return err;
     for (uint64_t off : {kTmListsStore, kTmListener, kTmNotifier}) {
-        uint64_t obj = mem.ptr(out.tm + off);
-        if (!obj || !mem.ptr(obj)) return "TransferManager+" + hex(off) + " holds no object with a vtable";
+        uint64_t obj = mem.ptr(out.tm + off), vt = obj ? mem.ptr(obj) : 0;
+        if (!vt || !in_image(vt, req)) return "TransferManager+" + hex(off) + " holds no object with a vtable in FC27.exe";
     }
     err = manager_at(mem, out.managers, kTypePlayerContractManager, out.pcm, "PlayerContractManager");
     if (!err.empty()) return err;
     err = check_object(mem, out.pcm, kPcmSize, fns.pcm_vtable, "PlayerContractManager");
     if (!err.empty()) return err;
+    err = same_managers(mem, out.pcm, out.managers, "PlayerContractManager");
+    if (!err.empty()) return err;
+    // PostEvent 0x14060124C calls [[dispatcher]]'s vfunc +0x30: the dispatcher's first word is its event sink, whose
+    // first word is a vtable in FC27.exe
     uint64_t disp = 0;
     err = manager_at(mem, out.managers, kTypeDispatcher, disp, "event dispatcher");
     if (!err.empty()) return err;
-    if (!mem.ptr(disp)) return "the event dispatcher at " + hex(disp) + " has no vtable";
+    const uint64_t sink = mem.ptr(disp), sink_vt = sink ? mem.ptr(sink) : 0;
+    if (!sink_vt || !in_image(sink_vt, req)) return "the event dispatcher at " + hex(disp) + " has no event sink with a vtable in FC27.exe";
+    // AddTo*List stamps the listing with today's date: [CalendarManager+0x34] (day, month, year)
+    uint64_t cal = 0;
+    err = manager_at(mem, out.managers, kTypeCalendarManager, cal, "CalendarManager");
+    if (!err.empty()) return err;
+    const uint64_t cal_vt = mem.ptr(cal);
+    std::vector<uint8_t> date;
+    if (!cal_vt || !in_image(cal_vt, req) || !mem.read_block(cal + kCalendarDate, 12, date))
+        return "the CalendarManager at " + hex(cal) + " is not readable (no vtable in FC27.exe or no date)";
     err = manager_at(mem, out.managers, kTypeUserManager, out.um, "UserManager");
     if (!err.empty()) return err;
-    return user_team(mem, out.um, fns.um_vtable, out.user_team);
+    err = user_team(mem, out.um, fns.um_vtable, out.user_team);
+    if (!err.empty()) return err;
+    return same_managers(mem, out.um, out.managers, "UserManager");
 }
 
 std::string user_team(Memory& mem, uint64_t um, uint64_t um_vtable, int& team) {
     team = 0;
     std::string err = check_object(mem, um, kUmSize, um_vtable, "UserManager");
     if (!err.empty()) return err;
-    int32_t idx = -1;
-    uint64_t begin = 0, end = 0;
-    if (!mem.rd(um + kUmIndex, idx) || !mem.rd(um + kUmUsersBegin, begin) || !mem.rd(um + kUmUsersEnd, end))
+    // the game: GetActiveUser 0x14154ADBC = index -1 ? null : [um+0x18] + index * 0x348; the users are bounded by the
+    // count at +0x10 (GetUser 0x147ABD994, FindUserByTeam 0x147ABD9B4) and carry it in their new[] array header
+    int32_t count = 0, idx = -1;
+    uint64_t users = 0, header = 0;
+    if (!mem.rd(um + kUmCount, count) || !mem.rd(um + kUmIndex, idx) || !mem.rd(um + kUmUsers, users))
         return "the UserManager at " + hex(um) + " is not readable";
+    if (count <= 0) return "the UserManager has no users (count " + std::to_string(count) + "): is a career loaded?";
+    if (count > kMaxUsers) return "the UserManager's user count " + std::to_string(count) + " is out of range (layout mismatch?)";
     if (idx < 0) return "the UserManager has no active user: is a career loaded?";
-    if (!is_ptr(begin, 8) || end < begin || (end - begin) % kUserSize != 0 || (end - begin) / kUserSize > static_cast<uint64_t>(kMaxUsers))
-        return "the UserManager's users (" + hex(begin) + ".." + hex(end) + ") are not a list of 0x348-byte users (layout mismatch?)";
-    if (static_cast<uint64_t>(idx) >= (end - begin) / kUserSize)
-        return "the UserManager's user index " + std::to_string(idx) + " is out of range";
+    if (idx >= count) return "the UserManager's user index " + std::to_string(idx) + " is out of range (" + std::to_string(count) + " users)";
+    if (!is_ptr(users, 8)) return "the UserManager's users pointer " + hex(users) + " is not a pointer";
+    if (!mem.rd(users - kUsersHeader, header)) return "the UserManager's users at " + hex(users) + " are not readable";
+    if (header != static_cast<uint64_t>(count))
+        return "the UserManager's users at " + hex(users) + " are not its array of " + std::to_string(count) + " users (array header " + hex(header) +
+               ", layout mismatch?)";
+    const uint64_t user = users + static_cast<uint64_t>(idx) * kUserSize;
+    std::vector<uint8_t> whole;
+    if (!mem.read_block(user, kUserSize, whole)) return "the active user at " + hex(user) + " is not readable";
     int32_t t = 0;
-    if (!mem.rd(begin + static_cast<uint64_t>(idx) * kUserSize + kUserTeam, t)) return "the user's team id is not readable";
+    if (!mem.rd(user + kUserTeam, t)) return "the user's team id is not readable";
     if (t <= 0) return "the user's team id (" + std::to_string(t) + ") is not valid";
     team = t;
     return "";

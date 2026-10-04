@@ -30,13 +30,16 @@
 //
 // The helper lists the player on the USER's club (the team id comes from the UserManager) whoever he plays for, so the
 // player's club must be checked first: Lua passes the club of his teamplayerlinks row and the call is refused unless
-// it is the user's team read from the UserManager (type 129: +0x14 user index, +0x18 users of 0x348 bytes, user
-// +0x1F4 team id, what 0x14154ADBC / 0x142B1DDEC read).
+// it is the user's team read from the UserManager exactly as the game reads it (type 129: +0x10 user count, +0x14
+// active user index, +0x18 the users, a new[] array of 0x348-byte users whose array header holds the count; the active
+// user's +0x1F4 is his club's team id: GetActiveUser 0x14154ADBC + GetUserClub 0x142B1DDEC(user, 0) +4, proven live).
 //
 // Safety: every pointer is checked before the call (readable, vtables of the dao / helper / TransferManager /
 // PlayerContractManager from the game's own constructors; the helper vtable's slots 31..33 must be the functions
 // Turbo resolved by signature, so the vtable and the functions identify each other; the helper's manager table must
-// be the one Lua published), the player's contract status is read before (eligibility, the game's own rule) and
+// be the one Lua published and the TransferManager / PlayerContractManager / UserManager must point back at it; the
+// TransferManager's lists store and listeners, the event dispatcher's sink and the CalendarManager carry vtables in
+// FC27.exe), the player's contract status is read before (eligibility, the game's own rule) and
 // after (the expected transition) through the PlayerContractManager's own hash table, and the call runs on the game
 // thread only. Every read goes through turbo::Memory; the calls are behind Caller so the sequence is tested on
 // synthetic memory with a fake game.
@@ -54,10 +57,15 @@ constexpr int kTypeTransferManager = 127;       // ENUM_FCEGameModesFCECareerMod
 constexpr int kTypePlayerContractManager = 77;  // ENUM_FCEGameModesFCECareerModePlayerContractManager
 constexpr int kTypeDispatcher = 39;             // the career-event dispatcher the helper posts through (hub+0x4F8)
 constexpr int kTypeUserManager = 129;           // ENUM_FCEGameModesFCECareerModeUserManager (hub+0x1038)
+constexpr int kTypeCalendarManager = 24;        // the CalendarManager (hub+0x318): AddTo*List reads today's date from it
+constexpr uint64_t kCalendarDate = 0x34;        // CalendarManager +0x34: today (day, month, year: 3 x int32)
 constexpr uint64_t kSlotSize = 0x20, kSlotType = 0x08, kSlotCount = 0x10, kSlotHolder = 0x18, kTypeFlag = 0x10;
 constexpr uint64_t kCommOwner = 0x20;      // [comm+0x20] = the career-mode owner object
 constexpr uint64_t kOwnerManagers = 0x10;  // [owner+0x10] = manager table
 constexpr uint64_t kOwnerDao = 0x30;       // [owner+0x30] = CareerDaoFactoryImpl
+// TransferManager / PlayerContractManager / UserManager +0x08 = the manager table: the add / remove functions reach the
+// PlayerContractManager, the UserManager and the CalendarManager through [TransferManager+8]
+constexpr uint64_t kMgrManagers = 0x08;
 // CareerDaoFactoryImpl (0x13E8 bytes, vtable from its ctor 0x147F0EB10 "dao_vtable")
 constexpr uint64_t kDaoSize = 0x13E8;
 constexpr uint64_t kDaoHelper = 0x478;     // UserActionsHandlingHelperImpl sub-object: +0 vtable ("uah_vtable"), +8 managers
@@ -72,10 +80,17 @@ constexpr uint64_t kPcmSize = 0x458, kPcmBuckets = 0x3D8, kPcmBucketCount = 0x3E
 constexpr uint64_t kPcmNodeKey = 0x00, kPcmNodeStatus = 0x34, kPcmNodeNext = 0xB8, kPcmNodeSize = 0xC0;
 constexpr uint32_t kMaxBuckets = 1u << 20;
 constexpr int kMaxChain = 4096;
-// UserManager (0xB20 bytes, vtable from its ctor 0x147AB2EB8 "um_vtable"): +0x14 index of the active user, +0x18 / +0x20
-// begin / end of the users (0x348 bytes each); a user's team id is at +0x1F4 (0x142B1DDEC: +0x1F0 + slot 0 * 0x74, +4)
-constexpr uint64_t kUmSize = 0xB20, kUmIndex = 0x14, kUmUsersBegin = 0x18, kUmUsersEnd = 0x20, kUserSize = 0x348, kUserTeam = 0x1F4;
-constexpr int kMaxUsers = 16;
+// UserManager (0xB20 bytes, vtable from its ctor 0x147AB2EB8 "um_vtable"; docs/re/transfer_lists.md section 1b):
+//   +0x10 int32 user count: the ctor sets -1; SetUserCount 0x147AC3530 writes it, then allocates the users
+//         ("UserManager::mUser", count * 0x348 + 0x10 bytes) and writes the count again in the array header
+//   +0x14 int32 index of the active user (-1 = none); every setter (0x147AB6628, 0x147AC34B4) keeps it below the count
+//   +0x18 User* the users: header at -0x10 (u64 = the count), then `count` users of 0x348 bytes
+//   (+0x20 is another pointer, NOT the end of the users: reading it as one refused every call in a live career)
+// A user's clubs: two 0x74-byte records at +0x1F0 (0x142B1DDEC(user, slot)): +4 the team id (slot 0 = his club at user
+// +0x1F4, slot 1 = his national team at +0x268, -1 = none), +8 the league id, +0xC the team name.
+constexpr uint64_t kUmSize = 0xB20, kUmCount = 0x10, kUmIndex = 0x14, kUmUsers = 0x18, kUsersHeader = 0x10, kUserSize = 0x348,
+                   kUserTeam = 0x1F4;
+constexpr int kMaxUsers = 64;
 // Contract status (PlayerContractManager record +0x34) as the add / remove functions read and write it
 constexpr int32_t kStatusNone = 0, kStatusTransferListed = 7, kStatusLoanListed = 8, kStatusBothLists = 9;
 // Manager object size checks read these many bytes at the end of the object
@@ -148,7 +163,9 @@ struct Result {
 
 // Find and validate everything the call dereferences (see the file comment). "" = fine, else the reason.
 std::string locate(Memory& mem, const Request& req, const Fns& fns, Located& out);
-// The user's team id from the UserManager object (validated: vtable, user index within the users). "" = fine.
+// The user's team id from the UserManager object, read the way the game does (GetActiveUser + slot 0 of his clubs),
+// validated: vtable, user count 1..kMaxUsers, active index below it, the users' array header equal to the count, the
+// active user readable, team id > 0. "" = fine.
 std::string user_team(Memory& mem, uint64_t um, uint64_t um_vtable, int& team);
 // The player's contract status from the PlayerContractManager's hash table (the walk GetPlayerInfo 0x147E61F20 does:
 // bucket = (int64)player % bucketCount, chain through +0xB8; node key +0 must be the player). found = false with ""
