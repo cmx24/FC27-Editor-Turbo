@@ -68,7 +68,8 @@ std::string team_code_from(const std::string& name) {
     return tnames::utf8_upper_basic(clean_team_abbr(letters, 3));
 }
 
-TeamNameSave save_team_name(App& app, int64_t teamid, const std::string& name, const std::string& short_name, const std::string& code) {
+TeamNameSave save_team_name(App& app, int64_t teamid, const std::string& name, const std::string& short_name, const std::string& code,
+                            const std::string& long_name) {
     TeamNameSave res;
     const Table* t = app.db.table("teams");
     const TeamRow* tr = app.model.team(teamid);
@@ -100,6 +101,8 @@ TeamNameSave save_team_name(App& app, int64_t teamid, const std::string& name, c
     e.text[tnames::Abbr10] = team_short_form(e.text[tnames::Abbr15], tnames::kMaxLen[tnames::Abbr10]);
     const std::string c3 = tnames::utf8_upper_basic(clean_team_abbr(code, tnames::kMaxLen[tnames::Abbr3]));
     e.text[tnames::Abbr3] = c3.empty() ? team_code_from(full) : c3;
+    const std::string lng = tnames::clean_long_name(long_name);
+    if (lng != full) e.long_name = lng;  // the same as the name = not set (it follows the name)
 
     // 1. Turbo's names: published to the hook first (the game's next lookup shows them), then saved for the next starts
     std::string problems, err;
@@ -140,7 +143,8 @@ TeamNameSave save_team_name(App& app, int64_t teamid, const std::string& name, c
     } else {
         res.line = "Not saved: " + problems.substr(2) + " (live names are off: " + app.team_names_why_off() + ").";
     }
-    res.detail = full + " | " + e.text[tnames::Abbr15] + " | " + e.text[tnames::Abbr10] + " | " + e.text[tnames::Abbr3] + ": " +
+    res.detail = full + (e.long_name.empty() ? "" : " (long: " + e.long_name + ")") + " | " + e.text[tnames::Abbr15] + " | " +
+                 e.text[tnames::Abbr10] + " | " + e.text[tnames::Abbr3] + ": " +
                  (res.live ? "given to the game now" : "not live") + "; " + res.detail + problems;
     app.log("team name " + std::to_string(teamid) + ": " + res.detail);
     return res;
@@ -149,7 +153,8 @@ TeamNameSave save_team_name(App& app, int64_t teamid, const std::string& name, c
 // The Name tab: one form, one Save
 struct NameForm {
     int64_t teamid = 0;
-    char name[64] = "";
+    char name[64] = "";        // the display name (TeamName_<id>, teams.teamname)
+    char long_name[128] = "";  // Turbo's only (FC 27 has no string for it)
     char short_name[64] = "";  // up to 15 letters
     char code[16] = "";        // up to 3 letters
     TeamNameSave last;         // the last Save (shown under the button)
@@ -164,9 +169,10 @@ const TeamNameTabState& team_name_tab_state() { return g_name_state; }
 static void load_name_form(App& app, const Table& t, uint64_t rec, int64_t teamid) {
     g_name = NameForm();
     g_name.teamid = teamid;
-    std::string name, short_name, code;
+    std::string name, long_name, short_name, code;
     if (const tnames::Entry* e = app.team_names.find(teamid)) {
         name = e->text[tnames::Full];
+        long_name = e->long_name;
         short_name = e->text[tnames::Abbr15];
         code = e->text[tnames::Abbr3];
     } else {
@@ -190,8 +196,10 @@ static void load_name_form(App& app, const Table& t, uint64_t rec, int64_t teami
         }
         if (short_name == team_short_form(name, tnames::kMaxLen[tnames::Abbr15]) || short_name == clean_team_name(name, 15)) short_name.clear();
         if (code == team_code_from(name) || code == old3) code.clear();
+        if (long_name == clean_team_name(name, 60)) long_name.clear();
     }
     std::snprintf(g_name.name, sizeof(g_name.name), "%s", name.c_str());
+    std::snprintf(g_name.long_name, sizeof(g_name.long_name), "%s", long_name.c_str());
     std::snprintf(g_name.short_name, sizeof(g_name.short_name), "%s", short_name.c_str());
     std::snprintf(g_name.code, sizeof(g_name.code), "%s", code.c_str());
 }
@@ -214,11 +222,23 @@ void team_name_editor(App& app, const Table& t, uint64_t rec, int64_t teamid) {
     ImGui::Spacing();
     const float label_w = S(120.0f);
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted("Name");
+    ImGui::TextUnformatted("Display name");
     ImGui::SameLine(label_w);
     ImGui::SetNextItemWidth(S(320.0f));
-    ImGui::InputText("##nfull", g_name.name, sizeof(g_name.name));
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The club's full name (at most 59 bytes)");
+    ImGui::InputTextWithHint("##nfull", "AC Milan", g_name.name, sizeof(g_name.name));
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("What the game's screens show (at most 59 bytes); also teams.teamname");
+    const std::string shown = clean_team_name(g_name.name, 60);
+    const std::string hint_long = shown.empty() ? std::string("Associazione Calcio Milan") : shown;
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Long name");
+    ImGui::SameLine(label_w);
+    ImGui::SetNextItemWidth(S(320.0f));
+    ImGui::InputTextWithHint("##nlong", hint_long.c_str(), g_name.long_name, sizeof(g_name.long_name));
+    st.long_line = "Kept by Turbo only: FC 27 has no long-name string, so the game does not show it.";
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The official name (at most 100 bytes); empty = the same as the display name.\n%s", st.long_line.c_str());
+    ImGui::SameLine();
+    ImGui::TextDisabled("(not shown by FC 27)");
     const std::string hint15 = team_short_form(g_name.name, tnames::kMaxLen[tnames::Abbr15]);
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted("Short name");
@@ -228,14 +248,14 @@ void team_name_editor(App& app, const Table& t, uint64_t rec, int64_t teamid) {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lists and fixtures (at most 15 letters); empty = made from the name");
     const std::string hint3 = team_code_from(g_name.name);
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted("3-letter code");
+    ImGui::TextUnformatted("Abbreviation");
     ImGui::SameLine(label_w);
     ImGui::SetNextItemWidth(S(80.0f));
     ImGui::InputTextWithHint("##ncode", hint3.c_str(), g_name.code, sizeof(g_name.code));
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The 3-letter code (match scoreboard: to be confirmed in game); empty = made from the name");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The 3-letter abbreviation (match scoreboard: to be confirmed in game); empty = made from the name");
     ImGui::Spacing();
     if (ImGui::Button("Save")) {
-        TeamNameSave r = save_team_name(app, teamid, g_name.name, g_name.short_name, g_name.code);
+        TeamNameSave r = save_team_name(app, teamid, g_name.name, g_name.short_name, g_name.code, g_name.long_name);
         app.notify("Team name: " + r.line, !r.ok || r.warning);
         if (r.ok) load_name_form(app, t, rec, teamid);  // shows the short forms that were made
         g_name.last = r;

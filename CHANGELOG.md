@@ -3,6 +3,12 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.1.4 (playtest round 2)
+
+### Changed
+
+- Teams > Name has four boxes: **Display name** (what the game shows, "AC Milan"), **Long name** ("Associazione Calcio Milan"), **Short name** ("Milan", also cut for the 10-letter form) and **Abbreviation** ("ACM"), one Save. FC 27 has no long-name string (only the name and its 15 / 10 / 3-letter forms), so the long name is kept in Turbo's `team_names.json` and the form says the game does not show it; older files load as before.
+
 ## 1.1.3 (hotfix)
 
 ### Fixed

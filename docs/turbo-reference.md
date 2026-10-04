@@ -316,12 +316,14 @@ Every competition list of the Competitions tab (Live standings, Match setup filt
   The Name tab still shows and edits the stored value.
 
 - **Name, live (1.1.1)** (`ui/ui_identity.cpp`, `core/teamname_override.*`, `win/teamname_override_win.cpp`,
-  `core/teamnames.*`; RE: `docs/re/team_names.md`). One form: **Name**, **Short name** (lists, fixtures; at most 15
-  letters), **3-letter code** (scoreboard), and one **Save**. An empty short name or code is made from the name
+  `core/teamnames.*`; RE: `docs/re/team_names.md`). One form (four boxes since 1.1.4): **Display name** (what every
+  screen shows, `TeamName_<id>` + `teams.teamname`), **Long name** ("Associazione Calcio Milan": FC 27 has no string
+  for it, so Turbo keeps it in its store only and the game never shows it), **Short name** (lists, fixtures; at most 15
+  letters), **Abbreviation** (3 letters, scoreboard), and one **Save**. An empty short name or code is made from the name
   (shown as the box's hint: the whole name when it fits, else cut at a word end; the first three letters, upper case);
   the 10-letter form the game also asks for is made from the short name. Save, in this order:
   1. publishes the club's four strings to the `team_names` hook and keeps them in `turbo_output\team_names.json`
-     (`{"turbo_team_names": 1, "teams": [{"teamid", "name", "abbr15", "abbr10", "abbr3", "when"}]}`, every career, written
+     (`{"turbo_team_names": 1, "teams": [{"teamid", "name", "long", "abbr15", "abbr10", "abbr3", "when"}]}`, `long` since 1.1.4, every career, written
      `.tmp` + rename; a file that cannot be parsed is set aside as `team_names.json.bad-<stamp>`, one that cannot be
      opened is never overwritten). The game's next lookup of that club's name shows it;
   2. writes `teams.teamname` (validated through `Database::set`; what Turbo's lists read);

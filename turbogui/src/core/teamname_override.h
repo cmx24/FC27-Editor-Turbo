@@ -38,13 +38,18 @@ std::string clean_value(const std::string& s, Kind k);
 const char* kind_key_part(Kind k);  // "", "Abbr15_", "Abbr10_", "Abbr3_"
 // "TeamName_7", "TeamName_Abbr15_7", ... (Live Editor's CSV keys)
 std::string key_of(int64_t teamid, Kind k);
+// The club's long (official) name, "Associazione Calcio Milan": FC 27 has no string for it (only the four keys above,
+// docs/re/team_names.md), so Turbo keeps it in its store and never gives it to the game. Cleaned like the name.
+constexpr size_t kMaxLongLen = 100;
+std::string clean_long_name(const std::string& s);
 
 // ---------------------------------------------------------------- store (turbo_output\team_names.json)
-// {"turbo_team_names": 1, "teams": [{"teamid": 7, "name": "...", "abbr15": "...", "abbr10": "...", "abbr3": "...",
-//   "when": "YYYY-MM-DD HH:MM"}]}
+// {"turbo_team_names": 1, "teams": [{"teamid": 7, "name": "...", "long": "...", "abbr15": "...", "abbr10": "...",
+//   "abbr3": "...", "when": "YYYY-MM-DD HH:MM"}]}   ("long" since 1.1.4: files without it load, older Turbos ignore it)
 struct Entry {
     int64_t teamid = 0;
     std::string text[kKinds];  // empty = not changed by Turbo (the game / Live Editor answer)
+    std::string long_name;     // Turbo's only (FC 27 has no string for it); empty = the same as the name
     std::string when;
     const std::string& name() const { return text[Full]; }
     bool empty() const;

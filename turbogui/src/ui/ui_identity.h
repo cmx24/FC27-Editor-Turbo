@@ -15,7 +15,7 @@ namespace turbo {
 
 class App;
 
-// ---- name: one form (Name, Short name, 3-letter code) and one Save
+// ---- name: one form (Display name, Long name, Short name, Abbreviation) and one Save
 void team_name_editor(App& app, const Table& t, uint64_t rec, int64_t teamid);
 struct TeamNameSave {
     bool ok = false;       // saved: shown in the game now (live), or after Live Editor's next start (its file written)
@@ -27,8 +27,10 @@ struct TeamNameSave {
 // Save: the names are published to the hook first (the game's next lookup shows them) and kept in
 // turbo_output\team_names.json, then teams.teamname (validated) and Live Editor's custom_team_names.csv (atomic, backed
 // up; what shows after Live Editor's next start when the hook is off) are written. An empty short name / code is made
-// from the name; the 10-letter form from the short name. Nothing is written when the name is empty or refused.
-TeamNameSave save_team_name(App& app, int64_t teamid, const std::string& name, const std::string& short_name, const std::string& code);
+// from the name; the 10-letter form from the short name. Nothing is written when the name is empty or refused. The long
+// name is kept in Turbo's store only (FC 27 has no string for it: the game never shows it); empty = the same as the name.
+TeamNameSave save_team_name(App& app, int64_t teamid, const std::string& name, const std::string& short_name, const std::string& code,
+                            const std::string& long_name = std::string());
 // A short form of a name: whole when it fits, else cut at a word end when that keeps half the letters, else cut
 std::string team_short_form(const std::string& name, size_t max_chars);
 // The first three letters or digits of a name, upper case ("Everton Blues" -> "EVE")
@@ -40,6 +42,7 @@ struct TeamNameTabState {
     std::string mode_line;    // "Live names are on: ..." / "Live names are off (<why>): ... after Live Editor's next start."
     std::string result_line;  // the last Save's line ("" before a Save)
     std::string screen_line;  // after a live Save: an open game screen shows the name once it is built again
+    std::string long_line;    // the Long name box's note: where the game shows it (nowhere: FC 27 has no string for it)
 };
 const TeamNameTabState& team_name_tab_state();
 
