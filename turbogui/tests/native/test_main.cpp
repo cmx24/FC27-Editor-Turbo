@@ -2665,6 +2665,12 @@ struct FceWorld {
         row(6, 101, 241, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         w64(slist + 8, rows + 7 * fce::kStandingSize);
     }
+    // 1.1.4: a group outside the tree whose clubs are in no shown group (the preseason Champions Trophy, group 1929, that
+    // the game's Standings screen showed while the view read held no such competition yet); after add_pool
+    void add_other() {
+        row(7, 1929, 99, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 3);
+        w64(slist + 8, rows + 8 * fce::kStandingSize);
+    }
     FceWorld(int nrows = 4, int nfix = 3, bool vtables = true) {
         for (uint64_t a : {ifce, hub, dc, dm, slist, rows, flist, fx, col}) mem.map(a, 0x1000);
         mem.map(cdata, 0x2000);
@@ -6485,10 +6491,39 @@ static void test_ui() {
                 const ItemRec* r = ui.find(label);
                 return r ? r->rect.Min.y : -1.0f;
             };
-            // W 2 -> 3: an input box in place, Enter applies at once (split to the away side), Pts and P follow
-            const ItemRec* box = open_cell("2##c0_W");
-            CHECK(box != nullptr, "input box in place of the cell");
-            CHECK(box && ui.type_into(box, "3"), "type 3, Enter");
+            // W 2 -> 3: an input box in place, Enter applies at once (split to the away side), Pts and P follow.
+            // 1.1.4: the game's input path, as the user does it (playtest 04-10-2026: the box never took a key there): the
+            // second press of the double-click is held for a few frames, the keyboard navigation of the overlay is on, the
+            // box takes the keys at once (no click into it), the digits arrive one per frame as WM_CHAR, the mouse moves
+            // off the cell, then Enter
+            const ImGuiConfigFlags flags_were = ImGui::GetIO().ConfigFlags;
+            ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;  // as overlay_dx12.cpp sets it
+            const ItemRec* box = nullptr;
+            if (const ItemRec* w = ui.find("2##c0_W")) {
+                ImGuiIO& io = ImGui::GetIO();
+                const ImVec2 c = w->rect.GetCenter();
+                io.AddMousePosEvent(c.x, c.y);
+                ui.frame();
+                io.AddMouseButtonEvent(0, true);
+                ui.frame();
+                io.AddMouseButtonEvent(0, false);
+                ui.frames(3);
+                io.AddMouseButtonEvent(0, true);
+                ui.frame();
+                io.AddInputCharacter('3');  // typed at once: the box is drawn but does not have the keyboard yet
+                ui.frames(4);
+                io.AddMouseButtonEvent(0, false);
+                ui.frames(2);
+                box = ui.find("##cell");
+                io.AddMousePosEvent(c.x + 300.0f, c.y + 200.0f);
+                ui.frames(2);
+            }
+            CHECK(box != nullptr && ui.find("##cell") != nullptr, "input box in place of the cell, still open after the mouse left it");
+            CHECK(GImGui->ActiveId != 0 && box && GImGui->ActiveId == box->id && ImGui::GetIO().WantTextInput,
+                  "the box has the keyboard without a click into it");
+            ui.key(ImGuiKey_Enter);
+            ui.frames(2);
+            ImGui::GetIO().ConfigFlags = flags_were;
             fce::StandingRow r = row0();
             CHECK(r.hw == 1 && r.aw == 2 && r.points == 10, fmt("written: hw %d aw %d pts %d", r.hw, r.aw, r.points));
             CHECK(fake->requests.size() == 1 && fake->requests[0].rows == std::vector<uint16_t>{0}, "the standings refresh is queued for row 0");
@@ -6588,6 +6623,7 @@ static void test_ui() {
             // competition 1200) against the cup pool 101 (same clubs, not shown)
             FceWorld fw;
             fw.add_pool();
+            fw.add_other();
             SvmWorld sw({1200});  // one competition in the view, with a real tree (the default values hold no tree)
             sw.set_tree(1200, 100, {{0, 1, 7}, {1, 7, 4}, {2, 241, 1}});
             for (const auto& kv : fw.mem.pages) mem.pages[kv.first] = kv.second;
@@ -6633,6 +6669,25 @@ static void test_ui() {
             ui.frames(2);
             CHECK(live_standings_view_line() == "The game's Standings screen reads: 1200 -> group 100 (3 rows)", "what the game reads: " + live_standings_view_line());
             CHECK(live_standings_view_warning().find("not one the game's Standings screen shows") != std::string::npos, "warning for the pool");
+            // 1.1.4: a group the view does not hold but whose clubs are not a shown group's (the preseason Champions Trophy,
+            // 1929): unknown, so no "not shown" mark (the warning reads the same set as the mark)
+            CHECK(ui.click("Competition"), "open the combo for the other group");
+            ui.frames(2);
+            ImGui::GetIO().AddInputCharactersUTF8("1929");  // the picker's search box has the keyboard: only that group listed
+            ui.frames(3);
+            {
+                std::string other;
+                for (const auto& kv : g_items)
+                    if (kv.second.frame == g_frame && kv.second.label.size() > 8 &&
+                        kv.second.label.compare(kv.second.label.size() - 8, 8, "##cp1929") == 0)
+                        other = kv.second.label;
+                CHECK(!other.empty() && other.find("not shown") == std::string::npos, "the group outside the tree, no 'not shown' mark: " + other);
+            }
+            ui.key(ImGuiKey_A, true);
+            ui.key(ImGuiKey_Backspace);
+            ui.frames(2);
+            CHECK(ui.click(pool, "##Combo"), "pick the pool again");
+            ui.frames(2);
             // the default selection (a fresh view) prefers the shown group although the pool has the lower id... the pool's id
             // is higher here, so make the choice visible: select the pool, then force a re-selection through the group map
             CHECK(ui.click("1##ls4"), "select the pool's leader (row 4)");

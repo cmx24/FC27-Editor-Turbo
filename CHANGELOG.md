@@ -3,6 +3,12 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.1.4 (playtest round 2)
+
+### Fixed
+
+- Competitions > Live standings: the box a double-click opens on a number takes the keyboard. It asks for the keyboard on every frame until it has it (it asked once, while the double-click still held the cell), keys typed before that still count (digits, Backspace, Enter applies, Esc cancels), and only a click outside the box closes it. Live standings also stop calling a group "not shown by the game" (and warning about it) unless its clubs all sit in a group the game's view does show, such as a cup's setup pool. The view holds only the competitions the game has asked for so far, so the preseason Champions Trophy (group 1929) was flagged although the Standings screen showed it. Turbo still has no name for that group: it sits outside the competition tree and has no competition id.
+
 ## 1.1.3 (hotfix)
 
 ### Fixed
