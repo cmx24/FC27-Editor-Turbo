@@ -458,10 +458,19 @@ static void create_dialog(App& app, const PlayerRow& p) {
         if (!can) ImGui::BeginDisabled();
         if (ImGui::Button("Create player")) {
             GameDate bd{birth_year, 7, 1};
-            json set = {{"overallrating", overall}, {"potential", potential}, {"preferredposition1", position},
-                        {"preferredposition2", -1}, {"preferredposition3", -1}, {"nationality", nationality},
-                        {"preferredfoot", foot}, {"height", height}, {"weight", weight},
-                        {"birthdate", gregorian_days_from_date(bd)}};
+            json set = json::object();
+            const Table* pt = app.db.table("players");
+            auto put = [&](const char* field, int64_t v) {
+                if (pt && pt->field(field)) set[field] = v;   // only fields this game's players table has
+            };
+            put("overallrating", overall);
+            put("potential", potential);
+            put("preferredposition1", position);
+            put("nationality", nationality);
+            put("preferredfoot", foot);
+            put("height", height);
+            put("weight", weight);
+            put("birthdate", gregorian_days_from_date(bd));
             json o = {{"source", {{"playerid", p.playerid}}}, {"teamid", teamid}, {"set", set},
                       {"names", names_json(first, last, common, jname)}};
             app.send({{"op", "run"}, {"module", "create_player"}, {"overrides", o}}, "Create player");

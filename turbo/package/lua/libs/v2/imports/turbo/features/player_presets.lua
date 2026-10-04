@@ -29,15 +29,23 @@ local M = {}
 
 M.MINIFACE_PATH = "data/ui/imgAssets/heads/p%d.dds"
 
+-- Creates a folder and its parents. Works with cmd.exe (Live Editor's Lua) and sh (the test harness): every prefix of
+-- the path is created on its own when it does not exist yet (os.rename(dir, dir) succeeds for an existing folder).
 local function mkdir(dir)
     if not dir or dir == "" then return false end
-    if os.getenv("OS") == "Windows_NT" or dir:match("^%a:") or dir:find("\\", 1, true) then
-        os.execute(string.format('mkdir "%s" >nul 2>&1', dir))
-    else
-        os.execute(string.format("mkdir -p '%s' 2>/dev/null", dir))
+    local pos = 1
+    while true do
+        local s = dir:find("[\\/]", pos + 1)
+        local prefix = s and dir:sub(1, s - 1) or dir
+        if #prefix > 0 and not prefix:match("^%a:$") and not os.rename(prefix, prefix) then
+            os.execute(string.format('mkdir "%s"', prefix))
+        end
+        if not s then break end
+        pos = s
     end
     return true
 end
+M.mkdir = mkdir
 
 function M.preset_dir(cfg)
     local d = type(cfg.preset_dir) == "string" and cfg.preset_dir ~= "" and cfg.preset_dir or nil
@@ -196,7 +204,7 @@ local function run_export(ctx)
             ids[#ids + 1] = pid
         end
     end
-    if cfg.playerid ~= nil then
+    if cfg.playerid ~= nil and cfg.playerid ~= 0 then   -- 0 = the config default (not a player)
         local pid = util.to_int(cfg.playerid)
         if not pid then return false, "playerid must be an integer" end
         ids[#ids + 1] = pid
