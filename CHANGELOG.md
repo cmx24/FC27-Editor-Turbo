@@ -3,6 +3,19 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.1.2 (live team names)
+
+Not yet released or checked in game.
+
+### Added
+
+- **Live team names**: Teams > a club > Name, one form and one Save; the game shows the new name at once.
+
+### Fixed
+
+- Renaming a club a second time no longer keeps the old short name and 3-letter code: a short form or code made
+  from the previous name now follows the new name.
+
 ## 1.1.1 (playtest fixes)
 
 Not yet released or checked in game.

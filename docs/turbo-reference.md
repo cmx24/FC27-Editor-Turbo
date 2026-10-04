@@ -348,7 +348,7 @@ Every competition list of the Competitions tab (Live standings, Match setup filt
   module's hook. Off switches (cached, re-read every 2 s): `turbo_output\team_names_hook_off.txt`,
   `hook_team_names_off.txt`, `game_hooks_off.txt`, `TURBO_GUI_NO_GAME_HOOKS=1`; off = Save falls back to Live Editor's
   file and says so. Clubs renamed only in Live Editor's CSV keep their CSV names (Live Editor answers them below the
-  hook). Not covered: clubs in GetTeamName's `TEAM_IDS` ini redirect (localized under another key).
+  hook). Clubs in GetTeamName's `TEAM_IDS` redirect are looked up with the same key on the global service (0x142394E78 calls LocalizeString with a copy of the key), so the hook covers them too. LocImpl slots 0x258 / 0x260 / 0x2F8 / 0x300 (formatted strings) read StrTab::GetString directly and are not covered; the match scoreboard path is not verified yet.
 - **Colours**: `ImGui::ColorEdit3` pickers for `teams.teamcolor1..3`, `goalnetstanchioncolor1..2` and, per kit row of
   `teamkits` (`teamtechid == teamid`, grouped by `teamkittypetechid`), `teamcolorprim/sec/tert`, `jerseynamecolor`,
   `jerseynameoutlinecolor`, `jerseynumbercolorprim/sec/ter`, `shortsnumbercolorprim/sec/ter` plus the percent / font / template

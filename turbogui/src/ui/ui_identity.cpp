@@ -179,6 +179,18 @@ static void load_name_form(App& app, const Table& t, uint64_t rec, int64_t teami
         if (const Field* f = t.field("teamname"))
             if (app.db.get(t, rec, *f, v)) name = v.s;
     }
+    // A short form or code Turbo made from the name is left empty, so it follows the name on the next Save (only what the
+    // user typed is kept); old3 is the 3-letter rule of 1.0.x / 1.1.0 (first three non-space bytes, ASCII upper case)
+    if (!name.empty()) {
+        std::string old3;
+        for (char c : clean_team_name(name, 60)) {
+            if (c == ' ') continue;
+            old3 += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            if (old3.size() >= 3) break;
+        }
+        if (short_name == team_short_form(name, tnames::kMaxLen[tnames::Abbr15]) || short_name == clean_team_name(name, 15)) short_name.clear();
+        if (code == team_code_from(name) || code == old3) code.clear();
+    }
     std::snprintf(g_name.name, sizeof(g_name.name), "%s", name.c_str());
     std::snprintf(g_name.short_name, sizeof(g_name.short_name), "%s", short_name.c_str());
     std::snprintf(g_name.code, sizeof(g_name.code), "%s", code.c_str());
@@ -220,7 +232,7 @@ void team_name_editor(App& app, const Table& t, uint64_t rec, int64_t teamid) {
     ImGui::SameLine(label_w);
     ImGui::SetNextItemWidth(S(80.0f));
     ImGui::InputTextWithHint("##ncode", hint3.c_str(), g_name.code, sizeof(g_name.code));
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The scoreboard in matches; empty = made from the name");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The 3-letter code (match scoreboard: to be confirmed in game); empty = made from the name");
     ImGui::Spacing();
     if (ImGui::Button("Save")) {
         TeamNameSave r = save_team_name(app, teamid, g_name.name, g_name.short_name, g_name.code);
