@@ -211,39 +211,222 @@ std::string App::time_stamp() const {
 }
 
 // ---- the spoken set asked from the game's audio service (core/commentary_audio.h): a build on the game thread
+static bool read_text_file(const fs::path& p, std::string& out) {
+    std::ifstream f(p, std::ios::binary);
+    if (!f) return false;
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    out = ss.str();
+    return true;
+}
+
+std::string App::chosen_commentary_language() const {
+    if (gui_settings.is_object() && gui_settings.contains("callnames") && gui_settings["callnames"].is_object())
+        return gui_settings["callnames"].value("language", std::string());
+    return "";
+}
+
+// The id list a build asks about. With the career database connected: commentarynames (+ the preview flag), the ids
+// playernames / playernamemap use, every player; the list is cached in turbo_output\callnames\ids.json. Without it
+// (main menu): that cache, else the commentary ids Lua exported to bridge_commentary.txt while it was connected.
+bool App::spoken_ids(caudio::IdCache& out, std::string* why) {
+    out = caudio::IdCache{};
+    // a probe runs every few seconds: a list read from the database in the last 30 s (same generation) is reused, a
+    // list read from a file is reused while the file's time stamp is the same
+    const fs::path cp = caudio::id_cache_path(bridge.root());
+    const fs::path lp = bridge.locate("bridge_commentary.txt");
+    auto file_stamp = [](const fs::path& f) {
+        std::error_code ec;
+        const auto t = fs::last_write_time(f, ec);
+        return ec ? std::string() : f.string() + "@" + std::to_string(t.time_since_epoch().count());
+    };
+    if (!spoken_ids_last_.empty()) {
+        const bool same_db = db.ready() && spoken_ids_last_file_.empty() && spoken_ids_last_at_ >= 0.0 && now - spoken_ids_last_at_ < 30.0 &&
+                             spoken_ids_last_gen_ == gen;
+        const bool same_file = !db.ready() && !spoken_ids_last_file_.empty() &&
+                               (spoken_ids_last_file_ == file_stamp(cp) || spoken_ids_last_file_ == file_stamp(lp));
+        if (same_db || same_file) {
+            out = spoken_ids_last_;
+            spoken_ids_source = out.source;
+            return true;
+        }
+    }
+    auto remember = [&](const caudio::IdCache& c, const std::string& file) {
+        spoken_ids_last_ = c;
+        spoken_ids_last_at_ = now;
+        spoken_ids_last_gen_ = gen;
+        spoken_ids_last_file_ = file;
+    };
+    if (db.ready()) {
+        std::unordered_set<int64_t> ids = commentary_ids();  // commentarynames, else the ids playernames uses
+        if (!callnames.index.built) callnames.build_index(db, model, model.names_by_id());
+        for (int64_t id : callnames.index.used_ids) ids.insert(id);
+        for (const auto& kv : callnames.index.playernamemap)
+            if (kv.second > kNoCallname && kv.second <= kCallnameMax) ids.insert(kv.second);
+        out.names.assign(ids.begin(), ids.end());
+        std::sort(out.names.begin(), out.names.end());
+        if (const Table* t = db.table("commentarynames"); t && t->has("commentaryid") && t->has("commentarypreview")) {
+            Snapshot s;
+            if (s.load(db.memory(), *t)) {
+                const Field& fid = *t->field("commentaryid");
+                const Field& fpv = *t->field("commentarypreview");
+                for (uint32_t i : s.valid) {
+                    const int64_t id = s.get_int(i, fid);
+                    if (id >= kCallnameMin && id <= kCallnameMax && s.get_int(i, fpv) == 1) out.preview.push_back(id);
+                }
+                std::sort(out.preview.begin(), out.preview.end());
+            }
+        }
+        for (const auto& p : model.players()) out.players.push_back(p.playerid);
+        std::sort(out.players.begin(), out.players.end());
+        if (!out.names.empty()) {
+            out.when = time_stamp();
+            out.session = session;
+            out.source = "the career database";
+            spoken_ids_source = out.source;
+            write_id_cache(out);
+            remember(out, "");
+            return true;
+        }
+    }
+    // not connected: the cache written while connected, else Lua's commentary list
+    std::string text, err;
+    if (read_text_file(cp, text) && caudio::parse_id_cache_json(text, out, &err)) {
+        out.source = "the id cache " + cp.filename().string() + (out.when.empty() ? "" : " (written " + out.when + ")");
+        spoken_ids_source = out.source;
+        remember(out, file_stamp(cp));
+        return true;
+    }
+    if (read_text_file(lp, text) && caudio::parse_commentary_list(text, out.names, &out.session, &err)) {
+        out.source = "Lua's " + lp.filename().string() + " (" + std::to_string(out.names.size()) + " commentary ids, no players)";
+        spoken_ids_source = out.source;
+        remember(out, file_stamp(lp));
+        return true;
+    }
+    spoken_ids_source.clear();
+    spoken_ids_last_ = caudio::IdCache{};
+    if (why) *why = "no commentary id list at hand: connect to a career once (Turbo then caches the ids in " + cp.string() + ")";
+    return false;
+}
+
+bool App::write_id_cache(const caudio::IdCache& c) {
+    if (c.names.empty() || id_cache_written_ == c.names.size()) return false;
+    const fs::path p = caudio::id_cache_path(bridge.root());
+    std::error_code ec;
+    fs::create_directories(p.parent_path(), ec);
+    std::ofstream f(p, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f << caudio::id_cache_json(c);
+    id_cache_written_ = c.names.size();
+    log("callnames: id list cached in " + p.string() + " (" + std::to_string(c.names.size()) + " commentary ids, " + std::to_string(c.players.size()) + " players)");
+    return true;
+}
+
 bool App::start_spoken_build(bool automatic) {
     if (!commentary_audio) {
         spoken_build_status = "not available: no audio-service call in this build";
         return false;
     }
     caudio::BuildRequest req;
-    // every commentary id the database knows or uses: commentarynames, playernames.commentaryid, playernamemap.commentaryid
-    std::unordered_set<int64_t> ids = commentary_ids();
-    for (int64_t id : callnames.index.used_ids) ids.insert(id);
-    for (const auto& kv : callnames.index.playernamemap)
-        if (kv.second > kNoCallname && kv.second <= kCallnameMax) ids.insert(kv.second);
-    req.names.assign(ids.begin(), ids.end());
-    std::sort(req.names.begin(), req.names.end());
-    for (const auto& p : model.players()) req.players.push_back(p.playerid);
+    caudio::IdCache ids;
+    std::string why;
+    if (!spoken_ids(ids, &why)) {
+        spoken_build_status = "not started: " + why;
+        if (!automatic) notify("Callnames: " + spoken_build_status, true);
+        log("callnames: audio-service build " + spoken_build_status);
+        return false;
+    }
+    req.names = ids.names;
+    req.players = ids.players;
     std::string err;
     if (!commentary_audio->request(req, &err)) {
         spoken_build_status = "not started: " + err;
         if (!automatic) notify("Callnames: " + spoken_build_status, true);
         log("callnames: audio-service build " + spoken_build_status);
+        if (automatic) spoken_watch.refused(now, err);
         return false;
     }
-    char line[200];
-    std::snprintf(line, sizeof(line), "asking the game's audio service about %zu commentary ids and %zu players%s...", req.names.size(), req.players.size(),
-                  automatic ? " (automatic)" : "");
+    spoken_watch.started(now, false);
+    if (automatic) spoken_auto_tried = true;
+    char line[300];
+    std::snprintf(line, sizeof(line), "asking the game's audio service about %zu commentary ids and %zu players (from %s)%s...", req.names.size(),
+                  req.players.size(), ids.source.c_str(), automatic ? " (automatic)" : "");
     spoken_build_status = line;
     log("callnames: " + spoken_build_status);
     return true;
+}
+
+bool App::start_spoken_probe() {
+    if (!commentary_audio) return false;
+    caudio::IdCache ids;
+    std::string why;
+    if (!spoken_ids(ids, &why)) {
+        spoken_watch.refused(now, why);
+        return false;
+    }
+    caudio::BuildRequest req;
+    req.probe = true;
+    req.names = caudio::probe_sample(ids.names, ids.preview);
+    req.batch_start = req.batch_max = std::max<size_t>(req.names.size(), 1);  // one step
+    std::string err;
+    if (!commentary_audio->request(req, &err)) {
+        spoken_watch.refused(now, err);
+        return false;
+    }
+    spoken_watch.started(now, true);
+    return true;
+}
+
+void App::spoken_watch_tick() {
+    if (!commentary_audio) return;
+    // the language and the cached set are needed before the Callname tab was ever opened (a build from the main menu)
+    if (!callnames.refreshed && !game_root.empty()) callnames.refresh(bridge.root(), game_root, chosen_commentary_language());
+    caudio::SpokenWatch::Inputs in;
+    const caudio::ServiceStatus st = commentary_audio->status();
+    in.service = st.installed;
+    in.available = st.available && !st.busy;
+    in.verified = callnames.refreshed && callnames.spoken.verified;
+    if (!in.service) in.why_not = st.reason.empty() ? "the audio-service call is not available" : st.reason;
+    // whether an id list is at hand is re-checked every few seconds (a file read when not connected); meanwhile the
+    // last answer stands
+    if (in.service && !in.verified && (spoken_ids_check_ < 0.0 || now >= spoken_ids_check_)) {
+        caudio::IdCache ids;
+        std::string why;
+        spoken_have_ids_ = spoken_ids(ids, &why);
+        if (!spoken_have_ids_) in.why_not = why;
+        spoken_ids_check_ = now + (spoken_have_ids_ ? 30.0 : 5.0);
+    } else if (!spoken_have_ids_ && in.service && !in.verified) {
+        in.why_not = "no commentary id list at hand: connect to a career once";
+    }
+    in.have_ids = spoken_have_ids_;
+    switch (spoken_watch.tick(now, in)) {
+        case caudio::SpokenWatch::Action::Probe:
+            start_spoken_probe();
+            break;
+        case caudio::SpokenWatch::Action::Build:
+            log("callnames: the game answered the probe: the bank is bound in this screen, building the spoken set");
+            start_spoken_build(true);
+            break;
+        default:
+            break;
+    }
 }
 
 void App::finish_spoken_build() {
     if (!commentary_audio) return;
     caudio::BuildResult r;
     if (!commentary_audio->poll(r)) return;
+    if (r.probe) {
+        // a probe: never cached, never announced; the watcher decides what comes next
+        char clock[16];
+        std::time_t t = std::time(nullptr);
+        const std::tm* tmv = std::localtime(&t);
+        if (!tmv || std::strftime(clock, sizeof(clock), "%H:%M:%S", tmv) == 0) clock[0] = 0;
+        spoken_watch.last_probe_clock = clock;
+        spoken_watch.on_result(now, r);
+        return;
+    }
+    spoken_watch.on_result(now, r);
     const std::string when = time_stamp();
     std::string build = hook_report ? hook_report().build : std::string();
     BankCapture c = caudio::to_capture(r);
@@ -254,7 +437,7 @@ void App::finish_spoken_build() {
         spoken_build_status = "build cancelled";
     } else if (!r.ok) {
         spoken_build_status = line;
-        notify("Callnames: " + r.note, true);
+        if (!r.unbound) notify("Callnames: " + r.note, true);  // an unbound bank is the watcher's business: no toast
     } else if (!callnames.apply_capture(c, bridge.root(), when, build, &err)) {
         spoken_build_status = std::string(line) + " - not used: " + err;
         notify("Callnames: audio-service set not used: " + err, true);
@@ -305,6 +488,7 @@ void App::tick(double t) {
     legacy.tick(t);
     finish_bank_capture();
     finish_spoken_build();
+    spoken_watch_tick();
     if (t >= next_poll) {
         next_poll = t + 0.5;
         bool changed = bridge.poll_files();

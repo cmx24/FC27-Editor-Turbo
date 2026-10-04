@@ -810,6 +810,183 @@ static void test_core() {
         fs::remove(le / "turbo" / "callnames" / "spoken_ita_it.txt");
         fs::remove(cpath);
     });
+    run_case("commentary audio: probe flags, probe sample, id cache, Lua list, the watcher state machine, an unbound result is never cached", [&] {
+        using namespace caudio;
+        struct FakeAudio : Caller {
+            bool bound = true, drop_canary = true;
+            int calls = 0;
+            bool filter_names(std::vector<uint64_t>& batch, size_t& survivors, std::string&) override {
+                ++calls;
+                size_t w = 0;
+                for (size_t i = 0; i < batch.size(); ++i) {
+                    const int64_t id = batch_id(batch[i]);
+                    const bool keep = id == kCanaryId ? !drop_canary : (bound && id % 3 == 0);
+                    if (keep) batch[w++] = batch[i];
+                }
+                survivors = w;
+                return true;
+            }
+            bool player_audio(const std::vector<int64_t>& pids, std::vector<int>& flags, std::string&) override {
+                flags.assign(pids.size(), 0);
+                return true;
+            }
+        };
+        // the flags: a probe carries its mark, an all-no answer is `unbound`, a surviving canary is `no_filter`
+        BuildRequest req;
+        for (int64_t id = 900001; id <= 900060; ++id) req.names.push_back(id);
+        req.probe = true;
+        FakeAudio unbound;
+        unbound.bound = false;
+        Build b1(req);
+        while (b1.step(unbound)) {}
+        BuildResult r1 = b1.result();
+        CHECK(!r1.ok && r1.probe && r1.unbound && !r1.no_filter && r1.names.empty(), "probe, all no: unbound: " + r1.note);
+        FakeAudio nofilter;
+        nofilter.drop_canary = false;
+        Build b2(req);
+        while (b2.step(nofilter)) {}
+        CHECK(!b2.result().ok && b2.result().no_filter && !b2.result().unbound, "canary survived: no_filter: " + b2.result().note);
+        FakeAudio bound;
+        Build b3(req);
+        while (b3.step(bound)) {}
+        CHECK(b3.result().ok && b3.result().probe && b3.result().names.size() == 20 && !b3.result().unbound, "probe, bound: " + b3.result().note);
+        // (b) an unbound result is never cached: to_capture keeps ok = false, apply_capture refuses it, no file appears
+        fs::path game = g_out / "fakegame";
+        fs::path lroot = g_out / "LE_probe";
+        fs::create_directories(game / "commentary" / "commentaryfull_ita_it");
+        fs::path cpath = spoken_cache_path(lroot, "ita_it");
+        fs::remove(cpath);
+        Callnames cn;
+        cn.refresh(lroot, game, "");
+        std::string err;
+        BankCapture cap = to_capture(r1);
+        CHECK(!cap.ok && cap.surnames.empty(), "to_capture of the unbound result is not ok");
+        CHECK(!cn.apply_capture(cap, lroot, "x", "b", &err) && err.find("not bound") != std::string::npos && !fs::exists(cpath), "unbound result refused, no cache file: " + err);
+        CHECK(!cn.spoken.verified && cn.spoken.from == SpokenSet::From::Fallback, "the set stays unverified");
+        // the probe sample: preferred ids first (capped), then ids spread evenly, no duplicates, nothing outside the range
+        std::vector<int64_t> all;
+        for (int64_t id = 900000; id < 905000; ++id) all.push_back(id);
+        std::vector<int64_t> pref = {904999, 900000, 900000, 0, 1 << 20, 902500};
+        std::vector<int64_t> smp = probe_sample(all, pref, 48, 16);
+        // 3 preferred ids, then 48 spread ids of which 900000 and 902500 repeat the preferred ones: 49 in all
+        CHECK(smp.size() == 49 && smp[0] == 904999 && smp[1] == 900000 && smp[2] == 902500 && std::unordered_set<int64_t>(smp.begin(), smp.end()).size() == smp.size(),
+              fmt("sample: %zu ids (preferred first, no duplicates)", smp.size()));
+        CHECK(std::count(smp.begin(), smp.end(), 0) == 0 && std::count(smp.begin(), smp.end(), 1 << 20) == 0, "ids outside the 20-bit range dropped");
+        CHECK(probe_sample({}, {}, 48, 16).empty() && probe_sample({900001, 900002}, {}, 48, 16).size() == 2, "small lists");
+        std::vector<int64_t> big(5000);
+        for (size_t i = 0; i < big.size(); ++i) big[i] = 900000 + static_cast<int64_t>(i);
+        std::vector<int64_t> smp2 = probe_sample(big, {}, 48, 16);
+        CHECK(smp2.size() == 48 && smp2.front() == 900000 && smp2.back() > 904800, "48 ids spread over 5000");
+        // the id cache: json round trip, rejection of foreign / empty files
+        IdCache ic;
+        ic.names = {900002, 900001, 900001, 950000};
+        ic.preview = {900002};
+        ic.players = {5, 1001, 3};
+        ic.when = "2026-10-04 02:10";
+        ic.session = "6AC1E3C8";
+        ic.source = "the career database";
+        IdCache back;
+        CHECK(parse_id_cache_json(id_cache_json(ic), back, &err) && back.names == std::vector<int64_t>({900001, 900002, 950000}) && back.preview == std::vector<int64_t>({900002}) &&
+                  back.players == std::vector<int64_t>({3, 5, 1001}) && back.when == ic.when && back.session == ic.session && back.source == ic.source,
+              "id cache round trip (sorted, deduplicated): " + err);
+        CHECK(!parse_id_cache_json("{\"turbo_spoken\": 2}", back, &err) && err.find("not an id cache") != std::string::npos, "foreign json refused: " + err);
+        CHECK(!parse_id_cache_json("{\"turbo_ids\": 1, \"names\": []}", back, &err) && err.find("no commentary ids") != std::string::npos, "empty list refused: " + err);
+        CHECK(!parse_id_cache_json("not json", back, &err), "garbage refused");
+        CHECK(id_cache_path(lroot) == lroot / "turbo_output" / "callnames" / "ids.json", "cache path");
+        // Lua's commentary list
+        std::vector<int64_t> ids;
+        std::string session;
+        CHECK(parse_commentary_list("#turbo-commentary 6AC1E3C8 4\n900001\tBerrie\n900002\tCalico\r\n12\tnot a callname\n965000\tLast\n", ids, &session, &err) &&
+                  ids == std::vector<int64_t>({900001, 900002, 965000}) && session == "6AC1E3C8",
+              "commentary list parsed (ids in the name range): " + err);
+        CHECK(!parse_commentary_list("#turbo-commentary 6AC1E3C8 4\n900001\tBerrie\n", ids, nullptr, &err) && err.find("announces 4") != std::string::npos && ids.empty(),
+              "a list being rewritten (count mismatch) refused: " + err);
+        CHECK(!parse_commentary_list("#turbo-names 6AC1E3C8 1\n5\tSaka\n", ids, nullptr, &err) && err.find("header") != std::string::npos, "a names file refused: " + err);
+        CHECK(!parse_commentary_list("#turbo-commentary x 1\n12\tnot a callname\n", ids, nullptr, &err) && err.find("no commentary id") != std::string::npos, "no id in range: " + err);
+        // the watcher: verified -> Idle (no line); no ids -> a line saying so; waiting -> a probe at once, then every 3 s
+        SpokenWatch w;
+        SpokenWatch::Inputs in;
+        in.service = in.available = in.have_ids = true;
+        in.verified = true;
+        CHECK(w.tick(0.0, in) == SpokenWatch::Action::None && w.state() == SpokenWatch::State::Idle && w.line().empty(), "verified: idle, no line");
+        in.verified = false;
+        in.have_ids = false;
+        in.why_not = "no commentary id list at hand: connect to a career once";
+        CHECK(w.tick(0.0, in) == SpokenWatch::Action::None && w.line().find("not built yet") != std::string::npos && w.line().find("connect to a career") != std::string::npos,
+              "no ids: " + w.line());
+        in.have_ids = true;
+        in.why_not.clear();
+        CHECK(w.tick(1.0, in) == SpokenWatch::Action::Probe && w.state() == SpokenWatch::State::Waiting && w.line().find("Create Player") != std::string::npos &&
+                  w.line().find("start a match") != std::string::npos,
+              "waiting: the first probe runs at once: " + w.line());
+        w.started(1.0, true);
+        CHECK(w.probes() == 1 && w.pending() && w.tick(1.1, in) == SpokenWatch::Action::None, "a pending probe: nothing more is started");
+        w.last_probe_clock = "02:10:05";
+        w.on_result(1.2, r1);  // unbound
+        CHECK(!w.pending() && w.state() == SpokenWatch::State::Waiting && w.last_probe.find("not bound") != std::string::npos && w.next_probe() > 4.1 && w.next_probe() < 4.3,
+              fmt("unbound: waiting, next probe in 3 s (%.1f)", w.next_probe()));
+        CHECK(w.tick(2.0, in) == SpokenWatch::Action::None && w.line().find("02:10:05") != std::string::npos && w.line().find("not bound in this screen") != std::string::npos &&
+                  w.line().find("every 3 s") != std::string::npos,
+              "line while waiting: " + w.line());
+        in.available = false;
+        CHECK(w.tick(5.0, in) == SpokenWatch::Action::None, "service busy: no probe");
+        in.available = true;
+        CHECK(w.tick(5.0, in) == SpokenWatch::Action::Probe, "probe due");
+        w.started(5.0, true);
+        BuildResult boom;
+        boom.probe = true;
+        boom.note = "exception inside the audio-service call";
+        w.on_result(5.1, boom);
+        CHECK(w.last_probe.find("error") != std::string::npos && w.next_probe() > 11.0 && w.next_probe() < 11.2, fmt("an error doubles the interval: next at %.1f", w.next_probe()));
+        w.started(11.2, true);
+        w.on_result(11.3, boom);
+        CHECK(w.next_probe() > 23.2 && w.next_probe() < 23.4, fmt("doubled again: %.1f", w.next_probe()));
+        double gap = 0.0;
+        for (int i = 0; i < 8; ++i) {
+            const double at = w.next_probe();
+            w.started(at, true);
+            w.on_result(at + 0.1, boom);
+            gap = w.next_probe() - (at + 0.1);
+        }
+        w.tick(w.next_probe() - 1.0, in);
+        CHECK(gap > 59.9 && gap < 60.1 && w.line().find("every 60 s") != std::string::npos, fmt("capped at 60 s (gap %.1f): %s", gap, w.line().c_str()));
+        // a bound answer: the full build starts on the next tick; its ok result ends the watch
+        w.started(100.0, true);
+        w.on_result(100.1, b3.result());
+        CHECK(w.state() == SpokenWatch::State::Building && w.last_probe.find("bound") == 0 && w.bound_seen() == 1, "bound: " + w.last_probe);
+        CHECK(w.tick(100.2, in) == SpokenWatch::Action::Build && w.line().find("building the set now") != std::string::npos, "the build is asked for: " + w.line());
+        w.started(100.2, false);
+        CHECK(w.tick(100.3, in) == SpokenWatch::Action::None, "the build is pending");
+        BuildResult full;
+        full.ok = true;
+        full.note = "1800 of 4849 commentary ids have audio";
+        full.names = {900003};
+        w.on_result(102.0, full);
+        CHECK(w.state() == SpokenWatch::State::Idle && w.last_build.find("ok: 1800") == 0, "build ok: idle: " + w.last_build);
+        in.verified = true;
+        CHECK(w.tick(102.1, in) == SpokenWatch::Action::None && w.line().empty(), "verified: no line");
+        // a build that found the bank unbound (the screen changed): back to waiting, interval reset; a refusal backs off
+        in.verified = false;
+        w.tick(103.0, in);
+        w.started(103.0, true);
+        w.on_result(103.1, b3.result());
+        CHECK(w.tick(103.2, in) == SpokenWatch::Action::Build, "build again");
+        w.started(103.2, false);
+        BuildResult fail;
+        fail.unbound = true;
+        fail.note = "the game answered no for every one";
+        w.on_result(104.0, fail);
+        CHECK(w.state() == SpokenWatch::State::Waiting && w.next_probe() > 106.9 && w.next_probe() < 107.1 && w.last_build.find("failed") == 0, "unbound build: waiting again");
+        CHECK(w.tick(107.1, in) == SpokenWatch::Action::Probe, "probe again");
+        w.refused(107.1, "a build is already running");
+        CHECK(!w.pending() && w.state() == SpokenWatch::State::Waiting && w.last_probe.find("not started") == 0 && w.next_probe() > 113.0, "refused: backoff");
+        // a manual build started by the user while waiting: the watcher waits for it, an ok result ends the watch
+        w.started(120.0, false);
+        CHECK(w.state() == SpokenWatch::State::Building && w.tick(120.1, in) == SpokenWatch::Action::None, "manual build pending");
+        w.on_result(121.0, full);
+        CHECK(w.state() == SpokenWatch::State::Idle, "manual build ok");
+        fs::remove_all(lroot);
+    });
 
     // ---- writes, verified afterwards by Live Editor's Lua library
     json writes = json::array();
@@ -2670,8 +2847,9 @@ static void test_ui() {
             // a fake service: every request is answered at once by a fake game whose bank speaks 900002 / 900004 / 900010
             // and has player 1001's (PLAYER_LOW_SIMPLE) and 2001's (both events) own recordings
             struct FakeService : caudio::Service {
-                int requests = 0;
+                int requests = 0, probes = 0;
                 bool installed = true;
+                bool bound = true;  // false: the fake bank answers 'no' for every id (the career hub)
                 caudio::BuildRequest last;
                 std::deque<caudio::BuildResult> out;
                 caudio::ServiceStatus status() override {
@@ -2688,14 +2866,16 @@ static void test_ui() {
                         if (err) *err = "off in the test";
                         return false;
                     }
-                    ++requests;
+                    if (r.probe) ++probes;
+                    else ++requests;
                     last = r;
                     struct C : caudio::Caller {
+                        bool bound = true;
                         bool filter_names(std::vector<uint64_t>& b, size_t& n, std::string&) override {
                             size_t w = 0;
                             for (uint64_t e : b) {
                                 const int64_t id = caudio::batch_id(e);
-                                if (id == 900002 || id == 900004 || id == 900010) b[w++] = e;
+                                if (bound && (id == 900002 || id == 900004 || id == 900010)) b[w++] = e;
                             }
                             n = w;
                             return true;
@@ -2708,6 +2888,7 @@ static void test_ui() {
                             return true;
                         }
                     } c;
+                    c.bound = bound;
                     caudio::Build b(r);
                     while (b.step(c)) {}
                     out.push_back(b.result());
@@ -2732,8 +2913,10 @@ static void test_ui() {
             CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
             CHECK(ui.click("1001", "##plist"), "row 1001 (Saka)");
             CHECK(ui.click("Callname", "##pedit"), "Callname tab");
-            ui.frames(3);
-            CHECK(app.spoken_auto_tried && svc->requests == 1, "no list and no cache: the build starts by itself");
+            ui.frames(4);
+            CHECK(app.spoken_auto_tried && svc->probes == 1 && svc->requests == 1 && app.spoken_watch.bound_seen() == 1,
+                  fmt("no list and no cache: a probe answers 'bound', the build starts by itself (probes %d, builds %d)", svc->probes, svc->requests));
+            CHECK(fs::exists(caudio::id_cache_path(le)), "the id list is cached while the database is connected");
             CHECK(svc->last.names.size() >= 5 && std::count(svc->last.names.begin(), svc->last.names.end(), 900010) == 1 && !svc->last.players.empty() &&
                       std::is_sorted(svc->last.names.begin(), svc->last.names.end()),
                   fmt("request: %zu ids, %zu players", svc->last.names.size(), svc->last.players.size()));
@@ -2760,6 +2943,124 @@ static void test_ui() {
             fs::remove(cache);
             app.commentary_audio = nullptr;
             app.callnames.refreshed = false;
+        });
+        run_case("UI: Players > Callname: the watcher: an unbound bank is probed, never cached, and built by itself once the game answers; the id cache serves a build without the database", [&] {
+            fs::path game = g_out / "fakegame";
+            fs::path cache = spoken_cache_path(le, "ita_it");
+            fs::remove(cache);
+            fs::remove(le / "turbo" / "callnames" / "spoken_ita_it.txt");
+            struct FakeService : caudio::Service {
+                int requests = 0, probes = 0;
+                bool bound = false;
+                caudio::BuildRequest last;
+                std::deque<caudio::BuildResult> out;
+                caudio::ServiceStatus status() override {
+                    caudio::ServiceStatus s;
+                    s.installed = s.available = s.players = true;
+                    s.runs = requests;
+                    return s;
+                }
+                bool request(const caudio::BuildRequest& r, std::string*) override {
+                    if (r.probe) ++probes;
+                    else ++requests;
+                    last = r;
+                    struct C : caudio::Caller {
+                        bool bound = false;
+                        bool filter_names(std::vector<uint64_t>& b, size_t& n, std::string&) override {
+                            size_t w = 0;
+                            for (uint64_t e : b) {
+                                const int64_t id = caudio::batch_id(e);
+                                if (bound && (id == 900002 || id == 900004 || id == 900010)) b[w++] = e;
+                            }
+                            n = w;
+                            return true;
+                        }
+                        bool player_audio(const std::vector<int64_t>& p, std::vector<int>& f, std::string& e) override {
+                            f.assign(p.size(), 0);
+                            e = "the events PLAYER_LOW_SIMPLE / PLAYER_LOW_LINK are not bound in this screen (a match binds them)";
+                            return false;
+                        }
+                    } c;
+                    c.bound = bound;
+                    caudio::Build b(r);
+                    while (b.step(c)) {}
+                    out.push_back(b.result());
+                    return true;
+                }
+                bool poll(caudio::BuildResult& r) override {
+                    if (out.empty()) return false;
+                    r = out.front();
+                    out.pop_front();
+                    return true;
+                }
+                void cancel() override {}
+            };
+            auto svc = std::make_shared<FakeService>();
+            app.commentary_audio = svc;
+            app.game_root = game;
+            app.callnames.refreshed = false;
+            app.spoken_auto_tried = false;
+            app.spoken_build_status.clear();
+            app.spoken_watch = caudio::SpokenWatch{};
+            // the career hub: every probe answers 'no'; nothing is built, nothing cached, the tab and the Status tab say what to do
+            ui.frames(4);
+            CHECK(svc->probes == 1 && svc->requests == 0 && !fs::exists(cache) && !app.callnames.spoken.verified, fmt("unbound: one probe, no build, no cache (probes %d)", svc->probes));
+            CHECK(app.spoken_watch.state() == caudio::SpokenWatch::State::Waiting && app.spoken_watch_line().find("not built yet") != std::string::npos &&
+                      app.spoken_watch_line().find("Create Player") != std::string::npos && app.spoken_watch_line().find("not bound in this screen") != std::string::npos,
+                  "watcher line: " + app.spoken_watch_line());
+            CHECK(svc->last.probe && svc->last.names.size() >= 5 && svc->last.names.size() <= 64 && svc->last.players.empty(), fmt("the probe asked a sample of %zu ids", svc->last.names.size()));
+            CHECK(ui.click("1001", "##plist") && ui.click("Callname", "##pedit"), "Callname tab");
+            ui.frames(2);
+            CHECK(app.spoken_watch_line().find("not built yet") != std::string::npos && !app.callnames.spoken.verified, "the tab shows the watcher line (drawn from spoken_watch_line)");
+            CHECK(svc->probes == 1, "no second probe within the interval");
+            ui.t += 3.5;
+            ui.frames(2);
+            CHECK(svc->probes == 2 && svc->requests == 0 && !fs::exists(cache), fmt("probed again after the interval (probes %d), still nothing cached", svc->probes));
+            // a manual Rebuild in the hub: the full build answers 'no' for every id: failed, not cached, the watcher keeps waiting
+            CHECK(ui.click("Rebuild from the game's audio service##cn"), "manual rebuild while unbound");
+            ui.frames(3);
+            CHECK(svc->requests == 1 && !fs::exists(cache) && !app.callnames.spoken.verified && app.spoken_build_status.find("not bound") != std::string::npos &&
+                      app.spoken_watch.state() == caudio::SpokenWatch::State::Waiting,
+                  "all-no build: not cached: " + app.spoken_build_status);
+            // the user opens Create Player (or a match): the next probe answers, the build runs by itself and is cached
+            svc->bound = true;
+            ui.t += 3.5;
+            ui.frames(4);
+            CHECK(svc->probes == 3 && svc->requests == 2 && fs::exists(cache) && app.callnames.spoken.verified && app.callnames.spoken.from == SpokenSet::From::GameAudio &&
+                      app.callnames.spoken.ids.size() == 3 && app.spoken_watch.state() == caudio::SpokenWatch::State::Idle && app.spoken_watch_line().empty(),
+                  fmt("bound: built by itself and cached (probes %d, builds %d): %s", svc->probes, svc->requests, app.callnames.spoken.source.c_str()));
+            CHECK(svc->last.names.size() >= 5 && !svc->last.players.empty() && !svc->last.probe, "the full build asked every id and every player");
+            ui.t += 10.0;
+            ui.frames(2);
+            CHECK(svc->probes == 3, "verified: no more probes");
+            // the next session (cache present): no probe at all
+            app.callnames.refreshed = false;
+            app.spoken_watch = caudio::SpokenWatch{};
+            ui.t += 10.0;
+            ui.frames(3);
+            CHECK(svc->probes == 3 && app.callnames.spoken.verified, "a cached set needs no probe");
+            // without the database (main menu): the id list comes from the cache written while connected, else from Lua's list
+            {
+                App bare(mem, le, 0, "uitest-bare");  // no mailbox: the main app keeps its pending commands
+                bare.game_root = game;
+                caudio::IdCache ids;
+                std::string why;
+                CHECK(!bare.db.ready() && bare.spoken_ids(ids, &why) && ids.names.size() >= 5 && ids.source.find("id cache") != std::string::npos,
+                      "no database: the id cache serves the list: " + ids.source + " " + why);
+                fs::path idp = caudio::id_cache_path(le);
+                fs::path keep = idp.string() + ".keep";
+                fs::rename(idp, keep);
+                std::ofstream((bare.bridge.dir() / "bridge_commentary.txt").string()) << "#turbo-commentary 6AC1E3C8 3\n900002\tCalico\n900004\tGates\n900010\tHumber\n";
+                CHECK(bare.spoken_ids(ids, &why) && ids.names == std::vector<int64_t>({900002, 900004, 900010}) && ids.players.empty() && ids.source.find("bridge_commentary") != std::string::npos,
+                      "no cache: Lua's commentary list serves the ids: " + ids.source);
+                fs::remove(bare.bridge.dir() / "bridge_commentary.txt");
+                CHECK(!bare.spoken_ids(ids, &why) && why.find("connect to a career") != std::string::npos, "nothing at hand: " + why);
+                fs::rename(keep, idp);
+            }
+            fs::remove(cache);
+            app.commentary_audio = nullptr;
+            app.callnames.refreshed = false;
+            app.spoken_watch = caudio::SpokenWatch{};
         });
         run_case("UI: Players > Callname: language, current callname, pickers, name and player assignment", [&] {
             fs::path game = g_out / "fakegame";

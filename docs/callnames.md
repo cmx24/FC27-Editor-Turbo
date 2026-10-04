@@ -1,4 +1,4 @@
-# Player callnames for the loaded commentary language (Turbo tracks D2 and E4)
+# Player callnames for the loaded commentary language (Turbo tracks D2, E4 and E8)
 
 A *callname* is the name the commentary speaks for a player. This note records how FC 27 binds it, which commentary
 language this PC's game has loaded, how the game itself decides that a name has audio, how Turbo asks the game's own
@@ -100,6 +100,20 @@ Three sources, in this order (`Callnames::refresh`):
    (`commentary_has_audio: ready | names: FilterNames 0x1439074C8 … | players: ready … | runs N | steps M`, then
    `last: ok: 1,8xx of 4,9xx commentary ids have audio, …`). Kill switch: `turbo_output\call_commentary_audio_off.txt`
    (plus every game-hook switch: a build that is not in the signature table turns the call off).
+   **Where the game answers (track E8).** The bank is not bound in the career hub: there every id answers "no audio"
+   (§5.6), and such a build fails instead of caching an empty set. So while the set is not verified Turbo's *watcher*
+   (`caudio::SpokenWatch`, run from `App::tick` whether the window is shown or not) sends a quiet *probe* every 3 s - a
+   sample of up to 64 ids (the `commentarypreview` ones first, then 48 spread over the list) through the same
+   FilterNames call, one step - and starts the full build by itself as soon as a probe answers "bound" (the Create
+   Player screen, main menu or career; a match). The Callname tab and the Status tab say meanwhile "spoken set not
+   built yet: open the game's Create Player screen (Customise > Create Player > Commentary name) or start a match,
+   Turbo builds it there (last check hh:mm:ss: the bank is not bound in this screen; checking again every 3 s)". The
+   result persists in the cache for later hub sessions. The id list comes from the career database when it is
+   connected and is then cached in `turbo_output\callnames\ids.json` (§6.4), so that a build from the main menu's
+   Create Player screen (no database) asks the same ids; without that cache the ids come from Lua's
+   `bridge_commentary.txt`. The host logs a probe only when its outcome changes (`probe (64 ids): not bound in this
+   screen` / `bound (23 of 64 sample ids have audio)`), the Status tab counts them (`runs N | probes M | steps K`,
+   `last probe: …`).
 3. **Turbo's memory scan of the loaded bank** (`core/commentary_bank.cpp`, §6) stays as a diagnostic behind the button
    *Capture from the loaded bank*: it writes the same cache file with `"source": "live bank capture"` when it finds
    selection tables, which it does not on this build (what it matches is the bank's sample index, §6.1), so it reports
@@ -126,7 +140,8 @@ What was tried and dropped:
 
 * Shows the language (combo of installed packs, auto-detect, Refresh), the spoken set and where it comes from
   ("Spoken set from the game's audio service (built 2026-10-04 00:40): N names, M player callnames", or the list file,
-  or the orange "Unverified" line), the *Rebuild from the game's audio service* button with its progress ("building:
+  or the orange "Unverified" line followed by the watcher's "spoken set not built yet: open the game's Create Player
+  screen … or start a match, Turbo builds it there (…)" line, §3), the *Rebuild from the game's audio service* button with its progress ("building:
   names 1200 / 4849 (310 with audio), batch 400") or last result, the diagnostic *Capture from the loaded bank* button
   with its status line, and the player's current callname: commentary id, source (player-specific / common name / last
   name, with the name and name id), whether it is spoken in the loaded language, and - when the game has the player's
@@ -149,7 +164,10 @@ What was tried and dropped:
 Tests: `turbo/tests/t12_callnames.lua` (9 cases) and in `turbogui/tests/native/test_main.cpp` the cases "callnames:
 language packs, spoken list, resolution rule, index", "commentary bank: row signature, tables, capture over regions,
 cache json", "callnames: bank capture cache, hand-made list override, Real recordings", "commentary audio: name batch
-and canary, pointer chain checks, the stepped build with a fake caller, cache record and precedence", "signatures: the
+and canary, pointer chain checks, the stepped build with a fake caller, cache record and precedence", "commentary
+audio: probe flags, probe sample, id cache, Lua list, the watcher state machine, an unbound result is never cached",
+"UI: Players > Callname: the watcher: an unbound bank is probed, never cached, and built by itself once the game
+answers; the id cache serves a build without the database", "signatures: the
 built-in commentary-audio entries resolve on the game's bytes (registry + getter from one call site, strings by
 offset)", "UI: Players > Callname: spoken set from the game's audio service (fake service): automatic build, status
 line, Rebuild, pickers", "UI: Players > Callname: capture of the loaded bank on a background thread, Real recordings"
@@ -177,10 +195,11 @@ The frontend asks the audio system by *event name* and *parameters*, never by fa
 | event lookup | 0x1414aaef4 | finds the event by name in the base `CommentaryDb` (EBX partition 0x309250000.., 10,201 events: `+0x18` name, `+0x20` candidates, `+0x30` id) **with a linear `strcmp` over the array** (one HasAudio costs ~10k string compares, which is why Turbo budgets its batches per frame) then 0x1414aafcc: when `db+0x74` is set the candidates come from the **language db** (`owner+0x48 -> [y]`, hash map at `+0xd8/+0xe0` keyed by event id -> node `+0x10` -> candidate array); each candidate's parts (`+0x18` array) must pass 0x145ace484 -> 0x145acd02c |
 | part check | 0x145acd02c | for every selector parameter of the part (`+0x38` array, name at `+0x18`) takes the query's value, then asks the global sound system (`[0x14C255BB8]`, vtable 0x1496FB5A8) `vcall(8)(asset = part+0x28, values)` - the Frostbite variation selection on the family's selection table |
 
-A read of the language db's event map in the career hub on 2026-10-04 found it empty (count 1, the sentinel bucket)
-and the base db's candidate arrays empty: if that holds, HasAudio answers "no" for everything outside the screens
-that bind the bank, and Turbo's build reports it instead of caching an empty set (§5.4). Whether the hub binds
-`PLAYER_NAME_FE` is the first thing the in-game test plan (§7) settles.
+The language db's event map is empty in the career hub (count 1, the static empty bucket 0x14BCAD848; read on
+2026-10-04 at 01:40 and again at 02:05 after a restart) while the base db's `+0x74` flag is set, so `HasAudio` takes
+the language path and answers "no" for every event there: the build of 01:33 got "no audio" for all 4,849 ids and
+failed as designed (§5.4, §5.6). The game binds the events on its Create Player screen and in a match; Turbo waits
+for that (§3, the watcher).
 
 ### 5.2 What feeds Create Player's commentary-name list (fully traced)
 
@@ -277,6 +296,49 @@ every object the build touches exists and `FilterNames` runs; what `HasAudio` an
 | `scratch_scope_ctor` / `_dtor` | 0x140670BF4 / 0x14053A030 | prologues |
 | `commentary_service_vtable` / `commentary_names_vtable` | 0x14A8C6D70 / 0x14A8C5F48 | the `lea`s in the service constructor (0x1438A149A / 0x1438A1509), rip |
 
+### 5.6 What binds the bank, and why Turbo does not do it from the hub (track E8, 2026-10-04)
+
+What was traced in the image (static) and read live (dev service, read-only), with the conclusion at the end.
+
+*The language db object* (`owner+0x48 -> [y]`, 0x6EF57C30 then 0x6B07EDF0 after the restart; no vtable: +0 and the
+allocator slots of its maps point into a private heap region at 0x24Cxxxx): a run-time wrapper around the base
+`CommentaryDb` (`+0x388` = the base db EBX object, `+0x380` a sibling, `+0x368` = the holder `y`), with a lock at
+`+0x3C8` and a row of EASTL hash maps (`{buckets, count, 1.0f, 2.0f, allocator}` at `+0xC8`, `+0xD8`, `+0x108`,
+`+0x138`, …, every one empty in the hub). The map `HasAudio` reads is `+0xD8/+0xE0`, keyed by the event id
+(`event+0x30`), node `{+0 id, +0x10 candidate array, +0x18 next}`, found by 0x145ACC224 under the lock. The functions
+that fill these maps (the bank's event registration) were not found by scanning the speech module for the offsets:
+the inserts are inlined in the loader of the language's speech bank data, which is EBX (no strings to anchor on).
+
+*The frontend side.* The commentary service (vtable 0x14A8C6D70, 1,117 references, 60 callers of
+`GetCommentaryService` listed with `scripts/re`): its names object (vtable 0x14A8C5F48) is the interface the screens
+use - slot 24 FilterNames (§5.2), slot 11 reads the speech parameter `COMMENTATOR_TEAM` (hash 0x14C6447BC through
+`[SpeechSystem+0x58]`, 0x1414AAA64), slot 12 reads the language-list holder's `+0x24`, slots 25 / 27 / 28 forward
+4-character codes (`'trck'` 0x7472636B and others) to the `CommentaryBridge` (`vcall(0xE0)(code, x)`, `vcall(0xF0)()`,
+`vcall(0xD8)(code)` / `vcall(0x80)()`; `SpeechEventHandler::RefreshAudioTrack` 0x14390197C uses the same path), slot 9
+jumps into protected code. The bridge's own slots 27 (+0xD8), 9 (+0x48) and 16 (+0x80) lead into the exe's
+**anti-cheat-protected region** (0x157C12F40…: trampolines that compute their targets with xor/add chains), i.e. the
+bank / event management behind the bridge is not plain code Turbo can call or audit. The object at `service+0x30`,
+which the Create Player screen controller 0x1470DC1D0 calls once (`svc->vcall(0x48)->vcall(0x18)()`) when its
+option list is the commentary-name kind (type 0xD), is the FUT anthem / chant preview player (vtable 0x14A8C6458:
+`Play_Goal_Anthem`, `Stop_Goal_Anthem`, `triggersfx_FUT_CHANT_PREVIEW_*`): a "stop the preview" call, not the
+binding. 0x1480E00F0 (a Create Player data reader) only checks `names->vcall(0x58)() != 3`.
+
+*The launch bank.* `superbundlelayout/commentarylaunch_%s` / `commentarylaunch_%s` are formatted by 0x143901AB0 (per
+language entry of 0x70 bytes: install-package state, `superbundlelayout/installpackage_05`, `ita` / `eng,us`, flags
+`+0x60..+0x65`, the entry's own vtable slots 5 (loaded?) and 1 (load)) called from 0x1438FCBDC (the audio bridge
+set-up next to `MusicBridge`) and 0x143901E90, and by 0x145C7A324 (`is the launch package installed`, with
+`STREAMINGINSTALL/LIMITED_MODE`) which 0x145C7A210 wraps for the frontend; the bank descriptor names
+(`…/ita_it/ita_it_launch_commentary_brt`) exist only as EBX data (§2).
+
+*Conclusion.* Binding `PLAYER_NAME_FE` means mounting the launch superbundle, streaming the bank and letting the
+speech system register the language db's events, driven by the frontend flow through the bridge's protected code and
+Frostbite's asynchronous resource loading; the unbind is the same path in reverse. That is neither a cheap nor a
+reversible call, it touches anti-cheat-protected code and it allocates tens of MB inside the game: **Turbo does not
+bind the bank itself.** It waits until the game has done it (the watcher of §3: a probe every 3 s, the full build when
+a probe answers, the result cached) and makes sure an unbound bank is never mistaken for an empty bank
+(`BuildResult::unbound`, `no_filter`; `Callnames::apply_capture` refuses a result that is not ok; the native tests
+cover both, and the toast is suppressed for the watcher's own "not bound" outcome).
+
 ## 6. The loaded bank in memory: what was found, what Turbo reads
 
 ### 6.1 The 64-byte records (the bank's sample index, not a selection table)
@@ -354,6 +416,12 @@ asked, `steps` = game-thread ticks used, `seconds` = wall time) or `"live bank c
 values = tables the id was in). A cache for another language or with no ids is rejected (the tab says why). Delete
 the file to force a new build, or press *Rebuild from the game's audio service*.
 
+`turbo_output\callnames\ids.json` (track E8): `{"turbo_ids": 1, "when", "session", "source", "names": [ids…],
+"preview": [ids with commentarypreview = 1…], "players": [player ids…]}` - the list a build asks about, written by
+the GUI while the career database is connected (once per session and list size) and read when it is not (the main
+menu's Create Player screen), before Lua's `bridge_commentary.txt` (commentary ids only, no players). A file that is
+not Turbo's or holds no commentary id is ignored.
+
 ## 7. In-game test plan
 
 1. **The call is live.** Career hub, Turbo window > Status tab > Game hooks: every `commentary_*`, `speech_query_*` and
@@ -362,22 +430,40 @@ the file to force a new build, or press *Rebuild from the game's audio service*.
    `commentary_has_audio: ready | names: FilterNames 0x1439074C8, GetCommentaryService 0x142A52420, registry slot
    0x14C2A8590 | players: ready … | runs 0 | steps 0`. With `turbo_output\call_commentary_audio_off.txt` present the
    line says `off (kill switch …)` and the Rebuild button is disabled; delete the file again.
-2. **The build in the hub.** Players > a Napoli player > Callname (with no `spoken_ita_it.txt` and no
-   `spoken_ita_it.json`). Expected: the build starts by itself ("asking the game's audio service about 4,9xx
-   commentary ids and 2x,xxx players (automatic)…"), the Status tab shows `build: names 1200 / 4919 (…), batch 400` for a
-   few seconds and then `last: ok: N of 4,9xx commentary ids have audio, M of … players have their own recordings
-   (… steps, … s in the game)`; the log has `game call commentary_has_audio: build started (… via hook)` and
-   `build ok: …`; the tab shows "Spoken set from the game's audio service (built hh:mm): N names, M player callnames";
-   `turbo_output\callnames\spoken_ita_it.json` has `"source": "game audio service"`. N for an Italian pack should be
-   in the low thousands (FC 26 PT-BR: 1,703 generic surnames). The game must not stutter while the build runs (one
-   batch per frame, 4 ms budget).
-   *If instead* the build fails with "the game answered 'no audio' for every one of the … ids: the loaded bank is not
-   bound in this screen" (§5.1's empty language db in the hub) or "the canary id survived: the game's filter did not
-   run": press *Rebuild from the game's audio service* from a screen that shows commentary names - Customise > Create
-   Player > Commentary name (the list there is this very filter) - or during a match (pause, open Turbo); note in §8
-   which screens answer. The players part may only answer during a match (`PLAYER_LOW_*` are bound with the full
-   bank): the result then says "players not checked: the events PLAYER_LOW_SIMPLE / PLAYER_LOW_LINK are not bound in
-   this screen" and the names still count; a Rebuild during a match fills the players.
+2. **The hub: the watcher waits (seen 2026-10-04 01:33 with the E4 build: every id "no").** Career hub, no
+   `spoken_ita_it.txt`, no `spoken_ita_it.json`. Expected within a few seconds of the GUI start, window shown or not:
+   the log has one line `game call commentary_has_audio: probe (64 ids): not bound in this screen` and then nothing
+   more (a probe runs every 3 s but is logged only when its outcome changes); the Status tab shows `… runs 0 | probes
+   N | steps N` with N growing by one every 3 s, `last probe: not bound in this screen`, and under it `spoken
+   callnames (ita_it): spoken set not built yet: open the game's Create Player screen (Customise > Create Player >
+   Commentary name) or start a match, Turbo builds it there (last check hh:mm:ss: the bank is not bound in this screen;
+   checking again every 3 s) | probes N`; Players > a player > Callname shows the orange "Unverified" line and the
+   same watcher line below it. `turbo_output\callnames\ids.json` exists (`"source": "the career database"`, 4,8xx
+   names, ~20 preview ids, 2x,xxx players). No `spoken_ita_it.json` appears. *Rebuild from the game's audio service*
+   pressed here fails as before ("the game answered 'no audio' for every one of the 4849 commentary ids …", no toast
+   for the automatic path, a toast for the manual one) and the watcher keeps probing. The game must not stutter (a
+   probe is one FilterNames call over 64 ids, well under a millisecond).
+3. **Create Player from the career (or the main menu): the build runs by itself.** Leave the Turbo window hidden (F8),
+   open Customise > Create Player and go to the Commentary name list. Expected: within 3 s the log has `probe (64
+   ids): bound (… of 64 sample ids have audio)`, `callnames: the game answered the probe: the bank is bound in this
+   screen, building the spoken set`, `build started (4849 commentary ids, 21340 players, via hook)` and a few seconds
+   later `build ok: N of 4849 commentary ids have audio, 0 of 21340 players have their own recordings (… steps, … s in
+   the game); players not checked: the events PLAYER_LOW_SIMPLE / PLAYER_LOW_LINK are not bound in this screen (a
+   match binds them)`; `spoken_ita_it.json` is written with `"source": "game audio service"`; the Status tab's
+   watcher line is gone, replaced by `spoken callnames (ita_it): the game's audio service (built …)`; back in the hub
+   the Callname tab shows "Spoken set from the game's audio service (built hh:mm): N names, 0 player callnames" and
+   no more probes run. N for an Italian pack should be in the low thousands (FC 26 PT-BR: 1,703 generic surnames).
+   *From the main menu* (no career loaded, database not connected): the same, with the build's status line saying
+   `(from the id cache ids.json (written …))` - delete `ids.json` first to see the fallback `(from Lua's
+   bridge_commentary.txt (4849 commentary ids, no players))`.
+   *If instead* the probe says `no commentary bridge in this screen` (the canary survived) or `failed: …`, note the
+   screen in §8; the watcher backs off (6, 12, … 60 s) after errors and goes back to 3 s after a plain "not bound".
+3b. **A match fills the players.** With the set built, press *Rebuild from the game's audio service* during a match
+   (pause, open Turbo). Expected: `build ok: N of 4849 commentary ids have audio, M of 21340 players have their own
+   recordings`, M in the hundreds; the cache's `players` is filled and step 6 works. (The watcher does not re-run by
+   itself once the set is verified: the names are the same, only the players part needs a match.)
+4b. **The next session.** Restart the game into the hub: the Callname tab shows the cached set at once, the Status tab
+   shows no watcher line and `probes 0`.
 3. **Cross-check against the game.** Create Player > Commentary name > letter A: every name listed there appears in
    the Callname tab's *By name* picker (type "a"), and a name the picker does not list is not in the game's list
    either (the same check, batch-wise).
@@ -396,11 +482,17 @@ the file to force a new build, or press *Rebuild from the game's audio service*.
 
 ## 8. Open points
 
-* **Which screens bind the bank.** The hub's language-db event map looked empty on 2026-10-04 (§5.1); the build detects
-  an unbound bank (all "no") and an absent bridge (the canary) instead of caching, but it has not yet been seen
-  answering in-game. If the hub does not answer, the automatic build should be re-tried from the Create Player screen
-  or a match (step 2 of §7), and a note in the tab should say so; a rebuild during a match is also what fills the
-  players (`PLAYER_LOW_*`).
+* **Which screens bind the bank.** The hub does not (§5.1, §5.6: read twice on 2026-10-04, and the 01:33 build got "no"
+  for every id). The watcher (§3) now waits for a screen that does; which screens answer - Create Player from the
+  career, from the main menu, a match, the pause menu - is what §7 steps 3 / 3b settle, and whether the launch bank's
+  `PLAYER_NAME_FE` set equals the full bank's (step 4). The build has not yet been seen answering in-game with this
+  code: the E8 DLL was not deployed during the track.
+* **Binding from the hub.** Not done: the path runs through the bridge's anti-cheat-protected code and Frostbite's
+  streaming (§5.6). If a later track finds a plain "preload FE commentary" entry point (a candidate: the names object's
+  slot 9, +0x48, which jumps into the protected region), it should be a hooked observation first, never a call.
+* **The game's own id list.** The build asks the ids the database knows (or the cache / Lua's list, §6.4). Calling the
+  game's `GetCommentaryNameIds` reader (0x1480B2128, 26 letters) instead would also work from the main menu but goes
+  through the DB service and `FETemp` tables: not needed while `ids.json` or `bridge_commentary.txt` exist.
 * **Launch bank vs full bank.** `PLAYER_NAME_FE` is the frontend preview event (the launch bank, 26 MB); the match
   speaks `PLAYER_NAME` / `PLAYER_LOW_*` from the full bank. The Create Player list is the game's own promise that a
   name has recordings; step 4 of §7 checks that promise on one name.

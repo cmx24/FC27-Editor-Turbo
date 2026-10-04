@@ -128,7 +128,18 @@ public:
     std::shared_ptr<caudio::Service> commentary_audio;
     bool start_spoken_build(bool automatic = false);  // every commentarynames / playernames / playernamemap id + every player
     std::string spoken_build_status;  // last build result (one line for the Callname tab)
-    bool spoken_auto_tried = false;   // an automatic build was started once this session
+    bool spoken_auto_tried = false;   // an automatic build was started once this session (by the watcher)
+    // The bank is only bound on some screens (docs/callnames.md section 5.6): while the spoken set is not verified the
+    // watcher probes the game every few seconds (a sample of ids through the same call) and starts the full build by
+    // itself where the game answers; the result is cached for later sessions. The id list comes from the database when
+    // it is connected, else from turbo_output\callnames\ids.json (written here while connected) or from Lua's
+    // bridge_commentary.txt, so the build also works from the main menu's Create Player screen.
+    caudio::SpokenWatch spoken_watch;
+    bool start_spoken_probe();                               // a quiet probe request (the watcher's)
+    bool spoken_ids(caudio::IdCache& out, std::string* why);  // the id list at hand (database > cache > Lua list); false = none
+    std::string spoken_ids_source;                           // where the last list came from (for the UI)
+    std::string chosen_commentary_language() const;          // gui_settings callnames.language ("" = auto)
+    const std::string& spoken_watch_line() const { return spoken_watch.line(); }
     long long game_call_seen = -1;  // last game-call outcome shown as a toast (bridge_state.json game_call.seq; -1 = none yet)
     // Job offers section (Managers tab): the club picked and the last request label
     int64_t job_offer_team = 0;
@@ -163,6 +174,15 @@ public:
 private:
     void finish_bank_capture();  // tick: take a finished capture, cache it, rebuild the pickers
     void finish_spoken_build();  // tick: take a finished audio-service build, cache it, rebuild the pickers
+    void spoken_watch_tick();    // tick: run the watcher, start the probe / build it asks for
+    bool write_id_cache(const caudio::IdCache& c);  // turbo_output\callnames\ids.json (once per session and list size)
+    size_t id_cache_written_ = 0;  // names.size() of the last cache written (0 = none this session)
+    double spoken_ids_check_ = -1.0;  // next time the watcher re-checks that an id list is at hand
+    bool spoken_have_ids_ = false;
+    caudio::IdCache spoken_ids_last_;   // the list read last (a probe every few seconds must not re-read the tables)
+    double spoken_ids_last_at_ = -1.0;  // when it was read (database: reused for 30 s of the same generation)
+    int spoken_ids_last_gen_ = -1;
+    std::string spoken_ids_last_file_;  // "" = the database; else "<file>@<write time>" (reused while unchanged)
     std::string time_stamp() const;  // "2026-10-04 00:40" (render thread)
     std::mutex bank_m_;
     std::thread bank_thread_;
