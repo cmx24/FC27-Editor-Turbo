@@ -91,6 +91,8 @@ struct HookReport {
     long long dispatcher_ran = 0;    // queued jobs run
     size_t queued = 0;
     uint32_t game_thread_id = 0;     // thread the queue ran on last (0 = never)
+    // Game calls (core/game_calls.h): one status line per call, e.g. "job_offer: ready (JobMarketManager seen ...)"
+    std::vector<std::string> calls;
 };
 
 }  // namespace turbo

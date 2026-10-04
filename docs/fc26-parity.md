@@ -49,7 +49,7 @@ checks, transfer / loan approval, reveal player data, stadium / weather / kick-o
 | 16 | Team name, transfer budget, transfer bans | v26.1.2 | partly | **Turbo GUI (partial)**: `teamname` editable; FC 27 has no `teams.transferbudget` (Turbo Tools budget section, *needs LE native* `SetUserTransferBudget`); transfer bans: list, ban every team, remove all, *needs LE native* (`cGetTransferBans` missing in v27.1.2). The game may show translated club names instead of `teamname` (FC 27 LE has a custom-names file for that) |
 | 17 | Coaches, scouts, perfect staff | v26.1.4 | not announced | **Database tab** |
 | 18 | Standings, fixtures, match-fixing | v26.1.7 | not announced | **Turbo GUI (partial)**: fixtures and results to CSV. Standings view: no. Match-fixing: **Not available** |
-| 19 | Create job offer | v26.2.1 | not announced | **Not available** |
+| 19 | Create job offer | v26.2.1 | not announced | **Turbo GUI**: Managers > Job offers: pick a club, Create job offer; the game's own JobMarketManager applies and answers at once through Turbo.dll's game call (docs/re/job_offer.md). Club jobs only; the Lua runner `turbo_job_offer.lua` does the same from `turbo_config.json`. Needs the in-game test (0.4.1) |
 | 20 | Formation editor, team traits | v26.2.2, v26.3.1 | not announced | **Turbo GUI (partial)**: team traits (`trait1` / `trait2` in Teams overview). Formations: **Database tab** only |
 | 21 | Teams list transfer columns | v26.3.5 | not announced | **Not available** (transfer history is exported to CSV) |
 

@@ -403,6 +403,10 @@ void draw_hook_status(App& app) {
     ImGui::Text("Game-thread dispatcher: %s | ticks %lld | Lua pumps %lld | jobs run %lld | queued %zu | thread %lu",
                 r.dispatcher_hooked ? "prompt (game_tick hook)" : "on career-mode events (Lua pump)", r.dispatcher_ticks,
                 r.dispatcher_pumps, r.dispatcher_ran, r.queued, static_cast<unsigned long>(r.game_thread_id));
+    if (!r.calls.empty()) {
+        ImGui::Text("Game calls (Managers > Job offers):");
+        for (const auto& c : r.calls) ImGui::TextWrapped("  %s", c.c_str());
+    }
 }
 
 void draw_status(App& app) {

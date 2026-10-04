@@ -31,6 +31,7 @@
 #include "core/legacy.h"
 #include "core/devops.h"
 #include "core/fce_standings.h"
+#include "core/game_calls.h"
 #include "core/memmap.h"
 #include "core/le_log.h"
 #include "core/model.h"
@@ -1315,6 +1316,98 @@ static void test_ui() {
             CHECK(app.db.get_int(*tm, trow, "teamid") == 7, "neighbouring table intact");
         });
 
+        run_case("UI: Managers > Job offers: club picker, button gated by the capability, confirmation sends the job_offer module", [&] {
+            app.mailbox->cancel();
+            app.request_tab = 2;
+            ui.frames(2);
+            CHECK(ui.click("Job offers (Manager Career)", "##medit"), "section header opens");
+            ui.frames(2);
+            // the simulated Lua side has no Turbo.dll native: the capability is missing, the button does nothing
+            CHECK(app.bridge.state().unavailable_reason("job_offer") != nullptr, "job_offer unavailable in the test world");
+            const ItemRec* btn = ui.find("Create job offer", "##medit");
+            CHECK(btn != nullptr, "button drawn");
+            ui.click(btn);
+            ui.frames(2);
+            CHECK(!app.mailbox->pending(), "disabled button sends nothing");
+            // the club picker: search narrows the list, the user's own club (1) and national teams are never offered
+            const ItemRec* search = ui.find("##josearch", "##medit", "joboffers");
+            CHECK(search != nullptr, "search box");
+            CHECK(ui.find("1##jo", "##medit") == nullptr, "own club not listed");
+            CHECK(ui.find("1318##jo", "##medit") == nullptr, "national team not listed");
+            if (!ui.find("7##jo", "##medit")) ui.dump("Everton row missing before the search");
+            CHECK(ui.find("7##jo", "##medit") != nullptr && ui.find("241##jo", "##medit") != nullptr, "league clubs listed");
+            CHECK(app.model.team_name(7) == "Everton", "team 7 is named '" + app.model.team_name(7) + "'");
+            ui.type_into(search, "7");  // by id (the name filter is the same code path as the Teams tab's search)
+            CHECK(std::string(app.job_offer_search) == "7", std::string("typed into the search box: '") + app.job_offer_search + "'");
+            CHECK(ui.find("7##jo", "##medit") != nullptr && ui.find("241##jo", "##medit") == nullptr, "search filters the clubs");
+            CHECK(ui.click("7##jo", "##medit"), "pick Everton");
+            CHECK(app.job_offer_team == 7, "club selected");
+            // Turbo.dll's native shows up (Lua rewrites bridge_state.json without the job_offer entry): the button lights up
+            fs::path state_file = le / "turbo_output" / "bridge_state.json";
+            json st = read_json(state_file);
+            // each rewrite gets a later time stamp (the bridge re-reads on a changed mtime; several writes within one
+            // second would otherwise look unchanged)
+            int bumps = 0;
+            auto write_state_file = [&]() {
+                {
+                    std::ofstream f(state_file.string(), std::ios::binary | std::ios::trunc);
+                    f << st.dump();
+                }
+                fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(2 * ++bumps));
+            };
+            st["unavailable"].erase("job_offer");
+            st["seq"] = st.value("seq", 0LL) + 1;
+            write_state_file();
+            app.next_poll = 0.0;
+            ui.frames(3);
+            CHECK(app.bridge.state().unavailable_reason("job_offer") == nullptr, "capability picked up");
+            CHECK(ui.click("Create job offer", "##medit"), "button");
+            ui.frames(2);
+            CHECK(ui.find("Cancel", "Create job offer?") != nullptr, "confirmation modal");
+            CHECK(ui.click("Cancel", "Create job offer?"), "cancel");
+            ui.frames(2);
+            CHECK(!app.mailbox->pending(), "cancelled: nothing sent");
+            CHECK(ui.click("Create job offer", "##medit"), "button again");
+            ui.frames(2);
+            CHECK(ui.click("Create", "Create job offer?"), "confirm");
+            ui.frames(2);
+            CHECK(app.mailbox->pending(), "command sent to Lua");
+            std::string cmd = mem.read_cstr(kMb + kMbCmd, kMbTextSize);
+            json j = json::parse(cmd, nullptr, false);
+            CHECK(!j.is_discarded() && j.value("op", "") == "run" && j.value("module", "") == "job_offer", "op run / module job_offer: " + cmd);
+            CHECK(j.contains("overrides") && j["overrides"].value("teamid", 0) == 7 && j["overrides"].value("confirm", false) &&
+                      j["overrides"].value("enabled", false),
+                  "overrides carry the club, enabled and confirm");
+            CHECK(app.pending_label.rfind("Job offer from Everton", 0) == 0, "label: " + app.pending_label);
+            CHECK(!app.job_offer_status.empty(), "status line set");
+            // the answer from Lua lands in the status line and a toast
+            mem.wr(kMb + kMbStatus, static_cast<int32_t>(1));
+            std::vector<uint8_t> text(kMbTextSize, 0);
+            const char* msg = "job offer created: Everton (7) wants you as manager (job offer sent on 20270115 (weekly wage 25007))";
+            std::memcpy(text.data(), msg, std::strlen(msg));
+            mem.write(kMb + kMbResult, text.data(), text.size());
+            mem.wr(kMb + kMbAckSeq, app.mailbox->seq());
+            ui.frames(3);
+            CHECK(app.job_offer_status.find("Everton (7) wants you") != std::string::npos, "status shows the outcome: " + app.job_offer_status);
+            CHECK(ui.toast_contains("Job offer from Everton"), "toast");
+            // a queued call's outcome arrives through bridge_state.json (game_call) as a toast
+            st["game_call"] = {{"seq", 3}, {"ok", false}, {"text", "job offer from team 7: this club already made you an offer on 20270110"}};
+            st["seq"] = st.value("seq", 0LL) + 1;
+            write_state_file();
+            app.next_poll = 0.0;
+            ui.frames(3);
+            CHECK(app.bridge.state().game_call_seq == 3 && !app.bridge.state().game_call_ok, "game_call parsed");
+            CHECK(ui.toast_contains("already made you an offer"), "queued outcome toast");
+            // restore the world's state file for the cases after this one
+            st.erase("game_call");
+            st["unavailable"]["job_offer"] = "TurboJobOfferCreate is not available in this Live Editor build";
+            write_state_file();
+            app.next_poll = 0.0;
+            ui.frames(3);
+            ui.click("Job offers (Manager Career)", "##medit");  // fold the section again
+            ui.frames(2);
+        });
+
         run_case("UI: Database tab, pick a table, double-click a float cell, edit", [&] {
             CHECK(ui.click("Database"), "Database tab");
             CHECK(ui.click("Table"), "table combo");
@@ -2455,6 +2548,302 @@ static void test_sigscan() {
     });
 }
 
+// ================================================================ game calls (core/game_calls.h)
+// A synthetic JobMarketManager: vtable, career hub with the manager slots the sequence touches, and the application
+// hash table (8 buckets, chains through +0x28). A fake game answers the calls over the same memory.
+struct JobWorld {
+    SimMemory mem;
+    static constexpr uint64_t kJmm = 0x20000000ULL, kHub = 0x20010000ULL, kBuckets = 0x20020000ULL, kNodes = 0x20030000ULL,
+                              kHolders = 0x20040000ULL, kObjs = 0x20050000ULL, kVtable = 0x14B016428ULL;
+    static constexpr uint32_t kCount = 8;
+    int next_node = 0;
+    JobWorld() {
+        mem.map(kJmm, 0x1000);
+        mem.map(kHub, 0x2000);
+        mem.map(kBuckets, 0x1000);
+        mem.map(kNodes, 0x4000);
+        mem.map(kHolders, 0x1000);
+        mem.map(kObjs, 0x8000);
+        mem.wr(kJmm, kVtable);
+        mem.wr(kJmm + jmm::kHub, kHub);
+        const uint64_t slots[] = {jmm::kHubX198, jmm::kHubCalendar, jmm::kHubTeams, jmm::kHubDispatcher, jmm::kHubX6d8, jmm::kHubXf38};
+        int k = 0;
+        for (uint64_t s : slots) {
+            uint64_t holder = kHolders + static_cast<uint64_t>(k) * 0x10, obj = kObjs + static_cast<uint64_t>(k) * 0x1000;
+            mem.wr(kHub + s, holder);
+            mem.wr(holder, obj);
+            mem.wr(obj, 0x140001000ULL + static_cast<uint64_t>(k) * 0x100);  // a vtable-shaped first word
+            if (s == jmm::kHubXf38) mem.wr(obj + 0x98, obj + 0x200);          // the listener object
+            if (s == jmm::kHubCalendar) mem.wr(obj + jmm::kCalendarDate, static_cast<int32_t>(2027));
+            ++k;
+        }
+        mem.wr(kJmm + jmm::kBucketCount, kCount);
+        mem.wr(kJmm + jmm::kBuckets, kBuckets);
+        mem.wr(kBuckets + kCount * 8, ~0ULL);  // EASTL end sentinel
+    }
+    // What AddApplication does: a node at the head of the team's bucket chain, offer date -1
+    uint64_t add_node(int team, int wage, int countdown) {
+        uint64_t node = kNodes + static_cast<uint64_t>(next_node++) * jmm::kNodeSize;
+        mem.wr(node + jmm::kNodeKey, static_cast<int32_t>(team));
+        mem.wr(node + jmm::kNodeTeam, static_cast<int32_t>(team));
+        mem.wr(node + jmm::kNodeOffer + jmm::kOfferSentDay, static_cast<int32_t>(-1));
+        mem.wr(node + jmm::kNodeWage, static_cast<int32_t>(wage));
+        mem.wr(node + jmm::kNodeCountdown, static_cast<int32_t>(countdown));
+        const uint64_t slot = kBuckets + (static_cast<uint64_t>(team) % kCount) * 8;
+        uint64_t head = 0;
+        mem.rd(slot, head);
+        mem.wr(node + jmm::kNodeNext, head);
+        mem.wr(slot, node);
+        uint32_t n = 0;
+        mem.rd(kJmm + jmm::kElementCount, n);
+        mem.wr(kJmm + jmm::kElementCount, n + 1);
+        return node;
+    }
+    int32_t i32(uint64_t a) {
+        int32_t v = 0;
+        mem.rd(a, v);
+        return v;
+    }
+};
+
+struct FakeGame : GameCaller {
+    JobWorld& w;
+    int applies = 0, offers = 0, has_calls = 0;
+    bool fail_apply = false, apply_noop = false, offer_noop = false, today_ok = true;
+    int stamp = 20270115, today_v = 20270115;
+    explicit FakeGame(JobWorld& world) : w(world) {}
+    bool has_application(uint64_t jmm, int team, bool& out, std::string& err) override {
+        ++has_calls;
+        out = find_application(w.mem, jmm, team, err) != 0;
+        return true;
+    }
+    bool apply_for_job(uint64_t, int team, std::string& err) override {
+        ++applies;
+        if (fail_apply) {
+            err = "boom";
+            return false;
+        }
+        if (!apply_noop) w.add_node(team, 25000 + team, 7);
+        return true;
+    }
+    bool make_offer(uint64_t, uint64_t offer, std::string&) override {
+        ++offers;
+        if (!offer_noop) w.mem.wr(offer + jmm::kOfferSentDay, static_cast<int32_t>(stamp));
+        return true;
+    }
+    bool today(uint64_t, int& out, std::string& err) override {
+        if (!today_ok) {
+            err = "no calendar";
+            return false;
+        }
+        out = today_v;
+        return true;
+    }
+};
+
+static void test_game_calls() {
+    using namespace turbo;
+    const JobMarketFns fns{JobWorld::kVtable, 0x147DD4FC4ULL, 0x147DBBF64ULL, 0x147DD5510ULL, 0x142AA5824ULL};
+    run_case("game calls: job offer end to end on a synthetic JobMarketManager (apply, node walk, writes, offer, check)", [&] {
+        JobWorld w;
+        FakeGame g(w);
+        JobOfferRequest req;
+        req.jmm = JobWorld::kJmm;
+        req.team = 7;
+        JobOfferResult r = job_offer_create(w.mem, g, fns, req);
+        CHECK(r.ok && r.stage == "done", "ok: " + r.message + " [" + r.stage + "]");
+        CHECK(r.applied && g.applies == 1 && g.offers == 1 && g.has_calls == 2, "applied once, offered once");
+        std::string err;
+        uint64_t node = find_application(w.mem, JobWorld::kJmm, 7, err);
+        CHECK(node != 0 && node == r.node, "node found");
+        CHECK(w.i32(node + jmm::kNodeOffer + jmm::kOfferTeam) == 7, "offer.mTeamId written");
+        CHECK(w.i32(node + jmm::kNodeOffer + jmm::kOfferWage) == 25007, "offer.mWage = node.wage");
+        CHECK(w.i32(node + jmm::kNodeCountdown) == 0, "countdown zeroed");
+        CHECK(w.i32(node + jmm::kNodeOffer + jmm::kOfferSentDay) == 20270115 && r.sent_day == 20270115, "offer dated by MakeOffer");
+        CHECK(r.wage == 25007 && r.message.find("20270115") != std::string::npos && r.message.find("25007") != std::string::npos,
+              "message: " + r.message);
+        // an application the user already made: no second ApplyForJob, the offer is made on that node
+        uint64_t n9 = w.add_node(9, 30000, 3);
+        req.team = 9;
+        r = job_offer_create(w.mem, g, fns, req);
+        CHECK(r.ok && !r.applied && g.applies == 1 && g.offers == 2 && r.node == n9 && r.wage == 30000, "existing application reused: " + r.message);
+        // the club already answered: refused, nothing written, no second offer
+        r = job_offer_create(w.mem, g, fns, req);
+        CHECK(!r.ok && r.stage == "find" && r.message.find("already made you an offer") != std::string::npos, "open offer refused: " + r.message);
+        CHECK(g.offers == 2, "no second MakeOffer");
+        w.mem.wr(n9 + jmm::kNodeOffer + jmm::kOfferAccepted, static_cast<uint8_t>(1));
+        r = job_offer_create(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("already accepted") != std::string::npos, "accepted offer refused: " + r.message);
+        // bucket chains: 15 and 23 share bucket 7 with team 7; the walk picks the right node, absent teams are 0
+        uint64_t n15 = w.add_node(15, 1, 1), n23 = w.add_node(23, 2, 1);
+        CHECK(find_application(w.mem, JobWorld::kJmm, 23, err) == n23 && find_application(w.mem, JobWorld::kJmm, 15, err) == n15 &&
+                  find_application(w.mem, JobWorld::kJmm, 7, err) == node,
+              "chain walk finds each team");
+        CHECK(find_application(w.mem, JobWorld::kJmm, 31, err) == 0 && err.empty(), "absent team: 0 without error");
+        CHECK(find_application(w.mem, JobWorld::kJmm, 4, err) == 0 && err.empty(), "empty bucket: 0 without error");
+        // the calendar disagrees with the stamp: still ok, the message says so; no calendar: plain message
+        g.today_v = 20270116;
+        req.team = 15;
+        r = job_offer_create(w.mem, g, fns, req);
+        CHECK(r.ok && r.message.find("calendar says 20270116") != std::string::npos, "date mismatch reported: " + r.message);
+        g.today_ok = false;
+        req.team = 23;
+        r = job_offer_create(w.mem, g, fns, req);
+        CHECK(r.ok && r.message.find("job offer sent on 20270115") != std::string::npos, "no calendar: still ok: " + r.message);
+        CHECK(w.mem.failed_reads == 0, "no read outside the synthetic memory");
+    });
+
+    run_case("game calls: every refusal path stops before the game is called or before anything is written", [&] {
+        JobWorld w;
+        FakeGame g(w);
+        JobOfferRequest req;
+        req.jmm = JobWorld::kJmm;
+        req.team = 7;
+        JobMarketFns none;
+        JobOfferResult r = job_offer_create(w.mem, g, none, req);
+        CHECK(!r.ok && r.stage == "validate" && r.message.find("jmm_vtable") != std::string::npos, "functions missing: " + r.message);
+        JobMarketFns part = fns;
+        part.make_offer = 0;
+        r = job_offer_create(w.mem, g, part, req);
+        CHECK(!r.ok && r.message.find("jmm_make_offer") != std::string::npos, "make_offer missing: " + r.message);
+        req.team = 0;
+        r = job_offer_create(w.mem, g, fns, req);
+        CHECK(!r.ok && r.stage == "validate" && r.message.find("positive") != std::string::npos, "team 0: " + r.message);
+        req.team = 7;
+        req.jmm = 0x10;
+        r = job_offer_create(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("not a pointer") != std::string::npos, "bad pointer: " + r.message);
+        req.jmm = 0x30000000ULL;
+        r = job_offer_create(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("not readable") != std::string::npos, "unmapped: " + r.message);
+        req.jmm = JobWorld::kJmm;
+        w.mem.wr(JobWorld::kJmm, 0x14B000000ULL);
+        r = job_offer_create(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("not the JobMarketManager") != std::string::npos, "wrong vtable: " + r.message);
+        w.mem.wr(JobWorld::kJmm, JobWorld::kVtable);
+        uint64_t saved = 0;
+        w.mem.rd(JobWorld::kHub + jmm::kHubCalendar, saved);
+        w.mem.wr(JobWorld::kHub + jmm::kHubCalendar, 0ULL);
+        r = job_offer_create(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("calendar manager") != std::string::npos, "hub slot unreadable: " + r.message);
+        w.mem.wr(JobWorld::kHub + jmm::kHubCalendar, saved);
+        w.mem.wr(JobWorld::kJmm + jmm::kBucketCount, 0u);
+        r = job_offer_create(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("bucket count") != std::string::npos, "bucket count 0: " + r.message);
+        w.mem.wr(JobWorld::kJmm + jmm::kBucketCount, 5000000u);
+        r = job_offer_create(w.mem, g, fns, req);
+        CHECK(!r.ok && r.message.find("bucket count") != std::string::npos, "bucket count huge: " + r.message);
+        w.mem.wr(JobWorld::kJmm + jmm::kBucketCount, JobWorld::kCount);
+        CHECK(g.applies == 0 && g.offers == 0, "the game was never called");
+        // the game refuses / does nothing
+        g.fail_apply = true;
+        r = job_offer_create(w.mem, g, fns, req);
+        CHECK(!r.ok && r.stage == "apply" && r.message.find("ApplyForJob: boom") != std::string::npos, "apply failed: " + r.message);
+        g.fail_apply = false;
+        g.apply_noop = true;
+        r = job_offer_create(w.mem, g, fns, req);
+        CHECK(!r.ok && r.stage == "apply" && r.message.find("did not register") != std::string::npos, "apply made no node: " + r.message);
+        g.apply_noop = false;
+        g.offer_noop = true;
+        r = job_offer_create(w.mem, g, fns, req);
+        CHECK(!r.ok && r.stage == "check" && r.message.find("stayed unset") != std::string::npos, "offer not stamped: " + r.message);
+        CHECK(g.offers == 1, "MakeOffer called once");
+        // broken chains: a loop and a bad pointer are bounded errors, not crashes
+        std::string err;
+        uint64_t node = find_application(w.mem, JobWorld::kJmm, 7, err);
+        CHECK(node != 0, "node present");
+        w.mem.wr(node + jmm::kNodeNext, node);
+        CHECK(find_application(w.mem, JobWorld::kJmm, 15, err) == 0 && err.find("longer than") != std::string::npos, "loop bounded: " + err);
+        w.mem.wr(node + jmm::kNodeNext, 0x8ULL);
+        CHECK(find_application(w.mem, JobWorld::kJmm, 15, err) == 0 && err.find("bad pointer") != std::string::npos, "bad next: " + err);
+        w.mem.wr(node + jmm::kNodeNext, 0x30000000ULL);
+        CHECK(find_application(w.mem, JobWorld::kJmm, 15, err) == 0 && err.find("not readable") != std::string::npos, "unmapped next: " + err);
+        w.mem.wr(node + jmm::kNodeNext, 0ULL);
+        // a node whose value disagrees with its key is a layout mismatch
+        w.mem.wr(node + jmm::kNodeTeam, static_cast<int32_t>(8));
+        w.mem.wr(node + jmm::kNodeOffer + jmm::kOfferSentDay, static_cast<int32_t>(-1));
+        g.offer_noop = false;
+        r = job_offer_create(w.mem, g, fns, req);
+        CHECK(!r.ok && r.stage == "find" && r.message.find("layout mismatch") != std::string::npos, "key/value mismatch: " + r.message);
+        CHECK(g.offers == 1, "no MakeOffer on a suspicious node");
+    });
+
+    run_case("game calls: mailbox call block round trip (Lua request, DLL result) inside the version-2 mailbox", [&] {
+        CHECK(kMbCallEnd <= kMailboxSize && kMbCall >= kMbResult + kMbTextSize, "call block fits after the result text");
+        CHECK(kMailboxVersion >= 2, "mailbox version carries the call block");
+        SimMemory mem;
+        const uint64_t mb = 0x31000000ULL;
+        mem.map(mb, kMailboxSize);
+        const int64_t args[4] = {0x20000000LL, 7, 0, 0};
+        CHECK(write_call_request(mem, mb, 5, kCallOpJobOffer, args), "request written");
+        GameCallBlock b;
+        CHECK(read_call_block(mem, mb, b), "block read");
+        CHECK(b.op == kCallOpJobOffer && b.seq == 5 && b.status == kCallIdle && b.args[0] == 0x20000000LL && b.args[1] == 7, "request fields");
+        CHECK(write_call_result(mem, mb, 5, kCallOk, 20270115, 25007, "job offer sent on 20270115"), "result written");
+        CHECK(read_call_block(mem, mb, b) && b.status == kCallOk && b.result_seq == 5 && b.out[0] == 20270115 && b.out[1] == 25007 &&
+                  b.text == "job offer sent on 20270115",
+              "result fields");
+        std::string longtext(2000, 'x');
+        CHECK(write_call_result(mem, mb, 6, kCallFailed, 0, 0, longtext) && read_call_block(mem, mb, b) && b.text.size() == kMbCallTextSize - 1 &&
+                  b.status == kCallFailed && b.result_seq == 6,
+              "long text cut to the block");
+        CHECK(!write_call_request(mem, 0x40000000ULL, 1, 1, args) && !read_call_block(mem, 0x40000000ULL, b) &&
+                  !write_call_result(mem, 0x40000000ULL, 1, 1, 0, 0, ""),
+              "unmapped mailbox refused");
+        // the legacy part of the mailbox is untouched by the call block
+        Mailbox box(mem, mb);
+        CHECK(box.init() && !box.pending(), "mailbox init over the same memory");
+        CHECK(write_call_request(mem, mb, 7, kCallOpJobOffer, args) && !box.pending(), "call block does not disturb the command channel");
+    });
+
+    run_case("signatures: the built-in job-offer entries resolve on the game's prologue bytes (vtable via the ctor's lea)", [&] {
+        const SignatureTable* t = builtin_signature_table("6AB9813C-211EF000");
+        CHECK(t != nullptr, "built-in table");
+        if (!t) return;
+        const char* names[] = {"jmm_vtable", "jmm_handle_event", "jmm_has_application", "jmm_apply_for_job", "jmm_make_offer", "calendar_today_int"};
+        for (const char* n : names) CHECK(t->find(n) && !t->find(n)->pattern.empty(), std::string("entry ") + n);
+        // bytes read from fc27_image.bin (FC27.exe 1.0.140.64835) at the functions' VAs
+        const uint8_t ctor[] = {0x48, 0x89, 0x5C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41,
+                                0x56, 0x41, 0x57, 0x48, 0x81, 0xEC, 0x80, 0x00, 0x00, 0x00, 0x48, 0x8B, 0x05, 0xD7, 0xA2, 0xE7,
+                                0x03, 0x48, 0x33, 0xC4, 0x48, 0x89, 0x44, 0x24, 0x70, 0x48, 0x8D, 0x05, 0x70, 0x03, 0x26, 0x03};
+        const uint8_t handle[] = {0x48, 0x89, 0x5C, 0x24, 0x18, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57,
+                                  0x48, 0x8B, 0xEC, 0x48, 0x83, 0xEC, 0x60, 0x4D, 0x8B, 0xF8, 0x4C, 0x8B, 0x41, 0x08, 0x48, 0x8B};
+        const uint8_t has[] = {0x44, 0x8B, 0x81, 0xF8, 0x08, 0x00, 0x00, 0x4C, 0x8B, 0x89, 0xF0, 0x08, 0x00, 0x00, 0x4C, 0x63,
+                               0xD2, 0x33, 0xD2, 0x49, 0x8B, 0xC2, 0x49, 0xF7, 0xF0, 0x8B, 0xC2, 0x49, 0x8B, 0x0C, 0xC1, 0x48};
+        const uint8_t apply[] = {0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x08, 0x48, 0x89, 0x68, 0x10, 0x48, 0x89, 0x70, 0x18, 0x48,
+                                 0x89, 0x78, 0x20, 0x41, 0x56, 0x48, 0x83, 0xEC, 0x20, 0x8B, 0xFA, 0x48, 0x8B, 0xD9, 0xE8, 0x3D,
+                                 0x90, 0x01, 0x00};
+        const uint8_t offer[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0x41, 0x08, 0x4C, 0x8B,
+                                 0xD9, 0x48, 0x8B, 0xDA, 0x4C, 0x8B, 0x80, 0x18, 0x03, 0x00, 0x00, 0x49, 0x8B, 0x08, 0x48, 0x83};
+        const uint8_t today[] = {0x48, 0x83, 0xEC, 0x28, 0x83, 0xCA, 0xFF, 0xE8, 0x18, 0x00, 0x00, 0x00, 0x3C, 0x01, 0x75, 0x0C,
+                                 0x6B, 0x41, 0x08, 0x64, 0x03, 0x41, 0x04, 0x6B, 0xD0, 0x64, 0x03, 0x11, 0x8B, 0xC2, 0x48, 0x83};
+        // the ctor sits at +0x100 of a buffer based so that its VA is the real one: the lea then resolves to the real vtable
+        const uint64_t base = 0x147DB6088ULL - 0x100;
+        std::vector<uint8_t> code(0x1000, 0xCC);
+        std::memcpy(code.data() + 0x100, ctor, sizeof(ctor));
+        std::memcpy(code.data() + 0x300, handle, sizeof(handle));
+        std::memcpy(code.data() + 0x400, has, sizeof(has));
+        std::memcpy(code.data() + 0x500, apply, sizeof(apply));
+        std::memcpy(code.data() + 0x600, offer, sizeof(offer));
+        std::memcpy(code.data() + 0x700, today, sizeof(today));
+        SigResult r = resolve_signature(*t->find("jmm_vtable"), code.data(), code.size(), base);
+        CHECK(r.state == SigState::Found && r.match == 0x147DB6088ULL && r.address == 0x14B016428ULL,
+              "jmm_vtable resolves to base+0xB016428: " + r.error);
+        struct Exp { const char* name; uint64_t off; } exp[] = {{"jmm_handle_event", 0x300}, {"jmm_has_application", 0x400},
+                                                                 {"jmm_apply_for_job", 0x500}, {"jmm_make_offer", 0x600},
+                                                                 {"calendar_today_int", 0x700}};
+        for (const auto& e : exp) {
+            r = resolve_signature(*t->find(e.name), code.data(), code.size(), base);
+            CHECK(r.state == SigState::Found && r.address == base + e.off, std::string(e.name) + ": " + r.error);
+        }
+        // no entry matches twice inside the buffer that holds all six prologues (distinct patterns)
+        for (const char* n : names) {
+            r = resolve_signature(*t->find(n), code.data(), code.size(), base);
+            CHECK(r.hits == 1, std::string(n) + " unique");
+        }
+    });
+}
+
 // Live Editor's own log decides when a Turbo.dll loaded at game launch may start (src/win/dllmain.cpp)
 static void test_le_log() {
     using turbo::LeLogState;
@@ -2670,6 +3059,8 @@ int main(int argc, char** argv) {
     test_devops();
     std::printf("native signature scanning\n");
     test_sigscan();
+    std::printf("native game calls\n");
+    test_game_calls();
     std::printf("native Live Editor log\n");
     test_le_log();
     std::printf("native live standings\n");

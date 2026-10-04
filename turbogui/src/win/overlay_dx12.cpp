@@ -22,6 +22,7 @@
 
 #include "MinHook.h"
 #include "nlohmann/json.hpp"
+#include "game_calls_win.h"
 #include "game_hooks.h"
 #include "host.h"
 #include "imgui.h"
@@ -919,7 +920,14 @@ bool start_overlay(HMODULE) {
     log("hooks installed; press %s in game to show Turbo", turbo::key_name(g_app->toggle_vk));
     install_input_shield();
     install_game_hooks();  // game-code hooks (game_hooks.cpp): signature scan, kill switches, game-thread dispatcher
-    g_app->hook_report = []() { return game_hooks_report(); };
+    // game calls (game_calls_win.cpp): job-offer functions + the JobMarketManager capture hook; Lua reaches them
+    // through the mailbox call block and the exported turbo_game_call()
+    install_game_calls(g_app->mailbox ? g_app->mailbox->addr() : 0);
+    g_app->hook_report = []() {
+        turbo::HookReport r = game_hooks_report();
+        r.calls = game_calls_status();
+        return r;
+    };
     start_devtools();
     return true;
 }

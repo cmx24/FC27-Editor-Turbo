@@ -122,6 +122,25 @@ static const SignatureTable kBuiltin[] = {
      {
          {"game_tick", "", "none", 0,
           "per-frame game-thread function: not identified yet (docs/re/game_thread.md); the dispatcher uses the Lua pump"},
+         // Job offers (docs/re/job_offer.md, scripts/re/job_offer_signatures.json; every pattern unique in the image)
+         {"jmm_vtable",
+          "48 89 5C 24 10 48 89 74 24 18 57 41 54 41 55 41 56 41 57 48 81 EC 80 00 00 00 48 8B 05 ?? ?? ?? ??", "rip",
+          0x29, "JobMarketManager vtable: the lea rax,[rip+..] in the manager's constructor (0x147DB6088 -> 0x14B016428)"},
+         {"jmm_handle_event",
+          "48 89 5C 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 60 4D 8B F8 4C 8B 41 08", "none", 0,
+          "JobMarketManager::HandleEvent(this, eventId, Event*) 0x147DD232C: hooked to capture the manager pointer"},
+         {"jmm_has_application",
+          "44 8B 81 F8 08 00 00 4C 8B 89 F0 08 00 00 4C 63 D2 33 D2 49 8B C2 49 F7 F0 8B C2 49 8B 0C C1", "none", 0,
+          "bool JobMarketManager::HasApplication(this, teamId) 0x147DD4FC4"},
+         {"jmm_apply_for_job",
+          "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 8B FA 48 8B D9 E8 ?? ?? ?? ??",
+          "none", 0, "void JobMarketManager::ApplyForJob(this, teamId) 0x147DBBF64"},
+         {"jmm_make_offer",
+          "48 89 5C 24 08 57 48 83 EC 20 48 8B 41 08 4C 8B D9 48 8B DA 4C 8B 80 18 03 00 00 49 8B 08", "none", 0,
+          "void JobMarketManager::MakeOffer(this, JobOffer*) 0x147DD5510"},
+         {"calendar_today_int",
+          "48 83 EC 28 83 CA FF E8 ?? ?? ?? ?? 3C 01 75 0C 6B 41 08 64 03 41 04 6B D0 64 03 11", "none", 0,
+          "int TodayInt(CalendarDate*) 0x142AA5824: yyyymmdd of the career calendar"},
      }},
 };
 

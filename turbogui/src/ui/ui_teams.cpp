@@ -10,6 +10,8 @@
 
 namespace turbo {
 
+using nlohmann::json;
+
 static std::string lower(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return s;
@@ -178,6 +180,99 @@ void draw_teams(App& app) {
     ImGui::EndChild();
 }
 
+// ---------------------------------------------------------------- managers > job offers
+// A job offer for your manager from a club of your choice. The GUI only picks the club and sends the Lua module
+// features/job_offer.lua (op run, module job_offer); Lua validates it and calls Turbo.dll's game call on the game
+// thread (core/game_calls.h): the game's own JobMarketManager applies for the job and makes the club answer at
+// once, so the inbox email and the Job Offers screen come from the game itself.
+static void job_offers_section(App& app) {
+    const BridgeState& st = app.bridge.state();
+    ImGui::PushID("joboffers");
+    if (ImGui::CollapsingHeader("Job offers (Manager Career)")) {  // closed by default: the manager editor stays in view
+        ImGui::TextWrapped("Pick a club: Turbo applies for its manager job through the game's own job market and makes the "
+                           "club answer at once. The offer arrives in your inbox and on the Job Offers screen, where you "
+                           "accept or decline it. The game sets the wage from the club's star rating and league.");
+        const std::string* missing = st.unavailable_reason("job_offer");
+        if (missing) ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "Not available: %s", missing->c_str());
+        ImGui::SetNextItemWidth(S(220.0f));
+        ImGui::InputTextWithHint("##josearch", "club name or ID", app.job_offer_search, sizeof(app.job_offer_search));
+        std::string q = lower(app.job_offer_search);
+        if (ImGui::BeginTable("##joclubs", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV,
+                              ImVec2(0, S(150.0f)))) {
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, S(62.0f));
+            ImGui::TableSetupColumn("Club");
+            ImGui::TableSetupColumn("League", ImGuiTableColumnFlags_WidthFixed, S(60.0f));
+            ImGui::TableHeadersRow();
+            std::vector<const TeamRow*> rows;
+            for (const auto& t : app.model.teams()) {
+                // clubs in a league only: national teams and teams outside every league cannot hire you
+                if (t.league < 0 || app.model.is_national_team(t.teamid)) continue;
+                if (t.teamid == st.user_team) continue;
+                if (!q.empty() && lower(t.name).find(q) == std::string::npos && std::to_string(t.teamid).find(q) != 0) continue;
+                rows.push_back(&t);
+            }
+            ImGuiListClipper clipper;
+            clipper.Begin(static_cast<int>(rows.size()));
+            while (clipper.Step()) {
+                for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+                    const TeamRow* t = rows[static_cast<size_t>(i)];
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    char idbuf[40];
+                    std::snprintf(idbuf, sizeof(idbuf), "%lld##jo", static_cast<long long>(t->teamid));
+                    if (ImGui::Selectable(idbuf, app.job_offer_team == t->teamid, ImGuiSelectableFlags_SpanAllColumns))
+                        app.job_offer_team = t->teamid;
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(t->name.c_str());
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%lld", static_cast<long long>(t->league));
+                }
+            }
+            ImGui::EndTable();
+        }
+        std::string pick = app.job_offer_team > 0 ? app.model.team_name(app.job_offer_team) : "";
+        if (app.job_offer_team > 0) ImGui::Text("Club: %s (%lld)", pick.c_str(), static_cast<long long>(app.job_offer_team));
+        else ImGui::TextDisabled("Select a club above.");
+        const bool own = app.job_offer_team > 0 && app.job_offer_team == st.user_team;
+        const bool disabled = app.busy() || !app.mailbox || !st.in_cm || missing || app.job_offer_team <= 0 || own;
+        if (disabled) ImGui::BeginDisabled();
+        bool clicked = ImGui::Button("Create job offer");
+        if (disabled) ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            if (missing) ImGui::SetTooltip("%s", missing->c_str());
+            else if (!st.in_cm) ImGui::SetTooltip("Needs a loaded Manager Career");
+            else if (own) ImGui::SetTooltip("That is your own club");
+            else if (app.job_offer_team <= 0) ImGui::SetTooltip("Pick a club first");
+            else if (!disabled) ImGui::SetTooltip("Asks the game to make %s offer you its manager job", pick.c_str());
+        }
+        if (clicked) ImGui::OpenPopup("Create job offer?");
+        if (ImGui::BeginPopupModal("Create job offer?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextWrapped("Create a job offer from %s (%lld)?\nThis changes the running career (save first if in "
+                               "doubt). The club answers at once; accept or decline it in the game's Job Offers screen.",
+                               pick.c_str(), static_cast<long long>(app.job_offer_team));
+            if (ImGui::Button("Create")) {
+                json overrides = {{"enabled", true}, {"teamid", app.job_offer_team}, {"confirm", true}};
+                app.send({{"op", "run"}, {"module", "job_offer"}, {"overrides", overrides}}, "Job offer from " + pick);
+                app.job_offer_status = "Requested: the game answers on the next career-mode event (open a screen or advance a day).";
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        if (!app.job_offer_status.empty()) {
+            ImGui::SameLine();
+            ImGui::TextWrapped("%s", app.job_offer_status.c_str());
+        }
+        if (app.hook_report) {  // the native side: functions resolved, JobMarketManager seen, last outcome
+            HookReport r = app.hook_report();
+            for (const auto& c : r.calls) ImGui::TextDisabled("%s", c.c_str());
+        }
+    }
+    ImGui::PopID();
+}
+
 // ---------------------------------------------------------------- managers
 void draw_managers(App& app) {
     if (!app.connected()) {
@@ -222,6 +317,8 @@ void draw_managers(App& app) {
     ImGui::EndChild();
     ImGui::SameLine();
     ImGui::BeginChild("##medit", ImVec2(0, 0));
+    job_offers_section(app);
+    ImGui::Separator();
     if (app.sel_manager >= 0 && app.sel_manager < static_cast<int>(mgrs.size())) {
         const auto& m = mgrs[static_cast<size_t>(app.sel_manager)];
         if (!app.db.table_alive(*t, m.rec)) {

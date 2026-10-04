@@ -115,8 +115,10 @@ All of it on the game thread (the hook-foundation dispatcher), with the career l
 
 1. `jmm = mem.manager(53)` (Lua) or the pointer captured by a `HandleEvent` hook; check the vtable.
 2. `if (!HasApplication(jmm, T)) ApplyForJob(jmm, T);` -- the game computes the wage, creates the node, posts the
-   "applied" action (harmless UI/telemetry side effect). It refuses silently when the team is not eligible for the
-   user (same as the UI); detect that with `HasApplication` afterwards.
+   "applied" action (harmless UI/telemetry side effect) and calls the hub+0xF38 listener's `vfunc[1]`. Re-checked on
+   2026-10-03 (track "job offer - native call"): **ApplyForJob has no eligibility check of its own** (the only early
+   return is `HasApplication`), so eligibility (club in a league, not the user's club, not a national team) is
+   Turbo's job before the call; `HasApplication` afterwards only confirms the node exists.
 3. `node = lookup(jmm, T)`; `offer = node + 8`; `offer->mTeamId = T; offer->mWage = node->wage;` (exactly what
    `OnResponseDue` does before `MakeOffer`); optionally `node->countdown = 0` so DAY_PASSED does not call
    `OnResponseDue` again later (it only fires when the countdown goes from 1 to 0, so a second response is possible if
@@ -129,36 +131,57 @@ The game's gates that this bypasses: compatibility score, `ClubWantsManager`, `M
 (`ApplyForJob` does not check it; the UI does), `REAPPLY_COOLDOWN_DAYS` (JobOfferSystem `+0x100` map teamId -> day
 `[M]`). Nothing else is written outside the manager's own container.
 
-## 5. Turbo implementation design (Managers tab, "Create job offer")
+## 5. Turbo implementation (as built, 2026-10-03: track "job offer - native call")
 
-Feature flag: `turbo_config.json` `modules.job_offer.enabled` (default false) and a `caps` key `job_offer` that is
-published as unavailable when the DLL reports no hook support, so the button is greyed like the other missing natives.
+Feature flag: `turbo_config.json` `modules.job_offer` (`enabled` false by default, `teamid`, `confirm`) for the Lua
+runner `lua\scripts\turbo_job_offer.lua`; the Turbo window sends the same module with overrides. The `caps` key
+`job_offer` needs the Lua function `TurboJobOfferCreate`, which the bridge defines only after it found Turbo.dll's
+`turbo_game_call` export (so the button is greyed with a reason until the GUI runs in the game).
 
-Native side (new `turbogui/src/win/game_jobs.cpp`, against `game_hooks.h`):
-* `resolve()` once per game session: `sig_find` each entry of `job_offer_signatures.json` (the signatures are embedded
-  as constants; the JSON is the source of truth), `require unique`, store `ApplyForJob`, `HasApplication`, `MakeOffer`,
-  `TodayInt`; read the JMM vtable address from the ctor's `lea rax,[rip+..]` (`rip_resolve`) so the pointer check does
-  not depend on a fixed RVA.
-* `job_offer_create(uint64 jmm, int teamId) -> {ok, msg}`: queue a lambda on the game thread (`dispatch`):
-  `ProcessMemory::read` the vtable and compare; `HasApplication`/`ApplyForJob`; walk the table with checked reads
-  (bucket count 1..1e6, chain length <= 1024); write the two ints with `ProcessMemory::write`; call `MakeOffer`; read
-  `mJobOfferSentDay` back; return it. Wrap the game calls in the hook foundation's guarded call (SEH) and refuse when
-  the dispatcher is not alive (no career loaded).
-* Bridge op (mailbox): `{"op":"job_offer","teamid":N}` from the GUI is answered by Lua, which first validates
-  `teamid` against `teams.teamid` through `db`, refuses the user's own club and national teams in v1 (section 6),
-  reads `jmm = mem.manager(53)` and then asks the DLL (dev-service style request/result file, like `devops` does today)
-  to run `job_offer_create`. Result text goes back to the GUI; the GUI shows the FC 26 strings
-  (`notif_text_job_offer_created`, `'Job offer creation failed: {}'`, `"Can't find created job offer"`).
-* GUI: new `turbogui/src/ui/ui_managers_jobs.cpp` with a club picker (reuse the Teams tab's search/combobox, filter
-  `teams` by `leagueteamlinks` so only club teams with a league appear), a wage preview from the DB
-  (`teams.*` is not needed; the game computes the wage), a confirmation modal (it changes the career), and the
-  result line. Registered from the Managers tab draw function; `names[]` in `App::draw` is unchanged.
-* Tests: Lua `t12_job_offer.lua` (validation: unknown team, own club, national team, no career, dry run returns the
-  planned call without touching memory); native test case that feeds a fake memory image with one bucket and checks the
-  node walk and the refusal paths; signature self-test that each embedded signature is unique in a synthetic buffer.
+Pieces (all in the repo; the offsets / signatures above are the source of truth):
 
-Conflict points with other tracks: `bridge.lua` (new op), `caps.lua` (new key), `app.cpp` (Managers tab call-out),
-`build_win.sh` / `run_native.sh` (new source files), `game_hooks.h` (consumer only).
+| Layer | File | What it does |
+|---|---|---|
+| core (tested on synthetic memory) | `turbogui/src/core/game_calls.h/.cpp` | `jmm::` layout constants, `JobMarketFns`, the `GameCaller` interface, `validate_jmm` (vtable, 0xC90 readable, hub slots `+0x198/+0x318/+0x418/+0x4F8/+0x6D8/+0xF38(+0x98)` readable, bucket count 1..2^20, buckets readable incl. the `~0` end sentinel), `find_application` (the `HasApplication` walk: bucket `team % count`, chain through `+0x28`, at most 1024 hops, every pointer checked), `job_offer_create` (the section-4 sequence; refuses an open or accepted offer; writes `offer.mTeamId`, `offer.mWage = node.wage`, `countdown = 0`; reads `mJobOfferSentDay` back and compares it with `TodayInt`) and the mailbox **call block** helpers |
+| signatures | `turbogui/src/core/sigscan.cpp` (`kBuiltin`, build `6AB9813C-211EF000`) | `jmm_vtable` (ctor pattern, offset 0x29, `resolve: rip` -> `0x14B016428`), `jmm_handle_event`, `jmm_has_application`, `jmm_apply_for_job`, `jmm_make_offer`, `calendar_today_int`: the same bytes as `scripts/re/job_offer_signatures.json` |
+| Windows host | `turbogui/src/win/game_calls_win.cpp/.h` | `install_game_calls(mailbox)` after `install_game_hooks()`: resolves the functions, installs the pass-through capture hook **`jmm_handle_event`** (records `this` after checking its vtable: `jmm_seen()`), `job_offer_request(jmm, team, seq)` runs the sequence **at once when the caller is the game thread** (the thread the dispatcher last ran on = the career-event thread Lua pumps from) and otherwise queues it through `run_on_game_thread`; the exported `turbo_game_call(lua_State*)` (ignores the Lua state) reads op / args from the call block and writes status / outputs / text back. Kill switches: `turbo_output\call_job_offer_off.txt`, plus the hook switches (`game_hooks_off.txt`, `hook_jmm_handle_event_off.txt`) |
+| mailbox | `turbogui/src/core/bridge.h` (version 2, size 0x2300) | call block at `+0x2020`: `i32 op, i32 status (0 idle / 1 ok / -1 failed / 2 queued), i32 seq, i32 result_seq, i64 args[4], i64 out[2] (sent day, wage), char[0x200] text` |
+| Lua bridge | `turbo/package/lua/libs/v2/imports/turbo/bridge.lua` | `game_call(op, args, label)` writes the block, calls the export, reads the answer; `"queued"` is remembered and `check_game_call` publishes the outcome on a later event as `bridge_state.json` `game_call {seq, ok, text}`; `install_natives` defines `TurboJobOfferCreate(jmm, teamid) -> ok, text, status`; the event handler pumps the dispatcher before it runs mailbox commands, so a GUI request runs synchronously |
+| Lua feature | `imports/turbo/features/job_offer.lua`, runner `scripts/turbo_job_offer.lua` | validation (flag, career loaded, team exists, not national, in a league when `leagueteamlinks` is readable, not the user's club, `confirm`), dry run, `mem.manager(53)` -> native |
+| GUI | `turbogui/src/ui/ui_teams.cpp` `job_offers_section` (Managers tab, right pane, collapsing header "Job offers (Manager Career)") | club picker with search (league clubs only; own club and national teams hidden), "Create job offer" (disabled with a tooltip when the cap is missing / no career / own club), confirmation modal, status line, the native status lines (`HookReport::calls`). The Status tab shows the same lines under "Game calls" and the `jmm_handle_event` hook counters. Results arrive as toasts (`App::tick`: the mailbox result, and `game_call` from the state file for queued calls) |
+| tests | `turbo/tests/t12_job_offer.lua` (7 cases: validation, dry run, the call-block protocol with a fake Turbo.dll, queued / failed / stale-answer / old-DLL paths), `turbogui/tests/native/test_main.cpp` `test_game_calls` (synthetic JobMarketManager + fake game: end to end, bucket chains, every refusal path, call block round trip, the six built-in signatures on the real prologue bytes incl. the vtable through the ctor's lea) and the UI driver case "Managers > Job offers" | |
+
+Thread rule: the game functions are only ever called on the game thread. From the GUI the request travels GUI ->
+mailbox command -> Lua (career-event thread) -> `turbo_game_call` (synchronous on that thread). From Live Editor's
+script runner (`turbo_job_offer.lua`) the call is queued and runs on the next career-mode event; the runner says so
+and the outcome lands in the Turbo log / a toast.
+
+What the game is asked to do is its own DAY_PASSED path minus the two gates (`ClubWantsManager`, compatibility roll):
+`ApplyForJob` (if needed) and `MakeOffer` are the game's own functions on the game's own objects; Turbo writes three
+ints into the node the game created and nothing else. Nothing is allocated by Turbo.
+
+### 5.1 In-game test plan (integrator; test career only, save first)
+
+1. Start the game with Turbo, load the test Manager Career, press F8. Status tab > Game hooks: the six `jmm_*` /
+   `calendar_today_int` signatures `found`; hook `jmm_handle_event` active; "Game calls: job_offer: ready".
+   Advance one day (or open a career screen): "JobMarketManager seen at 0x..." appears (the capture hook), and the
+   Status tab's "Not possible with this Live Editor build" list no longer names `job_offer`.
+2. Managers tab > open "Job offers (Manager Career)". Search "Juve", pick Juventus (45), "Create job offer", Create.
+   Expected toast: "Job offer from Juventus: job offer created: Juventus (45) wants you as manager (job offer sent on
+   <today> (weekly wage N))". `turbo_gui.log` has "game call job_offer(team 45, jmm 0x...): ok [done]".
+   If the toast says "queued": the request came off the game thread; advance a day and watch for the second toast.
+3. In the game: inbox email about the offer (PamOfferReceived) and the Job Offers screen listing Juventus with the
+   wage; the hub notification if the game shows one. Note which of these appear (open question 8.1).
+4. Accept the offer in the game's Job Offers screen; the manager moves to Juventus (the season-end / immediate
+   switch the game normally does). Also test Decline on a second club (e.g. Milan, 47).
+5. Save, quit to the main menu, reload: the accepted job persists (and a declined club is in
+   `mRejectedByUserJobOffers`: re-creating an offer from it should still work since Turbo bypasses the cooldown).
+6. Negative paths: the same club again while its offer is open -> "already made you an offer on <day>"; your own
+   club and a national team are not in the picker; with the career not loaded the button is disabled; create
+   `turbo_output\call_job_offer_off.txt` -> "off (kill switch ...)"; `hook_jmm_handle_event_off.txt` -> the capture
+   hook passes through (the call still works from Lua's `mem.manager(53)` pointer).
+7. Stability: let a week pass with Turbo loaded (the capture hook runs on every JMM event), play a match, use the
+   game's own job market (apply for a job the normal way) to confirm nothing about the table is disturbed.
 
 ## 6. National-team (international) offers
 
@@ -175,12 +198,16 @@ offers club jobs only and greys national teams in the picker.
 
 ## 7. Risks
 
-* `MakeOffer` skips the game's eligibility checks; an offer from a club that cannot hire the user (wrong gender
-  league, user already there, club with a protected manager) may produce an offer the UI cannot complete. Mitigate by
-  requiring `ApplyForJob` to have created the node (it applies the game's own eligibility) and by refusing the user's
-  own club.
-* Writing while the game simulates (Sim To Date, match) or outside the hub can race the DAY_PASSED handler. Only run from
-  the hub screen with the dispatcher on the game thread.
+* `MakeOffer` skips the game's eligibility checks, and (re-checked) so does `ApplyForJob`: an offer from a club that
+  cannot hire the user (wrong gender league, club with a protected manager) may produce an offer the UI cannot
+  complete. Turbo's own gates: the club must be in `leagueteamlinks`, not a national team, not the user's club; an
+  open or accepted offer from the club is refused. Anything beyond that is for the in-game test (5.1).
+* Writing while the game simulates (Sim To Date, match) or outside the hub can race the DAY_PASSED handler. The call
+  runs on the career-event thread (the same thread that runs DAY_PASSED), so it never overlaps the handler; the
+  integrator should still make the request from the hub, not during a simulation.
+* The call is made from inside Live Editor's career-event hook, i.e. while the game is posting an event. `MakeOffer`
+  posts another event from there; the game itself does the same (`HandleEvent(DAY_PASSED)` -> `MakeOffer` ->
+  `PostEvent`), so nesting a post inside event handling is the game's normal pattern `[M]`; the in-game test confirms.
 * The hash table layout was read from this build; a bucket walk with a wrong `next` offset reads garbage. All reads
   are checked and bounded; the node is validated (`node.key == node.value.teamId == T`).
 * The accepted/declined listener `(**(hub+0xf38)+0x98)->vfunc[2]` is not called by Turbo's sequence; if it is what
@@ -195,3 +222,23 @@ offers club jobs only and greys national teams in the picker.
   opening the screen after the event is enough).
 * `mForcedTeamsForOffers` consumer and trigger for national-team offers.
 * Live Editor's event-id enum vs. the game's 0x72.
+* Whether Live Editor's Lua handler really runs on the thread that posts career events (the dispatcher records the
+  pump thread; `game_thread_id()` on the Status tab). If it does not, the call still only runs there, i.e. on the
+  thread Live Editor calls Lua from, and the in-game test decides if that is acceptable.
+
+## 9. Re-verification log (2026-10-03, track "job offer - native call")
+
+* `scripts/re/job_offer_verify.py` against `fc27_image.bin`: all 14 signatures unique, no drift; JMM vtable
+  `0x14b016428` (slot 0 `0x147dbae58`).
+* Re-read `JMM_ctor` (`lea rax,[rip+0x3260370]` at ctor+0x29 -> the vtable; `[rcx+8] = hub`), `MakeOffer` (reads
+  `[offer+0]`, writes `[offer+8]` = TodayInt(`*(*(hub+0x318))+0x34`), `[offer+0x15]` = IsTeamWatched, allocates
+  0x28 bytes through the global allocator at `0x14c269ea8`'s vtable slot 2, posts type 0x72 action 0 via
+  `PostEvent(*(*(hub+0x4f8)), 0x72, ev)`), `HasApplication` (`div r8` with the 32-bit bucket count: bucket =
+  `(int64)team % count`; chain `+0x28`; sentinel `buckets[count]`), `ApplyForJob` (no eligibility check; league from
+  `0x14154b92c(teams manager, team)`; `AddApplication(this, team, wage)`; listener `(*(*(hub+0xf38))+0x98)->vfunc[1]`;
+  watch list unless `[this+0x8d8]` / `[(*(*(hub+0x6d8)))+0x1e1]`), `OnResponseDue` (`[v+4] = [v]`, `[v+0x10] =
+  [v+0x1c]`, then `MakeOffer(this, v+4)`), `AddApplication` (`0x147db9ecc(&table, &key)` returns the value slot;
+  `[v] = team, [v+0x1c] = wage, [v+0x20] = rand(this+0x14, this+0x18)`), `HandleEvent` prologue (`this, edx = event
+  id, r8 = event`). Everything matches sections 2-3; the one correction is noted in section 4 step 2.
+* The built-in signature table's six entries are the same byte patterns; the native test resolves them on the real
+  prologue bytes, including the vtable through the constructor's lea.
