@@ -4,7 +4,9 @@
 
 For every entry: the pattern must match exactly once; with resolve "rip" the rip-relative instruction (or the call) at
 match + offset is resolved and compared with "expect"; with "none" the match itself is compared. Entries whose pattern
-reads "(same as X)" reuse X's pattern. Also re-checks the djb2-xor hashes listed under "hashes" and "pid_params".
+reads "(same as X)" reuse X's pattern. Entries with "unique_in": "image" (the voice-swap layout guards
+speech_param_name_layout, speech_param_get_int_layout, speech_param_set_int_store) must match once in the whole image,
+not only in its code. Also re-checks the djb2-xor hashes listed under "hashes" and "pid_params".
 Exit code 0 when everything agrees.
 """
 import json
@@ -31,12 +33,18 @@ def djb2x(s):
 
 doc = json.load(open(os.path.join(here, "..", "..", "docs", "re", "inmatch-callnames.json")))
 sigs = doc["signatures"]
+WHOLE_IMAGE = [(rx.BASE, rx.BASE + rx.SIZE - 1)]
+GUARDS = ("speech_param_name_layout", "speech_param_get_int_layout", "speech_param_set_int_store")
 ok = True
+for g in GUARDS:
+    if sigs.get(g, {}).get("unique_in") != "image":
+        print("%-30s missing (or not checked over the whole image)" % g)
+        ok = False
 for name, e in sigs.items():
     pat = e["pattern"]
     if pat.startswith("(same as "):
         pat = sigs[pat[len("(same as "):-1]]["pattern"]
-    hits = rx.find_sig(pat, limit=5)
+    hits = rx.find_sig(pat, limit=5, ranges=WHOLE_IMAGE if e.get("unique_in") == "image" else None)
     want = int(e["expect"], 16)
     if len(hits) != 1:
         print("%-30s AMBIGUOUS/MISSING hits=%s" % (name, ["%x" % h for h in hits]))
