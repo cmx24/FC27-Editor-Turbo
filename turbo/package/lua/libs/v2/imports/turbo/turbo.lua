@@ -79,6 +79,20 @@ end
 -- Run one module. Returns ok(bool), summary(string)
 -- opts.silent = true: no message box (used when the Turbo GUI runs the module)
 function M.run(name, overrides, opts)
+    -- never nested: an action whose game code posts career-mode events must not start another action (or itself)
+    if M.running then
+        local msg = string.format("%s not started: %s is still running", tostring(name), tostring(M.running))
+        log.warn("%s", msg)
+        return false, msg
+    end
+    M.running = name
+    local okr, r1, r2 = pcall(M.run_now, name, overrides, opts)
+    M.running = nil
+    if not okr then error(r1, 0) end
+    return r1, r2
+end
+
+function M.run_now(name, overrides, opts)
     log.reset()
     local cfg, info = config.load()
     if info.error then

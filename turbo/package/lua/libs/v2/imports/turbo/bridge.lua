@@ -506,6 +506,8 @@ function M.poll_mailbox(force)
     MEMORY:WriteInt(mb + OFF_HEARTBEAT, S.heartbeat)
     local seq = MEMORY:ReadInt(mb + OFF_SEQ)
     if seq == MEMORY:ReadInt(mb + OFF_ACK) then return false end
+    -- a command is running (its game code posted a career-mode event that got here): it is consumed, never run twice
+    if S.cmd_running then return false end
 
     local ok, text
     local j = json()
@@ -513,7 +515,9 @@ function M.poll_mailbox(force)
     if not okd then
         ok, text = false, "command is not valid JSON"
     else
+        S.cmd_running = seq
         local okx, r1, r2 = pcall(M.execute, cmd)
+        S.cmd_running = nil
         if okx then ok, text = r1 == true, tostring(r2 or "") else ok, text = false, "error: " .. tostring(r1) end
     end
     if #text > TEXT_SIZE - 1 then text = text:sub(1, TEXT_SIZE - 1) end

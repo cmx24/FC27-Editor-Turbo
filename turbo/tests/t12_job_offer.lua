@@ -175,6 +175,68 @@ H.case("bridge game call: the mailbox call block carries op + args to Turbo.dll 
     _G.TurboStandingsRefresh = nil
 end)
 
+-- 1.1.3 hotfix: on the game thread the job offer's game call runs the game's MakeOffer at once, and the game posts
+-- career-mode events before it returns; Live Editor runs Turbo's dispatcher for them on the spot. 1.0.2-1.1.2 picked the
+-- same, not yet acknowledged mailbox command up again from that nested event and ran it again, nesting until the game
+-- died. The command must run exactly once and nothing may nest.
+H.case("re-entrant career events during the job offer's game call: the command runs once, nothing nests", function()
+    local bridge = require 'imports/turbo/bridge'
+    local events = require 'imports/turbo/core/events'
+    local json = require 'imports/external/json'
+    local S = TURBO_STATE.bridge
+    S.next_dll_check = 0
+    local mb = bridge.mailbox_address()
+    H.ok(mb ~= nil, "mailbox found")
+    sim:w32(mb + 4, 2)
+    S.call_pending = nil
+    -- the running bridge: its tap on Live Editor's career-mode events (bridge.start)
+    S.autoload_pending = false
+    events.set_tap("bridge", bridge.on_career_event)
+    H.eq(events.ensure_registered(), true, "dispatcher registered")
+    local CSEQ, CSTATUS, CRSEQ, CTEXT = 0x2028, 0x2024, 0x202C, 0x2060
+    local calls, depth, max_depth = 0, 0, 0
+    S.native_game_call = function()   -- Turbo.dll's turbo_game_call, on the game thread: runs the call at once
+        calls = calls + 1
+        depth = depth + 1
+        if depth > max_depth then max_depth = depth end
+        if calls < 20 then   -- (bounded, so the unfixed code fails here instead of overflowing the test's stack)
+            sim:fire("post__CareerModeEvent", 0, 7, 0)
+            sim:fire("post__CareerModeEvent", 0, events.SYNTHETIC_ID, 0)
+        end
+        sim:wstr(mb + CTEXT, "job offer sent on 20270115 (weekly wage 42000)")
+        sim:w32(mb + CRSEQ, sim:r32(mb + CSEQ))
+        sim:w32(mb + CSTATUS, 1)
+        depth = depth - 1
+    end
+    S.natives_installed = nil
+    H.eq(bridge.install_natives(), true, "TurboJobOfferCreate on top of the game call")
+    local runs = 0
+    local turbo = H.turbo()
+    local real_run = turbo.run
+    turbo.run = function(...) runs = runs + 1; return real_run(...) end
+    -- the Turbo window's Create job offer: a run command in the mailbox, then the synthetic event
+    local cmd = json.encode({ op = "run", module = "job_offer", overrides = { enabled = true, teamid = 7, confirm = true } })
+    for i = 0, 0xFFF do sim:wb(mb + 0x20 + i, 0) end
+    for i = 1, #cmd do sim:wb(mb + 0x20 + i - 1, cmd:byte(i)) end
+    local seq = sim:r32(mb + 0xC) + 1
+    sim:w32(mb + 8, seq)
+    sim:fire("post__CareerModeEvent", 0, events.SYNTHETIC_ID, 0)
+    H.eq(runs, 1, "job_offer ran once")
+    H.eq(calls, 1, "the game call ran once")
+    H.eq(max_depth, 1, "nothing nested")
+    H.eq(sim:r32(mb + 0xC), seq, "command acknowledged")
+    H.eq(sim:r32(mb + 0x10), 1, "command succeeded")
+    H.has(ReadString(mb + 0x1020, 4096), "job offer created")
+    -- the next events do not run it again
+    sim:fire("post__CareerModeEvent", 0, 7, 0)
+    sim:fire("post__CareerModeEvent", 0, events.SYNTHETIC_ID, 0)
+    H.eq(runs, 1); H.eq(calls, 1)
+    H.eq(TURBO_STATE.dispatching, false, "dispatcher free again")
+    H.eq(turbo.running, nil, "no action marked running")
+    turbo.run = real_run
+    S.native_game_call = nil
+end)
+
 H.case("no unmapped memory reads", function()
     H.eq(sim.unmapped_reads, 0, "unmapped reads")
 end)

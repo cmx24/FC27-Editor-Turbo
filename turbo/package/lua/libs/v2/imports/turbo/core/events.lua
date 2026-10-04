@@ -72,8 +72,20 @@ function M.clear_tap(name)
     if TURBO_STATE.taps then TURBO_STATE.taps[name] = nil end
 end
 
--- Called by Live Editor for every career-mode event
+-- Called by Live Editor for every career-mode event.
+-- Never nests: game code that Turbo calls from a handler (a game call such as the job offer's MakeOffer) can post
+-- career-mode events on the same thread before it returns, and Live Editor runs this dispatcher for them at once. The
+-- nested event is ignored, so a mailbox command / action still running is never picked up and run again (1.1.3: the
+-- job offer ran itself recursively until the game's stack overflowed).
 function M.dispatch(_events_manager, event_id, _event)
+    if TURBO_STATE.dispatching then return end
+    TURBO_STATE.dispatching = true
+    local ok, err = pcall(M.dispatch_now, event_id)
+    TURBO_STATE.dispatching = false
+    if not ok then log.error("career event %s: %s", tostring(event_id), tostring(err)) end
+end
+
+function M.dispatch_now(event_id)
     for name, fn in pairs(TURBO_STATE.taps or {}) do
         local ok, err = pcall(fn, event_id)
         if not ok then log.error("%s failed on event %s: %s", name, tostring(event_id), tostring(err)) end

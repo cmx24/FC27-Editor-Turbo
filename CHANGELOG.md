@@ -3,6 +3,12 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.1.3 (hotfix)
+
+### Fixed
+
+- **Create job offer no longer crashes the game**: the game posts career-mode events while it makes the offer, and Turbo picked the same, still unanswered command up again from each of them (1.0.2-1.1.2), nesting until FC 27 died. Turbo's event handler, the Turbo window's commands and actions now never nest: the command runs once and the offer arrives as in 0.4.0.
+
 ## 1.1.2 (live team names)
 
 Not yet released or checked in game.
