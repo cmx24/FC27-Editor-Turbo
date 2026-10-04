@@ -4286,6 +4286,7 @@ static void test_ui() {
                 SpokenSet keep = app.callnames.spoken;
                 app.callnames.refresh(le, app.game_root, "");
                 app.callnames.spoken.players = keep.players;  // the test's game set (1004) survives the reload of the list
+                app.callnames.spoken.players_from = SpokenSet::From::GameAudio;
                 CHECK(app.callnames.masters.loaded() && app.callnames.own_recording(1002) == kOwnFromMasters &&
                           app.callnames.own_recording(1004) == kOwnFromGame,
                       "own recordings: 1002 from the list, 1004 from the game");

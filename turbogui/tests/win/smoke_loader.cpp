@@ -243,7 +243,7 @@ int wmain(int argc, wchar_t** argv) {
                 }
             }
         }
-        check(j.find("\"gui_version\": \"1.0.1\"") != std::string::npos, "gui_version 1.0.1");
+        check(j.find("\"gui_version\": \"1.0.2\"") != std::string::npos, "gui_version 1.0.2");
         check(j.find("\"updated\":") != std::string::npos, "bridge_dll.json carries a live time stamp");
         // The D3D12 probe either installs the hooks (real GPU) or reports why it cannot (no D3D12, or no
         // display as in headless Wine: "probe window failed" / "could not create the probe swap chain"),
