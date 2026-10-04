@@ -3,6 +3,21 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.1.1 (playtest fixes)
+
+Not yet released or checked in game.
+
+### Added
+
+- **Real-face chooser filters.** Players > Appearance > Choose a real face: filters for **Ethnicity**, **Skin tone**,
+  **Hair colour**, **Hair** (with the game's hairstyle pictures), **Facial hair** (clean-shaven, any, or a style),
+  **Facial hair colour** and **Eyes**. Each filter lists how many heads have each value, with a picture, and they
+  combine. **Sort** by name, overall, skin tone, hair colour or newest head. FC 27 has no ethnicity field: Turbo groups
+  the game's head types (headtypecode).
+- **Real faces for managers.** Managers > a manager > **Appearance** > Choose a real face: the same chooser, with
+  **Player heads** or **Manager heads**. A player's head also gives the manager that player's miniface (saved as the
+  head's 512 x 512 heads_staff picture). The tab also shows the manager's appearance fields.
+
 ## 1.1.0 (voice swaps: any player gets any real or generic callname in matches)
 
 Not yet released or checked in game.
