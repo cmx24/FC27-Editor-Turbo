@@ -782,14 +782,18 @@ static void test_edit_unlock_ui(App& app, Ui& ui, const fs::path& le) {
         // one section: the in-memory fallback's switch lives inside it and saves into the same object
         CHECK(!ui.find("Game editors (unlock the game's own Edit Player / Edit Manager)"), "one Game editors section");
         const char* fallback = "Also patch the editors in memory (fallback when Live Editor ignores the files)";
-        eu_scroll_to(ui, ui.find(fallback));
+        std::vector<std::pair<ImGuiWindow*, float>> scroll;  // put back afterwards: the buttons above are clicked next
+        for (ImGuiWindow* w : GImGui->Windows)
+            if (std::string(w->Name).find("##tools") != std::string::npos) scroll.push_back({w, w->Scroll.y});
+        eu_scroll_bottom(ui, "##tools");  // the fallback sits at the end of the section, the last one of the tab
         CHECK(ui.click(fallback), "in-memory fallback off");
         gs = read_json(le / "turbo_output" / "gui_settings.json");
         CHECK(gs["edit_unlock"]["hook"] == false && gs["edit_unlock"]["enabled"] == true && gs["edit_unlock"]["career_players"] == true &&
                   gs["edit_unlock"]["files_off"].is_array(),
               "one settings object: " + gs["edit_unlock"].dump());
         CHECK(ui.click(fallback), "in-memory fallback on");
-        eu_scroll_to(ui, ui.find(header));
+        for (const auto& ws : scroll) ImGui::SetScrollY(ws.first, ws.second);
+        ui.frames(2);
         CHECK(ui.click("Restore the game's originals"), "restore");
         CHECK(!fs::exists(out) && s.written_count() == 0, "removed");
         CHECK(read_json(le / "turbo_output" / "gui_settings.json")["edit_unlock"]["enabled"] == false, "switch off after Restore");
