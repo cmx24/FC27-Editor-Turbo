@@ -24,6 +24,7 @@
 #include "nlohmann/json.hpp"
 #include "commentary_audio_win.h"
 #include "game_calls_win.h"
+#include "manager_rules_win.h"
 #include "standings_refresh_win.h"
 #include "game_hooks.h"
 #include "host.h"
@@ -931,6 +932,10 @@ bool start_overlay(HMODULE) {
     // the standings on the game thread, so the Standings screen and the Office tile show the edit
     install_standings_refresh();
     g_app->standings_refresh = standings_refresh_service();
+    // manager rules (manager_rules_win.cpp): job security / unsackable / retirement age through the game's own
+    // ClubObjectivesManager, JobSwitchManager and JobMarketManager; the SackManager hook is pass-through until the
+    // user switches unsackable on
+    install_manager_rules();
     // spoken callnames through the game's audio service (commentary_audio_win.cpp): calls on the game thread, no hook
     install_commentary_audio(*g_app);
     g_app->hook_report = []() {
