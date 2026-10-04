@@ -51,6 +51,7 @@
 #include "core/sigscan.h"
 #include "core/standings_refresh.h"
 #include "core/t3db.h"
+#include "core/teamname_override.h"
 #include "core/transfer_list.h"
 #include "imgui.h"
 #include "imgui_impl_null.h"
@@ -2959,6 +2960,259 @@ struct FakeMatchSetup : msetup::Service {
 };
 }  // namespace
 
+// ================================================================ live team names (core/teamname_override.h)
+static void test_team_names_live() {
+    run_case("live team names: the keys the game asks for (TeamName[_AbbrN]_<id>, IWL_, any case), nothing else", [&] {
+        tnames::KeyMatch m;
+        CHECK(tnames::match_key("TeamName_7", m) && m.teamid == 7 && m.kind == tnames::Full, "full name");
+        CHECK(tnames::match_key("TeamName_Abbr15_115845", m) && m.teamid == 115845 && m.kind == tnames::Abbr15, "Abbr15");
+        CHECK(tnames::match_key("TeamName_Abbr10_1", m) && m.teamid == 1 && m.kind == tnames::Abbr10, "Abbr10");
+        CHECK(tnames::match_key("TeamName_Abbr3_2147483647", m) && m.teamid == 2147483647 && m.kind == tnames::Abbr3, "Abbr3, the largest id");
+        CHECK(tnames::match_key("teamname_abbr3_9", m) && m.teamid == 9 && m.kind == tnames::Abbr3, "case-insensitive like the game's key hash");
+        CHECK(tnames::match_key("IWL_TeamName_44", m) && m.teamid == 44 && m.kind == tnames::Full, "the IWL_ variant LocalizeString tries first");
+        CHECK(tnames::match_key("iwl_TEAMNAME_ABBR15_44", m) && m.kind == tnames::Abbr15, "IWL_ any case");
+        const char* no[] = {"", "T", "TeamName", "TeamName_", "TeamName_7x", "TeamName_x7", "TeamName_-7", "TeamName_+7", "TeamName_0",
+                            "TeamName_07", "TeamName_2147483648", "TeamName_12345678901", "TeamName_Abbr3_", "TeamName_Abbr5_7",
+                            "TeamName_Abbr1_7", "TeamName_Abbr_7", "TeamNameX_7", "TeamName%s_%d", "IWL_IWL_TeamName_7", "IWLTeamName_7",
+                            "LeagueName_7", "TeamName_7_upper", "TeamName_7 ", " TeamName_7", "PlayerName_7", "TeamNames_7"};
+        bool all = true;
+        for (const char* k : no) {
+            if (tnames::match_key(k, m)) {
+                all = false;
+                std::printf("    matched: '%s'\n", k);
+            }
+        }
+        CHECK(all, "every other key is left to the game");
+        CHECK(!tnames::match_key(nullptr, m), "null key");
+        CHECK(tnames::key_of(7, tnames::Full) == "TeamName_7" && tnames::key_of(7, tnames::Abbr15) == "TeamName_Abbr15_7" &&
+                  tnames::key_of(7, tnames::Abbr10) == "TeamName_Abbr10_7" && tnames::key_of(7, tnames::Abbr3) == "TeamName_Abbr3_7",
+              "the keys Live Editor's CSV uses");
+        for (int k = 0; k < tnames::kKinds; ++k) {
+            const std::string key = tnames::key_of(123, static_cast<tnames::Kind>(k));
+            CHECK(tnames::match_key(key.c_str(), m) && m.teamid == 123 && m.kind == k, "round trip " + key);
+        }
+    });
+
+    run_case("live team names: upper case for the game's _upper requests (ASCII, Latin, Greek, Cyrillic)", [&] {
+        CHECK(tnames::utf8_upper_basic("Everton Blues 1878") == "EVERTON BLUES 1878", "ASCII");
+        CHECK(tnames::utf8_upper_basic("Atl\xC3\xA9tico M\xC3\xBCnchen \xC3\xB8 \xC3\xBF \xC3\x9F") == "ATL\xC3\x89TICO M\xC3\x9CNCHEN \xC3\x98 \xC5\xB8 \xC3\x9F",
+              "Latin-1 (sharp s stays, y diaeresis -> Latin Extended-A)");
+        CHECK(tnames::utf8_upper_basic("\xC5\xBE" "algiris " "\xC5\x82\xC3\xB3" "d" "\xC5\xBA" " " "\xC5\x9F\xC4\xB1") ==
+                  "\xC5\xBD" "ALGIRIS " "\xC5\x81\xC3\x93" "D" "\xC5\xB9" " " "\xC5\x9E" "I",
+              "Latin Extended-A (z caron, l stroke, z acute, s cedilla, dotless i)");
+        CHECK(tnames::utf8_upper_basic("\xC8\x9B" "ara") == "\xC8\x9A" "ARA", "Romanian t-comma");
+        CHECK(tnames::utf8_upper_basic("\xCE\xBF\xCE\xBB\xCF\x85\xCE\xBC\xCF\x80\xCE\xB9\xCE\xB1\xCE\xBA\xCF\x8C\xCF\x82") ==
+                  "\xCE\x9F\xCE\x9B\xCE\xA5\xCE\x9C\xCE\xA0\xCE\x99\xCE\x91\xCE\x9A\xCE\x8C\xCE\xA3",
+              "Greek (final sigma, tonos)");
+        CHECK(tnames::utf8_upper_basic("\xD1\x81\xD0\xBF\xD0\xB0\xD1\x80\xD1\x82\xD0\xB0\xD0\xBA \xD1\x91") ==
+                  "\xD0\xA1\xD0\x9F\xD0\x90\xD0\xA0\xD0\xA2\xD0\x90\xD0\x9A \xD0\x81",
+              "Cyrillic");
+        CHECK(tnames::utf8_upper_basic("a\xFF" "b\xC3") == "A\xFF" "B\xC3", "bytes that are not UTF-8 kept as they are");
+        CHECK(tnames::utf8_upper_basic("") == "", "empty");
+    });
+
+    run_case("live team names: Turbo's store (turbo_output\\team_names.json): round trip, cleaning, bad file set aside, atomic save", [&] {
+        const fs::path le = g_out / "tnames_le";
+        fs::remove_all(le);
+        const fs::path p = tnames::store_path(le);
+        CHECK(p == le / "turbo_output" / "team_names.json", "file location");
+        tnames::Store s;
+        std::string err;
+        CHECK(s.load(p, &err) && s.entries.empty() && err.empty(), "missing file = empty store");
+        tnames::Entry e;
+        e.teamid = 115845;
+        e.text[tnames::Full] = "Atalanta BC";
+        e.text[tnames::Abbr15] = "Atalanta";
+        e.text[tnames::Abbr10] = "Atalanta";
+        e.text[tnames::Abbr3] = "ATA";
+        e.when = "2026-10-04 15:00";
+        s.upsert(e);
+        tnames::Entry e2;
+        e2.teamid = 7;
+        e2.text[tnames::Full] = "Everton";
+        s.upsert(e2);
+        CHECK(s.entries.size() == 2 && s.entries[0].teamid == 7 && s.entries[1].teamid == 115845, "one per club, sorted by id");
+        e2.text[tnames::Full] = "Everton FC";
+        s.upsert(e2);
+        CHECK(s.entries.size() == 2 && s.find(7)->name() == "Everton FC" && !s.find(8), "upsert replaces");
+        CHECK(s.save(p, &err) && !fs::exists(p.string() + ".tmp"), "saved, no temp file left: " + err);
+        tnames::Store r;
+        CHECK(r.load(p, &err) && r.entries.size() == 2 && r.find(115845)->text[tnames::Abbr3] == "ATA" && r.find(115845)->when == "2026-10-04 15:00" &&
+                  r.find(7)->text[tnames::Abbr15].empty(),
+              "read back: " + err);
+        CHECK(tnames::store_json(r) == tnames::store_json(s), "same text");
+        tnames::Entry none;
+        none.teamid = 7;
+        r.upsert(none);
+        CHECK(r.entries.size() == 1 && !r.find(7), "an entry with no text removes the club");
+        CHECK(r.forget(115845) && !r.forget(115845) && r.entries.empty(), "forget");
+        // cleaning on read: the same rules as Live Editor's CSV (no ';', no line breaks, cut by kind)
+        tnames::Store c;
+        CHECK(tnames::parse_store_json(R"({"turbo_team_names": 1, "teams": [
+                {"teamid": 5, "name": "  A;B\nC  ", "abbr15": "Borussia Moenchengladbach", "abbr10": "Borussia Moenchengladbach", "abbr3": "ÖSTERREICH"},
+                {"teamid": 0, "name": "zero"}, {"teamid": "6", "name": "text id"}, {"teamid": 9}, {"teamid": 10, "name": 5},
+                {"teamid": 11, "name": "Kept"}, {"teamid": 11, "name": "Last wins"}]})",
+                                       c, &err),
+              "parsed: " + err);
+        CHECK(err == "4 bad entries dropped" && c.entries.size() == 2, "bad entries dropped: " + err);
+        const tnames::Entry* f = c.find(5);
+        CHECK(f && f->name() == "ABC" && f->text[tnames::Abbr15] == "Borussia Moench" && f->text[tnames::Abbr10] == "Borussia M" &&
+                  f->text[tnames::Abbr3] == "\xC3\x96ST",
+              "cleaned, cut by characters: " + (f ? f->text[tnames::Abbr3] : std::string()));
+        CHECK(c.find(11) && c.find(11)->name() == "Last wins", "duplicates: the last one wins");
+        CHECK(!tnames::parse_store_json("[]", c, &err) && !tnames::parse_store_json(R"({"teams": []})", c, &err) &&
+                  err.find("turbo_team_names") != std::string::npos,
+              "not Turbo's file refused");
+        // a bad file is set aside and never overwritten; the store starts empty
+        std::ofstream(p.string(), std::ios::binary | std::ios::trunc) << "{ not json";
+        tnames::Store b;
+        CHECK(b.load(p, &err) && b.entries.empty() && err.find("set aside as team_names.json.bad-") != std::string::npos, "set aside: " + err);
+        CHECK(!fs::exists(p), "the bad file moved");
+        size_t aside = 0;
+        for (auto& de : fs::directory_iterator(p.parent_path()))
+            if (de.path().filename().string().rfind("team_names.json.bad-", 0) == 0) ++aside;
+        CHECK(aside == 1, "one set-aside copy");
+        CHECK(tnames::hook_off_path(le / "turbo_output") == le / "turbo_output" / "team_names_hook_off.txt", "kill switch file name");
+    });
+
+    run_case("live team names: the table the detour reads (lookups, upper case, empty kinds left to the game) and the publish slot", [&] {
+        tnames::Store s;
+        for (int64_t id = 1; id <= 200; ++id) {
+            tnames::Entry e;
+            e.teamid = id * 3;
+            e.text[tnames::Full] = "Club " + std::to_string(id);
+            if (id % 2) e.text[tnames::Abbr3] = "c" + std::to_string(id % 10) + "x";
+            s.upsert(e);
+        }
+        tnames::Snapshot t = tnames::build_snapshot(s);
+        CHECK(t.items.size() == 200, "200 clubs");
+        auto str = [](const char* p) { return std::string(p ? p : "(game)"); };
+        CHECK(str(t.lookup("TeamName_3", 1)) == "Club 1" && str(t.lookup("TeamName_600", 1)) == "Club 200" && str(t.lookup("TeamName_303", 1)) == "Club 101",
+              "binary search over the ids");
+        CHECK(str(t.lookup("TeamName_4", 1)) == "(game)" && str(t.lookup("TeamName_0", 1)) == "(game)" && str(t.lookup("TeamName_603", 1)) == "(game)",
+              "other clubs: the game's own text");
+        CHECK(str(t.lookup("TeamName_Abbr3_3", 1)) == "c1x" && str(t.lookup("TeamName_Abbr3_3", 0)) == "C1X", "mode 0 = upper case");
+        CHECK(str(t.lookup("TeamName_Abbr3_6", 1)) == "(game)" && str(t.lookup("TeamName_Abbr15_3", 1)) == "(game)", "a kind Turbo did not set: the game's");
+        CHECK(str(t.lookup("TeamName_3", 0)) == "CLUB 1" && str(t.lookup("IWL_TeamName_3", 2)) == "Club 1", "upper only for mode 0");
+        tnames::KeyMatch bad;
+        bad.teamid = 3;
+        bad.kind = static_cast<tnames::Kind>(7);
+        CHECK(t.lookup(bad, false) == nullptr, "an impossible kind");
+        // the host's upper case replaces the portable one
+        tnames::Snapshot hu = tnames::build_snapshot(s, [](const std::string& x) { return "<" + x + ">"; });
+        CHECK(str(hu.lookup("TeamName_3", 0)) == "<Club 1>" && str(hu.lookup("TeamName_3", 1)) == "Club 1", "upper function passed in");
+        CHECK(tnames::build_snapshot(tnames::Store{}).empty(), "empty store, empty table");
+
+        // the slot: every published table stays readable until the slot goes
+        tnames::SnapshotSlot slot;
+        CHECK(slot.current() == nullptr && slot.kept() == 0, "nothing published yet");
+        const tnames::Snapshot* first = slot.publish(tnames::build_snapshot(s));
+        CHECK(slot.current() == first && slot.kept() == 1, "published");
+        tnames::Store s2;
+        tnames::Entry e;
+        e.teamid = 3;
+        e.text[tnames::Full] = "Renamed";
+        s2.upsert(e);
+        const tnames::Snapshot* second = slot.publish(tnames::build_snapshot(s2));
+        CHECK(slot.current() == second && second != first && slot.kept() == 2, "swapped");
+        CHECK(str(first->lookup("TeamName_3", 1)) == "Club 1" && str(second->lookup("TeamName_3", 1)) == "Renamed", "the old table is still intact");
+        // readers on other threads while the GUI publishes: never a torn or freed table (ASan in the Linux build)
+        std::atomic<bool> stop{false};
+        std::atomic<long> seen{0}, bad_reads{0};
+        std::vector<std::thread> readers;
+        for (int i = 0; i < 3; ++i)
+            readers.emplace_back([&]() {
+                while (!stop.load()) {
+                    const tnames::Snapshot* cur = slot.current();
+                    const char* p = cur ? cur->lookup("TeamName_3", 1) : nullptr;
+                    if (!p || (std::strncmp(p, "Name ", 5) != 0 && std::strcmp(p, "Renamed") != 0)) ++bad_reads;
+                    ++seen;
+                }
+            });
+        for (int n = 0; n < 200; ++n) {
+            tnames::Store sn;
+            tnames::Entry en;
+            en.teamid = 3;
+            en.text[tnames::Full] = "Name " + std::to_string(n);
+            sn.upsert(en);
+            slot.publish(tnames::build_snapshot(sn));
+        }
+        while (seen.load() < 1000) std::this_thread::yield();
+        stop = true;
+        for (auto& th : readers) th.join();
+        CHECK(bad_reads.load() == 0 && slot.kept() == 202 && std::string(slot.current()->lookup("TeamName_3", 1)) == "Name 199",
+              fmt("readers saw only whole tables (%ld reads, %ld bad)", seen.load(), bad_reads.load()));
+        tnames::Stats st;
+        st.calls += 5;
+        st.team_keys += 2;
+        st.given += 1;
+        const tnames::StatsSnapshot sn = tnames::snapshot(st);
+        CHECK(sn.calls == 5 && sn.team_keys == 2 && sn.given == 1, "counters");
+    });
+
+    run_case("live team names: short forms and the code made from a name; Live Editor's CSV cuts by characters", [&] {
+        CHECK(team_short_form("Everton Blues", 15) == "Everton Blues" && team_short_form("Everton Blues", 10) == "Everton", "fits / word end");
+        CHECK(team_short_form("Borussia Moenchengladbach", 15) == "Borussia" && team_short_form("Internazionale Milano", 10) == "Internazio",
+              "a word end that keeps half the letters, else cut: " + team_short_form("Borussia Moenchengladbach", 15));
+        CHECK(team_short_form("Paris Saint-Germain", 15) == "Paris Saint" && team_short_form("Paris Saint-Germain", 12) == "Paris Saint" &&
+                  team_short_form("Paris Saint-Germain", 11) == "Paris Saint",
+              "a dash ends a word too: " + team_short_form("Paris Saint-Germain", 15));
+        CHECK(team_short_form("Manchester United", 10) == "Manchester", "cut ending a word");
+        CHECK(team_code_from("Everton Blues") == "EVE" && team_code_from("1. FC K\xC3\xB6ln") == "1FC" && team_code_from("\xC3\xB6sters IF") == "\xC3\x96ST" &&
+                  team_code_from("  ") == "",
+              "codes: " + team_code_from("1. FC K\xC3\xB6ln"));
+        CHECK(clean_team_abbr("\xC3\x96STERREICH", 3) == "\xC3\x96ST" && clean_team_abbr("Toffees  x", 8) == "Toffees" && clean_team_abbr("a;b", 3) == "ab",
+              "clean_team_abbr: characters, trailing spaces trimmed");
+        TeamNamesCsv csv;
+        csv.set_team_names(9, "\xC3\x96sters IF", "\xC3\x96ST", "\xC3\x96sters IF", "\xC3\x96sters IF");
+        CHECK(csv.get("TeamName_Abbr3_9") == "\xC3\x96ST", "a 3-letter code with a 2-byte letter is kept whole in Live Editor's file");
+    });
+
+    run_case("live team names: built-in signatures resolve on the real bytes of build 6AB9813C-211EF000 (Lookup, assign, the guard, Live Editor's hook)", [&] {
+        const SignatureTable* b = builtin_signature_table("6AB9813C-211EF000");
+        CHECK(b && b->find("loc_lookup") && b->find("eastl_string_assign_cstr") && b->find("loc_lookup_out_assign") && b->find("loc_strtab_get"),
+              "the four signatures are in the table");
+        if (!b || !b->find("loc_lookup") || !b->find("eastl_string_assign_cstr") || !b->find("loc_lookup_out_assign") || !b->find("loc_strtab_get")) return;
+        // LocImpl::Lookup 0x1421E2120 (first 64 bytes) and its `out = "*"` call site at +0x110, from the game image
+        const uint8_t lookup[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x55, 0x57, 0x41, 0x54, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8B, 0xEC, 0x48,
+                                  0x83, 0xEC, 0x70, 0x45, 0x33, 0xF6, 0x45, 0x8B, 0xE1, 0x4D, 0x8B, 0xF8, 0x48, 0x8B, 0xDA, 0x48, 0x8B, 0xF9, 0x4D, 0x85, 0xC0, 0x0F,
+                                  0x84, 0x4B, 0x02, 0x00, 0x00, 0x49, 0x8B, 0xC8, 0xE8, 0xCB, 0xC3, 0x9E, 0xFE, 0x48, 0x85, 0xC0, 0x0F, 0x84, 0x3A, 0x02};
+        const uint8_t site[] = {0x48, 0x8D, 0x15, 0x09, 0x89, 0x4B, 0x07, 0x48, 0x8B, 0xCB, 0xE8, 0x95, 0xE2, 0x4D, 0xFE, 0x48,
+                                0x8D, 0x55, 0xC8, 0x48, 0x8B, 0xCB, 0xE8, 0x91, 0x91, 0x34, 0xFE, 0x45, 0x85, 0xE4, 0x0F, 0x85};
+        // eastl::string::assign(const char*) 0x1406C04D4 (first 64 bytes)
+        const uint8_t assign[] = {0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x08, 0x48, 0x89, 0x68, 0x10, 0x48, 0x89, 0x70, 0x18, 0x48, 0x89, 0x78, 0x20, 0x41, 0x54, 0x41,
+                                  0x56, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xF2, 0x48, 0x8B, 0xF9, 0x48, 0x83, 0xC8, 0xFF, 0x48, 0xFF, 0xC0, 0x80, 0x3C,
+                                  0x02, 0x00, 0x75, 0xF7, 0x4C, 0x8D, 0x3C, 0x10, 0xBB, 0x0F, 0x00, 0x00, 0x00, 0x0F, 0xBE, 0x41, 0x0F, 0x41, 0x8B, 0xEF};
+        // StrTab::GetString 0x140B1C034 as the running game shows it: Live Editor's jmp [rip] + residue, then the body
+        const uint8_t strtab[] = {0xFF, 0x25, 0xC6, 0x3F, 0xE7, 0x81, 0xD9, 0x4C, 0x66, 0x90, 0x49, 0x8B, 0xC8, 0xE8, 0xA6, 0x05, 0x00, 0x00, 0x44, 0x8B,
+                                  0xC0, 0x49, 0x8B, 0xD2, 0x49, 0x8B, 0xCB, 0x48, 0x83, 0xC4, 0x28, 0xE9, 0x60, 0x06, 0x00, 0x00, 0x48, 0x89, 0x5C, 0x24};
+        const uint64_t lookup_va = 0x1421E2120ULL, assign_va = 0x1406C04D4ULL, strtab_va = 0x140B1C034ULL;
+        std::vector<uint8_t> code(0x400, 0xCC);
+        std::memcpy(code.data(), lookup, sizeof(lookup));
+        std::memcpy(code.data() + 0x110, site, sizeof(site));
+        SigResult r = resolve_signature(*b->find("loc_lookup"), code.data(), code.size(), lookup_va);
+        CHECK(r.state == SigState::Found && r.address == lookup_va, "Lookup found at its entry: " + r.error);
+        r = resolve_signature(*b->find("loc_lookup_out_assign"), code.data(), code.size(), lookup_va);
+        CHECK(r.state == SigState::Found && r.match == lookup_va + 0x110 && r.address == assign_va,
+              fmt("the guard: Lookup's own out-assign call goes to 0x%llX (%s)", static_cast<unsigned long long>(r.address), r.error.c_str()));
+        std::vector<uint8_t> code2(0x100, 0xCC);
+        std::memcpy(code2.data() + 0x20, assign, sizeof(assign));
+        r = resolve_signature(*b->find("eastl_string_assign_cstr"), code2.data(), code2.size(), assign_va - 0x20);
+        CHECK(r.state == SigState::Found && r.address == assign_va, "assign found: " + r.error);
+        std::vector<uint8_t> code3(0x100, 0xCC);
+        std::memcpy(code3.data() + 0x40, strtab, sizeof(strtab));
+        r = resolve_signature(*b->find("loc_strtab_get"), code3.data(), code3.size(), strtab_va - 0x40);
+        CHECK(r.state == SigState::Found && r.address == strtab_va && r.match == strtab_va + 10, "Live Editor's hooked GetString found past its jump: " + r.error);
+        uint64_t target = 0;
+        CHECK(detect_inline_hook(strtab, sizeof(strtab), strtab_va, &target) == InlineHook::JmpIndirect, "Live Editor's jmp [rip] is seen as a hook");
+        CHECK(detect_inline_hook(lookup, sizeof(lookup), lookup_va, &target) == InlineHook::None, "Lookup's entry is the game's own prologue");
+        // another module's jump over Lookup's prologue: the signature no longer matches, so nothing is installed
+        code[0] = 0xE9;
+        r = resolve_signature(*b->find("loc_lookup"), code.data(), code.size(), lookup_va);
+        CHECK(r.state == SigState::Missing, "a hooked Lookup is not found (never stacked on another hook)");
+    });
+}
+
 static void test_ui() {
     SimMemory mem;
     CHECK(mem.load(g_out / "world.img"), "world.img");
@@ -3239,41 +3493,159 @@ static void test_ui() {
             CHECK(ui.find("1002", "##plist") != nullptr, "Players tab opened");
         });
 
-        run_case("UI: Teams > Name writes teams.teamname and Live Editor's custom_team_names.csv", [&] {
+        // Teams > Name (1.1.1): one form, one Save. Save publishes the names to the host's hook (a fake here: what the
+        // game's next lookup of "TeamName_7" & co. answers), keeps them in turbo_output\team_names.json and writes
+        // teams.teamname and Live Editor's custom_team_names.csv
+        run_case("UI: Teams > Name: one Save shows the name in the game at once (live), database + Live Editor's file + Turbo's store", [&] {
+            struct FakeNames : tnames::Service {
+                bool on = true;
+                std::string why = "turned off by turbo_output\\team_names_hook_off.txt";
+                int publishes = 0, refreshes = 0;
+                tnames::SnapshotSlot slot;
+                bool available() const override { return on; }
+                std::string why_off() const override { return on ? "" : why; }
+                void publish(const tnames::Store& s) override {
+                    ++publishes;
+                    slot.publish(tnames::build_snapshot(s));
+                }
+                tnames::StatsSnapshot stats() const override { return {}; }
+                void refresh_switches() override { ++refreshes; }
+                // what the game's localization lookup answers for a key (nullptr = the game's / Live Editor's own text)
+                std::string shows(const char* key, int mode = 1) const {
+                    const tnames::Snapshot* t = slot.current();
+                    const char* s = t ? t->lookup(key, mode) : nullptr;
+                    return s ? s : "(game)";
+                }
+            };
+            FakeNames fake;
+            struct Unset {  // the fake lives in this case only
+                App& a;
+                ~Unset() { a.team_names_service = nullptr; }
+            } unset{app};
+            const fs::path store = tnames::store_path(le);
+            fs::remove(store);
+            app.team_names = tnames::Store{};
             fs::path csvf = team_names_file(le);
             fs::create_directories(csvf.parent_path());
             std::ofstream(csvf, std::ios::binary) << "key;value\nTeamName_1318;England\n";
+            const Table* t = app.db.table("teams");
+            const uint64_t rec = app.db.find(*t, "teamid", 7);
+            Value v;
+
+            // ---- no hook (this build of Turbo has none): Save still writes everything, the line says when it shows
+            CHECK(app.team_names_service == nullptr && app.team_names_status_line() == "Live team names: off (not in this build of Turbo) | 0 renamed clubs",
+                  "no service: " + app.team_names_status_line());
             app.request_tab = 1;
             ui.frames(2);
             CHECK(ui.click("7", "##tlist"), "Everton row");
             CHECK(ui.click("Name", "##tedit"), "Name tab");
             ui.frames(2);
-            const ItemRec* full = ui.find("##nfull", "##tname");
-            CHECK(full != nullptr, "full name box");
-            CHECK(ui.type_into(full, "Everton Blues"), "type the name");
-            CHECK(ui.click("Save names", "##tname"), "Save names");
-            const Table* t = app.db.table("teams");
-            uint64_t rec = app.db.find(*t, "teamid", 7);
-            Value v;
+            const TeamNameTabState& st = team_name_tab_state();
+            CHECK(st.teamid == 7 && !st.live && st.mode_line.find("Live names are off (not in this build of Turbo)") != std::string::npos &&
+                      st.mode_line.find("after Live Editor's next start") != std::string::npos,
+                  "the fallback line says why and when: " + st.mode_line);
+            CHECK(ui.find("Reload", "##tname") == nullptr && ui.find("Save names", "##tname") == nullptr && ui.find("Save", "##tname") != nullptr,
+                  "one Save button, no Reload");
+            CHECK(ui.find("##nfull", "##tname") && ui.find("##nshort", "##tname") && ui.find("##ncode", "##tname") && !ui.find("##na10", "##tname"),
+                  "Name, Short name, 3-letter code");
+            CHECK(ui.type_into(ui.find("##nfull", "##tname"), "Everton Blues"), "type the name");
+            CHECK(ui.click("Save", "##tname"), "Save");
             CHECK(app.db.get(*t, rec, *t->field("teamname"), v) && v.s == "Everton Blues", "teams.teamname = Everton Blues (" + v.s + ")");
             CHECK(app.model.team_name(7) == "Everton Blues", "model refreshed");
             std::string text = read_file(csvf);
             CHECK(text.find("TeamName_1318;England\n") != std::string::npos, "other club's row kept: " + text);
             CHECK(text.find("TeamName_7;Everton Blues\n") != std::string::npos && text.find("TeamName_Abbr3_7;EVE\n") != std::string::npos &&
-                  text.find("TeamName_Abbr10_7;Everton Bl\n") != std::string::npos && text.find("TeamName_Abbr15_7;Everton Blues\n") != std::string::npos,
-                  "four Live Editor keys: " + text);
-            CHECK(ui.toast_contains("Live Editor shows it after its next start"), "toast says when it shows");
+                      text.find("TeamName_Abbr10_7;Everton\n") != std::string::npos && text.find("TeamName_Abbr15_7;Everton Blues\n") != std::string::npos,
+                  "four Live Editor keys, the 10-letter form cut at a word end: " + text);
+            CHECK(st.result_line.find("Saved. The game shows it after Live Editor's next start") != std::string::npos && st.screen_line.empty(),
+                  "result line (fallback): " + st.result_line);
+            CHECK(ui.toast_contains("after Live Editor's next start"), "toast says when it shows");
+            {
+                tnames::Store s;
+                std::string err;
+                CHECK(s.load(store, &err) && s.entries.size() == 1 && s.find(7) && s.find(7)->name() == "Everton Blues" &&
+                          s.find(7)->text[tnames::Abbr3] == "EVE" && !s.find(7)->when.empty(),
+                      "Turbo's store keeps the club for the next starts: " + read_file(store));
+            }
             size_t backups = 0;
             for (auto& e : fs::directory_iterator(team_names_backup_dir(le))) { (void)e; ++backups; }
             CHECK(backups == 1, "previous csv backed up");
-            // a name longer than the field is refused before anything is written
-            std::string msg;
-            CHECK(apply_team_names(app, 7, std::string(70, 'x'), "", "", "", &msg), "long name cut to the field: " + msg);
-            CHECK(app.db.get(*t, rec, *t->field("teamname"), v) && v.s.size() == 29, fmt("cut to the test field's 29 bytes (%zu)", v.s.size()));
-            CHECK(!apply_team_names(app, 7, "   ", "", "", "", &msg) && msg.find("empty") != std::string::npos, "empty name refused");
-            // leave team 7 as the later cases know it
-            CHECK(apply_team_names(app, 7, "Everton", "", "", "", &msg), "name restored: " + msg);
-            CHECK(app.model.team_name(7) == "Everton", "model shows the restored name: " + app.model.team_name(7));
+
+            // ---- the hook on: the store is published once the service is there, Save shows the names at once
+            app.team_names_service = &fake;
+            ui.frames(3);
+            CHECK(fake.publishes == 1 && fake.refreshes >= 1, fmt("published once the service is there (%d), switches refreshed (%d)", fake.publishes, fake.refreshes));
+            CHECK(fake.shows("TeamName_7") == "Everton Blues" && fake.shows("TeamName_8") == "(game)", "the kept name is live from the start");
+            CHECK(st.live && st.mode_line == "Live names are on: Save shows the new name in the game at once.", "mode line: " + st.mode_line);
+            CHECK(app.team_names_status_line() == "Live team names: on | 1 renamed club | names given to the game 0", "status: " + app.team_names_status_line());
+            CHECK(ui.type_into(ui.find("##nfull", "##tname"), "Everton FC"), "type the name");
+            CHECK(ui.type_into(ui.find("##nshort", "##tname"), "Toffees"), "type the short name");
+            CHECK(ui.type_into(ui.find("##ncode", "##tname"), "tof"), "type the code");
+            CHECK(fake.publishes == 1 && fake.shows("TeamName_7") == "Everton Blues", "typing changes nothing until Save");
+            CHECK(ui.click("Save", "##tname"), "Save");
+            CHECK(fake.publishes == 2, fmt("published on Save (%d)", fake.publishes));
+            CHECK(fake.shows("TeamName_7") == "Everton FC" && fake.shows("TeamName_Abbr15_7") == "Toffees" && fake.shows("TeamName_Abbr10_7") == "Toffees" &&
+                      fake.shows("TeamName_Abbr3_7") == "TOF",
+                  "the game's next lookups: " + fake.shows("TeamName_7") + " | " + fake.shows("TeamName_Abbr15_7") + " | " + fake.shows("TeamName_Abbr3_7"));
+            CHECK(fake.shows("teamname_7", 0) == "EVERTON FC" && fake.shows("IWL_TeamName_Abbr15_7") == "Toffees", "upper-case requests and IWL_ keys");
+            CHECK(st.result_line == "Saved: shown in the game now." && !st.screen_line.empty() && st.screen_line.find("already open") != std::string::npos,
+                  "result line + the open-screen line: " + st.result_line + " / " + st.screen_line);
+            CHECK(ui.toast_contains("Saved: shown in the game now."), "toast");
+            CHECK(app.db.get(*t, rec, *t->field("teamname"), v) && v.s == "Everton FC" && app.model.team_name(7) == "Everton FC", "database too");
+            text = read_file(csvf);
+            CHECK(text.find("TeamName_7;Everton FC\n") != std::string::npos && text.find("TeamName_Abbr3_7;TOF\n") != std::string::npos &&
+                      text.find("TeamName_Abbr15_7;Toffees\n") != std::string::npos,
+                  "Live Editor's file too (compatibility): " + text);
+            {
+                json j = read_json(store);
+                CHECK(j.value("turbo_team_names", 0) == 1 && j["teams"].size() == 1 && j["teams"][0]["name"] == "Everton FC" &&
+                          j["teams"][0]["abbr15"] == "Toffees" && j["teams"][0]["abbr10"] == "Toffees" && j["teams"][0]["abbr3"] == "TOF",
+                      "store file: " + j.dump());
+            }
+            // the form shows what was saved (the code upper case)
+            ui.frames(1);
+            CHECK(ui.find("##ncode", "##tname") != nullptr, "form still there");
+
+            // ---- the hook switched off (kill switch): Save falls back, the line says why
+            fake.on = false;
+            ui.frames(2);
+            CHECK(!st.live && st.mode_line.find("turned off by turbo_output\\team_names_hook_off.txt") != std::string::npos, "off line: " + st.mode_line);
+            TeamNameSave r = save_team_name(app, 7, "Everton", "", "");
+            CHECK(r.ok && !r.live && r.line.find("after Live Editor's next start") != std::string::npos &&
+                      r.line.find("team_names_hook_off.txt") != std::string::npos,
+                  "fallback line: " + r.line);
+            fake.on = true;
+
+            // ---- refused before anything is written or published
+            const int before = fake.publishes;
+            r = save_team_name(app, 7, "   ", "x", "y");
+            CHECK(!r.ok && r.line == "Not saved: the name is empty." && fake.publishes == before && fake.shows("TeamName_7") == "Everton",
+                  "empty name refused, nothing published: " + r.line);
+            r = save_team_name(app, 424242, "Nobody", "", "");
+            CHECK(!r.ok && r.line.find("not in the loaded database") != std::string::npos, "unknown club refused: " + r.line);
+            // a name longer than the field is cut to it (the test world's teamname holds 29 bytes), everywhere the same
+            r = save_team_name(app, 7, std::string(70, 'x'), "", "");
+            CHECK(r.ok && r.live && app.db.get(*t, rec, *t->field("teamname"), v) && v.s.size() == 29 && fake.shows("TeamName_7") == v.s,
+                  fmt("cut to the test field's 29 bytes (%zu), the game shows the same", v.s.size()));
+            // a second service (the host gives a new one): the store goes to it once
+            FakeNames other;
+            app.team_names_service = &other;
+            ui.frames(1);
+            CHECK(other.publishes == 1 && other.shows("TeamName_7") == v.s, "published to a new service once");
+            app.team_names_service = &fake;
+            ui.frames(1);
+            // a Turbo restart: the store is read back
+            {
+                App again(mem, le, 0, "restart");
+                CHECK(again.team_names.find(7) && again.team_names.find(7)->name() == v.s && again.team_names_error.empty(),
+                      "read back at start-up: " + again.team_names_error);
+            }
+            // leave team 7 as the later cases know it (database and file); Turbo's store emptied
+            r = save_team_name(app, 7, "Everton", "", "");
+            CHECK(r.ok && r.line == "Saved: shown in the game now.", "name restored: " + r.line);
+            CHECK(app.model.team_name(7) == "Everton" && fake.shows("TeamName_Abbr3_7") == "EVE", "model shows the restored name: " + app.model.team_name(7));
+            app.team_names = tnames::Store{};
+            fs::remove(store);
         });
 
         run_case("UI: Teams > Colours: team and kit colours, validated writes", [&] {
@@ -10253,6 +10625,8 @@ int main(int argc, char** argv) {
     std::printf("native voice swaps\n");
     test_callname_voice();
     test_callname_voice_host();
+    std::printf("native live team names\n");
+    test_team_names_live();
     std::printf("native UI\n");
     try {
         test_ui();

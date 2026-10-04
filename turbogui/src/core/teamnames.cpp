@@ -40,6 +40,20 @@ std::string clean_team_name(const std::string& s, size_t max_bytes) {
     return out;
 }
 
+std::string clean_team_abbr(const std::string& s, size_t max_chars) {
+    std::string out = clean_team_name(s, max_chars * 4);
+    size_t chars = 0, i = 0;
+    for (; i < out.size(); ++i) {
+        if ((static_cast<unsigned char>(out[i]) & 0xC0) == 0x80) continue;  // continuation byte
+        if (chars == max_chars) break;
+        ++chars;
+    }
+    out.resize(i);
+    size_t e = out.find_last_not_of(" \t");
+    out.resize(e == std::string::npos ? 0 : e + 1);
+    return out;
+}
+
 bool TeamNamesCsv::load(const fs::path& file, std::string* err) {
     rows_.clear();
     loaded_ = false;
@@ -197,9 +211,9 @@ void TeamNamesCsv::set_team_names(int64_t teamid, const std::string& full, const
                                   const std::string& a15) {
     TeamNameKeys k = team_name_keys(teamid);
     set(k.full, clean_team_name(full));
-    set(k.abbr3, clean_team_name(a3, 3));
-    set(k.abbr10, clean_team_name(a10, 10));
-    set(k.abbr15, clean_team_name(a15, 15));
+    set(k.abbr3, clean_team_abbr(a3, 3));
+    set(k.abbr10, clean_team_abbr(a10, 10));
+    set(k.abbr15, clean_team_abbr(a15, 15));
 }
 
 }  // namespace turbo

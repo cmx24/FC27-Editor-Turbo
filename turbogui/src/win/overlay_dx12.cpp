@@ -31,6 +31,7 @@
 #include "standings_refresh_win.h"
 #include "transfer_list_win.h"
 #include "match_setup_win.h"
+#include "teamname_override_win.h"
 #include "game_hooks.h"
 #include "host.h"
 #include "imgui.h"
@@ -954,11 +955,16 @@ bool start_overlay(HMODULE) {
     g_app->match_setup = match_setup_service();
     // spoken callnames through the game's audio service (commentary_audio_win.cpp): calls on the game thread, no hook
     install_commentary_audio(*g_app);
+    // live team names (teamname_override_win.cpp): the game's localization lookup answers the clubs renamed in Teams >
+    // Name at once, above Live Editor's own team-names hook; the App publishes its store on the next tick
+    install_team_names();
+    g_app->team_names_service = team_names_service();
     g_app->hook_report = []() {
         turbo::HookReport r = game_hooks_report();
         r.calls = game_calls_status();
         for (const auto& line : commentary_audio_status()) r.calls.push_back(line);
         for (const auto& line : callname_voice_status()) r.calls.push_back(line);
+        for (const auto& line : team_names_status()) r.calls.push_back(line);
         return r;
     };
     install_player_capture(*g_app);  // miniface from the 3D model (player_capture_win.cpp): needs the game hooks above

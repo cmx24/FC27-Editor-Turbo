@@ -26,6 +26,7 @@
 #include "core/sigscan.h"
 #include "core/standings_refresh.h"
 #include "core/t3db.h"
+#include "core/teamname_override.h"
 #include "nlohmann/json.hpp"
 #include "textures.h"
 
@@ -199,6 +200,19 @@ public:
     bool voice_forget_all();
     void voice_publish();                     // build_table(voice_store) to the service (nothing without one)
     std::string voice_status_line() const;    // "Voice swaps: on | 3 swaps | lines changed 57 | kick-off set 2"
+    // ---- live team names (core/teamname_override.h, Teams > Name): the names saved there are given to the game by the
+    // host's hook at once (no restart). The store (turbo_output\team_names.json, all careers) is loaded at start-up and
+    // published to the service then and after every save; the GUI tick refreshes the kill switches every 2 s.
+    tnames::Service* team_names_service = nullptr;  // the host's (win/teamname_override_win.cpp); nullptr = off; tests set a fake
+    tnames::Store team_names;
+    std::string team_names_error;                   // the store's last load / save note ("" = fine)
+    bool team_names_live() const { return team_names_service && team_names_service->available(); }
+    std::string team_names_why_off() const;         // "" when live
+    void team_names_publish();                      // the store to the service (nothing without one)
+    // Keep a club's names (stamped now), publish them, save the store. false (*err) when the file was not written; the
+    // names are published for this session anyway
+    bool team_names_keep(tnames::Entry e, std::string* err);
+    std::string team_names_status_line() const;     // "Live team names: on | 2 renamed clubs | names given 57"
     // Managers > Manager rules (features/manager_rules.lua) and Manager market (features/manager_move.lua)
     std::string manager_rules_status;
     int manager_rules_score = 70;     // score typed for "Set score"
@@ -238,6 +252,10 @@ private:
     const voice::Service* voice_published_to_ = nullptr;  // the service the store was last published to
     double voice_next_switches_ = 0.0;                    // next refresh_switches() (every 2 s)
     bool voice_unreadable_ = false;  // the store could not be read at start-up: never overwritten
+    void load_team_names();          // constructor: turbo_output\team_names.json
+    const tnames::Service* team_names_published_to_ = nullptr;  // the service the store was last published to
+    double team_names_next_switches_ = 0.0;                     // next refresh_switches() (every 2 s)
+    bool team_names_unreadable_ = false;  // the store could not be read at start-up: never overwritten
     void load_reapply();             // constructor: turbo_output\reapply_edits.json
     bool save_reapply();             // after every change of the store; false (reapply_error set) when not written
     void maybe_reapply();            // refresh(): re-apply once per newly loaded career

@@ -2,9 +2,10 @@
 //
 // Live Editor shows the names in <Live Editor>\extensions\global\custom_team_names.csv instead of the database's
 // teams.teamname (format "key;value"; keys TeamName_<id>, TeamName_Abbr3_<id>, TeamName_Abbr10_<id>,
-// TeamName_Abbr15_<id>). Live Editor reads that file when it starts, so a change shows after its next start.
+// TeamName_Abbr15_<id>). Live Editor reads that file when it starts, so a change in it shows after its next start.
 // Turbo keeps every other row as it is, writes the file atomically and copies the previous file to
-// turbo_output\team_name_backups first.
+// turbo_output\team_name_backups first. Since 1.1.1 Turbo also gives the game the names at once through its own hook
+// (core/teamname_override.h); this file is written too, for when that hook is off.
 #pragma once
 #include <cstdint>
 #include <filesystem>
@@ -61,5 +62,8 @@ std::filesystem::path team_names_backup_dir(const std::filesystem::path& le_root
 // A value Live Editor can read: no ';', no line breaks, trimmed, at most max_bytes (teams.teamname holds 59 + NUL),
 // never cutting a UTF-8 sequence in half
 std::string clean_team_name(const std::string& s, size_t max_bytes = 59);
+// A short form (Abbr3 / Abbr10 / Abbr15): cleaned the same way, cut to at most max_chars characters (not bytes, so
+// "ÖST" is a 3-letter code), trailing spaces trimmed
+std::string clean_team_abbr(const std::string& s, size_t max_chars);
 
 }  // namespace turbo

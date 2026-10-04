@@ -3,6 +3,28 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.1.1 (playtest fixes)
+
+Not yet released or checked in game.
+
+### Changed
+
+- **Team names: edit, Save, done.** Teams > Name is now one form (Name, Short name, 3-letter code) with one **Save**
+  button. Save shows the new name in the game at once: no Live Editor restart, no Reload, no screen to visit first.
+  Screens opened after Save should show it (career hub, fixtures, tables, news, the next match's scoreboard: to be
+  confirmed in game); a screen that is already open behind Turbo shows it once you leave it and come back, and the
+  line under Save says so. An
+  empty short name or code is made from the name (the box shows what will be used). The line above the form says
+  whether live names are on; when they are off (unknown game version, a kill switch) it says why, and Save still
+  writes Live Editor's file, so the name shows after Live Editor's next start as before.
+- How: Turbo answers the game's own text lookup for the clubs you renamed (`LocImpl::Lookup`, one level above Live
+  Editor's own team-names hook, which keeps working for every other text). Renamed clubs are kept in
+  `turbo_output\team_names.json` for every career and given to the game again at every start. Save also writes
+  `teams.teamname` and Live Editor's `custom_team_names.csv` as before. Kill switch:
+  `turbo_output\team_names_hook_off.txt`. Status tab: "Live team names: on | 2 renamed clubs | names given to the
+  game 57".
+- A 3-letter code or short name with accented letters is now cut by letters, not bytes ("ÖST" stays whole).
+
 ## 1.1.0 (voice swaps: any player gets any real or generic callname in matches)
 
 Not yet released or checked in game.

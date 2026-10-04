@@ -384,6 +384,25 @@ static const SignatureTable kBuiltin[] = {
          {"speech_param_set_int_store", "41 80 78 44 00 75 3D 44 89 26 C6 46 44 01", "none", 0,
           "layout guard 0x1407AFAA7 (in ParamValue::SetInt 0x1407AFA58): single value when desc +0x44 == 0, then value +0x00 "
           "and set flag +0x44 = 1 (the store the voice detour copies)"},
+         // Live team names (core/teamname_override.h, win/teamname_override_win.cpp): the localization lookup every
+         // "TeamName[_AbbrN]_<id>" string goes through, ABOVE Live Editor's hook on StrTab::GetString. Every pattern is
+         // unique in the whole image (scripts/re/check_signatures.py).
+         {"loc_lookup",
+          "48 89 5C 24 08 48 89 74 24 10 55 57 41 54 41 56 41 57 48 8B EC 48 83 EC 70 45 33 F6 45 8B E1 4D 8B F8 48 8B DA 48 8B "
+          "F9 4D 85 C0 0F 84 ?? ?? ?? ?? 49 8B C8 E8 ?? ?? ?? ?? 48",
+          "none", 0, "int LocImpl::Lookup(this, eastl::string* out, const char* key, int mode) 0x1421E2120 (vtable slots of the "
+                     "LocalizationService at 0x14C283340 reach it; mode 0 = \"<key>_upper\"): hooked by team_names"},
+         {"eastl_string_assign_cstr",
+          "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 54 41 56 41 57 48 83 EC 20 48 8B F2 48 8B F9 48 83 C8 FF "
+          "48 FF C0 80 3C 02 00 75 F7 4C 8D 3C 10 BB 0F 00 00 00 0F BE 41 0F",
+          "none", 0, "eastl::string& eastl::string::assign(this, const char*) 0x1406C04D4 (strlen, then the SSO byte +0xF): the "
+                     "only way the team_names detour writes Lookup's `out`"},
+         {"loc_lookup_out_assign", "48 8D 15 ?? ?? ?? ?? 48 8B CB E8 ?? ?? ?? ?? 48 8D 55 C8 48 8B CB E8 ?? ?? ?? ?? 45 85 E4", "rip", 10,
+          "layout guard 0x1421E2230 (Lookup + 0x110): Lookup's own `out = \"*\"` call, which must resolve to "
+          "eastl_string_assign_cstr (out is rbx, the second argument)"},
+         {"loc_strtab_get", "49 8B C8 E8 ?? ?? ?? ?? 44 8B C0 49 8B D2 49 8B CB 48 83 C4 28 E9 ?? ?? ?? ?? 48", "none", -10,
+          "StrTab::GetString(table, out, key) 0x140B1C034, anchored at +10 because Live Editor's jmp [rip] owns the first 10 "
+          "bytes: report only (Live Editor's custom team names), never hooked"},
      }},
 };
 

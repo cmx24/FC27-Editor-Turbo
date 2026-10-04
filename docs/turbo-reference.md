@@ -255,11 +255,40 @@ club's transfer budget. The probe scripts that found the above are in `C:\FC 27 
 
 ## Team name, colours and crest (Teams tab, 0.4)
 
-- **Name** (`ui/ui_identity.cpp`, `core/teamnames.*`): writes `teams.teamname` (validated through `Database::set`) and the
-  four rows Live Editor itself reads from `<LE>\extensions\global\custom_team_names.csv` (`TeamName_<id>`,
-  `TeamName_Abbr3_<id>`, `TeamName_Abbr10_<id>`, `TeamName_Abbr15_<id>`; `key;value`, other rows kept, written as
-  `.tmp` + rename, previous file copied to `turbo_output\team_name_backups`). Live Editor reads that file when it starts,
-  so the game shows the new name after Live Editor's next start; the UI says so.
+- **Name, live (1.1.1)** (`ui/ui_identity.cpp`, `core/teamname_override.*`, `win/teamname_override_win.cpp`,
+  `core/teamnames.*`; RE: `docs/re/team_names.md`). One form: **Name**, **Short name** (lists, fixtures; at most 15
+  letters), **3-letter code** (scoreboard), and one **Save**. An empty short name or code is made from the name
+  (shown as the box's hint: the whole name when it fits, else cut at a word end; the first three letters, upper case);
+  the 10-letter form the game also asks for is made from the short name. Save, in this order:
+  1. publishes the club's four strings to the `team_names` hook and keeps them in `turbo_output\team_names.json`
+     (`{"turbo_team_names": 1, "teams": [{"teamid", "name", "abbr15", "abbr10", "abbr3", "when"}]}`, every career, written
+     `.tmp` + rename; a file that cannot be parsed is set aside as `team_names.json.bad-<stamp>`, one that cannot be
+     opened is never overwritten). The game's next lookup of that club's name shows it;
+  2. writes `teams.teamname` (validated through `Database::set`; what Turbo's lists read);
+  3. writes the four rows of Live Editor's `<LE>\extensions\global\custom_team_names.csv` (`TeamName_<id>`,
+     `TeamName_Abbr3_<id>`, `TeamName_Abbr10_<id>`, `TeamName_Abbr15_<id>`; other rows kept, `.tmp` + rename, previous
+     file copied to `turbo_output\team_name_backups`): what shows after Live Editor's next start if the hook is off.
+
+  One line next to Save says the outcome: "Saved: shown in the game now." (plus "A game screen that is already open
+  shows it once you leave that screen and come back.": view models build their text once, `docs/re/team_names.md`), or
+  "Saved. The game shows it after Live Editor's next start (live names are off: <why>).", or "Not saved: <why>." with
+  nothing written. The line above the form says whether live names are on, and why not. Status tab: "Live team names:
+  on | 2 renamed clubs | names given to the game 57" and the hook line `team_names: on | ... | lookups | team-name keys |
+  names given`, plus whether Live Editor hooks `loc_strtab_get`.
+
+  **The hook** `team_names` on `loc_lookup` (`LocImpl::Lookup` `0x1421E2120`, `int (this, eastl::string* out, const char*
+  key, int mode)`): every localized string, one level ABOVE Live Editor's hook on StrTab::GetString `0x140B1C034`. The
+  original runs first; then a `[IWL_]TeamName[_Abbr15|_Abbr10|_Abbr3]_<id>` key (any case, parsed before the call) of a
+  club in the published table gets Turbo's text (upper case for mode 0, the game's `"_upper"` request; Windows'
+  `LCMapStringEx` invariant upper case, computed when the table is built) through the game's own
+  `eastl::string::assign(const char*)` `0x1406C04D4`, and the return value 1 (found). The detour reads atomics only (an
+  immutable table behind an atomic pointer; every published table is kept for the session), allocates nothing and takes
+  no lock. Installed only when `loc_lookup`, `eastl_string_assign_cstr` and the guard `loc_lookup_out_assign` (Lookup's
+  own `out = "*"` call at `+0x110`, which must resolve to that assign) all resolve and Lookup's entry carries no other
+  module's hook. Off switches (cached, re-read every 2 s): `turbo_output\team_names_hook_off.txt`,
+  `hook_team_names_off.txt`, `game_hooks_off.txt`, `TURBO_GUI_NO_GAME_HOOKS=1`; off = Save falls back to Live Editor's
+  file and says so. Clubs renamed only in Live Editor's CSV keep their CSV names (Live Editor answers them below the
+  hook). Not covered: clubs in GetTeamName's `TEAM_IDS` ini redirect (localized under another key).
 - **Colours**: `ImGui::ColorEdit3` pickers for `teams.teamcolor1..3`, `goalnetstanchioncolor1..2` and, per kit row of
   `teamkits` (`teamtechid == teamid`, grouped by `teamkittypetechid`), `teamcolorprim/sec/tert`, `jerseynamecolor`,
   `jerseynameoutlinecolor`, `jerseynumbercolorprim/sec/ter`, `shortsnumbercolorprim/sec/ter` plus the percent / font / template
