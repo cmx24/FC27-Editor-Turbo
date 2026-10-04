@@ -51,7 +51,7 @@ end)
 H.case("a Turbo.dll without turbo_game_pump (older build): one lookup, retried every 60 events, never an error", function()
     write_out("bridge_dll.json", { mailbox = string.format("0x%X", MB), session = "T", gui_version = "0.4.0", updated = os.time() })
     pump_result = nil
-    TURBO_STATE.bridge.pump, TURBO_STATE.bridge.pump_tries = nil, nil
+    TURBO_STATE.bridge.native_pump, TURBO_STATE.bridge.native_pump_tries = nil, nil
     local n = #loadlib_calls
     events(1)
     H.eq(TURBO_STATE.bridge.mailbox, MB, "mailbox connected")
@@ -62,12 +62,12 @@ H.case("a Turbo.dll without turbo_game_pump (older build): one lookup, retried e
     H.eq(#loadlib_calls, n + 1, "not retried on every event")
     events(1)
     H.eq(#loadlib_calls, n + 2, "retried after 60 more events")
-    H.eq(TURBO_STATE.bridge.pump, false, "remembered as missing")
+    H.eq(TURBO_STATE.bridge.native_pump, false, "remembered as missing")
 end)
 
 H.case("turbo_game_pump found: called on every career-mode event, on the event thread", function()
     pump_result = function() pumps = pumps + 1; return 0 end
-    TURBO_STATE.bridge.pump, TURBO_STATE.bridge.pump_tries = nil, nil
+    TURBO_STATE.bridge.native_pump, TURBO_STATE.bridge.native_pump_tries = nil, nil
     local n = #loadlib_calls
     events(1)
     H.eq(#loadlib_calls, n + 1, "looked up once")
@@ -81,10 +81,10 @@ H.case("turbo_game_pump found: called on every career-mode event, on the event t
 end)
 
 H.case("a pump that throws never breaks the event handler", function()
-    TURBO_STATE.bridge.pump = function() error("boom") end
+    TURBO_STATE.bridge.native_pump = function() error("boom") end
     local okh = pcall(events, 2)
     H.eq(okh, true, "event handler survives")
-    TURBO_STATE.bridge.pump = pump_result
+    TURBO_STATE.bridge.native_pump = pump_result
     events(1)
     H.eq(pumps, 8, "pumping resumes")
 end)

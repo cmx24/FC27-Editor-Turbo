@@ -405,7 +405,7 @@ void draw_hook_status(App& app) {
                 r.dispatcher_pumps, r.dispatcher_ran, r.dispatcher_failed, r.dispatcher_dropped, r.queued);
     ImGui::Text("  threads: tick %lu | Lua pump %lu | last drain %lu%s", static_cast<unsigned long>(r.tick_thread_id),
                 static_cast<unsigned long>(r.pump_thread_id), static_cast<unsigned long>(r.game_thread_id),
-                (r.tick_thread_id && r.pump_thread_id && r.tick_thread_id != r.pump_thread_id) ? "  (DIFFERENT: Lua stays on career events)" : "");
+                (r.tick_thread_id && r.pump_thread_id && r.tick_thread_id != r.pump_thread_id) ? "  (job-pool threads: both change from frame to frame)" : "");
     ImGui::TextWrapped("Prompt Lua commands (synthetic career event): %s | sent %lld | Lua pumped %lld",
                        r.lua_trigger.empty() ? "not available" : r.lua_trigger.c_str(), r.lua_triggers, r.lua_trigger_pumps);
     // Miniface from the 3D model (src/win/player_capture_win.cpp)

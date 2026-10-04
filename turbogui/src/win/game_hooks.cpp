@@ -313,12 +313,14 @@ void maybe_trigger_lua() {
         set_lua_note("waiting: no career-mode event seen yet (the thread Live Editor runs Lua on is unknown)");
         return;
     }
+    // Seen in game 04-10-2026: both the frame body (the "mainJob") and the career managers that post events run on the
+    // game's job-pool threads, so the tick thread and the thread Live Editor last ran Lua on change from frame to frame
+    // (tick 12192 then 27948, pump 38112 then 17876). Equality is not a usable gate; what serializes the Lua state is that
+    // real career events and this synthetic one are both posted from inside the frame body. Logged once, not refused.
     const uint32_t me = GetCurrentThreadId();
-    if (pump != me) {
-        set_lua_note("off: Live Editor runs Lua on thread " + std::to_string(pump) + ", the game tick is thread " +
-                     std::to_string(me) + " (the synthetic event would race the Lua state)");
-        return;
-    }
+    static std::atomic<bool> noted{false};
+    if (pump != me && !noted.exchange(true))
+        log("game thread: Live Editor last ran Lua on thread %lu, the tick is on thread %lu (job-pool threads; the synthetic event is sent from the frame body like real events)", pump, me);
     if (!post_event_hooked_now()) {
         set_lua_note("waiting: no inline hook on post_career_event yet (Live Editor's post__CareerModeEvent hook not seen)");
         return;

@@ -543,23 +543,24 @@ local PUMP_RETRY_EVENTS = 60
 -- An exported function of the running Turbo.dll (package.loadlib), cached in S[slot]; false = not found (retried
 -- every PUMP_RETRY_EVENTS calls, for an older Turbo.dll without that export). Only while the mailbox is live.
 local function native_export(slot, symbol)
+    -- cached under S.native_<slot>: a slot named like a state field (game_call = the last call outcome) must not collide
     if not S.mailbox then return nil end
-    local f = S[slot]
+    local f = S["native_" .. slot]
     if type(f) == "function" then return f end
-    local tries = (S[slot .. "_tries"] or 0) + 1
-    S[slot .. "_tries"] = tries
+    local tries = (S["native_" .. slot .. "_tries"] or 0) + 1
+    S["native_" .. slot .. "_tries"] = tries
     if f == false and (tries % PUMP_RETRY_EVENTS) ~= 1 then return nil end
     local path = M.gui_path()
     if not path or type(package) ~= "table" or type(package.loadlib) ~= "function" then
-        S[slot] = false
+        S["native_" .. slot] = false
         return nil
     end
     f = package.loadlib(path, symbol)
     if type(f) ~= "function" then
-        S[slot] = false
+        S["native_" .. slot] = false
         return nil
     end
-    S[slot] = f
+    S["native_" .. slot] = f
     log.info("Turbo.dll export %s found", symbol)
     return f
 end
