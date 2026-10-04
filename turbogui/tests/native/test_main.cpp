@@ -40,8 +40,10 @@
 #include "nlohmann/json.hpp"
 #include "ui/app.h"
 #include "ui/playstyles.h"
+#include "ui/ui_identity.h"
 #include "ui/ui_images.h"
 #include "ui/ui_presets.h"
+#include "core/teamnames.h"
 #include "test_pictures.h"
 
 namespace fs = std::filesystem;
@@ -1109,6 +1111,152 @@ static void test_ui() {
             CHECK(ui.find("1002", "##plist") != nullptr, "Players tab opened");
         });
 
+        run_case("UI: Teams > Name writes teams.teamname and Live Editor's custom_team_names.csv", [&] {
+            fs::path csvf = team_names_file(le);
+            fs::create_directories(csvf.parent_path());
+            std::ofstream(csvf, std::ios::binary) << "key;value\nTeamName_1318;England\n";
+            app.request_tab = 1;
+            ui.frames(2);
+            CHECK(ui.click("7", "##tlist"), "Everton row");
+            CHECK(ui.click("Name", "##tedit"), "Name tab");
+            ui.frames(2);
+            const ItemRec* full = ui.find("##nfull", "##tname");
+            CHECK(full != nullptr, "full name box");
+            CHECK(ui.type_into(full, "Everton Blues"), "type the name");
+            CHECK(ui.click("Save names", "##tname"), "Save names");
+            const Table* t = app.db.table("teams");
+            uint64_t rec = app.db.find(*t, "teamid", 7);
+            Value v;
+            CHECK(app.db.get(*t, rec, *t->field("teamname"), v) && v.s == "Everton Blues", "teams.teamname = Everton Blues (" + v.s + ")");
+            CHECK(app.model.team_name(7) == "Everton Blues", "model refreshed");
+            std::string text = read_file(csvf);
+            CHECK(text.find("TeamName_1318;England\n") != std::string::npos, "other club's row kept: " + text);
+            CHECK(text.find("TeamName_7;Everton Blues\n") != std::string::npos && text.find("TeamName_Abbr3_7;EVE\n") != std::string::npos &&
+                  text.find("TeamName_Abbr10_7;Everton Bl\n") != std::string::npos && text.find("TeamName_Abbr15_7;Everton Blues\n") != std::string::npos,
+                  "four Live Editor keys: " + text);
+            CHECK(ui.toast_contains("Live Editor shows it after its next start"), "toast says when it shows");
+            size_t backups = 0;
+            for (auto& e : fs::directory_iterator(team_names_backup_dir(le))) { (void)e; ++backups; }
+            CHECK(backups == 1, "previous csv backed up");
+            // a name longer than the field is refused before anything is written
+            std::string msg;
+            CHECK(apply_team_names(app, 7, std::string(70, 'x'), "", "", "", &msg), "long name cut to the field: " + msg);
+            CHECK(app.db.get(*t, rec, *t->field("teamname"), v) && v.s.size() == 29, fmt("cut to the test field's 29 bytes (%zu)", v.s.size()));
+            CHECK(!apply_team_names(app, 7, "   ", "", "", "", &msg) && msg.find("empty") != std::string::npos, "empty name refused");
+        });
+
+        run_case("UI: Teams > Colours: team and kit colours, validated writes", [&] {
+            CHECK(ui.click("Colours", "##tedit"), "Colours tab");
+            ui.frames(2);
+            // ColorEdit3 pushes the picker's own id ("##c") and draws its R / G / B boxes as ##X / ##Y / ##Z
+            CHECK(ui.find("##X", "##tcolours", "##c") != nullptr && ui.find("##Z", "##tcolours", "##c") != nullptr, "colour pickers drawn");
+            CHECK(ui.find("Home kit (type 0, kit id 70)", "##tcolours") != nullptr, "Everton's home kit listed");
+            const Table* t = app.db.table("teams");
+            uint64_t rec = app.db.find(*t, "teamid", 7);
+            uint8_t rgb[3];
+            CHECK(read_colour(app, *t, rec, "teamcolor1", rgb) && rgb[0] == (7 * 37) % 256 && rgb[1] == (7 * 59) % 256 && rgb[2] == (7 * 83) % 256, "reads the three fields");
+            std::string msg;
+            uint8_t nv[3] = {12, 200, 255};
+            CHECK(write_colour(app, *t, rec, "teamcolor1", nv, &msg), "write: " + msg);
+            CHECK(app.db.get_int(*t, rec, "teamcolor1r") == 12 && app.db.get_int(*t, rec, "teamcolor1g") == 200 && app.db.get_int(*t, rec, "teamcolor1b") == 255, "written");
+            CHECK(!write_colour(app, *t, rec, "nosuchcolor", nv, &msg) && msg.find("not in FC 27") != std::string::npos, "missing fields refused: " + msg);
+            const Table* kt = app.db.table("teamkits");
+            uint64_t krec = app.db.find(*kt, "teamkitid", 70);
+            uint8_t kv[3] = {1, 2, 3};
+            CHECK(write_colour(app, *kt, krec, "teamcolorprim", kv, &msg) && app.db.get_int(*kt, krec, "teamcolorprimb") == 3, "kit colour written");
+            CHECK(kit_type_name(0) == std::string("Home") && kit_type_name(3) == std::string("Goalkeeper home"), "kit type names");
+        });
+
+        run_case("UI: Teams > Crest: picture -> custom files in each game variant's own format, backups, copy, remove", [&] {
+            // the game's crest files for Everton (7) and Arsenal (1), as the Lua side exports them, in mixed formats
+            fs::path cache = le / "turbo_output" / "cache" / "legacy";
+            auto game_file = [&](const std::string& path, const DdsFormat& f) {
+                Rgba img = solid(f.w, f.h, 20, 120, 20);
+                std::vector<uint8_t> dds = encode_dds(img, f);
+                fs::path dst = cache;
+                size_t st = 0;
+                while (st < path.size()) { size_t e = path.find('/', st); if (e == std::string::npos) e = path.size(); dst /= path.substr(st, e - st); st = e + 1; }
+                fs::create_directories(dst.parent_path());
+                std::ofstream(dst, std::ios::binary).write(reinterpret_cast<const char*>(dds.data()), std::streamsize(dds.size()));
+            };
+            auto F = [](DdsFormat::Pixel p, int n, int mips, bool dx10 = false) { DdsFormat f; f.pixel = p; f.w = f.h = n; f.mips = mips; f.dx10 = dx10; return f; };
+            std::map<std::string, DdsFormat> have = {
+                {legacy_path::crest(7, 0, "light"), F(DdsFormat::Pixel::BGRA8, 256, 1)},
+                {legacy_path::crest(7, 0, "dark"), F(DdsFormat::Pixel::DXT5, 256, 9)},
+                {legacy_path::crest(7, 16, "light"), F(DdsFormat::Pixel::BGRA8, 16, 1)},
+                {legacy_path::crest(7, 32, "dark"), F(DdsFormat::Pixel::DXT1, 32, 1, true)},
+                {legacy_path::crest(7, 50, "light"), F(DdsFormat::Pixel::BGRA8, 50, 2)},
+                {legacy_path::crest(1, 0, "light"), F(DdsFormat::Pixel::BGRA8, 256, 1)},
+            };
+            std::ofstream missing(cache / "missing.txt", std::ios::binary | std::ios::app);
+            for (int team : {7, 1})
+                for (const auto& v : crest_variants(team)) {
+                    auto it = have.find(v.path);
+                    if (it != have.end()) game_file(v.path, it->second);
+                    else missing << v.path << "\n";
+                }
+            missing.close();
+            fs::path pics = le / "turbo_crests";
+            fs::create_directories(pics);
+            { std::ofstream f(pics / "badge.png", std::ios::binary); f.write(reinterpret_cast<const char*>(kTestPng), sizeof(kTestPng)); }
+            app.request_tab = 1;
+            ui.frames(2);
+            CHECK(ui.click("7", "##tlist"), "Everton");
+            CHECK(ui.click("Crest", "##tedit"), "Crest tab");
+            ui.frames(80);  // missing.txt is read once a second; the plan is rebuilt every half second while waiting
+            CrestPlan plan = crest_plan(app, 7);
+            CHECK(plan.ready() && plan.writable == 5 && plan.missing == 13, fmt("plan: writable %d waiting %d missing %d", plan.writable, plan.waiting, plan.missing));
+            CHECK(ui.click("badge.png", "##crestfiles2"), "picture in the Turbo crests folder");
+            ui.frames(2);
+            CHECK(ui.click("Save crest", "##tcrest"), "Save crest");
+            CHECK(ui.toast_contains("5 crest files written"), "toast");
+            fs::path mods = le / "mods" / "legacy";
+            for (const auto& kv : have) {
+                if (kv.first.find("/l1.dds") != std::string::npos) continue;
+                fs::path f = app.legacy.custom_file(kv.first);
+                CHECK(!f.empty(), "custom file for " + kv.first);
+                if (f.empty()) continue;
+                std::vector<uint8_t> bytes = file_bytes(f);
+                DdsFormat got;
+                std::string err;
+                CHECK(parse_dds_format(bytes, got, &err) && got.pixel == kv.second.pixel && got.w == kv.second.w && got.mips == kv.second.mips && got.dx10 == kv.second.dx10,
+                      "same format as the game's file: " + kv.first + " " + err);
+                Rgba img;
+                CHECK(decode_image(bytes, img, &err) && img.w == kv.second.w, "readable: " + err);
+                if (img.w >= 16) {
+                    int l = img.w / 4, r = img.w * 3 / 4, m = img.h / 2;
+                    CHECK(img.at(l, m)[0] > 180 && img.at(l, m)[2] < 60, "left red in " + kv.first);
+                    CHECK(img.at(r, m)[2] > 180 && img.at(r, m)[0] < 60, "right blue in " + kv.first);
+                    if (kv.second.pixel != DdsFormat::Pixel::DXT1) CHECK(std::abs(int(img.at(r, m)[3]) - 128) <= 10, "half transparent right side kept in " + kv.first);
+                }
+            }
+            CHECK(app.legacy.custom_file(legacy_path::crest(7, 16, "dark")).empty(), "a variant the game does not have is not written");
+            CHECK(app.legacy.locate(crest_main_path(7), nullptr) == LegacyImages::State::Custom, "now custom");
+            // saving again backs the previous files up in crest_backups, not with the minifaces
+            ui.frames(2);
+            CHECK(ui.click("Save crest", "##tcrest"), "save again");
+            size_t backups = 0;
+            for (auto& e : fs::directory_iterator(app.legacy.crest_backup_dir())) { (void)e; ++backups; }
+            CHECK(backups == 5, fmt("5 crest backups (%zu)", backups));
+            // Arsenal copies Everton's crest: only the files Arsenal's game has (crest/light)
+            std::string msg;
+            CHECK(copy_crest(app, 7, 1, &msg), "copy: " + msg);
+            CHECK(msg.find("1 crest files copied") == 0, "one file copied: " + msg);
+            CHECK(file_bytes(app.legacy.custom_file(legacy_path::crest(1, 0, "light"))) == file_bytes(app.legacy.custom_file(legacy_path::crest(7, 0, "light"))), "same bytes");
+            CHECK(app.legacy.custom_file(legacy_path::crest(1, 0, "dark")).empty(), "Arsenal has no dark crest: not written");
+            CHECK(!copy_crest(app, 7, 7, &msg), "same team refused");
+            // remove
+            CHECK(ui.click("Remove custom crest", "##tcrest"), "Remove");
+            ui.frames(2);
+            CHECK(ui.click("Remove", "##rmcrest"), "confirm");
+            CHECK(app.legacy.custom_file(crest_main_path(7)).empty() && app.legacy.custom_file(legacy_path::crest(7, 50, "light")).empty(), "custom crest files removed");
+            CHECK(ui.toast_contains("5 custom crest files removed"), "toast");
+            CHECK(!remove_crest(app, 7, &msg) && msg.find("no custom") != std::string::npos, "nothing left to remove");
+            // apply refuses while the game's files are unknown
+            Rgba src = solid(64, 64, 1, 2, 3);
+            CHECK(!apply_crest(app, 241, src, Framing(), false, 40, &msg) && msg.find("not loaded yet") != std::string::npos, "unknown formats: refused (" + msg + ")");
+        });
+
         run_case("UI: Managers, edit text within the field's byte limit", [&] {
             CHECK(ui.click("Managers"), "Managers tab");
             CHECK(ui.click("502##m1", "##mlist"), "Moyes row");
@@ -1926,6 +2074,111 @@ static void test_images() {
         CHECK(L.cached_files() == 0 && L.generation() > g0, "cache empty, new generation");
         CHECK(read_file(L.cache_dir() / "want.txt").find("#gen " + std::to_string(L.generation())) == 0, "new generation published");
         CHECK(L.locate(b, &f) == LegacyImages::State::Waiting, "missing list forgotten with the cache");
+    });
+
+    run_case("pictures: DDS format read and written back the same way (crests: BGRA8, DXT5 + mips, DXT1, DXT3, 50 x 50, DX10)", [&] {
+        auto gradient = [](int n) {
+            Rgba img(solid(n, n, 0, 0, 0));
+            for (int y = 0; y < n; ++y)
+                for (int x = 0; x < n; ++x) {
+                    uint8_t* q = img.at(x, y);
+                    q[0] = uint8_t(x * 255 / std::max(1, n - 1)); q[1] = uint8_t(y * 255 / std::max(1, n - 1)); q[2] = 90;
+                    q[3] = (x < n / 4) ? 0 : 255;  // transparent left strip
+                }
+            return img;
+        };
+        std::string err;
+        // plain 256 x 256 B8G8R8A8 like FC Editor's crests, no mips
+        DdsFormat f;
+        f.pixel = DdsFormat::Pixel::BGRA8; f.w = f.h = 256; f.mips = 1;
+        std::vector<uint8_t> dds = encode_dds(gradient(256), f, &err);
+        CHECK(dds.size() == 128 + 256 * 256 * 4, fmt("BGRA8 size %zu (%s)", dds.size(), err.c_str()));
+        CHECK(le32(dds, 8) == (0x1007 | 0x8) && le32(dds, 20) == 1024 && le32(dds, 80) == 0x41 && le32(dds, 88) == 32, "BGRA8 header: pitch, RGB|ALPHA, 32 bits");
+        CHECK(le32(dds, 92) == 0x00FF0000 && le32(dds, 100) == 0x000000FF && le32(dds, 104) == 0xFF000000, "BGRA masks");
+        DdsFormat back;
+        CHECK(parse_dds_format(dds, back, &err) && back.pixel == DdsFormat::Pixel::BGRA8 && back.w == 256 && back.mips == 1 && !back.dx10, "parsed back: " + err);
+        Rgba img;
+        CHECK(decode_image(dds, img, &err) && img.w == 256, "decodes: " + err);
+        CHECK(img.at(200, 10)[0] == 200 && img.at(200, 10)[1] == 10 && img.at(200, 10)[2] == 90 && img.at(200, 10)[3] == 255, "BGRA8 exact pixels");
+        CHECK(img.at(5, 5)[3] == 0, "transparency kept");
+        // the original header is reused when the format came from a file (same bytes except the pitch)
+        std::vector<uint8_t> hdr = dds;
+        hdr[32] = 'T'; hdr[33] = 'X';  // reserved bytes of the original header
+        DdsFormat from_file;
+        CHECK(parse_dds_format(hdr, from_file, &err) && from_file.header.size() == 128, "header kept");
+        std::vector<uint8_t> again = encode_dds(gradient(256), from_file, &err);
+        CHECK(again.size() == hdr.size() && again[32] == 'T' && again[33] == 'X', "original header bytes written back");
+        // DXT5 with a full mip chain (256 -> 1 = 9 levels)
+        f.pixel = DdsFormat::Pixel::DXT5; f.mips = 9;
+        dds = encode_dds(gradient(256), f, &err);
+        size_t expect = 128;
+        for (int n = 256; n >= 1; n /= 2) expect += size_t((n + 3) / 4) * size_t((n + 3) / 4) * 16;
+        CHECK(dds.size() == expect, fmt("DXT5 9 mips size %zu / %zu", dds.size(), expect));
+        CHECK((le32(dds, 8) & 0x20000) && le32(dds, 28) == 9 && (le32(dds, 108) & 0x400000) && std::memcmp(dds.data() + 84, "DXT5", 4) == 0, "mip flags, DXT5");
+        CHECK(parse_dds_format(dds, back, &err) && back.pixel == DdsFormat::Pixel::DXT5 && back.mips == 9, "DXT5 parsed back");
+        CHECK(decode_image(dds, img, &err) && img.w == 256 && img.at(5, 5)[3] == 0 && img.at(200, 10)[3] == 255, "DXT5 top level decodes with alpha");
+        // DXT1 and DXT3 (DXT3 keeps 4-bit alpha), 50 x 50 = sizes that are not multiples of 4
+        f.pixel = DdsFormat::Pixel::DXT1; f.mips = 1; f.w = f.h = 50;
+        dds = encode_dds(gradient(50), f, &err);
+        CHECK(dds.size() == 128 + 13 * 13 * 8, fmt("DXT1 50x50 size %zu", dds.size()));
+        CHECK(decode_image(dds, img, &err) && img.w == 50 && img.h == 50 && std::abs(int(img.at(40, 40)[1]) - 208) <= 24, "DXT1 50x50 decodes: " + err);
+        f.pixel = DdsFormat::Pixel::DXT3;
+        dds = encode_dds(gradient(50), f, &err);
+        CHECK(dds.size() == 128 + 13 * 13 * 16 && std::memcmp(dds.data() + 84, "DXT3", 4) == 0, "DXT3 50x50");
+        CHECK(decode_image(dds, img, &err) && img.at(2, 2)[3] == 0 && img.at(40, 40)[3] == 255, "DXT3 alpha");
+        // 50 x 50 BGRA8 with 2 mips (50 -> 25)
+        f.pixel = DdsFormat::Pixel::BGRA8; f.mips = 2;
+        dds = encode_dds(gradient(50), f, &err);
+        CHECK(dds.size() == 128 + 50 * 50 * 4 + 25 * 25 * 4, fmt("BGRA8 50x50 2 mips size %zu", dds.size()));
+        // DX10 header
+        f.pixel = DdsFormat::Pixel::RGBA8; f.mips = 1; f.dx10 = true; f.w = f.h = 32;
+        dds = encode_dds(gradient(32), f, &err);
+        CHECK(dds.size() == 148 + 32 * 32 * 4 && std::memcmp(dds.data() + 84, "DX10", 4) == 0 && le32(dds, 128) == 28, "DX10 RGBA8");
+        CHECK(parse_dds_format(dds, back, &err) && back.dx10 && back.pixel == DdsFormat::Pixel::RGBA8 && back.header.size() == 148, "DX10 parsed back");
+        CHECK(decode_image(dds, img, &err) && img.at(20, 3)[0] == uint8_t(20 * 255 / 31), "DX10 RGBA8 decodes");
+        // refusals
+        CHECK(encode_dds(gradient(16), f, &err).empty() && err.find("size") != std::string::npos, "wrong picture size refused: " + err);
+        std::vector<uint8_t> bad = dds;
+        bad[84] = 'A'; bad[85] = 'T'; bad[86] = 'I'; bad[87] = '2';
+        CHECK(!parse_dds_format(bad, back, &err) && !err.empty(), "unknown FourCC refused: " + err);
+        Rgba half = halve_image(gradient(50));
+        CHECK(half.w == 25 && half.h == 25 && halve_image(half).w == 12 && halve_image(solid(1, 1, 1, 1, 1)).w == 1, "halving sizes");
+        // crest paths
+        CHECK(legacy_path::crest(7, 0, "light") == "data/ui/imgAssets/crest/light/l7.dds", "big crest path");
+        CHECK(legacy_path::crest(7, 32, "dark") == "data/ui/imgAssets/crest32x32/dark/l7.dds", "32 x 32 dark path");
+        CHECK(crest_variants(7).size() == 18 && crest_main_path(7) == legacy_path::crest(7, 0, "light"), "18 variants");
+        for (const auto& v : crest_variants(115845)) CHECK(legacy_path::valid(v.path), "valid: " + v.path);
+    });
+
+    run_case("team names: Live Editor's custom_team_names.csv read, set, other rows kept, atomic save with backup", [&] {
+        fs::path le = g_out / "names_le";
+        fs::remove_all(le);
+        fs::path file = team_names_file(le);
+        CHECK(file == le / "extensions" / "global" / "custom_team_names.csv", "file location");
+        TeamNamesCsv csv;
+        std::string err;
+        CHECK(csv.load(file, &err) && csv.size() == 0 && csv.loaded(), "missing file = empty list");
+        csv.set_team_names(115845, "Atalanta BC", "", "Atalanta", "Atalanta BC");
+        CHECK(csv.get("TeamName_115845") == "Atalanta BC" && !csv.has("TeamName_Abbr3_115845"), "empty abbreviation = no row");
+        fs::path bk;
+        CHECK(csv.save(file, team_names_backup_dir(le), &err, &bk) && bk.empty(), "first save, nothing to back up: " + err);
+        CHECK(read_file(file) == "key;value\nTeamName_115845;Atalanta BC\nTeamName_Abbr10_115845;Atalanta\nTeamName_Abbr15_115845;Atalanta BC\n", "file text: " + read_file(file));
+        // a file as the user has it (CRLF, other rows, a comment) is kept as it is
+        std::ofstream(file, std::ios::binary) << "key;value\r\nTeamName_1;Arsenal FC\r\n# note\r\nTeamName_Abbr3_1;ARS\r\nTeamName_115845;Atalanta\r\n";
+        TeamNamesCsv c2;
+        CHECK(c2.load(file, &err) && c2.size() == 5 && c2.get("TeamName_Abbr3_1") == "ARS", "loaded 5 rows");
+        c2.set("TeamName_115845", "Bergamo Calcio");
+        c2.set("TeamName_Abbr3_115845", "BER");
+        c2.set("TeamName_Abbr3_1", "");  // removed
+        CHECK(c2.save(file, team_names_backup_dir(le), &err, &bk), "save: " + err);
+        CHECK(!bk.empty() && read_file(bk).find("TeamName_115845;Atalanta\r\n") != std::string::npos, "previous file backed up");
+        std::string text = read_file(file);
+        CHECK(text == "key;value\r\nTeamName_1;Arsenal FC\r\n# note\r\nTeamName_115845;Bergamo Calcio\r\nTeamName_Abbr3_115845;BER\r\n", "rows kept in place, CRLF kept: " + text);
+        CHECK(!fs::exists(file.string() + ".tmp"), "no temp file left");
+        CHECK(clean_team_name("  A;B\nC  ") == "ABC" && clean_team_name("Borussia Moenchengladbach 1900", 10) == "Borussia M", "cleaning and cutting");
+        CHECK(clean_team_name("\xC3\x89\xC3\x89", 3) == "\xC3\x89", "no half UTF-8 sequence");
+        TeamNameKeys k = team_name_keys(5);
+        CHECK(k.full == "TeamName_5" && k.abbr3 == "TeamName_Abbr3_5" && k.abbr10 == "TeamName_Abbr10_5" && k.abbr15 == "TeamName_Abbr15_5", "keys");
     });
 }
 

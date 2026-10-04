@@ -45,4 +45,24 @@ size_t remove_plain_background(Rgba& img, int tolerance = 40);
 // DDS file with one DXT5 surface (no mipmaps, like FC 27's own minifaces). Width and height must be multiples of 4.
 std::vector<uint8_t> encode_dds_dxt5(const Rgba& img);
 
+// The layout of an existing DDS file (a game crest, for example), so a replacement can be written the same way:
+// same size, same pixel format, same number of mipmaps, same header style (legacy or DX10).
+struct DdsFormat {
+    enum class Pixel { BGRA8, RGBA8, BGRX8, BGR8, DXT1, DXT3, DXT5 };
+    Pixel pixel = Pixel::BGRA8;
+    int w = 0, h = 0;
+    int mips = 1;
+    bool dx10 = false;
+    std::vector<uint8_t> header;  // the original file's header (128 or 148 bytes); empty = build a plain one
+    const char* name() const;     // "BGRA8", "DXT5", ...
+    bool compressed() const { return pixel == Pixel::DXT1 || pixel == Pixel::DXT3 || pixel == Pixel::DXT5; }
+};
+// Read the format of a DDS file. false with a reason for formats Turbo cannot write back.
+bool parse_dds_format(const std::vector<uint8_t>& bytes, DdsFormat& out, std::string* err = nullptr);
+// Write `img` (which must be f.w x f.h) as a DDS file in that format, with f.mips mip levels (box filtered).
+// Sizes that are not multiples of 4 are allowed for the compressed formats (edge texels repeat, as DirectX does).
+std::vector<uint8_t> encode_dds(const Rgba& img, const DdsFormat& f, std::string* err = nullptr);
+// Half-size picture (2x2 box filter, premultiplied); odd sizes drop the last row / column, 1 stays 1
+Rgba halve_image(const Rgba& src);
+
 }  // namespace turbo

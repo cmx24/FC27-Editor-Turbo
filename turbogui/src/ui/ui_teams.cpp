@@ -5,6 +5,7 @@
 
 #include "app.h"
 #include "imgui.h"
+#include "ui_identity.h"
 #include "ui_images.h"
 
 namespace turbo {
@@ -117,10 +118,14 @@ static void team_editor(App& app) {
         ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "The database changed (another save loaded?). Press Refresh.");
         return;
     }
-    ImGui::Text("%s", tr->name.c_str());
+    // crest thumbnail (custom file first: what the game shows)
+    draw_legacy_picture(app, crest_main_path(tr->teamid), S(40.0f), true);
     ImGui::SameLine();
+    ImGui::BeginGroup();
+    ImGui::Text("%s", tr->name.c_str());
     ImGui::TextDisabled("ID %lld | OVR %d%s", static_cast<long long>(tr->teamid), tr->overall,
                         app.model.is_national_team(tr->teamid) ? " | national team" : "");
+    ImGui::EndGroup();
     ImGui::Separator();
     if (ImGui::BeginTabBar("##ttabs")) {
         if (ImGui::BeginTabItem("Overview")) {
@@ -131,6 +136,24 @@ static void team_editor(App& app) {
         }
         if (ImGui::BeginTabItem("Squad")) {
             squad_table(app, tr->teamid);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Name")) {
+            ImGui::BeginChild("##tname");
+            team_name_editor(app, *t, tr->rec, tr->teamid);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Colours")) {
+            ImGui::BeginChild("##tcolours");
+            team_colours_editor(app, *t, tr->rec, tr->teamid);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Crest")) {
+            ImGui::BeginChild("##tcrest");
+            crest_editor(app, tr->teamid);
+            ImGui::EndChild();
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("All fields")) {

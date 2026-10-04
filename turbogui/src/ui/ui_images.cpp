@@ -125,7 +125,7 @@ std::vector<std::pair<std::string, fs::path>> browser_shortcuts() {
 }
 
 // Modal browser; returns true when a picture file was chosen (out)
-static bool file_browser_modal(const char* id, fs::path& cur_dir, fs::path& out) {
+bool file_browser_modal(const char* id, fs::path& cur_dir, fs::path& out) {
     bool chosen = false;
     ImGui::SetNextWindowSize(ImVec2(S(640.0f), S(480.0f)), ImGuiCond_Appearing);
     if (ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_NoSavedSettings)) {

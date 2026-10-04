@@ -105,7 +105,10 @@ local function build_world(sim)
     local trows = {}
     for _, t in ipairs(TEAMS) do
         trows[#trows + 1] = { teamid = t[1], teamname = t[2], overallrating = t[3], transferbudget = 1000000 * t[1] % 2000000000,
-                              domesticprestige = 5, clubworth = 900000 }
+                              domesticprestige = 5, clubworth = 900000,
+                              teamcolor1r = (t[1] * 37) % 256, teamcolor1g = (t[1] * 59) % 256, teamcolor1b = (t[1] * 83) % 256,
+                              teamcolor2r = 255, teamcolor2g = 255, teamcolor2b = 255, teamcolor3r = 0, teamcolor3g = 0, teamcolor3b = 0,
+                              goalnetstanchioncolor1r = 200, goalnetstanchioncolor1g = 200, goalnetstanchioncolor1b = 200 }
     end
     sim:add_table({
         name = "teams", short = "lyxL",
@@ -116,8 +119,31 @@ local function build_world(sim)
             { name = "transferbudget", short = "tbud", depth = 31 },
             { name = "domesticprestige", short = "dpre", depth = 5 },
             { name = "clubworth", short = "cwor", depth = 31 },
+            { name = "teamcolor1r", short = "tc1r", depth = 8 }, { name = "teamcolor1g", short = "tc1g", depth = 8 }, { name = "teamcolor1b", short = "tc1b", depth = 8 },
+            { name = "teamcolor2r", short = "tc2r", depth = 8 }, { name = "teamcolor2g", short = "tc2g", depth = 8 }, { name = "teamcolor2b", short = "tc2b", depth = 8 },
+            { name = "teamcolor3r", short = "tc3r", depth = 8 }, { name = "teamcolor3g", short = "tc3g", depth = 8 }, { name = "teamcolor3b", short = "tc3b", depth = 8 },
+            { name = "goalnetstanchioncolor1r", short = "gn1r", depth = 8 }, { name = "goalnetstanchioncolor1g", short = "gn1g", depth = 8 },
+            { name = "goalnetstanchioncolor1b", short = "gn1b", depth = 8 },
         },
         rows = trows,
+    })
+    -- kits (Teams > Colours): Arsenal home + away, Everton home
+    sim:add_table({
+        name = "teamkits", short = "tkit",
+        fields = {
+            { name = "teamtechid", short = "ttid", depth = 18, min = -1 }, { name = "teamkitid", short = "tkid", depth = 16 },
+            { name = "teamkittypetechid", short = "tktt", depth = 5 },
+            { name = "teamcolorprimr", short = "tcpr", depth = 8 }, { name = "teamcolorprimg", short = "tcpg", depth = 8 }, { name = "teamcolorprimb", short = "tcpb", depth = 8 },
+            { name = "teamcolorsecr", short = "tcsr", depth = 8 }, { name = "teamcolorsecg", short = "tcsg", depth = 8 }, { name = "teamcolorsecb", short = "tcsb", depth = 8 },
+            { name = "jerseynamecolorr", short = "jncr", depth = 8 }, { name = "jerseynamecolorg", short = "jncg", depth = 8 }, { name = "jerseynamecolorb", short = "jncb", depth = 8 },
+            { name = "teamcolorprimpercent", short = "tcpp", depth = 7 },
+        },
+        rows = { { teamtechid = 1, teamkitid = 10, teamkittypetechid = 0, teamcolorprimr = 239, teamcolorprimg = 1, teamcolorprimb = 7,
+                   teamcolorsecr = 255, teamcolorsecg = 255, teamcolorsecb = 255, jerseynamecolorr = 255, jerseynamecolorg = 255, jerseynamecolorb = 255, teamcolorprimpercent = 80 },
+                 { teamtechid = 1, teamkitid = 11, teamkittypetechid = 1, teamcolorprimr = 255, teamcolorprimg = 230, teamcolorprimb = 0,
+                   teamcolorsecr = 0, teamcolorsecg = 0, teamcolorsecb = 60, jerseynamecolorr = 0, jerseynamecolorg = 0, jerseynamecolorb = 0, teamcolorprimpercent = 70 },
+                 { teamtechid = 7, teamkitid = 70, teamkittypetechid = 0, teamcolorprimr = 0, teamcolorprimg = 60, teamcolorprimb = 160,
+                   teamcolorsecr = 255, teamcolorsecg = 255, teamcolorsecb = 255, jerseynamecolorr = 255, jerseynamecolorg = 255, jerseynamecolorb = 255, teamcolorprimpercent = 90 } },
     })
     -- league tables (Competitions tab): Arsenal 3W 1D 0L 9:2, Everton 1W 1D 2L 3:6 in league 13; points left stale
     local LT = { [1] = { 2, 1, 0, 1, 0, 0, 5, 1, 4, 1, 0, 2 }, [7] = { 1, 0, 1, 0, 1, 1, 2, 2, 1, 4, 9, 1 } }
