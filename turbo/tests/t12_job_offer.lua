@@ -83,7 +83,8 @@ H.case("bridge game call: the mailbox call block carries op + args to Turbo.dll 
     local dll = { calls = {}, answer = { status = 1, text = "job offer sent on 20270115 (weekly wage 42000)", out0 = 20270115, out1 = 42000 } }
     local function fake_turbo_game_call()
         local seq = sim:r32(mb + SEQ)
-        dll.calls[#dll.calls + 1] = { op = sim:r32(mb + OP), seq = seq, jmm = sim:r64(mb + ARGS), team = sim:r64(mb + ARGS + 8) }
+        dll.calls[#dll.calls + 1] = { op = sim:r32(mb + OP), seq = seq, jmm = sim:r64(mb + ARGS), team = sim:r64(mb + ARGS + 8),
+                                      a3 = sim:r64(mb + ARGS + 16), a4 = sim:r64(mb + ARGS + 24) }
         local a = dll.answer
         sim:wstr(mb + TEXT, a.text)
         sim:w64(mb + OUT, a.out0 or 0)
@@ -140,6 +141,30 @@ H.case("bridge game call: the mailbox call block carries op + args to Turbo.dll 
     status, text = bridge.game_call(bridge.CALL_OP_JOB_OFFER, { 0x1234, 7 }, "x")
     H.eq(status, "failed"); H.has(text, "did not answer")
 
+    -- TurboStandingsRefresh (op 2): the career's StandingsViewManager (type 108) and the manager table, found through
+    -- the checked walk of core/mem.lua, plus the comm service and the FCE interface go to the DLL; bridge_state.json
+    -- carries the same two addresses for the overlay
+    H.eq(type(_G.TurboStandingsRefresh), "function", "TurboStandingsRefresh defined")
+    local svm = sim:add_manager(108, 0x500)
+    local st = bridge.collect_state()
+    H.eq(st.svm, string.format("0x%X", svm), "bridge_state carries the StandingsViewManager")
+    H.eq(st.managers, string.format("0x%X", sim.mode_managers), "bridge_state carries the manager table")
+    dll.answer = { status = 1, text = "the game's standings view re-read 2 competitions (comp ids 1200, 1300)", out0 = 2, out1 = 2 }
+    local okr, rtext, rstatus = _G.TurboStandingsRefresh()
+    H.eq(okr, true, tostring(rtext)); H.eq(rstatus, "ok"); H.has(rtext, "re-read 2")
+    local last = dll.calls[#dll.calls]
+    H.eq(last.op, 2, "op standings_refresh")
+    H.eq(last.jmm, svm, "svm passed"); H.eq(last.team, sim.mode_managers, "manager table passed")
+    H.eq(last.a3, sim.plugins[0x1297f047], "comm service passed"); H.eq(last.a4, sim.plugins[0x0a613b9a] or 0, "ifce passed")
+    dll.answer = { status = 2, text = "queued for the game thread: it runs at the next game tick" }
+    okr, rtext, rstatus = _G.TurboStandingsRefresh()
+    H.eq(okr, true); H.eq(rstatus, "queued")
+    TURBO_STATE.bridge.call_pending = nil
+    sim.in_cm = false
+    st = bridge.collect_state()
+    H.eq(st.svm, "0x0", "no StandingsViewManager outside a career")
+    sim.in_cm = true
+
     -- an older Turbo.dll (mailbox version 1) has no call block
     sim:w32(mb + 4, 1)
     status, text = bridge.game_call(bridge.CALL_OP_JOB_OFFER, { 0x1234, 7 }, "x")
@@ -147,6 +172,7 @@ H.case("bridge game call: the mailbox call block carries op + args to Turbo.dll 
     sim:w32(mb + 4, 2)
     package.loadlib = real_loadlib
     _G.TurboJobOfferCreate = nil
+    _G.TurboStandingsRefresh = nil
 end)
 
 H.case("no unmapped memory reads", function()

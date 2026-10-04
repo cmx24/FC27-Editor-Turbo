@@ -36,6 +36,7 @@ local CALL_OP, CALL_STATUS, CALL_SEQ, CALL_RESULT_SEQ = 0x2020, 0x2024, 0x2028, 
 local CALL_ARGS, CALL_OUT, CALL_TEXT, CALL_TEXT_SIZE = 0x2030, 0x2050, 0x2060, 0x200
 local CALL_IDLE, CALL_OK, CALL_FAILED, CALL_QUEUED = 0, 1, -1, 2
 M.CALL_OP_JOB_OFFER = 1
+M.CALL_OP_STANDINGS_REFRESH = 2  -- args: svm, managers, comm service, ifce (turbogui/src/core/standings_refresh.h)
 
 -- bridge_dll.json is stamped by the DLL every ~2 s while it runs. A file older than this is left over from an
 -- earlier game session: its mailbox address means nothing in this process and is never read.
@@ -303,9 +304,27 @@ local function turbo_made_tools()
     return S.turbo_made
 end
 
+-- The career's StandingsViewManager (FCE manager type 108) and the manager table it sits in. Turbo.dll re-requests the
+-- standings through that manager after a live table edit, so FC 27's Standings screen shows the edit
+-- (turbogui/src/core/standings_refresh.h, docs/re/standings-ui-path.md). Only in a career, only through the checked
+-- walk of core/mem.lua (nothing is read without the GUI's memory map); 0 when unknown.
+local function standings_view_manager(in_cm)
+    if not in_cm then return 0, 0 end
+    local okm, mem = pcall(require, 'imports/turbo/core/mem')
+    if not okm or type(mem) ~= "table" then return 0, 0 end
+    pcall(require, 'imports/career_mode/enums')
+    local id = _G["ENUM_FCEGameModesFCECareerModeStandingsViewManager"]
+    if type(id) ~= "number" then id = 108 end
+    local okt, managers = pcall(mem.manager_table)
+    local oks, svm = pcall(mem.manager, id)
+    return (oks and math.type(svm) == "integer") and svm or 0, (okt and math.type(managers) == "integer") and managers or 0
+end
+M._standings_view_manager = standings_view_manager
+
 function M.collect_state()
     local in_cm = game.in_cm()
     local d = in_cm and game.current_date() or nil
+    local svm, managers = standings_view_manager(in_cm)
     return {
         settings = S.settings,
         session = S.session,
@@ -316,6 +335,8 @@ function M.collect_state()
         db_service = hex(plugin("ENUM_djb2Database_CLSS") - 8),
         comm_service = hex(plugin("ENUM_djb2FeFceGMCommServiceInterface_CLSS")),
         ifce = hex(plugin("ENUM_djb2IFCEInterface_CLSS")),
+        svm = hex(svm),
+        managers = hex(managers),
         in_cm = in_cm,
         user_team = in_cm and game.user_team_id() or 0,
         transfer_budget = in_cm and transfer_budget() or nil,
@@ -339,6 +360,7 @@ local function same_state(a, b)
     if not a or not b then return false end
     if a.settings ~= b.settings and not same_settings(a.settings, b.settings) then return false end
     if a.db_service ~= b.db_service or a.in_cm ~= b.in_cm or a.user_team ~= b.user_team then return false end
+    if a.svm ~= b.svm or a.managers ~= b.managers or a.ifce ~= b.ifce then return false end
     if a.transfer_budget ~= b.transfer_budget then return false end
     if a.meta_error ~= b.meta_error then return false end
     if (a.game_call and a.game_call.seq or 0) ~= (b.game_call and b.game_call.seq or 0) then return false end
@@ -658,9 +680,19 @@ function M.install_natives()
         if status == "ok" or status == "queued" then return true, text, status end
         return false, text, status
     end
+    --   TurboStandingsRefresh() -> ok, message, status: the game's StandingsViewManager re-requests the live standings
+    --   (after a table edit the Standings screen shows the new rows); the DLL finds the manager itself when the walk
+    --   here gives nothing
+    _G.TurboStandingsRefresh = function()
+        local svm, managers = standings_view_manager(game.in_cm())
+        local comm, ifce = plugin("ENUM_djb2FeFceGMCommServiceInterface_CLSS"), plugin("ENUM_djb2IFCEInterface_CLSS")
+        local status, text = M.game_call(M.CALL_OP_STANDINGS_REFRESH, { svm, managers, comm, ifce }, "standings refresh")
+        if status == "ok" or status == "queued" then return true, text, status end
+        return false, text, status
+    end
     S.natives_installed = true
     S.unavailable = nil   -- caps changed: bridge_state.json lists job_offer as available from now on
-    log.info("Turbo natives installed: TurboJobOfferCreate (Turbo.dll game call)")
+    log.info("Turbo natives installed: TurboJobOfferCreate, TurboStandingsRefresh (Turbo.dll game calls)")
     return true
 end
 

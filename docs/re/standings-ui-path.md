@@ -53,8 +53,13 @@ Slot `i` = `managers + 0x20*i`: `+0x08` type descriptor (its `+0x10` == 1), `+0x
 
 ## 2. StandingsViewManager (SVM)
 
-Vtable `base+0xB0160D8` (80 slots; ctor sites 0x147d9a570 / 0x147d9af90) [M]; career-event listener interface
-vtable `base+0x975EA28` (slot 3 = 0x147da0e10) [H].
+Vtable `base+0xB0160D8` (80 slots) [H, re-verified 2026-10-04: the constructor **0x147d9a5c8** stores `ctx` at +0x08
+and `lea rax,[rip+..]` -> 0x14B0160D8 at +0x33; the destructor 0x147d9af90 sets it on entry and ends with the base
+vtable `base+0x975EA28`. The 0x147d9a570 named earlier is the constructor of another class (vtable 0xB016160), not the
+SVM]. Career-event listener base vtable `base+0x975EA28` (slot 3 = 0x147da0e10) [H]. Every function Turbo calls takes
+the slot-108 object as `this`: the listener's event-29 path writes `[this+0x490]`, calls 0x147da5310(this, comp) and
+reads `[this+0x488]`; the cache writer uses `this+0x250` / `+0x280` / `+0x490`; the screen feed (slot 10) hands
+`[[ctx+0xd98]]` to the same map reader [H].
 
 | offset | content | evidence |
 |---|---|---|
@@ -62,7 +67,7 @@ vtable `base+0x975EA28` (slot 3 = 0x147da0e10) [H].
 | +0x10 + idx | u8 "request pending" per known tag (27 tags, table in 0x147d9f4a4) | 0x147da53ce |
 | +0x18 | u8 enabled (slots 9/10 return early when 0) | 0x147da3af7 |
 | +0x30 + idx*8 | `mStandings[idx]`: cached response per known tag ("mStandings[ ]") | 0x147da17ed |
-| +0x250 | `mLiveStandings`: eastl rbtree anchor; root at +0x260 (anchor+0x10); node: +0 right, +8 left, +0x10 parent, +0x20 int key compObjId, +0x28 LiveStandings* | 0x147d9f6f3..0x147d9f764 |
+| +0x250 | `mLiveStandings`: eastl rbtree anchor (+0 rightmost, +8 leftmost, +0x10 root = svm+0x260); node: +0 right, +8 left, +0x10 parent, +0x20 int key compObjId, +0x28 LiveStandings*; **+0x270 u32 node count** (anchor+0x20, `inc dword [rsi+0x20]` in the insert helper 0x147d9d4c4) | 0x147d9f6f3..0x147d9f764, 0x147d9d548 |
 | +0x280 | CRITICAL_SECTION for the map | 0x147da6f32 / 0x147d9f6e6 |
 | +0x380 | second map, type-0x10 'rmvs' responses | 0x147da182b |
 | +0x3b0 + idx*8 | "StageInfo" per tag (type 0x17 responses) | 0x147da16c5 |
@@ -246,9 +251,17 @@ nothing to wait for.
 
 `svm_get_user_comp_copy_B` 0x147d9c7d0 has a twin (0x147d9c6e4) with identical code: not signable, not needed.
 Vtables (RVA): SVM 0xB0160D8, SVM listener 0x975EA28, LiveStandings 0xB016148, mailbox server 0x972FB80; game
-allocator global 0xC269EA8 (used inside the request builders). The SVM vtable can be re-derived on another build
-from the ctor site 0x147d9a570 (first `lea rax,[rip+..]` after the prologue) or by reading `*svm` once it is located
-through the manager table and checking slot 10 against the `svm_slot10_refresh_screen` signature.
+allocator global 0xC269EA8 (used inside the request builders). The SVM vtable is re-derived on another build from the
+ctor site **0x147d9a5c8** (`lea rax,[rip+..]` at +0x33 of the prologue below, Turbo's `svm_vtable` signature, resolve
+"rip" offset 0x33) and cross-checked by reading `*svm` once it is located through the manager table and comparing
+slot 10 with the `svm_slot10_refresh_screen` function (Turbo's `svm_slot10`):
+
+| name (Turbo.dll built-in table) | va | signature |
+|---|---|---|
+| `svm_vtable` (ctor, rip +0x33 -> 0x14B0160D8) | 0x147d9a5c8 | `4C 8B DC 49 89 5B 10 49 89 73 18 57 48 83 EC 70 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 44 24 60 C5 FE 6F 05 ?? ?? ?? ?? C5 FA 6F 0D ?? ?? ?? ?? 48 89 51 08 48 8D 05 ?? ?? ?? ?? 48 89 01` |
+| `svm_refresh_comp` (= `svm_request_standings_sync_rmvs`) | 0x147da5310 | as above |
+| `svm_listener` (= `svm_on_career_event`) | 0x147da0e10 | as above |
+| `svm_slot10` (= `svm_slot10_refresh_screen`) | 0x147da3ae8 | as above |
 
 ## 7. Key addresses
 
@@ -285,3 +298,81 @@ FCEI message types seen here: 0x12 ResponseStandingsList, 0x13 ResponseStandings
 * Which career event, if any, fires on a plain day advance without fixtures was not traced; the observed behaviour
   (no refresh on 1 -> 2 July) matches the trigger list above.
 * Persistence of the FCE rows across save/load is still the open item of `C3-live-standings.md` §6.
+* How the game reaches 0x147da0e10: it sits only in slot 3 of the shared base vtable 0x975EA28 (written at the end
+  of ~100 destructors across the career code), while the SVM's own vtable has a `this+0x10` thunk in slot 3. The
+  function's body uses the slot-108 object as `this` (0x490 / 0x488 / 0x250 offsets, see §2), so Turbo's fallback
+  call `(svm, 29, nullptr)` matches what the event-29 path expects; the dispatch mechanism itself is not traced. [M]
+
+## 9. Implementation in Turbo (track E5-standings-refresh, 2026-10-04)
+
+**Lua** (`turbo/package/lua/libs/v2/imports/turbo/bridge.lua`, `core/mem.lua`): `bridge_state.json` carries `svm`
+(`mem.manager(108)`) and `managers` (`mem.manager_table()` = `[[comm+0x20]+0x10]`) next to `ifce`, both `0x0`
+outside a career or without the GUI's memory map; a change of either re-publishes the state. The native
+`TurboStandingsRefresh()` (installed with `TurboJobOfferCreate`) sends mailbox call op 2 with
+`{svm, managers, comm, ifce}`.
+
+**Turbo.dll** (`turbogui/src/core/standings_refresh.{h,cpp}`, `src/win/standings_refresh_win.{h,cpp}`; signatures
+`svm_refresh_comp`, `svm_listener`, `svm_vtable`, `svm_slot10` in `core/sigscan.cpp`):
+
+1. Locate: the published `svm`, else `manager_at(managers, 108)` with `managers` published or derived from
+   `comm_service`.
+2. Validate (nothing is called before every check passes): pointer-shaped, readable to +0x490, `*svm` == the vtable
+   from `svm_vtable` (fallback RVA 0xB0160D8 + image base), `*(*svm+0x50)` == `svm_slot10`, `svm+0x08` == the
+   manager table, the table's slot 108 holds `svm`, and the table's slot 1 == the `ifce` Turbo wrote to.
+3. Walk `mLiveStandings`: bounded in-order walk from the root at svm+0x260 (explicit stack, at most 64 nodes),
+   every node's parent link checked against the node it was reached from (root: the anchor svm+0x250), keys must be
+   strictly ascending, the walked count must equal the u32 at svm+0x270. Any inconsistency stops the walk.
+4. Refresh: `svm_refresh_comp(svm, key)` for every key, in key order (§5.2). A failing call stops the sequence
+   (message counts what ran).
+5. Fallback when the map is empty or inconsistent: `svm_listener(svm, 29, nullptr)` (§5.2 full refresh), reported as
+   such.
+6. Threading: after `fce::write_row` / `fce::edit_result` succeed in `ui/ui_standings.cpp` the request goes through
+   `App::standings_refresh` (the host's `RefreshService`) to `run_on_game_thread` (game_tick hook, else the Lua
+   pump); a call from the game thread itself (Lua's `TurboStandingsRefresh()` inside a career-event handler) runs at
+   once. Outcomes are polled by `App::tick` (toast "Standings refresh: ..." + log + the "Standings view:" line of
+   the Live standings view) and listed in the Status tab under "Game calls". Kill switch
+   `turbo_output\call_standings_refresh_off.txt`; every game-hook switch applies too.
+
+Tests (`turbogui/tests/native/test_main.cpp`, `turbo/tests/t07_bridge.lua`, `t12_job_offer.lua`): synthetic manager
+table + SVM with a real rbtree layout (3 keys, 1 key, 70 keys, empty), locate / validate / walk, every refusal
+(wrong vtable, wrong slot 10, back-pointer, slot 108 mismatch, ifce mismatch, unmapped / cut-off object, missing
+functions), every walk inconsistency (parent link, order, size counter, bad / unmapped node, cycle, bound) with the
+fallback, a failing sync call, the four signatures against the image bytes (vtable via the ctor's lea), and a UI
+driver case: a row write through the Live standings view queues the request with the published addresses, the
+outcome arrives as a toast, a refused service and no service leave the row written.
+
+## 10. In-game test plan (not run yet: nothing here was executed in the game)
+
+Preconditions: Turbo 0.4.x with this track, Live Editor v27.1.2, a Manager Career loaded, Turbo GUI running (F8),
+Status tab > Game hooks shows `standings_refresh: ready` with the four addresses (0x...DA5310, 0x...DA0E10,
+0x...0160D8, 0x...DA3AE8 on 1.0.140.64835) and `bridge_state.json` carries non-zero `svm` / `managers`.
+
+1. Office hub, calendar on a day without fixtures. Competitions > Live standings (game) > the user's league
+   (e.g. Serie A, 20 clubs). Note Napoli's row.
+2. Select Napoli, set Home wins 2, Points 6, "Points from W/D/L" or type 6, "Apply to the game". Expect: toast
+   "Standings: Napoli updated in the game", then within a frame (game_tick hook) the toast "Standings refresh: Napoli
+   row: the game's standings view re-read N competitions (comp ids ...)" with N = the map's keys (typically 2-4) and
+   the Status tab line `last: ok: ...`. `turbo_gui.log` has `game call standings_refresh(...)`.
+3. Open the Office tile / the Standings screen (Office > Standings) **without advancing the calendar**: Napoli shows
+   6 points, 2 wins and the position the sorted table gives it (the sort is FCE's: points, then the comp's
+   tie-breakers). Close and reopen the screen: unchanged.
+4. Turbo's view: "Reload" shows the same rows (FCE rows are the source for both).
+5. Change a played result of Napoli (Change result): the Standings screen follows (both rows) after the next refresh
+   toast; the Schedule / results screens show the new score.
+6. Advance one day (no fixtures): nothing crashes; the screen keeps the edited values.
+7. Play or sim the next match day: no crash; the SimDayManager's own request (§3.2) rebuilds the cache on top of the
+   edited rows: the table shows the edit plus the new results.
+8. Kill switch: create `turbo_output\call_standings_refresh_off.txt`, apply an edit: error toast "Standings refresh:
+   kill switch ... present (the rows are written; ...)", the Standings screen shows the old numbers until a match
+   day; delete the file, apply again: refreshed.
+9. Fallback: with the kill switch off, from Live Editor's Lua console run `TurboStandingsRefresh()` right after
+   loading a career (the map should be filled, so the per-key path runs); the text names the competitions. A
+   career where the map is empty (observed: none yet) would report "the game's full standings refresh
+   (POST_LOAD_PREPARE) was run instead".
+10. Save, reload the career, open the Standings screen: report whether the edit survived (open point of
+    `C3-live-standings.md` §6).
+
+Things to watch in `turbo_gui.log`: a `validate` failure names the check (vtable / slot 10 / back-pointer /
+slot 108 / ifce) and means the layout differs from this build: do not retry until it is understood; a `walk`
+fallback with a reason other than "map is empty" means the rbtree layout differs; `dispatcher_failed` growing means
+the call threw inside the game (HOOK_BODY counted it).

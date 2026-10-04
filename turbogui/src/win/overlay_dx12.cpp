@@ -23,6 +23,7 @@
 #include "MinHook.h"
 #include "nlohmann/json.hpp"
 #include "game_calls_win.h"
+#include "standings_refresh_win.h"
 #include "game_hooks.h"
 #include "host.h"
 #include "imgui.h"
@@ -924,6 +925,10 @@ bool start_overlay(HMODULE) {
     // game calls (game_calls_win.cpp): job-offer functions + the JobMarketManager capture hook; Lua reaches them
     // through the mailbox call block and the exported turbo_game_call()
     install_game_calls(g_app->mailbox ? g_app->mailbox->addr() : 0);
+    // standings refresh (standings_refresh_win.cpp): after a live table edit the game's StandingsViewManager re-requests
+    // the standings on the game thread, so the Standings screen and the Office tile show the edit
+    install_standings_refresh();
+    g_app->standings_refresh = standings_refresh_service();
     g_app->hook_report = []() {
         turbo::HookReport r = game_hooks_report();
         r.calls = game_calls_status();

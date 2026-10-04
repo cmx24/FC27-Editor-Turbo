@@ -7,6 +7,7 @@
 
 #include "game_hooks.h"
 #include "host.h"
+#include "standings_refresh_win.h"
 
 namespace host {
 
@@ -150,16 +151,20 @@ JobOfferResult run_now(uint64_t jmm, int team) {
 }
 
 void publish(int32_t seq, const JobOfferResult& r, int32_t status) {
-    const uint64_t mb = g_mailbox.load();
-    if (!mb) return;
-    ProcessMemory mem;
-    if (!write_call_result(mem, mb, seq, status, r.sent_day, r.wage, r.message))
-        log("game call: cannot write the result into the mailbox call block");
+    publish_call_result(seq, status, r.sent_day, r.wage, r.message);
 }
 
 }  // namespace
 
 // ---------------------------------------------------------------- public API
+void publish_call_result(int32_t seq, int32_t status, int64_t out0, int64_t out1, const std::string& text) {
+    const uint64_t mb = g_mailbox.load();
+    if (!mb) return;
+    ProcessMemory mem;
+    if (!write_call_result(mem, mb, seq, status, out0, out1, text))
+        log("game call: cannot write the result into the mailbox call block");
+}
+
 uint64_t jmm_seen() { return g_jmm.load(); }
 long long jmm_events() { return g_jmm_events.load(); }
 JobMarketFns job_market_fns() { return g_fns; }
@@ -198,8 +203,11 @@ std::vector<std::string> game_calls_status() {
     else
         std::snprintf(line, sizeof(line), "job_offer: off (%s)", why.c_str());
     out.push_back(line);
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (!g_last.empty()) out.push_back("  last: " + g_last);
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (!g_last.empty()) out.push_back("  last: " + g_last);
+    }
+    for (const auto& l : standings_refresh_status()) out.push_back(l);
     return out;
 }
 
@@ -277,6 +285,14 @@ extern "C" __declspec(dllexport) int turbo_game_call(void*) {
             if (turbo::read_call_block(mem, mb, b)) {
                 if (b.op == turbo::kCallOpJobOffer) {
                     job_offer_request(static_cast<uint64_t>(b.args[0]), static_cast<int>(b.args[1]), b.seq);
+                } else if (b.op == turbo::kCallOpStandingsRefresh) {
+                    turbo::svm::Request req;
+                    req.svm = static_cast<uint64_t>(b.args[0]);
+                    req.managers = static_cast<uint64_t>(b.args[1]);
+                    req.comm = static_cast<uint64_t>(b.args[2]);
+                    req.ifce = static_cast<uint64_t>(b.args[3]);
+                    req.label = "Lua";
+                    standings_refresh_request(req, b.seq);
                 } else {
                     turbo::JobOfferResult r;
                     r.message = "unknown game call op " + std::to_string(b.op);

@@ -417,7 +417,7 @@ void draw_hook_status(App& app) {
                     cs.last_format.c_str());
     }
     if (!r.calls.empty()) {
-        ImGui::Text("Game calls (Managers > Job offers):");
+        ImGui::Text("Game calls (Managers > Job offers, Competitions > Live standings):");
         for (const auto& c : r.calls) ImGui::TextWrapped("  %s", c.c_str());
     }
 }
