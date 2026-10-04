@@ -32,6 +32,7 @@ struct LiveState {
     std::map<uint16_t, fce::GroupInfo> infos;        // group -> where it sits in the tree
     std::vector<svm::ShownGroup> shown;              // what the game's standings view holds (docs/re/standings-ui-path.md 0c)
     std::map<uint16_t, int32_t> shown_by;            // group -> the competition id the view shows it under
+    std::set<uint16_t> hidden;                       // groups known not to reach the Standings screen (see is_hidden)
     std::string shown_err;                           // why the view could not be read ("" = read)
     uint16_t group = 0;
     bool have_group = false;
@@ -96,7 +97,7 @@ int64_t majority_league(App& app, const std::vector<size_t>& idx) {
 // "C31" is the league 31 of the database (Serie A), "C223" a competition the database has no name for (Turbo's built-in
 // list: UEFA Champions League); the stage tells the league table from the pots, rounds and setup pools collapsed under it
 // in the picker. Without the tree the league whose clubs make up most of the group (leagueteamlinks) is used. The game's
-// standings view shows only the groups it holds (st.shown_by): those are marked, the others warned about, because a row
+// standings view shows only the groups it holds (st.shown_by): those are marked, a duplicate pool (find_hidden) warned about, because a row
 // of any other group never reaches the Standings screen (04-10-2026: the edit of pool 1066 stayed invisible while the
 // screen read group 1120).
 comps::Entry group_entry(App& app, uint16_t compobj, const std::vector<size_t>& idx, std::string& group_short) {
@@ -128,8 +129,32 @@ comps::Entry group_entry(App& app, uint16_t compobj, const std::vector<size_t>& 
     auto sh = g_live.shown_by.find(compobj);
     e.shown = sh != g_live.shown_by.end();
     if (e.shown) e.note = "shown by the game as competition " + std::to_string(sh->second);
-    else if (g_live.shown_err.empty() && !g_live.shown.empty()) e.note = "not shown by the game";
+    else if (g_live.hidden.count(compobj)) e.note = "not shown by the game";
     return e;
+}
+
+// 1.1.4: the view holds only the competitions the game has asked for so far, so a group missing from it may still be
+// shown (playtest 04-10-2026: the preseason Champions Trophy, group 1929, was on the Standings screen while Turbo said
+// "not shown"). Only a group whose clubs all sit in a group the view does show is known to be hidden: a cup's setup pool
+// listing a league's clubs (pool 1066 next to Serie A's 1120). Any other group gets no mark and no warning.
+void find_hidden() {
+    g_live.hidden.clear();
+    if (!g_live.shown_err.empty() || g_live.shown.empty()) return;
+    for (const auto& kv : g_live.groups) {
+        if (g_live.shown_by.count(kv.first) || kv.second.empty()) continue;
+        for (const auto& sv : g_live.shown_by) {
+            auto other = g_live.groups.find(sv.first);
+            if (other == g_live.groups.end()) continue;
+            std::set<uint32_t> clubs;
+            for (size_t i : other->second) clubs.insert(uint32_t(g_live.rows[i].teamid));
+            bool all = true;
+            for (size_t i : kv.second) all = all && clubs.count(uint32_t(g_live.rows[i].teamid)) > 0;
+            if (all) {
+                g_live.hidden.insert(kv.first);
+                break;
+            }
+        }
+    }
 }
 
 // The rows the game's standings view holds (core/standings_refresh.h shown_groups): read-only, through the published
@@ -178,6 +203,7 @@ bool reload(App& app) {
             if (fce::describe_group(g_live.compobjs, kv.first, gi)) g_live.infos[kv.first] = gi;
         }
     read_shown(app);
+    find_hidden();
     std::vector<std::string> group_shorts;
     for (const auto& kv : g_live.groups) {
         std::string gs;
@@ -379,17 +405,46 @@ void undo_last(App& app) {
 
 // One number of the table: a selectable (click = select the club, double-click = edit), or the input box while edited.
 // Enter or a click elsewhere commits (once the table is drawn), Esc cancels.
+// 1.1.4 (playtest 04-10-2026, in game: the box showed the value but never took a key, a click into it did nothing, it
+// closed when the mouse moved): the box asked for the keyboard once, on its first frame, and a click it did not see as
+// its own (IsItemHovered is false while another item holds the mouse) closed it. Now it asks for the keyboard on every
+// frame until it has it, a click closes it only outside its rectangle, and keys typed before it is active still count
+// (digits, Backspace, Enter applies, Esc cancels).
 void draw_cell(const fce::StandingRow& r, fce::Cell c, bool selected) {
     LiveState& st = g_live;
     if (st.cell.open && st.cell.row == r.id && st.cell.cell == c) {
         st.cell.drawn = true;
-        ImGui::SetNextItemWidth(-FLT_MIN);
-        if (st.cell.focus) {
+        auto apply = [&]() {
+            st.pending.due = true;
+            st.pending.row = r.id;
+            st.pending.cell = c;
+            st.pending.value = st.cell.value;
+            st.cell.open = false;
+        };
+        if (!st.cell.seen_active) {
+            ImGuiIO& io = ImGui::GetIO();
+            for (int k = 0; k < io.InputQueueCharacters.Size; ++k) {
+                const ImWchar ch = io.InputQueueCharacters[k];
+                if (ch < '0' || ch > '9') continue;
+                if (st.cell.focus) st.cell.value = 0;  // the first digit replaces the value shown (as AutoSelectAll does)
+                st.cell.focus = false;
+                st.cell.value = int(std::min(static_cast<long long>(st.cell.value) * 10 + (ch - '0'), 32767LL));
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Backspace, false)) st.cell.value /= 10, st.cell.focus = false;
+            if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false)) {
+                apply();
+                return;
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+                st.cell.open = false;
+                return;
+            }
             ImGui::SetKeyboardFocusHere();
-            st.cell.focus = false;
         }
+        ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::InputInt("##cell", &st.cell.value, 0, 0, ImGuiInputTextFlags_AutoSelectAll);
         const bool active = ImGui::IsItemActive();
+        const bool inside = ImGui::IsMouseHoveringRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), false);
         if (active) {
             st.cell.seen_active = true;
         } else if (st.cell.seen_active) {
@@ -401,9 +456,10 @@ void draw_cell(const fce::StandingRow& r, fce::Cell c, bool selected) {
                 st.pending.value = st.cell.value;
             }
             st.cell.open = false;
-        } else if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
-                   (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsItemHovered())) {
-            st.cell.open = false;  // the box never took the focus: Esc or a click elsewhere closes it
+        } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !inside) {
+            // the box never had the keyboard: a click elsewhere applies what was typed (as it does once it has it), else closes it
+            if (st.cell.focus) st.cell.open = false;
+            else apply();
         }
         return;
     }
@@ -449,7 +505,7 @@ std::string live_standings_view_line() {
 
 std::string live_standings_view_warning() {
     const LiveState& st = g_live;
-    if (!st.loc.ok() || !st.shown_err.empty() || st.shown.empty() || !st.have_group || st.shown_by.count(st.group)) return "";
+    if (!st.loc.ok() || !st.have_group || !st.hidden.count(st.group)) return "";
     return "This group is not one the game's Standings screen shows: an edit here stays invisible there. Pick a group marked [shown by the game].";
 }
 
