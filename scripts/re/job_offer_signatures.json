@@ -1,0 +1,168 @@
+{
+  "_about": "FC 27 job-offer (JobMarketManager) code signatures. Derived from fc27_image.bin (FC27.exe 1.0.140.64835, base 0x140000000) on 2026-10-03. Every 'va' is for that build only; resolve by 'sig' on other builds (scripts/re/job_offer_verify.py). Wildcards ?? cover rip-relative disp32 / rel32. All functions use the MS x64 ABI (rcx, rdx, r8, r9).",
+  "game_version": "1.0.140.64835",
+  "image_base": "0x140000000",
+  "manager_type_id": 53,
+  "manager_type_id_source": "ENUM_FCEGameModesFCECareerModeJobMarketManager in Live Editor lua/libs/v2/imports/career_mode/enums.lua (validate with vtable)",
+  "jmm_vtable_rva": "0xB016428",
+  "jmm_size": "0xC90",
+  "functions": {
+    "JMM_ctor": {
+      "va": "0x147db6088",
+      "sig": "48 89 5C 24 10 48 89 74 24 18 57 41 54 41 55 41 56 41 57 48 81 EC 80 00 00 00 48 8B 05 ?? ?? ?? ??",
+      "proto": "JobMarketManager* ctor(JobMarketManager* this, CareerHub* hub)",
+      "note": "stores vtable (base+0xB016428) at +0 and hub at +8; embeds JobOfferSystem at +0x978"
+    },
+    "JMM_HandleEvent": {
+      "va": "0x147dd232c",
+      "sig": "48 89 5C 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 60 4D 8B F8 4C 8B 41 08",
+      "proto": "void HandleEvent(JobMarketManager* this, int eventId, Event* ev)",
+      "note": "eventId 15 DAY_PASSED: decrements application countdowns, calls OnResponseDue, expires offers; 16 WEEK_PASSED; 17 MONTH_PASSED; 0x72 JobOfferAction. Hook target to capture 'this'."
+    },
+    "JMM_ApplyForJob": {
+      "va": "0x147dbbf64",
+      "sig": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 8B FA 48 8B D9 E8 ?? ?? ?? ??",
+      "proto": "void ApplyForJob(JobMarketManager* this, int teamId)",
+      "note": "'JobOfferApplicationApply'. Returns early if an application for teamId exists. Computes wage, posts JobOfferAction(action=4), calls AddApplication, may add the team to the watchlist."
+    },
+    "JMM_HasApplication": {
+      "va": "0x147dd4fc4",
+      "sig": "44 8B 81 F8 08 00 00 4C 8B 89 F0 08 00 00 4C 63 D2 33 D2 49 8B C2 49 F7 F0 8B C2 49 8B 0C C1",
+      "proto": "bool HasApplication(JobMarketManager* this, int teamId)",
+      "note": "hash lookup in the applications table at this+0x8f0/+0x8f8"
+    },
+    "JMM_AddApplication": {
+      "va": "0x147de2c08",
+      "sig": "48 89 5C 24 08 48 89 6C 24 18 89 54 24 10 56 57 41 56 48 83 EC 20 48 8B 41 08 48 8B F9",
+      "proto": "void AddApplication(JobMarketManager* this, int teamId, int wage)",
+      "note": "inserts node {key=teamId, value{teamId, offer{}, wage, countdown=rand(this+0x14, this+0x18)}} if absent"
+    },
+    "JMM_OnResponseDue": {
+      "va": "0x147dd53ec",
+      "sig": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 48 8B 41 08 48 8B F9 48 8B F2",
+      "proto": "void OnResponseDue(JobMarketManager* this, ApplicationValue* v)",
+      "note": "called when countdown reaches 0: offer.mTeamId=v.teamId; offer.mWage=v.wage; if club accepts (compatibility vs random) MakeOffer else DeclineApplication"
+    },
+    "JMM_MakeOffer": {
+      "va": "0x147dd5510",
+      "sig": "48 89 5C 24 08 57 48 83 EC 20 48 8B 41 08 4C 8B D9 48 8B DA 4C 8B 80 18 03 00 00 49 8B 08",
+      "proto": "void MakeOffer(JobMarketManager* this, JobOffer* offer)",
+      "note": "offer.mJobOfferSentDay = today (yyyymmdd); offer.mWasTeamWatched = IsTeamWatched(teamId); posts JobOfferAction(teamId, action=0 'PamOfferReceived') through the career event dispatcher"
+    },
+    "JMM_DeclineApplication": {
+      "va": "0x147de0e98",
+      "sig": "48 8B C4 48 89 58 08 48 89 70 18 48 89 78 20 89 50 10 55 48 8B EC 48 83 EC 30 41 8A F0",
+      "proto": "void DeclineApplication(JobMarketManager* this, int teamId, bool flag)",
+      "note": "'JobOfferApplicationDeclined'"
+    },
+    "JMM_WithdrawApplication": {
+      "va": "0x147de5d68",
+      "sig": null,
+      "proto": "void WithdrawApplication(JobMarketManager* this, int teamId)",
+      "note": "'JobOfferApplicationWithdrawn'; signature not generated (not needed by Turbo)"
+    },
+    "JMM_WageForTeam": {
+      "va": "0x147dbd138",
+      "sig": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 41 8B E9 48 8B F9 4C 8B 49 08",
+      "proto": "int WageForTeam(JobMarketManager* this, int unused, int unused, int leagueId)",
+      "note": "interpolates the JOBOFFER/WAGES_* table at this+0x48..+0x6c by team star rating, multiplies by league multipliers at this+0x8c.."
+    },
+    "JMM_ClubWantsManager": {
+      "va": "0x147dbd2b8",
+      "sig": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 54 41 55 41 56 41 57 48 83 EC 20 4C 8B 41 08 48 8B F1",
+      "proto": "bool ClubWantsManager(JobMarketManager* this, int teamId)",
+      "note": "first gate in OnResponseDue; bypassed when Turbo calls MakeOffer directly"
+    },
+    "JMM_IsTeamWatched": {
+      "va": "0x147dd6ac0",
+      "sig": "89 54 24 10 48 83 EC 28 48 81 C1 58 0B 00 00 4C 8D 44 24 38 48 8D 54 24 30 E8 ?? ?? ?? ??",
+      "proto": "bool IsTeamWatched(JobMarketManager* this, int teamId)",
+      "note": "looks teamId up in mWatchedTeamIds (this+0xb58)"
+    },
+    "Career_PostEvent": {
+      "va": "0x14060124c",
+      "sig": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 49 8B 00 48 8B D9 49 8B C8 49 8B F0 8B FA",
+      "proto": "void PostEvent(EventDispatcher* d, int type, Event* ev)",
+      "note": "d = **(hub + 0x4f8); generic career event post (232 call sites)"
+    },
+    "Calendar_TodayInt": {
+      "va": "0x142aa5824",
+      "sig": "48 83 EC 28 83 CA FF E8 ?? ?? ?? ?? 3C 01 75 0C 6B 41 08 64 03 41 04 6B D0 64 03 11",
+      "proto": "int TodayInt(CalendarDate* d)",
+      "note": "d = *(hub+0x318) + 0x34; returns year*10000+month*100+day"
+    },
+    "Random_Range": {
+      "va": "0x1440464d0",
+      "sig": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 57 48 83 EC 30 8B F2 41 8B E8 48 8D 51 20",
+      "proto": "int RandomRange(Rng* rng, int lo, int hi)",
+      "note": "rng = *(hubThing->vfunc[8](hubThing) + 0x1b8) where hubThing = **(hub+0x198); only needed to mimic AddApplication"
+    }
+  },
+  "strings": {
+    "JobMarketManager": "0x14b0201f0",
+    "JobOfferApplicationApply": "0x14b017720",
+    "JobOfferExpired": "0x14b0177b0",
+    "PamOfferReceived": "0x14b017760",
+    "JOBOFFER/JOB_OFFER_EXPIRE": "0x14afec018",
+    "mJobOfferSentDay": "0x14b024048",
+    "JobOfferAction": "0x14964b478"
+  },
+  "layout": {
+    "JobMarketManager": {
+      "+0x00": "vtable (base+0xB016428)",
+      "+0x08": "CareerHub* hub (slots: +0x198 ?, +0x318 CalendarMgr**, +0x418 TeamsMgr**, +0x4f8 EventDispatcher**, +0x6d8 ?, +0xf38 ?, +0x1038 UserMgr**)",
+      "+0x10": "int JOBOFFER/JOB_OFFER_EXPIRE (days)",
+      "+0x14": "int CLUB_OFFER_RESPONSE_DAYS_MIN",
+      "+0x18": "int CLUB_OFFER_RESPONSE_DAYS_MAX",
+      "+0x1c": "int MAX_SIMULTANEOUS_APPLICATIONS",
+      "+0x20": "int REAPPLY_COOLDOWN_DAYS",
+      "+0x24": "int CHANCE_OTHER_GENDER_TEAMS",
+      "+0x28": "int MANAGER_TRANSFER_MAX_ENTRIES",
+      "+0x2c": "int MANAGERMARKET/WATCHLIST_MAX_ENTRIES",
+      "+0x48..+0x6c": "int WAGES_TEN..WAGES_HUNDRED (10 ints)",
+      "+0x8c..+0x98": "float WAGES_MULTIPLIER_TOP_FIRST/MEDIUM/LOWER/WOMEN_LEAGUES",
+      "+0x3f8": "eastl::map<int teamId, TeamJobInfo> (AI managers per team; node key at +0x20, value at +0x28)",
+      "+0x8e8": "hashtable object: +0x8f0 node** buckets, +0x8f8 u32 bucketCount, +0x8fc u32 elementCount  = USER APPLICATIONS / OFFERS keyed by teamId",
+      "+0x918": "mDeclinedJobOffers",
+      "+0x948": "mRejectedByUserJobOffers",
+      "+0x978": "JobOfferSystem (embedded, vtable base+0xB0165D8)",
+      "+0xb58": "mWatchedTeamIds (rbtree set, size at +0xb78)"
+    },
+    "ApplicationNode": {
+      "+0x00": "int key = teamId",
+      "+0x04": "int value.teamId",
+      "+0x08": "JobOffer offer (0x18 bytes, see below)",
+      "+0x20": "int value.wage (set at apply time; copied into offer.mWage when the club responds)",
+      "+0x24": "int value.countdown (days until club response; decremented on DAY_PASSED, response at 0)",
+      "+0x28": "ApplicationNode* next (bucket chain)"
+    },
+    "JobOffer": {
+      "+0x00": "int mTeamId",
+      "+0x04": "int mLeagueId",
+      "+0x08": "int mJobOfferSentDay (yyyymmdd, -1 = no offer yet)",
+      "+0x0c": "int mWage",
+      "+0x10": "u8 mLeaguePos",
+      "+0x11": "u8 mWins",
+      "+0x12": "u8 mDraws",
+      "+0x13": "u8 mLosses",
+      "+0x14": "u8 mIsAccepted",
+      "+0x15": "u8 mWasTeamWatchedBeforeAcceptingApplication"
+    },
+    "JobOfferActionEvent": {
+      "size": "0x28",
+      "+0x00": "vtable base+0xAFF5DC0 (CareerEvent)",
+      "+0x08": "int refcount (0)",
+      "+0x10": "int type = 0x72",
+      "+0x18": "int teamId",
+      "+0x1c": "u16 0",
+      "+0x1e": "u8 action: 0 OfferReceived, 3 Expired, 4 Apply (2 = user action seen in HandleEvent)",
+      "+0x20": "int 0",
+      "+0x24": "u16 0"
+    },
+    "InternationalJobOffer": {
+      "+0x00": "int mNationalTeamId", "+0x04": "date mOfferDate", "+0x10": "date mExpirationDate", "+0x1c": "date mRenewalDate", "+0x28": "date mRejectionDate",
+      "+0x36": "u8 mWorldCupOccured", "+0x37": "u8 mRegionalCupOccured", "+0x38": "u8 mHasBeenStalled", "+0x39": "u8 mIsRenewal",
+      "owner": "InternationalsManager sub-object: +0x00 mRejectedJobs, +0x20 mEligibleJobs, +0x40 mCurrentJob, +0x7c mLastDay, +0x88 mStartDate, +0x94 mLastRumourEmailDay, +0xa0 mLeftJobDay, +0xd0 mWonWorldCup, +0xd1 mWonRegionalCup, +0xd8 mForcedTeamsForOffers (vector<int>)"
+    }
+  }
+}
