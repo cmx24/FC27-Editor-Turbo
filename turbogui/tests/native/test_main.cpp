@@ -5139,14 +5139,18 @@ static void test_game_calls() {
 // ---------------------------------------------------------------- transfer / loan lists (core/transfer_list.h)
 // A synthetic career: comm service -> owner -> manager table + CareerDaoFactoryImpl (with the user-actions helper
 // sub-object), TransferManager (slot 127), PlayerContractManager (slot 77, hash table of contract records), the
-// event dispatcher (slot 39) and the UserManager (slot 129, the user's team). The vtables live at their real
-// addresses so the slot checks read real-looking memory.
+// event dispatcher (slot 39, first word = its event sink), the CalendarManager (slot 24) and the UserManager (slot 129,
+// the user's team, laid out as the live game has it: +0x10 count, +0x14 active index, +0x18 a new[] array of 0x348-byte
+// users with the count in its header, +0x20 an unrelated pointer). The vtables live at their real addresses so the slot
+// checks read real-looking memory.
 struct ListWorld {
     SimMemory mem;
     static constexpr uint64_t kComm = 0x30000000ULL, kOwner = 0x30001000ULL, kManagers = 0x30010000ULL, kDao = 0x30020000ULL,
                               kTm = 0x30030000ULL, kPcm = 0x30040000ULL, kBuckets = 0x30050000ULL, kNodes = 0x30060000ULL,
                               kObjs = 0x30070000ULL, kTypes = 0x30080000ULL, kHolders = 0x30081000ULL, kUm = 0x30090000ULL,
-                              kUsers = 0x300A0000ULL;
+                              kUsersBlock = 0x300A0000ULL, kUsers = kUsersBlock + turbo::tl::kUsersHeader;
+    // what the live UserManager held at +0x20 (2026-10-04, turbo04): far above the users, NOT their end
+    static constexpr uint64_t kUmOther = 0x3A4762470ULL;
     static constexpr uint64_t kHelperVt = 0x14B029440ULL, kDaoVt = 0x14B025C48ULL, kTmVt = 0x14B0055A8ULL, kPcmVt = 0x14B01E240ULL,
                               kUmVt = 0x14AFDF150ULL;
     static constexpr uint64_t kFnRemove = 0x147F8E300ULL, kFnAddT = 0x147F68368ULL, kFnAddL = 0x147F68214ULL;
@@ -5167,7 +5171,7 @@ struct ListWorld {
         mem.map(kTypes, 0x2000);
         mem.map(kHolders, 0x1000);
         mem.map(kUm, kUmSize);
-        mem.map(kUsers, 2 * kUserSize);
+        mem.map(kUsersBlock, kUsersHeader + 2 * kUserSize);
         mem.map(kHelperVt, 0x400);
         mem.map(kDaoVt, 0x40);
         mem.map(kTmVt, 0x40);
@@ -5184,19 +5188,25 @@ struct ListWorld {
         mem.wr(kHelperVt + kHelperSlotAddLoan * 8, kFnAddL);
         slot(kTypeTransferManager, kTm);
         slot(kTypePlayerContractManager, kPcm);
-        slot(kTypeDispatcher, obj());
+        const uint64_t disp = obj();
+        mem.wr(disp, obj());  // the dispatcher's event sink (PostEvent calls its vfunc +0x30)
+        slot(kTypeDispatcher, disp);
+        slot(kTypeCalendarManager, obj());
         slot(kTypeUserManager, kUm);
+        for (uint64_t m : {kTm, kPcm, kUm}) mem.wr(m + kMgrManagers, kManagers);
         mem.wr(kTm, kTmVt);
         for (uint64_t off : {kTmListsStore, kTmListener, kTmNotifier}) mem.wr(kTm + off, obj());
         mem.wr(kPcm, kPcmVt);
         mem.wr(kPcm + kPcmBucketCount, kCount);
         mem.wr(kPcm + kPcmBuckets, kBuckets);
         mem.wr(kBuckets + kCount * 8, ~0ULL);  // EASTL end sentinel
-        // one user (index 0) managing Napoli; a second user slot with another team proves the index is used
+        // two users: the active one (index 0) manages Napoli; user 1 manages team 1 (proves the index is used)
         mem.wr(kUm, kUmVt);
+        mem.wr(kUm + kUmCount, static_cast<int32_t>(2));
         mem.wr(kUm + kUmIndex, static_cast<int32_t>(0));
-        mem.wr(kUm + kUmUsersBegin, kUsers);
-        mem.wr(kUm + kUmUsersEnd, kUsers + 2 * kUserSize);
+        mem.wr(kUm + kUmUsers, kUsers);
+        mem.wr(kUm + 0x20, kUmOther);
+        mem.wr(kUsersBlock, static_cast<uint64_t>(2));  // the new[] header: the count
         mem.wr(kUsers + kUserTeam, static_cast<int32_t>(ListWorld::kNapoli));
         mem.wr(kUsers + kUserSize + kUserTeam, static_cast<int32_t>(1));
     }
@@ -5386,25 +5396,91 @@ static void test_transfer_list() {
         r = run(w.mem, g, fns, req_for(kActionTransferList, 3001, 1));
         CHECK(r.ok && r.at.user_team == 1 && r.after == kStatusTransferListed, "second user's club: " + r.message);
         // a UserManager that does not look like one stops everything
+        auto refused = [&](const char* text, const std::string& what) {
+            Result x = run(w.mem, g, fns, req_for(kActionQuery, 3001));
+            CHECK(!x.ok && x.stage == "validate" && x.message.find(text) != std::string::npos, what + ": " + x.message);
+        };
         w.mem.wr(ListWorld::kUm + kUmIndex, static_cast<int32_t>(2));
-        r = run(w.mem, g, fns, req_for(kActionQuery, 3001));
-        CHECK(!r.ok && r.message.find("user index 2 is out of range") != std::string::npos, "index out of range: " + r.message);
+        refused("user index 2 is out of range (2 users)", "index = count");
         w.mem.wr(ListWorld::kUm + kUmIndex, static_cast<int32_t>(-1));
-        r = run(w.mem, g, fns, req_for(kActionQuery, 3001));
-        CHECK(!r.ok && r.message.find("no active user") != std::string::npos, "no user: " + r.message);
+        refused("no active user", "no user");
         w.mem.wr(ListWorld::kUm + kUmIndex, static_cast<int32_t>(0));
-        w.mem.wr(ListWorld::kUm + kUmUsersEnd, ListWorld::kUsers + 0x100);
-        r = run(w.mem, g, fns, req_for(kActionQuery, 3001));
-        CHECK(!r.ok && r.message.find("0x348-byte users") != std::string::npos, "users not a whole number of users: " + r.message);
-        w.mem.wr(ListWorld::kUm + kUmUsersEnd, ListWorld::kUsers + 2 * kUserSize);
+        w.mem.wr(ListWorld::kUm + kUmCount, static_cast<int32_t>(-1));  // what the constructor leaves
+        refused("has no users (count -1)", "no users yet");
+        w.mem.wr(ListWorld::kUm + kUmCount, static_cast<int32_t>(0));
+        refused("has no users (count 0)", "count 0");
+        w.mem.wr(ListWorld::kUm + kUmCount, static_cast<int32_t>(kMaxUsers + 1));
+        refused("user count 65 is out of range", "count too big");
+        // the array header must hold the count (the users are the game's new[] array, not some other pointer)
+        w.mem.wr(ListWorld::kUm + kUmCount, static_cast<int32_t>(3));
+        refused("array header 0x2", "header differs from the count");
+        // a header that agrees but an active user beyond the readable memory (the users block maps one page)
+        w.mem.wr(ListWorld::kUm + kUmCount, static_cast<int32_t>(6));
+        w.mem.wr(ListWorld::kUsersBlock, static_cast<uint64_t>(6));
+        w.mem.wr(ListWorld::kUm + kUmIndex, static_cast<int32_t>(5));
+        refused("the active user at", "active user unreadable");
+        w.mem.wr(ListWorld::kUm + kUmIndex, static_cast<int32_t>(0));
+        w.mem.wr(ListWorld::kUm + kUmCount, static_cast<int32_t>(2));
+        w.mem.wr(ListWorld::kUsersBlock, static_cast<uint64_t>(2));
+        w.mem.wr(ListWorld::kUm + kUmUsers, 0x10ULL);
+        refused("users pointer 0x10 is not a pointer", "users pointer");
+        w.mem.wr(ListWorld::kUm + kUmUsers, 0x31000000ULL);
+        refused("users at 0x31000000 are not readable", "users unmapped");
+        w.mem.wr(ListWorld::kUm + kUmUsers, ListWorld::kUsers);
         w.mem.wr(ListWorld::kUsers + kUserTeam, static_cast<int32_t>(0));
-        r = run(w.mem, g, fns, req_for(kActionQuery, 3001));
-        CHECK(!r.ok && r.message.find("team id (0) is not valid") != std::string::npos, "team 0: " + r.message);
+        refused("team id (0) is not valid", "team 0");
         w.mem.wr(ListWorld::kUsers + kUserTeam, static_cast<int32_t>(ListWorld::kNapoli));
+        w.mem.wr(ListWorld::kUm + kMgrManagers, ListWorld::kOwner);
+        refused("UserManager's manager table", "UserManager of another table");
+        w.mem.wr(ListWorld::kUm + kMgrManagers, ListWorld::kManagers);
+        r = run(w.mem, g, fns, req_for(kActionQuery, 3001));
+        CHECK(r.ok && r.at.user_team == ListWorld::kNapoli, "restored: " + r.message);
         w.mem.wr(ListWorld::kUm, 0x14B000000ULL);
         r = run(w.mem, g, fns, req_for(kActionQuery, 3001));
         CHECK(!r.ok && r.message.find("not the UserManager") != std::string::npos, "um vtable: " + r.message);
         CHECK(g.adds_t == 1 && g.removes == 0, "only the one valid request reached the game");
+    });
+
+    run_case("transfer lists: the user's team read as the game reads it (live UserManager, 2026-10-04: Cheddira at Napoli)", [&] {
+        // FC 27 1.0.140.64835, career turbo04, user club SSC Napoli (team 48), read live through the dev service: the
+        // UserManager held +0x10 = 1 (count), +0x14 = 0 (active user), +0x18 = 0x131EC2A50 (users, new[] header 1),
+        // +0x20 = 0x3A4762470 (another pointer). The first reading took +0x18 / +0x20 for begin / end of the users and
+        // refused "Transfer list" on Walid Cheddira (268511) before calling the game; the game reads GetActiveUser
+        // 0x14154ADBC (+0x14, +0x18, 0x348 stride) and slot 0 of the user's clubs (+0x1F0, team at +4).
+        ListWorld w;
+        FakeListGame g(w);
+        w.mem.wr(ListWorld::kUm + kUmCount, static_cast<int32_t>(1));
+        w.mem.wr(ListWorld::kUm + kUmIndex, static_cast<int32_t>(0));
+        w.mem.wr(ListWorld::kUm + 0x20, ListWorld::kUmOther);
+        w.mem.wr(ListWorld::kUm + 0x2F, static_cast<uint8_t>(0));   // Live Editor's mUserType: 0 = manager career
+        w.mem.wr(ListWorld::kUm + 0x34, static_cast<int32_t>(-1));  // mPlayerId: none in a manager career
+        w.mem.wr(ListWorld::kUsersBlock, static_cast<uint64_t>(1));
+        const uint64_t u = ListWorld::kUsers;
+        w.mem.wr(u + 0x0, static_cast<int32_t>(0));     // the user's own index
+        w.mem.wr(u + 0x1E8, static_cast<int32_t>(27));  // nationality (Italy)
+        w.mem.wr(u + 0x1F0, static_cast<int32_t>(0));   // club slot 0
+        w.mem.wr(u + 0x1F4, static_cast<int32_t>(48));  //   team id: SSC Napoli
+        w.mem.wr(u + 0x1F8, static_cast<int32_t>(31));  //   league id: Serie A
+        const char name[] = "SSC Napoli";
+        w.mem.write(u + 0x1FC, name, sizeof(name));
+        w.mem.wr(u + 0x268, static_cast<int32_t>(-1));  // club slot 1 (national team): none
+        w.mem.wr(u + 0x26C, static_cast<int32_t>(-1));
+        w.mem.wr(u + kUserSize + kUserTeam, static_cast<int32_t>(7));  // the bytes after the single user are not a user
+        int team = 0;
+        std::string err = user_team(w.mem, ListWorld::kUm, ListWorld::kUmVt, team);
+        CHECK(err.empty() && team == 48, "the user's club is Napoli (48): " + err);
+        CHECK(u + kUserSize < ListWorld::kUmOther, "+0x20 lies far beyond the users (the old begin / end reading refused here)");
+        w.add_player(268511, 0);
+        Result r = run(w.mem, g, fns, req_for(kActionQuery, 268511, 48));
+        CHECK(r.ok && r.before == 0 && r.at.user_team == 48, "list status: " + r.message);
+        r = run(w.mem, g, fns, req_for(kActionTransferList, 268511, 48));
+        CHECK(r.ok && r.called && r.before == 0 && r.after == kStatusTransferListed && g.adds_t == 1, "Cheddira transfer listed: " + r.message);
+        r = run(w.mem, g, fns, req_for(kActionUnlist, 268511, 48));
+        CHECK(r.ok && r.after == kStatusNone && g.removes == 1, "and taken off again: " + r.message);
+        r = run(w.mem, g, fns, req_for(kActionTransferList, 268511, 1));
+        CHECK(!r.ok && r.stage == "validate" && r.message.find("not your club (team 48)") != std::string::npos && g.adds_t == 1,
+              "still refused for another club: " + r.message);
+        CHECK(w.mem.failed_reads == 0, "no read outside the synthetic memory (+0x20 is never followed)");
     });
 
     run_case("transfer lists: every check stops before the game is called (functions, objects, vtables, slots, the game refusing)", [&] {
@@ -5475,7 +5551,50 @@ static void test_transfer_list() {
         w.mem.wr(ListWorld::kTm + kTmListsStore, 0ULL);
         r = run(w.mem, g, fns, q);
         CHECK(!r.ok && r.message.find("TransferManager+0x2B80") != std::string::npos, "lists store missing: " + r.message);
-        w.mem.wr(ListWorld::kTm + kTmListsStore, ListWorld::kObjs);
+        w.mem.wr(ListWorld::kTm + kTmListsStore, ListWorld::kObjs + 0x300);
+        // the managers the game reaches through [TransferManager+8] must be the career's
+        w.mem.wr(ListWorld::kTm + kMgrManagers, ListWorld::kOwner);
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("TransferManager's manager table") != std::string::npos, "tm table: " + r.message);
+        w.mem.wr(ListWorld::kTm + kMgrManagers, ListWorld::kManagers);
+        w.mem.wr(ListWorld::kPcm + kMgrManagers, 0ULL);
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("PlayerContractManager's manager table") != std::string::npos, "pcm table: " + r.message);
+        w.mem.wr(ListWorld::kPcm + kMgrManagers, ListWorld::kManagers);
+        // the dispatcher's event sink (PostEvent calls its vfunc +0x30) and the CalendarManager (today's date)
+        uint64_t disp = 0, sink = 0;
+        w.mem.rd(ListWorld::kHolders + static_cast<uint64_t>(kTypeDispatcher) * 0x10, disp);
+        w.mem.rd(disp, sink);
+        w.mem.wr(disp, 0ULL);
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("no event sink") != std::string::npos, "no sink: " + r.message);
+        w.mem.wr(disp, sink);
+        uint64_t sink_vt = 0;
+        w.mem.rd(sink, sink_vt);
+        w.mem.wr(sink, 0x7FF600001000ULL);
+        q.image_base = 0x140000000ULL;
+        q.image_size = 0x10000000ULL;
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("no event sink with a vtable in FC27.exe") != std::string::npos, "sink vtable outside the image: " + r.message);
+        w.mem.wr(sink, sink_vt);
+        uint64_t store = 0;
+        w.mem.rd(ListWorld::kTm + kTmNotifier, store);
+        w.mem.wr(store, 0x7FF600001000ULL);
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("TransferManager+0x2D38") != std::string::npos, "listener vtable outside the image: " + r.message);
+        w.mem.wr(store, 0x140003000ULL);
+        q.image_base = q.image_size = 0;
+        const uint64_t cal_slot = ListWorld::kManagers + 0x20 * static_cast<uint64_t>(kTypeCalendarManager);
+        w.mem.wr(cal_slot + kSlotCount, static_cast<int32_t>(0));
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("slot 24 (CalendarManager)") != std::string::npos, "no CalendarManager: " + r.message);
+        w.mem.wr(cal_slot + kSlotCount, static_cast<int32_t>(1));
+        uint64_t cal = 0;
+        w.mem.rd(ListWorld::kHolders + static_cast<uint64_t>(kTypeCalendarManager) * 0x10, cal);
+        w.mem.wr(cal, 0ULL);
+        r = run(w.mem, g, fns, q);
+        CHECK(!r.ok && r.message.find("CalendarManager at") != std::string::npos, "CalendarManager without a vtable: " + r.message);
+        w.mem.wr(cal, 0x140004000ULL);
         w.mem.wr(ListWorld::kPcm, 0x14B000000ULL);
         r = run(w.mem, g, fns, q);
         CHECK(!r.ok && r.message.find("not the PlayerContractManager") != std::string::npos, "pcm vtable: " + r.message);

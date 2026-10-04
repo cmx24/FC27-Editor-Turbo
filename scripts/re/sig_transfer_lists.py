@@ -33,7 +33,8 @@ ANCHORS = [
      "PlayerContractManager vtable (0x14B01E240): the lea rax,[rip+..] at +0x6 of its ctor 0x147E54FB0 (manager type 77, 0x458 bytes)"),
     ("um_vtable", 0x147AB2EB8, "rip", 0x25, 0x14AFDF150,
      "UserManager vtable (0x14AFDF150): the lea rax,[rip+..] at +0x25 of its ctor 0x147AB2EB8 (manager type 129, 0xB20 bytes; "
-     "+0x14 user index, +0x18 users (0x348 bytes each), user +0x1F4 = the user's team id)"),
+     "+0x10 user count, +0x14 active user index, +0x18 users: new[] array of 0x348-byte users, header -0x10 = count; "
+     "user +0x1F4 = the user's team id; proven live 2026-10-04)"),
 ]
 
 

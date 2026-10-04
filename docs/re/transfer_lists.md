@@ -6,7 +6,9 @@ Source: `C:\FC 27 Live Editor\turbo_output\fc27_image.bin` (FC27.exe 1.0.140.648
 signatures (`scripts/re/sig_transfer_lists.py` re-makes and checks them: all eight unique). Live (dev service, read only,
 2026-10-04 08:0x, game at the main menu): the running FC27.exe has the same bytes at the helper functions and the
 UserActionsHandlingHelperImpl vtable slots 31 / 32 / 33 hold `0x147F8E300` / `0x147F68368` / `0x147F68214` `[H]`.
-**Not yet run in a career** (no career was loaded during this track): section 8 is the in-game plan.
+**First in-game try (2026-10-04 08:45, build c86ed3f, career turbo04, Napoli)**: refused before calling the game because
+the UserManager's users were read with a wrong layout (section 1b, fixed); the whole call path was then re-checked live
+in that career (section 1b, read only). Section 8 is the in-game plan.
 
 Replaces Live Editor's natives `cAddPlayerToTransferList`, `cAddPlayerToLoanList`, `cRemovePlayerFromLists`,
 `cRemovePlayerFromTransferList`, `cRemovePlayerFromLoanList`, `cIsPlayerTransferListed`, `cIsPlayerLoanListed`, which FC 27
@@ -46,6 +48,62 @@ builder (`0x147F17xxx..0x147F19xxx`) allocates every manager as `alloc(size, nam
 0x20-byte slots, `+0x08` type descriptor, `+0x10` count, `+0x18` holder -> object). The helper's `+0x8` is the same hub
 (the helper reads `[[helper+8]+0xFF8]` for the TransferManager, `+0x4F8` for the event dispatcher, `+0x1038` for the
 UserManager) `[H]`.
+
+## 1b. The UserManager's users and the user's team (proven in the code and live)
+
+**What was wrong.** Turbo read `[um+0x18]` / `[um+0x20]` as begin / end of a vector of 0x348-byte users. In the live
+career they were `0x131EC2A50` / `0x3A4762470`, not a whole number of users, so every list action was refused with
+"the UserManager's users ... are not a list of 0x348-byte users" before the game was called (the Lua side, which reads
+`[um+0x18]+0x1F4`, was right). `+0x20` is not the end of anything: the users are a counted `new[]` array.
+
+**The layout, from the code `[H]`:**
+
+| UserManager | meaning | proof |
+|---|---|---|
+| `+0x10` int32 | user count | ctor `0x147AB2EB8` sets -1; `SetUserCount 0x147AC3530` writes it, frees the old array and allocates `count * 0x348 + 0x10` bytes named `"UserManager::mUser"` (the only reference to that name), writes `count` (u64) at the start, constructs each user (`0x147AAF490`) and stores `alloc + 0x10` at `+0x18`; called from `UserManager::HandleEvent 0x147ABDD40` |
+| `+0x14` int32 | active user index, -1 = none | ctor -1; `GetActiveUser 0x14154ADBC` (= `0x147ABD178`): `index == -1 ? null : [um+0x18] + index * 0x348`; the setters `0x147AB6628` / `0x147AC34B4` accept only `0 <= index < [um+0x10]` |
+| `+0x18` ptr | the users (`count` x 0x348 bytes; the `new[]` header at `-0x10` holds the count) | `GetUser(i) 0x147ABD994`: `0 <= i < [um+0x10] ? [um+0x18] + i * 0x348 : null`; `FindUserByTeam 0x147ABD9B4` loops `i < [um+0x10]` |
+| `+0x20` ptr | something else (ctor 0), **not** the users' end | |
+| `+0x2F` u8 / `+0x34` int32 | Live Editor's `mUserType` (0 manager career) / `mPlayerId` (-1 here) | `FCECareerModeUserManager.lua` |
+
+A user's clubs are two 0x74-byte records at `+0x1F0`: `GetUserClub 0x142B1DDEC(user, slot)` returns `user + 0x1F0 +
+slot * 0x74` for slot 0 / 1; the record has the team id at `+4`, the league id at `+8`, the team name at `+0xC`. Slot 0 is
+the club (team at user `+0x1F4`), slot 1 the national team (`+0x268`, -1 = none); `FindUserByTeam` tests both. The list
+code (`TransferManager::AddToTransferList` at `0x147C3FBC5`, `AddToLoanList`, the helper `TryToRemoveFromList` at
+`0x147F8E321`) always reads `GetActiveUser` then `GetUserClub(user, 0)->+4`: the user's **club** team id.
+
+**Live, read only (dev service, 2026-10-04 08:4x-08:5x, FC27.exe 1.0.140.64835, career turbo04 in the hub, user club
+SSC Napoli 48; `bridge_state.json`: comm `0xF6425FE0`, managers `0x6C39E010`, user_team 48, date 1 July 2026):**
+
+* manager table slot 129: count 1, type flag 1, holder `0x66EF3B50` -> UserManager `0x3B38EADE0`, vtable `0x14AFDF150`
+  (= `um_vtable`), `+0x08` = the manager table;
+* `+0x10` = 1, `+0x14` = 0, `+0x18` = `0x131EC2A50`, `+0x20` = `0x3A4762470`, `+0x2F` = 0, `+0x34` = -1;
+* `[0x131EC2A50 - 0x10]` = 1 (the `new[]` header = the count);
+* user 0: `+0x0` = 0 (its index), manager names at `+0x8` / `+0x68` / `+0xC8`, `+0x1E8` = 27 (nationality), club slot 0
+  `+0x1F4` = **48**, `+0x1F8` = 31 (Serie A), `+0x1FC` = "SSC Napoli"; slot 1 `+0x268` = -1. The bytes after the single
+  user are other heap data (not a user).
+
+**Turbo's reading now** (`tl::user_team`): vtable + size, `0 < count <= 64`, `0 <= index < count`, users a pointer whose
+`new[]` header equals the count, the whole active user readable, team = user `+0x1F4` > 0; plus the UserManager's `+0x08`
+is the career's manager table. On the live career this gives 48.
+
+**The rest of the call path, re-checked live in the same career** (a Python mirror of the new `tl::locate` over the dev
+service; every check passed):
+
+* owner `[comm+0x20]` = `0x3E68C0960`, manager table `[owner+0x10]` = `0x6C39E010` (= Lua's), dao `[owner+0x30]` =
+  `0x128DF5410` vtable `0x14B025C48` (= `dao_vtable`), its 0x13E8 bytes readable;
+* helper `dao+0x478` = `0x128DF5888`, vtable `0x14B029440` (= `uah_vtable`), slots 31 / 32 / 33 = `0x147F8E300` /
+  `0x147F68368` / `0x147F68214` (= the three functions by signature), helper `+0x08` = the manager table;
+* TransferManager (slot 127) `0x3B3956EB0`, vtable `0x14B0055A8`, `+0x08` = the manager table; `+0x2B80` lists store
+  `0x67219E30` (vtable `0x14B006060`), `+0x2BE0` `0x6702EEC0` (`0x14B0057C8`), `+0x2D38` `0x67122030` (`0x14B005400`);
+* PlayerContractManager (slot 77) `0x3B47CF9C0`, vtable `0x14B01E240`, `+0x08` = the manager table; buckets
+  `0x2E3B9AD90`, 47 buckets; Cheddira's record (268511, bucket 268511 % 47) `0x67166840`: key 268511, `+0x08` = 48 (his
+  club), status `+0x34` = 0 (not listed: eligible);
+* event dispatcher (slot 39) `0x672166A0`: its first word is its event sink `0x6DE05E20` (vtable `0x14972FB80`);
+  `PostEvent 0x14060124C` calls `[[dispatcher]]`'s vfunc `+0x30`, so Turbo now checks the sink's vtable (not just a
+  non-zero first word);
+* CalendarManager (slot 24, `[hub+0x318]`, which `AddTo*List` reads through `[tm+8]` for the listing date) `0x6BD6E260`,
+  vtable `0x14AFDC498`, `+0x34` = {1, 7, 2026}: now checked too.
 
 ## 2. The helper functions `[H]`
 
@@ -100,8 +158,11 @@ the same table read-only (bounded chain, every read checked).
 * Validation before any call: every function / vtable resolved and inside FC27.exe; comm -> owner -> hub; dao vtable;
   helper vtable **and its slots 31 / 32 / 33 equal the three functions resolved by signature** (the vtable and the
   functions prove each other); the helper's hub is the career's; TransferManager vtable, its `+0x2B80` / `+0x2BE0` /
-  `+0x2D38` objects; PlayerContractManager vtable; event dispatcher present; UserManager vtable, user index within its
-  users (0x348 bytes each), team id > 0. Then the player: his club (from Lua) must be the user's team, he must have a
+  `+0x2D38` objects (vtables in FC27.exe); PlayerContractManager vtable; TransferManager / PlayerContractManager /
+  UserManager `+0x08` = the career's manager table (the game reaches the other managers through `[tm+8]`); event
+  dispatcher with an event sink whose vtable is in FC27.exe; CalendarManager with a vtable and a readable date;
+  UserManager vtable, user count 1..64, active index below it, the users' `new[]` header equal to the count, the active
+  user readable, team id (user `+0x1F4`) > 0 (section 1b). Then the player: his club (from Lua) must be the user's team, he must have a
   contract record, the status must allow the action (the game's own rule 0 / 7 / 8 for adds; listed for removals; a
   single-list removal of a player on both lists is refused because the game would clear both).
 * The call runs on the game thread only (synchronous when Lua calls from the career-event thread; otherwise queued for
@@ -154,7 +215,12 @@ transfer_ban_manager.lua`). Searched in FC27.exe:
   vtable addresses and slots, TransferManager, PlayerContractManager hash table, dispatcher, UserManager with two users)
   and a fake game with the helpers' status transitions: end to end list / loan-list / unlist, single-list removals,
   eligibility, only the user's players (club checks, user index), every validation stopping before the call, bounded
-  chain walks, the eight signatures on the game's bytes and equal to the JSON. UI driver: list buttons (disabled for
+  chain walks, the eight signatures on the game's bytes and equal to the JSON. The UserManager is laid out as the live
+  game has it (count, index, `new[]` users with their header, an unrelated `+0x20`); a regression case replays the
+  live career (one user, Napoli 48, `+0x20` far beyond the users) and lists / unlists Cheddira (268511); the user
+  checks cover count -1 / 0 / 65, index = count, header != count, an unreadable active user, a bad / unmapped users
+  pointer, team 0 and a UserManager of another manager table; the new path checks (managers' `+0x08`, dispatcher sink,
+  CalendarManager, vtables outside FC27.exe) each stop before the call. UI driver: list buttons (disabled for
   another club's player, List status for anyone), Contract & Clubs tab, the ban sections (greyed out / sending the
   module with a ban-capable Live Editor).
 * Lua (`turbo/tests/t14_transfer_lists.lua`): refused without Turbo.dll (reason, caps), install_natives defines
@@ -163,6 +229,9 @@ transfer_ban_manager.lua`). Searched in FC27.exe:
   wrappers, the ban modes (refused in FC 27; FC 26 parity with the natives).
 
 ## 8. In-game test plan (throwaway career only)
+
+First try (2026-10-04 08:45, build c86ed3f): step 3 on Walid Cheddira (268511) was refused at "validate" with the users
+layout error (section 1b); fixed on `fix/transfer-list-user`, every piece of the path then re-checked live (read only).
 
 1. Load the test career (Napoli). Status tab: `transfer_list: ready` with the eight addresses.
 2. Players > a Napoli player > Contract & Clubs > List status: toast "player N is not listed".
