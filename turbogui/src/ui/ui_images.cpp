@@ -27,11 +27,9 @@ static std::string lower(std::string s) {
 static const ImVec4 kWarn(1.0f, 0.7f, 0.3f, 1.0f);
 static const ImVec4 kGood(0.55f, 0.95f, 0.55f, 1.0f);
 
-// Track C1: miniface rendered by the game from the player's 3D model (docs/re/player_capture.md). The game-side
-// hook (PlayerCaptureController request + completion listener via game_hooks.h) is not wired yet, so the button is
-// shown greyed out with the reason. Flip to true once PlayerCaptureHook::available() exists.
-static constexpr bool kPlayerCaptureHook = false;
-static const char* kPlayerCaptureUnavailable = "not available yet: needs the game hook (track C1, docs/re/player_capture.md)";
+// Miniface rendered by the game from the player's 3D model (docs/re/player_capture.md): app.capture is the service the
+// Windows host installs (src/win/player_capture_win.cpp); without it the tab explains why it is off.
+static const char* kPlayerCaptureNoService = "not available: Turbo's game hooks are not running in this build";
 
 // ---------------------------------------------------------------- picture boxes
 static void placeholder(float side, const char* text) {
@@ -223,6 +221,15 @@ struct MinifaceEditor {
     std::string error;
     fs::path browse_dir;
     char player_search[64] = "";
+    // "The 3D model" tab (app.capture)
+    int capture_id = 0;            // id the game renders (playerid / manager head id), editable
+    int capture_camera = 0;        // index into capture::cameras(), or capture::kCameraLearned
+    bool capture_use_template = true;
+    bool capture_advanced = false;
+    int capture_mode = -1, capture_extra = -1;  // advanced overrides (-1 = from the camera preset)
+    bool capture_pending = false;
+    int capture_pending_id = 0;
+    std::string capture_note;      // last outcome, shown under the button
 };
 
 static MinifaceEditor g_player_ed, g_manager_ed;
@@ -235,6 +242,124 @@ static void set_source(MinifaceEditor& ed, Rgba img, const std::string& label) {
     ed.error.clear();
     ++ed.source_version;
     ++ed.version;
+}
+
+// A finished capture the editor has not consumed yet (the service answers whichever editor polls first)
+static bool g_capture_result_ready = false;
+static capture::Result g_capture_result;
+
+static void poll_capture(App& app, MinifaceEditor& ed) {
+    if (!app.capture) return;
+    if (!g_capture_result_ready) {
+        capture::Result r;
+        if (app.capture->poll(r)) {
+            g_capture_result = std::move(r);
+            g_capture_result_ready = true;
+        }
+    }
+    if (!g_capture_result_ready || !ed.capture_pending || g_capture_result.id != ed.capture_pending_id) return;
+    capture::Result r = std::move(g_capture_result);
+    g_capture_result_ready = false;
+    ed.capture_pending = false;
+    if (r.ok) {
+        set_source(ed, std::move(r.image), "3D model capture (" + r.format + ")");
+        ed.remove_bg = true;
+        ed.capture_note = "rendered: " + r.format + ", " + std::to_string(r.bytes) + " bytes";
+        app.notify("3D model rendered for " + r.label + " (" + r.format + ")");
+    } else {
+        ed.error = "3D model: " + r.error;
+        ed.capture_note = "failed: " + r.error;
+        app.notify("3D model capture failed: " + r.error, true);
+    }
+}
+
+// The "The 3D model" tab body
+static void capture_tab(App& app, MinifaceEditor& ed, const MinifaceTarget& t) {
+    ImGui::TextWrapped("Ask the game to render this %s from the 3D model (like FC 26 Live Editor's Generate Miniface) and use the "
+                       "picture as the new miniface. Works in the menus (career hub, squad screens), not during a match.",
+                       t.manager ? "manager's head" : "player");
+    capture::CaptureService* svc = app.capture.get();
+    if (!svc) {
+        ImGui::BeginDisabled();
+        ImGui::Button("Generate from 3D model");
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", kPlayerCaptureNoService);
+        return;
+    }
+    capture::Status st = svc->status();
+    if (ed.capture_id == 0) ed.capture_id = static_cast<int>(t.manager ? t.headassetid : t.id);
+    ImGui::SetNextItemWidth(S(110.0f));
+    ImGui::InputInt("Game id", &ed.capture_id, 0, 0);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", t.manager ? "the manager's head id (heads_staff); change it to try the managerid" : "the player id; change it to render someone else into this miniface");
+    ImGui::SameLine();
+    const auto& cams = capture::cameras();
+    std::string cam_label = ed.capture_camera == capture::kCameraLearned ? "Learned from the game" : cams[static_cast<size_t>(std::clamp(ed.capture_camera, 0, int(cams.size()) - 1))].label;
+    ImGui::SetNextItemWidth(S(330.0f));
+    if (ImGui::BeginCombo("Camera", cam_label.c_str())) {
+        for (size_t i = 0; i < cams.size(); ++i)
+            if (ImGui::Selectable(cams[i].label, ed.capture_camera == int(i))) ed.capture_camera = int(i);
+        if (st.learned && ImGui::Selectable("Learned from the game", ed.capture_camera == capture::kCameraLearned)) ed.capture_camera = capture::kCameraLearned;
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The game's camera / size choice is not decoded yet: these are the (mode, extra) pairs the game's own screens use. Try them.");
+    if (!st.learned) ImGui::BeginDisabled();
+    ImGui::Checkbox("Start from the descriptor the game used itself", &ed.capture_use_template);
+    if (!st.learned) ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::Checkbox("Advanced", &ed.capture_advanced);
+    if (ed.capture_advanced) {
+        ImGui::SetNextItemWidth(S(80.0f));
+        ImGui::InputInt("mode (-1 = preset)", &ed.capture_mode, 0, 0);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(S(80.0f));
+        ImGui::InputInt("extra (-1 = preset)", &ed.capture_extra, 0, 0);
+    }
+    const bool can = st.installed && st.available && !st.busy && !ed.capture_pending && ed.capture_id > 0;
+    if (!can) ImGui::BeginDisabled();
+    if (ImGui::Button("Generate from 3D model")) {
+        capture::Request r;
+        r.id = ed.capture_id;
+        r.second_id = t.manager ? -1 : static_cast<int32_t>(t.teamid);
+        r.manager = t.manager;
+        r.camera = ed.capture_camera;
+        r.use_template = ed.capture_use_template;
+        r.mode_override = ed.capture_advanced ? ed.capture_mode : -1;
+        r.extra_override = ed.capture_advanced ? ed.capture_extra : -1;
+        r.label = (t.manager ? "manager head " : "player ") + std::to_string(ed.capture_id);
+        std::string err;
+        if (svc->request(r, &err)) {
+            ed.capture_pending = true;
+            ed.capture_pending_id = ed.capture_id;
+            ed.capture_note = "asked the game to render " + r.label;
+            ed.error.clear();
+        } else {
+            ed.error = "3D model: " + err;
+        }
+    }
+    if (!can) ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (st.busy || ed.capture_pending) {
+        ImGui::TextColored(kWarn, "%s (%.0f s)", st.reason.empty() ? "rendering..." : st.reason.c_str(), st.busy_for);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Cancel##capture")) {
+            svc->cancel();
+            ed.capture_pending = false;
+            ed.capture_note = "cancelled";
+        }
+    } else {
+        ImGui::TextDisabled("%s", st.reason.c_str());
+    }
+    if (!ed.capture_note.empty()) ImGui::TextDisabled("%s", ed.capture_note.c_str());
+    if (st.installed) {
+        if (st.learned)
+            ImGui::TextDisabled("Descriptor learned from the game's own captures (%d seen). Rendered by Turbo: %d ok, %d failed%s%s", st.seen, st.done,
+                                st.failed, st.last_format.empty() ? "" : ", last picture ", st.last_format.c_str());
+        else
+            ImGui::TextWrapped("The game has not captured a portrait itself yet (Turbo learns its descriptor from that): open the squad hub or a "
+                               "player's bio first if a render fails. Everything is logged to turbo_output\\player_capture.log.");
+    }
 }
 
 static bool load_source_file(MinifaceEditor& ed, const fs::path& f, const std::string& label) {
@@ -318,6 +443,9 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
     }
     if (ed.browse_dir.empty()) ed.browse_dir = app.bridge.root() / "turbo_minifaces";
     g_minifaces_folder = app.bridge.root() / "turbo_minifaces";
+
+    // a 3D-model capture that finished
+    poll_capture(app, ed);
 
     // waiting for a game picture chosen as the source
     if (!ed.pending_legacy.empty()) {
@@ -503,17 +631,7 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("The 3D model")) {
-            ImGui::TextWrapped("Ask the game to render this %s's head from the 3D model (like FC 26 Live Editor's Generate Miniface) and use "
-                               "the picture as the new miniface.", t.manager ? "manager" : "player");
-            if (!kPlayerCaptureHook) ImGui::BeginDisabled();
-            if (ImGui::Button("Generate from 3D model")) {
-                // kPlayerCaptureHook: PlayerCaptureHook::request(id, is_manager) -> picture arrives in ed.source (see docs/re/player_capture.md)
-            }
-            if (!kPlayerCaptureHook) {
-                ImGui::EndDisabled();
-                ImGui::SameLine();
-                ImGui::TextDisabled("%s", kPlayerCaptureUnavailable);
-            }
+            capture_tab(app, ed, t);
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();

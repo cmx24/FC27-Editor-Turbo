@@ -23,12 +23,13 @@ local NATIVES = {
 
 local calls, mem_addrs, loadlib_calls, loadlib_paths = {}, {}, 0, {}
 local real_loadlib = package.loadlib
--- Counts loads of Turbo.dll (link mode "*"). A later symbol lookup in the already loaded DLL (the game-thread pump,
--- loadlib(path, "turbo_game_pump") from the bridge's career-event handler, t12) is not a load and is counted apart.
+-- Counts loads of Turbo.dll (link mode "*"). A later symbol lookup in the already loaded DLL (the game-thread pump
+-- and the game-call entry, loadlib(path, "turbo_game_pump" / "turbo_game_call") from the bridge's career-event
+-- handler, t12) is not a load and is counted apart.
 local pump_lookups = 0
 package.loadlib = function(path, sym)
-    if sym == "turbo_game_pump" then
-        pump_lookups = pump_lookups + 1
+    if sym == "turbo_game_pump" or sym == "turbo_game_call" then
+        if sym == "turbo_game_pump" then pump_lookups = pump_lookups + 1 end
         return nil, "stub"
     end
     loadlib_calls = loadlib_calls + 1

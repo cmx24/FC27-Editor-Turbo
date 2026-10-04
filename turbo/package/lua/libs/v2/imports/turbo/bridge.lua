@@ -8,8 +8,11 @@
 --   mailbox            polled on every career-mode event; commands run Turbo modules
 --
 -- Mailbox layout (allocated by Turbo.dll):
---   +0x00 magic 'TRBO'  +0x08 command seq  +0x0C ack seq  +0x10 status  +0x14 heartbeat
+--   +0x00 magic 'TRBO'  +0x04 version  +0x08 command seq  +0x0C ack seq  +0x10 status  +0x14 heartbeat
 --   +0x20 command JSON (4096)  +0x1020 result text (4096)
+--   +0x2020 game-call block (mailbox version 2, turbogui/src/core/game_calls.h): Lua -> Turbo.dll calls into the
+--   game's own code (M.game_call): +0 op, +4 status, +8 seq, +0xC result seq, +0x10 i64 args[4], +0x30 i64 out[2],
+--   +0x40 text (512)
 
 -- LAUNCH SAFETY: at game launch only M.arm (pure Lua) and M.load_gui("launch") run. load_gui("launch") loads Turbo.dll,
 -- which touches nothing until Live Editor reports "Initial setup done" in its log (or this Lua side runs in game).
@@ -25,8 +28,14 @@ local trace = require 'imports/turbo/core/trace'
 local M = {}
 
 local MAGIC = 0x4F425254
-local OFF_SEQ, OFF_ACK, OFF_STATUS, OFF_HEARTBEAT = 0x08, 0x0C, 0x10, 0x14
+local OFF_VERSION, OFF_SEQ, OFF_ACK, OFF_STATUS, OFF_HEARTBEAT = 0x04, 0x08, 0x0C, 0x10, 0x14
 local OFF_CMD, OFF_RESULT, TEXT_SIZE = 0x20, 0x1020, 0x1000
+-- game-call block (mailbox version 2)
+local CALL_VERSION = 2
+local CALL_OP, CALL_STATUS, CALL_SEQ, CALL_RESULT_SEQ = 0x2020, 0x2024, 0x2028, 0x202C
+local CALL_ARGS, CALL_OUT, CALL_TEXT, CALL_TEXT_SIZE = 0x2030, 0x2050, 0x2060, 0x200
+local CALL_IDLE, CALL_OK, CALL_FAILED, CALL_QUEUED = 0, 1, -1, 2
+M.CALL_OP_JOB_OFFER = 1
 
 -- bridge_dll.json is stamped by the DLL every ~2 s while it runs. A file older than this is left over from an
 -- earlier game session: its mailbox address means nothing in this process and is never read.
@@ -313,6 +322,8 @@ function M.collect_state()
         unavailable = unavailable_tools(),
         turbo_made = turbo_made_tools(),
         date = d and { year = d.year, month = d.month, day = d.day } or nil,
+        -- outcome of the last game call that finished after being queued (M.game_call): the GUI shows it as a toast
+        game_call = S.game_call,
     }
 end
 
@@ -330,6 +341,7 @@ local function same_state(a, b)
     if a.db_service ~= b.db_service or a.in_cm ~= b.in_cm or a.user_team ~= b.user_team then return false end
     if a.transfer_budget ~= b.transfer_budget then return false end
     if a.meta_error ~= b.meta_error then return false end
+    if (a.game_call and a.game_call.seq or 0) ~= (b.game_call and b.game_call.seq or 0) then return false end
     local ad, bd = a.date, b.date
     if (ad == nil) ~= (bd == nil) then return false end
     if ad and (ad.year ~= bd.year or ad.month ~= bd.month or ad.day ~= bd.day) then return false end
@@ -423,16 +435,21 @@ end
 
 -- Check the mailbox; runs at most one pending command. Returns true when a command ran.
 -- force = look for bridge_dll.json now instead of at most once a second
+-- Finds the GUI's mailbox through a fresh bridge_dll.json (at most once a second unless forced). True when connected.
+function M.connect_mailbox(force)
+    if S.mailbox then return true end
+    local t = clock()
+    if not force and t < S.next_dll_check then return false end
+    S.next_dll_check = t + 1.0
+    local addr, session = find_mailbox()
+    if not addr then return false end
+    S.mailbox, S.mailbox_session = addr, session
+    log.info("connected to Turbo GUI mailbox at 0x%X", addr)
+    return true
+end
+
 function M.poll_mailbox(force)
-    if not S.mailbox then
-        local t = clock()
-        if not force and t < S.next_dll_check then return false end
-        S.next_dll_check = t + 1.0
-        local addr, session = find_mailbox()
-        if not addr then return false end
-        S.mailbox, S.mailbox_session = addr, session
-        log.info("connected to Turbo GUI mailbox at 0x%X", addr)
-    end
+    if not M.connect_mailbox(force) then return false end
     local mb = S.mailbox
     if MEMORY:ReadInt(mb) ~= MAGIC then
         S.mailbox = nil
@@ -467,7 +484,20 @@ local function reload_ids()
     return S.reload_ids
 end
 
+-- Turbo.dll's synthetic event (core/events.lua SYNTHETIC_ID): the GUI has a command waiting. Only the mailbox and the
+-- native pump run; the state files, name lists and reload logic belong to real career-mode events.
+local function on_synthetic_event()
+    if S.autoload_pending then return end  -- the bridge is not running yet: nothing can be waiting
+    local okp, perr = pcall(M.poll_mailbox, true)
+    if not okp then log.warn("bridge mailbox: %s", tostring(perr)) end
+    local okg, gerr = pcall(M.pump_native)
+    if not okg then log.warn("bridge native pump: %s", tostring(gerr)) end
+    local okl, lerr = pcall(function() return (require 'imports/turbo/core/legacy').pump(0.25) end)
+    if not okl then log.warn("bridge images: %s", tostring(lerr)) end
+end
+
 function M.on_career_event(event_id)
+    if (require 'imports/turbo/core/events').is_synthetic(event_id) then return on_synthetic_event() end
     if S.autoload_pending then
         -- gui.autoload: first career-mode event = the game is fully running; start the bridge now
         S.autoload_pending = false
@@ -478,14 +508,27 @@ function M.on_career_event(event_id)
     if not S.meta_written then try_write_meta(false) end
     local reload = reload_ids()[event_id] == true
     if reload or not S.names_count then try_write_names() end
+    -- (write_state also connects the mailbox on the way, through core/mem.lua's map lookup)
     local okw, werr = pcall(M.write_state, false, reload)
     if not okw then log.warn("bridge state: %s", tostring(werr)) end
-    local okp, perr = pcall(M.poll_mailbox)
-    if not okp then log.warn("bridge mailbox: %s", tostring(perr)) end
     -- queued native work for the game thread (Turbo.dll's game-thread dispatcher, src/win/game_hooks.cpp): this
-    -- handler runs on the thread that posts career-mode events, so pumping here runs it on the game's own thread
+    -- handler runs on the thread that posts career-mode events, so pumping here runs it on the game's own thread.
+    -- Pumped BEFORE the mailbox commands: the pump tells the DLL which thread is the game thread, so a game call made
+    -- by a command below runs at once instead of being queued for the next event.
+    pcall(M.connect_mailbox)
     local okg, gerr = pcall(M.pump_native)
     if not okg then log.warn("bridge native pump: %s", tostring(gerr)) end
+    local okn, installed = pcall(M.install_natives)
+    if not okn then log.warn("bridge natives: %s", tostring(installed)) end
+    local okc, finished = pcall(M.check_game_call)
+    if not okc then log.warn("bridge game call: %s", tostring(finished)) end
+    -- natives just installed (the capability list changed) or a queued game call finished: publish it now
+    if (okn and installed == true) or (okc and finished == true) then
+        local okw2, werr2 = pcall(M.write_state, true, false)
+        if not okw2 then log.warn("bridge state: %s", tostring(werr2)) end
+    end
+    local okp, perr = pcall(M.poll_mailbox)
+    if not okp then log.warn("bridge mailbox: %s", tostring(perr)) end
     -- game images the Turbo window asked for (core/legacy.lua): a quarter of a second per event
     local okl, lerr = pcall(function() return (require 'imports/turbo/core/legacy').pump(0.25) end)
     if not okl then log.warn("bridge images: %s", tostring(lerr)) end
@@ -496,26 +539,128 @@ end
 -- once through package.loadlib and only while the GUI's mailbox is live (so nothing is loaded that is not running);
 -- a failed lookup is retried at most every PUMP_RETRY_EVENTS events. Returns true when the pump ran.
 local PUMP_RETRY_EVENTS = 60
-function M.pump_native()
-    if not S.mailbox then return false end
-    if S.pump == nil or S.pump == false then
-        S.pump_tries = (S.pump_tries or 0) + 1
-        if S.pump == false and (S.pump_tries % PUMP_RETRY_EVENTS) ~= 1 then return false end
-        local path = M.gui_path()
-        if not path or type(package) ~= "table" or type(package.loadlib) ~= "function" then
-            S.pump = false
-            return false
-        end
-        local f = package.loadlib(path, "turbo_game_pump")
-        if type(f) ~= "function" then
-            S.pump = false
-            return false
-        end
-        S.pump = f
-        log.info("game-thread pump: turbo_game_pump found in Turbo.dll")
+
+-- An exported function of the running Turbo.dll (package.loadlib), cached in S[slot]; false = not found (retried
+-- every PUMP_RETRY_EVENTS calls, for an older Turbo.dll without that export). Only while the mailbox is live.
+local function native_export(slot, symbol)
+    if not S.mailbox then return nil end
+    local f = S[slot]
+    if type(f) == "function" then return f end
+    local tries = (S[slot .. "_tries"] or 0) + 1
+    S[slot .. "_tries"] = tries
+    if f == false and (tries % PUMP_RETRY_EVENTS) ~= 1 then return nil end
+    local path = M.gui_path()
+    if not path or type(package) ~= "table" or type(package.loadlib) ~= "function" then
+        S[slot] = false
+        return nil
     end
-    S.pump()
+    f = package.loadlib(path, symbol)
+    if type(f) ~= "function" then
+        S[slot] = false
+        return nil
+    end
+    S[slot] = f
+    log.info("Turbo.dll export %s found", symbol)
+    return f
+end
+
+function M.pump_native()
+    local pump = native_export("pump", "turbo_game_pump")
+    if not pump then return false end
+    pump()
     S.pumps = (S.pumps or 0) + 1
+    return true
+end
+
+-- ---------------------------------------------------------------- game calls (Turbo.dll runs game code for Lua)
+-- Is the mailbox new enough for the call block (Turbo.dll 0.4.1+)?
+local function call_block_available()
+    local mb = S.mailbox
+    if not mb then return false, "the Turbo GUI is not running" end
+    if MEMORY:ReadInt(mb + OFF_VERSION) < CALL_VERSION then
+        return false, "this Turbo.dll is older than Turbo's Lua side (no game-call block in its mailbox)"
+    end
+    return true
+end
+
+local function read_call_result(mb)
+    local status = MEMORY:ReadInt(mb + CALL_STATUS)
+    local rseq = MEMORY:ReadInt(mb + CALL_RESULT_SEQ)
+    local out0 = MEMORY:ReadQword(mb + CALL_OUT)
+    local out1 = MEMORY:ReadQword(mb + CALL_OUT + 8)
+    local text = MEMORY:ReadString(mb + CALL_TEXT, CALL_TEXT_SIZE)
+    if type(text) ~= "string" then text = "" end
+    text = text:match("^[^%z]*")
+    return status, rseq, out0, out1, text
+end
+
+-- Ask Turbo.dll to run a game call. op: M.CALL_OP_*; args: up to four integers (addresses / ids).
+-- Returns status ("ok", "failed", "queued" or "unavailable"), text, out0, out1.
+-- "queued": the call runs when the dispatcher next runs on the game thread (the next career-mode event); the outcome
+-- is then logged and published in bridge_state.json (game_call) by M.check_game_call.
+function M.game_call(op, args, label)
+    local okb, why = call_block_available()
+    if not okb then return "unavailable", why end
+    local f = native_export("game_call", "turbo_game_call")
+    if not f then return "unavailable", "this Turbo.dll has no turbo_game_call export (update Turbo)" end
+    if S.call_pending then
+        return "failed", string.format("game call #%d (%s) is still queued; wait for the next career-mode event",
+            S.call_pending.seq, tostring(S.call_pending.label))
+    end
+    local mb = S.mailbox
+    S.call_seq = (S.call_seq or 0) + 1
+    local seq = S.call_seq
+    MEMORY:WriteInt(mb + CALL_STATUS, CALL_IDLE)
+    for i = 0, 3 do
+        local v = args and args[i + 1] or 0
+        if math.type(v) ~= "integer" then v = math.tointeger(v) or 0 end
+        MEMORY:WriteQword(mb + CALL_ARGS + i * 8, v)
+    end
+    MEMORY:WriteInt(mb + CALL_OP, op)
+    MEMORY:WriteInt(mb + CALL_SEQ, seq)
+    f()
+    local status, rseq, out0, out1, text = read_call_result(mb)
+    if rseq ~= seq then return "failed", "Turbo.dll did not answer the game call (result #" .. tostring(rseq) .. ")" end
+    if status == CALL_OK then return "ok", text, out0, out1 end
+    if status == CALL_QUEUED then
+        S.call_pending = { seq = seq, op = op, label = label or ("op " .. tostring(op)) }
+        return "queued", text
+    end
+    return "failed", text ~= "" and text or ("game call status " .. tostring(status))
+end
+
+-- A queued game call finished? Logs it and publishes it for the GUI (bridge_state.json game_call).
+function M.check_game_call()
+    local p = S.call_pending
+    if not p or not S.mailbox then return false end
+    local status, rseq, out0, out1, text = read_call_result(S.mailbox)
+    if rseq ~= p.seq or status == CALL_QUEUED or status == CALL_IDLE then return false end
+    S.call_pending = nil
+    local ok = status == CALL_OK
+    S.game_call = { seq = p.seq, ok = ok, text = string.format("%s: %s", tostring(p.label), text), out0 = out0, out1 = out1 }
+    if ok then log.info("game call %s: %s", tostring(p.label), text) else log.warn("game call %s failed: %s", tostring(p.label), text) end
+    return true
+end
+
+-- Lua-callable natives backed by Turbo.dll's game calls. Defined as globals once the export is found, so
+-- core/caps.lua (and env.api) see them like Live Editor's own functions and the GUI lights the buttons up.
+--   TurboJobOfferCreate(jobmarket_address, teamid) -> ok, message, status ("ok" | "queued" | "failed")
+function M.install_natives()
+    if S.natives_installed then return false end   -- true only on the first install (the caller rewrites the state)
+    if not S.mailbox then return false end
+    local okb = call_block_available()
+    if not okb then return false end
+    if not native_export("game_call", "turbo_game_call") then return false end
+    _G.TurboJobOfferCreate = function(jmm, teamid)
+        local a = math.tointeger(jmm) or 0
+        local t = math.tointeger(teamid) or 0
+        local status, text = M.game_call(M.CALL_OP_JOB_OFFER, { a, t }, string.format("job offer from team %d", t))
+        if status == "ok" or status == "queued" then return true, text, status end
+        return false, text, status
+    end
+    S.natives_installed = true
+    S.unavailable = nil   -- caps changed: bridge_state.json lists job_offer as available from now on
+    log.info("Turbo natives installed: TurboJobOfferCreate (Turbo.dll game call)")
     return true
 end
 

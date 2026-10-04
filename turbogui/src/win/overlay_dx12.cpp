@@ -22,6 +22,7 @@
 
 #include "MinHook.h"
 #include "nlohmann/json.hpp"
+#include "game_calls_win.h"
 #include "game_hooks.h"
 #include "host.h"
 #include "imgui.h"
@@ -480,6 +481,7 @@ static void render_frame_impl(IDXGISwapChain3* sc) {
     try {
         TurboInputScope own_input;  // Turbo's own key / mouse reads see the real state (the input shield is for the game)
         g_app->tick(now_seconds());
+        want_lua_pump(g_app->busy());  // a mailbox command is waiting: the game tick nudges Live Editor's Lua (game_hooks.cpp)
         poll_input();
         ImGui_ImplDX12_NewFrame();
         ImGui_ImplWin32_NewFrame();
@@ -920,7 +922,15 @@ bool start_overlay(HMODULE) {
     log("hooks installed; press %s in game to show Turbo", turbo::key_name(g_app->toggle_vk));
     install_input_shield();
     install_game_hooks();  // game-code hooks (game_hooks.cpp): signature scan, kill switches, game-thread dispatcher
-    g_app->hook_report = []() { return game_hooks_report(); };
+    // game calls (game_calls_win.cpp): job-offer functions + the JobMarketManager capture hook; Lua reaches them
+    // through the mailbox call block and the exported turbo_game_call()
+    install_game_calls(g_app->mailbox ? g_app->mailbox->addr() : 0);
+    g_app->hook_report = []() {
+        turbo::HookReport r = game_hooks_report();
+        r.calls = game_calls_status();
+        return r;
+    };
+    install_player_capture(*g_app);  // miniface from the 3D model (player_capture_win.cpp): needs the game hooks above
     start_devtools();
     return true;
 }

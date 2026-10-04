@@ -13,8 +13,14 @@
 //   * kill switches: turbo_output\game_hooks_off.txt (everything), turbo_output\hook_<name>_off.txt (one hook; also
 //     honoured at run time: the detour then only calls the original), env TURBO_GUI_NO_GAME_HOOKS=1;
 //   * the game-thread dispatcher: run_on_game_thread(fn) queues work that runs on the game's own thread, promptly
-//     through the game_tick hook when that signature is known, otherwise on the next career-mode event: Turbo's Lua side
-//     calls the exported turbo_game_pump() from its event handler, which runs on the thread that posts career events.
+//     (within a frame, a bounded batch per tick) through the game_tick hook on the game's per-frame MainLoop frame body
+//     when that signature is known, otherwise on the next career-mode event: Turbo's Lua side calls the exported
+//     turbo_game_pump() from its event handler, which runs on the thread that posts career events;
+//   * prompt Lua commands: while the GUI has a mailbox command waiting (want_lua_pump), the tick hands the game's
+//     career-event post entry a synthetic event whose dispatcher and event objects are Turbo's own no-op objects, so
+//     Live Editor's hook on that entry runs Turbo's Lua handler (which polls the mailbox) and the game itself sees
+//     nothing. Only after a real career-mode event showed that Live Editor's Lua runs on the tick's thread, only while
+//     that entry carries another module's inline hook, at most four times a second (docs/re/game_thread.md section 4).
 //
 // Nothing here runs before start_overlay has initialised MinHook; hooks are enabled one at a time (MH_EnableHook on the
 // target, never MH_ALL_HOOKS).
@@ -58,6 +64,9 @@ const char* run_on_game_thread(std::function<void()> fn);
 bool game_thread_hooked();
 // Thread id of the game thread the queue last ran on (0 = never)
 uint32_t game_thread_id();
+// The GUI has (or no longer has) a mailbox command waiting for Turbo's Lua side: the next ticks send the synthetic
+// career event so Live Editor runs the Lua handler at once (overlay_dx12.cpp calls this every frame with App::busy()).
+void want_lua_pump(bool wanted);
 // Snapshot for the Status tab / log
 turbo::HookReport game_hooks_report();
 // Build key of the running game ("" before install_game_hooks)

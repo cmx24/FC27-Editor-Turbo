@@ -140,6 +140,12 @@ static bool parse_state_impl(const std::string& text, BridgeState& out) {
         for (auto it = j["unavailable"].begin(); it != j["unavailable"].end(); ++it)
             if (it.value().is_string()) out.unavailable[it.key()] = it.value().get<std::string>();
     if (j.contains("meta_error") && j["meta_error"].is_string()) out.meta_error = j["meta_error"].get<std::string>();
+    if (j.contains("game_call") && j["game_call"].is_object()) {
+        const json& g = j["game_call"];
+        out.game_call_seq = g.contains("seq") && g["seq"].is_number() ? g["seq"].get<long long>() : 0;
+        out.game_call_ok = g.value("ok", false);
+        if (g.contains("text") && g["text"].is_string()) out.game_call_text = g["text"].get<std::string>();
+    }
     if (j.contains("date") && j["date"].is_object()) {
         out.date.year = j["date"].value("year", 0);
         out.date.month = j["date"].value("month", 0);

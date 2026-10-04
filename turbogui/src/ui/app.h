@@ -18,6 +18,7 @@
 #include "core/legacy.h"
 #include "core/mem.h"
 #include "core/model.h"
+#include "core/player_capture.h"
 #include "core/sigscan.h"
 #include "core/t3db.h"
 #include "nlohmann/json.hpp"
@@ -106,6 +107,7 @@ public:
     bool texture_test = false;
     std::function<void(const std::string&)> log_hook;  // writes to turbo_gui.log (set by the Windows host)
     std::function<HookReport()> hook_report;           // game-code hook status for the Status tab (Windows host)
+    std::shared_ptr<capture::CaptureService> capture;   // miniface from the game's 3D model (Windows host; tests use a fake)
     int texture_test_frames = 0;
     double lua_heartbeat_seen_at = -1.0;
     uint64_t game_base = 0;  // FC27.exe image base (set by the Windows host; 0 in tests = skip vtable checks)
@@ -117,6 +119,11 @@ public:
     bool bank_capture_running() const { return bank_running_.load(); }
     std::string bank_capture_status;  // last capture result (one line for the Callname tab)
     bool bank_auto_tried = false;     // an automatic capture was started once this session
+    long long game_call_seen = -1;  // last game-call outcome shown as a toast (bridge_state.json game_call.seq; -1 = none yet)
+    // Job offers section (Managers tab): the club picked and the last request label
+    int64_t job_offer_team = 0;
+    std::string job_offer_status;
+    char job_offer_search[64] = "";
 
     // ---- selections / UI state
     int64_t sel_player = 0;

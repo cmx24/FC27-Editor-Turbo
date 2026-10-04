@@ -1,0 +1,35 @@
+{
+  "build": "6AB9813C-211EF000",
+  "game": "FC27.exe",
+  "image": "C:\\FC 27 Live Editor\\turbo_output\\fc27_image.bin (dumped 2026-10-03, base 0x140000000)",
+  "note": "Same entries as the built-in table in turbogui/src/core/sigscan.cpp. Check with: bash scripts/re/py.sh scripts/re/verify_game_thread.py",
+  "signatures": {
+    "game_tick": {
+      "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 48 8B 79 60 48 8B F1 48 8B EA 48 8B 5F 10 48 8B CB FF 15 ?? ?? ?? ?? 48 8B 4F 10 E8",
+      "resolve": "none",
+      "offset": 0,
+      "expect": "0x1459E2E7C",
+      "note": "MainLoop frame body void(MainLoop*, int64* dt): the 'mainJob' MainLoop::Update schedules every frame (docs/re/game_thread.md section 3)"
+    },
+    "post_career_event": {
+      "pattern": "4C 8B C0 48 8B CF E8 ?? ?? ?? ?? 48 8D 8C 24 90 00 00 00 E8 ?? ?? ?? ??",
+      "resolve": "rip",
+      "offset": 6,
+      "expect": "0x14060124C",
+      "match": "0x147B9019C",
+      "note": "PostEvent(dispatcher, int type, Event*) through its call in DataController::InsertTeamPlayer; the function itself carries Live Editor's inline hook at run time, so the call site is the anchor (section 4)"
+    }
+  },
+  "landmarks": {
+    "MainLoop::ctor": "0x1459DD130",
+    "MainLoop::vtable": "0x14AD1D9D0",
+    "MainLoop::Update (vtable slot 4)": "0x141DF6360",
+    "MainLoop frame body (slot 4 inline path / 'mainJob' callback 0x1459DC740)": "0x1459E2E7C",
+    "MainLoop thread entry (thread named 'MainLoop')": "0x141E80D54",
+    "MainLoop thread creation": "0x1459E16CC",
+    "MainLoop::vtable slot 49 (run frame inline?) = 'xor al,al; ret'": "0x1459E09D0",
+    "PostEvent": "0x14060124C",
+    "DataController::InsertTeamPlayer (call site of PostEvent used as the anchor)": "0x147B90074",
+    "JobMarketManager::HandleEvent (vtable slot 107 of 0x14B0160D8)": "0x147DD232C"
+  }
+}

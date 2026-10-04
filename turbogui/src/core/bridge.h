@@ -11,6 +11,7 @@
 //   +0x00 u32 magic 'TRBO'   +0x04 u32 version   +0x08 i32 command seq   +0x0C i32 ack seq
 //   +0x10 i32 status (1 ok, 0 failed)   +0x14 i32 Lua heartbeat
 //   +0x20 char[4096] command JSON        +0x1020 char[4096] result text
+//   +0x2020 game-call block (version 2, core/game_calls.h): Lua -> Turbo.dll calls into the game's own code
 #pragma once
 #include <cstdint>
 #include <filesystem>
@@ -27,9 +28,9 @@
 namespace turbo {
 
 constexpr uint32_t kMailboxMagic = 0x4F425254;  // "TRBO" little-endian
-constexpr uint32_t kMailboxVersion = 1;
+constexpr uint32_t kMailboxVersion = 2;  // 2: the game-call block at +0x2020 exists
 constexpr uint64_t kMbCmdSeq = 0x08, kMbAckSeq = 0x0C, kMbStatus = 0x10, kMbHeartbeat = 0x14;
-constexpr uint64_t kMbCmd = 0x20, kMbResult = 0x1020, kMbTextSize = 0x1000, kMailboxSize = 0x2020;
+constexpr uint64_t kMbCmd = 0x20, kMbResult = 0x1020, kMbTextSize = 0x1000, kMailboxSize = 0x2300;
 
 struct BridgeState {
     bool loaded = false;
@@ -56,6 +57,11 @@ struct BridgeState {
     std::map<std::string, std::string> unavailable;
     // Player moves Turbo makes itself in the career database (no Live Editor native; Lua core/caps.lua turbo_made)
     std::vector<std::string> turbo_made;
+    // Outcome of the last game call Lua queued on the game thread (core/game_calls.h), reported later by Lua:
+    // request number (0 = none yet), success and the text (the GUI shows it as a toast when the number changes)
+    long long game_call_seq = 0;
+    bool game_call_ok = false;
+    std::string game_call_text;
     bool is_turbo_made(const char* key) const {
         for (const auto& k : turbo_made)
             if (key && k == key) return true;

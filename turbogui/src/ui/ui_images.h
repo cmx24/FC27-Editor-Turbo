@@ -16,6 +16,8 @@ struct MinifaceTarget {
     bool manager = false;
     std::string path;         // legacy path of the miniface being edited
     int64_t headassetid = 0;  // players: head model (head model / youth face sources); managers: heads_staff id
+    int64_t id = 0;           // players: playerid; managers: managerid (the 3D-model capture renders the head id for managers)
+    int64_t teamid = 0;       // players: club (0 = none); passed to the 3D-model capture as the second id
 };
 
 struct RealFaceOptions {
