@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "MinHook.h"
+#include "core/gamethread.h"
 #include "host.h"
 
 namespace host {
@@ -46,20 +47,43 @@ std::deque<HookRec*> g_hooks;  // never freed: detours read them for the lifetim
 
 // kill switches (cached)
 std::atomic<bool> g_global_off{false};
+std::atomic<bool> g_lua_trigger_off{false};
 std::atomic<unsigned long long> g_next_switch_check{0};
 
 // dispatcher
-std::mutex g_queue_mutex;
-std::deque<std::function<void()>> g_queue;
-constexpr size_t kMaxQueue = 256;
+turbo::JobQueue g_jobs(256);
+constexpr size_t kJobsPerTick = 32;  // at most this many queued jobs per frame (the rest wait for the next frame)
 std::atomic<bool> g_tick_hooked{false};
-std::atomic<long long> g_ticks{0}, g_pumps{0}, g_ran{0};
-std::atomic<uint32_t> g_game_tid{0};
-std::atomic<bool> g_tick_logged{false};
+std::atomic<long long> g_ticks{0}, g_pumps{0};
+std::atomic<uint32_t> g_game_tid{0}, g_tick_tid{0}, g_pump_tid{0};
+std::atomic<bool> g_tick_logged{false}, g_thread_mismatch_logged{false};
+thread_local int t_drain_depth = 0;  // a Lua pump that happens inside a queued job must not drain again
+
+// prompt Lua commands: the synthetic career event (core/gamethread.h, docs/re/game_thread.md section 4)
+using PostEventFn = void* (*)(void*, int, void*);
+std::atomic<bool> g_lua_wanted{false};
+std::atomic<bool> g_in_trigger{false};
+std::atomic<long long> g_lua_triggers{0}, g_lua_trigger_pumps{0};
+std::atomic<unsigned long long> g_next_trigger{0}, g_next_hook_check{0};
+uint64_t g_post_event = 0;                 // resolved post_career_event signature (0 = not available)
+std::atomic<bool> g_post_event_hooked{false};  // another module's inline hook sits on it (Live Editor)
+std::string g_post_event_hook_note;        // "jmp rel32 -> FCLiveEditor.DLL" (g_mutex)
+std::string g_lua_note;                    // Status tab state (g_mutex)
+turbo::SyntheticEvent* g_synthetic = nullptr;  // built once, never freed (the game may hold the pointers briefly)
+constexpr unsigned long long kTriggerIntervalMs = 250;
+
+// Every virtual slot of the synthetic objects: returns the object itself (never null, never touches anything)
+void* synthetic_noop(void* self, void*, void*, void*) { return self; }
 
 fs::path out_dir() { return le_root() / "turbo_output"; }
 fs::path global_off_path() { return out_dir() / "game_hooks_off.txt"; }
 fs::path hook_off_path(const std::string& name) { return out_dir() / ("hook_" + name + "_off.txt"); }
+fs::path lua_trigger_off_path() { return out_dir() / "lua_trigger_off.txt"; }
+
+void set_lua_note(const std::string& s) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    g_lua_note = s;
+}
 
 bool file_exists(const fs::path& p) {
     std::error_code ec;
@@ -73,6 +97,7 @@ void refresh_switches() {
     if (now < next) return;
     if (!g_next_switch_check.compare_exchange_strong(next, now + 2000)) return;
     g_global_off = file_exists(global_off_path());
+    g_lua_trigger_off = file_exists(lua_trigger_off_path());
     std::lock_guard<std::mutex> lock(g_mutex);
     for (HookRec* h : g_hooks) h->killed = file_exists(hook_off_path(h->name));
 }
@@ -207,25 +232,120 @@ void write_template(const fs::path& p) {
 }
 
 // ---------------------------------------------------------------- dispatcher
-void drain_queue(const char* who) {
+// Runs queued jobs on the calling thread (max_jobs 0 = everything queued now). Never nests: a Lua pump that happens
+// inside a job (the synthetic trigger makes Turbo's Lua side call turbo_game_pump) returns at once.
+size_t drain_queue(const char* who, size_t max_jobs) {
+    if (t_drain_depth > 0) return 0;
     g_game_tid = GetCurrentThreadId();
-    for (;;) {
-        std::function<void()> job;
-        {
-            std::lock_guard<std::mutex> lock(g_queue_mutex);
-            if (g_queue.empty()) return;
-            job = std::move(g_queue.front());
-            g_queue.pop_front();
-        }
-        try {
-            job();
-            ++g_ran;
-        } catch (const std::exception& e) {
-            log("game thread (%s): queued job failed: %s", who, e.what());
-        } catch (...) {
-            log("game thread (%s): queued job failed: unknown exception", who);
-        }
+    ++t_drain_depth;
+    size_t n = 0;
+    try {
+        n = g_jobs.drain(max_jobs, [who](const char* what) {
+            static std::atomic<long long> logged{0};
+            if (++logged <= 20) log("game thread (%s): queued job failed: %s", who, what);
+        });
+    } catch (...) {
     }
+    --t_drain_depth;
+    return n;
+}
+
+// Which module owns an address ("" when none: VirtualAlloc'ed code)
+std::string module_of(uint64_t addr) {
+    HMODULE m = nullptr;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            reinterpret_cast<LPCWSTR>(static_cast<uintptr_t>(addr)), &m) ||
+        !m)
+        return "";
+    wchar_t path[MAX_PATH * 2] = {0};
+    GetModuleFileNameW(m, path, MAX_PATH * 2);
+    std::wstring w(path);
+    size_t slash = w.find_last_of(L"\\/");
+    if (slash != std::wstring::npos) w = w.substr(slash + 1);
+    std::string out;
+    for (wchar_t c : w) out += c < 128 ? static_cast<char>(c) : '?';
+    return out;
+}
+
+// Is the career-event post entry carrying another module's inline hook (Live Editor's post__CareerModeEvent)?
+// Re-read at most every 2 s while the answer is "no" (Live Editor may install its hooks after Turbo started).
+bool post_event_hooked_now() {
+    if (!g_post_event) return false;
+    if (g_post_event_hooked.load()) return true;
+    const unsigned long long now = GetTickCount64();
+    unsigned long long next = g_next_hook_check.load();
+    if (now < next) return false;
+    if (!g_next_hook_check.compare_exchange_strong(next, now + 2000)) return false;
+    ProcessMemory mem;
+    uint8_t code[16] = {0};
+    if (!mem.read(g_post_event, code, sizeof(code))) return false;
+    uint64_t target = 0;
+    turbo::InlineHook h = turbo::detect_inline_hook(code, sizeof(code), g_post_event, &target);
+    if (h == turbo::InlineHook::None || h == turbo::InlineHook::Truncated) return false;
+    if (h == turbo::InlineHook::JmpIndirect) {
+        uint64_t slot = 0;
+        if (!mem.rd(target, slot)) return false;
+        target = slot;
+    }
+    std::string owner = module_of(target);
+    if (owner == "FC27.exe" || owner == "Turbo.dll") return false;  // the game's own code, not a hook
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_post_event_hook_note = std::string(turbo::inline_hook_name(h)) + " -> " + (owner.empty() ? "unnamed code" : owner);
+    }
+    g_post_event_hooked = true;
+    log("game thread: post_career_event at 0x%llX carries an inline hook (%s -> %s): prompt Lua commands available",
+        static_cast<unsigned long long>(g_post_event), turbo::inline_hook_name(h), owner.empty() ? "unnamed code" : owner.c_str());
+    return true;
+}
+
+// The synthetic career event: Live Editor's hook on PostEvent runs Turbo's Lua handler (which polls the GUI mailbox);
+// the game itself only sees Turbo's no-op objects. Called from the tick, after the frame body returned.
+void maybe_trigger_lua() {
+    if (!g_lua_wanted.load()) return;
+    if (!g_post_event || !g_synthetic) return;
+    if (g_lua_trigger_off.load()) {
+        set_lua_note("off: turbo_output\\lua_trigger_off.txt present");
+        return;
+    }
+    const uint32_t pump = g_pump_tid.load();
+    if (pump == 0) {
+        set_lua_note("waiting: no career-mode event seen yet (the thread Live Editor runs Lua on is unknown)");
+        return;
+    }
+    const uint32_t me = GetCurrentThreadId();
+    if (pump != me) {
+        set_lua_note("off: Live Editor runs Lua on thread " + std::to_string(pump) + ", the game tick is thread " +
+                     std::to_string(me) + " (the synthetic event would race the Lua state)");
+        return;
+    }
+    if (!post_event_hooked_now()) {
+        set_lua_note("waiting: no inline hook on post_career_event yet (Live Editor's post__CareerModeEvent hook not seen)");
+        return;
+    }
+    const unsigned long long now = GetTickCount64();
+    if (now < g_next_trigger.load()) return;
+    g_next_trigger = now + kTriggerIntervalMs;
+    if (!turbo::verify_synthetic_event(*g_synthetic, reinterpret_cast<void*>(&synthetic_noop), turbo::kSyntheticCareerEvent)) {
+        set_lua_note("off: the synthetic event objects were modified");
+        log("game thread: synthetic event objects modified: prompt Lua commands disabled");
+        g_post_event = 0;
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_lua_note = "ready (" + g_post_event_hook_note + ")";
+    }
+    ++g_lua_triggers;
+    g_in_trigger = true;
+    HOOK_BODY("lua_trigger", {
+        reinterpret_cast<PostEventFn>(static_cast<uintptr_t>(g_post_event))(g_synthetic->wrapper, turbo::kSyntheticCareerEvent,
+                                                                           g_synthetic->event);
+    });
+    g_in_trigger = false;
+    static std::atomic<bool> first{true};
+    if (first.exchange(false))
+        log("game thread: first synthetic career event sent (Lua pumped during it: %s)", g_lua_trigger_pumps.load() > 0 ? "yes" : "no");
 }
 
 // Generic pass-through detour for the per-frame function: the first four integer arguments and the integer return value
@@ -240,8 +360,16 @@ void* hk_tick(void* a, void* b, void* c, void* d) {
     ++g_ticks;
     if (!game_hook_enabled("game_tick")) return r;
     game_hook_called("game_tick");
-    if (!g_tick_logged.exchange(true)) log("game thread: game_tick hook runs on thread %lu", GetCurrentThreadId());
-    HOOK_BODY("game_tick", { drain_queue("game_tick hook"); });
+    const uint32_t me = GetCurrentThreadId();
+    g_tick_tid = me;
+    if (!g_tick_logged.exchange(true)) log("game thread: game_tick hook runs on thread %lu", me);
+    const uint32_t pump = g_pump_tid.load();
+    if (pump && pump != me && !g_thread_mismatch_logged.exchange(true))
+        log("game thread: WARNING the game tick runs on thread %lu but Live Editor's Lua pumped from thread %lu", me, pump);
+    HOOK_BODY("game_tick", {
+        drain_queue("game_tick hook", kJobsPerTick);
+        maybe_trigger_lua();
+    });
     return r;
 }
 
@@ -339,10 +467,9 @@ bool install_game_hook(const char* name, const char* signature, void* detour, vo
 
 const char* run_on_game_thread(std::function<void()> fn) {
     if (!fn) return "";
-    {
-        std::lock_guard<std::mutex> lock(g_queue_mutex);
-        while (g_queue.size() >= kMaxQueue) g_queue.pop_front();
-        g_queue.push_back(std::move(fn));
+    if (g_jobs.push(std::move(fn))) {
+        static std::atomic<long long> logged{0};
+        if (++logged <= 5) log("game thread: the job queue is full (%zu): the oldest job was dropped", g_jobs.capacity());
     }
     if (g_tick_hooked.load() && game_hook_enabled("game_tick")) return "hook";
     if (g_pumps.load() > 0) return "lua";
@@ -351,6 +478,11 @@ const char* run_on_game_thread(std::function<void()> fn) {
 
 bool game_thread_hooked() { return g_tick_hooked.load() && game_hook_enabled("game_tick"); }
 uint32_t game_thread_id() { return g_game_tid.load(); }
+
+void want_lua_pump(bool wanted) {
+    const bool before = g_lua_wanted.exchange(wanted);
+    if (wanted && !before) g_next_trigger = 0;  // the first synthetic event goes out on the next tick
+}
 
 turbo::HookReport game_hooks_report() {
     turbo::HookReport r;
@@ -374,12 +506,16 @@ turbo::HookReport game_hooks_report() {
     r.dispatcher_hooked = g_tick_hooked.load();
     r.dispatcher_ticks = g_ticks.load();
     r.dispatcher_pumps = g_pumps.load();
-    r.dispatcher_ran = g_ran.load();
-    {
-        std::lock_guard<std::mutex> ql(g_queue_mutex);
-        r.queued = g_queue.size();
-    }
+    r.dispatcher_ran = g_jobs.ran();
+    r.dispatcher_failed = g_jobs.failed();
+    r.dispatcher_dropped = g_jobs.dropped();
+    r.queued = g_jobs.size();
     r.game_thread_id = g_game_tid.load();
+    r.tick_thread_id = g_tick_tid.load();
+    r.pump_thread_id = g_pump_tid.load();
+    r.lua_trigger = g_lua_note;
+    r.lua_triggers = g_lua_triggers.load();
+    r.lua_trigger_pumps = g_lua_trigger_pumps.load();
     return r;
 }
 
@@ -481,11 +617,36 @@ void install_game_hooks() {
         if (install_game_hook_at("game_tick", reinterpret_cast<void*>(tick), reinterpret_cast<void*>(&hk_tick),
                                  reinterpret_cast<void**>(&o_tick))) {
             g_tick_hooked = true;
-            log("game thread dispatcher: prompt (game_tick hook)");
+            log("game thread dispatcher: prompt (game_tick hook, at most %zu jobs per frame)", kJobsPerTick);
         }
     }
     if (!g_tick_hooked.load())
         log("game thread dispatcher: queued work runs on the next career-mode event (Turbo's Lua side calls turbo_game_pump)");
+    // Prompt Lua commands: the synthetic career event through the game's PostEvent entry (needs the tick hook)
+    const uint64_t post = game_signature("post_career_event");
+    if (!g_tick_hooked.load()) {
+        set_lua_note("off: no game_tick hook (Lua commands run on the next career-mode event)");
+    } else if (!post) {
+        set_lua_note("off: signature post_career_event not found (Lua commands run on the next career-mode event)");
+    } else if (file_exists(lua_trigger_off_path())) {
+        g_lua_trigger_off = true;
+        set_lua_note("off: turbo_output\\lua_trigger_off.txt present");
+        log("game thread: prompt Lua commands off (turbo_output\\lua_trigger_off.txt)");
+    } else {
+        auto* s = new turbo::SyntheticEvent();
+        turbo::build_synthetic_event(*s, reinterpret_cast<void*>(&synthetic_noop), turbo::kSyntheticCareerEvent);
+        if (!turbo::verify_synthetic_event(*s, reinterpret_cast<void*>(&synthetic_noop), turbo::kSyntheticCareerEvent)) {
+            set_lua_note("off: could not build the synthetic event objects");
+        } else {
+            g_synthetic = s;
+            g_post_event = post;
+            set_lua_note("waiting: no career-mode event seen yet");
+            log("game thread: prompt Lua commands armed: PostEvent 0x%llX, synthetic event id 0x%X, objects at %p/%p/%p "
+                "(kill switch: turbo_output\\lua_trigger_off.txt)",
+                static_cast<unsigned long long>(post), static_cast<unsigned>(turbo::kSyntheticCareerEvent),
+                static_cast<void*>(s->wrapper), static_cast<void*>(s->dispatcher), static_cast<void*>(s->event));
+        }
+    }
 }
 
 }  // namespace host
@@ -493,7 +654,9 @@ void install_game_hooks() {
 extern "C" __declspec(dllexport) int turbo_game_pump(void*) {
     using namespace host;
     long long n = ++g_pumps;
+    g_pump_tid = GetCurrentThreadId();
     if (n == 1) log("game thread: Turbo's Lua side pumps the dispatcher from thread %lu (career-mode events)", GetCurrentThreadId());
-    HOOK_BODY("turbo_game_pump", { drain_queue("Lua pump"); });
+    if (g_in_trigger.load()) ++g_lua_trigger_pumps;  // Live Editor ran Turbo's Lua handler for the synthetic event
+    HOOK_BODY("turbo_game_pump", { drain_queue("Lua pump", 0); });
     return 0;
 }

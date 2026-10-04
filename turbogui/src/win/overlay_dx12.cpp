@@ -480,6 +480,7 @@ static void render_frame_impl(IDXGISwapChain3* sc) {
     try {
         TurboInputScope own_input;  // Turbo's own key / mouse reads see the real state (the input shield is for the game)
         g_app->tick(now_seconds());
+        want_lua_pump(g_app->busy());  // a mailbox command is waiting: the game tick nudges Live Editor's Lua (game_hooks.cpp)
         poll_input();
         ImGui_ImplDX12_NewFrame();
         ImGui_ImplWin32_NewFrame();

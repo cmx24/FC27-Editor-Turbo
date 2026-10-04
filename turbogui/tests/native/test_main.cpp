@@ -31,6 +31,7 @@
 #include "core/legacy.h"
 #include "core/devops.h"
 #include "core/fce_standings.h"
+#include "core/gamethread.h"
 #include "core/memmap.h"
 #include "core/le_log.h"
 #include "core/model.h"
@@ -2413,7 +2414,10 @@ static void test_sigscan() {
               "JSON round trip");
         // built-in table: the 2026-10-03 build is known, a made-up build is not
         const SignatureTable* b = builtin_signature_table("6AB9813C-211EF000");
-        CHECK(b && b->find("game_tick") && b->find("game_tick")->pattern.empty(), "built-in table for the known build");
+        CHECK(b && b->find("game_tick") && !b->find("game_tick")->pattern.empty() && b->find("game_tick")->resolve == "none" &&
+                  b->find("post_career_event") && b->find("post_career_event")->resolve == "rip" &&
+                  b->find("post_career_event")->offset == 6,
+              "built-in table for the known build carries the tick and the event post");
         CHECK(builtin_signature_table("00000000-00000000") == nullptr, "unknown build has no table");
         CHECK(!builtin_builds().empty() && builtin_builds()[0] == "6AB9813C-211EF000", "builtin_builds lists it");
         for (const auto& bt : builtin_builds()) {
@@ -2452,6 +2456,147 @@ static void test_sigscan() {
         CHECK(r.state == SigState::BadPattern, "malformed pattern");
         CHECK(std::string(sig_state_name(SigState::Found)) == "found" && std::string(sig_state_name(SigState::Ambiguous)) == "ambiguous",
               "state names");
+    });
+}
+
+// Game-thread dispatcher pieces (core/gamethread.h): the job queue, inline hook detection, the synthetic career event,
+// and the built-in signatures for build 6AB9813C-211EF000 against the bytes of that build's image.
+static void* noop_a(void* self, void*, void*, void*) { return self; }
+static void* noop_b(void* self, void*, void*, void*) { return self; }
+
+static void test_gamethread() {
+    run_case("job queue: order, bounded drain, exceptions counted, oldest dropped when full", [&] {
+        JobQueue q(4);
+        std::vector<int> ran;
+        for (int i = 1; i <= 3; ++i) q.push([&, i] { ran.push_back(i); });
+        CHECK(q.size() == 3 && q.dropped() == 0, "three queued");
+        CHECK(q.drain(2) == 2 && ran.size() == 2 && ran[0] == 1 && ran[1] == 2 && q.size() == 1, "bounded drain keeps order");
+        CHECK(q.drain(0) == 1 && ran.size() == 3 && ran[2] == 3 && q.size() == 0 && q.ran() == 3, "drain all");
+        CHECK(q.drain(0) == 0 && q.drain(5) == 0, "empty drain");
+        std::vector<std::string> errors;
+        q.push([] { throw std::runtime_error("boom"); });
+        q.push([&] { ran.push_back(4); });
+        q.push([] { throw 42; });
+        CHECK(q.drain(0, [&](const char* w) { errors.push_back(w); }) == 3, "all three ran");
+        CHECK(errors.size() == 2 && errors[0] == "boom" && errors[1] == "unknown exception" && q.failed() == 2 && ran.back() == 4,
+              "exceptions counted and reported, the rest still run");
+        ran.clear();
+        bool dropped = false;
+        for (int i = 1; i <= 6; ++i) dropped = q.push([&, i] { ran.push_back(i); }) || dropped;
+        CHECK(dropped && q.size() == 4 && q.dropped() == 2, "capacity 4: two dropped");
+        q.drain(0);
+        CHECK(ran.size() == 4 && ran[0] == 3 && ran[3] == 6, "the oldest were dropped");
+        // a job that queues another job: the new one waits for the next drain
+        q.push([&] { q.push([&] { ran.push_back(99); }); });
+        CHECK(q.drain(0) == 1 && q.size() == 1 && ran.back() != 99, "re-queued job waits");
+        CHECK(q.drain(0) == 1 && ran.back() == 99, "and runs next time");
+        CHECK(!q.push(nullptr) && q.size() == 0, "null job ignored");
+    });
+
+    run_case("inline hook detection: jmp rel32, jmp [rip], movabs+jmp, push+ret, plain code, truncated", [&] {
+        const uint64_t at = 0x14060124CULL;
+        uint64_t t = 0;
+        const uint8_t jmp[] = {0xE9, 0x10, 0x00, 0x00, 0x00, 0xCC};
+        CHECK(detect_inline_hook(jmp, sizeof(jmp), at, &t) == InlineHook::JmpRel32 && t == at + 5 + 0x10, "jmp rel32");
+        const uint8_t jneg[] = {0xE9, 0xF6, 0xFF, 0xFF, 0xFF};
+        CHECK(detect_inline_hook(jneg, sizeof(jneg), at, &t) == InlineHook::JmpRel32 && t == at + 5 - 10, "negative rel32");
+        const uint8_t ind[] = {0xFF, 0x25, 0x00, 0x10, 0x00, 0x00};
+        CHECK(detect_inline_hook(ind, sizeof(ind), at, &t) == InlineHook::JmpIndirect && t == at + 6 + 0x1000, "jmp [rip]: the slot");
+        const uint8_t mov[] = {0x48, 0xB8, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0xFF, 0xE0};
+        CHECK(detect_inline_hook(mov, sizeof(mov), at, &t) == InlineHook::MovabsJmp && t == 0x1122334455667788ULL, "movabs+jmp rax");
+        const uint8_t movno[] = {0x48, 0xB8, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x48, 0x89};
+        CHECK(detect_inline_hook(movno, sizeof(movno), at, &t) == InlineHook::None && t == 0, "movabs without jmp is code");
+        const uint8_t pr[] = {0x68, 0x44, 0x33, 0x22, 0x11, 0xC7, 0x44, 0x24, 0x04, 0x88, 0x77, 0x66, 0x55, 0xC3};
+        CHECK(detect_inline_hook(pr, sizeof(pr), at, &t) == InlineHook::PushRet && t == 0x5566778811223344ULL, "push+ret");
+        const uint8_t post[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x49};
+        CHECK(detect_inline_hook(post, sizeof(post), at, &t) == InlineHook::None && t == 0, "PostEvent's own prologue is not a hook");
+        CHECK(detect_inline_hook(jmp, 3, at, &t) == InlineHook::Truncated && detect_inline_hook(ind, 4, at, &t) == InlineHook::Truncated &&
+                  detect_inline_hook(nullptr, 0, at, &t) == InlineHook::Truncated && detect_inline_hook(mov, 8, at, &t) == InlineHook::Truncated,
+              "too few bytes is never a verdict");
+        CHECK(detect_inline_hook(jmp, sizeof(jmp), at, nullptr) == InlineHook::JmpRel32, "target may be null");
+        CHECK(std::string(inline_hook_name(InlineHook::JmpRel32)) == "jmp rel32" && std::string(inline_hook_name(InlineHook::None)) == "none",
+              "names");
+    });
+
+    run_case("synthetic career event: layout the game's PostEvent walks lands only in Turbo's objects", [&] {
+        auto* s = new SyntheticEvent();
+        build_synthetic_event(*s, reinterpret_cast<void*>(&noop_a), kSyntheticCareerEvent);
+        CHECK(verify_synthetic_event(*s, reinterpret_cast<void*>(&noop_a), kSyntheticCareerEvent), "verifies after build");
+        auto q = [](const uint8_t* p) {
+            uint64_t v = 0;
+            std::memcpy(&v, p, 8);
+            return v;
+        };
+        // what PostEvent does: rax=[event]; call [rax+8]; call [rax+0x20]; rcx=[wrapper]; rax=[rcx]; call [rax+0x30]; jmp [[event]+0x10]
+        void** evt_vt = reinterpret_cast<void**>(q(s->event));
+        CHECK(evt_vt == s->vtable && evt_vt[1] == reinterpret_cast<void*>(&noop_a) && evt_vt[4] == reinterpret_cast<void*>(&noop_a) &&
+                  evt_vt[2] == reinterpret_cast<void*>(&noop_a),
+              "event vtable slots 1, 4, 2 are the no-op");
+        void* disp = reinterpret_cast<void*>(q(s->wrapper));
+        CHECK(disp == s->dispatcher, "wrapper -> dispatcher");
+        void** disp_vt = reinterpret_cast<void**>(q(s->dispatcher));
+        CHECK(disp_vt == s->vtable && disp_vt[6] == reinterpret_cast<void*>(&noop_a), "dispatcher slot 6 is the no-op");
+        for (size_t i = 0; i < kSyntheticVtableSlots; ++i)
+            CHECK(s->vtable[i] == reinterpret_cast<void*>(&noop_a), fmt("slot %zu", i));
+        CHECK(q(s->event + 8) == 0, "reference count 0");
+        CHECK(q(s->event + kSyntheticTypeOffset) == static_cast<uint64_t>(kSyntheticCareerEvent), "type id at +0x10");
+        // every other qword points at the object itself: a reader that follows fields never leaves Turbo's memory
+        bool self = true;
+        for (size_t off = 0x18; off + 8 <= kSyntheticBlock; off += 8) self = self && q(s->event + off) == reinterpret_cast<uint64_t>(s->event);
+        for (size_t off = 8; off + 8 <= kSyntheticBlock; off += 8) {
+            self = self && q(s->wrapper + off) == reinterpret_cast<uint64_t>(s->wrapper);
+            self = self && q(s->dispatcher + off) == reinterpret_cast<uint64_t>(s->dispatcher);
+        }
+        CHECK(self, "self-referential filler");
+        // the no-op returns its first argument, so a chain of virtual calls never produces a null
+        using Fn = void* (*)(void*, void*, void*, void*);
+        CHECK(reinterpret_cast<Fn>(evt_vt[1])(s->event, nullptr, nullptr, nullptr) == s->event, "no-op returns self");
+        // any modification is caught before use
+        CHECK(!verify_synthetic_event(*s, reinterpret_cast<void*>(&noop_b), kSyntheticCareerEvent), "other no-op refused");
+        CHECK(!verify_synthetic_event(*s, reinterpret_cast<void*>(&noop_a), kSyntheticCareerEvent + 1), "other type refused");
+        const uint64_t zero = 0;
+        std::memcpy(s->event + 0x40, &zero, 8);
+        CHECK(!verify_synthetic_event(*s, reinterpret_cast<void*>(&noop_a), kSyntheticCareerEvent), "changed filler refused");
+        build_synthetic_event(*s, reinterpret_cast<void*>(&noop_a), kSyntheticCareerEvent);
+        s->vtable[6] = reinterpret_cast<void*>(&noop_b);
+        CHECK(!verify_synthetic_event(*s, reinterpret_cast<void*>(&noop_a), kSyntheticCareerEvent), "changed slot refused");
+        CHECK(kSyntheticCareerEvent == 0x7E7E0001, "id shared with core/events.lua SYNTHETIC_ID");
+        delete s;
+    });
+
+    run_case("built-in signatures of build 6AB9813C-211EF000 resolve on that build's bytes and stay unique", [&] {
+        const SignatureTable* b = builtin_signature_table("6AB9813C-211EF000");
+        CHECK(b != nullptr, "table");
+        if (!b) return;
+        // the first 48 bytes of the MainLoop frame body at 0x1459E2E7C and the 24 bytes of the PostEvent call site at
+        // 0x147B9019C in DataController::InsertTeamPlayer, as dumped from the running game (docs/re/game_thread.md)
+        const uint8_t tick[] = {0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x6c, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x57,
+                                0x48, 0x83, 0xec, 0x20, 0x48, 0x8b, 0x79, 0x60, 0x48, 0x8b, 0xf1, 0x48, 0x8b, 0xea, 0x48, 0x8b,
+                                0x5f, 0x10, 0x48, 0x8b, 0xcb, 0xff, 0x15, 0xa1, 0x82, 0x67, 0x09, 0x48, 0x8b, 0x4f, 0x10, 0xe8};
+        const uint8_t site[] = {0x4c, 0x8b, 0xc0, 0x48, 0x8b, 0xcf, 0xe8, 0xa5, 0x10, 0xa7, 0xf8, 0x48,
+                                0x8d, 0x8c, 0x24, 0x90, 0x00, 0x00, 0x00, 0xe8, 0xf0, 0x83, 0x70, 0xfa};
+        // one buffer standing for the code section: the site at its real address, the tick body 0x1000 later
+        const uint64_t base = 0x147B9019CULL;
+        std::vector<uint8_t> code(0x2000, 0xCC);
+        std::memcpy(code.data(), site, sizeof(site));
+        std::memcpy(code.data() + 0x1000, tick, sizeof(tick));
+        SigResult r = resolve_signature(*b->find("post_career_event"), code.data(), code.size(), base);
+        CHECK(r.state == SigState::Found && r.match == base && r.address == 0x14060124CULL, "PostEvent resolved through the call site: " + r.error);
+        r = resolve_signature(*b->find("game_tick"), code.data(), code.size(), base);
+        CHECK(r.state == SigState::Found && r.address == base + 0x1000 && r.match == r.address, "frame body found: " + r.error);
+        // a second copy of either makes it ambiguous: a title update that duplicates code never hooks the wrong one
+        std::memcpy(code.data() + 0x1800, tick, sizeof(tick));
+        r = resolve_signature(*b->find("game_tick"), code.data(), code.size(), base);
+        CHECK(r.state == SigState::Ambiguous && r.address == 0, "duplicate refused");
+        // every built-in pattern parses and is at least 12 fixed bytes long
+        for (const auto& s : b->sigs) {
+            std::vector<uint8_t> bytes;
+            std::vector<bool> mask;
+            CHECK(parse_pattern(s.pattern, bytes, mask), "pattern parses: " + s.name);
+            size_t fixed = 0;
+            for (bool m : mask) fixed += m ? 1 : 0;
+            CHECK(fixed >= 12, "pattern long enough: " + s.name);
+        }
     });
 }
 
@@ -2670,6 +2815,8 @@ int main(int argc, char** argv) {
     test_devops();
     std::printf("native signature scanning\n");
     test_sigscan();
+    std::printf("native game-thread dispatcher\n");
+    test_gamethread();
     std::printf("native Live Editor log\n");
     test_le_log();
     std::printf("native live standings\n");

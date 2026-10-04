@@ -467,7 +467,20 @@ local function reload_ids()
     return S.reload_ids
 end
 
+-- Turbo.dll's synthetic event (core/events.lua SYNTHETIC_ID): the GUI has a command waiting. Only the mailbox and the
+-- native pump run; the state files, name lists and reload logic belong to real career-mode events.
+local function on_synthetic_event()
+    if S.autoload_pending then return end  -- the bridge is not running yet: nothing can be waiting
+    local okp, perr = pcall(M.poll_mailbox, true)
+    if not okp then log.warn("bridge mailbox: %s", tostring(perr)) end
+    local okg, gerr = pcall(M.pump_native)
+    if not okg then log.warn("bridge native pump: %s", tostring(gerr)) end
+    local okl, lerr = pcall(function() return (require 'imports/turbo/core/legacy').pump(0.25) end)
+    if not okl then log.warn("bridge images: %s", tostring(lerr)) end
+end
+
 function M.on_career_event(event_id)
+    if (require 'imports/turbo/core/events').is_synthetic(event_id) then return on_synthetic_event() end
     if S.autoload_pending then
         -- gui.autoload: first career-mode event = the game is fully running; start the bridge now
         S.autoload_pending = false
