@@ -104,7 +104,7 @@ svm::Result run_now(svm::Request req) {
     ++g_runs;
     log("game call standings_refresh(svm %s, managers %s, comm %s, ifce %s%s): %s [%s] %s", hex(req.svm).c_str(),
         hex(req.managers).c_str(), hex(req.comm).c_str(), hex(req.ifce).c_str(), req.allow_fallback ? ", full refresh allowed" : "",
-        r.ok ? "ok" : "failed", r.stage.c_str(), r.message.c_str());
+        r.ok ? (r.warning ? "ok with warning" : "ok") : "failed", r.stage.c_str(), r.message.c_str());
     remember(r);
     return r;
 }
@@ -137,6 +137,7 @@ struct HostService : svm::RefreshService {
         for (const auto& l : lines) s += (s.empty() ? "" : " | ") + l;
         return s;
     }
+    svm::Fns fns() override { return g_fns; }
 };
 
 }  // namespace
@@ -259,6 +260,8 @@ void install_standings_refresh() {
     g_fns.vtable = game_signature("svm_vtable");
     g_fns.iface_post = game_signature("fce_iface_post");
     g_fns.allocator = game_signature("svm_allocator");
+    g_fns.compobj_vtable = game_signature("fcei_compobject_vtable");
+    g_fns.standinglist_vtable = game_signature("fcei_standinglist_vtable");
     if (const char* m = g_fns.missing()) {
         g_off = std::string("signature ") + m + " was not found on this game build";
         log("game calls: standings_refresh off (%s)", g_off.c_str());
@@ -268,10 +271,22 @@ void install_standings_refresh() {
                            static_cast<unsigned long long>(svm::kRvaVtable));
     if (!g_fns.iface_post || !g_fns.allocator)
         log("game calls: standings_refresh: fce_iface_post / svm_allocator not found: the request path is checked for shape only");
-    log("game calls: standings_refresh resolved (refresh_comp %s, listener %s, vtable %s, iface_post %s, allocator %s; kill switch "
-        "turbo_output\\call_standings_refresh_off.txt, full refresh opt-in turbo_output\\call_standings_refresh_full.txt)",
+    // the node vtables of the view's rows: by signature, else the known RVAs of this build (the walk only reads)
+    if (!g_fns.compobj_vtable || !g_fns.standinglist_vtable) {
+        const uint64_t base = game_image_base();
+        if (base) {
+            if (!g_fns.compobj_vtable) g_fns.compobj_vtable = base + svm::kRvaCompObjectVtable;
+            if (!g_fns.standinglist_vtable) g_fns.standinglist_vtable = base + svm::kRvaStandingListVtable;
+            log("game calls: standings_refresh: fcei_compobject_vtable / fcei_standinglist_vtable not found by signature, the built-in RVAs "
+                "0x%llX / 0x%llX are used to read the view's rows",
+                static_cast<unsigned long long>(svm::kRvaCompObjectVtable), static_cast<unsigned long long>(svm::kRvaStandingListVtable));
+        }
+    }
+    log("game calls: standings_refresh resolved (refresh_comp %s, listener %s, vtable %s, iface_post %s, allocator %s, compobj vtable %s, "
+        "standinglist vtable %s; kill switch turbo_output\\call_standings_refresh_off.txt, full refresh opt-in "
+        "turbo_output\\call_standings_refresh_full.txt)",
         hex(g_fns.refresh_comp).c_str(), hex(g_fns.listener).c_str(), hex(g_fns.vtable).c_str(), hex(g_fns.iface_post).c_str(),
-        hex(g_fns.allocator).c_str());
+        hex(g_fns.allocator).c_str(), hex(g_fns.compobj_vtable).c_str(), hex(g_fns.standinglist_vtable).c_str());
 }
 
 }  // namespace host

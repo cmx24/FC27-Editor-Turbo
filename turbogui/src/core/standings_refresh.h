@@ -74,6 +74,19 @@ constexpr uint64_t kOffSimDayState = 0x14;      // SimDayManager state (0 = idle
 constexpr size_t kMaxKeys = 64;                 // a career holds a handful of competitions; more = not the map
 constexpr int32_t kEventPostLoadPrepare = 29;
 
+// What a LiveStandings value holds (+8): the clone of a ResponseStandingsList payload, a tree of FCEI::CompObject nodes
+// (competition -> stage -> group) whose leaves are StandingObject lists with one 0xA0-byte row per club. Live
+// 04-10-2026 (docs/re/standings-ui-path.md section 0c): map[1118] = C31 "Serie A" -> S1 "FCE_League_Stage" (1119) ->
+// G1 (1120) -> 20 rows, row +0 = the FCE standing id (3487..3506), +4 the team id, +0x68 the points. Those ids are the
+// FCE::DataManager rows the Standings screen shows; a row of another group (the Coppa Italia's setup pool 1066 holds the
+// same 20 clubs) is never shown.
+constexpr uint64_t kRvaCompObjectVtable = 0xAAE1A18;    // FCEI::CompObject (0x80 bytes): "fcei_compobject_vtable"
+constexpr uint64_t kRvaStandingListVtable = 0xAAE1D38;  // the StandingObject list node (0x38 bytes): "fcei_standinglist_vtable"
+constexpr uint64_t kCoChildren = 0x10, kCoChildCount = 0x18, kCoId = 0x20, kCoType = 0x24;  // CompObject node
+constexpr uint64_t kSlRowCount = 0x20, kSlRows = 0x28, kSlGroup = 0x30;                     // StandingObject list node
+constexpr uint64_t kRowSize = 0xA0, kRowId = 0x00, kRowTeam = 0x04, kRowPoints = 0x68;        // one FCEI::StandingObject
+constexpr size_t kMaxChildren = 64, kMaxTreeRows = 64, kMaxTreeDepth = 8, kMaxTreeNodes = 256;
+
 // Game functions / anchors resolved by signature on the running build (0 = unknown)
 struct Fns {
     uint64_t refresh_comp = 0;  // void (SVM*, int compObjId): immediate 'rmvs' RequestGetStandings
@@ -81,8 +94,23 @@ struct Fns {
     uint64_t vtable = 0;        // SVM vtable (optional: the RVA + image base is used when 0)
     uint64_t iface_post = 0;    // IFCEInterface::Post (vtable slot 4), what refresh_comp calls (optional check)
     uint64_t allocator = 0;     // the game allocator global refresh_comp reads (optional check)
+    uint64_t compobj_vtable = 0;      // FCEI::CompObject vtable (optional: RVA + image base when 0)
+    uint64_t standinglist_vtable = 0; // StandingObject list vtable (optional: RVA + image base when 0)
     // Name of the first required function that is missing, nullptr when all are there
     const char* missing() const;
+};
+
+// One row of a StandingObject list in the view's cache
+struct ShownRow {
+    uint16_t id = 0;     // FCE standing id (== index in the DataManager's StandingsDataList)
+    uint32_t team = 0;
+    int32_t points = 0;
+};
+// One group (leaf) of a competition the standings view holds
+struct ShownGroup {
+    int32_t key = 0;     // the map key (competition id the game requested with, e.g. 1118)
+    uint16_t group = 0;  // the group node whose rows these are (e.g. 1120)
+    std::vector<ShownRow> rows;
 };
 
 // The calls into the game. The Windows host calls the resolved functions (game thread only); tests fake them.
@@ -102,6 +130,7 @@ struct Request {
     uint64_t image_size = 0;  // FC27.exe SizeOfImage: function pointers must fall inside; 0 = skip the range check
     bool allow_fallback = false;  // call the listener (event 29) when the map is empty (opt-in: the game's full refresh)
     std::string label;        // what was edited (for the message); may be empty
+    std::vector<uint16_t> rows;  // FCE standing ids just written: the outcome says whether the view shows them (may be empty)
 };
 
 struct Result {
@@ -112,6 +141,8 @@ struct Result {
     std::vector<int32_t> keys;  // compObjIds found in the map
     int refreshed = 0;          // refresh_comp calls that ran
     bool fallback = false;      // the listener was called
+    std::vector<ShownGroup> shown;  // the rows the view holds after the call (empty when they could not be read)
+    bool warning = false;           // the call ran but an edited row is not among the rows the view shows
 };
 
 // Manager table of the comm service: [[comm+0x20]+0x10]; 0 when unreadable
@@ -135,6 +166,14 @@ std::string validate_request_path(Memory& mem, uint64_t svm, uint64_t ifce_expec
 // order, the node count and the values' LiveStandings vtable (`live_vtable`, 0 = skip) are checked). "" = fine (an
 // empty map gives no keys), else the inconsistency (keys cleared)
 std::string map_keys(Memory& mem, uint64_t svm, std::vector<int32_t>& keys, uint64_t live_vtable = 0);
+// The rows the standings view holds: every map entry's LiveStandings tree walked down to its StandingObject lists
+// (node kinds told apart by their vtables, both required; bounded: 64 children, 64 rows, depth 8, 256 nodes). "" = fine
+// (`out` may be empty when the map is), else the inconsistency (out cleared). Reads only.
+std::string shown_groups(Memory& mem, uint64_t svm, uint64_t live_vtable, uint64_t compobj_vtable, uint64_t standinglist_vtable,
+                         std::vector<ShownGroup>& out);
+// Which of `rows` (FCE standing ids) the view shows: appends one clause per row to `msg` and returns true when at least
+// one row is shown by no competition (the edit is invisible on the Standings screen)
+bool describe_rows(const std::vector<ShownGroup>& shown, const std::vector<uint16_t>& rows, std::string& msg);
 // "" when the SimDayManager (type 103) is idle (state 0), else why the game is busy (missing manager counts as busy)
 std::string sim_busy(Memory& mem, uint64_t managers);
 
@@ -171,6 +210,8 @@ public:
     virtual bool poll(Result& out) = 0;
     // One line for the Status tab
     virtual std::string status() = 0;
+    // The resolved game anchors (vtables for reading the view's rows without a game call); all zero when unknown
+    virtual Fns fns() = 0;
 };
 
 }  // namespace svm

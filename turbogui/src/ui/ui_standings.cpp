@@ -6,6 +6,7 @@
 
 #include "app.h"
 #include "core/fce_standings.h"
+#include "core/standings_refresh.h"
 #include "imgui.h"
 
 namespace turbo {
@@ -21,6 +22,11 @@ struct LiveState {
     std::vector<fce::Fixture> fixtures;
     std::map<uint16_t, std::vector<size_t>> groups;  // compobj -> row indexes (used rows only)
     std::map<uint16_t, std::string> group_names;
+    std::vector<fce::CompObj> compobjs;              // the competition tree (empty when the list is not there)
+    std::map<uint16_t, fce::GroupInfo> infos;        // group -> where it sits in the tree
+    std::vector<svm::ShownGroup> shown;              // what the game's standings view holds (docs/re/standings-ui-path.md 0c)
+    std::map<uint16_t, int32_t> shown_by;            // group -> the competition id the view shows it under
+    std::string shown_err;                           // why the view could not be read ("" = read)
     uint16_t group = 0;
     bool have_group = false;
     int sel_row = -1;  // standing id
@@ -33,8 +39,8 @@ struct LiveState {
 
 LiveState g_live;
 
-// Group label: the league whose clubs (leagueteamlinks) make up most of the group's rows, else a generic name
-std::string group_label(App& app, uint16_t compobj, const std::vector<size_t>& idx) {
+// The league of most of a group's clubs (leagueteamlinks), -1 when none makes up 80 %
+int64_t majority_league(App& app, const std::vector<size_t>& idx) {
     std::map<int64_t, int> leagues;
     const Table* lt = app.db.table("leagueteamlinks");
     Snapshot snap;
@@ -52,21 +58,84 @@ std::string group_label(App& app, uint16_t compobj, const std::vector<size_t>& i
     int64_t best = -1, best_n = 0;
     for (const auto& kv : leagues)
         if (kv.second > best_n) best = kv.first, best_n = kv.second;
+    return (best >= 0 && best_n * 10 >= int(idx.size()) * 8) ? best : -1;
+}
+
+std::string league_name(App& app, int64_t leagueid) {
     std::string name;
-    if (best >= 0 && best_n * 10 >= int(idx.size()) * 8) {
-        if (const Table* lg = app.db.table("leagues")) {
-            Snapshot ls;
-            const Field* nf = lg->field("leaguename");
-            if (nf && ls.load(app.db.memory(), *lg))
-                for (uint32_t r : ls.valid)
-                    if (ls.get_int(r, "leagueid", -1) == best) name = ls.get_str(r, *nf);
+    if (const Table* lg = app.db.table("leagues")) {
+        Snapshot ls;
+        const Field* nf = lg->field("leaguename");
+        if (nf && ls.load(app.db.memory(), *lg))
+            for (uint32_t r : ls.valid)
+                if (ls.get_int(r, "leagueid", -1) == leagueid) name = ls.get_str(r, *nf);
+    }
+    return name;
+}
+
+// "FCE_Setup_Stage" -> "setup stage", "FCE_Round_of_16" -> "round of 16"
+std::string stage_words(const std::string& desc) {
+    std::string w = desc.rfind("FCE_", 0) == 0 ? desc.substr(4) : desc;
+    for (char& c : w) {
+        if (c == '_') c = ' ';
+        else if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
+    }
+    return w;
+}
+
+// Group label. With the competition tree (FCE CompObjectDataList) the group's competition names it: "C31" is the
+// league 31 of the database (Serie A), "C210" the Coppa Italia whose setup pool holds the same 20 clubs. Without the tree
+// the league whose clubs make up most of the group (leagueteamlinks) is used. The game's standings view shows only the
+// groups it holds (st.shown_by): those are marked, the others warned about, because a row of any other group never
+// reaches the Standings screen (04-10-2026: the edit of pool 1066 stayed invisible while the screen read group 1120).
+std::string group_label(App& app, uint16_t compobj, const std::vector<size_t>& idx) {
+    std::string name, stage;
+    auto it = g_live.infos.find(compobj);
+    if (it != g_live.infos.end() && it->second.comp) {
+        const fce::GroupInfo& gi = it->second;
+        if (gi.comp_number >= 0) name = league_name(app, gi.comp_number);
+        if (name.empty()) {
+            int64_t lid = majority_league(app, idx);
+            if (lid >= 0 && gi.league_stage()) name = league_name(app, lid);
         }
-        if (name.empty()) name = "League " + std::to_string(best);
+        if (name.empty()) name = "Competition " + (gi.comp_number >= 0 ? std::to_string(gi.comp_number) : gi.comp_short);
+        if (!gi.league_stage()) stage = " - " + stage_words(gi.stage_desc);
+    } else {
+        int64_t lid = majority_league(app, idx);
+        if (lid >= 0) name = league_name(app, lid);
+        if (lid >= 0 && name.empty()) name = "League " + std::to_string(lid);
     }
     if (name.empty()) name = "Competition group";
-    char buf[200];
-    std::snprintf(buf, sizeof(buf), "%s (%zu clubs, comp %u)", name.c_str(), idx.size(), unsigned(compobj));
+    std::string mark;
+    auto sh = g_live.shown_by.find(compobj);
+    if (sh != g_live.shown_by.end()) mark = " [shown by the game as competition " + std::to_string(sh->second) + "]";
+    else if (g_live.shown_err.empty() && !g_live.shown.empty()) mark = " [not shown by the game]";
+    char buf[260];
+    std::snprintf(buf, sizeof(buf), "%s%s (%zu clubs, comp %u)%s", name.c_str(), stage.c_str(), idx.size(), unsigned(compobj), mark.c_str());
     return buf;
+}
+
+// The rows the game's standings view holds (core/standings_refresh.h shown_groups): read-only, through the published
+// StandingsViewManager; the node vtables come from the host's signatures, else from the image base
+void read_shown(App& app) {
+    g_live.shown.clear();
+    g_live.shown_by.clear();
+    const BridgeState& st = app.bridge.state();
+    if (!st.svm) {
+        g_live.shown_err = "the career's StandingsViewManager is not published (bridge_state.json svm)";
+        return;
+    }
+    svm::Fns fns;
+    if (app.standings_refresh) fns = app.standings_refresh->fns();
+    const uint64_t co = fns.compobj_vtable ? fns.compobj_vtable : (app.game_base ? app.game_base + svm::kRvaCompObjectVtable : 0);
+    const uint64_t sl = fns.standinglist_vtable ? fns.standinglist_vtable : (app.game_base ? app.game_base + svm::kRvaStandingListVtable : 0);
+    const uint64_t live = app.game_base ? app.game_base + svm::kRvaLiveStandingsVtable : 0;
+    std::string err = svm::validate(app.mem, st.svm, st.managers, fns.vtable ? fns.vtable : (app.game_base ? app.game_base + svm::kRvaVtable : 0),
+                                    fns.listener);
+    if (err.empty()) err = svm::shown_groups(app.mem, st.svm, live, co, sl, g_live.shown);
+    g_live.shown_err = err;
+    for (const svm::ShownGroup& g : g_live.shown)
+        if (!g_live.shown_by.count(g.group)) g_live.shown_by[g.group] = g.key;
 }
 
 bool reload(App& app) {
@@ -83,19 +152,32 @@ bool reload(App& app) {
     }
     for (size_t i = 0; i < g_live.rows.size(); ++i)
         if (g_live.rows[i].used == 1 && g_live.rows[i].teamid > 0) g_live.groups[g_live.rows[i].compobj].push_back(i);
+    g_live.compobjs.clear();
+    g_live.infos.clear();
+    if (g_live.loc.compobj_count && fce::read_compobjs(app.mem, g_live.loc, g_live.compobjs))
+        for (const auto& kv : g_live.groups) {
+            fce::GroupInfo gi;
+            if (fce::describe_group(g_live.compobjs, kv.first, gi)) g_live.infos[kv.first] = gi;
+        }
+    read_shown(app);
     for (const auto& kv : g_live.groups) g_live.group_names[kv.first] = group_label(app, kv.first, kv.second);
     if (!g_live.groups.count(g_live.group)) {
-        // prefer the user's club's league: a group that is named after a league (leagueteamlinks majority) wins over a
-        // cup / continental group that also lists the club (the Champions League phase has a lower comp id than Serie A)
+        // the user's club's table: the group the game's standings view shows wins, then a league stage of the tree, then a
+        // group named after a league (leagueteamlinks majority); a cup's setup pool lists the same clubs but is never shown
         g_live.have_group = false;
         int64_t user = app.bridge.state().user_team;
-        bool named = false;
+        int best_rank = -1;
         for (const auto& kv : g_live.groups) {
             bool has_user = false;
             for (size_t i : kv.second) has_user = has_user || (user > 0 && int64_t(g_live.rows[i].teamid) == user);
             if (!has_user) continue;
-            bool is_league = g_live.group_names[kv.first].rfind("Competition group", 0) != 0;
-            if (!g_live.have_group || (is_league && !named)) g_live.group = kv.first, g_live.have_group = true, named = is_league;
+            int rank = 0;
+            auto info = g_live.infos.find(kv.first);
+            const bool in_tree = info != g_live.infos.end() && info->second.comp;
+            if (g_live.shown_by.count(kv.first)) rank = 3;
+            else if (in_tree && info->second.league_stage()) rank = 2;
+            else if (!in_tree && g_live.group_names[kv.first].rfind("Competition group", 0) != 0) rank = 1;
+            if (rank > best_rank) g_live.group = kv.first, g_live.have_group = true, best_rank = rank;
         }
         if (!g_live.have_group && !g_live.groups.empty()) g_live.group = g_live.groups.begin()->first, g_live.have_group = true;
     }
@@ -130,7 +212,7 @@ void counter(const char* label, uint8_t& v) {
 // cache (StandingsViewManager::mLiveStandings) that the game rebuilds only on match days and a few career events, so
 // Turbo asks the manager to re-request the standings on the game thread (core/standings_refresh.h). The outcome comes
 // back through App::tick (toast + log); the row write itself is done either way.
-void queue_refresh(App& app, const std::string& label) {
+void queue_refresh(App& app, const std::string& label, const std::vector<uint16_t>& rows) {
     if (!app.standings_refresh) {
         app.standings_refresh_status = "no refresh service: the game's Standings screen shows the rows after the next match day";
         app.log("live standings: " + app.standings_refresh_status);
@@ -144,6 +226,7 @@ void queue_refresh(App& app, const std::string& label) {
     req.ifce = st.ifce;
     req.image_base = app.game_base;
     req.label = label;
+    req.rows = rows;  // the outcome says whether the game's standings view shows them
     std::string why;
     if (app.standings_refresh->request(req, why)) {
         app.standings_refresh_status = "refresh of the game's standings view queued";
@@ -156,6 +239,23 @@ void queue_refresh(App& app, const std::string& label) {
 }
 
 }  // namespace
+
+std::string live_standings_view_line() {
+    const LiveState& st = g_live;
+    if (!st.loc.ok()) return "";
+    if (!st.shown_err.empty()) return "The game's standings view could not be read (" + st.shown_err + ").";
+    if (st.shown.empty()) return "The game's standings view holds no competition yet.";
+    std::string what;
+    for (const svm::ShownGroup& g : st.shown)
+        what += (what.empty() ? "" : ", ") + std::to_string(g.key) + " -> group " + std::to_string(g.group) + " (" + std::to_string(g.rows.size()) + " rows)";
+    return "The game's Standings screen reads: " + what;
+}
+
+std::string live_standings_view_warning() {
+    const LiveState& st = g_live;
+    if (!st.loc.ok() || !st.shown_err.empty() || st.shown.empty() || !st.have_group || st.shown_by.count(st.group)) return "";
+    return "This group is not one the game's Standings screen shows: an edit here stays invisible there. Pick a group marked [shown by the game].";
+}
 
 void draw_live_standings(App& app) {
     ensure_located(app);
@@ -187,6 +287,11 @@ void draw_live_standings(App& app) {
                        "These are the game's own table rows. After an edit Turbo makes the game's standings view re-read them, "
                        "so the Standings screen and the Office tile show the change. Do not edit while a match or Sim To Date is running.");
     if (!app.standings_refresh_status.empty()) ImGui::TextDisabled("Standings view: %s", app.standings_refresh_status.c_str());
+    {
+        const std::string line = live_standings_view_line(), warning = live_standings_view_warning();
+        if (!line.empty()) ImGui::TextDisabled("%s", line.c_str());
+        if (!warning.empty()) ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.35f, 1.0f), "%s", warning.c_str());
+    }
 
     std::vector<size_t> idx = st.have_group ? st.groups[st.group] : std::vector<size_t>();
     std::stable_sort(idx.begin(), idx.end(), [&](size_t a, size_t b) {
@@ -285,8 +390,9 @@ void draw_live_standings(App& app) {
                 const std::string team = app.model.team_name(cur_row->teamid);
                 app.notify("Standings: " + team + " updated in the game");
                 app.log("live standings: row " + std::to_string(cur_row->id) + " team " + std::to_string(cur_row->teamid) + " written");
+                const std::vector<uint16_t> written = {cur_row->id};
                 reload(app);
-                queue_refresh(app, team + " row");
+                queue_refresh(app, team + " row", written);
             } else {
                 app.notify("Standings: " + err, true);
                 reload(app);
@@ -328,13 +434,17 @@ void draw_live_standings(App& app) {
             ImGui::InputInt("Away", &st.new_away, 0);
             ImGui::SameLine();
             if (ImGui::Button("Change result")) {
+                const fce::Fixture& fx = st.fixtures[size_t(st.sel_fixture)];
+                std::vector<uint16_t> written;
+                if (fx.home_sid >= 0) written.push_back(uint16_t(fx.home_sid));
+                if (fx.away_sid >= 0) written.push_back(uint16_t(fx.away_sid));
                 std::string err = fce::edit_result(app.mem, st.loc, uint16_t(st.sel_fixture), st.new_home, st.new_away, st.pts);
                 if (err.empty()) {
                     app.notify("Result changed in the game (fixture and both table rows)");
                     app.log("live standings: fixture " + std::to_string(st.sel_fixture) + " set to " + std::to_string(st.new_home) + "-" +
                             std::to_string(st.new_away));
                     reload(app);
-                    queue_refresh(app, "fixture " + std::to_string(st.sel_fixture));
+                    queue_refresh(app, "fixture " + std::to_string(st.sel_fixture), written);
                 } else {
                     app.notify("Result: " + err, true);
                     reload(app);

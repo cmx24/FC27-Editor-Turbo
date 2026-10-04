@@ -50,10 +50,89 @@ std::string read_lists(Memory& mem, Located& loc) {
     if (count > 0 && !is_ptr(data, 2)) return "FixtureDataList data pointer is not readable";
     loc.fixture_count = uint32_t(count);
     loc.fixtures_data = count > 0 ? data : 0;
+    // the competition tree is optional: an unreadable or odd list leaves it empty, the rows are still usable
+    loc.compobj_list = mem.ptr(loc.manager + kOffCompObjList);
+    loc.compobjs_data = 0;
+    loc.compobj_count = 0;
+    if (loc.compobj_list) {
+        int32_t cap = 0, n = 0;
+        uint64_t cdata = 0;
+        if (mem.rd(loc.compobj_list, cap) && mem.rd(loc.compobj_list + 4, n) && mem.rd(loc.compobj_list + 8, cdata) && cap >= 0 && n >= 0 &&
+            n <= cap && uint32_t(cap) <= kMaxCompObjs && (n == 0 || is_ptr(cdata, 2))) {
+            loc.compobjs_data = n > 0 ? cdata : 0;
+            loc.compobj_count = uint32_t(n);
+        } else {
+            loc.compobj_list = 0;
+        }
+    }
     return "";
 }
 
+std::string cstr_field(const uint8_t* p, size_t max) {
+    size_t n = 0;
+    while (n < max && p[n] != 0 && p[n] >= 0x20 && p[n] < 0x7F) ++n;
+    return std::string(reinterpret_cast<const char*>(p), n);
+}
+
 }  // namespace
+
+int CompObj::comp_number() const {
+    if (short_name.size() < 2 || short_name[0] != 'C') return -1;
+    int v = 0;
+    for (size_t i = 1; i < short_name.size(); ++i) {
+        if (short_name[i] < '0' || short_name[i] > '9') return -1;
+        v = v * 10 + (short_name[i] - '0');
+        if (v > 1000000) return -1;
+    }
+    return v;
+}
+
+bool decode_compobj(const uint8_t* p, CompObj& c) {
+    c.id = rd16(p);
+    c.parent = rd16(p + 4);
+    c.type = p[6];
+    c.short_name = cstr_field(p + 7, kCompObjShortLen);
+    c.desc = cstr_field(p + 0x0E, kCompObjDescLen);
+    c.used = p[0x2F];
+    return true;
+}
+
+bool read_compobjs(Memory& mem, const Located& loc, std::vector<CompObj>& out) {
+    out.clear();
+    if (!loc.ok()) return false;
+    if (loc.compobj_count == 0 || loc.compobjs_data == 0) return true;
+    std::vector<uint8_t> buf;
+    if (!mem.read_block(loc.compobjs_data, size_t(loc.compobj_count) * kCompObjSize, buf)) return false;
+    out.resize(loc.compobj_count);
+    for (uint32_t i = 0; i < loc.compobj_count; ++i) decode_compobj(buf.data() + size_t(i) * kCompObjSize, out[i]);
+    return true;
+}
+
+bool describe_group(const std::vector<CompObj>& objs, uint16_t group, GroupInfo& out) {
+    out = GroupInfo();
+    out.group = group;
+    if (group >= objs.size() || objs[group].used != 1 || objs[group].id != group) return false;
+    uint16_t cur = group;
+    for (int depth = 0; depth < 8; ++depth) {
+        const CompObj& c = objs[cur];
+        if (c.type == kCompTypeStage && !out.stage) {
+            out.stage = cur;
+            out.stage_desc = c.desc;
+        } else if (c.type == kCompTypeCompetition && !out.comp) {
+            out.comp = cur;
+            out.comp_short = c.short_name;
+            out.comp_desc = c.desc;
+            out.comp_number = c.comp_number();
+        } else if (c.type == kCompTypeNation && !out.nation) {
+            out.nation = cur;
+            out.nation_short = c.short_name;
+        }
+        const uint16_t parent = c.parent;
+        if (parent == 0xFFFF || parent == cur || parent >= objs.size() || objs[parent].used != 1 || objs[parent].id != parent) break;
+        cur = parent;
+    }
+    return true;
+}
 
 std::string locate(Memory& mem, uint64_t ifce, uint64_t image_base, Located& out) {
     out = Located();

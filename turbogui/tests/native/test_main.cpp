@@ -1441,6 +1441,7 @@ struct FceWorld {
     SimMemory mem;
     uint64_t ifce = 0x30000000, hub = 0x30001000, dc = 0x30002000, dm = 0x30003000;
     uint64_t slist = 0x30004000, rows = 0x30005000, flist = 0x30006000, fx = 0x30007000;
+    uint64_t col = 0x30008000, cdata = 0x30009000;  // CompObjectDataList {cap, count, data} and its 0x30-byte records
     static constexpr uint64_t kBase = 0x140000000ull;
     void w64(uint64_t a, uint64_t v) { mem.wr(a, v); }
     void w32(uint64_t a, uint32_t v) { mem.wr(a, v); }
@@ -1460,8 +1461,35 @@ struct FceWorld {
         w8(a + 0xF, uint8_t(int8_t(hs))); w8(a + 0x10, 0xFF); w8(a + 0x11, uint8_t(int8_t(as))); w8(a + 0x12, 0xFF);
         w8(a + 0x13, completion); w8(a + 0x14, 1);
     }
+    // one CompObjectDataList record (docs/re/standings-ui-path.md 0c: +0 id, +4 parent, +6 type, +7 short, +0xE desc, +0x2F used)
+    void compobj(int id, uint16_t parent, uint8_t type, const char* short_name, const char* desc) {
+        uint64_t a = cdata + uint64_t(id) * fce::kCompObjSize;
+        w16(a, uint16_t(id)); w16(a + 2, uint16_t(id)); w16(a + 4, parent); w8(a + 6, type);
+        mem.write(a + 7, short_name, std::strlen(short_name) + 1);
+        mem.write(a + 0xE, desc, std::strlen(desc) + 1);
+        w8(a + 0x2F, 1);
+    }
+    // three more rows for the same clubs in group 101: the cup's setup pool (the game never shows it as a table)
+    void add_pool() {
+        row(4, 101, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        row(5, 101, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        row(6, 101, 241, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        w64(slist + 8, rows + 7 * fce::kStandingSize);
+    }
     FceWorld(int nrows = 4, int nfix = 3, bool vtables = true) {
-        for (uint64_t a : {ifce, hub, dc, dm, slist, rows, flist, fx}) mem.map(a, 0x1000);
+        for (uint64_t a : {ifce, hub, dc, dm, slist, rows, flist, fx, col}) mem.map(a, 0x1000);
+        mem.map(cdata, 0x2000);
+        // the competition tree: FIFA -> England -> C13 (league 13) -> S1 FCE_League_Stage -> G1 (group 100);
+        //                                       -> C210 (a cup)    -> S1 FCE_Setup_Stage  -> G1 (group 101, the pool)
+        w64(dm + 0x50, col); w32(col, 128); w32(col + 4, 102); w64(col + 8, cdata);
+        compobj(0, 0xFFFF, fce::kCompTypeRoot, "FIFA", "FIFA");
+        compobj(1, 0, fce::kCompTypeNation, "ENGL", "NationName_14");
+        compobj(2, 1, fce::kCompTypeCompetition, "C13", "TrophyName_Abbr15_13");
+        compobj(3, 2, fce::kCompTypeStage, "S1", "FCE_League_Stage");
+        compobj(4, 1, fce::kCompTypeCompetition, "C210", "TrophyName_Abbr15_210");
+        compobj(5, 4, fce::kCompTypeStage, "S1", "FCE_Setup_Stage");
+        compobj(100, 3, fce::kCompTypeGroup, "G1", "");
+        compobj(101, 5, fce::kCompTypeGroup, "G1", "");
         if (vtables) { w64(ifce, kBase + fce::kRvaInterfaceVtable); w64(dm, kBase + fce::kRvaDataManagerVtable); }
         w64(ifce + 0x18, hub); w64(hub + 0x18, dc); w64(dc + 0x80, dm); w64(dm + 0x28, dc);
         w64(dm + 0x88, slist); w64(slist, rows); w64(slist + 8, rows + uint64_t(nrows) * fce::kStandingSize);
@@ -1489,18 +1517,22 @@ struct SvmWorld {
     static constexpr uint64_t kComm = 0x50000000ULL, kX = 0x50001000ULL, kManagers = 0x50002000ULL, kTypes = 0x50006000ULL,
                               kHolders = 0x50008000ULL, kSvm = 0x50010000ULL, kIfce = 0x50012000ULL, kNodes = 0x50014000ULL,
                               kOther = 0x50018000ULL, kLive = 0x5001A000ULL, kStaff = 0x5001C000ULL, kAlloc = 0x5001E000ULL,
-                              kSdm = 0x50020000ULL;
+                              kSdm = 0x50020000ULL, kTree = 0x50030000ULL;  // kTree well past kSdm: a test relies on kSdm+0x2000 being unmapped
     // the game's own addresses (FC27.exe 1.0.140.64835): the vtables sit in the image, the functions too
     static constexpr uint64_t kVtable = kBase + svm::kRvaVtable, kLiveVtable = kBase + svm::kRvaLiveStandingsVtable,
                               kStaffVtable = 0x14B0160D8ULL, kIfceVtable = kBase + fce::kRvaInterfaceVtable,
                               kListener = 0x147DA0E10ULL, kRefresh = 0x147DA5310ULL, kPost = 0x148A35D3CULL,
-                              kAllocGlobal = 0x14C269EA8ULL, kAllocFn = 0x142F95928ULL, kStaffListener = 0x147DA0C90ULL;
+                              kAllocGlobal = 0x14C269EA8ULL, kAllocFn = 0x142F95928ULL, kStaffListener = 0x147DA0C90ULL,
+                              kCompObjVtable = kBase + svm::kRvaCompObjectVtable, kListVtable = kBase + svm::kRvaStandingListVtable;
     static constexpr int kStaffTypeId = 107;
     std::vector<int32_t> keys;
+    uint64_t tree_next = kTree;      // bump allocator for set_tree
+    uint64_t last_root = 0, last_stage = 0, last_list = 0, last_rows = 0;  // the nodes of the last set_tree (tests corrupt them)
     explicit SvmWorld(std::vector<int32_t> ks = {1200, 1300, 1400}) {
         for (uint64_t a : {kComm, kX, kTypes, kHolders, kSvm, kIfce, kOther, kLive, kStaff, kAlloc, kSdm, kVtable & ~0xFFFULL,
-                           kLiveVtable & ~0xFFFULL, kIfceVtable & ~0xFFFULL, kAllocGlobal & ~0xFFFULL})
+                           kLiveVtable & ~0xFFFULL, kIfceVtable & ~0xFFFULL, kAllocGlobal & ~0xFFFULL, kCompObjVtable & ~0xFFFULL})
             mem.map(a, 0x1000);
+        mem.map(kTree, 0x8000);
         mem.map(kManagers, 0x20 * 256 + 0x100);
         mem.map(kNodes, 0x4000);
         mem.wr(kComm + svm::kCommManagersA, kX);
@@ -1602,7 +1634,49 @@ struct SvmWorld {
         req.image_size = kImageSize;
         return req;
     }
-    static svm::Fns fns() { return svm::Fns{kRefresh, kListener, 0, kPost, kAllocGlobal}; }
+    static svm::Fns fns() { return svm::Fns{kRefresh, kListener, 0, kPost, kAllocGlobal, kCompObjVtable, kListVtable}; }
+    struct TreeRow {
+        int id, team, points;
+    };
+    // The LiveStandings tree of map entry `key` as the game lays it out (docs/re/standings-ui-path.md 0c): competition node
+    // -> stage node -> StandingObject list node with `rows` of 0xA0 bytes (+0 FCE standing id, +4 team, +0x68 points)
+    void set_tree(int32_t key, uint16_t group, const std::vector<TreeRow>& rows) {
+        auto alloc = [&](uint64_t n) {
+            uint64_t a = tree_next;
+            tree_next += (n + 0xF) & ~0xFULL;
+            return a;
+        };
+        const uint64_t comp = alloc(0x80), kids1 = alloc(8), stage = alloc(0x80), kids2 = alloc(8), list = alloc(0x38),
+                       rws = alloc(uint64_t(rows.size()) * svm::kRowSize + 0x10);
+        mem.wr(comp, kCompObjVtable);
+        mem.wr(comp + svm::kCoChildren, kids1);
+        mem.wr(comp + svm::kCoChildCount, uint32_t(1));
+        mem.wr(comp + svm::kCoId, key);
+        mem.wr(comp + svm::kCoType, int32_t(3));
+        mem.wr(kids1, stage);
+        mem.wr(stage, kCompObjVtable);
+        mem.wr(stage + svm::kCoChildren, kids2);
+        mem.wr(stage + svm::kCoChildCount, uint32_t(1));
+        mem.wr(stage + svm::kCoId, key + 1);
+        mem.wr(stage + svm::kCoType, int32_t(4));
+        mem.wr(kids2, list);
+        mem.wr(list, kListVtable);
+        mem.wr(list + svm::kSlRowCount, int32_t(rows.size()));
+        mem.wr(list + svm::kSlRows, rws);
+        mem.wr(list + svm::kSlGroup, int32_t(group));
+        for (size_t i = 0; i < rows.size(); ++i) {
+            const uint64_t r = rws + i * svm::kRowSize;
+            mem.wr(r + svm::kRowId, int32_t(rows[i].id));
+            mem.wr(r + svm::kRowTeam, uint32_t(rows[i].team));
+            mem.wr(r + svm::kRowPoints, int32_t(rows[i].points));
+        }
+        for (size_t i = 0; i < keys.size(); ++i)
+            if (keys[i] == key) mem.wr(live(int(i)) + 8, comp);
+        last_root = comp;
+        last_stage = stage;
+        last_list = list;
+        last_rows = rws;
+    }
 };
 
 struct FakeSvmGame : svm::Caller {
@@ -1648,6 +1722,8 @@ struct FakeRefresh : svm::RefreshService {
         return true;
     }
     std::string status() override { return "standings_refresh: fake"; }
+    svm::Fns anchors = SvmWorld::fns();
+    svm::Fns fns() override { return anchors; }
 };
 }  // namespace
 
@@ -3273,6 +3349,115 @@ static void test_ui() {
             CHECK(ui.find("Try again") != nullptr, "live view unreachable again without the ifce");
         });
 
+        run_case("UI: Competitions > Live standings: groups are named by the competition tree and the one the game shows is preferred", [&] {
+            // 04-10-2026: the Coppa Italia's setup pool (group 1066) holds the same 20 clubs as Serie A (group 1120); the
+            // leagueteamlinks heuristic named both "Serie A" and the pool won. Here: league 13 group 100 (shown by the game as
+            // competition 1200) against the cup pool 101 (same clubs, not shown)
+            FceWorld fw;
+            fw.add_pool();
+            SvmWorld sw({1200});  // one competition in the view, with a real tree (the default values hold no tree)
+            sw.set_tree(1200, 100, {{0, 1, 7}, {1, 7, 4}, {2, 241, 1}});
+            for (const auto& kv : fw.mem.pages) mem.pages[kv.first] = kv.second;
+            for (const auto& kv : sw.mem.pages) mem.pages[kv.first] = kv.second;
+            auto fake = std::make_shared<FakeRefresh>();
+            app.standings_refresh = fake;
+            app.standings_refresh_status.clear();
+            fs::path state_file = le / "turbo_output" / "bridge_state.json";
+            json st = read_json(state_file);
+            const json saved = st;
+            int bumps = 100;
+            auto write_state_file = [&]() {
+                {
+                    std::ofstream f(state_file.string(), std::ios::binary | std::ios::trunc);
+                    f << st.dump();
+                }
+                fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(2 * ++bumps));
+            };
+            st["ifce"] = hex_addr(fw.ifce);
+            st["svm"] = hex_addr(SvmWorld::kSvm);
+            st["managers"] = hex_addr(SvmWorld::kManagers);
+            st["comm_service"] = hex_addr(SvmWorld::kComm);
+            st["user_team"] = 241;  // Inter: in the league group and in the pool
+            st["seq"] = st.value("seq", 0LL) + 1;
+            write_state_file();
+            app.next_poll = 0.0;
+            app.request_tab = 3;
+            ui.frames(3);
+            CHECK(ui.click("Live standings (game)"), "live view tab");
+            ui.frames(2);
+            CHECK(ui.click("Reload"), "Reload (the located chain is the same, the rows grew)");
+            ui.frames(2);
+            const std::string league = "English Premier League (3 clubs, comp 100) [shown by the game as competition 1200]";
+            const std::string pool = "Competition 210 - setup stage (3 clubs, comp 101) [not shown by the game]";
+            CHECK(ui.find("Competition") != nullptr, "competition combo");
+            CHECK(ui.click("Competition"), "open the combo");
+            ui.frames(2);
+            CHECK(ui.find(league, "##Combo") != nullptr, "the league group is named by the tree and marked as shown");
+            CHECK(ui.find(pool, "##Combo") != nullptr, "the cup pool is named by the tree and marked as not shown");
+            CHECK(ui.click(pool, "##Combo"), "pick the pool");
+            ui.frames(2);
+            CHECK(live_standings_view_line() == "The game's Standings screen reads: 1200 -> group 100 (3 rows)", "what the game reads: " + live_standings_view_line());
+            CHECK(live_standings_view_warning().find("not one the game's Standings screen shows") != std::string::npos, "warning for the pool");
+            // the default selection (a fresh view) prefers the shown group although the pool has the lower id... the pool's id
+            // is higher here, so make the choice visible: select the pool, then force a re-selection through the group map
+            CHECK(ui.click("1##ls4"), "select the pool's leader (row 4)");
+            ui.frames(2);
+            const ItemRec* pts = ui.find("Points", "##lsedit");
+            CHECK(pts != nullptr && ui.type_into(pts, "6"), "type 6 points");
+            CHECK(ui.click("Apply to the game", "##lsedit"), "Apply on the pool row");
+            ui.frames(2);
+            CHECK(fake->requests.size() == 1 && fake->requests[0].rows == std::vector<uint16_t>{4}, "the request names the written row 4");
+            // the outcome from the game thread carries the warning: shown as an error toast and in the status line
+            svm::Result r;
+            r.ok = true;
+            r.warning = true;
+            r.stage = "done";
+            r.message = "Inter row: the game's standings view re-read 1 competition (comp ids 1200); WARNING: row 4 is not among the rows the game's standings view shows";
+            fake->results.push_back(r);
+            ui.frames(2);
+            bool warn_toast = false;
+            for (const auto& tt : app.toasts) warn_toast = warn_toast || (tt.text.find("WARNING: row 4") != std::string::npos && tt.error);
+            CHECK(warn_toast, "warning outcome shown as an error toast");
+            CHECK(app.standings_refresh_status.rfind("warning: ", 0) == 0, "status line: " + app.standings_refresh_status);
+            // the league group: no warning, the written row is the shown one
+            CHECK(ui.click("Competition"), "open the combo again");
+            ui.frames(2);
+            CHECK(ui.click(league, "##Combo"), "pick the league");
+            ui.frames(2);
+            CHECK(live_standings_view_warning().empty(), "no warning for the shown group");
+            CHECK(ui.click("1##ls0"), "select the league leader (row 0)");
+            ui.frames(2);
+            pts = ui.find("Points", "##lsedit");
+            CHECK(pts != nullptr && ui.type_into(pts, "10"), "type 10 points");
+            CHECK(ui.click("Apply to the game", "##lsedit"), "Apply on the league row");
+            ui.frames(2);
+            CHECK(fake->requests.size() == 2 && fake->requests[1].rows == std::vector<uint16_t>{0}, "the request names row 0");
+            // without the anchors (another build) the view cannot be read: no marks, a hint instead
+            fake->anchors = svm::Fns{};
+            app.game_base = 0;
+            CHECK(ui.click("Reload"), "Reload without anchors");
+            ui.frames(2);
+            CHECK(ui.find("Competition") != nullptr && ui.click("Competition"), "open the combo");
+            ui.frames(2);
+            CHECK(ui.find("English Premier League (3 clubs, comp 100)", "##Combo") != nullptr, "league named by the tree, no mark");
+            CHECK(ui.find("Competition 210 - setup stage (3 clubs, comp 101)", "##Combo") != nullptr, "pool named by the tree, no mark");
+            CHECK(ui.click("English Premier League (3 clubs, comp 100)", "##Combo"), "close the combo");
+            ui.frames(2);
+            CHECK(live_standings_view_line() == "The game's standings view could not be read (the FCEI::CompObject / StandingObject list vtables are not "
+                                                "known on this game build).",
+                  "hint without anchors: " + live_standings_view_line());
+            CHECK(live_standings_view_warning().empty(), "no warning without anchors");
+            // restore the state for the cases after this one
+            app.standings_refresh = nullptr;
+            st = saved;
+            st["seq"] = st.value("seq", 0LL) + 2;
+            write_state_file();
+            app.next_poll = 0.0;
+            app.standings_refresh_status.clear();
+            ui.frames(3);
+            CHECK(ui.find("Try again") != nullptr, "live view unreachable again without the ifce");
+        });
+
         run_case("UI: no ImGui errors, layout stable over many frames", [&] {
             for (int tab = 0; tab < 7; ++tab) {
                 app.request_tab = tab;
@@ -4670,6 +4855,45 @@ static void test_fce_standings() {
     });
 }
 
+static void test_fce_compobjs() {
+    run_case("FCE: the CompObjectDataList names a group's stage, competition and nation (the cup pool is not a league table)", [&] {
+        FceWorld w;
+        fce::Located loc;
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::kBase, loc).empty(), "located");
+        CHECK(loc.compobj_list == w.col && loc.compobjs_data == w.cdata && loc.compobj_count == 102, fmt("compobj list: %u entries", unsigned(loc.compobj_count)));
+        std::vector<fce::CompObj> objs;
+        CHECK(fce::read_compobjs(w.mem, loc, objs) && objs.size() == 102, "records read");
+        CHECK(objs[2].short_name == "C13" && objs[2].desc == "TrophyName_Abbr15_13" && objs[2].parent == 1 && objs[2].type == fce::kCompTypeCompetition &&
+                  objs[2].comp_number() == 13 && objs[2].used == 1,
+              "record 2 decoded");
+        CHECK(objs[0].parent == 0xFFFF && objs[0].comp_number() == -1 && objs[3].comp_number() == -1, "root / stage have no competition number");
+        fce::GroupInfo gi;
+        CHECK(fce::describe_group(objs, 100, gi), "group 100 described");
+        CHECK(gi.group == 100 && gi.stage == 3 && gi.comp == 2 && gi.nation == 1 && gi.stage_desc == "FCE_League_Stage" && gi.comp_short == "C13" &&
+                  gi.comp_number == 13 && gi.nation_short == "ENGL" && gi.league_stage() && !gi.setup_stage(),
+              "league 13, league stage, England");
+        CHECK(fce::describe_group(objs, 101, gi) && gi.comp == 4 && gi.comp_number == 210 && gi.stage_desc == "FCE_Setup_Stage" && gi.setup_stage() &&
+                  !gi.league_stage(),
+              "the pool: competition 210, setup stage");
+        CHECK(!fce::describe_group(objs, 7, gi) && gi.group == 7 && gi.comp == 0, "an unused id is refused");
+        CHECK(!fce::describe_group(objs, 5000, gi), "an id past the list is refused");
+        // a parent loop or a bad parent stops the walk without looping
+        w.compobj(50, 50, fce::kCompTypeGroup, "G9", "");
+        w.compobj(51, 60000, fce::kCompTypeGroup, "G9", "");
+        CHECK(fce::read_compobjs(w.mem, loc, objs) && fce::describe_group(objs, 50, gi) && gi.comp == 0 && gi.stage == 0, "self-parent: nothing above");
+        CHECK(fce::describe_group(objs, 51, gi) && gi.comp == 0, "parent past the list: nothing above");
+        // an odd list header leaves the tree out but the rows usable
+        w.w32(w.col + 4, 200);  // count > capacity
+        fce::Located loc2;
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::kBase, loc2).empty() && loc2.compobj_list == 0 && loc2.compobj_count == 0 && loc2.row_count == 4,
+              "count > capacity: no tree, rows fine");
+        CHECK(fce::read_compobjs(w.mem, loc2, objs) && objs.empty(), "no tree: empty");
+        w.w32(w.col + 4, 102);
+        w.w64(w.dm + 0x50, 0);
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::kBase, loc2).empty() && loc2.compobj_list == 0, "no list pointer: no tree");
+    });
+}
+
 static void test_standings_refresh() {
     const svm::Fns fns = SvmWorld::fns();
     run_case("standings refresh: SVM = manager slot 108, map walked in key order, every dereference checked, one sync request per key", [&] {
@@ -5006,11 +5230,141 @@ static void test_standings_refresh() {
         gate.done();
     });
 
+    run_case("standings refresh: the view's rows are read from the LiveStandings trees (what the Standings screen shows)", [&] {
+        SvmWorld w({1118, 1300});
+        w.set_tree(1118, 1120, {{3506, 48, 0}, {3490, 52, 0}});
+        w.set_tree(1300, 1301, {{10, 7, 3}});
+        std::vector<svm::ShownGroup> shown;
+        std::string err = svm::shown_groups(w.mem, SvmWorld::kSvm, SvmWorld::kLiveVtable, SvmWorld::kCompObjVtable, SvmWorld::kListVtable, shown);
+        CHECK(err.empty(), "walked: " + err);
+        CHECK(shown.size() == 2 && shown[0].key == 1118 && shown[0].group == 1120 && shown[0].rows.size() == 2 && shown[1].key == 1300 &&
+                  shown[1].group == 1301 && shown[1].rows.size() == 1,
+              fmt("two groups (%zu)", shown.size()));
+        if (shown.size() == 2) {
+            CHECK(shown[0].rows[0].id == 3506 && shown[0].rows[0].team == 48 && shown[0].rows[0].points == 0 && shown[0].rows[1].id == 3490,
+                  "rows carry the FCE standing id, the team and the points");
+            CHECK(shown[1].rows[0].id == 10 && shown[1].rows[0].team == 7 && shown[1].rows[0].points == 3, "second group's row");
+        }
+        // which written rows are visible
+        std::string msg;
+        CHECK(!svm::describe_rows(shown, {3506}, msg) && msg.find("row 3506 (team 48) is shown by competition 1118 (group 1120) with 0 points") != std::string::npos,
+              "a shown row: " + msg);
+        msg.clear();
+        CHECK(svm::describe_rows(shown, {3322}, msg) && msg.find("WARNING: row 3322 is not among the rows") != std::string::npos &&
+                  msg.find("1120 (comp 1118), 1301 (comp 1300)") != std::string::npos,
+              "a hidden row: " + msg);
+        msg.clear();
+        CHECK(svm::describe_rows(shown, {10, 3322}, msg) && msg.find("row 10 (team 7)") != std::string::npos && msg.find("WARNING: row 3322") != std::string::npos,
+              "one of each");
+        msg.clear();
+        CHECK(!svm::describe_rows(shown, {}, msg) && msg.empty(), "no rows: nothing said");
+        // the anchors are required: without the two vtables nothing is walked
+        CHECK(!svm::shown_groups(w.mem, SvmWorld::kSvm, SvmWorld::kLiveVtable, 0, SvmWorld::kListVtable, shown).empty() && shown.empty(), "no CompObject vtable");
+        CHECK(!svm::shown_groups(w.mem, SvmWorld::kSvm, SvmWorld::kLiveVtable, SvmWorld::kCompObjVtable, 0, shown).empty(), "no list vtable");
+        CHECK(!svm::shown_groups(w.mem, SvmWorld::kSvm, SvmWorld::kLiveVtable, SvmWorld::kCompObjVtable, SvmWorld::kCompObjVtable, shown).empty(), "equal vtables");
+        // an empty value (null data) is skipped; an empty map gives no groups
+        w.mem.wr(w.live(1) + 8, uint64_t(0));
+        CHECK(svm::shown_groups(w.mem, SvmWorld::kSvm, SvmWorld::kLiveVtable, SvmWorld::kCompObjVtable, SvmWorld::kListVtable, shown).empty() && shown.size() == 1,
+              "null data skipped");
+        SvmWorld empty({});
+        CHECK(svm::shown_groups(empty.mem, SvmWorld::kSvm, SvmWorld::kLiveVtable, SvmWorld::kCompObjVtable, SvmWorld::kListVtable, shown).empty() && shown.empty(),
+              "empty map: no groups");
+        // inconsistencies: a node with another vtable, too many children, too many rows, a bad rows pointer, a cycle, a deep
+        // chain, a row with an impossible id; each reported with the output cleared
+        SvmWorld w2({1118});
+        w2.set_tree(1118, 1120, {{1, 1, 1}});
+        auto bad = [&](const char* what) {
+            std::vector<svm::ShownGroup> out;
+            std::string e = svm::shown_groups(w2.mem, SvmWorld::kSvm, SvmWorld::kLiveVtable, SvmWorld::kCompObjVtable, SvmWorld::kListVtable, out);
+            CHECK(!e.empty() && out.empty(), std::string(what) + ": " + e);
+        };
+        w2.mem.wr(w2.last_stage, uint64_t(0x1234));
+        bad("foreign vtable");
+        w2.mem.wr(w2.last_stage, SvmWorld::kCompObjVtable);
+        w2.mem.wr(w2.last_root + svm::kCoChildCount, uint32_t(65));
+        bad("65 children");
+        w2.mem.wr(w2.last_root + svm::kCoChildCount, uint32_t(1));
+        w2.mem.wr(w2.last_list + svm::kSlRowCount, int32_t(65));
+        bad("65 rows");
+        w2.mem.wr(w2.last_list + svm::kSlRowCount, int32_t(-1));
+        bad("negative row count");
+        w2.mem.wr(w2.last_list + svm::kSlRowCount, int32_t(1));
+        w2.mem.wr(w2.last_list + svm::kSlRows, uint64_t(0x10));
+        bad("bad rows pointer");
+        w2.mem.wr(w2.last_list + svm::kSlRows, w2.last_rows);
+        w2.mem.wr(w2.last_list + svm::kSlGroup, int32_t(70000));
+        bad("group id out of range");
+        w2.mem.wr(w2.last_list + svm::kSlGroup, int32_t(1120));
+        w2.mem.wr(w2.last_rows + svm::kRowId, int32_t(-5));
+        bad("row id out of range");
+        w2.mem.wr(w2.last_rows + svm::kRowId, int32_t(1));
+        {
+            // the stage's child list points back at the root: a cycle, stopped by the depth bound
+            uint64_t kids = 0;
+            w2.mem.rd(w2.last_stage + svm::kCoChildren, kids);
+            w2.mem.wr(kids, w2.last_root);
+            bad("cycle");
+            w2.mem.wr(kids, w2.last_list);
+        }
+        w2.mem.wr(w2.last_root + svm::kCoChildren, uint64_t(0x30));
+        bad("bad children pointer");
+        {
+            std::vector<svm::ShownGroup> out;
+            uint64_t kids1 = w2.last_root + 0x80;  // restored: the first allocation after the comp node is its child list
+            w2.mem.wr(w2.last_root + svm::kCoChildren, kids1);
+            CHECK(svm::shown_groups(w.mem, SvmWorld::kSvm, SvmWorld::kLiveVtable, SvmWorld::kCompObjVtable, SvmWorld::kListVtable, out).empty() && out.size() == 1,
+                  "restored tree walks again");
+        }
+    });
+
+    run_case("standings refresh: the outcome says whether the written rows are among those the view shows (the 04-10-2026 case)", [&] {
+        // the live case: the view holds comp 1118 -> group 1120 with Napoli's row 3506; Turbo wrote row 3322 (the Coppa Italia pool)
+        SvmWorld w({1118});
+        w.set_tree(1118, 1120, {{3506, 48, 0}, {3490, 52, 0}});
+        FakeSvmGame game;
+        svm::Request req = w.request();
+        req.label = "SSC Napoli row";
+        req.rows = {3322};
+        svm::Result r = svm::refresh(w.mem, game, fns, req);
+        CHECK(r.ok && r.stage == "done" && r.refreshed == 1 && game.refreshes.size() == 1, "the call ran: " + r.message);
+        CHECK(r.warning, "warning: the written row is invisible");
+        CHECK(r.message.find("re-read 1 competition (comp ids 1118)") != std::string::npos && r.message.find("WARNING: row 3322 is not among") != std::string::npos &&
+                  r.message.find("1120 (comp 1118)") != std::string::npos,
+              "message: " + r.message);
+        CHECK(r.shown.size() == 1 && r.shown[0].group == 1120 && r.shown[0].rows.size() == 2, "the outcome carries the view's rows");
+        // the right row
+        req.rows = {3506};
+        r = svm::refresh(w.mem, game, fns, req);
+        CHECK(r.ok && !r.warning && r.message.find("row 3506 (team 48) is shown by competition 1118 (group 1120) with 0 points") != std::string::npos,
+              "shown row: " + r.message);
+        // no rows named: the message is the old one, nothing appended
+        req.rows.clear();
+        r = svm::refresh(w.mem, game, fns, req);
+        CHECK(r.ok && !r.warning && r.message == "SSC Napoli row: the game's standings view re-read 1 competition (comp ids 1118)", "no rows: " + r.message);
+        CHECK(r.shown.size() == 1, "the view's rows are still reported");
+        // the anchors missing (another build): the call still runs, the check is reported as not possible, no warning
+        svm::Fns no_anchor = fns;
+        no_anchor.compobj_vtable = no_anchor.standinglist_vtable = 0;
+        req.rows = {3322};
+        req.image_base = 0;
+        r = svm::refresh(w.mem, game, no_anchor, req);
+        CHECK(r.ok && !r.warning && r.message.find("could not be checked") != std::string::npos && r.shown.empty(), "no anchors: " + r.message);
+        // with the image base the RVAs stand in for the anchors
+        req.image_base = SvmWorld::kBase;
+        r = svm::refresh(w.mem, game, no_anchor, req);
+        CHECK(r.ok && r.warning && r.shown.size() == 1, "RVA fallback: " + r.message);
+        // a tree the walk refuses: reported, the call's own outcome unchanged
+        w.mem.wr(w.last_stage, uint64_t(0x1234));
+        r = svm::refresh(w.mem, game, fns, req);
+        CHECK(r.ok && !r.warning && r.message.find("could not be checked: comp 1118: node") != std::string::npos, "bad tree: " + r.message);
+    });
+
     run_case("signatures: the built-in standings-refresh entries resolve on the game's bytes (SVM vtable via the SVM ctor's lea)", [&] {
         const SignatureTable* t = builtin_signature_table("6AB9813C-211EF000");
         CHECK(t != nullptr, "built-in table");
         if (!t) return;
-        const char* names[] = {"svm_refresh_comp", "svm_listener", "svm_vtable", "fce_iface_post", "svm_allocator"};
+        const char* names[] = {"svm_refresh_comp", "svm_listener", "svm_vtable", "fce_iface_post", "svm_allocator", "fcei_compobject_vtable",
+                               "fcei_standinglist_vtable"};
         for (const char* n : names) CHECK(t->find(n) && !t->find(n)->pattern.empty(), std::string("entry ") + n);
         CHECK(t->find("svm_slot10") == nullptr, "the StaffManager slot-10 anchor is gone");
         // bytes read from fc27_image.bin (FC27.exe 1.0.140.64835) at the functions' VAs
@@ -5028,6 +5382,20 @@ static void test_standings_refresh() {
         const uint8_t post[] = {0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0x01, 0x48, 0x8B, 0xDA, 0xFF, 0x50, 0x40, 0x8B,
                                 0x53, 0x10, 0x4C, 0x8B, 0xC3, 0x48, 0x8B, 0xC8, 0x48, 0x83, 0xC4, 0x20, 0x5B, 0xE9, 0xDA, 0x1E,
                                 0x61, 0xFB, 0xCC, 0xCC};
+        // the FCEI::CompObject clone allocator 0x144040198 (0x100 bytes): the two node vtables are its lea operands
+        const uint8_t clone[] = {
+            0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x33, 0xDB, 0x48, 0x8B, 0xF9, 0x85, 0xD2, 0x75, 0x51, 0x48, 0x8B, 0x0D,
+            0xEE, 0x9C, 0x22, 0x08, 0x4C, 0x8D, 0x05, 0xEF, 0xE4, 0xA9, 0x06, 0x45, 0x33, 0xC9, 0xBA, 0x80, 0x00, 0x00, 0x00, 0x48, 0x8B, 0x01,
+            0xFF, 0x50, 0x10, 0x4C, 0x8B, 0xD8, 0x48, 0x85, 0xC0, 0x0F, 0x84, 0xA8, 0x00, 0x00, 0x00, 0x48, 0x89, 0x78, 0x08, 0x49, 0x8D, 0x4B,
+            0x20, 0x48, 0x89, 0x58, 0x10, 0x48, 0x89, 0x58, 0x18, 0x48, 0x8D, 0x05, 0x2E, 0x18, 0xAA, 0x06, 0x49, 0x89, 0x03, 0xE8, 0xFA, 0xF3,
+            0x50, 0xFD, 0xE8, 0xF5, 0xF3, 0x50, 0xFD, 0x49, 0x8B, 0xDB, 0xEB, 0x7F, 0x83, 0xFA, 0x01, 0x75, 0x35, 0x48, 0x8B, 0x0D, 0x98, 0x9C,
+            0x22, 0x08, 0x4C, 0x8D, 0x05, 0xE1, 0xE4, 0xA9, 0x06, 0x45, 0x33, 0xC9, 0x48, 0x8B, 0x01, 0x41, 0x8D, 0x51, 0x38, 0xFF, 0x50, 0x10,
+            0x48, 0x85, 0xC0, 0x74, 0x5A, 0x48, 0x8D, 0x0D, 0x10, 0x1B, 0xAA, 0x06, 0x48, 0x89, 0x08, 0x83, 0xC9, 0xFF, 0x89, 0x48, 0x30, 0x89,
+            0x48, 0x34, 0xEB, 0x2F, 0x83, 0xFA, 0x02, 0x75, 0x40, 0x48, 0x8B, 0x0D, 0x5E, 0x9C, 0x22, 0x08, 0x4C, 0x8D, 0x05, 0x8F, 0xE4, 0xA9,
+            0x06, 0x45, 0x33, 0xC9, 0x48, 0x8B, 0x01, 0x41, 0x8D, 0x51, 0x30, 0xFF, 0x50, 0x10, 0x48, 0x85, 0xC0, 0x74, 0x20, 0x48, 0x8D, 0x0D,
+            0xEE, 0x19, 0xAA, 0x06, 0x48, 0x89, 0x08, 0x48, 0x89, 0x58, 0x10, 0x48, 0x89, 0x58, 0x18, 0x89, 0x58, 0x20, 0x48, 0x89, 0x58, 0x28,
+            0x48, 0x8B, 0xD8, 0x48, 0x89, 0x78, 0x08, 0x48, 0x8B, 0xC3, 0x48, 0x8B, 0x5C, 0x24, 0x30, 0x48, 0x83, 0xC4, 0x20, 0x5F, 0xC3, 0xCC,
+            0xCC, 0xCC, 0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48};
         // the ctor sits at +0x100 of a buffer based so that its VA is the real one: the lea then resolves to the real vtable
         const uint64_t base = 0x147D9A700ULL - 0x100;
         std::vector<uint8_t> code(0x1000, 0xCC);
@@ -5035,6 +5403,7 @@ static void test_standings_refresh() {
         std::memcpy(code.data() + 0x300, refresh, sizeof(refresh));
         std::memcpy(code.data() + 0x400, listener, sizeof(listener));
         std::memcpy(code.data() + 0x500, post, sizeof(post));
+        std::memcpy(code.data() + 0x600, clone, sizeof(clone));
         SigResult r = resolve_signature(*t->find("svm_vtable"), code.data(), code.size(), base);
         CHECK(r.state == SigState::Found && r.match == 0x147D9A700ULL && r.address == 0x14975EA38ULL,
               "svm_vtable resolves to base+0x975EA38 (= svm::kRvaVtable): " + r.error);
@@ -5050,6 +5419,15 @@ static void test_standings_refresh() {
         CHECK(r.state == SigState::Found && r.match == base + 0x300 && r.address == base + 0x300 + 0x2A + 7 + 0x044C4B67ULL,
               "svm_allocator resolves through the rip operand: " + r.error);
         CHECK(0x147DA5310ULL + 0x2A + 7 + 0x044C4B67ULL == 0x14C269EA8ULL, "on the real function that is the allocator global 0x14C269EA8");
+        // the node vtables of the view's rows: the lea rax / lea rcx at +0x4B / +0x89 of the clone allocator
+        r = resolve_signature(*t->find("fcei_compobject_vtable"), code.data(), code.size(), base);
+        CHECK(r.state == SigState::Found && r.match == base + 0x600 && r.address == base + 0x600 + 0x4B + 7 + 0x06AA182EULL,
+              "fcei_compobject_vtable resolves through the lea at +0x4B: " + r.error);
+        r = resolve_signature(*t->find("fcei_standinglist_vtable"), code.data(), code.size(), base);
+        CHECK(r.state == SigState::Found && r.match == base + 0x600 && r.address == base + 0x600 + 0x89 + 7 + 0x06AA1B10ULL,
+              "fcei_standinglist_vtable resolves through the lea at +0x89: " + r.error);
+        CHECK(0x144040198ULL + 0x4B + 7 + 0x06AA182EULL == 0x140000000ULL + svm::kRvaCompObjectVtable, "on the real allocator: the CompObject vtable 0x14AAE1A18");
+        CHECK(0x144040198ULL + 0x89 + 7 + 0x06AA1B10ULL == 0x140000000ULL + svm::kRvaStandingListVtable, "on the real allocator: the list vtable 0x14AAE1D38");
         for (const char* n : names) {
             r = resolve_signature(*t->find(n), code.data(), code.size(), base);
             CHECK(r.hits == 1, std::string(n) + " unique");
@@ -5249,6 +5627,7 @@ int main(int argc, char** argv) {
     test_le_log();
     std::printf("native live standings\n");
     test_fce_standings();
+    test_fce_compobjs();
     std::printf("native standings refresh\n");
     test_standings_refresh();
     std::printf("native player capture\n");
