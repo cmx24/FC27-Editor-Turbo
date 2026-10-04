@@ -5,12 +5,24 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/build/win"
 OBJ="$OUT/obj"
 mkdir -p "$OBJ"
-CXX=x86_64-w64-mingw32-g++-posix
-CC=x86_64-w64-mingw32-gcc-posix
+cd "$ROOT"   # include paths below are relative, so a ROOT with spaces (e.g. "C:/FC 27 Live Editor/...") works
+# Tool names: Debian-style cross compiler by default; on Windows (MSYS2 UCRT64/MINGW64) the native g++/gcc are used.
+if [ -z "${CXX:-}" ]; then
+  if command -v x86_64-w64-mingw32-g++-posix >/dev/null 2>&1; then CXX=x86_64-w64-mingw32-g++-posix; else CXX=g++; fi
+fi
+if [ -z "${CC:-}" ]; then
+  if command -v x86_64-w64-mingw32-gcc-posix >/dev/null 2>&1; then CC=x86_64-w64-mingw32-gcc-posix; else CC=gcc; fi
+fi
+if [ -z "${OBJDUMP:-}" ]; then
+  if command -v x86_64-w64-mingw32-objdump >/dev/null 2>&1; then OBJDUMP=x86_64-w64-mingw32-objdump; else OBJDUMP=objdump; fi
+fi
+if [ -z "${STRIP:-}" ]; then
+  if command -v x86_64-w64-mingw32-strip >/dev/null 2>&1; then STRIP=x86_64-w64-mingw32-strip; else STRIP=strip; fi
+fi
 DEFS="-DWIDL_EXPLICIT_AGGREGATE_RETURNS -D_WIN32_WINNT=0x0A00 -DNOMINMAX -DNDEBUG -DIMGUI_USER_CONFIG=\"turbo_imconfig.h\""
-INC="-I$ROOT/src -I$ROOT/src/ui -I$ROOT/third_party -I$ROOT/third_party/imgui -I$ROOT/third_party/imgui/backends -I$ROOT/third_party/minhook/include"
+INC="-Isrc -Isrc/ui -Ithird_party -Ithird_party/imgui -Ithird_party/imgui/backends -Ithird_party/minhook/include"
 CXXFLAGS="-std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-cast-function-type $DEFS $INC"
-CFLAGS="-O2 $DEFS -I$ROOT/third_party/minhook/include"
+CFLAGS="-O2 $DEFS -Ithird_party/minhook/include"
 
 objs=()
 # GCC 13 reports "array subscript [0, 4] is outside array bounds of 'bool [5]'" inside imgui.cpp:
@@ -39,11 +51,11 @@ $CXX -shared -o "$OUT/Turbo.dll" "${objs[@]}" -static -static-libgcc -static-lib
   -lgdi32 -luser32 -limm32 -lole32 -Wl,--subsystem,windows
 # Turbo.dll may be loaded while the game starts: it must not import Direct3D 12, DXGI, the shader compiler, DWM or the shell
 # (src/win/lazy_imports.cpp loads those on first use). Fail the build if any of them is in its import table.
-if x86_64-w64-mingw32-objdump -p "$OUT/Turbo.dll" | grep -iE "DLL Name: (d3d12|dxgi|d3dcompiler|dwmapi|shell32|dinput8)" ; then
+if $OBJDUMP -p "$OUT/Turbo.dll" | grep -iE "DLL Name: (d3d12|dxgi|d3dcompiler|dwmapi|shell32|dinput8)" ; then
   echo "Turbo.dll must not import the DLLs above"; exit 1
 fi
 $CXX -std=c++17 -O2 -municode -o "$OUT/TurboInjector.exe" "$ROOT/src/injector/main.cpp" -static -static-libgcc -static-libstdc++
 $CXX -std=c++17 -O2 -Wall -Wextra -municode $DEFS -o "$OUT/TurboProbe.exe" "$ROOT/src/probe/main.cpp" -static -static-libgcc -static-libstdc++ \
   -ld3d12 -ldxgi -Wl,--subsystem,windows
-x86_64-w64-mingw32-strip "$OUT/Turbo.dll" "$OUT/TurboInjector.exe" "$OUT/TurboProbe.exe"
+$STRIP "$OUT/Turbo.dll" "$OUT/TurboInjector.exe" "$OUT/TurboProbe.exe"
 ls -la "$OUT/Turbo.dll" "$OUT/TurboInjector.exe" "$OUT/TurboProbe.exe"

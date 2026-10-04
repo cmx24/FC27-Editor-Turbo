@@ -12,8 +12,11 @@ mkdir -p "$OUT" "$BIN/obj"
 rm -rf "$OUT"/*
 
 DEFS="-DIMGUI_ENABLE_TEST_ENGINE -DIMGUI_USER_CONFIG=\"turbo_imconfig.h\""
-INC="-I$ROOT/src -I$ROOT/src/ui -I$ROOT/third_party -I$ROOT/third_party/imgui -I$ROOT/third_party/imgui/backends"
-FLAGS="-std=c++17 -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -Wall -Wextra -Wno-unused-parameter $DEFS $INC"
+cd "$ROOT"   # relative include paths: ROOT may contain spaces
+INC="-Isrc -Isrc/ui -Ithird_party -Ithird_party/imgui -Ithird_party/imgui/backends"
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) SANITIZE="${SANITIZE-}";; *) SANITIZE="${SANITIZE--fsanitize=address,undefined}";; esac
+LUA="${LUA:-lua5.4}"
+FLAGS="-std=c++17 -O1 -g -fno-omit-frame-pointer $SANITIZE -Wall -Wextra -Wno-unused-parameter $DEFS $INC"
 
 objs=()
 for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_party/imgui/imgui_tables.cpp \
@@ -27,8 +30,8 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
   fi
   objs+=("$o")
 done
-g++ -fsanitize=address,undefined -o "$BIN/turbo_native_tests" "${objs[@]}"
+g++ $SANITIZE -o "$BIN/turbo_native_tests" "${objs[@]}"
 
-lua5.4 "$ROOT/tests/native/gui_world.lua" build "$OUT" > "$OUT/build.log" 2>&1 || { cat "$OUT/build.log"; exit 1; }
+"$LUA" "$ROOT/tests/native/gui_world.lua" build "$OUT" > "$OUT/build.log" 2>&1 || { cat "$OUT/build.log"; exit 1; }
 ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
   "$BIN/turbo_native_tests" "$OUT" "$ROOT/tests/native/gui_world.lua"

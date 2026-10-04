@@ -175,7 +175,15 @@ static fs::path g_out;
 static std::string g_lua;
 
 static int run_lua(const char* mode) {
-    std::string cmd = "lua5.4 '" + g_lua + "' " + mode + " '" + g_out.string() + "' > '" + (g_out / (std::string(mode) + ".log")).string() + "' 2>&1";
+    const char* lua_env = std::getenv("TURBO_LUA");
+    const std::string lua = (lua_env && *lua_env) ? lua_env : "lua5.4";
+#ifdef _WIN32
+    // cmd.exe: double quotes only; the whole line is wrapped once more because cmd /c strips the outer pair
+    std::string cmd = "\"\"" + lua + "\" \"" + g_lua + "\" " + mode + " \"" + g_out.string() + "\" > \"" +
+                      (g_out / (std::string(mode) + ".log")).string() + "\" 2>&1\"";
+#else
+    std::string cmd = "'" + lua + "' '" + g_lua + "' " + mode + " '" + g_out.string() + "' > '" + (g_out / (std::string(mode) + ".log")).string() + "' 2>&1";
+#endif
     int rc = std::system(cmd.c_str());
     if (rc != 0) std::printf("  lua %s failed, log:\n%s\n", mode, read_file(g_out / (std::string(mode) + ".log")).c_str());
     return rc;

@@ -54,6 +54,7 @@ function H.setup(opts)
     if opts.le_27_1_2 then sim:as_le_27_1_2() end   -- only the natives FC 27 LE v27.1.2 has
     sim.in_cm = opts.in_cm == true
     LE_DATA_PATH = le
+    TURBO_NO_DEFAULT_ROOT = true   -- never pick up a real Live Editor install on the test machine
     H.sim = sim
 
     -- Live Editor start-up: API v1 then API v2

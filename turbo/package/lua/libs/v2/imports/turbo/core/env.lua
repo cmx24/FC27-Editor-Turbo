@@ -48,8 +48,8 @@ function M.candidate_roots()
         add(root_from_lua_path(LE_DATA_PATH) or LE_DATA_PATH)
     end
 
-    -- 4) Default install folder
-    add("C:\\FC 27 Live Editor")
+    -- 4) Default install folder (the offline test harness switches this off, so a real install on the same PC is not picked up)
+    if not rawget(_G, "TURBO_NO_DEFAULT_ROOT") then add("C:\\FC 27 Live Editor") end
 
     return out
 end

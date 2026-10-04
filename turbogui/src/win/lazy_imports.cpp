@@ -11,6 +11,10 @@
 #include <d3dcompiler.h>
 #include <dwmapi.h>
 
+// Newer MinGW-w64 headers declare the DWM functions dllimport, so callers (imgui_impl_win32.cpp) go through __imp_ slots.
+// The definitions below are local stand-ins on purpose; the __imp_ slots at the end point at them.
+#pragma GCC diagnostic ignored "-Wattributes"
+
 namespace {
 
 HMODULE system_dll(const wchar_t* name) {
@@ -70,3 +74,12 @@ HRESULT WINAPI DwmEnableBlurBehindWindow(HWND hwnd, const DWM_BLURBEHIND* blur_b
 }
 
 }  // extern "C"
+
+// Import slots for callers compiled against dllimport declarations (MinGW-w64 headers from 2025 on). Older headers
+// call the functions directly and never reference these.
+extern "C" {
+decltype(&DwmIsCompositionEnabled) __imp_DwmIsCompositionEnabled = &DwmIsCompositionEnabled;
+decltype(&DwmGetColorizationColor) __imp_DwmGetColorizationColor = &DwmGetColorizationColor;
+decltype(&DwmEnableBlurBehindWindow) __imp_DwmEnableBlurBehindWindow = &DwmEnableBlurBehindWindow;
+}  // extern "C"
+
