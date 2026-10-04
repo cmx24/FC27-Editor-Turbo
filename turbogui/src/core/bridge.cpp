@@ -148,6 +148,29 @@ static bool parse_state_impl(const std::string& text, BridgeState& out) {
         out.game_call_ok = g.value("ok", false);
         if (g.contains("text") && g["text"].is_string()) out.game_call_text = g["text"].get<std::string>();
     }
+    out.job_security_score = -1;
+    out.job_security_addon = 0;
+    out.job_security_level.clear();
+    out.job_security_locked.clear();
+    out.job_security_okay = out.job_security_safe = out.job_security_insecure = -1;
+    out.sack_pending = out.sacked = out.keep_unsackable = false;
+    if (j.contains("manager_rules") && j["manager_rules"].is_object()) {
+        const json& m = j["manager_rules"];
+        auto num = [&](const char* k, int def) { return m.contains(k) && m[k].is_number_integer() ? m[k].get<int>() : def; };
+        auto flag = [&](const char* k) { return m.contains(k) && m[k].is_boolean() && m[k].get<bool>(); };
+        auto text = [&](const char* k) { return m.contains(k) && m[k].is_string() ? m[k].get<std::string>() : std::string(); };
+        const int score = num("score", -1);
+        out.job_security_score = (score >= 0 && score <= 100) ? score : -1;
+        out.job_security_addon = num("addon", 0);
+        out.job_security_okay = num("okay", -1);
+        out.job_security_safe = num("safe", -1);
+        out.job_security_insecure = num("insecure", -1);
+        out.job_security_level = text("level");
+        out.job_security_locked = text("locked");
+        out.sack_pending = flag("sack_pending");
+        out.sacked = flag("sacked");
+        out.keep_unsackable = flag("keep_unsackable");
+    }
     if (j.contains("date") && j["date"].is_object()) {
         out.date.year = j["date"].value("year", 0);
         out.date.month = j["date"].value("month", 0);

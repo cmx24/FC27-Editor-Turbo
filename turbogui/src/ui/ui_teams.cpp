@@ -273,6 +273,186 @@ static void job_offers_section(App& app) {
     ImGui::PopID();
 }
 
+// ---------------------------------------------------------------- managers > manager rules / manager market
+// Job security and unsackable for YOUR manager (features/manager_rules.lua: Turbo.dll's game call writes the saved
+// addon and runs the game's own UpdateJobSecurityScore; the SackManager hook refuses the sack; docs/re/manager_rules.md)
+// and the manager market for AI managers (features/manager_move.lua: the manager table of the career database). Every
+// button sends a Lua module run; the outcome shows in place.
+static void manager_rules_section(App& app) {
+    const BridgeState& st = app.bridge.state();
+    ImGui::PushID("managerrules");
+    if (ImGui::CollapsingHeader("Manager rules: job security, unsackable (Manager Career)")) {
+        const std::string* missing = st.unavailable_reason("manager_rules");
+        if (missing) ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "Not available: %s", missing->c_str());
+        const bool can = !app.busy() && app.mailbox && st.in_cm && !missing;
+        if (!st.in_cm) ImGui::TextDisabled("Load a Manager Career first.");
+        auto send_rules = [&](json overrides, const std::string& what) {
+            overrides["enabled"] = true;
+            overrides["confirm"] = true;
+            app.send({{"op", "run"}, {"module", "manager_rules"}, {"overrides", overrides}}, "Manager rules: " + what);
+            app.manager_rules_status = "Requested: " + what + " (the game answers on the next career-mode event)";
+        };
+        ImGui::SeparatorText("Job security");
+        if (st.job_security_score >= 0) {
+            ImGui::Text("Score %d/100: %s", st.job_security_score, st.job_security_level.empty() ? "?" : st.job_security_level.c_str());
+            if (!st.job_security_locked.empty()) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1), "(locked %s by Turbo)", st.job_security_locked.c_str());
+            }
+            if (st.job_security_safe >= 0)
+                ImGui::TextDisabled("addon %d | the game's bands: insecure from %d, okay from %d, safe from %d", st.job_security_addon,
+                                    st.job_security_insecure, st.job_security_okay, st.job_security_safe);
+        } else {
+            ImGui::TextDisabled("Score: not read yet (needs a loaded Manager Career and the Turbo GUI's memory map)");
+        }
+        ImGui::TextWrapped("The game computes your score from the board's objectives plus a saved addon. Turbo sets the addon and "
+                           "asks the game to recompute, so the board screen shows the game's own result. Safe and Very insecure "
+                           "stay locked (saved with the career until you take a new job); Okay / Insecure / a score are a nudge "
+                           "the objectives keep moving. \"Game's own\" removes the addon.");
+        if (!can) ImGui::BeginDisabled();
+        const char* levels[] = {"safe", "okay", "insecure", "very insecure"};
+        const char* labels[] = {"Safe (locked)", "Okay", "Insecure", "Very insecure (locked)"};
+        for (int i = 0; i < 4; ++i) {
+            if (i) ImGui::SameLine();
+            if (ImGui::Button(labels[i])) send_rules({{"job_security", levels[i]}}, std::string("job security ") + levels[i]);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Game's own")) send_rules({{"job_security", "game"}}, "job security back to the game's own score");
+        ImGui::SetNextItemWidth(S(90.0f));
+        ImGui::InputInt("##jsscore", &app.manager_rules_score, 0, 0);
+        app.manager_rules_score = std::clamp(app.manager_rules_score, 0, 100);
+        ImGui::SameLine();
+        if (ImGui::Button("Set score")) send_rules({{"job_security", app.manager_rules_score}}, "job security score " + std::to_string(app.manager_rules_score));
+        if (!can) ImGui::EndDisabled();
+        if (st.sacked) ImGui::TextColored(ImVec4(1, 0.5f, 0.3f, 1), "The game has already marked you as sacked.");
+        else if (st.sack_pending) ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "A sack is pending: the game sacks you on the next day. Switch unsackable on to cancel it.");
+        ImGui::SeparatorText("Unsackable");
+        ImGui::TextWrapped("While this is on Turbo refuses the game's sack (JobSwitchManager::SackManager: low job security and an "
+                           "ended contract both go through it) and cancels a pending one. Turbo.dll starts every game with it off; "
+                           "\"keep\" switches it on again in every session.%s",
+                           st.keep_unsackable ? " Kept: on." : "");
+        if (!can) ImGui::BeginDisabled();
+        if (ImGui::Button("Unsackable ON (keep)")) send_rules({{"unsackable", true}, {"keep", true}}, "unsackable on");
+        ImGui::SameLine();
+        if (ImGui::Button("ON (this session)")) send_rules({{"unsackable", true}, {"keep", false}}, "unsackable on for this session");
+        ImGui::SameLine();
+        if (ImGui::Button("OFF")) send_rules({{"unsackable", false}, {"keep", false}}, "unsackable off");
+        if (!can) ImGui::EndDisabled();
+        ImGui::TextDisabled("Endless career: FC 27 has no season limit or forced end for your manager to switch off (docs/re/manager_rules.md).");
+        if (!app.manager_rules_status.empty()) ImGui::TextWrapped("%s", app.manager_rules_status.c_str());
+        if (app.hook_report) {  // the native side: entries resolved, managers seen, unsackable state, last outcome
+            HookReport r = app.hook_report();
+            bool mine = false;  // the "  last:" line that follows the manager_rules line belongs to it
+            for (const auto& c : r.calls) {
+                if (c.rfind("manager_rules", 0) == 0) mine = true;
+                else if (c.rfind("  ", 0) != 0) mine = false;
+                if (mine) ImGui::TextDisabled("%s", c.c_str());
+            }
+        }
+    }
+    ImGui::PopID();
+}
+
+static void manager_market_section(App& app, const ManagerRow* selected) {
+    const BridgeState& st = app.bridge.state();
+    ImGui::PushID("managermarket");
+    if (ImGui::CollapsingHeader("Manager market: move a manager, make one available")) {
+        ImGui::TextWrapped("Career database edits the game itself reads (its AI hires free agents from the manager table; free agent "
+                           "= no club). Every club keeps one manager: the club's manager takes the mover's old job, and a free agent "
+                           "takes the club of a manager you make available. Your own club is never touched.");
+        if (!selected) {
+            ImGui::TextDisabled("Select a manager on the left.");
+        } else {
+            ImGui::Text("%s (%lld), %s", selected->name.c_str(), static_cast<long long>(selected->managerid),
+                        selected->teamid > 0 ? app.model.team_name(selected->teamid).c_str() : "free agent");
+            const bool own_club = selected->teamid > 0 && selected->teamid == st.user_team;
+            ImGui::SetNextItemWidth(S(220.0f));
+            ImGui::InputTextWithHint("##mmsearch", "club name or ID", app.manager_move_search, sizeof(app.manager_move_search));
+            const std::string q = lower(app.manager_move_search);
+            if (ImGui::BeginTable("##mmclubs", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV,
+                                  ImVec2(0, S(120.0f)))) {
+                ImGui::TableSetupScrollFreeze(0, 1);
+                ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, S(62.0f));
+                ImGui::TableSetupColumn("Club");
+                ImGui::TableSetupColumn("League", ImGuiTableColumnFlags_WidthFixed, S(60.0f));
+                ImGui::TableHeadersRow();
+                std::vector<const TeamRow*> rows;
+                for (const auto& t : app.model.teams()) {
+                    if (t.league < 0 || app.model.is_national_team(t.teamid) || t.teamid == st.user_team || t.teamid == selected->teamid) continue;
+                    if (!q.empty() && lower(t.name).find(q) == std::string::npos && std::to_string(t.teamid).find(q) != 0) continue;
+                    rows.push_back(&t);
+                }
+                ImGuiListClipper clipper;
+                clipper.Begin(static_cast<int>(rows.size()));
+                while (clipper.Step()) {
+                    for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+                        const TeamRow* t = rows[static_cast<size_t>(i)];
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        char idbuf[40];
+                        std::snprintf(idbuf, sizeof(idbuf), "%lld##mm", static_cast<long long>(t->teamid));
+                        if (ImGui::Selectable(idbuf, app.manager_move_team == t->teamid, ImGuiSelectableFlags_SpanAllColumns))
+                            app.manager_move_team = t->teamid;
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(t->name.c_str());
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%lld", static_cast<long long>(t->league));
+                    }
+                }
+                ImGui::EndTable();
+            }
+            const bool base_ok = !app.busy() && app.mailbox && st.in_cm && !own_club;
+            const bool can_move = base_ok && app.manager_move_team > 0 && app.manager_move_team != selected->teamid && app.manager_move_team != st.user_team;
+            if (!can_move) ImGui::BeginDisabled();
+            const bool move = ImGui::Button("Move to the picked club");
+            if (!can_move) ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                if (own_club) ImGui::SetTooltip("That is your own club's manager: your job changes through job offers");
+                else if (!st.in_cm) ImGui::SetTooltip("Load a career first");
+                else if (app.manager_move_team <= 0) ImGui::SetTooltip("Pick a club above");
+                else ImGui::SetTooltip("manager.teamid in the career database; the club's manager takes the old job");
+            }
+            ImGui::SameLine();
+            const bool can_free = base_ok && selected->teamid > 0;
+            if (!can_free) ImGui::BeginDisabled();
+            const bool release = ImGui::Button("Make available (free agent)");
+            if (!can_free) ImGui::EndDisabled();
+            if (move) ImGui::OpenPopup("Move manager?");
+            if (release) ImGui::OpenPopup("Release manager?");
+            if (ImGui::BeginPopupModal("Move manager?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                ImGui::TextWrapped("Move %s to %s (%lld)?\nThat club's manager takes %s. Career database edit (saved with the career).",
+                                   selected->name.c_str(), app.model.team_name(app.manager_move_team).c_str(),
+                                   static_cast<long long>(app.manager_move_team),
+                                   selected->teamid > 0 ? app.model.team_name(selected->teamid).c_str() : "the free-agent list");
+                if (ImGui::Button("Move")) {
+                    json overrides = {{"enabled", true}, {"managerid", selected->managerid}, {"teamid", app.manager_move_team}, {"confirm", true}};
+                    app.send({{"op", "run"}, {"module", "manager_move"}, {"overrides", overrides}}, "Manager move: " + selected->name);
+                    app.manager_move_status = "Requested: move " + selected->name;
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+            }
+            if (ImGui::BeginPopupModal("Release manager?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                ImGui::TextWrapped("Make %s a free agent?\nA free-agent manager takes %s. Career database edit (saved with the career).",
+                                   selected->name.c_str(), app.model.team_name(selected->teamid).c_str());
+                if (ImGui::Button("Make available")) {
+                    json overrides = {{"enabled", true}, {"managerid", selected->managerid}, {"teamid", 0}, {"confirm", true}};
+                    app.send({{"op", "run"}, {"module", "manager_move"}, {"overrides", overrides}}, "Manager move: release " + selected->name);
+                    app.manager_move_status = "Requested: make " + selected->name + " a free agent";
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+            }
+        }
+        if (!app.manager_move_status.empty()) ImGui::TextWrapped("%s", app.manager_move_status.c_str());
+    }
+    ImGui::PopID();
+}
+
 // ---------------------------------------------------------------- managers
 void draw_managers(App& app) {
     if (!app.connected()) {
@@ -317,6 +497,10 @@ void draw_managers(App& app) {
     ImGui::EndChild();
     ImGui::SameLine();
     ImGui::BeginChild("##medit", ImVec2(0, 0));
+    const ManagerRow* selected = (app.sel_manager >= 0 && app.sel_manager < static_cast<int>(mgrs.size()))
+                                     ? &mgrs[static_cast<size_t>(app.sel_manager)] : nullptr;
+    manager_rules_section(app);
+    manager_market_section(app, selected);
     job_offers_section(app);
     ImGui::Separator();
     if (app.sel_manager >= 0 && app.sel_manager < static_cast<int>(mgrs.size())) {
