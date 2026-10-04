@@ -24,7 +24,7 @@ and its own screens show it. Seen working in a test career:
 - **Editors** for teams, managers and any database table, and a Status tab. Buttons work at once, no day advance needed.
 - Also in 1.0, being checked in game now: transfer / loan lists for your own players, job security and unsackable,
   transfer budget, team name / colours / crest, create a player from a template, miniface from an image file, manager
-  moves, youth academy tools, match setup switches and fixture swaps. <!-- verify -->
+  moves, youth academy tools, match setup switches and fixture swaps.
 
 Built but not yet seen in a played match: forced results, injuries off during a match, editing a played result, weekly
 forced growth. Not in 1.0: transfers of your own club through the game's engine, live season stats, stadium override and

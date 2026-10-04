@@ -34,11 +34,11 @@ overrides and remove suspension.
 | 2 | Edit player or VPRO in Player Career | v26.1.1 | yes (v27.1.1) | **Verified in game**: the player editor works on your own player like any other. No dedicated VPRO page: use FC 27 LE's |
 | 3 | Release clause | v26.1.2 | not announced | **Verified in game**: release clause and wage are fields of the player editor (Contract & Clubs) |
 | 4 | Transfer, loan, terminate loan, release from team | v26.1.4 | not announced | **Not in Turbo 1.0** for your own club: moves through the game's engine come in a later version. Turbo refuses database-only moves into or out of your club for safety. Between two other clubs Turbo writes the move into the career database (back up your save) |
-| 5 | Delete player, generate miniface, change name | v26.1.5 | not announced | Miniface from the game's 3D model: **Verified in game**. Miniface from an image file: **Verified in game** <!-- verify -->. Names: player editor, **Verified in game**. Delete player: refused for your own club |
+| 5 | Delete player, generate miniface, change name | v26.1.5 | not announced | Miniface from the game's 3D model: **Verified in game**. Miniface from an image file: **Verified in game**. Names: player editor, **Verified in game**. Delete player: refused for your own club |
 | 6 | Season statistics | v26.1.7 | not announced | Live season statistics: **Not in Turbo 1.0**. **In Turbo (from 0.x)**: CSV export of the database's league numbers (labelled as not live) |
 | 7 | Team selection bias, development XP boost | v26.2.1 | not announced | Develop to potential: **Verified in game**. Weekly forced growth: **Untested in a match**. FC 26's XP multiplier: **Not possible in FC 27** (the natives are gone; weekly forced growth replaces it). Team selection bias: **Not in Turbo 1.0** |
-| 8 | Transfer- and loan-listed flags | v26.2.2 | not announced | **Verified in game** <!-- verify -->: Transfer list / Loan list / Remove from lists for your own players, through the game's Transfer Hub. Asking price / loan terms: **Not possible in FC 27** (the game's listing takes only the player) |
-| 9 | Create player, clone player, FUT card presets | v26.2.4 | partly | Export / import (Live Editor preset CSV and Turbo JSON, names included) and clone: **Verified in game**. Create player from a template: **Verified in game** <!-- verify --> |
+| 8 | Transfer- and loan-listed flags | v26.2.2 | not announced | **Verified in game** (transfer list, remove; loan list built, not yet seen): Transfer list / Loan list / Remove from lists for your own players, through the game's Transfer Hub. Asking price / loan terms: **Not possible in FC 27** (the game's listing takes only the player) |
+| 9 | Create player, clone player, FUT card presets | v26.2.4 | partly | Export / import (Live Editor preset CSV and Turbo JSON, names included) and clone: **Verified in game**. Create player from a template: **Verified in game** |
 | 10 | Sock style, Super Sub trait, tattoo picker | v26.3.1, v26.3.5 | not announced | **Verified in game**: traits as tick boxes, tattoo gallery, appearance fields (socks as a value) |
 | 11 | Bulk edit players (release clause, fitness, heal, injury, never tired, dev XP, no decline) | v26.3.2, v26.3.5 | not announced | **In Turbo (from 0.x)**: Bulk edit for your squad / team IDs / the listed players / everyone. Never tired: FC 27 LE |
 | 12 | Filters: playstyles, Is Retiring, preferred positions 5–7 | v26.3.2 | UI only | **In Turbo (from 0.x)**: position (any of the 7), PlayStyle / PlayStyle+, retiring, min OVR / POT, max age |
@@ -50,7 +50,7 @@ overrides and remove suspension.
 | # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 1.0.0 |
 | --- | --- | --- | --- | --- |
 | 15 | Team editor: core | v26.1.0 | yes | **Verified in game**: Teams tab |
-| 16 | Team name, transfer budget, transfer bans | v26.1.2 | partly | Team name, colours and crest: **Verified in game** <!-- verify -->. Transfer budget: **Verified in game** <!-- verify -->. Transfer bans: **Not possible in FC 27** (no ban list in the game) |
+| 16 | Team name, transfer budget, transfer bans | v26.1.2 | partly | Team crest: **Verified in game**. Team name and colours: built, not yet seen on a game screen (a new name shows after Live Editor's next start). Transfer budget: **Verified in game**. Transfer bans: **Not possible in FC 27** (no ban list in the game) |
 | 17 | Coaches, scouts, perfect staff | v26.1.4 | not announced | **Database tab** |
 | 18 | Standings, fixtures, match-fixing | v26.1.7 | not announced | League table edits shown on the game's own Standings screen without advancing: **Verified in game**. Editing a played result: **Untested in a match**. Forced result for a chosen fixture (opt-in): **Untested in a match**. Fixtures CSV: **In Turbo (from 0.x)** |
 | 19 | Create job offer | v26.2.1 | not announced | **Verified in game**: Managers > Job offers; pick a club and the game makes a real contract offer |
@@ -62,19 +62,19 @@ overrides and remove suspension.
 | # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 1.0.0 |
 | --- | --- | --- | --- | --- |
 | 22 | Manager editor: core | v26.2.7 | basic | **Verified in game**: Managers tab |
-| 23 | Manager and team ID, name, miniface import / generate | v26.2.8 | not announced | IDs and names: **Verified in game**. Miniface from the game's 3D model: **Verified in game**. Miniface from an image file: **Verified in game** <!-- verify --> |
-| 24 | Transfer or fire manager, job security, unsackable | v26.2.9 | unsackable (Misc Features) | Job security levels and unsackable: **Verified in game** <!-- verify -->. Move a manager / make a manager available: **Verified in game** <!-- verify --> |
+| 23 | Manager and team ID, name, miniface import / generate | v26.2.8 | not announced | IDs and names: **Verified in game**. Miniface from the game's 3D model: **Verified in game**. Miniface from an image file: **Verified in game** |
+| 24 | Transfer or fire manager, job security, unsackable | v26.2.9 | unsackable (Misc Features) | Job security levels and unsackable: **Verified in game**. Move a manager / make a manager available: **Verified in game** |
 | 25 | Manager traits | v26.3.1 | not announced | **Database tab** (`manager` table) |
 
 ## Career
 
 | # | FC 26 feature | FC 26 since | FC 27 LE | Turbo 1.0.0 |
 | --- | --- | --- | --- | --- |
-| 26 | Youth academy tools | v26.1.3 | partly | **Verified in game** <!-- verify -->: list the academy, set a youth player's potential, position, tier and potential range. FC 27 LE has youth scout reports |
+| 26 | Youth academy tools | v26.1.3 | partly | **Built, not yet seen in game**: list the academy, set a youth player's potential, position, tier and potential range. FC 27 LE has youth scout reports |
 | 27 | Reveal player data | v26.1.4 | not announced | **Verified in game**: one player, a club or a league marked fully scouted by the game's own scouting |
-| 28 | Match setup: stadium, weather, kick-off time, crowd | v26.1.5 | yes (misc features) | Weather, time of day, difficulty, fixture swap / opponent change: **Verified in game** <!-- verify -->. Stadium override: **Not in Turbo 1.0** (left out on purpose: an id the game cannot load stalls the match load). Kick-off time, crowd: FC 27 LE |
+| 28 | Match setup: stadium, weather, kick-off time, crowd | v26.1.5 | yes (misc features) | Weather and difficulty (accepted by the game) and fixture home / away swap: **Verified in game**. Time of day, CPU substitutions off and opponent change: built, not yet seen in game. Stadium override: **Not in Turbo 1.0** (left out on purpose: an id the game cannot load stalls the match load). Kick-off time, crowd: FC 27 LE |
 | 29 | Transfer history | v26.1.8 | not announced | **In Turbo (from 0.x)**: export to CSV |
-| 30 | Gameplay: CPU vs CPU, never tired, unlimited subs, match time and score | v26.2.0 | partly (misc features) | Injuries-off switch: **Verified in game** (the game accepts it); injuries off during a match: **Untested in a match**. CPU substitutions off: **Verified in game** <!-- verify -->. Forced result: **Untested in a match**. CPU vs CPU, unlimited subs, match length, offsides / referee switches: **Not in Turbo 1.0**. VAR off: **Not possible in FC 27** (no setting). Fatigue off as a match switch: **Not possible in FC 27** (FC 27 LE's "never tired" covers it) |
+| 30 | Gameplay: CPU vs CPU, never tired, unlimited subs, match time and score | v26.2.0 | partly (misc features) | Injuries-off switch: **Verified in game** (the game accepts it); injuries off during a match: **Untested in a match**. CPU substitutions off: **Verified in game**. Forced result: **Untested in a match**. CPU vs CPU, unlimited subs, match length, offsides / referee switches: **Not in Turbo 1.0**. VAR off: **Not possible in FC 27** (no setting). Fatigue off as a match switch: **Not possible in FC 27** (FC 27 LE's "never tired" covers it) |
 | 31 | Player Career: funds, wage, attribute points, personality, playstyle slots | v26.2.1 | yes (v27.1.1) | **Not in Turbo 1.0** (FC 27 LE has it) |
 | 32 | Contract objectives bypass, negotiation check, always allow approach | v26.2.1, v26.2.5 | negotiation status check, transfer / loan approval (Misc Features) | **Not in Turbo 1.0** (FC 27 LE's Misc Features) |
 | 33 | Unsupported CM teams and leagues | v26.2.6 | not announced | **Not in Turbo 1.0** |

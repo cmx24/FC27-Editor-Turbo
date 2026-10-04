@@ -32,15 +32,16 @@ game through Live Editor, press F8 to show Turbo. Offline career only. Back up y
 - Injuries-off switch, accepted by the game.
 - Teams, managers and database editors.
 - Status tab.
-- Transfer list / loan list / remove from lists for your own players, through the game's Transfer Hub. <!-- verify -->
-- Job security levels and unsackable. <!-- verify -->
-- Transfer budget. <!-- verify -->
-- Team name, colours and crest. <!-- verify -->
-- Create player from a template. <!-- verify -->
-- Miniface from an image file. <!-- verify -->
-- Move a manager / make a manager available. <!-- verify -->
-- Youth academy tools. <!-- verify -->
-- Match setup switches (weather, time of day, difficulty, CPU substitutions off), fixture swap and opponent change. <!-- verify -->
+- Transfer list and remove from lists, for your own players, through the game's Transfer Hub.
+- Job security levels and unsackable.
+- Transfer budget.
+- Team crest (the game shows the new crest).
+- Create player from a template.
+- Miniface from an image file.
+- Move a manager / make a manager available.
+- Match setup switches (the game accepts weather and difficulty) and the home / away swap of a fixture.
+Built and tested offline, not yet seen on a game screen in 1.0: loan list; team name (Live Editor shows a new name after its next start) and team colours; youth academy tools; time of day and CPU-substitutions switches; changing a fixture's opponent.
+
 
 ### Untested in a match
 
