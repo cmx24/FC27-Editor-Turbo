@@ -19,6 +19,10 @@ std::string player_miniface(int64_t id) { return "data/ui/imgAssets/heads/p" + s
 std::string staff_miniface(int64_t id) { return "data/ui/imgAssets/heads_staff/heads_staff_" + std::to_string(id) + ".dds"; }
 std::string youth_face(int64_t id) { return "data/ui/imgAssets/youthheads/p" + std::to_string(id) + ".dds"; }
 std::string tattoo_preview(int64_t id) { return "data/ui/imgAssets/tattoo/item_" + std::to_string(id) + "_0.dds"; }
+std::string crest(int64_t teamid, int size, const char* folder) {
+    std::string dir = size > 0 ? "crest" + std::to_string(size) + "x" + std::to_string(size) : std::string("crest");
+    return "data/ui/imgAssets/" + dir + "/" + folder + "/l" + std::to_string(teamid) + ".dds";
+}
 bool valid(const std::string& p) {
     if (p.size() < 6 || p.size() > 200 || p.compare(0, 5, "data/") != 0) return false;
     if (p.find("..") != std::string::npos) return false;
@@ -27,6 +31,17 @@ bool valid(const std::string& p) {
     return true;
 }
 }  // namespace legacy_path
+
+std::vector<CrestVariant> crest_variants(int64_t teamid) {
+    static const int sizes[] = {0, 16, 32, 50, 512, 1024};
+    static const char* folders[] = {"light", "dark", "custom"};
+    std::vector<CrestVariant> out;
+    for (int sz : sizes)
+        for (const char* f : folders) out.push_back({sz, f, legacy_path::crest(teamid, sz, f)});
+    return out;
+}
+
+std::string crest_main_path(int64_t teamid) { return legacy_path::crest(teamid, 0, "light"); }
 
 static std::string lower(std::string s) {
     for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -84,6 +99,10 @@ LegacyImages::LegacyImages(fs::path le_root) : root_(std::move(le_root)) {
 fs::path LegacyImages::cache_dir() const { return root_ / "turbo_output" / "cache" / "legacy"; }
 fs::path LegacyImages::mods_dir() const { return root_ / "mods" / "legacy"; }
 fs::path LegacyImages::backup_dir() const { return root_ / "turbo_output" / "miniface_backups"; }
+fs::path LegacyImages::crest_backup_dir() const { return root_ / "turbo_output" / "crest_backups"; }
+fs::path LegacyImages::backup_dir_for(const std::string& path) const {
+    return path.compare(0, 22, "data/ui/imgAssets/crest") == 0 ? crest_backup_dir() : backup_dir();
+}
 
 fs::path LegacyImages::custom_file(const std::string& path) const {
     if (!legacy_path::valid(path)) return {};
@@ -234,9 +253,9 @@ bool LegacyImages::clear_cache(std::string* err) {
     return flush();
 }
 
-bool LegacyImages::backup(const fs::path& f, fs::path* out, std::string* err) {
+bool LegacyImages::backup(const fs::path& f, const fs::path& dir, fs::path* out, std::string* err) {
     std::error_code ec;
-    fs::create_directories(backup_dir(), ec);
+    fs::create_directories(dir, ec);
     std::time_t t = std::time(nullptr);
     std::tm tmv{};
 #ifdef _WIN32
@@ -247,9 +266,9 @@ bool LegacyImages::backup(const fs::path& f, fs::path* out, std::string* err) {
     char stamp[32];
     std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &tmv);
     std::string stem = f.stem().string(), ext = f.extension().string();
-    fs::path dst = backup_dir() / (stem + "_" + stamp + ext);
+    fs::path dst = dir / (stem + "_" + stamp + ext);
     for (int i = 2; fs::exists(dst, ec) && i < 1000; ++i)
-        dst = backup_dir() / (stem + "_" + stamp + "_" + std::to_string(i) + ext);
+        dst = dir / (stem + "_" + stamp + "_" + std::to_string(i) + ext);
     fs::copy_file(f, dst, fs::copy_options::overwrite_existing, ec);
     if (ec) {
         if (err) *err = "backup of " + f.filename().string() + " failed: " + ec.message();
@@ -272,7 +291,7 @@ bool LegacyImages::save_custom(const std::string& path, const std::vector<uint8_
     fs::path target = under(mods_dir(), path);
     fs::path existing = custom_file(path);
     if (!existing.empty()) {
-        if (!backup(existing, backup_out, err)) return false;
+        if (!backup(existing, backup_dir_for(path), backup_out, err)) return false;
         // a differently-cased old file (P123.DDS) would shadow or duplicate the new one: remove it
         if (existing != target) {
             std::error_code ec;
@@ -289,7 +308,7 @@ bool LegacyImages::remove_custom(const std::string& path, std::string* err, fs::
         return false;
     }
     while (!existing.empty()) {
-        if (!backup(existing, backup_out, err)) return false;
+        if (!backup(existing, backup_dir_for(path), backup_out, err)) return false;
         std::error_code ec;
         fs::remove(existing, ec);
         if (ec) {

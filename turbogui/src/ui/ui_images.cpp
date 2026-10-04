@@ -93,7 +93,7 @@ std::vector<fs::path> picture_files(const fs::path& dir) {
 }
 
 // Modal browser; returns true when a picture file was chosen (out)
-static bool file_browser_modal(const char* id, fs::path& cur_dir, fs::path& out) {
+bool file_browser_modal(const char* id, fs::path& cur_dir, fs::path& out) {
     bool chosen = false;
     ImGui::SetNextWindowSize(ImVec2(S(640.0f), S(480.0f)), ImGuiCond_Appearing);
     if (ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_NoSavedSettings)) {

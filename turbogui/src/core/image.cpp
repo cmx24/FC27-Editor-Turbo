@@ -452,4 +452,232 @@ std::vector<uint8_t> encode_dds_dxt5(const Rgba& img) {
     return out;
 }
 
+// ---------------------------------------------------------------- DDS in the original's format
+const char* DdsFormat::name() const {
+    switch (pixel) {
+        case Pixel::BGRA8: return "BGRA8";
+        case Pixel::RGBA8: return "RGBA8";
+        case Pixel::BGRX8: return "BGRX8";
+        case Pixel::BGR8: return "BGR8";
+        case Pixel::DXT1: return "DXT1";
+        case Pixel::DXT3: return "DXT3";
+        case Pixel::DXT5: return "DXT5";
+    }
+    return "?";
+}
+
+bool parse_dds_format(const std::vector<uint8_t>& d, DdsFormat& out, std::string* err) {
+    out = DdsFormat();
+    if (d.size() < 128 || std::memcmp(d.data(), "DDS ", 4) != 0) return fail(err, "not a DDS file");
+    const uint8_t* h = d.data() + 4;
+    if (rd32(h) != 124) return fail(err, "DDS header size is not 124");
+    uint32_t flags = rd32(h + 4);
+    out.h = int(rd32(h + 8));
+    out.w = int(rd32(h + 12));
+    if (out.w <= 0 || out.h <= 0 || out.w > kMaxImageSide || out.h > kMaxImageSide) return fail(err, "DDS size out of range");
+    out.mips = (flags & 0x20000) ? int(rd32(h + 24)) : 1;
+    if (out.mips < 1) out.mips = 1;
+    if (out.mips > 16) return fail(err, "DDS has more than 16 mip levels");
+    const uint8_t* pf = h + 72;
+    uint32_t pf_flags = rd32(pf + 4), four = rd32(pf + 8);
+    uint32_t bits = rd32(pf + 12), rm = rd32(pf + 16), gm = rd32(pf + 20), bm = rd32(pf + 24), am = rd32(pf + 28);
+    size_t hsize = 128;
+    if (pf_flags & 0x4) {
+        if (four == 0x31545844u) out.pixel = DdsFormat::Pixel::DXT1;
+        else if (four == 0x33545844u) out.pixel = DdsFormat::Pixel::DXT3;
+        else if (four == 0x35545844u) out.pixel = DdsFormat::Pixel::DXT5;
+        else if (four == 0x30315844u) {
+            if (d.size() < 148) return fail(err, "DDS DX10 header is cut off");
+            uint32_t dxgi = rd32(d.data() + 128);
+            out.dx10 = true;
+            hsize = 148;
+            if (dxgi == 71 || dxgi == 72) out.pixel = DdsFormat::Pixel::DXT1;
+            else if (dxgi == 74 || dxgi == 75) out.pixel = DdsFormat::Pixel::DXT3;
+            else if (dxgi == 77 || dxgi == 78) out.pixel = DdsFormat::Pixel::DXT5;
+            else if (dxgi == 28 || dxgi == 29) out.pixel = DdsFormat::Pixel::RGBA8;
+            else if (dxgi == 87 || dxgi == 91) out.pixel = DdsFormat::Pixel::BGRA8;
+            else if (dxgi == 88 || dxgi == 90) out.pixel = DdsFormat::Pixel::BGRX8;
+            else return fail(err, "DDS DX10 format not supported for writing (only BC1-BC3 and 8-bit RGBA / BGRA)");
+        } else {
+            return fail(err, "DDS compression not supported for writing (only DXT1, DXT3, DXT5)");
+        }
+    } else if ((pf_flags & 0x40) && bits == 32 && bm == 0x000000FFu && gm == 0x0000FF00u && rm == 0x00FF0000u) {
+        out.pixel = ((pf_flags & 0x1) && am == 0xFF000000u) ? DdsFormat::Pixel::BGRA8 : DdsFormat::Pixel::BGRX8;
+    } else if ((pf_flags & 0x40) && bits == 32 && rm == 0x000000FFu && gm == 0x0000FF00u && bm == 0x00FF0000u) {
+        if (!(pf_flags & 0x1) || am != 0xFF000000u) return fail(err, "DDS 32-bit RGBX layout not supported for writing");
+        out.pixel = DdsFormat::Pixel::RGBA8;
+    } else if ((pf_flags & 0x40) && bits == 24 && bm == 0x000000FFu && gm == 0x0000FF00u && rm == 0x00FF0000u) {
+        out.pixel = DdsFormat::Pixel::BGR8;
+    } else {
+        return fail(err, "DDS pixel format not supported for writing");
+    }
+    out.header.assign(d.begin(), d.begin() + long(hsize));
+    return true;
+}
+
+Rgba halve_image(const Rgba& src) {
+    Rgba nx;
+    if (src.empty()) return nx;
+    nx.w = std::max(1, src.w / 2);
+    nx.h = std::max(1, src.h / 2);
+    nx.px.resize(size_t(nx.w) * size_t(nx.h) * 4);
+    int sx = src.w >= 2 ? 2 : 1, sy = src.h >= 2 ? 2 : 1;
+    for (int y = 0; y < nx.h; ++y) {
+        for (int x = 0; x < nx.w; ++x) {
+            float acc[4] = {0, 0, 0, 0};
+            for (int j = 0; j < sy; ++j)
+                for (int i = 0; i < sx; ++i) {
+                    const uint8_t* p = src.at(std::min(sx * x + i, src.w - 1), std::min(sy * y + j, src.h - 1));
+                    float a = p[3] / 255.0f;
+                    acc[0] += p[0] * a; acc[1] += p[1] * a; acc[2] += p[2] * a; acc[3] += a;
+                }
+            uint8_t* o = nx.at(x, y);
+            if (acc[3] > 0.0f) {
+                for (int k = 0; k < 3; ++k) o[k] = uint8_t(std::clamp(acc[k] / acc[3] + 0.5f, 0.0f, 255.0f));
+            } else {
+                o[0] = o[1] = o[2] = 0;
+            }
+            o[3] = uint8_t(std::clamp(acc[3] / float(sx * sy) * 255.0f + 0.5f, 0.0f, 255.0f));
+        }
+    }
+    return nx;
+}
+
+static size_t level_bytes(const DdsFormat& f, int w, int h) {
+    switch (f.pixel) {
+        case DdsFormat::Pixel::DXT1: return size_t((w + 3) / 4) * size_t((h + 3) / 4) * 8;
+        case DdsFormat::Pixel::DXT3:
+        case DdsFormat::Pixel::DXT5: return size_t((w + 3) / 4) * size_t((h + 3) / 4) * 16;
+        case DdsFormat::Pixel::BGR8: return size_t(w) * size_t(h) * 3;
+        default: return size_t(w) * size_t(h) * 4;
+    }
+}
+
+// Encode one level into dst (level_bytes long)
+static void encode_level(const Rgba& img, const DdsFormat& f, uint8_t* dst) {
+    if (f.compressed()) {
+        int bw = (img.w + 3) / 4, bh = (img.h + 3) / 4;
+        uint8_t block[64];
+        for (int by = 0; by < bh; ++by) {
+            for (int bx = 0; bx < bw; ++bx) {
+                for (int j = 0; j < 4; ++j)
+                    for (int i = 0; i < 4; ++i)
+                        std::memcpy(block + (j * 4 + i) * 4, img.at(std::min(bx * 4 + i, img.w - 1), std::min(by * 4 + j, img.h - 1)), 4);
+                if (f.pixel == DdsFormat::Pixel::DXT5) {
+                    int sum[3] = {0, 0, 0}, vis = 0;
+                    for (int i = 0; i < 16; ++i)
+                        if (block[i * 4 + 3] != 0) {
+                            for (int c = 0; c < 3; ++c) sum[c] += block[i * 4 + c];
+                            ++vis;
+                        }
+                    for (int i = 0; i < 16; ++i)
+                        if (block[i * 4 + 3] == 0)
+                            for (int c = 0; c < 3; ++c) block[i * 4 + c] = uint8_t(vis ? sum[c] / vis : 0);
+                    stb_compress_dxt_block(dst, block, 1, STB_DXT_HIGHQUAL);
+                    dst += 16;
+                } else if (f.pixel == DdsFormat::Pixel::DXT3) {
+                    for (int i = 0; i < 16; i += 2) dst[i / 2] = uint8_t((block[i * 4 + 3] >> 4) | (block[(i + 1) * 4 + 3] & 0xF0));
+                    stb_compress_dxt_block(dst + 8, block, 0, STB_DXT_HIGHQUAL);
+                    dst += 16;
+                } else {
+                    stb_compress_dxt_block(dst, block, 0, STB_DXT_HIGHQUAL);
+                    dst += 8;
+                }
+            }
+        }
+        return;
+    }
+    for (int y = 0; y < img.h; ++y) {
+        for (int x = 0; x < img.w; ++x) {
+            const uint8_t* p = img.at(x, y);
+            switch (f.pixel) {
+                case DdsFormat::Pixel::RGBA8: dst[0] = p[0]; dst[1] = p[1]; dst[2] = p[2]; dst[3] = p[3]; dst += 4; break;
+                case DdsFormat::Pixel::BGRX8: dst[0] = p[2]; dst[1] = p[1]; dst[2] = p[0]; dst[3] = 255; dst += 4; break;
+                case DdsFormat::Pixel::BGR8: dst[0] = p[2]; dst[1] = p[1]; dst[2] = p[0]; dst += 3; break;
+                default: dst[0] = p[2]; dst[1] = p[1]; dst[2] = p[0]; dst[3] = p[3]; dst += 4; break;
+            }
+        }
+    }
+}
+
+static std::vector<uint8_t> build_dds_header(const DdsFormat& f) {
+    std::vector<uint8_t> h(f.dx10 ? 148 : 128, 0);
+    std::memcpy(h.data(), "DDS ", 4);
+    put32(h, 4, 124);
+    uint32_t flags = 0x1007 | (f.compressed() ? 0x80000u : 0x8u) | (f.mips > 1 ? 0x20000u : 0u);
+    put32(h, 8, flags);
+    put32(h, 12, uint32_t(f.h));
+    put32(h, 16, uint32_t(f.w));
+    put32(h, 20, f.compressed() ? uint32_t(level_bytes(f, f.w, f.h)) : uint32_t(f.w * (f.pixel == DdsFormat::Pixel::BGR8 ? 3 : 4)));
+    put32(h, 28, uint32_t(f.mips));
+    put32(h, 76, 32);
+    if (f.dx10) {
+        put32(h, 80, 0x4);
+        std::memcpy(h.data() + 84, "DX10", 4);
+        uint32_t dxgi = 87;
+        switch (f.pixel) {
+            case DdsFormat::Pixel::DXT1: dxgi = 71; break;
+            case DdsFormat::Pixel::DXT3: dxgi = 74; break;
+            case DdsFormat::Pixel::DXT5: dxgi = 77; break;
+            case DdsFormat::Pixel::RGBA8: dxgi = 28; break;
+            case DdsFormat::Pixel::BGRX8: dxgi = 88; break;
+            default: dxgi = 87; break;
+        }
+        put32(h, 128, dxgi);
+        put32(h, 132, 3);  // texture 2D
+        put32(h, 140, 1);  // array size
+    } else if (f.compressed()) {
+        put32(h, 80, 0x4);
+        std::memcpy(h.data() + 84, f.pixel == DdsFormat::Pixel::DXT1 ? "DXT1" : f.pixel == DdsFormat::Pixel::DXT3 ? "DXT3" : "DXT5", 4);
+    } else {
+        bool alpha = f.pixel == DdsFormat::Pixel::BGRA8 || f.pixel == DdsFormat::Pixel::RGBA8;
+        put32(h, 80, 0x40 | (alpha ? 0x1 : 0));
+        put32(h, 88, f.pixel == DdsFormat::Pixel::BGR8 ? 24 : 32);
+        bool rgba = f.pixel == DdsFormat::Pixel::RGBA8;
+        put32(h, 92, rgba ? 0x000000FFu : 0x00FF0000u);
+        put32(h, 96, 0x0000FF00u);
+        put32(h, 100, rgba ? 0x00FF0000u : 0x000000FFu);
+        put32(h, 104, alpha ? 0xFF000000u : 0u);
+    }
+    put32(h, 108, 0x1000 | (f.mips > 1 ? 0x400008u : 0u));
+    return h;
+}
+
+std::vector<uint8_t> encode_dds(const Rgba& img, const DdsFormat& f, std::string* err) {
+    std::vector<uint8_t> out;
+    if (img.empty() || f.w <= 0 || f.h <= 0) {
+        fail(err, "nothing to encode");
+        return out;
+    }
+    if (img.w != f.w || img.h != f.h) {
+        fail(err, "picture size does not match the file's size");
+        return out;
+    }
+    int mips = std::clamp(f.mips, 1, 16);
+    std::vector<uint8_t> header = f.header.empty() ? build_dds_header(f) : f.header;
+    if (!f.header.empty()) {
+        // keep the original header; refresh the pitch / linear size for the data we write
+        uint32_t flags = rd32(header.data() + 8);
+        if (flags & 0x80000) put32(header, 20, uint32_t(level_bytes(f, f.w, f.h)));
+        else if (flags & 0x8) put32(header, 20, uint32_t(f.w * (f.pixel == DdsFormat::Pixel::BGR8 ? 3 : 4)));
+    }
+    size_t total = header.size();
+    int w = f.w, h = f.h;
+    for (int i = 0; i < mips; ++i) {
+        total += level_bytes(f, w, h);
+        w = std::max(1, w / 2);
+        h = std::max(1, h / 2);
+    }
+    out.assign(total, 0);
+    std::memcpy(out.data(), header.data(), header.size());
+    size_t off = header.size();
+    Rgba cur = img;
+    for (int i = 0; i < mips; ++i) {
+        encode_level(cur, f, out.data() + off);
+        off += level_bytes(f, cur.w, cur.h);
+        if (i + 1 < mips) cur = halve_image(cur);
+    }
+    return out;
+}
+
 }  // namespace turbo
