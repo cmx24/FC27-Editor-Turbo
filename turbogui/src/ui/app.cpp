@@ -1,6 +1,7 @@
 #include "app.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -110,6 +111,163 @@ void App::notify(const std::string& text, bool error) {
 
 bool App::lua_alive() const { return lua_heartbeat_seen_at >= 0.0 && (now - lua_heartbeat_seen_at) < 600.0; }
 
+std::unordered_set<int64_t> App::commentary_ids() {
+    std::unordered_set<int64_t> out;
+    if (const Table* t = db.table("commentarynames"); t && t->has("commentaryid")) {
+        Snapshot s;
+        if (s.load(db.memory(), *t)) {
+            const Field& f = *t->field("commentaryid");
+            for (uint32_t i : s.valid) {
+                int64_t id = s.get_int(i, f);
+                if (id >= kCallnameMin && id <= kCallnameMax) out.insert(id);
+            }
+        }
+    }
+    if (out.empty()) out = callnames.index.used_ids;
+    return out;
+}
+
+App::~App() {
+    bank_cancel_ = true;
+    if (bank_thread_.joinable()) bank_thread_.join();
+}
+
+// ---- spoken-set capture from the loaded commentary bank (core/commentary_bank.h)
+bool App::start_bank_capture(bool automatic) {
+    if (bank_running_.load()) return false;
+    if (!regions_hook) {
+        bank_capture_status = "not available: no memory region lister in this build";
+        return false;
+    }
+    if (bank_thread_.joinable()) bank_thread_.join();
+    bank_cancel_ = false;
+    bank_running_ = true;
+    {
+        std::lock_guard<std::mutex> lock(bank_m_);
+        bank_done_ = false;
+    }
+    bank_capture_status = automatic ? "capturing the loaded bank's selection tables (automatic)..." : "capturing the loaded bank's selection tables...";
+    log("callnames: bank capture started" + std::string(automatic ? " (automatic)" : ""));
+    Memory* m = &mem;
+    std::function<std::vector<Region>()> lister = regions_hook;
+    // the commentary ids the database knows (commentarynames; else the ids playernames uses): a surname table must
+    // consist of them, which keeps the bank's dense sample index out of the spoken set
+    auto known = std::make_shared<std::unordered_set<int64_t>>(commentary_ids());
+    bank_thread_ = std::thread([this, m, lister, known]() {
+        BankCapture c;
+        try {
+            std::vector<Region> regions = lister();
+            const auto t0 = std::chrono::steady_clock::now();
+            auto clock = [t0]() { return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(); };
+            c = capture_commentary_bank(*m, regions, [this]() { return bank_cancel_.load(); }, clock, 1u << 20, known->empty() ? nullptr : known.get());
+        } catch (const std::exception& e) {
+            c = BankCapture{};
+            c.note = std::string("capture failed: ") + e.what();
+        }
+        std::lock_guard<std::mutex> lock(bank_m_);
+        bank_result_ = std::move(c);
+        bank_done_ = true;
+        bank_running_ = false;
+    });
+    return true;
+}
+
+void App::finish_bank_capture() {
+    BankCapture c;
+    {
+        std::lock_guard<std::mutex> lock(bank_m_);
+        if (!bank_done_) return;
+        bank_done_ = false;
+        c = std::move(bank_result_);
+    }
+    if (bank_thread_.joinable()) bank_thread_.join();
+    const std::string when = time_stamp();
+    std::string build = hook_report ? hook_report().build : std::string();
+    std::string err;
+    char line[256];
+    std::snprintf(line, sizeof(line), "%.1f s, %zu regions, %.0f MB: %s", c.seconds, c.regions, double(c.bytes) / 1e6, c.note.c_str());
+    if (c.cancelled) {
+        bank_capture_status = "capture cancelled";
+    } else if (!c.ok) {
+        bank_capture_status = line;
+        notify("Callnames: " + c.note, true);
+    } else if (!callnames.apply_capture(c, bridge.root(), when, build, &err)) {
+        bank_capture_status = std::string(line) + " - not used: " + err;
+        notify("Callnames: capture not used: " + err, true);
+    } else {
+        bank_capture_status = line;
+        notify("Callnames: " + c.note);
+        ++gen;  // the Callname tab rebuilds its pickers
+    }
+    log("callnames: bank capture " + bank_capture_status);
+}
+
+std::string App::time_stamp() const {
+    char when[32];
+    std::time_t t = std::time(nullptr);
+    const std::tm* tmv = std::localtime(&t);  // render thread only
+    if (!tmv || std::strftime(when, sizeof(when), "%Y-%m-%d %H:%M", tmv) == 0) std::snprintf(when, sizeof(when), "%lld", static_cast<long long>(t));
+    return when;
+}
+
+// ---- the spoken set asked from the game's audio service (core/commentary_audio.h): a build on the game thread
+bool App::start_spoken_build(bool automatic) {
+    if (!commentary_audio) {
+        spoken_build_status = "not available: no audio-service call in this build";
+        return false;
+    }
+    caudio::BuildRequest req;
+    // every commentary id the database knows or uses: commentarynames, playernames.commentaryid, playernamemap.commentaryid
+    std::unordered_set<int64_t> ids = commentary_ids();
+    for (int64_t id : callnames.index.used_ids) ids.insert(id);
+    for (const auto& kv : callnames.index.playernamemap)
+        if (kv.second > kNoCallname && kv.second <= kCallnameMax) ids.insert(kv.second);
+    req.names.assign(ids.begin(), ids.end());
+    std::sort(req.names.begin(), req.names.end());
+    for (const auto& p : model.players()) req.players.push_back(p.playerid);
+    std::string err;
+    if (!commentary_audio->request(req, &err)) {
+        spoken_build_status = "not started: " + err;
+        if (!automatic) notify("Callnames: " + spoken_build_status, true);
+        log("callnames: audio-service build " + spoken_build_status);
+        return false;
+    }
+    char line[200];
+    std::snprintf(line, sizeof(line), "asking the game's audio service about %zu commentary ids and %zu players%s...", req.names.size(), req.players.size(),
+                  automatic ? " (automatic)" : "");
+    spoken_build_status = line;
+    log("callnames: " + spoken_build_status);
+    return true;
+}
+
+void App::finish_spoken_build() {
+    if (!commentary_audio) return;
+    caudio::BuildResult r;
+    if (!commentary_audio->poll(r)) return;
+    const std::string when = time_stamp();
+    std::string build = hook_report ? hook_report().build : std::string();
+    BankCapture c = caudio::to_capture(r);
+    std::string err;
+    char line[400];
+    std::snprintf(line, sizeof(line), "%.1f s, %zu steps: %s", c.seconds, c.steps, r.note.c_str());
+    if (r.cancelled) {
+        spoken_build_status = "build cancelled";
+    } else if (!r.ok) {
+        spoken_build_status = line;
+        notify("Callnames: " + r.note, true);
+    } else if (!callnames.apply_capture(c, bridge.root(), when, build, &err)) {
+        spoken_build_status = std::string(line) + " - not used: " + err;
+        notify("Callnames: audio-service set not used: " + err, true);
+    } else {
+        spoken_build_status = line;
+        std::snprintf(line, sizeof(line), "Callnames: spoken set from the game's audio service: %zu names, %zu player callnames", c.surnames.size(),
+                      c.players.size());
+        notify(line);
+        ++gen;  // the Callname tab rebuilds its pickers
+    }
+    log("callnames: audio-service build " + spoken_build_status);
+}
+
 bool App::refresh() {
     next_retry = now + 5.0;
     db_error.clear();
@@ -145,6 +303,8 @@ void App::tick(double t) {
     now = t;
     update_style();
     legacy.tick(t);
+    finish_bank_capture();
+    finish_spoken_build();
     if (t >= next_poll) {
         next_poll = t + 0.5;
         bool changed = bridge.poll_files();

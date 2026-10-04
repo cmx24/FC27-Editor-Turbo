@@ -39,11 +39,14 @@ static void refresh_all(App& app) {
 static void ensure_ready(App& app) {
     if (!app.callnames.refreshed) {
         refresh_all(app);
-        return;
-    }
-    if (!app.callnames.index.built || app.callnames.index.model_version != app.model.version() || g_index_gen != app.gen) {
+    } else if (!app.callnames.index.built || app.callnames.index.model_version != app.model.version() || g_index_gen != app.gen) {
         app.callnames.build_index(app.db, app.model, app.model.names_by_id());
         g_index_gen = app.gen;
+    }
+    // No hand-made list and no cached set yet for this language: ask the game's audio service once by itself
+    if (!app.spoken_auto_tried && !app.callnames.lang.empty() && !app.callnames.spoken.verified && app.commentary_audio) {
+        app.spoken_auto_tried = true;
+        app.start_spoken_build(true);
     }
 }
 
@@ -161,12 +164,46 @@ static void language_line(App& app) {
     ImGui::TextDisabled("%s", cn.lang_why.c_str());
     if (cn.no_game_root) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "Game folder unknown: the tests or the host must set it.");
     if (cn.spoken.verified) {
-        ImGui::Text("Spoken callnames: %s", cn.spoken.source.c_str());
+        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1), "Spoken set from %s: %zu names, %zu player callnames", cn.spoken.source.c_str(),
+                           cn.spoken.ids.size(), cn.spoken.players.size());
     } else {
         ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "Unverified: %s", cn.spoken.source.c_str());
-        if (!cn.list_error.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", cn.list_error.c_str());
-        if (!cn.list_path.empty()) ImGui::TextDisabled("Spoken-id list looked for: %s (docs/callnames.md tells how to make one)", cn.list_path.c_str());
     }
+    if (!cn.list_error.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", cn.list_error.c_str());
+    if (!cn.cache_error.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", cn.cache_error.c_str());
+    // One row: the spoken set from the game's audio service (core/commentary_audio.h; the default, built on the game
+    // thread, one batch per frame) and, as a diagnostic, the memory scan of the loaded bank (core/commentary_bank.h,
+    // background thread); one status line for whichever ran last
+    caudio::ServiceStatus st;
+    if (app.commentary_audio) st = app.commentary_audio->status();
+    const bool can_build = app.commentary_audio && st.available;
+    if (!can_build) ImGui::BeginDisabled();
+    if (ImGui::Button("Rebuild from the game's audio service##cn")) app.start_spoken_build(false);
+    if (!can_build) ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Asks the game's own audio service, id by id, whether the loaded commentary bank has a recording: the same\n"
+                          "check the Create Player screen runs on its name list (PLAYER_NAME_FE / surname_ID), plus the in-match check\n"
+                          "for players with their own recordings (PLAYER_LOW_SIMPLE / PLAYER_LOW_LINK with player_db_pID). Runs on the\n"
+                          "game thread in small batches, one per frame; cached as turbo_output\\callnames\\spoken_<lang>.json.");
+    ImGui::SameLine();
+    const bool running = app.bank_capture_running();
+    if (running) ImGui::BeginDisabled();
+    if (ImGui::Button("Capture from the loaded bank##cn")) app.start_bank_capture(false);
+    if (running) ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Diagnostic: scans the game's memory for the loaded bank's selection tables and caches what it finds as\n"
+                          "turbo_output\\callnames\\spoken_<lang>.json (the audio-service build is the normal way). A hand-made\n"
+                          "spoken_<lang>.txt under turbo\\callnames overrides either.");
+    ImGui::SameLine();
+    if (st.busy) ImGui::TextDisabled("building: %s", st.progress.c_str());
+    else if (running) ImGui::TextDisabled("%s", app.bank_capture_status.c_str());
+    else if (!app.spoken_build_status.empty()) ImGui::TextDisabled("%s", app.spoken_build_status.c_str());
+    else if (!app.bank_capture_status.empty()) ImGui::TextDisabled("last capture: %s", app.bank_capture_status.c_str());
+    else if (!app.commentary_audio) ImGui::TextDisabled("audio-service build not available in this build of Turbo");
+    else if (!st.installed) ImGui::TextDisabled("not available: %s", st.reason.c_str());
+    else ImGui::TextDisabled("%s", st.reason.empty() ? "ready" : st.reason.c_str());
+    if (!cn.spoken.verified && !cn.list_path.empty())
+        ImGui::TextDisabled("Override list looked for: %s; capture cache: %s", cn.list_path.c_str(), cn.cache_path.c_str());
 }
 
 static void by_name_picker(App& app, const Table& t, const PlayerRow& p) {
@@ -286,8 +323,25 @@ void callname_editor(App& app, const Table& t, const PlayerRow& p) {
 
     CallnameInfo info = cn.resolve(p, app.db);
     ImGui::AlignTextToFramePadding();
+    if (info.real) {
+        auto it = cn.spoken.players.find(p.playerid);
+        int v = it != cn.spoken.players.end() ? it->second : 0;
+        std::string how;
+        if (cn.spoken.from == SpokenSet::From::GameAudio) {
+            if (v & caudio::kPlayerLowSimple) how += "PLAYER_LOW_SIMPLE";
+            if (v & caudio::kPlayerLowLink) how += std::string(how.empty() ? "" : " + ") + "PLAYER_LOW_LINK";
+            if (how.empty()) how = "the game's audio service";
+        } else {
+            how = std::to_string(v) + (v == 1 ? " player-keyed table" : " player-keyed tables");
+        }
+        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1), "Recorded by name in %s: the bank has this player's own recordings (%s)", cn.lang.c_str(),
+                           how.c_str());
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Player-specific (\"Real\") recordings are bound to the player id inside the bank, not to a commentary id:\n"
+                              "the commentary says this name whatever the callname rule below gives.");
+    }
     if (info.source == CallnameSource::None) {
-        ImGui::Text("Current callname: none (the commentary does not say this player's name)");
+        ImGui::Text("Current callname: none (%s)", info.real ? "the recordings above are used" : "the commentary does not say this player's name");
     } else {
         std::string via;
         if (info.nameid > 0) {

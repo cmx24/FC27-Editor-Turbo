@@ -22,6 +22,7 @@
 
 #include "MinHook.h"
 #include "nlohmann/json.hpp"
+#include "commentary_audio_win.h"
 #include "game_calls_win.h"
 #include "standings_refresh_win.h"
 #include "game_hooks.h"
@@ -876,6 +877,7 @@ bool start_overlay(HMODULE) {
     g_app->bridge.set_min_file_time(load_time() - std::chrono::minutes(2));
     g_app->game_base = reinterpret_cast<uint64_t>(GetModuleHandleW(nullptr));  // FC27.exe (live standings vtable checks)
     g_app->log_hook = [](const std::string& s) { log("%s", s.c_str()); };
+    g_app->regions_hook = []() { return private_regions(64 * 1024); };  // commentary-bank capture (Callname tab)
     if (g_app->mailbox) start_memmap(reinterpret_cast<uint64_t>(mailbox));
     g_toggle_vk = g_app->toggle_vk;
     if (HANDLE th = CreateThread(nullptr, 0, ll_mouse_thread, nullptr, 0, nullptr)) CloseHandle(th);  // mouse wheel for Turbo
@@ -929,9 +931,12 @@ bool start_overlay(HMODULE) {
     // the standings on the game thread, so the Standings screen and the Office tile show the edit
     install_standings_refresh();
     g_app->standings_refresh = standings_refresh_service();
+    // spoken callnames through the game's audio service (commentary_audio_win.cpp): calls on the game thread, no hook
+    install_commentary_audio(*g_app);
     g_app->hook_report = []() {
         turbo::HookReport r = game_hooks_report();
         r.calls = game_calls_status();
+        for (const auto& line : commentary_audio_status()) r.calls.push_back(line);
         return r;
     };
     install_player_capture(*g_app);  // miniface from the 3D model (player_capture_win.cpp): needs the game hooks above

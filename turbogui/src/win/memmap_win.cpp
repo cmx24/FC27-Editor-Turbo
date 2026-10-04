@@ -53,6 +53,20 @@ static DWORD WINAPI map_thread(LPVOID p) {
     return 0;
 }
 
+std::vector<turbo::Region> private_regions(uint64_t min_size) {
+    std::vector<turbo::Region> out;
+    uint64_t addr = turbo::kMinPtr;
+    MEMORY_BASIC_INFORMATION m{};
+    while (addr < turbo::kMaxPtr && VirtualQuery(reinterpret_cast<LPCVOID>(addr), &m, sizeof(m)) == sizeof(m)) {
+        uint64_t base = reinterpret_cast<uint64_t>(m.BaseAddress), size = m.RegionSize;
+        if (size == 0) break;
+        if (readable(m) && m.Type == MEM_PRIVATE && size >= min_size) out.push_back({base, base + size});
+        if (base + size <= addr) break;
+        addr = base + size;
+    }
+    return turbo::merge_regions(std::move(out));
+}
+
 uint64_t start_memmap(uint64_t mailbox) {
     void* map = VirtualAlloc(nullptr, static_cast<SIZE_T>(turbo::map_bytes(kCapacity)), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (!map) {

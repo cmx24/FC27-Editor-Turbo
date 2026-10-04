@@ -1,16 +1,21 @@
 // FC 27 LE Turbo GUI - application state and panels (Dear ImGui).
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include <deque>
 #include <filesystem>
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <unordered_set>
 #include <vector>
 
 #include "core/bridge.h"
 #include "core/callnames.h"
+#include "core/commentary_audio.h"
 #include "core/legacy.h"
 #include "core/mem.h"
 #include "core/model.h"
@@ -40,6 +45,7 @@ struct Toast {
 class App {
 public:
     App(Memory& mem, std::filesystem::path le_root, uint64_t mailbox_addr, std::string session);
+    ~App();
 
     // Call once per frame before draw() and before ImGui::NewFrame(); `now` in seconds
     void tick(double now);
@@ -110,6 +116,19 @@ public:
     int texture_test_frames = 0;
     double lua_heartbeat_seen_at = -1.0;
     uint64_t game_base = 0;  // FC27.exe image base (set by the Windows host; 0 in tests = skip vtable checks)
+    // ---- spoken-set capture from the loaded commentary bank (core/commentary_bank.h) on a background thread:
+    // the host lists the game's readable private regions; tests give a synthetic list over the simulated memory
+    std::function<std::vector<Region>()> regions_hook;
+    bool start_bank_capture(bool automatic = false);  // false when one is running or no region lister is set
+    std::unordered_set<int64_t> commentary_ids();     // commentaryid of every commentarynames row (else playernames' ids)
+    bool bank_capture_running() const { return bank_running_.load(); }
+    std::string bank_capture_status;  // last capture result (one line for the Callname tab)
+    // ---- the spoken set asked from the game's audio service (core/commentary_audio.h): the default source. The host
+    // gives the service (a build runs on the game thread, one batch per frame); tests give a fake one
+    std::shared_ptr<caudio::Service> commentary_audio;
+    bool start_spoken_build(bool automatic = false);  // every commentarynames / playernames / playernamemap id + every player
+    std::string spoken_build_status;  // last build result (one line for the Callname tab)
+    bool spoken_auto_tried = false;   // an automatic build was started once this session
     long long game_call_seen = -1;  // last game-call outcome shown as a toast (bridge_state.json game_call.seq; -1 = none yet)
     // Job offers section (Managers tab): the club picked and the last request label
     int64_t job_offer_team = 0;
@@ -140,6 +159,17 @@ public:
 
     void load_gui_settings();
     bool save_gui_settings();
+
+private:
+    void finish_bank_capture();  // tick: take a finished capture, cache it, rebuild the pickers
+    void finish_spoken_build();  // tick: take a finished audio-service build, cache it, rebuild the pickers
+    std::string time_stamp() const;  // "2026-10-04 00:40" (render thread)
+    std::mutex bank_m_;
+    std::thread bank_thread_;
+    std::atomic<bool> bank_running_{false};
+    std::atomic<bool> bank_cancel_{false};
+    bool bank_done_ = false;
+    BankCapture bank_result_;
 };
 
 // panels
