@@ -795,6 +795,7 @@ bool start_overlay(HMODULE) {
     g_mem = new ProcessMemory();
     g_app = new turbo::App(*g_mem, le_root(), reinterpret_cast<uint64_t>(mailbox), session);
     g_app->bridge.set_min_file_time(load_time() - std::chrono::minutes(2));
+    g_app->game_base = reinterpret_cast<uint64_t>(GetModuleHandleW(nullptr));  // FC27.exe (live standings vtable checks)
     g_app->log_hook = [](const std::string& s) { log("%s", s.c_str()); };
     if (g_app->mailbox) start_memmap(reinterpret_cast<uint64_t>(mailbox));
     g_toggle_vk = g_app->toggle_vk;

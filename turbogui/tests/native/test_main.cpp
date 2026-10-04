@@ -28,6 +28,7 @@
 #include "core/image.h"
 #include "core/legacy.h"
 #include "core/devops.h"
+#include "core/fce_standings.h"
 #include "core/memmap.h"
 #include "core/le_log.h"
 #include "core/model.h"
@@ -1225,6 +1226,11 @@ static void test_ui() {
         run_case("UI: Competitions tab: league table, points and table positions", [&] {
             app.request_tab = 3;
             ui.frames(3);
+            // the live view comes first; without a career the engine is not reachable and says so
+            CHECK(ui.find("Live standings (game)") != nullptr && ui.find("Career database copy") != nullptr, "two views");
+            CHECK(ui.find("Try again") != nullptr, "live view: not reachable without the FCE interface");
+            CHECK(ui.click("Career database copy"), "database view");
+            ui.frames(2);
             const Table* lt = app.db.table("leagueteamlinks");
             CHECK(lt != nullptr, "leagueteamlinks");
             CHECK(ui.find("League") != nullptr, "league combo");
@@ -1722,6 +1728,164 @@ static void test_le_log() {
           "the base is matched whole (up to the '-')");
 }
 
+// ---------------------------------------------------------------- live standings (FCE DataManager) on synthetic memory
+namespace {
+struct FceWorld {
+    SimMemory mem;
+    uint64_t ifce = 0x30000000, hub = 0x30001000, dc = 0x30002000, dm = 0x30003000;
+    uint64_t slist = 0x30004000, rows = 0x30005000, flist = 0x30006000, fx = 0x30007000;
+    static constexpr uint64_t kBase = 0x140000000ull;
+    void w64(uint64_t a, uint64_t v) { mem.wr(a, v); }
+    void w32(uint64_t a, uint32_t v) { mem.wr(a, v); }
+    void w16(uint64_t a, uint16_t v) { mem.wr(a, v); }
+    void w8(uint64_t a, uint8_t v) { mem.wr(a, v); }
+    void row(int id, uint16_t comp, uint32_t team, int hw, int hd, int hl, int hgf, int hga, int aw, int ad, int al, int agf, int aga, int pts) {
+        uint64_t a = rows + uint64_t(id) * fce::kStandingSize;
+        w16(a, uint16_t(id)); w16(a + 2, comp); w32(a + 4, team); w8(a + 8, uint8_t(id));
+        uint8_t c[] = {uint8_t(hw), uint8_t(hd), uint8_t(hl), uint8_t(hgf), uint8_t(hga), uint8_t(aw), uint8_t(ad), uint8_t(al), uint8_t(agf), uint8_t(aga)};
+        mem.write(a + 9, c, 10);
+        w16(a + 0x14, uint16_t(int16_t(pts))); w8(a + 0x16, 1);
+    }
+    void fixture(int id, uint16_t comp, int home, int away, int hs, int as, uint8_t completion, uint32_t date = 20260815) {
+        uint64_t a = fx + uint64_t(id) * fce::kFixtureSize;
+        w32(a, date); w16(a + 4, 1500); w16(a + 6, uint16_t(id)); w16(a + 8, comp);
+        w16(a + 0xA, uint16_t(int16_t(home))); w16(a + 0xC, uint16_t(int16_t(away)));
+        w8(a + 0xF, uint8_t(int8_t(hs))); w8(a + 0x10, 0xFF); w8(a + 0x11, uint8_t(int8_t(as))); w8(a + 0x12, 0xFF);
+        w8(a + 0x13, completion); w8(a + 0x14, 1);
+    }
+    FceWorld(int nrows = 4, int nfix = 3, bool vtables = true) {
+        for (uint64_t a : {ifce, hub, dc, dm, slist, rows, flist, fx}) mem.map(a, 0x1000);
+        if (vtables) { w64(ifce, kBase + fce::kRvaInterfaceVtable); w64(dm, kBase + fce::kRvaDataManagerVtable); }
+        w64(ifce + 0x18, hub); w64(hub + 0x18, dc); w64(dc + 0x80, dm); w64(dm + 0x28, dc);
+        w64(dm + 0x88, slist); w64(slist, rows); w64(slist + 8, rows + uint64_t(nrows) * fce::kStandingSize);
+        w64(dm + 0x60, flist); w32(flist, uint32_t(nfix)); w64(flist + 8, fx);
+        // league 100: Arsenal(1) 2W 1D, Everton(7) 1W 1D 1L, Inter(241) 0W 1D 2L; row 3 unused
+        row(0, 100, 1, 1, 1, 0, 4, 1, 1, 0, 0, 2, 1, 7);
+        row(1, 100, 7, 1, 1, 0, 3, 1, 0, 0, 1, 1, 2, 4);
+        row(2, 100, 241, 0, 1, 0, 1, 1, 0, 0, 2, 1, 5, 1);
+        fixture(0, 100, 0, 1, 2, 1, 1);  // Arsenal 2-1 Everton (home row 0, away row 1)
+        fixture(1, 100, 1, 2, 3, 0, 1);  // Everton 3-0 Inter
+        fixture(2, 100, 2, 0, 1, 1, 0);  // Inter v Arsenal: not played yet (completion 0) although scores set
+    }
+};
+}  // namespace
+
+static void test_fce_standings() {
+    run_case("FCE: locate the DataManager through the interface chain, validate, read rows and fixtures", [&] {
+        FceWorld w;
+        fce::Located loc;
+        std::string err = fce::locate(w.mem, w.ifce, FceWorld::kBase, loc);
+        CHECK(err.empty(), "located: " + err);
+        CHECK(loc.manager == w.dm && loc.connector == w.dc && loc.hub == w.hub, "chain");
+        CHECK(loc.row_count == 4 && loc.rows_begin == w.rows && loc.fixture_count == 3 && loc.fixtures_data == w.fx, "lists");
+        CHECK(fce::validate(w.mem, loc, FceWorld::kBase), "validate");
+        std::vector<fce::StandingRow> rows;
+        CHECK(fce::read_rows(w.mem, loc, rows) && rows.size() == 4, "rows read");
+        CHECK(rows[0].teamid == 1 && rows[0].hw == 1 && rows[0].hd == 1 && rows[0].aw == 1 && rows[0].points == 7 && rows[0].used == 1, "Arsenal row");
+        CHECK(rows[0].played() == 3 && rows[0].gf() == 6 && rows[0].ga() == 2 && rows[0].gd() == 4, "derived played / GD");
+        CHECK(rows[3].used == 0, "unused slot");
+        std::vector<fce::Fixture> fx;
+        CHECK(fce::read_fixtures(w.mem, loc, fx) && fx.size() == 3, "fixtures read");
+        CHECK(fx[0].home_sid == 0 && fx[0].away_sid == 1 && fx[0].home_score == 2 && fx[0].away_score == 1 && fx[0].played(), "fixture 0");
+        CHECK(!fx[2].played(), "fixture 2 not played");
+        // wrong vtable / broken back-pointer / absurd list are refused
+        fce::Located bad;
+        CHECK(!fce::locate(w.mem, w.ifce, FceWorld::kBase + 0x1000, bad).empty() && !bad.ok(), "vtable mismatch refused");
+        CHECK(fce::locate(w.mem, w.ifce, 0, bad).empty(), "no image base: vtables skipped");
+        w.w64(w.dm + 0x28, w.dm);
+        CHECK(!fce::locate(w.mem, w.ifce, FceWorld::kBase, bad).empty(), "back-pointer refused");
+        CHECK(!fce::validate(w.mem, loc, FceWorld::kBase), "validate notices the change");
+        w.w64(w.dm + 0x28, w.dc);
+        w.w64(w.slist + 8, w.rows + 7);
+        CHECK(!fce::locate(w.mem, w.ifce, FceWorld::kBase, bad).empty(), "odd vector size refused");
+        CHECK(!fce::locate(w.mem, 0, FceWorld::kBase, bad).empty(), "no ifce refused");
+    });
+
+    run_case("FCE: write a row (identity check, only counters and points change)", [&] {
+        FceWorld w;
+        fce::Located loc;
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::kBase, loc).empty(), "located");
+        std::vector<fce::StandingRow> rows;
+        fce::read_rows(w.mem, loc, rows);
+        fce::StandingRow r = rows[2];
+        r.aw = 2; r.al = 0; r.agf = 9; r.points = 7;
+        CHECK(fce::write_row(w.mem, loc, r).empty(), "written");
+        std::vector<fce::StandingRow> again;
+        fce::read_rows(w.mem, loc, again);
+        CHECK(again[2].aw == 2 && again[2].al == 0 && again[2].agf == 9 && again[2].points == 7 && again[2].hd == 1, "values back");
+        CHECK(again[2].id == 2 && again[2].compobj == 100 && again[2].teamid == 241 && again[2].used == 1, "identity untouched");
+        uint8_t b = 0;
+        w.mem.rd(w.rows + 2 * fce::kStandingSize + 0x17, b);
+        CHECK(b == 0, "padding byte untouched");
+        fce::StandingRow stale = rows[1];
+        stale.teamid = 999;
+        CHECK(!fce::write_row(w.mem, loc, stale).empty(), "changed identity refused");
+        fce::StandingRow unused = rows[3];
+        CHECK(!fce::write_row(w.mem, loc, unused).empty(), "unused row refused");
+        fce::StandingRow outside = rows[0];
+        outside.addr = w.rows + 4 * fce::kStandingSize;
+        CHECK(!fce::write_row(w.mem, loc, outside).empty(), "row outside the list refused");
+    });
+
+    run_case("FCE: apply_result adds and removes outcomes within the u8 limits", [&] {
+        fce::StandingRow h, a;
+        h.used = a.used = 1;
+        fce::Points pts;
+        CHECK(fce::apply_result(h, a, 2, 1, pts, +1).empty(), "home win");
+        CHECK(h.hw == 1 && h.hgf == 2 && h.hga == 1 && h.points == 3 && a.al == 1 && a.agf == 1 && a.aga == 2 && a.points == 0, "home win counters");
+        CHECK(fce::apply_result(h, a, 0, 0, pts, +1).empty(), "draw");
+        CHECK(h.hd == 1 && a.ad == 1 && h.points == 4 && a.points == 1, "draw counters");
+        CHECK(fce::apply_result(h, a, 0, 3, pts, +1).empty(), "away win");
+        CHECK(h.hl == 1 && a.aw == 1 && h.points == 4 && a.points == 4 && h.hga == 4 && a.agf == 4, "away win counters");
+        CHECK(fce::apply_result(h, a, 2, 1, pts, -1).empty(), "remove the home win");
+        CHECK(h.hw == 0 && h.hgf == 0 && h.points == 1 && a.al == 0 && a.aga == 0 && a.points == 4, "removed");
+        fce::StandingRow h2 = h, a2 = a;
+        CHECK(!fce::apply_result(h, a, 2, 1, pts, -1).empty(), "removing a result that is not there is refused");
+        CHECK(h.hw == h2.hw && h.points == h2.points && a.al == a2.al, "nothing changed on refusal");
+        h.hgf = 254;
+        CHECK(!fce::apply_result(h, a, 3, 0, pts, +1).empty(), "goal counter past 255 refused");
+        CHECK(h.hgf == 254 && h.hw == 0, "unchanged after refusal");
+        CHECK(!fce::apply_result(h, a, -1, 0, pts, +1).empty(), "negative score refused");
+        fce::Points two{2, 1, 0};
+        fce::StandingRow x, y;
+        x.used = y.used = 1;
+        fce::apply_result(x, y, 1, 0, two, +1);
+        CHECK(x.points == 2, "custom points per win");
+    });
+
+    run_case("FCE: edit_result patches the fixture and both rows consistently", [&] {
+        FceWorld w;
+        fce::Located loc;
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::kBase, loc).empty(), "located");
+        fce::Points pts;
+        // Arsenal 2-1 Everton -> Arsenal 1-3 Everton
+        CHECK(fce::edit_result(w.mem, loc, 0, 1, 3, pts).empty(), "edited");
+        std::vector<fce::StandingRow> rows;
+        std::vector<fce::Fixture> fx;
+        fce::read_rows(w.mem, loc, rows);
+        fce::read_fixtures(w.mem, loc, fx);
+        CHECK(fx[0].home_score == 1 && fx[0].away_score == 3 && fx[0].completion == 1, "fixture score");
+        CHECK(rows[0].hw == 0 && rows[0].hl == 1 && rows[0].hd == 1 && rows[0].hgf == 3 && rows[0].hga == 3 && rows[0].points == 4, "Arsenal row: win became a loss");
+        CHECK(rows[1].al == 0 && rows[1].aw == 1 && rows[1].agf == 3 && rows[1].aga == 1 && rows[1].points == 7, "Everton row: loss became a win");
+        CHECK(rows[0].played() == 3 && rows[1].played() == 3, "played unchanged");
+        CHECK(fce::edit_result(w.mem, loc, 0, 1, 3, pts).empty(), "same score again: no-op");
+        CHECK(!fce::edit_result(w.mem, loc, 2, 1, 0, pts).empty(), "unplayed fixture refused");
+        CHECK(!fce::edit_result(w.mem, loc, 7, 1, 0, pts).empty(), "no such fixture");
+        CHECK(!fce::edit_result(w.mem, loc, 0, 100, 0, pts).empty(), "score out of range");
+        // a draw -> away win, with a loss worth 1 point (like a shootout competition)
+        fce::Points shoot{3, 1, 1};
+        FceWorld w2;
+        fce::Located loc2;
+        fce::locate(w2.mem, w2.ifce, FceWorld::kBase, loc2);
+        w2.fixture(1, 100, 1, 2, 2, 2, 1);
+        w2.row(1, 100, 7, 1, 1, 0, 5, 3, 0, 1, 0, 1, 1, 5);
+        w2.row(2, 100, 241, 0, 1, 0, 1, 1, 0, 1, 1, 3, 4, 2);
+        CHECK(fce::edit_result(w2.mem, loc2, 1, 0, 1, shoot).empty(), "draw -> away win");
+        fce::read_rows(w2.mem, loc2, rows);
+        CHECK(rows[1].hd == 0 && rows[1].hl == 1 && rows[1].points == 5 && rows[2].ad == 0 && rows[2].aw == 1 && rows[2].points == 4, "points with a loss worth 1");
+    });
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) {
         std::printf("usage: %s <out_dir> <gui_world.lua>\n", argv[0]);
@@ -1737,6 +1901,8 @@ int main(int argc, char** argv) {
     test_devops();
     std::printf("native Live Editor log\n");
     test_le_log();
+    std::printf("native live standings\n");
+    test_fce_standings();
     std::printf("native UI\n");
     try {
         test_ui();
