@@ -3,7 +3,10 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
-## 1.1.5
+## 1.1.5 (face chooser by look, game editors fixes)
+
+Released 2026-10-04. Checked in game (test career): Hair / Facial hair groups by look, career Edit Player Gear
+without doubled pickers, editor files written before the game reads them.
 
 ### Changed
 
@@ -16,6 +19,10 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 - Game editors: the unlocked files are written as soon as Turbo.dll loads, before Live Editor reads mods\legacy while the game starts (log: "Game editors: early pass: N written ..."); before, they were written after Live Editor's "Initial setup done" and only counted after a second game restart. File work only (no game call, no waiting), with every rule of the GUI's pass (manifest, only the 8 targets), and another tool's custom file is left alone. The GUI's pass still runs; when it has to write a file (a switch changed, a new original exported), the Game editors section and a toast say: "The game read its editor files before Turbo updated them: restart the game once to load the new ones."
 
 ## 1.1.4 (playtest round 2)
+
+Released 2026-10-04. Checked in game: show/hide key control, Ctrl + wheel zoom, Gender filter and 5-group menus,
+gear pictures, 4-field team names, Unlock everything (Edit Manager / Edit Player open without a crash or freeze),
+Live standings second-click edit (the game's Standings screen shows the change).
 
 ### Changed
 
@@ -41,6 +48,9 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
 ## 1.1.3 (hotfix)
 
+Released 2026-10-04. Checked in game: Create job offer (one run, inbox email, Manager Market offer, contract
+signed: "The job is yours"); the mouse wheel scrolls Turbo's lists.
+
 ### Fixed
 
 - **Ctrl + mouse wheel zoom** also when Ctrl is let go right after the wheel (seen in game: a quick Ctrl + wheel
@@ -50,7 +60,8 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
 ## 1.1.2 (live team names)
 
-Not yet released or checked in game.
+Released 2026-10-04. Checked in game: a saved name shows at once on the hub, the Standings screen and in-match
+screens (the Office standings tile keeps its old text until it is rebuilt).
 
 ### Added
 
@@ -63,7 +74,8 @@ Not yet released or checked in game.
 
 ## 1.1.1 (playtest fixes)
 
-Not yet released or checked in game.
+Released 2026-10-04. Checked in game: background pictures, club filter, moves for every club, real-face chooser,
+competition picker, AC Milan crest without turbo_images.lua.
 
 ### Added
 
@@ -214,7 +226,8 @@ Not yet released or checked in game.
 
 ## 1.1.0 (voice swaps: any player gets any real or generic callname in matches)
 
-Not yet released or checked in game.
+Released 2026-10-04. Checked in game: the observe log shows the swapped player id on team-sheet, line-up and in-play
+commentary requests.
 
 ### Added
 
