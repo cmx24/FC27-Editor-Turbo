@@ -271,9 +271,11 @@ static void job_offer_tab(App& app, const TeamRow& tr) {
     }
     if (clicked) ImGui::OpenPopup("Create job offer?");
     if (ImGui::BeginPopupModal("Create job offer?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + S(440.0f));   // an auto-sized popup would otherwise wrap in a narrow column
         ImGui::TextWrapped("Create a job offer from %s (%lld)?\nThis changes the running career (save first if in "
                            "doubt). The club answers at once; accept or decline it in the game's Job Offers screen.",
                            pick.c_str(), static_cast<long long>(app.job_offer_team));
+        ImGui::PopTextWrapPos();
         if (ImGui::Button("Create")) {
             json overrides = {{"enabled", true}, {"teamid", app.job_offer_team}, {"confirm", true}};
             if (app.send({{"op", "run"}, {"module", "job_offer"}, {"overrides", overrides}}, "Job offer from " + pick))  // false: toast says why
@@ -570,10 +572,12 @@ static void manager_market_section(App& app, const ManagerRow* selected) {
             if (move) ImGui::OpenPopup("Move manager?");
             if (release) ImGui::OpenPopup("Release manager?");
             if (ImGui::BeginPopupModal("Move manager?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + S(440.0f));
                 ImGui::TextWrapped("Move %s to %s (%lld)?\nThat club's manager takes %s. Career database edit (saved with the career).",
                                    selected->name.c_str(), app.model.team_name(app.manager_move_team).c_str(),
                                    static_cast<long long>(app.manager_move_team),
                                    selected->teamid > 0 ? app.model.team_name(selected->teamid).c_str() : "the free-agent list");
+                ImGui::PopTextWrapPos();
                 if (ImGui::Button("Move")) {
                     json overrides = {{"enabled", true}, {"managerid", selected->managerid}, {"teamid", app.manager_move_team}, {"confirm", true}};
                     app.send({{"op", "run"}, {"module", "manager_move"}, {"overrides", overrides}}, "Manager move: " + selected->name);
@@ -585,8 +589,10 @@ static void manager_market_section(App& app, const ManagerRow* selected) {
                 ImGui::EndPopup();
             }
             if (ImGui::BeginPopupModal("Release manager?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + S(440.0f));
                 ImGui::TextWrapped("Make %s a free agent?\nA free-agent manager takes %s. Career database edit (saved with the career).",
                                    selected->name.c_str(), app.model.team_name(selected->teamid).c_str());
+                ImGui::PopTextWrapPos();
                 if (ImGui::Button("Make available")) {
                     json overrides = {{"enabled", true}, {"managerid", selected->managerid}, {"teamid", 0}, {"confirm", true}};
                     app.send({{"op", "run"}, {"module", "manager_move"}, {"overrides", overrides}}, "Manager move: release " + selected->name);
