@@ -1,9 +1,11 @@
 // FC 27 LE Turbo GUI - filters of the real-face chooser (players and managers): ethnicity, skin tone, hair colour,
-// hair, facial hair, facial hair colour and eye colour of each head, with readable labels, counts and sort orders.
+// hair, facial hair, facial hair colour, eye colour and gender of each head, with readable labels, counts and sort orders.
+// Every menu has at most kMaxBuckets choices besides "Any": the game's values are grouped into a few looks (skin tones,
+// hair colours, eye colours, facial hair styles) or code families (hair styles, whose looks are not known).
 // Platform independent (no ImGui): the chooser in ui_faces.cpp draws it, the native tests check it.
 //
 // Fields (players and manager tables, FC 27): headtypecode, skintonecode, haircolorcode, hairtypecode,
-// facialhairtypecode, facialhaircolorcode, eyecolorcode. FC 27 has no ethnicity field on players or managers:
+// facialhairtypecode, facialhaircolorcode, eyecolorcode, gender (0 male, 1 female). FC 27 has no ethnicity field on players or managers:
 // "Ethnicity" groups the head type (headtypecode) in the game's ranges of 500 (see kEthnicGroups in face_filter.cpp).
 // Labels: Live Editor's own (loc/eng_us/localize.json: skintonecode_1..10, haircolor_0..14, eyecolor_1..10).
 #pragma once
@@ -13,11 +15,13 @@
 
 namespace turbo::faces {
 
-enum Facet { kEthnicity, kSkin, kHairColour, kHair, kBeard, kBeardColour, kEyes, kFacetCount };
+enum Facet { kEthnicity, kSkin, kHairColour, kHair, kBeard, kBeardColour, kEyes, kGender, kFacetCount };
+constexpr int kMaxBuckets = 5;         // choices per filter menu besides "Any" (and per sort menu)
 
 constexpr int64_t kAny = INT64_MIN;    // no filter on that facet
 constexpr int64_t kNoValue = -1;       // the table has no such field (the head never matches a filter on it)
-constexpr int64_t kSomeBeard = -2;     // facial hair facet: any facial hair (facialhairtypecode > 0)
+constexpr int64_t kSomeBeard = -2;     // facial hair facet: any facial hair (facialhairtypecode > 0); also the key of a
+                                       // style whose look is not known (only "Any facial hair" lists it)
 
 struct Face {
     int64_t id = 0;           // playerid, or managerid for a manager head
@@ -26,19 +30,23 @@ struct Face {
     bool real = false;        // real face: headclasscode 0 (and hashighqualityhead 1 for players)
     std::string name, lname;  // lname: lower case, for the search box
     int overall = 0;          // players: overall rating (sort)
-    int64_t raw[kFacetCount] = {kNoValue, kNoValue, kNoValue, kNoValue, kNoValue, kNoValue, kNoValue};  // field values
+    int64_t raw[kFacetCount] = {kNoValue, kNoValue, kNoValue, kNoValue, kNoValue, kNoValue, kNoValue, kNoValue};  // field values
 };
 
-const char* facet_title(Facet f);   // "Ethnicity", "Skin tone", ...
+const char* facet_title(Facet f);   // "Ethnicity", "Skin tone", ..., "Gender"
 const char* facet_field(Facet f);   // the database field: "headtypecode", "skintonecode", ...
-// The value a facet groups by: ethnicity = group of the head type, everything else = the field value
+// The bucket a field value falls in (1 .. kMaxBuckets; gender: the value, facial hair: 0 clean-shaven, 1 .. 3 or kSomeBeard)
 int64_t facet_key(Facet f, int64_t raw);
-// Readable label of a key: "Caucasian 2", "Dark Brown", "Hair 239", "Clean-shaven", ...
+// Readable label of a key: "Very light", "Brown", "Styles 1000-1999", "Clean-shaven", "Female", ...
 std::string key_label(Facet f, int64_t key);
+// A head's own value for its tooltip: the bucket and, for codes, the code ("Brown (Dark Brown)", "Beard (style 250)")
+std::string trait_label(Facet f, int64_t raw);
+// The order the chooser shows the filter buttons in (gender first)
+const Facet* facet_order();
 // true when the facet is a style with a game preview picture (hair, facial hair)
 bool facet_has_pictures(Facet f);
-// Game preview picture of a hair / facial hair style (legacy path), "" for other facets or key <= 0
-std::string facet_picture(Facet f, int64_t key);
+// Game preview picture of a hair / facial hair style code (legacy path), "" for other facets or code <= 0
+std::string facet_picture(Facet f, int64_t raw);
 
 struct Filter {
     int64_t sel[kFacetCount];

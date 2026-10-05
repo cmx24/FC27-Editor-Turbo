@@ -4706,16 +4706,47 @@ static void test_ui() {
         });
 
 
-        run_case("Real-face chooser filters: labels, ethnicity groups, counts per value, combined filters, sort", [&] {
+        run_case("Real-face chooser filters: groups of at most 5, gender, ethnicity groups, counts per group, combined filters, sort", [&] {
             using namespace faces;
-            CHECK(key_label(kSkin, 20) == "Caucasian 2" && key_label(kSkin, 100) == "African 3" && key_label(kSkin, 7) == "Skin tone 7", "skin labels (FC 27: 10..100)");
-            CHECK(key_label(kHairColour, 0) == "Black" && key_label(kHairColour, 3) == "Dark Brown" && key_label(kHairColour, 21) == "Colour 21", "hair colours");
-            CHECK(key_label(kBeard, 0) == "Clean-shaven" && key_label(kBeard, kSomeBeard) == "Any facial hair" && key_label(kEyes, 3) == "Brown", "beard, eyes");
-            CHECK(key_label(kEthnicity, facet_key(kEthnicity, 34)) == "European" && key_label(kEthnicity, facet_key(kEthnicity, 520)) == "Asian" &&
-                      key_label(kEthnicity, facet_key(kEthnicity, 1024)) == "African" && key_label(kEthnicity, facet_key(kEthnicity, 1502)) == "Latin" &&
-                      key_label(kEthnicity, facet_key(kEthnicity, 7010)) == "Mediterranean" && key_label(kEthnicity, facet_key(kEthnicity, 15000)) == "Other",
+            auto bucket = [](Facet f, int64_t raw) { return key_label(f, facet_key(f, raw)); };
+            CHECK(bucket(kSkin, 20) == "Very light" && bucket(kSkin, 30) == "Light" && bucket(kSkin, 60) == "Medium" && bucket(kSkin, 80) == "Dark" &&
+                      bucket(kSkin, 100) == "Very dark" && trait_label(kSkin, 20) == "Very light (Caucasian 2)", "skin tones (FC 27: 10..100)");
+            CHECK(bucket(kHairColour, 0) == "Black" && bucket(kHairColour, 3) == "Brown" && bucket(kHairColour, 4) == "Blonde" &&
+                      bucket(kHairColour, 12) == "Red & ginger" && bucket(kHairColour, 9) == "Grey, white & other" &&
+                      bucket(kHairColour, 21) == "Grey, white & other" && trait_label(kHairColour, 3) == "Brown (Dark Brown)", "hair colours");
+            CHECK(bucket(kBeard, 0) == "Clean-shaven" && bucket(kBeard, 30) == "Stubble" && bucket(kBeard, 261) == "Moustache & goatee" &&
+                      bucket(kBeard, 87) == "Beard" && facet_key(kBeard, 243) == kSomeBeard && key_label(kBeard, kSomeBeard) == "Any facial hair" &&
+                      trait_label(kBeard, 243) == "Facial hair (style 243)", "facial hair looks; unknown styles under Any facial hair");
+            CHECK(bucket(kEyes, 3) == "Brown" && bucket(kEyes, 8) == "Blue" && bucket(kEyes, 5) == "Light brown & hazel" && bucket(kEyes, 40) == "Other",
+                  "eyes");
+            CHECK(bucket(kHair, 580) == "Styles 0-999" && bucket(kHair, 3131) == "Styles 3000-3999" && bucket(kHair, 9999) == "Styles 4000+", "hair styles");
+            CHECK(bucket(kGender, 0) == "Male" && bucket(kGender, 1) == "Female" && facet_order()[0] == kGender, "gender, shown first");
+            CHECK(bucket(kEthnicity, 34) == "European" && bucket(kEthnicity, 520) == "Asian" && bucket(kEthnicity, 1024) == "African" &&
+                      bucket(kEthnicity, 1502) == "Latin" && bucket(kEthnicity, 7010) == "European" && bucket(kEthnicity, 15000) == "Mixed & other",
                   "ethnicity from the head type ranges");
-            CHECK(facet_picture(kHair, 239) == "data/ui/imgAssets/hairstyle/item_239_0.dds" &&
+            // every code of the FC 27 field ranges falls in a named group, and no menu has more than 5 choices
+            const int64_t kMaxRaw[kFacetCount] = {16000, 100, 50, 10000, 512, 50, 64, 1};
+            for (int i = 0; i < kFacetCount; ++i) {
+                const Facet fc = static_cast<Facet>(i);
+                std::vector<Face> every;
+                std::vector<size_t> all_idx;
+                bool named = true;
+                for (int64_t raw = 0; raw <= kMaxRaw[i]; ++raw) {
+                    Face f;
+                    f.raw[fc] = raw;
+                    every.push_back(f);
+                    all_idx.push_back(all_idx.size());
+                    const std::string l = key_label(fc, facet_key(fc, raw));
+                    named = named && facet_key(fc, raw) != kNoValue && l.rfind("Group ", 0) != 0 && l.rfind("Gender ", 0) != 0;
+                }
+                std::vector<Count> cs = facet_counts(every, all_idx, Filter(), fc);
+                int listed = 0;
+                for (const auto& c : cs) listed += (fc == kBeard && c.key > 0) ? 0 : c.n;  // beard looks are also in Any facial hair
+                CHECK(named && cs.size() <= size_t(kMaxBuckets) && listed == int(every.size()),
+                      fmt("%s: every code in a group (%d), %zu choices, %d of %zu listed", facet_title(fc), int(named), cs.size(), listed, every.size()));
+            }
+            CHECK(kSortCount <= kMaxBuckets, "sort menu");
+            CHECK(facet_picture(kHair, 239) == "data/ui/imgAssets/hairstyle/item_239_0.dds" && facet_picture(kHair, 0).empty() &&
                       facet_picture(kBeard, 243) == "data/ui/imgAssets/facialhairstyle/item_243_0.dds" && facet_picture(kSkin, 20).empty(), "style pictures");
             auto mk = [](int64_t id, int ovr, int64_t head, int64_t skin, int64_t hair, int64_t beard) {
                 Face f;
@@ -4730,17 +4761,18 @@ static void test_ui() {
                 f.raw[kBeard] = beard;
                 return f;
             };
-            std::vector<Face> heads = {mk(1, 80, 34, 20, 0, 0), mk(2, 90, 1502, 20, 3, 243), mk(3, 70, 1024, 90, 0, 287), mk(4, 85, 1030, 100, 0, 243)};
+            std::vector<Face> heads = {mk(1, 80, 34, 20, 0, 0), mk(2, 90, 1502, 20, 3, 250), mk(3, 70, 1024, 90, 0, 287), mk(4, 85, 1030, 100, 0, 250)};
             std::vector<size_t> pool = {0, 1, 2, 3};
             Filter flt;
             std::vector<Count> beards = facet_counts(heads, pool, flt, kBeard);
-            CHECK(beards.size() == 4 && beards[0].key == kSomeBeard && beards[0].n == 3 && beards[1].key == 0 && beards[1].n == 1 &&
-                      beards[2].key == 243 && beards[2].n == 2 && beards[2].sample == 1, fmt("beard values %zu", beards.size()));
-            flt.sel[kHairColour] = 0;  // black hair: 1, 3, 4
+            CHECK(beards.size() == 3 && beards[0].key == kSomeBeard && beards[0].n == 3 && beards[1].key == 0 && beards[1].n == 1 &&
+                      beards[2].key == facet_key(kBeard, 250) && beards[2].n == 2 && beards[2].sample == 1, fmt("beard values %zu", beards.size()));
+            flt.sel[kHairColour] = facet_key(kHairColour, 0);  // black hair: 1, 3, 4
             std::vector<Count> skins = facet_counts(heads, pool, flt, kSkin);
-            CHECK(skins.size() == 3 && skins[0].key == 20 && skins[0].n == 1 && skins[1].key == 90 && skins[2].key == 100, "skin counts under the hair filter");
+            CHECK(skins.size() == 2 && skins[0].key == 1 && skins[0].n == 1 && skins[1].key == 5 && skins[1].n == 2, "skin counts under the hair filter");
             std::vector<Count> hairs = facet_counts(heads, pool, flt, kHairColour);
-            CHECK(hairs.size() == 2 && hairs[0].n == 3 && hairs[1].key == 3 && hairs[1].n == 1, "a facet's own filter does not narrow its counts");
+            CHECK(hairs.size() == 2 && hairs[0].n == 3 && hairs[1].key == facet_key(kHairColour, 3) && hairs[1].n == 1,
+                  "a facet's own filter does not narrow its counts");
             flt.sel[kEthnicity] = facet_key(kEthnicity, 1024);  // African + black hair + some facial hair: 3, 4
             flt.sel[kBeard] = kSomeBeard;
             std::vector<const Face*> rows;
@@ -4771,10 +4803,17 @@ static void test_ui() {
             CHECK(ui.find("face1001", "Choose a real face") && ui.find("face1003", "Choose a real face"), "every real face listed");
             CHECK(ui.click("Hair colour: Any##facet2", "Choose a real face"), "hair colour filter");
             ui.frames(2);
-            CHECK(ui.click("Dark Brown (1)##v3"), "Dark Brown: only 1003");
+            CHECK(ui.click("Brown (3)##v2"), "Brown: 1003, 1005, 1006");
             ui.frames(2);
-            CHECK(ui.find("face1003", "Choose a real face") && !ui.find("face1001", "Choose a real face"), "filtered to Dark Brown");
+            CHECK(ui.find("face1003", "Choose a real face") && !ui.find("face1001", "Choose a real face"), "filtered to Brown");
             CHECK(ui.click("Clear filters", "Choose a real face"), "clear");
+            ui.frames(2);
+            CHECK(ui.click("Gender: Any##facet7", "Choose a real face"), "gender filter");
+            ui.frames(2);
+            CHECK(ui.click("Female (1)##v1"), "Female: 1005");
+            ui.frames(2);
+            CHECK(ui.find("face1005", "Choose a real face") && !ui.find("face1001", "Choose a real face"), "filtered to female heads");
+            CHECK(ui.click("Clear filters", "Choose a real face"), "clear gender");
             ui.frames(2);
             CHECK(ui.find("face1001", "Choose a real face") != nullptr, "all back");
             CHECK(ui.click("Facial hair: Any##facet4", "Choose a real face"), "facial hair filter");
@@ -4819,11 +4858,11 @@ static void test_ui() {
                   "filters of the fields the manager table has");
             CHECK(ui.click("Skin tone: Any##facet1", "Choose a real face##mgr"), "skin filter");
             ui.frames(2);
-            CHECK(ui.click("Caucasian 1 (1)##v10"), "Caucasian 1: Moyes");
+            CHECK(ui.click("Light (1)##v2"), "Light (skin 30): Arteta");
             ui.frames(2);
-            CHECK(ui.find("mface502", "Choose a real face##mgr") && !ui.find("mface504", "Choose a real face##mgr"), "filtered");
-            CHECK(ui.click("mface502", "Choose a real face##mgr"), "pick the head of Moyes");
-            CHECK(app.db.get_int(*mt, mrec, "headassetid") == 7502 && app.db.get_int(*mt, mrec, "headtypecode") == 2001, "head of Moyes given");
+            CHECK(ui.find("mface501", "Choose a real face##mgr") && !ui.find("mface502", "Choose a real face##mgr"), "filtered");
+            CHECK(ui.click("mface501", "Choose a real face##mgr"), "pick the head of Arteta");
+            CHECK(app.db.get_int(*mt, mrec, "headassetid") == 7501 && app.db.get_int(*mt, mrec, "headtypecode") == 1501, "head of Arteta given");
             CHECK(ui.toast_contains("he shows that head"), "toast");
             CHECK(app.db.set_int(*mt, mrec, "headassetid", 7503) && app.db.set_int(*mt, mrec, "headclasscode", 1) &&
                       app.db.set_int(*mt, mrec, "headtypecode", 7), "Chivu restored");
