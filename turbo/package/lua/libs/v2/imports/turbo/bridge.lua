@@ -47,6 +47,9 @@ M.CALL_OP_PLAYER_MOVE = 11
 -- turbo_output\turbo_player_create.json; outputs: written mask (-1 = the call is off), IsPlayerInTeam(pid, final team)
 -- (turbogui/src/core/player_create.h). OFF unless turbo_output\call_player_create_on.txt exists.
 M.CALL_OP_PLAYER_CREATE = 12
+-- player_morale (op 13, turbogui/src/core/player_morale.h): args = comm, code (1 very happy, 2 value, 3 count stale, 9 check), pid,
+-- value; outputs = total read back (-2 = the player has no morale record), level read back 0..5 (code 3: stale count, records)
+M.CALL_OP_PLAYER_MORALE = 13
 M.PLAYER_CREATE_PAYLOAD = "turbo_player_create.json"
 M.PLAYER_CREATE_OPT_IN = "call_player_create_on.txt"
 M.CALL_OP_REVEAL = 3            -- args: PlayerDataRevealManager, mode (0 player / 1 team), id, manager table (core/reveal.h)
@@ -716,6 +719,29 @@ function M.check_game_call()
     return true
 end
 
+-- TurboPlayerMorale(code, pid, value) -> ok, text, status, total, level: one player of the user's club to the game's own "very happy"
+-- level for his emotion type (code 1) or a value 0..120 (code 2) through PlayerMoraleManager::SetTotalMorale (Turbo.dll op 13,
+-- turbogui/src/core/player_morale.h); code 3 counts the stale morale records (total = stale count, level = records), 9 checks only.
+-- total -2 = the player has no morale record (not created by this version). status "off" when the call is unavailable / switched off.
+function M.player_morale(code, pid, value)
+    local c, p, v = math.tointeger(code) or 0, math.tointeger(pid) or 0, math.tointeger(value) or 0
+    if c ~= 1 and c ~= 2 and c ~= 3 and c ~= 9 then
+        return false, "unknown player_morale code " .. tostring(code) .. " (1 very happy, 2 value, 3 count stale, 9 check)", "failed"
+    end
+    if c ~= 3 and (p <= 0 or p > 0x7FFFFFFF) then return false, "player id must be a positive number", "failed" end
+    if c == 2 and (v < 0 or v > 120) then return false, "morale " .. tostring(value) .. " is out of range (0 to 120)", "failed" end
+    if c ~= 2 then v = 0 end
+    if c == 3 then p = 0 end
+    local comm = plugin("ENUM_djb2FeFceGMCommServiceInterface_CLSS")
+    local status, text, out0, out1 = M.game_call(M.CALL_OP_PLAYER_MORALE, { comm, c, p, v },
+        string.format("morale player %d (code %d)", p, c))
+    if status == "unavailable" then return false, "player_morale: off (" .. tostring(text) .. ")", "off" end
+    if status == "failed" and type(text) == "string" and text:find("player_morale: off", 1, true) then return false, text, "off" end
+    if status == "ok" then return true, text, status, math.tointeger(out0), math.tointeger(out1) end
+    if status == "queued" then return true, text, status end
+    return false, text, status, math.tointeger(out0), math.tointeger(out1)
+end
+
 -- TurboPlayerCreate(code, payload) -> ok, text, status, written, in_team: a new player through the game's own database INSERT
 -- (Turbo.dll op 12, turbogui/src/core/player_create.h, docs/re/created_players.md): the squad screens, the player search, morale and
 -- the contract see him at once. payload = { playerid, team, months, wage, players = { col = int }, names = { firstname = "" ... },
@@ -898,6 +924,8 @@ function M.install_natives()
     end
     --   TurboPlayerCreate(code, payload) -> ok, text, status, written, in_team (M.player_create above; features/create_player.lua)
     _G.TurboPlayerCreate = M.player_create
+    --   TurboPlayerMorale(code, pid, value) -> ok, text, status, total, level (M.player_morale; features/team_mass.lua)
+    _G.TurboPlayerMorale = M.player_morale
     -- Live Editor's missing natives (cAddPlayerToTransferList & co.) on top of it: its own wrappers work again
     local okm, moves = pcall(require, 'imports/turbo/core/moves')
     local le_names = (okm and type(moves) == "table") and moves.install_le_natives() or {}

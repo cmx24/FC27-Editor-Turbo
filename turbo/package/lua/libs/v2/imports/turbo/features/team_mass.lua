@@ -4,8 +4,12 @@
 -- Actions:
 --   long_contract  every player of the team gets a contract of 60 months from today (a valid join date too); players
 --                  loaned in from another club keep the contract of their parent club.
---   morale         morale (and the happiness the game derives from it) to 100 through Live Editor's SetPlayerMorale.
---                  The game keeps morale for players it knows; a player Turbo moved in shows "Unknown" until a game restart.
+--   morale         "very happy": your club's players get the highest morale the game's own level function still calls
+--                  "very happy" for their emotion type, written with the game's SetTotalMorale (Turbo.dll TurboPlayerMorale,
+--                  op 13: the overall's morale modifier refreshes too; 100 is the top level "complacent", +0 OVR). Players
+--                  with no morale record (moved in by Turbo's old database moves: "Unknown") are counted, not created; stale
+--                  records of players who left are counted, not removed. Without the native call (or for another club):
+--                  Live Editor's SetPlayerMorale with 85, nothing read back.
 --   squad_roles    your club only (the game keeps no squad roles for other clubs): players aged 19 or more get the
 --                  Rotation role, younger players Prospect (squad_role.lua writes it through the PlayerStatusManager).
 --   block_offers   the "Block Offers" player status of the Squad hub (the game's own toggle, called through Turbo.dll:
@@ -22,7 +26,7 @@ local M = {}
 
 M.ACTIONS = { "block_offers", "squad_roles", "morale", "long_contract" }
 M.CONTRACT_MONTHS = 60
-M.MORALE = 100
+M.MORALE = 85   -- Live Editor fallback: "very happy" with the usual thresholds (75..94); 100 is "complacent"
 M.ROLE_ROTATION, M.ROLE_PROSPECT = 3, 5
 M.ADULT_AGE = 19   -- this age and older: Rotation; younger: Prospect
 
@@ -130,9 +134,53 @@ local function action_long_contract(ctx, pids, teamid)
     return true, text
 end
 
-local function action_morale(ctx, pids)
+local function morale_native(ctx, pids, native)
+    if ctx.dry then return true, string.format("%d players to very happy (game call)", util.count(pids)) end
+    local set_n, none_n, queued_n, fails, lo, hi = 0, 0, 0, {}, nil, nil
+    local levels = {}
+    for pid in pairs(pids) do
+        local ok, text, status, total, level = native(1, pid, 0)
+        if status == "off" then return nil, text end
+        if ok and status == "ok" then
+            set_n = set_n + 1
+            if total then lo = math.min(lo or total, total); hi = math.max(hi or total, total) end
+            if level then levels[level] = (levels[level] or 0) + 1 end
+        elseif ok and status == "queued" then
+            queued_n = queued_n + 1
+            break   -- one game call at a time: the rest would be refused while it waits for the game thread
+        elseif total == -2 then
+            none_n = none_n + 1
+        else
+            fails[#fails + 1] = string.format("%d: %s", pid, tostring(text))
+        end
+    end
+    local text = string.format("%d players set to very happy", set_n)
+    if lo then text = text .. string.format(" (morale %s, level %s)", lo == hi and tostring(lo) or (lo .. ".." .. hi),
+        (levels[4] == set_n) and "very happy" or "see the log") end
+    if queued_n > 0 then text = text .. "; queued for the game thread: run it again after the next career-mode event" end
+    if none_n > 0 then
+        text = text .. string.format("; %d have no morale record (the game shows \"Unknown\"; not created by this version)", none_n)
+    end
+    local okc, _, cstatus, stale, recs = native(3, 0, 0)
+    if okc and cstatus == "ok" and stale then
+        text = text .. string.format("; %d of %d morale records are stale (players who left: counted, not removed)", stale, recs or 0)
+    end
+    if #fails > 0 then
+        text = text .. string.format("; %d failed (%s)", #fails, table.concat(fails, "; ", 1, math.min(#fails, 3)))
+    end
+    return #fails == 0, text
+end
+
+local function action_morale(ctx, pids, teamid)
+    local native = _G["TurboPlayerMorale"]
+    local note = ""
+    if type(native) == "function" and teamid == game.user_team_id() then
+        local ok, text = morale_native(ctx, pids, native)
+        if ok ~= nil then return ok, text end
+        note = "; " .. tostring(text)   -- the call is off: Live Editor's way below
+    end
     local fn = _G["SetPlayerMorale"]
-    if type(fn) ~= "function" then return false, "SetPlayerMorale is not available in this Live Editor build" end
+    if type(fn) ~= "function" then return false, "SetPlayerMorale is not available in this Live Editor build" .. note end
     local ok_n, fail_n = 0, 0
     if not ctx.dry then
         for pid in pairs(pids) do
@@ -141,9 +189,9 @@ local function action_morale(ctx, pids)
     else
         ok_n = util.count(pids)
     end
-    local text = string.format("%d players to morale %d", ok_n, M.MORALE)
+    local text = string.format("%d players to morale %d (Live Editor's SetPlayerMorale, nothing read back)", ok_n, M.MORALE)
     if fail_n > 0 then text = text .. string.format("; %d calls failed", fail_n) end
-    return fail_n == 0, text
+    return fail_n == 0, text .. note
 end
 
 local function action_squad_roles(ctx, pids, teamid)

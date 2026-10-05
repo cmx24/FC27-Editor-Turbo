@@ -232,6 +232,18 @@ complacent) refer to `+0x2C`.
 `GetMorale(pmm, team, pid, ctx)` `0x147D8B528`: `team == store team ? (record ? [rec+0x2C] : 0) : (AI: computed 0x147D8A204)`.
 Morale exists only for the user's club (LE: "only for player in user team").
 
+### 4.1b Morale levels (added 2026-10-05 for the `player_morale` call, op 13) `[H]`
+
+`int GetMoraleLevel(PMM*, int total, int emotion)` `0x147D837D8` (signature `pmm_get_level` in `core/sigscan.cpp`): `e = clamp(emotion, 0, 4)`
+(so `players.emotion` 5..8 share type 4), thresholds `t = (int*)(PMM + (e + 2) * 0x18)` = six ints inside the settings object (`PMM+0x30 + e*0x18`),
+tail-jump to `0x147D837B0`: `level = 5` when `total >= t[5]`, else `(first i in 1..5 with total < t[i]) - 1` (`t[0]` unused). The six ini keys
+`MORALE_LEVELS_%s/VERY_LOW, LOW, NORMAL, HIGH, VERY_HIGH, COMPLACENT` are read by `0x1405F982C` (that order). The text builder `0x147F51504` maps the
+level to `{0 CM_Morale_VeryUnhappy, 1 CM_Morale_Unhappy, 2 morale_summary_content, 3 morale_summary_happy, 4 morale_summary_veryhappy,
+5 morale_summary_complacent}`, anything else `CM_Morale_Unknown`. **Very happy = level 4**; the highest very-happy total is `t[5] - 1` (94 with LE's
+bands 15 / 40 / 65 / 75 / 95). The per-type values live in `moralesettings.ini` (not in the exe), so Turbo asks the function for 0..120 at run time.
+The squad screen (`0x147F9F82C`) fills `PlayerMorale.OverallMorale` with this level of `rec+0x2C` and `rec+4`. `SetTotalMorale` does not clamp.
+Erasing a record: the `0x60` handler erases inline (`0x147D8D5C2`); no standalone callable erase was verified, so Turbo only counts stale records.
+
 ### 4.2 What a normal signing creates `[H]`
 
 `PlayerMoraleManager::HandleEvent` (`0x147D8D354`), event `0x5F`:

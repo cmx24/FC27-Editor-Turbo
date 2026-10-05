@@ -141,6 +141,10 @@ constexpr int32_t kCallOpPlayerMove = 11;
 // outputs: out[0] = written mask (pc::kWrote*; -1 = the call is off: nothing was called), out[1] = IsPlayerInTeam(pid, final team)
 // OFF unless turbo_output\call_player_create_on.txt exists.
 constexpr int32_t kCallOpPlayerCreate = 12;
+// player_morale (core/player_morale.h): one player of the user's club to the game's "very happy" level (or a value) through
+// SetTotalMorale, or count the stale morale records: args[0] = comm service, args[1] = code (1 very happy, 2 value, 3 count stale,
+// 9 check), args[2] = pid, args[3] = value; outputs: total read back (-2 = no record), level read back (code 3: stale count, records)
+constexpr int32_t kCallOpPlayerMorale = 13;
 // reveal player data (core/reveal.h): args = PlayerDataRevealManager (0 = the captured one), mode (0 player / 1 team),
 // player or team id, manager table (0 = skip the slot-78 cross-check); outputs = scouting points after the call
 // (player) or record count after (team), record count before
