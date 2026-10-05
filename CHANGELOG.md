@@ -27,6 +27,7 @@ after the moves. Everything marked "not yet checked in game" below was built and
   at the research addresses; AI to AI (Kostons, PEC Zwolle to Ajax); AI to Napoli (Dadie): he was in Team Management's reserves
   and the Squad tab counts at once, with **morale Happy (+1)** instead of "Unknown", the game's contract record (60 months) and
   his development plan; his release through the game (ReleasePlayer returned 0, compensation paid, Defence count back at once).
+  After a save and a reload everything held (Kostons at Ajax, Dadie a free agent, blocked players still blocked).
 - **Teams > team edit > Mass actions**: one button per action for every player of the selected team, each asks first:
   *Block incoming offers* (your own club), *Squad roles* (age 19 and over Rotation, younger Prospect; your own club only),
   *Morale and happiness to 100*, *Long contract (60 months)* and *All actions*. Lua module `features/team_mass.lua`
@@ -54,7 +55,7 @@ after the moves. Everything marked "not yet checked in game" below was built and
   (Rest of World league 76 such as Dinamo Zagreb, leagues 1003 / 1014 / 2226). National teams are now the game's own rule
   (IsInternationalLeague: league 78, 2136 or 3004) in Lua (`moves.national_teams`: transfers, loans, releases, create player, job
   offers, manager market, Mass actions) and in the window (which also counted only league 78, so women's national teams were
-  clubs there). `tests/t20_national_teams.lua`.
+  clubs there). `tests/t20_national_teams.lua`. **Checked in game**: Hoxha (Dinamo Zagreb 211) transferred to Napoli by the game.
 - **Mass actions > Block incoming offers** called the whole action "not done" when players on loan were in the squad (checked in
   game: 32 of 37 Napoli players blocked, the game's own Squad Hub then offers "Allow Offers"; the 5 others had playerloans rows).
   Players on loan are now skipped and reported as such (the game blocks only players under contract at your club).
