@@ -3,11 +3,14 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
-## Unreleased
+## 1.2.0 (real-time transfers, Mass actions, From CMTracker, filters)
 
-Checked in game on 2026-10-05 (test career turbo04, SSC Napoli): the Players tab filters / sorting / Overall +1 / Undo bulk /
-archetypes, From CMTracker (Pedri created), transfers into your club and to an AI club with a save + reload, Squad Hub counts
-after the moves. Everything marked "not yet checked in game" below was built and passes the offline tests only.
+Released 2026-10-05. Checked in game (test career turbo04, SSC Napoli): transfers and releases made by the game itself (the
+player is in Team Management at once with his morale), Mass actions incl. Block offers, From CMTracker with the miniface, the
+Players tab filters / sorting / Overall +1 / Undo bulk / archetypes, team and competition filters, everything still in place after
+a save and a reload. Still shown only after a save and a load: loans, ending a loan, created / cloned / imported players (the
+game's own queries do not see rows added from outside until then; docs/re/created_players.md has the plan for real-time ones).
+Anything marked "not yet checked in game" below was built and passes the offline tests only.
 
 ### Added
 
