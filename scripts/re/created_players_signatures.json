@@ -1,7 +1,7 @@
 {
   "build": "6AB9813C-211EF000",
   "game": "FC27.exe",
-  "doc": "docs/re/created_players.md. Functions and anchors for creating players through the game's own database INSERT (research only, not yet used by Turbo.dll); every pattern verified unique in fc27_image.bin with sig_jobs.make_sig / find, 2026-10-05. Already in realtime_signatures.json and reused: dc_create_player, dc_insert_team_player, dc_is_player_in_team, post_event, teamutil_player_moved, player_inserted_event_vtable.",
+  "doc": "docs/re/created_players.md. Functions and anchors for creating players through the game's own database INSERT (used by Turbo.dll's player_create call, core/sigscan.cpp built-in table); every pattern verified unique in fc27_image.bin with sig_jobs.make_sig / find, 2026-10-05. Already in realtime_signatures.json and reused: dc_create_player, dc_insert_team_player, dc_is_player_in_team, post_event, teamutil_player_moved, player_inserted_event_vtable. Offsets of the \"rip\" entries are the instruction start (Turbo's resolve_signature decodes the instruction there), re-checked 2026-10-05.",
   "signatures": {
     "db_query_init": {
       "pattern": "40 53 48 83 EC 20 49 8B C0 89 11 48 8B D9 48 C7 44 24 30 00 00 00 00 48 8B D0 4C 8D 44 24 30 48 83 C1 08 E8 ?? ?? ?? ?? 48 8B C3 48 C7 43 20 00 00 00 00",
@@ -22,7 +22,7 @@
     "db_query_set_string": {
       "pattern": "4C 8D 43 08 48 8D 15 ?? ?? ?? ?? 48 8D 4D A0 E8 ?? ?? ?? ??",
       "resolve": "rip",
-      "offset": 16,
+      "offset": 15,
       "note": "void Query::SetString(Query*, const char* column, const char* value) 0x14403F2E8 (kind 2, keeps the last 256 chars): byte-identical to the date setter 0x14403F348 except its call targets, so it is resolved through its call in DataController::SetEditedPlayerName (the \"firstname\" column)",
       "va": "0x147BA1476",
       "target": "0x14403F2E8"
@@ -142,7 +142,7 @@
     "event_allocator_global": {
       "pattern": "48 8B 0D ?? ?? ?? ?? 48 8B 01 FF 50 10 41 8D 54 24 3A 4C 8B C0 48 85 C0",
       "resolve": "rip",
-      "offset": 3,
+      "offset": 0,
       "note": "mov rcx,[rip+x] in CreatePlayer: the global allocator pointer events are allocated from (0x14C269EA8)",
       "va": "0x147B61DB7",
       "target": "0x14C269EA8"
@@ -150,7 +150,7 @@
     "event_base_vtable": {
       "pattern": "48 8D 0D ?? ?? ?? ?? 49 89 08 33 C9 41 89 48 08 48 8D 0D ?? ?? ?? ?? 41 87 58 08 49 89 08 41 89 50 10 41 89 40 18 EB 03",
       "resolve": "rip",
-      "offset": 3,
+      "offset": 0,
       "note": "lea rcx,[rip+x] in CreatePlayer: the event base vtable written first (0x149803AE8)",
       "va": "0x147B61DD3",
       "target": "0x149803AE8"

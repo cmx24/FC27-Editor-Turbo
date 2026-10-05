@@ -43,6 +43,12 @@ M.CALL_OP_TRANSFER_LIST = 10
 -- args: comm service, code | months << 8, pid | wage << 32, from | to << 32; outputs: from_ok, to_ok (1 / 0 / -1 not read)
 -- (turbogui/src/core/player_move.h)
 M.CALL_OP_PLAYER_MOVE = 11
+-- args: comm service, code (1 create, 9 check only), the payload's seq, playerid; the row itself is in
+-- turbo_output\turbo_player_create.json; outputs: written mask (-1 = the call is off), IsPlayerInTeam(pid, final team)
+-- (turbogui/src/core/player_create.h). OFF unless turbo_output\call_player_create_on.txt exists.
+M.CALL_OP_PLAYER_CREATE = 12
+M.PLAYER_CREATE_PAYLOAD = "turbo_player_create.json"
+M.PLAYER_CREATE_OPT_IN = "call_player_create_on.txt"
 M.CALL_OP_REVEAL = 3            -- args: PlayerDataRevealManager, mode (0 player / 1 team), id, manager table (core/reveal.h)
 M.CALL_OP_MANAGER_RULES = 4      -- args: sub-op, manager address, value, user team (turbogui/src/core/manager_rules.h)
 
@@ -710,6 +716,86 @@ function M.check_game_call()
     return true
 end
 
+-- TurboPlayerCreate(code, payload) -> ok, text, status, written, in_team: a new player through the game's own database INSERT
+-- (Turbo.dll op 12, turbogui/src/core/player_create.h, docs/re/created_players.md): the squad screens, the player search, morale and
+-- the contract see him at once. payload = { playerid, team, months, wage, players = { col = int }, names = { firstname = "" ... },
+-- link = { form = 3 } }; code 1 create, 9 check only. status "off" = the call is not available (no opt-in file, the DLL says off or
+-- does not know op 12): NOTHING was called and the caller keeps its database path. Integers and strings only: a float with a
+-- fraction, a non-string name or a name over 44 bytes is refused here (the DLL refuses them too).
+M.PLAYER_CREATE_MAX_NAME = 44
+
+local function int_or_nil(v)
+    if math.type(v) == "integer" then return v end
+    if math.type(v) == "float" then return math.tointeger(v) end
+    return nil
+end
+
+function M.player_create(code, payload)
+    local c = math.tointeger(code) or 0
+    if c ~= 1 and c ~= 9 then return false, "unknown player_create code " .. tostring(code) .. " (1 create, 9 check only)", "failed" end
+    if type(payload) ~= "table" or type(payload.players) ~= "table" then return false, "player_create: the payload has no players row", "failed" end
+    local pid = int_or_nil(payload.playerid) or 0
+    if pid <= 0 or pid >= 460000 then return false, "player id " .. tostring(payload.playerid) .. " is out of range (1 to 459999)", "failed" end
+    local dir = M.dir()
+    if not dir then return false, "player_create: off (no turbo_output folder)", "off" end
+    if not util.file_exists(util.join(dir, M.PLAYER_CREATE_OPT_IN)) then
+        return false, "player_create: off (opt-in: create turbo_output\\" .. M.PLAYER_CREATE_OPT_IN .. ")", "off"
+    end
+    local j = json()
+    if not j then return false, "player_create: off (json library missing)", "off" end
+    local doc = { playerid = pid, team = int_or_nil(payload.team) or 0, months = int_or_nil(payload.months) or 0,
+                  wage = int_or_nil(payload.wage) or 0, players = {} }
+    for k, v in pairs(payload.players) do
+        local iv = int_or_nil(v)
+        if type(k) ~= "string" or iv == nil then
+            return false, string.format("players.%s is %s: the game's INSERT takes integers only", tostring(k),
+                math.type(v) == "float" and ("a float (" .. tostring(v) .. ")") or type(v)), "failed"
+        end
+        doc.players[k] = iv
+    end
+    doc.players.playerid = pid
+    if type(payload.names) == "table" then
+        local names = {}
+        for k, v in pairs(payload.names) do
+            if type(v) ~= "string" then return false, "names." .. tostring(k) .. " is not a string", "failed" end
+            if #v > M.PLAYER_CREATE_MAX_NAME then
+                return false, string.format("names.%s is %d bytes long (at most %d)", tostring(k), #v, M.PLAYER_CREATE_MAX_NAME), "failed"
+            end
+            if v ~= "" then names[k] = v end
+        end
+        if next(names) ~= nil then doc.names = names end   -- an empty table would be written as a JSON array
+    end
+    if type(payload.link) == "table" and next(payload.link) ~= nil then
+        doc.link = {}
+        for k, v in pairs(payload.link) do
+            local iv = int_or_nil(v)
+            if iv == nil then return false, "link." .. tostring(k) .. " is not an integer", "failed" end
+            doc.link[k] = iv
+        end
+    end
+    S.create_seq = (S.create_seq or 0) + 1
+    doc.seq = S.create_seq
+    local okj, text = pcall(j.encode, doc)
+    if not okj then return false, "player_create: the payload cannot be encoded: " .. tostring(text), "failed" end
+    local okw, werr = util.write_file(util.join(dir, M.PLAYER_CREATE_PAYLOAD), text)
+    if not okw then return false, "player_create: " .. M.PLAYER_CREATE_PAYLOAD .. " not written: " .. tostring(werr), "failed" end
+    S.last_create_payload = doc
+    local comm = plugin("ENUM_djb2FeFceGMCommServiceInterface_CLSS")
+    local status, rtext, out0, out1 = M.game_call(M.CALL_OP_PLAYER_CREATE, { comm, c, doc.seq, pid },
+        string.format("%s player %d (team %d)", c == 9 and "check new" or "create", pid, doc.team))
+    local function flag(v)
+        v = math.tointeger(v)
+        if v == 1 then return true elseif v == 0 then return false end
+        return nil
+    end
+    if status == "unavailable" then return false, "player_create: off (" .. tostring(rtext) .. ")", "off" end
+    -- out[0] = -1: the DLL did not run it (off, or an older Turbo.dll without op 12): nothing was called
+    if status == "failed" and math.tointeger(out0) == -1 then return false, tostring(rtext), "off" end
+    if status == "ok" then return true, rtext, status, math.tointeger(out0), flag(out1) end
+    if status == "queued" then return true, rtext, status end
+    return false, rtext, status, math.tointeger(out0), flag(out1)
+end
+
 -- Lua-callable natives backed by Turbo.dll's game calls. Defined as globals once the export is found, so
 -- core/caps.lua (and env.api) see them like Live Editor's own functions and the GUI lights the buttons up.
 --   TurboJobOfferCreate(jobmarket_address, teamid) -> ok, message, status ("ok" | "queued" | "failed")
@@ -810,13 +896,15 @@ function M.install_natives()
         if status == "ok" or status == "queued" then return true, text, status, out0, out1 end
         return false, text, status
     end
+    --   TurboPlayerCreate(code, payload) -> ok, text, status, written, in_team (M.player_create above; features/create_player.lua)
+    _G.TurboPlayerCreate = M.player_create
     -- Live Editor's missing natives (cAddPlayerToTransferList & co.) on top of it: its own wrappers work again
     local okm, moves = pcall(require, 'imports/turbo/core/moves')
     local le_names = (okm and type(moves) == "table") and moves.install_le_natives() or {}
     env.reset_api_cache()   -- wrappers that were unavailable because their c-native was missing are usable now
     S.natives_installed = true
     S.unavailable = nil   -- caps changed: bridge_state.json lists job_offer / the list moves / reveal / manager_rules as available from now on
-    log.info("Turbo natives installed: TurboJobOfferCreate, TurboStandingsRefresh, TurboTransferList, TurboPlayerMove, TurboRevealPlayerData, TurboManagerRules (Turbo.dll game calls)%s",
+    log.info("Turbo natives installed: TurboJobOfferCreate, TurboStandingsRefresh, TurboTransferList, TurboPlayerMove, TurboRevealPlayerData, TurboManagerRules, TurboPlayerCreate (Turbo.dll game calls)%s",
         #le_names > 0 and ("; Live Editor natives: " .. table.concat(le_names, ", ")) or "")
     return true
 end

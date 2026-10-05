@@ -3,6 +3,17 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## Unreleased
+
+- **Created players in real time (off by default, not yet checked in game).** Create player / Clone / From CMTracker / Import as
+  new can add the player through the game's own database INSERT (Turbo.dll game call `player_create`, op 12): the `players` row
+  (every column, read back), the typed names, the game's "player inserted" event 0x3A, `InsertTeamPlayer` into Free Agents and
+  the game's own move into the club (with the contract record at your club), so Squad Hub, Team Management, the player search,
+  morale and the contract should see him at once instead of after a save and a load. It runs only while
+  `turbo_output\call_player_create_on.txt` exists (`call_player_create_off.txt` turns it off again); otherwise, or when the call
+  answers "off", the database path of 1.2.0 runs unchanged and the result says so. Research and live checks:
+  [`docs/re/created_players.md`](docs/re/created_players.md).
+
 ## 1.2.0 (real-time transfers, Mass actions, From CMTracker, filters)
 
 Released 2026-10-05. Checked in game (test career turbo04, SSC Napoli): transfers and releases made by the game itself (the

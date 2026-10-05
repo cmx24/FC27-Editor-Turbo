@@ -202,6 +202,9 @@ std::string locate(Memory& mem, const Request& req, const Fns& fns, Located& out
 std::string loan_state(Memory& mem, uint64_t loans, int pid, bool& loaned, int& club);
 // The whole call (see the file comment). Never throws.
 Result run(Memory& mem, Caller& call, const Fns& fns, const Request& req);
+// Free Agents or a club of this career (never a national team, a pseudo team or another free-agent pool): the check every move
+// side goes through (player_create uses it for the created player's club). "" = fine (is_club says which), else the reason.
+std::string check_team(Caller& call, const Located& at, int team, const char* role, bool& is_club);
 
 // ---------------------------------------------------------------- mailbox words and the kill switch
 // Decodes args[4] of a call block (layout above); a malformed word sets Request::bad_args

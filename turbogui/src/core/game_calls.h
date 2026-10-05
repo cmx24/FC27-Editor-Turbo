@@ -135,6 +135,12 @@ constexpr int32_t kCallOpTransferList = 10;
 //   args[2] = pid | wage << 32, args[3] = from | to << 32 (team ids; `to` is ignored by a release)
 // outputs: out[0] = from_ok, out[1] = to_ok (1 / 0 / -1 not read: the two IsPlayerInTeam read-backs, see core/player_move.h)
 constexpr int32_t kCallOpPlayerMove = 11;
+// player_create (core/player_create.h): a new player through the game's own database INSERT (+ event 0x3A, InsertTeamPlayer into Free
+// Agents, op 11's move into a club). The row itself travels in turbo_output	urbo_player_create.json (written by Lua):
+//   args[0] = comm service, args[1] = code (1 create, 9 check only), args[2] = the payload's seq, args[3] = playerid
+// outputs: out[0] = written mask (pc::kWrote*; -1 = the call is off: nothing was called), out[1] = IsPlayerInTeam(pid, final team)
+// OFF unless turbo_output\call_player_create_on.txt exists.
+constexpr int32_t kCallOpPlayerCreate = 12;
 // reveal player data (core/reveal.h): args = PlayerDataRevealManager (0 = the captured one), mode (0 player / 1 team),
 // player or team id, manager table (0 = skip the slot-78 cross-check); outputs = scouting points after the call
 // (player) or record count after (team), record count before

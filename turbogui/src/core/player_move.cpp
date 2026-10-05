@@ -316,7 +316,7 @@ static Result fail(Result r, const char* stage, const std::string& msg) {
 }
 
 // A club or the Free Agents team. "" = fine (is_club says which), else the reason.
-static std::string check_team(Caller& call, const Located& at, int team, const char* role, bool& is_club) {
+std::string check_team(Caller& call, const Located& at, int team, const char* role, bool& is_club) {
     is_club = false;
     const std::string t = std::string("team ") + num(team) + " (" + role + ")";
     if (team == kTeamFreeAgents) return "";
