@@ -6632,6 +6632,19 @@ static void test_ui() {
             CHECK(fake->requests.size() == 2, "refresh after the undo");
             CHECK(status_has("undone, W 3 -> 2, Pts 10 -> 7"), "undo status: " + live_standings_status());
             CHECK(ui.find("Undo##lsundo") == nullptr, "one step of undo");
+            // a second click on the same number opens the box too (in game a double-click is often read as one click):
+            // two single clicks, further apart than the double-click time
+            CHECK(ui.click("3##c0_P"), "another number first (P: derived, only selected)");
+            ui.frames(40);
+            if (const ItemRec* w = ui.find("2##c0_W")) ui.click(w);
+            ui.frames(40);
+            CHECK(ui.find("##cell") == nullptr, "one click only selects the number");
+            if (const ItemRec* w = ui.find("2##c0_W")) ui.click(w);
+            ui.frames(2);
+            CHECK(ui.find("##cell") != nullptr, "a second click on the selected number opens the box");
+            ui.key(ImGuiKey_Escape);
+            ui.frames(2);
+            CHECK(ui.find("##cell") == nullptr, "Esc closes it");
             // Esc cancels: nothing written
             box = open_cell("2##c0_W");
             CHECK(box != nullptr && ui.click(box), "box again");

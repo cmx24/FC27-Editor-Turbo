@@ -37,6 +37,7 @@ struct LiveState {
     uint16_t group = 0;
     bool have_group = false;
     int sel_row = -1;  // standing id
+    int sel_cell = -1;  // the cell last clicked in sel_row (a second click on it opens the box)
     fce::StandingRow edit;
     bool edit_loaded = false;
     int sel_fixture = -1;
@@ -467,8 +468,12 @@ void draw_cell(const fce::StandingRow& r, fce::Cell c, bool selected) {
     std::snprintf(label, sizeof(label), "%d##c%u_%s", fce::cell_value(r, c), unsigned(r.id), fce::cell_code(c));
     if (ImGui::Selectable(label, selected, ImGuiSelectableFlags_AllowDoubleClick)) {
         if (st.sel_row != int(r.id)) st.edit_loaded = false;
+        // a second click on the same number opens the box too: in game Turbo reads the mouse buttons once per frame,
+        // and a double-click there is often seen as one click (seen in game, 04-10-2026)
+        const bool again = st.sel_row == int(r.id) && st.sel_cell == int(c);
         st.sel_row = int(r.id);
-        if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        st.sel_cell = int(c);
+        if (again || ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
             if (!fce::cell_editable(c)) {
                 set_status(c == fce::Cell::P ? "P is W + D + L (home + away): change those, P follows."
                                              : "GD is GF - GA: change those, GD follows.",
@@ -528,6 +533,7 @@ void draw_live_standings(App& app) {
         st.group = uint16_t(st.entries[size_t(st.sel_entry)].key);
         st.have_group = true;
         st.sel_row = -1;
+        st.sel_cell = -1;
         st.sel_fixture = -1;
         st.edit_loaded = false;
     }
@@ -538,7 +544,7 @@ void draw_live_standings(App& app) {
     // One line of help; the technical lines (what the game's standings view reads, the last refresh) in its tooltip
     ImGui::Checkbox("Home / away columns", &st.home_away);
     ImGui::SameLine();
-    ImGui::TextDisabled("Double-click a number to change it: Enter applies it to the game, Esc cancels. (?)");
+    ImGui::TextDisabled("Click a number twice (or double-click) to change it: Enter applies it to the game, Esc cancels. (?)");
     if (ImGui::IsItemHovered()) {
         ImGui::BeginTooltip();
         ImGui::PushTextWrapPos(S(560.0f));
@@ -640,6 +646,7 @@ void draw_live_standings(App& app) {
             if (ImGui::Selectable(idb, sel)) {
                 if (!sel) st.edit_loaded = false;
                 st.sel_row = int(r.id);
+                st.sel_cell = -1;
             }
             ImGui::TableNextColumn();
             char club[160];
@@ -647,6 +654,7 @@ void draw_live_standings(App& app) {
             if (ImGui::Selectable(club, sel)) {
                 if (!sel) st.edit_loaded = false;
                 st.sel_row = int(r.id);
+                st.sel_cell = -1;
             }
             for (int k = 0; k < ncells; ++k) {
                 ImGui::TableNextColumn();
