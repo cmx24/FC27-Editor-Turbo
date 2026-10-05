@@ -78,7 +78,7 @@ public:
     Callnames callnames;     // commentary language and spoken callnames (core/callnames.h)
     CallnamePlayer callname_player;  // the Callname tab's play buttons (core/callname_audio.h); the host gives the WavPlayer
     std::filesystem::path game_root;  // folder of FC27.exe (language packs); tests point it at a fake game folder
-    // ---- undo of direct edits, per player (players table), newest last; at most kUndoSteps each
+    // ---- undo of direct edits, per player (players table, his editedplayernames row), newest last; at most kUndoSteps each
     struct UndoStep {
         std::string table;
         uint64_t rec = 0;

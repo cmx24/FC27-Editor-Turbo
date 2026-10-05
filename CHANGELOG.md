@@ -5,7 +5,7 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
 ## Unreleased
 
-- **Mass action "Morale: very happy" (was "Morale and happiness to 100"; the very-happy level for players who have a morale record is verified in game).** 100 is the game's top morale level "Complacent" (+0 OVR), which is why the old action looked broken. For your club, each player now gets the highest morale the game's own level function still calls "very happy" for his emotion type, written with the game's SetTotalMorale so the overall's morale modifier refreshes (Turbo.dll game call `player_morale`, op 13; on by default, `turbo_output\call_player_morale_off.txt` turns it off). The summary says how many were set and the morale read back. Verified in game (Torino career): 18 players very happy (morale 94..104), the squad screen shows Very Happy with +2..+7 OVR. Players with no morale record (moved in by Turbo's old database moves: "Unknown", -2 OVR) now get one first, created the way the game's own signing handler does (GetPlayerEmotionType, MoraleStore::Create, InitMorale; only after every store check passes and the game's Find says there is none), then very happy; the summary says "including N whose missing morale record was created". Creation is **not yet checked in game**; `turbo_output\call_player_morale_create_off.txt` turns it off (those players are then counted only, as before). Morale records of players who left are counted, not removed. The Mass actions descriptions now wrap inside the window (they ran off the right edge). Without the game call, or for another club: Live Editor's SetPlayerMorale with 85 (nothing read back).
+- **Mass action "Morale: very happy" (was "Morale and happiness to 100"; verified in game).** 100 is the game's top morale level "Complacent" (+0 OVR), which is why the old action looked broken. For your club, each player now gets the highest morale the game's own level function still calls "very happy" for his emotion type, written with the game's SetTotalMorale so the overall's morale modifier refreshes (Turbo.dll game call `player_morale`, op 13; on by default, `turbo_output\call_player_morale_off.txt` turns it off). The summary says how many were set and the morale read back. Verified in game (Torino career): 18 players very happy (morale 94..104), the squad screen shows Very Happy with +2..+7 OVR. Players with no morale record (moved in by Turbo's old database moves: "Unknown", -2 OVR) now get one first, created the way the game's own signing handler does (GetPlayerEmotionType, MoraleStore::Create, InitMorale; only after every store check passes and the game's Find says there is none), then very happy; the summary says "including N whose missing morale record was created". Creation verified in game too (same career): 6 records created (40 -> 46), all 24 players very happy, a second run created none, and Barreca / Walukiewicz showed Very Happy +4 / +3 OVR instead of "Unknown" -2; `turbo_output\call_player_morale_create_off.txt` turns it off (those players are then counted only, as before). Morale records of players who left are counted, not removed. The Mass actions descriptions now wrap inside the window (they ran off the right edge). Without the game call, or for another club: Live Editor's SetPlayerMorale with 85 (nothing read back).
 - **Created players in real time (off by default, not yet checked in game).** Create player / Clone / From CMTracker / Import as
   new can add the player through the game's own database INSERT (Turbo.dll game call `player_create`, op 12): the `players` row
   (every column, read back), the typed names, the game's "player inserted" event 0x3A, `InsertTeamPlayer` into Free Agents and
@@ -14,7 +14,7 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
   `turbo_output\call_player_create_on.txt` exists (`call_player_create_off.txt` turns it off again); otherwise, or when the call
   answers "off", the database path of 1.2.0 runs unchanged and the result says so. Research and live checks:
   [`docs/re/created_players.md`](docs/re/created_players.md).
-- **Fixed: Import turned player names into common names (seen in a live career; the fix is not yet checked in game).** Export
+- **Fixed: Import turned player names into common names (seen in a live career; Repair names checked in game).** Export
   wrote a player without an `editedplayernames` row as his shown name in `commonname` with the first name, surname and shirt
   name empty, and Import (Names group on by default) wrote exactly that back: "Jacopo Segre" became one common name and his
   shirt lost its name. Now Export writes his real names (the texts of his name ids, `core/names.lua`), Import writes names only
@@ -23,7 +23,14 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
   first name. **Players > Repair names...** (`player_presets` mode `repair_names`, Check first) gives the players 1.2.0 changed
   their own names back: every `editedplayernames` row whose first name, surname and shirt name are empty and whose common name
   is the name his own ids show is rewritten in place (no row added or deleted); any other name is left alone and listed. Save
-  the career afterwards to keep it.
+  the career afterwards to keep it. **Checked in game (2026-10-05, the user's career):** Check listed 6 players, Repair names
+  gave them back (Team Management showed BARRECA, SEGRE, GYASI, WALUKIEWICZ at once, without a reload).
+- **Players > Names tab (not yet checked in game).** Every name the game shows for a player in one place: first, last,
+  common and shirt name (his edited names, prefilled with what the game shows) and the four name ids, typed or found by
+  text. Save names writes only what changed: in place when he has an `editedplayernames` row (with Undo), else through
+  Turbo's Lua side (`set_display_name`, never into a full table). An empty common name stays empty, an empty shirt name
+  takes the last name, too-long names are refused before any write. "Restore database names" sets his row back to the
+  name ids' texts (no delete) and a hint names rows damaged by the 1.2.0 preset import. The Players list follows at once.
 
 ## 1.2.0 (real-time transfers, Mass actions, From CMTracker, filters)
 
