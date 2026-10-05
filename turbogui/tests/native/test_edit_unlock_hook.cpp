@@ -187,13 +187,13 @@ void test_edit_unlock_hook(int& pass, int& fail) {
         const Context& manager = context_at(2);
         EU_CHECK(keep_name("TEAM", player, false) && keep_name("TEAM", manager, true), "TEAM is always kept");
         EU_CHECK(keep_name("GENDER", player, false) && keep_name("GENDER", player, true), "player GENDER is always kept");
-        EU_CHECK(keep_name("GENDER", manager, false) && !keep_name("GENDER", manager, true), "manager GENDER only under the experimental switch");
+        EU_CHECK(keep_name("GENDER", manager, false) && keep_name("GENDER", manager, true), "manager GENDER kept, experimental or not");
         EU_CHECK(keep_name("PREFERRED_POSITION", player, true) && keep_name("BODY_TYPE", player, true), "PREFERRED_POSITION and BODY_TYPE kept");
         EU_CHECK(!keep_name("FIRST_NAME", player, false) && !keep_name("COMMENTARY_NAME", player, false), "names are unlocked");
         const KeepIds ids = expected_keep_ids();
         EU_CHECK(ids.complete() && ids.ids[0] == 11 && ids.ids[1] == 29 && ids.ids[2] == 77 && ids.ids[3] == 100,
                  "expected ids BODY_TYPE 11, GENDER 29, PREFERRED_POSITION 77, TEAM 100");
-        EU_CHECK(keep_id(100, ids, player, true) && keep_id(29, ids, player, true) && !keep_id(29, ids, manager, true) &&
+        EU_CHECK(keep_id(100, ids, player, true) && keep_id(29, ids, player, true) && keep_id(29, ids, manager, true) &&
                      keep_id(29, ids, manager, false),
                  "keep_id follows keep_name");
         EU_CHECK(!keep_id(-1, ids, player, false) && !keep_id(24, ids, player, false), "-1 and other ids are not kept");
@@ -266,7 +266,7 @@ void test_edit_unlock_hook(int& pass, int& fail) {
         const std::vector<std::string> lines = status_lines(StatusInput(), c);
         EU_CHECK(!lines.empty() && lines[0] == "Game editors hook: on | configs patched 2 | fields unlocked 5", "Status tab line");
     }
-    // ---------------------------------------------------------------- manager gender (experimental)
+    // ---------------------------------------------------------------- manager gender: kept even under the experimental switch
     {
         g_regions.clear();
         FakeConfig f({{item(29, 0, 0), item(24, 0, 1)}});
@@ -276,7 +276,8 @@ void test_edit_unlock_hook(int& pass, int& fail) {
         Gate g = gate_on();
         g.settings.experimental = true;
         load(f, kEditManager, g, c);
-        EU_CHECK(ed(f.at(0, 0)) && vis(f.at(0, 0)), "manager GENDER unlocked by the experimental switch");
+        EU_CHECK(!ed(f.at(0, 0)) && !vis(f.at(0, 0)) && ed(f.at(0, 1)),
+                 "manager GENDER stays locked under the experimental switch (the hook flips only what the file override does)");
         FakeConfig p({{item(29, 0, 0)}});
         load(p, kEditPlayers, g, c);
         EU_CHECK(!ed(p.at(0, 0)), "player GENDER stays locked even under the experimental switch");

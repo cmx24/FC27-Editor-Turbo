@@ -8,7 +8,7 @@
 // (turbo_output\edit_unlock_hook_off.txt) and the memory check.
 //
 // The hook CANNOT add what the file lacks (the Attributes and Brand animations sections of career Edit Player, the
-// head editor, the manager outfit picker): that needs the data override.
+// gear of the experimental switch): that needs the data override.
 #pragma once
 #include <atomic>
 #include <cstddef>
@@ -58,8 +58,8 @@ std::vector<std::string> status_lines(const StatusInput& in, const HookCounters&
 // Shown in the GUI next to the switches
 constexpr const char* kCannotAddNote =
     "The in-memory fallback only turns on fields the game's file already lists. It cannot add the missing sections "
-    "(Attributes and Brand animations in career Edit Player, the head editor, the manager outfit picker): those come "
-    "from the file override. TEAM and player GENDER always stay locked.";
+    "(Attributes and Brand animations in career Edit Player, the experimental gear): those come from the file "
+    "override. TEAM and GENDER always stay locked.";
 
 // What the GUI talks to (win/edit_unlock_hook_win.cpp; nullptr in tests and when the host has no game hooks)
 class HookService {

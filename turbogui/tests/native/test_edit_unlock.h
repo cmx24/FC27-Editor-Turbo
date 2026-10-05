@@ -38,6 +38,11 @@ static const char* kEditPlayers = R"({
 				{"name": "BIRTH_DAY", "isEditable": false, "minValue": 1, "maxValue": 31, "componentType": "TOGGLE"}
 			]}}
 		]}},
+		{"name": "GEAR", "filters": {"areFiltersAttributes": false, "data": [
+			{"name": "MATCHDAY", "filters": {"areFiltersAttributes": false, "data": [
+				{"name": "SOCK", "filters": {"areFiltersAttributes": true, "data": [{"name": "KIT_SOCK"}]}}
+			]}}
+		]}},
 		{"name": "ATHLETIC", "filters": {"areFiltersAttributes": false, "data": [
 			{"name": "BODY", "filters": {"areFiltersAttributes": true, "data": [
 				{"name": "HEIGHT", "isEditable": false, "minValue": 150, "maxValue": 210, "componentType": "SLIDER"},
@@ -229,6 +234,32 @@ static const char* kPosition = R"({
 }
 )";
 
+// Main menu Create Player (offline): tattoos, sleeves, sock styles, plus what Turbo must never graft (head editor, store
+// outfits, the hidden bars)
+static const char* kCreateOffline = R"({
+	"attributeCategories": [
+		{"name": "GEAR", "filters": {"areFiltersAttributes": false, "data": [
+			{"name": "MATCHDAY", "filters": {"areFiltersAttributes": false, "data": [
+				{"name": "TATTOO", "filters": {"areFiltersAttributes": true, "data": [
+					{"name": "TATTOOLEFTARM", "componentType": "LIST"}, {"name": "TATTOOBACK", "componentType": "LIST"}]}},
+				{"name": "ARM_SLEEVES", "filters": {"areFiltersAttributes": true, "data": [
+					{"name": "LEFT_ARM_SLEEVE"}, {"name": "RIGHT_ARM_SLEEVE"}, {"name": "OUTFITTOPLAYER1"}]}},
+				{"name": "SOCK", "filters": {"areFiltersAttributes": true, "data": [
+					{"name": "KIT_SOCK"}, {"name": "FASHION_SOCKS", "componentType": "LIST"}, {"name": "OUTFITSOCK"}]}},
+				{"name": "INNER_TOPS", "filters": {"areFiltersAttributes": true, "data": [{"name": "OUTFITTOPLAYER1"}]}}
+			]}}
+		]}},
+		{"name": "CRANIUM_HEAD", "filters": {"areFiltersAttributes": true, "data": [{"name": "HEAD", "isCranium": true}]}},
+		{"name": "ATHLETIC", "filters": {"areFiltersAttributes": false, "data": [
+			{"name": "ATTRIBUTES", "filters": {"areFiltersAttributes": false, "data": [
+				{"name": "MENTALITY", "filters": {"areFiltersAttributes": true, "data": [
+					{"name": "COMPOSURE", "minValue": 1, "maxValue": 99, "componentType": "BAR", "isVisible": false}]}}
+			]}}
+		]}}
+	]
+}
+)";
+
 // Main menu Edit Players
 static const char* kMainMenu = R"({
 	"attributeCategories": [
@@ -287,6 +318,7 @@ static std::map<std::string, std::string> originals() {
         {eu::avatar_path("managercareer_create_real"), kMgrCreateReal},
         {eu::avatar_path("managercareer_edit_online"), kMgrOnline},
         {eu::avatar_path("playercareer_edit_position"), kPosition},
+        {eu::avatar_path("mainmenu_create_offline"), kCreateOffline},
         {eu::avatar_path("mainmenu_edit_real"), kMainMenu},
         {eu::avatar_path("mainmenu_edit_created"), kMainMenu},
         {eu::kCareerSettingsPath, kSettings},
@@ -424,21 +456,67 @@ static void test_edit_unlock() {
         CHECK(r.notes.size() >= 3 && r.notes[0] == "10 fields unlocked", "notes: " + (r.notes.empty() ? std::string() : r.notes[0]));
     });
 
-    run_case("edit unlock: Unlock everything adds the experiments; player GENDER still hidden", [&] {
+    run_case("edit unlock: Unlock everything adds the game's gear to career Edit Player, nothing from the deny-list", [&] {
         eu::Options o;
         o.experimental = true;
-        ojson d = ojson::parse(eu::build(EP, originals(), o).text);
-        CHECK(at(d, "CRANIUM_HEAD/HEAD"), "head editor (from the manager file)");
-        const ojson* c = at(d, "ATHLETIC/ATTRIBUTES/MENTALITY/COMPOSURE");
-        CHECK(c && flag(c, "isVisible", false) && (*c)["maxValue"] == 99, "Composure visible");
-        CHECK(flag(at(d, "ATHLETIC/ATTRIBUTES/DEFENDING/DEFENSIVE_AWARENESS"), "isVisible", false), "Defensive awareness visible");
-        CHECK(!at(d, "BRAND_ANIMATIONS/GOALCELEBRATION")->contains("disabledOptions"), "every celebration");
-        CHECK(!flag(at(d, "INFO/ABOUT_ME/GENDER"), "isVisible"), "player GENDER stays hidden");
-        CHECK(!flag(at(d, "INFO/ABOUT_ME/TEAM"), "isEditable"), "TEAM stays locked");
-        ojson mm = ojson::parse(eu::build(MM, originals(), o).text);
-        CHECK(at(mm, "ATHLETIC/ATTRIBUTES/MENTALITY/COMPOSURE") && flag(at(mm, "ATHLETIC/BODY/HEIGHT"), "isEditable", false),
-              "main menu: Composure, height");
-        CHECK(!flag(at(mm, "INFO/ABOUT_ME/TEAM"), "isEditable"), "main menu TEAM locked");
+        eu::RecipeResult r = eu::build(EP, originals(), o);
+        CHECK(r.ok, r.error);
+        ojson d = ojson::parse(r.text);
+        CHECK(at(d, "GEAR/MATCHDAY/TATTOO/TATTOOLEFTARM") && at(d, "GEAR/MATCHDAY/TATTOO/TATTOOBACK"), "tattoos grafted");
+        CHECK(at(d, "GEAR/MATCHDAY/ARM_SLEEVES/LEFT_ARM_SLEEVE") && !at(d, "GEAR/MATCHDAY/ARM_SLEEVES/OUTFITTOPLAYER1"),
+              "sleeves grafted without the store outfit");
+        CHECK(at(d, "GEAR/MATCHDAY/SOCK/FASHION_SOCKS") && !at(d, "GEAR/MATCHDAY/SOCK/OUTFITSOCK"), "sock style added to SOCK");
+        CHECK((*at(d, "GEAR/MATCHDAY/SOCK"))["filters"]["data"].size() == 2, "KIT_SOCK not doubled");
+        CHECK(!at(d, "GEAR/MATCHDAY/INNER_TOPS") && !at(d, "CRANIUM_HEAD") && !at(d, "ATHLETIC/ATTRIBUTES/MENTALITY/COMPOSURE") &&
+                  !at(d, "ATHLETIC/ATTRIBUTES/DEFENDING/DEFENSIVE_AWARENESS"),
+              "no head editor, store outfit, Composure or Defensive awareness");
+        CHECK((*at(d, "BRAND_ANIMATIONS/GOALCELEBRATION"))["disabledOptions"].size() == 2, "celebration blacklist kept");
+        CHECK(!flag(at(d, "INFO/ABOUT_ME/GENDER"), "isVisible") && !flag(at(d, "INFO/ABOUT_ME/TEAM"), "isEditable"),
+              "GENDER hidden, TEAM locked");
+        bool noted = false;
+        for (const auto& n : r.notes) noted = noted || n.find("TATTOO, ARM_SLEEVES, SOCK") != std::string::npos;
+        CHECK(noted, "the note lists the gear");
+        // the gear needs GEAR/MATCHDAY on the screen: the Create-a-Club fixture has none, nothing is invented
+        ojson cp = ojson::parse(eu::build(CP, originals(), o).text);
+        CHECK(!at(cp, "GEAR"), "no gear section invented");
+        // without the source file: no gear, still valid
+        auto without = originals();
+        without.erase(eu::avatar_path("mainmenu_create_offline"));
+        eu::RecipeResult w = eu::build(EP, without, o);
+        CHECK(w.ok && !at(ojson::parse(w.text), "GEAR/MATCHDAY/TATTOO"), "no source, no gear: " + w.error);
+        // the second source is used when the first is missing
+        without[eu::avatar_path("playercareer_edit_vpro")] = kCreateOffline;
+        CHECK(at(ojson::parse(eu::build(EP, without, o).text), "GEAR/MATCHDAY/TATTOO"), "Player Career pro editor as the source");
+        // every target, experimental: no name of the deny-list the game's own file lacks, and the output validates
+        std::function<void(const ojson&, std::set<std::string>&)> names = [&](const ojson& j, std::set<std::string>& out) {
+            if (j.is_object()) {
+                if (j.contains("name") && j["name"].is_string()) out.insert(j["name"].get<std::string>());
+                for (const char* k : {"attributeCategories", "filters", "data"})
+                    if (j.contains(k)) names(j[k], out);
+            } else if (j.is_array()) {
+                for (const auto& v : j) names(v, out);
+            }
+        };
+        int targets = 0;
+        for (const auto& f : eu::files()) {
+            if (f.group == eu::Group::Source || f.group == eu::Group::CareerSettings) continue;
+            eu::RecipeResult x = eu::build(f.path, originals(), o);
+            CHECK(x.ok, f.path + ": " + x.error);
+            if (!x.ok) continue;
+            ++targets;
+            std::set<std::string> was, now;
+            ojson orig;
+            bool rep = false;
+            eu::parse(originals()[f.path], orig, &rep, nullptr);
+            names(orig, was);
+            names(ojson::parse(x.text), now);
+            for (const auto& n : now) CHECK(!eu::denied_name(n) || was.count(n), f.path + ": denied name added: " + n);
+        }
+        CHECK(targets == 7, fmt("the 7 editor targets built (%d)", targets));
+        // validation itself refuses a denied name the original lacks
+        ojson orig = ojson::parse(kEditPlayers), bad = orig;
+        bad["attributeCategories"].push_back(ojson::parse(R"({"name": "CRANIUM_HEAD", "filters": {"data": [{"name": "HEAD"}]}})"));
+        CHECK(eu::validate(EP, bad.dump(), orig, {}, eu::keep_list(EP, o)).find("CRANIUM_HEAD") == 0, "validate: head editor refused");
     });
 
     run_case("edit unlock: Create-a-Club player gets the commentary name from the career file", [&] {
@@ -451,7 +529,7 @@ static void test_edit_unlock() {
         CHECK(!flag(at(d, "ATHLETIC/BODY/BODY_TYPE"), "isVisible"), "BODY_TYPE stays hidden");
     });
 
-    run_case("edit unlock: manager files: names, birth date, height; lengths from creation; GENDER only with experiments", [&] {
+    run_case("edit unlock: manager files: names, birth date, height; lengths from creation; GENDER always kept", [&] {
         eu::RecipeResult r = eu::build(ME, originals(), eu::Options());
         CHECK(r.ok, r.error);
         ojson d = ojson::parse(r.text);
@@ -469,10 +547,11 @@ static void test_edit_unlock() {
         eu::Options o;
         o.experimental = true;
         ojson x = ojson::parse(eu::build(ME, originals(), o).text);
-        CHECK(flag(at(x, "INFO/ABOUT_ME/GENDER"), "isEditable", false) && flag(at(x, "INFO/ABOUT_ME/GENDER"), "isVisible", false),
-              "manager gender (experimental)");
-        CHECK(at(x, "GEAR/MATCHDAY/INNER_TOPS/OUTFITTOPLAYER1") && at(x, "GEAR/MATCHDAY/SHOE/OUTFITSHOE"), "outfit picker");
-        CHECK(has_dep(x, {"GENDER"}, "OUTFITSHOE") && has_dep(x, {"OUTFITTOPLAYER1"}, "OUTFITSHOE"), "outfit dependencies");
+        CHECK(!flag(at(x, "INFO/ABOUT_ME/GENDER"), "isEditable") && !flag(at(x, "INFO/ABOUT_ME/GENDER"), "isVisible"),
+              "manager gender stays locked even with experiments (closing Edit Manager could close the game)");
+        CHECK(!at(x, "GEAR/MATCHDAY/INNER_TOPS") && !at(x, "GEAR/MATCHDAY/SHOE") && !has_dep(x, {"OUTFITTOPLAYER1"}, "OUTFITSHOE"),
+              "no outfit picker with experiments either");
+        CHECK(ojson::parse(eu::build(ME, originals(), eu::Options()).text) == x, "experimental Edit Manager = stage 1");
         ojson cr = ojson::parse(eu::build(MCR, originals(), o).text);
         CHECK(!flag(at(cr, "INFO/ABOUT_ME/GENDER"), "isEditable") && flag(at(cr, "INFO/ABOUT_ME/FIRST_NAME"), "isEditable", false),
               "career start: names, never the gender");
@@ -555,7 +634,8 @@ static void test_edit_unlock() {
         eu::RecipeResult r = eu::build(MR, originals(), o);
         CHECK(r.ok && r.repaired, "built: " + r.error);
         ojson d = ojson::parse(r.text);
-        CHECK(at(d, "CRANIUM_HEAD/HEAD") && flag(at(d, "INFO/ABOUT_ME/FIRST_NAME"), "isEditable", false), "head editor, names");
+        CHECK(!at(d, "CRANIUM_HEAD") && flag(at(d, "INFO/ABOUT_ME/FIRST_NAME"), "isEditable", false),
+              "names; no head editor grafted onto a real manager");
         CHECK(r.text.find('\r') == std::string::npos, "LF like the original");
     });
 
@@ -595,7 +675,7 @@ static void test_edit_unlock() {
               "unknown name");
         CHECK(eu::validate(EP, with([](ojson& j) { j["attributeCategories"][0]["name"] = "HACKED"; }), orig, {"HACKED"}, keep).empty(),
               "a name an original uses is known");
-        CHECK(!eu::validate(EP, with([](ojson& j) { j["attributeCategories"][1]["filters"]["data"][0]["filters"]["data"][0]["minValue"] = 300; }),
+        CHECK(!eu::validate(EP, with([](ojson& j) { j["attributeCategories"][2]["filters"]["data"][0]["filters"]["data"][0]["minValue"] = 300; }),
                             orig, none, keep).empty(),
               "minValue above maxValue");
         CHECK(!eu::validate(EP, with([](ojson& j) { j["attributeCategories"][0]["filters"]["data"][0]["filters"]["data"][0]["maxLength"] = 999; }),
@@ -759,6 +839,7 @@ static void test_edit_unlock_ui(App& app, Ui& ui, const fs::path& le) {
     run_case("UI: Game editors: write the unlocked files, restore, switch", [&] {
         const std::string EP = eu::avatar_path("managercareer_editplayers");
         for (const auto& kv : originals()) put(rel(app.legacy.cache_dir(), kv.first), kv.second);
+        put(app.legacy.cache_dir() / "missing.txt", eu::avatar_path("playercareer_edit_vpro") + "\n");  // the second gear source
         CHECK(ui.click("Turbo Tools"), "Tools tab");
         ui.frames(2);
         eu_scroll_bottom(ui, "##tools");
@@ -775,10 +856,10 @@ static void test_edit_unlock_ui(App& app, Ui& ui, const fs::path& le) {
         json gs = read_json(le / "turbo_output" / "gui_settings.json");
         CHECK(gs["edit_unlock"]["experimental"] == true && gs["edit_unlock"]["enabled"] == true, "saved");
         ui.frames(70);  // the tick applies within a second
-        CHECK(read_file(out).find("CRANIUM_HEAD") != std::string::npos, "rewritten with the experiments");
+        CHECK(read_file(out).find("TATTOO") != std::string::npos, "rewritten with the experiments (gear)");
         CHECK(ui.click("Unlock everything (experimental)"), "experiments off");
         ui.frames(70);
-        CHECK(read_file(out).find("CRANIUM_HEAD") == std::string::npos, "back to stage 1");
+        CHECK(read_file(out).find("TATTOO") == std::string::npos, "back to stage 1");
         // one section: the in-memory fallback's switch lives inside it and saves into the same object
         CHECK(!ui.find("Game editors (unlock the game's own Edit Player / Edit Manager)"), "one Game editors section");
         const char* fallback = "Also patch the editors in memory (fallback when Live Editor ignores the files)";

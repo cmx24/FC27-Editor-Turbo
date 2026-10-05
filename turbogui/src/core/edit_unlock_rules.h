@@ -31,7 +31,6 @@ struct Context {
     const char* name;   // <context> of avatarcustomizationcfg_<context>.json
     Group group;
     bool manager;       // a manager editor
-    bool gender_x;      // GENDER may be unlocked by the experimental switch (Edit Manager only, never at career start)
     const char* label;  // GUI label ("Details")
 };
 
@@ -46,8 +45,8 @@ const char* group_label(Group g);
 
 // ---------------------------------------------------------------- the keep-list
 // Fields that stay as the game ships them: TEAM (a transfer outside the transfer engine), GENDER (model, kit and
-// commentary; a manager's in Edit Manager only under the experimental switch), PREFERRED_POSITION (set by ROLE),
-// BODY_TYPE. The file override (eu::keep_list) and the in-memory walk (keep_id) both read this one table.
+// commentary; a manager's too: Edit Manager closing with a changed gender can close the game), PREFERRED_POSITION (set
+// by ROLE), BODY_TYPE. The same whether "Unlock everything" is on or not (`experimental` no longer changes the list). The file override (eu::keep_list) and the in-memory walk (keep_id) both read this one table.
 struct KeptAttribute {
     const char* name;
     int id;  // AttributeName enum value on build 6AB9813C-211EF000 (the host re-checks it against the game's table)

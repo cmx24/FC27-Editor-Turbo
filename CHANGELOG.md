@@ -3,6 +3,16 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.1.4 (playtest round 2)
+
+### Added
+
+- Game editors, "Unlock everything (experimental)": career Edit Player gets the game's own tattoo, arm sleeve, sock style, boot, glove and wristband pickers, copied with their ids from the game's Create Player file (main menu Create Player offline, else Player Career's pro editor; Turbo asks the game for it). Store outfits, the head editor and the hidden attributes never come along.
+
+### Fixed
+
+- Game editors, "Unlock everything (experimental)": Edit Manager no longer closes the game and Edit Player no longer freezes. The experiments that could do it are gone: the head editor on real players and managers, the manager outfit picker, manager gender, every goal celebration, Composure / Defensive awareness. A shared deny-list stops the recipe and its validation from adding them, and the in-memory fallback now keeps exactly the same fields as the file override (manager gender included).
+
 ## 1.1.3 (hotfix)
 
 ### Fixed

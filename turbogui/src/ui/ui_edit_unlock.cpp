@@ -149,10 +149,12 @@ void draw_game_editors(App& app) {
     if (ImGui::Checkbox("Unlock everything (experimental)", &o.experimental)) changed = true;
     ImGui::PushStyleColor(ImGuiCol_Text, warn);
     ImGui::TextWrapped(
-        "Not yet checked in game; back up your career save first. Adds the head editor for real players and real managers "
-        "(a generic head replaces the real face scan for good), Composure and Defensive awareness, the manager outfit "
-        "picker (offline its lists may be short), every goal celebration, your manager's gender and, with career "
-        "settings, the squad settings.");
+        "Not yet checked in game; back up your career save first. Adds to career Edit Player the game's own tattoo, arm "
+        "sleeve, sock style, boot, glove and wristband pickers, copied from its Create Player screen (main menu Create "
+        "Player, or Player Career's pro editor) when the screen has a Gear section and the game exported that file. With "
+        "career settings, it also adds the squad settings. Edit Manager is not changed by this switch (1.1.4 removed the "
+        "head editor, outfit picker, manager gender, every celebration and the two hidden attributes: they could freeze or "
+        "close the game).");
     ImGui::PopStyleColor();
     if (ImGui::Checkbox("Career settings too (advanced)", &o.career_settings)) changed = true;
     ImGui::PushStyleColor(ImGuiCol_Text, warn);
@@ -166,7 +168,7 @@ void draw_game_editors(App& app) {
         "The game reads these files each time an editor screen opens: reopen the screen, no game restart needed when Live "
         "Editor's override applies. When Live Editor does not apply the files, the in-memory fallback below turns on the "
         "greyed fields the game loaded; it cannot add a section the game's file lacks (Attributes, Brand animations, the "
-        "head editor, the outfit picker).");
+        "experimental gear).");
     if (!s.manifest_error().empty()) ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "%s", s.manifest_error().c_str());
     if (on && !s.ready(o)) {
         ImGui::PushStyleColor(ImGuiCol_Text, warn);
