@@ -12,6 +12,7 @@
 #include "core/hotkey.h"
 #include "core/teamnames.h"
 #include "file_picker.h"
+#include "hotkey_setting.h"
 #include "imgui.h"
 #include "preload.h"
 #include "ui_zoom.h"
@@ -867,7 +868,9 @@ void App::draw() {
                 ImGui::SetTooltip("Faces, tattoos, item previews and crests load in the background while Turbo is open");
         }
     }
-    ImGui::SameLine(ImGui::GetWindowWidth() - (busy() ? S(380.0f) : S(230.0f)));
+    const float right_x = ImGui::GetWindowWidth() - (busy() ? S(380.0f) : S(230.0f));
+    const bool hotkey_inline = hotkey_bar(*this, right_x);  // hotkey_setting.h: the show/hide key, when it fits here
+    ImGui::SameLine(right_x);
     if (busy()) {
         ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Queued: %s", pending_label.c_str());
         if (ImGui::IsItemHovered())
@@ -886,6 +889,7 @@ void App::draw() {
     }
     ImGui::SameLine();
     ImGui::TextDisabled("v%s", kGuiVersion);
+    if (!hotkey_inline) hotkey_control(*this, "bar");  // no room on the status line: a line of its own
     ImGui::Separator();
 
     if (ImGui::BeginTabBar("##turbo_tabs")) {
@@ -910,7 +914,8 @@ void App::draw() {
         }
         ImGui::EndTabBar();
     }
-    // the show/hide key setting was not drawn this frame (another tab): stop waiting for a key (hotkey_setting.h)
+    hotkey_popup(*this);  // hotkey_setting.h: waits for the new show/hide key after Change...
+    // the capture window was not drawn this frame: stop waiting for a key (hotkey_setting.h)
     if (hotkey_capture && hotkey_capture_frame != ImGui::GetFrameCount()) hotkey_capture = false;
     ImGui::End();
 }

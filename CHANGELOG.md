@@ -3,6 +3,16 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.1.4 (playtest round 2)
+
+### Added
+
+- **Show/hide key in plain sight**: "Show/hide key: [F8] [Change...]" now sits in the Turbo window's top bar on every tab (and first thing in Turbo Tools, and in Status > Settings). Pick a key from the list (F1-F12, Insert, Home, End, Page Up/Down, Pause, Scroll Lock, numpad keys, the ` ~ key, mouse side buttons) or press Change... and press the key (Ctrl / Alt / Shift allowed; Esc cancels; Reset to F8). Mouse 4 / Mouse 5 (side buttons) can now be the show/hide key.
+
+### Fixed
+
+- A newly picked show/hide key that was still held down no longer hid Turbo right after it was chosen.
+
 ## 1.1.3 (hotfix)
 
 ### Fixed
