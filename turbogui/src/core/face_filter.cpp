@@ -1,6 +1,8 @@
 // FC 27 LE Turbo GUI - real-face chooser filters (see face_filter.h)
 #include "core/face_filter.h"
 
+#include "core/face_looks.h"
+
 #include <algorithm>
 #include <map>
 
@@ -44,22 +46,25 @@ static const char* kEyeColours[] = {"", "Blue", "Light Blue", "Brown", "Light Br
                                     "Dark Brown", "Saturated Green"};
 static const char* kEyeBuckets[] = {"", "Blue", "Green", "Brown", "Light brown & hazel", "Other"};
 static const int kEyeBucket[] = {5, 1, 1, 3, 4, 4, 2, 2, 1, 3, 2};  // code 0 .. 10; others: 5
-// Hair styles: no names or looks are known for the codes, so the menu groups them by code family (thousands), each
-// shown with the picture of one of its styles: 0-999, 1000-1999, 2000-2999, 3000-3999, 4000 and up
-static const char* kHairBuckets[] = {"", "Styles 0-999", "Styles 1000-1999", "Styles 2000-2999", "Styles 3000-3999", "Styles 4000+"};
-// Facial hair styles: the looks of the styles with a game preview (data/ui/imgAssets/facialhairstyle, 2026-10-04);
-// the others are listed under "Any facial hair" only
-enum BeardLook { kStubble = 1, kMoustache, kFullBeard };
-static const char* kBeardBuckets[] = {"Clean-shaven", "Stubble", "Moustache & goatee", "Beard"};
-static const std::map<int64_t, int>& beard_looks() {
-    static const std::map<int64_t, int> m = {
-        {30, kStubble},    {68, kStubble},    {80, kMoustache},  {284, kStubble},   {303, kStubble},   {31, kMoustache},
-        {78, kMoustache},  {88, kMoustache},  {89, kMoustache},  {240, kMoustache}, {261, kMoustache}, {262, kMoustache},
-        {297, kMoustache}, {298, kMoustache}, {299, kMoustache}, {302, kMoustache}, {304, kMoustache}, {79, kFullBeard},
-        {81, kFullBeard},  {87, kFullBeard},  {250, kFullBeard}, {263, kFullBeard}, {264, kFullBeard}, {265, kFullBeard},
-        {267, kFullBeard}, {276, kFullBeard}, {283, kFullBeard},
-    };
-    return m;
+// Hair and facial hair styles: grouped by look (face_looks.h, from the game's own previews), 5 groups each. The keys are
+// the looks' values: hair 1 .. 5, facial hair 0 (clean-shaven, also the codes the game shows without facial hair) .. 4.
+static const char* kHairBuckets[] = {"", "Bald & buzz cut", "Short", "Medium", "Long", "Tied, braids & dreads"};
+static const char* kBeardBuckets[] = {"Clean-shaven", "Stubble", "Moustache & goatee", "Short beard", "Full beard"};
+
+// The look of a style code: its own entry in the table, or else the nearest listed id (a tie goes to the lower id), so
+// codes added by later updates or mods still fall in one of the 5 groups.
+template <size_t N>
+static int64_t style_look(const looks::StyleLook (&t)[N], int64_t raw) {
+    const looks::StyleLook* hi = std::lower_bound(t, t + N, raw, [](const looks::StyleLook& e, int64_t v) { return e.id < v; });
+    if (hi == t + N) return t[N - 1].look;
+    if (hi->id == raw || hi == t) return hi->look;
+    const looks::StyleLook* lo = hi - 1;
+    return raw - lo->id <= hi->id - raw ? lo->look : hi->look;
+}
+template <size_t N>
+static bool style_in(const looks::StyleLook (&t)[N], int64_t raw) {
+    const looks::StyleLook* it = std::lower_bound(t, t + N, raw, [](const looks::StyleLook& e, int64_t v) { return e.id < v; });
+    return it != t + N && it->id == raw;
 }
 
 template <size_t N>
@@ -78,12 +83,8 @@ int64_t facet_key(Facet f, int64_t raw) {
         case kHairColour:
         case kBeardColour: return table_bucket(kHairColourBucket, raw, 5);
         case kEyes: return table_bucket(kEyeBucket, raw, 5);
-        case kHair: return std::min<int64_t>(raw / 1000, 4) + 1;
-        case kBeard: {
-            if (raw == 0) return 0;
-            auto it = beard_looks().find(raw);
-            return it != beard_looks().end() ? it->second : kSomeBeard;
-        }
+        case kHair: return style_look(looks::kHair, raw);
+        case kBeard: return style_look(looks::kFacialHair, raw);
         default: return raw;
     }
 }
@@ -103,8 +104,8 @@ std::string key_label(Facet f, int64_t key) {
         case kBeardColour: return bucket_name(kHairColourBuckets, key);
         case kHair: return bucket_name(kHairBuckets, key);
         case kBeard:
-            if (key == kSomeBeard) return "Any facial hair";
-            return key >= 0 && key <= kFullBeard ? std::string(kBeardBuckets[key]) : "Group " + std::to_string(key);
+            return key >= 0 && key < int64_t(sizeof(kBeardBuckets) / sizeof(kBeardBuckets[0])) ? std::string(kBeardBuckets[key])
+                                                                                               : "Group " + std::to_string(key);
         case kEyes: return bucket_name(kEyeBuckets, key);
         case kGender: return key == 0 ? "Male" : key == 1 ? "Female" : "Gender " + std::to_string(key);
         default: return std::to_string(key);
@@ -126,15 +127,21 @@ std::string trait_label(Facet f, int64_t raw) {
         case kEyes:
             if (raw >= 1 && raw < int64_t(sizeof(kEyeColours) / sizeof(kEyeColours[0]))) return key_label(f, key) + " (" + kEyeColours[raw] + ")";
             return key_label(f, key) + " (eyes " + n + ")";
-        case kHair: return "style " + n;
+        case kHair: return key_label(f, key) + " (style " + n + ")";
         case kBeard:
             if (raw == 0) return key_label(f, key);
-            return (key == kSomeBeard ? std::string("Facial hair") : key_label(f, key)) + " (style " + n + ")";
+            return key_label(f, key) + " (style " + n + ")";
         default: return key_label(f, key);
     }
 }
 
 bool facet_has_pictures(Facet f) { return f == kHair || f == kBeard; }
+
+bool style_listed(Facet f, int64_t raw) {
+    if (f == kHair) return style_in(looks::kHair, raw);
+    if (f == kBeard) return style_in(looks::kFacialHair, raw);
+    return false;
+}
 
 std::string facet_picture(Facet f, int64_t raw) {
     if (raw <= 0) return "";
@@ -147,7 +154,6 @@ static bool facet_ok(const Face& face, Facet f, int64_t sel) {
     if (sel == kAny) return true;
     const int64_t raw = face.raw[f];
     if (raw < 0) return false;
-    if (f == kBeard && sel == kSomeBeard) return raw > 0;
     return facet_key(f, raw) == sel;
 }
 
@@ -159,32 +165,31 @@ bool matches(const Face& f, const Filter& flt, int skip) {
 
 std::vector<Count> facet_counts(const std::vector<Face>& faces, const std::vector<size_t>& pool, const Filter& flt, Facet fc) {
     std::map<int64_t, Count> by_key;
-    Count some;
-    some.key = kSomeBeard;
+    std::map<int64_t, bool> pictured;  // style groups: the sample's style is in the looks table (it has a preview)
+    const bool styles = facet_has_pictures(fc);
     for (size_t i : pool) {
         if (i >= faces.size()) continue;
         const Face& f = faces[i];
         if (f.raw[fc] < 0 || !matches(f, flt, fc)) continue;
         const int64_t k = facet_key(fc, f.raw[fc]);
         auto it = by_key.find(k);
-        if (k == kSomeBeard) {
-            // a facial hair style whose look is not known: counted below under "Any facial hair" only
-        } else if (it == by_key.end()) {
+        if (it == by_key.end()) {
             Count c;
             c.key = k;
             c.n = 1;
             c.sample = i;
             by_key.emplace(k, c);
+            pictured[k] = styles && f.raw[fc] > 0 && style_listed(fc, f.raw[fc]);
         } else {
             ++it->second.n;
-        }
-        if (fc == kBeard && f.raw[fc] > 0) {
-            if (some.n == 0) some.sample = i;
-            ++some.n;
+            // a representative style with a picture: the first head of the group whose style is a listed one
+            if (styles && !pictured[k] && f.raw[fc] > 0 && style_listed(fc, f.raw[fc])) {
+                it->second.sample = i;
+                pictured[k] = true;
+            }
         }
     }
     std::vector<Count> out;
-    if (fc == kBeard && some.n > 0) out.push_back(some);
     for (const auto& kv : by_key) out.push_back(kv.second);
     return out;
 }

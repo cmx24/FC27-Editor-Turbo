@@ -299,7 +299,7 @@ static void facet_button(App& app, Chooser& ch, const std::vector<Face>& list, c
         for (int i = clip.DisplayStart; i < clip.DisplayEnd; ++i) {
             const faces::Count& c = counts[static_cast<size_t>(i)];
             ImGui::PushID(i);
-            // a style group shows the style of its first head, the other groups that head's miniface
+            // a style group shows a listed style of its heads (one with a game preview), the other groups the first head's miniface
             std::string pic = faces::facet_has_pictures(fc) ? faces::facet_picture(fc, list[c.sample].raw[fc]) : std::string();
             if (pic.empty()) pic = face_picture(list[c.sample]);
             draw_legacy_picture(app, pic, thumb, true);

@@ -4714,12 +4714,23 @@ static void test_ui() {
             CHECK(bucket(kHairColour, 0) == "Black" && bucket(kHairColour, 3) == "Brown" && bucket(kHairColour, 4) == "Blonde" &&
                       bucket(kHairColour, 12) == "Red & ginger" && bucket(kHairColour, 9) == "Grey, white & other" &&
                       bucket(kHairColour, 21) == "Grey, white & other" && trait_label(kHairColour, 3) == "Brown (Dark Brown)", "hair colours");
-            CHECK(bucket(kBeard, 0) == "Clean-shaven" && bucket(kBeard, 30) == "Stubble" && bucket(kBeard, 261) == "Moustache & goatee" &&
-                      bucket(kBeard, 87) == "Beard" && facet_key(kBeard, 243) == kSomeBeard && key_label(kBeard, kSomeBeard) == "Any facial hair" &&
-                      trait_label(kBeard, 243) == "Facial hair (style 243)", "facial hair looks; unknown styles under Any facial hair");
+            // facial hair looks (face_looks.h, from the game's previews); 68 and 999 show no facial hair in the game
+            CHECK(bucket(kBeard, 0) == "Clean-shaven" && bucket(kBeard, 68) == "Clean-shaven" && bucket(kBeard, 999) == "Clean-shaven" &&
+                      bucket(kBeard, 243) == "Stubble" && bucket(kBeard, 261) == "Moustache & goatee" && bucket(kBeard, 30) == "Short beard" &&
+                      bucket(kBeard, 87) == "Full beard" && trait_label(kBeard, 243) == "Stubble (style 243)" && trait_label(kBeard, 0) == "Clean-shaven",
+                  "facial hair looks");
+            CHECK(bucket(kBeard, 50) == "Stubble" && bucket(kBeard, 256) == "Stubble" && bucket(kBeard, 300) == "Moustache & goatee" &&
+                      bucket(kBeard, 5000) == "Clean-shaven" && !style_listed(kBeard, 256) && style_listed(kBeard, 255),
+                  "unlisted facial hair codes: nearest listed id (50 -> 47; 256 ties 255 / 257 -> the lower; 300 -> 299; past 999 -> 999)");
             CHECK(bucket(kEyes, 3) == "Brown" && bucket(kEyes, 8) == "Blue" && bucket(kEyes, 5) == "Light brown & hazel" && bucket(kEyes, 40) == "Other",
                   "eyes");
-            CHECK(bucket(kHair, 580) == "Styles 0-999" && bucket(kHair, 3131) == "Styles 3000-3999" && bucket(kHair, 9999) == "Styles 4000+", "hair styles");
+            CHECK(bucket(kHair, 0) == "Bald & buzz cut" && bucket(kHair, 2010) == "Bald & buzz cut" && bucket(kHair, 2) == "Short" &&
+                      bucket(kHair, 580) == "Medium" && bucket(kHair, 3131) == "Medium" && bucket(kHair, 585) == "Long" &&
+                      bucket(kHair, 4) == "Tied, braids & dreads" && bucket(kHair, 2026) == "Tied, braids & dreads" &&
+                      trait_label(kHair, 4) == "Tied, braids & dreads (style 4)" && style_listed(kHair, 3131) && !style_listed(kHair, 50),
+                  "hair looks");
+            CHECK(bucket(kHair, 50) == "Tied, braids & dreads" && bucket(kHair, 214) == "Short" && bucket(kHair, 9999) == "Short",
+                  "unlisted hair codes: nearest listed id (50 ties 49 / 51 -> the lower; 214 -> 212; past 8040 -> 8040)");
             CHECK(bucket(kGender, 0) == "Male" && bucket(kGender, 1) == "Female" && facet_order()[0] == kGender, "gender, shown first");
             CHECK(bucket(kEthnicity, 34) == "European" && bucket(kEthnicity, 520) == "Asian" && bucket(kEthnicity, 1024) == "African" &&
                       bucket(kEthnicity, 1502) == "Latin" && bucket(kEthnicity, 7010) == "European" && bucket(kEthnicity, 15000) == "Mixed & other",
@@ -4741,8 +4752,9 @@ static void test_ui() {
                 }
                 std::vector<Count> cs = facet_counts(every, all_idx, Filter(), fc);
                 int listed = 0;
-                for (const auto& c : cs) listed += (fc == kBeard && c.key > 0) ? 0 : c.n;  // beard looks are also in Any facial hair
-                CHECK(named && cs.size() <= size_t(kMaxBuckets) && listed == int(every.size()),
+                for (const auto& c : cs) listed += c.n;
+                const bool five_looks = (fc != kHair && fc != kBeard) || cs.size() == size_t(kMaxBuckets);  // styles: all 5 looks used
+                CHECK(named && five_looks && cs.size() <= size_t(kMaxBuckets) && listed == int(every.size()),
                       fmt("%s: every code in a group (%d), %zu choices, %d of %zu listed", facet_title(fc), int(named), cs.size(), listed, every.size()));
             }
             CHECK(kSortCount <= kMaxBuckets, "sort menu");
@@ -4761,20 +4773,24 @@ static void test_ui() {
                 f.raw[kBeard] = beard;
                 return f;
             };
-            std::vector<Face> heads = {mk(1, 80, 34, 20, 0, 0), mk(2, 90, 1502, 20, 3, 250), mk(3, 70, 1024, 90, 0, 287), mk(4, 85, 1030, 100, 0, 250)};
+            // facial hair: clean-shaven, 251 short beard, 274 (not listed: between 273 and 275, both short beards), 250 short beard
+            std::vector<Face> heads = {mk(1, 80, 34, 20, 0, 0), mk(2, 90, 1502, 20, 3, 251), mk(3, 70, 1024, 90, 0, 274), mk(4, 85, 1030, 100, 0, 250)};
             std::vector<size_t> pool = {0, 1, 2, 3};
             Filter flt;
             std::vector<Count> beards = facet_counts(heads, pool, flt, kBeard);
-            CHECK(beards.size() == 3 && beards[0].key == kSomeBeard && beards[0].n == 3 && beards[1].key == 0 && beards[1].n == 1 &&
-                      beards[2].key == facet_key(kBeard, 250) && beards[2].n == 2 && beards[2].sample == 1, fmt("beard values %zu", beards.size()));
+            CHECK(beards.size() == 2 && beards[0].key == 0 && beards[0].n == 1 && beards[1].key == facet_key(kBeard, 250) &&
+                      key_label(kBeard, beards[1].key) == "Short beard" && beards[1].n == 3 && beards[1].sample == 1, fmt("beard values %zu", beards.size()));
+            std::vector<Count> pictured = facet_counts(heads, {0, 2, 1, 3}, flt, kBeard);
+            CHECK(pictured.size() == 2 && pictured[1].n == 3 && pictured[1].sample == 1,
+                  "a style group's picture is a listed style (251), not the first head's unlisted 274");
             flt.sel[kHairColour] = facet_key(kHairColour, 0);  // black hair: 1, 3, 4
             std::vector<Count> skins = facet_counts(heads, pool, flt, kSkin);
             CHECK(skins.size() == 2 && skins[0].key == 1 && skins[0].n == 1 && skins[1].key == 5 && skins[1].n == 2, "skin counts under the hair filter");
             std::vector<Count> hairs = facet_counts(heads, pool, flt, kHairColour);
             CHECK(hairs.size() == 2 && hairs[0].n == 3 && hairs[1].key == facet_key(kHairColour, 3) && hairs[1].n == 1,
                   "a facet's own filter does not narrow its counts");
-            flt.sel[kEthnicity] = facet_key(kEthnicity, 1024);  // African + black hair + some facial hair: 3, 4
-            flt.sel[kBeard] = kSomeBeard;
+            flt.sel[kEthnicity] = facet_key(kEthnicity, 1024);  // African + black hair + short beard: 3, 4
+            flt.sel[kBeard] = facet_key(kBeard, 250);
             std::vector<const Face*> rows;
             for (const auto& f : heads)
                 if (matches(f, flt)) rows.push_back(&f);
@@ -4821,11 +4837,14 @@ static void test_ui() {
             int clean = 0;  // 1003 and 1006 (3001 too when the list was rebuilt after it got 1003's real face)
             for (const auto& f : player_faces(app)) clean += (f.real && f.raw[faces::kBeard] == 0) ? 1 : 0;
             CHECK(clean >= 2 && ui.find(fmt("Clean-shaven (%d)##v0", clean)) != nullptr, fmt("clean-shaven heads counted (%d)", clean));
-            CHECK(ui.click("Any facial hair (4)##v-2"), "any facial hair");
+            CHECK(ui.find("Any facial hair", "Choose a real face") == nullptr, "no Any facial hair bucket any more");
+            int moustache = 0;  // 1001 (style 241) and 1002 (242): Moustache & goatee
+            for (const auto& f : player_faces(app)) moustache += (f.real && f.raw[faces::kBeard] >= 0 && faces::facet_key(faces::kBeard, f.raw[faces::kBeard]) == 2) ? 1 : 0;
+            CHECK(moustache >= 1 && ui.click(fmt("Moustache & goatee (%d)##v2", moustache)), fmt("moustache & goatee (%d)", moustache));
             ui.frames(2);
             CHECK(ui.find("face1002", "Choose a real face") && !ui.find("face1003", "Choose a real face") && !ui.find("face1006", "Choose a real face"),
-                  "bearded heads only");
-            CHECK(ui.find("Facial hair: Any facial hair##facet4", "Choose a real face") != nullptr, "the button shows the filter");
+                  "moustache & goatee heads only");
+            CHECK(ui.find("Facial hair: Moustache & goatee##facet4", "Choose a real face") != nullptr, "the button shows the filter");
             CHECK(ui.click("Clear filters", "Choose a real face"), "clear again");
             CHECK(ui.click("Close##faces"), "close");
 

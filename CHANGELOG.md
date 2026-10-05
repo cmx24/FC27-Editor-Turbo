@@ -3,6 +3,12 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.1.5
+
+### Changed
+
+- Real-face chooser: the **Hair** and **Facial hair** filters group styles by look, from the game's own preview pictures of every style (1463 hair styles, 89 facial hair styles), 5 groups each. Hair: Bald & buzz cut, Short, Medium, Long, Tied, braids & dreads (instead of style code ranges). Facial hair: Clean-shaven, Stubble, Moustache & goatee, Short beard, Full beard (every style is now sorted; the "Any facial hair" bucket is gone). A code the game has no preview for takes the look of the nearest listed style. Each group keeps its count and a picture of one of its styles, and a head's tooltip still shows its exact style ("Short (style 2)").
+
 ## 1.1.4 (playtest round 2)
 
 ### Changed
