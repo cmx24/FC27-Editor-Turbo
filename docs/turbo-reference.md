@@ -75,14 +75,16 @@ and run by Live Editor's Lua engine on the next career-mode event (or when the u
   with `package.loadlib` if it is not loaded yet. Every outcome, including a missing Turbo library, ends in a message box and a
   `[Turbo]` line in Live Editor's log. The first career event does the same automatically.
 - `libs/v2/imports/turbo/turbo.lua`: module registry and `M.run(name, overrides, opts)` (`opts.silent` suppresses the message box).
-- `core/`: version, log, trace (start-up breadcrumbs), util, env, config, db (validated writes), game, mem, events, csv, calib, select.
+- `core/`: version, log, trace (start-up breadcrumbs), util, env, config, db (validated writes), game, mem, events, csv, calib, select,
+  names (a player's name texts: name ids via GetDBTableRows playernames, editedplayernames).
 - `features/`: probe, form_morale, pap_playstyles, custom_headassets, custom_tattoos, delete_generated_players,
   export_season_stats, export_fixtures, export_transfer_history, extend_cpu_contracts, extend_user_contracts, headmodels,
   transfer_bans, squad_role, team_jersey_numbers, bulk_edit, player_moves, db_edit, export_table, player_presets
   (export to Live Editor preset CSV `extensions\player_presets` + Turbo player JSON with the miniface in
-  `turbo_output\players`; import a preset onto a player by groups), create_player (new player rows via InsertDBTableRow:
+  `turbo_output\players`; import a preset onto a player by groups, names only when they differ from his own; mode
+  `repair_names` rewrites the 1.2.0 common-name rows in place), create_player (new player rows via InsertDBTableRow:
   copy of a player, from a preset file, or blank; `core/preset.lua` parses LE CSV / FC 26 cards CSV / Turbo JSON).
-  GUI: Players tab buttons Export... / Import... / Clone... / Create player... (`turbogui/src/ui/ui_presets.cpp`).
+  GUI: Players tab buttons Export... / Import... / Clone... / Create player... / Repair names... (`turbogui/src/ui/ui_presets.cpp`).
   Every Browse... of Turbo (export folders and file name, import file, crest and miniface pictures) is the in-overlay
   picker `turbogui/src/ui/file_picker.cpp`: no Windows file dialog, Explorer or console window opens by itself, because
   any other window takes the game out of full screen. The GUI creates the folders it sends to Lua (`ensure_folder`);

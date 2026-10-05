@@ -136,6 +136,25 @@ static void test_file_picker_ui(App& app, Ui& ui, SimMemory& mem, uint64_t mailb
         CHECK(named["overrides"].value("json_dir", "") == path_text(dest), "its folder became the JSON folder");
     });
 
+    run_case("UI: Repair names... checks first, then repairs (player_presets repair_names)", [&] {
+        open_player(1001);
+        CHECK(ui.click("Repair names...", "##pedit"), "Repair names... button next to the preset buttons");
+        CHECK(ui.find("Check##prepair", "##prepair") != nullptr, "the dialog explains and offers Check");
+        CHECK(ui.click("Check##prepair", "##prepair"), "Check");
+        json check = take("Repair names (check)");
+        CHECK(check.value("module", "") == "player_presets" && check["overrides"].value("mode", "") == "repair_names" &&
+                  check["overrides"].value("check", false),
+              "check only: " + check.dump());
+        CHECK(ui.click("Repair names...", "##pedit"), "dialog again");
+        CHECK(ui.click("Repair names##prepair", "##prepair"), "Repair names");
+        json fix = take("Repair names");
+        CHECK(fix["overrides"].value("mode", "") == "repair_names" && !fix["overrides"].contains("check"), "repair writes: " + fix.dump());
+        CHECK(ui.click("Repair names...", "##pedit"), "dialog a third time");
+        CHECK(ui.click("Cancel##prepair", "##prepair"), "Cancel");
+        ui.frames(2);
+        CHECK(!app.busy(), "Cancel sends nothing");
+    });
+
     run_case("UI: Import's Browse... is the in-overlay picker (CSV / JSON only)", [&] {
         fs::path dir = g_out / "picker_import";
         fs::remove_all(dir);
