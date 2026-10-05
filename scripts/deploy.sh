@@ -2,7 +2,7 @@
 # Installs the current build into the Live Editor folder (game must be closed).
 # Usage: bash scripts/deploy.sh [LE folder]   (default: C:/FC 27 Live Editor)
 # - refuses while FC27.exe runs (Turbo.dll is loaded and locked then)
-# - backs up every file it replaces to <LE>/turbo_dev/installed_<timestamp>/ first
+# - backs up every file it replaces to <LE>/turbo_dev/backups/installs/installed_<timestamp>/ first
 # - copies turbogui/build/win/{Turbo.dll,TurboProbe.exe,TurboInjector.exe} to <LE>/turbo/ and turbo/package/** to <LE>/
 #   (turbo_config.json is only copied when the LE folder has none: the user's settings are kept)
 # - prints sha256 of the installed binaries
@@ -15,7 +15,7 @@ for f in Turbo.dll TurboProbe.exe TurboInjector.exe; do
   [ -s "$ROOT/turbogui/build/win/$f" ] || { echo "missing build/win/$f: run turbogui/scripts/build_win.sh"; exit 4; }
 done
 STAMP="$(date +%Y%m%d_%H%M%S)"
-BK="$LE/turbo_dev/installed_$STAMP"
+BK="$LE/turbo_dev/backups/installs/installed_$STAMP"
 mkdir -p "$BK"
 # file list: binaries + every package file except turbo_config.json (kept) and the turbo_output README
 mapfile -t PKG < <(cd "$ROOT/turbo/package" && find . -type f ! -path './turbo_config.json' | sed 's#^\./##' | LC_ALL=C sort)
