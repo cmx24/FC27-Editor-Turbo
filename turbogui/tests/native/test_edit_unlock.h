@@ -839,7 +839,9 @@ static void test_edit_unlock_ui(App& app, Ui& ui, const fs::path& le) {
     run_case("UI: Game editors: write the unlocked files, restore, switch", [&] {
         const std::string EP = eu::avatar_path("managercareer_editplayers");
         for (const auto& kv : originals()) put(rel(app.legacy.cache_dir(), kv.first), kv.second);
-        put(app.legacy.cache_dir() / "missing.txt", eu::avatar_path("playercareer_edit_vpro") + "\n");  // the second gear source
+        // the Clubs editor and the pro editor (gear sources 1 and 3) are not in the fixtures: the game said it has none
+        put(app.legacy.cache_dir() / "missing.txt",
+            eu::avatar_path("clubs") + "\n" + eu::avatar_path("playercareer_edit_vpro") + "\n");
         CHECK(ui.click("Turbo Tools"), "Tools tab");
         ui.frames(2);
         eu_scroll_bottom(ui, "##tools");

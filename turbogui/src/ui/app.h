@@ -324,6 +324,8 @@ std::string live_standings_view_line();
 std::string live_standings_view_warning();
 // The live view's one-line status of the last table edit ("Torino FC: W 2 -> 3, Pts 0 -> 3 (applied)", a refusal, ...)
 std::string live_standings_status();
+// A Live standings cell box is open: its keys go to Turbo even before Dear ImGui marks the box active (overlay_dx12.cpp)
+bool live_standings_wants_keyboard();
 // Competitions tab, "Match setup" view: the user's next fixtures (venue, opponent, fixed result) and the gameplay switches
 // (game variables) for the next matches (ui_match.cpp)
 void draw_match_setup(App& app);

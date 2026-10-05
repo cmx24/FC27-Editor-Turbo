@@ -6,3 +6,5 @@ turbo/le27/*
 __pycache__/
 *.o
 scripts/re/ripscan.exe
+# release packages (scripts/package.sh); dist/FC27_LE_Turbo_0.3.0.zip stays tracked as it was
+dist/

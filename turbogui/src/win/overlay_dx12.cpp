@@ -623,7 +623,9 @@ static void render_frame_impl(IDXGISwapChain3* sc) {
         g_app->draw();
         ImGui::Render();
         g_want_mouse = g_app->visible && ImGui::GetIO().WantCaptureMouse;
-        g_want_keyboard = g_app->visible && ImGui::GetIO().WantCaptureKeyboard;
+        // a Turbo box opened by a double-click asks for the keyboard before Dear ImGui marks it active: until then its keys
+        // would still go to the game (the cell box never saw a digit, and Enter pressed the game's selected button)
+        g_want_keyboard = g_app->visible && (ImGui::GetIO().WantCaptureKeyboard || turbo::live_standings_wants_keyboard());
         if (!g_start_proven && ++g_frames_run >= kStartFrames) {
             g_start_proven = true;
             log("overlay proven: %d frames ran without problems", kStartFrames);

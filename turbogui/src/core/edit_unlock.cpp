@@ -22,9 +22,9 @@ static const char* const kAvatarPrefix = "data/avatar/avatarcustomizationcfg_";
 
 std::string avatar_path(const std::string& screen) { return kAvatarPrefix + screen + ".json"; }
 
-// Experimental gear for career Edit Player: the game's own definitions, from the first of these that has them (main menu
-// Create Player offline, then Player Career's pro editor)
-static const char* const kGearSources[] = {"mainmenu_create_offline", "playercareer_edit_vpro"};
+// Experimental gear for career Edit Player: the game's own definitions, each group from the first of these that has it.
+// Only the Clubs editor defines TATTOO and ARM_SLEEVES (seen in the user's game, 04-10-2026); it is read, never written.
+static const char* const kGearSources[] = {"clubs", "mainmenu_create_offline", "playercareer_edit_vpro"};
 
 bool gear_group(const std::string& name) {
     static const std::set<std::string> g = {"TATTOO", "ARM_SLEEVES", "SOCK", "SHOE", "GLOVES_AND_WRIST", "WRIST",
@@ -53,6 +53,7 @@ const std::vector<FileSpec>& files() {
         {kCareerSettingsPath, "Career hub > Settings", Group::CareerSettings},
         // read only
         {avatar_path("managercareer_create"), "read: manager name lengths", Group::Source},
+        {avatar_path("clubs"), "read: tattoos and arm sleeves (experimental)", Group::Source},
         {avatar_path("mainmenu_create_offline"), "read: tattoos, sleeves, socks and gear (experimental)", Group::Source},
         {avatar_path("playercareer_edit_vpro"), "read: tattoos, sleeves, socks and gear (experimental)", Group::Source},
         {kCareerSetupPath, "read: squad settings for the hub (experimental)", Group::Source},
@@ -535,7 +536,8 @@ static bool strip_denied(ojson& n) {
 }
 
 // Experimental gear: every gear group of src (tattoos, sleeves, socks, boots, gloves, wrists, kit fit) whose parent dst
-// has. A group dst lacks is copied whole; a group dst has gets the leaves it lacks. Denied names never come along.
+// has. A group dst lacks is copied whole; a group dst has gets the leaves it lacks. A gear item without children (the
+// Clubs editor's TATTOO and ARM_SLEEVES) is copied when dst lacks it. Denied names never come along.
 // Returns the names of the groups that changed.
 static std::vector<std::string> graft_gear(ojson& dst, ojson& src) {
     std::vector<std::vector<std::string>> paths;
@@ -544,8 +546,8 @@ static std::vector<std::string> graft_gear(ojson& dst, ojson& src) {
             std::vector<std::string> p = at;
             p.push_back(name_of(n));
             if (denied_name(p.back())) continue;
-            if (gear_group(p.back()) && kids(n)) {
-                paths.push_back(p);  // the outermost gear group only
+            if (gear_group(p.back())) {
+                paths.push_back(p);  // the outermost gear group or gear item only
                 continue;
             }
             if (ojson* k = kids(n)) walk(*k, p);
@@ -569,7 +571,7 @@ static std::vector<std::string> graft_gear(ojson& dst, ojson& src) {
             changed.push_back(p.back());
             continue;
         }
-        if (!kids(*have)) continue;
+        if (!kids(*have) || !kids(copy)) continue;  // an item dst already has
         bool any = false;
         for (auto& leaf : *kids(copy))
             if (!kids(leaf) && add_leaf(dst, p, &leaf, "")) any = true;
@@ -746,7 +748,6 @@ RecipeResult build(const std::string& target, const std::map<std::string, std::s
                 std::string list;
                 for (const auto& a : added) list += (list.empty() ? "" : ", ") + a;
                 r.notes.push_back("gear added from " + std::string(g) + ": " + list + " (experimental)");
-                break;
             }
             if (!any_source) r.notes.push_back("gear not added (the game's Create Player files are not exported)");
         }

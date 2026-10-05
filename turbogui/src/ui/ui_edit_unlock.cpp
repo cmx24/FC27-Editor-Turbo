@@ -150,8 +150,9 @@ void draw_game_editors(App& app) {
     ImGui::PushStyleColor(ImGuiCol_Text, warn);
     ImGui::TextWrapped(
         "Not yet checked in game; back up your career save first. Adds to career Edit Player the game's own tattoo, arm "
-        "sleeve, sock style, boot, glove and wristband pickers, copied from its Create Player screen (main menu Create "
-        "Player, or Player Career's pro editor) when the screen has a Gear section and the game exported that file. With "
+        "sleeve, sock style, boot, glove and wristband pickers, copied from its own editor files (tattoos and arm sleeves "
+        "from the Clubs editor, the rest from main menu Create Player or Player Career's pro editor) when the screen has a "
+        "Gear section and the game exported those files. With "
         "career settings, it also adds the squad settings. Edit Manager is not changed by this switch (1.1.4 removed the "
         "head editor, outfit picker, manager gender, every celebration and the two hidden attributes: they could freeze or "
         "close the game).");

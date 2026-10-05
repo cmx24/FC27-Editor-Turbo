@@ -492,6 +492,8 @@ constexpr int kColPos = 100, kColClub = 101;
 
 std::string live_standings_status() { return g_live.status; }
 
+bool live_standings_wants_keyboard() { return g_live.cell.open; }
+
 std::string live_standings_view_line() {
     const LiveState& st = g_live;
     if (!st.loc.ok()) return "";
