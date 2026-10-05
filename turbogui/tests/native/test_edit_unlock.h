@@ -260,6 +260,55 @@ static const char* kCreateOffline = R"({
 }
 )";
 
+// The gear of the user's game files (04-10-2026): career Edit Player has KIT_FIT with the waist / sleeves / GK pants items
+// and GLOVES_AND_WRIST with the wrists; main menu Create Player has them as separate groups; the Clubs editor has TATTOO,
+// ARM_SLEEVES and WRIST as bare items
+static const char* kGameGearEP = R"([
+	{"name": "MATCHDAY", "filters": {"areFiltersAttributes": false, "data": [
+		{"name": "KIT_FIT", "filters": {"areFiltersAttributes": true, "data": [
+			{"name": "WAIST_FIT"}, {"name": "KIT_SLEEVES"}, {"name": "GK_PANTS"}, {"name": "JERSEY_FIT"}]}},
+		{"name": "SHOE", "filters": {"areFiltersAttributes": true, "data": [{"name": "BOOT"}]}},
+		{"name": "SOCK", "filters": {"areFiltersAttributes": true, "data": [{"name": "KIT_SOCK"}, {"name": "ANKLE_TAPE"}]}},
+		{"name": "GLOVES_AND_WRIST", "filters": {"areFiltersAttributes": true, "data": [
+			{"name": "GLOVES"}, {"name": "GK_GLOVES"}, {"name": "LEFT_WRIST"}, {"name": "RIGHT_WRIST"}]}}
+	]}}
+])";
+static const char* kGameClubs = R"({
+	"attributeCategories": [
+		{"name": "GEAR", "filters": {"areFiltersAttributes": false, "data": [
+			{"name": "MATCHDAY", "filters": {"areFiltersAttributes": false, "data": [
+				{"name": "HEADWEAR"}, {"name": "FACIALACCESSORY"}, {"name": "TATTOO"},
+				{"name": "KIT_FIT", "filters": {"areFiltersAttributes": true, "data": [
+					{"name": "WAIST_FIT"}, {"name": "KIT_SLEEVES"}, {"name": "GK_PANTS"}, {"name": "JERSEY_FIT"}]}},
+				{"name": "ARM_SLEEVES"}, {"name": "WRIST"},
+				{"name": "GLOVES", "filters": {"areFiltersAttributes": true, "data": [{"name": "GK_GLOVES"}]}},
+				{"name": "SOCK", "filters": {"areFiltersAttributes": true, "data": [{"name": "KIT_SOCK"}]}},
+				{"name": "SHOE"}
+			]}},
+			{"name": "STREET", "filters": {"areFiltersAttributes": false, "data": [
+				{"name": "TATTOO"}, {"name": "TOPS"}, {"name": "ARM_SLEEVES"}, {"name": "WRIST"}]}}
+		]}}
+	]
+}
+)";
+static const char* kGameCreateOffline = R"({
+	"attributeCategories": [
+		{"name": "GEAR", "filters": {"areFiltersAttributes": false, "data": [
+			{"name": "MATCHDAY", "filters": {"areFiltersAttributes": false, "data": [
+				{"name": "KIT_SLEEVES", "filters": {"areFiltersAttributes": true, "data": [{"name": "KIT_SLEEVES"}]}},
+				{"name": "WAIST_FIT", "filters": {"areFiltersAttributes": true, "data": [{"name": "WAIST_FIT"}]}},
+				{"name": "KIT_FIT", "filters": {"areFiltersAttributes": true, "data": [{"name": "JERSEY_FIT"}]}},
+				{"name": "SOCK", "filters": {"areFiltersAttributes": true, "data": [{"name": "KIT_SOCK"}, {"name": "ANKLE_TAPE"}]}},
+				{"name": "GK_PANTS", "filters": {"areFiltersAttributes": true, "data": [{"name": "GK_PANTS"}]}},
+				{"name": "SHOE", "filters": {"areFiltersAttributes": true, "data": [{"name": "BOOT"}]}},
+				{"name": "GLOVES_AND_WRIST", "filters": {"areFiltersAttributes": true, "data": [
+					{"name": "GLOVES"}, {"name": "GK_GLOVES"}, {"name": "LEFT_WRIST"}, {"name": "RIGHT_WRIST"}]}}
+			]}}
+		]}}
+	]
+}
+)";
+
 // Main menu Edit Players
 static const char* kMainMenu = R"({
 	"attributeCategories": [
@@ -358,6 +407,32 @@ static bool has_dep(const ojson& doc, std::vector<std::string> parents, const st
             if (c.get<std::string>() == child) return true;
     }
     return false;
+}
+
+// Names that appear twice under GEAR (as two groups or as two items; a group holding one item of its own name, the
+// wrap of a bare item, is not a double). "" = none.
+static std::string gear_doubles(const ojson& doc) {
+    std::map<std::string, int> groups, items;
+    std::function<void(const ojson&)> walk = [&](const ojson& list) {
+        for (const auto& n : list) {
+            if (!n.is_object()) continue;
+            const std::string name = n.value("name", "");
+            if (n.contains("filters") && n["filters"].contains("data")) {
+                ++groups[name];
+                walk(n["filters"]["data"]);
+            } else {
+                ++items[name];
+            }
+        }
+    };
+    for (const auto& c : doc["attributeCategories"])
+        if (c.value("name", "") == "GEAR" && c.contains("filters")) walk(c["filters"]["data"]);
+    std::string out;
+    for (const auto& kv : groups)
+        if (kv.second > 1) out += kv.first + " ";
+    for (const auto& kv : items)
+        if (kv.second > 1) out += kv.first + " ";
+    return out;
 }
 
 static void put(const fs::path& p, const std::string& text) {
@@ -462,9 +537,10 @@ static void test_edit_unlock() {
         eu::RecipeResult r = eu::build(EP, originals(), o);
         CHECK(r.ok, r.error);
         ojson d = ojson::parse(r.text);
-        CHECK(at(d, "GEAR/MATCHDAY/TATTOO/TATTOOLEFTARM") && at(d, "GEAR/MATCHDAY/TATTOO/TATTOOBACK"), "tattoos grafted");
-        CHECK(at(d, "GEAR/MATCHDAY/ARM_SLEEVES/LEFT_ARM_SLEEVE") && !at(d, "GEAR/MATCHDAY/ARM_SLEEVES/OUTFITTOPLAYER1"),
-              "sleeves grafted without the store outfit");
+        // career Edit Player crashed the game on a grafted Arm Sleeves tile (1.1.5): tattoos and arm sleeves never come
+        CHECK(!at(d, "GEAR/MATCHDAY/TATTOO") && !at(d, "GEAR/MATCHDAY/ARM_SLEEVES"), "no tattoos, no arm sleeves");
+        CHECK(r.text.find("TATTOO") == std::string::npos && r.text.find("ARM_SLEEVE") == std::string::npos,
+              "no tattoo or arm sleeve name anywhere");
         CHECK(at(d, "GEAR/MATCHDAY/SOCK/FASHION_SOCKS") && !at(d, "GEAR/MATCHDAY/SOCK/OUTFITSOCK"), "sock style added to SOCK");
         CHECK((*at(d, "GEAR/MATCHDAY/SOCK"))["filters"]["data"].size() == 2, "KIT_SOCK not doubled");
         CHECK(!at(d, "GEAR/MATCHDAY/INNER_TOPS") && !at(d, "CRANIUM_HEAD") && !at(d, "ATHLETIC/ATTRIBUTES/MENTALITY/COMPOSURE") &&
@@ -474,7 +550,7 @@ static void test_edit_unlock() {
         CHECK(!flag(at(d, "INFO/ABOUT_ME/GENDER"), "isVisible") && !flag(at(d, "INFO/ABOUT_ME/TEAM"), "isEditable"),
               "GENDER hidden, TEAM locked");
         bool noted = false;
-        for (const auto& n : r.notes) noted = noted || n.find("TATTOO, ARM_SLEEVES, SOCK") != std::string::npos;
+        for (const auto& n : r.notes) noted = noted || n.find("gear added from mainmenu_create_offline: SOCK (") != std::string::npos;
         CHECK(noted, "the note lists the gear");
         // the gear needs GEAR/MATCHDAY on the screen: the Create-a-Club fixture has none, nothing is invented
         ojson cp = ojson::parse(eu::build(CP, originals(), o).text);
@@ -483,10 +559,10 @@ static void test_edit_unlock() {
         auto without = originals();
         without.erase(eu::avatar_path("mainmenu_create_offline"));
         eu::RecipeResult w = eu::build(EP, without, o);
-        CHECK(w.ok && !at(ojson::parse(w.text), "GEAR/MATCHDAY/TATTOO"), "no source, no gear: " + w.error);
+        CHECK(w.ok && !at(ojson::parse(w.text), "GEAR/MATCHDAY/SOCK/FASHION_SOCKS"), "no source, no gear: " + w.error);
         // the second source is used when the first is missing
         without[eu::avatar_path("playercareer_edit_vpro")] = kCreateOffline;
-        CHECK(at(ojson::parse(eu::build(EP, without, o).text), "GEAR/MATCHDAY/TATTOO"), "Player Career pro editor as the source");
+        CHECK(at(ojson::parse(eu::build(EP, without, o).text), "GEAR/MATCHDAY/SOCK/FASHION_SOCKS"), "Player Career pro editor as the source");
         // every target, experimental: no name of the deny-list the game's own file lacks, and the output validates
         std::function<void(const ojson&, std::set<std::string>&)> names = [&](const ojson& j, std::set<std::string>& out) {
             if (j.is_object()) {
@@ -511,12 +587,104 @@ static void test_edit_unlock() {
             names(orig, was);
             names(ojson::parse(x.text), now);
             for (const auto& n : now) CHECK(!eu::denied_name(n) || was.count(n), f.path + ": denied name added: " + n);
+            CHECK(!now.count("TATTOO") && !now.count("ARM_SLEEVES"), f.path + ": no TATTOO / ARM_SLEEVES written");
         }
         CHECK(targets == 7, fmt("the 7 editor targets built (%d)", targets));
         // validation itself refuses a denied name the original lacks
         ojson orig = ojson::parse(kEditPlayers), bad = orig;
         bad["attributeCategories"].push_back(ojson::parse(R"({"name": "CRANIUM_HEAD", "filters": {"data": [{"name": "HEAD"}]}})"));
         CHECK(eu::validate(EP, bad.dump(), orig, {}, eu::keep_list(EP, o)).find("CRANIUM_HEAD") == 0, "validate: head editor refused");
+    });
+
+    run_case("edit unlock: gear never doubles a name; no WRIST, no tattoos or arm sleeves, the Clubs editor is not read", [&] {
+        // the user's game (04-10-2026): KIT_SLEEVES / WAIST_FIT / GK_PANTS groups and the WRIST item came on top of the
+        // screen's own KIT_FIT and GLOVES_AND_WRIST; a grafted Arm Sleeves tile crashed the game
+        auto game = originals();
+        ojson ep = ojson::parse(kEditPlayers);
+        for (auto& c : ep["attributeCategories"])
+            if (c["name"] == "GEAR") c["filters"]["data"] = ojson::parse(kGameGearEP);
+        game[EP] = crlf(ep.dump(1, '\t'));
+        game[eu::avatar_path("clubs")] = kGameClubs;
+        game[eu::avatar_path("mainmenu_create_offline")] = kGameCreateOffline;
+        game[eu::avatar_path("playercareer_edit_vpro")] = kGameCreateOffline;
+        eu::Options o;
+        o.experimental = true;
+        eu::RecipeResult r = eu::build(EP, game, o);
+        CHECK(r.ok, r.error);
+        ojson d = ojson::parse(r.text);
+        CHECK(gear_doubles(d).empty(), "no name doubled under GEAR: " + gear_doubles(d));
+        CHECK(r.text.find("TATTOO") == std::string::npos && r.text.find("ARM_SLEEVES") == std::string::npos,
+              "no TATTOO / ARM_SLEEVES although the Clubs editor has them");
+        bool ok_sources = true;
+        for (const auto& src : eu::sources_for(EP, o)) ok_sources = ok_sources && src != eu::avatar_path("clubs");
+        CHECK(ok_sources && !eu::find_file(eu::avatar_path("clubs")), "the Clubs editor is not a source any more");
+        CHECK(!at(d, "GEAR/MATCHDAY/WRIST"), "no WRIST next to GLOVES_AND_WRIST's wrists");
+        CHECK(!at(d, "GEAR/MATCHDAY/KIT_SLEEVES") && !at(d, "GEAR/MATCHDAY/WAIST_FIT") && !at(d, "GEAR/MATCHDAY/GK_PANTS"),
+              "no KIT_SLEEVES / WAIST_FIT / GK_PANTS group: their items are in KIT_FIT");
+        CHECK((*at(d, "GEAR/MATCHDAY/KIT_FIT"))["filters"]["data"].size() == 4, "KIT_FIT unchanged");
+        CHECK((*at(d, "GEAR/MATCHDAY/GLOVES_AND_WRIST"))["filters"]["data"].size() == 4, "GLOVES_AND_WRIST unchanged");
+        CHECK(!at(d, "GEAR/MATCHDAY/HEADWEAR") && !at(d, "GEAR/STREET"), "no headwear, no street gear");
+        CHECK((*at(d, "GEAR/MATCHDAY"))["filters"]["data"].size() == 4,
+              fmt("the screen's 4 tiles (%zu)", (*at(d, "GEAR/MATCHDAY"))["filters"]["data"].size()));
+        // without the experiments: neither
+        eu::RecipeResult s1 = eu::build(EP, game, eu::Options());
+        CHECK(s1.ok, s1.error);
+        ojson d1 = ojson::parse(s1.text);
+        CHECK(!at(d1, "GEAR/MATCHDAY/TATTOO") && !at(d1, "GEAR/MATCHDAY/ARM_SLEEVES") && gear_doubles(d1).empty(),
+              "stage 1: no tattoo, no arm sleeves, nothing doubled");
+        // built twice: the same file
+        CHECK(eu::build(EP, game, o).text == r.text, "deterministic");
+    });
+
+    run_case("edit unlock: early pass (Turbo.dll start) writes the files before Live Editor reads them", [&] {
+        const fs::path le = g_out / "eu_early";
+        fs::remove_all(le);
+        LegacyImages L(le);
+        for (const auto& kv : originals()) put(rel(L.cache_dir(), kv.first), kv.second);
+        // the Clubs editor and the pro editor: the game said it has none
+        put(L.cache_dir() / "missing.txt", eu::avatar_path("clubs") + "\n" + eu::avatar_path("playercareer_edit_vpro") + "\n");
+        // another tool's custom file for main menu Edit Players: never overwritten by the early pass
+        const std::string foreign = "{\"attributeCategories\": []}\n";
+        put(rel(L.mods_dir(), MM), foreign);
+        put(le / "turbo_output" / "gui_settings.json", R"({"edit_unlock": {"experimental": true}})");
+        int n = -1;
+        std::string line = eu::early_pass(le, &n);
+        CHECK(line.rfind("Game editors: early pass: 6 written", 0) == 0, line);
+        CHECK(n == 6, fmt("6 written (%d)", n));
+        CHECK(fs::exists(rel(L.mods_dir(), EP)) && read_file(rel(L.mods_dir(), EP)).find("FASHION_SOCKS") != std::string::npos,
+              "career Edit Player written with the experiments");
+        CHECK(read_file(rel(L.mods_dir(), EP)).find("TATTOO") == std::string::npos, "no tattoos");
+        CHECK(read_file(rel(L.mods_dir(), MM)) == foreign, "another tool's file left alone");
+        CHECK(!fs::exists(L.cache_dir() / "want.txt"), "want.txt not written (nothing is asked from the game)");
+        {
+            LegacyImages L2(le);
+            eu::EditUnlock s(L2, le);
+            CHECK(s.wrote(EP) && !s.wrote(MM) && s.has_original(EP), "manifest: Turbo's files and the originals");
+        }
+        // the next start: everything up to date, nothing written
+        line = eu::early_pass(le, &n);
+        CHECK(n == 0 && line.find("0 written, 6 up to date") != std::string::npos, line);
+        // the GUI's later pass over the same files: only the other tool's file is left to write (backed up first)
+        {
+            LegacyImages L3(le);
+            eu::EditUnlock s(L3, le);
+            eu::Options o;
+            o.experimental = true;
+            s.collect(o);
+            s.apply(o);
+            CHECK(s.last_written() == 1, fmt("the GUI's pass replaces only the other tool's file, backed up (%d)", s.last_written()));
+        }
+        // switched off: the early pass does nothing
+        put(le / "turbo_output" / "gui_settings.json", R"({"edit_unlock": {"enabled": false}})");
+        line = eu::early_pass(le, &n);
+        CHECK(n == 0 && line.find("off") != std::string::npos, line);
+        // no Live Editor folder at all, a broken settings file: no throw, nothing written
+        const fs::path empty = g_out / "eu_early_empty";
+        fs::remove_all(empty);
+        put(empty / "turbo_output" / "gui_settings.json", "{not json");
+        line = eu::early_pass(empty, &n);
+        CHECK(n == 0 && line.rfind("Game editors: early pass: 0 written", 0) == 0, line);
+        CHECK(!fs::exists(empty / "mods"), "nothing written without originals");
     });
 
     run_case("edit unlock: Create-a-Club player gets the commentary name from the career file", [&] {
@@ -839,7 +1007,7 @@ static void test_edit_unlock_ui(App& app, Ui& ui, const fs::path& le) {
     run_case("UI: Game editors: write the unlocked files, restore, switch", [&] {
         const std::string EP = eu::avatar_path("managercareer_editplayers");
         for (const auto& kv : originals()) put(rel(app.legacy.cache_dir(), kv.first), kv.second);
-        // the Clubs editor and the pro editor (gear sources 1 and 3) are not in the fixtures: the game said it has none
+        // the pro editor (gear source 2) is not in the fixtures: the game said it has none (the Clubs editor is not read)
         put(app.legacy.cache_dir() / "missing.txt",
             eu::avatar_path("clubs") + "\n" + eu::avatar_path("playercareer_edit_vpro") + "\n");
         CHECK(ui.click("Turbo Tools"), "Tools tab");
@@ -852,16 +1020,27 @@ static void test_edit_unlock_ui(App& app, Ui& ui, const fs::path& le) {
         fs::path out = rel(le / "mods" / "legacy", EP);
         CHECK(fs::exists(out), "career Edit Player file written");
         CHECK(ui.toast_contains("Game editors: "), "summary toast");
+        // the GUI runs after Live Editor read mods\legacy: what it writes needs a game restart (status line + toast)
+        CHECK(edit_unlock_restart_needed(app), "restart notice after a late write");
+        CHECK(ui.toast_contains("restart the game once to load the new ones"), "restart toast");
         eu::EditUnlock& s = edit_unlock_service(app);
         CHECK(s.written_count() == 7, fmt("7 files (%zu)", s.written_count()));
         CHECK(ui.click("Unlock everything (experimental)"), "experiments on");
         json gs = read_json(le / "turbo_output" / "gui_settings.json");
         CHECK(gs["edit_unlock"]["experimental"] == true && gs["edit_unlock"]["enabled"] == true, "saved");
         ui.frames(70);  // the tick applies within a second
-        CHECK(read_file(out).find("TATTOO") != std::string::npos, "rewritten with the experiments (gear)");
+        CHECK(read_file(out).find("FASHION_SOCKS") != std::string::npos, "rewritten with the experiments (gear)");
+        {
+            ojson d = ojson::parse(read_file(out));
+            CHECK(!at(d, "GEAR/MATCHDAY/TATTOO") && !at(d, "GEAR/MATCHDAY/ARM_SLEEVES"),
+                  "no TATTOO / ARM_SLEEVES with the experiments (career Edit Player crashed on them)");
+            CHECK(gear_doubles(d).empty(), "no name doubled under GEAR: " + gear_doubles(d));
+        }
         CHECK(ui.click("Unlock everything (experimental)"), "experiments off");
         ui.frames(70);
-        CHECK(read_file(out).find("TATTOO") == std::string::npos, "back to stage 1");
+        CHECK(read_file(out).find("FASHION_SOCKS") == std::string::npos, "back to stage 1");
+        CHECK(read_file(out).find("TATTOO") == std::string::npos && read_file(out).find("ARM_SLEEVES") == std::string::npos,
+              "no tattoos or arm sleeves in stage 1");
         // one section: the in-memory fallback's switch lives inside it and saves into the same object
         CHECK(!ui.find("Game editors (unlock the game's own Edit Player / Edit Manager)"), "one Game editors section");
         const char* fallback = "Also patch the editors in memory (fallback when Live Editor ignores the files)";

@@ -14,6 +14,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/edit_unlock.h"
 #include "core/le_log.h"
 #include "host.h"
 #include "nlohmann/json.hpp"
@@ -323,6 +324,19 @@ static DWORD WINAPI init_thread(LPVOID) {
         g_retry_mode = true;
         log("the previous Turbo GUI start did not finish (%s): the game may have crashed or been closed. Trying once more; "
             "if this start does not finish either, Turbo GUI stays off.", why.empty() ? "no details" : why.c_str());
+    }
+    // Game editors' early pass: Live Editor reads mods\legacy while the game starts (its "Loading Legacy Hashes" comes at
+    // the moment this DLL loads), so the unlocked editor files must be in place now, not after "Initial setup done" (that
+    // would need a second game restart). File work only on this thread: no game call, no wait; never throws. Loaded by
+    // Lua into a running game, Live Editor has already read the files: the GUI's pass writes them and says to restart.
+    if (!loaded_now_by_lua()) {
+        try {
+            int written = 0;
+            std::string line = turbo::eu::early_pass(g_root, &written);
+            log("%s", line.c_str());
+        } catch (...) {
+            log("Game editors: early pass: skipped (unexpected error)");
+        }
     }
     wait_for_live_editor();
     if (fs::exists(disable_path(), ec)) {

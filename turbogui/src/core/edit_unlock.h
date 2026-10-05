@@ -40,7 +40,7 @@ namespace eu {
 
 using ojson = nlohmann::ordered_json;
 
-constexpr int kRecipeVersion = 1;
+constexpr int kRecipeVersion = 2;  // 2 (1.1.5): no gear name doubled, no WRIST, no TATTOO / ARM_SLEEVES, no Clubs source
 constexpr size_t kMaxOutputBytes = 256 * 1024;
 
 enum class Group { CareerPlayers, CreatedPlayers, Manager, MainMenu, CareerSettings, Source };
@@ -72,8 +72,8 @@ struct Options {
     bool manager = true;           // Edit Manager (created and real managers), career start with a real manager
     bool main_menu = true;         // main menu Customise > Edit Players
     bool career_settings = false;  // advanced: the career hub settings EA locks mid-career
-    bool experimental = false;     // "Unlock everything": the game's tattoo / sleeve / sock / boot / glove gear in career
-                                   // Edit Player (from its Create Player files), squad settings in the hub
+    bool experimental = false;     // "Unlock everything": the game's sock / boot / glove / kit fit gear in career Edit
+                                   // Player (from its Create Player files), squad settings in the hub
     std::set<std::string> files_off;  // per-file switches (Details): targets not to write
     bool group_on(Group g) const;
     bool file_on(const std::string& path) const;  // a target whose group is on and that is not switched off
@@ -98,10 +98,11 @@ bool parse(const std::string& text, ojson& out, bool* repaired, std::string* err
 // The known repair alone (exposed for the tests); returns the text unchanged when there is nothing to repair
 std::string repair_missing_brace(const std::string& text);
 
-// Experimental gear groups grafted into career Edit Player (TATTOO, ARM_SLEEVES, SOCK, SHOE, GLOVES_AND_WRIST, ...)
+// Experimental gear groups grafted into career Edit Player (SOCK, SHOE, GLOVES_AND_WRIST, KIT_FIT, ...; never WRIST: the
+// screen has LEFT_WRIST / RIGHT_WRIST; never TATTOO / ARM_SLEEVES: denied, the screen crashed the game on them)
 bool gear_group(const std::string& name);
 // The deny-list: names the recipe never adds to a file whose original lacks them (head editor, store outfits and
-// accessories, OUTFIT*, COMPOSURE / DEFENSIVE_AWARENESS). The in-memory fallback adds nothing, and its keep-list is the
+// accessories, OUTFIT*, COMPOSURE / DEFENSIVE_AWARENESS, TATTOO / ARM_SLEEVES). The in-memory fallback adds nothing, and its keep-list is the
 // same table as the file override's (edit_unlock::keep_name / keep_id), so both turn on exactly the same fields.
 bool denied_name(const std::string& name);
 
@@ -148,8 +149,10 @@ public:
     bool ready(const Options& opt) const;
     bool has_original(const std::string& path) const;
     // Build, validate and write every enabled target that is ready; a target switched off that Turbo wrote is
-    // restored. Returns one summary line.
-    std::string apply(const Options& opt);
+    // restored. Returns one summary line. keep_foreign (the early pass): a custom file Turbo did not write is left alone
+    // (status Kept) instead of being backed up and replaced.
+    std::string apply(const Options& opt, bool keep_foreign = false);
+    int last_written() const { return last_written_; }  // files the last apply() wrote (not counting "up to date")
     // Remove exactly the files the manifest lists (only while they still hold what Turbo wrote). Summary line.
     std::string restore();
     // After a title update: restore, then drop the needed files' cached exports and saved originals, so the next export
@@ -184,7 +187,16 @@ private:
         std::string sha;
     };
     std::map<std::string, ShaCache> sha_cache_;
+    int last_written_ = 0;
 };
+
+// The early pass (Turbo.dll's start thread, before it waits for Live Editor: Live Editor reads mods\legacy while the game
+// starts, so files written after its "Initial setup done" only count after a game restart). File work only, never a
+// game call and never a wait: reads gui_settings.json "edit_unlock", the saved originals (turbo_output\edit_unlock) and
+// the game's exports in the picture cache, then collect() + apply() like the GUI's pass, with every rule of it (manifest,
+// only the 8 targets) and a custom file Turbo did not write left alone. Never throws.
+// Returns the log line "Game editors: early pass: N written, ..."; *written = files written (0 when off or on error).
+std::string early_pass(const std::filesystem::path& le_root, int* written = nullptr);
 
 }  // namespace eu
 }  // namespace turbo

@@ -75,6 +75,8 @@ public:
     void tick(double now);
     // Force want.txt out now (tests, before running turbo_images.lua)
     bool flush();
+    // Re-read missing.txt / status.txt now, without writing want.txt (the game editors' early pass)
+    void refresh_missing() { read_missing(); }
 
     size_t waiting() const { return want_.size() + bg_.size(); }
     size_t missing_count() const { return missing_.size(); }
