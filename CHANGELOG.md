@@ -14,6 +14,16 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
   `turbo_output\call_player_create_on.txt` exists (`call_player_create_off.txt` turns it off again); otherwise, or when the call
   answers "off", the database path of 1.2.0 runs unchanged and the result says so. Research and live checks:
   [`docs/re/created_players.md`](docs/re/created_players.md).
+- **Fixed: Import turned player names into common names (seen in a live career; the fix is not yet checked in game).** Export
+  wrote a player without an `editedplayernames` row as his shown name in `commonname` with the first name, surname and shirt
+  name empty, and Import (Names group on by default) wrote exactly that back: "Jacopo Segre" became one common name and his
+  shirt lost its name. Now Export writes his real names (the texts of his name ids, `core/names.lua`), Import writes names only
+  when they differ from the ones he has (a 1.2.0 file gets its real names back from its own name ids), the shirt name is never
+  left empty, the Names group is off by default in the Import dialog, and a clone given only a new surname keeps the original's
+  first name. **Players > Repair names...** (`player_presets` mode `repair_names`, Check first) gives the players 1.2.0 changed
+  their own names back: every `editedplayernames` row whose first name, surname and shirt name are empty and whose common name
+  is the name his own ids show is rewritten in place (no row added or deleted); any other name is left alone and listed. Save
+  the career afterwards to keep it.
 
 ## 1.2.0 (real-time transfers, Mass actions, From CMTracker, filters)
 

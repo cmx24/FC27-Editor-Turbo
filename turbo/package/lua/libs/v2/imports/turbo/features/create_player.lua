@@ -25,6 +25,7 @@ local db = require 'imports/turbo/core/db'
 local game = require 'imports/turbo/core/game'
 local moves = require 'imports/turbo/core/moves'
 local preset = require 'imports/turbo/core/preset'
+local pnames = require 'imports/turbo/core/names'
 
 local M = {}
 
@@ -75,6 +76,8 @@ local function load_source(players, src)
         local row, ridx = preset.pick_row(parsed, src)
         if not row then return nil, ridx end
         local fields, names, skipped = preset.map_row(players, row, { keep_ids = true })
+        -- a file of the old export holds only the shown name (as a common name): its own name ids give the real names
+        names = pnames.from_file(names, row, {})
         fields.playerid = nil
         local desc = string.format("%s from %s (row %d of %d)", preset.describe(row), tostring(parsed.path):match("([^\\/]+)$"),
             ridx, parsed.count)
@@ -179,8 +182,24 @@ function M.run(ctx)
         end
     end
     if type(cfg.names) == "table" then
+        local given = {}
         for _, f in ipairs(preset.NAME_FIELDS) do
-            if type(cfg.names[f]) == "string" and cfg.names[f] ~= "" then names[f] = cfg.names[f] end
+            if type(cfg.names[f]) == "string" and cfg.names[f] ~= "" then given[f] = cfg.names[f] end
+        end
+        if next(given) then
+            -- a source without a name row shows the names of its ids: they are the base, so a new surname alone does
+            -- not leave the copy without a first name
+            local has = false
+            for _, f in ipairs(preset.NAME_FIELDS) do if (names[f] or "") ~= "" then has = true end end
+            if not has then
+                local base = pnames.names_of_ids(vals, {})
+                if base then for f, v in pairs(base) do names[f] = v end end
+            end
+            -- the shirt follows the names given (their surname, else their common name), unless a shirt name is given
+            if not given.playerjerseyname and (given.surname or given.commonname) then
+                names.playerjerseyname = given.surname or given.commonname
+            end
+            for f, v in pairs(given) do names[f] = v end
         end
     end
     local row, defaults = {}, 0
@@ -260,6 +279,8 @@ function M.run(ctx)
     if any_name then
         local edited = db.get_table("editedplayernames")
         if not edited or not db.has_field(edited, "playerid") then return false, "editedplayernames table not available" end
+        -- the game prints this row's shirt name: never empty (the surname, else the common name)
+        names.playerjerseyname = pnames.jersey(names)
         name_row = { playerid = pid }
         for _, f in ipairs(preset.NAME_FIELDS) do
             if db.has_field(edited, f) then

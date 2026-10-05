@@ -658,7 +658,7 @@ void App::tick(double t) {
             if (db.ready()) model_stale = true;
             // a new player's name row is read a moment after the result: one more full refresh
             if (ok && db.ready() && (pending_before.rfind("Create player", 0) == 0 || pending_before.rfind("Clone player", 0) == 0 ||
-                                     pending_before.rfind("Import", 0) == 0))
+                                     pending_before.rfind("Import", 0) == 0 || pending_before.rfind("Repair names", 0) == 0))
                 refresh_due = t + 1.5;
         }
     }

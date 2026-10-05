@@ -4391,8 +4391,10 @@ static void test_ui() {
                   "export: this player, CSV on");
             CHECK(captured[30]["cmd"]["overrides"]["playerids"] == json::array({1002}), "export list = shown players");
             CHECK(captured[31]["cmd"]["overrides"]["mode"] == "import" && captured[31]["cmd"]["overrides"]["playerid"] == 1002 &&
-                      captured[31]["cmd"]["overrides"]["groups"].size() == 8 && captured[31]["cmd"]["overrides"]["file"] == preset_file,
-                  "import onto the player with every group");
+                      captured[31]["cmd"]["overrides"]["groups"].size() == 7 && captured[31]["cmd"]["overrides"]["file"] == preset_file &&
+                      std::find(captured[31]["cmd"]["overrides"]["groups"].begin(), captured[31]["cmd"]["overrides"]["groups"].end(),
+                                json("names")) == captured[31]["cmd"]["overrides"]["groups"].end(),
+                  "import onto the player with every group but Names (off by default: it renames him)");
             CHECK(captured[32]["cmd"]["module"] == "create_player" && captured[32]["cmd"]["overrides"]["source"]["file"] == preset_file &&
                       captured[32]["cmd"]["overrides"]["teamid"] == 111592, "import as a new free agent");
             CHECK(captured[33]["cmd"]["module"] == "create_player" && captured[33]["cmd"]["overrides"]["source"]["playerid"] == 1002, "clone 1002");

@@ -390,10 +390,12 @@ static void import_dialog(App& app, const PlayerRow& p) {
     static FilePicker picker;
     static std::string previewed;
     static PresetPreview pv;
-    static bool groups[8] = {true, true, true, true, true, true, true, true};
+    // Names is off by default: it renames the player to the file's names (1.2.0 turned names into common names this way)
+    static bool groups[8] = {true, true, true, true, true, true, false, true};
     static const char* group_names[8] = {"profile", "attributes", "positions", "playstyles", "appearance", "contract", "names", "miniface"};
     static const char* group_labels[8] = {"Profile (overall, potential, age, body, foot, skill moves...)", "Attributes", "Positions & roles",
-                                          "PlayStyles", "Appearance (head, hair, skin, kit, animations...)", "Contract", "Names", "Miniface (Turbo JSON only)"};
+                                          "PlayStyles", "Appearance (head, hair, skin, kit, animations...)", "Contract",
+                                          "Names (renames him to the file's names)", "Miniface (Turbo JSON only)"};
     static int target = 0;
     static int teamid = 111592;
     static char club_search[64] = "";
@@ -598,6 +600,35 @@ static void create_dialog(App& app, const PlayerRow& p) {
     }
 }
 
+// Repair names (player_presets mode repair_names): the editedplayernames rows Turbo 1.2.0's Import left (his shown name
+// as a common name, first name, surname and shirt name empty) are rewritten in place with the player's own names.
+// Check first; Repair writes.
+static void repair_names_dialog(App& app) {
+    if (ImGui::BeginPopupModal("##prepair", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + S(460.0f));
+        ImGui::TextUnformatted("Repair player names changed by Turbo 1.2.0's Import");
+        ImGui::TextDisabled("Import with the Names group could turn a player's first name and surname into one common name "
+                            "and leave his shirt without a name. Repair gives every such player his own names back "
+                            "(first name, surname, common name and shirt name from the game's database), in this career.");
+        ImGui::TextDisabled("Only rows that match that pattern exactly are changed; any other name is left alone. "
+                            "Check lists them without changing anything. Save the career afterwards to keep the repair.");
+        ImGui::PopTextWrapPos();
+        if (ImGui::Button("Check##prepair")) {
+            app.send({{"op", "run"}, {"module", "player_presets"}, {"overrides", {{"mode", "repair_names"}, {"check", true}}}},
+                     "Repair names (check)");
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Repair names##prepair")) {
+            app.send({{"op", "run"}, {"module", "player_presets"}, {"overrides", {{"mode", "repair_names"}}}}, "Repair names");
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel##prepair")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+}
+
 void player_preset_buttons(App& app, const PlayerRow& p) {
     bool made = app.bridge.state().is_turbo_made("create_player");
     if (ImGui::Button("Export...")) ImGui::OpenPopup("##pexport");
@@ -614,6 +645,13 @@ void player_preset_buttons(App& app, const PlayerRow& p) {
     ImGui::SameLine();
     if (ImGui::Button("From CMTracker...")) ImGui::OpenPopup("##pcmt");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("A fully populated new player picked from the CMTracker CSV library: stats, positions, PlayStyles, appearance, names, miniface");
+    // on the same row when it fits (the row is long at small window widths)
+    const char* repair_label = "Repair names...";
+    const float repair_w = ImGui::CalcTextSize(repair_label).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    ImGui::SameLine();
+    if (ImGui::GetContentRegionAvail().x < repair_w) ImGui::NewLine();
+    if (ImGui::Button(repair_label)) ImGui::OpenPopup("##prepair");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Gives back their own names to players whose names Turbo 1.2.0's Import turned into one common name");
     if (made) {
         ImGui::SameLine();
         ImGui::TextDisabled("(new players are rows Turbo adds to the database: back up your save first)");
@@ -623,6 +661,7 @@ void player_preset_buttons(App& app, const PlayerRow& p) {
     clone_dialog(app, p);
     create_dialog(app, p);
     cmtracker_dialog(app);
+    repair_names_dialog(app);
 }
 
 }  // namespace turbo

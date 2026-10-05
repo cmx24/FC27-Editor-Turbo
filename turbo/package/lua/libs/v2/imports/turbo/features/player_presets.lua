@@ -14,9 +14,16 @@
 --     "groups": ["profile", "attributes", "positions", "playstyles", "appearance", "contract", "names", "miniface"],
 --     "row": 0, "preset_playerid": 0           -- which row of a multi-row CSV (0 = the newest row)
 --   }
+--   "player_presets": { "mode": "repair_names", "playerids": [], "check": false }
+--     editedplayernames rows that only restate a player's own game name as a common name (first name, surname and shirt
+--     name empty: left by importing a Turbo 1.2.0 export with the Names group) are rewritten in place with his own
+--     names, so he shows his first name, surname and shirt name again. "playerids" limits it to those players (empty =
+--     every row); "check": true only reports.
 -- Live Editor CSV columns are read by name: FC 26 / FC 25 files work too (renamed fields are mapped, unknown ones
 -- skipped), every value is range-checked, and a value outside the FC 27 field range is skipped and reported.
 -- JSON files go to <output>\players\. Importing onto a NEW player is features/create_player.lua.
+-- Names: the export writes the player's real name texts (his editedplayernames row, else his name ids' texts); the
+-- import writes names only when they differ from the ones he has (core/names.lua).
 
 local util = require 'imports/turbo/core/util'
 local db = require 'imports/turbo/core/db'
@@ -26,6 +33,7 @@ local game = require 'imports/turbo/core/game'
 local preset = require 'imports/turbo/core/preset'
 local moves = require 'imports/turbo/core/moves'
 local version = require 'imports/turbo/core/version'
+local pnames = require 'imports/turbo/core/names'
 
 local M = {}
 
@@ -80,22 +88,17 @@ function M.json_dir(ctx)
     return util.join(ctx.out_dir, "players")
 end
 
--- Name texts of a player: the editedplayernames row, else the game's display name as commonname (like LE's export)
-local function names_of(pid)
-    local out = { firstname = "", surname = "", commonname = "", playerjerseyname = "" }
-    local edited = db.get_table("editedplayernames")
-    if edited and db.has_field(edited, "playerid") then
-        local rec = db.find(edited, "playerid", pid)
-        if rec then
-            for _, f in ipairs(preset.NAME_FIELDS) do
-                if db.has_field(edited, f) then out[f] = tostring(edited:GetRecordFieldValue(rec, f) or "") end
-            end
-            return out, true
-        end
-    end
-    out.commonname = game.player_name(pid)
+-- Name texts of a player and where they came from: his editedplayernames row, else the texts of his name ids (first
+-- name, surname, common name, shirt name), else (names not readable) his shown name as commonname, like Live Editor's
+-- export. The import recognises that last form and never writes it back onto the same player (core/names.lua).
+local function names_of(pid, players, prec, cache)
+    local row = pnames.edited(pid)
+    if row then return row, "editedplayernames" end
+    local g = pnames.game_names(players, prec, cache)
+    if g then return g, "name ids" end
+    local out = { firstname = "", surname = "", commonname = game.player_name(pid), playerjerseyname = "" }
     if out.commonname == tostring(pid) then out.commonname = "" end
-    return out, false
+    return out, "shown name"
 end
 
 -- Every field of the players row as { field = value }
@@ -136,7 +139,7 @@ local function export_one(ctx, players, pid, opts)
     local rec = db.find(players, "playerid", pid)
     if not rec then return nil, string.format("player %d not found", pid) end
     local vals = row_values(players, rec)
-    local names = names_of(pid)
+    local names, names_from = names_of(pid, players, rec, opts.cache)
     local base = opts.name
     if not base or base == "" then
         local n = names.commonname ~= "" and names.commonname or util.trim(names.firstname .. " " .. names.surname)
@@ -197,7 +200,7 @@ local function export_one(ctx, players, pid, opts)
             format = preset.FORMAT_JSON, version = 1, turbo = version.version,
             exported = os.date("%Y-%m-%d %H:%M:%S"), playerid = pid,
             name = names.commonname ~= "" and names.commonname or util.trim(names.firstname .. " " .. names.surname),
-            players = vals, names = names, links = links, loan = loan,
+            players = vals, names = names, names_from = names_from, links = links, loan = loan,
         }
         if doc.name == "" then doc.name = game.player_name(pid) end
         local mini
@@ -235,7 +238,8 @@ local function run_export(ctx)
         ids[#ids + 1] = pid
     end
     if #ids == 0 then return false, "no player given (playerid or playerids)" end
-    local opts = { csv = cfg.csv ~= false, json = cfg.json ~= false, miniface = cfg.miniface ~= false, name = cfg.name }
+    local opts = { csv = cfg.csv ~= false, json = cfg.json ~= false, miniface = cfg.miniface ~= false, name = cfg.name,
+        cache = {} }   -- the name texts, read once for every player of this export
     if #ids > 1 then opts.name = nil end   -- one name per player
     if not opts.csv and not opts.json then return false, "nothing to write: csv and json are both off" end
     if not ctx.out_dir then return false, "no writable output folder" end
@@ -278,14 +282,19 @@ local function group_set(cfg)
     return set
 end
 
--- Writes the names into editedplayernames (existing row updated, else a row inserted). Validated first.
+-- Writes the names into editedplayernames (existing row updated, else a row inserted). Validated first. The shirt
+-- name is never left empty (the game prints that row's playerjerseyname on the shirt): the file's, else the surname,
+-- else the common name.
 local function plan_names(pid, names, dry)
     local edited = db.get_table("editedplayernames")
     if not edited or not db.has_field(edited, "playerid") then return nil, "editedplayernames table not available" end
+    local want = {}
+    for _, f in ipairs(preset.NAME_FIELDS) do want[f] = names[f] or "" end
+    want.playerjerseyname = pnames.jersey(want)
     local row = {}
     for _, f in ipairs(preset.NAME_FIELDS) do
         if db.has_field(edited, f) then
-            local v, err = db.validate(edited, f, names[f] or "")
+            local v, err = db.validate(edited, f, want[f])
             if v == nil then return nil, err end
             row[f] = v
         end
@@ -364,14 +373,29 @@ local function run_import(ctx)
         end
     end
     table.sort(plan, function(a, b) return a.f < b.f end)
-    local names_fn
+    -- names: only when they differ from the ones he has. A file of the old export (his shown name as a common name,
+    -- first name and surname empty) gets its real names back from its own name ids, and is never written back onto
+    -- the player it shows (1.2.0 turned "Jacopo Segre" into a common name and blanked his shirt name that way).
+    local names_fn, names_note
     if groups.names then
         local any = false
         for _, f in ipairs(preset.NAME_FIELDS) do if (names[f] or "") ~= "" then any = true end end
         if any then
-            local fn, nerr = plan_names(pid, names, ctx.dry)
-            if not fn then return false, nerr end
-            names_fn = fn
+            local cache = {}
+            local want, recovered = pnames.from_file(names, row, cache)
+            local cur = pnames.current(pid, players, rec, cache)
+            if not cur then
+                local shown = game.player_name(pid)
+                if shown ~= tostring(pid) then cur = { firstname = "", surname = "", commonname = shown, playerjerseyname = "" } end
+            end
+            if pnames.unchanged(want, cur) then
+                names_note = "names unchanged (he already has them)"
+            else
+                local fn, nerr = plan_names(pid, want, ctx.dry)
+                if not fn then return false, nerr end
+                names_fn = fn
+                if recovered then names_note = "names taken from the file's name ids" end
+            end
         end
     end
     local mini_src
@@ -380,6 +404,7 @@ local function run_import(ctx)
         if not util.file_exists(mini_src) then return false, "miniface file missing next to the JSON: " .. mini_src end
     end
     if #plan == 0 and not names_fn and not mini_src then
+        if names_note then return true, string.format("player %d: nothing written, %s", pid, names_note) end
         return false, "nothing to import for the chosen groups" .. (#skipped > 0 and (" (skipped: " .. table.concat(skipped, ", ") .. ")") or "")
     end
 
@@ -438,6 +463,7 @@ local function run_import(ctx)
     if mini_src then parts[#parts + 1] = "miniface" end
     local msg = string.format("player %d <- %s (row %d of %d, %s): %d fields written [%s]", pid,
         tostring(parsed.path):match("([^\\/]+)$"), ridx, parsed.count, preset.describe(row), #plan, table.concat(parts, ", "))
+    if names_note then msg = msg .. "; " .. names_note end
     if plan_state then msg = msg .. "; " .. plan_state end
     if #fixed > 0 then msg = msg .. "; contract made valid for the squad screens: " .. table.concat(fixed, ", ") end
     if #skipped > 0 then msg = msg .. "; skipped out-of-range: " .. table.concat(skipped, ", ") end
@@ -445,11 +471,117 @@ local function run_import(ctx)
     return true, msg
 end
 
+-- ---------------------------------------------------------------- repair names
+-- An editedplayernames row whose first name, surname and shirt name are empty and whose common name is the name the
+-- player's own name ids show only restates his game name (the 1.2.0 import left such rows). The row is rewritten in
+-- place with his own names: first name and surname from his ids, the common name his commonnameid has ("" without
+-- one), the shirt name his playerjerseynameid's text, else the surname. A pure field edit: the game's table indexes
+-- stay valid in the running career (a raw delete through Live Editor bypasses them; docs/re/created_players.md).
+-- Rows of players with no name ids (created players) or with another name are left alone and listed.
+local function list_text(items, max)
+    max = max or 12
+    if #items <= max then return table.concat(items, ", ") end
+    local head = {}
+    for i = 1, max do head[i] = items[i] end
+    return table.concat(head, ", ") .. string.format(" +%d more", #items - max)
+end
+
+local function run_repair_names(ctx)
+    local cfg = ctx.cfg
+    local only
+    if type(cfg.playerids) == "table" and #cfg.playerids > 0 then
+        only = {}
+        for _, v in ipairs(cfg.playerids) do
+            local pid = util.to_int(v)
+            if not pid then return false, "playerids must be integers" end
+            only[pid] = true
+        end
+    end
+    local check = ctx.dry or cfg.check == true
+    local edited = db.get_table("editedplayernames")
+    if not edited or not db.has_field(edited, "playerid") then return false, "editedplayernames table not available" end
+    local players, perr = db.get_table("players")
+    if not players then return false, perr end
+    local cache = {}
+    local texts, terr = pnames.texts(cache)
+    if not texts then return false, "the game's player names cannot be read (" .. tostring(terr) .. "): nothing checked or changed" end
+
+    local cands, want = {}, {}
+    for rec in db.records(edited) do
+        local pid = edited:GetRecordFieldValue(rec, "playerid")
+        if pid and pid > 0 and (not only or only[pid]) then
+            local row = {}
+            for _, f in ipairs(pnames.FIELDS) do
+                row[f] = db.has_field(edited, f) and tostring(edited:GetRecordFieldValue(rec, f) or "") or ""
+            end
+            if pnames.shown_only(row) and util.trim(row.playerjerseyname) == "" then
+                cands[#cands + 1] = { pid = pid, rec = rec, row = row }
+                want[pid] = true
+            end
+        end
+    end
+    if #cands == 0 then
+        return true, only and "no name of these players needs repairing" or "no player name needs repairing"
+    end
+    local precs = {}
+    for prec in db.records(players) do
+        local pid = players:GetRecordFieldValue(prec, "playerid")
+        if want[pid] then precs[pid] = prec end
+    end
+
+    local fixed, kept, failed = {}, {}, {}
+    for _, c in ipairs(cands) do
+        local prec = precs[c.pid]
+        local g = prec and pnames.game_names(players, prec, cache)
+        local label = string.format("%s (%d)", c.row.commonname, c.pid)
+        if not g then
+            kept[#kept + 1] = label .. " no name ids"
+        elseif not pnames.restates_game_name(c.row, g) then
+            kept[#kept + 1] = label .. " not his game name " .. pnames.shown(g)
+        else
+            -- every value validated before the first write
+            local n = { firstname = g.firstname, surname = g.surname, commonname = g.commonname, playerjerseyname = pnames.jersey(g) }
+            local vals, verr = {}, nil
+            for _, f in ipairs(pnames.FIELDS) do
+                if not verr and db.has_field(edited, f) then
+                    local v, err = db.validate(edited, f, n[f])
+                    if v == nil then verr = err else vals[f] = v end
+                end
+            end
+            if verr then
+                failed[#failed + 1] = label .. ": " .. tostring(verr)
+            elseif check then
+                fixed[#fixed + 1] = label
+            else
+                local okw, werr = true, nil
+                for _, f in ipairs(pnames.FIELDS) do
+                    if okw and vals[f] ~= nil then okw, werr = db.set(edited, c.rec, f, vals[f]) end
+                end
+                if okw then fixed[#fixed + 1] = label else failed[#failed + 1] = label .. ": " .. tostring(werr) end
+            end
+        end
+    end
+
+    local parts = {}
+    if #fixed > 0 then
+        parts[#parts + 1] = string.format("%s %d player name%s (first name, surname and shirt name back): %s",
+            check and "would repair" or "repaired", #fixed, #fixed == 1 and "" or "s", list_text(fixed))
+    else
+        parts[#parts + 1] = "no player name repaired"
+    end
+    if #kept > 0 then
+        parts[#parts + 1] = string.format("%d left alone (a common name of their own): %s", #kept, list_text(kept, 6))
+    end
+    if #failed > 0 then parts[#parts + 1] = "failed: " .. list_text(failed, 6) end
+    return #failed == 0, table.concat(parts, "; ")
+end
+
 function M.run(ctx)
     local mode = ctx.cfg.mode or "export"
     if mode == "export" then return run_export(ctx) end
     if mode == "import" then return run_import(ctx) end
-    return false, "unknown mode " .. tostring(mode) .. " (export | import)"
+    if mode == "repair_names" then return run_repair_names(ctx) end
+    return false, "unknown mode " .. tostring(mode) .. " (export | import | repair_names)"
 end
 
 return M
