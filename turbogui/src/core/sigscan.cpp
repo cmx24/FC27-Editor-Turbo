@@ -310,6 +310,20 @@ static const SignatureTable kBuiltin[] = {
           "none", 0,
           "int GetMoraleLevel(PMM, int total, int emotion) 0x147D837D8: thresholds = 6 ints at PMM + (clamp(emotion,0,4)+2)*0x18 "
           "(MORALE_LEVELS_%s); level 0 very unhappy .. 4 very happy, 5 complacent (0x147F51504)"},
+         // creating a missing morale record (section 4.2: the three calls of the 0x5F handler at 0x147D8D4DD..0x147D8D502; optional,
+         // without them the call counts missing records only; each pattern unique in the image, checked 2026-10-05)
+         {"dc_player_emotion",
+          "48 89 5C 24 08 4C 89 44 24 18 57 48 81 EC 80 00 00 00 8B DA 4C 8D 05 ?? ?? ?? ?? 48 8B F9 BA 01 00 00 00 48 8D 4C 24 20 "
+          "E8 ?? ?? ?? ?? 48 8D 15 ?? ?? ?? ?? 48 8D 4C 24 20 E8",
+          "none", 0, "int DataController::GetPlayerEmotionType(DC, int pid) 0x147B866BC: SELECT emotion FROM players (1..8)"},
+         {"pmm_store_create",
+          "4C 8B DC 49 89 5B 08 49 89 6B 10 49 89 73 18 49 89 7B 20 41 56 48 81 EC 80 00 00 00 48 8D 79 10 48 B8 AB AA AA AA AA AA AA 2A "
+          "48 8B 4F 08 44 8B F2 48 2B 0F 33 DB 48 F7 E9 41 8B E8 48 8B F2",
+          "none", 0, "MoraleRecord* MoraleStore::Create(store = PMM+0x518, int pid, int emotion - 1) 0x147D81108: null at 52 records, no duplicate check"},
+         {"pmm_init_morale",
+          "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 54 41 56 41 57 48 83 EC 70 C5 F8 29 70 D8 C5 F8 29 78 C8 "
+          "C5 78 29 40 B8 48 8B 41 08 48 8B F1 4D 8B F1 48 8B FA 4C 8B 80 98 01 00 00",
+          "none", 0, "void PlayerMoraleManager::InitMorale(PMM, MoraleRecord*, -, prev = null) 0x147D93B08: components, ends in SetTotalMorale"},
          // Created players (docs/re/created_players.md, scripts/re/created_players_signatures.json; every pattern unique in the image,
          // re-checked 2026-10-05 with the "rip" offsets at the instruction start): the game's own query layer, the 0x3A event and
          // InsertTeamPlayer the player_create call uses (win/player_create_win.cpp; PostEvent is post_career_event above)

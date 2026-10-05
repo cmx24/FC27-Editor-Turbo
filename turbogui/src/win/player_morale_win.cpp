@@ -61,6 +61,9 @@ struct RealCaller : morale::Caller {
     using FindFn = void* (*)(void*, int);
     using LevelFn = int (*)(void*, int, int);
     using SetFn = void (*)(void*, void*, int);
+    using EmotionFn = int (*)(void*, int);
+    using CreateFn = void* (*)(void*, int, int);
+    using InitFn = void (*)(void*, void*, void*, void*);
 
     bool in_team(uint64_t dc, int pid, int team, bool& in, std::string& err) override {
         if (!g_fns.is_player_in_team) return (err = "function not resolved", false);
@@ -82,6 +85,23 @@ struct RealCaller : morale::Caller {
         fn_at<SetFn>(g_fns.set_total)(reinterpret_cast<void*>(pmm), reinterpret_cast<void*>(rec), total);
         return true;
     }
+    // record creation (the 0x5F handler's three calls, docs/re/player_status_roles.md section 4.2)
+    bool emotion(uint64_t dc, int pid, int& out, std::string& err) override {
+        if (!g_fns.emotion) return (err = "function not resolved", false);
+        out = fn_at<EmotionFn>(g_fns.emotion)(reinterpret_cast<void*>(dc), pid);
+        return true;
+    }
+    bool create(uint64_t store, int pid, int emotion0, uint64_t& rec, std::string& err) override {
+        if (!g_fns.create) return (err = "function not resolved", false);
+        rec = reinterpret_cast<uint64_t>(fn_at<CreateFn>(g_fns.create)(reinterpret_cast<void*>(store), pid, emotion0));
+        return true;
+    }
+    bool init_morale(uint64_t pmm, uint64_t rec, std::string& err) override {
+        if (!g_fns.init_morale) return (err = "function not resolved", false);
+        // r8 is not read by InitMorale (overwritten first); r9 = previous values = null, as the handler passes
+        fn_at<InitFn>(g_fns.init_morale)(reinterpret_cast<void*>(pmm), reinterpret_cast<void*>(rec), nullptr, nullptr);
+        return true;
+    }
 };
 
 morale::Result run_now(morale::Request req) {
@@ -93,15 +113,17 @@ morale::Result run_now(morale::Request req) {
     } else {
         if (!req.image_base) req.image_base = game_image_base();
         if (!req.image_size) req.image_size = game_image_size();
+        req.create_off = morale::create_killed(out_dir());
         ProcessMemory mem;
         RealCaller caller;
         r = morale::run(mem, caller, g_fns, req);
     }
     ++g_runs;
     if (r.ok) ++g_ok;
-    log("game call player_morale(%s, player %d, value %d, comm %s): %s [%s] %s (total %lld, level %lld, target %d, records %d, pmm %s, rec %s)",
+    log("game call player_morale(%s, player %d, value %d, comm %s): %s [%s] %s (total %lld, level %lld, target %d, records %d, pmm %s, rec %s%s)",
         morale::action_name(req.action), req.player, req.value, hex(req.comm).c_str(), r.ok ? "ok" : "failed", r.stage.c_str(), r.message.c_str(),
-        static_cast<long long>(r.total), static_cast<long long>(r.level), r.target, r.records, hex(r.pmm).c_str(), hex(r.rec).c_str());
+        static_cast<long long>(r.total), static_cast<long long>(r.level), r.target, r.records, hex(r.pmm).c_str(), hex(r.rec).c_str(),
+        r.created ? ", created" : "");
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         g_last = std::string(r.ok ? "ok: " : "failed: ") + r.message;
@@ -140,11 +162,15 @@ std::vector<std::string> player_morale_status() {
     std::vector<std::string> out;
     std::string why;
     char line[512];
-    if (player_morale_ready(&why))
-        std::snprintf(line, sizeof(line), "player_morale: ready | find %s, set_total %s, level %s | runs %lld (ok %lld, queued %lld, busy %lld)",
+    if (player_morale_ready(&why)) {
+        const char* mc = g_fns.missing_create();
+        std::string create = morale::create_killed(out_dir()) ? std::string("off (kill switch ") + morale::create_kill_switch_name() + ")"
+                             : mc ? std::string("off (") + mc + " not found)"
+                                  : "on";
+        std::snprintf(line, sizeof(line), "player_morale: ready | find %s, set_total %s, level %s | create missing records: %s | runs %lld (ok %lld, queued %lld, busy %lld)",
                       hex(g_fns.find_record).c_str(), hex(g_fns.set_total).c_str(), g_fns.level ? hex(g_fns.level).c_str() : "not resolved (85 used)",
-                      g_runs.load(), g_ok.load(), g_queued.load(), g_refused_busy.load());
-    else
+                      create.c_str(), g_runs.load(), g_ok.load(), g_queued.load(), g_refused_busy.load());
+    } else
         std::snprintf(line, sizeof(line), "player_morale: off (%s)", why.c_str());
     out.push_back(line);
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -212,6 +238,9 @@ void install_player_morale() {
     g_fns.level = game_signature("pmm_get_level");
     g_fns.is_player_in_team = game_signature("dc_is_player_in_team");
     g_fns.um_vtable = game_signature("um_vtable");
+    g_fns.emotion = game_signature("dc_player_emotion");
+    g_fns.create = game_signature("pmm_store_create");
+    g_fns.init_morale = game_signature("pmm_init_morale");
     if (const char* m = g_fns.missing()) {
         g_off = std::string("signature ") + m + " was not found on this game build";
         log("game calls: player_morale off (%s)", g_off.c_str());
@@ -220,6 +249,11 @@ void install_player_morale() {
     log("game calls: player_morale resolved (vtable %s, HandleEvent %s, Find %s, SetTotalMorale %s, level %s; kill switch turbo_output\\%s)",
         hex(g_fns.pmm_vtable).c_str(), hex(g_fns.pmm_handle_event).c_str(), hex(g_fns.find_record).c_str(), hex(g_fns.set_total).c_str(),
         g_fns.level ? hex(g_fns.level).c_str() : "NOT resolved: 85 is used", morale::kill_switch_name());
+    if (const char* mc = g_fns.missing_create())
+        log("game calls: player_morale record creation off (signature %s not found): missing records are counted only", mc);
+    else
+        log("game calls: player_morale record creation resolved (emotion %s, Create %s, InitMorale %s; kill switch turbo_output\\%s)",
+            hex(g_fns.emotion).c_str(), hex(g_fns.create).c_str(), hex(g_fns.init_morale).c_str(), morale::create_kill_switch_name());
 }
 
 }  // namespace host

@@ -7,8 +7,10 @@
 --   morale         "very happy": your club's players get the highest morale the game's own level function still calls
 --                  "very happy" for their emotion type, written with the game's SetTotalMorale (Turbo.dll TurboPlayerMorale,
 --                  op 13: the overall's morale modifier refreshes too; 100 is the top level "complacent", +0 OVR). Players
---                  with no morale record (moved in by Turbo's old database moves: "Unknown") are counted, not created; stale
---                  records of players who left are counted, not removed. Without the native call (or for another club):
+--                  with no morale record (moved in by Turbo's old database moves: "Unknown") get one first, created the way
+--                  the game's signing handler does (counted only when turbo_output\call_player_morale_create_off.txt is
+--                  present or creation is not resolved / fails); stale records of players who left are counted, not
+--                  removed. Without the native call (or for another club):
 --                  Live Editor's SetPlayerMorale with 85, nothing read back.
 --   squad_roles    your club only (the game keeps no squad roles for other clubs): players aged 19 or more get the
 --                  Rotation role, younger players Prospect (squad_role.lua writes it through the PlayerStatusManager).
@@ -138,13 +140,14 @@ end
 
 local function morale_native(ctx, pids, native)
     if ctx.dry then return true, string.format("%d players to very happy (game call)", util.count(pids)) end
-    local set_n, none_n, queued_n, fails, lo, hi = 0, 0, 0, {}, nil, nil
-    local levels = {}
+    local set_n, none_n, created_n, queued_n, fails, lo, hi = 0, 0, 0, 0, {}, nil, nil
+    local levels, none_why = {}, nil
     for pid in pairs(pids) do
         local ok, text, status, total, level = native(1, pid, 0)
         if status == "off" then return nil, text end
         if ok and status == "ok" then
             set_n = set_n + 1
+            if type(text) == "string" and text:find("record created", 1, true) then created_n = created_n + 1 end
             if total then lo = math.min(lo or total, total); hi = math.max(hi or total, total) end
             if level then levels[level] = (levels[level] or 0) + 1 end
         elseif ok and status == "queued" then
@@ -152,6 +155,7 @@ local function morale_native(ctx, pids, native)
             break   -- one game call at a time: the rest would be refused while it waits for the game thread
         elseif total == -2 then
             none_n = none_n + 1
+            none_why = none_why or (type(text) == "string" and text:match("not created %((.-)%), counted only")) or nil
         else
             fails[#fails + 1] = string.format("%d: %s", pid, tostring(text))
         end
@@ -159,9 +163,11 @@ local function morale_native(ctx, pids, native)
     local text = string.format("%d players set to very happy", set_n)
     if lo then text = text .. string.format(" (morale %s, level %s)", lo == hi and tostring(lo) or (lo .. ".." .. hi),
         (levels[4] == set_n) and "very happy" or "see the log") end
+    if created_n > 0 then text = text .. string.format(", including %d whose missing morale record was created", created_n) end
     if queued_n > 0 then text = text .. "; queued for the game thread: run it again after the next career-mode event" end
     if none_n > 0 then
-        text = text .. string.format("; %d have no morale record (the game shows \"Unknown\"; not created by this version)", none_n)
+        text = text .. string.format("; %d have no morale record (the game shows \"Unknown\"; not created: %s)", none_n,
+            none_why or "see the log")
     end
     local okc, _, cstatus, stale, recs = native(3, 0, 0)
     if okc and cstatus == "ok" and stale then
