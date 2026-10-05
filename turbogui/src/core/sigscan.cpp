@@ -289,6 +289,27 @@ static const SignatureTable kBuiltin[] = {
           "none", 0,
           "PlayerMoraleManager::HandleEvent 0x147D8D354 (vtable slot 1): 0x5F creates the morale entry when the gate byte +0x554 is 0 and "
           "the club is the user's; the vtable and this function identify each other"},
+         // Morale (docs/re/player_status_roles.md section 4, scripts/re/player_status_signatures.json; every pattern unique in the image):
+         // the player_morale call (win/player_morale_win.cpp)
+         {"pmm_vtable",
+          "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8D 05 ?? ?? ?? ?? 48 89 51 08 48 89 01 48 8B D9 48 83 C1 10 "
+          "E8 ?? ?? ?? ?? 48 8D 8B 18 05 00 00",
+          "rip", 15, "PlayerMoraleManager vtable (0x14B0156A8), same anchor as morale_vtable"},
+         {"pmm_handle_event", "83 FA 1E 0F 84 ?? ?? ?? ?? 48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18", "none", 0,
+          "PlayerMoraleManager::HandleEvent 0x147D8D354 (vtable slot 1)"},
+         {"pmm_find_record",
+          "48 89 5C 24 08 4C 8B 59 10 48 B8 AB AA AA AA AA AA AA 2A 48 8B 49 18 8B DA 49 2B CB 45 33 C0 48 F7 E9 45 33 C9 4C 8B D2 49 C1 FA 04 "
+          "49 8B C2 48 C1 E8 3F 4C 03 D0 45 3B CA 7D 19 4B 8D 0C 49 48 C1 E1 05 49 03 CB 39 19 4C 0F 44 C1 41 FF C1 4D 85 C0 74 E2 48 8B 5C 24 08 "
+          "49 8B C0 C3 CC CC CC 48 89 5C 24 08",
+          "none", 0, "MoraleRecord* MoraleStore::Find(store = PMM+0x518, int pid) 0x147D8B5E8: 0x60-byte records, null if none"},
+         {"pmm_set_total", "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B FA 41 8B D8 8B 52 2C", "none", 0,
+          "void PlayerMoraleManager::SetTotalMorale(PMM, MoraleRecord*, int total) 0x147D960A8: rec+0x2C = total; level change -> "
+          "DynamicOverallManager refresh"},
+         {"pmm_get_level",
+          "33 C0 44 8B CA 45 85 C0 78 0C B8 04 00 00 00 44 3B C0 41 0F 4E C0 48 8D 40 02 45 8B C1 48 8D 04 40 48 8D 14 C1",
+          "none", 0,
+          "int GetMoraleLevel(PMM, int total, int emotion) 0x147D837D8: thresholds = 6 ints at PMM + (clamp(emotion,0,4)+2)*0x18 "
+          "(MORALE_LEVELS_%s); level 0 very unhappy .. 4 very happy, 5 complacent (0x147F51504)"},
          // Created players (docs/re/created_players.md, scripts/re/created_players_signatures.json; every pattern unique in the image,
          // re-checked 2026-10-05 with the "rip" offsets at the instruction start): the game's own query layer, the 0x3A event and
          // InsertTeamPlayer the player_create call uses (win/player_create_win.cpp; PostEvent is post_career_event above)

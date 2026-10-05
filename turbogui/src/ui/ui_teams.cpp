@@ -309,7 +309,7 @@ struct MassAction {
 static const MassAction kMassActions[] = {
     {"block_offers", "Block incoming offers", "Sets every player of the team to the Block Offers status: AI clubs make no offers for them (your own club only; players already blocked stay blocked)."},
     {"squad_roles", "Squad roles", "Players of 19 or more get the Rotation squad role, younger players Prospect. Your own club only: the game keeps no roles for other clubs."},
-    {"morale", "Morale: very happy", "Sets every player's morale to very happy (85; the game shows 95 and above as Complacent)."},
+    {"morale", "Morale: very happy", "Your club: the highest morale the game still calls \"very happy\" for each player's emotion type (the game's own level and SetTotalMorale; 100 would be \"complacent\"). Other clubs: 85 through Live Editor."},
     {"long_contract", "Long contract (60 months)", "Gives every player a 60 month contract from today (players loaned in keep their parent club's contract)."},
     {"all", "All actions", "Does all of the actions above at once."},
 };

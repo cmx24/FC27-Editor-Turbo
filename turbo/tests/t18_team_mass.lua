@@ -62,12 +62,74 @@ H.case("long contract: a loaned-in player keeps the parent club's contract; a de
     H.eq(pval(W.LOANED_IN, "contractvaliduntil"), 2027, "loan player untouched")
 end)
 
-H.case("morale: SetPlayerMorale 85 (very happy, not the Complacent band) for each player of the team", function()
+H.case("morale without the native call: SetPlayerMorale 85 for each player, nothing read back", function()
+    _G.TurboPlayerMorale = nil
     local before = sim:count_calls("SetPlayerMorale")
     local ok, msg = run({ teamid = 5, actions = { "morale" } })
     H.eq(ok, true, msg)
     H.eq(sim:count_calls("SetPlayerMorale") - before, #team_pids(5), "one call per player")
-    H.eq(sim.calls.SetPlayerMorale[#sim.calls.SetPlayerMorale][2], 85, "value: very happy")
+    H.eq(sim.calls.SetPlayerMorale[#sim.calls.SetPlayerMorale][2], 85, "value: very happy, not 100 (complacent)")
+    H.has(msg, "nothing read back")
+end)
+
+H.case("morale with TurboPlayerMorale: very happy per player, missing records and stale records counted", function()
+    local squad = team_pids(W.USER_TEAM)
+    local calls = {}
+    _G.TurboPlayerMorale = function(code, pid, value)
+        calls[#calls + 1] = { code, pid, value }
+        if code == 3 then return true, "counted", "ok", 2, 30 end
+        if pid == squad[1] then return false, "player " .. pid .. " has no morale record", "failed", -2, -1 end
+        if pid == squad[2] then return false, "the game kept morale 50", "failed", 50, 2 end
+        return true, "set", "ok", 94, 4
+    end
+    local before = sim:count_calls("SetPlayerMorale")
+    local ok, msg = run({ teamid = W.USER_TEAM, actions = { "morale" } })
+    _G.TurboPlayerMorale = nil
+    H.eq(ok, false, "one player failed: " .. msg)
+    H.eq(sim:count_calls("SetPlayerMorale"), before, "Live Editor's SetPlayerMorale not used")
+    H.eq(#calls, #squad + 1, "one call per player + the stale count")
+    H.eq(calls[#calls][1], 3, "stale count last")
+    for i = 1, #squad do H.eq(calls[i][1], 1, "code 1 = very happy") end
+    H.has(msg, string.format("%d players set to very happy (morale 94, level very happy)", #squad - 2))
+    H.has(msg, "1 have no morale record"); H.has(msg, "2 of 30 morale records are stale"); H.has(msg, "1 failed")
+end)
+
+H.case("morale: the native call off -> SetPlayerMorale 85 with the reason; another club -> Live Editor's way", function()
+    _G.TurboPlayerMorale = function() return false, "player_morale: off (kill switch turbo_output\\call_player_morale_off.txt is present)", "off" end
+    local before = sim:count_calls("SetPlayerMorale")
+    local ok, msg = run({ teamid = W.USER_TEAM, actions = { "morale" } })
+    H.eq(ok, true, msg)
+    H.eq(sim:count_calls("SetPlayerMorale") - before, #team_pids(W.USER_TEAM), "fallback per player")
+    H.has(msg, "call_player_morale_off.txt")
+    local n = 0
+    _G.TurboPlayerMorale = function() n = n + 1; return true, "set", "ok", 94, 4 end
+    ok, msg = run({ teamid = 5, actions = { "morale" } })
+    _G.TurboPlayerMorale = nil
+    H.eq(ok, true, msg); H.eq(n, 0, "no native call for another club")
+end)
+
+H.case("bridge.player_morale: argument checks, the words, off when the call block is missing", function()
+    local bridge = require 'imports/turbo/bridge'
+    local ok, text, status = bridge.player_morale(4, 1, 0)
+    H.eq(ok, false); H.has(text, "unknown player_morale code 4")
+    ok, text = bridge.player_morale(1, 0, 0)
+    H.eq(ok, false); H.has(text, "positive")
+    ok, text = bridge.player_morale(2, 5, 121)
+    H.eq(ok, false); H.has(text, "out of range")
+    local seen
+    local real = bridge.game_call
+    bridge.game_call = function(op, args) seen = { op, args }; return "ok", "player 5: morale 50 -> 94 (very happy)", 94, 4 end
+    local total, level
+    ok, text, status, total, level = bridge.player_morale(1, 5, 77)
+    H.eq(ok, true); H.eq(status, "ok"); H.eq(total, 94); H.eq(level, 4)
+    H.eq(seen[1], 13); H.eq(seen[2][2], 1); H.eq(seen[2][3], 5); H.eq(seen[2][4], 0, "the value goes only with code 2")
+    bridge.game_call = function() return "unavailable", "no mailbox" end
+    ok, text, status = bridge.player_morale(1, 5, 0)
+    H.eq(ok, false); H.eq(status, "off"); H.has(text, "player_morale: off")
+    bridge.game_call = function() return "failed", "player_morale: off (kill switch)", -1, -1 end
+    ok, text, status = bridge.player_morale(1, 5, 0)
+    H.eq(status, "off")
+    bridge.game_call = real
 end)
 
 H.case("squad roles: your club only, Rotation from 19, Prospect below", function()
