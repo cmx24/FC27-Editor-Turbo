@@ -3507,11 +3507,11 @@ static void test_ui() {
                 << "hash;file_name\n1;data/ui/imgAssets/hairstyle/item_3261_0.dds\n2;data/ui/imgAssets/hairstyle/item_1053_0.dds\n"
                    "3;data/ui/imgAssets/boots/item_678_0.dds\n4;data/ui/imgAssets/gkglove/gkglove_41.dds\n"
                    "5;data/ui/imgAssets/accessories/item_52_0.dds\n6;data/ui/imgAssets/accessories/item_52_3.dds\n7;data/ui/imgAssets/heads/p1.dds\n";
+            app.request_tab = 0;
+            ui.frames(2);  // the list is read again on the next frame
             const GearPictureIndex& gx = gear_pictures(app);
             CHECK(gx.ids("hairstyle", "item_").size() == 2 && gx.ids("boots", "item_") == std::vector<int64_t>{678}, "ids per folder");
             CHECK(gx.ids("accessories", "item_") == std::vector<int64_t>{52} && gx.ids("gkglove", "gkglove_") == std::vector<int64_t>{41}, "variants collapse to one id");
-            app.request_tab = 0;
-            ui.frames(2);
             CHECK(ui.click("3001", "##plist"), "player 3001");
             CHECK(ui.click("Appearance", "##pedit"), "Appearance tab");
             ui.frames(2);

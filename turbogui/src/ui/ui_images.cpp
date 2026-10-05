@@ -828,18 +828,30 @@ std::string GearPictureIndex::find(const std::string& folder, const std::string&
     return "data/ui/imgAssets/" + best + ".dds";
 }
 
-// read once per Live Editor folder
+// read again when Live Editor's lists change (size / time looked at once per frame)
 static GearPictureIndex g_gear;
 static fs::path g_gear_root;
-static bool g_gear_loaded = false;
+static std::string g_gear_stamp;
+static int g_gear_frame = -1;
 
 const GearPictureIndex& gear_pictures(App& app) {
+    const int frame = ImGui::GetCurrentContext() ? ImGui::GetFrameCount() : -1;
+    if (frame >= 0 && frame == g_gear_frame) return g_gear;
+    g_gear_frame = frame;
     fs::path root = app.bridge.root();
-    if (!g_gear_loaded || g_gear_root != root) {
-        g_gear_loaded = true;
+    const fs::path lists[] = {root / "legacy_filename_hash_list.csv", root / "extensions" / "legacy_filename_hash_list.csv"};
+    std::string stamp;
+    for (const fs::path& csv : lists) {
+        std::error_code ec;
+        const auto sz = fs::file_size(csv, ec);
+        const auto tm = ec ? fs::file_time_type() : fs::last_write_time(csv, ec);
+        stamp += std::to_string(ec ? 0 : sz) + ":" + std::to_string(tm.time_since_epoch().count()) + ";";
+    }
+    if (g_gear_root != root || g_gear_stamp != stamp) {
         g_gear_root = root;
+        g_gear_stamp = stamp;
         g_gear = GearPictureIndex();
-        for (const fs::path& csv : {root / "legacy_filename_hash_list.csv", root / "extensions" / "legacy_filename_hash_list.csv"}) {
+        for (const fs::path& csv : lists) {
             std::ifstream in(csv, std::ios::binary);
             std::string line;
             while (std::getline(in, line)) {
