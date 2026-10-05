@@ -24,6 +24,7 @@ local csv = require 'imports/turbo/core/csv'
 local env = require 'imports/turbo/core/env'
 local game = require 'imports/turbo/core/game'
 local preset = require 'imports/turbo/core/preset'
+local moves = require 'imports/turbo/core/moves'
 local version = require 'imports/turbo/core/version'
 
 local M = {}
@@ -382,10 +383,45 @@ local function run_import(ctx)
         return false, "nothing to import for the chosen groups" .. (#skipped > 0 and (" (skipped: " .. table.concat(skipped, ", ") .. ")") or "")
     end
 
+    -- Contract group: the file's join date / contract belong to another player or game. The squad hub and team
+    -- management skip a player whose join date is 0 / in the future or whose contract is over, so those two values
+    -- go through moves.contract_values (the join date is kept when valid, the contract when it still runs).
+    local fixed = {}
+    local plan_state
+    if groups.contract then
+        local over = {}
+        for _, w in ipairs(plan) do over[w.f] = w.v end
+        local cur_join = over.playerjointeamdate or moves.read_field(players, rec, "playerjointeamdate")
+        local cur_cvu = over.contractvaliduntil or moves.read_field(players, rec, "contractvaliduntil")
+        local join, cvu = moves.contract_values(cur_join, cur_cvu, {})
+        for _, pair in ipairs({ { "playerjointeamdate", join, cur_join }, { "contractvaliduntil", cvu, cur_cvu } }) do
+            local f, v, cur = pair[1], pair[2], pair[3]
+            if db.has_field(players, f) and (over[f] ~= nil or cur ~= nil) and v ~= cur then
+                local ok, verr = db.validate(players, f, v)
+                if ok == nil then return false, verr end
+                local replaced = false
+                for _, w in ipairs(plan) do
+                    if w.f == f then w.v = ok; replaced = true end
+                end
+                if not replaced then plan[#plan + 1] = { f = f, v = ok } end
+                fixed[#fixed + 1] = string.format("%s %s", f, tostring(ok))
+            end
+        end
+    end
+
     if not ctx.dry then
         for _, w in ipairs(plan) do
             local ok, werr = db.set(players, rec, w.f, w.v)
             if not ok then return false, string.format("players.%s: %s", w.f, tostring(werr)) end
+        end
+        -- the game's development plan (your own players) outranks the players table: give it the written attributes,
+        -- else the old values come back after the career is saved and loaded again
+        local is_attr, attr_vals = util.set_of(moves.PLAN_ATTRS), {}
+        for _, w in ipairs(plan) do if is_attr[w.f] then attr_vals[w.f] = w.v end end
+        if next(attr_vals) then
+            local state = moves.sync_plan(pid, attr_vals)
+            if state == "plan" then plan_state = "development plan updated"
+            elseif state:sub(1, 7) == "failed:" then plan_state = "development plan NOT updated (" .. state:sub(9) .. ")" end
         end
         if names_fn then
             local ok, nerr = names_fn()
@@ -402,6 +438,8 @@ local function run_import(ctx)
     if mini_src then parts[#parts + 1] = "miniface" end
     local msg = string.format("player %d <- %s (row %d of %d, %s): %d fields written [%s]", pid,
         tostring(parsed.path):match("([^\\/]+)$"), ridx, parsed.count, preset.describe(row), #plan, table.concat(parts, ", "))
+    if plan_state then msg = msg .. "; " .. plan_state end
+    if #fixed > 0 then msg = msg .. "; contract made valid for the squad screens: " .. table.concat(fixed, ", ") end
     if #skipped > 0 then msg = msg .. "; skipped out-of-range: " .. table.concat(skipped, ", ") end
     if #unknown > 0 then msg = msg .. "; ignored columns: " .. table.concat(unknown, ", ") end
     return true, msg

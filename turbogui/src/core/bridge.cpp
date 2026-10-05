@@ -138,6 +138,7 @@ static bool parse_state_impl(const std::string& text, BridgeState& out) {
     if (j.contains("turbo_made") && j["turbo_made"].is_array())  // an empty Lua table may arrive as {}
         for (const auto& v : j["turbo_made"])
             if (v.is_string()) out.turbo_made.push_back(v.get<std::string>());
+    out.game_moves = j.value("game_moves", false);
     out.unavailable.clear();
     if (j.contains("unavailable") && j["unavailable"].is_object())  // an empty Lua table may arrive as []
         for (auto it = j["unavailable"].begin(); it != j["unavailable"].end(); ++it)

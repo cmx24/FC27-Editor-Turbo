@@ -78,8 +78,13 @@ inline std::string why_not_to(const std::string& action, const Facts& f, int64_t
     return why_not(action, f);
 }
 
-// The note shown before a move that touches your club (it runs: this is information, not a refusal)
-inline const char* own_club_note() {
+// The note shown before a move that touches your club (it runs: this is information, not a refusal). game_moves: transfers
+// and releases go through the game's own move (BridgeState::game_moves)
+inline const char* own_club_note(bool game_moves = false) {
+    if (game_moves)
+        return "Your club: the game itself makes the transfer or release (a listed player comes off your lists first; a release "
+               "pays his compensation like the game's own). The squad screens, morale and form show it at once. Loans and "
+               "loaned players are written into the career database and show after saving and loading. Back up your save.";
     return "Your club: Turbo writes the move into the career database (your team sheet too; a listed player comes off "
            "your lists first). Back up your save; the squad screens show it after saving and loading the career.";
 }

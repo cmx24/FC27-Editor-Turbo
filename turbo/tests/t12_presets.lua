@@ -188,7 +188,7 @@ H.case("create from a preset file as a new player; blank player gets field minim
         names = { commonname = "Blank Guy" } })
     H.eq(ok, true, msg)
     H.has(msg, "fields at their minimum")
-    H.eq(pval(2060, "overallrating"), 50); H.eq(pval(2060, "contractvaliduntil"), 0)
+    H.eq(pval(2060, "overallrating"), 50); H.ok(pval(2060, "contractvaliduntil") >= 2027, "blank player gets a contract, not the field minimum")
     -- Turbo JSON source with its miniface
     ok, msg = run("create_player", { source = { file = H.out("players/Player_1002_1002.json") }, teamid = 4 })
     H.eq(ok, true, msg)

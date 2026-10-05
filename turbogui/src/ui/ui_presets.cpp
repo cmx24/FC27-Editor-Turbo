@@ -121,7 +121,7 @@ PresetPreview preview_preset_file(const fs::path& file) {
 }
 
 // Club picker: an ID box plus a searchable list of clubs (national teams are shown but refused by Lua)
-static void club_picker(App& app, int& teamid, char* search, size_t search_size) {
+void club_picker(App& app, int& teamid, char* search, size_t search_size) {
     ImGui::SetNextItemWidth(S(110.0f));
     ImGui::InputInt("Club ID", &teamid, 0);
     ImGui::SameLine();
@@ -157,7 +157,7 @@ static bool own_club(App& app, int teamid) {
 
 // The club notes shown before the click (1.1.1: any club, yours included; Lua create_player checks the same squad
 // rule and refuses with the same reason)
-static void club_notes(App& app, int teamid) {
+void club_notes(App& app, int teamid) {
     if (own_club(app, teamid)) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", kOwnClubCreate);
     if (teamid != move_rules::kFreeAgents && app.model.team(teamid)) {
         const size_t n = app.model.links_of_team(teamid).size();
@@ -611,6 +611,9 @@ void player_preset_buttons(App& app, const PlayerRow& p) {
     ImGui::SameLine();
     if (ImGui::Button("Create player...")) ImGui::OpenPopup("##pcreate");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("A new player from this one as the template: names, club, position, ratings, age");
+    ImGui::SameLine();
+    if (ImGui::Button("From CMTracker...")) ImGui::OpenPopup("##pcmt");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("A fully populated new player picked from the CMTracker CSV library: stats, positions, PlayStyles, appearance, names, miniface");
     if (made) {
         ImGui::SameLine();
         ImGui::TextDisabled("(new players are rows Turbo adds to the database: back up your save first)");
@@ -619,6 +622,7 @@ void player_preset_buttons(App& app, const PlayerRow& p) {
     import_dialog(app, p);
     clone_dialog(app, p);
     create_dialog(app, p);
+    cmtracker_dialog(app);
 }
 
 }  // namespace turbo

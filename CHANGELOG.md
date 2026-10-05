@@ -3,6 +3,72 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## Unreleased
+
+Checked in game on 2026-10-05 (test career turbo04, SSC Napoli): the Players tab filters / sorting / Overall +1 / Undo bulk /
+archetypes, From CMTracker (Pedri created), transfers into your club and to an AI club with a save + reload, Squad Hub counts
+after the moves. Everything marked "not yet checked in game" below was built and passes the offline tests only.
+
+### Added
+
+- **Real-time transfers, releases and created players (the game does the move).** Turbo.dll's new `player_move` game call
+  (mailbox op 11, `core/player_move.*`, `win/player_move_win.cpp`, docs/re/realtime_transfers.md) runs the game's own
+  `TeamUtil::PlayerMoved` on the game thread, plus `PlayerContractManager::AddContractRecord` for an arrival at your club and
+  `ContractTerminationManager::ReleasePlayer` for a release of your own player (the game pays the compensation from your budget,
+  as its own Release does). The game's join / leave handlers run inside the call, so squad screens, morale, form, status,
+  roles and team sheets should have the player at once, without a save and a load. Before anything is written the game's checks
+  run (code 9: the player is where Turbo thinks, neither club is a national team, he is not on loan, the squad limits from the
+  game's ini would not make the game release or sign anyone); a refusal changes nothing. Lua: `TurboPlayerMove(code, pid, from,
+  to, months, wage)` (bridge.lua), used by `moves.transfer` / `moves.release`. Loans, loaned players and created players stay
+  database moves (a row added with Live Editor's InsertDBTableRow is not seen by the game's own queries until a save and a load:
+  the game answered "not in team 111592" for a player created at Free Agents; real-time created players need the game's
+  CreatePlayer). Kill switch: `turbo_output\call_player_move_off.txt`. The Transfer box and the Release tooltip say which moves
+  the game makes (`game_moves` in bridge_state.json). **Checked in game (turbo04, Napoli, 2026-10-05)**: all 10 functions resolved
+  at the research addresses; AI to AI (Kostons, PEC Zwolle to Ajax); AI to Napoli (Dadie): he was in Team Management's reserves
+  and the Squad tab counts at once, with **morale Happy (+1)** instead of "Unknown", the game's contract record (60 months) and
+  his development plan; his release through the game (ReleasePlayer returned 0, compensation paid, Defence count back at once).
+- **Teams > team edit > Mass actions**: one button per action for every player of the selected team, each asks first:
+  *Block incoming offers* (your own club), *Squad roles* (age 19 and over Rotation, younger Prospect; your own club only),
+  *Morale and happiness to 100*, *Long contract (60 months)* and *All actions*. Lua module `features/team_mass.lua`
+  (`tests/t18_team_mass.lua`). Long contract, morale and squad roles work with what Turbo already had; **Block offers calls the
+  game's own "Block Offers" toggle through Turbo.dll** (new actions 7 / 8 / 9 of the transfer_list game call, docs/re/player_status_roles.md).
+  **Checked in game**: long contract (Squad Hub shows 4y 10m for everyone), squad roles (Rotation at once), morale to 100 ran, Block offers (32 players, the game's own menu then offers "Allow Offers"). ("Likes the club" was dropped on request.)
+- **Squad roles** now write the FC 27 layout correctly: the role is ONE byte of the 8-byte entry (`{pid, role, wasPromised,
+  renewalDismissed}`); before, Turbo read / wrote it as a 4-byte int, which failed for promised players and would have cleared their flags.
+- **Players > From CMTracker...**: pick a player from the CMTracker library (search by name, club, nation or id), pick a club and shirt number, and Turbo creates the fully populated player. The library is every players CSV in `<Live Editor>\turbo_cmtracker` (the CSV button on cmtracker.net/players, 50 rows per page; any number of files, merged by player id; "Add CSV files..." copies them in). Mapped: all 34 attributes and the six card values (goalkeepers' too), overall / potential, positions, PlayStyles, skill moves, weak foot, foot, height / weight, birthdate, contract, nationality, hair / eye / skin / head / body codes, names (common name only when it differs from first + last), release clause, the real face when CMTracker has one and the game knows that head (else a generic head of the new id), and the miniface (one picture request to CMTracker's picture host for that player, cached in `turbo_output\cmtracker`, converted to 256x256 DXT5). Hair style, facial hair, boots and tattoos are not in the CSV (FC Editor's new-player defaults are used; change them in Players > Appearance). No bulk download, no key, no automation of the site (its bot check and its 50-row cap are respected). New files: `core/cmtracker.*`, `core/http.h`, `win/http_win.cpp` (winhttp.dll loaded on first use), `ui/ui_cmtracker.cpp`. **Checked in game**: Pedri from the sample CSV was created in your club with his attributes, three positions, weak foot / skill moves, joined today (his save + reload is still to be checked). The miniface download wrote no picture on that try (the result is now logged: `CMTracker: <name> -> team ...; <note>`).
+- **Import from FC Editor** (`turbo/tools/fce_import/fce_to_preset.py`, drag-and-drop `Import_from_FC_Editor.bat`): turns players FC Editor (decoruiz) has fetched from CMTracker or created, exported as `.player` files or read from its workspace by player id, into Turbo player presets (`turbo_output\players\<name>_<id>.json` + the miniface `.dds` from FC Editor's `legacy\imgAssets\heads`). Players > Import and "Create player..." take them as they are. Offline (no network, no keys, nothing is called in FC Editor). FC 26 files are converted to FC 27 values (skin tone 1..10 to 10..100, contract year) and every value is clamped to the game's own ranges. Checked: 20 real FC Editor players, all inside the game's schema with no unknown field; `tests/t16_fce_import.lua` loads one and creates a player from it (offline).
+- **Players tab**: Nationality and Continent filters (and a Nationality column), sortable columns (click a header), roomier attribute sliders (two columns when wide), **28 archetypes** (Poacher, Ball Playing Defender, Playmaker ... with a preview of every change; the overall stays the same), **Overall -1 / +1** (formula fitted on 21,887 real players, 91.4% exact, 99.87% within 1) and a separate **Undo bulk** button (the normal Undo keeps 20 single-field steps). **Checked in game**: filters and sorting, Overall +1 with its preview and Undo bulk, a Poacher archetype applied with the overall kept (65 to 65), and the archetype's attributes still there after a save and reload.
+- **Teams / competitions**: team country and league filters, competition country and continent filters (continental competitions match the continent by the first word of the region name: a heuristic), sortable squad / teams / managers / league / club lists. The Job offer moved from Managers to a **Job offer** tab in Team edit (prefilled with the selected team). Not yet checked in game.
+
+### Changed
+
+- The default contract of a moved, created or imported player is **60 months** (decision 2026-10-05): the Transfer box, the `player_moves` module and `moves.transfer` all said 36 before (the Lua unit test caught it; the loan default stays 12).
+- **Transfer keeps the player's wage** unless a wage is given: the box's Wage field starts at 0 = "keep" (it used to default to 10000 and overwrote real wages: Yamal 400,577 became 10,000 in the test). `wage = 0` in `player_moves` means keep as well.
+
+### Fixed
+
+- **Players that came to a club were "lost"** (in Turbo but not in the squad hub / team management). Cause found in the code: the game's club screens skip a player whose `playerjointeamdate` is 0 / after today or whose `contractvaliduntil` is 0 / already over, and Turbo left those as they were (Create player took the source's values, Import onto a player wrote another game's dates, loans never touched them). One shared rule now (`moves.contract_values`): he joins today (the game's date), a contract that still runs is kept, a missing / expired one is replaced by a 60-month contract, a transfer with a length sets that length. Used by transfers, loans, Create player / import as new and Import with the Contract group. `tests/t17_join_contract.lua` (10 cases). **Checked in game**: Chiesa, Yamal and Haaland (moved into Napoli) appear in Team Management and the Squad Hub counts after a save + reload (Attack 9 to 11 players, Defence 14 to 13 after Beukema left), joined 2026-08-05, contract 2031.
+- **Players changing after a save + reload**: could not be reproduced. Three players (Yamal, Haaland, Beukema) were exported before the move, after the move + save + reload and after 3 simulated days: every `players` attribute is identical (only wage / contract / join date / release clause differ, as written). The development-plan sync (`moves.sync_plan` / `refresh_plan`) stays as a safeguard. Known side effect, not Turbo-specific data: a player moved into your club has **no morale record** ("Unknown", -2 OVR in matches) until the game creates one; `SetPlayerMorale` does not create it (see `docs/re/realtime_transfers.md` for the real-time work).
+- **Players of 85 clubs could not be moved** ("player ... has no club link in teamplayerlinks"; seen in game with Arbër Hoxha of
+  Dinamo Zagreb). Turbo took every team in `teamnationlinks` for a national team, but FC 27's table also ties 85 clubs to a nation
+  (Rest of World league 76 such as Dinamo Zagreb, leagues 1003 / 1014 / 2226). National teams are now the game's own rule
+  (IsInternationalLeague: league 78, 2136 or 3004) in Lua (`moves.national_teams`: transfers, loans, releases, create player, job
+  offers, manager market, Mass actions) and in the window (which also counted only league 78, so women's national teams were
+  clubs there). `tests/t20_national_teams.lua`.
+- **Mass actions > Block incoming offers** called the whole action "not done" when players on loan were in the squad (checked in
+  game: 32 of 37 Napoli players blocked, the game's own Squad Hub then offers "Allow Offers"; the 5 others had playerloans rows).
+  Players on loan are now skipped and reported as such (the game blocks only players under contract at your club).
+- **From CMTracker: the miniface was never downloaded.** Cause: an offline setup's Windows Firewall rule that blocks FC27.exe's
+  outbound traffic (here "FC 27 Block Out") also blocks Turbo.dll, which runs inside the game, so WinHTTP never connected (the
+  picture host itself answers: 28 KB PNG for Pedri). When WinHTTP gets no connection, the same single GET now runs through Windows'
+  own `System32\curl.exe` (a separate program the rule does not cover): only the one picture asked for, https only, plain address
+  characters only, 15 s and 4 MB limits, no window. Your firewall rules are not changed. **Checked in game**: Jude Bellingham from
+  the sample CSV got his miniface (p252371_27.png, 29 KB) with the block rule in place. Outside the game: a missing picture gives
+  403 ("CMTracker has no miniface picture"), a too-large answer and a malformed address are refused.
+- The From CMTracker dialog no longer grows taller than the screen (its Create player / Close buttons were off-screen at 1080p): a fixed-size window with a scrolling body and a footer.
+- The Players tab keeps all nine editor tabs visible at the default window width (the list takes at most 45% of the window; the tab bar shrinks tabs further before it scrolls).
+- A player created from a preset, FC Editor or CMTracker shows his name at once (a full refresh follows the create / clone / import result); before, the list showed "#<id>" until Refresh was pressed.
+
 ## 1.1.5 (face chooser by look, game editors fixes)
 
 Released 2026-10-04. Checked in game (test career): Hair / Facial hair groups by look, career Edit Player Gear

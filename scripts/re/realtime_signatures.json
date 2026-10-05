@@ -1,0 +1,930 @@
+{
+ "build": "6AB9813C-211EF000",
+ "game": "FC27.exe",
+ "doc": "docs/re/realtime_transfers.md",
+ "signatures": {
+  "post_event": {
+   "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 49 8B 00 48 8B D9 49 8B C8 49 8B F0",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void PostEvent(void* mailbox = *(hub+0x4F8)->obj, int32 eventId, Event* ev): ev->vf[1]() addref, ev->vf[4](), (*mailbox)->vf[6](id, ev, 0) synchronous dispatch to the 190 handlers EventsManager registered, ev->vf[2]() release. 232 callers",
+   "va": "0x14060124C",
+   "target": "0x14060124C"
+  },
+  "dc_write_team_players_links": {
+   "pattern": "48 89 5C 24 10 48 89 6C 24 18 56 57 41 54 41 56 41 57 48 81 EC 90 00 00 00 41 8B F0",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void DataController::WriteTeamPlayersLinks(DC, int pid, int fromTeam, int toTeam, int jersey [stack arg 5]): UPDATE teamplayerlinks SET teamid=to, jerseynumber=jersey, position=29 WHERE teamid=from AND playerid=pid; posts event 0x60 (removed from `from`) then 0x5F (added to `to`), then dc_enforce_squad_limits. Result of the UPDATE is not checked: events fire even when no row matched",
+   "va": "0x147BA08CC",
+   "target": "0x147BA08CC"
+  },
+  "dc_insert_team_player": {
+   "pattern": "48 8B C4 48 89 58 10 48 89 68 18 48 89 70 20 57 48 81 EC 80 00 00 00 41 8B F0 8B EA",
+   "resolve": "none",
+   "offset": 0,
+   "note": "int DataController::InsertTeamPlayer(DC, int pid, int teamId, int jersey, int position [stack 5], bool suppressEvent [stack 6]): INSERT teamplayerlinks row; when the insert succeeded and suppressEvent==0 posts event 0x5F {pid, team, -1}",
+   "va": "0x147B90074",
+   "target": "0x147B90074"
+  },
+  "dc_create_player": {
+   "pattern": "40 55 53 56 57 41 54 41 56 41 57 48 8D 6C 24 D9 48 81 EC 00 01 00 00 49 8B D8",
+   "resolve": "none",
+   "offset": 0,
+   "note": "int DataController::CreatePlayer(DC, PlayerRecord* p (0x1D0+ bytes), AppearanceRecord* a, GoalkeeperStyleRecord* g): INSERT players row (+ucc rows), 0x147B9F654(DC, p), posts event 0x3A {pid}. Returns the new player id",
+   "va": "0x147B61750",
+   "target": "0x147B61750"
+  },
+  "dc_delete_player": {
+   "pattern": "48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 81 EC 80 00 00 00 8D 82 20 FB F8 FF",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void DataController::DeletePlayer(DC, int pid): deletes the players row (+ related), posts event 0x3B {pid}",
+   "va": "0x147B63668",
+   "target": "0x147B63668"
+  },
+  "dc_is_player_in_team": {
+   "pattern": "48 8B C4 48 89 58 10 48 89 68 18 48 89 70 20 57 48 81 EC 80 00 00 00 41 8B D8 8B EA",
+   "resolve": "none",
+   "offset": 0,
+   "note": "bool DataController::IsPlayerInTeam(DC, int pid, int team): SELECT teamplayerlinks WHERE teamid=team; scans the rows for pid (TeamUtil thunk 0x147DEC458 jumps here)",
+   "va": "0x147B90A8C",
+   "target": "0x147B90A8C"
+  },
+  "dc_set_previous_team": {
+   "pattern": "48 89 5C 24 10 55 56 57 48 8D 6C 24 B9 48 81 EC E0 00 00 00 41 8B D8 8B FA",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void DataController::SetPreviousTeam(DC, int pid, int team): UPDATE previousteam SET previousteamid (INSERT when no row)",
+   "va": "0x147B9CAB8",
+   "target": "0x147B9CAB8"
+  },
+  "dc_squad_counts": {
+   "pattern": "85 D2 7E 77 48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 4C 89 70 20 41 57",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void DataController::SquadCounts(DC, int team, int* rows [r8], int* loanedOut [r9], int* pendingSigned [stack 5]): read-only. rows = teamplayerlinks rows (0x147B86260), loanedOut = loan records whose returning club is the team (LoansManager 0x147DCFC20), pendingSigned = pre-signed deals naming the team (TransferManager+0x2F30, 0x147C40FB4). The game's squad total = rows + loanedOut + pendingSigned, compared with IniSettings MAX_SQUAD_SIZE by dc_enforce_squad_limits",
+   "va": "0x147B7225C",
+   "target": "0x147B7225C"
+  },
+  "dc_squad_rows": {
+   "pattern": "48 89 5C 24 10 57 48 81 EC 80 00 00 00 8B DA 4C 8D 05 ?? ?? ?? ?? 48 8B F9 BA 01 00 00 00 48 8D 4C 24 20 E8 ?? ?? ?? ?? 48 8D 15 ?? ?? ?? ?? 48 8D 4C 24 20 E8 ?? ?? ?? ?? 44 8B CB 48 8D 15 ?? ?? ?? ?? 45 33 C0 48 8D 4C 24 20 E8 ?? ?? ?? ?? 48 8B 0F 4C 8D 84 24 90 00 00 00 48 C7 84 24 90 00 00 00 00 00 00 00 48 8D 54 24 20 48 8B 01 FF 50 08 48 8D 8C 24 90 00 00 00 E8 ?? ?? ?? ?? 48 8D 8C 24 90 00 00 00",
+   "resolve": "none",
+   "offset": 0,
+   "note": "int DataController::CountTeamPlayerLinks(DC, int team): number of teamplayerlinks rows of the team",
+   "va": "0x147B86260",
+   "target": "0x147B86260"
+  },
+  "dc_enforce_squad_limits": {
+   "pattern": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 50 4C 8B 59 10",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void DataController::EnforceSquadLimits(DC, int pid, int fromTeam, int toTeam): after a move. toTeam over IniSettings MAX_SQUAD_SIZE (+0x58): releases lowest-value reserves to Free Agents through 0x147B5E558 (any club, the user's too); fromTeam under MIN_SQUAD_SIZE (+0x64): recalls CPU loans (LoansManager::RecallCPULoanedPlayer) or signs fillers (TeamUtil 0x147DE8A6C)",
+   "va": "0x147B99BFC",
+   "target": "0x147B99BFC"
+  },
+  "dc_release_excess_reserve": {
+   "pattern": "48 89 5C 24 20 89 54 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 D9 48 81 EC 90 00 00 00",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void DataController::ReleaseLowestReserve(DC, int team): picks the lowest-value player of `team` with teamplayerlinks.position >= 28 (not loaned out, not the user's own player-career player) and moves him to Free Agents with teamutil_move_player_link",
+   "va": "0x147B5E558",
+   "target": "0x147B5E558"
+  },
+  "dc_write_team_sheet": {
+   "pattern": "48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 18 FF FF FF 48 81 EC E8 01 00 00 48 8B 05 ?? ?? ?? ?? 48 8D 1D ?? ?? ?? ??",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void DataController::WriteTeamSheet(DC, TeamSheet* s (0x288 bytes)): UPSERT cm_teamsheets + cm_mentalities from a runtime sheet (called per sheet by FCECommsManager::TriggerSave)",
+   "va": "0x147B9616C",
+   "target": "0x147B9616C"
+  },
+  "dc_load_team_sheets": {
+   "pattern": "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 41 54 41 55 41 56 41 57 48 8D A8 78 F9 FF FF",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void DataController::LoadTeamSheets(DC): reads every cm_teamsheets / cm_mentalities row into the runtime TeamSheetService (service 0x113EA820 vf[0xC0] SetSheet); only caller ActionLoadGame::LoadGameComplete 0x147CA102C",
+   "va": "0x147B5DB4C",
+   "target": "0x147B5DB4C"
+  },
+  "fcecomms_trigger_save": {
+   "pattern": "48 8B C4 48 89 58 10 48 89 70 18 48 89 78 20 55 41 54 41 55 41 56 41 57 48 8D 68 A1 48 81 EC B0 00 00 00 48 8B F1 4C 8D 05 ?? ?? ?? ??",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void FCECommsManager::TriggerSave(this): posts event 0x1C (PREPARE_FOR_SAVE), TeamSheetService vf[0x150], fetches every runtime team sheet (TeamSheetService vf[0x2A8]) and writes each to the DB with dc_write_team_sheet: the runtime sheets overwrite cm_teamsheets at save",
+   "va": "0x147B99DE4",
+   "target": "0x147B99DE4"
+  },
+  "is_free_agent_team": {
+   "pattern": "81 F9 E8 B3 01 00 74 13 81 F9 28 01 02 00 74 0B 81 F9 60 02 02 00 74 03",
+   "resolve": "none",
+   "offset": 0,
+   "note": "bool IsFreeAgentTeam(int team): team is 0x1B3E8 (111592) / 0x20128 / 0x20260 (leaf function, no unwind data)",
+   "va": "0x14154BBE0",
+   "target": "0x14154BBE0"
+  },
+  "teamutil_player_moved": {
+   "pattern": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 54 41 56 41 57 48 83 EC 30 4C 8B 11 45 8B F0",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void TeamUtil::PlayerMoved(TeamUtil* = *(hub+0xF18)->obj, int pid, int fromTeam, int toTeam): SetPlayerJoinDate(today), SetPreviousTeam(from), then teamutil_move_player_link (window flag from calendar). The game's own 'player changes club' primitive, 19 callers (transfers, releases, youth promotion, loans...)",
+   "va": "0x147DEE368",
+   "target": "0x147DEE368"
+  },
+  "teamutil_move_player_link": {
+   "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 54 41 55 41 56 41 57 48 83 EC 60 41 83 CC FF",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void TeamUtil::MovePlayerLink(this, int pid, int from, int to, bool windowOpen [stack 5]): no-op unless IsPlayerInTeam(pid,from) && !IsPlayerInTeam(pid,to); picks the shirt number (0x147DEADCC / 0x147DEB08C / 99 for special teams), dc_write_team_players_links, then (from is not a special team) TeamSheetService vf[0x70] RemovePlayerFromTeamSheets(modeId, from, pid)",
+   "va": "0x147DEE4BC",
+   "target": "0x147DEE4BC"
+  },
+  "teamutil_player_moved_loan": {
+   "pattern": "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 48 8B EC 48 83 EC 60 41 8B F0",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void TeamUtil::PlayerMovedOnLoan(this, int pid, int a, int b, ..., bool isLoan [stack], Date* [stack]...): teamutil_move_player_link + LoansManager::AddLoan (0x147DE5EC0) + CareerStoryManager note",
+   "va": "0x147DEC5DC",
+   "target": "0x147DEC5DC"
+  },
+  "teamutil_make_room": {
+   "pattern": "48 8B C4 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 88 48 81 EC 78 01 00 00 4C 8B 11",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void TeamUtil::AddFillerPlayers(this, int team, int count, ...): signs fillers into a squad (used after a squad falls below the minimum and by the pre-signed deal executor when the buyer's squad is full)",
+   "va": "0x147DE8A6C",
+   "target": "0x147DE8A6C"
+  },
+  "ctm_release_player": {
+   "pattern": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 81 EC 00 01 00 00 4C 8B 41 08",
+   "resolve": "none",
+   "offset": 0,
+   "note": "int ContractTerminationManager::ReleasePlayer(CTM = *(hub+0x3D8)->obj, int pid): the user's release. CanRelease==0 -> PCM info, compensation, TeamUtil::PlayerMoved(pid, userTeam, FreeAgents), pays the user's finance. Returns CanRelease (0 ok, 1 no budget, 2 squad at minimum)",
+   "va": "0x147B94630",
+   "target": "0x147B94630"
+  },
+  "ctm_can_release": {
+   "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 56 41 57 48 83 EC 20 4C 8B 49 08 4C 8B F1",
+   "resolve": "none",
+   "offset": 0,
+   "note": "int ContractTerminationManager::CanRelease(CTM, int pid): 0 = yes, 1 = user's budget cannot pay the compensation, 2 = squad would drop below MIN_SQUAD_SIZE",
+   "va": "0x147B5F380",
+   "target": "0x147B5F380"
+  },
+  "pcm_create_contract": {
+   "pattern": "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 88 FD FF FF 48 81 EC 78 03 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 85 60 02 00 00 45 8B E1",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void PlayerContractManager::CreateContract(PCM, int pid, int team, int status): default contract record (length + wage from PlayerWageManager / calendar), writes players.wage via pcm_set_contract, joindate/contractvaliduntil in some branches. Used by YouthPlayerUtil::SignPlayer and PCM::InitializeContracts (user squad at career start)",
+   "va": "0x147E5B3A4",
+   "target": "0x147E5B3A4"
+  },
+  "pcm_contract_type": {
+   "pattern": "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 55 48 8B EC 48 83 EC 60 48 8B 49 08",
+   "resolve": "none",
+   "offset": 0,
+   "note": "int PlayerContractManager::GetContractType(PCM, int pid, int team): 0 normal, 1..6 loan variants (uses LoansManager)",
+   "va": "0x147E657DC",
+   "target": "0x147E657DC"
+  },
+  "pcm_add_contract_record": {
+   "pattern": "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 48 8D 68 C1 48 81 EC F0 00 00 00",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void PlayerContractManager::AddContractRecord(PCM, int pid, int team, int months [byte at node+0x14], int wage, int 100, Date* start, int status): builds a ContractParams on the stack (0x147B55164 ctor, 0x147AC8B80 dtor) and calls pcm_set_contract",
+   "va": "0x147E5BF9C",
+   "target": "0x147E5BF9C"
+  },
+  "pcm_set_contract": {
+   "pattern": "4C 8B DC 49 89 5B 08 49 89 73 10 57 48 83 EC 50 48 63 02 48 8B F2 48 8B D9",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void PlayerContractManager::SetContract(PCM, ContractParams* p): upsert of the node in the hash at pcm+0x3D0 (key pid), copies team, wage (+DataController::SetWage), dates, status (node+0x34), element lists",
+   "va": "0x147E77AF4",
+   "target": "0x147E77AF4"
+  },
+  "pcm_get_player_info": {
+   "pattern": "48 89 5C 24 08 57 48 83 EC 20 44 8B 89 E0 03 00 00 49 8B D8 4C 8B 91 D8 03 00 00",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void PlayerContractManager::GetPlayerInfo(PCM, int pid, ContractInfo* out): copies the node (buckets pcm+0x3D8 / count pcm+0x3E0), defaults when there is no node",
+   "va": "0x147E61F20",
+   "target": "0x147E61F20"
+  },
+  "pcm_handle_event": {
+   "pattern": "4C 89 44 24 18 48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 E1 48 81 EC E8 00 00 00 49 8B F8",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void PlayerContractManager::HandleEvent(this, int id, Event*): event 0x60 removes the user's player's records, 0x4E records the move",
+   "va": "0x147E6B3A4",
+   "target": "0x147E6B3A4"
+  },
+  "loans_add_loan": {
+   "pattern": "48 83 EC 48 48 8B 41 48 4C 8D 49 40 49 8B 09 48 3B C8 74 11 44 8B 02 44 39 01",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void LoansManager::AddLoan(LoansManager = *(hub+0x738)->obj, LoanRecord*): upsert into the runtime loan list (+0x40, 0x20-byte records)",
+   "va": "0x147DE5EC0",
+   "target": "0x147DE5EC0"
+  },
+  "morale_handle_event": {
+   "pattern": "83 FA 1E 0F 84 ?? ?? ?? ?? 48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18",
+   "resolve": "none",
+   "offset": 0,
+   "note": "PlayerMoraleManager::HandleEvent: 0x5F (flag +0x554==0, ev.team==user team, no entry) -> morale_create_entry + morale_compute_entry; 0x60 removes; 0x73 sets +0x554",
+   "va": "0x147D8D354",
+   "target": "0x147D8D354"
+  },
+  "morale_find_entry": {
+   "pattern": "48 89 5C 24 08 4C 8B 59 10 48 B8 AB AA AA AA AA AA AA 2A 48 8B 49 18 8B DA 49 2B CB 45 33 C0 48 F7 E9 45 33 C9 4C 8B D2 49 C1 FA 04 49 8B C2 48 C1 E8 3F 4C 03 D0 45 3B CA 7D 19 4B 8D 0C 49 48 C1 E1 05 49 03 CB 39 19 4C 0F 44 C1 41 FF C1 4D 85 C0 74 E2 48 8B 5C 24 08 49 8B C0 C3 CC CC CC 48 89 5C 24 08",
+   "resolve": "none",
+   "offset": 0,
+   "note": "PlayerMoraleManager entry lookup (this+0x518, pid) -> entry* or null; entries 0x60 bytes at [+0x528,+0x530)",
+   "va": "0x147D8B5E8",
+   "target": "0x147D8B5E8"
+  },
+  "morale_create_entry": {
+   "pattern": "4C 8B DC 49 89 5B 08 49 89 6B 10 49 89 73 18 49 89 7B 20 41 56 48 81 EC 80 00 00 00 48 8D 79 10",
+   "resolve": "none",
+   "offset": 0,
+   "note": "PlayerMoraleManager entry creation (this+0x518, pid, overall-1) -> entry*",
+   "va": "0x147D81108",
+   "target": "0x147D81108"
+  },
+  "morale_compute_entry": {
+   "pattern": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 54 41 56 41 57 48 83 EC 70 C5 F8 29 70 D8 C5 F8 29 78 C8 C5 78 29 40 B8 48 8B 41 08",
+   "resolve": "none",
+   "offset": 0,
+   "note": "PlayerMoraleManager::ComputeEntry(this, entry*, prev*): fills the 0x60-byte record (components, total)",
+   "va": "0x147D93B08",
+   "target": "0x147D93B08"
+  },
+  "form_handle_event": {
+   "pattern": "40 53 48 83 EC 20 4D 8B C8 48 8B D9 83 FA 17 75 4E 41 80 78 30 00 75 0B",
+   "resolve": "none",
+   "offset": 0,
+   "note": "PlayerFormManager::HandleEvent: 0x5F with team>0 -> form_add_player(this, pid, team); 0x60 removes (per-team tree at +0x1C8)",
+   "va": "0x147E3DED4",
+   "target": "0x147E3DED4"
+  },
+  "form_add_player": {
+   "pattern": "48 89 5C 24 18 55 56 57 48 81 EC 20 02 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 84 24 10 02 00 00 8B EA",
+   "resolve": "none",
+   "offset": 0,
+   "note": "PlayerFormManager::AddPlayer(this, int pid, int team): finds the team in the tree (+0x1C8, key +0x20), reads the player row, creates the form record (only for teams the manager tracks)",
+   "va": "0x147E2EAD4",
+   "target": "0x147E2EAD4"
+  },
+  "squadranking_handle_event": {
+   "pattern": "48 89 5C 24 10 48 89 74 24 20 57 48 81 EC 10 02 00 00 48 8B 05 ?? ?? ?? ??",
+   "resolve": "none",
+   "offset": 0,
+   "note": "SquadRankingManager::HandleEvent: 0x5F/0x60 for the user's team add/remove {pid, 0, overall*10} in the vector at this+0x50 (0xC-byte records)",
+   "va": "0x147DA0B1C",
+   "target": "0x147DA0B1C"
+  },
+  "status_handle_event": {
+   "pattern": "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 48 8D A8 28 FF FF FF 48 81 EC D0 01 00 00 48 8B D9",
+   "resolve": "none",
+   "offset": 0,
+   "note": "PlayerStatusManager::HandleEvent: 0x5F for the user's team -> status_compute; 0x60 erases",
+   "va": "0x147BF30C0",
+   "target": "0x147BF30C0"
+  },
+  "status_compute": {
+   "pattern": "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 20 4C 8B D1 45 8A C8 48 83 C1 10",
+   "resolve": "none",
+   "offset": 0,
+   "note": "PlayerStatusManager::ComputeStatus(this, pid, flag): derives the cm_playerstatus_* state of a user player",
+   "va": "0x147BE7BB4",
+   "target": "0x147BE7BB4"
+  },
+  "fitness_handle_event": {
+   "pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8B D9 48 8B 49 08 49 8B F8 48 8B 81 38 10 00 00",
+   "resolve": "none",
+   "offset": 0,
+   "note": "FitnessManager::HandleEvent: 0x5F/0x60 add/remove the pid in the user's squad sets (+0x6C90 club, +0x6CB0 national team)",
+   "va": "0x147CB4E64",
+   "target": "0x147CB4E64"
+  },
+  "value_handle_event": {
+   "pattern": "48 89 5C 24 08 48 89 6C 24 18 56 57 41 56 48 83 EC 20 49 8B F0 8B DA 48 8B F9",
+   "resolve": "none",
+   "offset": 0,
+   "note": "PlayerValueManager::HandleEvent: 0x5F/0x5E (user team) value_add; 0x60/0x4E remove or refresh; 0x3B drops",
+   "va": "0x141549F1C",
+   "target": "0x141549F1C"
+  },
+  "value_add": {
+   "pattern": "48 89 5C 24 08 89 54 24 10 57 48 83 EC 30 48 8B 41 08 48 8B F9 4C 8B 88 18 03 00 00",
+   "resolve": "none",
+   "offset": 0,
+   "note": "PlayerValueManager::AddPlayer(this, int pid, int team)",
+   "va": "0x147BEA034",
+   "target": "0x147BEA034"
+  },
+  "growth_handle_event": {
+   "pattern": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 90 FC FF FF 48 81 EC 70 04 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 85 60 03 00 00 49 8B F8",
+   "resolve": "none",
+   "offset": 0,
+   "note": "PlayerGrowthManager::HandleEvent: 0x5F (user team, not from the youth pool) creates the growth record / development plan; 0x3A creates tracking for a new players row; 0x3B/0x60 drop",
+   "va": "0x147E3E018",
+   "target": "0x147E3E018"
+  },
+  "growth_add_player": {
+   "pattern": "48 89 5C 24 08 57 48 81 EC A0 02 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 84 24 90 02 00 00 48 8B 41 08",
+   "resolve": "none",
+   "offset": 0,
+   "note": "PlayerGrowthManager::AddPlayer(this, int pid): growth record + plan for a player",
+   "va": "0x147E3EFFC",
+   "target": "0x147E3EFFC"
+  },
+  "statview_handle_event": {
+   "pattern": "48 89 5C 24 08 48 89 74 24 18 48 89 7C 24 20 55 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 40 49 8B F0",
+   "resolve": "none",
+   "offset": 0,
+   "note": "StatisticViewManager::HandleEvent: 0x5F sends FCEI::RequestUpdateStatisticsTeamIDForPlayerID {pid, team} to the FCE",
+   "va": "0x147BCFC58",
+   "target": "0x147BCFC58"
+  },
+  "coach_handle_event": {
+   "pattern": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 49 8B F8 48 8B F1",
+   "resolve": "none",
+   "offset": 0,
+   "note": "CoachManager::HandleEvent: 0x5F/0x5E/0x60 (user team) squad bookkeeping; 0x36 / 0x8A growth / position",
+   "va": "0x147B89A74",
+   "target": "0x147B89A74"
+  },
+  "transfer_manager_handle_event": {
+   "pattern": "48 89 5C 24 08 4C 89 44 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 50 FF FF FF 48 81 EC B0 01 00 00 4D 8B F0",
+   "resolve": "none",
+   "offset": 0,
+   "note": "TransferManager::HandleEvent: 0xF day pass (pre-signed deals, AI), 0x5F/0x60/0x4E/0x3B/0x9D, 0x1D load (reads future `transfers` rows)",
+   "va": "0x147C42494",
+   "target": "0x147C42494"
+  },
+  "execute_presigned_deal": {
+   "pattern": "48 89 5C 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 10 FF FF FF 48 81 EC F0 01 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 85 E0 00 00 00 48 8B F2",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void TransferManager::ExecuteDeal(TransferManager, TransferDeal* d (0xF0 bytes: +0 pid, +4 buyer?, +8 seller?, +0xC date, +0x14 fee, +0x1C kind, three eastl lists at +0x28/+0x58/+0x88)): full completion of a pre-signed deal: squad room, PCM contract records, wages, finance, TeamUtil::PlayerMoved, events 0x4D/0x4E, news. Called by 0x147C53B8C for each deal of the day",
+   "va": "0x147C531D0",
+   "target": "0x147C531D0"
+  },
+  "process_presigned_contracts": {
+   "pattern": "48 89 5C 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 70 FE FF FF 48 81 EC 90 02 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 85 80 01 00 00 8B DA",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void TransferManager::ProcessPresignedContracts(tm, int dateYmd): loops 0x147C3D4A4's deals, calls execute_presigned_deal, 0x147C38BF8",
+   "va": "0x147C53B8C",
+   "target": "0x147C53B8C"
+  },
+  "presigned_deals_for_day": {
+   "pattern": "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 41 56 41 57 48 8D 68 A8 48 81 EC 40 01 00 00 4C 8B B1 38 2F 00 00",
+   "resolve": "none",
+   "offset": 0,
+   "note": "int TransferManager::GetDealsForDay(tm, vector<TransferDeal>* out, int dateYmd)",
+   "va": "0x147C3D4A4",
+   "target": "0x147C3D4A4"
+  },
+  "transfer_move_event_poster": {
+   "pattern": "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 4C 89 70 20 55 48 8B EC 48 81 EC 80 00 00 00 8B 42 0C",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void TransferManager::PostTransferMove(tm, TransferEventData*, bool complete): posts event 0x4D (about to complete) / 0x4E (complete), 0x68-byte event",
+   "va": "0x147C5BFDC",
+   "target": "0x147C5BFDC"
+  },
+  "legacy_execute_user_buy": {
+   "pattern": "4C 8B DC 49 89 5B 18 45 89 4B 20 49 89 4B 08 55 56 57 41 54 41 55 41 56",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void LegacyController::CompleteTransferBuy(this, int pid, int a, int b, int* , Terms*): AboutToComplete event 0x4D, TeamUtil::PlayerMoved, contract/finance records, news 0x9D, Complete 0x4E (one of ~30 result handlers of vtable 0x14B02C5A0)",
+   "va": "0x147FB907C",
+   "target": "0x147FB907C"
+  },
+  "youth_promote_player": {
+   "pattern": "4C 8B DC 49 89 5B 10 55 56 57 41 56 41 57 48 83 EC 40 4C 8B 09 41 8B F0",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void YouthPlayerUtil::PromotePlayer(this, int pid, int team): squad under MAX -> TeamUtil::PlayerMoved(pid, 0x1B688 youth pool, team), 0x147B6473C / 0x147BA11C0 youth table cleanup, event 0x61",
+   "va": "0x147E1A4D8",
+   "target": "0x147E1A4D8"
+  },
+  "youth_sign_player": {
+   "pattern": "48 8B C4 48 89 58 08 48 89 70 18 48 89 78 20 55 41 54 41 55 41 56 41 57 48 8D A8 A8 FE FF FF 48 81 EC 30 02 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 85 20 01 00 00 4C 8B 09",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void YouthPlayerUtil::SignPlayer(this, YouthSign* {pid,...}, bool): DC writes, SetContractValidUntil, PCM::CreateContract(pid, 0x1B688, 0), event 0x5E",
+   "va": "0x147E20D3C",
+   "target": "0x147E20D3C"
+  },
+  "youth_generate_player": {
+   "pattern": "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 28 EC FF FF B8 D8 14 00 00 E8 ?? ?? ?? ?? 48 2B E0 C5 F8 29 B4 24 C0 14 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 85 B0 13 00 00 48 8B 85 48 14 00 00",
+   "resolve": "none",
+   "offset": 0,
+   "note": "int YouthPlayerUtil::GeneratePlayer(...): DataController::CreatePlayer (expects id 0x704DF), InsertTeamPlayer(team 0x1B29D, jersey 99, pos 29), TeamUtil::PlayerMoved(0x1B29D -> 0x1B688), wage, stores the generated data",
+   "va": "0x147E0F500",
+   "target": "0x147E0F500"
+  },
+  "teamsheet_install_cached_service": {
+   "pattern": "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 41 56 48 83 EC 40 48 8B 05 ?? ?? ?? ?? 48 8D 0D ?? ?? ?? ?? BA 20 A8 3E 11 FF 50 30 48 8B F0 48 8B 08 48 8B 91 E8 02 00 00 48 8B C8 FF D2 4C 8D 0D ?? ?? ?? ?? 48 C7 44 24 28 10 00 00 00 4C 8B C0 C7 44 24 20 01 00 00 00 B9 18 14 00 00",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void InstallCachedTeamSheetService(): allocates GameServices::CachedTeamSheetService (0x1418 bytes) and registers it as service 0x113EA820",
+   "va": "0x145E1D1A0",
+   "target": "0x145E1D1A0"
+  },
+  "teamsheet_remove_player": {
+   "pattern": "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 58 8C FF FF B8 A8 74 00 00",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void TeamSheetService::RemovePlayerFromTeamSheets(this, int modeId, int team, int pid) (vtable slot 14): slot -> -1, takers cleared, normalize, SetSheet",
+   "va": "0x145E3ED90",
+   "target": "0x145E3ED90"
+  },
+  "teamsheet_get_all_sheets": {
+   "pattern": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 54 41 56 41 57 48 83 EC 30 C7 02 00 00 00 00",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void TeamSheetService::GetAllSheets(this, int* modeId, vector<TeamSheet>* out, bool) (vtable slot 85)",
+   "va": "0x145E26F84",
+   "target": "0x145E26F84"
+  },
+  "teamsheet_set_sheet": {
+   "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B 01 49 8B F8 8B F2 48 8B D9 FF 90 B0 05 00 00",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void TeamSheetService::SetSheet(this, int modeId, TeamSheet*) (vtable slot 24)",
+   "va": "0x145E45C40",
+   "target": "0x145E45C40"
+  },
+  "playerutil_delete_player": {
+   "pattern": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 50 48 8B 01 48 8B D9",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void PlayerUtil::DeletePlayer(PlayerUtil = *(hub+0xB18)->obj, int pid): DataController::DeletePlayer (event 0x3B), TransferManager+0x2D38 listener vf[0x50], FCEI::RequestClearStatisticsForPlayerID, deletes the teamplayerlinks rows, posts event 0x60 {pid, team, -1} per team he was in",
+   "va": "0x147E9DCE0",
+   "target": "0x147E9DCE0"
+  },
+  "loans_is_loaned": {
+   "pattern": "4C 8B 41 48 48 8B 41 40 EB 08 39 10 74 09 48 83 C0 20 49 3B C0 75 F3 49 3B C0",
+   "resolve": "none",
+   "offset": 0,
+   "note": "bool LoansManager::IsPlayerLoaned(this, int pid): scans the runtime loan list (+0x40, 0x20-byte records, key pid); leaf (no unwind data). The player-card builder shows CM_Morale_Unknown for these players",
+   "va": "0x147DC7508",
+   "target": "0x147DC7508"
+  },
+  "morale_get_level": {
+   "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 33 DB 41 8B F0 48 8B F9",
+   "resolve": "none",
+   "offset": 0,
+   "note": "int PlayerMoraleManager::GetMoraleLevel(this, int pid, int overall): 0 = unknown (no entry / out of range), 1..5 otherwise",
+   "va": "0x147D8B738",
+   "target": "0x147D8B738"
+  },
+  "screen_refresh_career_mode_screen": {
+   "pattern": "48 89 5C 24 08 57 48 83 EC 40 33 DB 48 8B F9 39 99 EC 00 00 00 0F 85 ?? ?? ?? ??",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void ScreenController::RefreshCareerModeScreen(this): vf[3] rebind + ScreenEventMessage 'RefreshCareerModeScreen' to the screen's queue; each screen controller class has it in its own vtable slot (needs the active controller instance, not located)",
+   "va": "0x147ACE9C4",
+   "target": "0x147ACE9C4"
+  },
+  "morale_vtable": {
+   "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8D 05 ?? ?? ?? ?? 48 89 51 08 48 89 01 48 8B D9 48 83 C1 10 E8 ?? ?? ?? ?? 48 8D 8B 18 05 00 00",
+   "resolve": "rip",
+   "offset": 15,
+   "note": "PlayerMoraleManager vtable (ctor 0x147D7DE08, lea at +0xF; slot 1 = morale_handle_event)",
+   "va": "0x147D7DE08",
+   "target": "0x14B0156A8"
+  },
+  "form_vtable": {
+   "pattern": "48 83 EC 28 48 8D 05 ?? ?? ?? ?? 48 89 51 08 48 89 01 4C 8B D1 48 83 C1 10 E8 ?? ?? ?? ?? 45 33 DB",
+   "resolve": "rip",
+   "offset": 4,
+   "note": "PlayerFormManager vtable (ctor 0x147E2C304, lea at +4)",
+   "va": "0x147E2C304",
+   "target": "0x14B01D6C0"
+  },
+  "status_vtable": {
+   "pattern": "40 53 48 83 EC 20 48 8D 05 ?? ?? ?? ?? 48 89 51 08 48 89 01 48 8B D9 48 83 C1 10 E8 ?? ?? ?? ?? 48 8B C3 48 83 C4 20 5B C3 CC CC CC 48 89 5C 24 08",
+   "resolve": "rip",
+   "offset": 6,
+   "note": "PlayerStatusManager vtable (ctor 0x147BE47B8, lea at +6)",
+   "va": "0x147BE47B8",
+   "target": "0x14AFFB2A0"
+  },
+  "squadranking_vtable": {
+   "pattern": "48 89 51 08 48 8D 05 ?? ?? ?? ?? 48 89 01 33 D2 48 89 51 10 83 C8 FF 48 89 51 50",
+   "resolve": "rip",
+   "offset": 4,
+   "note": "SquadRankingManager vtable (ctor 0x147D9A570, lea at +4; user flag +0x70)",
+   "va": "0x147D9A570",
+   "target": "0x14B016160"
+  },
+  "fitness_vtable": {
+   "pattern": "40 53 48 83 EC 20 48 89 51 08 48 8D 05 ?? ?? ?? ?? 48 89 01 4C 8D 0D ?? ?? ?? ?? 48 8B D9",
+   "resolve": "rip",
+   "offset": 10,
+   "note": "FitnessManager vtable (ctor 0x147CA9F50, lea at +0xA)",
+   "va": "0x147CA9F50",
+   "target": "0x14B009808"
+  },
+  "value_vtable": {
+   "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 89 51 08 48 8D 05 ?? ?? ?? ?? 48 89 01 48 8D 99 08 08 00 00",
+   "resolve": "rip",
+   "offset": 19,
+   "note": "PlayerValueManager vtable (ctor 0x147BE47E4, lea at +0x13)",
+   "va": "0x147BE47E4",
+   "target": "0x14AFFB290"
+  },
+  "growth_vtable": {
+   "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 48 8D 59 10 48 89 51 08",
+   "resolve": "rip",
+   "offset": 28,
+   "note": "PlayerGrowthManager vtable (ctor 0x147E2C3FC, lea at +0x1C)",
+   "va": "0x147E2C3FC",
+   "target": "0x14B01D810"
+  },
+  "statview_vtable": {
+   "pattern": "48 89 5C 24 08 57 48 83 EC 20 48 8D 05 ?? ?? ?? ?? 48 89 51 08 48 89 01 48 8B D9",
+   "resolve": "rip",
+   "offset": 10,
+   "note": "StatisticViewManager vtable (ctor 0x147BBC978, lea at +0xA)",
+   "va": "0x147BBC978",
+   "target": "0x14AFF81B0"
+  },
+  "coach_vtable": {
+   "pattern": "48 89 5C 24 18 48 89 4C 24 08 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 30 48 8D 05 ?? ?? ?? ??",
+   "resolve": "rip",
+   "offset": 25,
+   "note": "CoachManager vtable (ctor 0x147B54B3C, lea at +0x19)",
+   "va": "0x147B54B3C",
+   "target": "0x14AFF6250"
+  },
+  "ctm_vtable": {
+   "pattern": "49 8B 4E 10 48 89 48 08 48 8D 05 ?? ?? ?? ?? 48 89 02 EB 03 48 8B D6 48 63 8B D0 03 00 00",
+   "resolve": "rip",
+   "offset": 8,
+   "note": "ContractTerminationManager vtable (the object is built inline by the hub builder: [obj+8]=hub, [obj]=vtable; lea at 0x147F180CB)",
+   "va": "0x147F180C3",
+   "target": "0x14AFF6D58"
+  },
+  "transfer_result_handler_vtable": {
+   "pattern": "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 41 54 41 55 41 56 41 57 48 8D 68 C8 48 81 EC 80 01 00 00",
+   "resolve": "rip",
+   "offset": 737,
+   "note": "vtable of the object at TransferManager+0x2D78 (ITransferResultHandler: slots 2..35 complete deals, slots 37.. user notifications): the lea in the TransferManager ctor",
+   "va": "0x147C26450",
+   "target": "0x14B02C5A0"
+  },
+  "player_added_event_vtable": {
+   "pattern": "48 8B C4 48 89 58 10 48 89 68 18 48 89 70 20 57 48 81 EC 80 00 00 00 41 8B F0 8B EA",
+   "resolve": "rip",
+   "offset": 262,
+   "note": "event 0x5F PlayerAddedToTeam vtable (lea in dc_insert_team_player; 0x28-byte event: +0x10 id, +0x18 pid, +0x1C toTeam, +0x20 fromTeam)",
+   "va": "0x147B90074",
+   "target": "0x14AFF6C00"
+  },
+  "player_removed_event_vtable": {
+   "pattern": "48 89 5C 24 10 48 89 6C 24 18 56 57 41 54 41 56 41 57 48 81 EC 90 00 00 00 41 8B F0",
+   "resolve": "rip",
+   "offset": 275,
+   "note": "event 0x60 PlayerRemovedFromTeam vtable (lea in dc_write_team_players_links; +0x18 pid, +0x1C fromTeam, +0x20 toTeam)",
+   "va": "0x147BA08CC",
+   "target": "0x14AFF6468"
+  },
+  "player_inserted_event_vtable": {
+   "pattern": "40 55 53 56 57 41 54 41 56 41 57 48 8D 6C 24 D9 48 81 EC 00 01 00 00 49 8B D8",
+   "resolve": "rip",
+   "offset": 1683,
+   "note": "event 0x3A PlayerInsertedIntoPlayers vtable (lea in dc_create_player; 0x20-byte event, +0x18 pid)",
+   "va": "0x147B61750",
+   "target": "0x14AFF67C0"
+  },
+  "teamsheet_cached_vtable": {
+   "pattern": "40 53 48 83 EC 20 48 8B D9 E8 ?? ?? ?? ?? 33 C9 48 8D 05 ?? ?? ?? ?? 48 89 03 48 8D 05 ?? ?? ?? ?? 48 89 43 08",
+   "resolve": "rip",
+   "offset": 16,
+   "note": "GameServices::CachedTeamSheetService vtable (ctor 0x145E196DC, lea at +0x10)",
+   "va": "0x145E196DC",
+   "target": "0x14AD7E188"
+  }
+ },
+ "hub_slots": {
+  "CalendarManager": {
+   "slot": 24,
+   "holder_offset": "0x318"
+  },
+  "CareerModeScreensManager": {
+   "slot": 26,
+   "holder_offset": "0x358"
+  },
+  "CoachManager": {
+   "slot": 27,
+   "holder_offset": "0x378"
+  },
+  "ContractTerminationManager": {
+   "slot": 30,
+   "holder_offset": "0x3D8"
+  },
+  "DataController": {
+   "slot": 32,
+   "holder_offset": "0x418"
+  },
+  "EmailManager": {
+   "slot": 36,
+   "holder_offset": "0x498"
+  },
+  "EventsMailBox": {
+   "slot": 39,
+   "holder_offset": "0x4F8"
+  },
+  "EventsManager": {
+   "slot": 40,
+   "holder_offset": "0x518"
+  },
+  "FitnessManager": {
+   "slot": 45,
+   "holder_offset": "0x5B8"
+  },
+  "IniSettingsManager": {
+   "slot": 50,
+   "holder_offset": "0x658"
+  },
+  "LoansManager": {
+   "slot": 57,
+   "holder_offset": "0x738"
+  },
+  "PlayerContractManager": {
+   "slot": 77,
+   "holder_offset": "0x9B8"
+  },
+  "PlayerFormEventsManager": {
+   "slot": 79,
+   "holder_offset": "0x9F8"
+  },
+  "PlayerFormManager": {
+   "slot": 80,
+   "holder_offset": "0xA18"
+  },
+  "PlayerGrowthManager": {
+   "slot": 81,
+   "holder_offset": "0xA38"
+  },
+  "PlayerMoraleManager": {
+   "slot": 83,
+   "holder_offset": "0xA78"
+  },
+  "PlayerStatusManager": {
+   "slot": 87,
+   "holder_offset": "0xAF8"
+  },
+  "PlayerUtil": {
+   "slot": 88,
+   "holder_offset": "0xB18"
+  },
+  "PlayerValueManager": {
+   "slot": 89,
+   "holder_offset": "0xB38"
+  },
+  "PlayerWageManager": {
+   "slot": 90,
+   "holder_offset": "0xB58"
+  },
+  "SquadRankingManager": {
+   "slot": 106,
+   "holder_offset": "0xD58"
+  },
+  "StatisticViewManager": {
+   "slot": 109,
+   "holder_offset": "0xDB8"
+  },
+  "SuspensionManager": {
+   "slot": 114,
+   "holder_offset": "0xE58"
+  },
+  "TeamManagementScreenManager": {
+   "slot": 118,
+   "holder_offset": "0xED8"
+  },
+  "TeamMoveManager": {
+   "slot": 119,
+   "holder_offset": "0xEF8"
+  },
+  "TeamUtil": {
+   "slot": 120,
+   "holder_offset": "0xF18"
+  },
+  "TrainingPlayerCareerManager": {
+   "slot": 126,
+   "holder_offset": "0xFD8"
+  },
+  "TransferManager": {
+   "slot": 127,
+   "holder_offset": "0xFF8"
+  },
+  "UserManager": {
+   "slot": 129,
+   "holder_offset": "0x1038"
+  },
+  "YouthPlayerManager": {
+   "slot": 130,
+   "holder_offset": "0x1058"
+  }
+ },
+ "events": {
+  "0x1C": {
+   "name": "PREPARE_FOR_SAVE",
+   "size": "0x18",
+   "posted_by": "FCECommsManager::TriggerSave 0x147B99DE4"
+  },
+  "0x1D": {
+   "name": "POST_LOAD (LoadGameComplete)",
+   "posted_by": "ActionLoadGame::LoadGameComplete 0x147CA102C"
+  },
+  "0x3A": {
+   "name": "PLAYER_INSERTED_INTO_PLAYERS",
+   "size": "0x20",
+   "vtable": "0x14AFF67C0",
+   "payload": "+0x18 int playerId",
+   "posted_by": "DataController::CreatePlayer 0x147B61750",
+   "listeners": [
+    "PlayerGrowthManager"
+   ]
+  },
+  "0x3B": {
+   "name": "PLAYER_DELETED_FROM_PLAYERS",
+   "size": "0x20",
+   "payload": "+0x18 int playerId",
+   "posted_by": "DataController::DeletePlayer 0x147B63668",
+   "listeners": [
+    "PlayerValueManager",
+    "StatisticViewManager",
+    "TransferManager",
+    "PlayerSearchManager",
+    "SocialMediaManager",
+    "InternationalsManager",
+    "LoansManager",
+    "PlayerGrowthManager"
+   ]
+  },
+  "0x3E": {
+   "name": "PLAYER_CONTRACT_TERMINATION (release)",
+   "size": "0x28",
+   "payload": "+0x18 pid, +0x1C team, +0x20 compensation",
+   "posted_by": "ScreenControllerSellPlayers::HandleRelease 0x147C59934"
+  },
+  "0x4D": {
+   "name": "TRANSFER_MOVE_ABOUT_TO_COMPLETE",
+   "size": "0x68",
+   "vtable": "0x14AFF7248",
+   "posted_by": "TransferManager 0x147C5BFDC, LegacyController 0x147FA5388/0x147FA54E8/0x147FA56D0"
+  },
+  "0x4E": {
+   "name": "TRANSFER_MOVE_COMPLETE",
+   "size": "0x68",
+   "vtable": "0x14AFF62B0",
+   "payload": "+0x18 buying team (M), +0x30 playerId, +0x34 selling team (M)",
+   "listeners": [
+    "PlayerValueManager",
+    "BudgetManager",
+    "TransferManager",
+    "PlayerContractManager"
+   ]
+  },
+  "0x5E": {
+   "name": "YOUTH_PLAYER_SIGNED",
+   "size": "0x20",
+   "vtable": "0x14AFF6D68",
+   "payload": "+0x18 pid, +0x1C bool",
+   "posted_by": "YouthPlayerUtil::SignPlayer 0x147E20D3C"
+  },
+  "0x5F": {
+   "name": "PLAYER_ADDED_TO_TEAM",
+   "size": "0x28",
+   "vtable": "0x14AFF6C00",
+   "payload": "+0x18 pid, +0x1C toTeam, +0x20 fromTeam (-1 from InsertTeamPlayer)",
+   "posted_by": "DataController::WriteTeamPlayersLinks 0x147BA08CC (after 0x60), DataController::InsertTeamPlayer 0x147B90074",
+   "listeners": [
+    "PlayerMoraleManager",
+    "PlayerFormManager",
+    "PlayerStatusManager",
+    "SquadRankingManager",
+    "FitnessManager",
+    "PlayerValueManager",
+    "PlayerGrowthManager",
+    "StatisticViewManager",
+    "SuspensionManager",
+    "CoachManager",
+    "CareerStoryManager",
+    "TransferManager"
+   ]
+  },
+  "0x60": {
+   "name": "PLAYER_REMOVED_FROM_TEAM",
+   "size": "0x28",
+   "vtable": "0x14AFF6468",
+   "payload": "+0x18 pid, +0x1C fromTeam, +0x20 toTeam (-1 from DeletePlayer)",
+   "posted_by": "DataController::WriteTeamPlayersLinks 0x147BA08CC, PlayerUtil::DeletePlayer 0x147E9DCE0",
+   "listeners": [
+    "PlayerMoraleManager",
+    "PlayerFormManager",
+    "PlayerStatusManager",
+    "SquadRankingManager",
+    "FitnessManager",
+    "PlayerValueManager",
+    "PlayerGrowthManager",
+    "PlayerContractManager",
+    "CoachManager",
+    "CareerStoryManager",
+    "EmailManager",
+    "TransferManager",
+    "YouthPlayerManager"
+   ]
+  },
+  "0x61": {
+   "name": "YOUTH_PLAYER_PROMOTED",
+   "size": "0x20",
+   "vtable": "0x14AFF7650",
+   "payload": "+0x18 pid, +0x1C team",
+   "posted_by": "YouthPlayerUtil::PromotePlayer 0x147E1A4D8"
+  },
+  "0x73": {
+   "name": "ABOUT_TO_SWITCH_JOB",
+   "size": "0x30",
+   "posted_by": "0x147DE01DC",
+   "note": "sets the 'ignore 0x5F/0x60' flag of PlayerMoraleManager (+0x554) and SquadRankingManager (+0x70)"
+  },
+  "0x79": {
+   "name": "USER_TRANSFERLISTED",
+   "posted_by": "UserActionsHandlingHelperImpl::AddToTransferList 0x147F68368"
+  },
+  "0x7A": {
+   "name": "USER_LOANLISTED",
+   "posted_by": "UserActionsHandlingHelperImpl::AddToLoanList 0x147F68214"
+  },
+  "0x9D": {
+   "name": "TRANSFERS_EVENT_MESSAGE (news)",
+   "size": "0x70",
+   "posted_by": "LegacyController 0x147FA4028/0x147FA4410/0x147FA4800/0x147FA4BE8/0x147FA4FB8, TransferManager 0x147C5BA14"
+  }
+ },
+ "special_ids": {
+  "free_agents_team": "111592 = 0x1B3E8 (also 0x20128 / 0x20260: IsFreeAgentTeam 0x14154BBE0)",
+  "youth_prospect_pool": "112264 = 0x1B688 (pseudo-team in teamplayerlinks for the youth academy; PromotePlayer moves from here)",
+  "youth_generation_scratch_team": "111261 = 0x1B29D (YouthPlayerUtil::GeneratePlayer inserts here, then moves to the pool)",
+  "other_special_team": "112428 = 0x1B72C (skipped by EnforceSquadLimits and the jersey chooser)",
+  "youth_generation_player_id": "459999 = 0x704DF (YouthPlayerManager only reacts to this id on 0x5F)",
+  "player_career_player_id": "31399 = 0x7AA7 (special-cased in the jersey chooser and PCM; probably the virtual pro slot) [L]",
+  "teamplayerlinks_reserve_position": 29
+ },
+ "layouts": {
+  "hub": "hub = *(*(comm+0x20)+0x10); slot i at hub+0x20*i: +0x08 type, +0x10 count, +0x18 holder; object = **(void***)(hub+0x20*i+0x18)",
+  "DataController": "{+0 db provider (query executor, vf[1](query, result)), +0x10 hub}; ctor 0x147B5500C; no vtable of its own",
+  "TeamUtil": "0x10-byte object {+0 hub, +8 int 0}, no vtable (hub builder 0x147F18141)",
+  "PlayerUtil": "0xA68 bytes, +0 hub (ctor 0x147E9B318)",
+  "ContractTerminationManager": "0x18 bytes {+0 vtable 0x14AFF6D58, +8 hub}",
+  "IniSettings": "+0x54 DEFPLAYERSONBENCH, +0x58 MAX_SQUAD_SIZE, +0x64 MIN_SQUAD_SIZE, +0x68 MIN_GK_PER_SQUAD (loader 0x147B3BBD8)",
+  "PlayerMoraleManager": "find(this+0x518, pid) -> entry*; entries are 0x60 bytes in the vector [+0x528,+0x530), entry+0 = pid; +0x554 u8 ignore-flag; +0x598/+0x5A0 vector of 0xC-byte records",
+  "SquadRankingManager": "vector of 0xC-byte {pid, 0, overall*10} in [+0x50,+0x58); +0x70 u8 ignore-flag",
+  "PlayerStatusManager": "+0x10 int = the user's club team id; object 0x38 bytes",
+  "PlayerFormManager": "per-team red-black tree rooted at +0x1C8 (node key at +0x20 = team id, value container at +0x28)",
+  "FitnessManager": "hash sets of the user's squad pids at +0x6C90 (club) and +0x6CB0 (national team)",
+  "PlayerContractManager": "buckets node** at +0x3D8, bucket count u32 at +0x3E0, key pid, chain +0xB8; node +0x08 team, +0x0C wage, +0x14 s8 length, +0x18 f64 date, +0x34 status (0 none, 7/8/9 listed); SetContract upsert table at +0x3D0; contract element lists at +0x1B8/+0x1E8/+0x208/+0x270/+0x290/+0x2B0/+0x2E0",
+  "LoansManager": "runtime loan list: vector of 0x20-byte records at [+0x40,+0x48), key pid",
+  "TeamSheet": "0x288 bytes: +0 teamsheetid, +4 teamid, player ids as int32 from +0xC4 (slot i at +0xC4+4*i, -1 = empty), takers/formation after; CachedTeamSheetService 0x1418 bytes, vtable 0x14AD7E188, service id 0x113EA820",
+  "event_object": "{+0 vtable (base 0x149803AE8 during construction, then the class vtable), +8 s32 refcount (0), +0x10 s32 id, payload from +0x18}; allocate with A=*(0x14C269EA8): A->vf[2](A, size, \"Class::Method\", 0)"
+ },
+ "unsigned_references": {
+  "dc_set_join_date": {
+   "va": "0x147B9E7B8",
+   "note": "DataController::SetPlayerJoinDate(DC, pid, Date*): UPDATE players SET playerjointeamdate (the sibling setters differ only in the string operand: not signable with wildcarded rip displacements)"
+  },
+  "dc_set_contract_valid_until": {
+   "va": "0x147B9E138",
+   "note": "DataController::SetContractValidUntil(DC, pid, year)"
+  },
+  "dc_set_release_clause": {
+   "va": "0x147B9739C",
+   "note": "DataController::SetReleaseClause(DC, pid, amount)"
+  },
+  "dc_set_wage": {
+   "va": "0x147B972F0",
+   "note": "DataController::SetWage(DC, pid, wage)"
+  },
+  "teamutil_is_player_in_team_thunk": {
+   "va": "0x147DEC458",
+   "note": "TeamUtil::IsPlayerInTeam(this, pid, team): mov rcx,[[this]+0x418]->obj; jmp 0x147B90A8C"
+  },
+  "event_allocator_global": {
+   "va": "0x14C269EA8",
+   "note": "qword: pointer to the global allocator object A; A->vf[2] allocates (size, tag, flags)"
+  },
+  "service_registry_global": {
+   "va": "0x14BE28208",
+   "note": "service locator; Find(this, id) = vtable slot +0x38; TeamSheetService id 0x113EA820, mode-id service 0xB613880 (vf[0xA8]), jersey service 0xE02C594"
+  }
+ }
+}

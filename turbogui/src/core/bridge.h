@@ -63,6 +63,9 @@ struct BridgeState {
     std::map<std::string, std::string> unavailable;
     // Player moves Turbo makes itself in the career database (no Live Editor native; Lua core/caps.lua turbo_made)
     std::vector<std::string> turbo_made;
+    // Transfers and releases go through the game's own move (Turbo.dll player_move game call defined in Lua): the squad screens
+    // show them at once (loans and loaned players stay database moves)
+    bool game_moves = false;
     // Outcome of the last game call Lua queued on the game thread (core/game_calls.h), reported later by Lua:
     // request number (0 = none yet), success and the text (the GUI shows it as a toast when the number changes)
     long long game_call_seq = 0;

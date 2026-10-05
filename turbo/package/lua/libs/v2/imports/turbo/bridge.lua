@@ -40,7 +40,10 @@ M.CALL_OP_STANDINGS_REFRESH = 2  -- args: svm, managers, comm service, ifce (tur
 -- args: action (core/moves.lua LIST_ACTION), player id, comm service, the player's club; outputs: contract status
 -- before / after (turbogui/src/core/transfer_list.h)
 M.CALL_OP_TRANSFER_LIST = 10
-M.CALL_OP_REVEAL = 3             -- args: PlayerDataRevealManager, mode (0 player / 1 team), id, manager table (core/reveal.h)
+-- args: comm service, code | months << 8, pid | wage << 32, from | to << 32; outputs: from_ok, to_ok (1 / 0 / -1 not read)
+-- (turbogui/src/core/player_move.h)
+M.CALL_OP_PLAYER_MOVE = 11
+M.CALL_OP_REVEAL = 3            -- args: PlayerDataRevealManager, mode (0 player / 1 team), id, manager table (core/reveal.h)
 M.CALL_OP_MANAGER_RULES = 4      -- args: sub-op, manager address, value, user team (turbogui/src/core/manager_rules.h)
 
 -- bridge_dll.json is stamped by the DLL every ~2 s while it runs. A file older than this is left over from an
@@ -359,6 +362,8 @@ function M.collect_state()
         transfer_budget = in_cm and transfer_budget() or nil,
         unavailable = unavailable_tools(),
         turbo_made = turbo_made_tools(),
+        -- transfers / releases go through the game's own move (Turbo.dll player_move, core/moves.lua): the GUI's notes say so
+        game_moves = type(_G.TurboPlayerMove) == "function",
         date = d and { year = d.year, month = d.month, day = d.day } or nil,
         -- outcome of the last game call that finished after being queued (M.game_call): the GUI shows it as a toast
         game_call = S.game_call,
@@ -688,7 +693,8 @@ function M.game_call(op, args, label)
         S.call_pending = { seq = seq, op = op, label = label or ("op " .. tostring(op)) }
         return "queued", text
     end
-    return "failed", text ~= "" and text or ("game call status " .. tostring(status))
+    -- the outputs go along: a call that failed late (player_move's read-backs) still reports what it read
+    return "failed", text ~= "" and text or ("game call status " .. tostring(status)), out0, out1
 end
 
 -- A queued game call finished? Logs it and publishes it for the GUI (bridge_state.json game_call).
@@ -744,6 +750,38 @@ function M.install_natives()
         if status == "ok" or status == "queued" then return true, text, status, before, after end
         return false, text, status
     end
+    --   TurboPlayerMove(code, pid, from, to, months, wage) -> ok, message, status, from_ok, to_ok: the game's own
+    --   TeamUtil::PlayerMoved (code 1, + AddContractRecord for an arrival at your club with months > 0), its release
+    --   (code 2: ContractTerminationManager::ReleasePlayer for your club, PlayerMoved to Free Agents for any other) or the
+    --   whole validation chain without calling anything (code 9). from_ok / to_ok are the game's IsPlayerInTeam read-backs
+    --   (true / false, nil = not read). core/moves.lua M.transfer / M.release use it (turbogui/src/core/player_move.h).
+    _G.TurboPlayerMove = function(code, pid, from, to, months, wage)
+        local c, p = math.tointeger(code) or 0, math.tointeger(pid) or 0
+        local f, t = math.tointeger(from) or 0, math.tointeger(to) or 0
+        local mo, w = math.tointeger(months) or 0, math.tointeger(wage) or 0
+        -- the DLL refuses malformed words; out-of-range values are refused here so the packing never truncates one
+        local INT32 = 0x7FFFFFFF
+        local bad
+        if c ~= 1 and c ~= 2 and c ~= 9 then bad = "unknown player_move code " .. tostring(code) .. " (1 move, 2 release, 9 check only)"
+        elseif p <= 0 or p > INT32 then bad = "player id must be a positive number"
+        elseif f <= 0 or f > INT32 or t < 0 or t > INT32 then bad = "team ids must be positive numbers"
+        elseif mo < 0 or mo > 120 then bad = "contract length " .. tostring(months) .. " months is out of range (0 to 120)"
+        elseif w < 0 or w > 10000000 then bad = "wage " .. tostring(wage) .. " is out of range (0 to 10,000,000)" end
+        if bad then return false, bad, "failed" end
+        local comm = plugin("ENUM_djb2FeFceGMCommServiceInterface_CLSS")
+        local names = { [1] = "move", [2] = "release", [9] = "check move" }
+        local args = { comm, c | (mo << 8), p | (w << 32), f | (t << 32) }
+        local status, text, out0, out1 = M.game_call(M.CALL_OP_PLAYER_MOVE, args,
+            string.format("%s player %d (%d -> %d)", names[c], p, f, t))
+        local function flag(v)
+            v = math.tointeger(v)
+            if v == 1 then return true elseif v == 0 then return false end
+            return nil
+        end
+        if status == "ok" then return true, text, status, flag(out0), flag(out1) end
+        if status == "queued" then return true, text, status end
+        return false, text, status, flag(out0), flag(out1)
+    end
     --   TurboRevealPlayerData(pdrm_address, mode, id) -> ok, message, status, out0, out1: the game's own
     --   PlayerDataRevealManager marks one player (mode 0, id = player id) or every player of a club (mode 1, id = team
     --   id) fully scouted, so the Player Bio and the GTN show the true attributes and potential (core/reveal.h).
@@ -778,7 +816,7 @@ function M.install_natives()
     env.reset_api_cache()   -- wrappers that were unavailable because their c-native was missing are usable now
     S.natives_installed = true
     S.unavailable = nil   -- caps changed: bridge_state.json lists job_offer / the list moves / reveal / manager_rules as available from now on
-    log.info("Turbo natives installed: TurboJobOfferCreate, TurboStandingsRefresh, TurboTransferList, TurboRevealPlayerData, TurboManagerRules (Turbo.dll game calls)%s",
+    log.info("Turbo natives installed: TurboJobOfferCreate, TurboStandingsRefresh, TurboTransferList, TurboPlayerMove, TurboRevealPlayerData, TurboManagerRules (Turbo.dll game calls)%s",
         #le_names > 0 and ("; Live Editor natives: " .. table.concat(le_names, ", ")) or "")
     return true
 end

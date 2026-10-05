@@ -55,6 +55,7 @@
 #include "core/t3db.h"
 #include "core/teamname_override.h"
 #include "core/transfer_list.h"
+#include "core/player_move.h"
 #include "imgui.h"
 #include "imgui_impl_null.h"
 #include "imgui_internal.h"
@@ -3871,31 +3872,35 @@ static void test_ui() {
             CHECK(app.db.get_int(*tm, trow, "teamid") == 7, "neighbouring table intact");
         });
 
-        run_case("UI: Managers > Job offers: club picker, button gated by the capability, confirmation sends the job_offer module", [&] {
+        run_case("UI: Teams > Job offer tab: prefilled with the selected team, button gated by the capability, confirmation sends the job_offer module", [&] {
             app.mailbox->cancel();
-            app.request_tab = 2;
+            app.request_tab = 1;
             ui.frames(2);
-            CHECK(ui.click("Job offers (Manager Career)", "##medit"), "section header opens");
+            CHECK(ui.click("7", "##tlist"), "Everton row");
+            CHECK(ui.click("Job offer", "##tedit"), "Job offer tab");
             ui.frames(2);
+            CHECK(app.job_offer_team == 7, "prefilled with the selected team");
             // the simulated Lua side has no Turbo.dll native: the capability is missing, the button does nothing
             CHECK(app.bridge.state().unavailable_reason("job_offer") != nullptr, "job_offer unavailable in the test world");
-            const ItemRec* btn = ui.find("Create job offer", "##medit");
+            const ItemRec* btn = ui.find("Create job offer", "##tedit");
             CHECK(btn != nullptr, "button drawn");
             ui.click(btn);
             ui.frames(2);
             CHECK(!app.mailbox->pending(), "disabled button sends nothing");
             // the club picker: search narrows the list, the user's own club (1) and national teams are never offered
-            const ItemRec* search = ui.find("##josearch", "##medit", "joboffers");
+            CHECK(ui.click("Choose another club", "##tedit"), "club picker opens");
+            ui.frames(2);
+            const ItemRec* search = ui.find("##q", "##tedit", "joclubs");
             CHECK(search != nullptr, "search box");
-            CHECK(ui.find("1##jo", "##medit") == nullptr, "own club not listed");
-            CHECK(ui.find("1318##jo", "##medit") == nullptr, "national team not listed");
-            if (!ui.find("7##jo", "##medit")) ui.dump("Everton row missing before the search");
-            CHECK(ui.find("7##jo", "##medit") != nullptr && ui.find("241##jo", "##medit") != nullptr, "league clubs listed");
+            CHECK(ui.find("1##c", "##tedit") == nullptr, "own club not listed");
+            CHECK(ui.find("1318##c", "##tedit") == nullptr, "national team not listed");
+            if (!ui.find("7##c", "##tedit")) ui.dump("Everton row missing before the search");
+            CHECK(ui.find("7##c", "##tedit") != nullptr && ui.find("241##c", "##tedit") != nullptr, "league clubs listed");
             CHECK(app.model.team_name(7) == "Everton", "team 7 is named '" + app.model.team_name(7) + "'");
             ui.type_into(search, "7");  // by id (the name filter is the same code path as the Teams tab's search)
             CHECK(std::string(app.job_offer_search) == "7", std::string("typed into the search box: '") + app.job_offer_search + "'");
-            CHECK(ui.find("7##jo", "##medit") != nullptr && ui.find("241##jo", "##medit") == nullptr, "search filters the clubs");
-            CHECK(ui.click("7##jo", "##medit"), "pick Everton");
+            CHECK(ui.find("7##c", "##tedit") != nullptr && ui.find("241##c", "##tedit") == nullptr, "search filters the clubs");
+            CHECK(ui.click("7##c", "##tedit"), "pick Everton");
             CHECK(app.job_offer_team == 7, "club selected");
             // Turbo.dll's native shows up (Lua rewrites bridge_state.json without the job_offer entry): the button lights up
             fs::path state_file = le / "turbo_output" / "bridge_state.json";
@@ -3916,13 +3921,13 @@ static void test_ui() {
             app.next_poll = 0.0;
             ui.frames(3);
             CHECK(app.bridge.state().unavailable_reason("job_offer") == nullptr, "capability picked up");
-            CHECK(ui.click("Create job offer", "##medit"), "button");
+            CHECK(ui.click("Create job offer", "##tedit"), "button");
             ui.frames(2);
             CHECK(ui.find("Cancel", "Create job offer?") != nullptr, "confirmation modal");
             CHECK(ui.click("Cancel", "Create job offer?"), "cancel");
             ui.frames(2);
             CHECK(!app.mailbox->pending(), "cancelled: nothing sent");
-            CHECK(ui.click("Create job offer", "##medit"), "button again");
+            CHECK(ui.click("Create job offer", "##tedit"), "button again");
             ui.frames(2);
             CHECK(ui.click("Create", "Create job offer?"), "confirm");
             ui.frames(2);
@@ -3959,7 +3964,61 @@ static void test_ui() {
             write_state_file();
             app.next_poll = 0.0;
             ui.frames(3);
-            ui.click("Job offers (Manager Career)", "##medit");  // fold the section again
+            ui.type_into(search, "");
+            ui.frames(2);
+        });
+
+        run_case("UI: Teams > Mass actions: one button per action, confirmation, the team_mass module gets the team and the action", [&] {
+            app.mailbox->cancel();
+            app.request_tab = 1;
+            ui.frames(2);
+            CHECK(ui.click("7", "##tlist"), "Everton row");
+            CHECK(ui.click("Mass actions", "##tedit"), "Mass actions tab");
+            ui.frames(2);
+            for (const char* b : {"Block incoming offers", "Squad roles", "Morale and happiness to 100",
+                                  "Long contract (60 months)", "All actions"})
+                CHECK(ui.find(b, "##tedit") != nullptr, std::string("button ") + b);
+            // squad roles exist for your own club only: Everton is not it, the button does nothing
+            ui.click("Squad roles", "##tedit");
+            ui.frames(2);
+            CHECK(ui.find("Run", "Run mass action?") == nullptr && !app.mailbox->pending(), "squad roles refused for another club");
+            // a click asks first; Cancel sends nothing
+            CHECK(ui.click("Long contract (60 months)", "##tedit"), "long contract");
+            ui.frames(2);
+            CHECK(ui.find("Cancel", "Run mass action?") != nullptr, "confirmation modal");
+            CHECK(ui.click("Cancel", "Run mass action?"), "cancel");
+            ui.frames(2);
+            CHECK(!app.mailbox->pending(), "cancelled: nothing sent");
+            CHECK(ui.click("Long contract (60 months)", "##tedit"), "long contract again");
+            ui.frames(2);
+            CHECK(ui.click("Run", "Run mass action?"), "run");
+            ui.frames(2);
+            CHECK(app.mailbox->pending(), "command sent to Lua");
+            json j = json::parse(mem.read_cstr(kMb + kMbCmd, kMbTextSize), nullptr, false);
+            CHECK(!j.is_discarded() && j.value("op", "") == "run" && j.value("module", "") == "team_mass", "module team_mass: " + j.dump());
+            CHECK(j["overrides"].value("teamid", 0) == 7 && j["overrides"]["actions"].is_array() &&
+                      j["overrides"]["actions"][0] == "long_contract",
+                  "team 7, action long_contract: " + j.dump());
+            CHECK(app.pending_label.rfind("Mass actions", 0) == 0, "label: " + app.pending_label);
+            CHECK(!app.mass_status.empty(), "status line set");
+            // the answer lands in the status line
+            mem.wr(kMb + kMbStatus, static_cast<int32_t>(1));
+            std::vector<uint8_t> text(kMbTextSize, 0);
+            const char* msg = "team 7 (4 players) - long contract: 4 players to 60 months (contracts end in June 2031)";
+            std::memcpy(text.data(), msg, std::strlen(msg));
+            mem.write(kMb + kMbResult, text.data(), text.size());
+            mem.wr(kMb + kMbAckSeq, app.mailbox->seq());
+            ui.frames(3);
+            CHECK(app.mass_status.find("4 players to 60 months") != std::string::npos, "status shows the outcome: " + app.mass_status);
+            app.mailbox->cancel();
+            // all actions sends "all"
+            CHECK(ui.click("All actions", "##tedit"), "all actions");
+            ui.frames(2);
+            CHECK(ui.click("Run", "Run mass action?"), "run all");
+            ui.frames(2);
+            j = json::parse(mem.read_cstr(kMb + kMbCmd, kMbTextSize), nullptr, false);
+            CHECK(!j.is_discarded() && j["overrides"].value("actions", "") == "all", "actions all: " + j.dump());
+            app.mailbox->cancel();
             ui.frames(2);
         });
 
@@ -3970,6 +4029,7 @@ static void test_ui() {
             CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
             CHECK(ui.click("1001", "##plist"), "row 1001");
             ui.frames(2);
+            if (!ui.find("Growth", "##pedit")) ui.dump("Growth tab not found");
             CHECK(ui.click("Growth", "##pedit"), "Growth tab");
             ui.frames(2);
             fs::path state_file = le / "turbo_output" / "bridge_state.json";
@@ -4111,8 +4171,8 @@ static void test_ui() {
             CHECK(!app.mailbox->pending() && ui.find("Move", "Move manager?") == nullptr, "own club's manager: nothing opens");
             CHECK(ui.click("502##m1", "##mlist"), "Moyes");
             ui.frames(2);
-            CHECK(ui.find("7##mm", "##medit") == nullptr && ui.find("1##mm", "##medit") == nullptr, "his club and yours are not offered");
-            CHECK(ui.click("241##mm", "##medit"), "pick Inter");
+            CHECK(ui.find("7##c", "##medit") == nullptr && ui.find("1##c", "##medit") == nullptr, "his club and yours are not offered");
+            CHECK(ui.click("241##c", "##medit"), "pick Inter");
             CHECK(app.manager_move_team == 241, "club picked");
             CHECK(ui.click("Move to the picked club", "##medit"), "move");
             ui.frames(2);
@@ -4964,6 +5024,28 @@ static void test_ui() {
             CHECK(!app.busy(), "nothing sent for a club's only goalkeeper");
             CHECK(ui.toast_contains("only goalkeeper"), "the reason is shown");
             close_popup_and_select("2001");
+        });
+
+        run_case("bridge state: game_moves (transfers / releases by the game's own move) and the notes that depend on it", [&] {
+            CHECK(!app.bridge.state().game_moves, "absent = false");
+            std::ofstream(le / "turbo_output" / "bridge_state.json")
+                << "{\"session\":\"X\",\"seq\":201,\"db_gen\":7,\"in_cm\":true,\"user_team\":1,\"db_service\":\"" +
+                       hex_addr(app.bridge.state().db_service) +
+                       "\",\"date\":{\"year\":2027,\"month\":1,\"day\":16},\"unavailable\":{},\"game_moves\":true,"
+                       "\"turbo_made\":[\"delete_players\",\"move_loan\",\"move_release\",\"move_terminate_loan\",\"move_transfer\"]}";
+            fs::last_write_time(le / "turbo_output" / "bridge_state.json", fs::file_time_type::clock::now() + std::chrono::seconds(31));
+            ui.frames(40);
+            CHECK(app.bridge.state().seq == 201 && app.bridge.state().game_moves, "game_moves read");
+            CHECK(std::string(move_rules::own_club_note(true)).find("the game itself makes the transfer") != std::string::npos, "note: by the game");
+            CHECK(std::string(move_rules::own_club_note(false)).find("after saving and loading") != std::string::npos, "note: database move");
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.click("1002", "##plist"), "your player 1002");
+            CHECK(ui.click("Transfer / Loan...", "##pedit"), "moves popup opens");
+            ui.frames(2);
+            CHECK(ui.find("Transfer", "##Popup") != nullptr, "Transfer shown with the game's-move notes");
+            ui.click("1002", "##plist");
+            ui.frames(2);
         });
 
         run_case("UI: transfer / loan lists for your own players, list status, transfer bans sections (player, club)", [&] {
@@ -8470,6 +8552,11 @@ struct ListWorld {
     static constexpr uint64_t kHelperVt = 0x14B029440ULL, kDaoVt = 0x14B025C48ULL, kTmVt = 0x14B0055A8ULL, kPcmVt = 0x14B01E240ULL,
                               kUmVt = 0x14AFDF150ULL;
     static constexpr uint64_t kFnRemove = 0x147F8E300ULL, kFnAddT = 0x147F68368ULL, kFnAddL = 0x147F68214ULL;
+    // Block Offers (docs/re/player_status_roles.md section 2): the cache at TM+0x2D38 (vtable 0x14B005400, inner dao 0x14B005630 at +8,
+    // vector A at +0x10 / +0x18, vector B at +0x30 / +0x38) and the TransferManager's block list (+0x2F50 / +0x2F58, {int32 id, u8 flag})
+    static constexpr uint64_t kFnToggle = 0x147F688B8ULL, kCacheVt = 0x14B005400ULL, kBlockDaoVt = 0x14B005630ULL;
+    static constexpr uint64_t kCache = 0x300B0000ULL, kBlockDao = 0x300B1000ULL, kVecA = 0x300C0000ULL, kVecB = 0x300D0000ULL,
+                              kStore = 0x300E0000ULL;
     static constexpr uint32_t kCount = 8;
     static constexpr int kNapoli = 48;  // the user's club
     int next_node = 0, next_obj = 0;
@@ -8512,6 +8599,23 @@ struct ListWorld {
         for (uint64_t m : {kTm, kPcm, kUm}) mem.wr(m + kMgrManagers, kManagers);
         mem.wr(kTm, kTmVt);
         for (uint64_t off : {kTmListsStore, kTmListener, kTmNotifier}) mem.wr(kTm + off, obj());
+        // the block-offers cache is the object at TM+0x2D38 (the listener object above is replaced), empty vectors, slot 30 of the helper
+        mem.map(kCache, kBlockCacheSize);
+        mem.map(kBlockDao, kBlockDaoSize);
+        mem.map(kVecA, 0x3000);
+        mem.map(kVecB, 0x3000);
+        mem.map(kStore, 0x5000);
+        mem.map(kCacheVt, 0x40);
+        mem.map(kBlockDaoVt, 0x40);
+        mem.wr(kHelperVt + kHelperSlotToggleBlock * 8, kFnToggle);
+        mem.wr(kTm + kTmBlockCache, kCache);
+        mem.wr(kCache, kCacheVt);
+        mem.wr(kCache + kBlockCacheInner, kBlockDao);
+        mem.wr(kBlockDao, kBlockDaoVt);
+        mem.wr(kBlockDao + kBlockDaoHub, kManagers);  // the inner dao's hub: SetBlock reaches the TransferManager through it
+        set_block_a({});
+        set_block_b({});
+        set_block_list({});
         mem.wr(kPcm, kPcmVt);
         mem.wr(kPcm + kPcmBucketCount, kCount);
         mem.wr(kPcm + kPcmBuckets, kBuckets);
@@ -8566,14 +8670,83 @@ struct ListWorld {
         turbo::tl::contract_status(mem, kPcm, pid, found, cur, &node);
         if (found) mem.wr(node + turbo::tl::kPcmNodeStatus, st);
     }
+    // ---- the block record
+    struct BlockEntry { int32_t id; uint8_t flag; };
+    std::vector<int32_t> read_ids(uint64_t obj, uint64_t off_begin, uint64_t off_end) {
+        uint64_t b = 0, e = 0;
+        mem.rd(obj + off_begin, b);
+        mem.rd(obj + off_end, e);
+        std::vector<int32_t> v;
+        for (uint64_t p = b; p + 4 <= e; p += 4) {
+            int32_t x = 0;
+            mem.rd(p, x);
+            v.push_back(x);
+        }
+        return v;
+    }
+    void write_ids(uint64_t obj, uint64_t off_begin, uint64_t off_end, uint64_t buf, const std::vector<int32_t>& ids) {
+        for (size_t i = 0; i < ids.size(); ++i) mem.wr(buf + i * 4, ids[i]);
+        mem.wr(obj + off_begin, buf);
+        mem.wr(obj + off_end, buf + ids.size() * 4);
+    }
+    std::vector<int32_t> block_a() { return read_ids(kCache, turbo::tl::kBlockCacheABegin, turbo::tl::kBlockCacheAEnd); }
+    std::vector<int32_t> block_b() { return read_ids(kCache, turbo::tl::kBlockCacheBBegin, turbo::tl::kBlockCacheBEnd); }
+    void set_block_a(const std::vector<int32_t>& ids) {
+        write_ids(kCache, turbo::tl::kBlockCacheABegin, turbo::tl::kBlockCacheAEnd, kVecA, ids);
+    }
+    void set_block_b(const std::vector<int32_t>& ids) {
+        write_ids(kCache, turbo::tl::kBlockCacheBBegin, turbo::tl::kBlockCacheBEnd, kVecB, ids);
+    }
+    std::vector<BlockEntry> block_list() {
+        uint64_t b = 0, e = 0;
+        mem.rd(kTm + turbo::tl::kTmBlockListBegin, b);
+        mem.rd(kTm + turbo::tl::kTmBlockListEnd, e);
+        std::vector<BlockEntry> v;
+        for (uint64_t p = b; p + 8 <= e; p += 8) {
+            BlockEntry x{0, 0};
+            mem.rd(p, x.id);
+            mem.rd(p + 4, x.flag);
+            v.push_back(x);
+        }
+        return v;
+    }
+    void set_block_list(const std::vector<BlockEntry>& list) {
+        for (size_t i = 0; i < list.size(); ++i) {
+            mem.wr(kStore + i * 8, list[i].id);
+            mem.wr(kStore + i * 8 + 4, list[i].flag);
+            mem.wr(kStore + i * 8 + 5, static_cast<uint8_t>(0));  // the padding
+        }
+        mem.wr(kTm + turbo::tl::kTmBlockListBegin, kStore);
+        mem.wr(kTm + turbo::tl::kTmBlockListEnd, kStore + list.size() * 8);
+    }
+    bool in_a(int pid) {
+        const auto a = block_a();
+        return std::find(a.begin(), a.end(), static_cast<int32_t>(pid)) != a.end();
+    }
+    // the flag of the pid's entry in the block list, -1 = no entry
+    int list_flag(int pid) {
+        for (const auto& e : block_list())
+            if (e.id == pid) return e.flag;
+        return -1;
+    }
+    // a player blocked the way the game stores it: in vector A and as {pid, 0} in the block list
+    void block_in_memory(int pid) {
+        auto a = block_a();
+        a.push_back(pid);
+        set_block_a(a);
+        auto l = block_list();
+        l.push_back({pid, 0});
+        set_block_list(l);
+    }
 };
 
 // What the game's helper functions do to the contract status (docs/re/transfer_lists.md): AddTo*List sets 7 / 8 (9 with
 // the other list), TryToRemoveFromList checks that the player is on the list its flag names, then clears BOTH lists
 struct FakeListGame : turbo::tl::Caller {
     ListWorld& w;
-    int adds_t = 0, adds_l = 0, removes = 0;
+    int adds_t = 0, adds_l = 0, removes = 0, toggles = 0;
     bool noop = false, fail = false;
+    bool half = false;  // the toggle changes the cache only, not the TransferManager's block list (a broken game)
     uint64_t last_helper = 0;
     bool last_loan_flag = false;
     explicit FakeListGame(ListWorld& world) : w(world) {}
@@ -8622,13 +8795,52 @@ struct FakeListGame : turbo::tl::Caller {
         removed = true;
         return true;
     }
+    // UserActionsHandlingHelperImpl::ToggleTransferBlock 0x147F688B8 (docs/re/player_status_roles.md section 2.1): a TOGGLE on the cache's
+    // vector A; blocked -> cache->vf[7] (erase from A and the flag-0 entry of the list), else cache->vf[4] (the list entry {pid, 0}: a
+    // flag-1 entry is updated, else appended; erase from B; push into A) and RemoveFromLists (a listed player is unlisted)
+    bool toggle_block(uint64_t helper, int pid, std::string& err) override {
+        ++toggles;
+        last_helper = helper;
+        if (fail) {
+            err = "boom";
+            return false;
+        }
+        if (noop) return true;
+        auto a = w.block_a();
+        auto l = w.block_list();
+        auto it = std::find(a.begin(), a.end(), static_cast<int32_t>(pid));
+        if (it != a.end()) {
+            a.erase(it);
+            l.erase(std::remove_if(l.begin(), l.end(), [&](const ListWorld::BlockEntry& e) { return e.id == pid && e.flag == 0; }), l.end());
+        } else {
+            a.push_back(pid);
+            bool had = false;
+            for (auto& e : l)
+                if (e.id == pid) {
+                    e.flag = 0;
+                    had = true;
+                }
+            if (!had) l.push_back({pid, 0});
+            auto b = w.block_b();
+            b.erase(std::remove(b.begin(), b.end(), static_cast<int32_t>(pid)), b.end());
+            w.set_block_b(b);
+            const int32_t s = w.status(pid);
+            if (s == 7 || s == 8 || s == 9) w.set_status(pid, 0);
+        }
+        w.set_block_a(a);
+        if (!half) w.set_block_list(l);
+        return true;
+    }
 };
+
+#include "test_transfer_block.h"  // Block Offers: the toggle, its record and the three new actions (test_transfer_block)
+#include "test_player_move.h"    // player_move: PlayerMoved / AddContractRecord / ReleasePlayer on a synthetic career (test_player_move)
 
 static void test_transfer_list() {
     using namespace turbo;
     using namespace turbo::tl;
     const Fns fns{ListWorld::kFnAddT, ListWorld::kFnAddL, ListWorld::kFnRemove, ListWorld::kHelperVt, ListWorld::kDaoVt, ListWorld::kTmVt,
-                  ListWorld::kPcmVt, ListWorld::kUmVt};
+                  ListWorld::kPcmVt, ListWorld::kUmVt, ListWorld::kFnToggle, ListWorld::kCacheVt, ListWorld::kBlockDaoVt};
     auto req_for = [](int action, int pid, int club = ListWorld::kNapoli) {
         Request q;
         q.action = action;
@@ -8885,7 +9097,7 @@ static void test_transfer_list() {
         r = run(w.mem, g, fns, q);
         CHECK(!r.ok && r.message.find("outside FC27.exe") != std::string::npos, "address outside the image: " + r.message);
         q.image_base = q.image_size = 0;
-        q.action = 9;
+        q.action = 10;  // 7 / 8 / 9 are the Block Offers actions
         r = run(w.mem, g, fns, q);
         CHECK(!r.ok && r.message.find("unknown transfer-list action") != std::string::npos, "unknown action: " + r.message);
         q.action = kActionTransferList;
@@ -11504,6 +11716,8 @@ int main(int argc, char** argv) {
     test_gamethread();
     std::printf("native transfer lists\n");
     test_transfer_list();
+    test_transfer_block();
+    test_player_move();
     std::printf("native Live Editor log\n");
     test_le_log();
     std::printf("native live standings\n");

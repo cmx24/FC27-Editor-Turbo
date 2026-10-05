@@ -2,6 +2,7 @@
 #include "transfer_list.h"
 
 #include <cstdio>
+#include <cstring>
 #include <vector>
 
 namespace turbo {
@@ -19,6 +20,13 @@ const char* Fns::missing() const {
     return nullptr;
 }
 
+const char* Fns::missing_block(bool need_toggle) const {
+    if (need_toggle && !toggle_block) return "uah_toggle_transfer_block";
+    if (!cachedblock_vtable) return "cachedblock_vtable";
+    if (!blockdao_vtable) return "blockdao_vtable";
+    return nullptr;
+}
+
 const char* action_name(int action) {
     switch (action) {
         case kActionTransferList: return "transfer list";
@@ -27,7 +35,18 @@ const char* action_name(int action) {
         case kActionUnlistTransfer: return "remove from the transfer list";
         case kActionUnlistLoan: return "remove from the loan list";
         case kActionQuery: return "list status";
+        case kActionBlockOffers: return "block offers";
+        case kActionUnblockOffers: return "unblock offers";
+        case kActionQueryBlock: return "block status";
         default: return "unknown action";
+    }
+}
+
+const char* block_name(int32_t state) {
+    switch (state) {
+        case 0: return "not blocked";
+        case 1: return "blocked";
+        default: return "unknown block state";
     }
 }
 
@@ -91,8 +110,18 @@ static std::string manager_at(Memory& mem, uint64_t managers, int type, uint64_t
 std::string locate(Memory& mem, const Request& req, const Fns& fns, Located& out) {
     out = Located();
     if (const char* m = fns.missing()) return std::string("game function ") + m + " is not resolved on this game build";
-    for (uint64_t p : {fns.add_transfer, fns.add_loan, fns.try_remove, fns.helper_vtable, fns.dao_vtable, fns.tm_vtable, fns.pcm_vtable,
-                       fns.um_vtable})
+    // Block Offers: its own signatures (the list actions never need them); the toggle only for the actions that call it
+    const bool block = is_block_action(req.action), toggles = changes_block(req.action);
+    if (block)
+        if (const char* m = fns.missing_block(toggles)) return std::string("game function ") + m + " is not resolved on this game build";
+    std::vector<uint64_t> addresses = {fns.add_transfer, fns.add_loan,  fns.try_remove, fns.helper_vtable,
+                                       fns.dao_vtable,   fns.tm_vtable, fns.pcm_vtable, fns.um_vtable};
+    if (block) {
+        addresses.push_back(fns.cachedblock_vtable);
+        addresses.push_back(fns.blockdao_vtable);
+    }
+    if (toggles) addresses.push_back(fns.toggle_block);
+    for (uint64_t p : addresses)
         if (!in_image(p, req)) return "resolved address " + hex(p) + " is outside FC27.exe";
     if (!is_ptr(req.comm, 8)) return "the career's comm service is not known (" + hex(req.comm) + "): is the Turbo GUI running in a career?";
     out.owner = mem.ptr(req.comm + kCommOwner);
@@ -112,9 +141,11 @@ std::string locate(Memory& mem, const Request& req, const Fns& fns, Located& out
         return "the object at " + hex(out.helper) + " is not the UserActionsHandlingHelperImpl (vtable " + hex(hvt) + ", expected " +
                hex(fns.helper_vtable) + ")";
     // the vtable's slots are the functions resolved by signature: the vtable and the functions identify each other
-    struct Slot { uint64_t index, fn; const char* name; } slots[] = {
+    struct Slot { uint64_t index, fn; const char* name; };
+    std::vector<Slot> slots = {
         {kHelperSlotTryRemove, fns.try_remove, "TryToRemoveFromList"}, {kHelperSlotAddTransfer, fns.add_transfer, "AddToTransferList"},
         {kHelperSlotAddLoan, fns.add_loan, "AddToLoanList"}};
+    if (toggles) slots.push_back({kHelperSlotToggleBlock, fns.toggle_block, "ToggleTransferBlock"});
     for (const auto& s : slots) {
         uint64_t fn = 0;
         if (!mem.rd(hvt + s.index * 8, fn)) return "the helper vtable at " + hex(hvt) + " is not readable";
@@ -225,6 +256,68 @@ std::string contract_status(Memory& mem, uint64_t pcm, int player, bool& found, 
     return "contract chain longer than " + std::to_string(kMaxChain) + " records (layout mismatch?)";
 }
 
+// One eastl vector of `elem`-byte elements whose begin / end pointers sit at obj + off_begin / obj + off_end: begin <= end, a whole
+// number of elements, at most kMaxBlockElements, every byte readable (an empty vector may hold null pointers). "" = fine.
+static std::string read_vector(Memory& mem, uint64_t obj, uint64_t off_begin, uint64_t off_end, uint64_t elem, const std::string& what,
+                               std::vector<uint8_t>& data) {
+    data.clear();
+    uint64_t b = 0, e = 0;
+    if (!mem.rd(obj + off_begin, b) || !mem.rd(obj + off_end, e)) return what + " is not readable";
+    if (b > e) return what + " is corrupt: begin " + hex(b) + " is after end " + hex(e) + " (layout mismatch?)";
+    const uint64_t bytes = e - b;
+    if (bytes % elem != 0)
+        return what + " is corrupt: " + std::to_string(bytes) + " bytes is not a whole number of " + std::to_string(elem) + "-byte elements (layout mismatch?)";
+    if (bytes / elem > static_cast<uint64_t>(kMaxBlockElements))
+        return what + " is corrupt: " + std::to_string(bytes / elem) + " elements (at most " + std::to_string(kMaxBlockElements) + " expected, layout mismatch?)";
+    if (bytes == 0) return "";
+    if (!is_ptr(b, 4)) return what + " is corrupt: its elements pointer " + hex(b) + " is not a pointer";
+    if (!mem.read_block(b, static_cast<size_t>(bytes), data)) return what + " at " + hex(b) + " is not readable (" + std::to_string(bytes) + " bytes)";
+    return "";
+}
+
+std::string block_state(Memory& mem, const Fns& fns, uint64_t tm, uint64_t managers, int player, BlockState& out) {
+    out = BlockState();
+    const uint64_t cache = mem.ptr(tm + kTmBlockCache);
+    std::string err = check_object(mem, cache, kBlockCacheSize, fns.cachedblock_vtable, "CachedTransferblockDaoImpl (the block-offers cache, TransferManager+0x2D38)");
+    if (!err.empty()) return err;
+    std::vector<uint8_t> whole;
+    if (!mem.read_block(cache, kBlockCacheSize, whole)) return "the block-offers cache at " + hex(cache) + " is not readable";
+    const uint64_t dao = mem.ptr(cache + kBlockCacheInner);
+    err = check_object(mem, dao, kBlockDaoSize, fns.blockdao_vtable, "TransferblockDaoImpl (the block-offers cache's inner dao)");
+    if (!err.empty()) return err;
+    // the inner dao reaches the TransferManager through its hub ([[dao+0x10]+0xFF8]): it must be this career's manager table
+    if (managers) {
+        const uint64_t hub = mem.ptr(dao + kBlockDaoHub);
+        if (hub != managers)
+            return "the block-offers cache's inner dao belongs to another manager table (" + hex(hub) + ", the career's is " + hex(managers) + ")";
+    }
+    std::vector<uint8_t> a, b, list;
+    err = read_vector(mem, cache, kBlockCacheABegin, kBlockCacheAEnd, kBlockIdSize, "the block-offers cache's vector A (blocked players)", a);
+    if (!err.empty()) return err;
+    err = read_vector(mem, cache, kBlockCacheBBegin, kBlockCacheBEnd, kBlockIdSize, "the block-offers cache's vector B (released players)", b);
+    if (!err.empty()) return err;
+    err = read_vector(mem, tm, kTmBlockListBegin, kTmBlockListEnd, kBlockEntrySize, "the TransferManager's block list (+0x2F50)", list);
+    if (!err.empty()) return err;
+    out.cache = cache;
+    out.dao = dao;
+    out.cache_count = a.size() / kBlockIdSize;
+    out.list_count = list.size() / kBlockEntrySize;
+    for (size_t i = 0; i < out.cache_count; ++i) {
+        int32_t id = 0;
+        std::memcpy(&id, a.data() + i * kBlockIdSize, sizeof(id));
+        if (id == player) out.in_cache = true;
+    }
+    for (size_t i = 0; i < out.list_count; ++i) {
+        int32_t id = 0;
+        std::memcpy(&id, list.data() + i * kBlockEntrySize, sizeof(id));
+        if (id != player) continue;
+        const uint8_t flag = list[i * kBlockEntrySize + kBlockEntryFlag];
+        if (flag == kBlockFlagOffers) out.in_list = true;
+        else if (flag == kBlockFlagReleased) out.released = true;
+    }
+    return "";
+}
+
 static Result fail(Result r, const char* stage, const std::string& msg) {
     r.ok = false;
     r.stage = stage;
@@ -232,23 +325,89 @@ static Result fail(Result r, const char* stage, const std::string& msg) {
     return r;
 }
 
+static std::string yes_no(bool v) { return v ? "yes" : "no"; }
+
+// The Block Offers actions (r already holds the located objects and the contract status before in r.before / r.found)
+static Result run_block(Memory& mem, Caller& call, const Fns& fns, const Request& req, Result r) {
+    const std::string who = "player " + std::to_string(req.player);
+    r.status_before = r.before;
+    BlockState st;
+    std::string err = block_state(mem, fns, r.at.tm, r.at.managers, req.player, st);
+    if (!err.empty()) return fail(r, "validate", err);
+    r.at.block_cache = st.cache;
+    r.at.block_dao = st.dao;
+    r.before = r.after = st.in_cache ? 1 : 0;
+    r.status_after = r.status_before;
+    // the game's cache and the TransferManager's list mirror each other: a player they disagree about is not a state Turbo
+    // reasons about (the toggle follows the cache, the save holds the list), so nothing is called
+    const std::string split = who + ": the block-offers cache says " + block_name(r.before) + " but the TransferManager's block list says " +
+                              (st.in_list ? "blocked" : "not blocked") + " (cache " + yes_no(st.in_cache) + ", list " + yes_no(st.in_list) + ")";
+    if (req.action == kActionQueryBlock) {
+        r.ok = true;
+        r.stage = "done";
+        r.message = who + ": offers are " + block_name(r.before);
+        if (st.in_cache != st.in_list) r.message += " (note: the block list disagrees, it says " + std::string(block_name(st.in_list ? 1 : 0)) + ")";
+        else if (!st.in_cache && st.released) r.message += " (he is on the released-player block list, which is not Block Offers)";
+        return r;
+    }
+    if (st.in_cache != st.in_list) return fail(r, "validate", split + ": nothing is called");
+    const bool wanted = req.action == kActionBlockOffers;
+    if (st.in_cache == wanted) {
+        r.ok = true;
+        r.stage = "done";
+        r.message = who + ": offers are " + (wanted ? "already blocked" : "not blocked") + " (nothing was called)";
+        return r;
+    }
+    // the call: the game's own toggle on the game's own objects; it flips, and the state says it must
+    if (!call.toggle_block(r.at.helper, req.player, err)) return fail(r, "call", "ToggleTransferBlock: " + err);
+    r.called = true;
+    BlockState after;
+    err = block_state(mem, fns, r.at.tm, r.at.managers, req.player, after);
+    if (!err.empty()) return fail(r, "check", "the call ran but the block state could not be read back: " + err);
+    r.after = after.in_cache ? 1 : 0;
+    bool found2 = false;
+    int32_t st2 = -1;
+    if (contract_status(mem, r.at.pcm, req.player, found2, st2).empty() && found2) r.status_after = st2;
+    const bool good = wanted ? (after.in_cache && after.in_list) : (!after.in_cache && !after.in_list);
+    if (!good) {
+        if (after.in_cache == st.in_cache && after.in_list == st.in_list)
+            return fail(r, "check", std::string("the game refused: ") + who + " stayed " + block_name(r.before) + " (is he one of your players?)");
+        return fail(r, "check", who + ": the block state is inconsistent after the call (cache " + yes_no(after.in_cache) + ", list " + yes_no(after.in_list) +
+                                    ", expected both " + yes_no(wanted) + ")");
+    }
+    r.ok = true;
+    r.stage = "done";
+    r.message = who + ": " + action_name(req.action) + " done, offers are " + (wanted ? "now blocked" : "no longer blocked");
+    // the game unlists a player when it blocks his offers (TransferManager::RemoveFromLists): reported, not an error
+    if (wanted && (is_transfer_listed(r.status_before) || is_loan_listed(r.status_before))) {
+        if (r.status_after == kStatusNone)
+            r.message += "; he was " + std::string(status_name(r.status_before)) + " and the game took him off the list, as it does when offers are blocked";
+        else
+            r.message += "; he was " + std::string(status_name(r.status_before)) + " and is now " + status_name(r.status_after) + " (the game normally unlists him)";
+    }
+    return r;
+}
+
 Result run(Memory& mem, Caller& call, const Fns& fns, const Request& req) {
     Result r;
-    if (req.action < kActionTransferList || req.action > kActionQuery)
-        return fail(r, "validate", "unknown transfer-list action " + std::to_string(req.action));
+    if (!valid_action(req.action)) return fail(r, "validate", "unknown transfer-list action " + std::to_string(req.action));
     if (req.player <= 0) return fail(r, "validate", "player id must be a positive number");
     std::string err = locate(mem, req, fns, r.at);
     if (!err.empty()) return fail(r, "validate", err);
-    err = contract_status(mem, r.at.pcm, req.player, r.found, r.before);
-    if (!err.empty()) return fail(r, "status", err);
+    // (the block-state query reads only the block record: no contract status needed)
+    if (req.action != kActionQueryBlock) {
+        err = contract_status(mem, r.at.pcm, req.player, r.found, r.before);
+        if (!err.empty()) return fail(r, "status", err);
+    }
     const std::string who = "player " + std::to_string(req.player);
     // the helper lists the player on the user's club whoever he plays for: only the user's own players
-    if (req.action != kActionQuery) {
+    if (req.action != kActionQuery && req.action != kActionQueryBlock) {
         if (req.club <= 0) return fail(r, "validate", who + ": his club is not known (the database has no club link for him)");
         if (req.club != r.at.user_team)
             return fail(r, "validate", who + " plays for team " + std::to_string(req.club) + ", not your club (team " + std::to_string(r.at.user_team) +
-                                           "): the game lists only your own players");
+                                           "): the game " + (is_block_action(req.action) ? "blocks offers only for" : "lists only") + " your own players");
     }
+    if (is_block_action(req.action)) return run_block(mem, call, fns, req, r);
     // List status of a player the PlayerContractManager has no record of (another club's player, or one Turbo moved
     // since the career was loaded): the listed state lives only in that record, so he is on none of the game's lists
     if (!r.found && req.action == kActionQuery) {

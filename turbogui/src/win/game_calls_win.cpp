@@ -11,6 +11,7 @@
 #include "manager_rules_win.h"
 #include "standings_refresh_win.h"
 #include "transfer_list_win.h"
+#include "player_move_win.h"
 #include "match_setup_win.h"
 
 namespace host {
@@ -213,6 +214,7 @@ std::vector<std::string> game_calls_status() {
     }
     for (const auto& l : standings_refresh_status()) out.push_back(l);
     for (const auto& l : transfer_list_status()) out.push_back(l);
+    for (const auto& l : player_move_status()) out.push_back(l);
     for (const auto& l : reveal_status()) out.push_back(l);
     for (const auto& l : manager_rules_status()) out.push_back(l);
     for (const auto& l : match_setup_status()) out.push_back(l);
@@ -258,6 +260,8 @@ void install_game_calls(uint64_t mailbox) {
     g_mailbox = mailbox;
     if (g_installed) return;
     g_installed = true;
+    // player_move (player_move_win.cpp): the game's own club change / release / contract record; needs the signature table only
+    install_player_move();
     if (!game_hooks_allowed()) {
         g_off = "game hooks are off for this game build";
         log("game calls: off (%s)", g_off.c_str());
@@ -308,6 +312,8 @@ extern "C" __declspec(dllexport) int turbo_game_call(void*) {
                     req.comm = static_cast<uint64_t>(b.args[2]);
                     req.club = static_cast<int>(b.args[3]);
                     transfer_list_request(req, b.seq);
+                } else if (b.op == turbo::kCallOpPlayerMove) {
+                    player_move_request(turbo::pm::request_from_args(b.args), b.seq);
                 } else if (b.op == turbo::kCallOpReveal) {
                     turbo::pdrm::Request req;
                     req.pdrm = static_cast<uint64_t>(b.args[0]);

@@ -29,8 +29,10 @@ local function score_vector(base, count, size, role_off, squad)
         local pid = mem.int(e)
         if pid and squad[pid] then
             matched = matched + 1
-            local role = mem.int(e + role_off)
-            if role and role >= 0 and role <= 5 then valid_roles = valid_roles + 1 end
+            -- FC 27 stores the role in ONE byte ({int pid, int8 role, u8 wasPromised, u8 renewalDismissed}): read the byte, a
+            -- promised player's int would be 0x1xx (docs/re/player_status_roles.md section 3). 0xFF = no role yet.
+            local role = mem.byte(e + role_off)
+            if role and ((role >= 0 and role <= 5) or role == 0xFF) then valid_roles = valid_roles + 1 end
         end
     end
     return matched, valid_roles
@@ -91,7 +93,12 @@ end
 function M.run(ctx)
     local role = util.to_int(ctx.cfg.role)
     if not role or role < 1 or role > 5 then return false, "role must be 1 (Crucial) .. 5 (Prospect)" end
+    return M.apply(ctx, function() return role end, string.format("role %d", role))
+end
 
+-- Sets roles for your club's players: role_of(pid) -> 1..5, or nil to leave the player alone. `label` starts the summary.
+-- (Turbo's team mass actions use it with a role by age.)
+function M.apply(ctx, role_of, label)
     local squad, count, source = game.user_squad()
     if count == 0 then return false, "user squad not found (" .. tostring(source) .. ")" end
     local skip = (ctx.cfg.include_loaned_in == true) and {} or loaned_in(squad, game.user_team_id())
@@ -102,12 +109,13 @@ function M.run(ctx)
     -- 1) career_playercontract
     local contracts = db.get_table("career_playercontract")
     if contracts and db.has_fields(contracts, { "playerid", "playerrole", "contract_status" }) then
-        local v, verr = db.validate(contracts, "playerrole", role)
-        if v == nil then return false, verr end
         local n = 0
         for rec in db.records(contracts) do
             local pid = contracts:GetRecordFieldValue(rec, "playerid")
-            if squad[pid] and not skip[pid] and not LOANED_IN[contracts:GetRecordFieldValue(rec, "contract_status")] then
+            local role = squad[pid] and not skip[pid] and role_of(pid) or nil
+            if role and not LOANED_IN[contracts:GetRecordFieldValue(rec, "contract_status")] then
+                local v, verr = db.validate(contracts, "playerrole", role)
+                if v == nil then return false, verr end
                 local wok, werr = db.set(contracts, rec, "playerrole", role, ctx.dry)
                 if not wok then return false, werr end
                 n = n + 1
@@ -133,8 +141,9 @@ function M.run(ctx)
         for i = 0, layout.count - 1 do
             local e = layout.begin + i * layout.size
             local pid = mem.int(e)
-            if pid and squad[pid] and not skip[pid] then
-                if not ctx.dry then MEMORY:WriteInt(e + layout.role_off, role) end
+            local role = pid and squad[pid] and not skip[pid] and role_of(pid) or nil
+            if role then
+                if not ctx.dry then MEMORY:WriteBytes(e + layout.role_off, { role }) end   -- one byte: the two flags after it stay
                 n = n + 1
             end
         end
@@ -147,7 +156,7 @@ function M.run(ctx)
     end
 
     if util.count(skip) > 0 then parts[#parts + 1] = string.format("%d loaned-in players skipped", util.count(skip)) end
-    local summary = string.format("role %d; ", role) .. table.concat(parts, "; ")
+    local summary = label .. "; " .. table.concat(parts, "; ")
     if not wrote_any then return false, summary end
     return true, summary
 end

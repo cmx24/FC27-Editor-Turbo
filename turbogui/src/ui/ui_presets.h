@@ -25,6 +25,12 @@ PresetPreview preview_preset_file(const std::filesystem::path& file);
 // Buttons "Export...", "Import...", "Clone...", "Create player..." and their dialogs, for the selected player
 void player_preset_buttons(App& app, const PlayerRow& p);
 
+// Club picker (club id box + searchable list) and the notes under it, shared with the CMTracker dialog (ui_cmtracker.cpp)
+void club_picker(App& app, int& teamid, char* search, size_t search_size);
+void club_notes(App& app, int teamid);
+// "From CMTracker..." dialog (open it with ImGui::OpenPopup("##pcmt")); also finishes a create whose picture was fetched in the background
+void cmtracker_dialog(App& app);
+
 // Files an export would replace (the Export dialog asks first). base = the one player's file name; "" = the list
 // list_ids, whose file sets Lua names "<name>_<playerid>" (a file ending in "_<playerid>.<ext>" counts)
 std::vector<std::filesystem::path> export_clashes(const std::filesystem::path& json_dir, const std::filesystem::path& csv_dir, bool want_json,

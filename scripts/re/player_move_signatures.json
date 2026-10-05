@@ -1,0 +1,23 @@
+{
+  "build": "6AB9813C-211EF000",
+  "game": "FC27.exe",
+  "doc": "docs/re/realtime_transfers.md (player_move section). The signatures the player_move game call needs besides the 76 of realtime_signatures.json (verified unique in fc27_image.bin with sig_jobs.find, 2026-10-05).",
+  "signatures": {
+    "dc_get_league_of_team": {
+      "pattern": "40 55 53 56 57 41 56 48 8D 6C 24 C9 48 81 EC B0 00 00 00 48 63 F2 48 8D 1D ?? ?? ?? ??",
+      "resolve": "none",
+      "offset": 0,
+      "note": "int DataController::GetLeagueOfTeam(DC, int team) 0x14154B92C: the team's leagueid from the game's cache (global 0x14C36C220) or SELECT leagueid FROM leagueteamlinks WHERE teamid (exactly one row, else -1); GetPlayerTeam 0x14154C5C4 and the nation lookups 0x147B85A10 use it with IsInternationalLeague",
+      "va": "0x14154B92C",
+      "target": "0x14154B92C"
+    },
+    "is_international_league": {
+      "pattern": "83 F9 4E 74 22 81 F9 58 08 00 00 74 1A 81 F9 BC 0B 00 00 74 12 8B 05 ?? ?? ?? ??",
+      "resolve": "none",
+      "offset": 0,
+      "note": "bool IsInternationalLeague(int leagueid) 0x14479F50C: leagueid 0x4E (78) / 0x858 (2136) / 0xBBC (3004) or the runtime id at 0x14BE9C9C0: the game's definition of a national team's league (GetPlayerTeam skips them)",
+      "va": "0x14479F50C",
+      "target": "0x14479F50C"
+    }
+  }
+}

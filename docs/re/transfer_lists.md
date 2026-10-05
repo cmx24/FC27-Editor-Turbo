@@ -242,3 +242,38 @@ layout error (section 1b); fixed on `fix/transfer-list-user`, every piece of the
 6. A player of another club: the buttons are greyed out ("your own players only").
 7. Kill switch: create `turbo_output\call_transfer_list_off.txt`: the Status line says off and the buttons report it.
 8. Transfer bans: the sections are greyed out with the reason (FC 27 has no ban list).
+
+## 9. Block Offers: actions 7 / 8 / 9 of the same call (static research: `player_status_roles.md` section 2; code: `core/transfer_list.*`)
+
+The Squad hub's **Block Offers** is the helper's vtable **slot 30**, `ToggleTransferBlock(helper, int pid)` `0x147F688B8` (signature
+`uah_toggle_transfer_block`; slots 31 / 32 / 33 above are the lists). It is a **toggle**: `blocked = cache->vf[1](pid)`, then `vf[7]` (unblock) or
+`vf[4]` (block, then `RemoveFromLists` = a listed player is unlisted, then the pending offers are erased), then event `0xBE`. Re-checked in the image
+for this implementation: slot 30 of `0x14B029440` holds `0x147F688B8`; the cache vtable `0x14B005400` holds `IsBlocked 0x147D702CC` (slot 1),
+`Block 0x147D73DB8` (4), `Unblock 0x147D73F2C` (7); `Block` calls the inner dao's `SetBlock(pid, 0)` `0x147D73D48`, which reads
+`[[dao+0x10]+0xFF8]` (the TransferManager), looks the pid up in the 8-byte-entry vector at `tm+0x2F50` and either sets the flag byte or appends
+`{pid, flag}`; then it erases the pid from vector B (`cache+0x30`) and pushes it into vector A (`cache+0x10`).
+
+**Signatures** (built-in table, `scripts/re/player_status_signatures.json`, `sig_player_status.py --check` proves them unique): `uah_toggle_transfer_block`,
+`cachedblock_vtable` (`0x14B005400`), and the new `blockdao_vtable` (`0x14B005630`, the lea at `0x147C27013` in the TransferManager constructor). Only the block
+actions need them: when one is missing, the list actions keep working and the block actions say which signature is missing.
+
+**Validation before any call** (`tl::locate` + `tl::block_state`): everything in section 5, plus helper vtable slot 30 == the toggle (only for actions 7 / 8), the
+cache at `[tm+0x2D38]` readable with the cachedblock vtable, its inner dao (`[cache+8]`) with the dao vtable and `[dao+0x10]` == the career's manager table, vectors
+A (`+0x10/+0x18`) and B (`+0x30/+0x38`) of int32 ids and the block list (`tm+0x2F50/+0x2F58`) of 8-byte `{int32 id, u8 flag}` entries with `begin <= end`,
+whole elements, at most 2000 elements and every byte readable (an empty vector may hold null pointers). The cache (vector A) and the block list (flag 0) must **agree**
+about the player (the toggle follows the cache, the save holds the list); a disagreement refuses block / unblock and the query reports it. The player must be the
+user's own (club == user team), as for the other actions; he does not need a contract record (the block record is global by player id).
+
+**Call and read-back**: block calls the toggle only when the pid is **not** in A, unblock only when it **is**; when the state already is the wanted one the call
+succeeds, says "already blocked" / "not blocked" and calls nothing. After the call the record is re-validated and read: block => pid in A **and** `{pid, 0}` in the
+list; unblock => in neither. An unchanged state is "the game refused", a half change "the block state is inconsistent after the call". A player on the transfer / loan
+list (status 7 / 8 / 9) ends at status 0: the game does it (`RemoveFromLists`), the message says so (`Result::status_before` / `status_after`).
+
+**Lua / mailbox contract** (op 10, `TurboTransferList(code, pid, club)`; kill switch, queueing and the call block are unchanged): code **7** block offers, **8** unblock offers, **9**
+block status only (nothing is called; `club` is not checked, any player). Returns `ok, text, status, before, after` as for the list codes; for 7 / 8 / 9 `before` / `after`
+are the **block state** (0 = offers not blocked, 1 = blocked), not the contract status. Codes 1..6 are unchanged; 10 and up are refused as unknown.
+
+**Tests**: `tests/native/test_transfer_block.h` (a fake game with the block vectors: block, unblock, already blocked, another club's player, listed players, corrupted
+vectors / vtables / hub, cache and list disagreeing, slot 30 mismatch, missing signatures, a failing / refusing / half-doing game, the mailbox round trip, the signatures
+on the game's bytes and equal to the JSON). **Not verified in the game** (section 8 of `player_status_roles.md`): the service call `[0x14DAF08A8]->vf[0]()->vf[4](pid, tm+0x2710)` in the
+blocking branch (untraced, `[L]`), the toggle on a player without a contract record, and that the Squad hub shows the new state after it is reopened.

@@ -28,6 +28,7 @@ M.MODULES = {
     extend_user_contracts    = { path = 'imports/turbo/features/extend_user_contracts',    kind = "action", needs_cm = true,  desc = "Extend contracts of your club's players" },
     headmodels               = { path = 'imports/turbo/features/headmodels',               kind = "action", needs_cm = false, desc = "Capture the FC 27 head-model list, or apply it" },
     transfer_bans            = { path = 'imports/turbo/features/transfer_bans',            kind = "action", needs_cm = true,  desc = "List, ban all or unban all teams" },
+    team_mass                = { path = 'imports/turbo/features/team_mass',                kind = "action", needs_cm = true,  desc = "Mass actions for one team: long contracts, morale, squad roles, block offers" },
     squad_role               = { path = 'imports/turbo/features/squad_role',               kind = "action", needs_cm = true,  desc = "Set squad role for your club's players" },
     team_jersey_numbers      = { path = 'imports/turbo/features/team_jersey_numbers',      kind = "action", needs_cm = false, desc = "List kit numbers of a team" },
     bulk_edit                = { path = 'imports/turbo/features/bulk_edit',                kind = "action", needs_cm = false, desc = "Filter players and set fields, fitness, form, morale, development" },

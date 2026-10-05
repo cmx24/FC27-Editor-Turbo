@@ -10,6 +10,7 @@
 #pragma once
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <set>
 #include <string>
@@ -174,6 +175,7 @@ struct Entry {
     int parent_key = -1;       // entries with the same parent_key are one competition (stages collapsed under it)
     std::string name;          // "UEFA Champions League"
     std::string country;       // "Italy", "Europe (UEFA)"
+    int64_t nation = -1;       // nations.nationid of the country (tree nation, else the league's), -1 = none (continental, world)
     std::string stage;         // "" = the competition's own table; else "round of 16 pots", "setup stage G2"
     std::string note;          // "shown by the game", "not shown by the game"
     Kind kind = Kind::Other;
@@ -217,6 +219,7 @@ inline Entry describe(const NameSources& src, const TreeInfo& t, int64_t key) {
     if (e.country.empty() && !t.confed_short.empty()) e.country = confederation_region(t.confed_short);
     if (e.country.empty() && lg != src.leagues.end() && lg->second.country >= 0) e.country = src.nation(lg->second.country);
     if (e.country.empty() && t.under_root) e.country = "World";
+    e.nation = t.nation_id >= 0 ? t.nation_id : (lg != src.leagues.end() ? lg->second.country : -1);
     if (e.name.empty()) {
         // no name anywhere: "Italy cup 210", "UEFA competition 980", "Competition 5000"
         const std::string where = !t.confed_short.empty() && t.nation_short.empty() ? t.confed_short : e.country;
@@ -314,6 +317,7 @@ struct View {
     std::string search;
     bool leagues_only = true;  // ignored while searching: the search looks at every kind
     Sort sort = Sort::Country;
+    std::function<bool(const Entry&)> filter;  // optional (country / continent filters): a competition shows only when it passes
 };
 
 inline std::vector<std::string> tokens(const std::string& q) {
@@ -363,6 +367,7 @@ inline Arranged arrange(const std::vector<Entry>& entries, const std::vector<Par
     for (size_t pi = 0; pi < parents.size(); ++pi) {
         const Parent& p = parents[pi];
         const Entry& e = entries[p.primary];
+        if (v.filter && !v.filter(e)) continue;
         Shown s;
         s.parent = pi;
         bool self = matches(e, toks, false) || (searching && matches(e, toks, true));

@@ -107,7 +107,7 @@ local function check(a, i, team_set, player_set)
         if not out.to_teamid or not team_set[out.to_teamid] then
             return nil, string.format("action %d: team %s not found", i, tostring(a.to_teamid))
         end
-        out.months = util.to_int(a.months or (kind == "loan" and 12 or 36))
+        out.months = util.to_int(a.months or (kind == "loan" and 12 or moves.DEFAULT_CONTRACT_MONTHS))
         if not out.months or out.months < 1 or out.months > 120 then return nil, string.format("action %d: months must be 1..120", i) end
     end
     if kind == "transfer" then

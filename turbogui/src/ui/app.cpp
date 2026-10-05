@@ -613,6 +613,10 @@ void App::tick(double t) {
         model.set_extra_names(seen_names_);
         model_stale = true;
     }
+    if (refresh_due > 0.0 && t >= refresh_due) {
+        refresh_due = 0.0;
+        refresh_pending = true;
+    }
     if (visible && refresh_pending) {
         refresh_pending = false;
         model_stale = false;
@@ -638,9 +642,12 @@ void App::tick(double t) {
         bool ok = false;
         std::string result;
         if (mailbox->take_result(ok, result)) {
+            const std::string pending_before = pending_label;
             notify(pending_label + ": " + (result.empty() ? (ok ? "done" : "failed") : result), !ok);
             if (pending_label.rfind("Job offer", 0) == 0)  // Managers > Job offers shows the outcome in place
                 job_offer_status = (ok ? "" : "Failed: ") + (result.empty() ? std::string(ok ? "done" : "failed") : result);
+            if (pending_label.rfind("Mass actions", 0) == 0)  // Teams > team edit > Mass actions
+                mass_status = (ok ? "" : "Not everything was done: ") + (result.empty() ? std::string(ok ? "done" : "failed") : result);
             if (pending_label.rfind("Manager rules", 0) == 0)  // Managers > Manager rules shows the outcome in place
                 manager_rules_status = (ok ? "" : "Failed: ") + (result.empty() ? std::string(ok ? "done" : "failed") : result);
             if (pending_label.rfind("Manager move", 0) == 0)  // Managers > Manager market
@@ -649,6 +656,10 @@ void App::tick(double t) {
             flush_lua_queue();  // the mailbox is free: the next queued "keep shown name" actions
             // Lua may have changed the database (transfers, bulk edits): re-read the lists
             if (db.ready()) model_stale = true;
+            // a new player's name row is read a moment after the result: one more full refresh
+            if (ok && db.ready() && (pending_before.rfind("Create player", 0) == 0 || pending_before.rfind("Clone player", 0) == 0 ||
+                                     pending_before.rfind("Import", 0) == 0))
+                refresh_due = t + 1.5;
         }
     }
     flush_lua_queue();

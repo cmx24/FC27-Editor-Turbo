@@ -221,6 +221,74 @@ static const SignatureTable kBuiltin[] = {
           "48 89 5C 24 10 48 89 74 24 18 57 48 81 EC 80 00 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 44 24 70 48 89 51 08", "rip", 0x25,
           "UserManager vtable (0x14AFDF150): the lea rax,[rip+..] at +0x25 of its ctor 0x147AB2EB8 (manager type 129, 0xB20 bytes; "
           "the user's team id the list helpers use)"},
+         // Block Offers (docs/re/player_status_roles.md section 2, docs/re/transfer_lists.md section 9,
+         // scripts/re/player_status_signatures.json; every pattern unique in the image): the helper's toggle (vtable slot 30) and the
+         // vtables of the block-offers cache and its inner dao, which the call validates before it runs
+         {"uah_toggle_transfer_block", "89 54 24 10 55 53 56 57 41 55 41 56 41 57 48 8B EC 48 81 EC 80 00 00 00", "none", 0,
+          "void UserActionsHandlingHelperImpl::ToggleTransferBlock(this, int playerId) 0x147F688B8 (vtable slot 30, 0x14B029530): the squad hub's "
+          "Block Offers, a TOGGLE of the block state in TM+0x2D38 / TM+0x2F50; blocking also unlists the player and posts event 0xBE"},
+         {"cachedblock_vtable", "49 8B 06 48 8D 0D ?? ?? ?? ?? 48 89 0A 48 89 42 08 4C 89 62 10 4C 89 62 18", "rip", 3,
+          "CachedTransferblockDaoImpl vtable (0x14B005400): the lea rcx,[rip+..] at +3 of 0x147C27073 in the TransferManager ctor 0x147C26450 "
+          "(the block-offers cache stored at TM+0x2D38: +8 inner dao, +0x10 / +0x18 vector A of blocked ids, +0x30 / +0x38 vector B)"},
+         {"blockdao_vtable", "48 8D 0D ?? ?? ?? ?? 4C 89 60 08 48 89 08 45 33 E4 48 89 70 10 EB 06 45 33 E4", "rip", 0,
+          "TransferblockDaoImpl vtable (0x14B005630): the lea rcx,[rip+..] at 0x147C27013 in the TransferManager ctor 0x147C26450 (the 0x18-byte "
+          "inner dao the block-offers cache holds at +8)"},
+         // Player moves (docs/re/realtime_transfers.md, scripts/re/realtime_signatures.json + scripts/re/player_move_signatures.json; every
+         // pattern unique in the image): the game's own club change, release and contract record, and the read-only calls and anchors the
+         // player_move call validates with (win/player_move_win.cpp)
+         {"teamutil_player_moved",
+          "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 54 41 56 41 57 48 83 EC 30 4C 8B 11 45 8B F0",
+          "none", 0,
+          "void TeamUtil::PlayerMoved(TeamUtil* = **(hub+0xF18), int pid, int from, int to) 0x147DEE368: the game's own \"player changes "
+          "club\" (join date, previous team, MovePlayerLink -> events 0x60 / 0x5F, EnforceSquadLimits, team sheet repair); 20 call sites"},
+         {"dc_is_player_in_team",
+          "48 8B C4 48 89 58 10 48 89 68 18 48 89 70 20 57 48 81 EC 80 00 00 00 41 8B D8 8B EA",
+          "none", 0,
+          "bool DataController::IsPlayerInTeam(DC = **(hub+0x418), int pid, int team) 0x147B90A8C: a SELECT on teamplayerlinks WHERE teamid "
+          "(read-only)"},
+         {"dc_squad_counts",
+          "85 D2 7E 77 48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 4C 89 70 20 41 57",
+          "none", 0,
+          "void DataController::SquadCounts(DC, int team, int* rows [r8], int* loanedOut [r9], int* pendingSigned [stack 5]) 0x147B7225C: "
+          "read-only; writes nothing when team <= 0; the game's squad total is rows + loanedOut + pendingSigned"},
+         {"dc_get_league_of_team",
+          "40 55 53 56 57 41 56 48 8D 6C 24 C9 48 81 EC B0 00 00 00 48 63 F2 48 8D 1D ?? ?? ?? ??",
+          "none", 0,
+          "int DataController::GetLeagueOfTeam(DC, int team) 0x14154B92C: the team's leagueid from the game's cache (global 0x14C36C220) or "
+          "SELECT leagueid FROM leagueteamlinks WHERE teamid (exactly one row, else -1); GetPlayerTeam 0x14154C5C4 and the nation lookups "
+          "0x147B85A10 use it with IsInternationalLeague"},
+         {"is_international_league",
+          "83 F9 4E 74 22 81 F9 58 08 00 00 74 1A 81 F9 BC 0B 00 00 74 12 8B 05 ?? ?? ?? ??",
+          "none", 0,
+          "bool IsInternationalLeague(int leagueid) 0x14479F50C: leagueid 0x4E (78) / 0x858 (2136) / 0xBBC (3004) or the runtime id at "
+          "0x14BE9C9C0: the game's definition of a national team's league (GetPlayerTeam skips them)"},
+         {"pcm_add_contract_record",
+          "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 48 8D 68 C1 48 81 EC F0 00 00 00",
+          "none", 0,
+          "void PlayerContractManager::AddContractRecord(PCM, int pid, int team, int months, int wage, int 100, const Date* start, int "
+          "status) 0x147E5BF9C: fills a ContractParams and calls SetContract (the record, players.wage)"},
+         {"ctm_release_player",
+          "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 81 EC 00 01 00 00 4C 8B 41 08",
+          "none", 0,
+          "int ContractTerminationManager::ReleasePlayer(CTM = **(hub+0x3D8), int pid) 0x147B94630: releases the player's current club "
+          "(GetPlayerTeam) to Free Agents with PlayerMoved and pays the user's finance; returns CanRelease (0 ok, 1 budget, 2 squad "
+          "minimum)"},
+         {"ctm_vtable",
+          "49 8B 4E 10 48 89 48 08 48 8D 05 ?? ?? ?? ?? 48 89 02 EB 03 48 8B D6 48 63 8B D0 03 00 00",
+          "rip", 8,
+          "ContractTerminationManager vtable (0x14AFF6D58): the lea rax,[rip+..] at +8 of the hub builder's inline construction at "
+          "0x147F180C3 (the object is 0x18 bytes: [obj+8] = hub)"},
+         {"morale_vtable",
+          "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8D 05 ?? ?? ?? ?? 48 89 51 08 48 89 01 48 8B D9 48 83 C1 10 "
+          "E8 ?? ?? ?? ?? 48 8D 8B 18 05 00 00",
+          "rip", 15,
+          "PlayerMoraleManager vtable (0x14B0156A8): the lea rax,[rip+..] at +0xF of its ctor 0x147D7DE08 (slot 1 = morale_handle_event; "
+          "the gate byte +0x554 is read, never written)"},
+         {"morale_handle_event",
+          "83 FA 1E 0F 84 ?? ?? ?? ?? 48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18",
+          "none", 0,
+          "PlayerMoraleManager::HandleEvent 0x147D8D354 (vtable slot 1): 0x5F creates the morale entry when the gate byte +0x554 is 0 and "
+          "the club is the user's; the vtable and this function identify each other"},
          // Manager rules (docs/re/manager_rules.md, scripts/re/manager_rules_signatures.json; every pattern unique in the image)
          {"com_vtable",
           "48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 41 54 41 55 41 56 41 57 48 83 EC 20 48 8D 05 ?? ?? ?? ?? 48 89 51 08",

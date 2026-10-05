@@ -67,6 +67,15 @@ struct RealCaller : tl::Caller {
                                                                                          loan_list ? 1 : 0) & 1) != 0;
         return true;
     }
+    // UserActionsHandlingHelperImpl::ToggleTransferBlock(helper, pid): void (Helper*, int), vtable slot 30
+    bool toggle_block(uint64_t helper, int player, std::string& err) override {
+        if (!g_fns.toggle_block) {
+            err = "function not resolved";
+            return false;
+        }
+        reinterpret_cast<AddFn>(static_cast<uintptr_t>(g_fns.toggle_block))(reinterpret_cast<void*>(helper), player);
+        return true;
+    }
 };
 
 tl::Result run_now(tl::Request req) {
@@ -84,9 +93,10 @@ tl::Result run_now(tl::Request req) {
     }
     ++g_runs;
     if (r.ok) ++g_ok;
-    log("game call transfer_list(%s, player %d, club %d, comm %s): %s [%s] %s (status %d -> %d, helper %s, user team %d)",
-        tl::action_name(req.action), req.player, req.club, hex(req.comm).c_str(), r.ok ? "ok" : "failed", r.stage.c_str(), r.message.c_str(),
-        r.before, r.after, hex(r.at.helper).c_str(), r.at.user_team);
+    // list actions: before / after = the contract status; block actions: the block state 0 / 1 (the contract status is in the message)
+    log("game call transfer_list(%s, player %d, club %d, comm %s): %s [%s] %s (%s %d -> %d, helper %s, user team %d)", tl::action_name(req.action),
+        req.player, req.club, hex(req.comm).c_str(), r.ok ? "ok" : "failed", r.stage.c_str(), r.message.c_str(),
+        tl::is_block_action(req.action) ? "block state" : "status", r.before, r.after, hex(r.at.helper).c_str(), r.at.user_team);
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         g_last = std::string(r.ok ? "ok: " : "failed: ") + r.message;
@@ -138,6 +148,16 @@ std::vector<std::string> transfer_list_status() {
     else
         std::snprintf(line, sizeof(line), "transfer_list: off (%s)", why.c_str());
     out.push_back(line);
+    if (why.empty()) {
+        // Block Offers has its own signatures: the list actions run without them
+        if (const char* m = g_fns.missing_block(true))
+            out.push_back(std::string("  block offers: off (signature ") + m + " was not found on this game build)");
+        else {
+            std::snprintf(line, sizeof(line), "  block offers: ready | toggle %s | vtables block cache %s, block dao %s", hex(g_fns.toggle_block).c_str(),
+                          hex(g_fns.cachedblock_vtable).c_str(), hex(g_fns.blockdao_vtable).c_str());
+            out.push_back(line);
+        }
+    }
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_last.empty()) out.push_back("  last: " + g_last);
     return out;
@@ -152,7 +172,7 @@ tl::Result transfer_list_request(tl::Request req, int32_t seq) {
         publish(seq, r, kCallFailed);
         return r;
     }
-    if (req.player <= 0 || req.action < tl::kActionTransferList || req.action > tl::kActionQuery) {
+    if (req.player <= 0 || !tl::valid_action(req.action)) {
         r.stage = "validate";
         r.message = req.player <= 0 ? "player id must be a positive number" : "unknown transfer-list action " + std::to_string(req.action);
         publish(seq, r, kCallFailed);
@@ -202,6 +222,16 @@ void install_transfer_list() {
         log("game calls: transfer_list off (%s)", g_off.c_str());
         return;
     }
+    // Block Offers: its own signatures; when one is missing only the block actions are refused (tl::locate says which), the list
+    // actions keep working
+    g_fns.toggle_block = game_signature("uah_toggle_transfer_block");
+    g_fns.cachedblock_vtable = game_signature("cachedblock_vtable");
+    g_fns.blockdao_vtable = game_signature("blockdao_vtable");
+    if (const char* m = g_fns.missing_block(true))
+        log("game calls: transfer_list block offers off (signature %s was not found on this game build; the list actions are unaffected)", m);
+    else
+        log("game calls: transfer_list block offers resolved (toggle %s, block cache vtable %s, block dao vtable %s)", hex(g_fns.toggle_block).c_str(),
+            hex(g_fns.cachedblock_vtable).c_str(), hex(g_fns.blockdao_vtable).c_str());
     log("game calls: transfer_list resolved (add_transfer %s, add_loan %s, try_remove %s, helper vtable %s, dao vtable %s, tm vtable %s, "
         "pcm vtable %s, um vtable %s; kill switch turbo_output\\call_transfer_list_off.txt)",
         hex(g_fns.add_transfer).c_str(), hex(g_fns.add_loan).c_str(), hex(g_fns.try_remove).c_str(), hex(g_fns.helper_vtable).c_str(),

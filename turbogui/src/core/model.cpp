@@ -64,7 +64,9 @@ const char* position_name(int pos) {
 int position_count() { return static_cast<int>(sizeof(kPositions) / sizeof(kPositions[0])); }
 
 // ---------------------------------------------------------------- model
-static constexpr int64_t kInternationalLeague = 78;  // FIFA/FC database league id for national teams
+// The game's own national-team rule (IsInternationalLeague 0x14479F50C, docs/re/realtime_transfers.md section 8): league 78 (men),
+// 2136 (women) or 3004. teamnationlinks is not that list (it also ties Rest of World clubs to a nation).
+static bool is_international_league(int64_t league) { return league == 78 || league == 2136 || league == 3004; }
 
 void Model::build_names() {
     name_by_nameid_.clear();
@@ -170,7 +172,7 @@ void Model::build_links() {
 
 bool Model::is_national_team(int64_t tid) const {
     auto it = team_league_.find(tid);
-    return it != team_league_.end() && it->second == kInternationalLeague;
+    return it != team_league_.end() && is_international_league(it->second);
 }
 
 // Positions, retiring flag and PlayStyle bits of a player (Players list filters); get(field) reads one value

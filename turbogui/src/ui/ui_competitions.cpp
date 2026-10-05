@@ -9,7 +9,10 @@
 
 #include "app.h"
 #include "comp_picker.h"
+#include "geo.h"
 #include "imgui.h"
+#include "table_sort.h"
+#include "ui_team_filter.h"
 
 namespace turbo {
 
@@ -89,6 +92,8 @@ bool comp_picker(App& app, CompPicker& p, const char* label, const std::vector<c
         const nlohmann::json& s = picker_settings(app, p.settings_key);
         p.view.leagues_only = s.value("leagues_only", true);
         p.view.sort = comps::Sort(std::max(0, std::min(3, s.value("sort", 0))));
+        p.f_nation = s.value("nation", int64_t(-1));
+        p.f_conf = s.value("continent", int64_t(-1));
     }
     const bool have_sel = selected >= 0 && size_t(selected) < entries.size();
     const std::string preview = have_sel ? comps::summary(entries[size_t(selected)]) : (all_label ? all_label : "none");
@@ -129,8 +134,38 @@ bool comp_picker(App& app, CompPicker& p, const char* label, const std::vector<c
             save_picker(app, "sort");
         }
     }
+    // country and continent filters (searchable combos), combined with the search above
+    const Geo& gg = geo(app);
+    ImGui::TextDisabled("Country:");
+    ImGui::SameLine();
+    std::vector<int64_t> have;  // the countries this list has
+    for (const comps::Entry& e : entries)
+        if (e.nation >= 0 && std::find(have.begin(), have.end(), e.nation) == have.end()) have.push_back(e.nation);
+    if (country_filter_combo(app, "##compcountry", p.f_nation, S(190.0f), &have)) {
+        picker_settings(app, p.settings_key)["nation"] = p.f_nation;
+        save_picker(app, "country filter");
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("Continent:");
+    ImGui::SameLine();
+    if (continent_filter_combo(app, "##compcontinent", p.f_conf, S(190.0f))) {
+        picker_settings(app, p.settings_key)["continent"] = p.f_conf;
+        save_picker(app, "continent filter");
+    }
+    const bool sub_open = geo_popup_open();  // a filter's list is open: the keys below belong to it
+    // continental entries have a region ("Europe (UEFA)") instead of a nation: its first word is the continent's
+    auto first_word = [](const std::string& s) { return s.substr(0, s.find_first_of(" (")); };
+    p.view.filter = [&](const comps::Entry& e) {
+        if (p.f_nation >= 0 && e.nation != p.f_nation) return false;
+        if (p.f_conf >= 0) {
+            if (e.nation >= 0) return gg.continent_of_nation(e.nation) == p.f_conf;
+            return !e.country.empty() && first_word(e.country) == first_word(gg.continent_name(int(p.f_conf)));
+        }
+        return true;
+    };
     p.view.search = p.search;
     const comps::Arranged arr = comps::arrange(entries, parents, p.view);
+    p.view.filter = nullptr;
 
     // the rows of the list, headings included (the keyboard cursor skips them)
     std::vector<PickRow> rows;
@@ -185,14 +220,14 @@ bool comp_picker(App& app, CompPicker& p, const char* label, const std::vector<c
             if (pickable(i) && (rows[size_t(i)].kind != PickRow::All || p.search[0] == 0)) p.cursor = i;
         moved = true;
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
+    if (!sub_open && ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
         for (int i = p.cursor + 1; i < int(rows.size()); ++i)
             if (pickable(i)) {
                 p.cursor = i, moved = true;
                 break;
             }
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) {
+    if (!sub_open && ImGui::IsKeyPressed(ImGuiKey_UpArrow)) {
         for (int i = p.cursor - 1; i >= 0; --i)
             if (pickable(i)) {
                 p.cursor = i, moved = true;
@@ -200,14 +235,14 @@ bool comp_picker(App& app, CompPicker& p, const char* label, const std::vector<c
             }
     }
     int pick = -2;  // -2 nothing, -1 the "all" row, else an entry
-    if (pickable(p.cursor)) {
+    if (!sub_open && pickable(p.cursor)) {
         const PickRow& cr = rows[size_t(p.cursor)];
         if (ImGui::IsKeyPressed(ImGuiKey_RightArrow) && cr.kind == PickRow::Parent && cr.has_children && p.search[0] == 0) p.open.insert(cr.parent_key);
         if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) && cr.kind != PickRow::All && p.search[0] == 0) p.open.erase(cr.parent_key);
         if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))
             pick = cr.kind == PickRow::All ? -1 : int(cr.entry);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (!sub_open && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         if (had_search) {
             p.search[0] = 0;
             p.refocus = true;
@@ -444,6 +479,7 @@ static void draw_database_copy(App& app) {
             if (lg != src.leagues.end()) {
                 e.level = lg->second.level;
                 e.country = src.nation(lg->second.country);
+                e.nation = lg->second.country;
                 if (!lg->second.name.empty()) e.name = lg->second.name, e.named = true;
             }
             if (e.name.empty()) e.name = "League " + std::to_string(kv.first);
@@ -481,14 +517,32 @@ static void draw_database_copy(App& app) {
 
     std::vector<LeagueRow> rows = league >= 0 ? league_rows(app, *t, league) : std::vector<LeagueRow>();
     ImGui::BeginChild("##ltable", ImVec2(S(560.0f), 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
-    if (ImGui::BeginTable("##league", 10, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV,
+    if (ImGui::BeginTable("##league", 10,
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | table_sort_flags(),
                           ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         const char* heads[] = {"Pos", "Club", "P", "W", "D", "L", "GF", "GA", "GD", "Pts"};
         for (int i = 0; i < 10; ++i)
-            ImGui::TableSetupColumn(heads[i], i == 1 ? ImGuiTableColumnFlags_WidthStretch : ImGuiTableColumnFlags_WidthFixed,
+            ImGui::TableSetupColumn(heads[i],
+                                    (i == 1 ? ImGuiTableColumnFlags_WidthStretch : ImGuiTableColumnFlags_WidthFixed) |
+                                        (i >= 2 ? ImGuiTableColumnFlags_PreferSortDescending : 0),
                                     i == 1 ? 0.0f : S(34.0f));
         ImGui::TableHeadersRow();
+        // default order = table position; a clicked header re-sorts the displayed rows
+        table_sort(rows, [](const LeagueRow& a, const LeagueRow& b, int col) {
+            switch (col) {
+                case 0: return cmp_num(a.pos, b.pos);
+                case 1: return cmp_text(a.team, b.team);
+                case 2: return cmp_num(a.played, b.played);
+                case 3: return cmp_num(a.w, b.w);
+                case 4: return cmp_num(a.d, b.d);
+                case 5: return cmp_num(a.l, b.l);
+                case 6: return cmp_num(a.gf, b.gf);
+                case 7: return cmp_num(a.ga, b.ga);
+                case 8: return cmp_num(a.gf - a.ga, b.gf - b.ga);
+                default: return cmp_num(a.pts, b.pts);
+            }
+        });
         for (const auto& r : rows) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();

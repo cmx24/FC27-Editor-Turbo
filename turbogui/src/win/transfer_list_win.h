@@ -2,13 +2,15 @@
 //
 //   * install_transfer_list(): after install_game_hooks(). Resolves the user-actions helper functions and the vtables
 //     from the signature table (uah_add_transfer_list, uah_add_loan_list, uah_try_remove_from_list, uah_vtable,
-//     dao_vtable, tm_vtable, pcm_vtable, um_vtable). No hook: the call runs on request only.
+//     dao_vtable, tm_vtable, pcm_vtable, um_vtable; Block Offers adds uah_toggle_transfer_block, cachedblock_vtable,
+//     blockdao_vtable, which only the block actions need). No hook: the call runs on request only.
 //   * transfer_list_request(req, seq): the call. Runs AT ONCE when the caller is the game thread (the thread the
 //     dispatcher last ran on), else it is queued for the dispatcher (run_on_game_thread) and the result arrives in
 //     the mailbox call block later. Never runs on the render thread.
 //   * kill switch: turbo_output\call_transfer_list_off.txt (this call), plus every game-hook switch.
 //   * Lua reaches it through turbo_game_call with op kCallOpTransferList (args: action, player id, comm service,
-//     the player's club); outputs: status before, status after (core/transfer_list.h kStatus*).
+//     the player's club); outputs: status before, status after (core/transfer_list.h kStatus*). Actions 1..6 are the list
+//     actions; 7 block offers, 8 unblock offers, 9 block status (outputs = the block state 0 / 1 before / after, not the status).
 #pragma once
 #include <cstdint>
 #include <string>

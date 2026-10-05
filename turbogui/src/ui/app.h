@@ -124,6 +124,7 @@ public:
     std::string db_error;
     long long seen_db_gen = -1;
     bool refresh_pending = false;  // database moved while the window was hidden
+    double refresh_due = 0.0;      // a full refresh at this time (after a create / clone / import result: names arrive a moment later)
     bool model_stale = false;      // Lua changed the database: rebuild lists when shown
     uint64_t seen_service = 0;
     std::string pending_label;
@@ -176,9 +177,10 @@ public:
     std::string chosen_commentary_language() const;          // gui_settings callnames.language ("" = auto)
     const std::string& spoken_watch_line() const { return spoken_watch.line(); }
     long long game_call_seen = -1;  // last game-call outcome shown as a toast (bridge_state.json game_call.seq; -1 = none yet)
-    // Job offers section (Managers tab): the club picked and the last request label
+    // Job offer tab (Teams > team edit): the club picked (the selected team unless another is chosen) and the last request label
     int64_t job_offer_team = 0;
     std::string job_offer_status;
+    std::string mass_status;  // Teams > team edit > Mass actions: the last outcome
     char job_offer_search[64] = "";
     // ---- edits FC 27 forgets at every career load (core/reapply.h, ui_reapply.cpp): the kit colours of Teams > Colours
     // and the player-specific callnames of Players > Callname are kept in turbo_output\reapply_edits.json and written
@@ -398,6 +400,9 @@ void reapply_kit_line(App& app, const Table& kt, uint64_t rec);
 void reapply_callname_line(App& app, const PlayerRow& p);
 // Slider over the field's whole range (attributes); a typed value outside it is refused by Database::set
 bool slider_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float width);
+// Same with the label column width and the number box width given (the Players > Attributes tab uses roomier values)
+bool slider_editor_ex(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float label_w, float width,
+                      float box_w);
 // Combo with readable labels for an enumerated field (preferred foot, work rates, stars ...); false = no labels known
 bool enum_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float width);
 // Labels for enumerated fields: nullptr when the field is not enumerated; label for value v, or nullptr

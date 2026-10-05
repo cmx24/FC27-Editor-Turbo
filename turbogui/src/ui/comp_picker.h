@@ -19,6 +19,8 @@ struct CompPicker {
     std::set<int> open;    // competitions (parent_key) drawn open
     int cursor = -1;       // keyboard row of the open list
     bool refocus = false;  // Esc cleared the search: the box takes the keyboard again
+    int64_t f_nation = -1; // country filter (nations.nationid), -1 = any country; remembered in gui_settings.json
+    int64_t f_conf = -1;   // continent filter (nations.confederation), -1 = any continent; remembered too
     explicit CompPicker(const char* key) : settings_key(key) {}
 };
 

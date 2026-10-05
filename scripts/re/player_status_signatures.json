@@ -1,0 +1,270 @@
+{
+ "build": "6AB9813C-211EF000",
+ "game": "FC27.exe",
+ "signatures": {
+  "uah_toggle_transfer_block": {
+   "pattern": "89 54 24 10 55 53 56 57 41 55 41 56 41 57 48 8B EC 48 81 EC 80 00 00 00",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void UserActionsHandlingHelperImpl::ToggleTransferBlock(this, int playerId) 0x147F688B8, UAH vtable slot 30 (0x14B029530): [[this+8]+0xFF8]=TM, TM+0x2D38 cached block dao: vf[1]=IsBlocked(pid) -> vf[7] unblock / else vf[4] block + RemoveFromLists + offers erase, then posts TransferBlockedByUserEvent (id 0xBE, +0x18 pid, +0x1C blocked-now). Same locate path as the list helpers.",
+   "va": "0x147F688B8",
+   "target": "0x147F688B8"
+  },
+  "tm_is_in_block_list": {
+   "pattern": "4C 8B 89 58 2F 00 00 48 8B 81 50 2F 00 00 EB 0E 39 10 75 06 44 38 40 04",
+   "resolve": "none",
+   "offset": 0,
+   "note": "bool TransferManager::IsInBlockList(tm, int playerId, uint8 flag) 0x147C471EC: eastl vector at TM+0x2F50 (begin) / +0x2F58 (end) of 8-byte entries {int32 playerId, u8 flag}; flag 0 = Block Offers (user), flag 1 = released-player block",
+   "va": "0x147C471EC",
+   "target": "0x147C471EC"
+  },
+  "cachedblock_vtable": {
+   "pattern": "49 8B 06 48 8D 0D ?? ?? ?? ?? 48 89 0A 48 89 42 08 4C 89 62 10 4C 89 62 18",
+   "resolve": "rip",
+   "offset": 3,
+   "note": "CachedTransferblockDaoImpl vtable (0x14B005400): lea rcx,[rip+..] at +3 of 0x147C27073 in the TransferManager ctor 0x147C26450 (object 0x50 bytes stored at TM+0x2D38; +8 inner TransferblockDaoImpl, +0x10/+0x18 vector A (flag 0), +0x30/+0x38 vector B (flag 1))",
+   "va": "0x147C27073",
+   "target": "0x14B005400"
+  },
+  "blockdao_vtable": {
+   "pattern": "48 8D 0D ?? ?? ?? ?? 4C 89 60 08 48 89 08 45 33 E4 48 89 70 10 EB 06 45 33 E4",
+   "resolve": "rip",
+   "offset": 0,
+   "note": "TransferblockDaoImpl vtable (0x14B005630): lea rcx,[rip+..] at 0x147C27013 in the TransferManager ctor 0x147C26450 (the 0x18-byte inner dao: +8 allocator, +0x10 hub; held by the CachedTransferblockDaoImpl at cache+8 and stored at TM+0x2C30)",
+   "va": "0x147C27013",
+   "target": "0x14B005630"
+  },
+  "cachedblock_is_blocked": {
+   "pattern": "4C 8B 41 18 48 8B 41 10 EB 08 39 10 74 09 48 83 C0 04 49 3B C0 75 F3 49 3B C0 0F 95 C0 C3 CC CC 48 8B 41 10",
+   "resolve": "none",
+   "offset": 0,
+   "note": "bool CachedTransferblockDaoImpl::IsBlocked(this, int pid) 0x147D702CC (vtable slot 1): linear search of vector A (this+0x10..0x18) = HasOffersBlocked",
+   "va": "0x147D702CC",
+   "target": "0x147D702CC"
+  },
+  "cachedblock_block": {
+   "pattern": "89 54 24 10 53 48 83 EC 20 48 8B D9 48 8B 49 08 48 8B 01 FF 50 20 48 8B 53 38",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void CachedTransferblockDaoImpl::Block(this, int pid) 0x147D73DB8 (vtable slot 4): inner->vf[4] (flag 0 into TM+0x2F50), erase from B, push into A",
+   "va": "0x147D73DB8",
+   "target": "0x147D73DB8"
+  },
+  "cachedblock_unblock": {
+   "pattern": "89 54 24 10 53 48 83 EC 20 48 8B D9 48 8B 49 08 48 8B 01 FF 50 38 48 8B 53 18",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void CachedTransferblockDaoImpl::Unblock(this, int pid) 0x147D73F2C (vtable slot 7): inner->vf[7] (erase the flag-0 entry), erase from A",
+   "va": "0x147D73F2C",
+   "target": "0x147D73F2C"
+  },
+  "psm_vtable": {
+   "pattern": "40 53 48 83 EC 20 48 8D 05 ?? ?? ?? ?? 48 89 51 08 48 89 01 48 8B D9 48 83 C1 10 E8 ?? ?? ?? ?? 48 8B C3 48 83 C4 20 5B C3 CC CC CC 48 89 5C 24 08",
+   "resolve": "rip",
+   "offset": 6,
+   "note": "PlayerStatusManager vtable (0x14AFFB2A0): lea rax,[rip+..] at +6 of its ctor 0x147BE47B8 (manager type 87, 0x38 bytes, hub slot +0xAF8; +0x10 user team id, +0x14 count, +0x18 vector of 52 x 8-byte entries {int pid, i8 role, u8 wasPromised, u8 renewalDismissed})",
+   "va": "0x147BE47B8",
+   "target": "0x14AFFB2A0"
+  },
+  "psm_handle_event": {
+   "pattern": "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 48 8D A8 28 FF FF FF 48 81 EC D0 01 00 00 48 8B D9",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void PlayerStatusManager::HandleEvent(this, int eventId, Event*) 0x147BF30C0 (vtable slot 1): 0x5F joined-team -> AddPlayer, 0x60 left-team -> remove, 0x17 season reset -> rebuild roles (0x147BF5D40), 5 -> 0x147EA898C",
+   "va": "0x147BF30C0",
+   "target": "0x147BF30C0"
+  },
+  "psm_add_player": {
+   "pattern": "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 20 4C 8B D1 45 8A C8 48 83 C1 10",
+   "resolve": "none",
+   "offset": 0,
+   "note": "bool PlayerStatusManager::AddPlayer(this, int pid, uint8 role) 0x147BE7BB4: AddEntry(this+0x10,pid); role 0 or 0xFF = auto (computed by 0x147E9DED8, wasPromised 0) else role 1..5 stored with wasPromised 1; entry+6 = 0",
+   "va": "0x147BE7BB4",
+   "target": "0x147BE7BB4"
+  },
+  "psm_get_entry": {
+   "pattern": "45 33 D2 44 8B DA 45 8B CA 41 83 F9 34 7D 1F 48 8B 41 08 45 8B C1 4A 8D 14 C0 8B 02 44 3B D8 74 0A 83 F8 FF 74 08 41 FF C1 EB DE 4C 8B D2 49 8B C2 C3 CC CC 45 33 D2",
+   "resolve": "none",
+   "offset": 0,
+   "note": "Entry* PlayerStatusData::Find(sub = PSM+0x10, int pid) 0x147D8BADC: scans entries 0..51 of the vector at sub+8, stops at pid -1; null when missing. role = (i8)entry[+4]",
+   "va": "0x147D8BADC",
+   "target": "0x147D8BADC"
+  },
+  "psm_remove_entry": {
+   "pattern": "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 20 33 DB 48 8B F1 8B CB 44 8B C2",
+   "resolve": "none",
+   "offset": 0,
+   "note": "bool PlayerStatusData::Remove(sub, int pid) 0x147D90C80: erase by index over [sub+4] used entries, memmove, count--, append an empty entry {-1,0xFF,0,0}",
+   "va": "0x147D90C80",
+   "target": "0x147D90C80"
+  },
+  "psm_clear": {
+   "pattern": "41 83 C9 FF 45 33 C0 44 89 09 44 89 41 04 41 8B D0 48 8B 41 08 44 89 0C 10",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void PlayerStatusData::Clear(sub) 0x147D91228: sub+0 = -1, sub+4 = 0, 52 entries reset to {-1,0xFF,0,0}",
+   "va": "0x147D91228",
+   "target": "0x147D91228"
+  },
+  "psm_add_entry": {
+   "pattern": "33 C0 83 79 04 34 7D 11 44 8B 41 04 48 8B 41 08 4A 8D 04 C0 89 10 FF 41 04",
+   "resolve": "none",
+   "offset": 0,
+   "note": "Entry* PlayerStatusData::AddEntry(sub, int pid) 0x147D811D0: if count < 52: entry = begin + count*8; entry.pid = pid; count++; returns entry (role bytes not touched)",
+   "va": "0x147D811D0",
+   "target": "0x147D811D0"
+  },
+  "psm_compute_role": {
+   "pattern": "48 89 5C 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 B0 FE FF FF 48 81 EC 50 02 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 85 40 01 00 00 48 8B F9",
+   "resolve": "none",
+   "offset": 0,
+   "note": "int8 ComputeSquadRole(HubRef*, int teamId, int pid) 0x147E9DED8: squad-rank based default role 1..5 (user team path 0x147E9E0BC, other 0x147E9E08C)",
+   "va": "0x147E9DED8",
+   "target": "0x147E9DED8"
+  },
+  "pmm_vtable": {
+   "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8D 05 ?? ?? ?? ?? 48 89 51 08 48 89 01 48 8B D9 48 83 C1 10 E8 ?? ?? ?? ?? 48 8D 8B 18 05 00 00",
+   "resolve": "rip",
+   "offset": 15,
+   "note": "PlayerMoraleManager vtable (0x14B0156A8): lea rax,[rip+..] at +0xF of its ctor 0x147D7DE08 (manager type 83, 0x5B8 bytes, hub slot +0xA78; +0x518 morale store: +0 team id, +0x10/+0x18 vector of 0x60-byte records, max 52)",
+   "va": "0x147D7DE08",
+   "target": "0x14B0156A8"
+  },
+  "pmm_handle_event": {
+   "pattern": "83 FA 1E 0F 84 ?? ?? ?? ?? 48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void PlayerMoraleManager::HandleEvent(this, int eventId, Event*) 0x147D8D354 (vtable slot 1): 0x5F joined user team -> find/create record + InitMorale, 0x60 left -> erase record, 0x17 season init (0x147D90F18), 0x73 sets +0x554",
+   "va": "0x147D8D354",
+   "target": "0x147D8D354"
+  },
+  "pmm_find_record": {
+   "pattern": "48 89 5C 24 08 4C 8B 59 10 48 B8 AB AA AA AA AA AA AA 2A 48 8B 49 18 8B DA 49 2B CB 45 33 C0 48 F7 E9 45 33 C9 4C 8B D2 49 C1 FA 04 49 8B C2 48 C1 E8 3F 4C 03 D0 45 3B CA 7D 19 4B 8D 0C 49 48 C1 E1 05 49 03 CB 39 19 4C 0F 44 C1 41 FF C1 4D 85 C0 74 E2 48 8B 5C 24 08 49 8B C0 C3 CC CC CC 48 89 5C 24 08",
+   "resolve": "none",
+   "offset": 0,
+   "note": "MoraleRecord* MoraleStore::Find(store = PMM+0x518, int pid) 0x147D8B5E8: linear scan of 0x60-byte records between store+0x10 and store+0x18, record+0 = pid; null if none",
+   "va": "0x147D8B5E8",
+   "target": "0x147D8B5E8"
+  },
+  "pmm_create_record": {
+   "pattern": "4C 8B DC 49 89 5B 08 49 89 6B 10 49 89 73 18 49 89 7B 20 41 56 48 81 EC 80 00 00 00 48 8D 79 10",
+   "resolve": "none",
+   "offset": 0,
+   "note": "MoraleRecord* MoraleStore::Create(store = PMM+0x518, int pid, int emotionMinus1) 0x147D81108: refuses at 52 records; default-constructs, +0 = pid, +4 = value, push_back; returns the record",
+   "va": "0x147D81108",
+   "target": "0x147D81108"
+  },
+  "pmm_init_morale": {
+   "pattern": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 54 41 56 41 57 48 83 EC 70 C5 F8 29 70 D8 C5 F8 29 78 C8 C5 78 29 40 B8 48 8B 41 08",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void PlayerMoraleManager::InitMorale(this, MoraleRecord*, PrevData* = null) 0x147D93B08: fills the components (+8..+0x38) and tail-calls SetTotal(this, rec, total)",
+   "va": "0x147D93B08",
+   "target": "0x147D93B08"
+  },
+  "pmm_set_total": {
+   "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B FA 41 8B D8 8B 52 2C",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void PlayerMoraleManager::SetTotalMorale(this, MoraleRecord*, int total) 0x147D960A8: rec+0x2C = total; when the morale level bucket changes tells the DynamicOverallManager (hub +0x1298) via 0x147B9C218(dyn, pid)",
+   "va": "0x147D960A8",
+   "target": "0x147D960A8"
+  },
+  "pmm_get_morale": {
+   "pattern": "40 53 55 56 57 48 83 EC 68 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 44 24 58 48 8B E9",
+   "resolve": "none",
+   "offset": 0,
+   "note": "int PlayerMoraleManager::GetMorale(this, int teamId, int pid, ctx) 0x147D8B528: record of the user team -> rec+0x2C, missing record -> 0",
+   "va": "0x147D8B528",
+   "target": "0x147D8B528"
+  },
+  "dc_write_team_player_link": {
+   "pattern": "48 89 5C 24 10 48 89 6C 24 18 56 57 41 54 41 56 41 57 48 81 EC 90 00 00 00 41 8B F0",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void DataController::WriteTeamPlayersLinks(this, int pid, int oldTeam, int newTeam, int jersey[stack]) 0x147BA08CC: UPDATE teamplayerlinks SET teamid=new, jerseynumber, position=29 WHERE teamid=old AND playerid=pid; posts PlayerLeftTeam (0x60: +0x18 pid, +0x1C old, +0x20 new) then PlayerJoinedTeam (0x5F: +0x18 pid, +0x1C new, +0x20 old)",
+   "va": "0x147BA08CC",
+   "target": "0x147BA08CC"
+  },
+  "dc_get_emotion": {
+   "pattern": "48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 55 48 8B EC 48 81 EC 80 00 00 00 41 8B D8 8B FA",
+   "resolve": "none",
+   "offset": 0,
+   "note": "int DataController::GetEmotion(this, int teamId, int pid) 0x147B8868C: SELECT level_of_emotion FROM player_grudgelove WHERE playerid AND emotional_teamid; 0 when no row",
+   "va": "0x147B8868C",
+   "target": "0x147B8868C"
+  },
+  "dc_set_grudge": {
+   "pattern": "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 48 8D 68 A1 48 81 EC 90 00 00 00 41 8B D8",
+   "resolve": "none",
+   "offset": 0,
+   "note": "bool DataController::SetEmotionLevel1(this, int teamId, int pid) 0x147BA02D8: insert / update the player_grudgelove row (team, pid) with level_of_emotion = 1 (max 7 rows per player, 0x147B5F52C prunes)",
+   "va": "0x147BA02D8",
+   "target": "0x147BA02D8"
+  },
+  "dc_player_emotion": {
+   "pattern": "48 89 5C 24 08 4C 89 44 24 18 57 48 81 EC 80 00 00 00 8B DA 4C 8D 05 ?? ?? ?? ??",
+   "resolve": "none",
+   "offset": 0,
+   "note": "int DataController::GetPlayerEmotionType(this, int pid) 0x147B866BC: SELECT emotion FROM players WHERE playerid (1..8); morale record +4 = this - 1",
+   "va": "0x147B866BC",
+   "target": "0x147B866BC"
+  },
+  "tm_clear_dao_caches": {
+   "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B F1 48 8B 89 08 2D 00 00",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void TransferManager::ClearDaoCaches(tm) 0x147C59538: re-fills the cached DAOs from their stores; the cached transferblock dao (TM+0x2D38) clears vectors A/B and refills them from TM+0x2F50 (flag 0 -> A, flag 1 -> B). Called from TransferManager::HandleEvent 0x147C42494 (twice) and 0x147C59FEC",
+   "va": "0x147C59538",
+   "target": "0x147C59538"
+  },
+  "dc_get_player_traits": {
+   "pattern": "48 89 5C 24 10 48 89 74 24 18 55 57 41 56 48 8D 6C 24 B9 48 81 EC 90 00 00 00 33 C0",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void DataController::GetPlayerTraits(this, int pid, uint8 out[]) 0x147B75024: SELECT trait1, trait2, icontrait1, icontrait2 FROM players; out[i] = 0/1/2 (1 = trait, 2 = icon trait), i = bit index (trait2 bit 10 = CAREER_ONE_CLUB_PLAYER = index 40)",
+   "va": "0x147B75024",
+   "target": "0x147B75024"
+  },
+  "dc_set_player_traits": {
+   "pattern": "48 89 5C 24 10 55 56 57 48 8D 6C 24 B9 48 81 EC A0 00 00 00 49 8B D8 8B FA",
+   "resolve": "none",
+   "offset": 0,
+   "note": "void DataController::SetPlayerTraits(this, int pid, uint8 in[]) 0x147B9FB40: UPDATE players SET trait1, trait2, icontrait1, icontrait2 from the byte array",
+   "va": "0x147B9FB40",
+   "target": "0x147B9FB40"
+  },
+  "game_allocator_ptr": {
+   "pattern": "48 8B 0D ?? ?? ?? ?? 48 8B 01 FF 50 10 4C 8D 25 ?? ?? ?? ?? 4C 8B C0 8D 53 60",
+   "resolve": "rip",
+   "offset": 0,
+   "note": "mov rcx,[rip+..] at 0x147BA09B3: the game's allocator pointer (global 0x14C269EA8; object -> vtable, slot 2 (+0x10) = alloc(this, size, const char* name, flags) returns the block); career events are allocated with it (size 0x28 for 0x5F/0x60, 0x20 for 0xBE) and freed by the event's Release",
+   "va": "0x147BA09B3",
+   "target": "0x14C269EA8"
+  },
+  "ev_vtable_player_joined": {
+   "pattern": "48 8D 0D ?? ?? ?? ?? 87 58 08 48 89 08 89 50 10 89 68 18 89 78 1C 89 70 20",
+   "resolve": "rip",
+   "offset": 0,
+   "note": "PlayerJoinedTeam event vtable (0x14AFF6C00): lea rcx,[rip+..] at 0x147BA0A33 in DataController::WriteTeamPlayersLinks (event id 0x5F, object 0x28 bytes)",
+   "va": "0x147BA0A33",
+   "target": "0x14AFF6C00"
+  },
+  "ev_vtable_player_left": {
+   "pattern": "48 8D 05 ?? ?? ?? ?? 41 89 50 10 49 89 00 41 89 68 18 41 89 70 1C 41 89 78 20 EB 03 4C 8B C3",
+   "resolve": "rip",
+   "offset": 0,
+   "note": "PlayerLeftTeam event vtable (0x14AFF6468): lea rax,[rip+..] at 0x147BA09DF in DataController::WriteTeamPlayersLinks (event id 0x60, object 0x28 bytes)",
+   "va": "0x147BA09DF",
+   "target": "0x14AFF6468"
+  },
+  "ev_vtable_transfer_blocked": {
+   "pattern": "48 8D 15 ?? ?? ?? ?? 41 87 70 08 49 89 10 45 89 48 10 41 89 40 18 41 88 48 1C",
+   "resolve": "rip",
+   "offset": 0,
+   "note": "TransferBlockedByUserEvent vtable (0x14AFF7570): lea rdx,[rip+..] at 0x147F68A47 in ToggleTransferBlock (event id 0xBE, object 0x20 bytes)",
+   "va": "0x147F68A47",
+   "target": "0x14AFF7570"
+  }
+ }
+}

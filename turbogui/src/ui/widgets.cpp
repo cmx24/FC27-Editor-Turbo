@@ -193,6 +193,11 @@ bool date_field_editor(App& app, const Table& t, uint64_t rec, const Field& f, c
 }
 
 bool slider_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float width) {
+    return slider_editor_ex(app, t, rec, f, label, S(150.0f), width, S(52.0f));
+}
+
+bool slider_editor_ex(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float label_w, float width,
+                      float box_w) {
     Value cur;
     if (!app.db.get(t, rec, f, cur) || f.type != FieldType::Int || f.depth > 30) return field_editor(app, t, rec, f, label, width);
     bool wrote = false;
@@ -200,9 +205,9 @@ bool slider_editor(App& app, const Table& t, uint64_t rec, const Field& f, const
     if (label) {
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(label);
-        ImGui::SameLine(S(150.0f));
+        ImGui::SameLine(label_w);
     }
-    ImGui::SetNextItemWidth(width < 0.0f ? -S(60.0f) : width);
+    ImGui::SetNextItemWidth(width < 0.0f ? -(box_w + ImGui::GetStyle().ItemSpacing.x + S(8.0f)) : width);
     ImGuiID id = ImGui::GetID("##s");
     bool mine = g_edit.id == id;
     int tmp = static_cast<int>(cur.i);
@@ -224,7 +229,7 @@ bool slider_editor(App& app, const Table& t, uint64_t rec, const Field& f, const
     ImGui::PopID();
     // a small number box next to the slider (typed values go through the same range check)
     ImGui::SameLine();
-    if (field_editor(app, t, rec, f, nullptr, S(52.0f))) wrote = true;
+    if (field_editor(app, t, rec, f, nullptr, box_w)) wrote = true;
     return wrote;
 }
 

@@ -125,8 +125,16 @@ constexpr int32_t kCallOpJobOffer = 1;
 constexpr int32_t kCallOpStandingsRefresh = 2;
 // transfer_list (core/transfer_list.h): args = action (kAction*), player id, comm service, the player's club (team id
 // from his teamplayerlinks row; must be the user's team); outputs = contract status before, contract status after.
+// Actions 1..6 are the list actions; 7 = block offers, 8 = unblock offers, 9 = block status only (nothing is called, any
+// player): for 7 / 8 / 9 the outputs are the BLOCK STATE before / after (0 = offers not blocked, 1 = blocked), not the status.
 // (10, not the next free number: the parallel game-call tracks each took their own range)
 constexpr int32_t kCallOpTransferList = 10;
+// player_move (core/player_move.h): move one player between clubs, or release him, through the game's own TeamUtil::PlayerMoved /
+// ContractTerminationManager::ReleasePlayer (+ PlayerContractManager::AddContractRecord for a user arrival). The words:
+//   args[0] = comm service, args[1] = code | months << 8 (code 1 move, 2 release, 9 check only; months 0..120),
+//   args[2] = pid | wage << 32, args[3] = from | to << 32 (team ids; `to` is ignored by a release)
+// outputs: out[0] = from_ok, out[1] = to_ok (1 / 0 / -1 not read: the two IsPlayerInTeam read-backs, see core/player_move.h)
+constexpr int32_t kCallOpPlayerMove = 11;
 // reveal player data (core/reveal.h): args = PlayerDataRevealManager (0 = the captured one), mode (0 player / 1 team),
 // player or team id, manager table (0 = skip the slot-78 cross-check); outputs = scouting points after the call
 // (player) or record count after (team), record count before

@@ -112,6 +112,10 @@ function M.run(ctx)
     local user = moves.user_team()
     local oks, serr = moves.check_squads(nil, nil, teamid)
     if not oks then return false, serr end
+    -- Not through the game's own move (TurboPlayerMove): rows added with InsertDBTableRow are not seen by the game's own
+    -- queries until the career is saved and loaded (checked in game 2026-10-05: created at Free Agents, the game's
+    -- IsPlayerInTeam answered "not in team 111592"). A created player needs the game's CreatePlayer / InsertTeamPlayer
+    -- (docs/re/realtime_transfers.md section 2.5); until then the squad screens show him after a save and a load.
 
     -- id
     local min_id = math.max(0, util.to_int(cfg.min_playerid) or 0)
@@ -162,6 +166,34 @@ function M.run(ctx)
         end
         row[f] = v
     end
+    -- head of a player taken from a CMTracker CSV (Turbo's "From CMTracker..."): the real face when CMTracker says the player
+    -- has one AND the game has that head (the id is a player the game knows); otherwise a generic head of the new id
+    local head_note
+    local cm = parsed and parsed.doc and type(parsed.doc.cmtracker) == "table" and parsed.doc.cmtracker or nil
+    if cm and db.has_field(players, "headassetid") and db.has_field(players, "headclasscode") then
+        local real = util.to_int(cm.real_face_id)
+        if real and real > 0 and game.player_ids()[real] then
+            row.headassetid, row.headclasscode = real, 0
+            head_note = string.format(", real face of player %d", real)
+        else
+            row.headassetid, row.headclasscode = pid, 1
+            head_note = real and ", generic head (the game has no real face for this player)" or nil
+        end
+    end
+
+    -- join date + contract (moves.contract_values, shared with every move): he joins the club today; the source's
+    -- contract is kept when it still runs, else (blank player, a preset of another game or season) a new one is set
+    local join, cvu = moves.contract_values(vals.playerjointeamdate, vals.contractvaliduntil, { new_join = true })
+    local contract_note
+    for f, v in pairs({ playerjointeamdate = join, contractvaliduntil = cvu }) do
+        if db.has_field(players, f) then
+            local ok, verr = db.validate(players, f, v)
+            if ok == nil then return false, verr end
+            if f == "contractvaliduntil" and row[f] ~= ok then contract_note = ok end
+            row[f] = ok
+        end
+    end
+
     -- club link
     local jersey = moves.free_jersey(links, teamid, util.to_int(cfg.jersey) or 0, pid)
     if not jersey then return false, string.format("%s (%d) has no free shirt number", game.team_name(teamid), teamid) end
@@ -209,6 +241,8 @@ function M.run(ctx)
         shown ~= "" and (" " .. shown) or "", game.team_name(teamid), teamid, desc, jersey,
         defaults > 0 and string.format(", %d fields at their minimum", defaults) or "",
         name_row and ", names in editedplayernames" or "")
+    if head_note then summary = summary .. head_note end
+    summary = summary .. string.format(", joined today%s", contract_note and (", contract until " .. contract_note) or "")
     if skipped and #skipped > 0 then summary = summary .. "; out of range, minimum used: " .. table.concat(skipped, ", ") end
     if user > 0 and teamid == user then summary = summary .. " (your club: added to your team sheet as a reserve)" end
     if ctx.dry then return true, summary end
@@ -233,6 +267,8 @@ function M.run(ctx)
     if user > 0 and teamid == user then
         local oks2, sherr = moves.add_to_sheet(teamid, pid)
         if not oks2 then summary = summary .. "; team sheet not changed: " .. tostring(sherr) end
+        local state = moves.refresh_plan(pid)   -- his development plan (if the game made one) holds the table's attributes
+        if state == "plan" then summary = summary .. ", development plan set" end
     end
     -- miniface from a Turbo JSON next to the file
     if parsed and parsed.kind == "turbo_json" and type(parsed.miniface) == "string" and parsed.miniface ~= "" then

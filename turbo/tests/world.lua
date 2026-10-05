@@ -38,6 +38,7 @@ local function players_spec(rows, extra)
             { name = "preferredposition1", short = "pp1_", depth = 5 },
             { name = "birthdate", short = "bday", depth = 18 },
             { name = "contractvaliduntil", short = "cvu_", depth = 11 },
+            { name = "playerjointeamdate", short = "pjtd", depth = 18 },
             { name = "hashighqualityhead", short = "hqh_", depth = 1 },
             { name = "headclasscode", short = "hcc_", depth = 2 },
             { name = "headassetid", short = "hai_", depth = 21 },
@@ -91,7 +92,7 @@ function W.build(sim, opts)
     local function add_player(pid, tid, ovr, pot, pos, by, jersey, extra)
         local r = {
             playerid = pid, overallrating = ovr, potential = pot, preferredposition1 = pos,
-            birthdate = gdays(by, 3, 10), contractvaliduntil = 2028,
+            birthdate = gdays(by, 3, 10), contractvaliduntil = 2028, playerjointeamdate = gdays(2024, 7, 1),
             hashighqualityhead = (pid % 2 == 0) and 1 or 0, headclasscode = (pid % 2 == 0) and 0 or 1,
             headassetid = (pid % 2 == 0) and pid or 0, tattooleftarm = 0, trait1 = 0, icontrait1 = 0,
             trait2 = 0, icontrait2 = 0, isretiring = 0, socklengthcode = 0,
@@ -138,6 +139,18 @@ function W.build(sim, opts)
             if r.playerid then
                 r.growthprofile = 2
                 for _, a in ipairs(W.ATTRS) do r[a] = 40 + r.playerid % 30 end
+            end
+        end
+    end
+    if opts.player_fields then   -- more players columns (tests that load a full real player file): { { name, depth, min }, ... }
+        extra = extra or {}
+        local have = {}
+        for _, f in ipairs(players_spec({}, nil).fields) do have[f.name] = true end
+        for _, f in ipairs(extra) do have[f.name] = true end
+        for i, f in ipairs(opts.player_fields) do
+            if not have[f.name] then
+                extra[#extra + 1] = { name = f.name, short = string.format("x%03d", i), depth = f.depth, min = f.min }
+                have[f.name] = true
             end
         end
     end
