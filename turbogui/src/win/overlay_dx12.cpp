@@ -261,6 +261,9 @@ static void queue_raw_mouse(HWND hwnd, LPARAM lp, std::vector<WinMsg>& out) {
         {RI_MOUSE_LEFT_BUTTON_DOWN, WM_LBUTTONDOWN, MK_LBUTTON}, {RI_MOUSE_LEFT_BUTTON_UP, WM_LBUTTONUP, 0},
         {RI_MOUSE_RIGHT_BUTTON_DOWN, WM_RBUTTONDOWN, MK_RBUTTON}, {RI_MOUSE_RIGHT_BUTTON_UP, WM_RBUTTONUP, 0},
         {RI_MOUSE_MIDDLE_BUTTON_DOWN, WM_MBUTTONDOWN, MK_MBUTTON}, {RI_MOUSE_MIDDLE_BUTTON_UP, WM_MBUTTONUP, 0},
+        // side buttons: the show/hide key capture can pick them (ui/hotkey_setting.h)
+        {RI_MOUSE_BUTTON_4_DOWN, WM_XBUTTONDOWN, MAKEWPARAM(MK_XBUTTON1, XBUTTON1)}, {RI_MOUSE_BUTTON_4_UP, WM_XBUTTONUP, MAKEWPARAM(0, XBUTTON1)},
+        {RI_MOUSE_BUTTON_5_DOWN, WM_XBUTTONDOWN, MAKEWPARAM(MK_XBUTTON2, XBUTTON2)}, {RI_MOUSE_BUTTON_5_UP, WM_XBUTTONUP, MAKEWPARAM(0, XBUTTON2)},
     };
     for (const auto& m : maps)
         if (f & m.flag) out.push_back({m.msg, m.wp, at});
@@ -400,8 +403,13 @@ static void poll_input() {
         modifiers_down(ctrl, alt, shift);
         down = turbo::hotkey_matches(g_app->toggle_vk, g_app->toggle_mods, g_app->toggle_vk, ctrl, alt, shift);
     }
-    if (down && !was_down) toggle();
+    // a key just picked (captured, or chosen in the list) may still be held: it toggles only after a release
+    static int was_vk = 0;
+    static bool was_capture = false;
+    if (down && !was_down && g_app->toggle_vk == was_vk && !was_capture) toggle();
     was_down = down;
+    was_vk = g_app->toggle_vk;
+    was_capture = g_toggle_capture.load();
     g_visible = g_app->visible;
 
     std::vector<WinMsg> msgs;
@@ -445,8 +453,9 @@ static void poll_input() {
             }
             if (GetCursorPos(&p) && ScreenToClient(g_hwnd, &p)) io.AddMousePosEvent(static_cast<float>(p.x), static_cast<float>(p.y));
             const bool swapped = GetSystemMetrics(SM_SWAPBUTTON) != 0;
-            const int vks[3] = {swapped ? VK_RBUTTON : VK_LBUTTON, swapped ? VK_LBUTTON : VK_RBUTTON, VK_MBUTTON};
-            for (int b = 0; b < 3; ++b) io.AddMouseButtonEvent(b, (GetAsyncKeyState(vks[b]) & 0x8000) != 0);
+            // with the side buttons (ImGui 3 / 4): the show/hide key capture can pick them (ui/hotkey_setting.h)
+            const int vks[5] = {swapped ? VK_RBUTTON : VK_LBUTTON, swapped ? VK_LBUTTON : VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2};
+            for (int b = 0; b < 5; ++b) io.AddMouseButtonEvent(b, (GetAsyncKeyState(vks[b]) & 0x8000) != 0);
         }
         io.ConfigFlags &= ~(ImGuiConfigFlags_NoMouse | ImGuiConfigFlags_NoMouseCursorChange);
     } else {

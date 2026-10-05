@@ -4196,7 +4196,7 @@ static void test_ui() {
             CHECK(ui.click("Dry run (Turbo Tools report only, write nothing)"), "dry run checkbox");
             CHECK(read_json(le / "turbo_output" / "gui_settings.json")["turbo"]["dry_run"].get<bool>(), "dry run saved");
             CHECK(ui.click("Status"), "Status tab");
-            CHECK(ui.click("Change##hotkey"), "Change the show/hide key");
+            CHECK(ui.click("Change...##hotkey", "", "status"), "Change the show/hide key");
             ui.key(ImGuiKey_F5);  // picked by pressing it (1.1.1)
             CHECK(app.toggle_vk == 0x74, "toggle key F5");
             CHECK(read_json(le / "turbo_output" / "gui_settings.json")["gui"]["toggle_key"].get<int>() == 0x74, "key saved");

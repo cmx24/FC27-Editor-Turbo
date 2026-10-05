@@ -1,9 +1,11 @@
-// FC 27 LE Turbo GUI - the show/hide key (Status tab > Settings): any key, optionally with Ctrl / Alt / Shift.
+// FC 27 LE Turbo GUI - the show/hide key (top bar, Turbo Tools, Status tab > Settings): any key or mouse side button,
+// optionally with Ctrl / Alt / Shift.
 // Kept in gui_settings.json as gui.toggle_key (Windows virtual-key code) and gui.toggle_mods (bit 1 Ctrl, 2 Alt, 4 Shift).
-// Header-only: used by the App (settings), the Status tab (capture) and the Windows host (WndProc, input shield).
+// Header-only: used by the App (settings), ui/hotkey_setting.h (list, capture) and the Windows host (WndProc, input shield).
 #pragma once
 #include <cstdio>
 #include <string>
+#include <vector>
 
 namespace turbo {
 
@@ -15,10 +17,11 @@ inline bool hotkey_modifier_vk(int vk) {
     return vk == 0x10 || vk == 0x11 || vk == 0x12 || (vk >= 0xA0 && vk <= 0xA5) || vk == 0x5B || vk == 0x5C;
 }
 
-// Keys a hotkey may use: 1..254, not a mouse button, not a modifier, not Escape (Escape cancels the capture)
+// Keys a hotkey may use: 1..254, not the left / right / middle mouse button (the side buttons are fine), not a
+// modifier, not Escape (Escape cancels the capture)
 inline bool hotkey_valid_vk(int vk) {
     if (vk <= 0 || vk >= 255) return false;
-    if (vk == 0x01 || vk == 0x02 || vk == 0x04 || vk == 0x05 || vk == 0x06) return false;  // mouse buttons
+    if (vk == 0x01 || vk == 0x02 || vk == 0x04) return false;  // left, right, middle mouse button
     if (vk == 0x1B) return false;
     return !hotkey_modifier_vk(vk);
 }
@@ -29,6 +32,8 @@ inline std::string vk_name(int vk) {
     if ((vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9')) return std::string(1, static_cast<char>(vk));
     if (vk >= 0x60 && vk <= 0x69) return "Num " + std::to_string(vk - 0x60);
     switch (vk) {
+        case 0x05: return "Mouse 4 (back)";
+        case 0x06: return "Mouse 5 (forward)";
         case 0x08: return "Backspace";
         case 0x09: return "Tab";
         case 0x0D: return "Enter";
@@ -59,7 +64,7 @@ inline std::string vk_name(int vk) {
         case 0xBD: return "-";
         case 0xBE: return ".";
         case 0xBF: return "/";
-        case 0xC0: return "`";
+        case 0xC0: return "` ~";
         case 0xDB: return "[";
         case 0xDC: return "\\";
         case 0xDD: return "]";
@@ -69,6 +74,19 @@ inline std::string vk_name(int vk) {
     char buf[16];
     std::snprintf(buf, sizeof(buf), "Key 0x%02X", vk & 0xFF);
     return buf;
+}
+
+// The keys of the show/hide key list (ui/hotkey_setting.h), picked without pressing them: keys games rarely use
+inline const std::vector<int>& hotkey_common_keys() {
+    static const std::vector<int> keys = [] {
+        std::vector<int> k;
+        for (int f = 0x70; f <= 0x7B; ++f) k.push_back(f);  // F1..F12
+        for (int v : {0x2D, 0x24, 0x23, 0x21, 0x22, 0x13, 0x91}) k.push_back(v);  // Insert Home End PgUp PgDn Pause ScrollLock
+        for (int n = 0x60; n <= 0x69; ++n) k.push_back(n);                         // Num 0..9
+        for (int v : {0x6F, 0x6A, 0x6D, 0x6B, 0x6E, 0xC0, 0x05, 0x06}) k.push_back(v);  // Num / * - + .  ` ~  mouse side buttons
+        return k;
+    }();
+    return keys;
 }
 
 // "Ctrl+Shift+F8"

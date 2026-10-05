@@ -46,6 +46,7 @@ static void apply_auto(App& app, const char* label) {
 }
 
 void draw_tools(App& app) {
+    hotkey_control(app, "tools");  // hotkey_setting.h: the show/hide key, first thing in the tab
     if (!app.mailbox) {
         ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "Command channel unavailable; Turbo Tools need it.");
         return;
@@ -536,7 +537,7 @@ void draw_status(App& app) {
     if (!app.team_names_error.empty()) ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "  %s", app.team_names_error.c_str());
 
     ImGui::SeparatorText("Settings");
-    hotkey_setting(app);  // hotkey_setting.h: pick the key by pressing it, Reset to F8
+    hotkey_setting(app);  // hotkey_setting.h: pick the key from the list or by pressing it
     ImGui::SetNextItemWidth(S(140.0f));
     ImGui::SliderFloat("UI size", &app.ui_scale_user, 0.6f, 2.5f, "%.2fx", ImGuiSliderFlags_AlwaysClamp);
     if (ImGui::IsItemDeactivatedAfterEdit() && !app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);
