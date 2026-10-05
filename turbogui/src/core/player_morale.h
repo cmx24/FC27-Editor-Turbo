@@ -11,18 +11,25 @@
 //     5 complacent; ini keys VERY_LOW, LOW, NORMAL, HIGH, VERY_HIGH, COMPLACENT (0x1405F982C).
 //   void SetTotalMorale(pmm, rec, total) 0x147D960A8: rec+0x2C = total; when the level changed: DynamicOverallManager refresh (no clamp).
 //   MoraleRecord* MoraleStore::Find(store = pmm+0x518, pid) 0x147D8B5E8.
+//   Missing record (section 4.2, the 0x5F handler; section 7.3 "Direct fallback"): emotion = DataController::GetPlayerEmotionType(dc, pid)
+//     0x147B866BC (players.emotion 1..8); rec = MoraleStore::Create(store, pid, emotion - 1) 0x147D81108 (null at 52 records; no duplicate
+//     check, so Find first); InitMorale(pmm, rec, ?, prev = 0) 0x147D93B08 (r8 unused, r9 = 0 as in the handler).
 // What Turbo does: validate everything (PlayerMoraleManager vtable + slot 1 HandleEvent + back pointer, store team == the user's club,
 // gate byte +0x554 == 0, the 0x60-byte record vector sane, at most 52 records, the player in the user's club by the game's IsPlayerInTeam,
 // the record found by the game's Find lies inside the vector and holds the pid), pick the target (mode very happy: the highest total in
 // 0..120 whose level from the game's own level function is 4 for HIS emotion (rec+4); 85 when the level function is not resolved or no
 // total gives level 4, said in the text), SetTotalMorale, read back rec+0x2C and the level.
-// NOT done (count only): creating a missing record (players Turbo's old moves brought in have none: the game shows "Unknown") and
-// removing stale records (the 0x60 handler erases inline; no callable erase was verified). Both are reported, nothing is written.
+// Code 1 with no record (players Turbo's old moves brought in have none: the game shows "Unknown"): when the three creation functions are
+// resolved and turbo_output\call_player_morale_create_off.txt is absent, Turbo checks the store again (count < 52, no record with the pid in
+// the vector either), creates the record the way the game's 0x5F handler does, checks the game's Find now returns it inside the vector
+// with the pid, then sets very happy as above ("record created" in the text). Otherwise count only (-2).
+// NOT done (count only): removing stale records (the 0x60 handler erases inline; no callable erase was verified).
 //
 // Lua / mailbox contract (op kCallOpPlayerMorale = 13; Lua defines `TurboPlayerMorale(code, pid, value)`):
 //   args[0] = comm service, args[1] = code (1 very happy, 2 explicit value, 3 count stale records, 9 check only), args[2] = pid
 //   (0 for code 3), args[3] = value (code 2: 0..120)
-//   out[0] = total read back after the call (code 9: before; code 3: stale record count), -1 = not read; -2 = no record (count only)
+//   out[0] = total read back after the call (code 9: before; code 3: stale record count), -1 = not read; -2 = no record (count only:
+//   creation off, not resolved, failed, or not code 1)
 //   out[1] = level read back (0..5; code 3: records in the store), -1 = not read
 #pragma once
 #include <cstdint>
@@ -56,7 +63,12 @@ struct Fns {
     uint64_t level = 0;           // "pmm_get_level" (optional: 85 without it)
     uint64_t is_player_in_team = 0;  // "dc_is_player_in_team"
     uint64_t um_vtable = 0;       // "um_vtable"
+    // optional: a missing record is created only when all three are resolved (else count only)
+    uint64_t emotion = 0;         // "dc_player_emotion"
+    uint64_t create = 0;          // "pmm_store_create"
+    uint64_t init_morale = 0;     // "pmm_init_morale"
     const char* missing() const;
+    const char* missing_create() const;
 };
 
 class Caller {
@@ -66,11 +78,16 @@ public:
     virtual bool find_record(uint64_t store, int pid, uint64_t& rec, std::string& err) = 0;
     virtual bool level(uint64_t pmm, int total, int emotion, int& out, std::string& err) = 0;
     virtual bool set_total(uint64_t pmm, uint64_t rec, int total, std::string& err) = 0;
+    // record creation (section 4.2); the defaults refuse, so a caller without them never creates
+    virtual bool emotion(uint64_t, int, int&, std::string& err) { return (err = "not supported", false); }
+    virtual bool create(uint64_t, int, int, uint64_t&, std::string& err) { return (err = "not supported", false); }
+    virtual bool init_morale(uint64_t, uint64_t, std::string& err) { return (err = "not supported", false); }
 };
 
 struct Request {
     int action = 0, player = 0, value = 0;
     uint64_t comm = 0, image_base = 0, image_size = 0;
+    bool create_off = false;  // turbo_output\call_player_morale_create_off.txt: no record creation (count only)
     std::string bad_args;
 };
 
@@ -83,6 +100,7 @@ struct Result {
     int64_t total = -1, level = -1;  // out[0] / out[1]
     int target = -1, before = -1;
     bool called = false;
+    bool created = false;  // the missing record was created (Create + InitMorale)
 };
 
 // The target total for `emotion`: the highest t in 0..120 with level(t) == 4; fallback 85 (note says why)
@@ -93,6 +111,8 @@ Request request_from_args(const int64_t args[4]);
 void args_from_request(const Request& req, int64_t args[4]);
 inline const char* kill_switch_name() { return "call_player_morale_off.txt"; }
 bool killed(const std::filesystem::path& turbo_output);
+inline const char* create_kill_switch_name() { return "call_player_morale_create_off.txt"; }
+bool create_killed(const std::filesystem::path& turbo_output);
 
 }  // namespace morale
 }  // namespace turbo

@@ -722,7 +722,8 @@ end
 -- TurboPlayerMorale(code, pid, value) -> ok, text, status, total, level: one player of the user's club to the game's own "very happy"
 -- level for his emotion type (code 1) or a value 0..120 (code 2) through PlayerMoraleManager::SetTotalMorale (Turbo.dll op 13,
 -- turbogui/src/core/player_morale.h); code 3 counts the stale morale records (total = stale count, level = records), 9 checks only.
--- total -2 = the player has no morale record (not created by this version). status "off" when the call is unavailable / switched off.
+-- Code 1 creates a missing morale record first (text "record created"); total -2 = no record and none created (creation off by
+-- turbo_output\call_player_morale_create_off.txt, not resolved, failed, or codes 2 / 9). status "off" when the call is unavailable / switched off.
 function M.player_morale(code, pid, value)
     local c, p, v = math.tointeger(code) or 0, math.tointeger(pid) or 0, math.tointeger(value) or 0
     if c ~= 1 and c ~= 2 and c ~= 3 and c ~= 9 then

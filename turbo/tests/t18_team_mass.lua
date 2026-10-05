@@ -92,6 +92,37 @@ H.case("morale with TurboPlayerMorale: very happy per player, missing records an
     for i = 1, #squad do H.eq(calls[i][1], 1, "code 1 = very happy") end
     H.has(msg, string.format("%d players set to very happy (morale 94, level very happy)", #squad - 2))
     H.has(msg, "1 have no morale record"); H.has(msg, "2 of 30 morale records are stale"); H.has(msg, "1 failed")
+    H.ok(not msg:find("including", 1, true), "no record created")
+end)
+
+H.case("morale with TurboPlayerMorale: missing records created are reported; creation off keeps the no-record count", function()
+    local squad = team_pids(W.USER_TEAM)
+    _G.TurboPlayerMorale = function(code, pid)
+        if code == 3 then return true, "counted", "ok", 0, 30 end
+        if pid == squad[1] or pid == squad[2] then
+            return true, "player " .. pid .. ": morale record created, morale 55 -> 94 (very happy)", "ok", 94, 4
+        end
+        return true, "player " .. pid .. ": morale 60 -> 94 (very happy)", "ok", 94, 4
+    end
+    local ok, msg = run({ teamid = W.USER_TEAM, actions = { "morale" } })
+    H.eq(ok, true, msg)
+    H.has(msg, string.format("%d players set to very happy (morale 94, level very happy), including 2 whose missing morale record was created", #squad))
+    H.ok(not msg:find("have no morale record", 1, true), "nothing left without a record")
+    _G.TurboPlayerMorale = function(code, pid)
+        if code == 3 then return true, "counted", "ok", 0, 30 end
+        if pid == squad[1] then
+            return false, "player " .. pid .. " has no morale record (the game shows \"Unknown\"; a club move that skipped the game's events): not created " ..
+                "(creation is off: kill switch turbo_output\\call_player_morale_create_off.txt is present), counted only", "failed", -2, -1
+        end
+        return true, "player " .. pid .. ": morale 60 -> 94 (very happy)", "ok", 94, 4
+    end
+    ok, msg = run({ teamid = W.USER_TEAM, actions = { "morale" } })
+    _G.TurboPlayerMorale = nil
+    H.eq(ok, true, msg)
+    H.has(msg, string.format("%d players set to very happy (morale 94, level very happy)", #squad - 1))
+    H.ok(not msg:find("including", 1, true), "none created")
+    H.has(msg, "1 have no morale record (the game shows \"Unknown\"; not created: creation is off: kill switch")
+    H.has(msg, "call_player_morale_create_off.txt")
 end)
 
 H.case("morale: the native call off -> SetPlayerMorale 85 with the reason; another club -> Live Editor's way", function()

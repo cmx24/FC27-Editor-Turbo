@@ -243,6 +243,10 @@ level to `{0 CM_Morale_VeryUnhappy, 1 CM_Morale_Unhappy, 2 morale_summary_conten
 bands 15 / 40 / 65 / 75 / 95). The per-type values live in `moralesettings.ini` (not in the exe), so Turbo asks the function for 0..120 at run time.
 The squad screen (`0x147F9F82C`) fills `PlayerMorale.OverallMorale` with this level of `rec+0x2C` and `rec+4`. `SetTotalMorale` does not clamp.
 Erasing a record: the `0x60` handler erases inline (`0x147D8D5C2`); no standalone callable erase was verified, so Turbo only counts stale records.
+Creating a missing record (2026-10-05, `player_morale` code 1): the three calls of section 4.2 through signatures `dc_player_emotion` (`0x147B866BC`,
+`int(dc, pid)`: r8's home slot is reused as a local, so two arguments), `pmm_store_create` (`0x147D81108`) and `pmm_init_morale` (`0x147D93B08`: the
+handler passes `r9 = 0` and leaves r8 unset; InitMorale overwrites r8 first). Kill switch `turbo_output\call_player_morale_create_off.txt` (count only).
+Live result before creation: very happy verified for existing records (squad screen Very Happy, +2..+7 OVR); creation itself not yet checked in game.
 
 ### 4.2 What a normal signing creates `[H]`
 
@@ -393,6 +397,9 @@ Direct fallback without events (morale only), for a player of the user's club wh
 `rec+0x2C == value`, `GetMorale` returns it, the squad screen shows the level and the overall's morale modifier. Risks: Create / Init allocate inside the record's modifier vector (game allocator, game
 thread only); `InitMorale` reads calendar / fixtures / form managers, so it must run when a career is loaded and the calendar is valid; a second record for the same pid (no duplicate check in
 `Create`) corrupts lookups, so always `Find` first.
+**Done in `player_morale` code 1** (`core/player_morale.cpp`, 2026-10-05): the checks above plus the game's `IsPlayerInTeam`, the sim-busy check, and a scan of the vector for the pid
+(duplicate guard besides `Find`); emotion from the game's `GetPlayerEmotionType` (refused outside 1..8); after `InitMorale` the vector is read again (it may move), must have grown by exactly one,
+and `Find` must return the created record; then the very-happy total through `SetTotalMorale`. Not yet checked in game.
 
 ### 7.4 "Likes the club" (once the user says which one)
 

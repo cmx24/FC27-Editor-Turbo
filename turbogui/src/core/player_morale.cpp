@@ -30,6 +30,13 @@ const char* Fns::missing() const {
     return nullptr;
 }
 
+const char* Fns::missing_create() const {
+    if (!emotion) return "dc_player_emotion";
+    if (!create) return "pmm_store_create";
+    if (!init_morale) return "pmm_init_morale";
+    return nullptr;
+}
+
 static std::string hex(uint64_t v) {
     char b[32];
     std::snprintf(b, sizeof(b), "0x%llX", static_cast<unsigned long long>(v));
@@ -95,6 +102,8 @@ Result run(Memory& mem, Caller& call, const Fns& fns, const Request& req) {
     for (uint64_t p : {fns.pmm_vtable, fns.pmm_handle_event, fns.find_record, fns.set_total, fns.is_player_in_team, fns.um_vtable})
         if (!in_image(p, req)) return fail(r, "validate", "resolved address " + hex(p) + " is outside FC27.exe");
     if (fns.level && !in_image(fns.level, req)) return fail(r, "validate", "resolved address " + hex(fns.level) + " is outside FC27.exe");
+    for (uint64_t p : {fns.emotion, fns.create, fns.init_morale})
+        if (p && !in_image(p, req)) return fail(r, "validate", "resolved address " + hex(p) + " is outside FC27.exe");
     // comm -> owner -> manager table
     if (!is_ptr(req.comm, 8)) return fail(r, "validate", "the career's comm service is not known (" + hex(req.comm) + "): is a career loaded?");
     const uint64_t owner = mem.ptr(req.comm + tl::kCommOwner), managers = owner ? mem.ptr(owner + tl::kOwnerManagers) : 0;
@@ -158,7 +167,38 @@ Result run(Memory& mem, Caller& call, const Fns& fns, const Request& req) {
     if (!call.find_record(store, req.player, r.rec, err)) return fail(r, "validate", "MoraleStore::Find: " + err);
     if (!r.rec) {
         r.total = kNoRecord;
-        return fail(r, "validate", who + " has no morale record (the game shows \"Unknown\"; a club move that skipped the game's events): not created by this version, counted only");
+        const char* mc = fns.missing_create();
+        std::string why = req.action != kActionVeryHappy ? "only the very happy action creates it"
+                          : req.create_off ? std::string("creation is off: kill switch turbo_output\\") + create_kill_switch_name() + " is present"
+                          : mc ? std::string("creation is off: signature ") + mc + " not found on this game build"
+                               : "";
+        if (!why.empty())
+            return fail(r, "validate", who + " has no morale record (the game shows \"Unknown\"; a club move that skipped the game's events): not created (" + why + "), counted only");
+        // create it as the game's 0x5F handler does (section 4.2); the store was validated above (team, gate, vector, <= 52)
+        if (r.records >= kMaxRecords)
+            return fail(r, "validate", who + " has no morale record: not created (the morale store is full: " + num(r.records) + " of " + num(kMaxRecords) + "), counted only");
+        for (int i = 0; i < r.records; ++i) {
+            int32_t pid = 0;
+            std::memcpy(&pid, data.data() + static_cast<size_t>(i) * kRecSize + kRecPid, sizeof(pid));
+            if (pid == req.player)
+                return fail(r, "validate", "the game's Find found no record for " + who + " but the store holds one at " + hex(b + static_cast<uint64_t>(i) * kRecSize) + ": nothing created (duplicate guard)");
+        }
+        int emo = -1;
+        if (!call.emotion(r.dc, req.player, emo, err)) return fail(r, "validate", "GetPlayerEmotionType: " + err + " (counted only)");
+        if (emo < 1 || emo > 8) return fail(r, "validate", who + ": the game's emotion type is " + num(emo) + " (expected 1..8): nothing created, counted only");
+        uint64_t rec = 0;
+        if (!call.create(store, req.player, emo - 1, rec, err)) return fail(r, "call", "MoraleStore::Create: " + err);
+        if (!rec) return fail(r, "call", who + ": the game's MoraleStore::Create returned no record (store full?): nothing created, counted only");
+        if (!call.init_morale(r.pmm, rec, err)) return fail(r, "call", "InitMorale: " + err);
+        r.created = true;
+        r.total = -1;  // a record exists now: a later failure is a failure, not "no record"
+        // the vector may have moved: read it again, the game's Find must return the new record inside it with the pid
+        if (!mem.rd(store + kStoreBegin, b) || !mem.rd(store + kStoreEnd, e) || b > e || (e - b) % kRecSize != 0 ||
+            (e - b) / kRecSize != static_cast<uint64_t>(r.records) + 1)
+            return fail(r, "check", who + ": record created at " + hex(rec) + " but the store did not grow by one (" + hex(b) + ".." + hex(e) + ")");
+        r.records = static_cast<int>((e - b) / kRecSize);
+        if (!call.find_record(store, req.player, r.rec, err)) return fail(r, "check", "MoraleStore::Find after Create: " + err);
+        if (r.rec != rec) return fail(r, "check", who + ": record created at " + hex(rec) + " but the game's Find returns " + hex(r.rec));
     }
     if (r.rec < b || r.rec >= e || (r.rec - b) % kRecSize != 0) return fail(r, "validate", "the game's Find returned " + hex(r.rec) + ", outside the record vector");
     int32_t rpid = 0, emotion = -1, before = -1;
@@ -186,7 +226,8 @@ Result run(Memory& mem, Caller& call, const Fns& fns, const Request& req) {
     if (after != r.target) return fail(r, "check", who + ": the game kept morale " + num(after) + " (asked " + num(r.target) + ")");
     r.ok = true;
     r.stage = "done";
-    r.message = who + ": morale " + num(before) + " -> " + num(after) + " (" + level_name(r.level) + ")" + (note.empty() ? "" : "; " + note);
+    r.message = who + ": " + (r.created ? "morale record created, " : "") + "morale " + num(before) + " -> " + num(after) + " (" + level_name(r.level) + ")" +
+                (note.empty() ? "" : "; " + note);
     return r;
 }
 
@@ -214,6 +255,11 @@ void args_from_request(const Request& req, int64_t args[4]) {
 bool killed(const std::filesystem::path& turbo_output) {
     std::error_code ec;
     return std::filesystem::exists(turbo_output / kill_switch_name(), ec);
+}
+
+bool create_killed(const std::filesystem::path& turbo_output) {
+    std::error_code ec;
+    return std::filesystem::exists(turbo_output / create_kill_switch_name(), ec);
 }
 
 }  // namespace morale

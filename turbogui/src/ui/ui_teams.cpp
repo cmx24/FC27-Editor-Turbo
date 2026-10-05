@@ -340,7 +340,12 @@ static void mass_actions_tab(App& app, const TeamRow& tr) {
             else ImGui::SetTooltip("%s", a.detail);
         }
         ImGui::SameLine();
-        ImGui::TextDisabled("%s", a.detail);
+        // wraps at the window's right edge, the following lines aligned under the first (it ran off the window before)
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(a.detail);
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
         if (clicked) {
             confirm = a.id;
             ImGui::OpenPopup("Run mass action?");
@@ -371,7 +376,9 @@ static void mass_actions_tab(App& app, const TeamRow& tr) {
     }
     if (!app.mass_status.empty()) {
         ImGui::Separator();
-        ImGui::TextWrapped("%s", app.mass_status.c_str());
+        ImGui::PushTextWrapPos(0.0f);  // the morale summary is long: wrap within the window
+        ImGui::TextUnformatted(app.mass_status.c_str());
+        ImGui::PopTextWrapPos();
     }
     ImGui::PopID();
     ImGui::EndChild();

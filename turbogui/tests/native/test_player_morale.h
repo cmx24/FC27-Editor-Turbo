@@ -1,10 +1,12 @@
 // Native tests: the "player_morale" game call (core/player_morale.h, docs/re/player_status_roles.md section 4): the game's level function,
-// MoraleStore::Find and SetTotalMorale behind the Caller abstraction on MoveWorld's synthetic career (PlayerMoraleManager at kMorale).
+// MoraleStore::Find and SetTotalMorale behind the Caller abstraction on MoveWorld's synthetic career (PlayerMoraleManager at kMorale);
+// creating a missing record (GetPlayerEmotionType, MoraleStore::Create, InitMorale: section 4.2) only when every check passes.
 #pragma once
 
 struct MoraleWorld : MoveWorld {
     static constexpr uint64_t kRecs = 0x30130000ULL;
     static constexpr uint64_t kFnFind = 0x147D8B5E8ULL, kFnSet = 0x147D960A8ULL, kFnLevel = 0x147D837D8ULL;
+    static constexpr uint64_t kFnEmotion = 0x147B866BCULL, kFnCreate = 0x147D81108ULL, kFnInit = 0x147D93B08ULL;
     MoraleWorld() {
         mem.map(kRecs, turbo::morale::kRecSize * 60);
         mem.wr(kMorale + turbo::morale::kPmmHub, kManagers);
@@ -31,6 +33,14 @@ struct MoraleWorld : MoveWorld {
         f.level = kFnLevel;
         f.is_player_in_team = kFnInTeam;
         f.um_vtable = kUmVt;
+        f.emotion = kFnEmotion;
+        f.create = kFnCreate;
+        f.init_morale = kFnInit;
+        return f;
+    }
+    turbo::morale::Fns fns_no_create() const {
+        turbo::morale::Fns f = fns();
+        f.emotion = f.create = f.init_morale = 0;
         return f;
     }
 };
@@ -40,8 +50,12 @@ struct FakeMoraleGame : turbo::morale::Caller {
     MoraleWorld& w;
     std::set<int> squad;  // pids IsPlayerInTeam(pid, 48) answers true for
     int thresholds[5][6] = {{0, 15, 40, 65, 75, 95}, {0, 10, 30, 50, 70, 90}, {0, 20, 45, 60, 80, 100}, {0, 15, 40, 65, 75, 95}, {0, 5, 25, 55, 60, 110}};
-    int set_calls = 0, level_calls = 0;
+    int set_calls = 0, level_calls = 0, emotion_calls = 0, create_calls = 0, init_calls = 0;
     bool keep_total = false;  // SetTotalMorale "refuses" (writes nothing)
+    int emotion_value = 1;    // players.emotion (1..8)
+    bool create_null = false; // Create returns null
+    bool find_blind = false;  // Find never finds (the duplicate guard must still see the pid in the vector)
+    int init_total = 55;      // what InitMorale computes
     explicit FakeMoraleGame(MoraleWorld& world) : w(world) {}
     bool in_team(uint64_t, int pid, int team, bool& in, std::string&) override {
         in = team == ListWorld::kNapoli && squad.count(pid);
@@ -52,6 +66,7 @@ struct FakeMoraleGame : turbo::morale::Caller {
         w.mem.rd(store + turbo::morale::kStoreBegin, b);
         w.mem.rd(store + turbo::morale::kStoreEnd, e);
         rec = 0;
+        if (find_blind) return true;
         for (uint64_t r = b; r < e; r += turbo::morale::kRecSize) {
             int32_t p = 0;
             w.mem.rd(r, p);
@@ -77,6 +92,31 @@ struct FakeMoraleGame : turbo::morale::Caller {
     bool set_total(uint64_t, uint64_t rec, int total, std::string&) override {
         ++set_calls;
         if (!keep_total) w.mem.wr(rec + turbo::morale::kRecTotal, static_cast<int32_t>(total));
+        return true;
+    }
+    bool emotion(uint64_t, int, int& out, std::string&) override {
+        ++emotion_calls;
+        out = emotion_value;
+        return true;
+    }
+    // as 0x147D81108: append a 0x60-byte record {pid, emotion - 1, 0}, null at 52 (no duplicate check)
+    bool create(uint64_t store, int pid, int emotion0, uint64_t& rec, std::string&) override {
+        ++create_calls;
+        rec = 0;
+        uint64_t b = 0, e = 0;
+        w.mem.rd(store + turbo::morale::kStoreBegin, b);
+        w.mem.rd(store + turbo::morale::kStoreEnd, e);
+        if (create_null || (e - b) / turbo::morale::kRecSize >= 52) return true;
+        rec = e;
+        w.mem.wr(rec + turbo::morale::kRecPid, static_cast<int32_t>(pid));
+        w.mem.wr(rec + turbo::morale::kRecEmotion, static_cast<int32_t>(emotion0));
+        w.mem.wr(rec + turbo::morale::kRecTotal, static_cast<int32_t>(0));
+        w.mem.wr(store + turbo::morale::kStoreEnd, e + turbo::morale::kRecSize);
+        return true;
+    }
+    bool init_morale(uint64_t, uint64_t rec, std::string&) override {
+        ++init_calls;
+        w.mem.wr(rec + turbo::morale::kRecTotal, static_cast<int32_t>(init_total));
         return true;
     }
 };
@@ -124,23 +164,136 @@ static void test_player_morale() {
         CHECK(!r.ok && r.stage == "check" && r.total == 60, "morale: a SetTotalMorale that changed nothing is reported");
     }
     {
-        // record missing: count only (no Create in this version), store full the same
+        // record missing, creation signatures missing: count only, store full the same
         MoraleWorld w;
         w.set_records({{1001, 0, 50}});
         FakeMoraleGame g(w);
         g.squad = {1001, 1004};
-        Result r = run(w.mem, g, w.fns(), req_for(kActionVeryHappy, 1004));
+        Result r = run(w.mem, g, w.fns_no_create(), req_for(kActionVeryHappy, 1004));
         CHECK(!r.ok && r.total == kNoRecord && g.set_calls == 0, "morale: no record -> -2, nothing written: " + r.message);
-        CHECK(r.message.find("no morale record") != std::string::npos, "morale: the text says why");
+        CHECK(r.message.find("no morale record") != std::string::npos && r.message.find("dc_player_emotion") != std::string::npos,
+              "morale: the text says why (signature missing): " + r.message);
+        CHECK(g.emotion_calls == 0 && g.create_calls == 0 && g.init_calls == 0, "morale: no creation without the signatures");
+        Fns f = w.fns();
+        f.init_morale = 0;
+        r = run(w.mem, g, f, req_for(kActionVeryHappy, 1004));
+        CHECK(!r.ok && r.total == kNoRecord && r.message.find("pmm_init_morale") != std::string::npos && g.create_calls == 0,
+              "morale: one creation signature missing -> count only");
         std::vector<std::array<int, 3>> full;
         for (int i = 0; i < 52; ++i) full.push_back({2000 + i, 0, 50});
         w.set_records(full);
-        r = run(w.mem, g, w.fns(), req_for(kActionVeryHappy, 1004));
+        r = run(w.mem, g, w.fns_no_create(), req_for(kActionVeryHappy, 1004));
         CHECK(!r.ok && r.total == kNoRecord && g.set_calls == 0, "morale: store full, no record -> count only");
+        // store full with creation on: refused before Create (the game would return null)
+        r = run(w.mem, g, w.fns(), req_for(kActionVeryHappy, 1004));
+        CHECK(!r.ok && r.total == kNoRecord && r.message.find("store is full") != std::string::npos && g.create_calls == 0 && g.emotion_calls == 0,
+              "morale: 52 records -> Create not called: " + r.message);
         full.push_back({3000, 0, 50});
         w.set_records(full);
         r = run(w.mem, g, w.fns(), req_for(kActionVeryHappy, 1001));
         CHECK(!r.ok && r.message.find("corrupt") != std::string::npos, "morale: 53 records refused as corrupt");
+    }
+    {
+        // record missing, creation resolved: created the game's way, then very happy ("record created")
+        MoraleWorld w;
+        w.set_records({{1001, 0, 50}});
+        FakeMoraleGame g(w);
+        g.squad = {1001, 1004};
+        g.emotion_value = 2;  // players.emotion 2 -> record type 1: very happy 70..89
+        Result r = run(w.mem, g, w.fns(), req_for(kActionVeryHappy, 1004));
+        CHECK(r.ok && r.created, "morale: missing record created -> ok: " + r.message);
+        CHECK(g.emotion_calls == 1 && g.create_calls == 1 && g.init_calls == 1 && g.set_calls == 1, "morale: emotion, Create, InitMorale, SetTotalMorale once each");
+        CHECK(r.total == 89 && r.level == kLevelVeryHappy && r.records == 2, "morale: the new record is very happy (" + std::to_string(r.total) + ")");
+        CHECK(r.rec == MoraleWorld::kRecs + kRecSize, "morale: the record the game's Find returns is the created one");
+        CHECK(r.message.find("record created") != std::string::npos && r.message.find("55 -> 89 (very happy)") != std::string::npos,
+              "morale: the text says record created, InitMorale's total and the new one: " + r.message);
+        int32_t pid = 0, emo = -1;
+        w.mem.rd(MoraleWorld::kRecs + kRecSize + kRecPid, pid);
+        w.mem.rd(MoraleWorld::kRecs + kRecSize + kRecEmotion, emo);
+        CHECK(pid == 1004 && emo == 1, "morale: Create got the pid and emotion - 1");
+        // again: Find finds it now, no second record
+        r = run(w.mem, g, w.fns(), req_for(kActionVeryHappy, 1004));
+        CHECK(r.ok && !r.created && g.create_calls == 1 && r.records == 2, "morale: second run finds the record, nothing created");
+        // codes 2 and 9 never create
+        r = run(w.mem, g, w.fns(), req_for(kActionValue, 1001 + 0, 60));
+        CHECK(r.ok && !r.created, "morale: value on an existing record");
+        g.squad.insert(1010);
+        r = run(w.mem, g, w.fns(), req_for(kActionValue, 1010, 60));
+        CHECK(!r.ok && r.total == kNoRecord && g.create_calls == 1 && r.message.find("only the very happy") != std::string::npos, "morale: code 2 does not create");
+        r = run(w.mem, g, w.fns(), req_for(kActionCheck, 1010));
+        CHECK(!r.ok && r.total == kNoRecord && g.create_calls == 1, "morale: code 9 does not create");
+        // the create kill switch: count only
+        Request q = req_for(kActionVeryHappy, 1010);
+        q.create_off = true;
+        r = run(w.mem, g, w.fns(), q);
+        CHECK(!r.ok && r.total == kNoRecord && g.create_calls == 1 && g.emotion_calls == 1 && r.message.find("call_player_morale_create_off.txt") != std::string::npos,
+              "morale: create kill switch -> count only: " + r.message);
+        // Create returns null: reported, nothing set
+        g.create_null = true;
+        r = run(w.mem, g, w.fns(), req_for(kActionVeryHappy, 1010));
+        CHECK(!r.ok && !r.created && g.create_calls == 2 && g.init_calls == 1 && g.set_calls == 3 && r.message.find("returned no record") != std::string::npos,
+              "morale: Create null -> InitMorale / SetTotalMorale not called: " + r.message);
+        g.create_null = false;
+        // an emotion type outside 1..8: nothing created
+        g.emotion_value = 0;
+        r = run(w.mem, g, w.fns(), req_for(kActionVeryHappy, 1010));
+        CHECK(!r.ok && g.create_calls == 2 && r.message.find("emotion type is 0") != std::string::npos, "morale: emotion 0 -> nothing created");
+        g.emotion_value = 1;
+        // duplicate guard: Find says null but the vector holds the pid -> nothing created
+        g.find_blind = true;
+        r = run(w.mem, g, w.fns(), req_for(kActionVeryHappy, 1004));
+        CHECK(!r.ok && g.create_calls == 2 && r.message.find("duplicate guard") != std::string::npos, "morale: duplicate guard: " + r.message);
+        g.find_blind = false;
+        // create kill switch file
+        const std::filesystem::path dir = g_out / "morale_create_kill";
+        std::filesystem::create_directories(dir);
+        std::filesystem::remove(dir / create_kill_switch_name());
+        CHECK(!create_killed(dir), "morale: creation on without the create kill switch");
+        { std::ofstream(dir / create_kill_switch_name()) << "off"; }
+        CHECK(create_killed(dir), "morale: creation off with turbo_output\\call_player_morale_create_off.txt");
+    }
+    {
+        // no record: every validation failure stops before GetPlayerEmotionType / Create / InitMorale
+        MoraleWorld w;
+        w.set_records({{1001, 0, 50}});
+        FakeMoraleGame g(w);
+        g.squad = {1001, 1004};
+        auto none_called = [&g]() { return g.emotion_calls == 0 && g.create_calls == 0 && g.init_calls == 0 && g.set_calls == 0; };
+        Result r = run(w.mem, g, w.fns(), req_for(kActionVeryHappy, 1005));
+        CHECK(!r.ok && none_called(), "morale: not in the club -> nothing created");
+        w.mem.wr(MoveWorld::kMorale + kGate, static_cast<uint8_t>(1));
+        r = run(w.mem, g, w.fns(), req_for(kActionVeryHappy, 1004));
+        CHECK(!r.ok && none_called(), "morale: gate set -> nothing created");
+        w.mem.wr(MoveWorld::kMorale + kGate, static_cast<uint8_t>(0));
+        w.mem.wr(MoveWorld::kMorale + kStore + kStoreTeam, static_cast<int32_t>(49));
+        r = run(w.mem, g, w.fns(), req_for(kActionVeryHappy, 1004));
+        CHECK(!r.ok && none_called(), "morale: store of another team -> nothing created");
+        w.mem.wr(MoveWorld::kMorale + kStore + kStoreTeam, static_cast<int32_t>(ListWorld::kNapoli));
+        Fns f = w.fns();
+        f.pmm_vtable = 0x14B0156B0ULL;
+        r = run(w.mem, g, f, req_for(kActionVeryHappy, 1004));
+        CHECK(!r.ok && none_called(), "morale: vtable mismatch -> nothing created");
+        f = w.fns();
+        f.pmm_handle_event = 0x147D8D358ULL;
+        r = run(w.mem, g, f, req_for(kActionVeryHappy, 1004));
+        CHECK(!r.ok && none_called(), "morale: slot 1 mismatch -> nothing created");
+        w.mem.wr(MoveWorld::kMorale + kPmmHub, static_cast<uint64_t>(0x1234));
+        r = run(w.mem, g, w.fns(), req_for(kActionVeryHappy, 1004));
+        CHECK(!r.ok && none_called(), "morale: back pointer mismatch -> nothing created");
+        w.mem.wr(MoveWorld::kMorale + kPmmHub, MoveWorld::kManagers);
+        w.mem.wr(MoveWorld::kMorale + kStore + kStoreEnd, MoraleWorld::kRecs + kRecSize + 8);
+        r = run(w.mem, g, w.fns(), req_for(kActionVeryHappy, 1004));
+        CHECK(!r.ok && r.message.find("corrupt") != std::string::npos && none_called(), "morale: vector not whole records -> nothing created");
+        w.set_records({{1001, 0, 50}});
+        f = w.fns();
+        f.create = 0x100ULL;
+        Request q = req_for(kActionVeryHappy, 1004);
+        q.image_base = 0x140000000ULL;
+        q.image_size = 0x10000000ULL;
+        r = run(w.mem, g, f, q);
+        CHECK(!r.ok && r.message.find("outside FC27.exe") != std::string::npos && none_called(), "morale: Create outside the image -> nothing created");
+        r = run(w.mem, g, w.fns(), req_for(kActionVeryHappy, 1004));
+        CHECK(r.ok && r.created && g.create_calls == 1, "morale: all checks pass -> created");
     }
     {
         // refusals: not the user's club, gate set, store of another team, vtable mismatch, missing signature
