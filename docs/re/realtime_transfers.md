@@ -313,6 +313,9 @@ development plan / FCE statistics team), and for the user's club a **PCM node**.
 `editedplayernames` rows with `InsertDBTableRow`; the missing registrations are the three events and the node. Whether the
 `players`-table observers (`PlayerSearchManager` cache) fire for Live Editor's insert is **unknown** (section 5). The game numbers
 its own generated players from `460000` (the youth generator expects id `0x704DF` = 459999 as scratch id).
+Answered in `created_players.md` (2026-10-05): rows added outside the engine's `AddRecord` are in none of the table's indexes (built at load)
+and fire none of the table's insert callbacks (the `players` observers included), so the game's index-served queries miss them until a
+load; the safe path is the game's own SQL INSERT through the `DataController`'s provider (plan in that file, section 6).
 
 ## 3. Implementation plan for Turbo (ordered)
 
