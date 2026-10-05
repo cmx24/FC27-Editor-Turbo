@@ -10,7 +10,7 @@
 //      is one Turbo wrote, or equals the custom file now in mods\legacy, is never taken as an original.
 //   2. A name-based recipe (below) is applied to the originals: isEditable / isVisible false -> true except the keep-list
 //      (core/edit_unlock_rules.h, shared with the in-memory fallback: TEAM, PREFERRED_POSITION, BODY_TYPE, player
-//      GENDER; Edit Manager's GENDER unless "Unlock everything"), sections copied
+//      GENDER, the manager's GENDER too), sections copied
 //      only from the game's own sibling files, dependency entries merged, EA's missing brace in
 //      managercareer_edit_retiredreal.json repaired. Every other key is left as it is.
 //   3. The result is validated (parses back, known names only, numbers in range, keep-list untouched, < 256 KB) and
@@ -72,8 +72,8 @@ struct Options {
     bool manager = true;           // Edit Manager (created and real managers), career start with a real manager
     bool main_menu = true;         // main menu Customise > Edit Players
     bool career_settings = false;  // advanced: the career hub settings EA locks mid-career
-    bool experimental = false;     // "Unlock everything": head editor, Composure / Defensive awareness, manager outfits,
-                                   // all celebrations, manager gender, squad settings in the hub
+    bool experimental = false;     // "Unlock everything": the game's tattoo / sleeve / sock / boot / glove gear in career
+                                   // Edit Player (from its Create Player files), squad settings in the hub
     std::set<std::string> files_off;  // per-file switches (Details): targets not to write
     bool group_on(Group g) const;
     bool file_on(const std::string& path) const;  // a target whose group is on and that is not switched off
@@ -98,11 +98,18 @@ bool parse(const std::string& text, ojson& out, bool* repaired, std::string* err
 // The known repair alone (exposed for the tests); returns the text unchanged when there is nothing to repair
 std::string repair_missing_brace(const std::string& text);
 
+// Experimental gear groups grafted into career Edit Player (TATTOO, ARM_SLEEVES, SOCK, SHOE, GLOVES_AND_WRIST, ...)
+bool gear_group(const std::string& name);
+// The deny-list: names the recipe never adds to a file whose original lacks them (head editor, store outfits and
+// accessories, OUTFIT*, COMPOSURE / DEFENSIVE_AWARENESS). The in-memory fallback adds nothing, and its keep-list is the
+// same table as the file override's (edit_unlock::keep_name / keep_id), so both turn on exactly the same fields.
+bool denied_name(const std::string& name);
+
 // FC 27's avatar-config vocabulary (categories, fields, dependency names: 120 names)
 bool known_name(const std::string& name);
-// Fields the unlock never touches (edit_unlock::keep_name, the table the in-memory fallback uses too). Players: TEAM
-// (a move outside the transfer engine), GENDER, PREFERRED_POSITION (set by ROLE), BODY_TYPE. Edit Manager: GENDER
-// stays unless experimental.
+// Fields the unlock never touches (edit_unlock::keep_name, the table the in-memory fallback uses too): TEAM (a move
+// outside the transfer engine), GENDER (players and managers, experimental or not), PREFERRED_POSITION (set by ROLE),
+// BODY_TYPE.
 std::set<std::string> keep_list(const std::string& target, const Options& opt);
 
 struct RecipeResult {

@@ -22,6 +22,25 @@ static const char* const kAvatarPrefix = "data/avatar/avatarcustomizationcfg_";
 
 std::string avatar_path(const std::string& screen) { return kAvatarPrefix + screen + ".json"; }
 
+// Experimental gear for career Edit Player: the game's own definitions, from the first of these that has them (main menu
+// Create Player offline, then Player Career's pro editor)
+static const char* const kGearSources[] = {"mainmenu_create_offline", "playercareer_edit_vpro"};
+
+bool gear_group(const std::string& name) {
+    static const std::set<std::string> g = {"TATTOO", "ARM_SLEEVES", "SOCK", "SHOE", "GLOVES_AND_WRIST", "WRIST",
+                                            "KIT_FIT", "KIT_SLEEVES", "WAIST_FIT", "GK_PANTS"};
+    return g.count(name) > 0;
+}
+
+bool denied_name(const std::string& n) {
+    // the head editor, store outfits and accessories (no data source on a player / real-manager screen, empty lists
+    // offline), the two attributes EA hides on every editor
+    static const std::set<std::string> d = {"CRANIUM_HEAD", "HEAD", "INNER_TOPS", "OUTER_TOPS", "MERGED_TOPS", "BOTTOMS",
+                                            "TOPS", "HEADWEAR", "FACIALACCESSORY", "TIES_OR_SCARVES", "FIXED_OUTFITS",
+                                            "FIXEDOUTFIT", "COMPOSURE", "DEFENSIVE_AWARENESS"};
+    return d.count(n) > 0 || n.compare(0, 6, "OUTFIT") == 0;
+}
+
 const std::vector<FileSpec>& files() {
     static const std::vector<FileSpec> v = {
         {avatar_path("managercareer_editplayers"), "Career > Squad > Edit Player", Group::CareerPlayers},
@@ -34,8 +53,8 @@ const std::vector<FileSpec>& files() {
         {kCareerSettingsPath, "Career hub > Settings", Group::CareerSettings},
         // read only
         {avatar_path("managercareer_create"), "read: manager name lengths", Group::Source},
-        {avatar_path("managercareer_edit_online"), "read: manager outfit picker (experimental)", Group::Source},
-        {avatar_path("playercareer_edit_position"), "read: Composure / Defensive awareness (experimental)", Group::Source},
+        {avatar_path("mainmenu_create_offline"), "read: tattoos, sleeves, socks and gear (experimental)", Group::Source},
+        {avatar_path("playercareer_edit_vpro"), "read: tattoos, sleeves, socks and gear (experimental)", Group::Source},
         {kCareerSetupPath, "read: squad settings for the hub (experimental)", Group::Source},
     };
     return v;
@@ -155,19 +174,15 @@ std::vector<std::string> sources_for(const std::string& target, const Options& o
     const bool x = opt.experimental;
     if (s == "managercareer_editplayers") {
         v.push_back(avatar_path("managercareer_edit_custom_player"));
-        if (x) v.push_back(avatar_path("managercareer_edit"));
     } else if (s == "managercareer_edit_custom_player") {
         v.push_back(avatar_path("managercareer_editplayers"));
     } else if (s == "managercareer_edit" || s == "managercareer_edit_retiredreal" || s == "managercareer_create_real") {
         v.push_back(avatar_path("managercareer_create"));
-        if (x && s != "managercareer_create_real") v.push_back(avatar_path("managercareer_edit_online"));
-        if (x && s == "managercareer_edit_retiredreal") v.push_back(avatar_path("managercareer_edit"));
     } else if (target == kCareerSettingsPath) {
         if (x) v.push_back(kCareerSetupPath);
     }
-    if (x && (s == "managercareer_editplayers" || s == "managercareer_edit_custom_player" || s == "mainmenu_edit_real" ||
-              s == "mainmenu_edit_created"))
-        v.push_back(avatar_path("playercareer_edit_position"));
+    if (x && (s == "managercareer_editplayers" || s == "managercareer_edit_custom_player"))
+        for (const char* g : kGearSources) v.push_back(avatar_path(g));
     return v;
 }
 
@@ -507,6 +522,62 @@ static int merge_deps(ojson& dst, ojson& src) {
     return changes;
 }
 
+// A copy of `n` without the denied names (children dropped recursively); false when nothing is left of a group
+static bool strip_denied(ojson& n) {
+    if (denied_name(name_of(n))) return false;
+    ojson* k = kids(n);
+    if (!k) return true;
+    ojson keep = ojson::array();
+    for (auto& c : *k)
+        if (strip_denied(c)) keep.push_back(c);
+    *k = keep;
+    return !k->empty();
+}
+
+// Experimental gear: every gear group of src (tattoos, sleeves, socks, boots, gloves, wrists, kit fit) whose parent dst
+// has. A group dst lacks is copied whole; a group dst has gets the leaves it lacks. Denied names never come along.
+// Returns the names of the groups that changed.
+static std::vector<std::string> graft_gear(ojson& dst, ojson& src) {
+    std::vector<std::vector<std::string>> paths;
+    std::function<void(ojson&, std::vector<std::string>)> walk = [&](ojson& list, std::vector<std::string> at) {
+        for (auto& n : list) {
+            std::vector<std::string> p = at;
+            p.push_back(name_of(n));
+            if (denied_name(p.back())) continue;
+            if (gear_group(p.back()) && kids(n)) {
+                paths.push_back(p);  // the outermost gear group only
+                continue;
+            }
+            if (ojson* k = kids(n)) walk(*k, p);
+        }
+    };
+    if (ojson* l = top_list(src)) walk(*l, {});
+    std::vector<std::string> changed;
+    for (const auto& p : paths) {
+        ojson copy = *find_path(src, p);
+        if (!strip_denied(copy)) continue;
+        ojson* have = find_path(dst, p);
+        if (!have) {
+            ojson* parent_list = nullptr;
+            if (p.size() == 1) {
+                parent_list = top_list(dst);
+            } else if (ojson* parent = find_path(dst, std::vector<std::string>(p.begin(), p.end() - 1))) {
+                parent_list = kids(*parent);
+            }
+            if (!parent_list) continue;
+            parent_list->push_back(copy);
+            changed.push_back(p.back());
+            continue;
+        }
+        if (!kids(*have)) continue;
+        bool any = false;
+        for (auto& leaf : *kids(copy))
+            if (!kids(leaf) && add_leaf(dst, p, &leaf, "")) any = true;
+        if (any) changed.push_back(p.back());
+    }
+    return changed;
+}
+
 // minLength / maxLength of text fields dst lacks, from the same field in src (manager names from managercareer_create)
 static int copy_name_lengths(ojson& dst, ojson& src) {
     int n = 0;
@@ -643,35 +714,12 @@ RecipeResult build(const std::string& target, const std::map<std::string, std::s
             } else {
                 r.notes.push_back("Attributes and Brand animations not added (the Create-a-Club player file is not exported)");
             }
-            ojson mgr;
-            if (opt.experimental && source(avatar_path("managercareer_edit"), mgr) && graft(doc, mgr, {"CRANIUM_HEAD"}) == 1)
-                r.notes.push_back("head editor added (experimental)");
         } else if (s == "managercareer_edit_custom_player") {
             ojson ep;
             if (source(avatar_path("managercareer_editplayers"), ep) &&
                 add_leaf(doc, {"INFO", "ABOUT_ME"}, find_by_name(ep, "COMMENTARY_NAME"), "KNOWN_AS"))
                 r.notes.push_back("commentary name added");
         } else if (manager_screen(s)) {
-            // sections first, so the dependency links below can name what they added
-            ojson online;
-            bool outfits = false;
-            if (opt.experimental && s != "managercareer_create_real") {
-                if (source(avatar_path("managercareer_edit_online"), online)) {
-                    int added = 0;
-                    for (const char* g : {"INNER_TOPS", "OUTER_TOPS", "MERGED_TOPS", "BOTTOMS", "SOCK", "SHOE"})
-                        if (graft(doc, online, {"GEAR", "MATCHDAY", g}) == 1) ++added;
-                    if (added) {
-                        outfits = true;
-                        std::snprintf(buf, sizeof(buf), "outfit picker added: %d groups (experimental)", added);
-                        r.notes.push_back(buf);
-                    }
-                }
-                ojson mgr;
-                if (s == "managercareer_edit_retiredreal" && source(avatar_path("managercareer_edit"), mgr) &&
-                    graft(doc, mgr, {"CRANIUM_HEAD"}) == 1)
-                    r.notes.push_back("head editor added (experimental)");
-                if (!keep.count("GENDER")) r.notes.push_back("gender editable (experimental)");
-            }
             ojson create;
             int links = 0;
             if (source(avatar_path("managercareer_create"), create)) {
@@ -682,28 +730,25 @@ RecipeResult build(const std::string& target, const std::map<std::string, std::s
                 }
                 links += merge_deps(doc, create);
             }
-            if (outfits) links += merge_deps(doc, online);
             if (links) {
                 std::snprintf(buf, sizeof(buf), "%d dependency links merged", links);
                 r.notes.push_back(buf);
             }
         }
-        if (opt.experimental && !manager_screen(s)) {
-            ojson pos;
-            if (source(avatar_path("playercareer_edit_position"), pos)) {
-                int added = 0;
-                if (add_leaf(doc, {"ATHLETIC", "ATTRIBUTES", "MENTALITY"}, find_by_name(pos, "COMPOSURE"), "")) ++added;
-                if (add_leaf(doc, {"ATHLETIC", "ATTRIBUTES", "DEFENDING"}, find_by_name(pos, "DEFENSIVE_AWARENESS"), "")) ++added;
-                if (added) r.notes.push_back("Composure / Defensive awareness added (experimental)");
+        if (opt.experimental && (s == "managercareer_editplayers" || s == "managercareer_edit_custom_player")) {
+            bool any_source = false;
+            for (const char* g : kGearSources) {
+                ojson src;
+                if (!source(avatar_path(g), src)) continue;
+                any_source = true;
+                std::vector<std::string> added = graft_gear(doc, src);
+                if (added.empty()) continue;
+                std::string list;
+                for (const auto& a : added) list += (list.empty() ? "" : ", ") + a;
+                r.notes.push_back("gear added from " + std::string(g) + ": " + list + " (experimental)");
+                break;
             }
-            int cel = 0;
-            each_node(doc, [&](ojson& n, const std::string&) {
-                if (name_of(n) == "GOALCELEBRATION" && n.contains("disabledOptions")) {
-                    n.erase("disabledOptions");
-                    ++cel;
-                }
-            });
-            if (cel) r.notes.push_back("every celebration offered (experimental)");
+            if (!any_source) r.notes.push_back("gear not added (the game's Create Player files are not exported)");
         }
         int n = unlock(doc, keep);
         std::snprintf(buf, sizeof(buf), "%d fields unlocked", n);
@@ -809,9 +854,18 @@ std::string validate(const std::string& target, const std::string& out_text, con
             if (keep.count(name_of(n))) keep_flags[p + "#" + std::to_string(seen[p]++)] = flags(n);
         });
     }
+    std::set<std::string> original_names;
+    {
+        ojson orig = original;
+        original_names = node_names(orig);
+    }
     std::map<std::string, int> seen;
     each_node(out, [&](ojson& n, const std::string& p) {
         if (!why.empty()) return;
+        if (denied_name(name_of(n)) && !original_names.count(name_of(n))) {
+            why = name_of(n) + " is never added to an editor (no data on that screen)";
+            return;
+        }
         if (!n.is_object()) { why = "a field that is not an object under " + p; return; }
         const std::string name = name_of(n);
         if (name.empty()) { why = "a field without a name under " + p; return; }

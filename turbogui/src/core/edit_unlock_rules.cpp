@@ -9,19 +9,17 @@ namespace edit_unlock {
 namespace {
 
 const Context kContexts[kContextCount] = {
-    {"managercareer_editplayers", Group::CareerPlayers, false, false, "Career > Squad > Edit Player"},
-    {"managercareer_edit_custom_player", Group::CreateClubPlayers, false, false, "Create a Club > squad > edit player"},
-    {"managercareer_edit", Group::Manager, true, true, "Edit Manager (your created manager)"},
-    {"managercareer_edit_retiredreal", Group::Manager, true, true, "Edit Manager (real or licensed manager)"},
-    // the game runs UpdateManagerGender when Edit Manager closes; at career start the gender stays as shipped
-    {"managercareer_create_real", Group::Manager, true, false, "Career start with a real manager"},
-    {"mainmenu_edit_real", Group::MainMenu, false, false, "Main menu > Customise > Edit Players (real)"},
-    {"mainmenu_edit_created", Group::MainMenu, false, false, "Main menu > Customise > Edit Players (created)"},
+    {"managercareer_editplayers", Group::CareerPlayers, false, "Career > Squad > Edit Player"},
+    {"managercareer_edit_custom_player", Group::CreateClubPlayers, false, "Create a Club > squad > edit player"},
+    {"managercareer_edit", Group::Manager, true, "Edit Manager (your created manager)"},
+    {"managercareer_edit_retiredreal", Group::Manager, true, "Edit Manager (real or licensed manager)"},
+    {"managercareer_create_real", Group::Manager, true, "Career start with a real manager"},
+    {"mainmenu_edit_real", Group::MainMenu, false, "Main menu > Customise > Edit Players (real)"},
+    {"mainmenu_edit_created", Group::MainMenu, false, "Main menu > Customise > Edit Players (created)"},
 };
 
 // AttributeName values: the game's own name -> id table (0x142369C28 on build 6AB9813C-211EF000)
 const KeptAttribute kKept[kKeptCount] = {{"BODY_TYPE", 11}, {"GENDER", 29}, {"PREFERRED_POSITION", 77}, {"TEAM", 100}};
-constexpr int kGenderIndex = 1;
 
 constexpr const char kPrefix[] = "avatarcustomizationcfg_";
 constexpr const char kSuffix[] = ".json";
@@ -36,10 +34,9 @@ bool istarts(const char* s, size_t n, const char* lit) {
     return true;
 }
 
-bool kept_by_index(int i, const Context& c, bool experimental) {
-    if (i == kGenderIndex && c.gender_x && experimental) return false;  // X4: manager gender, experimental only
-    return true;
-}
+// Every kept attribute stays, on every screen, experimental or not (1.1.4: the manager gender under "Unlock everything"
+// was dropped with the other experiments that could close the game)
+bool kept_by_index(int, const Context&, bool) { return true; }
 
 struct Walker {
     const Context& c;
