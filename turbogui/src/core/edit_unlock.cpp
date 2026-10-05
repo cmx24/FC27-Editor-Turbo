@@ -23,21 +23,25 @@ static const char* const kAvatarPrefix = "data/avatar/avatarcustomizationcfg_";
 std::string avatar_path(const std::string& screen) { return kAvatarPrefix + screen + ".json"; }
 
 // Experimental gear for career Edit Player: the game's own definitions, each group from the first of these that has it.
-// Only the Clubs editor defines TATTOO and ARM_SLEEVES (seen in the user's game, 04-10-2026); it is read, never written.
-static const char* const kGearSources[] = {"clubs", "mainmenu_create_offline", "playercareer_edit_vpro"};
+// Not the Clubs editor (1.1.5): its TATTOO and ARM_SLEEVES, put on career Edit Player, crashed the game on the Arm
+// Sleeves tile (seen in game, 04-10-2026); tattoos and arm sleeves are edited in Turbo (Players > Appearance > Tattoos).
+static const char* const kGearSources[] = {"mainmenu_create_offline", "playercareer_edit_vpro"};
 
 bool gear_group(const std::string& name) {
-    static const std::set<std::string> g = {"TATTOO", "ARM_SLEEVES", "SOCK", "SHOE", "GLOVES_AND_WRIST", "WRIST",
-                                            "KIT_FIT", "KIT_SLEEVES", "WAIST_FIT", "GK_PANTS"};
+    // no WRIST: a wristband item next to GLOVES_AND_WRIST's LEFT_WRIST / RIGHT_WRIST doubled the pickers (seen in game);
+    // no TATTOO / ARM_SLEEVES (denied_name: career Edit Player crashes on them)
+    static const std::set<std::string> g = {"SOCK", "SHOE", "GLOVES_AND_WRIST", "KIT_FIT", "KIT_SLEEVES", "WAIST_FIT",
+                                            "GK_PANTS"};
     return g.count(name) > 0;
 }
 
 bool denied_name(const std::string& n) {
     // the head editor, store outfits and accessories (no data source on a player / real-manager screen, empty lists
-    // offline), the two attributes EA hides on every editor
+    // offline), the two attributes EA hides on every editor, tattoos and arm sleeves (career Edit Player crashed the game
+    // on its Arm Sleeves tile, 1.1.5: no source may graft them; Turbo edits tattoos itself)
     static const std::set<std::string> d = {"CRANIUM_HEAD", "HEAD", "INNER_TOPS", "OUTER_TOPS", "MERGED_TOPS", "BOTTOMS",
                                             "TOPS", "HEADWEAR", "FACIALACCESSORY", "TIES_OR_SCARVES", "FIXED_OUTFITS",
-                                            "FIXEDOUTFIT", "COMPOSURE", "DEFENSIVE_AWARENESS"};
+                                            "FIXEDOUTFIT", "COMPOSURE", "DEFENSIVE_AWARENESS", "TATTOO", "ARM_SLEEVES"};
     return d.count(n) > 0 || n.compare(0, 6, "OUTFIT") == 0;
 }
 
@@ -53,9 +57,8 @@ const std::vector<FileSpec>& files() {
         {kCareerSettingsPath, "Career hub > Settings", Group::CareerSettings},
         // read only
         {avatar_path("managercareer_create"), "read: manager name lengths", Group::Source},
-        {avatar_path("clubs"), "read: tattoos and arm sleeves (experimental)", Group::Source},
-        {avatar_path("mainmenu_create_offline"), "read: tattoos, sleeves, socks and gear (experimental)", Group::Source},
-        {avatar_path("playercareer_edit_vpro"), "read: tattoos, sleeves, socks and gear (experimental)", Group::Source},
+        {avatar_path("mainmenu_create_offline"), "read: sock styles, boots, gloves and kit fit (experimental)", Group::Source},
+        {avatar_path("playercareer_edit_vpro"), "read: sock styles, boots, gloves and kit fit (experimental)", Group::Source},
         {kCareerSetupPath, "read: squad settings for the hub (experimental)", Group::Source},
     };
     return v;
@@ -535,10 +538,21 @@ static bool strip_denied(ojson& n) {
     return !k->empty();
 }
 
-// Experimental gear: every gear group of src (tattoos, sleeves, socks, boots, gloves, wrists, kit fit) whose parent dst
-// has. A group dst lacks is copied whole; a group dst has gets the leaves it lacks. A gear item without children (the
-// Clubs editor's TATTOO and ARM_SLEEVES) is copied when dst lacks it. Denied names never come along.
+// Experimental gear: every gear group of src (socks, boots, gloves, kit fit) whose parent dst has.
+// No name is ever doubled (seen in game: main menu Create Player's KIT_SLEEVES / WAIST_FIT / GK_PANTS groups repeated the
+// leaves career Edit Player already has under KIT_FIT): a leaf whose name dst has anywhere is never added, a group dst
+// has (at the same path, else by name anywhere) only gets the leaves dst lacks, and a group dst lacks is copied with
+// only those leaves, and not at all when none is left or its own name is already in dst. A gear item without children is
+// copied when dst has no node of that name. Denied names (TATTOO and ARM_SLEEVES among them) never come along.
 // Returns the names of the groups that changed.
+static ojson* find_group_by_name(ojson& doc, const std::string& name) {
+    ojson* hit = nullptr;
+    each_node(doc, [&](ojson& n, const std::string&) {
+        if (!hit && name_of(n) == name && kids(n)) hit = &n;
+    });
+    return hit;
+}
+
 static std::vector<std::string> graft_gear(ojson& dst, ojson& src) {
     std::vector<std::vector<std::string>> paths;
     std::function<void(ojson&, std::vector<std::string>)> walk = [&](ojson& list, std::vector<std::string> at) {
@@ -558,8 +572,18 @@ static std::vector<std::string> graft_gear(ojson& dst, ojson& src) {
     for (const auto& p : paths) {
         ojson copy = *find_path(src, p);
         if (!strip_denied(copy)) continue;
+        std::set<std::string> have_names = node_names(dst);
         ojson* have = find_path(dst, p);
+        if (!have && kids(copy)) have = find_group_by_name(dst, p.back());
         if (!have) {
+            if (have_names.count(p.back())) continue;  // the item (or a leaf of that name) is already on the screen
+            if (ojson* k = kids(copy)) {
+                ojson keep = ojson::array();
+                for (auto& leaf : *k)
+                    if (kids(leaf) || !have_names.count(name_of(leaf))) keep.push_back(leaf);
+                if (keep.empty()) continue;  // every leaf of the group is already on the screen
+                *k = keep;
+            }
             ojson* parent_list = nullptr;
             if (p.size() == 1) {
                 parent_list = top_list(dst);
@@ -573,8 +597,13 @@ static std::vector<std::string> graft_gear(ojson& dst, ojson& src) {
         }
         if (!kids(*have) || !kids(copy)) continue;  // an item dst already has
         bool any = false;
-        for (auto& leaf : *kids(copy))
-            if (!kids(leaf) && add_leaf(dst, p, &leaf, "")) any = true;
+        for (auto& leaf : *kids(copy)) {
+            if (kids(leaf) || have_names.count(name_of(leaf))) continue;
+            ojson* list = kids(*have);
+            list->push_back(leaf);
+            have_names.insert(name_of(leaf));
+            any = true;
+        }
         if (any) changed.push_back(p.back());
     }
     return changed;
@@ -1154,7 +1183,8 @@ std::string EditUnlock::input_signature(const Options& opt) const {
     return s;
 }
 
-std::string EditUnlock::apply(const Options& opt) {
+std::string EditUnlock::apply(const Options& opt, bool keep_foreign) {
+    last_written_ = 0;
     if (manifest_unreadable_) return manifest_error_;
     std::map<std::string, std::string> originals;
     for (const auto& f : files())
@@ -1231,6 +1261,11 @@ std::string EditUnlock::apply(const Options& opt) {
             foreign = true;
             for (const auto& x : manifest_["turbo_hashes"]) foreign = foreign && !(x.is_string() && x.get<std::string>() == cur_sha);
         }
+        if (foreign && keep_foreign) {
+            status_[path] = {State::Kept, "left alone for now: another tool's custom file is in mods\\legacy"};
+            ++failed;
+            continue;
+        }
         std::string err;
         fs::path bk;
         if (!legacy_.save_custom(path, std::vector<uint8_t>(r.text.begin(), r.text.end()), &err, &bk)) {
@@ -1246,10 +1281,43 @@ std::string EditUnlock::apply(const Options& opt) {
                                                        : std::string())};
         ++written;
     }
+    last_written_ = written;
     char buf[200];
     std::snprintf(buf, sizeof(buf), "Game editors: %d written, %d up to date, %d waiting for the game's files, %d restored, %d failed",
                   written, current, waiting, restored, failed);
     return buf;
+}
+
+std::string early_pass(const fs::path& le_root, int* written) {
+    if (written) *written = 0;
+    try {
+        json gs = json::object();
+        {
+            std::string text;
+            if (read_all(le_root / "turbo_output" / "gui_settings.json", text)) {
+                json j = json::parse(text, nullptr, false);
+                if (!j.is_discarded() && j.is_object()) gs = j;
+            }
+        }
+        const Options opt = Options::load(gs);
+        if (!opt.enabled) return "Game editors: early pass: off (\"Unlock the game's editors\" is switched off)";
+        LegacyImages legacy(le_root);
+        legacy.refresh_missing();  // what the game said it does not have (never writes want.txt)
+        EditUnlock svc(legacy, le_root);
+        if (!svc.manifest_error().empty()) return "Game editors: early pass: " + svc.manifest_error();
+        std::string extra;
+        for (const auto& line : svc.collect(opt)) extra += "; " + line;
+        std::string s = svc.apply(opt, true);
+        if (written) *written = svc.last_written();
+        const std::string head = "Game editors: ";
+        if (s.compare(0, head.size(), head) == 0) s = head + "early pass: " + s.substr(head.size());
+        else s = head + "early pass: " + s;
+        return s + extra;
+    } catch (const std::exception& e) {
+        return std::string("Game editors: early pass: skipped (") + e.what() + ")";
+    } catch (...) {
+        return "Game editors: early pass: skipped (unknown error)";
+    }
 }
 
 bool EditUnlock::restore_one(const std::string& path) {

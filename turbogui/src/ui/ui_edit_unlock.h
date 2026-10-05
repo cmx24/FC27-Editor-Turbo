@@ -20,5 +20,9 @@ bool edit_unlock_enabled(const App& app);
 eu::Options edit_unlock_options(const App& app);
 // The service for this App (tests)
 eu::EditUnlock& edit_unlock_service(App& app);
+// Status line and toast when this App's pass wrote a file: Live Editor read mods\legacy when the game started (the early
+// pass, eu::early_pass in Turbo.dll's start thread, writes before that), so the new file needs one game restart
+extern const char* const kEditUnlockRestartNote;
+bool edit_unlock_restart_needed(App& app);
 
 }  // namespace turbo

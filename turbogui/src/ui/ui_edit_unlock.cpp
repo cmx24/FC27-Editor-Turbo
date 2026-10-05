@@ -22,6 +22,7 @@ struct Panel {
     double next = 0.0;        // next collect / apply (every second)
     std::string applied_sig;  // input_signature of the last apply
     std::string last_summary;
+    bool restart_needed = false;  // this App's pass wrote a file after Live Editor had read mods\legacy
 };
 
 Panel& panel(App& app) {
@@ -56,6 +57,13 @@ void run_apply(App& app, Panel& p, const eu::Options& o, bool force) {
     std::string s = p.svc->apply(o);
     if (force || s != p.last_summary) log_line(app, s);
     p.last_summary = s;
+    // The GUI runs once Live Editor has set the game up: it read mods\legacy when the game started (the early pass in
+    // Turbo.dll writes before that), so whatever this pass writes only counts after a game restart
+    if (p.svc->last_written() > 0) {
+        p.restart_needed = true;
+        log_line(app, kEditUnlockRestartNote);
+        app.notify(kEditUnlockRestartNote);
+    }
 }
 
 ImVec4 state_colour(eu::EditUnlock::State s) {
@@ -76,6 +84,11 @@ void file_line(eu::EditUnlock& s, const eu::FileSpec& f) {
     ImGui::TextWrapped("%s: %s", f.label.c_str(), st.note.c_str());
 }
 }  // namespace
+
+const char* const kEditUnlockRestartNote =
+    "The game read its editor files before Turbo updated them: restart the game once to load the new ones.";
+
+bool edit_unlock_restart_needed(App& app) { return panel(app).restart_needed; }
 
 bool edit_unlock_enabled(const App& app) { return edit_unlock_options(app).enabled; }
 
@@ -149,10 +162,10 @@ void draw_game_editors(App& app) {
     if (ImGui::Checkbox("Unlock everything (experimental)", &o.experimental)) changed = true;
     ImGui::PushStyleColor(ImGuiCol_Text, warn);
     ImGui::TextWrapped(
-        "Not yet checked in game; back up your career save first. Adds to career Edit Player the game's own tattoo, arm "
-        "sleeve, sock style, boot, glove and wristband pickers, copied from its own editor files (tattoos and arm sleeves "
-        "from the Clubs editor, the rest from main menu Create Player or Player Career's pro editor) when the screen has a "
-        "Gear section and the game exported those files. With "
+        "Not yet checked in game; back up your career save first. Adds to career Edit Player the game's own sock style, "
+        "boot, glove and wristband pickers it lacks, copied from main menu Create Player or Player Career's pro editor, "
+        "when the screen has a Gear section and the game exported those files. Tattoos and arm sleeves are edited in Turbo "
+        "(Players > Appearance > Tattoos): the game's career Edit Player crashes on them. With "
         "career settings, it also adds the squad settings. Edit Manager is not changed by this switch (1.1.4 removed the "
         "head editor, outfit picker, manager gender, every celebration and the two hidden attributes: they could freeze or "
         "close the game).");
@@ -166,10 +179,15 @@ void draw_game_editors(App& app) {
     ImGui::PopStyleColor();
     ImGui::EndDisabled();
     ImGui::TextWrapped(
-        "The game reads these files each time an editor screen opens: reopen the screen, no game restart needed when Live "
-        "Editor's override applies. When Live Editor does not apply the files, the in-memory fallback below turns on the "
-        "greyed fields the game loaded; it cannot add a section the game's file lacks (Attributes, Brand animations, the "
-        "experimental gear).");
+        "Live Editor reads these files (mods\\legacy) when the game starts: Turbo writes them as soon as Turbo.dll loads, "
+        "before Live Editor reads them, so a change made here (a switch, a newly exported original) counts after one game "
+        "restart. When Live Editor does not apply the files, the in-memory fallback below turns on the greyed fields the "
+        "game loaded; it cannot add a section the game's file lacks (Attributes, Brand animations, the experimental gear).");
+    if (p.restart_needed) {
+        ImGui::PushStyleColor(ImGuiCol_Text, warn);
+        ImGui::TextWrapped("%s", kEditUnlockRestartNote);
+        ImGui::PopStyleColor();
+    }
     if (!s.manifest_error().empty()) ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "%s", s.manifest_error().c_str());
     if (on && !s.ready(o)) {
         ImGui::PushStyleColor(ImGuiCol_Text, warn);

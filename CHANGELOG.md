@@ -3,6 +3,14 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.1.5
+
+### Fixed
+
+- Game editors, "Unlock everything (experimental)": career Edit Player > Gear no longer shows doubled pickers. Main menu Create Player's KIT_SLEEVES / WAIST_FIT / GK_PANTS groups (their items are already in the screen's own KIT_FIT) and the Clubs editor's WRIST item (the screen has GLOVES_AND_WRIST's wrist pickers) are not copied any more: a gear group whose items the screen already has is never added, and no item name is ever added twice.
+- Game editors, "Unlock everything (experimental)": **no more tattoo and arm sleeve pickers in career Edit Player**. Seen in game: put there (even shaped as groups like Create Player's), the Arm Sleeves tile closed the game. The Clubs editor is not read any more, and TATTOO / ARM_SLEEVES are on the deny-list, so no source can add them. Edit tattoos and arm sleeves in Turbo (Players > Appearance > Tattoos).
+- Game editors: the unlocked files are written as soon as Turbo.dll loads, before Live Editor reads mods\legacy while the game starts (log: "Game editors: early pass: N written ..."); before, they were written after Live Editor's "Initial setup done" and only counted after a second game restart. File work only (no game call, no waiting), with every rule of the GUI's pass (manifest, only the 8 targets), and another tool's custom file is left alone. The GUI's pass still runs; when it has to write a file (a switch changed, a new original exported), the Game editors section and a toast say: "The game read its editor files before Turbo updated them: restart the game once to load the new ones."
+
 ## 1.1.4 (playtest round 2)
 
 ### Changed
