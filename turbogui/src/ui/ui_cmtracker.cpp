@@ -57,8 +57,8 @@ bool write_file(const fs::path& p, const void* data, size_t n) {
 }
 
 // Worker: miniface (cached PNG, else download), 256 x 256 DXT5 like FC 27's own, then the preset JSON
-void run_job(std::shared_ptr<CmtJob> job, json preset, fs::path out_dir, fs::path cache_dir, std::string base, int64_t id,
-             int db_version, bool want_face) {
+void run_job_body(const std::shared_ptr<CmtJob>& job, json& preset, const fs::path& out_dir, const fs::path& cache_dir,
+                  const std::string& base, int64_t id, int db_version, bool want_face) {
     std::string note;
     std::error_code ec;
     fs::create_directories(out_dir, ec);
@@ -76,6 +76,7 @@ void run_job(std::shared_ptr<CmtJob> job, json preset, fs::path out_dir, fs::pat
             fs::create_directories(cache_dir, ec);
             fs::path png = cache_dir / ("p" + std::to_string(id) + "_" + std::to_string(db_version) + ".png");
             std::vector<uint8_t> bytes;
+            bool downloaded = false;
             if (fs::is_regular_file(png, ec)) {
                 std::ifstream in(png, std::ios::binary);
                 bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
@@ -83,7 +84,7 @@ void run_job(std::shared_ptr<CmtJob> job, json preset, fs::path out_dir, fs::pat
                 HttpResult r = http_get(url, kMaxPicture);
                 if (r.status == 200 && !r.body.empty()) {
                     bytes = std::move(r.body);
-                    write_file(png, bytes.data(), bytes.size());
+                    downloaded = true;   // cached below once it decodes (an error page is never kept as the picture)
                 } else if (r.status == 403 || r.status == 404) {
                     note = "CMTracker has no miniface picture for this player";
                 } else {
@@ -94,18 +95,23 @@ void run_job(std::shared_ptr<CmtJob> job, json preset, fs::path out_dir, fs::pat
                 Rgba img;
                 std::string err;
                 if (decode_image(bytes, img, &err)) {
+                    if (downloaded) write_file(png, bytes.data(), bytes.size());
                     std::vector<uint8_t> dds = encode_dds_dxt5(frame_image(img, 256, Framing{}));
                     fs::path dds_file = out_dir / (base + ".dds");
                     if (!dds.empty() && write_file(dds_file, dds.data(), dds.size())) {
                         preset["miniface"] = base + ".dds";
                         note = "miniface downloaded";
                     } else note = "miniface could not be written";
-                } else note = "miniface picture unreadable (" + err + ")";
+                } else {
+                    if (!downloaded) fs::remove(png, ec);   // a bad cached file: the next create downloads it again
+                    note = "miniface picture unreadable (" + err + ")";
+                }
             }
         }
     }
     fs::path jf = out_dir / (base + ".json");
-    std::string text = preset.dump(1);
+    // the CSV's text is not checked for UTF-8 (an Excel "CSV" save is ANSI): replace bad bytes instead of throwing
+    std::string text = preset.dump(1, ' ', false, json::error_handler_t::replace);
     if (!write_file(jf, text.data(), text.size())) {
         std::lock_guard<std::mutex> lk(job->m);
         job->error = "cannot write " + path_text(jf);
@@ -116,6 +122,22 @@ void run_job(std::shared_ptr<CmtJob> job, json preset, fs::path out_dir, fs::pat
     job->json_file = jf;
     job->note = note;
     job->state = 2;
+}
+
+// The thread's entry: an exception escaping a detached thread would end the game (std::terminate)
+void run_job(std::shared_ptr<CmtJob> job, json preset, fs::path out_dir, fs::path cache_dir, std::string base, int64_t id,
+             int db_version, bool want_face) {
+    try {
+        run_job_body(job, preset, out_dir, cache_dir, base, id, db_version, want_face);
+    } catch (const std::exception& e) {
+        std::lock_guard<std::mutex> lk(job->m);
+        job->error = std::string("internal error: ") + e.what();
+        job->state = 2;
+    } catch (...) {
+        std::lock_guard<std::mutex> lk(job->m);
+        job->error = "internal error";
+        job->state = 2;
+    }
 }
 
 const char* kHowTo =

@@ -41,7 +41,7 @@ struct Geo {
     // For the filter combos, sorted by name
     std::vector<const GeoNation*> sorted_nations() const;
     std::vector<int> sorted_continents() const;
-    std::vector<const GeoLeague*> sorted_leagues(int64_t nation = -1) const;   // nation >= 0: only that country's leagues
+    std::vector<const GeoLeague*> sorted_leagues(int64_t nation = -1) const;   // nation >= 0: only that country's; never international ones
 };
 
 // Built from the open database, rebuilt when app.gen changes
