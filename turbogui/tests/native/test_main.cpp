@@ -3976,7 +3976,7 @@ static void test_ui() {
             CHECK(ui.click("7", "##tlist"), "Everton row");
             CHECK(ui.click("Mass actions", "##tedit"), "Mass actions tab");
             ui.frames(2);
-            for (const char* b : {"Block incoming offers", "Squad roles", "Morale and happiness to 100",
+            for (const char* b : {"Block incoming offers", "Squad roles", "Morale: very happy",
                                   "Long contract (60 months)", "All actions"})
                 CHECK(ui.find(b, "##tedit") != nullptr, std::string("button ") + b);
             // squad roles exist for your own club only: Everton is not it, the button does nothing

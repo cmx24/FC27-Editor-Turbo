@@ -62,12 +62,12 @@ H.case("long contract: a loaned-in player keeps the parent club's contract; a de
     H.eq(pval(W.LOANED_IN, "contractvaliduntil"), 2027, "loan player untouched")
 end)
 
-H.case("morale: SetPlayerMorale 100 for each player of the team", function()
+H.case("morale: SetPlayerMorale 85 (very happy, not the Complacent band) for each player of the team", function()
     local before = sim:count_calls("SetPlayerMorale")
     local ok, msg = run({ teamid = 5, actions = { "morale" } })
     H.eq(ok, true, msg)
     H.eq(sim:count_calls("SetPlayerMorale") - before, #team_pids(5), "one call per player")
-    H.eq(sim.calls.SetPlayerMorale[#sim.calls.SetPlayerMorale][2], 100, "value")
+    H.eq(sim.calls.SetPlayerMorale[#sim.calls.SetPlayerMorale][2], 85, "value: very happy")
 end)
 
 H.case("squad roles: your club only, Rotation from 19, Prospect below", function()
@@ -192,7 +192,7 @@ H.case("all actions: each one runs, one failing action does not stop the others"
     local before = sim:count_calls("SetPlayerMorale")
     local ok, msg = run({ teamid = W.USER_TEAM, actions = "all" })
     H.eq(ok, true, msg)
-    H.has(msg, "long contract:"); H.has(msg, "squad roles:"); H.has(msg, "morale and happiness:")
+    H.has(msg, "long contract:"); H.has(msg, "squad roles:"); H.has(msg, "morale (very happy):")
     H.has(msg, "block offers: not done")
     H.ok(sim:count_calls("SetPlayerMorale") > before, "morale ran")
     for _, pid in ipairs(team_pids(W.USER_TEAM)) do

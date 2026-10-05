@@ -22,12 +22,14 @@ local M = {}
 
 M.ACTIONS = { "block_offers", "squad_roles", "morale", "long_contract" }
 M.CONTRACT_MONTHS = 60
-M.MORALE = 100
+-- "Very happy": FC 27 shows 95 and above as "Complacent" (+0 OVR); its bands are very unhappy < 15 < unhappy < 40 < content < 65 <
+-- happy < 75 < very happy < 95 <= complacent (seen in a live career 2026-10-05: 100 gave "Complacent")
+M.MORALE = 85
 M.ROLE_ROTATION, M.ROLE_PROSPECT = 3, 5
 M.ADULT_AGE = 19   -- this age and older: Rotation; younger: Prospect
 
 local LABEL = {
-    block_offers = "block offers", squad_roles = "squad roles", morale = "morale and happiness",
+    block_offers = "block offers", squad_roles = "squad roles", morale = "morale (very happy)",
     long_contract = "long contract",
 }
 
