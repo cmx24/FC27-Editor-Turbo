@@ -14,6 +14,11 @@
 -- Rows are added with Live Editor's InsertDBTableRow: players (every field: the source's value, else the field's
 -- minimum), teamplayerlinks (free shirt number, position 29 = reserve) and editedplayernames when names are given.
 -- Everything is validated before the first row is written; a dry run reports the plan.
+-- The game's own way (Turbo.dll player_create, op 12, docs/re/created_players.md): when TurboPlayerCreate is defined and the call is
+-- on (turbo_output\call_player_create_on.txt, OFF by default), the same row goes through the game's INSERT (indexes, observers),
+-- event 0x3A, InsertTeamPlayer into Free Agents and the game's own move into the club (+ the contract record at your club): the
+-- squad screens see him at once. No InsertDBTableRow and no team-sheet write then; the shirt number is the game's. When the call
+-- answers "off" the database path below runs as before (and the summary says so).
 
 local util = require 'imports/turbo/core/util'
 local db = require 'imports/turbo/core/db'
@@ -88,6 +93,34 @@ local function insert_row(table_name, row)
     return res
 end
 
+-- The payload of TurboPlayerCreate (bridge.lua M.player_create): the players row as integers (a column whose value is not an
+-- integer is left to the game's default and counted), the names, the link's form, and the contract for your club
+function M.native_payload(players, links, row, name_row, teamid, user)
+    local ints, skipped = {}, 0
+    for f, v in pairs(row) do
+        local info = db.field_info(players, f)
+        local iv = (math.type(v) == "integer" and v) or (math.type(v) == "float" and math.tointeger(v)) or nil
+        if info and info.type == "int" and iv ~= nil then ints[f] = iv else skipped = skipped + 1 end
+    end
+    local names
+    if name_row then
+        names = {}
+        for f, v in pairs(name_row) do
+            if f ~= "playerid" and type(v) == "string" then names[f] = v end
+        end
+    end
+    local months, wage = 0, 0
+    if user > 0 and teamid == user then
+        local d = game.current_date()
+        local cvu = util.to_int(row.contractvaliduntil)
+        local years = (d and cvu) and (cvu - d.year) or 5
+        months = math.max(12, math.min(120, years * 12))
+        wage = math.max(0, math.min(10000000, util.to_int(row.wage) or 0))
+    end
+    local link = (links and db.has_field(links, "form")) and { form = 3 } or nil
+    return { playerid = row.playerid, team = teamid, months = months, wage = wage, players = ints, names = names, link = link }, skipped
+end
+
 local function delete_row(table_name, res)
     local del = _G["DeleteDBTableRowByAddr"]
     local addr = type(res) == "table" and type(res.playerid) == "table" and res.playerid.addr or nil
@@ -112,10 +145,10 @@ function M.run(ctx)
     local user = moves.user_team()
     local oks, serr = moves.check_squads(nil, nil, teamid)
     if not oks then return false, serr end
-    -- Not through the game's own move (TurboPlayerMove): rows added with InsertDBTableRow are not seen by the game's own
-    -- queries until the career is saved and loaded (checked in game 2026-10-05: created at Free Agents, the game's
-    -- IsPlayerInTeam answered "not in team 111592"). A created player needs the game's CreatePlayer / InsertTeamPlayer
-    -- (docs/re/realtime_transfers.md section 2.5); until then the squad screens show him after a save and a load.
+    -- The database path is not the game's own move (TurboPlayerMove): rows added with InsertDBTableRow are not seen by the
+    -- game's own queries until the career is saved and loaded (checked in game 2026-10-05: created at Free Agents, the game's
+    -- IsPlayerInTeam answered "not in team 111592"). TurboPlayerCreate (below, when on) inserts through the game's own
+    -- query layer instead (docs/re/created_players.md).
 
     -- id
     local min_id = math.max(0, util.to_int(cfg.min_playerid) or 0)
@@ -249,6 +282,43 @@ function M.run(ctx)
     if user > 0 and teamid == user then summary = summary .. " (your club: added to your team sheet as a reserve)" end
     if ctx.dry then return true, summary end
 
+    -- miniface from a Turbo JSON next to the file (both paths)
+    local function miniface()
+        if parsed and parsed.kind == "turbo_json" and type(parsed.miniface) == "string" and parsed.miniface ~= "" then
+            local pp = require 'imports/turbo/features/player_presets'
+            local src = util.join(parsed.dir, parsed.miniface)
+            if util.file_exists(src) then
+                local okm = pp.install_miniface(pid, src, false)
+                summary = summary .. (okm and ", miniface installed" or ", miniface not installed")
+            end
+        end
+    end
+
+    -- the game's own way (Turbo.dll player_create): the squad screens see him at once
+    local create = _G["TurboPlayerCreate"]
+    local native_note
+    if type(create) == "function" then
+        local payload, skipped_cols = M.native_payload(players, links, row, name_row, teamid, user)
+        local okc, ok, text, status = pcall(create, 1, payload)
+        if not okc then ok, text, status = false, tostring(ok), "failed" end
+        if status == "off" then
+            native_note = "; " .. tostring(text) .. ": added through the database (the squad screens show him after a save and a load)"
+        elseif ok then
+            summary = summary:gsub(", shirt %d+", ", shirt chosen by the game")
+            summary = summary:gsub(" %(your club: added to your team sheet as a reserve%)", " (your club: the game's own move adds him)")
+            summary = summary .. "; created by the game" .. (status == "queued" and " (queued: " or " (") .. tostring(text) .. ")"
+            if skipped_cols > 0 then summary = summary .. string.format("; %d non-integer field(s) left to the game's default", skipped_cols) end
+            if user > 0 and teamid == user then
+                local state = moves.refresh_plan(pid)
+                if state == "plan" then summary = summary .. ", development plan set" end
+            end
+            miniface()
+            return true, summary
+        else
+            return false, "the game did not create the player: " .. tostring(text)
+        end
+    end
+
     -- write: players, then the club link, then the names; a later failure removes what was added
     local pres, ierr = insert_row("players", row)
     if not pres then return false, ierr end
@@ -272,15 +342,8 @@ function M.run(ctx)
         local state = moves.refresh_plan(pid)   -- his development plan (if the game made one) holds the table's attributes
         if state == "plan" then summary = summary .. ", development plan set" end
     end
-    -- miniface from a Turbo JSON next to the file
-    if parsed and parsed.kind == "turbo_json" and type(parsed.miniface) == "string" and parsed.miniface ~= "" then
-        local pp = require 'imports/turbo/features/player_presets'
-        local src = util.join(parsed.dir, parsed.miniface)
-        if util.file_exists(src) then
-            local okm = pp.install_miniface(pid, src, false)
-            summary = summary .. (okm and ", miniface installed" or ", miniface not installed")
-        end
-    end
+    miniface()
+    if native_note then summary = summary .. native_note end
     return true, summary
 end
 

@@ -38,8 +38,9 @@ Companion: `realtime_transfers.md` (events, `PlayerMoved`, the `player_move` cal
   itself does in `CreatePlayer`, `InsertTeamPlayer` and `SetEditedPlayerName`. Then replicate the game's own "create a player into a club"
   routine `0x147E0BC28`: post event `0x3A` exactly as `CreatePlayer` builds it, `InsertTeamPlayer(pid, FreeAgents, 99, 29, 0)` (event `0x5F`),
   `PlayerMoved(pid, FreeAgents, club)` (Turbo's existing op 11 path, with its contract record for the user's club).
-* **Status: research + plan only.** Not implemented in this delivery (time box); nothing in Turbo changed behaviour. Section 6 is the
-  step-by-step implementation plan, section 7 what must be measured live.
+* **Status (2026-10-05, Unreleased): implemented as the native op 12 `player_create`, OFF by default, not yet run in game.** Section 6
+  is the plan, section 6.1 what was built (and where it differs from the plan), section 7 what must be measured live before the
+  opt-in is shipped on.
 
 ## 1. How `DataController` queries are executed `[H]`
 
@@ -189,9 +190,49 @@ vtable slot 1 == `db_provider_execute`); game thread only (the call runs where t
 6. **Tests**: native (fake provider + fake engine: count, refusals, order players -> names -> 0x3A -> link -> move, read-backs, kill switch,
    signatures on the game's bytes), Lua (payload, fallback when the global is missing).
 
+### 6.1 What was built (2026-10-05)
+
+* **Signatures** (`core/sigscan.cpp` built-in table, each re-proven unique in `fc27_image.bin` with the "rip" offsets at the instruction
+  start, which is how Turbo's `resolve_signature` decodes them; `created_players_signatures.json` was aligned): `db_query_init`,
+  `db_query_set_int`, `db_query_set_string` (via its call in SetEditedPlayerName, offset 15), `db_query_select_field`, `db_query_where_int`,
+  `db_query_destroy`, `db_result_free`, `db_provider_execute`, `event_allocator_global` (offset 0), `event_base_vtable` (offset 0),
+  `player_inserted_event_vtable` and `dc_insert_team_player` (as in `realtime_signatures.json`); PostEvent is the existing
+  `post_career_event`, op 11's set is reused. Native test: every entry resolves on the image's bytes and equals the JSON.
+* **Core** `turbogui/src/core/player_create.{h,cpp}` (namespace `turbo::pc`), **host** `turbogui/src/win/player_create_win.{h,cpp}`, op 12 in
+  `core/game_calls.h` / `win/game_calls_win.cpp`. `pc::Caller` extends op 11's `pm::Caller` with `insert_row`, `update_row`, `select_ints`,
+  `alloc_event`, `post_event`, `insert_team_player`; the Windows caller runs `Query::Init / SetInt / SetString / Select / Where`,
+  `Execute` (the resolved function, validated equal to the provider's vtable slot 1), `holder->vf[1]()` (count) / `vf[2](0, col)` (value),
+  `ResultHolder::Release`, `~Query` on a 0x100-byte aligned stack buffer (the game's Query is 0x60).
+* **Differences from the plan:** (1) the 152 players columns are not sent in one statement: INSERT with playerid + 47 columns, then
+  `UPDATE players ... WHERE playerid` in statements of at most 48 columns (the game's own INSERT has 59 setters and CreatePlayer itself
+  follows its INSERT with UpdatePlayerAttributes), then a SELECT read-back of every int column in statements of 48 (exactly 1 row;
+  differing values are reported as a WARNING, not a failure). (2) The link's `form = 3` (what the database path writes) is set after
+  the move with `UPDATE teamplayerlinks SET form WHERE playerid AND teamid` and read back. (3) The shirt number is the game's (99 in
+  Free Agents, then PlayerMoved's choice), not Lua's. (4) Columns are checked against `bridge_meta.json` (long names) before anything
+  is written; floats, booleans, unknown keys / tables / columns, names over 44 bytes and a seq / playerid that differs from the call's
+  words are refused.
+* **Payload / contract:** `turbo_output\turbo_player_create.json` = `{seq, playerid, team, months, wage, players: {col: int},
+  names: {firstname, surname, commonname, playerjerseyname}, link: {form}}`; args = comm, code (1 create, 9 check), seq, playerid;
+  out[0] = written mask (1 players, 2 names, 4 event, 8 Free Agents link, 16 moved, 32 contract record, 64 link values; -1 = the
+  call is off and nothing ran), out[1] = IsPlayerInTeam(pid, final team). Lua: `bridge.lua` `M.player_create` = `TurboPlayerCreate(code,
+  payload)` -> ok, text, status ("ok" / "queued" / "failed" / "off"), written, in_team; `features/create_player.lua` builds the payload
+  from the same row as the database path (CMTracker head choice, contract values, names) and uses it when the global exists; "off"
+  -> the database path with a note; a refusal -> nothing written.
+* **Safety gate:** off unless `turbo_output\call_player_create_on.txt` exists (Status line `player_create: off (opt-in: create
+  turbo_output\call_player_create_on.txt)`), kill switch `call_player_create_off.txt`, game-hook switches, one call at a time, game
+  thread only (queued otherwise), no match day running.
+* **Tests:** `turbogui/tests/native/test_player_create.h` (synthetic game: Free Agents / AI club / your club, order, read-backs, every
+  refusal, bad payloads, missing signatures, mismatched vtables, failures after the INSERT, switches, op 12 through the call block,
+  signatures on the game's bytes); `turbo/tests/t21_native_create.lua` (fake TurboPlayerCreate: payload contents, no InsertDBTableRow /
+  team-sheet write, fallback when missing / off, the bridge function's file and answers).
+
 ## 7. What to verify live (throwaway career, save backed up)
 
-1. Read-only first: `dc+0` vtable `== 0x14B075540`, slot 1 `== 0x142297D8C`; `*(0x14C269EA8)` readable; a code-9 check of a new id.
+0. Without the opt-in file: Status tab line `player_create: off (opt-in: create turbo_output\call_player_create_on.txt)`; Create
+   player still works through the database (its result ends with the "player_create: off" note). The log shows `game calls:
+   player_create resolved (...)` with the addresses below.
+1. Read-only first: `dc+0` vtable `== 0x14B075540`, slot 1 `== 0x142297D8C`; `*(0x14C269EA8)` readable; a code-9 check of a new id
+   (with the opt-in file: `TurboPlayerCreate(9, payload)` answers "can be created ... (checked only, nothing was written)", out[0] 0).
 2. Optional evidence for section 0: walk `teamplayerlinks`' `+0x18` index list (count, `+0x1C` ids, `+0x20` entries vs `+0x7C - +0x7E`) before
    and after a Live Editor insert: the entries do not grow.
 3. Create into Free Agents: `IsPlayerInTeam(pid, 111592)` true at once, the players row read back, GTN / player search finds him.

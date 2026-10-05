@@ -56,6 +56,7 @@
 #include "core/teamname_override.h"
 #include "core/transfer_list.h"
 #include "core/player_move.h"
+#include "core/player_create.h"
 #include "imgui.h"
 #include "imgui_impl_null.h"
 #include "imgui_internal.h"
@@ -8835,6 +8836,7 @@ struct FakeListGame : turbo::tl::Caller {
 
 #include "test_transfer_block.h"  // Block Offers: the toggle, its record and the three new actions (test_transfer_block)
 #include "test_player_move.h"    // player_move: PlayerMoved / AddContractRecord / ReleasePlayer on a synthetic career (test_player_move)
+#include "test_player_create.h"  // player_create: the game INSERT, event 0x3A, InsertTeamPlayer, the op 11 move on a synthetic career
 
 static void test_transfer_list() {
     using namespace turbo;
@@ -11718,6 +11720,7 @@ int main(int argc, char** argv) {
     test_transfer_list();
     test_transfer_block();
     test_player_move();
+    test_player_create();
     std::printf("native Live Editor log\n");
     test_le_log();
     std::printf("native live standings\n");

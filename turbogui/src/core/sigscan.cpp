@@ -289,6 +289,43 @@ static const SignatureTable kBuiltin[] = {
           "none", 0,
           "PlayerMoraleManager::HandleEvent 0x147D8D354 (vtable slot 1): 0x5F creates the morale entry when the gate byte +0x554 is 0 and "
           "the club is the user's; the vtable and this function identify each other"},
+         // Created players (docs/re/created_players.md, scripts/re/created_players_signatures.json; every pattern unique in the image,
+         // re-checked 2026-10-05 with the "rip" offsets at the instruction start): the game's own query layer, the 0x3A event and
+         // InsertTeamPlayer the player_create call uses (win/player_create_win.cpp; PostEvent is post_career_event above)
+         {"db_query_init",
+          "40 53 48 83 EC 20 49 8B C0 89 11 48 8B D9 48 C7 44 24 30 00 00 00 00 48 8B D0 4C 8D 44 24 30 48 83 C1 08 E8 ?? ?? ?? ?? 48 8B C3 "
+          "48 C7 43 20 00 00 00 00",
+          "none", 0, "void Query::Init(Query* q /*0x60 bytes*/, int type /*1 select 2 delete 3 update 4 insert*/, const char* table) 0x14197D5F4"},
+         {"db_query_set_int", "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 41 8B F0 48 8B DA 48 8B E9", "none", 0,
+          "void Query::SetInt(Query*, const char* column, int value) 0x140601EA8: set-list node (+0x38) op 6, kind 0, value text \"%d\""},
+         {"db_query_set_string", "4C 8D 43 08 48 8D 15 ?? ?? ?? ?? 48 8D 4D A0 E8 ?? ?? ?? ??", "rip", 15,
+          "void Query::SetString(Query*, const char* column, const char* value) 0x14403F2E8 (kind 2), resolved through its call in "
+          "DataController::SetEditedPlayerName 0x147BA1476 (byte-identical to the date setter 0x14403F348 otherwise)"},
+         {"db_query_select_field", "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B FA 48 8B F1 E8 ?? ?? ?? ?? 48 8B D7 48 8B C8", "none", 0,
+          "void Query::Select(Query*, const char* column) 0x140601F14: select list (+0x28)"},
+         {"db_query_where_int", "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 41 8B E9 41 8B F8", "none", 0,
+          "void Query::Where(Query*, const char* column, uint8 op /*0 =*/, int value) 0x140602D28: where list (+0x30), AND-joined"},
+         {"db_query_destroy", "48 89 5C 24 08 57 48 83 EC 20 48 8B 51 20 48 8B F9 48 8B 0D ?? ?? ?? ??", "none", 0,
+          "void Query::~Query(Query*) 0x14154EB38: frees the nodes (+0x58 chunks), +0x20, the table string"},
+         {"db_result_free",
+          "48 89 5C 24 08 57 48 83 EC 20 48 8B 19 48 8B 3D ?? ?? ?? ?? 48 85 DB 74 19 48 8B 03 33 D2 48 8B CB FF 10 48 8B 07 45 33 C0 48 8B D3 "
+          "48 8B CF FF 50 18 48 8B 5C 24 30 48 83 C4 20 5F C3 CC CC CC 48 83 EC 28",
+          "none", 0, "void ResultHolder::Release(void** holder) 0x1422985A4: holder->vf[0](0), then the global allocator 0x14C269EA0 vf[3] frees it"},
+         {"db_provider_execute", "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 44 8B 0A", "none", 0,
+          "bool DbProvider::Execute(provider, Query*, void** holder) 0x142297D8C = vtable 0x14B075540 slot 1 (DataController+0 provider): "
+          "dispatch on the query type under the provider's lock; count = holder->vf[1](), row value = holder->vf[2](row, column)"},
+         {"event_allocator_global", "48 8B 0D ?? ?? ?? ?? 48 8B 01 FF 50 10 41 8D 54 24 3A 4C 8B C0 48 85 C0", "rip", 0,
+          "the global holding the allocator events are allocated from (0x14C269EA8): mov rcx,[rip+x] in CreatePlayer 0x147B61DB7, then "
+          "allocator->vf[2](size 0x20, \"DataController::CreatePlayer\", 0)"},
+         {"event_base_vtable",
+          "48 8D 0D ?? ?? ?? ?? 49 89 08 33 C9 41 89 48 08 48 8D 0D ?? ?? ?? ?? 41 87 58 08 49 89 08 41 89 50 10 41 89 40 18 EB 03",
+          "rip", 0, "the event base vtable CreatePlayer writes first (0x149803AE8, lea at 0x147B61DD3); the 0x3A vtable follows 16 bytes later"},
+         {"player_inserted_event_vtable", "40 55 53 56 57 41 54 41 56 41 57 48 8D 6C 24 D9 48 81 EC 00 01 00 00 49 8B D8", "rip", 1683,
+          "event 0x3A PlayerInsertedIntoPlayers vtable 0x14AFF67C0: the lea at +1683 of DataController::CreatePlayer 0x147B61750 (0x20-byte "
+          "event: +8 refcount 0, +0x10 0x3A, +0x18 pid)"},
+         {"dc_insert_team_player", "48 8B C4 48 89 58 10 48 89 68 18 48 89 70 20 57 48 81 EC 80 00 00 00 41 8B F0 8B EA", "none", 0,
+          "int DataController::InsertTeamPlayer(DC, int pid, int team, int jersey, int position [stack 5], bool suppress [stack 6]) "
+          "0x147B90074: INSERT teamplayerlinks; when 1 row and suppress == 0 posts event 0x5F {pid, team, -1}"},
          // Manager rules (docs/re/manager_rules.md, scripts/re/manager_rules_signatures.json; every pattern unique in the image)
          {"com_vtable",
           "48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 41 54 41 55 41 56 41 57 48 83 EC 20 48 8D 05 ?? ?? ?? ?? 48 89 51 08",
