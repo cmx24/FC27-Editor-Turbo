@@ -152,6 +152,7 @@ H.case("create player: the club link is a database row (the game's queries do no
     H.eq(#calls, 0, "no TurboPlayerMove call")
     local rec = sim:find_row("teamplayerlinks", "playerid", 2057)
     H.ok(rec, "the new player's link row"); H.eq(sim:value("teamplayerlinks", rec, "teamid"), 3)
+    H.eq(sim:value("teamplayerlinks", rec, "form"), 3, "average form like the game's own links, not the field minimum")
 end)
 
 H.case("a check the DLL only queued has not run: nothing is written, the move is not called", function()

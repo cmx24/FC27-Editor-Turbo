@@ -196,6 +196,7 @@ function W.build(sim, opts)
             { name = "leaguegoals", short = "lgls", depth = 7 },
             { name = "yellows", short = "ylws", depth = 7 },
             { name = "reds", short = "reds", depth = 7 },
+            { name = "form", short = "form", depth = 3 },
         },
         rows = links,
     })

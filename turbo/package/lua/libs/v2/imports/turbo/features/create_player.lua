@@ -204,6 +204,8 @@ function M.run(ctx)
     end
     link.teamid, link.playerid, link.jerseynumber = teamid, pid, jersey
     if db.has_field(links, "position") then link.position = moves.RESERVE_POSITION end
+    -- form: the game's own links start at 3 (average); the field's minimum (0) showed a new player in poor form
+    if db.has_field(links, "form") then link.form = 3 end
     if db.has_field(links, "artificialkey") then
         local top = 0
         for rec in db.records(links) do
