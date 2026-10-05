@@ -3,6 +3,16 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.1.4 (playtest round 2)
+
+### Added
+
+- Real-face chooser (players and managers): a **Gender** filter (Any / Male / Female, the `gender` field), shown first.
+
+### Changed
+
+- Real-face chooser: every filter menu has at most 5 choices besides Any, each with its count and a picture: Ethnicity (European, Latin, African, Asian, Mixed & other), Skin tone (Very light .. Very dark), Hair colour and Facial hair colour (Black, Brown, Blonde, Red & ginger, Grey, white & other), Eyes (Blue, Green, Brown, Light brown & hazel, Other), Facial hair (Any facial hair, Clean-shaven, Stubble, Moustache & goatee, Beard) and Hair (style code families 0-999 .. 4000+, as no names are known for the styles). A head's tooltip still shows its exact value.
+
 ## 1.1.3 (hotfix)
 
 ### Fixed

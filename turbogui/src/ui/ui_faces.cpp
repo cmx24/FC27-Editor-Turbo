@@ -299,7 +299,9 @@ static void facet_button(App& app, Chooser& ch, const std::vector<Face>& list, c
         for (int i = clip.DisplayStart; i < clip.DisplayEnd; ++i) {
             const faces::Count& c = counts[static_cast<size_t>(i)];
             ImGui::PushID(i);
-            std::string pic = faces::facet_has_pictures(fc) && c.key > 0 ? faces::facet_picture(fc, c.key) : face_picture(list[c.sample]);
+            // a style group shows the style of its first head, the other groups that head's miniface
+            std::string pic = faces::facet_has_pictures(fc) ? faces::facet_picture(fc, list[c.sample].raw[fc]) : std::string();
+            if (pic.empty()) pic = face_picture(list[c.sample]);
             draw_legacy_picture(app, pic, thumb, true);
             ImGui::SameLine();
             if (ImGui::Selectable(value_label(fc, c).c_str(), sel == c.key, 0, ImVec2(0, thumb))) {
@@ -364,7 +366,7 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
     const float line_end = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
     bool first = true;
     for (int i = 0; i < faces::kFacetCount; ++i) {
-        const Facet fc = static_cast<Facet>(i);
+        const Facet fc = faces::facet_order()[i];
         if (!src || !src->has(faces::facet_field(fc))) continue;  // FC 27 has them all; older tables may not
         facet_button(app, ch, list, pool, fc, first, line_end);
     }
@@ -420,8 +422,8 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
                 if (ImGui::IsItemHovered()) {
                     std::string traits;
                     for (int k = 0; k < faces::kFacetCount; ++k) {
-                        const Facet fc = static_cast<Facet>(k);
-                        if (f->raw[k] >= 0) traits += std::string("\n") + faces::facet_title(fc) + ": " + faces::key_label(fc, faces::facet_key(fc, f->raw[k]));
+                        const Facet fc = faces::facet_order()[k];
+                        if (f->raw[fc] >= 0) traits += std::string("\n") + faces::facet_title(fc) + ": " + faces::trait_label(fc, f->raw[fc]);
                     }
                     ImGui::SetTooltip("%s\n%s %lld, head %lld%s", f->name.c_str(), f->manager ? "manager" : "player",
                                       static_cast<long long>(f->id), static_cast<long long>(f->headassetid), traits.c_str());

@@ -217,7 +217,7 @@ local function build_world(sim)
             trait1 = (i == 1) and 5 or 0, icontrait1 = (i == 1) and 1 or 0, trait2 = (i == 2) and 3 or 0, icontrait2 = 0,
             haircolorcode = i % 10, hairtypecode = 100 + i, shoetypecode = 600 + i, gkglovetypecode = 40 + i, accessorycode1 = 0, accessorycolourcode1 = 0, headassetid = p[1], hashighqualityhead = (i <= 6) and 1 or 0,
             headclasscode = (i <= 6) and 0 or 1, headtypecode = 100 + i, headvariation = i % 4, skintonecode = i,
-            facialhairtypecode = (i % 3 == 0) and 0 or (240 + i), facialhaircolorcode = i % 4, eyecolorcode = 1 + i % 3,  -- real-face chooser filters
+            facialhairtypecode = (i % 3 == 0) and 0 or (240 + i), facialhaircolorcode = i % 4, eyecolorcode = 1 + i % 3, gender = (i == 5) and 1 or 0,  -- real-face chooser filters
             tattooleftarm = 0, tattoohead = 0,
             contractvaliduntil = 2028 + (i % 3), isretiring = (i == 3) and 1 or 0, nationality = 14,
         }
@@ -276,6 +276,7 @@ local function build_world(sim)
             { name = "facialhairtypecode", short = "fhty", depth = 10 },
             { name = "facialhaircolorcode", short = "fhco", depth = 6 },
             { name = "eyecolorcode", short = "eyec", depth = 7 },
+            { name = "gender", short = "gndr", depth = 1 },
             { name = "tattooleftarm", short = "tla_", depth = 10 },
             { name = "tattoohead", short = "thd_", depth = 10 },
             { name = "contractvaliduntil", short = "cvu_", depth = 11 },
