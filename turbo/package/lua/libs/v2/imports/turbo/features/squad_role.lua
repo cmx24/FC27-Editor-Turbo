@@ -50,7 +50,10 @@ function M.locate(squad, squad_count, hint)
 
     local tries = {}
     if type(hint) == "table" and util.to_int(hint.offset) and util.to_int(hint.size) then
-        tries[#tries + 1] = { util.to_int(hint.offset), util.to_int(hint.size), util.to_int(hint.role_off) or 4 }
+        local size, role_off = util.to_int(hint.size), util.to_int(hint.role_off) or 4
+        -- the role byte lies after the 4-byte player id and inside the entry: a saved layout that says otherwise (an
+        -- edited or damaged calibration file) would read / write the next entry's player id, so it is not tried
+        if role_off >= 4 and role_off < size then tries[#tries + 1] = { util.to_int(hint.offset), size, role_off } end
     end
     tries[#tries + 1] = { M.FC26_LAYOUT.offset, M.FC26_LAYOUT.size, M.FC26_LAYOUT.role_off }
     for off = 0x08, 0x200, 8 do

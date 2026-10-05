@@ -244,6 +244,8 @@ function M.run(ctx)
     local teamid = util.to_int(ctx.cfg.teamid)
     if not teamid or teamid <= 0 then return false, "teamid is required" end
     if moves.national_teams()[teamid] then return false, "national teams have no club squad to change" end
+    -- Free Agents is not a club: a contract there would give every free agent a club contract without a club
+    if teamid == moves.FREE_AGENTS then return false, "Free Agents is not a club: its players have no club contract to change" end
     local list, err = wanted(ctx.cfg.actions)
     if not list then return false, err end
 

@@ -94,14 +94,81 @@ H.case("the game refuses at the check: nothing is written at all", function()
     H.eq(link_team(pid), team, "not moved")
 end)
 
-H.case("the game refuses the move itself: the report says the contract fields were written", function()
+H.case("the game refuses the move itself: the contract fields written before it are put back", function()
     install()
     refuse_move = "the game refused"
     local pid = 2010
     local team = link_team(pid)
-    local ok, msg = moves_run({ { action = "transfer", playerid = pid, to_teamid = 7, months = 60 } })
-    H.eq(ok, false); H.has(msg, "contract fields were written but the game refused the move")
+    pset(pid, "contractvaliduntil", 2027)
+    pset(pid, "wage", 41000)
+    pset(pid, "releaseclause", 900000)
+    local ok, msg = moves_run({ { action = "transfer", playerid = pid, to_teamid = 7, months = 60, wage = 90000, release_clause = 5000000 } })
+    H.eq(ok, false); H.has(msg, "the game refused the move"); H.has(msg, "were put back")
+    H.eq(calls[2].cvu, 2031, "the contract end was written before the move call")
     H.eq(link_team(pid), team, "still at his club")
+    H.eq(pval(pid, "contractvaliduntil"), 2027, "contract end put back")
+    H.eq(pval(pid, "wage"), 41000, "wage put back"); H.eq(pval(pid, "releaseclause"), 900000, "release clause put back")
+end)
+
+H.case("the game moved him, then a later step failed (read-backs say he moved): reported as moved, contract kept", function()
+    install()
+    local real = _G.TurboPlayerMove
+    _G.TurboPlayerMove = function(code, pid, from, to, months, wage)
+        local ok, text, status = real(code, pid, from, to, months, wage)
+        if code == 1 then return false, text .. "; AddContractRecord: no record", "failed", true, true end
+        return ok, text, status, true, false
+    end
+    local pid = 2011
+    pset(pid, "contractvaliduntil", 2027)
+    local ok, msg = moves_run({ { action = "transfer", playerid = pid, to_teamid = 7, months = 60 } })
+    _G.TurboPlayerMove = real
+    H.eq(ok, false); H.has(msg, "the game moved him"); H.has(msg, "AddContractRecord")
+    H.eq(link_team(pid), 7, "he is at the new club")
+    H.eq(pval(pid, "contractvaliduntil"), 2031, "the contract of the move stays")
+end)
+
+H.case("a release the game only queued: wage / release clause are not reset before it ran; delete waits for it", function()
+    install()
+    local real = _G.TurboPlayerMove
+    _G.TurboPlayerMove = function(code, ...)
+        if code == 2 then calls[#calls + 1] = { code = 2 }; return true, "game call queued", "queued" end
+        return real(code, ...)
+    end
+    local pid = 2012
+    pset(pid, "wage", 77000)
+    pset(pid, "releaseclause", 3000000)
+    local ok, msg = moves_run({ { action = "release", playerid = pid } })
+    H.eq(ok, true, msg); H.has(msg, "next game tick"); H.has(msg, "left as they were")
+    H.eq(pval(pid, "wage"), 77000, "wage not reset before the game's release ran")
+    H.eq(pval(pid, "releaseclause"), 3000000, "release clause not reset")
+    -- delete: the queued release has not run, so his rows stay
+    local pid2 = 2013
+    local before = sim:count_calls("DeleteDBTableRowByAddr")
+    ok, msg = moves_run({ { action = "delete", playerid = pid2, confirm = true } })
+    _G.TurboPlayerMove = real
+    H.eq(ok, false); H.has(msg, "NOT deleted yet")
+    H.eq(sim:count_calls("DeleteDBTableRowByAddr"), before, "no row deleted")
+    H.ok(sim:find_row("players", "playerid", pid2), "his players row is still there")
+end)
+
+H.case("terminate loan: a failed playerloans delete puts the move back (no player at his parent club with a loan row)", function()
+    _G.TurboPlayerMove = nil
+    local moves = require 'imports/turbo/core/moves'
+    local pid = 2016
+    local home = link_team(pid)
+    local ok, msg = moves.loan(pid, 8, 6)
+    H.eq(ok, true, msg); H.eq(link_team(pid), 8)
+    local real_del = _G.DeleteDBTableRowByAddr
+    _G.DeleteDBTableRowByAddr = function() return false end
+    ok, msg = moves.terminate_loan(pid)
+    _G.DeleteDBTableRowByAddr = real_del
+    H.eq(ok, false); H.has(msg, "nothing was changed")
+    H.eq(link_team(pid), 8, "still at the loan club")
+    H.ok(moves.loan_row(pid), "the loan row is still there")
+    ok, msg = moves.terminate_loan(pid)
+    H.eq(ok, true, msg); H.eq(link_team(pid), home, "back home once the delete works")
+    H.eq(moves.loan_row(pid), nil)
+    install()
 end)
 
 H.case("release: the game releases him first, wage and release clause are reset afterwards", function()

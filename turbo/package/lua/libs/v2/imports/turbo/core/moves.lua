@@ -292,11 +292,25 @@ local function plan_write(plan, tbl, rec, field, value)
     return true
 end
 
+-- Puts back the values the applied writes of a plan replaced (writes 1..upto, newest first)
+local function undo(plan, upto)
+    for i = (upto or #plan), 1, -1 do
+        local w = plan[i]
+        if w.old ~= nil then pcall(db.set, w.tbl, w.rec, w.field, w.old) end
+    end
+end
+
+-- Applies a plan; a write Live Editor refuses puts the earlier ones back, so a failed apply leaves nothing behind.
+-- Each write keeps the value it replaced (w.old) for undo
 local function apply(plan, dry)
     if dry then return true end
-    for _, w in ipairs(plan) do
+    for i, w in ipairs(plan) do
+        w.old = w.tbl:GetRecordFieldValue(w.rec, w.field)
         local ok, err = db.set(w.tbl, w.rec, w.field, w.value)
-        if not ok then return false, string.format("%s.%s: %s", tostring(w.tbl.name), w.field, tostring(err)) end
+        if not ok then
+            undo(plan, i - 1)
+            return false, string.format("%s.%s: %s (the writes before it were put back)", tostring(w.tbl.name), w.field, tostring(err))
+        end
     end
     return true
 end
@@ -425,13 +439,15 @@ function M.move_native()
     return nil
 end
 
--- One call; returns ok, text, status ("ok" | "queued" | "failed" | "dry")
+-- One call; returns ok, text, status ("ok" | "queued" | "failed" | "dry"), from_ok, to_ok (the game's read-backs: he left
+-- `from` / he is in `to`; nil = not read). A failure can come AFTER the game moved him (a read-back or the contract record
+-- of turbogui/src/core/player_move.cpp): the read-backs then say he moved.
 local function call_native(code, pid, from, to, months, wage)
     local f = M.move_native()
     if not f then return false, "TurboPlayerMove is not available (Turbo.dll's game call is not loaded)", "failed" end
-    local okc, ok, text, status = pcall(f, code, pid, from or 0, to or 0, months or 0, wage or 0)
+    local okc, ok, text, status, from_ok, to_ok = pcall(f, code, pid, from or 0, to or 0, months or 0, wage or 0)
     if not okc then return false, "game call error: " .. tostring(ok), "failed" end
-    return ok == true, tostring(text or ""), status or (ok and "ok" or "failed")
+    return ok == true, tostring(text or ""), status or (ok and "ok" or "failed"), from_ok, to_ok
 end
 
 -- Move the club link of pid to `to_team`. opts: contract = { months, wage, release_clause } (nil = keep contract),
@@ -721,20 +737,41 @@ local function run_move(plan, pid, from, end_loan)
     if not okl then return false, note end
     local ok, err = apply(plan, false)
     if not ok then return false, err end
+    local mstatus
     if nat then
-        local okm, mtext, mstatus = call_native(nat.code, pid, nat.from, nat.to, nat.months, nat.wage)
+        local okm, mtext, from_ok, to_ok
+        okm, mtext, mstatus, from_ok, to_ok = call_native(nat.code, pid, nat.from, nat.to, nat.months, nat.wage)
         if not okm then
-            return false, string.format("player %d: the contract fields were written but the game refused the move: %s", pid, mtext)
+            if from_ok == true and to_ok == true then
+                -- the game moved him, then something after the move failed: he IS moved, the contract fields stay
+                apply(plan.after or {}, false)
+                return false, string.format("player %d: the game moved him (%d -> %d) but reported a problem after the move: %s",
+                    pid, nat.from, nat.to, mtext)
+            end
+            -- not moved: the contract fields (and set-piece takers) written for the move are put back
+            undo(plan)
+            return false, string.format("player %d not moved: the game refused the move: %s; the contract fields written " ..
+                "before it were put back", pid, mtext)
         end
-        local ok2, err2 = apply(plan.after or {}, false)
-        if not ok2 then return false, err2 end
-        note = join_notes(note, mstatus == "queued" and "the game does the move on its next game tick" or "done by the game: squad screens are up to date")
+        if mstatus == "queued" then
+            -- a release works out his payment from the contract fields when it runs: they are not reset before it did
+            local kept = plan.after and #plan.after > 0
+            note = join_notes(note, "the game does the move on its next game tick" ..
+                (kept and " (his wage / release clause are left as they were: the game's release has not run yet)" or ""))
+        else
+            local ok2, err2 = apply(plan.after or {}, false)
+            if not ok2 then return false, err2 end
+            note = join_notes(note, "done by the game: squad screens are up to date")
+        end
     end
     if end_loan then
         local n, derr = delete_rows("playerloans", pid)
-        if not n then return false, derr end
+        if not n then
+            undo(plan)   -- a database move (end_loan is never a game move): no move without the end of the loan
+            return false, tostring(derr) .. "; the move was put back"
+        end
     end
-    return true, join_notes(note, plan_note(pid))
+    return true, join_notes(note, plan_note(pid)), mstatus
 end
 
 -- Returns true, summary or false, error. A loaned player: the loan ends (his parent club sells him).
@@ -766,7 +803,7 @@ function M.transfer(pid, to_team, o, dry)
 end
 
 -- Release to Free Agents (wage and release clause 0). A loaned player: the loan ends and his parent club releases him.
-function M.release(pid, dry)
+local function release(pid, dry)
     local lrec, loans = M.loan_row(pid)
     local parent = lrec and loans:GetRecordFieldValue(lrec, "teamidloanedfrom") or nil
     local plan = {}
@@ -778,9 +815,14 @@ function M.release(pid, dry)
     local text = string.format("player %d released from team %d", pid, from)
     if parent then text = text .. string.format(", loan from %d ended", parent) end
     if dry then return true, text end
-    local okm, note = run_move(plan, pid, from, parent ~= nil)
+    local okm, note, status = run_move(plan, pid, from, parent ~= nil)
     if not okm then return false, note end
-    return true, with_note(text, note)
+    return true, with_note(text, note), status   -- status "queued": the game releases him on its next game tick
+end
+
+function M.release(pid, dry)
+    local ok, text = release(pid, dry)   -- two values, as before (callers count a third one as players moved)
+    return ok, text
 end
 
 function M.loan(pid, to_team, months, dry)
@@ -857,7 +899,10 @@ function M.terminate_loan(pid, dry)
     local ok, err = apply(plan, false)
     if not ok then return false, err end
     local n, derr = delete_rows("playerloans", pid)
-    if not n then return false, derr end
+    if not n then
+        undo(plan)   -- no move back to his parent club while the loan row stays
+        return false, tostring(derr) .. "; nothing was changed (he stays at the loan club)"
+    end
     return true, with_note(text, plan_note(pid))
 end
 
@@ -873,8 +918,12 @@ function M.delete(pid, dry)
     end
     local _, tid = M.club_link(pid)
     if tid and tid ~= M.FREE_AGENTS then
-        local ok, err = M.release(pid, dry)
+        local ok, err, status = release(pid, dry)
         if not ok then return false, err end
+        -- the game's release only queued: his rows stay until the game has released him (it reads them when it runs)
+        if status == "queued" then
+            return false, tostring(err) .. "; NOT deleted yet: the game releases him on its next game tick, delete him after that"
+        end
     end
     if dry then return true, string.format("player %d would be deleted", pid) end
     for _, t in ipairs({ "teamplayerlinks", "editedplayernames", "playerloans", "players" }) do
