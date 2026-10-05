@@ -14,6 +14,7 @@
 #include "move_rules.h"
 #include "playstyles.h"
 #include "ui_images.h"
+#include "ui_names.h"
 #include "ui_presets.h"
 #include "ui_team_filter.h"
 
@@ -996,8 +997,8 @@ static void player_editor(App& app) {
             }
         }
     }
-    // nine tabs: let them shrink further than the default 80 px before the bar scrolls, so Growth stays visible in a normal window
-    ImGui::PushStyleVar(ImGuiStyleVar_TabMinWidthShrink, S(48.0f));
+    // ten tabs: let them shrink further than the default 80 px before the bar scrolls, so Growth stays visible in a normal window
+    ImGui::PushStyleVar(ImGuiStyleVar_TabMinWidthShrink, S(40.0f));
     if (ImGui::BeginTabBar("##ptabs")) {
         if (ImGui::BeginTabItem("Profile")) {
             ImGui::BeginChild("##prof");
@@ -1012,6 +1013,12 @@ static void player_editor(App& app) {
             field_grid(app, *t, p->rec, {"role1", "role2", "role3", "role4", "role5", "role6", "role7", "role8", "role9", "bodytypecode",
                                           "gender", "personality", "emotion", "growthprofile", "skillmoveslikelihood", "gkkickstyle",
                                           "runstylecode", "usercaneditname", "iscustomized"}, "##rolegrid", 3);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Names")) {
+            ImGui::BeginChild("##pnames");
+            names_editor(app, *t, *p);  // ui_names.cpp
             ImGui::EndChild();
             ImGui::EndTabItem();
         }

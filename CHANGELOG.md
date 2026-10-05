@@ -14,6 +14,12 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
   `turbo_output\call_player_create_on.txt` exists (`call_player_create_off.txt` turns it off again); otherwise, or when the call
   answers "off", the database path of 1.2.0 runs unchanged and the result says so. Research and live checks:
   [`docs/re/created_players.md`](docs/re/created_players.md).
+- **Players > Names tab (not yet checked in game).** Every name the game shows for a player in one place: first, last,
+  common and shirt name (his edited names, prefilled with what the game shows) and the four name ids, typed or found by
+  text. Save names writes only what changed: in place when he has an `editedplayernames` row (with Undo), else through
+  Turbo's Lua side (`set_display_name`, never into a full table). An empty common name stays empty, an empty shirt name
+  takes the last name, too-long names are refused before any write. "Restore database names" sets his row back to the
+  name ids' texts (no delete) and a hint names rows damaged by the 1.2.0 preset import. The Players list follows at once.
 
 ## 1.2.0 (real-time transfers, Mass actions, From CMTracker, filters)
 

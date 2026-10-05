@@ -95,6 +95,8 @@ public:
 
     // Re-read one cached row after an edit
     void refresh_player(int64_t pid, const GameDate& today);
+    // Re-read one player's shown name after a name edit: his editedplayernames row, else his name ids (as rebuild does)
+    void refresh_player_name(int64_t pid);
     void refresh_team(int64_t tid);
     void reload_links() { build_links(); }
 

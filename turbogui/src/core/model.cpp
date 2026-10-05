@@ -284,6 +284,37 @@ void Model::refresh_player(int64_t pid, const GameDate& today) {
     fill_filter_fields(*t, r, [&](const Field& f) { return db_.get_int(*t, r.rec, f.name, 0); });
 }
 
+void Model::refresh_player_name(int64_t pid) {
+    auto it = player_index_.find(pid);
+    const Table* t = db_.table("players");
+    if (it == player_index_.end() || !t) return;
+    PlayerRow& r = players_[it->second];
+    std::string n;
+    if (const Table* e = db_.table("editedplayernames"); e && e->has("playerid")) {
+        if (const uint64_t er = db_.find(*e, "playerid", pid)) {
+            auto text = [&](const char* f) {
+                const Field* fl = e->field(f);
+                Value v;
+                return fl && db_.get(*e, er, *fl, v) ? v.to_string() : std::string();
+            };
+            const std::string common = text("commonname"), first = text("firstname"), sur = text("surname");
+            n = !common.empty() ? common : (first.empty() ? sur : (sur.empty() ? first : first + " " + sur));
+        }
+    }
+    if (n.empty()) edited_names_.erase(pid);
+    else edited_names_[pid] = n;
+    if (n.empty()) {
+        auto nm = [&](const char* f) -> std::string {
+            if (!t->has(f)) return "";
+            auto x = name_by_nameid_.find(db_.get_int(*t, r.rec, f, 0));
+            return x == name_by_nameid_.end() ? "" : x->second;
+        };
+        const std::string common = nm("commonnameid"), first = nm("firstnameid"), last = nm("lastnameid");
+        n = !common.empty() ? common : (first.empty() ? last : (last.empty() ? first : first + " " + last));
+    }
+    r.name = n.empty() ? "#" + std::to_string(pid) : n;
+}
+
 void Model::refresh_team(int64_t tid) {
     auto it = team_index_.find(tid);
     const Table* t = db_.table("teams");

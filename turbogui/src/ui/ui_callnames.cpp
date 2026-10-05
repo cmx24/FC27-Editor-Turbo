@@ -28,6 +28,7 @@
 #include "app.h"
 #include "imgui.h"
 #include "ui_callname_play.h"
+#include "ui_names.h"
 
 namespace turbo {
 
@@ -78,53 +79,13 @@ static void ensure_ready(App& app) {
     // and starts the build by itself where the game answers (the Create Player screen, a match); nothing to start here
 }
 
-// The three name parts the game shows for the player: editedplayernames when it has a row, else the name ids
-struct ShownName {
-    std::string first, last, common;
-    // the shirt name (1.0.3): his row's playerjerseyname, else his playerjerseynameid's text, else the shown surname.
-    // A kept-name row always carries it: the game prints the row's playerjerseyname, and an empty one printed nothing.
-    std::string jersey;
-    uint64_t edited_rec = 0;
-};
-static ShownName shown_name(App& app, const Table& t, const PlayerRow& p) {
-    ShownName n;
-    const auto& names = app.model.names_by_id();
-    auto name_of = [&](const char* field) {
-        int64_t id = app.db.get_int(t, p.rec, field, 0);
-        auto it = names.find(id);
-        return id > 0 && it != names.end() ? it->second : std::string();
-    };
-    n.first = name_of("firstnameid");
-    n.last = name_of("lastnameid");
-    n.common = name_of("commonnameid");
-    if (const Table* e = app.db.table("editedplayernames"); e && e->has("playerid")) {
-        uint64_t rec = app.db.find(*e, "playerid", p.playerid);
-        if (rec) {
-            n.edited_rec = rec;
-            Value v;
-            if (const Field* f = e->field("firstname"); f && app.db.get(*e, rec, *f, v) && !v.to_string().empty()) n.first = v.to_string();
-            if (const Field* f = e->field("surname"); f && app.db.get(*e, rec, *f, v) && !v.to_string().empty()) n.last = v.to_string();
-            if (const Field* f = e->field("commonname"); f && app.db.get(*e, rec, *f, v) && !v.to_string().empty()) n.common = v.to_string();
-            if (const Field* f = e->field("playerjerseyname"); f && app.db.get(*e, rec, *f, v)) n.jersey = v.to_string();
-        }
-    }
-    if (n.jersey.empty() && t.has("playerjerseynameid")) n.jersey = name_of("playerjerseynameid");
-    if (n.jersey.empty()) n.jersey = n.last;
-    return n;
-}
+// ShownName / shown_name: ui_names.h (shared with the Names tab)
 
 static bool send_actions(App& app, const json& actions, const std::string& label) {
     return app.send({{"op", "run"}, {"module", "callnames"}, {"overrides", {{"actions", actions}}}}, label);
 }
 
-// What a Lua insert carries so that Turbo's Lua side counts the rows again right before it adds one
-// (features/callnames.lua room_now): the table's capacity as read now, and the career load it was read in. The command
-// runs at the next career event, and FC 27 reloads playernamemap full (106 of 106 rows) at every career load.
-static void add_room_check(App& app, json& a, uint32_t capacity) {
-    a["room"] = true;
-    a["capacity"] = capacity;
-    if (app.bridge.state().load_gen >= 0) a["load_gen"] = app.bridge.state().load_gen;
-}
+// add_room_check: ui_names.h
 
 // The game shows the new name while the career stays loaded, whatever editedplayernames says (seen in game, 1.0.2)
 static const char* const kNameRouteNote = ". The game shows the new name until the career is reloaded.";

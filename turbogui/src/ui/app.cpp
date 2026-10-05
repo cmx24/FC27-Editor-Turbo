@@ -677,9 +677,12 @@ bool App::edit(const Table& t, uint64_t rec, const Field& f, const Value& v) {
         notify(f.name + ": " + err, true);
         return false;
     }
-    if (t.name == "players") {
+    if (t.name == "players" || t.name == "editedplayernames") {
+        // editedplayernames (Players > Names, Callname): the player's shown name; its edits get undo steps too
         int64_t pid = db.get_int(t, rec, "playerid", 0);
-        model.refresh_player(pid, today());
+        if (t.name == "players") model.refresh_player(pid, today());
+        if (t.name == "editedplayernames" || f.name == "firstnameid" || f.name == "lastnameid" || f.name == "commonnameid")
+            model.refresh_player_name(pid);
         if (have_before && !(before == v)) {
             auto& steps = undo_[pid];
             steps.push_back({t.name, rec, f.name, before});
@@ -717,6 +720,7 @@ bool App::undo(int64_t playerid) {
         return false;
     }
     model.refresh_player(playerid, today());
+    model.refresh_player_name(playerid);
     ++gen;
     log("undo " + step.table + "." + step.field + " = " + step.before.to_string());
     notify("undone: " + field_label(step.field) + " back to " + step.before.to_string());
