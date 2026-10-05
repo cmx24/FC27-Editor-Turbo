@@ -103,6 +103,28 @@ H.case("squad roles: a promised player (flag byte after the role) is found and h
     H.eq(sim:rb(addr + 1), 1, "wasPromised kept"); H.eq(sim:rb(addr + 2), 1, "renewalDismissed kept")
 end)
 
+H.case("squad roles: a saved layout whose role byte is not inside the entry after the player id is not used", function()
+    -- role_off 3 reads (and would write) the top byte of the player id: 0 for every id, so it "validates" as a role
+    local role = require 'imports/turbo/features/squad_role'
+    local game = require 'imports/turbo/core/game'
+    local squad, count = game.user_squad()
+    for _, bad in ipairs({ { offset = 0x18, size = 8, role_off = 3 }, { offset = 0x18, size = 8, role_off = 8 } }) do
+        local layout, err = role.locate(squad, count, bad)
+        H.ok(layout, tostring(err))
+        H.eq(layout.offset, 0x18); H.eq(layout.size, 8)
+        H.eq(layout.role_off, 4, "the role byte after the player id, not role_off " .. bad.role_off)
+    end
+    local good = role.locate(squad, count, { offset = 0x18, size = 8, role_off = 4 })
+    H.eq(good.role_off, 4)
+end)
+
+H.case("Free Agents is not a club: no mass action on every free agent", function()
+    local before = sim:count_calls("SetPlayerMorale")
+    local ok, msg = run({ teamid = 111592, actions = { "long_contract", "morale" } })
+    H.eq(ok, false); H.has(msg, "Free Agents is not a club")
+    H.eq(sim:count_calls("SetPlayerMorale"), before, "no morale call")
+end)
+
 H.case("block offers: your own club only; without Turbo.dll's game call nothing is attempted", function()
     local ok, msg = run({ teamid = 2, actions = { "block_offers" } })
     H.eq(ok, false); H.has(msg, "your own club")
