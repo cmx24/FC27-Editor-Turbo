@@ -633,7 +633,8 @@ static void career_dev_tab(App& app, const PlayerRow& p) {
 struct BulkUndo {
     int64_t playerid = 0;
     std::string label;
-    std::vector<std::pair<const Field*, int64_t>> before;   // field, value before
+    // field name, value before (names, not Field pointers: App::refresh rebuilds the tables and their fields)
+    std::vector<std::pair<std::string, int64_t>> before;
 };
 static std::vector<BulkUndo>& bulk_undo_stack() {
     static std::vector<BulkUndo> v;
@@ -662,7 +663,7 @@ static int write_bulk(App& app, const Table& t, const PlayerRow& p, const overal
         const Field* f = t.field(overall::kAttrNames[i]);
         if (!f) continue;
         if (app.edit(t, p.rec, *f, Value::of_int(after[static_cast<size_t>(i)]))) {
-            u.before.push_back({f, before[static_cast<size_t>(i)]});
+            u.before.push_back({f->name, before[static_cast<size_t>(i)]});
             ++n;
         }
     }
@@ -670,7 +671,7 @@ static int write_bulk(App& app, const Table& t, const PlayerRow& p, const overal
         if (const Field* f = t.field("overallrating")) {
             const int64_t was = app.db.get_int(t, p.rec, "overallrating", 0);
             if (was != ovr_to && app.edit(t, p.rec, *f, Value::of_int(ovr_to))) {
-                u.before.push_back({f, was});
+                u.before.push_back({f->name, was});
                 ++n;
             }
         }
@@ -689,7 +690,8 @@ static void undo_bulk(App& app, const Table& t, const PlayerRow& p) {
         if (st[i].playerid != p.playerid) continue;
         BulkUndo u = st[i];
         st.erase(st.begin() + static_cast<long>(i));
-        for (const auto& b : u.before) app.edit(t, p.rec, *b.first, Value::of_int(b.second));
+        for (const auto& b : u.before)
+            if (const Field* f = t.field(b.first)) app.edit(t, p.rec, *f, Value::of_int(b.second));
         app.notify("undone: " + u.label);
         return;
     }
@@ -755,7 +757,8 @@ static void archetype_bar(App& app, const Table& t, const PlayerRow& p) {
         ImGui::SameLine();
         Attrs trial = cur;
         std::vector<Move> moves;
-        const bool in_range = of && stored + delta >= of->min && stored + delta <= of->max();
+        // 1..99 (the field itself holds up to 128): a stored 99 whose formula says 98 must not become 100
+        const bool in_range = of && stored + delta >= std::max<int64_t>(1, of->min) && stored + delta <= std::min<int64_t>(99, of->max());
         const bool ok = in_range && adjust(pos, trial, delta, &moves);
         if (!ok) ImGui::BeginDisabled();
         if (ImGui::Button(delta > 0 ? "Overall +1" : "Overall -1")) {

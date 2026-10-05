@@ -73,6 +73,37 @@ int main(int argc, char** argv) {
     CHECK(cmt_playstyle_bit("GK Far Reach", &which) == 4 && which == 2);
     CHECK(cmt_playstyle_bit("Nope", &which) == -1);
 
+    // 1.2.0 review: "nan" / "1e30" numbers are not numbers (no undefined cast, no overflow in skillmoves - 1), and an ANSI
+    // (non-UTF-8) name still gives a preset the worker can write (dump with the replace handler, as ui_cmtracker does)
+    {
+        std::string row = std::string(kRows).substr(0, std::string(kRows).find('\n') + 1);
+        auto swap = [&](const std::string& a, const std::string& b) {
+            size_t at = row.find(a);
+            CHECK(at != std::string::npos);
+            if (at != std::string::npos) row.replace(at, a.size(), b);
+        };
+        swap("900001", "900003");
+        swap(",4,3,2,1,181,75,", ",nan,3,2,1,1e30,75,");
+        swap("\"Dupont\",\"Dupont\"", "\"M\xfcller\",\"M\xfcller\"");
+        CmtLibrary bad;
+        CHECK(bad.add_csv(std::string(kHeader) + row, "ansi.csv") == 1);
+        const CmtPlayer* bp = bad.find(900003);
+        CHECK(bp != nullptr);
+        if (bp) {
+            auto bj = cmt_to_preset(*bp, o);
+            auto& b = bj["players"];
+            CHECK(!b.contains("skillmoves") && !b.contains("height") && b["weight"] == 75);
+            bool threw = false;
+            std::string text;
+            try {
+                text = bj.dump(1, ' ', false, nlohmann::json::error_handler_t::replace);
+            } catch (...) {
+                threw = true;
+            }
+            CHECK(!threw && !text.empty());
+        }
+    }
+
     // the miniface path: a downloaded PNG becomes a 256 x 256 DXT5 DDS the game reads (optional file argument)
     if (argc > 1) {
         Rgba img;

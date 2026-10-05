@@ -64,7 +64,8 @@ std::vector<int> Geo::sorted_continents() const {
 std::vector<const GeoLeague*> Geo::sorted_leagues(int64_t nation) const {
     std::vector<const GeoLeague*> v;
     for (auto& l : leagues)
-        if (!l.second.name.empty() && (nation < 0 || l.second.nation == nation)) v.push_back(&l.second);
+        // international leagues are left out: team_league (the league filter's test) never holds one, so they never match
+        if (!l.second.name.empty() && !l.second.international && (nation < 0 || l.second.nation == nation)) v.push_back(&l.second);
     std::sort(v.begin(), v.end(), [](const GeoLeague* a, const GeoLeague* b) { return lower_s(a->name) < lower_s(b->name); });
     return v;
 }

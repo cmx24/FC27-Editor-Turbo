@@ -61,6 +61,7 @@ static bool to_int(const std::string& s, int64_t& v) {
     char* end = nullptr;
     double d = std::strtod(t.c_str(), &end);
     if (end == t.c_str()) return false;
+    if (!(d > -9.0e18 && d < 9.0e18)) return false;   // "nan", "inf", 1e30: the cast below would be undefined
     v = static_cast<int64_t>(d);
     return true;
 }

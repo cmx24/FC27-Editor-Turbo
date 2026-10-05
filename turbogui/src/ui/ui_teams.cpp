@@ -276,8 +276,8 @@ static void job_offer_tab(App& app, const TeamRow& tr) {
                            pick.c_str(), static_cast<long long>(app.job_offer_team));
         if (ImGui::Button("Create")) {
             json overrides = {{"enabled", true}, {"teamid", app.job_offer_team}, {"confirm", true}};
-            app.send({{"op", "run"}, {"module", "job_offer"}, {"overrides", overrides}}, "Job offer from " + pick);
-            app.job_offer_status = "Requested: the game answers on the next career-mode event (open a screen or advance a day).";
+            if (app.send({{"op", "run"}, {"module", "job_offer"}, {"overrides", overrides}}, "Job offer from " + pick))  // false: toast says why
+                app.job_offer_status = "Requested: the game answers on the next career-mode event (open a screen or advance a day).";
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
@@ -354,9 +354,9 @@ static void mass_actions_tab(App& app, const TeamRow& tr) {
         if (ImGui::Button("Run")) {
             json actions = (confirm == "all") ? json("all") : json::array({confirm});
             json overrides = {{"teamid", tr.teamid}, {"actions", actions}};
-            app.send({{"op", "run"}, {"module", "team_mass"}, {"overrides", overrides}},
-                     std::string("Mass actions: ") + (sel ? sel->button : confirm.c_str()));
-            app.mass_status = "Requested: Live Editor runs it on the next career-mode event (open a screen or advance a day).";
+            if (app.send({{"op", "run"}, {"module", "team_mass"}, {"overrides", overrides}},
+                         std::string("Mass actions: ") + (sel ? sel->button : confirm.c_str())))  // false: toast says why
+                app.mass_status = "Requested: Live Editor runs it on the next career-mode event (open a screen or advance a day).";
             confirm.clear();
             ImGui::CloseCurrentPopup();
         }
