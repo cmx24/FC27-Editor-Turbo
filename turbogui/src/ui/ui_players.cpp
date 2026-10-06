@@ -1014,7 +1014,7 @@ static void player_editor(App& app) {
             ImGui::SeparatorText("Roles and body");
             field_grid(app, *t, p->rec, {"role1", "role2", "role3", "role4", "role5", "role6", "role7", "role8", "role9", "bodytypecode",
                                           "gender", "personality", "emotion", "growthprofile", "skillmoveslikelihood", "gkkickstyle",
-                                          "runstylecode", "usercaneditname", "iscustomized"}, "##rolegrid", 3);
+                                          "runstylecode", "usercaneditname", "iscustomized"}, "##rolegrid", 2);
             ImGui::EndChild();
             ImGui::EndTabItem();
         }

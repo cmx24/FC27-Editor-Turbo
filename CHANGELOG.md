@@ -3,6 +3,12 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 1.2.3 (fix: 3D real faces showed one default head)
+
+- **Fixed: the real-face chooser's 3D heads were all the same bald default head (seen in game).** The capture descriptor Turbo learns from the game's own captures came from the hub's portrait of your manager avatar, flagged "user's created avatar", so the game drew that avatar's head for every player. Player requests now always carry the player flags (Miniface > 3D model too), and the chooser uses the player descriptor that rendered the real 3D head live (Achraf Hakimi). Renders cached by 1.2.2 are removed.
+- **Fixed: the hair gallery's "None" picture appeared twice with one ImGui id** (a red ImGui warning on hover). Hair pictures now carry their length under the id ("233 Medium").
+- **Roles and body grid in two columns** so names such as "ST Advanced Forward+" and "Short and Lean" are not cut.
+
 ## 1.2.2 (player editor: text instead of codes, hair filters, 3D real faces, more mass actions)
 
 - **Code fields now read as text.** Roles (role1..role9: "CB Ball-Playing Defender++"), body type ("Tall and Lean"), emotion ("Ice Cold" .. "Volcano"), personality, growth profile, run style, skin tone, hair / facial hair / eye colours, accessories and their colours, jersey, socks and shorts styles are combos with Live Editor's own names (loc/eng_us/localize.json); long lists have a search box; the raw code is only in the tooltip. Appearance items without names read as a descriptor plus the id ("Long, curly, headband #233", "Boots #120").

@@ -10723,6 +10723,17 @@ static void test_player_capture() {
         p = plan_request(r2, &t);
         CHECK(!p.desc.flag64() && !p.desc.flag68() && p.desc.id() == 7501 && p.desc.second_id() == 5 && p.desc.i32(0x30) == 123456,
               "manager from a player template: " + describe_desc(p.desc));
+        // a template learned from the hub's portrait of the user's avatar (+0x64 0, +0x68 1) used for a PLAYER: the
+        // flags follow the request (seen live 2026-10-05: every player rendered as the avatar's bald default head)
+        Template av;
+        av.learned = true;
+        av.desc = default_desc(9999, 111592, false, true);
+        Request rp;
+        rp.id = 235212;
+        rp.second_id = 1;
+        p = plan_request(rp, &av);
+        CHECK(p.desc.flag64() && !p.desc.flag68() && p.desc.id() == 235212 && p.desc.second_id() == 1,
+              "player from the avatar template: " + describe_desc(p.desc));
     });
 
     run_case("player capture: the game's callback object (eastl::function shape)", [&] {

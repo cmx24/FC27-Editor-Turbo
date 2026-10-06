@@ -88,10 +88,10 @@ Plan plan_request(const Request& r, const Template* t) {
         p.desc = t->desc;
         p.desc.set_id(r.id);
         if (r.second_id >= 0) p.desc.set_second_id(r.second_id);
-        if (r.manager) {  // a template learned from a player request: make it a staff head
-            p.desc.set_flag64(false);
-            p.desc.set_flag68(avatar);
-        }
+        // the template may come from another kind of capture (live: the hub's portrait of the user's avatar, +0x68 = 1,
+        // which made the game draw that avatar's head for every id): the flags always follow this request
+        p.desc.set_flag64(!r.manager);
+        p.desc.set_flag68(avatar);
         p.note = "learned descriptor";
     } else {
         p.desc = default_desc(r.id, r.second_id, !r.manager, avatar);

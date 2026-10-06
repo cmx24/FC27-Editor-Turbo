@@ -468,7 +468,7 @@ static void tick_head3d(App& app) {
     req.second_id = h.teamid;
     req.manager = h.manager;
     req.camera = 0;  // portrait: the game's card / manager head framing
-    req.use_template = true;
+    req.use_template = false;  // the player / staff descriptor (verified live); the learned one may be the avatar portrait
     req.label = h.label;
     std::string err;
     if (svc->request(req, &err)) {

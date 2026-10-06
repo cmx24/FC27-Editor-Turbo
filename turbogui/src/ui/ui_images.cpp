@@ -1043,7 +1043,7 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
                     }
                     std::vector<int64_t> shown;
                     for (int64_t id : ids)
-                        if ((!fav_only || is_favourite(app, g.field, id)) && (!is_hair || hair_matches(hf, id))) shown.push_back(id);
+                        if (id != 0 && (!fav_only || is_favourite(app, g.field, id)) && (!is_hair || hair_matches(hf, id))) shown.push_back(id);
                     if (is_hair) ImGui::TextDisabled("%zu of %zu styles match", shown.size(), ids.size());
                     const float cell = S(100.0f);
                     ImGui::BeginChild("##ggrid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.5f), ImGuiChildFlags_Borders);
@@ -1067,6 +1067,7 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
                                 std::snprintf(bid, sizeof(bid), "%s%lld", g.field, static_cast<long long>(id));
                                 bool fav = id && is_favourite(app, g.field, id);
                                 std::string cap = id ? (fav ? "* " : "") + std::to_string(id) : std::string("None");
+                                if (is_hair && id) cap += std::string(" ") + hair::length_name(hair::lookup(id).length);
                                 if (picture_cell(app, id ? item_path(app, g, id, colour) : std::string(), true, cell, cap, bid, v.i == id, id == 0))
                                     picked = id;
                                 if (id && ImGui::IsItemClicked(ImGuiMouseButton_Right)) toggle_favourite(app, g.field, id);
