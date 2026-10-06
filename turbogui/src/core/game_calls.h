@@ -145,6 +145,11 @@ constexpr int32_t kCallOpPlayerCreate = 12;
 // SetTotalMorale, or count the stale morale records: args[0] = comm service, args[1] = code (1 very happy, 2 value, 3 count stale,
 // 9 check), args[2] = pid, args[3] = value; outputs: total read back (-2 = no record), level read back (code 3: stale count, records)
 constexpr int32_t kCallOpPlayerMorale = 13;
+// squad_role (core/squad_role.h): the PlayerStatusManager entry of one player of the user's club through the game's Find / AddPlayer /
+// Remove: args[0] = comm service, args[1] = code (1 set, 2 ensure entry with the game's own role, 3 count stale, 4 remove a stale entry,
+// 9 check), args[2] = pid, args[3] = role 1..5 (code 1); outputs: role read back (-2 = no entry, none created; code 3 stale count,
+// code 4 1 / 0 removed), how (codes 1 / 2: 0 written, 1 created, 2 unchanged) or the used entries (codes 3 / 4 / 9)
+constexpr int32_t kCallOpSquadRole = 14;
 // reveal player data (core/reveal.h): args = PlayerDataRevealManager (0 = the captured one), mode (0 player / 1 team),
 // player or team id, manager table (0 = skip the slot-78 cross-check); outputs = scouting points after the call
 // (player) or record count after (team), record count before

@@ -25,6 +25,13 @@
       "playstyles1": "max",
       "playstyles2": 1535,
       "events": ["DAY_PASSED", "USER_MATCH_COMPLETED", "USER_INTERNATIONAL_MATCH_COMPLETED", "ENTERED_HUB_FIRST_TIME", "POST_LOAD_PREPARE"]
+    },
+    "squad_role": {
+      "_help": "Squad roles again after each season reset (the game recomputes them then). rule age: Rotation from 19, Prospect below; rule role: rule_role (1..5) for everyone",
+      "enabled": false,
+      "rule": "age",
+      "rule_role": 3,
+      "events": ["SEASON_RESET"]
     }
   },
 
@@ -67,7 +74,7 @@
     "squad_role": {
       "_roles": "1 Crucial, 2 Important, 3 Rotation, 4 Sporadic, 5 Prospect",
       "role": 3,
-      "include_loaned_in": false,
+      "include_loaned_in": true,
       "use_memory": true
     },
     "team_jersey_numbers": {

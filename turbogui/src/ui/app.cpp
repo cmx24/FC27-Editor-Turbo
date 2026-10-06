@@ -669,13 +669,21 @@ void App::tick(double t) {
             // the development plan after the window's own edits (flush_plan_sync): logged; a toast only when it failed
             const bool plan_sync = pending_label.rfind("Development plan (", 0) == 0;
             const std::string text = pending_label + ": " + (result.empty() ? (ok ? "done" : "failed") : result);
+            // a result with per-player lines (squad roles) toasts its first line; the log keeps all of it and Teams > Mass
+            // actions shows all of it in place
+            const size_t nl = result.find('\n');
             if (plan_sync) {
                 plan_sync_status = time_stamp() + ": " + (ok ? "" : "FAILED: ") + (result.empty() ? std::string(ok ? "done" : "failed") : result);
                 if (ok) log(text);
                 else notify(text, true);
                 if (log_hook) log_hook("development plan: " + plan_sync_status);
             } else {
-                notify(text, !ok);
+                if (nl != std::string::npos) log(text);
+                notify(pending_label + ": " + (result.empty() ? (ok ? "done" : "failed")
+                                               : nl == std::string::npos ? result
+                                               : result.substr(0, nl) + (pending_label.rfind("Mass actions", 0) == 0 ? " (each player: under the Mass actions buttons)"
+                                                                                                                       : " (each player: turbo_output\\turbo_gui.log)")),
+                       !ok);
             }
             if (pending_label.rfind("Job offer", 0) == 0)  // Managers > Job offers shows the outcome in place
                 job_offer_status = (ok ? "" : "Failed: ") + (result.empty() ? std::string(ok ? "done" : "failed") : result);

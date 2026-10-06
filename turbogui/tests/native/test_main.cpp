@@ -60,6 +60,7 @@
 #include "core/player_move.h"
 #include "core/player_create.h"
 #include "core/player_morale.h"
+#include "core/squad_role.h"
 #include <array>
 #include "imgui.h"
 #include "imgui_impl_null.h"
@@ -9565,6 +9566,7 @@ struct FakeListGame : turbo::tl::Caller {
 #include "test_player_move.h"    // player_move: PlayerMoved / AddContractRecord / ReleasePlayer on a synthetic career (test_player_move)
 #include "test_player_create.h"  // player_create: the game INSERT, event 0x3A, InsertTeamPlayer, the op 11 move on a synthetic career
 #include "test_player_morale.h"  // player_morale: very happy through the game's level function, SetTotalMorale, count-only paths
+#include "test_squad_role.h"     // squad_role: the PlayerStatusManager table through the game's Find / AddPlayer / Remove
 
 static void test_transfer_list() {
     using namespace turbo;
@@ -12557,6 +12559,7 @@ int main(int argc, char** argv) {
     test_player_move();
     test_player_create();
     test_player_morale();
+    test_squad_role();
     std::printf("native Live Editor log\n");
     test_le_log();
     std::printf("native live standings\n");

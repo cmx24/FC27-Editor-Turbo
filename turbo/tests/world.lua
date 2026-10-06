@@ -488,4 +488,59 @@ function W.build(sim, opts)
     return W
 end
 
+-- A fake TurboSquadRole (Turbo.dll's squad_role call, op 14) over the FC 27 status table of W.build(sim, { fc27_status = true }),
+-- behaving like turbogui/src/core/squad_role.cpp: code 1 sets the role byte or creates {pid, role, 0, 0} at the end, code 2
+-- creates one with the game's own role (opts.game_role, default 4), code 4 removes the entry of a player not at the club, code 9
+-- reads; opts.off answers "off". Returns the function and the list of its calls {code, pid, role}.
+function W.fake_squad_role(s, opts)
+    opts = opts or {}
+    local calls = {}
+    local club = {}
+    for _, p in ipairs(W.USER_PLAYERS) do club[p] = true end
+    local function count() return s:r32(W.psm + 0x14) end
+    local function find(pid)
+        for i = 0, count() - 1 do if s:r32(W.status_begin + i * 8) == pid then return i end end
+        return nil
+    end
+    local f = function(code, pid, role)
+        calls[#calls + 1] = { code, pid, role }
+        if opts.off then return false, "squad_role: off (kill switch turbo_output\\call_squad_role_off.txt is present)", "off" end
+        local n = count()
+        if code == 9 then
+            local i = find(pid)
+            if not i then return true, "no entry", "ok", -2, n end
+            return true, "checked", "ok", s:r8(W.status_begin + i * 8 + 4), n
+        end
+        if code == 4 then
+            if club[pid] then return false, "player " .. pid .. " is at your club", "failed", -1, n end
+            local i = find(pid)
+            if not i then return true, "no entry", "ok", 0, n end
+            for j = i, 50 do
+                local a = W.status_begin + j * 8
+                s:w32(a, s:r32(a + 8)); s:w8(a + 4, s:r8(a + 12)); s:w8(a + 5, s:r8(a + 13)); s:w8(a + 6, s:r8(a + 14))
+            end
+            s:w32(W.status_begin + 51 * 8, -1); s:w8(W.status_begin + 51 * 8 + 4, 0xFF); s:w8(W.status_begin + 51 * 8 + 5, 0)
+            s:w32(W.psm + 0x14, n - 1)
+            return true, "removed", "ok", 1, n - 1
+        end
+        if not club[pid] then return false, "player " .. pid .. " is not in your club", "failed", -1, -1 end
+        local i = find(pid)
+        if i then
+            local a = W.status_begin + i * 8 + 4
+            local cur = s:r8(a)
+            if code == 2 or cur == role then return true, "unchanged", "ok", cur, 2 end
+            s:w8(a, role)
+            return true, "written", "ok", role, 0
+        end
+        if n >= 52 then return false, "the table is full", "failed", -2, -1 end
+        local e = W.status_begin + n * 8
+        local r = code == 2 and (opts.game_role or 4) or role
+        s:w32(e, pid); s:w8(e + 4, r); s:w8(e + 5, 0); s:w8(e + 6, 0)
+        s:w32(W.psm + 0x14, n + 1)
+        return true, "created", "ok", r, 1
+    end
+    return f, calls
+end
+
+
 return W
