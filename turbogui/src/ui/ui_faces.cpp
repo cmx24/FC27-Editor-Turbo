@@ -163,6 +163,13 @@ static bool copy_head(App& app, const Table& src, uint64_t src_rec, const Table&
     return true;
 }
 
+// Why the head owner's miniface could not be copied (it was asked from the game by the look-up: picking the face again
+// in a moment copies it)
+static std::string miniface_not_at_hand(LegacyImages::State st) {
+    return st == LegacyImages::State::Missing ? "the game has no miniface for him"
+                                              : "his miniface is still loading from the game: choose the face again in a moment";
+}
+
 bool apply_real_face(App& app, int64_t target_pid, int64_t owner_pid, const RealFaceOptions& o, std::string* msg) {
     const Table* t = app.db.table("players");
     const PlayerRow* target = app.model.player(target_pid);
@@ -187,7 +194,7 @@ bool apply_real_face(App& app, int64_t target_pid, int64_t owner_pid, const Real
                 note += "; miniface not copied (" + (err.empty() ? std::string("empty file") : err) + ")";
             }
         } else {
-            note += "; miniface not copied (the game's picture is not loaded yet)";
+            note += "; miniface not copied (" + miniface_not_at_hand(st) + ")";
         }
     }
     if (msg) *msg = note;
@@ -241,7 +248,7 @@ bool apply_real_face_to_manager(App& app, int64_t managerid, int64_t owner_id, b
                 note += "; miniface not copied (" + err + ")";
             }
         } else {
-            note += "; miniface not copied (the game's picture is not loaded yet)";
+            note += "; miniface not copied (" + miniface_not_at_hand(ls) + ")";
         }
     }
     if (msg) *msg = note;
@@ -818,6 +825,9 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
                 const ImVec2 cp = ImGui::GetCursorScreenPos();
                 if (has3d) {
                     if (face3d_cell(app, face3d_file(app, f->manager, rid), cell, f->name, bid)) picked = f;
+                    // the cell shows the 3D render, not the miniface: with "His miniface too" the miniface is asked from
+                    // the game all the same, so a click finds it at hand to copy
+                    if (ch.opts.miniface && !f->manager) app.legacy.locate(face_picture(*f), nullptr, false);
                 } else {
                     if (picture_cell(app, face_picture(*f), false, cell, f->name, bid, false)) picked = f;
                     if (use3d && rid > 0) {

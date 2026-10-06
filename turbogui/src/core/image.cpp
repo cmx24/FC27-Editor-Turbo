@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 
@@ -109,40 +110,94 @@ static uint8_t mask_value(uint32_t px, uint32_t m) {
     return uint8_t(max ? (v * 255 + max / 2) / max : 0);
 }
 
+// A FourCC as text ("ATI2"), or its hex value when it is not printable
+static std::string fourcc_text(uint32_t four) {
+    std::string s;
+    for (int i = 0; i < 4; ++i) {
+        const char c = char((four >> (8 * i)) & 0xFF);
+        if (c < 32 || c > 126) {
+            char b[16];
+            std::snprintf(b, sizeof(b), "0x%08X", four);
+            return b;
+        }
+        s += c;
+    }
+    return s;
+}
+
+// The DXGI formats a DX10 DDS may carry, by name (the ones Turbo does not decode say which they are)
+static std::string dxgi_text(uint32_t f) {
+    const char* n = nullptr;
+    switch (f) {
+        case 2: n = "R32G32B32A32_FLOAT"; break;
+        case 10: n = "R16G16B16A16_FLOAT"; break;
+        case 11: n = "R16G16B16A16_UNORM"; break;
+        case 24: n = "R10G10B10A2_UNORM"; break;
+        case 61: n = "R8_UNORM"; break;
+        case 80: case 81: n = "BC4"; break;
+        case 83: case 84: n = "BC5"; break;
+        case 85: n = "B5G6R5"; break;
+        case 86: n = "B5G5R5A1"; break;
+        case 94: case 95: case 96: n = "BC6H"; break;
+        case 97: case 98: case 99: n = "BC7"; break;
+        case 115: n = "B4G4R4A4"; break;
+        default: break;
+    }
+    return (n ? std::string(n) + " (DXGI " : std::string("DXGI format ")) + std::to_string(f) + (n ? ")" : "");
+}
+
 bool decode_dds(const std::vector<uint8_t>& d, Rgba& out, std::string* err) {
     if (d.size() < 128 || std::memcmp(d.data(), "DDS ", 4) != 0) return fail(err, "not a DDS file");
     const uint8_t* h = d.data() + 4;
     if (rd32(h) != 124) return fail(err, "DDS header size is not 124");
     int height = int(rd32(h + 8)), width = int(rd32(h + 12));
-    if (width <= 0 || height <= 0 || width > kMaxImageSide || height > kMaxImageSide) return fail(err, "DDS size out of range");
+    if (width <= 0 || height <= 0 || width > kMaxImageSide || height > kMaxImageSide) {
+        if (err) *err = "DDS size out of range (" + std::to_string(width) + " x " + std::to_string(height) + ")";
+        return false;
+    }
     const uint8_t* pf = h + 72;
     uint32_t pf_flags = rd32(pf + 4);
     uint32_t four = rd32(pf + 8);
     size_t off = 128;
     enum { NONE, BC1, BC2, BC3, RGBA32, BGRA32, MASKED } fmt = NONE;
+    const char* fmt_name = "";
     uint32_t bits = rd32(pf + 12), rm = rd32(pf + 16), gm = rd32(pf + 20), bm = rd32(pf + 24), am = rd32(pf + 28);
     if (pf_flags & 0x4) {
-        if (four == 0x31545844u) fmt = BC1;          // DXT1
-        else if (four == 0x32545844u || four == 0x33545844u) fmt = BC2;  // DXT2 / DXT3
-        else if (four == 0x34545844u || four == 0x35545844u) fmt = BC3;  // DXT4 / DXT5
-        else if (four == 0x30315844u) {                                  // DX10
+        if (four == 0x31545844u) fmt = BC1, fmt_name = "DXT1";
+        else if (four == 0x32545844u || four == 0x33545844u) fmt = BC2, fmt_name = "DXT3";  // DXT2 / DXT3
+        else if (four == 0x34545844u || four == 0x35545844u) fmt = BC3, fmt_name = "DXT5";  // DXT4 / DXT5
+        else if (four == 0x30315844u) {                                                      // DX10
             if (d.size() < 148) return fail(err, "DDS DX10 header is cut off");
             uint32_t dxgi = rd32(d.data() + 128);
             off = 148;
-            if (dxgi == 70 || dxgi == 71 || dxgi == 72) fmt = BC1;
-            else if (dxgi == 73 || dxgi == 74 || dxgi == 75) fmt = BC2;
-            else if (dxgi == 76 || dxgi == 77 || dxgi == 78) fmt = BC3;
-            else if (dxgi == 27 || dxgi == 28 || dxgi == 29) fmt = RGBA32;
-            else if (dxgi == 87 || dxgi == 88 || dxgi == 90 || dxgi == 91) fmt = BGRA32;
-            else return fail(err, "DDS DX10 format not supported (only BC1-BC3 and 8-bit RGBA)");
+            if (dxgi == 70 || dxgi == 71 || dxgi == 72) fmt = BC1, fmt_name = "BC1";
+            else if (dxgi == 73 || dxgi == 74 || dxgi == 75) fmt = BC2, fmt_name = "BC2";
+            else if (dxgi == 76 || dxgi == 77 || dxgi == 78) fmt = BC3, fmt_name = "BC3";
+            else if (dxgi == 27 || dxgi == 28 || dxgi == 29) fmt = RGBA32, fmt_name = "RGBA8";
+            else if (dxgi == 87 || dxgi == 88 || dxgi == 90 || dxgi == 91) fmt = BGRA32, fmt_name = "BGRA8";
+            else {
+                if (err) *err = "DDS DX10 format " + dxgi_text(dxgi) + " is not supported (Turbo reads BC1-BC3 and 8-bit RGBA / BGRA)";
+                return false;
+            }
         } else {
-            return fail(err, "DDS compression not supported (only DXT1, DXT3, DXT5)");
+            if (err) *err = "DDS compression " + fourcc_text(four) + " is not supported (Turbo reads DXT1, DXT3, DXT5)";
+            return false;
         }
     } else if ((pf_flags & 0x40) && (bits == 32 || bits == 24)) {
         fmt = MASKED;
+        fmt_name = bits == 32 ? "32-bit RGB" : "24-bit RGB";
     } else {
-        return fail(err, "DDS pixel format not supported");
+        char b[96];
+        std::snprintf(b, sizeof(b), "DDS pixel format not supported (flags 0x%X, %u bits per pixel)", pf_flags, bits);
+        return fail(err, b);
     }
+    // a file shorter than its top level: name what was expected (a copy still being written, or a broken file)
+    auto cut_off = [&](size_t need) {
+        if (err)
+            *err = "DDS data is cut off (" + std::to_string(width) + " x " + std::to_string(height) + " " + fmt_name + " needs " +
+                   std::to_string(need) + " bytes after the header, the file has " + std::to_string(d.size() - off) + ")";
+        return false;
+    };
     out.w = width;
     out.h = height;
     out.px.assign(size_t(width) * size_t(height) * 4, 0);
@@ -150,7 +205,7 @@ bool decode_dds(const std::vector<uint8_t>& d, Rgba& out, std::string* err) {
         int bw = (width + 3) / 4, bh = (height + 3) / 4;
         size_t bsize = fmt == BC1 ? 8 : 16;
         size_t need = size_t(bw) * size_t(bh) * bsize;
-        if (d.size() - off < need) return fail(err, "DDS data is cut off");
+        if (d.size() - off < need) return cut_off(need);
         const uint8_t* p = d.data() + off;
         uint8_t tex[16][4];
         for (int by = 0; by < bh; ++by) {
@@ -172,7 +227,7 @@ bool decode_dds(const std::vector<uint8_t>& d, Rgba& out, std::string* err) {
     }
     size_t bpp = (fmt == MASKED) ? bits / 8 : 4;
     size_t need = size_t(width) * size_t(height) * bpp;
-    if (d.size() - off < need) return fail(err, "DDS data is cut off");
+    if (d.size() - off < need) return cut_off(need);
     const uint8_t* p = d.data() + off;
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x, p += bpp) {

@@ -35,20 +35,45 @@ static const ImVec4 kGood(0.55f, 0.95f, 0.55f, 1.0f);
 static const char* kPlayerCaptureNoService = "not available: Turbo's game hooks are not running in this build";
 
 // ---------------------------------------------------------------- picture boxes
-static void placeholder(float side, const char* text) {
+// Eight dots turning around c: the picture is on its way (decoding, or asked from the game)
+static void spinner(ImDrawList* dl, ImVec2 c, float r) {
+    constexpr int kDots = 8;
+    const int lit = int(ImGui::GetTime() * 10.0) % kDots;
+    for (int i = 0; i < kDots; ++i) {
+        const float a = float(i) * 6.2831853f / float(kDots);
+        const int age = (lit - i + kDots) % kDots;  // 0 = the bright one, the tail fades
+        dl->AddCircleFilled(ImVec2(c.x + std::cos(a) * r, c.y + std::sin(a) * r), std::max(1.5f, r * 0.22f),
+                            ImGui::GetColorU32(ImGuiCol_Text, 1.0f - 0.11f * float(age)));
+    }
+}
+
+// Empty box with a word in it (and a spinner above it when busy; a small box shows the spinner only)
+static void placeholder(float side, const char* text, bool busy = false) {
     ImVec2 p = ImGui::GetCursorScreenPos();
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->AddRect(p, ImVec2(p.x + side, p.y + side), ImGui::GetColorU32(ImGuiCol_Border));
     ImVec2 ts = ImGui::CalcTextSize(text, nullptr, false, side - 4.0f);
     ImGui::Dummy(ImVec2(side, side));
-    dl->AddText(nullptr, 0.0f, ImVec2(p.x + (side - ts.x) * 0.5f, p.y + (side - ts.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_TextDisabled),
-                text, nullptr, side - 4.0f);
+    float ty = p.y + (side - ts.y) * 0.5f;
+    if (busy) {
+        const float r = std::min(side * 0.16f, ImGui::GetTextLineHeight() * 0.7f);
+        const float gap = r * 0.6f;
+        if (2.0f * r + gap + ts.y > side - 6.0f) {
+            spinner(dl, ImVec2(p.x + side * 0.5f, p.y + side * 0.5f), r);
+            return;
+        }
+        const float top = p.y + (side - (2.0f * r + gap + ts.y)) * 0.5f;
+        spinner(dl, ImVec2(p.x + side * 0.5f, top + r), r);
+        ty = top + 2.0f * r + gap;
+    }
+    dl->AddText(nullptr, 0.0f, ImVec2(p.x + (side - ts.x) * 0.5f, ty), ImGui::GetColorU32(ImGuiCol_TextDisabled), text, nullptr, side - 4.0f);
 }
 
 static void picture_in_box(const TextureCache::Pic& pic, float side) {
     if (!pic.tex || pic.w <= 0 || pic.h <= 0) {
-        placeholder(side, pic.failed ? "unreadable" : "...");
-        if (pic.failed && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", pic.error.c_str());
+        placeholder(side, pic.failed ? "unreadable" : "decoding", !pic.failed);
+        if (pic.failed && ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s\nTurbo reads it again in a moment.", pic.error.c_str());
         return;
     }
     float s = side / float(std::max(pic.w, pic.h));
@@ -59,23 +84,103 @@ static void picture_in_box(const TextureCache::Pic& pic, float side) {
     ImGui::GetWindowDrawList()->AddImage(pic.tex->GetTexRef(), a, ImVec2(a.x + sz.x, a.y + sz.y));
 }
 
-bool draw_file_picture(App& app, const fs::path& f, float side) {
+static TextureCache::Pic file_picture(App& app, const fs::path& f, float side) {
     TextureCache::Pic pic = app.textures.file(f, int(std::ceil(side)));
     picture_in_box(pic, side);
-    return pic.tex != nullptr;
+    if (pic.failed) {
+        // once per file and reason in turbo_gui.log: a box that shows no picture leaves a trace
+        static std::unordered_set<std::string> logged;
+        const std::string line = "picture unreadable: " + f.string() + ": " + pic.error;
+        if (logged.size() < 500 && logged.insert(line).second) {
+            app.log(line);
+            if (app.log_hook) app.log_hook(line);
+        }
+    }
+    return pic;
 }
 
-LegacyImages::State draw_legacy_picture(App& app, const std::string& path, float side, bool custom_first) {
+bool draw_file_picture(App& app, const fs::path& f, float side) { return file_picture(app, f, side).tex != nullptr; }
+
+// Tooltip / status words for a game picture that is still asked for
+static std::string waiting_words(App& app, const PictureInfo& pi) {
+    char buf[480];
+    if (pi.stalled) {
+        std::string lua = app.legacy.lua_status().empty() ? std::string("no status yet") : app.legacy.lua_status();
+        std::snprintf(buf, sizeof(buf),
+                      "No answer from the game for %.0f s. Turbo's Lua side exports the game's pictures while a career is loaded "
+                      "(Lua: %s). Reload asks again; lua\\scripts\\turbo_images.lua in Live Editor's Lua Engine exports at once.",
+                      std::max(0.0, pi.waiting), lua.c_str());
+    } else {
+        std::snprintf(buf, sizeof(buf), "Loading from the game... %.0f s", std::max(0.0, pi.waiting));
+    }
+    return buf;
+}
+
+LegacyImages::State draw_legacy_picture(App& app, const std::string& path, float side, bool custom_first, PictureInfo* info) {
     fs::path f;
-    LegacyImages::State st = app.legacy.locate(path, &f, custom_first);
-    switch (st) {
+    PictureInfo pi;
+    pi.state = app.legacy.locate(path, &f, custom_first);
+    switch (pi.state) {
         case LegacyImages::State::Custom:
-        case LegacyImages::State::Game: draw_file_picture(app, f, side); break;
-        case LegacyImages::State::Waiting: placeholder(side, "..."); break;
-        case LegacyImages::State::Missing: placeholder(side, "no picture"); break;
+        case LegacyImages::State::Game: {
+            pi.file = f;
+            TextureCache::Pic pic = file_picture(app, f, side);
+            pi.drawn = pic.tex != nullptr;
+            pi.failed = pic.failed;
+            pi.error = pic.error;
+            break;
+        }
+        case LegacyImages::State::Waiting:
+            pi.waiting = app.legacy.waiting_for(path);
+            pi.stalled = app.legacy.stalled();
+            placeholder(side, pi.stalled ? "no answer" : "loading", !pi.stalled);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\n%s", path.c_str(), waiting_words(app, pi).c_str());
+            break;
+        case LegacyImages::State::Missing:
+            placeholder(side, "no picture");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("The game has no %s (Turbo's Lua side found none)", path.c_str());
+            break;
         default: placeholder(side, "?"); break;
     }
-    return st;
+    if (info) *info = pi;
+    return pi.state;
+}
+
+std::string picture_status_line(App& app, const PictureInfo& pi, const char* what, bool* warn) {
+    bool w = false;
+    std::string s;
+    switch (pi.state) {
+        case LegacyImages::State::Custom:
+        case LegacyImages::State::Game:
+            if (pi.failed) {
+                w = true;
+                s = "Unreadable " + std::string(pi.state == LegacyImages::State::Custom ? "custom file " : "copy of the game's file ") +
+                    pi.file.filename().string() + ": " + pi.error + ". Turbo reads it again in a moment; Reload reads it now.";
+            } else if (!pi.drawn) {
+                s = "Decoding...";
+            } else {
+                s = pi.state == LegacyImages::State::Custom ? "Custom (mods\\legacy)" : "The game's own";
+            }
+            break;
+        case LegacyImages::State::Waiting:
+            w = pi.stalled;
+            s = waiting_words(app, pi);
+            break;
+        case LegacyImages::State::Missing: s = std::string("The game has no ") + what + " (Reload asks again)"; break;
+        default:
+            w = true;
+            s = "Invalid picture path";
+            break;
+    }
+    if (warn) *warn = w;
+    return s;
+}
+
+void reload_picture(App& app, const std::string& path, const PictureInfo& pi) {
+    const fs::path custom = app.legacy.custom_file(path);
+    if (!custom.empty()) app.textures.forget(custom);
+    app.textures.forget(app.legacy.cache_file(path));
+    if (pi.state != LegacyImages::State::Custom) app.legacy.reload(path);
 }
 
 // "" = an item the game has no picture for (GearPictureIndex): final at once, nothing asked from the game
@@ -166,6 +271,7 @@ struct MinifaceEditor {
     std::string source_label;
     std::string pending_legacy;  // game picture being waited for as the source
     std::string pending_label;
+    bool pending_custom_first = true;  // the source is the custom file when there is one (false: the game's own)
     Framing fr;
     bool remove_bg = false;
     int tolerance = 40;
@@ -196,6 +302,7 @@ static void set_source(MinifaceEditor& ed, Rgba img, const std::string& label) {
     ed.source_label = label;
     ed.fr = Framing();
     ed.pending_legacy.clear();
+    ed.pending_custom_first = true;
     ed.error.clear();
     ++ed.source_version;
     ++ed.version;
@@ -340,6 +447,7 @@ static void source_from_legacy(App& app, MinifaceEditor& ed, const std::string& 
         case LegacyImages::State::Waiting:
             ed.pending_legacy = path;
             ed.pending_label = label;
+            ed.pending_custom_first = custom_first;
             ed.error.clear();
             break;
         case LegacyImages::State::Missing: ed.error = label + ": the game has no such picture"; break;
@@ -393,11 +501,21 @@ static int64_t player_chooser(App& app, char* search, size_t search_size, const 
 void miniface_editor(App& app, const MinifaceTarget& t) {
     MinifaceEditor& ed = t.manager ? g_manager_ed : g_player_ed;
     const int size = t.manager ? kStaffMinifaceSize : kPlayerMinifaceSize;
+    const char* preview_key = t.manager ? "mf_manager" : "mf_player";
     if (ed.target != t.path) {
+        // a 3D render still asked for the previous player: nobody would collect it, so the service stayed busy (Generate
+        // greyed out for this player, the face chooser's 3D heads stopped) until Cancel was pressed
+        if (ed.capture_pending) {
+            if (app.capture) app.capture->cancel();
+            if (g_capture_result_ready && g_capture_result.id == ed.capture_pending_id) g_capture_result_ready = false;
+        }
         std::string keep_dir = ed.browse_dir.string();
         ed = MinifaceEditor();
         ed.target = t.path;
         ed.browse_dir = keep_dir;
+        // the previous player's New preview: the version numbers start again with the editor, so the same number would
+        // show his picture (a 3D render or file chosen for the next player looked like it never arrived)
+        app.textures.forget_pixels(preview_key);
     }
     if (ed.browse_dir.empty()) ed.browse_dir = app.bridge.root() / "turbo_minifaces";
     g_minifaces_folder = app.bridge.root() / "turbo_minifaces";
@@ -408,7 +526,7 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
     // waiting for a game picture chosen as the source
     if (!ed.pending_legacy.empty()) {
         fs::path f;
-        LegacyImages::State st = app.legacy.locate(ed.pending_legacy, &f, true);
+        LegacyImages::State st = app.legacy.locate(ed.pending_legacy, &f, ed.pending_custom_first);
         if (st == LegacyImages::State::Game || st == LegacyImages::State::Custom) {
             std::string lbl = ed.pending_label;
             load_source_file(ed, f, lbl);
@@ -418,18 +536,26 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
         }
     }
 
-    // ---- current miniface
+    // ---- current miniface: the picture, what it is (or why there is none), Reload
     const float big = S(150.0f);
     ImGui::BeginGroup();
     ImGui::TextUnformatted("Now");
-    LegacyImages::State now_state = draw_legacy_picture(app, t.path, big, true);
-    switch (now_state) {
-        case LegacyImages::State::Custom: ImGui::TextColored(kGood, "Custom (mods\\legacy)"); break;
-        case LegacyImages::State::Game: ImGui::TextDisabled("The game's own"); break;
-        case LegacyImages::State::Waiting: ImGui::TextDisabled("Loading from the game..."); break;
-        case LegacyImages::State::Missing: ImGui::TextDisabled("the game has no miniface"); break;
-        default: break;
+    PictureInfo now;
+    LegacyImages::State now_state = draw_legacy_picture(app, t.path, big, true, &now);
+    {
+        bool warn = false;
+        const std::string line = picture_status_line(app, now, "miniface", &warn);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + big);
+        if (warn) ImGui::TextColored(kWarn, "%s", line.c_str());
+        else if (now_state == LegacyImages::State::Custom && now.drawn) ImGui::TextColored(kGood, "%s", line.c_str());
+        else ImGui::TextDisabled("%s", line.c_str());
+        ImGui::PopTextWrapPos();
     }
+    if (ImGui::SmallButton("Reload##mfnow")) reload_picture(app, t.path, now);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", now_state == LegacyImages::State::Custom
+                                    ? "Read the custom file again"
+                                    : "Ask the game for its picture again (the cached copy is dropped and exported anew)");
     ImGui::EndGroup();
     ImGui::SameLine(0, S(24.0f));
 
@@ -438,9 +564,10 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
     ImGui::BeginGroup();
     ImGui::TextUnformatted("New");
     if (ed.source.empty()) {
-        placeholder(big, ed.pending_legacy.empty() ? "choose a picture" : "loading...");
+        if (ed.pending_legacy.empty()) placeholder(big, "choose a picture");
+        else placeholder(big, app.legacy.stalled() ? "no answer" : "loading", !app.legacy.stalled());
     } else {
-        TextureCache::Pic pic = app.textures.pixels(t.manager ? "mf_manager" : "mf_player", ed.built, ed.result);
+        TextureCache::Pic pic = app.textures.pixels(preview_key, ed.built, ed.result);
         ImVec2 p0 = ImGui::GetCursorScreenPos();
         // chequerboard so transparent parts are visible
         ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -514,6 +641,10 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
             std::string err;
             if (app.legacy.remove_custom(t.path, &err)) {
                 app.textures.forget(old);
+                // the cached "game's own" may be the custom file itself (Live Editor exports what the game loads): the
+                // game's picture is exported again
+                app.textures.forget(app.legacy.cache_file(t.path));
+                app.legacy.reload(t.path);
                 app.notify("Custom miniface removed; the game's own is used again");
             } else {
                 app.notify("miniface: " + err, true);
@@ -528,8 +659,17 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
 
     if (!ed.error.empty()) ImGui::TextColored(kWarn, "%s", ed.error.c_str());
     if (!ed.pending_legacy.empty()) {
+        PictureInfo src;
+        src.state = LegacyImages::State::Waiting;
+        src.waiting = app.legacy.waiting_for(ed.pending_legacy);
+        src.stalled = app.legacy.stalled();
         ImGui::TextColored(kWarn, "Waiting for the game's picture: %s", ed.pending_label.c_str());
-        waiting_hint();
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Reload##mfsrc")) app.legacy.reload(ed.pending_legacy);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Cancel##mfsrc")) ed.pending_legacy.clear();
+        ImGui::TextWrapped("%s", picture_status_line(app, src, "picture").c_str());
+        if (!src.stalled) waiting_hint();
     }
 
     // ---- sources
@@ -1110,6 +1250,9 @@ void images_status(App& app) {
     ImGui::Text("Cached: %zu pictures in %s", app.legacy.cached_files(), app.legacy.cache_dir().string().c_str());
     ImGui::Text("Waiting: %zu   Not in the game: %zu   Shown now: %zu", app.legacy.waiting(), app.legacy.missing_count(), app.textures.size());
     if (!app.legacy.lua_status().empty()) ImGui::TextDisabled("Turbo's Lua side: %s", app.legacy.lua_status().c_str());
+    if (app.legacy.stalled())
+        ImGui::TextColored(kWarn, "%zu pictures asked on screen got no answer from Turbo's Lua side for %.0f s (is a career loaded?)",
+                           app.legacy.waiting_on_screen(), LegacyImages::kStallSeconds);
     if (ImGui::Button("Empty the cache")) {
         std::string err;
         app.textures.clear();

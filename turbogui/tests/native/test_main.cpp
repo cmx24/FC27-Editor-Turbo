@@ -2657,6 +2657,7 @@ struct FakeCapture : capture::CaptureService {
     }
     const capture::Template* learned() override { return nullptr; }
 };
+#include "test_miniface_show.h"  // 1.2.5: minifaces that did not show up (Lua prompted, Reload, retries, reasons; after FakeCapture)
 
 // ---------------------------------------------------------------- live standings (FCE DataManager) on synthetic memory
 namespace {
@@ -4759,6 +4760,8 @@ static void test_ui() {
             CHECK(load_image_file(out, img) && img.w == 512 && img.h == 512, "512 x 512 heads_staff_7501.dds from the capture");
             app.capture.reset();
         });
+
+        ui_cases_miniface_show(app, ui, le);  // test_miniface_show.h
 
         run_case("UI: game pictures through Turbo's Lua side, real-face picker, tattoo picker", [&] {
             // the simulated game has minifaces for the real faces and two tattoo previews
@@ -12074,6 +12077,7 @@ int main(int argc, char** argv) {
     test_gear_pictures();
     test_hair_catalog();
     test_face3d_looks();
+    test_miniface_show();
     std::printf("native mouse wheel source\n");
     test_wheel_sources();
     std::printf("native club customisation and career settings\n");
