@@ -8,6 +8,7 @@
 
 #include "app.h"
 #include "core/field_labels.h"
+#include "core/hair_catalog.h"
 #include "imgui.h"
 
 namespace turbo {
@@ -287,6 +288,11 @@ static std::string code_text(const std::string& field, int64_t v) {
         if (const char* l = enum_label(field, v)) return l;
         char b[48];
         std::snprintf(b, sizeof(b), "Unknown (code %lld)", static_cast<long long>(v));
+        return b;
+    }
+    if (field == "hairtypecode") {  // the hair catalog's look ("Long, curly, headband") from the game's preview pictures
+        char b[96];
+        std::snprintf(b, sizeof(b), "%s #%lld", hair::describe(hair::lookup(v)).c_str(), static_cast<long long>(v));
         return b;
     }
     return labels::code_text(field, v, field_label(field));
