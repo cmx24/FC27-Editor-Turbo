@@ -328,6 +328,7 @@ namespace {
 struct Head3d {
     bool manager = false;
     int32_t id = 0;  // playerid, or the head id for a manager head (what the game renders)
+    int32_t teamid = -1;  // the club, passed as the capture's second id like the Miniface editor does (-1 = none)
     std::string label;
 };
 struct Render3d {
@@ -378,6 +379,11 @@ static void queue_head3d(App& app, const Face& f, bool front) {
     Head3d h;
     h.manager = f.manager;
     h.id = static_cast<int32_t>(id);
+    if (f.manager) {
+        if (const ManagerRow* m = find_manager(app, f.id); m && m->teamid > 0) h.teamid = static_cast<int32_t>(m->teamid);
+    } else if (const PlayerRow* pr = app.model.player(f.id); pr && pr->club > 0) {
+        h.teamid = static_cast<int32_t>(pr->club);
+    }
     h.label = f.name;
     if (front) g_r3d.queue.push_front(h);
     else g_r3d.queue.push_back(h);
@@ -459,6 +465,7 @@ static void tick_head3d(App& app) {
     }
     capture::Request req;
     req.id = h.id;
+    req.second_id = h.teamid;
     req.manager = h.manager;
     req.camera = 0;  // portrait: the game's card / manager head framing
     req.use_template = true;
