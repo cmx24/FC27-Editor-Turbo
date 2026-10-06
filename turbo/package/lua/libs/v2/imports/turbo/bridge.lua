@@ -566,6 +566,43 @@ end
 -- seconds of image exports per synthetic event (career-mode events keep a quarter of a second)
 M.IMAGE_SLICE_SYNTHETIC = 0.08
 
+-- Match crash guard (features/squad_role.lua repair_entries): every player of your club needs a PlayerStatusManager entry
+-- or the game's match load reads a null entry. Checked at each career load and on the days / match build-up after it,
+-- until the table is complete; cheap when nothing is missing. Off with turbo_output\squad_status_repair_off.txt.
+M.STATUS_REPAIR_EVENTS = { "POST_LOAD_PREPARE", "ENTERED_HUB_FIRST_TIME", "DAY_PASSED", "ABOUT_TO_ENTER_PREMATCH" }
+
+local function status_repair_ids()
+    if S.status_repair_ids then return S.status_repair_ids end
+    S.status_repair_ids = (require 'imports/turbo/core/events').resolve_set(M.STATUS_REPAIR_EVENTS)
+    return S.status_repair_ids
+end
+
+function M.repair_squad_status()
+    local root = env.le_root()
+    if root and util.file_exists(util.join(util.join(root, "turbo_output"), "squad_status_repair_off.txt")) then return nil, "off" end
+    local role = require 'imports/turbo/features/squad_role'
+    -- the role by age reads the players table: only built when a player is missing an entry
+    local by_age = nil
+    local function role_of(pid)
+        if by_age == nil then
+            local ok, f = pcall(function()
+                return (require 'imports/turbo/features/team_mass').role_by_age(role.club_players(game.user_team_id()))
+            end)
+            by_age = ok and f or false
+        end
+        return by_age and by_age(pid) or nil
+    end
+    local added, text = role.repair_entries(role_of, false)
+    -- logged when something was added or the reason changes (not on every day)
+    if added and added > 0 then
+        log.info("match crash guard: %s", text)
+    elseif text ~= S.status_repair_last then
+        log.info("match crash guard: %s", tostring(text))
+    end
+    S.status_repair_last = text
+    return added, text
+end
+
 function M.on_career_event(event_id)
     if (require 'imports/turbo/core/events').is_synthetic(event_id) then return on_synthetic_event() end
     if S.autoload_pending then
@@ -578,6 +615,10 @@ function M.on_career_event(event_id)
     if not S.meta_written then try_write_meta(false) end
     local reload = reload_ids()[event_id] == true
     if reload or not S.names_count then try_write_names() end
+    if status_repair_ids()[event_id] then
+        local okq, qerr = pcall(M.repair_squad_status)
+        if not okq then log.warn("match crash guard: %s", tostring(qerr)) end
+    end
     -- (write_state also connects the mailbox on the way, through core/mem.lua's map lookup)
     local okw, werr = pcall(M.write_state, false, reload, reload)
     if not okw then log.warn("bridge state: %s", tostring(werr)) end

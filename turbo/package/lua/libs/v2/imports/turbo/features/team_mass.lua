@@ -215,26 +215,33 @@ local function action_morale(ctx, pids, teamid)
     return fail_n == 0, text .. note
 end
 
-local function action_squad_roles(ctx, pids, teamid)
-    if teamid ~= game.user_team_id() then
-        return false, "squad roles exist for your own club only (the game keeps none for other clubs)"
-    end
-    local role = require 'imports/turbo/features/squad_role'
+-- role_of(pid) for the players `pids` ({[pid] = true}): Rotation from M.ADULT_AGE, Prospect below, nil when his age is not
+-- known. Also used by squad_role.repair_entries (the bridge's crash guard). Returns nil, reason without a date / players table.
+function M.role_by_age(pids)
     local ptbl = db.get_table("players")
-    if not ptbl then return false, "players table not found" end
+    if not ptbl then return nil, "players table not found" end
     local today = moves.today_days and moves.today_days() or nil
     if not today then
         local d = game.current_date()
         today = d and d.year and util.gregorian_days_from_date(d.year, d.month, d.day) or nil
     end
-    if not today then return false, "current in-game date not available" end
+    if not today then return nil, "current in-game date not available" end
     local recs = player_records(ptbl, pids)
-    local function role_of(pid)
+    return function(pid)
         local prec = recs[pid]
         local age = prec and age_of(prec, ptbl, today) or nil
         if not age then return nil end
         return age >= M.ADULT_AGE and M.ROLE_ROTATION or M.ROLE_PROSPECT
     end
+end
+
+local function action_squad_roles(ctx, pids, teamid)
+    if teamid ~= game.user_team_id() then
+        return false, "squad roles exist for your own club only (the game keeps none for other clubs)"
+    end
+    local role = require 'imports/turbo/features/squad_role'
+    local role_of, rerr = M.role_by_age(pids)
+    if not role_of then return false, rerr end
     local sub = { cfg = { include_loaned_in = false, use_memory = true }, dry = ctx.dry, out_dir = ctx.out_dir, all = ctx.all }
     local ok, summary = role.apply(sub, role_of, string.format("Rotation for age %d+, Prospect below", M.ADULT_AGE))
     return ok, summary

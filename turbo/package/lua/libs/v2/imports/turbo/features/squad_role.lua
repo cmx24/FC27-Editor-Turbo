@@ -93,6 +93,152 @@ local function loaned_in(squad, user_team)
     return out
 end
 
+-- ---------------------------------------------------------------- missing entries (match crash guard)
+-- FC 27's PlayerStatusManager keeps one entry per player of your club (docs/re/player_status_roles.md section 3): +0x10
+-- int32 team, +0x14 int32 used count, +0x18 begin of 52 fixed slots of {int32 pid, int8 role, u8 wasPromised,
+-- u8 renewalDismissed} (+0x20 / +0x28 = begin + 0x1A0), used entries first, empties {-1, 0xFF, 0, 0}. The game adds an
+-- entry when a player joins (event 0x5F); players Turbo linked to the club through the database (created players, the
+-- database moves before 1.2.0) never got one. The game's match code reads Find(pid)->role without a null check
+-- (FC27.exe+0x7FCCDF0, seen in a crash dump 2026-10-05 22:50: the match load died on such a player), and the mass
+-- action had no entry to write for them. repair_entries adds the missing entries the way the game's AddEntry +
+-- AddPlayer do (section 7.2, memory path): the entry first, then the count.
+M.PSM = { team = 0x10, count = 0x14, begin = 0x18, finish = 0x20, cap = 0x28, slots = 52, size = 8 }
+
+-- The validated table: { mgr, begin, count, pids = {[pid] = index} } or nil, reason. Nothing is trusted that the
+-- section 7.2 checks do not confirm.
+function M.psm_state(user_team)
+    if type(ENUM_FCEGameModesFCECareerModePlayerStatusManager) ~= "number" then
+        pcall(require, 'imports/career_mode/enums')
+    end
+    local mgr = mem.manager(ENUM_FCEGameModesFCECareerModePlayerStatusManager)
+    if not mgr then return nil, "PlayerStatusManager not found" end
+    local P = M.PSM
+    local team, count = mem.int(mgr + P.team), mem.int(mgr + P.count)
+    if not team or team <= 0 or team ~= user_team then
+        return nil, string.format("PlayerStatusManager is not set up for your club yet (team %s, your club %s)", tostring(team), tostring(user_team))
+    end
+    if not count or count < 0 or count > P.slots then return nil, "PlayerStatusManager count " .. tostring(count) .. " is out of range" end
+    local b, fin, cap = mem.ptr(mgr + P.begin), mem.ptr(mgr + P.finish), mem.ptr(mgr + P.cap)
+    local span = P.slots * P.size
+    if not b or fin ~= b + span or cap ~= b + span or not mem.readable(b, span) then
+        return nil, "PlayerStatusManager entries do not have the FC 27 layout (52 slots of 8 bytes)"
+    end
+    local pids = {}
+    for i = 0, P.slots - 1 do
+        local e = b + i * P.size
+        local pid, role = mem.int(e), mem.byte(e + 4)
+        if i < count then
+            if not pid or pid <= 0 or pids[pid] then return nil, string.format("PlayerStatusManager entry %d is not a player (%s)", i, tostring(pid)) end
+            if not role or not ((role >= 1 and role <= 5) or role == 0xFF) then
+                return nil, string.format("PlayerStatusManager entry %d has role %s", i, tostring(role))
+            end
+            pids[pid] = i
+        elseif pid ~= -1 then
+            return nil, string.format("PlayerStatusManager slot %d after the used ones is not empty", i)
+        end
+    end
+    return { mgr = mgr, begin = b, count = count, pids = pids }
+end
+
+-- Every player linked to your club in teamplayerlinks (loaned-in players too: the game gives them an entry when they
+-- join), plus the team sheet's players. Returns {[pid] = true}, count
+function M.club_players(user_team)
+    local out, n = {}, 0
+    local links = db.get_table("teamplayerlinks")
+    if links and db.has_fields(links, { "teamid", "playerid" }) then
+        for rec in db.records(links) do
+            if links:GetRecordFieldValue(rec, "teamid") == user_team then
+                local pid = links:GetRecordFieldValue(rec, "playerid")
+                if pid and pid > 0 and not out[pid] then out[pid] = true; n = n + 1 end
+            end
+        end
+    end
+    local squad = game.user_squad()
+    for pid in pairs(squad) do
+        if not out[pid] then out[pid] = true; n = n + 1 end
+    end
+    return out, n
+end
+
+-- Players your club has lent out (playerloans.teamidloanedfrom = your club): {[pid] = true}; their entries are kept
+function M.loaned_out(user_team)
+    local out = {}
+    local loans = db.get_table("playerloans")
+    if not loans or not db.has_fields(loans, { "playerid", "teamidloanedfrom" }) then return out end
+    for rec in db.records(loans) do
+        if loans:GetRecordFieldValue(rec, "teamidloanedfrom") == user_team then out[loans:GetRecordFieldValue(rec, "playerid")] = true end
+    end
+    return out
+end
+
+-- Adds an entry for each player of your club who has none. role_of(pid) -> 1..5 (nil or out of range = Rotation 3).
+-- Returns added (number), summary, missing_left (number); added = nil with the reason when nothing could be checked.
+function M.repair_entries(role_of, dry)
+    if not mem.map_available() then return nil, mem.NO_MAP end
+    local user_team = game.user_team_id()
+    if not user_team or user_team <= 0 then return nil, "user team not found" end
+    local st, err = M.psm_state(user_team)
+    if not st then return nil, err end
+    local club, n = M.club_players(user_team)
+    local missing = {}
+    for pid in pairs(club) do
+        if not st.pids[pid] then missing[#missing + 1] = pid end
+    end
+    table.sort(missing)
+    if #missing == 0 then return 0, string.format("all %d players of your club have a squad status entry", n), 0 end
+    local P = M.PSM
+    -- no room: entries of players who are no longer at your club (and not out on loan from it) go first, the way the
+    -- game's Remove (0x147D90C80) does it: the entries after it move down one slot, an empty one goes last, count - 1
+    local removed = 0
+    if st.count + #missing > P.slots then
+        local lent = M.loaned_out(user_team)
+        local i = 0
+        while i < st.count and st.count + #missing > P.slots do
+            local e = st.begin + i * P.size
+            local pid = mem.int(e)
+            if pid and not club[pid] and not lent[pid] then
+                if not dry then
+                    for j = i, st.count - 2 do
+                        MEMORY:WriteBytes(st.begin + j * P.size, MEMORY:ReadBytes(st.begin + (j + 1) * P.size, P.size))
+                    end
+                    local last = st.begin + (st.count - 1) * P.size
+                    MEMORY:WriteInt(last, -1)
+                    MEMORY:WriteBytes(last + 4, { 0xFF, 0, 0 })
+                    MEMORY:WriteInt(st.mgr + P.count, st.count - 1)
+                end
+                st.count = st.count - 1
+                removed = removed + 1
+            else
+                i = i + 1
+            end
+        end
+    end
+    local added, names = 0, {}
+    for _, pid in ipairs(missing) do
+        if st.count >= P.slots then break end
+        local role = role_of and role_of(pid) or nil
+        if math.type(role) ~= "integer" or role < 1 or role > 5 then role = 3 end
+        local e = st.begin + st.count * P.size
+        if not dry then
+            MEMORY:WriteInt(e, pid)
+            MEMORY:WriteBytes(e + 4, { role, 0, 0 })
+            if mem.int(e) ~= pid then return added, string.format("squad status entry for player %d did not read back", pid), #missing - added end
+            MEMORY:WriteInt(st.mgr + P.count, st.count + 1)
+        end
+        st.count = st.count + 1
+        st.pids[pid] = st.count - 1
+        added = added + 1
+        names[#names + 1] = string.format("%d (role %d)", pid, role)
+    end
+    local left = #missing - added
+    local text = string.format("squad status entries added for %d of %d players without one: %s", added, #missing, table.concat(names, ", "))
+    if removed > 0 then text = text .. string.format(" (%d entries of players no longer at your club removed to make room)", removed) end
+    if left > 0 then
+        text = text .. string.format("; %d left out: the game's table is full (%d slots, entries of players who left stay until the game removes them)", left, P.slots)
+    end
+    return added, (dry and "[DRY RUN] " or "") .. text, left
+end
+
 function M.run(ctx)
     local role = util.to_int(ctx.cfg.role)
     if not role or role < 1 or role > 5 then return false, "role must be 1 (Crucial) .. 5 (Prospect)" end
@@ -134,6 +280,12 @@ function M.apply(ctx, role_of, label)
     local layout, lerr = nil, "memory pass disabled (use_memory = false)"
     if ctx.cfg.use_memory ~= false then
         if mem.map_available() then
+            -- players of your club without an entry get one first, with the role asked for (FC 27 layout only)
+            local added, rtext, left = M.repair_entries(function(pid) return not skip[pid] and role_of(pid) or nil end, ctx.dry)
+            if added and (added > 0 or (left or 0) > 0) then
+                parts[#parts + 1] = rtext
+                wrote_any = wrote_any or added > 0
+            end
             layout, lerr = M.locate(squad, count, calib.get(ctx.out_dir, "squad_role"))
         else
             lerr = mem.NO_MAP

@@ -287,10 +287,36 @@ function W.build(sim, opts)
 
     -- PlayerStatusManager role vector
     local psm = sim:add_manager(87, 0x400)
-    -- noise: a vector of unrelated ids at +0x08
-    local nb = sim:make_vector(psm + 0x08, 30, 8)
-    for i = 0, 29 do sim:w32(nb + i * 8, 5000 + i) sim:w32(nb + i * 8 + 4, 1) end
+    W.psm = psm
     W.role_entries = {}
+    if opts.fc27_status then
+        -- FC 27 layout (docs/re/player_status_roles.md 3.1): +0x10 team, +0x14 used count, +0x18/+0x20/+0x28 = 52 fixed
+        -- slots of {int32 pid, int8 role, u8 promised, u8 dismissed}; the players in opts.status_missing have no entry
+        local b = sim:alloc(52 * 8, 16)
+        local missing = {}
+        for _, p in ipairs(opts.status_missing or {}) do missing[p] = true end
+        local n = 0
+        for _, p in ipairs(opts.status_extra or {}) do   -- entries of players who left the club (stale)
+            sim:w32(b + n * 8, p); sim:w8(b + n * 8 + 4, 2); sim:w8(b + n * 8 + 5, 1); n = n + 1
+        end
+        for _, p in ipairs(W.USER_PLAYERS) do
+            if not missing[p] then
+                sim:w32(b + n * 8, p); sim:w8(b + n * 8 + 4, 3); sim:w8(b + n * 8 + 5, 1)
+                W.role_entries[p] = b + n * 8 + 4
+                n = n + 1
+            end
+        end
+        for i = n, 51 do sim:w32(b + i * 8, -1); sim:w8(b + i * 8 + 4, 0xFF) end
+        sim:w32(psm + 0x10, opts.status_team or W.USER_TEAM)
+        sim:w32(psm + 0x14, n)
+        sim:w64(psm + 0x18, b); sim:w64(psm + 0x20, b + 0x1A0); sim:w64(psm + 0x28, b + 0x1A0)
+        W.status_begin = b
+        opts.role_vec_off = false
+    else
+        -- noise: a vector of unrelated ids at +0x08
+        local nb = sim:make_vector(psm + 0x08, 30, 8)
+        for i = 0, 29 do sim:w32(nb + i * 8, 5000 + i) sim:w32(nb + i * 8 + 4, 1) end
+    end
     if opts.role_vec_off ~= false then
         local off = opts.role_vec_off or 0x18
         local stride = opts.role_stride or 8
