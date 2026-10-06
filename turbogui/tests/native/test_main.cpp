@@ -4950,7 +4950,7 @@ static void test_ui() {
                   "filters of the fields the manager table has");
             CHECK(ui.click("Skin tone: Any##facet1", "Choose a real face##mgr"), "skin filter");
             ui.frames(2);
-            CHECK(ui.click("Light (1)##v2"), "Light (skin 30): Arteta");
+            CHECK(ui.click("Caucasian 3 (1)##v30"), "exact skin tone Caucasian 3 (skin 30): Arteta");
             ui.frames(2);
             CHECK(ui.find("mface501", "Choose a real face##mgr") && !ui.find("mface502", "Choose a real face##mgr"), "filtered");
             CHECK(ui.click("mface501", "Choose a real face##mgr"), "pick the head of Arteta");
