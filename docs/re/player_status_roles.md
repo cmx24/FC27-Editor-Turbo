@@ -381,6 +381,16 @@ For each user-club player (not loaned in unless `include_loaned_in`):
 Role numbers: 1 Crucial, 2 Important, 3 Rotation, 4 Sporadic, 5 Future (Prospect). Expected after: `Find` returns the entry with the new byte; the Squad hub shows the role
 after the screen is reopened `[M]`. **Re-apply after every `SEASON_RESET`** (the game rebuilds all roles then, section 3.1) and after a team change. Risk: `wasPromised`
 (`+5`) is read by morale / negotiation code not traced here; leaving it 0 is the state the game's own auto roles have.
+**Done in `squad_role`, op 14** (`turbogui/src/core/squad_role.{h,cpp}`, `src/win/squad_role_win.cpp`, 2026-10-05; signatures `psm_vtable`, `psm_handle_event`,
+`psm_get_entry`, `psm_add_player`, `psm_remove_entry` in `core/sigscan.cpp`): the checks above plus the game's `IsPlayerInTeam` and Turbo's scan agreeing with the game's
+`Find`; code 1 writes the byte or calls `AddPlayer(psm, pid, role)` and sets `wasPromised` back to 0; code 2 calls `AddPlayer(psm, pid, 0xFF)` (the game's own role); code 4
+calls `Remove(sub, pid)` only for a player `IsPlayerInTeam` says is not at the club (Lua picks which, never one the club lent out); a full table is refused by codes 1 / 2.
+Facts re-read for it: `AddPlayer`'s auto branch is taken for role 0 and 0xFF (`lea eax,[rbx+r9]; cmp al,1; jbe` with bl = 1); the Squad screen's peek `0x147F4C4A0` calls
+`AddPlayer(psm, pid, 0xFF)`, `Find`, `Remove(sub, pid)` itself (so both functions are called by the game for exactly this case); `Remove` scans only the used entries and keeps
+the table at 52 slots (end -= 8, then an empty entry appended in place). Loaned-in players: the `0x5F` handler adds an entry for every player joining the user's club with
+no loan test, the squad row builder (`0x147F99BD3`) reads the role of every row with no loan test, and the match code reads `Find(pid)->role` without a null check
+(`0x147FCCDEB`, the crash at `FC27.exe+0x7FCCDF0`), so they get roles like everyone (Turbo's default since then). No screen-refresh route was found (no event is posted
+when a role changes; `realtime_transfers.md` 2.2: refreshing an open screen needs the active controller): reopen the Squad screen. Not yet checked in game.
 
 ### 7.3 Morale for players Turbo moved into the club (`morale` action, `form_morale`)
 

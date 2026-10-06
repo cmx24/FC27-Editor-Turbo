@@ -1,12 +1,22 @@
--- Turbo feature: set the squad role of your club's players.
+-- Turbo feature: set the squad role of your club's players (Tools > Your squad, Teams > Mass actions > Squad roles, the
+-- Players editor's Squad role, the match crash guard of bridge.lua).
 -- Port of FC 26 mass_edit_squadrole.lua. In FC 27 Live Editor, SetSquadRole is a "TODO: FC27" stub.
--- Turbo writes the role in two places when they exist:
---   1) career_playercontract.playerrole (FC 26 storage), and
---   2) the PlayerStatusManager role list in memory. FC 26 kept it as a vector of {playerid, role}
---      at manager+0x18. Turbo searches the manager for a vector whose entries match your squad,
---      so a moved offset or a grown entry is found again; nothing is written unless it matches.
+-- FC 27 keeps the role in the career's PlayerStatusManager: one entry per player of your club, at most 52
+-- (docs/re/player_status_roles.md sections 3 and 7.2). Turbo writes it
+--   1) through the game itself when Turbo.dll has the squad_role call (TurboSquadRole, op 14, turbogui/src/core/squad_role.h):
+--      an existing entry gets its role byte, a player without one (created players, Turbo's database moves before 1.2.0:
+--      no PlayerJoinedTeam event, so the game never added one) gets one from the game's own AddPlayer; when the table is full,
+--      entries of players who left the club (not lent out) go first through the game's Remove;
+--   2) else in memory, the same steps done by Turbo (M.repair_entries, then the role byte; the FC 26 search heuristic
+--      M.locate for a table that is not the FC 27 layout), and career_playercontract.playerrole when that table exists (FC 26).
+-- Loaned-in players are included: the game gives them an entry when they join (its 0x5F handler has no loan test), the Squad
+-- screen shows their role and the match load needs the entry. "include_loaned_in": false leaves their role alone.
+-- The Squad screen reads the roles when it is built: open it again to see them. The game recomputes every role at the season
+-- reset (event 0x17): auto.squad_role (opt-in) puts them back then.
 -- Roles: 1 Crucial, 2 Important, 3 Rotation, 4 Sporadic, 5 Prospect
---   "squad_role": { "role": 3, "include_loaned_in": false, "use_memory": true }
+--   "squad_role": { "role": 3, "include_loaned_in": true, "use_memory": true }
+--   one player: { "playerid": 1234, "role": 2 }; read his role: { "playerid": 1234, "mode": "check" }
+--   auto.squad_role: { "enabled": false, "rule": "age" | "role", "rule_role": 3, "events": ["SEASON_RESET"] }
 
 local util = require 'imports/turbo/core/util'
 local db = require 'imports/turbo/core/db'
@@ -21,6 +31,26 @@ M.FC26_LAYOUT = { offset = 0x18, size = 8, role_off = 4 }
 local ENTRY_SIZES = { 8, 12, 16 }
 local MAX_ENTRIES = 400
 local LOANED_IN = { [1] = true, [3] = true, [5] = true }
+M.ROLE_NAMES = { "Crucial", "Important", "Rotation", "Sporadic", "Prospect" }
+M.SCREEN_NOTE = "open the Squad screen again to see them (it reads the roles when it is built)"
+
+function M.role_name(r)
+    if r == 0xFF then return "none" end
+    return M.ROLE_NAMES[r] or tostring(r)
+end
+
+-- "Name (id)" for the result texts (the id alone when Live Editor has no name for him)
+function M.who(pid)
+    local name = game.player_name(pid)
+    if name == tostring(pid) then return tostring(pid) end
+    return string.format("%s (%d)", name, pid)
+end
+
+-- Turbo.dll's squad_role call (bridge.lua M.squad_role) when installed, else nil
+function M.native()
+    local f = _G["TurboSquadRole"]
+    return type(f) == "function" and f or nil
+end
 
 local function score_vector(base, count, size, role_off, squad)
     local matched, valid_roles = 0, 0
@@ -171,21 +201,95 @@ function M.loaned_out(user_team)
     return out
 end
 
--- Adds an entry for each player of your club who has none. role_of(pid) -> 1..5 (nil or out of range = Rotation 3).
--- Returns added (number), summary, missing_left (number); added = nil with the reason when nothing could be checked.
-function M.repair_entries(role_of, dry)
+-- With Turbo.dll's squad_role call: the stale entries go through the game's Remove (code 4: Turbo.dll refuses a player the game
+-- still sees at your club), the missing ones come from its AddPlayer (code 1 with the role, code 2 with the game's own role).
+-- Returns added, text, left, created; or nil, nil, nil, nil, why when the call is off before anything was done (the memory
+-- path takes over).
+local function repair_native(native, st, club, missing, role_of, prefer_game, user_team)
+    local P = M.PSM
+    local removed, notes = 0, {}
+    local need = st.count + #missing - P.slots
+    if need > 0 then
+        local lent = M.loaned_out(user_team)
+        -- the candidates from the table as read (the game's Remove moves the entries after it down: by pid, not by slot)
+        local victims = {}
+        for i = 0, st.count - 1 do
+            local pid = mem.int(st.begin + i * P.size)
+            if pid and not club[pid] and not lent[pid] then victims[#victims + 1] = pid end
+        end
+        for _, pid in ipairs(victims) do
+            if removed >= need then break end
+            local ok, text, status, out0 = native(4, pid, 0)
+            if status == "off" and removed == 0 then return nil, nil, nil, nil, text end
+            if ok and status == "ok" and out0 == 1 then
+                removed = removed + 1
+            else
+                notes[#notes + 1] = tostring(text)   -- the game still sees him at your club, or the call is queued / off
+                if status == "queued" or status == "off" then break end
+            end
+        end
+    end
+    local added, had, names, created, fails = 0, 0, {}, {}, {}
+    for _, pid in ipairs(missing) do
+        local role = role_of and role_of(pid) or nil
+        if math.type(role) ~= "integer" or role < 1 or role > 5 then role = nil end
+        local code = (role and not prefer_game) and 1 or 2
+        local ok, text, status, out0, how = native(code, pid, role or 0)
+        if status == "off" and added == 0 and removed == 0 then return nil, nil, nil, nil, text end
+        if ok and status == "ok" and how == 1 then
+            added = added + 1
+            created[pid] = { role = out0, via = "game" }
+            names[#names + 1] = string.format("%d (role %s%s)", pid, tostring(out0), code == 2 and ", the game's choice" or "")
+        elseif ok and status == "ok" and how == 2 then
+            had = had + 1   -- he got one in the meantime (the game's own event)
+        else
+            fails[#fails + 1] = string.format("%d: %s", pid, tostring(text))
+            if status == "queued" or status == "off" then break end
+        end
+    end
+    local left = #missing - added - had
+    local text = string.format("squad status entries added for %d of %d players without one through the game's AddPlayer: %s", added, #missing,
+        table.concat(names, ", "))
+    if removed > 0 then
+        text = text .. string.format(" (%d entries of players no longer at your club removed to make room, the game's Remove)", removed)
+    end
+    if left > 0 then
+        text = text .. string.format("; %d left out (%s)", left, fails[1] or notes[1] or "the game's table is full")
+    end
+    return added, text, left, created
+end
+
+-- Adds an entry for each player of your club who has none. role_of(pid) -> 1..5 (nil or out of range: the game's own role
+-- with Turbo.dll's call, Rotation 3 in memory). opts.native: the TurboSquadRole function (default M.native(); false = memory
+-- only); opts.prefer_game_role: with the game's call every missing player gets the game's own role (as a signing without a
+-- contract role). Returns added (number), summary, missing_left (number), created ({[pid] = {role, via = "game" | "memory"}});
+-- added = nil with the reason when nothing could be checked.
+function M.repair_entries(role_of, dry, opts)
+    opts = opts or {}
     if not mem.map_available() then return nil, mem.NO_MAP end
     local user_team = game.user_team_id()
     if not user_team or user_team <= 0 then return nil, "user team not found" end
     local st, err = M.psm_state(user_team)
     if not st then return nil, err end
     local club, n = M.club_players(user_team)
-    local missing = {}
-    for pid in pairs(club) do
-        if not st.pids[pid] then missing[#missing + 1] = pid end
+    local function missing_of(state)
+        local out = {}
+        for pid in pairs(club) do
+            if not state.pids[pid] then out[#out + 1] = pid end
+        end
+        table.sort(out)
+        return out
     end
-    table.sort(missing)
-    if #missing == 0 then return 0, string.format("all %d players of your club have a squad status entry", n), 0 end
+    local missing = missing_of(st)
+    if #missing == 0 then return 0, string.format("all %d players of your club have a squad status entry", n), 0, {} end
+    local native = opts.native
+    if native == nil then native = M.native() end
+    local note = ""
+    if native and not dry then
+        local added, text, left, created, off = repair_native(native, st, club, missing, role_of, opts.prefer_game_role == true, user_team)
+        if added then return added, text, left, created end
+        note = string.format(" (in memory: %s)", tostring(off))
+    end
     local P = M.PSM
     -- no room: entries of players who are no longer at your club (and not out on loan from it) go first, the way the
     -- game's Remove (0x147D90C80) does it: the entries after it move down one slot, an empty one goes last, count - 1
@@ -213,7 +317,7 @@ function M.repair_entries(role_of, dry)
             end
         end
     end
-    local added, names = 0, {}
+    local added, names, created = 0, {}, {}
     for _, pid in ipairs(missing) do
         if st.count >= P.slots then break end
         local role = role_of and role_of(pid) or nil
@@ -222,98 +326,288 @@ function M.repair_entries(role_of, dry)
         if not dry then
             MEMORY:WriteInt(e, pid)
             MEMORY:WriteBytes(e + 4, { role, 0, 0 })
-            if mem.int(e) ~= pid then return added, string.format("squad status entry for player %d did not read back", pid), #missing - added end
+            if mem.int(e) ~= pid then return added, string.format("squad status entry for player %d did not read back", pid), #missing - added, created end
             MEMORY:WriteInt(st.mgr + P.count, st.count + 1)
         end
         st.count = st.count + 1
         st.pids[pid] = st.count - 1
         added = added + 1
+        created[pid] = { role = role, via = "memory" }
         names[#names + 1] = string.format("%d (role %d)", pid, role)
     end
     local left = #missing - added
-    local text = string.format("squad status entries added for %d of %d players without one: %s", added, #missing, table.concat(names, ", "))
+    local text = string.format("squad status entries added for %d of %d players without one%s: %s", added, #missing, note, table.concat(names, ", "))
     if removed > 0 then text = text .. string.format(" (%d entries of players no longer at your club removed to make room)", removed) end
     if left > 0 then
         text = text .. string.format("; %d left out: the game's table is full (%d slots, entries of players who left stay until the game removes them)", left, P.slots)
     end
-    return added, (dry and "[DRY RUN] " or "") .. text, left
+    return added, (dry and "[DRY RUN] " or "") .. text, left, created
 end
 
-function M.run(ctx)
-    local role = util.to_int(ctx.cfg.role)
-    if not role or role < 1 or role > 5 then return false, "role must be 1 (Crucial) .. 5 (Prospect)" end
-    return M.apply(ctx, function() return role end, string.format("role %d", role))
+-- ---------------------------------------------------------------- roles
+-- The role byte of one player in memory (FC 27 table, else the FC 26 search): what, role | nil, reason
+local function memory_writer(ctx, club, user_team)
+    local st = M.psm_state(user_team)
+    if st then
+        return function(pid, role)
+            local i = st.pids[pid]
+            if not i then return nil, "no squad status entry (the game's table is full)" end
+            local a = st.begin + i * M.PSM.size + 4
+            local before = mem.byte(a)
+            if before == role then return "unchanged", role end
+            if not ctx.dry then MEMORY:WriteBytes(a, { role }) end   -- one byte: the two flags after it stay
+            return "updated", role
+        end, "in memory"
+    end
+    local count = util.count(club)
+    local layout, lerr = M.locate(club, count, calib.get(ctx.out_dir, "squad_role"))
+    if not layout then return nil, lerr end
+    calib.put(ctx.out_dir, "squad_role", { offset = layout.offset, size = layout.size, role_off = layout.role_off })
+    local index = {}
+    for i = 0, layout.count - 1 do
+        local pid = mem.int(layout.begin + i * layout.size)
+        if pid and pid > 0 and index[pid] == nil then index[pid] = i end
+    end
+    return function(pid, role)
+        local i = index[pid]
+        if not i then return nil, "not in the role list" end
+        local a = layout.begin + i * layout.size + layout.role_off
+        if mem.byte(a) == role then return "unchanged", role end
+        if not ctx.dry then MEMORY:WriteBytes(a, { role }) end
+        return "updated", role
+    end, string.format("in memory (PlayerStatusManager +0x%X, entry %d bytes)", layout.offset, layout.size)
 end
 
--- Sets roles for your club's players: role_of(pid) -> 1..5, or nil to leave the player alone. `label` starts the summary.
--- (Turbo's team mass actions use it with a role by age.)
-function M.apply(ctx, role_of, label)
-    local squad, count, source = game.user_squad()
-    if count == 0 then return false, "user squad not found (" .. tostring(source) .. ")" end
-    local skip = (ctx.cfg.include_loaned_in == true) and {} or loaned_in(squad, game.user_team_id())
+local OUTCOMES = {
+    { key = "updated", label = "updated" }, { key = "created", label = "entry created" }, { key = "unchanged", label = "unchanged" },
+    { key = "planned", label = "to set" }, { key = "skipped", label = "skipped" }, { key = "failed", label = "not done" },
+}
 
-    local parts = {}
-    local wrote_any = false
+-- The per-player lines: one per outcome, "Name (id) Role" (skipped / not done: with the reason)
+local function details_of(rows)
+    local lines = {}
+    for _, o in ipairs(OUTCOMES) do
+        local list = {}
+        for _, r in ipairs(rows) do
+            if r.what == o.key then
+                if r.why then
+                    list[#list + 1] = string.format("%s: %s", M.who(r.pid), r.why)
+                else
+                    list[#list + 1] = string.format("%s %s", M.who(r.pid), M.role_name(r.role))
+                end
+            end
+        end
+        if #list > 0 then lines[#lines + 1] = string.format("  %s (%d): %s", o.label, #list, table.concat(list, ", ")) end
+    end
+    return table.concat(lines, "\n")
+end
 
-    -- 1) career_playercontract
+-- Sets roles for your club's players: role_of(pid) -> 1..5, or nil (, why) to leave him alone. `label` starts the summary.
+-- opts.players: {[pid] = true} to set (default: every player of your club). Turbo's team mass actions use it with a role by
+-- age, the Players editor with one player. Returns ok, summary (one line), details (a line per outcome: each player).
+function M.apply(ctx, role_of, label, opts)
+    opts = opts or {}
+    local user_team = game.user_team_id()
+    if not user_team or user_team <= 0 then return false, "user team not found" end
+    local club, n = M.club_players(user_team)
+    if n == 0 then return false, string.format("no players found for your club (team %d)", user_team) end
+    local skip_loans = (ctx.cfg.include_loaned_in == false) and loaned_in(club, user_team) or {}
+
+    local ids, rows, plan = {}, {}, {}
+    for pid in pairs(opts.players or club) do ids[#ids + 1] = pid end
+    table.sort(ids)
+    for _, pid in ipairs(ids) do
+        local row = { pid = pid }
+        rows[#rows + 1] = row
+        if not club[pid] then
+            row.what, row.why = "skipped", "not in your club"
+        elseif skip_loans[pid] then
+            row.what, row.why = "skipped", "loaned in (include_loaned_in is off)"
+        else
+            local r, why = role_of(pid)
+            if math.type(r) == "integer" and r >= 1 and r <= 5 then
+                plan[pid], row.role = r, r
+            else
+                row.what, row.why = "skipped", why or "no role for him (age not known?)"
+            end
+        end
+    end
+    local parts, contract_rows = {}, 0
+
+    -- 1) career_playercontract (FC 26; FC 27's database has no such table)
     local contracts = db.get_table("career_playercontract")
     if contracts and db.has_fields(contracts, { "playerid", "playerrole", "contract_status" }) then
-        local n = 0
+        local c = 0
         for rec in db.records(contracts) do
             local pid = contracts:GetRecordFieldValue(rec, "playerid")
-            local role = squad[pid] and not skip[pid] and role_of(pid) or nil
+            local role = plan[pid]
             if role and not LOANED_IN[contracts:GetRecordFieldValue(rec, "contract_status")] then
                 local v, verr = db.validate(contracts, "playerrole", role)
                 if v == nil then return false, verr end
                 local wok, werr = db.set(contracts, rec, "playerrole", role, ctx.dry)
                 if not wok then return false, werr end
-                n = n + 1
+                c = c + 1
             end
         end
-        parts[#parts + 1] = string.format("career_playercontract: %d rows", n)
-        wrote_any = wrote_any or n > 0
-    else
-        parts[#parts + 1] = "career_playercontract: not present"
+        parts[#parts + 1] = string.format("career_playercontract: %d rows", c)
+        contract_rows = c
     end
 
-    -- 2) PlayerStatusManager memory
-    local layout, lerr = nil, "memory pass disabled (use_memory = false)"
-    if ctx.cfg.use_memory ~= false then
-        if mem.map_available() then
-            -- players of your club without an entry get one first, with the role asked for (FC 27 layout only)
-            local added, rtext, left = M.repair_entries(function(pid) return not skip[pid] and role_of(pid) or nil end, ctx.dry)
-            if added and (added > 0 or (left or 0) > 0) then
-                parts[#parts + 1] = rtext
-                wrote_any = wrote_any or added > 0
-            end
-            layout, lerr = M.locate(squad, count, calib.get(ctx.out_dir, "squad_role"))
-        else
-            lerr = mem.NO_MAP
-        end
-    end
-    if layout then
-        local n = 0
-        for i = 0, layout.count - 1 do
-            local e = layout.begin + i * layout.size
-            local pid = mem.int(e)
-            local role = pid and squad[pid] and not skip[pid] and role_of(pid) or nil
-            if role then
-                if not ctx.dry then MEMORY:WriteBytes(e + layout.role_off, { role }) end   -- one byte: the two flags after it stay
-                n = n + 1
-            end
-        end
-        parts[#parts + 1] = string.format("PlayerStatusManager +0x%X (entry %d bytes): %d players", layout.offset, layout.size, n)
-        wrote_any = wrote_any or n > 0
-        calib.put(ctx.out_dir, "squad_role", { offset = layout.offset, size = layout.size, role_off = layout.role_off })
+    -- 2) the PlayerStatusManager: missing entries first (with the role asked for; players left alone: the game's own role),
+    -- then the role of every planned player, through the game when Turbo.dll has the call
+    local via = nil
+    if ctx.cfg.use_memory == false then
+        parts[#parts + 1] = "PlayerStatusManager: not touched (use_memory = false)"
+        for _, r in ipairs(rows) do if not r.what then r.what, r.why = "skipped", "use_memory = false (memory not touched)" end end
+    elseif not mem.map_available() then
+        parts[#parts + 1] = "PlayerStatusManager: " .. mem.NO_MAP
+        for _, r in ipairs(rows) do if not r.what then r.what, r.why = "failed", "the Turbo GUI is not running" end end
     else
-        parts[#parts + 1] = "PlayerStatusManager: " .. tostring(lerr)
-        log.warn("squad_role memory pass skipped: %s", tostring(lerr))
+        local native = M.native()
+        local added, rtext, left, created = M.repair_entries(function(pid) return plan[pid] end, ctx.dry, { native = native or false })
+        created = created or {}
+        -- the entries created for the players set are in the per-player lines; the repair's own text only when it says more
+        -- (stale entries removed, players left out, entries for players this run leaves alone)
+        local more = added and ((left or 0) > 0 or tostring(rtext):find("removed to make room", 1, true) ~= nil)
+        for pid in pairs(created) do if not plan[pid] then more = true end end
+        if more then parts[#parts + 1] = rtext end
+        if added == nil then log.warn("squad_role: missing entries not checked: %s", tostring(rtext)) end
+        local write, werr, off_note = nil, nil, nil
+        local queued = false
+        for _, r in ipairs(rows) do
+            if not r.what then
+                local c = created[r.pid]
+                if c and c.role == r.role then
+                    r.what = "created"
+                    if not ctx.dry then via = via or (c.via == "game" and "through the game (Turbo.dll squad_role)" or "in memory") end
+                elseif ctx.dry then
+                    r.what = "planned"
+                elseif queued then
+                    r.what, r.why = "failed", "a game call is still queued: run it again"
+                else
+                    if native then
+                        local ok, text, status, out0, how = native(1, r.pid, r.role)
+                        if status == "off" then
+                            native, off_note = nil, tostring(text)
+                        elseif ok and status == "ok" then
+                            via = via or "through the game (Turbo.dll squad_role)"
+                            r.what = (how == 1 and "created") or (how == 2 and "unchanged") or "updated"
+                            r.role = out0 or r.role
+                        elseif status == "queued" then
+                            queued, r.what, r.why = true, "failed", "queued for the game thread: run it again after the next career-mode event"
+                        else
+                            r.what, r.why = "failed", tostring(text)
+                        end
+                    end
+                    if not r.what then
+                        if write == nil and werr == nil then
+                            local label2
+                            write, label2 = memory_writer(ctx, club, user_team)
+                            if write then via = via or label2 else werr = label2 or "role table not found" end
+                        end
+                        if write then
+                            local what, role = write(r.pid, r.role)
+                            if what then r.what, r.role = what, role else r.what, r.why = "failed", tostring(role) end
+                        else
+                            r.what, r.why = "failed", tostring(werr)
+                        end
+                    end
+                end
+            end
+        end
+        if off_note then parts[#parts + 1] = "the game call is off, in memory instead: " .. off_note end
+        if werr then
+            parts[#parts + 1] = "PlayerStatusManager: " .. tostring(werr)
+            log.warn("squad_role memory pass skipped: %s", tostring(werr))
+        end
     end
 
-    if util.count(skip) > 0 then parts[#parts + 1] = string.format("%d loaned-in players skipped", util.count(skip)) end
-    local summary = label .. "; " .. table.concat(parts, "; ")
-    if not wrote_any then return false, summary end
-    return true, summary
+    local count = {}
+    for _, r in ipairs(rows) do count[r.what] = (count[r.what] or 0) + 1 end
+    local set_n = (count.updated or 0) + (count.created or 0) + (count.unchanged or 0)
+    local summary
+    if ctx.dry then
+        summary = string.format("%s: %d of %d players would get the role%s", label, (count.planned or 0) + (count.created or 0), #rows,
+            (count.created or 0) > 0 and string.format(" (%d of them need an entry first)", count.created) or "")
+    else
+        summary = string.format("%s: %d of %d players have the role now%s (%d updated, %d entries created, %d unchanged)", label, set_n, #rows,
+            via and (" " .. via) or "", count.updated or 0, count.created or 0, count.unchanged or 0)
+    end
+    if (count.skipped or 0) > 0 then summary = summary .. string.format("; %d skipped", count.skipped) end
+    if (count.failed or 0) > 0 then summary = summary .. string.format("; %d not done", count.failed) end
+    if #parts > 0 then summary = summary .. "; " .. table.concat(parts, "; ") end
+    if set_n > 0 and not ctx.dry then summary = summary .. "; " .. M.SCREEN_NOTE end
+    local ok = (count.failed or 0) == 0 and (set_n > 0 or contract_rows > 0 or (ctx.dry and ((count.planned or 0) + (count.created or 0)) > 0))
+    return ok, summary, details_of(rows)
+end
+
+-- summary + "\n" + details (the GUI shows the first line in its toast, all of it in the Mass actions panel); one_line: the details
+-- after "; " instead (one player: the toast shows it all)
+function M.join(summary, details, one_line)
+    if type(details) ~= "string" or details == "" then return summary end
+    if one_line then return summary .. "; " .. (details:gsub("^%s+", ""):gsub("\n%s*", "; ")) end
+    return summary .. "\n" .. details
+end
+
+-- One player's role as the game holds it now: ok, text
+function M.check(ctx, pid)
+    if not pid or pid <= 0 then return false, "playerid is required" end
+    local user_team = game.user_team_id()
+    local native = M.native()
+    if native then
+        local ok, text, status, out0 = native(9, pid, 0)
+        if ok and status == "ok" then
+            if out0 == -2 then return true, string.format("%s has no squad status entry (the game computes a role when the Squad screen opens)", M.who(pid)) end
+            return true, string.format("%s: squad role %s (read from the game)", M.who(pid), M.role_name(out0))
+        end
+        if status ~= "off" then return false, tostring(text) end
+    end
+    if not mem.map_available() then return false, mem.NO_MAP end
+    local st, err = M.psm_state(user_team)
+    if not st then return false, err end
+    local i = st.pids[pid]
+    if not i then return true, string.format("%s has no squad status entry", M.who(pid)) end
+    return true, string.format("%s: squad role %s (read from memory)", M.who(pid), M.role_name(mem.byte(st.begin + i * M.PSM.size + 4)))
+end
+
+function M.run(ctx)
+    local cfg = ctx.cfg
+    local pid = util.to_int(cfg.playerid)
+    if cfg.mode == "check" then return M.check(ctx, pid) end
+    local role = util.to_int(cfg.role)
+    if not role or role < 1 or role > 5 then return false, "role must be 1 (Crucial) .. 5 (Prospect)" end
+    local opts = (pid and pid > 0) and { players = { [pid] = true } } or nil
+    local ok, summary, details = M.apply(ctx, function() return role end, string.format("role %d (%s)", role, M.role_name(role)), opts)
+    return ok, M.join(summary, details, opts ~= nil)
+end
+
+-- auto.squad_role (opt-in): the game recomputes every role at the season reset (event 0x17, the PlayerStatusManager's own
+-- rebuild); this puts Turbo's rule back right after it. rule "age": Rotation from team_mass.ADULT_AGE, Prospect below (the
+-- Mass actions rule); rule "role": rule_role for everyone. Nothing runs when the auto feature is switched on (event -1): the
+-- buttons apply the roles.
+function M.auto(ctx, event_id)
+    if event_id == nil or event_id == -1 then return end
+    local cfg = ctx.cfg
+    local role_of, label
+    if cfg.rule == "role" then
+        local r = util.to_int(cfg.rule_role)
+        if not r or r < 1 or r > 5 then
+            log.warn("squad_role auto: rule_role must be 1..5 (%s)", tostring(cfg.rule_role))
+            return
+        end
+        role_of, label = function() return r end, string.format("role %d (%s)", r, M.role_name(r))
+    else
+        local tm = require 'imports/turbo/features/team_mass'
+        local err
+        role_of, err = tm.role_by_age(M.club_players(game.user_team_id()))
+        if not role_of then
+            log.warn("squad_role auto: %s", tostring(err))
+            return
+        end
+        label = string.format("Rotation for age %d+, Prospect below", tm.ADULT_AGE)
+    end
+    local ok, summary, details = M.apply(ctx, role_of, label .. " (again after the season reset)")
+    if ok then log.info("squad_role auto: %s", M.join(summary, details)) else log.warn("squad_role auto: %s", M.join(summary, details)) end
 end
 
 return M

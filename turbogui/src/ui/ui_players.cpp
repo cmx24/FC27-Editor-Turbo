@@ -498,6 +498,32 @@ void transfer_ban_section(App& app, const char* what, int64_t id) {
     ImGui::PopID();
 }
 
+// The squad role of one player of YOUR club (features/squad_role.lua with a playerid: through the game's own PlayerStatusManager
+// calls, Turbo.dll squad_role op 14, else in memory; a player without a squad status entry gets one). Read = the role the game
+// holds now. The game has squad roles for the user's club only; the Squad screen reads them when it is built.
+static void squad_role_section(App& app, const PlayerRow& p) {
+    const BridgeState& st = app.bridge.state();
+    if (!st.in_cm || st.user_team <= 0 || p.club != st.user_team) return;
+    ImGui::SeparatorText("Squad role (your club)");
+    ImGui::PushID("sqrole");
+    static int role = 2;  // combo index: 2 = "3 Rotation"
+    const char* roles[] = {"1 Crucial", "2 Important", "3 Rotation", "4 Sporadic", "5 Prospect"};
+    ImGui::SetNextItemWidth(S(160.0f));
+    ImGui::Combo("##role", &role, [](void* d, int i) { return static_cast<const char**>(d)[i]; }, roles, 5);
+    if (role < 0 || role > 4) role = 2;
+    const bool off = app.busy() || !app.mailbox;
+    if (off) ImGui::BeginDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Set squad role"))
+        app.send({{"op", "run"}, {"module", "squad_role"}, {"overrides", {{"playerid", p.playerid}, {"role", role + 1}}}}, "Squad role " + p.name);
+    ImGui::SameLine();
+    if (ImGui::Button("Read squad role"))
+        app.send({{"op", "run"}, {"module", "squad_role"}, {"overrides", {{"playerid", p.playerid}, {"mode", "check"}}}}, "Squad role " + p.name);
+    if (off) ImGui::EndDisabled();
+    ImGui::TextDisabled("Open the Squad screen again to see it. The game recomputes every role at the start of a season.");
+    ImGui::PopID();
+}
+
 static void moves_popup(App& app, const PlayerRow& p) {
     static int to_team = 0, fee = 0, wage = 0, months = 60, loan_months = 12;
     if (ImGui::BeginPopup("##moves")) {
@@ -1093,6 +1119,7 @@ static void player_editor(App& app) {
             list_buttons(app, *p, true);
             if (!app.bridge.state().in_cm) ImGui::EndDisabled();
             ImGui::PopID();
+            squad_role_section(app, *p);
             transfer_ban_section(app, "player", p->playerid);
             ImGui::SeparatorText("Team links (teamplayerlinks)");
             const Table* lt = app.db.table("teamplayerlinks");

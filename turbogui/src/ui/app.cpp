@@ -644,7 +644,15 @@ void App::tick(double t) {
         std::string result;
         if (mailbox->take_result(ok, result)) {
             const std::string pending_before = pending_label;
-            notify(pending_label + ": " + (result.empty() ? (ok ? "done" : "failed") : result), !ok);
+            // a result with per-player lines (squad roles) toasts its first line; the log keeps all of it and Teams > Mass
+            // actions shows all of it in place
+            const size_t nl = result.find('\n');
+            if (nl != std::string::npos) log(pending_label + ": " + result);
+            notify(pending_label + ": " + (result.empty() ? (ok ? "done" : "failed")
+                                           : nl == std::string::npos ? result
+                                           : result.substr(0, nl) + (pending_label.rfind("Mass actions", 0) == 0 ? " (each player: under the Mass actions buttons)"
+                                                                                                                   : " (each player: turbo_output\\turbo_gui.log)")),
+                   !ok);
             if (pending_label.rfind("Job offer", 0) == 0)  // Managers > Job offers shows the outcome in place
                 job_offer_status = (ok ? "" : "Failed: ") + (result.empty() ? std::string(ok ? "done" : "failed") : result);
             if (pending_label.rfind("Mass actions", 0) == 0)  // Teams > team edit > Mass actions

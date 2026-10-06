@@ -50,6 +50,10 @@ M.CALL_OP_PLAYER_CREATE = 12
 -- player_morale (op 13, turbogui/src/core/player_morale.h): args = comm, code (1 very happy, 2 value, 3 count stale, 9 check), pid,
 -- value; outputs = total read back (-2 = the player has no morale record), level read back 0..5 (code 3: stale count, records)
 M.CALL_OP_PLAYER_MORALE = 13
+-- squad_role (op 14, turbogui/src/core/squad_role.h): args = comm, code (1 set, 2 ensure an entry with the game's own role, 3 count
+-- stale, 4 remove a stale entry, 9 check), pid, role 1..5 (code 1); outputs = role read back (-2 = no entry, none created; code 3 the
+-- stale count, code 4 1 / 0 removed), how (codes 1 / 2: 0 written, 1 entry created, 2 unchanged, -1 nothing done) or the used entries
+M.CALL_OP_SQUAD_ROLE = 14
 M.PLAYER_CREATE_PAYLOAD = "turbo_player_create.json"
 M.PLAYER_CREATE_OPT_IN = "call_player_create_on.txt"
 M.CALL_OP_REVEAL = 3            -- args: PlayerDataRevealManager, mode (0 player / 1 team), id, manager table (core/reveal.h)
@@ -284,12 +288,14 @@ function M.set_settings(cfg)
     local a = type(cfg.auto) == "table" and cfg.auto or {}
     local fm = type(a.form_morale) == "table" and a.form_morale or {}
     local ps = type(a.pap_playstyles) == "table" and a.pap_playstyles or {}
+    local sr = type(a.squad_role) == "table" and a.squad_role or {}
     S.settings = {
         dry_run = type(cfg.turbo) == "table" and cfg.turbo.dry_run == true,
         auto = {
             form_morale = { enabled = fm.enabled == true, form = tonumber(fm.form) or 0,
                             morale = tonumber(fm.morale) or 0, fitness = tonumber(fm.fitness) or 0 },
             pap_playstyles = { enabled = ps.enabled == true },
+            squad_role = { enabled = sr.enabled == true, rule = sr.rule == "role" and "role" or "age", rule_role = tonumber(sr.rule_role) or 3 },
         },
     }
 end
@@ -569,6 +575,10 @@ M.IMAGE_SLICE_SYNTHETIC = 0.08
 -- Match crash guard (features/squad_role.lua repair_entries): every player of your club needs a PlayerStatusManager entry
 -- or the game's match load reads a null entry. Checked at each career load and on the days / match build-up after it,
 -- until the table is complete; cheap when nothing is missing. Off with turbo_output\squad_status_repair_off.txt.
+-- With Turbo.dll's squad_role call (TurboSquadRole) the entries come from the game's own AddPlayer (stale ones go through its
+-- Remove); after the load event the game picks the role itself (its squad ranking, as for a signing without a contract role:
+-- the role the Squad screen already showed for him). At the load event itself Turbo gives the role by age (no ranking is
+-- computed while the career is still being set up). Without the call: memory, role by age.
 M.STATUS_REPAIR_EVENTS = { "POST_LOAD_PREPARE", "ENTERED_HUB_FIRST_TIME", "DAY_PASSED", "ABOUT_TO_ENTER_PREMATCH" }
 
 local function status_repair_ids()
@@ -577,7 +587,7 @@ local function status_repair_ids()
     return S.status_repair_ids
 end
 
-function M.repair_squad_status()
+function M.repair_squad_status(event_id)
     local root = env.le_root()
     if root and util.file_exists(util.join(util.join(root, "turbo_output"), "squad_status_repair_off.txt")) then return nil, "off" end
     local role = require 'imports/turbo/features/squad_role'
@@ -592,7 +602,9 @@ function M.repair_squad_status()
         end
         return by_age and by_age(pid) or nil
     end
-    local added, text = role.repair_entries(role_of, false)
+    local events = require 'imports/turbo/core/events'
+    local at_load = event_id ~= nil and event_id == events.resolve("POST_LOAD_PREPARE")
+    local added, text = role.repair_entries(role_of, false, { prefer_game_role = not at_load })
     -- logged when something was added or the reason changes (not on every day)
     if added and added > 0 then
         log.info("match crash guard: %s", text)
@@ -615,10 +627,6 @@ function M.on_career_event(event_id)
     if not S.meta_written then try_write_meta(false) end
     local reload = reload_ids()[event_id] == true
     if reload or not S.names_count then try_write_names() end
-    if status_repair_ids()[event_id] then
-        local okq, qerr = pcall(M.repair_squad_status)
-        if not okq then log.warn("match crash guard: %s", tostring(qerr)) end
-    end
     -- (write_state also connects the mailbox on the way, through core/mem.lua's map lookup)
     local okw, werr = pcall(M.write_state, false, reload, reload)
     if not okw then log.warn("bridge state: %s", tostring(werr)) end
@@ -631,6 +639,11 @@ function M.on_career_event(event_id)
     if not okg then log.warn("bridge native pump: %s", tostring(gerr)) end
     local okn, installed = pcall(M.install_natives)
     if not okn then log.warn("bridge natives: %s", tostring(installed)) end
+    -- the match crash guard after the pump and the natives: its game calls (TurboSquadRole) then run at once on this thread
+    if status_repair_ids()[event_id] then
+        local okq, qerr = pcall(M.repair_squad_status, event_id)
+        if not okq then log.warn("match crash guard: %s", tostring(qerr)) end
+    end
     local okc, finished = pcall(M.check_game_call)
     if not okc then log.warn("bridge game call: %s", tostring(finished)) end
     -- a kept "unsackable" (features/manager_rules.lua) is switched on again once per game session
@@ -779,6 +792,32 @@ function M.player_morale(code, pid, value)
         string.format("morale player %d (code %d)", p, c))
     if status == "unavailable" then return false, "player_morale: off (" .. tostring(text) .. ")", "off" end
     if status == "failed" and type(text) == "string" and text:find("player_morale: off", 1, true) then return false, text, "off" end
+    if status == "ok" then return true, text, status, math.tointeger(out0), math.tointeger(out1) end
+    if status == "queued" then return true, text, status end
+    return false, text, status, math.tointeger(out0), math.tointeger(out1)
+end
+
+-- TurboSquadRole(code, pid, role) -> ok, text, status, out0, out1: the squad role entry of one player of the user's club through the
+-- game's own PlayerStatusManager functions (Turbo.dll op 14, turbogui/src/core/squad_role.h; features/squad_role.lua). Codes: 1 set the
+-- role (an entry is created with the game's AddPlayer when he has none), 2 an entry with the game's own role when he has none, 3 count
+-- the entries of players no longer at the club, 4 remove such an entry (the game's Remove), 9 read. out0 / out1 as M.CALL_OP_SQUAD_ROLE
+-- says. status "off" when the call is unavailable / switched off: nothing was called (Lua keeps its memory path).
+function M.squad_role(code, pid, role)
+    local c, p, r = math.tointeger(code) or 0, math.tointeger(pid) or 0, math.tointeger(role) or 0
+    if c ~= 1 and c ~= 2 and c ~= 3 and c ~= 4 and c ~= 9 then
+        return false, "unknown squad_role code " .. tostring(code) .. " (1 set, 2 ensure entry, 3 count stale, 4 remove stale, 9 check)", "failed"
+    end
+    if c ~= 3 and (p <= 0 or p > 0x7FFFFFFF) then return false, "player id must be a positive number", "failed" end
+    if c == 1 and (r < 1 or r > 5) then return false, "squad role " .. tostring(role) .. " is out of range (1 Crucial to 5 Prospect)", "failed" end
+    if c ~= 1 then r = 0 end
+    if c == 3 then p = 0 end
+    local comm = plugin("ENUM_djb2FeFceGMCommServiceInterface_CLSS")
+    local status, text, out0, out1 = M.game_call(M.CALL_OP_SQUAD_ROLE, { comm, c, p, r }, string.format("squad role player %d (code %d)", p, c))
+    if status == "unavailable" then return false, "squad_role: off (" .. tostring(text) .. ")", "off" end
+    -- an older Turbo.dll without op 14 answers "unknown game call op": the same as off
+    if status == "failed" and type(text) == "string" and (text:find("squad_role: off", 1, true) or text:find("unknown game call op", 1, true)) then
+        return false, text, "off"
+    end
     if status == "ok" then return true, text, status, math.tointeger(out0), math.tointeger(out1) end
     if status == "queued" then return true, text, status end
     return false, text, status, math.tointeger(out0), math.tointeger(out1)
@@ -968,13 +1007,15 @@ function M.install_natives()
     _G.TurboPlayerCreate = M.player_create
     --   TurboPlayerMorale(code, pid, value) -> ok, text, status, total, level (M.player_morale; features/team_mass.lua)
     _G.TurboPlayerMorale = M.player_morale
+    --   TurboSquadRole(code, pid, role) -> ok, text, status, out0, out1 (M.squad_role; features/squad_role.lua, the match crash guard)
+    _G.TurboSquadRole = M.squad_role
     -- Live Editor's missing natives (cAddPlayerToTransferList & co.) on top of it: its own wrappers work again
     local okm, moves = pcall(require, 'imports/turbo/core/moves')
     local le_names = (okm and type(moves) == "table") and moves.install_le_natives() or {}
     env.reset_api_cache()   -- wrappers that were unavailable because their c-native was missing are usable now
     S.natives_installed = true
     S.unavailable = nil   -- caps changed: bridge_state.json lists job_offer / the list moves / reveal / manager_rules as available from now on
-    log.info("Turbo natives installed: TurboJobOfferCreate, TurboStandingsRefresh, TurboTransferList, TurboPlayerMove, TurboRevealPlayerData, TurboManagerRules, TurboPlayerCreate (Turbo.dll game calls)%s",
+    log.info("Turbo natives installed: TurboJobOfferCreate, TurboStandingsRefresh, TurboTransferList, TurboPlayerMove, TurboRevealPlayerData, TurboManagerRules, TurboPlayerCreate, TurboPlayerMorale, TurboSquadRole (Turbo.dll game calls)%s",
         #le_names > 0 and ("; Live Editor natives: " .. table.concat(le_names, ", ")) or "")
     return true
 end

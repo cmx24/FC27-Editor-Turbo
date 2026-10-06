@@ -308,7 +308,7 @@ struct MassAction {
 };
 static const MassAction kMassActions[] = {
     {"block_offers", "Block incoming offers", "Sets every player of the team to the Block Offers status: AI clubs make no offers for them (your own club only; players already blocked stay blocked)."},
-    {"squad_roles", "Squad roles", "Players of 19 or more get the Rotation squad role, younger players Prospect. Your own club only: the game keeps no roles for other clubs."},
+    {"squad_roles", "Squad roles", "Players of 19 or more get the Rotation squad role, younger players Prospect, loaned-in players included, through the game itself (a player without a squad status entry gets one first). The result below lists every player. Open the Squad screen again to see the new roles. Your own club only: the game keeps no roles for other clubs."},
     {"morale", "Morale: very happy", "Your club: the highest morale the game still calls \"very happy\" for each player's emotion type (the game's own level and SetTotalMorale; 100 would be \"complacent\"). Other clubs: 85 through Live Editor."},
     {"long_contract", "Long contract (60 months)", "Gives every player a 60 month contract from today (players loaned in keep their parent club's contract)."},
     {"form", "Form: best (100)", "Your club: form 100 for every player (Live Editor's SetPlayerForm) plus the best database form (teamplayerlinks.form 5). Other clubs: teamplayerlinks.form 5 for every player."},
@@ -355,6 +355,26 @@ static void mass_actions_tab(App& app, const TeamRow& tr) {
             ImGui::SetNextItemWidth(S(140.0f));
             ImGui::InputInt("Dev bonus points (1-10, Dev bonus and All actions)##tmbonus", &bonus_xp, 1, 1);
             bonus_xp = std::clamp(bonus_xp, 1, 10);
+        }
+        if (aid == "squad_roles" && own) {
+            // auto.squad_role, rule "age" (features/squad_role.lua M.auto): the game recomputes every role at the season reset
+            json& sr = app.gui_settings["auto"]["squad_role"];
+            if (!sr.is_object()) sr = json::object();
+            const bool on = sr.contains("enabled") ? (sr.value("enabled", false) && sr.value("rule", std::string("age")) == "age")
+                                                   : (st.auto_squad_role_enabled && st.auto_squad_role_rule == "age");
+            bool keep = on;
+            if (disabled) ImGui::BeginDisabled();
+            if (ImGui::Checkbox("Squad roles again after each season reset (auto)##tmsrauto", &keep)) {
+                sr["enabled"] = keep;
+                sr["rule"] = "age";
+                sr["events"] = json::array({"SEASON_RESET"});
+                if (app.save_gui_settings()) app.send({{"op", "boot"}}, "Auto squad roles");
+                else app.notify("cannot write turbo_output\\gui_settings.json", true);
+            }
+            if (disabled) ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("FC 27 recomputes every squad role at the start of a season. With this on, Turbo applies the rule above "
+                                  "(Rotation from 19, Prospect below) again right after it.");
         }
         if (clicked) {
             confirm = a.id;

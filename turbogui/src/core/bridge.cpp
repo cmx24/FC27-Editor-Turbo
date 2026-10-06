@@ -193,6 +193,12 @@ static bool parse_state_impl(const std::string& text, BridgeState& out) {
             }
             if (a.contains("pap_playstyles") && a["pap_playstyles"].is_object())
                 out.auto_playstyles_enabled = a["pap_playstyles"].value("enabled", false);
+            if (a.contains("squad_role") && a["squad_role"].is_object()) {
+                const json& sr = a["squad_role"];
+                out.auto_squad_role_enabled = sr.value("enabled", false);
+                out.auto_squad_role_rule = sr.value("rule", std::string("age"));
+                out.auto_squad_role_role = static_cast<int>(sr.value("rule_role", 3.0));
+            }
         }
     }
     out.loaded = true;

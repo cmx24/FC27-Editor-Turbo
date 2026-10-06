@@ -402,4 +402,53 @@ end)
 
 H.case("no unmapped memory reads", function() H.eq(sim.unmapped_reads, 0) end)
 
+H.case("squad roles through the game (Turbo.dll squad_role): every player, loaned-in included, each one in the result", function()
+    -- the user's report (2026-10-05): 21 of 28 written, the players without a squad status entry and the loaned-in player left out
+    sim = H.setup({ in_cm = true, le_27_1_2 = true })
+    W.build(sim, { playerloans = true, fc27_status = true, status_missing = { 1003, W.LOANED_IN } })
+    local squad = team_pids(W.USER_TEAM)
+    pset(1005, "birthdate", util.gregorian_days_from_date(2009, 5, 1))   -- 17: Prospect
+    sim:w8(W.role_entries[1007], 4)                                      -- Sporadic now: updated to Rotation
+    local f, calls = W.fake_squad_role(sim)
+    _G.TurboSquadRole = f
+    local ok, msg = run({ teamid = W.USER_TEAM, actions = { "squad_roles" } })
+    _G.TurboSquadRole = nil
+    H.eq(ok, true, msg)
+    local first = msg:match("^[^\n]*")
+    H.has(first, string.format("squad roles: Rotation for age 19+, Prospect below: %d of %d players have the role now through the game (Turbo.dll squad_role)", #squad, #squad))
+    H.has(first, "2 entries created"); H.has(first, "open the Squad screen again")
+    H.ok(not first:find("loaned-in players skipped", 1, true), "nobody skipped")
+    H.has(msg, "\nsquad roles, per player:\n")
+    H.has(msg, "entry created (2): Player 1003 (1003) Rotation, Player 1026 (1026) Rotation")
+    H.has(msg, "Player 1005 (1005) Prospect"); H.has(msg, "Player 1007 (1007) Rotation")
+    local e = {}
+    for i = 0, sim:r32(W.psm + 0x14) - 1 do e[sim:r32(W.status_begin + i * 8)] = sim:r8(W.status_begin + i * 8 + 4) end
+    for _, pid in ipairs(squad) do H.eq(e[pid], pid == 1005 and 5 or 3, "role of " .. pid) end
+    local codes = {}
+    for _, c in ipairs(calls) do codes[c[1]] = (codes[c[1]] or 0) + 1 end
+    H.eq(codes[1], #squad, "code 1 once per player (2 creations + the role of the others)")
+end)
+
+H.case("squad roles: a player without a birth date is listed as skipped with the reason", function()
+    pset(1009, "birthdate", 0)
+    local f = W.fake_squad_role(sim)
+    _G.TurboSquadRole = f
+    local ok, msg = run({ teamid = W.USER_TEAM, actions = { "squad_roles" } })
+    _G.TurboSquadRole = nil
+    H.eq(ok, true, msg)
+    H.has(msg, "; 1 skipped"); H.has(msg, "skipped (1): Player 1009 (1009): no birth date in the database")
+end)
+
+H.case("squad roles in All actions: the per-player lines come after the summary line of every action", function()
+    local f = W.fake_squad_role(sim)
+    _G.TurboSquadRole = f
+    local ok, msg = run({ teamid = W.USER_TEAM, actions = "all" })
+    _G.TurboSquadRole = nil
+    local first = msg:match("^[^\n]*")
+    H.has(first, "long contract:"); H.has(first, "squad roles:"); H.has(first, "| morale (very happy):")
+    H.ok(not first:find("per player", 1, true), "details below the first line")
+    H.has(msg, "\nsquad roles, per player:\n  unchanged (")
+    H.ok(ok ~= nil)
+end)
+
 H.finish()

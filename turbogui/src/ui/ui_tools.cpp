@@ -95,7 +95,7 @@ void draw_tools(App& app) {
 
         ImGui::Separator();
         static int role = 2;  // combo index: 2 = "3 Rotation", Turbo's default squad role
-        static bool loaned = false;
+        static bool loaned = true;  // the game keeps a role for loaned-in players too (features/squad_role.lua)
         const char* roles[] = {"1 Crucial", "2 Important", "3 Rotation", "4 Sporadic", "5 Prospect"};
         ImGui::SetNextItemWidth(S(160.0f));
         ImGui::Combo("Squad role", &role, [](void* d, int i) { return static_cast<const char**>(d)[i]; }, roles, 5);
@@ -104,6 +104,24 @@ void draw_tools(App& app) {
         ImGui::Checkbox("Include loaned-in", &loaned);
         ImGui::SameLine();
         run_button(app, "Set role for whole squad", "squad_role", {{"role", role + 1}, {"include_loaned_in", loaned}}, true);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Every player of your club, through the game itself (Turbo.dll); a player without a squad status entry gets one.\n"
+                              "The Squad screen shows the new roles when you open it again.");
+        // auto.squad_role, rule "role": this role again after each season reset (the game recomputes every role then)
+        json& sr = auto_cfg(app, "squad_role");
+        const bool on_role = sr.contains("enabled") ? (sr.value("enabled", false) && sr.value("rule", std::string("age")) == "role")
+                                                    : (st.auto_squad_role_enabled && st.auto_squad_role_rule == "role");
+        bool keep_role = on_role;
+        if (ImGui::Checkbox("Set it again after each season reset (auto)##srauto", &keep_role)) {
+            sr["enabled"] = keep_role;
+            sr["rule"] = "role";
+            sr["rule_role"] = role + 1;
+            sr["events"] = json::array({"SEASON_RESET"});
+            apply_auto(app, "Auto squad roles");
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("FC 27 recomputes every squad role at the start of a season. With this on, Turbo sets the role chosen above "
+                              "again right after it (Teams > Mass actions has the same switch for its by-age rule).");
 
         ImGui::Separator();
         static int user_years = 4, cpu_years = 5;

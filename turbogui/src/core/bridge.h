@@ -56,6 +56,10 @@ struct BridgeState {
     bool auto_form_enabled = false;
     int auto_form = 100, auto_morale = 100, auto_fitness = 0;
     bool auto_playstyles_enabled = false;
+    // auto.squad_role (features/squad_role.lua M.auto): the roles again after each season reset; rule "age" (Mass actions) or "role"
+    bool auto_squad_role_enabled = false;
+    std::string auto_squad_role_rule = "age";
+    int auto_squad_role_role = 3;
     std::string meta_error;  // why Turbo's Lua side could not write bridge_meta.json (empty = no problem reported)
     long long names_count = 0;  // player names Lua exported to bridge_names.txt
     long long transfer_budget = -1;  // your club's budget (career mode), -1 = not known

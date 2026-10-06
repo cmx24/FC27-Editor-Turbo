@@ -14,6 +14,7 @@
 #include "player_move_win.h"
 #include "player_create_win.h"
 #include "player_morale_win.h"
+#include "squad_role_win.h"
 #include "match_setup_win.h"
 
 namespace host {
@@ -219,6 +220,7 @@ std::vector<std::string> game_calls_status() {
     for (const auto& l : player_move_status()) out.push_back(l);
     for (const auto& l : player_create_status()) out.push_back(l);
     for (const auto& l : player_morale_status()) out.push_back(l);
+    for (const auto& l : squad_role_status()) out.push_back(l);
     for (const auto& l : reveal_status()) out.push_back(l);
     for (const auto& l : manager_rules_status()) out.push_back(l);
     for (const auto& l : match_setup_status()) out.push_back(l);
@@ -270,6 +272,8 @@ void install_game_calls(uint64_t mailbox) {
     install_player_create();
     // player_morale (player_morale_win.cpp): SetTotalMorale for the user's club; on unless turbo_output\call_player_morale_off.txt
     install_player_morale();
+    // squad_role (squad_role_win.cpp): the squad role table of the user's club; on unless turbo_output\call_squad_role_off.txt
+    install_squad_role();
     if (!game_hooks_allowed()) {
         g_off = "game hooks are off for this game build";
         log("game calls: off (%s)", g_off.c_str());
@@ -326,6 +330,8 @@ extern "C" __declspec(dllexport) int turbo_game_call(void*) {
                     player_create_request(turbo::pc::request_from_args(b.args), b.seq);
                 } else if (b.op == turbo::kCallOpPlayerMorale) {
                     player_morale_request(turbo::morale::request_from_args(b.args), b.seq);
+                } else if (b.op == turbo::kCallOpSquadRole) {
+                    squad_role_request(turbo::roles::request_from_args(b.args), b.seq);
                 } else if (b.op == turbo::kCallOpReveal) {
                     turbo::pdrm::Request req;
                     req.pdrm = static_cast<uint64_t>(b.args[0]);

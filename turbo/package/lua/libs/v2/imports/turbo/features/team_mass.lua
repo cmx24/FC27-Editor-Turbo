@@ -13,7 +13,9 @@
 --                  removed. Without the native call (or for another club):
 --                  Live Editor's SetPlayerMorale with 85, nothing read back.
 --   squad_roles    your club only (the game keeps no squad roles for other clubs): players aged 19 or more get the
---                  Rotation role, younger players Prospect (squad_role.lua writes it through the PlayerStatusManager).
+--                  Rotation role, younger players Prospect, loaned-in players included (squad_role.lua: through the game's
+--                  own PlayerStatusManager calls with Turbo.dll's squad_role, op 14, else in memory; a player without an
+--                  entry gets one first). The result lists every player (updated / entry created / unchanged / skipped why).
 --   block_offers   the "Block Offers" player status of the Squad hub (the game's own toggle, called through Turbo.dll:
 --                  moves.list(pid, "block_offers")); your own club only. Players already blocked are left alone (the game's
 --                  call is a toggle: Turbo reads the state first).
@@ -242,9 +244,14 @@ local function action_squad_roles(ctx, pids, teamid)
     local role = require 'imports/turbo/features/squad_role'
     local role_of, rerr = M.role_by_age(pids)
     if not role_of then return false, rerr end
-    local sub = { cfg = { include_loaned_in = false, use_memory = true }, dry = ctx.dry, out_dir = ctx.out_dir, all = ctx.all }
-    local ok, summary = role.apply(sub, role_of, string.format("Rotation for age %d+, Prospect below", M.ADULT_AGE))
-    return ok, summary
+    -- loaned-in players too: the game keeps a role for them (its join handler adds their entry like anyone's)
+    local sub = { cfg = { include_loaned_in = true, use_memory = true }, dry = ctx.dry, out_dir = ctx.out_dir, all = ctx.all }
+    local function by_age(pid)
+        local r = role_of(pid)
+        if r then return r end
+        return nil, "no birth date in the database"
+    end
+    return role.apply(sub, by_age, string.format("Rotation for age %d+, Prospect below", M.ADULT_AGE), { players = pids })
 end
 
 -- Block offers: the game's own toggle for each player of your club (Turbo.dll's transfer_list call, actions 7 / 9)
@@ -458,9 +465,9 @@ function M.run(ctx)
     local pids, n = team_players(teamid)
     if n == 0 then return false, string.format("team %d has no players", teamid) end
 
-    local parts, any_ok, all_ok = {}, false, true
+    local parts, any_ok, all_ok, details = {}, false, true, {}
     for _, a in ipairs(list) do
-        local ok, res, text = pcall(RUN[a], ctx, pids, teamid)
+        local ok, res, text, more = pcall(RUN[a], ctx, pids, teamid)
         local good, msg
         if not ok then
             good, msg = false, "crashed: " .. tostring(res)
@@ -469,10 +476,14 @@ function M.run(ctx)
             good, msg = res, text
         end
         parts[#parts + 1] = string.format("%s: %s%s", LABEL[a], good and "" or "not done - ", tostring(msg))
+        -- an action's per-player lines (squad roles) go below the summary line: the GUI's toast shows the first line,
+        -- Teams > Mass actions all of it
+        if ok and type(more) == "string" and more ~= "" then details[#details + 1] = LABEL[a] .. ", per player:\n" .. more end
         any_ok = any_ok or good
         all_ok = all_ok and good
     end
     local summary = string.format("team %d (%d players) - %s", teamid, n, table.concat(parts, " | "))
+    if #details > 0 then summary = summary .. "\n" .. table.concat(details, "\n") end
     return any_ok, summary
 end
 
