@@ -2,6 +2,7 @@
 #include "core/face_filter.h"
 
 #include "core/face_looks.h"
+#include "core/hair_catalog.h"
 
 #include <algorithm>
 #include <map>
@@ -67,6 +68,17 @@ static bool style_in(const looks::StyleLook (&t)[N], int64_t raw) {
     return it != t + N && it->id == raw;
 }
 
+// The Hair facet's bucket of a classified hair catalog style (hair_catalog.h): bald & buzz cut, tied/braided/dreaded
+// styles of any length, else its length; -1 when the catalog has not classified the id or its preview hides the hair
+// (face_looks.h decides).
+static int64_t hair_bucket(int64_t raw) {
+    const hair::Style* s = hair::find(raw);
+    if (!s || !s->classified || s->length == hair::kUnknownLength) return -1;
+    if (s->length <= hair::kBuzz) return 1;
+    if (s->type == hair::kBraids || s->type == hair::kDreads || s->type == hair::kTwists || s->type == hair::kTied) return 5;
+    return s->length == hair::kShort ? 2 : s->length == hair::kMedium ? 3 : 4;
+}
+
 template <size_t N>
 static int64_t table_bucket(const int (&t)[N], int64_t raw, int64_t other) {
     return raw >= 0 && raw < int64_t(N) ? t[raw] : other;
@@ -83,7 +95,10 @@ int64_t facet_key(Facet f, int64_t raw) {
         case kHairColour:
         case kBeardColour: return table_bucket(kHairColourBucket, raw, 5);
         case kEyes: return table_bucket(kEyeBucket, raw, 5);
-        case kHair: return style_look(looks::kHair, raw);
+        case kHair: {
+            int64_t b = hair_bucket(raw);
+            return b > 0 ? b : style_look(looks::kHair, raw);
+        }
         case kBeard: return style_look(looks::kFacialHair, raw);
         default: return raw;
     }
@@ -127,7 +142,10 @@ std::string trait_label(Facet f, int64_t raw) {
         case kEyes:
             if (raw >= 1 && raw < int64_t(sizeof(kEyeColours) / sizeof(kEyeColours[0]))) return key_label(f, key) + " (" + kEyeColours[raw] + ")";
             return key_label(f, key) + " (eyes " + n + ")";
-        case kHair: return key_label(f, key) + " (style " + n + ")";
+        case kHair:
+            if (const hair::Style* s = hair::find(raw); s && s->classified)
+                return key_label(f, key) + " (style " + n + ": " + hair::describe(*s) + ")";
+            return key_label(f, key) + " (style " + n + ")";
         case kBeard:
             if (raw == 0) return key_label(f, key);
             return key_label(f, key) + " (style " + n + ")";

@@ -2576,6 +2576,7 @@ static Rgba solid(int w, int h, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255
 static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_preload_hotkey.h"  // 1.1.1: show/hide key setting, background loading
 #include "test_gear_pictures.h"  // 1.1.4: gear preview pictures from the hash list
+#include "test_hair_catalog.h"  // hair catalog: gallery filters and the face chooser Hair facet
 #include "test_wheel.h"  // 1.1.3: mouse wheel source (hook, raw input, window messages)
 static std::string hex_bytes(const std::vector<uint8_t>& d) {
     static const char* h = "0123456789abcdef";
@@ -4790,10 +4791,19 @@ static void test_ui() {
                   "unlisted facial hair codes: nearest listed id (50 -> 47; 256 ties 255 / 257 -> the lower; 300 -> 299; past 999 -> 999)");
             CHECK(bucket(kEyes, 3) == "Brown" && bucket(kEyes, 8) == "Blue" && bucket(kEyes, 5) == "Light brown & hazel" && bucket(kEyes, 40) == "Other",
                   "eyes");
-            CHECK(bucket(kHair, 0) == "Bald & buzz cut" && bucket(kHair, 2010) == "Bald & buzz cut" && bucket(kHair, 2) == "Short" &&
-                      bucket(kHair, 580) == "Medium" && bucket(kHair, 3131) == "Medium" && bucket(kHair, 585) == "Long" &&
-                      bucket(kHair, 4) == "Tied, braids & dreads" && bucket(kHair, 2026) == "Tied, braids & dreads" &&
-                      trait_label(kHair, 4) == "Tied, braids & dreads (style 4)" && style_listed(kHair, 3131) && !style_listed(kHair, 50),
+            // hair looks: face_looks.h for the styles the hair catalog has not classified (classified: test_hair_catalog.h)
+            auto hair_look = [&](int64_t id, const char* fallback) {
+                const hair::Style* s = hair::find(id);
+                return s && s->classified && s->length != hair::kUnknownLength ? key_label(kHair, hair_catalog_bucket(*s)) : std::string(fallback);
+            };
+            const hair::Style* h4 = hair::find(4);
+            CHECK(bucket(kHair, 0) == hair_look(0, "Bald & buzz cut") && bucket(kHair, 2010) == hair_look(2010, "Bald & buzz cut") &&
+                      bucket(kHair, 2) == hair_look(2, "Short") && bucket(kHair, 580) == hair_look(580, "Medium") &&
+                      bucket(kHair, 3131) == hair_look(3131, "Medium") && bucket(kHair, 585) == hair_look(585, "Long") &&
+                      bucket(kHair, 4) == hair_look(4, "Tied, braids & dreads") && bucket(kHair, 2026) == hair_look(2026, "Tied, braids & dreads") &&
+                      trait_label(kHair, 4) == (h4 && h4->classified ? bucket(kHair, 4) + " (style 4: " + hair::describe(*h4) + ")"
+                                                                     : std::string("Tied, braids & dreads (style 4)")) &&
+                      style_listed(kHair, 3131) && !style_listed(kHair, 50),
                   "hair looks");
             CHECK(bucket(kHair, 50) == "Tied, braids & dreads" && bucket(kHair, 214) == "Short" && bucket(kHair, 9999) == "Short",
                   "unlisted hair codes: nearest listed id (50 ties 49 / 51 -> the lower; 214 -> 212; past 8040 -> 8040)");
@@ -11749,6 +11759,7 @@ int main(int argc, char** argv) {
     std::printf("native show/hide key and background loading\n");
     test_hotkey_and_background();
     test_gear_pictures();
+    test_hair_catalog();
     std::printf("native mouse wheel source\n");
     test_wheel_sources();
     std::printf("native club customisation and career settings\n");

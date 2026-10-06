@@ -13,6 +13,7 @@
 #include <unordered_set>
 
 #include "app.h"
+#include "core/hair_catalog.h"
 #include "file_picker.h"
 #include "imgui.h"
 #include "ui_images.h"
@@ -930,7 +931,49 @@ static void toggle_favourite(App& app, const char* field, int64_t id) {
     app.save_gui_settings();
 }
 
+// Hair gallery filters (hairtypecode): one combo per catalog facet (-1 = any), each option with its count among ids.
+struct HairFilter {
+    int length = -1, type = -1, accessory = -1;
+    char search[48] = "";
+};
+
+static bool hair_combo(const char* label, int& value, int n, const char* (*name)(int), const std::vector<int64_t>& ids,
+                       uint8_t hair::Style::*member, const char* any) {
+    std::vector<int> counts(size_t(n), 0);
+    for (int64_t id : ids) {
+        int v = hair::lookup(id).*member;
+        if (v >= 0 && v < n) ++counts[size_t(v)];
+    }
+    std::string preview = value < 0 ? std::string(any) : std::string(name(value)) + " (" + std::to_string(counts[size_t(value)]) + ")";
+    bool changed = false;
+    ImGui::SetNextItemWidth(S(170.0f));
+    if (ImGui::BeginCombo(label, preview.c_str())) {
+        if (ImGui::Selectable(any, value < 0)) value = -1, changed = true;
+        for (int i = 0; i < n; ++i) {
+            if (!counts[size_t(i)]) continue;
+            std::string item = std::string(name(i)) + " (" + std::to_string(counts[size_t(i)]) + ")";
+            if (ImGui::Selectable(item.c_str(), value == i)) value = i, changed = true;
+        }
+        ImGui::EndCombo();
+    }
+    return changed;
+}
+
+static bool hair_matches(const HairFilter& hf, int64_t id) {
+    if (id <= 0) return true;
+    hair::Style s = hair::lookup(id);
+    if (hf.length >= 0 && s.length != hf.length) return false;
+    if (hf.type >= 0 && s.type != hf.type) return false;
+    if (hf.accessory >= 0 && s.accessory != hf.accessory) return false;
+    if (hf.search[0]) {
+        std::string q = lower(hf.search);
+        if (std::to_string(id).find(q) == std::string::npos && lower(hair::describe(s)).find(q) == std::string::npos) return false;
+    }
+    return true;
+}
+
 void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
+    static HairFilter hf;
     static int open_gal = -1;
     static bool fav_only = false;
     const float thumb = S(56.0f);
@@ -982,9 +1025,26 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
                     ImGui::Checkbox("Favourites only", &fav_only);
                     ImGui::SameLine();
                     ImGui::TextDisabled("right-click a picture to star it");
+                    const bool is_hair = std::strcmp(g.field, "hairtypecode") == 0;
+                    if (is_hair) {
+                        hair_combo("##hairlen", hf.length, hair::kLengthCount, hair::length_name, ids, &hair::Style::length, "Any length");
+                        ImGui::SameLine();
+                        hair_combo("##hairtype", hf.type, hair::kTypeCount, hair::type_name, ids, &hair::Style::type, "Any type");
+                        ImGui::SameLine();
+                        hair_combo("##hairacc", hf.accessory, hair::kAccessoryCount, hair::accessory_name, ids, &hair::Style::accessory,
+                                   "Any accessories");
+                        ImGui::SameLine();
+                        ImGui::SetNextItemWidth(S(150.0f));
+                        ImGui::InputTextWithHint("##hairsearch", "id or words", hf.search, sizeof(hf.search));
+                        if (hf.length >= 0 || hf.type >= 0 || hf.accessory >= 0 || hf.search[0]) {
+                            ImGui::SameLine();
+                            if (ImGui::SmallButton("Clear##hairfilters")) hf = HairFilter{};
+                        }
+                    }
                     std::vector<int64_t> shown;
                     for (int64_t id : ids)
-                        if (!fav_only || is_favourite(app, g.field, id)) shown.push_back(id);
+                        if ((!fav_only || is_favourite(app, g.field, id)) && (!is_hair || hair_matches(hf, id))) shown.push_back(id);
+                    if (is_hair) ImGui::TextDisabled("%zu of %zu styles match", shown.size(), ids.size());
                     const float cell = S(100.0f);
                     ImGui::BeginChild("##ggrid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.5f), ImGuiChildFlags_Borders);
                     int cols = std::max(1, int((ImGui::GetContentRegionAvail().x + ImGui::GetStyle().ItemSpacing.x) /
@@ -1012,6 +1072,8 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
                                 if (id && ImGui::IsItemClicked(ImGuiMouseButton_Right)) toggle_favourite(app, g.field, id);
                                 ImGui::PopID();
                                 ImGui::EndGroup();
+                                if (is_hair && id && ImGui::IsItemHovered())
+                                    ImGui::SetTooltip("Hair %lld: %s", static_cast<long long>(id), hair::describe(hair::lookup(id)).c_str());
                             }
                         }
                     }
