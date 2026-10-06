@@ -4799,14 +4799,17 @@ static void test_ui() {
         });
 
 
-        run_case("Real-face chooser filters: groups of at most 5, gender, ethnicity groups, counts per group, combined filters, sort", [&] {
+        run_case("Real-face chooser filters: exact skin / hair / eye colours, style looks, gender, ethnicity groups, counts, combined filters, sort", [&] {
             using namespace faces;
             auto bucket = [](Facet f, int64_t raw) { return key_label(f, facet_key(f, raw)); };
-            CHECK(bucket(kSkin, 20) == "Very light" && bucket(kSkin, 30) == "Light" && bucket(kSkin, 60) == "Medium" && bucket(kSkin, 80) == "Dark" &&
-                      bucket(kSkin, 100) == "Very dark" && trait_label(kSkin, 20) == "Very light (Caucasian 2)", "skin tones (FC 27: 10..100)");
-            CHECK(bucket(kHairColour, 0) == "Black" && bucket(kHairColour, 3) == "Brown" && bucket(kHairColour, 4) == "Blonde" &&
-                      bucket(kHairColour, 12) == "Red & ginger" && bucket(kHairColour, 9) == "Grey, white & other" &&
-                      bucket(kHairColour, 21) == "Grey, white & other" && trait_label(kHairColour, 3) == "Brown (Dark Brown)", "hair colours");
+            CHECK(bucket(kSkin, 20) == "Caucasian 2" && bucket(kSkin, 30) == "Caucasian 3" && bucket(kSkin, 60) == "Latin Asian 3" &&
+                      bucket(kSkin, 80) == "African 1" && bucket(kSkin, 100) == "African 3" && bucket(kSkin, 5) == "Latin Asian 2" &&
+                      bucket(kSkin, 55) == "Skin tone 55" && facet_key(kSkin, 20) != facet_key(kSkin, 10) && trait_label(kSkin, 20) == "Caucasian 2 (code 20)",
+                  "exact skin tones (FC 27: 10..100, Live Editor's names)");
+            CHECK(bucket(kHairColour, 0) == "Black" && bucket(kHairColour, 3) == "Dark Brown" && bucket(kHairColour, 4) == "Light Blonde" &&
+                      bucket(kHairColour, 12) == "Ginger" && bucket(kHairColour, 9) == "Silver" && bucket(kHairColour, 21) == "Colour 21" &&
+                      facet_key(kHairColour, 5) != facet_key(kHairColour, 6) && bucket(kBeardColour, 7) == "Red" &&
+                      trait_label(kHairColour, 3) == "Dark Brown (code 3)", "exact hair colours");
             // facial hair looks (face_looks.h, from the game's previews); 68 and 999 show no facial hair in the game
             CHECK(bucket(kBeard, 0) == "Clean-shaven" && bucket(kBeard, 68) == "Clean-shaven" && bucket(kBeard, 999) == "Clean-shaven" &&
                       bucket(kBeard, 243) == "Stubble" && bucket(kBeard, 261) == "Moustache & goatee" && bucket(kBeard, 30) == "Short beard" &&
@@ -4815,8 +4818,8 @@ static void test_ui() {
             CHECK(bucket(kBeard, 50) == "Stubble" && bucket(kBeard, 256) == "Stubble" && bucket(kBeard, 300) == "Moustache & goatee" &&
                       bucket(kBeard, 5000) == "Clean-shaven" && !style_listed(kBeard, 256) && style_listed(kBeard, 255),
                   "unlisted facial hair codes: nearest listed id (50 -> 47; 256 ties 255 / 257 -> the lower; 300 -> 299; past 999 -> 999)");
-            CHECK(bucket(kEyes, 3) == "Brown" && bucket(kEyes, 8) == "Blue" && bucket(kEyes, 5) == "Light brown & hazel" && bucket(kEyes, 40) == "Other",
-                  "eyes");
+            CHECK(bucket(kEyes, 3) == "Brown" && bucket(kEyes, 8) == "Medium Blue" && bucket(kEyes, 5) == "Hazel" && bucket(kEyes, 10) == "Saturated Green" &&
+                      bucket(kEyes, 40) == "Eye colour 40" && facet_key(kEyes, 1) != facet_key(kEyes, 2), "exact eye colours");
             // hair looks: face_looks.h for the styles the hair catalog has not classified (classified: test_hair_catalog.h)
             auto hair_look = [&](int64_t id, const char* fallback) {
                 const hair::Style* s = hair::find(id);
@@ -4837,7 +4840,7 @@ static void test_ui() {
             CHECK(bucket(kEthnicity, 34) == "European" && bucket(kEthnicity, 520) == "Asian" && bucket(kEthnicity, 1024) == "African" &&
                       bucket(kEthnicity, 1502) == "Latin" && bucket(kEthnicity, 7010) == "European" && bucket(kEthnicity, 15000) == "Mixed & other",
                   "ethnicity from the head type ranges");
-            // every code of the FC 27 field ranges falls in a named group, and no menu has more than 5 choices
+            // every code of the FC 27 field ranges has a named choice: the colours one each, the styles and ethnicity at most 5 groups
             const int64_t kMaxRaw[kFacetCount] = {16000, 100, 50, 10000, 512, 50, 64, 1};
             for (int i = 0; i < kFacetCount; ++i) {
                 const Facet fc = static_cast<Facet>(i);
@@ -4855,8 +4858,11 @@ static void test_ui() {
                 std::vector<Count> cs = facet_counts(every, all_idx, Filter(), fc);
                 int listed = 0;
                 for (const auto& c : cs) listed += c.n;
+                const bool exact = facet_exact(fc);
                 const bool five_looks = (fc != kHair && fc != kBeard) || cs.size() == size_t(kMaxBuckets);  // styles: all 5 looks used
-                CHECK(named && five_looks && cs.size() <= size_t(kMaxBuckets) && listed == int(every.size()),
+                const bool sized = exact ? cs.size() == every.size() : cs.size() <= size_t(kMaxBuckets);
+                CHECK(named && five_looks && sized && listed == int(every.size()) &&
+                          exact == (fc == kSkin || fc == kHairColour || fc == kBeardColour || fc == kEyes),
                       fmt("%s: every code in a group (%d), %zu choices, %d of %zu listed", facet_title(fc), int(named), cs.size(), listed, every.size()));
             }
             CHECK(kSortCount <= kMaxBuckets, "sort menu");
@@ -4887,7 +4893,8 @@ static void test_ui() {
                   "a style group's picture is a listed style (251), not the first head's unlisted 274");
             flt.sel[kHairColour] = facet_key(kHairColour, 0);  // black hair: 1, 3, 4
             std::vector<Count> skins = facet_counts(heads, pool, flt, kSkin);
-            CHECK(skins.size() == 2 && skins[0].key == 1 && skins[0].n == 1 && skins[1].key == 5 && skins[1].n == 2, "skin counts under the hair filter");
+            CHECK(skins.size() == 3 && skins[0].key == 20 && skins[0].n == 1 && skins[1].key == 90 && skins[2].key == 100 && skins[2].n == 1,
+                  "exact skin counts under the hair filter");
             std::vector<Count> hairs = facet_counts(heads, pool, flt, kHairColour);
             CHECK(hairs.size() == 2 && hairs[0].n == 3 && hairs[1].key == facet_key(kHairColour, 3) && hairs[1].n == 1,
                   "a facet's own filter does not narrow its counts");
@@ -4921,9 +4928,9 @@ static void test_ui() {
             CHECK(ui.find("face1001", "Choose a real face") && ui.find("face1003", "Choose a real face"), "every real face listed");
             CHECK(ui.click("Hair colour: Any##facet2", "Choose a real face"), "hair colour filter");
             ui.frames(2);
-            CHECK(ui.click("Brown (3)##v2"), "Brown: 1003, 1005, 1006");
+            CHECK(ui.click("Dark Brown (1)##v3"), "exact hair colour Dark Brown (code 3): 1003 only (1005 Light Brown, 1006 Medium Brown)");
             ui.frames(2);
-            CHECK(ui.find("face1003", "Choose a real face") && !ui.find("face1001", "Choose a real face"), "filtered to Brown");
+            CHECK(ui.find("face1003", "Choose a real face") && !ui.find("face1001", "Choose a real face"), "filtered to Dark Brown");
             CHECK(ui.click("Clear filters", "Choose a real face"), "clear");
             ui.frames(2);
             CHECK(ui.click("Gender: Any##facet7", "Choose a real face"), "gender filter");

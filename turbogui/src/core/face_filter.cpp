@@ -35,18 +35,11 @@ static const int kEthnicGroups[] = {
 // Live Editor's labels (loc/eng_us/localize.json). FC 27 stores the skin tone as 10, 20 ... 100 (Live Editor's 1 .. 10).
 static const char* kSkinNames[] = {"", "Caucasian 1", "Caucasian 2", "Caucasian 3", "Latin Asian 1", "Latin Asian 2", "Latin Asian 3",
                                    "Latin Asian 4", "African 1", "African 2", "African 3"};
-static const char* kSkinBuckets[] = {"", "Very light", "Light", "Medium", "Dark", "Very dark"};  // 0-20, 30-40, 50-60, 70-80, 90-100
 // Hair colours; facial hair uses the same codes (0 .. 27 in FC 27, same spread as the hair)
 static const char* kHairColours[] = {"Black", "Blonde", "Dirty Blonde", "Dark Brown", "Light Blonde", "Light Brown", "Medium Brown", "Red",
                                      "White", "Silver", "Green", "Blue", "Ginger", "Dark Red", "Pink"};
-// Bucket of each hair colour code: 1 black, 2 brown, 3 blonde, 4 red / ginger (pink too), 5 grey, white and the rest
-// (dyed green / blue, and the codes Live Editor has no name for)
-static const char* kHairColourBuckets[] = {"", "Black", "Brown", "Blonde", "Red & ginger", "Grey, white & other"};
-static const int kHairColourBucket[] = {1, 3, 3, 2, 3, 2, 2, 4, 5, 5, 5, 5, 4, 4, 4};
 static const char* kEyeColours[] = {"", "Blue", "Light Blue", "Brown", "Light Brown", "Hazel", "Green", "Light Green", "Medium Blue",
                                     "Dark Brown", "Saturated Green"};
-static const char* kEyeBuckets[] = {"", "Blue", "Green", "Brown", "Light brown & hazel", "Other"};
-static const int kEyeBucket[] = {5, 1, 1, 3, 4, 4, 2, 2, 1, 3, 2};  // code 0 .. 10; others: 5
 // Hair and facial hair styles: grouped by look (face_looks.h, from the game's own previews), 5 groups each. The keys are
 // the looks' values: hair 1 .. 5, facial hair 0 (clean-shaven, also the codes the game shows without facial hair) .. 4.
 static const char* kHairBuckets[] = {"", "Bald & buzz cut", "Short", "Medium", "Long", "Tied, braids & dreads"};
@@ -79,11 +72,6 @@ static int64_t hair_bucket(int64_t raw) {
     return s->length == hair::kShort ? 2 : s->length == hair::kMedium ? 3 : 4;
 }
 
-template <size_t N>
-static int64_t table_bucket(const int (&t)[N], int64_t raw, int64_t other) {
-    return raw >= 0 && raw < int64_t(N) ? t[raw] : other;
-}
-
 int64_t facet_key(Facet f, int64_t raw) {
     if (raw < 0) return kNoValue;
     switch (f) {
@@ -91,10 +79,11 @@ int64_t facet_key(Facet f, int64_t raw) {
             int64_t b = raw / 500;
             return b < int64_t(sizeof(kEthnicGroups) / sizeof(kEthnicGroups[0])) ? kEthnicGroups[b] : kMixed;
         }
-        case kSkin: return raw <= 20 ? 1 : raw <= 40 ? 2 : raw <= 60 ? 3 : raw <= 80 ? 4 : 5;
+        // exact values (the coarse groups were too inaccurate to find a look-alike): the key is the game's own code
+        case kSkin:
         case kHairColour:
-        case kBeardColour: return table_bucket(kHairColourBucket, raw, 5);
-        case kEyes: return table_bucket(kEyeBucket, raw, 5);
+        case kBeardColour:
+        case kEyes: return raw;
         case kHair: {
             int64_t b = hair_bucket(raw);
             return b > 0 ? b : style_look(looks::kHair, raw);
@@ -109,19 +98,38 @@ static std::string bucket_name(const char* const (&names)[N], int64_t key) {
     return key >= 1 && key < int64_t(N) ? std::string(names[key]) : "Group " + std::to_string(key);
 }
 
+// Exact value labels (Live Editor's names; codes Live Editor has no name for keep their number)
+static std::string exact_label(Facet f, int64_t raw) {
+    const std::string n = std::to_string(raw);
+    switch (f) {
+        case kSkin:
+            if (raw >= 10 && raw <= 100 && raw % 10 == 0) return kSkinNames[raw / 10];
+            if (raw >= 1 && raw <= 10) return kSkinNames[raw];  // Live Editor's own scale
+            return "Skin tone " + n;
+        case kHairColour:
+        case kBeardColour:
+            if (raw >= 0 && raw < int64_t(sizeof(kHairColours) / sizeof(kHairColours[0]))) return kHairColours[raw];
+            return "Colour " + n;
+        case kEyes:
+            if (raw >= 1 && raw < int64_t(sizeof(kEyeColours) / sizeof(kEyeColours[0]))) return kEyeColours[raw];
+            return "Eye colour " + n;
+        default: return n;
+    }
+}
+
 std::string key_label(Facet f, int64_t key) {
     if (key == kAny) return "Any";
     if (key == kNoValue) return "not in this table";
     switch (f) {
         case kEthnicity: return bucket_name(kGroupNames, key);
-        case kSkin: return bucket_name(kSkinBuckets, key);
+        case kSkin: return exact_label(f, key);
         case kHairColour:
-        case kBeardColour: return bucket_name(kHairColourBuckets, key);
+        case kBeardColour: return exact_label(f, key);
         case kHair: return bucket_name(kHairBuckets, key);
         case kBeard:
             return key >= 0 && key < int64_t(sizeof(kBeardBuckets) / sizeof(kBeardBuckets[0])) ? std::string(kBeardBuckets[key])
                                                                                                : "Group " + std::to_string(key);
-        case kEyes: return bucket_name(kEyeBuckets, key);
+        case kEyes: return exact_label(f, key);
         case kGender: return key == 0 ? "Male" : key == 1 ? "Female" : "Gender " + std::to_string(key);
         default: return std::to_string(key);
     }
@@ -133,15 +141,9 @@ std::string trait_label(Facet f, int64_t raw) {
     const std::string n = std::to_string(raw);
     switch (f) {
         case kSkin:
-            if (raw >= 10 && raw <= 100 && raw % 10 == 0) return key_label(f, key) + " (" + kSkinNames[raw / 10] + ")";
-            return key_label(f, key) + " (" + n + ")";
         case kHairColour:
         case kBeardColour:
-            if (raw < int64_t(sizeof(kHairColours) / sizeof(kHairColours[0]))) return key_label(f, key) + " (" + kHairColours[raw] + ")";
-            return key_label(f, key) + " (colour " + n + ")";
-        case kEyes:
-            if (raw >= 1 && raw < int64_t(sizeof(kEyeColours) / sizeof(kEyeColours[0]))) return key_label(f, key) + " (" + kEyeColours[raw] + ")";
-            return key_label(f, key) + " (eyes " + n + ")";
+        case kEyes: return key_label(f, key) + " (code " + n + ")";
         case kHair:
             if (const hair::Style* s = hair::find(raw); s && s->classified)
                 return key_label(f, key) + " (style " + n + ": " + hair::describe(*s) + ")";
@@ -152,6 +154,8 @@ std::string trait_label(Facet f, int64_t raw) {
         default: return key_label(f, key);
     }
 }
+
+bool facet_exact(Facet f) { return f == kSkin || f == kHairColour || f == kBeardColour || f == kEyes; }
 
 bool facet_has_pictures(Facet f) { return f == kHair || f == kBeard; }
 
