@@ -30,14 +30,16 @@ static std::string lower_text(std::string s) {
 // ---------------------------------------------------------------- heads
 static std::vector<Face> g_pfaces, g_mfaces;
 static uint64_t g_pfaces_version = ~uint64_t(0), g_mfaces_version = ~uint64_t(0);
+static uint64_t g_pfaces_looks = 0;  // face3d::generation() the player heads' look pointers come from
 
 static void facet_fields(const Table& t, const Field* out[faces::kFacetCount]) {
     for (int i = 0; i < faces::kFacetCount; ++i) out[i] = t.field(faces::facet_field(static_cast<Facet>(i)));
 }
 
 const std::vector<Face>& player_faces(App& app) {
-    if (g_pfaces_version == app.model.version()) return g_pfaces;
+    if (g_pfaces_version == app.model.version() && g_pfaces_looks == face3d::generation()) return g_pfaces;
     g_pfaces_version = app.model.version();
+    g_pfaces_looks = face3d::generation();
     g_pfaces.clear();
     const Table* t = app.db.table("players");
     if (!t || !t->has("headclasscode") || !t->has("headassetid")) return g_pfaces;
@@ -59,6 +61,7 @@ const std::vector<Face>& player_faces(App& app) {
         r.real = cls == 0 && (!hq || snap.get_int(idx, *hq) != 0);  // a real face: head class 0 and a high-quality head
         if (!r.real && cls != 0 && r.headassetid != r.id) continue;  // generic head: nothing to pick
         for (int i = 0; i < faces::kFacetCount; ++i) r.raw[i] = ff[i] ? snap.get_int(idx, *ff[i]) : faces::kNoValue;
+        faces::set_look(r, face3d::lookup(r.id));  // the 3D facets: what the game's 3D render of his head shows
         if (const PlayerRow* p = app.model.player(r.id)) {
             r.name = p->name;
             r.overall = p->overall;
@@ -251,6 +254,7 @@ struct Chooser {
     faces::Filter filter;
     int sort = faces::kSortName;
     bool real_only = true;
+    int only3d = -1;  // "Only heads with a 3D look": -1 until the user sets it (on when the list has kOnly3dDefaultMin looks)
     bool manager_heads = false;  // manager target: managers' heads instead of players'
     RealFaceOptions opts;
 };
@@ -272,11 +276,17 @@ static std::string value_label(Facet fc, const faces::Count& c) {
     return buf;
 }
 
-// "Hair colour: Any" button and its list of values (count of heads per value, with a picture of each)
+// 3D renders of the heads (defined with the render queue below)
+static bool face3d_cached(App& app, bool manager, int64_t id);
+static fs::path face3d_file(App& app, bool manager, int64_t id);
+static int64_t head3d_id(const Face& f);
+
+// "Hair colour: Any" button and its list of values (count of heads per value, with a picture of each). The 3D facets list
+// every value of the look (those no head has under the other filters greyed out) and show a 3D render as the picture.
 static void facet_button(App& app, Chooser& ch, const std::vector<Face>& list, const std::vector<size_t>& pool, Facet fc, bool& first,
-                         float line_end) {
+                         float line_end, bool looks3d) {
     const int64_t sel = ch.filter.sel[fc];
-    std::string lbl = std::string(faces::facet_title(fc)) + ": " + faces::key_label(fc, sel) + "##facet" + std::to_string(int(fc));
+    std::string lbl = std::string(faces::facet_title(fc, looks3d)) + ": " + faces::key_label(fc, sel) + "##facet" + std::to_string(int(fc));
     const float w = ImGui::CalcTextSize(lbl.c_str(), nullptr, true).x + ImGui::GetStyle().FramePadding.x * 2.0f;
     flow(first, w, line_end);
     const std::string pop = "##facetpop" + std::to_string(int(fc));
@@ -302,12 +312,19 @@ static void facet_button(App& app, Chooser& ch, const std::vector<Face>& list, c
         for (int i = clip.DisplayStart; i < clip.DisplayEnd; ++i) {
             const faces::Count& c = counts[static_cast<size_t>(i)];
             ImGui::PushID(i);
-            // a style group shows a listed style of its heads (one with a game preview), the other groups the first head's miniface
-            std::string pic = faces::facet_has_pictures(fc) ? faces::facet_picture(fc, list[c.sample].raw[fc]) : std::string();
-            if (pic.empty()) pic = face_picture(list[c.sample]);
-            draw_legacy_picture(app, pic, thumb, true);
+            const Face* sample = c.n > 0 && c.sample < list.size() ? &list[c.sample] : nullptr;
+            if (!sample) {
+                ImGui::Dummy(ImVec2(thumb, thumb));  // a 3D look value no head has under the other filters
+            } else if (faces::facet_3d(fc) && head3d_id(*sample) > 0 && face3d_cached(app, sample->manager, head3d_id(*sample))) {
+                draw_file_picture(app, face3d_file(app, sample->manager, head3d_id(*sample)), thumb);
+            } else {
+                // a style group shows a listed style of its heads (one with a game preview), the other groups the first head's miniface
+                std::string pic = faces::facet_has_pictures(fc) ? faces::facet_picture(fc, sample->raw[fc]) : std::string();
+                if (pic.empty()) pic = face_picture(*sample);
+                draw_legacy_picture(app, pic, thumb, true);
+            }
             ImGui::SameLine();
-            if (ImGui::Selectable(value_label(fc, c).c_str(), sel == c.key, 0, ImVec2(0, thumb))) {
+            if (ImGui::Selectable(value_label(fc, c).c_str(), sel == c.key, sample ? 0 : ImGuiSelectableFlags_Disabled, ImVec2(0, thumb))) {
                 ch.filter.sel[fc] = c.key;
                 ImGui::CloseCurrentPopup();
             }
@@ -679,6 +696,13 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
     const bool mheads = manager_target && ch.manager_heads;
     const std::vector<Face>& list = mheads ? manager_faces(app) : player_faces(app);
     const Table* src = app.db.table(mheads ? "manager" : "players");
+    const float row_end = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+    // 3D looks (core/face3d_looks.h): player heads classified from the game's 3D renders; manager heads have none
+    const size_t looked = mheads ? 0 : faces::count_looks(list);
+    const bool looks3d = looked > 0;
+    if (ch.only3d < 0 && looked >= faces::kOnly3dDefaultMin) ch.only3d = 1;
+    const bool only3d = looks3d && ch.only3d > 0;
+    faces::drop_hidden(ch.filter, looks3d);
     if (manager_target) {
         if (ImGui::RadioButton("Player heads", !ch.manager_heads)) {
             ch.manager_heads = false;
@@ -706,6 +730,16 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
             if (ImGui::Selectable(faces::sort_title(static_cast<faces::Sort>(s)), ch.sort == s)) ch.sort = s;
         ImGui::EndCombo();
     }
+    if (looks3d) {
+        bool on = only3d;
+        bool not_first = false;
+        flow(not_first, ImGui::CalcTextSize("Only heads with a 3D look").x + ImGui::GetFrameHeight() + S(8.0f), row_end);
+        if (ImGui::Checkbox("Only heads with a 3D look", &on)) ch.only3d = on ? 1 : 0;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%zu of %zu heads have a 3D look: skin, hair, facial hair and headwear judged from the game's 3D render.\n"
+                              "In those filters the other heads are \"not classified yet\".",
+                              looked, list.size());
+    }
 
     // heads matching the search and "real faces only"; the filters below narrow them
     const std::string q = lower_text(ch.search);
@@ -714,6 +748,7 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
     for (size_t i = 0; i < list.size(); ++i) {
         const Face& f = list[i];
         if (ch.real_only && !f.real) continue;
+        if (only3d && !f.look) continue;
         if (!q.empty()) {
             if (numeric ? (std::to_string(f.id).find(q) != 0 && std::to_string(f.headassetid).find(q) != 0) : f.lname.find(q) == std::string::npos)
                 continue;
@@ -723,10 +758,10 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
 
     const float line_end = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
     bool first = true;
-    for (int i = 0; i < faces::kFacetCount; ++i) {
-        const Facet fc = faces::facet_order()[i];
-        if (!src || !src->has(faces::facet_field(fc))) continue;  // FC 27 has them all; older tables may not
-        facet_button(app, ch, list, pool, fc, first, line_end);
+    for (int i = 0; i < faces::facet_order_size(looks3d); ++i) {
+        const Facet fc = faces::facet_order(looks3d)[i];
+        if (!faces::facet_3d(fc) && (!src || !src->has(faces::facet_field(fc)))) continue;  // FC 27 has them all; older tables may not
+        facet_button(app, ch, list, pool, fc, first, line_end, looks3d);
     }
     if (ch.filter.active()) {
         flow(first, ImGui::CalcTextSize("Clear filters").x + ImGui::GetStyle().FramePadding.x * 2.0f, line_end);
@@ -793,11 +828,7 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
                     }
                 }
                 if (ImGui::IsItemHovered()) {
-                    std::string traits;
-                    for (int k = 0; k < faces::kFacetCount; ++k) {
-                        const Facet fc = faces::facet_order()[k];
-                        if (f->raw[fc] >= 0) traits += std::string("\n") + faces::facet_title(fc) + ": " + faces::trait_label(fc, f->raw[fc]);
-                    }
+                    const std::string traits = faces::head_traits(*f, looks3d);  // "3D look: ..." first when the list has looks
                     ImGui::BeginTooltip();
                     if (has3d) draw_file_picture(app, face3d_file(app, f->manager, rid), S(256.0f));  // big preview of the 3D render
                     ImGui::Text("%s\n%s %lld, head %lld%s", f->name.c_str(), f->manager ? "manager" : "player",
