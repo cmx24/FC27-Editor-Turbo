@@ -320,31 +320,38 @@ static void facet_button(App& app, Chooser& ch, const std::vector<Face>& list, c
 }
 
 // ---------------------------------------------------------------- 3D heads (the game renders each head from its 3D model)
-// The chooser asks the capture service (app.capture, docs/re/player_capture.md) for the heads on screen, one request in
-// flight, never waiting for it: each frame polls once. A render is saved as a 256 x 256 DXT5 DDS in
-// turbo_output/cache/faces3d (p_<playerid>.dds, m_<headid>.dds) and drawn instead of the miniface from then on (kept
-// across sessions). "Render all filtered heads" queues the whole filtered list.
+// The chooser asks the capture service (app.capture, docs/re/player_capture.md) for heads, up to Status::max_batch
+// (the controller's 6) per request, one request in flight, never waiting for it: tick_faces3d runs every frame from
+// App::draw (so "Render all filtered heads" goes on with the chooser closed) and hands out a couple of results per frame.
+// A render is saved as a 256 x 256 DXT5 DDS in turbo_output/cache/faces3d (p_<playerid>.dds, m_<headid>.dds) and drawn
+// instead of the miniface from then on (kept across sessions). Heads on screen go first; "Render all filtered heads"
+// queues the whole filtered list behind them.
 namespace {
 struct Head3d {
     bool manager = false;
     int32_t id = 0;  // playerid, or the head id for a manager head (what the game renders)
     int32_t teamid = -1;  // the club, passed as the capture's second id like the Miniface editor does (-1 = none)
     std::string label;
+    bool in_batch = false;  // counted by "Render all filtered heads" when it finishes
 };
 struct Render3d {
-    std::deque<Head3d> queue;
+    std::deque<Head3d> queue;  // "Render all filtered heads", in order
     std::unordered_set<int64_t> queued;
+    std::deque<Head3d> front;  // heads on screen: sent before the queue (newest first, oldest dropped)
+    std::unordered_set<int64_t> fronted;
     std::unordered_map<int64_t, bool> cached;  // file exists (checked once per head)
-    bool pending = false;
-    Head3d cur;
-    double since = 0.0;
-    bool batch = false;  // "Render all filtered heads" running
-    size_t batch_total = 0, batch_done = 0, failed = 0;
+    std::unordered_map<int64_t, int> fails;    // failed renders per head
+    std::vector<Head3d> inflight;              // the heads of the request in flight (empty = none)
+    double since = 0.0;                        // request sent / last answer (the timeout counts from it)
+    bool batch = false;                        // "Render all filtered heads" running
+    size_t batch_total = 0, batch_done = 0, failed = 0, rendered = 0;
     std::string note;
 };
 Render3d g_r3d;
-constexpr size_t kVisibleQueueMax = 3 * capture::kMaxPlayersPerRequest;  // heads on screen waiting (not a batch)
-constexpr double kRenderTimeout = 20.0;                                     // seconds before a render is given up
+constexpr size_t kVisibleQueueMax = 3 * capture::kMaxPlayersPerRequest;  // heads on screen waiting
+constexpr double kRenderTimeout = 20.0;                                     // seconds without an answer before a request is given up
+constexpr int kMaxHeadFails = 2;                                            // a head failing this often is not asked again (this session)
+constexpr int kResultsPerFrame = 2;                                         // decoded + saved per frame (never a long frame)
 }  // namespace
 
 static int64_t head3d_key(bool manager, int64_t id) { return (manager ? (int64_t(1) << 40) : 0) + id; }
@@ -365,6 +372,17 @@ static bool face3d_cached(App& app, bool manager, int64_t id) {
     return ok;
 }
 
+static bool head3d_given_up(int64_t k) {
+    auto it = g_r3d.fails.find(k);
+    return it != g_r3d.fails.end() && it->second >= kMaxHeadFails;
+}
+
+static bool head3d_inflight(int64_t k) {
+    for (const Head3d& h : g_r3d.inflight)
+        if (head3d_key(h.manager, h.id) == k) return true;
+    return false;
+}
+
 static bool capture_usable(App& app) {
     if (!app.capture) return false;
     return app.capture->status().installed;
@@ -374,8 +392,8 @@ static void queue_head3d(App& app, const Face& f, bool front) {
     const int64_t id = head3d_id(f);
     if (id <= 0 || face3d_cached(app, f.manager, id)) return;
     const int64_t k = head3d_key(f.manager, id);
-    if (g_r3d.queued.count(k)) return;
-    if (g_r3d.pending && g_r3d.cur.manager == f.manager && g_r3d.cur.id == id) return;
+    if (head3d_given_up(k) || head3d_inflight(k)) return;
+    if (front ? g_r3d.fronted.count(k) != 0 : g_r3d.queued.count(k) != 0) return;
     Head3d h;
     h.manager = f.manager;
     h.id = static_cast<int32_t>(id);
@@ -385,9 +403,18 @@ static void queue_head3d(App& app, const Face& f, bool front) {
         h.teamid = static_cast<int32_t>(pr->club);
     }
     h.label = f.name;
-    if (front) g_r3d.queue.push_front(h);
-    else g_r3d.queue.push_back(h);
-    g_r3d.queued.insert(k);
+    if (front) {
+        // on screen: first; the oldest (scrolled away) make room
+        while (g_r3d.front.size() >= kVisibleQueueMax) {
+            g_r3d.fronted.erase(head3d_key(g_r3d.front.back().manager, g_r3d.front.back().id));
+            g_r3d.front.pop_back();
+        }
+        g_r3d.front.push_front(h);
+        g_r3d.fronted.insert(k);
+    } else {
+        g_r3d.queue.push_back(h);
+        g_r3d.queued.insert(k);
+    }
 }
 
 static bool save_head3d(App& app, const Head3d& h, const Rgba& img, std::string* err) {
@@ -424,68 +451,162 @@ static bool save_head3d(App& app, const Head3d& h, const Rgba& img, std::string*
     return true;
 }
 
-// Once per frame of the chooser: collect a finished render, or send the next one (never waits)
-static void tick_head3d(App& app) {
+// A head's render failed: one more try at the end of "Render all filtered heads", else counted as failed
+static void head3d_failed(const Head3d& h, const std::string& why) {
+    const int64_t k = head3d_key(h.manager, h.id);
+    const int n = ++g_r3d.fails[k];
+    g_r3d.note = h.label + ": " + why;
+    if (h.in_batch && g_r3d.batch && n < kMaxHeadFails && !g_r3d.queued.count(k)) {
+        g_r3d.queue.push_back(h);
+        g_r3d.queued.insert(k);
+        return;
+    }
+    ++g_r3d.failed;
+    if (h.in_batch) ++g_r3d.batch_done;
+}
+
+// The heads of the next request: on-screen heads first, then the "Render all" queue; distinct ids (the game hands each
+// picture back with its id only), skipping heads already rendered or given up
+static std::vector<Head3d> next_heads3d(App& app, size_t max) {
+    std::vector<Head3d> pick;
+    auto picked = [&](int64_t k) -> Head3d* {
+        for (Head3d& h : pick)
+            if (head3d_key(h.manager, h.id) == k) return &h;
+        return nullptr;
+    };
+    auto id_taken = [&](int32_t id) {
+        for (const Head3d& h : pick)
+            if (h.id == id) return true;
+        return false;
+    };
+    while (!g_r3d.front.empty() && pick.size() < max) {
+        Head3d h = g_r3d.front.front();
+        const int64_t k = head3d_key(h.manager, h.id);
+        if (!picked(k) && id_taken(h.id)) break;  // a player and a manager head with the same id: next request
+        g_r3d.front.pop_front();
+        g_r3d.fronted.erase(k);
+        if (picked(k) || face3d_cached(app, h.manager, h.id) || head3d_given_up(k)) continue;
+        h.in_batch = false;
+        pick.push_back(h);
+    }
+    while (!g_r3d.queue.empty() && pick.size() < max) {
+        Head3d h = g_r3d.queue.front();
+        const int64_t k = head3d_key(h.manager, h.id);
+        if (!picked(k) && id_taken(h.id)) break;
+        g_r3d.queue.pop_front();
+        g_r3d.queued.erase(k);
+        if (Head3d* p = picked(k)) {  // on screen too: counted by the batch when it finishes
+            p->in_batch = g_r3d.batch;
+            continue;
+        }
+        if (face3d_cached(app, h.manager, h.id) || head3d_given_up(k)) {
+            if (g_r3d.batch) ++g_r3d.batch_done;
+            continue;
+        }
+        h.in_batch = g_r3d.batch;
+        pick.push_back(h);
+    }
+    return pick;
+}
+
+// Every frame (App::draw): collect finished renders (a couple per frame), or send the next request (never waits)
+void tick_faces3d(App& app) {
     capture::CaptureService* svc = app.capture.get();
     if (!svc) return;
     const double now = ImGui::GetTime();
-    if (g_r3d.pending) {
-        capture::Result r;
-        if (svc->poll(r)) {
-            g_r3d.pending = false;
-            if (g_r3d.batch) ++g_r3d.batch_done;
-            std::string err;
-            if (r.ok && r.id == g_r3d.cur.id && save_head3d(app, g_r3d.cur, r.image, &err)) {
-                g_r3d.note.clear();
-            } else {
-                ++g_r3d.failed;
-                g_r3d.note = g_r3d.cur.label + ": " + (r.ok ? (r.id != g_r3d.cur.id ? std::string("answer for another id") : err) : r.error);
+    if (!g_r3d.inflight.empty()) {
+        for (int n = 0; n < kResultsPerFrame && !g_r3d.inflight.empty(); ++n) {
+            capture::Result r;
+            if (!svc->poll(r)) break;
+            g_r3d.since = now;
+            auto it = std::find_if(g_r3d.inflight.begin(), g_r3d.inflight.end(), [&](const Head3d& h) { return h.id == r.id; });
+            if (it == g_r3d.inflight.end()) {
+                g_r3d.note = "answer for id " + std::to_string(r.id) + ", which was not asked";
+                continue;
             }
-        } else if (now - g_r3d.since > kRenderTimeout) {
+            const Head3d h = *it;
+            g_r3d.inflight.erase(it);
+            std::string err;
+            if (r.ok && save_head3d(app, h, r.image, &err)) {
+                ++g_r3d.rendered;
+                g_r3d.fails.erase(head3d_key(h.manager, h.id));
+                if (h.in_batch) ++g_r3d.batch_done;
+            } else {
+                head3d_failed(h, r.ok ? err : r.error);
+            }
+        }
+        if (!g_r3d.inflight.empty() && now - g_r3d.since > kRenderTimeout) {
             svc->cancel();
-            g_r3d.pending = false;
-            if (g_r3d.batch) ++g_r3d.batch_done;
-            ++g_r3d.failed;
-            g_r3d.note = g_r3d.cur.label + ": no answer from the game";
+            const std::vector<Head3d> lost = std::move(g_r3d.inflight);
+            g_r3d.inflight.clear();
+            for (const Head3d& h : lost) head3d_failed(h, "no answer from the game");
         }
         return;
     }
-    if (g_r3d.queue.empty()) {
+    if (g_r3d.queue.empty() && g_r3d.front.empty()) {
         g_r3d.batch = false;
         return;
     }
     const capture::Status st = svc->status();
     if (!st.installed || !st.available || st.busy) return;
-    Head3d h = g_r3d.queue.front();
-    g_r3d.queue.pop_front();
-    g_r3d.queued.erase(head3d_key(h.manager, h.id));
-    if (face3d_cached(app, h.manager, h.id)) {
-        if (g_r3d.batch) ++g_r3d.batch_done;
+    const size_t max = static_cast<size_t>(std::clamp(st.max_batch, 1, static_cast<int>(capture::kMaxPlayersPerRequest)));
+    std::vector<Head3d> pick = next_heads3d(app, max);
+    if (pick.empty()) {
+        if (g_r3d.queue.empty() && g_r3d.front.empty()) g_r3d.batch = false;
         return;
     }
     capture::Request req;
-    req.id = h.id;
-    req.second_id = h.teamid;
-    req.manager = h.manager;
-    req.camera = 0;  // portrait: the game's card / manager head framing
+    req.camera = 0;            // portrait: the game's card / manager head framing
     req.use_template = false;  // the player / staff descriptor (verified live); the learned one may be the avatar portrait
-    req.label = h.label;
+    if (pick.size() == 1) {
+        req.id = pick[0].id;
+        req.second_id = pick[0].teamid;
+        req.manager = pick[0].manager;
+        req.label = pick[0].label;
+    } else {
+        for (const Head3d& h : pick) {
+            capture::BatchEntry e;
+            e.id = h.id;
+            e.second_id = h.teamid;
+            e.manager = h.manager;
+            e.label = h.label;
+            req.batch.push_back(e);
+        }
+        req.label = capture::request_label(req);
+    }
     std::string err;
     if (svc->request(req, &err)) {
-        g_r3d.pending = true;
-        g_r3d.cur = h;
+        g_r3d.inflight = std::move(pick);
         g_r3d.since = now;
     } else {
-        if (g_r3d.batch) ++g_r3d.batch_done;
-        ++g_r3d.failed;
-        g_r3d.note = h.label + ": " + err;
+        for (const Head3d& h : pick) head3d_failed(h, err);
     }
 }
 
-static void stop_head3d() {
+void faces3d_stop() {
     g_r3d.queue.clear();
     g_r3d.queued.clear();
+    g_r3d.front.clear();
+    g_r3d.fronted.clear();
     g_r3d.batch = false;
+}
+
+bool faces3d_running() { return g_r3d.batch; }
+
+std::string faces3d_line() {
+    if (!g_r3d.batch) return std::string();
+    char buf[128];
+    std::snprintf(buf, sizeof(buf), "3D heads: %zu / %zu", std::min(g_r3d.batch_done, g_r3d.batch_total), g_r3d.batch_total);
+    std::string s = buf;
+    if (g_r3d.failed > 0) s += ", " + std::to_string(g_r3d.failed) + " failed";
+    return s;
+}
+
+std::string faces3d_status() {
+    char buf[200];
+    std::snprintf(buf, sizeof(buf), "3D heads (face chooser): %zu rendered, %zu failed this session | %zu in flight, %zu waiting%s", g_r3d.rendered,
+                  g_r3d.failed, g_r3d.inflight.size(), g_r3d.queue.size() + g_r3d.front.size(), g_r3d.batch ? " | Render all running" : "");
+    return buf;
 }
 
 // A grid cell drawing the 3D render (cached file); true when clicked
@@ -518,7 +639,8 @@ static void head3d_bar(App& app, const std::vector<const Face*>& rows) {
         std::snprintf(ov, sizeof(ov), "3D renders %zu / %zu", done, total);
         ImGui::ProgressBar(float(done) / float(total), ImVec2(S(260.0f), 0.0f), ov);
         ImGui::SameLine();
-        if (ImGui::Button("Stop##r3d")) stop_head3d();
+        if (ImGui::Button("Stop##r3d")) faces3d_stop();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stops sending heads (the request in flight still finishes)");
     } else {
         size_t missing = 0;
         for (const Face* f : rows)
@@ -529,14 +651,19 @@ static void head3d_bar(App& app, const std::vector<const Face*>& rows) {
             if (ImGui::Button(bl)) {
                 g_r3d.queue.clear();
                 g_r3d.queued.clear();
+                g_r3d.fails.clear();  // asked again: heads given up earlier get their tries back
+                g_r3d.failed = 0;
+                g_r3d.note.clear();
                 for (const Face* f : rows) queue_head3d(app, *f, false);
                 g_r3d.batch = true;
                 g_r3d.batch_total = g_r3d.queue.size();
                 g_r3d.batch_done = 0;
             }
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Asks the game to render each filtered head from its 3D model, one at a time, in the background.\n"
-                                  "Renders are kept in %s", faces3d_dir(app).string().c_str());
+                ImGui::SetTooltip("Asks the game to render each filtered head from its 3D model, up to %d per request, in the background\n"
+                                  "(it goes on with this window closed; progress and Stop on Turbo's status line).\n"
+                                  "Renders are kept in %s",
+                                  int(capture::kMaxPlayersPerRequest), faces3d_dir(app).string().c_str());
         } else {
             ImGui::TextDisabled("Every filtered head has its 3D render.");
         }
@@ -632,8 +759,7 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
                                : (ch.real_only ? "real-face players with their minifaces" : "every player with a head model"));
 
     const bool use3d = capture_usable(app);
-    tick_head3d(app);
-    head3d_bar(app, rows);
+    head3d_bar(app, rows);  // the renders themselves: tick_faces3d, every frame from App::draw
     const float cell = S(96.0f);
     const Face* picked = nullptr;
     ImGui::BeginChild("##facegrid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 2.2f), ImGuiChildFlags_Borders);
@@ -660,8 +786,10 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
                 } else {
                     if (picture_cell(app, face_picture(*f), false, cell, f->name, bid, false)) picked = f;
                     if (use3d && rid > 0) {
-                        if (!g_r3d.batch && g_r3d.queue.size() < kVisibleQueueMax) queue_head3d(app, *f, true);  // on screen: first
-                        ImGui::GetWindowDrawList()->AddText(ImVec2(cp.x + 3.0f, cp.y + 2.0f), ImGui::GetColorU32(ImGuiCol_TextDisabled), "3D pending");
+                        queue_head3d(app, *f, true);  // on screen: before the rest of the queue
+                        const bool given_up = head3d_given_up(head3d_key(f->manager, rid));
+                        ImGui::GetWindowDrawList()->AddText(ImVec2(cp.x + 3.0f, cp.y + 2.0f), ImGui::GetColorU32(ImGuiCol_TextDisabled),
+                                                            given_up ? "3D failed" : "3D pending");
                     }
                 }
                 if (ImGui::IsItemHovered()) {

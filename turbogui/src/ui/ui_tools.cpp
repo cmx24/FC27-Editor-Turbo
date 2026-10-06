@@ -8,6 +8,7 @@
 #include "hotkey_setting.h"
 #include "imgui.h"
 #include "ui_edit_unlock.h"
+#include "ui_faces.h"
 #include "ui_club_tools.h"
 #include "ui_images.h"
 
@@ -482,6 +483,8 @@ void draw_hook_status(App& app) {
                     cs.installed ? "installed" : "off", cs.busy ? ("busy: " + cs.busy_label).c_str() : cs.reason.c_str(), cs.seen,
                     cs.learned ? "learned" : "not learned", cs.done, cs.failed, cs.last_format.empty() ? "" : " | last picture ",
                     cs.last_format.c_str());
+        ImGui::Text("  heads per request: %d%s | %s", cs.max_batch, cs.max_batch == 1 ? " (turbo_output\\player_capture_batch1.txt)" : "",
+                    faces3d_status().c_str());
     }
     if (!r.calls.empty()) {
         ImGui::Text("Game calls (Managers > Job offers, Competitions > Live standings, Players > Callname):");

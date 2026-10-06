@@ -10,6 +10,7 @@
 //     back on its thread with the picture bytes, which are copied and decoded later on Turbo's thread (core/player_capture.h).
 // Kill switches: turbo_output\player_capture_off.txt (feature off), the hook switches of game_hooks.h, and everything is
 // off when the build is unknown. Nothing here runs unless the Miniface editor asks for a picture.
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstring>
@@ -62,21 +63,20 @@ std::string g_last_format;
 struct Job {
     uint64_t serial = 0;
     Request req;
-    Plan plan;
+    std::vector<Plan> plans;  // one per head (a single request: one)
     std::string label;
     // owned by the job for as long as the game may touch them (the job is never freed)
-    PlayerDesc desc;
+    std::array<PlayerDesc, kMaxPlayersPerRequest> descs{};
+    size_t ndescs = 0;
     DescVector vec;
     Delegate on_slot, on_done;
     std::atomic<bool> cancelled{false};
     std::atomic<bool> ran{false};      // the game-thread part ran
     std::atomic<bool> submitted{false};
-    std::atomic<bool> got_bytes{false};
     std::atomic<bool> finished{false};  // the game's done callback fired
     std::atomic<bool> failed{false};
-    std::string error;
-    std::vector<uint8_t> bytes;
-    int32_t bytes_id = 0;
+    std::string error;                  // the whole request failed (refused, timeout)
+    BatchBook book;                     // per head: picture / error / handed out (under g_mutex)
     std::chrono::steady_clock::time_point t_request, t_ran;
 };
 
@@ -104,6 +104,23 @@ void capture_log(const std::string& line) {
 bool feature_off() {
     std::error_code ec;
     return fs::exists(le_root() / "turbo_output" / "player_capture_off.txt", ec);
+}
+
+// Heads per request: kMaxPlayersPerRequest (the controller's batch), or 1 while turbo_output\player_capture_batch1.txt
+// exists (fallback if the game's batch path misbehaves; looked at every 2 s, no restart needed)
+std::atomic<int> g_max_batch{static_cast<int>(kMaxPlayersPerRequest)};
+std::atomic<uint64_t> g_batch_checked{0};
+int max_batch_now() {
+    const uint64_t now = GetTickCount64();
+    const uint64_t last = g_batch_checked.load();
+    if (last == 0 || now - last > 2000) {
+        g_batch_checked = now;
+        std::error_code ec;
+        const int want = fs::exists(le_root() / "turbo_output" / "player_capture_batch1.txt", ec) ? 1 : static_cast<int>(kMaxPlayersPerRequest);
+        if (g_max_batch.exchange(want) != want || last == 0)
+            capture_log("heads per request: " + std::to_string(want) + (want == 1 ? " (player_capture_batch1.txt present)" : ""));
+    }
+    return g_max_batch.load();
 }
 
 // Reads the game's 16-byte SSO string (flag bit 7 of byte +0xF = heap string: pointer at +0)
@@ -154,19 +171,31 @@ void run_request(Job* job) {
     int32_t state = -1;
     if (!mem.read(reinterpret_cast<uint64_t>(ctl), &state, 4)) return fail("cannot read the controller");
     if (state != 0) return fail("the game is capturing something else right now (controller state " + std::to_string(state) + "), try again in a moment");
-    // our structures (kept alive by the job)
-    job->desc = job->plan.desc;
-    job->vec.begin = &job->desc;
-    job->vec.end = &job->desc + 1;
+    // our structures (kept alive by the job): the game copies the vector in Start, renders up to 6 per batch and hands
+    // each picture back with its descriptor's id (docs/re/player_capture.md 2.6)
+    if (job->plans.empty() || job->plans.size() > kMaxPlayersPerRequest) return fail("bad request size " + std::to_string(job->plans.size()));
+    job->ndescs = job->plans.size();
+    for (size_t i = 0; i < job->ndescs; ++i) job->descs[i] = job->plans[i].desc;
+    job->vec.begin = job->descs.data();
+    job->vec.end = job->descs.data() + job->ndescs;
     job->vec.cap = job->vec.end;
     job->vec.allocator = nullptr;
     job->on_slot = make_delegate(job, reinterpret_cast<void*>(&on_slot_invoker));
     job->on_done = make_delegate(job, reinterpret_cast<void*>(&on_done_invoker));
-    capture_log("request " + job->label + ": id " + std::to_string(job->req.id) + ", mode " + std::to_string(job->plan.mode) + ", extra " +
-                std::to_string(job->plan.extra) + " (" + job->plan.note + "); desc " + describe_desc(job->desc));
+    const Plan& p0 = job->plans[0];
+    if (job->ndescs == 1) {
+        capture_log("request " + job->label + ": id " + std::to_string(job->descs[0].id()) + ", mode " + std::to_string(p0.mode) + ", extra " +
+                    std::to_string(p0.extra) + " (" + p0.note + "); desc " + describe_desc(job->descs[0]));
+    } else {
+        std::string ids;
+        for (size_t i = 0; i < job->ndescs; ++i) ids += (i ? "," : "") + std::to_string(job->descs[i].id());
+        capture_log("request batch of " + std::to_string(job->ndescs) + " (" + job->label + "): ids " + ids + ", mode " + std::to_string(p0.mode) +
+                    ", extra " + std::to_string(p0.extra) + " (" + p0.note + ")");
+        for (size_t i = 0; i < job->ndescs; ++i) capture_log("  desc[" + std::to_string(i) + "] " + describe_desc(job->descs[i]));
+    }
     g_own_request = true;
     try {
-        reinterpret_cast<StaticBFn>(g_static_b)(nullptr, &job->vec, &job->on_slot, &job->on_done, job->plan.mode, job->plan.extra);
+        reinterpret_cast<StaticBFn>(g_static_b)(nullptr, &job->vec, &job->on_slot, &job->on_done, p0.mode, p0.extra);
     } catch (...) {
         g_own_request = false;
         return fail("PlayerCapture_RequestStatic_B threw");
@@ -273,24 +302,25 @@ void on_slot_invoker(int id, void* data, size_t size, const void* storage) {
         if (!job) return;
         if (job->cancelled || job->finished) return;
         if (!data || size == 0 || size > kMaxSliceBytes) {
-            job->error = "the game handed over " + std::to_string(size) + " bytes";
-            job->failed = true;
+            std::lock_guard<std::mutex> lock(g_mutex);
+            job->book.add_error(id, "the game handed over " + std::to_string(size) + " bytes");
+            capture_log("picture for id " + std::to_string(id) + ": unusable (" + std::to_string(size) + " bytes)");
             return;
         }
         ProcessMemory mem;
         std::vector<uint8_t> bytes(size);
         if (!mem.read(reinterpret_cast<uint64_t>(data), bytes.data(), size)) {
-            job->error = "cannot read the picture bytes";
-            job->failed = true;
+            std::lock_guard<std::mutex> lock(g_mutex);
+            job->book.add_error(id, "cannot read the picture bytes");
+            capture_log("picture for id " + std::to_string(id) + ": cannot read the bytes");
             return;
         }
-        std::lock_guard<std::mutex> lock(g_mutex);
-        job->bytes = std::move(bytes);
-        job->bytes_id = id;
-        job->got_bytes = true;
         uint8_t head[16] = {0};
-        std::memcpy(head, job->bytes.data(), job->bytes.size() < 16 ? job->bytes.size() : 16);
-        capture_log("picture for id " + std::to_string(id) + ": " + std::to_string(size) + " bytes, starts " + hex_bytes(head, 16));
+        std::memcpy(head, bytes.data(), bytes.size() < 16 ? bytes.size() : 16);
+        std::lock_guard<std::mutex> lock(g_mutex);
+        const int entry = job->book.add_picture(id, std::move(bytes));
+        capture_log("picture for id " + std::to_string(id) + ": " + std::to_string(size) + " bytes, starts " + hex_bytes(head, 16) +
+                    (entry < 0 ? " (not asked for: dropped)" : ""));
     });
 }
 
@@ -298,8 +328,14 @@ void on_done_invoker(const void* storage) {
     HOOK_BODY("pc_callback", {
         Job* job = static_cast<Job*>(delegate_context(storage));
         if (!job) return;
+        std::lock_guard<std::mutex> lock(g_mutex);
         job->finished = true;
-        capture_log("capture done for " + job->label + (job->got_bytes ? "" : " (no picture was handed over)"));
+        const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - job->t_ran).count();
+        const size_t n = job->book.size(), got = job->book.received();
+        char t[96];
+        std::snprintf(t, sizeof(t), " in %.2f s since the request ran (%.2f s per head)", secs, got ? secs / double(got) : secs);
+        capture_log("capture done for " + job->label + ": " + std::to_string(got) + " of " + std::to_string(n) + " picture(s)" + t +
+                    (got ? "" : " (no picture was handed over)"));
     });
 }
 
@@ -316,6 +352,7 @@ public:
         s.failed = g_failed;
         s.last_format = g_last_format;
         s.dispatch = g_dispatch;
+        s.max_batch = max_batch_now();
         if (!g_installed) {
             s.reason = g_install_note;
             return s;
@@ -360,10 +397,7 @@ public:
             if (err) *err = g_install_note;
             return false;
         }
-        if (r.id <= 0) {
-            if (err) *err = "no id to render";
-            return false;
-        }
+        if (!check_request(r, static_cast<size_t>(max_batch_now()), err)) return false;
         std::lock_guard<std::mutex> lock(g_mutex);
         if (g_current) {
             if (err) *err = "a capture is already in flight (" + g_current->label + ")";
@@ -372,56 +406,68 @@ public:
         auto job = std::make_unique<Job>();
         job->serial = ++g_serial;
         job->req = r;
-        job->label = r.label.empty() ? ("id " + std::to_string(r.id)) : r.label;
-        job->plan = plan_request(r, &g_template);
+        job->label = request_label(r);
+        job->plans = plan_batch(r, &g_template);
+        job->book = BatchBook(request_entries(r));
         job->t_request = std::chrono::steady_clock::now();
         Job* raw = job.get();
         g_jobs.push_back(std::move(job));
         // old jobs stay allocated (the game may still hold our delegates' storage, which is the Job pointer); only
         // their picture bytes are released
         for (auto& old : g_jobs)
-            if (old.get() != raw && old->finished) {
-                old->bytes.clear();
-                old->bytes.shrink_to_fit();
-            }
+            if (old.get() != raw && (old->finished || old->cancelled)) old->book.drop_pictures();
         g_current = raw;
         g_dispatch = run_on_game_thread([raw]() { run_request(raw); });
         capture_log("request " + raw->label + " queued (" + (g_dispatch.empty() ? "no game-thread dispatcher yet" : g_dispatch) + ")");
         return true;
     }
 
+    // One Result per head: each picture as it arrives, then (once the done callback fired, the request failed or timed
+    // out) a failed Result for every head that got none. The request stays "busy" until every head has had its Result.
     bool poll(Result& out) override {
         Job* job = nullptr;
+        BatchEntry entry;
+        BatchBook::Picture pic;
+        bool have_pic = false;
+        std::string why, job_error;
+        bool job_failed = false;
         {
             std::lock_guard<std::mutex> lock(g_mutex);
             if (!g_current) return false;
             Job* j = g_current;
             const auto now = std::chrono::steady_clock::now();
             bool timeout = j->ran && !j->finished && std::chrono::duration<double>(now - j->t_ran).count() > kAnswerTimeout;
-            if (!(j->finished || j->failed || timeout)) return false;
             if (timeout && !j->failed) {
                 j->failed = true;
                 j->error = j->submitted ? "the game did not finish the capture in 20 s (is a menu screen open?)" : "the request did not run";
                 j->cancelled = true;
+                capture_log("request " + j->label + ": " + j->error);
             }
+            const bool over = j->finished || j->failed;
+            size_t e = 0;
+            if (j->book.take_picture(pic)) {
+                have_pic = true;
+                e = pic.entry;
+            } else if (!j->book.take_failed(over, e, why)) {
+                if (over && j->book.all_handed()) g_current = nullptr;  // nothing left to hand out
+                return false;
+            }
+            entry = j->book.entries()[e];
+            job_failed = j->failed;  // set after the error text (game thread) or under this mutex (timeout)
+            if (job_failed && !have_pic) job_error = j->error;
+            if (over && j->book.all_handed()) g_current = nullptr;  // that was the last head
             job = j;
-            g_current = nullptr;
         }
         out = Result();
-        out.label = job->label;
-        out.id = job->req.id;
-        if (job->failed && !job->got_bytes) {
+        out.label = entry.label.empty() ? ("id " + std::to_string(entry.id)) : entry.label;
+        out.id = entry.id;
+        if (!have_pic) {
             out.ok = false;
-            out.error = job->error.empty() ? "the capture failed" : job->error;
-        } else if (!job->got_bytes) {
-            out.ok = false;
-            out.error = "the game finished without handing a picture over (check turbo_output\\player_capture.log)";
+            if (!why.empty()) out.error = why;
+            else if (job_failed) out.error = job_error.empty() ? "the capture failed" : job_error;
+            else out.error = "the game finished without handing a picture over (check turbo_output\\player_capture.log)";
         } else {
-            std::vector<uint8_t> bytes;
-            {
-                std::lock_guard<std::mutex> lock(g_mutex);
-                bytes = job->bytes;
-            }
+            const std::vector<uint8_t>& bytes = pic.bytes;
             out.bytes = bytes.size();
             std::string fmt, err;
             if (decode_slice(bytes.data(), bytes.size(), out.image, &fmt, &err)) {
@@ -432,7 +478,7 @@ public:
                 out.error = err;
                 // keep the bytes for the integrator
                 std::error_code ec;
-                fs::path dump = le_root() / "turbo_output" / ("player_capture_" + std::to_string(job->req.id) + ".bin");
+                fs::path dump = le_root() / "turbo_output" / ("player_capture_" + std::to_string(entry.id) + ".bin");
                 std::ofstream f(dump, std::ios::binary);
                 if (f) f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
                 out.error += " (bytes saved to " + dump.string() + ")";
@@ -446,10 +492,9 @@ public:
             } else {
                 ++g_failed;
             }
-            job->bytes.clear();
-            job->bytes.shrink_to_fit();
         }
-        capture_log("result for " + out.label + ": " + (out.ok ? "ok, " + out.format : "failed: " + out.error));
+        (void)job;
+        capture_log("result for " + out.label + " (id " + std::to_string(out.id) + "): " + (out.ok ? "ok, " + out.format : "failed: " + out.error));
         return true;
     }
 
@@ -457,6 +502,7 @@ public:
         std::lock_guard<std::mutex> lock(g_mutex);
         if (!g_current) return;
         g_current->cancelled = true;
+        g_current->book.drop_pictures();
         capture_log("request " + g_current->label + " cancelled");
         g_current = nullptr;
     }

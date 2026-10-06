@@ -29,4 +29,13 @@ void manager_real_face_picker(App& app, int64_t managerid);
 bool apply_real_face_to_manager(App& app, int64_t managerid, int64_t owner_id, bool owner_is_manager, const RealFaceOptions& o,
                                 std::string* msg);
 
+// 3D heads of the chooser (the game renders them through app.capture, up to 6 per request, cached in
+// turbo_output/cache/faces3d): called every frame from App::draw, so "Render all filtered heads" goes on with the chooser
+// closed. Never waits; sends only while the service says available and not busy.
+void tick_faces3d(App& app);
+bool faces3d_running();      // "Render all filtered heads" is running
+std::string faces3d_line();  // "3D heads: 120 / 2779, 2 failed" while it runs, else ""
+std::string faces3d_status();  // one line for the Status tab
+void faces3d_stop();         // stop sending (the request in flight still finishes)
+
 }  // namespace turbo

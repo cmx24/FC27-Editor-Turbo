@@ -76,6 +76,14 @@ constexpr int kCameraLearned = -1;  // use the template's mode / extra (falls ba
 // Head id the game's manager-head builder treats as the user's created avatar (+0x68 = 1)
 constexpr int32_t kUserAvatarHeadId = 9999;
 
+// One head of a batch request: what a single Request's id / second_id / manager / label say, per head
+struct BatchEntry {
+    int32_t id = 0;
+    int32_t second_id = -1;
+    bool manager = false;
+    std::string label;
+};
+
 struct Request {
     int32_t id = 0;            // player id (players) or head id (managers)
     int32_t second_id = -1;    // team id (players: their club; managers: the club they manage, like the game's builder), -1 = none
@@ -85,6 +93,11 @@ struct Request {
     int extra_override = -1;   // >= 0: explicit extra
     bool use_template = true;  // start from the learned descriptor when there is one (else the default one)
     std::string label;         // for messages ("Bukayo Saka")
+    // A batch (the real-face chooser's 3D heads): when not empty the game renders these heads in ONE request (the
+    // controller renders up to kMaxPlayersPerRequest per batch, docs/re/player_capture.md 2.6), each planned like a single
+    // request with the camera / overrides / use_template above; id, second_id, manager above are then unused. The
+    // service hands back one Result per picture (Result::id), then a failed Result for each head that got none.
+    std::vector<BatchEntry> batch;
 };
 
 // The descriptor and (mode, extra) a request resolves to, given the template
@@ -95,6 +108,49 @@ struct Plan {
     std::string note;  // "learned descriptor" / "default descriptor"
 };
 Plan plan_request(const Request& r, const Template* t);
+// The heads a request renders: its batch, or the single request as one entry
+std::vector<BatchEntry> request_entries(const Request& r);
+// One plan per entry, in order (all share the camera, so mode / extra are the same)
+std::vector<Plan> plan_batch(const Request& r, const Template* t);
+// Before a request goes to the game: 1..max_entries heads, every id > 0 and no id twice (the game hands each picture back
+// with the id only). false and err when not.
+bool check_request(const Request& r, size_t max_entries, std::string* err);
+// "6 heads: Saka, Rice, Odegaard, ..." (or the single label) for logs and the status
+std::string request_label(const Request& r);
+
+// What a request waits for and what came back (the host's per-request book, tested natively). Not thread-safe: the
+// host guards it with its mutex. Pictures are matched to entries by id (first entry with that id still waiting).
+class BatchBook {
+public:
+    struct Picture {
+        size_t entry = 0;
+        std::vector<uint8_t> bytes;
+    };
+    BatchBook() = default;
+    explicit BatchBook(std::vector<BatchEntry> entries);
+    const std::vector<BatchEntry>& entries() const { return entries_; }
+    size_t size() const { return entries_.size(); }
+    // a picture for `id` arrived: kept for the first entry with that id still waiting; -1 when none waits for it
+    int add_picture(int32_t id, std::vector<uint8_t> bytes);
+    // the game handed over something unusable for `id`: that entry fails with `why`; -1 when none waits for it
+    int add_error(int32_t id, const std::string& why);
+    size_t received() const { return received_; }  // entries that got a picture
+    // the next picture not handed out yet
+    bool take_picture(Picture& out);
+    // the next entry to report as failed, once each: one with an error at any time, one still waiting only once `over`
+    // (the done callback fired, the request failed or timed out). `why` = the entry's error ("" when it simply got none)
+    bool take_failed(bool over, size_t& entry, std::string& why);
+    bool all_handed() const;  // every entry has had its Result
+    void drop_pictures();     // release pictures not handed out (cancel)
+
+private:
+    enum class St { Waiting, Picture, Error, Handed };
+    std::vector<BatchEntry> entries_;
+    std::vector<St> st_;
+    std::vector<std::string> err_;
+    std::vector<Picture> pics_;  // in arrival order, handed out from the front
+    size_t received_ = 0;
+};
 
 // ---------------------------------------------------------------- the game's callback object
 // eastl::function-shaped: 16 bytes of functor storage, a manager called as mgr(to, from, op) with op 0 = destruct,
@@ -144,6 +200,7 @@ struct Status {
     double busy_for = 0.0;     // seconds
     std::string last_format;   // of the last picture received
     std::string dispatch;      // "hook" / "lua" / "" (how the request reaches the game thread)
+    int max_batch = 1;         // heads one request may carry (Request::batch); 1 = single requests only
 };
 
 struct Result {

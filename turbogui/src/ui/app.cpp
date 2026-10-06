@@ -16,6 +16,7 @@
 #include "imgui.h"
 #include "preload.h"
 #include "ui_zoom.h"
+#include "ui_faces.h"
 
 #include "ui_edit_unlock.h"
 
@@ -832,6 +833,9 @@ void App::draw() {
         ImGui::End();
     }
 
+    // the face chooser's 3D heads: renders go on with the chooser (or Turbo) closed; never waits
+    tick_faces3d(*this);
+
     if (!visible) return;
 
     // First use: 1180x760 or 90% of the screen, whichever is smaller; never larger than the screen (smaller windowed
@@ -882,6 +886,13 @@ void App::draw() {
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Faces, tattoos, item previews and crests load in the background while Turbo is open");
         }
+    }
+    if (faces3d_running()) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.55f, 0.8f, 1.0f, 1.0f), "| %s", faces3d_line().c_str());
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("The game renders the face chooser's heads from their 3D models (Render all filtered heads)");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Stop##faces3d")) faces3d_stop();
     }
     const float right_x = ImGui::GetWindowWidth() - (busy() ? S(380.0f) : S(230.0f));
     const bool hotkey_inline = hotkey_bar(*this, right_x);  // hotkey_setting.h: the show/hide key, when it fits here

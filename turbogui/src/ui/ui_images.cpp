@@ -207,7 +207,8 @@ static capture::Result g_capture_result;
 
 static void poll_capture(App& app, MinifaceEditor& ed) {
     if (!app.capture) return;
-    if (!g_capture_result_ready) {
+    // only while this editor waits: the face chooser's 3D heads (ui_faces.cpp) poll the same service for their own requests
+    if (!g_capture_result_ready && ed.capture_pending) {
         capture::Result r;
         if (app.capture->poll(r)) {
             g_capture_result = std::move(r);
