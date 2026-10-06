@@ -911,6 +911,17 @@ std::vector<std::string> gallery_preload_paths(App& app) {
     return out;
 }
 
+std::vector<int64_t> gallery_codes(App& app, const std::string& field) {
+    for (const GalleryDef& g : kGalleries)
+        if (field == g.field) return gallery_ids(app, g);
+    for (const GalleryDef& g : kManagerGalleries)
+        if (field == g.field) return gallery_ids(app, g);
+    if (field.rfind("tattoo", 0) != 0) return {};
+    std::vector<int64_t> ids = gear_pictures(app).ids("tattoo", "item_");
+    if (!ids.empty()) ids.insert(ids.begin(), 0);  // none
+    return ids;
+}
+
 // favourites per gallery: gui_settings.json favourites.<field> = [ids]
 static bool is_favourite(App& app, const char* field, int64_t id) {
     const auto& fav = app.gui_settings["favourites"];
@@ -1003,7 +1014,7 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
                 placeholder(thumb, "none");
             }
             ImGui::TableNextColumn();
-            field_editor(app, t, rec, *f, "##gval", S(80.0f));
+            enum_editor(app, t, rec, *f, nullptr, S(240.0f));  // its name ("Adidas boots #16"), or the id where there is none
             ImGui::TableNextColumn();
             if (ids.empty()) ImGui::BeginDisabled();
             if (ImGui::Button("Choose...##gal")) {
@@ -1074,8 +1085,8 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
                                 if (id && ImGui::IsItemClicked(ImGuiMouseButton_Right)) toggle_favourite(app, g.field, id);
                                 ImGui::PopID();
                                 ImGui::EndGroup();
-                                if (is_hair && id && ImGui::IsItemHovered())
-                                    ImGui::SetTooltip("Hair %lld: %s", static_cast<long long>(id), hair::describe(hair::lookup(id)).c_str());
+                                if (id && ImGui::IsItemHovered())
+                                    ImGui::SetTooltip("%s\n%s = %lld", code_value_text(g.field, id).c_str(), g.field, static_cast<long long>(id));
                             }
                         }
                     }
