@@ -2613,6 +2613,7 @@ struct FakeCapture : capture::CaptureService {
     bool pending = false;
     bool deliver = false;  // the next poll answers with `next`
     capture::Result next;
+    std::deque<capture::Result> answers;  // a batch: one per poll, as given (id included); not pending once all are out
     int cancels = 0;
     capture::Status status() override {
         capture::Status s = st;
@@ -2635,6 +2636,12 @@ struct FakeCapture : capture::CaptureService {
         return true;
     }
     bool poll(capture::Result& out) override {
+        if (pending && !answers.empty()) {
+            out = answers.front();
+            answers.pop_front();
+            if (answers.empty()) pending = false;
+            return true;
+        }
         if (!pending || !deliver) return false;
         out = next;
         out.id = current.id;
@@ -4918,6 +4925,111 @@ static void test_ui() {
             CHECK(all[0]->raw[kSkin] == 20 && all.back()->raw[kSkin] == 100, "skin: light to dark");
             sort_faces(all, kSortName);
             CHECK(all[0]->name == "P1" && all.back()->name == "P4", "name");
+        });
+
+        run_case("UI: real-face chooser 3D heads: up to 6 per request, failures retried once, Render all goes on with the chooser closed", [&] {
+            const fs::path dir = le / "turbo_output" / "cache" / "faces3d";
+            std::error_code ec;
+            fs::remove_all(dir, ec);
+            auto fake = std::make_shared<FakeCapture>();
+            fake->st.installed = true;
+            fake->st.available = true;
+            fake->st.reason = "ready";
+            fake->st.max_batch = 6;
+            app.capture = fake;
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.click("3001", "##plist"), "player 3001");
+            CHECK(ui.click("Appearance", "##pedit"), "Appearance tab");
+            CHECK(ui.click("Choose a real face..."), "open the chooser");
+            ui.frames(3);
+            CHECK(fake->requests.size() == 1, fmt("one request for the heads on screen (%zu)", fake->requests.size()));
+            if (fake->requests.empty()) return;
+            const capture::Request r0 = fake->requests[0];
+            bool clubs = true;
+            std::vector<int32_t> ids;
+            for (const auto& e : r0.batch) {
+                const PlayerRow* p = app.model.player(e.id);
+                clubs = clubs && p && !e.manager && e.second_id == (p->club > 0 ? int32_t(p->club) : -1) && !e.label.empty();
+                if (std::find(ids.begin(), ids.end(), e.id) == ids.end()) ids.push_back(e.id);
+            }
+            CHECK(r0.batch.size() == 6 && ids.size() == 6 && clubs && !r0.use_template && r0.camera == 0,
+                  fmt("6 distinct players with their clubs in ONE request (%zu), player descriptor, portrait camera", r0.batch.size()));
+            if (r0.batch.size() != 6) return;
+            // the game answers 4 pictures and 2 failures: one result each, 2 per frame
+            for (size_t i = 0; i < 6; ++i) {
+                capture::Result a;
+                a.id = r0.batch[i].id;
+                a.label = r0.batch[i].label;
+                if (i < 4) {
+                    a.ok = true;
+                    a.format = "DDS DXT5 256x256";
+                    a.image = solid(256, 256, 30, 60, uint8_t(90 + i));
+                } else {
+                    a.error = "fake: no picture";
+                }
+                fake->answers.push_back(a);
+            }
+            ui.frames(6);
+            auto file3d = [&](int32_t id) { return dir / ("p_" + std::to_string(id) + ".dds"); };
+            int saved = 0;
+            for (size_t i = 0; i < 4; ++i) saved += fs::exists(file3d(r0.batch[i].id)) ? 1 : 0;
+            CHECK(saved == 4 && !fs::exists(file3d(r0.batch[4].id)) && !fs::exists(file3d(r0.batch[5].id)) && fake->answers.empty(),
+                  fmt("4 renders saved (%d), the 2 failed heads not", saved));
+            Rgba img;
+            CHECK(load_image_file(file3d(r0.batch[0].id), img) && img.w == 256 && img.h == 256, "256 x 256 DDS in the faces3d cache");
+            // the 2 failed heads are still on screen: asked once more (with any head the first request had no room for)
+            CHECK(fake->requests.size() == 2, fmt("a second request (%zu)", fake->requests.size()));
+            if (fake->requests.size() != 2) return;
+            const capture::Request r1 = fake->requests[1];
+            auto has = [](const capture::Request& r, int32_t id) {
+                for (const auto& e : capture::request_entries(r))
+                    if (e.id == id) return true;
+                return false;
+            };
+            CHECK(has(r1, r0.batch[4].id) && has(r1, r0.batch[5].id) && !has(r1, r0.batch[0].id), "the failed heads retried, the rendered ones not");
+            for (const auto& e : capture::request_entries(r1)) {
+                capture::Result a;
+                a.id = e.id;
+                a.label = e.label;
+                a.ok = !(e.id == r0.batch[4].id || e.id == r0.batch[5].id);
+                if (a.ok) a.image = solid(256, 256, 1, 2, 3);
+                else a.error = "fake: still no picture";
+                fake->answers.push_back(a);
+            }
+            if (fake->answers.size() == 1) {  // a single head: the fake's single-answer path
+                fake->next = fake->answers.front();
+                fake->answers.clear();
+                fake->deliver = true;
+            }
+            ui.frames(8);
+            CHECK(fake->requests.size() == 2 && !fake->pending, fmt("a head failing twice is not asked again (%zu requests)", fake->requests.size()));
+            // Render all filtered heads: the 2 missing ones, the game busy first; the chooser closed, the renders go on
+            fake->st.available = false;
+            CHECK(ui.click("Render all filtered heads (2)##r3dall", "Choose a real face"), "Render all filtered heads (2)");
+            CHECK(ui.click("Close##faces"), "close the chooser");
+            ui.frames(3);
+            CHECK(fake->requests.size() == 2, "nothing sent while the game is unavailable");
+            CHECK(ui.find("Stop##faces3d") != nullptr, "progress and Stop on the status line with the chooser closed");
+            fake->st.available = true;
+            fake->st.max_batch = 1;  // turbo_output\player_capture_batch1.txt: single requests
+            for (int k = 0; k < 2; ++k) {
+                ui.frames(2);
+                CHECK(fake->requests.size() == size_t(3 + k), fmt("request %d sent with the chooser closed (%zu)", 3 + k, fake->requests.size()));
+                if (fake->requests.size() != size_t(3 + k)) return;
+                const capture::Request& rs = fake->requests.back();
+                CHECK(rs.batch.empty() && (rs.id == r0.batch[4].id || rs.id == r0.batch[5].id) && !rs.use_template, fmt("a single request (id %d)", rs.id));
+                fake->next = capture::Result();
+                fake->next.ok = true;
+                fake->next.image = solid(256, 256, 9, 9, 9);
+                fake->deliver = true;
+                ui.frames(2);
+            }
+            ui.frames(3);
+            CHECK(fs::exists(file3d(r0.batch[4].id)) && fs::exists(file3d(r0.batch[5].id)), "every head rendered");
+            CHECK(ui.find("Stop##faces3d") == nullptr && fake->requests.size() == 4, "Render all finished: status line clear, nothing more asked");
+            app.capture.reset();
+            fs::remove_all(dir, ec);
         });
 
         run_case("UI: real-face chooser filters; Managers > Appearance: a player's or a manager's real face", [&] {
@@ -10734,6 +10846,101 @@ static void test_player_capture() {
         p = plan_request(rp, &av);
         CHECK(p.desc.flag64() && !p.desc.flag68() && p.desc.id() == 235212 && p.desc.second_id() == 1,
               "player from the avatar template: " + describe_desc(p.desc));
+    });
+
+    run_case("player capture: a batch of heads: one plan per head, checks, one result per head (4 of 6 pictures)", [&] {
+        Request r;
+        r.camera = 0;
+        r.use_template = false;
+        for (int i = 0; i < 6; ++i) {
+            BatchEntry e;
+            e.id = 1000 + i;
+            e.second_id = 10 + i;
+            e.manager = i >= 4;
+            e.label = "H" + std::to_string(i);
+            r.batch.push_back(e);
+        }
+        r.batch[5].id = kUserAvatarHeadId;  // the user's created avatar head
+        r.batch[5].second_id = -1;
+        Template t;  // a learned avatar-portrait template: the chooser does not use it
+        t.learned = true;
+        t.desc = default_desc(9999, 111592, false, true);
+        t.desc.set_i32(0x30, 4242);
+        std::vector<Plan> ps = plan_batch(r, &t);
+        CHECK(ps.size() == 6, fmt("6 plans (%zu)", ps.size()));
+        bool same = ps.size() == 6;
+        for (size_t i = 0; same && i < 6; ++i) {
+            const BatchEntry& e = r.batch[i];
+            const PlayerDesc want = default_desc(e.id, e.second_id, !e.manager, e.manager && e.id == kUserAvatarHeadId);
+            same = std::memcmp(ps[i].desc.b, want.b, kPlayerDescSize) == 0 && ps[i].mode == 0 && ps[i].extra == 0 && ps[i].note == "default descriptor";
+        }
+        CHECK(same, "each head: the default descriptor with its id, second id and flags, mode 0 / extra 0, no template");
+        if (ps.size() == 6)
+            CHECK(ps[0].desc.id() == 1000 && ps[0].desc.second_id() == 10 && ps[0].desc.flag64() && !ps[0].desc.flag68() && ps[3].desc.id() == 1003 &&
+                      !ps[4].desc.flag64() && !ps[4].desc.flag68() && ps[4].desc.second_id() == 14 && ps[5].desc.flag68() && ps[5].desc.id() == 9999 &&
+                      ps[5].desc.second_id() == -1,
+                  "players +0x64 = 1, staff heads 0, the avatar head +0x68 = 1");
+        r.camera = 2;
+        ps = plan_batch(r, nullptr);
+        CHECK(ps.size() == 6 && ps[5].mode == cameras()[2].mode && ps[5].extra == cameras()[2].extra, "the batch shares the camera");
+        r.camera = 0;
+        // a single request: one entry, the same plan as before
+        Request one;
+        one.id = 77;
+        one.second_id = 3;
+        one.label = "Solo";
+        std::vector<Plan> pe = plan_batch(one, nullptr);
+        const Plan p1 = plan_request(one, nullptr);
+        CHECK(pe.size() == 1 && std::memcmp(pe[0].desc.b, p1.desc.b, kPlayerDescSize) == 0 && request_entries(one).size() == 1 &&
+                  request_entries(one)[0].id == 77 && request_entries(one)[0].second_id == 3 && request_label(one) == "Solo",
+              "single request unchanged");
+        std::string err;
+        CHECK(check_request(r, 6, &err), "batch of 6: " + err);
+        CHECK(!check_request(r, 1, &err) && err.find("too many heads") == 0, "batch refused when one head per request: " + err);
+        CHECK(check_request(one, 1, &err), "single fits: " + err);
+        Request dup = r;
+        dup.batch[3].id = dup.batch[1].id;
+        CHECK(!check_request(dup, 6, &err) && err.find("twice") != std::string::npos, "the same id twice refused: " + err);
+        Request zero = r;
+        zero.batch[2].id = 0;
+        CHECK(!check_request(zero, 6, &err) && err == "no id to render", "id 0 refused");
+        Request seven = r;
+        seven.batch.push_back(r.batch[0]);
+        seven.batch.back().id = 5000;
+        CHECK(!check_request(seven, 7, &err), "never more than the controller's 6");
+        Request none;
+        CHECK(!check_request(none, 6, &err) && err == "no id to render", "single without an id");
+        CHECK(request_label(r).rfind("6 heads: H0, H1, H2", 0) == 0, "label: " + request_label(r));
+        // bookkeeping: pictures for 4 of the 6 ids, then the done callback: 4 ok + 2 failed
+        BatchBook book(request_entries(r));
+        CHECK(book.size() == 6 && !book.all_handed() && book.received() == 0, "book");
+        CHECK(book.add_picture(1002, {1, 2, 3}) == 2 && book.add_picture(1000, {4}) == 0 && book.add_picture(1003, {5}) == 3 &&
+                  book.add_picture(1001, {6, 7}) == 1,
+              "4 pictures matched by id");
+        CHECK(book.add_picture(1002, {9}) == -1 && book.add_picture(31337, {9}) == -1 && book.received() == 4, "a second picture for an id, an id not asked: dropped");
+        size_t entry = 99;
+        std::string why;
+        CHECK(!book.take_failed(false, entry, why), "nothing failed before the done callback");
+        std::vector<int32_t> got;
+        BatchBook::Picture pic;
+        while (book.take_picture(pic)) got.push_back(r.batch[pic.entry].id);
+        CHECK((got == std::vector<int32_t>{1002, 1000, 1003, 1001}), "pictures handed out in arrival order");
+        CHECK(!book.all_handed() && !book.take_failed(false, entry, why), "2 heads still owed, not failed yet");
+        std::vector<int32_t> failed;
+        bool no_reason = true;
+        while (book.take_failed(true, entry, why)) {
+            failed.push_back(r.batch[entry].id);
+            no_reason = no_reason && why.empty();
+        }
+        CHECK((failed == std::vector<int32_t>{1004, 9999}) && no_reason && book.all_handed(), "after done: the 2 heads without a picture fail, once each");
+        CHECK(!book.take_failed(true, entry, why) && !book.take_picture(pic), "nothing more");
+        // an unusable picture fails its head at once; a cancel drops the pictures not handed out
+        BatchBook b2(request_entries(r));
+        CHECK(b2.add_error(1001, "bad bytes") == 1 && b2.add_error(1001, "again") == -1, "error recorded once");
+        CHECK(b2.take_failed(false, entry, why) && entry == 1 && why == "bad bytes", "an error is reported before the done callback");
+        CHECK(b2.add_picture(1000, {1}) == 0, "picture");
+        b2.drop_pictures();
+        CHECK(!b2.take_picture(pic) && !b2.all_handed(), "cancel drops the pictures");
     });
 
     run_case("player capture: the game's callback object (eastl::function shape)", [&] {

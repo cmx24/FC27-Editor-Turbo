@@ -243,6 +243,11 @@ Start ──Submit──▶ renderer ──event 0x694CE8B7──▶ listener2: 
   check the state moved to 1..4. The descriptor: the learned template with `+0x00` (and `+0x08` when a team id is known)
   replaced, else `default_desc(id, second_id, !manager, false)`. Mode / extra: camera presets `(0,0)`, `(1,0)`,
   `(1,3)`, `(0,3)` or the template's pair; advanced overrides in the tab.
+* **Batches** (real-face chooser, after 1.2.3): `Request::batch` carries up to 6 heads (distinct ids); the job owns a
+  `PlayerDesc[6]` and the vector spans the used ones, so the controller renders them as one batch (2.6: one `OnSlot`
+  picture per slot with its descriptor's id, then `Finish` and the done callback). A per-job `BatchBook` matches pictures
+  to heads by id; `poll()` hands out one `Result` per picture, then a failed one for each head without a picture once the
+  done callback fired (or the 20 s timeout). `turbo_output\player_capture_batch1.txt` = one head per request.
 * **Receive**: `on_slot_invoker` copies the bytes (≤ 32 MB) into the job under a mutex; `on_done_invoker` marks it
   finished. `poll()` (Turbo's render thread) decodes with `decode_slice` and returns `Result{image, format}`; a failure
   saves the bytes to `turbo_output\player_capture_<id>.bin`. Timeout 20 s after the job ran; while the Lua pump is the

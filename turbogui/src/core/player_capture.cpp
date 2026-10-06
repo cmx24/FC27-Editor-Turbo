@@ -112,6 +112,120 @@ Plan plan_request(const Request& r, const Template* t) {
     return p;
 }
 
+std::vector<BatchEntry> request_entries(const Request& r) {
+    if (!r.batch.empty()) return r.batch;
+    BatchEntry e;
+    e.id = r.id;
+    e.second_id = r.second_id;
+    e.manager = r.manager;
+    e.label = r.label;
+    return {e};
+}
+
+std::vector<Plan> plan_batch(const Request& r, const Template* t) {
+    std::vector<Plan> out;
+    for (const BatchEntry& e : request_entries(r)) {
+        Request one = r;
+        one.batch.clear();
+        one.id = e.id;
+        one.second_id = e.second_id;
+        one.manager = e.manager;
+        one.label = e.label;
+        out.push_back(plan_request(one, t));
+    }
+    return out;
+}
+
+bool check_request(const Request& r, size_t max_entries, std::string* err) {
+    const std::vector<BatchEntry> es = request_entries(r);
+    if (max_entries < 1) max_entries = 1;
+    if (es.size() > max_entries || es.size() > kMaxPlayersPerRequest) {
+        if (err) *err = "too many heads in one request (" + std::to_string(es.size()) + ", at most " + std::to_string(max_entries) + ")";
+        return false;
+    }
+    for (size_t i = 0; i < es.size(); ++i) {
+        if (es[i].id <= 0) {
+            if (err) *err = "no id to render";
+            return false;
+        }
+        for (size_t j = 0; j < i; ++j)
+            if (es[j].id == es[i].id) {
+                if (err) *err = "id " + std::to_string(es[i].id) + " twice in one request";
+                return false;
+            }
+    }
+    return true;
+}
+
+std::string request_label(const Request& r) {
+    if (r.batch.empty()) return r.label.empty() ? ("id " + std::to_string(r.id)) : r.label;
+    std::string s = std::to_string(r.batch.size()) + (r.batch.size() == 1 ? " head: " : " heads: ");
+    for (size_t i = 0; i < r.batch.size(); ++i) {
+        if (i) s += ", ";
+        s += r.batch[i].label.empty() ? ("id " + std::to_string(r.batch[i].id)) : r.batch[i].label;
+    }
+    return s;
+}
+
+// ---------------------------------------------------------------- BatchBook
+BatchBook::BatchBook(std::vector<BatchEntry> entries)
+    : entries_(std::move(entries)), st_(entries_.size(), St::Waiting), err_(entries_.size()) {}
+
+int BatchBook::add_picture(int32_t id, std::vector<uint8_t> bytes) {
+    for (size_t i = 0; i < entries_.size(); ++i) {
+        if (entries_[i].id != id || st_[i] != St::Waiting) continue;
+        st_[i] = St::Picture;
+        ++received_;
+        Picture p;
+        p.entry = i;
+        p.bytes = std::move(bytes);
+        pics_.push_back(std::move(p));
+        return static_cast<int>(i);
+    }
+    return -1;
+}
+
+int BatchBook::add_error(int32_t id, const std::string& why) {
+    for (size_t i = 0; i < entries_.size(); ++i) {
+        if (entries_[i].id != id || st_[i] != St::Waiting) continue;
+        st_[i] = St::Error;
+        err_[i] = why;
+        return static_cast<int>(i);
+    }
+    return -1;
+}
+
+bool BatchBook::take_picture(Picture& out) {
+    if (pics_.empty()) return false;
+    out = std::move(pics_.front());
+    pics_.erase(pics_.begin());
+    st_[out.entry] = St::Handed;
+    return true;
+}
+
+bool BatchBook::take_failed(bool over, size_t& entry, std::string& why) {
+    for (size_t i = 0; i < entries_.size(); ++i) {
+        if (st_[i] == St::Error || (over && st_[i] == St::Waiting)) {
+            entry = i;
+            why = err_[i];
+            st_[i] = St::Handed;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool BatchBook::all_handed() const {
+    for (St s : st_)
+        if (s != St::Handed) return false;
+    return true;
+}
+
+void BatchBook::drop_pictures() {
+    for (const Picture& p : pics_) st_[p.entry] = St::Handed;
+    pics_.clear();
+}
+
 // ---------------------------------------------------------------- delegate
 void* delegate_manager(void* to, void* from, int op) {
     if ((op == kMgrCopy || op == kMgrMove) && to && from && to != from) std::memcpy(to, from, sizeof(void*) * 2);

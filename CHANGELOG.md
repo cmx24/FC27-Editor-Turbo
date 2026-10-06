@@ -3,6 +3,13 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## Unreleased (3D real faces: up to 6 heads per game request, rendering in the background)
+
+- **The real-face chooser's 3D heads render several at a time** (not yet checked in game). Turbo used to ask the game for one head per request (about 0.55 s each, so 2779 heads took about 26 minutes); it now sends up to 6 heads per request, the size of the game's own capture batch (PlayerCaptureController renders up to 6 players per batch), each with the player / staff descriptor that rendered the real head in 1.2.3. Every picture is saved to the cache as it arrives; a head the game gives no picture for is retried once, then skipped for the session ("3D failed" on its cell; "Render all filtered heads" gives it its tries back).
+- **"Render all filtered heads" keeps going with the chooser closed** (and with Turbo hidden): the renders run from Turbo's frame loop, never wait for the game, and send only while the game says it can capture. Turbo's status line shows "3D heads: done / total" and a Stop button while it runs; the Status tab has a line with heads per request, renders, failures and what is waiting. Heads on screen in the chooser still go first.
+- **Fallback switch:** create `turbo_output\player_capture_batch1.txt` to go back to one head per request (looked at every 2 s, no restart). `turbo_output\player_capture.log` logs each batch ("request batch of 6 ... ids ...", one "picture for id" line per head) and "capture done for ...: 6 of 6 picture(s) in X s since the request ran (Y s per head)".
+- The Miniface editor's "The 3D model" tab no longer picks up the chooser's renders: it only listens while it waits for its own picture.
+
 ## 1.2.3 (fix: 3D real faces showed one default head)
 
 - **Fixed: the real-face chooser's 3D heads were all the same bald default head (seen in game).** The capture descriptor Turbo learns from the game's own captures came from the hub's portrait of your manager avatar, flagged "user's created avatar", so the game drew that avatar's head for every player. Player requests now always carry the player flags (Miniface > 3D model too), and the chooser uses the player descriptor that rendered the real 3D head live (Achraf Hakimi). Renders cached by 1.2.2 are removed.
