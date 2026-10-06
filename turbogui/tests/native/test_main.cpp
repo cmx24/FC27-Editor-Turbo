@@ -3116,6 +3116,7 @@ struct FakeMatchSetup : msetup::Service {
 
 #include "test_playtest_fixes.h"  // 1.1.1 playtest fixes (playtest_fix_cases, run near the end of test_ui)
 #include "test_names_tab.h"  // Players > Names (ui_cases_names_tab, run before the playtest fixes)
+#include "test_club_search.h"  // Players list Gender filter, the club box by name or ID (ui_cases_club_search)
 #include "test_file_picker.h"   // in-overlay file picker and the Export / Import dialogs (test_file_picker_ui)
 
 #include "test_edit_unlock.h"  // game editors unlock: core and UI cases (synthetic fixtures)
@@ -4499,7 +4500,7 @@ static void test_ui() {
             CHECK(ui.click("1002", "##plist"), "player 1002");
             for (const char* b : {"Release", "Terminate loan", "Transfer list", "Loan list", "Remove from lists"}) press(b, "##pedit");
             CHECK(ui.click("Transfer / Loan..."), "moves popup");
-            CHECK(ui.type_into(ui.find("To team ID"), "7"), "destination team (Everton)");
+            CHECK(ui.type_into(ui.find("To club"), "7"), "destination team (Everton)");
             press("Transfer", "##Popup");
             CHECK(ui.click("Transfer / Loan..."), "moves popup again");
             press("Loan (months)", "##Popup");
@@ -5338,7 +5339,7 @@ static void test_ui() {
             CHECK(ui.click("Transfer / Loan...", "##pedit"), "moves popup opens for your player");
             ui.frames(2);
             CHECK(ui.find("Transfer", "##Popup") != nullptr, "Transfer shown");
-            CHECK(ui.type_into(ui.find("To team ID"), "7"), "destination Everton");
+            CHECK(ui.type_into(ui.find("To club"), "7"), "destination Everton");
             CHECK(ui.click("Transfer", "##Popup"), "transfer");
             CHECK(app.busy(), "transfer out of your club is sent");
             CHECK(ui.click("Cancel"), "cancel");
@@ -5358,7 +5359,7 @@ static void test_ui() {
             // another club's player into your club
             CHECK(ui.click("2002", "##plist"), "Everton player");
             CHECK(ui.click("Transfer / Loan...", "##pedit"), "moves popup");
-            CHECK(ui.type_into(ui.find("To team ID"), "1"), "destination: your club");
+            CHECK(ui.type_into(ui.find("To club"), "1"), "destination: your club");
             ui.frames(2);
             CHECK(ui.click("Transfer", "##Popup"), "transfer into your club");
             CHECK(app.busy(), "transfer into your club is sent");
@@ -5366,7 +5367,7 @@ static void test_ui() {
             CHECK(ui.click("Cancel"), "cancel");
             // an impossible move: the button is enabled, the click says why and sends nothing
             CHECK(ui.click("Transfer / Loan...", "##pedit"), "moves popup again");
-            CHECK(ui.type_into(ui.find("To team ID"), "99999"), "no such team");
+            CHECK(ui.type_into(ui.find("To club"), "99999"), "no such team");
             ui.frames(2);
             CHECK(ui.click("Transfer", "##Popup"), "the button is enabled");
             CHECK(!app.busy(), "nothing sent");
@@ -5378,7 +5379,7 @@ static void test_ui() {
             CHECK(ui.toast_contains("cannot list another club's player"), "the reason is shown");
             // Everton's only goalkeeper (2001) cannot leave: enabled, says why, sends nothing
             CHECK(ui.click("Transfer / Loan...", "##pedit"), "moves popup for the goalkeeper");
-            CHECK(ui.type_into(ui.find("To team ID"), "1"), "destination: your club");
+            CHECK(ui.type_into(ui.find("To club"), "1"), "destination: your club");
             ui.frames(2);
             CHECK(ui.click("Transfer", "##Popup"), "the Transfer button is enabled");
             CHECK(!app.busy(), "nothing sent for a club's only goalkeeper");
@@ -5497,6 +5498,7 @@ static void test_ui() {
             app.request_tab = 0;
             ui.frames(2);
         });
+        ui_cases_club_search(app, ui, mem, kMb);  // test_club_search.h
         run_case("UI: Players > Callname: capture of the loaded bank on a background thread, Real recordings", [&] {
             fs::path game = g_out / "fakegame";
             fs::path cache = spoken_cache_path(le, "ita_it");

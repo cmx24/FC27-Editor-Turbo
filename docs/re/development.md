@@ -136,8 +136,9 @@ summary), `set` one academy player's potential / position (players table) and ti
 2. GTN: pick a player your scouts have not reported on (potential shown as a range or "?"). Players tab > that player >
    Growth > Reveal data. Expect the toast "player N: data revealed fully (scouting points 204/204, dated <today>, ...)",
    and in his Player Bio the exact attributes and potential. Dev service read of `[pdrm+0x790]` shows his record.
-3. Tools > Scouting > Reveal club ID (e.g. a Serie A rival): every player of that club exact. League: tick, Reveal
-   league ID (Serie A); the toast lists the game calls and the record count; a scope near 1500 is refused.
+3. Tools > Scouting > Reveal club (picked by name or ID, e.g. a Serie A rival): every player of that club exact.
+   League: tick, Reveal league ID (Serie A); the toast lists the game calls and the record count; a scope near 1500 is
+   refused.
 4. Development: Napoli youngster (OVR below POT): Players > Growth > Develop to potential: OVR = POT in Turbo; open his
    game bio. Then "Grow him every week" (2 points, no decline), advance a week: his attributes +2, the overall +2,
    and they stay after the game's own growth event (the plan holds them). If the game puts the old values back, the

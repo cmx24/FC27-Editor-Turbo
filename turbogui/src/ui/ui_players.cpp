@@ -13,6 +13,7 @@
 #include "imgui.h"
 #include "move_rules.h"
 #include "playstyles.h"
+#include "ui_club_search.h"
 #include "ui_images.h"
 #include "ui_names.h"
 #include "ui_presets.h"
@@ -103,6 +104,7 @@ static void player_list(App& app) {
     static bool f_plus = false, f_retiring = false;
     static int64_t f_team = 0;  // club filter (0 = any)
     static int64_t f_nat = -1, f_cont = -1;  // nationality (nations.nationid) and continent (nations.confederation) filters, -1 = any
+    static int f_gender = -1;                 // players.gender: -1 any, 0 men, 1 women
     static char f_team_search[64] = "";
     static std::unordered_set<int64_t> team_players;  // players linked to f_team (rebuilt with the rows)
     static std::vector<const PlayerRow*> rows;
@@ -164,6 +166,18 @@ static void player_list(App& app) {
             g.continent_of_nation(f_nat) != f_cont)
             f_nat = -1;
     }
+    // Gender (players.gender), on the same line when it fits
+    {
+        static const char* const kGenders[] = {"Any gender", "Men", "Women"};
+        ImGui::SameLine();
+        if (ImGui::GetContentRegionAvail().x < S(110.0f)) ImGui::NewLine();
+        ImGui::SetNextItemWidth(S(110.0f));
+        if (ImGui::BeginCombo("##fgender", kGenders[f_gender + 1])) {
+            for (int k = -1; k <= 1; ++k)
+                if (ImGui::Selectable(kGenders[k + 1], f_gender == k)) f_gender = k;
+            ImGui::EndCombo();
+        }
+    }
     ImGui::Checkbox("Retiring", &f_retiring);
     for (auto* v : {&f_min_ovr, &f_min_pot, &f_max_age}) {
         const char* lbl = v == &f_min_ovr ? "Min OVR" : v == &f_min_pot ? "Min POT" : "Max age";
@@ -179,12 +193,13 @@ static void player_list(App& app) {
         f_plus = f_retiring = false;
         f_team = 0;
         f_nat = f_cont = -1;
+        f_gender = -1;
     }
 
     const std::unordered_map<int64_t, int64_t>& nat_of = player_nationalities(app);
     char fkey[160];
-    std::snprintf(fkey, sizeof(fkey), "|%d|%d|%d|%d|%d|%d|%d|%lld|%lld|%lld", f_pos, f_style, f_plus ? 1 : 0, f_retiring ? 1 : 0, f_min_ovr,
-                  f_min_pot, f_max_age, static_cast<long long>(f_team), static_cast<long long>(f_nat), static_cast<long long>(f_cont));
+    std::snprintf(fkey, sizeof(fkey), "|%d|%d|%d|%d|%d|%d|%d|%lld|%lld|%lld|%d", f_pos, f_style, f_plus ? 1 : 0, f_retiring ? 1 : 0, f_min_ovr,
+                  f_min_pot, f_max_age, static_cast<long long>(f_team), static_cast<long long>(f_nat), static_cast<long long>(f_cont), f_gender);
     std::string key = lower(search) + (my_club ? "|1" : "|0") + fkey;
     if (key != last_key || last_version != app.model.version()) {
         last_key = key;
@@ -205,6 +220,7 @@ static void player_list(App& app) {
                 continue;
             if (f_style >= 0 && !(((f_plus ? p.playstyles_plus : p.playstyles) >> f_style) & 1)) continue;
             if (f_retiring && !p.retiring) continue;
+            if (f_gender >= 0 && p.gender != f_gender) continue;
             if (f_nat >= 0 || f_cont >= 0) {
                 auto n = nat_of.find(p.playerid);
                 const int64_t nat = n == nat_of.end() ? -1 : n->second;
@@ -505,12 +521,7 @@ static void moves_popup(App& app, const PlayerRow& p) {
         const move_rules::Facts facts = move_facts(app, p);
         ImGui::TextDisabled("%s", app.bridge.state().game_moves ? "Transfer: the game makes the move at once. Loan: written into the career database"
                                                                  : "Written into the career database by Turbo's Lua side");
-        ImGui::SetNextItemWidth(S(120.0f));
-        ImGui::InputInt("To team ID", &to_team, 0);
-        if (to_team > 0) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("%s", app.model.team_name(to_team).c_str());
-        }
+        club_search_box(app, "To club", to_team, S(220.0f));  // name or ID (ui_club_search.h); loans go there too
         ImGui::SetNextItemWidth(S(120.0f));
         ImGui::InputInt("Fee", &fee, 0);
         ImGui::SetNextItemWidth(S(120.0f));
