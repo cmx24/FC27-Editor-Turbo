@@ -350,11 +350,10 @@ bool enum_editor(App& app, const Table& t, uint64_t rec, const Field& f, const c
             char num[24];
             std::snprintf(num, sizeof(num), "%lld", static_cast<long long>(v));
             if (filt[0] && !contains_ci(txt, filt) && std::strcmp(num, filt) != 0) continue;
-            ImGui::PushID(static_cast<int>(v));
-            if (ImGui::Selectable(txt.c_str(), v == cur.i) && v != cur.i) wrote = app.edit(t, rec, f, Value::of_int(v));
+            const std::string item = txt + "##" + num;  // "Left##2": the code is the item's ID
+            if (ImGui::Selectable(item.c_str(), v == cur.i) && v != cur.i) wrote = app.edit(t, rec, f, Value::of_int(v));
             if (v == cur.i && ImGui::IsWindowAppearing()) ImGui::SetItemDefaultFocus();
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("code %lld", static_cast<long long>(v));
-            ImGui::PopID();
         }
         ImGui::EndCombo();
     }
