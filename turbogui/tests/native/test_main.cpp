@@ -4008,10 +4008,12 @@ static void test_ui() {
             ui.click("Squad roles", "##tedit");
             ui.frames(2);
             CHECK(ui.find("Run", "Run mass action?") == nullptr && !app.mailbox->pending(), "squad roles refused for another club");
-            // form too (Live Editor's SetPlayerForm changes the user's team only)
-            ui.click("Form: best (100)", "##tedit");
+            // form works for another club too (teamplayerlinks.form): the button asks first
+            CHECK(ui.click("Form: best (100)", "##tedit"), "form for another club");
             ui.frames(2);
-            CHECK(ui.find("Run", "Run mass action?") == nullptr && !app.mailbox->pending(), "form refused for another club");
+            CHECK(ui.find("Cancel", "Run mass action?") != nullptr, "form asks for another club");
+            CHECK(ui.click("Cancel", "Run mass action?"), "cancel form");
+            ui.frames(2);
             // a click asks first; Cancel sends nothing
             CHECK(ui.click("Long contract (60 months)", "##tedit"), "long contract");
             ui.frames(2);
@@ -4048,7 +4050,7 @@ static void test_ui() {
             ui.frames(2);
             j = json::parse(mem.read_cstr(kMb + kMbCmd, kMbTextSize), nullptr, false);
             CHECK(!j.is_discarded() && j["overrides"].value("actions", "") == "all", "actions all: " + j.dump());
-            CHECK(j["overrides"].value("bonus_xp", -1) == 500, "dev bonus XP sent (default 500): " + j.dump());
+            CHECK(j["overrides"].value("bonus_xp", -1) == 2, "dev bonus points sent (default 2): " + j.dump());
             app.mailbox->cancel();
             ui.frames(2);
         });
