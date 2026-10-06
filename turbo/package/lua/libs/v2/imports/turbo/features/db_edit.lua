@@ -7,8 +7,13 @@
 --     { "table": "players", "where": {}, "set": { "isretiring": 0 }, "allow_all_rows": true }
 --   ] }
 -- Each edit is validated (table, fields, value ranges) before any edit runs.
+-- In a career, a players edit of a field the game's development plan holds (attributes, work rates, skill moves, weak
+-- foot: core/moves.lua PLAN_FIELDS) goes into the plan of each of your players it changed, else the plan puts the old
+-- value back when the career is loaded again.
 
 local db = require 'imports/turbo/core/db'
+local game = require 'imports/turbo/core/game'
+local moves = require 'imports/turbo/core/moves'
 local util = require 'imports/turbo/core/util'
 
 local M = {}
@@ -61,23 +66,37 @@ function M.run(ctx)
         plan[#plan + 1] = p
     end
 
-    local parts = {}
+    local parts, plans, plan_fail = {}, 0, {}
+    local is_plan = util.set_of(moves.PLAN_FIELDS)
     for _, p in ipairs(plan) do
         local n = 0
         local recs = {}
         for rec in db.records(p.tbl) do
             if matches(p.tbl, rec, p.where) then recs[#recs + 1] = rec end
         end
+        local plan_vals = {}
+        if p.name == "players" and game.in_cm() then
+            for _, s in ipairs(p.set) do if is_plan[s.field] then plan_vals[s.field] = s.value end end
+        end
         for _, rec in ipairs(recs) do
             for _, s in ipairs(p.set) do
                 local ok, werr = db.set(p.tbl, rec, s.field, s.value, ctx.dry)
                 if not ok then return false, string.format("%s: %s", p.name, werr) end
             end
+            if next(plan_vals) and not ctx.dry then
+                local pid = p.tbl:GetRecordFieldValue(rec, "playerid")
+                local state = moves.sync_plan(pid, plan_vals)
+                if state == "plan" then plans = plans + 1
+                elseif state:sub(1, 7) == "failed:" then plan_fail[#plan_fail + 1] = string.format("%s (%s)", tostring(pid), state:sub(9)) end
+            end
             n = n + 1
         end
         parts[#parts + 1] = string.format("%s: %d rows", p.name, n)
     end
-    return true, table.concat(parts, "; ") .. string.format(" (%d edits)", util.count(plan))
+    local msg = table.concat(parts, "; ") .. string.format(" (%d edits)", util.count(plan))
+    if plans > 0 then msg = msg .. string.format("; %d development plans updated", plans) end
+    if #plan_fail > 0 then return false, msg .. "; development plan NOT updated for " .. table.concat(plan_fail, ", ") end
+    return true, msg
 end
 
 return M

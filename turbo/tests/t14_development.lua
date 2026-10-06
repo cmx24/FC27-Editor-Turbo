@@ -129,6 +129,98 @@ H.case("development: caps (plan natives) and the boot arms the weekly listener",
     _G.PlayerHasDevelopementPlan = has
 end)
 
+-- ---------------------------------------------------------------- plan sync (the Turbo window's direct edits)
+H.case("development plan_sync: validation", function()
+    local ok, msg = run("development", { mode = "plan_sync" })
+    H.eq(ok, false); H.has(msg, "plan_sync needs")
+    ok, msg = run("development", { mode = "plan_sync", sync = { { fields = { "finishing" } } } })
+    H.eq(ok, false); H.has(msg, "entry 1: needs a playerid")
+    ok, msg = run("development", { mode = "plan_sync", sync = { { playerid = USER } } })
+    H.eq(ok, false); H.has(msg, "entry 1: needs a playerid and a fields list")
+    local many = {}
+    for i = 1, 201 do many[i] = { playerid = 1000 + i, fields = { "finishing" } } end
+    ok, msg = run("development", { mode = "plan_sync", sync = many })
+    H.eq(ok, false); H.has(msg, "at most 200 players")
+    sim.in_cm = false
+    ok, msg = run("development", { mode = "plan_sync", sync = { { playerid = USER, fields = { "finishing" } } } })
+    H.eq(ok, false); H.has(msg, "career")
+    sim.in_cm = true
+end)
+
+H.case("development plan_sync: your player's plan gets the table's current values of the listed plan fields only", function()
+    local tbl = require('imports/turbo/core/db').get_table("players")
+    local rec = require('imports/turbo/core/db').find(tbl, "playerid", USER)
+    -- what the window wrote straight into the table (a slider, Overall +1, an Undo)
+    tbl:SetRecordFieldValue(rec, "finishing", 88)
+    tbl:SetRecordFieldValue(rec, "vision", 61)
+    tbl:SetRecordFieldValue(rec, "potential", 90)
+    sim.dev_plans[USER] = nil
+    local before = sim:count_calls("PlayerSetValueInDevelopementPlan")
+    local ok, msg = run("development", { mode = "plan_sync", sync = {
+        { playerid = USER, fields = { "finishing", "vision", "potential", "overallrating", "skillmoves", 7 } },
+        { playerid = OTHER, fields = { "finishing" } },
+        { playerid = 999998, fields = { "finishing" } },
+        { playerid = 1004, fields = { "potential" } },   -- nothing of his is in a plan: not even asked
+    } })
+    H.eq(ok, true, msg)
+    H.has(msg, "1 of 3 players: development plan updated (2 fields)")
+    H.has(msg, "1 without a plan"); H.has(msg, "1 not in the players table"); H.has(msg, "4 fields ignored")
+    H.eq(sim.dev_plans[USER].finishing, 88); H.eq(sim.dev_plans[USER].vision, 61)
+    H.eq(sim.dev_plans[USER].potential, nil, "potential is not a plan field")
+    H.eq(sim.dev_plans[USER].overallrating, nil, "the overall is not a plan field")
+    H.eq(sim.dev_plans[USER].skillmoves, nil, "a plan field this table lacks is skipped")
+    H.eq(sim.dev_plans[OTHER], nil, "another club's player has no plan")
+    H.eq(sim:count_calls("PlayerSetValueInDevelopementPlan") - before, 2, "two plan writes")
+    -- the value is read when the command runs: an Undo before it ran is what the plan gets
+    tbl:SetRecordFieldValue(rec, "finishing", 70)
+    ok, msg = run("development", { mode = "plan_sync", sync = { { playerid = USER, fields = { "finishing" } } } })
+    H.eq(ok, true, msg); H.eq(sim.dev_plans[USER].finishing, 70, "the table's value at run time")
+end)
+
+H.case("development plan_sync: dry run writes no plan; without the plan natives it says so", function()
+    local tbl = require('imports/turbo/core/db').get_table("players")
+    local rec = require('imports/turbo/core/db').find(tbl, "playerid", USER)
+    tbl:SetRecordFieldValue(rec, "composure", 77)
+    H.write_config({ turbo = { dry_run = true } })
+    local ok, msg = run("development", { mode = "plan_sync", sync = { { playerid = USER, fields = { "composure" } } } })
+    H.eq(ok, true, msg); H.has(msg, "[DRY RUN]"); H.has(msg, "1 of 1 players: development plan updated")
+    H.ok(sim.dev_plans[USER].composure ~= 77, "dry run: the plan is untouched")
+    H.write_config({ turbo = { dry_run = false } })
+    local set = _G.PlayerSetValueInDevelopementPlan
+    _G.PlayerSetValueInDevelopementPlan = function() error("plan locked") end
+    ok, msg = run("development", { mode = "plan_sync", sync = { { playerid = USER, fields = { "composure" } } } })
+    H.eq(ok, false); H.has(msg, "development plan NOT updated for " .. USER .. " (")
+    _G.PlayerSetValueInDevelopementPlan = nil
+    ok, msg = run("development", { mode = "plan_sync", sync = { { playerid = USER, fields = { "composure" } } } })
+    H.eq(ok, false); H.has(msg, "no development-plan natives")
+    _G.PlayerSetValueInDevelopementPlan = set
+    ok, msg = run("development", { mode = "plan_sync", sync = { { playerid = USER, fields = { "composure" } } } })
+    H.eq(ok, true, msg); H.eq(sim.dev_plans[USER].composure, 77)
+end)
+
+H.case("bulk_edit: attributes set in a career go into your players' development plans too", function()
+    local ok, msg = H.turbo().run("bulk_edit", { scope = { user_team = true }, filters = {}, set = { composure = 81, potential = 88 },
+        actions = {} })
+    H.eq(ok, true, msg); H.has(msg, " development plans updated")
+    H.eq(sim.dev_plans[USER].composure, 81); H.eq(sim.dev_plans[USER].potential, nil, "potential is not a plan field")
+    -- another club: no plan
+    ok, msg = H.turbo().run("bulk_edit", { scope = { teamids = { 2 } }, filters = {}, set = { composure = 60 }, actions = {} })
+    H.eq(ok, true, msg); H.eq(msg:find("development plans updated", 1, true), nil, "no plan outside your club")
+    H.eq(sim.dev_plans[OTHER], nil)
+    -- not a plan field: the plan is not asked
+    local before = sim:count_calls("PlayerHasDevelopementPlan")
+    ok, msg = H.turbo().run("bulk_edit", { scope = { user_team = true }, filters = {}, set = { potential = 89 }, actions = {} })
+    H.eq(ok, true, msg); H.eq(sim:count_calls("PlayerHasDevelopementPlan"), before, "no plan call for potential")
+end)
+
+H.case("db_edit: a players attribute edited in a career goes into your player's development plan too", function()
+    local ok, msg = H.turbo().run("db_edit", { edits = { { table = "players", where = { playerid = USER }, set = { composure = 66, potential = 91 } } } })
+    H.eq(ok, true, msg); H.has(msg, "1 development plans updated")
+    H.eq(sim.dev_plans[USER].composure, 66); H.eq(sim.dev_plans[USER].potential, nil, "potential is not a plan field")
+    ok, msg = H.turbo().run("db_edit", { edits = { { table = "players", where = { playerid = OTHER }, set = { composure = 65 } } } })
+    H.eq(ok, true, msg); H.eq(msg:find("development plans updated", 1, true), nil, "no plan for another club's player")
+end)
+
 -- ---------------------------------------------------------------- reveal
 H.case("reveal: validation and the native gate", function()
     local ok, msg = run("reveal", { scope = { playerid = 999998 } })

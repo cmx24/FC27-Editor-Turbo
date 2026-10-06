@@ -70,9 +70,15 @@ struct ActiveEdit {
 };
 static ActiveEdit g_edit;
 
-static void range_tooltip(const Field& f) {
+static void range_tooltip(const Table& t, const Field& f) {
     if (!ImGui::IsItemHovered()) return;
-    if (f.type == FieldType::Int)
+    if (t.name == "players" && f.name == "overallrating" && f.type == FieldType::Int)
+        // App::edit routes a typed overall through App::set_overall
+        ImGui::SetTooltip("%s  [1 .. 99]\nFC 27 works the overall out from the attributes (the player card, its own growth): a bare\n"
+                          "overall does not last. So a typed overall moves the attributes that weigh most for his position until the\n"
+                          "formula gives it (as Overall +1 / -1 in the Attributes tab). Undo / Undo bulk put them back.",
+                          f.name.c_str());
+    else if (f.type == FieldType::Int)
         ImGui::SetTooltip("%s  [%lld .. %lld]", f.name.c_str(), static_cast<long long>(f.min), static_cast<long long>(f.max()));
     else if (f.type == FieldType::String)
         ImGui::SetTooltip("%s  [text, max %d bytes]", f.name.c_str(), static_cast<int>(f.max_len()) - 1);
@@ -101,12 +107,12 @@ bool field_editor(App& app, const Table& t, uint64_t rec, const Field& f, const 
     if (f.type == FieldType::Int && f.depth == 1 && f.min == 0) {
         bool b = cur.i != 0;
         if (ImGui::Checkbox("##v", &b)) wrote = app.edit(t, rec, f, Value::of_int(b ? 1 : 0));
-        range_tooltip(f);
+        range_tooltip(t, f);
     } else if (f.type == FieldType::Int) {
         long long tmp = cur.i;
         long long* p = mine ? &g_edit.i : &tmp;
         ImGui::InputScalar("##v", ImGuiDataType_S64, p);
-        range_tooltip(f);
+        range_tooltip(t, f);
         if (ImGui::IsItemActivated()) {
             g_edit.id = id;
             g_edit.i = *p;
@@ -120,7 +126,7 @@ bool field_editor(App& app, const Table& t, uint64_t rec, const Field& f, const 
         float tmp = cur.f;
         float* p = mine ? &g_edit.f : &tmp;
         ImGui::InputFloat("##v", p, 0.0f, 0.0f, "%.4f");
-        range_tooltip(f);
+        range_tooltip(t, f);
         if (ImGui::IsItemActivated()) {
             g_edit.id = id;
             g_edit.f = *p;
@@ -136,7 +142,7 @@ bool field_editor(App& app, const Table& t, uint64_t rec, const Field& f, const 
         char* p = mine ? g_edit.s : tmp;
         size_t cap = std::min<size_t>(sizeof(tmp), f.max_len() > 0 ? f.max_len() : 1);
         ImGui::InputText("##v", p, cap);
-        range_tooltip(f);
+        range_tooltip(t, f);
         if (ImGui::IsItemActivated()) {
             g_edit.id = id;
             std::snprintf(g_edit.s, sizeof(g_edit.s), "%s", p);
@@ -148,7 +154,7 @@ bool field_editor(App& app, const Table& t, uint64_t rec, const Field& f, const 
         }
     } else {
         ImGui::TextDisabled("%s", cur.to_string().c_str());  // compressed text (type 13) or unknown: read-only
-        range_tooltip(f);
+        range_tooltip(t, f);
     }
     ImGui::PopID();
     return wrote;
@@ -218,7 +224,7 @@ bool slider_editor_ex(App& app, const Table& t, uint64_t rec, const Field& f, co
     int* p = mine ? &tmpe : &tmp;
     // the slider itself stays inside the field's range; a value typed with Ctrl+click is checked by Database::set
     ImGui::SliderInt("##s", p, static_cast<int>(f.min), static_cast<int>(f.max()), "%d");
-    range_tooltip(f);
+    range_tooltip(t, f);
     if (ImGui::IsItemActivated()) {
         g_edit.id = id;
         g_edit.i = *p;

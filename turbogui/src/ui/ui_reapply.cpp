@@ -14,9 +14,20 @@
 //              reloads the table, and Live Editor's insert crashes the game on a full table). Never for a player with
 //              his own recording (the master list or the game's audio service: Callnames::own_recording): the game says
 //              that recording, never a player-specific callname, so the row would only be an extra write.
+//   players    (1.2.5) the Players editor's edits of attributes, overall, potential, work rates, skill moves, weak foot
+//              (App::player_field_written: sliders, Overall +1/-1, a typed overall, archetypes, Undo, All fields, the
+//              Database tab; in a career only). Each kept field holds the value written and the value it replaced; at a
+//              career load it is written again (Database::set, range-checked, no undo step) ONLY while it holds the
+//              replaced value: the game put the old value back (your players' development plans outrank the players
+//              table, and every save is a new CmMgrC<timestamp> file, so an edit made before Turbo synced the plan came
+//              back in every later save). A field holding anything else (the game's own growth or decline since, a
+//              player of another career) is left alone. Written fields of a player of your club also go into his
+//              development plan (App::queue_plan_sync). On / off: "keep_players" in the store (Turbo Tools > Kept
+//              player edits), which also lists every kept field with Forget.
 // Not written, without an error: a player with his own recording, a player or kit not in this career. One summary line
 // goes to the GUI log, turbo_gui.log and the Colours / Callname tabs; a toast only when something was written (an
 // error toast when a write failed). Kill switch: turbo_output\reapply_off.txt (nothing is written; the store is kept).
+#include <algorithm>
 #include <cstdio>
 #include <map>
 #include <set>
@@ -115,6 +126,27 @@ bool App::forget_kit_edit(int64_t teamtechid, int64_t kittype, int64_t teamkitid
 bool App::forget_player_callname(int64_t playerid) {
     if (!reapply.forget_callname(playerid)) return false;
     log("re-apply: player-specific callname of player " + std::to_string(playerid) + " forgotten");
+    return save_reapply();
+}
+
+bool App::forget_player_edit(int64_t playerid, const std::string& field) {
+    if (field.empty() ? !reapply.forget_player(playerid) : !reapply.forget_player_field(playerid, field)) return false;
+    log("re-apply: kept " + (field.empty() ? std::string("edits") : field) + " of player " + std::to_string(playerid) + " forgotten");
+    return save_reapply();
+}
+
+bool App::forget_all_player_edits() {
+    if (reapply.players.empty()) return false;
+    log("re-apply: every kept player edit forgotten (" + plural(reapply.player_fields(), "field", "fields") + " of " +
+        plural(reapply.players.size(), "player", "players") + ")");
+    reapply.players.clear();
+    return save_reapply();
+}
+
+bool App::set_keep_players(bool on) {
+    if (reapply.keep_players == on) return false;
+    reapply.keep_players = on;
+    log(std::string("re-apply: player edits ") + (on ? "kept again" : "no longer kept (the kept ones stay in the file, not written)"));
     return save_reapply();
 }
 
@@ -270,8 +302,73 @@ std::string App::reapply_stored_edits() {
         }
     }
 
-    if (kits || players) ++gen;  // cached views (kit list, Callname index) reload
+    // ---- player fields (the Players editor's edits): only where the loaded value is the one the edit replaced
+    size_t pfields = 0, pplayers = 0;
+    if (!reapply.players.empty() && !reapply.keep_players) {
+        leave(plural(reapply.players.size(), "player's kept edits", "players' kept edits") + ": keeping is off (Turbo Tools > Kept player edits)");
+    } else if (!reapply.players.empty()) {
+        const Table* pt = db.table("players");
+        if (!pt) {
+            fail(plural(reapply.players.size(), "player's kept edits", "players' kept edits") + ": FC 27's players table is not readable");
+        } else {
+            for (const auto& kv : reapply.players) {
+                const PlayerEdit& e = kv.second;
+                const PlayerRow* p = model.player(e.playerid);
+                const std::string label = (p ? p->name : (e.player.empty() ? std::string("player") : e.player)) + " (" + std::to_string(e.playerid) + ")";
+                if (!p || !db.table_alive(*pt, p->rec)) {
+                    leave(label + ": not in this career's players");
+                    continue;
+                }
+                std::vector<std::string> wrote, moved;
+                std::string problem;
+                for (const auto& f : e.fields) {
+                    const Field* fd = pt->field(f.first);
+                    // the store only holds kept_player_field; checked again here, so no other column is ever written
+                    if (!kept_player_field(f.first) || !fd || fd->type != FieldType::Int) {
+                        if (problem.empty()) problem = "no field " + f.first + " in FC 27's players table";
+                        continue;
+                    }
+                    const int64_t loaded = db.get_int(*pt, p->rec, f.first, 0);
+                    const KeptField what = kept_field_state(f.second, loaded);
+                    if (what == KeptField::InPlace) continue;
+                    if (what == KeptField::Moved) {
+                        moved.push_back(field_label(f.first) + " " + std::to_string(loaded) + " (kept " + std::to_string(f.second.value) + ")");
+                        continue;
+                    }
+                    std::string err;
+                    if (!db.set(*pt, p->rec, *fd, Value::of_int(f.second.value), &err)) {
+                        if (problem.empty()) problem = f.first + ": " + err;
+                        continue;
+                    }
+                    wrote.push_back(field_label(f.first) + " " + std::to_string(loaded) + " -> " + std::to_string(f.second.value));
+                    queue_plan_sync(e.playerid, f.first);  // his development plan holds it too (your club's players)
+                }
+                if (!wrote.empty()) {
+                    ++pplayers;
+                    pfields += wrote.size();
+                    model.refresh_player(e.playerid, today());
+                    std::string list;
+                    for (const auto& w : wrote) list += (list.empty() ? "" : ", ") + w;
+                    log("re-apply: " + label + ": " + list);
+                } else if (moved.empty() && problem.empty()) {
+                    ++in_place;
+                }
+                if (!moved.empty()) {
+                    std::string list;
+                    for (size_t i = 0; i < moved.size() && i < 3; ++i) list += (i ? ", " : "") + moved[i];
+                    if (moved.size() > 3) list += ", +" + std::to_string(moved.size() - 3) + " more";
+                    leave(label + ": " + plural(moved.size(), "field", "fields") + " moved by the game since (" + list + "): not written over");
+                }
+                if (!problem.empty()) fail(label + ": " + problem);
+            }
+        }
+    }
+
+    if (kits || players || pfields) ++gen;  // cached views (kit list, Callname index, the players list) reload
     std::string line = "re-applied " + plural(colours, "kit colour", "kit colours") + ", " + plural(players, "player callname", "player callnames");
+    // the player part only when player edits are kept (the line stays as it was for everyone else)
+    if (!reapply.players.empty())
+        line += ", " + plural(pfields, "player field", "player fields") + (pplayers ? " (" + plural(pplayers, "player", "players") + ")" : std::string());
     if (in_place) line += " (" + std::to_string(in_place) + " already in place)";
     auto add = [&line](const char* what, const std::vector<std::string>& v) {
         if (v.empty()) return;
@@ -286,7 +383,7 @@ std::string App::reapply_stored_edits() {
     if (log_hook) log_hook("re-apply at career load: " + line);
     // A toast when something was written or a write failed; nothing for entries left alone by design (a player with his
     // own recording, a club or player of another career): those would come back at every load
-    if (colours || players || !failed.empty()) notify("Kept edits: " + line, !failed.empty());
+    if (colours || players || pfields || !failed.empty()) notify("Kept edits: " + line, !failed.empty());
     return line;
 }
 
@@ -302,9 +399,10 @@ void reapply_status_line(App& app) {
     ImGui::TextDisabled("Kept edits at the last career load: %s", app.reapply_status.c_str());
     ImGui::PopTextWrapPos();
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("FC 27 reloads kit colours and player-specific callnames from its base data whenever a career loads.\n"
-                          "Turbo keeps those edits in turbo_output\\reapply_edits.json and writes them again when it connects to a\n"
-                          "newly loaded career. turbo_output\\reapply_off.txt turns this off.");
+        ImGui::SetTooltip("FC 27 reloads kit colours and player-specific callnames from its base data whenever a career loads, and your\n"
+                          "players' development plans put their old attributes back. Turbo keeps those edits in\n"
+                          "turbo_output\\reapply_edits.json and writes them again when it connects to a newly loaded career (a player field\n"
+                          "only while it holds the value the edit replaced). turbo_output\\reapply_off.txt turns this off.");
 }
 
 void reapply_kit_line(App& app, const Table& kt, uint64_t rec) {
@@ -344,6 +442,171 @@ void reapply_callname_line(App& app, const PlayerRow& p) {
     if (const int own = app.callnames.own_recording(p.playerid))
         ImGui::TextColored(kWarnColour, "Not written at career load: he has his own recording (%s), which the game says instead.",
                            app.callnames.own_source(own).c_str());
+}
+
+// "Overall 85 (was 80)": a kept field for the Players tab and the list
+static std::string kept_text(const std::string& field, const PlayerFieldEdit& e) {
+    return field_label(field) + " " + std::to_string(e.value) + " (was " + std::to_string(e.was) + ")";
+}
+
+// The field's value in the loaded career ("-" when the player is not in it)
+static std::string now_text(App& app, int64_t playerid, const std::string& field) {
+    const Table* t = app.db.ready() ? app.db.table("players") : nullptr;
+    const PlayerRow* p = t ? app.model.player(playerid) : nullptr;
+    if (!p || !t->field(field) || !app.db.table_alive(*t, p->rec)) return "-";
+    return std::to_string(app.db.get_int(*t, p->rec, field, 0));
+}
+
+void reapply_player_line(App& app, const PlayerRow& p) {
+    const PlayerEdit* e = app.reapply.player(p.playerid);
+    if (e) {
+        std::string list;
+        size_t shown = 0;
+        for (const auto& f : e->fields) {
+            if (shown++ == 4) {
+                list += ", +" + std::to_string(e->fields.size() - 4) + " more";
+                break;
+            }
+            list += (list.empty() ? "" : ", ") + kept_text(f.first, f.second);
+        }
+        ImGui::AlignTextToFramePadding();
+        ImGui::PushTextWrapPos(ImGui::GetContentRegionAvail().x - S(90.0f));
+        if (app.reapply.keep_players) ImGui::TextDisabled("Kept for every career load: %s", list.c_str());
+        else ImGui::TextColored(kWarnColour, "Kept, but keeping is off (Turbo Tools > Kept player edits): %s", list.c_str());
+        ImGui::PopTextWrapPos();
+        if (ImGui::IsItemHovered() && ImGui::BeginTooltip()) {
+            ImGui::TextUnformatted("Written again whenever a career loads (whatever the save is called), but only while the field holds\n"
+                                   "the value the edit replaced: the game put the old value back. A value the game moved since (its own\n"
+                                   "growth or decline) is left alone.");
+            if (ImGui::BeginTable("##keptplayer", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg)) {
+                ImGui::TableSetupColumn("Field");
+                ImGui::TableSetupColumn("Kept");
+                ImGui::TableSetupColumn("Was");
+                ImGui::TableSetupColumn("Now");
+                ImGui::TableHeadersRow();
+                for (const auto& f : e->fields) {
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(field_label(f.first).c_str());
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%lld", static_cast<long long>(f.second.value));
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%lld", static_cast<long long>(f.second.was));
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(now_text(app, p.playerid, f.first).c_str());
+                }
+                ImGui::EndTable();
+            }
+            ImGui::EndTooltip();
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Forget##playerkeep")) {
+            if (app.forget_player_edit(p.playerid))
+                app.notify(p.name + ": kept edits forgotten (the values stay until the career is loaded again)");
+        }
+    } else if (!app.reapply.keep_players) {
+        ImGui::TextDisabled("Player edits are not kept for career loads (Turbo Tools > Kept player edits).");
+    }
+    // his edits on their way into his development plan (your club's players), and the last answer
+    if (app.plan_sync_waiting() || !app.plan_sync_status.empty()) {
+        ImGui::PushTextWrapPos(0.0f);
+        if (app.plan_sync_waiting())
+            ImGui::TextDisabled("Development plan: %zu player(s)' edits waiting to be sent", app.plan_sync_waiting());
+        else
+            ImGui::TextDisabled("Development plan, last update: %s", app.plan_sync_status.c_str());
+        ImGui::PopTextWrapPos();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Your club's players have a development plan that outranks the players table when a career loads.\n"
+                              "Attributes, work rates, skill moves and weak foot edited here go into his plan too, so the save keeps them.");
+    }
+}
+
+void kept_player_edits_section(App& app) {
+    if (!ImGui::CollapsingHeader("Kept player edits (every career load)")) return;
+    ImGui::PushID("keptplayers");
+    bool on = app.reapply.keep_players;
+    if (ImGui::Checkbox("Keep my player edits for every career load", &on)) app.set_keep_players(on);
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextDisabled("Attributes, overall, potential, work rates, skill moves and weak foot you edit in the Players tab (in a career) are "
+                        "kept in turbo_output\\reapply_edits.json. Whenever a career loads, whatever the save file is called, a kept "
+                        "field is written again if it holds the value your edit replaced (the game put the old value back); a value "
+                        "the game moved since (its own growth or decline) is left alone. Your club's players also get the value in "
+                        "their development plan.");
+    ImGui::PopTextWrapPos();
+    reapply_status_line(app);
+    if (app.reapply.players.empty()) {
+        ImGui::TextDisabled("No player edits kept.");
+        ImGui::PopID();
+        return;
+    }
+    ImGui::Text("%s of %s kept", plural(app.reapply.player_fields(), "field", "fields").c_str(),
+                plural(app.reapply.players.size(), "player", "players").c_str());
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Forget all...##keptall")) ImGui::OpenPopup("##keptforgetall");
+    if (ImGui::BeginPopup("##keptforgetall")) {
+        ImGui::Text("Forget every kept player edit (%s)?", plural(app.reapply.player_fields(), "field", "fields").c_str());
+        ImGui::TextDisabled("The values stay as they are now; they are just no longer written again at a career load.");
+        if (ImGui::Button("Forget all##keptforgetall")) {
+            if (app.forget_all_player_edits()) app.notify("Every kept player edit forgotten");
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel##keptforgetall")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+    int64_t forget_pid = 0;
+    std::string forget_field;
+    const float h = std::min(S(320.0f), ImGui::GetTextLineHeightWithSpacing() * (2.5f + static_cast<float>(app.reapply.player_fields())));
+    if (ImGui::BeginTable("##keptlist", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY, ImVec2(0, h))) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Player", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Field", ImGuiTableColumnFlags_WidthFixed, S(130.0f));
+        ImGui::TableSetupColumn("Kept", ImGuiTableColumnFlags_WidthFixed, S(44.0f));
+        ImGui::TableSetupColumn("Was", ImGuiTableColumnFlags_WidthFixed, S(44.0f));
+        ImGui::TableSetupColumn("Now", ImGuiTableColumnFlags_WidthFixed, S(44.0f));
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, S(64.0f));
+        ImGui::TableHeadersRow();
+        for (const auto& kv : app.reapply.players) {
+            const PlayerEdit& e = kv.second;
+            const PlayerRow* p = app.db.ready() ? app.model.player(e.playerid) : nullptr;
+            const std::string who = (p ? p->name : (e.player.empty() ? std::string("player") : e.player)) + " (" + std::to_string(e.playerid) + ")";
+            for (const auto& f : e.fields) {
+                ImGui::PushID(static_cast<int>(e.playerid & 0x7FFFFFFF));
+                ImGui::PushID(f.first.c_str());
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(who.c_str());
+                if (ImGui::IsItemHovered() && !e.when.empty()) ImGui::SetTooltip("last edit %s", e.when.c_str());
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(field_label(f.first).c_str());
+                ImGui::TableNextColumn();
+                ImGui::Text("%lld", static_cast<long long>(f.second.value));
+                ImGui::TableNextColumn();
+                ImGui::Text("%lld", static_cast<long long>(f.second.was));
+                ImGui::TableNextColumn();
+                const std::string now = now_text(app, e.playerid, f.first);
+                ImGui::TextUnformatted(now.c_str());
+                if (ImGui::IsItemHovered()) {
+                    if (now == "-") ImGui::SetTooltip("Not in the loaded career (or not connected)");
+                    else if (now == std::to_string(f.second.value)) ImGui::SetTooltip("In place");
+                    else if (now == std::to_string(f.second.was)) ImGui::SetTooltip("The old value: written again at the next career load");
+                    else ImGui::SetTooltip("Moved by the game since (growth or decline): left alone");
+                }
+                ImGui::TableNextColumn();
+                if (ImGui::SmallButton("Forget")) {
+                    forget_pid = e.playerid;
+                    forget_field = f.first;
+                }
+                ImGui::PopID();
+                ImGui::PopID();
+            }
+        }
+        ImGui::EndTable();
+    }
+    // after the loop: the map is not changed while it is drawn
+    if (forget_pid && app.forget_player_edit(forget_pid, forget_field))
+        app.notify(field_label(forget_field) + " of player " + std::to_string(forget_pid) + ": no longer kept");
+    ImGui::PopID();
 }
 
 }  // namespace turbo

@@ -132,10 +132,13 @@ int compute_overall(int pos, const Attrs& a) {
 
 double attr_weight(int pos, int attr) { return attr >= 0 && attr < kAttrCount ? table_for(pos).w[attr] : 0.0; }
 
-bool adjust(int pos, Attrs& a, int delta, std::vector<Move>* moves) {
-    if (delta != 1 && delta != -1) return false;
-    const int target = compute_overall(pos, a) + delta;
-    if (target < 1 || target > 99) return false;
+namespace {
+
+// adjust() and reach(): move attributes one point at a time until compute_overall() == target (1..99)
+bool move_to(int pos, Attrs& a, int target, std::vector<Move>* moves) {
+    const int now = compute_overall(pos, a);
+    if (now == target) return true;
+    const int delta = target > now ? 1 : -1;
     const Table& t = table_for(pos);
     Attrs w = a;
     int moved[kAttrCount] = {0};
@@ -169,6 +172,20 @@ bool adjust(int pos, Attrs& a, int delta, std::vector<Move>* moves) {
                 moves->push_back({i, a[static_cast<size_t>(i)], w[static_cast<size_t>(i)]});
     a = w;
     return true;
+}
+
+}  // namespace
+
+bool adjust(int pos, Attrs& a, int delta, std::vector<Move>* moves) {
+    if (delta != 1 && delta != -1) return false;
+    const int target = compute_overall(pos, a) + delta;
+    if (target < 1 || target > 99) return false;
+    return move_to(pos, a, target, moves);
+}
+
+bool reach(int pos, Attrs& a, int target, std::vector<Move>* moves) {
+    if (target < 1 || target > 99) return false;
+    return move_to(pos, a, target, moves);
 }
 
 }  // namespace overall

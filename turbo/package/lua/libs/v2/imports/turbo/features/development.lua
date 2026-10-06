@@ -23,6 +23,14 @@
 --   group while his overall is below his potential; with no_decline an attribute that dropped since the last week is
 --   put back (age decline). The snapshot for no_decline is kept for this game session only and starts over when a
 --   career is loaded.
+--
+-- Plan sync (sent by the Turbo window, M.plan_sync):
+--   "development": { "mode": "plan_sync", "sync": [ { "playerid": N, "fields": [ "composure", ... ] }, ... ] }
+--   The window writes players fields straight into the database (Players editor sliders, Overall +1/-1, an overall
+--   typed in, archetypes, Undo, Database tab; its kept edits written again at a career load). For each listed player
+--   with a development plan the plan gets the CURRENT players-table value of each listed field the plan holds
+--   (core/moves.lua PLAN_FIELDS; other names are ignored), read when this runs: a later edit or an Undo of the same
+--   field is what the plan gets. No scope / confirm: the window lists only players and fields it wrote.
 
 local util = require 'imports/turbo/core/util'
 local db = require 'imports/turbo/core/db'
@@ -231,8 +239,78 @@ function M.plan(cfg)
     return { tbl = tbl, plans = plans, label = label }
 end
 
+-- ---------------------------------------------------------------- plan sync (Turbo window edits)
+M.PLAN_SYNC_MAX = 200   -- players in one command (the window's mailbox text holds far fewer)
+
+-- The players and fields of a plan_sync command: { { pid, fields = { name, ... } }, ... }, ignored names (or nil, reason)
+local function sync_list(sync)
+    if type(sync) ~= "table" or #sync == 0 then return nil, "plan_sync needs \"sync\": [ { \"playerid\": N, \"fields\": [..] } ]" end
+    if #sync > M.PLAN_SYNC_MAX then return nil, string.format("plan_sync: at most %d players per command", M.PLAN_SYNC_MAX) end
+    local is_plan = util.set_of(moves.PLAN_FIELDS)
+    local out, ignored = {}, 0
+    for i, e in ipairs(sync) do
+        local pid = type(e) == "table" and util.to_int(e.playerid) or nil
+        if not pid or pid <= 0 or type(e.fields) ~= "table" then
+            return nil, string.format("plan_sync entry %d: needs a playerid and a fields list", i)
+        end
+        local fields = {}
+        for _, f in ipairs(e.fields) do
+            if type(f) == "string" and is_plan[f] then fields[#fields + 1] = f else ignored = ignored + 1 end
+        end
+        if #fields > 0 then out[#out + 1] = { pid = pid, fields = fields } end
+    end
+    return out, ignored
+end
+
+function M.plan_sync(cfg, dry)
+    local list, ignored = sync_list(cfg.sync)
+    if not list then return false, ignored end
+    if not plan_natives() then
+        return false, "this Live Editor build has no development-plan natives: the game may put your players' old values back"
+    end
+    local tbl, err = db.get_table("players")
+    if not tbl then return false, err end
+    local ids = {}
+    for _, e in ipairs(list) do ids[#ids + 1] = e.pid end
+    local rows = player_rows(tbl, ids)
+    local synced, fields, none, missing, failed = 0, 0, 0, 0, {}
+    for _, e in ipairs(list) do
+        local rec = rows[e.pid]
+        if not rec then
+            missing = missing + 1
+        else
+            local values, n = {}, 0
+            for _, f in ipairs(e.fields) do
+                local v = moves.read_field(tbl, rec, f)
+                if v ~= nil then values[f] = v; n = n + 1 end
+            end
+            if n > 0 then
+                local state
+                if dry then
+                    local has = plan_natives()
+                    local ok, yes = pcall(has, e.pid)
+                    state = not ok and ("failed: " .. tostring(yes)) or (yes == true and "plan" or "none")
+                else
+                    state = moves.sync_plan(e.pid, values)
+                end
+                if state == "plan" then synced = synced + 1; fields = fields + n
+                elseif state == "none" then none = none + 1
+                else failed[#failed + 1] = string.format("%d (%s)", e.pid, state:sub(1, 7) == "failed:" and state:sub(9) or state) end
+            end
+        end
+    end
+    local msg = string.format("%d of %d players: development plan updated (%d fields)", synced, #list, fields)
+    if none > 0 then msg = msg .. string.format("; %d without a plan (not your club's players: the save keeps the table)", none) end
+    if missing > 0 then msg = msg .. string.format("; %d not in the players table", missing) end
+    if ignored > 0 then msg = msg .. string.format("; %d fields ignored (not in a development plan)", ignored) end
+    if #failed > 0 then return false, msg .. "; development plan NOT updated for " .. table.concat(failed, ", ") end
+    if dry then return true, "dry run: " .. msg end
+    return true, msg
+end
+
 function M.run(ctx)
     local cfg = ctx.cfg or {}
+    if cfg.mode == "plan_sync" then return M.plan_sync(cfg, ctx.dry) end
     local plan, why = M.plan(cfg)
     if not plan then return false, why end
     local writes, synced, failed, changed = 0, 0, {}, 0

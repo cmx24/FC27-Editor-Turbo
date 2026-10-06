@@ -439,9 +439,9 @@ local function run_import(ctx)
             local ok, werr = db.set(players, rec, w.f, w.v)
             if not ok then return false, string.format("players.%s: %s", w.f, tostring(werr)) end
         end
-        -- the game's development plan (your own players) outranks the players table: give it the written attributes,
-        -- else the old values come back after the career is saved and loaded again
-        local is_attr, attr_vals = util.set_of(moves.PLAN_ATTRS), {}
+        -- the game's development plan (your own players) outranks the players table: give it the written attributes
+        -- (and work rates, skill moves, weak foot), else the old values come back after the career is saved and loaded again
+        local is_attr, attr_vals = util.set_of(moves.PLAN_FIELDS), {}
         for _, w in ipairs(plan) do if is_attr[w.f] then attr_vals[w.f] = w.v end end
         if next(attr_vals) then
             local state = moves.sync_plan(pid, attr_vals)

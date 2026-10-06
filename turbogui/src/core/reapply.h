@@ -8,6 +8,14 @@
 //   - the player-specific callnames written through Players > Callname (playernamemap, keyed by playerid),
 // in <Live Editor>\turbo_output\reapply_edits.json and writes them again when it connects to a newly loaded career
 // (App::reapply_stored_edits). This header is the store only: plain data and its JSON, no game memory.
+//
+// Since 1.2.5 it also keeps the Players editor's edits of a player's attributes, overall, potential, work rates, skill
+// moves and weak foot (keyed by playerid + field, with the value written and the value it replaced). FC 27 saves the
+// players table, but for the user's club the game's development plan outranks it (features/development.lua header),
+// and every save gets a new file name (CmMgrC<timestamp>): an edit made before the plan was synced came back with its
+// old value in every later save. Such a field is written again at a career load, whatever the save is called, but ONLY
+// while it holds the value the edit replaced (the game put the old value back); a field the game moved since (its own
+// growth or decline, another career's player) is left alone. On / off: "keep_players" in the file.
 #pragma once
 #include <cstdint>
 #include <filesystem>
@@ -44,14 +52,53 @@ struct CallnameEdit {
     std::string when;
 };
 
+// The players fields the game's development plan holds for the user's players (Live Editor DOC.MD: all 34 attributes,
+// the work rates, skill moves, weak foot; Lua core/moves.lua PLAN_FIELDS): an edit of one of them must reach the plan
+bool plan_field(const std::string& field);
+// The players fields a Players editor edit is kept for (written again at a career load): the plan fields, overallrating
+// and potential
+bool kept_player_field(const std::string& field);
+
+// One kept players field: what Turbo wrote and the value it replaced
+struct PlayerFieldEdit {
+    int64_t value = 0;
+    int64_t was = 0;
+};
+// One player's kept fields
+struct PlayerEdit {
+    int64_t playerid = 0;
+    std::string player;  // player name at the last edit (UI only)
+    std::string when;    // "2026-10-05 22:40" of the last edit
+    std::map<std::string, PlayerFieldEdit> fields;
+};
+// What a career load does with one kept field, by the value it loaded with: Write (it holds the replaced value: the game
+// put the old value back), InPlace (it holds the kept value), Moved (anything else: the game's own growth or decline,
+// another career's player; never written over)
+enum class KeptField { Write, InPlace, Moved };
+KeptField kept_field_state(const PlayerFieldEdit& e, int64_t loaded);
+
 class ReapplyStore {
 public:
     using KitKey = std::tuple<int64_t, int64_t, int64_t>;  // teamtechid, teamkittypetechid, teamkitid (-1 = not known)
     std::map<KitKey, KitEdit> kits;
     std::map<int64_t, CallnameEdit> callnames;
+    std::map<int64_t, PlayerEdit> players;
+    // The switch for the player edits ("keep_players"): off = new edits are not kept and the kept ones are not written
+    // at a career load (they stay in the file until forgotten)
+    bool keep_players = true;
 
-    bool empty() const { return kits.empty() && callnames.empty(); }
-    size_t size() const { return kits.size() + callnames.size(); }
+    bool empty() const { return kits.empty() && callnames.empty() && players.empty(); }
+    size_t size() const { return kits.size() + callnames.size() + players.size(); }
+    // An edit of a kept players field from `before` to `after`. A field already kept whose kept value is `before` keeps
+    // its first replaced value (an edit continued); an edit back to that replaced value drops the field (nothing left to
+    // keep; a player with no field left is dropped). Any other edit keeps {after, before}. `player` / `when` refresh the
+    // entry (UI only). Fields that are not kept_player_field are ignored. True when the store changed.
+    bool note_player_edit(int64_t playerid, const std::string& player, const std::string& when, const std::string& field, int64_t before,
+                          int64_t after);
+    bool forget_player_field(int64_t playerid, const std::string& field);  // false when there was no such field
+    bool forget_player(int64_t playerid);                                  // every field of his; false when none
+    const PlayerEdit* player(int64_t playerid) const;
+    size_t player_fields() const;  // kept fields of every player
     // Upsert of one field of one kit row: the entry is created when missing; team / when are refreshed, other fields are
     // kept. Two kits of one type (another teamkitid) are separate entries, so one kit's colours never go to the other.
     void set_kit_field(int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& team, const std::string& when,
@@ -66,11 +113,13 @@ public:
 };
 
 // {"turbo_reapply": 1, "note": "...", "kits": [{"teamtechid", "teamkittypetechid", "teamkitid", "team", "when",
-//  "fields": {"teamcolorprimr": 12, ...}}], "playernamemap": [{"playerid", "commentaryid", "player", "from", "when"}]}
+//  "fields": {"teamcolorprimr": 12, ...}}], "playernamemap": [{"playerid", "commentaryid", "player", "from", "when"}],
+//  "keep_players": true, "players": [{"playerid", "player", "when", "fields": {"composure": {"value": 85, "was": 80}}}]}
 std::string reapply_json(const ReapplyStore& s);
 // false (with err) when the text is not a Turbo store (not JSON, not an object, no "turbo_reapply": 1). Entries with a
 // wrong shape (missing ids, non-integer values, a commentary id outside 900001..965000, a kit field that is not one of
-// the colour channels, kit_colour_field) are dropped and counted in *dropped; the rest is kept.
+// the colour channels, kit_colour_field, a players field that is not kept_player_field or whose value equals the value
+// it replaced) are dropped and counted in *dropped; the rest is kept. No "keep_players" (an older store) = on.
 bool parse_reapply_json(const std::string& text, ReapplyStore& out, std::string* err, size_t* dropped = nullptr);
 
 // <Live Editor>\turbo_output\reapply_edits.json
