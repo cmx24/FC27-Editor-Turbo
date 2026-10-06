@@ -17,6 +17,7 @@
 #include "file_picker.h"
 #include "imgui.h"
 #include "move_rules.h"
+#include "ui_club_search.h"
 #include "ui_images.h"
 
 namespace turbo {
@@ -120,31 +121,9 @@ PresetPreview preview_preset_file(const fs::path& file) {
     return pv;
 }
 
-// Club picker: an ID box plus a searchable list of clubs (national teams are shown but refused by Lua)
-void club_picker(App& app, int& teamid, char* search, size_t search_size) {
-    ImGui::SetNextItemWidth(S(110.0f));
-    ImGui::InputInt("Club ID", &teamid, 0);
-    ImGui::SameLine();
-    const TeamRow* t = app.model.team(teamid);
-    if (t) ImGui::TextDisabled("%s%s", t->name.c_str(), app.model.is_national_team(teamid) ? " [national team]" : "");
-    else ImGui::TextDisabled("(no such team)");
-    ImGui::SetNextItemWidth(S(220.0f));
-    ImGui::InputTextWithHint("##clubsearch", "search a club", search, static_cast<int>(search_size));
-    std::string q = lower(search);
-    if (!q.empty()) {
-        ImGui::BeginChild("##clublist", ImVec2(S(320.0f), S(110.0f)), ImGuiChildFlags_Borders);
-        int shown = 0;
-        for (const auto& tr : app.model.teams()) {
-            if (lower(tr.name).find(q) == std::string::npos) continue;
-            char lbl[160];
-            std::snprintf(lbl, sizeof(lbl), "%s (%lld)%s", tr.name.c_str(), static_cast<long long>(tr.teamid),
-                          app.model.is_national_team(tr.teamid) ? " [national]" : "");
-            if (ImGui::Selectable(lbl, teamid == tr.teamid)) teamid = static_cast<int>(tr.teamid);
-            if (++shown >= 60) break;
-        }
-        ImGui::EndChild();
-    }
-}
+// Club picker: one box for the club's name or ID with a dropdown of the matching clubs (ui_club_search.h; national teams
+// are listed and marked, Lua refuses them)
+void club_picker(App& app, int& teamid) { club_search_box(app, "Club", teamid, S(220.0f)); }
 
 static const char* kOwnClubCreate =
     "Your club: he joins your squad as a reserve and your team sheet (back up your save; the squad screens show him "
@@ -398,7 +377,6 @@ static void import_dialog(App& app, const PlayerRow& p) {
                                           "Names (renames him to the file's names)", "Miniface (Turbo JSON only)"};
     static int target = 0;
     static int teamid = 111592;
-    static char club_search[64] = "";
     if (ImGui::BeginPopupModal("##pimport", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Import a preset onto %s (ID %lld) or as a new player", p.name.c_str(), static_cast<long long>(p.playerid));
         ImGui::SetNextItemWidth(S(480.0f));
@@ -432,7 +410,7 @@ static void import_dialog(App& app, const PlayerRow& p) {
         ImGui::RadioButton(lbl, &target, 0);
         ImGui::RadioButton("A new player in a club", &target, 1);
         if (target == 1) {
-            club_picker(app, teamid, club_search, sizeof(club_search));
+            club_picker(app, teamid);
             club_notes(app, teamid);
         } else {
             ImGui::SeparatorText("What to copy");
@@ -471,12 +449,11 @@ static void import_dialog(App& app, const PlayerRow& p) {
 static void clone_dialog(App& app, const PlayerRow& p) {
     static int teamid = 111592;
     static int jersey = 0;
-    static char club_search[64] = "";
     static char first[64] = "", last[64] = "", common[64] = "", jname[64] = "";
     if (ImGui::BeginPopupModal("##pclone", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Clone %s (ID %lld): a new player with the same fields", p.name.c_str(), static_cast<long long>(p.playerid));
         ImGui::TextDisabled("The copy gets the first free player ID below 460000, a free shirt number and the reserve slot.");
-        club_picker(app, teamid, club_search, sizeof(club_search));
+        club_picker(app, teamid);
         club_notes(app, teamid);
         ImGui::SetNextItemWidth(S(110.0f));
         ImGui::InputInt("Shirt number (0 = first free)", &jersey, 0);
@@ -508,7 +485,6 @@ static void clone_dialog(App& app, const PlayerRow& p) {
 
 static void create_dialog(App& app, const PlayerRow& p) {
     static int teamid = 111592;
-    static char club_search[64] = "";
     static char first[64] = "", last[64] = "", common[64] = "", jname[64] = "";
     static int overall = 65, potential = 70, position = 25, birth_year = 2004, nationality = 0, foot = 1, height = 180, weight = 75;
     static int64_t for_pid = 0;
@@ -539,7 +515,7 @@ static void create_dialog(App& app, const PlayerRow& p) {
         ImGui::SetNextItemWidth(S(200.0f));
         ImGui::InputText("Jersey name", jname, sizeof(jname));
         ImGui::SeparatorText("Club");
-        club_picker(app, teamid, club_search, sizeof(club_search));
+        club_picker(app, teamid);
         club_notes(app, teamid);
         ImGui::SeparatorText("Profile");
         ImGui::SetNextItemWidth(S(110.0f));

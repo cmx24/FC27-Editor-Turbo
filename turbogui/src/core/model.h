@@ -42,6 +42,7 @@ struct PlayerRow {
     int positions[7] = {-1, -1, -1, -1, -1, -1, -1};  // preferredposition1..7 (-1 = none or field absent)
     bool retiring = false;                           // isretiring
     uint64_t playstyles = 0, playstyles_plus = 0;    // trait1 / icontrait1 bits
+    int gender = 0;                                  // players.gender: 0 men, 1 women
 };
 
 struct TeamRow {
