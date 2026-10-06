@@ -2597,6 +2597,7 @@ static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_preload_hotkey.h"  // 1.1.1: show/hide key setting, background loading
 #include "test_gear_pictures.h"  // 1.1.4: gear preview pictures from the hash list
 #include "test_hair_catalog.h"  // hair catalog: gallery filters and the face chooser Hair facet
+#include "test_face3d_looks.h"  // 3D looks of the real faces: generated data, lookup, the chooser's 3D facets
 #include "test_wheel.h"  // 1.1.3: mouse wheel source (hook, raw input, window messages)
 static std::string hex_bytes(const std::vector<uint8_t>& d) {
     static const char* h = "0123456789abcdef";
@@ -4843,8 +4844,9 @@ static void test_ui() {
                       bucket(kEthnicity, 1502) == "Latin" && bucket(kEthnicity, 7010) == "European" && bucket(kEthnicity, 15000) == "Mixed & other",
                   "ethnicity from the head type ranges");
             // every code of the FC 27 field ranges has a named choice: the colours one each, the styles and ethnicity at most 5 groups
-            const int64_t kMaxRaw[kFacetCount] = {16000, 100, 50, 10000, 512, 50, 64, 1};
-            for (int i = 0; i < kFacetCount; ++i) {
+            // (the database facets; the 3D facets: test_face3d_looks.h)
+            const int64_t kMaxRaw[kDbFacetCount] = {16000, 100, 50, 10000, 512, 50, 64, 1};
+            for (int i = 0; i < kDbFacetCount; ++i) {
                 const Facet fc = static_cast<Facet>(i);
                 std::vector<Face> every;
                 std::vector<size_t> all_idx;
@@ -4997,6 +4999,63 @@ static void test_ui() {
             CHECK(app.db.set_int(*mt, mrec, "headassetid", 7503) && app.db.set_int(*mt, mrec, "headclasscode", 1) &&
                       app.db.set_int(*mt, mrec, "headtypecode", 7), "Chivu restored");
             app.request_tab = 0;
+            ui.frames(2);
+        });
+
+        run_case("UI: real-face chooser with 3D looks: 3D facets, 'not classified yet', Only heads with a 3D look", [&] {
+            // a test table: 1001 .. 1004 classified from their 3D renders, 1005 / 1006 not yet
+            static const face3d::Look looks[] = {
+                {1001, {face3d::kSkinLight, face3d::kHairDarkBrown, face3d::kShort, face3d::kWavy, face3d::kShortBeard, face3d::kBeardDarkBrown, 0}},
+                {1002, {face3d::kSkinDark, face3d::kHairBlack, face3d::kShort, face3d::kAfro, face3d::kStubble, face3d::kBeardBlack, 0}},
+                {1003, {face3d::kSkinLight, face3d::kHairBlonde, face3d::kLong, face3d::kTied, face3d::kClean, face3d::kBeardNone, face3d::kHeadband}},
+                {1004, {face3d::kSkinOlive, face3d::kHairNone, face3d::kBald, face3d::kOtherType, face3d::kFullBeard, face3d::kBeardGrey, 0}},
+            };
+            face3d::use_table(looks, 4);
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.click("3001", "##plist"), "player 3001");
+            CHECK(ui.click("Appearance", "##pedit"), "Appearance tab");
+            CHECK(ui.click("Choose a real face..."), "open the chooser");
+            ui.frames(3);
+            const char* W = "Choose a real face";
+            CHECK(ui.find("Only heads with a 3D look", W) != nullptr, "the checkbox (off: fewer than 200 looks)");
+            CHECK(ui.find("face1001", W) && ui.find("face1005", W), "heads with and without a look listed");
+            CHECK(ui.find("Gender: Any##facet7", W) && ui.find("Skin tone: Any##facet8", W) && ui.find("Hair colour: Any##facet9", W) &&
+                      ui.find("Hair length: Any##facet10", W) && ui.find("Hair type: Any##facet11", W) && ui.find("Facial hair: Any##facet12", W) &&
+                      ui.find("Beard colour: Any##facet13", W) && ui.find("Headwear: Any##facet14", W) &&
+                      ui.find("Eyes (database): Any##facet6", W) && ui.find("Ethnicity (database): Any##facet0", W),
+                  "the 3D facets, Eyes / Ethnicity (database)");
+            CHECK(!ui.find("Hair colour: Any##facet2", W) && !ui.find("Hair: Any##facet3", W) && !ui.find("Facial hair: Any##facet4", W) &&
+                      !ui.find("Skin tone: Any##facet1", W),
+                  "no database skin / hair / facial hair facets");
+            int unc = 0;  // real heads without a look: 1005, 1006 (3001 too when it holds 1003's real face)
+            for (const auto& f : player_faces(app)) unc += (f.real && !f.look) ? 1 : 0;
+            CHECK(ui.click("Hair length: Any##facet10", W), "hair length filter");
+            ui.frames(2);
+            CHECK(ui.find("Bald (1)##v0") && ui.find("Buzz cut (0)##v1") && ui.find("Short (2)##v2") && ui.find(fmt("not classified yet (%d)##v255", unc)),
+                  fmt("every value with its count, then not classified yet (%d)", unc));
+            CHECK(ui.click("Long (1)##v4"), "long hair: 1003");
+            ui.frames(2);
+            CHECK(ui.find("face1003", W) && !ui.find("face1001", W) && !ui.find("face1005", W) && !ui.find("face1006", W),
+                  "only the long-haired look; heads without a look never match");
+            CHECK(ui.find("Hair length: Long##facet10", W) != nullptr, "the button shows the filter");
+            CHECK(ui.click("Clear filters", W), "clear");
+            ui.frames(2);
+            CHECK(ui.click("Facial hair: Any##facet12", W), "facial hair filter");
+            ui.frames(2);
+            CHECK(ui.click(fmt("not classified yet (%d)##v255", unc)), "not classified yet");
+            ui.frames(2);
+            CHECK(ui.find("face1005", W) && ui.find("face1006", W) && !ui.find("face1001", W) && !ui.find("face1004", W),
+                  "not classified yet: the heads without a look only");
+            CHECK(ui.click("Clear filters", W), "clear again");
+            ui.frames(2);
+            CHECK(ui.click("Only heads with a 3D look", W), "only heads with a 3D look");
+            ui.frames(2);
+            CHECK(ui.find("face1001", W) && ui.find("face1004", W) && !ui.find("face1005", W) && !ui.find("face1006", W), "heads without a look hidden");
+            CHECK(ui.click("Only heads with a 3D look", W), "off again");
+            ui.frames(2);
+            CHECK(ui.click("Close##faces"), "close");
+            face3d::use_table(nullptr, 0);
             ui.frames(2);
         });
 
@@ -11807,6 +11866,7 @@ int main(int argc, char** argv) {
     test_hotkey_and_background();
     test_gear_pictures();
     test_hair_catalog();
+    test_face3d_looks();
     std::printf("native mouse wheel source\n");
     test_wheel_sources();
     std::printf("native club customisation and career settings\n");

@@ -9,14 +9,46 @@
 
 namespace turbo::faces {
 
-static const char* kTitles[kFacetCount] = {"Ethnicity", "Skin tone", "Hair colour", "Hair", "Facial hair", "Facial hair colour", "Eyes", "Gender"};
+static const char* kTitles[kFacetCount] = {"Ethnicity", "Skin tone", "Hair colour", "Hair", "Facial hair", "Facial hair colour", "Eyes", "Gender",
+                                           // 3D facets (face3d::trait_title)
+                                           "Skin tone", "Hair colour", "Hair length", "Hair type", "Facial hair", "Beard colour", "Headwear"};
+// 3D facets have no database field ("")
 static const char* kFields[kFacetCount] = {"headtypecode", "skintonecode", "haircolorcode", "hairtypecode",
-                                           "facialhairtypecode", "facialhaircolorcode", "eyecolorcode", "gender"};
-static const Facet kOrder[kFacetCount] = {kGender, kEthnicity, kSkin, kHairColour, kHair, kBeard, kBeardColour, kEyes};
+                                           "facialhairtypecode", "facialhaircolorcode", "eyecolorcode", "gender",
+                                           "", "", "", "", "", "", ""};
+static const Facet kOrder[kDbFacetCount] = {kGender, kEthnicity, kSkin, kHairColour, kHair, kBeard, kBeardColour, kEyes};
+// with 3D looks: what the render shows, then the database facets the render cannot judge (eyes, ethnicity) last
+static const Facet kOrder3d[] = {kGender,        kSkin3d,        kHairColour3d, kHairLength3d, kHairType3d,
+                                 kFacialHair3d, kBeardColour3d, kHeadwear3d,   kEyes,         kEthnicity};
+static_assert(kHeadwear3d - kSkin3d + 1 == face3d::kTraitCount, "one 3D facet per face3d trait");
 
+static int trait_of(Facet f) { return int(f) - int(kSkin3d); }  // face3d::Trait of a 3D facet
+
+bool facet_3d(Facet f) { return f >= kSkin3d && f < kFacetCount; }
 const char* facet_title(Facet f) { return int(f) >= 0 && int(f) < kFacetCount ? kTitles[f] : "?"; }
+const char* facet_title(Facet f, bool looks3d) {
+    if (looks3d && f == kEyes) return "Eyes (database)";
+    if (looks3d && f == kEthnicity) return "Ethnicity (database)";
+    return facet_title(f);
+}
 const char* facet_field(Facet f) { return int(f) >= 0 && int(f) < kFacetCount ? kFields[f] : ""; }
-const Facet* facet_order() { return kOrder; }
+const Facet* facet_order(bool looks3d) { return looks3d ? kOrder3d : kOrder; }
+int facet_order_size(bool looks3d) { return looks3d ? int(sizeof(kOrder3d) / sizeof(kOrder3d[0])) : kDbFacetCount; }
+bool facet_shown(Facet f, bool looks3d) {
+    const Facet* o = facet_order(looks3d);
+    return std::find(o, o + facet_order_size(looks3d), f) != o + facet_order_size(looks3d);
+}
+
+void set_look(Face& f, const face3d::Look* look) {
+    f.look = look;
+    for (int t = 0; t < face3d::kTraitCount; ++t) f.raw[kSkin3d + t] = look ? int64_t(look->v[t]) : kUnclassified;
+}
+
+size_t count_looks(const std::vector<Face>& faces) {
+    size_t n = 0;
+    for (const Face& f : faces) n += f.look ? 1 : 0;
+    return n;
+}
 
 // Ethnicity groups of the head type ranges (headtypecode / 500). FC 27 has no ethnicity field for players: the groups
 // come from the game's own head types, named after the skin tones and nations of the players using each range in the
@@ -74,6 +106,7 @@ static int64_t hair_bucket(int64_t raw) {
 
 int64_t facet_key(Facet f, int64_t raw) {
     if (raw < 0) return kNoValue;
+    if (facet_3d(f)) return raw;  // the look's value, or kUnclassified
     switch (f) {
         case kEthnicity: {
             int64_t b = raw / 500;
@@ -120,6 +153,11 @@ static std::string exact_label(Facet f, int64_t raw) {
 std::string key_label(Facet f, int64_t key) {
     if (key == kAny) return "Any";
     if (key == kNoValue) return "not in this table";
+    if (facet_3d(f)) {
+        if (key == kUnclassified) return "not classified yet";
+        if (key >= 0 && key < face3d::value_count(trait_of(f))) return face3d::value_name(trait_of(f), int(key));
+        return "Value " + std::to_string(key);
+    }
     switch (f) {
         case kEthnicity: return bucket_name(kGroupNames, key);
         case kSkin: return exact_label(f, key);
@@ -137,6 +175,7 @@ std::string key_label(Facet f, int64_t key) {
 
 std::string trait_label(Facet f, int64_t raw) {
     if (raw < 0) return key_label(f, kNoValue);
+    if (facet_3d(f)) return key_label(f, raw);
     const int64_t key = facet_key(f, raw);
     const std::string n = std::to_string(raw);
     switch (f) {
@@ -155,7 +194,7 @@ std::string trait_label(Facet f, int64_t raw) {
     }
 }
 
-bool facet_exact(Facet f) { return f == kSkin || f == kHairColour || f == kBeardColour || f == kEyes; }
+bool facet_exact(Facet f) { return f == kSkin || f == kHairColour || f == kBeardColour || f == kEyes || facet_3d(f); }
 
 bool facet_has_pictures(Facet f) { return f == kHair || f == kBeard; }
 
@@ -185,6 +224,23 @@ bool matches(const Face& f, const Filter& flt, int skip) {
     return true;
 }
 
+void drop_hidden(Filter& flt, bool looks3d) {
+    for (int i = 0; i < kFacetCount; ++i)
+        if (!facet_shown(static_cast<Facet>(i), looks3d)) flt.sel[i] = kAny;
+}
+
+std::string head_traits(const Face& f, bool looks3d) {
+    std::string out;
+    if (looks3d) out += std::string("\n3D look: ") + (f.look ? face3d::describe(*f.look) : std::string("not classified yet"));
+    const Facet* o = facet_order(looks3d);
+    for (int k = 0; k < facet_order_size(looks3d); ++k) {
+        const Facet fc = o[k];
+        if (facet_3d(fc) || f.raw[fc] < 0) continue;
+        out += std::string("\n") + facet_title(fc, looks3d) + ": " + trait_label(fc, f.raw[fc]);
+    }
+    return out;
+}
+
 std::vector<Count> facet_counts(const std::vector<Face>& faces, const std::vector<size_t>& pool, const Filter& flt, Facet fc) {
     std::map<int64_t, Count> by_key;
     std::map<int64_t, bool> pictured;  // style groups: the sample's style is in the looks table (it has a preview)
@@ -212,6 +268,19 @@ std::vector<Count> facet_counts(const std::vector<Face>& faces, const std::vecto
         }
     }
     std::vector<Count> out;
+    if (facet_3d(fc)) {
+        // every value of the trait is offered (no head: n 0), then "not classified yet" when the pool has such heads
+        for (int v = 0; v < face3d::value_count(trait_of(fc)); ++v) {
+            auto it = by_key.find(v);
+            Count c;
+            c.key = v;
+            c.sample = kNoSample;
+            if (it != by_key.end()) c = it->second;
+            out.push_back(c);
+        }
+        if (auto it = by_key.find(kUnclassified); it != by_key.end()) out.push_back(it->second);
+        return out;
+    }
     for (const auto& kv : by_key) out.push_back(kv.second);
     return out;
 }
