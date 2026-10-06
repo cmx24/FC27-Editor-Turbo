@@ -36,7 +36,8 @@ static const std::vector<std::pair<const char*, std::vector<std::string>>>& attr
 }
 
 static const std::vector<std::string>& profile_fields() {
-    static const std::vector<std::string> f = {"overallrating", "potential", "preferredfoot", "weakfootabilitytypecode",
+    // overall, potential and the OVR modifier have their own row above this grid
+    static const std::vector<std::string> f = {"preferredfoot", "weakfootabilitytypecode",
                                                "skillmoves", "attackingworkrate", "defensiveworkrate", "height",
                                                "weight", "nationality", "internationalrep", "isretiring"};
     return f;
@@ -1002,6 +1003,7 @@ static void player_editor(App& app) {
     if (ImGui::BeginTabBar("##ptabs")) {
         if (ImGui::BeginTabItem("Profile")) {
             ImGui::BeginChild("##prof");
+            field_grid(app, *t, p->rec, {"overallrating", "potential", "modifier"}, "##ovrgrid", 3);
             field_grid(app, *t, p->rec, profile_fields(), "##profgrid", 2);
             ImGui::SeparatorText("Positions");
             positions_editor(app, *t, p->rec);
@@ -1024,9 +1026,16 @@ static void player_editor(App& app) {
         }
         if (ImGui::BeginTabItem("Attributes")) {
             ImGui::BeginChild("##attr");
-            ImGui::TextDisabled("Stored overall %lld, potential %lld (the game recalculates the shown overall from the attributes when "
-                                "the player card is drawn).", static_cast<long long>(app.db.get_int(*t, p->rec, "overallrating", 0)),
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("Stored overall %lld, potential %lld,", static_cast<long long>(app.db.get_int(*t, p->rec, "overallrating", 0)),
                                 static_cast<long long>(app.db.get_int(*t, p->rec, "potential", 0)));
+            if (const Field* mf = t->field("modifier")) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("OVR modifier");
+                ImGui::SameLine();
+                field_editor(app, *t, p->rec, *mf, nullptr, S(70.0f));
+            }
+            ImGui::TextDisabled("(the game recalculates the shown overall from the attributes when the player card is drawn)");
             archetype_bar(app, *t, *p);
             attribute_sliders(app, *t, p->rec);
             ImGui::EndChild();

@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "core/bridge.h"
+#include "core/field_labels.h"
 #include <chrono>
 #include <thread>
 
@@ -248,6 +249,25 @@ static int run_lua(const char* mode) {
 static const GameDate kToday{2027, 1, 15};
 
 // ================================================================ core: T3DB, model, bridge files
+static void test_field_labels() {
+    run_case("field labels: code-valued player fields read as text", [] {
+        using namespace turbo::labels;
+        CHECK(code_text("role1", 1, "Role") == "GK Goalkeeper+", "role 1 is GK Goalkeeper+");
+        CHECK(code_text("role9", 113, "Role") == "CB Ball-Playing Defender++", "role 113 is the ++ variant");
+        CHECK(code_text("role2", 9999, "Role") == "Unknown (code 9999)", "unknown role names its code");
+        CHECK(code_text("emotion", 5, "Emotion") == "Volcano", "emotion 5 is Volcano (LE localization)");
+        CHECK(code_text("bodytypecode", 4, "Body") == "Tall and Lean", "body type 4");
+        CHECK(code_text("haircolorcode", 0, "Hair colour") == "Black", "hair colour 0");
+        CHECK(code_text("accessorycode3", 16, "Accessory") == "Gloves", "accessorycode3 uses the accessory table");
+        CHECK(code_text("hairtypecode", 0, "Hair") == "Bald / buzz cut #0", "hair style carries its look");
+        CHECK(code_text("hairtypecode", 5, "Hair") == "Long hair #5", "hair 5 is long");
+        CHECK(code_text("facialhairtypecode", 31, "Facial hair") == "Full beard #31", "facial hair 31 is a full beard");
+        CHECK(code_text("shoetypecode", 123, "Boots") == "Boots #123", "boots get a text descriptor");
+        CHECK(is_code_field("role4") && is_code_field("shoecolorcode2") && is_code_field("eyebrowcode"), "code fields");
+        CHECK(!is_code_field("height") && !is_code_field("overallrating") && !is_code_field("modifier"), "numbers stay numbers");
+    });
+}
+
 static void test_core() {
     json exp = read_json(g_out / "expected.json");
     SimMemory mem;
@@ -11711,6 +11731,7 @@ int main(int argc, char** argv) {
     g_lua = argv[2];
     std::printf("native core\n");
     test_core();
+    test_field_labels();
     std::printf("native pictures\n");
     test_images();
     std::printf("native dev service\n");
