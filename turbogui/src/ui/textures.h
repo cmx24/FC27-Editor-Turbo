@@ -19,6 +19,14 @@ class TextureCache {
 public:
     static constexpr size_t kMaxTextures = 320;
     static constexpr int kDecodesPerFrame = 4;
+    // Textures alive (shown, or released and not destroyed by the renderer yet) never exceed this: the renderer's
+    // descriptor heap (512 slots on DX12, src/win/overlay_dx12.cpp) must not run out, whatever a fast scroll through a
+    // grid asks for. At the limit a new picture waits (spinner) and only the last frame's pictures are kept.
+    static constexpr size_t kHardMaxTextures = 448;
+    // A file that could not be read is read again kRetryFirst seconds later, then twice as long each time up to kRetryMax
+    // (while it is shown): a copy Live Editor's export was still writing, or a file another program held open, shows as
+    // soon as it reads instead of staying "unreadable" until its time stamp changes
+    static constexpr double kRetryFirst = 1.0, kRetryMax = 30.0;
 
     ~TextureCache();
 
@@ -36,6 +44,9 @@ public:
     Pic pixels(const std::string& key, uint64_t version, const Rgba& img);
     // Forget a file (after writing it)
     void forget(const std::filesystem::path& p);
+    // Forget a picture made by the caller: an editor that starts again (another player) counts its versions from the
+    // start, so the old picture must go or the same version number would show it again
+    void forget_pixels(const std::string& key);
     // Call once per frame, before drawing (frame budget, releasing old textures)
     void new_frame(double now);
     // Release everything (window closed, cache emptied)
@@ -67,14 +78,17 @@ private:
         double last_used = 0.0;
         bool failed = false;
         std::string error;
+        int fails = 0;          // failed reads of this file in a row (the retry delay doubles with each)
+        double retry_at = 0.0;  // failed: read again from then on
     };
     ImTextureData* upload(const Rgba& img);
     void release(ImTextureData* t);
     void evict();
+    bool room() const;  // a new texture stays under kHardMaxTextures (live + released, not destroyed yet)
 
     std::unordered_map<std::string, Entry> entries_;
     std::vector<ImTextureData*> dying_;
-    double now_ = 0.0;
+    double now_ = 0.0, prev_now_ = 0.0;
     int decodes_left_ = kDecodesPerFrame;
     int uploads_left_ = kUploadsPerFrame;
     size_t created_ = 0, freed_ = 0;

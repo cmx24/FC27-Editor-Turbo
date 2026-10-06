@@ -80,6 +80,27 @@ public:
 
     size_t waiting() const { return want_.size() + bg_.size(); }
     size_t missing_count() const { return missing_.size(); }
+
+    // ---- pictures asked for on screen and Turbo's Lua side answering them (1.2.5)
+    // Lua has delivered and refused nothing for this long while pictures asked on screen wait: it is not running (no
+    // career loaded, Live Editor busy, the synthetic event off), so the host stops prompting it and the boxes say so.
+    // A newly asked picture or reload() starts the wait again.
+    static constexpr double kStallSeconds = 20.0;
+    // Seconds since `path` was first asked for on screen and not delivered yet; -1 when it is not waiting
+    double waiting_for(const std::string& path) const;
+    size_t waiting_on_screen() const { return want_.size(); }
+    bool stalled() const { return !want_.empty() && now_ - last_progress_ >= kStallSeconds; }
+    // Turbo is hidden: Lua is not prompted, so its silence says nothing (the stall clock waits). Call after tick().
+    void not_prompting() { last_progress_ = now_; }
+    // Pictures asked on screen wait and Lua has not gone quiet: the host prompts Lua (App::lua_images_wanted)
+    bool wants_lua() const { return !want_.empty() && !stalled(); }
+    // Ask the game for `path` once more, first in the list: the cached copy is dropped (Live Editor exports the file the
+    // game loads, so a copy made while a custom file was in place is that custom file), an earlier "not in the game"
+    // answer is set aside (Lua lists the path again if the game still has none) and Lua looks at every wanted path
+    // again (new generation: it remembers what it handled per generation)
+    void reload(const std::string& path);
+    // Where the exported copy of `path` is kept (it may not exist); empty for an invalid path
+    std::filesystem::path cache_file(const std::string& path) const;
     const std::string& lua_status() const { return status_; }
     size_t cached_files() const;
     // Empty the cache folder and start a new generation (Lua looks at everything again)
@@ -111,7 +132,13 @@ private:
     std::unordered_set<std::string> bg_set_;
     size_t bg_check_ = 0;                      // round-robin position of the arrival check (tick)
     void drop_background(const std::function<bool(const std::string&)>& gone);
+    void drop_wanted(const std::function<bool(const std::string&)>& gone);  // arrived / refused: out of want_ (progress)
     std::unordered_set<std::string> missing_;
+    std::unordered_map<std::string, int> missing_lines_;      // times each path is listed in missing.txt
+    std::unordered_map<std::string, int> missing_set_aside_;  // reload(): the path's lines in missing.txt then
+    std::unordered_map<std::string, double> asked_at_;        // want_ path -> when it was first asked (waiting_for)
+    double now_ = 0.0;                                        // last tick
+    double last_progress_ = 0.0;  // a wanted picture arrived or was refused, Lua's status changed, or one was newly asked
     std::string status_;
     uint64_t gen_ = 0;
     bool dirty_ = false;

@@ -36,7 +36,12 @@ void App::preload_start(const char* why) {
 std::string App::preload_line() const { return preloader ? preloader->line(*this) : std::string(); }
 
 bool App::lua_images_wanted() const {
-    return visible && preloader && preloader->loading() && legacy.waiting_background() > 0;
+    if (!visible) return false;
+    // pictures asked on screen (a miniface opened for editing, a picker grid) wait for the game: until 1.2.5 only the
+    // background loading prompted Lua, so once it was done (a second after the start with a warm cache) such a picture
+    // waited for the next real career-mode event and its box stayed "loading" meanwhile
+    if (legacy.wants_lua()) return true;
+    return preloader && preloader->loading() && legacy.waiting_background() > 0;
 }
 
 float auto_ui_scale(float display_height) {
@@ -538,6 +543,21 @@ void App::tick(double t) {
         }
     }
     legacy.tick(t);
+    if (!visible) legacy.not_prompting();
+    {
+        // Lua went quiet while pictures on screen wait: said once in the log (the boxes say it on screen)
+        static bool stalled_logged = false;
+        const bool stalled = legacy.stalled();
+        if (stalled && !stalled_logged) {
+            char buf[200];
+            std::snprintf(buf, sizeof(buf), "pictures: %zu asked from the game, no answer from Turbo's Lua side for %.0f s (Lua: %s)",
+                          legacy.waiting_on_screen(), LegacyImages::kStallSeconds,
+                          legacy.lua_status().empty() ? "no status yet" : legacy.lua_status().c_str());
+            log(buf);
+            if (log_hook) log_hook(buf);
+        }
+        stalled_logged = stalled;
+    }
     // Background loading: from the first show (F8) or the first career connection, whichever comes first
     if (preloader) {
         if (!preloader->started() && (visible || connected())) preload_start(visible ? "first show" : "career connected");

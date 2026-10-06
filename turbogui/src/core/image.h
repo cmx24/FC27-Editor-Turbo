@@ -21,7 +21,8 @@ struct Rgba {
 constexpr int kMaxImageSide = 8192;
 
 // Decode a file's bytes: DDS (DXT1 / DXT3 / DXT5, DX10 BC1-BC3, uncompressed 32/24-bit) or anything stb_image reads
-// (PNG, JPG, BMP, TGA). Returns false with a reason.
+// (PNG, JPG, BMP, TGA). Returns false with a reason that names the format refused ("DDS DX10 format BC7 (DXGI 98) is
+// not supported ...") or the bytes missing from a cut-off file.
 bool decode_image(const std::vector<uint8_t>& bytes, Rgba& out, std::string* err = nullptr);
 bool decode_dds(const std::vector<uint8_t>& bytes, Rgba& out, std::string* err = nullptr);
 bool load_image_file(const std::filesystem::path& p, Rgba& out, std::string* err = nullptr);

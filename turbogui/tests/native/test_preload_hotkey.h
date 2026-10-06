@@ -177,7 +177,8 @@ static void ui_cases_preload_hotkey(App& app, Ui& ui, const fs::path& le) {
         const std::string face = legacy_path::player_miniface(1004);
         if (app.legacy.peek(face) == LegacyImages::State::Waiting)
             CHECK(want.find(face) != std::string::npos, "real-face miniface asked without opening the picker: " + want);
-        CHECK(app.lua_images_wanted() == (app.preloader->loading() && app.legacy.waiting_background() > 0),
+        // 1.2.5: pictures asked on screen prompt Lua too, also after the background loading is done
+        CHECK(app.lua_images_wanted() == (app.legacy.wants_lua() || (app.preloader->loading() && app.legacy.waiting_background() > 0)),
               "Lua is nudged while pictures wait and Turbo is shown");
         app.visible = false;
         CHECK(!app.lua_images_wanted(), "not while hidden (the game runs)");

@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <ctime>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 #include <system_error>
 
@@ -124,6 +125,16 @@ fs::path LegacyImages::custom_file(const std::string& path) const {
     return {};
 }
 
+fs::path LegacyImages::cache_file(const std::string& path) const {
+    return legacy_path::valid(path) ? under(cache_dir(), path) : fs::path();
+}
+
+double LegacyImages::waiting_for(const std::string& path) const {
+    auto it = asked_at_.find(path);
+    if (it == asked_at_.end() || !want_set_.count(path)) return -1.0;
+    return std::max(0.0, now_ - it->second);
+}
+
 void LegacyImages::want(const std::string& path, bool front) {
     if (!legacy_path::valid(path) || missing_.count(path)) return;
     if (want_set_.count(path)) {
@@ -133,6 +144,8 @@ void LegacyImages::want(const std::string& path, bool front) {
         if (it != want_.end()) want_.erase(it);
     } else {
         want_set_.insert(path);
+        asked_at_[path] = now_;
+        last_progress_ = now_;  // a new picture on screen: Lua is prompted again (even after it went quiet)
     }
     if (front) want_.insert(want_.begin(), path);
     else want_.push_back(path);
@@ -176,6 +189,37 @@ void LegacyImages::drop_background(const std::function<bool(const std::string&)>
     if (bg_.size() != before) dirty_ = true;
 }
 
+void LegacyImages::drop_wanted(const std::function<bool(const std::string&)>& gone) {
+    size_t before = want_.size();
+    want_.erase(std::remove_if(want_.begin(), want_.end(), [&](const std::string& p) {
+                    if (!gone(p)) return false;
+                    want_set_.erase(p);
+                    asked_at_.erase(p);
+                    return true;
+                }),
+                want_.end());
+    if (want_.size() != before) {
+        dirty_ = true;
+        last_progress_ = now_;  // Lua answered (delivered or refused)
+    }
+}
+
+void LegacyImages::reload(const std::string& path) {
+    if (!legacy_path::valid(path)) return;
+    std::error_code ec;
+    fs::remove(cache_file(path), ec);  // an old custom file exported as the game's, or a broken copy
+    // "not in the game" set aside: the lines missing.txt has for it now no longer count, a new one does
+    auto ml = missing_lines_.find(path);
+    if (ml != missing_lines_.end()) missing_set_aside_[path] = ml->second;
+    missing_.erase(path);
+    // Lua skips what it handled in this generation (exported or refused): a new one makes it look again
+    gen_ = std::max<uint64_t>(gen_ + 1, static_cast<uint64_t>(std::time(nullptr)));
+    if (want_set_.erase(path)) want_.erase(std::remove(want_.begin(), want_.end(), path), want_.end());
+    asked_at_.erase(path);
+    want(path, true);  // first in the list; the wait (and Lua's prompting) starts again
+    dirty_ = true;
+}
+
 LegacyImages::State LegacyImages::locate(const std::string& path, fs::path* file, bool custom_first) {
     if (!legacy_path::valid(path)) return State::Invalid;
     std::error_code ec;
@@ -189,10 +233,7 @@ LegacyImages::State LegacyImages::locate(const std::string& path, fs::path* file
     fs::path g = under(cache_dir(), path);
     if (fs::is_regular_file(g, ec) && fs::file_size(g, ec) > 0) {
         if (file) *file = g;
-        if (want_set_.erase(path)) {
-            want_.erase(std::remove(want_.begin(), want_.end(), path), want_.end());
-            dirty_ = true;
-        }
+        if (want_set_.count(path)) drop_wanted([&](const std::string& p) { return p == path; });
         return State::Game;
     }
     if (missing_.count(path)) return State::Missing;
@@ -216,46 +257,40 @@ void LegacyImages::read_missing() {
     if (ec) sz = 0;
     if (sz != missing_size_) {
         missing_size_ = sz;
-        missing_.clear();
+        missing_lines_.clear();
         std::ifstream f(mp, std::ios::binary);
         std::string line;
         while (std::getline(f, line)) {
             while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
-            if (legacy_path::valid(line)) missing_.insert(line);
+            if (legacy_path::valid(line)) ++missing_lines_[line];
         }
-        size_t before = want_.size();
-        want_.erase(std::remove_if(want_.begin(), want_.end(), [&](const std::string& p) { return missing_.count(p) > 0; }),
-                    want_.end());
-        if (want_.size() != before) {
-            want_set_.clear();
-            want_set_.insert(want_.begin(), want_.end());
-            dirty_ = true;
+        missing_.clear();
+        for (const auto& kv : missing_lines_) {
+            auto aside = missing_set_aside_.find(kv.first);
+            if (aside == missing_set_aside_.end() || kv.second > aside->second) missing_.insert(kv.first);
         }
+        drop_wanted([&](const std::string& p) { return missing_.count(p) > 0; });
         drop_background([&](const std::string& p) { return missing_.count(p) > 0; });
     }
     std::ifstream sf(cache_dir() / "status.txt", std::ios::binary);
     if (sf) {
         std::stringstream ss;
         ss << sf.rdbuf();
+        if (ss.str() != status_) last_progress_ = now_;  // Lua ran and wrote its counts
         status_ = ss.str();
     }
 }
 
 void LegacyImages::tick(double now) {
+    now_ = now;
     if (now >= next_read_) {
         next_read_ = now + 1.0;
         read_missing();
         // drop what has arrived meanwhile (pictures asked for but no longer on screen)
         std::error_code ec;
-        size_t before = want_.size();
-        want_.erase(std::remove_if(want_.begin(), want_.end(),
-                                   [&](const std::string& p) { return fs::is_regular_file(under(cache_dir(), p), ec); }),
-                    want_.end());
-        if (want_.size() != before) {
-            want_set_.clear();
-            want_set_.insert(want_.begin(), want_.end());
-            dirty_ = true;
-        }
+        drop_wanted([&](const std::string& p) { return fs::is_regular_file(under(cache_dir(), p), ec); });
+        for (auto it = asked_at_.begin(); it != asked_at_.end();)  // cut from the list (kMaxWanted): no longer waiting
+            it = want_set_.count(it->first) ? std::next(it) : asked_at_.erase(it);
         // background list: a slice per second (thousands of paths), round robin
         if (!bg_.empty()) {
             constexpr size_t kSlice = 400;
@@ -298,9 +333,12 @@ bool LegacyImages::clear_cache(std::string* err) {
         }
     }
     missing_.clear();
+    missing_lines_.clear();
+    missing_set_aside_.clear();
     missing_size_ = 0;
     status_.clear();
     gen_ = std::max<uint64_t>(gen_ + 1, static_cast<uint64_t>(std::time(nullptr)));
+    last_progress_ = now_;  // everything is asked again
     dirty_ = true;
     return flush();
 }
