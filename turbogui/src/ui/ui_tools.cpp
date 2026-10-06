@@ -120,6 +120,9 @@ void draw_tools(App& app) {
         run_button(app, "Extend every other club's contracts", "extend_cpu_contracts", {{"years", cpu_years}}, false);
     }
 
+    // ---------------------------------------------------------------- player edits kept for every career load (ui_reapply.cpp)
+    kept_player_edits_section(app);
+
     // ---------------------------------------------------------------- scouting, development, youth academy
     if (ImGui::CollapsingHeader("Scouting, development and youth academy")) {
         // reveal player data (features/reveal.lua -> Turbo.dll -> the game's PlayerDataRevealManager)

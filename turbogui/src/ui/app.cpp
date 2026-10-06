@@ -10,6 +10,7 @@
 #include <sstream>
 
 #include "core/hotkey.h"
+#include "core/overall.h"
 #include "core/teamnames.h"
 #include "file_picker.h"
 #include "hotkey_setting.h"
@@ -165,6 +166,7 @@ std::unordered_set<int64_t> App::commentary_ids() {
 }
 
 App::~App() {
+    if (reapply_save_due_) save_reapply();  // a player edit kept in the last frame
     bank_cancel_ = true;
     if (bank_thread_.joinable()) bank_thread_.join();
 }
@@ -644,7 +646,17 @@ void App::tick(double t) {
         std::string result;
         if (mailbox->take_result(ok, result)) {
             const std::string pending_before = pending_label;
-            notify(pending_label + ": " + (result.empty() ? (ok ? "done" : "failed") : result), !ok);
+            // the development plan after the window's own edits (flush_plan_sync): logged; a toast only when it failed
+            const bool plan_sync = pending_label.rfind("Development plan (", 0) == 0;
+            const std::string text = pending_label + ": " + (result.empty() ? (ok ? "done" : "failed") : result);
+            if (plan_sync) {
+                plan_sync_status = time_stamp() + ": " + (ok ? "" : "FAILED: ") + (result.empty() ? std::string(ok ? "done" : "failed") : result);
+                if (ok) log(text);
+                else notify(text, true);
+                if (log_hook) log_hook("development plan: " + plan_sync_status);
+            } else {
+                notify(text, !ok);
+            }
             if (pending_label.rfind("Job offer", 0) == 0)  // Managers > Job offers shows the outcome in place
                 job_offer_status = (ok ? "" : "Failed: ") + (result.empty() ? std::string(ok ? "done" : "failed") : result);
             if (pending_label.rfind("Mass actions", 0) == 0)  // Teams > team edit > Mass actions
@@ -655,8 +667,8 @@ void App::tick(double t) {
                 manager_move_status = (ok ? "" : "Failed: ") + (result.empty() ? std::string(ok ? "done" : "failed") : result);
             pending_label.clear();
             flush_lua_queue();  // the mailbox is free: the next queued "keep shown name" actions
-            // Lua may have changed the database (transfers, bulk edits): re-read the lists
-            if (db.ready()) model_stale = true;
+            // Lua may have changed the database (transfers, bulk edits): re-read the lists (a plan sync writes no table)
+            if (db.ready() && !plan_sync) model_stale = true;
             // a new player's name row is read a moment after the result: one more full refresh
             if (ok && db.ready() && (pending_before.rfind("Create player", 0) == 0 || pending_before.rfind("Clone player", 0) == 0 ||
                                      pending_before.rfind("Import", 0) == 0 || pending_before.rfind("Repair names", 0) == 0))
@@ -664,6 +676,12 @@ void App::tick(double t) {
         }
     }
     flush_lua_queue();
+    flush_plan_sync();  // the window's edits of your players into their development plans (after a quiet second)
+    // player edits kept for every career load: one save per frame however many fields an action wrote
+    if (reapply_save_due_) {
+        reapply_save_due_ = false;
+        save_reapply();
+    }
     for (size_t i = 0; i < toasts.size();) {
         if (toasts[i].until < t) toasts.erase(toasts.begin() + static_cast<long>(i));
         else ++i;
@@ -671,6 +689,11 @@ void App::tick(double t) {
 }
 
 bool App::edit(const Table& t, uint64_t rec, const Field& f, const Value& v) {
+    if (t.name == "players" && f.name == "overallrating" && f.type == FieldType::Int && v.type == FieldType::Int) return set_overall(t, rec, v.i);
+    return edit_field(t, rec, f, v);
+}
+
+bool App::edit_field(const Table& t, uint64_t rec, const Field& f, const Value& v, bool undo_step) {
     std::string err;
     Value before;
     bool have_before = db.get(t, rec, f, before);
@@ -684,11 +707,13 @@ bool App::edit(const Table& t, uint64_t rec, const Field& f, const Value& v) {
         if (t.name == "players") model.refresh_player(pid, today());
         if (t.name == "editedplayernames" || f.name == "firstnameid" || f.name == "lastnameid" || f.name == "commonnameid")
             model.refresh_player_name(pid);
-        if (have_before && !(before == v)) {
+        if (have_before && !(before == v) && undo_step) {
             auto& steps = undo_[pid];
-            steps.push_back({t.name, rec, f.name, before});
+            steps.push_back({t.name, rec, f.name, before, {}});
             while (steps.size() > kUndoSteps) steps.pop_front();
         }
+        // kept for every career load, and into his development plan (ui_reapply.cpp, flush_plan_sync)
+        if (t.name == "players" && have_before) player_field_written(pid, f.name, before, v);
     } else if (t.name == "teams") {
         model.refresh_team(db.get_int(t, rec, "teamid", 0));
     } else if (t.name == "teamplayerlinks") {
@@ -710,22 +735,179 @@ bool App::undo(int64_t playerid) {
     UndoStep step = it->second.back();
     it->second.pop_back();
     const Table* t = db.table(step.table);
-    const Field* f = t ? t->field(step.field) : nullptr;
-    if (!t || !f || !db.table_alive(*t, step.rec)) {
+    if (!t || !t->field(step.field) || !db.table_alive(*t, step.rec)) {
         notify("undo: the database changed (save loaded?) - press Refresh", true);
         return false;
     }
-    std::string err;
-    if (!db.set(*t, step.rec, *f, step.before, &err)) {
-        notify("undo " + step.field + ": " + err, true);
-        return false;
+    // the fields of the same change first (a typed overall's attributes), the step's own field last
+    std::vector<std::pair<std::string, Value>> writes = step.also;
+    writes.push_back({step.field, step.before});
+    size_t done = 0;
+    for (const auto& w : writes) {
+        const Field* f = t->field(w.first);
+        std::string err;
+        Value now;
+        const bool have_now = f && db.get(*t, step.rec, *f, now);
+        if (!f || !db.set(*t, step.rec, *f, w.second, &err)) {
+            notify("undo " + w.first + ": " + (f ? err : std::string("no such field")), true);
+            continue;
+        }
+        ++done;
+        if (t->name == "players" && have_now) player_field_written(playerid, w.first, now, w.second);
     }
     model.refresh_player(playerid, today());
     model.refresh_player_name(playerid);
     ++gen;
-    log("undo " + step.table + "." + step.field + " = " + step.before.to_string());
-    notify("undone: " + field_label(step.field) + " back to " + step.before.to_string());
+    log("undo " + step.table + "." + step.field + " = " + step.before.to_string() +
+        (step.also.empty() ? std::string() : " (and " + std::to_string(step.also.size()) + " more fields)"));
+    if (!done) return false;
+    notify("undone: " + field_label(step.field) + " back to " + step.before.to_string() +
+           (step.also.empty() ? std::string() : " (and " + std::to_string(step.also.size()) + " attributes)"));
     return true;
+}
+
+void App::push_bulk_undo(BulkUndo u) {
+    if (u.before.empty()) return;
+    bulk_undo.push_back(std::move(u));
+    while (bulk_undo.size() > kBulkUndo) bulk_undo.erase(bulk_undo.begin());
+}
+
+bool App::set_overall(const Table& t, uint64_t rec, int64_t target) {
+    const Field* of = t.field("overallrating");
+    if (!of) return false;
+    overall::Attrs cur{};
+    for (int i = 0; i < overall::kAttrCount; ++i) {
+        const Field* af = t.field(overall::kAttrNames[i]);
+        // not FC 27's players table (no 34 attributes): nothing to move, the overall alone
+        if (!af || af->type != FieldType::Int) return edit_field(t, rec, *of, Value::of_int(target));
+        cur[static_cast<size_t>(i)] = static_cast<int>(db.get_int(t, rec, overall::kAttrNames[i], 0));
+    }
+    const int64_t pid = db.get_int(t, rec, "playerid", 0);
+    const int64_t stored = db.get_int(t, rec, "overallrating", 0);
+    const int pos = static_cast<int>(db.get_int(t, rec, "preferredposition1", 14));
+    char msg[256];
+    overall::Attrs want = cur;
+    if (target < 1 || target > 99 || !overall::reach(pos, want, static_cast<int>(target))) {
+        std::snprintf(msg, sizeof(msg),
+                      "Overall %lld not written: %s (FC 27 works the overall out from the attributes, so Turbo moves them to give it)",
+                      static_cast<long long>(target),
+                      target < 1 || target > 99 ? "the game's overall is 1..99" : "his attributes for his position are at their limits");
+        notify(msg, true);
+        return false;
+    }
+    UndoStep step{t.name, rec, "overallrating", Value::of_int(stored), {}};
+    BulkUndo bulk;
+    bulk.playerid = pid;
+    bulk.label = "overall " + std::to_string(stored) + " -> " + std::to_string(target);
+    int moved = 0;
+    bool failed = false;
+    for (int i = 0; i < overall::kAttrCount && !failed; ++i) {
+        const size_t k = static_cast<size_t>(i);
+        if (want[k] == cur[k]) continue;
+        const Field* af = t.field(overall::kAttrNames[i]);
+        if (!edit_field(t, rec, *af, Value::of_int(want[k]), false)) {
+            failed = true;
+            break;
+        }
+        step.also.push_back({af->name, Value::of_int(cur[k])});
+        bulk.before.push_back({af->name, cur[k]});
+        ++moved;
+    }
+    if (!failed && stored != target && !edit_field(t, rec, *of, Value::of_int(target), false)) failed = true;
+    if (failed) {
+        // a write was refused (toast by edit_field): what this change wrote goes back
+        for (const auto& b : step.also)
+            if (const Field* af = t.field(b.first)) edit_field(t, rec, *af, b.second, false);
+        return false;
+    }
+    if (stored != target) bulk.before.push_back({"overallrating", stored});
+    if (!bulk.before.empty()) {
+        auto& steps = undo_[pid];
+        steps.push_back(std::move(step));
+        while (steps.size() > kUndoSteps) steps.pop_front();
+        push_bulk_undo(std::move(bulk));
+    }
+    if (moved)
+        std::snprintf(msg, sizeof(msg), "Overall %lld -> %lld: %d attributes moved so that the game's own overall gives it (Undo puts them back)",
+                      static_cast<long long>(stored), static_cast<long long>(target), moved);
+    else
+        std::snprintf(msg, sizeof(msg), "Overall %lld -> %lld (his attributes already give it)", static_cast<long long>(stored),
+                      static_cast<long long>(target));
+    notify(msg);
+    return true;
+}
+
+// ---- development plans (features/development.lua mode plan_sync)
+bool App::plan_sync_wanted(int64_t playerid) {
+    const BridgeState& st = bridge.state();
+    if (!st.in_cm || !mailbox || playerid <= 0) return false;
+    if (st.unavailable_reason("development")) return false;  // no plan natives in this Live Editor build
+    std::error_code ec;
+    if (fs::exists(bridge.root() / "turbo_output" / "plan_sync_off.txt", ec)) return false;  // kill switch
+    if (st.user_team <= 0) return true;                       // the club is not known: Lua asks the game per player
+    for (const LinkRow& l : model.links_of_player(playerid))
+        if (l.teamid == st.user_team) return true;
+    // lent out by your club: the plan may stay with him
+    if (const Table* lt = db.table("playerloans"))
+        if (uint64_t r = db.find(*lt, "playerid", playerid)) return db.get_int(*lt, r, "teamidloanedfrom", 0) == st.user_team;
+    return false;
+}
+
+void App::queue_plan_sync(int64_t playerid, const std::string& field) {
+    if (!plan_field(field) || !plan_sync_wanted(playerid)) return;
+    const std::string key = reapply_key();
+    if (!plan_queue_.empty() && plan_queue_key_ != key) {
+        // written before this career load and not sent yet: that load's save has what it has (the re-apply that
+        // runs at the load queues the kept fields again)
+        log("development plan: " + std::to_string(plan_queue_.size()) + " player(s)' edits not sent: another career load came first");
+        plan_queue_.clear();
+    }
+    if (plan_queue_.empty()) plan_queue_key_ = key;
+    plan_queue_[playerid].insert(field);
+    plan_queue_at_ = now;
+}
+
+void App::flush_plan_sync() {
+    if (plan_queue_.empty()) return;
+    if (!bridge.state().in_cm || reapply_key() != plan_queue_key_) {
+        // the fields were written into a career that is no longer loaded: its save has what it has
+        log("development plan: " + std::to_string(plan_queue_.size()) + " player(s)' edits not sent: the career was left or another one loaded");
+        plan_queue_.clear();
+        return;
+    }
+    if (now - plan_queue_at_ < kPlanSyncQuiet || !mailbox || mailbox->pending()) return;
+    json sync = json::array();
+    size_t size = 0, fields = 0;
+    std::vector<int64_t> sent;
+    for (const auto& kv : plan_queue_) {
+        json e = {{"playerid", kv.first}, {"fields", json(kv.second)}};
+        const size_t len = e.dump().size() + 1;
+        if (!sync.empty() && size + len > kMbTextSize - 256) break;  // the rest goes with the next command
+        size += len;
+        fields += kv.second.size();
+        sync.push_back(std::move(e));
+        sent.push_back(kv.first);
+    }
+    const std::string label = "Development plan (" + std::to_string(sent.size()) + (sent.size() == 1 ? " player, " : " players, ") +
+                              std::to_string(fields) + (fields == 1 ? " field)" : " fields)");
+    if (!send({{"op", "run"}, {"module", "development"}, {"overrides", {{"mode", "plan_sync"}, {"sync", sync}}}}, label)) {
+        // the command channel refused it (toast by send): not tried again every frame
+        plan_sync_status = "not sent: Turbo's command channel refused the command";
+        plan_queue_.clear();
+        return;
+    }
+    for (int64_t pid : sent) plan_queue_.erase(pid);
+}
+
+void App::player_field_written(int64_t playerid, const std::string& field, const Value& before, const Value& after) {
+    if (playerid <= 0 || before.type != FieldType::Int || after.type != FieldType::Int || before.i == after.i) return;
+    // outside a career (a squads file): no development plan, and nothing a career load would put back
+    if (!bridge.state().in_cm) return;
+    if (reapply.keep_players && kept_player_field(field)) {
+        const PlayerRow* p = model.player(playerid);
+        if (reapply.note_player_edit(playerid, p ? p->name : std::string(), time_stamp(), field, before.i, after.i)) reapply_save_due_ = true;
+    }
+    queue_plan_sync(playerid, field);
 }
 
 bool App::busy() { return mailbox && mailbox->pending(); }

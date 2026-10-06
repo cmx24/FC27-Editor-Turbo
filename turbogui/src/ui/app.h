@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <unordered_set>
@@ -87,12 +88,23 @@ public:
         uint64_t rec = 0;
         std::string field;
         Value before;
+        std::vector<std::pair<std::string, Value>> also;  // other fields of the same change, same record (a typed overall's attributes)
     };
     static constexpr size_t kUndoSteps = 20;
     std::map<int64_t, std::deque<UndoStep>> undo_;
     size_t undo_count(int64_t playerid) const;
     // Undo the last edit of this player (players table or his teamplayerlinks rows). Returns false when nothing to undo
     bool undo(int64_t playerid);
+    // ---- "Undo bulk" (Players > Attributes): changes of many fields at once (Overall +1/-1, an archetype, an overall
+    // typed in), newest last, at most kBulkUndo; names, not Field pointers (App::refresh rebuilds the tables)
+    struct BulkUndo {
+        int64_t playerid = 0;
+        std::string label;
+        std::vector<std::pair<std::string, int64_t>> before;  // field name, value before
+    };
+    static constexpr size_t kBulkUndo = 30;
+    std::vector<BulkUndo> bulk_undo;
+    void push_bulk_undo(BulkUndo u);
 
     // ---- state
     bool visible = false;
@@ -202,6 +214,13 @@ public:
     // The Forget buttons; false = nothing was kept
     bool forget_kit_edit(int64_t teamtechid, int64_t kittype, int64_t teamkitid);
     bool forget_player_callname(int64_t playerid);
+    // Player edits (1.2.5): a players field the window wrote in a career (App::edit_field, App::undo) is kept by
+    // player_field_written when kept_player_field (attributes, overall, potential, work rates, skill moves, weak foot) and
+    // the switch is on; written again at every career load while the field holds the value the edit replaced. Forget
+    // one field ("" = every field of his) or turn the keeping on / off (saved in the store); false = nothing changed
+    bool forget_player_edit(int64_t playerid, const std::string& field = std::string());
+    bool forget_all_player_edits();
+    bool set_keep_players(bool on);
     // Write every kept entry into the connected database: kit fields in place (Database::set, range-checked, no undo
     // step), callnames through write_player_callname (never adding a row). Not written, without an error: a player
     // with his own recording, a player or kit not in this career. Returns the summary line, which also goes to the GUI
@@ -264,8 +283,30 @@ public:
     bool connected() const { return db.ready() && model.built(); }
     bool lua_alive() const;
 
-    // Write one field through validation; updates cached lists for players/teams
+    // Write one field through validation; updates cached lists for players/teams. players.overallrating goes through
+    // set_overall (his attributes follow); every other field is edit_field
     bool edit(const Table& t, uint64_t rec, const Field& f, const Value& v);
+    // The write as given: range check, an undo step (undo_step false: the caller pushes one for the whole change), the
+    // cached rows; for a players field also the kept edits and the development plan (player_field_written)
+    bool edit_field(const Table& t, uint64_t rec, const Field& f, const Value& v, bool undo_step = true);
+    // An overall typed into a field box (Profile, All fields, field search, Database tab). FC 27 shows the overall its
+    // own formula gives from the attributes and works it out again on its own (a bare overallrating write does not
+    // last), so the attributes that weigh most for his position move until Turbo's fitted formula
+    // (core/overall.h reach, as Overall +1/-1) gives `target`, then overallrating = target. One undo step and one
+    // "Undo bulk" entry. A players table without the 34 attributes: the overall alone. False (toast) when the attributes
+    // cannot give it (1..99, attributes at their limits)
+    bool set_overall(const Table& t, uint64_t rec, int64_t target);
+    // ---- your players' development plans (features/development.lua mode plan_sync): the plan fields the window writes
+    // for a player of your club (or one it lent out) are queued here and sent to Turbo's Lua side, which writes the
+    // players table's values into the game's plan (the plan outranks the table at a career load: without it the edit
+    // came back with its old value in every later save). One command per run of edits (kPlanSyncQuiet s without a
+    // new one), several players per command; dropped when the career is left or another one loaded before it was sent.
+    // The result is logged (no toast unless it failed); plan_sync_status keeps it for the Players tab. Kill switch:
+    // turbo_output\plan_sync_off.txt (nothing queued while it exists).
+    static constexpr double kPlanSyncQuiet = 1.0;
+    void queue_plan_sync(int64_t playerid, const std::string& field);
+    size_t plan_sync_waiting() const { return plan_queue_.size(); }
+    std::string plan_sync_status;
 
     // Ask Turbo's Lua side to run something (executes on the next career-mode event)
     bool send(const nlohmann::json& cmd, const std::string& label);
@@ -291,6 +332,14 @@ private:
     std::string reapply_key() const;  // "<Lua session>#<load_gen>" of the career Lua reports (db_gen from an older Lua)
     bool reapply_unreadable_ = false;  // the file on disk could not be read: set it aside at the next save
     std::string reapplied_key_;        // reapply_key() of the career the kept edits were last written to
+    bool reapply_save_due_ = false;    // a player edit was kept: the store is saved at the next tick (one write per frame)
+    // A players field changed through the window (edit_field, undo): keep it (ui_reapply.cpp) and queue the plan sync
+    void player_field_written(int64_t playerid, const std::string& field, const Value& before, const Value& after);
+    bool plan_sync_wanted(int64_t playerid);  // a player of your club or one it lent out, in a career, plan natives there
+    void flush_plan_sync();                   // tick: send the queued plan fields
+    std::map<int64_t, std::set<std::string>> plan_queue_;  // playerid -> plan fields written since the last command
+    double plan_queue_at_ = 0.0;   // when the last field was queued
+    std::string plan_queue_key_;   // reapply_key() of the career they were written in
     void finish_bank_capture();  // tick: take a finished capture, cache it, rebuild the pickers
     void finish_spoken_build();  // tick: take a finished audio-service build, cache it, rebuild the pickers
     void spoken_watch_tick();    // tick: run the watcher, start the probe / build it asks for
@@ -401,6 +450,10 @@ PlayerCallnameWrite write_player_callname(App& app, const PlayerRow& p, int64_t 
 void reapply_status_line(App& app);
 void reapply_kit_line(App& app, const Table& kt, uint64_t rec);
 void reapply_callname_line(App& app, const PlayerRow& p);
+// The player's kept edits in Players > Attributes (fields, kept / replaced / now, Forget) and the development plan line;
+// the whole list with the on / off switch and Forget per field (Turbo Tools > Kept player edits)
+void reapply_player_line(App& app, const PlayerRow& p);
+void kept_player_edits_section(App& app);
 // Slider over the field's whole range (attributes); a typed value outside it is refused by Database::set
 bool slider_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float width);
 // Same with the label column width and the number box width given (the Players > Attributes tab uses roomier values)

@@ -48,6 +48,7 @@
 #include "core/match_setup.h"
 #include "core/manager_rules.h"
 #include "core/model.h"
+#include "core/overall.h"
 #include "move_rules.h"
 #include "core/player_capture.h"
 #include "core/reveal.h"
@@ -1932,6 +1933,118 @@ static void test_reapply_store() {
     });
 }
 
+// ================================================================ kept edits: player fields (core/reapply.h, 1.2.5)
+static void test_reapply_players() {
+    run_case("kept player edits: which fields, the edit rules, the career-load guard", [&] {
+        CHECK(plan_field("composure") && plan_field("gkreflexes") && plan_field("defensiveawareness") && plan_field("skillmoves") &&
+                  plan_field("weakfootabilitytypecode") && plan_field("attackingworkrate") && plan_field("defensiveworkrate"),
+              "plan fields: the 34 attributes, work rates, skill moves, weak foot");
+        CHECK(!plan_field("overallrating") && !plan_field("potential") && !plan_field("playerid") && !plan_field("modifier"),
+              "the overall and the potential are not in the plan");
+        CHECK(kept_player_field("overallrating") && kept_player_field("potential") && kept_player_field("composure") &&
+                  kept_player_field("skillmoves") && !kept_player_field("playerid") && !kept_player_field("preferredposition1") &&
+                  !kept_player_field("birthdate") && !kept_player_field("modifier"),
+              "kept: the plan fields, the overall, the potential");
+        ReapplyStore s;
+        CHECK(s.keep_players && s.empty(), "on by default, empty");
+        CHECK(!s.note_player_edit(1002, "A", "t", "birthdate", 1, 2) && !s.note_player_edit(1002, "A", "t", "composure", 70, 70) &&
+                  !s.note_player_edit(0, "A", "t", "composure", 70, 71) && s.players.empty(),
+              "not kept: other fields, no change, no player");
+        CHECK(s.note_player_edit(1002, "Martin Odegaard", "w1", "composure", 70, 80) && s.player(1002) &&
+                  s.player(1002)->fields.at("composure").value == 80 && s.player(1002)->fields.at("composure").was == 70 &&
+                  s.player(1002)->player == "Martin Odegaard" && !s.empty() && s.size() == 1,
+              "kept: 80, replacing 70");
+        CHECK(s.note_player_edit(1002, "", "w2", "composure", 80, 85) && s.player(1002)->fields.at("composure").value == 85 &&
+                  s.player(1002)->fields.at("composure").was == 70 && s.player(1002)->when == "w2" && s.player(1002)->player == "Martin Odegaard",
+              "an edit continued from the kept value keeps the first replaced value");
+        CHECK(s.note_player_edit(1002, "", "", "composure", 75, 90) && s.player(1002)->fields.at("composure").value == 90 &&
+                  s.player(1002)->fields.at("composure").was == 75,
+              "the game moved it in between: the new edit replaced 75");
+        CHECK(s.note_player_edit(1002, "", "", "overallrating", 84, 86) && s.player_fields() == 2 && s.size() == 1, "two fields of one player");
+        CHECK(s.note_player_edit(1002, "", "", "overallrating", 86, 84) && !s.player(1002)->fields.count("overallrating"),
+              "set back to the replaced value: nothing left to keep for that field");
+        CHECK(s.note_player_edit(1002, "", "", "composure", 90, 75) && !s.player(1002) && s.empty(), "the last field set back: the player goes");
+        // the guard of the career load: written only over the value the edit replaced
+        const PlayerFieldEdit e{80, 70};
+        CHECK(kept_field_state(e, 70) == KeptField::Write && kept_field_state(e, 80) == KeptField::InPlace &&
+                  kept_field_state(e, 79) == KeptField::Moved && kept_field_state(e, 71) == KeptField::Moved && kept_field_state(e, 0) == KeptField::Moved,
+              "Write over the replaced value, InPlace, Moved (the game's own growth / decline, another career) never written");
+        CHECK(s.note_player_edit(7, "X", "", "potential", 80, 88) && s.note_player_edit(7, "X", "", "composure", 60, 61) &&
+                  s.forget_player_field(7, "potential") && s.player(7)->fields.size() == 1 && !s.forget_player_field(7, "potential") &&
+                  !s.forget_player_field(8, "composure") && s.forget_player(7) && !s.forget_player(7) && s.players.empty(),
+              "Forget one field, then the player");
+    });
+    run_case("kept player edits: the store file round trip, keep_players, malformed entries", [&] {
+        const fs::path dir = g_out / "reapply_players";
+        fs::remove_all(dir);
+        const fs::path p = reapply_store_path(dir);
+        ReapplyStore s;
+        s.note_player_edit(1002, "Martin Odegaard", "2026-10-05 22:40", "composure", 70, 80);
+        s.note_player_edit(1002, "Martin Odegaard", "2026-10-05 22:41", "overallrating", 84, 86);
+        s.note_player_edit(2001, "Jordan Pickford", "2026-10-05 22:42", "gkreflexes", 85, 88);
+        s.set_callname(1003, 900010, "William Saliba", "Saliba", "");
+        s.keep_players = false;
+        std::string err;
+        CHECK(save_reapply_store(p, s, &err), "saved: " + err);
+        const std::string text = read_file(p);
+        CHECK(text.find("\"keep_players\": false") != std::string::npos && text.find("\"was\": 70") != std::string::npos &&
+                  text.find("\"players\"") != std::string::npos,
+              "players and the switch in the file");
+        ReapplyStore back;
+        size_t dropped = 0;
+        CHECK(load_reapply_store(p, back, &err, &dropped) && dropped == 0 && !back.keep_players && back.players.size() == 2 &&
+                  back.player(1002)->fields.size() == 2 && back.player(1002)->fields.at("overallrating").value == 86 &&
+                  back.player(1002)->fields.at("overallrating").was == 84 && back.player(1002)->player == "Martin Odegaard" &&
+                  back.player(1002)->when == "2026-10-05 22:41" && back.player(2001)->fields.at("gkreflexes").was == 85 && back.callname(1003),
+              "read back: " + err);
+        // a 1.2.4 store (no keep_players, no players): keeping on, nothing kept
+        CHECK(parse_reapply_json(R"({"turbo_reapply": 1, "kits": [], "playernamemap": []})", back, &err) && back.keep_players && back.players.empty(),
+              "an older store: on, empty");
+        // hand-edited / damaged entries: only kept fields with an integer value and replaced value that differ
+        const char* mixed = R"({"turbo_reapply": 1, "keep_players": true, "players": [
+            {"playerid": 1002, "player": "A", "fields": {"composure": {"value": 80, "was": 70}, "playerid": {"value": 5, "was": 1},
+              "preferredposition1": {"value": 3, "was": 4}, "vision": {"value": 60, "was": 60}, "finishing": {"value": 61}, "curve": 62}},
+            {"playerid": 0, "fields": {"composure": {"value": 1, "was": 2}}},
+            {"playerid": 1003},
+            "junk",
+            {"playerid": 1004, "fields": {"potential": {"value": 90, "was": 85}}}]})";
+        CHECK(parse_reapply_json(mixed, back, &err, &dropped), "parsed: " + err);
+        CHECK(back.players.size() == 2 && back.player(1002)->fields.size() == 1 && back.player(1002)->fields.at("composure").value == 80 &&
+                  back.player(1004)->fields.at("potential").value == 90,
+              "only the good fields kept");
+        CHECK(dropped == 8, fmt("8 malformed entries dropped (%zu)", dropped));
+    });
+    run_case("overall: reach() moves the attributes until the fitted formula gives the target (a typed overall)", [&] {
+        overall::Attrs a;
+        a.fill(60);
+        for (int pos : {0, 5, 3, 14, 18, 25, 27}) {
+            const int base = overall::compute_overall(pos, a);
+            for (int target : {base, base + 1, base + 9, base - 7, 99, 30}) {
+                overall::Attrs w = a;
+                std::vector<overall::Move> moves;
+                const bool ok = overall::reach(pos, w, target, &moves);
+                bool in_range = true;
+                size_t differ = 0;
+                for (size_t i = 0; i < w.size(); ++i) {
+                    in_range = in_range && w[i] >= 1 && w[i] <= 99;
+                    differ += w[i] != a[i];
+                }
+                CHECK(ok && overall::compute_overall(pos, w) == target && in_range && moves.size() == differ && (target != base || differ == 0),
+                      fmt("position %d: %d -> %d (%zu attributes moved)", pos, base, target, differ));
+            }
+            overall::Attrs w = a;
+            CHECK(!overall::reach(pos, w, 0) && !overall::reach(pos, w, 100) && w == a, fmt("position %d: outside 1..99 refused, untouched", pos));
+        }
+        // a goalkeeper's formula never gives 1 (its weights add up to 1, its bonus is about 1): refused, nothing moved
+        overall::Attrs g = a;
+        CHECK(!overall::reach(0, g, 1) && g == a, "unreachable: refused, untouched");
+        // Overall +1 / -1 is reach by one step: the same moves
+        overall::Attrs u = a, r = a, d = a, rd = a;
+        CHECK(overall::adjust(25, u, 1) && overall::reach(25, r, overall::compute_overall(25, a) + 1) && u == r, "adjust(+1) == reach(+1)");
+        CHECK(overall::adjust(10, d, -1) && overall::reach(10, rd, overall::compute_overall(10, a) - 1) && d == rd, "adjust(-1) == reach(-1)");
+    });
+}
+
 // ================================================================ core: voice swaps (core/callname_voice.h)
 namespace {
 // A fake SpeechQuery laid out at the offsets of core/callname_voice.h: the query, its event context, the ParamValue*
@@ -3420,6 +3533,11 @@ static void test_ui() {
         App app(mem, le, kMb, "uitest");
         Ui ui(app);
         app.visible = true;
+        // 1.2.5: keeping player edits for every career load and syncing your players' development plans have their own
+        // case ("UI: kept player edits ..."); off for the cases before it, which edit your club's players with nobody
+        // answering the mailbox
+        app.set_keep_players(false);
+        std::ofstream((le / "turbo_output" / "plan_sync_off.txt").string()) << "";
 
         run_case("UI: connects and every main tab renders", [&] {
             ui.frames(3);
@@ -6874,6 +6992,250 @@ static void test_ui() {
             app.callnames.spoken.players.erase(1004);
             app.callnames.refreshed = false;
             app.game_root.clear();
+            app.log_hook = nullptr;
+            ui.frames(2);
+        });
+        run_case("UI: kept player edits are written again at every career load (only over the replaced value); your players' development plans follow", [&] {
+            const auto npos = std::string::npos;
+            std::vector<std::string> hooked;  // turbo_gui.log
+            app.log_hook = [&](const std::string& s) { hooked.push_back(s); };
+            auto hooked_line = [&](const std::string& part) {
+                for (const auto& s : hooked)
+                    if (s.find(part) != std::string::npos) return s;
+                return std::string();
+            };
+            auto logged = [&](const std::string& part) {
+                for (const auto& l : app.log_lines)
+                    if (l.find(part) != std::string::npos) return true;
+                return false;
+            };
+            // looked up again every time: a career load re-reads the database, which replaces every Table
+            auto P = [&]() { return app.db.table("players"); };
+            auto rec_of = [&](int64_t pid) { return app.db.find(*P(), "playerid", pid); };
+            auto val = [&](int64_t pid, const char* f) { return app.db.get_int(*P(), rec_of(pid), f); };
+            auto set_raw = [&](int64_t pid, const char* f, int64_t v) { return app.db.set_int(*P(), rec_of(pid), f, v); };  // the game's own write
+            auto edit = [&](int64_t pid, const char* f, int64_t v) { return app.edit(*P(), rec_of(pid), *P()->field(f), Value::of_int(v)); };
+            auto attrs = [&](int64_t pid) {
+                overall::Attrs a{};
+                for (int i = 0; i < overall::kAttrCount; ++i) a[static_cast<size_t>(i)] = static_cast<int>(val(pid, overall::kAttrNames[i]));
+                return a;
+            };
+            const fs::path state_file = le / "turbo_output" / "bridge_state.json";
+            long long seq = 600, db_gen = 90, load_gen = 90;
+            auto publish = [&](bool new_load, bool in_cm, int frames) {
+                ++seq;
+                ++db_gen;
+                if (new_load) ++load_gen;
+                std::ofstream(state_file.string(), std::ios::binary | std::ios::trunc)
+                    << "{\"session\":\"P\",\"seq\":" << seq << ",\"db_gen\":" << db_gen << ",\"load_gen\":" << load_gen
+                    << ",\"in_cm\":" << (in_cm ? "true" : "false") << ",\"user_team\":1,\"db_service\":\"" +
+                           hex_addr(app.bridge.state().db_service) + "\",\"date\":{\"year\":2027,\"month\":1,\"day\":16}}";
+                fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(seq - 450));
+                ui.frames(frames);
+            };
+            auto run_plan_command = [&](const json& player_team) {
+                mem.save(g_out / "mailbox_in.img");
+                std::ofstream(g_out / "mailbox.json") << json({{"mailbox", hex_addr(kMb)}, {"player_team", player_team}}).dump();
+                const bool ran = run_lua("mailbox") == 0;
+                SimMemory after;
+                after.load(g_out / "mailbox_out.img");
+                mem.pages = after.pages;
+                ui.frames(3);
+                return ran;
+            };
+
+            // ---- a career with your club (Arsenal, 1); keeping on, the plan sync on, nothing kept yet
+            CHECK(app.reapply.players.empty() && !app.reapply.keep_players, "the cases before ran with keeping off");
+            CHECK(app.set_keep_players(true) && app.reapply.keep_players, "keeping on");
+            fs::remove(le / "turbo_output" / "plan_sync_off.txt");
+            publish(true, true, 40);
+            CHECK(app.bridge.state().in_cm && app.bridge.state().user_team == 1 && app.connected(), "in a career, your club Arsenal");
+
+            // ---- an attribute typed into your player's box (Attributes tab): kept with the value it replaced, and
+            // queued for his development plan; the store is saved at the next frame
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
+            CHECK(ui.click("1003", "##plist"), "your player 1003 (Arsenal)");
+            CHECK(ui.click("Attributes", "##pedit"), "Attributes tab");
+            ui.frames(2);
+            const int64_t acc0 = val(1003, "acceleration");
+            const int64_t acc1 = acc0 > 90 ? acc0 - 5 : acc0 + 5;
+            CHECK(ui.type_into(ui.find("##v", "##attr", "acceleration"), std::to_string(acc1)), "type acceleration");
+            CHECK(val(1003, "acceleration") == acc1, "written");
+            {
+                const PlayerEdit* k = app.reapply.player(1003);
+                CHECK(k && k->fields.size() == 1 && k->fields.at("acceleration").value == acc1 && k->fields.at("acceleration").was == acc0 &&
+                          !k->player.empty() && !k->when.empty(),
+                      "kept: the value and the value it replaced");
+            }
+            CHECK(app.plan_sync_waiting() == 1 && !app.busy(), "queued for his development plan, not sent yet (a quiet second first)");
+            {
+                ReapplyStore disk;
+                std::string err;
+                CHECK(load_reapply_store(reapply_store_path(le), disk, &err) && disk.player(1003) && disk.player(1003)->fields.at("acceleration").was == acc0 &&
+                          disk.keep_players,
+                      "saved: " + err);
+            }
+            CHECK(ui.find("Forget##playerkeep", "##attr") != nullptr, "the Attributes tab shows what is kept, with Forget");
+            // more edits within the second: one command for all of them; the potential is kept but is no plan field
+            const int64_t vis0 = val(1003, "vision"), pot0 = val(1003, "potential");
+            CHECK(edit(1003, "vision", vis0 + 2) && edit(1003, "potential", pot0 + 1), "vision +2, potential +1");
+            ui.frames(30);
+            CHECK(!app.busy() && app.plan_sync_waiting() == 1, "still collecting");
+            ui.frames(45);
+            CHECK(app.busy() && app.pending_label == "Development plan (1 player, 2 fields)", "one command: " + app.pending_label);
+            {
+                json cmd = json::parse(mem.read_cstr(kMb + kMbCmd, kMbTextSize), nullptr, false);
+                CHECK(!cmd.is_discarded() && cmd.value("op", "") == "run" && cmd.value("module", "") == "development" &&
+                          cmd["overrides"].value("mode", "") == "plan_sync" && cmd["overrides"]["sync"].size() == 1 &&
+                          cmd["overrides"]["sync"][0]["playerid"] == 1003 && cmd["overrides"]["sync"][0]["fields"] == json::array({"acceleration", "vision"}),
+                      "plan_sync for 1003: acceleration, vision: " + cmd.dump());
+            }
+            // Turbo's real Lua side runs it: his plan gets the table's values; no toast when it worked
+            app.toasts.clear();
+            hooked.clear();
+            CHECK(run_plan_command({{"1003", 1}}), "Lua processed the command");
+            CHECK(!app.busy() && app.plan_sync_waiting() == 0, "done");
+            {
+                json calls = read_json(g_out / "mailbox_calls.json");
+                CHECK(calls["dev_plans"].contains("1003") && calls["dev_plans"]["1003"].value("acceleration", -1) == acc1 &&
+                          calls["dev_plans"]["1003"].value("vision", -1) == vis0 + 2 && !calls["dev_plans"]["1003"].contains("potential"),
+                      "his development plan holds the edited values: " + calls["dev_plans"].dump());
+            }
+            CHECK(app.plan_sync_status.find("1 of 1 players: development plan updated (2 fields)") != npos, "status: " + app.plan_sync_status);
+            CHECK(!ui.toast_contains("Development plan") && hooked_line("development plan:").find("updated") != npos,
+                  "logged (turbo_gui.log), no toast");
+
+            // ---- an overall typed into the Profile box: the attributes move until the game's own formula gives it
+            CHECK(ui.click("Profile", "##pedit"), "Profile tab");
+            ui.frames(2);
+            const overall::Attrs a0 = attrs(1003);
+            const int pos = static_cast<int>(val(1003, "preferredposition1"));
+            const int64_t ovr0 = val(1003, "overallrating");
+            const int target = std::min(99, overall::compute_overall(pos, a0) + 4);
+            const size_t undo0 = app.undo_count(1003), bulk0 = app.bulk_undo.size();
+            app.toasts.clear();
+            CHECK(ui.type_into(ui.find("##v", "##prof", "overallrating"), std::to_string(target)), "type the overall");
+            const overall::Attrs a1 = attrs(1003);
+            size_t moved = 0;
+            for (size_t i = 0; i < a0.size(); ++i) moved += a0[i] != a1[i];
+            CHECK(val(1003, "overallrating") == target && overall::compute_overall(pos, a1) == target && app.model.player(1003)->overall == target,
+                  fmt("stored and formula overall %d (formula %d)", target, overall::compute_overall(pos, a1)));
+            CHECK(moved > 0 && ui.toast_contains("attributes moved"), fmt("%zu attributes moved, and the toast says so", moved));
+            CHECK(app.undo_count(1003) == std::min(undo0 + 1, App::kUndoSteps) && app.bulk_undo.size() == bulk0 + 1 &&
+                      app.bulk_undo.back().playerid == 1003 && app.bulk_undo.back().before.size() == moved + 1,
+                  "one undo step, one Undo bulk entry");
+            CHECK(app.reapply.player(1003)->fields.count("overallrating") && app.reapply.player(1003)->fields.at("overallrating").was == ovr0 &&
+                      app.reapply.player(1003)->fields.at("overallrating").value == target,
+                  "the overall is kept");
+            CHECK(app.plan_sync_waiting() == 1, "the moved attributes are queued for his plan");
+            // Undo puts all of it back, and the kept fields with it (back to their replaced values: no longer kept)
+            CHECK(app.undo(1003), "Undo");
+            CHECK(attrs(1003) == a0 && val(1003, "overallrating") == ovr0, "every attribute and the overall back");
+            CHECK(!app.reapply.player(1003)->fields.count("overallrating") && app.reapply.player(1003)->fields.count("acceleration") &&
+                      app.reapply.player(1003)->fields.at("acceleration").value == acc1,
+                  "the overall no longer kept; the earlier edits still are");
+            CHECK(ui.toast_contains("undone: Overall"), "undo toast");
+            // an overall his attributes cannot give: refused, nothing written
+            CHECK(!edit(1003, "overallrating", 100) && val(1003, "overallrating") == ovr0 && attrs(1003) == a0 && ui.toast_contains("not written"),
+                  "100: refused");
+            ui.frames(70);
+            CHECK(app.busy() && app.pending_label.rfind("Development plan (1 player", 0) == 0, "the undone attributes go to his plan too");
+            CHECK(ui.click("Cancel"), "cancel it");
+
+            // ---- another club's player (2002, Everton): kept for career loads, no development plan (not your club)
+            const int64_t sta0 = val(2002, "stamina");
+            CHECK(edit(2002, "stamina", sta0 + 3) && app.reapply.player(2002) && app.plan_sync_waiting() == 0, "kept, nothing queued for a plan");
+
+            // ---- a career load in which the game put old values back (the plan's old values): composure is set to the
+            // replaced value again -> written again; vision moved by the game's own growth -> left alone
+            const int64_t comp0 = val(1003, "composure");
+            CHECK(edit(1003, "composure", comp0 + 6), "composure +6 (kept)");
+            CHECK(set_raw(1003, "composure", comp0) && set_raw(1003, "vision", vis0 + 7), "the game: composure back, vision grown");
+            hooked.clear();
+            app.toasts.clear();
+            publish(true, true, 40);
+            CHECK(val(1003, "composure") == comp0 + 6, fmt("composure written again (%lld)", static_cast<long long>(val(1003, "composure"))));
+            CHECK(val(1003, "vision") == vis0 + 7, "the game's own growth left alone");
+            CHECK(val(1003, "acceleration") == acc1 && val(2002, "stamina") == sta0 + 3 && val(1003, "potential") == pot0 + 1, "in place");
+            {
+                const std::string line = hooked_line("re-apply at career load:");
+                CHECK(line.find("re-applied 0 kit colours, 0 player callnames, 1 player field (1 player)") != npos && line.find("(1 already in place)") != npos &&
+                          line.find("1 left alone") != npos && line.find("moved by the game since (Vision ") != npos,
+                      "one summary line in turbo_gui.log: " + line);
+            }
+            CHECK(logged("(1003): Composure " + std::to_string(comp0) + " -> " + std::to_string(comp0 + 6)) && ui.toast_contains("Kept edits"),
+                  "the GUI log names the field, a toast");
+            CHECK(app.plan_sync_waiting() == 1, "written again: into his plan too");
+            // another career load before that went out: the queued plan fields belong to the other load, dropped
+            publish(true, true, 2);
+            CHECK(app.plan_sync_waiting() == 0 && logged("edits not sent: the career was left or another one loaded") && !app.busy(),
+                  "dropped when another career load came first");
+            ui.frames(38);
+
+            // ---- the same career load again (a club change, Refresh): no re-apply
+            CHECK(set_raw(1003, "composure", comp0), "composure back once more");
+            hooked.clear();
+            publish(false, true, 40);
+            CHECK(val(1003, "composure") == comp0 && hooked_line("re-apply").empty(), "not a career load: nothing written");
+
+            // ---- keeping off: a new edit is not kept, the kept ones are not written at a load
+            CHECK(app.set_keep_players(false), "keeping off");
+            const int64_t bal0 = val(1003, "balance");
+            CHECK(edit(1003, "balance", bal0 + 1) && !app.reapply.player(1003)->fields.count("balance"), "not kept while off");
+            hooked.clear();
+            publish(true, true, 40);
+            CHECK(val(1003, "composure") == comp0 && hooked_line("re-apply at career load:").find("keeping is off") != npos,
+                  "not written while off: " + hooked_line("re-apply at career load:"));
+            CHECK(app.set_keep_players(true), "keeping on again");
+            CHECK(ui.click("Cancel") || !app.busy(), "the balance edit's plan command cancelled");
+            // ---- outside a career (main menu): nothing kept, nothing queued
+            const int64_t agi0 = val(1003, "agility");
+            publish(true, false, 40);
+            CHECK(edit(1003, "agility", val(1003, "agility") + 1) && !app.reapply.player(1003)->fields.count("agility") && app.plan_sync_waiting() == 0,
+                  "outside a career: not kept, no plan");
+            publish(true, true, 40);
+            CHECK(val(1003, "composure") == comp0 + 6, "the next career load writes the kept composure again");
+            ui.frames(70);
+            if (app.busy()) CHECK(ui.click("Cancel"), "cancel the plan command");
+
+            // ---- the kill switch: nothing queued for a plan while turbo_output\plan_sync_off.txt exists
+            std::ofstream((le / "turbo_output" / "plan_sync_off.txt").string()) << "";
+            CHECK(edit(1003, "agility", val(1003, "agility") + 1) && app.plan_sync_waiting() == 0 && app.reapply.player(1003)->fields.count("agility"),
+                  "kill switch: kept, no plan sync");
+
+            // ---- the panels: Turbo Tools > Kept player edits (switch, Forget per field), Attributes > Forget
+            app.request_tab = 5;
+            ui.frames(2);
+            if (!ui.find("Keep my player edits for every career load")) CHECK(ui.click("Kept player edits (every career load)"), "open the list");
+            ui.frames(2);
+            CHECK(ui.find("Keep my player edits for every career load") != nullptr, "the switch is shown");
+            const size_t fields_before = app.reapply.player_fields();
+            CHECK(ui.click("Forget", "##tools", "stamina"), "Forget Everton's stamina");
+            CHECK(!app.reapply.player(2002) && app.reapply.player_fields() == fields_before - 1, "forgotten (2002 had only that field)");
+            CHECK(ui.click("Keep my player edits for every career load"), "switch off");
+            CHECK(!app.reapply.keep_players, "off");
+            CHECK(ui.click("Keep my player edits for every career load"), "switch on");
+            CHECK(app.reapply.keep_players, "on");
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.click("Attributes", "##pedit"), "Attributes tab");
+            ui.frames(2);
+            CHECK(ui.click("Forget##playerkeep", "##attr"), "Forget his kept edits");
+            CHECK(!app.reapply.player(1003) && app.reapply.players.empty(), "nothing kept any more");
+            {
+                ReapplyStore disk;
+                std::string err;
+                CHECK(load_reapply_store(reapply_store_path(le), disk, &err) && disk.players.empty() && disk.keep_players, "the store on disk too: " + err);
+            }
+
+            // put the world back for the cases below: keeping and the plan sync off, the values as they were
+            CHECK(set_raw(1003, "acceleration", acc0) && set_raw(1003, "vision", vis0) && set_raw(1003, "potential", pot0) && set_raw(1003, "composure", comp0) &&
+                      set_raw(1003, "balance", bal0) && set_raw(1003, "agility", agi0) && set_raw(2002, "stamina", sta0),
+                  "values back");
+            app.set_keep_players(false);
+            if (app.busy()) ui.click("Cancel");
             app.log_hook = nullptr;
             ui.frames(2);
         });
@@ -12209,6 +12571,7 @@ int main(int argc, char** argv) {
     test_player_capture();
     std::printf("native kept edits store\n");
     test_reapply_store();
+    test_reapply_players();
     std::printf("native show/hide key and background loading\n");
     test_hotkey_and_background();
     test_gear_pictures();

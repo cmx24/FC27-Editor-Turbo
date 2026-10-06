@@ -6,6 +6,7 @@
 
 #include "callnames.h"
 #include "nlohmann/json.hpp"
+#include "overall.h"
 
 namespace turbo {
 
@@ -70,6 +71,67 @@ void ReapplyStore::set_callname(int64_t playerid, int64_t commentaryid, const st
 
 bool ReapplyStore::forget_callname(int64_t playerid) { return callnames.erase(playerid) > 0; }
 
+bool plan_field(const std::string& field) {
+    if (overall::attr_index(field) >= 0) return true;
+    return field == "attackingworkrate" || field == "defensiveworkrate" || field == "skillmoves" || field == "weakfootabilitytypecode";
+}
+
+bool kept_player_field(const std::string& field) { return plan_field(field) || field == "overallrating" || field == "potential"; }
+
+KeptField kept_field_state(const PlayerFieldEdit& e, int64_t loaded) {
+    if (loaded == e.value) return KeptField::InPlace;
+    if (loaded == e.was) return KeptField::Write;
+    return KeptField::Moved;
+}
+
+bool ReapplyStore::note_player_edit(int64_t playerid, const std::string& player, const std::string& when, const std::string& field,
+                                    int64_t before, int64_t after) {
+    if (playerid <= 0 || before == after || !kept_player_field(field)) return false;
+    auto pit = players.find(playerid);
+    if (pit != players.end()) {
+        auto fit = pit->second.fields.find(field);
+        // the edit continues from the kept value: the value the game might put back is still the first one replaced
+        if (fit != pit->second.fields.end() && fit->second.value == before) {
+            if (after == fit->second.was) {
+                // back where it was: nothing left to keep for this field
+                pit->second.fields.erase(fit);
+                if (pit->second.fields.empty()) players.erase(pit);
+                return true;
+            }
+            fit->second.value = after;
+            if (!player.empty()) pit->second.player = player;
+            if (!when.empty()) pit->second.when = when;
+            return true;
+        }
+    }
+    PlayerEdit& e = players[playerid];
+    e.playerid = playerid;
+    if (!player.empty()) e.player = player;
+    if (!when.empty()) e.when = when;
+    e.fields[field] = PlayerFieldEdit{after, before};
+    return true;
+}
+
+bool ReapplyStore::forget_player_field(int64_t playerid, const std::string& field) {
+    auto it = players.find(playerid);
+    if (it == players.end() || !it->second.fields.erase(field)) return false;
+    if (it->second.fields.empty()) players.erase(it);
+    return true;
+}
+
+bool ReapplyStore::forget_player(int64_t playerid) { return players.erase(playerid) > 0; }
+
+const PlayerEdit* ReapplyStore::player(int64_t playerid) const {
+    auto it = players.find(playerid);
+    return it == players.end() ? nullptr : &it->second;
+}
+
+size_t ReapplyStore::player_fields() const {
+    size_t n = 0;
+    for (const auto& kv : players) n += kv.second.fields.size();
+    return n;
+}
+
 const CallnameEdit* ReapplyStore::callname(int64_t playerid) const {
     auto it = callnames.find(playerid);
     return it == callnames.end() ? nullptr : &it->second;
@@ -78,8 +140,10 @@ const CallnameEdit* ReapplyStore::callname(int64_t playerid) const {
 std::string reapply_json(const ReapplyStore& s) {
     json j = json::object();
     j["turbo_reapply"] = 1;
-    j["note"] = "Edits FC 27 forgets when a career loads (it reloads teamkits and playernamemap from its base data). Turbo writes "
-                "them again when it connects to a newly loaded career. Forget an entry in Teams > Colours or Players > Callname.";
+    j["note"] = "Edits FC 27 forgets when a career loads (it reloads teamkits and playernamemap from its base data; your players' "
+                "development plans outrank the players table). Turbo writes them again when it connects to a newly loaded career, "
+                "a player field only while it holds the value the edit replaced. Forget an entry in Teams > Colours, Players > "
+                "Callname or Turbo Tools > Kept player edits.";
     json kits = json::array();
     for (const auto& kv : s.kits) {
         const KitEdit& k = kv.second;
@@ -95,6 +159,15 @@ std::string reapply_json(const ReapplyStore& s) {
         names.push_back({{"playerid", c.playerid}, {"commentaryid", c.commentaryid}, {"player", c.player}, {"from", c.from}, {"when", c.when}});
     }
     j["playernamemap"] = names;
+    j["keep_players"] = s.keep_players;
+    json players = json::array();
+    for (const auto& kv : s.players) {
+        const PlayerEdit& p = kv.second;
+        json fields = json::object();
+        for (const auto& f : p.fields) fields[f.first] = {{"value", f.second.value}, {"was", f.second.was}};
+        players.push_back({{"playerid", p.playerid}, {"player", p.player}, {"when", p.when}, {"fields", fields}});
+    }
+    j["players"] = players;
     // error_handler::replace: a name with broken UTF-8 (a player name read from memory) must not throw
     return j.dump(2, ' ', false, json::error_handler_t::replace) + "\n";
 }
@@ -160,6 +233,32 @@ bool parse_reapply_json(const std::string& text, ReapplyStore& out, std::string*
                     continue;
                 }
                 out.set_callname(pid, cid, str_of(e, "player"), str_of(e, "from"), str_of(e, "when"));
+            }
+        }
+        if (auto it = j.find("keep_players"); it != j.end() && it->is_boolean()) out.keep_players = it->get<bool>();
+        if (auto it = j.find("players"); it != j.end() && it->is_array()) {
+            for (const json& e : *it) {
+                int64_t pid = 0;
+                auto fi = e.is_object() ? e.find("fields") : e.end();
+                if (!e.is_object() || !int_of(e, "playerid", pid) || pid <= 0 || fi == e.end() || !fi->is_object() || fi->empty()) {
+                    ++bad;
+                    continue;
+                }
+                for (auto f = fi->begin(); f != fi->end(); ++f) {
+                    int64_t value = 0, was = 0;
+                    // only the fields the Players editor keeps: a hand-edited key column (playerid, ...) or any other
+                    // players field is never written back at a career load
+                    if (!kept_player_field(f.key()) || !f.value().is_object() || !int_of(f.value(), "value", value) ||
+                        !int_of(f.value(), "was", was) || value == was) {
+                        ++bad;
+                        continue;
+                    }
+                    PlayerEdit& p = out.players[pid];
+                    p.playerid = pid;
+                    p.player = str_of(e, "player");
+                    p.when = str_of(e, "when");
+                    p.fields[f.key()] = PlayerFieldEdit{value, was};
+                }
             }
         }
     } catch (const std::exception& e) {

@@ -113,6 +113,11 @@ the same values:
   on WEEK_PASSED each listed player below his potential gains `weekly` per group attribute; with `no_decline` an
   attribute lower than last week's snapshot is put back (age decline). The snapshot lives in TURBO_STATE (this game
   session) and starts over on POST_LOAD_PREPARE and when the auto is armed (arming grows nobody).
+* **plan_sync** (1.2.5) `{mode: "plan_sync", sync: [{playerid, fields: [..]}]}`: sent by the Turbo window after its own
+  direct writes (Players editor, Overall +1/-1, a typed overall, archetypes, Undo, Database tab; kept edits written again
+  at a career load). Each listed player with a plan gets the players table's current value of each listed plan field
+  (`moves.PLAN_FIELDS`: the 34 attributes, work rates, skill moves, weak foot). Bulk edit, `db_edit` and the preset
+  import update the plan the same way. Before 1.2.5 the window's edits of your players came back after a save and a reload.
 * Every value is validated against the field range before anything is written (core/db.lua). Caps key
   `development` = the two plan natives (greyed when missing); `development_xp` = FC 26's XP natives (Bulk edit).
 * The game recomputes the overall itself on its own growth events; Turbo's overall write keeps the screens consistent

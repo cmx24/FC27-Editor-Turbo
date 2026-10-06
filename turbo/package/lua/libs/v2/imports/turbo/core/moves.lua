@@ -251,6 +251,12 @@ M.PLAN_ATTRS = { "acceleration", "sprintspeed", "agility", "balance", "jumping",
     "finishing", "freekickaccuracy", "headingaccuracy", "longpassing", "shortpassing", "defensiveawareness", "shotpower",
     "longshots", "standingtackle", "slidingtackle", "volleys", "curve", "penalties", "gkdiving", "gkhandling",
     "gkkicking", "gkreflexes", "gkpositioning" }
+-- The plan also holds work rates, skill moves and weak foot (DOC.MD); PLAN_FIELDS = every players field the plan holds
+-- (an edit of any of them goes into the plan: the Turbo window's edits, bulk edit, preset import)
+M.PLAN_EXTRA = { "attackingworkrate", "defensiveworkrate", "skillmoves", "weakfootabilitytypecode" }
+M.PLAN_FIELDS = {}
+for _, f in ipairs(M.PLAN_ATTRS) do M.PLAN_FIELDS[#M.PLAN_FIELDS + 1] = f end
+for _, f in ipairs(M.PLAN_EXTRA) do M.PLAN_FIELDS[#M.PLAN_FIELDS + 1] = f end
 
 -- Writes values { field = v } into the player's development plan when he has one: "plan", "none", "unavailable" or
 -- "failed: ..." (the natives are in Live Editor v27.1.2 only)

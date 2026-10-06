@@ -46,6 +46,10 @@ struct Move {
 // attributes that weigh most for the position and are spread over them (never beyond 1..99). Returns false, leaving `a`
 // untouched, when the overall is already at 1 / 99 or no attribute can move any more. `moves` (optional) lists the changes.
 bool adjust(int position, Attrs& a, int delta, std::vector<Move>* moves = nullptr);
+// The same moves all the way to `target` (1..99): compute_overall() becomes exactly `target`, the points spread over the
+// heavy attributes first (an overall typed into the Players editor: FC 27 works the overall out from the
+// attributes, so a bare overall would not last). False, leaving `a` untouched, when it cannot be reached.
+bool reach(int position, Attrs& a, int target, std::vector<Move>* moves = nullptr);
 inline bool can_adjust(int position, const Attrs& a, int delta) {
     Attrs t = a;
     return adjust(position, t, delta, nullptr);
