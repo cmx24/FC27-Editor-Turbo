@@ -311,12 +311,16 @@ static const MassAction kMassActions[] = {
     {"squad_roles", "Squad roles", "Players of 19 or more get the Rotation squad role, younger players Prospect. Your own club only: the game keeps no roles for other clubs."},
     {"morale", "Morale: very happy", "Your club: the highest morale the game still calls \"very happy\" for each player's emotion type (the game's own level and SetTotalMorale; 100 would be \"complacent\"). Other clubs: 85 through Live Editor."},
     {"long_contract", "Long contract (60 months)", "Gives every player a 60 month contract from today (players loaned in keep their parent club's contract)."},
-    {"all", "All actions", "Does all of the actions above at once."},
+    {"form", "Form: best (100)", "Every player to form 100 (\"Excellent\" starts at 90) through Live Editor's SetPlayerForm. Your own club only: Live Editor changes form for the user's team only."},
+    {"match_xp", "Match XP (x2)", "Every player earns twice the development XP from matches and training (Live Editor's development manager, any club; FC 27 has no match sharpness). Needs a Live Editor build with the development manager (v27.1.2 has none)."},
+    {"dev_bonus", "Dev bonus XP", "Gives every player the bonus development XP set below (Live Editor's development manager, any club). With Match XP in the same run both go in one entry per player; alone it keeps the XP multiplier at 1."},
+    {"all","All actions", "Does all of the actions above at once."},
 };
 
 static void mass_actions_tab(App& app, const TeamRow& tr) {
     const BridgeState& st = app.bridge.state();
     static std::string confirm;  // the action waiting for the confirmation
+    static int bonus_xp = 500;   // dev bonus: XP per player (team_mass.lua bonus_xp, 0..100000)
     ImGui::BeginChild("##tmass");
     ImGui::PushID("massactions");
     const size_t n = app.model.links_of_team(tr.teamid).size();
@@ -329,14 +333,15 @@ static void mass_actions_tab(App& app, const TeamRow& tr) {
     for (const MassAction& a : kMassActions) {
         const bool all = std::string(a.id) == "all";
         if (all) ImGui::Separator();
-        const bool roles_only = (std::string(a.id) == "squad_roles" || std::string(a.id) == "block_offers") && !own;
+        const std::string aid = a.id;
+        const bool roles_only = (aid == "squad_roles" || aid == "block_offers" || aid == "form") && !own;
         if (disabled || roles_only) ImGui::BeginDisabled();
         const bool clicked = ImGui::Button(a.button, ImVec2(S(260.0f), 0));
         if (disabled || roles_only) ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
             if (!st.in_cm) ImGui::SetTooltip("Needs a loaded Manager Career");
             else if (national) ImGui::SetTooltip("National teams have no club squad to change");
-            else if (roles_only) ImGui::SetTooltip("Squad roles and Block Offers exist for your own club only (All actions skips them for other clubs)");
+            else if (roles_only) ImGui::SetTooltip("Squad roles, Block Offers and Form exist for your own club only (All actions skips them for other clubs)");
             else ImGui::SetTooltip("%s", a.detail);
         }
         ImGui::SameLine();
@@ -346,6 +351,11 @@ static void mass_actions_tab(App& app, const TeamRow& tr) {
         ImGui::TextUnformatted(a.detail);
         ImGui::PopTextWrapPos();
         ImGui::PopStyleColor();
+        if (aid == "dev_bonus") {
+            ImGui::SetNextItemWidth(S(140.0f));
+            ImGui::InputInt("Bonus XP per player (Dev bonus and All actions)##tmbonus", &bonus_xp, 100, 1000);
+            bonus_xp = std::clamp(bonus_xp, 0, 100000);
+        }
         if (clicked) {
             confirm = a.id;
             ImGui::OpenPopup("Run mass action?");
@@ -360,7 +370,7 @@ static void mass_actions_tab(App& app, const TeamRow& tr) {
         ImGui::PopTextWrapPos();
         if (ImGui::Button("Run")) {
             json actions = (confirm == "all") ? json("all") : json::array({confirm});
-            json overrides = {{"teamid", tr.teamid}, {"actions", actions}};
+            json overrides = {{"teamid", tr.teamid}, {"actions", actions}, {"bonus_xp", bonus_xp}};
             if (app.send({{"op", "run"}, {"module", "team_mass"}, {"overrides", overrides}},
                          std::string("Mass actions: ") + (sel ? sel->button : confirm.c_str())))  // false: toast says why
                 app.mass_status = "Requested: Live Editor runs it on the next career-mode event (open a screen or advance a day).";
