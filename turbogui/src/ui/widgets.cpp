@@ -2,17 +2,19 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 
 #include "app.h"
+#include "core/field_labels.h"
 #include "imgui.h"
 
 namespace turbo {
 
 static const std::map<std::string, std::string>& label_map() {
     static const std::map<std::string, std::string> m = {
-        {"overallrating", "Overall"}, {"potential", "Potential"}, {"acceleration", "Acceleration"},
+        {"overallrating", "Overall"}, {"potential", "Potential"}, {"modifier", "OVR modifier"}, {"acceleration", "Acceleration"},
         {"sprintspeed", "Sprint Speed"}, {"positioning", "Att. Position"}, {"finishing", "Finishing"},
         {"shotpower", "Shot Power"}, {"longshots", "Long Shots"}, {"volleys", "Volleys"}, {"penalties", "Penalties"},
         {"vision", "Vision"}, {"crossing", "Crossing"}, {"freekickaccuracy", "FK Accuracy"},
@@ -233,7 +235,8 @@ bool slider_editor_ex(App& app, const Table& t, uint64_t rec, const Field& f, co
     return wrote;
 }
 
-// Readable labels for enumerated fields (FC 26/27 Live Editor labels)
+// Readable labels for small enumerated fields Live Editor's localization does not name (the ones it names - emotion,
+// body type, colours, jersey/sock/short styles, gender, foot, head class, roles, accessories - live in core/field_labels.h)
 struct EnumDef {
     const char* field;
     int64_t base;  // value of labels[0]
@@ -241,25 +244,15 @@ struct EnumDef {
 };
 static const std::vector<EnumDef>& enum_defs() {
     static const std::vector<EnumDef> d = {
-        {"preferredfoot", 1, {"Right", "Left"}},
         {"weakfootabilitytypecode", 1, {"1 star", "2 stars", "3 stars", "4 stars", "5 stars"}},
         {"skillmoves", 0, {"1 star", "2 stars", "3 stars", "4 stars", "5 stars"}},
         {"internationalrep", 1, {"1 star", "2 stars", "3 stars", "4 stars", "5 stars"}},
         {"attackingworkrate", 0, {"Low", "Medium", "High"}},
         {"defensiveworkrate", 0, {"Low", "Medium", "High"}},
-        {"gender", 0, {"Male", "Female"}},
-        {"headclasscode", 0, {"Real face (specific)", "Generic", "Generic (custom)", "Youth / created"}},
         {"gkkickstyle", 0, {"Default", "Power", "Precision", "Mixed"}},
         {"skillmoveslikelihood", 0, {"Low", "Medium", "High", "Very high"}},
-        {"emotion", 1, {"Neutral", "Happy", "Sad", "Angry", "Frustrated", "Confident"}},
         {"personality", 1, {"Neutral", "Maverick", "Heartbeat", "Virtuoso"}},
-        {"jerseyfit", 0, {"Regular", "Loose", "Tight"}},
-        {"jerseysleevelengthcode", 0, {"Short", "Long", "Short (both)", "Long (both)"}},
-        {"jerseystylecode", 0, {"Tucked in", "Untucked"}},
-        {"shortstyle", 0, {"Regular", "Long"}},
         {"undershortstyle", 0, {"None", "Visible"}},
-        {"socklengthcode", 0, {"Low", "Normal", "High", "Very high"}},
-        {"sockstylecode", 0, {"Standard", "Tape", "Cut-off", "Rolled", "Grip"}},
         {"shoedesigncode", 0, {"Standard", "Laced", "Laceless", "High-cut"}},
         {"muscularitycode", 0, {"Regular", "Muscular"}},
         {"runstylecode", 0, {"Default", "Short step", "Long step", "Smooth", "Upright", "Hunched", "Bouncy", "Mixed"}},
@@ -268,20 +261,43 @@ static const std::vector<EnumDef>& enum_defs() {
     return d;
 }
 
-bool is_enum_field(const std::string& field) {
+static const EnumDef* enum_def(const std::string& field) {
     for (const auto& d : enum_defs())
-        if (field == d.field) return true;
-    return false;
+        if (field == d.field) return &d;
+    return nullptr;
+}
+
+bool is_enum_field(const std::string& field) {
+    return enum_def(field) != nullptr || labels::is_code_field(field);
 }
 
 const char* enum_label(const std::string& field, int64_t v) {
-    for (const auto& d : enum_defs()) {
-        if (field != d.field) continue;
-        int64_t k = v - d.base;
-        if (k >= 0 && k < static_cast<int64_t>(d.labels.size())) return d.labels[static_cast<size_t>(k)];
+    if (const EnumDef* d = enum_def(field)) {
+        int64_t k = v - d->base;
+        if (k >= 0 && k < static_cast<int64_t>(d->labels.size())) return d->labels[static_cast<size_t>(k)];
         return nullptr;
     }
+    if (const labels::NamedCodes* t = labels::named_codes(field)) return labels::find_name(*t, v);
     return nullptr;
+}
+
+// the text shown for a code value: never a bare number
+static std::string code_text(const std::string& field, int64_t v) {
+    if (enum_def(field)) {
+        if (const char* l = enum_label(field, v)) return l;
+        char b[48];
+        std::snprintf(b, sizeof(b), "Unknown (code %lld)", static_cast<long long>(v));
+        return b;
+    }
+    return labels::code_text(field, v, field_label(field));
+}
+
+static bool contains_ci(const std::string& hay, const char* needle) {
+    if (!needle[0]) return true;
+    std::string h = hay, n = needle;
+    std::transform(h.begin(), h.end(), h.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return h.find(n) != std::string::npos;
 }
 
 bool enum_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float width) {
@@ -296,21 +312,49 @@ bool enum_editor(App& app, const Table& t, uint64_t rec, const Field& f, const c
         ImGui::SameLine(S(150.0f));
     }
     ImGui::SetNextItemWidth(width);
-    const char* curl = enum_label(f.name, cur.i);
-    char shown[64];
-    if (curl) std::snprintf(shown, sizeof(shown), "%s", curl);
-    else std::snprintf(shown, sizeof(shown), "%lld", static_cast<long long>(cur.i));
-    if (ImGui::BeginCombo("##e", shown)) {
-        for (int64_t v = f.min; v <= f.max() && v < f.min + 64; ++v) {
-            const char* l = enum_label(f.name, v);
-            char item[80];
-            if (l) std::snprintf(item, sizeof(item), "%s##%lld", l, static_cast<long long>(v));
-            else std::snprintf(item, sizeof(item), "%lld", static_cast<long long>(v));
-            if (ImGui::Selectable(item, v == cur.i) && v != cur.i) wrote = app.edit(t, rec, f, Value::of_int(v));
+    const std::string shown = code_text(f.name, cur.i);
+    if (ImGui::BeginCombo("##e", shown.c_str(), ImGuiComboFlags_HeightLarge)) {
+        // the codes offered: the named ones (stars, roles, colours...) or, for item codes without names, the whole range
+        std::vector<int64_t> codes;
+        if (const EnumDef* d = enum_def(f.name)) {
+            for (size_t k = 0; k < d->labels.size(); ++k) codes.push_back(d->base + static_cast<int64_t>(k));
+        } else if (const labels::NamedCodes* nt = labels::named_codes(f.name)) {
+            for (const auto& e : *nt) codes.push_back(e.first);
+        } else {
+            for (int64_t v = f.min; v <= f.max() && v < f.min + 4096; ++v) codes.push_back(v);
+        }
+        static char filt[48] = "";
+        if (ImGui::IsWindowAppearing()) filt[0] = 0;
+        const bool many = codes.size() > 12;
+        if (many) {
+            if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            ImGui::InputTextWithHint("##flt", "search (name or code)", filt, sizeof(filt));
+        }
+        // a typed number reaches any code in the field's range, listed or not
+        char* endp = nullptr;
+        long long typed = filt[0] ? std::strtoll(filt, &endp, 10) : 0;
+        bool is_num = filt[0] && endp && *endp == 0;
+        if (is_num && typed >= f.min && typed <= f.max() && std::find(codes.begin(), codes.end(), typed) == codes.end())
+            codes.insert(codes.begin(), typed);
+        if (std::find(codes.begin(), codes.end(), cur.i) == codes.end()) codes.insert(codes.begin(), cur.i);
+        for (int64_t v : codes) {
+            if (v < f.min || v > f.max()) continue;
+            std::string txt = code_text(f.name, v);
+            char num[24];
+            std::snprintf(num, sizeof(num), "%lld", static_cast<long long>(v));
+            if (filt[0] && !contains_ci(txt, filt) && std::strcmp(num, filt) != 0) continue;
+            ImGui::PushID(static_cast<int>(v));
+            if (ImGui::Selectable(txt.c_str(), v == cur.i) && v != cur.i) wrote = app.edit(t, rec, f, Value::of_int(v));
+            if (v == cur.i && ImGui::IsWindowAppearing()) ImGui::SetItemDefaultFocus();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("code %lld", static_cast<long long>(v));
+            ImGui::PopID();
         }
         ImGui::EndCombo();
     }
-    range_tooltip(f);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s = code %lld  [%lld .. %lld]", f.name.c_str(), static_cast<long long>(cur.i), static_cast<long long>(f.min),
+                          static_cast<long long>(f.max()));
     ImGui::PopID();
     return wrote;
 }
