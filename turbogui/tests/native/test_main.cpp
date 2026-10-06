@@ -4000,12 +4000,17 @@ static void test_ui() {
             CHECK(ui.click("Mass actions", "##tedit"), "Mass actions tab");
             ui.frames(2);
             for (const char* b : {"Block incoming offers", "Squad roles", "Morale: very happy",
-                                  "Long contract (60 months)", "All actions"})
+                                  "Long contract (60 months)", "Form: best (100)", "Match XP (x2)", "Dev bonus XP",
+                                  "All actions"})
                 CHECK(ui.find(b, "##tedit") != nullptr, std::string("button ") + b);
             // squad roles exist for your own club only: Everton is not it, the button does nothing
             ui.click("Squad roles", "##tedit");
             ui.frames(2);
             CHECK(ui.find("Run", "Run mass action?") == nullptr && !app.mailbox->pending(), "squad roles refused for another club");
+            // form too (Live Editor's SetPlayerForm changes the user's team only)
+            ui.click("Form: best (100)", "##tedit");
+            ui.frames(2);
+            CHECK(ui.find("Run", "Run mass action?") == nullptr && !app.mailbox->pending(), "form refused for another club");
             // a click asks first; Cancel sends nothing
             CHECK(ui.click("Long contract (60 months)", "##tedit"), "long contract");
             ui.frames(2);
@@ -4042,6 +4047,7 @@ static void test_ui() {
             ui.frames(2);
             j = json::parse(mem.read_cstr(kMb + kMbCmd, kMbTextSize), nullptr, false);
             CHECK(!j.is_discarded() && j["overrides"].value("actions", "") == "all", "actions all: " + j.dump());
+            CHECK(j["overrides"].value("bonus_xp", -1) == 500, "dev bonus XP sent (default 500): " + j.dump());
             app.mailbox->cancel();
             ui.frames(2);
         });

@@ -316,6 +316,70 @@ H.case("dry run writes nothing", function()
     H.eq(sim:count_calls("SetPlayerMorale"), before, "no native call")
 end)
 
+H.case("form: your club's players to 100 through SetPlayerForm; another club is refused", function()
+    local before = sim:count_calls("SetPlayerForm")
+    local ok, msg = run({ teamid = W.USER_TEAM, actions = { "form" } })
+    H.eq(ok, true, msg); H.has(msg, "form (100):"); H.has(msg, "to form 100")
+    local n = #team_pids(W.USER_TEAM)
+    H.eq(sim:count_calls("SetPlayerForm") - before, n, "one call per player")
+    for i = before + 1, sim:count_calls("SetPlayerForm") do H.eq(sim.calls.SetPlayerForm[i][2], 100) end
+    local other = W.USER_TEAM == 3 and 2 or 3
+    before = sim:count_calls("SetPlayerForm")
+    ok, msg = run({ teamid = other, actions = { "form" } })
+    H.eq(ok, false); H.has(msg, "own club only")
+    H.eq(sim:count_calls("SetPlayerForm"), before, "nothing called for another club")
+end)
+
+-- Live Editor's development manager (removed in v27.1.2, the sim's build): installed for these cases only
+local function with_dev_manager(fn)
+    local adds, saves = {}, 0
+    PlayerDevelopmentManagerAddPlayer = function(...) adds[#adds + 1] = { ... } end
+    PlayerDevelopmentManagerSave = function() saves = saves + 1 end
+    local ok, err = pcall(fn, adds, function() return saves end)
+    PlayerDevelopmentManagerAddPlayer, PlayerDevelopmentManagerSave = nil, nil
+    if not ok then error(err, 0) end
+end
+
+H.case("match XP / dev bonus: without Live Editor's development manager (v27.1.2) nothing is written, the reason is given", function()
+    local ok, msg = run({ teamid = W.USER_TEAM, actions = { "match_xp", "dev_bonus" } })
+    H.eq(ok, false); H.has(msg, "match XP: not done"); H.has(msg, "dev bonus: not done"); H.has(msg, "v27.1.2 has none")
+end)
+
+H.case("match XP alone: multiplier 2.0, no bonus, any club; dev bonus alone: the chosen bonus, multiplier 1.0", function()
+    with_dev_manager(function(adds, saves)
+        local other = W.USER_TEAM == 3 and 2 or 3
+        local n = #team_pids(other)
+        local ok, msg = run({ teamid = other, actions = { "match_xp" } })
+        H.eq(ok, true, msg); H.has(msg, "match XP:"); H.has(msg, "XP x2.0, bonus 0 XP")
+        H.eq(#adds, n, "one entry per player of another club")
+        for _, a in ipairs(adds) do H.eq(a[2], 2.0); H.eq(a[3], 0); H.eq(a[4], false) end
+        H.eq(saves(), 1, "saved once")
+        for i = #adds, 1, -1 do adds[i] = nil end
+        ok, msg = run({ teamid = other, actions = { "dev_bonus" }, bonus_xp = 1200 })
+        H.eq(ok, true, msg); H.has(msg, "XP x1.0, bonus 1200 XP")
+        for _, a in ipairs(adds) do H.eq(a[2], 1.0); H.eq(a[3], 1200) end
+        ok, msg = run({ teamid = other, actions = { "dev_bonus" }, bonus_xp = -5 })
+        H.eq(ok, false); H.has(msg, "bonus_xp must be 0..")
+    end)
+end)
+
+H.case("match XP + dev bonus together (and All actions): ONE call per player with both values", function()
+    with_dev_manager(function(adds)
+        local n = #team_pids(W.USER_TEAM)
+        local ok, msg = run({ teamid = W.USER_TEAM, actions = { "dev_bonus", "match_xp" } })
+        H.eq(ok, true, msg); H.has(msg, "given with match XP")
+        H.eq(#adds, n, "one entry per player, not two")
+        for _, a in ipairs(adds) do H.eq(a[2], 2.0); H.eq(a[3], 500) end
+        for i = #adds, 1, -1 do adds[i] = nil end
+        local fbefore = sim:count_calls("SetPlayerForm")
+        ok, msg = run({ teamid = W.USER_TEAM, actions = "all", bonus_xp = 300 })
+        H.eq(ok, true, msg)
+        H.has(msg, "form (100):"); H.has(msg, "match XP:"); H.has(msg, "dev bonus:")
+        H.eq(#adds, n); for _, a in ipairs(adds) do H.eq(a[3], 300) end
+        H.ok(sim:count_calls("SetPlayerForm") > fbefore, "form ran in all")
+    end)
+end)
+
 H.case("no unmapped memory reads", function() H.eq(sim.unmapped_reads, 0) end)
 
 H.finish()

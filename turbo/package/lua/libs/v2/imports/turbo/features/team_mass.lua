@@ -17,6 +17,15 @@
 --   block_offers   the "Block Offers" player status of the Squad hub (the game's own toggle, called through Turbo.dll:
 --                  moves.list(pid, "block_offers")); your own club only. Players already blocked are left alone (the game's
 --                  call is a toggle: Turbo reads the state first).
+--   form           your club only (Live Editor's SetPlayerForm works for the user's team only): every player to form 100
+--                  ("Excellent" starts at 90).
+--   match_xp       Live Editor's development manager (PlayerDevelopmentManagerAddPlayer + Save, the per-player entry kept
+--                  in Live Editor's careers folder; any club): every player earns M.XP_MULTIPLIER times the XP from
+--                  matches and training. FC 27 has no match sharpness value to set (see form_morale.lua).
+--   dev_bonus      the same development manager entry with "bonus_xp" development XP (cfg.bonus_xp, default
+--                  M.BONUS_XP). The manager keeps one entry per player: with match_xp in the same run both are given in
+--                  ONE call (multiplier + bonus); run alone, dev_bonus keeps the multiplier at 1.0 (replacing the entry).
+--                  Live Editor v27.1.2 has no development manager: both report that and write nothing.
 
 local util = require 'imports/turbo/core/util'
 local db = require 'imports/turbo/core/db'
@@ -26,8 +35,12 @@ local log = require 'imports/turbo/core/log'
 
 local M = {}
 
-M.ACTIONS = { "block_offers", "squad_roles", "morale", "long_contract" }
+M.ACTIONS = { "block_offers", "squad_roles", "morale", "long_contract", "form", "match_xp", "dev_bonus" }
 M.CONTRACT_MONTHS = 60
+M.FORM = 100            -- SetPlayerForm's top value
+M.XP_MULTIPLIER = 2.0   -- match XP: twice the XP from matches and training
+M.BONUS_XP = 500        -- dev bonus default (cfg.bonus_xp overrides it)
+M.BONUS_XP_MAX = 100000
 -- "Very happy": FC 27 shows 95 and above as "Complacent" (+0 OVR); its bands are very unhappy < 15 < unhappy < 40 < content < 65 <
 -- happy < 75 < very happy < 95 <= complacent (seen in a live career 2026-10-05: 100 gave "Complacent")
 M.MORALE = 85   -- the Live Editor fallback only: the native call (op 13) asks the game's own level function
@@ -36,7 +49,7 @@ M.ADULT_AGE = 19   -- this age and older: Rotation; younger: Prospect
 
 local LABEL = {
     block_offers = "block offers", squad_roles = "squad roles", morale = "morale (very happy)",
-    long_contract = "long contract",
+    long_contract = "long contract", form = "form (100)", match_xp = "match XP", dev_bonus = "dev bonus",
 }
 
 -- Hooks for the two actions that need a game call (installed by core/moves.lua or the bridge when Turbo.dll has them):
@@ -268,11 +281,85 @@ local function action_block_offers(ctx, pids, teamid)
     return failed == 0, text
 end
 
+-- Form: Live Editor's SetPlayerForm (form_morale.lua's call), your club only
+local function action_form(ctx, pids, teamid)
+    if teamid ~= game.user_team_id() then
+        return false, "form exists for your own club only (Live Editor's SetPlayerForm changes the user's team only)"
+    end
+    local fn = _G["SetPlayerForm"]
+    if type(fn) ~= "function" then return false, "SetPlayerForm is not available in this Live Editor build" end
+    local ok_n, fail_n = 0, 0
+    if ctx.dry then
+        ok_n = util.count(pids)
+    else
+        for pid in pairs(pids) do
+            if pcall(fn, pid, M.FORM) then ok_n = ok_n + 1 else fail_n = fail_n + 1 end
+        end
+    end
+    local text = string.format("%d players to form %d (Live Editor's SetPlayerForm)", ok_n, M.FORM)
+    if fail_n > 0 then text = text .. string.format("; %d calls failed", fail_n) end
+    return fail_n == 0, text
+end
+
+-- The bonus XP of this run (cfg.bonus_xp, else M.BONUS_XP), or nil, reason
+local function bonus_of(ctx)
+    local v = ctx.cfg.bonus_xp
+    if v == nil then return M.BONUS_XP end
+    local b = util.to_int(v)
+    if not b or b < 0 or b > M.BONUS_XP_MAX then return nil, string.format("bonus_xp must be 0..%d", M.BONUS_XP_MAX) end
+    return b
+end
+
+-- Live Editor's development manager entry for every player (bulk_edit.lua's development call)
+local function dev_entry(ctx, pids, mult, bonus)
+    if type(PlayerDevelopmentManagerAddPlayer) ~= "function" or type(PlayerDevelopmentManagerSave) ~= "function" then
+        return false, "Live Editor's development manager is not available in this Live Editor build (v27.1.2 has none)"
+    end
+    local ok_n, fail_n = 0, 0
+    if ctx.dry then
+        ok_n = util.count(pids)
+    else
+        for pid in pairs(pids) do
+            if pcall(PlayerDevelopmentManagerAddPlayer, pid, mult, bonus, false) then ok_n = ok_n + 1 else fail_n = fail_n + 1 end
+        end
+        if ok_n > 0 then pcall(PlayerDevelopmentManagerSave) end
+    end
+    local text = string.format("%d players: XP x%.1f, bonus %d XP (Live Editor's development manager)", ok_n, mult, bonus)
+    if fail_n > 0 then text = text .. string.format("; %d calls failed", fail_n) end
+    return fail_n == 0, text
+end
+
+-- Match XP: the multiplier; with dev_bonus in the same run, the bonus goes in the same call (one entry per player)
+local function action_match_xp(ctx, pids)
+    local bonus = 0
+    if ctx.team_mass_both_dev then
+        local b, err = bonus_of(ctx)
+        if not b then return false, err end
+        bonus = b
+    end
+    return dev_entry(ctx, pids, M.XP_MULTIPLIER, bonus)
+end
+
+local function action_dev_bonus(ctx, pids)
+    local b, err = bonus_of(ctx)
+    if not b then return false, err end
+    if ctx.team_mass_both_dev then
+        if type(PlayerDevelopmentManagerAddPlayer) ~= "function" then
+            return false, "Live Editor's development manager is not available in this Live Editor build (v27.1.2 has none)"
+        end
+        return true, string.format("bonus %d XP given with match XP (same call)", b)
+    end
+    return dev_entry(ctx, pids, 1.0, b)
+end
+
 local RUN = {
     long_contract = action_long_contract,
     morale = action_morale,
     squad_roles = action_squad_roles,
     block_offers = action_block_offers,
+    form = action_form,
+    match_xp = action_match_xp,
+    dev_bonus = action_dev_bonus,
 }
 
 local function wanted(actions)
@@ -290,7 +377,7 @@ local function wanted(actions)
     if #list == 0 then return nil, "no action selected" end
     -- fixed order: contracts first, the game-side states last
     local ordered = {}
-    for _, a in ipairs({ "long_contract", "squad_roles", "morale", "block_offers" }) do
+    for _, a in ipairs({ "long_contract", "squad_roles", "morale", "form", "match_xp", "dev_bonus", "block_offers" }) do
         if seen[a] then ordered[#ordered + 1] = a end
     end
     return ordered
@@ -304,6 +391,8 @@ function M.run(ctx)
     if teamid == moves.FREE_AGENTS then return false, "Free Agents is not a club: its players have no club contract to change" end
     local list, err = wanted(ctx.cfg.actions)
     if not list then return false, err end
+    local has = util.set_of(list)
+    ctx.team_mass_both_dev = has.match_xp == true and has.dev_bonus == true
 
     local pids, n = team_players(teamid)
     if n == 0 then return false, string.format("team %d has no players", teamid) end
