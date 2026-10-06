@@ -17,15 +17,14 @@
 --   block_offers   the "Block Offers" player status of the Squad hub (the game's own toggle, called through Turbo.dll:
 --                  moves.list(pid, "block_offers")); your own club only. Players already blocked are left alone (the game's
 --                  call is a toggle: Turbo reads the state first).
---   form           your club only (Live Editor's SetPlayerForm works for the user's team only): every player to form 100
---                  ("Excellent" starts at 90).
---   match_xp       Live Editor's development manager (PlayerDevelopmentManagerAddPlayer + Save, the per-player entry kept
---                  in Live Editor's careers folder; any club): every player earns M.XP_MULTIPLIER times the XP from
---                  matches and training. FC 27 has no match sharpness value to set (see form_morale.lua).
---   dev_bonus      the same development manager entry with "bonus_xp" development XP (cfg.bonus_xp, default
---                  M.BONUS_XP). The manager keeps one entry per player: with match_xp in the same run both are given in
---                  ONE call (multiplier + bonus); run alone, dev_bonus keeps the multiplier at 1.0 (replacing the entry).
---                  Live Editor v27.1.2 has no development manager: both report that and write nothing.
+--   form           your club: SetPlayerForm 100 (Live Editor, user's team only) and teamplayerlinks.form 5 (schema max);
+--                  other clubs: teamplayerlinks.form 5 of the team's links.
+--   match_xp       with Live Editor's development manager (PlayerDevelopmentManagerAddPlayer + Save; any club): XP x2.0
+--                  from matches and training. Without it (v27.1.2; FC 27 has no match XP field): a one-off +1 growth
+--                  through development.lua "add", never above the player's potential.
+--   dev_bonus      cfg.bonus_xp (1..10, default 2): with the manager, that bonus in the manager entry (with match_xp in the
+--                  same run both go in ONE call per player); without it, +N on each attribute of the player's group
+--                  through development.lua "add" (plans updated), N limited to potential - overall, players at potential skipped.
 
 local util = require 'imports/turbo/core/util'
 local db = require 'imports/turbo/core/db'
@@ -39,8 +38,9 @@ M.ACTIONS = { "block_offers", "squad_roles", "morale", "long_contract", "form", 
 M.CONTRACT_MONTHS = 60
 M.FORM = 100            -- SetPlayerForm's top value
 M.XP_MULTIPLIER = 2.0   -- match XP: twice the XP from matches and training
-M.BONUS_XP = 500        -- dev bonus default (cfg.bonus_xp overrides it)
-M.BONUS_XP_MAX = 100000
+M.BONUS_XP = 2          -- dev bonus default (cfg.bonus_xp overrides it): points, or bonus XP for the LE manager
+M.LINK_FORM = 5         -- teamplayerlinks.form: the schema range is 0..5
+M.BONUS_XP_MAX = 10
 -- "Very happy": FC 27 shows 95 and above as "Complacent" (+0 OVR); its bands are very unhappy < 15 < unhappy < 40 < content < 65 <
 -- happy < 75 < very happy < 95 <= complacent (seen in a live career 2026-10-05: 100 gave "Complacent")
 M.MORALE = 85   -- the Live Editor fallback only: the native call (op 13) asks the game's own level function
@@ -49,7 +49,7 @@ M.ADULT_AGE = 19   -- this age and older: Rotation; younger: Prospect
 
 local LABEL = {
     block_offers = "block offers", squad_roles = "squad roles", morale = "morale (very happy)",
-    long_contract = "long contract", form = "form (100)", match_xp = "match XP", dev_bonus = "dev bonus",
+    long_contract = "long contract", form = "form", match_xp = "match XP", dev_bonus = "dev bonus",
 }
 
 -- Hooks for the two actions that need a game call (installed by core/moves.lua or the bridge when Turbo.dll has them):
@@ -281,40 +281,59 @@ local function action_block_offers(ctx, pids, teamid)
     return failed == 0, text
 end
 
--- Form: Live Editor's SetPlayerForm (form_morale.lua's call), your club only
+-- Form: your club through Live Editor's SetPlayerForm (form_morale.lua's call, user's team only) plus the database field;
+-- other clubs: teamplayerlinks.form (0..M.LINK_FORM, the schema's range) of the team's links
 local function action_form(ctx, pids, teamid)
-    if teamid ~= game.user_team_id() then
-        return false, "form exists for your own club only (Live Editor's SetPlayerForm changes the user's team only)"
-    end
+    local own = teamid == game.user_team_id()
+    local ok_n, fail_n, links_n = 0, 0, 0
     local fn = _G["SetPlayerForm"]
-    if type(fn) ~= "function" then return false, "SetPlayerForm is not available in this Live Editor build" end
-    local ok_n, fail_n = 0, 0
-    if ctx.dry then
-        ok_n = util.count(pids)
-    else
-        for pid in pairs(pids) do
-            if pcall(fn, pid, M.FORM) then ok_n = ok_n + 1 else fail_n = fail_n + 1 end
+    if own and type(fn) == "function" then
+        if ctx.dry then
+            ok_n = util.count(pids)
+        else
+            for pid in pairs(pids) do
+                if pcall(fn, pid, M.FORM) then ok_n = ok_n + 1 else fail_n = fail_n + 1 end
+            end
         end
     end
-    local text = string.format("%d players to form %d (Live Editor's SetPlayerForm)", ok_n, M.FORM)
-    if fail_n > 0 then text = text .. string.format("; %d calls failed", fail_n) end
-    return fail_n == 0, text
+    local links = db.get_table("teamplayerlinks")
+    if links and db.has_fields(links, { "teamid", "playerid", "form" }) then
+        for rec in db.records(links) do
+            if links:GetRecordFieldValue(rec, "teamid") == teamid then
+                local ok = db.set(links, rec, "form", M.LINK_FORM, ctx.dry)
+                if ok then links_n = links_n + 1 else fail_n = fail_n + 1 end
+            end
+        end
+    elseif not own then
+        return false, "teamplayerlinks.form not found in this database"
+    end
+    local text
+    if own then
+        text = type(fn) == "function" and string.format("%d players to form %d (Live Editor's SetPlayerForm)", ok_n, M.FORM)
+            or "SetPlayerForm is not available in this Live Editor build"
+        text = text .. string.format("; teamplayerlinks.form %d on %d links", M.LINK_FORM, links_n)
+    else
+        text = string.format("%d players to teamplayerlinks.form %d (the database's best form)", links_n, M.LINK_FORM)
+    end
+    if fail_n > 0 then text = text .. string.format("; %d writes failed", fail_n) end
+    return fail_n == 0 and (links_n > 0 or ok_n > 0), text
 end
 
--- The bonus XP of this run (cfg.bonus_xp, else M.BONUS_XP), or nil, reason
+-- The number of this run (cfg.bonus_xp, else M.BONUS_XP), or nil, reason
 local function bonus_of(ctx)
     local v = ctx.cfg.bonus_xp
     if v == nil then return M.BONUS_XP end
     local b = util.to_int(v)
-    if not b or b < 0 or b > M.BONUS_XP_MAX then return nil, string.format("bonus_xp must be 0..%d", M.BONUS_XP_MAX) end
+    if not b or b < 1 or b > M.BONUS_XP_MAX then return nil, string.format("bonus_xp must be 1..%d", M.BONUS_XP_MAX) end
     return b
+end
+
+local function le_dev_manager()
+    return type(PlayerDevelopmentManagerAddPlayer) == "function" and type(PlayerDevelopmentManagerSave) == "function"
 end
 
 -- Live Editor's development manager entry for every player (bulk_edit.lua's development call)
 local function dev_entry(ctx, pids, mult, bonus)
-    if type(PlayerDevelopmentManagerAddPlayer) ~= "function" or type(PlayerDevelopmentManagerSave) ~= "function" then
-        return false, "Live Editor's development manager is not available in this Live Editor build (v27.1.2 has none)"
-    end
     local ok_n, fail_n = 0, 0
     if ctx.dry then
         ok_n = util.count(pids)
@@ -329,8 +348,47 @@ local function dev_entry(ctx, pids, mult, bonus)
     return fail_n == 0, text
 end
 
--- Match XP: the multiplier; with dev_bonus in the same run, the bonus goes in the same call (one entry per player)
+-- Without Live Editor's development manager: Turbo's development.lua "add" (+points on each attribute of the player's group,
+-- development plans updated too), never above the player's potential (delta limited to potential - overall)
+local function growth(ctx, pids, points)
+    local dev = require 'imports/turbo/features/development'
+    local ptbl = db.get_table("players")
+    if not ptbl then return false, "players table not found" end
+    local recs = player_records(ptbl, pids)
+    local by_delta, grown, at_pot = {}, 0, 0
+    for pid in pairs(pids) do
+        local rec = recs[pid]
+        if rec then
+            local pot = util.to_int(db.get(ptbl, rec, "potential")) or 0
+            local ovr = util.to_int(db.get(ptbl, rec, "overallrating")) or 0
+            local d = math.min(points, pot - ovr)
+            if d <= 0 then
+                at_pot = at_pot + 1
+            else
+                by_delta[d] = by_delta[d] or {}
+                table.insert(by_delta[d], pid)
+            end
+        end
+    end
+    local fails = {}
+    for d, list in pairs(by_delta) do
+        table.sort(list)
+        local ok, msg = dev.run({ cfg = { scope = { playerids = list }, mode = "add", delta = d, confirm = true }, dry = ctx.dry })
+        if ok then grown = grown + #list else fails[#fails + 1] = tostring(msg) end
+    end
+    local text = string.format("+%d on %d players (%d already at potential; Turbo's development, plans updated)", points, grown,
+        at_pot)
+    if #fails > 0 then text = text .. "; failed: " .. table.concat(fails, "; ") end
+    return #fails == 0, text
+end
+
+-- Match XP: the multiplier; with dev_bonus in the same run, the bonus goes in the same call (one entry per player).
+-- Without the manager (FC 27 has no match XP field): a one-off +1 growth.
 local function action_match_xp(ctx, pids)
+    if not le_dev_manager() then
+        local ok, text = growth(ctx, pids, 1)
+        return ok, "one-off growth " .. text .. " (no Live Editor development manager, FC 27 has no match XP field)"
+    end
     local bonus = 0
     if ctx.team_mass_both_dev then
         local b, err = bonus_of(ctx)
@@ -343,12 +401,8 @@ end
 local function action_dev_bonus(ctx, pids)
     local b, err = bonus_of(ctx)
     if not b then return false, err end
-    if ctx.team_mass_both_dev then
-        if type(PlayerDevelopmentManagerAddPlayer) ~= "function" then
-            return false, "Live Editor's development manager is not available in this Live Editor build (v27.1.2 has none)"
-        end
-        return true, string.format("bonus %d XP given with match XP (same call)", b)
-    end
+    if not le_dev_manager() then return growth(ctx, pids, b) end
+    if ctx.team_mass_both_dev then return true, string.format("bonus %d XP given with match XP (same call)", b) end
     return dev_entry(ctx, pids, 1.0, b)
 end
 
