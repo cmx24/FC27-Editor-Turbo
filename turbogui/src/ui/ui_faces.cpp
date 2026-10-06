@@ -4,12 +4,15 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <deque>
 #include <fstream>
 #include <iterator>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "app.h"
 #include "core/image.h"
+#include "core/player_capture.h"
 #include "imgui.h"
 #include "ui_faces.h"
 
@@ -316,6 +319,227 @@ static void facet_button(App& app, Chooser& ch, const std::vector<Face>& list, c
     ImGui::EndPopup();
 }
 
+// ---------------------------------------------------------------- 3D heads (the game renders each head from its 3D model)
+// The chooser asks the capture service (app.capture, docs/re/player_capture.md) for the heads on screen, one request in
+// flight, never waiting for it: each frame polls once. A render is saved as a 256 x 256 DXT5 DDS in
+// turbo_output/cache/faces3d (p_<playerid>.dds, m_<headid>.dds) and drawn instead of the miniface from then on (kept
+// across sessions). "Render all filtered heads" queues the whole filtered list.
+namespace {
+struct Head3d {
+    bool manager = false;
+    int32_t id = 0;  // playerid, or the head id for a manager head (what the game renders)
+    std::string label;
+};
+struct Render3d {
+    std::deque<Head3d> queue;
+    std::unordered_set<int64_t> queued;
+    std::unordered_map<int64_t, bool> cached;  // file exists (checked once per head)
+    bool pending = false;
+    Head3d cur;
+    double since = 0.0;
+    bool batch = false;  // "Render all filtered heads" running
+    size_t batch_total = 0, batch_done = 0, failed = 0;
+    std::string note;
+};
+Render3d g_r3d;
+constexpr size_t kVisibleQueueMax = 3 * capture::kMaxPlayersPerRequest;  // heads on screen waiting (not a batch)
+constexpr double kRenderTimeout = 20.0;                                     // seconds before a render is given up
+}  // namespace
+
+static int64_t head3d_key(bool manager, int64_t id) { return (manager ? (int64_t(1) << 40) : 0) + id; }
+static fs::path faces3d_dir(App& app) { return app.legacy.cache_dir().parent_path() / "faces3d"; }
+static fs::path face3d_file(App& app, bool manager, int64_t id) {
+    return faces3d_dir(app) / ((manager ? "m_" : "p_") + std::to_string(id) + ".dds");
+}
+// The id the game renders for a head of the chooser: players their playerid, managers their head id
+static int64_t head3d_id(const Face& f) { return f.manager ? f.headassetid : f.id; }
+
+static bool face3d_cached(App& app, bool manager, int64_t id) {
+    const int64_t k = head3d_key(manager, id);
+    auto it = g_r3d.cached.find(k);
+    if (it != g_r3d.cached.end()) return it->second;
+    std::error_code ec;
+    const bool ok = fs::is_regular_file(face3d_file(app, manager, id), ec);
+    g_r3d.cached[k] = ok;
+    return ok;
+}
+
+static bool capture_usable(App& app) {
+    if (!app.capture) return false;
+    return app.capture->status().installed;
+}
+
+static void queue_head3d(App& app, const Face& f, bool front) {
+    const int64_t id = head3d_id(f);
+    if (id <= 0 || face3d_cached(app, f.manager, id)) return;
+    const int64_t k = head3d_key(f.manager, id);
+    if (g_r3d.queued.count(k)) return;
+    if (g_r3d.pending && g_r3d.cur.manager == f.manager && g_r3d.cur.id == id) return;
+    Head3d h;
+    h.manager = f.manager;
+    h.id = static_cast<int32_t>(id);
+    h.label = f.name;
+    if (front) g_r3d.queue.push_front(h);
+    else g_r3d.queue.push_back(h);
+    g_r3d.queued.insert(k);
+}
+
+static bool save_head3d(App& app, const Head3d& h, const Rgba& img, std::string* err) {
+    if (img.empty()) {
+        if (err) *err = "empty picture";
+        return false;
+    }
+    std::error_code ec;
+    fs::create_directories(faces3d_dir(app), ec);
+    const Rgba sq = frame_image(img, 256, Framing{});
+    const std::vector<uint8_t> dds = encode_dds_dxt5(sq);
+    const fs::path f = face3d_file(app, h.manager, h.id);
+    fs::path tmp = f;
+    tmp += ".tmp";
+    {
+        std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
+        if (!o) {
+            if (err) *err = "cannot write " + tmp.string();
+            return false;
+        }
+        o.write(reinterpret_cast<const char*>(dds.data()), static_cast<std::streamsize>(dds.size()));
+        if (!o) {
+            if (err) *err = "cannot write " + tmp.string();
+            return false;
+        }
+    }
+    fs::rename(tmp, f, ec);
+    if (ec) {
+        if (err) *err = ec.message();
+        return false;
+    }
+    app.textures.forget(f);
+    g_r3d.cached[head3d_key(h.manager, h.id)] = true;
+    return true;
+}
+
+// Once per frame of the chooser: collect a finished render, or send the next one (never waits)
+static void tick_head3d(App& app) {
+    capture::CaptureService* svc = app.capture.get();
+    if (!svc) return;
+    const double now = ImGui::GetTime();
+    if (g_r3d.pending) {
+        capture::Result r;
+        if (svc->poll(r)) {
+            g_r3d.pending = false;
+            if (g_r3d.batch) ++g_r3d.batch_done;
+            std::string err;
+            if (r.ok && r.id == g_r3d.cur.id && save_head3d(app, g_r3d.cur, r.image, &err)) {
+                g_r3d.note.clear();
+            } else {
+                ++g_r3d.failed;
+                g_r3d.note = g_r3d.cur.label + ": " + (r.ok ? (r.id != g_r3d.cur.id ? std::string("answer for another id") : err) : r.error);
+            }
+        } else if (now - g_r3d.since > kRenderTimeout) {
+            svc->cancel();
+            g_r3d.pending = false;
+            if (g_r3d.batch) ++g_r3d.batch_done;
+            ++g_r3d.failed;
+            g_r3d.note = g_r3d.cur.label + ": no answer from the game";
+        }
+        return;
+    }
+    if (g_r3d.queue.empty()) {
+        g_r3d.batch = false;
+        return;
+    }
+    const capture::Status st = svc->status();
+    if (!st.installed || !st.available || st.busy) return;
+    Head3d h = g_r3d.queue.front();
+    g_r3d.queue.pop_front();
+    g_r3d.queued.erase(head3d_key(h.manager, h.id));
+    if (face3d_cached(app, h.manager, h.id)) {
+        if (g_r3d.batch) ++g_r3d.batch_done;
+        return;
+    }
+    capture::Request req;
+    req.id = h.id;
+    req.manager = h.manager;
+    req.camera = 0;  // portrait: the game's card / manager head framing
+    req.use_template = true;
+    req.label = h.label;
+    std::string err;
+    if (svc->request(req, &err)) {
+        g_r3d.pending = true;
+        g_r3d.cur = h;
+        g_r3d.since = now;
+    } else {
+        if (g_r3d.batch) ++g_r3d.batch_done;
+        ++g_r3d.failed;
+        g_r3d.note = h.label + ": " + err;
+    }
+}
+
+static void stop_head3d() {
+    g_r3d.queue.clear();
+    g_r3d.queued.clear();
+    g_r3d.batch = false;
+}
+
+// A grid cell drawing the 3D render (cached file); true when clicked
+static bool face3d_cell(App& app, const fs::path& file, float cell, const std::string& caption, const char* id) {
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float line = ImGui::GetTextLineHeightWithSpacing();
+    const bool clicked = ImGui::InvisibleButton(id, ImVec2(cell, cell + line));
+    const bool hov = ImGui::IsItemHovered();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    if (hov) dl->AddRectFilled(p, ImVec2(p.x + cell, p.y + cell + line), ImGui::GetColorU32(ImGuiCol_HeaderHovered));
+    ImGui::SetCursorScreenPos(p);
+    draw_file_picture(app, file, cell);
+    const ImVec4 clip(p.x, p.y + cell, p.x + cell, p.y + cell + line);
+    dl->AddText(nullptr, 0.0f, ImVec2(p.x + 2.0f, p.y + cell + 1.0f), ImGui::GetColorU32(ImGuiCol_Text), caption.c_str(), nullptr, 0.0f, &clip);
+    ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + cell + line));
+    ImGui::Dummy(ImVec2(cell, 0.0f));
+    return clicked;
+}
+
+// "Render all filtered heads" / progress / Stop, or why the 3D heads are off
+static void head3d_bar(App& app, const std::vector<const Face*>& rows) {
+    if (!capture_usable(app)) {
+        ImGui::TextDisabled("3D heads off (the game's capture hooks are not running): showing the minifaces.");
+        return;
+    }
+    if (g_r3d.batch) {
+        const size_t total = std::max<size_t>(g_r3d.batch_total, 1);
+        const size_t done = std::min(g_r3d.batch_done, total);
+        char ov[96];
+        std::snprintf(ov, sizeof(ov), "3D renders %zu / %zu", done, total);
+        ImGui::ProgressBar(float(done) / float(total), ImVec2(S(260.0f), 0.0f), ov);
+        ImGui::SameLine();
+        if (ImGui::Button("Stop##r3d")) stop_head3d();
+    } else {
+        size_t missing = 0;
+        for (const Face* f : rows)
+            if (head3d_id(*f) > 0 && !face3d_cached(app, f->manager, head3d_id(*f))) ++missing;
+        if (missing > 0) {
+            char bl[96];
+            std::snprintf(bl, sizeof(bl), "Render all filtered heads (%zu)##r3dall", missing);
+            if (ImGui::Button(bl)) {
+                g_r3d.queue.clear();
+                g_r3d.queued.clear();
+                for (const Face* f : rows) queue_head3d(app, *f, false);
+                g_r3d.batch = true;
+                g_r3d.batch_total = g_r3d.queue.size();
+                g_r3d.batch_done = 0;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Asks the game to render each filtered head from its 3D model, one at a time, in the background.\n"
+                                  "Renders are kept in %s", faces3d_dir(app).string().c_str());
+        } else {
+            ImGui::TextDisabled("Every filtered head has its 3D render.");
+        }
+    }
+    if (g_r3d.failed > 0 || !g_r3d.note.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%zu failed%s%s", g_r3d.failed, g_r3d.note.empty() ? "" : ", last: ", g_r3d.note.c_str());
+    }
+}
+
 // Filters, sort, what to copy, and the grid of heads. Returns the head clicked (nullptr when none).
 static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
     const bool mheads = manager_target && ch.manager_heads;
@@ -400,6 +624,9 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
                         mheads ? "managers' heads with their minifaces"
                                : (ch.real_only ? "real-face players with their minifaces" : "every player with a head model"));
 
+    const bool use3d = capture_usable(app);
+    tick_head3d(app);
+    head3d_bar(app, rows);
     const float cell = S(96.0f);
     const Face* picked = nullptr;
     ImGui::BeginChild("##facegrid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 2.2f), ImGuiChildFlags_Borders);
@@ -418,15 +645,29 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
                 ImGui::PushID(static_cast<int>(f->id));
                 char bid[48];
                 std::snprintf(bid, sizeof(bid), "%s%lld", f->manager ? "mface" : "face", static_cast<long long>(f->id));
-                if (picture_cell(app, face_picture(*f), false, cell, f->name, bid, false)) picked = f;
+                const int64_t rid = head3d_id(*f);
+                const bool has3d = use3d && rid > 0 && face3d_cached(app, f->manager, rid);
+                const ImVec2 cp = ImGui::GetCursorScreenPos();
+                if (has3d) {
+                    if (face3d_cell(app, face3d_file(app, f->manager, rid), cell, f->name, bid)) picked = f;
+                } else {
+                    if (picture_cell(app, face_picture(*f), false, cell, f->name, bid, false)) picked = f;
+                    if (use3d && rid > 0) {
+                        if (!g_r3d.batch && g_r3d.queue.size() < kVisibleQueueMax) queue_head3d(app, *f, true);  // on screen: first
+                        ImGui::GetWindowDrawList()->AddText(ImVec2(cp.x + 3.0f, cp.y + 2.0f), ImGui::GetColorU32(ImGuiCol_TextDisabled), "3D pending");
+                    }
+                }
                 if (ImGui::IsItemHovered()) {
                     std::string traits;
                     for (int k = 0; k < faces::kFacetCount; ++k) {
                         const Facet fc = faces::facet_order()[k];
                         if (f->raw[fc] >= 0) traits += std::string("\n") + faces::facet_title(fc) + ": " + faces::trait_label(fc, f->raw[fc]);
                     }
-                    ImGui::SetTooltip("%s\n%s %lld, head %lld%s", f->name.c_str(), f->manager ? "manager" : "player",
-                                      static_cast<long long>(f->id), static_cast<long long>(f->headassetid), traits.c_str());
+                    ImGui::BeginTooltip();
+                    if (has3d) draw_file_picture(app, face3d_file(app, f->manager, rid), S(256.0f));  // big preview of the 3D render
+                    ImGui::Text("%s\n%s %lld, head %lld%s", f->name.c_str(), f->manager ? "manager" : "player",
+                                static_cast<long long>(f->id), static_cast<long long>(f->headassetid), traits.c_str());
+                    ImGui::EndTooltip();
                 }
                 ImGui::PopID();
                 ImGui::EndGroup();

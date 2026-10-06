@@ -1,7 +1,8 @@
 // FC 27 LE Turbo GUI - filters of the real-face chooser (players and managers): ethnicity, skin tone, hair colour,
 // hair, facial hair, facial hair colour, eye colour and gender of each head, with readable labels, counts and sort orders.
-// Every menu has at most kMaxBuckets choices besides "Any": the game's values are grouped into a few looks (skin tones,
-// hair colours, eye colours, and the hair and facial hair styles, whose looks come from the game's own previews: face_looks.h).
+// Skin tone, hair colour, facial hair colour and eye colour filter on the game's exact codes (Live Editor's names); the
+// hair and facial hair styles are grouped into kMaxBuckets looks from the game's own previews (face_looks.h); ethnicity
+// groups the head type ranges.
 // Platform independent (no ImGui): the chooser in ui_faces.cpp draws it, the native tests check it.
 //
 // Fields (players and manager tables, FC 27): headtypecode, skintonecode, haircolorcode, hairtypecode,
@@ -16,7 +17,7 @@
 namespace turbo::faces {
 
 enum Facet { kEthnicity, kSkin, kHairColour, kHair, kBeard, kBeardColour, kEyes, kGender, kFacetCount };
-constexpr int kMaxBuckets = 5;         // choices per filter menu besides "Any" (and per sort menu)
+constexpr int kMaxBuckets = 5;         // looks per style menu (hair, facial hair), ethnicity groups, sort menu entries
 
 constexpr int64_t kAny = INT64_MIN;    // no filter on that facet
 constexpr int64_t kNoValue = -1;       // the table has no such field (the head never matches a filter on it)
@@ -33,11 +34,14 @@ struct Face {
 
 const char* facet_title(Facet f);   // "Ethnicity", "Skin tone", ..., "Gender"
 const char* facet_field(Facet f);   // the database field: "headtypecode", "skintonecode", ...
-// The bucket a field value falls in (1 .. kMaxBuckets; gender: the value; facial hair: 0 clean-shaven .. 4 full beard)
+// The filter key of a field value: skin tone, hair / facial hair / eye colour: the exact code; ethnicity and the styles:
+// their group (1 .. kMaxBuckets; facial hair: 0 clean-shaven .. 4 full beard); gender: the value
 int64_t facet_key(Facet f, int64_t raw);
-// Readable label of a key: "Very light", "Brown", "Tied, braids & dreads", "Clean-shaven", "Female", ...
+// true when the facet filters on the game's exact codes (skin tone, hair colour, facial hair colour, eye colour)
+bool facet_exact(Facet f);
+// Readable label of a key: "Caucasian 2", "Dark Brown", "Hazel", "Tied, braids & dreads", "Clean-shaven", "Female", ...
 std::string key_label(Facet f, int64_t key);
-// A head's own value for its tooltip: the bucket and, for codes, the code ("Brown (Dark Brown)", "Short beard (style 250)")
+// A head's own value for its tooltip: the label and the code ("Dark Brown (code 3)", "Short beard (style 250)")
 std::string trait_label(Facet f, int64_t raw);
 // The order the chooser shows the filter buttons in (gender first)
 const Facet* facet_order();
