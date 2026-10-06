@@ -47,7 +47,7 @@ static bool is_appearance_field(const std::string& n) {
     static const char* prefixes[] = {"head", "hair", "facial", "eye", "skin", "tattoo", "sock", "shoe", "jersey",
                                      "glove", "gkglove", "accessory", "body", "sideburns", "lip", "nose", "ear",
                                      "hasseasonal", "hashigh", "animfreekick", "animpenalties", "runningcode",
-                                     "faceposer", "smallsided"};
+                                     "faceposer", "smallsided", "shortstyle", "undershortstyle", "muscularity"};
     for (const char* p : prefixes) {
         if (n.compare(0, std::strlen(p), p) == 0) return true;
     }
@@ -1059,8 +1059,8 @@ static void player_editor(App& app) {
             ImGui::SeparatorText("Head");
             if (ImGui::Button("Choose a real face...")) ImGui::OpenPopup("Choose a real face");
             ImGui::SameLine();
-            ImGui::TextDisabled("head asset %lld, head class %lld", static_cast<long long>(app.db.get_int(*t, p->rec, "headassetid", 0)),
-                                static_cast<long long>(app.db.get_int(*t, p->rec, "headclasscode", 0)));
+            ImGui::TextDisabled("head asset %lld, head class %s", static_cast<long long>(app.db.get_int(*t, p->rec, "headassetid", 0)),
+                                code_value_text("headclasscode", app.db.get_int(*t, p->rec, "headclasscode", 0)).c_str());
             real_face_picker(app, p->playerid);
             ImGui::SeparatorText("Tattoos");
             tattoo_editor(app, *t, p->rec);

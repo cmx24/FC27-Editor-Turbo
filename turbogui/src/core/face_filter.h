@@ -8,7 +8,8 @@
 // Fields (players and manager tables, FC 27): headtypecode, skintonecode, haircolorcode, hairtypecode,
 // facialhairtypecode, facialhaircolorcode, eyecolorcode, gender (0 male, 1 female). FC 27 has no ethnicity field on players or managers:
 // "Ethnicity" groups the head type (headtypecode) in the game's ranges of 500 (see kEthnicGroups in face_filter.cpp).
-// Labels: Live Editor's own (loc/eng_us/localize.json: skintonecode_1..10, haircolor_0..14, eyecolor_1..10).
+// Labels: Live Editor's own (loc/eng_us/localize.json: skintonecode_1..10, haircolor_0..14, eyecolor_1..10); FC 27's
+// hair colours 15..27 as core/field_labels.h describes them.
 //
 // 3D looks (core/face3d_looks.h): for real faces the game takes hair, beard, skin and eyes from the face scan, so the codes
 // above do not describe the 3D head the chooser shows. Player heads with a 3D look (set_look) carry the 3D facets: Skin

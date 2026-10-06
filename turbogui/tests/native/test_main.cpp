@@ -72,6 +72,7 @@
 #include "ui/ui_images.h"
 #include "ui/ui_presets.h"
 #include "core/teamnames.h"
+#include "fixture_player_codes.h"
 #include "test_pictures.h"
 
 namespace fs = std::filesystem;
@@ -254,17 +255,114 @@ static void test_field_labels() {
         using namespace turbo::labels;
         CHECK(code_text("role1", 1, "Role") == "GK Goalkeeper+", "role 1 is GK Goalkeeper+");
         CHECK(code_text("role9", 113, "Role") == "CB Ball-Playing Defender++", "role 113 is the ++ variant");
-        CHECK(code_text("role2", 9999, "Role") == "Unknown (code 9999)", "unknown role names its code");
+        CHECK(code_text("role2", 9999, "Role") == "Code 9999" && code_label("role2", 9999, "Role").kind == Kind::Code,
+              "a code nothing names reads Code N");
         CHECK(code_text("emotion", 5, "Emotion") == "Volcano", "emotion 5 is Volcano (LE localization)");
         CHECK(code_text("bodytypecode", 4, "Body") == "Tall and Lean", "body type 4");
         CHECK(code_text("haircolorcode", 0, "Hair colour") == "Black", "hair colour 0");
         CHECK(code_text("accessorycode3", 16, "Accessory") == "Gloves", "accessorycode3 uses the accessory table");
-        CHECK(code_text("hairtypecode", 0, "Hair") == "Bald / buzz cut #0", "hair style carries its look");
-        CHECK(code_text("hairtypecode", 5, "Hair") == "Long hair #5", "hair 5 is long");
+        // hair styles: the hair catalog's look from the game's previews (else the face_looks.h class)
+        const hair::Style* h5 = hair::find(5);
+        CHECK(code_text("hairtypecode", 5, "Hair") == (h5 && h5->classified ? hair::describe(*h5) + " #5" : std::string("Long hair #5")),
+              "hair style 5 carries its look: " + code_text("hairtypecode", 5, "Hair"));
         CHECK(code_text("facialhairtypecode", 31, "Facial hair") == "Full beard #31", "facial hair 31 is a full beard");
-        CHECK(code_text("shoetypecode", 123, "Boots") == "Boots #123", "boots get a text descriptor");
         CHECK(is_code_field("role4") && is_code_field("shoecolorcode2") && is_code_field("eyebrowcode"), "code fields");
         CHECK(!is_code_field("height") && !is_code_field("overallrating") && !is_code_field("modifier"), "numbers stay numbers");
+    });
+
+    run_case("field labels: FC 27 appearance codes (unique body types, skin tones, hair palette, boots, stances, heads)", [] {
+        using namespace turbo::labels;
+        auto has = [](const std::vector<int64_t>& v, int64_t x) { return std::find(v.begin(), v.end(), x) != v.end(); };
+        // body types: Live Editor's generic ones, the player-specific ones by who uses them in the FC 27 database
+        CHECK(code_text("bodytypecode", 16, "Body type") == "Unique: Cristiano Ronaldo" && code_text("bodytypecode", 10, "Body type") == "Unique: Lionel Messi" &&
+                  code_label("bodytypecode", 16, "Body type").kind == Kind::Described,
+              "unique body types: " + code_text("bodytypecode", 16, "Body type"));
+        CHECK(code_text("bodytypecode", 260, "Body type") == "Unique: Nélson Semedo, Kyle Walker-Peters", "a body type two players share lists both, best-rated first");
+        CHECK(code_text("bodytypecode", 499, "Body type") == "Code 499", "a body type nothing knows reads Code N");
+        const CodeUsers live{2, "Ann Example"};
+        CHECK(code_text("bodytypecode", 499, "Body type", &live) == "Unique: Ann Example +1 more" &&
+                  code_text("bodytypecode", 16, "Body type", &live) == "Unique: Cristiano Ronaldo",
+              "the loaded database names a body type the generated data does not know (and never overrides it)");
+        const std::vector<int64_t> bodies = offered_codes("bodytypecode", {}, 3);
+        CHECK(bodies.size() >= 130 && bodies[0] == 1 && bodies[9] == 11 && has(bodies, 16) && has(bodies, 437),
+              fmt("body type combo: the 10 generic first, then every unique one of the database (%zu)", bodies.size()));
+        CHECK(has(offered_codes("bodytypecode", {}, 511), 511) && has(offered_codes("bodytypecode", {498}, 3), 498),
+              "the current value and the loaded table's codes are always offered");
+        // skin tone: FC 27 stores 10 .. 100
+        CHECK(code_text("skintonecode", 20, "") == "Caucasian 2" && code_text("skintonecode", 100, "") == "African 3" &&
+                  code_text("skintonecode", 2, "") == "Skin tone 2 (near Caucasian 1)" && code_text("skintonecode", 46, "") == "Skin tone 46 (near Latin Asian 2)",
+              "skin tones (FC 27: 10 .. 100)");
+        CHECK(offered_codes("skintonecode", {}, 20) == std::vector<int64_t>({10, 20, 30, 40, 50, 60, 70, 80, 90, 100}), "skin tone combo: the ten");
+        // hair colours 15 .. 27 and the facial hair colours (the hair palette)
+        CHECK(code_text("haircolorcode", 21, "") == "Jet Black" && code_label("haircolorcode", 21, "").kind == Kind::Described &&
+                  code_text("haircolorcode", 27, "") == "Copper" && code_text("haircolorcode", 28, "") == "Code 28",
+              "FC 27 hair colours 15 .. 27");
+        CHECK(code_text("facialhaircolorcode", 4, "") == "Light Blonde" && code_text("facialhaircolorcode", 7, "") == "Red" &&
+                  code_text("facialhaircolorcode", 21, "") == "Jet Black" && offered_codes("facialhaircolorcode", {}, 0).size() == 28,
+              "facial hair colours use the hair palette (28)");
+        CHECK(faces::key_label(faces::kHairColour, 21) == "Jet Black" && faces::key_label(faces::kBeardColour, 16) == "Golden Blonde",
+              "the real-face chooser uses the same names");
+        // kit and boots
+        CHECK(code_text("shoecolorcode1", 30, "") == "Dark Red" && code_text("shoecolorcode2", 31, "") == "Light Green", "boot colours (LE)");
+        CHECK(code_text("hasseasonaljersey", 3, "") == "Seasonal Undershirt", "seasonal jersey (LE)");
+        CHECK(code_text("shoetypecode", 16, "Boots") == "Adidas boots #16" && code_text("shoetypecode", 0, "Boots") == "Generic boots #0" &&
+                  code_text("shoetypecode", 460, "Boots") == "Boots #460",
+              "boots: the brand of the id, else Boots #id");
+        CHECK(code_text("gkglovetypecode", 0, "") == "Default" && code_text("gkglovetypecode", 37, "") == "Reusch GK gloves #37" &&
+                  code_text("gkglovetypecode", 999, "") == "GK gloves #999",
+              "GK gloves: " + code_text("gkglovetypecode", 37, ""));
+        CHECK(has(offered_codes("shoetypecode", {}, 0), 389) && has(offered_codes("gkglovetypecode", {}, 0), 150), "every boot and glove id with a brand is offered");
+        // stances and running animations: 0 standard, the others by their players
+        CHECK(code_text("animfreekickstartposcode", 0, "") == "Standard" && code_text("animfreekickstartposcode", 4, "") == "Free kick stance 4: Lionel Messi",
+              "free kick stances: " + code_text("animfreekickstartposcode", 4, ""));
+        CHECK(code_text("animpenaltiesstartposcode", 1, "").find(" +127 more") != std::string::npos &&
+                  code_text("runningcode2", 99, "") == "Running animation 2 #99",
+              "many users: the best three and how many more; an unknown animation keeps its descriptor");
+        // heads, eyebrows, tattoos
+        CHECK(code_text("headtypecode", 1003, "") == "Head type 1003 (African)" && code_text("headtypecode", 12, "") == "Head type 12 (European)",
+              "head types carry their group: " + code_text("headtypecode", 1003, ""));
+        CHECK(code_text("eyebrowcode", 30101, "") == "Eyebrows 3, variant 1-1" && code_text("eyebrowcode", 2150000, "") == "Eyebrows 215" &&
+                  code_text("eyebrowcode", 7, "") == "Eyebrows #7",
+              "eyebrows by their parts");
+        CHECK(code_text("tattoohead", 0, "Tattoo: head") == "None" && code_text("tattoohead", 12, "Tattoo: head") == "Tattoo #12", "tattoos");
+    });
+
+    // Every value the real FC 27 players table holds (fixture_player_codes.h, from Turbo's export of 21340 players) in
+    // the fields the editor shows as combos: never an empty label, never a bare number, always offered by the combo
+    run_case("field labels: every code of the FC 27 database reads as text and is offered (fixture of the real players table)", [] {
+        auto bare = [](const std::string& s) {
+            return !s.empty() && s.find_first_not_of("-0123456789") == std::string::npos;
+        };
+        auto is_code_n = [](const std::string& s) { return s.rfind("Code ", 0) == 0 && s.find_first_not_of("0123456789", 5) == std::string::npos; };
+        size_t fields = 0, values = 0, named = 0, described = 0, code_n = 0, empty = 0, numbers = 0, missing = 0;
+        std::string code_fields;
+        for (const FixtureCodes& fc : kPlayerCodes) {
+            if (!is_enum_field(fc.field)) continue;
+            ++fields;
+            size_t field_codes = 0;
+            for (int64_t v : fc.values) {
+                ++values;
+                const std::string s = code_value_text(fc.field, v);
+                if (s.empty()) ++empty;
+                if (bare(s)) ++numbers;
+                if (is_code_n(s)) ++code_n, ++field_codes;
+                else if (enum_label(fc.field, v)) ++named;
+                else ++described;
+                // the codes the combo offers from the labels alone (no loaded table) when the player has this value
+                const std::vector<int64_t> offered = labels::offered_codes(fc.field, {}, v);
+                if (std::find(offered.begin(), offered.end(), v) == offered.end()) ++missing;
+            }
+            if (field_codes) code_fields += fmt(" %s(%zu)", fc.field, field_codes);
+        }
+        std::printf("      %zu fields, %zu values: %zu named, %zu described, %zu Code N:%s\n", fields, values, named, described, code_n,
+                    code_fields.c_str());
+        CHECK(fields >= 60 && values >= 2500, fmt("fixture covers the code fields (%zu fields, %zu values)", fields, values));
+        CHECK(empty == 0 && numbers == 0, fmt("no empty label (%zu), no bare number (%zu)", empty, numbers));
+        CHECK(missing == 0, fmt("every value is offered by its combo (%zu missing)", missing));
+        // only Turbo's small enumerations without a source for some values may still read Code N
+        CHECK(code_fields.find("bodytypecode") == std::string::npos && code_fields.find("colorcode") == std::string::npos &&
+                  code_fields.find("role") == std::string::npos && code_fields.find("accessory") == std::string::npos,
+              "every appearance code of the database has a name or a description:" + code_fields);
     });
 }
 
@@ -3566,6 +3664,45 @@ static void test_ui() {
             CHECK(want.find("data/ui/imgAssets/hairstyle/item_3261_0.dds") != std::string::npos, "previews asked from the game: " + want);
         });
 
+        // the code combos offer what the loaded table uses and name player-specific codes by their players: 1001 has
+        // Cristiano Ronaldo's body type (16, generated labels), 1002 has 499, which only this database has
+        run_case("UI: appearance combos: unique body types by their players, the loaded table's codes, the current value", [&] {
+            auto has = [](const std::vector<int64_t>& v, int64_t x) { return std::find(v.begin(), v.end(), x) != v.end(); };
+            const Table* t = app.db.table("players");
+            const Field* bf = t ? t->field("bodytypecode") : nullptr;
+            CHECK(bf != nullptr, "bodytypecode in the test players table");
+            if (!bf) return;
+            const auto& used = values_in_use(app, *t, *bf);
+            auto u499 = used.find(499);
+            CHECK(u499 != used.end() && u499->second.players == 1 && u499->second.names == app.model.player_name(1002) && used.count(16),
+                  "values in use with their players");
+            CHECK(code_value_text("bodytypecode", 16) == "Unique: Cristiano Ronaldo", "16: the generated labels' player");
+            CHECK(u499 != used.end() && code_value_text("bodytypecode", 499, &u499->second) == "Unique: " + app.model.player_name(1002),
+                  "499: the loaded database's player");
+            const std::vector<int64_t> bodies = code_value_list(app, *t, *bf, 3);
+            CHECK(bodies.size() > 100 && bodies[0] == 1 && has(bodies, 16) && has(bodies, 437) && has(bodies, 499),
+                  "generic body types first, then every unique one (the database's and this table's)");
+            CHECK(has(code_value_list(app, *t, *bf, 511), 511), "the current value is offered even when nothing knows it");
+            // boots: the loaded table's ids (600 + i, no brand) with the brand ids; a small unnamed field: its whole range
+            const std::vector<int64_t> boots = code_value_list(app, *t, *t->field("shoetypecode"), 601);
+            CHECK(has(boots, 601) && has(boots, 612) && has(boots, 16) && code_value_text("shoetypecode", 601) == "Boots #601", "boots");
+            const std::vector<int64_t> variations = code_value_list(app, *t, *t->field("headvariation"), 1);
+            CHECK(variations.size() == 32 && variations.front() == 0 && variations.back() == 31, fmt("head variation 0 .. 31 (%zu)", variations.size()));
+            // Players > Profile > Roles and body: 1003 (Tall and Lean) picks Cristiano Ronaldo's body type from the combo
+            CHECK(ui.click("1003", "##plist"), "player 1003");
+            CHECK(ui.click("Profile", "##pedit"), "Profile tab");
+            ui.frames(2);
+            const ItemRec* combo = ui.find("##e", "##prof", "bodytypecode");
+            CHECK(combo != nullptr, "body type combo");
+            CHECK(ui.click(combo), "open the body type combo");
+            ui.frames(2);
+            CHECK(ui.find("Tall and Lean##4", "##Combo") != nullptr, "the generic body types are listed by Live Editor's names");
+            uint64_t rec = app.db.find(*t, "playerid", 1003);
+            CHECK(ui.click("Unique: Cristiano Ronaldo##16", "##Combo"), "pick Cristiano Ronaldo's body type");
+            CHECK(app.db.get_int(*t, rec, "bodytypecode") == 16, "bodytypecode = 16");
+            CHECK(app.undo(1003) && app.db.get_int(*t, rec, "bodytypecode") == 4, "undo");
+        });
+
         run_case("UI: Teams, squad jersey edit, jump to player", [&] {
             CHECK(ui.click("Teams"), "Teams tab");
             CHECK(ui.click("7", "##tlist"), "Everton row");
@@ -4817,7 +4954,8 @@ static void test_ui() {
                       bucket(kSkin, 55) == "Skin tone 55" && facet_key(kSkin, 20) != facet_key(kSkin, 10) && trait_label(kSkin, 20) == "Caucasian 2 (code 20)",
                   "exact skin tones (FC 27: 10..100, Live Editor's names)");
             CHECK(bucket(kHairColour, 0) == "Black" && bucket(kHairColour, 3) == "Dark Brown" && bucket(kHairColour, 4) == "Light Blonde" &&
-                      bucket(kHairColour, 12) == "Ginger" && bucket(kHairColour, 9) == "Silver" && bucket(kHairColour, 21) == "Colour 21" &&
+                      bucket(kHairColour, 12) == "Ginger" && bucket(kHairColour, 9) == "Silver" && bucket(kHairColour, 21) == "Jet Black" &&
+                      bucket(kHairColour, 40) == "Colour 40" &&
                       facet_key(kHairColour, 5) != facet_key(kHairColour, 6) && bucket(kBeardColour, 7) == "Red" &&
                       trait_label(kHairColour, 3) == "Dark Brown (code 3)", "exact hair colours");
             // facial hair looks (face_looks.h, from the game's previews); 68 and 999 show no facial hair in the game

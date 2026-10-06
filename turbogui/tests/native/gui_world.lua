@@ -219,6 +219,7 @@ local function build_world(sim)
             headclasscode = (i <= 6) and 0 or 1, headtypecode = 100 + i, headvariation = i % 4, skintonecode = i,
             facialhairtypecode = (i % 3 == 0) and 0 or (240 + i), facialhaircolorcode = i % 4, eyecolorcode = 1 + i % 3, gender = (i == 5) and 1 or 0,  -- real-face chooser filters
             tattooleftarm = 0, tattoohead = 0,
+            bodytypecode = (i == 1) and 16 or ((i == 2) and 499 or (1 + i % 9)),  -- 16: a unique body type the generated labels know; 499: one only this database has
             contractvaliduntil = 2028 + (i % 3), isretiring = (i == 3) and 1 or 0, nationality = 14,
         }
         for k, tid in ipairs(p[5]) do
@@ -279,6 +280,7 @@ local function build_world(sim)
             { name = "gender", short = "gndr", depth = 1 },
             { name = "tattooleftarm", short = "tla_", depth = 10 },
             { name = "tattoohead", short = "thd_", depth = 10 },
+            { name = "bodytypecode", short = "btc_", depth = 9, min = 1 },
             { name = "contractvaliduntil", short = "cvu_", depth = 11 },
             { name = "isretiring", short = "iret", depth = 1 },
             { name = "nationality", short = "nat_", depth = 8 },

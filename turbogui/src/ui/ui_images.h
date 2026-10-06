@@ -66,6 +66,9 @@ struct GearPictureIndex {
 const GearPictureIndex& gear_pictures(App& app);
 // Every gallery picture (players' and managers' gear, tattoos) the game has, for the background loading (ui/preload.h)
 std::vector<std::string> gallery_preload_paths(App& app);
+// The item ids the game has a picture for in a field's gallery (hair, facial hair, boots, gloves, accessories, outfits,
+// tattoos), which its code combo offers too; empty for any other field
+std::vector<int64_t> gallery_codes(App& app, const std::string& field);
 // Status tab: picture cache
 void images_status(App& app);
 

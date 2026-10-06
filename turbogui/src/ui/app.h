@@ -37,6 +37,9 @@ namespace voice {
 class Service;  // core/callname_voice.h
 }
 class Preloader;  // ui/preload.h (background loading)
+namespace labels {
+struct CodeUsers;  // core/field_labels.h
+}
 
 constexpr const char* kGuiVersion = "1.2.4";
 
@@ -408,5 +411,14 @@ bool enum_editor(App& app, const Table& t, uint64_t rec, const Field& f, const c
 // Labels for enumerated fields: nullptr when the field is not enumerated; label for value v, or nullptr
 const char* enum_label(const std::string& field, int64_t v);
 bool is_enum_field(const std::string& field);
+// Text of a code field's value as its combo shows it, never empty and never a bare number (the enumerated fields above,
+// else core/field_labels.h); `live`: who uses a player-specific code in the loaded table
+std::string code_value_text(const std::string& field, int64_t v, const labels::CodeUsers* live = nullptr);
+// The values a field holds in the loaded table: how many records hold each and, in the players table, the three
+// best-rated players holding it (one snapshot per table and model version)
+const std::map<int64_t, labels::CodeUsers>& values_in_use(App& app, const Table& t, const Field& f);
+// The codes the field's combo offers: the named and described ones, the ones the loaded table uses, the game's
+// pictures, a small unnamed field's whole range, and always the current value
+std::vector<int64_t> code_value_list(App& app, const Table& t, const Field& f, int64_t current);
 
 }  // namespace turbo
