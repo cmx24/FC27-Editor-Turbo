@@ -93,7 +93,7 @@ H.case("every runner script executes and reports through a message box", functio
         n = n + 1
     end
     p:close()
-    H.eq(n, 36, "runner scripts")
+    H.eq(n, 38, "runner scripts")
     H.eq(sim.box_format_violations or 0, 0, "message boxes with an unescaped percent sign (would crash Live Editor)")
     for _, b in ipairs(sim.boxes) do
         H.ok(not tostring(b.text):find("crashed"), "crash reported: " .. tostring(b.text))
