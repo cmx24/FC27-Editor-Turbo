@@ -3018,6 +3018,7 @@ struct FakeMatchSetup : msetup::Service {
 
 #include "test_playtest_fixes.h"  // 1.1.1 playtest fixes (playtest_fix_cases, run near the end of test_ui)
 #include "test_names_tab.h"  // Players > Names (ui_cases_names_tab, run before the playtest fixes)
+#include "test_tactics_tab.h"  // Teams > Tactics (ui_cases_tactics_tab, run before the Names cases)
 #include "test_file_picker.h"   // in-overlay file picker and the Export / Import dialogs (test_file_picker_ui)
 
 #include "test_edit_unlock.h"  // game editors unlock: core and UI cases (synthetic fixtures)
@@ -7376,6 +7377,7 @@ static void test_ui() {
             CHECK(ui.find("Not available: this Turbo has no game calls.") == nullptr || true, "no service: renders");
         });
 
+        ui_cases_tactics_tab(app, ui, le);  // test_tactics_tab.h
         ui_cases_names_tab(app, ui, mem, kMb);  // test_names_tab.h
         playtest_fix_cases(app, ui, le);
         test_file_picker_ui(app, ui, mem, kMb);

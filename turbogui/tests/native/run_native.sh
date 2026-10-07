@@ -30,7 +30,7 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/ui/ui_zoom.cpp src/ui/ui_team_filter.cpp \
          src/core/edit_unlock.cpp src/ui/ui_edit_unlock.cpp \
          src/core/edit_unlock_rules.cpp src/core/edit_unlock_hook.cpp tests/native/test_edit_unlock_hook.cpp tests/native/test_http_stub.cpp \
-         src/core/teamname_override.cpp \
+         src/core/sliders.cpp src/core/tactic_profiles.cpp src/ui/pitch_view.cpp src/ui/ui_tactics.cpp src/core/teamname_override.cpp \
          tests/native/test_main.cpp; do
   o="$BIN/obj/$(echo "$s" | sed 's#[/.]#_#g').o"
   if [ ! -f "$o" ] || [ "$ROOT/$s" -nt "$o" ] || [ "$0" -nt "$o" ] || [ -n "$(find "$ROOT/src" "$ROOT/tests/native" -name '*.h' -newer "$o" -print -quit)" ]; then

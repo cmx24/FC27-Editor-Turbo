@@ -19,6 +19,7 @@
 #include "ui_faces.h"
 
 #include "ui_edit_unlock.h"
+#include "ui_tactics.h"
 
 namespace turbo {
 
@@ -111,6 +112,13 @@ App::App(Memory& m, fs::path le_root, uint64_t mailbox_addr, std::string sess)
     }
     load_gui_settings();
     load_reapply();  // kit colours and player-specific callnames written again at every career load (ui_reapply.cpp)
+    {  // Tactics presets (turbo_output	actic_profiles.json): read once here, never in the frame path
+        ProfileLoadReport rep;
+        if (!load_tactic_profiles(tactic_profiles_path(bridge.root()), tactic_profiles, &tactic_profiles_error, &rep)) {
+            tactic_profiles_unreadable = true;
+            tactic_profiles = TacticProfileStore();
+        }
+    }
     load_voice();    // voice swaps (ui_callnames.cpp): no career needed; published once the host gives the service
     folder_store(bridge.dir() / "gui_folders.json");  // last folder of each in-overlay file picker (file_picker.cpp)
     load_team_names();  // live team names (ui_identity.cpp): published once the host gives the service
@@ -165,6 +173,7 @@ std::unordered_set<int64_t> App::commentary_ids() {
 }
 
 App::~App() {
+    tactics_clear_on_exit(*this);  // game variables the Tactics tab set go back to "the game decides"
     bank_cancel_ = true;
     if (bank_thread_.joinable()) bank_thread_.join();
 }

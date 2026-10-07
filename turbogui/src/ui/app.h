@@ -27,6 +27,7 @@
 #include "core/sigscan.h"
 #include "core/standings_refresh.h"
 #include "core/t3db.h"
+#include "core/tactic_profiles.h"
 #include "core/teamname_override.h"
 #include "nlohmann/json.hpp"
 #include "textures.h"
@@ -188,6 +189,11 @@ public:
     ReapplyStore reapply;
     std::string reapply_status;  // summary of the last re-apply ("" = none ran this session)
     std::string reapply_error;   // the store could not be read or written ("" = fine)
+    // ---- Tactics tab (ui_tactics.cpp): the preset store (core/tactic_profiles.h, turbo_output/tactic_profiles.json), loaded once in the
+    // constructor; a save is a user action, never part of the frame path. A file that could not be read is set aside at the next save.
+    TacticProfileStore tactic_profiles;
+    std::string tactic_profiles_error;   // "" = fine
+    bool tactic_profiles_unreadable = false;
     // Keep what write_colour just wrote to a teamkits row (only the kit colour channels; other tables are kept by the
     // game's save)
     void remember_kit_colour(const Table& t, uint64_t rec, const std::string& prefix, const uint8_t rgb[3]);
@@ -311,6 +317,8 @@ private:
 // panels
 void draw_players(App& app);
 void draw_teams(App& app);
+// Teams > Tactics tab body (ui_tactics.cpp)
+void draw_tactics(App& app);
 // "Transfer bans" section for a club (what = "team") or a player ("player"): ui_players.cpp; Teams tab > Overview and
 // the player editor's Contract & Clubs tab
 void transfer_ban_section(App& app, const char* what, int64_t id);
