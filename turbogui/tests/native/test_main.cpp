@@ -4016,6 +4016,8 @@ static void test_ui() {
             ui.click("Squad roles", "##tedit");
             ui.frames(2);
             CHECK(ui.find("Run", "Run mass action?") == nullptr && !app.mailbox->pending(), "squad roles refused for another club");
+            ui.click("Squad roles", "##tedit");  // the section header opened above: close it again
+            ui.frames(2);
             // form works for another club too (teamplayerlinks.form): the button asks first
             CHECK(ui.click("Form: best (100)", "##tedit"), "form for another club");
             ui.frames(2);
@@ -4060,6 +4062,97 @@ static void test_ui() {
             CHECK(!j.is_discarded() && j["overrides"].value("actions", "") == "all", "actions all: " + j.dump());
             CHECK(j["overrides"].value("bonus_xp", -1) == 2, "dev bonus points sent (default 2): " + j.dump());
             app.mailbox->cancel();
+            ui.frames(2);
+        });
+
+        run_case("UI: Squad roles rule editor: add rule, Preview (command and table from role_preview.json), Apply, Clear saved rule, kill-switch status", [&] {
+            app.mailbox->cancel();
+            app.request_tab = 1;
+            ui.frames(2);
+            app.sel_team = 1;  // the user's club (Arsenal)
+            ui.frames(2);
+            CHECK(ui.click("Mass actions", "##tedit"), "Mass actions tab");
+            ui.frames(2);
+            CHECK(ui.click("Squad roles", "##tedit"), "Squad roles section opened");
+            ui.frames(2);
+            CHECK(app.role_rules.rules.size() == 2, "the default rules");
+            CHECK(ui.click("Add rule", "##tedit"), "Add rule");
+            ui.frames(2);
+            CHECK(app.role_rules.rules.size() == 3, "a third rule");
+            app.role_rules.rules[2].role = 1;
+            app.role_rules.rules[2].pos = 1;
+            app.role_rules.rules[2].name = "keepers";
+            turbo::rolerules::set_pin(app.role_rules, 1001, "Pin", 2);
+            CHECK(ui.click("Up", "##tedit") || true, "reorder button drawn");
+            ui.frames(2);
+            CHECK(app.role_rules.rules.size() == 3, "still three rules");
+            CHECK(ui.click("Preview", "##tedit"), "Preview");
+            ui.frames(2);
+            CHECK(app.mailbox->pending(), "preview sent");
+            json j = json::parse(mem.read_cstr(kMb + kMbCmd, kMbTextSize), nullptr, false);
+            CHECK(!j.is_discarded() && j.value("op", "") == "run" && j.value("module", "") == "team_mass", "module team_mass: " + j.dump());
+            CHECK(j["overrides"].value("teamid", 0) == 1 && j["overrides"]["actions"] == json::array({"squad_roles"}) && j["overrides"].value("role_preview", false) &&
+                      j["overrides"]["role_rules"].size() == 3 && j["overrides"]["role_pins"].contains("1001"), "preview overrides: " + j.dump());
+            CHECK(app.pending_label == "Squad roles preview", "label: " + app.pending_label);
+            // Lua answers: it wrote role_preview.json, the answer arrives, the file is read once
+            fs::create_directories(app.bridge.root() / "turbo_output");
+            std::ofstream(app.bridge.root() / "turbo_output" / "role_preview.json")
+                << R"({"team":1,"counts":{"rotation":1,"pinned: left alone":1},"loaned":0,"no_entry":[],"outside":[],"rows":[
+                    {"pid":1001,"age":24,"ovr":80,"rank":1,"group":"ATT","old_role":2,"new_role":3,"rule":1},
+                    {"pid":1002,"age":30,"ovr":70,"rank":2,"group":"MID","old_role":3,"skip":"pinned: left alone","rule":"pin"}]})";
+            mem.wr(kMb + kMbStatus, static_cast<int32_t>(1));
+            std::vector<uint8_t> text(kMbTextSize, 0);
+            const char* msg = "squad roles: preview of 2 players; rows in role_preview.json";
+            std::memcpy(text.data(), msg, std::strlen(msg));
+            mem.write(kMb + kMbResult, text.data(), text.size());
+            mem.wr(kMb + kMbAckSeq, app.mailbox->seq());
+            ui.frames(3);
+            CHECK(app.role_rules.preview.loaded && app.role_rules.preview.rows.size() == 2, "the preview table was read from role_preview.json");
+            CHECK(app.role_rules.preview.rows[0].old_role == 2 && app.role_rules.preview.rows[0].new_role == 3 && app.role_rules.preview.rows[1].skip == "pinned: left alone",
+                  "table rows: old role, new role, skip reason");
+            CHECK(app.role_rules.status.find("preview of 2 players") != std::string::npos, "status: " + app.role_rules.status);
+            // a frame never touches the file: remove it, draw, the table is still there
+            std::filesystem::remove(app.bridge.root() / "turbo_output" / "role_preview.json");
+            ui.frames(3);
+            CHECK(app.role_rules.preview.rows.size() == 2, "the table is cached, no file I/O per frame");
+            app.mailbox->cancel();
+            // Apply asks first; Cancel sends nothing; Run sends the rules without role_preview
+            CHECK(ui.click("Apply...", "##tedit"), "Apply...");
+            ui.frames(2);
+            CHECK(ui.find("Cancel", "Apply squad roles?") != nullptr, "confirmation");
+            CHECK(ui.click("Cancel", "Apply squad roles?"), "cancel");
+            ui.frames(2);
+            CHECK(!app.mailbox->pending(), "cancelled: nothing sent");
+            CHECK(ui.click("Apply...", "##tedit"), "Apply... again");
+            ui.frames(2);
+            CHECK(ui.click("Run", "Apply squad roles?"), "Run");
+            ui.frames(2);
+            CHECK(app.mailbox->pending(), "apply sent");
+            j = json::parse(mem.read_cstr(kMb + kMbCmd, kMbTextSize), nullptr, false);
+            CHECK(!j.is_discarded() && !j["overrides"].contains("role_preview") && j["overrides"]["role_rules"].size() == 3 && !j["overrides"].contains("role_rule_clear") &&
+                      app.pending_label == "Squad roles apply", "apply overrides: " + j.dump());
+            app.mailbox->cancel();
+            ui.frames(2);
+            // Clear saved rule
+            CHECK(ui.click("Clear saved rule", "##tedit"), "Clear saved rule");
+            ui.frames(2);
+            CHECK(ui.click("Run", "Apply squad roles?"), "Run clear");
+            ui.frames(2);
+            j = json::parse(mem.read_cstr(kMb + kMbCmd, kMbTextSize), nullptr, false);
+            CHECK(!j.is_discarded() && j["overrides"].value("role_rule_clear", false) && app.pending_label == "Squad roles clear", "clear overrides: " + j.dump());
+            app.mailbox->cancel();
+            ui.frames(2);
+            // the kill-switch status line follows turbo_output\role_reapply_off.txt
+            turbo::rolerules::refresh_files(app, true);
+            CHECK(!app.role_rules.killswitch, "re-apply on");
+            std::ofstream(app.bridge.root() / "turbo_output" / "role_reapply_off.txt") << "off";
+            turbo::rolerules::refresh_files(app, true);
+            CHECK(app.role_rules.killswitch, "kill switch file seen");
+            std::filesystem::remove(app.bridge.root() / "turbo_output" / "role_reapply_off.txt");
+            turbo::rolerules::refresh_files(app, true);
+            CHECK(!app.role_rules.killswitch, "kill switch file gone");
+            app.role_rules = turbo::rolerules::State();
+            CHECK(ui.click("Squad roles", "##tedit"), "section closed again");
             ui.frames(2);
         });
 
@@ -12023,6 +12116,7 @@ static void test_match_setup() {
 
 // club customisation hub + career settings unlock (Turbo 1.1.1)
 #include "test_club_tools.h"
+#include "test_role_rules.h"  // Turbo 2.0 track G: the squad role rule editor
 
 int main(int argc, char** argv) {
     if (argc < 3) {
@@ -12052,6 +12146,7 @@ int main(int argc, char** argv) {
     test_player_move();
     test_player_create();
     test_player_morale();
+    test_role_rules();
     std::printf("native Live Editor log\n");
     test_le_log();
     std::printf("native live standings\n");

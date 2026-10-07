@@ -557,6 +557,34 @@ elseif mode == "commands" then
     g:close()
     print("commands processed: " .. #out)
 
+elseif mode == "roles" then
+    -- The role rule editor's commands (role_cmds.json, built by the GUI code) run through Turbo's real bridge and the real
+    -- team_mass role engine in the Lua test world; after each one the files Lua wrote (turbo_output role_preview.json,
+    -- role_rule.json) are copied to <out>/roles/<n>_... for the GUI test to read with its own parser
+    local W = require 'world'
+    local json = require 'imports/external/json'
+    local list = json.decode(assert(io.open(OUT .. "/role_cmds.json", "rb")):read("a"))
+    local s = H.setup({ in_cm = true })
+    W.build(s, { career_playercontract = true, playerloans = true })
+    package.loadlib = function() return true end
+    require('imports/turbo/turbo').boot()
+    local bridge = require 'imports/turbo/bridge'
+    os.execute(string.format("mkdir -p '%s/roles'", OUT))
+    local out = {}
+    for i, c in ipairs(list) do
+        local okx, ok, text = pcall(bridge.execute, c.cmd)
+        if not okx then ok, text = false, "error: " .. tostring(ok) end
+        for _, name in ipairs({ "role_preview.json", "role_rule.json" }) do
+            os.remove(string.format("%s/roles/%d_%s", OUT, i, name))
+            pcall(copy, H.out(name), string.format("%s/roles/%d_%s", OUT, i, name))
+        end
+        out[#out + 1] = { label = c.label, ok = ok == true, text = tostring(text or "") }
+    end
+    local g = assert(io.open(OUT .. "/role_cmds_out.json", "wb"))
+    g:write(json.encode(out))
+    g:close()
+    print("roles processed: " .. #out)
+
 elseif mode == "legacy" then
     -- The GUI's want.txt (core/legacy.cpp) read by Turbo's Lua side (core/legacy.lua): legacy_in.json lists the files
     -- the simulated game has; exported files are copied into the GUI test's Live Editor folder

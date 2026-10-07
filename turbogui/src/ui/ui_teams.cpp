@@ -10,6 +10,7 @@
 #include "ui_faces.h"
 #include "ui_identity.h"
 #include "ui_images.h"
+#include "ui_role_rules.h"
 #include "ui_team_filter.h"
 
 namespace turbo {
@@ -334,6 +335,10 @@ static void mass_actions_tab(App& app, const TeamRow& tr) {
         const bool all = std::string(a.id) == "all";
         if (all) ImGui::Separator();
         const std::string aid = a.id;
+        if (aid == "squad_roles") {  // the role rule editor replaces the fixed button (ui_role_rules.cpp)
+            rolerules::draw(app, tr, own, disabled);
+            continue;
+        }
         const bool roles_only = (aid == "squad_roles" || aid == "block_offers") && !own;
         if (disabled || roles_only) ImGui::BeginDisabled();
         const bool clicked = ImGui::Button(a.button, ImVec2(S(260.0f), 0));
