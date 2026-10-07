@@ -189,4 +189,8 @@ function M.run(ctx)
     return true, "probe saved to " .. path
 end
 
+
+-- shared with probe_tactics.lua (Turbo 2.0 phase 0 probes)
+M.all_table_names = all_table_names
+
 return M

@@ -14,6 +14,12 @@
 --                  Live Editor's SetPlayerMorale with 85, nothing read back.
 --   squad_roles    your club only (the game keeps no squad roles for other clubs): players aged 19 or more get the
 --                  Rotation role, younger players Prospect (squad_role.lua writes it through the PlayerStatusManager).
+--                  Role rule engine (Turbo 2.0): "role_rules" = ordered list of { name, role 1..5, age_min, age_max, ovr_rank_min,
+--                  ovr_rank_max, pos = GK | DEF | MID | ATT | list } (first match wins; default = the two rules above),
+--                  "role_pins" = { "<playerid>": 1..5 | 0 = leave alone } (a pin beats the rules), "role_preview": true = write
+--                  nothing, put the rows (player, age, ovr, old role, new role, skip reason) in turbo_output\role_preview.json,
+--                  "role_save": false = do not save the rule for the re-apply after the game's season reset (default: saved to
+--                  turbo_output\role_rule.json when something was written), "role_rule_clear": true = delete the saved rule.
 --   block_offers   the "Block Offers" player status of the Squad hub (the game's own toggle, called through Turbo.dll:
 --                  moves.list(pid, "block_offers")); your own club only. Players already blocked are left alone (the game's
 --                  call is a toggle: Turbo reads the state first).
@@ -215,10 +221,214 @@ local function action_morale(ctx, pids, teamid)
     return fail_n == 0, text .. note
 end
 
+-- Squad role rule engine ----------------------------------------------------------------------------------------------
+-- A rule set is an ordered list; the FIRST rule whose conditions all hold gives the role. A rule is
+--   { name = "veterans", role = 1..5, age_min = n, age_max = n, ovr_rank_min = n, ovr_rank_max = n, pos = "GK" | {"DEF", "MID"} }
+-- every condition optional (a rule with none matches everyone), age in whole years today, ovr_rank = 1 for the best overall
+-- of the squad (ties: lower player id first), pos = position group of preferredposition1: GK, DEF, MID, ATT.
+-- Per-player pins override the rules: { [playerid] = 1..5 }, or 0 = leave that player alone.
+-- A rule with an age condition cannot be judged for a player with no birthdate: when such a rule comes before the matching
+-- one the player is skipped ("no birthdate") instead of getting a role the age might have changed.
+M.ROLE_RULES_MAX = 32
+M.POS_GROUPS = { "GK", "DEF", "MID", "ATT" }
+M.ROLE_RULE_FILE = "role_rule.json"
+M.ROLE_PREVIEW_FILE = "role_preview.json"
+
+-- FC position ids: 0 GK; 1..8 SW, RWB, RB, RCB, CB, LCB, LB, LWB; 9..19 DM, M and AM slots; 20..27 forwards and wingers
+function M.pos_group(pos)
+    pos = util.to_int(pos)
+    if pos == nil then return nil end
+    if pos == 0 then return "GK" end
+    if pos >= 1 and pos <= 8 then return "DEF" end
+    if pos >= 9 and pos <= 19 then return "MID" end
+    if pos >= 20 and pos <= 27 then return "ATT" end
+    return nil
+end
+
+-- The defaults reproduce the fixed button of 1.2.4: ADULT_AGE and older Rotation, younger Prospect
+function M.default_role_rules()
+    return {
+        { name = string.format("age %d and older", M.ADULT_AGE), age_min = M.ADULT_AGE, role = M.ROLE_ROTATION },
+        { name = "younger", role = M.ROLE_PROSPECT },
+    }
+end
+
+local function opt_int(r, key, lo, hi, idx)
+    local v = r[key]
+    if v == nil then return nil end
+    local iv = util.to_int(v)
+    if iv == nil or iv < lo or iv > hi then
+        return nil, string.format("rule %d: %s must be a whole number %d..%d", idx, key, lo, hi)
+    end
+    return iv
+end
+
+-- raw rules (a Lua list from JSON) -> clean list, or nil, error. nil / missing raw = the defaults.
+function M.normalize_role_rules(raw)
+    if raw == nil then return M.default_role_rules() end
+    if type(raw) ~= "table" or not util.is_array(raw) then return nil, "role_rules must be a list of rules" end
+    if #raw == 0 then return nil, "role_rules is empty: give at least one rule" end
+    if #raw > M.ROLE_RULES_MAX then return nil, string.format("at most %d rules", M.ROLE_RULES_MAX) end
+    local groups = util.set_of(M.POS_GROUPS)
+    local out = {}
+    for i, r in ipairs(raw) do
+        if type(r) ~= "table" then return nil, string.format("rule %d is not an object", i) end
+        local role = util.to_int(r.role)
+        if not role or role < 1 or role > 5 then return nil, string.format("rule %d: role must be 1 (Crucial) .. 5 (Prospect)", i) end
+        local c = { role = role, name = type(r.name) == "string" and r.name or nil }
+        local err
+        for _, spec in ipairs({ { "age_min", 0, 99 }, { "age_max", 0, 99 }, { "ovr_rank_min", 1, 999 }, { "ovr_rank_max", 1, 999 } }) do
+            c[spec[1]], err = opt_int(r, spec[1], spec[2], spec[3], i)
+            if err then return nil, err end
+        end
+        if c.age_min and c.age_max and c.age_min > c.age_max then return nil, string.format("rule %d: age_min is above age_max", i) end
+        if c.ovr_rank_min and c.ovr_rank_max and c.ovr_rank_min > c.ovr_rank_max then
+            return nil, string.format("rule %d: ovr_rank_min is above ovr_rank_max", i)
+        end
+        if r.pos ~= nil then
+            local list = type(r.pos) == "table" and r.pos or { r.pos }
+            if #list == 0 then return nil, string.format("rule %d: pos is empty", i) end
+            c.pos = {}
+            for _, g in ipairs(list) do
+                g = type(g) == "string" and g:upper() or nil
+                if not g or not groups[g] then
+                    return nil, string.format("rule %d: pos must be GK, DEF, MID or ATT", i)
+                end
+                c.pos[#c.pos + 1] = g
+            end
+        end
+        out[#out + 1] = c
+    end
+    return out
+end
+
+-- raw pins ({"158023": 1}) -> {[pid]=0..5}, or nil, error
+function M.normalize_role_pins(raw)
+    if raw == nil then return {} end
+    if type(raw) ~= "table" then return nil, "role_pins must be an object {playerid: role}" end
+    local out = {}
+    for k, v in pairs(raw) do
+        local pid, role = util.to_int(k), util.to_int(v)
+        if not pid or pid <= 0 then return nil, "role_pins: bad player id " .. tostring(k) end
+        if role == nil or role < 0 or role > 5 then
+            return nil, string.format("role_pins: player %d needs a role 1..5 (or 0 to leave the player alone)", pid)
+        end
+        out[pid] = role
+    end
+    return out
+end
+
+-- Role for one player. f = { pid, age (nil unknown), ovr_rank (nil unknown), group (nil unknown) }
+-- Returns role, nil, rule index | "pin"   or   nil, skip reason
+function M.role_for(rules, pins, f)
+    local pin = pins and pins[f.pid]
+    if pin ~= nil then
+        if pin == 0 then return nil, "pinned: left alone" end
+        return pin, nil, "pin"
+    end
+    local age_unknown = false
+    for i, r in ipairs(rules) do
+        local ok = true
+        if r.ovr_rank_min or r.ovr_rank_max then
+            if f.ovr_rank == nil then
+                ok = false
+            else
+                if r.ovr_rank_min and f.ovr_rank < r.ovr_rank_min then ok = false end
+                if r.ovr_rank_max and f.ovr_rank > r.ovr_rank_max then ok = false end
+            end
+        end
+        if ok and r.pos then
+            local hit = false
+            for _, g in ipairs(r.pos) do if g == f.group then hit = true end end
+            ok = hit
+        end
+        if ok and (r.age_min or r.age_max) then
+            if f.age == nil then
+                ok = false
+                age_unknown = true
+            else
+                if r.age_min and f.age < r.age_min then ok = false end
+                if r.age_max and f.age > r.age_max then ok = false end
+            end
+        end
+        if ok then
+            if age_unknown then return nil, "no birthdate" end
+            return r.role, nil, i
+        end
+    end
+    if age_unknown then return nil, "no birthdate" end
+    return nil, "no rule matched"
+end
+
+local function json_lib()
+    local ok, j = pcall(require, 'imports/external/json')
+    if ok and type(j) == "table" then return j end
+    return nil
+end
+
+-- The saved rule (turbo_output\role_rule.json): what squad_role.lua applies again after the game's season reset
+function M.save_role_rule(out_dir, rules, pins)
+    local j = json_lib()
+    if not out_dir or not j then return false end
+    local pin_obj = {}
+    for pid, role in pairs(pins or {}) do pin_obj[tostring(pid)] = role end
+    local ok, text = pcall(j.encode, { version = 1, rules = rules, pins = pin_obj })
+    if not ok then return false end
+    return util.write_file(util.join(out_dir, M.ROLE_RULE_FILE), text) == true
+end
+
+-- -> { rules, pins } or nil (no file, unreadable, or invalid rules)
+function M.load_role_rule(out_dir)
+    local j = json_lib()
+    if not out_dir or not j then return nil end
+    local path = util.join(out_dir, M.ROLE_RULE_FILE)
+    if not util.file_exists(path) then return nil end
+    local text = util.read_file(path)
+    local ok, data = pcall(j.decode, text or "")
+    if not ok or type(data) ~= "table" then
+        log.warn("ignoring unreadable %s", path)
+        return nil
+    end
+    local rules, err = M.normalize_role_rules(data.rules)
+    if not rules then
+        log.warn("ignoring %s: %s", path, tostring(err))
+        return nil
+    end
+    local pins = M.normalize_role_pins(data.pins) or {}
+    return { rules = rules, pins = pins }
+end
+
+function M.clear_role_rule(out_dir)
+    if not out_dir then return false end
+    local path = util.join(out_dir, M.ROLE_RULE_FILE)
+    if not util.file_exists(path) then return false end
+    local ok = pcall(os.remove, path)
+    return ok and not util.file_exists(path)
+end
+
+local function rules_label(rules, pins)
+    local function plain(r) return not (r.age_max or r.ovr_rank_min or r.ovr_rank_max or r.pos) end
+    local is_default = #rules == 2 and rules[1].age_min == M.ADULT_AGE and rules[1].role == M.ROLE_ROTATION
+        and rules[2].role == M.ROLE_PROSPECT and next(pins) == nil and plain(rules[1])
+        and plain(rules[2]) and not rules[2].age_min
+    if is_default then return string.format("Rotation for age %d+, Prospect below", M.ADULT_AGE) end
+    return string.format("%d role rules, %d pins", #rules, util.count(pins))
+end
+
 local function action_squad_roles(ctx, pids, teamid)
+    local out_dir = ctx.out_dir
+    if ctx.cfg.role_rule_clear == true then
+        local cleared = M.clear_role_rule(out_dir)
+        return true, cleared and "saved role rule removed: roles are no longer re-applied after a season reset"
+            or "no saved role rule to remove"
+    end
     if teamid ~= game.user_team_id() then
         return false, "squad roles exist for your own club only (the game keeps none for other clubs)"
     end
+    local rules, rerr = M.normalize_role_rules(ctx.cfg.role_rules)
+    if not rules then return false, rerr end
+    local pins, perr = M.normalize_role_pins(ctx.cfg.role_pins)
+    if not pins then return false, perr end
     local role = require 'imports/turbo/features/squad_role'
     local ptbl = db.get_table("players")
     if not ptbl then return false, "players table not found" end
@@ -229,14 +439,76 @@ local function action_squad_roles(ctx, pids, teamid)
     end
     if not today then return false, "current in-game date not available" end
     local recs = player_records(ptbl, pids)
+
+    -- overall rank inside the squad (1 = best; ties: lower player id first)
+    local ranked = {}
+    for pid, rec in pairs(recs) do
+        ranked[#ranked + 1] = { pid = pid, ovr = util.to_int(ptbl:GetRecordFieldValue(rec, "overallrating")) or 0 }
+    end
+    table.sort(ranked, function(a, b) if a.ovr ~= b.ovr then return a.ovr > b.ovr end return a.pid < b.pid end)
+    local rank_of, ovr_of = {}, {}
+    for i, e in ipairs(ranked) do
+        rank_of[e.pid] = i
+        ovr_of[e.pid] = e.ovr
+    end
+
+    local info = {}   -- per player facts, for the preview rows
     local function role_of(pid)
         local prec = recs[pid]
-        local age = prec and age_of(prec, ptbl, today) or nil
-        if not age then return nil end
-        return age >= M.ADULT_AGE and M.ROLE_ROTATION or M.ROLE_PROSPECT
+        local pos = prec and util.to_int(ptbl:GetRecordFieldValue(prec, "preferredposition1")) or nil
+        local f = { pid = pid, age = prec and age_of(prec, ptbl, today) or nil, ovr_rank = rank_of[pid], group = M.pos_group(pos) }
+        local r, why, rule = M.role_for(rules, pins, f)
+        info[pid] = { age = f.age, ovr = ovr_of[pid], rank = f.ovr_rank, pos = pos, group = f.group, rule = rule }
+        return r, why
     end
-    local sub = { cfg = { include_loaned_in = false, use_memory = true }, dry = ctx.dry, out_dir = ctx.out_dir, all = ctx.all }
-    local ok, summary = role.apply(sub, role_of, string.format("Rotation for age %d+, Prospect below", M.ADULT_AGE))
+
+    local preview = ctx.cfg.role_preview == true
+    local sub = { cfg = { include_loaned_in = false, use_memory = true }, dry = ctx.dry, preview = preview,
+        out_dir = out_dir, all = ctx.all }
+    local ok, summary, report = role.apply(sub, role_of, rules_label(rules, pins))
+    if report and preview then
+        local no_entry = util.set_of(report.no_entry)
+        local rows, seen = {}, {}
+        local function row(pid)
+            seen[pid] = true
+            local f = info[pid] or {}
+            local skip = report.skipped[pid]
+            if not skip and report.layout and no_entry[pid] then
+                skip = "no entry in the role list (contract table only)"
+            end
+            rows[#rows + 1] = { pid = pid, age = f.age, ovr = f.ovr, rank = f.rank, pos = f.pos, group = f.group,
+                old_role = report.old[pid], new_role = report.plan[pid], rule = f.rule, skip = skip }
+        end
+        for pid in pairs(report.plan) do row(pid) end
+        for pid in pairs(report.skipped) do if not seen[pid] then row(pid) end end
+        for _, pid in ipairs(report.outside) do
+            if not seen[pid] then
+                seen[pid] = true
+                rows[#rows + 1] = { pid = pid, old_role = report.old[pid], skip = "not in your squad (left alone)" }
+            end
+        end
+        table.sort(rows, function(a, b)
+            if (a.ovr or -1) ~= (b.ovr or -1) then return (a.ovr or -1) > (b.ovr or -1) end
+            return a.pid < b.pid
+        end)
+        local j = json_lib()
+        local path = out_dir and util.join(out_dir, M.ROLE_PREVIEW_FILE)
+        if j and path then
+            local enc_ok, text = pcall(j.encode, { team = teamid, counts = report.reasons, loaned = report.loaned,
+                no_entry = report.no_entry, outside = report.outside, rows = rows })
+            if enc_ok then util.write_file(path, text) end
+        end
+        return ok, summary .. (path and ("; rows in " .. M.ROLE_PREVIEW_FILE) or "")
+    end
+    if ok and not ctx.dry and not preview and ctx.cfg.role_save ~= false then
+        if M.save_role_rule(out_dir, rules, pins) then
+            -- arm the re-apply for this session (a later boot arms it from the saved file)
+            role.install_reapply()
+            pcall(function() require('imports/turbo/core/events').ensure_registered() end)
+        else
+            log.warn("squad roles: the rule could not be saved for the season-reset re-apply")
+        end
+    end
     return ok, summary
 end
 

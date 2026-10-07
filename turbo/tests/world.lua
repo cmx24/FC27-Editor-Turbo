@@ -5,6 +5,11 @@
 --   player_career (bool)           user manager reports Player Career with PAP id 1001
 --   role_vec_off (int|false)       PlayerStatusManager role vector offset (default 0x18; false = none)
 --   role_stride (int)              entry size (default 8)
+--   sheet_gap (int|{int})          cm_teamsheets slot(s) left empty (-1) in the middle of the sheet: the player of that slot is not on
+--                                  the sheet at all (he stays on teamplayerlinks and in the role list)
+--   role_vec_52 (bool)             the role list as the game may keep it: 52 entries, the squad's players spread over it with empty
+--                                  entries (pid 0 / -1) between them and mixed role bytes (1..5, 0xFF)
+--   role_bad_byte ({[pid]=byte})   role bytes outside 0..5 / 0xFF for these players
 --   fixtures_off / standings_off   FCEDataManager list offsets (default 0x60 / 0x88; false = broken)
 --   storage_off (int|false)        TransferManager negotiations storage offset (default 0x1DD0)
 --   fc27_transfer_lists (bool)     FC 27 layout: linked lists of moves in the TransferManager (seen in game)
@@ -209,6 +214,9 @@ function W.build(sim, opts)
     for i = 0, 51 do
         sheet_fields[#sheet_fields + 1] = { name = "playerid" .. i, short = string.format("p%03d", i), depth = 22, min = -1 }
         sheet["playerid" .. i] = W.USER_PLAYERS[i + 1] or -1
+        for _, gap in ipairs(type(opts.sheet_gap) == "table" and opts.sheet_gap or { opts.sheet_gap or -1 }) do
+            if gap == i then sheet["playerid" .. i] = -1 end
+        end
         other["playerid" .. i] = (i < 4) and (2001 + i) or -1
     end
     sim:add_table({ name = "cm_teamsheets", short = "cmts", fields = sheet_fields, rows = { other, sheet } })
@@ -294,12 +302,32 @@ function W.build(sim, opts)
     if opts.role_vec_off ~= false then
         local off = opts.role_vec_off or 0x18
         local stride = opts.role_stride or 8
-        local b = sim:make_vector(psm + off, #W.USER_PLAYERS, stride)
+        local slots = #W.USER_PLAYERS
+        if opts.role_vec_52 then slots = 52 end
+        local b = sim:make_vector(psm + off, slots, stride)
+        W.role_vec = { begin = b, stride = stride, count = slots }
+        local occupied = {}
+        local MIXED = { 3, 1, 2, 0xFF, 4, 5, 3, 2 }
         for i, p in ipairs(W.USER_PLAYERS) do
-            local e = b + (i - 1) * stride
+            -- 52-entry list: the first 13 players sit at every second slot from 2, the rest follow together from 27;
+            -- empties come before, between and after them
+            local idx = i - 1
+            if opts.role_vec_52 then idx = (i <= 13) and (2 + (i - 1) * 2) or (26 + (i - 13)) end
+            occupied[idx] = true
+            local e = b + idx * stride
             sim:w32(e, p)
-            sim:w32(e + 4, 3)
+            sim:w32(e + 4, opts.role_vec_52 and MIXED[(i - 1) % #MIXED + 1] or 3)
+            if opts.role_bad_byte and opts.role_bad_byte[p] then sim:w8(e + 4, opts.role_bad_byte[p]) end
             W.role_entries[p] = e + 4
+        end
+        if opts.role_vec_52 then
+            for idx = 0, slots - 1 do
+                if not occupied[idx] then
+                    local e = b + idx * stride
+                    sim:w32(e, (idx % 4 == 0) and -1 or 0)   -- empty entries: pid 0 or -1
+                    sim:w32(e + 4, 0xFF)
+                end
+            end
         end
     end
 

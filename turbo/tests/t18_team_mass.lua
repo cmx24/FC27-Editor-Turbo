@@ -402,4 +402,164 @@ end)
 
 H.case("no unmapped memory reads", function() H.eq(sim.unmapped_reads, 0) end)
 
+-- Squad roles 2.0: a gap in the teamsheet, a 52-entry role list, the rule engine, preview, re-apply ----------------------------
+local TM = require 'imports/turbo/features/team_mass'
+sim = H.setup({ in_cm = true, le_27_1_2 = true })
+W.build(sim, { playerloans = true, development = true, sheet_gap = 8, role_vec_52 = true })
+local json = require 'imports/external/json'
+local function role_of_pid(pid) return sim:rb(W.role_entries[pid]) end
+local function out_file(name) return require('imports/turbo/core/env').output_dir() .. "/" .. name end
+local function read_json(name)
+    local f = io.open(out_file(name), "rb")
+    if not f then return nil end
+    local t = f:read("a")
+    f:close()
+    return json.decode(t)
+end
+
+H.case("rule engine: first match wins, pins beat rules, a missing birthdate before the match skips", function()
+    local rules = TM.normalize_role_rules({
+        { pos = "GK", role = 1 }, { ovr_rank_max = 3, role = 1 }, { age_max = 21, role = 5 }, { pos = { "DEF", "MID" }, age_min = 30, role = 3 },
+        { role = 4 } })
+    local pins = TM.normalize_role_pins({ ["77"] = 2, ["78"] = 0 })
+    local r, why, rule = TM.role_for(rules, pins, { pid = 1, age = 30, ovr_rank = 1, group = "MID" })
+    H.eq(r, 1); H.eq(rule, 2, "rank rule")
+    r, why, rule = TM.role_for(rules, pins, { pid = 2, age = 19, ovr_rank = 10, group = "ATT" })
+    H.eq(r, 5); H.eq(rule, 3)
+    r, why, rule = TM.role_for(rules, pins, { pid = 3, age = 33, ovr_rank = 10, group = "DEF" })
+    H.eq(r, 3); H.eq(rule, 4)
+    r, why, rule = TM.role_for(rules, pins, { pid = 4, age = 33, ovr_rank = 10, group = "ATT" })
+    H.eq(r, 4); H.eq(rule, 5, "catch-all")
+    r, why = TM.role_for(rules, pins, { pid = 5, age = nil, ovr_rank = 10, group = "ATT" })
+    H.eq(r, nil); H.eq(why, "no birthdate")
+    r, why = TM.role_for(rules, pins, { pid = 6, age = nil, ovr_rank = 1, group = "ATT" })
+    H.eq(r, 1, "rank rule matches before any age rule is needed")
+    r, why, rule = TM.role_for(rules, pins, { pid = 77, age = nil, ovr_rank = 10, group = "ATT" })
+    H.eq(r, 2); H.eq(rule, "pin")
+    r, why = TM.role_for(rules, pins, { pid = 78, age = 20, ovr_rank = 1, group = "GK" })
+    H.eq(r, nil); H.has(why, "pinned")
+    r, why = TM.role_for(TM.normalize_role_rules({ { age_min = 25, role = 3 } }), {}, { pid = 9, age = 20 })
+    H.eq(r, nil); H.eq(why, "no rule matched")
+end)
+
+H.case("rule input is validated", function()
+    for _, bad in ipairs({ { { role = 7 } }, { { role = 3, age_min = 30, age_max = 20 } }, { { role = 3, pos = "WING" } }, {}, "x",
+        { { role = 3, ovr_rank_min = 0 } } }) do
+        local ok, msg = run({ teamid = W.USER_TEAM, actions = { "squad_roles" }, role_rules = bad })
+        H.eq(ok, false); H.ok(msg:find("role") ~= nil or msg:find("rule") ~= nil, msg)
+    end
+    local ok, msg = run({ teamid = W.USER_TEAM, actions = { "squad_roles" }, role_pins = { ["1001"] = 9 } })
+    H.eq(ok, false); H.has(msg, "role_pins")
+    H.eq(TM.pos_group(0), "GK"); H.eq(TM.pos_group(5), "DEF"); H.eq(TM.pos_group(14), "MID"); H.eq(TM.pos_group(25), "ATT")
+    H.eq(TM.pos_group(99), nil)
+end)
+
+H.case("sheet gap, ages 17..38, veteran on a late slot, missing birthdate and stale loan: counted, none lost", function()
+    local squad = team_pids(W.USER_TEAM)
+    pset(squad[1], "birthdate", util.gregorian_days_from_date(2010, 3, 10))   -- 16/17
+    pset(squad[2], "birthdate", util.gregorian_days_from_date(1989, 3, 10))   -- 37
+    pset(squad[25], "birthdate", util.gregorian_days_from_date(1992, 3, 10))  -- 34, late in the squad
+    pset(squad[10], "birthdate", 0)                                           -- no birthdate
+    local keep10, keepLoan = role_of_pid(squad[10]), role_of_pid(W.LOANED_IN)
+    local ok, msg = run({ teamid = W.USER_TEAM, actions = { "squad_roles" } })
+    H.eq(ok, true, msg)
+    H.has(msg, "1 players skipped (no birthdate)"); H.has(msg, "1 loaned-in players skipped")
+    H.eq(role_of_pid(squad[1]), 5, "17: Prospect"); H.eq(role_of_pid(squad[2]), 3, "37: Rotation")
+    H.eq(role_of_pid(squad[25]), 3, "34 on a late slot: Rotation")
+    H.eq(role_of_pid(squad[9]), 3, "the player of the empty sheet slot is written too")
+    H.eq(role_of_pid(squad[10]), keep10, "no birthdate: untouched")
+    H.eq(role_of_pid(W.LOANED_IN), keepLoan, "loaned in: untouched")
+    local written = 0
+    for _, pid in ipairs(squad) do if role_of_pid(pid) == 3 or role_of_pid(pid) == 5 then written = written + 1 end end
+    H.ok(written >= 24, "written: " .. written)
+    H.eq(sim.unmapped_reads, 0)
+end)
+
+H.case("preview writes nothing and lists the rows with skip reasons; rules and pins apply", function()
+    os.remove(out_file("role_rule.json"))   -- the defaults run above saved one
+    local squad = team_pids(W.USER_TEAM)
+    local before = {}
+    for _, pid in ipairs(squad) do before[pid] = role_of_pid(pid) end
+    local cfg = { teamid = W.USER_TEAM, actions = { "squad_roles" }, role_save = false,
+        role_rules = { { pos = "GK", role = 1 }, { ovr_rank_max = 3, role = 1 }, { age_max = 21, role = 5 }, { role = 4 } },
+        role_pins = { [tostring(squad[5])] = 2, [tostring(squad[6])] = 0 } }
+    cfg.role_preview = true
+    local ok, msg = run(cfg)
+    H.eq(ok, true, msg); H.has(msg, "PREVIEW")
+    for _, pid in ipairs(squad) do H.eq(role_of_pid(pid), before[pid], "unchanged " .. pid) end
+    local prev = read_json("role_preview.json")
+    H.eq(prev ~= nil, true, "preview file")
+    local by = {}
+    for _, r in ipairs(prev.rows) do by[r.pid] = r end
+    H.eq(by[squad[1]].new_role, 1, "goalkeeper"); H.eq(by[squad[1]].old_role, before[squad[1]])
+    H.eq(by[squad[26]].skip, "loaned in")
+    H.eq(by[squad[10]].skip, "no birthdate")
+    H.eq(by[squad[6]].skip, "pinned: left alone")
+    H.eq(by[squad[5]].new_role, 2); H.eq(by[squad[5]].rule, "pin")
+    H.eq(by[squad[25]].new_role, 1, "top 3 overall"); H.eq(by[squad[24]].new_role, 1)
+    H.eq(prev.counts["no birthdate"], 1)
+    cfg.role_preview = false
+    ok, msg = run(cfg)
+    H.eq(ok, true, msg)
+    H.eq(role_of_pid(squad[1]), 1); H.eq(role_of_pid(squad[5]), 2); H.eq(role_of_pid(squad[6]), before[squad[6]])
+    H.eq(role_of_pid(squad[12]), 4)
+    H.eq(read_json("role_rule.json"), nil, "role_save = false: no rule saved")
+end)
+
+H.case("the saved rule is applied again after SEASON_RESET (event 23), unless the kill switch file exists", function()
+    local squad = team_pids(W.USER_TEAM)
+    local ok, msg = run({ teamid = W.USER_TEAM, actions = { "squad_roles" } })    -- defaults: saved
+    H.eq(ok, true, msg)
+    local saved = read_json("role_rule.json")
+    H.eq(#saved.rules, 2, "default rules saved")
+    -- what the game does on event 0x17: the list is rebuilt with a computed role for every squad player
+    local function rebuild(role)
+        for _, pid in ipairs(squad) do sim:wb(W.role_entries[pid], role) end
+    end
+    rebuild(2)
+    sim:fire("post__CareerModeEvent", 0, 15, 0)    -- a day passes: nothing armed, nothing changes
+    H.eq(role_of_pid(squad[3]), 2)
+    sim:fire("post__CareerModeEvent", 0, 23, 0)    -- SEASON_RESET
+    H.eq(role_of_pid(squad[3]), 3, "re-applied")
+    H.eq(role_of_pid(squad[11]), 3)
+    -- kill switch
+    local f = io.open(out_file("role_reapply_off.txt"), "wb")
+    f:write("off")
+    f:close()
+    rebuild(2)
+    sim:fire("post__CareerModeEvent", 0, 23, 0)
+    H.eq(role_of_pid(squad[3]), 2, "kill switch: left alone")
+    os.remove(out_file("role_reapply_off.txt"))
+    -- the list is not rebuilt yet when the event arrives (UNCERTAIN order): empty first, filled by the next event
+    for _, pid in ipairs(squad) do sim:w32(W.role_entries[pid] - 4, 0) end
+    sim:fire("post__CareerModeEvent", 0, 23, 0)
+    for _, pid in ipairs(squad) do
+        sim:w32(W.role_entries[pid] - 4, pid)
+        sim:wb(W.role_entries[pid], 2)
+    end
+    sim:fire("post__CareerModeEvent", 0, 15, 0)
+    H.eq(role_of_pid(squad[3]), 3, "the retry on the next career event applied it")
+    -- clearing the saved rule stops the re-apply
+    ok, msg = run({ teamid = W.USER_TEAM, actions = { "squad_roles" }, role_rule_clear = true })
+    H.eq(ok, true, msg); H.has(msg, "removed")
+    H.eq(read_json("role_rule.json"), nil)
+    rebuild(2)
+    sim:fire("post__CareerModeEvent", 0, 23, 0)
+    H.eq(role_of_pid(squad[3]), 2, "no saved rule: nothing re-applied")
+end)
+
+H.case("the flat squad_role command saves a one-rule catch-all that the re-apply uses", function()
+    local squad = team_pids(W.USER_TEAM)
+    local ok, msg = H.turbo().run("squad_role", { role = 4 })
+    H.eq(ok, true, msg)
+    local saved = read_json("role_rule.json")
+    H.eq(saved.rules[1].role, 4)
+    for _, pid in ipairs(squad) do sim:wb(W.role_entries[pid], 1) end
+    sim:fire("post__CareerModeEvent", 0, 23, 0)
+    H.eq(role_of_pid(squad[3]), 4)
+    os.remove(out_file("role_rule.json"))
+end)
+
+H.case("no unmapped memory reads (roles 2.0)", function() H.eq(sim.unmapped_reads, 0) end)
+
 H.finish()
