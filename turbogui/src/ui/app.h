@@ -22,6 +22,7 @@
 #include "core/match_setup.h"
 #include "core/mem.h"
 #include "core/model.h"
+#include "core/opp_rules.h"
 #include "core/player_capture.h"
 #include "core/reapply.h"
 #include "core/sigscan.h"
@@ -196,6 +197,11 @@ public:
     TacticProfileStore tactic_profiles;
     std::string tactic_profiles_error;   // "" = fine
     bool tactic_profiles_unreadable = false;
+    // The user's opposition rules (turbo_output/opp_rules.json, core/opp_rules.h), loaded once in the constructor like the presets: the
+    // Opposition card merges them with the built-in rules. A file that could not be read is never overwritten by Turbo.
+    RuleSet opp_user_rules;
+    std::string opp_rules_error;   // "" = fine
+    size_t opp_rules_dropped = 0;  // rules of the file that were left out as invalid
     // Keep what write_colour just wrote to a teamkits row (only the kit colour channels; other tables are kept by the
     // game's save)
     void remember_kit_colour(const Table& t, uint64_t rec, const std::string& prefix, const uint8_t rgb[3]);

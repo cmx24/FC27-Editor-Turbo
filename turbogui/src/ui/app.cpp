@@ -122,6 +122,13 @@ App::App(Memory& m, fs::path le_root, uint64_t mailbox_addr, std::string sess)
             tactic_profiles = TacticProfileStore();
         }
     }
+    {  // the user's opposition rules (turbo_output/opp_rules.json): same rule, read once here
+        std::string err;
+        if (!load_opp_rules(opp_rules_path(bridge.root()), opp_user_rules, &err, &opp_rules_dropped)) {
+            opp_rules_error = err.empty() ? "the opposition rules file could not be read" : err;
+            opp_user_rules = RuleSet();
+        }
+    }
     load_voice();    // voice swaps (ui_callnames.cpp): no career needed; published once the host gives the service
     folder_store(bridge.dir() / "gui_folders.json");  // last folder of each in-overlay file picker (file_picker.cpp)
     load_team_names();  // live team names (ui_identity.cpp): published once the host gives the service
