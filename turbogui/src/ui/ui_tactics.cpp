@@ -152,16 +152,16 @@ void rebuild_preview(PitchView& v) {
     const int focus = v.press_line.value >= 0 ? v.press_line.value : v.def_line.value;  // the line the grid is centred on
     if (v.show_heat && focus >= 0) {
         // relative intensity (arbitrary): a smooth ramp around the press (else defensive) line, narrower with a narrower width; deterministic
-        v.heat.assign(size_t(kHeatCols * kHeatRows), 0.0f);
+        v.heat.assign(size_t(kUiHeatCols * kUiHeatRows), 0.0f);
         const float px = 0.30f + 0.62f * float(focus) / 100.0f;
         const float half = v.width_band.value >= 0 ? 0.18f + 0.30f * float(v.width_band.value) / 100.0f : 0.5f;
-        for (int r = 0; r < kHeatRows; ++r)
-            for (int q = 0; q < kHeatCols; ++q) {
-                const float cx = (float(q) + 0.5f) / kHeatCols, cy = (float(r) + 0.5f) / kHeatRows;
+        for (int r = 0; r < kUiHeatRows; ++r)
+            for (int q = 0; q < kUiHeatCols; ++q) {
+                const float cx = (float(q) + 0.5f) / kUiHeatCols, cy = (float(r) + 0.5f) / kUiHeatRows;
                 const float dx = std::fabs(cx - px), dy = std::fabs(cy - 0.5f);
                 float val = 1.0f - dx * 2.0f;
                 if (dy > half) val *= 0.3f;
-                v.heat[size_t(r * kHeatCols + q)] = std::clamp(val, 0.0f, 1.0f);
+                v.heat[size_t(r * kUiHeatCols + q)] = std::clamp(val, 0.0f, 1.0f);
             }
     }
 }

@@ -16,7 +16,7 @@
 namespace turbo {
 
 constexpr int kPitchPrimitiveCap = 400;
-constexpr int kHeatCols = 6, kHeatRows = 4;
+constexpr int kUiHeatCols = 6, kUiHeatRows = 4;
 
 enum class PitchTier { Exact, Derived, Modelled };
 
@@ -38,7 +38,7 @@ struct PitchView {
     PitchLayer def_line, press_line, width_band;  // Derived (drawn only when value >= 0)
     bool show_derived = true;
     bool show_heat = false;      // Modelled layer, off by default
-    std::vector<float> heat;     // kHeatCols * kHeatRows values 0..1, row-major; empty = nothing to draw
+    std::vector<float> heat;     // kUiHeatCols * kUiHeatRows values 0..1, row-major; empty = nothing to draw
     bool greyed = false;         // a kill switch is on: D and M layers drawn grey
 };
 

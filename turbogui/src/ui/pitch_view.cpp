@@ -109,7 +109,7 @@ int pitch_primitive_estimate(const PitchView& v) {
         if (v.press_line.value >= 0) n += 11;
         if (v.width_band.value >= 0) n += 21;
     }
-    if (v.show_heat && !v.heat.empty()) n += kHeatCols * kHeatRows * 3 + 1;
+    if (v.show_heat && !v.heat.empty()) n += kUiHeatCols * kUiHeatRows * 3 + 1;
     return n;
 }
 
@@ -163,12 +163,12 @@ PitchViewResult draw_pitch_view(const char* id, const PitchView& v, float width)
         c.rect(c.at(0.948f, 0.37f), c.at(1, 0.63f), chalk, 1.0f);
 
         // ---- Modelled (M): hatched grid, monochrome ramp, no numbers; off by default
-        if (v.show_heat && v.heat.size() >= size_t(kHeatCols * kHeatRows)) {
-            for (int r = 0; r < kHeatRows; ++r)
-                for (int q = 0; q < kHeatCols; ++q) {
-                    const float val = std::clamp(v.heat[size_t(r * kHeatCols + q)], 0.0f, 1.0f);
+        if (v.show_heat && v.heat.size() >= size_t(kUiHeatCols * kUiHeatRows)) {
+            for (int r = 0; r < kUiHeatRows; ++r)
+                for (int q = 0; q < kUiHeatCols; ++q) {
+                    const float val = std::clamp(v.heat[size_t(r * kUiHeatCols + q)], 0.0f, 1.0f);
                     if (val <= 0.02f) continue;
-                    const ImVec2 a = c.at(float(q) / kHeatCols, float(r) / kHeatRows), b = c.at(float(q + 1) / kHeatCols, float(r + 1) / kHeatRows);
+                    const ImVec2 a = c.at(float(q) / kUiHeatCols, float(r) / kUiHeatRows), b = c.at(float(q + 1) / kUiHeatCols, float(r + 1) / kUiHeatRows);
                     ImU32 col = (mcol & 0x00FFFFFFu) | (ImU32(std::clamp(val, 0.0f, 1.0f) * 150.0f) << 24);
                     c.rect(a, b, col, 1.0f);
                     c.line(a, b, col, 1.0f);                                // hatch, never a solid fill
