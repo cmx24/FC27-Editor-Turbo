@@ -149,10 +149,11 @@ void rebuild_preview(PitchView& v) {
     v.def_line = {layer_value({"team.line_depth", "team.defensive_depth"}), "Defensive line"};
     v.press_line = {layer_value({"team.engagement_height"}), "Press line"};
     v.width_band = {layer_value({"team.width_def", "team.defensive_width"}), "Width"};
-    if (v.show_heat && v.press_line.value >= 0) {
-        // relative intensity (arbitrary): a smooth ramp around the press line, narrower with a narrower width; deterministic
+    const int focus = v.press_line.value >= 0 ? v.press_line.value : v.def_line.value;  // the line the grid is centred on
+    if (v.show_heat && focus >= 0) {
+        // relative intensity (arbitrary): a smooth ramp around the press (else defensive) line, narrower with a narrower width; deterministic
         v.heat.assign(size_t(kHeatCols * kHeatRows), 0.0f);
-        const float px = 0.30f + 0.62f * float(v.press_line.value) / 100.0f;
+        const float px = 0.30f + 0.62f * float(focus) / 100.0f;
         const float half = v.width_band.value >= 0 ? 0.18f + 0.30f * float(v.width_band.value) / 100.0f : 0.5f;
         for (int r = 0; r < kHeatRows; ++r)
             for (int q = 0; q < kHeatCols; ++q) {
