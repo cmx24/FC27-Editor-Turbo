@@ -29,6 +29,7 @@
 #include "core/t3db.h"
 #include "core/teamname_override.h"
 #include "nlohmann/json.hpp"
+#include "ui_role_rules.h"
 #include "textures.h"
 
 namespace turbo {
@@ -181,6 +182,7 @@ public:
     int64_t job_offer_team = 0;
     std::string job_offer_status;
     std::string mass_status;  // Teams > team edit > Mass actions: the last outcome
+    rolerules::State role_rules;  // Teams > Mass actions > Squad roles: the rule editor (ui_role_rules.cpp)
     char job_offer_search[64] = "";
     // ---- edits FC 27 forgets at every career load (core/reapply.h, ui_reapply.cpp): the kit colours of Teams > Colours
     // and the player-specific callnames of Players > Callname are kept in turbo_output\reapply_edits.json and written

@@ -649,6 +649,8 @@ void App::tick(double t) {
                 job_offer_status = (ok ? "" : "Failed: ") + (result.empty() ? std::string(ok ? "done" : "failed") : result);
             if (pending_label.rfind("Mass actions", 0) == 0)  // Teams > team edit > Mass actions
                 mass_status = (ok ? "" : "Not everything was done: ") + (result.empty() ? std::string(ok ? "done" : "failed") : result);
+            if (pending_label.rfind("Squad roles ", 0) == 0)  // the role rule editor (the preview file is read here, once)
+                rolerules::on_result(*this, pending_label, ok, result);
             if (pending_label.rfind("Manager rules", 0) == 0)  // Managers > Manager rules shows the outcome in place
                 manager_rules_status = (ok ? "" : "Failed: ") + (result.empty() ? std::string(ok ? "done" : "failed") : result);
             if (pending_label.rfind("Manager move", 0) == 0)  // Managers > Manager market
