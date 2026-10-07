@@ -7,7 +7,13 @@ turbo/le27/fc27_db_schema.json (gitignored, like Live Editor's own files). Names
 scripts/check_field_names.py does. A name the game does not have is reported with where it is used; names in OPTIONAL are
 looked up with has()/field() and simply skipped when absent (FC 26-only fields kept for older/newer builds).
 Usage: python3 scripts/check_fc27_schema.py [schema.json]
+       python3 scripts/check_fc27_schema.py --coverage [schema.json]
+
+Coverage mode lists the fields of the players, teams and manager tables that appear nowhere in turbogui/src/ui/*.cpp or
+turbogui/src/core/field_labels.h (a field is "covered" when its name occurs there as a whole word). It is informational
+(exit 0). Without the schema file it prints a hint and exits 0, so it works offline and in CI.
 """
+import re
 import json
 import os
 import sys
@@ -31,8 +37,52 @@ OPTIONAL = {
 }
 
 
+COVERAGE_TABLES = ("players", "teams", "manager")
+COVERAGE_SOURCES = ("turbogui/src/ui/*.cpp", "turbogui/src/core/field_labels.h")
+
+
+def coverage(path):
+    import glob
+    if not os.path.exists(path):
+        print("coverage: schema missing (%s); nothing to compare. Run turbo_probe.lua in game and copy "
+              "turbo_output\\fc27_db_schema.json there." % path)
+        return 0
+    try:
+        schema = json.load(open(path, encoding="utf-8"))
+        tables = schema["tables"]
+    except (ValueError, KeyError, OSError) as e:
+        print("coverage: cannot read schema (%s); skipped" % e)
+        return 0
+    text = ""
+    nfiles = 0
+    for pat in COVERAGE_SOURCES:
+        for f in glob.glob(os.path.join(ROOT, pat)):
+            with open(f, encoding="utf-8", errors="replace") as fh:
+                text += fh.read() + "\n"
+            nfiles += 1
+    words = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", text))
+    total = 0
+    for tname in COVERAGE_TABLES:
+        t = tables.get(tname)
+        if t is None:
+            print("%s: table not in schema" % tname)
+            continue
+        names = [f["name"] for f in t.get("fields", [])]
+        missing = [n for n in names if n not in words]
+        total += len(missing)
+        print("%s: %d fields, %d not referenced in the GUI sources" % (tname, len(names), len(missing)))
+        for n in missing:
+            print("    " + n)
+    print("coverage: %d source files scanned, %d uncovered fields" % (nfiles, total))
+    return 0
+
+
 def main():
-    path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "turbo", "le27", "fc27_db_schema.json")
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    default = os.path.join(ROOT, "turbo", "le27", "fc27_db_schema.json")
+    if "--coverage" in sys.argv[1:]:
+        return coverage(args[0] if args else default)
+    path = args[0] if args else default
     if not os.path.exists(path):
         print("schema missing: run turbo_probe.lua in game and copy turbo_output\\fc27_db_schema.json to " + path)
         return 2

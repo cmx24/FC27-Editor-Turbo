@@ -460,6 +460,31 @@ one of the user's players; clone into the user's club.
   default). The per-side +/- counters, the points per result and the played results (Change result) are under
   **Advanced**, closed by default.
 
+## Turbo 2.0 additions (Unreleased)
+
+Design and rationale: `docs/TURBO_2_0_PLAN.md`. This section is the short technical contract; what actually ships is in `CHANGELOG.md` under "Unreleased 2.0".
+
+### Slider tiers
+
+Every tactics/match slider carries one tier badge, defined by where its value goes:
+
+| Tier | Meaning | Write path | Effect in a played match |
+| --- | --- | --- | --- |
+| Live | A game variable set through the `gv` bridge (`GAMEPLAY_CUSTOMIZATION/...`, `OVERRIDE/...`, `NEVER_INJURE`, `DISABLE_CPU_SUBSTITUTION`, `OVERRIDE_MATCH_DIFFICULTY`) | process-wide override, not saved with the career, cleared when the game closes | Accepted by the game; the in-game effect of each key is verified one by one (see the plan, section 3) |
+| DB | A field of the career database (players role/position/trait fields, formation tables) | normal DB write, saved with the career | Only if the game reads that field at match setup; the `TeamSheet` runtime copy may overwrite DB edits |
+| Preview | A Turbo-side model (pitch heat grid, opposition solver output) | none, nothing is sent to the game | None. It is a visual aid, not engine truth |
+| RE | No known write site yet (needs reverse engineering) | none | None. Shown as Preview only until promoted |
+
+Honest limits: simulated matches ignore every override (`simsettings.ini` is loaded over them), so Live sliders affect played matches only. Overrides are process-wide, so they also reach online modes; Turbo clears them on exit and shows an "overrides active" banner. Whether Authentic Gameplay or Dynamic Opposition bypasses them is unverified (the failure mode is a silent no-op).
+
+### Kill switches (files in `turbo_output`)
+
+`reapply_off.txt`, `turbo_gui_disable.txt`, `call_<name>_off.txt`, `hook_<name>_off.txt`, the crash flag `turbo_gui_start.flag`, and new in 2.0: `tactics_off.txt` (no tactics writes, effect layers greyed) and `role_reapply_off.txt` (no squad-role re-apply on season reset). The user-facing table is in `turbo/package/TURBO_README.md`.
+
+### Schema coverage
+
+`python3 scripts/check_fc27_schema.py --coverage [schema.json]` lists the fields of `players`, `teams` and `manager` in the game's schema dump (`turbo/le27/fc27_db_schema.json`) that no `turbogui/src/ui/*.cpp` or `turbogui/src/core/field_labels.h` mentions as a whole word. It is informational (exit 0) and prints a hint instead of failing when the schema file is absent. Without `--coverage` the script keeps its old job: checking every name Turbo uses against the schema.
+
 ## Not implemented yet
 
 Match setup overrides, gameplay toggles (CPU vs CPU, unlimited subs, never tired, match time/score), manager market / job security /
