@@ -12117,6 +12117,8 @@ static void test_match_setup() {
 // club customisation hub + career settings unlock (Turbo 1.1.1)
 #include "test_club_tools.h"
 #include "test_role_rules.h"  // Turbo 2.0 track G: the squad role rule editor
+// slider registry, tactic profiles, tactics preview, opposition solver (Turbo 2.0 b-core)
+#include "test_tactics_core.h"
 
 int main(int argc, char** argv) {
     if (argc < 3) {
@@ -12173,6 +12175,7 @@ int main(int argc, char** argv) {
     test_wheel_sources();
     std::printf("native club customisation and career settings\n");
     club_tools_test::run();
+    tactics_core_test::run();
     std::printf("native voice swaps\n");
     test_callname_voice();
     test_callname_voice_host();
