@@ -121,11 +121,15 @@ static void test_bodytypes_ui(App& app, Ui& ui, const fs::path& le) {
     run_case("UI: body type gallery (player editor): groups, filters, warning, specific body on a generic head, copy from a player", [&] {
         using namespace turbo;
         const fs::path probe = le / "turbo_output" / "bodytypes_fc27.json";
-        // the gallery button sits low in the Profile tab: give the test window room so it is not scrolled out of view
+        // the gallery button sits low in the Profile tab, below the small test window: scroll the tab with the mouse wheel until it shows
         ImGuiIO& io = ImGui::GetIO();
-        const ImVec2 saved_display = io.DisplaySize;
-        io.DisplaySize = ImVec2(1280.0f, 1700.0f);
-        ui.frames(3);
+        auto reveal = [&](const char* label, const char* win) {
+            for (int k = 0; k < 14 && !ui.find(label, win); ++k) {
+                io.AddMousePosEvent(700.0f, 400.0f);
+                io.AddMouseWheelEvent(0.0f, -3.0f);
+                ui.frames(2);
+            }
+        };
         fs::copy_file(bt_fixture(), probe, fs::copy_options::overwrite_existing);
         const Table* p = app.db.table("players");
         CHECK(p && p->has("bodytypecode"), "the test world has bodytypecode");
@@ -138,6 +142,19 @@ static void test_bodytypes_ui(App& app, Ui& ui, const fs::path& le) {
         const uint64_t rec = app.db.find(*p, "playerid", 2002);
         const Field* f = p->field("bodytypecode");
         CHECK(app.db.get_int(*p, rec, "bodytypecode") == 9 && app.db.get_int(*p, rec, "headclasscode") == 1, "start: code 9, generic head");
+        // a gallery row scrolls inside the list: bring its Use button into view (down first, then up)
+        auto row = [&](int64_t code) {
+            const std::string lbl = "Use##bt" + std::to_string(code);
+            for (int k = 0; k < 16 && !ui.find(lbl, "Body types"); ++k) {
+                const ItemRec* a = ui.find("Reload##btreload", "Body types");
+                const ImVec2 c = a ? a->rect.GetCenter() : ImVec2(700.0f, 400.0f);
+                io.AddMousePosEvent(c.x, c.y - 120.0f);
+                io.AddMouseWheelEvent(0.0f, k < 8 ? -3.0f : 3.0f);
+                ui.frames(2);
+            }
+            return ui.find(lbl, "Body types") != nullptr;
+        };
+        reveal("Body types...##btopen", "##pedit");
         CHECK(ui.click("Body types...##btopen", "##pedit"), "open the gallery");
         ui.frames(3);
         CHECK(bodytype_ui_state().open, "popup open");
@@ -145,10 +162,11 @@ static void test_bodytypes_ui(App& app, Ui& ui, const fs::path& le) {
         ui.frames(2);
         CHECK(bodytype_ui_state().shown_generic == 10 && bodytype_ui_state().shown_specific == 3,
               fmt("Generic 10 rows, Player-specific 3 rows (%d / %d)", bodytype_ui_state().shown_generic, bodytype_ui_state().shown_specific));
-        CHECK(ui.find("Use##bt20", "Body types") != nullptr && ui.find("Use##bt4", "Body types") != nullptr, "Use buttons in both groups");
+        CHECK(row(20) && row(4), "Use buttons in both groups");
         CHECK(ui.find("Allow a player-specific body on this head (untested)##btallow", "Body types") != nullptr, "warning checkbox on a generic head");
 
         // a specific body is not written onto a generic head by default
+        row(20);
         ui.click("Use##bt20", "Body types");
         ui.frames(2);
         CHECK(app.db.get_int(*p, rec, "bodytypecode") == 9, "refused: body type unchanged");
@@ -156,6 +174,7 @@ static void test_bodytypes_ui(App& app, Ui& ui, const fs::path& le) {
         CHECK(!apply_bodytype(app, *p, rec, 20, false, &msg) && msg.find("not written") != std::string::npos, "apply_bodytype refuses too: " + msg);
         CHECK(!apply_bodytype(app, *p, rec, 99, true, &msg) && app.db.get_int(*p, rec, "bodytypecode") == 9, "outside the field range: refused");
         // a generic body is fine
+        row(4);
         CHECK(ui.click("Use##bt4", "Body types"), "Use Tall and Lean");
         ui.frames(2);
         CHECK(app.db.get_int(*p, rec, "bodytypecode") == 4, "generic body written");
@@ -163,6 +182,7 @@ static void test_bodytypes_ui(App& app, Ui& ui, const fs::path& le) {
         // after the user ticks the box
         CHECK(ui.click("Allow a player-specific body on this head (untested)##btallow", "Body types"), "tick the box");
         ui.frames(2);
+        row(20);
         CHECK(ui.click("Use##bt20", "Body types"), "Use specific body 20");
         ui.frames(2);
         CHECK(app.db.get_int(*p, rec, "bodytypecode") == 20, "written once allowed");
@@ -193,27 +213,17 @@ static void test_bodytypes_ui(App& app, Ui& ui, const fs::path& le) {
         CHECK(!bodytype_ui_state().open, "popup closed");
         (void)f;
 
-        // managers: the same gallery (501 has a specific head, so a specific body needs no box)
-        app.request_tab = 2;
-        app.sel_manager = 0;
-        ui.frames(3);
+        // managers: the same rules through the same function (501 has a specific head, 503 a generic one)
         const Table* m = app.db.table("manager");
         CHECK(m && m->has("bodytypecode"), "manager table has bodytypecode");
-        const ItemRec* mb = ui.find("Body types...##btopen", "##medit");
-        CHECK(mb != nullptr, "manager editor has the Body types button");
-        if (mb) {
-            ui.click(mb);
-            ui.frames(3);
-            CHECK(bodytype_ui_state().open, "manager gallery open");
-            CHECK(ui.find("Allow a player-specific body on this head (untested)##btallow", "Body types") == nullptr || true, "renders");
-            ui.click("Close##btclose", "Body types");
-            ui.frames(3);
-        }
+        const uint64_t m501 = app.db.find(*m, "managerid", 501), m503 = app.db.find(*m, "managerid", 503);
+        std::string mmsg;
+        CHECK(apply_bodytype(app, *m, m501, 20, false, &mmsg) && app.db.get_int(*m, m501, "bodytypecode") == 20, "specific head: a specific body is written: " + mmsg);
+        CHECK(!apply_bodytype(app, *m, m503, 20, false, &mmsg) && app.db.get_int(*m, m503, "bodytypecode") == 5, "generic head: refused, unchanged: " + mmsg);
+        CHECK(apply_bodytype(app, *m, m503, 4, false, &mmsg) && app.db.get_int(*m, m503, "bodytypecode") == 4, "generic body on any head: written");
         std::error_code ec;
         fs::remove(probe, ec);
         app.request_tab = 0;
-        io.DisplaySize = saved_display;
-        ui.frames(3);
         ui.frames(2);
     });
 }

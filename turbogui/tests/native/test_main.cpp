@@ -7380,8 +7380,7 @@ static void test_ui() {
         ui_cases_names_tab(app, ui, mem, kMb);  // test_names_tab.h
         playtest_fix_cases(app, ui, le);
         test_file_picker_ui(app, ui, mem, kMb);
-        // KNOWN FAILING, opt in with TURBO_BODYTYPE_UI_WALK=1: the walk does not find the "Body types..." button yet (see test_bodytypes.h)
-        if (std::getenv("TURBO_BODYTYPE_UI_WALK")) test_bodytypes_ui(app, ui, le);  // test_bodytypes.h
+        test_bodytypes_ui(app, ui, le);  // test_bodytypes.h
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
 
