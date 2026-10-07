@@ -7173,7 +7173,7 @@ static void test_ui() {
                   "the GUI log names the field, a toast");
             CHECK(app.plan_sync_waiting() == 1, "written again: into his plan too");
             // another career load before that went out: the queued plan fields belong to the other load, dropped
-            publish(true, true, 2);
+            publish(true, true, 40);  // the bridge is polled every 0.5 s (30 frames): 2 frames only passed by luck of the poll phase
             CHECK(app.plan_sync_waiting() == 0 && logged("edits not sent: the career was left or another one loaded") && !app.busy(),
                   "dropped when another career load came first");
             ui.frames(38);
