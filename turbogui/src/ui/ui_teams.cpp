@@ -457,6 +457,12 @@ static void team_editor(App& app) {
             mass_actions_tab(app, *tr);
             ImGui::EndTabItem();
         }
+        if (ImGui::BeginTabItem("Tactics")) {
+            ImGui::BeginChild("##ttac");
+            draw_tactics(app);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
         if (ImGui::BeginTabItem("All fields")) {
             all_fields(app, *t, tr->rec, "##tall");
             ImGui::EndTabItem();
