@@ -10,6 +10,7 @@
 #include "core/comp_list.h"
 #include "core/fce_standings.h"
 #include "core/match_setup.h"
+#include "core/user_text.h"
 #include "imgui.h"
 
 namespace turbo {
@@ -127,8 +128,9 @@ void draw_selected(App& app, const fce::Fixture& f, uint32_t user) {
     ImGui::PushID("##msel");
     // venue
     if (ImGui::Button("Swap home and away")) {
+        const std::string was = app.model.team_name(team_of(f.home_sid)) + " v " + app.model.team_name(team_of(f.away_sid));
         std::string err = fce::swap_fixture_sides(app.mem, g_ms.loc, f.id);
-        if (err.empty()) after_edit(app, "fixture " + std::to_string(f.id) + ": home and away swapped");
+        if (err.empty()) after_edit(app, was + ": home and away swapped");
         else app.notify("Swap: " + err, true);
     }
     ImGui::SameLine();
@@ -154,10 +156,11 @@ void draw_selected(App& app, const fce::Fixture& f, uint32_t user) {
         ImGui::SameLine();
         if (ImGui::Button("Play this opponent")) {
             const int16_t nh = user_home ? user_sid : int16_t(g_ms.opponent), na = user_home ? int16_t(g_ms.opponent) : user_sid;
+            const std::string was = app.model.team_name(team_of(f.home_sid)) + " v " + app.model.team_name(team_of(f.away_sid));
             std::string err = fce::pairing_conflict(g_ms.fixtures, g_ms.rows, f.id, nh, na);
             if (err.empty()) err = fce::set_fixture_teams(app.mem, g_ms.loc, f.id, nh, na);
             if (err.empty())
-                after_edit(app, "fixture " + std::to_string(f.id) + ": opponent is now " + app.model.team_name(team_of(int16_t(g_ms.opponent))));
+                after_edit(app, was + ": opponent is now " + app.model.team_name(team_of(int16_t(g_ms.opponent))));
             else
                 app.notify("New opponent: " + err, true);
         }
@@ -183,7 +186,8 @@ void draw_selected(App& app, const fce::Fixture& f, uint32_t user) {
             else ok = app.match_setup->fix(f.id, g_ms.fix_home, g_ms.fix_away, fixture_line(app, f), err);
             const std::string score = std::to_string(g_ms.fix_home) + "-" + std::to_string(g_ms.fix_away);
             if (ok) {
-                app.notify("Result of fixture " + std::to_string(f.id) + " fixed at " + score + " (played or simulated, the table gets this score)");
+                app.notify("Result of " + app.model.team_name(team_of(f.home_sid)) + " v " + app.model.team_name(team_of(f.away_sid)) +
+                           " fixed at " + score + " (played or simulated, the table gets this score)");
                 app.log("match setup: fixture " + std::to_string(f.id) + " fixed at " + score);
             } else {
                 app.notify("Fix result: " + err, true);
@@ -207,7 +211,7 @@ void draw_fixes(App& app) {
         ImGui::SameLine();
         if (ImGui::SmallButton("Remove")) {
             app.match_setup->unfix(f.fixture);
-            app.notify("Fixed result removed: fixture " + std::to_string(f.fixture));
+            app.notify("Fixed result removed" + (f.label.empty() ? std::string() : ": " + f.label));
         }
         ImGui::PopID();
     }
@@ -238,27 +242,42 @@ void draw_vars(App& app) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(v.label);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\n%s; read %s", v.name, v.what, v.when);
+            if (ImGui::IsItemHovered()) {  // what it does first, when the game reads it, then the game's own variable name
+                ImGui::BeginTooltip();
+                ImGui::Text("%s", v.what);
+                ImGui::Text("Applies %s.", v.when);
+                ImGui::TextDisabled("%s", v.name);
+                ImGui::EndTooltip();
+            }
             ImGui::TableNextColumn();
+            const bool difficulty = std::string(v.name) == "OVERRIDE_MATCH_DIFFICULTY";
             auto it = lines.find(v.name);
-            if (it != lines.end() && it->second.active) ImGui::Text("%d", it->second.value);
-            else ImGui::TextDisabled("game decides");
+            if (it != lines.end() && it->second.active) {
+                if (difficulty) ImGui::Text("%d (%s)", it->second.value, usertext::difficulty_text(it->second.value).c_str());
+                else ImGui::Text("%d", it->second.value);
+            } else {
+                ImGui::TextDisabled("game decides");
+            }
             ImGui::TableNextColumn();
             int& val = g_ms.edit.emplace(v.name, v.max == 1 ? 1 : std::max(int(v.min), 0)).first->second;
             ImGui::SetNextItemWidth(S(90.0f));
             ImGui::InputInt("##val", &val);
             val = std::clamp(val, int(v.min), int(v.max));
+            if (difficulty) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", usertext::difficulty_text(val).c_str());
+            }
             ImGui::TableNextColumn();
             if (ImGui::SmallButton("Set")) {
                 std::string err;
-                if (!app.match_setup->set_var(v.name, val, err)) app.notify(std::string("Match setup: ") + v.name + ": " + err, true);
-                else app.match_setup_status = std::string("queued: ") + v.name + " = " + std::to_string(val);
+                if (!app.match_setup->set_var(v.name, val, err)) app.notify(std::string("Match setup: ") + v.label + ": " + err, true);
+                else app.match_setup_status = usertext::match_var_set(v.name, val);
             }
             ImGui::SameLine();
             if (ImGui::SmallButton("Clear")) {
                 std::string err;
-                if (!app.match_setup->clear_var(v.name, err)) app.notify(std::string("Match setup: ") + v.name + ": " + err, true);
-                else app.match_setup_status = std::string("queued: clear ") + v.name;
+                if (!app.match_setup->clear_var(v.name, err)) app.notify(std::string("Match setup: ") + v.label + ": " + err, true);
+                else app.match_setup_status = usertext::match_var_clear(v.name);
             }
             ImGui::PopID();
         }

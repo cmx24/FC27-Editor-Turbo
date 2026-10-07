@@ -324,10 +324,12 @@ const std::vector<KnownVar>& known_vars() {
         {"GAMEPLAY_CUSTOMIZATION/INJURY_FREQUENCY_CPUAI", "Injury frequency (CPU team)", "0..100, replaces the slider", "at kick-off", 0, 100, -1},
         {"GAMEPLAY_CUSTOMIZATION/INJURY_SEVERITY_USER", "Injury severity (your team)", "0..100, replaces the slider", "at kick-off", 0, 100, -1},
         {"GAMEPLAY_CUSTOMIZATION/INJURY_SEVERITY_CPUAI", "Injury severity (CPU team)", "0..100, replaces the slider", "at kick-off", 0, 100, -1},
-        {"OVERRIDE/WEATHER", "Weather", "the game's weather id for the next matches (-1 = the game decides)", "when a match is set up", -1, 8, -1},
-        {"OVERRIDE/TOD", "Time of day", "0, 1, 3 or 4 (the game's time-of-day ids; it ignores other values; -1 = the game decides)",
+        // weather and time of day stay numbers: which number is which look is not verified in the game yet (docs/re/match_setup.md)
+        {"OVERRIDE/WEATHER", "Weather", "a weather setting, 0 to 8, for the next matches (what each number looks like is not verified yet; -1 = the game decides)",
+         "when a match is set up", -1, 8, -1},
+        {"OVERRIDE/TOD", "Time of day", "a time-of-day setting: 0, 1, 3 or 4 (the game ignores other numbers; which is which is not verified yet; -1 = the game decides)",
          "when a match is set up", -1, 4, -1},
-        {"OVERRIDE_MATCH_DIFFICULTY", "Difficulty", "0 Beginner .. 5 Legendary for the next matches (-1 = your setting)", "when a match is set up",
+        {"OVERRIDE_MATCH_DIFFICULTY", "Difficulty", "0 Beginner up to 5 Legendary for the next matches (-1 = your setting)", "when a match is set up",
          -1, 5, -1},
         {"DISABLE_CPU_SUBSTITUTION", "CPU makes no substitutions", "1 = the CPU team's substitution AI stays idle", "during the match", 0, 1, 0},
     };

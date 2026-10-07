@@ -486,7 +486,7 @@ function M.execute(cmd)
         if not okm then return false, "bridge_meta.json not written: " .. tostring(merr) end
         return true, "bridge refreshed"
     end
-    return false, "unknown op " .. tostring(cmd.op)
+    return false, "Turbo does not know this command (" .. tostring(cmd.op) .. "): update Turbo so the window and the Lua side match"
 end
 
 local function clock()
@@ -699,11 +699,11 @@ function M.game_call(op, args, label)
     if rseq ~= seq then return "failed", "Turbo.dll did not answer the game call (result #" .. tostring(rseq) .. ")" end
     if status == CALL_OK then return "ok", text, out0, out1 end
     if status == CALL_QUEUED then
-        S.call_pending = { seq = seq, op = op, label = label or ("op " .. tostring(op)) }
+        S.call_pending = { seq = seq, op = op, label = label or "game call" }
         return "queued", text
     end
     -- the outputs go along: a call that failed late (player_move's read-backs) still reports what it read
-    return "failed", text ~= "" and text or ("game call status " .. tostring(status)), out0, out1
+    return "failed", text ~= "" and text or "the game call failed without a message", out0, out1
 end
 
 -- A queued game call finished? Logs it and publishes it for the GUI (bridge_state.json game_call).
@@ -727,7 +727,7 @@ end
 function M.player_morale(code, pid, value)
     local c, p, v = math.tointeger(code) or 0, math.tointeger(pid) or 0, math.tointeger(value) or 0
     if c ~= 1 and c ~= 2 and c ~= 3 and c ~= 9 then
-        return false, "unknown player_morale code " .. tostring(code) .. " (1 very happy, 2 value, 3 count stale, 9 check)", "failed"
+        return false, "this Turbo does not know that morale action: update Turbo", "failed"
     end
     if c ~= 3 and (p <= 0 or p > 0x7FFFFFFF) then return false, "player id must be a positive number", "failed" end
     if c == 2 and (v < 0 or v > 120) then return false, "morale " .. tostring(value) .. " is out of range (0 to 120)", "failed" end
@@ -759,7 +759,7 @@ end
 
 function M.player_create(code, payload)
     local c = math.tointeger(code) or 0
-    if c ~= 1 and c ~= 9 then return false, "unknown player_create code " .. tostring(code) .. " (1 create, 9 check only)", "failed" end
+    if c ~= 1 and c ~= 9 then return false, "this Turbo does not know that player-creation action: update Turbo", "failed" end
     if type(payload) ~= "table" or type(payload.players) ~= "table" then return false, "player_create: the payload has no players row", "failed" end
     local pid = int_or_nil(payload.playerid) or 0
     if pid <= 0 or pid >= 460000 then return false, "player id " .. tostring(payload.playerid) .. " is out of range (1 to 459999)", "failed" end
@@ -875,7 +875,7 @@ function M.install_natives()
         -- the DLL refuses malformed words; out-of-range values are refused here so the packing never truncates one
         local INT32 = 0x7FFFFFFF
         local bad
-        if c ~= 1 and c ~= 2 and c ~= 9 then bad = "unknown player_move code " .. tostring(code) .. " (1 move, 2 release, 9 check only)"
+        if c ~= 1 and c ~= 2 and c ~= 9 then bad = "this Turbo does not know that player-move action: update Turbo"
         elseif p <= 0 or p > INT32 then bad = "player id must be a positive number"
         elseif f <= 0 or f > INT32 or t < 0 or t > INT32 then bad = "team ids must be positive numbers"
         elseif mo < 0 or mo > 120 then bad = "contract length " .. tostring(months) .. " months is out of range (0 to 120)"

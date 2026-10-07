@@ -140,9 +140,8 @@ static void assign_name(App& app, const Table& t, const PlayerRow& p, const Name
     app.lua_queue.push_group({row.dump(), ids.dump()});
     const bool waiting = app.busy();
     app.flush_lua_queue();
-    app.notify(msg + (waiting ? ": queued for Turbo's Lua side (kept-name row first, then the name id), sent when the running command ends"
-                              : ": sent to Turbo's Lua side (kept-name row first, then the name id; next career event)") +
-               kNameRouteNote);
+    (void)waiting;  // queued behind a running command or sent at once: either way it applies by itself
+    app.notify(msg + ": waiting for the game to be ready; it will apply automatically" + kNameRouteNote);
 }
 
 // How a player-specific callname is written for a player: his playernamemap row edited in place; else a row added
@@ -288,12 +287,12 @@ PlayerCallnameWrite write_player_callname(App& app, const PlayerRow& p, int64_t 
         json a = {{"action", "set_playernamemap"}, {"playerid", p.playerid}, {"commentaryid", commentaryid}};
         add_room_check(app, a, plan.cap);
         if (!send_actions(app, json::array({a}), "Player callname")) {
-            r.message = p.name + ": playernamemap row not queued: Turbo's command channel is busy or not available";
+            r.message = p.name + ": his spoken name was not set: Turbo's command channel is busy or not available";
             r.notified = true;  // send() showed why
             return r;
         }
         r.how = How::Queued;
-        r.message = p.name + ": playernamemap row (" + std::to_string(commentaryid) + ", from " + from + ") queued for Turbo's Lua side";
+        r.message = "Set " + p.name + "'s spoken name to " + from + "'s callname: waiting for the game to be ready; it will apply automatically";
         return r;
     }
     if (plan.kind == K::TakeOver) {
@@ -1207,11 +1206,9 @@ static void own_confirm_popup(App& app, const Table& t, const PlayerRow& p) {
     if (!name && g_pending.alt.nameid && g_pending.alt.nameid == g_pending.nameid) name = &g_pending.alt;
     std::string what;
     if (g_pending.kind == PendingAssign::Kind::Player && g_pending.generic)  // "write the generic callname 'Kane' (900017) to ..."
-        what = "write " + g_pending.from +
-               (g_pending.from.find('\'') != std::string::npos ? " (" + std::to_string(g_pending.commentaryid) + ")" : std::string()) +
-               " to his playernamemap row";
+        what = "Set " + p.name + "'s spoken name to " + g_pending.from;
     else if (g_pending.kind == PendingAssign::Kind::Player)
-        what = "write callname " + std::to_string(g_pending.commentaryid) + " (" + g_pending.from + "'s) to his playernamemap row";
+        what = "Set " + p.name + "'s spoken name to " + g_pending.from + "'s callname";
     else
         what = std::string("assign '") + (name ? name->name : "?") + "' (callname " + (name ? std::to_string(name->commentaryid) : std::string("?")) +
                ") as his " + (g_pending.kind == PendingAssign::Kind::CommonName ? "common" : "last") + " name";
@@ -1233,7 +1230,7 @@ static void own_confirm_popup(App& app, const Table& t, const PlayerRow& p) {
             ImGui::TextColored(plan.kind == PlayerWritePlan::Kind::Full ? kOrange : kYellow, "%s", g_state.confirm_takeover.c_str());
     }
     ImGui::PopTextWrapPos();
-    ImGui::Text("Write it anyway: %s?", what.c_str());
+    ImGui::Text("Do it anyway? %s", what.c_str());
     if (ImGui::Button("Assign anyway##cnown")) {
         const PendingAssign a = g_pending;
         g_pending = PendingAssign{};

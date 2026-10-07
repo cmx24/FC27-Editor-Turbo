@@ -8,6 +8,7 @@
 
 #include "app.h"
 #include "core/archetypes.h"
+#include "core/field_labels.h"
 #include "core/overall.h"
 #include "geo.h"
 #include "imgui.h"
@@ -1059,8 +1060,9 @@ static void player_editor(App& app) {
             ImGui::SeparatorText("Head");
             if (ImGui::Button("Choose a real face...")) ImGui::OpenPopup("Choose a real face");
             ImGui::SameLine();
-            ImGui::TextDisabled("head asset %lld, head class %lld", static_cast<long long>(app.db.get_int(*t, p->rec, "headassetid", 0)),
-                                static_cast<long long>(app.db.get_int(*t, p->rec, "headclasscode", 0)));
+            ImGui::TextDisabled("%s", labels::code_text("headclasscode", app.db.get_int(*t, p->rec, "headclasscode", 0), "Head").c_str());
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Head model %lld", static_cast<long long>(app.db.get_int(*t, p->rec, "headassetid", 0)));
             real_face_picker(app, p->playerid);
             ImGui::SeparatorText("Tattoos");
             tattoo_editor(app, *t, p->rec);
@@ -1100,8 +1102,8 @@ static void player_editor(App& app) {
                 for (const auto& l : app.model.links_of_player(p->playerid)) {
                     ImGui::PushID(static_cast<int>(l.rec & 0x7FFFFFFF));
                     ImGui::AlignTextToFramePadding();
-                    ImGui::Text("%s (ID %lld)%s", app.model.team_name(l.teamid).c_str(), static_cast<long long>(l.teamid),
-                                app.model.is_national_team(l.teamid) ? " [national team]" : "");
+                    ImGui::Text("%s%s", app.model.team_name(l.teamid).c_str(), app.model.is_national_team(l.teamid) ? " [national team]" : "");
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Club ID %lld", static_cast<long long>(l.teamid));
                     if (const Field* jf = lt->field("jerseynumber")) field_editor(app, *lt, l.rec, *jf, "  Jersey", S(80.0f));
                     if (const Field* pf = lt->field("position")) field_editor(app, *lt, l.rec, *pf, "  Line-up slot", S(80.0f));
                     ImGui::PopID();

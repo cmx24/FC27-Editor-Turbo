@@ -172,6 +172,14 @@ local function build_world(sim)
         fields = { { name = "leagueid", short = "lid_", depth = 11 }, { name = "leaguename", short = "lnam", type = "string", depth = 8 * 32 } },
         rows = { { leagueid = 13, leaguename = "English Premier League" }, { leagueid = 31, leaguename = "Serie A" } },
     })
+    -- nations (the nationality / country pickers): nationid 14 is what every player and manager carries
+    sim:add_table({
+        name = "nations", short = "nats",
+        fields = { { name = "nationid", short = "nid_", depth = 8 }, { name = "nationname", short = "nnam", type = "string", depth = 8 * 32 },
+                   { name = "confederation", short = "conf", depth = 3 } },
+        rows = { { nationid = 14, nationname = "England", confederation = 1 }, { nationid = 18, nationname = "France", confederation = 1 },
+                 { nationid = 27, nationname = "Italy", confederation = 1 }, { nationid = 54, nationname = "Brazil", confederation = 2 } },
+    })
     -- tattoos (picker): id, area flags
     sim:add_table({
         name = "tattoo", short = "ttoo",

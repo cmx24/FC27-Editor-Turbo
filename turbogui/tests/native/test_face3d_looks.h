@@ -167,11 +167,11 @@ static void test_face3d_looks() {
         // tooltip
         const std::string t1 = head_traits(heads[0], true), t4 = head_traits(heads[3], true), tdb = head_traits(heads[0], false);
         CHECK(t1.find("\n3D look: light skin, dark brown short wavy hair, short beard (dark brown), no headwear") == 0 &&
-                  t1.find("\nGender: Male") != std::string::npos && t1.find("\nEyes (database): Brown (code 3)") != std::string::npos &&
+                  t1.find("\nGender: Male") != std::string::npos && t1.find("\nEyes (database): Brown") != std::string::npos &&
                   t1.find("Ethnicity (database)") != std::string::npos && t1.find("Caucasian 2") == std::string::npos,
               t1);
         CHECK(t4.find("\n3D look: not classified yet") == 0, t4);
-        CHECK(tdb.find("3D look") == std::string::npos && tdb.find("\nSkin tone: Caucasian 2 (code 20)") != std::string::npos, tdb);
+        CHECK(tdb.find("3D look") == std::string::npos && tdb.find("\nSkin tone: Caucasian 2") != std::string::npos, tdb);
         CHECK(kOnly3dDefaultMin == 200, "'Only heads with a 3D look' starts on from 200 looks");
         // managers (no looks, never set_look): 3D facets have no value, database filters as before
         Face m;

@@ -5,6 +5,7 @@
 #include <string>
 
 #include "app.h"
+#include "core/user_text.h"
 #include "hotkey_setting.h"
 #include "imgui.h"
 #include "ui_edit_unlock.h"
@@ -503,6 +504,37 @@ void draw_hook_status(App& app) {
 void draw_status(App& app) {
     const auto& st = app.bridge.state();
     images_status(app);
+    // A short health summary first: one line for the database, one for what Turbo needs from the game. The folders, hook
+    // addresses, tick counters and service pointers are for bug reports: they sit in the collapsed "Technical details".
+    ImGui::SeparatorText("Health");
+    if (app.db.ready()) ImGui::TextColored(ImVec4(0.45f, 0.9f, 0.45f, 1.0f), "Connected to the game's database (%zu tables)", app.db.table_names().size());
+    else ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Not connected to the game's database: %s", app.db_error.empty() ? "enter a career, or wait a moment" : app.db_error.c_str());
+    {
+        std::string line;
+        bool good = true;
+        if (app.hook_report) {
+            const HookReport r = app.hook_report();
+            int found = 0, active = 0, killed = 0;
+            for (const auto& s : r.signatures)
+                if (s.state == SigState::Found) ++found;
+            for (const auto& h : r.hooks) {
+                if (h.active) ++active;
+                if (h.killed) ++killed;
+            }
+            const bool dispatcher = r.dispatcher_hooked || r.dispatcher_pumps > 0 || r.dispatcher_ticks > 0;
+            line = usertext::health_line(found, static_cast<int>(r.signatures.size()), active, killed, dispatcher, app.lua_alive());
+            good = line.rfind("Everything", 0) == 0;
+        } else {
+            line = app.lua_alive() ? "Live Editor's Lua side is answering; the game hooks are not part of this build"
+                                   : "Live Editor's Lua side is not answering yet (it needs a career-mode event)";
+            good = app.lua_alive();
+        }
+        ImGui::TextColored(good ? ImVec4(0.45f, 0.9f, 0.45f, 1.0f) : ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", line.c_str());
+        if (!st.unavailable.empty())
+            ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "%zu features are not possible with this Live Editor build (listed under Technical details)",
+                               st.unavailable.size());
+    }
+    if (ImGui::CollapsingHeader("Technical details")) {
     ImGui::SeparatorText("Connection");
     ImGui::Text("Live Editor folder: %s", app.bridge.root().string().c_str());
     ImGui::Text("Bridge files: %s", app.bridge.dir().string().c_str());
@@ -538,6 +570,7 @@ void draw_status(App& app) {
     if (app.team_names_live()) ImGui::Text("%s", app.team_names_status_line().c_str());
     else ImGui::TextDisabled("%s", app.team_names_status_line().c_str());
     if (!app.team_names_error.empty()) ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "  %s", app.team_names_error.c_str());
+    }  // Technical details
 
     ImGui::SeparatorText("Settings");
     hotkey_setting(app);  // hotkey_setting.h: pick the key from the list or by pressing it
