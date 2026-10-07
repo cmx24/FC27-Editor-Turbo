@@ -29,6 +29,8 @@ M.MODULES = {
     headmodels               = { path = 'imports/turbo/features/headmodels',               kind = "action", needs_cm = false, desc = "Capture the FC 27 head-model list, or apply it" },
     transfer_bans            = { path = 'imports/turbo/features/transfer_bans',            kind = "action", needs_cm = true,  desc = "List, ban all or unban all teams" },
     team_mass                = { path = 'imports/turbo/features/team_mass',                kind = "action", needs_cm = true,  desc = "Mass actions for one team: long contracts, morale, form, match XP, dev bonus, squad roles, block offers" },
+    probe_tactics            = { path = 'imports/turbo/features/probe_tactics',            kind = "action", needs_cm = false, desc = "Read-only: tactic-like tables and fields, one cm_teamsheets row, the squad role list with ages (turbo_output/probe_tactics.json)" },
+    bodytypes                = { path = 'imports/turbo/features/bodytypes',                kind = "action", needs_cm = false, desc = "Read-only: every body type code in use with counts, ranges and example names (turbo_output/bodytypes_fc27.json)" },
     squad_role               = { path = 'imports/turbo/features/squad_role',               kind = "action", needs_cm = true,  desc = "Set squad role for your club's players" },
     team_jersey_numbers      = { path = 'imports/turbo/features/team_jersey_numbers',      kind = "action", needs_cm = false, desc = "List kit numbers of a team" },
     bulk_edit                = { path = 'imports/turbo/features/bulk_edit',                kind = "action", needs_cm = false, desc = "Filter players and set fields, fitness, form, morale, development" },
@@ -212,6 +214,19 @@ function M.boot(opts)
         end
     else
         log.error("cannot load the Turbo GUI bridge: %s", tostring(bridge))
+    end
+
+    -- Squad roles: the game rebuilds them at SEASON_RESET (event 23 = 0x17); a saved rule (turbo_output\role_rule.json, from the
+    -- squad role actions) is applied again then. Pure Lua at boot: one file existence check and a tap, no game call.
+    if not (cfg.turbo and cfg.turbo.role_reapply == false) then
+        -- (not env.output_dir: it writes a test file; a missing / wrong folder only means no re-apply until the next apply)
+        local override = cfg.turbo and cfg.turbo.output_dir
+        local root = env.le_root()
+        local odir = (type(override) == "string" and override ~= "") and override or (root and util_join(root, "turbo_output"))
+        if odir and (require 'imports/turbo/core/util').file_exists(util_join(odir, "role_rule.json")) then
+            local okr, sr = pcall(require, 'imports/turbo/features/squad_role')
+            if okr and type(sr) == "table" then sr.install_reapply() end
+        end
     end
 
     -- Live Editor's career-event handler is only registered when something needs it
