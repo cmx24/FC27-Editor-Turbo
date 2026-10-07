@@ -108,7 +108,8 @@ local function build_world(sim)
                               domesticprestige = 5, clubworth = 900000,
                               teamcolor1r = (t[1] * 37) % 256, teamcolor1g = (t[1] * 59) % 256, teamcolor1b = (t[1] * 83) % 256,
                               teamcolor2r = 255, teamcolor2g = 255, teamcolor2b = 255, teamcolor3r = 0, teamcolor3g = 0, teamcolor3b = 0,
-                              goalnetstanchioncolor1r = 200, goalnetstanchioncolor1g = 200, goalnetstanchioncolor1b = 200 }
+                              goalnetstanchioncolor1r = 200, goalnetstanchioncolor1g = 200, goalnetstanchioncolor1b = 200,
+                              defensivedepth = 50, buildupplay = 0 }
     end
     sim:add_table({
         name = "teams", short = "lyxL",
@@ -124,6 +125,7 @@ local function build_world(sim)
             { name = "teamcolor3r", short = "tc3r", depth = 8 }, { name = "teamcolor3g", short = "tc3g", depth = 8 }, { name = "teamcolor3b", short = "tc3b", depth = 8 },
             { name = "goalnetstanchioncolor1r", short = "gn1r", depth = 8 }, { name = "goalnetstanchioncolor1g", short = "gn1g", depth = 8 },
             { name = "goalnetstanchioncolor1b", short = "gn1b", depth = 8 },
+            { name = "defensivedepth", short = "ddep", depth = 7, min = 1 }, { name = "buildupplay", short = "bupl", depth = 2 },
         },
         rows = trows,
     })
@@ -347,17 +349,94 @@ local function build_world(sim)
         },
         rows = mrows,
     })
-    -- floats live in formations in the real database
+    -- floats live in formations in the real database. The two rows with a team id (1, 7) are the older stub rows (a name and one offset
+    -- pair, positions unset: no usable shape); 10, 11 and 12 are saved formations the Tactics tab reads (real schema field names):
+    -- 10 a normal 4-3-3, 11 a 3-5-2 whose offsets sit in formationoffsets, 12 a 4-4-2 on a y axis that runs the other way
+    local function frow(spec)
+        local row = { teamid = spec.teamid, formationid = spec.id, formationname = spec.name }
+        for i, s in ipairs(spec.slots or {}) do
+            row["position" .. (i - 1)] = s[1]
+            row["offset" .. (i - 1) .. "x"] = s[2]
+            row["offset" .. (i - 1) .. "y"] = s[3]
+        end
+        return row
+    end
+    local F433 = { { 0, 0.5, 0.04 }, { 7, 0.10, 0.22 }, { 6, 0.35, 0.20 }, { 4, 0.65, 0.20 }, { 3, 0.90, 0.22 }, { 10, 0.50, 0.38 },
+                   { 15, 0.30, 0.50 }, { 13, 0.70, 0.50 }, { 27, 0.12, 0.78 }, { 25, 0.50, 0.85 }, { 23, 0.88, 0.78 } }
+    local F352 = { { 0, 0.5, 0.04 }, { 6, 0.25, 0.20 }, { 5, 0.50, 0.18 }, { 4, 0.75, 0.20 }, { 8, 0.08, 0.50 }, { 15, 0.30, 0.50 },
+                   { 10, 0.50, 0.40 }, { 13, 0.70, 0.50 }, { 2, 0.92, 0.50 }, { 26, 0.38, 0.82 }, { 24, 0.62, 0.82 } }
+    local F442 = { { 0, 0.5, 0.96 }, { 7, 0.10, 0.78 }, { 6, 0.35, 0.80 }, { 4, 0.65, 0.80 }, { 3, 0.90, 0.78 }, { 16, 0.10, 0.55 },
+                   { 15, 0.35, 0.52 }, { 13, 0.65, 0.52 }, { 12, 0.90, 0.55 }, { 26, 0.40, 0.18 }, { 24, 0.60, 0.18 } }
+    local frm_fields = {
+        { name = "teamid", short = "tid_", depth = 18, min = -1 },
+        { name = "formationname", short = "fnam", type = "string", depth = 8 * 16 },
+        { name = "offset1x", short = "o1x_", type = "float" },
+        { name = "offset1y", short = "o1y_", type = "float" },
+        { name = "formationid", short = "fid_", depth = 11 },
+    }
+    local off_fields = {}
+    for i = 0, 10 do
+        frm_fields[#frm_fields + 1] = { name = "position" .. i, short = string.format("po%02d", i), depth = 6 }
+        if i ~= 1 then
+            frm_fields[#frm_fields + 1] = { name = "offset" .. i .. "x", short = string.format("fx%02d", i), type = "float" }
+            frm_fields[#frm_fields + 1] = { name = "offset" .. i .. "y", short = string.format("fy%02d", i), type = "float" }
+        end
+        off_fields[#off_fields + 1] = { name = "offset" .. i .. "x", short = string.format("fx%02d", i), type = "float" }
+        off_fields[#off_fields + 1] = { name = "offset" .. i .. "y", short = string.format("fy%02d", i), type = "float" }
+    end
+    local row11 = frow({ teamid = -1, id = 11, name = "3-5-2" })   -- positions in formations, offsets all zero there (they sit in formationoffsets)
+    for i, s in ipairs(F352) do row11["position" .. (i - 1)] = s[1] end
     sim:add_table({
         name = "formations", short = "frmt",
-        fields = {
-            { name = "teamid", short = "tid_", depth = 18 },
-            { name = "formationname", short = "fnam", type = "string", depth = 8 * 16 },
-            { name = "offset1x", short = "o1x_", type = "float" },
-            { name = "offset1y", short = "o1y_", type = "float" },
-        },
-        rows = { { teamid = 1, formationname = "4-3-3", offset1x = 0.5, offset1y = 0.0625 },
-                 { teamid = 7, formationname = "4-4-2", offset1x = 0.25, offset1y = 0.875 } },
+        fields = frm_fields,
+        rows = { { teamid = 1, formationid = 1, formationname = "4-3-3", offset1x = 0.5, offset1y = 0.0625 },
+                 { teamid = 7, formationid = 2, formationname = "4-4-2", offset1x = 0.25, offset1y = 0.875 },
+                 frow({ teamid = -1, id = 10, name = "4-3-3", slots = F433 }),
+                 row11,
+                 frow({ teamid = -1, id = 12, name = "4-4-2", slots = F442 }) },
+    })
+    do
+        local r = { formationid = 11 }
+        for i, s in ipairs(F352) do
+            r["offset" .. (i - 1) .. "x"] = s[2]
+            r["offset" .. (i - 1) .. "y"] = s[3]
+        end
+        local f = { { name = "formationid", short = "fid_", depth = 10 } }
+        for _, x in ipairs(off_fields) do f[#f + 1] = x end
+        sim:add_table({ name = "formationoffsets", short = "fmof", fields = f, rows = { r } })
+    end
+    -- the team's formation id (teamid is the key); Everton points at the stub row, 111592 has no link (its active tactic names the formation)
+    sim:add_table({
+        name = "teamformationteamstylelinks", short = "tfsl",
+        fields = { { name = "teamid", short = "tid_", depth = 18, min = -2 }, { name = "formationid", short = "fid_", depth = 10 },
+                   { name = "teamstyleid", short = "tsid", depth = 10 } },
+        rows = { { teamid = 1, formationid = 10, teamstyleid = 1 }, { teamid = 7, formationid = 2, teamstyleid = 1 },
+                 { teamid = 241, formationid = 12, teamstyleid = 1 }, { teamid = 1318, formationid = 11, teamstyleid = 2 } },
+    })
+    -- career tactics: several rows per team, one flagged as the active tactic (cm_mentalities); the static table has the width and box fields
+    sim:add_table({
+        name = "cm_mentalities", short = "cmmt",
+        fields = { { name = "artificialkey", short = "akey", depth = 16 }, { name = "teamid", short = "tid_", depth = 18, min = -1 },
+                   { name = "activetactic", short = "atac", depth = 1 }, { name = "mentalityid", short = "mid_", depth = 13 },
+                   { name = "defensivedepth", short = "ddep", depth = 7, min = 1 }, { name = "buildupplay", short = "bupl", depth = 2 },
+                   { name = "sourceformationid", short = "sfid", depth = 19, min = -1 } },
+        rows = { { artificialkey = 1, teamid = 1, activetactic = 0, mentalityid = 100, defensivedepth = 40, buildupplay = 1, sourceformationid = 10 },
+                 { artificialkey = 2, teamid = 1, activetactic = 1, mentalityid = 101, defensivedepth = 55, buildupplay = 2, sourceformationid = 10 },
+                 { artificialkey = 3, teamid = 7, activetactic = 0, mentalityid = 102, defensivedepth = 45, buildupplay = 0, sourceformationid = 2 },
+                 { artificialkey = 4, teamid = 111592, activetactic = 1, mentalityid = 103, defensivedepth = 50, buildupplay = 0, sourceformationid = 10 } },
+    })
+    sim:add_table({
+        name = "mentalities", short = "mntl",
+        fields = { { name = "mentalityid", short = "mid_", depth = 12 }, { name = "teamid", short = "tid_", depth = 18, min = -1 },
+                   { name = "activetactic", short = "atac", depth = 1 },
+                   { name = "defensivewidth", short = "dwid", depth = 7, min = 1 }, { name = "offensivewidth", short = "owid", depth = 7, min = 1 },
+                   { name = "playersinboxcross", short = "pibx", depth = 4 }, { name = "playersinboxcorner", short = "pibc", depth = 3 },
+                   { name = "playersinboxfk", short = "pibf", depth = 3 }, { name = "chancecreation", short = "chcr", depth = 2 },
+                   { name = "offensivestyle", short = "ofst", depth = 2 }, { name = "defensivestyle", short = "dfst", depth = 3 } },
+        rows = { { mentalityid = 1, teamid = 1, activetactic = 1, defensivewidth = 50, offensivewidth = 50, playersinboxcross = 4, playersinboxcorner = 2,
+                   playersinboxfk = 2, chancecreation = 0, offensivestyle = 0, defensivestyle = 0 },
+                 { mentalityid = 2, teamid = 7, activetactic = 1, defensivewidth = 40, offensivewidth = 60, playersinboxcross = 3, playersinboxcorner = 3,
+                   playersinboxfk = 1, chancecreation = 1, offensivestyle = 1, defensivestyle = 1 } },
     })
     -- user career tables Turbo's Lua side reads (cm_teamsheets: user squad)
     local sheet = { teamid = 1 }
