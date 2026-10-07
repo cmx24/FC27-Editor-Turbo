@@ -218,6 +218,7 @@ local function build_world(sim)
             haircolorcode = i % 10, hairtypecode = 100 + i, shoetypecode = 600 + i, gkglovetypecode = 40 + i, accessorycode1 = 0, accessorycolourcode1 = 0, headassetid = p[1], hashighqualityhead = (i <= 6) and 1 or 0,
             headclasscode = (i <= 6) and 0 or 1, headtypecode = 100 + i, headvariation = i % 4, skintonecode = i,
             facialhairtypecode = (i % 3 == 0) and 0 or (240 + i), facialhaircolorcode = i % 4, eyecolorcode = 1 + i % 3, gender = (i == 5) and 1 or 0,  -- real-face chooser filters
+            bodytypecode = (i == 2) and 20 or (1 + i % 9),  -- body type gallery: player 2 carries a player-specific body (code 20)
             tattooleftarm = 0, tattoohead = 0,
             contractvaliduntil = 2028 + (i % 3), isretiring = (i == 3) and 1 or 0, nationality = 14,
         }
@@ -277,6 +278,7 @@ local function build_world(sim)
             { name = "facialhaircolorcode", short = "fhco", depth = 6 },
             { name = "eyecolorcode", short = "eyec", depth = 7 },
             { name = "gender", short = "gndr", depth = 1 },
+            { name = "bodytypecode", short = "btc_", depth = 5 },
             { name = "tattooleftarm", short = "tla_", depth = 10 },
             { name = "tattoohead", short = "thd_", depth = 10 },
             { name = "contractvaliduntil", short = "cvu_", depth = 11 },
@@ -318,7 +320,7 @@ local function build_world(sim)
     local mrows = {}
     for _, m in ipairs(MANAGERS) do
         mrows[#mrows + 1] = { managerid = m[1], firstname = m[2], surname = m[3], teamid = m[4], nationality = 14, headassetid = 7000 + m[1],
-                              headclasscode = m[5], headtypecode = m[6], skintonecode = m[7], haircolorcode = m[8] }
+                              headclasscode = m[5], headtypecode = m[6], skintonecode = m[7], haircolorcode = m[8], bodytypecode = 5 }
     end
     sim:add_table({
         name = "manager", short = "mngr",
@@ -333,6 +335,7 @@ local function build_world(sim)
             { name = "headtypecode", short = "htc_", depth = 14 },
             { name = "skintonecode", short = "stc_", depth = 7 },
             { name = "haircolorcode", short = "hcol", depth = 4 },
+            { name = "bodytypecode", short = "btc_", depth = 5 },
         },
         rows = mrows,
     })

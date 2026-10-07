@@ -7,6 +7,7 @@
 #include "geo.h"
 #include "imgui.h"
 #include "table_sort.h"
+#include "ui_bodytypes.h"
 #include "ui_faces.h"
 #include "ui_identity.h"
 #include "ui_images.h"
@@ -709,6 +710,7 @@ void draw_managers(App& app) {
                                                  "personalityid", "bodytypecode", "headassetid", "outfitid", "skintonecode",
                                                  "height", "weight"},
                                "##mgrid", 2);
+                    bodytype_gallery_button(app, *t, m.rec, true);  // ui_bodytypes.cpp
                     ImGui::SeparatorText("All fields");
                     all_fields(app, *t, m.rec, "##mall");
                     ImGui::EndChild();

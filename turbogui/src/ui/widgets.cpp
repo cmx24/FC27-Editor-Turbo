@@ -10,6 +10,7 @@
 #include "core/field_labels.h"
 #include "core/hair_catalog.h"
 #include "imgui.h"
+#include "ui_bodytypes.h"
 
 namespace turbo {
 
@@ -295,6 +296,7 @@ static std::string code_text(const std::string& field, int64_t v) {
         std::snprintf(b, sizeof(b), "%s #%lld", hair::describe(hair::lookup(v)).c_str(), static_cast<long long>(v));
         return b;
     }
+    if (field == "bodytypecode") return bodytype_label(v);  // Live Editor / field_labels.h names, else "Specific body #N"
     return labels::code_text(field, v, field_label(field));
 }
 
