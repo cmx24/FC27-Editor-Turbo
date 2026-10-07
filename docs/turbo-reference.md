@@ -477,6 +477,16 @@ Every tactics/match slider carries one tier badge, defined by where its value go
 
 Honest limits: simulated matches ignore every override (`simsettings.ini` is loaded over them), so Live sliders affect played matches only. Overrides are process-wide, so they also reach online modes; Turbo clears them on exit and shows an "overrides active" banner. Whether Authentic Gameplay or Dynamic Opposition bypasses them is unverified (the failure mode is a silent no-op).
 
+### Tactics tab: where each thing comes from
+
+| Thing on screen | Source | Honesty |
+| --- | --- | --- |
+| Pitch dots | The selected club's saved formation: `teamformationteamstylelinks` (team id to formation id), else the `sourceformationid` of the club's active tactic in `cm_mentalities` / `mentalities`, else a `formations` row carrying the club's id; positions from `formations.position0..10`, offsets from `formations.offset0x..offset10y`, or `formationoffsets` when those are all zero. Read through `core/tactics_db.cpp`, cached by `App::gen`. A goalkeeper near the far goal line turns the y axis round. | Exact (E), solid, "saved data, in-game effect unverified". When nothing usable is found Turbo's own shape from `fallback_formations()` is drawn and the reason is shown. |
+| Lines, band, arrows | `build_preview` (core/tactics.h) through `PreviewCache`; drawn only for sliders that are switched on | Derived (D): dashed, "62/100 (schematic)", never a unit |
+| Grid, rings, exposure | The same model, only when asked for | Modelled (M): hatched or stippled, "(arbitrary)", off by default |
+| Team sliders in the mentality tables | The club's row in `mentalities` / `cm_mentalities` by `teamid` (the row flagged `activetactic`, else the first); `teams.defensivedepth` / `teams.buildupplay` by the selected club | DB: saved with the career, effect in a match unverified; a club without a row is reported, nothing is created |
+| Opposition card | `core/opposition.cpp` with the built-in rules plus `turbo_output/opp_rules.json`; seed from the career, the season, the day, the opponent and the re-roll count | Preview, except injury and difficulty offsets, which are Live and sent only by the card's Apply button as base plus offset |
+
 ### Kill switches (files in `turbo_output`)
 
 `reapply_off.txt`, `turbo_gui_disable.txt`, `call_<name>_off.txt`, `hook_<name>_off.txt`, the crash flag `turbo_gui_start.flag`, and new in 2.0: `tactics_off.txt` (no tactics writes, effect layers greyed) and `role_reapply_off.txt` (no squad-role re-apply on season reset). The user-facing table is in `turbo/package/TURBO_README.md`.
