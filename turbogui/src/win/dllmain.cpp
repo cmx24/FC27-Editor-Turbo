@@ -308,6 +308,14 @@ static DWORD WINAPI init_thread(LPVOID) {
         }
         log("FCLiveEditor.DLL is not in the module list, but Turbo's Lua side just ran in Live Editor: starting.");
     }
+    // Test harness: turbo_output\turbo_dev_early.txt starts the dev service now instead of with the overlay, so its key op
+    // can answer the game's start-up dialogs (Windows drops key presses that a normal process sends to an elevated game; the
+    // dev service presses them from inside the game). A file-polling thread only: nothing is hooked or probed here.
+    if (fs::exists(g_root / "turbo_output" / "turbo_dev_early.txt", ec)) {
+        log("turbo_output\\turbo_dev_early.txt: starting the dev service now, before the overlay (key presses for the "
+            "start-up dialogs)");
+        start_devtools();
+    }
     if (fs::exists(guard_path(), ec)) {
         std::string why;
         if (FILE* f = _wfopen(guard_path().wstring().c_str(), L"r")) {

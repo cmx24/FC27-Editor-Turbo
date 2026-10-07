@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <psapi.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
@@ -63,11 +64,36 @@ static json dev_modules() {
     return arr;
 }
 
+struct EarlyWindow {
+    DWORD pid;
+    HWND hwnd;
+};
+
+static BOOL CALLBACK early_window(HWND hwnd, LPARAM lp) {
+    auto* w = reinterpret_cast<EarlyWindow*>(lp);
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid != w->pid || !IsWindowVisible(hwnd) || GetWindow(hwnd, GW_OWNER) != nullptr) return TRUE;
+    RECT r{};
+    if (!GetWindowRect(hwnd, &r) || r.right - r.left < 400 || r.bottom - r.top < 300) return TRUE;
+    w->hwnd = hwnd;
+    return FALSE;
+}
+
+// The window the overlay draws on; before the overlay has started (dev service started early, turbo_dev_early.txt), this
+// process's visible, un-owned top-level window big enough to be the game window (the same rule as dllmain's wait)
+static HWND dev_game_window() {
+    if (HWND h = game_window()) return h;
+    EarlyWindow w{GetCurrentProcessId(), nullptr};
+    EnumWindows(early_window, reinterpret_cast<LPARAM>(&w));
+    return w.hwnd;
+}
+
 // Key press for the game, only while the game window is in front (a key sent while another window has focus would go
 // to that window, e.g. the Claude app)
 static std::string dev_key(int vk, int ms, bool* sent) {
     *sent = false;
-    HWND game = game_window();
+    HWND game = dev_game_window();
     if (!game) return "the game window is not known yet";
     HWND root = GetAncestor(game, GA_ROOT);
     if (GetForegroundWindow() != (root ? root : game)) return "the game window is not in front: key not sent";
@@ -146,7 +172,10 @@ static DWORD WINAPI dev_thread(LPVOID) {
     return 0;
 }
 
+// Called by the overlay once it runs, and earlier by dllmain when turbo_output\turbo_dev_early.txt exists: one thread only
 void start_devtools() {
+    static std::atomic<bool> started{false};
+    if (started.load()) return;
     const char* off = std::getenv("TURBO_GUI_NO_DEVTOOLS");
     if (off && off[0] == '1') {
         log("dev service off (TURBO_GUI_NO_DEVTOOLS=1)");
@@ -157,6 +186,7 @@ void start_devtools() {
         log("dev service off (turbo_output\\turbo_dev_disable.txt)");
         return;
     }
+    if (started.exchange(true)) return;
     HANDLE th = CreateThread(nullptr, 0, dev_thread, nullptr, 0, nullptr);
     if (th) CloseHandle(th);
     log("dev service ready (turbo_output\\turbo_dev_request.json)");
