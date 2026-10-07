@@ -11,6 +11,7 @@
 #include "core/field_labels.h"
 #include "core/hair_catalog.h"
 #include "imgui.h"
+#include "ui_bodytypes.h"
 
 namespace turbo {
 
@@ -219,6 +220,7 @@ const char* enum_label(const std::string& field, int64_t v) { return labels::enu
 // The text shown for a code value: never a bare number. Hair and facial hair styles keep their style number (a combo of
 // hundreds of styles has many with the same look, and the number is what the search takes).
 static std::string code_text(const std::string& field, int64_t v) {
+    if (field == "bodytypecode") return bodytype_label(v);  // Live Editor / field_labels.h names, else "Specific body #N"
     if (field == "hairtypecode" || field == "facialhairtypecode")
         return labels::describe("players", field, v) + " (style " + std::to_string(v) + ")";
     return labels::describe("players", field, v);

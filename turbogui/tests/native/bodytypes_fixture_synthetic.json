@@ -1,0 +1,18 @@
+{
+  "_comment": "SYNTHETIC test data for Turbo's native tests (test_bodytypes.h). Not produced by the game or by the bodytypes.lua probe; the players named here do not exist.",
+  "version": 1,
+  "bodytypes": [
+    {"code": 1, "players": 120, "height": [168, 178], "weight": [62, 74], "headclasscode": [0, 1], "gender": 0,
+     "examples": ["Synthetic Player 01", "Synthetic Player 02"]},
+    {"code": 4, "players": 64, "height": [183, 192], "weight": [76, 88], "headclasscode": 1, "gender": 0,
+     "examples": ["Synthetic Player 03"]},
+    {"code": 20, "players": 2, "height": [188, 190], "weight": [80, 84], "headclasscode": 0, "gender": 0,
+     "examples": ["Synthetic Star A", "Synthetic Star B"]},
+    {"code": 21, "players": 1, "height": [170, 170], "weight": [60, 60], "headclasscode": 0, "gender": 1,
+     "examples": ["Synthetic Star C"]},
+    {"code": 22, "players": 1, "height": [200, 201], "weight": [95, 98], "headclasscode": 0, "gender": 0,
+     "examples": ["Synthetic Star D", "Synthetic Star E", "Synthetic Star F", "Synthetic Star G", "Synthetic Star H", "Synthetic Star I"]},
+    {"code": "not a number", "players": 9},
+    {"players": 3}
+  ]
+}

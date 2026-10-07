@@ -14,6 +14,7 @@
 #include "imgui.h"
 #include "move_rules.h"
 #include "playstyles.h"
+#include "ui_bodytypes.h"
 #include "ui_images.h"
 #include "ui_names.h"
 #include "ui_presets.h"
@@ -1016,6 +1017,7 @@ static void player_editor(App& app) {
             field_grid(app, *t, p->rec, {"role1", "role2", "role3", "role4", "role5", "role6", "role7", "role8", "role9", "bodytypecode",
                                           "gender", "personality", "emotion", "growthprofile", "skillmoveslikelihood", "gkkickstyle",
                                           "runstylecode", "usercaneditname", "iscustomized"}, "##rolegrid", 2);
+            bodytype_gallery_button(app, *t, p->rec, false);  // ui_bodytypes.cpp
             ImGui::EndChild();
             ImGui::EndTabItem();
         }

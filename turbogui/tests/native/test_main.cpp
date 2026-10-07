@@ -2598,6 +2598,7 @@ static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_preload_hotkey.h"  // 1.1.1: show/hide key setting, background loading
 #include "test_gear_pictures.h"  // 1.1.4: gear preview pictures from the hash list
 #include "test_hair_catalog.h"  // hair catalog: gallery filters and the face chooser Hair facet
+#include "test_bodytypes.h"  // body type catalogue (runtime-loaded probe + localize.json) and its gallery
 #include "test_face3d_looks.h"  // 3D looks of the real faces: generated data, lookup, the chooser's 3D facets
 #include "test_describe.h"  // codes to descriptions: describe(), user text, pickers, the "no code N" UI walk
 #include "test_wheel.h"  // 1.1.3: mouse wheel source (hook, raw input, window messages)
@@ -7477,6 +7478,7 @@ static void test_ui() {
         ui_cases_names_tab(app, ui, mem, kMb);  // test_names_tab.h
         playtest_fix_cases(app, ui, le);
         test_file_picker_ui(app, ui, mem, kMb);
+        test_bodytypes_ui(app, ui, le);  // test_bodytypes.h
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
 
@@ -12176,6 +12178,7 @@ int main(int argc, char** argv) {
     test_hotkey_and_background();
     test_gear_pictures();
     test_hair_catalog();
+    test_bodytype_catalog();
     test_face3d_looks();
     std::printf("native mouse wheel source\n");
     test_wheel_sources();
