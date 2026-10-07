@@ -7,58 +7,15 @@
 #include <map>
 
 #include "app.h"
+#include "geo.h"
 #include "core/field_labels.h"
 #include "core/hair_catalog.h"
 #include "imgui.h"
 
 namespace turbo {
 
-static const std::map<std::string, std::string>& label_map() {
-    static const std::map<std::string, std::string> m = {
-        {"overallrating", "Overall"}, {"potential", "Potential"}, {"modifier", "OVR modifier"}, {"acceleration", "Acceleration"},
-        {"sprintspeed", "Sprint Speed"}, {"positioning", "Att. Position"}, {"finishing", "Finishing"},
-        {"shotpower", "Shot Power"}, {"longshots", "Long Shots"}, {"volleys", "Volleys"}, {"penalties", "Penalties"},
-        {"vision", "Vision"}, {"crossing", "Crossing"}, {"freekickaccuracy", "FK Accuracy"},
-        {"shortpassing", "Short Passing"}, {"longpassing", "Long Passing"}, {"curve", "Curve"}, {"agility", "Agility"},
-        {"balance", "Balance"}, {"reactions", "Reactions"}, {"ballcontrol", "Ball Control"}, {"dribbling", "Dribbling"},
-        {"composure", "Composure"}, {"interceptions", "Interceptions"}, {"headingaccuracy", "Heading Acc."},
-        {"defensiveawareness", "Def. Awareness"}, {"marking", "Marking"}, {"standingtackle", "Standing Tackle"},
-        {"slidingtackle", "Sliding Tackle"}, {"jumping", "Jumping"}, {"stamina", "Stamina"}, {"strength", "Strength"},
-        {"aggression", "Aggression"}, {"gkdiving", "GK Diving"}, {"gkhandling", "GK Handling"},
-        {"gkkicking", "GK Kicking"}, {"gkpositioning", "GK Positioning"}, {"gkreflexes", "GK Reflexes"},
-        {"preferredfoot", "Preferred Foot"}, {"weakfootabilitytypecode", "Weak Foot"}, {"skillmoves", "Skill Moves"},
-        {"attackingworkrate", "Att. Work Rate"}, {"defensiveworkrate", "Def. Work Rate"}, {"height", "Height (cm)"},
-        {"weight", "Weight (kg)"}, {"nationality", "Nationality ID"}, {"birthdate", "Birth Date"},
-        {"contractvaliduntil", "Contract Until"}, {"wage", "Wage"}, {"releaseclause", "Release Clause"}, {"isretiring", "Retiring"}, {"playerjointeamdate", "Joined Club"},
-        {"internationalrep", "Int. Reputation"}, {"teamname", "Team Name"}, {"jerseynumber", "Jersey"},
-        {"headassetid", "Head Asset ID"}, {"hashighqualityhead", "Real Face"}, {"headclasscode", "Head Class"},
-        {"trait1", "PlayStyles"}, {"icontrait1", "PlayStyles+"}, {"trait2", "Traits"}, {"icontrait2", "Traits+"},
-        {"homewins", "Home wins"}, {"awaywins", "Away wins"}, {"homedraws", "Home draws"}, {"awaydraws", "Away draws"},
-        {"homelosses", "Home losses"}, {"awaylosses", "Away losses"}, {"homegf", "Home goals for"},
-        {"awaygf", "Away goals for"}, {"homega", "Home goals against"}, {"awayga", "Away goals against"},
-        {"points", "Points"}, {"nummatchesplayed", "Played"}, {"currenttableposition", "Table position"},
-        {"teamform", "Form"}, {"lastgameresult", "Last result"},
-        {"firstnameid", "First name ID"}, {"lastnameid", "Last name ID"}, {"commonnameid", "Common name ID"},
-        {"playerjerseynameid", "Jersey name ID"}, {"bodytypecode", "Body type"}, {"gender", "Gender"},
-        {"skillmoveslikelihood", "Skill moves likelihood"}, {"gkkickstyle", "GK kick style"}, {"runstylecode", "Run style"},
-        {"socklengthcode", "Sock length"}, {"sockstylecode", "Sock style"}, {"shoetypecode", "Boots"}, {"shoecolorcode1", "Boot colour 1"},
-        {"shoecolorcode2", "Boot colour 2"}, {"shoedesigncode", "Boot design"}, {"gkglovetypecode", "GK gloves"},
-        {"hairtypecode", "Hair"}, {"haircolorcode", "Hair colour"}, {"hairstylecode", "Hair style"},
-        {"facialhairtypecode", "Facial hair"}, {"facialhaircolorcode", "Facial hair colour"}, {"eyecolorcode", "Eye colour"},
-        {"skintonecode", "Skin tone"}, {"headtypecode", "Head type"}, {"jerseyfit", "Jersey fit"},
-        {"jerseysleevelengthcode", "Sleeves"}, {"jerseystylecode", "Jersey style"}, {"shortstyle", "Shorts"},
-        {"growthprofile", "Growth profile"}, {"emotion", "Emotion"}, {"personality", "Personality"},
-    };
-    return m;
-}
+std::string field_label(const std::string& field) { return labels::field_title(field); }
 
-std::string field_label(const std::string& field) {
-    auto it = label_map().find(field);
-    if (it != label_map().end()) return it->second;
-    std::string out = field;
-    if (!out.empty()) out[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(out[0])));
-    return out;
-}
 
 // Editing state for the one field that has keyboard focus. While a field is active its value lives
 // here instead of being re-read from game memory each frame.
@@ -70,17 +27,32 @@ struct ActiveEdit {
 };
 static ActiveEdit g_edit;
 
+// The game's own field name goes to a dim second line of the tooltip; the first line says what the box holds
+static void tooltip_with_raw(const std::string& text, const std::string& raw) {
+    ImGui::BeginTooltip();
+    ImGui::TextUnformatted(text.c_str());
+    ImGui::TextDisabled("%s", raw.c_str());
+    ImGui::EndTooltip();
+}
+
 static void range_tooltip(const Field& f) {
     if (!ImGui::IsItemHovered()) return;
     if (f.type == FieldType::Int)
-        ImGui::SetTooltip("%s  [%lld .. %lld]", f.name.c_str(), static_cast<long long>(f.min), static_cast<long long>(f.max()));
+        tooltip_with_raw(labels::describe_range(f.name, f.min, f.max()), f.name);
     else if (f.type == FieldType::String)
-        ImGui::SetTooltip("%s  [text, max %d bytes]", f.name.c_str(), static_cast<int>(f.max_len()) - 1);
+        tooltip_with_raw(labels::field_title(f.name) + " (text, up to " + std::to_string(static_cast<int>(f.max_len()) - 1) + " characters)", f.name);
     else
-        ImGui::SetTooltip("%s  [%s]", f.name.c_str(), f.type_name());
+        tooltip_with_raw(labels::field_title(f.name) + " (" + f.type_name() + ")", f.name);
 }
 
+// Pickers by name (nation, club) instead of the number; off in the "All fields" view until "Show friendly names" is ticked
+static bool g_pickers = true;
+enum class RefKind { None, Nation, Team };
+static RefKind ref_kind(App& app, const Table& t, const Field& f);
+static bool ref_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float width);
+
 bool field_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float width) {
+    if (g_pickers && f.type == FieldType::Int && ref_kind(app, t, f) != RefKind::None) return ref_editor(app, t, rec, f, label, width);
     Value cur;
     if (!app.db.get(t, rec, f, cur)) {
         if (label) ImGui::TextDisabled("%s: unreadable", label);
@@ -170,7 +142,7 @@ bool date_field_editor(App& app, const Table& t, uint64_t rec, const Field& f, c
     int* p = active == id ? buf : ymd;
     ImGui::SetNextItemWidth(S(170.0f));
     ImGui::InputInt3("##date", p);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("year / month / day  (stored as %s = %lld)", f.name.c_str(), static_cast<long long>(cur.i));
+    if (ImGui::IsItemHovered()) tooltip_with_raw("Year / month / day. The game stores it as a day count.", f.name);
     if (ImGui::IsItemActivated()) {
         active = id;
         std::memcpy(buf, p, sizeof(buf));
@@ -180,7 +152,7 @@ bool date_field_editor(App& app, const Table& t, uint64_t rec, const Field& f, c
         GameDate nd{buf[0], buf[1], buf[2]};
         if (ImGui::IsItemDeactivatedAfterEdit() && nd.as_int() != d.as_int()) {
             if (!is_real_date(nd)) {
-                app.notify(f.name + ": not a valid date", true);
+                app.notify(labels::field_title(f.name) + ": not a valid date", true);
             } else {
                 wrote = app.edit(t, rec, f, Value::of_int(gregorian_days_from_date(nd)));
             }
@@ -236,66 +208,20 @@ bool slider_editor_ex(App& app, const Table& t, uint64_t rec, const Field& f, co
     return wrote;
 }
 
-// Readable labels for small enumerated fields Live Editor's localization does not name (the ones it names - emotion,
-// body type, colours, jersey/sock/short styles, gender, foot, head class, roles, accessories - live in core/field_labels.h)
-struct EnumDef {
-    const char* field;
-    int64_t base;  // value of labels[0]
-    std::vector<const char*> labels;
-};
-static const std::vector<EnumDef>& enum_defs() {
-    static const std::vector<EnumDef> d = {
-        {"weakfootabilitytypecode", 1, {"1 star", "2 stars", "3 stars", "4 stars", "5 stars"}},
-        {"skillmoves", 0, {"1 star", "2 stars", "3 stars", "4 stars", "5 stars"}},
-        {"internationalrep", 1, {"1 star", "2 stars", "3 stars", "4 stars", "5 stars"}},
-        {"attackingworkrate", 0, {"Low", "Medium", "High"}},
-        {"defensiveworkrate", 0, {"Low", "Medium", "High"}},
-        {"gkkickstyle", 0, {"Default", "Power", "Precision", "Mixed"}},
-        {"skillmoveslikelihood", 0, {"Low", "Medium", "High", "Very high"}},
-        {"personality", 1, {"Neutral", "Maverick", "Heartbeat", "Virtuoso"}},
-        {"undershortstyle", 0, {"None", "Visible"}},
-        {"shoedesigncode", 0, {"Standard", "Laced", "Laceless", "High-cut"}},
-        {"muscularitycode", 0, {"Regular", "Muscular"}},
-        {"runstylecode", 0, {"Default", "Short step", "Long step", "Smooth", "Upright", "Hunched", "Bouncy", "Mixed"}},
-        {"growthprofile", 0, {"Default", "Early", "Normal", "Late", "Very late"}},
-    };
-    return d;
-}
-
-static const EnumDef* enum_def(const std::string& field) {
-    for (const auto& d : enum_defs())
-        if (field == d.field) return &d;
-    return nullptr;
-}
-
+// Readable labels for enumerated fields: the small tables Live Editor's localization does not name (stars, work rates...)
+// and the named codes (emotion, body type, colours, styles, roles, accessories...) both live in core/field_labels.h
 bool is_enum_field(const std::string& field) {
-    return enum_def(field) != nullptr || labels::is_code_field(field);
+    return labels::enum_def(field) != nullptr || labels::is_code_field(field);
 }
 
-const char* enum_label(const std::string& field, int64_t v) {
-    if (const EnumDef* d = enum_def(field)) {
-        int64_t k = v - d->base;
-        if (k >= 0 && k < static_cast<int64_t>(d->labels.size())) return d->labels[static_cast<size_t>(k)];
-        return nullptr;
-    }
-    if (const labels::NamedCodes* t = labels::named_codes(field)) return labels::find_name(*t, v);
-    return nullptr;
-}
+const char* enum_label(const std::string& field, int64_t v) { return labels::enum_label(field, v); }
 
-// the text shown for a code value: never a bare number
+// The text shown for a code value: never a bare number. Hair and facial hair styles keep their style number (a combo of
+// hundreds of styles has many with the same look, and the number is what the search takes).
 static std::string code_text(const std::string& field, int64_t v) {
-    if (enum_def(field)) {
-        if (const char* l = enum_label(field, v)) return l;
-        char b[48];
-        std::snprintf(b, sizeof(b), "Unknown (code %lld)", static_cast<long long>(v));
-        return b;
-    }
-    if (field == "hairtypecode") {  // the hair catalog's look ("Long, curly, headband") from the game's preview pictures
-        char b[96];
-        std::snprintf(b, sizeof(b), "%s #%lld", hair::describe(hair::lookup(v)).c_str(), static_cast<long long>(v));
-        return b;
-    }
-    return labels::code_text(field, v, field_label(field));
+    if (field == "hairtypecode" || field == "facialhairtypecode")
+        return labels::describe("players", field, v) + " (style " + std::to_string(v) + ")";
+    return labels::describe("players", field, v);
 }
 
 static bool contains_ci(const std::string& hay, const char* needle) {
@@ -322,7 +248,7 @@ bool enum_editor(App& app, const Table& t, uint64_t rec, const Field& f, const c
     if (ImGui::BeginCombo("##e", shown.c_str(), ImGuiComboFlags_HeightLarge)) {
         // the codes offered: the named ones (stars, roles, colours...) or, for item codes without names, the whole range
         std::vector<int64_t> codes;
-        if (const EnumDef* d = enum_def(f.name)) {
+        if (const labels::EnumDef* d = labels::enum_def(f.name)) {
             for (size_t k = 0; k < d->labels.size(); ++k) codes.push_back(d->base + static_cast<int64_t>(k));
         } else if (const labels::NamedCodes* nt = labels::named_codes(f.name)) {
             for (const auto& e : *nt) codes.push_back(e.first);
@@ -353,13 +279,85 @@ bool enum_editor(App& app, const Table& t, uint64_t rec, const Field& f, const c
             const std::string item = txt + "##" + num;  // "Left##2": the code is the item's ID
             if (ImGui::Selectable(item.c_str(), v == cur.i) && v != cur.i) wrote = app.edit(t, rec, f, Value::of_int(v));
             if (v == cur.i && ImGui::IsWindowAppearing()) ImGui::SetItemDefaultFocus();
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("code %lld", static_cast<long long>(v));
         }
         ImGui::EndCombo();
     }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("%s = code %lld  [%lld .. %lld]", f.name.c_str(), static_cast<long long>(cur.i), static_cast<long long>(f.min),
-                          static_cast<long long>(f.max()));
+    if (ImGui::IsItemHovered())  // "Body type: Tall and Normal", the game's field name and value on a dim second line
+        tooltip_with_raw(labels::field_title(f.name) + ": " + shown,
+                         f.name + " = " + std::to_string(cur.i) + " (" + std::to_string(f.min) + "-" + std::to_string(f.max()) + ")");
+    ImGui::PopID();
+    return wrote;
+}
+
+// ---- pickers by name: a nation or a club is chosen from a searchable list, not typed as a number. Without the names (the
+// nations table not readable, the lists not built) the plain number box stays.
+static RefKind ref_kind(App& app, const Table& t, const Field& f) {
+    if (f.type != FieldType::Int) return RefKind::None;
+    if (f.name == "nationality" && (t.name == "players" || t.name == "manager"))
+        return geo(app).nations.empty() ? RefKind::None : RefKind::Nation;
+    if ((f.name == "rivalteam" && t.name == "teams") || (f.name == "teamid" && t.name == "manager"))
+        return app.model.teams().empty() ? RefKind::None : RefKind::Team;
+    return RefKind::None;
+}
+
+static std::string ref_name(App& app, RefKind kind, int64_t id) {
+    if (kind == RefKind::Nation) {
+        const std::string n = geo(app).nation_name(id);
+        return n.empty() ? "Nation " + std::to_string(id) : n;
+    }
+    return app.model.team_name(id);  // "Team N" for a club the lists do not know
+}
+
+static bool ref_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float width) {
+    Value cur;
+    if (!app.db.get(t, rec, f, cur)) {
+        if (label) ImGui::TextDisabled("%s: unreadable", label);
+        else ImGui::TextDisabled("unreadable");
+        return false;
+    }
+    const RefKind kind = ref_kind(app, t, f);
+    bool wrote = false;
+    ImGui::PushID(f.name.c_str());
+    if (label && std::strncmp(label, "##", 2) != 0) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(label);
+        ImGui::SameLine(S(150.0f));
+    }
+    ImGui::SetNextItemWidth(std::max(width, S(170.0f)));
+    const std::string shown = ref_name(app, kind, cur.i);
+    if (ImGui::BeginCombo("##ref", shown.c_str(), ImGuiComboFlags_HeightLarge)) {
+        struct Item {
+            int64_t id;
+            std::string name;
+        };
+        std::vector<Item> items;
+        if (kind == RefKind::Nation)
+            for (const GeoNation* n : geo(app).sorted_nations()) items.push_back({n->id, n->name});
+        else {
+            for (const TeamRow& tr : app.model.teams()) items.push_back({tr.teamid, tr.name});
+            std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.name < b.name; });
+        }
+        static char filt[48] = "";
+        if (ImGui::IsWindowAppearing()) {
+            filt[0] = 0;
+            ImGui::SetKeyboardFocusHere();
+        }
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputTextWithHint("##flt", kind == RefKind::Nation ? "search nations" : "search clubs", filt, sizeof(filt));
+        bool listed = false;
+        for (const Item& it : items) listed = listed || it.id == cur.i;
+        if (!listed) items.insert(items.begin(), {cur.i, shown});  // a value the list does not know stays selectable
+        for (const Item& it : items) {
+            if (it.id < f.min || it.id > f.max()) continue;
+            if (filt[0] && !contains_ci(it.name, filt) && std::to_string(it.id) != filt) continue;
+            const std::string row = it.name + "##" + std::to_string(it.id);
+            if (ImGui::Selectable(row.c_str(), it.id == cur.i) && it.id != cur.i) wrote = app.edit(t, rec, f, Value::of_int(it.id));
+            if (it.id == cur.i && ImGui::IsWindowAppearing()) ImGui::SetItemDefaultFocus();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s ID %lld", kind == RefKind::Nation ? "Nation" : "Club", static_cast<long long>(it.id));
+        }
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered()) tooltip_with_raw(labels::field_title(f.name) + ": " + shown, f.name + " = " + std::to_string(cur.i));
     ImGui::PopID();
     return wrote;
 }
@@ -400,6 +398,11 @@ void all_fields(App& app, const Table& t, uint64_t rec, const char* id) {
     ImGui::InputTextWithHint("##filter", "filter fields", filter, sizeof(filter));
     ImGui::SameLine();
     ImGui::TextDisabled("%zu fields in %s", t.fields.size(), t.name.c_str());
+    // the game's field names and numbers by default (what the other tools of the community use); named values and pickers on request
+    static bool friendly = false;
+    ImGui::SameLine();
+    ImGui::Checkbox("Show friendly names", &friendly);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Titles instead of field names, and names instead of numbers where the game has them.");
     std::string flt = filter;
     std::transform(flt.begin(), flt.end(), flt.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (ImGui::BeginTable("##all", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV,
@@ -415,7 +418,12 @@ void all_fields(App& app, const Table& t, uint64_t rec, const char* id) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted(name.c_str());
+            if (friendly) {
+                ImGui::TextUnformatted(labels::field_title(name).c_str());
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", name.c_str());
+            } else {
+                ImGui::TextUnformatted(name.c_str());
+            }
             ImGui::TableNextColumn();
             if (f->type == FieldType::Int)
                 ImGui::TextDisabled("%lld..%lld", static_cast<long long>(f->min), static_cast<long long>(f->max()));
@@ -424,7 +432,10 @@ void all_fields(App& app, const Table& t, uint64_t rec, const char* id) {
             else
                 ImGui::TextDisabled("%s", f->type_name());
             ImGui::TableNextColumn();
-            field_editor(app, t, rec, *f, nullptr, -FLT_MIN);
+            g_pickers = friendly;
+            if (friendly && is_enum_field(name) && f->type == FieldType::Int) enum_editor(app, t, rec, *f, nullptr, -FLT_MIN);
+            else field_editor(app, t, rec, *f, nullptr, -FLT_MIN);
+            g_pickers = true;
         }
         ImGui::EndTable();
     }

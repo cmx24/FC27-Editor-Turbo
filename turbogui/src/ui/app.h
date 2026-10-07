@@ -263,6 +263,12 @@ public:
 
     // Write one field through validation; updates cached lists for players/teams
     bool edit(const Table& t, uint64_t rec, const Field& f, const Value& v);
+    // A field value in words (core/field_labels.h describe(), plus what needs the database): a nation or club name, a date
+    // ("2001-03-24"), Yes / No for a switch, a role / body type / colour name. Never a bare code the game gives a name.
+    std::string describe_value(const Table& t, const Field& f, const Value& v);
+    // "Overall changed 84 -> 87 (Player X)" for the log and toasts
+    std::string describe_edit(const Table& t, uint64_t rec, const Field& f, const Value& before, const Value& after);
+    std::string nation_name(int64_t nationid);  // "" when unknown
 
     // Ask Turbo's Lua side to run something (executes on the next career-mode event)
     bool send(const nlohmann::json& cmd, const std::string& label);

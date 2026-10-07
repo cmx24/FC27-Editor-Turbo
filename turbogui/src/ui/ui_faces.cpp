@@ -11,6 +11,7 @@
 #include <unordered_set>
 
 #include "app.h"
+#include "core/field_labels.h"
 #include "core/image.h"
 #include "core/player_capture.h"
 #include "imgui.h"
@@ -831,8 +832,13 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
                     const std::string traits = faces::head_traits(*f, looks3d);  // "3D look: ..." first when the list has looks
                     ImGui::BeginTooltip();
                     if (has3d) draw_file_picture(app, face3d_file(app, f->manager, rid), S(256.0f));  // big preview of the 3D render
-                    ImGui::Text("%s\n%s %lld, head %lld%s", f->name.c_str(), f->manager ? "manager" : "player",
-                                static_cast<long long>(f->id), static_cast<long long>(f->headassetid), traits.c_str());
+                    ImGui::Text("%s, %s%s", f->name.c_str(), f->manager ? "manager's face" : "real face", traits.c_str());
+                    ImGui::TextDisabled("%s ID %lld, head model %lld", f->manager ? "manager" : "player", static_cast<long long>(f->id),
+                                        static_cast<long long>(f->headassetid));
+                    if (!has3d && use3d && rid > 0)
+                        ImGui::TextDisabled(head3d_given_up(head3d_key(f->manager, rid))
+                                                ? "3D failed: the game could not render this head, so the flat picture stays."
+                                                : "3D pending: the game has not rendered this head yet, so the flat picture shows meanwhile.");
                     ImGui::EndTooltip();
                 }
                 ImGui::PopID();
@@ -884,8 +890,8 @@ void manager_appearance(App& app, const Table& t, const ManagerRow& m) {
     ImGui::SameLine();
     ImGui::BeginGroup();
     if (ImGui::Button("Choose a real face...")) ImGui::OpenPopup(kManagerFacePopup);
-    ImGui::TextDisabled("head asset %lld, head class %lld", static_cast<long long>(head),
-                        static_cast<long long>(app.db.get_int(t, m.rec, "headclasscode", 0)));
+    ImGui::TextDisabled("%s", labels::code_text("headclasscode", app.db.get_int(t, m.rec, "headclasscode", 0), "Head").c_str());
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Head model %lld", static_cast<long long>(head));
     ImGui::TextDisabled("Miniface: heads_staff_%lld (edit or render it in the Miniface tab)", static_cast<long long>(head));
     ImGui::EndGroup();
     manager_real_face_picker(app, m.managerid);

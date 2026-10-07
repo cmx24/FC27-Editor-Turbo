@@ -175,7 +175,7 @@ H.case("bridge.player_create: off without the opt-in file (nothing called), the 
     H.eq(ok, false); H.has(text, "45 bytes long")
     payload.names.surname = ""
     ok, text = bridge.player_create(2, payload)
-    H.eq(ok, false); H.has(text, "unknown player_create code 2")
+    H.eq(ok, false); H.has(text, "does not know that player-creation action")
     payload.playerid = 460000
     ok, text = bridge.player_create(1, payload)
     H.eq(ok, false); H.has(text, "out of range")

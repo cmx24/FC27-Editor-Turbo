@@ -177,7 +177,7 @@ H.case("mailbox: failures come back as status 0 with the reason", function()
     submit('{"op":"explode"}')
     sim:fire("post__CareerModeEvent", 0, 7, 0)
     _, status, text = result()
-    H.eq(status, 0); H.has(text, "unknown op")
+    H.eq(status, 0); H.has(text, "does not know this command")
     H.eq(sim:r32(MB + 0xC), seq, "every command acknowledged")
 end)
 

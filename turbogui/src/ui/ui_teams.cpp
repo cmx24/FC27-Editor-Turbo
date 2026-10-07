@@ -25,7 +25,7 @@ static const std::vector<std::string>& team_overview_fields() {
     static const std::vector<std::string> f = {
         "teamname", "overallrating", "attackrating", "midfieldrating", "defenserating", "domesticprestige",
         "internationalprestige", "transferbudget", "clubworth", "profitability", "popularity", "youthdevelopment",
-        "physioaccess_senior", "trait1", "trait2", "rivalteam", "cityid", "foundationyear", "leaguetitles",
+        "physioaccess_senior", "trait1", "trait2", "rivalteam", "foundationyear", "leaguetitles",
         "domesticcups", "uefa_cl_wins", "uefa_el_wins"};
     return f;
 }
@@ -253,8 +253,10 @@ static void job_offer_tab(App& app, const TeamRow& tr) {
     }
     const TeamRow* pt = app.model.team(app.job_offer_team);
     const std::string pick = pt ? pt->name : std::string();
-    if (pt) ImGui::Text("Club: %s (%lld)", pick.c_str(), static_cast<long long>(pt->teamid));
-    else ImGui::TextDisabled("No club selected.");
+    if (pt) {
+        ImGui::Text("Club: %s", pick.c_str());
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Club ID %lld", static_cast<long long>(pt->teamid));
+    } else ImGui::TextDisabled("No club selected.");
     const bool own = pt && pt->teamid == st.user_team;
     const bool can_hire = pt && pt->league >= 0 && !app.model.is_national_team(pt->teamid);  // a club in a league
     const bool disabled = app.busy() || !app.mailbox || !st.in_cm || missing || !pt || own || !can_hire;
@@ -272,9 +274,9 @@ static void job_offer_tab(App& app, const TeamRow& tr) {
     if (clicked) ImGui::OpenPopup("Create job offer?");
     if (ImGui::BeginPopupModal("Create job offer?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + S(440.0f));   // an auto-sized popup would otherwise wrap in a narrow column
-        ImGui::TextWrapped("Create a job offer from %s (%lld)?\nThis changes the running career (save first if in "
+        ImGui::TextWrapped("Create a job offer from %s?\nThis changes the running career (save first if in "
                            "doubt). The club answers at once; accept or decline it in the game's Job Offers screen.",
-                           pick.c_str(), static_cast<long long>(app.job_offer_team));
+                           pick.c_str());
         ImGui::PopTextWrapPos();
         if (ImGui::Button("Create")) {
             json overrides = {{"enabled", true}, {"teamid", app.job_offer_team}, {"confirm", true}};
@@ -326,9 +328,9 @@ static void mass_actions_tab(App& app, const TeamRow& tr) {
     const size_t n = app.model.links_of_team(tr.teamid).size();
     const bool national = app.model.is_national_team(tr.teamid);
     const bool own = st.user_team == tr.teamid;
-    ImGui::TextWrapped("Changes all %zu players of %s (ID %lld) in the running career. Turbo runs these through Live Editor "
+    ImGui::TextWrapped("Changes all %zu players of %s in the running career. Turbo runs these through Live Editor "
                        "on the next career-mode event; save first if in doubt.",
-                       n, tr.name.c_str(), static_cast<long long>(tr.teamid));
+                       n, tr.name.c_str());
     const bool disabled = app.busy() || !app.mailbox || !st.in_cm || national || n == 0;
     for (const MassAction& a : kMassActions) {
         const bool all = std::string(a.id) == "all";
@@ -410,8 +412,8 @@ static void team_editor(App& app) {
     ImGui::SameLine();
     ImGui::BeginGroup();
     ImGui::Text("%s", tr->name.c_str());
-    ImGui::TextDisabled("ID %lld | OVR %d%s", static_cast<long long>(tr->teamid), tr->overall,
-                        app.model.is_national_team(tr->teamid) ? " | national team" : "");
+    ImGui::TextDisabled("overall %d%s", tr->overall, app.model.is_national_team(tr->teamid) ? ", national team" : "");
+    if (ImGui::IsItemHovered() || ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Club ID %lld", static_cast<long long>(tr->teamid));
     ImGui::EndGroup();
     ImGui::Separator();
     if (ImGui::BeginTabBar("##ttabs")) {
@@ -501,7 +503,7 @@ static void manager_rules_section(App& app) {
                 ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1), "(locked %s by Turbo)", st.job_security_locked.c_str());
             }
             if (st.job_security_safe >= 0)
-                ImGui::TextDisabled("addon %d | the game's bands: insecure from %d, okay from %d, safe from %d", st.job_security_addon,
+                ImGui::TextDisabled("bonus from results %d | the game's bands: insecure from %d, okay from %d, safe from %d", st.job_security_addon,
                                     st.job_security_insecure, st.job_security_okay, st.job_security_safe);
         } else {
             ImGui::TextDisabled("Score: not read yet (needs a loaded Manager Career and the Turbo GUI's memory map)");
@@ -564,8 +566,8 @@ static void manager_market_section(App& app, const ManagerRow* selected) {
         if (!selected) {
             ImGui::TextDisabled("Select a manager on the left.");
         } else {
-            ImGui::Text("%s (%lld), %s", selected->name.c_str(), static_cast<long long>(selected->managerid),
-                        selected->teamid > 0 ? app.model.team_name(selected->teamid).c_str() : "free agent");
+            ImGui::Text("%s, %s", selected->name.c_str(), selected->teamid > 0 ? app.model.team_name(selected->teamid).c_str() : "free agent");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Manager ID %lld", static_cast<long long>(selected->managerid));
             const bool own_club = selected->teamid > 0 && selected->teamid == st.user_team;
             static ClubFilter club_filter;
             club_pick_table(app, "mmclubs", "club name or ID", app.manager_move_search, sizeof(app.manager_move_search), club_filter,
@@ -579,7 +581,7 @@ static void manager_market_section(App& app, const ManagerRow* selected) {
                 if (own_club) ImGui::SetTooltip("That is your own club's manager: your job changes through job offers");
                 else if (!st.in_cm) ImGui::SetTooltip("Load a career first");
                 else if (app.manager_move_team <= 0) ImGui::SetTooltip("Pick a club above");
-                else ImGui::SetTooltip("manager.teamid in the career database; the club's manager takes the old job");
+                else ImGui::SetTooltip("Gives the manager that club in the career database; the club's manager takes the old job");
             }
             ImGui::SameLine();
             const bool can_free = base_ok && selected->teamid > 0;
@@ -590,9 +592,8 @@ static void manager_market_section(App& app, const ManagerRow* selected) {
             if (release) ImGui::OpenPopup("Release manager?");
             if (ImGui::BeginPopupModal("Move manager?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
                 ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + S(440.0f));
-                ImGui::TextWrapped("Move %s to %s (%lld)?\nThat club's manager takes %s. Career database edit (saved with the career).",
+                ImGui::TextWrapped("Move %s to %s?\nThat club's manager takes %s. Career database edit (saved with the career).",
                                    selected->name.c_str(), app.model.team_name(app.manager_move_team).c_str(),
-                                   static_cast<long long>(app.manager_move_team),
                                    selected->teamid > 0 ? app.model.team_name(selected->teamid).c_str() : "the free-agent list");
                 ImGui::PopTextWrapPos();
                 if (ImGui::Button("Move")) {

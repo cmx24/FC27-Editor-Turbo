@@ -142,7 +142,7 @@ end)
 H.case("bridge.player_morale: argument checks, the words, off when the call block is missing", function()
     local bridge = require 'imports/turbo/bridge'
     local ok, text, status = bridge.player_morale(4, 1, 0)
-    H.eq(ok, false); H.has(text, "unknown player_morale code 4")
+    H.eq(ok, false); H.has(text, "does not know that morale action")
     ok, text = bridge.player_morale(1, 0, 0)
     H.eq(ok, false); H.has(text, "positive")
     ok, text = bridge.player_morale(2, 5, 121)

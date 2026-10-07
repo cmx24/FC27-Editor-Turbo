@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "face_looks.h"
+#include "hair_catalog.h"
 
 namespace turbo::labels {
 
@@ -75,20 +76,19 @@ inline uint8_t style_look(const faces::looks::StyleLook (&tab)[N], int64_t v) {
     return tab[best].look;
 }
 
+// the look of a hair style: the hair catalog's text ("Long, curly, headband") where the game's preview pictures were
+// classified, else the coarse look of face_looks.h. No code number: that goes to the style's own line / tooltip.
 inline std::string hair_text(int64_t v) {
+    if (const hair::Style* s = hair::find(v); s && s->classified) return hair::describe(*s);
     static const char* looks[] = {"?", "Bald / buzz cut", "Short hair", "Medium hair", "Long hair", "Tied / braids / dreads"};
     uint8_t l = style_look(faces::looks::kHair, v);
-    char b[64];
-    std::snprintf(b, sizeof(b), "%s #%lld", l < 6 ? looks[l] : "Hair", static_cast<long long>(v));
-    return b;
+    return l < 6 ? looks[l] : "Hair";
 }
 
 inline std::string facial_hair_text(int64_t v) {
     static const char* looks[] = {"Clean-shaven", "Stubble", "Moustache / goatee", "Short beard", "Full beard"};
     uint8_t l = style_look(faces::looks::kFacialHair, v);
-    char b[64];
-    std::snprintf(b, sizeof(b), "%s #%lld", l < 5 ? looks[l] : "Facial hair", static_cast<long long>(v));
-    return b;
+    return l < 5 ? looks[l] : "Facial hair";
 }
 
 // generic descriptors for appearance item codes the game has hundreds of without names
@@ -117,20 +117,215 @@ inline bool is_code_field(const std::string& field) {
     return k.rfind("tattoo", 0) == 0;  // tattoo ids per body part
 }
 
+// ---- enumerated fields Live Editor's localization does not name (stars, work rates, ...): base = value of labels[0]
+struct EnumDef {
+    const char* field;
+    int64_t base;
+    std::vector<const char*> labels;
+};
+inline const std::vector<EnumDef>& enum_defs() {
+    static const std::vector<EnumDef> d = {
+        {"weakfootabilitytypecode", 1, {"1 star", "2 stars", "3 stars", "4 stars", "5 stars"}},
+        {"skillmoves", 0, {"1 star", "2 stars", "3 stars", "4 stars", "5 stars"}},
+        {"internationalrep", 1, {"1 star", "2 stars", "3 stars", "4 stars", "5 stars"}},
+        {"attackingworkrate", 0, {"Low", "Medium", "High"}},
+        {"defensiveworkrate", 0, {"Low", "Medium", "High"}},
+        {"gkkickstyle", 0, {"Default", "Power", "Precision", "Mixed"}},
+        {"skillmoveslikelihood", 0, {"Low", "Medium", "High", "Very high"}},
+        {"personality", 1, {"Neutral", "Maverick", "Heartbeat", "Virtuoso"}},
+        {"undershortstyle", 0, {"None", "Visible"}},
+        {"shoedesigncode", 0, {"Standard", "Laced", "Laceless", "High-cut"}},
+        {"muscularitycode", 0, {"Regular", "Muscular"}},
+        {"runstylecode", 0, {"Default", "Short step", "Long step", "Smooth", "Upright", "Hunched", "Bouncy", "Mixed"}},
+        {"growthprofile", 0, {"Default", "Early", "Normal", "Late", "Very late"}},
+    };
+    return d;
+}
+inline const EnumDef* enum_def(const std::string& field) {
+    for (const auto& d : enum_defs())
+        if (field == d.field) return &d;
+    return nullptr;
+}
+// the name of an enumerated value (enum_defs, else Live Editor's named codes); nullptr = no name
+inline const char* enum_label(const std::string& field, int64_t v) {
+    if (const EnumDef* d = enum_def(field)) {
+        int64_t k = v - d->base;
+        return k >= 0 && k < static_cast<int64_t>(d->labels.size()) ? d->labels[static_cast<size_t>(k)] : nullptr;
+    }
+    if (const NamedCodes* t = named_codes(field)) return find_name(*t, v);
+    return nullptr;
+}
+
+// ---- field titles ("overallrating" -> "Overall")
+inline const std::map<std::string, std::string>& title_table() {
+    static const std::map<std::string, std::string> m = {
+        {"overallrating", "Overall"}, {"potential", "Potential"}, {"modifier", "OVR modifier"}, {"acceleration", "Acceleration"},
+        {"sprintspeed", "Sprint Speed"}, {"positioning", "Att. Position"}, {"finishing", "Finishing"},
+        {"shotpower", "Shot Power"}, {"longshots", "Long Shots"}, {"volleys", "Volleys"}, {"penalties", "Penalties"},
+        {"vision", "Vision"}, {"crossing", "Crossing"}, {"freekickaccuracy", "FK Accuracy"},
+        {"shortpassing", "Short Passing"}, {"longpassing", "Long Passing"}, {"curve", "Curve"}, {"agility", "Agility"},
+        {"balance", "Balance"}, {"reactions", "Reactions"}, {"ballcontrol", "Ball Control"}, {"dribbling", "Dribbling"},
+        {"composure", "Composure"}, {"interceptions", "Interceptions"}, {"headingaccuracy", "Heading Acc."},
+        {"defensiveawareness", "Def. Awareness"}, {"marking", "Marking"}, {"standingtackle", "Standing Tackle"},
+        {"slidingtackle", "Sliding Tackle"}, {"jumping", "Jumping"}, {"stamina", "Stamina"}, {"strength", "Strength"},
+        {"aggression", "Aggression"}, {"gkdiving", "GK Diving"}, {"gkhandling", "GK Handling"},
+        {"gkkicking", "GK Kicking"}, {"gkpositioning", "GK Positioning"}, {"gkreflexes", "GK Reflexes"},
+        {"preferredfoot", "Preferred Foot"}, {"weakfootabilitytypecode", "Weak Foot"}, {"skillmoves", "Skill Moves"},
+        {"attackingworkrate", "Att. Work Rate"}, {"defensiveworkrate", "Def. Work Rate"}, {"height", "Height (cm)"},
+        {"weight", "Weight (kg)"}, {"nationality", "Nationality"}, {"birthdate", "Birth Date"},
+        {"contractvaliduntil", "Contract Until"}, {"wage", "Wage"}, {"releaseclause", "Release Clause"}, {"isretiring", "Retiring"}, {"playerjointeamdate", "Joined Club"},
+        {"internationalrep", "Int. Reputation"}, {"teamname", "Team Name"}, {"jerseynumber", "Jersey"},
+        {"headassetid", "Head model"}, {"hashighqualityhead", "Real Face"}, {"headclasscode", "Head type"},
+        {"trait1", "PlayStyles"}, {"icontrait1", "PlayStyles+"}, {"trait2", "Traits"}, {"icontrait2", "Traits+"},
+        {"homewins", "Home wins"}, {"awaywins", "Away wins"}, {"homedraws", "Home draws"}, {"awaydraws", "Away draws"},
+        {"homelosses", "Home losses"}, {"awaylosses", "Away losses"}, {"homegf", "Home goals for"},
+        {"awaygf", "Away goals for"}, {"homega", "Home goals against"}, {"awayga", "Away goals against"},
+        {"points", "Points"}, {"nummatchesplayed", "Played"}, {"currenttableposition", "Table position"},
+        {"teamform", "Form"}, {"lastgameresult", "Last result"},
+        {"firstnameid", "First name ID"}, {"lastnameid", "Last name ID"}, {"commonnameid", "Common name ID"},
+        {"playerjerseynameid", "Jersey name ID"}, {"bodytypecode", "Body type"}, {"gender", "Gender"},
+        {"skillmoveslikelihood", "Skill moves likelihood"}, {"gkkickstyle", "GK kick style"}, {"runstylecode", "Run style"},
+        {"socklengthcode", "Sock length"}, {"sockstylecode", "Sock style"}, {"shoetypecode", "Boots"}, {"shoecolorcode1", "Boot colour 1"},
+        {"shoecolorcode2", "Boot colour 2"}, {"shoedesigncode", "Boot design"}, {"gkglovetypecode", "GK gloves"},
+        {"hairtypecode", "Hair"}, {"haircolorcode", "Hair colour"}, {"hairstylecode", "Hair style"},
+        {"facialhairtypecode", "Facial hair"}, {"facialhaircolorcode", "Facial hair colour"}, {"eyecolorcode", "Eye colour"},
+        {"skintonecode", "Skin tone"}, {"headtypecode", "Head type"}, {"jerseyfit", "Jersey fit"},
+        {"jerseysleevelengthcode", "Sleeves"}, {"jerseystylecode", "Jersey style"}, {"shortstyle", "Shorts"},
+        {"growthprofile", "Growth profile"}, {"emotion", "Emotion"}, {"personality", "Personality"},
+        // appearance fields that printed as "Headtypecode", "Eyebrowcode" ...
+        {"eyebrowcode", "Eyebrows"}, {"sideburnscode", "Sideburns"}, {"hairpartcode", "Hair parting"}, {"hairlinecode", "Hairline"},
+        {"hairstateid", "Hair state"}, {"faceposerpreset", "Face pose"}, {"headvariation", "Head variation"}, {"lipcolor", "Lip colour"},
+        {"skintypecode", "Skin type"}, {"skinsurfacepack", "Skin surface"}, {"skinmakeup", "Skin makeup"},
+        {"skincomplexion", "Skin complexion"}, {"smallsidedshoetypecode", "Small-sided boots"}, {"muscularitycode", "Muscularity"},
+        {"undershortstyle", "Under-shorts"}, {"animfreekickstartposcode", "Free kick stance"}, {"animpenaltieskickstylecode", "Penalty kick style"},
+        {"animpenaltiesmotionstylecode", "Penalty run-up"}, {"animpenaltiesstartposcode", "Penalty stance"},
+        {"runningcode1", "Running animation"}, {"runningcode2", "Running animation 2"}, {"outfitid", "Outfit"},
+        {"hasseasonaljersey", "Seasonal jersey"}, {"hasseasonalsock", "Seasonal socks"}, {"hasseasonalshoes", "Seasonal boots"},
+        {"jerseynamecolorr", "Jersey name colour (red)"}, {"jerseynamecolorg", "Jersey name colour (green)"},
+        {"jerseynamecolorb", "Jersey name colour (blue)"}, {"personalityid", "Personality"},
+        {"rivalteam", "Rival club"}, {"cityid", "City"}, {"teamid", "Club"}, {"accessorycode1", "Accessory 1"},
+        {"accessorycode2", "Accessory 2"}, {"accessorycode3", "Accessory 3"}, {"accessorycode4", "Accessory 4"},
+        {"accessorycolourcode1", "Accessory 1 colour"}, {"accessorycolourcode2", "Accessory 2 colour"},
+        {"accessorycolourcode3", "Accessory 3 colour"}, {"accessorycolourcode4", "Accessory 4 colour"},
+    };
+    return m;
+}
+
+// "headtypecode" -> "Head type", "shoecolorcode2" -> "Shoe colour 2": a field with no entry in title_table() is split into
+// the words the game's field names are made of; "" when it cannot be split completely
+inline std::string humanize(const std::string& field) {
+    static const char* words[] = {"smallsided", "animfreekick", "animpenalties", "faceposer", "complexion", "muscularity",
+                                  "variation", "accessory", "sideburns", "freekick", "penalties", "facial", "eyebrow", "surface",
+                                  "tattoo", "jersey", "running", "makeup", "preset", "sleeve", "length", "colour", "color",
+                                  "design", "motion", "gkglove", "glove", "stance", "state", "style", "start", "shoe", "sock",
+                                  "skin", "tone", "type", "head", "hair", "line", "part", "kick", "pose", "pack", "pos", "eye",
+                                  "lip", "nose", "ear", "body", "code", "id", "anim", "left", "right", "arm", "leg", "neck",
+                                  "back", "chest", "hand", "foot", "shoulder", "forearm", "bicep", "tricep", "calf", "thigh", "role", "trait"};
+    std::string k = field, digits;
+    while (!k.empty() && std::isdigit(static_cast<unsigned char>(k.back()))) {
+        digits.insert(digits.begin(), k.back());
+        k.pop_back();
+    }
+    std::string out;
+    size_t i = 0;
+    while (i < k.size()) {
+        size_t best = 0;
+        const char* bw = nullptr;
+        for (const char* w : words) {
+            const size_t n = std::char_traits<char>::length(w);
+            if (n > best && k.compare(i, n, w) == 0) {
+                best = n;
+                bw = w;
+            }
+        }
+        if (!bw) return "";
+        std::string w = bw;
+        if (w == "color") w = "colour";
+        const bool trailing = i + best == k.size();
+        if (!((w == "code" || w == "id") && trailing && !out.empty())) {  // "...code" / "...id" say nothing to a person
+            if (!out.empty()) out += ' ';
+            out += w;
+        }
+        i += best;
+    }
+    if (out.empty()) return "";
+    out[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(out[0])));
+    return digits.empty() ? out : out + " " + digits;
+}
+
+inline std::string field_title(const std::string& field) {
+    const auto& m = title_table();
+    auto it = m.find(field);
+    if (it != m.end()) return it->second;
+    std::string h = humanize(field);
+    if (!h.empty()) return h;
+    std::string out = field;
+    if (!out.empty()) out[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(out[0])));
+    return out;
+}
+
+// ---- values
+// the descriptor of an item catalogue the game has hundreds of unnamed entries of ("Boots"), nullptr for the codes that
+// already read as "Boot colour 12" and so need no "style"
+inline const char* item_style_noun(const std::string& field) {
+    const char* n = item_noun(field);
+    if (!n) return nullptr;
+    const std::string s = n;
+    for (const char* tail : {"colour", "colour 2", "animation", "animation 2", "stance", "state", "pose", "variation", "surface",
+                             "makeup", "complexion", "parting", "kick style", "run-up", "type"}) {
+        const size_t l = std::char_traits<char>::length(tail);
+        if (s.size() >= l && s.compare(s.size() - l, std::string::npos, tail) == 0) return nullptr;
+    }
+    return n;
+}
+
 // readable text of a code value; `noun` is the fallback descriptor (the field's label) for codes with no names
 inline std::string code_text(const std::string& field, int64_t v, const std::string& noun) {
+    char b[160];
+    const long long n = static_cast<long long>(v);
+    if (field == "headclasscode") {
+        if (v == 0) return "Real face (own head model)";
+        if (v == 1) return "Generic head";
+    }
     if (const NamedCodes* t = named_codes(field)) {
-        if (const char* n = find_name(*t, v)) return n;
-        char b[48];
-        std::snprintf(b, sizeof(b), "Unknown (code %lld)", static_cast<long long>(v));
+        if (const char* nm = find_name(*t, v)) return nm;
+        if (table_key(field) == "bodytypecode") std::snprintf(b, sizeof(b), "Player-specific body model %lld", n);
+        else std::snprintf(b, sizeof(b), "Unnamed %lld", n);
         return b;
     }
     if (field == "hairtypecode") return hair_text(v);
     if (field == "facialhairtypecode") return facial_hair_text(v);
-    const char* n = item_noun(field);
-    char b[96];
-    std::snprintf(b, sizeof(b), "%s #%lld", n ? n : noun.c_str(), static_cast<long long>(v));
+    const char* nn = item_noun(field);
+    if (const char* sn = item_style_noun(field)) std::snprintf(b, sizeof(b), "%s style %lld (no name)", sn, n);
+    else std::snprintf(b, sizeof(b), "%s %lld (no name)", nn ? nn : noun.c_str(), n);
     return b;
+}
+
+// One value of one field in words: the name where the game or Live Editor has one, "Unnamed N" / "Boots style 1432 (no name)"
+// where it has not, the plain number for a number. `table` is the table the field is in ("players", "managers", ...).
+// Values that need the database (a nation or club name, a date) are described by App::describe_value, which falls back to this.
+inline std::string describe(const std::string& table, const std::string& field, int64_t v) {
+    (void)table;
+    if (enum_def(field)) {
+        if (const char* l = enum_label(field, v)) return l;
+        return "Unnamed " + std::to_string(v);
+    }
+    if (is_code_field(field)) return code_text(field, v, field_title(field));
+    if (field == "personalityid") return "Personality type " + std::to_string(v);
+    return std::to_string(v);
+}
+
+// "Overall (0-99)" for a tooltip: the field's title and its range
+inline std::string describe_range(const std::string& field, int64_t lo, int64_t hi) {
+    return field_title(field) + " (" + std::to_string(lo) + "-" + std::to_string(hi) + ")";
+}
+
+// "Overall changed 84 -> 87 (Player X)"; before / after are the texts describe() gave
+inline std::string describe_change(const std::string& field, const std::string& before, const std::string& after,
+                                   const std::string& subject = std::string()) {
+    std::string s = field_title(field) + " changed " + before + " -> " + after;
+    if (!subject.empty()) s += " (" + subject + ")";
+    return s;
 }
 
 }  // namespace turbo::labels

@@ -254,15 +254,16 @@ static void test_field_labels() {
         using namespace turbo::labels;
         CHECK(code_text("role1", 1, "Role") == "GK Goalkeeper+", "role 1 is GK Goalkeeper+");
         CHECK(code_text("role9", 113, "Role") == "CB Ball-Playing Defender++", "role 113 is the ++ variant");
-        CHECK(code_text("role2", 9999, "Role") == "Unknown (code 9999)", "unknown role names its code");
+        CHECK(code_text("role2", 9999, "Role") == "Unnamed 9999", "an unnamed role reads Unnamed N, never a code");
         CHECK(code_text("emotion", 5, "Emotion") == "Volcano", "emotion 5 is Volcano (LE localization)");
         CHECK(code_text("bodytypecode", 4, "Body") == "Tall and Lean", "body type 4");
         CHECK(code_text("haircolorcode", 0, "Hair colour") == "Black", "hair colour 0");
         CHECK(code_text("accessorycode3", 16, "Accessory") == "Gloves", "accessorycode3 uses the accessory table");
-        CHECK(code_text("hairtypecode", 0, "Hair") == "Bald / buzz cut #0", "hair style carries its look");
-        CHECK(code_text("hairtypecode", 5, "Hair") == "Long hair #5", "hair 5 is long");
-        CHECK(code_text("facialhairtypecode", 31, "Facial hair") == "Full beard #31", "facial hair 31 is a full beard");
-        CHECK(code_text("shoetypecode", 123, "Boots") == "Boots #123", "boots get a text descriptor");
+        CHECK(code_text("hairtypecode", 0, "Hair") == hair_text(0) && code_text("hairtypecode", 0, "Hair").find('#') == std::string::npos,
+              "hair style is its look, no # number");
+        CHECK(code_text("facialhairtypecode", 31, "Facial hair") == "Full beard", "facial hair 31 is a full beard");
+        CHECK(code_text("shoetypecode", 123, "Boots") == "Boots style 123 (no name)", "boots get a text descriptor: " + code_text("shoetypecode", 123, "Boots"));
+        CHECK(code_text("shoecolorcode1", 7, "x") == "Boot colour 7 (no name)", "a colour with no name says so: " + code_text("shoecolorcode1", 7, "x"));
         CHECK(is_code_field("role4") && is_code_field("shoecolorcode2") && is_code_field("eyebrowcode"), "code fields");
         CHECK(!is_code_field("height") && !is_code_field("overallrating") && !is_code_field("modifier"), "numbers stay numbers");
     });
@@ -2598,6 +2599,7 @@ static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_gear_pictures.h"  // 1.1.4: gear preview pictures from the hash list
 #include "test_hair_catalog.h"  // hair catalog: gallery filters and the face chooser Hair facet
 #include "test_face3d_looks.h"  // 3D looks of the real faces: generated data, lookup, the chooser's 3D facets
+#include "test_describe.h"  // codes to descriptions: describe(), user text, pickers, the "no code N" UI walk
 #include "test_wheel.h"  // 1.1.3: mouse wheel source (hook, raw input, window messages)
 static std::string hex_bytes(const std::vector<uint8_t>& d) {
     static const char* h = "0123456789abcdef";
@@ -4814,16 +4816,16 @@ static void test_ui() {
             auto bucket = [](Facet f, int64_t raw) { return key_label(f, facet_key(f, raw)); };
             CHECK(bucket(kSkin, 20) == "Caucasian 2" && bucket(kSkin, 30) == "Caucasian 3" && bucket(kSkin, 60) == "Latin Asian 3" &&
                       bucket(kSkin, 80) == "African 1" && bucket(kSkin, 100) == "African 3" && bucket(kSkin, 5) == "Latin Asian 2" &&
-                      bucket(kSkin, 55) == "Skin tone 55" && facet_key(kSkin, 20) != facet_key(kSkin, 10) && trait_label(kSkin, 20) == "Caucasian 2 (code 20)",
+                      bucket(kSkin, 55) == "Skin tone 55" && facet_key(kSkin, 20) != facet_key(kSkin, 10) && trait_label(kSkin, 20) == "Caucasian 2",
                   "exact skin tones (FC 27: 10..100, Live Editor's names)");
             CHECK(bucket(kHairColour, 0) == "Black" && bucket(kHairColour, 3) == "Dark Brown" && bucket(kHairColour, 4) == "Light Blonde" &&
                       bucket(kHairColour, 12) == "Ginger" && bucket(kHairColour, 9) == "Silver" && bucket(kHairColour, 21) == "Colour 21" &&
                       facet_key(kHairColour, 5) != facet_key(kHairColour, 6) && bucket(kBeardColour, 7) == "Red" &&
-                      trait_label(kHairColour, 3) == "Dark Brown (code 3)", "exact hair colours");
+                      trait_label(kHairColour, 3) == "Dark Brown", "exact hair colours");
             // facial hair looks (face_looks.h, from the game's previews); 68 and 999 show no facial hair in the game
             CHECK(bucket(kBeard, 0) == "Clean-shaven" && bucket(kBeard, 68) == "Clean-shaven" && bucket(kBeard, 999) == "Clean-shaven" &&
                       bucket(kBeard, 243) == "Stubble" && bucket(kBeard, 261) == "Moustache & goatee" && bucket(kBeard, 30) == "Short beard" &&
-                      bucket(kBeard, 87) == "Full beard" && trait_label(kBeard, 243) == "Stubble (style 243)" && trait_label(kBeard, 0) == "Clean-shaven",
+                      bucket(kBeard, 87) == "Full beard" && trait_label(kBeard, 243) == "Stubble" && trait_label(kBeard, 0) == "Clean-shaven",
                   "facial hair looks");
             CHECK(bucket(kBeard, 50) == "Stubble" && bucket(kBeard, 256) == "Stubble" && bucket(kBeard, 300) == "Moustache & goatee" &&
                       bucket(kBeard, 5000) == "Clean-shaven" && !style_listed(kBeard, 256) && style_listed(kBeard, 255),
@@ -4840,8 +4842,8 @@ static void test_ui() {
                       bucket(kHair, 2) == hair_look(2, "Short") && bucket(kHair, 580) == hair_look(580, "Medium") &&
                       bucket(kHair, 3131) == hair_look(3131, "Medium") && bucket(kHair, 585) == hair_look(585, "Long") &&
                       bucket(kHair, 4) == hair_look(4, "Tied, braids & dreads") && bucket(kHair, 2026) == hair_look(2026, "Tied, braids & dreads") &&
-                      trait_label(kHair, 4) == (h4 && h4->classified ? bucket(kHair, 4) + " (style 4: " + hair::describe(*h4) + ")"
-                                                                     : std::string("Tied, braids & dreads (style 4)")) &&
+                      trait_label(kHair, 4) == (h4 && h4->classified ? bucket(kHair, 4) + " (" + hair::describe(*h4) + ")"
+                                                                     : std::string("Tied, braids & dreads")) &&
                       style_listed(kHair, 3131) && !style_listed(kHair, 50),
                   "hair looks");
             CHECK(bucket(kHair, 50) == "Tied, braids & dreads" && bucket(kHair, 214) == "Short" && bucket(kHair, 9999) == "Short",
@@ -5728,8 +5730,8 @@ static void test_ui() {
             {
                 int row_at = -1, id_at = -1, i = 0;
                 for (const auto& l : app.log_lines) {
-                    if (row_at < 0 && l.rfind("editedplayernames.", 0) == 0) row_at = i;
-                    if (id_at < 0 && l.rfind("players.commonnameid = 2", 0) == 0) id_at = i;
+                    if (row_at < 0 && l.find("[editedplayernames.") != std::string::npos) row_at = i;
+                    if (id_at < 0 && l.find("[players.commonnameid = 2]") != std::string::npos) id_at = i;
                     ++i;
                 }
                 CHECK(row_at >= 0 && id_at > row_at, fmt("the kept-name row is written before the name id (row %d, id %d)", row_at, id_at));
@@ -6203,7 +6205,7 @@ static void test_ui() {
                   "own recording: this career session only: " + st.assign_note);
             CHECK(ui.click("Assign callname"), "assign callname");
             ui.frames(2);
-            CHECK(st.confirm_open && st.confirm_what == "write the generic callname 'Kane' (900017) to his playernamemap row",
+            CHECK(st.confirm_open && st.confirm_what == "Set " + app.model.player_name(1001) + "'s spoken name to the generic callname 'Kane'",
                   "the popup names the generic callname: " + st.confirm_what);
             CHECK(ui.click("Cancel##cnown", "##cnown"), "cancel");
             ui.frames(2);
@@ -7341,7 +7343,7 @@ static void test_ui() {
             CHECK(ui.click("Set"), "set the first switch");
             ui.frames(2);
             CHECK(fake->sets.size() == 1 && fake->sets[0].first == "NEVER_INJURE" && fake->sets[0].second == 1, "NEVER_INJURE = 1 queued");
-            CHECK(app.match_setup_status == "queued: NEVER_INJURE = 1", "status: " + app.match_setup_status);
+            CHECK(app.match_setup_status == "Injuries off set to on; applies at kick-off", "status: " + app.match_setup_status);
             msetup::VarResult r;
             r.ok = true;
             r.name = "NEVER_INJURE";
@@ -7349,8 +7351,8 @@ static void test_ui() {
             r.message = "NEVER_INJURE = 1";
             fake->results.push_back(r);
             ui.frames(2);
-            CHECK(ui.toast_contains("Match setup: NEVER_INJURE = 1"), "outcome toast");
-            CHECK(app.match_setup_status == "NEVER_INJURE = 1", "status after the outcome: " + app.match_setup_status);
+            CHECK(ui.toast_contains("Match setup: Injuries off set to on; applies at kick-off"), "outcome toast");
+            CHECK(app.match_setup_status == "Injuries off set to on; applies at kick-off", "status after the outcome: " + app.match_setup_status);
             CHECK(ui.click("Clear"), "clear it");
             ui.frames(2);
             CHECK(fake->clears.size() == 1 && fake->clears[0] == "NEVER_INJURE", "clear queued");
@@ -7376,6 +7378,7 @@ static void test_ui() {
             CHECK(ui.find("Not available: this Turbo has no game calls.") == nullptr || true, "no service: renders");
         });
 
+        describe_ui_cases(app, ui);  // test_describe.h: edit log, undo toast, pickers, Technical details, the "no code N" walk
         ui_cases_names_tab(app, ui, mem, kMb);  // test_names_tab.h
         playtest_fix_cases(app, ui, le);
         test_file_picker_ui(app, ui, mem, kMb);
@@ -12034,6 +12037,7 @@ int main(int argc, char** argv) {
     std::printf("native core\n");
     test_core();
     test_field_labels();
+    test_describe_core();
     std::printf("native pictures\n");
     test_images();
     std::printf("native dev service\n");

@@ -177,19 +177,11 @@ std::string trait_label(Facet f, int64_t raw) {
     if (raw < 0) return key_label(f, kNoValue);
     if (facet_3d(f)) return key_label(f, raw);
     const int64_t key = facet_key(f, raw);
-    const std::string n = std::to_string(raw);
+    // no "(code N)" / "(style N)": the name is what a person reads (the number stays in the game's database)
     switch (f) {
-        case kSkin:
-        case kHairColour:
-        case kBeardColour:
-        case kEyes: return key_label(f, key) + " (code " + n + ")";
         case kHair:
-            if (const hair::Style* s = hair::find(raw); s && s->classified)
-                return key_label(f, key) + " (style " + n + ": " + hair::describe(*s) + ")";
-            return key_label(f, key) + " (style " + n + ")";
-        case kBeard:
-            if (raw == 0) return key_label(f, key);
-            return key_label(f, key) + " (style " + n + ")";
+            if (const hair::Style* s = hair::find(raw); s && s->classified) return key_label(f, key) + " (" + hair::describe(*s) + ")";
+            return key_label(f, key);
         default: return key_label(f, key);
     }
 }

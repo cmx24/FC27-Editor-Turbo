@@ -9,9 +9,12 @@
 #include <fstream>
 #include <sstream>
 
+#include "core/field_labels.h"
 #include "core/hotkey.h"
 #include "core/teamnames.h"
+#include "core/user_text.h"
 #include "file_picker.h"
+#include "geo.h"
 #include "hotkey_setting.h"
 #include "imgui.h"
 #include "preload.h"
@@ -603,8 +606,9 @@ void App::tick(double t) {
     if (match_setup) {
         msetup::VarResult r;
         while (match_setup->poll(r)) {
-            match_setup_status = (r.ok ? "" : "failed: ") + r.message;
-            notify("Match setup: " + r.message, !r.ok);
+            const std::string text = usertext::match_var_outcome(r.ok, r.cleared, r.name, r.value, r.message);
+            match_setup_status = (r.ok ? "" : "failed: ") + text;
+            notify("Match setup: " + text, !r.ok);
             log("match setup: " + r.message);
         }
     }
@@ -675,7 +679,7 @@ bool App::edit(const Table& t, uint64_t rec, const Field& f, const Value& v) {
     Value before;
     bool have_before = db.get(t, rec, f, before);
     if (!db.set(t, rec, f, v, &err)) {
-        notify(f.name + ": " + err, true);
+        notify(labels::field_title(f.name) + ": " + err, true);
         return false;
     }
     if (t.name == "players" || t.name == "editedplayernames") {
@@ -695,8 +699,44 @@ bool App::edit(const Table& t, uint64_t rec, const Field& f, const Value& v) {
         model.reload_links();
     }
     ++gen;
-    log(t.name + "." + f.name + " = " + v.to_string());
+    // the log says what changed in words; the game's own name and value follow in brackets for bug reports
+    log((have_before ? describe_edit(t, rec, f, before, v) : labels::field_title(f.name) + " set to " + describe_value(t, f, v)) + "  [" +
+        t.name + "." + f.name + " = " + v.to_string() + "]");
     return true;
+}
+
+std::string App::nation_name(int64_t nationid) { return geo(*this).nation_name(nationid); }
+
+std::string App::describe_value(const Table& t, const Field& f, const Value& v) {
+    if (v.type == FieldType::String) return v.s.empty() ? "(empty)" : v.s;
+    if (v.type != FieldType::Int) return v.to_string();
+    if (f.name == "nationality" && (t.name == "players" || t.name == "manager")) {
+        const std::string n = nation_name(v.i);
+        return n.empty() ? "Nation " + std::to_string(v.i) : n;
+    }
+    if ((f.name == "rivalteam" && t.name == "teams") || (f.name == "teamid" && t.name == "manager")) return model.team_name(v.i);
+    if (f.name == "birthdate" || f.name == "playerjointeamdate") {
+        const GameDate d = date_from_gregorian_days(v.i);
+        if (!d.valid()) return std::to_string(v.i);
+        char b[24];
+        std::snprintf(b, sizeof(b), "%04d-%02d-%02d", d.year, d.month, d.day);
+        return b;
+    }
+    if (f.depth == 1 && f.min == 0) return v.i ? "Yes" : "No";  // a switch
+    return labels::describe(t.name, f.name, v.i);
+}
+
+std::string App::describe_edit(const Table& t, uint64_t rec, const Field& f, const Value& before, const Value& after) {
+    std::string subject;
+    if (t.name == "players" || t.name == "editedplayernames") subject = model.player_name(db.get_int(t, rec, "playerid", 0));
+    else if (t.name == "teams") subject = model.team_name(db.get_int(t, rec, "teamid", 0));
+    else if (t.name == "teamplayerlinks") subject = model.player_name(db.get_int(t, rec, "playerid", 0));
+    else if (t.name == "manager") {
+        const int64_t mid = db.get_int(t, rec, "managerid", -1);
+        for (const auto& m : model.managers())
+            if (m.managerid == mid) subject = m.name;
+    }
+    return labels::describe_change(f.name, describe_value(t, f, before), describe_value(t, f, after), subject);
 }
 
 size_t App::undo_count(int64_t playerid) const {
@@ -717,14 +757,15 @@ bool App::undo(int64_t playerid) {
     }
     std::string err;
     if (!db.set(*t, step.rec, *f, step.before, &err)) {
-        notify("undo " + step.field + ": " + err, true);
+        notify("undo " + field_label(step.field) + ": " + err, true);
         return false;
     }
     model.refresh_player(playerid, today());
     model.refresh_player_name(playerid);
     ++gen;
-    log("undo " + step.table + "." + step.field + " = " + step.before.to_string());
-    notify("undone: " + field_label(step.field) + " back to " + step.before.to_string());
+    log("undone: " + field_label(step.field) + " back to " + describe_value(*t, *f, step.before) + "  [" + step.table + "." + step.field +
+        " = " + step.before.to_string() + "]");
+    notify("undone: " + field_label(step.field) + " back to " + describe_value(*t, *f, step.before));
     return true;
 }
 
@@ -898,14 +939,14 @@ void App::draw() {
     const bool hotkey_inline = hotkey_bar(*this, right_x);  // hotkey_setting.h: the show/hide key, when it fits here
     ImGui::SameLine(right_x);
     if (busy()) {
-        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Queued: %s", pending_label.c_str());
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Waiting: %s", usertext::pending_text(pending_label).c_str());
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(st.in_cm ? "Runs on the next career-mode event"
+            ImGui::SetTooltip(st.in_cm ? "It runs as soon as the game is ready (the next career-mode event)"
                                        : "No career loaded: run lua\\scripts\\turbo_exec.lua in Live Editor's Lua Engine");
         ImGui::SameLine();
         if (ImGui::SmallButton("Cancel")) {
             mailbox->cancel();
-            notify(pending_label + ": cancelled");
+            notify(usertext::pending_text(pending_label) + ": cancelled");
             pending_label.clear();
         }
     } else if (ImGui::Button("Refresh")) {
