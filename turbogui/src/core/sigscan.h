@@ -9,7 +9,10 @@
 //   {"build": "6AB9813C-211EF000", "game": "FC27.exe",
 //    "signatures": {"game_tick": {"pattern": "48 89 5C 24 ?? 57 ...", "resolve": "rip"|"none", "offset": 0,
 //                                 "note": "..."}}}
-// or from the built-in fallback table (builtin_signature_table). A build that is in no table disables every game hook.
+// or from the built-in fallback table (builtin_signature_table). A build that is in no table (an EA title update) is
+// scanned with the table of the newest built-in build: when EVERY signature with a pattern is found exactly once
+// (decide_adapt) that adapted table is used, else every game hook stays off. turbo_output\signature_adapt_off.txt turns
+// adapting off.
 #pragma once
 #include <cstddef>
 #include <cstdint>
@@ -54,7 +57,21 @@ bool parse_signature_table(const std::string& json_text, SignatureTable& out, st
 std::string signature_table_json(const SignatureTable& t);
 // Built-in tables shipped inside Turbo.dll, keyed by build; nullptr when the build is unknown.
 const SignatureTable* builtin_signature_table(const std::string& build);
-std::vector<std::string> builtin_builds();
+std::vector<std::string> builtin_builds();  // oldest first
+// The built-in table of the newest known build (the last of builtin_builds), the one auto-adapt starts from.
+const SignatureTable* newest_builtin_table();
+
+// Auto-adapt for a build in no table: a copy of `from` for `build`, each note prefixed "adapted from <from.build>:".
+SignatureTable adapt_signature_table(const SignatureTable& from, const std::string& build);
+// All or nothing: adopt only when every signature with a pattern was found exactly once in the scan (results matched
+// by name; placeholders do not count, a missing result counts as missing). reason: "N of N signatures found exactly
+// once" or "K missing, M ambiguous of N (first: name (missing), ...)".
+struct AdaptDecision {
+    bool adopt = false;
+    int found = 0, missing = 0, ambiguous = 0, skipped = 0;
+    std::string reason;
+};
+AdaptDecision decide_adapt(const SignatureTable& t, const std::vector<SigResult>& results);
 
 // Every match of (bytes, mask) in buf (its first byte lives at address `base`), at most max_hits of them.
 std::vector<uint64_t> scan_pattern(const uint8_t* buf, size_t len, uint64_t base, const std::vector<uint8_t>& bytes,
@@ -80,7 +97,7 @@ struct HookStatus {
 };
 struct HookReport {
     std::string build;           // build key of the running game ("" = not known)
-    std::string table_source;    // "file", "built-in" or "" (no table for this build)
+    std::string table_source;    // "file", "built-in", "adapted from <build>" or "" (no table for this build)
     bool enabled = false;        // false: global kill switch, unknown build or not installed
     std::string note;            // why hooks are off, or the summary
     std::vector<SigResult> signatures;

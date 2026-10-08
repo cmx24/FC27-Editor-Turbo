@@ -93,6 +93,8 @@ fs::path out_dir() { return le_root() / "turbo_output"; }
 fs::path global_off_path() { return out_dir() / "game_hooks_off.txt"; }
 fs::path hook_off_path(const std::string& name) { return out_dir() / ("hook_" + name + "_off.txt"); }
 fs::path lua_trigger_off_path() { return out_dir() / "lua_trigger_off.txt"; }
+fs::path adapt_off_path() { return out_dir() / "signature_adapt_off.txt"; }
+fs::path adapted_table_path(const std::string& build) { return out_dir() / ("signatures_adapted_" + build + ".json"); }
 
 void set_lua_note(const std::string& s) {
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -225,6 +227,14 @@ bool load_table_file(const fs::path& p, std::string& err) {
         err = "the file is for build " + t.build + ", the game is " + g_build;
         return false;
     }
+    // The template write_template leaves for an unknown build has no pattern at all: it must not hide a built-in
+    // table that a later Turbo brings for this build, nor stop auto-adapt from being tried again
+    bool any_pattern = false;
+    for (const auto& s : t.sigs) any_pattern = any_pattern || !s.pattern.empty();
+    if (!any_pattern) {
+        err = "no signature has a pattern (an unfilled template)";
+        return false;
+    }
     g_table = std::move(t);
     return true;
 }
@@ -244,6 +254,59 @@ void write_template(const fs::path& p) {
     f << turbo::signature_table_json(t) << "\n";
     f.close();
     fs::rename(tmp, p, ec);
+}
+
+// Writes an adapted table to turbo_output (diagnostics only: an adapted table never goes into turbo\)
+bool write_adapted_table(const turbo::SignatureTable& t, const fs::path& p, std::string& err) {
+    std::error_code ec;
+    fs::create_directories(p.parent_path(), ec);
+    fs::path tmp = p;
+    tmp += ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+        if (!f) {
+            err = "cannot open " + tmp.string();
+            return false;
+        }
+        f << turbo::signature_table_json(t) << "\n";
+        if (!f) {
+            err = "write failed";
+            return false;
+        }
+    }
+    fs::remove(p, ec);
+    fs::rename(tmp, p, ec);
+    if (ec) {
+        err = ec.message();
+        return false;
+    }
+    return true;
+}
+
+// Scans every signature of a table (unique match required), logging each one and the totals
+std::vector<turbo::SigResult> scan_table(const turbo::SignatureTable& t) {
+    std::vector<turbo::SigResult> out;
+    int found = 0, missing = 0, ambiguous = 0, skipped = 0;
+    const DWORD t0 = GetTickCount();
+    for (const auto& s : t.sigs) {
+        turbo::SigResult r = scan_signature(s);
+        switch (r.state) {
+            case turbo::SigState::Found: ++found; break;
+            case turbo::SigState::Missing: ++missing; break;
+            case turbo::SigState::Ambiguous: ++ambiguous; break;
+            case turbo::SigState::Skipped: ++skipped; break;
+            default: ++missing; break;
+        }
+        if (r.state == turbo::SigState::Found)
+            log("game hooks: signature %s: found, match 0x%llX -> 0x%llX", s.name.c_str(),
+                static_cast<unsigned long long>(r.match), static_cast<unsigned long long>(r.address));
+        else
+            log("game hooks: signature %s: %s (%s)", s.name.c_str(), turbo::sig_state_name(r.state), r.error.c_str());
+        out.push_back(std::move(r));
+    }
+    log("game hooks: %d found, %d missing, %d ambiguous, %d skipped in %lu ms", found, missing, ambiguous, skipped,
+        static_cast<unsigned long>(GetTickCount() - t0));
+    return out;
 }
 
 // ---------------------------------------------------------------- dispatcher
@@ -586,7 +649,7 @@ void install_game_hooks() {
             log("game hooks: %s", g_note.c_str());
             return;
         }
-        // Signature table: file next to Turbo.dll first, then the built-in one
+        // Signature table: file next to Turbo.dll first, then the built-in one, then the newest built-in one adapted
         const fs::path file = le_root() / "turbo" / ("signatures_" + g_build + ".json");
         if (file_exists(file)) {
             if (load_table_file(file, err)) {
@@ -604,40 +667,67 @@ void install_game_hooks() {
                 log("game hooks: built-in signature table for build %s (%zu signatures)", g_build.c_str(), g_table.sigs.size());
             }
         }
+        g_results.clear();
         if (g_table_source.empty()) {
+            // Not in any table (an EA title update): scan with the newest built-in table and use it only when EVERY
+            // signature with a pattern is found exactly once (turbo::decide_adapt); otherwise every hook stays off.
+            // A refused scan leaves g_results empty, so game_signature() hands out nothing.
             std::string known;
             for (const auto& b : turbo::builtin_builds()) known += (known.empty() ? "" : ", ") + b;
-            g_note = "off: game build " + g_build + " is not in any signature table (known: " + known +
-                     "); a title update needs turbo\\signatures_" + g_build + ".json";
-            log("game hooks: %s", g_note.c_str());
-            write_template(file);
-            return;
-        }
-        // Scan every signature (unique match required)
-        g_results.clear();
-        int found = 0, missing = 0, ambiguous = 0, skipped = 0;
-        const DWORD t0 = GetTickCount();
-        for (const auto& s : g_table.sigs) {
-            turbo::SigResult r = scan_signature(s);
-            switch (r.state) {
-                case turbo::SigState::Found: ++found; break;
-                case turbo::SigState::Missing: ++missing; break;
-                case turbo::SigState::Ambiguous: ++ambiguous; break;
-                case turbo::SigState::Skipped: ++skipped; break;
-                default: ++missing; break;
+            const turbo::SignatureTable* newest = turbo::newest_builtin_table();
+            std::string refused;
+            if (file_exists(adapt_off_path())) {
+                refused = "adapting is off (turbo_output\\signature_adapt_off.txt present)";
+                log("game hooks: build %s is not in any table; adapt off: turbo_output\\signature_adapt_off.txt present",
+                    g_build.c_str());
+            } else if (!newest) {
+                refused = "no built-in table to adapt";
+            } else {
+                log("game hooks: build %s is not in any table; scanning with the table of build %s (%zu signatures)",
+                    g_build.c_str(), newest->build.c_str(), newest->sigs.size());
+                turbo::SignatureTable adapted = turbo::adapt_signature_table(*newest, g_build);
+                std::vector<turbo::SigResult> results = scan_table(adapted);
+                const turbo::AdaptDecision d = turbo::decide_adapt(adapted, results);
+                if (d.adopt) {
+                    log("game hooks: build %s is not in any table; adapted the table of build %s: %s", g_build.c_str(),
+                        newest->build.c_str(), d.reason.c_str());
+                    g_table = std::move(adapted);
+                    g_results = std::move(results);
+                    g_table_source = "adapted from " + newest->build;
+                    const fs::path out = adapted_table_path(g_build);
+                    if (write_adapted_table(g_table, out, err))
+                        log("game hooks: adapted table written to %s (diagnostics; kill switch: "
+                            "turbo_output\\signature_adapt_off.txt)",
+                            out.string().c_str());
+                    else
+                        log("game hooks: adapted table not written to %s: %s", out.string().c_str(), err.c_str());
+                    g_allowed = true;
+                    g_note = "build " + g_build + " is in no table: adapted the table of build " + newest->build + ", " +
+                             d.reason + " (turbo_output\\signatures_adapted_" + g_build +
+                             ".json; kill switch turbo_output\\signature_adapt_off.txt)";
+                } else {
+                    refused = "adapting the table of build " + newest->build + " refused: " + d.reason;
+                    log("game hooks: build %s is not in any table; adapt refused (table of build %s): %s", g_build.c_str(),
+                        newest->build.c_str(), d.reason.c_str());
+                }
             }
-            if (r.state == turbo::SigState::Found)
-                log("game hooks: signature %s: found, match 0x%llX -> 0x%llX", s.name.c_str(),
-                    static_cast<unsigned long long>(r.match), static_cast<unsigned long long>(r.address));
-            else
-                log("game hooks: signature %s: %s (%s)", s.name.c_str(), turbo::sig_state_name(r.state), r.error.c_str());
-            g_results.push_back(std::move(r));
+            if (!g_allowed) {
+                g_note = "off: game build " + g_build + " is not in any signature table (known: " + known + "); " + refused +
+                         "; a title update needs turbo\\signatures_" + g_build + ".json";
+                log("game hooks: %s", g_note.c_str());
+                write_template(file);
+                return;
+            }
+        } else {
+            // Scan every signature (unique match required)
+            g_results = scan_table(g_table);
+            int found = 0;
+            for (const auto& r : g_results)
+                if (r.state == turbo::SigState::Found) ++found;
+            g_allowed = true;
+            g_note = "build " + g_build + " known (" + g_table_source + " table): " + std::to_string(found) + " of " +
+                     std::to_string(g_table.sigs.size()) + " signatures found";
         }
-        log("game hooks: %d found, %d missing, %d ambiguous, %d skipped in %lu ms", found, missing, ambiguous, skipped,
-            static_cast<unsigned long>(GetTickCount() - t0));
-        g_allowed = true;
-        g_note = "build " + g_build + " known (" + g_table_source + " table): " + std::to_string(found) + " of " +
-                 std::to_string(g_table.sigs.size()) + " signatures found";
     } catch (const std::exception& e) {
         g_allowed = false;
         g_note = std::string("off: ") + e.what();

@@ -113,14 +113,16 @@ std::string signature_table_json(const SignatureTable& t) {
 }
 
 // ---------------------------------------------------------------- built-in tables
-// One table per game build Turbo knows. Patterns were checked for a unique match in the game image of that build
-// (docs/re/game_thread.md). An entry with an empty pattern is a placeholder: its status is "skipped" and nothing is
-// hooked for it, but the build still counts as known, so hooks installed by address (install_game_hook_at) are allowed.
-static const SignatureTable kBuiltin[] = {
-    {"6AB9813C-211EF000",  // FC27.exe as dumped 2026-10-03 (TimeDateStamp 0x6AB9813C, SizeOfImage 0x211EF000)
-     "FC27.exe",
-     {
-         // MainLoop frame body (0x1459E2E7C on this build): runs once per frame on the thread the game's "MainLoop"
+// The signatures every known build shares. They were written against build 6AB9813C-211EF000 (FC27.exe as dumped
+// 2026-10-03): EVERY address in the comments and notes below is an address of that build. On build 6AC07E31-2145C000
+// (the October 2026 title update) the same patterns were checked live on 2026-10-07: all of them match exactly once, at
+// other addresses. A rel32 / disp32 to a far function or global moves with a title update, so patterns mask it ("??");
+// edit_cfg_category_items pinned one and missed on 6AC07E31 until its jmp was masked ("E9 ?? ?? 99 F9").
+// An entry with an empty pattern is a placeholder: its status is "skipped" and nothing is hooked for it, but the build
+// still counts as known, so hooks installed by address (install_game_hook_at) are allowed.
+static std::vector<Signature> fc27_signatures() {
+    return {
+         // MainLoop frame body (0x1459E2E7C on build 6AB9813C): runs once per frame on the thread the game's "MainLoop"
          // job runs on, void(MainLoop*, int64* dt). Hooked as the game-thread dispatcher (docs/re/game_thread.md s.3).
          {"game_tick",
           "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 48 8B 79 60 48 8B F1 48 8B EA 48 8B 5F 10 48 8B CB "
@@ -445,7 +447,7 @@ static const SignatureTable kBuiltin[] = {
           "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 8B 42 10 48 8B DA 48 8B F9 40 B6 01 83 F8 2A 75 0A E8", "none", 0,
           "FCEStandingsManager::HandleMessage 0x148A4E8FC (vtable 0x14B1852E8 slot 5): type 0x2A adds the result to the rows"},
          {"speech_system_ptr", "48 8B 0D ?? ?? ?? ?? 48 8B 01 FF 90 F0 00 00 00 48 8D 54 24 20 48 8B 08 4C 8B 81 D8 00 00 00", "rip", 0,
-          "global pointer to the SpeechSystem (0x14C27D590 on this build): [+0x50] the commentary event registry, [+0x58] the "
+          "global pointer to the SpeechSystem (0x14C27D590 on build 6AB9813C): [+0x50] the commentary event registry, [+0x58] the "
           "variation selector (docs/callnames.md section 6); read by the commentary-bank notes, not hooked"},
          // Spoken callnames through the game's audio service (docs/callnames.md section 5, core/commentary_audio.h).
          // The Create Player list reader 0x1480B2128 hands its id vector to the service: the call site is the anchor
@@ -539,8 +541,9 @@ static const SignatureTable kBuiltin[] = {
                      "vfunc+0x20 read, vtable slot 1 parse into out, +0x28 free; path heap flag byte +0xF; hooked by edit_unlock"},
          {"edit_cfg_category_stride", "48 8B 57 08 48 3B 57 10 73 13 48 8D 42 58 4C 8D 45 A0 48 89 47 08 E8", "none", 0,
           "layout guard 0x1470CCE58 (categories array parser 0x1470CCDA8): push_back of a 0x58-byte Category"},
+         // the tail jmp's rel32 is partly masked: its low bytes moved with the title update (77 5D on 6AB9813C)
          {"edit_cfg_category_items",
-          "48 8B D9 48 83 C1 40 E8 ?? ?? ?? ?? 48 8D 4B 28 E8 ?? ?? ?? ?? 48 8D 4B 08 48 83 C4 20 5B E9 77 5D 99 F9", "none", 0,
+          "48 8B D9 48 83 C1 40 E8 ?? ?? ?? ?? 48 8D 4B 28 E8 ?? ?? ?? ?? 48 8D 4B 08 48 83 C4 20 5B E9 ?? ?? 99 F9", "none", 0,
           "layout guard 0x1470D6176 (Category dtor 0x1470D6170): strings +0x40 / +0x28, the items vector at +0x08 freed by "
           "the item-vector dtor 0x140A6BF10"},
          {"edit_cfg_item_vector",
@@ -588,19 +591,92 @@ static const SignatureTable kBuiltin[] = {
          {"loc_strtab_get", "49 8B C8 E8 ?? ?? ?? ?? 44 8B C0 49 8B D2 49 8B CB 48 83 C4 28 E9 ?? ?? ?? ?? 48", "none", -10,
           "StrTab::GetString(table, out, key) 0x140B1C034, anchored at +10 because Live Editor's jmp [rip] owns the first 10 "
           "bytes: report only (Live Editor's custom team names), never hooked"},
-     }},
-};
+    };
+}
+
+// One table per game build Turbo knows, oldest first (the last one is the newest: the table auto-adapt starts from).
+static const std::vector<SignatureTable>& builtin_tables() {
+    static const std::vector<SignatureTable> tables = {
+        // FC27.exe as dumped 2026-10-03 (TimeDateStamp 0x6AB9813C, SizeOfImage 0x211EF000)
+        {"6AB9813C-211EF000", "FC27.exe", fc27_signatures()},
+        // FC27.exe after the October 2026 title update (TimeDateStamp 0x6AC07E31, SizeOfImage 0x2145C000): the same
+        // signatures, each found exactly once in the running game on 2026-10-07 (Turbo 2.0.1 shipped them as a file)
+        {"6AC07E31-2145C000", "FC27.exe", fc27_signatures()},
+    };
+    return tables;
+}
 
 const SignatureTable* builtin_signature_table(const std::string& build) {
-    for (const auto& t : kBuiltin)
+    for (const auto& t : builtin_tables())
         if (t.build == build) return &t;
     return nullptr;
 }
 
 std::vector<std::string> builtin_builds() {
     std::vector<std::string> out;
-    for (const auto& t : kBuiltin) out.push_back(t.build);
+    for (const auto& t : builtin_tables()) out.push_back(t.build);
     return out;
+}
+
+const SignatureTable* newest_builtin_table() {
+    const auto& tables = builtin_tables();
+    return tables.empty() ? nullptr : &tables.back();
+}
+
+// ---------------------------------------------------------------- auto-adapt
+SignatureTable adapt_signature_table(const SignatureTable& from, const std::string& build) {
+    SignatureTable t = from;
+    t.build = build;
+    for (auto& s : t.sigs) s.note = "adapted from " + from.build + ":" + (s.note.empty() ? std::string() : " " + s.note);
+    return t;
+}
+
+AdaptDecision decide_adapt(const SignatureTable& t, const std::vector<SigResult>& results) {
+    AdaptDecision d;
+    std::string first;  // the first few signatures that block adapting
+    int named = 0;
+    for (const auto& s : t.sigs) {
+        if (s.pattern.empty()) {
+            ++d.skipped;
+            continue;
+        }
+        const SigResult* r = nullptr;
+        for (const auto& x : results)
+            if (x.name == s.name) {
+                r = &x;
+                break;
+            }
+        const char* why = nullptr;
+        if (!r) {
+            ++d.missing;
+            why = "not scanned";
+        } else if (r->state == SigState::Found) {
+            ++d.found;
+        } else if (r->state == SigState::Ambiguous) {
+            ++d.ambiguous;
+            why = "ambiguous";
+        } else {
+            ++d.missing;  // no match, a bad pattern or an operand that does not resolve: the code is not where it was
+            why = r->state == SigState::Missing ? "missing" : sig_state_name(r->state);
+        }
+        if (why && named < 5) {
+            first += (named ? ", " : "") + s.name + " (" + why + ")";
+            ++named;
+        }
+    }
+    const int total = d.found + d.missing + d.ambiguous;
+    const std::string skipped = d.skipped ? ", " + std::to_string(d.skipped) + " placeholder(s) skipped" : "";
+    if (total == 0) {
+        d.reason = "the table has no signature with a pattern";
+    } else if (d.missing == 0 && d.ambiguous == 0) {
+        d.adopt = true;
+        d.reason = std::to_string(d.found) + " of " + std::to_string(total) + " signatures found exactly once" + skipped;
+    } else {
+        const int bad = d.missing + d.ambiguous;
+        d.reason = std::to_string(d.missing) + " missing, " + std::to_string(d.ambiguous) + " ambiguous of " +
+                   std::to_string(total) + " (first: " + first + (bad > named ? ", ..." : "") + ")";
+    }
+    return d;
 }
 
 // ---------------------------------------------------------------- scanning

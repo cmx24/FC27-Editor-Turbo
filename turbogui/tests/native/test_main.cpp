@@ -8088,6 +8088,153 @@ static void test_sigscan() {
     });
 }
 
+// Signature auto-adapt for EA title updates (core/sigscan.h decide_adapt; src/win/game_hooks.cpp uses it for a build
+// that is in no table) and the built-in table of build 6AC07E31-2145C000
+static void test_sigscan_adapt() {
+    using namespace turbo;
+    auto table = [](std::vector<Signature> sigs) {
+        SignatureTable t;
+        t.build = "6AC07E31-2145C000";
+        t.game = "FC27.exe";
+        t.sigs = std::move(sigs);
+        return t;
+    };
+    auto result = [](const std::string& name, SigState st) {
+        SigResult r;
+        r.name = name;
+        r.state = st;
+        r.hits = st == SigState::Found ? 1 : st == SigState::Ambiguous ? 2 : 0;
+        r.match = r.address = st == SigState::Found ? 0x140001000ULL : 0;
+        return r;
+    };
+    run_case("signature auto-adapt: all or nothing (all found adopts; one missing or ambiguous refuses)", [&] {
+        const SignatureTable t = table({{"a", "48 8B C4", "none", 0, ""}, {"b", "E8 ?? ?? ?? ??", "rip", 0, ""},
+                                        {"c", "40 53 48 83 EC 20", "none", 0, ""}});
+        AdaptDecision d = decide_adapt(t, {result("a", SigState::Found), result("b", SigState::Found), result("c", SigState::Found)});
+        CHECK(d.adopt && d.found == 3 && d.missing == 0 && d.ambiguous == 0 && d.skipped == 0, "all found: adopted");
+        CHECK(d.reason == "3 of 3 signatures found exactly once", "reason: " + d.reason);
+        d = decide_adapt(t, {result("a", SigState::Found), result("b", SigState::Missing), result("c", SigState::Found)});
+        CHECK(!d.adopt && d.found == 2 && d.missing == 1 && d.ambiguous == 0, "one missing: refused");
+        CHECK(d.reason.find("1 missing, 0 ambiguous") == 0 && d.reason.find("b (missing)") != std::string::npos,
+              "refusal names the missing signature: " + d.reason);
+        d = decide_adapt(t, {result("a", SigState::Found), result("b", SigState::Found), result("c", SigState::Ambiguous)});
+        CHECK(!d.adopt && d.found == 2 && d.missing == 0 && d.ambiguous == 1, "one ambiguous: refused");
+        CHECK(d.reason.find("0 missing, 1 ambiguous") == 0 && d.reason.find("c (ambiguous)") != std::string::npos,
+              "refusal names the ambiguous signature: " + d.reason);
+        d = decide_adapt(t, {result("a", SigState::Found), result("b", SigState::BadPattern), result("c", SigState::Found)});
+        CHECK(!d.adopt && d.missing == 1, "an operand that does not resolve (bad pattern) refuses like a missing one");
+        d = decide_adapt(t, {result("a", SigState::Found), result("c", SigState::Found)});
+        CHECK(!d.adopt && d.missing == 1 && d.reason.find("b (not scanned)") != std::string::npos, "no result for a signature refuses");
+        d = decide_adapt(t, {result("c", SigState::Found), result("a", SigState::Found), result("b", SigState::Found),
+                             result("zz", SigState::Missing)});
+        CHECK(d.adopt && d.found == 3, "results are matched by name (order and extra results do not matter)");
+        // many failures: the reason lists the first five and says there are more
+        std::vector<Signature> many;
+        std::vector<SigResult> none;
+        for (int i = 0; i < 8; ++i) many.push_back({"s" + std::to_string(i), "90 90", "none", 0, ""});
+        for (int i = 0; i < 8; ++i) none.push_back(result("s" + std::to_string(i), SigState::Missing));
+        d = decide_adapt(table(many), none);
+        CHECK(!d.adopt && d.missing == 8 && d.reason.find("s4 (missing), ...") != std::string::npos &&
+                  d.reason.find("s5") == std::string::npos,
+              "first five named: " + d.reason);
+    });
+    run_case("signature auto-adapt: placeholders do not block, an empty table never adopts", [&] {
+        const SignatureTable t = table({{"a", "48 8B C4", "none", 0, ""}, {"later", "", "none", 0, "to do"}});
+        SigResult skipped = result("later", SigState::Skipped);
+        AdaptDecision d = decide_adapt(t, {result("a", SigState::Found), skipped});
+        CHECK(d.adopt && d.found == 1 && d.skipped == 1 && d.reason == "1 of 1 signatures found exactly once, 1 placeholder(s) skipped",
+              "placeholder skipped, adopted: " + d.reason);
+        d = decide_adapt(t, {result("a", SigState::Found)});
+        CHECK(d.adopt && d.skipped == 1, "a placeholder needs no result");
+        d = decide_adapt(table({}), {});
+        CHECK(!d.adopt && d.found == 0 && !d.reason.empty(), "empty table: refused (" + d.reason + ")");
+        d = decide_adapt(table({{"later", "", "none", 0, ""}}), {skipped});
+        CHECK(!d.adopt && d.skipped == 1, "a table of placeholders only: refused");
+    });
+    run_case("signature auto-adapt: the adapted table (new build key, notes prefixed, same patterns, JSON round trip)", [&] {
+        const SignatureTable* newest = newest_builtin_table();
+        CHECK(newest && newest->build == builtin_builds().back() && newest->build == "6AC07E31-2145C000",
+              "the newest built-in table is the last build: " + (newest ? newest->build : std::string("none")));
+        if (!newest) return;
+        const SignatureTable a = adapt_signature_table(*newest, "6B000000-21500000");
+        bool same = a.sigs.size() == newest->sigs.size() && a.build == "6B000000-21500000" && a.game == newest->game;
+        bool notes = true;
+        for (size_t i = 0; same && i < a.sigs.size(); ++i) {
+            const Signature& x = a.sigs[i];
+            const Signature& y = newest->sigs[i];
+            same = x.name == y.name && x.pattern == y.pattern && x.resolve == y.resolve && x.offset == y.offset;
+            notes = notes && x.note.rfind("adapted from 6AC07E31-2145C000:", 0) == 0 && x.note.find(y.note) != std::string::npos;
+        }
+        CHECK(same, "same signatures, new build key");
+        CHECK(notes, "each note starts with \"adapted from 6AC07E31-2145C000:\" and keeps the original note");
+        SignatureTable rt;
+        std::string err;
+        CHECK(parse_signature_table(signature_table_json(a), rt, err) && rt.build == "6B000000-21500000" && rt.sigs.size() == a.sigs.size(),
+              "the adapted table is written in the signatures_<build>.json format: " + err);
+        const SignatureTable e = adapt_signature_table(table({{"x", "90 90", "none", 0, ""}}), "B");
+        CHECK(e.sigs[0].note == "adapted from 6AC07E31-2145C000:", "an empty note gets the prefix only: " + e.sigs[0].note);
+        // end to end: scan the adapted table over a synthetic image that has every pattern once, then break it
+        const SignatureTable t = adapt_signature_table(
+            table({{"fn", "48 89 5C 24 08 57 48 83 EC 20", "none", 0, ""}, {"site", "E8 ?? ?? ?? ?? 48 8B D8 EB", "rip", 0, ""},
+                   {"todo", "", "none", 0, ""}}),
+            "6B000000-21500000");
+        std::vector<uint8_t> code(0x400, 0xCC);
+        const uint64_t base = 0x140002000ULL;
+        const uint8_t fn[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20};
+        const uint8_t site[] = {0xE8, 0xFB, 0xFF, 0xFF, 0xFF, 0x48, 0x8B, 0xD8, 0xEB};
+        std::memcpy(code.data() + 0x40, fn, sizeof(fn));
+        std::memcpy(code.data() + 0x200, site, sizeof(site));
+        auto scan = [&]() {
+            std::vector<SigResult> rs;
+            for (const auto& s : t.sigs) rs.push_back(resolve_signature(s, code.data(), code.size(), base));
+            return rs;
+        };
+        AdaptDecision d = decide_adapt(t, scan());
+        CHECK(d.adopt && d.found == 2 && d.skipped == 1, "synthetic image: adopted (" + d.reason + ")");
+        std::memcpy(code.data() + 0x300, fn, sizeof(fn));  // a second copy: ambiguous
+        d = decide_adapt(t, scan());
+        CHECK(!d.adopt && d.ambiguous == 1 && d.reason.find("fn (ambiguous)") != std::string::npos, "duplicated code: refused (" + d.reason + ")");
+        std::memset(code.data() + 0x300, 0xCC, sizeof(fn));
+        code[0x205] = 0x90;  // the call site changed
+        d = decide_adapt(t, scan());
+        CHECK(!d.adopt && d.missing == 1 && d.reason.find("site (missing)") != std::string::npos, "changed code: refused (" + d.reason + ")");
+    });
+    run_case("built-in tables: build 6AC07E31-2145C000 shares the signature list of 6AB9813C-211EF000", [&] {
+        const SignatureTable* a = builtin_signature_table("6AB9813C-211EF000");
+        const SignatureTable* b = builtin_signature_table("6AC07E31-2145C000");
+        CHECK(a && b && a != b && a->build == "6AB9813C-211EF000" && b->build == "6AC07E31-2145C000", "both builds are built in");
+        if (!a || !b) return;
+        const std::vector<std::string> builds = builtin_builds();
+        CHECK(builds.size() == 2 && builds[0] == "6AB9813C-211EF000" && builds[1] == "6AC07E31-2145C000", "builds listed oldest first");
+        bool same = a->sigs.size() == b->sigs.size() && a->sigs.size() >= 120;
+        for (size_t i = 0; same && i < a->sigs.size(); ++i)
+            same = a->sigs[i].name == b->sigs[i].name && a->sigs[i].pattern == b->sigs[i].pattern &&
+                   a->sigs[i].resolve == b->sigs[i].resolve && a->sigs[i].offset == b->sigs[i].offset;
+        CHECK(same, fmt("same %zu signatures (names, patterns, resolve, offsets)", a->sigs.size()));
+        std::set<std::string> names;
+        for (const auto& s : b->sigs) names.insert(s.name);
+        CHECK(names.size() == b->sigs.size(), "signature names are unique");
+        // edit_cfg_category_items: relocation-proof (the tail jmp's rel32 is partly masked), still matches build 6AB9813C
+        const Signature* s = b->find("edit_cfg_category_items");
+        std::vector<uint8_t> bytes;
+        std::vector<bool> mask;
+        CHECK(s && parse_pattern(s->pattern, bytes, mask) && bytes.size() == 35, "edit_cfg_category_items parses");
+        CHECK(s && s->pattern.size() > 14 && s->pattern.compare(s->pattern.size() - 14, 14, "E9 ?? ?? 99 F9") == 0,
+              "edit_cfg_category_items ends with the masked jmp \"E9 ?? ?? 99 F9\"");
+        // the Category dtor body of build 6AB9813C at 0x1470D6176 (... jmp 0x140A6BF10), then the same with the jmp moved
+        const uint8_t old_tail[] = {0x48, 0x8B, 0xD9, 0x48, 0x83, 0xC1, 0x40, 0xE8, 0x11, 0x22, 0x33, 0x44, 0x48, 0x8D, 0x4B, 0x28, 0xE8, 0x55,
+                                    0x66, 0x77, 0x88, 0x48, 0x8D, 0x4B, 0x08, 0x48, 0x83, 0xC4, 0x20, 0x5B, 0xE9, 0x77, 0x5D, 0x99, 0xF9};
+        std::vector<uint8_t> code(0x200, 0xCC);
+        std::memcpy(code.data() + 0x80, old_tail, sizeof(old_tail));
+        SigResult r = s ? resolve_signature(*s, code.data(), code.size(), 0x1470D60F6ULL) : SigResult();
+        CHECK(r.state == SigState::Found && r.match == 0x1470D6176ULL, "matches the bytes of build 6AB9813C");
+        code[0x80 + 31] = 0x13;
+        code[0x80 + 32] = 0x8A;  // jmp rel32 low bytes moved by a relocation
+        r = s ? resolve_signature(*s, code.data(), code.size(), 0x1470D60F6ULL) : SigResult();
+        CHECK(r.state == SigState::Found, "still matches when the jmp target moved");
+    });
+}
+
 // Game-thread dispatcher pieces (core/gamethread.h): the job queue, inline hook detection, the synthetic career event,
 // and the built-in signatures for build 6AB9813C-211EF000 against the bytes of that build's image.
 static void* noop_a(void* self, void*, void*, void*) { return self; }
@@ -12144,6 +12291,7 @@ int main(int argc, char** argv) {
     test_devops();
     std::printf("native signature scanning\n");
     test_sigscan();
+    test_sigscan_adapt();
     std::printf("native game calls\n");
     test_game_calls();
     std::printf("native manager rules\n");
