@@ -1,6 +1,6 @@
 # Turbo handover (read this first)
 
-Last updated: 2026-10-08 by the PC session. Update this file after EVERY release and every session that changes code, saves or game state.
+Last updated: 2026-10-08 by the PC session. Update this file after EVERY release and every session that changes code, saves or game state. Every update MUST end with a fresh section 9 (next-LLM prompt) that matches the current state.
 
 ## 1. Project in one paragraph
 Turbo is a Lua + native overlay (Turbo.dll) that supplies FC 26 Live Editor features for EA SPORTS FC 27 Manager Career. Live Editor (LE) is the user's paid editor and must not be modified. Turbo branch: `turbo-2.0` (repo `cmx24/FC27-Editor-Turbo`, worktree `C:\FC 27 Live Editor\turbo_dev\2.0\integration`). Latest tag: 2.0.2. The user runs `git push` and approves releases themselves; asset upload is done by the agent per `turbo-2-0-state` memory.
@@ -56,3 +56,10 @@ Turbo is a Lua + native overlay (Turbo.dll) that supplies FC 26 Live Editor feat
 1. Update this file.
 2. Tag, push branch and tags (user runs push), publish GitHub release, upload zips as in memory `turbo-2-0-state`.
 3. Test in a played match before calling a build released.
+
+## 9. Prompt for the next LLM (copy this as the first message)
+```
+You are continuing the FC 27 Turbo project for the user Cassio. Read docs/HANDOVER.md in the repo first (branch turbo-2.0, worktree C:\FC 27 Live Editor\turbo_dev\2.0\integration), then the memory notes in C:\Users\cmode\.claude\projects\C--FC-27-Live-Editor\memory\ (MEMORY.md index).
+Rules: never send Escape to the game; back up every save before any game write; write to the real Torino/TB career only after the user confirms in chat; Live Editor's DLL and launcher are off limits; the user runs git push and approves releases.
+Current task: resolve the players-dropping-to-overall-1 incident (section 3 of the handover). Next step is step 3(b): launch the game without Live Editor, play the same match from the same save, and compare the six players with turbo_diag_ovr1.lua. Report the result, update docs/HANDOVER.md (including a new section 9 prompt), and commit with the Co-Authored-By trailer.
+```
