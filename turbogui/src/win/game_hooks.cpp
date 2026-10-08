@@ -235,6 +235,12 @@ bool load_table_file(const fs::path& p, std::string& err) {
         err = "no signature has a pattern (an unfilled template)";
         return false;
     }
+    // The file a Turbo package shipped before the build was built in (Turbo 2.0.1's signatures_6AC07E31-2145C000.json)
+    // stays when a later Turbo is unzipped over it: it must not hide the built-in table and its later fixes
+    if (const char* package = turbo::superseded_package_table(t)) {
+        err = std::string("identical to the ") + package + " package file, using the built-in table (the file can be deleted)";
+        return false;
+    }
     g_table = std::move(t);
     return true;
 }

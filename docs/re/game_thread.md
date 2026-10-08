@@ -37,6 +37,11 @@ hook on the game's career-event post function, and that fact is verified at run 
 `pattern`: hex bytes, `??` = any byte (same syntax as the dev service `find`). `offset` (bytes, may be negative) is
 added to the match before resolving. `resolve: "none"` = the address is match + offset; `"rip"` = the instruction at
 match + offset is decoded and its rip-relative target is the address. An empty pattern is a placeholder (`skipped`).
+`expect` (optional, pattern syntax, at least one fixed byte): the bytes that must be at match + offset, e.g. `"48 8D 05"`
+for `lea rax,[rip+x]`; anything else there makes the signature `bad pattern`. An offset outside the pattern points at
+bytes the pattern never checked, so such an entry names its instruction in `expect`, or is `"hook_probe": true` (the
+address is only probed for another module's inline hook and used only when one is seen there). Auto-adapt for an
+unknown build never adopts a table with an entry that has neither (`unverified offset`).
 The shipped entries for build `6AB9813C-211EF000` are also in `docs/re/game_thread-signatures.json`;
 `bash scripts/re/py.sh scripts/re/verify_game_thread.py` checks them against the image (uniqueness + resolution).
 

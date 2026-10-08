@@ -8209,18 +8209,20 @@ static void test_sigscan_adapt() {
         bool same = a->sigs.size() == b->sigs.size() && a->sigs.size() >= 120;
         for (size_t i = 0; same && i < a->sigs.size(); ++i)
             same = a->sigs[i].name == b->sigs[i].name && a->sigs[i].pattern == b->sigs[i].pattern &&
-                   a->sigs[i].resolve == b->sigs[i].resolve && a->sigs[i].offset == b->sigs[i].offset;
-        CHECK(same, fmt("same %zu signatures (names, patterns, resolve, offsets)", a->sigs.size()));
+                   a->sigs[i].resolve == b->sigs[i].resolve && a->sigs[i].offset == b->sigs[i].offset &&
+                   a->sigs[i].expect == b->sigs[i].expect && a->sigs[i].hook_probe == b->sigs[i].hook_probe;
+        CHECK(same, fmt("same %zu signatures (names, patterns, resolve, offsets, expect, hook probes)", a->sigs.size()));
         std::set<std::string> names;
         for (const auto& s : b->sigs) names.insert(s.name);
         CHECK(names.size() == b->sigs.size(), "signature names are unique");
-        // edit_cfg_category_items: relocation-proof (the tail jmp's rel32 is partly masked), still matches build 6AB9813C
+        // edit_cfg_category_items: the tail jmp's rel32 is masked except its top byte (fully masked, four identical
+        // destructors of build 6AB9813C match), still matches build 6AB9813C
         const Signature* s = b->find("edit_cfg_category_items");
         std::vector<uint8_t> bytes;
         std::vector<bool> mask;
         CHECK(s && parse_pattern(s->pattern, bytes, mask) && bytes.size() == 35, "edit_cfg_category_items parses");
-        CHECK(s && s->pattern.size() > 14 && s->pattern.compare(s->pattern.size() - 14, 14, "E9 ?? ?? 99 F9") == 0,
-              "edit_cfg_category_items ends with the masked jmp \"E9 ?? ?? 99 F9\"");
+        CHECK(s && s->pattern.size() > 14 && s->pattern.compare(s->pattern.size() - 14, 14, "E9 ?? ?? ?? F9") == 0,
+              "edit_cfg_category_items ends with the masked jmp \"E9 ?? ?? ?? F9\"");
         // the Category dtor body of build 6AB9813C at 0x1470D6176 (... jmp 0x140A6BF10), then the same with the jmp moved
         const uint8_t old_tail[] = {0x48, 0x8B, 0xD9, 0x48, 0x83, 0xC1, 0x40, 0xE8, 0x11, 0x22, 0x33, 0x44, 0x48, 0x8D, 0x4B, 0x28, 0xE8, 0x55,
                                     0x66, 0x77, 0x88, 0x48, 0x8D, 0x4B, 0x08, 0x48, 0x83, 0xC4, 0x20, 0x5B, 0xE9, 0x77, 0x5D, 0x99, 0xF9};
@@ -8232,6 +8234,171 @@ static void test_sigscan_adapt() {
         code[0x80 + 32] = 0x8A;  // jmp rel32 low bytes moved by a relocation
         r = s ? resolve_signature(*s, code.data(), code.size(), 0x1470D60F6ULL) : SigResult();
         CHECK(r.state == SigState::Found, "still matches when the jmp target moved");
+        code[0x80 + 31] = 0xF7;
+        code[0x80 + 32] = 0x7B;
+        code[0x80 + 33] = 0x99;  // build 6AC07E31: jmp rel32 0xF9997BF7 (the item-vector dtor 0x140A6BBF0)
+        r = s ? resolve_signature(*s, code.data(), code.size(), 0x1470D60F6ULL) : SigResult();
+        CHECK(r.state == SigState::Found, "matches the jmp of build 6AC07E31");
+        code[0x80 + 33] = 0x33;  // the distance crossed a 64 KB boundary (the 2.0.2 pattern "E9 ?? ?? 99 F9" missed here)
+        r = s ? resolve_signature(*s, code.data(), code.size(), 0x1470D60F6ULL) : SigResult();
+        CHECK(r.state == SigState::Found, "still matches when the jmp's third byte moved too");
+        code[0x80 + 34] = 0xF8;  // 16 MB further away: another destructor's jmp (0x1480C141E jumps with top byte F8)
+        r = s ? resolve_signature(*s, code.data(), code.size(), 0x1470D60F6ULL) : SigResult();
+        CHECK(r.state == SigState::Missing, "a jmp with another top byte is not this destructor");
+    });
+    run_case("signature offsets: every built-in address rests on checked bytes (inside the pattern, an expect or a hook probe)", [&] {
+        const SignatureTable* b = newest_builtin_table();
+        CHECK(b && b->sigs.size() >= 120, "newest built-in table");
+        if (!b) return;
+        std::string unchecked, bad_expect;
+        int expects = 0, probes = 0;
+        for (const auto& s : b->sigs) {
+            if (!signature_offset_checked(s)) unchecked += " " + s.name;
+            std::vector<uint8_t> eb;
+            std::vector<bool> em;
+            if (!s.expect.empty()) {
+                ++expects;
+                if (!parse_pattern(s.expect, eb, em) || s.resolve != "rip") bad_expect += " " + s.name;
+            }
+            if (s.hook_probe) ++probes;
+        }
+        CHECK(unchecked.empty(), "every offset checked; unchecked:" + unchecked);
+        CHECK(bad_expect.empty(), "every expect parses and sits on a rip operand; bad:" + bad_expect);
+        CHECK(expects == 16 && probes == 2, fmt("16 expects, 2 hook probes (%d, %d)", expects, probes));
+        const Signature* cd = b->find("career_event_dispatch");
+        const Signature* st = b->find("loc_strtab_get");
+        CHECK(cd && cd->hook_probe && cd->offset == -24 && st && st->hook_probe && st->offset == -10, "the hook probes");
+        const Signature* pi = b->find("player_inserted_event_vtable");
+        CHECK(pi && pi->offset == 1683 && pi->expect == "48 8D 0D", "the 0x3A vtable: lea rcx,[rip+x] at +1683");
+        const Signature* rd = b->find("PlayerCapture_Renderer");
+        CHECK(rd && rd->expect == "48 8B 1D", "the capture renderer: mov rbx,[rip+x]");
+        // an entry without expect is checked only when its instruction is fixed bytes of the pattern
+        CHECK(signature_offset_checked({"in", "48 8D 0D ?? ?? ?? ?? 90", "rip", 0, ""}), "lea inside the pattern");
+        CHECK(signature_offset_checked({"call", "90 E8 ?? ?? ?? ??", "rip", 1, ""}), "call inside the pattern");
+        CHECK(signature_offset_checked({"pos", "90 90 90", "none", 2, ""}), "a position inside the pattern");
+        CHECK(!signature_offset_checked({"past", "90 90 90", "rip", 3, ""}), "rip past the pattern");
+        CHECK(!signature_offset_checked({"neg", "90 90 90", "none", -4, ""}), "a position before the pattern");
+        CHECK(signature_offset_checked({"neg", "90 90 90", "none", -4, "", "", true}), "a hook probe before the pattern");
+        CHECK(!signature_offset_checked({"wild", "48 ?? 0D ?? ?? ?? ?? 90", "rip", 0, ""}), "the instruction is a wildcard");
+        CHECK(!signature_offset_checked({"cut", "90 48 8D", "rip", 1, ""}), "the instruction is cut off by the pattern end");
+        CHECK(!signature_offset_checked({"odd", "90 90 C3 90", "rip", 2, ""}), "not an instruction resolve_rip understands");
+        CHECK(signature_offset_checked({"exp", "90 90", "rip", 40, "", "48 8D 05"}), "an expect checks it");
+        CHECK(!signature_offset_checked({"exp", "90 90", "rip", 40, "", "?? ??"}), "an expect of wildcards only checks nothing");
+        CHECK(signature_offset_checked({"todo", "", "none", 99, ""}), "a placeholder is not scanned");
+    });
+    run_case("signature auto-adapt: an offset outside the pattern must land on the expected instruction", [&] {
+        // CreatePlayer's first 26 bytes (the anchor) and the lea rcx,[rip+x] at +1683 that loads the 0x3A event vtable
+        const SignatureTable* b = newest_builtin_table();
+        const Signature* pi = b ? b->find("player_inserted_event_vtable") : nullptr;
+        CHECK(pi != nullptr, "player_inserted_event_vtable is built in");
+        if (!pi) return;
+        const uint8_t anchor[] = {0x40, 0x55, 0x53, 0x56, 0x57, 0x41, 0x54, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8D,
+                                  0x6C, 0x24, 0xD9, 0x48, 0x81, 0xEC, 0x00, 0x01, 0x00, 0x00, 0x49, 0x8B, 0xD8};
+        const uint8_t lea[] = {0x48, 0x8D, 0x0D, 0xD6, 0x49, 0x49, 0x03};
+        const uint8_t call[] = {0xE8, 0xD6, 0x49, 0x49, 0x03, 0x90, 0x90};
+        const uint8_t lea_rax[] = {0x48, 0x8D, 0x05, 0xD6, 0x49, 0x49, 0x03};
+        const uint64_t base = 0x147B61740ULL;  // the anchor at 0x147B61750, as on build 6AB9813C
+        std::vector<uint8_t> code(0x800, 0xCC);
+        std::memcpy(code.data() + 0x10, anchor, sizeof(anchor));
+        std::memcpy(code.data() + 0x10 + 1683, lea, sizeof(lea));
+        const SignatureTable t = adapt_signature_table(*b, "6B000000-21500000");
+        const Signature& s = *t.find("player_inserted_event_vtable");
+        SigResult r = resolve_signature(s, code.data(), code.size(), base);
+        CHECK(r.state == SigState::Found && r.match == 0x147B61750ULL && r.address == 0x14AFF67C0ULL,
+              fmt("the lea resolves to the vtable of build 6AB9813C (0x%llX): ", static_cast<unsigned long long>(r.address)) + r.error);
+        std::vector<SigResult> rs;
+        for (const auto& x : t.sigs) {
+            SigResult f;
+            f.name = x.name;
+            f.state = x.pattern.empty() ? SigState::Skipped : SigState::Found;
+            rs.push_back(x.name == s.name ? r : f);
+        }
+        AdaptDecision d = decide_adapt(t, rs);
+        CHECK(d.adopt, "every signature found and checked: adopted (" + d.reason + ")");
+        // a title update keeps CreatePlayer's first bytes but changes its body: +1683 is now a call (resolve_rip takes it)
+        std::memcpy(code.data() + 0x10 + 1683, call, sizeof(call));
+        r = resolve_signature(s, code.data(), code.size(), base);
+        CHECK(r.state == SigState::BadPattern && r.address == 0 && r.error.find("not the expected 48 8D 0D") != std::string::npos &&
+                  r.error.find("E8 D6 49") != std::string::npos,
+              "a call at the offset is refused: " + r.error);
+        for (auto& x : rs)
+            if (x.name == s.name) x = r;
+        d = decide_adapt(t, rs);
+        CHECK(!d.adopt && d.missing == 1 && d.reason.find("player_inserted_event_vtable (bad pattern)") != std::string::npos,
+              "adapt refused: " + d.reason);
+        std::memcpy(code.data() + 0x10 + 1683, lea_rax, sizeof(lea_rax));  // another register: another object
+        r = resolve_signature(s, code.data(), code.size(), base);
+        CHECK(r.state == SigState::BadPattern, "lea rax at the offset is refused: " + r.error);
+        // the same entry without expect: the call resolves (the hazard), and adapting refuses it anyway
+        Signature bare = s;
+        bare.expect.clear();
+        std::memcpy(code.data() + 0x10 + 1683, call, sizeof(call));
+        r = resolve_signature(bare, code.data(), code.size(), base);
+        CHECK(r.state == SigState::Found, "without expect the call resolves");
+        SignatureTable tb = t;
+        for (auto& x : tb.sigs)
+            if (x.name == bare.name) x = bare;
+        for (auto& x : rs)
+            if (x.name == s.name) x = r;
+        d = decide_adapt(tb, rs);
+        CHECK(!d.adopt && d.missing == 1 && d.reason.find("player_inserted_event_vtable (unverified offset)") != std::string::npos,
+              "found but unverified: adapt refused: " + d.reason);
+        // an expect past the buffer end, and a malformed one
+        Signature tail{"tail", "40 55 53 56 57 41 54 41 56 41 57", "rip", 0x7F8 - 0x10, "", "48 8D 0D ?? ?? ?? ?? 90 90 90 90 90 90"};
+        r = resolve_signature(tail, code.data(), code.size(), base);
+        CHECK(r.state == SigState::BadPattern && r.error.find("leave the scanned range") != std::string::npos, "expect cut off: " + r.error);
+        Signature junk{"junk", "40 55 53 56 57 41 54 41 56 41 57", "none", 0, "", "4"};
+        r = resolve_signature(junk, code.data(), code.size(), base);
+        CHECK(r.state == SigState::BadPattern && r.error == "malformed expect", "malformed expect: " + r.error);
+        // the table format carries expect and hook_probe
+        SignatureTable io = table({{"a", "48 8D 0D ?? ?? ?? ??", "rip", 40, "n", "48 8D 0D"}, {"b", "90 90", "none", -8, "", "", true}});
+        SignatureTable back;
+        std::string err;
+        CHECK(parse_signature_table(signature_table_json(io), back, err) && back.sigs.size() == 2 && back.find("a") &&
+                  back.find("a")->expect == "48 8D 0D" && !back.find("a")->hook_probe && back.find("b") && back.find("b")->hook_probe &&
+                  back.find("b")->expect.empty(),
+              "JSON round trip: " + err);
+        const std::string j = signature_table_json(io);
+        CHECK(j.find("\"expect\": \"48 8D 0D\"") != std::string::npos && j.find("\"hook_probe\": true") != std::string::npos &&
+                  j.find("\"hook_probe\": false") == std::string::npos,
+              "written only when set");
+        CHECK(!parse_signature_table(R"({"build":"B","signatures":{"x":{"pattern":"90","expect":"?? ??"}}})", back, err) &&
+                  err.find("malformed expect") != std::string::npos,
+              "an expect of wildcards only is refused: " + err);
+        CHECK(!parse_signature_table(R"({"build":"B","signatures":{"x":{"pattern":"90","expect":7}}})", back, err), "a non-string expect is refused");
+        CHECK(!parse_signature_table(R"({"build":"B","signatures":{"x":{"pattern":"90","hook_probe":"yes"}}})", back, err) &&
+                  err.find("hook_probe") != std::string::npos,
+              "a non-bool hook_probe is refused: " + err);
+    });
+    run_case("signature tables: Turbo 2.0.1's packaged signatures_6AC07E31-2145C000.json gives way to the built-in table", [&] {
+        const fs::path p = fs::path(g_lua).parent_path() / "signatures_6AC07E31-2145C000_turbo_2.0.1.json";
+        SignatureTable t;
+        std::string err;
+        CHECK(parse_signature_table(read_file(p), t, err) && t.build == "6AC07E31-2145C000" && t.sigs.size() == 122,
+              "the 2.0.1 package file (git 201e1a9) parses: " + err);
+        CHECK(signature_set_fingerprint(t) == 0xD18289631216298AULL,
+              fmt("fingerprint 0x%016llX", static_cast<unsigned long long>(signature_set_fingerprint(t))));
+        const char* pkg = superseded_package_table(t);
+        CHECK(pkg && std::string(pkg) == "Turbo 2.0.1", "recognised as the Turbo 2.0.1 package file");
+        SignatureTable notes = t;
+        for (auto& s : notes.sigs) s.note = "edited";
+        std::reverse(notes.sigs.begin(), notes.sigs.end());
+        CHECK(superseded_package_table(notes) != nullptr, "notes and order do not matter");
+        SignatureTable edited = t;
+        for (auto& s : edited.sigs)
+            if (s.name == "edit_cfg_category_items") s.pattern = builtin_signature_table(t.build)->find(s.name)->pattern;
+        CHECK(superseded_package_table(edited) == nullptr, "a file with another pattern is the user's own table");
+        SignatureTable offset = t;
+        offset.sigs[0].offset += 1;
+        CHECK(superseded_package_table(offset) == nullptr, "a changed offset is the user's own table");
+        SignatureTable other = t;
+        other.build = "6AB9813C-211EF000";
+        CHECK(superseded_package_table(other) == nullptr, "another build's file is not the 2.0.1 file");
+        SignatureTable unknown = t;
+        unknown.build = "6B000000-21500000";
+        CHECK(superseded_package_table(unknown) == nullptr, "a build without a built-in table keeps its file");
+        CHECK(superseded_package_table(*builtin_signature_table("6AC07E31-2145C000")) == nullptr,
+              "the current built-in table differs from the 2.0.1 file (edit_cfg_category_items)");
     });
 }
 

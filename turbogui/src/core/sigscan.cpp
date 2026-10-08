@@ -1,6 +1,7 @@
 // FC 27 LE Turbo GUI - signature scanning (see sigscan.h)
 #include "sigscan.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -88,6 +89,26 @@ bool parse_signature_table(const std::string& json_text, SignatureTable& out, st
                     return false;
                 }
             }
+            if (v.contains("expect")) {
+                if (!v["expect"].is_string()) {
+                    err = "signature " + it.key() + ": expect must be a string";
+                    return false;
+                }
+                s.expect = v["expect"].get<std::string>();
+                std::vector<uint8_t> b;
+                std::vector<bool> m;
+                if (!s.expect.empty() && (!parse_pattern(s.expect, b, m) || std::find(m.begin(), m.end(), true) == m.end())) {
+                    err = "signature " + it.key() + ": malformed expect (hex bytes, at least one of them not a wildcard)";
+                    return false;
+                }
+            }
+            if (v.contains("hook_probe")) {
+                if (!v["hook_probe"].is_boolean()) {
+                    err = "signature " + it.key() + ": hook_probe must be true or false";
+                    return false;
+                }
+                s.hook_probe = v["hook_probe"].get<bool>();
+            }
             t.sigs.push_back(std::move(s));
         }
     }
@@ -105,6 +126,8 @@ std::string signature_table_json(const SignatureTable& t) {
         v["pattern"] = s.pattern;
         v["resolve"] = s.resolve.empty() ? "none" : s.resolve;
         v["offset"] = s.offset;
+        if (!s.expect.empty()) v["expect"] = s.expect;
+        if (s.hook_probe) v["hook_probe"] = true;
         if (!s.note.empty()) v["note"] = s.note;
         sigs[s.name] = v;
     }
@@ -117,7 +140,11 @@ std::string signature_table_json(const SignatureTable& t) {
 // 2026-10-03): EVERY address in the comments and notes below is an address of that build. On build 6AC07E31-2145C000
 // (the October 2026 title update) the same patterns were checked live on 2026-10-07: all of them match exactly once, at
 // other addresses. A rel32 / disp32 to a far function or global moves with a title update, so patterns mask it ("??");
-// edit_cfg_category_items pinned one and missed on 6AC07E31 until its jmp was masked ("E9 ?? ?? 99 F9").
+// edit_cfg_category_items pinned one and missed on 6AC07E31 until its jmp was masked (now all but its top byte).
+// An offset outside the pattern points at bytes the pattern never checked: such an entry names the instruction it
+// expects there (the 6th field, `expect`, the bytes of build 6AB9813C; every resolved address on 6AC07E31 sits at the same
+// small shift as its neighbours, so the instructions are the same there), or is a hook probe (the 7th field); auto-adapt
+// never adopts an entry with neither (decide_adapt).
 // An entry with an empty pattern is a placeholder: its status is "skipped" and nothing is hooked for it, but the build
 // still counts as known, so hooks installed by address (install_game_hook_at) are allowed.
 static std::vector<Signature> fc27_signatures() {
@@ -137,7 +164,8 @@ static std::vector<Signature> fc27_signatures() {
          // pre__/post__CareerModeEvent, so the anchor is at +24 (the first bytes it leaves alone) with offset -24.
          {"career_event_dispatch",
           "41 57 48 83 EC 30 48 8B F9 8B EA 48 8B 49 18 48 8B 01 FF 90 F8 00 00 00 8D 45 E3 83 F8 01 77 3D", "none", -24,
-          "CareerEventDispatcher::Dispatch(this, id, event) (0x147B8C0D8): the entry Live Editor hooks for post__CareerModeEvent (docs/re/game_thread.md s.4)"},
+          "CareerEventDispatcher::Dispatch(this, id, event) (0x147B8C0D8): the entry Live Editor hooks for post__CareerModeEvent (docs/re/game_thread.md s.4)",
+          "", true},  // hook probe: Live Editor's stub owns the 24 bytes; called only while another module's hook is seen there
          // Miniface from the 3D model (docs/re/player_capture.md, scripts/re/player_capture_signatures.json)
          {"PlayerCaptureController_GetOrCreate",
           "48 8B C4 48 89 58 10 48 89 70 18 48 89 78 20 48 89 48 08 41 56 48 83 EC 60 48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 65 48 8B 0C 25 58 00 00 00",
@@ -153,17 +181,17 @@ static std::vector<Signature> fc27_signatures() {
           "rip", 0x24, "settings singleton pointer (0x14C1ED820): byte +0x1F6 gates Start"},
          {"PlayerCapture_ListenerHub",
           "48 89 5C 24 18 48 89 74 24 20 57 48 81 EC C0 04 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 84 24 B0 04 00 00 48 8B 05 ?? ?? ?? ??",
-          "rip", 0xB4, "listener hub pointer (0x14C267B48): must be non-null"},
+          "rip", 0xB4, "listener hub pointer (0x14C267B48): must be non-null", "48 8B 0D"},  // mov rcx,[rip+x]
          {"PlayerCapture_Renderer",
           "48 89 5C 24 18 48 89 74 24 20 57 48 81 EC C0 04 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 84 24 B0 04 00 00 48 8B 05 ?? ?? ?? ??",
-          "rip", 0x141, "capture renderer / message sender pointer (0x14C267B98): must be non-null"},
+          "rip", 0x141, "capture renderer / message sender pointer (0x14C267B98): must be non-null", "48 8B 1D"},  // mov rbx,[rip+x]
          {"PlayerCaptureStream_OnSlot",
           "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 54 41 55 41 56 41 57 48 83 EC 30 48 8B D9 B8 08 AF 2F 00 B9 80 F8 02 00",
           "none", 0, "per-picture handler (this, int slot, size_t bytes) (0x1470F2A80): hooked to log the game's own pictures"},
          // Job offers (docs/re/job_offer.md, scripts/re/job_offer_signatures.json; every pattern unique in the image)
          {"jmm_vtable",
           "48 89 5C 24 10 48 89 74 24 18 57 41 54 41 55 41 56 41 57 48 81 EC 80 00 00 00 48 8B 05 ?? ?? ?? ??", "rip",
-          0x29, "JobMarketManager vtable: the lea rax,[rip+..] in the manager's constructor (0x147DB6088 -> 0x14B016428)"},
+          0x29, "JobMarketManager vtable: the lea rax,[rip+..] in the manager's constructor (0x147DB6088 -> 0x14B016428)", "48 8D 05"},
          {"jmm_handle_event",
           "48 89 5C 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 60 4D 8B F8 4C 8B 41 08", "none", 0,
           "JobMarketManager::HandleEvent(this, eventId, Event*) 0x147DD232C: hooked to capture the manager pointer"},
@@ -211,10 +239,12 @@ static std::vector<Signature> fc27_signatures() {
           "(the sub-object at dao+0x478 whose +0x8 is the manager table)"},
          {"dao_vtable",
           "4C 89 44 24 18 48 89 54 24 10 48 89 4C 24 08 53 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 48 4C 8B F1", "rip", 0x22,
-          "CareerDaoFactoryImpl vtable (0x14B025C48): the lea rax,[rip+..] at +0x22 of its ctor 0x147F0EB10 (the object [[comm+0x20]+0x30])"},
+          "CareerDaoFactoryImpl vtable (0x14B025C48): the lea rax,[rip+..] at +0x22 of its ctor 0x147F0EB10 (the object [[comm+0x20]+0x30])",
+          "48 8D 05"},
          {"tm_vtable",
           "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 41 54 41 55 41 56 41 57 48 8D 68 C8 48 81 EC 80 01 00 00", "rip", 0x31,
-          "TransferManager vtable (0x14B0055A8): the lea rax,[rip+..] at +0x31 of its ctor 0x147C26450 (manager type 127, 0x2FA0 bytes)"},
+          "TransferManager vtable (0x14B0055A8): the lea rax,[rip+..] at +0x31 of its ctor 0x147C26450 (manager type 127, 0x2FA0 bytes)",
+          "48 8D 05"},
          {"pcm_vtable",
           "40 53 48 83 EC 20 48 8D 05 ?? ?? ?? ?? 48 89 51 08 48 89 01 48 8B D9 48 83 C1 10 E8 ?? ?? ?? ?? 48 8D 8B 40 01 00 00", "rip", 0x6,
           "PlayerContractManager vtable (0x14B01E240): the lea rax,[rip+..] at +0x6 of its ctor 0x147E54FB0 (manager type 77, 0x458 bytes; "
@@ -222,7 +252,8 @@ static std::vector<Signature> fc27_signatures() {
          {"um_vtable",
           "48 89 5C 24 10 48 89 74 24 18 57 48 81 EC 80 00 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 44 24 70 48 89 51 08", "rip", 0x25,
           "UserManager vtable (0x14AFDF150): the lea rax,[rip+..] at +0x25 of its ctor 0x147AB2EB8 (manager type 129, 0xB20 bytes; "
-          "the user's team id the list helpers use)"},
+          "the user's team id the list helpers use)",
+          "48 8D 05"},
          // Block Offers (docs/re/player_status_roles.md section 2, docs/re/transfer_lists.md section 9,
          // scripts/re/player_status_signatures.json; every pattern unique in the image): the helper's toggle (vtable slot 30) and the
          // vtables of the block-offers cache and its inner dao, which the call validates before it runs
@@ -359,7 +390,8 @@ static std::vector<Signature> fc27_signatures() {
           "rip", 0, "the event base vtable CreatePlayer writes first (0x149803AE8, lea at 0x147B61DD3); the 0x3A vtable follows 16 bytes later"},
          {"player_inserted_event_vtable", "40 55 53 56 57 41 54 41 56 41 57 48 8D 6C 24 D9 48 81 EC 00 01 00 00 49 8B D8", "rip", 1683,
           "event 0x3A PlayerInsertedIntoPlayers vtable 0x14AFF67C0: the lea at +1683 of DataController::CreatePlayer 0x147B61750 (0x20-byte "
-          "event: +8 refcount 0, +0x10 0x3A, +0x18 pid)"},
+          "event: +8 refcount 0, +0x10 0x3A, +0x18 pid)",
+          "48 8D 0D"},  // lea rcx,[rip+x]
          {"dc_insert_team_player", "48 8B C4 48 89 58 10 48 89 68 18 48 89 70 20 57 48 81 EC 80 00 00 00 41 8B F0 8B EA", "none", 0,
           "int DataController::InsertTeamPlayer(DC, int pid, int team, int jersey, int position [stack 5], bool suppress [stack 6]) "
           "0x147B90074: INSERT teamplayerlinks; when 1 row and suppress == 0 posts event 0x5F {pid, team, -1}"},
@@ -405,7 +437,8 @@ static std::vector<Signature> fc27_signatures() {
           "StaffManager (crash of 04-10-2026, docs/re/standings-ui-path.md section 0)"},
          {"svm_allocator", "83 FA FF 74 65 48 89 5C 24 08 57 48 83 EC 20 48 8B 41 08 4C 8D 05 ?? ?? ?? ??", "rip", 0x2A,
           "the game allocator global (0x14C269EA8) read by svm_refresh_comp (mov rcx,[rip+..] at +0x2A): checked to hold an "
-          "object with an allocate function before the call"},
+          "object with an allocate function before the call",
+          "48 8B 0D"},
          {"fce_iface_post", "40 53 48 83 EC 20 48 8B 01 48 8B DA FF 50 40 8B 53 10 4C 8B C3 48 8B C8", "none", 0,
           "FCE::FCEInterfaceImpl::Post (vtable slot 4, 0x148A35D3C): what svm_refresh_comp calls through [[ctx+0x38]]; checked "
           "against the career's interface vtable before the call"},
@@ -414,10 +447,12 @@ static std::vector<Signature> fc27_signatures() {
          // kind 1 "FCEI::StandingObject" at +0x89)
          {"fcei_compobject_vtable",
           "48 89 5C 24 08 57 48 83 EC 20 33 DB 48 8B F9 85 D2 75 51 48 8B 0D ?? ?? ?? ?? 4C 8D 05 ?? ?? ?? ?? 45 33 C9 BA 80 00 00 00",
-          "rip", 0x4B, "FCEI::CompObject vtable (0x14AAE1A18): the lea rax,[rip+..] at +0x4B of the clone allocator 0x144040198"},
+          "rip", 0x4B, "FCEI::CompObject vtable (0x14AAE1A18): the lea rax,[rip+..] at +0x4B of the clone allocator 0x144040198",
+          "48 8D 05"},
          {"fcei_standinglist_vtable",
           "48 89 5C 24 08 57 48 83 EC 20 33 DB 48 8B F9 85 D2 75 51 48 8B 0D ?? ?? ?? ?? 4C 8D 05 ?? ?? ?? ?? 45 33 C9 BA 80 00 00 00",
-          "rip", 0x89, "StandingObject list vtable (0x14AAE1D38): the lea rcx,[rip+..] at +0x89 of the same allocator (kind 1)"},
+          "rip", 0x89, "StandingObject list vtable (0x14AAE1D38): the lea rcx,[rip+..] at +0x89 of the same allocator (kind 1)",
+          "48 8D 0D"},
          // Match setup (docs/re/match_setup.md, core/match_setup.h): the game-variable store and the FCE result handlers
          {"gamevar_get_int",
           "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 48 8B F1 48 8D 1D ?? ?? ?? ?? 48 8B CB 44 8B F2 E8 "
@@ -467,16 +502,16 @@ static std::vector<Signature> fc27_signatures() {
           "rip", 0x22, "the string \"CommentaryBridge\" FilterNames passes to the audio system's vcall 0xE0"},
          {"commentary_str_player_name_fe",
           "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 41 56 48 81 EC 00 01 00 00 48 8B D9 48 8B FA 48 8B 49 10 48 8D 15 ?? ?? ?? ?? 48 8B 01 FF 90 E0 00 00 00 4C 8B F0 48 85 C0",
-          "rip", 0x42, "the string \"PLAYER_NAME_FE\""},
+          "rip", 0x42, "the string \"PLAYER_NAME_FE\"", "4C 8D 05"},  // lea r8,[rip+x]
          {"commentary_str_db_events",
           "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 41 56 48 81 EC 00 01 00 00 48 8B D9 48 8B FA 48 8B 49 10 48 8D 15 ?? ?? ?? ?? 48 8B 01 FF 90 E0 00 00 00 4C 8B F0 48 85 C0",
-          "rip", 0x50, "the string \"CommentaryDbEvents\" (event category of the audio system's vcall 0x48)"},
+          "rip", 0x50, "the string \"CommentaryDbEvents\" (event category of the audio system's vcall 0x48)", "48 8D 15"},  // lea rdx
          {"commentary_str_player_intensity",
           "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 41 56 48 81 EC 00 01 00 00 48 8B D9 48 8B FA 48 8B 49 10 48 8D 15 ?? ?? ?? ?? 48 8B 01 FF 90 E0 00 00 00 4C 8B F0 48 85 C0",
-          "rip", 0x7F, "the string \"player_intensity\" (query parameter, always 2)"},
+          "rip", 0x7F, "the string \"player_intensity\" (query parameter, always 2)", "48 8D 15"},
          {"commentary_str_surname_id",
           "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 41 56 48 81 EC 00 01 00 00 48 8B D9 48 8B FA 48 8B 49 10 48 8D 15 ?? ?? ?? ?? 48 8B 01 FF 90 E0 00 00 00 4C 8B F0 48 85 C0",
-          "rip", 0x99, "the string \"surname_ID\" (query parameter = commentary id)"},
+          "rip", 0x99, "the string \"surname_ID\" (query parameter = commentary id)", "48 8D 15"},
          {"speech_query_ctor",
           "40 53 48 83 EC 20 48 8B D9 48 8D 05 ?? ?? ?? ?? 33 C9 89 4B 08 48 89 03 48 8D 05 ?? ?? ?? ?? 48 89 53 10 89 4B 18 48 89 4B 20 48 89",
           "none", 0, "SpeechQuery* ctor(SpeechQuery*, ScratchScope*, EventCtx*) 0x1407B0EC0 (object 0x84 bytes)"},
@@ -505,10 +540,10 @@ static std::vector<Signature> fc27_signatures() {
           "rip", 0x4, "the string \"PLAYER_LOW_SIMPLE\" (player-specific recordings event), from 0x14294A15B"},
          {"commentary_str_player_db_pid",
           "49 8B 4D 08 4C 8D 05 ?? ?? ?? ?? 48 8D 15 ?? ?? ?? ?? 48 8B 01 FF 50 48 48 8D 4D D0 4C 8B F8 E8 ?? ?? ?? ?? C7 45 28 00",
-          "rip", 0xC5, "the string \"player_db_pID\" (query parameter = player id)"},
+          "rip", 0xC5, "the string \"player_db_pID\" (query parameter = player id)", "48 8D 15"},
          {"commentary_str_player_low_link",
           "49 8B 4D 08 4C 8D 05 ?? ?? ?? ?? 48 8D 15 ?? ?? ?? ?? 48 8B 01 FF 50 48 48 8D 4D D0 4C 8B F8 E8 ?? ?? ?? ?? C7 45 28 00",
-          "rip", 0xEF, "the string \"PLAYER_LOW_LINK\""},
+          "rip", 0xEF, "the string \"PLAYER_LOW_LINK\"", "4C 8D 05"},
          // Voice swaps (docs/re/inmatch-callnames.md, core/callname_voice.h): the two hooked functions and three layout
          // guards. Each guard is the game's own code that reads the fields the detours touch, so a title update that
          // moves one of them leaves a guard unmatched and nothing is installed. Every pattern is unique in the whole image.
@@ -541,9 +576,12 @@ static std::vector<Signature> fc27_signatures() {
                      "vfunc+0x20 read, vtable slot 1 parse into out, +0x28 free; path heap flag byte +0xF; hooked by edit_unlock"},
          {"edit_cfg_category_stride", "48 8B 57 08 48 3B 57 10 73 13 48 8D 42 58 4C 8D 45 A0 48 89 47 08 E8", "none", 0,
           "layout guard 0x1470CCE58 (categories array parser 0x1470CCDA8): push_back of a 0x58-byte Category"},
-         // the tail jmp's rel32 is partly masked: its low bytes moved with the title update (77 5D on 6AB9813C)
+         // The tail jmp's rel32 is masked except its top byte (F9: the item-vector dtor 96..112 MB below; 0xF9995D77 on
+         // 6AB9813C, 0xF9997BF7 on 6AC07E31, so 6..10 MB of slack either way). Fully masked, the body matches four
+         // identical destructors (0x1434F8E8E, 0x1443C044E, 0x1480C141E jump with top bytes FF / FC / F8), and their
+         // prologue and padding are the same too: only a neighbouring function (link order) or this byte tell them apart.
          {"edit_cfg_category_items",
-          "48 8B D9 48 83 C1 40 E8 ?? ?? ?? ?? 48 8D 4B 28 E8 ?? ?? ?? ?? 48 8D 4B 08 48 83 C4 20 5B E9 ?? ?? 99 F9", "none", 0,
+          "48 8B D9 48 83 C1 40 E8 ?? ?? ?? ?? 48 8D 4B 28 E8 ?? ?? ?? ?? 48 8D 4B 08 48 83 C4 20 5B E9 ?? ?? ?? F9", "none", 0,
           "layout guard 0x1470D6176 (Category dtor 0x1470D6170): strings +0x40 / +0x28, the items vector at +0x08 freed by "
           "the item-vector dtor 0x140A6BF10"},
          {"edit_cfg_item_vector",
@@ -590,7 +628,8 @@ static std::vector<Signature> fc27_signatures() {
           "eastl_string_assign_cstr (out is rbx, the second argument)"},
          {"loc_strtab_get", "49 8B C8 E8 ?? ?? ?? ?? 44 8B C0 49 8B D2 49 8B CB 48 83 C4 28 E9 ?? ?? ?? ?? 48", "none", -10,
           "StrTab::GetString(table, out, key) 0x140B1C034, anchored at +10 because Live Editor's jmp [rip] owns the first 10 "
-          "bytes: report only (Live Editor's custom team names), never hooked"},
+          "bytes: report only (Live Editor's custom team names), never hooked",
+          "", true},  // hook probe: only read to report Live Editor's hook there
     };
 }
 
@@ -623,6 +662,84 @@ const SignatureTable* newest_builtin_table() {
     return tables.empty() ? nullptr : &tables.back();
 }
 
+uint64_t signature_set_fingerprint(const SignatureTable& t) {
+    std::vector<const Signature*> sigs;
+    for (const auto& s : t.sigs) sigs.push_back(&s);
+    std::sort(sigs.begin(), sigs.end(), [](const Signature* a, const Signature* b) { return a->name < b->name; });
+    uint64_t h = 0xCBF29CE484222325ULL;  // FNV-1a 64
+    auto add = [&h](const std::string& text) {
+        for (unsigned char c : text) {
+            h ^= c;
+            h *= 0x100000001B3ULL;
+        }
+    };
+    add(t.build + "\x1e");
+    for (const Signature* s : sigs)
+        add(s->name + "\x1f" + s->pattern + "\x1f" + (s->resolve.empty() ? std::string("none") : s->resolve) + "\x1f" +
+            std::to_string(s->offset) + "\x1e");
+    return h;
+}
+
+// Table files a Turbo package shipped for a build before that build was built in. Unzipping a later Turbo over the
+// install leaves them behind, and the file comes before the built-in table, so they would hide its later fixes.
+struct SupersededPackage {
+    const char* build;
+    uint64_t fingerprint;  // signature_set_fingerprint of the shipped file
+    const char* package;
+};
+static const SupersededPackage kSupersededPackages[] = {
+    // turbo\signatures_6AC07E31-2145C000.json of Turbo 2.0.1 (git 201e1a9): the 6AB9813C list, 122 signatures, with
+    // edit_cfg_category_items "... 5B E9 ?? ?? 99 F9"
+    {"6AC07E31-2145C000", 0xD18289631216298AULL, "Turbo 2.0.1"},
+};
+
+const char* superseded_package_table(const SignatureTable& t) {
+    if (!builtin_signature_table(t.build)) return nullptr;
+    const uint64_t fp = signature_set_fingerprint(t);
+    for (const auto& p : kSupersededPackages)
+        if (t.build == p.build && fp == p.fingerprint) return p.package;
+    return nullptr;
+}
+
+// Bytes of the instruction at `code` before its rel32 / disp32 (legacy prefixes, REX, opcode, ModRM) for the forms
+// resolve_rip understands; 0 for anything else.
+static size_t rip_header_len(const uint8_t* code, size_t len) {
+    size_t i = 0;
+    while (i < len && (code[i] == 0x66 || code[i] == 0xF2 || code[i] == 0xF3)) ++i;
+    bool rex = false;
+    if (i < len && (code[i] & 0xF0) == 0x40) {
+        rex = true;
+        ++i;
+    }
+    if (i >= len) return 0;
+    const uint8_t op = code[i];
+    if ((op == 0xE8 || op == 0xE9) && !rex) return i + 1;
+    if (i + 1 >= len) return 0;
+    if (op == 0x0F && (code[i + 1] & 0xF0) == 0x80) return i + 2;
+    if (op == 0xFF && (code[i + 1] == 0x15 || code[i + 1] == 0x25)) return i + 2;
+    const bool modrm_op = op == 0x8B || op == 0x8D || op == 0x89 || op == 0x39 || op == 0x3B || op == 0x63 || op == 0x85 ||
+                          op == 0xC7 || op == 0x88 || op == 0x8A || op == 0x80 || op == 0x83 || op == 0x81;
+    if (modrm_op && (code[i + 1] & 0xC7) == 0x05) return i + 2;
+    return 0;
+}
+
+bool signature_offset_checked(const Signature& s) {
+    if (s.pattern.empty() || s.hook_probe) return true;
+    std::vector<uint8_t> bytes;
+    std::vector<bool> mask;
+    if (!s.expect.empty())  // resolve_signature compares it; it must fix at least one byte
+        return parse_pattern(s.expect, bytes, mask) && std::find(mask.begin(), mask.end(), true) != mask.end();
+    if (!parse_pattern(s.pattern, bytes, mask)) return false;
+    if (s.offset < 0 || static_cast<size_t>(s.offset) >= bytes.size()) return false;  // bytes the pattern never checked
+    if (s.resolve != "rip") return true;  // a position inside the matched bytes
+    const size_t at = static_cast<size_t>(s.offset);
+    const size_t n = rip_header_len(bytes.data() + at, bytes.size() - at);
+    if (n == 0) return false;
+    for (size_t k = at; k < at + n; ++k)
+        if (!mask[k]) return false;  // the instruction is a wildcard in the pattern
+    return true;
+}
+
 // ---------------------------------------------------------------- auto-adapt
 SignatureTable adapt_signature_table(const SignatureTable& from, const std::string& build) {
     SignatureTable t = from;
@@ -647,7 +764,12 @@ AdaptDecision decide_adapt(const SignatureTable& t, const std::vector<SigResult>
                 break;
             }
         const char* why = nullptr;
-        if (!r) {
+        if (!signature_offset_checked(s)) {
+            // its address would come from bytes neither the pattern nor an expect checked: a person checks an exact
+            // table against the build, nobody checks an adapted one, so such an entry is never adopted
+            ++d.missing;
+            why = "unverified offset";
+        } else if (!r) {
             ++d.missing;
             why = "not scanned";
         } else if (r->state == SigState::Found) {
@@ -822,6 +944,36 @@ SigResult resolve_signature(const Signature& s, const uint8_t* buf, size_t len, 
         r.state = SigState::BadPattern;
         r.error = "offset leaves the scanned range";
         return r;
+    }
+    if (!s.expect.empty()) {
+        // the instruction the offset must land on (an offset outside the pattern points at bytes it never checked)
+        std::vector<uint8_t> eb;
+        std::vector<bool> em;
+        if (!parse_pattern(s.expect, eb, em)) {
+            r.state = SigState::BadPattern;
+            r.error = "malformed expect";
+            return r;
+        }
+        const size_t pos = static_cast<size_t>(at);
+        if (eb.size() > len - pos) {
+            r.state = SigState::BadPattern;
+            r.error = "the expected bytes leave the scanned range";
+            return r;
+        }
+        for (size_t k = 0; k < eb.size(); ++k) {
+            if (em[k] && buf[pos + k] != eb[k]) {
+                std::string seen;
+                for (size_t j = 0; j < eb.size(); ++j) {
+                    char hx[16];
+                    std::snprintf(hx, sizeof(hx), "%s%02X", j ? " " : "", static_cast<unsigned>(buf[pos + j]));
+                    seen += hx;
+                }
+                r.state = SigState::BadPattern;
+                r.error = "match" + std::string(s.offset < 0 ? "" : "+") + std::to_string(s.offset) + " holds " + seen +
+                          ", not the expected " + s.expect;
+                return r;
+            }
+        }
     }
     if (s.resolve == "rip") {
         uint64_t t = 0;

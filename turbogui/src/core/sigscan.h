@@ -8,15 +8,16 @@
 // "6AB9813C-211EF000". A table comes from turbo\signatures_<build>.json:
 //   {"build": "6AB9813C-211EF000", "game": "FC27.exe",
 //    "signatures": {"game_tick": {"pattern": "48 89 5C 24 ?? 57 ...", "resolve": "rip"|"none", "offset": 0,
-//                                 "note": "..."}}}
+//                                 "expect": "48 8D 05", "hook_probe": false, "note": "..."}}}
 // or from the built-in fallback table (builtin_signature_table). A build that is in no table (an EA title update) is
-// scanned with the table of the newest built-in build: when EVERY signature with a pattern is found exactly once
-// (decide_adapt) that adapted table is used, else every game hook stays off. turbo_output\signature_adapt_off.txt turns
-// adapting off.
+// scanned with the table of the newest built-in build: when EVERY signature with a pattern is found exactly once and
+// every offset is checked (decide_adapt) that adapted table is used, else every game hook stays off.
+// turbo_output\signature_adapt_off.txt turns adapting off.
 #pragma once
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace turbo {
@@ -30,6 +31,22 @@ struct Signature {
     std::string resolve;   // "none" (default): address = match + offset; "rip": resolve the rip-relative instruction at match + offset
     int offset = 0;        // bytes added to the match before resolving (may be negative)
     std::string note;
+    // The bytes ("??" allowed) that must be at match + offset, checked before resolving (a mismatch is BadPattern):
+    // the instruction an offset outside the pattern points at, e.g. "48 8D 05" for lea rax,[rip+x]. Empty = none.
+    std::string expect;
+    // The address is only probed for another module's inline hook and used only when one is seen there
+    // (career_event_dispatch, loc_strtab_get), so an offset outside the pattern needs no expect.
+    bool hook_probe = false;
+    // Positional like the rows of the built-in table: {name, pattern, resolve, offset, note[, expect[, hook_probe]]}
+    Signature(std::string name_ = {}, std::string pattern_ = {}, std::string resolve_ = {}, int offset_ = 0,
+              std::string note_ = {}, std::string expect_ = {}, bool hook_probe_ = false)
+        : name(std::move(name_)),
+          pattern(std::move(pattern_)),
+          resolve(std::move(resolve_)),
+          offset(offset_),
+          note(std::move(note_)),
+          expect(std::move(expect_)),
+          hook_probe(hook_probe_) {}
 };
 
 struct SignatureTable {
@@ -61,11 +78,23 @@ std::vector<std::string> builtin_builds();  // oldest first
 // The built-in table of the newest known build (the last of builtin_builds), the one auto-adapt starts from.
 const SignatureTable* newest_builtin_table();
 
+// A table file that an earlier Turbo package shipped for a build that is now built in (Turbo 2.0.1's
+// turbo\signatures_6AC07E31-2145C000.json), recognised by signature_set_fingerprint: the package name ("Turbo 2.0.1"),
+// else nullptr. Such a file is ignored so later fixes to the built-in table reach that install.
+const char* superseded_package_table(const SignatureTable& t);
+// FNV-1a 64 of the build and every (name, pattern, resolve, offset), sorted by name; notes, expect and order ignored
+uint64_t signature_set_fingerprint(const SignatureTable& t);
+
+// Whether the address a signature yields rests on checked bytes: an expect, a hook probe, or (no expect) an offset inside
+// the pattern whose instruction ("rip": prefixes, REX, opcode, ModRM up to the operand) is fixed pattern bytes.
+bool signature_offset_checked(const Signature& s);
+
 // Auto-adapt for a build in no table: a copy of `from` for `build`, each note prefixed "adapted from <from.build>:".
 SignatureTable adapt_signature_table(const SignatureTable& from, const std::string& build);
-// All or nothing: adopt only when every signature with a pattern was found exactly once in the scan (results matched
-// by name; placeholders do not count, a missing result counts as missing). reason: "N of N signatures found exactly
-// once" or "K missing, M ambiguous of N (first: name (missing), ...)".
+// All or nothing: adopt only when every signature with a pattern was found exactly once in the scan and its offset is
+// checked (signature_offset_checked; else it counts as missing, "unverified offset"). Results are matched by name;
+// placeholders do not count, a missing result counts as missing. reason: "N of N signatures found exactly once" or
+// "K missing, M ambiguous of N (first: name (missing), ...)".
 struct AdaptDecision {
     bool adopt = false;
     int found = 0, missing = 0, ambiguous = 0, skipped = 0;
