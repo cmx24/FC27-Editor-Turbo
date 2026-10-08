@@ -210,7 +210,7 @@ int wmain(int argc, wchar_t** argv) {
                 std::memcpy(&magic, reinterpret_cast<void*>(addr), 4);
                 std::memcpy(&ver, reinterpret_cast<void*>(addr + 4), 4);
                 check(magic == 0x4F425254u, "mailbox magic TRBO");
-                check(ver == 1u, "mailbox version 1");
+                check(ver == 2u, "mailbox version 2");  // kMailboxVersion (src/core/bridge.h) since 1.2.0
                 // readable-memory map for Turbo's Lua side: its address at mailbox +0x18, and it lists the mailbox itself
                 unsigned long long map = 0;
                 for (int t = 0; t < 50 && !map; ++t) {
@@ -243,7 +243,7 @@ int wmain(int argc, wchar_t** argv) {
                 }
             }
         }
-        check(j.find("\"gui_version\": \"1.2.0\"") != std::string::npos, "gui_version 1.2.0");
+        check(j.find("\"gui_version\": \"2.0.0\"") != std::string::npos, "gui_version 2.0.0");
         check(j.find("\"updated\":") != std::string::npos, "bridge_dll.json carries a live time stamp");
         // The D3D12 probe either installs the hooks (real GPU) or reports why it cannot (no D3D12, or no
         // display as in headless Wine: "probe window failed" / "could not create the probe swap chain"),

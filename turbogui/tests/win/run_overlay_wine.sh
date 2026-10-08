@@ -107,7 +107,8 @@ check "start phase proven (300 frames)" "has 'overlay proven'"
 check "F8 showed the window: first frame drawn on screen" "has 'first frame drawn on screen'"
 check "drawing proven (120 frames submitted)" "has 'drawing proven'"
 check "pictures: the renderer created and destroyed textures (picture panels' path)" "grep -qE 'texture test: [1-9][0-9]* created, [1-9][0-9]* destroyed and freed' '$LOG'"
-check "no overlay error logged" "! grep -qiE 'error|failed|disabled for this session' '$LOG'"
+# status lines report counts such as "0 failed": only a non-zero count is a failure
+check "no overlay error logged" "! grep -iE 'error|failed|disabled for this session' '$LOG' | grep -qvE '(^|[^0-9])0 failed'"
 check "crash flag cleared" "[ ! -e '$LE/turbo_output/turbo_gui_start.flag' ]"
 H=$(foreign "$OUT/hidden.png"); S=$(foreign "$OUT/shown.png"); Z=$(foreign "$OUT/resized.png")
 echo "   pixels not drawn by the game: hidden=$H shown=$S after-resize=$Z"

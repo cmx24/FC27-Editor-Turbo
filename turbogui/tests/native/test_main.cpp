@@ -2761,7 +2761,7 @@ struct SvmWorld {
     uint64_t tree_next = kTree;      // bump allocator for set_tree
     uint64_t last_root = 0, last_stage = 0, last_list = 0, last_rows = 0;  // the nodes of the last set_tree (tests corrupt them)
     explicit SvmWorld(std::vector<int32_t> ks = {1200, 1300, 1400}) {
-        for (uint64_t a : {kComm, kX, kTypes, kHolders, kSvm, kIfce, kOther, kLive, kStaff, kAlloc, kSdm, kVtable & ~0xFFFULL,
+        for (uint64_t a : std::initializer_list<uint64_t>{kComm, kX, kTypes, kHolders, kSvm, kIfce, kOther, kLive, kStaff, kAlloc, kSdm, kVtable & ~0xFFFULL,
                            kLiveVtable & ~0xFFFULL, kIfceVtable & ~0xFFFULL, kAllocGlobal & ~0xFFFULL, kCompObjVtable & ~0xFFFULL})
             mem.map(a, 0x1000);
         mem.map(kTree, 0x8000);

@@ -727,7 +727,8 @@ static void test_edit_unlock() {
         for (const char* screen : {"managercareer_edit_retiredreal", "managercareer_create_real"}) {
             eu::RecipeResult rr = eu::build(eu::avatar_path(screen), originals(), eu::Options());
             CHECK(rr.ok, rr.error);
-            const ojson* fn = rr.ok ? at(ojson::parse(rr.text), "INFO/ABOUT_ME/FIRST_NAME") : nullptr;
+            const ojson doc = rr.ok ? ojson::parse(rr.text) : ojson();
+            const ojson* fn = rr.ok ? at(doc, "INFO/ABOUT_ME/FIRST_NAME") : nullptr;
             CHECK(rr.ok && rr.text.find("maxLength") == std::string::npos && (!fn || !fn->contains("minLength")),
                   std::string("no name lengths: ") + screen);
         }
