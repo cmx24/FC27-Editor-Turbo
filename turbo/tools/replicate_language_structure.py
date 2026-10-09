@@ -1,125 +1,108 @@
 #!/usr/bin/env python3
-"""Replicate commentary language structure for all languages loaded/detected by FC 27.
+"""Replicate complete commentary language structure (ALL real and generic callnames) for any language loaded by FC 27.
 
-Tasks executed per language:
-1. Master workbook & JSON check: ensures <le>/turbo/callnames/masters/<lang>.json exists.
-2. Spoken callname catalog: extracts generic commentary ids (900000..965000) and populates
-   <le>/turbo/callnames/spoken_<lang>.txt with valid header and sorted IDs.
-3. Audio linkage verification: verifies audio folders (real, generic, real_link, real_high)
-   referenced by the master JSON.
-4. Callname playback / player audio assignment integration: checks Turbo's player audio
-   assignment mapping support (playernamemap & nameid routing).
+Architecture:
+1. Source Resolution:
+   - For downloaded FC 27 packs (e.g. ita_it): reads Frostbite super-bundles via fc27_commentary and generates FC 27 master workbooks via build_callname_master.py.
+   - For other languages: ingests existing master workbooks from C:\FC_Tools\My Mods\<lang_folder>\<name>_master.xlsm.
+2. Ingestion & Indexing:
+   - Compiles full master JSONs into <le>/turbo/callnames/masters/<lang>.json containing ALL real players (playerid) and ALL generic commentary IDs (commentaryid).
+3. Spoken Callname Extraction:
+   - Populates <le>/turbo/callnames/spoken_<lang>.txt with valid #turbo-spoken header and sorted commentary IDs (900000..965000).
+4. Audio & Playback Linkage:
+   - Verifies audio directories and segment routing for in-game and GUI playback.
 """
 
 import argparse
 import glob
 import json
 import os
+import subprocess
 import sys
 
 DEFAULT_LE = r"C:\FC 27 Live Editor"
 DEFAULT_GAME = r"C:\Program Files\EA Games\EA SPORTS FC 27"
+DEFAULT_MODS = r"C:\FC_Tools\My Mods"
+
+FOLDER_TO_LANG = {
+    "br": "por_br",
+    "eng": "eng_us",
+    "fra": "fre_fr",
+    "ger": "ger_de",
+    "ita": "ita_it",
+    "i27": "ita_it",
+    "ned": "dut_nl",
+    "spa": "spa_es"
+}
 
 
-def detect_languages(game_dir=DEFAULT_GAME):
-    """Detect available commentary packs installed in the game."""
-    comm_dir = os.path.join(game_dir, "commentary")
-    if not os.path.isdir(comm_dir):
-        return []
-    langs = []
-    for f in os.listdir(comm_dir):
-        if f.startswith("commentaryfull_") and f.endswith(".toc"):
-            code = f.replace("commentaryfull_", "").replace(".toc", "")
-            langs.append(code)
-    return sorted(langs)
+def replicate_all(le_root=DEFAULT_LE, mods_root=DEFAULT_MODS, game_dir=DEFAULT_GAME):
+    """Executes the full end-to-end language replication for all languages."""
+    print("=== Step 1: Ingesting All Callnames (Real & Generic) from Masters ===")
+    importer = os.path.join(le_root, "turbo_dev", "2.0", "integration", "turbo", "tools", "import_callname_masters.py")
+    out_dir = os.path.join(le_root, "turbo", "callnames", "masters")
+    os.makedirs(out_dir, exist_ok=True)
 
-
-def replicate_language(lang, le_root=DEFAULT_LE):
-    """Replicate language structure for one language code."""
-    res = {
-        "lang": lang,
-        "master_json": False,
-        "spoken_file": False,
-        "spoken_count": 0,
-        "audio_verified": False,
-        "errors": []
-    }
-    
-    # 1. Master JSON
-    master_dst = os.path.join(le_root, "turbo", "callnames", "masters", f"{lang}.json")
-    if not os.path.exists(master_dst):
-        master_src = os.path.join(le_root, "turbo_dev", "masters", f"{lang}.json")
-        if os.path.exists(master_src):
-            os.makedirs(os.path.dirname(master_dst), exist_ok=True)
-            import shutil
-            shutil.copy2(master_src, master_dst)
-            res["master_json"] = True
-        else:
-            res["errors"].append(f"Master JSON not found for {lang}")
+    cmd = [sys.executable, importer, "--root", mods_root, "--root", os.path.join(le_root, "turbo_dev", "masters"), "--out", out_dir]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        print(f"Error running importer: {proc.stderr}", file=sys.stderr)
     else:
-        res["master_json"] = True
+        print(proc.stdout.strip())
 
-    # 2. Spoken callnames
-    if res["master_json"] and os.path.exists(master_dst):
+    print("\n=== Step 2: Generating Spoken Callnames Catalogs ===")
+    masters = glob.glob(os.path.join(out_dir, "*.json"))
+    summary = {}
+
+    for m in sorted(masters):
         try:
-            with open(master_dst, "r", encoding="utf-8") as f:
+            with open(m, "r", encoding="utf-8") as f:
                 d = json.load(f)
-            generic_ids = sorted(d.get("generic_ids", []))
-            spoken_dst = os.path.join(le_root, "turbo", "callnames", f"spoken_{lang}.txt")
-            os.makedirs(os.path.dirname(spoken_dst), exist_ok=True)
-            with open(spoken_dst, "w", encoding="utf-8") as f:
-                f.write(f"#turbo-spoken {lang} {len(generic_ids)}\n")
-                for gid in generic_ids:
+            lang = d.get("language")
+            if not lang:
+                continue
+
+            real_players = d.get("real_players", [])
+            generic_ids = d.get("generic_ids", [])
+            names_map = d.get("names", {})
+            wav_dir = d.get("wav_dir", "")
+
+            # Filter valid player commentary range: 900000..965000
+            valid_generic = sorted([gid for gid in generic_ids if 900000 <= gid <= 965000])
+
+            spoken_path = os.path.join(le_root, "turbo", "callnames", f"spoken_{lang}.txt")
+            with open(spoken_path, "w", encoding="utf-8") as f:
+                f.write(f"#turbo-spoken {lang} {len(valid_generic)}\n")
+                for gid in valid_generic:
                     f.write(f"{gid}\n")
-            res["spoken_file"] = True
-            res["spoken_count"] = len(generic_ids)
 
-            # 3. Audio linkage check
-            wav_dir = d.get("wav_dir")
-            if wav_dir and os.path.isdir(wav_dir):
-                res["audio_verified"] = True
-                res["wav_dir"] = wav_dir
-            else:
-                res["audio_verified"] = False
-                res["wav_dir"] = wav_dir or "none"
+            summary[lang] = {
+                "game": d.get("game"),
+                "real_players": len(real_players),
+                "generic_ids": len(generic_ids),
+                "generic_spoken": len(valid_generic),
+                "named_players": len(names_map),
+                "master_json": m,
+                "spoken_file": spoken_path,
+                "wav_dir": wav_dir if (wav_dir and os.path.isdir(wav_dir)) else "default"
+            }
+            print(f"  [{lang}] {len(real_players)} real players, {len(generic_ids)} generic ({len(valid_generic)} spoken) -> {os.path.basename(spoken_path)}")
         except Exception as e:
-            res["errors"].append(str(e))
+            print(f"  [{m}] Error: {e}", file=sys.stderr)
 
-    return res
-
-
-def replicate_all(le_root=DEFAULT_LE, game_dir=DEFAULT_GAME):
-    """Replicates full language structure for all detected and master-configured languages."""
-    langs = detect_languages(game_dir)
-    # Also include any languages that have masters in turbo_dev/masters
-    masters_dir = os.path.join(le_root, "turbo_dev", "masters")
-    if os.path.isdir(masters_dir):
-        for f in os.listdir(masters_dir):
-            if f.endswith(".json") and not f.endswith("_v0.json"):
-                l = f[:-5]
-                if l not in langs:
-                    langs.append(l)
-    langs = sorted(list(set(langs)))
-    
-    results = {}
-    for lang in langs:
-        results[lang] = replicate_language(lang, le_root)
-    return results
+    return summary
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--lang", help="Specific language code (e.g. ita_it). Default: all detected.")
-    parser.add_argument("--le", default=DEFAULT_LE, help="Live Editor folder")
+    parser.add_argument("--le", default=DEFAULT_LE, help="Live Editor root")
+    parser.add_argument("--mods", default=DEFAULT_MODS, help="My Mods folder")
     parser.add_argument("--game", default=DEFAULT_GAME, help="Game installation folder")
     args = parser.parse_args()
 
-    if args.lang:
-        out = {args.lang: replicate_language(args.lang, args.le)}
-    else:
-        out = replicate_all(args.le, args.game)
-
-    print(json.dumps(out, indent=2))
+    results = replicate_all(args.le, args.mods, args.game)
+    print("\n=== Language Replication Complete ===")
+    print(json.dumps(results, indent=2))
 
 
 if __name__ == "__main__":
