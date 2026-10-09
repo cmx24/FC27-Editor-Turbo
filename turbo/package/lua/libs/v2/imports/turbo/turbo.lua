@@ -229,6 +229,7 @@ function M.boot(opts)
         end
     end
 
+
     -- Live Editor's career-event handler is only registered when something needs it
     if next(TURBO_STATE.listeners) ~= nil or next(TURBO_STATE.taps or {}) ~= nil then
         local ok, err = events.ensure_registered()

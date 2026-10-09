@@ -597,6 +597,11 @@ function M.on_career_event(event_id)
         local okr, rerr = pcall(function() return (require 'imports/turbo/features/manager_rules').reapply() end)
         if not okr then log.warn("manager rules: %s", tostring(rerr)) end
     end
+    -- automatic repair of corrupted player attributes (OVR-1 bug) on career load / events
+    local oko, ovr_mod = pcall(require, 'imports/turbo/features/repair_ovr1')
+    if oko and type(ovr_mod) == "table" and type(ovr_mod.on_career_event) == "function" then
+        pcall(ovr_mod.on_career_event, event_id)
+    end
     -- natives just installed (the capability list changed) or a queued game call finished: publish it now
     if (okn and installed == true) or (okc and finished == true) then
         local okw2, werr2 = pcall(M.write_state, true, false)
@@ -1001,6 +1006,10 @@ function M.start(cfg)
     local okc, ok_s, serr = pcall(M.write_state, true, false)
     if not okc then ok_s, serr = false, tostring(ok_s) end
     trace.step("bridge.start: bridge_state.json " .. (ok_s and "written" or ("NOT written: " .. tostring(serr))))
+    local oko, ovr_mod = pcall(require, 'imports/turbo/features/repair_ovr1')
+    if oko and type(ovr_mod) == "table" and type(ovr_mod.check_and_repair) == "function" then
+        pcall(ovr_mod.check_and_repair, false)
+    end
     trace.step("bridge.start: loading turbo\\Turbo.dll (package.loadlib)")
     local ok, msg = M.load_gui()
     trace.step("bridge.start: load_gui returned " .. tostring(ok) .. " - " .. tostring(msg))

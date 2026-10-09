@@ -90,6 +90,15 @@ def replicate_all(le_root=DEFAULT_LE, mods_root=DEFAULT_MODS, game_dir=DEFAULT_G
         except Exception as e:
             print(f"  [{m}] Error: {e}", file=sys.stderr)
 
+    # Sync to git repo worktree package callnames folder so changes are tracked and deployed
+    pkg_callnames = os.path.join(le_root, "turbo_dev", "2.0", "integration", "turbo", "package", "turbo", "callnames")
+    os.makedirs(os.path.join(pkg_callnames, "masters"), exist_ok=True)
+    import shutil
+    for f in glob.glob(os.path.join(out_dir, "*.json")):
+        shutil.copy2(f, os.path.join(pkg_callnames, "masters", os.path.basename(f)))
+    for f in glob.glob(os.path.join(le_root, "turbo", "callnames", "spoken_*.txt")):
+        shutil.copy2(f, os.path.join(pkg_callnames, os.path.basename(f)))
+
     return summary
 
 

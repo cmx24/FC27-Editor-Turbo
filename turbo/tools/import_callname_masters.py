@@ -128,10 +128,14 @@ def read_workbook(path):
         missing = [c for c in ("playerid", "name", "type") if c not in cols]
         if missing:
             raise ValueError(f"sheet '{sheet}' has no column {', '.join(missing)} in its header row")
+        cs = cols.get("segmentid")
         ci, cn, ct = cols["playerid"], cols["name"], cols["type"]
         real = collections.defaultdict(collections.Counter)
         first_seen = {}
         generic = set()
+        generic_names = {}
+        generic_segments = collections.defaultdict(list)
+        real_segments = collections.defaultdict(list)
         c = collections.Counter()
         for row in rows:
             if row is None or all(v is None for v in row):
@@ -147,29 +151,36 @@ def read_workbook(path):
             if pid is None:
                 c["non_numeric_id_rows"] += 1
                 continue
+            seg = as_id(get(cs)) if cs is not None else None
+            name = str(get(cn) or "").strip()
             if kind == "real":
                 c["real_rows"] += 1
-                name = str(get(cn) or "").strip()
                 if name:
                     real[pid][name] += 1
                     first_seen.setdefault((pid, name), c["rows"])
                 else:
                     real[pid]  # noqa: B018 - the id counts even without a name
+                if seg is not None:
+                    real_segments[pid].append(seg)
             else:
                 c["generic_rows"] += 1
                 generic.add(pid)
+                if name and pid not in generic_names:
+                    generic_names[pid] = name
+                if seg is not None:
+                    generic_segments[pid].append(seg)
         names = {}
         for pid, counter in real.items():
             if counter:
                 # the most frequent spelling; ties go to the first one in the sheet
                 names[pid] = min(counter.items(), key=lambda kv: (-kv[1], first_seen[(pid, kv[0])]))[0]
-        return real, names, generic, c
+        return real, names, generic, c, generic_names, generic_segments, real_segments
     finally:
         wb.close()
 
 
 def build_list(lang, path, game="fc26", built=None):
-    real, names, generic, c = read_workbook(path)
+    real, names, generic, c, generic_names, generic_segments, real_segments = read_workbook(path)
     real_ids = sorted(real)
     generic_ids = sorted(generic)
     counts = {
@@ -181,7 +192,27 @@ def build_list(lang, path, game="fc26", built=None):
     }
     kinds = ("'real' = the player's own recording (bound to his player id); 'generic' = a generic surname recording "
              "(commentary id).")
-    return {
+
+    # Resolve wav_dir: look in workbook folder or common mod roots
+    wb_dir = os.path.dirname(os.path.abspath(path))
+    wav_dir = None
+    if lang == "ita_it" and os.path.isdir(r"C:\FC_Tools\My Mods\i27"):
+        wav_dir = r"C:\FC_Tools\My Mods\i27"
+    elif os.path.isdir(os.path.join(wb_dir, "generic")) or os.path.isdir(os.path.join(wb_dir, "real")):
+        wav_dir = wb_dir
+    else:
+        # Check standard short code folders under C:\FC_Tools\My Mods
+        lang_stem = lang[:3]
+        cand = os.path.join(r"C:\FC_Tools\My Mods", lang_stem)
+        if os.path.isdir(os.path.join(cand, "generic")) or os.path.isdir(os.path.join(cand, "real")):
+            wav_dir = cand
+
+    segments = {
+        "generic": {str(g): sorted(list(dict.fromkeys(generic_segments[g]))) for g in generic_ids if g in generic_segments},
+        "real": {str(p): sorted(list(dict.fromkeys(real_segments[p]))) for p in real_ids if p in real_segments},
+    }
+
+    res = {
         "turbo_masters": 1,
         "language": lang,
         "game": game,
@@ -193,7 +224,13 @@ def build_list(lang, path, game="fc26", built=None):
         "real_players": real_ids,
         "generic_ids": generic_ids,
         "names": {str(p): names[p] for p in real_ids if p in names},
+        "generic_names": {str(g): generic_names[g] for g in generic_ids if g in generic_names},
     }
+    if wav_dir:
+        res["wav_dir"] = wav_dir
+    if segments["generic"] or segments["real"]:
+        res["segments"] = segments
+    return res
 
 
 def write_json(path, data):
