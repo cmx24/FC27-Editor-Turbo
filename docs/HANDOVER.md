@@ -43,20 +43,26 @@ Turbo is a Lua + native overlay (Turbo.dll) that supplies FC 26 Live Editor feat
 - Backups: `C:\FC 27 Live Editor\turbo_dev\backups\`.
 - Saves: `%LOCALAPPDATA%\EA SPORTS FC 27\settings\`.
 - Memory notes: `C:\Users\cmode\.claude\projects\C--FC-27-Live-Editor\memory\`.
-- Reports: `C:\FC 27 Live Editor\turbo_output\STEP2_REPORT.txt`.
+- Reports: `C:\FC 27 Live Editor\turbo_output\STEP2_REPORT.txt`, `C:\FC 27 Live Editor\turbo_output\INPUT_FIX_REPORT.txt`.
 
-## 7. Open items, in order
+## 7. Input Shield & GUI Mouse Click Fix (Verified & Deployed)
+- Background Input Leak: `g_want_mouse` changed to `g_app->visible` unconditionally. The game background never receives mouse moves, clicks, DirectInput or RawInput while Turbo is shown.
+- GUI Click/Select Fix: Removed `g_legacy_mouse_seen` early exit in `queue_raw_mouse()`, added process ID matching for foreground focus check, and moved `AddMousePosEvent` out of the conditional block to continuously feed client cursor coordinates to ImGui.
+- Automated tests: 23,060 native unit tests passed (0 failed), 322 Lua tests passed (0 failed).
+- Deployed to `C:\FC 27 Live Editor\turbo\Turbo.dll` (SHA256: `03531ae48e80243de827662abd992bed37d1aabd77945d658b2387f9699b1992`). Full report in `turbo_output\INPUT_FIX_REPORT.txt`.
+
+## 8. Open items, in order
 1. Confirm with Cassio before running the attribute and development plan repair on the real TB career.
 2. Once approved, restore Barreca first, then the remaining 5 players, and verify with `turbo_diag_ovr1.lua`.
 
-## 8. Release routine
+## 9. Release routine
 1. Update this file.
 2. Tag, push branch and tags (user runs push), publish GitHub release, upload zips as in memory `turbo-2-0-state`.
 3. Test in a played match before calling a build released.
 
-## 9. Prompt for the next LLM (copy this as the first message)
+## 10. Prompt for the next LLM (copy this as the first message)
 ```
 You are continuing the FC 27 Turbo project for the user Cassio. Read docs/HANDOVER.md in the repo first (branch turbo-2.0, worktree C:\FC 27 Live Editor\turbo_dev\2.0\integration), then the memory notes in C:\Users\cmode\.claude\projects\C--FC-27-Live-Editor\memory\ (MEMORY.md index).
 Rules: never send Escape to the game; back up every save before any game write; write to the real Torino/TB career only after the user confirms in chat; Live Editor's DLL and launcher are off limits; the user runs git push and approves releases.
-Current task: The root cause of the OVR-1 bug is resolved (documented in STEP2_REPORT.txt) and the language replication system is implemented. Awaiting user confirmation to execute the repair of Barreca and the other 5 players on the real TB career.
+Current task: Input shield and GUI click fix compiled, tested (23060 native / 322 Lua tests passed), and deployed to C:\FC 27 Live Editor\turbo. OVR-1 root cause resolved and repair script staged. Awaiting user confirmation to execute the repair of Barreca and the other 5 players on the real TB career.
 ```

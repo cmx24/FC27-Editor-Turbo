@@ -243,7 +243,6 @@ constexpr UINT kLlReinstallMsg = WM_APP + 1;
 static bool ll_wheel_alive() { return turbo::wheel_hook_alive(g_ll_wheel.load(), now_seconds(), g_ll_last_call.load()); }
 
 static void queue_raw_mouse(HWND hwnd, LPARAM lp, std::vector<WinMsg>& out) {
-    if (g_legacy_mouse_seen.load()) return;
     host::TurboInputScope scope;  // Turbo's own read: the input shield passes the real data through
     RAWINPUT ri{};
     UINT size = sizeof(ri);
@@ -382,7 +381,10 @@ static void poll_input() {
     // a key that types text goes to a Turbo text field that has the keyboard (previous frame's state)
     g_toggle_typing = g_app->visible && io.WantTextInput && turbo::hotkey_types_text(g_app->toggle_vk, g_app->toggle_mods);
     HWND root = GetAncestor(g_hwnd, GA_ROOT);
-    const bool fg = GetForegroundWindow() == (root ? root : g_hwnd);
+    HWND fg_hwnd = GetForegroundWindow();
+    DWORD fg_pid = 0;
+    if (fg_hwnd) GetWindowThreadProcessId(fg_hwnd, &fg_pid);
+    const bool fg = (fg_hwnd == nullptr) || (fg_pid == GetCurrentProcessId()) || (fg_hwnd == g_hwnd) || (root && fg_hwnd == root);
     // Two sources for the show/hide key: the window message (catches even a very short tap) and polling (games that
     // only read raw input send no key message). One press seen by both counts once.
     static bool was_down = false;
@@ -437,8 +439,9 @@ static void poll_input() {
                                     ((g_app->toggle_vk == '0' || g_app->toggle_vk == VK_NUMPAD0) && (g_app->toggle_mods & turbo::kHotkeyCtrl));
         if (zero && !zero_was && !zero_is_hotkey) g_app->zoom.reset = true;
         zero_was = zero;
+        POINT p;
+        if (GetCursorPos(&p) && ScreenToClient(g_hwnd, &p)) io.AddMousePosEvent(static_cast<float>(p.x), static_cast<float>(p.y));
         if (fg) {
-            POINT p;
             // the wheel hook's watchdog (core/wheel.h): a cursor move calls the hook; a hook that stays quiet is gone
             static POINT last_screen{LONG_MIN, LONG_MIN};
             static double moved_at = -1.0, retry_at = -1.0;
@@ -451,7 +454,6 @@ static void poll_input() {
                 retry_at = now;
                 PostThreadMessageW(g_ll_thread.load(), kLlReinstallMsg, 0, 0);
             }
-            if (GetCursorPos(&p) && ScreenToClient(g_hwnd, &p)) io.AddMousePosEvent(static_cast<float>(p.x), static_cast<float>(p.y));
             const bool swapped = GetSystemMetrics(SM_SWAPBUTTON) != 0;
             // with the side buttons (ImGui 3 / 4): the show/hide key capture can pick them (ui/hotkey_setting.h)
             const int vks[5] = {swapped ? VK_RBUTTON : VK_LBUTTON, swapped ? VK_LBUTTON : VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2};
@@ -622,7 +624,7 @@ static void render_frame_impl(IDXGISwapChain3* sc) {
         ImGui::GetIO().MouseDrawCursor = g_app->visible;
         g_app->draw();
         ImGui::Render();
-        g_want_mouse = g_app->visible && ImGui::GetIO().WantCaptureMouse;
+        g_want_mouse = g_app->visible;
         // a Turbo box opened by a double-click asks for the keyboard before Dear ImGui marks it active: until then its keys
         // would still go to the game (the cell box never saw a digit, and Enter pressed the game's selected button)
         g_want_keyboard = g_app->visible && (ImGui::GetIO().WantCaptureKeyboard || turbo::live_standings_wants_keyboard());

@@ -134,6 +134,12 @@ end
 local ok, msg = pcall(main)
 if ok then
     log.info("%s", tostring(msg))
+    if type(MessageBox) == "function" then
+        pcall(MessageBox, "Turbo OVR1 Diag", tostring(msg):gsub("%%", "%%%%"))
+    end
 else
     log.warn("diag_ovr1 failed: %s", tostring(msg))
+    if type(MessageBox) == "function" then
+        pcall(MessageBox, "Turbo OVR1 Diag Error", tostring(msg):gsub("%%", "%%%%"))
+    end
 end

@@ -122,6 +122,12 @@ _G["repair_ovr1"] = main
 local ok, res = pcall(main, nil, false)
 if not ok then
     log.warn("repair_ovr1 script run error: %s", tostring(res))
+    if type(MessageBox) == "function" then
+        pcall(MessageBox, "Turbo OVR1 Repair Error", tostring(res):gsub("%%", "%%%%"))
+    end
 else
     log.info("%s", tostring(res))
+    if type(MessageBox) == "function" then
+        pcall(MessageBox, "Turbo OVR1 Repair", tostring(res):gsub("%%", "%%%%"))
+    end
 end
