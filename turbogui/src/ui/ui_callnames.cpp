@@ -595,7 +595,7 @@ static void by_name_picker(App& app, const Table& t, const PlayerRow& p) {
                         style.WindowPadding.y;
     ImGui::BeginChild("##cnames", ImVec2(0, list_height(below)), ImGuiChildFlags_Borders);
     int shown = 0, total = 0;
-    if (ImGui::BeginTable("##cntable", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+    if (ImGui::BeginTable("##cntable", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("Name ID", ImGuiTableColumnFlags_WidthFixed, S(70.0f));
         ImGui::TableSetupColumn("Name");
         ImGui::TableSetupColumn("Commentary ID", ImGuiTableColumnFlags_WidthFixed, S(110.0f));
@@ -868,7 +868,7 @@ static void voice_swaps_tab(App& app, const Table& t) {
     voice::Entry toggled;
     bool toggle = false;
     ImGui::BeginChild("##vslist", ImVec2(0, list_height(ImGui::GetStyle().WindowPadding.y)), ImGuiChildFlags_Borders);
-    if (ImGui::BeginTable("##vstable", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+    if (ImGui::BeginTable("##vstable", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("Player");
         ImGui::TableSetupColumn("Called");
         ImGui::TableSetupColumn("Other lines", ImGuiTableColumnFlags_WidthFixed, S(130.0f));
@@ -952,7 +952,7 @@ static void all_callnames_picker(App& app, const Table& t, const PlayerRow& p) {
     ImGui::BeginChild("##cnall", ImVec2(0, list_height(below)), ImGuiChildFlags_Borders);
     int shown = 0, total = 0;
     const AllCallnameRow* sel = nullptr;
-    if (ImGui::BeginTable("##cnalltable", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+    if (ImGui::BeginTable("##cnalltable", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, S(80.0f));
         ImGui::TableSetupColumn("Callname");
         ImGui::TableSetupColumn("Used by", ImGuiTableColumnFlags_WidthFixed, S(200.0f));
@@ -1053,7 +1053,7 @@ static void by_player_picker(App& app, const PlayerRow& p) {
                         ImGui::GetStyle().WindowPadding.y;
     ImGui::BeginChild("##cplayers", ImVec2(0, list_height(below)), ImGuiChildFlags_Borders);
     int shown = 0, total = 0;
-    if (ImGui::BeginTable("##cptable", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+    if (ImGui::BeginTable("##cptable", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("Player ID", ImGuiTableColumnFlags_WidthFixed, S(80.0f));
         ImGui::TableSetupColumn("Player");
         ImGui::TableSetupColumn("Club");

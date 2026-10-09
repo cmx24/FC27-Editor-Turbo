@@ -602,7 +602,7 @@ void draw_live_standings(App& app) {
 
     st.cell.drawn = false;
     const ImGuiTableFlags tf = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_BordersOuter |
-                               ImGuiTableFlags_Sortable;
+                               ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_Sortable;
     if (ImGui::BeginTable(st.home_away ? "##live_ha" : "##live", 2 + ncells, tf, ImVec2(0, table_h))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Pos", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_DefaultSort, S(34.0f), ImGuiID(kColPos));
@@ -750,7 +750,7 @@ void draw_live_standings(App& app) {
         played.push_back(&f);
     }
     std::sort(played.begin(), played.end(), [](const fce::Fixture* a, const fce::Fixture* b) { return a->date > b->date; });
-    ImGui::BeginChild("##lsfix", ImVec2(0, S(160.0f)), ImGuiChildFlags_Borders);
+    ImGui::BeginChild("##lsfix", ImVec2(0, S(160.0f)), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
     for (const fce::Fixture* f : played) {
         const fce::StandingRow* h = size_t(f->home_sid) < st.rows.size() ? &st.rows[size_t(f->home_sid)] : nullptr;
         const fce::StandingRow* a = size_t(f->away_sid) < st.rows.size() ? &st.rows[size_t(f->away_sid)] : nullptr;

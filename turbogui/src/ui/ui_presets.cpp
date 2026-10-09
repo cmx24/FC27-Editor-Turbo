@@ -132,7 +132,7 @@ void club_picker(App& app, int& teamid, char* search, size_t search_size) {
     ImGui::InputTextWithHint("##clubsearch", "search a club", search, static_cast<int>(search_size));
     std::string q = lower(search);
     if (!q.empty()) {
-        ImGui::BeginChild("##clublist", ImVec2(S(320.0f), S(110.0f)), ImGuiChildFlags_Borders);
+        ImGui::BeginChild("##clublist", ImVec2(S(320.0f), S(110.0f)), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX | ImGuiChildFlags_ResizeY);
         int shown = 0;
         for (const auto& tr : app.model.teams()) {
             if (lower(tr.name).find(q) == std::string::npos) continue;

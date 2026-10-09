@@ -654,7 +654,7 @@ static int64_t crest_gallery(App& app, CrestEditor& ed, int64_t exclude) {
     }
     ImGui::TextDisabled("%zu clubs (pictures load from the game as they come into view)", rows.size());
     const float cell = S(80.0f);
-    ImGui::BeginChild("##crestgrid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.5f), ImGuiChildFlags_Borders);
+    ImGui::BeginChild("##crestgrid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.5f), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
     int cols = std::max(1, int((ImGui::GetContentRegionAvail().x + ImGui::GetStyle().ItemSpacing.x) / (cell + ImGui::GetStyle().ItemSpacing.x)));
     int nrows = int((rows.size() + size_t(cols) - 1) / size_t(cols));
     const float line = ImGui::GetTextLineHeight();
@@ -823,7 +823,7 @@ void crest_editor(App& app, int64_t teamid) {
     if (ImGui::TreeNodeEx("The game's crest files for this club", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::TextDisabled("%d can be written, %d loading, %d the game does not have. Each custom file keeps the original's size, pixel format and mipmaps.",
                             ed.plan.writable, ed.plan.waiting, ed.plan.missing);
-        if (ImGui::BeginTable("##crestfiles", 3, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg)) {
+        if (ImGui::BeginTable("##crestfiles", 3, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg)) {
             for (const auto& it : ed.plan.items) {
                 if (it.game == LegacyImages::State::Missing) continue;
                 ImGui::TableNextRow();
@@ -861,7 +861,7 @@ void crest_editor(App& app, int64_t teamid) {
             ImGui::SameLine();
             ImGui::TextDisabled("Turbo crests folder:");
             std::vector<fs::path> files = picture_files(folder);
-            ImGui::BeginChild("##crestfiles2", ImVec2(0, S(120.0f)), ImGuiChildFlags_Borders);
+            ImGui::BeginChild("##crestfiles2", ImVec2(0, S(120.0f)), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
             if (files.empty()) ImGui::TextDisabled("(empty)");
             for (const auto& f : files)
                 if (ImGui::Selectable(f.filename().string().c_str())) crest_source_file(ed, f, f.filename().string());

@@ -370,7 +370,7 @@ static int64_t player_chooser(App& app, char* search, size_t search_size, const 
     ImGui::InputTextWithHint(id, "name or ID", search, search_size);
     std::string q = lower(search);
     bool numeric = !q.empty() && std::all_of(q.begin(), q.end(), ::isdigit);
-    ImGui::BeginChild("##chooser", ImVec2(S(420.0f), S(220.0f)), ImGuiChildFlags_Borders);
+    ImGui::BeginChild("##chooser", ImVec2(S(420.0f), S(220.0f)), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX | ImGuiChildFlags_ResizeY);
     int shown = 0;
     for (const auto& p : app.model.players()) {
         if (q.empty()) break;
@@ -548,7 +548,7 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
             ImGui::SameLine();
             ImGui::TextDisabled("Turbo minifaces folder:");
             std::vector<fs::path> files = picture_files(folder);
-            ImGui::BeginChild("##mffiles", ImVec2(0, S(140.0f)), ImGuiChildFlags_Borders);
+            ImGui::BeginChild("##mffiles", ImVec2(0, S(140.0f)), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
             if (files.empty()) ImGui::TextDisabled("(empty)");
             for (const auto& f : files) {
                 if (ImGui::Selectable(f.filename().string().c_str())) load_source_file(ed, f, f.filename().string());
@@ -668,7 +668,7 @@ void tattoo_editor(App& app, const Table& t, uint64_t rec) {
     build_tattoos(app);
     if (!app.db.table("tattoo")) ImGui::TextDisabled("The tattoo table is empty or missing.");
     const float thumb = S(56.0f);
-    if (ImGui::BeginTable("##tattoos", 4, ImGuiTableFlags_SizingFixedFit)) {
+    if (ImGui::BeginTable("##tattoos", 4, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit)) {
         for (size_t a = 0; a < sizeof(kTattooAreas) / sizeof(kTattooAreas[0]); ++a) {
             const Field* f = t.field(kTattooAreas[a][0]);
             if (!f) continue;
@@ -700,7 +700,7 @@ void tattoo_editor(App& app, const Table& t, uint64_t rec) {
                         if (all_areas || (tr.areas & (1u << a))) ids.push_back(tr.id);
                     if (g_tattoos.empty()) ImGui::TextDisabled("The tattoo table is empty or missing.");
                     const float cell = S(100.0f);
-                    ImGui::BeginChild("##tgrid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.5f), ImGuiChildFlags_Borders);
+                    ImGui::BeginChild("##tgrid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.5f), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
                     int cols = std::max(1, int((ImGui::GetContentRegionAvail().x + ImGui::GetStyle().ItemSpacing.x) /
                                                (cell + ImGui::GetStyle().ItemSpacing.x)));
                     size_t total = ids.size() + 1;  // first cell: none
@@ -981,7 +981,7 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
     bool any = false;
     const GalleryDef* defs = manager ? kManagerGalleries : kGalleries;
     const size_t ndefs = manager ? std::size(kManagerGalleries) : std::size(kGalleries);
-    if (ImGui::BeginTable("##galleries", 4, ImGuiTableFlags_SizingFixedFit)) {
+    if (ImGui::BeginTable("##galleries", 4, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit)) {
         for (size_t gi = 0; gi < ndefs; ++gi) {
             const GalleryDef& g = defs[gi];
             const Field* f = t.field(g.field);
@@ -1047,7 +1047,7 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
                         if (id != 0 && (!fav_only || is_favourite(app, g.field, id)) && (!is_hair || hair_matches(hf, id))) shown.push_back(id);
                     if (is_hair) ImGui::TextDisabled("%zu of %zu styles match", shown.size(), ids.size());
                     const float cell = S(100.0f);
-                    ImGui::BeginChild("##ggrid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.5f), ImGuiChildFlags_Borders);
+                    ImGui::BeginChild("##ggrid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.5f), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
                     int cols = std::max(1, int((ImGui::GetContentRegionAvail().x + ImGui::GetStyle().ItemSpacing.x) /
                                                (cell + ImGui::GetStyle().ItemSpacing.x)));
                     size_t total = shown.size() + 1;

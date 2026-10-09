@@ -301,8 +301,8 @@ static void name_id_search(App& app, const Table& t, const PlayerRow& p) {
     ImGui::SameLine();
     ImGui::TextDisabled("%zu found", total);
     if (hits.empty()) return;
-    ImGui::BeginChild("##nmids", ImVec2(0, S(150.0f)), ImGuiChildFlags_Borders);
-    if (ImGui::BeginTable("##nmidtable", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+    ImGui::BeginChild("##nmids", ImVec2(0, S(150.0f)), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
+    if (ImGui::BeginTable("##nmidtable", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("Name ID", ImGuiTableColumnFlags_WidthFixed, S(70.0f));
         ImGui::TableSetupColumn("Name");
         ImGui::TableSetupColumn("Use as", ImGuiTableColumnFlags_WidthFixed, S(230.0f));

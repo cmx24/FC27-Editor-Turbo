@@ -232,7 +232,8 @@ static void player_list(App& app) {
     ImGui::TextDisabled("%zu players", rows.size());
 
     ImGuiTableFlags fl = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable |
-                         ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable;
+                         ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
+                         ImGuiTableFlags_Hideable;
     if (ImGui::BeginTable("##players", 8, fl, ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, S(62.0f));
@@ -346,7 +347,7 @@ static void playstyle_bits(App& app, const Table& t, uint64_t rec, const char* f
     if (!app.db.get(t, rec, *f, v)) return;
     ImGui::PushID(field);
     int bits = std::min(f->depth, 62);
-    if (ImGui::BeginTable("##bits", 3, ImGuiTableFlags_SizingStretchSame)) {
+    if (ImGui::BeginTable("##bits", 3, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchSame)) {
         for (int b = 0; b < bits; ++b) {
             ImGui::TableNextColumn();
             bool on = (static_cast<uint64_t>(v.i - f->min) >> b) & 1;
@@ -709,7 +710,7 @@ static const char* attr_label(int i) {
 
 // Table of the attributes that differ between two sets (tooltips and the archetype preview)
 static void changes_table(const overall::Attrs& before, const overall::Attrs& after) {
-    if (ImGui::BeginTable("##chg", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV)) {
+    if (ImGui::BeginTable("##chg", 4, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV)) {
         ImGui::TableSetupColumn("Attribute", ImGuiTableColumnFlags_WidthFixed, S(150.0f));
         ImGui::TableSetupColumn("Now", ImGuiTableColumnFlags_WidthFixed, S(50.0f));
         ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, S(24.0f));
@@ -841,7 +842,7 @@ static void archetype_bar(App& app, const Table& t, const PlayerRow& p) {
             ImGui::Text("Overall (formula, %s): %d -> %d", position_name(pos), pend.overall_before, pend.overall_after);
             if (!pend.exact)
                 ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "This profile cannot reach exactly his overall (at the edge of the 1..99 range).");
-            ImGui::BeginChild("##archchg", ImVec2(S(440.0f), S(380.0f)), ImGuiChildFlags_Borders);
+            ImGui::BeginChild("##archchg", ImVec2(S(440.0f), S(380.0f)), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX | ImGuiChildFlags_ResizeY);
             const bool same = pend.attrs == pend_before;
             if (same) ImGui::TextDisabled("Nothing would change.");
             else changes_table(pend_before, pend.attrs);
@@ -986,7 +987,7 @@ static void player_editor(App& app) {
                 if (n2.find(q) != std::string::npos || lower(field_label(n2)).find(q) != std::string::npos) hits.push_back(n2);
             ImGui::SameLine();
             ImGui::TextDisabled("%zu fields", hits.size());
-            if (!hits.empty() && ImGui::BeginTable("##fsearch", 2, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_BordersOuter)) {
+            if (!hits.empty() && ImGui::BeginTable("##fsearch", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_BordersOuter)) {
                 size_t shown = 0;
                 for (const auto& n2 : hits) {
                     if (shown++ >= 8) break;

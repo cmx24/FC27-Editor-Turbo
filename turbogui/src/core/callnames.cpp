@@ -71,11 +71,15 @@ std::vector<CommentaryPack> installed_commentary_packs(const fs::path& game_root
 std::string pick_commentary_language(const std::vector<CommentaryPack>& packs, const std::string& chosen, std::string* why) {
     std::string note;
     auto set_why = [&](const std::string& s) { if (why) *why = note + s; };
+    std::string want = lower(chosen);
     if (packs.empty()) {
+        if (!want.empty()) {
+            set_why("chosen in Turbo's settings");
+            return want;
+        }
         set_why("no commentary language pack found in the game folder");
         return "";
     }
-    std::string want = lower(chosen);
     if (!want.empty()) {
         for (const auto& p : packs)
             if (p.code == want) {

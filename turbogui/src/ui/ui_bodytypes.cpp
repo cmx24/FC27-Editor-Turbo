@@ -133,7 +133,7 @@ static void draw_rows(App& app, const Table& t, uint64_t rec, const std::vector<
         ImGui::TextDisabled(specific ? "No player-specific body matches the filters." : "No generic body matches the filters.");
         return;
     }
-    if (!ImGui::BeginTable(specific ? "##btspec" : "##btgen", 7, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) return;
+    if (!ImGui::BeginTable(specific ? "##btspec" : "##btgen", 7, ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp)) return;
     ImGui::TableSetupColumn("Body type", ImGuiTableColumnFlags_WidthStretch, 2.2f);
     ImGui::TableSetupColumn("Code", ImGuiTableColumnFlags_WidthFixed, S(46.0f));
     ImGui::TableSetupColumn("Used by", ImGuiTableColumnFlags_WidthFixed, S(86.0f));
@@ -198,7 +198,7 @@ static void draw_copy_popup(App& app, const Table& t, uint64_t rec, int head_cla
     std::transform(q.begin(), q.end(), q.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
     if (!pt || !pt->has("bodytypecode")) {
         ImGui::TextDisabled("The players table has no body type field.");
-    } else if (q.size() >= 2 && ImGui::BeginChild("##btcopylist", ImVec2(0, -S(34.0f)))) {
+    } else if (q.size() >= 2 && ImGui::BeginChild("##btcopylist", ImVec2(0, -S(34.0f)), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY)) {
         int shown = 0;
         for (const auto& p : app.model.players()) {
             std::string n = p.name;
@@ -302,7 +302,7 @@ static void draw_gallery(App& app, const Table& t, uint64_t rec, bool manager) {
         g_gal.allow_risky = false;
     }
 
-    ImGui::BeginChild("##btlist", ImVec2(0, -S(36.0f)));
+    ImGui::BeginChild("##btlist", ImVec2(0, -S(36.0f)), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
     ImGui::SeparatorText("Generic (named by Live Editor)");
     draw_rows(app, t, rec, gen, cur, hc, false);
     ImGui::SeparatorText("Player-specific (models of individual players)");

@@ -97,7 +97,8 @@ void draw_database(App& app) {
     int ncols = static_cast<int>(std::min<size_t>(g_view.fields.size(), 500));
     if (ncols == 0) return;
     ImGuiTableFlags fl = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY |
-                         ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingFixedFit;
+                         ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
+                         ImGuiTableFlags_Hideable | ImGuiTableFlags_SizingFixedFit;
     bool open_edit = false;
     if (ImGui::BeginTable("##dbt", ncols, fl, ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(1, 1);

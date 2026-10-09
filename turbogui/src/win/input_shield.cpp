@@ -267,9 +267,9 @@ BOOL WINAPI hk_cursor(LPPOINT p) {
     ++n_cursor;
     BOOL ok = o_cursor(p);
     if (!ok || !p) return ok;
-    if (input_block_mouse() && g_cur_known) {
-        p->x = g_cur_x;  // the game keeps the cursor where it was before Turbo took the mouse
-        p->y = g_cur_y;
+    if (input_block_mouse()) {
+        p->x = -10000;  // off-screen so game menus/cards do not hover or highlight
+        p->y = -10000;
         ++n_blocked;
     } else {
         g_cur_x = p->x;

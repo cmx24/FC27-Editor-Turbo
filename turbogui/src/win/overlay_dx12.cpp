@@ -243,6 +243,7 @@ constexpr UINT kLlReinstallMsg = WM_APP + 1;
 static bool ll_wheel_alive() { return turbo::wheel_hook_alive(g_ll_wheel.load(), now_seconds(), g_ll_last_call.load()); }
 
 static void queue_raw_mouse(HWND hwnd, LPARAM lp, std::vector<WinMsg>& out) {
+    if (g_legacy_mouse_seen.load()) return;
     host::TurboInputScope scope;  // Turbo's own read: the input shield passes the real data through
     RAWINPUT ri{};
     UINT size = sizeof(ri);
@@ -352,7 +353,7 @@ static LRESULT CALLBACK hk_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             std::vector<WinMsg> raw;
             if (msg == WM_INPUT) queue_raw_mouse(hwnd, lp, raw);
             // a WM_MOUSEWHEEL the low-level hook has already queued is not queued again (it is still kept from the game)
-            const bool take = msg != WM_MOUSEWHEEL || turbo::wheel_take(turbo::WheelSource::WindowMessage, ll_wheel_alive(), true);
+            const bool take = (msg != WM_INPUT) && (msg != WM_MOUSEWHEEL || turbo::wheel_take(turbo::WheelSource::WindowMessage, ll_wheel_alive(), true));
             if (take && msg == WM_MOUSEWHEEL) ++g_wheel_msg;
             std::lock_guard<std::mutex> lock(g_msg_mutex);
             if (take && g_msgs.size() < 1024) g_msgs.push_back({msg, wp, lp});
@@ -454,10 +455,6 @@ static void poll_input() {
                 retry_at = now;
                 PostThreadMessageW(g_ll_thread.load(), kLlReinstallMsg, 0, 0);
             }
-            const bool swapped = GetSystemMetrics(SM_SWAPBUTTON) != 0;
-            // with the side buttons (ImGui 3 / 4): the show/hide key capture can pick them (ui/hotkey_setting.h)
-            const int vks[5] = {swapped ? VK_RBUTTON : VK_LBUTTON, swapped ? VK_LBUTTON : VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2};
-            for (int b = 0; b < 5; ++b) io.AddMouseButtonEvent(b, (GetAsyncKeyState(vks[b]) & 0x8000) != 0);
         }
         io.ConfigFlags &= ~(ImGuiConfigFlags_NoMouse | ImGuiConfigFlags_NoMouseCursorChange);
     } else {

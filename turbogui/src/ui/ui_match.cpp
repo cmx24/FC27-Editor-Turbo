@@ -230,7 +230,7 @@ void draw_vars(App& app) {
     std::map<std::string, msetup::VarLine> lines;
     for (const msetup::VarLine& l : app.match_setup->vars()) lines[l.name] = l;
     ImGui::BeginDisabled(!ready);
-    if (ImGui::BeginTable("##gvars", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+    if (ImGui::BeginTable("##gvars", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("Switch");
         ImGui::TableSetupColumn("Now");
         ImGui::TableSetupColumn("Value");

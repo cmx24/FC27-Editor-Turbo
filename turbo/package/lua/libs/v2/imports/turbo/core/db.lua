@@ -91,6 +91,11 @@ function M.get(tbl, rec, field)
     return tbl:GetRecordFieldValue(rec, field)
 end
 
+function M.get_int(tbl, rec, field, def)
+    local v = M.get(tbl, rec, field)
+    return tonumber(v) or def or 0
+end
+
 -- Validate a value for a field. Returns normalized_value or nil, error
 function M.validate(tbl, field, value)
     local info = M.field_info(tbl, field)

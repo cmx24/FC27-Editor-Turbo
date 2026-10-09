@@ -252,22 +252,25 @@ M.PLAN_ATTRS = { "acceleration", "sprintspeed", "agility", "balance", "jumping",
     "longshots", "standingtackle", "slidingtackle", "volleys", "curve", "penalties", "gkdiving", "gkhandling",
     "gkkicking", "gkreflexes", "gkpositioning" }
 
--- Writes values { field = v } into the player's development plan when he has one: "plan", "none", "unavailable" or
+-- Writes values { field = v } into the player's development plan when he has one (or when force=true): "plan", "none", "unavailable" or
 -- "failed: ..." (the natives are in Live Editor v27.1.2 only)
-function M.sync_plan(pid, values)
+function M.sync_plan(pid, values, force)
     local has, set = _G["PlayerHasDevelopementPlan"], _G["PlayerSetValueInDevelopementPlan"]
-    if type(has) ~= "function" or type(set) ~= "function" then return "unavailable" end
-    local ok, yes = pcall(has, pid)
-    if not ok then return "failed: " .. tostring(yes) end
-    if yes ~= true then return "none" end
+    if type(set) ~= "function" then return "unavailable" end
+    if not force and type(has) == "function" then
+        local ok, yes = pcall(has, pid)
+        if not ok then return "failed: " .. tostring(yes) end
+        if yes ~= true then return "none" end
+    end
     local names = {}
     for f in pairs(values) do names[#names + 1] = f end
     table.sort(names)
+    local count = 0
     for _, f in ipairs(names) do
         local ok2, err = pcall(set, pid, f, values[f])
-        if not ok2 then return "failed: " .. tostring(err) end
+        if ok2 then count = count + 1 end
     end
-    return "plan"
+    return count > 0 and "plan" or "none"
 end
 
 -- Makes the player's plan (if he has one) hold the players table's attributes. Returns the state like sync_plan

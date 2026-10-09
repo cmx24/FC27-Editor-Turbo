@@ -1,4 +1,4 @@
--- FC 27 LE Turbo: REPAIR script for the 6 players whose attributes dropped to 1 in Torino (TB Career).
+-- FC 27 LE Turbo: REPAIR script for corrupted players in Torino Career.
 -- Targets:
 --   199254 João Pedro (OVR 76, POT 86)
 --   216145 Armando Izzo (OVR 70, POT 76)
@@ -10,10 +10,10 @@
 -- This script:
 -- 1. Loads the original clean player presets from turbo_output\players\<name>_<pid>.json.
 -- 2. Restores all 34 core attributes + profile fields (overallrating, potential) in the `players` table.
--- 3. Synchronizes all attributes directly into the game's native development plan via PlayerSetValueInDevelopementPlan.
--- 4. Writes a detailed report to turbo_output\REPAIR_REPORT.txt.
---
--- Can be called with target_pid to repair only one player (e.g. Barreca 220493 first), or without to repair all 6.
+-- 3. Restores career_playergrowthuserseason (DyYs) record if present (overall + 34 core attributes).
+-- 4. Synchronizes all attributes unconditionally into the game's native development plan via PlayerSetValueInDevelopementPlan.
+-- 5. Clears modifier to 0 in players table.
+-- 6. Writes a detailed report to turbo_output\REPAIR_REPORT.txt.
 
 local db = require 'imports/turbo/core/db'
 local game = require 'imports/turbo/core/game'
@@ -32,10 +32,10 @@ local TARGETS = {
     [244836] = "Jacopo_Segre_244836.json",
 }
 
-local function repair_one(pid, filename, dry)
+local function repair_one(pid, filename, dry, prec_override)
     local players = db.get_table("players")
     if not players then return false, "players table not found" end
-    local prec = db.find(players, "playerid", pid)
+    local prec = prec_override or db.find(players, "playerid", pid)
     if not prec then return false, string.format("player %d not found in players table", pid) end
 
     local path = util.join(util.join(env.output_dir(), "players"), filename)
@@ -63,15 +63,41 @@ local function repair_one(pid, filename, dry)
         end
     end
 
-    -- Sync to native development plan
+    -- Clear modifier to 0 so unearned modifiers do not distort ratings
+    if not dry and db.has_field(players, "modifier") then
+        pcall(db.set, players, prec, "modifier", 0)
+    end
+
+    -- Update career_playergrowthuserseason table (DyYs) if present
+    local growth_written = 0
+    local growth_tbl = db.get_table("career_playergrowthuserseason")
+    if growth_tbl and not dry then
+        local grec = db.find(growth_tbl, "playerid", pid)
+        if grec then
+            local ovr_val = fields["overallrating"] or (doc.players and doc.players.overallrating)
+            if ovr_val and db.has_field(growth_tbl, "overall") then
+                pcall(db.set, growth_tbl, grec, "overall", ovr_val)
+                growth_written = growth_written + 1
+            end
+            for attr_name, attr_val in pairs(plan_attrs) do
+                if db.has_field(growth_tbl, attr_name) then
+                    local sok = pcall(db.set, growth_tbl, grec, attr_name, attr_val)
+                    if sok then growth_written = growth_written + 1 end
+                end
+            end
+        end
+    end
+
+    -- Sync unconditionally to native development plan
     local pstate = "none"
     if not dry then
-        pstate = moves.sync_plan(pid, plan_attrs)
+        pstate = moves.sync_plan(pid, plan_attrs, true)
     else
         pstate = "[DRY RUN]"
     end
 
-    return true, string.format("player %d (%s): %d fields written, plan sync: %s", pid, doc.name or filename, written, pstate)
+    return true, string.format("player %d (%s): %d fields written, growth written: %d, plan sync: %s",
+        pid, doc.name or filename, written, growth_written, pstate)
 end
 
 local function main(target_only, dry)
@@ -81,16 +107,28 @@ local function main(target_only, dry)
         local s = string.format(fmt, ...)
         lines[#lines + 1] = s
         log.info("[REPAIR] %s", s)
+        if type(LOGGER) == "table" and type(LOGGER.LogInfo) == "function" then
+            pcall(function() LOGGER:LogInfo("[Turbo] [REPAIR] " .. s) end)
+        end
     end
 
     say("=== TURBO OVR-1 REPAIR RUN (target=%s, dry=%s) ===", tostring(target_only or "all"), tostring(dry))
     local pids = target_only and { target_only } or { 220493, 199254, 216145, 220491, 243497, 244836 }
     local total_ok = 0
 
+    local players = db.get_table("players")
+    local precs = {}
+    if players then
+        for prec in db.records(players) do
+            local pid = db.get_int(players, prec, "playerid", 0)
+            if TARGETS[pid] then precs[pid] = prec end
+        end
+    end
+
     for _, pid in ipairs(pids) do
         local file = TARGETS[pid]
         if file then
-            local ok, msg = repair_one(pid, file, dry)
+            local ok, msg = repair_one(pid, file, dry, precs[pid])
             if ok then
                 say("OK   %s", msg)
                 total_ok = total_ok + 1

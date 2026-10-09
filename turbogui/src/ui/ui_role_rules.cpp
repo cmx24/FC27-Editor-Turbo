@@ -394,7 +394,7 @@ void draw(App& app, const TeamRow& tr, bool own, bool disabled) {
         if (pv.no_entry) sum += (sum.empty() ? "" : "; ") + std::string("no role entry: ") + std::to_string(pv.no_entry);
         if (pv.outside) sum += (sum.empty() ? "" : "; ") + std::string("outside the squad: ") + std::to_string(pv.outside);
         ImGui::TextWrapped("%zu players. %s", pv.rows.size(), sum.empty() ? "No skips." : sum.c_str());
-        if (ImGui::BeginTable("##rolepreview", 7, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp,
+        if (ImGui::BeginTable("##rolepreview", 7, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_SizingStretchProp,
                               ImVec2(0, S(260.0f)))) {
             ImGui::TableSetupScrollFreeze(0, 1);
             for (const char* h : {"Player", "Age", "OVR", "Old role", "New role", "Rule", "Skip reason"}) ImGui::TableSetupColumn(h);

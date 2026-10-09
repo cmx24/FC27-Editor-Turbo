@@ -227,7 +227,7 @@ void cmtracker_dialog(App& app) {
             ImGui::SetNextItemWidth(S(320.0f));
             ImGui::InputTextWithHint("##cmtq", "search: name, club, nation or player id", query, sizeof(query));
             std::vector<const CmtPlayer*> hits = lib.search(query, 120);
-            ImGui::BeginChild("##cmtlist", ImVec2(-FLT_MIN, S(150.0f)), ImGuiChildFlags_Borders);
+            ImGui::BeginChild("##cmtlist", ImVec2(-FLT_MIN, S(150.0f)), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
             for (const CmtPlayer* h : hits) {
                 char lbl[256];
                 std::snprintf(lbl, sizeof(lbl), "%-3d %-3d %-4s  %s  -  %s  (%lld)##c%lld", h->overall, h->potential, h->position.c_str(),

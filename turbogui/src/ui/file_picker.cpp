@@ -294,7 +294,7 @@ bool file_picker_modal(const char* popup_id, FilePicker& fp, fs::path& out) {
     const float fh = ImGui::GetFrameHeightWithSpacing(), th = ImGui::GetTextLineHeightWithSpacing();
     float footer = fh * (fp.mode == PickMode::Save ? 2.0f : 1.0f) + th + (fp.new_folder_open ? fh : 0.0f) +
                    (!fp.error.empty() ? th : 0.0f) + (fp.confirm ? th : 0.0f) + S(4.0f);
-    ImGui::BeginChild("##fpfiles", ImVec2(0, -footer), ImGuiChildFlags_Borders);
+    ImGui::BeginChild("##fpfiles", ImVec2(0, -footer), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
     fs::path open_dir;
     for (const auto& d : fp.dirs) {
         std::string lbl = "[" + path_text(d.filename()) + "]";

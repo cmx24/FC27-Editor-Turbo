@@ -51,7 +51,7 @@ static void team_list(App& app) {
     league_filter_combo(app, "##tleague", f_league, f_nation, half);
     std::string q = lower(search);
     if (ImGui::BeginTable("##teams", 3,
-                          ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | table_sort_flags(),
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | table_sort_flags(),
                           ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, S(62.0f));
@@ -98,7 +98,7 @@ static void squad_table(App& app, int64_t teamid) {
     ImGui::TextDisabled("%zu players linked", links.size());
     if (!lt) return;
     if (ImGui::BeginTable("##squad", 6,
-                          ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | table_sort_flags(),
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | table_sort_flags(),
                           ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Jersey", ImGuiTableColumnFlags_WidthFixed, S(80.0f));
@@ -176,7 +176,7 @@ static void club_pick_table(App& app, const char* id, const char* hint, char* se
     ImGui::SameLine();
     league_filter_combo(app, "##league", f.league, f.nation, S(140.0f));
     const std::string q = lower(search);
-    if (ImGui::BeginTable("##clubs", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | table_sort_flags(),
+    if (ImGui::BeginTable("##clubs", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | table_sort_flags(),
                           ImVec2(0, height))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, S(62.0f));
@@ -657,7 +657,7 @@ void draw_managers(App& app) {
     ImGui::InputTextWithHint("##msearch", "name or team", search, sizeof(search));
     std::string q = lower(search);
     if (ImGui::BeginTable("##mgrs", 3,
-                          ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | table_sort_flags(),
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | table_sort_flags(),
                           ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, S(62.0f));

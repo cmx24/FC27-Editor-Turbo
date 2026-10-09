@@ -380,7 +380,7 @@ void field_grid(App& app, const Table& t, uint64_t rec, const std::vector<std::s
         ImGui::TextDisabled("None of these fields exist in FC 27's %s table.", t.name.c_str());
         return;
     }
-    if (ImGui::BeginTable(id, columns, ImGuiTableFlags_SizingStretchSame)) {
+    if (ImGui::BeginTable(id, columns, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchSame)) {
         for (const Field* f : present) {
             ImGui::TableNextColumn();
             std::string lbl = field_label(f->name);
@@ -407,7 +407,7 @@ void all_fields(App& app, const Table& t, uint64_t rec, const char* id) {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Titles instead of field names, and names instead of numbers where the game has them.");
     std::string flt = filter;
     std::transform(flt.begin(), flt.end(), flt.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    if (ImGui::BeginTable("##all", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV,
+    if (ImGui::BeginTable("##all", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable,
                           ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Field", ImGuiTableColumnFlags_WidthFixed, S(220.0f));

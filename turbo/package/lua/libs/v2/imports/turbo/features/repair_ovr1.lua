@@ -1,11 +1,12 @@
 -- FC 27 LE Turbo: Automatic OVR-1 repair for corrupted players.
 -- Automatically runs on career load and career lifecycle events.
--- Checks target players (Barreca, João Pedro, Izzo, Gyasi, Walukiewicz, Segre).
+-- Checks target players (Barreca, João Pedro, Izzo, Gyasi, Walukiewicz, Segre) and any corrupted user club players.
 -- If any have corrupted attributes (overallrating <= 5, or crossing <= 5 and finishing <= 5):
 -- 1. Restores 34 core attributes, overallrating and potential from player presets in turbo_output\players\.
--- 2. Synchronizes all attributes into the game's native development plan via moves.sync_plan(pid, plan_attrs).
--- 3. Clears modifier to 0 so unearned modifiers do not distort ratings.
--- 4. Writes report to turbo_output\REPAIR_REPORT.txt and logs to turbo_gui.log.
+-- 2. Restores career_playergrowthuserseason (DyYs) record if present (overall + 34 core attributes).
+-- 3. Synchronizes all attributes into the game's native development plan via moves.sync_plan(pid, plan_attrs, true).
+-- 4. Clears modifier to 0 so unearned modifiers do not distort ratings.
+-- 5. Writes report to turbo_output\REPAIR_REPORT.txt and logs to turbo_gui.log and Live Editor console.
 
 local db = require 'imports/turbo/core/db'
 local game = require 'imports/turbo/core/game'
@@ -39,10 +40,10 @@ function M.needs_repair(players, prec)
     return (ovr > 0 and ovr <= 5) or (cro > 0 and cro <= 5 and fin > 0 and fin <= 5)
 end
 
-function M.repair_player(pid, filename, dry)
+function M.repair_player(pid, filename, dry, prec_override)
     local players = db.get_table("players")
     if not players then return false, "players table not found" end
-    local prec = db.find(players, "playerid", pid)
+    local prec = prec_override or db.find(players, "playerid", pid)
     if not prec then return false, string.format("player %d not found in players table", pid) end
 
     local path = util.join(util.join(env.output_dir(), "players"), filename)
@@ -70,20 +71,42 @@ function M.repair_player(pid, filename, dry)
         end
     end
 
-    -- Clear modifier to 0 so it doesn't affect OVR
+    -- Clear modifier to 0 so it doesn't distort ratings
     if not dry and db.has_field(players, "modifier") then
         pcall(db.set, players, prec, "modifier", 0)
     end
 
-    -- Sync to native development plan
+    -- Update career_playergrowthuserseason table (DyYs) if it exists
+    local growth_written = 0
+    local growth_tbl = db.get_table("career_playergrowthuserseason")
+    if growth_tbl and not dry then
+        local grec = db.find(growth_tbl, "playerid", pid)
+        if grec then
+            local ovr_val = fields["overallrating"] or (doc.players and doc.players.overallrating)
+            if ovr_val and db.has_field(growth_tbl, "overall") then
+                pcall(db.set, growth_tbl, grec, "overall", ovr_val)
+                growth_written = growth_written + 1
+            end
+            for attr_name, attr_val in pairs(plan_attrs) do
+                if db.has_field(growth_tbl, attr_name) then
+                    local sok = pcall(db.set, growth_tbl, grec, attr_name, attr_val)
+                    if sok then growth_written = growth_written + 1 end
+                end
+            end
+        end
+    end
+
+    -- Sync unconditionally to native development plan
     local pstate = "none"
     if not dry then
-        pstate = moves.sync_plan(pid, plan_attrs)
+        pstate = moves.sync_plan(pid, plan_attrs, true)
     else
         pstate = "[DRY RUN]"
     end
 
-    return true, string.format("player %d (%s): %d fields written, plan sync: %s", pid, doc.name or filename, written, pstate)
+    local detail = string.format("player %d (%s): %d fields written, growth written: %d, plan sync: %s",
+        pid, doc.name or filename, written, growth_written, pstate)
+    return true, detail
 end
 
 function M.check_and_repair(dry)
@@ -96,12 +119,21 @@ function M.check_and_repair(dry)
     local players = db.get_table("players")
     if not players then return false, "players table not found" end
 
+    -- Single pass over players table to identify target records
+    local precs = {}
+    for prec in db.records(players) do
+        local pid = db.get_int(players, prec, "playerid", 0)
+        if M.TARGETS[pid] then
+            precs[pid] = prec
+        end
+    end
+
     -- Check which target players actually need repair
     local to_repair = {}
     for pid, file in pairs(M.TARGETS) do
-        local prec = db.find(players, "playerid", pid)
+        local prec = precs[pid]
         if prec and M.needs_repair(players, prec) then
-            to_repair[#to_repair + 1] = { pid = pid, file = file }
+            to_repair[#to_repair + 1] = { pid = pid, file = file, prec = prec }
         end
     end
 
@@ -114,12 +146,15 @@ function M.check_and_repair(dry)
         local s = string.format(fmt, ...)
         lines[#lines + 1] = s
         log.info("[OVR1-REPAIR] %s", s)
+        if type(LOGGER) == "table" and type(LOGGER.LogInfo) == "function" then
+            pcall(function() LOGGER:LogInfo("[Turbo] [OVR1-REPAIR] " .. s) end)
+        end
     end
 
     say("=== TURBO OVR-1 AUTO-REPAIR RUN (%d players to repair, dry=%s) ===", #to_repair, tostring(dry))
     local total_ok = 0
     for _, item in ipairs(to_repair) do
-        local ok, msg = M.repair_player(item.pid, item.file, dry)
+        local ok, msg = M.repair_player(item.pid, item.file, dry, item.prec)
         if ok then
             say("OK   %s", msg)
             total_ok = total_ok + 1
