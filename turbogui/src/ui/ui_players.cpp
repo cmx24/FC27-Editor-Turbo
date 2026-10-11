@@ -101,8 +101,10 @@ static void player_list(App& app) {
     static char search[64] = "";
     static bool my_club = false;
     // Filters, in four blocks (widgets.cpp form rows: label left, control right). Who: club, nationality, continent. Position &
-    // style: any of the 7 preferred positions, PlayStyle / PlayStyle+. Numbers: age, overall and potential as two-sided ranges
-    // (core/range_filter.h: 0 = no bound). Status: my club, retiring, free agent.
+    // style: any of the 7 preferred positions (core/model.h player_passes_position: a stored internal code counts as the visible
+    // position it plays as, RCB as CB, unless the combo's "Show all internal positions" is on; then the code must match exactly),
+    // PlayStyle / PlayStyle+. Numbers: age, overall and potential as two-sided ranges (core/range_filter.h: 0 = no bound).
+    // Status: my club, retiring, free agent.
     static int f_pos = -1, f_style = -1;
     static IntRange f_age, f_ovr, f_pot;
     static bool f_plus = false, f_retiring = false, f_free = false;
@@ -171,7 +173,9 @@ static void player_list(App& app) {
         // ---- Position & style
         ImGui::TableNextColumn();
         ImGui::TextDisabled("Position & style");
-        form_label("Position", "Any of the player's 7 preferred positions");
+        form_label("Position", "Any of the player's 7 preferred positions. A player stored as RCB or LCB counts as CB (RDM/LDM as CDM, RCM/LCM as "
+                               "CM, RAM/LAM as CAM, RS/LS as ST) unless \"Show all internal positions\" is ticked in the list; then the code "
+                               "must match exactly");
         position_combo("##fpos", f_pos, fill_w(), "Any position");
         form_label("PlayStyle");
         ImGui::SetNextItemWidth(fill_w());
@@ -220,9 +224,10 @@ static void player_list(App& app) {
 
     const std::unordered_map<int64_t, int64_t>& nat_of = player_nationalities(app);
     char fkey[200];
-    std::snprintf(fkey, sizeof(fkey), "|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%lld|%lld|%lld", f_pos, f_style, f_plus ? 1 : 0, f_retiring ? 1 : 0,
-                  f_free ? 1 : 0, f_age.from, f_age.to, f_ovr.from, f_ovr.to, f_pot.from, f_pot.to, static_cast<long long>(f_team),
-                  static_cast<long long>(f_nat), static_cast<long long>(f_cont));
+    const bool pos_exact = position_show_all();  // the combo's toggle also switches the filter to exact codes
+    std::snprintf(fkey, sizeof(fkey), "|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%lld|%lld|%lld", f_pos, pos_exact ? 1 : 0, f_style, f_plus ? 1 : 0,
+                  f_retiring ? 1 : 0, f_free ? 1 : 0, f_age.from, f_age.to, f_ovr.from, f_ovr.to, f_pot.from, f_pot.to,
+                  static_cast<long long>(f_team), static_cast<long long>(f_nat), static_cast<long long>(f_cont));
     std::string key = lower(search) + (my_club ? "|1" : "|0") + fkey;
     if (key != last_key || last_version != app.model.version()) {
         last_key = key;
@@ -239,8 +244,7 @@ static void player_list(App& app) {
         for (const auto& p : app.model.players()) {
             if (my_club && p.club != club) continue;
             if (f_team > 0 && !team_players.count(p.playerid)) continue;
-            if (f_pos >= 0 && std::none_of(std::begin(p.positions), std::end(p.positions), [&](int x) { return x == f_pos; }))
-                continue;
+            if (f_pos >= 0 && !player_passes_position(p, f_pos, pos_exact)) continue;
             if (f_style >= 0 && !(((f_plus ? p.playstyles_plus : p.playstyles) >> f_style) & 1)) continue;
             if (f_retiring && !p.retiring) continue;
             if (f_free && p.club != 0) continue;

@@ -87,6 +87,53 @@ static void test_ux_filters_core() {
             CHECK(!d.empty() && !bare && d != "?", fmt("never a bare number or '?': %d -> %s", p, d.c_str()));
         }
     });
+    run_case("position filter: an internal code passes the filter of the visible position it plays as, exact with Show all on", [] {
+        auto code = [](const char* n) {
+            for (int p = 0; p < position_count(); ++p)
+                if (std::string(position_name(p)) == n) return p;
+            return -1;
+        };
+        const int CB = code("CB"), CDM = code("CDM"), CM = code("CM"), CAM = code("CAM"), ST = code("ST");
+        CHECK(CB == 5 && CDM == 10 && CM == 14 && CAM == 18 && ST == 25, "the visible codes of the pairs");
+        for (int p : visible_positions()) CHECK(position_plays_as(p) == p, std::string(position_name(p)) + " plays as itself");
+        CHECK(position_plays_as(code("RCB")) == CB && position_plays_as(code("LCB")) == CB, "RCB / LCB play as CB");
+        CHECK(position_plays_as(code("RDM")) == CDM && position_plays_as(code("LDM")) == CDM, "RDM / LDM play as CDM");
+        CHECK(position_plays_as(code("RCM")) == CM && position_plays_as(code("LCM")) == CM, "RCM / LCM play as CM");
+        CHECK(position_plays_as(code("RAM")) == CAM && position_plays_as(code("LAM")) == CAM, "RAM / LAM play as CAM");
+        CHECK(position_plays_as(code("RS")) == ST && position_plays_as(code("LS")) == ST, "RS / LS play as ST");
+        for (const char* n : {"SW", "RWB", "LWB", "RF", "CF", "LF"})
+            CHECK(position_plays_as(code(n)) == -1, std::string(n) + " has no visible counterpart");
+        CHECK(position_plays_as(-1) == -1 && position_plays_as(position_count()) == -1, "none / out of range");
+        // the descriptor uses the same mapping
+        for (int p = 0; p < position_count(); ++p) {
+            if (position_visible(p)) continue;
+            const int as = position_plays_as(p);
+            const std::string d = position_descriptor(p);
+            CHECK(as < 0 ? d == std::string(position_name(p)) + " (internal)" : d.find(std::string("plays as ") + position_name(as) + ")") != std::string::npos,
+                  fmt("descriptor of %s follows position_plays_as: %s", position_name(p), d.c_str()));
+        }
+        // one stored code against the chosen filter
+        CHECK(position_matches(code("RCB"), CB, false) && position_matches(code("LCB"), CB, false), "RCB / LCB pass the CB filter");
+        CHECK(!position_matches(code("RCB"), CB, true), "with Show all internal positions on, RCB does not pass CB (exact codes)");
+        CHECK(position_matches(CB, CB, true) && position_matches(CB, CB, false), "CB passes CB either way");
+        CHECK(position_matches(code("RCB"), code("RCB"), true) && position_matches(code("RCB"), code("RCB"), false), "RCB passes an RCB filter either way");
+        CHECK(!position_matches(CB, code("RCB"), false), "a CB does not pass an RCB filter (the mapping goes internal -> visible only)");
+        CHECK(!position_matches(code("RCB"), CDM, false) && !position_matches(code("LS"), CB, false), "no cross-pair match");
+        CHECK(!position_matches(code("SW"), CB, false) && !position_matches(code("CF"), ST, false), "SW / CF pass no visible filter");
+        CHECK(!position_matches(-1, CB, false) && !position_matches(CB, -1, false) && !position_matches(-1, -1, false), "-1 matches nothing");
+        // a player row: any of the 7 preferred positions
+        PlayerRow p;
+        p.positions[0] = code("RCB");
+        CHECK(player_passes_position(p, CB, false), "preferredposition1 = RCB passes the CB filter");
+        CHECK(!player_passes_position(p, CB, true), "... but not with Show all internal positions on");
+        CHECK(player_passes_position(p, code("RCB"), true) && player_passes_position(p, code("RCB"), false), "he passes an RCB filter");
+        p.positions[0] = ST;
+        p.positions[3] = code("LCB");
+        CHECK(player_passes_position(p, CB, false) && player_passes_position(p, ST, false), "LCB in slot 4: passes CB; ST in slot 1: passes ST");
+        CHECK(!player_passes_position(p, CB, true) && player_passes_position(p, ST, true), "exact: only the ST slot matches");
+        PlayerRow none;
+        CHECK(!player_passes_position(none, CB, false) && !player_passes_position(none, CB, true), "no positions: passes nothing");
+    });
     run_case("checkbox_right: the ID of ImGui::Checkbox(label), label left / box right, a click on the label toggles", [] {
         IMGUI_CHECKVERSION();
         ImGuiContext* ctx = ImGui::CreateContext();

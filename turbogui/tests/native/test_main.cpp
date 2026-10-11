@@ -3468,9 +3468,42 @@ static void test_ui() {
                   "the list shows the game's positions only (no SW, no RCB) until the toggle is ticked");
             CHECK(ui.click(position_name(14), "##Combo"), "position 14");
             CHECK(expect([](const PlayerRow& p) { return std::count(std::begin(p.positions), std::end(p.positions), 14) > 0; }) &&
-                      app.list_player_ids.size() > 1,
+                      expect([](const PlayerRow& p) { return player_passes_position(p, 14, false); }) && app.list_player_ids.size() > 1,
                   "position 14 as any of the 7 preferred positions");
             CHECK(ui.click("Clear##filters", "##plist"), "Clear");
+            // an internal code passes the filter of the visible position it plays as (core/model.h position_plays_as): 1003 is stored
+            // as CB (5); as RCB (4) he must still be listed under the CB filter, and drop out once "Show all internal positions" (exact
+            // codes) is ticked in the combo
+            {
+                const Table* pt = app.db.table("players");
+                const uint64_t r1003 = pt ? app.db.find(*pt, "playerid", 1003) : 0;
+                CHECK(r1003 && app.db.get_int(*pt, r1003, "preferredposition1") == 5, "1003 is stored as CB");
+                CHECK(ui.click("##fpos", "##plist") && ui.click("CB", "##Combo"), "CB filter");
+                CHECK(expect([](const PlayerRow& p) { return player_passes_position(p, 5, false); }) &&
+                          std::count(app.list_player_ids.begin(), app.list_player_ids.end(), 1003) == 1,
+                      "CB: 1003 listed");
+                CHECK(r1003 && app.db.set_int(*pt, r1003, "preferredposition1", 4), "1003 stored as RCB");
+                app.model.refresh_player(1003, kToday);
+                CHECK(app.model.player(1003) && app.model.player(1003)->positions[0] == 4, "the model row shows RCB");
+                CHECK(ui.click("Clear##filters", "##plist") && ui.click("##fpos", "##plist") && ui.click("CB", "##Combo"), "CB filter again");
+                CHECK(expect([](const PlayerRow& p) { return player_passes_position(p, 5, false); }) &&
+                          std::count(app.list_player_ids.begin(), app.list_player_ids.end(), 1003) == 1,
+                      "CB filter: a player stored as RCB is listed (he plays as CB)");
+                CHECK(ui.click("##fpos", "##plist") && ui.click("Show all internal positions", "##Combo"), "Show all internal positions on");
+                CHECK(position_show_all(), "the toggle is on");
+                CHECK(ui.click("CB", "##Combo"), "close the popup (CB stays picked)");
+                CHECK(expect([](const PlayerRow& p) { return player_passes_position(p, 5, true); }) &&
+                          std::count(app.list_player_ids.begin(), app.list_player_ids.end(), 1003) == 0,
+                      "with the toggle on the filter is exact: the RCB player is not listed under CB");
+                CHECK(ui.click("##fpos", "##plist") && ui.click("Show all internal positions", "##Combo"), "Show all internal positions off");
+                CHECK(!position_show_all(), "the toggle is off again");
+                CHECK(ui.click("CB", "##Combo"), "close the popup");
+                CHECK(std::count(app.list_player_ids.begin(), app.list_player_ids.end(), 1003) == 1, "RCB player back under CB");
+                CHECK(r1003 && app.db.set_int(*pt, r1003, "preferredposition1", 5), "1003 restored to CB");
+                app.model.refresh_player(1003, kToday);
+                CHECK(ui.click("Clear##filters", "##plist"), "Clear");
+                CHECK(app.list_player_ids.size() == all, "cleared after the position cases");
+            }
             CHECK(ui.type_into(ui.find("##ovr_from", "##plist"), "87"), "OVR from 87");
             CHECK(expect([](const PlayerRow& p) { return p.overall >= 87; }), "OVR >= 87");
             CHECK(ui.type_into(ui.find("##age_to", "##plist"), "25"), "age to 25");

@@ -29,16 +29,27 @@ int age_on(const GameDate& birth, const GameDate& today);
 
 const char* position_name(int pos);  // 0..27, "?" otherwise
 int position_count();
-// The positions FC 27 names in its own screens. Evidence (docs/turbo-reference.md, UX_FILTERS_REPORT.txt): the game's roles
-// (players.role1..9, named by Live Editor's loc strings player_role_N in core/field_labels.h) exist for exactly twelve
-// positions, GK RB LB CB CDM CM RM LM CAM RW LW ST, in that order; the other 16 codes of the 28-entry table (SW, RWB, LWB,
-// RCB/LCB, RDM/LDM, RCM/LCM, RAM/LAM, RF/CF/LF, RS/LS) appear in formations and preferredposition2..7 but no game menu
-// names them. Lists default to these twelve; the full table stays behind a "show all internal positions" toggle.
+// The positions FC 27 names in its own screens. Evidence: the "role" table of core/field_labels.h (Live Editor's loc strings
+// player_role_N for players.role1..9, codes 1..52 and 101..152): every role name starts with one of exactly twelve positions,
+// GK RB LB CB CDM CM RM LM CAM RW LW ST, in that order (1-2 GK, 3-6 RB, 7-10 LB, 11-13 CB, 14-17 CDM, 18-22 CM, 23-26 RM,
+// 27-30 LM, 31-34 CAM, 35-37 RW, 38-40 LW, 41-44 ST, 45-52 further roles for GK, RB, LB, CB, CDM, ST, RW, LW). The 28-entry
+// code table behind position_name is Live Editor's CONST__PLAYER_PRIMARY_POS_NAME (lua\libs\v2\imports\other\consts.lua,
+// codes 0..27); its other 16 codes (SW, RWB, LWB, RCB/LCB, RDM/LDM, RCM/LCM, RAM/LAM, RF/CF/LF, RS/LS) appear in formations and
+// preferredposition1..7 but have no role of their own. Lists default to these twelve; the full table stays behind a "show all
+// internal positions" toggle.
 const std::vector<int>& visible_positions();  // codes in the game's role order
 bool position_visible(int pos);
-// Text for a stored position: "CB" for a visible one, "RCB (internal, plays as CB)" or "SW (internal)" for an internal
-// code, "None" for -1 (preferredposition2..7 empty), "Unknown position N" outside the table. Never a bare number.
+// The visible position a stored code is laid out as: a visible code gives itself; the paired internal codes give their visible
+// position (RCB/LCB -> CB, RDM/LDM -> CDM, RCM/LCM -> CM, RAM/LAM -> CAM, RS/LS -> ST, the pairing of core/tactics_db.cpp
+// pitch_label_for_position); SW, RWB, LWB, RF, CF, LF (no visible counterpart), -1 and codes outside the table give -1.
+int position_plays_as(int pos);
+// Text for a stored position: "CB" for a visible one, "RCB (internal, plays as CB)" (position_plays_as) or "SW (internal)" for
+// an internal code, "None" for -1 (preferredposition2..7 empty), "Unknown position N" outside the table. Never a bare number.
 std::string position_descriptor(int pos);
+// The Position filter's rule for one stored code: `stored` matches the chosen `wanted` when the codes are equal, or, unless
+// `exact` (the "Show all internal positions" toggle is on), when position_plays_as(stored) is `wanted`: a player stored as RCB
+// passes the CB filter. -1 on either side matches nothing.
+bool position_matches(int stored, int wanted, bool exact);
 
 struct PlayerRow {
     int64_t playerid = 0;
@@ -53,6 +64,9 @@ struct PlayerRow {
     bool retiring = false;                           // isretiring
     uint64_t playstyles = 0, playstyles_plus = 0;    // trait1 / icontrait1 bits
 };
+
+// The Players list Position filter: any of the player's 7 preferred positions matches `wanted` (position_matches).
+bool player_passes_position(const PlayerRow& p, int wanted, bool exact);
 
 struct TeamRow {
     int64_t teamid = 0;
