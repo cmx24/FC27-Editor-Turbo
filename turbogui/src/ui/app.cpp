@@ -290,6 +290,13 @@ std::string App::chosen_commentary_language() const {
     return "";
 }
 
+void App::refresh_callnames() {
+    callnames.refresh(bridge.root(), game_root, chosen_commentary_language());
+    const std::string line = commentary_language_log_line(callnames.lang, callnames.lang_why);
+    log(line);
+    if (log_hook) log_hook(line);
+}
+
 // The id list a build asks about. With the career database connected: commentarynames (+ the preview flag), the ids
 // playernames / playernamemap use, every player; the list is cached in turbo_output\callnames\ids.json. Without it
 // (main menu): that cache, else the commentary ids Lua exported to bridge_commentary.txt while it was connected.
@@ -444,7 +451,7 @@ bool App::start_spoken_probe() {
 void App::spoken_watch_tick() {
     if (!commentary_audio) return;
     // the language and the cached set are needed before the Callname tab was ever opened (a build from the main menu)
-    if (!callnames.refreshed && !game_root.empty()) callnames.refresh(bridge.root(), game_root, chosen_commentary_language());
+    if (!callnames.refreshed && !game_root.empty()) refresh_callnames();
     caudio::SpokenWatch::Inputs in;
     const caudio::ServiceStatus st = commentary_audio->status();
     in.service = st.installed;

@@ -56,8 +56,7 @@ public:
         if (!started_) return;
         if (!callnames_done_ && !app.game_root.empty()) {
             callnames_done_ = true;
-            if (!app.callnames.refreshed)
-                app.callnames.refresh(app.bridge.root(), app.game_root, app.chosen_commentary_language());
+            if (!app.callnames.refreshed) app.refresh_callnames();
         }
         if (!collected_) {
             if (!app.connected()) return;  // the lists come from the career's database

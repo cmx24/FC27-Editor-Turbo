@@ -29,6 +29,9 @@ from the game (<name>_master_fc27.xlsm) when there is one, else your FC 26 list 
 "game" field ("fc27" / "fc26") says which, and the Callname tab names it ("FC 27 master" / "your FC 26 list"). The
 Callname tab warns and asks for a confirmation before writing a callname for such a player, and does not keep it for
 the next career loads. See docs/callnames.md section 9.
+For every installed commentary language at once (master + spoken list + a wav check):
+turbo\tools\replicate_language_structure.py (in the repository; a dry run; add --write to write the files into this
+folder).
 
 spoken_por_br.txt here comes from the FC 26 PT-BR generic surname bank (1,703 segments, exported with the FIFA Editor
 Tool in 2026-08); FC 27 keeps the commentary ids of commentarynames, but check a few in game before relying on it.

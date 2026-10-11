@@ -579,6 +579,10 @@ static void test_core() {
         CHECK(pick_commentary_language(packs, "por_br", &why) == "ita_it" && why.find("not installed") != std::string::npos, "unknown choice falls back: " + why);
         CHECK(pick_commentary_language({{"eng_us", false}}, "", &why) == "eng_us", "base game only -> eng_us");
         CHECK(pick_commentary_language({}, "", &why).empty() && why.find("no commentary language pack") != std::string::npos, "no packs");
+        CHECK(commentary_language_log_line("ita_it", "the one commentary language downloaded") ==
+                  "callnames: language ita_it (the one commentary language downloaded)" &&
+                  commentary_language_log_line("", "no commentary language pack found") == "callnames: language none (no commentary language pack found)",
+              "the GUI-log line of the pick");
 
         std::unordered_set<int64_t> ids;
         std::string lang, err;
@@ -6284,7 +6288,20 @@ static void test_ui() {
             // the language can be chosen and is saved in gui_settings.json
             app.gui_settings["callnames"]["language"] = "eng_us";
             CHECK(app.save_gui_settings(), "save");
-            CHECK(ui.click("Refresh##cn"), "refresh");
+            {
+                // every refresh logs the pick (Tools log + turbo_gui.log through log_hook)
+                const auto saved_hook = app.log_hook;
+                std::vector<std::string> hooked;
+                app.log_hook = [&](const std::string& s) { hooked.push_back(s); };
+                app.log_lines.clear();
+                CHECK(ui.click("Refresh##cn"), "refresh");
+                app.log_hook = saved_hook;
+                const std::string want = "callnames: language eng_us (chosen in Turbo's settings)";
+                size_t in_log = 0, in_hook = 0;
+                for (const auto& l : app.log_lines) in_log += l == want;
+                for (const auto& l : hooked) in_hook += l == want;
+                CHECK(in_log == 1 && in_hook == 1, fmt("the pick is logged once in the GUI log (%zu) and turbo_gui.log (%zu)", in_log, in_hook));
+            }
             CHECK(app.callnames.lang == "eng_us" && app.callnames.lang_why.find("chosen") != std::string::npos, "chosen language: " + app.callnames.lang_why);
             app.gui_settings["callnames"].erase("language");
             app.save_gui_settings();

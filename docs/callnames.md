@@ -635,7 +635,8 @@ the source accordingly: "FC 27 master" / "the FC 27 master" or "Your FC 26 list"
 bank oddities that match no player; generic ids outside the commentary range are kept as listed.)
 
 **The tool.** `python turbo/tools/import_callname_masters.py [--root DIR …] [--le "C:\FC 27 Live Editor"] [--out DIR]
-[--lang ita_it …] [--dry-run] [--self-test]` (Python 3.11 + openpyxl; the workbooks are opened read-only). `--root` is
+[--lang ita_it …] [--dry-run] [--wav-dir LANG=DIR …] [--game-build LANG=BUILD …] [--self-test]` (Python 3.11 +
+openpyxl; the workbooks are opened read-only). `--root` is
 repeatable; by default it reads `C:\FC_Tools\My Mods` and `<le>\turbo_dev\masters` (each when present). It maps each
 workbook to its language by folder (`br`, `eng`, `fra`, `ger`, `ita`, `ned`, `spa`), else by the workbook's name
 without `_master` / `_master_fc27`, prefers an FC 27 master, then `.xlsm` over `.xlsx`, then the newest, reports every
@@ -652,6 +653,33 @@ player's name, and writes `<le>\turbo\callnames\masters\<lang>.json` atomically:
 One unreadable workbook (no `callnames` sheet, missing columns) is reported and skipped; the others are written.
 `--self-test` builds small workbooks in a temporary folder and checks the mapping, the duplicate, the skipped rows,
 the JSON and an FC 27 master winning over the FC 26 list (in another folder and in the same folder).
+
+**FC 27 types, game build, audio folder (2026-10-11).** An FC 27 master written by `build_callname_master.py` (§10)
+also has rows of type "real link" (PLAYER_NAMES_LINK), "real high" and "generic high" (PLAYER_NAMES_HIGH by player id /
+surname id); the type is matched without case, `_` = space. The importer keeps them as `build_callname_master.py`'s
+JSON names them: `real_players` = 'real' | 'real link' (the players with their own recording), `real_simple_players`,
+`real_link_players`, `real_high_players` and `generic_high_ids` (not own recordings), `segments.real_link` /
+`real_high` / `generic_high`, and the counts `real_link_rows`, `own_recording_players`, `any_recording_players`, ...;
+`names` covers every real player (a 'real' row's name, else a 'real link' row's). These keys are written only when the
+workbook has such rows, so an FC 26 list keeps its shape. `game_build` (FC 27 masters): `--game-build <lang>=<build>`,
+else the JSON `build_callname_master.py` wrote for the same workbook (`<lang>.json` in a root, beside or above the
+workbook, same language and workbook file name), else the bank `raw\<lang>_bank.json`. A SegmentID 0 is a segment
+(`pSIMPLE_SURNAME_0_0.wav` exists in every language's audio). `wav_dir`: `--wav-dir <lang>=DIR` (`<lang>=` = none,
+repeatable), else an FC 27 Italian master's `<root>\i27`, else the workbook's folder, else `<workbook folder>\audio`
+(`ned\audio\{generic,real}` for dut_nl), else for an FC 26 list `<root>\<first 3 letters of the code>[\audio]` - each
+when it holds a `generic\` or `real\` folder (any case). Rebuilt ita_it (2026-10-11, scratch folder): the 10-04 lists
+again (4,046 / 4,039 / 985 / 2,214 / 2,533) and `game_build` 1.0.140.64835.
+
+**The pipeline: `turbo/tools/replicate_language_structure.py`.** One run per PC for every commentary language: the packs
+found like `installed_commentary_packs` (plus `--lang`; `--no-detect`, `--all-workbooks`). Per language: a) with
+`--extract`, for a downloaded pack only, `fc27_commentary.py` then `build_callname_master.py` (inputs in
+`<le>\turbo_dev\masters\raw`, template = the language's FC 26 workbook); b) the importer above (in process); c)
+`spoken_<lang>.txt` from the FC 27 bank's generic rows (`--spoken-intensity any|1|2`, default any; only when the bank
+and the master have the same game build) or else from the master's generic ids, ids 900000..965000, with a comment line
+naming the source under the header; d) `audio_check` in the JSON: per family the ids with / without a wav and without a
+segment; e) `--write` writes `<out>\masters\<lang>.json` and `<out>\spoken_<lang>.txt` (`<out>` = `--out` or
+`<le>\turbo\callnames`); the default is a dry run. It never writes into a git worktree (an `--out` with a `.git` above it
+is refused): the master JSONs hold real player names and stay local. A table per language ends the run. `--self-test`.
 
 **What Turbo does with it** (`core/callnames.{h,cpp}`): `Callnames::refresh` reads `masters\<lang>.json` for the
 loaded language into `Callnames::masters` (`parse_master_list_json`: never throws, skips entries of the wrong type,
