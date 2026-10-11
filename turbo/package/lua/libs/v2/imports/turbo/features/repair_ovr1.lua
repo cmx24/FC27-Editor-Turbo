@@ -339,16 +339,28 @@ function M.check_and_repair(opts)
         return false, "players table not found"
     end
     local rows = target_rows(players, M.TARGETS)
-    local to_repair, normal, missing = {}, {}, {}
+    -- career guard: a target is repaired only while he plays for the user's club of the LOADED career (the Torino career);
+    -- in any other career (Leicester, a copy, another save) the same player id is left alone and listed
+    local user = game.user_team_id() or 0
+    local to_repair, normal, missing, elsewhere = {}, {}, {}, {}
     for _, pid in ipairs(target_pids(only)) do
         local prec = rows[pid]
         if not prec then missing[#missing + 1] = pid
-        elseif M.needs_repair(players, prec) then to_repair[#to_repair + 1] = { pid = pid, file = M.TARGETS[pid], prec = prec }
-        else normal[#normal + 1] = pid end
+        else
+            local _, tid = moves.club_link(pid)
+            if user <= 0 or tid ~= user then
+                elsewhere[#elsewhere + 1] = string.format("%d (club %s)", pid, tostring(tid))
+            elseif M.needs_repair(players, prec) then
+                to_repair[#to_repair + 1] = { pid = pid, file = M.TARGETS[pid], prec = prec }
+            else
+                normal[#normal + 1] = pid
+            end
+        end
     end
-    local checked = #to_repair + #normal + #missing
-    say(run, "checked %d target players: %d need repair, %d normal, %d not in this career%s", checked, #to_repair, #normal,
-        #missing, (#missing > 0) and (" (" .. table.concat(missing, ", ") .. ")") or "")
+    local checked = #to_repair + #normal + #missing + #elsewhere
+    say(run, "checked %d target players: %d need repair, %d normal, %d not in this career%s%s", checked, #to_repair, #normal,
+        #missing, (#missing > 0) and (" (" .. table.concat(missing, ", ") .. ")") or "",
+        (#elsewhere > 0) and string.format("; %d not in your club %d (left alone: %s)", #elsewhere, user, table.concat(elsewhere, ", ")) or "")
     if #to_repair == 0 then
         local rp = write_report(run)
         return true, string.format("checked %d target players: none needs repair (%s)", checked, rp)

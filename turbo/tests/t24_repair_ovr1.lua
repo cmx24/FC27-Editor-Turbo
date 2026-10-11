@@ -330,4 +330,25 @@ H.case("runner script: dry run by default; TURBO_REPAIR_CONFIRM writes once and 
     sim.in_cm = true
 end)
 
+H.case("career guard: a target who plays for another club in the loaded career is left alone, even with opt-in and confirm", function()
+    local saved = repair.TARGETS
+    repair.TARGETS = { [A] = "Test_A_1003.json", [2001] = "Other_2001.json" }
+    touch("repair_ovr1_on.txt")
+    do  -- players table only: a player of another club has no growth row
+        local rec = prow(2001)
+        sim:set_field(rec, sim.tables.players.overallrating, 1)
+        for _, a in ipairs(W.ATTRS) do sim:set_field(rec, sim.tables.players[a], 1) end
+    end
+    local before_a = pval(A, "overallrating")
+    local sets = plan_sets()
+    local ok, msg = repair.check_and_repair({ write = true, manual = true, only = 2001 })
+    H.eq(ok, true, msg)
+    H.has(report(), "1 not in your club 1 (left alone: 2001 (club ")
+    H.eq(pval(2001, "overallrating"), 1, "the other club's player is not written")
+    H.eq(pval(A, "overallrating"), before_a, "the user's player untouched by an 'only' run on another id")
+    H.eq(plan_sets(), sets, "no plan write")
+    repair.TARGETS = saved
+    os.remove(H.out("repair_ovr1_on.txt"))
+end)
+
 H.finish()

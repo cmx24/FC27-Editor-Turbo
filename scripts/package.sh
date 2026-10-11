@@ -13,6 +13,8 @@ done
 OUT="$ROOT/dist/FC27_LE_Turbo_$VER.zip"
 STAGE="$(mktemp -d)"; trap 'rm -rf "$STAGE"' EXIT
 cp -r "$ROOT/turbo/package/." "$STAGE/"
+# the callname master JSONs hold real player names: they stay on the user's PC (built locally with turbo/tools/import_callname_masters.py)
+rm -rf "$STAGE/turbo/callnames/masters"
 mkdir -p "$STAGE/turbo"
 cp "$ROOT/turbogui/build/win/Turbo.dll" "$ROOT/turbogui/build/win/TurboInjector.exe" "$ROOT/turbogui/build/win/TurboProbe.exe" "$STAGE/turbo/"
 find "$STAGE" -exec touch -d "2026-01-01 00:00:00" {} +

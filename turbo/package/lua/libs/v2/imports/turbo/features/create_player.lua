@@ -19,6 +19,8 @@
 -- event 0x3A, InsertTeamPlayer into Free Agents and the game's own move into the club (+ the contract record at your club): the
 -- squad screens see him at once. No InsertDBTableRow and no team-sheet write then; the shirt number is the game's. When the call
 -- answers "off" the database path below runs as before (and the summary says so).
+-- Your club (after 2.0.3): right after the create (both ways) the match crash guard's repair gives him a squad status entry at once
+-- and the summary / log say whether he has one (kill switches create_status_repair_off.txt, squad_status_repair_off.txt).
 
 local util = require 'imports/turbo/core/util'
 local db = require 'imports/turbo/core/db'
@@ -26,6 +28,8 @@ local game = require 'imports/turbo/core/game'
 local moves = require 'imports/turbo/core/moves'
 local preset = require 'imports/turbo/core/preset'
 local pnames = require 'imports/turbo/core/names'
+local log = require 'imports/turbo/core/log'
+local env = require 'imports/turbo/core/env'
 
 local M = {}
 
@@ -122,6 +126,79 @@ function M.native_payload(players, links, row, name_row, teamid, user)
     end
     local link = (links and db.has_field(links, "form")) and { form = 3 } or nil
     return { playerid = row.playerid, team = teamid, months = months, wage = wage, players = ints, names = names, link = link }, skipped
+end
+
+-- A player created at your club gets his squad status entry (PlayerStatusManager) at once (after 2.0.3): the match crash guard's
+-- repair (squad_role.repair_entries, called here directly; bridge.lua's guard is unchanged) runs right after the create instead
+-- of at the next career event; a club player without one crashed the match load (2026-10-11). Kill switches in turbo_output:
+-- create_status_repair_off.txt (this step only) and squad_status_repair_off.txt (the whole guard). Always logged. Returns the
+-- summary's note.
+M.STATUS_REPAIR_KILL_FILE = "squad_status_repair_off.txt"
+M.CREATE_STATUS_REPAIR_KILL_FILE = "create_status_repair_off.txt"
+
+local function out_switch(name)
+    local root = env.le_root()
+    return root ~= nil and util.file_exists(util.join(util.join(root, "turbo_output"), name))
+end
+
+local function status_repair()
+    local role = require 'imports/turbo/features/squad_role'
+    -- the role by age reads the players table: only built when a player is missing an entry (fallback when the game gives none)
+    local by_age = nil
+    local function role_of(p)
+        if by_age == nil then
+            local ok, f = pcall(function()
+                return (require 'imports/turbo/features/team_mass').role_by_age(role.club_players(game.user_team_id()))
+            end)
+            by_age = ok and f or false
+        end
+        return by_age and by_age(p) or nil
+    end
+    return role.repair_entries(role_of, false, { prefer_game_role = true })
+end
+
+local function status_entry(pid)
+    local later = "the match crash guard adds it at the next career load, day or match build-up"
+    local note
+    if out_switch(M.STATUS_REPAIR_KILL_FILE) then
+        note = string.format("squad status entry not checked: the match crash guard is off (kill switch turbo_output\\%s)",
+            M.STATUS_REPAIR_KILL_FILE)
+        log.info("match crash guard after create_player (player %d): %s", pid, note)
+        return note
+    end
+    if out_switch(M.CREATE_STATUS_REPAIR_KILL_FILE) then
+        note = string.format("squad status entry not checked now (kill switch turbo_output\\%s); %s",
+            M.CREATE_STATUS_REPAIR_KILL_FILE, later)
+        log.info("match crash guard after create_player (player %d): %s", pid, note)
+        return note
+    end
+    local okc, added, text, left, created = pcall(status_repair)
+    if not okc then
+        note = string.format("squad status entry not added now: the repair failed (%s); %s", tostring(added), later)
+        log.warn("match crash guard after create_player (player %d): %s", pid, note)
+        return note
+    end
+    -- read back from the game's table (nil when it cannot be read): the note never claims an entry the table does not show
+    local okr, st = pcall(function() return (require 'imports/turbo/features/squad_role').psm_state(game.user_team_id()) end)
+    local has = nil
+    if okr and type(st) == "table" and type(st.pids) == "table" then has = st.pids[pid] ~= nil end
+    local made = type(created) == "table" and created[pid] or nil
+    if added == nil then
+        note = string.format("squad status entry not added now (%s); %s", tostring(text), later)
+    elseif made and has ~= false then
+        note = string.format("squad status entry added at once (role %s, %s)", tostring(made.role),
+            made.via == "game" and "the game's AddPlayer" or "in memory")
+    elseif made then
+        note = string.format("squad status entry reported added but not found when the table was read back; %s", later)
+    elseif has == true or (has == nil and (left or 0) == 0) then
+        note = "squad status entry present"
+    elseif (left or 0) == 0 then
+        note = string.format("squad status entry missing: he is not among your club's player links yet; %s", later)
+    else
+        note = string.format("squad status entry not added now (%s); %s", tostring(text), later)
+    end
+    log.info("match crash guard after create_player (player %d): %s (%s)", pid, note, tostring(text))
+    return note
 end
 
 local function delete_row(table_name, res)
@@ -332,6 +409,14 @@ function M.run(ctx)
             if user > 0 and teamid == user then
                 local state = moves.refresh_plan(pid)
                 if state == "plan" then summary = summary .. ", development plan set" end
+                if status == "queued" then
+                    local qnote = "squad status entry: checked by the match crash guard at the next career event (the game " ..
+                        "creates him on its next tick)"
+                    log.info("match crash guard after create_player (player %d): %s", pid, qnote)
+                    summary = summary .. "; " .. qnote
+                else
+                    summary = summary .. "; " .. status_entry(pid)
+                end
             end
             miniface()
             return true, summary
@@ -362,6 +447,7 @@ function M.run(ctx)
         if not oks2 then summary = summary .. "; team sheet not changed: " .. tostring(sherr) end
         local state = moves.refresh_plan(pid)   -- his development plan (if the game made one) holds the table's attributes
         if state == "plan" then summary = summary .. ", development plan set" end
+        summary = summary .. "; " .. status_entry(pid)
     end
     miniface()
     if native_note then summary = summary .. native_note end
