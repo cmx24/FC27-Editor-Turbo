@@ -3823,6 +3823,9 @@ static void test_ui() {
             ui.frames(2);
             CHECK(ui.find("Tall and Lean##4", "##Combo") != nullptr, "the generic body types are listed by Live Editor's names");
             uint64_t rec = app.db.find(*t, "playerid", 1003);
+            // 2.0/ux-descriptors lists a named field's descriptors alphabetically, so a unique body type far down the list is
+            // reached through the combo's search box, as a user would (the item is not clickable while scrolled out of view)
+            CHECK(ui.type_into(ui.find("##flt", "##Combo"), "Ronaldo"), "search the body type combo for Ronaldo");
             CHECK(ui.click("Unique: Cristiano Ronaldo##16", "##Combo"), "pick Cristiano Ronaldo's body type");
             CHECK(app.db.get_int(*t, rec, "bodytypecode") == 16, "bodytypecode = 16");
             CHECK(app.undo(1003) && app.db.get_int(*t, rec, "bodytypecode") == 4, "undo");
