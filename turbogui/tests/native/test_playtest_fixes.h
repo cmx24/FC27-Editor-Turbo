@@ -64,7 +64,7 @@ static void playtest_fix_cases(App& app, Ui& ui, const fs::path& le) {
         ui.key(ImGuiKey_Enter);
         ui.frames(2);
         CHECK(sorted_ids() == expect_ids([&](const PlayerRow& p) { return inter.count(p.playerid) > 0; }), "club by ID: " + ids_text(sorted_ids()));
-        CHECK(ui.type_into(ui.find("Min OVR", "##plist"), "80"), "Min OVR 80");
+        CHECK(ui.type_into(ui.find("##ovr_from", "##plist"), "80"), "OVR from 80");
         CHECK(sorted_ids() == expect_ids([&](const PlayerRow& p) { return inter.count(p.playerid) > 0 && p.overall >= 80; }),
               "club + Min OVR: " + ids_text(sorted_ids()));
         // "My club" replaces the club pick (and the other way round)

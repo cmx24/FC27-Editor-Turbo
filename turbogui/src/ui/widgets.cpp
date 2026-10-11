@@ -11,7 +11,9 @@
 #include "app.h"
 #include "geo.h"
 #include "core/field_labels.h"
+#include "core/range_filter.h"
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "ui_bodytypes.h"
 #include "ui_images.h"
 
@@ -455,6 +457,121 @@ static bool ref_editor(App& app, const Table& t, uint64_t rec, const Field& f, c
     if (ImGui::IsItemHovered()) tooltip_with_raw(labels::field_title(f.name) + ": " + shown, f.name + " = " + std::to_string(cur.i));
     ImGui::PopID();
     return wrote;
+}
+
+// ---------------------------------------------------------------- form rows: label left, control right
+static float g_form_w = 0.0f;  // 0 = default
+
+void form_label_width(float w) { g_form_w = w; }
+float form_label_width() { return g_form_w > 0.0f ? g_form_w : S(150.0f); }
+
+void form_label(const char* label, const char* tip) {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(label);
+    if (tip && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+    ImGui::SameLine(form_label_width());
+}
+
+// ImGui::Checkbox (imgui_widgets.cpp 1.92) with the box drawn at the right end of the row: the ID, the item flags the test
+// engine sees and the click behaviour are the same, only the layout differs.
+bool checkbox_right(const char* label, bool* v, float label_w) {
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    if (window->SkipItems) return false;
+    ImGuiContext& g = *GImGui;
+    const ImGuiStyle& style = g.Style;
+    const ImGuiID id = window->GetID(label);
+    const char* label_end = ImGui::FindRenderedTextEnd(label);
+    const ImVec2 label_size = ImGui::CalcTextSize(label, label_end, false);
+    const float square_sz = ImGui::GetFrameHeight();
+    const ImVec2 pos = window->DC.CursorPos;
+    // the box sits at the end of the label column, further right when the label is longer than the column (or tight after the text)
+    const float col = label_w < 0.0f ? 0.0f : (label_w > 0.0f ? label_w : form_label_width()) - style.ItemSpacing.x;
+    const float box_x = std::max(col, label_size.x > 0.0f ? label_size.x + style.ItemInnerSpacing.x : 0.0f);
+    const ImRect total_bb(pos, ImVec2(pos.x + box_x + square_sz, pos.y + std::max(label_size.y + style.FramePadding.y * 2.0f, square_sz)));
+    ImGui::ItemSize(total_bb, style.FramePadding.y);
+    const bool is_visible = ImGui::ItemAdd(total_bb, id);
+    if (!is_visible) {
+        IMGUI_TEST_ENGINE_ITEM_INFO(id, label, g.LastItemData.StatusFlags | ImGuiItemStatusFlags_Checkable | (*v ? ImGuiItemStatusFlags_Checked : 0));
+        return false;
+    }
+    bool hovered, held;
+    bool pressed = ImGui::ButtonBehavior(total_bb, id, &hovered, &held);
+    if (pressed) {
+        *v = !*v;
+        ImGui::MarkItemEdited(id);
+    }
+    const ImRect check_bb(ImVec2(pos.x + box_x, pos.y), ImVec2(pos.x + box_x + square_sz, pos.y + square_sz));
+    ImGui::RenderNavCursor(total_bb, id);
+    const ImU32 bg_col = ImGui::GetColorU32((held && hovered) ? ImGuiCol_FrameBgActive : hovered ? ImGuiCol_FrameBgHovered : *v ? ImGuiCol_CheckboxSelectedBg : ImGuiCol_FrameBg);
+    ImGui::RenderFrame(check_bb.Min, check_bb.Max, bg_col, true, style.FrameRounding);
+    if (*v) {
+        const float pad = std::max(1.0f, IM_TRUNC(square_sz / 6.0f));
+        ImGui::RenderCheckMark(window->DrawList, ImVec2(check_bb.Min.x + pad, check_bb.Min.y + pad), ImGui::GetColorU32(ImGuiCol_CheckMark), square_sz - pad * 2.0f);
+    }
+    if (label_size.x > 0.0f) ImGui::RenderText(ImVec2(pos.x, pos.y + style.FramePadding.y), label, label_end);
+    IMGUI_TEST_ENGINE_ITEM_INFO(id, label, g.LastItemData.StatusFlags | ImGuiItemStatusFlags_Checkable | (*v ? ImGuiItemStatusFlags_Checked : 0));
+    return pressed;
+}
+
+bool range_filter_row(const char* label, const char* id, int& from, int& to, int hi, float box_w, const char* tip) {
+    form_label(label, tip);
+    char fid[64], tid[64];
+    std::snprintf(fid, sizeof(fid), "##%s_from", id);
+    std::snprintf(tid, sizeof(tid), "##%s_to", id);
+    const int f0 = from, t0 = to;
+    ImGui::SetNextItemWidth(box_w);
+    ImGui::InputInt(fid, &from, 0);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s from (0 = no lower bound)", label);
+    ImGui::SameLine(0.0f, S(3.0f));
+    ImGui::TextDisabled("to");
+    ImGui::SameLine(0.0f, S(3.0f));
+    ImGui::SetNextItemWidth(box_w);
+    ImGui::InputInt(tid, &to, 0);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s to (0 = no upper bound)", label);
+    range_normalize(from, to, hi, to != t0);
+    return from != f0 || to != t0;
+}
+
+bool& position_show_all() {
+    static bool all = false;
+    return all;
+}
+
+bool position_combo(const char* id, int& pos, float width, const char* none_label, int lo, int hi) {
+    if (hi < 0) hi = position_count() - 1;
+    bool picked = false;
+    const std::string cur = pos < 0 && none_label ? none_label : position_descriptor(pos);
+    ImGui::SetNextItemWidth(width);
+    if (ImGui::BeginCombo(id, cur.c_str(), ImGuiComboFlags_HeightLargest)) {
+        if (none_label && ImGui::Selectable(none_label, pos < 0) && pos >= 0) {
+            pos = -1;
+            picked = true;
+        }
+        bool& all = position_show_all();
+        std::vector<int> codes;
+        if (all) {
+            for (int p = lo; p <= hi && p < position_count(); ++p) codes.push_back(p);
+        } else {
+            for (int p : visible_positions())
+                if (p >= lo && p <= hi) codes.push_back(p);
+            // the stored value, when internal, stays selectable (shown with its descriptor)
+            if (pos >= 0 && std::find(codes.begin(), codes.end(), pos) == codes.end()) codes.push_back(pos);
+        }
+        for (int p : codes) {
+            const std::string txt = position_visible(p) ? std::string(position_name(p)) : position_descriptor(p);
+            if (ImGui::Selectable(txt.c_str(), pos == p) && pos != p) {
+                pos = p;
+                picked = true;
+            }
+            if (pos == p && ImGui::IsWindowAppearing()) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::Separator();
+        ImGui::Checkbox("Show all internal positions", &all);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The 16 codes the game stores but never names in its menus (SW, RWB, LWB, RCB, LCB, RDM, LDM, RCM, LCM, RAM, LAM, RF, CF, LF, RS, LS)");
+        ImGui::EndCombo();
+    }
+    return picked;
 }
 
 void not_connected_hint() {

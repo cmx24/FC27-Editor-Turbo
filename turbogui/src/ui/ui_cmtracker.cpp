@@ -258,13 +258,14 @@ void cmtracker_dialog(App& app) {
                 ImGui::SeparatorText("Club");
                 club_picker(app, teamid);
                 club_notes(app, teamid);
+                form_label("Shirt number", "0 = the first free number at the club");
                 ImGui::SetNextItemWidth(S(110.0f));
-                ImGui::InputInt("Shirt number (0 = first free)", &jersey, 0);
+                ImGui::InputInt("##jersey", &jersey, 0);
                 jersey = std::max(0, std::min(jersey, 99));
-                ImGui::Checkbox("Download the miniface from CMTracker", &want_face);
+                checkbox_right("Download the miniface from CMTracker", &want_face);
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("One picture request to cmtracker.fra1.cdn.digitaloceanspaces.com for this player; kept in turbo_output\\cmtracker");
-                ImGui::Checkbox("Use the real face when the game has this player's head", &want_real);
+                checkbox_right("Use the real face when the game has this player's head", &want_real);
                 ImGui::TextDisabled("Hair style, facial hair, boots and tattoos are not in the CSV: change them in Players > Appearance.");
             }
         }

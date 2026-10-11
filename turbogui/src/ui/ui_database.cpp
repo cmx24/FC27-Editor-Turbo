@@ -66,8 +66,9 @@ void draw_database(App& app) {
     auto names = app.db.table_names();
     if (app.db_table.empty() && !names.empty()) app.db_table = std::find(names.begin(), names.end(), "players") != names.end() ? "players" : names[0];
 
+    form_label("Table");
     ImGui::SetNextItemWidth(S(240.0f));
-    if (ImGui::BeginCombo("Table", app.db_table.c_str(), ImGuiComboFlags_HeightLarge)) {
+    if (ImGui::BeginCombo("##dbtable", app.db_table.c_str(), ImGuiComboFlags_HeightLarge)) {
         for (const auto& n : names) {
             if (ImGui::Selectable(n.c_str(), n == app.db_table)) {
                 app.db_table = n;

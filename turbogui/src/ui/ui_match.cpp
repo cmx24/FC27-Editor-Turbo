@@ -152,8 +152,9 @@ void draw_selected(App& app, const fce::Fixture& f, uint32_t user) {
     }
     if (!choices.empty()) {
         if (g_ms.opponent < 0 || std::find(choices.begin(), choices.end(), int16_t(g_ms.opponent)) == choices.end()) g_ms.opponent = choices[0];
+        form_label("New opponent");
         ImGui::SetNextItemWidth(S(260.0f));
-        if (ImGui::BeginCombo("New opponent", app.model.team_name(team_of(int16_t(g_ms.opponent))).c_str())) {
+        if (ImGui::BeginCombo("##newopp", app.model.team_name(team_of(int16_t(g_ms.opponent))).c_str())) {
             for (int16_t sid : choices) {
                 ImGui::PushID(sid);
                 if (ImGui::Selectable(app.model.team_name(team_of(sid)).c_str(), sid == g_ms.opponent)) g_ms.opponent = sid;
@@ -179,11 +180,15 @@ void draw_selected(App& app, const fce::Fixture& f, uint32_t user) {
         std::string why;
         const bool ready = app.match_setup->fixing_ready(&why);
         ImGui::BeginDisabled(!ready);
+        form_label("Home goals");
         ImGui::SetNextItemWidth(S(90.0f));
-        ImGui::InputInt("Home goals", &g_ms.fix_home);
+        ImGui::InputInt("##homegoals", &g_ms.fix_home);
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Away goals");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(S(90.0f));
-        ImGui::InputInt("Away goals", &g_ms.fix_away);
+        ImGui::InputInt("##awaygoals", &g_ms.fix_away);
         g_ms.fix_home = std::clamp(g_ms.fix_home, 0, int(mfix::kMaxGoals));
         g_ms.fix_away = std::clamp(g_ms.fix_away, 0, int(mfix::kMaxGoals));
         ImGui::SameLine();

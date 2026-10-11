@@ -360,8 +360,9 @@ static void mass_actions_tab(App& app, const TeamRow& tr) {
         ImGui::PopTextWrapPos();
         ImGui::PopStyleColor();
         if (aid == "dev_bonus") {
+            form_label("Dev bonus points", "1 to 10; used by Dev bonus and by All actions");
             ImGui::SetNextItemWidth(S(140.0f));
-            ImGui::InputInt("Dev bonus points (1-10, Dev bonus and All actions)##tmbonus", &bonus_xp, 1, 1);
+            ImGui::InputInt("##tmbonus", &bonus_xp, 1, 1);
             bonus_xp = std::clamp(bonus_xp, 1, 10);
         }
         if (aid == "squad_roles" && own) {

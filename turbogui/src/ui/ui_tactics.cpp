@@ -631,9 +631,9 @@ void draw_opp_card(App& app) {
     g_state.opp = st;
     ImGui::SeparatorText("Opposition");
     ImGui::TextDisabled("Turbo's own estimate. Nothing below reaches the game until you press Apply, and only injury and difficulty offsets can.");
-    ImGui::Checkbox("Opposition variety on##tacoppon", &o.on);
+    checkbox_right("Opposition variety on##tacoppon", &o.on);
     ImGui::SameLine();
-    ImGui::Checkbox("Opponent plays at home##tacopphome", &o.home);
+    checkbox_right("Opponent plays at home##tacopphome", &o.home);
     if (ImGui::Button("Re-roll##tacopproll")) ++o.salt;
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Another seeded wobble for the same fixture. The same fixture and the same settings always give the same result.");
     ImGui::SameLine();
@@ -1028,7 +1028,7 @@ void draw_left(App& app) {
         ImGui::OpenPopup("##tacimppick");
     }
     ImGui::BeginDisabled(!lp);
-    ImGui::Checkbox("Compare with the loaded preset##taccmp", &g_tac.compare);
+    checkbox_right("Compare with the loaded preset##taccmp", &g_tac.compare);
     ImGui::EndDisabled();
     if (!lp) g_tac.compare = false;
     g_state.compare = g_tac.compare && lp;
@@ -1070,10 +1070,10 @@ void draw_centre(App& app) {
         if (i) ImGui::SameLine();
         ImGui::RadioButton(kPhase[i], &g_tac.phase, i);
     }
-    ImGui::Checkbox("Schematic layers (dashed)##tacd", &g_tac.show_derived);
-    ImGui::Checkbox("Modelled layer (hatched, off by default)##tach", &g_tac.show_heat);
-    ImGui::Checkbox("Roaming range (stippled, off by default)##tacr", &g_tac.show_roam);
-    ImGui::Checkbox("Exposure hint (hatched, off by default)##tace", &g_tac.show_risk);
+    checkbox_right("Schematic layers (dashed)##tacd", &g_tac.show_derived);
+    checkbox_right("Modelled layer (hatched, off by default)##tach", &g_tac.show_heat);
+    checkbox_right("Roaming range (stippled, off by default)##tacr", &g_tac.show_roam);
+    checkbox_right("Exposure hint (hatched, off by default)##tace", &g_tac.show_risk);
 
     PreviewOptions opt;
     opt.phase = static_cast<Phase>(std::clamp(g_tac.phase, 0, 2));
@@ -1171,7 +1171,7 @@ void draw_right(App& app) {
     g_state.changed = changed;
     ImGui::Text("%d changed", changed);
     ImGui::SameLine();
-    ImGui::Checkbox("Dry run##tacdry", &g_tac.dry_run);
+    checkbox_right("Dry run##tacdry", &g_tac.dry_run);
     ImGui::BeginDisabled(g_tac.off);
     if (ImGui::Button("Apply##tac")) apply_changes(app);
     ImGui::EndDisabled();
