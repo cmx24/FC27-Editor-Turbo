@@ -293,6 +293,23 @@ struct HostService : msetup::Service {
         g_results.pop_front();
         return true;
     }
+    // Read-only: the value the live table holds now (gv::current walks the table without any game call or lock)
+    bool read_back(const std::string& name, int32_t& value, std::string& why) override {
+        if (!g_installed) {
+            why = "game calls are not installed";
+            return false;
+        }
+        if (!g_off.empty()) {
+            why = g_off;
+            return false;
+        }
+        why = gv::check_name(name);
+        if (!why.empty()) return false;
+        ProcessMemory mem;
+        if (gv::current(mem, g_fns, name, value)) return true;
+        why = "the game's table holds no value for " + name + " (cleared, never set, or not an integer)";
+        return false;
+    }
     std::vector<msetup::VarLine> vars() override {
         std::vector<msetup::VarLine> out;
         std::lock_guard<std::mutex> lock(g_mutex);
@@ -360,11 +377,15 @@ std::vector<std::string> match_setup_status() {
     char line[640];
     size_t active = 0;
     long long runs = 0;
-    std::string last, fix_last;
+    std::string last, fix_last, active_list;
     bool hooks = false;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
-        for (const auto& kv : g_vars) active += kv.second.active ? 1 : 0;
+        for (const auto& kv : g_vars) {
+            if (!kv.second.active) continue;
+            ++active;
+            active_list += (active_list.empty() ? "" : ", ") + kv.first + " = " + std::to_string(kv.second.value);
+        }
         runs = g_runs;
         last = g_last;
         fix_last = g_fix_last;
@@ -377,6 +398,8 @@ std::vector<std::string> match_setup_status() {
         std::snprintf(line, sizeof(line), "gamevar: off (%s)", why.c_str());
     out.push_back(line);
     if (!last.empty()) out.push_back("  last: " + last);
+    // every active override with the value its SetInt read back (the accepted-by-the-game evidence for the A/B test)
+    if (!active_list.empty()) out.push_back("  active overrides (read back after SetInt): " + active_list);
     std::shared_ptr<const mfix::FixTable> t = std::atomic_load(&g_fix_table);
     if (fixing_ready_impl(&why))
         std::snprintf(line, sizeof(line), "match_fix: %s | scheduling %s, standings %s | %zu fix(es), %lld result(s) rewritten, %lld left as played",

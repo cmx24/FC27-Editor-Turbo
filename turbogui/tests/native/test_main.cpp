@@ -12946,6 +12946,8 @@ static void test_match_setup() {
 #include "test_role_rules.h"  // Turbo 2.0 track G: the squad role rule editor
 // slider registry, tactic profiles, tactics preview, opposition solver (Turbo 2.0 b-core)
 #include "test_tactics_core.h"
+// Turbo 2.1 tactics channel A: per-side gameplay slider game variables and the A/B presets (core/gameplay_sliders.h)
+#include "test_gameplay_sliders.h"
 
 int main(int argc, char** argv) {
     if (argc < 3) {
@@ -13009,6 +13011,7 @@ int main(int argc, char** argv) {
     std::printf("native club customisation and career settings\n");
     club_tools_test::run();
     tactics_core_test::run();
+    gameplay_sliders_test::run();
     std::printf("native voice swaps\n");
     test_callname_voice();
     test_callname_voice_host();

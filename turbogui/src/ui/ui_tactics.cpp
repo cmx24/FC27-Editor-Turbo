@@ -178,6 +178,7 @@ const Formation& shown_formation(App& app) {
 
 // ---------------------------------------------------------------------------------------------------------------- writes
 std::string tag_of(const SliderDef& d) {
+    if (d.untested && d.status == SliderStatus::Live) return "game variable accepted by the game's store; untested in a played match";
     switch (d.status) {
         case SliderStatus::Live: return "game variable, applies in played matches";
         case SliderStatus::DB: return "saved data, in-game effect unverified";
@@ -754,8 +755,11 @@ void draw_row(App& app, const SliderDef& d, const Profile* cmp) {
     ImGui::TextUnformatted(d.label.c_str());
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", d.description.c_str());
     ImGui::SameLine();
-    ImGui::TextColored(badge_colour(d.status), "[%s]", status_name(d.status));
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", status_badge_help(d.status));
+    const bool untested = d.untested && d.status == SliderStatus::Live;  // channel A sliders: accepted by the store, no match seen
+    ImGui::TextColored(untested ? ImVec4(1, 0.75f, 0.3f, 1) : badge_colour(d.status), "[%s]", untested ? "Live, untested" : status_name(d.status));
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", untested ? "Accepted by the game's variable store (read back ok). No played match has shown an effect yet: off by default."
+                                         : status_badge_help(d.status));
     ImGui::SameLine();
     if (ImGui::SmallButton("o##reset")) w.reset(d.key);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Back to \"the game decides\"");

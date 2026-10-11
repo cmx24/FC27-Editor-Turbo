@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <cstdlib>
 
+#include "gameplay_sliders.h"
+
 namespace turbo {
 
 const char* scope_name(SliderScope s) {
@@ -174,6 +176,26 @@ std::vector<SliderDef> build() {
     b.re("match.trap_error", "Ball control", "Trapping error", "How often a received ball bounces away.");
     b.re("match.ball_control_error", "Ball control", "Ball control error", "How often dribbling and close control slip.");
     b.re("match.gk_ability", "Goalkeepers", "Goalkeeper ability", "How good goalkeepers are at saving shots.");
+    // Per-side gameplay slider game variables (core/gameplay_sliders.h; channel A of docs/plans/tactics-2.1/PLAN.md section 5): the
+    // game's settings reset reads GAMEPLAY_CUSTOMIZATION/<X>_USER and _CPU with GetInt(name, current slider byte). The write is
+    // accepted by the game's store (read back ok); whether it reaches a played match is UNTESTED: badge "Live, untested", off by default,
+    // "off" clears the variable (50 is never sent as off). The 11 "both teams" preview rows above stay until the A/B verdict. The
+    // block's USER injury names are the proven rows at the top of this list; the block's _CPU injury names are the A/B positive control.
+    for (const gs::Slider& s : gs::family()) {
+        for (gs::Side side : {gs::Side::User, gs::Side::Cpu}) {
+            const std::string var = gs::var_name(s, side);
+            bool owned = false;
+            for (const SliderDef& e : b.v)
+                if (e.binding.kind == BindingKind::GameVar && !e.binding.targets.empty() && e.binding.targets[0] == var) owned = true;
+            if (owned) continue;
+            const std::string group = std::string("Per side: ") + gs::group_name(s.group);
+            const std::string label = std::string(s.label) + " (" + gs::side_label(side) + ")";
+            const std::string desc = std::string(s.what) + " Accepted by the game's variable store; whether it changes a played match is untested.";
+            auto& d = b.gv(gs::registry_key(s, side), group.c_str(), label.c_str(), desc.c_str(), var.c_str(), gs::kMin, gs::kMax, gs::kNeutral);
+            d.per_side = true;
+            d.untested = true;
+        }
+    }
     // the referee table (every referee row); the schema gives the range 0..2, not which end is the strict one
     b.db("match.foul_strictness", "Referee", "Foul strictness", "How readily the referee whistles a challenge as a foul.", {"referee.foulstrictness"}, 0, 2, 1)
         .kind = SliderKind::Enum;

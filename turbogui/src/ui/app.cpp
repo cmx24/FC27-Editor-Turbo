@@ -189,7 +189,8 @@ std::unordered_set<int64_t> App::commentary_ids() {
 }
 
 App::~App() {
-    tactics_clear_on_exit(*this);  // game variables the Tactics tab set go back to "the game decides"
+    tactics_clear_on_exit(*this);      // game variables the Tactics tab set go back to "the game decides"
+    match_setup_clear_on_exit(*this);  // ... and those the Match setup panel / A/B presets set (ui_match.cpp)
     if (reapply_save_due_) save_reapply();  // a player edit kept in the last frame
     bank_cancel_ = true;
     if (bank_thread_.joinable()) bank_thread_.join();
