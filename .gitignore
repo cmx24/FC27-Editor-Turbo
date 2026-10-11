@@ -10,3 +10,5 @@ scripts/re/ripscan.exe
 dist/
 # local agent / tool state (worktrees, settings)
 .claude/
+# callname master JSONs (real player names): built locally, never committed or shipped
+turbo/package/turbo/callnames/masters/
