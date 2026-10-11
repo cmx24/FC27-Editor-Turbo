@@ -229,7 +229,7 @@ const char* enum_label(const std::string& field, int64_t v) { return labels::enu
 std::string code_value_text(const std::string& field, int64_t v, const labels::CodeUsers* live) {
     if (labels::enum_def(field)) {
         if (const char* l = enum_label(field, v)) return l;
-        return labels::code_n(v);
+        return labels::unnamed_n(v);
     }
     return labels::code_text(field, v, field_label(field), live);
 }
@@ -353,14 +353,27 @@ bool enum_editor(App& app, const Table& t, uint64_t rec, const Field& f, const c
         bool is_num = filt[0] && endp && *endp == 0;
         if (is_num && typed >= f.min && typed <= f.max() && std::find(codes.begin(), codes.end(), typed) == codes.end())
             codes.insert(codes.begin(), typed);
-        for (int64_t v : codes) {
-            std::string txt = code_value_text(f.name, v, live_users(app, t, f, v));
+        struct Row {
+            int64_t v;
+            std::string txt;
+        };
+        std::vector<Row> rows;
+        for (int64_t v : codes) rows.push_back({v, code_value_text(f.name, v, live_users(app, t, f, v))});
+        // descriptors read in alphabetical order (roles, colours, weather...); item catalogues ("Boots #1432") stay in code order
+        if (labels::has_descriptors(f.name))
+            std::stable_sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) {
+                return std::lexicographical_compare(a.txt.begin(), a.txt.end(), b.txt.begin(), b.txt.end(), [](unsigned char x, unsigned char y) {
+                    return std::tolower(x) < std::tolower(y);
+                });
+            });
+        for (const Row& r : rows) {
             char num[24];
-            std::snprintf(num, sizeof(num), "%lld", static_cast<long long>(v));
-            if (filt[0] && !contains_ci(txt, filt) && std::strcmp(num, filt) != 0) continue;
-            const std::string item = txt + "##" + num;  // "Left##2": the code is the item's ID
-            if (ImGui::Selectable(item.c_str(), v == cur.i) && v != cur.i) wrote = app.edit(t, rec, f, Value::of_int(v));
-            if (v == cur.i && ImGui::IsWindowAppearing()) ImGui::SetItemDefaultFocus();
+            std::snprintf(num, sizeof(num), "%lld", static_cast<long long>(r.v));
+            if (filt[0] && !contains_ci(r.txt, filt) && std::strcmp(num, filt) != 0) continue;
+            const std::string item = r.txt + "##" + num;  // "Left##2": the code is the item's ID
+            if (ImGui::Selectable(item.c_str(), r.v == cur.i) && r.v != cur.i) wrote = app.edit(t, rec, f, Value::of_int(r.v));
+            if (r.v == cur.i && ImGui::IsWindowAppearing()) ImGui::SetItemDefaultFocus();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s = %s", f.name.c_str(), num);  // the game's number: tooltip only
         }
         ImGui::EndCombo();
     }

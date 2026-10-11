@@ -371,7 +371,7 @@ static void playstyle_bits(App& app, const Table& t, uint64_t rec, const char* f
             if (b < static_cast<int>(names.size()) && names[static_cast<size_t>(b)])
                 std::snprintf(lbl, sizeof(lbl), "%s##%d", names[static_cast<size_t>(b)], b);
             else
-                std::snprintf(lbl, sizeof(lbl), "Bit %d##%d", b, b);
+                std::snprintf(lbl, sizeof(lbl), "Unnamed bit %d##%d", b, b);
             if (ImGui::Checkbox(lbl, &on)) {
                 uint64_t raw = static_cast<uint64_t>(v.i - f->min);
                 raw = on ? (raw | (uint64_t(1) << b)) : (raw & ~(uint64_t(1) << b));

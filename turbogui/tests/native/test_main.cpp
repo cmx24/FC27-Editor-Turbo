@@ -257,8 +257,8 @@ static void test_field_labels() {
         using namespace turbo::labels;
         CHECK(code_text("role1", 1, "Role") == "GK Goalkeeper+", "role 1 is GK Goalkeeper+");
         CHECK(code_text("role9", 113, "Role") == "CB Ball-Playing Defender++", "role 113 is the ++ variant");
-        CHECK(code_text("role2", 9999, "Role") == "Code 9999" && code_label("role2", 9999, "Role").kind == Kind::Code,
-              "a code nothing names reads Code N");
+        CHECK(code_text("role2", 9999, "Role") == "Unnamed 9999" && code_label("role2", 9999, "Role").kind == Kind::Unnamed,
+              "a code nothing names reads Unnamed N (never Code N: the UI walk fails on it)");
         CHECK(code_text("emotion", 5, "Emotion") == "Volcano", "emotion 5 is Volcano (LE localization)");
         CHECK(code_text("bodytypecode", 4, "Body") == "Tall and Lean", "body type 4");
         CHECK(code_text("haircolorcode", 0, "Hair colour") == "Black", "hair colour 0");
@@ -280,7 +280,7 @@ static void test_field_labels() {
                   code_label("bodytypecode", 16, "Body type").kind == Kind::Described,
               "unique body types: " + code_text("bodytypecode", 16, "Body type"));
         CHECK(code_text("bodytypecode", 260, "Body type") == "Unique: Nélson Semedo, Kyle Walker-Peters", "a body type two players share lists both, best-rated first");
-        CHECK(code_text("bodytypecode", 499, "Body type") == "Code 499", "a body type nothing knows reads Code N");
+        CHECK(code_text("bodytypecode", 499, "Body type") == "Player-specific body model 499", "a body type nothing knows: " + code_text("bodytypecode", 499, "Body type"));
         const CodeUsers live{2, "Ann Example"};
         CHECK(code_text("bodytypecode", 499, "Body type", &live) == "Unique: Ann Example +1 more" &&
                   code_text("bodytypecode", 16, "Body type", &live) == "Unique: Cristiano Ronaldo",
@@ -297,7 +297,7 @@ static void test_field_labels() {
         CHECK(offered_codes("skintonecode", {}, 20) == std::vector<int64_t>({10, 20, 30, 40, 50, 60, 70, 80, 90, 100}), "skin tone combo: the ten");
         // hair colours 15 .. 27 and the facial hair colours (the hair palette)
         CHECK(code_text("haircolorcode", 21, "") == "Jet Black" && code_label("haircolorcode", 21, "").kind == Kind::Described &&
-                  code_text("haircolorcode", 27, "") == "Copper" && code_text("haircolorcode", 28, "") == "Code 28",
+                  code_text("haircolorcode", 27, "") == "Copper" && code_text("haircolorcode", 28, "") == "Unnamed 28",
               "FC 27 hair colours 15 .. 27");
         CHECK(code_text("facialhaircolorcode", 4, "") == "Light Blonde" && code_text("facialhaircolorcode", 7, "") == "Red" &&
                   code_text("facialhaircolorcode", 21, "") == "Jet Black" && offered_codes("facialhaircolorcode", {}, 0).size() == 28,
@@ -335,7 +335,7 @@ static void test_field_labels() {
         auto bare = [](const std::string& s) {
             return !s.empty() && s.find_first_not_of("-0123456789") == std::string::npos;
         };
-        auto is_code_n = [](const std::string& s) { return s.rfind("Code ", 0) == 0 && s.find_first_not_of("0123456789", 5) == std::string::npos; };
+        auto is_code_n = [](const std::string& s) { return s.rfind("Unnamed ", 0) == 0 && s.find_first_not_of("0123456789", 8) == std::string::npos; };
         size_t fields = 0, values = 0, named = 0, described = 0, code_n = 0, empty = 0, numbers = 0, missing = 0;
         std::string code_fields;
         for (const FixtureCodes& fc : kPlayerCodes) {
@@ -356,12 +356,12 @@ static void test_field_labels() {
             }
             if (field_codes) code_fields += fmt(" %s(%zu)", fc.field, field_codes);
         }
-        std::printf("      %zu fields, %zu values: %zu named, %zu described, %zu Code N:%s\n", fields, values, named, described, code_n,
+        std::printf("      %zu fields, %zu values: %zu named, %zu described, %zu Unnamed N:%s\n", fields, values, named, described, code_n,
                     code_fields.c_str());
         CHECK(fields >= 60 && values >= 2500, fmt("fixture covers the code fields (%zu fields, %zu values)", fields, values));
         CHECK(empty == 0 && numbers == 0, fmt("no empty label (%zu), no bare number (%zu)", empty, numbers));
         CHECK(missing == 0, fmt("every value is offered by its combo (%zu missing)", missing));
-        // only Turbo's small enumerations without a source for some values may still read Code N
+        // only Turbo's small enumerations without a source for some values may still read Unnamed N
         CHECK(code_fields.find("bodytypecode") == std::string::npos && code_fields.find("colorcode") == std::string::npos &&
                   code_fields.find("role") == std::string::npos && code_fields.find("accessory") == std::string::npos,
               "every appearance code of the database has a name or a description:" + code_fields);
@@ -2812,6 +2812,7 @@ static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_bodytypes.h"  // body type catalogue (runtime-loaded probe + localize.json) and its gallery
 #include "test_face3d_looks.h"  // 3D looks of the real faces: generated data, lookup, the chooser's 3D facets
 #include "test_describe.h"  // codes to descriptions: describe(), user text, pickers, the "no code N" UI walk
+#include "test_descriptors.h"  // 2.0/ux-descriptors: every code field over its whole schema range, never a bare number
 #include "test_wheel.h"  // 1.1.3: mouse wheel source (hook, raw input, window messages)
 static std::string hex_bytes(const std::vector<uint8_t>& d) {
     static const char* h = "0123456789abcdef";
@@ -12960,6 +12961,7 @@ int main(int argc, char** argv) {
     test_core();
     test_field_labels();
     test_describe_core();
+    test_descriptors_core();
     std::printf("native pictures\n");
     test_images();
     std::printf("native dev service\n");

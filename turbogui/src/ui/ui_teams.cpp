@@ -196,7 +196,7 @@ static void club_pick_table(App& app, const char* id, const char* hint, char* se
             if (!q.empty() && lower(t.name).find(q) == std::string::npos && std::to_string(t.teamid).find(q) != 0) continue;
             if (!team_in_geo(app, t, f.nation, f.league)) continue;
             std::string lname = g.league_name(t.league);
-            if (lname.empty()) lname = std::to_string(t.league);
+            if (lname.empty()) lname = "League " + std::to_string(t.league);
             rows.push_back({&t, std::move(lname)});
         }
         table_sort(rows, [](const ClubRow& a, const ClubRow& b, int col) {

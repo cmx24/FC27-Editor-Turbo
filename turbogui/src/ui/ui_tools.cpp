@@ -585,8 +585,8 @@ void draw_status(App& app) {
     ImGui::Text("Lua state: %s", st.loaded ? "received" : "not received");
     if (st.loaded) {
         ImGui::Text("  LE %s | session %s | update #%lld", st.le_version.c_str(), st.session.c_str(), st.seq);
-        ImGui::Text("  DB service %s | career loaded: %s | your club: %lld", hex_addr(st.db_service).c_str(),
-                    st.in_cm ? "yes" : "no", static_cast<long long>(st.user_team));
+        ImGui::Text("  DB service %s | career loaded: %s | your club: %s (%lld)", hex_addr(st.db_service).c_str(),
+                    st.in_cm ? "yes" : "no", app.model.team_name(st.user_team).c_str(), static_cast<long long>(st.user_team));
         if (st.date.valid()) ImGui::Text("  In-game date: %04d-%02d-%02d", st.date.year, st.date.month, st.date.day);
         if (!st.unavailable.empty()) {
             ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "  Not possible with this Live Editor build (%zu):",
