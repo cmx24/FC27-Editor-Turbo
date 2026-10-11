@@ -45,7 +45,8 @@ public:
         PreloadKind kind = PreloadKind::ClubMiniface;
         bool file = false;
         bool settled = false;  // decoded (handed to the worker), missing in the game, or invalid
-        bool asked = false;    // asked from Turbo's Lua side (LegacyImages::want_background)
+        bool asked = false;    // asked from Turbo's Lua side (LegacyImages::ask_background accepted it, or it was known)
+        bool refused = false;  // Lua's background list was full when it was asked: still pending and unasked, asked again later
         size_t order = 0;      // insertion index within its kind
     };
 
@@ -89,10 +90,24 @@ public:
 
     void settle(Item& it) {
         if (it.settled) return;
+        unrefuse(it);
         it.settled = true;
         ++settled_;
         ++settled_kind_[static_cast<int>(it.kind)];
     }
+    // The background list was full (LegacyImages::Ask::Full): the item stays pending and unasked; next_pending() brings
+    // it round again and the caller asks once more. Counted once however often it is refused.
+    void refuse(Item& it) {
+        if (it.settled || it.refused) return;
+        it.refused = true;
+        ++refused_;
+    }
+    // Asked (accepted), or already known to the Lua side: nothing more to ask for it
+    void accept(Item& it) {
+        unrefuse(it);
+        it.asked = true;
+    }
+    size_t refused() const { return refused_; }
 
     // The career left (or the setting was switched off): forget everything; add() is refused until reset()
     void cancel() {
@@ -120,15 +135,20 @@ private:
         items_.clear();
         seen_.clear();
         for (int i = 0; i < kPreloadKinds; ++i) added_[i] = settled_kind_[i] = 0;
-        settled_ = pos_ = 0;
+        settled_ = refused_ = pos_ = 0;
         sorted_ = true;
+    }
+    void unrefuse(Item& it) {
+        if (!it.refused) return;
+        it.refused = false;
+        --refused_;
     }
 
     std::vector<Item> items_;
     std::unordered_set<std::string> seen_;
     size_t added_[kPreloadKinds] = {};
     size_t settled_kind_[kPreloadKinds] = {};
-    size_t settled_ = 0, pos_ = 0;
+    size_t settled_ = 0, refused_ = 0, pos_ = 0;
     bool sorted_ = true, cancelled_ = false;
 };
 

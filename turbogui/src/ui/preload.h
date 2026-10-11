@@ -3,10 +3,13 @@
 //   * game pictures, in the order of ui/preload_queue.h: the user's club's minifaces, the listed players' minifaces, the
 //     real-face chooser (real-face minifaces and the 3D head renders already in turbo_output\cache\faces3d), tattoo
 //     previews, hair / facial hair / boots / gloves / accessory previews, club crests, managers' real-face heads.
-//     Missing ones are asked from Turbo's Lua side after everything on screen (LegacyImages::want_background); while
+//     Missing ones are asked from Turbo's Lua side after everything on screen (LegacyImages::ask_background); while
 //     Turbo is shown the host nudges Lua with its synthetic career event (App::lua_images_wanted), and Lua exports for
 //     at most 0.25 s per career event (bridge.lua pump(0.25), unchanged). Exported files stay in turbo_output\cache\legacy
-//     for later sessions (the disk cache), so the next start only decodes them.
+//     for later sessions (the disk cache), so the next start only decodes them. Lua's background list holds at most
+//     LegacyImages::kMaxBackground (20 000) paths: a picture refused because the list is full stays queued and unasked,
+//     is asked again as the list drains (a few retries per frame, so a full list costs no frame time), and the progress
+//     line says "waiting: N refused" meanwhile.
 //   * decoding: files at hand go to TextureCache::preload (worker thread); the grids then only upload them.
 //   * callnames: the loaded language and the spoken set (Callnames::refresh) before the Callname tab is opened.
 //   * the setting gui.preload_images (ui/gui_prefs.h, default true) switches the pictures off; when the game leaves the
@@ -32,6 +35,7 @@ namespace turbo {
 class Preloader {
 public:
     static constexpr size_t kChecksPerFrame = 64;  // file stats per frame
+    static constexpr size_t kRefusedPerFrame = 4;  // retries of refused pictures per frame while Lua's list is full
     static constexpr float kSide = 100.0f;         // decoded size (unscaled px): the largest grid cell (S(100))
 
     bool started() const { return started_; }
@@ -39,6 +43,8 @@ public:
     size_t total() const { return queue_.size(); }
     size_t settled() const { return queue_.settled(); }
     size_t missing() const { return missing_; }
+    size_t refused() const { return queue_.refused(); }  // pending pictures Lua's full background list refused (asked again)
+    size_t refusals() const { return refusals_; }        // how often a picture was refused in all (every retry counts)
     bool callnames_done() const { return callnames_done_; }
     const std::string& why() const { return why_; }
     bool loading() const { return started_ && (!collected_ || !queue_.done()); }
@@ -89,7 +95,8 @@ public:
         }
         if (queue_.done()) return;
         const int side = static_cast<int>(std::ceil(S(kSide)));
-        for (size_t checks = 0; checks < kChecksPerFrame; ++checks) {
+        size_t refused_now = 0;  // back off: a full Lua list is tried kRefusedPerFrame times per frame, then next frame
+        for (size_t checks = 0; checks < kChecksPerFrame && refused_now < kRefusedPerFrame; ++checks) {
             PreloadQueue::Item* it = queue_.next_pending();
             if (!it) break;
             if (it->file) {  // a cache file at hand (3D head renders): decode it
@@ -109,9 +116,15 @@ public:
                     queue_.settle(*it);
                     break;
                 default:
-                    if (!it->asked) {
-                        it->asked = true;
-                        app.legacy.want_background(it->path);
+                    if (it->asked) break;
+                    // Only an accepted (or already known) ask marks the picture asked: a refusal (Lua's list is full) keeps it
+                    // queued and unasked, and the round robin brings it back once the list has drained a little
+                    if (app.legacy.ask_background(it->path) == LegacyImages::Ask::Full) {
+                        queue_.refuse(*it);
+                        ++refusals_;
+                        ++refused_now;
+                    } else {
+                        queue_.accept(*it);
                     }
                     break;
             }
@@ -131,7 +144,9 @@ public:
         if (!collected_) return app.connected() ? "Loading..." : "";
         if (queue_.done() && decoding == 0) return "";
         char buf[160];
-        if (!queue_.done())
+        if (!queue_.done() && queue_.refused() > 0)
+            std::snprintf(buf, sizeof(buf), "Loading pictures: %zu of %zu (waiting: %zu refused)", queue_.settled(), queue_.size(), queue_.refused());
+        else if (!queue_.done())
             std::snprintf(buf, sizeof(buf), "Loading pictures: %zu of %zu", queue_.settled(), queue_.size());
         else
             std::snprintf(buf, sizeof(buf), "Preparing pictures: %zu left", decoding);
@@ -154,6 +169,11 @@ public:
                       queue_.done() ? "Background loading done" : "Loading pictures in the background", queue_.settled(), queue_.size(),
                       missing_, app.textures.preload_queued());
         out.push_back(buf);
+        if (queue_.refused() > 0) {
+            std::snprintf(buf, sizeof(buf), "  waiting: %zu refused (Turbo's Lua side takes %zu pictures at a time; they are asked again as pictures arrive)",
+                          queue_.refused(), app.legacy.background_limit());
+            out.push_back(buf);
+        }
         for (int k = 0; k < kPreloadKinds; ++k) {
             const PreloadKind kind = static_cast<PreloadKind>(k);
             if (queue_.count(kind) == 0) continue;
@@ -243,7 +263,7 @@ private:
     bool started_ = false, collected_ = false, callnames_done_ = false;
     std::string why_;
     PreloadQueue queue_;
-    size_t missing_ = 0, listed_seen_ = 0;
+    size_t missing_ = 0, listed_seen_ = 0, refusals_ = 0;
 };
 
 }  // namespace turbo

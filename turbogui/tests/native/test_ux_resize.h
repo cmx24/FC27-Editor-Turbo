@@ -226,6 +226,69 @@ static void test_ux_resize() {
         CHECK(late.add(PreloadKind::ClubMiniface, "club") && late.next_pending()->path == "club", "a late club face goes first");
     });
 
+    run_case("preload queue: a picture refused by a full background list stays pending and unasked, comes round again, and the queue completes once it is accepted", [&] {
+        PreloadQueue q;
+        q.add(PreloadKind::ClubMiniface, "a");
+        q.add(PreloadKind::Tattoo, "b");
+        q.finalize();
+        PreloadQueue::Item* a = q.next_pending();
+        CHECK(a && a->path == "a", "a first");
+        q.refuse(*a);
+        CHECK(a->refused && !a->asked && !a->settled && q.refused() == 1 && q.pending() == 2 && !q.done(), "refused: pending, unasked, counted");
+        q.refuse(*a);
+        CHECK(q.refused() == 1, "counted once however often it is refused");
+        PreloadQueue::Item* b = q.next_pending();
+        CHECK(b && b->path == "b", "the round robin goes on to b");
+        q.accept(*b);
+        CHECK(b->asked && !b->refused && q.refused() == 1, "b asked");
+        q.settle(*b);
+        PreloadQueue::Item* again = q.next_pending();
+        CHECK(again == a && !a->asked, "a comes round again, still unasked");
+        q.accept(*a);
+        CHECK(a->asked && !a->refused && q.refused() == 0 && !q.done(), "accepted on the retry: no longer refused, still waiting for the file");
+        q.settle(*a);
+        CHECK(q.done() && q.refused() == 0 && q.next_pending() == nullptr, "the queue completes");
+        // settling a refused picture (it arrived by another path, or is missing) clears the count too; so does cancel
+        PreloadQueue r;
+        r.add(PreloadKind::Crest, "c");
+        r.add(PreloadKind::Crest, "d");
+        r.finalize();
+        PreloadQueue::Item* c = r.next_pending();
+        r.refuse(*c);
+        r.settle(*c);
+        CHECK(r.refused() == 0 && !r.done(), "settled while refused");
+        r.refuse(*r.next_pending());
+        CHECK(r.refused() == 1, "d refused");
+        r.cancel();
+        CHECK(r.refused() == 0 && r.done(), "cancel clears the count");
+    });
+
+    run_case("legacy files: ask_background tells a full background list (Full, asked again later) from a path already known", [&] {
+        fs::path le = g_out / "legacy_full";
+        fs::remove_all(le);
+        LegacyImages L(le);
+        CHECK(L.background_limit() == LegacyImages::kMaxBackground && LegacyImages::kMaxBackground == 20000 && !L.background_full(), "default limit");
+        L.set_background_limit(2);
+        const std::string a = legacy_path::player_miniface(601), b = legacy_path::player_miniface(602), c = legacy_path::player_miniface(603);
+        CHECK(L.ask_background(a) == LegacyImages::Ask::Accepted && L.ask_background(b) == LegacyImages::Ask::Accepted, "two accepted");
+        CHECK(L.background_full() && L.ask_background(c) == LegacyImages::Ask::Full && !L.want_background(c), "the third is refused: the list is full");
+        CHECK(L.waiting_background() == 2, "the refused one is not listed");
+        CHECK(L.ask_background(a) == LegacyImages::Ask::Known && L.ask_background("data/../x.dds") == LegacyImages::Ask::Known,
+              "already asked / invalid: known, not refused");
+        // a picture arrives: it leaves the list and the refused one fits
+        fs::create_directories(L.cache_dir() / "data" / "ui" / "imgAssets" / "heads");
+        std::ofstream(L.cache_dir() / "data" / "ui" / "imgAssets" / "heads" / "p601.dds") << "x";
+        L.tick(0.0);
+        CHECK(L.waiting_background() == 1 && !L.background_full(), fmt("the arrived one left (%zu waiting)", L.waiting_background()));
+        CHECK(L.ask_background(c) == LegacyImages::Ask::Accepted && L.waiting_background() == 2 && L.background_full(), "accepted on the retry");
+        CHECK(L.ask_background(a) == LegacyImages::Ask::Known, "a picture at hand is known, not refused, even while the list is full");
+        L.flush();
+        const std::string want = read_file(L.cache_dir() / "want.txt");
+        CHECK(want.find(b) != std::string::npos && want.find(c) != std::string::npos && want.find(a) == std::string::npos, "want.txt: b and c, not a: " + want);
+        L.set_background_limit(LegacyImages::kMaxBackground);
+        CHECK(!L.background_full(), "limit restored");
+    });
+
     run_case("preload cancellation: the career left (or the setting off) empties the queue; reset accepts again", [&] {
         PreloadQueue q;
         q.add(PreloadKind::ClubMiniface, "k1");

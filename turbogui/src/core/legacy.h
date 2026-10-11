@@ -63,10 +63,18 @@ public:
     State locate(const std::string& path, std::filesystem::path* file, bool custom_first = true);
     // Ask for a game file without looking (pre-loading a picker page); `front` puts it first
     void want(const std::string& path, bool front = true);
-    // Background loading (ui/preload.h): asked after everything on screen, at most kMaxBackground; false when the path
-    // is invalid, missing, already asked or already at hand
+    // Background loading (ui/preload.h): asked after everything on screen, at most background_limit() paths waiting at
+    // once. Accepted: listed in want.txt. Known: invalid, missing, already asked (screen or background) or already at
+    // hand: nothing to ask. Full: the list is full; the caller keeps the path and asks again later (pictures that arrive
+    // leave the list, so it drains).
+    enum class Ask { Accepted, Known, Full };
     static constexpr size_t kMaxBackground = 20000;
-    bool want_background(const std::string& path);
+    Ask ask_background(const std::string& path);
+    bool want_background(const std::string& path) { return ask_background(path) == Ask::Accepted; }
+    size_t background_limit() const { return bg_limit_; }
+    bool background_full() const { return bg_.size() >= bg_limit_; }
+    // Lower it to drive refusals (the native tests); kMaxBackground otherwise
+    void set_background_limit(size_t n) { bg_limit_ = n; }
     // Where the game's picture is, without asking for it and without looking at custom files (the background loader)
     State peek(const std::string& path, std::filesystem::path* file = nullptr) const;
     size_t waiting_background() const { return bg_.size(); }
@@ -118,6 +126,7 @@ private:
     std::unordered_set<std::string> want_set_;
     std::vector<std::string> bg_;              // background loading, after want_ (paths in want_set_ are skipped)
     std::unordered_set<std::string> bg_set_;
+    size_t bg_limit_ = kMaxBackground;         // ask_background says Full beyond it
     size_t bg_check_ = 0;                      // round-robin position of the arrival check (tick)
     void drop_background(const std::function<bool(const std::string&)>& gone);
     std::unordered_set<std::string> missing_;

@@ -204,4 +204,66 @@ static void ui_cases_preload_hotkey(App& app, Ui& ui, const fs::path& le) {
             fs::remove(cached);  // the pictures case later exports it through Lua
         }
     });
+
+    run_case("UI: Lua's background list is full: refused pictures stay queued ('waiting: N refused'), are asked again and load once the list drains", [&] {
+        Preloader& pre = *app.preloader;
+        CHECK(pre.started() && pre.collected(), "background loading running");
+        auto round = [&] { ui.frames(int(pre.total() / Preloader::kChecksPerFrame) + 3); };  // every pending picture looked at once
+        round();
+        const size_t waiting0 = app.legacy.waiting_background(), settled0 = pre.settled(), total0 = pre.total(), refusals0 = pre.refusals();
+        const size_t listed0 = app.list_player_ids.size();
+        CHECK(pre.refused() == 0, fmt("nothing refused so far (%zu)", pre.refused()));
+        // the list is full (as with LegacyImages::kMaxBackground pictures missing): two faces that join the Players list are refused
+        app.legacy.set_background_limit(waiting0);
+        const int64_t p1 = 777001, p2 = 777002;
+        const std::string f1 = legacy_path::player_miniface(p1), f2 = legacy_path::player_miniface(p2);
+        app.list_player_ids.push_back(p1);
+        app.list_player_ids.push_back(p2);
+        round();
+        CHECK(pre.total() == total0 + 2, fmt("two more pictures queued (%zu)", pre.total()));
+        CHECK(pre.refused() == 2 && pre.settled() == settled0, fmt("both refused and still pending (%zu refused)", pre.refused()));
+        CHECK(app.legacy.waiting_background() == waiting0 && app.legacy.ask_background(f1) == LegacyImages::Ask::Full, "nothing joined the full list");
+        bool unasked = true;
+        for (const auto& it : pre.queue().items())
+            if (it.path == f1 || it.path == f2) unasked = unasked && !it.asked && it.refused && !it.settled;
+        CHECK(unasked, "the two are not marked asked");
+        CHECK(app.preload_line().find("waiting: 2 refused") != std::string::npos, "progress line: " + app.preload_line());
+        bool status_says = false;
+        for (const std::string& l : app.preload_status()) status_says = status_says || l.find("waiting: 2 refused") != std::string::npos;
+        CHECK(status_says, "Status tab names the refused ones");
+        const size_t refusals1 = pre.refusals();
+        CHECK(refusals1 >= refusals0 + 2, fmt("refusals counted (%zu)", refusals1));
+        round();
+        CHECK(pre.refusals() > refusals1 && pre.refused() == 2 && app.legacy.waiting_background() == waiting0,
+              fmt("asked again while the list stays full, refused again (%zu refusals)", pre.refusals()));
+        // the list drains (room again): the next retry is accepted and the two faces are asked from Lua
+        app.legacy.set_background_limit(LegacyImages::kMaxBackground);
+        round();
+        CHECK(pre.refused() == 0, fmt("no longer refused (%zu)", pre.refused()));
+        CHECK(app.legacy.waiting_background() == waiting0 + 2, fmt("asked from Lua (%zu waiting)", app.legacy.waiting_background()));
+        app.legacy.flush();
+        const std::string want = read_file(le / "turbo_output" / "cache" / "legacy" / "want.txt");
+        CHECK(want.find(f1) != std::string::npos && want.find(f2) != std::string::npos, "both in want.txt: " + want);
+        CHECK(app.preload_line().find("refused") == std::string::npos, "progress line without the note: " + app.preload_line());
+        // Lua exports them: they are decoded and settle; the queue is back to what waited before (complete when nothing did)
+        const fs::path heads = le / "turbo_output" / "cache" / "legacy" / "data" / "ui" / "imgAssets" / "heads";
+        fs::create_directories(heads);
+        for (int64_t pid : {p1, p2}) {
+            std::vector<uint8_t> dds = encode_dds_dxt5(solid(64, 64, 30, 60, uint8_t(pid % 200)));
+            std::ofstream(heads / ("p" + std::to_string(pid) + ".dds"), std::ios::binary).write(reinterpret_cast<const char*>(dds.data()), std::streamsize(dds.size()));
+        }
+        round();
+        CHECK(pre.settled() == settled0 + 2, fmt("both loaded (%zu of %zu)", pre.settled(), pre.total()));
+        CHECK(pre.total() - pre.settled() == total0 - settled0, "only the pictures that waited before still wait");
+        CHECK(pre.queue().done() == (total0 == settled0), "the queue completes when nothing else waits");
+        app.legacy.tick(app.now + 2.0);
+        CHECK(app.legacy.waiting_background() == waiting0, fmt("the arrived ones left Lua's list (%zu waiting)", app.legacy.waiting_background()));
+        CHECK(app.textures.preload_wait(5.0), "worker idle");
+        for (int64_t pid : {p1, p2}) {
+            const fs::path f = heads / ("p" + std::to_string(pid) + ".dds");
+            app.textures.forget(f);
+            fs::remove(f);
+        }
+        app.list_player_ids.resize(listed0);
+    });
 }
