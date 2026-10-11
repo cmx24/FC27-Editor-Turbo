@@ -61,8 +61,7 @@ public:
         if (!started_) return;
         if (!callnames_done_ && !app.game_root.empty()) {
             callnames_done_ = true;
-            if (!app.callnames.refreshed)
-                app.callnames.refresh(app.bridge.root(), app.game_root, app.chosen_commentary_language());
+            if (!app.callnames.refreshed) app.refresh_callnames();
         }
         if (!app.prefs.preload_images) {  // switched off: forget what was asked, nothing more is asked
             if (collected_) cancel(app, "switched off");

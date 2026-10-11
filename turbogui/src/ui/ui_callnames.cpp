@@ -63,7 +63,7 @@ const CallnameTabState& callname_tab_state() { return g_state; }
 static std::string chosen_language(App& app) { return app.chosen_commentary_language(); }
 
 static void refresh_all(App& app) {
-    app.callnames.refresh(app.bridge.root(), app.game_root, chosen_language(app));
+    app.refresh_callnames();   // also logs "callnames: language <lang> (<why>)"
     app.callnames.build_index(app.db, app.model, app.model.names_by_id());
     g_index_gen = app.gen;
 }

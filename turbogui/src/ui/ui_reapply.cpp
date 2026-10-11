@@ -260,7 +260,7 @@ std::string App::reapply_stored_edits() {
     if (!reapply.callnames.empty()) {
         // the language and the master list decide who has his own recording: loaded here in case the Callname tab or
         // the watcher's tick have not done it yet
-        if (!callnames.refreshed && !game_root.empty()) callnames.refresh(bridge.root(), game_root, chosen_commentary_language());
+        if (!callnames.refreshed && !game_root.empty()) refresh_callnames();
         if (!db.table("playernamemap")) {
             fail(plural(reapply.callnames.size(), "player callname", "player callnames") + ": FC 27's playernamemap table is not readable");
         } else if (callnames.lang.empty()) {
