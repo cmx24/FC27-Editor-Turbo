@@ -258,11 +258,16 @@ M.PLAN_FIELDS = {}
 for _, f in ipairs(M.PLAN_ATTRS) do M.PLAN_FIELDS[#M.PLAN_FIELDS + 1] = f end
 for _, f in ipairs(M.PLAN_EXTRA) do M.PLAN_FIELDS[#M.PLAN_FIELDS + 1] = f end
 
--- Writes values { field = v } into the player's development plan when he has one: "plan", "none", "unavailable" or
--- "failed: ..." (the natives are in Live Editor v27.1.2 only). A write the game refuses is reported as "failed: ..." so the
--- caller can say "development plan NOT updated for ..." (the Turbo window's plan_sync, bulk edit, db_edit, the preset import).
--- force = true (features/repair_ovr1.lua): the plan is written without asking PlayerHasDevelopementPlan first, and a field
--- the game refuses does not stop the others: "plan" when at least one field was written, else "none".
+-- Writes values { field = v } into the player's development plan when he has one (or when force=true). Returns the state:
+--   "plan"         the plan holds the values (every write accepted; with force the read-back confirms the plan entry)
+--   "none"         the player has no plan (not force), or nothing was written
+--   "no_entry"     force=true: the writes went through, but PlayerHasDevelopementPlan(pid) still says false afterwards.
+--                  PlayerSetValueInDevelopementPlan does not create a plan entry; only the game does (its own transfer
+--                  routine). Callers must report "plan entry still missing", never "plan".
+--   "unavailable"  the natives are missing (they are in Live Editor v27.1.2 and later only)
+--   "failed: ..."  a native raised. Without force the FIRST refused field stops the write (the Turbo window's plan_sync,
+--                  bulk edit, db_edit and the preset import then say "development plan NOT updated for ..."); with force a
+--                  refused field does not stop the others and "failed: ..." is returned only when every write failed.
 function M.sync_plan(pid, values, force)
     local has, set = _G["PlayerHasDevelopementPlan"], _G["PlayerSetValueInDevelopementPlan"]
     if type(set) ~= "function" then return "unavailable" end
@@ -275,14 +280,23 @@ function M.sync_plan(pid, values, force)
     local names = {}
     for f in pairs(values) do names[#names + 1] = f end
     table.sort(names)
-    local count = 0
+    local count, first_err = 0, nil
     for _, f in ipairs(names) do
         local ok2, err = pcall(set, pid, f, values[f])
         if ok2 then
             count = count + 1
         elseif not force then
             return "failed: " .. tostring(err)
+        elseif first_err == nil then
+            first_err = f .. ": " .. tostring(err)
         end
+    end
+    if count == 0 and first_err then return "failed: " .. first_err end
+    if force and type(has) == "function" then
+        -- honest read-back: a value set into a plan the game never created is not kept by the game
+        local ok, yes = pcall(has, pid)
+        if not ok then return "failed: " .. tostring(yes) end
+        if yes ~= true then return "no_entry" end
     end
     if force then return count > 0 and "plan" or "none" end
     return "plan"

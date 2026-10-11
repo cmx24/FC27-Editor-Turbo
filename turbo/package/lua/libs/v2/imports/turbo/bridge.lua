@@ -651,10 +651,15 @@ function M.on_career_event(event_id)
         local okr, rerr = pcall(function() return (require 'imports/turbo/features/manager_rules').reapply() end)
         if not okr then log.warn("manager rules: %s", tostring(rerr)) end
     end
-    -- automatic repair of corrupted player attributes (OVR-1 bug) on career load / events
+    -- OVR-1 repair (features/repair_ovr1.lua): writes only with the opt-in file turbo_output\repair_ovr1_on.txt and
+    -- never with the kill switch repair_ovr1_off.txt; the module checks both itself and logs what it did or why not
     local oko, ovr_mod = pcall(require, 'imports/turbo/features/repair_ovr1')
     if oko and type(ovr_mod) == "table" and type(ovr_mod.on_career_event) == "function" then
-        pcall(ovr_mod.on_career_event, event_id)
+        local okv, verr = pcall(ovr_mod.on_career_event, event_id)
+        if not okv then log.warn("repair_ovr1: %s", tostring(verr)) end
+    elseif not S.repair_ovr1_load_warned then
+        S.repair_ovr1_load_warned = true
+        log.warn("repair_ovr1 module not loaded: %s", tostring(ovr_mod))
     end
     -- natives just installed (the capability list changed) or a queued game call finished: publish it now
     if (okn and installed == true) or (okc and finished == true) then
@@ -1088,10 +1093,7 @@ function M.start(cfg)
     local okc, ok_s, serr = pcall(M.write_state, true, false)
     if not okc then ok_s, serr = false, tostring(ok_s) end
     trace.step("bridge.start: bridge_state.json " .. (ok_s and "written" or ("NOT written: " .. tostring(serr))))
-    local oko, ovr_mod = pcall(require, 'imports/turbo/features/repair_ovr1')
-    if oko and type(ovr_mod) == "table" and type(ovr_mod.check_and_repair) == "function" then
-        pcall(ovr_mod.check_and_repair, false)
-    end
+    -- (no OVR-1 repair at start: features/repair_ovr1.lua runs on career events only, and only with its opt-in file)
     trace.step("bridge.start: loading turbo\\Turbo.dll (package.loadlib)")
     local ok, msg = M.load_gui()
     trace.step("bridge.start: load_gui returned " .. tostring(ok) .. " - " .. tostring(msg))
