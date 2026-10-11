@@ -4649,7 +4649,7 @@ static void test_ui() {
 
         run_case("UI: Database tab, a position code reads as its name (preferredposition1 25 is ST, never 25)", [&] {
             CHECK(ui.click("Database"), "Database tab");
-            CHECK(ui.click("Table"), "table combo");
+            CHECK(ui.click("##dbtable"), "table combo");  // the combo's label is drawn on its left (2.0/ux-filters form rows)
             CHECK(ui.click("players"), "players");
             CHECK(app.db_table == "players", "table chosen: " + app.db_table);
             const Table* pt = app.db.table("players");
