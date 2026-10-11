@@ -19,6 +19,8 @@
 -- event 0x3A, InsertTeamPlayer into Free Agents and the game's own move into the club (+ the contract record at your club): the
 -- squad screens see him at once. No InsertDBTableRow and no team-sheet write then; the shirt number is the game's. When the call
 -- answers "off" the database path below runs as before (and the summary says so).
+-- Your club (after 2.0.3): right after the create (both ways) the match crash guard's repair gives him a squad status entry at once
+-- and the summary / log say whether he has one (kill switches create_status_repair_off.txt, squad_status_repair_off.txt).
 
 local util = require 'imports/turbo/core/util'
 local db = require 'imports/turbo/core/db'
@@ -26,6 +28,7 @@ local game = require 'imports/turbo/core/game'
 local moves = require 'imports/turbo/core/moves'
 local preset = require 'imports/turbo/core/preset'
 local pnames = require 'imports/turbo/core/names'
+local log = require 'imports/turbo/core/log'
 
 local M = {}
 
@@ -122,6 +125,20 @@ function M.native_payload(players, links, row, name_row, teamid, user)
     end
     local link = (links and db.has_field(links, "form")) and { form = 3 } or nil
     return { playerid = row.playerid, team = teamid, months = months, wage = wage, players = ints, names = names, link = link }, skipped
+end
+
+-- A player created at your club gets his squad status entry (PlayerStatusManager) at once (after 2.0.3): the match crash guard's
+-- repair (bridge.repair_squad_status_after_create, squad_role.repair_entries) runs right after the create instead of at the next
+-- career event; a club player without one crashed the match load (2026-10-11). Kill switches in turbo_output:
+-- create_status_repair_off.txt (this step only) and squad_status_repair_off.txt (the whole guard). Returns the summary's note.
+local function status_entry(pid)
+    local okb, bridge = pcall(require, 'imports/turbo/bridge')
+    if not okb or type(bridge) ~= "table" or type(bridge.repair_squad_status_after_create) ~= "function" then
+        return "squad status entry not checked: " .. tostring(bridge)
+    end
+    local ok, note = pcall(bridge.repair_squad_status_after_create, pid)
+    if not ok then return "squad status entry not checked: " .. tostring(note) end
+    return tostring(note)
 end
 
 local function delete_row(table_name, res)
@@ -332,6 +349,14 @@ function M.run(ctx)
             if user > 0 and teamid == user then
                 local state = moves.refresh_plan(pid)
                 if state == "plan" then summary = summary .. ", development plan set" end
+                if status == "queued" then
+                    local qnote = "squad status entry: checked by the match crash guard at the next career event (the game " ..
+                        "creates him on its next tick)"
+                    log.info("match crash guard after create_player (player %d): %s", pid, qnote)
+                    summary = summary .. "; " .. qnote
+                else
+                    summary = summary .. "; " .. status_entry(pid)
+                end
             end
             miniface()
             return true, summary
@@ -362,6 +387,7 @@ function M.run(ctx)
         if not oks2 then summary = summary .. "; team sheet not changed: " .. tostring(sherr) end
         local state = moves.refresh_plan(pid)   -- his development plan (if the game made one) holds the table's attributes
         if state == "plan" then summary = summary .. ", development plan set" end
+        summary = summary .. "; " .. status_entry(pid)
     end
     miniface()
     if native_note then summary = summary .. native_note end

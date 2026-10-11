@@ -79,10 +79,16 @@ H.case("your club, same safe path: transfer out comes off your lists and your te
     H.eq(list_calls[1].code, 6, "status read first"); H.eq(list_calls[2].code, 3, "then the game's remove")
     H.eq(list_calls[2].club, W.USER_TEAM)
     H.eq(on_sheet(W.USER_TEAM, mine), false, "off your team sheet")
-    -- an AI player into your club: club link, a free shirt number, your team sheet
+    -- an AI player into your club: club link, a free shirt number, your team sheet. Without TurboPlayerMove that is a database
+    -- move into your club: refused unless turbo_output\db_move_user_club_on.txt exists (after 2.0.3, t25 has the guard's own cases)
     local other = ai_player(3)
+    local snap = db_bytes()
+    ok, msg = moves_run({ { action = "transfer", playerid = other, to_teamid = W.USER_TEAM, months = 24, wage = 900 } })
+    H.eq(ok, false, msg); H.has(msg, "Turbo.dll op 11"); H.eq(changed_since(snap), 0, "refused: nothing written")
+    local opt = assert(io.open(H.out("db_move_user_club_on.txt"), "wb")); opt:write("on"); opt:close()
     ok, msg = moves_run({ { action = "transfer", playerid = other, to_teamid = W.USER_TEAM, months = 24, wage = 900 } })
     H.eq(ok, true, msg)
+    H.has(msg, "WARNING: database move into your club")
     H.eq(link_team(other), W.USER_TEAM)
     H.ok(on_sheet(W.USER_TEAM, other), "on your team sheet")
     local seen = {}
@@ -99,10 +105,11 @@ H.case("your club, same safe path: transfer out comes off your lists and your te
     H.eq(ok, true, msg)
     H.eq(#list_calls, 1, "status only")
     H.eq(sim:value("playerloans", sim:find_row("playerloans", "playerid", W.USER_PLAYERS[6]), "teamidloanedfrom"), W.USER_TEAM)
-    ok, msg = moves_run({ { action = "terminate_loan", playerid = W.USER_PLAYERS[6] } })
+    ok, msg = moves_run({ { action = "terminate_loan", playerid = W.USER_PLAYERS[6] } })   -- back to your club: opted in above
     H.eq(ok, true, msg)
     H.eq(link_team(W.USER_PLAYERS[6]), W.USER_TEAM)
     H.ok(on_sheet(W.USER_TEAM, W.USER_PLAYERS[6]), "back on your team sheet")
+    os.remove(H.out("db_move_user_club_on.txt"))
     -- a player loaned TO your club goes back to his parent club (7)
     ok, msg = moves_run({ { action = "terminate_loan", playerid = W.LOANED_IN } })
     H.eq(ok, true, msg)

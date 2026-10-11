@@ -32,7 +32,8 @@
 --                  through development.lua "add", never above the player's potential.
 --   dev_bonus      cfg.bonus_xp (1..10, default 2): with the manager, that bonus in the manager entry (with match_xp in the
 --                  same run both go in ONE call per player); without it, +N on each attribute of the player's group
---                  through development.lua "add" (plans updated), N limited to potential - overall, players at potential skipped.
+--                  through development.lua "add" (the text counts the development plans really updated and names your club's
+--                  players without one), N limited to potential - overall, players at potential skipped.
 
 local util = require 'imports/turbo/core/util'
 local db = require 'imports/turbo/core/db'
@@ -645,8 +646,10 @@ local function dev_entry(ctx, pids, mult, bonus)
 end
 
 -- Without Live Editor's development manager: Turbo's development.lua "add" (+points on each attribute of the player's group,
--- development plans updated too), never above the player's potential (delta limited to potential - overall)
-local function growth(ctx, pids, points)
+-- development plans updated too), never above the player's potential (delta limited to potential - overall).
+-- The text counts the plans really written (development.lua's counts, after 2.0.3), not a constant "plans updated": your club's
+-- players without a plan are named with moves.NO_PLAN_WARNING.
+local function growth(ctx, pids, points, teamid)
     local dev = require 'imports/turbo/features/development'
     local ptbl = db.get_table("players")
     if not ptbl then return false, "players table not found" end
@@ -667,22 +670,50 @@ local function growth(ctx, pids, points)
         end
     end
     local fails = {}
+    local synced, written, no_plan, unavailable = 0, 0, {}, false
     for d, list in pairs(by_delta) do
         table.sort(list)
-        local ok, msg = dev.run({ cfg = { scope = { playerids = list }, mode = "add", delta = d, confirm = true }, dry = ctx.dry })
+        local ok, msg, counts = dev.run({ cfg = { scope = { playerids = list }, mode = "add", delta = d, confirm = true }, dry = ctx.dry })
         if ok then grown = grown + #list else fails[#fails + 1] = tostring(msg) end
+        if type(counts) == "table" then
+            synced = synced + (counts.synced or 0)
+            written = written + (counts.attrs or 0)   -- players whose attributes were written (a failed group's too)
+            for _, p in ipairs(counts.no_plan or {}) do no_plan[#no_plan + 1] = p end
+            unavailable = unavailable or counts.unavailable == true
+        end
     end
-    local text = string.format("+%d on %d players (%d already at potential; Turbo's development, plans updated)", points, grown,
-        at_pot)
+    local plans
+    if ctx.dry then
+        plans = "development plans not written (dry run)"
+    elseif unavailable then
+        plans = "development plans not updated: this Live Editor build has no development-plan natives"
+    else
+        plans = string.format("development plan updated for %d of %d", synced, written)
+    end
+    local text = string.format("+%d on %d players (%d already at potential; Turbo's development, %s)", points, grown, at_pot, plans)
+    local user = moves.user_team()
+    if #no_plan > 0 then
+        table.sort(no_plan)
+        if user > 0 and teamid == user then
+            local shown = {}
+            for i = 1, math.min(#no_plan, 12) do shown[i] = tostring(no_plan[i]) end
+            text = text .. string.format("; no development plan for %d of your club's players (%s%s): the game may undo this at " ..
+                "its next growth step", #no_plan, table.concat(shown, ", "), #no_plan > 12 and string.format(" +%d more", #no_plan - 12) or "")
+        else
+            text = text .. string.format("; %d without a plan (not your club's players: the save keeps the table)", #no_plan)
+        end
+    elseif unavailable and grown > 0 and user > 0 and teamid == user then
+        text = text .. "; the game may undo this at its next growth step"
+    end
     if #fails > 0 then text = text .. "; failed: " .. table.concat(fails, "; ") end
     return #fails == 0, text
 end
 
 -- Match XP: the multiplier; with dev_bonus in the same run, the bonus goes in the same call (one entry per player).
 -- Without the manager (FC 27 has no match XP field): a one-off +1 growth.
-local function action_match_xp(ctx, pids)
+local function action_match_xp(ctx, pids, teamid)
     if not le_dev_manager() then
-        local ok, text = growth(ctx, pids, 1)
+        local ok, text = growth(ctx, pids, 1, teamid)
         return ok, "one-off growth " .. text .. " (no Live Editor development manager, FC 27 has no match XP field)"
     end
     local bonus = 0
@@ -694,10 +725,10 @@ local function action_match_xp(ctx, pids)
     return dev_entry(ctx, pids, M.XP_MULTIPLIER, bonus)
 end
 
-local function action_dev_bonus(ctx, pids)
+local function action_dev_bonus(ctx, pids, teamid)
     local b, err = bonus_of(ctx)
     if not b then return false, err end
-    if not le_dev_manager() then return growth(ctx, pids, b) end
+    if not le_dev_manager() then return growth(ctx, pids, b, teamid) end
     if ctx.team_mass_both_dev then return true, string.format("bonus %d XP given with match XP (same call)", b) end
     return dev_entry(ctx, pids, 1.0, b)
 end

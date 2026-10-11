@@ -587,9 +587,17 @@ local function status_repair_ids()
     return S.status_repair_ids
 end
 
-function M.repair_squad_status(event_id)
+M.STATUS_REPAIR_KILL_FILE = "squad_status_repair_off.txt"          -- the match crash guard (every path below)
+M.CREATE_STATUS_REPAIR_KILL_FILE = "create_status_repair_off.txt"   -- only the repair right after create_player (after 2.0.3)
+
+local function out_switch(name)
     local root = env.le_root()
-    if root and util.file_exists(util.join(util.join(root, "turbo_output"), "squad_status_repair_off.txt")) then return nil, "off" end
+    return root ~= nil and util.file_exists(util.join(util.join(root, "turbo_output"), name))
+end
+
+-- The repair itself (the guard's events and create_player): squad_role.repair_entries with the role by age at the load event (no
+-- squad ranking is computed while the career is set up), else the game's own role. Returns repair_entries' values.
+function M.squad_status_repair(at_load)
     local role = require 'imports/turbo/features/squad_role'
     -- the role by age reads the players table: only built when a player is missing an entry
     local by_age = nil
@@ -602,9 +610,61 @@ function M.repair_squad_status(event_id)
         end
         return by_age and by_age(pid) or nil
     end
+    return role.repair_entries(role_of, false, { prefer_game_role = not at_load })
+end
+
+-- Right after features/create_player.lua made a player at your club (after 2.0.3): the same repair at once, so he has a squad status
+-- entry before any match load (a created player had none: the 2026-10-11 crashes). Off with the guard's kill switch
+-- squad_status_repair_off.txt or with create_status_repair_off.txt. Always logged. Returns a short note for the create summary.
+function M.repair_squad_status_after_create(pid)
+    local later = "the match crash guard adds it at the next career load, day or match build-up"
+    if out_switch(M.STATUS_REPAIR_KILL_FILE) then
+        local note = string.format("squad status entry not checked: the match crash guard is off (kill switch turbo_output\\%s)",
+            M.STATUS_REPAIR_KILL_FILE)
+        log.info("match crash guard after create_player (player %d): %s", pid, note)
+        return note
+    end
+    if out_switch(M.CREATE_STATUS_REPAIR_KILL_FILE) then
+        local note = string.format("squad status entry not checked now (kill switch turbo_output\\%s); %s",
+            M.CREATE_STATUS_REPAIR_KILL_FILE, later)
+        log.info("match crash guard after create_player (player %d): %s", pid, note)
+        return note
+    end
+    local okc, added, text, left, created = pcall(M.squad_status_repair, false)
+    local note
+    if not okc then
+        note = string.format("squad status entry not added now: the repair failed (%s); %s", tostring(added), later)
+        log.warn("match crash guard after create_player (player %d): %s", pid, note)
+        return note
+    end
+    -- read back from the game's table (nil when it cannot be read): the note never claims an entry the table does not show
+    local okr, st = pcall(function() return (require 'imports/turbo/features/squad_role').psm_state(game.user_team_id()) end)
+    local has = nil
+    if okr and type(st) == "table" and type(st.pids) == "table" then has = st.pids[pid] ~= nil end
+    local made = type(created) == "table" and created[pid] or nil
+    if added == nil then
+        note = string.format("squad status entry not added now (%s); %s", tostring(text), later)
+    elseif made and has ~= false then
+        note = string.format("squad status entry added at once (role %s, %s)", tostring(made.role),
+            made.via == "game" and "the game's AddPlayer" or "in memory")
+    elseif made then
+        note = string.format("squad status entry reported added but not found when the table was read back; %s", later)
+    elseif has == true or (has == nil and (left or 0) == 0) then
+        note = "squad status entry present"
+    elseif (left or 0) == 0 then
+        note = string.format("squad status entry missing: he is not among your club's player links yet; %s", later)
+    else
+        note = string.format("squad status entry not added now (%s); %s", tostring(text), later)
+    end
+    log.info("match crash guard after create_player (player %d): %s (%s)", pid, note, tostring(text))
+    return note
+end
+
+function M.repair_squad_status(event_id)
+    if out_switch(M.STATUS_REPAIR_KILL_FILE) then return nil, "off" end
     local events = require 'imports/turbo/core/events'
     local at_load = event_id ~= nil and event_id == events.resolve("POST_LOAD_PREPARE")
-    local added, text = role.repair_entries(role_of, false, { prefer_game_role = not at_load })
+    local added, text = M.squad_status_repair(at_load)
     -- logged when something was added or the reason changes (not on every day)
     if added and added > 0 then
         log.info("match crash guard: %s", text)
