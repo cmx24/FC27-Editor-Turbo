@@ -353,6 +353,8 @@ bool live_standings_wants_keyboard();
 // Competitions tab, "Match setup" view: the user's next fixtures (venue, opponent, fixed result) and the gameplay switches
 // (game variables) for the next matches (ui_match.cpp)
 void draw_match_setup(App& app);
+// Clear the game variables the Match setup panel set (its Set buttons and the A/B presets) when the host unloads Turbo. Never throws.
+void match_setup_clear_on_exit(App& app);
 void draw_database(App& app);
 void draw_tools(App& app);
 void draw_status(App& app);
