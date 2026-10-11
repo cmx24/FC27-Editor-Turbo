@@ -55,6 +55,11 @@ static const AuditField kAuditFields[] = {
     {"players", "attackingworkrate"}, {"players", "defensiveworkrate"},
     // Live Editor's localization tables (the match setup view, morale and injury readers)
     {"match", "weather"}, {"players", "morale"}, {"players", "injury"},
+    // positions (the Database tab showed these as numbers: 2.0/ux-descriptors fix 1): the player tables' preferred positions
+    // (-1 = None, 28.. = Unknown position N) and the formation / tactic slots
+    {"players", "preferredposition1"}, {"players", "preferredposition2"}, {"players", "preferredposition7"}, {"smplayers", "preferredposition1"},
+    {"smplayers", "preferredposition4"}, {"cmplayers", "preferredposition3"}, {"formations", "position1"}, {"formations", "position10"},
+    {"mentalities", "position3"}, {"cm_mentalities", "position0"},
 };
 
 // the schema range of a field: [min, min + 2^depth - 1]; false when the schema does not have it
@@ -138,13 +143,21 @@ static void test_descriptors_core() {
 
     run_case("descriptors: every value the real FC 27 players table holds (fixture_player_codes.h) has a text", [] {
         int fields = 0, values = 0, bad = 0, positions = 0, bad_pos = 0;
-        std::string first, skipped;
+        std::string first, skipped, first_pos;
         for (const FixtureCodes& fc : kPlayerCodes) {
             const std::string field = fc.field;
-            if (field.rfind("preferredposition", 0) == 0) {  // positions read through core/model.h position_name()
+            if (field.rfind("preferredposition", 0) == 0) {
+                // positions: core/model.h position_name() has a name, and the Database tab's describe() (ui_database.cpp through
+                // App::describe_value) gives that name, never the number ("25" fails, "ST" passes), "None" for an empty slot
                 for (int64_t v : fc.values) {
                     ++positions;
-                    if (v >= 0 && std::string(position_name(static_cast<int>(v))) == "?") ++bad_pos;
+                    const std::string d = labels::describe("players", field, v);
+                    const std::string want = v < 0 ? std::string("None") : std::string(position_name(static_cast<int>(v)));
+                    const bool ok = want != "?" && !d.empty() && !bare_number(d) && !says_code_n(d) && d.rfind(want, 0) == 0;
+                    if (!ok) {
+                        if (!bad_pos) first_pos = field + " " + std::to_string(v) + " -> '" + d + "'";
+                        ++bad_pos;
+                    }
                 }
                 continue;
             }
@@ -164,6 +177,8 @@ static void test_descriptors_core() {
         }
         CHECK(fields > 30 && values > 1000, fmt("fixture: %d code fields, %d values (not codes, skipped: %s)", fields, values, skipped.c_str()));
         CHECK(bad == 0, fmt("%d fixture values without a descriptor, first %s", bad, first.c_str()));
-        CHECK(positions > 20 && bad_pos == 0, fmt("every preferredposition value of the database has a name (%d values, %d without)", positions, bad_pos));
+        CHECK(positions > 20 && bad_pos == 0, fmt("every preferredposition value of the database reads as its name (%d values, %d bad, first %s)", positions, bad_pos, first_pos.c_str()));
+        CHECK(labels::describe("players", "preferredposition1", 25) == "ST" && labels::describe("players", "preferredposition1", 25) != "25",
+              "a position cell of 25 reads ST: " + labels::describe("players", "preferredposition1", 25));
     });
 }

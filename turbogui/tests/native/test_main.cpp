@@ -4647,6 +4647,47 @@ static void test_ui() {
             CHECK(ui.find("0.7500", "FC 27 LE Turbo") != nullptr, "grid shows the new value");
         });
 
+        run_case("UI: Database tab, a position code reads as its name (preferredposition1 25 is ST, never 25)", [&] {
+            CHECK(ui.click("Database"), "Database tab");
+            CHECK(ui.click("Table"), "table combo");
+            CHECK(ui.click("players"), "players");
+            CHECK(app.db_table == "players", "table chosen: " + app.db_table);
+            const Table* pt = app.db.table("players");
+            CHECK(pt != nullptr && pt->field("preferredposition1") != nullptr && pt->field("preferredposition2") != nullptr, "players table with positions");
+            // the text the grid draws for a cell (ui_database.cpp: every int cell goes through App::describe_value)
+            const std::string st = app.describe_value(*pt, *pt->field("preferredposition1"), Value::of_int(25));
+            CHECK(st == "ST", "position 25 reads ST, not '25': " + st);
+            CHECK(app.describe_value(*pt, *pt->field("preferredposition2"), Value::of_int(-1)) == "None" &&
+                      app.describe_value(*pt, *pt->field("preferredposition2"), Value::of_int(4)) == "RCB (internal, plays as CB)",
+                  "an empty second position reads None, an internal code says what it plays as");
+            CHECK(app.describe_value(*pt, *pt->field("overallrating"), Value::of_int(80)) == "80", "a rating stays a number");
+            // on the grid itself: Gabriel Jesus's row only (filter playerid = 1005; preferredposition1 = 25), the cell reads ST
+            CHECK(ui.type_into(ui.find("##ff"), "playerid") && ui.type_into(ui.find("##fv"), "1005"), "filter boxes");
+            CHECK(ui.click("Apply / Reload"), "apply the filter");
+            ui.frames(2);
+            const uint64_t rec = app.db.find(*pt, "playerid", 1005);
+            CHECK(rec != 0 && app.db.get_int(*pt, rec, "preferredposition1") == 25, "fixture: player 1005 plays as 25");
+            // the grid as drawn (ImGui's text log; clipping is off while it runs, so every column counts, on screen or scrolled
+            // away; cells are separated by "|"): his position cells read ST and CM as whole cells, and no cell of the row is the
+            // bare 25 (no other value of player 1005 is 25 in gui_world.lua)
+            const std::string grid = logged_frame(ui);
+            auto cell = [&](const std::string& w) {
+                for (size_t i = 0; (i = grid.find(w, i)) != std::string::npos; i += w.size()) {
+                    const bool left = i == 0 || !std::isalnum(static_cast<unsigned char>(grid[i - 1]));
+                    const bool right = i + w.size() >= grid.size() || !std::isalnum(static_cast<unsigned char>(grid[i + w.size()]));
+                    if (left && right) return true;
+                }
+                return false;
+            };
+            CHECK(cell("ST"), "the position cell of the grid reads ST (frame text: " + grid.substr(0, 700) + ")");
+            CHECK(cell("CM"), "his second position (14) reads CM");
+            CHECK(!cell("25"), "no cell of his row is the bare 25");
+            // the filter boxes back to empty for the cases after this one
+            CHECK(ui.type_into(ui.find("##ff"), "") && ui.type_into(ui.find("##fv"), ""), "filter cleared");
+            CHECK(ui.click("Apply / Reload"), "reload");
+            ui.frames(2);
+        });
+
         run_case("UI: Turbo Tools run through the mailbox and Turbo's Lua side", [&] {
             CHECK(ui.click("Turbo Tools"), "Tools tab");
             CHECK(ui.click("Apply now##fm"), "Apply now");
@@ -7931,6 +7972,13 @@ static void test_ui() {
             ui.frames(3);
             CHECK(ui.click("Match setup"), "Match setup view");
             ui.frames(2);
+            {   // the Value column says in words what the number in each box means, for every variable that has words (2.0/ux-descriptors
+                // fix 2): the boxes start at 0 (difficulty: Beginner; time of day: its setting text) and 1 for a switch (on)
+                const std::string txt = logged_frame(ui);
+                CHECK(txt.find("Beginner") != std::string::npos, "difficulty 0 reads Beginner next to its box");
+                CHECK(txt.find("time-of-day setting 0") != std::string::npos, "time of day 0 is described next to its box (its look is not verified)");
+                CHECK(txt.find("Partly Clear") == std::string::npos, "weather box at 0 does not read Partly Clear (that is 1)");
+            }
             const std::string ars = app.model.team_name(1), eve = app.model.team_name(7), inter = app.model.team_name(241);
             const std::string away_line = "22.08.2026 15:00  " + eve + " v " + ars + "  (English Premier League)##mf3";
             CHECK(ui.find(away_line) != nullptr, "the next fixture is listed: " + away_line);
