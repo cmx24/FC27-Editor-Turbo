@@ -156,15 +156,15 @@ void LegacyImages::want(const std::string& path, bool front) {
     dirty_ = true;
 }
 
-bool LegacyImages::want_background(const std::string& path) {
-    if (!legacy_path::valid(path) || missing_.count(path) || want_set_.count(path) || bg_set_.count(path)) return false;
-    if (bg_.size() >= kMaxBackground) return false;
+LegacyImages::Ask LegacyImages::ask_background(const std::string& path) {
+    if (!legacy_path::valid(path) || missing_.count(path) || want_set_.count(path) || bg_set_.count(path)) return Ask::Known;
     std::error_code ec;
-    if (fs::is_regular_file(under(cache_dir(), path), ec)) return false;
+    if (fs::is_regular_file(under(cache_dir(), path), ec)) return Ask::Known;
+    if (bg_.size() >= bg_limit_) return Ask::Full;  // the caller keeps the path and asks again later (ui/preload.h)
     bg_.push_back(path);
     bg_set_.insert(path);
     dirty_ = true;
-    return true;
+    return Ask::Accepted;
 }
 
 LegacyImages::State LegacyImages::peek(const std::string& path, fs::path* file) const {

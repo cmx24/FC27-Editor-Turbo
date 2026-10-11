@@ -126,6 +126,10 @@ Mailbox (`VirtualAlloc`ed by the DLL, 0x2020 bytes): `+0x00` magic `0x4F425254` 
 `+0x0C` ack seq, `+0x10` status (1 = ok), `+0x14` Lua heartbeat, `+0x20` command JSON (4096 bytes), `+0x1020` result (4096 bytes).
 Commands: `{"op":"run","module":..,"overrides":{..}}`, `{"op":"boot"}`, `{"op":"ping"}`, `{"op":"refresh"}`.
 The Lua side polls the mailbox on every career event (`bridge.on_career_event`) and from `turbo_exec.lua`.
+The GUI polls the three files every 0.5 s (`Bridge::poll_files`). `bridge_meta.json` and `bridge_names.txt` are re-read
+when their time stamp changes; `bridge_state.json` (small, rewritten in place several times a second during a career event)
+is read every poll and taken as new when its stamp **or its text** changed, because `std::filesystem::last_write_time` has
+whole-second resolution with this toolchain and a stamp alone missed a rewrite landing in the same second as the one before.
 
 ## Native code (`turbogui/src`)
 
@@ -204,6 +208,10 @@ The Lua side polls the mailbox on every career event (`bridge.on_career_event`) 
   files are asked from Lua (`want.txt`, exported inside its 0.25 s slice per career event), files at hand are decoded on the
   texture worker. `gui.preload_images` (default true) switches it off; the Status tab shows the progress per kind; the queue
   is cancelled when the game leaves the career (`LegacyImages::clear_background`) and collected again for the next one.
+  Lua's background list holds at most `LegacyImages::kMaxBackground` (20 000) paths: `ask_background` answers Accepted,
+  Known (already asked, at hand, missing or invalid) or Full; a Full answer keeps the picture queued and unasked
+  (`PreloadQueue::refuse`), the round robin asks again (at most `Preloader::kRefusedPerFrame` = 4 retries per frame) as
+  arrived pictures leave the list, and the progress line shows `waiting: N refused` until then.
   New 3D head renders are never started by the preloader (they need the game's capture service: Render all filtered heads).
 - **Failure handling**: every frame runs behind an exception barrier; any error switches the overlay off for the session and
   the game keeps running. The main window is clamped to the screen size.
