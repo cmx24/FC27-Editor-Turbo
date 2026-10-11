@@ -196,8 +196,10 @@ std::vector<SliderDef> build() {
     b.re_enum("team.mentality", "Shape", "Mentality", "How attacking the team plays overall.",
               {"Very defensive", "Defensive", "Cautious", "Balanced", "Positive", "Attacking", "Very attacking"}, 3)
         .technical = "cm_mentalities";
-    b.db("team.line_depth", "Defensive shape", "Defensive line depth", "How high up the pitch the back line stands.",
-         {"teams.defensivedepth", "cm_mentalities.defensivedepth"}, 1, 100, 50);
+    // teams.* only: your saved tactic row (cm_mentalities) is read once at career load and overwritten from the live copy at every save,
+    // so a write there never reaches a match (TACTICS_REPORT.txt P0-2; core/tactics_status.h dead_target_reason refuses it)
+    b.db("team.line_depth", "Defensive shape", "Defensive line depth", "How high up the pitch the back line stands.", {"teams.defensivedepth"}, 1,
+         100, 50);
     b.re("team.line_length", "Defensive shape", "Compactness", "How tightly the lines stay together: higher is tighter.", "line length");
     b.db("team.width_def", "Width", "Defensive width", "How wide the team spreads without the ball.", {"mentalities.defensivewidth"}, 1, 100, 50);
     b.db("team.width_att", "Width", "Attacking width", "How wide the team spreads with the ball.", {"mentalities.offensivewidth"}, 1, 100, 50);
@@ -225,17 +227,18 @@ std::vector<SliderDef> build() {
     b.re("team.offside_trap", "Defending", "Offside trap", "How often the back line steps up to catch attackers offside.");
     b.re("team.tackle_aggr", "Defending", "Tackle aggression", "How readily defenders go in for a tackle.");
     // the four style enums: the schema gives the ranges, not the names of the steps, so no labels are shown
-    b.db("team.buildup_play", "Style", "Build-up play", "How the team builds out of defence.", {"teams.buildupplay", "cm_mentalities.buildupplay"}, 0, 3, 0)
-        .kind = SliderKind::Enum;
+    b.db("team.buildup_play", "Style", "Build-up play", "How the team builds out of defence.", {"teams.buildupplay"}, 0, 3, 0).kind = SliderKind::Enum;
     b.db("team.chance_creation", "Style", "Chance creation", "How the team creates chances.", {"mentalities.chancecreation"}, 0, 3, 0).kind =
         SliderKind::Enum;
     b.db("team.offensive_style", "Style", "Attacking style", "How the team attacks.", {"mentalities.offensivestyle"}, 0, 3, 0).kind = SliderKind::Enum;
     b.db("team.defensive_style", "Style", "Defensive style", "How the team defends.", {"mentalities.defensivestyle"}, 0, 4, 0).kind = SliderKind::Enum;
 
     // ------------------------------------------------------------------ position / role settings
+    // players.role1..9 are the player's own role familiarity (Role+ / Role++, field_labels.h "role"), not the role of a slot in the tactic
     for (int i = 1; i <= 9; ++i) {
         const std::string n = std::to_string(i);
-        auto& d = b.base("pos.role" + n, "Roles", "Role " + n, "One of the roles of the player, as the game stores it.");
+        auto& d = b.base("pos.role" + n, "Player's familiarity", "Role familiarity " + n + " (Role+ / Role++)",
+                         "The player's own familiarity list (Role+ / Role++), not the role of a tactic slot.");
         d.kind = SliderKind::Enum;
         d.min = 0;
         d.max = 199;  // players.role1..9 in the FC 27 schema
