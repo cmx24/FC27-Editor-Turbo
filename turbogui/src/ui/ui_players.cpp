@@ -10,6 +10,7 @@
 #include "core/archetypes.h"
 #include "core/field_labels.h"
 #include "core/overall.h"
+#include "core/range_filter.h"
 #include "geo.h"
 #include "imgui.h"
 #include "move_rules.h"
@@ -99,10 +100,12 @@ static const std::unordered_map<int64_t, int64_t>& player_nationalities(App& app
 static void player_list(App& app) {
     static char search[64] = "";
     static bool my_club = false;
-    // Filters (FC 26 LE v26.3.2): position (any of the 7 preferred positions), PlayStyle / PlayStyle+, retiring,
-    // minimum overall / potential, maximum age
-    static int f_pos = -1, f_style = -1, f_min_ovr = 0, f_min_pot = 0, f_max_age = 0;
-    static bool f_plus = false, f_retiring = false;
+    // Filters, in four blocks (widgets.cpp form rows: label left, control right). Who: club, nationality, continent. Position &
+    // style: any of the 7 preferred positions, PlayStyle / PlayStyle+. Numbers: age, overall and potential as two-sided ranges
+    // (core/range_filter.h: 0 = no bound). Status: my club, retiring, free agent.
+    static int f_pos = -1, f_style = -1;
+    static IntRange f_age, f_ovr, f_pot;
+    static bool f_plus = false, f_retiring = false, f_free = false;
     static int64_t f_team = 0;  // club filter (0 = any)
     static int64_t f_nat = -1, f_cont = -1;  // nationality (nations.nationid) and continent (nations.confederation) filters, -1 = any
     static char f_team_search[64] = "";
@@ -115,78 +118,111 @@ static void player_list(App& app) {
     ImGui::SetNextItemWidth(S(180.0f));
     ImGui::InputTextWithHint("##psearch", "name or ID", search, sizeof(search));
     ImGui::SameLine();
-    bool can_my_club = app.bridge.state().user_team > 0;
-    if (!can_my_club) ImGui::BeginDisabled();
-    if (ImGui::Checkbox("My club", &my_club) && my_club) f_team = 0;
-    if (!can_my_club) {
-        ImGui::EndDisabled();
-        my_club = false;
-    }
-    // Club filter (club or national team, ui_team_filter.h): picking one unticks "My club"
-    ImGui::SameLine();
-    const float team_w = std::max(S(140.0f), ImGui::GetContentRegionAvail().x);
-    if (team_filter_combo(app, "##fteam", f_team, f_team_search, sizeof(f_team_search), team_w) && f_team > 0) my_club = false;
-
-    ImGui::SetNextItemWidth(S(130.0f));
-    if (ImGui::BeginCombo("##fpos", f_pos < 0 ? "Any position" : position_name(f_pos), ImGuiComboFlags_HeightLargest)) {
-        if (ImGui::Selectable("Any position", f_pos < 0)) f_pos = -1;
-        for (int p = 0; p < position_count(); ++p)
-            if (ImGui::Selectable(position_name(p), f_pos == p)) f_pos = p;
-        ImGui::EndCombo();
-    }
-    ImGui::SameLine();
-    const auto& styles = playstyle1_names();
-    ImGui::SetNextItemWidth(S(170.0f));
-    if (ImGui::BeginCombo("##fstyle", f_style < 0 || !styles[static_cast<size_t>(f_style)] ? "Any PlayStyle"
-                                                                                             : styles[static_cast<size_t>(f_style)],
-                          ImGuiComboFlags_HeightLargest)) {
-        if (ImGui::Selectable("Any PlayStyle", f_style < 0)) f_style = -1;
-        for (size_t b = 0; b < styles.size(); ++b)
-            if (styles[b] && ImGui::Selectable(styles[b], f_style == static_cast<int>(b))) f_style = static_cast<int>(b);
-        ImGui::EndCombo();
-    }
-    ImGui::SameLine();
-    ImGui::Checkbox("+ only", &f_plus);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only players with the PlayStyle+ (icontrait1)");
-    // Nationality / continent (geo.h: a nation's continent is its confederation); the nationality list narrows to the continent
-    {
-        const Geo& g = geo(app);
-        std::string npreview = "Any nationality";
-        if (f_nat >= 0) {
-            npreview = g.nation_name(f_nat);
-            if (npreview.empty()) npreview = "Nation " + std::to_string(f_nat);
-        }
-        if (geo_pick_combo("##fnat", "Any nationality", npreview, f_nat, S(190.0f), [&](std::vector<GeoOption>& out) {
-                for (const GeoNation* n : g.sorted_nations())
-                    if (f_cont < 0 || n->conf == f_cont) out.push_back({n->id, n->name});
-            }) && f_nat >= 0 && f_cont >= 0 && g.continent_of_nation(f_nat) != f_cont)
-            f_cont = -1;
-        ImGui::SameLine();
-        if (continent_filter_combo(app, "##fcont", f_cont, S(170.0f)) && f_nat >= 0 && f_cont >= 0 &&
-            g.continent_of_nation(f_nat) != f_cont)
-            f_nat = -1;
-    }
-    ImGui::Checkbox("Retiring", &f_retiring);
-    for (auto* v : {&f_min_ovr, &f_min_pot, &f_max_age}) {
-        const char* lbl = v == &f_min_ovr ? "Min OVR" : v == &f_min_pot ? "Min POT" : "Max age";
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(S(46.0f));
-        ImGui::InputInt(lbl, v, 0);
-        *v = std::max(0, std::min(*v, 99));
-    }
-    ImGui::SameLine();
     if (ImGui::SmallButton("Clear##filters")) {
         f_pos = f_style = -1;
-        f_min_ovr = f_min_pot = f_max_age = 0;
-        f_plus = f_retiring = false;
+        f_age.clear();
+        f_ovr.clear();
+        f_pot.clear();
+        f_plus = f_retiring = f_free = false;
         f_team = 0;
         f_nat = f_cont = -1;
     }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Clear every filter below (the search box stays)");
+    ImGui::SameLine();
+    ImGui::TextDisabled("%zu players", rows.size());  // the list built below (for one frame after a change: the previous count)
+
+    // The filter grid: four blocks side by side, a small header each, label left / control right (widgets.cpp form rows). Three
+    // rows per block, so it is as tall as the old filter lines. Tab moves down a block, then on to the next block. A table cell
+    // clips what does not fit, so the Numbers block shortens its labels and boxes in a narrow column.
+    form_label_width(S(76.0f));
+    const bool can_my_club = app.bridge.state().user_team > 0;
+    const auto& styles = playstyle1_names();
+    auto fill_w = [] { return std::max(S(60.0f), ImGui::GetContentRegionAvail().x); };
+    if (ImGui::BeginTable("##pfilters", 4, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Who", ImGuiTableColumnFlags_WidthStretch, 1.1f);
+        ImGui::TableSetupColumn("Position & style", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("Numbers", ImGuiTableColumnFlags_WidthStretch, 1.2f);
+        ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthStretch, 0.7f);
+        ImGui::TableNextRow();
+        // ---- Who
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled("Who");
+        form_label("Club", "A club or a national team; picking one unticks My club (Status block)");
+        if (team_filter_combo(app, "##fteam", f_team, f_team_search, sizeof(f_team_search), fill_w()) && f_team > 0) my_club = false;
+        // nationality / continent (geo.h: a nation's continent is its confederation); the nationality list narrows to the continent
+        {
+            const Geo& g = geo(app);
+            std::string npreview = "Any nationality";
+            if (f_nat >= 0) {
+                npreview = g.nation_name(f_nat);
+                if (npreview.empty()) npreview = "Nation " + std::to_string(f_nat);
+            }
+            form_label("Nationality");
+            if (geo_pick_combo("##fnat", "Any nationality", npreview, f_nat, fill_w(), [&](std::vector<GeoOption>& out) {
+                    for (const GeoNation* n : g.sorted_nations())
+                        if (f_cont < 0 || n->conf == f_cont) out.push_back({n->id, n->name});
+                }) &&
+                f_nat >= 0 && f_cont >= 0 && g.continent_of_nation(f_nat) != f_cont)
+                f_cont = -1;
+            form_label("Continent");
+            if (continent_filter_combo(app, "##fcont", f_cont, fill_w()) && f_nat >= 0 && f_cont >= 0 && g.continent_of_nation(f_nat) != f_cont)
+                f_nat = -1;
+        }
+        // ---- Position & style
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled("Position & style");
+        form_label("Position", "Any of the player's 7 preferred positions");
+        position_combo("##fpos", f_pos, fill_w(), "Any position");
+        form_label("PlayStyle");
+        ImGui::SetNextItemWidth(fill_w());
+        if (ImGui::BeginCombo("##fstyle", f_style < 0 || !styles[static_cast<size_t>(f_style)] ? "Any PlayStyle"
+                                                                                                 : styles[static_cast<size_t>(f_style)],
+                              ImGuiComboFlags_HeightLargest)) {
+            if (ImGui::Selectable("Any PlayStyle", f_style < 0)) f_style = -1;
+            for (size_t b = 0; b < styles.size(); ++b)
+                if (styles[b] && ImGui::Selectable(styles[b], f_style == static_cast<int>(b))) f_style = static_cast<int>(b);
+            ImGui::EndCombo();
+        }
+        checkbox_right("+ only", &f_plus);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only players with the PlayStyle+ (icontrait1)");
+        // ---- Numbers
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled("Numbers");
+        {
+            const float avail = ImGui::GetContentRegionAvail().x;
+            const bool compact = avail < S(200.0f);  // short labels and smaller boxes keep both boxes of a range in view
+            const float label_w = compact ? S(38.0f) : S(76.0f);
+            const float box_w = std::max(S(28.0f), std::min(S(46.0f), (avail - label_w - ImGui::CalcTextSize("to").x - S(12.0f)) * 0.5f));
+            form_label_width(label_w);
+            range_filter_row("Age", "age", f_age.from, f_age.to, 99, box_w,
+                             "Age, from .. to (0 = no bound). Players without a birth date are left out when a bound is set");
+            range_filter_row(compact ? "OVR" : "Overall", "ovr", f_ovr.from, f_ovr.to, 99, box_w, "Overall rating, from .. to (0 = no bound)");
+            range_filter_row(compact ? "POT" : "Potential", "pot", f_pot.from, f_pot.to, 99, box_w, "Potential, from .. to (0 = no bound)");
+            form_label_width(S(76.0f));
+        }
+        // ---- Status: the three toggles (My club sits here so every block has three rows; ticking it drops the club pick)
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled("Status");
+        if (!can_my_club) ImGui::BeginDisabled();
+        if (checkbox_right("My club", &my_club) && my_club) f_team = 0;
+        if (!can_my_club) {
+            ImGui::EndDisabled();
+            my_club = false;
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only the players of your club (needs a career)");
+        checkbox_right("Retiring", &f_retiring);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only players who retire at the end of the season (isretiring)");
+        checkbox_right("Free agent", &f_free);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only players without a club");
+        ImGui::EndTable();
+    }
+    form_label_width(0.0f);
 
     const std::unordered_map<int64_t, int64_t>& nat_of = player_nationalities(app);
-    char fkey[160];
-    std::snprintf(fkey, sizeof(fkey), "|%d|%d|%d|%d|%d|%d|%d|%lld|%lld|%lld", f_pos, f_style, f_plus ? 1 : 0, f_retiring ? 1 : 0, f_min_ovr,
-                  f_min_pot, f_max_age, static_cast<long long>(f_team), static_cast<long long>(f_nat), static_cast<long long>(f_cont));
+    char fkey[200];
+    std::snprintf(fkey, sizeof(fkey), "|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%lld|%lld|%lld", f_pos, f_style, f_plus ? 1 : 0, f_retiring ? 1 : 0,
+                  f_free ? 1 : 0, f_age.from, f_age.to, f_ovr.from, f_ovr.to, f_pot.from, f_pot.to, static_cast<long long>(f_team),
+                  static_cast<long long>(f_nat), static_cast<long long>(f_cont));
     std::string key = lower(search) + (my_club ? "|1" : "|0") + fkey;
     if (key != last_key || last_version != app.model.version()) {
         last_key = key;
@@ -207,15 +243,16 @@ static void player_list(App& app) {
                 continue;
             if (f_style >= 0 && !(((f_plus ? p.playstyles_plus : p.playstyles) >> f_style) & 1)) continue;
             if (f_retiring && !p.retiring) continue;
+            if (f_free && p.club != 0) continue;
             if (f_nat >= 0 || f_cont >= 0) {
                 auto n = nat_of.find(p.playerid);
                 const int64_t nat = n == nat_of.end() ? -1 : n->second;
                 if (f_nat >= 0 && nat != f_nat) continue;
                 if (f_cont >= 0 && geo(app).continent_of_nation(nat) != f_cont) continue;
             }
-            if (f_min_ovr > 0 && p.overall < f_min_ovr) continue;
-            if (f_min_pot > 0 && p.potential < f_min_pot) continue;
-            if (f_max_age > 0 && (p.age < 0 || p.age > f_max_age)) continue;
+            if (!range_passes(f_ovr, p.overall)) continue;
+            if (!range_passes(f_pot, p.potential)) continue;
+            if (!range_passes(f_age, p.age, p.age >= 0)) continue;
             if (!q.empty()) {
                 if (numeric) {
                     if (p.playerid != qid && std::to_string(p.playerid).find(q) != 0) continue;
@@ -229,7 +266,6 @@ static void player_list(App& app) {
         app.list_player_ids.clear();
         for (const PlayerRow* r : rows) app.list_player_ids.push_back(r->playerid);
     }
-    ImGui::TextDisabled("%zu players", rows.size());
 
     ImGuiTableFlags fl = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable |
                          ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
@@ -299,6 +335,7 @@ static void player_list(App& app) {
                 ImGui::TextUnformatted(nat_name(p).c_str());
                 ImGui::TableNextColumn();
                 ImGui::TextUnformatted(position_name(p->position));
+                if (!position_visible(p->position) && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", position_descriptor(p->position).c_str());
                 ImGui::TableNextColumn();
                 ImGui::Text("%d", p->overall);
                 ImGui::TableNextColumn();
@@ -320,19 +357,14 @@ static void positions_editor(App& app, const Table& t, uint64_t rec) {
         Value v;
         if (!app.db.get(t, rec, *f, v)) continue;
         ImGui::PushID(k);
-        ImGui::AlignTextToFramePadding();
-        ImGui::Text("Position %d", k);
-        ImGui::SameLine(S(150.0f));
-        ImGui::SetNextItemWidth(S(110.0f));
-        const char* cur = v.i < 0 ? "None" : position_name(static_cast<int>(v.i));
-        if (ImGui::BeginCombo("##pos", cur)) {
-            if (f->min <= -1 && ImGui::Selectable("None", v.i < 0)) app.edit(t, rec, *f, Value::of_int(-1));
-            for (int p = 0; p < position_count(); ++p) {
-                if (p < f->min || p > f->max()) continue;
-                if (ImGui::Selectable(position_name(p), v.i == p)) app.edit(t, rec, *f, Value::of_int(p));
-            }
-            ImGui::EndCombo();
-        }
+        char lbl[32];
+        std::snprintf(lbl, sizeof(lbl), "Position %d", k);
+        form_label(lbl, k == 1 ? "The main position (the overall formula follows it)" : "A further preferred position, or None");
+        // the game's visible positions (core/model.h); a stored internal code is shown with its descriptor and stays selectable
+        int cur = static_cast<int>(v.i);
+        if (position_combo("##pos", cur, S(190.0f), f->min <= -1 ? "None" : nullptr, static_cast<int>(std::max<int64_t>(0, f->min)),
+                           static_cast<int>(f->max())))
+            app.edit(t, rec, *f, Value::of_int(cur));
         ImGui::PopID();
     }
 }

@@ -122,8 +122,9 @@ PresetPreview preview_preset_file(const fs::path& file) {
 
 // Club picker: an ID box plus a searchable list of clubs (national teams are shown but refused by Lua)
 void club_picker(App& app, int& teamid, char* search, size_t search_size) {
+    form_label("Club ID", "The team ID of the club (national teams are refused)");
     ImGui::SetNextItemWidth(S(110.0f));
-    ImGui::InputInt("Club ID", &teamid, 0);
+    ImGui::InputInt("##clubid", &teamid, 0);
     ImGui::SameLine();
     const TeamRow* t = app.model.team(teamid);
     if (t) ImGui::TextDisabled("%s%s", t->name.c_str(), app.model.is_national_team(teamid) ? " [national team]" : "");
@@ -305,14 +306,14 @@ static void export_dialog(App& app, const PlayerRow& p) {
                 clash.clear();
             }
         }
-        if (ImGui::Checkbox("Turbo player JSON (every field, names, club links, loan)", &want_json)) clash.clear();
+        if (checkbox_right("Turbo player JSON (every field, names, club links, loan)", &want_json)) clash.clear();
         if (want_json) {
             ImGui::Indent();
-            if (ImGui::Checkbox("Copy the miniface next to the JSON", &want_mini)) clash.clear();
+            if (checkbox_right("Copy the miniface next to the JSON", &want_mini)) clash.clear();
             folder_row(app, "JSON folder", json_dir, sizeof(json_dir), json_fp, "##pexjsonpick", players_folder(app));
             ImGui::Unindent();
         }
-        if (ImGui::Checkbox("Live Editor preset CSV (its Import from preset reads it)", &want_csv)) clash.clear();
+        if (checkbox_right("Live Editor preset CSV (its Import from preset reads it)", &want_csv)) clash.clear();
         if (want_csv) {
             ImGui::Indent();
             folder_row(app, "CSV folder", csv_dir, sizeof(csv_dir), csv_fp, "##pexcsvpick", presets_folder(app));
@@ -436,7 +437,7 @@ static void import_dialog(App& app, const PlayerRow& p) {
             club_notes(app, teamid);
         } else {
             ImGui::SeparatorText("What to copy");
-            for (int i = 0; i < 8; ++i) ImGui::Checkbox(group_labels[i], &groups[i]);
+            for (int i = 0; i < 8; ++i) checkbox_right(group_labels[i], &groups[i]);
         }
         bool any_group = std::any_of(std::begin(groups), std::end(groups), [](bool b) { return b; });
         bool can = pv.ok && (target == 1 ? (app.model.team(teamid) != nullptr) : any_group);
@@ -478,18 +479,23 @@ static void clone_dialog(App& app, const PlayerRow& p) {
         ImGui::TextDisabled("The copy gets the first free player ID below 460000, a free shirt number and the reserve slot.");
         club_picker(app, teamid, club_search, sizeof(club_search));
         club_notes(app, teamid);
+        form_label("Shirt number", "0 = the first free number at the club");
         ImGui::SetNextItemWidth(S(110.0f));
-        ImGui::InputInt("Shirt number (0 = first free)", &jersey, 0);
+        ImGui::InputInt("##jersey", &jersey, 0);
         jersey = std::max(0, std::min(jersey, 99));
         ImGui::SeparatorText("Names (empty = same as the original)");
+        form_label("First name");
         ImGui::SetNextItemWidth(S(200.0f));
-        ImGui::InputText("First name", first, sizeof(first));
+        ImGui::InputText("##first", first, sizeof(first));
+        form_label("Surname");
         ImGui::SetNextItemWidth(S(200.0f));
-        ImGui::InputText("Surname", last, sizeof(last));
+        ImGui::InputText("##last", last, sizeof(last));
+        form_label("Common name");
         ImGui::SetNextItemWidth(S(200.0f));
-        ImGui::InputText("Common name", common, sizeof(common));
+        ImGui::InputText("##common", common, sizeof(common));
+        form_label("Jersey name");
         ImGui::SetNextItemWidth(S(200.0f));
-        ImGui::InputText("Jersey name", jname, sizeof(jname));
+        ImGui::InputText("##jname", jname, sizeof(jname));
         bool can = app.model.team(teamid) != nullptr;
         if (!can) ImGui::BeginDisabled();
         if (ImGui::Button("Clone player")) {
@@ -530,42 +536,49 @@ static void create_dialog(App& app, const PlayerRow& p) {
                     static_cast<long long>(p.playerid));
         ImGui::TextDisabled("Appearance, attributes, PlayStyles and the rest are copied from the template; edit them afterwards.");
         ImGui::SeparatorText("Names");
+        form_label("First name");
         ImGui::SetNextItemWidth(S(200.0f));
-        ImGui::InputText("First name", first, sizeof(first));
+        ImGui::InputText("##first", first, sizeof(first));
+        form_label("Surname");
         ImGui::SetNextItemWidth(S(200.0f));
-        ImGui::InputText("Surname", last, sizeof(last));
+        ImGui::InputText("##last", last, sizeof(last));
+        form_label("Common name");
         ImGui::SetNextItemWidth(S(200.0f));
-        ImGui::InputText("Common name", common, sizeof(common));
+        ImGui::InputText("##common", common, sizeof(common));
+        form_label("Jersey name");
         ImGui::SetNextItemWidth(S(200.0f));
-        ImGui::InputText("Jersey name", jname, sizeof(jname));
+        ImGui::InputText("##jname", jname, sizeof(jname));
         ImGui::SeparatorText("Club");
         club_picker(app, teamid, club_search, sizeof(club_search));
         club_notes(app, teamid);
         ImGui::SeparatorText("Profile");
+        form_label("Position", "The game's positions; internal codes behind the toggle in the list");
+        position_combo("##position", position, S(200.0f));
+        form_label("Overall");
         ImGui::SetNextItemWidth(S(110.0f));
-        if (ImGui::BeginCombo("Position", position_name(position))) {
-            for (int k = 0; k < position_count(); ++k)
-                if (ImGui::Selectable(position_name(k), position == k)) position = k;
-            ImGui::EndCombo();
-        }
+        ImGui::InputInt("##overall", &overall, 0);
+        form_label("Potential");
         ImGui::SetNextItemWidth(S(110.0f));
-        ImGui::InputInt("Overall", &overall, 0);
+        ImGui::InputInt("##potential", &potential, 0);
+        form_label("Birth year");
         ImGui::SetNextItemWidth(S(110.0f));
-        ImGui::InputInt("Potential", &potential, 0);
+        ImGui::InputInt("##birthyear", &birth_year, 0);
+        form_label("Nationality ID");
         ImGui::SetNextItemWidth(S(110.0f));
-        ImGui::InputInt("Birth year", &birth_year, 0);
+        ImGui::InputInt("##nationality", &nationality, 0);
+        form_label("Preferred foot");
         ImGui::SetNextItemWidth(S(110.0f));
-        ImGui::InputInt("Nationality ID", &nationality, 0);
-        ImGui::SetNextItemWidth(S(110.0f));
-        if (ImGui::BeginCombo("Preferred foot", foot == 2 ? "Left" : "Right")) {
+        if (ImGui::BeginCombo("##foot", foot == 2 ? "Left" : "Right")) {
             if (ImGui::Selectable("Right", foot == 1)) foot = 1;
             if (ImGui::Selectable("Left", foot == 2)) foot = 2;
             ImGui::EndCombo();
         }
+        form_label("Height (cm)");
         ImGui::SetNextItemWidth(S(110.0f));
-        ImGui::InputInt("Height (cm)", &height, 0);
+        ImGui::InputInt("##height", &height, 0);
+        form_label("Weight (kg)");
         ImGui::SetNextItemWidth(S(110.0f));
-        ImGui::InputInt("Weight (kg)", &weight, 0);
+        ImGui::InputInt("##weight", &weight, 0);
         overall = std::max(1, std::min(overall, 99));
         potential = std::max(1, std::min(potential, 99));
         birth_year = std::max(1950, std::min(birth_year, 2030));

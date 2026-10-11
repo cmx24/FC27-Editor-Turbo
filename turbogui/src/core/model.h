@@ -29,6 +29,16 @@ int age_on(const GameDate& birth, const GameDate& today);
 
 const char* position_name(int pos);  // 0..27, "?" otherwise
 int position_count();
+// The positions FC 27 names in its own screens. Evidence (docs/turbo-reference.md, UX_FILTERS_REPORT.txt): the game's roles
+// (players.role1..9, named by Live Editor's loc strings player_role_N in core/field_labels.h) exist for exactly twelve
+// positions, GK RB LB CB CDM CM RM LM CAM RW LW ST, in that order; the other 16 codes of the 28-entry table (SW, RWB, LWB,
+// RCB/LCB, RDM/LDM, RCM/LCM, RAM/LAM, RF/CF/LF, RS/LS) appear in formations and preferredposition2..7 but no game menu
+// names them. Lists default to these twelve; the full table stays behind a "show all internal positions" toggle.
+const std::vector<int>& visible_positions();  // codes in the game's role order
+bool position_visible(int pos);
+// Text for a stored position: "CB" for a visible one, "RCB (internal, plays as CB)" or "SW (internal)" for an internal
+// code, "None" for -1 (preferredposition2..7 empty), "Unknown position N" outside the table. Never a bare number.
+std::string position_descriptor(int pos);
 
 struct PlayerRow {
     int64_t playerid = 0;

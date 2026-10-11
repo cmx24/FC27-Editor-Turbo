@@ -431,4 +431,26 @@ bool enum_editor(App& app, const Table& t, uint64_t rec, const Field& f, const c
 const char* enum_label(const std::string& field, int64_t v);
 bool is_enum_field(const std::string& field);
 
+// ---- form rows (widgets.cpp): the label on the LEFT in a fixed column, the control on the RIGHT, aligned.
+// The label column width of the panel being drawn (S() applied by the caller); call it at the top of a panel or block.
+// 0 restores the default (S(150)).
+void form_label_width(float w);
+float form_label_width();
+// Label on the left; the cursor stays on the same line at the end of the label column for the control that follows (give
+// that control a hidden "##id" label and its own width). `tip`: tooltip for the label.
+void form_label(const char* label, const char* tip = nullptr);
+// Checkbox with the label on the left and the box on the right. Same ImGui ID as ImGui::Checkbox(label), so saved
+// settings and the tests find it under the same name; the whole row (label and box) is the click target. True when toggled.
+// label_w: the label column the box aligns to (0 = form_label_width(); negative = tight, the box right after the text).
+bool checkbox_right(const char* label, bool* v, float label_w = 0.0f);
+// A two-sided range filter row: label, then "from" and "to" number boxes (core/range_filter.h: 0 = no bound, from <= to is
+// kept). `id` names the boxes "##<id>_from" / "##<id>_to". True when a value changed.
+bool range_filter_row(const char* label, const char* id, int& from, int& to, int hi, float box_w, const char* tip = nullptr);
+// Combo over the game's visible positions (core/model.h visible_positions()); the full internal table behind a "Show all
+// internal positions" toggle in the popup (position_show_all()). `none_label` (optional) adds a -1 entry ("None",
+// "Any position"); lo/hi restrict the codes offered (hi < 0 = the whole table). A current value outside the visible list is
+// shown with its descriptor and stays selectable. Sets `pos` and returns true on a pick.
+bool position_combo(const char* id, int& pos, float width, const char* none_label = nullptr, int lo = 0, int hi = -1);
+bool& position_show_all();
+
 }  // namespace turbo

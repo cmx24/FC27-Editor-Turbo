@@ -63,6 +63,33 @@ const char* position_name(int pos) {
 
 int position_count() { return static_cast<int>(sizeof(kPositions) / sizeof(kPositions[0])); }
 
+const std::vector<int>& visible_positions() {
+    // GK RB LB CB CDM CM RM LM CAM RW LW ST: the order of the game's role list (field_labels.h "role": 1-2 GK, 3-6 RB, 7-10 LB,
+    // 11-13 CB, 14-17 CDM, 18-22 CM, 23-26 RM, 27-30 LM, 31-34 CAM, 35-37 RW, 38-40 LW, 41-44 ST)
+    static const std::vector<int> v = {0, 3, 7, 5, 10, 14, 12, 16, 18, 23, 27, 25};
+    return v;
+}
+
+bool position_visible(int pos) {
+    const std::vector<int>& v = visible_positions();
+    return std::find(v.begin(), v.end(), pos) != v.end();
+}
+
+std::string position_descriptor(int pos) {
+    if (pos < 0) return "None";
+    if (pos >= position_count()) return "Unknown position " + std::to_string(pos);
+    const std::string n = position_name(pos);
+    if (position_visible(pos)) return n;
+    // the paired internal codes the game lays out on the pitch as one of the visible positions (core/tactics_db.cpp)
+    const char* as = nullptr;
+    if (n == "RCB" || n == "LCB") as = "CB";
+    else if (n == "RDM" || n == "LDM") as = "CDM";
+    else if (n == "RCM" || n == "LCM") as = "CM";
+    else if (n == "RAM" || n == "LAM") as = "CAM";
+    else if (n == "RS" || n == "LS") as = "ST";
+    return as ? n + " (internal, plays as " + as + ")" : n + " (internal)";
+}
+
 // ---------------------------------------------------------------- model
 // The game's own national-team rule (IsInternationalLeague 0x14479F50C, docs/re/realtime_transfers.md section 8): league 78 (men),
 // 2136 (women) or 3004. teamnationlinks is not that list (it also ties Rest of World clubs to a nation).
