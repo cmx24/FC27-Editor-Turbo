@@ -252,8 +252,14 @@ M.PLAN_ATTRS = { "acceleration", "sprintspeed", "agility", "balance", "jumping",
     "longshots", "standingtackle", "slidingtackle", "volleys", "curve", "penalties", "gkdiving", "gkhandling",
     "gkkicking", "gkreflexes", "gkpositioning" }
 
--- Writes values { field = v } into the player's development plan when he has one (or when force=true): "plan", "none", "unavailable" or
--- "failed: ..." (the natives are in Live Editor v27.1.2 only)
+-- Writes values { field = v } into the player's development plan when he has one (or when force=true). Returns the state:
+--   "plan"         the plan holds the values (every write accepted; with force the read-back confirms the plan entry)
+--   "none"         the player has no plan (not force), or nothing was written
+--   "no_entry"     force=true: the writes went through, but PlayerHasDevelopementPlan(pid) still says false afterwards.
+--                  PlayerSetValueInDevelopementPlan does not create a plan entry; only the game does (its own transfer
+--                  routine). Callers must report "plan entry still missing", never "plan".
+--   "unavailable"  the natives are missing (they are in Live Editor v27.1.2 and later only)
+--   "failed: ..."  a native raised (the first error); when every write failed this is returned instead of "none"
 function M.sync_plan(pid, values, force)
     local has, set = _G["PlayerHasDevelopementPlan"], _G["PlayerSetValueInDevelopementPlan"]
     if type(set) ~= "function" then return "unavailable" end
@@ -265,10 +271,17 @@ function M.sync_plan(pid, values, force)
     local names = {}
     for f in pairs(values) do names[#names + 1] = f end
     table.sort(names)
-    local count = 0
+    local count, first_err = 0, nil
     for _, f in ipairs(names) do
         local ok2, err = pcall(set, pid, f, values[f])
-        if ok2 then count = count + 1 end
+        if ok2 then count = count + 1 elseif first_err == nil then first_err = f .. ": " .. tostring(err) end
+    end
+    if count == 0 and first_err then return "failed: " .. first_err end
+    if force and type(has) == "function" then
+        -- honest read-back: a value set into a plan the game never created is not kept by the game
+        local ok, yes = pcall(has, pid)
+        if not ok then return "failed: " .. tostring(yes) end
+        if yes ~= true then return "no_entry" end
     end
     return count > 0 and "plan" or "none"
 end
