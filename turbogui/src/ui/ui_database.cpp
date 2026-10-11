@@ -101,6 +101,7 @@ void draw_database(App& app) {
                          ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
                          ImGuiTableFlags_Hideable | ImGuiTableFlags_SizingFixedFit;
     bool open_edit = false;
+    ImGui::PushID(g_view.table.c_str());  // widths / order / hidden columns remembered per database table (table_registry.h)
     if (ImGui::BeginTable("##dbt", ncols, fl, ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(1, 1);
         for (int c = 0; c < ncols; ++c) ImGui::TableSetupColumn(g_view.fields[static_cast<size_t>(c)].c_str());
@@ -132,6 +133,7 @@ void draw_database(App& app) {
         }
         ImGui::EndTable();
     }
+    ImGui::PopID();
     if (open_edit) ImGui::OpenPopup("##dbedit");
     if (ImGui::BeginPopup("##dbedit")) {
         const Field* ef = t->field(g_view.edit_field);

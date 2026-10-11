@@ -180,6 +180,31 @@ The Lua side polls the mailbox on every career event (`bridge.on_career_event`) 
   glyphs for the new size on demand (the DX12 backend has `RendererHasTextures`), so the atlas is never rebuilt as a
   whole. Before 1.1.1 every scale change multiplied the already scaled sizes again (scrollbars and grabs grew into big
   grey ovals after a few window resizes).
+- **Row density (2026-10-11, `ui/gui_prefs.h`)**: Status > Settings "Row density" = compact | normal | comfortable
+  (`gui_settings.json` `gui.row_density`). `App::update_style` multiplies `CellPadding.y`, `ItemSpacing.y` and
+  `FramePadding.y` after `ScaleAllSizes`, so table rows (text + 2 x CellPadding.y), list rows (text + ItemSpacing.y) and
+  widget rows (FrameHeight) follow one setting; the font size stays the UI size.
+- **Tables and panes (`ui/table_registry.h`)**: every table has resizable, reorderable and hideable columns; the registry
+  lists the 32 tables with their flags and `tests/native/test_ux_resize.h` scans `src/ui` so none loses them. The
+  exceptions are the tables inside an auto-sizing popup (`Spec::popup`): `##comptable` in the competition picker's combo
+  (with the column flags Dear ImGui saved its column settings and the popup's second opening failed, native "Live
+  standings: groups" case), `##clubrows` in the club search dropdown and `##keptplayer` in the kept-edits tooltip; they
+  keep fixed columns. Column
+  widths / order / hidden columns live in `turbo_output\turbo_gui_layout_v2.ini` per table ID (the Database tab pushes the
+  database table's name so each table keeps its own). Split panes and fixed-height lists carry `ImGuiChildFlags_ResizeX`
+  / `ResizeY` (a resize border; the size is kept in the same file). Not the Callname lists (`list_height`, 80 .. 200 px to
+  the buttons below): a remembered height there pushed the buttons out of view (native Callname cases failed). Not the
+  children of auto-sizing popups either (`##complist` in the competition picker combo, `##fvals` in the face filter): a
+  resizable child inside an auto-resizing parent feeds its saved size back into the parent, and the second opening of the
+  picker failed (native "Live standings: groups" case).
+- **Background loading (`ui/preload.h`, `ui/preload_queue.h`)**: from the first show or the career connection, pictures
+  load in the order they are opened: the user's club's minifaces, the listed players' minifaces (topped up when the Players
+  list changes), the real-face chooser (its minifaces and the 3D head renders already in `turbo_output\cache\faces3d`),
+  tattoos, the hair / body galleries, crests, manager heads; the first 400 of every kind before the rest of any. Missing
+  files are asked from Lua (`want.txt`, exported inside its 0.25 s slice per career event), files at hand are decoded on the
+  texture worker. `gui.preload_images` (default true) switches it off; the Status tab shows the progress per kind; the queue
+  is cancelled when the game leaves the career (`LegacyImages::clear_background`) and collected again for the next one.
+  New 3D head renders are never started by the preloader (they need the game's capture service: Render all filtered heads).
 - **Failure handling**: every frame runs behind an exception barrier; any error switches the overlay off for the session and
   the game keeps running. The main window is clamped to the screen size.
 - Third party (vendored in `turbogui/third_party`): Dear ImGui v1.92.9, MinHook v1.3.4, nlohmann/json 3.11.3.

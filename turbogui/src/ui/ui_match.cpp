@@ -359,7 +359,8 @@ void draw_side_sliders(App& app, bool ready, const std::map<std::string, msetup:
     ImGui::EndDisabled();
     if (!g_ms.show_side) return;
     ImGui::BeginDisabled(!ready);
-    if (ImGui::BeginTable("##sidevars", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp |
+    if (ImGui::BeginTable("##sidevars", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable |
+                                              ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp |
                                               ImGuiTableFlags_ScrollY, ImVec2(0, S(380.0f)))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Slider");

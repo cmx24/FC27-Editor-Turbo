@@ -1246,7 +1246,7 @@ void draw_body(App& app) {
     if (!shown_error.empty()) ImGui::TextColored(ImVec4(1, 0.5f, 0.3f, 1), "Tactics error: %s", shown_error.c_str());
     const float total = ImGui::GetContentRegionAvail().x;
     const ImGuiChildFlags cf = ImGuiChildFlags_Borders;
-    ImGui::BeginChild("##tacleft", ImVec2(total * 0.22f, 0), cf);
+    ImGui::BeginChild("##tacleft", ImVec2(total * 0.22f, 0), cf | ImGuiChildFlags_ResizeX);
     try {
         draw_left(app);
     } catch (const std::exception& e) {
@@ -1256,7 +1256,7 @@ void draw_body(App& app) {
     }
     ImGui::EndChild();
     ImGui::SameLine();
-    ImGui::BeginChild("##taccentre", ImVec2(total * 0.46f, 0), cf);
+    ImGui::BeginChild("##taccentre", ImVec2(total * 0.46f, 0), cf | ImGuiChildFlags_ResizeX);
     try {
         draw_centre(app);
     } catch (const std::exception& e) {

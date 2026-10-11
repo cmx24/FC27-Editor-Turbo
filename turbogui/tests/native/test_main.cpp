@@ -2807,6 +2807,7 @@ static void open_standings_advanced(Ui& ui) {
 static Rgba solid(int w, int h, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
 static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_preload_hotkey.h"  // 1.1.1: show/hide key setting, background loading
+#include "test_ux_resize.h"  // 2026-10-11: table registry + resizable panes, preload order / cancellation, gui prefs
 #include "test_gear_pictures.h"  // 1.1.4: gear preview pictures from the hash list
 #include "test_hair_catalog.h"  // hair catalog: gallery filters and the face chooser Hair facet
 #include "test_bodytypes.h"  // body type catalogue (runtime-loaded probe + localize.json) and its gallery
@@ -13033,6 +13034,7 @@ int main(int argc, char** argv) {
     test_reapply_players();
     std::printf("native show/hide key and background loading\n");
     test_hotkey_and_background();
+    test_ux_resize();  // test_ux_resize.h
     test_gear_pictures();
     test_hair_catalog();
     test_bodytype_catalog();
