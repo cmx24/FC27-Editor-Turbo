@@ -8,6 +8,7 @@
 
 #include "app.h"
 #include "geo.h"
+#include "table_registry.h"
 #include "core/field_labels.h"
 #include "core/hair_catalog.h"
 #include "imgui.h"
@@ -380,7 +381,7 @@ void field_grid(App& app, const Table& t, uint64_t rec, const std::vector<std::s
         ImGui::TextDisabled("None of these fields exist in FC 27's %s table.", t.name.c_str());
         return;
     }
-    if (ImGui::BeginTable(id, columns, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchSame)) {
+    if (ImGui::BeginTable(id, columns, tbl::kGrid | ImGuiTableFlags_SizingStretchSame)) {
         for (const Field* f : present) {
             ImGui::TableNextColumn();
             std::string lbl = field_label(f->name);

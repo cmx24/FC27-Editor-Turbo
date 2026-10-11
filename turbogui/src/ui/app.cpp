@@ -37,6 +37,7 @@ void App::preload_start(const char* why) {
 }
 
 std::string App::preload_line() const { return preloader ? preloader->line(*this) : std::string(); }
+std::vector<std::string> App::preload_status() const { return preloader ? preloader->status(*this) : std::vector<std::string>(); }
 
 bool App::lua_images_wanted() const {
     return visible && preloader && preloader->loading() && legacy.waiting_background() > 0;
@@ -83,7 +84,7 @@ void App::update_style() {
     ImGuiIO& io = ImGui::GetIO();
     float want = auto_ui_scale(io.DisplaySize.y) * std::max(kUiScaleMin, std::min(kUiScaleMax, ui_scale_user));
     want = std::round(want * 20.0f) / 20.0f;
-    if (want == ui_scale_applied) return;
+    if (want == ui_scale_applied && prefs.row_density == density_applied) return;
     ImGuiStyle& st = ImGui::GetStyle();
     // Start from Dear ImGui's unscaled sizes every time: ScaleAllSizes multiplies what is there, and turbo_theme only
     // resets a few sizes, so each scale change (window height, UI size, Ctrl + wheel) used to grow the scrollbars,
@@ -95,7 +96,14 @@ void App::update_style() {
     turbo_theme(st);
     st.ScaleAllSizes(want);
     st.FontScaleDpi = want;
-    if (ui_scale_applied > 0.0f) ui_scale_changed_from = ui_scale_applied;
+    // Row density (Status > Settings, gui_settings.json gui.row_density, ui/gui_prefs.h): table rows are text height +
+    // 2 * CellPadding.y, list rows text + ItemSpacing.y, widget rows FrameHeight. "normal" multiplies by 1: the style is
+    // then exactly the one before this setting existed (no rounding: it moved rows at fractional scales).
+    st.CellPadding.y *= row_density_cell_padding(prefs.row_density);
+    st.ItemSpacing.y *= row_density_item_spacing(prefs.row_density);
+    st.FramePadding.y *= row_density_frame_padding(prefs.row_density);
+    density_applied = prefs.row_density;
+    if (ui_scale_applied > 0.0f && ui_scale_applied != want) ui_scale_changed_from = ui_scale_applied;
     ui_scale_applied = want;
     g_ui_scale = want;
 }
@@ -841,12 +849,14 @@ void App::load_gui_settings() {
             if (std::isfinite(us) && us > 0.0) ui_scale_user = std::max(kUiScaleMin, std::min(kUiScaleMax, static_cast<float>(us)));
         }
     }
+    prefs = GuiPrefs::load(gui_settings);  // gui.preload_images, gui.row_density (ui/gui_prefs.h)
 }
 
 bool App::save_gui_settings() {
     gui_settings["gui"]["toggle_key"] = toggle_vk;
     gui_settings["gui"]["toggle_mods"] = toggle_mods;
     gui_settings["gui"]["ui_scale"] = std::round(ui_scale_user * 100.0f) / 100.0f;
+    prefs.save(gui_settings);
     return bridge.write_gui_settings(gui_settings.dump(2));
 }
 

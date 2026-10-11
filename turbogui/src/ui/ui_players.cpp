@@ -8,6 +8,7 @@
 
 #include "app.h"
 #include "core/archetypes.h"
+#include "table_registry.h"
 #include "core/field_labels.h"
 #include "core/overall.h"
 #include "geo.h"
@@ -347,7 +348,7 @@ static void playstyle_bits(App& app, const Table& t, uint64_t rec, const char* f
     if (!app.db.get(t, rec, *f, v)) return;
     ImGui::PushID(field);
     int bits = std::min(f->depth, 62);
-    if (ImGui::BeginTable("##bits", 3, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchSame)) {
+    if (ImGui::BeginTable("##bits", 3, tbl::kGrid | ImGuiTableFlags_SizingStretchSame)) {
         for (int b = 0; b < bits; ++b) {
             ImGui::TableNextColumn();
             bool on = (static_cast<uint64_t>(v.i - f->min) >> b) & 1;
@@ -886,7 +887,7 @@ static void attribute_sliders(App& app, const Table& t, uint64_t rec) {
         else std::snprintf(hdr, sizeof(hdr), "%s", g.first);
         ImGui::SeparatorText(hdr);
         ImGui::PushID(g.first);
-        if (ImGui::BeginTable("##sl", wide ? 2 : 1, ImGuiTableFlags_SizingStretchSame)) {
+        if (ImGui::BeginTable("##sl", wide ? 2 : 1, tbl::kGrid | ImGuiTableFlags_SizingStretchSame)) {
             for (const Field* f : present) {
                 ImGui::TableNextColumn();
                 slider_editor_ex(app, t, rec, *f, field_label(f->name).c_str(), S(wide ? 132.0f : 150.0f), -FLT_MIN, S(58.0f));
@@ -987,7 +988,7 @@ static void player_editor(App& app) {
                 if (n2.find(q) != std::string::npos || lower(field_label(n2)).find(q) != std::string::npos) hits.push_back(n2);
             ImGui::SameLine();
             ImGui::TextDisabled("%zu fields", hits.size());
-            if (!hits.empty() && ImGui::BeginTable("##fsearch", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_BordersOuter)) {
+            if (!hits.empty() && ImGui::BeginTable("##fsearch", 2, tbl::kGrid | ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_BordersOuter)) {
                 size_t shown = 0;
                 for (const auto& n2 : hits) {
                     if (shown++ >= 8) break;

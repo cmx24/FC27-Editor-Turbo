@@ -798,7 +798,7 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
     head3d_bar(app, rows);  // the renders themselves: tick_faces3d, every frame from App::draw
     const float cell = S(96.0f);
     const Face* picked = nullptr;
-    ImGui::BeginChild("##facegrid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 2.2f), ImGuiChildFlags_Borders);
+    ImGui::BeginChild("##facegrid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 2.2f), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
     const int cols = std::max(1, int((ImGui::GetContentRegionAvail().x + ImGui::GetStyle().ItemSpacing.x) / (cell + ImGui::GetStyle().ItemSpacing.x)));
     const int nrows = int((rows.size() + size_t(cols) - 1) / size_t(cols));
     ImGuiListClipper clip;

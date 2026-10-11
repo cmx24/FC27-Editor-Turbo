@@ -31,6 +31,7 @@
 #include "core/tactic_profiles.h"
 #include "core/teamname_override.h"
 #include "nlohmann/json.hpp"
+#include "gui_prefs.h"
 #include "ui_role_rules.h"
 #include "textures.h"
 
@@ -105,6 +106,9 @@ public:
     std::unique_ptr<Preloader> preloader;
     void preload_start(const char* why);
     std::string preload_line() const;     // "Loading pictures: 812 of 4120" ("" when nothing is loading)
+    std::vector<std::string> preload_status() const;  // Status tab: one line per kind of picture (ui/preload.h)
+    GuiPrefs prefs;                                   // gui.preload_images, gui.row_density (ui/gui_prefs.h)
+    RowDensity density_applied = RowDensity::Normal;  // the row density the style was last built for
     bool lua_images_wanted() const;       // pictures are waiting and Turbo is shown: the host nudges Lua (synthetic event)
     float ui_scale_user = 1.0f;     // "UI size" setting (gui_settings.json gui.ui_scale), 0.6 .. 2.5
     float ui_scale_applied = 0.0f;  // scale the style was last built for

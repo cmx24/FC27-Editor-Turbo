@@ -504,6 +504,11 @@ void draw_hook_status(App& app) {
 void draw_status(App& app) {
     const auto& st = app.bridge.state();
     images_status(app);
+    // Background loading (ui/preload.h): what is ready, per kind of picture, most wanted first
+    for (const std::string& line : app.preload_status()) {
+        if (!line.empty() && line[0] == ' ') ImGui::TextDisabled("%s", line.c_str());
+        else ImGui::Text("%s", line.c_str());
+    }
     // A short health summary first: one line for the database, one for what Turbo needs from the game. The folders, hook
     // addresses, tick counters and service pointers are for bug reports: they sit in the collapsed "Technical details".
     ImGui::SeparatorText("Health");
@@ -585,6 +590,24 @@ void draw_status(App& app) {
     ImGui::SameLine();
     ImGui::TextDisabled("now %.2fx (window height %.0f px)", static_cast<double>(app.ui_scale_applied),
                         static_cast<double>(ImGui::GetIO().DisplaySize.y));
+    // Row density (ui/gui_prefs.h): the height of table and list rows; the style follows on the next tick
+    {
+        ImGui::SetNextItemWidth(S(140.0f));
+        int d = static_cast<int>(app.prefs.row_density);
+        const char* names[] = {row_density_label(RowDensity::Compact), row_density_label(RowDensity::Normal), row_density_label(RowDensity::Comfortable)};
+        if (ImGui::Combo("Row density", &d, names, 3)) {
+            app.prefs.row_density = static_cast<RowDensity>(d);
+            if (!app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("How tall the rows of tables and lists are (gui_settings.json gui.row_density)");
+    }
+    // Background loading of pictures (ui/preload.h, gui.preload_images)
+    if (ImGui::Checkbox("Load pictures in the background from the start (faces, 3D head renders, tattoos, galleries, crests)", &app.prefs.preload_images)) {
+        if (!app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("On: the galleries open with their pictures already loaded (the user's club first, then the listed players,\n"
+                          "the real-face chooser, tattoos, galleries, crests, managers). Off: pictures load when a screen shows them.");
 
     ImGui::SeparatorText("Log");
     ImGui::BeginChild("##log", ImVec2(0, 0), ImGuiChildFlags_Borders);

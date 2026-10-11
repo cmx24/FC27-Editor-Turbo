@@ -70,6 +70,15 @@ public:
     // Where the game's picture is, without asking for it and without looking at custom files (the background loader)
     State peek(const std::string& path, std::filesystem::path* file = nullptr) const;
     size_t waiting_background() const { return bg_.size(); }
+    // Forget the background list (the career left, the setting was switched off): want.txt is rewritten without it;
+    // what is on screen stays asked
+    void clear_background() {
+        if (bg_.empty()) return;
+        bg_.clear();
+        bg_set_.clear();
+        bg_check_ = 0;
+        dirty_ = true;
+    }
 
     // Call regularly: writes want.txt when it changed (at most every 0.5 s), re-reads missing.txt / status.txt
     void tick(double now);
