@@ -254,6 +254,7 @@ bool enum_editor(App& app, const Table& t, uint64_t rec, const Field& f, const c
             for (size_t k = 0; k < d->labels.size(); ++k) codes.push_back(d->base + static_cast<int64_t>(k));
         } else if (const labels::NamedCodes* nt = labels::named_codes(f.name)) {
             for (const auto& e : *nt) codes.push_back(e.first);
+            for (int64_t k : labels::known_codes(f.name)) codes.push_back(k);  // described codes (hair colours 15..27...)
         } else {
             for (int64_t v = f.min; v <= f.max() && v < f.min + 4096; ++v) codes.push_back(v);
         }
@@ -272,15 +273,30 @@ bool enum_editor(App& app, const Table& t, uint64_t rec, const Field& f, const c
         if (is_num && typed >= f.min && typed <= f.max() && std::find(codes.begin(), codes.end(), typed) == codes.end())
             codes.insert(codes.begin(), typed);
         if (std::find(codes.begin(), codes.end(), cur.i) == codes.end()) codes.insert(codes.begin(), cur.i);
+        struct Row {
+            int64_t v;
+            std::string txt;
+        };
+        std::vector<Row> rows;
         for (int64_t v : codes) {
             if (v < f.min || v > f.max()) continue;
-            std::string txt = code_text(f.name, v);
+            rows.push_back({v, code_text(f.name, v)});
+        }
+        // descriptors read in alphabetical order (roles, colours, weather...); item catalogues ("Boots #1432") stay in code order
+        if (labels::has_descriptors(f.name))
+            std::stable_sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) {
+                return std::lexicographical_compare(a.txt.begin(), a.txt.end(), b.txt.begin(), b.txt.end(), [](unsigned char x, unsigned char y) {
+                    return std::tolower(x) < std::tolower(y);
+                });
+            });
+        for (const Row& r : rows) {
             char num[24];
-            std::snprintf(num, sizeof(num), "%lld", static_cast<long long>(v));
-            if (filt[0] && !contains_ci(txt, filt) && std::strcmp(num, filt) != 0) continue;
-            const std::string item = txt + "##" + num;  // "Left##2": the code is the item's ID
-            if (ImGui::Selectable(item.c_str(), v == cur.i) && v != cur.i) wrote = app.edit(t, rec, f, Value::of_int(v));
-            if (v == cur.i && ImGui::IsWindowAppearing()) ImGui::SetItemDefaultFocus();
+            std::snprintf(num, sizeof(num), "%lld", static_cast<long long>(r.v));
+            if (filt[0] && !contains_ci(r.txt, filt) && std::strcmp(num, filt) != 0) continue;
+            const std::string item = r.txt + "##" + num;  // "Left##2": the code is the item's ID
+            if (ImGui::Selectable(item.c_str(), r.v == cur.i) && r.v != cur.i) wrote = app.edit(t, rec, f, Value::of_int(r.v));
+            if (r.v == cur.i && ImGui::IsWindowAppearing()) ImGui::SetItemDefaultFocus();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s = %s", f.name.c_str(), num);  // the game's number: tooltip only
         }
         ImGui::EndCombo();
     }

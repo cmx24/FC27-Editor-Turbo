@@ -699,7 +699,8 @@ void draw_live_standings(App& app) {
     ImGui::Separator();
     ImGui::Text("%s", app.model.team_name(cur_row->teamid).c_str());
     ImGui::SameLine();
-    ImGui::TextDisabled("(row %u, team %u)", unsigned(cur_row->id), unsigned(cur_row->teamid));
+    ImGui::TextDisabled("(standings row %u)", unsigned(cur_row->id));
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("team %u", unsigned(cur_row->teamid));
     ImGui::PushID("##lsgrid");
     ImGui::Columns(2, nullptr, false);
     counter("Home wins", st.edit.hw);

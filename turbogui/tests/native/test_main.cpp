@@ -262,8 +262,9 @@ static void test_field_labels() {
         CHECK(code_text("hairtypecode", 0, "Hair") == hair_text(0) && code_text("hairtypecode", 0, "Hair").find('#') == std::string::npos,
               "hair style is its look, no # number");
         CHECK(code_text("facialhairtypecode", 31, "Facial hair") == "Full beard", "facial hair 31 is a full beard");
-        CHECK(code_text("shoetypecode", 123, "Boots") == "Boots style 123 (no name)", "boots get a text descriptor: " + code_text("shoetypecode", 123, "Boots"));
-        CHECK(code_text("shoecolorcode1", 7, "x") == "Boot colour 7 (no name)", "a colour with no name says so: " + code_text("shoecolorcode1", 7, "x"));
+        CHECK(code_text("shoetypecode", 123, "Boots") == "Adidas boots #123", "boots get their brand (FC Editor's bootmap27): " + code_text("shoetypecode", 123, "Boots"));
+        CHECK(code_text("shoecolorcode1", 7, "x") == "Yellow" && code_text("shoecolorcode1", 99, "x") == "Unnamed 99",
+              "boot colours are Live Editor's names, an unknown one says Unnamed: " + code_text("shoecolorcode1", 99, "x"));
         CHECK(is_code_field("role4") && is_code_field("shoecolorcode2") && is_code_field("eyebrowcode"), "code fields");
         CHECK(!is_code_field("height") && !is_code_field("overallrating") && !is_code_field("modifier"), "numbers stay numbers");
     });
@@ -2601,6 +2602,7 @@ static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_bodytypes.h"  // body type catalogue (runtime-loaded probe + localize.json) and its gallery
 #include "test_face3d_looks.h"  // 3D looks of the real faces: generated data, lookup, the chooser's 3D facets
 #include "test_describe.h"  // codes to descriptions: describe(), user text, pickers, the "no code N" UI walk
+#include "test_descriptors.h"  // 2.0/ux-descriptors: every code field over its whole schema range, never a bare number
 #include "test_wheel.h"  // 1.1.3: mouse wheel source (hook, raw input, window messages)
 static std::string hex_bytes(const std::vector<uint8_t>& d) {
     static const char* h = "0123456789abcdef";
@@ -12452,6 +12454,7 @@ int main(int argc, char** argv) {
     test_core();
     test_field_labels();
     test_describe_core();
+    test_descriptors_core();
     std::printf("native pictures\n");
     test_images();
     std::printf("native dev service\n");

@@ -16,15 +16,20 @@ static void test_describe_core() {
         CHECK(describe("players", "role1", 14) == "CDM Holding+", "role 14: " + describe("players", "role1", 14));
         CHECK(describe("players", "bodytypecode", 5) == "Tall and Normal", "body type 5");
         CHECK(describe("players", "bodytypecode", 12) == "Player-specific body model 12", "a body type with no name: " + describe("players", "bodytypecode", 12));
-        CHECK(describe("manager", "bodytypecode", 10) == "Player-specific body model 10", "code 10 has no entry");
+        CHECK(describe("manager", "bodytypecode", 10) == "Unique: Lionel Messi", "body type 10 is Messi's (appearance_labels_data.h): " + describe("manager", "bodytypecode", 10));
         CHECK(describe("players", "role3", 9999) == "Unnamed 9999", "an unnamed role");
         CHECK(describe("players", "skillmoves", 3) == "4 stars", "skill moves 3 is 4 stars");
         CHECK(describe("players", "skillmoves", 9) == "Unnamed 9", "an enum value past its labels");
         CHECK(describe("players", "headclasscode", 0) == "Real face (own head model)" && describe("players", "headclasscode", 1) == "Generic head",
               "head class reads as a real face or a generic head");
-        CHECK(describe("players", "shoetypecode", 1432) == "Boots style 1432 (no name)", "boots: " + describe("players", "shoetypecode", 1432));
-        CHECK(describe("players", "shoecolorcode1", 4) == "Boot colour 4 (no name)", "boot colour: " + describe("players", "shoecolorcode1", 4));
-        CHECK(describe("players", "headtypecode", 20801) == "Head style 20801 (no name)", "head: " + describe("players", "headtypecode", 20801));
+        const std::string boots = describe("players", "shoetypecode", 1432);  // "Boots #1432" or "<brand> boots #1432"
+        CHECK(boots.find("oots #1432") != std::string::npos && boots.find("no name") == std::string::npos, "boots: " + boots);
+        CHECK(describe("players", "shoecolorcode1", 4) == "Light Blue" && describe("players", "shoecolorcode2", 31) == "Light Green", "boot colours are Live Editor's names: " + describe("players", "shoecolorcode1", 4));
+        CHECK(describe("players", "headtypecode", 20801).rfind("Head type 20801 (", 0) == 0, "head: " + describe("players", "headtypecode", 20801));
+        CHECK(describe("players", "skintonecode", 30) == "Caucasian 3" && describe("players", "skintonecode", 33) == "Skin tone 33 (near Caucasian 3)", "skin tones are tens: " + describe("players", "skintonecode", 33));
+        CHECK(describe("players", "haircolorcode", 21) == "Jet Black" && describe("players", "facialhaircolorcode", 3) == "Dark Brown", "hair colours 15..27 described, beard uses the hair palette");
+        CHECK(describe("players", "gkglovetypecode", 0) == "Default" && describe("players", "animfreekickstartposcode", 0) == "Standard", "the standard zero reads as a word");
+        CHECK(describe("players", "preferredfoot", 2) == "Left" && describe("players", "gender", 1) == "Female", "named fields without a 'code' suffix are words too");
         CHECK(describe("players", "overallrating", 87) == "87" && describe("players", "height", 181) == "181", "plain numbers stay numbers");
         CHECK(describe("manager", "personalityid", 3) == "Personality type 3", "manager personality has no names to give: " + describe("manager", "personalityid", 3));
         const std::string hair = describe("players", "hairtypecode", 100);
@@ -70,8 +75,11 @@ static void test_describe_core() {
                   match_var_set("OVERRIDE_MATCH_DIFFICULTY", 5).find("set to Legendary") != std::string::npos &&
                   match_var_set("OVERRIDE_MATCH_DIFFICULTY", 2).find("level 2 of 5") != std::string::npos,
               "difficulty: only the two verified ends are named");
-        // weather and time of day stay numbers: their names are not verified
-        CHECK(match_var_set("OVERRIDE/WEATHER", 3) == "Weather set to 3; applies when the next match is set up", "weather: " + match_var_set("OVERRIDE/WEATHER", 3));
+        // weather: Live Editor's own names (loc weather_0..4); a value past them is "Unnamed N", never a bare number
+        CHECK(match_var_set("OVERRIDE/WEATHER", 3) == "Weather set to Snow; applies when the next match is set up", "weather: " + match_var_set("OVERRIDE/WEATHER", 3));
+        CHECK(match_var_value_text("OVERRIDE/WEATHER", 0) == "Clear" && match_var_value_text("OVERRIDE/WEATHER", 7) == "Unnamed 7" &&
+                  match_var_value_text("OVERRIDE_MATCH_DIFFICULTY", 5) == "Legendary" && match_var_value_text("NEVER_INJURE", 1) == "on",
+              "match variable values in words: " + match_var_value_text("OVERRIDE/WEATHER", 7));
         CHECK(match_var_outcome(true, false, "NEVER_INJURE", 1, "NEVER_INJURE = 1") == "Injuries off set to on; applies at kick-off", "ok outcome");
         const std::string bad = match_var_outcome(false, false, "NEVER_INJURE", 1, "NEVER_INJURE: the variable store is busy");
         CHECK(bad == "Injuries off: the variable store is busy", "a refusal names the switch, not the variable: " + bad);

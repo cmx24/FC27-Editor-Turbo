@@ -253,8 +253,10 @@ void draw_vars(App& app) {
             const bool difficulty = std::string(v.name) == "OVERRIDE_MATCH_DIFFICULTY";
             auto it = lines.find(v.name);
             if (it != lines.end() && it->second.active) {
-                if (difficulty) ImGui::Text("%d (%s)", it->second.value, usertext::difficulty_text(it->second.value).c_str());
-                else ImGui::Text("%d", it->second.value);
+                (void)difficulty;
+                const std::string shown = usertext::match_var_value_text(v.name, it->second.value);  // words, never the bare number
+                ImGui::TextUnformatted(shown.c_str());
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s = %d", v.name, it->second.value);
             } else {
                 ImGui::TextDisabled("game decides");
             }

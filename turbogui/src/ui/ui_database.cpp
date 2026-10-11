@@ -113,7 +113,10 @@ void draw_database(App& app) {
                 for (int c = 0; c < ncols; ++c) {
                     ImGui::TableNextColumn();
                     const Field* f = t->field(g_view.fields[static_cast<size_t>(c)]);
-                    std::string text = g_view.snap.get(idx, *f).to_string();
+                    const Value cell = g_view.snap.get(idx, *f);
+                    const std::string raw = cell.to_string();
+                    // a code reads as its descriptor (role, colour, nation, date, yes/no); the game's number stays in the tooltip
+                    const std::string text = cell.type == FieldType::Int ? app.describe_value(*t, *f, cell) : raw;
                     ImGui::PushID(r * 1024 + c);
                     if (ImGui::Selectable(text.empty() ? " " : text.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) &&
                         ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
@@ -121,6 +124,7 @@ void draw_database(App& app) {
                         g_view.edit_field = f->name;
                         open_edit = true;
                     }
+                    if (text != raw && ImGui::IsItemHovered()) ImGui::SetTooltip("%s = %s", f->name.c_str(), raw.c_str());
                     ImGui::PopID();
                 }
             }
