@@ -346,10 +346,23 @@ function M.repair_entries(role_of, dry, opts)
     local native = opts.native
     if native == nil then native = M.native() end
     local note = ""
+    local game_added, game_created = 0, {}
     if native and not dry then
         local added, text, left, created, off = repair_native(native, st, club, missing, role_of, opts.prefer_game_role == true, user_team)
-        if added then return added, text, left, created end
-        note = string.format(" (in memory: %s)", tostring(off))
+        if added and (left or 0) == 0 then return added, text, left, created end
+        if added then
+            -- 2.0.4: the game's call left players out (Turbo.dll not answering yet right after a load, a queued or refused call):
+            -- the memory path adds the rest now, after the table is read again (the game's call may have added some meanwhile)
+            local st2, err2 = M.psm_state(user_team)
+            if not st2 then return added, text .. "; memory fallback refused: " .. tostring(err2), left, created end
+            st = st2
+            missing = missing_of(st)
+            if #missing == 0 then return added, text, 0, created end
+            game_added, game_created = added, created or {}
+            note = string.format(" (in memory; the game's AddPlayer: %s)", tostring(text))
+        else
+            note = string.format(" (in memory: %s)", tostring(off))
+        end
     end
     local P = M.PSM
     -- no room: entries of players who are no longer at your club (and not out on loan from it) go first, the way the
@@ -402,7 +415,8 @@ function M.repair_entries(role_of, dry, opts)
     if left > 0 then
         text = text .. string.format("; %d left out: the game's table is full (%d slots, entries of players who left stay until the game removes them)", left, P.slots)
     end
-    return added, (dry and "[DRY RUN] " or "") .. text, left, created
+    for pid, c in pairs(game_created) do created[pid] = c end
+    return added + game_added, (dry and "[DRY RUN] " or "") .. text, left, created
 end
 
 -- ---------------------------------------------------------------- roles

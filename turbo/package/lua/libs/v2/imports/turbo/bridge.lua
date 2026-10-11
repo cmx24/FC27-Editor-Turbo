@@ -589,7 +589,10 @@ end
 
 function M.repair_squad_status(event_id)
     local root = env.le_root()
-    if root and util.file_exists(util.join(util.join(root, "turbo_output"), "squad_status_repair_off.txt")) then return nil, "off" end
+    if root and util.file_exists(util.join(util.join(root, "turbo_output"), "squad_status_repair_off.txt")) then
+        S.status_repair_pending = false
+        return nil, "off"
+    end
     local role = require 'imports/turbo/features/squad_role'
     -- the role by age reads the players table: only built when a player is missing an entry
     local by_age = nil
@@ -604,15 +607,25 @@ function M.repair_squad_status(event_id)
     end
     local events = require 'imports/turbo/core/events'
     local at_load = event_id ~= nil and event_id == events.resolve("POST_LOAD_PREPARE")
-    local added, text = role.repair_entries(role_of, false, { prefer_game_role = not at_load })
-    -- logged when something was added or the reason changes (not on every day)
+    local added, text, left = role.repair_entries(role_of, false, { prefer_game_role = not at_load })
+    -- 2.0.4: until every player has an entry the guard runs again on every career-mode event (at most once a second, see
+    -- on_career_event), not only on the load / day / match build-up events
+    S.status_repair_pending = (added == nil) or ((left or 0) > 0)
+    S.status_repair_t = os.time()
+    -- logged when something was added or the reason changes (not on every day); players still without an entry: a warning
     if added and added > 0 then
-        log.info("match crash guard: %s", text)
+        if (left or 0) > 0 then log.warn("match crash guard: %s", text) else log.info("match crash guard: %s", text) end
     elseif text ~= S.status_repair_last then
-        log.info("match crash guard: %s", tostring(text))
+        if S.status_repair_pending then log.warn("match crash guard: %s", tostring(text)) else log.info("match crash guard: %s", tostring(text)) end
     end
     S.status_repair_last = text
     return added, text
+end
+
+-- true when the guard should run on this event: its own events, and any event (once a second) while players are missing
+local function status_repair_due(event_id)
+    if status_repair_ids()[event_id] then return true end
+    return S.status_repair_pending ~= false and os.time() - (S.status_repair_t or 0) >= 1
 end
 
 function M.on_career_event(event_id)
@@ -639,8 +652,11 @@ function M.on_career_event(event_id)
     if not okg then log.warn("bridge native pump: %s", tostring(gerr)) end
     local okn, installed = pcall(M.install_natives)
     if not okn then log.warn("bridge natives: %s", tostring(installed)) end
-    -- the match crash guard after the pump and the natives: its game calls (TurboSquadRole) then run at once on this thread
-    if status_repair_ids()[event_id] then
+    -- the match crash guard after the pump and the natives: its game calls (TurboSquadRole) then run at once on this thread.
+    -- A career load makes it pending again (a new career's table); pending also covers the first events after the game starts,
+    -- when the bridge was started by the event itself (2.0.4: the load event used to be skipped then)
+    if reload then S.status_repair_pending = true end
+    if status_repair_due(event_id) then
         local okq, qerr = pcall(M.repair_squad_status, event_id)
         if not okq then log.warn("match crash guard: %s", tostring(qerr)) end
     end
