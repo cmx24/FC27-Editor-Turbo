@@ -740,6 +740,7 @@ std::string App::describe_value(const Table& t, const Field& f, const Value& v) 
         std::snprintf(b, sizeof(b), "%04d-%02d-%02d", d.year, d.month, d.day);
         return b;
     }
+    if (labels::is_position_field(t.name, f.name)) return labels::describe(t.name, f.name, v.i);  // formations.position0 is the GK slot, not a switch
     if (f.depth == 1 && f.min == 0) return v.i ? "Yes" : "No";  // a switch
     return labels::describe(t.name, f.name, v.i);
 }

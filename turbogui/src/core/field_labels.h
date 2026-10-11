@@ -448,11 +448,58 @@ inline std::vector<int64_t> offered_codes(const std::string& field, const std::v
 // item catalogues ("Boots #1432") stay in code order
 inline bool has_descriptors(const std::string& field) { return enum_def(field) != nullptr || named_codes(field) != nullptr; }
 
+// ---------------------------------------------------------------- positions
+// The game's 28 position codes, in code order. A copy of core/model.cpp kPositions (this header stays free of the model;
+// test_describe.h checks that the two tables agree). FC 27's own screens name twelve of them: the roles (players.role1..9,
+// "role" above) exist for GK RB LB CB CDM CM RM LM CAM RW LW ST only. The other sixteen (SW, RWB, LWB, RCB/LCB, RDM/LDM,
+// RCM/LCM, RAM/LAM, RF/CF/LF, RS/LS) appear in formations and preferredposition2..7 and no game menu names them: they read
+// "RCB (internal, plays as CB)" when the pitch lays them out as a visible position (core/tactics_db.h), "SW (internal)" otherwise.
+inline const char* position_code_name(int64_t v) {
+    static const char* const k[] = {"GK",  "SW",  "RWB", "RB",  "RCB", "CB", "LCB", "LB", "LWB", "RDM", "CDM", "LDM", "RM",  "RCM",
+                                    "CM",  "LCM", "LM",  "RAM", "CAM", "LAM", "RF", "CF", "LF",  "RW",  "RS",  "ST",  "LS",  "LW"};
+    return v >= 0 && v < static_cast<int64_t>(sizeof(k) / sizeof(k[0])) ? k[v] : nullptr;
+}
+inline int position_name_count() { return 28; }
+inline bool position_visible_code(int64_t v) {
+    for (int64_t c : {0, 3, 7, 5, 10, 14, 12, 16, 18, 23, 27, 25})  // GK RB LB CB CDM CM RM LM CAM RW LW ST
+        if (c == v) return true;
+    return false;
+}
+// "ST" for a visible position, "RCB (internal, plays as CB)" / "SW (internal)" for an internal code, "None" for -1 (an empty
+// preferredposition2..7 slot), "Unknown position N" outside the table. Never a bare number.
+inline std::string position_text(int64_t v) {
+    if (v < 0) return "None";
+    const char* n = position_code_name(v);
+    if (!n) return "Unknown position " + std::to_string(v);
+    if (position_visible_code(v)) return n;
+    const std::string s = n;
+    const char* as = nullptr;
+    if (s == "RCB" || s == "LCB") as = "CB";
+    else if (s == "RDM" || s == "LDM") as = "CDM";
+    else if (s == "RCM" || s == "LCM") as = "CM";
+    else if (s == "RAM" || s == "LAM") as = "CAM";
+    else if (s == "RS" || s == "LS") as = "ST";
+    return as ? s + " (internal, plays as " + as + ")" : s + " (internal)";
+}
+// true for a field that stores a position code: preferredposition1..7 of the player tables (players, smplayers, cmplayers,
+// trainingteamplayers, temp_players, career_scoutmission) and the eleven slots position0..10 of the formation and tactic
+// tables. Not "positioning" (an attribute) and not teamplayerlinks.position (a squad slot index).
+inline bool is_position_field(const std::string& table, const std::string& field) {
+    if (field.rfind("preferredposition", 0) == 0) return true;
+    if (field.size() < 9 || field.size() > 10 || field.compare(0, 8, "position") != 0) return false;
+    for (size_t i = 8; i < field.size(); ++i)
+        if (!std::isdigit(static_cast<unsigned char>(field[i]))) return false;
+    for (const char* t : {"formations", "customformations", "temp_formations", "mentalities", "cm_mentalities", "default_mentalities",
+                          "cm_default_mentalities", "defaultteamdata"})
+        if (table == t) return true;
+    return false;
+}
+
 // One value of one field in words: the name where the game or Live Editor has one, "Unnamed N" / "Boots style 1432 (no name)"
 // where it has not, the plain number for a number. `table` is the table the field is in ("players", "managers", ...).
 // Values that need the database (a nation or club name, a date) are described by App::describe_value, which falls back to this.
 inline std::string describe(const std::string& table, const std::string& field, int64_t v) {
-    (void)table;
+    if (is_position_field(table, field)) return position_text(v);  // preferredposition1..7, formation slots: GK, ST, RCB (internal, plays as CB)
     if (enum_def(field)) {
         if (const char* l = enum_label(field, v)) return l;
         return unnamed_n(v);

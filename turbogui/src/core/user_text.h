@@ -16,8 +16,16 @@ std::string pending_text(const std::string& label);
 // `name` is the game variable's name; an unknown name is described by the name itself.
 std::string match_var_set(const std::string& name, int value);
 // The value of one game variable in words: on / off for a switch, the difficulty level, Live Editor's weather name
-// (field_labels.h "weather": Clear, Partly Clear, Rain, Snow, Overcast; "Unnamed N" past them), the number for a slider
+// (field_labels.h "weather": Clear, Partly Clear, Rain, Snow, Overcast; "Unnamed N" past them), the time-of-day setting
+// (time_of_day_text), "the game decides" for the -1 of weather / time of day, the number for a slider
 std::string match_var_value_text(const std::string& name, int value);
+// The word shown next to the Value box of the Match setup table: match_var_value_text when it says more than the number
+// ("Snow", "Legendary", "on"), "" for a slider whose number is the value
+std::string match_var_edit_hint(const std::string& name, int value);
+// A time-of-day setting (OVERRIDE/TOD): the game accepts 0, 1, 3 and 4 (docs/re/match_setup.md: TimeOfDay_0/1/3/4) and
+// nothing in Live Editor's files or the game's names which look each one is, so the text says that instead of pretending;
+// 2 is marked as ignored by the game, -1 reads "the game decides"
+std::string time_of_day_text(int setting);
 std::string match_var_clear(const std::string& name);
 
 // The outcome of a Set / Clear that ran on the game thread (msetup::VarResult): the sentence above when it worked, else the

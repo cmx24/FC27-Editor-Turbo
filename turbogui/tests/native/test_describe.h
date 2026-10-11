@@ -6,6 +6,7 @@
 #include "core/field_labels.h"
 #include <cfloat>
 #include <algorithm>
+#include "core/model.h"
 #include "core/user_text.h"
 
 // ---------------------------------------------------------------- core
@@ -31,6 +32,31 @@ static void test_describe_core() {
         CHECK(describe("players", "gkglovetypecode", 0) == "Default" && describe("players", "animfreekickstartposcode", 0) == "Standard", "the standard zero reads as a word");
         CHECK(describe("players", "preferredfoot", 2) == "Left" && describe("players", "gender", 1) == "Female", "named fields without a 'code' suffix are words too");
         CHECK(describe("players", "overallrating", 87) == "87" && describe("players", "height", 181) == "181", "plain numbers stay numbers");
+        // positions (2.0/ux-descriptors fix 1): the Database tab's preferredposition / formation slot cells read as the game's position names
+        CHECK(describe("players", "preferredposition1", 25) == "ST" && describe("smplayers", "preferredposition1", 0) == "GK" &&
+                  describe("players", "preferredposition1", 23) == "RW",
+              "a position the game names is its name, never the number: " + describe("players", "preferredposition1", 25));
+        CHECK(describe("players", "preferredposition2", 4) == "RCB (internal, plays as CB)" && describe("players", "preferredposition3", 1) == "SW (internal)" &&
+                  describe("players", "preferredposition4", 2) == "RWB (internal)" && describe("players", "preferredposition5", 24) == "RS (internal, plays as ST)",
+              "an internal code says so: " + describe("players", "preferredposition2", 4));
+        CHECK(describe("players", "preferredposition2", -1) == "None" && describe("cmplayers", "preferredposition7", 30) == "Unknown position 30",
+              "an empty slot and a code outside the table: " + describe("cmplayers", "preferredposition7", 30));
+        CHECK(describe("formations", "position0", 0) == "GK" && describe("mentalities", "position5", 9) == "RDM (internal, plays as CDM)" &&
+                  describe("customformations", "position10", 25) == "ST",
+              "formation and tactic slots are positions too: " + describe("mentalities", "position5", 9));
+        CHECK(describe("players", "positioning", 80) == "80" && describe("teamplayerlinks", "position", 3) == "3" && describe("players", "gkpositioning", 70) == "70",
+              "the attributes and the squad slot index stay numbers");
+        CHECK(labels::is_position_field("players", "preferredposition1") && labels::is_position_field("formations", "position10") &&
+                  !labels::is_position_field("players", "positioning") && !labels::is_position_field("teamplayerlinks", "position") &&
+                  !labels::is_position_field("players", "position0"),
+              "which fields hold positions");
+        // the copy of the position table in field_labels.h is the model's (core/model.cpp kPositions)
+        CHECK(labels::position_name_count() == position_count(), fmt("28 positions in both tables (%d / %d)", labels::position_name_count(), position_count()));
+        int differ = 0;
+        for (int p = 0; p < position_count(); ++p)
+            if (!labels::position_code_name(p) || std::string(labels::position_code_name(p)) != position_name(p)) ++differ;
+        CHECK(differ == 0 && labels::position_code_name(28) == nullptr && labels::position_code_name(-1) == nullptr,
+              fmt("field_labels.h position names agree with core/model.cpp (%d differ)", differ));
         CHECK(describe("manager", "personalityid", 3) == "Personality type 3", "manager personality has no names to give: " + describe("manager", "personalityid", 3));
         const std::string hair = describe("players", "hairtypecode", 100);
         CHECK(!hair.empty() && hair.find('#') == std::string::npos && hair.find("code") == std::string::npos, "hair: " + hair);
@@ -80,6 +106,21 @@ static void test_describe_core() {
         CHECK(match_var_value_text("OVERRIDE/WEATHER", 0) == "Clear" && match_var_value_text("OVERRIDE/WEATHER", 7) == "Unnamed 7" &&
                   match_var_value_text("OVERRIDE_MATCH_DIFFICULTY", 5) == "Legendary" && match_var_value_text("NEVER_INJURE", 1) == "on",
               "match variable values in words: " + match_var_value_text("OVERRIDE/WEATHER", 7));
+        // -1 on weather / time of day is the game's own choice; time of day has no verified names, so its text says so (2.0/ux-descriptors fix 2)
+        CHECK(match_var_value_text("OVERRIDE/WEATHER", -1) == "the game decides" && match_var_value_text("OVERRIDE/TOD", -1) == "the game decides" &&
+                  match_var_value_text("OVERRIDE_MATCH_DIFFICULTY", -1) == "your setting",
+              "-1 in words: " + match_var_value_text("OVERRIDE/WEATHER", -1));
+        CHECK(match_var_value_text("OVERRIDE/TOD", 3) == "time-of-day setting 3 (which look it is has not been verified yet)" &&
+                  match_var_value_text("OVERRIDE/TOD", 2).find("ignores it") != std::string::npos && time_of_day_text(4).rfind("time-of-day setting 4", 0) == 0,
+              "time of day: " + match_var_value_text("OVERRIDE/TOD", 2));
+        CHECK(match_var_edit_hint("OVERRIDE/WEATHER", 3) == "Snow" && match_var_edit_hint("OVERRIDE/WEATHER", 0) == "Clear" &&
+                  match_var_edit_hint("OVERRIDE/WEATHER", -1) == "the game decides" && match_var_edit_hint("OVERRIDE_MATCH_DIFFICULTY", 5) == "Legendary" &&
+                  match_var_edit_hint("NEVER_INJURE", 0) == "off" && match_var_edit_hint("DISABLE_CPU_SUBSTITUTION", 1) == "on" &&
+                  match_var_edit_hint("OVERRIDE/TOD", 1).rfind("time-of-day setting 1", 0) == 0,
+              "the word next to the Value box: " + match_var_edit_hint("OVERRIDE/WEATHER", 3));
+        CHECK(match_var_edit_hint("GAMEPLAY_CUSTOMIZATION/INJURY_FREQUENCY_USER", 30).empty() &&
+                  match_var_edit_hint("GAMEPLAY_CUSTOMIZATION/INJURY_SEVERITY_CPUAI", 0).empty(),
+              "a slider's number is its value: no word");
         CHECK(match_var_outcome(true, false, "NEVER_INJURE", 1, "NEVER_INJURE = 1") == "Injuries off set to on; applies at kick-off", "ok outcome");
         const std::string bad = match_var_outcome(false, false, "NEVER_INJURE", 1, "NEVER_INJURE: the variable store is busy");
         CHECK(bad == "Injuries off: the variable store is busy", "a refusal names the switch, not the variable: " + bad);

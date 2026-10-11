@@ -250,10 +250,8 @@ void draw_vars(App& app) {
                 ImGui::EndTooltip();
             }
             ImGui::TableNextColumn();
-            const bool difficulty = std::string(v.name) == "OVERRIDE_MATCH_DIFFICULTY";
             auto it = lines.find(v.name);
             if (it != lines.end() && it->second.active) {
-                (void)difficulty;
                 const std::string shown = usertext::match_var_value_text(v.name, it->second.value);  // words, never the bare number
                 ImGui::TextUnformatted(shown.c_str());
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s = %d", v.name, it->second.value);
@@ -265,9 +263,12 @@ void draw_vars(App& app) {
             ImGui::SetNextItemWidth(S(90.0f));
             ImGui::InputInt("##val", &val);
             val = std::clamp(val, int(v.min), int(v.max));
-            if (difficulty) {
+            // the word for the number in the box, for every variable that has one (Snow, Legendary, on, the game decides); a
+            // slider's number is its value and gets none
+            const std::string hint = usertext::match_var_edit_hint(v.name, val);
+            if (!hint.empty()) {
                 ImGui::SameLine();
-                ImGui::TextDisabled("%s", usertext::difficulty_text(val).c_str());
+                ImGui::TextDisabled("%s", hint.c_str());
             }
             ImGui::TableNextColumn();
             if (ImGui::SmallButton("Set")) {
