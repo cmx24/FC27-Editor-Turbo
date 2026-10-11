@@ -113,6 +113,11 @@ the same values:
   on WEEK_PASSED each listed player below his potential gains `weekly` per group attribute; with `no_decline` an
   attribute lower than last week's snapshot is put back (age decline). The snapshot lives in TURBO_STATE (this game
   session) and starts over on POST_LOAD_PREPARE and when the auto is armed (arming grows nobody).
+* **plan_sync** (1.2.5) `{mode: "plan_sync", sync: [{playerid, fields: [..]}]}`: sent by the Turbo window after its own
+  direct writes (Players editor, Overall +1/-1, a typed overall, archetypes, Undo, Database tab; kept edits written again
+  at a career load). Each listed player with a plan gets the players table's current value of each listed plan field
+  (`moves.PLAN_FIELDS`: the 34 attributes, work rates, skill moves, weak foot). Bulk edit, `db_edit` and the preset
+  import update the plan the same way. Before 1.2.5 the window's edits of your players came back after a save and a reload.
 * Every value is validated against the field range before anything is written (core/db.lua). Caps key
   `development` = the two plan natives (greyed when missing); `development_xp` = FC 26's XP natives (Bulk edit).
 * The game recomputes the overall itself on its own growth events; Turbo's overall write keeps the screens consistent
@@ -136,8 +141,9 @@ summary), `set` one academy player's potential / position (players table) and ti
 2. GTN: pick a player your scouts have not reported on (potential shown as a range or "?"). Players tab > that player >
    Growth > Reveal data. Expect the toast "player N: data revealed fully (scouting points 204/204, dated <today>, ...)",
    and in his Player Bio the exact attributes and potential. Dev service read of `[pdrm+0x790]` shows his record.
-3. Tools > Scouting > Reveal club ID (e.g. a Serie A rival): every player of that club exact. League: tick, Reveal
-   league ID (Serie A); the toast lists the game calls and the record count; a scope near 1500 is refused.
+3. Tools > Scouting > Reveal club (picked by name or ID, e.g. a Serie A rival): every player of that club exact.
+   League: tick, Reveal league ID (Serie A); the toast lists the game calls and the record count; a scope near 1500 is
+   refused.
 4. Development: Napoli youngster (OVR below POT): Players > Growth > Develop to potential: OVR = POT in Turbo; open his
    game bio. Then "Grow him every week" (2 points, no decline), advance a week: his attributes +2, the overall +2,
    and they stay after the game's own growth event (the plan holds them). If the game puts the old values back, the

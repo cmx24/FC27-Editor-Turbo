@@ -46,6 +46,14 @@ M.DEFAULTS = {
             events = { "DAY_PASSED", "USER_MATCH_COMPLETED", "USER_INTERNATIONAL_MATCH_COMPLETED",
                        "ENTERED_HUB_FIRST_TIME", "POST_LOAD_PREPARE" },
         },
+        -- squad roles again after the season reset (features/squad_role.lua M.auto): the game recomputes every role then.
+        -- rule "age": Rotation from 19, Prospect below (Teams > Mass actions); rule "role": rule_role (1..5) for everyone
+        squad_role = {
+            enabled = false,
+            rule = "age",
+            rule_role = 3,
+            events = { "SEASON_RESET" },
+        },
     },
     modules = {
         custom_headassets = { map = {} },
@@ -58,7 +66,7 @@ M.DEFAULTS = {
         extend_user_contracts = { years = 4 },
         headmodels = { mode = "capture", list_file = "headmodels_fc27.json", generic_for_others = true, min_list_size = 100 },
         transfer_bans = { mode = "list", ban_until = 20990101, exclude_user_team = false },
-        squad_role = { role = 3, include_loaned_in = false, use_memory = true },
+        squad_role = { role = 3, include_loaned_in = true, use_memory = true },
         team_jersey_numbers = { teamid = 0 },
         bulk_edit = { scope = { user_team = true }, filters = {}, set = {}, actions = {}, confirm_all = false },
         player_moves = { actions = {} },

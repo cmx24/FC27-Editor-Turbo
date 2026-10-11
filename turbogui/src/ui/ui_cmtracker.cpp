@@ -155,7 +155,6 @@ void cmtracker_dialog(App& app) {
     static char query[96] = "";
     static int64_t selected = 0;
     static int teamid = move_rules::kFreeAgents;
-    static char club_search[64] = "";
     static int jersey = 0;
     static bool want_face = true, want_real = true;
     static FilePicker picker;
@@ -257,7 +256,7 @@ void cmtracker_dialog(App& app) {
                 ImGui::TextDisabled("Real face on CMTracker: %s. Contract to %s.", c("info.real_face").c_str(),
                                     c("info.contract.enddate").c_str());
                 ImGui::SeparatorText("Club");
-                club_picker(app, teamid, club_search, sizeof(club_search));
+                club_picker(app, teamid);
                 club_notes(app, teamid);
                 ImGui::SetNextItemWidth(S(110.0f));
                 ImGui::InputInt("Shirt number (0 = first free)", &jersey, 0);

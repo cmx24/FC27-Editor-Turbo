@@ -15,6 +15,7 @@
 #include "move_rules.h"
 #include "playstyles.h"
 #include "ui_bodytypes.h"
+#include "ui_club_search.h"
 #include "ui_images.h"
 #include "ui_names.h"
 #include "ui_presets.h"
@@ -49,7 +50,7 @@ static bool is_appearance_field(const std::string& n) {
     static const char* prefixes[] = {"head", "hair", "facial", "eye", "skin", "tattoo", "sock", "shoe", "jersey",
                                      "glove", "gkglove", "accessory", "body", "sideburns", "lip", "nose", "ear",
                                      "hasseasonal", "hashigh", "animfreekick", "animpenalties", "runningcode",
-                                     "faceposer", "smallsided"};
+                                     "faceposer", "smallsided", "shortstyle", "undershortstyle", "muscularity"};
     for (const char* p : prefixes) {
         if (n.compare(0, std::strlen(p), p) == 0) return true;
     }
@@ -105,6 +106,7 @@ static void player_list(App& app) {
     static bool f_plus = false, f_retiring = false;
     static int64_t f_team = 0;  // club filter (0 = any)
     static int64_t f_nat = -1, f_cont = -1;  // nationality (nations.nationid) and continent (nations.confederation) filters, -1 = any
+    static int f_gender = -1;                 // players.gender: -1 any, 0 men, 1 women
     static char f_team_search[64] = "";
     static std::unordered_set<int64_t> team_players;  // players linked to f_team (rebuilt with the rows)
     static std::vector<const PlayerRow*> rows;
@@ -166,6 +168,18 @@ static void player_list(App& app) {
             g.continent_of_nation(f_nat) != f_cont)
             f_nat = -1;
     }
+    // Gender (players.gender), on the same line when it fits
+    {
+        static const char* const kGenders[] = {"Any gender", "Men", "Women"};
+        ImGui::SameLine();
+        if (ImGui::GetContentRegionAvail().x < S(110.0f)) ImGui::NewLine();
+        ImGui::SetNextItemWidth(S(110.0f));
+        if (ImGui::BeginCombo("##fgender", kGenders[f_gender + 1])) {
+            for (int k = -1; k <= 1; ++k)
+                if (ImGui::Selectable(kGenders[k + 1], f_gender == k)) f_gender = k;
+            ImGui::EndCombo();
+        }
+    }
     ImGui::Checkbox("Retiring", &f_retiring);
     for (auto* v : {&f_min_ovr, &f_min_pot, &f_max_age}) {
         const char* lbl = v == &f_min_ovr ? "Min OVR" : v == &f_min_pot ? "Min POT" : "Max age";
@@ -181,12 +195,13 @@ static void player_list(App& app) {
         f_plus = f_retiring = false;
         f_team = 0;
         f_nat = f_cont = -1;
+        f_gender = -1;
     }
 
     const std::unordered_map<int64_t, int64_t>& nat_of = player_nationalities(app);
     char fkey[160];
-    std::snprintf(fkey, sizeof(fkey), "|%d|%d|%d|%d|%d|%d|%d|%lld|%lld|%lld", f_pos, f_style, f_plus ? 1 : 0, f_retiring ? 1 : 0, f_min_ovr,
-                  f_min_pot, f_max_age, static_cast<long long>(f_team), static_cast<long long>(f_nat), static_cast<long long>(f_cont));
+    std::snprintf(fkey, sizeof(fkey), "|%d|%d|%d|%d|%d|%d|%d|%lld|%lld|%lld|%d", f_pos, f_style, f_plus ? 1 : 0, f_retiring ? 1 : 0, f_min_ovr,
+                  f_min_pot, f_max_age, static_cast<long long>(f_team), static_cast<long long>(f_nat), static_cast<long long>(f_cont), f_gender);
     std::string key = lower(search) + (my_club ? "|1" : "|0") + fkey;
     if (key != last_key || last_version != app.model.version()) {
         last_key = key;
@@ -207,6 +222,7 @@ static void player_list(App& app) {
                 continue;
             if (f_style >= 0 && !(((f_plus ? p.playstyles_plus : p.playstyles) >> f_style) & 1)) continue;
             if (f_retiring && !p.retiring) continue;
+            if (f_gender >= 0 && p.gender != f_gender) continue;
             if (f_nat >= 0 || f_cont >= 0) {
                 auto n = nat_of.find(p.playerid);
                 const int64_t nat = n == nat_of.end() ? -1 : n->second;
@@ -501,6 +517,32 @@ void transfer_ban_section(App& app, const char* what, int64_t id) {
     ImGui::PopID();
 }
 
+// The squad role of one player of YOUR club (features/squad_role.lua with a playerid: through the game's own PlayerStatusManager
+// calls, Turbo.dll squad_role op 14, else in memory; a player without a squad status entry gets one). Read = the role the game
+// holds now. The game has squad roles for the user's club only; the Squad screen reads them when it is built.
+static void squad_role_section(App& app, const PlayerRow& p) {
+    const BridgeState& st = app.bridge.state();
+    if (!st.in_cm || st.user_team <= 0 || p.club != st.user_team) return;
+    ImGui::SeparatorText("Squad role (your club)");
+    ImGui::PushID("sqrole");
+    static int role = 2;  // combo index: 2 = "3 Rotation"
+    const char* roles[] = {"1 Crucial", "2 Important", "3 Rotation", "4 Sporadic", "5 Prospect"};
+    ImGui::SetNextItemWidth(S(160.0f));
+    ImGui::Combo("##role", &role, [](void* d, int i) { return static_cast<const char**>(d)[i]; }, roles, 5);
+    if (role < 0 || role > 4) role = 2;
+    const bool off = app.busy() || !app.mailbox;
+    if (off) ImGui::BeginDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Set squad role"))
+        app.send({{"op", "run"}, {"module", "squad_role"}, {"overrides", {{"playerid", p.playerid}, {"role", role + 1}}}}, "Squad role " + p.name);
+    ImGui::SameLine();
+    if (ImGui::Button("Read squad role"))
+        app.send({{"op", "run"}, {"module", "squad_role"}, {"overrides", {{"playerid", p.playerid}, {"mode", "check"}}}}, "Squad role " + p.name);
+    if (off) ImGui::EndDisabled();
+    ImGui::TextDisabled("Open the Squad screen again to see it. The game recomputes every role at the start of a season.");
+    ImGui::PopID();
+}
+
 static void moves_popup(App& app, const PlayerRow& p) {
     static int to_team = 0, fee = 0, wage = 0, months = 60, loan_months = 12;
     if (ImGui::BeginPopup("##moves")) {
@@ -508,12 +550,7 @@ static void moves_popup(App& app, const PlayerRow& p) {
         const move_rules::Facts facts = move_facts(app, p);
         ImGui::TextDisabled("%s", app.bridge.state().game_moves ? "Transfer: the game makes the move at once. Loan: written into the career database"
                                                                  : "Written into the career database by Turbo's Lua side");
-        ImGui::SetNextItemWidth(S(120.0f));
-        ImGui::InputInt("To team ID", &to_team, 0);
-        if (to_team > 0) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("%s", app.model.team_name(to_team).c_str());
-        }
+        club_search_box(app, "To club", to_team, S(220.0f));  // name or ID (ui_club_search.h); loans go there too
         ImGui::SetNextItemWidth(S(120.0f));
         ImGui::InputInt("Fee", &fee, 0);
         ImGui::SetNextItemWidth(S(120.0f));
@@ -634,17 +671,8 @@ static void career_dev_tab(App& app, const PlayerRow& p) {
 
 // ---------------------------------------------------------------- attributes: archetypes and overall +1 / -1
 // Changes made by one click of "Overall +1/-1" or by applying an archetype touch many fields; App::edit keeps only the last
-// App::kUndoSteps single-field steps, so these bulk changes keep their own undo here (newest last, per player)
-struct BulkUndo {
-    int64_t playerid = 0;
-    std::string label;
-    // field name, value before (names, not Field pointers: App::refresh rebuilds the tables and their fields)
-    std::vector<std::pair<std::string, int64_t>> before;
-};
-static std::vector<BulkUndo>& bulk_undo_stack() {
-    static std::vector<BulkUndo> v;
-    return v;
-}
+// App::kUndoSteps single-field steps, so these bulk changes keep their own undo (App::bulk_undo, newest last; an overall
+// typed into a field box adds one too, App::set_overall)
 
 // All 34 attributes of the player; false when the players table lacks one of them
 static bool read_attrs(App& app, const Table& t, uint64_t rec, overall::Attrs& a) {
@@ -655,11 +683,12 @@ static bool read_attrs(App& app, const Table& t, uint64_t rec, overall::Attrs& a
     return true;
 }
 
-// Write the attributes that differ (and `ovr_to` into overallrating when >= 0) through App::edit: the same validated path
-// as the sliders (range check, undo steps, cached rows). Keeps a bulk undo entry. Returns the number of fields written.
+// Write the attributes that differ (and `ovr_to` into overallrating when >= 0) through App::edit_field: the same validated
+// path as the sliders (range check, undo steps, cached rows, kept edits, development plan); the overall as given, the
+// attributes already moved. Keeps a bulk undo entry. Returns the number of fields written.
 static int write_bulk(App& app, const Table& t, const PlayerRow& p, const overall::Attrs& before, const overall::Attrs& after,
                       int ovr_to, const std::string& label) {
-    BulkUndo u;
+    App::BulkUndo u;
     u.playerid = p.playerid;
     u.label = label;
     int n = 0;
@@ -667,7 +696,7 @@ static int write_bulk(App& app, const Table& t, const PlayerRow& p, const overal
         if (before[static_cast<size_t>(i)] == after[static_cast<size_t>(i)]) continue;
         const Field* f = t.field(overall::kAttrNames[i]);
         if (!f) continue;
-        if (app.edit(t, p.rec, *f, Value::of_int(after[static_cast<size_t>(i)]))) {
+        if (app.edit_field(t, p.rec, *f, Value::of_int(after[static_cast<size_t>(i)]))) {
             u.before.push_back({f->name, before[static_cast<size_t>(i)]});
             ++n;
         }
@@ -675,28 +704,25 @@ static int write_bulk(App& app, const Table& t, const PlayerRow& p, const overal
     if (ovr_to >= 0) {
         if (const Field* f = t.field("overallrating")) {
             const int64_t was = app.db.get_int(t, p.rec, "overallrating", 0);
-            if (was != ovr_to && app.edit(t, p.rec, *f, Value::of_int(ovr_to))) {
+            if (was != ovr_to && app.edit_field(t, p.rec, *f, Value::of_int(ovr_to))) {
                 u.before.push_back({f->name, was});
                 ++n;
             }
         }
     }
-    if (!u.before.empty()) {
-        auto& st = bulk_undo_stack();
-        st.push_back(u);
-        if (st.size() > 30) st.erase(st.begin());
-    }
+    app.push_bulk_undo(std::move(u));
     return n;
 }
 
 static void undo_bulk(App& app, const Table& t, const PlayerRow& p) {
-    auto& st = bulk_undo_stack();
+    auto& st = app.bulk_undo;
     for (size_t i = st.size(); i-- > 0;) {
         if (st[i].playerid != p.playerid) continue;
-        BulkUndo u = st[i];
+        App::BulkUndo u = st[i];
         st.erase(st.begin() + static_cast<long>(i));
+        // every field as it was (the overall too: its attributes go back with it)
         for (const auto& b : u.before)
-            if (const Field* f = t.field(b.first)) app.edit(t, p.rec, *f, Value::of_int(b.second));
+            if (const Field* f = t.field(b.first)) app.edit_field(t, p.rec, *f, Value::of_int(b.second));
         app.notify("undone: " + u.label);
         return;
     }
@@ -752,6 +778,10 @@ static void archetype_bar(App& app, const Table& t, const PlayerRow& p) {
     const Field* of = t.field("overallrating");
     const int64_t stored = app.db.get_int(t, p.rec, "overallrating", 0);
     ImGui::Text("Overall %lld", static_cast<long long>(stored));
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("FC 27 works the overall out from the attributes (the player card, its own growth): a bare overall does not last.\n"
+                          "So Overall +1 / -1 and an overall typed into the Overall box (Profile, All fields) move the attributes that\n"
+                          "weigh most for his position until the formula gives it; Undo / Undo bulk put them back.");
     ImGui::SameLine();
     ImGui::TextDisabled("(formula for %s: %d)", position_name(pos), compute_overall(pos, cur));
     if (ImGui::IsItemHovered())
@@ -783,7 +813,7 @@ static void archetype_bar(App& app, const Table& t, const PlayerRow& p) {
         }
     }
     size_t mine = 0;
-    for (const auto& u : bulk_undo_stack()) mine += u.playerid == p.playerid;
+    for (const auto& u : app.bulk_undo) mine += u.playerid == p.playerid;
     ImGui::SameLine();
     if (!mine) ImGui::BeginDisabled();
     char ulbl[48];
@@ -1040,6 +1070,7 @@ static void player_editor(App& app) {
                 field_editor(app, *t, p->rec, *mf, nullptr, S(70.0f));
             }
             ImGui::TextDisabled("(the game recalculates the shown overall from the attributes when the player card is drawn)");
+            reapply_player_line(app, *p);  // kept for every career load, his development plan (ui_reapply.cpp)
             archetype_bar(app, *t, *p);
             attribute_sliders(app, *t, p->rec);
             ImGui::EndChild();
@@ -1063,9 +1094,8 @@ static void player_editor(App& app) {
             ImGui::SeparatorText("Head");
             if (ImGui::Button("Choose a real face...")) ImGui::OpenPopup("Choose a real face");
             ImGui::SameLine();
-            ImGui::TextDisabled("%s", labels::code_text("headclasscode", app.db.get_int(*t, p->rec, "headclasscode", 0), "Head").c_str());
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Head model %lld", static_cast<long long>(app.db.get_int(*t, p->rec, "headassetid", 0)));
+            ImGui::TextDisabled("head asset %lld, head class %s", static_cast<long long>(app.db.get_int(*t, p->rec, "headassetid", 0)),
+                                code_value_text("headclasscode", app.db.get_int(*t, p->rec, "headclasscode", 0)).c_str());
             real_face_picker(app, p->playerid);
             ImGui::SeparatorText("Tattoos");
             tattoo_editor(app, *t, p->rec);
@@ -1098,6 +1128,7 @@ static void player_editor(App& app) {
             list_buttons(app, *p, true);
             if (!app.bridge.state().in_cm) ImGui::EndDisabled();
             ImGui::PopID();
+            squad_role_section(app, *p);
             transfer_ban_section(app, "player", p->playerid);
             ImGui::SeparatorText("Team links (teamplayerlinks)");
             const Table* lt = app.db.table("teamplayerlinks");

@@ -25,8 +25,9 @@ PresetPreview preview_preset_file(const std::filesystem::path& file);
 // Buttons "Export...", "Import...", "Clone...", "Create player..." and their dialogs, for the selected player
 void player_preset_buttons(App& app, const PlayerRow& p);
 
-// Club picker (club id box + searchable list) and the notes under it, shared with the CMTracker dialog (ui_cmtracker.cpp)
-void club_picker(App& app, int& teamid, char* search, size_t search_size);
+// Club picker (one box for the club's name or ID, ui_club_search.h) and the notes under it, shared with the CMTracker
+// dialog (ui_cmtracker.cpp)
+void club_picker(App& app, int& teamid);
 void club_notes(App& app, int teamid);
 // "From CMTracker..." dialog (open it with ImGui::OpenPopup("##pcmt")); also finishes a create whose picture was fetched in the background
 void cmtracker_dialog(App& app);

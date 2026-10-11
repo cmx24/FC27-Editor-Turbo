@@ -175,7 +175,7 @@ bool Model::is_national_team(int64_t tid) const {
     return it != team_league_.end() && is_international_league(it->second);
 }
 
-// Positions, retiring flag and PlayStyle bits of a player (Players list filters); get(field) reads one value
+// Positions, retiring flag, PlayStyle bits and gender of a player (Players list filters); get(field) reads one value
 template <class Get> static void fill_filter_fields(const Table& t, PlayerRow& r, Get get) {
     for (int k = 0; k < 7; ++k) {
         const Field* f = t.field("preferredposition" + std::to_string(k + 1));
@@ -184,6 +184,7 @@ template <class Get> static void fill_filter_fields(const Table& t, PlayerRow& r
     if (const Field* f = t.field("isretiring")) r.retiring = get(*f) != 0;
     if (const Field* f = t.field("trait1")) r.playstyles = static_cast<uint64_t>(get(*f) - f->min);
     if (const Field* f = t.field("icontrait1")) r.playstyles_plus = static_cast<uint64_t>(get(*f) - f->min);
+    if (const Field* f = t.field("gender")) r.gender = static_cast<int>(get(*f));
 }
 
 void Model::build_players(const GameDate& today) {

@@ -168,6 +168,7 @@ void TextureCache::release(ImTextureData* t) {
 }
 
 void TextureCache::new_frame(double now) {
+    prev_now_ = now_;
     now_ = now;
     decodes_left_ = kDecodesPerFrame;
     uploads_left_ = kUploadsPerFrame;
@@ -192,15 +193,21 @@ void TextureCache::evict() {
     order.reserve(entries_.size());
     for (const auto& kv : entries_) order.emplace_back(kv.second.last_used, kv.first);
     std::sort(order.begin(), order.end());
+    // shown within half a second: kept (the grid shows fewer than the maximum); near the hard limit only the pictures of
+    // the last frame are kept, the others decode again if they come back
+    const bool crowded = entries_.size() + dying_.size() + kDecodesPerFrame + kUploadsPerFrame > kHardMaxTextures;
+    const double keep_from = crowded ? prev_now_ : now_ - 0.5;
     size_t excess = entries_.size() - kMaxTextures;
     for (size_t i = 0; i < order.size() && excess > 0; ++i) {
-        if (order[i].first >= now_ - 0.5) break;  // shown right now: keep (the grid shows fewer than the maximum)
+        if (order[i].first >= keep_from) break;
         auto it = entries_.find(order[i].second);
         release(it->second.tex);
         entries_.erase(it);
         --excess;
     }
 }
+
+bool TextureCache::room() const { return entries_.size() + dying_.size() < kHardMaxTextures; }
 
 void TextureCache::clear() {
     for (auto& kv : entries_) release(kv.second.tex);
@@ -217,6 +224,13 @@ void TextureCache::forget(const fs::path& p) {
             ++it;
         }
     }
+}
+
+void TextureCache::forget_pixels(const std::string& key) {
+    auto it = entries_.find("#" + key);
+    if (it == entries_.end()) return;
+    release(it->second.tex);
+    entries_.erase(it);
 }
 
 static TextureCache::Pic pic_of(ImTextureData* tex, int w, int h, bool failed, const std::string& err) {
@@ -239,15 +253,20 @@ TextureCache::Pic TextureCache::file(const fs::path& path, int max_side) {
         return pic_of(nullptr, 0, 0, true, "file not found");
     }
     auto it = entries_.find(key);
+    int fails = 0;
     if (it != entries_.end()) {
         Entry& e = it->second;
         if (e.mtime == mtime && e.fsize == fsize) {
             e.last_used = now_;
-            return pic_of(e.tex, e.w, e.h, e.failed, e.error);
+            if (!e.failed || now_ < e.retry_at) return pic_of(e.tex, e.w, e.h, e.failed, e.error);
+            // failed before, due again: still the failure until this frame's budget has a decode for it
+            if (decodes_left_ <= 0 || !room()) return pic_of(nullptr, 0, 0, true, e.error);
+            fails = e.fails;
         }
         release(e.tex);
         entries_.erase(it);
     }
+    if (!room()) return pic_of(nullptr, 0, 0, false, "");  // decoded once the renderer has destroyed released ones
     Rgba img;
     bool decoded = false;
     // decoded in the background already (ui/preload.h): an upload only, no disk read
@@ -277,6 +296,10 @@ TextureCache::Pic TextureCache::file(const fs::path& path, int max_side) {
             e.error = "no texture";
         }
     }
+    if (e.failed) {
+        e.fails = fails + 1;
+        e.retry_at = now_ + std::min(kRetryMax, kRetryFirst * double(1u << std::min(fails, 5)));
+    }
     Pic p = pic_of(e.tex, e.w, e.h, e.failed, e.error);
     entries_[key] = std::move(e);
     return p;
@@ -286,12 +309,15 @@ TextureCache::Pic TextureCache::pixels(const std::string& key0, uint64_t version
     std::string key = "#" + key0;
     auto it = entries_.find(key);
     if (it != entries_.end()) {
-        if (it->second.version == version) {
+        // the same version, or no room for the new one yet: the picture as it was
+        if (it->second.version == version || !room()) {
             it->second.last_used = now_;
             return pic_of(it->second.tex, it->second.w, it->second.h, it->second.failed, it->second.error);
         }
         release(it->second.tex);
         entries_.erase(it);
+    } else if (!room()) {
+        return pic_of(nullptr, 0, 0, false, "");
     }
     Entry e;
     e.version = version;

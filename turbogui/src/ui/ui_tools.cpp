@@ -8,6 +8,7 @@
 #include "core/user_text.h"
 #include "hotkey_setting.h"
 #include "imgui.h"
+#include "ui_club_search.h"
 #include "ui_edit_unlock.h"
 #include "ui_faces.h"
 #include "ui_club_tools.h"
@@ -96,7 +97,7 @@ void draw_tools(App& app) {
 
         ImGui::Separator();
         static int role = 2;  // combo index: 2 = "3 Rotation", Turbo's default squad role
-        static bool loaned = false;
+        static bool loaned = true;  // the game keeps a role for loaned-in players too (features/squad_role.lua)
         const char* roles[] = {"1 Crucial", "2 Important", "3 Rotation", "4 Sporadic", "5 Prospect"};
         ImGui::SetNextItemWidth(S(160.0f));
         ImGui::Combo("Squad role", &role, [](void* d, int i) { return static_cast<const char**>(d)[i]; }, roles, 5);
@@ -105,6 +106,24 @@ void draw_tools(App& app) {
         ImGui::Checkbox("Include loaned-in", &loaned);
         ImGui::SameLine();
         run_button(app, "Set role for whole squad", "squad_role", {{"role", role + 1}, {"include_loaned_in", loaned}}, true);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Every player of your club, through the game itself (Turbo.dll); a player without a squad status entry gets one.\n"
+                              "The Squad screen shows the new roles when you open it again.");
+        // auto.squad_role, rule "role": this role again after each season reset (the game recomputes every role then)
+        json& sr = auto_cfg(app, "squad_role");
+        const bool on_role = sr.contains("enabled") ? (sr.value("enabled", false) && sr.value("rule", std::string("age")) == "role")
+                                                    : (st.auto_squad_role_enabled && st.auto_squad_role_rule == "role");
+        bool keep_role = on_role;
+        if (ImGui::Checkbox("Set it again after each season reset (auto)##srauto", &keep_role)) {
+            sr["enabled"] = keep_role;
+            sr["rule"] = "role";
+            sr["rule_role"] = role + 1;
+            sr["events"] = json::array({"SEASON_RESET"});
+            apply_auto(app, "Auto squad roles");
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("FC 27 recomputes every squad role at the start of a season. With this on, Turbo sets the role chosen above "
+                              "again right after it (Teams > Mass actions has the same switch for its by-age rule).");
 
         ImGui::Separator();
         static int user_years = 4, cpu_years = 5;
@@ -120,6 +139,9 @@ void draw_tools(App& app) {
         run_button(app, "Extend every other club's contracts", "extend_cpu_contracts", {{"years", cpu_years}}, false);
     }
 
+    // ---------------------------------------------------------------- player edits kept for every career load (ui_reapply.cpp)
+    kept_player_edits_section(app);
+
     // ---------------------------------------------------------------- scouting, development, youth academy
     if (ImGui::CollapsingHeader("Scouting, development and youth academy")) {
         // reveal player data (features/reveal.lua -> Turbo.dll -> the game's PlayerDataRevealManager)
@@ -127,11 +149,11 @@ void draw_tools(App& app) {
         static bool reveal_confirm = false;
         run_button(app, "Reveal my club##rv", "reveal", {{"scope", {{"user_team", true}}}}, true, "reveal");
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(S(110.0f));
-        ImGui::InputInt("##rvteam", &reveal_team, 0);
-        ImGui::SameLine();
-        if (reveal_team > 0) run_button(app, "Reveal club ID##rv", "reveal", {{"scope", {{"teamid", reveal_team}}}}, true, "reveal");
-        else ImGui::TextDisabled("club ID");
+        club_search_box(app, "##rvteam", reveal_team, S(180.0f));  // name or ID (ui_club_search.h)
+        if (reveal_team > 0) {
+            ImGui::SameLine();
+            run_button(app, "Reveal club##rv", "reveal", {{"scope", {{"teamid", reveal_team}}}}, true, "reveal");
+        }
         ImGui::SetNextItemWidth(S(110.0f));
         ImGui::InputInt("##rvleague", &reveal_league, 0);
         ImGui::SameLine();
@@ -229,9 +251,8 @@ void draw_tools(App& app) {
         run_button(app, "Fixtures & results", "export_fixtures", json::object(), true);
         ImGui::SameLine();
         run_button(app, "Transfer history", "export_transfer_history", json::object(), true);
-        static int jersey_team = 0;
-        ImGui::SetNextItemWidth(S(120.0f));
-        ImGui::InputInt("Team ID (0 = mine)", &jersey_team, 0);
+        static int jersey_team = 0;  // 0 = your club
+        club_search_box(app, "##jerseyteam", jersey_team, S(180.0f), "your club, or a club name or ID");
         ImGui::SameLine();
         run_button(app, "Jersey numbers", "team_jersey_numbers", {{"teamid", jersey_team}}, false);
         static char tables[256] = "teams";
@@ -296,6 +317,27 @@ void draw_tools(App& app) {
         if (scope == 2) {
             ImGui::SetNextItemWidth(S(200.0f));
             ImGui::InputTextWithHint("##beteams", "e.g. 1, 241", teams, sizeof(teams));
+            // a club picked by name or ID (ui_club_search.h) joins the list (once)
+            static int64_t add_team = 0;
+            ImGui::SameLine();
+            if (club_search_box(app, "##beaddteam", add_team, S(180.0f), "add a club: name or ID") && add_team != 0) {
+                const std::string id = std::to_string(add_team);
+                std::string list = teams, cur;
+                bool listed = false;
+                for (char c : list + ",") {
+                    if (c >= '0' && c <= '9') {
+                        cur += c;
+                    } else {
+                        listed = listed || cur == id;
+                        cur.clear();
+                    }
+                }
+                while (!list.empty() && (list.back() == ' ' || list.back() == ',')) list.pop_back();
+                list += (list.empty() ? "" : ", ") + id;
+                if (!app.model.team(add_team)) app.notify("Bulk edit: no club has ID " + id, true);
+                else if (!listed && list.size() < sizeof(teams)) std::snprintf(teams, sizeof(teams), "%s", list.c_str());
+            }
+            add_team = 0;
         }
         if (scope == 3) ImGui::Checkbox("Yes, every player in the database##be", &confirm_all);
 

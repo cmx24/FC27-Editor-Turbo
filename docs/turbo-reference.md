@@ -489,7 +489,7 @@ Honest limits: simulated matches ignore every override (`simsettings.ini` is loa
 
 ### Kill switches (files in `turbo_output`)
 
-`reapply_off.txt`, `turbo_gui_disable.txt`, `call_<name>_off.txt`, `hook_<name>_off.txt`, the crash flag `turbo_gui_start.flag`, and new in 2.0: `tactics_off.txt` (no tactics writes, effect layers greyed) and `role_reapply_off.txt` (no squad-role re-apply on season reset). The user-facing table is in `turbo/package/TURBO_README.md`.
+`reapply_off.txt`, `turbo_gui_disable.txt`, `call_<name>_off.txt`, `hook_<name>_off.txt`, the crash flag `turbo_gui_start.flag`, and new in 2.0: `tactics_off.txt` (no tactics writes, effect layers greyed) and `role_reapply_off.txt` (no squad-role re-apply on season reset). From the 1.2.5 line (2.0.3): `squad_status_repair_off.txt` (no match crash guard: `bridge.lua` `repair_squad_status` adds no squad status entries at career load / day / pre-match events; tested in `turbo/tests/t04_squad_role.lua`), `call_squad_role_create_off.txt` (the `squad_role` game call, op 14, creates and removes no entries; `turbogui/tests/native/test_squad_role.h`), `plan_sync_off.txt` (the Turbo window sends no development-plan sync for its player edits; `turbogui/tests/native/test_main.cpp`), and `call_player_morale_create_off.txt` (no morale records created by the morale mass action; `t18_team_mass.lua`). The user-facing table is in `turbo/package/TURBO_README.md`.
 
 ### Schema coverage
 

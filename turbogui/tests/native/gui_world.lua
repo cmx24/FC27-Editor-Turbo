@@ -215,6 +215,10 @@ local function build_world(sim)
         rows = nrows,
     })
 
+    -- the other 26 of FC 27's 34 attributes (Overall +1 / -1, archetypes and a typed overall need all of them)
+    local MORE_ATTRS = { "agility", "balance", "jumping", "stamina", "reactions", "aggression", "composure", "interceptions",
+        "positioning", "vision", "ballcontrol", "crossing", "freekickaccuracy", "headingaccuracy", "longpassing", "defensiveawareness",
+        "shotpower", "longshots", "slidingtackle", "volleys", "curve", "penalties", "gkhandling", "gkkicking", "gkreflexes", "gkpositioning" }
     local prow, links = {}, {}
     for i, p in ipairs(PLAYERS) do
         prow[#prow + 1] = {
@@ -228,10 +232,13 @@ local function build_world(sim)
             haircolorcode = i % 10, hairtypecode = 100 + i, shoetypecode = 600 + i, gkglovetypecode = 40 + i, accessorycode1 = 0, accessorycolourcode1 = 0, headassetid = p[1], hashighqualityhead = (i <= 6) and 1 or 0,
             headclasscode = (i <= 6) and 0 or 1, headtypecode = 100 + i, headvariation = i % 4, skintonecode = i,
             facialhairtypecode = (i % 3 == 0) and 0 or (240 + i), facialhaircolorcode = i % 4, eyecolorcode = 1 + i % 3, gender = (i == 5) and 1 or 0,  -- real-face chooser filters
-            bodytypecode = (i == 2) and 20 or (1 + i % 9),  -- body type gallery: player 2 carries a player-specific body (code 20)
             tattooleftarm = 0, tattoohead = 0,
+            -- 1004: 16, a unique body type the generated labels know (Cristiano Ronaldo's); 1002: 499, one only this database has;
+            -- 1001 keeps 2 (Average and Normal: the body type gallery's "Copy body type from player..." test); 2002 (i = 8): 9
+            bodytypecode = (i == 4) and 16 or ((i == 2) and 499 or (1 + i % 9)),
             contractvaliduntil = 2028 + (i % 3), isretiring = (i == 3) and 1 or 0, nationality = 14,
         }
+        for k, a in ipairs(MORE_ATTRS) do prow[#prow][a] = 55 + (i * 3 + k) % 30 end
         for k, tid in ipairs(p[5]) do
             links[#links + 1] = { artificialkey = #links + 1, teamid = tid, playerid = p[1], jerseynumber = (k == 1) and (i + 1) or (i + 10),
                                   position = (k == 1) and (i % 29) or 28 }
@@ -241,7 +248,7 @@ local function build_world(sim)
                         preferredposition1 = 0, preferredposition2 = -1, preferredfoot = 1, weakfootabilitytypecode = 1,
                         skillmoves = 1, height = 180, weight = 80, birthdate = gdays(2000, 1, 1), playerjointeamdate = gdays(2020, 1, 1),
                         contractvaliduntil = 2027, nationality = 14, __invalid = true }
-    sim:add_table({
+    local pspec = {
         name = "players", short = "plyr",
         fields = {
             { name = "playerid", short = "pid_", depth = 21 },
@@ -288,15 +295,17 @@ local function build_world(sim)
             { name = "facialhaircolorcode", short = "fhco", depth = 6 },
             { name = "eyecolorcode", short = "eyec", depth = 7 },
             { name = "gender", short = "gndr", depth = 1 },
-            { name = "bodytypecode", short = "btc_", depth = 5 },
             { name = "tattooleftarm", short = "tla_", depth = 10 },
             { name = "tattoohead", short = "thd_", depth = 10 },
+            { name = "bodytypecode", short = "btc_", depth = 9, min = 1 },   -- FC 27's schema (fc27_db_schema.json): 1 .. 512
             { name = "contractvaliduntil", short = "cvu_", depth = 11 },
             { name = "isretiring", short = "iret", depth = 1 },
             { name = "nationality", short = "nat_", depth = 8 },
         },
         rows = prow,
-    })
+    }
+    for k, a in ipairs(MORE_ATTRS) do pspec.fields[#pspec.fields + 1] = { name = a, short = string.format("a%03d", k), depth = 7 } end
+    sim:add_table(pspec)
     sim:add_table({
         name = "teamplayerlinks", short = "tpl_",
         fields = {
@@ -709,10 +718,17 @@ elseif mode == "mailbox" then
     f:write(json.encode({ mailbox = mb.mailbox, session = "native", gui_version = "test", updated = os.time() }))
     f:close()
     TURBO_STATE.bridge.next_dll_check = 0
+    -- the clubs the development-plan natives answer for ({"<playerid>": teamid}: a plan for the user team's players)
+    if type(mb.player_team) == "table" then
+        sim.player_team = {}
+        for pid, tid in pairs(mb.player_team) do sim.player_team[math.tointeger(tonumber(pid))] = tid end
+    end
     local before = sim:count_calls("SetPlayerForm")
     sim:fire("post__CareerModeEvent", 0, 7, 0)
     local calls = {}
     for i = before + 1, sim:count_calls("SetPlayerForm") do calls[#calls + 1] = sim.calls.SetPlayerForm[i] end
+    local plans = {}
+    for pid, fields in pairs(sim.dev_plans or {}) do plans[tostring(pid)] = fields end
     -- Turbo's Lua reader on the readable-memory map the C++ side published (core/memmap.cpp): same answers
     local mem = require 'imports/turbo/core/mem'
     local readable = {}
@@ -722,7 +738,7 @@ elseif mode == "mailbox" then
     save_image(sim, OUT .. "/mailbox_out.img")
     local g = assert(io.open(OUT .. "/mailbox_calls.json", "wb"))
     g:write(json.encode({ set_player_form = calls, boxes = #sim.boxes, readable = readable,
-                          unmapped_reads = sim.unmapped_reads }))
+                          unmapped_reads = sim.unmapped_reads, dev_plans = plans }))
     g:close()
     print("mailbox processed")
 end

@@ -29,10 +29,28 @@ struct RealFaceOptions {
 // One clickable cell of a picture grid (game picture, caption under it); true when clicked
 bool picture_cell(App& app, const std::string& path, bool custom_first, float cell, const std::string& caption,
                   const char* id, bool selected, bool none = false);
-// Picture of a file fitted into side x side; returns true when it was drawn
+// Picture of a file fitted into side x side; returns true when it was drawn. A box that cannot show it says why:
+// a spinner while it decodes, "unreadable" with the reason in its tooltip (read again in a moment: textures.h).
 bool draw_file_picture(App& app, const std::filesystem::path& f, float side);
-// Game picture (or custom file); placeholder while it loads
-LegacyImages::State draw_legacy_picture(App& app, const std::string& path, float side, bool custom_first);
+// What a legacy picture box showed, for the line under it (miniface editors)
+struct PictureInfo {
+    LegacyImages::State state = LegacyImages::State::Invalid;
+    std::filesystem::path file;  // the custom file or the game's exported copy (Custom / Game)
+    bool drawn = false;          // the picture is on screen
+    bool failed = false;         // the file could not be read: `error` says why (the format refused, cut off, ...)
+    std::string error;
+    double waiting = -1.0;       // Waiting: seconds since it was asked from the game
+    bool stalled = false;        // Waiting: Turbo's Lua side has not answered for LegacyImages::kStallSeconds
+};
+// Game picture (or custom file); a spinner while it loads, "no answer" / "no picture" with the reason in the tooltip
+LegacyImages::State draw_legacy_picture(App& app, const std::string& path, float side, bool custom_first, PictureInfo* info = nullptr);
+// The line under a picture box: what it shows ("Custom (mods\legacy)", "The game's own") or why it shows none (still
+// loading and for how long, no answer from Turbo's Lua side, not in the game, unreadable and why). `what` names the
+// picture ("miniface"); warn: the line is a problem worth a colour.
+std::string picture_status_line(App& app, const PictureInfo& info, const char* what, bool* warn = nullptr);
+// Read `path`'s picture again (Reload): its files are decoded anew and, unless a custom file is shown, the game is asked
+// for its copy again (LegacyImages::reload)
+void reload_picture(App& app, const std::string& path, const PictureInfo& info);
 // Pictures in a folder (PNG, JPG, BMP, TGA, DDS), sorted by name
 std::vector<std::filesystem::path> picture_files(const std::filesystem::path& dir);
 // Folder shortcuts of the picture browser (Desktop, Pictures incl. OneDrive, Downloads, turbo_minifaces) that exist
@@ -66,6 +84,9 @@ struct GearPictureIndex {
 const GearPictureIndex& gear_pictures(App& app);
 // Every gallery picture (players' and managers' gear, tattoos) the game has, for the background loading (ui/preload.h)
 std::vector<std::string> gallery_preload_paths(App& app);
+// The item ids the game has a picture for in a field's gallery (hair, facial hair, boots, gloves, accessories, outfits,
+// tattoos), which its code combo offers too; empty for any other field
+std::vector<int64_t> gallery_codes(App& app, const std::string& field);
 // Status tab: picture cache
 void images_status(App& app);
 

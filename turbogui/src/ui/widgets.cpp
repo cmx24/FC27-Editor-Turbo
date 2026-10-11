@@ -5,13 +5,15 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <string>
+#include <vector>
 
 #include "app.h"
 #include "geo.h"
 #include "core/field_labels.h"
-#include "core/hair_catalog.h"
 #include "imgui.h"
 #include "ui_bodytypes.h"
+#include "ui_images.h"
 
 namespace turbo {
 
@@ -36,9 +38,15 @@ static void tooltip_with_raw(const std::string& text, const std::string& raw) {
     ImGui::EndTooltip();
 }
 
-static void range_tooltip(const Field& f) {
+static void range_tooltip(const Table& t, const Field& f) {
     if (!ImGui::IsItemHovered()) return;
-    if (f.type == FieldType::Int)
+    if (t.name == "players" && f.name == "overallrating" && f.type == FieldType::Int)
+        // App::edit routes a typed overall through App::set_overall
+        ImGui::SetTooltip("%s  [1 .. 99]\nFC 27 works the overall out from the attributes (the player card, its own growth): a bare\n"
+                          "overall does not last. So a typed overall moves the attributes that weigh most for his position until the\n"
+                          "formula gives it (as Overall +1 / -1 in the Attributes tab). Undo / Undo bulk put them back.",
+                          f.name.c_str());
+    else if (f.type == FieldType::Int)
         tooltip_with_raw(labels::describe_range(f.name, f.min, f.max()), f.name);
     else if (f.type == FieldType::String)
         tooltip_with_raw(labels::field_title(f.name) + " (text, up to " + std::to_string(static_cast<int>(f.max_len()) - 1) + " characters)", f.name);
@@ -74,12 +82,12 @@ bool field_editor(App& app, const Table& t, uint64_t rec, const Field& f, const 
     if (f.type == FieldType::Int && f.depth == 1 && f.min == 0) {
         bool b = cur.i != 0;
         if (ImGui::Checkbox("##v", &b)) wrote = app.edit(t, rec, f, Value::of_int(b ? 1 : 0));
-        range_tooltip(f);
+        range_tooltip(t, f);
     } else if (f.type == FieldType::Int) {
         long long tmp = cur.i;
         long long* p = mine ? &g_edit.i : &tmp;
         ImGui::InputScalar("##v", ImGuiDataType_S64, p);
-        range_tooltip(f);
+        range_tooltip(t, f);
         if (ImGui::IsItemActivated()) {
             g_edit.id = id;
             g_edit.i = *p;
@@ -93,7 +101,7 @@ bool field_editor(App& app, const Table& t, uint64_t rec, const Field& f, const 
         float tmp = cur.f;
         float* p = mine ? &g_edit.f : &tmp;
         ImGui::InputFloat("##v", p, 0.0f, 0.0f, "%.4f");
-        range_tooltip(f);
+        range_tooltip(t, f);
         if (ImGui::IsItemActivated()) {
             g_edit.id = id;
             g_edit.f = *p;
@@ -109,7 +117,7 @@ bool field_editor(App& app, const Table& t, uint64_t rec, const Field& f, const 
         char* p = mine ? g_edit.s : tmp;
         size_t cap = std::min<size_t>(sizeof(tmp), f.max_len() > 0 ? f.max_len() : 1);
         ImGui::InputText("##v", p, cap);
-        range_tooltip(f);
+        range_tooltip(t, f);
         if (ImGui::IsItemActivated()) {
             g_edit.id = id;
             std::snprintf(g_edit.s, sizeof(g_edit.s), "%s", p);
@@ -121,7 +129,7 @@ bool field_editor(App& app, const Table& t, uint64_t rec, const Field& f, const 
         }
     } else {
         ImGui::TextDisabled("%s", cur.to_string().c_str());  // compressed text (type 13) or unknown: read-only
-        range_tooltip(f);
+        range_tooltip(t, f);
     }
     ImGui::PopID();
     return wrote;
@@ -191,7 +199,7 @@ bool slider_editor_ex(App& app, const Table& t, uint64_t rec, const Field& f, co
     int* p = mine ? &tmpe : &tmp;
     // the slider itself stays inside the field's range; a value typed with Ctrl+click is checked by Database::set
     ImGui::SliderInt("##s", p, static_cast<int>(f.min), static_cast<int>(f.max()), "%d");
-    range_tooltip(f);
+    range_tooltip(t, f);
     if (ImGui::IsItemActivated()) {
         g_edit.id = id;
         g_edit.i = *p;
@@ -217,13 +225,93 @@ bool is_enum_field(const std::string& field) {
 
 const char* enum_label(const std::string& field, int64_t v) { return labels::enum_label(field, v); }
 
-// The text shown for a code value: never a bare number. Hair and facial hair styles keep their style number (a combo of
-// hundreds of styles has many with the same look, and the number is what the search takes).
-static std::string code_text(const std::string& field, int64_t v) {
-    if (field == "bodytypecode") return bodytype_label(v);  // Live Editor / field_labels.h names, else "Specific body #N"
-    if (field == "hairtypecode" || field == "facialhairtypecode")
-        return labels::describe("players", field, v) + " (style " + std::to_string(v) + ")";
-    return labels::describe("players", field, v);
+// the text shown for a code value: never empty, never a bare number
+std::string code_value_text(const std::string& field, int64_t v, const labels::CodeUsers* live) {
+    if (labels::enum_def(field)) {
+        if (const char* l = enum_label(field, v)) return l;
+        return labels::code_n(v);
+    }
+    return labels::code_text(field, v, field_label(field), live);
+}
+
+// Values of the loaded tables for the code combos: one snapshot per table and model version (taken the first time a
+// combo asks), each field counted when first asked
+struct InUseCache {
+    uint64_t version = ~uint64_t(0);
+    int gen = -1;
+    std::map<std::string, Snapshot> snaps;                                // table name ->
+    std::map<std::string, std::map<int64_t, labels::CodeUsers>> fields;  // "<table>.<field>" ->
+};
+static InUseCache g_in_use;
+
+const std::map<int64_t, labels::CodeUsers>& values_in_use(App& app, const Table& t, const Field& f) {
+    InUseCache& c = g_in_use;
+    if (c.version != app.model.version() || c.gen != app.gen) {
+        c = InUseCache();
+        c.version = app.model.version();
+        c.gen = app.gen;
+    }
+    const std::string key = t.name + "." + f.name;
+    if (auto it = c.fields.find(key); it != c.fields.end()) return it->second;
+    std::map<int64_t, labels::CodeUsers>& out = c.fields[key];
+    if (f.type != FieldType::Int) return out;
+    auto sit = c.snaps.find(t.name);
+    if (sit == c.snaps.end()) {
+        Snapshot s;
+        if (!s.load(app.db.memory(), t)) return out;
+        sit = c.snaps.emplace(t.name, std::move(s)).first;
+    }
+    const Snapshot& s = sit->second;
+    // players: the three best-rated holders of each value (overall descending, then player id)
+    const Field* pid = t.name == "players" ? t.field("playerid") : nullptr;
+    const Field* ovr = pid ? t.field("overallrating") : nullptr;
+    std::map<int64_t, std::vector<std::pair<int64_t, int64_t>>> best;
+    for (uint32_t idx : s.valid) {
+        const int64_t v = s.get_int(idx, f);
+        ++out[v].players;
+        if (!pid || !ovr) continue;
+        std::vector<std::pair<int64_t, int64_t>>& b = best[v];
+        const std::pair<int64_t, int64_t> e{-s.get_int(idx, *ovr), s.get_int(idx, *pid)};
+        if (b.size() < 3) b.push_back(e);
+        else if (e < b.back()) b.back() = e;
+        else continue;
+        std::sort(b.begin(), b.end());
+    }
+    for (const auto& kv : best) {
+        std::string names;
+        for (const auto& e : kv.second)
+            if (const PlayerRow* p = app.model.player(e.second)) names += (names.empty() ? "" : ", ") + p->name;
+        out[kv.first].names = names;
+    }
+    return out;
+}
+
+// who uses a player-specific code the generated tables do not know (nullptr for any other code)
+static const labels::CodeUsers* live_users(App& app, const Table& t, const Field& f, int64_t v) {
+    if (!labels::is_signature_field(f.name) || labels::find_users(f.name, v)) return nullptr;
+    if (const labels::NamedCodes* n = labels::named_codes(f.name); n && labels::find_name(*n, v)) return nullptr;
+    const auto& m = values_in_use(app, t, f);
+    auto it = m.find(v);
+    return it == m.end() ? nullptr : &it->second;
+}
+
+std::vector<int64_t> code_value_list(App& app, const Table& t, const Field& f, int64_t current) {
+    std::vector<int64_t> codes;
+    if (const labels::EnumDef* d = labels::enum_def(f.name)) {
+        for (size_t k = 0; k < d->labels.size(); ++k) codes.push_back(d->base + static_cast<int64_t>(k));
+        if (std::find(codes.begin(), codes.end(), current) == codes.end()) codes.insert(codes.begin(), current);
+        return codes;
+    }
+    // the codes the loaded table uses and the game's pictures (galleries), besides the ones field_labels.h knows
+    std::vector<int64_t> more = gallery_codes(app, f.name);
+    const bool pictures = !more.empty();
+    for (const auto& kv : values_in_use(app, t, f)) more.push_back(kv.first);
+    // a small field nothing names: its whole range, so every value can be picked
+    if (!labels::named_codes(f.name) && labels::known_codes(f.name).empty() && !pictures && f.max() - f.min < 128)
+        for (int64_t v = f.min; v <= f.max(); ++v) more.push_back(v);
+    for (int64_t v : labels::offered_codes(f.name, more, current))
+        if ((v >= f.min && v <= f.max()) || v == current) codes.push_back(v);
+    return codes;
 }
 
 static bool contains_ci(const std::string& hay, const char* needle) {
@@ -246,17 +334,11 @@ bool enum_editor(App& app, const Table& t, uint64_t rec, const Field& f, const c
         ImGui::SameLine(S(150.0f));
     }
     ImGui::SetNextItemWidth(width);
-    const std::string shown = code_text(f.name, cur.i);
+    const std::string shown = code_value_text(f.name, cur.i, live_users(app, t, f, cur.i));
     if (ImGui::BeginCombo("##e", shown.c_str(), ImGuiComboFlags_HeightLarge)) {
-        // the codes offered: the named ones (stars, roles, colours...) or, for item codes without names, the whole range
-        std::vector<int64_t> codes;
-        if (const labels::EnumDef* d = labels::enum_def(f.name)) {
-            for (size_t k = 0; k < d->labels.size(); ++k) codes.push_back(d->base + static_cast<int64_t>(k));
-        } else if (const labels::NamedCodes* nt = labels::named_codes(f.name)) {
-            for (const auto& e : *nt) codes.push_back(e.first);
-        } else {
-            for (int64_t v = f.min; v <= f.max() && v < f.min + 4096; ++v) codes.push_back(v);
-        }
+        // the codes offered: the named ones (stars, roles, colours...), the ones the data describes (unique body types,
+        // boots...), the codes the loaded table uses and the game's pictures; the current value always
+        std::vector<int64_t> codes = code_value_list(app, t, f, cur.i);
         static char filt[48] = "";
         if (ImGui::IsWindowAppearing()) filt[0] = 0;
         const bool many = codes.size() > 12;
@@ -271,10 +353,8 @@ bool enum_editor(App& app, const Table& t, uint64_t rec, const Field& f, const c
         bool is_num = filt[0] && endp && *endp == 0;
         if (is_num && typed >= f.min && typed <= f.max() && std::find(codes.begin(), codes.end(), typed) == codes.end())
             codes.insert(codes.begin(), typed);
-        if (std::find(codes.begin(), codes.end(), cur.i) == codes.end()) codes.insert(codes.begin(), cur.i);
         for (int64_t v : codes) {
-            if (v < f.min || v > f.max()) continue;
-            std::string txt = code_text(f.name, v);
+            std::string txt = code_value_text(f.name, v, live_users(app, t, f, v));
             char num[24];
             std::snprintf(num, sizeof(num), "%lld", static_cast<long long>(v));
             if (filt[0] && !contains_ci(txt, filt) && std::strcmp(num, filt) != 0) continue;

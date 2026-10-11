@@ -699,6 +699,7 @@ void crest_editor(App& app, int64_t teamid) {
         ed.teamid = teamid;
         ed.browse_dir = keep;
         ed.next_plan = 0.0;
+        app.textures.forget_pixels("crest_new");  // versions start again: the same number would show the last club's preview
     }
     if (ed.browse_dir.empty()) ed.browse_dir = app.bridge.root() / "turbo_crests";
     if (app.now >= ed.next_plan) {

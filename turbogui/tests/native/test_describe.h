@@ -15,20 +15,22 @@ static void test_describe_core() {
         using labels::describe;
         CHECK(describe("players", "role1", 14) == "CDM Holding+", "role 14: " + describe("players", "role1", 14));
         CHECK(describe("players", "bodytypecode", 5) == "Tall and Normal", "body type 5");
-        CHECK(describe("players", "bodytypecode", 12) == "Player-specific body model 12", "a body type with no name: " + describe("players", "bodytypecode", 12));
-        CHECK(describe("manager", "bodytypecode", 10) == "Player-specific body model 10", "code 10 has no entry");
-        CHECK(describe("players", "role3", 9999) == "Unnamed 9999", "an unnamed role");
+        // 1.2.5 wording (field_labels.h code_label, CHANGELOG 2.0.3): a code nothing names reads "Code N"; a player-specific body
+        // type is named after who uses it in the FC 27 database
+        CHECK(describe("players", "bodytypecode", 12) == "Code 12", "a body type nothing names: " + describe("players", "bodytypecode", 12));
+        CHECK(describe("manager", "bodytypecode", 10) == "Unique: Lionel Messi", "code 10 is Messi's body type: " + describe("manager", "bodytypecode", 10));
+        CHECK(describe("players", "role3", 9999) == "Code 9999", "an unnamed role: " + describe("players", "role3", 9999));
         CHECK(describe("players", "skillmoves", 3) == "4 stars", "skill moves 3 is 4 stars");
         CHECK(describe("players", "skillmoves", 9) == "Unnamed 9", "an enum value past its labels");
         CHECK(describe("players", "headclasscode", 0) == "Real face (own head model)" && describe("players", "headclasscode", 1) == "Generic head",
               "head class reads as a real face or a generic head");
-        CHECK(describe("players", "shoetypecode", 1432) == "Boots style 1432 (no name)", "boots: " + describe("players", "shoetypecode", 1432));
-        CHECK(describe("players", "shoecolorcode1", 4) == "Boot colour 4 (no name)", "boot colour: " + describe("players", "shoecolorcode1", 4));
-        CHECK(describe("players", "headtypecode", 20801) == "Head style 20801 (no name)", "head: " + describe("players", "headtypecode", 20801));
+        CHECK(describe("players", "shoetypecode", 1432) == "Boots #1432", "boots without a brand: " + describe("players", "shoetypecode", 1432));
+        CHECK(describe("players", "shoecolorcode1", 4) == "Light Blue", "boot colour 4 is named (Live Editor's 32 names): " + describe("players", "shoecolorcode1", 4));
+        CHECK(describe("players", "headtypecode", 20801) == "Head type 20801 (Mixed & other)", "head type with its group: " + describe("players", "headtypecode", 20801));
         CHECK(describe("players", "overallrating", 87) == "87" && describe("players", "height", 181) == "181", "plain numbers stay numbers");
         CHECK(describe("manager", "personalityid", 3) == "Personality type 3", "manager personality has no names to give: " + describe("manager", "personalityid", 3));
-        const std::string hair = describe("players", "hairtypecode", 100);
-        CHECK(!hair.empty() && hair.find('#') == std::string::npos && hair.find("code") == std::string::npos, "hair: " + hair);
+        const std::string hair = describe("players", "hairtypecode", 100);   // "<look> #100": the look in words, the style's number after it
+        CHECK(!hair.empty() && hair.find(" #100") != std::string::npos && hair.find("code") == std::string::npos && hair.find(" #100") > 0, "hair: " + hair);
         for (const char* f : {"role1", "bodytypecode", "shoetypecode", "hairtypecode", "facialhairtypecode", "headclasscode", "eyebrowcode", "accessorycode2"})
             for (int64_t v : {-1, 0, 3, 77, 123456}) {
                 const std::string d = describe("players", f, v);

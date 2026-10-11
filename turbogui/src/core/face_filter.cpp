@@ -2,6 +2,7 @@
 #include "core/face_filter.h"
 
 #include "core/face_looks.h"
+#include "core/field_labels.h"
 #include "core/hair_catalog.h"
 
 #include <algorithm>
@@ -67,9 +68,7 @@ static const int kEthnicGroups[] = {
 // Live Editor's labels (loc/eng_us/localize.json). FC 27 stores the skin tone as 10, 20 ... 100 (Live Editor's 1 .. 10).
 static const char* kSkinNames[] = {"", "Caucasian 1", "Caucasian 2", "Caucasian 3", "Latin Asian 1", "Latin Asian 2", "Latin Asian 3",
                                    "Latin Asian 4", "African 1", "African 2", "African 3"};
-// Hair colours; facial hair uses the same codes (0 .. 27 in FC 27, same spread as the hair)
-static const char* kHairColours[] = {"Black", "Blonde", "Dirty Blonde", "Dark Brown", "Light Blonde", "Light Brown", "Medium Brown", "Red",
-                                     "White", "Silver", "Green", "Blue", "Ginger", "Dark Red", "Pink"};
+// Hair colours: field_labels.h (Live Editor's 0 .. 14 and FC 27's 15 .. 27); facial hair uses the same codes
 static const char* kEyeColours[] = {"", "Blue", "Light Blue", "Brown", "Light Brown", "Hazel", "Green", "Light Green", "Medium Blue",
                                     "Dark Brown", "Saturated Green"};
 // Hair and facial hair styles: grouped by look (face_looks.h, from the game's own previews), 5 groups each. The keys are
@@ -141,7 +140,7 @@ static std::string exact_label(Facet f, int64_t raw) {
             return "Skin tone " + n;
         case kHairColour:
         case kBeardColour:
-            if (raw >= 0 && raw < int64_t(sizeof(kHairColours) / sizeof(kHairColours[0]))) return kHairColours[raw];
+            if (labels::Label l = labels::code_label("haircolorcode", raw, "Colour"); l.kind != labels::Kind::Code) return l.text;
             return "Colour " + n;
         case kEyes:
             if (raw >= 1 && raw < int64_t(sizeof(kEyeColours) / sizeof(kEyeColours[0]))) return kEyeColours[raw];

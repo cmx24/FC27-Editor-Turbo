@@ -7,10 +7,14 @@
 --                  "development": { "xp_multiplier": 2.0, "bonus_xp": 0, "no_decline": true } }
 --   }
 -- Every field and value is validated before the first write; one bad entry stops the whole run.
+-- In a career, "set" fields the game's development plan holds (attributes, work rates, skill moves, weak foot:
+-- core/moves.lua PLAN_FIELDS) go into the plan of each of your players too, else the plan puts the old values back
+-- when the career is loaded again.
 
 local util = require 'imports/turbo/core/util'
 local db = require 'imports/turbo/core/db'
 local game = require 'imports/turbo/core/game'
+local moves = require 'imports/turbo/core/moves'
 local sel = require 'imports/turbo/core/select'
 
 local M = {}
@@ -72,11 +76,21 @@ function M.run(ctx)
     if #steps > 0 and not game.in_cm() then return false, "actions (fitness/form/morale/development) need a loaded career" end
     if #list == 0 then return true, "no players matched " .. tostring(desc) end
 
-    local api_fail, dev_added = 0, 0
+    local is_plan, plan_vals = util.set_of(moves.PLAN_FIELDS), {}
+    for _, w in ipairs(writes) do
+        if is_plan[w.field] then plan_vals[w.field] = w.value end
+    end
+    local sync_plans = next(plan_vals) ~= nil and game.in_cm()
+    local api_fail, dev_added, plans, plan_fail = 0, 0, 0, {}
     for _, p in ipairs(list) do
         for _, w in ipairs(writes) do
             local ok, werr = db.set(players, p.rec, w.field, w.value, ctx.dry)
             if not ok then return false, string.format("player %d: %s", p.pid, werr) end
+        end
+        if sync_plans and not ctx.dry then
+            local state = moves.sync_plan(p.pid, plan_vals)
+            if state == "plan" then plans = plans + 1
+            elseif state:sub(1, 7) == "failed:" then plan_fail[#plan_fail + 1] = string.format("%d (%s)", p.pid, state:sub(9)) end
         end
         if not ctx.dry then
             for _, s in ipairs(steps) do
@@ -101,8 +115,10 @@ function M.run(ctx)
         else parts[#parts + 1] = string.format("development(x%.2f,+%d,%s)", s.mult, s.bonus, s.no_decline and "no decline" or "decline") end
     end
     local summary = string.format("%d players (%s): %s", #list, desc, table.concat(parts, ", "))
+    if plans > 0 then summary = summary .. string.format("; %d development plans updated", plans) end
     if api_fail > 0 then summary = summary .. string.format("; %d API calls failed", api_fail) end
-    return api_fail == 0, summary
+    if #plan_fail > 0 then summary = summary .. "; development plan NOT updated for " .. table.concat(plan_fail, ", ") end
+    return api_fail == 0 and #plan_fail == 0, summary
 end
 
 return M

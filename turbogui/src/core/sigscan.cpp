@@ -357,6 +357,24 @@ static std::vector<Signature> fc27_signatures() {
           "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 54 41 56 41 57 48 83 EC 70 C5 F8 29 70 D8 C5 F8 29 78 C8 "
           "C5 78 29 40 B8 48 8B 41 08 48 8B F1 4D 8B F1 48 8B FA 4C 8B 80 98 01 00 00",
           "none", 0, "void PlayerMoraleManager::InitMorale(PMM, MoraleRecord*, -, prev = null) 0x147D93B08: components, ends in SetTotalMorale"},
+         // Squad roles (docs/re/player_status_roles.md sections 3 and 7.2, scripts/re/player_status_signatures.json; every pattern unique
+         // in the image, re-checked 2026-10-05 with sig_player_status.py --check): the squad_role call (win/squad_role_win.cpp)
+         {"psm_vtable",
+          "40 53 48 83 EC 20 48 8D 05 ?? ?? ?? ?? 48 89 51 08 48 89 01 48 8B D9 48 83 C1 10 E8 ?? ?? ?? ?? 48 8B C3 48 83 C4 20 5B C3 CC CC CC "
+          "48 89 5C 24 08",
+          "rip", 6, "PlayerStatusManager vtable (0x14AFFB2A0): the lea rax,[rip+..] at +6 of its ctor 0x147BE47B8 (manager type 87, 0x38 bytes; "
+                    "slot 1 = psm_handle_event)"},
+         {"psm_handle_event", "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 48 8D A8 28 FF FF FF 48 81 EC D0 01 00 00 48 8B D9", "none", 0,
+          "void PlayerStatusManager::HandleEvent(this, int eventId, Event*) 0x147BF30C0 (vtable slot 1): 0x5F AddPlayer, 0x60 Remove, 0x17 rebuild"},
+         {"psm_get_entry",
+          "45 33 D2 44 8B DA 45 8B CA 41 83 F9 34 7D 1F 48 8B 41 08 45 8B C1 4A 8D 14 C0 8B 02 44 3B D8 74 0A 83 F8 FF 74 08 41 FF C1 EB DE "
+          "4C 8B D2 49 8B C2 C3 CC CC 45 33 D2",
+          "none", 0, "Entry* PlayerStatusData::Find(sub = PSM+0x10, int pid) 0x147D8BADC: entries 0..51 of [sub+8], stops at pid -1, null if none"},
+         {"psm_add_player", "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 20 4C 8B D1 45 8A C8 48 83 C1 10", "none", 0,
+          "bool PlayerStatusManager::AddPlayer(PSM, int pid, uint8 role) 0x147BE7BB4: AddEntry (no duplicate check, refuses at 52); role 1..5 "
+          "stored with wasPromised 1, 0 / 0xFF = ComputeSquadRole"},
+         {"psm_remove_entry", "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 20 33 DB 48 8B F1 8B CB 44 8B C2", "none", 0,
+          "bool PlayerStatusData::Remove(sub, int pid) 0x147D90C80: memmove inside the fixed table, count--, an empty entry appended"},
          // Created players (docs/re/created_players.md, scripts/re/created_players_signatures.json; every pattern unique in the image,
          // re-checked 2026-10-05 with the "rip" offsets at the instruction start): the game's own query layer, the 0x3A event and
          // InsertTeamPlayer the player_create call uses (win/player_create_win.cpp; PostEvent is post_career_event above)

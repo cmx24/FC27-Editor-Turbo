@@ -172,7 +172,7 @@ static void test_bodytypes_ui(App& app, Ui& ui, const fs::path& le) {
         CHECK(app.db.get_int(*p, rec, "bodytypecode") == 9, "refused: body type unchanged");
         std::string msg;
         CHECK(!apply_bodytype(app, *p, rec, 20, false, &msg) && msg.find("not written") != std::string::npos, "apply_bodytype refuses too: " + msg);
-        CHECK(!apply_bodytype(app, *p, rec, 99, true, &msg) && app.db.get_int(*p, rec, "bodytypecode") == 9, "outside the field range: refused");
+        CHECK(!apply_bodytype(app, *p, rec, 999, true, &msg) && app.db.get_int(*p, rec, "bodytypecode") == 9, "outside the field range (1 .. 512): refused");
         // a generic body is fine
         row(4);
         CHECK(ui.click("Use##bt4", "Body types"), "Use Tall and Lean");

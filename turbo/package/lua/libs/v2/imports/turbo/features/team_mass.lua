@@ -13,7 +13,9 @@
 --                  removed. Without the native call (or for another club):
 --                  Live Editor's SetPlayerMorale with 85, nothing read back.
 --   squad_roles    your club only (the game keeps no squad roles for other clubs): players aged 19 or more get the
---                  Rotation role, younger players Prospect (squad_role.lua writes it through the PlayerStatusManager).
+--                  Rotation role, younger players Prospect, loaned-in players included (squad_role.lua: through the game's
+--                  own PlayerStatusManager calls with Turbo.dll's squad_role, op 14, else in memory; a player without an
+--                  entry gets one first). The result lists every player (updated / entry created / unchanged / skipped why).
 --                  Role rule engine (Turbo 2.0): "role_rules" = ordered list of { name, role 1..5, age_min, age_max, ovr_rank_min,
 --                  ovr_rank_max, pos = GK | DEF | MID | ATT | list } (first match wins; default = the two rules above),
 --                  "role_pins" = { "<playerid>": 1..5 | 0 = leave alone } (a pin beats the rules), "role_preview": true = write
@@ -228,7 +230,7 @@ end
 -- of the squad (ties: lower player id first), pos = position group of preferredposition1: GK, DEF, MID, ATT.
 -- Per-player pins override the rules: { [playerid] = 1..5 }, or 0 = leave that player alone.
 -- A rule with an age condition cannot be judged for a player with no birthdate: when such a rule comes before the matching
--- one the player is skipped ("no birthdate") instead of getting a role the age might have changed.
+-- one the player is skipped ("no birth date in the database") instead of getting a role the age might have changed.
 M.ROLE_RULES_MAX = 32
 M.POS_GROUPS = { "GK", "DEF", "MID", "ATT" }
 M.ROLE_RULE_FILE = "role_rule.json"
@@ -352,11 +354,11 @@ function M.role_for(rules, pins, f)
             end
         end
         if ok then
-            if age_unknown then return nil, "no birthdate" end
+            if age_unknown then return nil, "no birth date in the database" end
             return r.role, nil, i
         end
     end
-    if age_unknown then return nil, "no birthdate" end
+    if age_unknown then return nil, "no birth date in the database" end
     return nil, "no rule matched"
 end
 
@@ -415,6 +417,26 @@ local function rules_label(rules, pins)
     return string.format("%d role rules, %d pins", #rules, util.count(pins))
 end
 
+-- role_of(pid) for the players `pids` ({[pid] = true}): Rotation from M.ADULT_AGE, Prospect below, nil when his age is not
+-- known. Also used by squad_role.auto (the season-reset re-apply). Returns nil, reason without a date / players table.
+function M.role_by_age(pids)
+    local ptbl = db.get_table("players")
+    if not ptbl then return nil, "players table not found" end
+    local today = moves.today_days and moves.today_days() or nil
+    if not today then
+        local d = game.current_date()
+        today = d and d.year and util.gregorian_days_from_date(d.year, d.month, d.day) or nil
+    end
+    if not today then return nil, "current in-game date not available" end
+    local recs = player_records(ptbl, pids)
+    return function(pid)
+        local prec = recs[pid]
+        local age = prec and age_of(prec, ptbl, today) or nil
+        if not age then return nil end
+        return age >= M.ADULT_AGE and M.ROLE_ROTATION or M.ROLE_PROSPECT
+    end
+end
+
 local function action_squad_roles(ctx, pids, teamid)
     local out_dir = ctx.out_dir
     if ctx.cfg.role_rule_clear == true then
@@ -463,9 +485,11 @@ local function action_squad_roles(ctx, pids, teamid)
     end
 
     local preview = ctx.cfg.role_preview == true
-    local sub = { cfg = { include_loaned_in = false, use_memory = true }, dry = ctx.dry, preview = preview,
+    -- loaned-in players too, unless "include_loaned_in": false: the game keeps a role for them (its join handler adds their
+    -- entry like anyone's), so the default writes theirs as well
+    local sub = { cfg = { include_loaned_in = ctx.cfg.include_loaned_in, use_memory = true }, dry = ctx.dry or preview, preview = preview,
         out_dir = out_dir, all = ctx.all }
-    local ok, summary, report = role.apply(sub, role_of, rules_label(rules, pins))
+    local ok, summary, details, report = role.apply(sub, role_of, rules_label(rules, pins), { players = pids })
     if report and preview then
         local no_entry = util.set_of(report.no_entry)
         local rows, seen = {}, {}
@@ -509,7 +533,7 @@ local function action_squad_roles(ctx, pids, teamid)
             log.warn("squad roles: the rule could not be saved for the season-reset re-apply")
         end
     end
-    return ok, summary
+    return ok, summary, details
 end
 
 -- Block offers: the game's own toggle for each player of your club (Turbo.dll's transfer_list call, actions 7 / 9)
@@ -723,9 +747,9 @@ function M.run(ctx)
     local pids, n = team_players(teamid)
     if n == 0 then return false, string.format("team %d has no players", teamid) end
 
-    local parts, any_ok, all_ok = {}, false, true
+    local parts, any_ok, all_ok, details = {}, false, true, {}
     for _, a in ipairs(list) do
-        local ok, res, text = pcall(RUN[a], ctx, pids, teamid)
+        local ok, res, text, more = pcall(RUN[a], ctx, pids, teamid)
         local good, msg
         if not ok then
             good, msg = false, "crashed: " .. tostring(res)
@@ -734,10 +758,14 @@ function M.run(ctx)
             good, msg = res, text
         end
         parts[#parts + 1] = string.format("%s: %s%s", LABEL[a], good and "" or "not done - ", tostring(msg))
+        -- an action's per-player lines (squad roles) go below the summary line: the GUI's toast shows the first line,
+        -- Teams > Mass actions all of it
+        if ok and type(more) == "string" and more ~= "" then details[#details + 1] = LABEL[a] .. ", per player:\n" .. more end
         any_ok = any_ok or good
         all_ok = all_ok and good
     end
     local summary = string.format("team %d (%d players) - %s", teamid, n, table.concat(parts, " | "))
+    if #details > 0 then summary = summary .. "\n" .. table.concat(details, "\n") end
     return any_ok, summary
 end
 
