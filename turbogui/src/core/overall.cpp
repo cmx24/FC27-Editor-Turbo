@@ -188,5 +188,16 @@ bool reach(int pos, Attrs& a, int target, std::vector<Move>* moves) {
     return move_to(pos, a, target, moves);
 }
 
+int follow(int pos_before, const Attrs& before, int pos_after, const Attrs& after, int stored) {
+    const int was = compute_overall(pos_before, before), now = compute_overall(pos_after, after);
+    if (was == now) return stored;  // nothing the formula sees moved: the stored overall stays as it is
+    // a broken overall (OVR-1) takes the formula's value; any other keeps its offset (core/overall.h)
+    const bool broken = stored <= kFollowBroken && was - stored > kFollowTolerance;
+    const int v = broken ? now : stored + (now - was);
+    return std::max(1, std::min(99, v));
+}
+
+bool follows_field(const std::string& n) { return n == "preferredposition1" || attr_index(n) >= 0; }
+
 }  // namespace overall
 }  // namespace turbo

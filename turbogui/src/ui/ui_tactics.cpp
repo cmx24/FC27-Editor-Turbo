@@ -403,7 +403,12 @@ DbOutcome write_db(App& app, const SliderWrite& w, std::string& why, std::string
         Value before;
         if (app.db.get(*r.t, rec.first, *r.f, before) && before.type == FieldType::Int)
             kept = snaps.remember(w.target, rec.second, before.i, stamp(), r.label) || kept;
-        if (!app.edit(*r.t, rec.first, *r.f, Value::of_int(w.value))) {
+        // 2.1: a tactics write is a match setting, not a player edit: players.preferredposition1 written here does not move
+        // the stored overall (App::edit would make it follow, ui_players.cpp overall_follow_edit), so an A/B run that
+        // writes the baseline back leaves the overall exactly as it was
+        const bool plain = r.t->name == "players" && r.f->name != "overallrating";
+        const Value v = Value::of_int(w.value);
+        if (!(plain ? app.edit_field(*r.t, rec.first, *r.f, v) : app.edit(*r.t, rec.first, *r.f, v))) {
             if (kept) persist_snapshots(app);
             why = "the game's database refused the value";
             return DbOutcome::Failed;

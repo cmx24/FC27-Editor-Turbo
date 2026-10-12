@@ -754,8 +754,11 @@ void App::tick(double t) {
     }
 }
 
+bool overall_follow_edit(App& app, const Table& t, uint64_t rec, const Field& f, const Value& v);  // ui_players.cpp (2.1)
+
 bool App::edit(const Table& t, uint64_t rec, const Field& f, const Value& v) {
     if (t.name == "players" && f.name == "overallrating" && f.type == FieldType::Int && v.type == FieldType::Int) return set_overall(t, rec, v.i);
+    if (t.name == "players") return overall_follow_edit(*this, t, rec, f, v);  // an attribute: the overall follows it
     return edit_field(t, rec, f, v);
 }
 
@@ -865,7 +868,9 @@ bool App::undo(int64_t playerid) {
         (step.also.empty() ? std::string() : " (and " + std::to_string(step.also.size()) + " more fields)"));
     if (!done) return false;
     notify("undone: " + field_label(step.field) + " back to " + describe_value(*t, *t->field(step.field), step.before) +
-           (step.also.empty() ? std::string() : " (and " + std::to_string(step.also.size()) + " attributes)"));
+           (step.also.empty() ? std::string()
+            : step.also.size() == 1 && step.also[0].first == "overallrating" ? std::string(" (and the overall it moved)")
+                                                                             : " (and " + std::to_string(step.also.size()) + " attributes)"));
     return true;
 }
 

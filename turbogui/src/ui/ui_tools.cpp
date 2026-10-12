@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 #include "app.h"
@@ -35,6 +37,48 @@ static bool run_button(App& app, const char* label, const char* module, const js
         ImGui::SetTooltip("Needs a loaded career save");
     if (clicked) app.send({{"op", "run"}, {"module", module}, {"overrides", overrides}}, label);
     return clicked;
+}
+
+// 2.1: the last overall-follow run of Tools > Bulk edit (turbo_output\overall_follow_undo.json, the small index Lua's
+// features/bulk_edit.lua keeps): when and in which database it was made. Only while the Bulk edit section is open; the
+// file is parsed again only when its time stamp changes (a few hundred bytes).
+struct OverallRun {
+    bool have = false;
+    bool in_cm = true;
+    std::string when, club, session;
+    long long user_team = 0, load_gen = -1, count = 0;
+};
+
+static const OverallRun& last_overall_run(App& app) {
+    static OverallRun run;
+    static std::filesystem::file_time_type stamp{};
+    std::error_code ec;
+    const std::filesystem::path p = app.bridge.root() / "turbo_output" / "overall_follow_undo.json";
+    const auto now = std::filesystem::last_write_time(p, ec);
+    if (ec) {
+        run = OverallRun{};
+        stamp = {};
+        return run;
+    }
+    if (run.have && now == stamp) return run;
+    stamp = now;
+    run = OverallRun{};
+    std::ifstream in(p, std::ios::binary);
+    const json d = json::parse(in, nullptr, false);
+    if (!d.is_object() || !d.contains("runs") || !d["runs"].is_array() || d["runs"].empty()) return run;
+    const json& r = d["runs"].back();
+    if (!r.is_object()) return run;
+    auto str = [&](const char* k) { return r.contains(k) && r[k].is_string() ? r[k].get<std::string>() : std::string(); };
+    auto num = [&](const char* k, long long dflt) { return r.contains(k) && r[k].is_number() ? r[k].get<long long>() : dflt; };
+    run.have = true;
+    run.in_cm = !(r.contains("in_cm") && r["in_cm"].is_boolean()) || r["in_cm"].get<bool>();
+    run.when = str("when");
+    run.club = str("club");
+    run.session = str("session");
+    run.user_team = num("user_team", 0);
+    run.load_gen = num("load_gen", -1);
+    run.count = num("count", 0);
+    return run;
 }
 
 static json& auto_cfg(App& app, const char* name) {
@@ -426,6 +470,46 @@ void draw_tools(App& app) {
             ImGui::EndDisabled();
             ImGui::SameLine();
             ImGui::TextDisabled("(%s)", why.c_str());
+        }
+        // 2.1: attributes / position in "Set" move each player's overall too (features/bulk_edit.lua, core/overall.lua)
+        ImGui::TextDisabled("Attributes or position set here move each player's overall the way the game works it out.");
+        ImGui::SameLine();
+        // the undo runs only in the database the run wrote (features/bulk_edit.lua checks it again): the run's career or
+        // the main-menu squads, the same club; another load of it (a restart, a reload) asks first
+        const OverallRun& orun = last_overall_run(app);
+        const bool other_load = orun.have && !orun.session.empty() && !st.session.empty() && orun.load_gen >= 0 &&
+                                st.load_gen >= 0 && (orun.session != st.session || orun.load_gen != st.load_gen);
+        const bool other_db = orun.have && (orun.in_cm != st.in_cm || (st.in_cm && orun.user_team != st.user_team));
+        std::string where = !orun.have ? std::string()
+                            : orun.in_cm ? "the career with " + (orun.club.empty() ? std::to_string(orun.user_team) : orun.club)
+                                         : std::string("the main-menu squads");
+        std::string tip = orun.have ? "Last run: " + orun.when + ", " + std::to_string(orun.count) + " overalls, in " + where + "."
+                                    : std::string("No bulk edit has moved an overall yet.");
+        if (other_db) tip += "\nNot this database: load " + where + " to put them back.";
+        else if (other_load) tip += "\nMade before this " + std::string(st.in_cm ? "career" : "database") + " was loaded: asks first.";
+        tip += "\nThe overalls go back only where they are still the ones it wrote (the attributes stay).\n"
+               "Off switch for the overall follow: turbo_output\\overall_follow_off.txt";
+        const bool needs_cm = !orun.have || orun.in_cm;
+        if (other_load && !other_db) {
+            const bool off = app.busy() || (needs_cm && !st.in_cm);
+            if (off) ImGui::BeginDisabled();
+            if (ImGui::Button("Put the overalls back...")) ImGui::OpenPopup("##overall_back_any_load");
+            if (off) ImGui::EndDisabled();
+        } else {
+            if (other_db) ImGui::BeginDisabled();
+            run_button(app, "Put the overalls back", "bulk_edit", {{"undo_overall", true}}, needs_cm);
+            if (other_db) ImGui::EndDisabled();
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", tip.c_str());
+        if (ImGui::BeginPopupModal("##overall_back_any_load", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("The last overall follow (%s, %lld overalls, in %s)", orun.when.c_str(), orun.count, where.c_str());
+            ImGui::Text("was made before this %s was loaded. Put them back if this is the same save.", st.in_cm ? "career" : "database");
+            ImGui::TextDisabled("Only overalls still equal to the ones it wrote change.");
+            if (run_button(app, "Put them back", "bulk_edit", {{"undo_overall", true}, {"any_load", true}}, needs_cm))
+                ImGui::CloseCurrentPopup();
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
         }
     }
 
