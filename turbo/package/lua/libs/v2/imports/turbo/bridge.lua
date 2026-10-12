@@ -383,6 +383,9 @@ function M.collect_state()
         -- outcome of the last game call that finished after being queued (M.game_call): the GUI shows it as a toast
         game_call = S.game_call,
         manager_rules = manager_rules_state(in_cm),
+        -- tactics channel E's gate G2 (M.track_phase): "hub" / "prematch" / "match" / "unknown", and when a save last started
+        match_phase = S.match_phase or "unknown",
+        save_t = S.save_t,
     }
 end
 
@@ -400,6 +403,7 @@ local function same_state(a, b)
     if a.db_service ~= b.db_service or a.in_cm ~= b.in_cm or a.user_team ~= b.user_team then return false end
     if a.svm ~= b.svm or a.managers ~= b.managers or a.ifce ~= b.ifce then return false end
     if a.transfer_budget ~= b.transfer_budget then return false end
+    if a.match_phase ~= b.match_phase or a.save_t ~= b.save_t then return false end
     if a.meta_error ~= b.meta_error then return false end
     if (a.game_call and a.game_call.seq or 0) ~= (b.game_call and b.game_call.seq or 0) then return false end
     if not same_settings(a.manager_rules, b.manager_rules) then return false end
@@ -555,6 +559,38 @@ local function reload_ids()
     return S.reload_ids
 end
 
+-- Match phase and save start for Turbo.dll's tactics channel E (turbogui/src/core/team_sheet.h, gate G2: your club's live tactic is
+-- written in the career hub only, never while a match is set up or played, nor while a save runs). "unknown" until the first event of
+-- one of these lists since Turbo started; leaving the pre-match screen without playing keeps "prematch" until the next hub event.
+M.PHASE_EVENTS = {
+    hub = { "POST_LOAD_PREPARE", "ENTERED_HUB_FIRST_TIME", "DAY_PASSED", "USER_MATCH_COMPLETED", "USER_INTERNATIONAL_MATCH_COMPLETED",
+            "POST_MATCH_REPORTS_DISPLAYED" },
+    prematch = { "ABOUT_TO_ENTER_PREMATCH" },
+    match = { "TEAMS_READY_FOR_USER_MATCH", "ABOUT_TO_ENTER_A_MATCH", "ABOUT_TO_SIM_OVER_A_MATCH", "ABOUT_TO_ENTER_QUICK_SIM",
+              "ABOUT_TO_ENTER_INTERACTIVE_SIM", "ABOUT_TO_ENTER_PLAY_HIGHLIGHTS", "ABOUT_TO_ENTER_PLAY_FULL_MATCH_SIM", "MATCH_RESTARTED" },
+}
+M.SAVE_EVENTS = { "PREPARE_FOR_SAVE", "PREPARE_FOR_FIRST_SAVE" }
+
+local function phase_ids()
+    if S.phase_ids then return S.phase_ids, S.save_ids end
+    local events = require 'imports/turbo/core/events'
+    local ids = {}
+    for phase, names in pairs(M.PHASE_EVENTS) do
+        for id in pairs((events.resolve_set(names))) do ids[id] = phase end
+    end
+    S.phase_ids = ids
+    S.save_ids = events.resolve_set(M.SAVE_EVENTS)
+    return S.phase_ids, S.save_ids
+end
+
+-- Called for every real career-mode event before the state is written
+function M.track_phase(event_id)
+    local ids, saves = phase_ids()
+    local phase = ids[event_id]
+    if phase then S.match_phase = phase end
+    if saves[event_id] then S.save_t = os.time() end
+end
+
 -- Turbo.dll's synthetic event (core/events.lua SYNTHETIC_ID): the GUI has a command waiting. Only the mailbox and the
 -- native pump run; the state files, name lists and reload logic belong to real career-mode events.
 local function on_synthetic_event()
@@ -644,6 +680,7 @@ function M.on_career_event(event_id)
     if not S.meta_written then try_write_meta(false) end
     local reload = reload_ids()[event_id] == true
     if reload or not S.names_count then try_write_names() end
+    pcall(M.track_phase, event_id)
     -- (write_state also connects the mailbox on the way, through core/mem.lua's map lookup)
     local okw, werr = pcall(M.write_state, false, reload, reload)
     if not okw then log.warn("bridge state: %s", tostring(werr)) end

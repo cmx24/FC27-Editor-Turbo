@@ -552,7 +552,9 @@ static void cases_panel(App& app, Ui& ui, const fs::path& le) {
         // the effect layers turn grey: a derived slider on the My team scope
         CHECK(ui.click("My team##scope"), "My team scope");
         ui.frames(2);
-        const ItemRec* depth = ui.find("##typed", "##tacsliders", "team.line_depth");
+        // (scrolled into view: the My team scope also shows your club's live tactic above the cards, ui_live_tactic.cpp)
+        const ItemRec* depth = slider_item(ui, "##typed", "team.line_depth");
+        CHECK(depth != nullptr, "the defensive line's box");
         if (depth) {
             CHECK(ui.type_into(depth, "62"), "type the defensive line");
             ui.frames(2);

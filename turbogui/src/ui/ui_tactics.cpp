@@ -25,6 +25,7 @@
 #include "core/tactics_status.h"
 #include "file_picker.h"
 #include "pitch_view.h"
+#include "ui_live_tactic.h"
 
 namespace turbo {
 
@@ -294,6 +295,7 @@ ImVec4 written_colour(WriteKind k) {
         case WriteKind::DbRow: return ImVec4(0.45f, 0.65f, 0.95f, 1);
         case WriteKind::Preview: return ImVec4(0.7f, 0.7f, 0.7f, 1);
         case WriteKind::TurboOnly: return ImVec4(0.8f, 0.7f, 1.0f, 1);
+        case WriteKind::LiveSheet: return ImVec4(0.5f, 0.8f, 0.95f, 1);
     }
     return ImVec4(1, 1, 1, 1);
 }
@@ -1645,6 +1647,11 @@ void draw_centre(App& app) {
 
 void draw_right(App& app) {
     const SliderScope sc = kScopes[g_tac.scope];
+    // tactics channel E: your club's live tactic record, its summary line and the card (ui_live_tactic.cpp), in the My team scope
+    if (sc == SliderScope::Team) {
+        draw_live_tactic(app);
+        ImGui::Separator();
+    }
     // legacy fields (EA removed them in FC 25) are drawn only behind "show legacy fields"
     std::vector<const SliderDef*> visible;
     size_t legacy = 0;

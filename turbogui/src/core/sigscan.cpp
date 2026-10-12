@@ -109,6 +109,13 @@ bool parse_signature_table(const std::string& json_text, SignatureTable& out, st
                 }
                 s.hook_probe = v["hook_probe"].get<bool>();
             }
+            if (v.contains("exact_build")) {
+                if (!v["exact_build"].is_boolean()) {
+                    err = "signature " + it.key() + ": exact_build must be true or false";
+                    return false;
+                }
+                s.exact_build = v["exact_build"].get<bool>();
+            }
             t.sigs.push_back(std::move(s));
         }
     }
@@ -128,6 +135,7 @@ std::string signature_table_json(const SignatureTable& t) {
         v["offset"] = s.offset;
         if (!s.expect.empty()) v["expect"] = s.expect;
         if (s.hook_probe) v["hook_probe"] = true;
+        if (s.exact_build) v["exact_build"] = true;
         if (!s.note.empty()) v["note"] = s.note;
         sigs[s.name] = v;
     }
@@ -651,14 +659,74 @@ static std::vector<Signature> fc27_signatures() {
     };
 }
 
+// Tactics channel E (core/team_sheet.h, turbo_output\TACTICS_CHANNEL_E_REPORT.txt section 4.1): your club's live tactic record in the
+// game's CachedTeamSheetService. Build 6AC07E31-2145C000 only (exact_build): the probe plan's patterns, each found exactly once in the
+// running game on 2026-10-11 (CTOR 0x145E174FC, SET 0x145E43A60, UPD 0x145E43BA4, ACT 0x145E301D4, MCOPY 0x1480394BC). The *_body
+// entries are layout guards: each function's own bytes up to the offsets channel E relies on (rel32 calls masked), as the report gives
+// them (section 2.3: identical to build 6AB9813C apart from rel32 call targets; each is also unique in the 6AB9813C image, at the same
+// function). Nothing here is hooked: channel E reads the vtable slots and writes record fields in place.
+static std::vector<Signature> team_sheet_signatures() {
+    static const char* const kCtor =
+        "40 53 48 83 EC 20 48 8B D9 E8 ?? ?? ?? ?? 33 C9 48 8D 05 ?? ?? ?? ?? 48 89 03 48 8D 05 ?? ?? ?? ?? 48 89 43 08";
+    static const char* const kSet = "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B 01 49 8B F8 8B F2 48 8B D9 FF 90 B0 05 00 00";
+    static const char* const kUpd = "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 80 B9 ?? ?? 00 00 00 49 8B F0 8B EA";
+    static const char* const kAct = "48 89 5C 24 08 48 89 74 24 10 44 89 44 24 18 57 48 83 EC 20 80 B9 ?? ?? 00 00 00 41 8B F8 8B F2";
+    static const char* const kMcopy =
+        "48 89 5C 24 08 55 56 57 41 56 41 57 48 8B EC 48 83 EC 70 48 8B 05 ?? ?? ?? ?? 44 8B FA 48 8B F9 BA 20 A8 3E 11 48 8D 0D ?? ?? ?? ?? "
+        "49 8B F1 45 8B F0 FF 50 38";
+    return {
+        {"teamsheet_ctor", kCtor, "none", 0, "CachedTeamSheetService ctor 0x145E174FC: stores VT1 at +0 and VT2 at +8", "", false, true},
+        {"teamsheet_vt1", kCtor, "rip", 0x10, "CachedTeamSheetService VT1 (0x14AD7F6C8): slot 23 GetActiveSheetId, 24 SetSheet, 182 UpdateSheet",
+         "48 8D 05", false, true},
+        {"teamsheet_vt2", kCtor, "rip", 0x1A, "CachedTeamSheetService VT2 (0x14AD7E8B8): the second base at +8", "48 8D 05", false, true},
+        {"teamsheet_set", kSet, "none", 0, "SetSheet(svc, mode, sheet) = VT1 slot 24 (0x145E43A60): UpdateSheet, then vf 0xF8 for an active sheet",
+         "", false, true},
+        {"teamsheet_set_body",
+         "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B 01 49 8B F8 8B F2 48 8B D9 FF 90 B0 05 00 00 83 FE FF 7E 2B 44 8B 47 04 41 83 F8 FF "
+         "7E 21 48 8B 03 8B D6 48 8B CB FF 90 B8 00 00 00 39 07 75 0F 48 8B 03 48 8B D7 48 8B CB FF 90 F8 00 00 00",
+         "none", 0,
+         "layout guard: SetSheet's body (report 2.3): vf 0xF8 only when mode > -1, team > -1 and the sheet id is GetActiveSheetId's (gate G5)",
+         "", false, true},
+        {"teamsheet_update", kUpd, "none", 0, "UpdateSheet = VT1 slot 182, vf 0x5B0 (0x145E43BA4): the deep copy, dirty = 1, the cache", "", false, true},
+        {"teamsheet_update_body",
+         "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 80 B9 04 14 00 00 00 49 8B F0 8B EA 48 8B F9 75 05 E8 ?? ?? ?? "
+         "?? 48 8D 8F B0 13 00 00 48 8D 56 04 E8 ?? ?? ?? ?? 48 8B 18 48 8B 48 08 48 3B D9 74 48 8B 06 39 03 74 09 48 81 C3 90 02 00 00 EB EC 48 "
+         "8B D6 48 8B CB E8 ?? ?? ?? ?? 83 C9 FF C6 83 88 02 00 00 01 39 0B 74 06 89 AB 8C 02 00 00 8B 46 04 89 87 A0 13 00 00 80 BE AC 00 00 00 "
+         "00 74 02 8B 0E 89 8F A4 13 00 00",
+         "none", 0,
+         "layout guard: UpdateSheet's body: loaded flag +0x1404, map +0x13B0, sheet stride 0x290, dirty +0x288 = 1, mode +0x28C only for a "
+         "sheet id != -1, cache +0x13A0 / +0x13A4",
+         "", false, true},
+        {"teamsheet_active", kAct, "none", 0, "GetActiveSheetId = VT1 slot 23, vf 0xB8 (0x145E301D4)", "", false, true},
+        {"teamsheet_active_body",
+         "48 89 5C 24 08 48 89 74 24 10 44 89 44 24 18 57 48 83 EC 20 80 B9 04 14 00 00 00 41 8B F8 8B F2 48 8B D9 75 05 E8 ?? ?? ?? ?? 48 8D 8B "
+         "B0 13 00 00 48 8D 54 24 40 E8 ?? ?? ?? ?? 48 8B 10 48 8B 48 08 48 3B D1 74 2C 39 B2 8C 02 00 00 75 09 80 BA AC 00 00 00 00 75 09 48 81 "
+         "C2 90 02 00 00 EB E1 89 BB A0 13 00 00 8B 0A 89 8B A4 13 00 00 8B 02 EB 03 83 C8 FF",
+         "none", 0,
+         "layout guard: GetActiveSheetId's loop (the first sheet with mode +0x28C and current flag +0xAC; Turbo walks it itself for G5)", "",
+         false, true},
+        {"service_registry", kMcopy, "rip", 0x13,
+         "the static service registry (0x14BE2A1F8; its vtable +0x38 = Find): mov rax,[rip+x] in the match tactic copy 0x1480394BC",
+         "48 8B 05", false, true},
+        {"service_registry_this", kMcopy, "rip", 0x25, "the same registry passed as `this` (lea rcx,[rip+x]): must equal service_registry",
+         "48 8D 0D", false, true},
+    };
+}
+
+static std::vector<Signature> with(std::vector<Signature> a, const std::vector<Signature>& b) {
+    a.insert(a.end(), b.begin(), b.end());
+    return a;
+}
+
 // One table per game build Turbo knows, oldest first (the last one is the newest: the table auto-adapt starts from).
 static const std::vector<SignatureTable>& builtin_tables() {
     static const std::vector<SignatureTable> tables = {
         // FC27.exe as dumped 2026-10-03 (TimeDateStamp 0x6AB9813C, SizeOfImage 0x211EF000)
         {"6AB9813C-211EF000", "FC27.exe", fc27_signatures()},
         // FC27.exe after the October 2026 title update (TimeDateStamp 0x6AC07E31, SizeOfImage 0x2145C000): the same
-        // signatures, each found exactly once in the running game on 2026-10-07 (Turbo 2.0.1 shipped them as a file)
-        {"6AC07E31-2145C000", "FC27.exe", fc27_signatures()},
+        // signatures, each found exactly once in the running game on 2026-10-07 (Turbo 2.0.1 shipped them as a file), and
+        // the team sheet entries of tactics channel E (this build only)
+        {"6AC07E31-2145C000", "FC27.exe", with(fc27_signatures(), team_sheet_signatures())},
     };
     return tables;
 }
@@ -760,9 +828,14 @@ bool signature_offset_checked(const Signature& s) {
 
 // ---------------------------------------------------------------- auto-adapt
 SignatureTable adapt_signature_table(const SignatureTable& from, const std::string& build) {
-    SignatureTable t = from;
+    SignatureTable t;
     t.build = build;
-    for (auto& s : t.sigs) s.note = "adapted from " + from.build + ":" + (s.note.empty() ? std::string() : " " + s.note);
+    t.game = from.game;
+    for (const auto& s : from.sigs) {
+        if (s.exact_build) continue;  // verified on from.build alone: never carried to another build
+        t.sigs.push_back(s);
+        t.sigs.back().note = "adapted from " + from.build + ":" + (s.note.empty() ? std::string() : " " + s.note);
+    }
     return t;
 }
 
