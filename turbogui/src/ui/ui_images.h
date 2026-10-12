@@ -3,9 +3,11 @@
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "core/asset_catalog.h"
 #include "core/legacy.h"
 #include "core/t3db.h"
 
@@ -85,8 +87,15 @@ const GearPictureIndex& gear_pictures(App& app);
 // Every gallery picture (players' and managers' gear, tattoos) the game has, for the background loading (ui/preload.h)
 std::vector<std::string> gallery_preload_paths(App& app);
 // The item ids the game has a picture for in a field's gallery (hair, facial hair, boots, gloves, accessories, outfits,
-// tattoos), which its code combo offers too; empty for any other field
+// tattoos), which its code combo offers too; empty for any other field. With a game asset catalog (set_gear_catalog):
+// none + the ids that may be written (3D models; hidden ones only while the catalog is current), core/gear_ids.h
 std::vector<int64_t> gallery_codes(App& app, const std::string& field);
+// The game asset catalog the gear galleries and tattoo pickers read (docs/asset-catalog.md). The app sets it after every
+// catalog load or switch change; nullptr (catalog off, not loaded, refused) = every gallery behaves exactly as in 2.0.
+void set_gear_catalog(std::shared_ptr<const assets::Catalog> catalog);
+// Gear code combos (widgets.cpp): "Hidden", "preview only", "not in the game files" for a players gear code the catalog
+// knows; "" otherwise (no catalog, other tables and fields, ids the save uses)
+std::string gear_code_note(App& app, const Table& t, const std::string& field, int64_t id);
 // Status tab: picture cache
 void images_status(App& app);
 
