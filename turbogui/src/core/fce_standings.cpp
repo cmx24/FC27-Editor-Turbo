@@ -353,8 +353,12 @@ std::string check_row(const StandingRow& row) {
 }
 
 // ---------------------------------------------------------------- writes: gate, blocks written and read back, Undo
+std::string write_off_reason() {
+    return std::string("turbo_output\\") + kWriteOffFile + " exists: Turbo writes no standings row or fixture (delete it to edit again)";
+}
+
 std::string write_gate(Memory& mem, const Located& loc, bool switched_off, uint64_t managers) {
-    if (switched_off) return std::string("turbo_output\\") + kWriteOffFile + " exists: Turbo writes no standings row or fixture (delete it to edit again)";
+    if (switched_off) return write_off_reason();
     if (!loc.ok()) return "the standings are not located";
     if (!loc.read_only.empty()) return loc.read_only;
     const std::string busy = svm::sim_busy(mem, managers);
@@ -389,8 +393,11 @@ std::string put_block(Memory& mem, uint64_t addr, const uint8_t* cur, const uint
     else if (!mem.read(addr, back, kBlock)) err = what + " is not readable after the write";
     else if (std::memcmp(back + lo, img + lo, hi - lo) != 0) err = what + " does not read back what Turbo wrote";
     if (err.empty()) return "";
-    const bool restored = mem.write(addr + lo, cur + lo, hi - lo) && mem.read(addr, back, kBlock) && std::memcmp(back + lo, cur + lo, hi - lo) == 0;
-    return err + (restored ? " (put back as it was)" : " (putting it back FAILED: " + what + " may hold a part of the edit)");
+    // `cur` back: nothing to do when the block still holds it (a refused or dropped write changed nothing), else written
+    // and read back
+    bool restored = mem.read(addr, back, kBlock) && std::memcmp(back + lo, cur + lo, hi - lo) == 0;
+    if (!restored) restored = mem.write(addr + lo, cur + lo, hi - lo) && mem.read(addr, back, kBlock) && std::memcmp(back + lo, cur + lo, hi - lo) == 0;
+    return err + (restored ? " (it holds its old bytes)" : " (putting it back FAILED: " + what + " may hold a part of the edit)");
 }
 
 // The patches in order, each against the bytes it was built from; a failure part-way puts the blocks already written back

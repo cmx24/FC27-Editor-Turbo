@@ -130,6 +130,9 @@ struct Request {
     uint64_t comm = 0;        // comm service (bridge_state.json comm_service): managers = [[comm+0x20]+0x10]
     uint64_t ifce = 0;        // FCE interface Turbo wrote to (bridge_state.json ifce); cross-checked, 0 = skip
     uint64_t image_base = 0;  // FC27.exe base for the vtable RVAs when Fns::vtable is 0; 0 = skip those checks
+    // The running game's build key (core/sigscan.h build_key). The kRva* fallbacks apply on kRvaBuild only (documented_rva):
+    // with an image base on any other build ("" included) a vtable whose signature is missing refuses the call, naming it
+    std::string build;
     uint64_t image_size = 0;  // FC27.exe SizeOfImage: function pointers must fall inside; 0 = skip the range check
     bool allow_fallback = false;  // call the listener (event 29) when the map is empty (opt-in: the game's full refresh)
     std::string label;        // what was edited (for the message); may be empty
@@ -179,6 +182,12 @@ std::string shown_groups(Memory& mem, uint64_t svm, uint64_t live_vtable, uint64
 bool describe_rows(const std::vector<ShownGroup>& shown, const std::vector<uint16_t>& rows, std::string& msg);
 // "" when the SimDayManager (type 103) is idle (state 0), else why the game is busy (missing manager counts as busy)
 std::string sim_busy(Memory& mem, uint64_t managers);
+
+// A vtable the checks compare with (2.2 review): `sig` (the signature's address) when resolved, else image_base + `rva` on
+// build kRvaBuild only (documented_rva). Without an image base it is 0 and `missing` stays "" (synthetic memory in tests:
+// the check is skipped, as before). With an image base on another build it is 0 and `missing` says
+// "signature <name> was not found on game build <build>": the caller refuses with it (never the old build's address).
+uint64_t anchor_vtable(uint64_t sig, const std::string& build, uint64_t image_base, uint64_t rva, const char* sig_name, std::string& missing);
 
 // The whole call (see the file comment). Never throws.
 Result refresh(Memory& mem, Caller& call, const Fns& fns, const Request& req);

@@ -110,8 +110,9 @@ Fix (branch 2.2/standings; `core/fce_standings.h` Anchors, `core/sigscan.h` kRva
   (image: vtable 0x14B180DF0 slot 4 = 0x148A35D3C; live 04-10-2026, standings-ui-path.md) and the signature is found on
   6AC07E31. Neither Post nor the documented vtable known = refused.
 * DataManager: new signature `fce_datamanager_vtable` (the ctor 0x148A1661C, lea at +0x31; unique in the 6AB9813C image,
-  resolves to 0x14B180CA8). When it is not found on a build, the DataManager is accepted on the chain from the
-  identified interface with its back-pointer (+0x28 == DataConnector) and a vtable inside FC27.exe.
+  resolves to 0x14B180CA8). When it is not found on a build, the DataManager is accepted for READING on the chain from
+  the identified interface with its back-pointer (+0x28 == DataConnector) and a vtable inside FC27.exe; such a set is
+  never written (review fix 2026-10-12, below).
 * LiveStandings: new signature `svm_live_vtable` (GetLiveStandingsCopy 0x147D9F6B8, lea at 0x147D9F7BE; unique, resolves to
   0x14B016148).
 * Result fixing: the hooked object must have the hooked HandleMessage (signature-resolved) in its vtable slot 5
@@ -123,3 +124,24 @@ Fix (branch 2.2/standings; `core/fce_standings.h` Anchors, `core/sigscan.h` kRva
 
 Not verified offline: the two new patterns on 6AC07E31 (the file on disk is encrypted; the start-up scan logs them) and
 the slot-4 identity on the live 6AC07E31 object.
+
+### 7.1 Review fixes (2026-10-12, turbo_output STANDINGS_REVIEW_20261011.txt)
+
+* Back-pointer only = read-only: `fce::write_refusal` / `Located::read_only`; every write (`write_row`, `edit_result`,
+  `swap_fixture_sides`, `set_fixture_teams`) and `undo_change` refuses, the views say "Read-only: DataManager identified
+  by its back-pointer only: editing is off (...)".
+* Write gate right before every write and every Undo (`fce::write_gate`, `fce_write_refusal` in ui_standings.cpp): kill
+  switch `turbo_output\live_standings_write_off.txt`, the read-only state, and `svm::sim_busy` on the career's manager
+  table (bridge_state.json `managers`; a SimDayManager that cannot be read counts as busy).
+* Every write goes block by block (`fce::Patch` / `fce::Change`): the block must still hold the bytes it was built from,
+  only the differing bytes are written, then read back; a failure part-way puts the blocks already written back.
+  Result edits (both rows + the fixture's score), venue swaps and new opponents return their Change and have Undo; an
+  Undo only writes while every block still holds what Turbo wrote.
+* `svm_live_vtable` / `fce_datamanager_vtable` are `adapt_optional` (8th field of the built-in rows): auto-adapt
+  (`decide_adapt`) never refuses a future build because of them; their address stays 0 when missing.
+* The kRva* fallbacks of the view's vtables and the refresh (`svm::anchor_vtable`) apply on kRvaBuild only; elsewhere
+  a missing signature is named ("signature svm_live_vtable was not found on game build ...").
+* Result fixing: both goal ints are read back after the rewrite (a mismatch puts the played goals back and counts as
+  skipped); `mfix::PairLog` logs when one HandleMessage hook rewrote a result and the other left it as played. The
+  slot-5 owner check passes by construction under virtual dispatch: it identifies the class only because each handler
+  is referenced by one vtable (verified on 6AB9813C, not on 6AC07E31; `core/match_setup.h` mfix::Owner).

@@ -53,8 +53,9 @@ constexpr uint64_t kIfaceSlotPost = 0x20;
 //   * FCEInterfaceImpl: its vtable lies in FC27.exe and holds Post (signature "fce_iface_post") in slot 4; on kRvaBuild
 //     it must also be the documented vtable. Neither known = refused.
 //   * DataManager: its vtable lies in FC27.exe and is the one the signature "fce_datamanager_vtable" resolved (else the
-//     documented one on kRvaBuild). Neither known = accepted on the chain alone: it is reached through the game's own
-//     pointers from an identified interface and must point back to its DataConnector (+0x28).
+//     documented one on kRvaBuild). Neither known = accepted on the chain alone for READING: it is reached through the
+//     game's own pointers from an identified interface and must point back to its DataConnector (+0x28). Such a set is
+//     never written (write_refusal, Located::read_only: 2.2 review).
 struct Anchors {
     bool check = true;              // false = no identity checks at all (synthetic memory in tests)
     std::string pending;            // not "" = the host has no anchors yet (signature scan still running): why; every locate is refused
@@ -196,6 +197,8 @@ bool describe_group(const std::vector<CompObj>& objs, uint16_t group, GroupInfo&
 // FCE thread does its own read-modify-write of the same rows on a match day, so nothing is written while one is processed.
 // Kill switch of every row / fixture write of Live standings and Match setup and of their Undo: this file in turbo_output
 constexpr const char* kWriteOffFile = "live_standings_write_off.txt";
+// What the views and the gate say while that file exists
+std::string write_off_reason();
 // Looked at right before each write: "" = Turbo may write now, else why not: `switched_off` (kWriteOffFile exists), a
 // read-only located set (Located::read_only), or the game processing a match day (svm::sim_busy on the career's manager
 // table `managers`, bridge_state.json "managers"; a table or SimDayManager that cannot be read counts as busy).

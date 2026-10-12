@@ -1,6 +1,8 @@
 // FC 27 LE Turbo GUI - "standings_refresh" game call (see standings_refresh.h and docs/re/standings-ui-path.md)
 #include "standings_refresh.h"
 
+#include "sigscan.h"  // documented_rva, kRvaBuild
+
 #include <cstdio>
 #include <cstring>
 
@@ -359,6 +361,17 @@ bool describe_rows(const std::vector<ShownGroup>& shown, const std::vector<uint1
     return hidden;
 }
 
+uint64_t anchor_vtable(uint64_t sig, const std::string& build, uint64_t image_base, uint64_t rva, const char* sig_name, std::string& missing) {
+    missing.clear();
+    if (sig) return sig;
+    if (!image_base) return 0;  // no image base (tests on synthetic memory): not checked
+    const uint64_t documented = documented_rva(build, image_base, rva);
+    if (!documented)
+        missing = std::string("signature ") + sig_name + " was not found on " + (build.empty() ? std::string("this game build") : "game build " + build) +
+                  " (the address Turbo documents belongs to build " + kRvaBuild + " only)";
+    return documented;
+}
+
 std::string sim_busy(Memory& mem, uint64_t managers) {
     std::string err;
     const uint64_t sdm = manager_at(mem, managers, kSimDayTypeId, err);
@@ -372,9 +385,11 @@ std::string sim_busy(Memory& mem, uint64_t managers) {
 // After the call: what the view holds now, and whether the rows just written are among them (the proof the edit is
 // visible; docs/re/standings-ui-path.md section 0c: a row of a group the view does not show never reaches the screen)
 static void report_shown(Memory& mem, const Fns& fns, const Request& req, uint64_t svm, uint64_t live_vtable, Result& r) {
-    const uint64_t co = fns.compobj_vtable ? fns.compobj_vtable : (req.image_base ? req.image_base + kRvaCompObjectVtable : 0);
-    const uint64_t sl = fns.standinglist_vtable ? fns.standinglist_vtable : (req.image_base ? req.image_base + kRvaStandingListVtable : 0);
-    std::string err = shown_groups(mem, svm, live_vtable, co, sl, r.shown);
+    std::string miss_co, miss_sl;
+    const uint64_t co = anchor_vtable(fns.compobj_vtable, req.build, req.image_base, kRvaCompObjectVtable, "fcei_compobject_vtable", miss_co);
+    const uint64_t sl = anchor_vtable(fns.standinglist_vtable, req.build, req.image_base, kRvaStandingListVtable, "fcei_standinglist_vtable", miss_sl);
+    std::string err = !miss_co.empty() ? miss_co : miss_sl;
+    if (err.empty()) err = shown_groups(mem, svm, live_vtable, co, sl, r.shown);
     if (!err.empty()) {
         if (!req.rows.empty()) r.message += "; whether the edited row is shown could not be checked: " + err;
         return;
@@ -403,8 +418,13 @@ Result refresh(Memory& mem, Caller& call, const Fns& fns, const Request& req) {
     // 1. the manager table: published, else from the comm service
     uint64_t managers = req.managers;
     if (!managers && req.comm) managers = manager_table(mem, req.comm);
-    const uint64_t vtable = fns.vtable ? fns.vtable : (req.image_base ? req.image_base + kRvaVtable : 0);
-    const uint64_t live_vtable = fns.live_vtable ? fns.live_vtable : (req.image_base ? req.image_base + kRvaLiveStandingsVtable : 0);
+    // the vtables: by signature, else the documented address on kRvaBuild only (2.2 review: never the old build's address
+    // on another build; a missing signature refuses the call and says which)
+    std::string missing;
+    const uint64_t vtable = anchor_vtable(fns.vtable, req.build, req.image_base, kRvaVtable, "svm_vtable", missing);
+    if (!missing.empty()) return fail(r, "validate", missing + ": the StandingsViewManager cannot be identified, nothing was called");
+    const uint64_t live_vtable = anchor_vtable(fns.live_vtable, req.build, req.image_base, kRvaLiveStandingsVtable, "svm_live_vtable", missing);
+    if (!missing.empty()) return fail(r, "validate", missing + ": the standings map's values cannot be identified, nothing was called");
     // 2. the SVM: the object of manager slot 108, which must be the published one when both are known
     uint64_t svm = 0;
     if (managers) {

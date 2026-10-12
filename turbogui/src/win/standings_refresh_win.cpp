@@ -127,6 +127,7 @@ svm::Result run_now(svm::Request req) {
     } else {
         if (!req.image_base) req.image_base = game_image_base();
         if (!req.image_size) req.image_size = game_image_size();
+        if (req.build.empty()) req.build = game_build_key();  // the kRva* fallbacks hold on kRvaBuild only (svm::anchor_vtable)
         req.allow_fallback = file_exists(call_full_path());
         ProcessMemory mem;
         RealCaller caller;
@@ -308,24 +309,31 @@ void install_standings_refresh() {
         log("game calls: standings_refresh off (%s)", g_off.c_str());
         return;
     }
-    if (!g_fns.vtable) log("game calls: standings_refresh: svm_vtable not found, the built-in RVA 0x%llX is used",
-                           static_cast<unsigned long long>(svm::kRvaVtable));
+    if (!g_fns.vtable)
+        log("game calls: standings_refresh: svm_vtable not found: the built-in RVA 0x%llX is used on build %s only (on build %s every refresh "
+            "is refused, naming the signature)",
+            static_cast<unsigned long long>(svm::kRvaVtable), kRvaBuild, game_build_key().c_str());
     if (!g_fns.iface_post || !g_fns.allocator)
         log("game calls: standings_refresh: fce_iface_post / svm_allocator not found: the request path is checked for shape only");
     if (!g_fns.live_vtable)
-        log("game calls: standings_refresh: svm_live_vtable not found, the built-in RVA 0x%llX is used (build %s only: on another build "
-            "the map values are refused and nothing is called)",
-            static_cast<unsigned long long>(svm::kRvaLiveStandingsVtable), kRvaBuild);
-    // the node vtables of the view's rows: by signature, else the known RVAs of this build (the walk only reads)
+        log("game calls: standings_refresh: svm_live_vtable not found: the built-in RVA 0x%llX is used on build %s only (on build %s every "
+            "refresh is refused, naming the signature, and nothing is called)",
+            static_cast<unsigned long long>(svm::kRvaLiveStandingsVtable), kRvaBuild, game_build_key().c_str());
+    // the node vtables of the view's rows: by signature, else the documented RVAs on build kRvaBuild only (the walk only
+    // reads; on another build the view's rows are reported as not readable, naming the signature)
     if (!g_fns.compobj_vtable || !g_fns.standinglist_vtable) {
+        const std::string build = game_build_key();
         const uint64_t base = game_image_base();
-        if (base) {
-            if (!g_fns.compobj_vtable) g_fns.compobj_vtable = base + svm::kRvaCompObjectVtable;
-            if (!g_fns.standinglist_vtable) g_fns.standinglist_vtable = base + svm::kRvaStandingListVtable;
-            log("game calls: standings_refresh: fcei_compobject_vtable / fcei_standinglist_vtable not found by signature, the built-in RVAs "
-                "0x%llX / 0x%llX are used to read the view's rows",
-                static_cast<unsigned long long>(svm::kRvaCompObjectVtable), static_cast<unsigned long long>(svm::kRvaStandingListVtable));
-        }
+        if (!g_fns.compobj_vtable) g_fns.compobj_vtable = documented_rva(build, base, svm::kRvaCompObjectVtable);
+        if (!g_fns.standinglist_vtable) g_fns.standinglist_vtable = documented_rva(build, base, svm::kRvaStandingListVtable);
+        if (g_fns.compobj_vtable && g_fns.standinglist_vtable)
+            log("game calls: standings_refresh: fcei_compobject_vtable / fcei_standinglist_vtable not found by signature, the documented RVAs "
+                "0x%llX / 0x%llX of build %s are used to read the view's rows",
+                static_cast<unsigned long long>(svm::kRvaCompObjectVtable), static_cast<unsigned long long>(svm::kRvaStandingListVtable), kRvaBuild);
+        else
+            log("game calls: standings_refresh: signature %s not found on build %s: the view's rows cannot be read (the refresh itself is not "
+                "affected)",
+                !g_fns.compobj_vtable ? "fcei_compobject_vtable" : "fcei_standinglist_vtable", build.c_str());
     }
     log("game calls: standings_refresh resolved (refresh_comp %s, listener %s, vtable %s, iface_post %s, allocator %s, compobj vtable %s, "
         "standinglist vtable %s, live vtable %s; kill switch turbo_output\\call_standings_refresh_off.txt, full refresh opt-in "

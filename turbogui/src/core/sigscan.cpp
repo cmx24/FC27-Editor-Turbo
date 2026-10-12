@@ -109,6 +109,13 @@ bool parse_signature_table(const std::string& json_text, SignatureTable& out, st
                 }
                 s.hook_probe = v["hook_probe"].get<bool>();
             }
+            if (v.contains("adapt_optional")) {
+                if (!v["adapt_optional"].is_boolean()) {
+                    err = "signature " + it.key() + ": adapt_optional must be true or false";
+                    return false;
+                }
+                s.adapt_optional = v["adapt_optional"].get<bool>();
+            }
             t.sigs.push_back(std::move(s));
         }
     }
@@ -128,6 +135,7 @@ std::string signature_table_json(const SignatureTable& t) {
         v["offset"] = s.offset;
         if (!s.expect.empty()) v["expect"] = s.expect;
         if (s.hook_probe) v["hook_probe"] = true;
+        if (s.adapt_optional) v["adapt_optional"] = true;
         if (!s.note.empty()) v["note"] = s.note;
         sigs[s.name] = v;
     }
@@ -138,8 +146,11 @@ std::string signature_table_json(const SignatureTable& t) {
 // ---------------------------------------------------------------- built-in tables
 // The signatures every known build shares. They were written against build 6AB9813C-211EF000 (FC27.exe as dumped
 // 2026-10-03): EVERY address in the comments and notes below is an address of that build. On build 6AC07E31-2145C000
-// (the October 2026 title update) the same patterns were checked live on 2026-10-07: all of them match exactly once, at
-// other addresses. A rel32 / disp32 to a far function or global moves with a title update, so patterns mask it ("??");
+// (the October 2026 title update) the patterns that existed then were checked live on 2026-10-07: all of them match
+// exactly once, at other addresses. Entries added later say when they were checked there; the two of 2026-10-11
+// (svm_live_vtable, fce_datamanager_vtable) were never scanned on 6AC07E31 before 2.2 and are marked adapt_optional (the
+// 8th field), so a miss of theirs never makes auto-adapt refuse the other hooks on a later title update.
+// A rel32 / disp32 to a far function or global moves with a title update, so patterns mask it ("??");
 // edit_cfg_category_items pinned one and missed on 6AC07E31 until its jmp was masked (now all but its top byte).
 // An offset outside the pattern points at bytes the pattern never checked: such an entry names the instruction it
 // expects there (the 6th field, `expect`, the bytes of build 6AB9813C; every resolved address on 6AC07E31 sits at the same
@@ -473,18 +484,21 @@ static std::vector<Signature> fc27_signatures() {
           "48 8D 0D"},
          // Added 2026-10-11 (docs/re/C3-live-standings.md section 7): on 6AC07E31 the image-relative constants of these two
          // vtables (and of the FCE interface's) point at other bytes, which refused the real objects. Both patterns are
-         // unique in the 6AB9813C image and resolve there to the documented vtables; on 6AC07E31 they are checked by the
-         // start-up scan (turbo_gui.log "game hooks: signature ...").
+         // unique in the 6AB9813C image and resolve there to the documented vtables; on 6AC07E31 they are NOT verified yet:
+         // the start-up scan decides (turbo_gui.log "game hooks: signature ..."). Marked adapt_optional (8th field): a miss
+         // leaves their users fail closed (live standings read-only, the refresh refused) and never blocks auto-adapt.
          {"svm_live_vtable",
           "48 8B 4E 08 48 85 C9 74 20 48 8B 01 FF 50 08 8B D0 48 8B CB E8 ?? ?? ?? ?? 48 89 43 08 48 8B D0 4C 8B 46 08 E8 ?? ?? ?? ?? "
           "48 8D 05 ?? ?? ?? ?? 48 8B FB 48 89 03 48 8B CD FF 15 ?? ?? ?? ??",
           "rip", 0x29, "LiveStandings vtable (0x14B016148), the values of the SVM's mLiveStandings map: the lea rax,[rip+..] at 0x147D9F7BE "
-          "of GetLiveStandingsCopy 0x147D9F6B8, right after the CompObject clone (0x144040198 / 0x14403FC30)"},
+          "of GetLiveStandingsCopy 0x147D9F6B8, right after the CompObject clone (0x144040198 / 0x14403FC30)",
+          "", false, true},  // adapt_optional
          {"fce_datamanager_vtable",
           "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 4C 89 70 20 41 57 48 83 EC 30 41 B8 02 00 00 00 48 8B F2 48 8B F9 E8 ?? ?? ?? ?? "
           "48 8B 1D ?? ?? ?? ?? 48 8D 05 ?? ?? ?? ?? 48 89 07 4C 8D 05 ?? ?? ?? ?? 48 C7 47 28 00 00 00 00",
           "rip", 0x31, "FCE::DataManager vtable (0x14B180CA8), the object the live standings and the match setup fixtures read: the "
-          "lea rax,[rip+..] at +0x31 of its ctor 0x148A1661C (then +0x28 DataConnector = 0)"},
+          "lea rax,[rip+..] at +0x31 of its ctor 0x148A1661C (then +0x28 DataConnector = 0)",
+          "", false, true},  // adapt_optional
          // Match setup (docs/re/match_setup.md, core/match_setup.h): the game-variable store and the FCE result handlers
          {"gamevar_get_int",
           "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 48 8B F1 48 8D 1D ?? ?? ?? ?? 48 8B CB 44 8B F2 E8 "
@@ -671,7 +685,9 @@ static const std::vector<SignatureTable>& builtin_tables() {
         // FC27.exe as dumped 2026-10-03 (TimeDateStamp 0x6AB9813C, SizeOfImage 0x211EF000)
         {"6AB9813C-211EF000", "FC27.exe", fc27_signatures()},
         // FC27.exe after the October 2026 title update (TimeDateStamp 0x6AC07E31, SizeOfImage 0x2145C000): the same
-        // signatures, each found exactly once in the running game on 2026-10-07 (Turbo 2.0.1 shipped them as a file)
+        // signatures. Those that existed on 2026-10-07 were each found exactly once in the running game then (Turbo 2.0.1
+        // shipped them as a file), the later ones in the 10-11 sessions (127 found), except svm_live_vtable and
+        // fce_datamanager_vtable (2.2, adapt_optional): never scanned on this build yet
         {"6AC07E31-2145C000", "FC27.exe", fc27_signatures()},
     };
     return tables;
@@ -783,6 +799,7 @@ SignatureTable adapt_signature_table(const SignatureTable& from, const std::stri
 AdaptDecision decide_adapt(const SignatureTable& t, const std::vector<SigResult>& results) {
     AdaptDecision d;
     std::string first;  // the first few signatures that block adapting
+    std::string optional;  // adapt_optional entries not found (they do not block)
     int named = 0;
     for (const auto& s : t.sigs) {
         if (s.pattern.empty()) {
@@ -796,6 +813,16 @@ AdaptDecision decide_adapt(const SignatureTable& t, const std::vector<SigResult>
                 break;
             }
         const char* why = nullptr;
+        if (s.adapt_optional) {
+            // never blocks: found exactly once with a checked offset it counts as found, else it is only named
+            if (r && r->state == SigState::Found && signature_offset_checked(s)) {
+                ++d.found;
+            } else {
+                ++d.optional_missing;
+                optional += (optional.empty() ? "" : ", ") + s.name;
+            }
+            continue;
+        }
         if (!signature_offset_checked(s)) {
             // its address would come from bytes neither the pattern nor an expect checked: a person checks an exact
             // table against the build, nobody checks an adapted one, so such an entry is never adopted
@@ -830,6 +857,8 @@ AdaptDecision decide_adapt(const SignatureTable& t, const std::vector<SigResult>
         d.reason = std::to_string(d.missing) + " missing, " + std::to_string(d.ambiguous) + " ambiguous of " +
                    std::to_string(total) + " (first: " + first + (bad > named ? ", ..." : "") + ")";
     }
+    if (d.optional_missing)
+        d.reason += "; " + std::to_string(d.optional_missing) + " optional not found (not blocking): " + optional;
     return d;
 }
 

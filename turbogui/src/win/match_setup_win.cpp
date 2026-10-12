@@ -39,6 +39,7 @@ std::atomic<long long> g_fix_applied{0}, g_fix_skipped{0};
 std::atomic<bool> g_hooks_tried{false};
 bool g_hooks_ok = false;  // guarded by g_mutex
 std::string g_fix_last;   // guarded by g_mutex
+mfix::PairLog g_fix_pairs;  // guarded by g_mutex: the two hooks' outcomes per fixture (fixture and table disagreeing)
 
 using HandleFn = uint64_t (*)(void*, void*);
 HandleFn g_orig_sched = nullptr, g_orig_standings = nullptr;
@@ -201,8 +202,10 @@ bool queue_var(const std::string& name, int32_t value, bool clear_it, std::strin
 
 // ---------------------------------------------------------------- result hooks (FCE's thread)
 // `handler` = the hooked HandleMessage (signature-resolved): the manager is the object whose vtable holds it in slot 5;
-// on build kRvaBuild its documented vtable must match as well
-void rewrite(const char* hook, void* self, void* msg, uint64_t vtable_rva, uint64_t handler) {
+// on build kRvaBuild its documented vtable must match as well (the limits of that check: core/match_setup.h mfix::Owner).
+// Both goal ints are read back after the write (mfix::apply_to_request); when one hook rewrites and the other leaves the
+// result as played, turbo_gui.log says so (mfix::PairLog)
+void rewrite(const char* hook, mfix::Hook which, void* self, void* msg, uint64_t vtable_rva, uint64_t handler) {
     std::shared_ptr<const mfix::FixTable> fixes = std::atomic_load(&g_fix_table);
     if (!fixes || fixes->empty()) return;
     ProcessMemory mem;
@@ -225,22 +228,27 @@ void rewrite(const char* hook, void* self, void* msg, uint64_t vtable_rva, uint6
                       a.away, a.changed ? "" : " (already that score)");
     }
     log("result fixing %s", line);
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (a.changed) ++g_fix_counts[a.fixture];
-    g_fix_last = line;
+    std::string disagree;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (a.changed) ++g_fix_counts[a.fixture];
+        g_fix_last = line;
+        disagree = g_fix_pairs.note(which, a);
+    }
+    if (!disagree.empty()) log("result fixing: %s", disagree.c_str());
 }
 
 uint64_t hk_sched(void* self, void* msg) {
     game_hook_called("fce_result_sched");
     if (game_hook_enabled("fce_result_sched"))
-        HOOK_BODY("fce_result_sched", rewrite("scheduling", self, msg, mfix::kRvaSchedulingVtable, g_sched));
+        HOOK_BODY("fce_result_sched", rewrite("scheduling", mfix::Hook::Scheduling, self, msg, mfix::kRvaSchedulingVtable, g_sched));
     return g_orig_sched(self, msg);
 }
 
 uint64_t hk_standings(void* self, void* msg) {
     game_hook_called("fce_result_standings");
     if (game_hook_enabled("fce_result_standings"))
-        HOOK_BODY("fce_result_standings", rewrite("standings", self, msg, mfix::kRvaStandingsVtable, g_standings));
+        HOOK_BODY("fce_result_standings", rewrite("standings", mfix::Hook::Standings, self, msg, mfix::kRvaStandingsVtable, g_standings));
     return g_orig_standings(self, msg);
 }
 
