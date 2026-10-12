@@ -13077,6 +13077,8 @@ static void test_match_setup() {
 #include "test_tactics_core.h"
 // Turbo 2.1 tactics channel A: per-side gameplay slider game variables and the A/B presets (core/gameplay_sliders.h)
 #include "test_gameplay_sliders.h"
+// Turbo 2.1 Phase 0: badges, legacy hiding, kill switches per channel, only-on-change, presets, snapshots (core/tactics_status.h)
+#include "test_tactics_phase0.h"
 
 int main(int argc, char** argv) {
     if (argc < 3) {
@@ -13144,6 +13146,7 @@ int main(int argc, char** argv) {
     club_tools_test::run();
     tactics_core_test::run();
     gameplay_sliders_test::run();
+    tactics_phase0_test::run();
     std::printf("native voice swaps\n");
     test_callname_voice();
     test_callname_voice_host();

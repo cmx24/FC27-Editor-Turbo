@@ -22,6 +22,7 @@
 #include "core/tactic_profiles.h"
 #include "core/tactics.h"
 #include "core/tactics_db.h"
+#include "core/tactics_status.h"
 #include "file_picker.h"
 #include "pitch_view.h"
 
@@ -69,10 +70,28 @@ struct TacState {
     char preset_name[48] = "";
     char rename_buf[48] = "";
     std::string error;   // inline error of the exception-proof draw
-    bool off = false;    // tactics_off.txt (looked at every 2 s)
+    bool off = false;    // tactics_off.txt, the master switch (looked at every 2 s)
+    SwitchState sw;      // every kill switch file present (core/tactics_status.h)
     double next_check = -1.0;
     int live_written = 0;  // game variables this panel set (cleared when Turbo unloads)
     std::vector<std::string> writes_done;  // what the last Apply wrote, one line per DB row (shown until the next Apply)
+    bool show_legacy = false;              // "show legacy fields"
+    // the snapshot store (the value of a database field before Turbo's first write), loaded at the first look at the kill switches (the
+    // panel's file I/O slot), saved on every change
+    TacticSnapshots snaps;
+    bool snaps_loaded = false;
+    std::string snaps_error;
+    // tactics_off.txt appeared (or was there when Turbo started): the database rows Turbo wrote in this career go back, once a career
+    // database is connected (TACTICS_REPORT.txt P0-9)
+    bool restore_pending = false;
+    // the read-back cache (database rows are read again when the save, the team or the player changed, else every 2 s)
+    std::map<std::string, std::string> readback;
+    int rb_gen = -1;
+    int64_t rb_team = -1, rb_player = -1;
+    double rb_next = -1.0;
+    // "Apply untested settings?" (asked once per Apply that holds untested or legacy writes)
+    bool confirm_request = false;
+    std::vector<std::string> confirm_lines;
     PreviewCache preview;
     OppState opp;
     // preset dialogs
@@ -89,7 +108,8 @@ TacticsTabState g_state;
 const char* const kScopeLabels[4] = {"Match (both teams)", "My team", "Position/Role", "Opposition"};
 const SliderScope kScopes[4] = {SliderScope::Match, SliderScope::Team, SliderScope::Position, SliderScope::Opposition};
 
-fs::path off_file(App& app) { return app.bridge.root() / "turbo_output" / "tactics_off.txt"; }
+fs::path out_dir(App& app) { return app.bridge.root() / "turbo_output"; }
+fs::path off_file(App& app) { return out_dir(app) / kill_switches().front().file; }
 
 ProfileCategory category_of(SliderScope s) {
     switch (s) {
@@ -114,12 +134,19 @@ std::string stamp() {
     return buf;
 }
 
-// The kill switch, looked at every 2 s (the frame path does no file I/O otherwise)
-void refresh_off(App& app) {
-    if (app.now < g_tac.next_check) return;
-    g_tac.next_check = app.now + 2.0;
-    std::error_code ec;
-    g_tac.off = fs::exists(off_file(app), ec);
+// The snapshot store, read once (at the first look at the kill switches, else by the first user action that needs it)
+TacticSnapshots& snapshots(App& app) {
+    if (!g_tac.snaps_loaded) {
+        g_tac.snaps_loaded = true;
+        std::string err;
+        if (!load_tactic_snapshots(tactics_snapshot_path(app.bridge.root()), g_tac.snaps, &err)) g_tac.snaps_error = err;
+    }
+    return g_tac.snaps;
+}
+
+void persist_snapshots(App& app) {
+    std::string err;
+    if (!save_tactic_snapshots(tactics_snapshot_path(app.bridge.root()), g_tac.snaps, &err)) app.notify("Tactics snapshot not saved: " + err, true);
 }
 
 std::string name_of(const SliderDef& d, int v) {
@@ -177,27 +204,50 @@ const Formation& shown_formation(App& app) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------- writes
-std::string tag_of(const SliderDef& d) {
-    if (d.untested && d.status == SliderStatus::Live) return "game variable accepted by the game's store; untested in a played match";
-    switch (d.status) {
-        case SliderStatus::Live: return "game variable, applies in played matches";
-        case SliderStatus::DB: return "saved data, in-game effect unverified";
-        case SliderStatus::Local: return "Turbo only, never written to the game";
-        case SliderStatus::Preview:
-        case SliderStatus::RE: return "not applied to game";
-    }
-    return "";
-}
-
-ImVec4 badge_colour(SliderStatus s) {
-    switch (s) {
-        case SliderStatus::Live: return ImVec4(0.45f, 0.85f, 0.45f, 1);
-        case SliderStatus::DB: return ImVec4(0.45f, 0.7f, 1.0f, 1);
-        case SliderStatus::Local: return ImVec4(0.8f, 0.7f, 1.0f, 1);
-        case SliderStatus::Preview: return ImVec4(0.9f, 0.8f, 0.4f, 1);
-        case SliderStatus::RE: return ImVec4(0.7f, 0.7f, 0.7f, 1);
+// Badge colours: the write path in blue tones (nothing green: "it writes" is not "it works"), what was seen in green / orange / grey
+ImVec4 written_colour(WriteKind k) {
+    switch (k) {
+        case WriteKind::GameVar: return ImVec4(0.55f, 0.75f, 1.0f, 1);
+        case WriteKind::DbRow: return ImVec4(0.45f, 0.65f, 0.95f, 1);
+        case WriteKind::Preview: return ImVec4(0.7f, 0.7f, 0.7f, 1);
+        case WriteKind::TurboOnly: return ImVec4(0.8f, 0.7f, 1.0f, 1);
     }
     return ImVec4(1, 1, 1, 1);
+}
+
+ImVec4 seen_colour(SeenKind k) {
+    switch (k) {
+        case SeenKind::SeenInMatch: return ImVec4(0.45f, 0.85f, 0.45f, 1);
+        case SeenKind::NoEffectSeen: return ImVec4(1.0f, 0.6f, 0.3f, 1);
+        case SeenKind::Untested: return ImVec4(0.9f, 0.8f, 0.4f, 1);
+        case SeenKind::Legacy: return ImVec4(0.75f, 0.6f, 0.5f, 1);
+        case SeenKind::NothingWritten: return ImVec4(0.6f, 0.6f, 0.6f, 1);
+    }
+    return ImVec4(1, 1, 1, 1);
+}
+
+// Tactics channel A (core/gameplay_sliders.h): the per-side gameplay slider game variables (SliderDef::untested) map into the two badges as
+// "game variable" + "untested", off by default like every untested write; while no played match has shown them working, their "seen"
+// badge keeps channel A's orange caution and its own hover text
+bool channel_a_untested(const SliderDef& d, const TacticStatus& st) {
+    return d.untested && st.written == WriteKind::GameVar && st.seen == SeenKind::Untested;
+}
+
+ImVec4 seen_colour_of(const SliderDef& d, const TacticStatus& st) {
+    if (channel_a_untested(d, st)) return ImVec4(1, 0.75f, 0.3f, 1);
+    return seen_colour(st.seen);
+}
+
+const char* seen_help_of(const SliderDef& d, const TacticStatus& st) {
+    if (channel_a_untested(d, st))
+        return "Accepted by the game's variable store (read back ok). No played match has shown an effect yet: off by default.";
+    return seen_help(st.seen);
+}
+
+// The channel of a slider's first target (every target of one slider goes through the same channel today)
+WriteChannel channel_of_def(const SliderDef& d) {
+    if (d.binding.targets.empty()) return WriteChannel::GameVar;
+    return channel_of_target(d.binding.targets.front());
 }
 
 // The CPU-side game variables an opposition offset is added to, and the Match slider that holds the base (else the registry default)
@@ -229,12 +279,17 @@ struct EffWrite {
 };
 
 // The writes of a slider set that this build can send, in registry order, one per target (an opposition offset replaces the Match slider of
-// the same variable); `unsent` gets the switched-on settings it cannot send (a formation slot offset needs a slot and a formation row).
+// the same variable); `unsent` gets the switched-on settings it cannot send (a formation slot offset needs a slot and a formation row) and
+// the dead targets (your saved tactic row: core/tactics_status.h dead_target_reason), which no build writes.
 std::vector<EffWrite> effective_writes(const SliderSet& s, std::vector<std::string>* unsent = nullptr) {
     std::vector<EffWrite> out;
     for (const SliderWrite& w : game_writes(s)) {
         if (w.target.find("{n}") != std::string::npos) {
             if (unsent) unsent->push_back(w.target + ": this build does not write formation slots");
+            continue;
+        }
+        if (const char* dead = dead_target_reason(w.target)) {
+            if (unsent) unsent->push_back(w.target + ": " + dead);
             continue;
         }
         EffWrite e{w, ""};
@@ -258,122 +313,351 @@ std::vector<EffWrite> effective_writes(const SliderSet& s, std::vector<std::stri
 // Skipped = this build or this save cannot say where to write (not a failure of the write itself); Failed = the write was refused.
 enum class DbOutcome { Ok, Skipped, Failed };
 
-DbOutcome write_db(App& app, const SliderWrite& w, std::string& why, std::string& what) {
-    const size_t dot = w.target.find('.');
-    if (dot == std::string::npos) {
-        why = "no field named in " + w.target;
-        return DbOutcome::Failed;
-    }
-    const std::string table = w.target.substr(0, dot), field = w.target.substr(dot + 1);
-    if (field.find("{n}") != std::string::npos) {
-        why = "formation slots are not written by this build";
-        return DbOutcome::Skipped;
-    }
-    const Table* t = app.db.table(table);
-    if (!t) {
-        why = "this save has no " + table + " table";
-        return DbOutcome::Skipped;
-    }
-    const Field* f = t->field(field);
-    if (!f) {
-        why = table + " has no " + field + " field in this save";
-        return DbOutcome::Skipped;
-    }
-    std::vector<uint64_t> recs;
-    if (table == "teams") {
+// The row(s) a "table.field" target means for the current selection: teams = the selected club, players = the selected player, referee =
+// every referee, mentalities = the club's active row of the old tactic table (the legacy fields). Each record carries its key in the
+// snapshot store, which names the loaded career's club ("club:1|referee:155": core/tactics_status.h snapshot_row). Your saved tactic row
+// (cm_mentalities) is never a write target. A failure leaves `outcome` set and `why` said.
+struct DbTarget {
+    const Table* t = nullptr;
+    const Field* f = nullptr;
+    std::string table, field;
+    std::vector<std::pair<uint64_t, std::string>> recs;  // record, snapshot row key
+    std::string label;                                   // club or player name for the user
+    std::string what;                                    // what a write will report ("" = the plain "table.field = v")
+    std::string why;                                     // "" = resolved
+    DbOutcome outcome = DbOutcome::Ok;
+};
+
+// The loaded career's club: the snapshot rows are kept per club so a value kept in one career never goes into another
+int64_t career_club(App& app) { return app.bridge.state().user_team; }
+
+DbTarget resolve_db(App& app, const std::string& target) {
+    DbTarget r;
+    auto fail = [&](DbOutcome o, const std::string& why) {
+        r.outcome = o;
+        r.why = why;
+        return r;
+    };
+    const size_t dot = target.find('.');
+    if (dot == std::string::npos) return fail(DbOutcome::Failed, "no field named in " + target);
+    r.table = target.substr(0, dot);
+    r.field = target.substr(dot + 1);
+    if (r.field.find("{n}") != std::string::npos) return fail(DbOutcome::Skipped, "formation slots are not written by this build");
+    r.t = app.db.table(r.table);
+    if (!r.t) return fail(DbOutcome::Skipped, "this save has no " + r.table + " table");
+    r.f = r.t->field(r.field);
+    if (!r.f) return fail(DbOutcome::Skipped, r.table + " has no " + r.field + " field in this save");
+    const int64_t club = career_club(app);
+    if (r.table == "teams") {
         const TeamRow* tr = app.model.team(app.sel_team);
-        if (!tr) {
-            why = "select a team first";
-            return DbOutcome::Failed;
-        }
-        recs.push_back(tr->rec);
-    } else if (table == "players") {
+        if (!tr) return fail(DbOutcome::Failed, "select a team first");
+        r.label = tr->name;
+        r.recs.push_back({tr->rec, snapshot_row(club, "team:" + std::to_string(tr->teamid))});
+    } else if (r.table == "players") {
         const PlayerRow* p = app.model.player(app.sel_player);
-        if (!p) {
-            why = "select a player first (Position/Role writes the selected player)";
-            return DbOutcome::Failed;
-        }
-        recs.push_back(p->rec);
-    } else if (table == "referee") {
+        if (!p) return fail(DbOutcome::Failed, "select a player first (Position/Role writes the selected player)");
+        r.label = p->name;
+        r.recs.push_back({p->rec, snapshot_row(club, "player:" + std::to_string(p->playerid))});
+    } else if (r.table == "referee") {
         Snapshot snap;  // every referee row (a user action, not the frame path)
-        if (snap.load(app.db.memory(), *t))
-            for (uint32_t i : snap.valid) recs.push_back(snap.addr(i));
-        if (recs.empty()) {
-            why = "the referee table has no rows";
-            return DbOutcome::Failed;
-        }
-    } else if (table == "mentalities" || table == "cm_mentalities") {
-        // the team's own row, found by its teamid: the active tactic when one is flagged, else the first row
+        if (snap.load(app.db.memory(), *r.t))
+            for (uint32_t i : snap.valid) {
+                const uint64_t rec = snap.addr(i);
+                r.recs.push_back({rec, snapshot_row(club, "referee:" + std::to_string(app.db.get_int(*r.t, rec, "refereeid", int64_t(i))))});
+            }
+        if (r.recs.empty()) return fail(DbOutcome::Failed, "the referee table has no rows");
+        r.label = std::to_string(r.recs.size()) + " referees";
+    } else if (r.table == "mentalities") {
+        // the team's own row of the old tactic table (legacy fields only), found by its teamid: the active tactic when one is flagged, else
+        // the first row
         const TeamRow* tr = app.model.team(app.sel_team);
-        if (!tr) {
-            why = "select a team first";
-            return DbOutcome::Failed;
-        }
-        const TeamRows rows = team_rows(app.db, *t, tr->teamid);
-        if (rows.key_missing) {
-            why = table + " has no teamid field in this save";
-            return DbOutcome::Skipped;
-        }
-        if (rows.recs.empty()) {
-            why = tr->name + " has no row in " + table;
-            return DbOutcome::Skipped;
-        }
-        recs.push_back(rows.recs[rows.chosen]);
-        what = table + "." + field + " = " + std::to_string(w.value) + ": row " + std::to_string(rows.chosen + 1) + " of " +
-               std::to_string(rows.recs.size()) + " of " + tr->name + (rows.has_active ? " (the active tactic)" : "");
+        if (!tr) return fail(DbOutcome::Failed, "select a team first");
+        const TeamRows rows = team_rows(app.db, *r.t, tr->teamid);
+        if (rows.key_missing) return fail(DbOutcome::Skipped, r.table + " has no teamid field in this save");
+        if (rows.recs.empty()) return fail(DbOutcome::Skipped, tr->name + " has no row in " + r.table);
+        const uint64_t rec = rows.recs[rows.chosen];
+        r.label = tr->name;
+        r.recs.push_back({rec, snapshot_row(club, "mentalities:" + std::to_string(app.db.get_int(*r.t, rec, "mentalityid", int64_t(rec))))});
+        r.what = ": row " + std::to_string(rows.chosen + 1) + " of " + std::to_string(rows.recs.size()) + " of " + tr->name +
+                 (rows.has_active ? " (the active tactic)" : "");
     } else {
-        why = "which row of " + table + " to write is not resolved in this build";
-        return DbOutcome::Skipped;
+        return fail(DbOutcome::Skipped, "which row of " + r.table + " to write is not resolved in this build");
     }
-    for (uint64_t rec : recs) {
-        if (!app.db.table_alive(*t, rec)) {
+    return r;
+}
+
+// Before the first write to a row, its value is kept (turbo_output\tactics_snapshot.json) so Reset can put it back
+DbOutcome write_db(App& app, const SliderWrite& w, std::string& why, std::string& what) {
+    DbTarget r = resolve_db(app, w.target);
+    if (r.outcome != DbOutcome::Ok) {
+        why = r.why;
+        return r.outcome;
+    }
+    TacticSnapshots& snaps = snapshots(app);
+    bool kept = false;
+    for (const auto& rec : r.recs) {
+        if (!app.db.table_alive(*r.t, rec.first)) {
             why = "the database changed (another save loaded?): press Refresh";
             return DbOutcome::Failed;
         }
-        if (!app.edit(*t, rec, *f, Value::of_int(w.value))) {
+        Value before;
+        if (app.db.get(*r.t, rec.first, *r.f, before) && before.type == FieldType::Int)
+            kept = snaps.remember(w.target, rec.second, before.i, stamp(), r.label) || kept;
+        if (!app.edit(*r.t, rec.first, *r.f, Value::of_int(w.value))) {
+            if (kept) persist_snapshots(app);
             why = "the game's database refused the value";
             return DbOutcome::Failed;
         }
+        kept = snaps.note_written(w.target, rec.second, w.value) || kept;
     }
-    if (what.empty()) what = table + "." + field + " = " + std::to_string(w.value);
+    if (kept) persist_snapshots(app);
+    what = w.target + " = " + std::to_string(w.value) + r.what;
     return DbOutcome::Ok;
 }
 
-// The kill switch is read again at every write: a write never trusts the 2 s cache
-bool kill_switch_now(App& app) {
-    std::error_code ec;
-    g_tac.off = fs::exists(off_file(app), ec);
+// Reset to default for a database slider: every target's row(s) get the value kept before Turbo's first write; rows Turbo never wrote are
+// left alone. Returns the rows restored; `why` says what could not be done.
+int restore_db(App& app, const SliderDef& d, std::string& why) {
+    int restored = 0;
+    TacticSnapshots& snaps = snapshots(app);
+    bool changed = false;
+    for (const std::string& target : d.binding.targets) {
+        if (dead_target_reason(target)) continue;
+        DbTarget r = resolve_db(app, target);
+        if (r.outcome != DbOutcome::Ok) {
+            if (why.empty()) why = r.why;
+            continue;
+        }
+        for (const auto& rec : r.recs) {
+            const DbSnapshot* s = snaps.find(target, rec.second);
+            if (!s) continue;
+            if (!app.db.table_alive(*r.t, rec.first)) {
+                why = "the database changed (another save loaded?): press Refresh";
+                continue;
+            }
+            Value cur;
+            if (app.db.get(*r.t, rec.first, *r.f, cur) && cur.type == FieldType::Int && !TacticSnapshots::may_restore(*s, cur.i)) {
+                // another save, the game or the user changed the row since Turbo wrote it: Reset undoes only Turbo's own write
+                if (why.empty())
+                    why = target + ": the row changed since Turbo wrote it (now " + std::to_string(cur.i) + ", Turbo wrote " + std::to_string(s->written) +
+                          "): not restored";
+                continue;
+            }
+            if (app.edit(*r.t, rec.first, *r.f, Value::of_int(s->value))) {
+                ++restored;
+                snaps.forget(target, rec.second);
+                changed = true;
+            } else if (why.empty()) {
+                why = "the game's database refused the value kept for " + target;
+            }
+        }
+    }
+    if (changed) persist_snapshots(app);
+    return restored;
+}
+
+// The master kill switch appeared: every row this career's club has in the snapshot store goes back to the value before Turbo's first
+// write, but only while the row still holds the value Turbo wrote (core/tactics_status.h restore_verdict). Rows of another career's club,
+// rows changed since and rows Turbo never wrote are left as they are (the first two stay kept). Not limited to the selected club or player.
+struct RestoreAll {
+    int restored = 0, changed_since = 0, other_career = 0, not_found = 0, refused = 0;
+};
+
+RestoreAll restore_all_db(App& app) {
+    RestoreAll out;
+    TacticSnapshots& snaps = snapshots(app);
+    const int64_t club = career_club(app);
+    std::vector<DbSnapshot> rows;
+    for (const auto& kv : snaps.items) rows.push_back(kv.second);
+    bool changed = false;
+    for (const DbSnapshot& s : rows) {
+        SnapshotRow sr;
+        const size_t dot = s.target.find('.');
+        if (!parse_snapshot_row(s.row, sr) || dot == std::string::npos || dead_target_reason(s.target)) {
+            ++out.not_found;
+            continue;
+        }
+        if (sr.club != club) {
+            ++out.other_career;
+            continue;
+        }
+        const Table* t = app.db.table(s.target.substr(0, dot));
+        const Field* f = t ? t->field(s.target.substr(dot + 1)) : nullptr;
+        const char* key = snapshot_key_field(sr.kind);
+        const uint64_t rec = (t && f && key[0]) ? app.db.find(*t, key, sr.id) : 0;
+        Value cur;
+        if (!rec || !app.db.get(*t, rec, *f, cur) || cur.type != FieldType::Int) {
+            ++out.not_found;
+            continue;
+        }
+        switch (restore_verdict(s, club, cur.i)) {
+            case RestoreVerdict::Restore:
+                if (app.edit(*t, rec, *f, Value::of_int(s.value))) {
+                    ++out.restored;
+                    snaps.forget(s.target, s.row);
+                    changed = true;
+                } else {
+                    ++out.refused;
+                }
+                break;
+            case RestoreVerdict::NeverWritten:  // Turbo's write never landed: the row holds what it had, nothing to undo
+                snaps.forget(s.target, s.row);
+                changed = true;
+                break;
+            case RestoreVerdict::ChangedSince: ++out.changed_since; break;
+            case RestoreVerdict::OtherCareer: ++out.other_career; break;
+            case RestoreVerdict::NotARow: ++out.not_found; break;
+        }
+    }
+    if (changed) persist_snapshots(app);
+    return out;
+}
+
+void restore_on_kill_switch(App& app) {
+    if (!app.connected()) return;  // stays pending until a career database is there
+    g_tac.restore_pending = false;
+    const RestoreAll r = restore_all_db(app);
+    if (r.restored == 0 && r.changed_since == 0 && r.refused == 0) return;
+    std::string msg = "Tactics are off (turbo_output\\tactics_off.txt): " + std::to_string(r.restored) +
+                      " database row(s) put back to the value before Turbo's first write";
+    if (r.changed_since) msg += ", " + std::to_string(r.changed_since) + " row(s) changed since Turbo wrote them left as they are";
+    if (r.refused) msg += ", " + std::to_string(r.refused) + " refused by the game's database";
+    app.notify(msg, r.refused > 0);
+}
+
+// What the game holds now for a database target, for the row's read-back line
+std::string db_readback(App& app, const std::string& target) {
+    if (dead_target_reason(target)) return "";
+    DbTarget r = resolve_db(app, target);
+    if (r.outcome != DbOutcome::Ok) return "no read-back: " + r.why;
+    int64_t lo = 0, hi = 0;
+    size_t n = 0;
+    for (const auto& rec : r.recs) {
+        Value v;
+        if (!app.db.get(*r.t, rec.first, *r.f, v) || v.type != FieldType::Int) continue;
+        if (n == 0) lo = hi = v.i;
+        lo = std::min(lo, v.i);
+        hi = std::max(hi, v.i);
+        ++n;
+    }
+    if (n == 0) return "no read-back: the row could not be read";
+    std::string out = target + " now: " + (lo == hi ? std::to_string(lo) : std::to_string(lo) + ".." + std::to_string(hi) + " (" + std::to_string(n) + " rows)");
+    const TacticSnapshots& snaps = snapshots(app);
+    if (r.recs.size() == 1) {
+        if (const DbSnapshot* s = snaps.find(target, r.recs.front().second)) out += " (before Turbo: " + std::to_string(s->value) + ")";
+    } else {
+        size_t kept = 0;
+        for (const auto& rec : r.recs)
+            if (snaps.find(target, rec.second)) ++kept;
+        if (kept) out += " (" + std::to_string(kept) + " rows kept before Turbo's first write)";
+    }
+    return out;
+}
+
+// The read-back of a game variable: the host's record of the override (read back from the store after the write)
+std::string gamevar_readback(App& app, const SliderDef& d, const std::string& target, const std::map<std::string, msetup::VarLine>& lines) {
+    if (!app.match_setup) return "no read-back: this Turbo has no game calls";
+    auto it = lines.find(target);
+    if (it == lines.end()) return "game variable now: not set, the game decides";
+    if (!it->second.active) return "game variable now: cleared, the game decides";
+    return "game variable now: " + name_of(d, it->second.value) + " (set by Turbo, read back after the write)";
+}
+
+// Reads the kill switch files; the master switch appearing (or being there at the first look) asks for the database rows to go back
+void update_switches(App& app) {
+    const bool was_off = g_tac.off;
+    g_tac.sw = read_switches(out_dir(app));
+    g_tac.off = g_tac.sw.all();
     g_tac.next_check = app.now + 2.0;
+    if (g_tac.off && !was_off) g_tac.restore_pending = true;
+    if (!g_tac.off) g_tac.restore_pending = false;
+}
+
+// The kill switches, looked at every 2 s (the frame path does no file I/O otherwise; the snapshot file is read at the first look)
+void refresh_off(App& app) {
+    if (app.now >= g_tac.next_check) {
+        update_switches(app);
+        snapshots(app);
+    }
+    if (g_tac.restore_pending) restore_on_kill_switch(app);
+}
+
+// The kill switches are read again at every write: a write never trusts the 2 s cache
+bool kill_switch_now(App& app) {
+    update_switches(app);
     return g_tac.off;
 }
 
-void apply_changes(App& app) {
+std::string off_text(const std::string& file) { return "off: turbo_output\\" + file + " exists"; }
+
+// The enabled writes nobody has seen work in a played match (untested, no effect seen, legacy): Apply asks about these first
+std::vector<std::string> untested_lines(const std::vector<EffWrite>& writes) {
+    std::vector<std::string> out;
+    for (const EffWrite& e : writes) {
+        const SliderDef* d = find_slider(e.w.key);
+        if (!d) continue;
+        const TacticStatus s = tactic_status(*d);
+        if (untested_write(s)) out.push_back(s.label + " (" + e.w.target + " = " + std::to_string(e.w.value) + "): " + seen_badge(s));
+    }
+    return out;
+}
+
+// Apply: untested settings ask first (confirmed = the user said "Apply anyway"); every switched-on value is sent (the writes are
+// idempotent; the rows' read-back lines show what the game holds); a channel whose kill switch file exists is skipped and named; a slider
+// switched off since the last Apply gets its default back (the game variable cleared, the database row restored from the snapshot).
+void apply_changes(App& app, bool confirmed = false) {
     if (kill_switch_now(app)) {
         app.notify("Tactics are off: turbo_output\\tactics_off.txt exists, nothing was written", true);
         return;
     }
     const std::vector<EffWrite> writes = effective_writes(g_tac.working);
+    if (!confirmed) {
+        const std::vector<std::string> ask = untested_lines(writes);
+        if (!ask.empty()) {
+            g_tac.confirm_lines = ask;
+            g_tac.confirm_request = true;
+            return;
+        }
+    }
     if (g_tac.dry_run) {
         app.notify("Tactics dry run: " + std::to_string(writes.size()) + " write(s) would be sent, nothing was written");
         return;
     }
     g_tac.writes_done.clear();
-    int ok = 0, failed = 0, skipped = 0;
-    std::string first_error, first_skip;
+    int ok = 0, failed = 0, skipped = 0, blocked = 0, restored = 0;
+    std::string first_error, first_skip, first_block;
     auto fail = [&](const std::string& key, const std::string& why) {
         ++failed;
         if (first_error.empty()) first_error = key + ": " + why;
     };
-    // a Live slider that was applied and is now back to "the game decides": clear its variable
+    // a slider that was applied and is now back to "the game decides": its default again
     for (const SliderDef& d : slider_registry()) {
-        if (d.status != SliderStatus::Live || d.binding.targets.empty()) continue;
-        if (g_tac.applied.is_enabled(d.key) && !g_tac.working.is_enabled(d.key) && app.match_setup) {
+        if (!writes_game(d) || d.binding.targets.empty()) continue;
+        if (!g_tac.applied.is_enabled(d.key) || g_tac.working.is_enabled(d.key)) continue;
+        const WriteChannel ch = channel_of_def(d);
+        if (g_tac.sw.blocks(ch)) {
+            ++blocked;
+            if (first_block.empty()) first_block = d.key + ": " + off_text(g_tac.sw.blocking_file(ch));
+            continue;
+        }
+        if (d.status == SliderStatus::Live) {
+            if (!app.match_setup) continue;
             std::string why;
             if (!app.match_setup->clear_var(d.binding.targets[0], why)) fail(d.key, why);
+        } else {
+            std::string why;
+            restored += restore_db(app, d, why);
+            if (!why.empty() && first_skip.empty()) first_skip = d.key + ": " + why;
         }
     }
     for (const EffWrite& e : writes) {
         const SliderWrite& w = e.w;
+        const WriteChannel ch = channel_of_target(w.target);
+        if (g_tac.sw.blocks(ch)) {
+            ++blocked;
+            if (first_block.empty()) first_block = w.key + ": " + off_text(g_tac.sw.blocking_file(ch));
+            continue;
+        }
         if (w.status == SliderStatus::Live) {
             if (!app.match_setup) {
                 fail(w.key, "this Turbo has no game calls");
@@ -403,11 +687,59 @@ void apply_changes(App& app) {
             } else fail(w.key, why);
         }
     }
-    if (failed == 0) g_tac.applied = g_tac.working;
+    if (failed == 0 && blocked == 0) g_tac.applied = g_tac.working;
     std::string msg = "Tactics: " + std::to_string(ok) + " write(s) sent to the game";
+    if (restored) msg += ", " + std::to_string(restored) + " row(s) restored to the value before Turbo";
     if (skipped) msg += ", " + std::to_string(skipped) + " not written (" + first_skip + ")";
+    if (blocked) msg += ", " + std::to_string(blocked) + " blocked by a kill switch (" + first_block + ")";
     if (failed) msg += ", " + std::to_string(failed) + " refused (" + first_error + ")";
-    app.notify(msg, failed > 0);
+    app.notify(msg, failed > 0 || blocked > 0);
+}
+
+// Reset to default for one row: back to "the game decides" and the game's default restored at once (a game variable is cleared, a
+// database row gets the value kept before Turbo's first write). Honours the kill switches and the dry run.
+void reset_row(App& app, const SliderDef& d) {
+    const TacticStatus st = tactic_status(d);
+    g_tac.working.reset(d.key);
+    if (!writes_game(d) || d.binding.targets.empty()) {
+        g_tac.applied.reset(d.key);
+        app.notify(st.label + ": the game decides (nothing was ever written for it)");
+        return;
+    }
+    if (kill_switch_now(app)) {
+        app.notify(st.label + ": nothing restored, turbo_output\\tactics_off.txt exists", true);
+        return;
+    }
+    const WriteChannel ch = channel_of_def(d);
+    if (g_tac.sw.blocks(ch)) {
+        app.notify(st.label + ": nothing restored, " + off_text(g_tac.sw.blocking_file(ch)), true);
+        return;
+    }
+    if (g_tac.dry_run) {
+        app.notify(st.label + ": dry run, the default would be restored, nothing was written");
+        return;
+    }
+    if (d.status == SliderStatus::Live) {
+        if (!app.match_setup) {
+            app.notify(st.label + ": this Turbo has no game calls", true);
+            return;
+        }
+        std::string why;
+        const std::string& target = d.binding.targets[0];
+        if (!app.match_setup->clear_var(target, why)) {
+            app.notify(st.label + ": not cleared, " + why, true);
+            return;
+        }
+        g_tac.applied.reset(d.key);
+        app.notify(st.label + ": override cleared, the game decides again");
+        return;
+    }
+    std::string why;
+    const int n = restore_db(app, d, why);
+    g_tac.applied.reset(d.key);
+    if (n > 0) app.notify(st.label + ": " + std::to_string(n) + " row(s) restored to the value before Turbo's first write" + (why.empty() ? "" : " (" + why + ")"));
+    else if (!why.empty()) app.notify(st.label + ": nothing restored, " + why, true);
+    else app.notify(st.label + ": nothing to restore, Turbo never wrote this row");
 }
 
 // ---------------------------------------------------------------------------------------------------------------- the pitch
@@ -569,7 +901,7 @@ void refresh_opp(App& app) {
         l.base = base_for(g_tac.working, l.target, &l.base_from_slider);
         l.value = clamp_var(l.target, l.base + l.offset);
         o.live.push_back(l);
-        st.live.push_back(l.target + " = " + std::to_string(l.value) + "  [Live]  (base " + std::to_string(l.base) +
+        st.live.push_back(l.target + " = " + std::to_string(l.value) + "  [game variable]  (base " + std::to_string(l.base) +
                           (l.base_from_slider ? " from your Match setting" : " the middle: Turbo cannot read the game's own number") + " + offset " +
                           signed_text(l.offset) + ")");
     }
@@ -580,6 +912,10 @@ void apply_opp_live(App& app) {
     OppState& o = g_tac.opp;
     if (kill_switch_now(app)) {
         app.notify("Tactics are off: turbo_output\\tactics_off.txt exists, nothing was written", true);
+        return;
+    }
+    if (g_tac.sw.blocks(WriteChannel::GameVar)) {
+        app.notify("Opposition: game variables are " + off_text(g_tac.sw.blocking_file(WriteChannel::GameVar)) + ", nothing was written", true);
         return;
     }
     if (!o.ready || o.live.empty()) {
@@ -687,10 +1023,7 @@ bool persist_profiles(App& app, const std::string& ok_text) {
 
 void load_profile(App& app, const Profile& p) {
     g_tac.selected_profile = p.id;
-    for (const auto& kv : p.sliders.values) {
-        if (p.sliders.is_enabled(kv.first)) g_tac.working.set(kv.first, kv.second, true);
-        else g_tac.working.reset(kv.first);
-    }
+    const ProfileLoadResult r = load_profile_into(p, g_tac.working);
     if (!p.formation.empty()) {
         const TeamFormation& tf = team_formation(app);
         if (p.formation == tf.formation.name) {
@@ -701,7 +1034,11 @@ void load_profile(App& app, const Profile& p) {
                 if (fb[i].name == p.formation) g_tac.formation_pick = int(i);
         }
     }
-    app.notify("Preset loaded: " + p.name + " (not applied yet: press Apply)");
+    std::string msg = "Preset loaded: " + p.name + " (not applied yet: press Apply)";
+    if (!r.held_off.empty())
+        msg += "; " + std::to_string(r.held_off.size()) + " untested or legacy setting(s) loaded switched OFF (switch them on yourself): " + r.held_off.front() +
+               (r.held_off.size() > 1 ? ", ..." : "");
+    app.notify(msg);
 }
 
 // Where a profile's settings live: its category's scope (a bundle spans all four)
@@ -732,16 +1069,45 @@ std::string was_text(const SliderDef& d, const Profile* cmp) {
     return g_tac.applied.is_enabled(d.key) ? "was " + name_of(d, g_tac.applied.value_or_default(d.key)) : "was: game decides";
 }
 
+// The read-back of every target of a slider, from the cache (database rows) or the host's override list (game variables)
+std::string readback_of(App& app, const SliderDef& d, const TacticStatus& st, const std::map<std::string, msetup::VarLine>& lines) {
+    if (st.written == WriteKind::Preview || st.written == WriteKind::TurboOnly) return "no read-back: nothing is written for this setting";
+    std::string out;
+    for (const std::string& t : d.binding.targets) {
+        if (t.find("{n}") != std::string::npos || dead_target_reason(t)) continue;
+        std::string one;
+        if (st.written == WriteKind::GameVar) one = gamevar_readback(app, d, t, lines);
+        else {
+            auto it = g_tac.readback.find(t);  // the cache is filled on first sight of a target (a scope or "show legacy fields" change) and cleared every 2 s
+            if (it == g_tac.readback.end()) it = g_tac.readback.emplace(t, db_readback(app, t)).first;
+            one = it->second;
+        }
+        if (one.empty()) continue;
+        if (!out.empty()) out += "; ";
+        out += one;
+    }
+    return out.empty() ? "no read-back: nothing is written for this setting" : out;
+}
+
 // ---- a slider row
-void draw_row(App& app, const SliderDef& d, const Profile* cmp) {
+void draw_row(App& app, const SliderDef& d, const Profile* cmp, const std::map<std::string, msetup::VarLine>& lines) {
     SliderSet& w = g_tac.working;
-    const bool dim = preview_only(d);
+    const TacticStatus st = tactic_status(d);
+    const std::string off = writes_game(d) ? g_tac.sw.blocking_file(channel_of_def(d)) : std::string();
+    const bool dim = preview_only(d) || !off.empty();
     TacticsTabState::Row row;
     row.key = d.key;
     row.status = status_name(d.status);
-    row.tag = tag_of(d);
+    row.label = st.label;
+    row.written = written_badge(st.written);
+    row.seen = seen_badge(st);
+    row.tag = status_tag(st);
+    row.readback = readback_of(app, d, st, lines);
+    row.channel_off = off;
     row.enabled = w.is_enabled(d.key);
     row.dimmed = dim;
+    row.untested = untested_write(st);
+    row.legacy = st.legacy_hidden;
     row.value = w.value_or_default(d.key);
     row.was = was_text(d, cmp);
     g_state.rows.push_back(row);
@@ -752,18 +1118,23 @@ void draw_row(App& app, const SliderDef& d, const Profile* cmp) {
     if (ImGui::Checkbox("##on", &on)) w.set_enabled(d.key, on);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", on ? "Switched on: this value is used" : "Off: the game decides");
     ImGui::SameLine();
-    ImGui::TextUnformatted(d.label.c_str());
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", d.description.c_str());
-    ImGui::SameLine();
-    const bool untested = d.untested && d.status == SliderStatus::Live;  // channel A sliders: accepted by the store, no match seen
-    ImGui::TextColored(untested ? ImVec4(1, 0.75f, 0.3f, 1) : badge_colour(d.status), "[%s]", untested ? "Live, untested" : status_name(d.status));
+    // Reset sits right after the checkbox: a long label ("Role familiarity 1 (Role+ / Role++)") would push a button behind it out of a
+    // narrow card column
+    if (ImGui::SmallButton("Reset##reset")) reset_row(app, d);
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("%s", untested ? "Accepted by the game's variable store (read back ok). No played match has shown an effect yet: off by default."
-                                         : status_badge_help(d.status));
+        ImGui::SetTooltip("%s", writes_game(d) ? "Reset to default: back to \"the game decides\" and the game's own value restored at once (the override cleared, the row put back)"
+                                               : "Back to \"the game decides\" (nothing is written for this setting)");
     ImGui::SameLine();
-    if (ImGui::SmallButton("o##reset")) w.reset(d.key);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Back to \"the game decides\"");
+    ImGui::TextUnformatted(st.label.c_str());
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", d.description.c_str());
+    // the two badges on their own line, so neither is cut off by the column edge
+    ImGui::TextColored(written_colour(st.written), "  [%s]", row.written.c_str());
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", written_help(st.written));
+    ImGui::SameLine();
+    ImGui::TextColored(seen_colour_of(d, st), "[%s]", row.seen.c_str());
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", seen_help_of(d, st));
     if (!d.technical.empty()) ImGui::TextDisabled("  %s", d.technical.c_str());
+    if (!off.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "  %s", off_text(off).c_str());
     int v = w.value_or_default(d.key);
     int nv = v;
     ImGui::SetNextItemWidth(S(150.0f));
@@ -789,10 +1160,48 @@ void draw_row(App& app, const SliderDef& d, const Profile* cmp) {
         ImGui::TextDisabled("%s", row.was.c_str());
     }
     ImGui::TextDisabled("  %s", row.tag.c_str());
+    ImGui::TextDisabled("  %s", row.readback.c_str());
     if (d.binding.kind == BindingKind::DbField && !d.binding.targets.empty() && d.binding.targets.front().find("{n}") != std::string::npos)
         ImGui::TextDisabled("  this build does not write formation slots yet");
     if (dim) ImGui::PopStyleVar();
     ImGui::PopID();
+}
+
+// The database read-backs of a scope, refreshed when the save, the club or the player changed, else every 2 s
+void refresh_readback(App& app, const std::vector<const SliderDef*>& visible) {
+    if (app.gen == g_tac.rb_gen && app.sel_team == g_tac.rb_team && app.sel_player == g_tac.rb_player && app.now < g_tac.rb_next) return;
+    g_tac.rb_gen = app.gen;
+    g_tac.rb_team = app.sel_team;
+    g_tac.rb_player = app.sel_player;
+    g_tac.rb_next = app.now + 2.0;
+    g_tac.readback.clear();
+    for (const SliderDef* d : visible) {
+        if (d->status != SliderStatus::DB) continue;
+        for (const std::string& t : d->binding.targets) {
+            if (t.find("{n}") != std::string::npos || g_tac.readback.count(t)) continue;
+            g_tac.readback[t] = db_readback(app, t);
+        }
+    }
+}
+
+void draw_confirm_dialog(App& app) {
+    if (g_tac.confirm_request) {
+        g_tac.confirm_request = false;
+        ImGui::OpenPopup("Apply untested settings?##tacconfirm");
+    }
+    if (ImGui::BeginPopupModal("Apply untested settings?##tacconfirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        g_state.confirm_open = true;
+        g_state.confirm_lines = g_tac.confirm_lines;
+        ImGui::TextWrapped("Nobody has seen these settings work in a played match. They are written as asked; whether the game honours them is unknown.");
+        for (const std::string& l : g_tac.confirm_lines) ImGui::BulletText("%s", l.c_str());
+        if (ImGui::Button("Apply anyway##tacconfirm")) {
+            ImGui::CloseCurrentPopup();
+            apply_changes(app, true);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel##tacconfirmno")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------- dialogs
@@ -1097,7 +1506,9 @@ void draw_centre(App& app) {
     } else if (g_tac.formation_pick >= 0) {
         note = "Preview of Turbo's built-in " + shown.name + " shape: nothing is written.";
     } else if (tf.saved) {
-        note = "Saved data: " + tf.source + ". Its in-game effect is unverified.";
+        note = app.sel_team == app.bridge.state().user_team
+                   ? "Your saved tactic as of your last save: " + tf.source + ". Change it in the game's Edit Tactic; nothing on this pitch is written."
+                   : "Saved data: " + tf.source + " (the club's saved tactic row). Nothing on this pitch is written.";
     } else {
         note = "Built-in shape (Turbo's fallback table), not read from your save: " + tf.note + ".";
     }
@@ -1126,10 +1537,30 @@ void draw_centre(App& app) {
 
 void draw_right(App& app) {
     const SliderScope sc = kScopes[g_tac.scope];
-    const std::vector<const SliderDef*> visible = sliders_in_scope(sc);
+    // legacy fields (EA removed them in FC 25) are drawn only behind "show legacy fields"
+    std::vector<const SliderDef*> visible;
+    size_t legacy = 0;
+    for (const SliderDef* d : sliders_in_scope(sc)) {
+        if (legacy_hidden(*d)) {
+            ++legacy;
+            if (!g_tac.show_legacy) continue;
+        }
+        visible.push_back(d);
+    }
+    g_state.legacy_hidden = g_tac.show_legacy ? 0 : legacy;
+    g_state.show_legacy = g_tac.show_legacy;
     const size_t prev = count_preview_only(visible);
     g_state.preview_strip = std::to_string(prev) + " of " + std::to_string(visible.size()) + " visible settings are preview-only";
     ImGui::TextDisabled("%s", g_state.preview_strip.c_str());
+    if (legacy > 0) {
+        checkbox_right("Show legacy fields##taclegacy", &g_tac.show_legacy);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%zu field(s) EA removed in FC 25 (the old tactic table). Hidden by default, off by default, likely ignored by the game.", legacy);
+    }
+    refresh_readback(app, visible);
+    std::map<std::string, msetup::VarLine> lines;  // the host's overrides, read once per frame
+    if (app.match_setup)
+        for (const msetup::VarLine& l : app.match_setup->vars()) lines[l.name] = l;
     // the cards: consecutive groups of the registry order
     std::vector<std::string> groups;
     for (const SliderDef* d : visible)
@@ -1138,15 +1569,15 @@ void draw_right(App& app) {
     // the footer lists what the game will receive: it grows with the list (but never takes more than 60% of the column)
     std::vector<std::string> unsent;
     const std::vector<EffWrite> writes = effective_writes(g_tac.working, &unsent);
-    const float lines = float(std::max<size_t>(1, writes.size()) + unsent.size());
+    const float nlines = float(std::max<size_t>(1, writes.size()) + unsent.size());
     const float footer = std::min(ImGui::GetContentRegionAvail().y * 0.6f,
-                                  ImGui::GetFrameHeightWithSpacing() * 3.0f + ImGui::GetTextLineHeightWithSpacing() * (lines + 2.0f) + S(10.0f));
+                                  ImGui::GetFrameHeightWithSpacing() * 3.0f + ImGui::GetTextLineHeightWithSpacing() * (nlines + 2.0f) + S(10.0f));
     ImGui::BeginChild("##tacsliders", ImVec2(0, -footer));
     for (const std::string& g : groups) {
         ImGui::PushID(g.c_str());
         if (ImGui::CollapsingHeader(g.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
             for (const SliderDef* d : visible)
-                if (d->group == g) draw_row(app, *d, cmp);
+                if (d->group == g) draw_row(app, *d, cmp, lines);
         ImGui::PopID();
     }
     ImGui::EndChild();
@@ -1157,8 +1588,8 @@ void draw_right(App& app) {
     for (const EffWrite& e : writes) {
         const SliderDef* d = find_slider(e.w.key);
         const bool offset = !e.note.empty();
-        const std::string line = e.w.target + " = " + (d && !offset ? name_of(*d, e.w.value) : std::to_string(e.w.value)) + "  [" + status_name(e.w.status) + "]" +
-                                 (offset ? "  (" + e.note + ")" : "");
+        const std::string line = e.w.target + " = " + (d && !offset ? name_of(*d, e.w.value) : std::to_string(e.w.value)) + "  [" +
+                                 written_badge(e.w.status == SliderStatus::Live ? WriteKind::GameVar : WriteKind::DbRow) + "]" + (offset ? "  (" + e.note + ")" : "");
         g_state.receive.push_back(line);
         ImGui::TextUnformatted(line.c_str());
     }
@@ -1175,6 +1606,9 @@ void draw_right(App& app) {
     ImGui::BeginDisabled(g_tac.off);
     if (ImGui::Button("Apply##tac")) apply_changes(app);
     ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Sends every switched-on setting. Untested or legacy settings ask first. A setting switched off gets the game's default back.");
+    draw_confirm_dialog(app);
     ImGui::SameLine();
     if (ImGui::Button("Revert##tac")) {
         g_tac.working = g_tac.applied;
@@ -1238,10 +1672,20 @@ void draw_body(App& app) {
     g_state.writes_done = g_tac.writes_done;
     refresh_off(app);
     g_state.off = g_tac.off;
+    g_state.switches = g_tac.sw.files();
     if (g_tac.off) {
         g_state.off_line = "Tactics are off: turbo_output\\tactics_off.txt exists. Nothing is written and the effect layers are grey.";
         ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", g_state.off_line.c_str());
+    } else if (!g_state.switches.empty()) {
+        std::string line = "Some tactics channels are off:";
+        for (const KillSwitch& k : kill_switches())
+            if (g_tac.sw.present.count(k.file)) line += std::string(" turbo_output\\") + k.file + " (" + k.what + ")";
+        g_state.off_line = line + ". Their rows are grey and nothing is written for them.";
+        ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", g_state.off_line.c_str());
     }
+    if (!g_tac.snaps_error.empty())
+        ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "turbo_output\\tactics_snapshot.json is not used (%s): Reset cannot put database rows back.",
+                           g_tac.snaps_error.c_str());
     draw_live_banner(app);
     if (!shown_error.empty()) ImGui::TextColored(ImVec4(1, 0.5f, 0.3f, 1), "Tactics error: %s", shown_error.c_str());
     const float total = ImGui::GetContentRegionAvail().x;
