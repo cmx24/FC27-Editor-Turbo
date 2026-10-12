@@ -1,9 +1,46 @@
 # Turbo handover (read this first)
 
-Last updated: 2026-10-11 16:10 ET by the orchestrator session (Claude Fable 5.1) at the END of its budget, BEFORE the planned 16:30-18:15 game window (which did not run in that session). Update this file after EVERY release and every session that changes code, saves or game state. Every update MUST end with a fresh section 11 (next-LLM prompt) that matches the current state.
+Last updated: 2026-10-11 23:35 ET (session end; Cassio: "stop for tonight"). Older sections below keep their own timestamps. Update this file after EVERY release and every session that changes code, saves or game state. Every update MUST end with a fresh section 11 (next-LLM prompt) that matches the current state.
 
-## 00. Update 2026-10-11 22:10 - Turbo 2.1.0 RELEASED (read first)
-- turbo-2.0 = 557a2ae, tag v2.1.0, GitHub release with FC27_LE_Turbo_2.1.0.zip (sha256 f059032c...), installed on Cassio's PC. Contents and verified/untested list: CHANGELOG 2.1.0 and the release notes; evidence turbo_dev\evidence6-10-11\ (CHECK_21.md, 21xx/22xx screenshots).
+## 00. Update 2026-10-11 23:35 - session end, Cassio: "stop for tonight" (read first)
+- Installed on Cassio's PC: Turbo 2.1.0 (released 22:08). Game closed. Saves unchanged at session end (md5 TORINO 2ded2b76, LB c45b2b12, LEICESTER 1e78df22; LTEST 3dced956 = throwaway copy of LEICESTER for tests, never saved).
+- Tactics verdicts:
+  - Channel A (per-side GAMEPLAY_CUSTOMIZATION game variables) DOES NOT WORK: stored and read back, ignored by the match (turbo_output\TACTICS_CHANNEL_A_REPORT.txt VERDICT; turbo_dev\evidence\2026-10-11\2238_channelA_armB_HT_matchfacts.jpg). It stays default-off.
+  - Channel E (your club's live team-sheet record) is LOCATED read-only (turbo_output\TACTICS_CHANNEL_E_REPORT.txt): CachedTeamSheetService (vtables 0x14AD7F6C8 / 0x14AD7E8B8, 841 teams cached), Leicester's active tactic record ("433", depth 25, build-up 0), role word = group*4096 + role*64 + focus, SetSheet 0x145E43A60 / UpdateSheet 0x145E43BA4. The match copies formation and roles from it at setup. Heap addresses in the report are from one game run: the code re-chases them by vtable at every start.
+- 2.2 (LOCAL branches only: not pushed, not released, not run in game):
+  - **2.2/standings** fixes live standings and fixtures on 6AC07E31 ("FCE interface object has another vtable"): 976104a identifies the FCE objects by the build's signatures; suites green (build 0 warnings, Lua 393/0, native 36388/0, Python and catalog green). Adversarial review: turbo_output\STANDINGS_REVIEW_20261011.txt.
+    - 2 major findings:
+      - A DataManager found by its back-pointer only still allows writes.
+      - The FCE row, result and fixture writes become reachable on 6AC07E31 for the first time. They have no sim_busy gate and no kill switch, and result and fixture edits have no undo.
+    - 5 minor findings.
+    - 04d6572 = WIP of the fix pass, stopped part-way. It holds edits to fce_standings.cpp/.h and app.h; unbuilt. Check them first.
+    - Next:
+      1. Close the two majors: refuse writes when the DataManager is back-pointer only; add a sim_busy gate, a kill switch (live_standings_write_off.txt) and snapshot+undo for edit_result / swap / set_fixture_teams. Alternatively, ship the views read-only.
+      2. Run check_all.
+      3. Run the 1-minute in-game test (turbo_output\STANDINGS_FCE_FIX.txt section 5).
+  - **2.2/channel-e** writes your tactic into the live record: build-up, defensive depth, role/focus. It has gates, read-back, undo, a DB mirror and a kill switch; formation changes are refused.
+    - 2aeeaca = WIP of the implementation, stopped part-way at 23:23. Unbuilt, unreviewed, no IMPL report.
+    - New files: core/team_sheet.{h,cpp}, win/team_sheet_win.{h,cpp}, ui/ui_live_tactic.{h,cpp}, tests/native/test_team_sheet.h.
+    - Edits: bridge.lua/.cpp/.h, sigscan, tactics_status.h, app, ui_tactics, overlay_dx12, build_win.sh, run_native.sh, test_main.cpp, test_tactics_phase0.h, t07_bridge.lua.
+    - Next:
+      1. Finish it per TACTICS_CHANNEL_E_REPORT section 4.
+      2. Run check_all.
+      3. Adversarial review plus fix.
+      4. Run the 2-minute acceptance test (section 5) on LTEST.
+  - **Cassio APPROVED the 2-minute acceptance test at 23:17** ("go ahead with the 2-minute acceptance test"). It did not run only because the channel E code was unfinished.
+    - Run both tests in ONE game start:
+      1. Merge both branches into a throwaway test branch and build it.
+      2. Deploy with scripts/deploy.sh, game closed.
+      3. Desktop LaunchFC27.lnk, then load LTEST and run both tests.
+      4. Screenshot into turbo_dev\evidence\<date>\.
+      5. taskkill the game; never save.
+      6. Redeploy 2.1.0, or the 2.2 release if both pass.
+    - Keep tests short (memory feedback-short-tests).
+  - The workflow that built them: turbo_output\WF_turbo_2_2_channel_e.js (Build / Review / Fix per track; reuse its prompts). Agent transcripts: C:\Users\cmode\.claude\projects\C--FC-27-Live-Editor\57b7ad75-ada0-4ecd-bc1d-2cfc3c2d3271\subagents\workflows\wf_0c9f7008-a5e\.
+- This update also repairs two paths that an older edit had turned into control characters (turbo_output\turbo_gui.log, turbo_dev\evidence\2026-10-11).
+
+## 00a. Update 2026-10-11 22:10 - Turbo 2.1.0 RELEASED (read first)
+- turbo-2.0 = 557a2ae, tag v2.1.0, GitHub release with FC27_LE_Turbo_2.1.0.zip (sha256 f059032c...), installed on Cassio's PC. Contents and verified/untested list: CHANGELOG 2.1.0 and the release notes; evidence turbo_dev\evidence\2026-10-11\ (CHECK_21.md, 21xx/22xx screenshots).
 - Merged branches (history-clean): 2.0/rc (rewritten), 2.1/ux, 2.1/overall, 2.1/parity, 2.1/testinfra, 2.0/asset-catalog (+ wp branches), 2.1/lang-detect, 2.1/integration, 2.1/assemble. Every OTHER 2.0/* branch is on old shas: rewrite before any merge (section 0).
 - Builds: turbogui/scripts/parallel_compile.sh (build ~30 s, native ~2 min, check_all ~3 min incl. the 5 asset catalog runners).
 - Open: tactics A/B verdict for channel A and channels B/C/E (TACTICS_REPORT D); hidden head render after apply (not checked in game); gear writes / overall follow / parity / tactics badges not checked in game; All callnames list squeezed (UI tests need the small height); stale worktrees cleanup; languages Q2-Q6 (LANGUAGE_STRUCTURE_AUDIT 9; Q1 answered by detection: eng_us).
@@ -11,9 +48,9 @@ Last updated: 2026-10-11 16:10 ET by the orchestrator session (Claude Fable 5.1)
 - 22:40 tactics phase: channel A (per-side GAMEPLAY_CUSTOMIZATION game variables) DOES NOT WORK in a played match (stored + read back ok, ignored by the match; turbo_output\TACTICS_CHANNEL_A_REPORT.txt VERDICT). Channel E (the live team-sheet record of your club) is LOCATED read-only on 6AC07E31 (turbo_output\TACTICS_CHANNEL_E_REPORT.txt: service, sheet, active tactic record, role/focus encoding, SetSheet; the match copies it at setup). 2.2 implementation runs on branches 2.2/channel-e and 2.2/standings (workflow turbo-2-2-channel-e): code + offline tests, then the 2-minute acceptance test in game. Live standings/fixtures are broken on 6AC07E31 (FCE vtable check) - 2.2/standings.
 
 ## 0. Update 2026-10-11 19:45 (Handover-resume session) - read first
-- **The crash Cassio reported is fixed and RELEASED as 2.0.4** (tag v2.0.4, GitHub release with FC27_LE_Turbo_2.0.4.zip, sha256 76e9d986...; installed in C:\FC 27 Live Editor). Cause: match load reads a missing PlayerStatusManager entry (`FC27.exe+0x7FCE520`, same as 10-05 `+0x7FCCDF0`) for three Turbo-created / DB-linked Leicester players 78106, 279128, 279987. 2.0.3's guard ran before Turbo.dll's signature scan finished and gave up; 2.0.4 adds a memory fallback, a retry on every event while players are missing, and runs on the first events. Verified: LEICESTER loaded (not saved) -> "added for 3 of 3" -> match loaded. Report: turbo_output\CRASH_20261011_REPORT.txt; evidence turbo_dev\evidence6-10-11\RUNBOOK.md.
+- **The crash Cassio reported is fixed and RELEASED as 2.0.4** (tag v2.0.4, GitHub release with FC27_LE_Turbo_2.0.4.zip, sha256 76e9d986...; installed in C:\FC 27 Live Editor). Cause: match load reads a missing PlayerStatusManager entry (`FC27.exe+0x7FCE520`, same as 10-05 `+0x7FCCDF0`) for three Turbo-created / DB-linked Leicester players 78106, 279128, 279987. 2.0.3's guard ran before Turbo.dll's signature scan finished and gave up; 2.0.4 adds a memory fallback, a retry on every event while players are missing, and runs on the first events. Verified: LEICESTER loaded (not saved) -> "added for 3 of 3" -> match loaded. Report: turbo_output\CRASH_20261011_REPORT.txt; evidence turbo_dev\evidence\2026-10-11\RUNBOOK.md.
 - **History rewritten before the push:** turbo-2.0 = 92a226a on origin (masters removed from 0931203..; backup ref backup/turbo-2.0-pre-rewrite = old 266ce68). EVERY other 2.0/* branch still has the OLD shas: before merging one into turbo-2.0, run the same filter on it (`FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch -f --index-filter 'git rm -r --cached --ignore-unmatch -q turbo/package/turbo/callnames/masters' -- 0931203..<branch>`; deterministic, shared commits map to the same new shas), delete refs/original, check `git log <branch> -- turbo/package/turbo/callnames/masters` is empty.
-- Saves: TORINO / LB / LEICESTER untouched (md5 2ded2b76 / c45b2b12 / 1e78df22); LTEST (19:14) is a throwaway copy of LEICESTER with the 3 entries. Backups turbo_devackups61011-1851-precrashfix.
+- Saves: TORINO / LB / LEICESTER untouched (md5 2ded2b76 / c45b2b12 / 1e78df22); LTEST (19:14) is a throwaway copy of LEICESTER with the 3 entries. Backups turbo_dev\backups\20261011-1851-precrashfix.
 - In flight at 19:45: lean tracks (wt-tactics0, wt-rc, wt-arrivals, wt-lang-it; reports TACTICS_PHASE0_REPORT / ARRIVALS_GUARD_REPORT / LANG_IT_REPORT in turbo_output), asset catalog research (turbo_output\ASSET_CATALOG_DESIGN.md: Cassio wants every game asset - callnames, 3D heads, hair, gear, minifaces - mapped from the game files incl. players no longer in the DB). wt-guard (2.0/guard-hardening) is superseded by 266ce68/92a226a: delete it.
 - Cassio's rules added today: tests must be SHORT (prove the one pass/fail point, screenshot, kill the game); finish fast, agents in parallel.
 
@@ -80,20 +117,43 @@ ORCHESTRATOR_BRIEF_20261011.md · OVR1_BISECT.txt/.json · STEP2_DRAFT_B.txt · 
 ## 9. Game window (planned 16:30-18:15 ET 2026-10-11; NOT run by the orchestrator session)
 Plan: `turbo_dev\evidence\2026-10-11\RUNBOOK.md` (backups, install 2.0.3, TORINO read-only diag, TTEST copy, day-advance probe, repair trial on one player, A/B arms for channel A, TORINO repair under the consent of 14:30). Results, screenshots and the timestamped log go to that folder. Cassio's confirmation of 14:30 covers exactly: the repair on TORINO after a clean TTEST trial that holds past a day advance.
 
-## 10. Open items, in order
-0. **URGENT (Cassio, 2026-10-11 16:10): the game has been crashing and he cannot play. Diagnose and fix FIRST.** Start read-only: Logs\live_editor_<date>.log and turbo_output	urbo_gui.log around each crash, Windows crash dumps / Event Viewer for FC27.exe, which build is installed (the 2026-10-09 one), which career was loaded. Compare with the known match-load crash (memory fc27-match-load-crash) and the 1.2.5 match crash guard (missing PlayerStatusManager entries). Test the suspects by kill-switch files in turbo_output (hook_*_off.txt, call_*_off.txt, turbo_dev_disable.txt), one at a time, with Cassio's saves backed up first; if Turbo is the cause, a clean 2.0.3 install or disabling the offending hook is the fix.
-1. Finish the branch work left running (section 5): commit the dirty worktrees, finish the rc merges, fix the two resize majors, merge rc into turbo-2.0, full suites.
-2. Run the game window per the RUNBOOK (needs Cassio's PC time; the game must be closed by him first).
-3. Masters history rewrite, push turbo-2.0, release 2.0.3 only with played-match evidence for what the notes call working (everything else "untested", default off).
-4. Close the database fallback for arrivals at the user's club (core/moves.lua: 2.0.2 falls back to raw table writes when the GUI natives are absent) and warn on preset imports onto plan-less user-club players (STEP2_DRAFT_B 6.d).
-5. Priority 3 (languages): follow LANGUAGE_STRUCTURE_AUDIT.txt, Italian first.
-6. Tactics: channel A verdict from the A/B; then Phase 1/2 per TACTICS_REPORT.txt section D. UX leftovers: label-left pass on the remaining tabs (UX_FILTERS_REPORT not-done list), per-table row height, 3D renders not auto-started.
-7. Repo hygiene: stale worktrees under `FC27-Editor-Turbo\.claude\worktrees` and `turbo_dev\wt-*` (approved in principle; not done).
+## 10. Open items, in order (2026-10-11 23:35)
+0. **2.2:** finish 2.2/channel-e and 2.2/standings (section 00), then the combined in-game acceptance test (approved by Cassio 23:17), then release 2.2 (CHANGELOG, version, zip, GitHub release; masters stay local).
+1. **2.1 features not checked in game:**
+   - the hidden head drawn in a match after apply;
+   - gear writes;
+   - overall follow;
+   - FC 26 parity views;
+   - tactics badges.
+2. **UI:** All callnames list squeezed to about 2 rows. The UI tests need the small height, so the fix needs a test-window change.
+3. **Match sliders:** channel B (the slider block) is the next candidate now that channel A is disproven (TACTICS_REPORT D).
+4. **OVR-1 repair on TORINO:** Cassio's 14:30 conditional yes covers it only after a clean trial on a copy.
+5. **Languages:** Q2-Q6 (LANGUAGE_STRUCTURE_AUDIT 9). Q1 is answered by runtime detection: eng_us.
+6. **Repo hygiene:**
+   - stale worktrees: turbo_dev\2.0\wt-* and a-..h-, turbo_dev\wt-*, FC27-Editor-Turbo\.claude\worktrees;
+   - every 2.0/* branch except the merged ones is on old shas: masters rewrite before any merge.
+7. **Game driving:** the Windows "TextInputHost" full-screen overlay can steal the game's focus. Cassio declined computer-use access to it. Fix: Stop-Process TextInputHost (it restarts), then SetForegroundWindow(FC27).
 
 ## 11. Prompt for the next LLM (copy this as the first message)
 ```
-You are continuing the FC 27 Turbo project for the user Cassio. Read docs/HANDOVER.md in the repo first (branch turbo-2.0, worktree C:\FC 27 Live Editor\turbo_dev\2.0\integration), then the memory notes in C:\Users\cmode\.claude\projects\C--FC-27-Live-Editor\memory\ (MEMORY.md index), then turbo_output\ORCHESTRATOR_BRIEF_20261011.md, turbo_output\STEP2_REPORT.txt and turbo_dev\evidence\2026-10-11\RUNBOOK.md.
-Rules: never send Escape to the game; back up every save before any game write; the user's careers are TORINO, LEICESTER and LB - write to none of them without Cassio's explicit confirmation in chat (his 2026-10-11 14:30 confirmation covers only the OVR-1 repair on TORINO after a clean trial on a copy); TB and turbo04 exist only in backups; Live Editor's DLL and launcher are off limits; the callname masters never leave the PC (history rewrite before any push); claims by older sessions are not verification.
-FIRST TASK: Cassio reports the game has been crashing and he cannot play (2026-10-11 16:10). Diagnose from the logs and crash dumps and fix it before anything else (HANDOVER section 10 item 0).
-State: turbo-2.0 holds 2.0.3 (suites green, not installed, not released). Several agent worktrees under turbo_dev\2.0 hold UNCOMMITTED work left by agents when the previous session ran out of budget (HANDOVER section 5): inspect, finish and commit them before anything else, then finish the 2.0/rc merges. Then, when Cassio gives you the PC with the game closed, run the RUNBOOK (install 2.0.3, TORINO read-only diag, TTEST trial, A/B matches). Report in files under turbo_output and turbo_dev\evidence\2026-10-11, update this handover (section 9 and a fresh section 11), commit with the Co-Authored-By trailer.
+You are continuing the FC 27 Turbo project for the user Cassio. Read docs/HANDOVER.md first (branch turbo-2.0, worktree C:\FC 27 Live Editor\turbo_dev\2.0\integration), section 00 then section 10, then the memory notes in C:\Users\cmode\.claude\projects\C--FC-27-Live-Editor\memory\ (MEMORY.md index).
+State: Turbo 2.1.0 is released and installed; the game is closed; the saves TORINO / LB / LEICESTER are untouched (LTEST is a throwaway copy of LEICESTER for tests).
+Rules:
+- Never send Escape to the game.
+- Back up every save before any game run.
+- Write to none of TORINO / LB / LEICESTER without Cassio's explicit confirmation in chat; test on LTEST and never save it.
+- Live Editor's own DLL and launcher are off limits.
+- The callname masters never leave the PC.
+- Keep in-game tests short: prove the pass/fail point, screenshot, kill the game.
+- Claims by older sessions are not verification.
+FIRST TASK: finish Turbo 2.2 on the local branches 2.2/channel-e (2aeeaca, WIP: live tactic write into the team-sheet record, per turbo_output\TACTICS_CHANNEL_E_REPORT.txt section 4) and 2.2/standings (04d6572, WIP: close the two major findings in turbo_output\STANDINGS_REVIEW_20261011.txt). For each branch:
+1. Run check_all green (bash scripts/msys.sh "bash scripts/check_all.sh").
+2. Get an adversarial review, then fix.
+Then run the combined in-game acceptance test, which Cassio already approved:
+1. Merge both branches into a test branch and build it.
+2. Deploy with scripts/deploy.sh, with the game closed.
+3. Load LTEST.
+4. Run TACTICS_CHANNEL_E_REPORT section 5 and STANDINGS_FCE_FIX section 5.
+5. Take screenshots, then kill the game.
+If both pass, release 2.2 (you push and publish; see memory feedback-publish-always and turbo-2-1-state). Report in turbo_output and turbo_dev\evidence\<date>, update this handover (section 00, a fresh section 11), and commit with the Co-Authored-By trailer.
 ```
