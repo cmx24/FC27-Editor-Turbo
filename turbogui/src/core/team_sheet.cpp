@@ -120,6 +120,15 @@ std::string Switches::blocking() const {
     return "";
 }
 
+std::string Switches::mirror_block() const {
+    const char* f = master ? master_switch_file() : off ? kill_switch_file() : db_off ? db_off_file() : mirror_off ? mirror_off_file() : nullptr;
+    if (f) return std::string("kill switch turbo_output\\") + f + " is present";
+    if (!mirror_on)
+        return std::string("off until turbo_output\\") + mirror_on_file() +
+               " exists (opt-in in 2.2: your in-game save writes the live tactic into the career database anyway)";
+    return "";
+}
+
 Switches read_switches(const fs::path& out) {
     Switches s;
     s.opt_in = file_exists(out / opt_in_file());
@@ -128,6 +137,7 @@ Switches read_switches(const fs::path& out) {
     s.find_off = file_exists(out / find_off_file());
     s.mirror_off = file_exists(out / mirror_off_file());
     s.db_off = file_exists(out / db_off_file());
+    s.mirror_on = file_exists(out / mirror_on_file());
     return s;
 }
 
@@ -416,20 +426,26 @@ std::string read_live(Memory& mem, uint64_t svc, int user, const Anchors& a, Liv
 }
 
 // ------------------------------------------------------------------------------------------------ G5
-int32_t active_sheet_id(Memory& mem, const Located& at, int32_t mode) {
+bool active_sheet_id(Memory& mem, const Located& at, int32_t mode, int32_t& id) {
+    id = -1;
     for (int i = 0; i < at.sheets; ++i) {
         const uint64_t e = at.vec_begin + kSheetStride * uint64_t(i);
-        int32_t m = 0, id = 0;
+        int32_t m = 0, sid = 0;
         uint8_t cur = 0;
-        if (!mem.rd(e + kSheetMode, m) || !mem.rd(e + kSheetCurrent, cur) || !mem.rd(e + kSheetId, id)) return -1;
-        if (m == mode && cur != 0) return id;
+        if (!mem.rd(e + kSheetMode, m) || !mem.rd(e + kSheetCurrent, cur) || !mem.rd(e + kSheetId, sid)) return false;
+        if (m == mode && cur != 0) {
+            id = sid;
+            return true;
+        }
     }
-    return -1;
+    return true;
 }
 
 std::string check_g5(Memory& mem, const LiveTactic& lt) {
     if (lt.mode == -1) return "";
-    const int32_t active = active_sheet_id(mem, lt.at, lt.mode);
+    int32_t active = -1;
+    if (!active_sheet_id(mem, lt.at, lt.mode, active))
+        return "GetActiveSheetId's loop could not read the club's sheets (mode " + std::to_string(lt.mode) + "): refused";
     if (lt.sheet_id != active) return "";
     return "SetSheet would run its propagation step (vf 0xF8) for this sheet (mode " + std::to_string(lt.mode) + ", sheet " + std::to_string(lt.sheet_id) +
            " is the active one): refused until vf 0xF8 is traced";
@@ -481,7 +497,121 @@ static void fill_identity(const LiveTactic& now, Plan& out) {
     for (int s = 0; s < kSlots; ++s) out.pids[size_t(s)] = now.slots[size_t(s)].pid;
 }
 
-std::string make_plan(const LiveTactic& now, const Request& req, Plan& out) {
+// ------------------------------------------------------------------------------------------------ the role allow-list
+std::vector<int> RoleAllowList::role_ids(int group) const {
+    std::set<int> r;
+    for (int32_t w : words)
+        if (role_group(w) == group) r.insert(role_id_of(w));
+    return std::vector<int>(r.begin(), r.end());
+}
+
+std::vector<int> RoleAllowList::focuses(int group, int role_id) const {
+    std::set<int> r;
+    for (int32_t w : words)
+        if (role_group(w) == group && role_id_of(w) == role_id) r.insert(focus_of(w));
+    return std::vector<int>(r.begin(), r.end());
+}
+
+std::string RoleAllowList::summary() const { return std::to_string(words.size()) + " triples from " + std::to_string(teams) + " teams"; }
+
+// One club's sheets (its own page cache): false when they do not look like sheets (the club is skipped)
+static bool allow_team(Memory& mem, int32_t key, uint64_t begin, uint64_t end, RoleAllowList& out) {
+    if (begin == 0 && end == 0) return true;  // a club without a sheet
+    if (!is_ptr(begin, 8) || end < begin || (end - begin) % kSheetStride != 0) return false;
+    const int n = int((end - begin) / kSheetStride);
+    if (n < 1 || n > kMaxSheets) return false;
+    std::set<int32_t> words;
+    int sheets = 0, records = 0, slots = 0;
+    for (int i = 0; i < n; ++i) {
+        const uint64_t e = begin + kSheetStride * uint64_t(i);
+        int32_t team = 0, count = 0;
+        uint64_t rb = 0, re = 0;
+        if (!mem.rd(e + kSheetTeam, team) || !mem.rd(e + kSheetSlotCount, count) || !mem.rd(e + kSheetRecBegin, rb) || !mem.rd(e + kSheetRecEnd, re)) return false;
+        if (team != key || count != kSlots || !is_ptr(rb, 8) || re < rb || (re - rb) % kRecStride != 0) return false;
+        const int nr = int((re - rb) / kRecStride);
+        if (nr < 1 || nr > kMaxRecords) return false;
+        ++sheets;
+        for (int k = 0; k < nr; ++k) {
+            const uint64_t r = rb + kRecStride * uint64_t(k);
+            int32_t src = 0;
+            uint64_t sb = 0, se = 0;
+            if (!mem.rd(r + kRecSourceFormation, src) || !mem.rd(r + kRecSlotBegin, sb) || !mem.rd(r + kRecSlotEnd, se)) return false;
+            if (src <= 0) continue;  // an empty template record
+            if (!is_ptr(sb, 8) || se < sb || se - sb != kSlotStride * kSlots) return false;
+            ++records;
+            for (int sl = 0; sl < kSlots; ++sl) {
+                const uint64_t a = sb + kSlotStride * uint64_t(sl);
+                int32_t pid = 0, w = 0, rid = 0, foc = 0;
+                if (!mem.rd(a + kSlotPid, pid) || !mem.rd(a + kSlotRole, w) || !mem.rd(a + kSlotRoleId, rid) || !mem.rd(a + kSlotFocus, foc)) return false;
+                if (pid <= 0 || !role_word_plain(w) || role_group(w) < 1 || w > kRoleWordMax || role_id_of(w) != rid || focus_of(w) != foc) continue;
+                words.insert(w);
+                ++slots;
+            }
+        }
+    }
+    out.words.insert(words.begin(), words.end());
+    out.sheets += sheets;
+    out.records += records;
+    out.slots += slots;
+    return true;
+}
+
+RoleAllowList build_role_allow_list(Memory& game, uint64_t svc, const Anchors& a, int exclude_team, const std::function<double()>& clock_us) {
+    RoleAllowList out;
+    ServiceHeader h;
+    std::string why = check_service(game, svc, a, &h);
+    if (!why.empty()) {
+        out.why = why;
+        return out;
+    }
+    std::vector<uint8_t> barr;
+    if (!game.read_block(h.buckets, size_t(h.bucket_count) * 8, barr)) {
+        out.why = "the bucket array " + hex(h.buckets) + " is not readable";
+        return out;
+    }
+    const double t0 = clock_us ? clock_us() : 0.0;
+    int nodes = 0;
+    for (uint32_t b = 0; b < h.bucket_count; ++b) {
+        uint64_t node = 0;
+        std::memcpy(&node, barr.data() + 8 * size_t(b), 8);
+        int hops = 0;
+        while (node) {
+            if (clock_us && clock_us() - t0 > kAllowBudgetUs) {
+                out.why = "the walk ran out of time after " + std::to_string(nodes) + " nodes";
+                return out;
+            }
+            if (++nodes > kAllowMaxNodes || uint64_t(nodes) > uint64_t(h.node_count)) {
+                out.why = "more map nodes than the service's count (" + std::to_string(h.node_count) + "): the map changed during the walk?";
+                return out;
+            }
+            if (!is_ptr(node, 8) || ++hops > kMaxHops) {
+                out.why = "bucket " + std::to_string(b) + " has a bad node chain";
+                return out;
+            }
+            PageCache pc(game);  // one club's node, sheets, records and slots
+            int32_t key = 0;
+            uint64_t begin = 0, end = 0, next = 0;
+            if (!pc.rd(node + kNodeKey, key) || !pc.rd(node + kNodeBegin, begin) || !pc.rd(node + kNodeEnd, end) || !pc.rd(node + kNodeNext, next)) {
+                out.why = "node " + hex(node) + " is not readable";
+                return out;
+            }
+            if (key != exclude_team) {  // your own club is left out: its sheet may hold values Turbo wrote
+                ++out.teams;
+                if (!allow_team(pc, key, begin, end, out)) ++out.skipped;
+            }
+            node = next;
+        }
+    }
+    if (out.words.empty()) {
+        out.why = "no role word found in " + std::to_string(out.teams) + " teams";
+        return out;
+    }
+    out.ok = true;
+    return out;
+}
+
+// ------------------------------------------------------------------------------------------------ plans
+std::string make_plan(const LiveTactic& now, const Request& req, Plan& out, const RoleAllowList* allow) {
     out = Plan();
     if (req.preset) return "the tactical preset is not written in 2.2 (preset ids are not decoded: TACTICS_CHANNEL_E_REPORT.txt section 3)";
     if (req.formation) return "the formation is not written in 2.2 (needs the formations row copied into all 11 slots: 2.3)";
@@ -508,10 +638,99 @@ std::string make_plan(const LiveTactic& now, const Request& req, Plan& out) {
                    " (the save could not store it)";
         if (role_group(word) != v.group()) return "slot " + std::to_string(c.slot) + ": the position group would change";
         if (word == v.role) continue;
+        if (!allow || !allow->ok)
+            return "slot " + std::to_string(c.slot) + ": role and focus are not editable: the role allow-list is not built" +
+                   (allow && !allow->why.empty() ? " (" + allow->why + ")" : std::string());
+        if (!allow->has(word))
+            return "slot " + std::to_string(c.slot) + ": group " + std::to_string(v.group()) + " / role " + std::to_string(rid) + " / focus " +
+                   std::to_string(foc) + " was never seen in the game's own sheets (role allow-list): not written";
         // the three role values together (report 4.4 step 3)
         out.writes.push_back({FieldKind::Role, c.slot, v.role, word});
         out.writes.push_back({FieldKind::RoleId, c.slot, v.role_id, rid});
         out.writes.push_back({FieldKind::Focus, c.slot, v.focus, foc});
+    }
+    return "";
+}
+
+// ------------------------------------------------------------------------------------------------ the history and the plan check
+static std::string field_label(const FieldWrite& w) {
+    return std::string(field_name(w.kind)) + (w.slot >= 0 ? " of slot " + std::to_string(w.slot) : std::string());
+}
+
+void WriteHistory::note(const Plan& p) {
+    if (p.undo) return;
+    if (p.user != user || p.record_index != record_index || p.load_gen != load_gen) {
+        original.clear();
+        user = p.user;
+        record_index = p.record_index;
+        load_gen = p.load_gen;
+    }
+    for (const FieldWrite& w : p.writes) original.emplace(std::make_pair(int(w.kind), w.slot), w.old_value);  // the first write's value stays
+}
+
+std::string WriteHistory::check_undo(const Plan& p) const {
+    if (original.empty() || p.user != user || p.record_index != record_index || p.load_gen != load_gen)
+        return "Turbo has written nothing into this record in this career load (since Turbo started): nothing to put back";
+    for (const FieldWrite& w : p.writes) {
+        auto it = original.find(std::make_pair(int(w.kind), w.slot));
+        if (it == original.end()) return field_label(w) + " was not written by Turbo in this career load: not put back";
+        if (it->second != w.new_value)
+            return field_label(w) + ": the undo would write " + std::to_string(w.new_value) + ", but the game held " + std::to_string(it->second) +
+                   " before Turbo's first write: not put back";
+    }
+    return "";
+}
+
+std::string check_plan(const LiveTactic& now, const Plan& plan, const JobChecks& chk) {
+    std::set<std::pair<int, int>> seen;
+    std::map<int, std::array<const FieldWrite*, 3>> slots;
+    for (const FieldWrite& w : plan.writes) {
+        const std::string f = field_label(w);
+        if (!seen.insert(std::make_pair(int(w.kind), w.slot)).second) return f + " is in the plan twice";
+        switch (w.kind) {
+            case FieldKind::Depth:
+                if (w.slot != -1) return f + ": not a slot field";
+                if (w.new_value < kDepthMin || w.new_value > kDepthMax) return "defensive depth " + std::to_string(w.new_value) + " is outside 1..100";
+                break;
+            case FieldKind::BuildUp:
+                if (w.slot != -1) return f + ": not a slot field";
+                if (w.new_value < kBuildUpMin || w.new_value > kBuildUpMax) return "build-up " + std::to_string(w.new_value) + " is outside 0..3";
+                break;
+            case FieldKind::Role:
+            case FieldKind::RoleId:
+            case FieldKind::Focus: {
+                if (w.slot < 0 || w.slot >= kSlots) return f + ": the slot is outside 0..10";
+                auto& t = slots[w.slot];  // value-initialised: three nullptrs
+                t[w.kind == FieldKind::Role ? 0 : w.kind == FieldKind::RoleId ? 1 : 2] = &w;
+                break;
+            }
+        }
+    }
+    for (const auto& kv : slots) {
+        const int s = kv.first;
+        const auto& t = kv.second;
+        const std::string sl = "slot " + std::to_string(s);
+        if (!t[0] || !t[1] || !t[2]) return sl + ": the role word, role id and focus are written together or not at all";
+        const SlotView& v = now.slots[size_t(s)];
+        const int32_t word = t[0]->new_value;
+        const int rid = t[1]->new_value, foc = t[2]->new_value;
+        if (rid < 0 || rid > kRoleIdMax) return sl + ": role id " + std::to_string(rid) + " is outside 0..63";
+        if (foc < 0 || foc > kFocusMax) return sl + ": focus " + std::to_string(foc) + " is outside 0..7";
+        if (!role_word_plain(word) || word > kRoleWordMax) return sl + ": role word " + std::to_string(word) + " is not a plain word up to 60000";
+        if (role_group(word) != v.group())
+            return sl + ": the position group would change (" + std::to_string(v.group()) + " -> " + std::to_string(role_group(word)) + ")";
+        if (word != role_word(v.group(), rid, foc))
+            return sl + ": role word " + std::to_string(word) + " is not group " + std::to_string(v.group()) + " / role " + std::to_string(rid) + " / focus " +
+                   std::to_string(foc);
+        if (!plan.undo) {
+            if (!chk.allow || !chk.allow->ok) return sl + ": role and focus are not written without the role allow-list";
+            if (!chk.allow->has(word)) return sl + ": role word " + std::to_string(word) + " was never seen in the game's own sheets (role allow-list)";
+        }
+    }
+    if (plan.undo) {
+        if (!chk.history) return "an undo writes only values Turbo read from the game before its write (none known)";
+        const std::string w = chk.history->check_undo(plan);
+        if (!w.empty()) return w;
     }
     return "";
 }
@@ -533,7 +752,7 @@ std::string describe_writes(int user, int record_index, const std::vector<FieldW
 }
 
 // ------------------------------------------------------------------------------------------------ the write
-ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan& plan) {
+ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan& plan, const JobChecks& chk) {
     ApplyResult r;
     r.undo = plan.undo;
     // every read of the game is counted; the walks go through whole pages (one read per 4 KB), the writes, the read-back and the restore
@@ -573,6 +792,9 @@ ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan&
             r.reads = mem.reads;
             return r;
         }
+        // the plan on its own (ranges, the slot's three values together, the group, the allow-list; an undo's values in the history)
+        why = check_plan(now, plan, chk);
+        if (!why.empty()) return fail("G6", why + ": nothing written");
         // 2. snapshot (the old values, as they are in memory now)
         struct Snap {
             uint64_t addr;
@@ -590,6 +812,7 @@ ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan&
         }
         const uint64_t dirty_addr = now.at.sheet + kSheetDirty;
         if (!mem.rd(dirty_addr, r.dirty_before)) return fail("snapshot", "the dirty flag is not readable: nothing written");
+        if (chk.cancel && chk.cancel->load()) return fail("cancelled", "the job was given up: nothing written");
         // 3. write; then the dirty flag as UpdateSheet does
         bool write_failed = false;
         for (const FieldWrite& w : plan.writes)
@@ -744,6 +967,11 @@ bool UndoRecord::parse(const std::string& text, UndoRecord& out, std::string* er
                     return false;
                 }
                 w.slot = x.value("slot", -1);
+                const bool slot_field = w.kind == FieldKind::Role || w.kind == FieldKind::RoleId || w.kind == FieldKind::Focus;
+                if (slot_field ? (w.slot < 0 || w.slot >= kSlots) : w.slot != -1) {
+                    if (err) *err = std::string("the undo file names ") + field_name(w.kind) + " with slot " + std::to_string(w.slot);
+                    return false;
+                }
                 w.old_value = x.value("old", 0);
                 w.new_value = x.value("new", 0);
                 u.writes.push_back(w);
@@ -815,10 +1043,20 @@ static int32_t current_of(const LiveTactic& now, const FieldWrite& w) {
     return INT32_MIN;
 }
 
-std::string make_undo_plan(const LiveTactic& now, const UndoRecord& u, Plan& out, std::vector<std::string>& skipped) {
+std::string same_career(const UndoRecord& u, const std::string& session, long long load_gen) {
+    if (u.session == session && u.load_gen == load_gen) return "";
+    return "the undo file is from another career load (written " + (u.when.empty() ? std::string("?") : u.when) + ", load " + std::to_string(u.load_gen) +
+           (u.session != session ? " of another Lua session" : "") + "; this is load " + std::to_string(load_gen) +
+           "): the reload threw Turbo's in-memory change away (only an in-game save would have kept it); nothing put back";
+}
+
+std::string make_undo_plan(const LiveTactic& now, const UndoRecord& u, const std::string& session, long long load_gen, Plan& out,
+                           std::vector<std::string>& skipped) {
     out = Plan();
     skipped.clear();
     if (u.writes.empty()) return "the undo file holds no field Turbo wrote";
+    const std::string sc = same_career(u, session, load_gen);
+    if (!sc.empty()) return sc;
     if (u.team != now.at.user) return "the undo file is for club " + std::to_string(u.team) + ", the live tactic is club " + std::to_string(now.at.user) + "'s";
     if (u.record_index != now.at.record_index || u.formation != now.formation || u.source_formation != now.source_formation || u.sheet_id != now.sheet_id)
         return "the active tactic is not the one Turbo wrote (record " + std::to_string(now.at.record_index) + ", formation " + std::to_string(now.formation) +
@@ -827,6 +1065,7 @@ std::string make_undo_plan(const LiveTactic& now, const UndoRecord& u, Plan& out
         if (now.slots[size_t(s)].pid != u.pids[size_t(s)]) return "slot " + std::to_string(s) + " holds another player now: nothing put back";
     fill_identity(now, out);
     out.undo = true;
+    out.load_gen = load_gen;
     // per slot: all three role values hold Turbo's values, or none is put back
     std::set<int> slot_ok, slot_bad;
     for (const FieldWrite& w : u.writes)
@@ -859,6 +1098,7 @@ bool same_record(const UndoRecord& u, const LiveTactic& now) {
 }
 
 UndoRecord merge_undo(const UndoRecord& prev, const UndoRecord& next) {
+    if (prev.session != next.session || prev.load_gen != next.load_gen) return next;  // another career load: its change is gone anyway
     if (prev.team != next.team || prev.record_index != next.record_index || prev.formation != next.formation ||
         prev.source_formation != next.source_formation || prev.sheet_id != next.sheet_id || prev.pids != next.pids)
         return next;
@@ -906,6 +1146,52 @@ std::vector<std::string> reverted(const LiveTactic& now, const UndoRecord& u) {
                           std::to_string(w.new_value) + " -> " + std::to_string(cur));
     }
     return out;
+}
+
+// ------------------------------------------------------------------------------------------------ the cm_mentalities mirror's checks
+std::string mirror_field_name(const FieldWrite& w) {
+    switch (w.kind) {
+        case FieldKind::BuildUp: return "buildupplay";
+        case FieldKind::Depth: return "defensivedepth";
+        case FieldKind::Role: return "pos" + std::to_string(w.slot) + "role";
+        case FieldKind::RoleId:
+        case FieldKind::Focus: return "";
+    }
+    return "";
+}
+
+std::string mirror_row_check(const std::function<bool(const std::string&, int64_t&)>& get, const LiveTactic& now, const std::vector<FieldWrite>& writes) {
+    for (int s = 0; s < kSlots; ++s) {
+        const std::string pf = "playerid" + std::to_string(s), qf = "position" + std::to_string(s);
+        int64_t pid = 0, pos = 0;
+        if (!get(pf, pid) || !get(qf, pos)) return "this save's cm_mentalities has no " + pf + " / " + qf + ": the row cannot be matched to the live slots";
+        if (pid != now.slots[size_t(s)].pid)
+            return pf + " is " + std::to_string(pid) + ", the live slot " + std::to_string(s) + " holds player " + std::to_string(now.slots[size_t(s)].pid);
+        if (pos != now.slots[size_t(s)].position)
+            return qf + " is " + std::to_string(pos) + ", the live slot " + std::to_string(s) + " is position " + std::to_string(now.slots[size_t(s)].position);
+    }
+    for (const FieldWrite& w : writes) {
+        const std::string name = mirror_field_name(w);
+        if (name.empty()) continue;
+        int64_t v = 0;
+        if (!get(name, v)) return "this save's cm_mentalities has no field " + name;
+        if (v != w.old_value)
+            return name + " is " + std::to_string(v) + " in the database, the live value before the write was " + std::to_string(w.old_value) +
+                   ": the row is not the live tactic";
+    }
+    return "";
+}
+
+std::string undo_mirror_check(const Switches& sw, const std::function<bool(const std::string&, int64_t&)>& get, const UndoRecord& u) {
+    const std::string block = sw.mirror_block();
+    if (!block.empty()) return block;
+    int64_t team = -1, active = -1, src = -1;
+    const bool ok = get("teamid", team) && get("activetactic", active) && get("sourceformationid", src);
+    if (!ok || team != u.team || active != 1 || src != u.source_formation)
+        return "row " + std::to_string(u.mirror_row_key) + " is not club " + std::to_string(u.team) + "'s active tactic with sourceformationid " +
+               std::to_string(u.source_formation) + " (teamid " + std::to_string(team) + ", activetactic " + std::to_string(active) + ", sourceformationid " +
+               std::to_string(src) + ")";
+    return "";
 }
 
 // ------------------------------------------------------------------------------------------------ the kick-off check
@@ -977,13 +1263,9 @@ Gates evaluate(const GateInput& in) {
         else if (!in.in_cm) g.why = "not in a career";
         else if (in.match_phase.empty()) g.why = "this Lua side does not report the match phase: update Turbo's Lua files";
         else if (in.match_phase == "unknown") g.why = "the match phase is not known yet (no hub, match or day event seen since Turbo started): advance a day or reload the career";
-        else if (in.match_phase == "left_prematch" && in.phase_age < 0)
-            g.why = "the pre-match screen was left and this Lua side does not say when: wait for the next hub event (update Turbo's Lua files)";
-        else if (in.match_phase == "left_prematch" && in.phase_age < kLeftPrematchQuietSeconds)
-            g.why = "the pre-match screen was left " + std::to_string(in.phase_age) + " s ago: waiting " + std::to_string(kLeftPrematchQuietSeconds) +
-                    " s for a match to start (none started: then this is the hub)";
-        else if (in.match_phase != "hub" && in.match_phase != "left_prematch")
-            g.why = "a match is being set up or played (Lua: " + in.match_phase + "); apply in the hub before the pre-match screen";
+        else if (in.match_phase != "hub")
+            g.why = "a match is being set up or played (Lua: " + in.match_phase + "); apply in the hub before the pre-match screen (after leaving the "
+                    "pre-match screen: the next hub event, e.g. a day passed or the match completed)";
         else if (in.save_age >= 0 && in.save_age < kSaveQuietSeconds) g.why = "a save started " + std::to_string(in.save_age) + " s ago: wait a moment";
         else if (in.load_gen < 0) g.why = "this Lua side does not report career loads: update Turbo's Lua files";
         else if (in.located_load_gen != in.load_gen) g.why = "the career was (re)loaded since the service was located: locating again";
@@ -993,7 +1275,7 @@ Gates evaluate(const GateInput& in) {
     gs.list.push_back({"G4 locate", in.locate});
     gs.list.push_back({"G5 no propagation", in.g5});
     gs.list.push_back({"G6 values", in.plan});
-    gs.list.push_back({"session", in.session_off});
+    gs.list.push_back({"session", in.undo ? std::string() : in.session_off});  // an undo still puts Turbo's values back
     return gs;
 }
 
@@ -1029,6 +1311,9 @@ long long CoreService::located_load_gen() {
 std::string CoreService::locate_status() {
     std::lock_guard<std::mutex> lock(mu_);
     if (svc_) return "located " + hex(svc_) + " (" + how_ + ", career load " + std::to_string(svc_gen_) + ")";
+    if (cand_svc_)
+        return "checking the object the scan found at " + hex(cand_svc_) + " again " + std::to_string(int(kScanConfirmUs / 1e6)) +
+               " s after the scan (a freed copy keeps its header for a while) ...";
     if (locating_) return "locating the team sheet service (career load " + std::to_string(locating_gen_) + ") ...";
     if (!locate_why_.empty()) return "not located: " + locate_why_;
     return "not located yet";
@@ -1039,6 +1324,8 @@ void CoreService::relocate() {
     svc_ = 0;
     svc_gen_ = -1;
     failed_gen_ = -1;  // the next read locates at once
+    cand_svc_ = 0;
+    cand_gen_ = -1;
     locate_why_.clear();
 }
 
@@ -1049,25 +1336,90 @@ std::string CoreService::session_off() {
 
 bool CoreService::busy() {
     std::lock_guard<std::mutex> lock(mu_);
-    return busy_ && !(h_.clock_us && now() - busy_since_ > kJobLostUs);
+    if (busy_ && h_.clock_us && now() - busy_since_ > kJobLostUs) {
+        if (cancel_) cancel_->store(true);  // given up: if the game thread still runs it, it writes nothing
+        return false;
+    }
+    return busy_;
+}
+
+void CoreService::note_context(const Context& ctx) {
+    cur_gen_.store(ctx.load_gen);
+    cur_hub_.store(ctx.hub);
+    std::lock_guard<std::mutex> lock(mu_);
+    if (ctx.user > 0) user_ = ctx.user;
+}
+
+std::shared_ptr<const RoleAllowList> CoreService::role_allow(long long load_gen) {
+    std::lock_guard<std::mutex> lock(mu_);
+    return allow_gen_ == load_gen ? allow_ : nullptr;
+}
+
+std::string CoreService::allow_status() {
+    std::lock_guard<std::mutex> lock(mu_);
+    if (allow_) return "role allow-list: " + allow_->summary() + " (career load " + std::to_string(allow_gen_) + ")";
+    if (allow_running_) return "building the role allow-list ...";
+    if (!allow_why_.empty()) return "role allow-list not built: " + allow_why_ + " (role and focus are not editable)";
+    return "role allow-list not built yet (the service is not located)";
+}
+
+void CoreService::start_allow(long long gen, uint64_t svc) {
+    int user = 0;
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        if (allow_gen_ == gen && (allow_ || allow_running_)) return;  // once per career load (a failed walk is tried again on the next locate)
+        allow_gen_ = gen;
+        allow_running_ = true;
+        allow_.reset();
+        allow_why_.clear();
+        user = user_;
+    }
+    const Anchors a = h_.anchors;
+    auto job = [this, gen, svc, user, a]() {
+        RoleAllowList l;
+        try {
+            l = build_role_allow_list(*h_.mem, svc, a, user, h_.clock_us);
+        } catch (const std::exception& e) {
+            l = RoleAllowList();
+            l.why = std::string("the walk failed: ") + e.what();
+        } catch (...) {
+            l = RoleAllowList();
+            l.why = "the walk failed";
+        }
+        log(l.ok ? "channel E: role allow-list: " + l.summary() + " (" + std::to_string(l.sheets) + " sheets, " + std::to_string(l.records) + " records, " +
+                       std::to_string(l.slots) + " slots; your club " + std::to_string(user) + " left out, " + std::to_string(l.skipped) + " club(s) skipped)"
+                 : "channel E: role allow-list not built: " + l.why + " (role and focus are not editable; build-up and depth are)");
+        std::lock_guard<std::mutex> lock(mu_);
+        if (gen != allow_gen_) return;
+        allow_running_ = false;
+        if (l.ok) allow_ = std::make_shared<const RoleAllowList>(std::move(l));
+        else allow_why_ = l.why;
+    };
+    if (h_.run_background) h_.run_background(job);
+    else job();
 }
 
 void CoreService::finish_locate(long long gen, uint64_t svc, const std::string& how, const std::string& why) {
-    std::lock_guard<std::mutex> lock(mu_);
-    if (gen != locating_gen_) return;  // a newer career load asked again meanwhile (its locate is still running)
-    locating_ = false;
-    if (svc) {
-        svc_ = svc;
-        svc_gen_ = gen;
-        how_ = how;
-        failed_gen_ = -1;
-        locate_why_.clear();
-    } else {
-        // not retried for this career load before kLocateRetryUs (the scan reads every private region: once per load, not every second)
-        failed_gen_ = gen;
-        failed_at_ = now();
-        locate_why_ = why;
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        if (gen != locating_gen_) return;  // a newer career load asked again meanwhile (its locate is still running)
+        locating_ = false;
+        cand_svc_ = 0;
+        cand_gen_ = -1;
+        if (svc) {
+            svc_ = svc;
+            svc_gen_ = gen;
+            how_ = how;
+            failed_gen_ = -1;
+            locate_why_.clear();
+        } else {
+            // not retried for this career load before kLocateRetryUs (the scan reads every private region: once per load, not every second)
+            failed_gen_ = gen;
+            failed_at_ = now();
+            locate_why_ = why;
+        }
     }
+    if (svc) start_allow(gen, svc);
 }
 
 void CoreService::scan_for_service(long long gen) {
@@ -1081,19 +1433,20 @@ void CoreService::scan_for_service(long long gen) {
             std::vector<uint8_t> buf;
             const double t0 = h_.clock_us ? h_.clock_us() : 0.0;
             bool timed_out = false;
+            auto add = [&](uint64_t hpos) {
+                if (hits.size() < kScanMaxHits && std::find(hits.begin(), hits.end(), hpos) == hits.end()) hits.push_back(hpos);
+            };
             for (const Region& g : regs) {
-                for (uint64_t at = g.start; at < g.end && hits.size() < 16;) {
+                for (uint64_t at = g.start; at < g.end && hits.size() < kScanMaxHits;) {
                     const size_t n = size_t(std::min<uint64_t>(chunk + 8, g.end - at));
                     if (n >= 16 && h_.mem->read_block(at, n, buf)) {
-                        for (uint64_t hpos : find_vtable_pairs(buf.data(), n, at, a.vt1, a.vt2, 16))
-                            if (std::find(hits.begin(), hits.end(), hpos) == hits.end()) hits.push_back(hpos);
+                        for (uint64_t hpos : find_vtable_pairs(buf.data(), n, at, a.vt1, a.vt2, kScanMaxHits)) add(hpos);
                     } else {
                         // an unreadable chunk: its 64 KB parts
                         for (uint64_t s = at; s < at + n && s < g.end; s += 0x10000) {
                             const size_t m = size_t(std::min<uint64_t>(0x10000 + 8, g.end - s));
                             if (m >= 16 && h_.mem->read_block(s, m, buf))
-                                for (uint64_t hpos : find_vtable_pairs(buf.data(), m, s, a.vt1, a.vt2, 16))
-                                    if (std::find(hits.begin(), hits.end(), hpos) == hits.end()) hits.push_back(hpos);
+                                for (uint64_t hpos : find_vtable_pairs(buf.data(), m, s, a.vt1, a.vt2, kScanMaxHits)) add(hpos);
                         }
                     }
                     at += chunk;
@@ -1105,13 +1458,29 @@ void CoreService::scan_for_service(long long gen) {
                 if (timed_out) break;
             }
             uint64_t svc = 0;
-            why = pick_service(*h_.mem, hits, a, svc);
-            if (timed_out && svc == 0) why += " (the scan ran out of time)";
+            // fail closed: a scan that did not see all of memory, or hit its cap, may have missed the live service among the copies
+            if (timed_out)
+                why = "the scan ran out of time (" + std::to_string(int(h_.scan_budget_s)) + " s) with " + std::to_string(hits.size()) +
+                      " vtable-pair hit(s): not located (fail closed)";
+            else if (hits.size() >= kScanMaxHits)
+                why = std::to_string(hits.size()) + " or more vtable-pair hits (the scan's cap): not located (fail closed)";
+            else
+                why = pick_service(*h_.mem, hits, a, svc);
             ++scans_;
-            log(svc ? "channel E: service located by the vtable-pair scan at " + hex(svc) + " (" + std::to_string(hits.size()) +
-                          " hit(s), the others failed the header checks)"
-                    : "channel E: service not located by the scan: " + why);
-            finish_locate(gen, svc, "vtable-pair scan", why);
+            if (svc) {
+                {
+                    std::lock_guard<std::mutex> lock(mu_);
+                    if (gen != locating_gen_) return;
+                    cand_svc_ = svc;
+                    cand_gen_ = gen;
+                    cand_at_ = now();
+                }
+                log("channel E: the vtable-pair scan picked " + hex(svc) + " (" + std::to_string(hits.size()) + " hit(s), the others failed the header checks): " +
+                    "checked again in " + std::to_string(int(kScanConfirmUs / 1e6)) + " s before it is used");
+                return;  // still "locating" until read() re-checks it
+            }
+            log("channel E: service not located by the scan: " + why);
+            finish_locate(gen, 0, "", why);
         } catch (const std::exception& e) {
             finish_locate(gen, 0, "", std::string("scan failed: ") + e.what());
         } catch (...) {
@@ -1136,24 +1505,33 @@ void CoreService::start_locate(const Context& ctx) {
         locating_ = true;
         locating_gen_ = ctx.load_gen;
         locating_since_ = t;
+        cand_svc_ = 0;
+        cand_gen_ = -1;
         locate_why_.clear();
     }
     const long long gen = ctx.load_gen;
-    // preferred: the registry's Find on the game thread (the call the match setup makes), unless switched off
+    // preferred: the registry's Find on the game thread (the call the match setup makes), only with the opt-in, in the hub, unless off
     std::string why;
     const bool find_off = !h_.out_dir.empty() && file_exists(h_.out_dir / find_off_file());
-    const uint64_t fn = (h_.call_find && !find_off && ctx.allow_find) ? registry_find_fn(*h_.mem, h_.anchors, why) : 0;
+    const uint64_t fn = (h_.call_find && !find_off && ctx.allow_find && ctx.hub) ? registry_find_fn(*h_.mem, h_.anchors, why) : 0;
     if (fn && h_.run_on_game_thread) {
         const Anchors a = h_.anchors;
-        const std::string via = h_.run_on_game_thread([this, gen, fn, a]() {
+        const double queued = now();
+        const std::string via = h_.run_on_game_thread([this, gen, fn, a, queued]() {
             uint64_t returned = 0, svc = 0;
             std::string w;
-            try {
-                ++finds_;
-                returned = h_.call_find(fn, a.registry, kServiceId);
-                w = accept_find_result(*h_.mem, returned, a, svc);
-            } catch (...) {
-                w = "the registry Find threw";
+            if (h_.clock_us && now() - queued > kJobDeadlineUs) {
+                w = "the game thread ran the Find job late";
+            } else if (!cur_hub_.load() || cur_gen_.load() != gen) {
+                w = "not in the career hub of this career load any more";  // G2 again: the UI's latest view
+            } else {
+                try {
+                    ++finds_;
+                    returned = h_.call_find(fn, a.registry, kServiceId);
+                    w = accept_find_result(*h_.mem, returned, a, svc);
+                } catch (...) {
+                    w = "the registry Find threw";
+                }
             }
             if (svc) {
                 log("channel E: service located by the registry Find at " + hex(svc) + " (Find returned " + hex(returned) + ")");
@@ -1169,6 +1547,8 @@ void CoreService::start_locate(const Context& ctx) {
         log(std::string("channel E: registry Find off (turbo_output\\") + find_off_file() + "): scanning");
     } else if (!ctx.allow_find) {
         log("channel E: registry Find not called (channel E is not switched on): locating by the read-only scan");
+    } else if (!ctx.hub) {
+        log("channel E: registry Find not called outside the career hub: locating by the read-only scan");
     } else if (!why.empty()) {
         log("channel E: registry Find not used (" + why + "): scanning");
     }
@@ -1176,6 +1556,7 @@ void CoreService::start_locate(const Context& ctx) {
 }
 
 bool CoreService::read(const Context& ctx, LiveTactic& out, std::string& why) {
+    note_context(ctx);
     why = anchors_status();
     if (!why.empty()) return false;
     if (!ctx.in_cm || ctx.user <= 0) {
@@ -1195,6 +1576,32 @@ bool CoreService::read(const Context& ctx, LiveTactic& out, std::string& why) {
             return false;
         }
     }
+    // the scan's pick, kScanConfirmUs later: located only when it still passes every header check
+    {
+        uint64_t cand = 0;
+        long long cgen = -1;
+        double at = 0.0;
+        {
+            std::lock_guard<std::mutex> lock(mu_);
+            cand = cand_svc_;
+            cgen = cand_gen_;
+            at = cand_at_;
+        }
+        if (cand && cgen == ctx.load_gen && (!h_.clock_us || now() - at >= kScanConfirmUs)) {
+            const std::string w = check_service(*h_.mem, cand, h_.anchors);
+            if (w.empty()) {
+                log("channel E: service located by the vtable-pair scan at " + hex(cand) + " (it passed its header checks again " +
+                    std::to_string(int(kScanConfirmUs / 1e6)) + " s after the scan)");
+                finish_locate(cgen, cand, "vtable-pair scan", "");
+            } else {
+                log("channel E: the object the scan picked at " + hex(cand) + " failed its header checks " + std::to_string(int(kScanConfirmUs / 1e6)) +
+                    " s later (a freed copy?): " + w);
+                finish_locate(cgen, 0, "",
+                              "the object the scan found at " + hex(cand) + " failed its header checks again " + std::to_string(int(kScanConfirmUs / 1e6)) +
+                                  " s later (a freed copy?): " + w);
+            }
+        }
+    }
     uint64_t svc = 0;
     {
         std::lock_guard<std::mutex> lock(mu_);
@@ -1205,7 +1612,9 @@ bool CoreService::read(const Context& ctx, LiveTactic& out, std::string& why) {
         std::lock_guard<std::mutex> lock(mu_);
         if (svc_ && svc_gen_ == ctx.load_gen) svc = svc_;
         else {
-            why = locating_ ? "locating the team sheet service ..." : (locate_why_.empty() ? "not located" : locate_why_);
+            why = cand_svc_ ? "checking the service the scan found again (" + std::to_string(int(kScanConfirmUs / 1e6)) + " s after the scan) ..."
+                  : locating_ ? "locating the team sheet service ..."
+                              : (locate_why_.empty() ? "not located" : locate_why_);
             return false;
         }
     }
@@ -1219,24 +1628,38 @@ bool CoreService::read(const Context& ctx, LiveTactic& out, std::string& why) {
     return why.empty();
 }
 
-bool CoreService::submit(const Context& ctx, const Plan& plan, std::string& why) {
+bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& why) {
     why.clear();
+    note_context(ctx);
     if (!h_.run_on_game_thread) {
         why = "no game-thread dispatcher";
         return false;
     }
+    Plan plan = plan_in;
+    if (plan.load_gen < 0) plan.load_gen = ctx.load_gen;
+    if (plan.load_gen != ctx.load_gen) {
+        why = "the plan was made in career load " + std::to_string(plan.load_gen) + ", this is load " + std::to_string(ctx.load_gen);
+        return false;
+    }
+    if (!ctx.hub) {
+        why = "not in the career hub (G2)";
+        return false;
+    }
     uint64_t svc = 0;
     int seq = 0;
+    std::shared_ptr<std::atomic<bool>> cancel;
+    std::shared_ptr<const RoleAllowList> allow;
     {
         std::lock_guard<std::mutex> lock(mu_);
-        if (!session_off_.empty()) {
+        if (!session_off_.empty() && !plan.undo) {
             why = "channel E is off for this session: " + session_off_;
             return false;
         }
         if (busy_) {
             if (h_.clock_us && now() - busy_since_ > kJobLostUs) {
+                if (cancel_) cancel_->store(true);
                 log("channel E: the last job did not come back in " + std::to_string(int(kJobLostUs / 1e6)) +
-                    " s (dropped by the game-thread queue?): not waited for any more (if it still runs it is late and writes nothing)");
+                    " s (dropped by the game-thread queue?): given up (cancelled: if it still runs it writes nothing)");
                 busy_ = false;
             } else {
                 why = "a channel E job is still queued or running";
@@ -1251,6 +1674,9 @@ bool CoreService::submit(const Context& ctx, const Plan& plan, std::string& why)
         busy_ = true;
         busy_since_ = now();
         seq = ++job_seq_;
+        cancel_ = std::make_shared<std::atomic<bool>>(false);
+        cancel = cancel_;
+        if (allow_gen_ == plan.load_gen) allow = allow_;
     }
     const Anchors a = h_.anchors;
     // the switch files once more right before queuing (read here, not on the game thread: no file I/O inside the job, which runs within
@@ -1261,26 +1687,89 @@ bool CoreService::submit(const Context& ctx, const Plan& plan, std::string& why)
         else if (file_exists(h_.out_dir / kill_switch_file())) switch_block = kill_switch_file();
         else if (!file_exists(h_.out_dir / opt_in_file())) switch_block = std::string("no ") + opt_in_file();
     }
-    const double queued = h_.clock_us ? h_.clock_us() : 0.0;
-    const std::string via = h_.run_on_game_thread([this, svc, a, plan, switch_block, queued, seq]() {
+    const double queued = now();
+    const uint64_t managers = ctx.managers;
+    const bool find_ok = ctx.allow_find;
+    const std::string via = h_.run_on_game_thread([this, svc, a, plan, switch_block, queued, seq, cancel, allow, managers, find_ok]() {
         ApplyResult r;
-        const double t0 = h_.clock_us ? h_.clock_us() : 0.0;
-        std::string block;
-        if (h_.clock_us && t0 - queued > kJobDeadlineUs) {
+        const double t0 = now();
+        std::string stage, block;
+        if (cancel->load()) {
+            stage = "cancelled";
+            block = "the job was given up before the game thread ran it";
+        } else if (h_.clock_us && t0 - queued > kJobDeadlineUs) {
             char b[96];
             std::snprintf(b, sizeof(b), "the game thread ran the job %.1f s after Apply", (t0 - queued) / 1e6);
+            stage = "late";
             block = b;
+        } else if (!switch_block.empty()) {
+            stage = "G1";
+            block = "turbo_output\\" + switch_block;
+        } else if (!cur_hub_.load()) {
+            stage = "G2";
+            block = "not in the career hub any more";
+        } else if (cur_gen_.load() != plan.load_gen) {
+            stage = "G2";
+            block = "the career was reloaded since Apply (load " + std::to_string(cur_gen_.load()) + ", the plan's " + std::to_string(plan.load_gen) + ")";
         } else {
-            block = switch_block;
+            std::lock_guard<std::mutex> lock(mu_);
+            if (svc_ != svc || svc_gen_ != plan.load_gen) {
+                stage = "locate";
+                block = "the located service changed since Apply";
+            }
+        }
+        // the user again, through the game's PlayerStatusManager
+        if (block.empty()) {
+            int u = 0;
+            const std::string w = user_from_psm(*h_.mem, managers, h_.psm_vtable, u);
+            if (!w.empty()) {
+                stage = "user";
+                block = "your club: " + w;
+            } else if (u != plan.user) {
+                stage = "user";
+                block = "the game's club is " + std::to_string(u) + ", the plan's " + std::to_string(plan.user);
+            }
+        }
+        // the registry hands out the same service (when it may be called)
+        if (block.empty() && find_ok && h_.call_find) {
+            std::string w;
+            const uint64_t fn = registry_find_fn(*h_.mem, a, w);
+            if (fn) {
+                ++finds_;
+                uint64_t again = 0;
+                uint64_t returned = 0;
+                try {
+                    returned = h_.call_find(fn, a.registry, kServiceId);
+                    w = accept_find_result(*h_.mem, returned, a, again);
+                } catch (...) {
+                    w = "the registry Find threw";
+                }
+                if (!w.empty() || again != svc) {
+                    stage = "locate";
+                    block = "the registry Find does not return the located service " + hex(svc) + " (" + (w.empty() ? hex(again) : w) + ")";
+                }
+            }
         }
         if (!block.empty()) {
-            const bool late = block.rfind("the game thread", 0) == 0;
-            r.stage = late ? "late" : "G1";
-            r.message = (late ? block : "turbo_output\\" + block) + ": nothing written";
-            r.log_line = "channel E: refused (" + r.stage + "): " + r.message;
+            r.stage = stage;
+            r.message = block + ": nothing written";
+            r.log_line = "channel E: " + std::string(plan.undo ? "undo " : "") + "refused (" + stage + "): " + r.message;
             r.undo = plan.undo;
         } else {
-            r = apply_plan(*h_.mem, svc, a, plan);
+            WriteHistory hist;
+            {
+                std::lock_guard<std::mutex> lock(mu_);
+                hist = history_;
+            }
+            JobChecks chk;
+            chk.allow = allow.get();
+            chk.history = &hist;
+            chk.cancel = cancel.get();
+            r = apply_plan(*h_.mem, svc, a, plan, chk);
+            if (!plan.undo && (r.written || r.undone || r.restore_failed)) {
+                std::lock_guard<std::mutex> lock(mu_);
+                history_.note(plan);
+            }
         }
         r.micros = h_.clock_us ? h_.clock_us() - t0 : 0.0;
         std::lock_guard<std::mutex> lock(mu_);
@@ -1289,6 +1778,7 @@ bool CoreService::submit(const Context& ctx, const Plan& plan, std::string& why)
         if (seq == job_seq_) busy_ = false;  // a lost job's late result leaves a newer job's wait alone
     });
     if (via.empty()) {
+        cancel->store(true);  // the dispatcher may still hold it: it must never write
         std::lock_guard<std::mutex> lock(mu_);
         if (seq == job_seq_) busy_ = false;
         why = "no game-thread dispatcher (the game_tick hook is off and Turbo's Lua side does not pump)";
@@ -1354,7 +1844,7 @@ void CoreService::kickoff_check(int user, const std::array<int32_t, kSlots>& rol
                 }
             line = "kick-off check: " + std::to_string(hits.size()) + " cop" + (hits.size() == 1 ? "y" : "ies") + " of the written role words, " +
                    std::to_string(copies) + " in the match-setup layout" + (copies ? " (" + where + "): the match uses the written roles" : "") +
-                   (timed_out ? " (scan ran out of time)" : "");
+                   (timed_out ? " (scan ran out of time)" : "") + "; depth and build-up are not checked by this";
         } catch (const std::exception& e) {
             line = std::string("kick-off check failed: ") + e.what();
         } catch (...) {

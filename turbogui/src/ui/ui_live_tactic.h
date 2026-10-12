@@ -34,6 +34,8 @@ struct LiveTacticState {
     std::string last, mirror, kickoff, undo_state;
     std::vector<std::string> overwritten; // "Edit Tactic overwrote the change: depth 75 -> 25"
     int edit_slot = 0;
+    std::string allow;                    // the role allow-list's status line
+    std::vector<int> role_choices, focus_choices;  // the role ids / focuses the editor offers for the edited slot
 };
 const LiveTacticState& live_tactic_state();
 

@@ -25,8 +25,7 @@
 // mismatch puts every field and the dirty flag back from the snapshot taken in that job and switches channel E off for the session.
 //
 // Gates (report 4.3): G1 opt-in turbo_output\call_team_sheet_on.txt, no call_team_sheet_off.txt / tactics_off.txt; G2 career hub only
-// (Lua's match phase "hub", or "left_prematch" for kLeftPrematchQuietSeconds without a match event; no save started in the last
-// kSaveQuietSeconds; the located service belongs to this career load); G3 the
+// (Lua's match phase "hub" only; no save started in the last kSaveQuietSeconds; the located service belongs to this career load); G3 the
 // exact build and every anchor consistent with the vtable; G4 the locate checks L1-L4; G5 SetSheet would not run vf 0xF8 for this sheet;
 // G6 value ranges (preset / formation refused in 2.2).
 #pragma once
@@ -35,8 +34,10 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -81,10 +82,6 @@ constexpr int kRoleIdMax = 63, kFocusMax = 7;
 constexpr int kRoleWordMax = 60000;  // cm_mentalities.pos{n}role max: a larger word could not be saved
 // G2: a save started (Lua saw PREPARE_FOR_SAVE) less than this long ago refuses a write
 constexpr long long kSaveQuietSeconds = 30;
-// G2: Lua's phase "left_prematch" (ABOUT_TO_LEAVE_PREMATCH right after the pre-match screen) counts as the hub only once this many seconds
-// passed without a match event: going on into the match sends TEAMS_READY_FOR_USER_MATCH / ABOUT_TO_ENTER_A_MATCH at once (phase "match"),
-// and a LEAVE that comes after a match event leaves the phase at "match" (bridge.lua track_phase). The event order is not verified [A].
-constexpr long long kLeftPrematchQuietSeconds = 15;
 // A job the game thread runs later than this after Apply writes nothing (the hub may have been left meanwhile)
 constexpr double kJobDeadlineUs = 2e6;
 // A job not back after this long was dropped by the dispatcher (its queue keeps 256 jobs): channel E stops waiting for it (if it still
@@ -93,6 +90,13 @@ constexpr double kJobLostUs = 10e6;
 // The vtable-pair scan runs once per career load; after a failed locate the next try waits this long (or "Locate again"); a Find job the
 // game thread never ran counts as failed after kLocateLostUs
 constexpr double kLocateRetryUs = 60e6, kLocateLostUs = 90e6;
+// A service the vtable-pair scan picked becomes "located" only when it passes check_service again this long after the scan (a freed copy
+// keeps its header for a while, report 2.5); a scan that ran out of time or reached kScanMaxHits hits locates nothing
+constexpr double kScanConfirmUs = 5e6;
+constexpr size_t kScanMaxHits = 16;
+// The role allow-list walk (every cached team's sheets): at most this many map nodes (64 hops a bucket, kMaxSheets a node), this long
+constexpr int kAllowMaxNodes = 20000;
+constexpr double kAllowBudgetUs = 10e6;
 // match-setup copy (report 2.12) [V]: roles at out+0x118, pids at out+0x168, team id at out+0x28
 constexpr uint64_t kCopyRoles = 0x118, kCopyPids = 0x168, kCopyTeam = 0x28;
 
@@ -112,13 +116,16 @@ inline const char* kill_switch_file() { return "call_team_sheet_off.txt"; }
 inline const char* master_switch_file() { return "tactics_off.txt"; }
 inline const char* find_off_file() { return "call_team_sheet_find_off.txt"; }        // registry Find not called: the scan only
 inline const char* mirror_off_file() { return "channel_e_db_mirror_off.txt"; }      // no cm_mentalities mirror
+inline const char* mirror_on_file() { return "channel_e_db_mirror_on.txt"; }        // the cm_mentalities mirror is opt-in in 2.2
 inline const char* db_off_file() { return "tactics_db_off.txt"; }                   // the database rows channel (stops the mirror too)
 inline const char* undo_file() { return "channel_e_undo.json"; }
 
 struct Switches {
-    bool opt_in = false, off = false, master = false, find_off = false, mirror_off = false, db_off = false;
+    bool opt_in = false, off = false, master = false, find_off = false, mirror_off = false, db_off = false, mirror_on = false;
     // the kill switch that blocks a write ("" = none)
     std::string blocking() const;
+    // why the cm_mentalities mirror (and its undo) does not run ("" = it may): not opted in, or one of its kill switches
+    std::string mirror_block() const;
 };
 Switches read_switches(const std::filesystem::path& turbo_output);
 
@@ -191,10 +198,30 @@ struct LiveTactic {
 std::string read_live(Memory& mem, uint64_t svc, int user, const Anchors& a, LiveTactic& out);
 
 // G5 (report 4.3): the id GetActiveSheetId(mode, team) would return, by the same loop (first element of map[team] with +0x28C == mode
-// and +0xAC != 0; -1 when none). Turbo walks it itself: the game's function would write the service cache.
-int32_t active_sheet_id(Memory& mem, const Located& at, int32_t mode);
+// and +0xAC != 0; -1 when none). Turbo walks it itself: the game's function would write the service cache. false = a sheet could not be
+// read (G5 then refuses)
+bool active_sheet_id(Memory& mem, const Located& at, int32_t mode, int32_t& id);
 // "" when SetSheet would not run vf 0xF8 for this sheet either (mode -1, or the sheet is not the active one of its mode)
 std::string check_g5(Memory& mem, const LiveTactic& lt);
+
+// ------------------------------------------------------------------------------------------------ the role allow-list (G6)
+// The (group, role id, focus) triples the game itself uses: every slot of every record (sourceformationid > 0) of every club's sheet in the
+// service's map (841 clubs on 2026-10-11), read-only, a plain word whose mirrors +0x34 / +0x38 agree, a player in the slot. A role / focus
+// edit is written only when its triple is in this list; without the list (not built yet, the walk failed) role and focus are not editable.
+struct RoleAllowList {
+    bool ok = false;
+    std::string why;           // why it is not built ("" when ok)
+    std::set<int32_t> words;   // the triples as role words
+    int teams = 0, sheets = 0, records = 0, slots = 0, skipped = 0;
+    bool has(int32_t word) const { return ok && words.count(word) != 0; }
+    std::vector<int> role_ids(int group) const;              // the role ids seen in a group, ascending
+    std::vector<int> focuses(int group, int role_id) const;  // the focuses seen with that role
+    std::string summary() const;                             // "412 triples from 841 teams"
+};
+// Walks the whole map through a page cache (bounded: kAllowMaxNodes nodes, 64 hops a bucket, kAllowBudgetUs with a clock). Fails (ok
+// false) on a bad service header, a walk that did not finish or no triple at all; a club whose sheet does not look right is skipped.
+// exclude_team (your club) is left out: its sheet may hold values Turbo wrote.
+RoleAllowList build_role_allow_list(Memory& mem, uint64_t svc, const Anchors& a, int exclude_team, const std::function<double()>& clock_us = nullptr);
 
 // ------------------------------------------------------------------------------------------------ requests and plans (G6)
 struct SlotChange {
@@ -222,9 +249,31 @@ struct Plan {
     std::array<int32_t, kSlots> pids{};
     std::vector<FieldWrite> writes;
     bool undo = false;  // an undo: the dirty flag stays 1 (the game may have committed other changes since)
+    long long load_gen = -1;  // the career load the plan was made in (-1 = the submitting context's)
 };
-// G6 and the diff against the live record: "" and the plan (possibly empty: nothing changes), else the refusal
-std::string make_plan(const LiveTactic& now, const Request& req, Plan& out);
+// G6 and the diff against the live record: "" and the plan (possibly empty: nothing changes), else the refusal. A role / focus change needs
+// its triple in `allow` (null or not built: refused)
+std::string make_plan(const LiveTactic& now, const Request& req, Plan& out, const RoleAllowList* allow);
+
+// The values the write jobs read from the game right before Turbo's first write of each field, for one record in one career load. An undo
+// may write back only these (never a value taken from the undo file alone).
+struct WriteHistory {
+    int user = 0, record_index = -1;
+    long long load_gen = -1;
+    std::map<std::pair<int, int>, int32_t> original;  // (FieldKind, slot) -> value
+    void note(const Plan& p);                         // a non-undo plan whose writes were attempted
+    std::string check_undo(const Plan& p) const;      // "" when every value the undo writes is an original of this record and load
+};
+// What apply_plan checks besides the live record (a missing one refuses what needs it)
+struct JobChecks {
+    const RoleAllowList* allow = nullptr;      // a non-undo role write needs its triple here
+    const WriteHistory* history = nullptr;     // an undo needs its values here
+    const std::atomic<bool>* cancel = nullptr; // set: nothing is written
+};
+// The plan on its own against the live record: kinds, slots, ranges, the three role values of a slot together and consistent
+// (word == role_word(live group, role id, focus)), the group unchanged; a non-undo role word in the allow-list; an undo's values in the
+// history. "" = it may be written
+std::string check_plan(const LiveTactic& now, const Plan& plan, const JobChecks& chk);
 // The address of a plan field inside the located record (0 when the slot is out of range)
 uint64_t field_address(const Located& at, const FieldWrite& w);
 
@@ -247,7 +296,7 @@ struct ApplyResult {
 // Report 4.4: re-run L1-L4, G5, the plan's record and old values, snapshot, write, dirty = 1, read back; a mismatch restores every field
 // and the dirty flag from the snapshot. The walks read the game through whole 4 KB pages (a handful of reads instead of several hundred:
 // the job stays well under the report's 50 us); the read-back reads each written field from the game itself. Never throws.
-ApplyResult apply_plan(Memory& mem, uint64_t svc, const Anchors& a, const Plan& plan);
+ApplyResult apply_plan(Memory& mem, uint64_t svc, const Anchors& a, const Plan& plan, const JobChecks& chk = JobChecks());
 
 // Reads served from whole 4 KB pages, each page read from the underlying memory once (at most 64 pages, then direct reads); a page that
 // cannot be read falls back to a direct read of the asked bytes. A write goes straight through and drops every cached page.
@@ -299,13 +348,28 @@ bool load_undo(const std::filesystem::path& p, UndoRecord& out, std::string* err
 bool save_undo(const std::filesystem::path& p, const UndoRecord& u, std::string* err);
 // An undo plan: the fields that still hold the value Turbo wrote get their old value back; a slot whose three role values do not all
 // hold Turbo's values is left alone (listed in `skipped`). "" and the plan, else why nothing can be put back
-std::string make_undo_plan(const LiveTactic& now, const UndoRecord& u, Plan& out, std::vector<std::string>& skipped);
+// Refused when the undo record is from another Lua session or career load (a reload throws the in-memory change away anyway)
+std::string make_undo_plan(const LiveTactic& now, const UndoRecord& u, const std::string& session, long long load_gen, Plan& out,
+                           std::vector<std::string>& skipped);
+// "" when the undo record belongs to this Lua session and career load, else why it does not
+std::string same_career(const UndoRecord& u, const std::string& session, long long load_gen);
 // Report 4.5: fields Turbo wrote that no longer hold its value (Edit Tactic or the game wrote them since)
 std::vector<std::string> reverted(const LiveTactic& now, const UndoRecord& u);
 // A second Apply on the same record while the first one's values are still in place: the record keeps the values from before Turbo's
 // FIRST write (a field the new plan writes again whose old value is the earlier write's new value gets the earlier old value; fields only
 // the earlier write touched stay listed). Another club or record: `next` as it is.
+// Not merged across Lua sessions or career loads (prev's session / load_gen against next's)
 UndoRecord merge_undo(const UndoRecord& prev, const UndoRecord& next);
+// The cm_mentalities mirror's row check: the row's playerid0..10 / position0..10 must be the live slots' and every field about to be
+// written must hold the live OLD value. get(name, value) reads one int field of the row (false = the field is missing). "" = it may be
+// written, else why it is skipped
+std::string mirror_row_check(const std::function<bool(const std::string&, int64_t&)>& get, const LiveTactic& now,
+                             const std::vector<FieldWrite>& writes);
+// The mirror's undo: the same switches as the mirror (sw.mirror_block) and the row (get reads its int fields) must still be the record's
+// tactic: teamid == u.team, activetactic == 1, sourceformationid == u.source_formation. "" = it may be put back
+std::string undo_mirror_check(const Switches& sw, const std::function<bool(const std::string&, int64_t&)>& get, const UndoRecord& u);
+// The DB field a live write mirrors to ("buildupplay", "defensivedepth", "pos<slot>role"; "" for role id / focus: the word carries them)
+std::string mirror_field_name(const FieldWrite& w);
 bool same_record(const UndoRecord& u, const LiveTactic& now);
 
 // ------------------------------------------------------------------------------------------------ the kick-off check (read-only)
@@ -323,8 +387,7 @@ struct GateInput {
     // G2
     bool bridge = false;              // Lua's bridge state is there
     bool in_cm = false;
-    std::string match_phase;          // Lua's "hub" / "prematch" / "left_prematch" / "match" / "unknown"; "" = a Lua side without it
-    long long phase_age = -1;         // seconds since Lua's phase last changed, -1 = not reported
+    std::string match_phase;          // Lua's "hub" / "prematch" / "match" / "unknown"; "" = a Lua side without it (G2: "hub" only)
     long long save_age = -1;          // seconds since Lua saw a save start, -1 = none seen
     long long load_gen = -1, located_load_gen = -1;
     // G3 .. G6
@@ -350,6 +413,7 @@ struct Context {
     uint64_t managers = 0;   // the career's manager table (bridge_state.json "managers"), for the PSM cross-check
     bool in_cm = false;
     bool allow_find = false; // the registry Find may be called (opt-in present, no kill switch, no call_team_sheet_find_off.txt)
+    bool hub = false;        // G2 passes now as the UI sees it (the jobs on the game thread check the latest value)
 };
 
 class Service {
@@ -370,6 +434,11 @@ public:
     // Report 4.5: after kick-off, look for the 11 role words in the game's memory (read-only, background)
     virtual void kickoff_check(int user, const std::array<int32_t, kSlots>& roles, const std::array<int32_t, kSlots>& pids) = 0;
     virtual std::string kickoff_status() = 0;
+    // The role allow-list of a career load (null until built), and its status line
+    virtual std::shared_ptr<const RoleAllowList> role_allow(long long load_gen) = 0;
+    virtual std::string allow_status() = 0;
+    // The UI's latest view (every frame): the jobs compare their plan's career load and the hub flag with it
+    virtual void note_context(const Context& ctx) = 0;
 };
 
 // What the host gives the platform-independent service (src/win/team_sheet_win.cpp; tests give a simulated game)
@@ -405,6 +474,9 @@ public:
     std::string session_off() override;
     void kickoff_check(int user, const std::array<int32_t, kSlots>& roles, const std::array<int32_t, kSlots>& pids) override;
     std::string kickoff_status() override;
+    std::shared_ptr<const RoleAllowList> role_allow(long long load_gen) override;
+    std::string allow_status() override;
+    void note_context(const Context& ctx) override;
 
     // tests / status
     uint64_t located() ;
@@ -415,6 +487,7 @@ private:
     void start_locate(const Context& ctx);
     void finish_locate(long long gen, uint64_t svc, const std::string& how, const std::string& why);
     void scan_for_service(long long gen);
+    void start_allow(long long gen, uint64_t svc);  // builds the role allow-list of a located service (background)
     void log(const std::string& s);
     double now() const { return h_.clock_us ? h_.clock_us() : 0.0; }
 
@@ -433,10 +506,26 @@ private:
     bool busy_ = false;
     double busy_since_ = 0.0;
     int job_seq_ = 0;  // the job busy_ waits for (a lost job's late result does not clear a newer one)
+    std::shared_ptr<std::atomic<bool>> cancel_;  // the queued job's cancel flag (set when it is given up or was not queued)
     std::string session_off_;
     std::string kickoff_;
     bool kickoff_running_ = false;
     std::atomic<int> scans_{0}, finds_{0};
+    // a service the scan picked, waiting for its kScanConfirmUs re-check
+    uint64_t cand_svc_ = 0;
+    long long cand_gen_ = -1;
+    double cand_at_ = 0.0;
+    // the role allow-list
+    std::shared_ptr<const RoleAllowList> allow_;
+    long long allow_gen_ = -1;
+    bool allow_running_ = false;
+    std::string allow_why_;
+    // the originals the write jobs read (undo checks)
+    WriteHistory history_;
+    // the UI's latest context
+    int user_ = 0;
+    std::atomic<long long> cur_gen_{-1};
+    std::atomic<bool> cur_hub_{false};
 };
 
 }  // namespace tsheet

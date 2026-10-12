@@ -114,6 +114,7 @@ std::vector<std::string> team_sheet_status() {
     if (!sess.empty()) state = "off for this session (" + sess + ")";
     out.push_back("team_sheet (channel E): " + state + " | " + g_service->locate_status() + " | registry Find " +
                   std::to_string(g_service->finds()) + "x, scans " + std::to_string(g_service->scans()));
+    out.push_back("  " + g_service->allow_status());
     const std::string ko = g_service->kickoff_status();
     if (!ko.empty()) out.push_back("  " + ko);
     return out;

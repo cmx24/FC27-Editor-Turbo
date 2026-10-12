@@ -77,8 +77,8 @@ inline const char* written_help(WriteKind k) {
         case WriteKind::Preview: return "Shown in the preview only: no proven way to write it to the game. Nothing is written.";
         case WriteKind::TurboOnly: return "A Turbo setting: it shapes Turbo's own calculation and is never sent to the game.";
         case WriteKind::LiveSheet:
-            return "Written in place into your club's live tactic record in the game's memory (channel E), on the game thread, and read back. The next "
-                   "match set up after it copies it; your next in-game save keeps it.";
+            return "Written in place into your club's live tactic record in the game's memory (channel E), on the game thread, and read back. It should "
+                   "reach the next match set up after it and your next in-game save (not verified yet).";
     }
     return "";
 }

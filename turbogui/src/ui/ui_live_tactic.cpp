@@ -10,6 +10,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <set>
 
 #include "app.h"
 #include "core/tactics_db.h"
@@ -98,6 +99,16 @@ Context ctx_of(App& app) {
     c.managers = st.managers;
     c.in_cm = st.loaded && st.in_cm;
     c.allow_find = g.sw.opt_in && g.sw.blocking().empty() && !g.sw.find_off;
+    // G2 as the UI sees it now (the locate check aside): the game-thread jobs refuse when it no longer holds
+    GateInput in;
+    in.bridge = st.loaded;
+    in.in_cm = st.in_cm;
+    in.match_phase = st.match_phase;
+    in.save_age = st.save_t > 0 ? (long long)(std::time(nullptr)) - st.save_t : -1;
+    in.load_gen = st.load_gen;
+    in.located_load_gen = st.load_gen;
+    const Gates gs = evaluate(in);
+    c.hub = gs.list.size() > 1 && gs.list[1].pass();
     return c;
 }
 
@@ -192,7 +203,6 @@ GateInput gate_input(App& app, const std::string& plan_why, bool undo) {
     in.bridge = st.loaded;
     in.in_cm = st.in_cm;
     in.match_phase = st.match_phase;
-    in.phase_age = st.phase_t > 0 ? (long long)(std::time(nullptr)) - st.phase_t : -1;
     in.save_age = st.save_t > 0 ? (long long)(std::time(nullptr)) - st.save_t : -1;
     in.load_gen = st.load_gen;
     in.located_load_gen = app.team_sheet ? app.team_sheet->located_load_gen() : -1;
@@ -233,16 +243,10 @@ std::vector<std::string> plan_lines(const Plan& p, const LiveTactic& lt) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------- the cm_mentalities mirror
-const char* mirror_field(const FieldWrite& w, std::string& buf) {
-    switch (w.kind) {
-        case FieldKind::BuildUp: return "buildupplay";
-        case FieldKind::Depth: return "defensivedepth";
-        case FieldKind::Role: buf = "pos" + std::to_string(w.slot) + "role"; return buf.c_str();
-        case FieldKind::RoleId:
-        case FieldKind::Focus: return nullptr;  // no column: the word carries them
-    }
-    return nullptr;
-}
+// The mirror and its undo run on the render thread (this card, after the job's result), as every other database edit of Turbo does
+// (App::edit on the career database Live Editor shares); they never touch game memory. Opt-in in 2.2 (the file
+// turbo_output\channel_e_db_mirror_on.txt): the game's own save already writes the live record into cm_mentalities (TriggerSave ->
+// WriteTeamSheet).
 
 // The cm_mentalities row of the live record: teamid == your club, activetactic == 1, sourceformationid == the record's (teamsheetid == the
 // sheet's when the save has that field). Exactly one row, else none (why says it)
@@ -276,20 +280,31 @@ uint64_t mirror_row(App& app, const UndoRecord& u, const Table*& t, std::string&
     return hit[0];
 }
 
-// After a live write that was read back: the same values into the career database's row of that tactic, read back. The values before
-// Turbo's first write are kept in the undo record. Off with tactics_off.txt, tactics_db_off.txt, call_team_sheet_off.txt or
-// channel_e_db_mirror_off.txt.
-void do_mirror(App& app, UndoRecord& u, const std::vector<FieldWrite>& writes) {
+// One int field of a row (false when the table has no such field or it is not an int)
+bool row_int(App& app, const Table& t, uint64_t rec, const std::string& name, int64_t& v) {
+    const Field* f = t.field(name);
+    if (!f) return false;
+    Value x;
+    if (!app.db.get(t, rec, *f, x) || x.type != FieldType::Int) return false;
+    v = x.i;
+    return true;
+}
+
+// After a live write that was read back: the same values into the career database's row of that tactic, read back. Only when the row is
+// the live tactic (its playerid0..10 / position0..10 are the live slots' and every field holds the live value from before the write).
+// The values before Turbo's first write are kept in the undo record.
+void do_mirror(App& app, UndoRecord& u, const std::vector<FieldWrite>& writes, const LiveTactic& live) {
     refresh_switches(app, true);
     auto skip = [&](const std::string& why) {
         u.mirror_state = u.mirror.empty() ? "skipped" : u.mirror_state;
         u.mirror_note = why;
-        g.mirror_line = "cm_mentalities not mirrored: " + why + ". The live tactic is written; your next in-game save writes it into the career database.";
+        g.mirror_line = "cm_mentalities not mirrored: " + why + ". The live tactic is written; your next in-game save should write it into the career "
+                        "database (not verified yet).";
         log_line(app, "channel E: " + g.mirror_line);
     };
-    if (g.sw.master || g.sw.off || g.sw.db_off || g.sw.mirror_off) {
-        skip(std::string("kill switch turbo_output\\") +
-             (g.sw.master ? master_switch_file() : g.sw.off ? kill_switch_file() : g.sw.db_off ? db_off_file() : mirror_off_file()) + " is present");
+    const std::string block = g.sw.mirror_block();
+    if (!block.empty()) {
+        skip(block);
         return;
     }
     if (!app.connected()) {
@@ -308,82 +323,110 @@ void do_mirror(App& app, UndoRecord& u, const std::vector<FieldWrite>& writes) {
         skip("the row changed since the last mirror (artificialkey " + std::to_string(key) + ", was " + std::to_string(u.mirror_row_key) + ")");
         return;
     }
-    std::vector<std::string> done, missing;
+    why = mirror_row_check([&](const std::string& name, int64_t& v) { return row_int(app, *t, rec, name, v); }, live, writes);
+    if (!why.empty()) {
+        skip("artificialkey " + std::to_string(key) + ": " + why);
+        return;
+    }
+    std::vector<std::string> done;
     struct Undo {
         const Field* f;
+        std::string name;
         int64_t before;
     };
     std::vector<Undo> written;
     std::string bad;
     for (const FieldWrite& w : writes) {
-        std::string buf;
-        const char* name = mirror_field(w, buf);
-        if (!name) continue;
+        const std::string name = mirror_field_name(w);
+        if (name.empty()) continue;
         const Field* f = t->field(name);
-        if (!f) {
-            missing.push_back(name);
-            continue;
-        }
-        Value before;
-        if (!app.db.get(*t, rec, *f, before) || before.type != FieldType::Int) {
-            bad = std::string(name) + " is not readable";
+        int64_t before = 0;
+        if (!f || !row_int(app, *t, rec, name, before)) {
+            bad = name + " is not readable";
             break;
         }
         // the value before Turbo's FIRST mirror of this field is kept
         auto it = std::find_if(u.mirror.begin(), u.mirror.end(), [&](const MirrorField& m) { return m.field == name; });
-        if (before.i != w.new_value) {
+        if (before != w.new_value) {
             if (!app.edit(*t, rec, *f, Value::of_int(w.new_value))) {
-                bad = std::string(name) + " = " + std::to_string(w.new_value) + " was refused by the database";
+                bad = name + " = " + std::to_string(w.new_value) + " was refused by the database";
                 break;
             }
-            if (app.db.get_int(*t, rec, name, INT64_MIN) != w.new_value) {
-                written.push_back({f, before.i});
-                bad = std::string(name) + " reads back " + std::to_string(app.db.get_int(*t, rec, name, INT64_MIN));
+            written.push_back({f, name, before});
+            if (app.db.get_int(*t, rec, name.c_str(), INT64_MIN) != w.new_value) {
+                bad = name + " reads back " + std::to_string(app.db.get_int(*t, rec, name.c_str(), INT64_MIN));
                 break;
             }
-            written.push_back({f, before.i});
         }
-        if (it == u.mirror.end()) u.mirror.push_back({name, before.i, w.new_value});
+        if (it == u.mirror.end()) u.mirror.push_back({name, before, w.new_value});
         else it->new_value = w.new_value;
-        done.push_back(std::string(name) + " " + std::to_string(before.i) + " -> " + std::to_string(w.new_value));
+        done.push_back(name + " " + std::to_string(before) + " -> " + std::to_string(w.new_value));
     }
     if (!bad.empty()) {
-        for (const Undo& x : written) app.edit(*t, rec, *x.f, Value::of_int(x.before));  // put the row back as it was
+        // put the row back as it was, and read the rollback back
+        std::vector<std::string> left;
+        for (const Undo& x : written) {
+            app.edit(*t, rec, *x.f, Value::of_int(x.before));
+            const int64_t back = app.db.get_int(*t, rec, x.name.c_str(), INT64_MIN);
+            if (back != x.before) left.push_back(x.name + " reads " + std::to_string(back) + ", not " + std::to_string(x.before));
+        }
         u.mirror_state = "failed";
-        u.mirror_note = bad;
-        g.mirror_line = "cm_mentalities mirror failed (" + bad + "): the row was put back; the live tactic stays written";
+        u.mirror_note = bad + (left.empty() ? "" : "; ROLLBACK INCOMPLETE");
+        std::string l;
+        for (const auto& x : left) l += (l.empty() ? "" : ", ") + x;
+        g.mirror_line = "cm_mentalities mirror failed (" + bad + "): " + (left.empty() ? "the row was put back and read back" : "putting the row back FAILED: " + l) +
+                        "; the live tactic stays written";
         log_line(app, "channel E: " + g.mirror_line);
         return;
     }
     u.mirror_table = "cm_mentalities";
     u.mirror_row_key = key;
     u.mirror_state = "written";
-    u.mirror_note = missing.empty() ? "" : "this save has no field " + [&] {
-        std::string s;
-        for (const auto& m : missing) s += (s.empty() ? "" : ", ") + m;
-        return s;
-    }();
+    u.mirror_note.clear();
     std::string list;
     for (const auto& d : done) list += (list.empty() ? "" : ", ") + d;
-    g.mirror_line = "cm_mentalities (artificialkey " + std::to_string(key) + ") mirrored and read back: " + (list.empty() ? "nothing to change" : list) +
-                    (u.mirror_note.empty() ? "" : " (" + u.mirror_note + ")");
+    g.mirror_line = "cm_mentalities (artificialkey " + std::to_string(key) + ") mirrored and read back: " + (list.empty() ? "nothing to change" : list);
     log_line(app, "channel E: " + g.mirror_line);
 }
 
-// Undo of the mirror: fields that still hold Turbo's value get the value from before Turbo's first mirror
-void undo_mirror(App& app, UndoRecord& u) {
+// Undo of the mirror: the same switches as the mirror; the row must still be the tactic's (artificialkey, teamid, activetactic 1,
+// sourceformationid); only the fields whose live field this undo put back, and only while they hold Turbo's value
+void undo_mirror(App& app, UndoRecord& u, const std::vector<FieldWrite>& put_back) {
     if (u.mirror.empty() || u.mirror_state != "written") return;
+    auto stop = [&](const std::string& why) {
+        g.mirror_line = "cm_mentalities mirror not put back: " + why;
+        log_line(app, "channel E: " + g.mirror_line);
+    };
+    refresh_switches(app, true);
+    const std::string block = g.sw.mirror_block();
+    if (!block.empty()) {
+        stop(block);
+        return;
+    }
     const Table* t = app.connected() ? app.db.table("cm_mentalities") : nullptr;
     const uint64_t rec = (t && t->field("artificialkey")) ? app.db.find(*t, "artificialkey", u.mirror_row_key) : 0;
     if (!rec) {
-        g.mirror_line = "cm_mentalities row " + std::to_string(u.mirror_row_key) + " not found: its mirror is not put back";
-        log_line(app, "channel E: " + g.mirror_line);
+        stop("row " + std::to_string(u.mirror_row_key) + " not found");
         return;
+    }
+    const std::string why = undo_mirror_check(g.sw, [&](const std::string& n, int64_t& v) { return row_int(app, *t, rec, n, v); }, u);
+    if (!why.empty()) {
+        stop(why);
+        return;
+    }
+    std::set<std::string> live_back;
+    for (const FieldWrite& w : put_back) {
+        const std::string n = mirror_field_name(w);
+        if (!n.empty()) live_back.insert(n);
     }
     std::vector<std::string> back, left;
     for (const MirrorField& m : u.mirror) {
         const Field* f = t->field(m.field);
         if (!f) continue;
+        if (!live_back.count(m.field)) {
+            left.push_back(m.field + " (its live field was not put back)");
+            continue;
+        }
         const int64_t cur = app.db.get_int(*t, rec, m.field.c_str(), INT64_MIN);
         if (cur != m.new_value) {
             left.push_back(m.field + " is " + std::to_string(cur));
@@ -412,15 +455,17 @@ void do_apply(App& app) {
         app.notify("Live tactic not written: " + g.read_err, true);
         return;
     }
+    const BridgeState& st = app.bridge.state();
     Plan plan;
-    std::string pw = make_plan(g.lt, request_from_editor(), plan);
+    const auto allow = svc->role_allow(st.load_gen);
+    std::string pw = make_plan(g.lt, request_from_editor(), plan, allow.get());
     if (pw.empty() && plan.writes.empty()) pw = "nothing changed";
+    plan.load_gen = st.load_gen;
     const Gates gs = evaluate(gate_input(app, pw, false));
     if (!gs.pass()) {
         app.notify("Live tactic not written: " + gs.first(), true);
         return;
     }
-    const BridgeState& st = app.bridge.state();
     UndoRecord rec = UndoRecord::from_plan(plan);
     rec.dirty_before = g.lt.dirty;  // the job reports the flag it found; until then the read-out's (a merge keeps the first write's)
     rec.when = stamp();
@@ -429,10 +474,10 @@ void do_apply(App& app) {
     g.prev = g.undo;
     g.prev_have = g.have_undo;
     g.merged = false;
-    if (g.have_undo && g.undo.state == "written") {
-        const UndoRecord m = merge_undo(g.undo, rec);
-        g.merged = m.writes.size() != rec.writes.size() || m.dirty_before != rec.dirty_before || same_record(g.undo, g.lt);
-        rec = m;
+    if (g.have_undo && (g.undo.state == "written" || g.undo.state == "failed")) {
+        // merged only within the same career load (merge_undo compares session and load_gen)
+        g.merged = same_career(g.undo, st.session, st.load_gen).empty() && same_record(g.undo, g.lt);
+        rec = merge_undo(g.undo, rec);
     }
     rec.when = stamp();
     rec.session = st.session;
@@ -468,7 +513,7 @@ void do_undo(App& app) {
     if (!svc) return;
     refresh_switches(app, true);
     load_undo_once(app);
-    if (!g.have_undo || g.undo.state != "written") {
+    if (!g.have_undo || (g.undo.state != "written" && g.undo.state != "failed")) {
         app.notify("Nothing to put back: turbo_output\\" + std::string(undo_file()) + " holds no write in place", true);
         return;
     }
@@ -478,7 +523,8 @@ void do_undo(App& app) {
     }
     Plan plan;
     std::vector<std::string> skipped;
-    const std::string w = make_undo_plan(g.lt, g.undo, plan, skipped);
+    const BridgeState& st = app.bridge.state();
+    const std::string w = make_undo_plan(g.lt, g.undo, st.session, st.load_gen, plan, skipped);
     g.undo_skipped = skipped;
     if (!w.empty()) {
         app.notify("Nothing put back: " + w, true);
@@ -514,7 +560,7 @@ void handle_result(App& app, const ApplyResult& r) {
                 for (const auto& x : g.undo_skipped) s += (s.empty() ? "" : "; ") + x;
                 return s;
             }();
-            undo_mirror(app, u);
+            undo_mirror(app, u, r.writes);
             save_record(app, u);
             g.overwritten.clear();
             app.notify("Live tactic put back to the values before Turbo's write (read back)" + std::string(u.note.empty() ? "" : ": " + u.note));
@@ -532,11 +578,12 @@ void handle_result(App& app, const ApplyResult& r) {
         UndoRecord u = g.undo;
         u.state = "written";
         if (!g.merged) u.dirty_before = r.dirty_before;  // a merged record keeps the flag from before Turbo's first write
-        do_mirror(app, u, r.writes);
+        do_mirror(app, u, r.writes, r.after);
         save_record(app, u);
         g.recheck_at = app.now + 5.0;  // report 4.5: re-read 5 s later (an Edit Tactic overwrite shows then)
         fill_editor(r.after);
-        app.notify("Written into your club's live tactic and read back. It reaches the next match set up from the hub; your next in-game save keeps it.");
+        app.notify("Written into your club's live tactic and read back. It should reach the next match set up from the hub and your next in-game save "
+                   "(not verified yet).");
     } else if (r.ok) {
         if (g.prev_have) save_record(app, g.prev);
         app.notify("Live tactic: " + r.message);
@@ -669,8 +716,9 @@ void draw_body(App& app) {
     // the plan and the gates
     Plan plan;
     std::string pw;
+    const auto allow = app.team_sheet ? app.team_sheet->role_allow(app.bridge.state().load_gen) : nullptr;
     if (g.have) {
-        pw = make_plan(g.lt, request_from_editor(), plan);
+        pw = make_plan(g.lt, request_from_editor(), plan, allow.get());
         if (pw.empty() && plan.writes.empty()) pw = "nothing changed";
     }
     g_state.plan_error = pw;
@@ -680,7 +728,7 @@ void draw_body(App& app) {
     g_state.status = gs.pass() ? "ready" : gs.first();
     g_state.can_apply = gs.pass() && !g.pending && app.team_sheet != nullptr;
     const Gates ug = evaluate(gate_input(app, "", true));
-    g_state.can_undo = ug.pass() && !g.pending && g.have_undo && g.undo.state == "written";
+    g_state.can_undo = ug.pass() && !g.pending && g.have_undo && (g.undo.state == "written" || g.undo.state == "failed");
     ImGui::PushStyleColor(ImGuiCol_Text, gs.pass() ? ImVec4(0.55f, 0.85f, 0.55f, 1) : ImVec4(1, 0.7f, 0.3f, 1));
     ImGui::TextWrapped("%s", gs.pass() ? "Ready to write." : ("Not ready: " + g_state.status).c_str());
     ImGui::PopStyleColor();
@@ -705,7 +753,8 @@ void draw_body(App& app) {
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("Puts back the values from before Turbo's first write (turbo_output\\channel_e_undo.json): only fields that still hold Turbo's "
-                          "value; the cm_mentalities mirror too.");
+                          "value, only in the career load of the write; the cm_mentalities mirror too when it is on. Undo still works while "
+                          "call_team_sheet_off.txt / tactics_off.txt exist: it is the intended way back.");
     draw_confirm(app);
 
     // the editor
@@ -716,11 +765,49 @@ void draw_body(App& app) {
         input_int("Build-up (0-3)", "##ltbu", &g.build_up, kBuildUpMin, kBuildUpMax,
                   "buildupplay of the active record; what each number means in Edit Tactic is not decoded yet");
         input_int("Defensive depth (1-100)", "##ltdd", &g.depth, kDepthMin, kDepthMax, "defensivedepth of the active record");
-        input_int("Slot (0-10)", "##ltslot", &g.slot, 0, kSlots - 1, "the slot whose role id and focus the two boxes below edit");
+        input_int("Slot (0-10)", "##ltslot", &g.slot, 0, kSlots - 1, "the slot whose role id and focus the buttons below set");
         g_state.edit_slot = g.slot;
-        input_int("Role id (0-63)", "##ltrole", &g.role_id[size_t(g.slot)], 0, kRoleIdMax, "the role inside the slot's position group (raw number)");
-        input_int("Focus (0-7)", "##ltfocus", &g.focus[size_t(g.slot)], 0, kFocusMax, "the role's focus (raw number)");
         const SlotView& v = lt.slots[size_t(g.slot)];
+        // role id / focus: only the triples the game itself uses (the role allow-list of every other club's sheets), as buttons
+        g_state.allow = app.team_sheet ? app.team_sheet->allow_status() : "";
+        g_state.role_choices.clear();
+        g_state.focus_choices.clear();
+        if (allow && allow->ok) {
+            int& rid = g.role_id[size_t(g.slot)];
+            int& foc = g.focus[size_t(g.slot)];
+            std::vector<int> roles = allow->role_ids(v.group());
+            if (std::find(roles.begin(), roles.end(), v.role_id) == roles.end()) roles.insert(roles.begin(), v.role_id);  // the live one stays offered
+            form_label("Role id", "the role ids the game uses in this position group (raw numbers: the labels are not decoded)");
+            for (size_t i = 0; i < roles.size(); ++i) {
+                const int x = roles[i];
+                g_state.role_choices.push_back(x);
+                if (i) ImGui::SameLine();
+                const bool sel = x == rid;
+                if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                if (ImGui::SmallButton((std::to_string(x) + "##ltrole" + std::to_string(x)).c_str()) && !sel) {
+                    rid = x;
+                    const std::vector<int> fs = allow->focuses(v.group(), x);
+                    if (x == v.role_id) foc = v.focus;
+                    else if (!fs.empty() && std::find(fs.begin(), fs.end(), foc) == fs.end()) foc = fs.front();
+                }
+                if (sel) ImGui::PopStyleColor();
+            }
+            std::vector<int> focs = allow->focuses(v.group(), rid);
+            if (rid == v.role_id && std::find(focs.begin(), focs.end(), v.focus) == focs.end()) focs.insert(focs.begin(), v.focus);
+            form_label("Focus", "the focuses the game uses with this role (raw numbers)");
+            for (size_t i = 0; i < focs.size(); ++i) {
+                const int x = focs[i];
+                g_state.focus_choices.push_back(x);
+                if (i) ImGui::SameLine();
+                const bool sel = x == foc;
+                if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                if (ImGui::SmallButton((std::to_string(x) + "##ltfoc" + std::to_string(x)).c_str())) foc = x;
+                if (sel) ImGui::PopStyleColor();
+            }
+            if (focs.empty()) ImGui::TextDisabled("Focus: none seen with role %d", rid);
+        } else {
+            ImGui::TextDisabled("Role / focus: not editable (%s)", g_state.allow.c_str());
+        }
         ImGui::TextDisabled("%s", depth_band_text(g.depth).c_str());
         ImGui::TextWrapped("Slot %d: %s, %s, position group %d (kept)", g.slot, position_name(v.position), player_label(app, v.pid).c_str(), v.group());
         if (ImGui::SmallButton("Reset to the live values##ltreset")) fill_editor(lt);
@@ -738,6 +825,7 @@ void draw_body(App& app) {
     }
 
     // what happened
+    if (app.team_sheet) ImGui::TextDisabled("%s", app.team_sheet->allow_status().c_str());
     if (!g.last.empty()) ImGui::TextWrapped("Last: %s", g.last.c_str());
     if (!g.mirror_line.empty()) ImGui::TextWrapped("Mirror: %s", g.mirror_line.c_str());
     const std::string ko = app.team_sheet ? app.team_sheet->kickoff_status() : "";
@@ -778,8 +866,9 @@ void draw_body(App& app) {
         g.next_read = 0.0;
     }
     ImGui::TextWrapped(
-        "Apply in the career hub with Team Management (Edit Tactic) closed, before the pre-match screen: the next match set up afterwards copies the "
-        "record, and your next in-game save keeps it. Turbo re-reads the record 5 s after a write and says so when Edit Tactic overwrote it.");
+        "Apply in the career hub with Team Management (Edit Tactic) closed, before the pre-match screen: the next match set up afterwards should copy "
+        "the record and your next in-game save should keep it (not verified yet). Turbo re-reads the record 5 s after a write and says so when Edit "
+        "Tactic overwrote it.");
     ImGui::PopID();
 }
 
@@ -808,6 +897,8 @@ void draw_live_tactic(App& app) {
 void live_tactic_tick(App& app) {
     try {
         if (!app.team_sheet) return;
+        refresh_switches(app, false);
+        app.team_sheet->note_context(ctx_of(app));  // the jobs compare their career load and the hub with the latest view
         ApplyResult r;
         while (app.team_sheet->poll(r)) {
             if (!g.pending) {
@@ -861,13 +952,25 @@ void live_tactic_tick(App& app) {
         }
         if (g.kickoff_at > 0 && app.now >= g.kickoff_at) {
             g.kickoff_at = -1.0;
+            // only when a role word was written and every written one still holds Turbo's value: the 11 words searched are the live ones with
+            // the undo record's NEW words in the written slots (depth and build-up are not part of the match copy's role block: not checked)
+            bool any = false, still = true;
             if (read_now(app)) {
                 std::array<int32_t, kSlots> roles{}, pids{};
                 for (int s = 0; s < kSlots; ++s) {
                     roles[size_t(s)] = g.lt.slots[size_t(s)].role;
                     pids[size_t(s)] = g.lt.slots[size_t(s)].pid;
                 }
-                app.team_sheet->kickoff_check(g.lt.at.user, roles, pids);
+                for (const FieldWrite& w : g.undo.writes) {
+                    if (w.kind != FieldKind::Role || w.slot < 0 || w.slot >= kSlots) continue;
+                    any = true;
+                    if (roles[size_t(w.slot)] != w.new_value) still = false;
+                    roles[size_t(w.slot)] = w.new_value;
+                }
+                if (any && still) app.team_sheet->kickoff_check(g.lt.at.user, roles, pids);
+                else
+                    log_line(app, std::string("channel E: no kick-off check: ") +
+                                      (any ? "a written role word is no longer in place" : "no role word was written (depth and build-up are not checked by it)"));
             }
         }
     } catch (const std::exception& e) {
