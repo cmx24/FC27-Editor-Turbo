@@ -9,6 +9,7 @@ local M = {}
 
 M.KILL_FILE = "overall_follow_off.txt"
 M.TOLERANCE = 2   -- core/overall.h kFollowTolerance
+M.BROKEN = 5      -- core/overall.h kFollowBroken
 
 -- The 34 attributes in the C++ order (Attr enum)
 M.ATTRS = { "acceleration", "sprintspeed", "agility", "balance", "jumping", "stamina", "strength", "reactions",
@@ -59,13 +60,14 @@ function M.compute(pos, attrs)
     return math.tointeger(v) or v
 end
 
--- core/overall.h follow(): the formula does not move -> stored; stored within TOLERANCE of the formula -> stored + the
--- formula's move; otherwise the formula's value. 1..99.
+-- core/overall.h follow(): the formula does not move -> stored; otherwise stored + the formula's move (an offset from the
+-- formula is kept: never against the edit, a position round trip ends where it started); only a broken overall (BROKEN or
+-- less and more than TOLERANCE below the formula: OVR-1) takes the formula's value. 1..99.
 function M.follow(pos_before, before, pos_after, after, stored)
     local was, now = M.compute(pos_before, before), M.compute(pos_after, after)
     if was == now then return stored end
-    local off = stored - was
-    local v = (off >= -M.TOLERANCE and off <= M.TOLERANCE) and stored + (now - was) or now
+    local broken = stored <= M.BROKEN and was - stored > M.TOLERANCE
+    local v = broken and now or stored + (now - was)
     if v < 1 then v = 1 elseif v > 99 then v = 99 end
     return v
 end

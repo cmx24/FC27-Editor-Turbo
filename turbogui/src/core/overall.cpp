@@ -191,8 +191,9 @@ bool reach(int pos, Attrs& a, int target, std::vector<Move>* moves) {
 int follow(int pos_before, const Attrs& before, int pos_after, const Attrs& after, int stored) {
     const int was = compute_overall(pos_before, before), now = compute_overall(pos_after, after);
     if (was == now) return stored;  // nothing the formula sees moved: the stored overall stays as it is
-    const int off = stored - was;
-    const int v = off >= -kFollowTolerance && off <= kFollowTolerance ? stored + (now - was) : now;
+    // a broken overall (OVR-1) takes the formula's value; any other keeps its offset (core/overall.h)
+    const bool broken = stored <= kFollowBroken && was - stored > kFollowTolerance;
+    const int v = broken ? now : stored + (now - was);
     return std::max(1, std::min(99, v));
 }
 

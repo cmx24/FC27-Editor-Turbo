@@ -2063,7 +2063,25 @@ static void test_reapply_players() {
         CHECK(overall::follow(25, a, 25, b, was + overall::kFollowTolerance) == now + overall::kFollowTolerance &&
                   overall::follow(25, a, 25, b, was - overall::kFollowTolerance) == now - overall::kFollowTolerance,
               "within the tolerance: the offset stays");
-        CHECK(overall::follow(25, a, 25, b, 1) == now && overall::follow(25, a, 25, b, was + 9) == now, "far off (OVR-1): the formula's value");
+        CHECK(overall::follow(25, a, 25, b, 1) == now && overall::follow(25, a, 25, b, overall::kFollowBroken) == now,
+              "a broken overall (OVR-1): the formula's value");
+        CHECK(overall::follow(25, a, 25, b, was + 9) == now + 9 && overall::follow(25, a, 25, b, was - 9) == now - 9,
+              "far off the formula (typed in Live Editor): the offset stays, no snap");
+        // review fix: a far-off striker (stored 5 above the formula) whose +1 finishing flips the rounding up never drops
+        overall::Attrs c = a;
+        int up = was;
+        for (int k = 1; k <= 30 && up == was; ++k) {
+            c = a;
+            c[overall::Finishing] = a[overall::Finishing] + k;
+            up = overall::compute_overall(25, c);
+        }
+        CHECK(up == was + 1, fmt("finishing raise moves the striker formula by one (%d -> %d)", was, up));
+        CHECK(overall::follow(25, a, 25, c, was + 5) == was + 6, "far above the formula: a raise moves the overall up, never down");
+        CHECK(overall::follow(25, a, 25, a, was + 5) == was + 5, "and no edit, no move");
+        // position round trip ST -> CM -> ST through the Profile combo ends where it started
+        const int cm_ovr = overall::follow(25, a, 14, a, was + 5);
+        CHECK(cm_ovr == was + 5 + overall::compute_overall(14, a) - was && overall::follow(14, a, 25, a, cm_ovr) == was + 5,
+              fmt("ST %d -> CM %d -> ST %d", was + 5, cm_ovr, overall::follow(14, a, 25, a, cm_ovr)));
         CHECK(overall::follow(25, a, 0, a, was) == overall::compute_overall(0, a), "position change: the new position's formula");
         overall::Attrs top{};
         top.fill(99);
@@ -4918,6 +4936,56 @@ static void test_ui() {
                                "'" + label + "' refused: " + text);
                 if (std::getenv("TURBO_TEST_DEBUG")) std::printf("      %-36s %s  %s\n", label.c_str(), ok ? "ok  " : "FAIL", text.c_str());
             }
+        });
+
+        run_case("UI: Put the overalls back goes only to the database the last run wrote; another load asks first (2.1 review)", [&] {
+            const BridgeState& st = app.bridge.state();
+            const fs::path index = app.bridge.root() / "turbo_output" / "overall_follow_undo.json";
+            int stamp = 0;
+            auto write_index = [&](bool in_cm, long long team, long long load_gen) {
+                json run = {{"id", 1}, {"when", "2026-10-11 21:00:00"}, {"count", 3}, {"in_cm", in_cm}, {"user_team", team},
+                            {"club", "Test FC"}, {"session", st.session}, {"load_gen", load_gen}};
+                std::ofstream(index, std::ios::binary) << json{{"format", "turbo_overall_follow_undo/2"}, {"next_id", 2}, {"runs", {run}}}.dump();
+                fs::last_write_time(index, fs::file_time_type::clock::now() + std::chrono::seconds(++stamp));
+                ui.frames(2);
+            };
+            auto sent = [&](const std::string& what) {
+                json cmd = json::parse(mem.read_cstr(kMb + 0x20, 0x1000), nullptr, false);
+                CHECK(app.busy() && cmd.is_object(), what + ": a command is queued");
+                if (app.busy()) CHECK(ui.click("Cancel"), what + ": cancel");
+                return cmd.is_object() ? cmd : json::object();
+            };
+            CHECK(st.in_cm && !st.session.empty() && st.load_gen >= 0, "the test bridge reports a career with a session");
+            fs::remove(index);
+            CHECK(ui.click("Turbo Tools"), "Tools tab");
+            CHECK(ui.click("Bulk edit players"), "Bulk edit section");
+            ui.frames(2);
+            // no run yet, and a run of this very load: the plain undo
+            CHECK(ui.click("Put the overalls back"), "button without a run");
+            json c = sent("no run");
+            CHECK(c["overrides"] == json({{"undo_overall", true}}), "plain undo: " + c.dump());
+            write_index(true, st.user_team, st.load_gen);
+            CHECK(ui.click("Put the overalls back"), "button for this load's run");
+            c = sent("this load");
+            CHECK(c["overrides"] == json({{"undo_overall", true}}), "plain undo for this load: " + c.dump());
+            // another load of this club's career: a confirmation, then any_load
+            write_index(true, st.user_team, st.load_gen + 1);
+            CHECK(ui.click("Put the overalls back..."), "asking button");
+            CHECK(!app.busy(), "nothing sent before the confirmation");
+            CHECK(ui.click("Put them back", "##overall_back_any_load"), "confirm");
+            c = sent("another load");
+            CHECK(c["overrides"]["undo_overall"] == true && c["overrides"]["any_load"] == true, "any_load after the confirmation: " + c.dump());
+            ui.frames(2);
+            // another club's career, or the main-menu squads: the button stays off
+            write_index(true, st.user_team + 1, st.load_gen);
+            ui.click("Put the overalls back");
+            CHECK(!app.busy(), "another career: nothing sent");
+            write_index(false, 0, st.load_gen);
+            ui.click("Put the overalls back");
+            CHECK(!app.busy(), "a squads run while a career is loaded: nothing sent");
+            fs::remove(index);
+            CHECK(ui.click("Bulk edit players"), "Bulk edit section closed");
+            ui.frames(2);
         });
 
         run_case("UI: UI size follows the window height and the user's setting, and is saved", [&] {

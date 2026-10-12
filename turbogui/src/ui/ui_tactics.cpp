@@ -330,7 +330,12 @@ DbOutcome write_db(App& app, const SliderWrite& w, std::string& why, std::string
             why = "the database changed (another save loaded?): press Refresh";
             return DbOutcome::Failed;
         }
-        if (!app.edit(*t, rec, *f, Value::of_int(w.value))) {
+        // 2.1: a tactics write is a match setting, not a player edit: players.preferredposition1 written here does not move
+        // the stored overall (App::edit would make it follow, ui_players.cpp overall_follow_edit), so an A/B run that
+        // writes the baseline back leaves the overall exactly as it was
+        const bool plain = t->name == "players" && f->name != "overallrating";
+        const Value v = Value::of_int(w.value);
+        if (!(plain ? app.edit_field(*t, rec, *f, v) : app.edit(*t, rec, *f, v))) {
             why = "the game's database refused the value";
             return DbOutcome::Failed;
         }
