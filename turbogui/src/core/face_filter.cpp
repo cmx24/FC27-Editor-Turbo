@@ -76,6 +76,72 @@ static const char* kEyeColours[] = {"", "Blue", "Light Blue", "Brown", "Light Br
 static const char* kHairBuckets[] = {"", "Bald & buzz cut", "Short", "Medium", "Long", "Tied, braids & dreads"};
 static const char* kBeardBuckets[] = {"Clean-shaven", "Stubble", "Moustache & goatee", "Short beard", "Full beard"};
 
+// At most kMaxBuckets choices per menu (Cassio, 2026-10-11): the colour codes and the 3D look values are grouped (keys
+// 1 .. 5 for the database colours, 0 .. 4 for the 3D looks); a head's tooltip still names its exact value (trait_label).
+// Skin tone: FC 27 stores 10 .. 100 (Live Editor's 1 .. 10), paired light to dark; codes between steps round to the nearest.
+static const char* kSkinGroups[] = {"", "Very light (Caucasian 1-2)", "Light (Caucasian 3, Latin Asian 1)", "Medium (Latin Asian 2-3)",
+                                    "Brown (Latin Asian 4, African 1)", "Dark (African 2-3)"};
+static int64_t skin_group(int64_t raw) {
+    const int64_t t = std::clamp<int64_t>(raw >= 10 ? (raw + 5) / 10 : raw, 1, 10);
+    return (t + 1) / 2;
+}
+// Hair and facial hair colours (the same palette, field_labels.h): codes Live Editor has no name for go to the last group
+static const char* kColourGroups[] = {"", "Black", "Brown", "Blonde", "Red & ginger", "Grey, white & dyed"};
+static int64_t colour_group(int64_t raw) {
+    switch (raw) {
+        case 0: case 21: case 22: return 1;                                            // black, jet black, cool black
+        case 3: case 5: case 6: case 19: case 20: return 2;                            // the browns
+        case 1: case 2: case 4: case 15: case 16: case 17: case 18: case 24: return 3;  // the blondes, platinum
+        case 7: case 12: case 13: case 25: case 26: case 27: return 4;                 // red, ginger, auburn, copper
+        default: return 5;                                                             // white, silver, grey, green, blue, pink
+    }
+}
+static const char* kEyeGroups[] = {"", "Blue", "Green", "Hazel & light brown", "Brown", "Other"};
+static int64_t eye_group(int64_t raw) {
+    switch (raw) {
+        case 1: case 2: case 8: return 1;   // blue, light blue, medium blue
+        case 6: case 7: case 10: return 2;  // green, light green, saturated green
+        case 4: case 5: return 3;           // light brown, hazel
+        case 3: case 9: return 4;           // brown, dark brown
+        default: return 5;
+    }
+}
+// 3D looks: the group of each value (face3d_looks.h order) and the group names (nullptr: the value's own name)
+struct Groups3d {
+    int n;
+    int8_t of[face3d::kMaxValues];
+    const char* names[kMaxBuckets];
+};
+static const Groups3d kGroups3d[face3d::kTraitCount] = {
+    // skin: very light, light, medium, olive, brown, dark
+    {5, {0, 1, 2, 2, 3, 4}, {"Very light", "Light", "Medium & olive", "Brown", "Dark"}},
+    // hair colour: black, dark brown, brown, light brown, blonde, red, grey, white, dyed, none
+    {5, {0, 1, 1, 1, 2, 2, 3, 3, 2, 4}, {"Black", "Brown", "Blonde, red & dyed", "Grey & white", "None (no hair)"}},
+    // hair length: bald, buzz, short, medium, long
+    {5, {0, 1, 2, 3, 4}, {nullptr, nullptr, nullptr, nullptr, nullptr}},
+    // hair type: straight, wavy, curly, afro, braids, dreads, twists, tied, mohawk, slicked, spiky, other
+    {5, {0, 1, 1, 2, 3, 3, 3, 3, 4, 0, 4, 4}, {"Straight & slicked", "Wavy & curly", "Afro", "Braids, dreads, twists & tied", "Mohawk, spiky & other"}},
+    // facial hair: clean, stubble, moustache, goatee, short beard, full beard, long beard
+    {5, {0, 1, 2, 2, 3, 4, 4}, {"Clean-shaven", "Stubble", "Moustache & goatee", "Short beard", "Full & long beard"}},
+    // beard colour: none, black, dark brown, brown, blonde, red, grey
+    {5, {0, 1, 2, 2, 3, 3, 4}, {"None", "Black", "Brown", "Blonde & red", "Grey"}},
+    // headwear: none, headband, hairband, hat
+    {4, {0, 1, 2, 3}, {nullptr, nullptr, nullptr, nullptr, nullptr}},
+};
+static int64_t group3d(int trait, int64_t raw) {
+    if (raw == kUnclassified || raw < 0 || raw >= face3d::value_count(trait)) return raw;
+    return kGroups3d[trait].of[raw];
+}
+static std::string group3d_name(int trait, int64_t g) {
+    const Groups3d& gr = kGroups3d[trait];
+    if (g < 0 || g >= gr.n) return "Value " + std::to_string(g);
+    if (gr.names[g]) return gr.names[g];
+    for (int v = 0; v < face3d::value_count(trait); ++v)
+        if (gr.of[v] == g) return face3d::value_name(trait, v);
+    return "Value " + std::to_string(g);
+}
+int group_count3d(Facet f) { return facet_3d(f) ? kGroups3d[int(f) - int(kSkin3d)].n : 0; }
+
 // The look of a style code: its own entry in the table, or else the nearest listed id (a tie goes to the lower id), so
 // codes added by later updates or mods still fall in one of the 5 groups.
 template <size_t N>
@@ -105,17 +171,17 @@ static int64_t hair_bucket(int64_t raw) {
 
 int64_t facet_key(Facet f, int64_t raw) {
     if (raw < 0) return kNoValue;
-    if (facet_3d(f)) return raw;  // the look's value, or kUnclassified
+    if (facet_3d(f)) return group3d(trait_of(f), raw);  // the look's group, or kUnclassified
     switch (f) {
         case kEthnicity: {
             int64_t b = raw / 500;
             return b < int64_t(sizeof(kEthnicGroups) / sizeof(kEthnicGroups[0])) ? kEthnicGroups[b] : kMixed;
         }
-        // exact values (the coarse groups were too inaccurate to find a look-alike): the key is the game's own code
-        case kSkin:
+        // at most 5 groups per menu; the head's exact value is in its tooltip
+        case kSkin: return skin_group(raw);
         case kHairColour:
-        case kBeardColour:
-        case kEyes: return raw;
+        case kBeardColour: return colour_group(raw);
+        case kEyes: return eye_group(raw);
         case kHair: {
             int64_t b = hair_bucket(raw);
             return b > 0 ? b : style_look(looks::kHair, raw);
@@ -154,19 +220,18 @@ std::string key_label(Facet f, int64_t key) {
     if (key == kNoValue) return "not in this table";
     if (facet_3d(f)) {
         if (key == kUnclassified) return "not classified yet";
-        if (key >= 0 && key < face3d::value_count(trait_of(f))) return face3d::value_name(trait_of(f), int(key));
-        return "Value " + std::to_string(key);
+        return group3d_name(trait_of(f), key);
     }
     switch (f) {
         case kEthnicity: return bucket_name(kGroupNames, key);
-        case kSkin: return exact_label(f, key);
+        case kSkin: return bucket_name(kSkinGroups, key);
         case kHairColour:
-        case kBeardColour: return exact_label(f, key);
+        case kBeardColour: return bucket_name(kColourGroups, key);
         case kHair: return bucket_name(kHairBuckets, key);
         case kBeard:
             return key >= 0 && key < int64_t(sizeof(kBeardBuckets) / sizeof(kBeardBuckets[0])) ? std::string(kBeardBuckets[key])
                                                                                                : "Group " + std::to_string(key);
-        case kEyes: return exact_label(f, key);
+        case kEyes: return bucket_name(kEyeGroups, key);
         case kGender: return key == 0 ? "Male" : key == 1 ? "Female" : "Gender " + std::to_string(key);
         default: return std::to_string(key);
     }
@@ -174,10 +239,17 @@ std::string key_label(Facet f, int64_t key) {
 
 std::string trait_label(Facet f, int64_t raw) {
     if (raw < 0) return key_label(f, kNoValue);
-    if (facet_3d(f)) return key_label(f, raw);
+    if (facet_3d(f)) {  // the exact value (the menus show its group)
+        if (raw == kUnclassified) return key_label(f, raw);
+        return raw < face3d::value_count(trait_of(f)) ? std::string(face3d::value_name(trait_of(f), int(raw))) : "Value " + std::to_string(raw);
+    }
     const int64_t key = facet_key(f, raw);
     // no "(code N)" / "(style N)": the name is what a person reads (the number stays in the game's database)
     switch (f) {
+        case kSkin:
+        case kHairColour:
+        case kBeardColour:
+        case kEyes: return exact_label(f, raw);  // the exact code's name (the menus show its group)
         case kHair:
             if (const hair::Style* s = hair::find(raw); s && s->classified) return key_label(f, key) + " (" + hair::describe(*s) + ")";
             return key_label(f, key);
@@ -185,7 +257,7 @@ std::string trait_label(Facet f, int64_t raw) {
     }
 }
 
-bool facet_exact(Facet f) { return f == kSkin || f == kHairColour || f == kBeardColour || f == kEyes || facet_3d(f); }
+bool facet_exact(Facet) { return false; }  // every menu shows at most kMaxBuckets groups (2026-10-11)
 
 bool facet_has_pictures(Facet f) { return f == kHair || f == kBeard; }
 
@@ -260,16 +332,15 @@ std::vector<Count> facet_counts(const std::vector<Face>& faces, const std::vecto
     }
     std::vector<Count> out;
     if (facet_3d(fc)) {
-        // every value of the trait is offered (no head: n 0), then "not classified yet" when the pool has such heads
-        for (int v = 0; v < face3d::value_count(trait_of(fc)); ++v) {
-            auto it = by_key.find(v);
+        // every group of the trait is offered (no head: n 0); heads without a look are no choice (at most 5 per menu)
+        for (int g = 0; g < kGroups3d[trait_of(fc)].n; ++g) {
+            auto it = by_key.find(g);
             Count c;
-            c.key = v;
+            c.key = g;
             c.sample = kNoSample;
             if (it != by_key.end()) c = it->second;
             out.push_back(c);
         }
-        if (auto it = by_key.find(kUnclassified); it != by_key.end()) out.push_back(it->second);
         return out;
     }
     for (const auto& kv : by_key) out.push_back(kv.second);
