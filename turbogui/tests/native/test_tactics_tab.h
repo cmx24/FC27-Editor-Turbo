@@ -769,8 +769,9 @@ static void cases_mentality(App& app, Ui& ui, const fs::path& le) {
         bool saw_cm = false, saw_teams = false, saw_mentalities = false, saw_re = false;
         for (const auto& l : tactics_tab_state().receive) {
             saw_cm = saw_cm || l.find("cm_mentalities") != std::string::npos;
-            saw_teams = saw_teams || l == "teams.defensivedepth = 62  [database row]";
-            saw_mentalities = saw_mentalities || l == "mentalities.defensivewidth = 61  [database row]";
+            // a database row names the club whose row it is
+            saw_teams = saw_teams || l == "teams.defensivedepth = 62 for Arsenal  [database row]";
+            saw_mentalities = saw_mentalities || l == "mentalities.defensivewidth = 61 for Arsenal  [database row]";
             saw_re = saw_re || l.find("press") != std::string::npos;
         }
         CHECK(!saw_cm && saw_teams && saw_mentalities && !saw_re, "the receive list names the live tables, never the dead saved-tactic row and no RE slider");
@@ -795,8 +796,9 @@ static void cases_mentality(App& app, Ui& ui, const fs::path& le) {
         ui.frames(2);
         const TacticsTabState& st = tactics_tab_state();
         CHECK(st.confirm_open && !st.confirm_lines.empty(), fmt("the confirmation is open with %zu line(s)", st.confirm_lines.size()));
-        CHECK(has_part(st.confirm_lines, "Defensive line depth (teams.defensivedepth = 62): untested") && has_part(st.confirm_lines, "Defensive width (mentalities.defensivewidth = 61): legacy, likely ignored"),
-              "it names the untested and the legacy writes");
+        CHECK(has_part(st.confirm_lines, "Defensive line depth (teams.defensivedepth = 62 for Arsenal): untested") &&
+                  has_part(st.confirm_lines, "Defensive width (mentalities.defensivewidth = 61 for Arsenal): legacy, likely ignored"),
+              "it names the untested and the legacy writes and whose rows they are");
         CHECK(app.db.get_int(*teams, app.model.team(1)->rec, "defensivedepth") == keep_ars && app.db.get_int(*m, mr1, "defensivewidth") == keep_mr1, "nothing is written while it asks");
         CHECK(ui.click("Cancel##tacconfirmno", "Apply untested settings?"), "Cancel");
         ui.frames(2);
@@ -814,8 +816,9 @@ static void cases_mentality(App& app, Ui& ui, const fs::path& le) {
         CHECK(app.db.get_int(*m, mr1, "offensivewidth") == 65, fmt("and the attacking width still on from the pitch-layers case (65): %lld",
                                                                    (long long)app.db.get_int(*m, mr1, "offensivewidth")));
         CHECK(app.db.get_int(*m, mr7, "defensivewidth") == keep_mr7, "Everton's mentalities row is untouched");
-        CHECK(has_part(st.writes_done, "mentalities.defensivewidth = 61: row 1 of 1 of Arsenal (the active tactic)"), "the log names the row used: " + (st.writes_done.empty() ? std::string("none") : st.writes_done[0]));
-        CHECK(has_part(st.writes_done, "teams.defensivedepth = 62"), "and the teams write");
+        CHECK(has_part(st.writes_done, "mentalities.defensivewidth = 61 for Arsenal: row 1 of 1 (the active tactic)"), "the log names the row used: " + (st.writes_done.empty() ? std::string("none") : st.writes_done[0]));
+        CHECK(has_part(st.writes_done, "teams.defensivedepth = 62 for Arsenal"), "and the teams write, with the club");
+        CHECK(ui.toast_contains("(database rows of Arsenal)"), "the toast names whose rows were written");
         CHECK(!has_part(st.writes_done, "cm_mentalities"), "and never the dead row");
         for (const auto& kv : fake->sets) CHECK(gv::known(kv.first) != nullptr && kv.first.find("DEPTH") == std::string::npos, "a DB write never becomes a game variable: " + kv.first);
         // the snapshot store kept the values before Turbo's first write; the read-back shows both
@@ -1293,6 +1296,207 @@ static void cases_opposition(App& app, Ui& ui, const fs::path& le) {
     });
 }
 
+// ---------------------------------------------------------------------------------------------------------------- whose rows
+static void cases_rows(App& app, Ui& ui, const fs::path& le) {
+    // A tactic is a match setting, not a player edit: the preferred position the tab writes, and every way of putting it back, go past
+    // the overall follow (App::edit would move the stored overall by the formula's difference between the two positions)
+    run_case("UI: Teams > Tactics: a preferred position written and put back (Reset, off + Apply, tactics_off.txt) never moves the stored overall", [&] {
+        auto fake = std::make_shared<FakeMatchSetup>();
+        app.match_setup = fake;
+        std::error_code ec;
+        fs::remove(le / "turbo_output" / "tactics_off.txt", ec);
+        fs::remove(le / "turbo_output" / "overall_follow_off.txt", ec);  // the follow is on: the case shows the tab goes past it
+        select_team(app, ui, 1);  // Arsenal
+        go_scope(ui, "Position/Role");
+        app.sel_player = 1005;  // Arsenal's striker
+        ui.frames(3);
+        const Table* players = app.db.table("players");
+        const PlayerRow* p = app.model.player(1005);
+        CHECK(players && p, "the striker is in the save");
+        if (!players || !p) return;
+        const uint64_t rec = p->rec;
+        const std::string name = p->name;
+        const int64_t ovr0 = app.db.get_int(*players, rec, "overallrating"), pos0 = app.db.get_int(*players, rec, "preferredposition1");
+        CHECK(pos0 == 25, fmt("a striker (ST = 25): %lld", (long long)pos0));
+        // the two positions' formulas are far apart: an overall that followed the put-back would move by that much
+        overall::Attrs a{};
+        for (int k = 0; k < overall::kAttrCount; ++k) a[size_t(k)] = int(app.db.get_int(*players, rec, overall::kAttrNames[k], 0));
+        const int st = overall::compute_overall(25, a), cb = overall::compute_overall(5, a);
+        CHECK(std::abs(st - cb) >= 3, fmt("the ST (%d) and CB (%d) formulas differ", st, cb));
+        auto pos_now = [&]() { return app.db.get_int(*players, rec, "preferredposition1"); };
+        auto overall_kept = [&](const char* step) {
+            const int64_t now = app.db.get_int(*players, rec, "overallrating");
+            CHECK(now == ovr0, fmt("%s: the stored overall stays %lld (now %lld)", step, (long long)ovr0, (long long)now));
+        };
+        // 1. CB written, then the row's Reset
+        CHECK(type_slider(ui, "pos.preferred_positions", "5"), "preferred position CB (5)");
+        ui.frames(2);
+        CHECK(has(tactics_tab_state().receive, "players.preferredposition1 = 5 for " + name + "  [database row]"), "the receive list names the player");
+        CHECK(apply_confirmed(ui), "Apply (untested: confirmed)");
+        ui.frames(2);
+        CHECK(pos_now() == 5, "CB written");
+        overall_kept("the write");
+        CHECK(has_part(tactics_tab_state().writes_done, "players.preferredposition1 = 5 for " + name), "the log names the player");
+        CHECK(ui.click(reset_button(ui, "pos.preferred_positions")), "Reset");
+        ui.frames(3);
+        CHECK(pos_now() == pos0 && ui.toast_contains("1 row(s) restored"), "Reset puts ST back");
+        overall_kept("Reset");
+        // 2. CB written, the row switched off + Apply
+        CHECK(type_slider(ui, "pos.preferred_positions", "5"), "CB again");
+        CHECK(apply_confirmed(ui), "Apply");
+        ui.frames(2);
+        CHECK(pos_now() == 5, "CB written again");
+        overall_kept("the second write");
+        CHECK(ui.click(slider_item(ui, "##on", "pos.preferred_positions")), "switch the row off");
+        ui.frames(2);
+        CHECK(apply_confirmed(ui), "Apply with the row off");
+        ui.frames(2);
+        CHECK(pos_now() == pos0, "off + Apply puts ST back");
+        overall_kept("off + Apply");
+        // 3. CB written, tactics_off.txt appears (the row still holds its 5: switched on again by its checkbox)
+        CHECK(ui.click(slider_item(ui, "##on", "pos.preferred_positions")), "switch the row on again (CB kept)");
+        ui.frames(2);
+        CHECK(apply_confirmed(ui), "Apply");
+        ui.frames(2);
+        CHECK(pos_now() == 5, "CB written a third time");
+        overall_kept("the third write");
+        fs::create_directories(le / "turbo_output");
+        {
+            std::ofstream f((le / "turbo_output" / "tactics_off.txt").string(), std::ios::binary);
+            f << "off";
+        }
+        ui.frames(130);  // the panel looks at the switches every 2 s
+        CHECK(tactics_tab_state().off, "the master switch is on");
+        CHECK(pos_now() == pos0, "tactics_off.txt puts ST back");
+        overall_kept("tactics_off.txt");
+        fs::remove(le / "turbo_output" / "tactics_off.txt");
+        ui.frames(130);
+        CHECK(!tactics_tab_state().off, "the switch is gone");
+        CHECK(ui.click(reset_button(ui, "pos.preferred_positions")), "the row back to the game decides");
+        ui.frames(2);
+        go_scope(ui, "Match (both teams)");
+        app.match_setup = nullptr;
+    });
+
+    // The Opposition scope asks for the opponent in the club list: your club's values stay with your club, so the footer's Apply never
+    // writes them into the opponent's row; another player's row never gets the values set for the player before him
+    run_case("UI: Teams > Tactics: values stay with their club and player - selecting the opponent or another player and pressing Apply leaves his rows alone", [&] {
+        auto fake = std::make_shared<FakeMatchSetup>();
+        app.match_setup = fake;
+        const Table* teams = app.db.table("teams");
+        const Table* players = app.db.table("players");
+        CHECK(teams && players && app.model.team(1) && app.model.team(7), "the clubs");
+        if (!teams || !players || !app.model.team(1) || !app.model.team(7)) return;
+        auto depth = [&](int64_t id) { return app.db.get_int(*teams, app.model.team(id)->rec, "defensivedepth"); };
+        const int64_t ars0 = depth(1), ev0 = depth(7);
+        select_team(app, ui, 1);  // Arsenal, your club
+        go_scope(ui, "My team");
+        CHECK(type_slider(ui, "team.line_depth", "71"), "Arsenal's defensive line 71");
+        ui.frames(2);
+        CHECK(has(tactics_tab_state().receive, "teams.defensivedepth = 71 for Arsenal  [database row]"), "the receive list names the club");
+        CHECK(ui.click("Apply##tac"), "Apply");
+        ui.frames(2);
+        CHECK(tactics_tab_state().confirm_open && has_part(tactics_tab_state().confirm_lines, "(teams.defensivedepth = 71 for Arsenal): untested"),
+              "the confirmation names the club");
+        CHECK(ui.click("Apply anyway##tacconfirm", "Apply untested settings?"), "Apply anyway");
+        ui.frames(2);
+        CHECK(depth(1) == 71, "Arsenal's row holds 71");
+        // the Opposition scope: the opponent selected in the club list, then the footer's Apply
+        go_scope(ui, "Opposition");
+        select_team(app, ui, 7);  // Everton, the opponent
+        ui.frames(2);
+        CHECK(!has_part(tactics_tab_state().receive, "teams.defensivedepth"), "Arsenal's defensive line is not in what Everton's row would receive");
+        CHECK(apply_confirmed(ui), "the footer's Apply with Everton selected");
+        ui.frames(2);
+        CHECK(depth(7) == ev0, fmt("Everton's row is untouched (%lld)", (long long)depth(7)));
+        CHECK(depth(1) == 71, "Arsenal keeps 71");
+        go_scope(ui, "My team");
+        CHECK(row_of("team.line_depth") && !row_of("team.line_depth")->enabled, "Everton's own defensive line: the game decides");
+        app.toasts.clear();
+        CHECK(ui.click(reset_button(ui, "team.line_depth")), "Reset on Everton's row");
+        ui.frames(2);
+        CHECK(ui.toast_contains("nothing to restore for Everton"), "Reset names Everton: Turbo never wrote its row");
+        CHECK(depth(1) == 71, "Arsenal's row is not touched by Everton's Reset");
+        // back to Arsenal: its 71 comes back with its applied state, so switching it off + Apply still puts Arsenal's row back
+        select_team(app, ui, 1);
+        CHECK(row_of("team.line_depth") && row_of("team.line_depth")->enabled && row_of("team.line_depth")->value == 71 && row_of("team.line_depth")->was.empty(),
+              "Arsenal's 71 is back, as applied");
+        CHECK(ui.click(slider_item(ui, "##on", "team.line_depth")), "switch Arsenal's row off");
+        ui.frames(2);
+        app.toasts.clear();
+        CHECK(apply_confirmed(ui), "Apply");
+        ui.frames(2);
+        CHECK(depth(1) == ars0 && ui.toast_contains("row(s) restored"), fmt("off + Apply puts Arsenal's row back to %lld", (long long)ars0));
+        // a player's value stays with that player
+        go_scope(ui, "Position/Role");
+        app.sel_player = 1005;
+        ui.frames(2);
+        const PlayerRow* p5 = app.model.player(1005);
+        const PlayerRow* p6 = app.model.player(1006);
+        CHECK(p5 && p6, "two Arsenal players");
+        if (!p5 || !p6) return;
+        const uint64_t r5 = p5->rec, r6 = p6->rec;
+        const int64_t pos5 = app.db.get_int(*players, r5, "preferredposition1"), pos6 = app.db.get_int(*players, r6, "preferredposition1");
+        CHECK(type_slider(ui, "pos.preferred_positions", "14"), "the striker as a CM (14)");
+        CHECK(apply_confirmed(ui), "Apply");
+        ui.frames(2);
+        CHECK(app.db.get_int(*players, r5, "preferredposition1") == 14, "written for him");
+        app.sel_player = 1006;  // another player
+        ui.frames(2);
+        CHECK(row_of("pos.preferred_positions") && !row_of("pos.preferred_positions")->enabled, "the other player's row: the game decides");
+        CHECK(!has_part(tactics_tab_state().receive, "players.preferredposition1"), "nothing for him in the receive list");
+        CHECK(apply_confirmed(ui), "Apply with the other player selected");
+        ui.frames(2);
+        CHECK(app.db.get_int(*players, r6, "preferredposition1") == pos6, "the other player's position is untouched");
+        app.sel_player = 1005;
+        ui.frames(2);
+        CHECK(row_of("pos.preferred_positions") && row_of("pos.preferred_positions")->enabled && row_of("pos.preferred_positions")->value == 14, "his 14 is back");
+        CHECK(ui.click(reset_button(ui, "pos.preferred_positions")), "Reset");
+        ui.frames(2);
+        CHECK(app.db.get_int(*players, r5, "preferredposition1") == pos5, "his position is back");
+        go_scope(ui, "Match (both teams)");
+        app.match_setup = nullptr;
+    });
+
+    // "Clear overrides" (the banner of active game variables) clears the game variables: a database row keeps its applied state
+    run_case("UI: Teams > Tactics: Clear overrides clears the game variables only - a database row switched off + Apply still goes back", [&] {
+        auto fake = std::make_shared<FakeMatchSetup>();
+        app.match_setup = fake;
+        const Table* teams = app.db.table("teams");
+        CHECK(teams && app.model.team(1), "Arsenal");
+        if (!teams || !app.model.team(1)) return;
+        auto depth = [&]() { return app.db.get_int(*teams, app.model.team(1)->rec, "defensivedepth"); };
+        const int64_t ars0 = depth();
+        select_team(app, ui, 1);
+        go_scope(ui, "My team");
+        CHECK(type_slider(ui, "team.line_depth", "72"), "defensive line 72");
+        CHECK(apply_confirmed(ui), "Apply");
+        ui.frames(2);
+        CHECK(depth() == 72, "written");
+        msetup::VarLine l;
+        l.name = "GAMEPLAY_CUSTOMIZATION/INJURY_FREQUENCY_USER";
+        l.value = 30;
+        l.active = true;
+        fake->lines[l.name] = l;  // a game variable is active: the banner and its button
+        ui.frames(2);
+        CHECK(tactics_tab_state().banner.find("Game overrides are active") != std::string::npos, "the banner: " + tactics_tab_state().banner);
+        CHECK(ui.click("Clear overrides##tac"), "Clear overrides");
+        ui.frames(2);
+        CHECK(ui.toast_contains("Game overrides cleared") && fake->clears.size() == 1, "the game variables were cleared");
+        CHECK(row_of("team.line_depth") && row_of("team.line_depth")->enabled && row_of("team.line_depth")->was.empty(),
+              "the database row keeps its applied state (nothing to apply)");
+        CHECK(ui.click(slider_item(ui, "##on", "team.line_depth")), "switch the row off");
+        ui.frames(2);
+        app.toasts.clear();
+        CHECK(apply_confirmed(ui), "Apply");
+        ui.frames(2);
+        CHECK(depth() == ars0 && ui.toast_contains("1 row(s) restored"), fmt("off + Apply puts the row back to %lld", (long long)ars0));
+        fake->lines.clear();
+        go_scope(ui, "Match (both teams)");
+        app.match_setup = nullptr;
+    });
+}
+
 }  // namespace tactics_tab_test
 
 static void ui_cases_tactics_tab(App& app, Ui& ui, const fs::path& le) {
@@ -1301,4 +1505,5 @@ static void ui_cases_tactics_tab(App& app, Ui& ui, const fs::path& le) {
     tactics_tab_test::cases_mentality(app, ui, le);
     tactics_tab_test::cases_presets(app, ui, le);
     tactics_tab_test::cases_opposition(app, ui, le);
+    tactics_tab_test::cases_rows(app, ui, le);
 }

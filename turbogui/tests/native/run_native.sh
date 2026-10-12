@@ -93,7 +93,8 @@ fi
 STEP="compiling"
 objs=()
 # parallel, incremental compiles (only changed sources and the objects whose headers changed)
-PC_SCRIPT="$0"; . "$ROOT/scripts/parallel_compile.sh"
+# (absolute: "$0" is relative when started from the repository root, and this script has changed folder since)
+PC_SCRIPT="$ROOT/tests/native/run_native.sh"; . "$ROOT/scripts/parallel_compile.sh"
 for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_party/imgui/imgui_tables.cpp \
          third_party/imgui/imgui_widgets.cpp third_party/imgui/backends/imgui_impl_null.cpp \
          src/core/t3db.cpp src/core/squad_role.cpp src/core/model.cpp src/core/bridge.cpp src/core/le_log.cpp src/core/memmap.cpp src/core/image.cpp src/core/legacy.cpp src/core/devops.cpp src/core/callnames.cpp src/core/teamnames.cpp src/core/sigscan.cpp src/core/gamethread.cpp src/core/fce_standings.cpp src/core/player_capture.cpp src/core/game_calls.cpp src/core/standings_refresh.cpp src/core/transfer_list.cpp src/core/player_move.cpp src/core/player_create.cpp src/core/player_morale.cpp src/core/commentary_bank.cpp src/core/commentary_audio.cpp src/core/reveal.cpp src/core/manager_rules.cpp src/core/match_setup.cpp src/core/gameplay_sliders.cpp src/core/reapply.cpp \
