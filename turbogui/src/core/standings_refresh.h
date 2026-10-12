@@ -65,7 +65,7 @@ constexpr uint64_t kNodeRight = 0x00, kNodeLeft = 0x08, kNodeParent = 0x10, kNod
 // +0x18 LockSemaphore, +0x20 SpinCount
 constexpr uint64_t kCsLockCount = 0x08, kCsRecursion = 0x0C, kCsOwner = 0x10;
 constexpr uint64_t kRvaVtable = 0x975EA38;          // StandingsViewManager vtable (ctor 0x147d9a700 writes it)
-constexpr uint64_t kRvaLiveStandingsVtable = 0xB016148;  // the map values
+constexpr uint64_t kRvaLiveStandingsVtable = 0xB016148;  // the map values ("svm_live_vtable")
 constexpr uint64_t kVtableSlotListener = 0x08;  // vtable slot 1 = OnCareerEvent = "svm_listener"
 constexpr uint64_t kCtxIfceHolder = 0x38;       // [ctx+0x38] = holder of manager slot 1 (0x20*1 + 0x18)
 constexpr uint64_t kIfceVtablePost = 0x20;      // IFCEInterface vtable slot 4 = Post(request) ("fce_iface_post")
@@ -96,6 +96,9 @@ struct Fns {
     uint64_t allocator = 0;     // the game allocator global refresh_comp reads (optional check)
     uint64_t compobj_vtable = 0;      // FCEI::CompObject vtable (optional: RVA + image base when 0)
     uint64_t standinglist_vtable = 0; // StandingObject list vtable (optional: RVA + image base when 0)
+    // LiveStandings vtable, the map values ("svm_live_vtable"; optional: RVA + image base when 0, which is the address of
+    // build kRvaBuild only: on 6AC07E31 that fallback refused every map value and no refresh ran)
+    uint64_t live_vtable = 0;
     // Name of the first required function that is missing, nullptr when all are there
     const char* missing() const;
 };

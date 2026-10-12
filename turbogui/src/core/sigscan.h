@@ -68,6 +68,15 @@ struct SigResult {
 // "6AB9813C-211EF000"
 std::string build_key(uint32_t timestamp, uint32_t size_of_image);
 
+// The build every image-relative constant (kRva*) in Turbo's code was read from: FC27.exe as dumped 2026-10-03
+// (1.0.140.64835). A title update moves code and data (on 6AC07E31-2145C000 every vtable sits a few KB further), so such
+// a constant describes that one build only; on any other build an object is identified through its signatures.
+constexpr const char* kRvaBuild = "6AB9813C-211EF000";
+// image_base + rva when `build` is kRvaBuild (the documented address), else 0 (also 0 when the base is not known)
+inline uint64_t documented_rva(const std::string& build, uint64_t image_base, uint64_t rva) {
+    return image_base != 0 && build == kRvaBuild ? image_base + rva : 0;
+}
+
 // Parses a signatures_<build>.json text. Returns false (and err) when malformed; a table with no signatures is fine.
 bool parse_signature_table(const std::string& json_text, SignatureTable& out, std::string& err);
 // Serialises a table in the same format (used to write a template next to the game's build key).

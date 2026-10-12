@@ -471,6 +471,20 @@ static std::vector<Signature> fc27_signatures() {
           "48 89 5C 24 08 57 48 83 EC 20 33 DB 48 8B F9 85 D2 75 51 48 8B 0D ?? ?? ?? ?? 4C 8D 05 ?? ?? ?? ?? 45 33 C9 BA 80 00 00 00",
           "rip", 0x89, "StandingObject list vtable (0x14AAE1D38): the lea rcx,[rip+..] at +0x89 of the same allocator (kind 1)",
           "48 8D 0D"},
+         // Added 2026-10-11 (docs/re/C3-live-standings.md section 7): on 6AC07E31 the image-relative constants of these two
+         // vtables (and of the FCE interface's) point at other bytes, which refused the real objects. Both patterns are
+         // unique in the 6AB9813C image and resolve there to the documented vtables; on 6AC07E31 they are checked by the
+         // start-up scan (turbo_gui.log "game hooks: signature ...").
+         {"svm_live_vtable",
+          "48 8B 4E 08 48 85 C9 74 20 48 8B 01 FF 50 08 8B D0 48 8B CB E8 ?? ?? ?? ?? 48 89 43 08 48 8B D0 4C 8B 46 08 E8 ?? ?? ?? ?? "
+          "48 8D 05 ?? ?? ?? ?? 48 8B FB 48 89 03 48 8B CD FF 15 ?? ?? ?? ??",
+          "rip", 0x29, "LiveStandings vtable (0x14B016148), the values of the SVM's mLiveStandings map: the lea rax,[rip+..] at 0x147D9F7BE "
+          "of GetLiveStandingsCopy 0x147D9F6B8, right after the CompObject clone (0x144040198 / 0x14403FC30)"},
+         {"fce_datamanager_vtable",
+          "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 4C 89 70 20 41 57 48 83 EC 30 41 B8 02 00 00 00 48 8B F2 48 8B F9 E8 ?? ?? ?? ?? "
+          "48 8B 1D ?? ?? ?? ?? 48 8D 05 ?? ?? ?? ?? 48 89 07 4C 8D 05 ?? ?? ?? ?? 48 C7 47 28 00 00 00 00",
+          "rip", 0x31, "FCE::DataManager vtable (0x14B180CA8), the object the live standings and the match setup fixtures read: the "
+          "lea rax,[rip+..] at +0x31 of its ctor 0x148A1661C (then +0x28 DataConnector = 0)"},
          // Match setup (docs/re/match_setup.md, core/match_setup.h): the game-variable store and the FCE result handlers
          {"gamevar_get_int",
           "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 48 8B F1 48 8D 1D ?? ?? ?? ?? 48 8B CB 44 8B F2 E8 "

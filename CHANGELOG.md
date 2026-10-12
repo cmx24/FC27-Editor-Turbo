@@ -3,6 +3,13 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## Unreleased (branch 2.2/standings)
+
+### Live standings and Match setup on game build 6AC07E31
+- Competitions > Live standings ("The game's standings are not reachable: the FCE interface object has another vtable (game update?)") and Match setup ("The fixtures are not reachable: ...") work again after the October title update. Turbo compared the engine objects with vtable addresses of the old build (6AB9813C) on every build; it now identifies the FCE interface by its Post function (signature `fce_iface_post`) and the DataManager by the new signature `fce_datamanager_vtable`, and keeps the old addresses for the old build only. A wrong or stale object is still refused. `turbo_gui.log` says how the objects were identified ("live standings / match setup fixtures: ..." at start-up, "live standings located: ..." when the view opens).
+- The same old-build addresses also stopped the standings refresh after a table edit (the map values' vtable, new signature `svm_live_vtable`) and every fixed result in Match setup (the FCE managers' vtables; the manager is now the object whose vtable holds the hooked HandleMessage).
+- Not verified in game yet.
+
 ## 2.1.0 (game asset catalog, commentary language detection, UX, tactics honesty, FC 26 parity, crash guard hardening)
 Status words below: "verified in game" = seen working in a played or loaded career on game build 6AC07E31; everything else passes the offline suites only.
 

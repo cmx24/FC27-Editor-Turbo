@@ -57,12 +57,19 @@ bool reload(App& app) {
 
 void ensure_located(App& app) {
     const uint64_t ifce = app.bridge.state().ifce;
-    const bool fresh = g_ms.loc.ok() && g_ms.located_ifce == ifce && g_ms.located_gen == app.gen && fce::validate(app.mem, g_ms.loc, app.game_base);
+    const fce::Anchors anchors = app.fce_anchors();  // the running build's identities (signature-resolved by the host)
+    const bool fresh = g_ms.loc.ok() && g_ms.located_ifce == ifce && g_ms.located_gen == app.gen && fce::validate(app.mem, g_ms.loc, anchors);
     if (fresh) return;
     g_ms.located_ifce = ifce;
     g_ms.located_gen = app.gen;
-    g_ms.err = fce::locate(app.mem, ifce, app.game_base, g_ms.loc);
-    if (g_ms.err.empty()) reload(app);
+    g_ms.err = fce::locate(app.mem, ifce, anchors, g_ms.loc);
+    if (g_ms.err.empty() && reload(app)) {
+        // also into turbo_gui.log: which identities the running build was checked with (the in-game check reads it)
+        const std::string line = "match setup: fixtures located: " + std::to_string(g_ms.fixtures.size()) + " fixtures" +
+                                 (g_ms.loc.identity.empty() ? std::string() : " (" + g_ms.loc.identity + ")");
+        app.log(line);
+        if (app.log_hook) app.log_hook(line);
+    }
 }
 
 uint32_t team_of(int16_t sid) {

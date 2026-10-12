@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "mem.h"
+#include "sigscan.h"
 
 namespace turbo {
 namespace fce {
@@ -37,8 +38,42 @@ constexpr uint64_t kOffCompObjList = 0x50;
 constexpr uint32_t kCompObjSize = 0x30, kMaxCompObjs = 65535;
 constexpr uint32_t kCompObjShortLen = 7, kCompObjDescLen = 33;
 constexpr uint8_t kCompTypeRoot = 0, kCompTypeNation = 2, kCompTypeCompetition = 3, kCompTypeStage = 4, kCompTypeGroup = 5;
-// vtables inside FC27.exe (image-relative; checked only when the image base is known)
+// vtables of build kRvaBuild (6AB9813C-211EF000, core/sigscan.h; docs/re/C3-live-standings.md), image-relative. The
+// October 2026 title update (6AC07E31-2145C000) moved them: comparing every build against image base + these refused the
+// real objects there ("the FCE interface object has another vtable (game update?)" in Competitions and Match setup).
+// They are now only the documented set of their own build (Anchors); any other build identifies the objects through
+// its signatures.
 constexpr uint64_t kRvaInterfaceVtable = 0xB180DF0, kRvaDataManagerVtable = 0xB180CA8;
+// FCEInterfaceImpl vtable slot 4 = Post(request) (0x148A35D3C on kRvaBuild, the fce_iface_post signature; the
+// StandingsViewManager's request path goes through it, core/standings_refresh.h)
+constexpr uint64_t kIfaceSlotPost = 0x20;
+
+// What identifies the engine objects on the running game build. The Windows host fills it once its signature scan is
+// done (win/standings_refresh_win.cpp fce_anchors); tests fill it by hand or use unchecked().
+//   * FCEInterfaceImpl: its vtable lies in FC27.exe and holds Post (signature "fce_iface_post") in slot 4; on kRvaBuild
+//     it must also be the documented vtable. Neither known = refused.
+//   * DataManager: its vtable lies in FC27.exe and is the one the signature "fce_datamanager_vtable" resolved (else the
+//     documented one on kRvaBuild). Neither known = accepted on the chain alone: it is reached through the game's own
+//     pointers from an identified interface and must point back to its DataConnector (+0x28).
+struct Anchors {
+    bool check = true;              // false = no identity checks at all (synthetic memory in tests)
+    std::string pending;            // not "" = the host has no anchors yet (signature scan still running): why; every locate is refused
+    std::string build;              // build key of the running game ("" = unknown), for the messages
+    uint64_t image_base = 0, image_size = 0;  // FC27.exe: the vtables must lie inside (size 0 = the range is not checked)
+    uint64_t iface_post = 0;        // FCEInterfaceImpl::Post (signature "fce_iface_post"), 0 = not resolved
+    uint64_t iface_vtable = 0;      // FCEInterfaceImpl vtable: the documented one on kRvaBuild, else 0
+    uint64_t manager_vtable = 0;    // DataManager vtable: signature "fce_datamanager_vtable", else the documented one on kRvaBuild
+    bool manager_by_signature = false;  // manager_vtable came from the signature
+    static Anchors unchecked();
+};
+// The anchors of the running build from what its signature scan resolved (0 = not found); kRvaBuild adds its documented
+// vtables. image_size 0 = the range is not checked.
+Anchors anchors_for(const std::string& build, uint64_t image_base, uint64_t image_size, uint64_t sig_iface_post, uint64_t sig_manager_vtable);
+// One line for the log: what each object is checked against
+std::string describe_anchors(const Anchors& a);
+// The identity checks alone ("" = the object is the FCE interface / a DataManager; `how` says by what)
+std::string check_interface(Memory& mem, uint64_t ifce, const Anchors& a, std::string* how = nullptr);
+std::string check_manager(Memory& mem, uint64_t manager, const Anchors& a, std::string* how = nullptr);
 
 // One StandingData row (0x18 bytes). Played games, goal difference and the position are not stored: the UI derives them.
 struct StandingRow {
@@ -124,14 +159,15 @@ struct Located {
     uint64_t fixture_list = 0, fixtures_data = 0;
     uint64_t compobj_list = 0, compobjs_data = 0;  // 0 when the list is absent (older layout): the tree is optional
     uint32_t row_count = 0, fixture_count = 0, compobj_count = 0;
+    std::string identity;  // how the two objects were identified (for the log), e.g. "interface: Post in vtable slot 4; ..."
     bool ok() const { return manager != 0; }
 };
 
-// Follow the chain from the FCE interface object. image_base = FC27.exe base for the vtable checks, 0 = skip them.
+// Follow the chain from the FCE interface object, identifying the interface and the DataManager by `anchors`.
 // Returns "" and fills `out` on success, otherwise the reason (out is cleared).
-std::string locate(Memory& mem, uint64_t ifce, uint64_t image_base, Located& out);
-// Re-check a located set before use (same back-pointers, list sizes unchanged); false = locate again
-bool validate(Memory& mem, Located& loc, uint64_t image_base);
+std::string locate(Memory& mem, uint64_t ifce, const Anchors& anchors, Located& out);
+// Re-check a located set before use (identities, same back-pointers, list sizes unchanged); false = locate again
+bool validate(Memory& mem, Located& loc, const Anchors& anchors);
 
 bool decode_row(const uint8_t* p, uint64_t addr, StandingRow& out);
 void encode_counters(const StandingRow& row, uint8_t* p);  // writes +0x09..+0x15 of a 0x18-byte row image

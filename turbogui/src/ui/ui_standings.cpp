@@ -172,7 +172,7 @@ void read_shown(App& app) {
     if (app.standings_refresh) fns = app.standings_refresh->fns();
     const uint64_t co = fns.compobj_vtable ? fns.compobj_vtable : (app.game_base ? app.game_base + svm::kRvaCompObjectVtable : 0);
     const uint64_t sl = fns.standinglist_vtable ? fns.standinglist_vtable : (app.game_base ? app.game_base + svm::kRvaStandingListVtable : 0);
-    const uint64_t live = app.game_base ? app.game_base + svm::kRvaLiveStandingsVtable : 0;
+    const uint64_t live = fns.live_vtable ? fns.live_vtable : (app.game_base ? app.game_base + svm::kRvaLiveStandingsVtable : 0);
     std::string err = svm::validate(app.mem, st.svm, st.managers, fns.vtable ? fns.vtable : (app.game_base ? app.game_base + svm::kRvaVtable : 0),
                                     fns.listener);
     if (err.empty()) err = svm::shown_groups(app.mem, st.svm, live, co, sl, g_live.shown);
@@ -244,8 +244,9 @@ bool reload(App& app) {
 // Locate (again) when the career changed, the chain broke or nothing was located yet
 void ensure_located(App& app) {
     uint64_t ifce = app.bridge.state().ifce;
+    const fce::Anchors anchors = app.fce_anchors();  // the running build's identities (signature-resolved by the host)
     bool fresh = g_live.loc.ok() && g_live.located_ifce == ifce && g_live.located_gen == app.gen &&
-                 fce::validate(app.mem, g_live.loc, app.game_base);
+                 fce::validate(app.mem, g_live.loc, anchors);
     if (fresh) return;
     if (g_live.located_ifce != ifce) {
         // another career: the last edit cannot be undone, typed points belong to the old rows (Undo itself also checks
@@ -258,10 +259,16 @@ void ensure_located(App& app) {
     g_live.pending = LiveState::Pending();
     g_live.located_ifce = ifce;
     g_live.located_gen = app.gen;
-    g_live.err = fce::locate(app.mem, ifce, app.game_base, g_live.loc);
+    g_live.err = fce::locate(app.mem, ifce, anchors, g_live.loc);
     if (g_live.err.empty()) {
-        if (reload(app)) app.log("live standings located: " + std::to_string(g_live.rows.size()) + " rows, " +
-                                 std::to_string(g_live.fixtures.size()) + " fixtures");
+        if (reload(app)) {
+            // also into turbo_gui.log: which identities the running build was checked with (the in-game check reads it)
+            const std::string line = "live standings located: " + std::to_string(g_live.rows.size()) + " rows, " +
+                                     std::to_string(g_live.fixtures.size()) + " fixtures" +
+                                     (g_live.loc.identity.empty() ? std::string() : " (" + g_live.loc.identity + ")");
+            app.log(line);
+            if (app.log_hook) app.log_hook(line);
+        }
     } else {
         g_live.rows.clear();
         g_live.groups.clear();

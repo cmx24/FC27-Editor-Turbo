@@ -30,6 +30,10 @@ std::chrono::steady_clock::time_point g_gate_since;  // when the in-flight run w
 constexpr std::chrono::seconds kGateTimeout{30};     // a run that never reported back releases the gate
 std::atomic<long long> g_runs{0}, g_queued{0}, g_refused{0};
 constexpr size_t kMaxResults = 16;
+// The FCE anchors (fce_anchors), published once by install_standings_refresh (guarded by g_anchor_mutex)
+std::mutex g_anchor_mutex;
+turbo::fce::Anchors g_anchors;
+bool g_anchors_set = false;
 
 std::string hex(uint64_t v) {
     char b[32];
@@ -44,6 +48,33 @@ fs::path call_full_path() { return le_root() / "turbo_output" / "call_standings_
 bool file_exists(const fs::path& p) {
     std::error_code ec;
     return fs::exists(p, ec);
+}
+
+// FC27.exe's build key and range from its PE header, for when the game hooks never located the game (kill switch)
+void main_module(std::string& build, uint64_t& base, uint64_t& size) {
+    HMODULE exe = GetModuleHandleW(nullptr);
+    if (!exe) return;
+    const uint8_t* b = reinterpret_cast<const uint8_t*>(exe);
+    const IMAGE_DOS_HEADER* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(b);
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0 || dos->e_lfanew > 0x1000) return;
+    const IMAGE_NT_HEADERS64* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(b + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE || nt->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC) return;
+    base = reinterpret_cast<uint64_t>(b);
+    size = nt->OptionalHeader.SizeOfImage;
+    build = build_key(nt->FileHeader.TimeDateStamp, nt->OptionalHeader.SizeOfImage);
+}
+
+// Resolves and publishes the FCE anchors (after install_game_hooks: game_signature no longer waits for the scan)
+void publish_fce_anchors() {
+    std::string build = game_build_key();
+    uint64_t base = game_image_base(), size = game_image_size();
+    if (build.empty() || !base) main_module(build, base, size);
+    const uint64_t post = game_signature("fce_iface_post"), dm = game_signature("fce_datamanager_vtable");
+    fce::Anchors a = fce::anchors_for(build, base, size, post, dm);
+    log("live standings / match setup fixtures: %s", fce::describe_anchors(a).c_str());
+    std::lock_guard<std::mutex> lock(g_anchor_mutex);
+    g_anchors = a;
+    g_anchors_set = true;
 }
 
 // ---------------------------------------------------------------- the real calls (game thread only)
@@ -144,6 +175,14 @@ struct HostService : svm::RefreshService {
 
 // ---------------------------------------------------------------- public API
 svm::Fns standings_refresh_fns() { return g_fns; }
+
+fce::Anchors fce_anchors() {
+    std::lock_guard<std::mutex> lock(g_anchor_mutex);
+    if (g_anchors_set) return g_anchors;
+    fce::Anchors a;
+    a.pending = "Turbo is still scanning the game's code for its signatures (about a minute after the game starts): try again shortly";
+    return a;
+}
 
 bool standings_refresh_ready(std::string* why) {
     if (!g_installed) {
@@ -250,6 +289,7 @@ std::shared_ptr<svm::RefreshService> standings_refresh_service() {
 void install_standings_refresh() {
     if (g_installed) return;
     g_installed = true;
+    publish_fce_anchors();  // live standings / match setup fixtures: also when the call itself stays off
     if (!game_hooks_allowed()) {
         g_off = "game hooks are off for this game build";
         log("game calls: standings_refresh off (%s)", g_off.c_str());
@@ -262,6 +302,7 @@ void install_standings_refresh() {
     g_fns.allocator = game_signature("svm_allocator");
     g_fns.compobj_vtable = game_signature("fcei_compobject_vtable");
     g_fns.standinglist_vtable = game_signature("fcei_standinglist_vtable");
+    g_fns.live_vtable = game_signature("svm_live_vtable");
     if (const char* m = g_fns.missing()) {
         g_off = std::string("signature ") + m + " was not found on this game build";
         log("game calls: standings_refresh off (%s)", g_off.c_str());
@@ -271,6 +312,10 @@ void install_standings_refresh() {
                            static_cast<unsigned long long>(svm::kRvaVtable));
     if (!g_fns.iface_post || !g_fns.allocator)
         log("game calls: standings_refresh: fce_iface_post / svm_allocator not found: the request path is checked for shape only");
+    if (!g_fns.live_vtable)
+        log("game calls: standings_refresh: svm_live_vtable not found, the built-in RVA 0x%llX is used (build %s only: on another build "
+            "the map values are refused and nothing is called)",
+            static_cast<unsigned long long>(svm::kRvaLiveStandingsVtable), kRvaBuild);
     // the node vtables of the view's rows: by signature, else the known RVAs of this build (the walk only reads)
     if (!g_fns.compobj_vtable || !g_fns.standinglist_vtable) {
         const uint64_t base = game_image_base();
@@ -283,10 +328,10 @@ void install_standings_refresh() {
         }
     }
     log("game calls: standings_refresh resolved (refresh_comp %s, listener %s, vtable %s, iface_post %s, allocator %s, compobj vtable %s, "
-        "standinglist vtable %s; kill switch turbo_output\\call_standings_refresh_off.txt, full refresh opt-in "
+        "standinglist vtable %s, live vtable %s; kill switch turbo_output\\call_standings_refresh_off.txt, full refresh opt-in "
         "turbo_output\\call_standings_refresh_full.txt)",
         hex(g_fns.refresh_comp).c_str(), hex(g_fns.listener).c_str(), hex(g_fns.vtable).c_str(), hex(g_fns.iface_post).c_str(),
-        hex(g_fns.allocator).c_str(), hex(g_fns.compobj_vtable).c_str(), hex(g_fns.standinglist_vtable).c_str());
+        hex(g_fns.allocator).c_str(), hex(g_fns.compobj_vtable).c_str(), hex(g_fns.standinglist_vtable).c_str(), hex(g_fns.live_vtable).c_str());
 }
 
 }  // namespace host

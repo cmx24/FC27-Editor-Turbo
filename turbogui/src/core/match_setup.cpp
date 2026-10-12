@@ -444,7 +444,20 @@ bool pair_set(Memory& mem, uint64_t at, bool& ok) {
 }
 }  // namespace
 
-bool apply_to_request(Memory& mem, uint64_t self, uint64_t expected_vtable, uint64_t msg, const FixTable& fixes, Applied& out) {
+std::string check_owner(Memory& mem, uint64_t self, const Owner& owner) {
+    if (!owner.vtable && !owner.handler) return "";
+    uint64_t vt = 0;
+    if (!is_ptr(self, 8) || !mem.rd(self, vt) || !is_ptr(vt, 8)) return "the handler's object is not readable";
+    if (owner.vtable && vt != owner.vtable) return "the handler's object is not the expected FCE manager (another vtable)";
+    if (owner.handler) {
+        uint64_t fn = 0;
+        if (!mem.rd(vt + kVtableSlotHandleMessage, fn) || fn != owner.handler)
+            return "the handler's object is not the expected FCE manager (its vtable slot 5 is not the hooked HandleMessage)";
+    }
+    return "";
+}
+
+bool apply_to_request(Memory& mem, uint64_t self, const Owner& owner, uint64_t msg, const FixTable& fixes, Applied& out) {
     out = Applied();
     if (fixes.empty() || !is_ptr(msg, 8)) return false;
     int32_t type = 0;
@@ -456,12 +469,10 @@ bool apply_to_request(Memory& mem, uint64_t self, uint64_t expected_vtable, uint
     out.fixture = uint16_t(fixture);
     out.home = f->home;
     out.away = f->away;
-    if (expected_vtable) {
-        uint64_t vt = 0;
-        if (!mem.rd(self, vt) || vt != expected_vtable) {
-            out.skipped = "the handler's object is not the expected FCE manager";
-            return true;
-        }
+    const std::string who = check_owner(mem, self, owner);
+    if (!who.empty()) {
+        out.skipped = who;
+        return true;
     }
     if (!mem.rd(msg + kOffHome, out.old_home) || !mem.rd(msg + kOffAway, out.old_away)) {
         out.skipped = "the result is not readable";

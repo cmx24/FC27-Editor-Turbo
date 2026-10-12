@@ -163,8 +163,18 @@ namespace mfix {
 constexpr int32_t kRequestType = 0x2A;  // FCEI::RequestUpdateMatchResult
 constexpr uint64_t kOffType = 0x10, kOffHome = 0x20, kOffAway = 0x24, kOffExtra = 0x30, kOffPens = 0x38, kOffFixture = 0x70;
 constexpr int32_t kMaxFixture = 20000, kMaxGoals = 30;
-// FCE manager vtables (image-relative; the hook only rewrites when `this` carries the expected one)
+// FCE manager vtables of build kRvaBuild (image-relative, core/sigscan.h): the hook only rewrites when `this` carries the
+// expected one. On any other build they are not the managers' (6AC07E31 skipped every fixed result with "not the expected
+// FCE manager"): there the manager is identified by its vtable's slot 5 holding the hooked HandleMessage itself.
 constexpr uint64_t kRvaSchedulingVtable = 0xB1854A8, kRvaStandingsVtable = 0xB1852E8;
+constexpr uint64_t kVtableSlotHandleMessage = 0x28;  // slot 5 (both managers, checked in the 6AB9813C image)
+// Who may own a hooked HandleMessage: `vtable` (exact, 0 = not checked) and `handler` (the hooked function, signature-
+// resolved: the object's vtable must hold it in slot 5; 0 = not checked). Both 0 = no check (tests).
+struct Owner {
+    uint64_t vtable = 0, handler = 0;
+};
+// "" when `self` is such an owner, else why not
+std::string check_owner(Memory& mem, uint64_t self, const Owner& owner);
 
 struct Fix {
     uint16_t fixture = 0;
@@ -197,10 +207,16 @@ struct Applied {
 };
 
 // Inspect one message the FCE manager `self` is about to handle. When it is a RequestUpdateMatchResult for a fixed
-// fixture that ended in regular time, rewrite its goals. expected_vtable = the manager's vtable (0 = not checked).
-// Returns true when the message was a result for a fixed fixture (changed / skipped say what happened). Reads the
-// type first; an unreadable or foreign message is left alone.
-bool apply_to_request(Memory& mem, uint64_t self, uint64_t expected_vtable, uint64_t msg, const FixTable& fixes, Applied& out);
+// fixture that ended in regular time, rewrite its goals. `owner` = who may own the handler (check_owner). Returns true
+// when the message was a result for a fixed fixture (changed / skipped say what happened). Reads the type first; an
+// unreadable or foreign message is left alone.
+bool apply_to_request(Memory& mem, uint64_t self, const Owner& owner, uint64_t msg, const FixTable& fixes, Applied& out);
+// The same with the manager's exact vtable only (0 = not checked)
+inline bool apply_to_request(Memory& mem, uint64_t self, uint64_t expected_vtable, uint64_t msg, const FixTable& fixes, Applied& out) {
+    Owner o;
+    o.vtable = expected_vtable;
+    return apply_to_request(mem, self, o, msg, fixes, out);
+}
 
 }  // namespace mfix
 

@@ -21,10 +21,21 @@ uint32_t rd32(const uint8_t* p) {
     return v;
 }
 
-bool vtable_is(Memory& mem, uint64_t obj, uint64_t image_base, uint64_t rva) {
-    if (image_base == 0) return true;
-    uint64_t vt = 0;
-    return mem.rd(obj, vt) && vt == image_base + rva;
+std::string hex(uint64_t v) {
+    char b[32];
+    std::snprintf(b, sizeof(b), "0x%llX", static_cast<unsigned long long>(v));
+    return b;
+}
+
+std::string on_build(const Anchors& a) { return a.build.empty() ? std::string("this game build") : "game build " + a.build; }
+
+// The object's vtable pointer: readable, aligned and (when the image range is known) inside FC27.exe. "" or why
+std::string read_vtable(Memory& mem, uint64_t obj, const Anchors& a, const char* what, uint64_t& vt) {
+    vt = 0;
+    if (!mem.rd(obj, vt) || !is_ptr(vt, 8)) return std::string(what) + " at " + hex(obj) + " has no readable vtable";
+    if (a.image_base && a.image_size && (vt < a.image_base || vt >= a.image_base + a.image_size))
+        return std::string(what) + " at " + hex(obj) + " has a vtable outside FC27.exe (" + hex(vt) + "): not the game's object";
+    return "";
 }
 
 // Reads the two list headers; "" or the reason
@@ -136,10 +147,84 @@ bool describe_group(const std::vector<CompObj>& objs, uint16_t group, GroupInfo&
     return true;
 }
 
-std::string locate(Memory& mem, uint64_t ifce, uint64_t image_base, Located& out) {
+Anchors Anchors::unchecked() {
+    Anchors a;
+    a.check = false;
+    return a;
+}
+
+Anchors anchors_for(const std::string& build, uint64_t image_base, uint64_t image_size, uint64_t sig_iface_post, uint64_t sig_manager_vtable) {
+    Anchors a;
+    a.build = build;
+    a.image_base = image_base;
+    a.image_size = image_size;
+    a.iface_post = sig_iface_post;
+    a.iface_vtable = documented_rva(build, image_base, kRvaInterfaceVtable);
+    a.manager_by_signature = sig_manager_vtable != 0;
+    a.manager_vtable = sig_manager_vtable ? sig_manager_vtable : documented_rva(build, image_base, kRvaDataManagerVtable);
+    return a;
+}
+
+std::string describe_anchors(const Anchors& a) {
+    if (!a.check) return "no identity checks";
+    if (!a.pending.empty()) return "not resolved yet: " + a.pending;
+    std::string s = on_build(a) + ": FCE interface ";
+    if (a.iface_vtable && a.iface_post) s += "vtable " + hex(a.iface_vtable) + " with Post " + hex(a.iface_post) + " in slot 4";
+    else if (a.iface_vtable) s += "vtable " + hex(a.iface_vtable) + " (documented)";
+    else if (a.iface_post) s += "by Post " + hex(a.iface_post) + " in its vtable slot 4 (signature fce_iface_post)";
+    else s += "NOT identifiable (signature fce_iface_post not found): live standings and match setup fixtures are off";
+    s += "; DataManager ";
+    if (a.manager_vtable) s += "vtable " + hex(a.manager_vtable) + (a.manager_by_signature ? " (signature fce_datamanager_vtable)" : " (documented)");
+    else s += "by its back-pointer only (signature fce_datamanager_vtable not found)";
+    return s;
+}
+
+std::string check_interface(Memory& mem, uint64_t ifce, const Anchors& a, std::string* how) {
+    if (how) how->clear();
+    if (!a.check) return "";
+    if (!a.pending.empty()) return a.pending;
+    if (!a.iface_vtable && !a.iface_post)
+        return "the FCE interface cannot be identified on " + on_build(a) +
+               ": the signature fce_iface_post was not found (Status tab > Game hooks)";
+    uint64_t vt = 0;
+    std::string err = read_vtable(mem, ifce, a, "the FCE interface object", vt);
+    if (!err.empty()) return err + " (stale bridge_state.json? reload the career)";
+    if (a.iface_vtable && vt != a.iface_vtable)
+        return "the FCE interface object has another vtable (" + hex(vt) + ", " + on_build(a) + " has " + hex(a.iface_vtable) + ")";
+    if (a.iface_post) {
+        uint64_t post = 0;
+        if (!mem.rd(vt + kIfaceSlotPost, post) || post != a.iface_post)
+            return "the FCE interface object's vtable " + hex(vt) + " holds " + hex(post) + " in slot 4, not FCEInterfaceImpl::Post " + hex(a.iface_post) +
+                   " (signature fce_iface_post): not the FCE interface (stale bridge_state.json? reload the career)";
+    }
+    if (how) *how = a.iface_vtable && a.iface_post ? "vtable " + hex(vt) + " with Post in slot 4" : a.iface_vtable ? "vtable " + hex(vt) : "Post in vtable slot 4 (" + hex(vt) + ")";
+    return "";
+}
+
+std::string check_manager(Memory& mem, uint64_t manager, const Anchors& a, std::string* how) {
+    if (how) how->clear();
+    if (!a.check) return "";
+    uint64_t vt = 0;
+    std::string err = read_vtable(mem, manager, a, "DataManager", vt);
+    if (!err.empty()) return err;
+    if (a.manager_vtable) {
+        if (vt != a.manager_vtable)
+            return "DataManager has another vtable (" + hex(vt) + ", " + on_build(a) + " has " + hex(a.manager_vtable) +
+                   (a.manager_by_signature ? ", signature fce_datamanager_vtable)" : ")");
+        if (how) *how = "vtable " + hex(vt) + (a.manager_by_signature ? " (signature)" : " (documented)");
+        return "";
+    }
+    // no vtable known for this build: the chain from the identified interface and the back-pointer the caller checked
+    if (how) *how = "back-pointer only (vtable " + hex(vt) + "; signature fce_datamanager_vtable not found)";
+    return "";
+}
+
+std::string locate(Memory& mem, uint64_t ifce, const Anchors& anchors, Located& out) {
     out = Located();
     if (!is_ptr(ifce, 8)) return "no FCE interface pointer (bridge_state.json ifce)";
-    if (!vtable_is(mem, ifce, image_base, kRvaInterfaceVtable)) return "the FCE interface object has another vtable (game update?)";
+    std::string iface_how, manager_how;
+    std::string err = check_interface(mem, ifce, anchors, &iface_how);
+    if (!err.empty()) return err;
     Located loc;
     loc.impl = ifce;
     loc.hub = mem.ptr(ifce + kOffImplHub);
@@ -149,20 +234,23 @@ std::string locate(Memory& mem, uint64_t ifce, uint64_t image_base, Located& out
     loc.manager = mem.ptr(loc.connector + kOffConnectorManager);
     if (!loc.manager) return "DataManager pointer is not readable";
     if (mem.ptr(loc.manager + kOffManagerConnector) != loc.connector) return "DataManager does not point back to its DataConnector";
-    if (!vtable_is(mem, loc.manager, image_base, kRvaDataManagerVtable)) return "DataManager has another vtable (game update?)";
-    std::string err = read_lists(mem, loc);
+    err = check_manager(mem, loc.manager, anchors, &manager_how);
     if (!err.empty()) return err;
+    err = read_lists(mem, loc);
+    if (!err.empty()) return err;
+    if (anchors.check) loc.identity = "interface: " + iface_how + "; DataManager: " + manager_how;
     out = loc;
     return "";
 }
 
-bool validate(Memory& mem, Located& loc, uint64_t image_base) {
+bool validate(Memory& mem, Located& loc, const Anchors& anchors) {
     if (!loc.ok()) return false;
+    if (!check_interface(mem, loc.impl, anchors).empty()) return false;
     if (mem.ptr(loc.impl + kOffImplHub) != loc.hub) return false;
     if (mem.ptr(loc.hub + kOffHubConnector) != loc.connector) return false;
     if (mem.ptr(loc.connector + kOffConnectorManager) != loc.manager) return false;
     if (mem.ptr(loc.manager + kOffManagerConnector) != loc.connector) return false;
-    if (!vtable_is(mem, loc.manager, image_base, kRvaDataManagerVtable)) return false;
+    if (!check_manager(mem, loc.manager, anchors).empty()) return false;
     Located fresh = loc;
     if (!read_lists(mem, fresh).empty()) return false;
     loc = fresh;  // the lists may have grown (new season); the chain is the same

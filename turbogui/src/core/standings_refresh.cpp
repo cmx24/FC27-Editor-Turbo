@@ -404,7 +404,7 @@ Result refresh(Memory& mem, Caller& call, const Fns& fns, const Request& req) {
     uint64_t managers = req.managers;
     if (!managers && req.comm) managers = manager_table(mem, req.comm);
     const uint64_t vtable = fns.vtable ? fns.vtable : (req.image_base ? req.image_base + kRvaVtable : 0);
-    const uint64_t live_vtable = req.image_base ? req.image_base + kRvaLiveStandingsVtable : 0;
+    const uint64_t live_vtable = fns.live_vtable ? fns.live_vtable : (req.image_base ? req.image_base + kRvaLiveStandingsVtable : 0);
     // 2. the SVM: the object of manager slot 108, which must be the published one when both are known
     uint64_t svm = 0;
     if (managers) {
