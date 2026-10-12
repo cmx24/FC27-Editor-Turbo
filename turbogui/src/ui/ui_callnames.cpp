@@ -26,7 +26,9 @@
 #include <vector>
 
 #include "app.h"
+#include "core/callnames_catalog.h"
 #include "imgui.h"
+#include "ui_asset_browser.h"
 #include "ui_callname_play.h"
 #include "ui_names.h"
 
@@ -813,11 +815,14 @@ static bool voice_pick_buttons(App& app, const Table& t, const PlayerRow& p, con
         return false;
     }
     const voice::Entry* ve = app.voice_store.find(p.playerid);
+    // asset catalog: a voice source / kick-off generic id needs a recording in the bank of the language (and team)
+    const VoiceGate gate = voice_source_gate(app.callnames.bank, r);
+    if (!gate.ok) ImGui::TextColored(kOrange, "Not usable in matches: %s", gate.why.c_str());
     if (r.own()) {
         const bool self = r.playerid == p.playerid;
-        if (self) ImGui::BeginDisabled();
+        if (self || !gate.ok) ImGui::BeginDisabled();
         if (ImGui::Button("Use his voice##all")) request_voice(app, t, p, r, own);
-        if (self) ImGui::EndDisabled();
+        if (self || !gate.ok) ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::TextDisabled("%s", self ? "(his own recording)" : "(in matches only; no database write)");
         return true;
@@ -828,10 +833,10 @@ static bool voice_pick_buttons(App& app, const Table& t, const PlayerRow& p, con
         g_state.voice_turn_off_shown = true;
         ImGui::TextColored(kOrange, "Turn off his own recording first");
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Untick 'Use his own recording' above.");
-        ImGui::BeginDisabled();
     }
+    if (own_on || !gate.ok) ImGui::BeginDisabled();
     if (ImGui::Button("Use in matches##all")) request_voice(app, t, p, r, own);
-    if (own_on) ImGui::EndDisabled();
+    if (own_on || !gate.ok) ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::TextDisabled("(in matches only; no database write)");
     return true;
@@ -919,32 +924,83 @@ static void voice_swaps_tab(App& app, const Table& t) {
     if (remove && app.voice_forget(remove)) app.notify("Voice swap removed (player " + std::to_string(remove) + ")");
 }
 
-// ALL CALLNAMES: every callname of the language the master lists (generic surnames and players' own recordings)
+// ALL CALLNAMES: every callname of the language. With the game asset catalog: every recording of the commentary bank
+// (players who left the database included, badged Hidden) plus the master list's ids the bank lacks (No recording);
+// without it (2.0): the master list's generic surnames and players' own recordings.
 static char g_all_search[64] = "";
 static int64_t g_sel_all = 0;  // > 0: a generic commentary id; < 0: -playerid of an own recording
+static AssetScope g_all_scope = AssetScope::All;
 static void all_callnames_picker(App& app, const Table& t, const PlayerRow& p) {
     Callnames& cn = app.callnames;
-    if (!cn.masters.loaded()) {
+    const CatalogBank& bank = cn.bank;
+    const bool from_bank = bank.loaded();
+    if (!from_bank && !cn.masters.loaded()) {
         ImGui::TextDisabled("No master list for %s: this list needs one (turbo\\callnames\\masters\\%s.json).", cn.lang.c_str(), cn.lang.c_str());
         return;
     }
-    // rebuilt when the master list or the database changes (Refresh, a new model)
+    // rebuilt when the bank, the master list or the database changes (Refresh, a new model, a new catalog)
     static std::vector<AllCallnameRow> rows;
     static std::string rows_key;
-    const std::string key = cn.masters.file + "|" + cn.masters.built + "|" + std::to_string(cn.masters.generic_ids.size()) + "|" +
-                            std::to_string(cn.masters.real_players.size()) + "|" + std::to_string(cn.index.model_version);
+    static CallnameCounts counts;
+    std::string key = cn.masters.file + "|" + cn.masters.built + "|" + std::to_string(cn.masters.generic_ids.size()) + "|" +
+                      std::to_string(cn.masters.real_players.size()) + "|" + std::to_string(cn.index.model_version);
+    if (from_bank)
+        key += "|bank " + bank.build_key + " " + bank.where() + " " + std::to_string(bank.generic.size()) + " " +
+               std::to_string(bank.own.size()) + (bank.current ? " current" : " stale") + (bank.hidden_off ? " hoff" : "");
     if (key != rows_key) {
-        rows = all_callnames(cn.masters, cn.index, [&](int64_t pid) {
-            const PlayerRow* r = app.model.player(pid);
-            return r ? r->name : std::string();
-        });
+        if (from_bank) {
+            CallnameDbUse use;
+            use.player_in_db = [&](int64_t pid) { return app.model.player(pid) != nullptr; };
+            use.player_name = [&](int64_t pid) {
+                const PlayerRow* r = app.model.player(pid);
+                return r ? r->name : std::string();
+            };
+            use.commentary_ids = app.commentary_ids();
+            for (const auto& kv : cn.index.playernamemap) use.commentary_ids.insert(kv.second);
+            rows = all_callnames_bank(bank, cn.masters, cn.index, use);
+            counts = callname_counts(rows);
+        } else {
+            rows = all_callnames(cn.masters, cn.index, [&](int64_t pid) {
+                const PlayerRow* r = app.model.player(pid);
+                return r ? r->name : std::string();
+            });
+        }
         rows_key = key;
     }
     ImGui::SetNextItemWidth(S(260.0f));
     ImGui::InputTextWithHint("##cnallsearch", "type a callname, player or id", g_all_search, sizeof(g_all_search));
-    ImGui::SameLine();
-    ImGui::TextDisabled("%zu generic callnames + %zu own recordings (%s)", cn.masters.generic_ids.size(), cn.masters.real_players.size(),
-                        cn.masters.label().c_str());
+    if (from_bank) {
+        ImGui::SameLine();
+        asset_scope_combo("##cnallscope", g_all_scope, S(130.0f));
+        if (bank.multi_team()) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(S(130.0f));
+            const std::string cur = cn.bank_team.empty() ? std::string("Every team") : cn.bank_team;
+            if (ImGui::BeginCombo("##cnallteam", cur.c_str())) {
+                if (ImGui::Selectable("Every team", cn.bank_team.empty())) cn.set_bank_team("");
+                for (const std::string& tm : bank.teams)
+                    if (!tm.empty() && ImGui::Selectable(tm.c_str(), cn.bank_team == tm)) cn.set_bank_team(tm);
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The commentary team whose own recordings count (the game's commentary setting; Turbo cannot\n"
+                                  "read it). Every team: a recording by either team counts.");
+        }
+        // the reconciliation line: the bank against the master list against the database
+        const std::string line = callname_count_line(counts, bank, cn.masters);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::TextWrapped("%s", line.c_str());
+        ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Bank: the recordings in the game's commentary files (asset catalog %s).\n"
+                              "Hidden: recorded, but the player is not in this save (or no name row uses the generic id).\n"
+                              "No recording: only the master list names it; it cannot be used in matches.",
+                              bank.build_key.c_str());
+    } else {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%zu generic callnames + %zu own recordings (%s)", cn.masters.generic_ids.size(), cn.masters.real_players.size(),
+                            cn.masters.label().c_str());
+    }
     const int own = cn.own_recording(p.playerid);
     // + the voice-swap button and the "Change the name in the database" title (1.1.0)
     const float below = ImGui::GetTextLineHeightWithSpacing() * 6.0f + 3.0f * ImGui::GetFrameHeightWithSpacing() + own_warning_height(app, own) +
@@ -959,6 +1015,7 @@ static void all_callnames_picker(App& app, const Table& t, const PlayerRow& p) {
         ImGui::TableHeadersRow();
         for (const auto& r : rows) {
             const int64_t key = r.own() ? -r.playerid : r.commentaryid;
+            if (from_bank && !callname_row_shown(bank, g_all_scope, r)) continue;
             if (key == g_sel_all) sel = &r;
             if (!callname_filter_match(g_all_search, r.text, r.own() ? r.playerid : r.commentaryid)) continue;
             ++total;
@@ -977,9 +1034,21 @@ static void all_callnames_picker(App& app, const Table& t, const PlayerRow& p) {
             row_play_button(app, key, r.own() ? CallnameAudioKind::Own : CallnameAudioKind::Generic, r.own() ? r.playerid : r.commentaryid);
             ImGui::SameLine();
             ImGui::TextUnformatted(r.text.empty() ? "(no text)" : r.text.c_str());
+            if (from_bank && !r.name_source.empty() && ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", callname_name_source_label(r.name_source, cn.masters).c_str());
+            if (r.hidden) {
+                ImGui::SameLine();
+                asset_badge(AssetBadge::Hidden, r.own() ? "In the game's commentary files; this player is not in this save"
+                                                        : "In the game's commentary files; no name row of this save uses it");
+            }
+            if (!r.recorded) {
+                ImGui::SameLine();
+                asset_badge(AssetBadge::NoRecording, "Only the master list names it: the game's commentary files have no recording\n"
+                                                     "of it for this language (and team), so it cannot be used in matches");
+            }
             ImGui::TableNextColumn();
             if (r.own())
-                ImGui::TextDisabled("own recording");
+                ImGui::TextDisabled("%s", r.hidden ? "own recording, not in this save" : "own recording");
             else
                 ImGui::Text("%d name row%s, %d player%s", r.name_rows, r.name_rows == 1 ? "" : "s", r.users, r.users == 1 ? "" : "s");
         }
@@ -992,7 +1061,8 @@ static void all_callnames_picker(App& app, const Table& t, const PlayerRow& p) {
         return;
     }
     if (sel->own()) {
-        ImGui::Text("Selected: %s (ID %lld), own recording", sel->text.c_str(), static_cast<long long>(sel->playerid));
+        ImGui::Text("Selected: %s (ID %lld), own recording%s", sel->text.c_str(), static_cast<long long>(sel->playerid),
+                    sel->hidden ? "; he is not in this save" : "");
         // 1.1.0: a voice swap gives it to this player in matches; the database cannot
         if (!voice_pick_buttons(app, t, p, *sel, own))
             ImGui::TextColored(kYellow, "The game always uses a player's own recording; the database cannot give it to another player.");
@@ -1133,6 +1203,11 @@ static std::string own_details(const Callnames& cn, int64_t playerid, int own) {
         std::string how;
         if (cn.spoken.players_from == SpokenSet::From::BankCapture) {
             how = std::to_string(v) + (v == 1 ? " player-keyed table" : " player-keyed tables");
+        } else if (cn.spoken.players_from == SpokenSet::From::Catalog) {
+            if (v & kBankSimple) how += "simple";
+            if (v & kBankLink) how += std::string(how.empty() ? "" : " + ") + "link";
+            if (v & kBankHigh) how += std::string(how.empty() ? "" : " + ") + "high";
+            how = "commentary files, " + how;
         } else {
             if (v & caudio::kPlayerLowSimple) how += "PLAYER_LOW_SIMPLE";
             if (v & caudio::kPlayerLowLink) how += std::string(how.empty() ? "" : " + ") + "PLAYER_LOW_LINK";

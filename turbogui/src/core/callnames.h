@@ -32,12 +32,15 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
+#include "asset_catalog.h"
 #include "callname_audio.h"
+#include "callname_bank.h"
 #include "commentary_bank.h"
 #include "model.h"
 #include "t3db.h"
@@ -73,7 +76,9 @@ struct SpokenSet {
     std::unordered_set<int64_t> ids;              // commentary ids (surnames) with a recording
     std::unordered_map<int64_t, int> players;     // player ids with their own recordings -> events / tables they are in
     bool verified = false;  // true: from a list file, the game's audio service or a bank capture; false: fallback
-    enum class From { None, ListFile, GameAudio, BankCapture, Fallback } from = From::None;
+    // Catalog: the commentary bank of the game files (the game asset catalog, core/callname_bank.h); it beats the
+    // hand-made list and the captures while the catalog is current
+    enum class From { None, ListFile, GameAudio, BankCapture, Fallback, Catalog } from = From::None;
     // where `players` came from (GameAudio or BankCapture; a hand-made list never holds players) and how many player
     // ids that build asked about (0 = not known)
     From players_from = From::None;
@@ -212,6 +217,11 @@ struct AllCallnameRow {
     int64_t nameid = 0;        // generic: a playernames row with this commentary id (the one most players use), 0 = none
     int name_rows = 0;         // generic: playernames rows with this commentary id
     int users = 0;             // generic: players whose common or last name is one of those rows
+    // From the game asset catalog (core/callnames_catalog.h; the 2.0 master-list rows keep the defaults):
+    bool recorded = true;      // the bank has the recording (false: only the master list names it: not a voice source)
+    bool hidden = false;       // recorded, and no row of the save uses the id (a player no longer in the database)
+    bool in_master = true;     // the master list names it
+    std::string name_source;   // where `text` came from: "db", "master", a catalog source ("slug", ...), "" = fallback
     bool own() const { return playerid != 0; }
 };
 // Every callname of the language the master lists: its generic ids (by text, then id), then the players with their own
@@ -236,7 +246,9 @@ public:
     // kOwnFromGame | kOwnFromMasters for this player (0 = no own recording known: the callname rule decides)
     // Precedence: an FC 27 master (built from the game's own files) decides alone; else the game's audio service and
     // the FC 26 list (either one is enough, the UI says when only the FC 26 list does)
+    // A current asset catalog (the game's commentary files) decides before both.
     int own_recording(int64_t playerid) const {
+        if (spoken.from == SpokenSet::From::Catalog) return spoken.real(playerid) ? kOwnFromGame : 0;
         if (masters.fc27() && masters.loaded()) return masters.real(playerid) ? kOwnFromMasters : 0;
         return (spoken.real(playerid) ? kOwnFromGame : 0) | (masters.real(playerid) ? kOwnFromMasters : 0);
     }
@@ -276,6 +288,22 @@ public:
     CallnameIndex index;
     bool refreshed = false;
     bool no_game_root = false;  // refresh() was given no game folder
+
+    // ---- the game asset catalog (docs/asset-catalog.md): its callname bank for `lang` and `bank_team`. The app calls
+    // use_catalog() whenever it loads or drops a catalog (nullptr = off / none). A current catalog's bank becomes the
+    // spoken set (it beats the hand-made list and the captures; refresh() keeps it); a stale one only adds rows to All
+    // callnames. No catalog = the 2.0 behaviour.
+    void use_catalog(std::shared_ptr<const assets::Catalog> cat);
+    void set_bank_team(const std::string& team);  // "" = every team of the language
+    std::shared_ptr<const assets::Catalog> catalog;
+    std::string bank_team;  // the commentary team picked in All callnames ("" = every team)
+    CatalogBank bank;
+    // Makes `b` the bank and, when its catalog is current, the spoken set (refresh() calls it with the catalog's bank of
+    // lang / bank_team; tests give a bank directly)
+    void use_bank(CatalogBank b);
+
+private:
+    void apply_bank() { use_bank(catalog ? catalog_bank(*catalog, lang, bank_team) : CatalogBank{}); }
 };
 
 // Lua actions (set_display_name: "keep shown name") waiting for Turbo's mailbox, which holds one command at a time:
