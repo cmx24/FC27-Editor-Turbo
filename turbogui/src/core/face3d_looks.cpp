@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 
 #include "core/face3d_looks_data.h"
 
@@ -48,7 +49,11 @@ static_assert(sizeof(kSkinNames) / sizeof(kSkinNames[0]) == kSkinCount && sizeof
 
 const Look* g_table = data::kLooks;
 size_t g_count = data::kCount;
+const Look* g_check = data::kChecks;
+size_t g_check_count = data::kCheckCount;
 uint64_t g_gen = 1;
+const char* const kConfNames[kConfCount] = {"sure", "probable", "unsure"};
+const char kConfLetters[kConfCount + 1] = "hml";
 
 std::string lower(std::string s) {
     for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -77,7 +82,17 @@ void use_table(const Look* t, size_t n) {
     g_count = t ? n : data::kCount;
     ++g_gen;
 }
+void use_check(const Look* t, size_t n) {
+    g_check = t ? t : data::kChecks;
+    g_check_count = t ? n : data::kCheckCount;
+    ++g_gen;
+}
 uint64_t generation() { return g_gen; }
+const Look* check_looks() { return g_check; }
+size_t check_count() { return g_check_count; }
+
+bool unsure(const Look& l, int trait) { return trait >= 0 && trait < kTraitCount && l.c[trait] >= kConfLow; }
+const char* conf_name(int c) { return c >= 0 && c < kConfCount ? kConfNames[c] : "?"; }
 
 const char* trait_title(int trait) { return trait >= 0 && trait < kTraitCount ? kTraits[trait].title : "?"; }
 int value_count(int trait) { return trait >= 0 && trait < kTraitCount ? kTraits[trait].n : 0; }
@@ -94,16 +109,16 @@ int parse_value(int trait, const std::string& word) {
 bool parse_row(const std::string& line, Look* out) {
     std::string s = line;
     while (!s.empty() && (s.back() == '\r' || s.back() == '\n')) s.pop_back();
-    std::string cells[kTraitCount + 1];
+    std::string cells[kTraitCount + 2];
     size_t n = 0, start = 0;
     for (;;) {
         const size_t comma = s.find(',', start);
-        if (n > size_t(kTraitCount)) return false;
+        if (n > size_t(kTraitCount) + 1) return false;
         cells[n++] = s.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
         if (comma == std::string::npos) break;
         start = comma + 1;
     }
-    if (n != size_t(kTraitCount) + 1) return false;
+    if (n != size_t(kTraitCount) + 1 && n != size_t(kTraitCount) + 2) return false;
     const std::string id = trim(cells[0]);
     if (id.empty() || id.size() > 10 || !std::all_of(id.begin(), id.end(), [](char c) { return c >= '0' && c <= '9'; })) return false;
     const long long pid = std::stoll(id);
@@ -115,16 +130,26 @@ bool parse_row(const std::string& line, Look* out) {
         if (v < 0) return false;
         l.v[t] = static_cast<uint8_t>(v);
     }
+    if (n == size_t(kTraitCount) + 2) {  // the confidences: one letter h / m / l per trait
+        const std::string conf = lower(trim(cells[kTraitCount + 1]));
+        if (conf.size() != size_t(kTraitCount)) return false;
+        for (int t = 0; t < kTraitCount; ++t) {
+            const char* p = std::strchr(kConfLetters, conf[size_t(t)]);
+            if (!p || !*p) return false;
+            l.c[t] = static_cast<uint8_t>(p - kConfLetters);
+        }
+    }
     if (out) *out = l;
     return true;
 }
 
 std::string describe(const Look& l) {
-    // the CSV words read best in a sentence ("dark brown short wavy hair"); a few get their readable name
-    auto word = [](int t, int v) {
+    // the CSV words read best in a sentence ("dark brown short wavy hair"); a few get their readable name; an unsure
+    // value is marked "?"
+    auto word = [&l](int t, int v) {
         std::string w = value_word(t, v);
         std::replace(w.begin(), w.end(), '_', ' ');
-        return w;
+        return unsure(l, t) ? w + "?" : w;
     };
     std::string out = word(kSkin, l.v[kSkin]) + " skin, ";
     if (l.v[kHairLength] == kBald) {
@@ -137,7 +162,15 @@ std::string describe(const Look& l) {
     }
     out += ", " + (l.v[kFacialHair] == kClean ? std::string("clean-shaven") : word(kFacialHair, l.v[kFacialHair]));
     if (l.v[kFacialHair] != kClean && l.v[kBeardColour] != kBeardNone) out += " (" + word(kBeardColour, l.v[kBeardColour]) + ")";
-    out += l.v[kHeadwear] == kNoHeadwear ? std::string(", no headwear") : ", " + lower(value_name(kHeadwear, l.v[kHeadwear]));
+    const std::string mark = unsure(l, kHeadwear) ? "?" : "";
+    out += l.v[kHeadwear] == kNoHeadwear ? ", no headwear" + mark : ", " + lower(value_name(kHeadwear, l.v[kHeadwear])) + mark;
+    return out;
+}
+
+std::string unsure_traits(const Look& l) {
+    std::string out;
+    for (int t = 0; t < kTraitCount; ++t)
+        if (unsure(l, t)) out += (out.empty() ? "" : ", ") + lower(trait_title(t));
     return out;
 }
 

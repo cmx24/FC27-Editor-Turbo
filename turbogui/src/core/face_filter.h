@@ -16,8 +16,10 @@
 // above do not describe the 3D head the chooser shows. Player heads with a 3D look (set_look) carry the 3D facets: Skin
 // tone, Hair colour, Hair length, Hair type, Facial hair, Beard colour, Headwear, judged from the game's 3D render; a head
 // without a look yet has the value kUnclassified ("not classified yet") in each of them, so a filter on a look value never
-// matches it. When the list has 3D looks the chooser shows the 3D facets, Gender, and Eyes / Ethnicity "(database)" last;
-// manager heads (no 3D looks) keep the database facets.
+// matches it; a trait the classification is unsure of (face3d::unsure) has the value kUnsure, which no filter value matches
+// either. The hidden game heads take the look of their head id (a real face's head id is its playerid). When the list has
+// 3D looks the chooser shows the 3D facets, Gender, and Eyes / Ethnicity "(database)" last; manager heads (no 3D looks)
+// keep the database facets. check3d compares the table with the hand check for the chooser's confidence note.
 #pragma once
 #include <cstddef>
 #include <cstdint>
@@ -40,6 +42,7 @@ constexpr int kMaxBuckets = 5;         // choices per menu (Cassio, 2026-10-11):
 constexpr int64_t kAny = INT64_MIN;    // no filter on that facet
 constexpr int64_t kNoValue = -1;       // the table has no such field (the head never matches a filter on it)
 constexpr int64_t kUnclassified = 255;  // 3D facets: the head has no 3D look yet ("not classified yet"; sorts last)
+constexpr int64_t kUnsure = 254;        // 3D facets: the look's value of that trait is a guess ("unsure": never matched)
 constexpr size_t kOnly3dDefaultMin = 200;  // "Only heads with a 3D look" starts on when the list has this many looks
 constexpr size_t kNoSample = static_cast<size_t>(-1);  // Count::sample of a value no head has
 
@@ -59,7 +62,8 @@ struct Face {
     }
 };
 
-// Gives a player head its 3D look (nullptr: not classified yet): the 3D facets take the look's values or kUnclassified
+// Gives a player or game head its 3D look (nullptr: not classified yet): the 3D facets take the look's values, kUnsure
+// for an unsure trait, or kUnclassified
 void set_look(Face& f, const face3d::Look* look);
 // Heads of the list with a 3D look; the chooser shows the 3D facets when there is at least one
 size_t count_looks(const std::vector<Face>& faces);
@@ -120,8 +124,27 @@ struct Count {
 };
 // Values of facet `fc` among `faces[i]` for i in `pool` that pass the other filters, with counts; sorted by key
 // (ethnicity by group order); at most kMaxBuckets. 3D facets list every group of the trait (n 0, sample kNoSample when no
-// head has it); heads without a look are no choice (the chooser says how many there are).
+// head has it); heads without a look and unsure values are no choice (facet_unknowns counts them for the chooser's note).
 std::vector<Count> facet_counts(const std::vector<Face>& faces, const std::vector<size_t>& pool, const Filter& flt, Facet fc);
+// 3D facets: the heads of the pool passing the other filters whose value is unsure / that have no 3D look (game heads
+// without one included)
+struct Unknowns {
+    int unsure = 0;
+    int unclassified = 0;
+};
+Unknowns facet_unknowns(const std::vector<Face>& faces, const std::vector<size_t>& pool, const Filter& flt, Facet fc);
+
+// The hand check of a 3D facet (face3d::check_looks against the table): checked heads the table has, how many of them it
+// answers (not unsure) and how many answers fall in the hand check's filter group. Database facets: all 0.
+struct CheckResult {
+    int heads = 0;
+    int answered = 0;
+    int right = 0;
+};
+CheckResult check3d(Facet f);
+// The chooser's confidence note of a 3D facet: "Hand check of 185 heads: 93% in the right group, 4% unsure" ("" without
+// a hand check; the percentage of right answers counts the answered heads only)
+std::string check_note(Facet f);
 
 enum Sort { kSortName, kSortOverall, kSortSkin, kSortHairColour, kSortNewest, kSortCount };
 const char* sort_title(Sort s);

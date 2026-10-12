@@ -120,7 +120,8 @@ const std::vector<Face>& manager_faces(App& app) {
 static game_heads::HeadCatalog g_heads_cat;  // copy of the head3d family of the app's catalog (set_faces_catalog)
 static uint64_t g_heads_cat_gen = 1;         // bumped by set_faces_catalog
 static std::vector<Face> g_gfaces, g_pall;    // hidden game heads; player heads + game heads (the chooser's list)
-static uint64_t g_gfaces_version = ~uint64_t(0), g_gfaces_gen = 0, g_pall_version = ~uint64_t(0), g_pall_gen = 0, g_pall_looks = 0;
+static uint64_t g_gfaces_version = ~uint64_t(0), g_gfaces_gen = 0, g_gfaces_looks = 0, g_pall_version = ~uint64_t(0), g_pall_gen = 0,
+                g_pall_looks = 0;
 
 void set_faces_catalog(std::shared_ptr<const assets::Catalog> catalog) {
     g_heads_cat = catalog ? game_heads::from_catalog(*catalog) : game_heads::HeadCatalog();
@@ -130,9 +131,10 @@ void set_faces_catalog(std::shared_ptr<const assets::Catalog> catalog) {
 const std::vector<Face>& game_faces(App& app) {
     player_faces(app);
     manager_faces(app);  // both tables fill the used-head sets
-    if (g_gfaces_version == app.model.version() && g_gfaces_gen == g_heads_cat_gen) return g_gfaces;
+    if (g_gfaces_version == app.model.version() && g_gfaces_gen == g_heads_cat_gen && g_gfaces_looks == face3d::generation()) return g_gfaces;
     g_gfaces_version = app.model.version();
     g_gfaces_gen = g_heads_cat_gen;
+    g_gfaces_looks = face3d::generation();
     g_gfaces.clear();
     game_heads::UsedHeads used = g_used_by_players;
     used.insert(g_used_by_managers.begin(), g_used_by_managers.end());
@@ -145,7 +147,10 @@ const std::vector<Face>& game_faces(App& app) {
         r.name = game_heads::display_name(*h);
         r.name_source = h->source;
         r.lname = lower_text(r.name);
-        g_gfaces.push_back(std::move(r));  // no database fields and no 3D look: a facet filter never matches it
+        // no database fields: a database facet filter never matches it. A real face's head id is its playerid, so a head
+        // whose player was rendered before he left the save has that render's 3D look (the 3D facets filter it).
+        if (const face3d::Look* look = face3d::lookup(h->id)) faces::set_look(r, look);
+        g_gfaces.push_back(std::move(r));
     }
     std::sort(g_gfaces.begin(), g_gfaces.end(), [](const Face& a, const Face& b) { return a.name < b.name; });
     return g_gfaces;
@@ -476,10 +481,20 @@ static void facet_button(App& app, Chooser& ch, const std::vector<Face>& list, c
     }
     if (counts.empty()) ImGui::TextDisabled("No head matches the other filters.");
     ImGui::EndChild();
-    if (faces::facet_3d(fc)) {  // heads without a 3D look are no choice (at most 5 per menu): say how many there are
-        int listed = 0;
-        for (const faces::Count& c : counts) listed += c.n;
-        if (any > listed) ImGui::TextDisabled("%d heads not classified yet (no 3D look)", any - listed);
+    if (faces::facet_3d(fc)) {
+        // unsure values and heads without a 3D look are no choice (at most 5 per menu): say how many there are, and how
+        // far the classification can be trusted (the hand check compiled into Turbo)
+        const faces::Unknowns u = faces::facet_unknowns(list, pool, ch.filter, fc);
+        if (u.unsure > 0) ImGui::TextDisabled("%d heads unsure (no value matches them)", u.unsure);
+        if (u.unclassified > 0) ImGui::TextDisabled("%d heads not classified yet (no 3D look)", u.unclassified);
+        const std::string note = faces::check_note(fc);
+        if (!note.empty()) {
+            ImGui::TextDisabled("%s", note.c_str());
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The 3D looks are judged by eye from the game's renders. Heads checked one by one against\n"
+                                  "their renders tell how often the table puts a head in the right group of this menu.\n"
+                                  "A value marked \"?\" in a head's tooltip was a guess: no filter value matches it.");
+        }
     }
     ImGui::EndPopup();
 }
@@ -910,7 +925,8 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
         if (ImGui::Checkbox("Only heads with a 3D look", &on)) ch.only3d = on ? 1 : 0;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%zu of %zu heads have a 3D look: skin, hair, facial hair and headwear judged from the game's 3D render.\n"
-                              "In those filters the other heads are \"not classified yet\".",
+                              "In those filters the other heads are \"not classified yet\", and a value the classification\n"
+                              "was unsure of (\"?\" in the head's tooltip) matches no filter value.",
                               looked, list.size());
     }
 
@@ -1004,10 +1020,13 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
                 const bool has3d = !f->game_head && use3d && rid > 0 && face3d_cached(app, f->manager, rid);
                 const ImVec2 cp = ImGui::GetCursorScreenPos();
                 const game_heads::HeadInfo* gh = f->game_head ? g_heads_cat.find(f->id) : nullptr;
+                const bool game3d = f->game_head && use3d && face3d_cached(app, false, f->id);  // rendered while his player was in a save
                 if (f->game_head) {
-                    // a game head: its game miniface when the game ships one (it cannot be rendered before Apply)
-                    const bool clicked = gh && gh->miniface ? picture_cell(app, legacy_path::player_miniface(f->id), false, cell, f->name, bid, false)
-                                                            : no_picture_cell(cell, f->name, bid);
+                    // a game head: the 3D render of its player when one is cached, else its game miniface when the game
+                    // ships one (it cannot be rendered before Apply)
+                    const bool clicked = game3d                  ? face3d_cell(app, face3d_file(app, false, f->id), cell, f->name, bid)
+                                         : gh && gh->miniface ? picture_cell(app, legacy_path::player_miniface(f->id), false, cell, f->name, bid, false)
+                                                              : no_picture_cell(cell, f->name, bid);
                     if (clicked) picked = f;
                     ImGui::GetWindowDrawList()->AddText(ImVec2(cp.x + 3.0f, cp.y + 2.0f), ImGui::GetColorU32(ImGuiCol_PlotHistogram),
                                                         asset_badge_label(AssetBadge::Hidden));
@@ -1032,9 +1051,14 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
                     asset_badge(AssetBadge::Hidden, "In the game files; no player or manager of this save uses it");
                     ImGui::TextDisabled("game head %lld%s%s", static_cast<long long>(f->id), gh && !gh->toc.empty() ? ", bundle " : "",
                                         gh ? gh->toc.c_str() : "");
+                    if (f->look) {
+                        if (game3d) draw_file_picture(app, face3d_file(app, false, f->id), S(256.0f));
+                        const std::string traits = faces::head_traits(*f, looks3d);
+                        ImGui::TextUnformatted(traits.c_str() + (traits.empty() || traits[0] != '\n' ? 0 : 1));
+                    }
                     const std::string src = assets::name_source_label(f->name_source);
                     if (!src.empty()) ImGui::TextDisabled("%s", src.c_str());
-                    if (gh && !gh->miniface) ImGui::TextDisabled("The game ships no miniface for it, and it cannot be rendered before it is given.");
+                    if (gh && !gh->miniface && !game3d) ImGui::TextDisabled("The game ships no miniface for it, and it cannot be rendered before it is given.");
                     ImGui::TextDisabled("Click to give it (you confirm first).");
                     ImGui::EndTooltip();
                 } else if (ImGui::IsItemHovered()) {

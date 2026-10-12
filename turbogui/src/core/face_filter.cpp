@@ -6,6 +6,7 @@
 #include "core/hair_catalog.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <map>
 
 namespace turbo::faces {
@@ -42,7 +43,8 @@ bool facet_shown(Facet f, bool looks3d) {
 
 void set_look(Face& f, const face3d::Look* look) {
     f.look = look;
-    for (int t = 0; t < face3d::kTraitCount; ++t) f.raw[kSkin3d + t] = look ? int64_t(look->v[t]) : kUnclassified;
+    for (int t = 0; t < face3d::kTraitCount; ++t)
+        f.raw[kSkin3d + t] = !look ? kUnclassified : face3d::unsure(*look, t) ? kUnsure : int64_t(look->v[t]);
 }
 
 size_t count_looks(const std::vector<Face>& faces) {
@@ -220,6 +222,7 @@ std::string key_label(Facet f, int64_t key) {
     if (key == kNoValue) return "not in this table";
     if (facet_3d(f)) {
         if (key == kUnclassified) return "not classified yet";
+        if (key == kUnsure) return "unsure";
         return group3d_name(trait_of(f), key);
     }
     switch (f) {
@@ -240,7 +243,7 @@ std::string key_label(Facet f, int64_t key) {
 std::string trait_label(Facet f, int64_t raw) {
     if (raw < 0) return key_label(f, kNoValue);
     if (facet_3d(f)) {  // the exact value (the menus show its group)
-        if (raw == kUnclassified) return key_label(f, raw);
+        if (raw == kUnclassified || raw == kUnsure) return key_label(f, raw);
         return raw < face3d::value_count(trait_of(f)) ? std::string(face3d::value_name(trait_of(f), int(raw))) : "Value " + std::to_string(raw);
     }
     const int64_t key = facet_key(f, raw);
@@ -294,7 +297,11 @@ void drop_hidden(Filter& flt, bool looks3d) {
 
 std::string head_traits(const Face& f, bool looks3d) {
     std::string out;
-    if (looks3d) out += std::string("\n3D look: ") + (f.look ? face3d::describe(*f.look) : std::string("not classified yet"));
+    if (looks3d) {
+        out += std::string("\n3D look: ") + (f.look ? face3d::describe(*f.look) : std::string("not classified yet"));
+        const std::string u = f.look ? face3d::unsure_traits(*f.look) : std::string();
+        if (!u.empty()) out += "\n? = unsure (no filter value matches it): " + u;
+    }
     const Facet* o = facet_order(looks3d);
     for (int k = 0; k < facet_order_size(looks3d); ++k) {
         const Facet fc = o[k];
@@ -345,6 +352,45 @@ std::vector<Count> facet_counts(const std::vector<Face>& faces, const std::vecto
     }
     for (const auto& kv : by_key) out.push_back(kv.second);
     return out;
+}
+
+Unknowns facet_unknowns(const std::vector<Face>& faces, const std::vector<size_t>& pool, const Filter& flt, Facet fc) {
+    Unknowns u;
+    if (!facet_3d(fc)) return u;
+    for (size_t i : pool) {
+        if (i >= faces.size() || !matches(faces[i], flt, fc)) continue;
+        if (faces[i].raw[fc] == kUnsure) ++u.unsure;
+        if (faces[i].raw[fc] == kUnclassified || faces[i].raw[fc] == kNoValue) ++u.unclassified;  // kNoValue: a game head without a look
+    }
+    return u;
+}
+
+CheckResult check3d(Facet f) {
+    CheckResult r;
+    if (!facet_3d(f)) return r;
+    const int t = trait_of(f);
+    const face3d::Look* checks = face3d::check_looks();
+    for (size_t i = 0; i < face3d::check_count(); ++i) {
+        const face3d::Look* l = face3d::lookup(checks[i].id);
+        if (!l) continue;
+        ++r.heads;
+        if (face3d::unsure(*l, t)) continue;
+        ++r.answered;
+        r.right += group3d(t, l->v[t]) == group3d(t, checks[i].v[t]) ? 1 : 0;
+    }
+    return r;
+}
+
+// a rounded percentage (0 when there is nothing to divide by)
+static int percent(int part, int whole) { return whole > 0 ? int((200LL * part + whole) / (2LL * whole)) : 0; }
+
+std::string check_note(Facet f) {
+    const CheckResult r = check3d(f);
+    if (r.heads == 0) return "";
+    char buf[160];
+    std::snprintf(buf, sizeof(buf), "Hand check of %d heads: %d%% in the right group, %d%% unsure", r.heads, percent(r.right, r.answered),
+                  percent(r.heads - r.answered, r.heads));
+    return buf;
 }
 
 static const char* kSortTitles[kSortCount] = {"Name", "Overall (highest first)", "Skin tone (light to dark)", "Hair colour", "Newest heads (ID)"};
