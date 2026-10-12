@@ -500,6 +500,11 @@ static void test_loader(const fs::path& fixture, const fs::path& scratch) {
     check(gate == "#turbo-asset-gate 1\n#build 0000AAAA-0000BBBB\nhead3d 90001\nhead3d 90002\nhead3d 90003\nhead3d 90004\nhead3d 90100\n",
           "gate text: header, build, one head3d line per id");
     check(!fs::exists(catalog_dir(out) / "lua_gate.txt.tmp"), "no temporary gate file left");
+    check(d.sync_lua_gate(out, &err, "a1b2c3d4") &&
+              slurp(lua_gate_path(out)) == "#turbo-asset-gate 1\n#build 0000AAAA-0000BBBB\n#session a1b2c3d4\nhead3d 90001\nhead3d 90002\n"
+                                           "head3d 90003\nhead3d 90004\nhead3d 90100\n",
+          "gate with the GUI session (asset_gate.lua trusts only its own session)");
+    check(d.lua_gate_text("two words").find("#session") == std::string::npos, "a session with a blank is not written");
     Catalog stale;
     stale.load_file(fixture, "9999AAAA-9999BBBB");
     check(stale.lua_gate_text().empty() && stale.sync_lua_gate(out) && !fs::exists(lua_gate_path(out)), "stale: gate removed");

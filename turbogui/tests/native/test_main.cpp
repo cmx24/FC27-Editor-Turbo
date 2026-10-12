@@ -3261,6 +3261,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_file_picker.h"   // in-overlay file picker and the Export / Import dialogs (test_file_picker_ui)
 
 #include "test_edit_unlock.h"  // game editors unlock: core and UI cases (synthetic fixtures)
+#include "test_asset_app.h"    // 2.1: asset catalog wiring (pickers, lua_gate.txt session)
 // ================================================================ live team names (core/teamname_override.h)
 static void test_team_names_live() {
     run_case("live team names: the keys the game asks for (TeamName[_AbbrN]_<id>, IWL_, any case), nothing else", [&] {
@@ -8028,6 +8029,7 @@ static void test_ui() {
         test_bodytypes_ui(app, ui, le);  // test_bodytypes.h
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
+        test_asset_app_ui(app, ui, le);    // test_asset_app.h
 
         run_case("UI: no ImGui errors, layout stable over many frames", [&] {
             for (int tab = 0; tab < 7; ++tab) {

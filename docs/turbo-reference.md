@@ -495,6 +495,31 @@ Honest limits: simulated matches ignore every override (`simsettings.ini` is loa
 
 `python3 scripts/check_fc27_schema.py --coverage [schema.json]` lists the fields of `players`, `teams` and `manager` in the game's schema dump (`turbo/le27/fc27_db_schema.json`) that no `turbogui/src/ui/*.cpp` or `turbogui/src/core/field_labels.h` mentions as a whole word. It is informational (exit 0) and prints a hint instead of failing when the schema file is absent. Without `--coverage` the script keeps its old job: checking every name Turbo uses against the schema.
 
+## Game asset catalog (2.1, Unreleased)
+
+Full contract: `docs/asset-catalog.md`. Short version:
+
+- **Builder** (offline, Python, read-only on the game): `re_venv\Scripts\python.exe -I turbo\tools\asset_catalog\build_asset_catalog.py`
+  writes `turbo_output\asset_catalog\catalog_<FC27.exe TimeDateStamp-SizeOfImage>.json` (schema `turbo-asset-catalog/1`) and a
+  summary. Proof per family: CFC legacy manifests (FNV-1 of the path) for pictures, EBX names in the toc bundle manifests for
+  3D assets, `fc27_commentary` banks (`turbo_output\asset_catalog\banks\<lang>_bank.json`) for callnames. Per-toc cache:
+  an unchanged rerun takes under 2 s.
+- **GUI** (`core/asset_catalog.*`, `App::asset_*`): loaded on a worker thread at the first tick, swapped in on the render
+  thread, folder polled every 5 s. The running build's file = current; else the newest file = stale (lists only, hidden
+  ids refused). `App::publish_asset_catalog` hands it to `set_faces_catalog`, `set_gear_catalog`, `Callnames::use_catalog`
+  and `set_asset_view` (with `DbUse`, rebuilt once per `model.version()`); not loaded = nullptr = 2.0 behaviour.
+- **Hidden** is computed live against the save (`assets::DbUse`), never stored. **Write gate** `Catalog::writable`: a
+  current catalog and, for heads and gear, a 3D model (0 = none always allowed). Writes of hidden ids:
+  `turbo_output\asset_writes.log`.
+- **Lua** (`core/asset_gate.lua`): `asset_catalog\lua_gate.txt` (`#turbo-asset-gate 1`, `#build`, `#session`, `head3d <id>`
+  lines), written by the GUI only while the catalog is current and trusted only when `#session` equals a fresh
+  `bridge_dll.json` session. Used by `custom_headassets` and `create_player`.
+- **Kill switches**: `turbo_output\asset_catalog_off.txt`, `turbo_output\asset_hidden_off.txt`.
+- **Never shipped**: catalog, banks, gate, write log and name sources stay in `turbo_output`; `scripts/package.sh` refuses
+  them (`--guard` runs the check alone).
+- **Tests**: `turbogui/tests/catalog/run*.sh` (g++ only, seconds), the Python tests next to each tool, `t26_asset_gate.lua`,
+  native case "UI: asset catalog wiring". No test reads the game folder.
+
 ## Not implemented yet
 
 Match setup overrides, gameplay toggles (CPU vs CPU, unlimited subs, never tired, match time/score), manager market / job security /

@@ -24,7 +24,7 @@ const std::vector<faces::Face>& manager_faces(App& app);
 
 // ---- "Game heads" (game asset catalog, docs/asset-catalog.md): 3D heads the game ships that no player or manager of the
 // save uses, listed with a "Hidden" badge and the All / In this save / Hidden filter, given through the write gate
-// (core/game_heads.h; every write is logged in turbo_outputsset_writes.log).
+// (core/game_heads.h; every write is logged in turbo_output\asset_writes.log).
 // The app hands the chooser its catalog after every (re)load or swap (nullptr: none, the chooser behaves as in 2.0.x).
 // Call from the UI thread; the chooser copies what it needs, so the catalog may be dropped afterwards.
 void set_faces_catalog(std::shared_ptr<const assets::Catalog> catalog);

@@ -190,11 +190,25 @@ def test_bank_reader():
             json.dump({"lang": "eng_us", "sets": {"eng_us_dr_full": {"real": [{"playerid": 90001}], "generic": [{"commentaryid": 990002}]},
                                                   "eng_us_dr_demo": {"real_link": [{"playerid": 90003}]},
                                                   "eng_us_gm_licensed": {"real": [{"playerid": 90001}]}}}, f)
+        # fc27_commentary's own output (WP-03): per set {team, kind, ids: {kind: [ids]}}, flat rows of the primary set too
+        c = os.path.join(tmp, "c.json")
+        with open(c, "w") as f:
+            json.dump({"turbo_bank": 1, "lang": "eng_us", "primary_set": "eng_us_dr_full",
+                       "generic": [{"commentaryid": 990002}], "real": [{"playerid": 90001}],
+                       "sets": {"eng_us_dr_full": {"team": "dr", "kind": "full", "ids": {"generic": [990002], "simple": [90001], "link": [],
+                                                                                          "high": [], "generic_high": []},
+                                                   "selection_rows": {}, "errors": {}},
+                                "eng_us_dr_demo": {"team": "dr", "kind": "demo", "ids": {"link": [90003]}, "errors": {}},
+                                "eng_us_gm_full": {"team": "gm", "kind": "full", "ids": {"simple": [90005]}, "errors": {"high": "x"}}},
+                       "teams": {"dr": {"generic": [990002], "simple": [90001], "link": [90003]}, "gm": {"simple": [90005]}}}, f)
         la, ta, _ = B.read_bank(a, tmp)
         lb, tb_, _ = B.read_bank(b, tmp)
+        lc, tc, _ = B.read_bank(c, tmp)
     check(la == "ita_it" and ta == {"": {"generic": {990001}, "simple": {90001, 90004}, "high": {90002}, "link": set()}}, "flat bank -> team ''")
     check(lb == "eng_us" and tb_["dr"] == {"simple": {90001}, "generic": {990002}, "link": {90003}} and tb_["gm"] == {"simple": {90001}},
           "per-set bank -> teams dr/gm, sets merged")
+    check(lc == "eng_us" and tc["dr"] == {"generic": {990002}, "simple": {90001}, "link": {90003}, "high": set()} and
+          tc["gm"] == {"simple": {90005}}, "fc27_commentary bank (sets with team + ids) -> teams dr/gm, demo merged into dr")
 
 
 def is_sorted_unique(x):

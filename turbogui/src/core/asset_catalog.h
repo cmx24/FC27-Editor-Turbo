@@ -209,11 +209,13 @@ public:
     bool hidden_generic_callname(int64_t commentaryid, const DbUse& use) const;
     bool not_in_tattoo_table(int64_t tattooid, const DbUse& use) const;
 
-    // ---- Lua gate file (lua_gate.txt): "#turbo-asset-gate 1", "#build <key>", then one "head3d <id>" line per id.
-    // Text is "" unless the catalog is Current and not switched off.
-    std::string lua_gate_text() const;
+    // ---- Lua gate file (lua_gate.txt): "#turbo-asset-gate 1", "#build <key>", "#session <id>" (when given: the GUI
+    // session written into bridge_dll.json; Lua trusts a gate only with its own session), then one "head3d <id>" line per
+    // id. Text is "" unless the catalog is Current and not switched off.
+    std::string lua_gate_text(const std::string& session = std::string()) const;
     // Writes lua_gate.txt when lua_gate_text() is not empty, else deletes it. False + err when the file system refuses.
-    bool sync_lua_gate(const std::filesystem::path& turbo_output, std::string* err = nullptr) const;
+    bool sync_lua_gate(const std::filesystem::path& turbo_output, std::string* err = nullptr,
+                       const std::string& session = std::string()) const;
 
 private:
     struct Impl;

@@ -240,7 +240,7 @@ static void test_sources(const fs::path& fixture, const fs::path& scratch) {
     off.load_dir(out, "0000AAAA-0000BBBB");
     check(!off.loaded() && asset_items_from_catalog(off, Family::Miniface, nullptr, {}).empty(), "asset_catalog_off.txt: no items");
 
-    // with the real loader (WP-05) the fixture lists its families; skipped while the loader is a stub
+    // with the real loader (WP-05) the fixture lists its families
     assets::Catalog cat;
     std::string err;
     if (cat.load_file(fixture, "0000AAAA-0000BBBB", &err) && cat.loaded()) {
@@ -253,8 +253,8 @@ static void test_sources(const fs::path& fixture, const fs::path& scratch) {
         for (const auto& it : mf) hid += it.hidden ? 1 : 0;
         check(hid == 2, "catalog: 2 of them hidden against the synthetic save");
         auto cr = asset_items_from_catalog(cat, Family::Crest, &use, {});
-        check(cr.size() == 2 && cr[0].name == "Test Club One" && cr[0].path == "data/ui/imgAssets/crest/light/l9001.dds",
-              "catalog: crests named from the kit slug, exact path");
+        check(cr.size() == 2 && cr[0].name == "Test Club One (9001)" && cr[0].name_source == "kit_slug" && cr[0].path == "data/ui/imgAssets/crest/light/l9001.dds",
+              "catalog: crests named from the kit slug (with the id), exact path");
         check(asset_items_from_catalog(cat, Family::Youthface, &use, {}).size() == 3, "catalog: 3 youth faces");
     } else {
         std::printf("  (catalog loader not implemented in this branch: catalog-backed cases skipped)\n");

@@ -263,9 +263,15 @@ def read_bank(path, game):
 
     if isinstance(b.get("sets"), dict):
         for sname, s in b["sets"].items():
-            for k, rows in s.items():
+            if not isinstance(s, dict):
+                continue
+            # fc27_commentary (WP-03): {team, kind, ids: {generic, simple, link, high: [ids]}}; research banks: kind lists
+            # straight in the set
+            rows_of = s["ids"] if isinstance(s.get("ids"), dict) else s
+            team = s["team"] if isinstance(s.get("team"), str) else set_team(lang, sname)
+            for k, rows in rows_of.items():
                 if isinstance(rows, list):
-                    add(set_team(lang, sname), k, rows)
+                    add(team, k, rows)
     else:
         for k in CALL_KINDS:
             if isinstance(b.get(k), list):

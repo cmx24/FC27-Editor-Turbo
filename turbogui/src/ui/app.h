@@ -398,6 +398,8 @@ private:
     // asset catalog loading (asset_catalog(), asset_reload())
     void asset_tick();         // tick: take a finished load; poll the catalog folder every 5 s
     void finish_asset_load();  // tick: swap the loaded catalog in, log it, rebuild the pickers
+    void publish_asset_catalog();  // the pickers' catalog (set_faces_catalog, set_gear_catalog, callnames, asset_view)
+    void publish_asset_use();      // asset_view()'s DbUse, once per model.version() while a catalog is loaded
     std::mutex asset_m_;
     std::thread asset_thread_;
     std::atomic<bool> asset_running_{false};
@@ -410,6 +412,7 @@ private:
     bool asset_started_ = false;
     assets::DbUse asset_use_;
     bool asset_use_built_ = false;
+    uint64_t asset_view_version_ = ~0ull;  // model.version() of the DbUse published in asset_view()
 };
 
 // panels

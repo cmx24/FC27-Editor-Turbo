@@ -156,6 +156,29 @@ Nothing here modifies Live Editor or the game, so everything can be switched off
 - **Managers > Appearance > Choose a real face...**: the same chooser for a manager. **Player heads** or **Manager heads** (managers with a real face). A player's head also copies his miniface, scaled to 512 x 512, into `heads_staff_<head id>.dds`, the picture a manager with that head shows; a manager's head already has its own. The tab also lists the manager's appearance fields.
 - **Players > Appearance > Tattoos**: per body area, the current tattoo with its preview and **Choose...**: a grid of the tattoos made for that area (FC 27's `tattoo` table) with the game's own previews.
 
+### Assets the game ships but no player uses ("Hidden", new in 2.1)
+
+Turbo can list every head, miniface, gear item, crest and callname recording the game ships, including those of players
+who are no longer in the database. This needs a **game asset catalog**, built on your PC from your game files (it is not
+in this zip because it holds real names):
+
+- The builder is a Python tool in the Turbo source repository (`turbo/tools/asset_catalog/build_asset_catalog.py`, Python
+  3 standard library only; it uses the game's own Oodle DLL). Build once, and again after a game update; it only reads the game (about 10 s)
+  and writes `turbo_output\asset_catalog\`. Without it, Turbo has no catalog and works as before.
+- **Turbo Tools > Status** shows the catalog: current (built for your game build), stale (built for another build: lists
+  only, nothing hidden is written; the row has the rebuild command), off, or not loaded. Without a catalog every picker
+  works exactly as before.
+- Pickers with a catalog: **Choose a real face** adds "game heads" (players who left the database); the gear galleries and
+  tattoos list what the game really ships ("3D only" tiles, preview-only items greyed and refused); the miniface editor
+  gets **Game minifaces**, **Youth faces**, **Legend pictures** and **Staff faces**; the crest editor gets **Crests in the
+  game files**; **All callnames** lists every recording of your commentary language. Each has an **All / In this save /
+  Hidden** filter, and hidden items carry a **Hidden** badge.
+- Safety: a hidden item is written only when the catalog matches the running game and proves the game has it (a 3D model
+  for heads and gear). Every such write is logged in `turbo_output\asset_writes.log` with the old value. To switch the
+  feature off, create `turbo_output\asset_catalog_off.txt` (everything as in 2.0) or `turbo_output\asset_hidden_off.txt`
+  (no hidden items listed or written).
+- Not yet checked in a match: a hidden head, a model-only boot, a tattoo. Try them on a copy of your save first.
+
 ### Spoken names (commentary callnames)
 
 The commentators call a player by the callname bound to his **common name id when it is set, else his last name id** (`playernames.commentaryid`, overridden per player by `playernamemap`); some real players also have their own name recorded under their player id ("real bank"). Which ids actually have audio depends on the **commentary language the game has loaded**: every language pack was recorded separately.

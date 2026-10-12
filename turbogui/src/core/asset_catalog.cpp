@@ -747,13 +747,15 @@ bool Catalog::not_in_tattoo_table(int64_t tattooid, const DbUse& use) const {
     return has(Family::Tattoo, tattooid) && use.tattoo_table.count(tattooid) == 0;
 }
 
-std::string Catalog::lua_gate_text() const {
+std::string Catalog::lua_gate_text(const std::string& session) const {
     if (!current()) return "";
     const auto& heads = d_->ids[static_cast<size_t>(Family::Head3d)];
     std::string s;
     s.reserve(48 + heads.size() * 14);
     s += "#turbo-asset-gate " + std::to_string(kLuaGateVersion) + "\n";
     s += "#build " + d_->status.build_key + "\n";
+    // one token, no blanks (asset_gate.lua compares it with the "session" of bridge_dll.json)
+    if (!session.empty() && session.find_first_of(" \t\r\n") == std::string::npos) s += "#session " + session + "\n";
     for (int64_t id : heads) {
         s += "head3d ";
         s += std::to_string(id);
@@ -762,10 +764,10 @@ std::string Catalog::lua_gate_text() const {
     return s;
 }
 
-bool Catalog::sync_lua_gate(const fs::path& turbo_output, std::string* err) const {
+bool Catalog::sync_lua_gate(const fs::path& turbo_output, std::string* err, const std::string& session) const {
     const fs::path gate = lua_gate_path(turbo_output);
     std::error_code ec;
-    const std::string text = lua_gate_text();
+    const std::string text = lua_gate_text(session);
     if (text.empty()) {  // no current catalog: the gate file must not exist (Lua falls back to today's rules)
         fs::remove(gate, ec);
         if (ec && err) *err = ec.message();

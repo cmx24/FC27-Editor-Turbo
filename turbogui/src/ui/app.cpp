@@ -20,7 +20,9 @@
 #include "imgui.h"
 #include "preload.h"
 #include "ui_zoom.h"
+#include "ui_asset_browser.h"
 #include "ui_faces.h"
+#include "ui_images.h"
 
 #include "ui_edit_unlock.h"
 #include "ui_tactics.h"
@@ -297,8 +299,9 @@ bool App::asset_reload(const char* why) {
     asset_sig_ = assets::dir_signature(out);
     const std::string key = asset_running_key();  // hook_report is the host's: asked here, not on the worker
     const std::string reason = why ? why : "";
+    const std::string gate_session = session;  // lua_gate.txt carries it: Lua trusts only the gate of this GUI session
     asset_running_ = true;
-    asset_thread_ = std::thread([this, out, key, reason]() {
+    asset_thread_ = std::thread([this, out, key, reason, gate_session]() {
         auto c = std::make_shared<assets::Catalog>();
         std::string note;
         try {
@@ -306,7 +309,7 @@ bool App::asset_reload(const char* why) {
             c->load_dir(out, key);
             std::string gate_err;
             // lua_gate.txt follows the catalog: written while it is current, deleted when stale / off / missing
-            if (!c->sync_lua_gate(out, &gate_err)) note = "; lua_gate.txt not updated: " + gate_err;
+            if (!c->sync_lua_gate(out, &gate_err, gate_session)) note = "; lua_gate.txt not updated: " + gate_err;
             char buf[96];
             std::snprintf(buf, sizeof(buf), " (%.0f ms, %s)", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(),
                           reason.c_str());
@@ -348,11 +351,44 @@ void App::finish_asset_load() {
         if (log_hook) log_hook("asset catalog: " + asset_load_note);
     }
     // pickers rebuild their lists only when there is (or was) a catalog to show: no catalog = 2.0 behaviour, untouched
-    if (changed && (was_loaded || asset_cat_->loaded())) ++gen;
+    if (changed && (was_loaded || asset_cat_->loaded())) {
+        publish_asset_catalog();
+        ++gen;
+    }
+}
+
+// Hands the catalog to every picker that reads it (real-face chooser, gear galleries and tattoos, callnames, the miniface
+// and crest browsers). Not loaded (off, none, refused) = nullptr: each picker then behaves exactly as in 2.0.
+void App::publish_asset_catalog() {
+    const std::shared_ptr<const assets::Catalog> cat = asset_cat_ && asset_cat_->loaded() ? asset_cat_ : nullptr;
+    set_faces_catalog(cat);
+    set_gear_catalog(cat);
+    callnames.use_catalog(cat);
+    asset_view_version_ = ~0ull;  // the browsers' DbUse is published by publish_asset_use
+    publish_asset_use();
+}
+
+// The miniface and crest browsers read what the save uses through asset_view(): republished once per model.version()
+// while a catalog is loaded (nothing is built without one)
+void App::publish_asset_use() {
+    const std::shared_ptr<const assets::Catalog> cat = asset_cat_ && asset_cat_->loaded() ? asset_cat_ : nullptr;
+    if (!cat) {
+        if (asset_view().catalog) set_asset_view({});
+        asset_view_version_ = ~0ull;
+        return;
+    }
+    const uint64_t v = db.ready() ? model.version() : ~0ull - 1;
+    if (v == asset_view_version_ && asset_view().catalog == cat) return;
+    asset_view_version_ = v;
+    AssetView view;
+    view.catalog = cat;
+    if (db.ready()) view.use = std::make_shared<const assets::DbUse>(asset_use());
+    set_asset_view(std::move(view));
 }
 
 void App::asset_tick() {
     finish_asset_load();
+    if (asset_cat_ && asset_cat_->loaded()) publish_asset_use();
     if (now < asset_next_poll_) return;
     asset_next_poll_ = now + 5.0;
     if (asset_running_.load()) return;
