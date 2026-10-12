@@ -112,16 +112,39 @@ static std::string fmt(const char* f, ...) {
     va_end(ap);
     return buf;
 }
+// TURBO_TEST_ONLY=<text>: run only the cases whose name contains the text (any letter case), e.g.
+// TURBO_TEST_ONLY="gear pictures". Cases inside a selected case always run. Checks outside run_case still run.
+static int g_skipped = 0, g_case_depth = 0;
+static std::string lower_ascii(std::string s) {
+    for (char& c : s)
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    return s;
+}
+static const std::string& test_only() {
+    static const std::string only = [] {
+        const char* e = std::getenv("TURBO_TEST_ONLY");
+        return lower_ascii(e ? e : "");
+    }();
+    return only;
+}
 static void run_case(const char* name, const std::function<void()>& fn) {
+    if (g_case_depth == 0 && !test_only().empty() && lower_ascii(name).find(test_only()) == std::string::npos) {
+        ++g_skipped;
+        return;
+    }
+    const std::string outer = g_case;
     g_case = name;
     int before = g_fail;
+    ++g_case_depth;
     try {
         fn();
     } catch (const std::exception& e) {
         ++g_fail;
         std::printf("  FAIL [%s] exception: %s\n", name, e.what());
     }
+    --g_case_depth;
     std::printf("  %s %s\n", g_fail == before ? "PASS" : "FAIL", name);
+    if (g_case_depth > 0) g_case = outer;
 }
 
 // ---------------------------------------------------------------- simulated address space
@@ -13028,6 +13051,7 @@ int main(int argc, char** argv) {
         ++g_fail;
         std::printf("  FAIL UI setup: %s\n", e.what());
     }
+    if (!test_only().empty()) std::printf("TURBO_TEST_ONLY=\"%s\": %d cases skipped\n", test_only().c_str(), g_skipped);
     std::printf("RESULT %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

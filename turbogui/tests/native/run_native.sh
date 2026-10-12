@@ -18,6 +18,18 @@ case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) SANITIZE="${SANITIZE-}";; *) SANITIZ
 LUA="${LUA:-lua5.4}"
 FLAGS="-std=c++17 -O1 -g -fno-omit-frame-pointer -pthread $SANITIZE -Wall -Wextra -Wno-unused-parameter $DEFS $INC"
 
+# An object is rebuilt when a header it includes changed (g++ -MMD writes <object>.d), so a new or edited header rebuilds
+# only the files that include it. No .d file yet (older cache): rebuild once.
+deps_newer() {
+  local o="$1" d="${1%.o}.d" f
+  [ -f "$d" ] || return 0
+  while IFS= read -r f; do
+    f="${f%:}"
+    [ -n "$f" ] && [ -f "$f" ] && [ "$f" -nt "$o" ] && return 0
+  done < <(sed -e 's/\\ /\x01/g' -e 's/\\$//' "$d" | tr ' ' '\n' | tr '\001' ' ')
+  return 1
+}
+
 objs=()
 for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_party/imgui/imgui_tables.cpp \
          third_party/imgui/imgui_widgets.cpp third_party/imgui/backends/imgui_impl_null.cpp \
@@ -25,6 +37,7 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/core/face_filter.cpp src/core/face3d_looks.cpp src/core/hair_catalog.cpp src/core/user_text.cpp src/ui/ui_faces.cpp src/core/bodytype_catalog.cpp src/ui/ui_bodytypes.cpp \
          src/ui/app.cpp src/ui/widgets.cpp src/ui/ui_players.cpp src/ui/ui_teams.cpp src/ui/ui_database.cpp src/ui/ui_tools.cpp src/ui/textures.cpp src/ui/ui_images.cpp src/ui/ui_competitions.cpp src/ui/ui_callnames.cpp src/ui/ui_names.cpp src/ui/ui_presets.cpp src/ui/ui_cmtracker.cpp src/core/cmtracker.cpp src/ui/geo.cpp src/core/overall.cpp src/core/archetypes.cpp src/ui/ui_identity.cpp src/ui/ui_standings.cpp src/ui/ui_match.cpp src/ui/ui_reapply.cpp \
          src/ui/file_picker.cpp \
+         src/core/asset_catalog.cpp src/ui/ui_asset_browser.cpp \
          src/core/hub_customise.cpp src/ui/ui_club_tools.cpp \
          src/core/callname_audio.cpp src/ui/ui_callname_play.cpp src/core/callname_voice.cpp src/core/callname_voice_host.cpp \
          src/ui/ui_zoom.cpp src/ui/ui_team_filter.cpp src/ui/ui_role_rules.cpp src/ui/ui_club_search.cpp \
@@ -33,8 +46,11 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/ui/pitch_view.cpp src/ui/ui_tactics.cpp src/core/sliders.cpp src/core/tactic_profiles.cpp src/core/tactics.cpp src/core/tactics_db.cpp src/core/opp_rules.cpp src/core/opposition.cpp src/core/teamname_override.cpp \
          tests/native/test_main.cpp; do
   o="$BIN/obj/$(echo "$s" | sed 's#[/.]#_#g').o"
-  if [ ! -f "$o" ] || [ "$ROOT/$s" -nt "$o" ] || [ "$0" -nt "$o" ] || [ -n "$(find "$ROOT/src" "$ROOT/tests/native" -name '*.h' -newer "$o" -print -quit)" ]; then
-    g++ $FLAGS -c "$ROOT/$s" -o "$o"
+  if [ ! -f "$o" ] || [ "$ROOT/$s" -nt "$o" ] || [ "$ROOT/tests/native/run_native.sh" -nt "$o" ] || deps_newer "$o"; then
+    # test_main.cpp (13k lines of test code, rebuilt whenever a test header changes) at -O0: about 50 s instead of 95 s.
+    # Relative source paths keep the .d files valid in a copy of build/native_bin made for a new worktree.
+    f="$FLAGS"; [ "$s" = tests/native/test_main.cpp ] && f="${FLAGS/-O1/-O0}"
+    g++ $f -MMD -c "$s" -o "$o"
   fi
   objs+=("$o")
 done
