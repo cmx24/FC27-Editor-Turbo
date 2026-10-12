@@ -1,4 +1,5 @@
-// Test of core/overall.cpp (formula accuracy on real players, +1 / -1 round trips) and core/archetypes.cpp (the overall is kept).
+// Test of core/overall.cpp (formula accuracy on real players, +1 / -1 round trips) and core/archetypes.cpp (the overall is kept;
+// 2.3: a target overall is hit exactly). The native suite (tests/native/test_archetype_target.h) has the synthetic cases.
 #include <algorithm>
 #include <array>
 #include <cstdio>
@@ -180,6 +181,31 @@ int main(int argc, char** argv) {
         std::printf("archetypes: %ld applications, overall kept exactly in %.2f%% (%.2f%% for players up to 90), attributes changed in %.1f%%\n", apps,
                     100.0 * exact_apps / apps, 100.0 * exact_hi / apps_hi, 100.0 * changed / apps);
         CHECK(100.0 * exact_hi / apps_hi > 99.0, "archetype keeps the overall in only %.2f%%", 100.0 * exact_hi / apps_hi);
+
+        // ---- 2.3: archetype with a target overall on real players (own group): every target hit exactly or refused with the
+        // position's closest overall; the profile's shape kept; how often the attributes outside the profile had to move
+        long tries = 0, hits = 0, refusals = 0, outside = 0;
+        for (size_t i = 0; i < ps.size(); i += std::max<size_t>(1, ps.size() / 400)) {
+            const P& p = ps[i];
+            for (const archetypes::Archetype* ar : archetypes::of_group(group_of_position(p.pos))) {
+                for (int target : {40, 60, 75, 90, 99}) {
+                    archetypes::TargetResult r;
+                    ++tries;
+                    if (!archetypes::apply_target(*ar, p.pos, p.a, target, r)) {
+                        ++refusals;
+                        CHECK(target < r.lo || target > r.hi, "refused %d inside %d..%d (%s)", target, r.lo, r.hi, ar->name);
+                        continue;
+                    }
+                    ++hits;
+                    outside += !r.outside_moved.empty();
+                    CHECK(compute_overall(p.pos, r.attrs) == target, "target %d gave %d (%s)", target, compute_overall(p.pos, r.attrs), ar->name);
+                    CHECK(archetypes::keeps_shape(*ar, r.attrs), "shape broken (%s, target %d)", ar->name, target);
+                }
+            }
+        }
+        std::printf("archetype targets 40/60/75/90/99: %ld tries, %ld exact, %ld refused, attributes outside the profile moved in %ld\n", tries,
+                    hits, refusals, outside);
+        CHECK(hits + refusals == tries && refusals == 0, "refusals on real players: %ld", refusals);
         // one example, for the eye
         const P& ex = ps[ps.size() / 2];
         const auto list = archetypes::of_group(group_of_position(ex.pos));

@@ -17,6 +17,8 @@
 #include "file_picker.h"
 #include "imgui.h"
 #include "move_rules.h"
+#include "core/archetypes.h"
+#include "ui_archetype.h"
 #include "ui_club_search.h"
 #include "ui_images.h"
 
@@ -662,11 +664,47 @@ static void put_player_id(json& o, const player_id::Verdict& v) {
         o["id_assets"] = {{"head3d", v.give_head}, {"headvariation", a.head_var}, {"callname", a.callname()}, {"miniface", a.miniface}};
 }
 
+// Create player's archetype (2.3): the template's 34 attributes reshaped so that the position's formula gives the Overall
+// box (core/archetypes.h apply_target), recomputed only when an input changes
+struct CreateArchetype {
+    int arch = -1, position = -1, target = 0;
+    int64_t template_pid = 0;
+    overall::Attrs from{};
+    bool have = false;  // the template has all 34 attributes
+    archetypes::TargetResult r;
+};
+static const CreateArchetype& create_archetype(App& app, const PlayerRow& p, int arch, int position, int target) {
+    static CreateArchetype c;
+    overall::Attrs from{};
+    bool have = false;
+    if (const Table* t = app.db.table("players")) {
+        have = true;
+        for (int i = 0; i < overall::kAttrCount && have; ++i) {
+            const Field* f = t->field(overall::kAttrNames[i]);
+            have = f && f->type == FieldType::Int;
+            if (have) from[static_cast<size_t>(i)] = static_cast<int>(app.db.get_int(*t, p.rec, overall::kAttrNames[i], 0));
+        }
+    }
+    if (c.arch == arch && c.position == position && c.target == target && c.template_pid == p.playerid && c.have == have && c.from == from)
+        return c;
+    c.arch = arch;
+    c.position = position;
+    c.target = target;
+    c.template_pid = p.playerid;
+    c.from = from;
+    c.have = have;
+    c.r = archetypes::TargetResult();
+    if (have && arch >= 0 && arch < static_cast<int>(archetypes::all().size()))
+        archetypes::apply_target(archetypes::all()[static_cast<size_t>(arch)], position, from, target, c.r);
+    return c;
+}
+
 static void create_dialog(App& app, const PlayerRow& p) {
     static CreateIdBox idbox;
     static int teamid = 111592;
     static char first[64] = "", last[64] = "", common[64] = "", jname[64] = "";
     static int overall = 65, potential = 70, position = 25, birth_year = 2004, nationality = 0, foot = 1, height = 180, weight = 75;
+    static int arch = -1;
     static int64_t for_pid = 0;
     if (ImGui::BeginPopupModal("##pcreate", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         if (for_pid != p.playerid) {
@@ -684,7 +722,8 @@ static void create_dialog(App& app, const PlayerRow& p) {
         }
         ImGui::Text("Create a player, with %s (ID %lld) as the template for everything not set here", p.name.c_str(),
                     static_cast<long long>(p.playerid));
-        ImGui::TextDisabled("Appearance, attributes, PlayStyles and the rest are copied from the template; edit them afterwards.");
+        ImGui::TextDisabled("Appearance, attributes, PlayStyles and the rest are copied from the template (the attributes reshaped when an "
+                            "archetype is chosen); edit them afterwards.");
         ImGui::SeparatorText("Names");
         form_label("First name");
         ImGui::SetNextItemWidth(S(200.0f));
@@ -705,9 +744,12 @@ static void create_dialog(App& app, const PlayerRow& p) {
         ImGui::SeparatorText("Profile");
         form_label("Position", "The game's positions; internal codes behind the toggle in the list");
         position_combo("##position", position, S(200.0f));
-        form_label("Overall");
+        form_label("Overall", "With an archetype: the target the attributes are reshaped to (the position's formula gives it)");
         ImGui::SetNextItemWidth(S(110.0f));
         ImGui::InputInt("##overall", &overall, 0);
+        form_label("Archetype", "Optional (2.3): the template's attributes reshaped to a role so that the formula for the position gives the "
+                                "Overall above; None keeps the template's attributes");
+        archetype_combo("##carch", arch, position, S(220.0f), "None: the template's attributes");
         form_label("Potential");
         ImGui::SetNextItemWidth(S(110.0f));
         ImGui::InputInt("##potential", &potential, 0);
@@ -733,8 +775,37 @@ static void create_dialog(App& app, const PlayerRow& p) {
         overall = std::max(1, std::min(overall, 99));
         potential = std::max(1, std::min(potential, 99));
         birth_year = std::max(1950, std::min(birth_year, 2030));
+        // the archetype's attributes for that overall, shown before Create
+        const CreateArchetype* ca = nullptr;
+        bool arch_ok = true;
+        if (arch >= 0) {
+            ca = &create_archetype(app, p, arch, position, overall);
+            ImGui::SeparatorText("Attributes");
+            if (!ca->have) {
+                ImGui::TextDisabled("The archetype needs the 34 attribute fields; this database lacks some.");
+                arch_ok = false;
+            } else {
+                ImGui::Text("%s: the template's attributes reshaped for %s", archetypes::all()[static_cast<size_t>(arch)].name, position_name(position));
+                const int closest = archetype_result_lines(ca->r, position);
+                arch_ok = ca->r.ok;
+                if (closest > 0) {
+                    char ub[48];
+                    std::snprintf(ub, sizeof(ub), "Use %d##cclosest", closest);
+                    if (ImGui::Button(ub)) overall = closest;
+                } else {
+                    int changed = 0;
+                    for (int i = 0; i < overall::kAttrCount; ++i) changed += ca->r.attrs[static_cast<size_t>(i)] != ca->from[static_cast<size_t>(i)];
+                    char hdr[96];
+                    std::snprintf(hdr, sizeof(hdr), "%d attributes differ from the template###carchchg", changed);
+                    if (ImGui::TreeNode(hdr)) {
+                        attribute_changes_table(ca->from, ca->r.attrs, &archetypes::all()[static_cast<size_t>(arch)]);
+                        ImGui::TreePop();
+                    }
+                }
+            }
+        }
         bool has_name = first[0] || last[0] || common[0];
-        bool can = has_name && app.model.team(teamid) != nullptr && idv.ok;
+        bool can = has_name && app.model.team(teamid) != nullptr && idv.ok && arch_ok;
         if (!has_name) ImGui::TextDisabled("Give the player a name.");
         if (!can) ImGui::BeginDisabled();
         bool create = ImGui::Button("Create player");
@@ -760,6 +831,9 @@ static void create_dialog(App& app, const PlayerRow& p) {
             put("overallrating", overall);
             put("potential", potential);
             put("preferredposition1", position);
+            // the archetype's attributes: all 34 as previewed (the template's could still move before Lua copies them)
+            if (ca && ca->have && ca->r.ok)
+                for (int i = 0; i < overall::kAttrCount; ++i) put(overall::kAttrNames[i], ca->r.attrs[static_cast<size_t>(i)]);
             put("nationality", nationality);
             put("preferredfoot", foot);
             put("height", height);

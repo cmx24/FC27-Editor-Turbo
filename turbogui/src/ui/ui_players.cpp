@@ -20,6 +20,7 @@
 #include "ui_club_search.h"
 #include "ui_images.h"
 #include "ui_names.h"
+#include "ui_archetype.h"
 #include "ui_presets.h"
 #include "ui_team_filter.h"
 
@@ -753,32 +754,34 @@ static bool read_attrs(App& app, const Table& t, uint64_t rec, overall::Attrs& a
     return true;
 }
 
-// Write the attributes that differ (and `ovr_to` into overallrating when >= 0) through App::edit_field: the same validated
-// path as the sliders (range check, undo steps, cached rows, kept edits, development plan); the overall as given, the
-// attributes already moved. Keeps a bulk undo entry. Returns the number of fields written.
+// Write the attributes that differ (and `ovr_to` into overallrating, `pos_to` into preferredposition1, when >= 0) through
+// App::edit_field: the same validated path as the sliders (range check, undo steps, cached rows, kept edits, development
+// plan); the overall as given, the attributes already moved. Keeps a bulk undo entry. Returns the number of fields
+// written, or -1 when a write was refused (edit_field's toast says why): what this change wrote is put back then.
 static int write_bulk(App& app, const Table& t, const PlayerRow& p, const overall::Attrs& before, const overall::Attrs& after,
-                      int ovr_to, const std::string& label) {
+                      int ovr_to, const std::string& label, int pos_to = -1) {
     App::BulkUndo u;
     u.playerid = p.playerid;
     u.label = label;
     int n = 0;
-    for (int i = 0; i < overall::kAttrCount; ++i) {
-        if (before[static_cast<size_t>(i)] == after[static_cast<size_t>(i)]) continue;
-        const Field* f = t.field(overall::kAttrNames[i]);
-        if (!f) continue;
-        if (app.edit_field(t, p.rec, *f, Value::of_int(after[static_cast<size_t>(i)]))) {
-            u.before.push_back({f->name, before[static_cast<size_t>(i)]});
-            ++n;
+    bool failed = false;
+    auto put = [&](const Field* f, int64_t was, int64_t v) {
+        if (failed || !f || was == v) return;
+        if (!app.edit_field(t, p.rec, *f, Value::of_int(v))) {
+            failed = true;
+            return;
         }
-    }
-    if (ovr_to >= 0) {
-        if (const Field* f = t.field("overallrating")) {
-            const int64_t was = app.db.get_int(t, p.rec, "overallrating", 0);
-            if (was != ovr_to && app.edit_field(t, p.rec, *f, Value::of_int(ovr_to))) {
-                u.before.push_back({f->name, was});
-                ++n;
-            }
-        }
+        u.before.push_back({f->name, was});
+        ++n;
+    };
+    if (pos_to >= 0) put(t.field("preferredposition1"), app.db.get_int(t, p.rec, "preferredposition1", 0), pos_to);
+    for (int i = 0; i < overall::kAttrCount; ++i)
+        put(t.field(overall::kAttrNames[i]), before[static_cast<size_t>(i)], after[static_cast<size_t>(i)]);
+    if (ovr_to >= 0) put(t.field("overallrating"), app.db.get_int(t, p.rec, "overallrating", 0), ovr_to);
+    if (failed) {
+        for (auto it = u.before.rbegin(); it != u.before.rend(); ++it)
+            if (const Field* f = t.field(it->first)) app.edit_field(t, p.rec, *f, Value::of_int(it->second), false);
+        return -1;
     }
     app.push_bulk_undo(std::move(u));
     return n;
@@ -844,8 +847,8 @@ static const char* attr_label(int i) {
     return labels[i].c_str();
 }
 
-// Table of the attributes that differ between two sets (tooltips and the archetype preview)
-static void changes_table(const overall::Attrs& before, const overall::Attrs& after) {
+// Table of the attributes that differ between two sets (tooltips, the archetype preview, Create player): ui_archetype.h
+void attribute_changes_table(const overall::Attrs& before, const overall::Attrs& after, const archetypes::Archetype* arch) {
     if (ImGui::BeginTable("##chg", 4, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV)) {
         ImGui::TableSetupColumn("Attribute", ImGuiTableColumnFlags_WidthFixed, S(150.0f));
         ImGui::TableSetupColumn("Now", ImGuiTableColumnFlags_WidthFixed, S(50.0f));
@@ -857,7 +860,8 @@ static void changes_table(const overall::Attrs& before, const overall::Attrs& af
             if (a == b) continue;
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(attr_label(i));
+            if (arch && !archetypes::in_profile(*arch, i)) ImGui::Text("%s *", attr_label(i));
+            else ImGui::TextUnformatted(attr_label(i));
             ImGui::TableNextColumn();
             ImGui::Text("%d", b);
             ImGui::TableNextColumn();
@@ -868,15 +872,128 @@ static void changes_table(const overall::Attrs& before, const overall::Attrs& af
         ImGui::EndTable();
     }
 }
+static void changes_table(const overall::Attrs& before, const overall::Attrs& after) { attribute_changes_table(before, after, nullptr); }
 
-// Overall +1 / -1 and the archetype picker above the sliders
+bool archetype_combo(const char* id, int& sel, int position, float width, const char* none_label) {
+    using namespace overall;
+    const std::vector<archetypes::Archetype>& all = archetypes::all();
+    if (sel >= static_cast<int>(all.size())) sel = -1;
+    const Group mine = group_of_position(position);
+    const char* shown = sel >= 0 ? all[static_cast<size_t>(sel)].name : none_label ? none_label : "Choose a role...";
+    bool picked = false;
+    ImGui::SetNextItemWidth(width);
+    if (ImGui::BeginCombo(id, shown, ImGuiComboFlags_HeightLargest)) {
+        if (none_label && ImGui::Selectable(none_label, sel < 0) && sel >= 0) {
+            sel = -1;
+            picked = true;
+        }
+        // the position's own group first, the others below
+        for (int pass = 0; pass < 2; ++pass) {
+            for (int g = 0; g < kGroupCount; ++g) {
+                if ((pass == 0) != (g == mine)) continue;
+                char hdr[96];
+                std::snprintf(hdr, sizeof(hdr), "%s%s", group_name(static_cast<Group>(g)), g == mine ? " (this position)" : "");
+                ImGui::SeparatorText(hdr);
+                for (size_t i = 0; i < all.size(); ++i) {
+                    if (all[i].group != g) continue;
+                    if (ImGui::Selectable(all[i].name, sel == static_cast<int>(i)) && sel != static_cast<int>(i)) {
+                        sel = static_cast<int>(i);
+                        picked = true;
+                    }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", all[i].blurb);
+                }
+            }
+        }
+        ImGui::EndCombo();
+    }
+    return picked;
+}
+
+int archetype_result_lines(const archetypes::TargetResult& r, int position) {
+    if (!r.ok) {
+        ImGui::TextColored(ImVec4(1, 0.45f, 0.35f, 1), "Overall %d cannot be reached as %s: %s.", r.target, position_name(position), r.why.c_str());
+        ImGui::TextColored(ImVec4(1, 0.45f, 0.35f, 1), "The closest overall this position can have is %d (it reaches %d..%d).", r.closest, r.lo, r.hi);
+        return r.closest;
+    }
+    ImGui::Text("Resulting overall (formula for %s): %d -> %d (unrounded %.2f)", position_name(position), r.overall_before, r.overall_after,
+                r.raw_after);
+    if (!r.outside_moved.empty()) {
+        std::string names;
+        for (int a : r.outside_moved) names += std::string(names.empty() ? "" : ", ") + attr_label(a);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + S(460.0f));
+        ImGui::TextColored(ImVec4(1, 0.75f, 0.35f, 1),
+                           "The role's own attributes give %d..%d here (clamped at 1..99), so %zu attributes outside the role moved too "
+                           "(marked *): %s.", r.profile_lo, r.profile_hi, r.outside_moved.size(), names.c_str());
+        ImGui::PopTextWrapPos();
+    }
+    if (r.at_limit) ImGui::TextDisabled("%d of the role's attributes sit at the 1..99 limit (the profile is clamped there).", r.at_limit);
+    return 0;
+}
+
+// The Attributes tab's archetype row
+static ArchetypeUiState& arch_state() {
+    static ArchetypeUiState st;
+    return st;
+}
+const ArchetypeUiState& archetype_ui_state() { return arch_state(); }
+
+// The overall Apply writes into overallrating: the target when the target's position is (or becomes) his; for another
+// position kept as it is, his own position's overall follows what its formula moved (overall::follow, the 2.1 rule;
+// unchanged with the follow switch off)
+static int archetype_overall_to(App& app, const ArchetypeUiState& st, bool adopt) {
+    if (st.pend_position == st.pend_his_position || adopt) return st.pend.target;
+    if (overall_follow_off(app)) return static_cast<int>(st.pend_stored);
+    return overall::follow(st.pend_his_position, st.pend_before, st.pend_his_position, st.pend.attrs, static_cast<int>(st.pend_stored));
+}
+
+// Apply the previewed archetype: attributes (+ position, + overall) through write_bulk (validated writes, single-field
+// undo steps, one bulk undo entry, kept edits / development plan), then every written field is read back.
+static void archetype_apply(App& app, const Table& t, const PlayerRow& p, ArchetypeUiState& st) {
+    using namespace overall;
+    const archetypes::Archetype& arch = archetypes::all()[static_cast<size_t>(st.pend_arch)];
+    Attrs now{};
+    if (!read_attrs(app, t, p.rec, now) || now != st.pend_before ||
+        app.db.get_int(t, p.rec, "preferredposition1", 14) != st.pend_his_position ||
+        app.db.get_int(t, p.rec, "overallrating", 0) != st.pend_stored) {
+        app.notify("Archetype not applied: his attributes changed since the preview (preview again)", true);
+        return;
+    }
+    const bool adopt = st.pend_position != st.pend_his_position && st.adopt_position;
+    const int ovr_to = archetype_overall_to(app, st, adopt);
+    char label[160];
+    std::snprintf(label, sizeof(label), "archetype %s at overall %d (%s)", arch.name, st.pend.target, position_name(st.pend_position));
+    const int n = write_bulk(app, t, p, now, st.pend.attrs, ovr_to, label, adopt ? st.pend_position : -1);
+    if (n < 0) {
+        app.notify(std::string("Archetype ") + arch.name + ": nothing written (a field was refused; what was written is back)", true);
+        return;
+    }
+    // read-back: the attributes, the position and the overall as written, and the formula gives the target
+    Attrs back{};
+    const bool attrs_ok = read_attrs(app, t, p.rec, back) && back == st.pend.attrs;
+    const int64_t ovr_back = app.db.get_int(t, p.rec, "overallrating", -1);
+    const int pos_back = static_cast<int>(app.db.get_int(t, p.rec, "preferredposition1", -1));
+    const bool pos_ok = !adopt || pos_back == st.pend_position;
+    const bool formula_ok = compute_overall(st.pend_position, back) == st.pend.target;
+    char msg[320];
+    if (!attrs_ok || ovr_back != ovr_to || !pos_ok || !formula_ok) {
+        std::snprintf(msg, sizeof(msg), "Archetype %s: the read-back differs (attributes %s, overall %lld for %d, position %s): Undo puts it back",
+                      arch.name, attrs_ok ? "ok" : "differ", static_cast<long long>(ovr_back), ovr_to, pos_ok ? "ok" : "differs");
+        app.notify(msg, true);
+    } else {
+        const std::string now_pos = adopt ? std::string(", now a ") + position_name(st.pend_position) : std::string();
+        std::snprintf(msg, sizeof(msg), "Archetype %s at overall %d: %d fields written, overall %lld -> %d%s (read back; Undo puts them back)",
+                      arch.name, st.pend.target, n, static_cast<long long>(st.pend_stored), ovr_to, now_pos.c_str());
+        app.notify(msg);
+    }
+    st.applied_playerid = p.playerid;
+    st.applied_label = label;
+    st.applied_note = msg;
+}
+
+// Overall +1 / -1 and the archetype row (role, position, Target overall, preview, Apply, Undo) above the sliders
 static void archetype_bar(App& app, const Table& t, const PlayerRow& p) {
     using namespace overall;
-    static int sel_arch = -1;
-    static archetypes::Result pend;
-    static const archetypes::Archetype* pend_arch = nullptr;
-    static Attrs pend_before{};
-    static int64_t pend_pid = 0;
+    ArchetypeUiState& st = arch_state();
 
     Attrs cur{};
     ImGui::AlignTextToFramePadding();
@@ -912,7 +1029,8 @@ static void archetype_bar(App& app, const Table& t, const PlayerRow& p) {
         if (!ok) ImGui::BeginDisabled();
         if (ImGui::Button(delta > 0 ? "Overall +1" : "Overall -1")) {
             const int n = write_bulk(app, t, p, cur, trial, static_cast<int>(stored + delta), delta > 0 ? "Overall +1" : "Overall -1");
-            app.notify(std::string("Overall ") + (delta > 0 ? "+1" : "-1") + ": " + std::to_string(std::max(0, n - 1)) + " attributes changed");
+            if (n < 0) app.notify(std::string("Overall ") + (delta > 0 ? "+1" : "-1") + ": nothing written (a field was refused)", true);
+            else app.notify(std::string("Overall ") + (delta > 0 ? "+1" : "-1") + ": " + std::to_string(std::max(0, n - 1)) + " attributes changed");
         }
         if (!ok) ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
@@ -937,70 +1055,132 @@ static void archetype_bar(App& app, const Table& t, const PlayerRow& p) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("Puts back everything the last Overall +1/-1 click or archetype changed (the Undo button above is for single fields)");
 
-    // archetype picker: his own position group first, the others below
+    // ---- archetype with a target overall (2.3): role, position (his own unless picked), Target overall (his overall unless
+    // typed); the preview lists every attribute that changes and the resulting overall, Apply writes them, Undo puts them back
     const std::vector<archetypes::Archetype>& all = archetypes::all();
-    const Group mygroup = group_of_position(pos);
-    if (sel_arch >= static_cast<int>(all.size())) sel_arch = -1;
+    if (st.playerid != p.playerid) {
+        st.playerid = p.playerid;
+        st.position_picked = st.target_typed = false;
+        st.adopt_position = true;
+    }
+    if (st.arch >= static_cast<int>(all.size())) st.arch = -1;
+    if (!st.position_picked || st.position < 0) st.position = pos;
+    const int formula_at = compute_overall(st.position, cur);
+    if (!st.target_typed) st.target = st.position == pos ? archetypes::default_target(static_cast<int>(stored), formula_at) : formula_at;
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted("Archetype");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(S(240.0f));
-    if (ImGui::BeginCombo("##arch", sel_arch < 0 ? "Choose a role..." : all[static_cast<size_t>(sel_arch)].name, ImGuiComboFlags_HeightLargest)) {
-        for (int pass = 0; pass < 2; ++pass) {
-            for (int g = 0; g < kGroupCount; ++g) {
-                if ((pass == 0) != (g == mygroup)) continue;
-                char hdr[96];
-                std::snprintf(hdr, sizeof(hdr), "%s%s", group_name(static_cast<Group>(g)), g == mygroup ? " (his position)" : "");
-                ImGui::SeparatorText(hdr);
-                for (size_t i = 0; i < all.size(); ++i) {
-                    if (all[i].group != g) continue;
-                    if (ImGui::Selectable(all[i].name, sel_arch == static_cast<int>(i))) sel_arch = static_cast<int>(i);
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", all[i].blurb);
-                }
-            }
-        }
-        ImGui::EndCombo();
-    }
+    archetype_combo("##arch", st.arch, st.position, S(220.0f));
     ImGui::SameLine();
-    if (sel_arch < 0) ImGui::BeginDisabled();
-    if (ImGui::Button("Preview / apply...") && sel_arch >= 0) {
-        pend_arch = &all[static_cast<size_t>(sel_arch)];
-        pend_before = cur;
-        pend_pid = p.playerid;
-        archetypes::apply(*pend_arch, pos, cur, pend);
+    ImGui::TextUnformatted("Position");
+    ImGui::SameLine();
+    int pick = st.position;
+    if (position_combo("##archpos", pick, S(90.0f))) {
+        st.position = pick;
+        st.position_picked = pick != pos;  // his own position again: it follows him again
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The position whose overall formula the target is for (his own: %s)", position_name(pos));
+    // second row (the pane is often narrow): the target and the preview
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Target overall");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(S(70.0f));
+    int tv = st.target;
+    if (ImGui::InputInt("##archtarget", &tv, 0)) {
+        st.target = std::max(1, std::min(99, tv));
+        st.target_typed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("1..99. Starts at his overall (stored %lld, formula for %s %d) and keeps a typed value until another player is selected.",
+                          static_cast<long long>(stored), position_name(st.position), formula_at);
+    ImGui::SameLine();
+    const bool can_preview = st.arch >= 0;
+    if (!can_preview) ImGui::BeginDisabled();
+    if (ImGui::Button("Preview / apply...") && can_preview) {
+        st.pend_playerid = p.playerid;
+        st.pend_arch = st.arch;
+        st.pend_before = cur;
+        st.pend_position = st.position;
+        st.pend_his_position = pos;
+        st.pend_stored = stored;
+        archetypes::apply_target(all[static_cast<size_t>(st.arch)], st.position, cur, st.target, st.pend);
         ImGui::OpenPopup("Apply archetype");
     }
-    if (sel_arch < 0) ImGui::EndDisabled();
-    ImGui::SameLine();
-    ImGui::TextDisabled("reshapes the attributes, keeps the overall");
+    if (!can_preview) ImGui::EndDisabled();
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextDisabled("Reshapes the attributes to the role so that the overall (the %s formula) becomes the target.", position_name(st.position));
+    ImGui::PopTextWrapPos();
+    // the last Apply: one click puts it back while it is his newest bulk change
+    if (st.applied_playerid == p.playerid && !st.applied_label.empty()) {
+        const App::BulkUndo* last = nullptr;
+        for (const auto& u : app.bulk_undo)
+            if (u.playerid == p.playerid) last = &u;
+        if (last && last->label == st.applied_label) {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("Applied: %s.", st.applied_label.c_str());
+            ImGui::SameLine();
+            if (ImGui::Button("Undo archetype##archundo")) undo_bulk(app, t, p);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", st.applied_note.c_str());
+        }
+    }
 
     if (ImGui::BeginPopupModal("Apply archetype", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        if (!pend_arch || pend_pid != p.playerid) {
+        if (st.pend_playerid != p.playerid || st.pend_arch < 0 || st.pend_arch >= static_cast<int>(all.size())) {
             ImGui::TextDisabled("Another player is selected.");
         } else {
-            ImGui::Text("%s as %s", p.name.c_str(), pend_arch->name);
-            ImGui::TextDisabled("%s", pend_arch->blurb);
-            if (pend_arch->group != mygroup)
-                ImGui::TextColored(ImVec4(1, 0.8f, 0.4f, 1), "This role is from another position group (%s); the overall is kept by his own position formula.",
-                                   group_name(pend_arch->group));
-            ImGui::Text("Overall (formula, %s): %d -> %d", position_name(pos), pend.overall_before, pend.overall_after);
-            if (!pend.exact)
-                ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "This profile cannot reach exactly his overall (at the edge of the 1..99 range).");
-            ImGui::BeginChild("##archchg", ImVec2(S(440.0f), S(380.0f)), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX | ImGuiChildFlags_ResizeY);
-            const bool same = pend.attrs == pend_before;
-            if (same) ImGui::TextDisabled("Nothing would change.");
-            else changes_table(pend_before, pend.attrs);
-            ImGui::EndChild();
-            if (same) ImGui::BeginDisabled();
-            if (ImGui::Button("Apply")) {
-                Attrs now{};
-                if (read_attrs(app, t, p.rec, now)) {
-                    const int n = write_bulk(app, t, p, now, pend.attrs, -1, std::string("archetype ") + pend_arch->name);
-                    app.notify(std::string("Archetype ") + pend_arch->name + ": " + std::to_string(n) + " attributes changed");
+            const archetypes::Archetype& arch = all[static_cast<size_t>(st.pend_arch)];
+            const archetypes::TargetResult& r = st.pend;
+            ImGui::Text("%s as %s, target overall %d (%s)", p.name.c_str(), arch.name, r.target, position_name(st.pend_position));
+            ImGui::TextDisabled("%s", arch.blurb);
+            if (arch.group != group_of_position(st.pend_position))
+                ImGui::TextColored(ImVec4(1, 0.8f, 0.4f, 1), "This role is from another position group (%s); the target is reached by the %s formula.",
+                                   group_name(arch.group), position_name(st.pend_position));
+            // both overalls: the stored one the game shows and the formula's (the target is the formula's result)
+            ImGui::Text("Now: stored overall %lld, formula for %s %d", static_cast<long long>(st.pend_stored), position_name(st.pend_position),
+                        r.overall_before);
+            if (st.pend_position == st.pend_his_position && st.pend_stored != r.overall_before)
+                ImGui::TextDisabled("(they differ: the target is what the formula gives; Apply writes it into the stored overall too)");
+            if (st.pend_position != st.pend_his_position) {
+                char cb[128];
+                std::snprintf(cb, sizeof(cb), "Make %s his main position (now %s)##archadopt", position_name(st.pend_position),
+                              position_name(st.pend_his_position));
+                ImGui::Checkbox(cb, &st.adopt_position);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("On: preferredposition1 becomes %s and the stored overall the target.\n"
+                                      "Off: he stays a %s; his stored overall follows what the %s formula moved.",
+                                      position_name(st.pend_position), position_name(st.pend_his_position), position_name(st.pend_his_position));
+            }
+            const bool adopt = st.pend_position != st.pend_his_position && st.adopt_position;
+            const int closest = archetype_result_lines(r, st.pend_position);
+            int ovr_to = static_cast<int>(st.pend_stored);
+            if (closest > 0) {
+                char ub[48];
+                std::snprintf(ub, sizeof(ub), "Use %d##archclosest", closest);
+                if (ImGui::Button(ub)) {
+                    st.target = closest;
+                    st.target_typed = true;
+                    archetypes::apply_target(arch, st.pend_position, st.pend_before, closest, st.pend);
                 }
+            } else {
+                ovr_to = archetype_overall_to(app, st, adopt);
+                ImGui::Text("Stored overall after Apply: %lld -> %d%s", static_cast<long long>(st.pend_stored), ovr_to,
+                            ovr_to == r.target ? "" : " (his own position's formula moved by that)");
+                const int64_t pot = app.db.get_int(t, p.rec, "potential", 0);
+                if (pot > 0 && pot < r.target)
+                    ImGui::TextDisabled("His potential is %lld, below the new overall (not changed here; the game's growth aims at it).",
+                                        static_cast<long long>(pot));
+                ImGui::BeginChild("##archchg", ImVec2(S(440.0f), S(360.0f)), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX | ImGuiChildFlags_ResizeY);
+                if (r.attrs == st.pend_before) ImGui::TextDisabled("No attribute changes.");
+                else attribute_changes_table(st.pend_before, r.attrs, &arch);
+                ImGui::EndChild();
+            }
+            const bool can = st.pend.ok && (st.pend.attrs != st.pend_before || ovr_to != st.pend_stored || adopt);
+            if (!can) ImGui::BeginDisabled();
+            if (ImGui::Button("Apply##arch")) {
+                archetype_apply(app, t, p, st);
                 ImGui::CloseCurrentPopup();
             }
-            if (same) ImGui::EndDisabled();
+            if (!can) ImGui::EndDisabled();
             ImGui::SameLine();
         }
         if (ImGui::Button("Cancel##arch")) ImGui::CloseCurrentPopup();

@@ -642,10 +642,11 @@ elseif mode == "verify_writes" then
     print(string.format("VERIFY_WRITES checked=%d mismatches=%d writes=%d", checked, bad, #writes))
     os.exit(bad == 0 and 0 or 1)
 
-elseif mode == "commands" then
+elseif mode == "commands" or mode == "commands_attrs" then
     -- Every command the GUI test clicked (gui_commands.json), run through Turbo's real bridge in the full Lua test
     -- world (career with fixtures, transfer storage, squad-role vector, generated players, head models); Player
-    -- Career commands run in a Player Career world.
+    -- Career commands run in a Player Career world. "commands_attrs": the same world with the 34 attributes in the
+    -- players table (2.3: Create player with an archetype sends them).
     local W = require 'world'
     local json = require 'imports/external/json'
     local list = json.decode(assert(io.open(OUT .. "/gui_commands.json", "rb")):read("a"))
@@ -662,7 +663,7 @@ elseif mode == "commands" then
         if not okx then ok, text = false, "error: " .. tostring(ok) end
         out[#out + 1] = { label = c.label, ok = ok == true, text = tostring(text or "") }
     end
-    local bridge = fresh({ career_playercontract = true, playerloans = true })
+    local bridge = fresh({ career_playercontract = true, playerloans = true, development = (mode == "commands_attrs") or nil })
     local pap = {}
     for _, c in ipairs(list) do
         if c.cmd.module == "pap_playstyles" then pap[#pap + 1] = c else run(bridge, c) end
