@@ -29,5 +29,7 @@ void scouts_section(App& app);
 
 // Bulk edit: a small "Pick" combo next to a field-name box; writes the picked field name into buf. True when picked.
 bool bulk_field_pick(const char* id, char* buf, size_t size);
+// The field-name box the Pick combo `id` filled last (nullptr before it was drawn); for the tests
+char* bulk_field_buffer(const char* id);
 
 }  // namespace turbo

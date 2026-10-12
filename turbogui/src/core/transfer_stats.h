@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "model.h"  // GameDate
 #include "t3db.h"
 
 namespace turbo::xfer {
@@ -36,11 +37,21 @@ bool is_loan(const Move& m);
 // Parse the transfer history export. Rows without a valid player or club id are skipped and counted in *skipped.
 // Unknown header layouts give no rows (*skipped = -1).
 std::vector<Move> parse_export_csv(const std::string& text, int* skipped = nullptr);
-// The newest turbo_transfer_history_*.csv in dir by name (the name carries the date), "" when there is none
-std::filesystem::path newest_export(const std::filesystem::path& dir);
+// The export to show for a save whose game date is `today` ("" when there is none). The name carries the game date of the
+// export (turbo_transfer_history_YYYY_MM_DD.csv), not the career, so: the file of today's date when it exists; else files
+// dated after today are skipped (another career, or a later point of this one) and the most recently written of the others
+// wins. With no valid `today` (outside a career) the most recently written file wins.
+std::filesystem::path newest_export(const std::filesystem::path& dir, const GameDate& today = {});
+// The game date in an export's file name as YYYYMMDD (0 when the name has none)
+int export_date(const std::filesystem::path& p);
+// YYYYMMDD of the first day (1 July) of the season `today` is in (0 for an invalid date)
+int season_start(const GameDate& today);
+// The moves of the season `today` is in (undated moves are kept); every move when `today` is not valid
+std::vector<Move> this_season(const std::vector<Move>& moves, const GameDate& today);
 // Rows of the database "transfers" table (empty when the table or its fields are missing)
 std::vector<Move> read_db_transfers(Database& db);
-// a plus the rows of b that a does not have (same player, from, to; dates within 3 days or unknown)
+// a plus the rows of b that a does not have. The same player from the same club to the same club in one season (or with a date
+// unknown) is one move: an agreement date and a completion date (a pre-contract completes months later) are not two sales.
 std::vector<Move> merge(std::vector<Move> a, const std::vector<Move>& b);
 // Per club: moves in and out, fees spent and received. Free agents (111592) and club id <= 0 are never a row.
 std::unordered_map<int64_t, TeamStats> per_team(const std::vector<Move>& moves);

@@ -71,20 +71,56 @@ std::vector<Move> parse_export_csv(const std::string& text, int* skipped) {
     return out;
 }
 
-fs::path newest_export(const fs::path& dir) {
+int export_date(const fs::path& p) {
+    static const std::string kPrefix = "turbo_transfer_history_";
+    const std::string n = p.filename().string();
+    if (n.rfind(kPrefix, 0) != 0 || n.size() < kPrefix.size() + 10) return 0;
+    const std::string d = n.substr(kPrefix.size(), 10);  // YYYY_MM_DD
+    for (size_t i = 0; i < d.size(); ++i)
+        if (i == 4 || i == 7 ? d[i] != '_' : !std::isdigit(static_cast<unsigned char>(d[i]))) return 0;
+    const int v = std::atoi(d.substr(0, 4).c_str()) * 10000 + std::atoi(d.substr(5, 2).c_str()) * 100 + std::atoi(d.substr(8, 2).c_str());
+    return v >= 19000101 && v <= 21991231 ? v : 0;
+}
+
+fs::path newest_export(const fs::path& dir, const GameDate& today) {
     std::error_code ec;
+    const int now = today.valid() ? today.as_int() : 0;
     fs::path best;
+    fs::file_time_type best_time{};
     std::string best_name;
     for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
         const std::string n = it->path().filename().string();
         if (n.rfind("turbo_transfer_history_", 0) != 0 || n.size() < 5 || lower(n.substr(n.size() - 4)) != ".csv") continue;
         if (!it->is_regular_file(ec)) continue;
-        if (best_name.empty() || n > best_name) {
-            best_name = n;
+        const int d = export_date(it->path());
+        if (now && d == now) return it->path();  // today's export: this save's, as far as a file name can tell
+        if (now && d > now) continue;            // dated after today: not this save's
+        std::error_code tec;
+        const fs::file_time_type tm = fs::last_write_time(it->path(), tec);
+        if (tec) continue;
+        if (best.empty() || tm > best_time || (tm == best_time && n > best_name)) {
             best = it->path();
+            best_time = tm;
+            best_name = n;
         }
     }
     return best;
+}
+
+int season_start(const GameDate& today) {
+    if (!today.valid()) return 0;
+    return (today.month >= 7 ? today.year : today.year - 1) * 10000 + 701;
+}
+
+static int season_of(int yyyymmdd) { return yyyymmdd > 0 ? (yyyymmdd / 100 % 100 >= 7 ? yyyymmdd / 10000 : yyyymmdd / 10000 - 1) : 0; }
+
+std::vector<Move> this_season(const std::vector<Move>& moves, const GameDate& today) {
+    const int from = season_start(today);
+    if (!from) return moves;
+    std::vector<Move> out;
+    for (const Move& m : moves)
+        if (m.date <= 0 || m.date >= from) out.push_back(m);
+    return out;
 }
 
 std::vector<Move> read_db_transfers(Database& db) {
@@ -114,14 +150,6 @@ std::vector<Move> read_db_transfers(Database& db) {
     return out;
 }
 
-static int64_t day_number(int yyyymmdd) {
-    GameDate d;
-    d.year = yyyymmdd / 10000;
-    d.month = yyyymmdd / 100 % 100;
-    d.day = yyyymmdd % 100;
-    return d.valid() ? gregorian_days_from_date(d) : -1;
-}
-
 std::vector<Move> merge(std::vector<Move> a, const std::vector<Move>& b) {
     const size_t n = a.size();
     for (const Move& m : b) {
@@ -129,8 +157,7 @@ std::vector<Move> merge(std::vector<Move> a, const std::vector<Move>& b) {
         for (size_t i = 0; i < n && !dup; ++i) {
             const Move& x = a[i];
             if (x.playerid != m.playerid || x.from != m.from || x.to != m.to) continue;
-            const int64_t dx = day_number(x.date), dm = day_number(m.date);
-            dup = dx < 0 || dm < 0 || std::llabs(dx - dm) <= 3;
+            dup = x.date <= 0 || m.date <= 0 || season_of(x.date) == season_of(m.date);
         }
         if (!dup) a.push_back(m);
     }
