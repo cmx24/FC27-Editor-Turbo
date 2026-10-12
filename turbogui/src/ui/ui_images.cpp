@@ -16,6 +16,7 @@
 #include "core/hair_catalog.h"
 #include "file_picker.h"
 #include "imgui.h"
+#include "ui_asset_browser.h"
 #include "ui_images.h"
 
 namespace turbo {
@@ -498,6 +499,56 @@ static int64_t player_chooser(App& app, char* search, size_t search_size, const 
     return chosen;
 }
 
+// ---------------------------------------------------------------- catalog picture sources (docs/asset-catalog.md)
+// Game minifaces, staff faces, youth faces and legend pictures from the asset catalog, in the paged browser. One list per
+// family and editor, rebuilt when the catalog, the save's DbUse or the database changes.
+struct MinifaceAssetList {
+    const assets::Catalog* catalog = nullptr;
+    const assets::DbUse* use = nullptr;
+    uint64_t model_version = ~0ull;
+    std::vector<AssetBrowserItem> items;
+    AssetBrowserState st;
+    int64_t picked = 0;
+};
+
+static MinifaceAssetList& asset_source_list(App& app, const AssetView& view, assets::Family f, bool manager) {
+    static std::map<std::pair<int, bool>, MinifaceAssetList> lists;
+    MinifaceAssetList& l = lists[{static_cast<int>(f), manager}];
+    if (l.catalog != view.catalog.get() || l.use != view.use.get() || l.model_version != app.model.version()) {
+        l.catalog = view.catalog.get();
+        l.use = view.use.get();
+        l.model_version = app.model.version();
+        // DB names: minifaces are keyed by playerid (or headassetid); the other families have no DB name by id
+        std::function<std::string(int64_t)> db_name;
+        if (f == assets::Family::Miniface)
+            db_name = [&app](int64_t id) {
+                const PlayerRow* p = app.model.player(id);
+                return p ? p->name : std::string();
+            };
+        l.items = view.catalog ? asset_items_from_catalog(*view.catalog, f, view.use.get(), db_name) : std::vector<AssetBrowserItem>{};
+    }
+    return l;
+}
+
+// One catalog source tab: the browser; a click uses the picture as the new miniface's source
+static void asset_source_tab(App& app, MinifaceEditor& ed, const AssetView& view, const AssetPictureSource& src, bool manager) {
+    MinifaceAssetList& l = asset_source_list(app, view, src.family, manager);
+    ImGui::TextDisabled("%s", src.note);
+    if (view.catalog && view.catalog->state() == assets::State::Stale)
+        ImGui::TextColored(kWarn, "Catalog built for another game build (%s): rebuild it with %s", view.catalog->status().build_key.c_str(),
+                           assets::rebuild_command().c_str());
+    char bid[48];
+    std::snprintf(bid, sizeof(bid), "##asrc%d%d", static_cast<int>(src.family), manager ? 1 : 0);
+    int64_t pick = 0;
+    if (asset_browser(bid, l.st, l.items, pick, [&app](const AssetBrowserItem& it, float side) { draw_legacy_picture(app, it.path, side, false); },
+                      l.picked, S(360.0f))) {
+        l.picked = pick;
+        auto it = std::find_if(l.items.begin(), l.items.end(), [pick](const AssetBrowserItem& x) { return x.id == pick; });
+        if (it != l.items.end())
+            source_from_legacy(app, ed, it->path, std::string(src.tab) + ": " + it->name + " (#" + std::to_string(it->id) + ")", false);
+    }
+}
+
 void miniface_editor(App& app, const MinifaceTarget& t) {
     MinifaceEditor& ed = t.manager ? g_manager_ed : g_player_ed;
     const int size = t.manager ? kStaffMinifaceSize : kPlayerMinifaceSize;
@@ -727,6 +778,14 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
         if (t.manager && ImGui::BeginTabItem("The current one")) {
             if (ImGui::Button("Start from the current miniface")) source_from_legacy(app, ed, t.path, "current miniface", true);
             ImGui::EndTabItem();
+        }
+        // catalog sources (none when the catalog is off or not loaded: the tabs are exactly 2.0's)
+        const AssetView& view = asset_view();
+        for (const AssetPictureSource& src : asset_miniface_sources(t.manager, view.loaded())) {
+            if (ImGui::BeginTabItem(src.tab)) {
+                asset_source_tab(app, ed, view, src, t.manager);
+                ImGui::EndTabItem();
+            }
         }
         if (ImGui::BeginTabItem("The 3D model")) {
             capture_tab(app, ed, t);

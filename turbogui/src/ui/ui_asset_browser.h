@@ -5,14 +5,14 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "core/asset_catalog.h"
+#include "core/asset_pages.h"
 
 namespace turbo {
-
-using AssetScope = assets::Scope;
 
 enum class AssetBadge : uint8_t {
     Hidden,       // in the game files; no player (team) of this save uses it
@@ -32,25 +32,29 @@ bool asset_badge(AssetBadge b, const char* tooltip = nullptr);
 // Combo "All" / "In this save" / "Hidden". width <= 0: ImGui's default. Returns true when the pick changed.
 bool asset_scope_combo(const char* id, AssetScope& scope, float width = 0.0f);
 
-// ---- paged browser (WP-09 implements it; the stub shows a one-line note)
-constexpr int kAssetBrowserPage = 200;  // tiles per page: only what is on screen asks for its picture
-
-struct AssetBrowserItem {
-    int64_t id = 0;
-    std::string name;         // display name (DB > catalog > fallback)
-    std::string name_source;  // assets::Name::source ("" = DB name)
-    std::string path;         // picture path (legacy file), "" = placeholder
-    bool hidden = false;
+// ---- the catalog the pickers read
+// Published by the app (WP-06 wiring) whenever a catalog is swapped in or DbUse is rebuilt; read on the UI thread only.
+// A null catalog, or one that is not loaded, means the pickers show no catalog sources (2.0 behaviour).
+struct AssetView {
+    std::shared_ptr<const assets::Catalog> catalog;
+    std::shared_ptr<const assets::DbUse> use;  // null: nothing is badged hidden
+    bool loaded() const { return catalog && catalog->loaded(); }
 };
+void set_asset_view(AssetView v);
+const AssetView& asset_view();
 
-struct AssetBrowserState {
-    AssetScope scope = AssetScope::All;
-    int page = 0;
-    char search[64] = "";
-};
+// ---- paged browser: search (name or id), the All / In this save / Hidden filter, pages of kAssetBrowserPage tiles.
+// Items, filter and paging are in core/asset_pages.h (pure, tested by tests/catalog/run_pages.sh).
 
-// Draws the browser. `want(path)` is called for the pictures on screen only. Returns true when an item was picked
-// (its id in `picked`).
+// Draws one tile's picture in a side x side box (the caller asks the game for it: only tiles on screen are drawn)
+using AssetTileDraw = std::function<void(const AssetBrowserItem& item, float side)>;
+
+// Draws the browser in a child region of `height` (0: the space left; < 0: the space left minus that much). Returns
+// true when an item was clicked (its id in `picked`). `selected` gets a frame. `team` words the Hidden tooltip for clubs.
+bool asset_browser(const char* id, AssetBrowserState& st, const std::vector<AssetBrowserItem>& items, int64_t& picked,
+                   const AssetTileDraw& draw_picture, int64_t selected = 0, float height = 0.0f, bool team = false);
+
+// WP-01 form: `want(path)` is called for the pictures on screen only, and the tiles show their name in an empty box
 bool asset_browser(const char* id, AssetBrowserState& st, const std::vector<AssetBrowserItem>& items, int64_t& picked,
                    const std::function<void(const std::string& path)>& want);
 

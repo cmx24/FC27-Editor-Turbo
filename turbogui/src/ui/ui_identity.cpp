@@ -13,6 +13,7 @@
 #include "app.h"
 #include "core/teamnames.h"
 #include "imgui.h"
+#include "ui_asset_browser.h"
 #include "ui_images.h"
 
 namespace turbo {
@@ -691,6 +692,49 @@ static int64_t crest_gallery(App& app, CrestEditor& ed, int64_t exclude) {
     return picked;
 }
 
+// ---- crests in the game files (asset catalog): every crest the game ships, also of clubs no longer in the database
+struct CrestAssetList {
+    const assets::Catalog* catalog = nullptr;
+    const assets::DbUse* use = nullptr;
+    uint64_t model_version = ~0ull;
+    std::vector<AssetBrowserItem> items;
+    AssetBrowserState st;
+    bool scope_set = false;
+};
+static CrestAssetList g_crest_assets;
+
+// The picked team id, or 0
+static int64_t crest_asset_browser(App& app, const AssetView& view, int64_t exclude) {
+    CrestAssetList& l = g_crest_assets;
+    if (l.catalog != view.catalog.get() || l.use != view.use.get() || l.model_version != app.model.version()) {
+        l.catalog = view.catalog.get();
+        l.use = view.use.get();
+        l.model_version = app.model.version();
+        auto db_name = [&app](int64_t id) {
+            const TeamRow* t = app.model.team(id);
+            return t ? t->name : std::string();
+        };
+        l.items = view.catalog ? asset_items_from_catalog(*view.catalog, assets::Family::Crest, view.use.get(), db_name)
+                               : std::vector<AssetBrowserItem>{};
+        if (!l.scope_set) l.st.scope = AssetScope::Hidden;  // first view: the DB clubs are in the other tab
+        l.scope_set = true;
+    }
+    if (view.catalog && view.catalog->state() == assets::State::Stale)
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Catalog built for another game build (%s): rebuild it with %s",
+                           view.catalog->status().build_key.c_str(), assets::rebuild_command().c_str());
+    int64_t pick = 0;
+    const bool clicked = asset_browser(
+        "##crestassets", l.st, l.items, pick, [&app](const AssetBrowserItem& it, float side) { draw_legacy_picture(app, it.path, side, true); },
+        0, -ImGui::GetFrameHeightWithSpacing() * 1.5f, true);
+    return clicked && pick != exclude ? pick : 0;
+}
+
+static std::string crest_asset_name(int64_t teamid) {
+    for (const AssetBrowserItem& it : g_crest_assets.items)
+        if (it.id == teamid) return it.name;
+    return "Team #" + std::to_string(teamid);
+}
+
 void crest_editor(App& app, int64_t teamid) {
     CrestEditor& ed = g_crest;
     if (ed.teamid != teamid) {
@@ -890,6 +934,34 @@ void crest_editor(App& app, int64_t teamid) {
                 }
             }
             ImGui::EndTabItem();
+        }
+        // catalog source (absent when the catalog is off or not loaded: the tabs are exactly 2.0's)
+        const AssetView& view = asset_view();
+        for (const AssetPictureSource& src : asset_crest_sources(view.loaded())) {
+            if (ImGui::BeginTabItem(src.tab)) {
+                ImGui::TextDisabled("%s. Click a crest: its files are copied to this club (same sizes and formats), or use it as a picture.",
+                                    src.note);
+                static bool as_picture_game = false;
+                ImGui::Checkbox("Use as a picture to reframe instead of copying the files##game", &as_picture_game);
+                const int64_t pick = crest_asset_browser(app, view, teamid);
+                if (pick) {
+                    const std::string from = crest_asset_name(pick);
+                    if (as_picture_game) {
+                        fs::path f;
+                        LegacyImages::State s2 = app.legacy.locate(crest_main_path(pick), &f, true);
+                        if (s2 == LegacyImages::State::Game || s2 == LegacyImages::State::Custom)
+                            crest_source_file(ed, f, "crest of " + from);
+                        else
+                            ed.error = "the crest of " + from + " is not loaded yet";
+                    } else {
+                        std::string msg;
+                        bool ok = copy_crest(app, pick, teamid, &msg);
+                        app.notify("Crest of " + from + ": " + msg, !ok);
+                        ed.next_plan = 0.0;
+                    }
+                }
+                ImGui::EndTabItem();
+            }
         }
         ImGui::EndTabBar();
     }
