@@ -74,6 +74,12 @@ std::string describe_anchors(const Anchors& a);
 // The identity checks alone ("" = the object is the FCE interface / a DataManager; `how` says by what)
 std::string check_interface(Memory& mem, uint64_t ifce, const Anchors& a, std::string* how = nullptr);
 std::string check_manager(Memory& mem, uint64_t manager, const Anchors& a, std::string* how = nullptr);
+// Whether a DataManager identified by `a` may be written: "" = yes (its vtable is the signature's or the documented one, or
+// the anchors are unchecked), else why the views are read-only. 2.2 review: a DataManager accepted on its back-pointer alone
+// (fce_datamanager_vtable not found on the build) is never written. Many FCE managers keep their DataConnector at +0x28,
+// so another manager reached through a changed +0x80 slot could pass the chain checks; on 6AB9813C a write always needed
+// the exact DataManager vtable. locate / validate put this into Located::read_only.
+std::string write_refusal(const Anchors& a);
 
 // One StandingData row (0x18 bytes). Played games, goal difference and the position are not stored: the UI derives them.
 struct StandingRow {
@@ -160,6 +166,9 @@ struct Located {
     uint64_t compobj_list = 0, compobjs_data = 0;  // 0 when the list is absent (older layout): the tree is optional
     uint32_t row_count = 0, fixture_count = 0, compobj_count = 0;
     std::string identity;  // how the two objects were identified (for the log), e.g. "interface: Post in vtable slot 4; ..."
+    // "" = the rows and fixtures may be written; else why the views show them read-only (write_refusal: the DataManager
+    // was identified by its back-pointer only). Every write function refuses with this text.
+    std::string read_only;
     bool ok() const { return manager != 0; }
 };
 
@@ -183,26 +192,59 @@ bool decode_compobj(const uint8_t* p, CompObj& out);
 // is not a used node of the list; the fields found so far are still filled.
 bool describe_group(const std::vector<CompObj>& objs, uint16_t group, GroupInfo& out);
 
+// ---- the gate in front of every write (2.2 review). These writes come from the GUI's render thread, not the game's: the
+// FCE thread does its own read-modify-write of the same rows on a match day, so nothing is written while one is processed.
+// Kill switch of every row / fixture write of Live standings and Match setup and of their Undo: this file in turbo_output
+constexpr const char* kWriteOffFile = "live_standings_write_off.txt";
+// Looked at right before each write: "" = Turbo may write now, else why not: `switched_off` (kWriteOffFile exists), a
+// read-only located set (Located::read_only), or the game processing a match day (svm::sim_busy on the career's manager
+// table `managers`, bridge_state.json "managers"; a table or SimDayManager that cannot be read counts as busy).
+std::string write_gate(Memory& mem, const Located& loc, bool switched_off, uint64_t managers);
+
+// One engine block Turbo changed (a 0x18-byte StandingData or FixtureData): its bytes before and the bytes Turbo wrote
+static_assert(kStandingSize == kFixtureSize, "a Patch holds a row or a fixture");
+struct Patch {
+    uint64_t addr = 0;
+    uint8_t before[kStandingSize] = {};
+    uint8_t after[kStandingSize] = {};
+    std::string what;  // "the home row", "the fixture" (messages)
+};
+// The blocks of one multi-block edit (a result: both rows and the fixture; a venue swap or a new opponent: the fixture),
+// kept for Undo. Every write goes block by block: the block must still hold `before`, only the bytes that differ are
+// written, then read back; a failure part-way puts the blocks already written back as they were.
+struct Change {
+    std::vector<Patch> patches;  // in write order
+    bool empty() const { return patches.empty(); }
+};
+// Undo `c`: every block must still lie in the located lists and hold what Turbo wrote (else nothing is written: a match
+// day or another edit came in between); written back in reverse order, each read back. "" = undone
+std::string undo_change(Memory& mem, const Located& loc, const Change& c);
+
 // Limits of a row: every counter 0..255, points -32768..32767. "" = fine
 std::string check_row(const StandingRow& row);
-// Write the counters and points of `row` (identity bytes id/compobj/team must still match in memory). "" = done
+// Write the counters and points of `row` (identity bytes id/compobj/team must still match in memory), read them back (a
+// mismatch puts the row back as it was). "" = done
 std::string write_row(Memory& mem, const Located& loc, const StandingRow& row);
 
 // Add (sign +1) or remove (sign -1) one result from the two rows. Returns "" or the limit that would be broken
 // (nothing is changed then).
 std::string apply_result(StandingRow& home, StandingRow& away, int home_score, int away_score, const Points& pts, int sign);
-// Change the score of a played fixture: the fixture bytes and both rows are patched consistently. "" = done
-std::string edit_result(Memory& mem, const Located& loc, uint16_t fixture_id, int new_home, int new_away, const Points& pts);
+// Change the score of a played fixture: the fixture bytes and both rows are patched consistently (home row, away row, the
+// fixture's two scores; all or nothing). "" = done; `done` (optional) gets the blocks for Undo (empty when nothing changed)
+std::string edit_result(Memory& mem, const Located& loc, uint16_t fixture_id, int new_home, int new_away, const Points& pts,
+                        Change* done = nullptr);
 
 // ---- match setup: edits of fixtures that have not been played yet (docs/re/match_setup.md section 4). FixtureData is
 // what the engine's scheduler plays or simulates on its date (+0x0A / +0x0C are the two standing rows, so the home side
 // is the venue). The career's hub keeps its own list of the user's fixtures, re-requested from FCE on career events and
 // match days, so the hub may show the old pairing until the next day advance: the callers say so.
-// Swap the home and away rows of an unplayed fixture (the venue changes side). "" = done
-std::string swap_fixture_sides(Memory& mem, const Located& loc, uint16_t fixture_id);
+// Swap the home and away rows of an unplayed fixture (the venue changes side). "" = done; `done` (optional) gets the
+// fixture block for Undo
+std::string swap_fixture_sides(Memory& mem, const Located& loc, uint16_t fixture_id, Change* done = nullptr);
 // Put the rows `home_sid` / `away_sid` on an unplayed fixture (two different used rows of the same group as the rows the
-// fixture holds now). "" = done
-std::string set_fixture_teams(Memory& mem, const Located& loc, uint16_t fixture_id, int16_t home_sid, int16_t away_sid);
+// fixture holds now). "" = done; `done` (optional) gets the fixture block for Undo (empty when nothing changed)
+std::string set_fixture_teams(Memory& mem, const Located& loc, uint16_t fixture_id, int16_t home_sid, int16_t away_sid,
+                              Change* done = nullptr);
 // A new pairing must not put a club into two fixtures on one day, in any competition (clubs compared by team id through
 // `rows`): "" or the clash (fixtures and rows indexed by id)
 std::string pairing_conflict(const std::vector<Fixture>& fixtures, const std::vector<StandingRow>& rows, uint16_t fixture_id, int16_t home_sid,

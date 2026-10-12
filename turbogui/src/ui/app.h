@@ -459,6 +459,13 @@ std::string live_standings_view_warning();
 std::string live_standings_status();
 // A Live standings cell box is open: its keys go to Turbo even before Dear ImGui marks the box active (overlay_dx12.cpp)
 bool live_standings_wants_keyboard();
+// The gate in front of every FCE row / fixture write of Live standings and Match setup and of their Undo, looked at right
+// before the write (core/fce_standings.h write_gate): "" = write now, else why not (turbo_output\live_standings_write_off.txt,
+// a read-only located set, the game processing a match day). ui_standings.cpp
+std::string fce_write_refusal(App& app, const fce::Located& loc);
+// Why the located set cannot be edited at all for now ("" = it can): read-only, or the kill switch file (looked at once a
+// second); shown above the table / fixtures. The match-day check is made only at the write (fce_write_refusal).
+std::string fce_edit_off(App& app, const fce::Located& loc);
 // Competitions tab, "Match setup" view: the user's next fixtures (venue, opponent, fixed result) and the gameplay switches
 // (game variables) for the next matches (ui_match.cpp)
 void draw_match_setup(App& app);
