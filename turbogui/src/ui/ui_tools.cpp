@@ -3,9 +3,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <system_error>
 
 #include "app.h"
 #include "core/user_text.h"
+#include "file_picker.h"
 #include "hotkey_setting.h"
 #include "imgui.h"
 #include "ui_club_search.h"
@@ -17,6 +19,7 @@
 namespace turbo {
 
 using nlohmann::json;
+namespace fs = std::filesystem;
 
 // need: tool key from Lua's core/caps.lua; the button is disabled (with the reason as tooltip) when this Live Editor
 // build cannot run that tool
@@ -543,6 +546,45 @@ void draw_hook_status(App& app) {
     }
 }
 
+// Game asset catalog (core/asset_catalog.h): one status row (key, date, counts / stale / off), the switches, and the
+// buttons to reload it, open its folder and copy the rebuild command
+static void asset_catalog_status(App& app) {
+    const auto cat = app.asset_catalog();
+    const assets::State s = cat->state();
+    const ImVec4 good(0.45f, 0.9f, 0.45f, 1.0f), warn(1.0f, 0.7f, 0.3f, 1.0f);
+    const std::string line = "Game asset catalog: " + (app.asset_loading() && s == assets::State::NotLoaded ? std::string("loading...") : cat->status_line());
+    if (s == assets::State::Current) ImGui::TextColored(good, "%s", line.c_str());
+    else if (s == assets::State::Stale || s == assets::State::Error) ImGui::TextColored(warn, "%s", line.c_str());
+    else ImGui::TextDisabled("%s", line.c_str());
+    if (s == assets::State::Stale)
+        ImGui::TextColored(warn, "  Hidden ids cannot be written until the catalog is rebuilt for this game build.");
+    const fs::path out = app.turbo_output();
+    const assets::Switches sw = assets::read_switches(out);
+    std::error_code ec;
+    const bool gate = fs::exists(assets::lua_gate_path(out), ec);
+    ImGui::TextDisabled("  asset_catalog_off.txt: %s | asset_hidden_off.txt: %s | lua_gate.txt: %s", sw.catalog_off ? "present (catalog off)" : "absent",
+                        sw.hidden_off ? "present (hidden ids off)" : "absent", gate ? "written" : "none");
+    ImGui::BeginDisabled(app.asset_loading());
+    if (ImGui::SmallButton("Reload catalog##asset")) app.asset_reload("reload button");
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Open folder##asset")) {
+        fs::create_directories(assets::catalog_dir(out), ec);
+        if (!open_in_explorer(assets::catalog_dir(out))) app.notify("Explorer did not start.", true);
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Copy rebuild command##asset")) {
+        ImGui::SetClipboardText(assets::rebuild_command().c_str());
+        app.notify("Copied: " + assets::rebuild_command() + " (run it in the Live Editor folder)");
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\n(run it in the Live Editor folder; read-only on the game)", assets::rebuild_command().c_str());
+    if (!app.asset_load_note.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Last load: %s", app.asset_load_note.c_str());
+    }
+}
+
 void draw_status(App& app) {
     const auto& st = app.bridge.state();
     images_status(app);
@@ -576,6 +618,7 @@ void draw_status(App& app) {
             ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "%zu features are not possible with this Live Editor build (listed under Technical details)",
                                st.unavailable.size());
     }
+    asset_catalog_status(app);
     if (ImGui::CollapsingHeader("Technical details")) {
     ImGui::SeparatorText("Connection");
     ImGui::Text("Live Editor folder: %s", app.bridge.root().string().c_str());

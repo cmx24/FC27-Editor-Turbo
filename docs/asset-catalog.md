@@ -210,3 +210,26 @@ Both are listed in Tools > Status with their state.
   cache with `cp -r <warm worktree>/turbogui/build/native_bin <new worktree>/turbogui/build/` (plain `cp -r`, so the
   copies are newer than the checkout). Copy `turbo/le27/libs` the same way (Live Editor's own Lua libs, not in git).
 - No test reads the game folder. A full catalog build and in-game checks are acceptance steps, timed and reported.
+
+## 9. GUI side (core and app wiring)
+
+- **Loading** (`App`, ui/app.cpp): the first tick starts `Catalog::load_dir(turbo_output, running key)` on a worker
+  thread; the result is swapped in on the render thread (`App::asset_catalog()`, never null) and the pickers rebuild
+  (`gen`). The running key is the host's (`hook_report().build`), else the PE header of `<game>\FC27.exe`
+  (`assets::exe_build_key`); unknown = stale. Every 5 s the GUI compares `assets::dir_signature` (catalog file names,
+  sizes, times and both switch files) and reloads on a change, so a rebuilt catalog or a switch file takes effect
+  without a restart. `lua_gate.txt` is synced by the same worker after each load.
+- **Load rules**: the running build's file is loaded as current; a broken one is an **error** (no fallback to an older
+  file). Without it the newest `catalog_*.json` is loaded as stale. Unknown family keys are ignored (noted in the
+  status), unsorted id lists are sorted. Measured: a 68,700-id + 10,000-name file loads in about 140 ms at `-O0`.
+- **What the save uses**: `App::asset_use()` builds `assets::DbUse` lazily, once per `model.version()`: players
+  (`playerid`, `headassetid`, hair, facial hair, `shoetypecode` + `smallsidedshoetypecode`, GK gloves, eyebrows, skin
+  surface, the 7 tattoo fields, `accessorycode1..4`), `manager.headassetid`, `teams.teamid`, `teamkits.teamtechid`,
+  `commentarynames` + `playernamemap` commentary ids, and the `tattoo` table.
+- **Pickers**: `hidden()` for the badge; `offered()` to decide whether a row is listed at all (DB ids always; catalog
+  ids unless `asset_hidden_off.txt`); `writable(f, id, &why)` before Apply (show `why` when refused);
+  `App::log_asset_write(target, field, old, new)` after a write of a hidden id. The filter is remembered with
+  `App::asset_scope(picker)` / `App::set_asset_scope(picker, scope)` in gui_settings.json (`asset_scope.<picker>` =
+  `all` / `in_save` / `hidden`).
+- **Tools > Status**: one row under Health (current with key, date and counts / stale with the rebuild command / off /
+  not loaded), the switch and gate files, and Reload, Open folder and Copy rebuild command buttons.
