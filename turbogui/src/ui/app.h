@@ -32,6 +32,7 @@
 #include "core/tactic_profiles.h"
 #include "core/teamname_override.h"
 #include "nlohmann/json.hpp"
+#include "gui_prefs.h"
 #include "ui_role_rules.h"
 #include "textures.h"
 
@@ -120,6 +121,9 @@ public:
     std::unique_ptr<Preloader> preloader;
     void preload_start(const char* why);
     std::string preload_line() const;     // "Loading pictures: 812 of 4120" ("" when nothing is loading)
+    std::vector<std::string> preload_status() const;  // Status tab: one line per kind of picture (ui/preload.h)
+    GuiPrefs prefs;                                   // gui.preload_images, gui.row_density (ui/gui_prefs.h)
+    RowDensity density_applied = RowDensity::Normal;  // the row density the style was last built for
     bool lua_images_wanted() const;       // pictures are waiting and Turbo is shown: the host nudges Lua (synthetic event)
     float ui_scale_user = 1.0f;     // "UI size" setting (gui_settings.json gui.ui_scale), 0.6 .. 2.5
     float ui_scale_applied = 0.0f;  // scale the style was last built for
@@ -193,6 +197,9 @@ public:
     bool spoken_ids(caudio::IdCache& out, std::string* why);  // the id list at hand (database > cache > Lua list); false = none
     std::string spoken_ids_source;                           // where the last list came from (for the UI)
     std::string chosen_commentary_language() const;          // gui_settings callnames.language ("" = auto)
+    // callnames.refresh() with the chosen language, then "callnames: language <lang> (<why>)" in the log and
+    // turbo_gui.log (every refresh: the pick is auditable afterwards)
+    void refresh_callnames();
     const std::string& spoken_watch_line() const { return spoken_watch.line(); }
     long long game_call_seen = -1;  // last game-call outcome shown as a toast (bridge_state.json game_call.seq; -1 = none yet)
     // Job offer tab (Teams > team edit): the club picked (the selected team unless another is chosen) and the last request label
@@ -497,5 +504,27 @@ const std::map<int64_t, labels::CodeUsers>& values_in_use(App& app, const Table&
 // The codes the field's combo offers: the named and described ones, the ones the loaded table uses, the game's
 // pictures, a small unnamed field's whole range, and always the current value
 std::vector<int64_t> code_value_list(App& app, const Table& t, const Field& f, int64_t current);
+
+// ---- form rows (widgets.cpp): the label on the LEFT in a fixed column, the control on the RIGHT, aligned.
+// The label column width of the panel being drawn (S() applied by the caller); call it at the top of a panel or block.
+// 0 restores the default (S(150)).
+void form_label_width(float w);
+float form_label_width();
+// Label on the left; the cursor stays on the same line at the end of the label column for the control that follows (give
+// that control a hidden "##id" label and its own width). `tip`: tooltip for the label.
+void form_label(const char* label, const char* tip = nullptr);
+// Checkbox with the label on the left and the box on the right. Same ImGui ID as ImGui::Checkbox(label), so saved
+// settings and the tests find it under the same name; the whole row (label and box) is the click target. True when toggled.
+// label_w: the label column the box aligns to (0 = form_label_width(); negative = tight, the box right after the text).
+bool checkbox_right(const char* label, bool* v, float label_w = 0.0f);
+// A two-sided range filter row: label, then "from" and "to" number boxes (core/range_filter.h: 0 = no bound, from <= to is
+// kept). `id` names the boxes "##<id>_from" / "##<id>_to". True when a value changed.
+bool range_filter_row(const char* label, const char* id, int& from, int& to, int hi, float box_w, const char* tip = nullptr);
+// Combo over the game's visible positions (core/model.h visible_positions()); the full internal table behind a "Show all
+// internal positions" toggle in the popup (position_show_all()). `none_label` (optional) adds a -1 entry ("None",
+// "Any position"); lo/hi restrict the codes offered (hi < 0 = the whole table). A current value outside the visible list is
+// shown with its descriptor and stays selectable. Sets `pos` and returns true on a pick.
+bool position_combo(const char* id, int& pos, float width, const char* none_label = nullptr, int lo = 0, int hi = -1);
+bool& position_show_all();
 
 }  // namespace turbo

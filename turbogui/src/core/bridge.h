@@ -141,6 +141,7 @@ private:
     std::string meta_error_;
     std::shared_ptr<const NameMap> names_ = std::make_shared<NameMap>();
     std::filesystem::file_time_type meta_time_{}, state_time_{}, names_time_{}, min_time_{};
+    std::string state_text_;  // bridge_state.json as last read: a rewrite within the stamp's second is seen by its text
     bool have_meta_time_ = false, have_state_time_ = false, have_names_time_ = false, have_min_time_ = false;
     int meta_failures_ = 0, state_failures_ = 0, names_failures_ = 0;
     bool too_old(const std::filesystem::file_time_type& t) const { return have_min_time_ && t < min_time_; }

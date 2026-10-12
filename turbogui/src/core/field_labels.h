@@ -1,15 +1,16 @@
-// FC 27 LE Turbo GUI - readable text for code-valued player fields (roles, body type, emotion, colours, accessories,
-// hair styles, boots...). Platform independent, header only (head type groups: face_filter.cpp; hair: hair_catalog.cpp).
-// Where the text comes from:
+// FC 27 LE Turbo GUI - readable text for code-valued fields (roles, body type, emotion, colours, accessories, hair styles,
+// boots, weather, morale, injuries...). Platform independent, header only (head type groups: face_filter.cpp; hair:
+// hair_catalog.cpp). Where the text comes from:
 //   * Named: Live Editor's own localization (loc/eng_us/localize.json: player_role_N, bodytype_N, emotion_N,
 //     skintonecode_N, haircolor_N, eyecolor_N, accessorycode_N, accessorycolourcode_N, shoecolorcode1_N,
-//     hasseasonaljersey_N, jersey*/sock*/shortstyle_N).
+//     hasseasonaljersey_N, jersey*/sock*/shortstyle_N; weather_N, morale_N, injuryname_N through le_loc_labels_data.h,
+//     scripts/gen_loc_labels.py), and the small enumerations Live Editor does not name (enum_defs: stars, work rates...).
 //   * Described: what the data says about a code Live Editor does not name. appearance_labels_data.h
 //     (scripts/gen_appearance_labels.py) has who uses each player-specific body type, stance and running animation in
 //     the FC 27 database ("Unique: Lionel Messi") and the brand of each boot and GK glove id; hair colours 15..27 are
 //     named after the colour of each code's preview; hair styles by the hair catalog, facial hair by their look
 //     (face_looks.h), head types by their group (face_filter.h), eyebrows by their parts.
-//   * Code: nothing describes it: "Code N" (never an empty text, never a bare number).
+//   * Unnamed: nothing describes it: "Unnamed N" / "Boots #N" (never an empty text, never a bare number, never "code N").
 #pragma once
 #include <algorithm>
 #include <cctype>
@@ -25,13 +26,15 @@
 #include "face_filter.h"
 #include "face_looks.h"
 #include "hair_catalog.h"
+#include "le_loc_labels_data.h"
 
 namespace turbo::labels {
 
 using NamedCodes = std::vector<std::pair<int64_t, const char*>>;
 
 inline const std::map<std::string, NamedCodes>& named_tables() {
-    static const std::map<std::string, NamedCodes> m = {
+    static const std::map<std::string, NamedCodes> m = [] {
+    std::map<std::string, NamedCodes> t = {
     {"role", {{0, "None"}, {1, "GK Goalkeeper+"}, {2, "GK Sweeper Keeper +"}, {3, "RB Fullback+"}, {4, "RB Falseback+"}, {5, "RB Wingback+"}, {6, "RB Attacking Wingback+"}, {7, "LB Fullback+"}, {8, "LB Falseback+"}, {9, "LB Wingback+"}, {10, "LB Attacking Wingback+"}, {11, "CB Defender+"}, {12, "CB Stopper+"}, {13, "CB Ball-Playing Defender+"}, {14, "CDM Holding+"}, {15, "CDM Centre Half+"}, {16, "CDM Deep-Lying Playmaker+"}, {17, "CDM Wide Half+"}, {18, "CM Box-to-Box+"}, {19, "CM Holding+"}, {20, "CM Deep-Lying Playmaker+"}, {21, "CM Playmaker+"}, {22, "CM Half-Winger+"}, {23, "RM Winger+"}, {24, "RM Wide Midfielder+"}, {25, "RM Wide Playmaker+"}, {26, "RM Inside Forward+"}, {27, "LM Winger+"}, {28, "LM Wide Midfielder+"}, {29, "LM Wide Playmaker+"}, {30, "LM Inside Forward+"}, {31, "CAM Playmaker+"}, {32, "CAM Shadow Striker+"}, {33, "CAM Half Winger+"}, {34, "CAM Classic 10+"}, {35, "RW Winger+"}, {36, "RW Inside Forward+"}, {37, "RW Wide Playmaker+"}, {38, "LW Winger+"}, {39, "LW Inside Forward+"}, {40, "LW Wide Playmaker+"}, {41, "ST Advanced Forward+"}, {42, "ST Poacher+"}, {43, "ST False 9+"}, {44, "ST Target Forward+"}, {45, "GK Ball-Playing Keeper+"}, {46, "RB Inverted Wingback+"}, {47, "LB Inverted Wingback+"}, {48, "CB Wide Back+"}, {49, "CDM Box Crasher+"}, {50, "ST Roaming Striker+"}, {51, "RW False Winger+"}, {52, "LW False Winger+"}, {101, "GK Goalkeeper++"}, {102, "GK Sweeper Keeper ++"}, {103, "RB Fullback++"}, {104, "RB Falseback++"}, {105, "RB Wingback++"}, {106, "RB Attacking Wingback++"}, {107, "LB Fullback++"}, {108, "LB Falseback++"}, {109, "LB Wingback++"}, {110, "LB Attacking Wingback++"}, {111, "CB Defender++"}, {112, "CB Stopper++"}, {113, "CB Ball-Playing Defender++"}, {114, "CDM Holding++"}, {115, "CDM Centre Half++"}, {116, "CDM Deep-Lying Playmaker++"}, {117, "CDM Wide Half++"}, {118, "CM Box-to-Box++"}, {119, "CM Holding++"}, {120, "CM Deep-Lying Playmaker++"}, {121, "CM Playmaker++"}, {122, "CM Half-Winger++"}, {123, "RM Winger++"}, {124, "RM Wide Midfielder++"}, {125, "RM Wide Playmaker++"}, {126, "RM Inside Forward++"}, {127, "LM Winger++"}, {128, "LM Wide Midfielder++"}, {129, "LM Wide Playmaker++"}, {130, "LM Inside Forward++"}, {131, "CAM Playmaker++"}, {132, "CAM Shadow Striker++"}, {133, "CAM Half Winger++"}, {134, "CAM Classic 10++"}, {135, "RW Winger++"}, {136, "RW Inside Forward++"}, {137, "RW Wide Playmaker++"}, {138, "LW Winger++"}, {139, "LW Inside Forward++"}, {140, "LW Wide Playmaker++"}, {141, "ST Advanced Forward++"}, {142, "ST Poacher++"}, {143, "ST False 9++"}, {144, "ST Target Forward++"}, {145, "GK Ball-Playing Keeper++"}, {146, "RB Inverted Wingback++"}, {147, "LB Inverted Wingback++"}, {148, "CB Wide Back++"}, {149, "CDM Box Crasher++"}, {150, "ST Roaming Striker++"}, {151, "RW False Winger++"}, {152, "LW False Winger++"}}},
     // the generic body types; the player-specific ones (10, 13, 16, 251...) read "Unique: <who uses it>" (code_label)
     {"bodytypecode", {{1, "Average and Lean"}, {2, "Average and Normal"}, {3, "Average and Stocky"}, {4, "Tall and Lean"}, {5, "Tall and Normal"}, {6, "Tall and Stocky"}, {7, "Short and Lean"}, {8, "Short and Normal"}, {9, "Short and Stocky"}, {11, "Very Tall and Lean"}}},
@@ -60,6 +63,10 @@ inline const std::map<std::string, NamedCodes>& named_tables() {
     {"gender", {{0, "Male"}, {1, "Female"}}},
     {"headclasscode", {{0, "Specific"}, {1, "Generic"}}},
     };
+    // Live Editor's localization: the match weather (0..4), player morale (0..4), injury types (0..84)
+    for (const data::LocNamed& e : data::kLocNamed) t[e.table].emplace_back(e.code, e.name);
+    return t;
+    }();
     return m;
 }
 
@@ -114,7 +121,8 @@ inline uint8_t style_look(const faces::looks::StyleLook (&tab)[N], int64_t v) {
 }
 
 // a hair style: the hair catalog's look from the game's preview pictures ("Long, curly, headband #233"), else the
-// face_looks.h look class of the nearest listed style
+// face_looks.h look class of the nearest listed style (1.2.5: the style number stays, a combo of hundreds of styles has
+// many with the same look and the number is what the search takes)
 inline std::string hair_text(int64_t v) {
     char b[96];
     if (const hair::Style* s = hair::find(v); s && s->classified) {
@@ -309,21 +317,6 @@ inline std::string field_title(const std::string& field) {
     return out;
 }
 
-// ---- values
-// the descriptor of an item catalogue the game has hundreds of unnamed entries of ("Boots"), nullptr for the codes that
-// already read as "Boot colour 12" and so need no "style"
-inline const char* item_style_noun(const std::string& field) {
-    const char* n = item_noun(field);
-    if (!n) return nullptr;
-    const std::string s = n;
-    for (const char* tail : {"colour", "colour 2", "animation", "animation 2", "stance", "state", "pose", "variation", "surface",
-                             "makeup", "complexion", "parting", "kick style", "run-up", "type"}) {
-        const size_t l = std::char_traits<char>::length(tail);
-        if (s.size() >= l && s.compare(s.size() - l, std::string::npos, tail) == 0) return nullptr;
-    }
-    return n;
-}
-
 // ---------------------------------------------------------------- player-specific codes and brands
 // Fields whose codes belong to players (anything but the standard 0, or for the body type the generic ones)
 inline bool is_signature_field(const std::string& field) {
@@ -337,7 +330,7 @@ inline const data::Users* find_users(const std::string& field, int64_t v) {
     return nullptr;
 }
 
-// Who uses a code, as the loaded database says (widgets.cpp reads it for codes appearance_labels_data.h does not know)
+// Who uses a code, as the loaded database says (for codes appearance_labels_data.h does not know)
 struct CodeUsers {
     int players = 0;
     std::string names;  // the best-rated ones, "Lionel Messi, ..."
@@ -356,14 +349,16 @@ inline const char* brand_of(const data::Brand (&tab)[N], const char* const* name
 }
 
 // ---------------------------------------------------------------- labels
-enum class Kind { Named, Described, Code };
+enum class Kind { Named, Described, Unnamed };
 
 struct Label {
     std::string text;
-    Kind kind = Kind::Code;
+    Kind kind = Kind::Unnamed;
 };
 
-inline std::string code_n(int64_t v) { return "Code " + std::to_string(v); }
+// the fallback for a code nothing names: never a bare number and never the word "code" before it (the UI walk test
+// fails on "code N")
+inline std::string unnamed_n(int64_t v) { return "Unnamed " + std::to_string(v); }
 
 inline std::string item_n(const std::string& noun, int64_t v) { return noun + " #" + std::to_string(v); }
 
@@ -382,15 +377,15 @@ inline Label code_label(const std::string& field, int64_t v, const std::string& 
         if (const data::Users* u = find_users(field, v)) who = users_text(u->players, u->names);
         else if (live && live->players > 0 && !live->names.empty()) who = users_text(live->players, live->names);
         if (!who.empty()) return {field == "bodytypecode" ? "Unique: " + who : std::string(item) + " " + std::to_string(v) + ": " + who, Kind::Described};
-        return field == "bodytypecode" ? Label{code_n(v), Kind::Code} : Label{item_n(item, v), Kind::Described};
+        return field == "bodytypecode" ? Label{"Player-specific body model " + std::to_string(v), Kind::Unnamed} : Label{item_n(item, v), Kind::Described};
     }
-    if (field == "skintonecode") {  // between two of the ten: the nearest one
+    if (field == "skintonecode" && named) {  // between two of the ten: the nearest one
         const int64_t k = std::clamp<int64_t>((v + 5) / 10, 1, 10) * 10;
         return {"Skin tone " + std::to_string(v) + " (near " + find_name(*named, k) + ")", Kind::Described};
     }
     // accessories are items the game has pictures for (the gallery offers ids Live Editor does not name)
     if (named && table_key(field) == "accessorycode") return {item_n("Accessory", v), Kind::Described};
-    if (named) return {code_n(v), Kind::Code};
+    if (named) return {unnamed_n(v), Kind::Unnamed};
     if (field == "hairtypecode") return {hair_text(v), Kind::Described};
     if (field == "facialhairtypecode") return {facial_hair_text(v), Kind::Described};
     if (field == "shoetypecode") {
@@ -416,6 +411,7 @@ inline Label code_label(const std::string& field, int64_t v, const std::string& 
     return {item_n(n ? n : noun, v), Kind::Described};
 }
 
+// readable text of a code value; `noun` is the fallback descriptor (the field's label) for codes with no names
 inline std::string code_text(const std::string& field, int64_t v, const std::string& noun, const CodeUsers* live = nullptr) {
     return code_label(field, v, noun, live).text;
 }
@@ -453,20 +449,71 @@ inline std::vector<int64_t> offered_codes(const std::string& field, const std::v
     return out;
 }
 
+// true when a field's combo should list its descriptors alphabetically (it has names: roles, colours, weather...);
+// item catalogues ("Boots #1432") stay in code order
+inline bool has_descriptors(const std::string& field) { return enum_def(field) != nullptr || named_codes(field) != nullptr; }
+
+// ---------------------------------------------------------------- positions
+// The game's 28 position codes, in code order. A copy of core/model.cpp kPositions (this header stays free of the model;
+// test_describe.h checks that the two tables agree). FC 27's own screens name twelve of them: the roles (players.role1..9,
+// "role" above) exist for GK RB LB CB CDM CM RM LM CAM RW LW ST only. The other sixteen (SW, RWB, LWB, RCB/LCB, RDM/LDM,
+// RCM/LCM, RAM/LAM, RF/CF/LF, RS/LS) appear in formations and preferredposition2..7 and no game menu names them: they read
+// "RCB (internal, plays as CB)" when the pitch lays them out as a visible position (core/tactics_db.h), "SW (internal)" otherwise.
+inline const char* position_code_name(int64_t v) {
+    static const char* const k[] = {"GK",  "SW",  "RWB", "RB",  "RCB", "CB", "LCB", "LB", "LWB", "RDM", "CDM", "LDM", "RM",  "RCM",
+                                    "CM",  "LCM", "LM",  "RAM", "CAM", "LAM", "RF", "CF", "LF",  "RW",  "RS",  "ST",  "LS",  "LW"};
+    return v >= 0 && v < static_cast<int64_t>(sizeof(k) / sizeof(k[0])) ? k[v] : nullptr;
+}
+inline int position_name_count() { return 28; }
+inline bool position_visible_code(int64_t v) {
+    for (int64_t c : {0, 3, 7, 5, 10, 14, 12, 16, 18, 23, 27, 25})  // GK RB LB CB CDM CM RM LM CAM RW LW ST
+        if (c == v) return true;
+    return false;
+}
+// "ST" for a visible position, "RCB (internal, plays as CB)" / "SW (internal)" for an internal code, "None" for -1 (an empty
+// preferredposition2..7 slot), "Unknown position N" outside the table. Never a bare number.
+inline std::string position_text(int64_t v) {
+    if (v < 0) return "None";
+    const char* n = position_code_name(v);
+    if (!n) return "Unknown position " + std::to_string(v);
+    if (position_visible_code(v)) return n;
+    const std::string s = n;
+    const char* as = nullptr;
+    if (s == "RCB" || s == "LCB") as = "CB";
+    else if (s == "RDM" || s == "LDM") as = "CDM";
+    else if (s == "RCM" || s == "LCM") as = "CM";
+    else if (s == "RAM" || s == "LAM") as = "CAM";
+    else if (s == "RS" || s == "LS") as = "ST";
+    return as ? s + " (internal, plays as " + as + ")" : s + " (internal)";
+}
+// true for a field that stores a position code: preferredposition1..7 of the player tables (players, smplayers, cmplayers,
+// trainingteamplayers, temp_players, career_scoutmission) and the eleven slots position0..10 of the formation and tactic
+// tables. Not "positioning" (an attribute) and not teamplayerlinks.position (a squad slot index).
+inline bool is_position_field(const std::string& table, const std::string& field) {
+    if (field.rfind("preferredposition", 0) == 0) return true;
+    if (field.size() < 9 || field.size() > 10 || field.compare(0, 8, "position") != 0) return false;
+    for (size_t i = 8; i < field.size(); ++i)
+        if (!std::isdigit(static_cast<unsigned char>(field[i]))) return false;
+    for (const char* t : {"formations", "customformations", "temp_formations", "mentalities", "cm_mentalities", "default_mentalities",
+                          "cm_default_mentalities", "defaultteamdata"})
+        if (table == t) return true;
+    return false;
+}
+
 // One value of one field in words: the name where the game or Live Editor has one, "Unnamed N" / "Boots style 1432 (no name)"
 // where it has not, the plain number for a number. `table` is the table the field is in ("players", "managers", ...).
 // Values that need the database (a nation or club name, a date) are described by App::describe_value, which falls back to this.
 inline std::string describe(const std::string& table, const std::string& field, int64_t v) {
-    (void)table;
+    if (is_position_field(table, field)) return position_text(v);  // preferredposition1..7, formation slots: GK, ST, RCB (internal, plays as CB)
     // the head class in a sentence of its own (the edit log, a toast; 2.0): the two classes in words. Next to the "head class"
     // label (ui_faces.cpp, the combos) code_text gives the short names "Specific" / "Generic" of named_tables (1.2.5).
     if (field == "headclasscode" && v == 0) return "Real face (own head model)";
     if (field == "headclasscode" && v == 1) return "Generic head";
     if (enum_def(field)) {
         if (const char* l = enum_label(field, v)) return l;
-        return "Unnamed " + std::to_string(v);
+        return unnamed_n(v);
     }
-    if (is_code_field(field)) return code_text(field, v, field_title(field));
+    if (is_code_field(field)) return code_text(field, v, field_title(field));  // also every field with a named table
     if (field == "personalityid") return "Personality type " + std::to_string(v);
     return std::to_string(v);
 }

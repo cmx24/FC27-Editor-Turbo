@@ -239,7 +239,8 @@ static void draw_gallery(App& app, const Table& t, uint64_t rec, bool manager) {
     const int64_t cur = app.db.get_int(t, rec, "bodytypecode", -1);
     const int hc = head_class_of(app, t, rec);
 
-    ImGui::Text("Current: %s (code %lld)", c.name(cur).c_str(), static_cast<long long>(cur));
+    ImGui::Text("Current: %s", c.name(cur).c_str());
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("bodytypecode = %lld", static_cast<long long>(cur));
     ImGui::SameLine();
     ImGui::TextDisabled("  head: %s", hc == 0 ? "specific (real face)" : hc == 1 ? "generic" : manager ? "manager (kind unknown)" : "unknown");
     if (!c.probe_loaded()) {

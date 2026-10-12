@@ -75,7 +75,8 @@ std::vector<Profile> make_builtins() {
                     {"match.injury_severity_cpu", 20}}));
     v.push_back(mk(C::Match, "high_scoring", "High scoring", "More shots, weaker goalkeepers. Applied once the game's shooting settings are found.", "",
                    {{"match.shot_frequency", 70}, {"match.shot_error", 40}, {"match.gk_ability", 35}}));
-    // team archetypes, seeded from the familiar roles and duties of football management games
+    // team archetypes, seeded from the familiar roles and duties of football management games; none of them seeds a legacy field (the width,
+    // players-in-the-box and style sliders EA removed in FC 25: core/tactics_status.h, TACTICS_REPORT.txt P0-3)
     v.push_back(mk(C::Team, "gegenpress", "Gegenpress", "Win it back at once and attack fast.", "4-3-3",
                    {{"team.mentality", 5}, {"team.line_depth", 75}, {"team.engagement_height", 80}, {"team.press_intensity", 85},
                     {"team.press_trigger", 75}, {"team.counter_press", 85}, {"team.tempo", 75}, {"team.line_length", 75}}));
@@ -84,15 +85,13 @@ std::vector<Profile> make_builtins() {
                     {"team.counter_attack", 80}, {"team.regroup_depth", 80}, {"team.directness", 70}, {"team.line_length", 80}}));
     v.push_back(mk(C::Team, "possession", "Possession", "Keep the ball, move it patiently.", "4-3-3",
                    {{"team.mentality", 4}, {"team.tempo", 40}, {"team.directness", 25}, {"team.buildup_short", 80}, {"team.shot_patience", 70},
-                    {"team.fluidity", 65}, {"team.width_att", 60}}));
+                    {"team.fluidity", 65}}));
     v.push_back(mk(C::Team, "wing_play", "Wing play", "Stretch the pitch and cross.", "4-4-2",
-                   {{"team.mentality", 4}, {"team.width_att", 85}, {"team.width_def", 60}, {"team.cross_freq", 80}, {"team.forward_runs", 65},
-                    {"team.players_in_box_cross", 6}}));
+                   {{"team.mentality", 4}, {"team.cross_freq", 80}, {"team.forward_runs", 65}}));
     v.push_back(mk(C::Team, "direct", "Direct", "Go long and go forward.", "4-4-2",
                    {{"team.mentality", 4}, {"team.directness", 80}, {"team.tempo", 70}, {"team.buildup_short", 25}, {"team.forward_runs", 70}}));
     v.push_back(mk(C::Team, "balanced", "Balanced", "Everything in the middle.", "4-2-3-1",
-                   {{"team.mentality", 3}, {"team.line_depth", 50}, {"team.press_intensity", 50}, {"team.tempo", 50}, {"team.directness", 50},
-                    {"team.width_att", 50}}));
+                   {{"team.mentality", 3}, {"team.line_depth", 50}, {"team.press_intensity", 50}, {"team.tempo", 50}, {"team.directness", 50}}));
     // position archetypes
     v.push_back(mk(C::Position, "playmaker", "Playmaker", "Dictates the play from deep.", "",
                    {{"pos.attack_bias", 45}, {"pos.risk_passing", 70}, {"pos.roam", 55}, {"pos.close_down", 40}}));

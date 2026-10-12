@@ -257,8 +257,8 @@ static void test_field_labels() {
         using namespace turbo::labels;
         CHECK(code_text("role1", 1, "Role") == "GK Goalkeeper+", "role 1 is GK Goalkeeper+");
         CHECK(code_text("role9", 113, "Role") == "CB Ball-Playing Defender++", "role 113 is the ++ variant");
-        CHECK(code_text("role2", 9999, "Role") == "Code 9999" && code_label("role2", 9999, "Role").kind == Kind::Code,
-              "a code nothing names reads Code N");
+        CHECK(code_text("role2", 9999, "Role") == "Unnamed 9999" && code_label("role2", 9999, "Role").kind == Kind::Unnamed,
+              "a code nothing names reads Unnamed N (never Code N: the UI walk fails on it)");
         CHECK(code_text("emotion", 5, "Emotion") == "Volcano", "emotion 5 is Volcano (LE localization)");
         CHECK(code_text("bodytypecode", 4, "Body") == "Tall and Lean", "body type 4");
         CHECK(code_text("haircolorcode", 0, "Hair colour") == "Black", "hair colour 0");
@@ -280,7 +280,7 @@ static void test_field_labels() {
                   code_label("bodytypecode", 16, "Body type").kind == Kind::Described,
               "unique body types: " + code_text("bodytypecode", 16, "Body type"));
         CHECK(code_text("bodytypecode", 260, "Body type") == "Unique: Nélson Semedo, Kyle Walker-Peters", "a body type two players share lists both, best-rated first");
-        CHECK(code_text("bodytypecode", 499, "Body type") == "Code 499", "a body type nothing knows reads Code N");
+        CHECK(code_text("bodytypecode", 499, "Body type") == "Player-specific body model 499", "a body type nothing knows: " + code_text("bodytypecode", 499, "Body type"));
         const CodeUsers live{2, "Ann Example"};
         CHECK(code_text("bodytypecode", 499, "Body type", &live) == "Unique: Ann Example +1 more" &&
                   code_text("bodytypecode", 16, "Body type", &live) == "Unique: Cristiano Ronaldo",
@@ -297,7 +297,7 @@ static void test_field_labels() {
         CHECK(offered_codes("skintonecode", {}, 20) == std::vector<int64_t>({10, 20, 30, 40, 50, 60, 70, 80, 90, 100}), "skin tone combo: the ten");
         // hair colours 15 .. 27 and the facial hair colours (the hair palette)
         CHECK(code_text("haircolorcode", 21, "") == "Jet Black" && code_label("haircolorcode", 21, "").kind == Kind::Described &&
-                  code_text("haircolorcode", 27, "") == "Copper" && code_text("haircolorcode", 28, "") == "Code 28",
+                  code_text("haircolorcode", 27, "") == "Copper" && code_text("haircolorcode", 28, "") == "Unnamed 28",
               "FC 27 hair colours 15 .. 27");
         CHECK(code_text("facialhaircolorcode", 4, "") == "Light Blonde" && code_text("facialhaircolorcode", 7, "") == "Red" &&
                   code_text("facialhaircolorcode", 21, "") == "Jet Black" && offered_codes("facialhaircolorcode", {}, 0).size() == 28,
@@ -335,7 +335,7 @@ static void test_field_labels() {
         auto bare = [](const std::string& s) {
             return !s.empty() && s.find_first_not_of("-0123456789") == std::string::npos;
         };
-        auto is_code_n = [](const std::string& s) { return s.rfind("Code ", 0) == 0 && s.find_first_not_of("0123456789", 5) == std::string::npos; };
+        auto is_code_n = [](const std::string& s) { return s.rfind("Unnamed ", 0) == 0 && s.find_first_not_of("0123456789", 8) == std::string::npos; };
         size_t fields = 0, values = 0, named = 0, described = 0, code_n = 0, empty = 0, numbers = 0, missing = 0;
         std::string code_fields;
         for (const FixtureCodes& fc : kPlayerCodes) {
@@ -356,12 +356,12 @@ static void test_field_labels() {
             }
             if (field_codes) code_fields += fmt(" %s(%zu)", fc.field, field_codes);
         }
-        std::printf("      %zu fields, %zu values: %zu named, %zu described, %zu Code N:%s\n", fields, values, named, described, code_n,
+        std::printf("      %zu fields, %zu values: %zu named, %zu described, %zu Unnamed N:%s\n", fields, values, named, described, code_n,
                     code_fields.c_str());
         CHECK(fields >= 60 && values >= 2500, fmt("fixture covers the code fields (%zu fields, %zu values)", fields, values));
         CHECK(empty == 0 && numbers == 0, fmt("no empty label (%zu), no bare number (%zu)", empty, numbers));
         CHECK(missing == 0, fmt("every value is offered by its combo (%zu missing)", missing));
-        // only Turbo's small enumerations without a source for some values may still read Code N
+        // only Turbo's small enumerations without a source for some values may still read Unnamed N
         CHECK(code_fields.find("bodytypecode") == std::string::npos && code_fields.find("colorcode") == std::string::npos &&
                   code_fields.find("role") == std::string::npos && code_fields.find("accessory") == std::string::npos,
               "every appearance code of the database has a name or a description:" + code_fields);
@@ -579,6 +579,10 @@ static void test_core() {
         CHECK(pick_commentary_language(packs, "por_br", &why) == "ita_it" && why.find("not installed") != std::string::npos, "unknown choice falls back: " + why);
         CHECK(pick_commentary_language({{"eng_us", false}}, "", &why) == "eng_us", "base game only -> eng_us");
         CHECK(pick_commentary_language({}, "", &why).empty() && why.find("no commentary language pack") != std::string::npos, "no packs");
+        CHECK(commentary_language_log_line("ita_it", "the one commentary language downloaded") ==
+                  "callnames: language ita_it (the one commentary language downloaded)" &&
+                  commentary_language_log_line("", "no commentary language pack found") == "callnames: language none (no commentary language pack found)",
+              "the GUI-log line of the pick");
 
         std::unordered_set<int64_t> ids;
         std::string lang, err;
@@ -2807,11 +2811,14 @@ static void open_standings_advanced(Ui& ui) {
 static Rgba solid(int w, int h, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
 static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_preload_hotkey.h"  // 1.1.1: show/hide key setting, background loading
+#include "test_ux_resize.h"  // 2026-10-11: table registry + resizable panes, preload order / cancellation, gui prefs
 #include "test_gear_pictures.h"  // 1.1.4: gear preview pictures from the hash list
 #include "test_hair_catalog.h"  // hair catalog: gallery filters and the face chooser Hair facet
 #include "test_bodytypes.h"  // body type catalogue (runtime-loaded probe + localize.json) and its gallery
 #include "test_face3d_looks.h"  // 3D looks of the real faces: generated data, lookup, the chooser's 3D facets
 #include "test_describe.h"  // codes to descriptions: describe(), user text, pickers, the "no code N" UI walk
+#include "test_descriptors.h"  // 2.0/ux-descriptors: every code field over its whole schema range, never a bare number
+#include "test_ux_filters.h"  // 2.0 UX: two-sided range filters, the game's visible positions, label-left checkbox
 #include "test_wheel.h"  // 1.1.3: mouse wheel source (hook, raw input, window messages)
 static std::string hex_bytes(const std::vector<uint8_t>& d) {
     static const char* h = "0123456789abcdef";
@@ -3679,20 +3686,78 @@ static void test_ui() {
             CHECK(ui.click("Clear##filters", "##plist"), "Clear");
             CHECK(app.list_player_ids.size() == all, "cleared");
             CHECK(ui.click("##fpos", "##plist"), "position combo");
+            CHECK(ui.find("Show all internal positions", "##Combo") != nullptr, "the internal-codes toggle is offered");
+            CHECK(ui.find(position_name(1), "##Combo") == nullptr && ui.find("RCB (internal, plays as CB)", "##Combo") == nullptr &&
+                      ui.find("Any position", "##Combo") != nullptr && ui.find("ST", "##Combo") != nullptr,
+                  "the list shows the game's positions only (no SW, no RCB) until the toggle is ticked");
             CHECK(ui.click(position_name(14), "##Combo"), "position 14");
             CHECK(expect([](const PlayerRow& p) { return std::count(std::begin(p.positions), std::end(p.positions), 14) > 0; }) &&
-                      app.list_player_ids.size() > 1,
+                      expect([](const PlayerRow& p) { return player_passes_position(p, 14, false); }) && app.list_player_ids.size() > 1,
                   "position 14 as any of the 7 preferred positions");
             CHECK(ui.click("Clear##filters", "##plist"), "Clear");
-            CHECK(ui.type_into(ui.find("Min OVR", "##plist"), "87"), "min OVR");
+            // an internal code passes the filter of the visible position it plays as (core/model.h position_plays_as): 1003 is stored
+            // as CB (5); as RCB (4) he must still be listed under the CB filter, and drop out once "Show all internal positions" (exact
+            // codes) is ticked in the combo
+            {
+                const Table* pt = app.db.table("players");
+                const uint64_t r1003 = pt ? app.db.find(*pt, "playerid", 1003) : 0;
+                CHECK(r1003 && app.db.get_int(*pt, r1003, "preferredposition1") == 5, "1003 is stored as CB");
+                CHECK(ui.click("##fpos", "##plist") && ui.click("CB", "##Combo"), "CB filter");
+                CHECK(expect([](const PlayerRow& p) { return player_passes_position(p, 5, false); }) &&
+                          std::count(app.list_player_ids.begin(), app.list_player_ids.end(), 1003) == 1,
+                      "CB: 1003 listed");
+                CHECK(r1003 && app.db.set_int(*pt, r1003, "preferredposition1", 4), "1003 stored as RCB");
+                app.model.refresh_player(1003, kToday);
+                CHECK(app.model.player(1003) && app.model.player(1003)->positions[0] == 4, "the model row shows RCB");
+                CHECK(ui.click("Clear##filters", "##plist") && ui.click("##fpos", "##plist") && ui.click("CB", "##Combo"), "CB filter again");
+                CHECK(expect([](const PlayerRow& p) { return player_passes_position(p, 5, false); }) &&
+                          std::count(app.list_player_ids.begin(), app.list_player_ids.end(), 1003) == 1,
+                      "CB filter: a player stored as RCB is listed (he plays as CB)");
+                CHECK(ui.click("##fpos", "##plist") && ui.click("Show all internal positions", "##Combo"), "Show all internal positions on");
+                CHECK(position_show_all(), "the toggle is on");
+                CHECK(ui.click("CB", "##Combo"), "close the popup (CB stays picked)");
+                CHECK(expect([](const PlayerRow& p) { return player_passes_position(p, 5, true); }) &&
+                          std::count(app.list_player_ids.begin(), app.list_player_ids.end(), 1003) == 0,
+                      "with the toggle on the filter is exact: the RCB player is not listed under CB");
+                CHECK(ui.click("##fpos", "##plist") && ui.click("Show all internal positions", "##Combo"), "Show all internal positions off");
+                CHECK(!position_show_all(), "the toggle is off again");
+                CHECK(ui.click("CB", "##Combo"), "close the popup");
+                CHECK(std::count(app.list_player_ids.begin(), app.list_player_ids.end(), 1003) == 1, "RCB player back under CB");
+                CHECK(r1003 && app.db.set_int(*pt, r1003, "preferredposition1", 5), "1003 restored to CB");
+                app.model.refresh_player(1003, kToday);
+                CHECK(ui.click("Clear##filters", "##plist"), "Clear");
+                CHECK(app.list_player_ids.size() == all, "cleared after the position cases");
+            }
+            CHECK(ui.type_into(ui.find("##ovr_from", "##plist"), "87"), "OVR from 87");
             CHECK(expect([](const PlayerRow& p) { return p.overall >= 87; }), "OVR >= 87");
-            CHECK(ui.type_into(ui.find("Max age", "##plist"), "25"), "max age");
+            CHECK(ui.type_into(ui.find("##age_to", "##plist"), "25"), "age to 25");
             CHECK(expect([](const PlayerRow& p) { return p.overall >= 87 && p.age >= 0 && p.age <= 25; }), "and age <= 25");
-            CHECK(ui.type_into(ui.find("Min POT", "##plist"), "90"), "min POT");
+            CHECK(ui.type_into(ui.find("##pot_from", "##plist"), "90"), "POT from 90");
             CHECK(expect([](const PlayerRow& p) { return p.overall >= 87 && p.potential >= 90 && p.age >= 0 && p.age <= 25; }),
                   "and POT >= 90");
             CHECK(ui.click("Clear##filters", "##plist"), "Clear");
             CHECK(app.list_player_ids.size() == all, "cleared again");
+            // two-sided: age BETWEEN two numbers, overall up to a value, and from > to is pulled back (core/range_filter.h)
+            int lo_age = 99, hi_age = -1;
+            for (const auto& p : app.model.players())
+                if (p.age >= 0) lo_age = std::min(lo_age, p.age), hi_age = std::max(hi_age, p.age);
+            CHECK(hi_age > lo_age, fmt("test world ages span %d..%d", lo_age, hi_age));
+            const int a_from = lo_age + 1, a_to = hi_age - 1;
+            CHECK(ui.type_into(ui.find("##age_from", "##plist"), std::to_string(a_from)), "age from");
+            CHECK(ui.type_into(ui.find("##age_to", "##plist"), std::to_string(a_to)), "age to");
+            CHECK(expect([&](const PlayerRow& p) { return p.age >= a_from && p.age <= a_to; }) && app.list_player_ids.size() < all,
+                  fmt("age between %d and %d", a_from, a_to));
+            CHECK(ui.type_into(ui.find("##ovr_to", "##plist"), "80"), "OVR to 80");
+            CHECK(expect([&](const PlayerRow& p) { return p.age >= a_from && p.age <= a_to && p.overall <= 80; }), "and OVR <= 80 (upper bound only)");
+            CHECK(ui.type_into(ui.find("##ovr_from", "##plist"), "90"), "OVR from 90 while to is 80");
+            CHECK(expect([&](const PlayerRow& p) { return p.age >= a_from && p.age <= a_to && p.overall >= 90 && p.overall <= 90; }),
+                  "from above to: to follows (90-90)");
+            CHECK(ui.click("Clear##filters", "##plist"), "Clear");
+            CHECK(app.list_player_ids.size() == all, "cleared after the ranges");
+            CHECK(ui.click("Free agent", "##plist"), "Free agent");
+            CHECK(expect([](const PlayerRow& p) { return p.club == 0; }), "free agents: players without a club");
+            CHECK(ui.click("Free agent", "##plist"), "Free agent off");
+            CHECK(app.list_player_ids.size() == all, "everyone again");
         });
 
         run_case("UI: PlayStyles All/None buttons and a single bit", [&] {
@@ -3822,6 +3887,9 @@ static void test_ui() {
             ui.frames(2);
             CHECK(ui.find("Tall and Lean##4", "##Combo") != nullptr, "the generic body types are listed by Live Editor's names");
             uint64_t rec = app.db.find(*t, "playerid", 1003);
+            // 2.0/ux-descriptors lists a named field's descriptors alphabetically, so a unique body type far down the list is
+            // reached through the combo's search box, as a user would (the item is not clickable while scrolled out of view)
+            CHECK(ui.type_into(ui.find("##flt", "##Combo"), "Ronaldo"), "search the body type combo for Ronaldo");
             CHECK(ui.click("Unique: Cristiano Ronaldo##16", "##Combo"), "pick Cristiano Ronaldo's body type");
             CHECK(app.db.get_int(*t, rec, "bodytypecode") == 16, "bodytypecode = 16");
             CHECK(app.undo(1003) && app.db.get_int(*t, rec, "bodytypecode") == 4, "undo");
@@ -4599,7 +4667,7 @@ static void test_ui() {
 
         run_case("UI: Database tab, pick a table, double-click a float cell, edit", [&] {
             CHECK(ui.click("Database"), "Database tab");
-            CHECK(ui.click("Table"), "table combo");
+            CHECK(ui.click("##dbtable"), "table combo");
             CHECK(ui.click("formations"), "formations");
             CHECK(app.db_table == "formations", "table chosen: " + app.db_table);
             const ItemRec* cell = ui.find("0.5000", "FC 27 LE Turbo");
@@ -4614,6 +4682,47 @@ static void test_ui() {
             CHECK(std::fabs(v.f - 0.75f) < 1e-6f, fmt("offset1x = %f", v.f));
             ui.frames(2);
             CHECK(ui.find("0.7500", "FC 27 LE Turbo") != nullptr, "grid shows the new value");
+        });
+
+        run_case("UI: Database tab, a position code reads as its name (preferredposition1 25 is ST, never 25)", [&] {
+            CHECK(ui.click("Database"), "Database tab");
+            CHECK(ui.click("##dbtable"), "table combo");  // the combo's label is drawn on its left (2.0/ux-filters form rows)
+            CHECK(ui.click("players"), "players");
+            CHECK(app.db_table == "players", "table chosen: " + app.db_table);
+            const Table* pt = app.db.table("players");
+            CHECK(pt != nullptr && pt->field("preferredposition1") != nullptr && pt->field("preferredposition2") != nullptr, "players table with positions");
+            // the text the grid draws for a cell (ui_database.cpp: every int cell goes through App::describe_value)
+            const std::string st = app.describe_value(*pt, *pt->field("preferredposition1"), Value::of_int(25));
+            CHECK(st == "ST", "position 25 reads ST, not '25': " + st);
+            CHECK(app.describe_value(*pt, *pt->field("preferredposition2"), Value::of_int(-1)) == "None" &&
+                      app.describe_value(*pt, *pt->field("preferredposition2"), Value::of_int(4)) == "RCB (internal, plays as CB)",
+                  "an empty second position reads None, an internal code says what it plays as");
+            CHECK(app.describe_value(*pt, *pt->field("overallrating"), Value::of_int(80)) == "80", "a rating stays a number");
+            // on the grid itself: Gabriel Jesus's row only (filter playerid = 1005; preferredposition1 = 25), the cell reads ST
+            CHECK(ui.type_into(ui.find("##ff"), "playerid") && ui.type_into(ui.find("##fv"), "1005"), "filter boxes");
+            CHECK(ui.click("Apply / Reload"), "apply the filter");
+            ui.frames(2);
+            const uint64_t rec = app.db.find(*pt, "playerid", 1005);
+            CHECK(rec != 0 && app.db.get_int(*pt, rec, "preferredposition1") == 25, "fixture: player 1005 plays as 25");
+            // the grid as drawn (ImGui's text log; clipping is off while it runs, so every column counts, on screen or scrolled
+            // away; cells are separated by "|"): his position cells read ST and CM as whole cells, and no cell of the row is the
+            // bare 25 (no other value of player 1005 is 25 in gui_world.lua)
+            const std::string grid = logged_frame(ui);
+            auto cell = [&](const std::string& w) {
+                for (size_t i = 0; (i = grid.find(w, i)) != std::string::npos; i += w.size()) {
+                    const bool left = i == 0 || !std::isalnum(static_cast<unsigned char>(grid[i - 1]));
+                    const bool right = i + w.size() >= grid.size() || !std::isalnum(static_cast<unsigned char>(grid[i + w.size()]));
+                    if (left && right) return true;
+                }
+                return false;
+            };
+            CHECK(cell("ST"), "the position cell of the grid reads ST (frame text: " + grid.substr(0, 700) + ")");
+            CHECK(cell("CM"), "his second position (14) reads CM");
+            CHECK(!cell("25"), "no cell of his row is the bare 25");
+            // the filter boxes back to empty for the cases after this one
+            CHECK(ui.type_into(ui.find("##ff"), "") && ui.type_into(ui.find("##fv"), ""), "filter cleared");
+            CHECK(ui.click("Apply / Reload"), "reload");
+            ui.frames(2);
         });
 
         run_case("UI: Turbo Tools run through the mailbox and Turbo's Lua side", [&] {
@@ -4763,8 +4872,8 @@ static void test_ui() {
             press("Clone player", "##pclone");
             CHECK(ui.click("Create player...", "##pedit"), "create dialog");
             CHECK(ui.find("Create player", "##pcreate") != nullptr, "create button shown");
-            CHECK(ui.type_into(ui.find("First name", "##pcreate"), "Neo"), "first name");
-            CHECK(ui.type_into(ui.find("Surname", "##pcreate"), "Turbo"), "surname");
+            CHECK(ui.type_into(ui.find("##first", "##pcreate"), "Neo"), "first name");
+            CHECK(ui.type_into(ui.find("##last", "##pcreate"), "Turbo"), "surname");
             press("Create player", "##pcreate");
 
             // Delete player (last: the other commands above use player 1002)
@@ -6284,7 +6393,20 @@ static void test_ui() {
             // the language can be chosen and is saved in gui_settings.json
             app.gui_settings["callnames"]["language"] = "eng_us";
             CHECK(app.save_gui_settings(), "save");
-            CHECK(ui.click("Refresh##cn"), "refresh");
+            {
+                // every refresh logs the pick (Tools log + turbo_gui.log through log_hook)
+                const auto saved_hook = app.log_hook;
+                std::vector<std::string> hooked;
+                app.log_hook = [&](const std::string& s) { hooked.push_back(s); };
+                app.log_lines.clear();
+                CHECK(ui.click("Refresh##cn"), "refresh");
+                app.log_hook = saved_hook;
+                const std::string want = "callnames: language eng_us (chosen in Turbo's settings)";
+                size_t in_log = 0, in_hook = 0;
+                for (const auto& l : app.log_lines) in_log += l == want;
+                for (const auto& l : hooked) in_hook += l == want;
+                CHECK(in_log == 1 && in_hook == 1, fmt("the pick is logged once in the GUI log (%zu) and turbo_gui.log (%zu)", in_log, in_hook));
+            }
             CHECK(app.callnames.lang == "eng_us" && app.callnames.lang_why.find("chosen") != std::string::npos, "chosen language: " + app.callnames.lang_why);
             app.gui_settings["callnames"].erase("language");
             app.save_gui_settings();
@@ -7900,6 +8022,13 @@ static void test_ui() {
             ui.frames(3);
             CHECK(ui.click("Match setup"), "Match setup view");
             ui.frames(2);
+            {   // the Value column says in words what the number in each box means, for every variable that has words (2.0/ux-descriptors
+                // fix 2): the boxes start at 0 (difficulty: Beginner; time of day: its setting text) and 1 for a switch (on)
+                const std::string txt = logged_frame(ui);
+                CHECK(txt.find("Beginner") != std::string::npos, "difficulty 0 reads Beginner next to its box");
+                CHECK(txt.find("time-of-day setting 0") != std::string::npos, "time of day 0 is described next to its box (its look is not verified)");
+                CHECK(txt.find("Partly Clear") == std::string::npos, "weather box at 0 does not read Partly Clear (that is 1)");
+            }
             const std::string ars = app.model.team_name(1), eve = app.model.team_name(7), inter = app.model.team_name(241);
             const std::string away_line = "22.08.2026 15:00  " + eve + " v " + ars + "  (English Premier League)##mf3";
             CHECK(ui.find(away_line) != nullptr, "the next fixture is listed: " + away_line);
@@ -12948,6 +13077,8 @@ static void test_match_setup() {
 #include "test_tactics_core.h"
 // Turbo 2.1 tactics channel A: per-side gameplay slider game variables and the A/B presets (core/gameplay_sliders.h)
 #include "test_gameplay_sliders.h"
+// Turbo 2.1 Phase 0: badges, legacy hiding, kill switches per channel, only-on-change, presets, snapshots (core/tactics_status.h)
+#include "test_tactics_phase0.h"
 
 int main(int argc, char** argv) {
     if (argc < 3) {
@@ -12960,6 +13091,8 @@ int main(int argc, char** argv) {
     test_core();
     test_field_labels();
     test_describe_core();
+    test_descriptors_core();
+    test_ux_filters_core();
     std::printf("native pictures\n");
     test_images();
     std::printf("native dev service\n");
@@ -13001,6 +13134,7 @@ int main(int argc, char** argv) {
     test_reapply_players();
     std::printf("native show/hide key and background loading\n");
     test_hotkey_and_background();
+    test_ux_resize();  // test_ux_resize.h
     test_gear_pictures();
     test_hair_catalog();
     test_bodytype_catalog();
@@ -13012,6 +13146,7 @@ int main(int argc, char** argv) {
     club_tools_test::run();
     tactics_core_test::run();
     gameplay_sliders_test::run();
+    tactics_phase0_test::run();
     std::printf("native voice swaps\n");
     test_callname_voice();
     test_callname_voice_host();

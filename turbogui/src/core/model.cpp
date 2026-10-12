@@ -63,6 +63,58 @@ const char* position_name(int pos) {
 
 int position_count() { return static_cast<int>(sizeof(kPositions) / sizeof(kPositions[0])); }
 
+const std::vector<int>& visible_positions() {
+    // GK RB LB CB CDM CM RM LM CAM RW LW ST: the order of the game's role list (field_labels.h "role": 1-2 GK, 3-6 RB, 7-10 LB,
+    // 11-13 CB, 14-17 CDM, 18-22 CM, 23-26 RM, 27-30 LM, 31-34 CAM, 35-37 RW, 38-40 LW, 41-44 ST)
+    static const std::vector<int> v = {0, 3, 7, 5, 10, 14, 12, 16, 18, 23, 27, 25};
+    return v;
+}
+
+bool position_visible(int pos) {
+    const std::vector<int>& v = visible_positions();
+    return std::find(v.begin(), v.end(), pos) != v.end();
+}
+
+static int position_code(const std::string& name) {
+    for (int p = 0; p < position_count(); ++p)
+        if (name == kPositions[p]) return p;
+    return -1;
+}
+
+int position_plays_as(int pos) {
+    if (pos < 0 || pos >= position_count()) return -1;
+    if (position_visible(pos)) return pos;
+    // the paired internal codes the game lays out on the pitch as one of the visible positions (core/tactics_db.cpp
+    // pitch_label_for_position has the same pairs)
+    const std::string n = position_name(pos);
+    const char* as = nullptr;
+    if (n == "RCB" || n == "LCB") as = "CB";
+    else if (n == "RDM" || n == "LDM") as = "CDM";
+    else if (n == "RCM" || n == "LCM") as = "CM";
+    else if (n == "RAM" || n == "LAM") as = "CAM";
+    else if (n == "RS" || n == "LS") as = "ST";
+    return as ? position_code(as) : -1;
+}
+
+std::string position_descriptor(int pos) {
+    if (pos < 0) return "None";
+    if (pos >= position_count()) return "Unknown position " + std::to_string(pos);
+    const std::string n = position_name(pos);
+    if (position_visible(pos)) return n;
+    const int as = position_plays_as(pos);
+    return as >= 0 ? n + " (internal, plays as " + position_name(as) + ")" : n + " (internal)";
+}
+
+bool position_matches(int stored, int wanted, bool exact) {
+    if (stored < 0 || wanted < 0) return false;
+    if (stored == wanted) return true;
+    return !exact && position_plays_as(stored) == wanted;
+}
+
+bool player_passes_position(const PlayerRow& p, int wanted, bool exact) {
+    return std::any_of(std::begin(p.positions), std::end(p.positions), [&](int x) { return position_matches(x, wanted, exact); });
+}
+
 // ---------------------------------------------------------------- model
 // The game's own national-team rule (IsInternationalLeague 0x14479F50C, docs/re/realtime_transfers.md section 8): league 78 (men),
 // 2136 (women) or 3004. teamnationlinks is not that list (it also ties Rest of World clubs to a nation).

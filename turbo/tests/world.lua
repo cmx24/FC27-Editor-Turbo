@@ -525,6 +525,7 @@ function W.fake_squad_role(s, opts)
     local calls = {}
     local club = {}
     for _, p in ipairs(W.USER_PLAYERS) do club[p] = true end
+    for _, p in ipairs(opts.club_extra or {}) do club[p] = true end   -- players the game sees at your club too (a created one)
     local function count() return s:r32(W.psm + 0x14) end
     local function find(pid)
         for i = 0, count() - 1 do if s:r32(W.status_begin + i * 8) == pid then return i end end

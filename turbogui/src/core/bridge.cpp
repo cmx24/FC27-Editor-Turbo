@@ -298,19 +298,25 @@ bool Bridge::poll_files() {
     ec.clear();
     fs::path state_p = locate("bridge_state.json");
     auto st = fs::last_write_time(state_p, ec);
-    if (!ec && !too_old(st) && (!have_state_time_ || st != state_time_)) {
+    // The state file is small and Lua rewrites it in place, several times within one second during a career event, and
+    // std::filesystem::last_write_time has whole-second resolution with this toolchain (_wstat64 / _wutime64): a stamp alone
+    // misses a rewrite that lands in the same second as the one before it (the GUI then kept the old db_gen until the next
+    // change). The text is read every poll (a few hundred bytes) and decides together with the stamp.
+    if (!ec && !too_old(st)) {
         std::string text;
-        if (read_text(state_p, text)) {
+        if (read_text(state_p, text) && (!have_state_time_ || st != state_time_ || text != state_text_)) {
             BridgeState s;
             if (parse_state(text, s)) {
                 state_ = s;
                 state_time_ = st;
+                state_text_ = std::move(text);
                 have_state_time_ = true;
                 state_failures_ = 0;
                 changed = true;
             } else if (++state_failures_ >= 4) {
                 if (!state_.loaded) state_ = s;
                 state_time_ = st;
+                state_text_ = std::move(text);
                 have_state_time_ = true;
                 state_failures_ = 0;
                 changed = true;

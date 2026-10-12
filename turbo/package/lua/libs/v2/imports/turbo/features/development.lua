@@ -313,24 +313,30 @@ function M.run(ctx)
     if cfg.mode == "plan_sync" then return M.plan_sync(cfg, ctx.dry) end
     local plan, why = M.plan(cfg)
     if not plan then return false, why end
+    -- counts (third return value, team_mass's dev bonus text): plans really written, players whose attributes were written
+    -- without a plan (no_plan: their ids), failed syncs; unavailable = the build has no plan natives
+    local counts = { synced = 0, no_plan = {}, failed = 0, attrs = 0, unavailable = plan_natives() == nil, dry = ctx.dry == true }
     local writes, synced, failed, changed = 0, 0, {}, 0
     for _, p in ipairs(plan.plans) do
         local n, state = apply_player(plan.tbl, p, ctx.dry)
         writes = writes + n
         if n > 0 then changed = changed + 1 end
+        if next(p.attrs) ~= nil then counts.attrs = counts.attrs + 1 end
         if state == "plan" then synced = synced + 1
-        elseif state:sub(1, 7) == "failed:" then failed[#failed + 1] = string.format("%d %s", p.pid, state) end
+        elseif state:sub(1, 7) == "failed:" then failed[#failed + 1] = string.format("%d %s", p.pid, state)
+        elseif state == "none" and not ctx.dry and next(p.attrs) ~= nil then counts.no_plan[#counts.no_plan + 1] = p.pid end
     end
+    counts.synced, counts.failed = synced, #failed
     local msg = string.format("%s: %d players changed, %d fields written", plan.label, changed, writes)
     if synced > 0 then msg = msg .. string.format(", %d development plans updated", synced) end
     if not plan_natives() and writes > 0 then
         msg = msg .. "; this Live Editor build has no development-plan natives: the game may put your players' old values back"
     end
     if #failed > 0 then
-        return false, msg .. "; development plan failed for " .. table.concat(failed, ", ")
+        return false, msg .. "; development plan failed for " .. table.concat(failed, ", "), counts
     end
-    if ctx.dry then return true, "dry run: " .. msg end
-    return true, msg
+    if ctx.dry then return true, "dry run: " .. msg, counts end
+    return true, msg, counts
 end
 
 -- ---------------------------------------------------------------- automatic forced growth

@@ -140,7 +140,7 @@ static std::string exact_label(Facet f, int64_t raw) {
             return "Skin tone " + n;
         case kHairColour:
         case kBeardColour:
-            if (labels::Label l = labels::code_label("haircolorcode", raw, "Colour"); l.kind != labels::Kind::Code) return l.text;
+            if (labels::Label l = labels::code_label("haircolorcode", raw, "Colour"); l.kind != labels::Kind::Unnamed) return l.text;
             return "Colour " + n;
         case kEyes:
             if (raw >= 1 && raw < int64_t(sizeof(kEyeColours) / sizeof(kEyeColours[0]))) return kEyeColours[raw];

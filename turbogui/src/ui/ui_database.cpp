@@ -66,8 +66,9 @@ void draw_database(App& app) {
     auto names = app.db.table_names();
     if (app.db_table.empty() && !names.empty()) app.db_table = std::find(names.begin(), names.end(), "players") != names.end() ? "players" : names[0];
 
+    form_label("Table");
     ImGui::SetNextItemWidth(S(240.0f));
-    if (ImGui::BeginCombo("Table", app.db_table.c_str(), ImGuiComboFlags_HeightLarge)) {
+    if (ImGui::BeginCombo("##dbtable", app.db_table.c_str(), ImGuiComboFlags_HeightLarge)) {
         for (const auto& n : names) {
             if (ImGui::Selectable(n.c_str(), n == app.db_table)) {
                 app.db_table = n;
@@ -100,6 +101,7 @@ void draw_database(App& app) {
                          ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
                          ImGuiTableFlags_Hideable | ImGuiTableFlags_SizingFixedFit;
     bool open_edit = false;
+    ImGui::PushID(g_view.table.c_str());  // widths / order / hidden columns remembered per database table (table_registry.h)
     if (ImGui::BeginTable("##dbt", ncols, fl, ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(1, 1);
         for (int c = 0; c < ncols; ++c) ImGui::TableSetupColumn(g_view.fields[static_cast<size_t>(c)].c_str());
@@ -113,7 +115,10 @@ void draw_database(App& app) {
                 for (int c = 0; c < ncols; ++c) {
                     ImGui::TableNextColumn();
                     const Field* f = t->field(g_view.fields[static_cast<size_t>(c)]);
-                    std::string text = g_view.snap.get(idx, *f).to_string();
+                    const Value cell = g_view.snap.get(idx, *f);
+                    const std::string raw = cell.to_string();
+                    // a code reads as its descriptor (role, colour, nation, date, yes/no); the game's number stays in the tooltip
+                    const std::string text = cell.type == FieldType::Int ? app.describe_value(*t, *f, cell) : raw;
                     ImGui::PushID(r * 1024 + c);
                     if (ImGui::Selectable(text.empty() ? " " : text.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) &&
                         ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
@@ -121,12 +126,14 @@ void draw_database(App& app) {
                         g_view.edit_field = f->name;
                         open_edit = true;
                     }
+                    if (text != raw && ImGui::IsItemHovered()) ImGui::SetTooltip("%s = %s", f->name.c_str(), raw.c_str());
                     ImGui::PopID();
                 }
             }
         }
         ImGui::EndTable();
     }
+    ImGui::PopID();
     if (open_edit) ImGui::OpenPopup("##dbedit");
     if (ImGui::BeginPopup("##dbedit")) {
         const Field* ef = t->field(g_view.edit_field);

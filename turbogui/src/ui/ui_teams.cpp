@@ -196,7 +196,7 @@ static void club_pick_table(App& app, const char* id, const char* hint, char* se
             if (!q.empty() && lower(t.name).find(q) == std::string::npos && std::to_string(t.teamid).find(q) != 0) continue;
             if (!team_in_geo(app, t, f.nation, f.league)) continue;
             std::string lname = g.league_name(t.league);
-            if (lname.empty()) lname = std::to_string(t.league);
+            if (lname.empty()) lname = "League " + std::to_string(t.league);
             rows.push_back({&t, std::move(lname)});
         }
         table_sort(rows, [](const ClubRow& a, const ClubRow& b, int col) {
@@ -317,7 +317,7 @@ static const MassAction kMassActions[] = {
     {"long_contract", "Long contract (60 months)", "Gives every player a 60 month contract from today (players loaned in keep their parent club's contract)."},
     {"form", "Form: best (100)", "Your club: form 100 for every player (Live Editor's SetPlayerForm) plus the best database form (teamplayerlinks.form 5). Other clubs: teamplayerlinks.form 5 for every player."},
     {"match_xp", "Match XP (x2)", "FC 27 has no match XP or sharpness value. With Live Editor's development manager: twice the XP from matches and training (any club). Without it (Live Editor v27.1.2): a one-off +1 growth on each attribute of the player's group, never above his potential."},
-    {"dev_bonus", "Dev bonus XP", "Every player grows by the points set below (+N on each attribute of his group through Turbo's development, plans updated), never above his potential; players already at potential are skipped. With Live Editor's development manager it is that manager's bonus XP instead."},
+    {"dev_bonus", "Dev bonus XP", "Every player grows by the points set below (+N on each attribute of his group through Turbo's development; the result counts the development plans really updated and names your players without one), never above his potential; players already at potential are skipped. With Live Editor's development manager it is that manager's bonus XP instead."},
     {"all", "All actions", "Does all of the actions above at once."},
 };
 
@@ -360,8 +360,9 @@ static void mass_actions_tab(App& app, const TeamRow& tr) {
         ImGui::PopTextWrapPos();
         ImGui::PopStyleColor();
         if (aid == "dev_bonus") {
+            form_label("Dev bonus points", "1 to 10; used by Dev bonus and by All actions");
             ImGui::SetNextItemWidth(S(140.0f));
-            ImGui::InputInt("Dev bonus points (1-10, Dev bonus and All actions)##tmbonus", &bonus_xp, 1, 1);
+            ImGui::InputInt("##tmbonus", &bonus_xp, 1, 1);
             bonus_xp = std::clamp(bonus_xp, 1, 10);
         }
         if (aid == "squad_roles" && own) {

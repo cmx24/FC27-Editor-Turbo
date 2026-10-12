@@ -441,12 +441,19 @@ local function run_import(ctx)
         end
         -- the game's development plan (your own players) outranks the players table: give it the written attributes
         -- (and work rates, skill moves, weak foot), else the old values come back after the career is saved and loaded again
+        -- One of your club's players WITHOUT a plan (moved in by a database move, created): said in the result (after 2.0.3), not
+        -- left out silently, since the game's growth step may put other values back
         local is_attr, attr_vals = util.set_of(moves.PLAN_FIELDS), {}
         for _, w in ipairs(plan) do if is_attr[w.f] then attr_vals[w.f] = w.v end end
         if next(attr_vals) then
             local state = moves.sync_plan(pid, attr_vals)
             if state == "plan" then plan_state = "development plan updated"
-            elseif state:sub(1, 7) == "failed:" then plan_state = "development plan NOT updated (" .. state:sub(9) .. ")" end
+            elseif state:sub(1, 7) == "failed:" then plan_state = "development plan NOT updated (" .. state:sub(9) .. ")"
+            elseif state == "none" and moves.at_user_club(pid) then plan_state = moves.NO_PLAN_WARNING
+            elseif state == "unavailable" and moves.at_user_club(pid) then
+                plan_state = "development plan not checked (this Live Editor build has no development-plan natives): the game " ..
+                    "may undo this at its next growth step"
+            end
         end
         if names_fn then
             local ok, nerr = names_fn()
@@ -455,6 +462,15 @@ local function run_import(ctx)
         if mini_src then
             local ok, merr = M.install_miniface(pid, mini_src, false)
             if not ok then return false, merr end
+        end
+    else
+        -- dry run: the same warning from a read of the plan flag (nothing written)
+        local is_attr = util.set_of(moves.PLAN_FIELDS)
+        for _, w in ipairs(plan) do
+            if is_attr[w.f] then
+                if moves.has_plan(pid) == false and moves.at_user_club(pid) then plan_state = moves.NO_PLAN_WARNING end
+                break
+            end
         end
     end
     local parts = {}

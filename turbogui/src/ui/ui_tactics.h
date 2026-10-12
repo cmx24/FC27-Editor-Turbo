@@ -17,11 +17,18 @@ class App;
 struct TacticsTabState {
     struct Row {
         std::string key;
-        std::string status;       // "Live" "DB" "Local" "Preview" "RE"
-        std::string tag;          // the short line under the label ("not applied to game", "saved data, in-game effect unverified", ...)
+        std::string status;       // "Live" "DB" "Local" "Preview" "RE" (the registry's write-path status)
+        std::string label;        // the label drawn ("Role familiarity 1 (Role+ / Role++)" for players.role1)
+        std::string written;      // badge 1, how it is written: "game variable" "database row" "preview" "Turbo only"
+        std::string seen;         // badge 2, what was seen: "seen in a played match 2026-10-07" "no effect seen 2026-10-07" "untested" "legacy, likely ignored" "nothing written"
+        std::string tag;          // the line under the label (core/tactics_status.h status_tag)
+        std::string readback;     // what the game holds now: "game variable now: ..." / "row now: 62 (before Turbo: 50)" / "no read-back: ..."
+        std::string channel_off;  // the kill switch file that blocks this row's channel ("" = none): the row is greyed
         std::string was;          // "was 62" / "was: game decides" ("" = nothing to say): against the last Apply, or against the loaded preset in compare mode
         bool enabled = false;     // switched on (the game does not decide)
         bool dimmed = false;      // drawn at reduced opacity
+        bool untested = false;    // writes something nobody saw working in a played match (off by default, Apply asks first)
+        bool legacy = false;      // a legacy field, drawn only behind "show legacy fields"
         int value = 0;
     };
     int scope = 0;                // SliderScope index
@@ -29,10 +36,15 @@ struct TacticsTabState {
     std::string preview_strip;    // "12 of 20 visible settings are preview-only" (the sliders of this scope)
     std::string banner;           // "Game overrides are active ..." ("" = none)
     std::string off_line;         // "Tactics are off: ..." ("" = switch not present)
+    std::vector<std::string> switches;     // the kill switch files present in turbo_output (tactics_off.txt, tactics_db_off.txt, ...)
+    bool show_legacy = false;     // "show legacy fields" is ticked
+    size_t legacy_hidden = 0;     // legacy rows of this scope not drawn
+    bool confirm_open = false;    // the "Apply untested settings?" dialog is open
+    std::vector<std::string> confirm_lines; // what it lists
     std::string receive_title;    // "What the game will receive"
     std::vector<std::string> receive;      // one line per Live / DB write that will be sent
     std::vector<std::string> not_written;  // switched-on settings this build does not write ("formations.offset{n}x: ...")
-    std::vector<std::string> writes_done;  // what the last Apply did, one line per DB row written ("cm_mentalities.defensivedepth = 70: row 2 of 2 ...")
+    std::vector<std::string> writes_done;  // what the last Apply did, one line per DB row written ("mentalities.defensivewidth = 61: row 1 of 1 ...")
     int changed = 0;              // "N changed"
     bool off = false;
     bool dry_run = false;
@@ -81,7 +93,7 @@ const TacticsTabState& tactics_tab_state();
 
 // The Tactics tab body (inside Teams > ##ttabs). Never throws: a failure shows an inline error.
 void draw_tactics(App& app);
-// The kill switch file exists (checked at once, never cached): the writes use this
+// The master kill switch file exists (checked at once, never cached): the writes use this
 bool tactics_off_now(App& app);
 // Clear the game variables this panel set (the host unloading Turbo; nothing is written otherwise). Never throws.
 void tactics_clear_on_exit(App& app);

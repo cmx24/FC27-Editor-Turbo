@@ -126,6 +126,10 @@ Mailbox (`VirtualAlloc`ed by the DLL, 0x2020 bytes): `+0x00` magic `0x4F425254` 
 `+0x0C` ack seq, `+0x10` status (1 = ok), `+0x14` Lua heartbeat, `+0x20` command JSON (4096 bytes), `+0x1020` result (4096 bytes).
 Commands: `{"op":"run","module":..,"overrides":{..}}`, `{"op":"boot"}`, `{"op":"ping"}`, `{"op":"refresh"}`.
 The Lua side polls the mailbox on every career event (`bridge.on_career_event`) and from `turbo_exec.lua`.
+The GUI polls the three files every 0.5 s (`Bridge::poll_files`). `bridge_meta.json` and `bridge_names.txt` are re-read
+when their time stamp changes; `bridge_state.json` (small, rewritten in place several times a second during a career event)
+is read every poll and taken as new when its stamp **or its text** changed, because `std::filesystem::last_write_time` has
+whole-second resolution with this toolchain and a stamp alone missed a rewrite landing in the same second as the one before.
 
 ## Native code (`turbogui/src`)
 
@@ -180,6 +184,35 @@ The Lua side polls the mailbox on every career event (`bridge.on_career_event`) 
   glyphs for the new size on demand (the DX12 backend has `RendererHasTextures`), so the atlas is never rebuilt as a
   whole. Before 1.1.1 every scale change multiplied the already scaled sizes again (scrollbars and grabs grew into big
   grey ovals after a few window resizes).
+- **Row density (2026-10-11, `ui/gui_prefs.h`)**: Status > Settings "Row density" = compact | normal | comfortable
+  (`gui_settings.json` `gui.row_density`). `App::update_style` multiplies `CellPadding.y`, `ItemSpacing.y` and
+  `FramePadding.y` after `ScaleAllSizes`, so table rows (text + 2 x CellPadding.y), list rows (text + ItemSpacing.y) and
+  widget rows (FrameHeight) follow one setting; the font size stays the UI size.
+- **Tables and panes (`ui/table_registry.h`)**: every table has resizable, reorderable and hideable columns; the registry
+  lists the 32 tables with their flags and `tests/native/test_ux_resize.h` scans `src/ui` so none loses them. The
+  exceptions are the tables inside an auto-sizing popup (`Spec::popup`): `##comptable` in the competition picker's combo
+  (with the column flags Dear ImGui saved its column settings and the popup's second opening failed, native "Live
+  standings: groups" case), `##clubrows` in the club search dropdown and `##keptplayer` in the kept-edits tooltip; they
+  keep fixed columns. Column
+  widths / order / hidden columns live in `turbo_output\turbo_gui_layout_v2.ini` per table ID (the Database tab pushes the
+  database table's name so each table keeps its own). Split panes and fixed-height lists carry `ImGuiChildFlags_ResizeX`
+  / `ResizeY` (a resize border; the size is kept in the same file). Not the Callname lists (`list_height`, 80 .. 200 px to
+  the buttons below): a remembered height there pushed the buttons out of view (native Callname cases failed). Not the
+  children of auto-sizing popups either (`##complist` in the competition picker combo, `##fvals` in the face filter): a
+  resizable child inside an auto-resizing parent feeds its saved size back into the parent, and the second opening of the
+  picker failed (native "Live standings: groups" case).
+- **Background loading (`ui/preload.h`, `ui/preload_queue.h`)**: from the first show or the career connection, pictures
+  load in the order they are opened: the user's club's minifaces, the listed players' minifaces (topped up when the Players
+  list changes), the real-face chooser (its minifaces and the 3D head renders already in `turbo_output\cache\faces3d`),
+  tattoos, the hair / body galleries, crests, manager heads; the first 400 of every kind before the rest of any. Missing
+  files are asked from Lua (`want.txt`, exported inside its 0.25 s slice per career event), files at hand are decoded on the
+  texture worker. `gui.preload_images` (default true) switches it off; the Status tab shows the progress per kind; the queue
+  is cancelled when the game leaves the career (`LegacyImages::clear_background`) and collected again for the next one.
+  Lua's background list holds at most `LegacyImages::kMaxBackground` (20 000) paths: `ask_background` answers Accepted,
+  Known (already asked, at hand, missing or invalid) or Full; a Full answer keeps the picture queued and unasked
+  (`PreloadQueue::refuse`), the round robin asks again (at most `Preloader::kRefusedPerFrame` = 4 retries per frame) as
+  arrived pictures leave the list, and the progress line shows `waiting: N refused` until then.
+  New 3D head renders are never started by the preloader (they need the game's capture service: Render all filtered heads).
 - **Failure handling**: every frame runs behind an exception barrier; any error switches the overlay off for the session and
   the game keeps running. The main window is clamped to the screen size.
 - Third party (vendored in `turbogui/third_party`): Dear ImGui v1.92.9, MinHook v1.3.4, nlohmann/json 3.11.3.
@@ -421,7 +454,14 @@ they apply. Every rule below is checked before the first write; a refused move w
 | leaving the user's club (transfer, loan, release, delete): if the game has him on the user's transfer / loan list (contract status 7 / 8 / 9) he comes off through the game's own remove first; if that remove fails the move is refused | the Transfer Hub lists and AI offers must not point at a player the club no longer has | `moves.leave_lists` |
 | moves into the user's club add him to the end of the team sheet (reserve); moves out remove him: a starter's slot (playerid0..10) goes to the first substitute (the goalkeeper's slot to the first goalkeeper on the bench or in reserve), so the other starters keep their positions; the bench and reserves move up; set-piece takers that were him become the sheet's first player | the team sheet lists the squad and the line-up | `plan_sheet_add` / `plan_sheet_remove` |
 | delete = release (all the rules above), then his `players`, `teamplayerlinks`, `editedplayernames`, `playerloans` rows | | `moves.delete` |
-| create / clone / import as new: any club, the user's included (the old `allow_user_club` key is no longer read); the club must have room and a free number; in the user's club he goes on the team sheet as a reserve | | `features/create_player.lua` |
+| arrivals at the user's club (Unreleased, after 2.0.3): a move INTO the user's club that would be a database move (a transfer without `TurboPlayerMove`, op 11; the transfer of a loaned player; every loan to the user's club; the early end of a loan back to it) is refused before anything is written, with the reason and "the game's own transfer routine (Turbo.dll op 11) is needed", and logged (`arrival guard: ...`). Opt-in file `turbo_output\db_move_user_club_on.txt`: the move runs, the summary and the log carry a WARNING. Moves between AI clubs, out of the user's club and through op 11 are not affected; a failing op 11 call never falls back to the database | a database arrival gets none of the game's PlayerJoinedTeam work: no development plan / growth record (the OVR-1 players, `turbo_output\STEP2_REPORT.txt`), no morale record, no squad status entry (the match-load crash) | `moves.db_arrival_gate`, `t25_arrivals_guard.lua` |
+| create / clone / import as new: any club, the user's included (the old `allow_user_club` key is no longer read); the club must have room and a free number; in the user's club he goes on the team sheet as a reserve, and right after the create (both ways) the match crash guard's repair runs at once (`create_player.lua` calls `squad_role.repair_entries` directly; the guard in `bridge.lua` is unchanged): the summary and the log say "squad status entry added at once / present / not added now (reason)"; kill switches `create_status_repair_off.txt` (this step) and `squad_status_repair_off.txt` (the whole guard) | a club player without a squad status entry crashes the match load (2026-10-11: two created players) | `features/create_player.lua` |
+
+**Development plan words** (Unreleased, after 2.0.3): an attribute write onto a player of the user's club who has no plan
+(`PlayerHasDevelopementPlan` false: a database arrival, a created player) says `moves.NO_PLAN_WARNING` = "no development
+plan: the game may undo this at its next growth step": the preset import (also its dry run, from a read of the flag) and
+the dev bonus / match XP mass actions without Live Editor's development manager, which count the plans really written
+("development plan updated for N of M", from `development.run`'s third return value) instead of "plans updated".
 
 **What truly cannot be done.** The game's transfer / loan list helper lists the player on the **user's** club whoever he
 plays for (`docs/re/transfer_lists.md` section 0), and AI clubs' lists have no call Turbo knows: Transfer list / Loan
@@ -466,11 +506,13 @@ Design and rationale: `docs/TURBO_2_0_PLAN.md`. This section is the short techni
 
 ### Slider tiers
 
-Every tactics/match slider carries one tier badge, defined by where its value goes:
+Since 2.1 Phase 0 every row carries TWO badges (`core/tactics_status.h`): how it is written (game variable / database row / preview / Turbo only) and what was seen of it (seen in a played match + date / no effect seen + date / untested / legacy, likely ignored / nothing written); the registry tier below is the write path only and is no longer shown as a "Live" badge. A row that writes but was never seen working in a played match (untested, no effect seen, legacy) loads switched off from a preset, and Apply lists those rows and asks before writing them. Legacy rows (EA removed the fields in FC 25) are hidden behind "Show legacy fields". The saved-tactic targets `cm_mentalities.defensivedepth` / `cm_mentalities.buildupplay` are gone from the registry (the game reads that row once at career load and overwrites it from its live copy at every save) and `dead_target_reason()` refuses any `cm_mentalities.*` target. The role editor is "Role familiarity N (Role+ / Role++)": the player's own list, not the role of a tactic slot. The 66 per-side gameplay slider variables of tactics channel A (`core/gameplay_sliders.h`, `SliderDef::untested`) are "game variable" + "untested" rows like any other (off by default, held off by presets, Apply asks first); their "untested" badge keeps channel A's orange and says the game's variable store accepts the write (read back ok) but no played match has shown an effect yet; Reset clears the override at once. Every row that writes shows a read-back line: a game variable as the host read it back after the write, a database field as it is now (with the value before Turbo's first write). Before Turbo's first write to a database row the row's value is kept in `turbo_output\tactics_snapshot.json` (per career club, target and row); the row's Reset button, switching the row off + Apply, and `tactics_off.txt` appearing put it back, only while the row still holds the value Turbo wrote.
+
+Every tactics/match slider carries one registry tier, defined by where its value goes:
 
 | Tier | Meaning | Write path | Effect in a played match |
 | --- | --- | --- | --- |
-| Live | A game variable set through the `gv` bridge (`GAMEPLAY_CUSTOMIZATION/...`, `OVERRIDE/...`, `NEVER_INJURE`, `DISABLE_CPU_SUBSTITUTION`, `OVERRIDE_MATCH_DIFFICULTY`) | process-wide override, not saved with the career, cleared when the game closes | Accepted by the game; the in-game effect of each key is verified one by one (see the plan, section 3) |
+| Live | A game variable set through the `gv` bridge (`GAMEPLAY_CUSTOMIZATION/...`, `OVERRIDE/...`, `NEVER_INJURE`, `DISABLE_CPU_SUBSTITUTION`, `OVERRIDE_MATCH_DIFFICULTY`) | process-wide override, not saved with the career, cleared when the game closes | Accepted by the game; the in-game effect of each key is verified one by one (the "what was seen" badge says which: see the plan, section 3) |
 | DB | A field of the career database (players role/position/trait fields, formation tables) | normal DB write, saved with the career | Only if the game reads that field at match setup; the `TeamSheet` runtime copy may overwrite DB edits |
 | Preview | A Turbo-side model (pitch heat grid, opposition solver output) | none, nothing is sent to the game | None. It is a visual aid, not engine truth |
 | RE | No known write site yet (needs reverse engineering) | none | None. Shown as Preview only until promoted |
@@ -481,15 +523,15 @@ Honest limits: simulated matches ignore every override (`simsettings.ini` is loa
 
 | Thing on screen | Source | Honesty |
 | --- | --- | --- |
-| Pitch dots | The selected club's saved formation: `teamformationteamstylelinks` (team id to formation id), else the `sourceformationid` of the club's active tactic in `cm_mentalities` / `mentalities`, else a `formations` row carrying the club's id; positions from `formations.position0..10`, offsets from `formations.offset0x..offset10y`, or `formationoffsets` when those are all zero. Read through `core/tactics_db.cpp`, cached by `App::gen`. A goalkeeper near the far goal line turns the y axis round. | Exact (E), solid, "saved data, in-game effect unverified". When nothing usable is found Turbo's own shape from `fallback_formations()` is drawn and the reason is shown. |
+| Pitch dots | The selected club's saved formation: `teamformationteamstylelinks` (team id to formation id), else the `sourceformationid` of the club's active tactic in `cm_mentalities` / `mentalities`, else a `formations` row carrying the club's id; positions from `formations.position0..10`, offsets from `formations.offset0x..offset10y`, or `formationoffsets` when those are all zero. Read through `core/tactics_db.cpp`, cached by `App::gen`. A goalkeeper near the far goal line turns the y axis round. | Exact (E), solid; your club: "your saved tactic as of your last save" (change it in the game's Edit Tactic), another club: "saved data (the club's saved tactic row)"; both say nothing on the pitch is written. When nothing usable is found Turbo's own shape from `fallback_formations()` is drawn and the reason is shown. |
 | Lines, band, arrows | `build_preview` (core/tactics.h) through `PreviewCache`; drawn only for sliders that are switched on | Derived (D): dashed, "62/100 (schematic)", never a unit |
 | Grid, rings, exposure | The same model, only when asked for | Modelled (M): hatched or stippled, "(arbitrary)", off by default |
-| Team sliders in the mentality tables | The club's row in `mentalities` / `cm_mentalities` by `teamid` (the row flagged `activetactic`, else the first); `teams.defensivedepth` / `teams.buildupplay` by the selected club | DB: saved with the career, effect in a match unverified; a club without a row is reported, nothing is created |
-| Opposition card | `core/opposition.cpp` with the built-in rules plus `turbo_output/opp_rules.json`; seed from the career, the season, the day, the opponent and the re-roll count | Preview, except injury and difficulty offsets, which are Live and sent only by the card's Apply button as base plus offset |
+| Team sliders written to the database | `teams.defensivedepth` / `teams.buildupplay` of the selected club; the legacy fields (hidden behind "Show legacy fields") in the club's `mentalities` row by `teamid` (the row flagged `activetactic`, else the first) | Database row, untested / legacy, likely ignored; a club without a row is reported, nothing is created; your saved tactic row (`cm_mentalities`) is never written |
+| Opposition card | `core/opposition.cpp` with the built-in rules plus `turbo_output/opp_rules.json`; seed from the career, the season, the day, the opponent and the re-roll count | Preview, except injury and difficulty offsets, which are game variables and are sent only by the card's Apply button as base plus offset |
 
 ### Kill switches (files in `turbo_output`)
 
-`reapply_off.txt`, `turbo_gui_disable.txt`, `call_<name>_off.txt`, `hook_<name>_off.txt`, the crash flag `turbo_gui_start.flag`, and new in 2.0: `tactics_off.txt` (no tactics writes, effect layers greyed) and `role_reapply_off.txt` (no squad-role re-apply on season reset). From the 1.2.5 line (2.0.3): `squad_status_repair_off.txt` (no match crash guard: `bridge.lua` `repair_squad_status` adds no squad status entries at career load / day / pre-match events; tested in `turbo/tests/t04_squad_role.lua`), `call_squad_role_create_off.txt` (the `squad_role` game call, op 14, creates and removes no entries; `turbogui/tests/native/test_squad_role.h`), `plan_sync_off.txt` (the Turbo window sends no development-plan sync for its player edits; `turbogui/tests/native/test_main.cpp`), and `call_player_morale_create_off.txt` (no morale records created by the morale mass action; `t18_team_mass.lua`). The user-facing table is in `turbo/package/TURBO_README.md`.
+`reapply_off.txt`, `turbo_gui_disable.txt`, `call_<name>_off.txt`, `hook_<name>_off.txt`, the crash flag `turbo_gui_start.flag`, and new in 2.0: `tactics_off.txt` (no tactics writes, effect layers greyed; since 2.1 Phase 0 its appearance first puts back the database rows the Tactics tab wrote in this career, see "Slider tiers") and `role_reapply_off.txt` (no squad-role re-apply on season reset). 2.1 Phase 0 adds one switch per tactics write channel (`core/tactics_status.h` `kill_switches()`): `tactics_gamevar_off.txt` (game variables), `tactics_db_off.txt` (teams / referee / players rows), `tactics_legacy_off.txt` (the old `mentalities` table); a switched-off channel's rows are greyed with the file name, its writes and resets are skipped and counted in the Apply toast. Reserved for later channels (not read by any build yet): `opp_auto_off.txt` (per-fixture opposition engine), `call_team_sheet_on.txt` (opt-in) and `call_team_sheet_off.txt` (your live tactic, channel E), restore file `opp_db_restore.json`. Tactics channel A (`core/gameplay_sliders.h`): the Match tab's A/B presets send nothing while `tactics_off.txt` or `call_gamevar_off.txt` exists, `call_gamevar_off.txt` also stops every game-variable write of the Tactics tab (the host refuses it), and `tactics_gamevar_off.txt` blocks the Tactics tab's game-variable rows, the 66 per-side channel A rows included. From the 1.2.5 line (2.0.3): `squad_status_repair_off.txt` (no match crash guard: `bridge.lua` `repair_squad_status` adds no squad status entries at career load / day / pre-match events; tested in `turbo/tests/t04_squad_role.lua`), `call_squad_role_create_off.txt` (the `squad_role` game call, op 14, creates and removes no entries; `turbogui/tests/native/test_squad_role.h`), `plan_sync_off.txt` (the Turbo window sends no development-plan sync for its player edits; `turbogui/tests/native/test_main.cpp`), and `call_player_morale_create_off.txt` (no morale records created by the morale mass action; `t18_team_mass.lua`). Unreleased (after 2.0.3): `create_status_repair_off.txt` (no squad status repair right after `create_player` at the user's club; `squad_status_repair_off.txt` stops it too; `t25_arrivals_guard.lua`) and the opt-in `db_move_user_club_on.txt` (database moves into the user's club allowed again, with a warning; `t25_arrivals_guard.lua`). The user-facing table is in `turbo/package/TURBO_README.md`.
 
 ### Schema coverage
 

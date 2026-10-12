@@ -546,6 +546,11 @@ void draw_hook_status(App& app) {
 void draw_status(App& app) {
     const auto& st = app.bridge.state();
     images_status(app);
+    // Background loading (ui/preload.h): what is ready, per kind of picture, most wanted first
+    for (const std::string& line : app.preload_status()) {
+        if (!line.empty() && line[0] == ' ') ImGui::TextDisabled("%s", line.c_str());
+        else ImGui::Text("%s", line.c_str());
+    }
     // A short health summary first: one line for the database, one for what Turbo needs from the game. The folders, hook
     // addresses, tick counters and service pointers are for bug reports: they sit in the collapsed "Technical details".
     ImGui::SeparatorText("Health");
@@ -585,8 +590,8 @@ void draw_status(App& app) {
     ImGui::Text("Lua state: %s", st.loaded ? "received" : "not received");
     if (st.loaded) {
         ImGui::Text("  LE %s | session %s | update #%lld", st.le_version.c_str(), st.session.c_str(), st.seq);
-        ImGui::Text("  DB service %s | career loaded: %s | your club: %lld", hex_addr(st.db_service).c_str(),
-                    st.in_cm ? "yes" : "no", static_cast<long long>(st.user_team));
+        ImGui::Text("  DB service %s | career loaded: %s | your club: %s (%lld)", hex_addr(st.db_service).c_str(),
+                    st.in_cm ? "yes" : "no", app.model.team_name(st.user_team).c_str(), static_cast<long long>(st.user_team));
         if (st.date.valid()) ImGui::Text("  In-game date: %04d-%02d-%02d", st.date.year, st.date.month, st.date.day);
         if (!st.unavailable.empty()) {
             ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "  Not possible with this Live Editor build (%zu):",
@@ -627,6 +632,24 @@ void draw_status(App& app) {
     ImGui::SameLine();
     ImGui::TextDisabled("now %.2fx (window height %.0f px)", static_cast<double>(app.ui_scale_applied),
                         static_cast<double>(ImGui::GetIO().DisplaySize.y));
+    // Row density (ui/gui_prefs.h): the height of table and list rows; the style follows on the next tick
+    {
+        ImGui::SetNextItemWidth(S(140.0f));
+        int d = static_cast<int>(app.prefs.row_density);
+        const char* names[] = {row_density_label(RowDensity::Compact), row_density_label(RowDensity::Normal), row_density_label(RowDensity::Comfortable)};
+        if (ImGui::Combo("Row density", &d, names, 3)) {
+            app.prefs.row_density = static_cast<RowDensity>(d);
+            if (!app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("How tall the rows of tables and lists are (gui_settings.json gui.row_density)");
+    }
+    // Background loading of pictures (ui/preload.h, gui.preload_images)
+    if (ImGui::Checkbox("Load pictures in the background from the start (faces, 3D head renders, tattoos, galleries, crests)", &app.prefs.preload_images)) {
+        if (!app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("On: the galleries open with their pictures already loaded (the user's club first, then the listed players,\n"
+                          "the real-face chooser, tattoos, galleries, crests, managers). Off: pictures load when a screen shows them.");
 
     ImGui::SeparatorText("Log");
     ImGui::BeginChild("##log", ImVec2(0, 0), ImGuiChildFlags_Borders);

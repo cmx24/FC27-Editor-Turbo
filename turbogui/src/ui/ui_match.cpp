@@ -152,8 +152,9 @@ void draw_selected(App& app, const fce::Fixture& f, uint32_t user) {
     }
     if (!choices.empty()) {
         if (g_ms.opponent < 0 || std::find(choices.begin(), choices.end(), int16_t(g_ms.opponent)) == choices.end()) g_ms.opponent = choices[0];
+        form_label("New opponent");
         ImGui::SetNextItemWidth(S(260.0f));
-        if (ImGui::BeginCombo("New opponent", app.model.team_name(team_of(int16_t(g_ms.opponent))).c_str())) {
+        if (ImGui::BeginCombo("##newopp", app.model.team_name(team_of(int16_t(g_ms.opponent))).c_str())) {
             for (int16_t sid : choices) {
                 ImGui::PushID(sid);
                 if (ImGui::Selectable(app.model.team_name(team_of(sid)).c_str(), sid == g_ms.opponent)) g_ms.opponent = sid;
@@ -179,11 +180,15 @@ void draw_selected(App& app, const fce::Fixture& f, uint32_t user) {
         std::string why;
         const bool ready = app.match_setup->fixing_ready(&why);
         ImGui::BeginDisabled(!ready);
+        form_label("Home goals");
         ImGui::SetNextItemWidth(S(90.0f));
-        ImGui::InputInt("Home goals", &g_ms.fix_home);
+        ImGui::InputInt("##homegoals", &g_ms.fix_home);
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Away goals");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(S(90.0f));
-        ImGui::InputInt("Away goals", &g_ms.fix_away);
+        ImGui::InputInt("##awaygoals", &g_ms.fix_away);
         g_ms.fix_home = std::clamp(g_ms.fix_home, 0, int(mfix::kMaxGoals));
         g_ms.fix_away = std::clamp(g_ms.fix_away, 0, int(mfix::kMaxGoals));
         ImGui::SameLine();
@@ -259,11 +264,11 @@ void draw_vars(App& app) {
                 ImGui::EndTooltip();
             }
             ImGui::TableNextColumn();
-            const bool difficulty = std::string(v.name) == "OVERRIDE_MATCH_DIFFICULTY";
             auto it = lines.find(v.name);
             if (it != lines.end() && it->second.active) {
-                if (difficulty) ImGui::Text("%d (%s)", it->second.value, usertext::difficulty_text(it->second.value).c_str());
-                else ImGui::Text("%d", it->second.value);
+                const std::string shown = usertext::match_var_value_text(v.name, it->second.value);  // words, never the bare number
+                ImGui::TextUnformatted(shown.c_str());
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s = %d", v.name, it->second.value);
             } else {
                 ImGui::TextDisabled("game decides");
             }
@@ -272,9 +277,12 @@ void draw_vars(App& app) {
             ImGui::SetNextItemWidth(S(90.0f));
             ImGui::InputInt("##val", &val);
             val = std::clamp(val, int(v.min), int(v.max));
-            if (difficulty) {
+            // the word for the number in the box, for every variable that has one (Snow, Legendary, on, the game decides); a
+            // slider's number is its value and gets none
+            const std::string hint = usertext::match_var_edit_hint(v.name, val);
+            if (!hint.empty()) {
                 ImGui::SameLine();
-                ImGui::TextDisabled("%s", usertext::difficulty_text(val).c_str());
+                ImGui::TextDisabled("%s", hint.c_str());
             }
             ImGui::TableNextColumn();
             if (ImGui::SmallButton("Set")) {
@@ -352,7 +360,8 @@ void draw_side_sliders(App& app, bool ready, const std::map<std::string, msetup:
     ImGui::EndDisabled();
     if (!g_ms.show_side) return;
     ImGui::BeginDisabled(!ready);
-    if (ImGui::BeginTable("##sidevars", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp |
+    if (ImGui::BeginTable("##sidevars", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable |
+                                              ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp |
                                               ImGuiTableFlags_ScrollY, ImVec2(0, S(380.0f)))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Slider");

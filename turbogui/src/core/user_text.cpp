@@ -3,6 +3,7 @@
 
 #include <cstring>
 
+#include "core/field_labels.h"
 #include "core/match_setup.h"
 
 namespace turbo::usertext {
@@ -56,14 +57,32 @@ static std::string when_text(const char* when) {
     return w.empty() ? std::string() : "applies " + w;
 }
 
+std::string time_of_day_text(int setting) {
+    if (setting < 0) return "the game decides";
+    if (setting == 0 || setting == 1 || setting == 3 || setting == 4)
+        return "time-of-day setting " + std::to_string(setting) + " (which look it is has not been verified yet)";
+    return "time-of-day setting " + std::to_string(setting) + " (the game ignores it: only 0, 1, 3 and 4 count)";
+}
+
+std::string match_var_value_text(const std::string& name, int value) {
+    const gv::KnownVar* v = gv::known(name);
+    if (v && v->min == 0 && v->max == 1) return value ? "on" : "off";
+    if (name == "OVERRIDE_MATCH_DIFFICULTY") return difficulty_text(value);
+    if (v && v->min < 0 && value == v->off) return "the game decides";  // the -1 of weather / time of day
+    if (name == "OVERRIDE/WEATHER") return labels::describe("match", "weather", static_cast<int64_t>(value));
+    if (name == "OVERRIDE/TOD") return time_of_day_text(value);
+    return std::to_string(value);
+}
+
+std::string match_var_edit_hint(const std::string& name, int value) {
+    const std::string words = match_var_value_text(name, value);
+    return words == std::to_string(value) ? std::string() : words;
+}
+
 std::string match_var_set(const std::string& name, int value) {
     const gv::KnownVar* v = gv::known(name);
     if (!v) return name + " set to " + std::to_string(value);
-    std::string val;
-    if (v->min == 0 && v->max == 1) val = value ? "on" : "off";
-    else if (name == "OVERRIDE_MATCH_DIFFICULTY") val = difficulty_text(value);
-    else val = std::to_string(value);
-    std::string s = std::string(v->label) + " set to " + val;
+    std::string s = std::string(v->label) + " set to " + match_var_value_text(name, value);
     const std::string w = when_text(v->when);
     return w.empty() ? s : s + "; " + w;
 }

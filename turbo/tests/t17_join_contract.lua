@@ -185,7 +185,10 @@ H.case("development plan: import onto your player and a move keep the plan equal
     local inc = 2012   -- joins your club: the game then holds a plan for him (simulated), with old values
     sim.player_team[inc] = W.USER_TEAM
     sim.dev_plans[inc] = { finishing = 1 }
+    -- a database move into your club (no TurboPlayerMove here): only with the opt-in file (after 2.0.3)
+    local opt = assert(io.open(H.out("db_move_user_club_on.txt"), "wb")); opt:write("on"); opt:close()
     ok, msg = moves_run({ { action = "transfer", playerid = inc, to_teamid = W.USER_TEAM } })
+    os.remove(H.out("db_move_user_club_on.txt"))
     H.eq(ok, true, msg)
     H.has(msg, "development plan refreshed")
     H.eq(sim.dev_plans[inc].finishing, pval(inc, "finishing"), "plan equals the table after the move")

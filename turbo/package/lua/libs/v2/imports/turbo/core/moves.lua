@@ -24,10 +24,16 @@
 -- These moves are database writes: the squad screens show them after the career is saved and loaded again.
 -- (0.3.0 to 1.1.0 refused every move into or out of your club after a test career crashed while simulating
 -- following several such moves, 03-10-2026; that career had no squad or list checks.)
+-- ARRIVALS AT YOUR CLUB (after 2.0.3, M.db_arrival_gate): a player who comes to your club through these database writes gets none of
+-- what the game gives an arrival (development plan, growth record, morale record, squad status entry); only the game's own
+-- transfer routine (Turbo.dll op 11, TurboPlayerMove) gives them. Such a database move into your club is refused unless
+-- turbo_output\db_move_user_club_on.txt exists. Moves between AI clubs and moves out of your club are not affected.
 
 local util = require 'imports/turbo/core/util'
 local db = require 'imports/turbo/core/db'
 local game = require 'imports/turbo/core/game'
+local env = require 'imports/turbo/core/env'
+local log = require 'imports/turbo/core/log'
 
 local M = {}
 
@@ -300,6 +306,26 @@ function M.sync_plan(pid, values, force)
     end
     if force then return count > 0 and "plan" or "none" end
     return "plan"
+end
+
+-- Read only: true / false = PlayerHasDevelopementPlan(pid), nil when the native is missing or raised
+function M.has_plan(pid)
+    local has = _G["PlayerHasDevelopementPlan"]
+    if type(has) ~= "function" then return nil end
+    local ok, yes = pcall(has, pid)
+    if not ok then return nil end
+    return yes == true
+end
+
+-- The words every result uses for an attribute write onto one of YOUR club's players who has no development plan (after 2.0.3): the
+-- game's growth step works from its own plan / growth record, and a player without one (moved in by a database move, created)
+-- is the case where it put attributes back or set them to 1 (turbo_output\STEP2_REPORT.txt)
+M.NO_PLAN_WARNING = "no development plan: the game may undo this at its next growth step"
+
+-- True when pid plays for your club (his club link is the user's team of the loaded career)
+function M.at_user_club(pid)
+    local user = M.user_team()
+    return user > 0 and M.team_of_player(pid) == user
 end
 
 -- Makes the player's plan (if he has one) hold the players table's attributes. Returns the state like sync_plan
@@ -806,6 +832,44 @@ local function run_move(plan, pid, from, end_loan)
     return true, join_notes(note, plan_note(pid)), mstatus
 end
 
+-- ---------------------------------------------------------------- arrivals at your club through the database (after 2.0.3)
+-- The game's own transfer routine (Turbo.dll op 11, TurboPlayerMove) runs the game's PlayerJoinedTeam handlers: the player gets
+-- a development plan and growth record, a morale record and a squad status entry. Turbo's database move only rewrites his club
+-- link and gets none of them. Players moved into the user's club that way are the ones the game set to overall 1 at a growth
+-- step (turbo_output\STEP2_REPORT.txt), and a club player without a squad status entry crashes the match load (2026-10-05,
+-- 2026-10-11). So a database move INTO your club (a transfer without TurboPlayerMove or of a loaned player, a loan to your
+-- club, the end of a loan back to your club) is refused unless turbo_output\db_move_user_club_on.txt exists; with that file the
+-- move runs, is logged, and its summary says what he lacks. Moves between AI clubs and moves out of your club: as before.
+M.DB_ARRIVAL_OPT_IN = "db_move_user_club_on.txt"
+M.DB_ARRIVAL_WARNING = "WARNING: database move into your club (opt-in turbo_output\\" .. M.DB_ARRIVAL_OPT_IN .. "): the game gave " ..
+    "him no development plan, growth record, morale record or squad status entry; it may undo edits at its next growth step"
+
+-- True when turbo_output\db_move_user_club_on.txt exists
+function M.db_arrival_opted_in()
+    local root = env.le_root()
+    if not root then return false end
+    return util.file_exists(util.join(util.join(root, "turbo_output"), M.DB_ARRIVAL_OPT_IN))
+end
+
+-- A DATABASE move of pid to `to_team`: what = "the transfer" | "the loan" | "the return from loan", why = why it is not the
+-- game's own move. Returns true (not your club), true + the warning for the summary (your club, opted in), or false + the
+-- refusal (logged).
+function M.db_arrival_gate(pid, to_team, what, why)
+    local user = M.user_team()
+    if user <= 0 or to_team ~= user then return true end
+    if M.db_arrival_opted_in() then
+        log.warn("player %d: %s to your club (%d) allowed as a database move (%s); %s", pid, what, user, why, M.DB_ARRIVAL_WARNING)
+        return true, M.DB_ARRIVAL_WARNING
+    end
+    local msg = string.format("player %d not moved: %s to your club (%s, %d) would be a raw database move (%s). The game's " ..
+        "own transfer routine (Turbo.dll op 11) is needed for arrivals at your club: only it gives him a development plan, growth " ..
+        "record, morale record and squad status entry (without them the game can reset his attributes at a growth step and the " ..
+        "match load can crash). Nothing was changed. To allow database moves into your club anyway, create turbo_output\\%s",
+        pid, what, game.team_name(user), user, why, M.DB_ARRIVAL_OPT_IN)
+    log.warn("arrival guard: %s", msg)
+    return false, msg
+end
+
 -- Returns true, summary or false, error. A loaned player: the loan ends (his parent club sells him).
 function M.transfer(pid, to_team, o, dry)
     o = o or {}
@@ -828,10 +892,26 @@ function M.transfer(pid, to_team, o, dry)
     end
     local text = string.format("player %d: team %d -> %d", pid, from, to_team)
     if parent then text = text .. string.format(", loan from %d ended", parent) end
-    if dry then return true, text end
+    local arrival
+    if not native then
+        local why
+        if not parent then
+            why = "TurboPlayerMove is not available: start the Turbo GUI in this career so Turbo.dll's game call is loaded"
+        elseif parent == M.user_team() then
+            why = string.format("he is your club's player on loan at team %d and ending a loan early is a database move; the game " ..
+                "ends the loan itself at its end date", from)
+        else
+            why = string.format("he is on loan at team %d from team %d and ending a loan is a database move: end the loan first " ..
+                "(Terminate loan, he goes back to his parent club), then transfer him", from, parent)
+        end
+        local okg, gtext = M.db_arrival_gate(pid, to_team, "the transfer", why)
+        if not okg then return false, gtext end
+        arrival = gtext
+    end
+    if dry then return true, with_note(text, arrival) end
     local okm, note = run_move(plan, pid, from, parent ~= nil)
     if not okm then return false, note end
-    return true, with_note(text, note)
+    return true, with_note(text, join_notes(arrival, note))
 end
 
 -- Release to Free Agents (wage and release clause 0). A loaned player: the loan ends and his parent club releases him.
@@ -890,7 +970,11 @@ function M.loan(pid, to_team, months, dry)
         end
     end
     local text = string.format("player %d: loan %d -> %d for %d months", pid, from, to_team, months)
-    if dry then return true, text end
+    -- a loan is always a database move (the game's routine, op 11, moves transfers and releases only)
+    local okg, arrival = M.db_arrival_gate(pid, to_team, "the loan", "a loan is always a database move: the game's routine does " ..
+        "transfers only; a transfer into your club goes through it")
+    if not okg then return false, arrival end
+    if dry then return true, with_note(text, arrival) end
     local insert = _G["InsertDBTableRow"]
     if type(insert) ~= "function" then return false, "InsertDBTableRow is not available in this Live Editor build" end
     -- the row delete takes the new playerloans row back out when the club move fails after the insert
@@ -912,7 +996,7 @@ function M.loan(pid, to_team, months, dry)
         if not n then err = tostring(err) .. "; removing the new playerloans row also failed: " .. tostring(rerr) end
         return false, err
     end
-    return true, with_note(text, join_notes(note, plan_note(pid)))
+    return true, with_note(text, join_notes(arrival, join_notes(note, plan_note(pid))))
 end
 
 -- The loan ends: he goes back to his parent club (playerloans.teamidloanedfrom), the playerloans row is deleted. The
@@ -925,7 +1009,10 @@ function M.terminate_loan(pid, dry)
     local from, merr = plan_move(plan, pid, back, { skip_min = true, keep_join = true })
     if not from then return false, merr end
     local text = string.format("player %d: loan at %d ended, back to %d", pid, from, back)
-    if dry then return true, text end
+    local okg, arrival = M.db_arrival_gate(pid, back, "the return from loan", "ending a loan early is a database move; the " ..
+        "game ends the loan itself at its end date")
+    if not okg then return false, arrival end
+    if dry then return true, with_note(text, arrival) end
     local okd, derr = can_delete_rows()
     if not okd then return false, derr end
     local ok, err = apply(plan, false)
@@ -935,7 +1022,7 @@ function M.terminate_loan(pid, dry)
         undo(plan)   -- no move back to his parent club while the loan row stays
         return false, tostring(derr) .. "; nothing was changed (he stays at the loan club)"
     end
-    return true, with_note(text, plan_note(pid))
+    return true, with_note(text, join_notes(arrival, plan_note(pid)))
 end
 
 -- Release (with every check above), then his players / teamplayerlinks / editedplayernames / playerloans rows go

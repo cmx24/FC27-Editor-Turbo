@@ -260,7 +260,7 @@ std::string App::reapply_stored_edits() {
     if (!reapply.callnames.empty()) {
         // the language and the master list decide who has his own recording: loaded here in case the Callname tab or
         // the watcher's tick have not done it yet
-        if (!callnames.refreshed && !game_root.empty()) callnames.refresh(bridge.root(), game_root, chosen_commentary_language());
+        if (!callnames.refreshed && !game_root.empty()) refresh_callnames();
         if (!db.table("playernamemap")) {
             fail(plural(reapply.callnames.size(), "player callname", "player callnames") + ": FC 27's playernamemap table is not readable");
         } else if (callnames.lang.empty()) {
@@ -557,7 +557,8 @@ void kept_player_edits_section(App& app) {
     int64_t forget_pid = 0;
     std::string forget_field;
     const float h = std::min(S(320.0f), ImGui::GetTextLineHeightWithSpacing() * (2.5f + static_cast<float>(app.reapply.player_fields())));
-    if (ImGui::BeginTable("##keptlist", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY, ImVec2(0, h))) {
+    if (ImGui::BeginTable("##keptlist", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable |
+                                          ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable, ImVec2(0, h))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Player", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Field", ImGuiTableColumnFlags_WidthFixed, S(130.0f));

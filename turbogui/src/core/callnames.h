@@ -61,6 +61,10 @@ std::vector<CommentaryPack> installed_commentary_packs(const std::filesystem::pa
 // installed, else the single downloaded pack, else eng_us, else the first pack, else "". `why` explains the choice.
 std::string pick_commentary_language(const std::vector<CommentaryPack>& packs, const std::string& chosen, std::string* why);
 
+// The line the GUI logs (Tools log and turbo_gui.log) at every refresh, so the pick can be checked afterwards:
+// "callnames: language <lang> (<why>)", "none" when no language was found.
+std::string commentary_language_log_line(const std::string& lang, const std::string& why);
+
 // Spoken-id list text: optional header "#turbo-spoken <lang> <count>", then one commentary id per line; text after a
 // tab, space or '#' is a comment. Returns false (with err) when no id was read or the count does not match.
 bool parse_spoken_list(const std::string& text, std::unordered_set<int64_t>& out, std::string* lang = nullptr,

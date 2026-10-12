@@ -109,6 +109,10 @@ std::string pick_commentary_language(const std::vector<CommentaryPack>& packs, c
     return packs[0].code;
 }
 
+std::string commentary_language_log_line(const std::string& lang, const std::string& why) {
+    return "callnames: language " + (lang.empty() ? std::string("none") : lang) + " (" + why + ")";
+}
+
 bool parse_spoken_list(const std::string& text, std::unordered_set<int64_t>& out, std::string* lang, std::string* err) {
     out.clear();
     if (lang) lang->clear();
