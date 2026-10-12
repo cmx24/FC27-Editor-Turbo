@@ -296,14 +296,15 @@ H.case("create at your club with the game's squad_role call: the game's AddPlaye
     H.eq(ok, true, msg)
     H.has(msg, "squad status entry added at once (role 4, the game's AddPlayer)")
     H.eq(calls[#calls][1], 2, "code 2: the game picks his role"); H.eq(calls[#calls][2], 300003)
-    -- the game does not see him at your club (a database-created row before a save and a load): no entry, said honestly
+    -- the game does not see him at your club yet (a database-created row before a save and a load): the game's AddPlayer
+    -- refuses, and since 2.0.4 the guard's memory path writes his entry in the same run (an entry is safer than none: the
+    -- match load reads one for every team-sheet player)
     local _, before = status_entries()
     ok, msg = run("create_player", { source = { playerid = 2005 }, teamid = USER, playerid = 300004 })
     H.eq(ok, true, msg)
-    H.has(msg, "squad status entry not added now ("); H.has(msg, "is not in your club")
-    H.has(msg, "the match crash guard adds it at the next career load, day or match build-up")
+    H.has(msg, "squad status entry added at once (role 3, in memory)")
     local e, after = status_entries()
-    H.eq(after, before, "nothing added"); H.eq(e[300004], nil)
+    H.eq(after, before + 1, "one entry added in memory"); H.eq(e[300004] ~= nil, true)
     _G.TurboSquadRole = nil
 end)
 
