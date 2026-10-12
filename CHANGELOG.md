@@ -3,7 +3,33 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
-## Unreleased (2.1: game asset catalog)
+## 2.1.0 (game asset catalog, commentary language detection, UX, tactics honesty, FC 26 parity, crash guard hardening)
+Status words below: "verified in game" = seen working in a played or loaded career on game build 6AC07E31; everything else passes the offline suites only.
+
+### Overall follows attribute edits
+- An attribute or position edit (sliders, number boxes, All fields, field search, Database tab, position picker) now also writes the overall for his position with Turbo's fitted formula (same path as a typed overall; kept edits and development plan included). One Undo puts both back. Off switch: `turbo_output\overall_follow_off.txt`. Tactics writes and their put-backs never move the overall.
+
+### FC 26 parity
+- **Teams list: Transfers columns** (in / out / loans / spent / received / net per club, from the database transfers table and Turbo's transfer history export) and a club **Transfers** tab. Read only.
+- **Managers > Your scouts:** read your career scouts and make them the best (experience and knowledge, clamped to the game's 0..4), with Restore originals (backup file). Writes only on a click; off switch `turbo_output\scouts_off.txt`.
+- **Bulk edit:** a Pick list for the field names.
+
+### UX
+- Label left / control right on the Tools tab, Status > Settings, game editors, squad role rules, live standings, body types, competitions and club tools. A **Loans** filter in the Players list (On loan / Loaned in / Loaned out; "(loan)" after the club).
+
+### Crash guard (after 2.0.4)
+- The guard honours `call_squad_role_create_off.txt` in its memory fallback too, removes nothing in memory once the game's own Remove has decided, backs off after three identical failures, and collects a finished game call before it runs. A player created by Turbo at your club gets his squad status entry at once.
+
+### Tactics: honest badges
+- Every Tactics row shows two badges: how its value is written (game variable / database row / preview / Turbo only) and what was seen of it in a played match. Rows with no proven effect (incl. the 66 per-side gameplay sliders of channel A) are off by default and Apply asks before writing them; each row shows the value the game holds now and has Reset to default (from a snapshot of the original). Dead writes to the saved-tactic row are gone; legacy fields are hidden behind "Show legacy fields". Values are bound to the club or player they were set for. Off switches: `tactics_off.txt` (puts the database rows back), `tactics_gamevar_off.txt`, `call_gamevar_off.txt`.
+
+### Readable values and filters
+- Positions, roles, match-setup values and other codes read as words everywhere (Database tab and Match setup included). The Players filters sit in blocks with label left / control right, two-sided ranges (age, overall, potential) and the positions FC 27 shows.
+
+### Callname tools
+- The masters importer understands FC 27's "real link" / "real high" types; the Dutch audio folder is found; the language pipeline (`replicate_language_structure.py`) runs dry by default and never copies player-name files into the package.
+
+### Game asset catalog
 - **Every asset the game ships, not only the ones a database row points to (not yet checked in game).** A new offline tool, `turbo/tools/asset_catalog/build_asset_catalog.py`, reads the game files (read-only, about 10 s the first time, under 2 s when nothing changed), builds the commentary bank of each installed language when it is missing or outdated, and writes `turbo_output\asset_catalog\catalog_<game build>.json`: 6,141 3D heads, 20,879 minifaces, 11,460 youth faces, 550 staff faces, 238 legend pictures, 1,436 hair / 133 facial hair / 862 boot (+120 only under content_ts) / 157 GK glove / 371 tattoo models, 1,730 club crests (the 3,204 create-a-club crest templates are left out), 1,534 kits, 299 balls, and the callname recordings of every installed commentary pack (eng_us Derek Rae and Guy Mowbray, ita_it), each id with its proof and a readable name. It runs in a Turbo source checkout (`py -3 -I turbo\tools\asset_catalog\build_asset_catalog.py`): **release builds cannot build a catalog yet** and then work exactly as 2.0. The GUI loads it in the background, checks it matches the running game build, and reloads it when it changes (a rebuild for the same game build reaches every picker too). Details: `docs/asset-catalog.md`.
 - **"Hidden" assets in the pickers:** an asset the game ships and no player (team) of the loaded save uses gets a **Hidden** badge, and each picker has an **All / In this save / Hidden** filter (remembered per picker).
   - **Choose a real face:** + **game heads**, the 3D heads of players who left the database (about 2,070 on build 6AC07E31), named and badged; a click asks first and writes the head through a gate (current catalog, a real 3D head). Every filter menu of the chooser now offers at most 5 choices (colours and looks grouped; the tooltip keeps the exact value).
@@ -19,7 +45,7 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 - **Choose a real face:** the game-head confirmation (Apply, Cancel and its warnings) now stays in view inside the chooser, and its long lines wrap.
 - In-game checks still to do (throwaway slot): a hidden head and a model-only boot / hidden hair in a match, a new voice swap with a hidden source, the Lua gate with and without the GUI (`docs/asset-catalog.md` section 14). Game heads of unknown gender are only warned about, not refused.
 
-## Unreleased (2.0/ux-resize-preload: resizable everything, pictures preloaded from the career start)
+### Resizable everything, pictures preloaded from the career start
 - **Every table has resizable, reorderable and hideable columns** (drag a header border, drag a header, right-click a header). The five that did not (the Attributes slider grid and bit fields, field search, the field editor grid) now do; `turbogui/src/ui/table_registry.h` lists all 32 with their flags and a native test walks the sources (the Players filter grid, the Match tab's per-side sliders and Turbo Tools > Kept player edits got the same column flags when this work met the 1.2.5 line and the filter grid). The exceptions are the tables inside an auto-sizing popup (the competition picker's combo, the club search dropdown, the kept-edits tooltip): saved column settings there broke the popup's second opening, so they keep fixed columns. The Database tab remembers column widths per database table (its ID is pushed per table; before, one `##dbt` for every table lost the widths at each switch). Widths, order and hidden columns are kept in `turbo_output\turbo_gui_layout_v2.ini`.
 - **Resizable panes**: the real-face grid and the Tactics tab's left and centre columns got a resize border (the other split panes had one since 2.0.2). Left alone on purpose: the Callname lists (their height is computed, 80 .. 200 px to the buttons below; a remembered height pushed the buttons out of view) and the lists inside popups (the competition picker, the face filter values: a resizable child inside an auto-sizing popup made the second opening fail).
 - **Row density** setting (Status > Settings, `gui_settings.json` `gui.row_density` = `compact` | `normal` | `comfortable`): the height of table and list rows everywhere; the font size stays the UI size slider.
@@ -27,7 +53,7 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 - **Background loading never stalls on a full list**: Lua's background list takes 20 000 missing pictures at a time (`LegacyImages::kMaxBackground`). A picture it refuses now stays queued and unasked, is asked again a few times per frame as the list drains, and the progress line says `waiting: N refused` meanwhile (the Status tab too). Before, the loader marked the refused picture as asked, so with more than 20 000 pictures missing the queue could never finish. Native cases: `preload queue: a picture refused ...`, `legacy files: ask_background ...`, `UI: Lua's background list is full ...`.
 - **Fixed: a `bridge_state.json` rewritten within the same second as the previous one was missed** (the GUI kept the old `db_gen`, so the lists were not rebuilt for the newly loaded save until the next change). `std::filesystem::last_write_time` has whole-second resolution with this toolchain, and the bridge compared stamps only; it now reads the small state file every poll and compares the text as well. This was also the cause of the native case `UI: database reload (another save) invalidates rows safely` failing depending on the suite's timing (two cases stamped the file into the same second).
 
-## Unreleased (2.0/arrivals-guard: no raw database moves into your club, plan warnings, entries at once for created players)
+### Arrivals guard: no raw database moves into your club, plan warnings, entries at once for created players
 - **No more raw database moves into your club** (offline tests only, not yet checked in game). A transfer into your club without Turbo.dll's game call (the GUI's natives not loaded), the transfer of a loaned player into your club, a loan to your club and the early return of your loaned-out player are database moves: the player gets no development plan, growth record, morale record or squad status entry (the OVR-1 incident and the 2026-10-11 match-load crashes). They are now refused with the reason ("the game's own transfer routine (Turbo.dll op 11) is needed for arrivals at your club"), nothing is written, and the refusal is logged. Opt-in: `turbo_output\db_move_user_club_on.txt` lets them run, with a WARNING in the result and the log. Moves between AI clubs, moves out of your club and moves done by the game's own routine are unchanged.
 - **Preset import onto one of your players without a development plan** now says "no development plan: the game may undo this at its next growth step" (the dry run too) instead of leaving out "development plan updated".
 - **Mass actions > dev bonus / match XP (without Live Editor's development manager)** counts the plans really written ("development plan updated for 26 of 27") and names your players without one, instead of the constant "plans updated".
