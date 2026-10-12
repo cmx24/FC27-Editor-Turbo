@@ -56,12 +56,20 @@ struct LiveState {
         fce::Cell cell = fce::Cell::W;
         int value = 0;
     } pending;
-    // the last edit, for Undo: the row as it was and as Turbo wrote it
+    // the last edit, for Undo: a row edit (the row as it was and as Turbo wrote it) or a result edit (both rows and the
+    // fixture, fce::Change). 2.2 review: a result edit has its Undo too (before, it cleared the last one)
     struct Undo {
         bool valid = false;
-        fce::StandingRow before, after;
+        uint16_t group = 0;              // the competition group whose table shows the Undo button
+        fce::StandingRow before, after;  // a row edit
         bool typed_before = false;
+        fce::Change change;              // a result edit (empty for a row edit): the blocks as they were / as Turbo wrote them
+        std::string label;               // a result edit: what Undo puts back ("fixture 12 back to 2 - 1")
+        std::vector<uint16_t> rows;      // a result edit: its two rows (the standings refresh after the Undo)
     } undo;
+    // why the table cannot be edited now ("" = it can): the DataManager identified by its back-pointer only, or the kill
+    // switch file (fce_edit_off, once per frame); the match-day check is made at each write (fce_write_refusal)
+    std::string edit_off;
     std::set<uint16_t> typed_pts;  // rows whose Pts the user typed: kept when W / D / L change
     std::string status;            // one line: "Torino FC: W 2 -> 3, Pts 0 -> 3 (applied)"
     bool status_error = false;
@@ -159,7 +167,9 @@ void find_hidden() {
 }
 
 // The rows the game's standings view holds (core/standings_refresh.h shown_groups): read-only, through the published
-// StandingsViewManager; the node vtables come from the host's signatures, else from the image base
+// StandingsViewManager; the vtables come from the host's signatures, else (svm::anchor_vtable) the documented addresses
+// on build kRvaBuild only. 2.2 review: on another build a missing signature is named ("signature svm_live_vtable was not
+// found ...") instead of comparing with the old build's address ("does not hold a LiveStandings object").
 void read_shown(App& app) {
     g_live.shown.clear();
     g_live.shown_by.clear();
@@ -170,11 +180,14 @@ void read_shown(App& app) {
     }
     svm::Fns fns;
     if (app.standings_refresh) fns = app.standings_refresh->fns();
-    const uint64_t co = fns.compobj_vtable ? fns.compobj_vtable : (app.game_base ? app.game_base + svm::kRvaCompObjectVtable : 0);
-    const uint64_t sl = fns.standinglist_vtable ? fns.standinglist_vtable : (app.game_base ? app.game_base + svm::kRvaStandingListVtable : 0);
-    const uint64_t live = app.game_base ? app.game_base + svm::kRvaLiveStandingsVtable : 0;
-    std::string err = svm::validate(app.mem, st.svm, st.managers, fns.vtable ? fns.vtable : (app.game_base ? app.game_base + svm::kRvaVtable : 0),
-                                    fns.listener);
+    const std::string build = app.fce_anchors().build;
+    std::string err;
+    const uint64_t vt = svm::anchor_vtable(fns.vtable, build, app.game_base, svm::kRvaVtable, "svm_vtable", err);
+    uint64_t co = 0, sl = 0, live = 0;
+    if (err.empty()) co = svm::anchor_vtable(fns.compobj_vtable, build, app.game_base, svm::kRvaCompObjectVtable, "fcei_compobject_vtable", err);
+    if (err.empty()) sl = svm::anchor_vtable(fns.standinglist_vtable, build, app.game_base, svm::kRvaStandingListVtable, "fcei_standinglist_vtable", err);
+    if (err.empty()) live = svm::anchor_vtable(fns.live_vtable, build, app.game_base, svm::kRvaLiveStandingsVtable, "svm_live_vtable", err);
+    if (err.empty()) err = svm::validate(app.mem, st.svm, st.managers, vt, fns.listener);
     if (err.empty()) err = svm::shown_groups(app.mem, st.svm, live, co, sl, g_live.shown);
     g_live.shown_err = err;
     for (const svm::ShownGroup& g : g_live.shown)
@@ -244,8 +257,9 @@ bool reload(App& app) {
 // Locate (again) when the career changed, the chain broke or nothing was located yet
 void ensure_located(App& app) {
     uint64_t ifce = app.bridge.state().ifce;
+    const fce::Anchors anchors = app.fce_anchors();  // the running build's identities (signature-resolved by the host)
     bool fresh = g_live.loc.ok() && g_live.located_ifce == ifce && g_live.located_gen == app.gen &&
-                 fce::validate(app.mem, g_live.loc, app.game_base);
+                 fce::validate(app.mem, g_live.loc, anchors);
     if (fresh) return;
     if (g_live.located_ifce != ifce) {
         // another career: the last edit cannot be undone, typed points belong to the old rows (Undo itself also checks
@@ -258,10 +272,16 @@ void ensure_located(App& app) {
     g_live.pending = LiveState::Pending();
     g_live.located_ifce = ifce;
     g_live.located_gen = app.gen;
-    g_live.err = fce::locate(app.mem, ifce, app.game_base, g_live.loc);
+    g_live.err = fce::locate(app.mem, ifce, anchors, g_live.loc);
     if (g_live.err.empty()) {
-        if (reload(app)) app.log("live standings located: " + std::to_string(g_live.rows.size()) + " rows, " +
-                                 std::to_string(g_live.fixtures.size()) + " fixtures");
+        if (reload(app)) {
+            // also into turbo_gui.log: which identities the running build was checked with (the in-game check reads it)
+            const std::string line = "live standings located: " + std::to_string(g_live.rows.size()) + " rows, " +
+                                     std::to_string(g_live.fixtures.size()) + " fixtures" +
+                                     (g_live.loc.identity.empty() ? std::string() : " (" + g_live.loc.identity + ")");
+            app.log(line);
+            if (app.log_hook) app.log_hook(line);
+        }
     } else {
         g_live.rows.clear();
         g_live.groups.clear();
@@ -335,10 +355,21 @@ bool row_now(App& app, uint16_t id, fce::StandingRow& out) {
     return true;
 }
 
+// The write gate right before a write (fce_write_refusal): "" = go on, else the refusal is shown and logged
+bool gate_open(App& app, const std::string& who) {
+    const std::string why = fce_write_refusal(app, g_live.loc);
+    if (why.empty()) return true;
+    set_status(who + ": not written: " + why, true);
+    app.notify("Standings: " + who + ": not written: " + why, true);
+    app.log("live standings: " + who + ": not written: " + why);
+    return false;
+}
+
 // Write `after` over the row that holds `before`, keep it for Undo, report it in one line, re-read and refresh the view
 bool apply_row(App& app, const fce::StandingRow& before, const fce::StandingRow& after, const std::string& extra, bool typed_before) {
     LiveState& st = g_live;
     const std::string team = app.model.team_name(before.teamid);
+    if (!gate_open(app, team)) return false;
     const std::string err = fce::write_row(app.mem, st.loc, after);
     if (!err.empty()) {
         set_status(team + ": not written: " + err, true);
@@ -346,7 +377,9 @@ bool apply_row(App& app, const fce::StandingRow& before, const fce::StandingRow&
         reload(app);
         return false;
     }
+    st.undo = LiveState::Undo();
     st.undo.valid = true;
+    st.undo.group = before.compobj;
     st.undo.before = before;
     st.undo.after = after;
     st.undo.typed_before = typed_before;
@@ -387,12 +420,29 @@ void commit_cell(App& app, uint16_t id, fce::Cell c, int value) {
     if (c == fce::Cell::Pts) st.typed_pts.insert(id);
 }
 
-// Undo: the row back as it was, only while it still holds what Turbo wrote (a match day in between would be lost)
+// Undo: the row (or the result's two rows and fixture) back as it was, only while it still holds what Turbo wrote (a
+// match day in between would be lost). The write gate first: a refusal keeps the Undo for later.
 void undo_last(App& app) {
     LiveState& st = g_live;
     if (!st.undo.valid) return;
     const LiveState::Undo u = st.undo;
+    if (!gate_open(app, "Undo")) return;
     st.undo.valid = false;
+    if (!u.change.empty()) {
+        const std::string err = fce::undo_change(app.mem, st.loc, u.change);
+        if (!err.empty()) {
+            set_status("Undo not written: " + err, true);
+            app.notify("Standings: undo not written: " + err, true);
+            app.log("live standings: undo of the result edit not written: " + err);
+            reload(app);
+            return;
+        }
+        set_status(u.label + " (undone, applied)", false);
+        app.log("live standings: " + u.label + " (undone)");
+        reload(app);
+        queue_refresh(app, u.label + " (undo)", u.rows);
+        return;
+    }
     fce::StandingRow now;
     if (!row_now(app, u.before.id, now)) return;
     const std::string team = app.model.team_name(u.before.teamid);
@@ -485,7 +535,9 @@ void draw_cell(const fce::StandingRow& r, fce::Cell c, bool selected) {
         st.sel_row = int(r.id);
         st.sel_cell = int(c);
         if (again || ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-            if (!fce::cell_editable(c)) {
+            if (!st.edit_off.empty()) {
+                set_status("Not changed: " + st.edit_off + ".", true);  // 2.2 review: no box while editing is off
+            } else if (!fce::cell_editable(c)) {
                 set_status(c == fce::Cell::P ? "P is W + D + L (home + away): change those, P follows."
                                              : "GD is GF - GA: change those, GD follows.",
                            false);
@@ -504,7 +556,35 @@ void draw_cell(const fce::StandingRow& r, fce::Cell c, bool selected) {
 // Sort keys of the table columns (ColumnUserID): the cells, plus the position and the club name
 constexpr int kColPos = 100, kColClub = 101;
 
+// The kill switch file of every Live standings / Match setup write (fce::kWriteOffFile)
+bool write_off_present(App& app) {
+    std::error_code ec;
+    return std::filesystem::exists(app.turbo_output() / fce::kWriteOffFile, ec);
+}
+// fce_edit_off looks at the file at most once a second (it is asked every frame); the write gate never uses this
+struct WriteOffCache {
+    double next = -1.0;
+    bool present = false;
+} g_write_off;
+
 }  // namespace
+
+std::string fce_write_refusal(App& app, const fce::Located& loc) {
+    // the kill switch file is looked at now (never the banner's cache), the SimDayManager of the career's manager table too
+    // (published, else through the comm service)
+    const BridgeState& st = app.bridge.state();
+    return fce::write_gate(app.mem, loc, write_off_present(app), st.managers, st.comm_service);
+}
+
+std::string fce_edit_off(App& app, const fce::Located& loc) {
+    if (!loc.ok()) return "";
+    if (!loc.read_only.empty()) return loc.read_only;
+    if (app.now >= g_write_off.next || app.now + 2.0 < g_write_off.next) {  // (the second test: another App's clock, tests)
+        g_write_off.present = write_off_present(app);
+        g_write_off.next = app.now + 1.0;
+    }
+    return g_write_off.present ? fce::write_off_reason() : std::string();
+}
 
 std::string live_standings_status() { return g_live.status; }
 
@@ -536,6 +616,9 @@ void draw_live_standings(App& app) {
         if (ImGui::Button("Try again")) st.located_gen = -1;
         return;
     }
+    // 2.2 review: read-only while the DataManager is identified by its back-pointer only or the kill switch file exists
+    st.edit_off = fce_edit_off(app, st.loc);
+    if (!st.edit_off.empty()) st.cell.open = false;
     {
         auto it = st.have_group ? st.entry_of.find(st.group) : st.entry_of.end();
         st.sel_entry = it != st.entry_of.end() ? it->second : -1;
@@ -560,7 +643,8 @@ void draw_live_standings(App& app) {
         ImGui::BeginTooltip();
         ImGui::PushTextWrapPos(S(560.0f));
         ImGui::TextUnformatted("These are the game's own table rows. After an edit Turbo makes the game's standings view re-read them, so the "
-                               "Standings screen and the Office tile show the change. Do not edit while a match or Sim To Date is running.");
+                               "Standings screen and the Office tile show the change. Turbo refuses an edit while the game processes a match "
+                               "day; edit between matches. Off switch: turbo_output\\live_standings_write_off.txt (Undo as well).");
         ImGui::TextUnformatted("P follows W + D + L and GD follows GF - GA. Pts moves with W / D / L (points per Win / Draw / Loss under "
                                "Advanced) unless you typed Pts yourself. Click a column header to sort.");
         if (!app.standings_refresh_status.empty()) ImGui::Text("Standings view: %s", app.standings_refresh_status.c_str());
@@ -569,6 +653,7 @@ void draw_live_standings(App& app) {
         ImGui::PopTextWrapPos();
         ImGui::EndTooltip();
     }
+    if (!st.edit_off.empty()) ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.45f, 1.0f), "Read-only: %s.", st.edit_off.c_str());
     {
         const std::string warning = live_standings_view_warning();
         if (!warning.empty()) ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.35f, 1.0f), "%s", warning.c_str());
@@ -579,11 +664,15 @@ void draw_live_standings(App& app) {
         if (ImGui::IsItemHovered() && !app.standings_refresh_status.empty())
             ImGui::SetTooltip("Standings view: %s", app.standings_refresh_status.c_str());
     }
-    if (st.undo.valid && st.undo.before.compobj == st.group) {
+    if (st.undo.valid && st.undo.group == st.group) {
         if (!st.status.empty()) ImGui::SameLine();
+        ImGui::BeginDisabled(!st.edit_off.empty());
         if (ImGui::Button("Undo##lsundo")) undo_last(app);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Put %s's line back as it was before the last edit", app.model.team_name(st.undo.before.teamid).c_str());
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            if (!st.undo.change.empty()) ImGui::SetTooltip("%s", st.undo.label.c_str());
+            else ImGui::SetTooltip("Put %s's line back as it was before the last edit", app.model.team_name(st.undo.before.teamid).c_str());
+        }
     }
 
     std::vector<size_t> idx = st.have_group ? st.groups[st.group] : std::vector<size_t>();
@@ -742,7 +831,10 @@ void draw_live_standings(App& app) {
         st.edit.points = int16_t(std::max(-32768LL, std::min(32767LL, p)));
     }
     ImGui::SameLine();
-    if (ImGui::Button("Apply to the game")) {
+    ImGui::BeginDisabled(!st.edit_off.empty());
+    const bool apply_clicked = ImGui::Button("Apply to the game");
+    ImGui::EndDisabled();
+    if (apply_clicked) {
         fce::StandingRow before;
         if (row_now(app, cur_id, before)) {
             fce::StandingRow after = before;
@@ -790,21 +882,39 @@ void draw_live_standings(App& app) {
         ImGui::SetNextItemWidth(S(60.0f));
         ImGui::InputInt("##fxaway", &st.new_away, 0);
         ImGui::SameLine();
-        if (ImGui::Button("Change result")) {
-            const fce::Fixture& fx = st.fixtures[size_t(st.sel_fixture)];
+        ImGui::BeginDisabled(!st.edit_off.empty());
+        const bool change_clicked = ImGui::Button("Change result");
+        ImGui::EndDisabled();
+        if (change_clicked) {
+            const fce::Fixture fx = st.fixtures[size_t(st.sel_fixture)];  // a copy: the rows and fixtures are re-read below
+            const uint16_t fid = uint16_t(st.sel_fixture);
             std::vector<uint16_t> written;
             if (fx.home_sid >= 0) written.push_back(uint16_t(fx.home_sid));
             if (fx.away_sid >= 0) written.push_back(uint16_t(fx.away_sid));
-            std::string err = fce::edit_result(app.mem, st.loc, uint16_t(st.sel_fixture), st.new_home, st.new_away, st.pts);
+            const uint16_t group = fx.home_sid >= 0 && size_t(fx.home_sid) < st.rows.size() ? st.rows[size_t(fx.home_sid)].compobj : st.group;
+            // the gate right before the write (kill switch, read-only, a match day being processed), then all or nothing
+            std::string err = fce_write_refusal(app, st.loc);
+            fce::Change change;
+            if (err.empty()) err = fce::edit_result(app.mem, st.loc, fid, st.new_home, st.new_away, st.pts, &change);
             if (err.empty()) {
-                st.undo.valid = false;  // both rows and the fixture changed: Undo would put back only one row
+                if (!change.empty()) {
+                    // 2.2 review: one Undo puts the fixture's score and both rows back (the fixture block is the last patch)
+                    const fce::Patch& fp = change.patches.back();
+                    st.undo = LiveState::Undo();
+                    st.undo.valid = true;
+                    st.undo.group = group;
+                    st.undo.change = change;
+                    st.undo.label = "Fixture " + std::to_string(fid) + " back to " + std::to_string(int(int8_t(fp.before[0x0F]))) + " - " +
+                                    std::to_string(int(int8_t(fp.before[0x11]))) + " (its score and both table rows)";
+                    st.undo.rows = written;
+                }
                 set_status("Result changed to " + std::to_string(st.new_home) + " - " + std::to_string(st.new_away) +
                                " (fixture and both table rows, applied)",
                            false);
-                app.log("live standings: fixture " + std::to_string(st.sel_fixture) + " set to " + std::to_string(st.new_home) + "-" +
+                app.log("live standings: fixture " + std::to_string(fid) + " set to " + std::to_string(st.new_home) + "-" +
                         std::to_string(st.new_away));
                 reload(app);
-                queue_refresh(app, "fixture " + std::to_string(st.sel_fixture), written);
+                queue_refresh(app, "fixture " + std::to_string(fid), written);
             } else {
                 set_status("Result not changed: " + err, true);
                 app.notify("Result: " + err, true);

@@ -39,6 +39,7 @@ std::atomic<long long> g_fix_applied{0}, g_fix_skipped{0};
 std::atomic<bool> g_hooks_tried{false};
 bool g_hooks_ok = false;  // guarded by g_mutex
 std::string g_fix_last;   // guarded by g_mutex
+mfix::PairLog g_fix_pairs;  // guarded by g_mutex: the two hooks' outcomes per fixture (fixture and table disagreeing)
 
 using HandleFn = uint64_t (*)(void*, void*);
 HandleFn g_orig_sched = nullptr, g_orig_standings = nullptr;
@@ -200,18 +201,26 @@ bool queue_var(const std::string& name, int32_t value, bool clear_it, std::strin
 }
 
 // ---------------------------------------------------------------- result hooks (FCE's thread)
-void rewrite(const char* hook, void* self, void* msg, uint64_t vtable_rva) {
+// `handler` = the hooked HandleMessage (signature-resolved): the manager is the object whose vtable holds it in slot 5;
+// on build kRvaBuild its documented vtable must match as well (the limits of that check: core/match_setup.h mfix::Owner).
+// Both goal ints are read back after the write (mfix::apply_to_request); when one hook rewrites and the other leaves the
+// result as played, turbo_gui.log says so (mfix::PairLog)
+void rewrite(const char* hook, mfix::Hook which, void* self, void* msg, uint64_t vtable_rva, uint64_t handler) {
     std::shared_ptr<const mfix::FixTable> fixes = std::atomic_load(&g_fix_table);
     if (!fixes || fixes->empty()) return;
     ProcessMemory mem;
     int32_t type = 0;
     if (!mem.rd(reinterpret_cast<uint64_t>(msg) + mfix::kOffType, type) || type != mfix::kRequestType) return;
     if (g_fix_switch.present(fix_off_path())) return;
-    const uint64_t base = game_image_base();
+    mfix::Owner owner;
+    owner.vtable = documented_rva(game_build_key(), game_image_base(), vtable_rva);
+    owner.handler = handler;
+    // 2.2 review: one result hook switched off at runtime (turbo_output\hook_fce_result_*_off.txt) would let the fixture's
+    // score and the table disagree: this hook then leaves a fixed result as played too (logged below)
+    const char* partner = which == mfix::Hook::Scheduling ? "fce_result_standings" : "fce_result_sched";
+    const std::string hold = game_hook_enabled(partner) ? std::string() : std::string("the other result hook is off: left as played (") + partner + ")";
     mfix::Applied a;
-    if (!mfix::apply_to_request(mem, reinterpret_cast<uint64_t>(self), base ? base + vtable_rva : 0, reinterpret_cast<uint64_t>(msg),
-                                *fixes, a))
-        return;
+    if (!mfix::apply_to_request(mem, reinterpret_cast<uint64_t>(self), owner, reinterpret_cast<uint64_t>(msg), *fixes, a, hold)) return;
     char line[320];
     if (!a.skipped.empty()) {
         ++g_fix_skipped;
@@ -223,20 +232,27 @@ void rewrite(const char* hook, void* self, void* msg, uint64_t vtable_rva) {
                       a.away, a.changed ? "" : " (already that score)");
     }
     log("result fixing %s", line);
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (a.changed) ++g_fix_counts[a.fixture];
-    g_fix_last = line;
+    std::string disagree;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (a.changed) ++g_fix_counts[a.fixture];
+        g_fix_last = line;
+        disagree = g_fix_pairs.note(which, a);
+    }
+    if (!disagree.empty()) log("result fixing: %s", disagree.c_str());
 }
 
 uint64_t hk_sched(void* self, void* msg) {
     game_hook_called("fce_result_sched");
-    if (game_hook_enabled("fce_result_sched")) HOOK_BODY("fce_result_sched", rewrite("scheduling", self, msg, mfix::kRvaSchedulingVtable));
+    if (game_hook_enabled("fce_result_sched"))
+        HOOK_BODY("fce_result_sched", rewrite("scheduling", mfix::Hook::Scheduling, self, msg, mfix::kRvaSchedulingVtable, g_sched));
     return g_orig_sched(self, msg);
 }
 
 uint64_t hk_standings(void* self, void* msg) {
     game_hook_called("fce_result_standings");
-    if (game_hook_enabled("fce_result_standings")) HOOK_BODY("fce_result_standings", rewrite("standings", self, msg, mfix::kRvaStandingsVtable));
+    if (game_hook_enabled("fce_result_standings"))
+        HOOK_BODY("fce_result_standings", rewrite("standings", mfix::Hook::Standings, self, msg, mfix::kRvaStandingsVtable, g_standings));
     return g_orig_standings(self, msg);
 }
 

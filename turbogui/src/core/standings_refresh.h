@@ -65,7 +65,7 @@ constexpr uint64_t kNodeRight = 0x00, kNodeLeft = 0x08, kNodeParent = 0x10, kNod
 // +0x18 LockSemaphore, +0x20 SpinCount
 constexpr uint64_t kCsLockCount = 0x08, kCsRecursion = 0x0C, kCsOwner = 0x10;
 constexpr uint64_t kRvaVtable = 0x975EA38;          // StandingsViewManager vtable (ctor 0x147d9a700 writes it)
-constexpr uint64_t kRvaLiveStandingsVtable = 0xB016148;  // the map values
+constexpr uint64_t kRvaLiveStandingsVtable = 0xB016148;  // the map values ("svm_live_vtable")
 constexpr uint64_t kVtableSlotListener = 0x08;  // vtable slot 1 = OnCareerEvent = "svm_listener"
 constexpr uint64_t kCtxIfceHolder = 0x38;       // [ctx+0x38] = holder of manager slot 1 (0x20*1 + 0x18)
 constexpr uint64_t kIfceVtablePost = 0x20;      // IFCEInterface vtable slot 4 = Post(request) ("fce_iface_post")
@@ -96,6 +96,9 @@ struct Fns {
     uint64_t allocator = 0;     // the game allocator global refresh_comp reads (optional check)
     uint64_t compobj_vtable = 0;      // FCEI::CompObject vtable (optional: RVA + image base when 0)
     uint64_t standinglist_vtable = 0; // StandingObject list vtable (optional: RVA + image base when 0)
+    // LiveStandings vtable, the map values ("svm_live_vtable"; optional: RVA + image base when 0, which is the address of
+    // build kRvaBuild only: on 6AC07E31 that fallback refused every map value and no refresh ran)
+    uint64_t live_vtable = 0;
     // Name of the first required function that is missing, nullptr when all are there
     const char* missing() const;
 };
@@ -127,6 +130,9 @@ struct Request {
     uint64_t comm = 0;        // comm service (bridge_state.json comm_service): managers = [[comm+0x20]+0x10]
     uint64_t ifce = 0;        // FCE interface Turbo wrote to (bridge_state.json ifce); cross-checked, 0 = skip
     uint64_t image_base = 0;  // FC27.exe base for the vtable RVAs when Fns::vtable is 0; 0 = skip those checks
+    // The running game's build key (core/sigscan.h build_key). The kRva* fallbacks apply on kRvaBuild only (documented_rva):
+    // with an image base on any other build ("" included) a vtable whose signature is missing refuses the call, naming it
+    std::string build;
     uint64_t image_size = 0;  // FC27.exe SizeOfImage: function pointers must fall inside; 0 = skip the range check
     bool allow_fallback = false;  // call the listener (event 29) when the map is empty (opt-in: the game's full refresh)
     std::string label;        // what was edited (for the message); may be empty
@@ -176,6 +182,12 @@ std::string shown_groups(Memory& mem, uint64_t svm, uint64_t live_vtable, uint64
 bool describe_rows(const std::vector<ShownGroup>& shown, const std::vector<uint16_t>& rows, std::string& msg);
 // "" when the SimDayManager (type 103) is idle (state 0), else why the game is busy (missing manager counts as busy)
 std::string sim_busy(Memory& mem, uint64_t managers);
+
+// A vtable the checks compare with (2.2 review): `sig` (the signature's address) when resolved, else image_base + `rva` on
+// build kRvaBuild only (documented_rva). Without an image base it is 0 and `missing` stays "" (synthetic memory in tests:
+// the check is skipped, as before). With an image base on another build it is 0 and `missing` says
+// "signature <name> was not found on game build <build>": the caller refuses with it (never the old build's address).
+uint64_t anchor_vtable(uint64_t sig, const std::string& build, uint64_t image_base, uint64_t rva, const char* sig_name, std::string& missing);
 
 // The whole call (see the file comment). Never throws.
 Result refresh(Memory& mem, Caller& call, const Fns& fns, const Request& req);

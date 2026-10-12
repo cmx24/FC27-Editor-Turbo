@@ -1,5 +1,6 @@
 // FC 27 LE Turbo GUI - live league tables of the game's competition engine (see fce_standings.h).
 #include "fce_standings.h"
+#include "standings_refresh.h"  // svm::sim_busy: the write gate
 
 #include <algorithm>
 #include <cstdio>
@@ -21,10 +22,21 @@ uint32_t rd32(const uint8_t* p) {
     return v;
 }
 
-bool vtable_is(Memory& mem, uint64_t obj, uint64_t image_base, uint64_t rva) {
-    if (image_base == 0) return true;
-    uint64_t vt = 0;
-    return mem.rd(obj, vt) && vt == image_base + rva;
+std::string hex(uint64_t v) {
+    char b[32];
+    std::snprintf(b, sizeof(b), "0x%llX", static_cast<unsigned long long>(v));
+    return b;
+}
+
+std::string on_build(const Anchors& a) { return a.build.empty() ? std::string("this game build") : "game build " + a.build; }
+
+// The object's vtable pointer: readable, aligned and (when the image range is known) inside FC27.exe. "" or why
+std::string read_vtable(Memory& mem, uint64_t obj, const Anchors& a, const char* what, uint64_t& vt) {
+    vt = 0;
+    if (!mem.rd(obj, vt) || !is_ptr(vt, 8)) return std::string(what) + " at " + hex(obj) + " has no readable vtable";
+    if (a.image_base && a.image_size && (vt < a.image_base || vt >= a.image_base + a.image_size))
+        return std::string(what) + " at " + hex(obj) + " has a vtable outside FC27.exe (" + hex(vt) + "): not the game's object";
+    return "";
 }
 
 // Reads the two list headers; "" or the reason
@@ -136,10 +148,89 @@ bool describe_group(const std::vector<CompObj>& objs, uint16_t group, GroupInfo&
     return true;
 }
 
-std::string locate(Memory& mem, uint64_t ifce, uint64_t image_base, Located& out) {
+Anchors Anchors::unchecked() {
+    Anchors a;
+    a.check = false;
+    return a;
+}
+
+Anchors anchors_for(const std::string& build, uint64_t image_base, uint64_t image_size, uint64_t sig_iface_post, uint64_t sig_manager_vtable) {
+    Anchors a;
+    a.build = build;
+    a.image_base = image_base;
+    a.image_size = image_size;
+    a.iface_post = sig_iface_post;
+    a.iface_vtable = documented_rva(build, image_base, kRvaInterfaceVtable);
+    a.manager_by_signature = sig_manager_vtable != 0;
+    a.manager_vtable = sig_manager_vtable ? sig_manager_vtable : documented_rva(build, image_base, kRvaDataManagerVtable);
+    return a;
+}
+
+std::string describe_anchors(const Anchors& a) {
+    if (!a.check) return "no identity checks";
+    if (!a.pending.empty()) return "not resolved yet: " + a.pending;
+    std::string s = on_build(a) + ": FCE interface ";
+    if (a.iface_vtable && a.iface_post) s += "vtable " + hex(a.iface_vtable) + " with Post " + hex(a.iface_post) + " in slot 4";
+    else if (a.iface_vtable) s += "vtable " + hex(a.iface_vtable) + " (documented)";
+    else if (a.iface_post) s += "by Post " + hex(a.iface_post) + " in its vtable slot 4 (signature fce_iface_post)";
+    else s += "NOT identifiable (signature fce_iface_post not found): live standings and match setup fixtures are off";
+    s += "; DataManager ";
+    if (a.manager_vtable) s += "vtable " + hex(a.manager_vtable) + (a.manager_by_signature ? " (signature fce_datamanager_vtable)" : " (documented)");
+    else s += "by its back-pointer only (signature fce_datamanager_vtable not found): READ-ONLY, editing is off";
+    return s;
+}
+
+std::string write_refusal(const Anchors& a) {
+    if (!a.check || a.manager_vtable) return "";
+    return "DataManager identified by its back-pointer only: editing is off (signature fce_datamanager_vtable not found on " + on_build(a) + ")";
+}
+
+std::string check_interface(Memory& mem, uint64_t ifce, const Anchors& a, std::string* how) {
+    if (how) how->clear();
+    if (!a.check) return "";
+    if (!a.pending.empty()) return a.pending;
+    if (!a.iface_vtable && !a.iface_post)
+        return "the FCE interface cannot be identified on " + on_build(a) +
+               ": the signature fce_iface_post was not found (Status tab > Game hooks)";
+    uint64_t vt = 0;
+    std::string err = read_vtable(mem, ifce, a, "the FCE interface object", vt);
+    if (!err.empty()) return err + " (stale bridge_state.json? reload the career)";
+    if (a.iface_vtable && vt != a.iface_vtable)
+        return "the FCE interface object has another vtable (" + hex(vt) + ", " + on_build(a) + " has " + hex(a.iface_vtable) + ")";
+    if (a.iface_post) {
+        uint64_t post = 0;
+        if (!mem.rd(vt + kIfaceSlotPost, post) || post != a.iface_post)
+            return "the FCE interface object's vtable " + hex(vt) + " holds " + hex(post) + " in slot 4, not FCEInterfaceImpl::Post " + hex(a.iface_post) +
+                   " (signature fce_iface_post): not the FCE interface (stale bridge_state.json? reload the career)";
+    }
+    if (how) *how = a.iface_vtable && a.iface_post ? "vtable " + hex(vt) + " with Post in slot 4" : a.iface_vtable ? "vtable " + hex(vt) : "Post in vtable slot 4 (" + hex(vt) + ")";
+    return "";
+}
+
+std::string check_manager(Memory& mem, uint64_t manager, const Anchors& a, std::string* how) {
+    if (how) how->clear();
+    if (!a.check) return "";
+    uint64_t vt = 0;
+    std::string err = read_vtable(mem, manager, a, "DataManager", vt);
+    if (!err.empty()) return err;
+    if (a.manager_vtable) {
+        if (vt != a.manager_vtable)
+            return "DataManager has another vtable (" + hex(vt) + ", " + on_build(a) + " has " + hex(a.manager_vtable) +
+                   (a.manager_by_signature ? ", signature fce_datamanager_vtable)" : ")");
+        if (how) *how = "vtable " + hex(vt) + (a.manager_by_signature ? " (signature)" : " (documented)");
+        return "";
+    }
+    // no vtable known for this build: the chain from the identified interface and the back-pointer the caller checked
+    if (how) *how = "back-pointer only (vtable " + hex(vt) + "; signature fce_datamanager_vtable not found)";
+    return "";
+}
+
+std::string locate(Memory& mem, uint64_t ifce, const Anchors& anchors, Located& out) {
     out = Located();
     if (!is_ptr(ifce, 8)) return "no FCE interface pointer (bridge_state.json ifce)";
-    if (!vtable_is(mem, ifce, image_base, kRvaInterfaceVtable)) return "the FCE interface object has another vtable (game update?)";
+    std::string iface_how, manager_how;
+    std::string err = check_interface(mem, ifce, anchors, &iface_how);
+    if (!err.empty()) return err;
     Located loc;
     loc.impl = ifce;
     loc.hub = mem.ptr(ifce + kOffImplHub);
@@ -149,22 +240,27 @@ std::string locate(Memory& mem, uint64_t ifce, uint64_t image_base, Located& out
     loc.manager = mem.ptr(loc.connector + kOffConnectorManager);
     if (!loc.manager) return "DataManager pointer is not readable";
     if (mem.ptr(loc.manager + kOffManagerConnector) != loc.connector) return "DataManager does not point back to its DataConnector";
-    if (!vtable_is(mem, loc.manager, image_base, kRvaDataManagerVtable)) return "DataManager has another vtable (game update?)";
-    std::string err = read_lists(mem, loc);
+    err = check_manager(mem, loc.manager, anchors, &manager_how);
     if (!err.empty()) return err;
+    err = read_lists(mem, loc);
+    if (!err.empty()) return err;
+    if (anchors.check) loc.identity = "interface: " + iface_how + "; DataManager: " + manager_how;
+    loc.read_only = write_refusal(anchors);
     out = loc;
     return "";
 }
 
-bool validate(Memory& mem, Located& loc, uint64_t image_base) {
+bool validate(Memory& mem, Located& loc, const Anchors& anchors) {
     if (!loc.ok()) return false;
+    if (!check_interface(mem, loc.impl, anchors).empty()) return false;
     if (mem.ptr(loc.impl + kOffImplHub) != loc.hub) return false;
     if (mem.ptr(loc.hub + kOffHubConnector) != loc.connector) return false;
     if (mem.ptr(loc.connector + kOffConnectorManager) != loc.manager) return false;
     if (mem.ptr(loc.manager + kOffManagerConnector) != loc.connector) return false;
-    if (!vtable_is(mem, loc.manager, image_base, kRvaDataManagerVtable)) return false;
+    if (!check_manager(mem, loc.manager, anchors).empty()) return false;
     Located fresh = loc;
     if (!read_lists(mem, fresh).empty()) return false;
+    fresh.read_only = write_refusal(anchors);  // the anchors it is checked with now decide whether it may be written
     loc = fresh;  // the lists may have grown (new season); the chain is the same
     return true;
 }
@@ -256,8 +352,140 @@ std::string check_row(const StandingRow& row) {
     return "";
 }
 
+// ---------------------------------------------------------------- writes: gate, blocks written and read back, Undo
+std::string write_off_reason() {
+    return std::string("turbo_output\\") + kWriteOffFile + " exists: Turbo writes no standings row or fixture (delete it to edit again)";
+}
+
+std::string write_gate(Memory& mem, const Located& loc, bool switched_off, uint64_t managers, uint64_t comm) {
+    if (switched_off) return write_off_reason();
+    if (!loc.ok()) return "the standings are not located";
+    if (!loc.read_only.empty()) return loc.read_only;
+    // the career's manager table: published, else from the comm service (as the standings refresh finds it); Lua may
+    // publish managers = 0 (bridge.lua) while the comm service is known
+    const uint64_t table = managers ? managers : (comm ? svm::manager_table(mem, comm) : 0);
+    if (!table)
+        return "match-day state unknown: the career's manager table is not published (bridge_state.json managers / comm_service), "
+               "Turbo writes nothing";
+    std::string err;
+    const uint64_t sdm = svm::manager_at(mem, table, svm::kSimDayTypeId, err);
+    int32_t state = 0;
+    if (!sdm) return "match-day state unknown: the SimDayManager is not available (" + err + "), Turbo writes nothing";
+    if (!mem.rd(sdm + svm::kOffSimDayState, state)) return "match-day state unknown: the SimDayManager is not readable, Turbo writes nothing";
+    if (state != 0)
+        return "not while the game may be processing a match day: SimDayManager state " + std::to_string(state) + " (try again when the hub is back)";
+    return "";
+}
+
+namespace {
+constexpr size_t kBlock = kStandingSize;
+
+// The range of bytes that differ between two block images ([lo, hi), lo == hi when they are the same)
+void diff_range(const uint8_t* a, const uint8_t* b, size_t& lo, size_t& hi) {
+    lo = kBlock;
+    hi = 0;
+    for (size_t i = 0; i < kBlock; ++i)
+        if (a[i] != b[i]) {
+            if (i < lo) lo = i;
+            hi = i + 1;
+        }
+    if (lo > hi) lo = hi = 0;
+}
+
+// Write `img` over the block at `addr` that holds `cur`: only the bytes that differ, then read them back. "" or why, with
+// what became of the block. On a failure `cur` is put back only when that is safe: nothing is written while the block
+// still holds `cur` (a refused or dropped write changed nothing; `holds_cur` says what that is: "it holds its old bytes",
+// in a rollback "it still holds Turbo's edit"); it is written back (and read back) only while all 0x18 bytes are what this
+// write put there; anything else means the game changed the block: it is left alone ("ROLLBACK SKIPPED").
+std::string put_block(Memory& mem, uint64_t addr, const uint8_t* cur, const uint8_t* img, const std::string& what,
+                      const char* holds_cur = "it holds its old bytes") {
+    size_t lo = 0, hi = 0;
+    diff_range(cur, img, lo, hi);
+    if (lo == hi) return "";
+    std::string err;
+    uint8_t back[kBlock];
+    if (!mem.write(addr + lo, img + lo, hi - lo)) err = "writing " + what + " failed";
+    else if (!mem.read(addr, back, kBlock)) err = what + " is not readable after the write";
+    else if (std::memcmp(back + lo, img + lo, hi - lo) != 0) err = what + " does not read back what Turbo wrote";
+    if (err.empty()) return "";
+    uint8_t now[kBlock];
+    if (!mem.read(addr, now, kBlock)) return err + " (ROLLBACK SKIPPED: " + what + " is not readable)";
+    if (std::memcmp(now, cur, kBlock) == 0) return err + " (" + holds_cur + ")";
+    if (std::memcmp(now, img, kBlock) != 0) return err + " (ROLLBACK SKIPPED: " + what + " changed by the game)";
+    const bool restored = mem.write(addr + lo, cur + lo, hi - lo) && mem.read(addr, back, kBlock) && std::memcmp(back, cur, kBlock) == 0;
+    return err + (restored ? std::string(" (put back: ") + holds_cur + ")" : " (putting it back FAILED: " + what + " may hold a part of the edit)");
+}
+
+// The patches in order, each against the bytes it was built from; a failure part-way puts the blocks already written back,
+// each only while all its 0x18 bytes are still what Turbo wrote (else the game changed it since: left alone, "ROLLBACK
+// SKIPPED: <what> changed by the game")
+std::string apply_patches(Memory& mem, const std::vector<Patch>& ps) {
+    for (size_t i = 0; i < ps.size(); ++i) {
+        const Patch& p = ps[i];
+        uint8_t cur[kBlock];
+        std::string err;
+        if (!mem.read(p.addr, cur, kBlock)) err = p.what + " is not readable";
+        else if (std::memcmp(cur, p.before, kBlock) != 0) err = p.what + " changed under Turbo (a match day? reload)";
+        else err = put_block(mem, p.addr, p.before, p.after, p.what);
+        if (err.empty()) continue;
+        std::string failed;
+        bool any = false;
+        for (size_t j = i; j-- > 0;) {
+            size_t lo = 0, hi = 0;
+            diff_range(ps[j].before, ps[j].after, lo, hi);
+            if (lo == hi) continue;
+            any = true;
+            uint8_t now[kBlock];
+            std::string e;
+            if (!mem.read(ps[j].addr, now, kBlock)) e = "ROLLBACK SKIPPED: " + ps[j].what + " is not readable";
+            else if (std::memcmp(now, ps[j].after, kBlock) != 0) e = "ROLLBACK SKIPPED: " + ps[j].what + " changed by the game";
+            else e = put_block(mem, ps[j].addr, ps[j].after, ps[j].before, ps[j].what, "it still holds Turbo's edit");
+            if (!e.empty()) failed += (failed.empty() ? "" : "; ") + e;
+        }
+        if (!any) return err;
+        return err + (failed.empty() ? "; the blocks written before it were put back: nothing changed" : "; ROLLBACK INCOMPLETE: " + failed);
+    }
+    return "";
+}
+
+bool in_list(uint64_t addr, uint64_t begin, uint64_t count) {
+    return begin && addr >= begin && addr < begin + count * kBlock && (addr - begin) % kBlock == 0;
+}
+
+Patch make_patch(uint64_t addr, const uint8_t* cur, const std::string& what) {
+    Patch p;
+    p.addr = addr;
+    std::memcpy(p.before, cur, kBlock);
+    std::memcpy(p.after, cur, kBlock);
+    p.what = what;
+    return p;
+}
+}  // namespace
+
+std::string undo_change(Memory& mem, const Located& loc, const Change& c) {
+    if (!loc.ok()) return "the standings are not located";
+    if (!loc.read_only.empty()) return loc.read_only;
+    if (c.patches.empty()) return "nothing to undo";
+    for (const Patch& p : c.patches) {
+        if (!in_list(p.addr, loc.rows_begin, loc.row_count) && !in_list(p.addr, loc.fixtures_data, loc.fixture_count))
+            return p.what + " is no longer in the engine's lists (new season or save loaded?): nothing undone";
+        uint8_t cur[kBlock];
+        if (!mem.read(p.addr, cur, kBlock)) return p.what + " is not readable: nothing undone";
+        if (std::memcmp(cur, p.after, kBlock) != 0) return p.what + " changed since the edit (a match day or another edit): nothing undone";
+    }
+    std::vector<Patch> back;
+    for (auto it = c.patches.rbegin(); it != c.patches.rend(); ++it) {
+        Patch q = *it;
+        std::memcpy(q.before, it->after, kBlock);
+        std::memcpy(q.after, it->before, kBlock);
+        back.push_back(q);
+    }
+    return apply_patches(mem, back);
+}
+
 std::string write_row(Memory& mem, const Located& loc, const StandingRow& row) {
     if (!loc.ok()) return "the standings are not located";
+    if (!loc.read_only.empty()) return loc.read_only;
     if (row.addr < loc.rows_begin || row.addr + kStandingSize > loc.rows_end || (row.addr - loc.rows_begin) % kStandingSize != 0)
         return "the row is outside the standings list (list changed? locate again)";
     std::string err = check_row(row);
@@ -271,9 +499,7 @@ std::string write_row(Memory& mem, const Located& loc, const StandingRow& row) {
     uint8_t img[kStandingSize];
     std::memcpy(img, cur, kStandingSize);
     encode_counters(row, img);
-    if (std::memcmp(img, cur, kStandingSize) == 0) return "";
-    if (!mem.write(row.addr + 0x09, img + 0x09, 0x16 - 0x09)) return "writing the row failed";
-    return "";
+    return put_block(mem, row.addr, cur, img, "the row");
 }
 
 namespace {
@@ -314,8 +540,10 @@ std::string apply_result(StandingRow& home, StandingRow& away, int hs, int as, c
     return "";
 }
 
-std::string edit_result(Memory& mem, const Located& loc, uint16_t fixture_id, int new_home, int new_away, const Points& pts) {
+std::string edit_result(Memory& mem, const Located& loc, uint16_t fixture_id, int new_home, int new_away, const Points& pts, Change* done) {
+    if (done) done->patches.clear();
     if (!loc.ok()) return "the standings are not located";
+    if (!loc.read_only.empty()) return loc.read_only;
     if (fixture_id >= loc.fixture_count) return "no such fixture";
     if (new_home < 0 || new_away < 0 || new_home > 99 || new_away > 99) return "scores must be 0..99";
     uint64_t fa = loc.fixtures_data + uint64_t(fixture_id) * kFixtureSize;
@@ -341,27 +569,27 @@ std::string edit_result(Memory& mem, const Located& loc, uint16_t fixture_id, in
     if (!err.empty()) return err;
     err = apply_result(home, away, new_home, new_away, pts, +1);
     if (!err.empty()) return err;
-    // rows first (both or none as far as the checks go), then the fixture score bytes
-    err = write_row(mem, loc, home);
+    // the three blocks as they are now and as Turbo writes them: the rows first, then the fixture's two score bytes; all or
+    // nothing (a failure part-way puts back the blocks already written)
+    std::vector<Patch> ps = {make_patch(ha, hb, "the home row"), make_patch(aa, ab, "the away row"), make_patch(fa, fb, "the fixture's score")};
+    encode_counters(home, ps[0].after);
+    encode_counters(away, ps[1].after);
+    ps[2].after[0x0F] = uint8_t(int8_t(new_home));
+    ps[2].after[0x11] = uint8_t(int8_t(new_away));
+    err = apply_patches(mem, ps);
     if (!err.empty()) return err;
-    err = write_row(mem, loc, away);
-    if (!err.empty()) return "home row written, away row failed: " + err;
-    uint8_t score[1];
-    score[0] = uint8_t(int8_t(new_home));
-    if (!mem.write(fa + 0x0F, score, 1)) return "rows written, the fixture's home score failed";
-    score[0] = uint8_t(int8_t(new_away));
-    if (!mem.write(fa + 0x11, score, 1)) return "rows written, the fixture's away score failed";
+    if (done) done->patches = ps;
     return "";
 }
 
 // ---------------------------------------------------------------- match setup: unplayed fixtures
 namespace {
-// Read an unplayed, used fixture `id` into f (its address in fa). "" or the reason
-std::string unplayed_fixture(Memory& mem, const Located& loc, uint16_t id, Fixture& f, uint64_t& fa) {
+// Read an unplayed, used fixture `id` into f (its address in fa, its bytes in fb). "" or the reason
+std::string unplayed_fixture(Memory& mem, const Located& loc, uint16_t id, Fixture& f, uint64_t& fa, uint8_t* fb) {
     if (!loc.ok()) return "the standings are not located";
+    if (!loc.read_only.empty()) return loc.read_only;
     if (id >= loc.fixture_count) return "no such fixture";
     fa = loc.fixtures_data + uint64_t(id) * kFixtureSize;
-    uint8_t fb[kFixtureSize];
     if (!mem.read(fa, fb, kFixtureSize)) return "the fixture is not readable";
     decode_fixture(fb, fa, f);
     if (f.used != 1 || f.id != id) return "the fixture slot is not in use";
@@ -376,27 +604,36 @@ bool row_at(Memory& mem, const Located& loc, int16_t sid, StandingRow& r) {
     decode_row(b, a, r);
     return r.used == 1 && r.id == uint16_t(sid);
 }
+// The fixture's two standing ids (+0x0A home, +0x0C away) set to `home` / `away`, written and read back. "" or why
+std::string put_sides(Memory& mem, uint64_t fa, const uint8_t* fb, int16_t home, int16_t away, Change* done) {
+    std::vector<Patch> ps = {make_patch(fa, fb, "the fixture")};
+    std::memcpy(ps[0].after + 0x0A, &home, 2);
+    std::memcpy(ps[0].after + 0x0C, &away, 2);
+    const std::string err = apply_patches(mem, ps);
+    if (!err.empty()) return err;
+    if (done) done->patches = ps;
+    return "";
+}
 }  // namespace
 
-std::string swap_fixture_sides(Memory& mem, const Located& loc, uint16_t fixture_id) {
+std::string swap_fixture_sides(Memory& mem, const Located& loc, uint16_t fixture_id, Change* done) {
+    if (done) done->patches.clear();
     Fixture f;
     uint64_t fa = 0;
-    std::string err = unplayed_fixture(mem, loc, fixture_id, f, fa);
+    uint8_t fb[kFixtureSize];
+    std::string err = unplayed_fixture(mem, loc, fixture_id, f, fa, fb);
     if (!err.empty()) return err;
     StandingRow h, a;
     if (!row_at(mem, loc, f.home_sid, h) || !row_at(mem, loc, f.away_sid, a)) return "the fixture's standing rows are not usable";
-    uint8_t b[4];
-    const int16_t nh = f.away_sid, na = f.home_sid;
-    std::memcpy(b, &nh, 2);
-    std::memcpy(b + 2, &na, 2);
-    if (!mem.write(fa + 0x0A, b, 4)) return "writing the fixture rows failed";
-    return "";
+    return put_sides(mem, fa, fb, f.away_sid, f.home_sid, done);
 }
 
-std::string set_fixture_teams(Memory& mem, const Located& loc, uint16_t fixture_id, int16_t home_sid, int16_t away_sid) {
+std::string set_fixture_teams(Memory& mem, const Located& loc, uint16_t fixture_id, int16_t home_sid, int16_t away_sid, Change* done) {
+    if (done) done->patches.clear();
     Fixture f;
     uint64_t fa = 0;
-    std::string err = unplayed_fixture(mem, loc, fixture_id, f, fa);
+    uint8_t fb[kFixtureSize];
+    std::string err = unplayed_fixture(mem, loc, fixture_id, f, fa, fb);
     if (!err.empty()) return err;
     if (home_sid == away_sid) return "home and away must be different clubs";
     StandingRow ch, ca, nh, na;
@@ -405,11 +642,7 @@ std::string set_fixture_teams(Memory& mem, const Located& loc, uint16_t fixture_
     if (nh.compobj != ch.compobj || na.compobj != ch.compobj) return "both clubs must belong to the fixture's competition group";
     if (nh.teamid == 0 || na.teamid == 0) return "a chosen row has no team";
     if (home_sid == f.home_sid && away_sid == f.away_sid) return "";
-    uint8_t b[4];
-    std::memcpy(b, &home_sid, 2);
-    std::memcpy(b + 2, &away_sid, 2);
-    if (!mem.write(fa + 0x0A, b, 4)) return "writing the fixture rows failed";
-    return "";
+    return put_sides(mem, fa, fb, home_sid, away_sid, done);
 }
 
 std::string pairing_conflict(const std::vector<Fixture>& fixtures, const std::vector<StandingRow>& rows, uint16_t fixture_id, int16_t home_sid,

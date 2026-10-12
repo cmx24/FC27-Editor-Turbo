@@ -30,6 +30,10 @@ struct MatchState {
     int sel = -1;  // fixture id
     int fix_home = 1, fix_away = 0;
     int opponent = -1;  // standing id picked as the new opponent
+    // 2.2 review: the last venue swap / new opponent, for Undo (the fixture block as it was and as Turbo wrote it)
+    fce::Change undo;
+    std::string undo_what;  // "Everton v Arsenal: home and away swapped"
+    std::string edit_off;   // why the fixtures cannot be edited now (fce_edit_off; "" = they can)
     std::map<std::string, int> edit;  // variable -> value in its box
     // channel A: per-side gameplay sliders (core/gameplay_sliders.h) and the A/B presets
     std::map<std::string, int> side_edit;              // variable -> value in its box (50 = neutral until typed)
@@ -57,12 +61,24 @@ bool reload(App& app) {
 
 void ensure_located(App& app) {
     const uint64_t ifce = app.bridge.state().ifce;
-    const bool fresh = g_ms.loc.ok() && g_ms.located_ifce == ifce && g_ms.located_gen == app.gen && fce::validate(app.mem, g_ms.loc, app.game_base);
+    const fce::Anchors anchors = app.fce_anchors();  // the running build's identities (signature-resolved by the host)
+    const bool fresh = g_ms.loc.ok() && g_ms.located_ifce == ifce && g_ms.located_gen == app.gen && fce::validate(app.mem, g_ms.loc, anchors);
     if (fresh) return;
+    if (g_ms.located_ifce != ifce) {
+        // another career: its fixtures are not the ones the last edit changed (Undo itself also checks the block)
+        g_ms.undo = fce::Change();
+        g_ms.undo_what.clear();
+    }
     g_ms.located_ifce = ifce;
     g_ms.located_gen = app.gen;
-    g_ms.err = fce::locate(app.mem, ifce, app.game_base, g_ms.loc);
-    if (g_ms.err.empty()) reload(app);
+    g_ms.err = fce::locate(app.mem, ifce, anchors, g_ms.loc);
+    if (g_ms.err.empty() && reload(app)) {
+        // also into turbo_gui.log: which identities the running build was checked with (the in-game check reads it)
+        const std::string line = "match setup: fixtures located: " + std::to_string(g_ms.fixtures.size()) + " fixtures" +
+                                 (g_ms.loc.identity.empty() ? std::string() : " (" + g_ms.loc.identity + ")");
+        app.log(line);
+        if (app.log_hook) app.log_hook(line);
+    }
 }
 
 uint32_t team_of(int16_t sid) {
@@ -129,17 +145,63 @@ void after_edit(App& app, const std::string& what) {
     app.log("match setup: " + what);
 }
 
-void draw_selected(App& app, const fce::Fixture& f, uint32_t user) {
+// A venue / opponent write: the gate right before it (kill switch, read-only, a match day being processed), the write
+// (read back, put back on a failure), its Undo kept. `write` returns "" or why and fills the Change
+template <typename Write>
+void fixture_edit(App& app, const std::string& title, const std::string& what, Write write) {
+    std::string err = fce_write_refusal(app, g_ms.loc);
+    fce::Change change;
+    if (err.empty()) err = write(change);
+    if (!err.empty()) {
+        app.notify(title + ": " + err, true);
+        app.log("match setup: " + title + " not written: " + err);
+        reload(app);
+        return;
+    }
+    if (!change.empty()) {
+        g_ms.undo = change;
+        g_ms.undo_what = what;
+    }
+    after_edit(app, what);
+}
+
+// Undo of the last venue / opponent edit: the gate first (a refusal keeps it), then only while the fixture still holds
+// what Turbo wrote
+void undo_fixture_edit(App& app) {
+    if (g_ms.undo.empty()) return;
+    std::string err = fce_write_refusal(app, g_ms.loc);
+    if (!err.empty()) {
+        app.notify("Undo: " + err, true);
+        app.log("match setup: undo not written: " + err);
+        return;
+    }
+    const fce::Change c = g_ms.undo;
+    const std::string what = g_ms.undo_what;
+    g_ms.undo = fce::Change();
+    g_ms.undo_what.clear();
+    err = fce::undo_change(app.mem, g_ms.loc, c);
+    if (!err.empty()) {
+        app.notify("Undo: " + err, true);
+        app.log("match setup: undo of \"" + what + "\" not written: " + err);
+        reload(app);
+        return;
+    }
+    after_edit(app, what + ": undone");
+}
+
+void draw_selected(App& app, const fce::Fixture f, uint32_t user) {  // a copy: an edit re-reads the fixtures
     const bool user_home = team_of(f.home_sid) == user;
     const int16_t user_sid = user_home ? f.home_sid : f.away_sid, opp_sid = user_home ? f.away_sid : f.home_sid;
     ImGui::SeparatorText(fixture_line(app, f).c_str());
     ImGui::PushID("##msel");
     // venue
-    if (ImGui::Button("Swap home and away")) {
+    ImGui::BeginDisabled(!g_ms.edit_off.empty());
+    const bool swap_clicked = ImGui::Button("Swap home and away");
+    ImGui::EndDisabled();
+    if (swap_clicked) {
         const std::string was = app.model.team_name(team_of(f.home_sid)) + " v " + app.model.team_name(team_of(f.away_sid));
-        std::string err = fce::swap_fixture_sides(app.mem, g_ms.loc, f.id);
-        if (err.empty()) after_edit(app, was + ": home and away swapped");
-        else app.notify("Swap: " + err, true);
+        fixture_edit(app, "Swap", was + ": home and away swapped",
+                     [&](fce::Change& c) { return fce::swap_fixture_sides(app.mem, g_ms.loc, f.id, &c); });
     }
     ImGui::SameLine();
     ImGui::TextDisabled("(you play %s)", user_home ? "at home" : "away");
@@ -163,15 +225,18 @@ void draw_selected(App& app, const fce::Fixture& f, uint32_t user) {
             ImGui::EndCombo();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Play this opponent")) {
+        ImGui::BeginDisabled(!g_ms.edit_off.empty());
+        const bool opp_clicked = ImGui::Button("Play this opponent");
+        ImGui::EndDisabled();
+        if (opp_clicked) {
             const int16_t nh = user_home ? user_sid : int16_t(g_ms.opponent), na = user_home ? int16_t(g_ms.opponent) : user_sid;
             const std::string was = app.model.team_name(team_of(f.home_sid)) + " v " + app.model.team_name(team_of(f.away_sid));
-            std::string err = fce::pairing_conflict(g_ms.fixtures, g_ms.rows, f.id, nh, na);
-            if (err.empty()) err = fce::set_fixture_teams(app.mem, g_ms.loc, f.id, nh, na);
-            if (err.empty())
-                after_edit(app, was + ": opponent is now " + app.model.team_name(team_of(int16_t(g_ms.opponent))));
-            else
+            const std::string err = fce::pairing_conflict(g_ms.fixtures, g_ms.rows, f.id, nh, na);
+            if (!err.empty())
                 app.notify("New opponent: " + err, true);
+            else
+                fixture_edit(app, "New opponent", was + ": opponent is now " + app.model.team_name(team_of(int16_t(g_ms.opponent))),
+                             [&](fce::Change& c) { return fce::set_fixture_teams(app.mem, g_ms.loc, f.id, nh, na, &c); });
         }
         ImGui::TextDisabled("Experimental: the old opponent keeps its other fixtures; the season's pairings are no longer balanced.");
     }
@@ -507,6 +572,18 @@ void draw_match_setup(App& app) {
         if (ImGui::Button("Try again")) g_ms.located_gen = -1;
     } else {
         if (ImGui::Button("Reload")) reload(app);
+        // 2.2 review: venue and opponent edits are off while the DataManager is identified by its back-pointer only or the
+        // kill switch file exists; Undo of the last one (only while the fixture still holds what Turbo wrote)
+        g_ms.edit_off = fce_edit_off(app, g_ms.loc);
+        if (!g_ms.undo.empty()) {
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!g_ms.edit_off.empty());
+            if (ImGui::Button("Undo##msundo")) undo_fixture_edit(app);
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Put the fixture back: %s", g_ms.undo_what.c_str());
+        }
+        if (!g_ms.edit_off.empty())
+            ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.45f, 1.0f), "Venue and opponent edits are off: %s.", g_ms.edit_off.c_str());
         const uint32_t user = uint32_t(std::max<int64_t>(0, app.bridge.state().user_team));
         const GameDate& d = app.bridge.state().date;
         const uint32_t today = d.valid() ? uint32_t(d.as_int()) : 0;

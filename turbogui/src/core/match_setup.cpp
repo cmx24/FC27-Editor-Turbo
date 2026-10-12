@@ -1,6 +1,7 @@
 // FC 27 LE Turbo GUI - match setup and gameplay switches (see match_setup.h, docs/re/match_setup.md)
 #include "match_setup.h"
 
+#include <cstdio>
 #include <cstring>
 #include <deque>
 
@@ -444,7 +445,21 @@ bool pair_set(Memory& mem, uint64_t at, bool& ok) {
 }
 }  // namespace
 
-bool apply_to_request(Memory& mem, uint64_t self, uint64_t expected_vtable, uint64_t msg, const FixTable& fixes, Applied& out) {
+std::string check_owner(Memory& mem, uint64_t self, const Owner& owner) {
+    if (!owner.vtable && !owner.handler) return "";
+    uint64_t vt = 0;
+    if (!is_ptr(self, 8) || !mem.rd(self, vt) || !is_ptr(vt, 8)) return "the handler's object is not readable";
+    if (owner.vtable && vt != owner.vtable) return "the handler's object is not the expected FCE manager (another vtable)";
+    if (owner.handler) {
+        uint64_t fn = 0;
+        if (!mem.rd(vt + kVtableSlotHandleMessage, fn) || fn != owner.handler)
+            return "the handler's object is not the expected FCE manager (its vtable slot 5 is not the hooked HandleMessage)";
+    }
+    return "";
+}
+
+bool apply_to_request(Memory& mem, uint64_t self, const Owner& owner, uint64_t msg, const FixTable& fixes, Applied& out,
+                      const std::string& hold) {
     out = Applied();
     if (fixes.empty() || !is_ptr(msg, 8)) return false;
     int32_t type = 0;
@@ -456,15 +471,17 @@ bool apply_to_request(Memory& mem, uint64_t self, uint64_t expected_vtable, uint
     out.fixture = uint16_t(fixture);
     out.home = f->home;
     out.away = f->away;
-    if (expected_vtable) {
-        uint64_t vt = 0;
-        if (!mem.rd(self, vt) || vt != expected_vtable) {
-            out.skipped = "the handler's object is not the expected FCE manager";
-            return true;
-        }
+    const std::string who = check_owner(mem, self, owner);
+    if (!who.empty()) {
+        out.skipped = who;
+        return true;
     }
     if (!mem.rd(msg + kOffHome, out.old_home) || !mem.rd(msg + kOffAway, out.old_away)) {
         out.skipped = "the result is not readable";
+        return true;
+    }
+    if (!hold.empty()) {
+        out.skipped = hold;
         return true;
     }
     bool ok1 = false, ok2 = false;
@@ -479,12 +496,48 @@ bool apply_to_request(Memory& mem, uint64_t self, uint64_t expected_vtable, uint
     }
     if (out.old_home == out.home && out.old_away == out.away) return true;
     const int32_t h = f->home, a = f->away;
-    if (!mem.wr(msg + kOffHome, h) || !mem.wr(msg + kOffAway, a)) {
-        out.skipped = "writing the result failed";
+    // write both goal ints, read them back (2.2 review: an automatic write is read back); a failure puts the played goals back
+    const bool wrote = mem.wr(msg + kOffHome, h) && mem.wr(msg + kOffAway, a);
+    int32_t rh = -1, ra = -1;
+    const bool back = wrote && mem.rd(msg + kOffHome, rh) && mem.rd(msg + kOffAway, ra);
+    if (back && rh == h && ra == a) {
+        out.changed = true;
         return true;
     }
-    out.changed = true;
+    const std::string what = !wrote ? "writing the result failed" : !back ? "the result is not readable after the write"
+                                                                         : "the result did not read back what Turbo wrote";
+    int32_t ph = -1, pa = -1;
+    const bool restored = mem.wr(msg + kOffHome, out.old_home) && mem.wr(msg + kOffAway, out.old_away) && mem.rd(msg + kOffHome, ph) &&
+                          mem.rd(msg + kOffAway, pa) && ph == out.old_home && pa == out.old_away;
+    out.skipped = what + (restored ? " (put back as played)" : " (putting the played result back FAILED)");
     return true;
+}
+
+std::string PairLog::note(Hook hook, const Applied& a) {
+    const int k = hook == Hook::Scheduling ? 0 : 1;
+    Entry* e = nullptr;
+    for (Entry& x : open_)
+        if (x.fixture == a.fixture) e = &x;
+    if (!e) {
+        if (open_.size() >= kMaxOpen) open_.erase(open_.begin());
+        open_.push_back(Entry());
+        e = &open_.back();
+        e->fixture = a.fixture;
+    }
+    e->seen[k] = true;
+    e->got[k] = a;
+    if (!e->seen[0] || !e->seen[1]) return "";
+    const Entry done = *e;
+    open_.erase(open_.begin() + (e - open_.data()));
+    const bool fixed0 = done.got[0].skipped.empty(), fixed1 = done.got[1].skipped.empty();
+    if (fixed0 == fixed1) return "";
+    const char* names[2] = {"the scheduling manager", "the standings manager"};
+    const int r = fixed0 ? 0 : 1, s = 1 - r;  // the one that rewrote / the one that skipped
+    const Applied& w = done.got[r];
+    char score[96];
+    std::snprintf(score, sizeof(score), "%d-%d -> %d-%d", int(w.old_home), int(w.old_away), int(w.home), int(w.away));
+    return "fixture " + std::to_string(done.fixture) + ": " + names[r] + " rewrote it (" + score + (w.changed ? "" : ", already that score") +
+           ") but " + names[s] + " left it as played (" + done.got[s].skipped + "): the fixture's score and the table now disagree";
 }
 
 }  // namespace mfix

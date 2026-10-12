@@ -10,8 +10,9 @@
 //    "signatures": {"game_tick": {"pattern": "48 89 5C 24 ?? 57 ...", "resolve": "rip"|"none", "offset": 0,
 //                                 "expect": "48 8D 05", "hook_probe": false, "note": "..."}}}
 // or from the built-in fallback table (builtin_signature_table). A build that is in no table (an EA title update) is
-// scanned with the table of the newest built-in build: when EVERY signature with a pattern is found exactly once and
-// every offset is checked (decide_adapt) that adapted table is used, else every game hook stays off.
+// scanned with the table of the newest built-in build: when every signature with a pattern (except those marked
+// adapt_optional) is found exactly once and every offset is checked (decide_adapt) that adapted table is used, else every
+// game hook stays off.
 // turbo_output\signature_adapt_off.txt turns adapting off.
 #pragma once
 #include <cstddef>
@@ -37,16 +38,21 @@ struct Signature {
     // The address is only probed for another module's inline hook and used only when one is seen there
     // (career_event_dispatch, loc_strtab_get), so an offset outside the pattern needs no expect.
     bool hook_probe = false;
-    // Positional like the rows of the built-in table: {name, pattern, resolve, offset, note[, expect[, hook_probe]]}
+    // Optional for auto-adapt (2.2 review): a miss of this entry on a build in no table does not refuse the adapted table
+    // (decide_adapt counts it as optional_missing). Its own address stays 0 then (the host's game_signature only returns
+    // found entries), so its users fall back or refuse on their own. For entries never yet scanned on a released build.
+    bool adapt_optional = false;
+    // Positional like the rows of the built-in table: {name, pattern, resolve, offset, note[, expect[, hook_probe[, adapt_optional]]]}
     Signature(std::string name_ = {}, std::string pattern_ = {}, std::string resolve_ = {}, int offset_ = 0,
-              std::string note_ = {}, std::string expect_ = {}, bool hook_probe_ = false)
+              std::string note_ = {}, std::string expect_ = {}, bool hook_probe_ = false, bool adapt_optional_ = false)
         : name(std::move(name_)),
           pattern(std::move(pattern_)),
           resolve(std::move(resolve_)),
           offset(offset_),
           note(std::move(note_)),
           expect(std::move(expect_)),
-          hook_probe(hook_probe_) {}
+          hook_probe(hook_probe_),
+          adapt_optional(adapt_optional_) {}
 };
 
 struct SignatureTable {
@@ -67,6 +73,15 @@ struct SigResult {
 
 // "6AB9813C-211EF000"
 std::string build_key(uint32_t timestamp, uint32_t size_of_image);
+
+// The build every image-relative constant (kRva*) in Turbo's code was read from: FC27.exe as dumped 2026-10-03
+// (1.0.140.64835). A title update moves code and data (on 6AC07E31-2145C000 every vtable sits a few KB further), so such
+// a constant describes that one build only; on any other build an object is identified through its signatures.
+constexpr const char* kRvaBuild = "6AB9813C-211EF000";
+// image_base + rva when `build` is kRvaBuild (the documented address), else 0 (also 0 when the base is not known)
+inline uint64_t documented_rva(const std::string& build, uint64_t image_base, uint64_t rva) {
+    return image_base != 0 && build == kRvaBuild ? image_base + rva : 0;
+}
 
 // Parses a signatures_<build>.json text. Returns false (and err) when malformed; a table with no signatures is fine.
 bool parse_signature_table(const std::string& json_text, SignatureTable& out, std::string& err);
@@ -93,11 +108,13 @@ bool signature_offset_checked(const Signature& s);
 SignatureTable adapt_signature_table(const SignatureTable& from, const std::string& build);
 // All or nothing: adopt only when every signature with a pattern was found exactly once in the scan and its offset is
 // checked (signature_offset_checked; else it counts as missing, "unverified offset"). Results are matched by name;
-// placeholders do not count, a missing result counts as missing. reason: "N of N signatures found exactly once" or
-// "K missing, M ambiguous of N (first: name (missing), ...)".
+// placeholders do not count, a missing result counts as missing. An entry marked adapt_optional never blocks: found it
+// counts as found, else as optional_missing (named in the reason). reason: "N of N signatures found exactly once" (plus
+// "; K optional not found: name, ...") or "K missing, M ambiguous of N (first: name (missing), ...)".
 struct AdaptDecision {
     bool adopt = false;
     int found = 0, missing = 0, ambiguous = 0, skipped = 0;
+    int optional_missing = 0;  // adapt_optional entries not found exactly once (or with an unverified offset): not blocking
     std::string reason;
 };
 AdaptDecision decide_adapt(const SignatureTable& t, const std::vector<SigResult>& results);

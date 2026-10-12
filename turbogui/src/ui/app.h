@@ -20,6 +20,7 @@
 #include "core/callnames.h"
 #include "core/commentary_audio.h"
 #include "core/edit_unlock_hook.h"
+#include "core/fce_standings.h"
 #include "core/legacy.h"
 #include "core/match_setup.h"
 #include "core/mem.h"
@@ -175,6 +176,18 @@ public:
     int texture_test_frames = 0;
     double lua_heartbeat_seen_at = -1.0;
     uint64_t game_base = 0;  // FC27.exe image base (set by the Windows host; 0 in tests = skip vtable checks)
+    // What identifies the FCE interface and DataManager on the running build (core/fce_standings.h Anchors): the Windows
+    // host's resolver (signature-resolved once its scan is done), set before the first frame. Without one: no checks
+    // when game_base is 0 (tests on synthetic memory), else nothing is known and every locate is refused.
+    std::function<fce::Anchors()> fce_anchors_hook;
+    fce::Anchors fce_anchors() const {
+        if (fce_anchors_hook) return fce_anchors_hook();
+        if (!game_base) return fce::Anchors::unchecked();
+        fce::Anchors a;
+        a.image_base = game_base;
+        a.pending = "the game's signatures are not available to Turbo (no anchor resolver)";
+        return a;
+    }
     // ---- spoken-set capture from the loaded commentary bank (core/commentary_bank.h) on a background thread:
     // the host lists the game's readable private regions; tests give a synthetic list over the simulated memory
     std::function<std::vector<Region>()> regions_hook;
@@ -446,6 +459,13 @@ std::string live_standings_view_warning();
 std::string live_standings_status();
 // A Live standings cell box is open: its keys go to Turbo even before Dear ImGui marks the box active (overlay_dx12.cpp)
 bool live_standings_wants_keyboard();
+// The gate in front of every FCE row / fixture write of Live standings and Match setup and of their Undo, looked at right
+// before the write (core/fce_standings.h write_gate): "" = write now, else why not (turbo_output\live_standings_write_off.txt,
+// a read-only located set, the game processing a match day). ui_standings.cpp
+std::string fce_write_refusal(App& app, const fce::Located& loc);
+// Why the located set cannot be edited at all for now ("" = it can): read-only, or the kill switch file (looked at once a
+// second); shown above the table / fixtures. The match-day check is made only at the write (fce_write_refusal).
+std::string fce_edit_off(App& app, const fce::Located& loc);
 // Competitions tab, "Match setup" view: the user's next fixtures (venue, opponent, fixed result) and the gameplay switches
 // (game variables) for the next matches (ui_match.cpp)
 void draw_match_setup(App& app);

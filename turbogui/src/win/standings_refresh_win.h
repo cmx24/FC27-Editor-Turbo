@@ -12,17 +12,24 @@
 //     that is not in the table or game_hooks_off.txt turns the calls off as well). Opt-in:
 //     turbo_output\call_standings_refresh_full.txt lets the game's full refresh (career event 29 through the SVM's
 //     listener) run when the map is empty; without it an empty map is only reported.
+//   * fce_anchors(): what identifies the FCE interface and DataManager on the running build (core/fce_standings.h
+//     Anchors) for the live standings and the match setup fixtures, published by install_standings_refresh() from the
+//     signature scan (fce_iface_post, fce_datamanager_vtable; build kRvaBuild adds its documented vtables). Until then
+//     it reports "pending" (every locate is refused). Never blocks: it does not take the game hooks' lock.
 #pragma once
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "core/fce_standings.h"
 #include "core/standings_refresh.h"
 
 namespace host {
 
 void install_standings_refresh();
+// The FCE anchors of the running build (see the file comment); safe from any thread, before and after the install
+turbo::fce::Anchors fce_anchors();
 // True when the call may run (hooks allowed, functions resolved, no kill switch); why not otherwise
 bool standings_refresh_ready(std::string* why);
 // Status lines for the Status tab (game_calls_status appends them)

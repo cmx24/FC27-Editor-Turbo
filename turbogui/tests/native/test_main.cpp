@@ -2969,6 +2969,8 @@ struct FceWorld {
     uint64_t slist = 0x30004000, rows = 0x30005000, flist = 0x30006000, fx = 0x30007000;
     uint64_t col = 0x30008000, cdata = 0x30009000;  // CompObjectDataList {cap, count, data} and its 0x30-byte records
     static constexpr uint64_t kBase = 0x140000000ull;
+    // the identities of build kRvaBuild: the documented vtables FceWorld writes (no Post slot, no image range)
+    static fce::Anchors documented() { return fce::anchors_for(kRvaBuild, kBase, 0, 0, 0); }
     void w64(uint64_t a, uint64_t v) { mem.wr(a, v); }
     void w32(uint64_t a, uint32_t v) { mem.wr(a, v); }
     void w16(uint64_t a, uint16_t v) { mem.wr(a, v); }
@@ -3033,6 +3035,56 @@ struct FceWorld {
         fixture(0, 100, 0, 1, 2, 1, 1);  // Arsenal 2-1 Everton (home row 0, away row 1)
         fixture(1, 100, 1, 2, 3, 0, 1);  // Everton 3-0 Inter
         fixture(2, 100, 2, 0, 1, 1, 0);  // Inter v Arsenal: not played yet (completion 0) although scores set
+    }
+    // the bytes of [a, a + n) now (the write paths' "nothing changed" checks)
+    std::vector<uint8_t> bytes(uint64_t a, size_t n) {
+        std::vector<uint8_t> out(n);
+        mem.read(a, out.data(), n);
+        return out;
+    }
+    std::vector<uint8_t> all_rows() { return bytes(rows, 4 * fce::kStandingSize); }
+    std::vector<uint8_t> all_fixtures(int n = 5) { return bytes(fx, size_t(n) * fce::kFixtureSize); }
+};
+
+// A Memory over another whose writes touching [lo, hi) are refused (drop = false) or reported done but dropped (drop =
+// true): the write paths' read-back and rollback (2.2 review)
+struct FaultMemory : Memory {
+    Memory& inner;
+    uint64_t lo = 0, hi = 0;
+    bool drop = false;
+    int writes = 0;
+    explicit FaultMemory(Memory& m) : inner(m) {}
+    bool read(uint64_t a, void* out, size_t n) override { return inner.read(a, out, n); }
+    bool write(uint64_t a, const void* in, size_t n) override {
+        ++writes;
+        if (a < hi && a + n > lo) {
+            if (pass > 0) {
+                --pass;
+                return inner.write(a, in, n);
+            }
+            return drop;
+        }
+        return inner.write(a, in, n);
+    }
+    int pass = 0;  // writes touching [lo, hi) that still go through before the faults start
+};
+
+// A Memory over another where "the game" acts right after the first write touching [lo, hi) (2.2 review: the rollback
+// must never write over the game's own bytes)
+struct GameMemory : Memory {
+    Memory& inner;
+    uint64_t lo = 0, hi = 0;
+    std::function<void()> game;
+    bool fired = false;
+    explicit GameMemory(Memory& m) : inner(m) {}
+    bool read(uint64_t a, void* out, size_t n) override { return inner.read(a, out, n); }
+    bool write(uint64_t a, const void* in, size_t n) override {
+        const bool ok = inner.write(a, in, n);
+        if (ok && !fired && a < hi && a + n > lo && game) {
+            fired = true;
+            game();
+        }
+        return ok;
     }
 };
 }  // namespace
@@ -3164,6 +3216,7 @@ struct SvmWorld {
         req.comm = kComm;
         req.image_base = kBase;
         req.image_size = kImageSize;
+        req.build = kRvaBuild;  // the RVAs of this world are the documented ones of that build
         return req;
     }
     static svm::Fns fns() { return svm::Fns{kRefresh, kListener, 0, kPost, kAllocGlobal, kCompObjVtable, kListVtable}; }
@@ -7751,7 +7804,7 @@ static void test_ui() {
             CHECK(app.standings_refresh_status.find("queued") != std::string::npos, "status line: " + app.standings_refresh_status);
             fce::Located loc;
             std::vector<fce::StandingRow> rows;
-            CHECK(fce::locate(mem, fw.ifce, 0, loc).empty() && fce::read_rows(mem, loc, rows) && rows.size() == 4 && rows[0].points == 9,
+            CHECK(fce::locate(mem, fw.ifce, fce::Anchors::unchecked(), loc).empty() && fce::read_rows(mem, loc, rows) && rows.size() == 4 && rows[0].points == 9,
                   "the row itself was written");
             CHECK(live_standings_status().find("Arsenal") != std::string::npos &&
                       live_standings_status().find(": Pts 7 -> 9 (applied)") != std::string::npos,
@@ -7804,6 +7857,50 @@ static void test_ui() {
             ui.frames(2);
             CHECK(app.standings_refresh_status.find("no refresh service") != std::string::npos, "status without a service");
             CHECK(!ui.toast_contains("Standings refresh:"), "no refresh toast without a service");
+            // 2.2 review: a result edit is refused while the game processes a match day, else written with an Undo that puts
+            // the fixture's score and both rows back byte for byte
+            {
+                auto snap = [&](uint64_t a, size_t n) {
+                    std::vector<uint8_t> v(n);
+                    mem.read(a, v.data(), n);
+                    return v;
+                };
+                const std::vector<uint8_t> rows_b = snap(fw.rows, 4 * fce::kStandingSize), fx_b = snap(fw.fx, 3 * fce::kFixtureSize);
+                const std::string fx_label = "20260815  " + app.model.team_name(1) + " 2 - 1 " + app.model.team_name(7) + "##fx0";
+                CHECK(ui.click(fx_label, "##lsedit"), "select the played result " + fx_label);
+                if (const ItemRec* p = ui.find("##lspoints", "##lsedit")) {  // the score boxes sit below the results list: scroll there
+                    ImGuiIO& io = ImGui::GetIO();
+                    io.AddMousePosEvent(p->rect.GetCenter().x, p->rect.GetCenter().y);
+                    ui.frame();
+                    io.AddMouseWheelEvent(0.0f, -20.0f);
+                    ui.frames(3);
+                }
+                const ItemRec* hb = ui.find("##fxhome", "##lsedit");
+                CHECK(hb && ui.type_into(hb, "0"), "home goals 0");
+                mem.wr(SvmWorld::kSdm + svm::kOffSimDayState, int32_t(4));
+                CHECK(ui.click("Change result", "##lsedit"), "Change result while a match day is processed");
+                CHECK(live_standings_status().find("Result not changed: not while the game may be processing a match day") == 0,
+                      "refused at the write: " + live_standings_status());
+                CHECK(snap(fw.rows, 4 * fce::kStandingSize) == rows_b && snap(fw.fx, 3 * fce::kFixtureSize) == fx_b, "nothing written");
+                mem.wr(SvmWorld::kSdm + svm::kOffSimDayState, int32_t(0));
+                CHECK(ui.click("Change result", "##lsedit"), "Change result");
+                std::vector<fce::Fixture> fxs;
+                CHECK(fce::read_fixtures(mem, loc, fxs) && fxs.size() == 3 && fxs[0].home_score == 0 && fxs[0].away_score == 1,
+                      "0 - 1 written: " + live_standings_status());
+                CHECK(ui.find("Undo##lsundo") != nullptr, "the result edit has an Undo");
+                CHECK(ui.click("Undo##lsundo"), "Undo the result");
+                CHECK(snap(fw.rows, 4 * fce::kStandingSize) == rows_b && snap(fw.fx, 3 * fce::kFixtureSize) == fx_b, "score and both rows back byte for byte");
+                CHECK(live_standings_status().find("Fixture 0 back to 2 - 1 (its score and both table rows) (undone, applied)") == 0,
+                      "undo status: " + live_standings_status());
+                if (const ItemRec* p = ui.find("Change result", "##lsedit")) {  // scrolled back up for the cases after this one
+                    ImGuiIO& io = ImGui::GetIO();
+                    io.AddMousePosEvent(p->rect.GetCenter().x, p->rect.GetCenter().y);
+                    ui.frame();
+                    io.AddMouseWheelEvent(0.0f, 20.0f);
+                    ui.frames(3);
+                }
+                CHECK(ui.find("##ptswin", "##lsedit") != nullptr, "the Advanced section is scrolled back to its top");
+            }
             // restore the state for the cases after this one
             st = saved;
             st["seq"] = st.value("seq", 0LL) + 2;
@@ -7848,7 +7945,7 @@ static void test_ui() {
             auto row0 = [&]() {
                 fce::Located loc;
                 std::vector<fce::StandingRow> rows;
-                if (!fce::locate(mem, fw.ifce, 0, loc).empty() || !fce::read_rows(mem, loc, rows) || rows.empty()) return fce::StandingRow();
+                if (!fce::locate(mem, fw.ifce, fce::Anchors::unchecked(), loc).empty() || !fce::read_rows(mem, loc, rows) || rows.empty()) return fce::StandingRow();
                 return rows[0];
             };
             auto open_cell = [&](const std::string& label) -> const ItemRec* {
@@ -7913,6 +8010,32 @@ static void test_ui() {
             CHECK(fake->requests.size() == 2, "refresh after the undo");
             CHECK(status_has("undone, W 3 -> 2, Pts 10 -> 7"), "undo status: " + live_standings_status());
             CHECK(ui.find("Undo##lsundo") == nullptr, "one step of undo");
+            // 2.2 review: the kill switch file makes the table read-only (banner, no box) and every write refuses; a match day
+            // being processed refuses at the write
+            {
+                const fs::path off = le / "turbo_output" / "live_standings_write_off.txt";
+                {
+                    std::ofstream f(off.string());
+                    f << "off";
+                }
+                ui.frames(70);  // the banner looks at the file once a second
+                CHECK(logged_frame(ui).find("Read-only: turbo_output\\live_standings_write_off.txt exists") != std::string::npos, "kill switch banner");
+                if (const ItemRec* w = ui.find("2##c0_W")) ui.click(w, true);
+                ui.frames(2);
+                CHECK(ui.find("##cell") == nullptr && status_has("Not changed: turbo_output"), "no box while switched off: " + live_standings_status());
+                fs::remove(off);
+                ui.frames(70);
+                CHECK(logged_frame(ui).find("Read-only:") == std::string::npos, "the banner is gone with the file");
+                mem.wr(SvmWorld::kSdm + svm::kOffSimDayState, int32_t(2));
+                const size_t nreq0 = fake->requests.size();
+                box = open_cell("2##c0_W");
+                CHECK(box && ui.type_into(box, "3"), "W 3 while a match day is processed");
+                CHECK(status_has(": not written: not while the game may be processing a match day") && row0().wins() == 2 && fake->requests.size() == nreq0,
+                      "refused at the write: " + live_standings_status());
+                mem.wr(SvmWorld::kSdm + svm::kOffSimDayState, int32_t(0));
+                if (ui.find("##cell")) ui.key(ImGuiKey_Escape);
+                ui.frames(2);
+            }
             // a second click on the same number opens the box too (in game a double-click is often read as one click):
             // two single clicks, further apart than the double-click time
             CHECK(ui.click("3##c0_P"), "another number first (P: derived, only selected)");
@@ -8227,11 +8350,131 @@ static void test_ui() {
             CHECK(ui.find("Try again") != nullptr, "live view unreachable again without the ifce");
         });
 
+        run_case("UI: Live standings and Match setup on build 6AC07E31: the host's signature anchors identify the FCE objects", [&] {
+            // the engine objects as on 6AC07E31: the interface's and the DataManager's vtables are not the 6AB9813C ones (stand-ins
+            // inside the image), the interface's slot 4 holds that build's Post (turbo_gui.log 2026-10-11: fce_iface_post 0x148A37874)
+            const uint64_t kNewIfaceVt = 0x14B1838F8ULL, kNewDmVt = 0x14B1837B0ULL, kNewPost = 0x148A37874ULL, kNewSize = 0x2145C000ULL;
+            FceWorld fw;
+            SvmWorld sw;
+            fw.mem.map(0x14B183000ULL, 0x1000);
+            fw.w64(fw.ifce, kNewIfaceVt);
+            fw.w64(kNewIfaceVt + fce::kIfaceSlotPost, kNewPost);
+            fw.w64(fw.dm, kNewDmVt);
+            sw.set_tree(1200, 100, {{0, 1, 7}});  // the view shows the league (group 100); 1300 / 1400 hold empty values
+            sw.mem.wr(sw.live(1) + 8, uint64_t(0));
+            sw.mem.wr(sw.live(2) + 8, uint64_t(0));
+            for (const auto& kv : fw.mem.pages) mem.pages[kv.first] = kv.second;
+            for (const auto& kv : sw.mem.pages) mem.pages[kv.first] = kv.second;
+            auto fake = std::make_shared<FakeRefresh>();
+            app.standings_refresh = fake;
+            fs::path state_file = le / "turbo_output" / "bridge_state.json";
+            json st = read_json(state_file);
+            const json saved = st;
+            int bumps = 200;
+            auto write_state_file = [&]() {
+                {
+                    std::ofstream f(state_file.string(), std::ios::binary | std::ios::trunc);
+                    f << st.dump();
+                }
+                fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(2 * ++bumps));
+            };
+            st["ifce"] = hex_addr(fw.ifce);
+            st["svm"] = hex_addr(SvmWorld::kSvm);
+            st["managers"] = hex_addr(SvmWorld::kManagers);
+            st["seq"] = st.value("seq", 0LL) + 1;
+            write_state_file();
+            std::vector<std::string> logs;
+            app.log_hook = [&logs](const std::string& s) { logs.push_back(s); };
+            // what 2.1.0 checked on every build: image base + the 6AB9813C vtables -> "another vtable" (the reported bug)
+            app.fce_anchors_hook = []() { return FceWorld::documented(); };
+            app.next_poll = 0.0;
+            app.request_tab = 3;
+            ui.frames(3);
+            CHECK(app.bridge.state().ifce == fw.ifce, "bridge_state carries the ifce");
+            CHECK(ui.click("Live standings (game)"), "live view tab");
+            ui.frames(2);
+            CHECK(ui.find("Try again") != nullptr && ui.find("Reload") == nullptr, "6AB9813C vtables on the 6AC07E31 objects: not reachable");
+            // the host's anchors of 6AC07E31 while fce_iface_post is not resolved: still refused (fail closed)
+            app.fce_anchors_hook = [kNewSize]() { return fce::anchors_for("6AC07E31-2145C000", FceWorld::kBase, kNewSize, 0, 0); };
+            ui.frames(2);
+            CHECK(ui.find("Try again") != nullptr, "no signature resolved: not reachable");
+            // the build's signatures: reachable; the log line says how the objects were identified
+            app.fce_anchors_hook = [=]() { return fce::anchors_for("6AC07E31-2145C000", FceWorld::kBase, kNewSize, kNewPost, kNewDmVt); };
+            ui.frames(2);
+            CHECK(ui.find("Try again") == nullptr && ui.find("Reload") != nullptr, "reachable with the build's signatures");
+            bool logged = false;
+            for (const auto& l : logs)
+                logged = logged || (l.find("live standings located: 4 rows") != std::string::npos && l.find("Post in vtable slot 4") != std::string::npos &&
+                                    l.find("vtable 0x14B1837B0 (signature)") != std::string::npos);
+            CHECK(logged, "the located line names the identities");
+            // the view's map values: their vtable comes from svm_live_vtable (6AC07E31 moved it like the others)
+            fake->anchors.live_vtable = SvmWorld::kLiveVtable + 0x40;
+            CHECK(ui.click("Reload"), "Reload with another LiveStandings vtable");
+            ui.frames(2);
+            CHECK(live_standings_view_line().find("does not hold a LiveStandings object") != std::string::npos,
+                  "a map value with another vtable is refused: " + live_standings_view_line());
+            fake->anchors.live_vtable = SvmWorld::kLiveVtable;
+            CHECK(ui.click("Reload"), "Reload with the signature's vtable");
+            ui.frames(2);
+            CHECK(live_standings_view_line().rfind("The game's", 0) == 0 && live_standings_view_line().find("could not be read") == std::string::npos,
+                  "the view is read: " + live_standings_view_line());
+            // 2.2 review (finding 1): fce_datamanager_vtable not found on the build: the table is shown read-only with the reason
+            app.fce_anchors_hook = [=]() { return fce::anchors_for("6AC07E31-2145C000", FceWorld::kBase, kNewSize, kNewPost, 0); };
+            ui.frames(2);
+            CHECK(ui.find("Reload") != nullptr &&
+                      logged_frame(ui).find("Read-only: DataManager identified by its back-pointer only: editing is off") != std::string::npos,
+                  "back-pointer only: shown read-only with the reason");
+            if (const ItemRec* w = ui.find("2##c0_W")) ui.click(w, true);
+            ui.frames(2);
+            CHECK(ui.find("##cell") == nullptr && live_standings_status().find("Not changed: DataManager identified by its back-pointer only") == 0,
+                  "no edit box: " + live_standings_status());
+            app.fce_anchors_hook = [=]() { return fce::anchors_for("6AC07E31-2145C000", FceWorld::kBase, kNewSize, kNewPost, kNewDmVt); };
+            ui.frames(2);
+            CHECK(logged_frame(ui).find("Read-only:") == std::string::npos, "editable again with the signature");
+            // Match setup reads the same objects with the same anchors
+            CHECK(ui.click("Match setup"), "Match setup view");
+            ui.frames(2);
+            CHECK(ui.find("Try again") == nullptr && ui.find("Reload") != nullptr, "fixtures reachable with the build's signatures");
+            app.fce_anchors_hook = [=]() { return fce::anchors_for("6AC07E31-2145C000", FceWorld::kBase, kNewSize, kNewPost, 0); };
+            ui.frames(2);
+            CHECK(logged_frame(ui).find("Venue and opponent edits are off: DataManager identified by its back-pointer only") != std::string::npos,
+                  "Match setup: back-pointer only, edits off");
+            app.fce_anchors_hook = [=]() { return fce::anchors_for("6AC07E31-2145C000", FceWorld::kBase, kNewSize, kNewPost, kNewDmVt); };
+            ui.frames(2);
+            app.fce_anchors_hook = []() { return FceWorld::documented(); };
+            ui.frames(2);
+            CHECK(ui.find("Try again") != nullptr, "fixtures: the 6AB9813C vtables refuse the 6AC07E31 objects");
+            // App::fce_anchors without a host resolver: no checks without an image base (tests), else nothing known (refused)
+            app.fce_anchors_hook = nullptr;
+            CHECK(!app.fce_anchors().check, "no resolver, no image base: unchecked");
+            app.game_base = FceWorld::kBase;
+            CHECK(app.fce_anchors().check && !app.fce_anchors().pending.empty(), "no resolver with an image base: refused");
+            ui.frames(2);
+            CHECK(ui.find("Try again") != nullptr, "fixtures refused without a resolver");
+            app.game_base = 0;
+            ui.frames(2);
+            CHECK(ui.find("Try again") == nullptr, "unchecked again");
+            // restore the state for the cases after this one: both views see the career without the ifce (they locate again later)
+            app.log_hook = nullptr;
+            app.standings_refresh = nullptr;
+            st = saved;
+            st["seq"] = st.value("seq", 0LL) + 2;
+            write_state_file();
+            app.next_poll = 0.0;
+            ui.frames(3);
+            CHECK(ui.find("Try again") != nullptr, "fixtures unreachable again without the ifce");
+            CHECK(ui.click("Live standings (game)"), "back to the live view");
+            ui.frames(2);
+            CHECK(ui.find("Try again") != nullptr, "live view unreachable again without the ifce");
+        });
+
         run_case("UI: Competitions > Match setup: the next fixture's venue, opponent and fixed result; the gameplay switches", [&] {
             FceWorld fw(4, 5);
             fw.fixture(3, 100, 1, 0, -1, -1, 0, 20260822);  // Everton v Arsenal, not played
             fw.fixture(4, 100, 2, 1, -1, -1, 0, 20260829);  // Inter v Everton a week later (no Arsenal)
             for (const auto& kv : fw.mem.pages) mem.pages[kv.first] = kv.second;
+            SvmWorld sw;  // the career's manager table: the write gate asks its SimDayManager (idle)
+            for (const auto& kv : sw.mem.pages) mem.pages[kv.first] = kv.second;
             auto fake = std::make_shared<FakeMatchSetup>();
             app.match_setup = fake;
             app.match_setup_status.clear();
@@ -8248,6 +8491,7 @@ static void test_ui() {
             };
             st["ifce"] = hex_addr(fw.ifce);
             st["user_team"] = 1;  // Arsenal
+            st["managers"] = hex_addr(SvmWorld::kManagers);
             st["date"] = json{{"year", 2026}, {"month", 8}, {"day", 1}};
             st["seq"] = st.value("seq", 0LL) + 1;
             write_state_file();
@@ -8276,17 +8520,52 @@ static void test_ui() {
             ui.frames(2);
             fce::Located loc;
             std::vector<fce::Fixture> fx;
-            CHECK(fce::locate(mem, fw.ifce, 0, loc).empty() && fce::read_fixtures(mem, loc, fx) && fx.size() == 5, "fixtures readable");
+            CHECK(fce::locate(mem, fw.ifce, fce::Anchors::unchecked(), loc).empty() && fce::read_fixtures(mem, loc, fx) && fx.size() == 5, "fixtures readable");
             CHECK(fx[3].home_sid == 0 && fx[3].away_sid == 1, "Arsenal at home now");
             CHECK(ui.toast_contains("home and away swapped"), "swap toast");
             const std::string home_line = "22.08.2026 15:00  " + ars + " v " + eve + "  (English Premier League)##mf3";
             CHECK(ui.find(home_line) != nullptr, "the list shows the new venue");
+            // 2.2 review: the swap has an Undo (the fixture's bytes back); a match day being processed refuses at the write
+            CHECK(ui.click("Undo##msundo"), "Undo the swap");
+            fce::read_fixtures(mem, loc, fx);
+            CHECK(fx[3].home_sid == 1 && fx[3].away_sid == 0 && ui.toast_contains("home and away swapped: undone"), "venue back");
+            CHECK(ui.find("Undo##msundo") == nullptr, "one step of undo");
+            mem.wr(SvmWorld::kSdm + svm::kOffSimDayState, int32_t(5));
+            CHECK(ui.click("Swap home and away"), "swap while a match day is processed");
+            fce::read_fixtures(mem, loc, fx);
+            CHECK(fx[3].home_sid == 1 && ui.toast_contains("Swap: not while the game may be processing a match day"), "refused at the write");
+            mem.wr(SvmWorld::kSdm + svm::kOffSimDayState, int32_t(0));
+            CHECK(ui.click("Swap home and away"), "swap again");
+            fce::read_fixtures(mem, loc, fx);
+            CHECK(fx[3].home_sid == 0 && fx[3].away_sid == 1, "Arsenal at home again");
             // opponent: the only other club of the group is Inter
             CHECK(ui.click("Play this opponent"), "new opponent");
             ui.frames(2);
             fce::read_fixtures(mem, loc, fx);
             CHECK(fx[3].home_sid == 0 && fx[3].away_sid == 2, "Arsenal v Inter");
             CHECK(ui.toast_contains("opponent is now " + inter), "opponent toast");
+            CHECK(ui.click("Undo##msundo"), "Undo the new opponent");
+            fce::read_fixtures(mem, loc, fx);
+            CHECK(fx[3].home_sid == 0 && fx[3].away_sid == 1, "Everton back as the opponent");
+            CHECK(ui.click("Play this opponent"), "Inter again");
+            fce::read_fixtures(mem, loc, fx);
+            CHECK(fx[3].home_sid == 0 && fx[3].away_sid == 2, "Arsenal v Inter again");
+            {   // the kill switch file: banner, the buttons off, nothing written
+                const fs::path off = le / "turbo_output" / "live_standings_write_off.txt";
+                {
+                    std::ofstream f(off.string());
+                    f << "off";
+                }
+                ui.frames(70);
+                CHECK(logged_frame(ui).find("Venue and opponent edits are off: turbo_output\\live_standings_write_off.txt exists") != std::string::npos,
+                      "kill switch banner");
+                ui.click("Swap home and away");
+                ui.frames(2);
+                fce::read_fixtures(mem, loc, fx);
+                CHECK(fx[3].home_sid == 0 && fx[3].away_sid == 2, "switched off: nothing written");
+                fs::remove(off);
+                ui.frames(70);
+            }
             // fixed result (default 1-0)
             CHECK(ui.click("Fix this result"), "fix");
             ui.frames(2);
@@ -9021,6 +9300,51 @@ static void test_sigscan_adapt() {
         CHECK(!d.adopt && d.found == 0 && !d.reason.empty(), "empty table: refused (" + d.reason + ")");
         d = decide_adapt(table({{"later", "", "none", 0, ""}}), {skipped});
         CHECK(!d.adopt && d.skipped == 1, "a table of placeholders only: refused");
+    });
+    run_case("signature auto-adapt: an entry marked adapt_optional never refuses the table (2.2: svm_live_vtable, fce_datamanager_vtable)", [&] {
+        Signature opt{"opt", "48 8D 05 ?? ?? ?? ??", "rip", 0, "", "", false, true};
+        const SignatureTable t = table({{"a", "48 8B C4", "none", 0, ""}, opt, {"b", "40 53 48 83 EC 20", "none", 0, ""}});
+        CHECK(t.find("opt")->adapt_optional && !t.find("a")->adapt_optional, "the 8th field marks it");
+        AdaptDecision d = decide_adapt(t, {result("a", SigState::Found), result("opt", SigState::Missing), result("b", SigState::Found)});
+        CHECK(d.adopt && d.found == 2 && d.missing == 0 && d.optional_missing == 1, "optional missing: adopted anyway (" + d.reason + ")");
+        CHECK(d.reason == "2 of 2 signatures found exactly once; 1 optional not found (not blocking): opt", "reason: " + d.reason);
+        d = decide_adapt(t, {result("a", SigState::Found), result("opt", SigState::Ambiguous), result("b", SigState::Found)});
+        CHECK(d.adopt && d.ambiguous == 0 && d.optional_missing == 1, "optional ambiguous: adopted anyway");
+        d = decide_adapt(t, {result("a", SigState::Found), result("b", SigState::Found)});
+        CHECK(d.adopt && d.optional_missing == 1, "optional not scanned: adopted anyway");
+        d = decide_adapt(t, {result("a", SigState::Found), result("opt", SigState::Found), result("b", SigState::Found)});
+        CHECK(d.adopt && d.found == 3 && d.optional_missing == 0 && d.reason == "3 of 3 signatures found exactly once", "optional found counts as found: " + d.reason);
+        d = decide_adapt(t, {result("a", SigState::Found), result("opt", SigState::Missing), result("b", SigState::Missing)});
+        CHECK(!d.adopt && d.missing == 1 && d.optional_missing == 1 && d.reason.find("b (missing)") != std::string::npos &&
+                  d.reason.find("opt (missing)") == std::string::npos && d.reason.find("1 optional not found (not blocking): opt") != std::string::npos,
+              "a required one missing still refuses (the optional one is only named): " + d.reason);
+        // the two 2.2 entries are optional in every built-in table; the adapted copy and the table file keep the mark
+        for (const std::string& build : builtin_builds()) {
+            const SignatureTable* b = builtin_signature_table(build);
+            int optional = 0;
+            for (const auto& s : b->sigs) optional += s.adapt_optional ? 1 : 0;
+            CHECK(b->find("svm_live_vtable") && b->find("svm_live_vtable")->adapt_optional && b->find("fce_datamanager_vtable") &&
+                      b->find("fce_datamanager_vtable")->adapt_optional && optional == 2,
+                  "build " + build + ": svm_live_vtable and fce_datamanager_vtable optional, nothing else");
+            // a title update where only those two miss: every other hook is adopted (their users stay fail closed: 0 address)
+            const SignatureTable ad = adapt_signature_table(*b, "6B000000-21500000");
+            std::vector<SigResult> rs;
+            for (const auto& s : ad.sigs)
+                if (!s.pattern.empty())
+                    rs.push_back(result(s.name, s.name == "svm_live_vtable" || s.name == "fce_datamanager_vtable" ? SigState::Missing : SigState::Found));
+            d = decide_adapt(ad, rs);
+            CHECK(d.adopt && d.optional_missing == 2 && d.reason.find("svm_live_vtable") != std::string::npos, "adopted without the two: " + d.reason);
+            // (the unverified-offset rule still applies to every other entry: a table whose offsets are all checked adopts)
+        }
+        SignatureTable rt;
+        std::string err;
+        const SignatureTable io = table({opt, {"plain", "90 90", "none", 0, ""}});
+        const std::string j = signature_table_json(io);
+        CHECK(j.find("\"adapt_optional\": true") != std::string::npos && j.find("\"adapt_optional\": false") == std::string::npos, "written only when set");
+        CHECK(parse_signature_table(j, rt, err) && rt.find("opt") && rt.find("opt")->adapt_optional && !rt.find("plain")->adapt_optional, "read back: " + err);
+        CHECK(!parse_signature_table(R"({"build":"B","signatures":{"x":{"pattern":"90","adapt_optional":"yes"}}})", rt, err) &&
+                  err.find("adapt_optional") != std::string::npos,
+              "a non-bool adapt_optional is refused: " + err);
     });
     run_case("signature auto-adapt: the adapted table (new build key, notes prefixed, same patterns, JSON round trip)", [&] {
         const SignatureTable* newest = newest_builtin_table();
@@ -10873,11 +11197,11 @@ static void test_fce_standings() {
     run_case("FCE: locate the DataManager through the interface chain, validate, read rows and fixtures", [&] {
         FceWorld w;
         fce::Located loc;
-        std::string err = fce::locate(w.mem, w.ifce, FceWorld::kBase, loc);
+        std::string err = fce::locate(w.mem, w.ifce, FceWorld::documented(), loc);
         CHECK(err.empty(), "located: " + err);
         CHECK(loc.manager == w.dm && loc.connector == w.dc && loc.hub == w.hub, "chain");
         CHECK(loc.row_count == 4 && loc.rows_begin == w.rows && loc.fixture_count == 3 && loc.fixtures_data == w.fx, "lists");
-        CHECK(fce::validate(w.mem, loc, FceWorld::kBase), "validate");
+        CHECK(fce::validate(w.mem, loc, FceWorld::documented()), "validate");
         std::vector<fce::StandingRow> rows;
         CHECK(fce::read_rows(w.mem, loc, rows) && rows.size() == 4, "rows read");
         CHECK(rows[0].teamid == 1 && rows[0].hw == 1 && rows[0].hd == 1 && rows[0].aw == 1 && rows[0].points == 7 && rows[0].used == 1, "Arsenal row");
@@ -10889,21 +11213,125 @@ static void test_fce_standings() {
         CHECK(!fx[2].played(), "fixture 2 not played");
         // wrong vtable / broken back-pointer / absurd list are refused
         fce::Located bad;
-        CHECK(!fce::locate(w.mem, w.ifce, FceWorld::kBase + 0x1000, bad).empty() && !bad.ok(), "vtable mismatch refused");
-        CHECK(fce::locate(w.mem, w.ifce, 0, bad).empty(), "no image base: vtables skipped");
+        CHECK(!fce::locate(w.mem, w.ifce, fce::anchors_for(kRvaBuild, FceWorld::kBase + 0x1000, 0, 0, 0), bad).empty() && !bad.ok(), "vtable mismatch refused");
+        CHECK(fce::locate(w.mem, w.ifce, fce::Anchors::unchecked(), bad).empty(), "unchecked (synthetic memory): vtables skipped");
         w.w64(w.dm + 0x28, w.dm);
-        CHECK(!fce::locate(w.mem, w.ifce, FceWorld::kBase, bad).empty(), "back-pointer refused");
-        CHECK(!fce::validate(w.mem, loc, FceWorld::kBase), "validate notices the change");
+        CHECK(!fce::locate(w.mem, w.ifce, FceWorld::documented(), bad).empty(), "back-pointer refused");
+        CHECK(!fce::validate(w.mem, loc, FceWorld::documented()), "validate notices the change");
         w.w64(w.dm + 0x28, w.dc);
         w.w64(w.slist + 8, w.rows + 7);
-        CHECK(!fce::locate(w.mem, w.ifce, FceWorld::kBase, bad).empty(), "odd vector size refused");
-        CHECK(!fce::locate(w.mem, 0, FceWorld::kBase, bad).empty(), "no ifce refused");
+        CHECK(!fce::locate(w.mem, w.ifce, FceWorld::documented(), bad).empty(), "odd vector size refused");
+        CHECK(!fce::locate(w.mem, 0, FceWorld::documented(), bad).empty(), "no ifce refused");
+    });
+
+    run_case("FCE: build 6AC07E31 - the interface and the DataManager are identified by the build's signatures, not the 6AB9813C vtables", [&] {
+        // turbo_gui.log 2026-10-11 (build 6AC07E31-2145C000): fce_iface_post found at 0x148A37874 (0x148A35D3C on 6AB9813C). The two
+        // vtables of that build are not known offline: stand-ins inside the image (every vtable the log shows moved by a few KB)
+        const std::string kNewBuild = "6AC07E31-2145C000";
+        const uint64_t kNewSize = 0x2145C000ULL, kNewPost = 0x148A37874ULL, kOldPost = 0x148A35D3CULL;
+        const uint64_t kNewIfaceVt = 0x14B1838F8ULL, kNewDmVt = 0x14B1837B0ULL, kOtherVt = 0x14B183A00ULL;
+        FceWorld w(4, 3, false);
+        w.mem.map(0x14B183000ULL, 0x1000);
+        w.w64(w.ifce, kNewIfaceVt);
+        w.w64(kNewIfaceVt + fce::kIfaceSlotPost, kNewPost);
+        w.w64(w.dm, kNewDmVt);
+        fce::Located loc;
+        // what 2.1.0 did there: image base + the 6AB9813C vtable -> the real object refused
+        std::string err = fce::locate(w.mem, w.ifce, FceWorld::documented(), loc);
+        CHECK(err.find("the FCE interface object has another vtable") == 0 && !loc.ok(), "the 6AB9813C vtable refuses the 6AC07E31 object: " + err);
+        // the documented set belongs to 6AB9813C only
+        const fce::Anchors none = fce::anchors_for(kNewBuild, FceWorld::kBase, kNewSize, 0, 0);
+        CHECK(none.check && none.iface_vtable == 0 && none.manager_vtable == 0 && none.iface_post == 0, "no documented vtables on 6AC07E31");
+        err = fce::locate(w.mem, w.ifce, none, loc);
+        CHECK(err.find("cannot be identified on game build 6AC07E31-2145C000") != std::string::npos && err.find("fce_iface_post") != std::string::npos &&
+                  !loc.ok(),
+              "nothing resolved: refused, naming the build and the signature: " + err);
+        // the build's signatures: located, read, validated; the identity says how
+        const fce::Anchors a = fce::anchors_for(kNewBuild, FceWorld::kBase, kNewSize, kNewPost, kNewDmVt);
+        CHECK(a.iface_post == kNewPost && a.manager_vtable == kNewDmVt && a.manager_by_signature && a.iface_vtable == 0, "anchors of 6AC07E31");
+        err = fce::locate(w.mem, w.ifce, a, loc);
+        CHECK(err.empty() && loc.ok() && loc.manager == w.dm && loc.row_count == 4 && loc.fixture_count == 3, "located by the signatures: " + err);
+        CHECK(loc.identity == "interface: Post in vtable slot 4 (0x14B1838F8); DataManager: vtable 0x14B1837B0 (signature)", "identity: " + loc.identity);
+        CHECK(fce::validate(w.mem, loc, a), "validate");
+        std::vector<fce::StandingRow> rows;
+        CHECK(fce::read_rows(w.mem, loc, rows) && rows.size() == 4 && rows[0].points == 7, "rows read");
+        // fail closed on a wrong object
+        fce::Located bad;
+        w.w64(kNewIfaceVt + fce::kIfaceSlotPost, kOldPost);  // slot 4 is not this build's Post
+        err = fce::locate(w.mem, w.ifce, a, bad);
+        CHECK(err.find("holds 0x148A35D3C in slot 4") != std::string::npos && !bad.ok(), "slot 4 is not Post: refused: " + err);
+        CHECK(!fce::validate(w.mem, loc, a), "validate notices the interface change");
+        w.w64(kNewIfaceVt + fce::kIfaceSlotPost, kNewPost);
+        w.w64(w.ifce, w.hub);  // a heap pointer as the vtable: not the game's object
+        err = fce::locate(w.mem, w.ifce, a, bad);
+        CHECK(err.find("outside FC27.exe") != std::string::npos && !bad.ok(), "vtable outside the image refused: " + err);
+        w.w64(w.ifce, kNewIfaceVt);
+        w.w64(w.dm, kOtherVt);
+        err = fce::locate(w.mem, w.ifce, a, bad);
+        CHECK(err.find("DataManager has another vtable (0x14B183A00") == 0 && !bad.ok(), "DataManager vtable mismatch refused: " + err);
+        CHECK(!fce::validate(w.mem, loc, a), "validate notices the DataManager change");
+        // fce_datamanager_vtable not found on the build: the DataManager is accepted on the chain from the identified interface...
+        const fce::Anchors chain = fce::anchors_for(kNewBuild, FceWorld::kBase, kNewSize, kNewPost, 0);
+        err = fce::locate(w.mem, w.ifce, chain, loc);
+        CHECK(err.empty() && loc.ok() && loc.identity.find("DataManager: back-pointer only") != std::string::npos, "chain-only: " + err + " / " + loc.identity);
+        // ...never without its back-pointer, nor with a vtable outside the image, nor without an identified interface
+        w.w64(w.dm + 0x28, w.dm);
+        CHECK(!fce::locate(w.mem, w.ifce, chain, bad).empty() && !bad.ok(), "chain-only: the back-pointer is still required");
+        w.w64(w.dm + 0x28, w.dc);
+        w.w64(w.dm, w.rows);
+        CHECK(fce::locate(w.mem, w.ifce, chain, bad).find("DataManager at 0x30003000 has a vtable outside FC27.exe") == 0, "chain-only: vtable outside the image");
+        w.w64(w.dm, kNewDmVt);
+        w.w64(kNewIfaceVt + fce::kIfaceSlotPost, uint64_t(0));
+        CHECK(!fce::locate(w.mem, w.ifce, chain, bad).empty() && !bad.ok(), "chain-only: the interface must still be identified");
+        w.w64(kNewIfaceVt + fce::kIfaceSlotPost, kNewPost);
+        CHECK(fce::locate(w.mem, w.ifce, chain, loc).empty(), "located again");
+        // the host has not resolved the anchors yet: refused with its reason; the unchecked anchors of the tests skip everything
+        fce::Anchors pend;
+        pend.pending = "still scanning";
+        CHECK(fce::locate(w.mem, w.ifce, pend, bad) == "still scanning" && !bad.ok(), "pending");
+        CHECK(!fce::validate(w.mem, loc, pend), "validate refuses while pending");
+        CHECK(fce::locate(w.mem, w.ifce, fce::Anchors::unchecked(), bad).empty() && bad.identity.empty(), "unchecked");
+        // describe_anchors: the log line of the host
+        const std::string d = fce::describe_anchors(a);
+        CHECK(d.find("game build 6AC07E31-2145C000") == 0 && d.find("by Post 0x148A37874 in its vtable slot 4 (signature fce_iface_post)") != std::string::npos &&
+                  d.find("vtable 0x14B1837B0 (signature fce_datamanager_vtable)") != std::string::npos,
+              d);
+        CHECK(fce::describe_anchors(none).find("NOT identifiable") != std::string::npos &&
+                  fce::describe_anchors(none).find("back-pointer only") != std::string::npos,
+              fce::describe_anchors(none));
+        CHECK(fce::describe_anchors(pend).find("not resolved yet: still scanning") == 0, fce::describe_anchors(pend));
+    });
+
+    run_case("FCE: build 6AB9813C keeps its documented vtables (and checks Post when it is resolved)", [&] {
+        const uint64_t kOldPost = 0x148A35D3CULL, kSize = 0x211EF000ULL;
+        FceWorld w;  // the documented vtables
+        const uint64_t ivt = FceWorld::kBase + fce::kRvaInterfaceVtable;
+        w.mem.map(ivt & ~0xFFFULL, 0x1000);
+        w.w64(ivt + fce::kIfaceSlotPost, kOldPost);  // the 6AB9813C image: vtable 0x14B180DF0 slot 4 = 0x148A35D3C
+        const fce::Anchors a = fce::anchors_for(kRvaBuild, FceWorld::kBase, kSize, kOldPost, 0);
+        CHECK(a.iface_vtable == FceWorld::kBase + fce::kRvaInterfaceVtable && a.manager_vtable == FceWorld::kBase + fce::kRvaDataManagerVtable &&
+                  !a.manager_by_signature,
+              "documented set");
+        fce::Located loc;
+        std::string err = fce::locate(w.mem, w.ifce, a, loc);
+        CHECK(err.empty() && loc.identity == "interface: vtable 0x14B180DF0 with Post in slot 4; DataManager: vtable 0x14B180CA8 (documented)",
+              "located: " + err + " / " + loc.identity);
+        w.w64(ivt + fce::kIfaceSlotPost, uint64_t(0x148A37874ULL));
+        CHECK(!fce::locate(w.mem, w.ifce, a, loc).empty(), "the documented vtable with another Post in slot 4 is refused");
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::documented(), loc).empty(), "without Post resolved: the documented vtables alone");
+        // a signature-resolved DataManager vtable comes first
+        const fce::Anchors s = fce::anchors_for(kRvaBuild, FceWorld::kBase, kSize, 0, FceWorld::kBase + fce::kRvaDataManagerVtable);
+        CHECK(s.manager_by_signature && fce::locate(w.mem, w.ifce, s, loc).empty(), "signature DataManager vtable on the documented build");
+        // documented_rva (core/sigscan.h): the base + RVA on kRvaBuild only
+        CHECK(documented_rva(kRvaBuild, 0x140000000ULL, 0x10) == 0x140000010ULL && documented_rva("6AC07E31-2145C000", 0x140000000ULL, 0x10) == 0 &&
+                  documented_rva(kRvaBuild, 0, 0x10) == 0 && documented_rva("", 0x140000000ULL, 0x10) == 0,
+              "documented_rva");
     });
 
     run_case("FCE: write a row (identity check, only counters and points change)", [&] {
         FceWorld w;
         fce::Located loc;
-        CHECK(fce::locate(w.mem, w.ifce, FceWorld::kBase, loc).empty(), "located");
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::documented(), loc).empty(), "located");
         std::vector<fce::StandingRow> rows;
         fce::read_rows(w.mem, loc, rows);
         fce::StandingRow r = rows[2];
@@ -10955,7 +11383,7 @@ static void test_fce_standings() {
     run_case("FCE: edit_result patches the fixture and both rows consistently", [&] {
         FceWorld w;
         fce::Located loc;
-        CHECK(fce::locate(w.mem, w.ifce, FceWorld::kBase, loc).empty(), "located");
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::documented(), loc).empty(), "located");
         fce::Points pts;
         // Arsenal 2-1 Everton -> Arsenal 1-3 Everton
         CHECK(fce::edit_result(w.mem, loc, 0, 1, 3, pts).empty(), "edited");
@@ -10975,7 +11403,7 @@ static void test_fce_standings() {
         fce::Points shoot{3, 1, 1};
         FceWorld w2;
         fce::Located loc2;
-        fce::locate(w2.mem, w2.ifce, FceWorld::kBase, loc2);
+        fce::locate(w2.mem, w2.ifce, FceWorld::documented(), loc2);
         w2.fixture(1, 100, 1, 2, 2, 2, 1);
         w2.row(1, 100, 7, 1, 1, 0, 5, 3, 0, 1, 0, 1, 1, 5);
         w2.row(2, 100, 241, 0, 1, 0, 1, 1, 0, 1, 1, 3, 4, 2);
@@ -10984,10 +11412,231 @@ static void test_fce_standings() {
         CHECK(rows[1].hd == 0 && rows[1].hl == 1 && rows[1].points == 5 && rows[2].ad == 0 && rows[2].aw == 1 && rows[2].points == 4, "points with a loss worth 1");
     });
 
+    // ---- 2.2 review (STANDINGS_REVIEW_20261011.txt findings 1 and 2): the write gate, all-or-nothing writes, Undo
+    run_case("FCE: a DataManager identified by its back-pointer only is read but never written (every write and Undo refused)", [&] {
+        const std::string kNewBuild = "6AC07E31-2145C000";
+        const uint64_t kNewSize = 0x2145C000ULL, kNewPost = 0x148A37874ULL, kNewIfaceVt = 0x14B1838F8ULL, kNewDmVt = 0x14B1837B0ULL;
+        FceWorld w(4, 5, false);
+        w.fixture(3, 100, 1, 0, -1, -1, 0, 20260822);  // Everton v Arsenal, not played
+        w.mem.map(0x14B183000ULL, 0x1000);
+        w.w64(w.ifce, kNewIfaceVt);
+        w.w64(kNewIfaceVt + fce::kIfaceSlotPost, kNewPost);
+        w.w64(w.dm, kNewDmVt);
+        const fce::Anchors sig = fce::anchors_for(kNewBuild, FceWorld::kBase, kNewSize, kNewPost, kNewDmVt);
+        const fce::Anchors chain = fce::anchors_for(kNewBuild, FceWorld::kBase, kNewSize, kNewPost, 0);
+        CHECK(fce::write_refusal(sig).empty() && fce::write_refusal(fce::Anchors::unchecked()).empty() && fce::write_refusal(FceWorld::documented()).empty(),
+              "a DataManager vtable known (signature or documented) or no checks: writable");
+        CHECK(fce::write_refusal(chain).find("DataManager identified by its back-pointer only: editing is off") == 0 &&
+                  fce::write_refusal(chain).find("fce_datamanager_vtable") != std::string::npos,
+              "back-pointer only: " + fce::write_refusal(chain));
+        CHECK(fce::describe_anchors(chain).find("READ-ONLY, editing is off") != std::string::npos, "the start-up log line says so: " + fce::describe_anchors(chain));
+        // located by the signatures: writable; a result edit and a swap made now (their Undo is tried below)
+        fce::Located loc;
+        CHECK(fce::locate(w.mem, w.ifce, sig, loc).empty() && loc.read_only.empty(), "signature: writable");
+        fce::Change result_change, swap_change;
+        CHECK(fce::edit_result(w.mem, loc, 0, 1, 3, fce::Points(), &result_change).empty() && result_change.patches.size() == 3, "a result edited");
+        CHECK(fce::swap_fixture_sides(w.mem, loc, 3, &swap_change).empty() && swap_change.patches.size() == 1, "a fixture swapped");
+        // the same objects with fce_datamanager_vtable missing: located and read, never written
+        fce::Located ro;
+        CHECK(fce::locate(w.mem, w.ifce, chain, ro).empty() && ro.ok() && !ro.read_only.empty(), "back-pointer only: located, read-only: " + ro.read_only);
+        std::vector<fce::StandingRow> rows;
+        std::vector<fce::Fixture> fx;
+        CHECK(fce::read_rows(w.mem, ro, rows) && rows.size() == 4 && fce::read_fixtures(w.mem, ro, fx) && fx.size() == 5, "rows and fixtures read");
+        const std::vector<uint8_t> rows_before = w.all_rows(), fx_before = w.all_fixtures();
+        fce::StandingRow r = rows[0];
+        r.points = 50;
+        const std::string ro_text = ro.read_only;
+        fce::Change c;
+        CHECK(fce::write_row(w.mem, ro, r) == ro_text, "write_row refused");
+        CHECK(fce::edit_result(w.mem, ro, 0, 2, 1, fce::Points(), &c) == ro_text && c.empty(), "edit_result refused");
+        CHECK(fce::swap_fixture_sides(w.mem, ro, 3, &c) == ro_text && c.empty(), "swap_fixture_sides refused");
+        CHECK(fce::set_fixture_teams(w.mem, ro, 3, 0, 2, &c) == ro_text && c.empty(), "set_fixture_teams refused");
+        CHECK(fce::undo_change(w.mem, ro, result_change) == ro_text, "Undo of the result refused");
+        CHECK(fce::undo_change(w.mem, ro, swap_change) == ro_text, "Undo of the swap refused");
+        CHECK(fce::write_gate(w.mem, ro, false, 0) == ro_text, "the gate says why");
+        CHECK(w.all_rows() == rows_before && w.all_fixtures() == fx_before, "nothing written");
+        // a set located while writable turns read-only when validated against such anchors (the view re-checks every frame)
+        fce::Located later = loc;
+        CHECK(fce::validate(w.mem, later, chain) && later.read_only == ro_text, "validate: read-only now");
+        CHECK(fce::write_row(w.mem, later, r) == ro_text && w.all_rows() == rows_before, "and refused");
+        CHECK(fce::validate(w.mem, later, sig) && later.read_only.empty(), "the signature back: writable again");
+        CHECK(fce::undo_change(w.mem, later, swap_change).empty() && fce::undo_change(w.mem, later, result_change).empty(), "both undone");
+    });
+
+    run_case("FCE: the write gate - the kill switch file and a match day being processed refuse; an idle SimDayManager lets it through", [&] {
+        FceWorld w;
+        SvmWorld sw;  // the career's manager table with the SimDayManager (type 103), idle
+        for (const auto& kv : sw.mem.pages) w.mem.pages[kv.first] = kv.second;
+        fce::Located loc;
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::documented(), loc).empty(), "located");
+        CHECK(std::string(fce::kWriteOffFile) == "live_standings_write_off.txt", "the kill switch file");
+        CHECK(fce::write_gate(w.mem, loc, false, SvmWorld::kManagers).empty(), "idle: may write");
+        const std::string off = fce::write_gate(w.mem, loc, true, SvmWorld::kManagers);
+        CHECK(off == fce::write_off_reason() && off.find("turbo_output\\live_standings_write_off.txt exists") == 0, "kill switch: " + off);
+        w.mem.wr(SvmWorld::kSdm + svm::kOffSimDayState, int32_t(3));
+        const std::string busy = fce::write_gate(w.mem, loc, false, SvmWorld::kManagers);
+        CHECK(busy.find("not while the game may be processing a match day") == 0 && busy.find("state 3") != std::string::npos, "match day: " + busy);
+        w.mem.wr(SvmWorld::kSdm + svm::kOffSimDayState, int32_t(0));
+        CHECK(fce::write_gate(w.mem, loc, false, 0).find("match-day state unknown: the career's manager table is not published") == 0,
+              "no manager table: refused (state unknown)");
+        // 2.2 second review (item 4): managers = 0 published (bridge.lua can), the comm service known: its table is used
+        CHECK(fce::write_gate(w.mem, loc, false, 0, SvmWorld::kComm).empty(), "managers through the comm service: idle, may write");
+        w.mem.wr(SvmWorld::kSdm + svm::kOffSimDayState, int32_t(3));
+        CHECK(fce::write_gate(w.mem, loc, false, 0, SvmWorld::kComm).find("not while the game may be processing a match day: SimDayManager state 3") == 0,
+              "through the comm service: busy refused");
+        w.mem.wr(SvmWorld::kSdm + svm::kOffSimDayState, int32_t(0));
+        CHECK(fce::write_gate(w.mem, loc, false, 0, 0x7F0000000000ULL).find("match-day state unknown") == 0, "an unreadable comm service: state unknown");
+        const uint64_t slot = SvmWorld::kManagers + svm::kSlotSize * uint64_t(svm::kSimDayTypeId) + svm::kSlotCount;
+        w.mem.wr(slot, int32_t(0));  // no SimDayManager in the table
+        CHECK(fce::write_gate(w.mem, loc, false, SvmWorld::kManagers).find("match-day state unknown: the SimDayManager is not available") == 0,
+              "no SimDayManager: state unknown: " + fce::write_gate(w.mem, loc, false, SvmWorld::kManagers));
+        w.mem.wr(slot, int32_t(1));
+        CHECK(fce::write_gate(w.mem, fce::Located(), false, SvmWorld::kManagers) == "the standings are not located", "not located");
+        CHECK(fce::write_gate(w.mem, loc, false, SvmWorld::kManagers).empty(), "idle again");
+    });
+
+    run_case("FCE: edit_result is all or nothing - a failure part-way puts the blocks back; its Undo restores the bytes", [&] {
+        FceWorld w;
+        fce::Located loc;
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::documented(), loc).empty(), "located");
+        const std::vector<uint8_t> rows0 = w.all_rows(), fx0 = w.all_fixtures(3);
+        const uint64_t fix0 = w.fx, away_row = w.rows + 1 * fce::kStandingSize;
+        // the fixture's score cannot be written (the last block): both rows already written are put back
+        FaultMemory bad(w.mem);
+        bad.lo = fix0;
+        bad.hi = fix0 + fce::kFixtureSize;
+        fce::Change c;
+        std::string err = fce::edit_result(bad, loc, 0, 1, 3, fce::Points(), &c);
+        CHECK(err.find("writing the fixture's score failed") == 0 && err.find("the blocks written before it were put back: nothing changed") != std::string::npos,
+              "fixture refused: rolled back: " + err);
+        CHECK(c.empty() && w.all_rows() == rows0 && w.all_fixtures(3) == fx0, "nothing changed, no Undo");
+        // the away row does not read back what Turbo wrote (the write is dropped): the home row is put back
+        bad.lo = away_row;
+        bad.hi = away_row + fce::kStandingSize;
+        bad.drop = true;
+        err = fce::edit_result(bad, loc, 0, 1, 3, fce::Points(), &c);
+        CHECK(err.find("the away row does not read back what Turbo wrote") == 0 && err.find("nothing changed") != std::string::npos, "read-back: " + err);
+        CHECK(c.empty() && w.all_rows() == rows0 && w.all_fixtures(3) == fx0, "nothing changed");
+        // a block that changed between the read and the write (the game's thread): refused before anything is written
+        // (simulated: the home row changed after edit_result built its patches is covered by apply_patches through Undo below)
+        // the edit: three blocks, kept for Undo
+        CHECK(fce::edit_result(w.mem, loc, 0, 1, 3, fce::Points(), &c).empty() && c.patches.size() == 3, "edited");
+        CHECK(c.patches[0].what == "the home row" && c.patches[1].what == "the away row" && c.patches[2].what == "the fixture's score", "the three blocks");
+        CHECK(c.patches[2].before[0x0F] == 2 && c.patches[2].before[0x11] == 1 && c.patches[2].after[0x0F] == 1 && c.patches[2].after[0x11] == 3,
+              "the fixture's score before / after");
+        CHECK(w.all_rows() != rows0 && w.all_fixtures(3) != fx0, "written");
+        const std::vector<uint8_t> rows1 = w.all_rows(), fx1 = w.all_fixtures(3);
+        // Undo while the game's thread changed a row since (a match day): nothing written
+        uint8_t hw = 0;
+        w.mem.rd(w.rows + 0x09, hw);
+        w.mem.wr(w.rows + 0x09, uint8_t(hw + 1));
+        err = fce::undo_change(w.mem, loc, c);
+        CHECK(err.find("the home row changed since the edit") == 0 && err.find("nothing undone") != std::string::npos, "changed since: " + err);
+        w.mem.wr(w.rows + 0x09, hw);
+        CHECK(w.all_rows() == rows1 && w.all_fixtures(3) == fx1, "nothing undone");
+        // Undo that fails part-way (the home row, written last in reverse order, refused): the blocks already undone are redone
+        bad.lo = w.rows;
+        bad.hi = w.rows + fce::kStandingSize;
+        bad.drop = false;
+        err = fce::undo_change(bad, loc, c);
+        CHECK(err.find("writing the home row failed") == 0 && err.find("nothing changed") != std::string::npos, "undo refused part-way: " + err);
+        CHECK(w.all_rows() == rows1 && w.all_fixtures(3) == fx1, "the edit is still whole");
+        // a block outside the located lists (another season, a smaller list): nothing undone
+        fce::Located small = loc;
+        small.row_count = 1;
+        CHECK(fce::undo_change(w.mem, small, c).find("the away row is no longer in the engine's lists") == 0, "outside the lists");
+        CHECK(fce::undo_change(w.mem, loc, fce::Change()) == "nothing to undo", "empty change");
+        // Undo: every byte back
+        CHECK(fce::undo_change(w.mem, loc, c).empty(), "undone");
+        CHECK(w.all_rows() == rows0 && w.all_fixtures(3) == fx0, "rows and fixture restored byte for byte");
+        CHECK(!fce::undo_change(w.mem, loc, c).empty(), "a second Undo of the same edit is refused (the blocks no longer hold the edit)");
+        // the same score again: nothing written, no Undo
+        CHECK(fce::edit_result(w.mem, loc, 0, 2, 1, fce::Points(), &c).empty() && c.empty(), "no change: no Undo");
+        // write_row reads back too: a dropped write is reported and the row put back
+        std::vector<fce::StandingRow> rows;
+        fce::read_rows(w.mem, loc, rows);
+        fce::StandingRow r = rows[1];
+        r.points = 40;
+        bad.lo = away_row;
+        bad.hi = away_row + fce::kStandingSize;
+        bad.drop = true;
+        err = fce::write_row(bad, loc, r);
+        CHECK(err.find("the row does not read back what Turbo wrote") == 0 && w.all_rows() == rows0, "write_row read-back: " + err);
+    });
+
+    run_case("FCE: a rollback never writes over the game's bytes, and a failed rollback says the block still holds Turbo's edit", [&] {
+        FceWorld w;
+        fce::Located loc;
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::documented(), loc).empty(), "located");
+        const std::vector<uint8_t> rows0 = w.all_rows(), fx0 = w.all_fixtures(3);
+        const uint64_t home = w.rows, away = w.rows + fce::kStandingSize, fix0 = w.fx;
+        auto block = [&](uint64_t a) { return w.bytes(a, fce::kStandingSize); };
+        // item 1: right after Turbo wrote the away row (block 1), the game changes it and the fixture: the fixture (patch 2)
+        // is refused as changed under Turbo, the home row is put back, the away row is left as the game has it
+        {
+            GameMemory g(w.mem);
+            g.lo = away;
+            g.hi = away + fce::kStandingSize;
+            g.game = [&]() {
+                w.w8(away + 0x17, 0x5A);         // the game's own byte in the away row
+                w.w32(fix0, 20260816);           // and the fixture's date
+            };
+            fce::Change c;
+            const std::string err = fce::edit_result(g, loc, 0, 1, 3, fce::Points(), &c);
+            CHECK(err.find("the fixture's score changed under Turbo") == 0 &&
+                      err.find("ROLLBACK INCOMPLETE: ROLLBACK SKIPPED: the away row changed by the game") != std::string::npos && c.empty(),
+                  "skipped: " + err);
+            CHECK(block(home) == std::vector<uint8_t>(rows0.begin(), rows0.begin() + fce::kStandingSize), "the home row (block 0) put back");
+            const std::vector<uint8_t> a = block(away);
+            CHECK(a[0x17] == 0x5A && a != std::vector<uint8_t>(rows0.begin() + fce::kStandingSize, rows0.begin() + 2 * fce::kStandingSize),
+                  "the away row left alone (Turbo's edit plus the game's byte)");
+            uint32_t date = 0;
+            w.mem.rd(fix0, date);
+            CHECK(date == 20260816, "the fixture keeps the game's change");
+        }
+        // reset the world
+        w.mem.write(w.rows, rows0.data(), rows0.size());
+        w.mem.write(w.fx, fx0.data(), fx0.size());
+        // item 2: the fixture is refused, and the rollback of the home row is refused too: it says it still holds Turbo's edit
+        {
+            FaultMemory fix_off(w.mem);
+            fix_off.lo = fix0;
+            fix_off.hi = fix0 + fce::kFixtureSize;
+            FaultMemory home_once(static_cast<Memory&>(fix_off));  // over fix_off (not a copy of it)
+            home_once.lo = home;
+            home_once.hi = home + fce::kStandingSize;
+            home_once.pass = 1;  // Turbo's edit goes through, the rollback write does not
+            const std::string err = fce::edit_result(home_once, loc, 0, 1, 3, fce::Points());
+            CHECK(err.find("writing the fixture's score failed (it holds its old bytes)") == 0 &&
+                      err.find("ROLLBACK INCOMPLETE: writing the home row failed (it still holds Turbo's edit)") != std::string::npos,
+                  "failed rollback wording: " + err);
+            CHECK(block(away) == std::vector<uint8_t>(rows0.begin() + fce::kStandingSize, rows0.begin() + 2 * fce::kStandingSize), "the away row put back");
+            CHECK(block(home) != std::vector<uint8_t>(rows0.begin(), rows0.begin() + fce::kStandingSize), "the home row holds Turbo's edit");
+        }
+        w.mem.write(w.rows, rows0.data(), rows0.size());
+        w.mem.write(w.fx, fx0.data(), fx0.size());
+        // put_block's own restore: the game changes a byte Turbo just wrote -> the read-back fails and the row is left alone
+        {
+            std::vector<fce::StandingRow> rows;
+            fce::read_rows(w.mem, loc, rows);
+            fce::StandingRow r = rows[1];
+            r.points = 40;
+            GameMemory g(w.mem);
+            g.lo = away;
+            g.hi = away + fce::kStandingSize;
+            g.game = [&]() { w.w16(away + 0x14, 41); };
+            const std::string err = fce::write_row(g, loc, r);
+            CHECK(err == "the row does not read back what Turbo wrote (ROLLBACK SKIPPED: the row changed by the game)", "write_row: " + err);
+            int16_t pts = 0;
+            w.mem.rd(away + 0x14, pts);
+            CHECK(pts == 41, "the game's value stays");
+        }
+    });
+
     run_case("FCE: set_cell splits a total home / away, Pts follows W / D, P is capped by the fixtures, refusals leave the row alone", [&] {
         FceWorld w;
         fce::Located loc;
-        CHECK(fce::locate(w.mem, w.ifce, FceWorld::kBase, loc).empty(), "located");
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::documented(), loc).empty(), "located");
         std::vector<fce::StandingRow> rows;
         std::vector<fce::Fixture> fx;
         fce::read_rows(w.mem, loc, rows);
@@ -11051,7 +11700,7 @@ static void test_fce_compobjs() {
     run_case("FCE: the CompObjectDataList names a group's stage, competition and nation (the cup pool is not a league table)", [&] {
         FceWorld w;
         fce::Located loc;
-        CHECK(fce::locate(w.mem, w.ifce, FceWorld::kBase, loc).empty(), "located");
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::documented(), loc).empty(), "located");
         CHECK(loc.compobj_list == w.col && loc.compobjs_data == w.cdata && loc.compobj_count == 102, fmt("compobj list: %u entries", unsigned(loc.compobj_count)));
         std::vector<fce::CompObj> objs;
         CHECK(fce::read_compobjs(w.mem, loc, objs) && objs.size() == 102, "records read");
@@ -11077,12 +11726,12 @@ static void test_fce_compobjs() {
         // an odd list header leaves the tree out but the rows usable
         w.w32(w.col + 4, 200);  // count > capacity
         fce::Located loc2;
-        CHECK(fce::locate(w.mem, w.ifce, FceWorld::kBase, loc2).empty() && loc2.compobj_list == 0 && loc2.compobj_count == 0 && loc2.row_count == 4,
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::documented(), loc2).empty() && loc2.compobj_list == 0 && loc2.compobj_count == 0 && loc2.row_count == 4,
               "count > capacity: no tree, rows fine");
         CHECK(fce::read_compobjs(w.mem, loc2, objs) && objs.empty(), "no tree: empty");
         w.w32(w.col + 4, 102);
         w.w64(w.dm + 0x50, 0);
-        CHECK(fce::locate(w.mem, w.ifce, FceWorld::kBase, loc2).empty() && loc2.compobj_list == 0, "no list pointer: no tree");
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::documented(), loc2).empty() && loc2.compobj_list == 0, "no list pointer: no tree");
     });
 }
 
@@ -11294,6 +11943,7 @@ static void test_standings_refresh() {
         svm::Request lone;
         lone.svm = SvmWorld::kSvm;
         lone.image_base = SvmWorld::kBase;
+        lone.build = kRvaBuild;
         r = svm::refresh(w.mem, g, fns, lone);
         CHECK(r.ok && g.refreshes.size() == 3 && r.managers == SvmWorld::kManagers, "svm only: " + r.message);
         // the vtable from the signature instead of the RVA (no image base: the LiveStandings vtable check is skipped)
@@ -11330,6 +11980,7 @@ static void test_standings_refresh() {
         svm::Request lone;
         lone.svm = SvmWorld::kStaff;
         lone.image_base = SvmWorld::kBase;
+        lone.build = kRvaBuild;
         r = svm::refresh(w.mem, g, fns, lone);
         CHECK(!r.ok && r.message.find("not the StandingsViewManager") != std::string::npos && r.message.find("0x14B0160D8") != std::string::npos,
               "staff alone: " + r.message);
@@ -11378,6 +12029,7 @@ static void test_standings_refresh() {
             svm::Request lone;
             lone.svm = SvmWorld::kOther;
             lone.image_base = SvmWorld::kBase;
+            lone.build = kRvaBuild;
             r = svm::refresh(w.mem, g, fns, lone);
             CHECK(!r.ok && r.message.find("not the StandingsViewManager") != std::string::npos, "wrong vtable: " + r.message);
         }
@@ -11398,6 +12050,7 @@ static void test_standings_refresh() {
         svm::Request pub;
         pub.svm = SvmWorld::kSvm;
         pub.image_base = SvmWorld::kBase;
+        pub.build = kRvaBuild;
         r = svm::refresh(w.mem, g, fns, pub);
         CHECK(!r.ok && r.message.find("does not hold") != std::string::npos, "published svm, its own table holds it nowhere: " + r.message);
         w.mem.wr(SvmWorld::kSvm + svm::kOffCtx, SvmWorld::kManagers);
@@ -11551,6 +12204,72 @@ static void test_standings_refresh() {
         g = FakeSvmGame();
         r = svm::refresh(w.mem, g, fns, req);
         CHECK(!r.ok && r.stage == "walk" && g.events.empty() && g.refreshes.empty(), "inconsistent map with the opt-in: still nothing called: " + r.message);
+    });
+
+    run_case("standings refresh: build 6AC07E31 - the map values' LiveStandings vtable comes from svm_live_vtable, not the 6AB9813C RVA", [&] {
+        // the values as on 6AC07E31: their vtable moved like every other (stand-in inside the image)
+        SvmWorld w;
+        const uint64_t kNewLive = SvmWorld::kLiveVtable + 0x1060;
+        for (size_t i = 0; i < w.keys.size(); ++i) w.mem.wr(w.live(int(i)), kNewLive);
+        FakeSvmGame g;
+        // what 2.1.0 did there: image base + kRvaLiveStandingsVtable -> every value refused at the walk, nothing called
+        svm::Result r = svm::refresh(w.mem, g, fns, w.request());
+        CHECK(!r.ok && r.stage == "walk" && g.refreshes.empty() && g.events.empty() && r.message.find("does not hold a LiveStandings object") != std::string::npos,
+              "the 6AB9813C RVA refuses the 6AC07E31 values: " + r.message);
+        // 2.2 review (finding 5): on build 6AC07E31 the old build's RVAs are never used; a missing signature is named
+        svm::Request on_new = w.request();
+        on_new.build = "6AC07E31-2145C000";
+        g = FakeSvmGame();
+        r = svm::refresh(w.mem, g, fns, on_new);
+        CHECK(!r.ok && r.stage == "validate" && g.refreshes.empty() &&
+                  r.message.find("signature svm_vtable was not found on game build 6AC07E31-2145C000") == 0,
+              "svm_vtable missing on 6AC07E31: refused, named: " + r.message);
+        svm::Fns vt_only = fns;
+        vt_only.vtable = SvmWorld::kVtable;
+        r = svm::refresh(w.mem, g, vt_only, on_new);
+        CHECK(!r.ok && r.stage == "validate" && g.refreshes.empty() && r.message.find("signature svm_live_vtable was not found") == 0,
+              "svm_live_vtable missing on 6AC07E31: refused, named: " + r.message);
+        on_new.build.clear();
+        r = svm::refresh(w.mem, g, vt_only, on_new);
+        CHECK(!r.ok && r.message.find("signature svm_live_vtable was not found on this game build") == 0, "an unknown build is not the documented one: " + r.message);
+        // svm::anchor_vtable: the signature, else the documented address on kRvaBuild only; no image base = not checked
+        std::string miss;
+        CHECK(svm::anchor_vtable(0x1234, "6AC07E31-2145C000", SvmWorld::kBase, 0x10, "x", miss) == 0x1234 && miss.empty(), "signature first");
+        CHECK(svm::anchor_vtable(0, kRvaBuild, SvmWorld::kBase, 0x10, "x", miss) == SvmWorld::kBase + 0x10 && miss.empty(), "documented build");
+        CHECK(svm::anchor_vtable(0, "6AC07E31-2145C000", SvmWorld::kBase, 0x10, "x", miss) == 0 && miss.find("signature x was not found") == 0, miss);
+        CHECK(svm::anchor_vtable(0, "6AC07E31-2145C000", 0, 0x10, "x", miss) == 0 && miss.empty(), "no image base: not checked");
+        // the build's signature: the sync requests run
+        svm::Fns sig = fns;
+        sig.live_vtable = kNewLive;
+        g = FakeSvmGame();
+        r = svm::refresh(w.mem, g, sig, w.request());
+        CHECK(r.ok && r.stage == "done" && r.refreshed == 3 && g.refreshes.size() == 3, "svm_live_vtable: refreshed: " + r.message);
+        // on 6AC07E31 with svm_vtable and svm_live_vtable found: refreshed; the view's rows need the fcei_* signatures there
+        svm::Fns sig_new = sig;
+        sig_new.vtable = SvmWorld::kVtable;
+        sig_new.compobj_vtable = sig_new.standinglist_vtable = 0;
+        on_new.build = "6AC07E31-2145C000";
+        on_new.rows = {3322};
+        g = FakeSvmGame();
+        r = svm::refresh(w.mem, g, sig_new, on_new);
+        CHECK(r.ok && r.refreshed == 3 && r.message.find("could not be checked: signature fcei_compobject_vtable was not found") != std::string::npos,
+              "fcei_* missing on 6AC07E31: the call runs, the rows check names the signature: " + r.message);
+        // still fail closed: one value with another vtable stops the walk before any call
+        w.mem.wr(w.live(1), SvmWorld::kLiveVtable);
+        g = FakeSvmGame();
+        r = svm::refresh(w.mem, g, sig, w.request());
+        CHECK(!r.ok && r.stage == "walk" && g.refreshes.empty(), "a value with another vtable: nothing called: " + r.message);
+        // the view's rows (read-only) use the same anchor
+        w.mem.wr(w.live(1), kNewLive);
+        w.set_tree(1200, 1201, {{10, 7, 3}});
+        w.mem.wr(w.live(1) + 8, uint64_t(0));  // 1300 and 1400: empty values
+        w.mem.wr(w.live(2) + 8, uint64_t(0));
+        std::vector<svm::ShownGroup> shown;
+        CHECK(svm::shown_groups(w.mem, SvmWorld::kSvm, kNewLive, SvmWorld::kCompObjVtable, SvmWorld::kListVtable, shown).empty() && shown.size() == 1 &&
+                  shown[0].group == 1201,
+              "shown groups read");
+        CHECK(!svm::shown_groups(w.mem, SvmWorld::kSvm, SvmWorld::kLiveVtable, SvmWorld::kCompObjVtable, SvmWorld::kListVtable, shown).empty(),
+              "shown groups refused with the 6AB9813C RVA");
     });
 
     run_case("standings refresh: a failing sync request stops the sequence and the message counts what ran", [&] {
@@ -13219,13 +13938,165 @@ static void test_match_setup() {
         CHECK(fixes.erase(731) && !fixes.erase(731) && fixes.empty(), "erase");
     });
 
+    run_case("match setup: result fixing on build 6AC07E31 - the manager is the object whose vtable slot 5 is the hooked HandleMessage", [&] {
+        // turbo_gui.log 2026-10-11 (6AC07E31): fce_sched_handle_message 0x148A50344 (0x148A4E80C on 6AB9813C, where the scheduling
+        // manager's vtable 0x14B1854A8 holds it in slot 5); the 6AC07E31 vtable is a stand-in inside the image
+        SimMemory mem;
+        const uint64_t self = 0x61000000ULL, msg = 0x61000100ULL, kNewVt = 0x14B188000ULL, kNewHandler = 0x148A50344ULL;
+        const uint64_t kOldVt = 0x140000000ULL + mfix::kRvaSchedulingVtable;
+        mem.map(self, 0x1000);
+        mem.map(kNewVt, 0x1000);
+        mem.wr(self, kNewVt);
+        mem.wr(kNewVt + mfix::kVtableSlotHandleMessage, kNewHandler);
+        mem.wr(msg + mfix::kOffType, int32_t(0x2A));
+        mem.wr(msg + mfix::kOffHome, int32_t(0));
+        mem.wr(msg + mfix::kOffAway, int32_t(2));
+        for (uint64_t o : {mfix::kOffExtra, mfix::kOffExtra + 4, mfix::kOffPens, mfix::kOffPens + 4}) mem.wr(msg + o, int32_t(-1));
+        mem.wr(msg + mfix::kOffFixture, int32_t(731));
+        mfix::FixTable fixes;
+        CHECK(fixes.set(731, 3, 1).empty(), "fix set");
+        mfix::Applied a;
+        // what 2.1.0 did there: image base + the 6AB9813C vtable -> every fixed result left alone
+        CHECK(mfix::apply_to_request(mem, self, kOldVt, msg, fixes, a) && !a.changed && a.skipped.find("FCE manager") != std::string::npos,
+              "the 6AB9813C vtable skips the 6AC07E31 manager: " + a.skipped);
+        CHECK(documented_rva("6AC07E31-2145C000", 0x140000000ULL, mfix::kRvaSchedulingVtable) == 0, "no documented vtable on 6AC07E31");
+        // the host's owner on 6AC07E31: no documented vtable, the hooked handler in slot 5
+        mfix::Owner owner;
+        owner.handler = kNewHandler;
+        CHECK(mfix::check_owner(mem, self, owner).empty(), "slot 5 holds the hooked HandleMessage");
+        CHECK(mfix::apply_to_request(mem, self, owner, msg, fixes, a) && a.changed && a.old_home == 0 && a.old_away == 2, "rewritten: " + a.skipped);
+        int32_t h = 0, aw = 0;
+        mem.rd(msg + mfix::kOffHome, h);
+        mem.rd(msg + mfix::kOffAway, aw);
+        CHECK(h == 3 && aw == 1, "goals in the message");
+        // fail closed: another class (slot 5 is not the hooked function) or an unreadable object
+        mem.wr(msg + mfix::kOffHome, int32_t(0));
+        mem.wr(msg + mfix::kOffAway, int32_t(2));
+        mem.wr(kNewVt + mfix::kVtableSlotHandleMessage, uint64_t(0x148A50434ULL));  // the standings manager's handler
+        CHECK(mfix::apply_to_request(mem, self, owner, msg, fixes, a) && !a.changed && a.skipped.find("slot 5") != std::string::npos,
+              "another manager's vtable: left alone: " + a.skipped);
+        mem.rd(msg + mfix::kOffHome, h);
+        CHECK(h == 0, "goals untouched");
+        mem.wr(kNewVt + mfix::kVtableSlotHandleMessage, kNewHandler);
+        CHECK(!mfix::check_owner(mem, 0x72000000ULL, owner).empty(), "unreadable object refused");
+        // build 6AB9813C: the documented vtable AND the slot (both must hold)
+        mfix::Owner both;
+        both.vtable = kNewVt;
+        both.handler = kNewHandler;
+        CHECK(mfix::check_owner(mem, self, both).empty(), "vtable and slot");
+        both.vtable = kOldVt;
+        CHECK(!mfix::check_owner(mem, self, both).empty(), "the vtable must match as well");
+        CHECK(mfix::check_owner(mem, self, mfix::Owner()).empty(), "no owner given (tests): not checked");
+    });
+
+    run_case("match setup: the automatic result rewrite reads both goals back; one hook rewriting and the other skipping is logged", [&] {
+        SimMemory mem;
+        const uint64_t msg = 0x61000100ULL;
+        mem.map(msg, 0x1000);
+        auto message = [&](int32_t home, int32_t away) {
+            mem.wr(msg + mfix::kOffType, int32_t(0x2A));
+            mem.wr(msg + mfix::kOffHome, home);
+            mem.wr(msg + mfix::kOffAway, away);
+            for (uint64_t o : {mfix::kOffExtra, mfix::kOffExtra + 4, mfix::kOffPens, mfix::kOffPens + 4}) mem.wr(msg + o, int32_t(-1));
+            mem.wr(msg + mfix::kOffFixture, int32_t(731));
+        };
+        message(0, 2);
+        mfix::FixTable fixes;
+        CHECK(fixes.set(731, 3, 1).empty(), "fix set");
+        mfix::Applied a;
+        // the away goals' write is dropped: the read-back sees it, the played result stays
+        FaultMemory drop(mem);
+        drop.lo = msg + mfix::kOffAway;
+        drop.hi = msg + mfix::kOffAway + 4;
+        drop.drop = true;
+        CHECK(mfix::apply_to_request(drop, 0, mfix::Owner(), msg, fixes, a) && !a.changed &&
+                  a.skipped == "the result did not read back what Turbo wrote (put back as played)",
+              "dropped write: skipped: " + a.skipped);
+        int32_t h = -1, aw = -1;
+        mem.rd(msg + mfix::kOffHome, h);
+        mem.rd(msg + mfix::kOffAway, aw);
+        CHECK(h == 0 && aw == 2, "the played goals are back in the message");
+        // the write refused: skipped, the played result kept
+        drop.drop = false;
+        CHECK(mfix::apply_to_request(drop, 0, mfix::Owner(), msg, fixes, a) && !a.changed && a.skipped.find("writing the result failed") == 0,
+              "refused write: skipped: " + a.skipped);
+        mem.rd(msg + mfix::kOffHome, h);
+        CHECK(h == 0, "home goals put back");
+        // a good write reads back: changed
+        // 2.2 second review (item 3): the partner hook switched off: a fixed result is left as played, nothing written
+        message(0, 2);
+        const std::string hold = "the other result hook is off: left as played (fce_result_standings)";
+        CHECK(mfix::apply_to_request(mem, 0, mfix::Owner(), msg, fixes, a, hold) && !a.changed && a.skipped == hold && a.old_home == 0 &&
+                  a.old_away == 2,
+              "held: " + a.skipped);
+        mem.rd(msg + mfix::kOffHome, h);
+        mem.rd(msg + mfix::kOffAway, aw);
+        CHECK(h == 0 && aw == 2, "held: the played goals untouched");
+        mem.wr(msg + mfix::kOffFixture, int32_t(732));
+        CHECK(!mfix::apply_to_request(mem, 0, mfix::Owner(), msg, fixes, a, hold), "held: a fixture without a fix is not even reported");
+        mem.wr(msg + mfix::kOffFixture, int32_t(731));
+        CHECK(mfix::apply_to_request(mem, 0, mfix::Owner(), msg, fixes, a) && a.changed && a.skipped.empty(), "rewritten and read back");
+        // the two hooks: both rewrote (or found the score already) = no line; one rewrote, the other skipped = one line
+        mfix::PairLog pairs;
+        mfix::Applied ok = a, already = a, skipped = a;
+        already.changed = false;
+        skipped.changed = false;
+        skipped.skipped = "the handler's object is not the expected FCE manager (its vtable slot 5 is not the hooked HandleMessage)";
+        CHECK(pairs.note(mfix::Hook::Scheduling, ok).empty() && pairs.waiting() == 1, "one hook so far: nothing to say");
+        CHECK(pairs.note(mfix::Hook::Standings, already).empty() && pairs.waiting() == 0, "both fixed: no line, forgotten");
+        CHECK(pairs.note(mfix::Hook::Scheduling, ok).empty(), "scheduling rewrote");
+        const std::string line = pairs.note(mfix::Hook::Standings, skipped);
+        CHECK(line.find("fixture 731: the scheduling manager rewrote it (0-2 -> 3-1) but the standings manager left it as played (the handler's") == 0 &&
+                  line.find("the fixture's score and the table now disagree") != std::string::npos,
+              "disagreement logged: " + line);
+        CHECK(pairs.note(mfix::Hook::Standings, ok).empty() && pairs.note(mfix::Hook::Scheduling, skipped).find("the standings manager rewrote it") != std::string::npos,
+              "the other way round too");
+        CHECK(pairs.note(mfix::Hook::Scheduling, skipped).empty() && pairs.note(mfix::Hook::Standings, skipped).empty(), "both skipped: no line");
+        for (int i = 0; i < 100; ++i) {
+            mfix::Applied x = ok;
+            x.fixture = uint16_t(i);
+            pairs.note(mfix::Hook::Scheduling, x);
+        }
+        CHECK(pairs.waiting() == mfix::PairLog::kMaxOpen, "bounded");
+    });
+
+    run_case("signatures: the live standings anchors resolve on the game's bytes (DataManager ctor, GetLiveStandingsCopy)", [&] {
+        // bytes read from fc27_image.bin (6AB9813C) at 0x148A1661C (FCE::DataManager ctor) and 0x147D9F795 (in GetLiveStandingsCopy)
+        const uint8_t dm_ctor[] = {0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x08, 0x48, 0x89, 0x70, 0x10, 0x48, 0x89, 0x78, 0x18, 0x4C, 0x89, 0x70, 0x20, 0x41,
+                                   0x57, 0x48, 0x83, 0xEC, 0x30, 0x41, 0xB8, 0x02, 0x00, 0x00, 0x00, 0x48, 0x8B, 0xF2, 0x48, 0x8B, 0xF9, 0xE8, 0x66, 0x06,
+                                   0x00, 0x00, 0x48, 0x8B, 0x1D, 0x63, 0x38, 0x85, 0x03, 0x48, 0x8D, 0x05, 0x54, 0xA6, 0x76, 0x02, 0x48, 0x89, 0x07, 0x4C,
+                                   0x8D, 0x05, 0xFA, 0xC9, 0x76, 0x02, 0x48, 0xC7, 0x47, 0x28, 0x00, 0x00, 0x00, 0x00, 0x41, 0xBE, 0x01, 0x00, 0x00, 0x00};
+        const uint8_t live_copy[] = {0x48, 0x8B, 0x4E, 0x08, 0x48, 0x85, 0xC9, 0x74, 0x20, 0x48, 0x8B, 0x01, 0xFF, 0x50, 0x08, 0x8B, 0xD0, 0x48,
+                                     0x8B, 0xCB, 0xE8, 0xEA, 0x09, 0x2A, 0xFC, 0x48, 0x89, 0x43, 0x08, 0x48, 0x8B, 0xD0, 0x4C, 0x8B, 0x46, 0x08,
+                                     0xE8, 0x72, 0x04, 0x2A, 0xFC, 0x48, 0x8D, 0x05, 0x83, 0x69, 0x27, 0x03, 0x48, 0x8B, 0xFB, 0x48, 0x89, 0x03,
+                                     0x48, 0x8B, 0xCD, 0xFF, 0x15, 0x64, 0xB9, 0x2B, 0x07, 0x48, 0x8B, 0x5C, 0x24, 0x30, 0x48, 0x8B, 0xC7, 0x48};
+        for (const std::string& build : builtin_builds()) {
+            const SignatureTable* t = builtin_signature_table(build);
+            CHECK(t && t->find("fce_datamanager_vtable") && t->find("svm_live_vtable") && t->find("fce_iface_post"), "entries in the table of " + build);
+            if (!t || !t->find("fce_datamanager_vtable") || !t->find("svm_live_vtable")) continue;
+            CHECK(signature_offset_checked(*t->find("fce_datamanager_vtable")) && signature_offset_checked(*t->find("svm_live_vtable")),
+                  "offsets inside the patterns (auto-adapt accepts them)");
+            // each function at its real VA: the lea resolves to the documented vtable
+            std::vector<uint8_t> code(0x200, 0xCC);
+            std::memcpy(code.data() + 0x100, dm_ctor, sizeof(dm_ctor));
+            SigResult r = resolve_signature(*t->find("fce_datamanager_vtable"), code.data(), code.size(), 0x148A1661CULL - 0x100);
+            CHECK(r.state == SigState::Found && r.hits == 1 && r.match == 0x148A1661CULL && r.address == 0x140000000ULL + fce::kRvaDataManagerVtable,
+                  "fce_datamanager_vtable -> 0x14B180CA8: " + r.error);
+            std::fill(code.begin(), code.end(), uint8_t(0xCC));
+            std::memcpy(code.data() + 0x100, live_copy, sizeof(live_copy));
+            r = resolve_signature(*t->find("svm_live_vtable"), code.data(), code.size(), 0x147D9F795ULL - 0x100);
+            CHECK(r.state == SigState::Found && r.hits == 1 && r.match == 0x147D9F795ULL && r.address == 0x140000000ULL + svm::kRvaLiveStandingsVtable,
+                  "svm_live_vtable -> 0x14B016148: " + r.error);
+        }
+    });
+
     run_case("match setup: unplayed fixtures change venue or opponent; played ones and foreign clubs are refused", [&] {
         FceWorld w(4, 5);
         w.fixture(3, 100, 1, 0, -1, -1, 0, 20260822);  // Everton v Arsenal, not played
         w.fixture(4, 100, 2, 1, -1, -1, 0, 20260822);  // Inter v Everton the same day
         w.row(3, 101, 99, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);  // a club of another group
         fce::Located loc;
-        CHECK(fce::locate(w.mem, w.ifce, FceWorld::kBase, loc).empty(), "located");
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::documented(), loc).empty(), "located");
         std::vector<fce::Fixture> fx;
         std::vector<fce::StandingRow> rows;
         fce::read_fixtures(w.mem, loc, fx);
@@ -13259,6 +14130,48 @@ static void test_match_setup() {
         fce::read_fixtures(w.mem, loc, fx);
         CHECK(fx[3].home_sid == 0 && fx[3].away_sid == 2 && fx[3].home_score == -1 && fx[3].completion == 0 && fx[3].used == 1, "fixture bytes");
         CHECK(!fce::set_fixture_teams(w.mem, loc, 0, 0, 2).empty(), "played fixture refused");
+    });
+
+    run_case("match setup: Undo of a venue swap and of a new opponent restores the fixture's bytes (only while it holds the edit)", [&] {
+        FceWorld w(4, 5);
+        w.fixture(3, 100, 1, 0, -1, -1, 0, 20260822);  // Everton v Arsenal, not played
+        w.fixture(4, 100, 2, 1, -1, -1, 0, 20260829);  // Inter v Everton a week later
+        fce::Located loc;
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::documented(), loc).empty(), "located");
+        const uint64_t f3 = w.fx + 3 * fce::kFixtureSize;
+        const std::vector<uint8_t> orig = w.bytes(f3, fce::kFixtureSize), all0 = w.all_fixtures(), rows0 = w.all_rows();
+        // the swap: one block, its +0x0A / +0x0C exchanged, read back
+        fce::Change swap;
+        CHECK(fce::swap_fixture_sides(w.mem, loc, 3, &swap).empty() && swap.patches.size() == 1 && swap.patches[0].addr == f3 &&
+                  swap.patches[0].what == "the fixture",
+              "swapped, kept for Undo");
+        CHECK(std::vector<uint8_t>(swap.patches[0].before, swap.patches[0].before + fce::kFixtureSize) == orig, "the bytes before");
+        CHECK(fce::undo_change(w.mem, loc, swap).empty() && w.all_fixtures() == all0 && w.all_rows() == rows0, "Undo of the swap: every byte back");
+        // the new opponent: Arsenal v Inter instead of Everton v Arsenal
+        fce::Change opp;
+        CHECK(fce::set_fixture_teams(w.mem, loc, 3, 0, 2, &opp).empty() && opp.patches.size() == 1, "new opponent, kept for Undo");
+        std::vector<fce::Fixture> fx;
+        fce::read_fixtures(w.mem, loc, fx);
+        CHECK(fx[3].home_sid == 0 && fx[3].away_sid == 2, "Arsenal v Inter");
+        // the game changed the fixture since (its date moved): Undo refused, nothing written
+        uint32_t date = 0;
+        w.mem.rd(f3, date);
+        w.mem.wr(f3, uint32_t(20260823));
+        const std::vector<uint8_t> moved = w.all_fixtures();
+        const std::string err = fce::undo_change(w.mem, loc, opp);
+        CHECK(err.find("the fixture changed since the edit") == 0 && w.all_fixtures() == moved, "changed since: refused: " + err);
+        w.mem.wr(f3, date);
+        CHECK(fce::undo_change(w.mem, loc, opp).empty() && w.all_fixtures() == all0, "Undo of the new opponent: every byte back");
+        // the pairing it already has: nothing written, nothing to undo
+        CHECK(fce::set_fixture_teams(w.mem, loc, 3, 1, 0, &opp).empty() && opp.empty() && w.all_fixtures() == all0, "same pairing: no Change");
+        // a dropped write is noticed (read back) and nothing stays changed
+        FaultMemory bad(w.mem);
+        bad.lo = f3;
+        bad.hi = f3 + fce::kFixtureSize;
+        bad.drop = true;
+        CHECK(fce::swap_fixture_sides(bad, loc, 3, &swap).find("the fixture does not read back what Turbo wrote") == 0 && swap.empty() &&
+                  w.all_fixtures() == all0,
+              "swap read back");
     });
 
     run_case("signatures: the built-in match-setup entries resolve on the game's bytes and agree with each other", [&] {

@@ -163,8 +163,25 @@ namespace mfix {
 constexpr int32_t kRequestType = 0x2A;  // FCEI::RequestUpdateMatchResult
 constexpr uint64_t kOffType = 0x10, kOffHome = 0x20, kOffAway = 0x24, kOffExtra = 0x30, kOffPens = 0x38, kOffFixture = 0x70;
 constexpr int32_t kMaxFixture = 20000, kMaxGoals = 30;
-// FCE manager vtables (image-relative; the hook only rewrites when `this` carries the expected one)
+// FCE manager vtables of build kRvaBuild (image-relative, core/sigscan.h): the hook only rewrites when `this` carries the
+// expected one. On any other build they are not the managers' (6AC07E31 skipped every fixed result with "not the expected
+// FCE manager"): there the manager is identified by its vtable's slot 5 holding the hooked HandleMessage itself.
 constexpr uint64_t kRvaSchedulingVtable = 0xB1854A8, kRvaStandingsVtable = 0xB1852E8;
+constexpr uint64_t kVtableSlotHandleMessage = 0x28;  // slot 5 (both managers, checked in the 6AB9813C image)
+// Who may own a hooked HandleMessage: `vtable` (exact, 0 = not checked) and `handler` (the hooked function, signature-
+// resolved: the object's vtable must hold it in slot 5; 0 = not checked). Both 0 = no check (tests).
+// LIMITATION of the slot-5 check (2.2 review): when the game reaches the hooked HandleMessage by virtual dispatch through
+// `self`'s vtable, slot 5 holds the hooked function by construction, so the check cannot fail for such a call. It only
+// identifies the class because each of the two handlers is referenced by exactly one vtable: verified in the 6AB9813C image
+// (0x148A4E80C only in 0x14B1854D0, 0x148A4E8FC only in 0x14B185310), NOT verified on 6AC07E31 (its exe is encrypted on
+// disk). What still guards a rewrite there: the message must be a RequestUpdateMatchResult (type 0x2A) of a fixture the
+// user fixed, regular time only, both goal ints read back after the write (apply_to_request), the kill switch
+// turbo_output\call_match_fix_off.txt, and the log line of each rewrite / skip (PairLog: fixture and table disagreeing).
+struct Owner {
+    uint64_t vtable = 0, handler = 0;
+};
+// "" when `self` is such an owner, else why not
+std::string check_owner(Memory& mem, uint64_t self, const Owner& owner);
 
 struct Fix {
     uint16_t fixture = 0;
@@ -192,15 +209,48 @@ private:
 struct Applied {
     uint16_t fixture = 0;
     int32_t old_home = 0, old_away = 0, home = 0, away = 0;
-    bool changed = false;     // the goals were rewritten (false = already equal, or skipped)
+    bool changed = false;     // the goals were rewritten and read back (false = already equal, or skipped)
     std::string skipped;      // why a fixed fixture's result was left alone ("" = not skipped)
 };
 
 // Inspect one message the FCE manager `self` is about to handle. When it is a RequestUpdateMatchResult for a fixed
-// fixture that ended in regular time, rewrite its goals. expected_vtable = the manager's vtable (0 = not checked).
-// Returns true when the message was a result for a fixed fixture (changed / skipped say what happened). Reads the
-// type first; an unreadable or foreign message is left alone.
-bool apply_to_request(Memory& mem, uint64_t self, uint64_t expected_vtable, uint64_t msg, const FixTable& fixes, Applied& out);
+// fixture that ended in regular time, rewrite its goals. `owner` = who may own the handler (check_owner). Returns true
+// when the message was a result for a fixed fixture (changed / skipped say what happened). Reads the type first; an
+// unreadable or foreign message is left alone. 2.2 review: both goal ints are read back after the write; a failed write
+// or a mismatch puts the played goals back (read back as well) and marks the result skipped ("... put back as played" or
+// "... putting the played result back FAILED").
+// `hold` not "" = leave a fixed result as played with that reason, nothing written (2.2 review: the host passes "the other
+// result hook is off: left as played" while the partner hook is switched off, so fixture and table cannot disagree).
+bool apply_to_request(Memory& mem, uint64_t self, const Owner& owner, uint64_t msg, const FixTable& fixes, Applied& out,
+                      const std::string& hold = std::string());
+// The same with the manager's exact vtable only (0 = not checked)
+inline bool apply_to_request(Memory& mem, uint64_t self, uint64_t expected_vtable, uint64_t msg, const FixTable& fixes, Applied& out) {
+    Owner o;
+    o.vtable = expected_vtable;
+    return apply_to_request(mem, self, o, msg, fixes, out);
+}
+
+// The two hooks of one result (2.2 review): the scheduling manager's HandleMessage writes the fixture's score, the
+// standings manager's the table rows. When one rewrites a fixed result and the other leaves it as played, the fixture and
+// the table disagree: note() returns the line the host logs (turbo_gui.log "result fixing: fixture N: ... disagree"), so
+// result fixing on a new build can be judged from the log. Not thread-safe (the host holds its lock).
+enum class Hook { Scheduling = 0, Standings = 1 };
+class PairLog {
+public:
+    // One hook's outcome for `a.fixture` (an apply_to_request that returned true). "" until both hooks reported that
+    // fixture; then the pair is forgotten and the line is returned when exactly one of them left the result as played.
+    std::string note(Hook hook, const Applied& a);
+    size_t waiting() const { return open_.size(); }  // fixtures seen by one hook only (bounded: the oldest are dropped)
+    static constexpr size_t kMaxOpen = 64;
+
+private:
+    struct Entry {
+        uint16_t fixture = 0;
+        bool seen[2] = {false, false};
+        Applied got[2];
+    };
+    std::vector<Entry> open_;
+};
 
 }  // namespace mfix
 
