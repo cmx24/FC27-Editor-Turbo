@@ -86,7 +86,7 @@ static void test_face3d_looks() {
         CHECK(face3d::count() == generated && face3d::all() != table, "generated table restored");
     });
 
-    run_case("Real-face chooser with 3D looks: 3D facets, 'not classified yet', every value offered, database facets last", [] {
+    run_case("Real-face chooser with 3D looks: 3D facets in at most 5 groups, 'not classified yet' no choice, database facets last", [] {
         using namespace faces;
         static const face3d::Look looks[] = {
             {1, {face3d::kSkinLight, face3d::kHairDarkBrown, face3d::kShort, face3d::kWavy, face3d::kShortBeard, face3d::kBeardDarkBrown, face3d::kNoHeadwear}},
@@ -124,7 +124,8 @@ static void test_face3d_looks() {
                   !facet_shown(kHairColour, true) && facet_shown(kEyes, true) && facet_3d(kHeadwear3d) && !facet_3d(kGender) &&
                   std::string(facet_field(kSkin3d)).empty(),
               "database facets without 3D looks (managers)");
-        CHECK(key_label(kHairColour3d, face3d::kHairDarkBrown) == "Dark brown" && key_label(kHeadwear3d, face3d::kHat) == "Hat / cap" &&
+        CHECK(key_label(kHairColour3d, facet_key(kHairColour3d, face3d::kHairDarkBrown)) == "Brown" &&
+                  trait_label(kHairColour3d, face3d::kHairDarkBrown) == "Dark brown" && key_label(kHeadwear3d, face3d::kHat) == "Hat / cap" &&
                   key_label(kFacialHair3d, kUnclassified) == "not classified yet" && trait_label(kFacialHair3d, face3d::kShortBeard) == "Short beard",
               "3D value labels");
         // a head with a look matches only its own values; a head without one never matches a 3D value filter
@@ -132,11 +133,11 @@ static void test_face3d_looks() {
         flt.sel[kHairLength3d] = face3d::kShort;
         CHECK(matches(heads[0], flt) && matches(heads[1], flt) && !matches(heads[2], flt) && !matches(heads[3], flt) && !matches(heads[4], flt),
               "hair length short: 1 and 2 only");
-        flt.sel[kHairType3d] = face3d::kWavy;
-        CHECK(matches(heads[0], flt) && !matches(heads[1], flt), "short + wavy: 1");
+        flt.sel[kHairType3d] = facet_key(kHairType3d, face3d::kWavy);
+        CHECK(matches(heads[0], flt) && !matches(heads[1], flt), "short + wavy & curly: 1");
         flt.clear();
         for (int t = 0; t < face3d::kTraitCount; ++t)
-            for (int v = 0; v < face3d::value_count(t); ++v) {
+            for (int v = 0; v < group_count3d(static_cast<Facet>(kSkin3d + t)); ++v) {
                 flt.sel[kSkin3d + t] = v;
                 CHECK(!matches(heads[3], flt) && !matches(heads[4], flt), fmt("unclassified heads never match %s = %d", face3d::trait_title(t), v));
                 flt.sel[kSkin3d + t] = kAny;
@@ -147,23 +148,24 @@ static void test_face3d_looks() {
         flt.sel[kSkin] = 20;  // a database facet the chooser hides with 3D looks
         drop_hidden(flt, true);
         CHECK(flt.sel[kSkin] == kAny && !flt.active(), "hidden facets do not filter");
-        // counts: every value of the trait (0 for the values no head has), then "not classified yet"
+        // counts: every group of the trait (0 for the groups no head has), at most 5; heads without a look are no choice
         flt.clear();
         std::vector<Count> skins = facet_counts(heads, pool, flt, kSkin3d);
-        CHECK(skins.size() == face3d::kSkinCount + 1 && skins[face3d::kSkinLight].n == 2 && skins[face3d::kSkinLight].sample == 0 &&
-                  skins[face3d::kSkinDark].n == 1 && skins[face3d::kSkinOlive].n == 0 && skins[face3d::kSkinOlive].sample == kNoSample &&
-                  skins.back().key == kUnclassified && skins.back().n == 2,
-              fmt("skin counts (%zu values)", skins.size()));
+        const size_t light = size_t(facet_key(kSkin3d, face3d::kSkinLight)), dark = size_t(facet_key(kSkin3d, face3d::kSkinDark));
+        const size_t olive = size_t(facet_key(kSkin3d, face3d::kSkinOlive));
+        CHECK(skins.size() == size_t(group_count3d(kSkin3d)) && skins.size() <= size_t(kMaxBuckets) && skins[light].n == 2 && skins[light].sample == 0 &&
+                  skins[dark].n == 1 && skins[olive].n == 0 && skins[olive].sample == kNoSample && skins.back().key != kUnclassified,
+              fmt("skin counts (%zu groups)", skins.size()));
         std::vector<Count> types = facet_counts(heads, pool, flt, kHairType3d);
-        CHECK(types.size() == size_t(face3d::kMaxValues) + 1, "all 12 hair types offered (no kMaxBuckets cap)");
+        CHECK(types.size() == size_t(kMaxBuckets), "12 hair types in 5 groups");
         flt.sel[kGender] = 1;  // female: 3 (looked) and 5 (not yet)
         std::vector<Count> heads_wear = facet_counts(heads, pool, flt, kHeadwear3d);
-        CHECK(heads_wear.size() == face3d::kHeadwearCount + 1 && heads_wear[face3d::kHeadband].n == 1 && heads_wear[face3d::kNoHeadwear].n == 0 &&
-                  heads_wear.back().key == kUnclassified && heads_wear.back().n == 1,
+        CHECK(heads_wear.size() == face3d::kHeadwearCount && heads_wear[face3d::kHeadband].n == 1 && heads_wear[face3d::kNoHeadwear].n == 0 &&
+                  heads_wear.back().key == face3d::kHat,
               "counts under the other filters");
         std::vector<Count> looked_only = facet_counts(heads, {0, 1, 2}, Filter(), kHeadwear3d);
         CHECK(looked_only.size() == face3d::kHeadwearCount && looked_only.back().key == face3d::kHat,
-              "no 'not classified yet' value when only looked heads are shown");
+              "no 'not classified yet' choice");
         // tooltip
         const std::string t1 = head_traits(heads[0], true), t4 = head_traits(heads[3], true), tdb = head_traits(heads[0], false);
         CHECK(t1.find("\n3D look: light skin, dark brown short wavy hair, short beard (dark brown), no headwear") == 0 &&
@@ -178,7 +180,7 @@ static void test_face3d_looks() {
         m.manager = true;
         m.raw[kSkin] = 30;
         Filter mf;
-        mf.sel[kSkin] = 30;
+        mf.sel[kSkin] = facet_key(kSkin, 30);
         CHECK(matches(m, mf) && m.raw[kSkin3d] == kNoValue && head_traits(m, false).find("Skin tone: Caucasian 3") != std::string::npos,
               "manager heads keep the database facets");
     });
