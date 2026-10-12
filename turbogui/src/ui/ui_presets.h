@@ -6,10 +6,22 @@
 #include <vector>
 
 #include "core/model.h"
+#include "core/player_id.h"
+#include "nlohmann/json.hpp"
 
 namespace turbo {
 
 class App;
+
+// The Create player dialog's Player ID box as the last frame drew it (core/player_id.h; tests read it back)
+struct CreateIdState {
+    std::string text;              // what the box holds
+    player_id::Verdict verdict;    // player_id::check of the box
+    bool typed_off = false;        // turbo_output\create_player_typed_id_off.txt exists: the box is disabled
+    size_t hidden = 0, shown = 0;  // "Use a hidden player's id": ids it lists, and how many its filter and search show
+    nlohmann::json sent;           // the overrides of the last "Create player" click (null = none yet)
+};
+const CreateIdState& create_id_state();
 
 // What a preset file holds, for the Import dialog's preview (parsed here, not by Lua)
 struct PresetPreview {

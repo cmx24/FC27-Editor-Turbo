@@ -3381,6 +3381,7 @@ struct FakeMatchSetup : msetup::Service {
 
 #include "test_edit_unlock.h"  // game editors unlock: core and UI cases (synthetic fixtures)
 #include "test_asset_app.h"    // 2.1: asset catalog wiring (pickers, lua_gate.txt session)
+#include "test_player_id.h"    // 2.3: Create player > Player ID (typed id checks, the head / callname of the id)
 // ================================================================ live team names (core/teamname_override.h)
 static void test_team_names_live() {
     run_case("live team names: the keys the game asks for (TeamName[_AbbrN]_<id>, IWL_, any case), nothing else", [&] {
@@ -8631,6 +8632,7 @@ static void test_ui() {
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
         test_asset_app_ui(app, ui, le);    // test_asset_app.h
+        test_player_id_ui(app, ui, mem, kMb, le);  // test_player_id.h
 
         parity_test::run_ui(app, ui, le);  // test_parity.h
 

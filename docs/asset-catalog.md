@@ -200,7 +200,15 @@ trusted. Otherwise (none / bad / stale / off) the features log "unchecked" and a
 - `create_player` (CMTracker real face): with a current gate, a real face iff the gate (or the allow file) has the id.
   Unchecked: a real face only when the DB row of that player has `headclasscode` 0 and `headassetid` == his playerid
   (before 2.1 any DB player counted, which gave class 0 to generic heads). With a current gate the free id skips ids
-  listed in the gate, and a typed id listed there is refused unless it is the player's own real face id.
+  listed in the gate, and a typed id listed there is refused unless it is the player's own real face id or the GUI's
+  Player ID box chose the id for that head (`id_assets.head3d`, below).
+- `create_player` with a typed id (2.3, Players > Create player > **Player ID**, `core/player_id.h`): the GUI sends
+  `"playerid"` and, when its current catalog knows a 3D head or an own callname for the id, `"id_assets": {head3d,
+  headvariation, callname, miniface}`. With `head3d` Lua gives the head only when the gate is current and lists the id
+  (`check_head`, strict; `asset_hidden_off.txt` refuses a hidden one): `headassetid` = the id, `headclasscode` 0,
+  `hashighqualityhead` 1, `headvariation`; a hidden head is logged (old value `(new player)`). Without a trusted gate
+  the create is refused before anything is written. The callname needs no write: the commentary finds an own recording
+  by player id.
 - `turbo_output\asset_gate_allow.txt` (Cassio's, optional): ids vouched for (heads added by mods), one `<id>` or
   `head3d <id>` per line, `#` comments. Ignored when the catalog is switched off.
 - `asset_writes.log` (section 6), key = the gate's `#build` or `unchecked`: `custom_headassets` logs every field it
@@ -242,7 +250,11 @@ Both are listed in Tools > Status with their state.
   real-face chooser, the gear galleries, callnames and the browsers, writes `lua_gate.txt` with its session, hands a
   catalog rebuilt under the same build key to every picker again, and takes it all back when the catalog goes away. `TURBO_TEST_ONLY="gear pictures"`: a catalog that is not loaded keeps the 2.0
   galleries.
-- Lua: `lua5.4 turbo/tests/t26_asset_gate.lua` (under 1 s).
+- Lua: `lua5.4 turbo/tests/t26_asset_gate.lua` (under 1 s); the typed id of `create_player` (range, per-player tables,
+  squad status table, kill switch, the head of the id): `lua5.4 turbo/tests/t27_player_id.lua`.
+- Native: `TURBO_TEST_ONLY="player id"` (tests/native/test_player_id.h): the Player ID verdicts, what the fixture ships
+  for an id (current / stale / hidden off), the hidden player list, the scan of the GUI world, and the dialog (typing,
+  the picker, the command, Turbo's Lua side running it).
 - Native GUI cases: `TURBO_TEST_ONLY=<text> bash turbogui/tests/native/run_native.sh` runs only the cases whose name
   contains the text (any letter case), e.g. `TURBO_TEST_ONLY="gear pictures"`. The runner rebuilds only the objects
   whose source or included headers changed (g++ `-MMD` dependency files). Measured on this PC (MSYS2 UCRT64): cold build
@@ -337,6 +349,7 @@ exactly 2.0's. The All / In this save / Hidden filter is remembered per picker i
 | Callnames: commentary team (eng_us) | **Commentary team** line in the callnames header (and the combo in All callnames): Automatic = the team whose SIMPLE / LINK recordings the live capture (bank capture / audio service cache) matches, else dr (Derek Rae, checked in game); Every team; dr; gm. Remembered in gui_settings.json `callnames.bank_team` | It decides the spoken set and the voice-source gate of every tab |
 | Callnames: spoken set | A **current** catalog's bank (of that team) is the spoken set (it beats `spoken_<lang>.txt` and the captures); only SIMPLE / LINK recordings make a player "spoken by his own recording" (the 2.0 rule); a stale one only adds rows to All callnames | n/a |
 | Lua: `custom_headassets`, `create_player` | `lua_gate.txt` (section 5) | refused / real face as in section 5 |
+| Players > Create player > Player ID (2.3) | Typed id: what the game files hold for it ("This id has a 3D head and a callname in the game files: the new player will use them", miniface, gender unknown, callname in another language, a head another row wears); generic heads and, with `asset_hidden_off.txt`, hidden heads refused; stale catalog: "not checked". **Use a hidden player's id**: ids with a hidden 3D head or an own recording in the loaded language that no per-player table of the save has, search by name (catalog names, local only) or id, filter 3D head / callname / both | The id (and the head of the id, section 5) through Lua's `create_player`; kill switch `create_player_typed_id_off.txt` |
 
 ## 12. Not covered (known, out of scope for 2.1)
 

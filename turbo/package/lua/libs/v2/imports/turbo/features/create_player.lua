@@ -8,7 +8,16 @@
 --     "set": { "overallrating": 70 },   -- players fields written on top of the source
 --     "playerid": 0,                 -- 0 = the first free id above every existing one (below max_playerid)
 --     "min_playerid": 0, "max_playerid": 459999,   -- the id range Turbo may use (460000+ is the game's own range)
+--     "id_assets": { "head3d": true, "headvariation": 0, "callname": true, "miniface": false },   -- optional, see below
 --   }
+-- A typed playerid (2.3, the GUI's Create player > Player ID box, core/player_id.h) is checked before anything is written
+-- (M.check_typed_id): a whole number from 1 to max_playerid, not the player-career player's id, no row in any of M.ID_TABLES,
+-- no entry in your club's squad status table (PlayerStatusManager) when it can be read. Kill switch
+-- turbo_output\create_player_typed_id_off.txt: typed ids refused (automatic ids as before). "id_assets" = what the GUI's
+-- current asset catalog says the game files ship for that id; with "head3d" the new player gets that 3D head
+-- (headassetid = his id, headclasscode 0, hashighqualityhead 1, headvariation) when the asset gate (core/asset_gate.lua)
+-- is current and lists it, else nothing is written; his callname recording follows his id by itself. The chosen id is
+-- always logged ("create_player: player id ...").
 -- Any club, your own included (1.1.1; "allow_user_club" is no longer read): the club must have room (fewer than 52
 -- players) and a free shirt number; in your club he is added to your team sheet as a reserve.
 -- Rows are added with Live Editor's InsertDBTableRow: players (every field: the source's value, else the field's
@@ -34,6 +43,13 @@ local env = require 'imports/turbo/core/env'
 local M = {}
 
 M.GENERATED_MIN = 460000   -- the game numbers its own generated players from here
+M.PLAYER_CAREER_ID = 31399 -- the player-career player (Turbo.dll's player_create refuses his id too)
+M.TYPED_ID_KILL_FILE = "create_player_typed_id_off.txt"
+-- Tables a typed id must not be in: a row there means a player of this career has or had the id (the GUI's Player ID box
+-- checks the same list, turbogui/src/core/player_id.h owner_tables). Tables this database lacks are skipped.
+M.ID_TABLES = { "players", "editedplayernames", "teamplayerlinks", "playerloans", "transfers", "career_youthplayers",
+    "career_youthplayerhistory", "career_playergrowthuserseason", "career_playerawards", "career_playermatchratinghistory",
+    "career_teamofweek", "career_playercontract" }
 
 -- The first free player id: above every id below `max_id`, at least `min_id`; ids in `skip` (a set: ids that carry a game
 -- head, miniface or callname recording, from a current asset gate) are passed over
@@ -143,6 +159,42 @@ local function out_switch(name)
     return root ~= nil and util.file_exists(util.join(util.join(root, "turbo_output"), name))
 end
 
+-- A typed player id, before anything is written: nil when the id may be used, else why not. `note` (second result) says
+-- what could not be checked (the squad status table outside a career, ...).
+function M.check_typed_id(pid, max_id)
+    max_id = math.min(max_id or (M.GENERATED_MIN - 1), M.GENERATED_MIN - 1)
+    if out_switch(M.TYPED_ID_KILL_FILE) then
+        return string.format("typed player ids are switched off (turbo_output\\%s): leave the id empty (0) for an automatic one",
+            M.TYPED_ID_KILL_FILE)
+    end
+    if math.type(pid) ~= "integer" then return string.format("player id %s is not a whole number", tostring(pid)) end
+    if pid < 1 or pid > max_id then
+        return string.format("player id %d is out of range: 1 to %d (%d and up is the game's own range for the players it generates)",
+            pid, max_id, M.GENERATED_MIN)
+    end
+    if pid == M.PLAYER_CAREER_ID then return string.format("player id %d is the player-career player's id: not used for a new player", pid) end
+    local used = {}
+    for _, t in ipairs(M.ID_TABLES) do
+        local tbl = db.get_table(t)
+        if tbl and db.has_field(tbl, "playerid") and db.find(tbl, "playerid", pid) then used[#used + 1] = t end
+    end
+    if #used > 0 then
+        return string.format("player id %d is already used: %s %s for it (a player of this career has or had this id)", pid,
+            table.concat(used, ", "), #used == 1 and "has a row" or "have rows")
+    end
+    -- the game's squad status table of your club: an entry there belongs to a player of your club (the match crash guard
+    -- would treat the new player as that one)
+    local okr, st, serr = pcall(function() return (require 'imports/turbo/features/squad_role').psm_state(game.user_team_id()) end)
+    if okr and type(st) == "table" and type(st.pids) == "table" then
+        if st.pids[pid] then
+            return string.format("player id %d already has an entry in your club's squad status table (PlayerStatusManager): " ..
+                "a player of your club had this id", pid)
+        end
+        return nil
+    end
+    return nil, "squad status table not checked: " .. tostring(okr and serr or st)
+end
+
 local function status_repair()
     local role = require 'imports/turbo/features/squad_role'
     -- the role by age reads the players table: only built when a player is missing an entry (fallback when the game gives none)
@@ -242,21 +294,36 @@ function M.run(ctx)
     local min_id = math.max(0, util.to_int(cfg.min_playerid) or 0)
     local max_id = util.to_int(cfg.max_playerid) or (M.GENERATED_MIN - 1)
     if max_id > M.GENERATED_MIN or max_id < 1000 then return false, "max_playerid must be 1000.." .. M.GENERATED_MIN end
-    local pid = util.to_int(cfg.playerid) or 0
+    -- 0 / absent = automatic; anything else is a typed id and must be a whole number (2.3: a typed text, a fraction or a
+    -- negative number no longer falls back to an automatic id)
+    local typed = cfg.playerid
+    local pid = 0
+    if typed ~= nil and typed ~= 0 and typed ~= "" then
+        pid = util.to_int(typed)
+        if not pid then
+            return false, string.format("player id %s is not a whole number (0 or none = the first free id)", tostring(typed))
+        end
+    end
+    local id_typed = pid ~= 0
+    local id_assets = (id_typed and type(cfg.id_assets) == "table") and cfg.id_assets or nil
     -- asset gate (2.1, core/asset_gate.lua): with a current gate, a new player never gets an id that carries another
-    -- player's game head, miniface or callname recording (unless it is his own CMTracker real face id, checked below)
+    -- player's game head, miniface or callname recording (unless it is his own CMTracker real face id, checked below, or
+    -- the id was chosen for that head: id_assets.head3d)
     local agate = require 'imports/turbo/core/asset_gate'
     local gate = agate.load()
     local taken = agate.taken_ids(gate)
     local typed_taken = nil
-    if pid > 0 then
-        if game.player_ids()[pid] then return false, string.format("player id %d is already used", pid) end
-        if pid >= max_id then return false, string.format("player id %d is not below max_playerid %d", pid, max_id) end
+    local id_how
+    if id_typed then
+        local why, note = M.check_typed_id(pid, max_id)
+        if why then return false, why .. " (nothing was written)" end
         typed_taken = taken[pid]
+        id_how = "typed" .. (note and ("; " .. note) or "")
     else
         local free, ferr = M.free_playerid(min_id, max_id, taken)
         if not free then return false, ferr end
         pid = free
+        id_how = string.format("automatic: the first free id above every existing one, below %d", max_id + 1)
     end
     local okp, perr = db.validate(players, "playerid", pid)
     if okp == nil then return false, perr end
@@ -317,9 +384,11 @@ function M.run(ctx)
     local head_note, head_log
     local cm = parsed and parsed.doc and type(parsed.doc.cmtracker) == "table" and parsed.doc.cmtracker or nil
     local real_id = cm and util.to_int(cm.real_face_id) or nil
-    if typed_taken and real_id ~= pid then
+    local want_head = id_assets ~= nil and id_assets.head3d == true
+    if typed_taken and real_id ~= pid and not want_head then
         return false, string.format("player id %d carries a game %s of another player (asset catalog %s): choose another id " ..
-            "or 0", pid, typed_taken == "head3d" and "head" or typed_taken, gate.build or "?")
+            "or 0 (the Turbo GUI's Create player > Player ID box gives a new player that head)", pid,
+            typed_taken == "head3d" and "head" or typed_taken, gate.build or "?")
     end
     if cm and db.has_field(players, "headassetid") and db.has_field(players, "headclasscode") then
         local real = real_id
@@ -335,6 +404,35 @@ function M.run(ctx)
         end
         if real and real > 0 then log_gate(pid, real, okh, why) end
     end
+    -- the id was chosen for what the game files ship for it (the GUI's Player ID box): its 3D head, proven by a current
+    -- asset gate (the GUI writes it only while its catalog matches the running game), else nothing is written
+    local id_note
+    if want_head then
+        if not (db.has_field(players, "headassetid") and db.has_field(players, "headclasscode")) then
+            return false, "the players table has no headassetid / headclasscode: the head of id " .. pid .. " cannot be given (nothing was written)"
+        end
+        if not agate.trusted(gate) then
+            return false, string.format("the 3D head of player id %d cannot be checked now (%s): nothing was written. Keep the " ..
+                "Turbo GUI open with an asset catalog for this game build and try again, or choose another id", pid, tostring(gate.reason))
+        end
+        local okh, why, hidden = agate.check_head(gate, pid, nil, true)
+        if not okh then return false, string.format("player id %d: %s (nothing was written)", pid, tostring(why)) end
+        row.headassetid, row.headclasscode = pid, 0
+        if db.has_field(players, "hashighqualityhead") then row.hashighqualityhead = 1 end
+        local var = util.to_int(id_assets.headvariation)
+        if var and db.has_field(players, "headvariation") then
+            local okv = db.validate(players, "headvariation", var)
+            if okv == nil then return false, string.format("headvariation %s is out of range (nothing was written)", tostring(id_assets.headvariation)) end
+            row.headvariation = okv
+        end
+        head_note = string.format(", the game files' 3D head of id %d", pid)
+        head_log = hidden and pid or nil
+        id_note = "3D head of the game files (asset catalog " .. tostring(gate.build or "?") .. ")"
+    end
+    if id_assets and id_assets.callname == true then
+        id_note = (id_note and (id_note .. ", ") or "") .. "own callname recording (the commentary finds it by player id)"
+    end
+    if id_note then id_how = id_how .. "; the game files' assets of this id: " .. id_note end
 
     -- join date + contract (moves.contract_values, shared with every move): he joins the club today; the source's
     -- contract is kept when it still runs, else (blank player, a preset of another game or season) a new one is set
@@ -401,9 +499,12 @@ function M.run(ctx)
         defaults > 0 and string.format(", %d fields at their minimum", defaults) or "",
         name_row and ", names in editedplayernames" or "")
     if head_note then summary = summary .. head_note end
+    if id_assets and id_assets.callname == true then summary = summary .. ", his own callname recording (found by his id)" end
+    if id_typed then summary = summary .. ", player id typed" end
     summary = summary .. string.format(", joined today%s", contract_note and (", contract until " .. contract_note) or "")
     if skipped and #skipped > 0 then summary = summary .. "; out of range, minimum used: " .. table.concat(skipped, ", ") end
     if user > 0 and teamid == user then summary = summary .. " (your club: added to your team sheet as a reserve)" end
+    log.info("create_player: player id %d (%s)%s", pid, id_how, ctx.dry and " [dry run: nothing written]" or "")
     if ctx.dry then return true, summary end
     -- a head no row of the save used: logged (before the write) so it can be reverted by hand
     if head_log then agate.log_write(gate, "player " .. pid, "headassetid", "(new player)", head_log) end
