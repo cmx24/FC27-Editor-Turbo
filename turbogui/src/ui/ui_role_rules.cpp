@@ -254,16 +254,33 @@ void draw(App& app, const TeamRow& tr, bool own, bool disabled) {
         ImGui::SameLine();
         role_combo("##role", &r.role, false);
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(S(90.0f));
-        ImGui::InputInt("age from##a1", &r.age_min, 1, 5);
+        // label left, boxes right: "age [from] to [to]", then "OVR rank [from] to [to]" on the next line under the name
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("age");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(S(90.0f));
-        ImGui::InputInt("to##a2", &r.age_max, 1, 5);
-        ImGui::SetNextItemWidth(S(90.0f));
-        ImGui::InputInt("OVR rank from##r1", &r.rank_min, 1, 5);
+        ImGui::InputInt("##a1", &r.age_min, 1, 5);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Age from (0 = no lower bound)");
+        ImGui::SameLine();
+        ImGui::TextUnformatted("to");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(S(90.0f));
-        ImGui::InputInt("to##r2", &r.rank_max, 1, 5);
+        ImGui::InputInt("##a2", &r.age_max, 1, 5);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Age to");
+        ImGui::Indent(S(24.0f));
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("OVR rank");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(S(90.0f));
+        ImGui::InputInt("##r1", &r.rank_min, 1, 5);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Overall rank in the squad from (1 = the best player)");
+        ImGui::SameLine();
+        ImGui::TextUnformatted("to");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(S(90.0f));
+        ImGui::InputInt("##r2", &r.rank_max, 1, 5);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Overall rank in the squad to");
+        ImGui::Unindent(S(24.0f));
         r.age_min = std::clamp(r.age_min, 0, 99);
         r.age_max = std::clamp(r.age_max, 0, 99);
         r.rank_min = std::clamp(r.rank_min, 0, 999);
@@ -271,7 +288,7 @@ void draw(App& app, const TeamRow& tr, bool own, bool disabled) {
         for (int b = 0; b < 4; ++b) {
             ImGui::SameLine();
             bool on = (r.pos >> b) & 1u;
-            if (ImGui::Checkbox(kGroups[b], &on)) r.pos = on ? (r.pos | (1u << b)) : (r.pos & ~(1u << b));
+            if (checkbox_right(kGroups[b], &on, -1.0f)) r.pos = on ? (r.pos | (1u << b)) : (r.pos & ~(1u << b));
         }
         ImGui::SameLine();
         if (ImGui::Button("Up")) up = static_cast<int>(i);
@@ -349,7 +366,7 @@ void draw(App& app, const TeamRow& tr, bool own, bool disabled) {
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
-    ImGui::Checkbox("Re-apply after season reset", &s.save_rule);
+    checkbox_right("Re-apply after season reset", &s.save_rule, -1.0f);
     if (!bad.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", bad.c_str());
 
     if (ImGui::BeginPopupModal("Apply squad roles?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {

@@ -102,10 +102,10 @@ static const std::unordered_map<int64_t, int64_t>& player_nationalities(App& app
 static void player_list(App& app) {
     static char search[64] = "";
     static bool my_club = false;
-    // Filters, in four blocks (widgets.cpp form rows: label left, control right). Who: club, nationality, continent (gender: the search line).
-    // Position & style: any of the 7 preferred positions (core/model.h player_passes_position: a stored internal code counts as the
-    // visible position it plays as, RCB as CB, unless the combo's "Show all internal positions" is on; then the code must match
-    // exactly), PlayStyle / PlayStyle+. Numbers: age, overall and potential as two-sided ranges (core/range_filter.h: 0 = no bound).
+    // Filters, in four blocks (widgets.cpp form rows: label left, control right). Who: club, nationality, continent (gender: the search line). Position &
+    // style: any of the 7 preferred positions (core/model.h player_passes_position: a stored internal code counts as the visible
+    // position it plays as, RCB as CB, unless the combo's "Show all internal positions" is on; then the code must match exactly),
+    // PlayStyle / PlayStyle+. Numbers: age, overall and potential as two-sided ranges (core/range_filter.h: 0 = no bound).
     // Status: my club, retiring, free agent.
     static int f_pos = -1, f_style = -1;
     static IntRange f_age, f_ovr, f_pot;
@@ -113,6 +113,7 @@ static void player_list(App& app) {
     static int64_t f_team = 0;  // club filter (0 = any)
     static int64_t f_nat = -1, f_cont = -1;  // nationality (nations.nationid) and continent (nations.confederation) filters, -1 = any
     static int f_gender = -1;                 // players.gender: -1 any, 0 men, 1 women
+    static int f_loan = LoanAny;              // playerloans (core/model.h player_passes_loan): any, on loan, loaned in, loaned out
     static char f_team_search[64] = "";
     static std::unordered_set<int64_t> team_players;  // players linked to f_team (rebuilt with the rows)
     static std::vector<const PlayerRow*> rows;
@@ -132,6 +133,7 @@ static void player_list(App& app) {
         f_team = 0;
         f_nat = f_cont = -1;
         f_gender = -1;
+        f_loan = LoanAny;
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Clear every filter below (the search box stays)");
     // gender (players.gender; 1.2.5) on the search line, so the filter grid keeps its three rows per block
@@ -145,6 +147,27 @@ static void player_list(App& app) {
             ImGui::EndCombo();
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Men, women or both (players.gender)");
+    }
+    // loans (playerloans, read with the rows): on the search line too; In / Out are seen from the Club filter's club, else
+    // from your club; with neither, both mean "on loan"
+    {
+        static const char* const kLoans[] = {"Any loan status", "On loan", "Loaned in", "Loaned out"};
+        const bool known = app.model.loans_known();
+        if (!known) f_loan = LoanAny;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(S(130.0f));
+        if (!known) ImGui::BeginDisabled();
+        if (ImGui::BeginCombo("##floan", kLoans[f_loan])) {
+            for (int k = LoanAny; k <= LoanOut; ++k)
+                if (ImGui::Selectable(kLoans[k], f_loan == k)) f_loan = k;
+            ImGui::EndCombo();
+        }
+        if (!known) ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", known ? "Players on loan (playerloans). Loaned in: playing on loan for the club picked in Club, else for your "
+                                            "club. Loaned out: lent out by that club (they play for another club). Without a club both "
+                                            "mean every player on loan."
+                                          : "This database has no playerloans table");
     }
     ImGui::SameLine();
     ImGui::TextDisabled("%zu players", rows.size());  // the list built below (for one frame after a change: the previous count)
@@ -241,9 +264,9 @@ static void player_list(App& app) {
     const std::unordered_map<int64_t, int64_t>& nat_of = player_nationalities(app);
     char fkey[200];
     const bool pos_exact = position_show_all();  // the combo's toggle also switches the filter to exact codes
-    std::snprintf(fkey, sizeof(fkey), "|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%lld|%lld|%lld|%d", f_pos, pos_exact ? 1 : 0, f_style,
+    std::snprintf(fkey, sizeof(fkey), "|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%lld|%lld|%lld|%d|%d", f_pos, pos_exact ? 1 : 0, f_style,
                   f_plus ? 1 : 0, f_retiring ? 1 : 0, f_free ? 1 : 0, f_age.from, f_age.to, f_ovr.from, f_ovr.to, f_pot.from, f_pot.to,
-                  static_cast<long long>(f_team), static_cast<long long>(f_nat), static_cast<long long>(f_cont), f_gender);
+                  static_cast<long long>(f_team), static_cast<long long>(f_nat), static_cast<long long>(f_cont), f_gender, f_loan);
     std::string key = lower(search) + (my_club ? "|1" : "|0") + fkey;
     if (key != last_key || last_version != app.model.version()) {
         last_key = key;
@@ -257,9 +280,13 @@ static void player_list(App& app) {
         team_players.clear();
         if (f_team > 0)
             for (const LinkRow& l : app.model.links_of_team(f_team)) team_players.insert(l.playerid);
+        // Loaned out: the player plays for another club, so "his club" (My club, the Club filter) is the club that lent him
+        const bool out_view = f_loan == LoanOut;
+        const int64_t loan_club = f_team > 0 ? f_team : club;
         for (const auto& p : app.model.players()) {
-            if (my_club && p.club != club) continue;
-            if (f_team > 0 && !team_players.count(p.playerid)) continue;
+            if (my_club && !(out_view ? p.on_loan && p.loaned_from == club : p.club == club)) continue;
+            if (f_team > 0 && !(out_view ? p.on_loan && p.loaned_from == f_team : team_players.count(p.playerid) > 0)) continue;
+            if (f_loan != LoanAny && !player_passes_loan(p, f_loan, loan_club)) continue;
             if (f_pos >= 0 && !player_passes_position(p, f_pos, pos_exact)) continue;
             if (f_style >= 0 && !(((f_plus ? p.playstyles_plus : p.playstyles) >> f_style) & 1)) continue;
             if (f_retiring && !p.retiring) continue;
@@ -351,7 +378,13 @@ static void player_list(App& app) {
                 ImGui::TableNextColumn();
                 ImGui::TextUnformatted(p->name.c_str());
                 ImGui::TableNextColumn();
-                ImGui::TextUnformatted(p->club_name.c_str());
+                if (p->on_loan) {
+                    ImGui::Text("%s (loan)", p->club_name.c_str());
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("On loan from %s", p->loaned_from > 0 ? app.model.team_name(p->loaned_from).c_str() : "an unknown club");
+                } else {
+                    ImGui::TextUnformatted(p->club_name.c_str());
+                }
                 ImGui::TableNextColumn();
                 ImGui::TextUnformatted(nat_name(p).c_str());
                 ImGui::TableNextColumn();

@@ -92,7 +92,7 @@ void draw_hub(App& app) {
             app.notify(b.message, !b.ok);
         }
         if (!g_state.backup_result.empty()) ImGui::TextWrapped("%s", g_state.backup_result.c_str());
-        ImGui::Checkbox("My save is backed up", &g_saves_backed_up);
+        checkbox_right("My save is backed up", &g_saves_backed_up);
         if (!g_saves_backed_up) ImGui::BeginDisabled();
         if (ImGui::Button("Reopen, licensed stadium too")) {
             club_reopen(app, true);

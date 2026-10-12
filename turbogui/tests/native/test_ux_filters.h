@@ -134,6 +134,21 @@ static void test_ux_filters_core() {
         PlayerRow none;
         CHECK(!player_passes_position(none, CB, false) && !player_passes_position(none, CB, true), "no positions: passes nothing");
     });
+    run_case("loans filter: on loan / loaned in / loaned out, seen from a club or (no club) any loan", [] {
+        PlayerRow home, in, out;
+        home.club = 1;                                   // plays for his own club 1
+        in.club = 1, in.on_loan = true, in.loaned_from = 241;    // at club 1 on loan from 241
+        out.club = 7, out.on_loan = true, out.loaned_from = 1;   // lent out by club 1 to club 7
+        CHECK(player_passes_loan(home, LoanAny, 1) && player_passes_loan(in, LoanAny, 1) && player_passes_loan(out, LoanAny, 0), "Any: everyone");
+        CHECK(!player_passes_loan(home, LoanOn, 1) && player_passes_loan(in, LoanOn, 1) && player_passes_loan(out, LoanOn, 241), "On loan: the two loans");
+        CHECK(player_passes_loan(in, LoanIn, 1) && !player_passes_loan(out, LoanIn, 1) && !player_passes_loan(home, LoanIn, 1), "Loaned in to club 1");
+        CHECK(player_passes_loan(out, LoanOut, 1) && !player_passes_loan(in, LoanOut, 1) && !player_passes_loan(home, LoanOut, 1), "Loaned out by club 1");
+        CHECK(player_passes_loan(in, LoanOut, 241) && !player_passes_loan(in, LoanIn, 241), "seen from club 241 the same loan is out");
+        CHECK(player_passes_loan(in, LoanIn, 0) && player_passes_loan(out, LoanOut, 0) && player_passes_loan(in, LoanOut, 0) &&
+                  !player_passes_loan(home, LoanIn, 0),
+              "no club: in and out both mean on loan");
+    });
+
     run_case("checkbox_right: the ID of ImGui::Checkbox(label), label left / box right, a click on the label toggles", [] {
         IMGUI_CHECKVERSION();
         ImGuiContext* ctx = ImGui::CreateContext();

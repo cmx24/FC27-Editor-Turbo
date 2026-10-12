@@ -263,7 +263,7 @@ static void draw_gallery(App& app, const Table& t, uint64_t rec, bool manager) {
         ImGui::SetNextItemWidth(S(160.0f));
         ImGui::InputTextWithHint("##btflt", "search name, code or player", g_gal.text, sizeof(g_gal.text));
         ImGui::SameLine();
-        ImGui::Checkbox("Used by players only##btused", &g_gal.used_only);
+        checkbox_right("Used by players only##btused", &g_gal.used_only, -1.0f);
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted("Height cm");
         ImGui::SameLine();
@@ -298,7 +298,7 @@ static void draw_gallery(App& app, const Table& t, uint64_t rec, bool manager) {
                            "Turbo does not write one unless you allow it here.",
                            "Warning:", hc == 1 ? "generic" : "head of unknown kind");
         ImGui::PopStyleColor();
-        ImGui::Checkbox("Allow a player-specific body on this head (untested)##btallow", &g_gal.allow_risky);
+        checkbox_right("Allow a player-specific body on this head (untested)##btallow", &g_gal.allow_risky);
     } else {
         g_gal.allow_risky = false;
     }

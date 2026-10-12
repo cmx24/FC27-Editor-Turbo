@@ -118,7 +118,7 @@ bool comp_picker(App& app, CompPicker& p, const char* label, const std::vector<c
     for (const comps::Parent& pa : parents) all_yours = all_yours && pa.user;
     if (!all_yours) {
         ImGui::SameLine();
-        if (ImGui::Checkbox("Leagues only", &p.view.leagues_only)) {
+        if (checkbox_right("Leagues only", &p.view.leagues_only, -1.0f)) {
             picker_settings(app, p.settings_key)["leagues_only"] = p.view.leagues_only;
             save_picker(app, "leagues only");
         }

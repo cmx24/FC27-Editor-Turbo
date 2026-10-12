@@ -64,10 +64,17 @@ struct PlayerRow {
     bool retiring = false;                           // isretiring
     uint64_t playstyles = 0, playstyles_plus = 0;    // trait1 / icontrait1 bits
     int gender = 0;                                  // players.gender: 0 men, 1 women
+    bool on_loan = false;                            // a playerloans row (read at rebuild)
+    int64_t loaned_from = 0;                         // playerloans.teamidloanedfrom: the parent club of a player on loan
 };
 
 // The Players list Position filter: any of the player's 7 preferred positions matches `wanted` (position_matches).
 bool player_passes_position(const PlayerRow& p, int wanted, bool exact);
+
+// The Players list Loans filter. A player on loan plays for p.club (teamplayerlinks) and belongs to p.loaned_from.
+// LoanIn: on loan at `club`; LoanOut: lent out by `club`; club <= 0 (no club known): both mean "on loan".
+enum LoanFilter { LoanAny = 0, LoanOn = 1, LoanIn = 2, LoanOut = 3 };
+bool player_passes_loan(const PlayerRow& p, int mode, int64_t club);
 
 struct TeamRow {
     int64_t teamid = 0;
@@ -97,6 +104,8 @@ public:
     // Rebuild every cache from live memory. Returns false when the database is not ready.
     bool rebuild(const GameDate& today);
     bool built() const { return built_; }
+    // false when this database has no playerloans table (the Loans filter is then off)
+    bool loans_known() const { return loans_known_; }
     // Changes on every rebuild: views holding PlayerRow/TeamRow pointers must re-collect them
     uint64_t version() const { return version_; }
 
@@ -148,6 +157,7 @@ private:
 
     Database& db_;
     bool built_ = false;
+    bool loans_known_ = false;
     uint64_t version_ = 0;
     std::vector<PlayerRow> players_;
     std::vector<TeamRow> teams_;

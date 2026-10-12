@@ -115,6 +115,15 @@ bool player_passes_position(const PlayerRow& p, int wanted, bool exact) {
     return std::any_of(std::begin(p.positions), std::end(p.positions), [&](int x) { return position_matches(x, wanted, exact); });
 }
 
+bool player_passes_loan(const PlayerRow& p, int mode, int64_t club) {
+    switch (mode) {
+        case LoanOn: return p.on_loan;
+        case LoanIn: return p.on_loan && (club <= 0 || p.club == club);
+        case LoanOut: return p.on_loan && (club <= 0 || p.loaned_from == club);
+        default: return true;
+    }
+}
+
 // ---------------------------------------------------------------- model
 // The game's own national-team rule (IsInternationalLeague 0x14479F50C, docs/re/realtime_transfers.md section 8): league 78 (men),
 // 2136 (women) or 3004. teamnationlinks is not that list (it also ties Rest of World clubs to a nation).
@@ -247,6 +256,17 @@ void Model::build_players(const GameDate& today) {
     Snapshot s;
     if (!s.load(db_.memory(), *t)) return;
 
+    // playerloans (one row per player on loan, a few hundred): read once here for the Players list Loans filter
+    std::unordered_map<int64_t, int64_t> loan_from;
+    loans_known_ = false;
+    if (const Table* lt = db_.table("playerloans"); lt && lt->has("playerid")) {
+        Snapshot ls;
+        if (ls.load(db_.memory(), *lt)) {
+            loans_known_ = true;
+            for (uint32_t i : ls.valid) loan_from[ls.get_int(i, "playerid")] = ls.get_int(i, "teamidloanedfrom", 0);
+        }
+    }
+
     std::unordered_map<int64_t, int64_t> club_of;
     for (const auto& l : links_) {
         auto it = club_of.find(l.playerid);
@@ -285,6 +305,10 @@ void Model::build_players(const GameDate& today) {
         r.position = static_cast<int>(s.get_int(i, "preferredposition1", -1));
         if (fbirth && today.valid()) r.age = age_on(date_from_gregorian_days(s.get_int(i, *fbirth)), today);
         fill_filter_fields(*t, r, [&](const Field& f) { return s.get_int(i, f); });
+        if (auto lf = loan_from.find(r.playerid); lf != loan_from.end()) {
+            r.on_loan = true;
+            r.loaned_from = lf->second;
+        }
         player_index_[r.playerid] = players_.size();
         players_.push_back(r);
     }

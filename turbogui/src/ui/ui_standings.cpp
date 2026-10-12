@@ -268,10 +268,21 @@ void ensure_located(App& app) {
     }
 }
 
+// A counter row: label left (the column's form label), box right; the box's ID is "##<label>"
 void counter(const char* label, uint8_t& v) {
+    form_label(label);
+    char id[64];
+    std::snprintf(id, sizeof(id), "##%s", label);
     ImGui::SetNextItemWidth(S(70.0f));
     uint8_t step = 1;
-    ImGui::InputScalar(label, ImGuiDataType_U8, &v, &step, nullptr, "%u");
+    ImGui::InputScalar(id, ImGuiDataType_U8, &v, &step, nullptr, "%u");
+}
+
+// A short label before an inline box (label left, box right, more controls on the same line)
+void inline_label(const char* label) {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(label);
+    ImGui::SameLine();
 }
 
 // After a row / result write: make the game's Standings screen and Office tile re-read the rows. The screen shows a
@@ -542,7 +553,7 @@ void draw_live_standings(App& app) {
     ImGui::SameLine();
     ImGui::TextDisabled("%zu rows, %zu fixtures", st.rows.size(), st.fixtures.size());
     // One line of help; the technical lines (what the game's standings view reads, the last refresh) in its tooltip
-    ImGui::Checkbox("Home / away columns", &st.home_away);
+    checkbox_right("Home / away columns", &st.home_away, -1.0f);
     ImGui::SameLine();
     ImGui::TextDisabled("Click a number twice (or double-click) to change it: Enter applies it to the game, Esc cancels. (?)");
     if (ImGui::IsItemHovered()) {
@@ -673,14 +684,17 @@ void draw_live_standings(App& app) {
     st.adv_open = ImGui::CollapsingHeader("Advanced: home / away counters, points per result, played results##lsadv");
     if (!st.adv_open) return;
     ImGui::BeginChild("##lsedit", ImVec2(0, 0), ImGuiChildFlags_Borders);
+    inline_label("Win");
     ImGui::SetNextItemWidth(S(60.0f));
-    ImGui::InputInt("Win", &st.pts.win, 0);
+    ImGui::InputInt("##ptswin", &st.pts.win, 0);
     ImGui::SameLine();
+    inline_label("Draw");
     ImGui::SetNextItemWidth(S(60.0f));
-    ImGui::InputInt("Draw", &st.pts.draw, 0);
+    ImGui::InputInt("##ptsdraw", &st.pts.draw, 0);
     ImGui::SameLine();
+    inline_label("Loss");
     ImGui::SetNextItemWidth(S(60.0f));
-    ImGui::InputInt("Loss", &st.pts.loss, 0);
+    ImGui::InputInt("##ptsloss", &st.pts.loss, 0);
     ImGui::SameLine();
     ImGui::TextDisabled("points per result (table edits and result changes)");
     const fce::StandingRow* cur_row = nullptr;
@@ -715,9 +729,10 @@ void draw_live_standings(App& app) {
     counter("Away goals for", st.edit.agf);
     counter("Away goals against", st.edit.aga);
     ImGui::Columns(1);
+    form_label("Points");
     ImGui::SetNextItemWidth(S(70.0f));
     int16_t pstep = 1;
-    ImGui::InputScalar("Points", ImGuiDataType_S16, &st.edit.points, &pstep, nullptr, "%d");
+    ImGui::InputScalar("##lspoints", ImGuiDataType_S16, &st.edit.points, &pstep, nullptr, "%d");
     ImGui::SameLine();
     ImGui::TextDisabled("played %d, GD %+d", st.edit.played(), st.edit.gd());
     ImGui::PopID();
@@ -767,11 +782,13 @@ void draw_live_standings(App& app) {
     if (played.empty()) ImGui::TextDisabled("none");
     ImGui::EndChild();
     if (st.sel_fixture >= 0 && size_t(st.sel_fixture) < st.fixtures.size()) {
+        inline_label("Home");
         ImGui::SetNextItemWidth(S(60.0f));
-        ImGui::InputInt("Home", &st.new_home, 0);
+        ImGui::InputInt("##fxhome", &st.new_home, 0);
         ImGui::SameLine();
+        inline_label("Away");
         ImGui::SetNextItemWidth(S(60.0f));
-        ImGui::InputInt("Away", &st.new_away, 0);
+        ImGui::InputInt("##fxaway", &st.new_away, 0);
         ImGui::SameLine();
         if (ImGui::Button("Change result")) {
             const fce::Fixture& fx = st.fixtures[size_t(st.sel_fixture)];
