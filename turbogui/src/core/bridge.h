@@ -49,10 +49,11 @@ struct BridgeState {
     uint64_t managers = 0;
     bool in_cm = false;
     int64_t user_team = 0;
-    // Tactics channel E's gate G2 (core/team_sheet.h, Lua bridge.lua track_phase): "hub" / "prematch" / "match" / "unknown" from the
-    // career-mode events, "" = a Lua side without it; save_t = when Lua last saw a save start (os.time(), 0 = none)
+    // Tactics channel E's gate G2 (core/team_sheet.h, Lua bridge.lua track_phase): "hub" / "prematch" / "left_prematch" / "match" /
+    // "unknown" from the career-mode events, "" = a Lua side without it; phase_t = when the phase last changed, save_t = when Lua last saw
+    // a save start (os.time(), 0 = none)
     std::string match_phase;
-    long long save_t = 0;
+    long long phase_t = 0, save_t = 0;
     GameDate date;
     // Effective Turbo settings (turbo_config.json + gui_settings.json) as Lua last saw them
     bool has_settings = false;

@@ -74,6 +74,7 @@ struct SheetWorld {
         mem.wr(kHolder, kPsm);
         mem.map(kPsm, 0x40);
         mem.wr(kPsm, kPsmVt);
+        mem.wr(kPsm + 0x08, kManagers);  // its manager table (report 2.4: PSM +8 = the hub)
         mem.wr(kPsm + 0x10, int32_t(team));
         // a freed copy that kept the vtable pair (report 2.5): the rest is 0xCC
         mem.map(kStale, kSvcSize);
@@ -423,6 +424,10 @@ static void run() {
         CHECK(user_from_psm(w.mem, SheetWorld::kManagers, SheetWorld::kPsmVt, user).empty() && user == 95, "PSM +0x10 = 95");
         CHECK(!user_from_psm(w.mem, SheetWorld::kManagers, 0x14AFFD8A0ULL, user).empty() && user == 0, "another PSM vtable: refused");
         CHECK(!user_from_psm(w.mem, 0, SheetWorld::kPsmVt, user).empty(), "no manager table: refused");
+        w.mem.wr(SheetWorld::kPsm + 0x08, uint64_t(0x6A900000ULL));
+        CHECK(user_from_psm(w.mem, SheetWorld::kManagers, SheetWorld::kPsmVt, user).find("is not the career's") != std::string::npos && user == 0,
+              "a PSM of another manager table: refused");
+        w.mem.wr(SheetWorld::kPsm + 0x08, SheetWorld::kManagers);
         w.mem.wr(SheetWorld::kManagers + 0x20 * 87 + 0x10, int32_t(2));
         CHECK(user_from_psm(w.mem, SheetWorld::kManagers, SheetWorld::kPsmVt, user).find("2 instances") != std::string::npos, "two instances: refused");
     });
@@ -568,9 +573,26 @@ static void run() {
         w.mem.wr(SheetWorld::kSheet + kSheetDirty, uint8_t(0));  // as after a save
         const std::vector<uint8_t> svc_before = w.bytes(SheetWorld::kSvc, kSvcSize), sheet_before = w.bytes(SheetWorld::kSheet, kSheetStride),
                                    rec_before = w.bytes(SheetWorld::kRecs, 5 * kRecStride), slots_before = w.bytes(SheetWorld::kSlots0, 5 * 0x1000);
-        const ApplyResult res = apply_plan(w.mem, SheetWorld::kSvc, w.anchors(), p);
+        const int reads_before = w.mem.failed_reads;
+        struct CountingSim : Memory {
+            SimMemory& m;
+            int reads = 0, writes = 0;
+            explicit CountingSim(SimMemory& mm) : m(mm) {}
+            bool read(uint64_t a, void* o, size_t n) override {
+                ++reads;
+                return m.read(a, o, n);
+            }
+            bool write(uint64_t a, const void* i, size_t n) override {
+                ++writes;
+                return m.write(a, i, n);
+            }
+        } counting(w.mem);
+        const ApplyResult res = apply_plan(counting, SheetWorld::kSvc, w.anchors(), p);
         CHECK(res.ok && res.written && !res.undone && res.stage == "done", "written: " + res.message);
         CHECK(res.log_line == "channel E: team 95 record 0 build-up 0->2 depth 25->75 slot 9 role 38213->38214 (read back ok)", "log: " + res.log_line);
+        // the walks read whole pages: a few dozen reads of the game instead of several hundred (the report's < 50 us job)
+        CHECK(res.reads == counting.reads && res.reads > 0 && res.reads <= 40 && counting.writes == 6 && w.mem.failed_reads == reads_before,
+              fmt("%d reads (%d counted), %d writes: 5 fields + the dirty flag", res.reads, counting.reads, counting.writes));
         CHECK(w.i32(SheetWorld::kRecs + kRecBuildUp) == 2 && w.i32(SheetWorld::kRecs + kRecDepth) == 75, "build-up 2, depth 75 in the record");
         CHECK(w.i32(w.slot(9) + kSlotRole) == 38214 && w.i32(w.slot(9) + kSlotRoleId) == 21 && w.i32(w.slot(9) + kSlotFocus) == 6, "slot 9: 38214 / 21 / 6");
         CHECK(w.u8(SheetWorld::kSheet + kSheetDirty) == 1 && res.dirty_before == 0 && res.dirty_after == 1, "dirty 0 -> 1");
@@ -767,6 +789,95 @@ static void run() {
         CHECK(!none.submit(rig.ctx(), p, why) && why.find("dispatcher") != std::string::npos, "no dispatcher: " + why);
     });
 
+    run_case("channel E: the page cache - whole pages read once, unreadable pages and long blocks read directly, a write drops the pages", [] {
+        SimMemory m;
+        m.map(0x20000000ULL, 0x2000);
+        for (uint32_t i = 0; i < 0x800; ++i) m.wr(0x20000000ULL + 4 * uint64_t(i), i);
+        struct Count : Memory {
+            SimMemory& m;
+            int reads = 0;
+            explicit Count(SimMemory& mm) : m(mm) {}
+            bool read(uint64_t a, void* o, size_t n) override {
+                ++reads;
+                return m.read(a, o, n);
+            }
+            bool write(uint64_t a, const void* i, size_t n) override { return m.write(a, i, n); }
+        } c(m);
+        PageCache pc(c);
+        uint32_t v = 0;
+        CHECK(pc.rd(0x20000010ULL, v) && v == 4 && pc.rd(0x20000FFCULL, v) && v == 0x3FF && c.reads == 1, "one page, one read");
+        uint64_t q = 0;
+        CHECK(pc.rd(0x20000FFCULL, q) && q == (uint64_t(0x400) << 32 | 0x3FF) && c.reads == 2, "a value across two pages");
+        CHECK(!pc.rd(0x20004000ULL, v) && c.reads == 4, "an unmapped page: the page read and the direct read both fail");
+        std::vector<uint8_t> big;
+        CHECK(pc.read_block(0x20000000ULL, 0x2000, big) && c.reads == 4, "a block inside cached pages: no read");
+        CHECK(pc.wr(0x20000010ULL, uint32_t(77)) && pc.rd(0x20000010ULL, v) && v == 77 && c.reads == 5, "a write drops the pages: read again");
+        CHECK(pc.reads() == 5, fmt("its own count (%d)", pc.reads()));
+    });
+
+    run_case("channel E: lost jobs and failed locates - not waited for forever, not scanned every second", [] {
+        const fs::path out = test_tmp_dir("channel_e_lost");
+        std::error_code ec;
+        fs::remove_all(out, ec);
+        SheetWorld w;
+        ServiceRig rig(w, out);
+        rig.find_returns = SheetWorld::kSvc;
+        rig.touch(opt_in_file());
+        LiveTactic lt;
+        std::string why;
+        rig.svc->read(rig.ctx(), lt, why);
+        rig.jobs.pump();
+        CHECK(rig.svc->read(rig.ctx(), lt, why), "located: " + why);
+        Request r;
+        r.depth = 44;
+        Plan p;
+        make_plan(lt, r, p);
+        // job 1 is queued and never run (the dispatcher dropped it): after 10 s the service stops waiting
+        CHECK(rig.svc->submit(rig.ctx(), p, why) && rig.svc->busy(), "job 1 queued");
+        rig.clock += 5e6;
+        CHECK(rig.svc->busy() && !rig.svc->submit(rig.ctx(), p, why), "5 s: still waited for");
+        rig.clock += 6e6;
+        CHECK(!rig.svc->busy(), "11 s: not busy any more");
+        CHECK(rig.svc->submit(rig.ctx(), p, why) && rig.svc->busy() && rig.logged("did not come back"), "job 2 queued, the lost one logged: " + why);
+        rig.jobs.pump();  // job 1 runs at last (late: nothing written), then job 2
+        ApplyResult a, b;
+        CHECK(rig.svc->poll(a) && a.stage == "late" && rig.svc->poll(b) && b.ok && b.written && w.i32(SheetWorld::kRecs + kRecDepth) == 44,
+              "job 1 refused as late, job 2 written: " + a.message + " / " + b.message);
+        CHECK(!rig.svc->busy(), "idle");
+        // a career load whose scan finds nothing: one scan, then none until a minute passed or Locate again
+        SheetWorld none;
+        none.mem.wr(SheetWorld::kSvc + kSvcLoaded, uint8_t(0));
+        none.mem.wr(SheetWorld::kStale, uint64_t(0));
+        ServiceRig r2(none, out);
+        CHECK(!r2.svc->read(r2.ctx(5, false), lt, why) && r2.svc->scans() == 1, "scan 1: " + why);
+        CHECK(!r2.svc->read(r2.ctx(5, false), lt, why) && r2.svc->scans() == 1 && why.find("none a live service") != std::string::npos,
+              "the next read does not scan again: " + why);
+        r2.clock += 30e6;
+        r2.svc->read(r2.ctx(5, false), lt, why);
+        CHECK(r2.svc->scans() == 1, "30 s later: still not");
+        r2.clock += 31e6;
+        r2.svc->read(r2.ctx(5, false), lt, why);
+        CHECK(r2.svc->scans() == 2, "a minute later: once more");
+        r2.svc->relocate();
+        r2.svc->read(r2.ctx(5, false), lt, why);
+        CHECK(r2.svc->scans() == 3, "Locate again: at once");
+        r2.svc->read(r2.ctx(6, false), lt, why);
+        CHECK(r2.svc->scans() == 4, "a new career load: at once");
+        // a registry Find job the game thread never runs: after 90 s the locate starts again
+        ServiceRig r3(w, out);
+        r3.find_returns = SheetWorld::kSvc;
+        r3.svc->read(r3.ctx(7), lt, why);
+        CHECK(r3.jobs.q.size() == 1, "the Find is queued");
+        r3.jobs.q.clear();  // dropped
+        r3.svc->read(r3.ctx(7), lt, why);
+        CHECK(r3.jobs.q.empty() && why.find("locating") != std::string::npos, "still locating: " + why);
+        r3.clock += 91e6;
+        r3.svc->read(r3.ctx(7), lt, why);
+        CHECK(r3.jobs.q.size() == 1 && r3.logged("did not finish"), "queued again after 90 s");
+        r3.jobs.pump();
+        CHECK(r3.svc->read(r3.ctx(7), lt, why), "located: " + why);
+    });
+
     run_case("channel E: the gates G1..G6 in order, with the first reason", [] {
         GateInput in;
         in.sw.opt_in = true;
@@ -811,6 +922,17 @@ static void run() {
         x = in;
         x.save_age = kSaveQuietSeconds;
         CHECK(evaluate(x).pass(), "a save 30 s ago is over");
+        // the pre-match screen was left: the hub only after a quiet while without a match event
+        x = in;
+        x.match_phase = "left_prematch";
+        x.phase_age = 5;
+        CHECK(evaluate(x).first().find("left 5 s ago: waiting 15 s") != std::string::npos, evaluate(x).first());
+        x.phase_age = -1;
+        CHECK(evaluate(x).first().find("does not say when") != std::string::npos, evaluate(x).first());
+        x.phase_age = kLeftPrematchQuietSeconds;
+        CHECK(evaluate(x).pass(), "15 s without a match event: the hub");
+        x.save_age = 3;
+        CHECK(evaluate(x).first().find("a save started 3 s ago") != std::string::npos, "a save still counts: " + evaluate(x).first());
         x = in;
         x.anchors = "game build X";
         CHECK(evaluate(x).first() == "G3 build and anchors: game build X", evaluate(x).first());
@@ -1036,13 +1158,41 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(70);
         CHECK(has_part(s.overwritten, "defensivedepth 75 -> 25"), "overwrite seen");
         CHECK(rig.logged("channel E") , "the service logged");
+        // the same record seen after a career reload: an earlier load's write (no in-game save after it?), not an Edit Tactic overwrite
+        {
+            UndoRecord now_u;
+            CHECK(load_undo(out / undo_file(), now_u, &err), "undo file: " + err);
+            UndoRecord older = now_u;
+            older.load_gen = now_u.load_gen - 1;
+            save_undo(out / undo_file(), older, &err);
+            live_tactic_reset();
+            ui.frames(3);
+            CHECK(has_part(s.overwritten, "earlier career load") && !has_part(s.overwritten, "Edit Tactic"), "an earlier load's write");
+            save_undo(out / undo_file(), now_u, &err);
+            live_tactic_reset();
+            ui.frames(3);
+            CHECK(has_part(s.overwritten, "Edit Tactic (or the game) overwrote the change: defensivedepth 75 -> 25"), "this load's write again");
+        }
         // a match being set up: no write, no undo
         st["match_phase"] = "prematch";
         st["seq"] = st.value("seq", 0LL) + 1;
         write_state();
         ui.frames(2);
         CHECK(!s.can_apply && !s.can_undo && s.status.find("G2 career hub") == 0, "pre-match: refused: " + s.status);
+        // the pre-match screen left: refused for 15 s, then the hub (no match event came)
+        st["match_phase"] = "left_prematch";
+        st["phase_t"] = (long long)(std::time(nullptr)) - 5;
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        ui.frames(2);
+        CHECK(!s.can_undo && s.status.find("waiting 15 s for a match to start") != std::string::npos, "just left the pre-match screen: " + s.status);
+        st["phase_t"] = (long long)(std::time(nullptr)) - 20;
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        ui.frames(2);
+        CHECK(s.can_undo && s.status.find("G2") == std::string::npos, "20 s later: the hub: " + s.status);
         st["match_phase"] = "hub";
+        st.erase("phase_t");
         st["seq"] = st.value("seq", 0LL) + 1;
         write_state();
         // the kill switch: Apply off, Undo still possible (it puts the game's values back)

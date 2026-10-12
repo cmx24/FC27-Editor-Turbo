@@ -25,7 +25,8 @@
 // mismatch puts every field and the dirty flag back from the snapshot taken in that job and switches channel E off for the session.
 //
 // Gates (report 4.3): G1 opt-in turbo_output\call_team_sheet_on.txt, no call_team_sheet_off.txt / tactics_off.txt; G2 career hub only
-// (Lua's match phase "hub", no save started in the last kSaveQuietSeconds, the located service belongs to this career load); G3 the
+// (Lua's match phase "hub", or "left_prematch" for kLeftPrematchQuietSeconds without a match event; no save started in the last
+// kSaveQuietSeconds; the located service belongs to this career load); G3 the
 // exact build and every anchor consistent with the vtable; G4 the locate checks L1-L4; G5 SetSheet would not run vf 0xF8 for this sheet;
 // G6 value ranges (preset / formation refused in 2.2).
 #pragma once
@@ -80,8 +81,18 @@ constexpr int kRoleIdMax = 63, kFocusMax = 7;
 constexpr int kRoleWordMax = 60000;  // cm_mentalities.pos{n}role max: a larger word could not be saved
 // G2: a save started (Lua saw PREPARE_FOR_SAVE) less than this long ago refuses a write
 constexpr long long kSaveQuietSeconds = 30;
+// G2: Lua's phase "left_prematch" (ABOUT_TO_LEAVE_PREMATCH right after the pre-match screen) counts as the hub only once this many seconds
+// passed without a match event: going on into the match sends TEAMS_READY_FOR_USER_MATCH / ABOUT_TO_ENTER_A_MATCH at once (phase "match"),
+// and a LEAVE that comes after a match event leaves the phase at "match" (bridge.lua track_phase). The event order is not verified [A].
+constexpr long long kLeftPrematchQuietSeconds = 15;
 // A job the game thread runs later than this after Apply writes nothing (the hub may have been left meanwhile)
 constexpr double kJobDeadlineUs = 2e6;
+// A job not back after this long was dropped by the dispatcher (its queue keeps 256 jobs): channel E stops waiting for it (if it still
+// runs, it is past kJobDeadlineUs and writes nothing)
+constexpr double kJobLostUs = 10e6;
+// The vtable-pair scan runs once per career load; after a failed locate the next try waits this long (or "Locate again"); a Find job the
+// game thread never ran counts as failed after kLocateLostUs
+constexpr double kLocateRetryUs = 60e6, kLocateLostUs = 90e6;
 // match-setup copy (report 2.12) [V]: roles at out+0x118, pids at out+0x168, team id at out+0x28
 constexpr uint64_t kCopyRoles = 0x118, kCopyPids = 0x168, kCopyTeam = 0x28;
 
@@ -148,7 +159,8 @@ std::vector<uint64_t> find_vtable_pairs(const uint8_t* buf, size_t len, uint64_t
 std::string pick_service(Memory& mem, const std::vector<uint64_t>& hits, const Anchors& a, uint64_t& svc);
 // What the registry Find returned: the service itself or its second base (+8); "" and svc set when it passes check_service
 std::string accept_find_result(Memory& mem, uint64_t returned, const Anchors& a, uint64_t& svc);
-// L2's user: PSM = the career's manager slot 87 (count 1), [PSM] == psm_vtable, user club = i32 [PSM+0x10]
+// L2's user: PSM = the career's manager slot 87 (count 1), [PSM] == psm_vtable, [PSM+8] == the manager table (its back pointer, as
+// core/squad_role.cpp checks it), user club = i32 [PSM+0x10]
 std::string user_from_psm(Memory& mem, uint64_t managers, uint64_t psm_vtable, int& user);
 
 struct Located {
@@ -230,10 +242,33 @@ struct ApplyResult {
     LiveTactic after;
     std::string log_line;  // "channel E: team 95 record 0 build-up 0->2 depth 25->75 slot 9 role 38213->38214 (read back ok)"
     double micros = 0.0;   // time the job took (the host fills it)
+    int reads = 0;         // reads of game memory the job made (whole pages for the walk, single fields for the read-back)
 };
 // Report 4.4: re-run L1-L4, G5, the plan's record and old values, snapshot, write, dirty = 1, read back; a mismatch restores every field
-// and the dirty flag from the snapshot. Never throws.
+// and the dirty flag from the snapshot. The walks read the game through whole 4 KB pages (a handful of reads instead of several hundred:
+// the job stays well under the report's 50 us); the read-back reads each written field from the game itself. Never throws.
 ApplyResult apply_plan(Memory& mem, uint64_t svc, const Anchors& a, const Plan& plan);
+
+// Reads served from whole 4 KB pages, each page read from the underlying memory once (at most 64 pages, then direct reads); a page that
+// cannot be read falls back to a direct read of the asked bytes. A write goes straight through and drops every cached page.
+class PageCache : public Memory {
+public:
+    explicit PageCache(Memory& m) : m_(m) {}
+    bool read(uint64_t addr, void* out, size_t n) override;
+    bool write(uint64_t addr, const void* in, size_t n) override;
+    int reads() const { return reads_; }  // reads made on the underlying memory
+
+private:
+    struct Page {
+        uint64_t base = 0;
+        bool ok = false;
+        std::vector<uint8_t> bytes;
+    };
+    const uint8_t* page(uint64_t base);
+    Memory& m_;
+    std::vector<Page> pages_;
+    int reads_ = 0;
+};
 std::string describe_writes(int user, int record_index, const std::vector<FieldWrite>& ws);
 
 // ------------------------------------------------------------------------------------------------ the undo record (channel_e_undo.json)
@@ -288,7 +323,8 @@ struct GateInput {
     // G2
     bool bridge = false;              // Lua's bridge state is there
     bool in_cm = false;
-    std::string match_phase;          // Lua's "hub" / "prematch" / "match" / "unknown"; "" = a Lua side without it
+    std::string match_phase;          // Lua's "hub" / "prematch" / "left_prematch" / "match" / "unknown"; "" = a Lua side without it
+    long long phase_age = -1;         // seconds since Lua's phase last changed, -1 = not reported
     long long save_age = -1;          // seconds since Lua saw a save start, -1 = none seen
     long long load_gen = -1, located_load_gen = -1;
     // G3 .. G6
@@ -341,7 +377,7 @@ struct Host {
     Memory* mem = nullptr;
     Anchors anchors;
     uint64_t psm_vtable = 0;
-    std::filesystem::path out_dir;  // turbo_output: the kill switches are looked at again inside the job
+    std::filesystem::path out_dir;  // turbo_output: the switch files are looked at again right before a job is queued
     // queue a job for the game thread ("" = no dispatcher: the job is dropped and submit refuses)
     std::function<std::string(std::function<void()>)> run_on_game_thread;
     // run a scan away from the game thread (tests: inline)
@@ -380,6 +416,7 @@ private:
     void finish_locate(long long gen, uint64_t svc, const std::string& how, const std::string& why);
     void scan_for_service(long long gen);
     void log(const std::string& s);
+    double now() const { return h_.clock_us ? h_.clock_us() : 0.0; }
 
     Host h_;
     std::mutex mu_;
@@ -390,8 +427,12 @@ private:
     std::string how_, locate_why_;
     bool locating_ = false;
     long long locating_gen_ = -1;
+    double locating_since_ = 0.0, failed_at_ = 0.0;  // clock_us of the running locate / of the last failed one
+    long long failed_gen_ = -1;                       // the career load the last failed locate was for
     std::vector<ApplyResult> results_;
     bool busy_ = false;
+    double busy_since_ = 0.0;
+    int job_seq_ = 0;  // the job busy_ waits for (a lost job's late result does not clear a newer one)
     std::string session_off_;
     std::string kickoff_;
     bool kickoff_running_ = false;

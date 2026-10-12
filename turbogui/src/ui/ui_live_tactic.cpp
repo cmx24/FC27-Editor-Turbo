@@ -43,6 +43,7 @@ struct Lt {
     std::string undo_err;
     // the job in flight
     bool pending = false, pending_undo = false;
+    double pending_since = -1.0;
     UndoRecord prev;
     bool prev_have = false, merged = false;
     std::vector<std::string> undo_skipped;
@@ -161,8 +162,17 @@ bool read_now(App& app) {
         g.lt = lt;
         if (g.editor_key != editor_key_of(lt)) fill_editor(lt);
         g.overwritten.clear();
-        if (g.have_undo && g.undo.state == "written")
-            for (const std::string& r : reverted(lt, g.undo)) g.overwritten.push_back("Edit Tactic (or the game) overwrote the change: " + r);
+        if (g.have_undo && g.undo.state == "written") {
+            // report 4.5 within the career load of the write; after a reload the record was rebuilt from the save
+            const BridgeState& st = app.bridge.state();
+            const bool same_load = g.undo.session == st.session && g.undo.load_gen == st.load_gen;
+            const std::vector<std::string> rv = reverted(lt, g.undo);
+            if (same_load)
+                for (const std::string& r : rv) g.overwritten.push_back("Edit Tactic (or the game) overwrote the change: " + r);
+            else if (!rv.empty())
+                g.overwritten.push_back("Turbo's write of " + g.undo.when + " was in an earlier career load; the live tactic does not hold it now (" + rv.front() +
+                                        (rv.size() > 1 ? ", ..." : "") + "): no in-game save after the write?");
+        }
     }
     return ok;
 }
@@ -182,6 +192,7 @@ GateInput gate_input(App& app, const std::string& plan_why, bool undo) {
     in.bridge = st.loaded;
     in.in_cm = st.in_cm;
     in.match_phase = st.match_phase;
+    in.phase_age = st.phase_t > 0 ? (long long)(std::time(nullptr)) - st.phase_t : -1;
     in.save_age = st.save_t > 0 ? (long long)(std::time(nullptr)) - st.save_t : -1;
     in.load_gen = st.load_gen;
     in.located_load_gen = app.team_sheet ? app.team_sheet->located_load_gen() : -1;
@@ -411,6 +422,7 @@ void do_apply(App& app) {
     }
     const BridgeState& st = app.bridge.state();
     UndoRecord rec = UndoRecord::from_plan(plan);
+    rec.dirty_before = g.lt.dirty;  // the job reports the flag it found; until then the read-out's (a merge keeps the first write's)
     rec.when = stamp();
     rec.session = st.session;
     rec.load_gen = st.load_gen;
@@ -447,6 +459,7 @@ void do_apply(App& app) {
     }
     g.pending = true;
     g.pending_undo = false;
+    g.pending_since = app.now;
     g.last = "queued for the game thread ...";
 }
 
@@ -484,6 +497,7 @@ void do_undo(App& app) {
     }
     g.pending = true;
     g.pending_undo = true;
+    g.pending_since = app.now;
     g.last = "undo queued for the game thread ...";
 }
 
@@ -796,8 +810,30 @@ void live_tactic_tick(App& app) {
         if (!app.team_sheet) return;
         ApplyResult r;
         while (app.team_sheet->poll(r)) {
+            if (!g.pending) {
+                // the result of a job the card gave up on (below): it ran more than 10 s after Apply, so it was refused as late
+                log_line(app, "channel E: result of a job given up on: " + (r.log_line.empty() ? r.message : r.log_line));
+                continue;
+            }
             load_undo_once(app);
             handle_result(app, r);
+        }
+        // a job the game thread never ran (the dispatcher's queue dropped it): the service stops waiting after 10 s, the card too. Nothing
+        // was written by it (a late run writes nothing): an Apply's undo file goes back to the earlier record, or "aborted"
+        if (g.pending && g.pending_since >= 0 && app.now - g.pending_since > kJobLostUs / 1e6 + 2.0 && !app.team_sheet->busy()) {
+            g.pending = false;
+            g.last = std::string(g.pending_undo ? "undo" : "Apply") + ": the game thread did not run the job (nothing written); try again";
+            if (!g.pending_undo) {
+                if (g.prev_have) {
+                    save_record(app, g.prev);
+                } else {
+                    UndoRecord u = g.undo;
+                    u.state = "aborted";
+                    u.note = g.last;
+                    save_record(app, u);
+                }
+            }
+            log_line(app, "channel E: " + g.last);
         }
         // report 4.5: re-read 5 s after a write, and when the Turbo window is shown again (the user may have used Edit Tactic meanwhile)
         const bool shown_again = app.visible && !g.was_visible;
@@ -811,8 +847,9 @@ void live_tactic_tick(App& app) {
                     std::string s;
                     for (const auto& o : g.overwritten) s += (s.empty() ? "" : "; ") + o;
                     log_line(app, "channel E: re-read " + std::string(timed ? "5 s after the write" : "when the window was shown") + ": " + s);
-                } else if (timed) {
-                    log_line(app, "channel E: re-read 5 s after the write: the written values are still in place");
+                } else if (g.overwritten.empty()) {
+                    log_line(app, "channel E: re-read " + std::string(timed ? "5 s after the write" : "when the window was shown") +
+                                      ": the written values are still in place");
                 }
             }
         }

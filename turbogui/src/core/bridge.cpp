@@ -134,6 +134,7 @@ static bool parse_state_impl(const std::string& text, BridgeState& out) {
     out.user_team = j.value("user_team", 0LL);
     // tactics channel E's gate G2 (core/team_sheet.h): Lua's match phase ("" = a Lua side without it) and when a save last started
     out.match_phase = j.contains("match_phase") && j["match_phase"].is_string() ? j["match_phase"].get<std::string>() : std::string();
+    out.phase_t = j.contains("phase_t") && j["phase_t"].is_number_integer() ? j["phase_t"].get<long long>() : 0;
     out.save_t = j.contains("save_t") && j["save_t"].is_number_integer() ? j["save_t"].get<long long>() : 0;
     out.names_count = j.value("names_count", 0LL);
     out.transfer_budget = j.contains("transfer_budget") && j["transfer_budget"].is_number() ? j["transfer_budget"].get<long long>() : -1;

@@ -39,7 +39,66 @@ int32_t i32_at(Memory& mem, uint64_t a, bool& ok) {
     return v;
 }
 
+// Counts the reads made on the game's memory (the job reports them with its time)
+class Counting : public Memory {
+public:
+    explicit Counting(Memory& m) : m_(m) {}
+    bool read(uint64_t addr, void* out, size_t n) override {
+        ++reads;
+        return m_.read(addr, out, n);
+    }
+    bool write(uint64_t addr, const void* in, size_t n) override { return m_.write(addr, in, n); }
+    int reads = 0;
+
+private:
+    Memory& m_;
+};
+
+constexpr uint64_t kCachePage = 0x1000;
+constexpr size_t kCachePages = 64;
+
 }  // namespace
+
+// ------------------------------------------------------------------------------------------------ page cache
+const uint8_t* PageCache::page(uint64_t base) {
+    for (const Page& p : pages_)
+        if (p.base == base) return p.ok ? p.bytes.data() : nullptr;
+    if (pages_.size() >= kCachePages) return nullptr;
+    Page p;
+    p.base = base;
+    p.bytes.assign(kCachePage, 0);
+    ++reads_;
+    p.ok = is_ptr(base) && m_.read(base, p.bytes.data(), kCachePage);
+    pages_.push_back(std::move(p));
+    return pages_.back().ok ? pages_.back().bytes.data() : nullptr;
+}
+
+bool PageCache::read(uint64_t addr, void* out, size_t n) {
+    if (n == 0) return true;
+    uint8_t* o = static_cast<uint8_t*>(out);
+    uint64_t a = addr;
+    size_t left = n;
+    while (left) {
+        const uint64_t base = a & ~(kCachePage - 1);
+        const size_t off = size_t(a - base), take = std::min<size_t>(left, size_t(kCachePage) - off);
+        const uint8_t* p = n <= kCachePage * 2 ? page(base) : nullptr;
+        if (!p) {
+            // an unreadable page (or a long block): the asked bytes straight from the memory, which fails where it must
+            ++reads_;
+            return m_.read(addr, out, n);
+        }
+        std::memcpy(o, p + off, take);
+        o += take;
+        a += take;
+        left -= take;
+    }
+    return true;
+}
+
+bool PageCache::write(uint64_t addr, const void* in, size_t n) {
+    pages_.clear();
+    return m_.write(addr, in, n);
+}
 
 // ------------------------------------------------------------------------------------------------ small helpers
 int depth_band(int depth) {
@@ -206,8 +265,10 @@ std::string user_from_psm(Memory& mem, uint64_t managers, uint64_t psm_vtable, i
     int32_t count = 0;
     if (!mem.rd(slot + 0x10, count) || count != 1) return "manager slot 87 holds " + std::to_string(count) + " instances (no career loaded?)";
     const uint64_t psm = mem.chain(slot, {0x18, 0});
-    uint64_t vt = 0;
+    uint64_t vt = 0, hub = 0;
     if (!psm || !mem.rd(psm, vt) || vt != psm_vtable) return "the PlayerStatusManager " + hex(psm) + " has vtable " + hex(vt);
+    if (!mem.rd(psm + 0x08, hub) || hub != managers)
+        return "the PlayerStatusManager's manager table " + hex(hub) + " is not the career's " + hex(managers);
     int32_t team = 0;
     if (!mem.rd(psm + 0x10, team) || team <= 0) return "the PlayerStatusManager's club is " + std::to_string(team);
     user = team;
@@ -472,23 +533,28 @@ std::string describe_writes(int user, int record_index, const std::vector<FieldW
 }
 
 // ------------------------------------------------------------------------------------------------ the write
-ApplyResult apply_plan(Memory& mem, uint64_t svc, const Anchors& a, const Plan& plan) {
+ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan& plan) {
     ApplyResult r;
     r.undo = plan.undo;
+    // every read of the game is counted; the walks go through whole pages (one read per 4 KB), the writes, the read-back and the restore
+    // through `mem` (each field from the game itself)
+    Counting mem(game);
     auto fail = [&](const char* stage, const std::string& msg) {
         r.ok = false;
         r.stage = stage;
         r.message = msg;
         r.log_line = "channel E: " + std::string(plan.undo ? "undo " : "") + "refused (" + stage + "): " + msg;
+        r.reads = mem.reads;
         return r;
     };
     try {
         // 1. L1-L4 again (pointers can move between frames)
+        PageCache walk(mem);
         LiveTactic now;
-        std::string why = read_live(mem, svc, plan.user, a, now);
+        std::string why = read_live(walk, svc, plan.user, a, now);
         if (!why.empty()) return fail("locate", why);
         // G5 again
-        why = check_g5(mem, now);
+        why = check_g5(walk, now);
         if (!why.empty()) return fail("G5", why);
         // the record the plan was made for, with exactly the plan's old values
         if (now.at.record_index != plan.record_index || now.formation != plan.formation || now.source_formation != plan.source_formation ||
@@ -504,6 +570,7 @@ ApplyResult apply_plan(Memory& mem, uint64_t svc, const Anchors& a, const Plan& 
             r.message = "nothing to change";
             r.after = now;
             r.log_line = "channel E: nothing to change";
+            r.reads = mem.reads;
             return r;
         }
         // 2. snapshot (the old values, as they are in memory now)
@@ -567,6 +634,7 @@ ApplyResult apply_plan(Memory& mem, uint64_t svc, const Anchors& a, const Plan& 
                         "; channel E is off for this session";
             r.log_line = "channel E: " + describe_writes(plan.user, plan.record_index, plan.writes) + " READ-BACK MISMATCH (" + bad + "), " +
                          (restored ? "undone from the snapshot" : "undo FAILED");
+            r.reads = mem.reads;
             return r;
         }
         r.dirty_after = dirty_back;
@@ -574,9 +642,11 @@ ApplyResult apply_plan(Memory& mem, uint64_t svc, const Anchors& a, const Plan& 
         r.written = true;
         r.writes = plan.writes;
         r.stage = "done";
-        std::string why_after = read_live(mem, svc, plan.user, a, r.after);
+        PageCache after(mem);
+        std::string why_after = read_live(after, svc, plan.user, a, r.after);
         r.message = std::string(plan.undo ? "put back" : "written") + " and read back" + (why_after.empty() ? "" : " (read-out after: " + why_after + ")");
         r.log_line = "channel E: " + std::string(plan.undo ? "undo " : "") + describe_writes(plan.user, plan.record_index, plan.writes) + " (read back ok)";
+        r.reads = mem.reads;
         return r;
     } catch (const std::exception& e) {
         return fail("exception", e.what());
@@ -907,7 +977,13 @@ Gates evaluate(const GateInput& in) {
         else if (!in.in_cm) g.why = "not in a career";
         else if (in.match_phase.empty()) g.why = "this Lua side does not report the match phase: update Turbo's Lua files";
         else if (in.match_phase == "unknown") g.why = "the match phase is not known yet (no hub, match or day event seen since Turbo started): advance a day or reload the career";
-        else if (in.match_phase != "hub") g.why = "a match is being set up or played (Lua: " + in.match_phase + "); apply in the hub before the pre-match screen";
+        else if (in.match_phase == "left_prematch" && in.phase_age < 0)
+            g.why = "the pre-match screen was left and this Lua side does not say when: wait for the next hub event (update Turbo's Lua files)";
+        else if (in.match_phase == "left_prematch" && in.phase_age < kLeftPrematchQuietSeconds)
+            g.why = "the pre-match screen was left " + std::to_string(in.phase_age) + " s ago: waiting " + std::to_string(kLeftPrematchQuietSeconds) +
+                    " s for a match to start (none started: then this is the hub)";
+        else if (in.match_phase != "hub" && in.match_phase != "left_prematch")
+            g.why = "a match is being set up or played (Lua: " + in.match_phase + "); apply in the hub before the pre-match screen";
         else if (in.save_age >= 0 && in.save_age < kSaveQuietSeconds) g.why = "a save started " + std::to_string(in.save_age) + " s ago: wait a moment";
         else if (in.load_gen < 0) g.why = "this Lua side does not report career loads: update Turbo's Lua files";
         else if (in.located_load_gen != in.load_gen) g.why = "the career was (re)loaded since the service was located: locating again";
@@ -962,6 +1038,7 @@ void CoreService::relocate() {
     std::lock_guard<std::mutex> lock(mu_);
     svc_ = 0;
     svc_gen_ = -1;
+    failed_gen_ = -1;  // the next read locates at once
     locate_why_.clear();
 }
 
@@ -972,19 +1049,23 @@ std::string CoreService::session_off() {
 
 bool CoreService::busy() {
     std::lock_guard<std::mutex> lock(mu_);
-    return busy_;
+    return busy_ && !(h_.clock_us && now() - busy_since_ > kJobLostUs);
 }
 
 void CoreService::finish_locate(long long gen, uint64_t svc, const std::string& how, const std::string& why) {
     std::lock_guard<std::mutex> lock(mu_);
+    if (gen != locating_gen_) return;  // a newer career load asked again meanwhile (its locate is still running)
     locating_ = false;
-    if (gen != locating_gen_) return;  // a newer career load asked again meanwhile
     if (svc) {
         svc_ = svc;
         svc_gen_ = gen;
         how_ = how;
+        failed_gen_ = -1;
         locate_why_.clear();
     } else {
+        // not retried for this career load before kLocateRetryUs (the scan reads every private region: once per load, not every second)
+        failed_gen_ = gen;
+        failed_at_ = now();
         locate_why_ = why;
     }
 }
@@ -1044,9 +1125,17 @@ void CoreService::scan_for_service(long long gen) {
 void CoreService::start_locate(const Context& ctx) {
     {
         std::lock_guard<std::mutex> lock(mu_);
-        if (locating_ && locating_gen_ == ctx.load_gen) return;
+        const double t = now();
+        if (locating_ && locating_gen_ == ctx.load_gen) {
+            if (!h_.clock_us || t - locating_since_ <= kLocateLostUs) return;
+            log("channel E: the locate of career load " + std::to_string(ctx.load_gen) + " did not finish in " + std::to_string(int(kLocateLostUs / 1e6)) +
+                " s (the registry Find job was not run?): locating again");
+        } else if (!locating_ && failed_gen_ == ctx.load_gen && (!h_.clock_us || t - failed_at_ < kLocateRetryUs)) {
+            return;  // this career load's last locate failed a moment ago: "Locate again" (relocate) or the next career load tries again
+        }
         locating_ = true;
         locating_gen_ = ctx.load_gen;
+        locating_since_ = t;
         locate_why_.clear();
     }
     const long long gen = ctx.load_gen;
@@ -1137,6 +1226,7 @@ bool CoreService::submit(const Context& ctx, const Plan& plan, std::string& why)
         return false;
     }
     uint64_t svc = 0;
+    int seq = 0;
     {
         std::lock_guard<std::mutex> lock(mu_);
         if (!session_off_.empty()) {
@@ -1144,8 +1234,14 @@ bool CoreService::submit(const Context& ctx, const Plan& plan, std::string& why)
             return false;
         }
         if (busy_) {
-            why = "a channel E job is still queued or running";
-            return false;
+            if (h_.clock_us && now() - busy_since_ > kJobLostUs) {
+                log("channel E: the last job did not come back in " + std::to_string(int(kJobLostUs / 1e6)) +
+                    " s (dropped by the game-thread queue?): not waited for any more (if it still runs it is late and writes nothing)");
+                busy_ = false;
+            } else {
+                why = "a channel E job is still queued or running";
+                return false;
+            }
         }
         if (!svc_ || svc_gen_ != ctx.load_gen) {
             why = "the team sheet service is not located for this career load";
@@ -1153,23 +1249,29 @@ bool CoreService::submit(const Context& ctx, const Plan& plan, std::string& why)
         }
         svc = svc_;
         busy_ = true;
+        busy_since_ = now();
+        seq = ++job_seq_;
     }
     const Anchors a = h_.anchors;
-    const fs::path out = h_.out_dir;
+    // the switch files once more right before queuing (read here, not on the game thread: no file I/O inside the job, which runs within
+    // kJobDeadlineUs of this or writes nothing). An undo puts the game's values back and is not blocked by a kill switch.
+    std::string switch_block;
+    if (!plan.undo && !h_.out_dir.empty()) {
+        if (file_exists(h_.out_dir / master_switch_file())) switch_block = master_switch_file();
+        else if (file_exists(h_.out_dir / kill_switch_file())) switch_block = kill_switch_file();
+        else if (!file_exists(h_.out_dir / opt_in_file())) switch_block = std::string("no ") + opt_in_file();
+    }
     const double queued = h_.clock_us ? h_.clock_us() : 0.0;
-    const std::string via = h_.run_on_game_thread([this, svc, a, plan, out, queued]() {
+    const std::string via = h_.run_on_game_thread([this, svc, a, plan, switch_block, queued, seq]() {
         ApplyResult r;
         const double t0 = h_.clock_us ? h_.clock_us() : 0.0;
-        // the kill switches again, right before the write (an undo puts the game's values back and is not blocked)
         std::string block;
         if (h_.clock_us && t0 - queued > kJobDeadlineUs) {
             char b[96];
             std::snprintf(b, sizeof(b), "the game thread ran the job %.1f s after Apply", (t0 - queued) / 1e6);
             block = b;
-        } else if (!plan.undo && !out.empty()) {
-            if (file_exists(out / master_switch_file())) block = master_switch_file();
-            else if (file_exists(out / kill_switch_file())) block = kill_switch_file();
-            else if (!file_exists(out / opt_in_file())) block = std::string("no ") + opt_in_file();
+        } else {
+            block = switch_block;
         }
         if (!block.empty()) {
             const bool late = block.rfind("the game thread", 0) == 0;
@@ -1184,11 +1286,11 @@ bool CoreService::submit(const Context& ctx, const Plan& plan, std::string& why)
         std::lock_guard<std::mutex> lock(mu_);
         if (r.session_off) session_off_ = r.message;
         results_.push_back(r);
-        busy_ = false;
+        if (seq == job_seq_) busy_ = false;  // a lost job's late result leaves a newer job's wait alone
     });
     if (via.empty()) {
         std::lock_guard<std::mutex> lock(mu_);
-        busy_ = false;
+        if (seq == job_seq_) busy_ = false;
         why = "no game-thread dispatcher (the game_tick hook is off and Turbo's Lua side does not pump)";
         return false;
     }
@@ -1205,7 +1307,7 @@ bool CoreService::poll(ApplyResult& out) {
     }
     if (!r.log_line.empty()) {
         char t[64];
-        std::snprintf(t, sizeof(t), " [job %.0f us]", r.micros);
+        std::snprintf(t, sizeof(t), " [job %.0f us, %d reads]", r.micros, r.reads);
         log(r.log_line + t);
     }
     out = r;

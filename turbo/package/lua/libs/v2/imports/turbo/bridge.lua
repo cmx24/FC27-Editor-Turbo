@@ -383,8 +383,10 @@ function M.collect_state()
         -- outcome of the last game call that finished after being queued (M.game_call): the GUI shows it as a toast
         game_call = S.game_call,
         manager_rules = manager_rules_state(in_cm),
-        -- tactics channel E's gate G2 (M.track_phase): "hub" / "prematch" / "match" / "unknown", and when a save last started
+        -- tactics channel E's gate G2 (M.track_phase): "hub" / "prematch" / "left_prematch" / "match" / "unknown", when it last changed,
+        -- and when a save last started
         match_phase = S.match_phase or "unknown",
+        phase_t = S.phase_t,
         save_t = S.save_t,
     }
 end
@@ -403,7 +405,7 @@ local function same_state(a, b)
     if a.db_service ~= b.db_service or a.in_cm ~= b.in_cm or a.user_team ~= b.user_team then return false end
     if a.svm ~= b.svm or a.managers ~= b.managers or a.ifce ~= b.ifce then return false end
     if a.transfer_budget ~= b.transfer_budget then return false end
-    if a.match_phase ~= b.match_phase or a.save_t ~= b.save_t then return false end
+    if a.match_phase ~= b.match_phase or a.phase_t ~= b.phase_t or a.save_t ~= b.save_t then return false end
     if a.meta_error ~= b.meta_error then return false end
     if (a.game_call and a.game_call.seq or 0) ~= (b.game_call and b.game_call.seq or 0) then return false end
     if not same_settings(a.manager_rules, b.manager_rules) then return false end
@@ -561,11 +563,14 @@ end
 
 -- Match phase and save start for Turbo.dll's tactics channel E (turbogui/src/core/team_sheet.h, gate G2: your club's live tactic is
 -- written in the career hub only, never while a match is set up or played, nor while a save runs). "unknown" until the first event of
--- one of these lists since Turbo started; leaving the pre-match screen without playing keeps "prematch" until the next hub event.
+-- one of these lists since Turbo started (the event that starts the bridge counts too). Leaving the pre-match screen gives
+-- "left_prematch" only straight from "prematch" (after a match event it stays "match"): back in the hub or on into the match, whose
+-- events then follow at once; Turbo.dll treats it as the hub only after a quiet while without a match event (kLeftPrematchQuietSeconds).
 M.PHASE_EVENTS = {
     hub = { "POST_LOAD_PREPARE", "ENTERED_HUB_FIRST_TIME", "DAY_PASSED", "USER_MATCH_COMPLETED", "USER_INTERNATIONAL_MATCH_COMPLETED",
             "POST_MATCH_REPORTS_DISPLAYED" },
     prematch = { "ABOUT_TO_ENTER_PREMATCH" },
+    left_prematch = { "ABOUT_TO_LEAVE_PREMATCH" },
     match = { "TEAMS_READY_FOR_USER_MATCH", "ABOUT_TO_ENTER_A_MATCH", "ABOUT_TO_SIM_OVER_A_MATCH", "ABOUT_TO_ENTER_QUICK_SIM",
               "ABOUT_TO_ENTER_INTERACTIVE_SIM", "ABOUT_TO_ENTER_PLAY_HIGHLIGHTS", "ABOUT_TO_ENTER_PLAY_FULL_MATCH_SIM", "MATCH_RESTARTED" },
 }
@@ -583,11 +588,15 @@ local function phase_ids()
     return S.phase_ids, S.save_ids
 end
 
--- Called for every real career-mode event before the state is written
+-- Called for every real career-mode event before the state is written (and for the event that starts the bridge)
 function M.track_phase(event_id)
     local ids, saves = phase_ids()
     local phase = ids[event_id]
-    if phase then S.match_phase = phase end
+    if phase == "left_prematch" and S.match_phase ~= "prematch" then phase = nil end
+    if phase and phase ~= S.match_phase then
+        S.match_phase = phase
+        S.phase_t = os.time()
+    end
     if saves[event_id] then S.save_t = os.time() end
 end
 
@@ -671,8 +680,10 @@ end
 function M.on_career_event(event_id)
     if (require 'imports/turbo/core/events').is_synthetic(event_id) then return on_synthetic_event() end
     if S.autoload_pending then
-        -- gui.autoload: first career-mode event = the game is fully running; start the bridge now
+        -- gui.autoload: first career-mode event = the game is fully running; start the bridge now (its match phase is kept: often the
+        -- career load's POST_LOAD_PREPARE, the hub)
         S.autoload_pending = false
+        pcall(M.track_phase, event_id)
         local ok, err = pcall(M.start, S.cfg)
         if not ok then log.error("Turbo GUI start failed: %s", tostring(err)) end
         return
