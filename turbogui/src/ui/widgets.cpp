@@ -355,6 +355,8 @@ bool enum_editor(App& app, const Table& t, uint64_t rec, const Field& f, const c
             codes.insert(codes.begin(), typed);
         for (int64_t v : codes) {
             std::string txt = code_value_text(f.name, v, live_users(app, t, f, v));
+            // gear codes with the game asset catalog: "[Hidden]" (no player uses it), "[preview only]", "[not in the game files]"
+            if (const std::string note = gear_code_note(app, t, f.name, v); !note.empty()) txt += "  [" + note + "]";
             char num[24];
             std::snprintf(num, sizeof(num), "%lld", static_cast<long long>(v));
             if (filt[0] && !contains_ci(txt, filt) && std::strcmp(num, filt) != 0) continue;

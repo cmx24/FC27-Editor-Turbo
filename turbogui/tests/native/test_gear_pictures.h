@@ -1,6 +1,9 @@
 // Native tests (1.1.4): gear preview pictures (ui/ui_images.cpp GearPictureIndex) - which listed file a gallery shows
 // for an item id. Synthetic paths shaped like Live Editor's legacy_filename_hash_list.csv. Included by test_main.cpp.
 #pragma once
+#include <memory>
+
+#include "core/gear_ids.h"
 #include "ui/ui_images.h"
 
 static void test_gear_pictures() {
@@ -37,5 +40,16 @@ static void test_gear_pictures() {
                   gx.ids("craniumhair", "HAIR_") == (std::vector<int64_t>{12, 13}),
               "FC 27 hair: any letter case, the name as listed");
         CHECK(gx.find("outfit", "gmo_", 6067).empty() && gx.find("nofolder", "item_", 1).empty(), "unknown folder / prefix: none");
+    });
+    // 2.1 (WP-08): the galleries read the game asset catalog through set_gear_catalog; a catalog that is not loaded (off,
+    // missing, refused) leaves every gallery on its 2.0 source. The rules themselves: tests/catalog/run_gear.sh.
+    run_case("gear pictures: game asset catalog not loaded = 2.0 galleries", [&] {
+        auto none = std::make_shared<const turbo::assets::Catalog>();
+        set_gear_catalog(none);
+        CHECK(!gear::from_catalog(none.get(), assets::Family::Hair).active, "not loaded: inactive hair view");
+        CHECK(gear::family_of_field("smallsidedshoetypecode") == assets::Family::Boots &&
+                  gear::family_of_field("accessorycode1") == assets::Family::Count,
+              "small-sided boots use the boots family, accessories keep the hash list");
+        set_gear_catalog(nullptr);
     });
 }
