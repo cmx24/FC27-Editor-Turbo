@@ -454,6 +454,26 @@ local function build_world(sim)
     for k = 1, 51 do sheet_fields[#sheet_fields + 1] = { name = "playerid" .. k, short = string.format("p%03d", k), depth = 22, min = -1 } end
     sim:add_table({ name = "cm_teamsheets", short = "cmts", fields = sheet_fields, rows = { sheet } })
 
+    -- Turbo 2.1 parity (ui_parity.cpp): the career's scouts and the database transfers table (real schema field names and depths;
+    -- transferdate in Lilian days: 162064 = 2026-07-02, 162123 = 2026-08-30)
+    sim:add_table({
+        name = "career_scouts", short = "zlrC",
+        fields = { { name = "scoutid", short = "scid", depth = 2 }, { name = "firstname", short = "sfn_", type = "string", depth = 8 * 20 },
+                   { name = "lastname", short = "sln_", type = "string", depth = 8 * 20 }, { name = "experience", short = "sexp", depth = 3 },
+                   { name = "knowledge", short = "sknw", depth = 3 }, { name = "nationality", short = "snat", depth = 9 },
+                   { name = "regionid", short = "sreg", depth = 4 }, { name = "state", short = "sst_", depth = 2 } },
+        rows = { { scoutid = 0, firstname = "Ana", lastname = "Lima", experience = 2, knowledge = 3, nationality = 54, regionid = 1, state = 1 },
+                 { scoutid = 1, firstname = "Ben", lastname = "Ray", experience = 1, knowledge = 1, nationality = 14, regionid = 2, state = 1 } },
+    })
+    sim:add_table({
+        name = "transfers", short = "IrZL",
+        fields = { { name = "playerid", short = "tpid", depth = 19, min = -1 }, { name = "sellingteamid", short = "tsel", depth = 18, min = -1 },
+                   { name = "buyingteamid", short = "tbuy", depth = 18, min = -1 }, { name = "transferamount", short = "tamt", depth = 30, min = 1 },
+                   { name = "transferdate", short = "tdat", depth = 20 } },
+        rows = { { playerid = 1003, sellingteamid = 7, buyingteamid = 1, transferamount = 25000000, transferdate = 162064 },
+                 { playerid = 2001, sellingteamid = 1, buyingteamid = 241, transferamount = 4000000, transferdate = 162123 } },
+    })
+
     -- A second database node (the game keeps several T3DB databases chained at +0x18)
     local node2 = sim:alloc(0x20, 8)
     sim:w64(sim.db_node + 0x18, node2)

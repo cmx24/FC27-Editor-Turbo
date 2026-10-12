@@ -2813,6 +2813,7 @@ static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_face3d_looks.h"  // 3D looks of the real faces: generated data, lookup, the chooser's 3D facets
 #include "test_describe.h"  // codes to descriptions: describe(), user text, pickers, the "no code N" UI walk
 #include "test_wheel.h"  // 1.1.3: mouse wheel source (hook, raw input, window messages)
+#include "test_parity.h"  // 2.1: FC 26 parity (transfer columns, scouts, bulk edit field picks)
 static std::string hex_bytes(const std::vector<uint8_t>& d) {
     static const char* h = "0123456789abcdef";
     std::string s;
@@ -7987,6 +7988,8 @@ static void test_ui() {
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
 
+        parity_test::run_ui(app, ui, le);  // test_parity.h
+
         run_case("UI: no ImGui errors, layout stable over many frames", [&] {
             for (int tab = 0; tab < 7; ++tab) {
                 app.request_tab = tab;
@@ -13019,6 +13022,8 @@ int main(int argc, char** argv) {
     test_edit_unlock();
     std::printf("native game editors hook\n");
     test_edit_unlock_hook(g_pass, g_fail);
+    std::printf("native FC 26 parity (2.1)\n");
+    parity_test::run_core();
     std::printf("native live team names\n");
     test_team_names_live();
     std::printf("native UI\n");
