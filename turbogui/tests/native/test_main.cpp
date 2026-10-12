@@ -5855,11 +5855,12 @@ static void test_ui() {
             ui.frames(2);
         });
 
-        run_case("UI: real-face chooser with 3D looks: 3D facets, 'not classified yet', Only heads with a 3D look", [&] {
-            // a test table: 1001 .. 1004 classified from their 3D renders, 1005 / 1006 not yet
+        run_case("UI: real-face chooser with 3D looks: 3D facets, 'not classified yet', unsure values, Only heads with a 3D look", [&] {
+            // a test table: 1001 .. 1004 classified from their 3D renders (1002 unsure of its hair type), 1005 / 1006 not yet
             static const face3d::Look looks[] = {
                 {1001, {face3d::kSkinLight, face3d::kHairDarkBrown, face3d::kShort, face3d::kWavy, face3d::kShortBeard, face3d::kBeardDarkBrown, 0}},
-                {1002, {face3d::kSkinDark, face3d::kHairBlack, face3d::kShort, face3d::kAfro, face3d::kStubble, face3d::kBeardBlack, 0}},
+                {1002, {face3d::kSkinDark, face3d::kHairBlack, face3d::kShort, face3d::kAfro, face3d::kStubble, face3d::kBeardBlack, 0},
+                 {0, 0, 0, face3d::kConfLow, 0, 0, 0}},
                 {1003, {face3d::kSkinLight, face3d::kHairBlonde, face3d::kLong, face3d::kTied, face3d::kClean, face3d::kBeardNone, face3d::kHeadband}},
                 {1004, {face3d::kSkinOlive, face3d::kHairNone, face3d::kBald, face3d::kOtherType, face3d::kFullBeard, face3d::kBeardGrey, 0}},
             };
@@ -5902,6 +5903,15 @@ static void test_ui() {
                   "facial hair: no 'not classified yet' choice; Any");
             ui.frames(2);
             CHECK(ui.find("face1005", W) && ui.find("face1006", W) && ui.find("face1001", W), "Any: every head");
+            CHECK(ui.click("Hair type: Any##facet11", W), "hair type filter");
+            ui.frames(2);
+            CHECK(ui.find("Wavy & curly (1)##v1") && ui.find("Afro (0)##v2") && !ui.find("unsure (1)##v254"),
+                  "1002's afro is unsure: no group counts it, and unsure is no choice (at most 5 per menu)");
+            CHECK(ui.click("Wavy & curly (1)##v1"), "wavy & curly: 1001");
+            ui.frames(2);
+            CHECK(ui.find("face1001", W) && !ui.find("face1002", W) && !ui.find("face1005", W), "the unsure head does not match");
+            CHECK(ui.click("Clear filters", W), "clear");
+            ui.frames(2);
             CHECK(ui.click("Only heads with a 3D look", W), "only heads with a 3D look");
             ui.frames(2);
             CHECK(ui.find("face1001", W) && ui.find("face1004", W) && !ui.find("face1005", W) && !ui.find("face1006", W), "heads without a look hidden");
