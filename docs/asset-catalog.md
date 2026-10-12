@@ -168,12 +168,30 @@ deleted otherwise:
 ```
 #turbo-asset-gate 1
 #build 6AC07E31-2145C000
+#session <the "session" the GUI writes into bridge_dll.json>
 head3d 41
 head3d 250
 ```
 
-Lua (`core/asset_gate.lua`) reads it once per session into a set. No file = today's rules, logged "unchecked".
-`custom_headassets` refuses ids not in a present gate; `create_player` gives a real face iff the gate has the id.
+Optional lines: `#count <n>` (number of head3d lines; a mismatch = file cut short), other `<family> <id>` lines
+(`miniface`, `callname*`: ids a new player must not take). Any malformed line, another header or no head3d line makes
+the gate "bad".
+
+Lua (`core/asset_gate.lua`) reads it on each gated feature run (a few ms). It trusts the gate ("current") only when
+`asset_catalog_off.txt` is absent and `#session` equals the session of a **fresh** `bridge_dll.json` (at most 15 s old):
+a gate left by an earlier game session, or written before a title update while the GUI was not running, is never
+trusted. Otherwise (none / bad / stale / off) the features log "unchecked" and apply today's rules:
+
+- `custom_headassets`: with a current gate, an id not in the gate (nor in `asset_gate_allow.txt`) is refused before
+  anything is written; with `asset_hidden_off.txt`, so is an id no row of the save uses. Unchecked: range check only.
+- `create_player` (CMTracker real face): with a current gate, a real face iff the gate (or the allow file) has the id.
+  Unchecked: a real face only when the DB row of that player has `headclasscode` 0 and `headassetid` == his playerid
+  (before 2.1 any DB player counted, which gave class 0 to generic heads). With a current gate the free id skips ids
+  listed in the gate, and a typed id listed there is refused unless it is the player's own real face id.
+- `turbo_output\asset_gate_allow.txt` (Cassio's, optional): ids vouched for (heads added by mods), one `<id>` or
+  `head3d <id>` per line, `#` comments. Ignored when the catalog is switched off.
+- `asset_writes.log` (section 6), key = the gate's `#build` or `unchecked`: `custom_headassets` logs every field it
+  changes; `create_player` logs a real face no row of the save used (old value `(new player)`, logged before the insert).
 
 ## 6. Write log
 
