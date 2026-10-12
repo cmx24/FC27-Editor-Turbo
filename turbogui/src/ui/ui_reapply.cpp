@@ -8,7 +8,8 @@
 //   kits       the kit row the colours were set on (teamtechid, teamkittypetechid, teamkitid; the single row of that type
 //              when the kit id is not found and no other kit of that type is kept), each colour channel through
 //              Database::set (range-checked, table and record checked alive; no undo step, like any kit edit); a value
-//              already in place is not written again; only the colour channels (kit_colour_field) are ever written;
+//              already in place is not written again; only the colour channels (kit_colour_field) and, since 2.3, the
+//              settings a kit import wrote (Teams > Kits: kit_setting_field) are ever written;
 //   callnames  through write_player_callname, the code the Callname tab uses (row edited in place; else a row taken over
 //              from which no player hears a callname; never an added row: the room check would be read while the game
 //              reloads the table, and Live Editor's insert crashes the game on a full table). Never for a player with
@@ -98,6 +99,21 @@ void App::remember_kit_colour(const Table& t, uint64_t rec, const std::string& p
     save_reapply();
 }
 
+bool App::remember_kit_field(int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& field, int64_t value, bool save) {
+    if (teamtechid <= 0 || kittype < 0 || !kit_kept_field(field)) return false;
+    reapply.set_kit_field(teamtechid, kittype, teamkitid, model.team_name(teamtechid), time_stamp(), field, value);
+    return save ? save_reapply() : true;
+}
+
+bool App::restore_kept_kit_field(int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& field, const int64_t* value, bool save) {
+    if (teamtechid <= 0 || kittype < 0 || !kit_kept_field(field)) return false;
+    if (value) reapply.set_kit_field(teamtechid, kittype, teamkitid, model.team_name(teamtechid), time_stamp(), field, *value);
+    else reapply.forget_kit_field(teamtechid, kittype, teamkitid, field);
+    return save ? save_reapply() : true;
+}
+
+bool App::save_kept_edits() { return save_reapply(); }
+
 bool App::remember_player_callname(int64_t playerid, int64_t commentaryid, const std::string& player, const std::string& from, std::string* why) {
     if (why) why->clear();
     if (playerid <= 0 || commentaryid <= kNoCallname || commentaryid > kCallnameMax) return false;
@@ -179,7 +195,7 @@ void App::maybe_reapply() {
 }
 
 std::string App::reapply_stored_edits() {
-    size_t colours = 0, kits = 0, players = 0, in_place = 0;
+    size_t colours = 0, settings = 0, kits = 0, players = 0, in_place = 0;
     std::vector<std::string> failed;  // a write that should have happened did not: an error toast
     std::vector<std::string> left;    // not written by design (own recording, not in this career): no toast
     auto fail = [&](const std::string& why) {
@@ -233,12 +249,14 @@ std::string App::reapply_stored_edits() {
                 }
                 const uint64_t rec = snap.addr(*pick);
                 std::set<std::string> written;
+                size_t written_settings = 0;
                 std::string problem;
                 for (const auto& f : k.fields) {
                     const Field* fd = kt->field(f.first);
-                    // the store only holds colour channels; checked again here, so no other column is ever written
-                    if (!kit_colour_field(f.first) || !fd || fd->type != FieldType::Int) {
-                        if (problem.empty()) problem = "no kit colour field " + f.first + " in FC 27's teamkits";
+                    // the store only holds colour channels and kit import settings; checked again here, so no other
+                    // column is ever written
+                    if (!kit_kept_field(f.first) || !fd || fd->type != FieldType::Int) {
+                        if (problem.empty()) problem = "no kit " + std::string(kit_setting_field(f.first) ? "setting" : "colour") + " field " + f.first + " in FC 27's teamkits";
                         continue;
                     }
                     if (snap.get_int(*pick, *fd) == f.second) continue;  // already in place
@@ -247,12 +265,15 @@ std::string App::reapply_stored_edits() {
                         if (problem.empty()) problem = f.first + ": " + err;
                         continue;
                     }
-                    written.insert(colour_of(f.first));
+                    if (kit_setting_field(f.first)) ++written_settings;
+                    else written.insert(colour_of(f.first));
                 }
-                if (!written.empty()) {
+                if (!written.empty() || written_settings) {
                     ++kits;
                     colours += written.size();
-                    log("re-apply: " + label + ": " + plural(written.size(), "colour", "colours") + " written");
+                    settings += written_settings;
+                    log("re-apply: " + label + ": " + plural(written.size(), "colour", "colours") +
+                        (written_settings ? " and " + plural(written_settings, "kit setting", "kit settings") : std::string()) + " written");
                 } else if (problem.empty()) {
                     ++in_place;
                 }
@@ -376,7 +397,9 @@ std::string App::reapply_stored_edits() {
     }
 
     if (kits || players || pfields) ++gen;  // cached views (kit list, Callname index, the players list) reload
-    std::string line = "re-applied " + plural(colours, "kit colour", "kit colours") + ", " + plural(players, "player callname", "player callnames");
+    std::string line = "re-applied " + plural(colours, "kit colour", "kit colours") +
+                       (settings ? " (+ " + plural(settings, "kit setting", "kit settings") + ")" : std::string()) + ", " +
+                       plural(players, "player callname", "player callnames");
     // the player part only when player edits are kept (the line stays as it was for everyone else)
     if (!reapply.players.empty())
         line += ", " + plural(pfields, "player field", "player fields") + (pplayers ? " (" + plural(pplayers, "player", "players") + ")" : std::string());
@@ -394,7 +417,7 @@ std::string App::reapply_stored_edits() {
     if (log_hook) log_hook("re-apply at career load: " + line);
     // A toast when something was written or a write failed; nothing for entries left alone by design (a player with his
     // own recording, a club or player of another career): those would come back at every load
-    if (colours || players || pfields || !failed.empty()) notify("Kept edits: " + line, !failed.empty());
+    if (colours || settings || players || pfields || !failed.empty()) notify("Kept edits: " + line, !failed.empty());
     return line;
 }
 
@@ -423,10 +446,14 @@ void reapply_kit_line(App& app, const Table& kt, uint64_t rec) {
     const KitEdit* k = app.reapply.kit(tid, type, kitid);
     if (!k) return;
     std::set<std::string> colours;
-    for (const auto& f : k->fields) colours.insert(colour_of(f.first));
+    size_t settings = 0;
+    for (const auto& f : k->fields) {
+        if (kit_setting_field(f.first)) ++settings;
+        else colours.insert(colour_of(f.first));
+    }
+    const std::string what = plural(colours.size(), "colour", "colours") + (settings ? " and " + plural(settings, "kit setting", "kit settings") : std::string());
     ImGui::AlignTextToFramePadding();
-    ImGui::TextDisabled("Kept for every career load: %s%s%s", plural(colours.size(), "colour", "colours").c_str(), k->when.empty() ? "" : ", last edit ",
-                        k->when.c_str());
+    ImGui::TextDisabled("Kept for every career load: %s%s%s", what.c_str(), k->when.empty() ? "" : ", last edit ", k->when.c_str());
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("FC 27 reloads kit colours from its base data whenever a career loads: Turbo writes these again then.\n"
                           "Forget stops that; the colours shown now stay until the career is loaded again.");

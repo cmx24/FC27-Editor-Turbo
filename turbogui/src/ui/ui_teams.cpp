@@ -11,6 +11,7 @@
 #include "ui_faces.h"
 #include "ui_identity.h"
 #include "ui_images.h"
+#include "ui_kits.h"
 #include "ui_parity.h"
 #include "ui_role_rules.h"
 #include "ui_team_filter.h"
@@ -506,6 +507,12 @@ static void team_editor(App& app) {
         if (ImGui::BeginTabItem("Colours")) {
             ImGui::BeginChild("##tcolours");
             team_colours_editor(app, *t, tr->rec, tr->teamid);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Kits")) {
+            ImGui::BeginChild("##tkits");
+            kits_editor(app, tr->teamid);  // ui_kits.h: FIFA Kit Creator zips (2.3)
             ImGui::EndChild();
             ImGui::EndTabItem();
         }

@@ -246,6 +246,13 @@ public:
     // Keep what write_colour just wrote to a teamkits row (only the kit colour channels; other tables are kept by the
     // game's save)
     void remember_kit_colour(const Table& t, uint64_t rec, const std::string& prefix, const uint8_t rgb[3]);
+    // 2.3 kit import (Teams > Kits, ui_kits.cpp): keep one teamkits field it wrote (kit_kept_field only), or put a
+    // field's kept state back as it was before the import (value null = not kept). save false: the caller saves once
+    // with save_kept_edits(). False when the field is not one the store keeps (or the save failed)
+    bool remember_kit_field(int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& field, int64_t value, bool save = true);
+    bool restore_kept_kit_field(int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& field, const int64_t* value,
+                                bool save = true);
+    bool save_kept_edits();
     // Keep a player-specific callname the Callname tab just wrote (or queued); `from` = whose callname it is. A player
     // with his own recording (callnames.own_recording: the master list or the game's audio service) is never kept, and
     // an older entry of his is dropped: false, with the reason in *why

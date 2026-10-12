@@ -139,13 +139,22 @@ local function build_world(sim)
             { name = "teamcolorsecr", short = "tcsr", depth = 8 }, { name = "teamcolorsecg", short = "tcsg", depth = 8 }, { name = "teamcolorsecb", short = "tcsb", depth = 8 },
             { name = "jerseynamecolorr", short = "jncr", depth = 8 }, { name = "jerseynamecolorg", short = "jncg", depth = 8 }, { name = "jerseynamecolorb", short = "jncb", depth = 8 },
             { name = "teamcolorprimpercent", short = "tcpp", depth = 7 },
+            -- 2.3 kit import (Teams > Kits): some of the settings a FIFA Kit Creator settings.json writes; the others
+            -- (teamcolortert, the outline / number / shorts colours, teamcolortertpercent) are left out on purpose: a
+            -- database without them is reported, not written
+            { name = "teamcolorsecpercent", short = "tcsp", depth = 7 }, { name = "jerseycollargeometrytype", short = "jcgt", depth = 8 },
+            { name = "jerseynamelayouttype", short = "jnlt", depth = 8 }, { name = "shortstyle", short = "shst", depth = 3 },
+            { name = "jerseynumbercolorprimr", short = "jnpr", depth = 8 }, { name = "jerseynumbercolorprimg", short = "jnpg", depth = 8 },
+            { name = "jerseynumbercolorprimb", short = "jnpb", depth = 8 },
         },
         rows = { { teamtechid = 1, teamkitid = 10, teamkittypetechid = 0, teamcolorprimr = 239, teamcolorprimg = 1, teamcolorprimb = 7,
                    teamcolorsecr = 255, teamcolorsecg = 255, teamcolorsecb = 255, jerseynamecolorr = 255, jerseynamecolorg = 255, jerseynamecolorb = 255, teamcolorprimpercent = 80 },
                  { teamtechid = 1, teamkitid = 11, teamkittypetechid = 1, teamcolorprimr = 255, teamcolorprimg = 230, teamcolorprimb = 0,
                    teamcolorsecr = 0, teamcolorsecg = 0, teamcolorsecb = 60, jerseynamecolorr = 0, jerseynamecolorg = 0, jerseynamecolorb = 0, teamcolorprimpercent = 70 },
                  { teamtechid = 7, teamkitid = 70, teamkittypetechid = 0, teamcolorprimr = 0, teamcolorprimg = 60, teamcolorprimb = 160,
-                   teamcolorsecr = 255, teamcolorsecg = 255, teamcolorsecb = 255, jerseynamecolorr = 255, jerseynamecolorg = 255, jerseynamecolorb = 255, teamcolorprimpercent = 90 } },
+                   teamcolorsecr = 255, teamcolorsecg = 255, teamcolorsecb = 255, jerseynamecolorr = 255, jerseynamecolorg = 255, jerseynamecolorb = 255, teamcolorprimpercent = 90,
+                   teamcolorsecpercent = 10, jerseycollargeometrytype = 1, jerseynamelayouttype = 0, shortstyle = 2,
+                   jerseynumbercolorprimr = 20, jerseynumbercolorprimg = 30, jerseynumbercolorprimb = 40 } },
     })
     -- league tables (Competitions tab): Arsenal 3W 1D 0L 9:2, Everton 1W 1D 2L 3:6 in league 13; points left stale
     local LT = { [1] = { 2, 1, 0, 1, 0, 0, 5, 1, 4, 1, 0, 2 }, [7] = { 1, 0, 1, 0, 1, 1, 2, 2, 1, 4, 9, 1 } }

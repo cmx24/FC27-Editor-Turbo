@@ -55,6 +55,7 @@ inline const std::vector<Spec>& all() {
         {"##clubs", "Teams > club picker", kData | ImGuiTableFlags_ScrollY, true},
         {"##mgrs", "Managers > list", kData | ImGuiTableFlags_ScrollY, true},
         {"##crestfiles", "Teams > Crest files", kData | ImGuiTableFlags_SizingFixedFit, false},
+        {"##kitset", "Teams > Kits: a kit zip's settings next to the club's (2.3)", kData | ImGuiTableFlags_SizingFixedFit, false},
         {"##rolepreview", "Teams > Squad roles preview", kData | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp, true},
         {"##comptable", "Competitions > picker (combo popup)", ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit, false, true},
         {"##league", "Competitions > league table", kData | ImGuiTableFlags_ScrollY, true},

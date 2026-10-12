@@ -3,6 +3,18 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## Unreleased (2.3)
+
+### Kits: import a FIFA Kit Creator kit zip into a club (phase 1; offline suites only, not seen in game yet)
+- **Teams > Kits: "Import kit zip..." and "Import team folder..."** for the zips of fifakitcreator.com (the picker starts in `C:\FC_Tools\My Mods`; a team folder such as `eng\leicester` imports its `h / a / t / g` zips at once, also `kit.zip` files one folder down). The slot (Home, Away, Goalkeeper, Third, Fourth) comes from the file name (`h`, `away`, `ado_den_haag_third`, a `gk` folder) and can be changed. The panel shows the minikit, a jersey thumbnail and the zip's `settings.json` next to the club's current values.
+- **Every zip is checked before anything is written**, with the reason when it is refused: the 12 main textures, `minikit.png` and `settings.json` present; every PNG readable; every texture FC 27's size (or 2, 4, 8 times it: scaled down; most zips have 512 decals for the game's 256); the 12 brand / crest decals all there or all absent (absent: the game's own decals stay); `settings.json` values valid; CRC of every file.
+- **Apply** (each part with **Undo**, also after a restart: `turbo_output\kits\<club id>\<slot>\import.json`):
+  - the `settings.json` fields into the club's teamkits row of that slot: the 11 kit colours through Teams > Colours' writer, plus `teamcolor*percent`, `jerseycollargeometrytype`, `jerseynamelayouttype`, `shortstyle`; fields FC 27's teamkits lacks are listed, not written. They are **kept for every career load** like the kit colours (kill switch `turbo_output\reapply_off.txt`); the kept-edits store now also keeps these six setting fields (never a key column).
+  - `minikit.png` as a custom legacy file (`mods\legacy\data\ui\imgAssets\kits\j<type>_<club id>_0.dds`) in the game file's own size, pixel format and mips, the crest writer's way; the earlier file is copied to `turbo_output\kit_backups`. Apply waits until the game's minikit has been read (so its format is known); a slot the game has no minikit for is skipped with the reason.
+  - the 24 textures converted on a worker thread to FC 27's own sizes, formats and full mip chains, read from the game's texture headers (jersey colour 2048 BC1 sRGB, coeff BC1, normal BC5, taa BC7, decals BC3 / BC5) and staged as DX10 DDS with `manifest.json` (game asset path, format, size, checksum) and the zip's `hotspots.hotspot` in `turbo_output\kits\<club id>\<slot>\`. All or nothing; a new import of the slot replaces them. **The game does not read them yet**: the 3D kit on the pitch needs Turbo's in-match texture swap (phase 2, see `turbo_output\KITS_IMPORT_RESEARCH.txt`).
+  - A second import of the same slot keeps the first one's "before" values, so Undo always goes back to the game's kit. Undo puts back only fields that still hold the imported value.
+- **Fix: kit type names in Teams > Colours and the kept-edits lines** follow the game's own numbers: 2 = Goalkeeper, 3 = Third, 4 = Fourth (2.2 and earlier said 2 = Third, 3 = Goalkeeper home). Evidence: FC 27's kit folders `goalie_home_2_0` / `third_3_0` / `fourth_4_0` and the minikits `j2_*` / `j3_*`.
+
 ## 2.2.0 (live standings and match setup on game build 6AC07E31, live tactic write)
 Status words below: "verified in game" = seen in a loaded career or a started match on game build 6AC07E31 (throwaway copy of a career, 2026-10-12, never saved); everything else passes the offline suites only (build 0 warnings, Lua 394/0, native 37028/0, Python and catalog suites green).
 
