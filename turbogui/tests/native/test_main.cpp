@@ -234,6 +234,10 @@ static json read_json(const fs::path& p) { return json::parse(read_file(p)); }
 static fs::path g_out;
 static std::string g_lua;
 
+// A scratch folder for one case, inside this run's output folder: never the shared %TEMP%, where two runs at once (two
+// worktrees, or one worktree with two output folders) would clear and fill each other's files
+static fs::path test_tmp_dir(const char* name) { return g_out / "tmp" / name; }
+
 static int run_lua(const char* mode) {
     const char* lua_env = std::getenv("TURBO_LUA");
     const std::string lua = (lua_env && *lua_env) ? lua_env : "lua5.4";
@@ -8264,7 +8268,7 @@ static void test_images() {
             std::vector<uint8_t> head_only(game.begin(), game.begin() + 128);
             CHECK(parse_dds_format(head_only, bf, &err) && bf.mips == 4, "header only: count kept");
             // the startup scan repairs such files under mods\legacy and backs up the original
-            fs::path le_root = fs::temp_directory_path() / "turbo_dds_repair_test";
+            fs::path le_root = test_tmp_dir("turbo_dds_repair_test");
             fs::remove_all(le_root);
             LegacyImages lg(le_root);
             fs::path crest_file = lg.mods_dir() / "data" / "ui" / "imgAssets" / "crest" / "light" / "l48.dds";
@@ -12949,7 +12953,13 @@ static void test_match_setup() {
 // Turbo 2.1 tactics channel A: per-side gameplay slider game variables and the A/B presets (core/gameplay_sliders.h)
 #include "test_gameplay_sliders.h"
 
+void install_crash_report(const std::string* current_case);  // test_crash_report.cpp
+
 int main(int argc, char** argv) {
+    // Unbuffered: on Windows stdout into a pipe or a file is fully buffered, so a crash or a killed run lost every line still
+    // in the buffer (a run that "exited with no output"). The crash report names the case that was running.
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    install_crash_report(&g_case);
     if (argc < 3) {
         std::printf("usage: %s <out_dir> <gui_world.lua>\n", argv[0]);
         return 2;

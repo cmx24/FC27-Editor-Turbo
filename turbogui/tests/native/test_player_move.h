@@ -1051,7 +1051,7 @@ static void test_player_move() {
     });
 
     run_case("player_move: the kill switch file turns the call off (core part: file name and presence)", [&] {
-        const fs::path dir = fs::temp_directory_path() / "turbo_player_move_kill_test";
+        const fs::path dir = test_tmp_dir("turbo_player_move_kill_test");
         std::error_code ec;
         fs::remove_all(dir, ec);
         fs::create_directories(dir, ec);
