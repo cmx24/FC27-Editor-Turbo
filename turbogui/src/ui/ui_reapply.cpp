@@ -103,7 +103,12 @@ bool App::remember_player_callname(int64_t playerid, int64_t commentaryid, const
     if (playerid <= 0 || commentaryid <= kNoCallname || commentaryid > kCallnameMax) return false;
     // The game says a player's own recording before any callname: such a callname is never written again at a career
     // load (and an older kept one of his goes)
-    if (const int own = callnames.own_recording(playerid)) {
+    if (const int own = callnames.own_recording(playerid); own && !callnames.lang_proven) {
+        // the own recording is known only in a guessed language: keep the callname, drop nothing (the career-load
+        // re-apply checks again once the language is proven)
+        log("re-apply: player-specific callname of player " + std::to_string(playerid) + " kept: own recording in " + callnames.lang +
+            " not checked (language not proven yet)");
+    } else if (own) {
         const bool had = reapply.forget_callname(playerid);
         if (had) save_reapply();
         if (why)
@@ -267,6 +272,12 @@ std::string App::reapply_stored_edits() {
             // without a language Turbo cannot tell who has his own recording: nothing written rather than a guess
             fail(plural(reapply.callnames.size(), "player callname", "player callnames") +
                  ": the commentary language is not known, so own recordings cannot be checked");
+        } else if (!callnames.lang_proven) {
+            // the language is the packs' guess: who has his own recording is not known either -> nothing written
+            fail(plural(reapply.callnames.size(), "player callname", "player callnames") + ": the commentary language is not proven yet (" +
+                 callnames.lang + " is a guess: " + callnames.lang_why +
+                 "), so own recordings cannot be checked; nothing written rather than a guess. Open the game's Create Player screen "
+                 "or play a match once: Turbo then hears the language and remembers it for the next career loads");
         } else {
             // the index must describe this career's rows before any row is written
             callnames.build_index(db, model, model.names_by_id());

@@ -658,6 +658,13 @@ void draw_hook_status(App& app) {
         ImGui::Text("Game calls (Managers > Job offers, Competitions > Live standings, Players > Callname):");
         for (const auto& c : r.calls) ImGui::TextWrapped("  %s", c.c_str());
     }
+    // the commentary language the game loaded (core/callnames.h detect_commentary_language) and the callnames per source
+    if (app.callnames.refreshed) {
+        ImGui::TextWrapped("  %s", app.callnames.log_line().c_str());
+        const CallnamePopulation pop = callname_population(app.callnames.bank, app.callnames.masters, app.callnames.index);
+        ImGui::TextWrapped("  callnames %s: %s%s", app.callnames.lang.c_str(), callname_population_line(pop).c_str(),
+                           app.callnames.index.built ? "" : " (open Players > Callname for the database counts)");
+    }
     // the spoken-callname set (core/commentary_audio.h SpokenWatch): built where the game binds its commentary bank
     if (app.commentary_audio) {
         if (app.callnames.refreshed && app.callnames.spoken.verified)

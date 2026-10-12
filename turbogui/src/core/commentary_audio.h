@@ -145,6 +145,7 @@ struct BuildResult {
     std::unordered_set<int64_t> names;          // commentary ids with audio
     std::unordered_map<int64_t, int> players;   // player id -> kPlayerLowSimple | kPlayerLowLink
     size_t names_checked = 0, players_checked = 0;
+    std::vector<int64_t> asked;                 // the commentary ids the request asked about (BuildRequest::names)
     size_t steps = 0;
     double seconds = 0.0;                       // game-thread time spent inside the calls
     double elapsed = 0.0;                       // wall time from the first to the last step
@@ -250,9 +251,11 @@ public:
         bool available = false;   // a request may start now (not busy, no kill switch)
         bool verified = false;    // the spoken set is verified (list file or a cache)
         bool have_ids = false;    // an id list is at hand (database, cache or Lua's list)
+        bool lang_only = false;   // only the loaded language is missing (the set is verified): probe every lang_interval s
         std::string why_not;      // when !service / !have_ids: the reason for the line
     };
     double interval = 3.0, max_interval = 60.0;
+    double lang_interval = 15.0;  // probe interval while only the language is asked (Inputs::lang_only)
     // One tick: what the App should start now (at most one request per tick)
     Action tick(double now, const Inputs& in);
     // A build or probe finished (every result goes through here, manual builds too)
@@ -279,6 +282,7 @@ private:
     double current_interval_ = 0.0;
     bool pending_ = false;      // a request was started and its result has not arrived
     bool pending_probe_ = false;
+    bool lang_only_ = false;    // the last tick's Inputs::lang_only
     long long probes_ = 0;
     long long bound_seen_ = 0;
 };

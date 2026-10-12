@@ -159,6 +159,7 @@ bool unpack_name_batch(const std::vector<uint64_t>& batch, size_t survivors, con
 // ---------------------------------------------------------------- the build
 Build::Build(BuildRequest req, std::function<double()> clock) : req_(std::move(req)), clock_(std::move(clock)) {
     r_.probe = req_.probe;
+    r_.asked = req_.names;
     if (req_.batch_min < 1) req_.batch_min = 1;
     if (req_.batch_max < req_.batch_min) req_.batch_max = req_.batch_min;
     batch_ = std::min(std::max(req_.batch_start, req_.batch_min), req_.batch_max);
@@ -294,6 +295,7 @@ BankCapture to_capture(const BuildResult& r) {
     c.rows = r.names_checked;
     c.checked_names = r.names_checked;
     c.checked_players = r.players_checked;
+    c.asked.insert(r.asked.begin(), r.asked.end());
     c.steps = r.steps;
     c.seconds = r.elapsed > 0.0 ? r.elapsed : r.seconds;
     c.cancelled = r.cancelled;
@@ -417,6 +419,7 @@ bool parse_commentary_list(const std::string& text, std::vector<int64_t>& ids, s
 
 // ---------------------------------------------------------------- the watcher
 SpokenWatch::Action SpokenWatch::tick(double now, const Inputs& in) {
+    lang_only_ = in.lang_only;
     if (in.verified) {
         if (state_ != State::Idle) {
             state_ = State::Idle;
@@ -493,12 +496,12 @@ void SpokenWatch::on_result(double now, const BuildResult& r) {
             next_probe_ = now + current_interval_;
         } else if (r.unbound) {
             last_probe = "the bank is not bound in this screen";
-            current_interval_ = interval;
+            current_interval_ = lang_only_ ? std::max(interval, lang_interval) : interval;
             state_ = State::Waiting;
             next_probe_ = now + current_interval_;
         } else if (r.no_filter) {
             last_probe = "the game's name filter did not run here (no commentary bridge in this screen)";
-            current_interval_ = interval;
+            current_interval_ = lang_only_ ? std::max(interval, lang_interval) : interval;
             state_ = State::Waiting;
             next_probe_ = now + current_interval_;
         } else {

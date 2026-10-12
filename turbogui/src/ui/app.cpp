@@ -523,15 +523,59 @@ static bool read_text_file(const fs::path& p, std::string& out) {
     return true;
 }
 
+// The manual override of the detected commentary language (gui_settings "callnames": {"override_language": "<lang>"});
+// off unless set. The old "language" key (forced eng_us since 2026-10-09) is ignored: detection wins (callnames.h).
 std::string App::chosen_commentary_language() const {
-    if (gui_settings.is_object() && gui_settings.contains("callnames") && gui_settings["callnames"].is_object())
-        return gui_settings["callnames"].value("language", std::string());
+    if (gui_settings.is_object() && gui_settings.contains("callnames") && gui_settings["callnames"].is_object()) {
+        const auto& c = gui_settings["callnames"];
+        if (c.contains("override_language") && c["override_language"].is_string()) return c["override_language"].get<std::string>();
+    }
     return "";
 }
 
+// A full audio-service build is the runtime evidence of the loaded language (callnames.h, step a): a changed answer
+// refreshes everything (spoken set, masters, bank, pickers) before the set is cached under the language it belongs to
+// The cache file follows the evidence, never the guess (core/callnames.h capture_target): a known answer is cached as
+// spoken_<answer>.json (also under an override of another language: the conflict is logged), an unknown one nowhere.
+bool App::detect_language_then_apply(const BankCapture& c, const std::string& when, const std::string& build, std::string* err) {
+    if (!c.ok) return callnames.apply_capture(c, bridge.root(), when, build, err);
+    callnames.game_build = build;
+    if (callnames.detect_runtime_language(c.surnames, bridge.root(), &c.asked)) refresh_callnames();
+    log("callnames: runtime language check: " + (callnames.runtime_lang.empty() ? std::string("unknown") : callnames.runtime_lang) + " (" +
+        callnames.runtime_why + ")");
+    if (callnames.runtime_lang.empty() && !callnames.runtime_off) callnames.runtime_inconclusive = true;  // no build again this session
+    std::string note;
+    const bool ok = callnames.apply_runtime_capture(c, bridge.root(), when, build, err, &note);
+    if (!note.empty()) log("callnames: audio-service set: " + note);
+    return ok;
+}
+
+// A probe's sample answer decides the language when it is clear (no full build); `asked` = the sample
+bool App::detect_language_from_probe(const caudio::BuildResult& r) {
+    if (!r.ok || !callnames.lang_only()) return false;
+    std::unordered_set<int64_t> asked(r.asked.begin(), r.asked.end());
+    const LanguageMatch m = match_loaded_language(r.names, callnames.language_candidates(bridge.root()), &asked);
+    if (m.lang.empty()) {
+        log("callnames: probe sample does not decide the language (" + m.why + "): a names-only build follows");
+        return false;
+    }
+    callnames.game_build = hook_report ? hook_report().build : std::string();
+    if (callnames.accept_runtime_match(m, bridge.root())) refresh_callnames();
+    log("callnames: runtime language check (probe sample): " + m.lang + " (" + m.why + ")");
+    return true;
+}
+
 void App::refresh_callnames() {
+    if (hook_report) {
+        const std::string b = hook_report().build;
+        if (!b.empty()) callnames.game_build = b;
+    }
     callnames.refresh(bridge.root(), game_root, chosen_commentary_language());
-    const std::string line = commentary_language_log_line(callnames.lang, callnames.lang_why);
+    std::string line = callnames.log_line();
+    if (gui_settings.is_object() && gui_settings.contains("callnames") && gui_settings["callnames"].is_object() &&
+        gui_settings["callnames"].contains("language"))
+        line += " [gui_settings callnames.language is ignored: use callnames.override_language for a manual override]";
+    if (!callnames.prev_lang.empty() && callnames.prev_lang != callnames.lang) line += " [changed from " + callnames.prev_lang + "]";
     log(line);
     if (log_hook) log_hook(line);
 }
@@ -647,7 +691,10 @@ bool App::start_spoken_build(bool automatic) {
         return false;
     }
     req.names = ids.names;
-    req.players = ids.players;
+    // only the loaded language is missing (the spoken set is verified): the names answer it, the ~20k player queries
+    // are not needed (and the result is not cached over the full set)
+    spoken_lang_only_build_ = automatic && callnames.lang_only();
+    if (!spoken_lang_only_build_) req.players = ids.players;
     std::string err;
     if (!commentary_audio->request(req, &err)) {
         spoken_build_status = "not started: " + err;
@@ -659,8 +706,8 @@ bool App::start_spoken_build(bool automatic) {
     spoken_watch.started(now, false);
     if (automatic) spoken_auto_tried = true;
     char line[300];
-    std::snprintf(line, sizeof(line), "asking the game's audio service about %zu commentary ids and %zu players (from %s)%s...", req.names.size(),
-                  req.players.size(), ids.source.c_str(), automatic ? " (automatic)" : "");
+    std::snprintf(line, sizeof(line), "asking the game's audio service about %zu commentary ids and %zu players (from %s)%s%s...", req.names.size(),
+                  req.players.size(), ids.source.c_str(), automatic ? " (automatic)" : "", spoken_lang_only_build_ ? " (language check only)" : "");
     spoken_build_status = line;
     log("callnames: " + spoken_build_status);
     return true;
@@ -691,11 +738,30 @@ void App::spoken_watch_tick() {
     if (!commentary_audio) return;
     // the language and the cached set are needed before the Callname tab was ever opened (a build from the main menu)
     if (!callnames.refreshed && !game_root.empty()) refresh_callnames();
+    // the language-check kill switch is live: re-checked every 2 s, not only at a refresh
+    if (now >= lang_off_check_) {
+        lang_off_check_ = now + 2.0;
+        std::error_code ec;
+        const bool off = fs::exists(lang_detect_off_path(bridge.root()), ec);
+        if (off != callnames.runtime_off) {
+            callnames.runtime_off = off;
+            log(std::string("callnames: runtime language check ") + (off ? "switched off (" : "switched on again (") +
+                lang_detect_off_path(bridge.root()).string() + ")");
+            if (!off) {
+                callnames.refreshed = false;  // re-detect from the saved answer / packs
+                if (callnames.runtime_lang.empty()) {
+                    callnames.runtime_checked = false;  // the switch answered for the game: ask it again
+                    callnames.runtime_why.clear();
+                }
+            }
+        }
+    }
     caudio::SpokenWatch::Inputs in;
     const caudio::ServiceStatus st = commentary_audio->status();
     in.service = st.installed;
     in.available = st.available && !st.busy;
-    in.verified = callnames.refreshed && callnames.spoken.verified;
+    in.verified = callnames.settled();  // also asks the game once per session which language it loaded
+    in.lang_only = callnames.lang_only();
     if (!in.service) in.why_not = st.reason.empty() ? "the audio-service call is not available" : st.reason;
     // whether an id list is at hand is re-checked every few seconds (a file read when not connected); meanwhile the
     // last answer stands
@@ -734,6 +800,23 @@ void App::finish_spoken_build() {
         if (!tmv || std::strftime(clock, sizeof(clock), "%H:%M:%S", tmv) == 0) clock[0] = 0;
         spoken_watch.last_probe_clock = clock;
         spoken_watch.on_result(now, r);
+        detect_language_from_probe(r);  // a clear sample answer settles the watcher: no build follows
+        return;
+    }
+    if (spoken_lang_only_build_) {
+        // a names-only build asked for the language alone: detect, never cache (it holds no players)
+        spoken_lang_only_build_ = false;
+        spoken_watch.on_result(now, r);
+        if (r.ok) {
+            BankCapture c = caudio::to_capture(r);
+            callnames.game_build = hook_report ? hook_report().build : std::string();
+            if (callnames.detect_runtime_language(c.surnames, bridge.root(), &c.asked)) refresh_callnames();
+            if (callnames.runtime_lang.empty() && !callnames.runtime_off) callnames.runtime_inconclusive = true;
+            log("callnames: runtime language check (names-only build, not cached): " +
+                (callnames.runtime_lang.empty() ? std::string("unknown") : callnames.runtime_lang) + " (" + callnames.runtime_why + ")");
+        } else {
+            log("callnames: language-check build: " + r.note);
+        }
         return;
     }
     spoken_watch.on_result(now, r);
@@ -748,7 +831,7 @@ void App::finish_spoken_build() {
     } else if (!r.ok) {
         spoken_build_status = line;
         if (!r.unbound) notify("Callnames: " + r.note, true);  // an unbound bank is the watcher's business: no toast
-    } else if (!callnames.apply_capture(c, bridge.root(), when, build, &err)) {
+    } else if (!detect_language_then_apply(c, when, build, &err)) {
         spoken_build_status = std::string(line) + " - not used: " + err;
         notify("Callnames: audio-service set not used: " + err, true);
     } else {

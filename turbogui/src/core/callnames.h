@@ -68,6 +68,75 @@ std::string pick_commentary_language(const std::vector<CommentaryPack>& packs, c
 // "callnames: language <lang> (<why>)", "none" when no language was found.
 std::string commentary_language_log_line(const std::string& lang, const std::string& why);
 
+// ---- Which commentary language the game LOADED (Cassio 2026-10-11: "always detect the loaded language"). Order, each
+// step with a reason for the log line "callnames: language <lang> (<why>)":
+//   0. a manual override (gui_settings.json "callnames": {"override_language": "<lang>"}; off unless set; the old
+//      "language" key is ignored);
+//   a. runtime evidence: the game's own audio service answered which commentary ids are spoken this session (a full
+//      audio-service build, core/commentary_audio.h); that set is compared with every language's known id set (asset
+//      catalog bank, master list, spoken list) and the language that matches clearly wins, else "unknown";
+//   b. the game's settings file: NOT used (the commentary-language field of Settings* could not be proven, 2026-10-11);
+//   a2. the last runtime answer saved in turbo_output\callnames\loaded_language.json, while the game build and the
+//      installed packs are the ones it was heard with;
+//   c. the installed packs (pick_commentary_language without a choice);
+//   d. eng_us (the base game's language).
+// Only 0, a and a2 PROVE the language (Callnames::lang_proven); c and d are a guess, on which no automatic write acts
+// (career-load re-apply of player callnames, dropping a kept callname for an own recording).
+// Kill switch for step a: <Live Editor>\turbo_output\callnames_lang_detect_off.txt (no runtime match, no extra build;
+// re-checked every few seconds while Turbo runs).
+struct LanguageCandidate {
+    std::string lang;
+    std::string from;                  // "asset catalog bank" / "master list" / "spoken list"
+    std::unordered_set<int64_t> ids;   // generic commentary ids with a recording in that language (900001..965000)
+};
+struct LanguageMatch {
+    std::string lang;  // "" = unknown (no candidate matches clearly)
+    std::string why;   // scores of the candidates
+    double score = 0.0, second = 0.0;
+};
+// Jaccard of the game's spoken set with each candidate (ids in 900001..965000 only); the best wins when its score is
+// >= kLangMatchMin and beats the second by >= kLangMatchMargin. Never guesses: anything else is "unknown".
+// `asked` (optional, non-empty): the ids the game was asked about; each candidate is restricted to them first, so a
+// smaller asked list (a probe sample, Lua's list) does not lower the true language's score.
+// Measured on the shipped spoken lists (2026-10-11): a true match scores >= 0.98, the closest other language 0.71
+// (eng_us answer vs ger_de): the floor sits above that.
+constexpr double kLangMatchMin = 0.85, kLangMatchMargin = 0.2;
+LanguageMatch match_loaded_language(const std::unordered_set<int64_t>& game_spoken, const std::vector<LanguageCandidate>& cands,
+                                    const std::unordered_set<int64_t>* asked = nullptr);
+// Steps 0, a, a2, c, d above (b is not implemented). `runtime_lang` "" = no runtime evidence; `saved_lang` "" = no
+// usable saved answer. Never returns "". `proven` (optional) = the answer came from 0, a or a2.
+std::string detect_commentary_language(const std::string& override_lang, const std::string& runtime_lang, const std::string& runtime_why,
+                                       const std::string& saved_lang, const std::string& saved_why, const std::vector<CommentaryPack>& packs,
+                                       std::string* why, bool* proven = nullptr);
+// <Live Editor>\turbo_output\callnames_lang_detect_off.txt
+std::filesystem::path lang_detect_off_path(const std::filesystem::path& le_root);
+
+// Step a2: the last runtime answer, saved with the game build and the installed packs it was heard with
+// (<Live Editor>\turbo_output\callnames\loaded_language.json)
+struct SavedLanguage {
+    std::string lang, build, packs, when, why;
+};
+std::filesystem::path loaded_language_path(const std::filesystem::path& le_root);
+std::string packs_fingerprint(const std::vector<CommentaryPack>& packs);  // "eng_us,ita_it*" (* = downloaded)
+std::string saved_language_json(const SavedLanguage& s);
+bool parse_saved_language_json(const std::string& text, SavedLanguage& out);
+// Usable while the packs are the same and the build is the same (a build unknown on either side is not compared).
+// `why` says why not.
+bool saved_language_usable(const SavedLanguage& s, const std::string& build, const std::string& packs_fp, std::string* why);
+
+// Where an audio-service capture goes (Callnames::apply_runtime_capture), decided by the evidence, not by `lang`:
+//   kill switch on            -> cached as spoken_<lang>.json and used (the behaviour before the runtime check);
+//   runtime answer unknown    -> not cached, not used (it could belong to any language);
+//   runtime answer known      -> cached as spoken_<runtime>.json; used only when it is the language in use (a manual
+//                                override of another language keeps its own set; the conflict is logged).
+struct CaptureTarget {
+    std::string cache_lang;  // "" = do not write any spoken_<lang>.json
+    bool adopt = false;      // the capture becomes the spoken set in use
+    std::string note;        // for the log ("" = nothing to say)
+};
+CaptureTarget capture_target(bool detection_off, const std::string& runtime_lang, const std::string& runtime_why, const std::string& override_lang,
+                             const std::string& lang);
+
 // Spoken-id list text: optional header "#turbo-spoken <lang> <count>", then one commentary id per line; text after a
 // tab, space or '#' is a comment. Returns false (with err) when no id was read or the count does not match.
 bool parse_spoken_list(const std::string& text, std::unordered_set<int64_t>& out, std::string* lang = nullptr,
@@ -233,12 +302,60 @@ struct AllCallnameRow {
 std::vector<AllCallnameRow> all_callnames(const MasterList& m, const CallnameIndex& ix,
                                           const std::function<std::string(int64_t)>& player_name);
 
+// Callnames of the language per source (the Status tab and the refresh log line): the bank (game files), the database
+// (playernames commentary ids + playernamemap), the master list, and their union (generic ids / players with their own
+// recording). Ids are counted once per source; the union is what All callnames / By name / voice swap sources draw from.
+struct CallnamePopulation {
+    size_t bank_generic = 0, bank_own = 0;
+    size_t db_generic = 0, db_specific = 0;   // commentary ids playernames uses / playernamemap rows' ids
+    size_t master_generic = 0, master_own = 0;
+    size_t union_generic = 0, union_own = 0;
+};
+CallnamePopulation callname_population(const CatalogBank& b, const MasterList& m, const CallnameIndex& ix);
+std::string callname_population_line(const CallnamePopulation& p);
+
 class Callnames {
 public:
     // Find the packs, pick the language and load its spoken set: the hand-made list, else the bank capture cache;
     // plus the master list of players with their own recording (absent or bad = not used, the reason kept).
     // `chosen` = gui_settings callnames.language ("" = auto).
+    // `chosen` = the manual override (gui_settings callnames.override_language, "" = detect; see detect_commentary_language)
     void refresh(const std::filesystem::path& le_root, const std::filesystem::path& game_root, const std::string& chosen);
+    // Runtime evidence (step a): the game's spoken set from this session's audio-service build. Matches it against
+    // language_candidates(); a changed answer marks everything for a refresh (spoken set, masters, bank, pickers) and
+    // returns true. Off with the kill switch (returns false, runtime_why says so).
+    // `asked` (optional) = the ids the game was asked about (match_loaded_language). A known answer is saved for the
+    // next sessions (loaded_language.json, step a2).
+    bool detect_runtime_language(const std::unordered_set<int64_t>& game_spoken, const std::filesystem::path& le_root,
+                                 const std::unordered_set<int64_t>* asked = nullptr);
+    // The second half of detect_runtime_language for a match made elsewhere (a probe's sample answer): records the
+    // answer, saves a known one, marks a changed one for a refresh (returns true)
+    bool accept_runtime_match(const LanguageMatch& m, const std::filesystem::path& le_root);
+    // An audio-service capture that just arrived, placed by capture_target (cache file and spoken set). Returns false
+    // (with err) when it is not cached at all; `note` gets the line for the log.
+    bool apply_runtime_capture(const BankCapture& c, const std::filesystem::path& le_root, const std::string& when, const std::string& build,
+                               std::string* err, std::string* note = nullptr);
+    // Write the capture as spoken_<cache_lang>.json without making it the spoken set
+    bool cache_capture(const BankCapture& c, const std::filesystem::path& le_root, const std::string& cache_lang, const std::string& when,
+                       const std::string& build, std::string* err);
+    std::string game_build;                 // the running game's build key ("" = unknown), set by the App before refresh
+    std::string saved_lang, saved_why;      // step a2 as used by the last refresh ("" = none / not usable)
+    bool lang_proven = false;               // the language came from an override, the runtime answer or a saved answer
+    bool runtime_inconclusive = false;      // a full build's answer matched no language: no more builds this session
+    // Every language Turbo knows an id set for: the packs, the master lists on disk, the spoken lists, the catalog's bank
+    std::vector<LanguageCandidate> language_candidates(const std::filesystem::path& le_root) const;
+    std::string runtime_lang, runtime_why;  // step a's answer ("" = none yet this session / unknown)
+    bool runtime_checked = false;           // a runtime match ran this session (whatever its answer)
+    bool runtime_off = false;               // the kill switch callnames_lang_detect_off.txt was present at the last refresh
+    // the spoken set is settled AND the loaded language was asked from the game this session (or that is switched off):
+    // until then the audio-service watcher keeps probing / builds once (the build is the runtime evidence)
+    // A full build whose answer matched no language also settles (nothing more to learn this session).
+    bool settled() const { return refreshed && ((spoken.verified && (runtime_checked || runtime_off)) || runtime_inconclusive); }
+    // Only the language is missing (the spoken set is verified): a probe's sample or a names-only build can answer it
+    bool lang_only() const { return refreshed && spoken.verified && !runtime_checked && !runtime_off && !runtime_inconclusive; }
+    std::string override_lang;              // the override used by the last refresh ("" = none)
+    std::string prev_lang;                  // the language before the last refresh (a change is logged)
+    std::string log_line() const { return "callnames: language " + (lang.empty() ? std::string("none") : lang) + " (" + lang_why + ")"; }
     // A spoken set just arrived (the game's audio service, core/commentary_audio.h, or a bank capture,
     // core/commentary_bank.h): cache it (turbo_output\callnames\spoken_<lang>.json) and use it unless a hand-made list
     // overrides it. Returns false (with err) when not usable.

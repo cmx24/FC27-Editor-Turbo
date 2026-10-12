@@ -197,10 +197,12 @@ public:
     bool start_spoken_probe();                               // a quiet probe request (the watcher's)
     bool spoken_ids(caudio::IdCache& out, std::string* why);  // the id list at hand (database > cache > Lua list); false = none
     std::string spoken_ids_source;                           // where the last list came from (for the UI)
-    std::string chosen_commentary_language() const;          // gui_settings callnames.language ("" = auto)
-    // callnames.refresh() with the chosen language, then "callnames: language <lang> (<why>)" in the log and
-    // turbo_gui.log (every refresh: the pick is auditable afterwards)
-    void refresh_callnames();
+    std::string chosen_commentary_language() const;
+    void refresh_callnames();  // Callnames::refresh with the override + the "callnames: language <lang> (<why>)" log line
+    bool detect_language_then_apply(const BankCapture& c, const std::string& when, const std::string& build, std::string* err);
+    bool detect_language_from_probe(const caudio::BuildResult& r);  // a clear probe sample answer (no build needed)
+    bool spoken_lang_only_build_ = false;  // the running build asks for the language only (names, no players, not cached)
+    double lang_off_check_ = -1.0;         // next check of callnames_lang_detect_off.txt (live kill switch)
     const std::string& spoken_watch_line() const { return spoken_watch.line(); }
     long long game_call_seen = -1;  // last game-call outcome shown as a toast (bridge_state.json game_call.seq; -1 = none yet)
     // Job offer tab (Teams > team edit): the club picked (the selected team unless another is chosen) and the last request label
