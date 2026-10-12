@@ -196,6 +196,9 @@ public:
     std::string chosen_commentary_language() const;
     void refresh_callnames();  // Callnames::refresh with the override + the "callnames: language <lang> (<why>)" log line          // gui_settings callnames.language ("" = auto)
     bool detect_language_then_apply(const BankCapture& c, const std::string& when, const std::string& build, std::string* err);
+    bool detect_language_from_probe(const caudio::BuildResult& r);  // a clear probe sample answer (no build needed)
+    bool spoken_lang_only_build_ = false;  // the running build asks for the language only (names, no players, not cached)
+    double lang_off_check_ = -1.0;         // next check of callnames_lang_detect_off.txt (live kill switch)
     const std::string& spoken_watch_line() const { return spoken_watch.line(); }
     long long game_call_seen = -1;  // last game-call outcome shown as a toast (bridge_state.json game_call.seq; -1 = none yet)
     // Job offer tab (Teams > team edit): the club picked (the selected team unless another is chosen) and the last request label

@@ -5808,6 +5808,9 @@ static void test_ui() {
             fs::path cache = spoken_cache_path(le, "ita_it");
             fs::remove(cache);
             fs::remove(le / "turbo" / "callnames" / "spoken_ita_it.txt");
+            // these cases predate the runtime language check (their fake bank matches no known language): with it off
+            // the capture is cached under the language in use, as before (test_lang_detect.h covers the check itself)
+            { std::ofstream(lang_detect_off_path(le)) << "off"; }
             // a fake service: every request is answered at once by a fake game whose bank speaks 900002 / 900004 / 900010
             // and has player 1001's (PLAYER_LOW_SIMPLE) and 2001's (both events) own recordings
             struct FakeService : caudio::Service {
@@ -5907,12 +5910,16 @@ static void test_ui() {
             fs::remove(cache);
             app.commentary_audio = nullptr;
             app.callnames.refreshed = false;
+            fs::remove(lang_detect_off_path(le));
         });
         run_case("UI: Players > Callname: the watcher: an unbound bank is probed, never cached, and built by itself once the game answers; the id cache serves a build without the database", [&] {
             fs::path game = g_out / "fakegame";
             fs::path cache = spoken_cache_path(le, "ita_it");
             fs::remove(cache);
             fs::remove(le / "turbo" / "callnames" / "spoken_ita_it.txt");
+            // these cases predate the runtime language check (their fake bank matches no known language): with it off
+            // the capture is cached under the language in use, as before (test_lang_detect.h covers the check itself)
+            { std::ofstream(lang_detect_off_path(le)) << "off"; }
             struct FakeService : caudio::Service {
                 int requests = 0, probes = 0;
                 bool bound = false;
@@ -6025,6 +6032,7 @@ static void test_ui() {
             app.commentary_audio = nullptr;
             app.callnames.refreshed = false;
             app.spoken_watch = caudio::SpokenWatch{};
+            fs::remove(lang_detect_off_path(le));
         });
         run_case("UI: Players > Callname: language, current callname, pickers, name and player assignment", [&] {
             fs::path game = g_out / "fakegame";
@@ -6036,6 +6044,10 @@ static void test_ui() {
                 << "#turbo-spoken ita_it 6\n900002\n900004\n900010\n900015\n900017\n950000\n";
             app.game_root = game;
             app.callnames.refreshed = false;
+            // the language is proven (a runtime answer heard earlier, step a2): own recordings decide the writes
+            { fs::create_directories(loaded_language_path(le).parent_path()); SavedLanguage sv; sv.lang = "ita_it";
+              sv.packs = packs_fingerprint(installed_commentary_packs(g_out / "fakegame"));
+              std::ofstream(loaded_language_path(le).string(), std::ios::trunc) << saved_language_json(sv); }
             app.request_tab = 0;
             ui.frames(3);
             CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
@@ -6325,6 +6337,7 @@ static void test_ui() {
             ui.frames(1);
             CHECK(rst.route_line.find("Route: name id (no recording known") == 0 && ui.find("Assign as last name") != nullptr,
                   "no known recording: the name route: " + rst.route_line);
+            fs::remove(loaded_language_path(le));  // back to the packs alone (the reason below names them)
             // the old forced key is ignored (detection wins); the manual override is callnames.override_language
             app.gui_settings["callnames"]["language"] = "eng_us";
             CHECK(app.save_gui_settings(), "save");
@@ -6343,6 +6356,10 @@ static void test_ui() {
         // tab says so, warns, and writes nothing without a deliberate confirmation (docs/callnames.md section 4)
         run_case("UI: Players > Callname: own recordings from your FC 26 list: current callname line, warning and confirmation before any write, players without own recording", [&] {
             const auto npos = std::string::npos;
+            // the language is proven (a runtime answer heard earlier, step a2): own recordings decide the writes
+            { fs::create_directories(loaded_language_path(le).parent_path()); SavedLanguage sv; sv.lang = "ita_it";
+              sv.packs = packs_fingerprint(installed_commentary_packs(g_out / "fakegame"));
+              std::ofstream(loaded_language_path(le).string(), std::ios::trunc) << saved_language_json(sv); }
             fs::path game = g_out / "fakegame";
             fs::path mp = master_list_path(le, "ita_it");
             fs::create_directories(mp.parent_path());
@@ -6866,6 +6883,10 @@ static void test_ui() {
             CHECK(app.reapply.empty(), "empty store");
             // the commentary language (ita_it in the fake game folder): who has his own recording is checked per language
             app.game_root = g_out / "fakegame";
+            // the language is proven (a runtime answer heard earlier, step a2): own recordings decide the writes
+            { fs::create_directories(loaded_language_path(le).parent_path()); SavedLanguage sv; sv.lang = "ita_it";
+              sv.packs = packs_fingerprint(installed_commentary_packs(g_out / "fakegame"));
+              std::ofstream(loaded_language_path(le).string(), std::ios::trunc) << saved_language_json(sv); }
             app.callnames.refresh(le, app.game_root, "");
             CHECK(app.callnames.refreshed && app.callnames.lang == "ita_it", "language: " + app.callnames.lang);
             // FC 27 reloads teamkits and playernamemap from its base data at a career load: here the rows are copied back

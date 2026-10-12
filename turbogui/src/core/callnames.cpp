@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <fstream>
 #include <iterator>
 #include <sstream>
@@ -110,9 +111,12 @@ std::string pick_commentary_language(const std::vector<CommentaryPack>& packs, c
     return packs[0].code;
 }
 
-LanguageMatch match_loaded_language(const std::unordered_set<int64_t>& game_spoken, const std::vector<LanguageCandidate>& cands) {
+LanguageMatch match_loaded_language(const std::unordered_set<int64_t>& game_spoken, const std::vector<LanguageCandidate>& cands,
+                                    const std::unordered_set<int64_t>* asked) {
     LanguageMatch m;
-    auto in_range = [](int64_t id) { return id > kCallnameMin && id <= kCallnameMax; };
+    const bool restrict = asked && !asked->empty();
+    // only ids the game was asked about can be compared: a candidate id outside them is not evidence against it
+    auto in_range = [&](int64_t id) { return id > kCallnameMin && id <= kCallnameMax && (!restrict || asked->count(id)); };
     size_t g = 0;
     for (int64_t id : game_spoken)
         if (in_range(id)) ++g;
@@ -143,7 +147,8 @@ LanguageMatch match_loaded_language(const std::unordered_set<int64_t>& game_spok
     std::stable_sort(scores.begin(), scores.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
     m.score = scores[0].first;
     m.second = scores.size() > 1 ? scores[1].first : 0.0;
-    const std::string head = "the game's audio service answered " + std::to_string(g) + " spoken ids; match: " + detail;
+    const std::string head = "the game's audio service answered " + std::to_string(g) + " spoken ids" +
+                             (restrict ? " of " + std::to_string(asked->size()) + " asked" : std::string()) + "; match: " + detail;
     if (m.score < kLangMatchMin) {
         m.why = head + " - no language matches (unknown)";
     } else if (scores.size() > 1 && m.score - m.second < kLangMatchMargin) {
@@ -156,8 +161,10 @@ LanguageMatch match_loaded_language(const std::unordered_set<int64_t>& game_spok
 }
 
 std::string detect_commentary_language(const std::string& override_lang, const std::string& runtime_lang, const std::string& runtime_why,
-                                       const std::vector<CommentaryPack>& packs, std::string* why) {
+                                       const std::string& saved_lang, const std::string& saved_why, const std::vector<CommentaryPack>& packs,
+                                       std::string* why, bool* proven) {
     auto set = [&](const std::string& s) { if (why) *why = s; };
+    if (proven) *proven = true;
     const std::string ov = lower(override_lang);
     if (!ov.empty()) {
         set("MANUAL OVERRIDE in turbo_output\\gui_settings.json callnames.override_language - detection is off");
@@ -168,7 +175,13 @@ std::string detect_commentary_language(const std::string& override_lang, const s
         return lower(runtime_lang);
     }
     std::string pre = runtime_why.empty() ? std::string("no runtime evidence yet") : "runtime: " + runtime_why;
-    pre += "; game settings file: not read (field not proven); ";
+    if (!saved_lang.empty()) {
+        set("heard in an earlier session (" + saved_why + "); " + pre);
+        return lower(saved_lang);
+    }
+    if (proven) *proven = false;
+    pre += "; " + (saved_why.empty() ? std::string("no saved answer") : "saved answer not used: " + saved_why);
+    pre += "; game settings file: not read (field not proven); NOT PROVEN (automatic callname writes wait); ";
     if (!packs.empty()) {
         std::string w;
         std::string l = pick_commentary_language(packs, "", &w);
@@ -182,6 +195,77 @@ std::string detect_commentary_language(const std::string& override_lang, const s
 }
 
 fs::path lang_detect_off_path(const fs::path& le_root) { return le_root / "turbo_output" / "callnames_lang_detect_off.txt"; }
+
+fs::path loaded_language_path(const fs::path& le_root) { return le_root / "turbo_output" / "callnames" / "loaded_language.json"; }
+
+std::string packs_fingerprint(const std::vector<CommentaryPack>& packs) {
+    std::vector<std::string> v;
+    for (const auto& p : packs) v.push_back(lower(p.code) + (p.downloaded ? "*" : ""));
+    std::sort(v.begin(), v.end());
+    std::string out;
+    for (const auto& x : v) out += (out.empty() ? "" : ",") + x;
+    return out;
+}
+
+std::string saved_language_json(const SavedLanguage& s) {
+    nlohmann::json j = {{"turbo", "loaded_language"}, {"lang", s.lang}, {"build", s.build}, {"packs", s.packs}, {"when", s.when}, {"why", s.why}};
+    return j.dump(2) + "\n";
+}
+
+bool parse_saved_language_json(const std::string& text, SavedLanguage& out) {
+    out = SavedLanguage{};
+    nlohmann::json j = nlohmann::json::parse(text, nullptr, false);
+    if (!j.is_object() || j.value("turbo", std::string()) != "loaded_language") return false;
+    auto str = [&](const char* k) { return j.contains(k) && j[k].is_string() ? j[k].get<std::string>() : std::string(); };
+    out.lang = lower(str("lang"));
+    out.build = str("build");
+    out.packs = str("packs");
+    out.when = str("when");
+    out.why = str("why");
+    return !out.lang.empty();
+}
+
+bool saved_language_usable(const SavedLanguage& s, const std::string& build, const std::string& packs_fp, std::string* why) {
+    if (s.lang.empty()) {
+        if (why) *why = "none saved";
+        return false;
+    }
+    if (s.packs != packs_fp) {
+        if (why) *why = s.lang + " was heard with other commentary packs (" + s.packs + ", now " + packs_fp + ")";
+        return false;
+    }
+    if (!s.build.empty() && !build.empty() && s.build != build) {
+        if (why) *why = s.lang + " was heard on game build " + s.build + ", now " + build;
+        return false;
+    }
+    if (why) *why = s.lang + " heard " + (s.when.empty() ? std::string("earlier") : s.when) + " on build " + (s.build.empty() ? std::string("?") : s.build) +
+                    " with the same packs" + (build.empty() || s.build.empty() ? " (build not compared: unknown)" : "");
+    return true;
+}
+
+CaptureTarget capture_target(bool detection_off, const std::string& runtime_lang, const std::string& runtime_why, const std::string& override_lang,
+                             const std::string& lang) {
+    CaptureTarget t;
+    if (detection_off) {
+        t.cache_lang = lang;
+        t.adopt = !lang.empty();
+        return t;
+    }
+    if (runtime_lang.empty()) {
+        t.note = "the game's answer matches no known language clearly, so it is not cached under any language and not used (" + runtime_why + ")";
+        return t;
+    }
+    t.cache_lang = lower(runtime_lang);
+    const std::string ov = lower(override_lang);
+    if (!ov.empty() && ov != t.cache_lang) {
+        t.note = "CONFLICT: manual override " + ov + " but the game loaded " + t.cache_lang + ": cached as spoken_" + t.cache_lang +
+                 ".json, not used while the override is on";
+        return t;
+    }
+    t.adopt = (lower(lang) == t.cache_lang);
+    if (!t.adopt) t.note = "the language in use (" + lang + ") is not the one the game loaded (" + t.cache_lang + "): cached, not used";
+    return t;
+}
 
 CallnamePopulation callname_population(const CatalogBank& b, const MasterList& m, const CallnameIndex& ix) {
     CallnamePopulation p;
@@ -487,13 +571,34 @@ void Callnames::refresh(const fs::path& le_root, const fs::path& game_root, cons
     override_lang = lower(chosen);
     {
         std::error_code oec;
+        const bool was_off = runtime_off;
         runtime_off = fs::exists(lang_detect_off_path(le_root), oec);
+        if (was_off && !runtime_off && runtime_lang.empty() && runtime_why.rfind("runtime detection off", 0) == 0) {
+            runtime_why.clear();  // the switch was removed: no stale "off" reason, the game is asked again
+            runtime_checked = false;
+        }
     }
+    // step a2: the answer heard in an earlier session, while the build and the packs are the same
+    saved_lang.clear();
+    saved_why.clear();
+    {
+        std::string stext;
+        SavedLanguage sv;
+        if (read_text(loaded_language_path(le_root), stext) && parse_saved_language_json(stext, sv)) {
+            if (saved_language_usable(sv, game_build, packs_fingerprint(packs), &saved_why)) saved_lang = sv.lang;
+        }
+    }
+    lang_proven = false;
     if (no_game_root && override_lang.empty() && runtime_lang.empty()) {
         lang.clear();  // no game: nothing to detect (tests, a host without the game folder)
         lang_why = "game folder unknown: no commentary language detected";
     } else {
-        lang = detect_commentary_language(override_lang, runtime_lang, runtime_why, packs, &lang_why);
+        lang = detect_commentary_language(override_lang, runtime_lang, runtime_why, saved_lang, saved_why, packs, &lang_why, &lang_proven);
+        // with the kill switch the packs decide as before the runtime check (the user turned it off)
+        if (!lang_proven && runtime_off) {
+            lang_proven = true;
+            lang_why += " [runtime detection off: the packs' answer is used as before]";
+        }
     }
     spoken = SpokenSet{};
     list_error.clear();
@@ -628,19 +733,41 @@ std::vector<LanguageCandidate> Callnames::language_candidates(const fs::path& le
     return out;
 }
 
-bool Callnames::detect_runtime_language(const std::unordered_set<int64_t>& game_spoken, const fs::path& le_root) {
+bool Callnames::detect_runtime_language(const std::unordered_set<int64_t>& game_spoken, const fs::path& le_root,
+                                        const std::unordered_set<int64_t>* asked) {
     std::error_code ec;
     if (fs::exists(lang_detect_off_path(le_root), ec)) {
         runtime_why = "runtime detection off (turbo_output\\callnames_lang_detect_off.txt)";
         runtime_checked = true;
+        runtime_off = true;
         return false;
     }
-    const LanguageMatch m = match_loaded_language(game_spoken, language_candidates(le_root));
+    return accept_runtime_match(match_loaded_language(game_spoken, language_candidates(le_root), asked), le_root);
+}
+
+bool Callnames::accept_runtime_match(const LanguageMatch& m, const fs::path& le_root) {
     runtime_checked = true;
     const bool changed = m.lang != runtime_lang;
     runtime_lang = m.lang;
     runtime_why = m.why;
-    if (changed || (!m.lang.empty() && m.lang != lang)) {
+    if (!m.lang.empty()) {
+        // saved for the next sessions (step a2): until the game answers again they start from this answer
+        SavedLanguage sv;
+        sv.lang = m.lang;
+        sv.build = game_build;
+        sv.packs = packs_fingerprint(packs);
+        char buf[32] = {0};
+        const std::time_t t = std::time(nullptr);
+        if (const std::tm* tmv = std::localtime(&t)) std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", tmv);
+        sv.when = buf;
+        sv.why = m.why;
+        const fs::path p = loaded_language_path(le_root);
+        std::error_code cec;
+        fs::create_directories(p.parent_path(), cec);
+        std::ofstream f(p, std::ios::binary | std::ios::trunc);
+        if (f) f << saved_language_json(sv);
+    }
+    if (changed || (!m.lang.empty() && m.lang != lang) || (!m.lang.empty() && !lang_proven && override_lang.empty())) {
         refreshed = false;  // spoken set, masters, bank and the pickers follow the language on the next use
         index.built = false;
         return true;
@@ -676,6 +803,38 @@ void Callnames::use_bank(CatalogBank b) {
                     std::to_string(bank.generic.size()) + " generic ids, " + std::to_string(bank.own.size()) +
                     " players with their own recording";
     if (had_list) spoken.source += "; your spoken-id list is not used while the catalog is current";
+}
+
+bool Callnames::cache_capture(const BankCapture& c, const fs::path& le_root, const std::string& cache_lang, const std::string& when,
+                              const std::string& build, std::string* err) {
+    if (cache_lang.empty() || !c.ok) {
+        if (err) *err = cache_lang.empty() ? "no language to cache it under" : (c.note.empty() ? "the capture found nothing" : c.note);
+        return false;
+    }
+    const fs::path p = spoken_cache_path(le_root, cache_lang);
+    std::error_code ec;
+    fs::create_directories(p.parent_path(), ec);
+    std::ofstream f(p, std::ios::binary | std::ios::trunc);
+    if (!f) {
+        if (err) *err = "cannot write " + p.string();
+        return false;
+    }
+    f << bank_cache_json(c, cache_lang, when, build);
+    return true;
+}
+
+bool Callnames::apply_runtime_capture(const BankCapture& c, const fs::path& le_root, const std::string& when, const std::string& build,
+                                      std::string* err, std::string* note) {
+    std::error_code ec;
+    const bool off = runtime_off || fs::exists(lang_detect_off_path(le_root), ec);
+    const CaptureTarget t = capture_target(off, runtime_lang, runtime_why, override_lang, lang);
+    if (note) *note = t.note;
+    if (t.cache_lang.empty()) {
+        if (err) *err = t.note.empty() ? "no commentary language detected" : t.note;
+        return false;
+    }
+    if (t.adopt) return apply_capture(c, le_root, when, build, err);
+    return cache_capture(c, le_root, t.cache_lang, when, build, err);
 }
 
 bool Callnames::apply_capture(const BankCapture& c, const fs::path& le_root, const std::string& when, const std::string& build,

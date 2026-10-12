@@ -87,6 +87,7 @@ struct BankCapture {
     std::string note;                                 // why not ok, or a summary
     std::string source = "live bank capture";         // who produced it: this scan, or the game's audio service (commentary_audio.h)
     size_t checked_names = 0, checked_players = 0;    // audio service: ids / players asked
+    std::unordered_set<int64_t> asked;                // audio service: the commentary ids asked (the language match compares only these)
     size_t steps = 0;                                 // audio service: game-thread ticks used
     std::unordered_set<int64_t> surnames;             // commentary ids with a recording (surname families)
     std::unordered_map<int64_t, int> players;         // player id -> number of player-keyed tables it is in
