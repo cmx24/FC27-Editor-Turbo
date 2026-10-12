@@ -3,7 +3,7 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
-## 2.2.0 (DRAFT, not released: live standings and match setup on game build 6AC07E31, live tactic write)
+## 2.2.0 (live standings and match setup on game build 6AC07E31, live tactic write)
 Status words below: "verified in game" = seen in a loaded career or a started match on game build 6AC07E31 (throwaway copy of a career, 2026-10-12, never saved); everything else passes the offline suites only (build 0 warnings, Lua 394/0, native 37028/0, Python and catalog suites green).
 
 ### Live standings and Match setup work again on game build 6AC07E31 (verified in game)
