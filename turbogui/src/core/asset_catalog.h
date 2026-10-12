@@ -102,6 +102,12 @@ std::filesystem::path lua_gate_path(const std::filesystem::path& turbo_output); 
 std::filesystem::path write_log_path(const std::filesystem::path& turbo_output);    // asset_writes.log
 // The one-line rebuild command shown in the stale banner and in Tools > Status
 std::string rebuild_command();
+// Build key of an FC27.exe file on disk, read from its PE header ("6AC07E31-2145C000", the format of sigscan's
+// build_key); "" when the file cannot be read or is not a PE image. The GUI prefers the running game's key (host).
+std::string exe_build_key(const std::filesystem::path& exe);
+// Cheap fingerprint of what load_dir() would see (every catalog_*.json name, size and time, and both switch files);
+// the GUI polls it and reloads on a change (a rebuilt catalog, a switch file added or removed)
+std::string dir_signature(const std::filesystem::path& turbo_output);
 
 // ---- what the loaded save uses (section 3.6), rebuilt by the GUI when model.version() changes
 struct DbUse {
@@ -136,6 +142,8 @@ struct Status {
     std::string error;         // State::Error / NotLoaded detail
     bool hidden_off = false;   // asset_hidden_off.txt present
     std::array<size_t, kFamilyCount> counts{};  // ids per family (callnames: distinct ids over every bank)
+    double load_ms = 0.0;      // read + parse + index time of the last load_file
+    std::string note;          // non-fatal remarks ("ignored unknown families: outfit")
 };
 
 // ---- the catalog
@@ -196,6 +204,8 @@ public:
 
     // ---- hidden (3.6): the catalog ships the id and no current row uses it. False when hidden_off() or not loaded.
     bool hidden(Family f, int64_t id, const DbUse& use) const;
+    // May a picker list the id at all? The save uses it, or the catalog ships it and asset_hidden_off.txt is absent.
+    bool offered(Family f, int64_t id, const DbUse& use) const;
     bool hidden_generic_callname(int64_t commentaryid, const DbUse& use) const;
     bool not_in_tattoo_table(int64_t tattooid, const DbUse& use) const;
 
