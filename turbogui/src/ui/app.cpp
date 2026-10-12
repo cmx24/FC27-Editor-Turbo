@@ -509,10 +509,35 @@ static bool read_text_file(const fs::path& p, std::string& out) {
     return true;
 }
 
+// The manual override of the detected commentary language (gui_settings "callnames": {"override_language": "<lang>"});
+// off unless set. The old "language" key (forced eng_us since 2026-10-09) is ignored: detection wins (callnames.h).
 std::string App::chosen_commentary_language() const {
-    if (gui_settings.is_object() && gui_settings.contains("callnames") && gui_settings["callnames"].is_object())
-        return gui_settings["callnames"].value("language", std::string());
+    if (gui_settings.is_object() && gui_settings.contains("callnames") && gui_settings["callnames"].is_object()) {
+        const auto& c = gui_settings["callnames"];
+        if (c.contains("override_language") && c["override_language"].is_string()) return c["override_language"].get<std::string>();
+    }
     return "";
+}
+
+// A full audio-service build is the runtime evidence of the loaded language (callnames.h, step a): a changed answer
+// refreshes everything (spoken set, masters, bank, pickers) before the set is cached under the language it belongs to
+bool App::detect_language_then_apply(const BankCapture& c, const std::string& when, const std::string& build, std::string* err) {
+    if (c.ok) {
+        if (callnames.detect_runtime_language(c.surnames, bridge.root())) refresh_callnames();
+        log("callnames: runtime language check: " + (callnames.runtime_lang.empty() ? std::string("unknown") : callnames.runtime_lang) + " (" +
+            callnames.runtime_why + ")");
+    }
+    return callnames.apply_capture(c, bridge.root(), when, build, err);
+}
+
+void App::refresh_callnames() {
+    callnames.refresh(bridge.root(), game_root, chosen_commentary_language());
+    std::string line = callnames.log_line();
+    if (gui_settings.is_object() && gui_settings.contains("callnames") && gui_settings["callnames"].is_object() &&
+        gui_settings["callnames"].contains("language"))
+        line += " [gui_settings callnames.language is ignored: use callnames.override_language for a manual override]";
+    if (!callnames.prev_lang.empty() && callnames.prev_lang != callnames.lang) line += " [changed from " + callnames.prev_lang + "]";
+    log(line);
 }
 
 // The id list a build asks about. With the career database connected: commentarynames (+ the preview flag), the ids
@@ -669,12 +694,12 @@ bool App::start_spoken_probe() {
 void App::spoken_watch_tick() {
     if (!commentary_audio) return;
     // the language and the cached set are needed before the Callname tab was ever opened (a build from the main menu)
-    if (!callnames.refreshed && !game_root.empty()) callnames.refresh(bridge.root(), game_root, chosen_commentary_language());
+    if (!callnames.refreshed && !game_root.empty()) refresh_callnames();
     caudio::SpokenWatch::Inputs in;
     const caudio::ServiceStatus st = commentary_audio->status();
     in.service = st.installed;
     in.available = st.available && !st.busy;
-    in.verified = callnames.refreshed && callnames.spoken.verified;
+    in.verified = callnames.settled();  // also asks the game once per session which language it loaded
     if (!in.service) in.why_not = st.reason.empty() ? "the audio-service call is not available" : st.reason;
     // whether an id list is at hand is re-checked every few seconds (a file read when not connected); meanwhile the
     // last answer stands
@@ -727,7 +752,7 @@ void App::finish_spoken_build() {
     } else if (!r.ok) {
         spoken_build_status = line;
         if (!r.unbound) notify("Callnames: " + r.note, true);  // an unbound bank is the watcher's business: no toast
-    } else if (!callnames.apply_capture(c, bridge.root(), when, build, &err)) {
+    } else if (!detect_language_then_apply(c, when, build, &err)) {
         spoken_build_status = std::string(line) + " - not used: " + err;
         notify("Callnames: audio-service set not used: " + err, true);
     } else {

@@ -193,7 +193,9 @@ public:
     bool start_spoken_probe();                               // a quiet probe request (the watcher's)
     bool spoken_ids(caudio::IdCache& out, std::string* why);  // the id list at hand (database > cache > Lua list); false = none
     std::string spoken_ids_source;                           // where the last list came from (for the UI)
-    std::string chosen_commentary_language() const;          // gui_settings callnames.language ("" = auto)
+    std::string chosen_commentary_language() const;
+    void refresh_callnames();  // Callnames::refresh with the override + the "callnames: language <lang> (<why>)" log line          // gui_settings callnames.language ("" = auto)
+    bool detect_language_then_apply(const BankCapture& c, const std::string& when, const std::string& build, std::string* err);
     const std::string& spoken_watch_line() const { return spoken_watch.line(); }
     long long game_call_seen = -1;  // last game-call outcome shown as a toast (bridge_state.json game_call.seq; -1 = none yet)
     // Job offer tab (Teams > team edit): the club picked (the selected team unless another is chosen) and the last request label

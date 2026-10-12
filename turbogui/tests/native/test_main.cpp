@@ -2833,6 +2833,7 @@ static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_gear_pictures.h"  // 1.1.4: gear preview pictures from the hash list
 #include "test_hair_catalog.h"  // hair catalog: gallery filters and the face chooser Hair facet
 #include "test_bodytypes.h"  // body type catalogue (runtime-loaded probe + localize.json) and its gallery
+#include "test_lang_detect.h"  // the commentary language the game loaded + callnames per source
 #include "test_face3d_looks.h"  // 3D looks of the real faces: generated data, lookup, the chooser's 3D facets
 #include "test_describe.h"  // codes to descriptions: describe(), user text, pickers, the "no code N" UI walk
 #include "test_wheel.h"  // 1.1.3: mouse wheel source (hook, raw input, window messages)
@@ -6324,12 +6325,17 @@ static void test_ui() {
             ui.frames(1);
             CHECK(rst.route_line.find("Route: name id (no recording known") == 0 && ui.find("Assign as last name") != nullptr,
                   "no known recording: the name route: " + rst.route_line);
-            // the language can be chosen and is saved in gui_settings.json
+            // the old forced key is ignored (detection wins); the manual override is callnames.override_language
             app.gui_settings["callnames"]["language"] = "eng_us";
             CHECK(app.save_gui_settings(), "save");
             CHECK(ui.click("Refresh##cn"), "refresh");
-            CHECK(app.callnames.lang == "eng_us" && app.callnames.lang_why.find("chosen") != std::string::npos, "chosen language: " + app.callnames.lang_why);
+            CHECK(app.callnames.lang == "ita_it" && app.callnames.lang_why.find("installed packs") != std::string::npos, "old key ignored: " + app.callnames.lang_why);
             app.gui_settings["callnames"].erase("language");
+            app.gui_settings["callnames"]["override_language"] = "eng_us";
+            CHECK(app.save_gui_settings(), "save");
+            CHECK(ui.click("Refresh##cn"), "refresh");
+            CHECK(app.callnames.lang == "eng_us" && app.callnames.lang_why.find("MANUAL OVERRIDE") != std::string::npos, "override: " + app.callnames.lang_why);
+            app.gui_settings["callnames"].erase("override_language");
             app.save_gui_settings();
             app.game_root.clear();
         });
@@ -13048,6 +13054,7 @@ int main(int argc, char** argv) {
     test_gear_pictures();
     test_hair_catalog();
     test_bodytype_catalog();
+    test_lang_detect();
     test_face3d_looks();
     test_miniface_show();
     std::printf("native mouse wheel source\n");

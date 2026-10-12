@@ -65,8 +65,9 @@ const CallnameTabState& callname_tab_state() { return g_state; }
 static std::string chosen_language(App& app) { return app.chosen_commentary_language(); }
 
 static void refresh_all(App& app) {
-    app.callnames.refresh(app.bridge.root(), app.game_root, chosen_language(app));
+    app.refresh_callnames();
     app.callnames.build_index(app.db, app.model, app.model.names_by_id());
+    app.log("callnames: " + callname_population_line(callname_population(app.callnames.bank, app.callnames.masters, app.callnames.index)));
     g_index_gen = app.gen;
 }
 
@@ -351,14 +352,14 @@ static void language_line(App& app) {
     if (ImGui::BeginCombo("##cnlang", current.c_str())) {
         bool auto_sel = chosen_language(app).empty();
         if (ImGui::Selectable("detect automatically", auto_sel)) {
-            if (app.gui_settings.is_object() && app.gui_settings.contains("callnames")) app.gui_settings["callnames"].erase("language");
+            if (app.gui_settings.is_object() && app.gui_settings.contains("callnames")) app.gui_settings["callnames"].erase("override_language");
             app.save_gui_settings();
             refresh_all(app);
         }
         for (const auto& pk : cn.packs) {
             std::string label = pk.code + (pk.downloaded ? " (downloaded)" : " (base game)");
             if (ImGui::Selectable(label.c_str(), pk.code == cn.lang)) {
-                app.gui_settings["callnames"]["language"] = pk.code;
+                app.gui_settings["callnames"]["override_language"] = pk.code;  // manual override (detection off)
                 app.save_gui_settings();
                 refresh_all(app);
             }

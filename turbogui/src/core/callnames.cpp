@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
@@ -107,6 +108,112 @@ std::string pick_commentary_language(const std::vector<CommentaryPack>& packs, c
         }
     set_why("the only language pack found");
     return packs[0].code;
+}
+
+LanguageMatch match_loaded_language(const std::unordered_set<int64_t>& game_spoken, const std::vector<LanguageCandidate>& cands) {
+    LanguageMatch m;
+    auto in_range = [](int64_t id) { return id > kCallnameMin && id <= kCallnameMax; };
+    size_t g = 0;
+    for (int64_t id : game_spoken)
+        if (in_range(id)) ++g;
+    if (g == 0) {
+        m.why = "the game's answer holds no commentary id";
+        return m;
+    }
+    std::vector<std::pair<double, const LanguageCandidate*>> scores;
+    std::string detail;
+    for (const auto& c : cands) {
+        size_t n = 0, both = 0;
+        for (int64_t id : c.ids) {
+            if (!in_range(id)) continue;
+            ++n;
+            if (game_spoken.count(id)) ++both;
+        }
+        if (n == 0) continue;
+        const double j = double(both) / double(g + n - both);
+        scores.push_back({j, &c});
+        char buf[160];
+        std::snprintf(buf, sizeof(buf), "%s%s %.2f (%s, %zu ids)", detail.empty() ? "" : ", ", c.lang.c_str(), j, c.from.c_str(), n);
+        detail += buf;
+    }
+    if (scores.empty()) {
+        m.why = "no language with a known id set to compare with";
+        return m;
+    }
+    std::stable_sort(scores.begin(), scores.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+    m.score = scores[0].first;
+    m.second = scores.size() > 1 ? scores[1].first : 0.0;
+    const std::string head = "the game's audio service answered " + std::to_string(g) + " spoken ids; match: " + detail;
+    if (m.score < kLangMatchMin) {
+        m.why = head + " - no language matches (unknown)";
+    } else if (scores.size() > 1 && m.score - m.second < kLangMatchMargin) {
+        m.why = head + " - two languages match about as well (unknown)";
+    } else {
+        m.lang = scores[0].second->lang;
+        m.why = head;
+    }
+    return m;
+}
+
+std::string detect_commentary_language(const std::string& override_lang, const std::string& runtime_lang, const std::string& runtime_why,
+                                       const std::vector<CommentaryPack>& packs, std::string* why) {
+    auto set = [&](const std::string& s) { if (why) *why = s; };
+    const std::string ov = lower(override_lang);
+    if (!ov.empty()) {
+        set("MANUAL OVERRIDE in turbo_output\\gui_settings.json callnames.override_language - detection is off");
+        return ov;
+    }
+    if (!runtime_lang.empty()) {
+        set("detected in the running game: " + runtime_why);
+        return lower(runtime_lang);
+    }
+    std::string pre = runtime_why.empty() ? std::string("no runtime evidence yet") : "runtime: " + runtime_why;
+    pre += "; game settings file: not read (field not proven); ";
+    if (!packs.empty()) {
+        std::string w;
+        std::string l = pick_commentary_language(packs, "", &w);
+        if (!l.empty()) {
+            set(pre + "installed packs: " + w);
+            return l;
+        }
+    }
+    set(pre + "no commentary pack found: eng_us, the base game's language");
+    return "eng_us";
+}
+
+fs::path lang_detect_off_path(const fs::path& le_root) { return le_root / "turbo_output" / "callnames_lang_detect_off.txt"; }
+
+CallnamePopulation callname_population(const CatalogBank& b, const MasterList& m, const CallnameIndex& ix) {
+    CallnamePopulation p;
+    p.bank_generic = b.generic.size();
+    p.bank_own = b.own.size();
+    std::unordered_set<int64_t> db;
+    for (int64_t id : ix.used_ids)
+        if (id != kNoCallname && id > 0) db.insert(id);
+    p.db_generic = db.size();
+    std::unordered_set<int64_t> spec;
+    for (const auto& kv : ix.playernamemap)
+        if (kv.second != kNoCallname && kv.second > 0) spec.insert(kv.second);
+    p.db_specific = spec.size();
+    p.master_generic = m.generic_ids.size();
+    p.master_own = m.real_players.size();
+    std::unordered_set<int64_t> ug(b.generic.begin(), b.generic.end());
+    ug.insert(db.begin(), db.end());
+    ug.insert(spec.begin(), spec.end());
+    ug.insert(m.generic_ids.begin(), m.generic_ids.end());
+    p.union_generic = ug.size();
+    std::unordered_set<int64_t> uo(m.real_players.begin(), m.real_players.end());
+    for (const auto& kv : b.own) uo.insert(kv.first);
+    for (int64_t id : b.own_other_team) uo.insert(id);
+    p.union_own = uo.size();
+    return p;
+}
+
+std::string callname_population_line(const CallnamePopulation& p) {
+    auto n = [](size_t v) { return std::to_string(v); };
+    return "bank " + n(p.bank_generic) + " generic / " + n(p.bank_own) + " own | DB " + n(p.db_generic) + " name ids / " + n(p.db_specific) +
+           " player-specific | masters " + n(p.master_generic) + " generic / " + n(p.master_own) + " own | union " + n(p.union_generic) +
+           " generic / " + n(p.union_own) + " own";
 }
 
 bool parse_spoken_list(const std::string& text, std::unordered_set<int64_t>& out, std::string* lang, std::string* err) {
@@ -376,7 +483,18 @@ static bool read_text(const fs::path& p, std::string& out) {
 void Callnames::refresh(const fs::path& le_root, const fs::path& game_root, const std::string& chosen) {
     no_game_root = game_root.empty();
     packs = installed_commentary_packs(game_root);
-    lang = pick_commentary_language(packs, chosen, &lang_why);
+    prev_lang = lang;
+    override_lang = lower(chosen);
+    {
+        std::error_code oec;
+        runtime_off = fs::exists(lang_detect_off_path(le_root), oec);
+    }
+    if (no_game_root && override_lang.empty() && runtime_lang.empty()) {
+        lang.clear();  // no game: nothing to detect (tests, a host without the game folder)
+        lang_why = "game folder unknown: no commentary language detected";
+    } else {
+        lang = detect_commentary_language(override_lang, runtime_lang, runtime_why, packs, &lang_why);
+    }
     spoken = SpokenSet{};
     list_error.clear();
     list_path.clear();
@@ -459,6 +577,75 @@ void Callnames::refresh(const fs::path& le_root, const fs::path& game_root, cons
     }
     apply_bank();  // a current asset catalog's bank beats all of the above
     refreshed = true;
+}
+
+std::vector<LanguageCandidate> Callnames::language_candidates(const fs::path& le_root) const {
+    std::vector<std::string> langs;
+    auto add = [&](const std::string& l) {
+        if (l.empty() || std::find(langs.begin(), langs.end(), l) != langs.end()) return;
+        langs.push_back(l);
+    };
+    for (const auto& p : packs) add(p.code);
+    std::error_code ec;
+    for (const auto& e : fs::directory_iterator(le_root / "turbo" / "callnames" / "masters", ec)) {
+        const std::string n = lower(e.path().filename().string());
+        if (n.size() == 11 && n.substr(6) == ".json") add(n.substr(0, 6));
+    }
+    for (const auto& e : fs::directory_iterator(le_root / "turbo" / "callnames", ec)) {
+        const std::string n = lower(e.path().filename().string());
+        if (n.size() == 17 && n.rfind("spoken_", 0) == 0 && n.substr(13) == ".txt") add(n.substr(7, 6));
+    }
+    std::sort(langs.begin(), langs.end());
+    std::vector<LanguageCandidate> out;
+    for (const auto& l : langs) {
+        LanguageCandidate c;
+        c.lang = l;
+        if (catalog) {
+            CatalogBank b = catalog_bank(*catalog, l, "");
+            if (!b.generic.empty()) {
+                c.ids = b.generic;
+                c.from = "asset catalog bank";
+            }
+        }
+        std::string text;
+        if (c.ids.empty() && read_text(master_list_path(le_root, l), text)) {
+            MasterList m;
+            if (parse_master_list_json(text, l, m)) {
+                c.ids = m.generic_ids;
+                c.from = m.label();
+            }
+        }
+        if (c.ids.empty() && read_text(spoken_list_path(le_root, l), text)) {
+            std::unordered_set<int64_t> ids;
+            std::string fl;
+            if (parse_spoken_list(text, ids, &fl) && (fl.empty() || lower(fl) == l)) {
+                c.ids = std::move(ids);
+                c.from = "spoken list";
+            }
+        }
+        if (!c.ids.empty()) out.push_back(std::move(c));
+    }
+    return out;
+}
+
+bool Callnames::detect_runtime_language(const std::unordered_set<int64_t>& game_spoken, const fs::path& le_root) {
+    std::error_code ec;
+    if (fs::exists(lang_detect_off_path(le_root), ec)) {
+        runtime_why = "runtime detection off (turbo_output\\callnames_lang_detect_off.txt)";
+        runtime_checked = true;
+        return false;
+    }
+    const LanguageMatch m = match_loaded_language(game_spoken, language_candidates(le_root));
+    runtime_checked = true;
+    const bool changed = m.lang != runtime_lang;
+    runtime_lang = m.lang;
+    runtime_why = m.why;
+    if (changed || (!m.lang.empty() && m.lang != lang)) {
+        refreshed = false;  // spoken set, masters, bank and the pickers follow the language on the next use
+        index.built = false;
+        return true;
+    }
+    return false;
 }
 
 void Callnames::use_catalog(std::shared_ptr<const assets::Catalog> cat) {
