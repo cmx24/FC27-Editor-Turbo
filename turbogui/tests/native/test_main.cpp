@@ -3374,6 +3374,7 @@ struct FakeMatchSetup : msetup::Service {
 
 #include "test_playtest_fixes.h"  // 1.1.1 playtest fixes (playtest_fix_cases, run near the end of test_ui)
 #include "test_names_tab.h"  // Players > Names (ui_cases_names_tab, run before the playtest fixes)
+#include "test_archetype_target.h"  // 2.3: archetype with a target overall (archetype_target_test::run_core, ::run_ui)
 #include "test_tactics_tab.h"  // Teams > Tactics (ui_cases_tactics_tab, run before the Names cases)
 #include "test_team_sheet.h"   // tactics channel E: the live team sheet on a simulated layout (team_sheet_test::run, ::ui_cases)
 #include "test_club_search.h"  // Players list Gender filter, the club box by name or ID (ui_cases_club_search)
@@ -8625,6 +8626,7 @@ static void test_ui() {
         team_sheet_test::ui_cases(app, ui, le);  // test_team_sheet.h: the live tactic card (channel E)
         describe_ui_cases(app, ui);  // test_describe.h: edit log, undo toast, pickers, Technical details, the "no code N" walk
         ui_cases_names_tab(app, ui, mem, kMb);  // test_names_tab.h
+        archetype_target_test::run_ui(app, ui, mem, kMb);  // test_archetype_target.h
         playtest_fix_cases(app, ui, le);
         test_file_picker_ui(app, ui, mem, kMb);
         test_bodytypes_ui(app, ui, le);  // test_bodytypes.h
@@ -14325,6 +14327,8 @@ int main(int argc, char** argv) {
     test_edit_unlock_hook(g_pass, g_fail);
     std::printf("native FC 26 parity (2.1)\n");
     parity_test::run_core();
+    std::printf("native archetype with a target overall (2.3)\n");
+    archetype_target_test::run_core();
     std::printf("native live team names\n");
     test_team_names_live();
     std::printf("native UI\n");

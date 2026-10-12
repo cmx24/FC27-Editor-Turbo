@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <initializer_list>
 #include <utility>
 
@@ -184,31 +186,191 @@ bool apply(const Archetype& arch, int position, const Attrs& cur, Result& out) {
     for (int p : arch.profile) any = any || p > 0;
     if (!any) return false;
     out.overall_before = compute_overall(position, cur);
-    const int target = out.overall_before;
-    // profile values times one factor s, clamped to 1..99; attributes outside the profile stay. The overall never falls
-    // when s grows, so the smallest s that reaches the target comes from bisection.
-    auto at = [&](double s) {
-        Attrs r = cur;
-        for (int i = 0; i < kAttrCount; ++i) {
-            const int p = arch.profile[static_cast<size_t>(i)];
-            if (p > 0) r[static_cast<size_t>(i)] = std::max(1, std::min(99, static_cast<int>(std::floor(p * s + 0.5))));
-        }
-        return r;
-    };
-    double lo = 0.0, hi = 4.0;
-    for (int it = 0; it < 60; ++it) {
-        const double mid = 0.5 * (lo + hi);
-        if (compute_overall(position, at(mid)) < target) lo = mid;
-        else hi = mid;
-    }
-    out.attrs = at(hi);
-    // rounding leaves the overall off by a point at most: a few points on the heaviest attributes close the gap
-    for (int guard = 0; guard < 8; ++guard) {
-        const int now = compute_overall(position, out.attrs);
-        if (now == target || !adjust(position, out.attrs, now < target ? 1 : -1)) break;
-    }
+    TargetResult r;
+    // his own attributes give the target, so it is always reachable; a refusal would leave him as he is
+    apply_target(arch, position, cur, out.overall_before, r);
+    out.attrs = r.ok ? r.attrs : cur;
     out.overall_after = compute_overall(position, out.attrs);
-    out.exact = out.overall_after == target;
+    out.exact = out.overall_after == out.overall_before;
+    return true;
+}
+
+namespace {
+
+// One step of the walk: attribute `attr` reaches the whole number `n` when its scaled profile value p * s does
+struct Step {
+    int attr, n, p;
+    double w;
+};
+
+// The steps in walk order: n_a / p_a < n_b / p_b (compared exactly as n_a * p_b < n_b * p_a), equal: the heavier attribute
+// for the position first, then the lower attribute index
+std::vector<Step> walk_steps(const Archetype& arch, int position) {
+    std::vector<Step> v;
+    for (int i = 0; i < kAttrCount; ++i) {
+        const int p = arch.profile[static_cast<size_t>(i)];
+        if (p <= 0) continue;
+        for (int n = 2; n <= 99; ++n) v.push_back({i, n, p, attr_weight(position, i)});
+    }
+    std::sort(v.begin(), v.end(), [](const Step& a, const Step& b) {
+        const long long l = static_cast<long long>(a.n) * b.p, r = static_cast<long long>(b.n) * a.p;
+        if (l != r) return l < r;
+        if (a.w != b.w) return a.w > b.w;
+        return a.attr < b.attr;
+    });
+    return v;
+}
+
+// Phase 2 (the profile is at its limit): one point at a time on the attributes outside the profile, heavy ones first and
+// spread (overall::reach's rule: weight >= 0.04 first, then any weight), until compute_overall() == target or nothing can
+// move. Then, while a further step keeps the target and brings the unrounded value nearer to it, that step too.
+bool move_outside(const Archetype& arch, int position, Attrs& a, int target) {
+    int now = compute_overall(position, a);
+    if (now == target) return true;
+    const int delta = target > now ? 1 : -1;
+    int moved[kAttrCount] = {0};
+    auto pick = [&](double min_w) {
+        int best = -1;
+        double best_score = -1.0;
+        for (int i = 0; i < kAttrCount; ++i) {
+            const double w = attr_weight(position, i);
+            if (in_profile(arch, i) || w <= 0.0 || w < min_w) continue;
+            const int nv = a[static_cast<size_t>(i)] + delta;
+            if (nv < 1 || nv > 99) continue;
+            const double score = w / (1.0 + moved[i]);
+            if (score > best_score) {
+                best_score = score;
+                best = i;
+            }
+        }
+        return best;
+    };
+    for (int pass = 0; pass < 2 && now != target; ++pass) {
+        const double min_w = pass == 0 ? 0.04 : 0.0;
+        for (int guard = 0; guard < 4000 && now != target; ++guard) {
+            const int best = pick(min_w);
+            if (best < 0) break;
+            a[static_cast<size_t>(best)] += delta;
+            ++moved[best];
+            now = compute_overall(position, a);
+        }
+    }
+    if (now != target) return false;
+    for (int guard = 0; guard < 4000; ++guard) {
+        const int best = pick(0.0);
+        if (best < 0) break;
+        Attrs t = a;
+        t[static_cast<size_t>(best)] += delta;
+        if (compute_overall(position, t) != target ||
+            std::fabs(raw_overall(position, t) - target) >= std::fabs(raw_overall(position, a) - target))
+            break;
+        a = t;
+        ++moved[best];
+    }
+    return true;
+}
+
+}  // namespace
+
+bool apply_target(const Archetype& arch, int position, const Attrs& cur, int target, TargetResult& out) {
+    out = TargetResult();
+    out.attrs = cur;
+    out.target = target;
+    out.overall_before = compute_overall(position, cur);
+    bool any = false;
+    for (int p : arch.profile) any = any || p > 0;
+    if (!any) {
+        out.closest = out.overall_before;
+        out.why = "this archetype has no attribute profile";
+        return false;
+    }
+    {
+        Attrs lo{}, hi{};
+        lo.fill(1);
+        hi.fill(99);
+        out.lo = compute_overall(position, lo);
+        out.hi = compute_overall(position, hi);
+    }
+    // the walk: profile attributes all at 1, then one step at a time up to all at 99
+    const std::vector<Step> steps = walk_steps(arch, position);
+    Attrs a = cur;
+    for (int i = 0; i < kAttrCount; ++i)
+        if (in_profile(arch, i)) a[static_cast<size_t>(i)] = 1;
+    const Attrs start = a;
+    out.profile_lo = compute_overall(position, a);
+    long best = -2;  // index of the last step taken at the best point (-1 = the start itself)
+    double best_d = 1e9;
+    auto look = [&](long k) {
+        if (compute_overall(position, a) != target) return;
+        const double d = std::fabs(raw_overall(position, a) - target);
+        if (d < best_d) {
+            best_d = d;
+            best = k;
+        }
+    };
+    look(-1);
+    for (size_t k = 0; k < steps.size(); ++k) {
+        a[static_cast<size_t>(steps[k].attr)] = steps[k].n;
+        look(static_cast<long>(k));
+    }
+    const Attrs end = a;
+    out.profile_hi = compute_overall(position, a);
+
+    Attrs res{};
+    bool ok = false;
+    if (target < 1 || target > 99) {
+        out.why = "the game's overall is 1..99";
+    } else if (best >= -1) {
+        res = start;
+        for (long k = 0; k <= best; ++k) res[static_cast<size_t>(steps[static_cast<size_t>(k)].attr)] = steps[static_cast<size_t>(k)].n;
+        ok = true;
+    } else {
+        // beyond the walk: the profile stays at its limit, the attributes outside it move as well
+        res = target > out.profile_hi ? end : start;
+        ok = move_outside(arch, position, res, target);
+        if (!ok) {
+            char b[200];
+            std::snprintf(b, sizeof(b), "%s %d is out of reach for this position: every attribute that counts at %s gives %d",
+                          target > out.profile_hi ? "a target of" : "a target as low as", target, target > out.profile_hi ? "99" : "1",
+                          compute_overall(position, res));
+            out.why = b;
+        }
+    }
+    if (!ok) {
+        out.closest = std::max(out.lo, std::min(out.hi, std::max(1, std::min(99, target))));
+        return false;
+    }
+    out.attrs = res;
+    out.ok = true;
+    out.closest = target;
+    out.overall_after = compute_overall(position, res);
+    out.raw_after = raw_overall(position, res);
+    for (int i = 0; i < kAttrCount; ++i) {
+        const size_t k = static_cast<size_t>(i);
+        if (in_profile(arch, i)) out.at_limit += res[k] == 1 || res[k] == 99;
+        else if (res[k] != cur[k]) out.outside_moved.push_back(i);
+    }
+    return true;
+}
+
+int default_target(int stored, int formula) {
+    const bool broken = stored <= kFollowBroken && formula - stored > kFollowTolerance;
+    if (stored < 1 || stored > 99 || broken) return std::max(1, std::min(99, formula));
+    return stored;
+}
+
+bool keeps_shape(const Archetype& arch, const Attrs& a) {
+    for (int i = 0; i < kAttrCount; ++i) {
+        const int pi = arch.profile[static_cast<size_t>(i)];
+        if (pi <= 0) continue;
+        for (int j = 0; j < kAttrCount; ++j) {
+            const int pj = arch.profile[static_cast<size_t>(j)];
+            if (pj <= 0 || i == j) continue;
+            const int ai = a[static_cast<size_t>(i)], aj = a[static_cast<size_t>(j)];
+            if (pi > pj && ai < aj) return false;
+            if (pi == pj && std::abs(ai - aj) > 1) return false;
+        }
+    }
     return true;
 }
 
