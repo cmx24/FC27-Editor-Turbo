@@ -2812,6 +2812,7 @@ static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_bodytypes.h"  // body type catalogue (runtime-loaded probe + localize.json) and its gallery
 #include "test_face3d_looks.h"  // 3D looks of the real faces: generated data, lookup, the chooser's 3D facets
 #include "test_describe.h"  // codes to descriptions: describe(), user text, pickers, the "no code N" UI walk
+#include "test_ux_filters.h"  // 2.0 UX: two-sided range filters, the game's visible positions, label-left checkbox
 #include "test_wheel.h"  // 1.1.3: mouse wheel source (hook, raw input, window messages)
 static std::string hex_bytes(const std::vector<uint8_t>& d) {
     static const char* h = "0123456789abcdef";
@@ -3679,20 +3680,78 @@ static void test_ui() {
             CHECK(ui.click("Clear##filters", "##plist"), "Clear");
             CHECK(app.list_player_ids.size() == all, "cleared");
             CHECK(ui.click("##fpos", "##plist"), "position combo");
+            CHECK(ui.find("Show all internal positions", "##Combo") != nullptr, "the internal-codes toggle is offered");
+            CHECK(ui.find(position_name(1), "##Combo") == nullptr && ui.find("RCB (internal, plays as CB)", "##Combo") == nullptr &&
+                      ui.find("Any position", "##Combo") != nullptr && ui.find("ST", "##Combo") != nullptr,
+                  "the list shows the game's positions only (no SW, no RCB) until the toggle is ticked");
             CHECK(ui.click(position_name(14), "##Combo"), "position 14");
             CHECK(expect([](const PlayerRow& p) { return std::count(std::begin(p.positions), std::end(p.positions), 14) > 0; }) &&
-                      app.list_player_ids.size() > 1,
+                      expect([](const PlayerRow& p) { return player_passes_position(p, 14, false); }) && app.list_player_ids.size() > 1,
                   "position 14 as any of the 7 preferred positions");
             CHECK(ui.click("Clear##filters", "##plist"), "Clear");
-            CHECK(ui.type_into(ui.find("Min OVR", "##plist"), "87"), "min OVR");
+            // an internal code passes the filter of the visible position it plays as (core/model.h position_plays_as): 1003 is stored
+            // as CB (5); as RCB (4) he must still be listed under the CB filter, and drop out once "Show all internal positions" (exact
+            // codes) is ticked in the combo
+            {
+                const Table* pt = app.db.table("players");
+                const uint64_t r1003 = pt ? app.db.find(*pt, "playerid", 1003) : 0;
+                CHECK(r1003 && app.db.get_int(*pt, r1003, "preferredposition1") == 5, "1003 is stored as CB");
+                CHECK(ui.click("##fpos", "##plist") && ui.click("CB", "##Combo"), "CB filter");
+                CHECK(expect([](const PlayerRow& p) { return player_passes_position(p, 5, false); }) &&
+                          std::count(app.list_player_ids.begin(), app.list_player_ids.end(), 1003) == 1,
+                      "CB: 1003 listed");
+                CHECK(r1003 && app.db.set_int(*pt, r1003, "preferredposition1", 4), "1003 stored as RCB");
+                app.model.refresh_player(1003, kToday);
+                CHECK(app.model.player(1003) && app.model.player(1003)->positions[0] == 4, "the model row shows RCB");
+                CHECK(ui.click("Clear##filters", "##plist") && ui.click("##fpos", "##plist") && ui.click("CB", "##Combo"), "CB filter again");
+                CHECK(expect([](const PlayerRow& p) { return player_passes_position(p, 5, false); }) &&
+                          std::count(app.list_player_ids.begin(), app.list_player_ids.end(), 1003) == 1,
+                      "CB filter: a player stored as RCB is listed (he plays as CB)");
+                CHECK(ui.click("##fpos", "##plist") && ui.click("Show all internal positions", "##Combo"), "Show all internal positions on");
+                CHECK(position_show_all(), "the toggle is on");
+                CHECK(ui.click("CB", "##Combo"), "close the popup (CB stays picked)");
+                CHECK(expect([](const PlayerRow& p) { return player_passes_position(p, 5, true); }) &&
+                          std::count(app.list_player_ids.begin(), app.list_player_ids.end(), 1003) == 0,
+                      "with the toggle on the filter is exact: the RCB player is not listed under CB");
+                CHECK(ui.click("##fpos", "##plist") && ui.click("Show all internal positions", "##Combo"), "Show all internal positions off");
+                CHECK(!position_show_all(), "the toggle is off again");
+                CHECK(ui.click("CB", "##Combo"), "close the popup");
+                CHECK(std::count(app.list_player_ids.begin(), app.list_player_ids.end(), 1003) == 1, "RCB player back under CB");
+                CHECK(r1003 && app.db.set_int(*pt, r1003, "preferredposition1", 5), "1003 restored to CB");
+                app.model.refresh_player(1003, kToday);
+                CHECK(ui.click("Clear##filters", "##plist"), "Clear");
+                CHECK(app.list_player_ids.size() == all, "cleared after the position cases");
+            }
+            CHECK(ui.type_into(ui.find("##ovr_from", "##plist"), "87"), "OVR from 87");
             CHECK(expect([](const PlayerRow& p) { return p.overall >= 87; }), "OVR >= 87");
-            CHECK(ui.type_into(ui.find("Max age", "##plist"), "25"), "max age");
+            CHECK(ui.type_into(ui.find("##age_to", "##plist"), "25"), "age to 25");
             CHECK(expect([](const PlayerRow& p) { return p.overall >= 87 && p.age >= 0 && p.age <= 25; }), "and age <= 25");
-            CHECK(ui.type_into(ui.find("Min POT", "##plist"), "90"), "min POT");
+            CHECK(ui.type_into(ui.find("##pot_from", "##plist"), "90"), "POT from 90");
             CHECK(expect([](const PlayerRow& p) { return p.overall >= 87 && p.potential >= 90 && p.age >= 0 && p.age <= 25; }),
                   "and POT >= 90");
             CHECK(ui.click("Clear##filters", "##plist"), "Clear");
             CHECK(app.list_player_ids.size() == all, "cleared again");
+            // two-sided: age BETWEEN two numbers, overall up to a value, and from > to is pulled back (core/range_filter.h)
+            int lo_age = 99, hi_age = -1;
+            for (const auto& p : app.model.players())
+                if (p.age >= 0) lo_age = std::min(lo_age, p.age), hi_age = std::max(hi_age, p.age);
+            CHECK(hi_age > lo_age, fmt("test world ages span %d..%d", lo_age, hi_age));
+            const int a_from = lo_age + 1, a_to = hi_age - 1;
+            CHECK(ui.type_into(ui.find("##age_from", "##plist"), std::to_string(a_from)), "age from");
+            CHECK(ui.type_into(ui.find("##age_to", "##plist"), std::to_string(a_to)), "age to");
+            CHECK(expect([&](const PlayerRow& p) { return p.age >= a_from && p.age <= a_to; }) && app.list_player_ids.size() < all,
+                  fmt("age between %d and %d", a_from, a_to));
+            CHECK(ui.type_into(ui.find("##ovr_to", "##plist"), "80"), "OVR to 80");
+            CHECK(expect([&](const PlayerRow& p) { return p.age >= a_from && p.age <= a_to && p.overall <= 80; }), "and OVR <= 80 (upper bound only)");
+            CHECK(ui.type_into(ui.find("##ovr_from", "##plist"), "90"), "OVR from 90 while to is 80");
+            CHECK(expect([&](const PlayerRow& p) { return p.age >= a_from && p.age <= a_to && p.overall >= 90 && p.overall <= 90; }),
+                  "from above to: to follows (90-90)");
+            CHECK(ui.click("Clear##filters", "##plist"), "Clear");
+            CHECK(app.list_player_ids.size() == all, "cleared after the ranges");
+            CHECK(ui.click("Free agent", "##plist"), "Free agent");
+            CHECK(expect([](const PlayerRow& p) { return p.club == 0; }), "free agents: players without a club");
+            CHECK(ui.click("Free agent", "##plist"), "Free agent off");
+            CHECK(app.list_player_ids.size() == all, "everyone again");
         });
 
         run_case("UI: PlayStyles All/None buttons and a single bit", [&] {
@@ -4599,7 +4658,7 @@ static void test_ui() {
 
         run_case("UI: Database tab, pick a table, double-click a float cell, edit", [&] {
             CHECK(ui.click("Database"), "Database tab");
-            CHECK(ui.click("Table"), "table combo");
+            CHECK(ui.click("##dbtable"), "table combo");
             CHECK(ui.click("formations"), "formations");
             CHECK(app.db_table == "formations", "table chosen: " + app.db_table);
             const ItemRec* cell = ui.find("0.5000", "FC 27 LE Turbo");
@@ -4763,8 +4822,8 @@ static void test_ui() {
             press("Clone player", "##pclone");
             CHECK(ui.click("Create player...", "##pedit"), "create dialog");
             CHECK(ui.find("Create player", "##pcreate") != nullptr, "create button shown");
-            CHECK(ui.type_into(ui.find("First name", "##pcreate"), "Neo"), "first name");
-            CHECK(ui.type_into(ui.find("Surname", "##pcreate"), "Turbo"), "surname");
+            CHECK(ui.type_into(ui.find("##first", "##pcreate"), "Neo"), "first name");
+            CHECK(ui.type_into(ui.find("##last", "##pcreate"), "Turbo"), "surname");
             press("Create player", "##pcreate");
 
             // Delete player (last: the other commands above use player 1002)
@@ -12960,6 +13019,7 @@ int main(int argc, char** argv) {
     test_core();
     test_field_labels();
     test_describe_core();
+    test_ux_filters_core();
     std::printf("native pictures\n");
     test_images();
     std::printf("native dev service\n");
