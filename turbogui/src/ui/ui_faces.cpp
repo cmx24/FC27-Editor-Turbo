@@ -982,7 +982,9 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
     float below = ImGui::GetFrameHeightWithSpacing() * 2.2f;
     if (ch.pending_game_head > 0)
         below += ch.confirm_h > 0.0f ? ch.confirm_h : ImGui::GetTextLineHeightWithSpacing() * 7.0f + ImGui::GetFrameHeightWithSpacing();
-    ImGui::BeginChild("##facegrid", ImVec2(0, -below), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
+    // a resizable child keeps its own height (ImGui uses size.y only at first): while a confirmation is pending the grid is not
+    // resizable, so it shrinks and Apply / Cancel stay visible (2.1 in-game check)
+    ImGui::BeginChild("##facegrid", ImVec2(0, -below), ch.pending_game_head > 0 ? ImGuiChildFlags_Borders : (ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY));
     const int cols = std::max(1, int((ImGui::GetContentRegionAvail().x + ImGui::GetStyle().ItemSpacing.x) / (cell + ImGui::GetStyle().ItemSpacing.x)));
     const int nrows = int((rows.size() + size_t(cols) - 1) / size_t(cols));
     ImGuiListClipper clip;
