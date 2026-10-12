@@ -427,6 +427,13 @@ void draw_tools(App& app) {
             ImGui::SameLine();
             ImGui::TextDisabled("(%s)", why.c_str());
         }
+        // 2.1: attributes / position in "Set" move each player's overall too (features/bulk_edit.lua, core/overall.lua)
+        ImGui::TextDisabled("Attributes or position set here move each player's overall the way the game works it out.");
+        ImGui::SameLine();
+        run_button(app, "Put the overalls back", "bulk_edit", {{"undo_overall", true}}, false);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The overalls the last bulk edit moved go back (only where they are still the ones it wrote; the\n"
+                              "attributes stay). Off switch for the overall follow: turbo_output\\overall_follow_off.txt");
     }
 
     // ---------------------------------------------------------------- maintenance

@@ -714,6 +714,46 @@ static int write_bulk(App& app, const Table& t, const PlayerRow& p, const overal
     return n;
 }
 
+// ---- the overall follows an attribute edit (2.1). App::edit sends every players attribute / preferredposition1 write
+// here (sliders, number boxes, All fields, field search, the Database tab): the field is written as before
+// (App::edit_field: range check, undo step, kept edits, development plan of your players), then the stored overall moves
+// by overall::follow() through the same path a typed overall uses (kept edits; the attributes go into the plan, the
+// overall is no plan field). The overall joins the attribute's undo step, so one Undo puts both back.
+// Kill switch: turbo_output\overall_follow_off.txt (the attribute alone, as in 2.0).
+bool overall_follow_off(App& app) {
+    std::error_code ec;
+    return std::filesystem::exists(app.bridge.root() / "turbo_output" / "overall_follow_off.txt", ec);
+}
+
+bool overall_follow_edit(App& app, const Table& t, uint64_t rec, const Field& f, const Value& v) {
+    const Field* of = t.field("overallrating");
+    overall::Attrs before{};
+    if (t.name != "players" || f.type != FieldType::Int || v.type != FieldType::Int || !overall::follows_field(f.name) || !of ||
+        of->type != FieldType::Int || !read_attrs(app, t, rec, before) || overall_follow_off(app))
+        return app.edit_field(t, rec, f, v);
+    const int pos0 = static_cast<int>(app.db.get_int(t, rec, "preferredposition1", 14));
+    const int64_t stored = app.db.get_int(t, rec, "overallrating", 0);
+    const int64_t pid = app.db.get_int(t, rec, "playerid", 0);
+    if (!app.edit_field(t, rec, f, v)) return false;
+    overall::Attrs after{};
+    if (!read_attrs(app, t, rec, after)) return true;
+    const int pos1 = static_cast<int>(app.db.get_int(t, rec, "preferredposition1", 14));
+    const int want = overall::follow(pos0, before, pos1, after, static_cast<int>(stored));
+    if (want == stored) return true;
+    // the attribute stays written when the overall is refused (edit_field's toast says why)
+    if (!app.edit_field(t, rec, *of, Value::of_int(want), false)) return true;
+    auto it = app.undo_.find(pid);
+    if (it != app.undo_.end() && !it->second.empty()) {
+        App::UndoStep& s = it->second.back();
+        if (s.table == t.name && s.rec == rec && s.field == f.name && s.also.empty()) s.also.push_back({"overallrating", Value::of_int(stored)});
+    }
+    char msg[200];
+    std::snprintf(msg, sizeof(msg), "Overall %lld -> %d: follows the attributes for his position (%s formula; Undo puts both back)",
+                  static_cast<long long>(stored), want, position_name(pos1));
+    app.notify(msg);
+    return true;
+}
+
 static void undo_bulk(App& app, const Table& t, const PlayerRow& p) {
     auto& st = app.bulk_undo;
     for (size_t i = st.size(); i-- > 0;) {
@@ -781,7 +821,11 @@ static void archetype_bar(App& app, const Table& t, const PlayerRow& p) {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("FC 27 works the overall out from the attributes (the player card, its own growth): a bare overall does not last.\n"
                           "So Overall +1 / -1 and an overall typed into the Overall box (Profile, All fields) move the attributes that\n"
-                          "weigh most for his position until the formula gives it; Undo / Undo bulk put them back.");
+                          "weigh most for his position until the formula gives it; Undo / Undo bulk put them back.\n"
+                          "The other way round too: an attribute (or his position) you edit moves the stored overall by what the\n"
+                          "formula moves, so the game shows it at once; one Undo puts both back. %s",
+                          overall_follow_off(app) ? "OFF now: turbo_output\\overall_follow_off.txt exists."
+                                                  : "Off switch: create turbo_output\\overall_follow_off.txt.");
     ImGui::SameLine();
     ImGui::TextDisabled("(formula for %s: %d)", position_name(pos), compute_overall(pos, cur));
     if (ImGui::IsItemHovered())

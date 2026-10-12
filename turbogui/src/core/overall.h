@@ -55,5 +55,18 @@ inline bool can_adjust(int position, const Attrs& a, int delta) {
     return adjust(position, t, delta, nullptr);
 }
 
+// ---- the overall follows an attribute or position edit (2.1: App::edit -> overall_follow_edit in ui_players.cpp; the
+// Lua side's bulk edit uses the same rule, core/overall.lua). FC 27 shows the stored overallrating until its own growth
+// works it out again, so an attribute-only edit left the overall the game shows unchanged.
+// Rule: the formula does not move (an attribute that does not count for his position, the same position group) -> the
+// stored overall stays. Otherwise, when the stored overall is what the formula gives within kFollowTolerance, it moves
+// by what the formula moved (stored + after - before: a player the fit misses by one keeps that offset); a stored
+// overall the attributes do not explain (OVR-1 victims, a bare overall from an old editor) becomes the formula's value.
+// Always 1..99.
+constexpr int kFollowTolerance = 2;
+int follow(int pos_before, const Attrs& before, int pos_after, const Attrs& after, int stored);
+// The players fields whose edit makes the overall follow: the 34 attributes and preferredposition1
+bool follows_field(const std::string& field_name);
+
 }  // namespace overall
 }  // namespace turbo

@@ -10,12 +10,18 @@
 -- In a career, "set" fields the game's development plan holds (attributes, work rates, skill moves, weak foot:
 -- core/moves.lua PLAN_FIELDS) go into the plan of each of your players too, else the plan puts the old values back
 -- when the career is loaded again.
+-- 2.1: "set" attributes / preferredposition1 make the stored overall follow (core/overall.lua: the Turbo window's
+-- formula and rule), so the game shows the new overall at once. Not when "set" has overallrating itself, with
+-- "overall_follow": false, or while turbo_output\overall_follow_off.txt exists. The overalls it wrote are kept in
+-- turbo_output\overall_follow_undo.json (the last runs); { "undo_overall": true } puts the last run's back (only where
+-- the overall is still the one it wrote).
 
 local util = require 'imports/turbo/core/util'
 local db = require 'imports/turbo/core/db'
 local game = require 'imports/turbo/core/game'
 local moves = require 'imports/turbo/core/moves'
 local sel = require 'imports/turbo/core/select'
+local overall = require 'imports/turbo/core/overall'
 
 local M = {}
 
@@ -54,8 +60,69 @@ local function plan_actions(actions)
     return steps
 end
 
+M.UNDO_FILE = "overall_follow_undo.json"
+M.UNDO_FORMAT = "turbo_overall_follow_undo"
+M.UNDO_RUNS = 20   -- runs kept in the file
+
+local function json_lib()
+    local ok, j = pcall(require, 'imports/external/json')
+    return ok and type(j) == "table" and j or nil
+end
+
+local function read_undo(out_dir)
+    local j = json_lib()
+    local path = util.join(out_dir, M.UNDO_FILE)
+    if not j then return nil, path, "json library not available" end
+    if not util.file_exists(path) then return { format = M.UNDO_FORMAT, runs = {} }, path end
+    local ok, d = pcall(j.decode, util.read_file(path) or "")
+    if not ok or type(d) ~= "table" or d.format ~= M.UNDO_FORMAT or type(d.runs) ~= "table" then
+        return nil, path, "undo file " .. path .. " is not readable (left as it is)"
+    end
+    return d, path
+end
+
+local function write_undo(path, doc)
+    local j = json_lib()
+    local ok, text = pcall(j.encode, doc)
+    if not ok then return false, tostring(text) end
+    return util.write_file(path, text)
+end
+
+-- Puts the last run's overalls back where the overall is still the one the run wrote
+local function undo_overall(ctx)
+    local players, perr = db.get_table("players")
+    if not players then return false, perr end
+    local doc, path, err = read_undo(ctx.out_dir)
+    if not doc then return false, err end
+    local run = doc.runs[#doc.runs]
+    if not run or type(run.players) ~= "table" then return true, "no overall follow to undo" end
+    local want = {}
+    for _, e in ipairs(run.players) do want[util.to_int(e.playerid) or -1] = e end
+    local back, changed = 0, 0
+    for rec in db.records(players) do
+        local e = want[db.get_int(players, rec, "playerid", -1)]
+        if e then
+            if db.get_int(players, rec, "overallrating", 0) == util.to_int(e.after) then
+                local ok, werr = db.set(players, rec, "overallrating", util.to_int(e.before), ctx.dry)
+                if not ok then return false, string.format("player %s: %s", tostring(e.playerid), werr) end
+                back = back + 1
+            else
+                changed = changed + 1
+            end
+        end
+    end
+    if ctx.dry then return true, string.format("DRY RUN: %d overalls would go back", back) end
+    doc.runs[#doc.runs] = nil
+    local ok, werr = write_undo(path, doc)
+    local msg = string.format("%d overalls put back (bulk edit of %s)", back, tostring(run.when))
+    if changed > 0 then msg = msg .. string.format("; %d changed since, left as they are", changed) end
+    if not ok then msg = msg .. "; undo file not updated: " .. tostring(werr) end
+    return true, msg
+end
+
 function M.run(ctx)
     local cfg = ctx.cfg
+    if cfg.undo_overall == true then return undo_overall(ctx) end
     local list, players_or_err, desc = sel.players(cfg.scope, cfg.filters, { allow_all = cfg.confirm_all == true })
     if not list then return false, players_or_err end
     local players = players_or_err
@@ -81,11 +148,42 @@ function M.run(ctx)
         if is_plan[w.field] then plan_vals[w.field] = w.value end
     end
     local sync_plans = next(plan_vals) ~= nil and game.in_cm()
+    -- the overall follows the attributes / position (core/overall.lua)
+    local follow, follow_note = false, nil
+    for _, w in ipairs(writes) do
+        if overall.follows_field(w.field) then follow = true end
+    end
+    for _, w in ipairs(writes) do
+        if w.field == "overallrating" then follow = false end
+    end
+    if follow and cfg.overall_follow == false then follow = false end
+    if follow and overall.off(ctx.out_dir) then
+        follow, follow_note = false, "overall not followed (turbo_output\\" .. overall.KILL_FILE .. ")"
+    end
+    local followed = {}
     local api_fail, dev_added, plans, plan_fail = 0, 0, 0, {}
     for _, p in ipairs(list) do
+        local a0, pos0, ovr0
+        if follow then
+            a0, pos0 = overall.read(db, players, p.rec)
+            ovr0 = a0 and db.get_int(players, p.rec, "overallrating", 0)
+        end
         for _, w in ipairs(writes) do
             local ok, werr = db.set(players, p.rec, w.field, w.value, ctx.dry)
             if not ok then return false, string.format("player %d: %s", p.pid, werr) end
+        end
+        if a0 then
+            local a1, pos1 = {}, pos0
+            for k, v in pairs(a0) do a1[k] = v end
+            for _, w in ipairs(writes) do
+                if w.field == "preferredposition1" then pos1 = w.value elseif a1[w.field] ~= nil then a1[w.field] = w.value end
+            end
+            local want = overall.follow(pos0, a0, pos1, a1, ovr0)
+            if want ~= ovr0 then
+                local ok, werr = db.set(players, p.rec, "overallrating", want, ctx.dry)
+                if not ok then return false, string.format("player %d: overall %d -> %d: %s", p.pid, ovr0, want, werr) end
+                followed[#followed + 1] = { playerid = p.pid, before = ovr0, after = want }
+            end
         end
         if sync_plans and not ctx.dry then
             local state = moves.sync_plan(p.pid, plan_vals)
@@ -116,6 +214,20 @@ function M.run(ctx)
     end
     local summary = string.format("%d players (%s): %s", #list, desc, table.concat(parts, ", "))
     if plans > 0 then summary = summary .. string.format("; %d development plans updated", plans) end
+    if #followed > 0 then
+        summary = summary .. string.format("; overall followed the attributes for %d players", #followed)
+        if not ctx.dry then
+            local doc, path, uerr = read_undo(ctx.out_dir)
+            if doc then
+                doc.runs[#doc.runs + 1] = { when = os.date("%Y-%m-%d %H:%M:%S"), players = followed }
+                while #doc.runs > M.UNDO_RUNS do table.remove(doc.runs, 1) end
+                local ok, werr = write_undo(path, doc)
+                if not ok then uerr = "undo file not written: " .. tostring(werr) end
+            end
+            summary = summary .. (uerr and ("; " .. uerr) or " (undo: overall_follow_undo.json)")
+        end
+    end
+    if follow_note then summary = summary .. "; " .. follow_note end
     if api_fail > 0 then summary = summary .. string.format("; %d API calls failed", api_fail) end
     if #plan_fail > 0 then summary = summary .. "; development plan NOT updated for " .. table.concat(plan_fail, ", ") end
     return api_fail == 0 and #plan_fail == 0, summary

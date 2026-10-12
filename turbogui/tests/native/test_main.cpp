@@ -2044,6 +2044,38 @@ static void test_reapply_players() {
         CHECK(overall::adjust(25, u, 1) && overall::reach(25, r, overall::compute_overall(25, a) + 1) && u == r, "adjust(+1) == reach(+1)");
         CHECK(overall::adjust(10, d, -1) && overall::reach(10, rd, overall::compute_overall(10, a) - 1) && d == rd, "adjust(-1) == reach(-1)");
     });
+    run_case("overall: follow() - the stored overall follows an attribute / position edit (2.1)", [&] {
+        overall::Attrs a{};
+        for (int i = 0; i < overall::kAttrCount; ++i) a[static_cast<size_t>(i)] = 40 + (i * 7 + 13) % 55;
+        // the values the Lua port (core/overall.lua, t25_overall_follow.lua) is checked against
+        CHECK(overall::compute_overall(0, a) == 68 && overall::compute_overall(5, a) == 60 && overall::compute_overall(14, a) == 73 &&
+                  overall::compute_overall(25, a) == 65 && overall::compute_overall(27, a) == 64 && overall::compute_overall(99, a) == 73,
+              "reference values shared with the Lua side");
+        overall::Attrs b = a;
+        b[overall::Finishing] = b[overall::Positioning] = b[overall::ShotPower] = 95;
+        const int was = overall::compute_overall(25, a), now = overall::compute_overall(25, b);
+        CHECK(now > was, fmt("striker formula %d -> %d", was, now));
+        CHECK(overall::follow(25, a, 25, a, 70) == 70, "nothing moved: the stored overall stays, even off the formula");
+        overall::Attrs g = a;
+        g[overall::GKDiving] = 99;
+        CHECK(overall::follow(25, a, 25, g, was + 1) == was + 1, "an attribute the position ignores: unchanged");
+        CHECK(overall::follow(25, a, 25, b, was) == now, "on the formula: follows it");
+        CHECK(overall::follow(25, a, 25, b, was + overall::kFollowTolerance) == now + overall::kFollowTolerance &&
+                  overall::follow(25, a, 25, b, was - overall::kFollowTolerance) == now - overall::kFollowTolerance,
+              "within the tolerance: the offset stays");
+        CHECK(overall::follow(25, a, 25, b, 1) == now && overall::follow(25, a, 25, b, was + 9) == now, "far off (OVR-1): the formula's value");
+        CHECK(overall::follow(25, a, 0, a, was) == overall::compute_overall(0, a), "position change: the new position's formula");
+        overall::Attrs top{};
+        top.fill(99);
+        CHECK(overall::follow(25, a, 25, top, 98) == 99, "never beyond 99");
+        overall::Attrs low{};
+        low.fill(1);
+        CHECK(overall::follow(25, a, 25, low, was - 2) == 1, "never below 1");
+        CHECK(overall::follows_field("finishing") && overall::follows_field("defensiveawareness") && overall::follows_field("preferredposition1") &&
+                  !overall::follows_field("potential") && !overall::follows_field("overallrating") && !overall::follows_field("preferredposition2") &&
+                  !overall::follows_field("marking"),
+              "which fields follow");
+    });
 }
 
 // ================================================================ core: voice swaps (core/callname_voice.h)
@@ -3643,6 +3675,76 @@ static void test_ui() {
             CHECK(ui.type_into(ui.find("##v", "##attr", "acceleration"), "200"), "type 200");
             CHECK(app.db.get_int(*p, rec, "acceleration") == 97, "out of range not written");
             CHECK(ui.toast_contains("outside the field range"), "error shown");
+        });
+
+        run_case("UI: an attribute typed into the Attributes tab moves the overall; one Undo puts both back; kill switch (2.1)", [&] {
+            CHECK(app.sel_player == 1002, "player 1002 still selected");
+            const Table* p = app.db.table("players");
+            const uint64_t rec = app.db.find(*p, "playerid", 1002);
+            overall::Attrs a{};
+            for (int i = 0; i < overall::kAttrCount; ++i) a[static_cast<size_t>(i)] = static_cast<int>(app.db.get_int(*p, rec, overall::kAttrNames[i]));
+            // a right winger (acceleration weighs ~0.07 there; its box is the first of the tab, always drawn); his stored
+            // overall = the formula's, so the follow is plain to check. Both go back at the end.
+            const int64_t pos_was = app.db.get_int(*p, rec, "preferredposition1"), ovr_was = app.db.get_int(*p, rec, "overallrating");
+            const int pos = 23;
+            std::string err;
+            CHECK(app.db.set_int(*p, rec, "preferredposition1", pos, &err), "position RW: " + err);
+            const int64_t start = overall::compute_overall(pos, a);
+            CHECK(app.db.set_int(*p, rec, "overallrating", start, &err), "overall set to the formula: " + err);
+            app.model.refresh_player(1002, app.today());
+            const int heavy = overall::Acceleration;
+            const char* hname = overall::kAttrNames[heavy];
+            const int h0 = a[static_cast<size_t>(heavy)];
+            const int h1 = h0 > 70 ? h0 - 20 : h0 + 20;
+            overall::Attrs b = a;
+            b[static_cast<size_t>(heavy)] = h1;
+            const int want = overall::follow(pos, a, pos, b, static_cast<int>(start));
+            CHECK(want != start, fmt("%s %d -> %d moves the formula (%lld -> %d)", hname, h0, h1, static_cast<long long>(start), want));
+            const size_t steps0 = app.undo_count(1002);
+            ui.frames(2);
+            CHECK(ui.type_into(ui.find("##v", "##attr", hname), std::to_string(h1)), std::string("type ") + hname);
+            CHECK(app.db.get_int(*p, rec, hname) == h1, "attribute written");
+            CHECK(app.db.get_int(*p, rec, "overallrating") == want,
+                  fmt("overall followed: %lld (want %d)", static_cast<long long>(app.db.get_int(*p, rec, "overallrating")), want));
+            CHECK(ui.toast_contains("follows the attributes"), "toast says the overall followed");
+            CHECK(app.undo_count(1002) == steps0 + 1, "one undo step for the attribute and its overall");
+            CHECK(app.model.player(1002) && app.model.player(1002)->overall == want, "the list row shows the new overall");
+            CHECK(app.undo(1002), "undo");
+            CHECK(app.db.get_int(*p, rec, hname) == h0 && app.db.get_int(*p, rec, "overallrating") == start, "both back");
+            CHECK(ui.toast_contains("and the overall it moved"), "undo toast names the overall");
+            // an attribute his position ignores (weight 0): the overall stays
+            int zero = -1;
+            for (int i = 0; i < overall::kAttrCount && zero < 0; ++i)
+                if (overall::attr_weight(pos, i) == 0.0) zero = i;
+            if (zero >= 0) {
+                const Field* zf = p->field(overall::kAttrNames[zero]);
+                const int z0 = a[static_cast<size_t>(zero)];
+                CHECK(zf && app.edit(*p, rec, *zf, Value::of_int(z0 > 50 ? z0 - 30 : z0 + 30)), "edit an ignored attribute");
+                CHECK(app.db.get_int(*p, rec, "overallrating") == start, "ignored attribute: overall unchanged");
+                CHECK(app.undo(1002), "undo it");
+            }
+            // the position: the new position's formula
+            const Field* pf = p->field("preferredposition1");
+            const int other = pos == 0 ? 25 : 0;
+            CHECK(pf && app.edit(*p, rec, *pf, Value::of_int(other)), "position changed");
+            CHECK(app.db.get_int(*p, rec, "overallrating") == overall::follow(pos, a, other, a, static_cast<int>(start)),
+                  "position change: the overall of the new position");
+            CHECK(app.undo(1002) && app.db.get_int(*p, rec, "preferredposition1") == pos && app.db.get_int(*p, rec, "overallrating") == start,
+                  "undo: position and overall back");
+            // kill switch: the attribute alone, as in 2.0
+            fs::create_directories(app.bridge.root() / "turbo_output");
+            std::ofstream(app.bridge.root() / "turbo_output" / "overall_follow_off.txt") << "off";
+            CHECK(ui.type_into(ui.find("##v", "##attr", hname), std::to_string(h1)), "type again with the kill switch");
+            CHECK(app.db.get_int(*p, rec, hname) == h1 && app.db.get_int(*p, rec, "overallrating") == start, "kill switch: overall untouched");
+            fs::remove(app.bridge.root() / "turbo_output" / "overall_follow_off.txt");
+            CHECK(app.undo(1002) && app.db.get_int(*p, rec, hname) == h0, "undo the attribute");
+            // an overall typed into the box still moves the attributes (App::set_overall), and does not follow itself
+            CHECK(app.edit(*p, rec, *p->field("overallrating"), Value::of_int(start + 2)) && app.db.get_int(*p, rec, "overallrating") == start + 2,
+                  "typed overall still reached");
+            CHECK(app.undo(1002) && app.db.get_int(*p, rec, "overallrating") == start, "undo the typed overall");
+            CHECK(app.db.set_int(*p, rec, "preferredposition1", pos_was, &err) && app.db.set_int(*p, rec, "overallrating", ovr_was, &err),
+                  "player 1002 as he was: " + err);
+            app.model.refresh_player(1002, app.today());
         });
 
         run_case("UI: search box filters the list", [&] {
