@@ -40,4 +40,11 @@ else
   done
   echo "PY$r"
 fi
-[ $b -eq 0 ] && [ $l -eq 0 ] && [ $n -eq 0 ]
+# 2.1 asset catalog: the fast standalone runners (g++ only, synthetic data; turbogui/tests/catalog)
+c=0; cr=""
+for t in run run_callnames run_game_heads run_gear run_pages; do
+  bash "turbogui/tests/catalog/$t.sh" > "$L/check_catalog_$t.log" 2>&1 || c=1
+  cr="$cr $t=$(grep -E -o '[0-9]+ (passed|checks)' "$L/check_catalog_$t.log" | tail -1 | cut -d' ' -f1)/$(grep -E -o '[0-9]+ failed' "$L/check_catalog_$t.log" | tail -1 | cut -d' ' -f1)"
+done
+echo "CATALOG exit=$c$cr (ok/failed)"
+[ $b -eq 0 ] && [ $l -eq 0 ] && [ $n -eq 0 ] && [ $c -eq 0 ]
