@@ -20,7 +20,9 @@
 #include "imgui.h"
 #include "preload.h"
 #include "ui_zoom.h"
+#include "ui_asset_browser.h"
 #include "ui_faces.h"
+#include "ui_images.h"
 
 #include "ui_edit_unlock.h"
 #include "ui_tactics.h"
@@ -202,6 +204,7 @@ App::~App() {
     if (reapply_save_due_) save_reapply();  // a player edit kept in the last frame
     bank_cancel_ = true;
     if (bank_thread_.joinable()) bank_thread_.join();
+    if (asset_thread_.joinable()) asset_thread_.join();  // a catalog load in flight (a few hundred ms at most)
 }
 
 // ---- spoken-set capture from the loaded commentary bank (core/commentary_bank.h)
@@ -280,6 +283,234 @@ std::string App::time_stamp() const {
     const std::tm* tmv = std::localtime(&t);  // render thread only
     if (!tmv || std::strftime(when, sizeof(when), "%Y-%m-%d %H:%M", tmv) == 0) std::snprintf(when, sizeof(when), "%lld", static_cast<long long>(t));
     return when;
+}
+
+// ---- game asset catalog (core/asset_catalog.h): one load on a worker thread, swapped in on the render thread
+std::shared_ptr<const assets::Catalog> App::asset_catalog() const {
+    static const std::shared_ptr<const assets::Catalog> kEmpty = std::make_shared<assets::Catalog>();
+    return asset_cat_ ? asset_cat_ : kEmpty;
+}
+
+std::string App::asset_running_key() const {
+    if (hook_report) {
+        const std::string k = hook_report().build;
+        if (!k.empty()) return k;
+    }
+    return game_root.empty() ? std::string() : assets::exe_build_key(game_root / "FC27.exe");
+}
+
+bool App::asset_reload(const char* why) {
+    if (asset_running_.load()) return false;
+    if (asset_thread_.joinable()) asset_thread_.join();
+    asset_started_ = true;
+    const fs::path out = turbo_output();
+    asset_sig_ = assets::dir_signature(out);
+    const std::string key = asset_running_key();  // hook_report is the host's: asked here, not on the worker
+    const std::string reason = why ? why : "";
+    const std::string gate_session = session;  // lua_gate.txt carries it: Lua trusts only the gate of this GUI session
+    asset_running_ = true;
+    asset_thread_ = std::thread([this, out, key, reason, gate_session]() {
+        auto c = std::make_shared<assets::Catalog>();
+        std::string note;
+        try {
+            const auto t0 = std::chrono::steady_clock::now();
+            c->load_dir(out, key);
+            std::string gate_err;
+            // lua_gate.txt follows the catalog: written while it is current, deleted when stale / off / missing
+            if (!c->sync_lua_gate(out, &gate_err, gate_session)) note = "; lua_gate.txt not updated: " + gate_err;
+            char buf[96];
+            std::snprintf(buf, sizeof(buf), " (%.0f ms, %s)", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(),
+                          reason.c_str());
+            note = buf + note;
+        } catch (const std::exception& e) {
+            c = std::make_shared<assets::Catalog>();
+            note = std::string(" (load failed: ") + e.what() + ")";
+        }
+        std::lock_guard<std::mutex> lock(asset_m_);
+        asset_result_ = std::move(c);
+        asset_result_note_ = std::move(note);
+        asset_done_ = true;
+        asset_running_ = false;
+    });
+    return true;
+}
+
+void App::finish_asset_load() {
+    std::shared_ptr<const assets::Catalog> c;
+    std::string note;
+    {
+        std::lock_guard<std::mutex> lock(asset_m_);
+        if (!asset_done_) return;
+        asset_done_ = false;
+        c = std::move(asset_result_);
+        note = std::move(asset_result_note_);
+    }
+    if (asset_thread_.joinable()) asset_thread_.join();
+    if (!c) return;
+    // for the log only: a catalog rebuilt under the same build key keeps its state, key and file, so when it was built and
+    // its counts are compared too
+    const bool changed = !asset_cat_ || asset_cat_->state() != c->state() || asset_cat_->status().build_key != c->status().build_key ||
+                         asset_cat_->status().file != c->status().file || asset_cat_->hidden_off() != c->hidden_off() ||
+                         asset_cat_->status().built_at != c->status().built_at || asset_cat_->status().counts != c->status().counts;
+    const bool was_loaded = asset_cat_ && asset_cat_->loaded();
+    asset_cat_ = std::move(c);
+    asset_load_note = asset_cat_->status_line() + note;
+    if (!asset_cat_->status().note.empty()) asset_load_note += "; " + asset_cat_->status().note;
+    // the first "no catalog" stays quiet in the log (most users have none); every real load or change is logged
+    if (changed && asset_cat_->state() != assets::State::NotLoaded) {
+        log("asset catalog: " + asset_load_note);
+        if (log_hook) log_hook("asset catalog: " + asset_load_note);
+    }
+    // Every finished load reaches the pickers while there is (or was) a catalog: a catalog_<same key>.json rebuilt after a
+    // content change (folder poll, Status > Reload catalog) must not leave the face / gear / callnames gates on the old
+    // copy while lua_gate.txt already follows the new one. Loads are rare (start-up, a catalog file or switch changed,
+    // the Reload button). No catalog = 2.0 behaviour, untouched.
+    if (was_loaded || asset_cat_->loaded()) {
+        publish_asset_catalog();
+        ++gen;
+    }
+}
+
+// Hands the catalog to every picker that reads it (real-face chooser, gear galleries and tattoos, callnames, the miniface
+// and crest browsers). Not loaded (off, none, refused) = nullptr: each picker then behaves exactly as in 2.0.
+void App::publish_asset_catalog() {
+    const std::shared_ptr<const assets::Catalog> cat = asset_cat_ && asset_cat_->loaded() ? asset_cat_ : nullptr;
+    set_faces_catalog(cat);
+    set_gear_catalog(cat);
+    callnames.use_catalog(cat);
+    asset_view_version_ = ~0ull;  // the browsers' DbUse is published by publish_asset_use
+    publish_asset_use();
+}
+
+// The miniface and crest browsers read what the save uses through asset_view(): republished once per model.version()
+// while a catalog is loaded (nothing is built without one)
+void App::publish_asset_use() {
+    const std::shared_ptr<const assets::Catalog> cat = asset_cat_ && asset_cat_->loaded() ? asset_cat_ : nullptr;
+    if (!cat) {
+        if (asset_view().catalog) set_asset_view({});
+        asset_view_version_ = ~0ull;
+        return;
+    }
+    const uint64_t v = db.ready() ? model.version() : ~0ull - 1;
+    if (v == asset_view_version_ && asset_view().catalog == cat) return;
+    asset_view_version_ = v;
+    AssetView view;
+    view.catalog = cat;
+    if (db.ready()) view.use = std::make_shared<const assets::DbUse>(asset_use());
+    set_asset_view(std::move(view));
+}
+
+void App::asset_tick() {
+    finish_asset_load();
+    if (asset_cat_ && asset_cat_->loaded()) publish_asset_use();
+    if (now < asset_next_poll_) return;
+    asset_next_poll_ = now + 5.0;
+    if (asset_running_.load()) return;
+    const fs::path out = turbo_output();
+    if (!asset_started_) {
+        asset_reload("start-up");
+    } else if (assets::dir_signature(out) != asset_sig_) {
+        asset_reload("catalog folder changed");
+    }
+}
+
+const assets::DbUse& App::asset_use() {
+    if (!db.ready()) {
+        if (asset_use_built_) {
+            asset_use_ = assets::DbUse{};
+            asset_use_built_ = false;
+        }
+        return asset_use_;
+    }
+    if (asset_use_built_ && asset_use_.model_version == model.version()) return asset_use_;
+    assets::DbUse u;
+    u.model_version = model.version();
+    using F = assets::Family;
+    auto set = [&u](F f) -> std::unordered_set<int64_t>& { return u.used[static_cast<size_t>(f)]; };
+    struct Col {
+        const char* field;
+        std::vector<std::unordered_set<int64_t>*> into;
+    };
+    // One snapshot per table; every listed field that exists goes into its sets (section 3.6 of the design)
+    auto collect = [this](const char* table, const std::vector<Col>& cols) -> bool {
+        const Table* t = db.table(table);
+        if (!t) return false;
+        std::vector<std::pair<const Field*, const Col*>> fs_;
+        for (const auto& c : cols)
+            if (t->has(c.field)) fs_.push_back({t->field(c.field), &c});
+        if (fs_.empty()) return true;
+        Snapshot s;
+        if (!s.load(db.memory(), *t)) return false;
+        for (uint32_t i : s.valid)
+            for (const auto& [f, c] : fs_) {
+                const int64_t v = s.get_int(i, *f);
+                for (auto* dst : c->into) dst->insert(v);
+            }
+        return true;
+    };
+    collect("players", {
+                           {"playerid", {&set(F::Miniface), &set(F::Callnames)}},
+                           {"headassetid", {&set(F::Head3d), &set(F::Miniface), &set(F::Youthface)}},
+                           {"hairtypecode", {&set(F::Hair)}},
+                           {"facialhairtypecode", {&set(F::Facialhair)}},
+                           {"shoetypecode", {&set(F::Boots)}},
+                           {"smallsidedshoetypecode", {&set(F::Boots)}},
+                           {"gkglovetypecode", {&set(F::Gkglove)}},
+                           {"eyebrowcode", {&set(F::Eyebrow)}},
+                           {"skinsurfacepack", {&set(F::Skinsurface)}},
+                           {"tattoohead", {&set(F::Tattoo)}},
+                           {"tattoofront", {&set(F::Tattoo)}},
+                           {"tattooback", {&set(F::Tattoo)}},
+                           {"tattooleftarm", {&set(F::Tattoo)}},
+                           {"tattoorightarm", {&set(F::Tattoo)}},
+                           {"tattooleftleg", {&set(F::Tattoo)}},
+                           {"tattoorightleg", {&set(F::Tattoo)}},
+                           {"accessorycode1", {&set(F::Accessory)}},
+                           {"accessorycode2", {&set(F::Accessory)}},
+                           {"accessorycode3", {&set(F::Accessory)}},
+                           {"accessorycode4", {&set(F::Accessory)}},
+                       });
+    collect("manager", {{"headassetid", {&set(F::Head3d), &set(F::Staffface)}}});
+    collect("teams", {{"teamid", {&set(F::Crest)}}});
+    collect("teamkits", {{"teamtechid", {&set(F::Kit)}}});
+    collect("commentarynames", {{"commentaryid", {&u.commentary_ids}}});
+    collect("playernamemap", {{"commentaryid", {&u.commentary_ids}}});
+    u.has_tattoo_table = collect("tattoo", {{"tattooid", {&u.tattoo_table}}});
+    asset_use_ = std::move(u);
+    asset_use_built_ = true;
+    return asset_use_;
+}
+
+bool App::log_asset_write(const std::string& target, const std::string& field, const std::string& old_value, const std::string& new_value) {
+    assets::WriteLogEntry e;
+    e.target = target;
+    e.field = field;
+    e.old_value = old_value;
+    e.new_value = new_value;
+    e.catalog_key = asset_catalog()->status().build_key;
+    std::string err;
+    const bool ok = assets::append_write_log(turbo_output(), e, &err);
+    log("asset write: " + target + " " + field + " " + old_value + " -> " + new_value + (ok ? "" : " (not logged: " + err + ")"));
+    return ok;
+}
+
+assets::Scope App::asset_scope(const std::string& picker) const {
+    if (gui_settings.is_object() && gui_settings.contains("asset_scope") && gui_settings["asset_scope"].is_object()) {
+        const json& s = gui_settings["asset_scope"];
+        if (s.contains(picker) && s[picker].is_string()) {
+            const std::string v = s[picker].get<std::string>();
+            if (v == "in_save") return assets::Scope::InSave;
+            if (v == "hidden") return assets::Scope::Hidden;
+        }
+    }
+    return assets::Scope::All;
+}
+
+void App::set_asset_scope(const std::string& picker, assets::Scope s) {
+    if (asset_scope(picker) == s) return;
+    if (!gui_settings.is_object()) gui_settings = json::object();
+    gui_settings["asset_scope"][picker] = s == assets::Scope::InSave ? "in_save" : s == assets::Scope::Hidden ? "hidden" : "all";
+    if (!save_gui_settings()) notify("cannot write gui_settings.json", true);
 }
 
 // ---- the spoken set asked from the game's audio service (core/commentary_audio.h): a build on the game thread
@@ -620,6 +851,7 @@ void App::tick(double t) {
     finish_bank_capture();
     finish_spoken_build();
     spoken_watch_tick();
+    asset_tick();  // game asset catalog: first load, reload when its folder changes (worker thread)
     if (t >= next_poll) {
         next_poll = t + 0.5;
         bool changed = bridge.poll_files();
@@ -1073,6 +1305,11 @@ void App::load_gui_settings() {
         }
     }
     prefs = GuiPrefs::load(gui_settings);  // gui.preload_images, gui.row_density (ui/gui_prefs.h)
+    // the asset catalog's commentary team ("" automatic, "*" every team, "dr" ...): Callnames, docs/asset-catalog.md
+    if (gui_settings.contains("callnames") && gui_settings["callnames"].is_object()) {
+        const json& c = gui_settings["callnames"];
+        if (c.contains("bank_team") && c["bank_team"].is_string()) callnames.bank_team_setting = c["bank_team"].get<std::string>();
+    }
 }
 
 bool App::save_gui_settings() {

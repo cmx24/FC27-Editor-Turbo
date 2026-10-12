@@ -1,0 +1,89 @@
+{
+  "schema": "turbo-asset-catalog/1",
+  "build_key": "0000AAAA-0000BBBB",
+  "game_version": "0.0.1.1",
+  "built_at": "2026-10-11T12:00:00-04:00",
+  "builder": "synthetic fixture 1",
+  "sources": {
+    "Data/Win32/contentsb.toc": { "size": 1000, "mtime": 1 },
+    "Patch/Win32/contentsb.toc": { "size": 2000, "mtime": 2 },
+    "commentary/eng_us": { "size": 300, "mtime": 3 },
+    "commentary/ita_it": { "size": 400, "mtime": 4 }
+  },
+  "families": {
+    "head3d": {
+      "ids": [90001, 90002, 90003, 90004, 90100],
+      "vars": { "90001": [0], "90002": [0, 1], "90003": [0], "90004": [2], "90100": [0] },
+      "toc": { "90001": "L", "90002": "LS", "90003": "S", "90004": "S", "90100": "S" },
+      "generic": [90100]
+    },
+    "miniface": { "ids": [90001, 90002, 90005] },
+    "youthface": { "ids": [91001, 91002, 91003] },
+    "staffface": { "ids": [92001] },
+    "legendface": { "ids": [90002] },
+    "hair": {
+      "model": [1, 2, 3, 4],
+      "preview": {
+        "1": "data/ui/imgAssets/craniumhair/hair_1_0.dds",
+        "2": "data/ui/imgAssets/craniumhair/Hair_2_0.dds",
+        "5": "data/ui/imgAssets/craniumhair/hair_5_0.dds"
+      }
+    },
+    "facialhair": { "model": [1, 7], "preview": { "7": "data/ui/imgAssets/facialhair/facialhair_7_0.dds" } },
+    "boots": {
+      "model": [10, 11, 12],
+      "preview": {
+        "10": "data/ui/imgAssets/shoe/shoe_10_0.dds",
+        "13": "data/ui/imgAssets/shoe/shoe_13_0.dds"
+      }
+    },
+    "gkglove": { "model": [20, 21], "preview": { "20": "data/ui/imgAssets/gkglove/gkglove_20.dds" } },
+    "tattoo": { "model": [30, 31], "preview": { "30": "data/ui/imgAssets/tattoo/item_30_0.dds" } },
+    "accessory": { "model": [], "preview": { "40": "data/ui/imgAssets/accessories/item_40_0.dds" } },
+    "eyebrow": { "ids": [1, 2, 3] },
+    "skinsurface": { "ids": [0, 1] },
+    "crest": {
+      "ids": [9001, 9002],
+      "paths": {
+        "9001": "data/ui/imgAssets/crest/light/l9001.dds",
+        "9002": "data/ui/imgAssets/crest/light/l9002.dds"
+      }
+    },
+    "kit": {
+      "teams": {
+        "9001": { "slug": "test_club_one", "kits": ["home_40_0", "away_40_0"] },
+        "9003": { "slug": "test_club_three", "kits": ["home_40_0"] }
+      }
+    },
+    "ball": { "model": [50], "preview": { "50": "data/ui/imgAssets/balls/ball_50.dds", "51": "data/ui/imgAssets/balls/ball_51.dds" } },
+    "callnames": {
+      "eng_us": {
+        "teams": {
+          "dr": { "generic": [990001, 990002], "simple": [90001, 90002], "link": [90003], "high": [] },
+          "gm": { "generic": [], "simple": [90001], "link": [], "high": [] }
+        }
+      },
+      "ita_it": {
+        "teams": {
+          "": { "generic": [990001], "simple": [90001, 90004], "link": [], "high": [90002] }
+        }
+      }
+    }
+  },
+  "names": {
+    "player": {
+      "90001": ["Test Head 90001", "master:ita_it"],
+      "90002": ["Test Head 90002", "workbook"],
+      "90003": ["Test Head 90003", "slug"],
+      "92001": ["Test Coach 92001", "managers"]
+    },
+    "team": {
+      "9001": ["Test Club One", "kit_slug"],
+      "9003": ["Test Club Three", "kit_slug"]
+    },
+    "commentary": {
+      "990001": ["Testname", "master:ita_it"],
+      "990002": ["Testothername", "master:eng_us"]
+    }
+  }
+}

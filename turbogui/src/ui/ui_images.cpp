@@ -1,6 +1,7 @@
 // FC 27 LE Turbo GUI - pictures in the Turbo window: minifaces (players and managers), the real-face picker, the tattoo
 // picker, and a file browser for pictures on the PC.
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -9,13 +10,17 @@
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <memory>
 #include <system_error>
 #include <unordered_set>
 
 #include "app.h"
+#include "core/field_labels.h"
+#include "core/gear_ids.h"
 #include "core/hair_catalog.h"
 #include "file_picker.h"
 #include "imgui.h"
+#include "ui_asset_browser.h"
 #include "ui_images.h"
 
 namespace turbo {
@@ -498,6 +503,56 @@ static int64_t player_chooser(App& app, char* search, size_t search_size, const 
     return chosen;
 }
 
+// ---------------------------------------------------------------- catalog picture sources (docs/asset-catalog.md)
+// Game minifaces, staff faces, youth faces and legend pictures from the asset catalog, in the paged browser. One list per
+// family and editor, rebuilt when the catalog, the save's DbUse or the database changes.
+struct MinifaceAssetList {
+    const assets::Catalog* catalog = nullptr;
+    const assets::DbUse* use = nullptr;
+    uint64_t model_version = ~0ull;
+    std::vector<AssetBrowserItem> items;
+    AssetBrowserState st;
+    int64_t picked = 0;
+};
+
+static MinifaceAssetList& asset_source_list(App& app, const AssetView& view, assets::Family f, bool manager) {
+    static std::map<std::pair<int, bool>, MinifaceAssetList> lists;
+    MinifaceAssetList& l = lists[{static_cast<int>(f), manager}];
+    if (l.catalog != view.catalog.get() || l.use != view.use.get() || l.model_version != app.model.version()) {
+        l.catalog = view.catalog.get();
+        l.use = view.use.get();
+        l.model_version = app.model.version();
+        // DB names: minifaces are keyed by playerid (or headassetid); the other families have no DB name by id
+        std::function<std::string(int64_t)> db_name;
+        if (f == assets::Family::Miniface)
+            db_name = [&app](int64_t id) {
+                const PlayerRow* p = app.model.player(id);
+                return p ? p->name : std::string();
+            };
+        l.items = view.catalog ? asset_items_from_catalog(*view.catalog, f, view.use.get(), db_name) : std::vector<AssetBrowserItem>{};
+    }
+    return l;
+}
+
+// One catalog source tab: the browser; a click uses the picture as the new miniface's source
+static void asset_source_tab(App& app, MinifaceEditor& ed, const AssetView& view, const AssetPictureSource& src, bool manager) {
+    MinifaceAssetList& l = asset_source_list(app, view, src.family, manager);
+    ImGui::TextDisabled("%s", src.note);
+    if (view.catalog && view.catalog->state() == assets::State::Stale)
+        ImGui::TextColored(kWarn, "Catalog built for another game build (%s): rebuild it with %s", view.catalog->status().build_key.c_str(),
+                           assets::rebuild_command().c_str());
+    char bid[48];
+    std::snprintf(bid, sizeof(bid), "##asrc%d%d", static_cast<int>(src.family), manager ? 1 : 0);
+    int64_t pick = 0;
+    if (asset_browser(bid, l.st, l.items, pick, [&app](const AssetBrowserItem& it, float side) { draw_legacy_picture(app, it.path, side, false); },
+                      l.picked, S(360.0f))) {
+        l.picked = pick;
+        auto it = std::find_if(l.items.begin(), l.items.end(), [pick](const AssetBrowserItem& x) { return x.id == pick; });
+        if (it != l.items.end())
+            source_from_legacy(app, ed, it->path, std::string(src.tab) + ": " + it->name + " (#" + std::to_string(it->id) + ")", false);
+    }
+}
+
 void miniface_editor(App& app, const MinifaceTarget& t) {
     MinifaceEditor& ed = t.manager ? g_manager_ed : g_player_ed;
     const int size = t.manager ? kStaffMinifaceSize : kPlayerMinifaceSize;
@@ -728,6 +783,14 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
             if (ImGui::Button("Start from the current miniface")) source_from_legacy(app, ed, t.path, "current miniface", true);
             ImGui::EndTabItem();
         }
+        // catalog sources (none when the catalog is off or not loaded: the tabs are exactly 2.0's)
+        const AssetView& view = asset_view();
+        for (const AssetPictureSource& src : asset_miniface_sources(t.manager, view.loaded())) {
+            if (ImGui::BeginTabItem(src.tab)) {
+                asset_source_tab(app, ed, view, src, t.manager);
+                ImGui::EndTabItem();
+            }
+        }
         if (ImGui::BeginTabItem("The 3D model")) {
             capture_tab(app, ed, t);
             ImGui::EndTabItem();
@@ -765,6 +828,17 @@ bool picture_cell(App& app, const std::string& path, bool custom_first, float ce
 
 // ---------------------------------------------------------------- tattoos
 static std::string tattoo_path(App& app, int64_t id);  // item galleries below
+// game asset catalog helpers (item galleries below)
+static const gear::FamilyView& gear_view(assets::Family f);
+static const gear::IdSet& gear_used(App& app, const std::string& field);
+static bool gear_cell(App& app, const gear::Item* it, const std::string& path, float cell, const std::string& caption,
+                      const char* bid, bool selected, bool none, bool not_in_table = false);
+static void gear_tooltip(const gear::Item* it, const std::string& head, bool not_in_table = false);
+static AssetScope gallery_scope(App& app, const char* key);
+static void set_gallery_scope(App& app, const char* key, AssetScope s);
+static void gear_stale_banner(const gear::FamilyView& v);
+static void log_hidden_write(App& app, const Table& t, uint64_t rec, const char* field, int64_t old_v, int64_t new_v,
+                             const gear::FamilyView& v);
 static const char* kTattooAreas[][2] = {
     {"tattoohead", "Head"},          {"tattoofront", "Front"},        {"tattooback", "Back"},
     {"tattooleftarm", "Left arm"},   {"tattoorightarm", "Right arm"}, {"tattooleftleg", "Left leg"},
@@ -838,7 +912,32 @@ void tattoo_editor(App& app, const Table& t, uint64_t rec) {
                     std::vector<int64_t> ids;
                     for (const auto& tr : g_tattoos)
                         if (all_areas || (tr.areas & (1u << a))) ids.push_back(tr.id);
-                    if (g_tattoos.empty()) ImGui::TextDisabled("The tattoo table is empty or missing.");
+                    // with the game asset catalog: every tattoo the game ships too (no area known: shown for every area)
+                    const gear::FamilyView& tv = gear_view(assets::Family::Tattoo);
+                    std::vector<gear::Item> titems;
+                    std::vector<const gear::Item*> tshown;
+                    if (tv.active) {
+                        gear::IdSet table;
+                        std::vector<int64_t> table_ids;
+                        for (const auto& tr : g_tattoos) table.insert(tr.id), table_ids.push_back(tr.id);
+                        titems = gear::items(tv, gear_used(app, f->name), &table, table_ids);
+                        AssetScope scope = gallery_scope(app, "tattoo");
+                        ImGui::SameLine();
+                        if (asset_scope_combo("##tscope", scope, S(130.0f))) set_gallery_scope(app, "tattoo", scope);
+                        ids.clear();
+                        for (const gear::Item& it : titems) {
+                            const bool area_ok = !it.known || all_areas ||
+                                                 std::any_of(g_tattoos.begin(), g_tattoos.end(), [&](const TattooRow& tr) {
+                                                     return tr.id == it.id && (tr.areas & (1u << a));
+                                                 });
+                            if (area_ok && assets::scope_shows(scope, it.hidden)) ids.push_back(it.id), tshown.push_back(&it);
+                        }
+                        ImGui::TextDisabled("%zu shown of %zu (the save's tattoo table + every tattoo in the game files)", ids.size(),
+                                            titems.size());
+                        gear_stale_banner(tv);
+                    } else if (g_tattoos.empty()) {
+                        ImGui::TextDisabled("The tattoo table is empty or missing.");
+                    }
                     const float cell = S(100.0f);
                     ImGui::BeginChild("##tgrid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.5f), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
                     int cols = std::max(1, int((ImGui::GetContentRegionAvail().x + ImGui::GetStyle().ItemSpacing.x) /
@@ -854,23 +953,32 @@ void tattoo_editor(App& app, const Table& t, uint64_t rec) {
                                 size_t i = size_t(r) * size_t(cols) + size_t(c);
                                 if (i >= total) break;
                                 int64_t id = i == 0 ? 0 : ids[i - 1];
+                                const gear::Item* gi = i == 0 || tshown.empty() ? nullptr : tshown[i - 1];
+                                const bool no_row = gi && !g_tattoos.empty() && !gi->known;  // not in the save's tattoo table
                                 if (c) ImGui::SameLine();
                                 ImGui::BeginGroup();
                                 ImGui::PushID(static_cast<int>(id));
                                 char bid[48];
                                 std::snprintf(bid, sizeof(bid), "tattoo%lld", static_cast<long long>(id));
-                                if (picture_cell(app, id ? tattoo_path(app, id) : std::string(), true, cell,
-                                                 id ? std::to_string(id) : std::string("None"), bid, v.i == id, id == 0))
-                                    picked = id;
+                                if (gear_cell(app, gi, id ? tattoo_path(app, id) : std::string(), cell,
+                                              id ? std::to_string(id) : std::string("None"), bid, v.i == id, id == 0, no_row)) {
+                                    if (gi && !gi->writable) app.notify("Tattoo " + std::to_string(id) + ": " + gi->why, true);
+                                    else picked = id;
+                                }
                                 ImGui::PopID();
                                 ImGui::EndGroup();
+                                if (gi && ImGui::IsItemHovered()) gear_tooltip(gi, "Tattoo " + std::to_string(id), no_row);
                             }
                         }
                     }
                     ImGui::EndChild();
                     if (picked >= 0) {
-                        if (app.edit(t, rec, *f, Value::of_int(picked)))
+                        const int64_t before = v.i;
+                        if (app.edit(t, rec, *f, Value::of_int(picked))) {
                             app.notify(std::string(kTattooAreas[a][1]) + " tattoo: " + (picked ? std::to_string(picked) : std::string("none")));
+                            for (const gear::Item& it : titems)
+                                if (it.id == picked && it.hidden) log_hidden_write(app, t, rec, kTattooAreas[a][0], before, picked, tv);
+                        }
                         ImGui::CloseCurrentPopup();
                         open_area = -1;
                     }
@@ -901,6 +1009,13 @@ void tattoo_editor(App& app, const Table& t, uint64_t rec) {
 //   managers' outfitid  data/ui/imgAssets/outfit/item_<id>[_0].dds, else genericManagerOutfits/gmo_<id>_<n>.dds
 // The ids and file names come from that list (GearPictureIndex), so a gallery shows exactly what the game can draw and
 // an item the game has no picture for says so at once instead of waiting for the game.
+// With the game asset catalog (set_gear_catalog, docs/asset-catalog.md) hair, facial hair, boots, GK gloves and tattoos
+// list what the game ships instead (core/gear_ids.h): 3D models + manifest-confirmed previews with their exact paths,
+// "3D only" placeholders, preview-only ids greyed and refused, content_ts-only boots and tattoos outside the save's
+// tattoo table listed and refused (not checked in a match), "Hidden" tags, the All / In this save / Hidden filter, and
+// hidden ids written only while the catalog is current (each write logged in turbo_output\asset_writes.log).
+// Accessories 1-4: the players' codes only (referee, NPC and outfit items left out), named from the game folders, Hidden
+// tags and the filter, no new write gate. Managers' outfits keep the list above.
 struct GallerySource {
     const char* folder;  // under data/ui/imgAssets/ (nullptr = unused)
     const char* prefix;  // file name prefix before the id
@@ -916,6 +1031,7 @@ static const GalleryDef kGalleries[] = {
     {"hairtypecode", "Hair", {{"craniumhair", "hair_", "_0"}, {"hairstyle", "item_", "_0"}}, nullptr},
     {"facialhairtypecode", "Facial hair", {{"craniumfacialhair", "Facial_hair_", "_0"}, {"facialhairstyle", "item_", "_0"}}, nullptr},
     {"shoetypecode", "Boots", {{"shoe", "shoe_", "_0"}, {"boots", "item_", "_0"}}, nullptr},
+    {"smallsidedshoetypecode", "Small-sided boots", {{"shoe", "shoe_", "_0"}, {"boots", "item_", "_0"}}, nullptr},
     {"gkglovetypecode", "GK gloves", {{"gkglove", "gkglove_", ""}, {nullptr, nullptr, nullptr}}, nullptr},
     {"accessorycode1", "Accessory 1", {{"accessories", "item_", "_0"}, {nullptr, nullptr, nullptr}}, "accessorycolourcode1"},
     {"accessorycode2", "Accessory 2", {{"accessories", "item_", "_0"}, {nullptr, nullptr, nullptr}}, "accessorycolourcode2"},
@@ -1008,7 +1124,166 @@ const GearPictureIndex& gear_pictures(App& app) {
     return g_gear;
 }
 
+// ---- the game asset catalog behind the galleries (nullptr: 2.0 behaviour)
+static std::shared_ptr<const assets::Catalog> g_gear_cat;
+static std::array<gear::FamilyView, assets::kFamilyCount> g_gear_views;
+static std::array<bool, assets::kFamilyCount> g_gear_view_built{};
+
+void set_gear_catalog(std::shared_ptr<const assets::Catalog> catalog) {
+    g_gear_cat = std::move(catalog);
+    g_gear_view_built.fill(false);
+}
+
+static const gear::FamilyView& gear_view(assets::Family f) {
+    static const gear::FamilyView kInactive;
+    const size_t i = static_cast<size_t>(f);
+    if (i >= assets::kFamilyCount) return kInactive;
+    if (!g_gear_view_built[i]) {
+        g_gear_views[i] = gear::from_catalog(g_gear_cat.get(), f);
+        g_gear_view_built[i] = true;
+    }
+    return g_gear_views[i];
+}
+
+// Ids rows of the save have in a players gear field (tattoos: in any of the 7 tattoo fields), per model version
+static const gear::IdSet& gear_used(App& app, const std::string& field) {
+    struct Entry {
+        uint64_t version = ~uint64_t(0);
+        int gen = -1;
+        gear::IdSet ids;
+    };
+    static std::map<std::string, Entry> cache;
+    const bool tattoo = gear::family_of_field(field) == assets::Family::Tattoo;
+    Entry& e = cache[tattoo ? std::string("tattoo*") : field];
+    if (e.version == app.model.version() && e.gen == app.gen) return e.ids;
+    e.version = app.model.version();
+    e.gen = app.gen;
+    e.ids.clear();
+    const Table* t = app.db.table("players");
+    if (!t) return e.ids;
+    auto add = [&](const char* name) {
+        if (const Field* f = t->field(name))
+            for (const auto& kv : values_in_use(app, *t, *f)) e.ids.insert(kv.first);
+    };
+    if (tattoo)
+        for (const auto& area : kTattooAreas) add(area[0]);
+    else
+        add(field.c_str());
+    return e.ids;
+}
+
+// The game's tattoo table ids (the database knows them: kept listed and writable whatever the catalog says)
+static const gear::IdSet& tattoo_table_ids(App& app) {
+    static gear::IdSet ids;
+    static uint64_t built = ~uint64_t(0) - 1;
+    build_tattoos(app);
+    if (built != g_tattoo_version) {
+        built = g_tattoo_version;
+        ids.clear();
+        for (const auto& tr : g_tattoos) ids.insert(tr.id);
+    }
+    return ids;
+}
+
+static AssetScope gallery_scope(App& app, const char* key) {
+    const auto& all = app.gui_settings["asset_scope"];
+    if (all.is_object() && all.contains(key) && all[key].is_number_integer()) {
+        const int v = all[key].get<int>();
+        if (v >= 0 && v <= 2) return static_cast<AssetScope>(v);
+    }
+    return AssetScope::All;
+}
+static void set_gallery_scope(App& app, const char* key, AssetScope s) {
+    app.gui_settings["asset_scope"][key] = static_cast<int>(s);
+    app.save_gui_settings();
+}
+
+static void gear_stale_banner(const gear::FamilyView& v) {
+    if (!v.active || v.current) return;
+    ImGui::TextColored(kWarn, "The game asset catalog was built for another game build (%s): items no player uses cannot be applied.",
+                       v.build_key.c_str());
+    ImGui::TextWrapped("Rebuild it: %s (%s)", assets::rebuild_command().c_str(), assets::rebuild_where().c_str());
+}
+
+static void log_hidden_write(App& app, const Table& t, uint64_t rec, const char* field, int64_t old_v, int64_t new_v,
+                             const gear::FamilyView& v) {
+    assets::WriteLogEntry e;
+    e.target = "player " + std::to_string(app.db.get_int(t, rec, "playerid", 0));
+    e.field = field;
+    e.old_value = std::to_string(old_v);
+    e.new_value = std::to_string(new_v);
+    e.catalog_key = v.build_key;
+    std::string err;
+    if (!assets::append_write_log(app.bridge.root() / "turbo_output", e, &err) && !err.empty())
+        app.notify("asset_writes.log: " + err, true);
+}
+
+// A small label in the top-left corner of the last drawn cell
+static void tile_tag(const ImVec2& p, const char* text, ImU32 bg, ImU32 fg) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 ts = ImGui::CalcTextSize(text);
+    dl->AddRectFilled(ImVec2(p.x + 2.0f, p.y + 2.0f), ImVec2(p.x + ts.x + 8.0f, p.y + ts.y + 4.0f), bg, 3.0f);
+    dl->AddText(ImVec2(p.x + 5.0f, p.y + 3.0f), fg, text);
+}
+
+// One gallery cell: picture_cell, plus the catalog's marks: a "3D only" box for a model without a preview (nothing asked
+// from the game), greyed when it cannot be applied, a "Hidden" / "Preview only" / "Not in table" tag. it == nullptr:
+// picture_cell as in 2.0.
+static bool gear_cell(App& app, const gear::Item* it, const std::string& path, float cell, const std::string& caption,
+                      const char* bid, bool selected, bool none, bool not_in_table) {
+    if (!it || none) return picture_cell(app, path, true, cell, caption, bid, selected, none);
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    const float line = ImGui::GetTextLineHeight();
+    bool clicked = false;
+    if ((it->model || it->model_ts) && it->preview.empty()) {
+        placeholder(cell, it->model ? "3D only" : "3D, content_ts");
+        ImGui::SetCursorScreenPos(p0);
+        clicked = ImGui::InvisibleButton(bid, ImVec2(cell, cell + line));
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec4 clip(p0.x, p0.y, p0.x + cell, p0.y + cell + line);
+        dl->AddText(nullptr, 0.0f, ImVec2(p0.x + 2.0f, p0.y + cell), ImGui::GetColorU32(ImGuiCol_Text), caption.c_str(), nullptr, 0.0f, &clip);
+        if (selected || ImGui::IsItemHovered())
+            dl->AddRect(p0, ImVec2(p0.x + cell, p0.y + cell + line), ImGui::GetColorU32(selected ? ImGuiCol_CheckMark : ImGuiCol_ButtonHovered), 0.0f, 2.0f);
+    } else {
+        clicked = picture_cell(app, path, true, cell, caption, bid, selected, false);
+    }
+    if (!it->writable) ImGui::GetWindowDrawList()->AddRectFilled(p0, ImVec2(p0.x + cell, p0.y + cell), IM_COL32(20, 20, 24, 150));
+    if (it->model_ts && !it->in_save)
+        tile_tag(p0, "Not checked", IM_COL32(70, 66, 50, 255), IM_COL32(200, 190, 150, 255));
+    else if (!it->model && !it->preview.empty() && !it->in_save && !it->known && !it->writable)
+        tile_tag(p0, "Preview only", IM_COL32(70, 66, 50, 255), IM_COL32(200, 190, 150, 255));
+    else if (it->hidden)
+        tile_tag(p0, not_in_table ? "Hidden, no table row" : "Hidden", IM_COL32(52, 78, 120, 255), IM_COL32(220, 232, 255, 255));
+    return clicked;
+}
+
+static void gear_tooltip(const gear::Item* it, const std::string& head, bool not_in_table) {
+    std::string tip = head;
+    if (!it->name.empty()) tip += "\nIn the game files: " + it->name;
+    if (it->model && it->preview.empty()) tip += std::string("\n") + asset_badge_tooltip(AssetBadge::ModelOnly);
+    if (it->model_ts)
+        tip += "\n3D model only under content_ts (the gate's boots are under content/): not checked in a match yet";
+    if (it->hidden) tip += std::string("\n") + asset_badge_tooltip(AssetBadge::Hidden);
+    if (not_in_table) tip += std::string("\n") + asset_badge_tooltip(AssetBadge::NotInTable);
+    if (!it->writable) tip += "\nCannot be applied: " + it->why;
+    ImGui::SetTooltip("%s", tip.c_str());
+}
+
+std::string gear_code_note(App& app, const Table& t, const std::string& field, int64_t id) {
+    if (t.name != "players") return "";
+    const gear::FamilyView& v = gear_view(gear::family_of_field(field));
+    if (!v.active) return "";
+    if (v.hidden_off && !gear_used(app, field).count(id)) return "";
+    if (gear::family_of_field(field) == assets::Family::Tattoo && tattoo_table_ids(app).count(id)) return "";
+    return gear::code_note(v, gear_used(app, field), id);
+}
+
 static std::vector<int64_t> gallery_ids(App& app, const GalleryDef& g) {
+    if (const gear::FamilyView& v = gear_view(gear::family_of_field(g.field)); v.active) {
+        std::vector<int64_t> ids;
+        for (const gear::Item& it : gear::items(v, gear_used(app, g.field))) ids.push_back(it.id);
+        return ids;
+    }
     const GearPictureIndex& gx = gear_pictures(app);
     std::vector<int64_t> ids;
     for (const GallerySource& s : g.src)
@@ -1021,6 +1296,17 @@ static std::vector<int64_t> gallery_ids(App& app, const GalleryDef& g) {
 
 // The picture of item id; "" when the game has none. Without the list: the usual file name (asked from the game).
 static std::string item_path(App& app, const GalleryDef& g, int64_t id, int64_t colour) {
+    if (const gear::FamilyView& v = gear_view(gear::family_of_field(g.field)); v.active) {
+        // accessories have a picture per colour: the list's colour-aware name when it has the id, else the catalog's
+        if (g.colour_field && !v.preview(id).empty()) {
+            const GearPictureIndex& gx = gear_pictures(app);
+            if (!gx.empty()) {
+                std::string p = gx.find(g.src[0].folder, g.src[0].prefix, id, colour);
+                if (!p.empty()) return p;
+            }
+        }
+        return v.preview(id);  // "" = 3D only / not in the game
+    }
     const GearPictureIndex& gx = gear_pictures(app);
     if (gx.empty())
         return std::string("data/ui/imgAssets/") + g.src[0].folder + "/" + g.src[0].prefix + std::to_string(id) + g.src[0].rest + ".dds";
@@ -1034,24 +1320,47 @@ static std::string item_path(App& app, const GalleryDef& g, int64_t id, int64_t 
 
 // Tattoo preview of id; "" when the list is at hand and the game has none
 static std::string tattoo_path(App& app, int64_t id) {
+    if (const gear::FamilyView& v = gear_view(assets::Family::Tattoo); v.active) return v.preview(id);
     const GearPictureIndex& gx = gear_pictures(app);
     return gx.empty() ? legacy_path::tattoo_preview(id) : gx.find("tattoo", "item_", id);
 }
 
 std::vector<std::string> gallery_preload_paths(App& app) {
     std::vector<std::string> out;
-    if (gear_pictures(app).empty()) return out;  // nothing listed: asking would keep the galleries waiting
+    std::unordered_set<std::string> seen;
+    auto push = [&](const std::string& p) {
+        if (!p.empty() && seen.insert(p).second) out.push_back(p);
+    };
+    const bool listed = !gear_pictures(app).empty();  // nothing listed: asking would keep the galleries waiting
     auto add = [&](const GalleryDef* b, const GalleryDef* e) {
-        for (const GalleryDef* g = b; g != e; ++g)
-            for (int64_t id : gallery_ids(app, *g)) out.push_back(item_path(app, *g, id, 0));
+        for (const GalleryDef* g = b; g != e; ++g) {
+            if (const gear::FamilyView& v = gear_view(gear::family_of_field(g->field)); v.active) {
+                for (const std::string& p : gear::preload_paths(v, gear_used(app, g->field))) push(p);
+            } else if (listed) {
+                for (int64_t id : gallery_ids(app, *g)) push(item_path(app, *g, id, 0));
+            }
+        }
     };
     add(std::begin(kGalleries), std::end(kGalleries));
     add(std::begin(kManagerGalleries), std::end(kManagerGalleries));
-    for (int64_t id : gear_pictures(app).ids("tattoo", "item_")) out.push_back(tattoo_path(app, id));
+    if (const gear::FamilyView& v = gear_view(assets::Family::Tattoo); v.active) {
+        for (const std::string& p : gear::preload_paths(v, gear_used(app, "tattoohead"))) push(p);
+    } else if (listed) {
+        for (int64_t id : gear_pictures(app).ids("tattoo", "item_")) push(tattoo_path(app, id));
+    }
     return out;
 }
 
 std::vector<int64_t> gallery_codes(App& app, const std::string& field) {
+    if (const gear::FamilyView& v = gear_view(gear::family_of_field(field)); v.active) {
+        if (gear::family_of_field(field) != assets::Family::Tattoo) return gear::combo_codes(v, gear_used(app, field));
+        const gear::IdSet& table = tattoo_table_ids(app);
+        std::vector<int64_t> ids = gear::combo_codes(v, gear_used(app, field), &table);
+        ids.insert(ids.end(), table.begin(), table.end());
+        std::sort(ids.begin(), ids.end());
+        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+        return ids;
+    }
     for (const GalleryDef& g : kGalleries)
         if (field == g.field) return gallery_ids(app, g);
     for (const GalleryDef& g : kManagerGalleries)
@@ -1138,7 +1447,17 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
             const Field* f = t.field(g.field);
             if (!f) continue;
             any = true;
-            std::vector<int64_t> ids = gallery_ids(app, g);
+            // with the game asset catalog (players' hair, facial hair, boots, GK gloves): what the game ships, core/gear_ids.h
+            const gear::FamilyView& gv = gear_view(manager ? assets::Family::Count : gear::family_of_field(g.field));
+            std::vector<gear::Item> gitems;
+            std::vector<int64_t> ids;
+            size_t nhidden = 0;
+            if (gv.active) {
+                gitems = gear::items(gv, gear_used(app, g.field));
+                for (const gear::Item& it : gitems) ids.push_back(it.id), nhidden += it.hidden;
+            } else {
+                ids = gallery_ids(app, g);
+            }
             int64_t colour = g.colour_field ? app.db.get_int(t, rec, g.colour_field, 0) : 0;
             ImGui::PushID(static_cast<int>(gi));
             ImGui::TableNextRow();
@@ -1165,6 +1484,9 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
                 ImGui::EndDisabled();
                 ImGui::SameLine();
                 ImGui::TextDisabled("(no previews listed in legacy_filename_hash_list.csv)");
+            } else if (gv.active) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("%zu in the game, %zu hidden", ids.size(), nhidden);
             } else {
                 ImGui::SameLine();
                 ImGui::TextDisabled("%zu in the game", ids.size());
@@ -1177,6 +1499,13 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
                     ImGui::Checkbox("Favourites only", &fav_only);
                     ImGui::SameLine();
                     ImGui::TextDisabled("right-click a picture to star it");
+                    AssetScope scope = AssetScope::All;
+                    if (gv.active) {
+                        scope = gallery_scope(app, g.field);
+                        ImGui::SameLine();
+                        if (asset_scope_combo("##gscope", scope, S(130.0f))) set_gallery_scope(app, g.field, scope);
+                        gear_stale_banner(gv);
+                    }
                     const bool is_hair = std::strcmp(g.field, "hairtypecode") == 0;
                     if (is_hair) {
                         hair_combo("##hairlen", hf.length, hair::kLengthCount, hair::length_name, ids, &hair::Style::length, "Any length");
@@ -1194,8 +1523,14 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
                         }
                     }
                     std::vector<int64_t> shown;
-                    for (int64_t id : ids)
-                        if (id != 0 && (!fav_only || is_favourite(app, g.field, id)) && (!is_hair || hair_matches(hf, id))) shown.push_back(id);
+                    std::vector<const gear::Item*> shown_items;  // parallel to shown (catalog only)
+                    for (size_t k = 0; k < ids.size(); ++k) {
+                        const int64_t id = ids[k];
+                        if (id == 0 || (fav_only && !is_favourite(app, g.field, id)) || (is_hair && !hair_matches(hf, id))) continue;
+                        if (gv.active && !assets::scope_shows(scope, gitems[k].hidden)) continue;
+                        shown.push_back(id);
+                        if (gv.active) shown_items.push_back(&gitems[k]);
+                    }
                     if (is_hair) ImGui::TextDisabled("%zu of %zu styles match", shown.size(), ids.size());
                     const float cell = S(100.0f);
                     ImGui::BeginChild("##ggrid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.5f), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
@@ -1212,6 +1547,7 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
                                 size_t i = size_t(r) * size_t(cols) + size_t(c);
                                 if (i >= total) break;
                                 int64_t id = i == 0 ? 0 : shown[i - 1];
+                                const gear::Item* gi = i == 0 || shown_items.empty() ? nullptr : shown_items[i - 1];
                                 if (c) ImGui::SameLine();
                                 ImGui::BeginGroup();
                                 ImGui::PushID(static_cast<int>(id));
@@ -1220,20 +1556,31 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
                                 bool fav = id && is_favourite(app, g.field, id);
                                 std::string cap = id ? (fav ? "* " : "") + std::to_string(id) : std::string("None");
                                 if (is_hair && id) cap += std::string(" ") + hair::length_name(hair::lookup(id).length);
-                                if (picture_cell(app, id ? item_path(app, g, id, colour) : std::string(), true, cell, cap, bid, v.i == id, id == 0))
-                                    picked = id;
+                                if (gear_cell(app, gi, id ? item_path(app, g, id, colour) : std::string(), cell, cap, bid, v.i == id, id == 0)) {
+                                    if (gi && !gi->writable) app.notify(std::string(g.title) + " " + std::to_string(id) + ": " + gi->why, true);
+                                    else picked = id;
+                                }
                                 if (id && ImGui::IsItemClicked(ImGuiMouseButton_Right)) toggle_favourite(app, g.field, id);
                                 ImGui::PopID();
                                 ImGui::EndGroup();
-                                if (id && ImGui::IsItemHovered())
-                                    ImGui::SetTooltip("%s\n%s = %lld", code_value_text(g.field, id).c_str(), g.field, static_cast<long long>(id));
+                                if (id && ImGui::IsItemHovered()) {
+                                    char head[160];
+                                    std::snprintf(head, sizeof(head), "%s\n%s = %lld", code_value_text(g.field, id).c_str(), g.field,
+                                                  static_cast<long long>(id));
+                                    if (gi) gear_tooltip(gi, head);
+                                    else ImGui::SetTooltip("%s", head);
+                                }
                             }
                         }
                     }
                     ImGui::EndChild();
                     if (picked >= 0) {
-                        if (app.edit(t, rec, *f, Value::of_int(picked)))
+                        const int64_t before = v.i;
+                        if (app.edit(t, rec, *f, Value::of_int(picked))) {
                             app.notify(std::string(g.title) + ": " + (picked ? std::to_string(picked) : std::string("none")));
+                            for (const gear::Item& it : gitems)
+                                if (it.id == picked && it.hidden) log_hidden_write(app, t, rec, g.field, before, picked, gv);
+                        }
                         ImGui::CloseCurrentPopup();
                         open_gal = -1;
                     }
@@ -1252,6 +1599,19 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
     }
     if (!any) ImGui::TextDisabled(manager ? "The outfitid field does not exist in this manager table."
                                           : "None of the hair / boots / gloves / accessory fields exist in this players table.");
+    if (!manager) {
+        // socks and kit sleeves: no preview pictures in the game, so named lists (Live Editor's names, field_labels.h).
+        // Written by Turbo into the players table; the game's own career editor pickers for these are never used here.
+        bool header = false;
+        static const char* const kKit[][2] = {{"sockstylecode", "Sock style"}, {"socklengthcode", "Sock length"},
+                                              {"jerseysleevelengthcode", "Sleeves"}};
+        for (const auto& k : kKit) {
+            const Field* f = t.field(k[0]);
+            if (!f) continue;
+            if (!header) ImGui::SeparatorText("Socks and sleeves"), header = true;
+            enum_editor(app, t, rec, *f, k[1], S(240.0f));
+        }
+    }
     if (app.legacy.waiting() > 0) waiting_hint();
 }
 

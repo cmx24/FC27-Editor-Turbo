@@ -43,6 +43,7 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/core/face_filter.cpp src/core/face3d_looks.cpp src/core/hair_catalog.cpp src/core/user_text.cpp src/ui/ui_faces.cpp src/core/bodytype_catalog.cpp src/ui/ui_bodytypes.cpp \
          src/ui/app.cpp src/ui/widgets.cpp src/ui/ui_players.cpp src/ui/ui_teams.cpp src/ui/ui_database.cpp src/ui/ui_tools.cpp src/ui/textures.cpp src/ui/ui_images.cpp src/ui/ui_competitions.cpp src/ui/ui_callnames.cpp src/ui/ui_names.cpp src/ui/ui_presets.cpp src/ui/ui_cmtracker.cpp src/core/cmtracker.cpp src/ui/geo.cpp src/core/overall.cpp src/core/archetypes.cpp src/ui/ui_identity.cpp src/ui/ui_standings.cpp src/ui/ui_match.cpp src/ui/ui_reapply.cpp \
          src/ui/file_picker.cpp \
+         src/core/asset_catalog.cpp src/ui/ui_asset_browser.cpp \
          src/core/hub_customise.cpp src/ui/ui_club_tools.cpp \
          src/core/transfer_stats.cpp src/core/scouts.cpp src/ui/ui_parity.cpp \
          src/core/callname_audio.cpp src/ui/ui_callname_play.cpp src/win/callname_audio_win.cpp src/core/callname_voice.cpp src/core/callname_voice_host.cpp src/win/callname_voice_win.cpp \

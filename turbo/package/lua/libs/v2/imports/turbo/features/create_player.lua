@@ -35,8 +35,9 @@ local M = {}
 
 M.GENERATED_MIN = 460000   -- the game numbers its own generated players from here
 
--- The first free player id: above every id below `max_id`, at least `min_id`
-function M.free_playerid(min_id, max_id)
+-- The first free player id: above every id below `max_id`, at least `min_id`; ids in `skip` (a set: ids that carry a game
+-- head, miniface or callname recording, from a current asset gate) are passed over
+function M.free_playerid(min_id, max_id, skip)
     local top = 0
     for _, t in ipairs({ "players", "teamplayerlinks", "editedplayernames", "playerloans" }) do
         local tbl = db.get_table(t)
@@ -48,6 +49,7 @@ function M.free_playerid(min_id, max_id)
         end
     end
     local pid = math.max(top + 1, min_id)
+    while skip and skip[pid] and pid < max_id do pid = pid + 1 end
     if pid >= max_id then return nil, string.format("no free player id below %d (highest used: %d)", max_id, top) end
     return pid
 end
@@ -209,6 +211,12 @@ local function delete_row(table_name, res)
     return ok and r ~= false
 end
 
+-- One log line per CMTracker real-face decision (asset gate checked or unchecked)
+local function log_gate(pid, real, ok, why)
+    local log = require 'imports/turbo/core/log'
+    log.info("create_player %d: real face %d %s (%s)", pid, real, ok and "given" or "refused", tostring(why))
+end
+
 function M.run(ctx)
     local cfg = ctx.cfg
     local players, err = db.get_table("players")
@@ -235,11 +243,18 @@ function M.run(ctx)
     local max_id = util.to_int(cfg.max_playerid) or (M.GENERATED_MIN - 1)
     if max_id > M.GENERATED_MIN or max_id < 1000 then return false, "max_playerid must be 1000.." .. M.GENERATED_MIN end
     local pid = util.to_int(cfg.playerid) or 0
+    -- asset gate (2.1, core/asset_gate.lua): with a current gate, a new player never gets an id that carries another
+    -- player's game head, miniface or callname recording (unless it is his own CMTracker real face id, checked below)
+    local agate = require 'imports/turbo/core/asset_gate'
+    local gate = agate.load()
+    local taken = agate.taken_ids(gate)
+    local typed_taken = nil
     if pid > 0 then
         if game.player_ids()[pid] then return false, string.format("player id %d is already used", pid) end
         if pid >= max_id then return false, string.format("player id %d is not below max_playerid %d", pid, max_id) end
+        typed_taken = taken[pid]
     else
-        local free, ferr = M.free_playerid(min_id, max_id)
+        local free, ferr = M.free_playerid(min_id, max_id, taken)
         if not free then return false, ferr end
         pid = free
     end
@@ -296,18 +311,29 @@ function M.run(ctx)
         row[f] = v
     end
     -- head of a player taken from a CMTracker CSV (Turbo's "From CMTracker..."): the real face when CMTracker says the player
-    -- has one AND the game has that head (the id is a player the game knows); otherwise a generic head of the new id
-    local head_note
+    -- has one AND the game has that head; otherwise a generic head of the new id. The proof (core/asset_gate.lua): a current
+    -- asset gate lists the head (the game files ship it), else the DB row of that player has headclasscode 0 and his own
+    -- head (2.1: "a player the game knows" was not enough, a generic-head player gave a class-0 head with no 3D model)
+    local head_note, head_log
     local cm = parsed and parsed.doc and type(parsed.doc.cmtracker) == "table" and parsed.doc.cmtracker or nil
+    local real_id = cm and util.to_int(cm.real_face_id) or nil
+    if typed_taken and real_id ~= pid then
+        return false, string.format("player id %d carries a game %s of another player (asset catalog %s): choose another id " ..
+            "or 0", pid, typed_taken == "head3d" and "head" or typed_taken, gate.build or "?")
+    end
     if cm and db.has_field(players, "headassetid") and db.has_field(players, "headclasscode") then
-        local real = util.to_int(cm.real_face_id)
-        if real and real > 0 and game.player_ids()[real] then
+        local real = real_id
+        local okh, why, hidden = false, nil, false
+        if real and real > 0 then okh, why, hidden = agate.check_head(gate, real, nil, true) end
+        if okh then
             row.headassetid, row.headclasscode = real, 0
             head_note = string.format(", real face of player %d", real)
+            if hidden then head_log = real end
         else
             row.headassetid, row.headclasscode = pid, 1
-            head_note = real and ", generic head (the game has no real face for this player)" or nil
+            head_note = real and string.format(", generic head (the game has no real face for this player: %s)", why) or nil
         end
+        if real and real > 0 then log_gate(pid, real, okh, why) end
     end
 
     -- join date + contract (moves.contract_values, shared with every move): he joins the club today; the source's
@@ -379,6 +405,8 @@ function M.run(ctx)
     if skipped and #skipped > 0 then summary = summary .. "; out of range, minimum used: " .. table.concat(skipped, ", ") end
     if user > 0 and teamid == user then summary = summary .. " (your club: added to your team sheet as a reserve)" end
     if ctx.dry then return true, summary end
+    -- a head no row of the save used: logged (before the write) so it can be reverted by hand
+    if head_log then agate.log_write(gate, "player " .. pid, "headassetid", "(new player)", head_log) end
 
     -- miniface from a Turbo JSON next to the file (both paths)
     local function miniface()

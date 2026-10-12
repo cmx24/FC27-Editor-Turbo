@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Extract the FC 27 commentary speech bank of one language from disk (track: commentary bank, docs/re/fc27-commentary-bank.md).
 
-What it gives, for a downloaded commentary pack (<game>\\commentary\\commentaryfull_<lang>.toc + cas files):
+What it gives, for every installed commentary pack of a language: the base-game packs (<game>\\Patch\\Win32 or
+<game>\\Data\\Win32\\commentary{full,launch,licensed}_<lang>.toc, cas files found through <game>\\{Data,Patch}\\layout.toc,
+e.g. Data\\Win32\\superbundlelayout\\commentaryfull_eng_us\\cas_01.cas) and the downloaded ones
+(<game>\\commentary\\commentaryfull_<lang>.toc + the folder named like the toc):
   * every row of the pSIMPLE_SURNAME selection data set: SegmentID, VariationId, surname_ID (= commentary id);
   * every row of pPLAYER_NAMES_SIMPLE (SegmentID, VariationId, player_db_pID = player id) and of pPLAYER_NAMES_LINK;
   * every row of pPLAYER_NAMES_HIGH, split by the selector each row is keyed by: player_db_pID -> real_high (player id),
@@ -13,7 +16,19 @@ What it gives, for a downloaded commentary pack (<game>\\commentary\\commentaryf
   * "other_player_families": a count (no audio) of the other p* families: selection rows and the ids of each *_pID
     selector they are keyed by.
 
+Sets: a language's name families come in sets, <lang>_<kind> (loccommentary, e.g. ita_it_full, ita_it_demo) or
+<lang>_<team>_<kind> (commentary, e.g. eng_us_dr_full, eng_us_gm_demo; team dr = Derek Rae, gm = Guy Mowbray;
+kind full | demo | licensed). The rows above (generic, real, real_link, real_high, generic_high, --wav) are those of
+the PRIMARY set (<lang>_full, else <lang>_<--team>_full, default team dr): segment numbers index one set's audio only,
+so rows of different sets are never mixed. Every set is also read for its ids:
+  * "sets": {set: {"team", "kind", "ids": {"generic", "simple", "link", "high", "generic_high"}, "summary", "errors"}};
+    a family that cannot be read (FC 27 eng_us gm HIGH: "index without data is not an identity") is recorded in that
+    set's "errors" and the run goes on;
+  * "teams": {team: the same five id lists, the union of the team's sets} ("" = a language without teams);
+  * "union": the same five id lists over every set; "primary_set": the set the rows come from.
+
 usage: python fc27_commentary.py --lang ita_it [--game DIR] [--out FILE.json] [--wav DIR] [--ffmpeg EXE] [--list]
+                                 [--team dr]
        python fc27_commentary.py --self-test [--game DIR]
 
 The layers, all read from the game's files (nothing is guessed):
@@ -219,14 +234,150 @@ def cas_path(toc_path, cas_id):
     return os.path.join(stem, "cas_%02d.cas" % int(cas_id[-4:], 16))
 
 
+# ------------------------------------------------------------------------------------------------ layout.toc
+def _varint(d, p):
+    r = s = 0
+    while True:
+        b = d[p]
+        p += 1
+        r |= (b & 0x7F) << s
+        s += 7
+        if not b & 0x80:
+            return r, p
+
+
+def read_dbobject(d, p=0):
+    """Frostbite DbObject (binary object) value at p: (name, value, end). Types: 1 list, 2 object, 6 bool, 7 string,
+    8 i32, 9 i64, 0xB f32, 0xC f64, 0xF guid, 0x10 sha1, 0x13 blob; bit 7 = no name."""
+    t = d[p]
+    p += 1
+    if t == 0:
+        return None, None, p
+    name = None
+    if not t & 0x80:
+        e = d.index(b"\0", p)
+        name = d[p:e].decode("utf-8", "replace")
+        p = e + 1
+    tt = t & 0x1F
+    if tt in (1, 2):
+        size, p = _varint(d, p)
+        end = p + size
+        out = [] if tt == 1 else {}
+        while p < end:
+            n, v, p2 = read_dbobject(d, p)
+            if n is None and v is None:
+                break
+            if tt == 1:
+                out.append(v)
+            else:
+                out[n] = v
+            p = p2
+        return name, out, end
+    if tt == 6:
+        return name, bool(d[p]), p + 1
+    if tt == 7:
+        n, p = _varint(d, p)
+        return name, d[p:p + n - 1].decode("utf-8", "replace"), p + n
+    fixed = {8: ("<i", 4), 9: ("<q", 8), 0xB: ("<f", 4), 0xC: ("<d", 8)}
+    if tt in fixed:
+        fmt, n = fixed[tt]
+        return name, struct.unpack_from(fmt, d, p)[0], p + n
+    if tt in (0xF, 0x10):
+        n = 16 if tt == 0xF else 20
+        return name, d[p:p + n].hex(), p + n
+    if tt == 0x13:
+        n, p = _varint(d, p)
+        return name, d[p:p + n].hex(), p + n
+    raise FormatError("DbObject type %#x at %d not supported" % (t, p - 1))
+
+
+class Layout:
+    """The install chunks of <game>\\Patch\\layout.toc and <game>\\Data\\layout.toc: a cas id (8 bytes, hex) names
+    its layer (bytes 0..1, 0 = Data, else Patch), its install chunk (bytes 2..5 = the chunk's persistentIndex) and its
+    cas file (bytes 6..7): <game>\\<Data|Patch>\\Win32\\<chunk name>\\cas_NN.cas.
+    datas: {"Data": bytes, "Patch": bytes} instead of the files (tests)."""
+
+    def __init__(self, game, datas=None):
+        self.game = game
+        self.chunks = {}                # persistentIndex (8 hex digits) -> install chunk name
+        for root in ("Patch", "Data"):
+            if datas is not None:
+                d = datas.get(root)
+            else:
+                p = os.path.join(game, root, "layout.toc")
+                d = open(p, "rb").read() if os.path.isfile(p) else None
+            if d is None:
+                continue
+            off = TOC_DATA if d[:4] == TOC_MAGIC else 0
+            _n, v, _e = read_dbobject(d, off)
+            for c in ((v or {}).get("installManifest") or {}).get("installChunks") or []:
+                if isinstance(c, dict) and "persistentIndex" in c and c.get("name"):
+                    self.chunks.setdefault("%08x" % (c["persistentIndex"] & 0xFFFFFFFF), c["name"])
+
+    def cas_path(self, cas_id):
+        name = self.chunks.get(cas_id[4:12])
+        if name is None:
+            return None
+        root = "Data" if cas_id[:4] == "0000" else "Patch"
+        return os.path.join(self.game, root, "Win32", name.replace("/", os.sep), "cas_%02d.cas" % int(cas_id[-4:], 16))
+
+
+def make_resolver(layout):
+    """cas file of (toc path, cas id): a toc in a <Data|Patch>\\Win32 folder (base-game pack) through layout.toc when
+    that file exists, else <that Win32>\\superbundlelayout\\<toc stem>\\cas_NN.cas; any other toc (downloaded pack) the
+    folder named like it (cas_path)."""
+    def resolve(toc_path, cas_id):
+        d = os.path.dirname(os.path.abspath(toc_path))
+        if os.path.normcase(os.path.basename(d)) == "win32":
+            p = layout.cas_path(cas_id) if layout is not None else None
+            if p and os.path.isfile(p):
+                return p
+            stem = os.path.splitext(os.path.basename(toc_path))[0]
+            return os.path.join(d, "superbundlelayout", stem, "cas_%02d.cas" % int(cas_id[-4:], 16))
+        return cas_path(toc_path, cas_id)
+    return resolve
+
+
+TOC_KINDS = ("commentaryfull", "commentarylaunch", "commentarylicensed")
+
+
+def find_tocs(game, lang):
+    """The language's commentary tocs, one per kind (full, launch, licensed): <game>\\Patch\\Win32 first, then
+    <game>\\Data\\Win32, then the downloaded pack folder <game>\\commentary (the game keeps a second copy of a downloaded
+    pack there; it is read only when no Win32 toc of that kind exists, so nothing is counted twice)."""
+    out = []
+    for kind in TOC_KINDS:
+        for folder in (os.path.join(game, "Patch", "Win32"), os.path.join(game, "Data", "Win32"),
+                       os.path.join(game, "commentary")):
+            p = os.path.join(folder, "%s_%s.toc" % (kind, lang))
+            if os.path.isfile(p):
+                out.append(p)
+                break
+    return out
+
+
+SET_RE = re.compile(r"^sound/speech/(?:loc)?commentary/([a-z]+_[a-z]+)/soundwaves/"
+                    r"(\1(?:_([a-z0-9]+))?_(full|demo|licensed))/([^/]+)$")
+
+
+def parse_set_name(asset_name, lang):
+    """sound/speech/{loc,}commentary/<lang>/soundwaves/<set>/<family> -> (set, team, kind, family), else None.
+    set = <lang>_<kind> (team "") or <lang>_<team>_<kind>."""
+    m = SET_RE.match(asset_name)
+    if not m or m.group(1) != lang:
+        return None
+    return m.group(2), m.group(3) or "", m.group(4), m.group(5)
+
+
 class CasReader:
-    def __init__(self, oodle):
+    def __init__(self, oodle, resolve=None):
         self.oodle = oodle
+        self.resolve = resolve or cas_path
         self.files = {}
 
     def raw(self, toc_path, loc):
         cas, off, size = loc
-        p = cas_path(toc_path, cas)
+        p = self.resolve(toc_path, cas)
         f = self.files.get(p)
         if f is None:
             if not os.path.isfile(p):
@@ -419,19 +570,19 @@ def parse_sble(d, with_fields=True, only=None):
 
 
 # ---------------------------------------------------------------------------------------------------- the bank
+DEFAULT_TEAM = "dr"     # eng_us: Derek Rae, the team proved in game on 2026-10-08 (docs/callnames.md)
+
+
 class Bank:
-    def __init__(self, game, lang):
+    def __init__(self, game, lang, team=None, tocs=None):
         self.game, self.lang = game, lang
         self.oodle = Oodle(game)
-        self.cas = CasReader(self.oodle)
-        self.tocs = []
-        for kind in ("commentaryfull", "commentarylaunch"):
-            p = os.path.join(game, "commentary", "%s_%s.toc" % (kind, lang))
-            if os.path.isfile(p):
-                self.tocs.append(Toc(p))
+        self.layout = Layout(game)
+        self.cas = CasReader(self.oodle, make_resolver(self.layout))
+        self.tocs = [Toc(p) for p in (tocs if tocs is not None else find_tocs(game, lang))]
         if not self.tocs:
-            raise FormatError("no downloaded commentary pack for %s under %s\\commentary (only downloaded packs are "
-                              "supported: the base game's eng_us keeps its cas data in the install chunks)" % (lang, game))
+            raise FormatError("no commentary pack for %s: no commentary{full,launch,licensed}_%s.toc in %s\\Patch\\Win32, "
+                              "%s\\Data\\Win32 or %s\\commentary" % (lang, lang, game, game, game))
         self.assets = {}                  # name -> {"ebx": (toc path, loc), "res": (toc path, loc, meta)}
         for toc in self.tocs:
             for entries in toc.bundles:
@@ -443,13 +594,46 @@ class Bank:
                     self.assets.setdefault(e["name"], {})["ebx"] = (toc.path, entries[1 + i])
                 for i, r in enumerate(man["res"]):
                     self.assets.setdefault(r["name"], {})["res"] = (toc.path, entries[1 + ne + i], r)
+        self._index_sets(team)
 
-    def family_name(self, family):
-        return "sound/speech/loccommentary/%s/soundwaves/%s_full/%s" % (self.lang, self.lang, family)
+    def _index_sets(self, team=None):
+        """self.sets {set: {"team", "kind", "families": {family: asset name}}} and the primary set (module doc)."""
+        self.sets = {}
+        for n, a in self.assets.items():
+            p = parse_set_name(n, self.lang)
+            if p is None or "res" not in a:
+                continue
+            s, t, kind, fam = p
+            self.sets.setdefault(s, {"team": t, "kind": kind, "families": {}})["families"][fam] = n
+        team = team or DEFAULT_TEAM
+        for cand in ("%s_full" % self.lang, "%s_%s_full" % (self.lang, team)):
+            if cand in self.sets:
+                self.primary = cand
+                break
+        else:
+            full = sorted(s for s, v in self.sets.items() if v["kind"] == "full")
+            if team != DEFAULT_TEAM or not full:
+                raise FormatError("no %s_full or %s_%s_full set in the %s bank (sets: %s)" % (
+                    self.lang, self.lang, team, self.lang, ", ".join(sorted(self.sets)) or "none"))
+            self.primary = full[0]
 
-    def families(self):
-        pre = "sound/speech/loccommentary/%s/soundwaves/%s_full/" % (self.lang, self.lang)
-        return sorted(n[len(pre):] for n, a in self.assets.items() if n.startswith(pre) and "res" in a)
+    def family_name(self, family, set_name=None):
+        fams = self.sets.get(set_name or self.primary, {}).get("families", {})
+        return fams.get(family, "<%s/%s: not in the bank>" % (set_name or self.primary, family))
+
+    def families(self, set_name=None):
+        return sorted(self.sets.get(set_name or self.primary, {}).get("families", {}))
+
+    def load_res(self, name):
+        """The SBle data sets of one family asset (res only, no EBX): for the ids of every set."""
+        a = self.assets.get(name)
+        if not a or "res" not in a:
+            raise FormatError("%s not found in the %s bank" % (name, self.lang))
+        toc_path, loc, r = a["res"]
+        res = self.cas.read(toc_path, loc)
+        if len(res) != r["size"]:
+            raise FormatError("%s: res is %d bytes, the manifest says %d" % (name, len(res), r["size"]))
+        return {"name": name, "res": res, "sets": parse_sble(res)}
 
     def load_family(self, family):
         name = self.family_name(family)
@@ -804,26 +988,89 @@ def game_build(game):
 
 def source_files(bank):
     out = []
+    res = bank.cas.resolve
     for toc in bank.tocs:
-        paths = [toc.path] + sorted({cas_path(toc.path, loc[0]) for b in toc.bundles for loc in b} |
-                                    {cas_path(toc.path, c[0]) for c in toc.chunks.values() if toc.own(c[0])})
+        paths = [toc.path] + sorted({res(toc.path, loc[0]) for b in toc.bundles for loc in b} |
+                                    {res(toc.path, c[0]) for c in toc.chunks.values() if toc.own(c[0])})
         for p in paths:
-            st = os.stat(p)
+            try:
+                st = os.stat(p)
+            except OSError:
+                out.append({"path": p, "size": None, "modified": None})
+                continue
             out.append({"path": p, "size": st.st_size,
                         "modified": datetime.datetime.fromtimestamp(st.st_mtime).isoformat(timespec="seconds")})
     return out
 
 
+ID_KEYS = ("generic", "simple", "link", "high", "generic_high")
+# family -> [(id list key, selector)]; pPLAYER_NAMES_HIGH is split by selector (high_rows)
+SET_FAMILIES = (("psimple_surname", "generic", "surname_ID"), ("pplayer_names_simple", "simple", "player_db_pID"),
+                ("pplayer_names_link", "link", "player_db_pID"), (HIGH_FAMILY, None, None))
+
+
+def collect_sets(bank, log=print):
+    """The ids of every set that has a name family (module doc: "sets", "teams", "union"). A family that cannot be read
+    is recorded in its set's "errors" (the run goes on); a family a set does not have is simply absent."""
+    sets = {}
+    for s in sorted(bank.sets):
+        info = bank.sets[s]
+        if not any(f in info["families"] for f, _k, _s in SET_FAMILIES):
+            continue            # e.g. eng_us_gmsr_full, eng_us_common_full: other families only
+        ids = {k: set() for k in ID_KEYS}
+        summary, errors = {}, {}
+        for family, key, selector in SET_FAMILIES:
+            name = info["families"].get(family)
+            if name is None:
+                continue
+            try:
+                fam = bank.load_res(name)
+                if family == HIGH_FAMILY:
+                    split, _both = high_rows(fam)
+                    ids["high"] |= {r["id"] for r in split["real_high"]}
+                    ids["generic_high"] |= {r["id"] for r in split["generic_high"]}
+                    summary["high"] = len(split["real_high"]) + len(split["generic_high"])
+                else:
+                    rows = selection_rows(fam, selector)
+                    ids[key] |= {r["id"] for r in rows}
+                    summary[key] = len(rows)
+            except FormatError as ex:
+                errors[family] = str(ex)
+        sets[s] = {"team": info["team"], "kind": info["kind"], "ids": {k: sorted(v) for k, v in ids.items()},
+                   "selection_rows": summary, "errors": errors}
+        log("set %-22s %s%s" % (s, ", ".join("%s %d" % (k, len(v)) for k, v in ids.items() if v),
+                                ("; errors: " + "; ".join("%s: %s" % e for e in errors.items())) if errors else ""))
+    teams, union = {}, {k: set() for k in ID_KEYS}
+    for s, v in sets.items():
+        t = teams.setdefault(v["team"], {k: set() for k in ID_KEYS})
+        for k in ID_KEYS:
+            t[k] |= set(v["ids"][k])
+            union[k] |= set(v["ids"][k])
+    teams = {t: {k: sorted(x) for k, x in v.items()} for t, v in sorted(teams.items())}
+    for t, v in teams.items():
+        log("team %-4s generic %d, simple|link %d, any own %d" % (
+            t or '""', len(v["generic"]), len(set(v["simple"]) | set(v["link"])),
+            len(set(v["simple"]) | set(v["link"]) | set(v["high"]))))
+    return sets, teams, {k: sorted(v) for k, v in union.items()}
+
+
 def run(a, log=print):
-    bank = Bank(a.game, a.lang)
+    bank = Bank(a.game, a.lang, team=getattr(a, "team", None))
     try:
         if a.list:
             for f in bank.families():
                 log(f)
             return 0
         result = {"turbo_bank": 1, "lang": a.lang, "game_build": game_build(a.game), "source_files": source_files(bank)}
+        log("sets: %s; primary: %s" % (", ".join(sorted(bank.sets)), bank.primary))
         notes, raw = [], {}
         for key, (family, selector, _prefix) in FAMILIES.items():
+            if family not in bank.families():      # e.g. eng_us gm: no surname family
+                raw[key] = (None, [])
+                result[key] = []
+                notes.append("%s (%s): not in the primary set %s" % (key, family, bank.primary))
+                log("%s: not in %s" % (key, bank.primary))
+                continue
             fam = bank.load_family(family)
             rows = selection_rows(fam, selector)
             raw[key] = (fam, rows)
@@ -841,10 +1088,15 @@ def run(a, log=print):
                              len(ids), len(segs), fam["sets"]["Segments"].rows, check_variations(fam, rows)))
             log("%s: %d rows, %d ids" % (key, len(merged), len(ids)))
         # pPLAYER_NAMES_HIGH, split by selector (new keys after the existing ones, which stay as they were)
-        hfam = bank.load_family(HIGH_FAMILY)
-        split, both = high_rows(hfam)
-        hsel = hfam["sets"]["Selection"]
-        hparams = [p["name"] for p in max(hsel.indexes, key=lambda x: len(x["params"]))["params"]]
+        try:
+            hfam = bank.load_family(HIGH_FAMILY)
+            split, both = high_rows(hfam)
+        except FormatError as ex:          # eng_us gm: "index without data is not an identity"
+            hfam, split, both = None, {k: [] for k in HIGH}, 0
+            notes.append("pplayer_names_high of %s not read: %s" % (bank.primary, ex))
+            log("pplayer_names_high: not read (%s)" % ex)
+        hsel = hfam["sets"]["Selection"] if hfam else None
+        hparams = [p["name"] for p in max(hsel.indexes, key=lambda x: len(x["params"]))["params"]] if hsel else []
         for key, (selector, _prefix) in HIGH.items():
             rows = split[key]
             raw[key] = (hfam, rows)
@@ -853,14 +1105,17 @@ def run(a, log=print):
             result[key] = [{"segment": r["segment"], "variation": r["variation"], id_key: r[id_key],
                             "intensity": r["intensity"], "cm_sim": r["cm_sim"]} for r in merged]
             log("%s: %d rows, %d ids" % (key, len(merged), len({r[id_key] for r in merged})))
-        notes.append("pplayer_names_high: %d selection rows keyed by %s: %d by player_db_pID (real_high), %d by "
-                     "surname_ID (generic_high), %d by both; %d segments of %d; Variations check: %s" % (
-                         hsel.rows, ", ".join(hparams), len(split["real_high"]), len(split["generic_high"]), both,
-                         len({r["segment"] for v in split.values() for r in v}), hfam["sets"]["Segments"].rows,
-                         check_variations(hfam, split["real_high"] + split["generic_high"])))
+        if hfam:
+            notes.append("pplayer_names_high: %d selection rows keyed by %s: %d by player_db_pID (real_high), %d by "
+                         "surname_ID (generic_high), %d by both; %d segments of %d; Variations check: %s" % (
+                             hsel.rows, ", ".join(hparams), len(split["real_high"]), len(split["generic_high"]), both,
+                             len({r["segment"] for v in split.values() for r in v}), hfam["sets"]["Segments"].rows,
+                             check_variations(hfam, split["real_high"] + split["generic_high"])))
         summary = {}
         for key in WAV_FAMILIES:
             fam, rows = raw[key]
+            if fam is None:
+                continue
             id_key = "commentaryid" if key in ("generic", "generic_high") else "playerid"
             summary[key] = dict(family=fam["name"].rsplit("/", 1)[1], **family_summary(len(rows), result[key], id_key))
             log("summary %-12s %s" % (key, ", ".join("%s %s" % (k, v) for k, v in summary[key].items())))
@@ -884,6 +1139,9 @@ def run(a, log=print):
                 (": " + "; ".join(problems[:20])) if problems else ""))
         result["family_summary"] = summary
         result["other_player_families"] = other_player_families(bank, log)
+        # every set's ids (new keys; the ones above are the primary set's rows, as before)
+        result["primary_set"] = bank.primary
+        result["sets"], result["teams"], result["union"] = collect_sets(bank, log)
         result["notes"] = notes
         if a.out:
             os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
@@ -970,7 +1228,7 @@ def self_test(game, log=print):
     check("ogg: pre-skip 312, total 1608, two header pages + one data page",
           total == 1608 and ogg.count(b"OggS") == 3 and struct.unpack_from("<H", ogg, 28 + 10)[0] == 312)
 
-    if game and os.path.isfile(os.path.join(game, "commentary", "commentaryfull_ita_it.toc")):
+    if game and any(os.path.basename(p).startswith("commentaryfull_") for p in find_tocs(game, "ita_it")):
         log("on disk (ita_it, %s):" % game)
         bank = Bank(game, "ita_it")
         try:
@@ -1030,6 +1288,8 @@ def main(argv=None):
                                          "(and generic_high when a HIGH row is keyed by surname_ID)")
     ap.add_argument("--ffmpeg", help="ffmpeg.exe to decode the Opus audio (default: the one on PATH)")
     ap.add_argument("--list", action="store_true", help="list the language's soundwave families and stop")
+    ap.add_argument("--team", help="the commentary team of the primary set when the language has teams "
+                                   "(eng_us: dr = Derek Rae, gm = Guy Mowbray; default %s)" % DEFAULT_TEAM)
     ap.add_argument("--self-test", action="store_true", help="run the built-in checks (and the ita_it ones on disk)")
     a = ap.parse_args(argv)
     if a.self_test:

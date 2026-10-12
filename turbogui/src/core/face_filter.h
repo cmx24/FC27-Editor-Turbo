@@ -1,8 +1,9 @@
 // FC 27 LE Turbo GUI - filters of the real-face chooser (players and managers): ethnicity, skin tone, hair colour,
 // hair, facial hair, facial hair colour, eye colour and gender of each head, with readable labels, counts and sort orders.
-// Skin tone, hair colour, facial hair colour and eye colour filter on the game's exact codes (Live Editor's names); the
-// hair and facial hair styles are grouped into kMaxBuckets looks from the game's own previews (face_looks.h); ethnicity
-// groups the head type ranges.
+// Every menu offers at most kMaxBuckets choices (Cassio, 2026-10-11): skin tone, hair colour, facial hair colour and eye
+// colour are grouped (a head's tooltip keeps the exact name, Live Editor's); the hair and facial hair styles are grouped
+// into looks from the game's own previews (face_looks.h); ethnicity groups the head type ranges; the 3D looks are grouped
+// too (kGroups3d in face_filter.cpp).
 // Platform independent (no ImGui): the chooser in ui_faces.cpp draws it, the native tests check it.
 //
 // Fields (players and manager tables, FC 27): headtypecode, skintonecode, haircolorcode, hairtypecode,
@@ -33,8 +34,8 @@ enum Facet {
     kSkin3d, kHairColour3d, kHairLength3d, kHairType3d, kFacialHair3d, kBeardColour3d, kHeadwear3d, kFacetCount
 };
 constexpr int kDbFacetCount = kGender + 1;  // the database facets (what manager heads have)
-constexpr int kMaxBuckets = 5;         // looks per style menu (hair, facial hair), ethnicity groups, sort menu entries
-                                       // (the 3D facets are exact: every value of the look is offered, up to face3d::kMaxValues)
+constexpr int kMaxBuckets = 5;         // choices per menu (Cassio, 2026-10-11): style looks, ethnicity, colour and eye
+                                       // groups, 3D look groups, sort entries; a head's tooltip keeps its exact value
 
 constexpr int64_t kAny = INT64_MIN;    // no filter on that facet
 constexpr int64_t kNoValue = -1;       // the table has no such field (the head never matches a filter on it)
@@ -51,6 +52,8 @@ struct Face {
     int overall = 0;          // players: overall rating (sort)
     int64_t raw[kFacetCount];  // field values (database facets), look values or kUnclassified (3D facets); kNoValue: none
     const face3d::Look* look = nullptr;  // the head's 3D look (players only; set_look)
+    bool game_head = false;   // a head of the game files no row of the save uses (asset catalog): id = headassetid
+    std::string name_source;  // game heads: assets::Name::source of the name ("" = no name, "Head #id")
     Face() {
         for (auto& r : raw) r = kNoValue;
     }
@@ -66,14 +69,17 @@ const char* facet_title(Facet f);   // "Ethnicity", "Skin tone", ..., "Gender"; 
 const char* facet_title(Facet f, bool looks3d);
 bool facet_3d(Facet f);             // kSkin3d .. kHeadwear3d
 const char* facet_field(Facet f);   // the database field: "headtypecode", "skintonecode", ...
-// The filter key of a field value: skin tone, hair / facial hair / eye colour: the exact code; ethnicity and the styles:
-// their group (1 .. kMaxBuckets; facial hair: 0 clean-shaven .. 4 full beard); gender: the value
+// The filter key of a field value: at most kMaxBuckets groups per facet. Skin tone, hair / facial hair / eye colour,
+// ethnicity and the styles: their group (1 .. kMaxBuckets; facial hair: 0 clean-shaven .. 4 full beard); the 3D facets:
+// the group of the look value (0 .. group_count3d - 1) or kUnclassified; gender: the value
 int64_t facet_key(Facet f, int64_t raw);
-// true when the facet filters on the game's exact codes (skin tone, hair colour, facial hair colour, eye colour)
+// Groups of a 3D facet (every one is offered, at most kMaxBuckets); 0 for a database facet
+int group_count3d(Facet f);
+// Always false since 2026-10-11 (every menu is grouped); kept for callers of the old exact colour menus
 bool facet_exact(Facet f);
 // Readable label of a key: "Caucasian 2", "Dark Brown", "Hazel", "Tied, braids & dreads", "Clean-shaven", "Female", ...
 std::string key_label(Facet f, int64_t key);
-// A head's own value for its tooltip: the label and the code ("Dark Brown (code 3)", "Short beard (style 250)")
+// A head's own exact value for its tooltip ("Dark Brown", "Hazel", "Short beard", 3D: "Dark brown"), not its group
 std::string trait_label(Facet f, int64_t raw);
 // The order the chooser shows the filter buttons in (gender first): database facets, or with 3D looks Gender, the 7 3D
 // facets, Eyes and Ethnicity; facet_order_size() entries
@@ -113,8 +119,8 @@ struct Count {
                         // style is in the looks table, so it has a preview picture): its picture illustrates the value
 };
 // Values of facet `fc` among `faces[i]` for i in `pool` that pass the other filters, with counts; sorted by key
-// (ethnicity by group order). 3D facets list every value of the trait (n 0, sample kNoSample when no head has it), then
-// kUnclassified when heads without a look are in the pool.
+// (ethnicity by group order); at most kMaxBuckets. 3D facets list every group of the trait (n 0, sample kNoSample when no
+// head has it); heads without a look are no choice (the chooser says how many there are).
 std::vector<Count> facet_counts(const std::vector<Face>& faces, const std::vector<size_t>& pool, const Filter& flt, Facet fc);
 
 enum Sort { kSortName, kSortOverall, kSortSkin, kSortHairColour, kSortNewest, kSortCount };

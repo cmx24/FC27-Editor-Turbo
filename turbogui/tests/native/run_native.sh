@@ -100,6 +100,7 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/core/face_filter.cpp src/core/face3d_looks.cpp src/core/hair_catalog.cpp src/core/user_text.cpp src/ui/ui_faces.cpp src/core/bodytype_catalog.cpp src/ui/ui_bodytypes.cpp \
          src/ui/app.cpp src/ui/widgets.cpp src/ui/ui_players.cpp src/ui/ui_teams.cpp src/ui/ui_database.cpp src/ui/ui_tools.cpp src/ui/textures.cpp src/ui/ui_images.cpp src/ui/ui_competitions.cpp src/ui/ui_callnames.cpp src/ui/ui_names.cpp src/ui/ui_presets.cpp src/ui/ui_cmtracker.cpp src/core/cmtracker.cpp src/ui/geo.cpp src/core/overall.cpp src/core/archetypes.cpp src/ui/ui_identity.cpp src/ui/ui_standings.cpp src/ui/ui_match.cpp src/ui/ui_reapply.cpp \
          src/ui/file_picker.cpp \
+         src/core/asset_catalog.cpp src/ui/ui_asset_browser.cpp \
          src/core/hub_customise.cpp src/ui/ui_club_tools.cpp \
          src/core/transfer_stats.cpp src/core/scouts.cpp src/ui/ui_parity.cpp \
          src/core/callname_audio.cpp src/ui/ui_callname_play.cpp src/core/callname_voice.cpp src/core/callname_voice_host.cpp \
@@ -109,7 +110,10 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/ui/pitch_view.cpp src/ui/ui_tactics.cpp src/core/sliders.cpp src/core/tactic_profiles.cpp src/core/tactics.cpp src/core/tactics_db.cpp src/core/opp_rules.cpp src/core/opposition.cpp src/core/teamname_override.cpp \
          tests/native/test_crash_report.cpp tests/native/test_main.cpp; do
   o="$BIN/obj/$(echo "$s" | sed 's#[/.]#_#g').o"
-  pc_add "$o" "$ROOT/$s" g++ $FLAGS
+  # test_main.cpp (13k lines of test code) at -O0: about 50 s instead of 95 s; relative source paths keep the .d files valid
+  # in a copy of build/native_bin made for a new worktree
+  f="$FLAGS"; [ "$s" = tests/native/test_main.cpp ] && f="${FLAGS/-O1/-O0}"
+  pc_add "$o" "$s" g++ $f
   objs+=("$o")
 done
 pc_wait

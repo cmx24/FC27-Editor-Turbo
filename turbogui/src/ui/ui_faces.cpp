@@ -12,9 +12,11 @@
 
 #include "app.h"
 #include "core/field_labels.h"
+#include "core/game_heads.h"
 #include "core/image.h"
 #include "core/player_capture.h"
 #include "imgui.h"
+#include "ui_asset_browser.h"
 #include "ui_faces.h"
 
 namespace turbo {
@@ -31,6 +33,8 @@ static std::string lower_text(std::string s) {
 // ---------------------------------------------------------------- heads
 static std::vector<Face> g_pfaces, g_mfaces;
 static uint64_t g_pfaces_version = ~uint64_t(0), g_mfaces_version = ~uint64_t(0);
+// head ids some row uses (design 3.6: players.headassetid of any class, manager.headassetid): "Hidden" is the rest
+static game_heads::UsedHeads g_used_by_players, g_used_by_managers;
 static uint64_t g_pfaces_looks = 0;  // face3d::generation() the player heads' look pointers come from
 
 static void facet_fields(const Table& t, const Field* out[faces::kFacetCount]) {
@@ -42,6 +46,7 @@ const std::vector<Face>& player_faces(App& app) {
     g_pfaces_version = app.model.version();
     g_pfaces_looks = face3d::generation();
     g_pfaces.clear();
+    g_used_by_players.clear();
     const Table* t = app.db.table("players");
     if (!t || !t->has("headclasscode") || !t->has("headassetid")) return g_pfaces;
     Snapshot snap;
@@ -58,6 +63,7 @@ const std::vector<Face>& player_faces(App& app) {
         r.id = snap.get_int(idx, *pid);
         r.headassetid = snap.get_int(idx, *ha);
         if (r.headassetid <= 0) continue;
+        g_used_by_players.insert(r.headassetid);
         const int64_t cls = snap.get_int(idx, *hc);
         r.real = cls == 0 && (!hq || snap.get_int(idx, *hq) != 0);  // a real face: head class 0 and a high-quality head
         if (!r.real && cls != 0 && r.headassetid != r.id) continue;  // generic head: nothing to pick
@@ -80,6 +86,7 @@ const std::vector<Face>& manager_faces(App& app) {
     if (g_mfaces_version == app.model.version()) return g_mfaces;
     g_mfaces_version = app.model.version();
     g_mfaces.clear();
+    g_used_by_managers.clear();
     const Table* t = app.db.table("manager");
     if (!t || !t->has("headassetid")) return g_mfaces;
     Snapshot snap;
@@ -97,6 +104,7 @@ const std::vector<Face>& manager_faces(App& app) {
         r.id = mid ? snap.get_int(idx, *mid) : 0;
         r.headassetid = snap.get_int(idx, *ha);
         if (r.headassetid <= 0) continue;
+        g_used_by_managers.insert(r.headassetid);
         r.real = !hc || snap.get_int(idx, *hc) == 0;
         for (int i = 0; i < faces::kFacetCount; ++i) r.raw[i] = ff[i] ? snap.get_int(idx, *ff[i]) : faces::kNoValue;
         auto it = by_id.find(r.id);
@@ -106,6 +114,111 @@ const std::vector<Face>& manager_faces(App& app) {
     }
     std::sort(g_mfaces.begin(), g_mfaces.end(), [](const Face& a, const Face& b) { return a.name < b.name; });
     return g_mfaces;
+}
+
+// ---------------------------------------------------------------- game heads (asset catalog)
+static game_heads::HeadCatalog g_heads_cat;  // copy of the head3d family of the app's catalog (set_faces_catalog)
+static uint64_t g_heads_cat_gen = 1;         // bumped by set_faces_catalog
+static std::vector<Face> g_gfaces, g_pall;    // hidden game heads; player heads + game heads (the chooser's list)
+static uint64_t g_gfaces_version = ~uint64_t(0), g_gfaces_gen = 0, g_pall_version = ~uint64_t(0), g_pall_gen = 0, g_pall_looks = 0;
+
+void set_faces_catalog(std::shared_ptr<const assets::Catalog> catalog) {
+    g_heads_cat = catalog ? game_heads::from_catalog(*catalog) : game_heads::HeadCatalog();
+    ++g_heads_cat_gen;
+}
+
+const std::vector<Face>& game_faces(App& app) {
+    player_faces(app);
+    manager_faces(app);  // both tables fill the used-head sets
+    if (g_gfaces_version == app.model.version() && g_gfaces_gen == g_heads_cat_gen) return g_gfaces;
+    g_gfaces_version = app.model.version();
+    g_gfaces_gen = g_heads_cat_gen;
+    g_gfaces.clear();
+    game_heads::UsedHeads used = g_used_by_players;
+    used.insert(g_used_by_managers.begin(), g_used_by_managers.end());
+    for (const game_heads::HeadInfo* h : game_heads::hidden_heads(g_heads_cat, used)) {
+        Face r;
+        r.id = h->id;
+        r.headassetid = h->id;
+        r.real = true;
+        r.game_head = true;
+        r.name = game_heads::display_name(*h);
+        r.name_source = h->source;
+        r.lname = lower_text(r.name);
+        g_gfaces.push_back(std::move(r));  // no database fields and no 3D look: a facet filter never matches it
+    }
+    std::sort(g_gfaces.begin(), g_gfaces.end(), [](const Face& a, const Face& b) { return a.name < b.name; });
+    return g_gfaces;
+}
+
+// The chooser's player-head list: the save's heads, then the hidden game heads
+static const std::vector<Face>& player_and_game_faces(App& app) {
+    const std::vector<Face>& p = player_faces(app);
+    const std::vector<Face>& g = game_faces(app);
+    if (g.empty()) return p;
+    if (g_pall_version == app.model.version() && g_pall_gen == g_heads_cat_gen && g_pall_looks == face3d::generation()) return g_pall;
+    g_pall_version = app.model.version();
+    g_pall_gen = g_heads_cat_gen;
+    g_pall_looks = face3d::generation();
+    g_pall = p;
+    g_pall.insert(g_pall.end(), g.begin(), g.end());
+    return g_pall;
+}
+
+static void copy_game_miniface(App& app, int64_t head, int64_t target_pid, std::string& note);
+
+bool apply_game_head(App& app, int64_t head_id, int64_t target_id, bool target_is_manager, const RealFaceOptions& o, std::string* msg) {
+    auto fail = [&](const std::string& w) {
+        if (msg) *msg = w;
+        return false;
+    };
+    std::string why;
+    if (!game_heads::may_give(g_heads_cat, head_id, &why)) return fail("head " + std::to_string(head_id) + " not given: " + why);
+    const game_heads::HeadInfo* h = g_heads_cat.find(head_id);
+    const Table* t = app.db.table(target_is_manager ? "manager" : "players");
+    uint64_t rec = 0;
+    std::string target_name;
+    if (target_is_manager) {
+        for (const auto& m : app.model.managers())
+            if (m.managerid == target_id) {
+                rec = m.rec;
+                target_name = m.name;
+            }
+    } else if (const PlayerRow* p = app.model.player(target_id)) {
+        rec = p->rec;
+        target_name = p->name;
+    }
+    if (!t || !rec || !h) return fail(target_is_manager ? "manager not found" : "player not found");
+    // validate everything first, then write
+    std::vector<std::pair<const Field*, Value>> writes;
+    for (const game_heads::FieldWrite& w : game_heads::head_writes(*h)) {
+        const Field* f = t->field(w.field);
+        if (!f) continue;
+        const Value v = Value::of_int(w.value);
+        const std::string verr = Database::validate(*f, v);
+        if (!verr.empty()) return fail(std::string(w.field) + ": " + verr);
+        writes.emplace_back(f, v);
+    }
+    if (writes.empty()) return fail("no head fields in the " + t->name + " table");
+    const std::string target = (target_is_manager ? "manager " : "player ") + std::to_string(target_id);
+    for (const auto& w : writes) {
+        const int64_t old = app.db.get_int(*t, rec, w.first->name, 0);
+        if (!app.edit(*t, rec, *w.first, w.second)) return fail("writing " + w.first->name + " failed");
+        assets::WriteLogEntry e;
+        e.target = target;
+        e.field = w.first->name;
+        e.old_value = std::to_string(old);
+        e.new_value = std::to_string(w.second.i);
+        e.catalog_key = g_heads_cat.build_key;
+        assets::append_write_log(app.bridge.dir(), e);  // best effort: the edit itself is done
+    }
+    std::string note = "game head " + game_heads::display_name(*h) + " given to " + target_name + " (logged in asset_writes.log)";
+    if (!target_is_manager && o.miniface) {
+        if (h->miniface) copy_game_miniface(app, head_id, target_id, note);
+        else note += "; the game has no miniface for this head";
+    }
+    if (msg) *msg = note;
+    return true;
 }
 
 size_t real_face_count(App& app) {
@@ -202,6 +315,25 @@ bool apply_real_face(App& app, int64_t target_pid, int64_t owner_pid, const Real
     return true;
 }
 
+// The game's miniface p<head> copied to the player's p<target> (custom miniface, backups kept by save_custom)
+static void copy_game_miniface(App& app, int64_t head, int64_t target_pid, std::string& note) {
+    fs::path f;
+    const LegacyImages::State st = app.legacy.locate(legacy_path::player_miniface(head), &f, true);
+    if (st != LegacyImages::State::Custom && st != LegacyImages::State::Game) {
+        note += "; miniface not copied (" + miniface_not_at_hand(st) + ")";
+        return;
+    }
+    std::ifstream in(f, std::ios::binary);
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::string err;
+    if (!bytes.empty() && app.legacy.save_custom(legacy_path::player_miniface(target_pid), bytes, &err)) {
+        app.textures.forget(app.legacy.custom_file(legacy_path::player_miniface(target_pid)));
+        note += "; the game's miniface of the head is copied too";
+    } else {
+        note += "; miniface not copied (" + (err.empty() ? std::string("empty file") : err) + ")";
+    }
+}
+
 static const ManagerRow* find_manager(App& app, int64_t managerid) {
     for (const auto& m : app.model.managers())
         if (m.managerid == managerid) return &m;
@@ -265,6 +397,9 @@ struct Chooser {
     int only3d = -1;  // "Only heads with a 3D look": -1 until the user sets it (on when the list has kOnly3dDefaultMin looks)
     bool manager_heads = false;  // manager target: managers' heads instead of players'
     RealFaceOptions opts;
+    AssetScope scope = AssetScope::All;  // All / In this save / Hidden (game heads); this session only
+    int64_t pending_game_head = 0;       // a game head clicked: the confirmation row asks before writing
+    float confirm_h = 0.0f;              // height of that confirmation block last frame (the grid leaves room for it)
 };
 static Chooser g_player_ch, g_manager_ch;
 
@@ -341,6 +476,11 @@ static void facet_button(App& app, Chooser& ch, const std::vector<Face>& list, c
     }
     if (counts.empty()) ImGui::TextDisabled("No head matches the other filters.");
     ImGui::EndChild();
+    if (faces::facet_3d(fc)) {  // heads without a 3D look are no choice (at most 5 per menu): say how many there are
+        int listed = 0;
+        for (const faces::Count& c : counts) listed += c.n;
+        if (any > listed) ImGui::TextDisabled("%d heads not classified yet (no 3D look)", any - listed);
+    }
     ImGui::EndPopup();
 }
 
@@ -414,6 +554,7 @@ static bool capture_usable(App& app) {
 }
 
 static void queue_head3d(App& app, const Face& f, bool front) {
+    if (f.game_head) return;  // the capture renders a player by playerid: a game head has no player to render
     const int64_t id = head3d_id(f);
     if (id <= 0 || face3d_cached(app, f.manager, id)) return;
     const int64_t k = head3d_key(f.manager, id);
@@ -651,6 +792,21 @@ static bool face3d_cell(App& app, const fs::path& file, float cell, const std::s
     return clicked;
 }
 
+// A grid cell for a head with no picture (a game head the game ships no miniface for); true when clicked
+static bool no_picture_cell(float cell, const std::string& caption, const char* id) {
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float line = ImGui::GetTextLineHeightWithSpacing();
+    const bool clicked = ImGui::InvisibleButton(id, ImVec2(cell, cell + line));
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p, ImVec2(p.x + cell, p.y + cell), ImGui::GetColorU32(ImGui::IsItemHovered() ? ImGuiCol_HeaderHovered : ImGuiCol_FrameBg));
+    const char* txt = "no picture";
+    const ImVec2 ts = ImGui::CalcTextSize(txt);
+    dl->AddText(ImVec2(p.x + (cell - ts.x) * 0.5f, p.y + (cell - ts.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_TextDisabled), txt);
+    const ImVec4 clip(p.x, p.y + cell, p.x + cell, p.y + cell + line);
+    dl->AddText(nullptr, 0.0f, ImVec2(p.x + 2.0f, p.y + cell + 1.0f), ImGui::GetColorU32(ImGuiCol_Text), caption.c_str(), nullptr, 0.0f, &clip);
+    return clicked;
+}
+
 // "Render all filtered heads" / progress / Stop, or why the 3D heads are off
 static void head3d_bar(App& app, const std::vector<const Face*>& rows) {
     if (!capture_usable(app)) {
@@ -669,7 +825,7 @@ static void head3d_bar(App& app, const std::vector<const Face*>& rows) {
     } else {
         size_t missing = 0;
         for (const Face* f : rows)
-            if (head3d_id(*f) > 0 && !face3d_cached(app, f->manager, head3d_id(*f))) ++missing;
+            if (!f->game_head && head3d_id(*f) > 0 && !face3d_cached(app, f->manager, head3d_id(*f))) ++missing;
         if (missing > 0) {
             char bl[96];
             std::snprintf(bl, sizeof(bl), "Render all filtered heads (%zu)##r3dall", missing);
@@ -702,7 +858,8 @@ static void head3d_bar(App& app, const std::vector<const Face*>& rows) {
 // Filters, sort, what to copy, and the grid of heads. Returns the head clicked (nullptr when none).
 static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
     const bool mheads = manager_target && ch.manager_heads;
-    const std::vector<Face>& list = mheads ? manager_faces(app) : player_faces(app);
+    const std::vector<Face>& list = mheads ? manager_faces(app) : player_and_game_faces(app);
+    const bool game_heads_on = !mheads && !game_faces(app).empty();
     const Table* src = app.db.table(mheads ? "manager" : "players");
     const float row_end = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
     // 3D looks (core/face3d_looks.h): player heads classified from the game's 3D renders; manager heads have none
@@ -738,6 +895,14 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
             if (ImGui::Selectable(faces::sort_title(static_cast<faces::Sort>(s)), ch.sort == s)) ch.sort = s;
         ImGui::EndCombo();
     }
+    if (game_heads_on) {
+        ImGui::SameLine();
+        asset_scope_combo("##facescope", ch.scope, S(130.0f));
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("All heads, the heads of this save, or Hidden: the %zu 3D heads in the game files that no player or manager\n"
+                              "of this save uses (asset catalog %s)",
+                              game_faces(app).size(), g_heads_cat.build_key.c_str());
+    }
     if (looks3d) {
         bool on = only3d;
         bool not_first = false;
@@ -755,8 +920,9 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
     std::vector<size_t> pool;
     for (size_t i = 0; i < list.size(); ++i) {
         const Face& f = list[i];
+        if (game_heads_on && !assets::scope_shows(ch.scope, f.game_head)) continue;
         if (ch.real_only && !f.real) continue;
-        if (only3d && !f.look) continue;
+        if (only3d && !f.look && !f.game_head) continue;  // game heads have no 3D look: "Only heads with a 3D look" keeps them
         if (!q.empty()) {
             if (numeric ? (std::to_string(f.id).find(q) != 0 && std::to_string(f.headassetid).find(q) != 0) : f.lname.find(q) == std::string::npos)
                 continue;
@@ -800,12 +966,23 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
     ImGui::TextDisabled("%zu of %zu heads (%s)", rows.size(), pool.size(),
                         mheads ? "managers' heads with their minifaces"
                                : (ch.real_only ? "real-face players with their minifaces" : "every player with a head model"));
+    if (game_heads_on) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("| %zu hidden game heads%s", game_faces(app).size(),
+                            g_heads_cat.current() ? "" : " (catalog for another game build: they cannot be given)");
+    }
 
     const bool use3d = capture_usable(app);
     head3d_bar(app, rows);  // the renders themselves: tick_faces3d, every frame from App::draw
     const float cell = S(96.0f);
     const Face* picked = nullptr;
-    ImGui::BeginChild("##facegrid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 2.2f), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
+    // below the grid: the "pictures loading" line and Close, plus the game-head confirmation (Apply / Cancel and its
+    // warnings) while one is pending, so Apply is never below the fold of the fixed-size modal. Its height is measured
+    // each frame (game_head_confirm); the first frame estimates it.
+    float below = ImGui::GetFrameHeightWithSpacing() * 2.2f;
+    if (ch.pending_game_head > 0)
+        below += ch.confirm_h > 0.0f ? ch.confirm_h : ImGui::GetTextLineHeightWithSpacing() * 7.0f + ImGui::GetFrameHeightWithSpacing();
+    ImGui::BeginChild("##facegrid", ImVec2(0, -below), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
     const int cols = std::max(1, int((ImGui::GetContentRegionAvail().x + ImGui::GetStyle().ItemSpacing.x) / (cell + ImGui::GetStyle().ItemSpacing.x)));
     const int nrows = int((rows.size() + size_t(cols) - 1) / size_t(cols));
     ImGuiListClipper clip;
@@ -820,11 +997,19 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
                 ImGui::BeginGroup();
                 ImGui::PushID(static_cast<int>(f->id));
                 char bid[48];
-                std::snprintf(bid, sizeof(bid), "%s%lld", f->manager ? "mface" : "face", static_cast<long long>(f->id));
+                std::snprintf(bid, sizeof(bid), "%s%lld", f->game_head ? "gface" : f->manager ? "mface" : "face", static_cast<long long>(f->id));
                 const int64_t rid = head3d_id(*f);
-                const bool has3d = use3d && rid > 0 && face3d_cached(app, f->manager, rid);
+                const bool has3d = !f->game_head && use3d && rid > 0 && face3d_cached(app, f->manager, rid);
                 const ImVec2 cp = ImGui::GetCursorScreenPos();
-                if (has3d) {
+                const game_heads::HeadInfo* gh = f->game_head ? g_heads_cat.find(f->id) : nullptr;
+                if (f->game_head) {
+                    // a game head: its game miniface when the game ships one (it cannot be rendered before Apply)
+                    const bool clicked = gh && gh->miniface ? picture_cell(app, legacy_path::player_miniface(f->id), false, cell, f->name, bid, false)
+                                                            : no_picture_cell(cell, f->name, bid);
+                    if (clicked) picked = f;
+                    ImGui::GetWindowDrawList()->AddText(ImVec2(cp.x + 3.0f, cp.y + 2.0f), ImGui::GetColorU32(ImGuiCol_PlotHistogram),
+                                                        asset_badge_label(AssetBadge::Hidden));
+                } else if (has3d) {
                     if (face3d_cell(app, face3d_file(app, f->manager, rid), cell, f->name, bid)) picked = f;
                     // the cell shows the 3D render, not the miniface: with "His miniface too" the miniface is asked from
                     // the game all the same, so a click finds it at hand to copy
@@ -838,7 +1023,19 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
                                                             given_up ? "3D failed" : "3D pending");
                     }
                 }
-                if (ImGui::IsItemHovered()) {
+                if (f->game_head && ImGui::IsItemHovered()) {
+                    ImGui::BeginTooltip();
+                    ImGui::Text("%s", f->name.c_str());
+                    ImGui::SameLine();
+                    asset_badge(AssetBadge::Hidden, "In the game files; no player or manager of this save uses it");
+                    ImGui::TextDisabled("game head %lld%s%s", static_cast<long long>(f->id), gh && !gh->toc.empty() ? ", bundle " : "",
+                                        gh ? gh->toc.c_str() : "");
+                    const std::string src = assets::name_source_label(f->name_source);
+                    if (!src.empty()) ImGui::TextDisabled("%s", src.c_str());
+                    if (gh && !gh->miniface) ImGui::TextDisabled("The game ships no miniface for it, and it cannot be rendered before it is given.");
+                    ImGui::TextDisabled("Click to give it (you confirm first).");
+                    ImGui::EndTooltip();
+                } else if (ImGui::IsItemHovered()) {
                     const std::string traits = faces::head_traits(*f, looks3d);  // "3D look: ..." first when the list has looks
                     ImGui::BeginTooltip();
                     if (has3d) draw_file_picture(app, face3d_file(app, f->manager, rid), S(256.0f));  // big preview of the 3D render
@@ -862,16 +1059,64 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
     return picked;
 }
 
+// A game head was clicked: what will be written, why it may not be, Apply / Cancel. True when it was given.
+static bool game_head_confirm(App& app, Chooser& ch, int64_t target_id, bool target_is_manager) {
+    if (ch.pending_game_head <= 0) return false;
+    const game_heads::HeadInfo* h = g_heads_cat.find(ch.pending_game_head);
+    if (!h) {
+        ch.pending_game_head = 0;
+        return false;
+    }
+    std::string why;
+    const bool ok = game_heads::may_give(g_heads_cat, h->id, &why);
+    const float y0 = ImGui::GetCursorPosY();
+    ImGui::Separator();
+    ImGui::Text("Give the game head %s?", game_heads::display_name(*h).c_str());
+    ImGui::SameLine();
+    asset_badge(AssetBadge::Hidden);
+    // wrapped: the modal is 880 wide and these lines are longer
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("Writes headassetid %lld, headclasscode 0, hashighqualityhead 1, headvariation %d (headtypecode kept); logged in asset_writes.log.",
+                       static_cast<long long>(h->id), h->vars.empty() ? 0 : h->vars.front());
+    ImGui::PopStyleColor();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.75f, 0.35f, 1.0f));
+    ImGui::TextWrapped("%s Not yet checked in a match: try it on a copy of your save first.", game_heads::gender_note());
+    ImGui::PopStyleColor();
+    bool given = false;
+    ImGui::BeginDisabled(!ok);
+    if (ImGui::Button("Apply##gamehead")) {
+        std::string msg;
+        given = apply_game_head(app, h->id, target_id, target_is_manager, ch.opts, &msg);
+        app.notify(msg, !given);
+        ch.pending_game_head = 0;
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel##gamehead")) ch.pending_game_head = 0;
+    if (!ok) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.45f, 0.35f, 1.0f));
+        ImGui::TextWrapped("%s", why.c_str());
+        ImGui::PopStyleColor();
+    }
+    ch.confirm_h = ImGui::GetCursorPosY() - y0;  // the grid of the next frame leaves this much room
+    return given;
+}
+
 void real_face_picker(App& app, int64_t target_pid) {
     ImGui::SetNextWindowSize(ImVec2(S(880.0f), S(640.0f)), ImGuiCond_Appearing);
     if (!ImGui::BeginPopupModal("Choose a real face", nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
     if (const Face* f = chooser_body(app, g_player_ch, false)) {
-        const int64_t owner = f->id;
-        std::string msg;
-        const bool ok = apply_real_face(app, target_pid, owner, g_player_ch.opts, &msg);
-        app.notify(msg, !ok);
-        if (ok) ImGui::CloseCurrentPopup();
+        if (f->game_head) {
+            g_player_ch.pending_game_head = f->id;  // asks first (game_head_confirm)
+        } else {
+            const int64_t owner = f->id;
+            std::string msg;
+            const bool ok = apply_real_face(app, target_pid, owner, g_player_ch.opts, &msg);
+            app.notify(msg, !ok);
+            if (ok) ImGui::CloseCurrentPopup();
+        }
     }
+    if (game_head_confirm(app, g_player_ch, target_pid, false)) ImGui::CloseCurrentPopup();
     if (ImGui::Button("Close##faces")) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 }
@@ -880,13 +1125,18 @@ void manager_real_face_picker(App& app, int64_t managerid) {
     ImGui::SetNextWindowSize(ImVec2(S(880.0f), S(640.0f)), ImGuiCond_Appearing);
     if (!ImGui::BeginPopupModal(kManagerFacePopup, nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
     if (const Face* f = chooser_body(app, g_manager_ch, true)) {
-        const int64_t owner = f->id;
-        const bool owner_mgr = f->manager;
-        std::string msg;
-        const bool ok = apply_real_face_to_manager(app, managerid, owner, owner_mgr, g_manager_ch.opts, &msg);
-        app.notify(msg, !ok);
-        if (ok) ImGui::CloseCurrentPopup();
+        if (f->game_head) {
+            g_manager_ch.pending_game_head = f->id;  // asks first (game_head_confirm)
+        } else {
+            const int64_t owner = f->id;
+            const bool owner_mgr = f->manager;
+            std::string msg;
+            const bool ok = apply_real_face_to_manager(app, managerid, owner, owner_mgr, g_manager_ch.opts, &msg);
+            app.notify(msg, !ok);
+            if (ok) ImGui::CloseCurrentPopup();
+        }
     }
+    if (game_head_confirm(app, g_manager_ch, managerid, true)) ImGui::CloseCurrentPopup();
     if (ImGui::Button("Close##mfaces")) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 }

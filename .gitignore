@@ -12,3 +12,11 @@ dist/
 .claude/
 # callname master JSONs (real player names): built locally, never committed or shipped
 turbo/package/turbo/callnames/masters/
+# game asset catalog, its Lua gate, write log and name sources (real names): local only (docs/asset-catalog.md;
+# scripts/package.sh --guard checks git and the zip)
+catalog_*.json
+catalog_*.summary.txt
+lua_gate.txt
+asset_writes.log
+names_sheets.json
+extra_player_names.json

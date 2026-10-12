@@ -68,7 +68,7 @@ H.case("create_player builds the new player from it at a club, with names and a 
     H.eq(sim:find_row("editedplayernames", "playerid", pid) ~= nil, true, "names row")
 end)
 
-H.case("CMTracker preset: real face when the game has that head, else a generic head of the new id", function()
+H.case("CMTracker preset: real face when the game has that head (his row: class 0, own head), else a generic head of the new id", function()
     local json = preset.json()
     local function make(name, real_id)
         local doc = { format = "turbo-player-preset", version = 1, name = name, playerid = 900001,
@@ -79,11 +79,17 @@ H.case("CMTracker preset: real face when the game has that head, else a generic 
         H.ok(util.write_file(f, json.encode(doc)), "preset written")
         return f
     end
-    local ok, msg = H.turbo().run("create_player", { source = { file = make("Realface", 2005) }, teamid = 4 })
+    local ok, msg = H.turbo().run("create_player", { source = { file = make("Realface", 2004) }, teamid = 4 })
     H.eq(ok, true, msg)
-    H.has(msg, "real face of player 2005")
+    H.has(msg, "real face of player 2004")
     local pid = tonumber(msg:match("new player (%d+)"))
-    H.eq(pval(pid, "headassetid"), 2005); H.eq(pval(pid, "headclasscode"), 0)
+    H.eq(pval(pid, "headassetid"), 2004); H.eq(pval(pid, "headclasscode"), 0)
+    -- 2005 is in the DB with a generic head (class 1): no real face (2.1; before, any DB player counted)
+    ok, msg = H.turbo().run("create_player", { source = { file = make("Genericrow", 2005) }, teamid = 4 })
+    H.eq(ok, true, msg)
+    H.has(msg, "generic head")
+    pid = tonumber(msg:match("new player (%d+)"))
+    H.eq(pval(pid, "headassetid"), pid); H.eq(pval(pid, "headclasscode"), 1)
     ok, msg = H.turbo().run("create_player", { source = { file = make("Genericface", 999999) }, teamid = 4 })
     H.eq(ok, true, msg)
     H.has(msg, "generic head")

@@ -14,6 +14,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "core/asset_catalog.h"
 #include "core/bridge.h"
 #include "core/callname_voice.h"
 #include "core/callnames.h"
@@ -342,6 +343,22 @@ public:
     void load_gui_settings();
     bool save_gui_settings();
 
+    // ---- game asset catalog (core/asset_catalog.h, docs/asset-catalog.md): loaded on a worker thread at the first tick
+    // and again when turbo_output\asset_catalog changes (a rebuilt catalog, a switch file added or removed; polled every
+    // 5 s); turbo_output\asset_catalog\lua_gate.txt is written after each load while the catalog is current, else deleted
+    std::shared_ptr<const assets::Catalog> asset_catalog() const;  // never null ("not loaded" before the first load)
+    const assets::DbUse& asset_use();     // what the loaded save uses (players, manager, teams, ...); rebuilt per model.version()
+    bool asset_reload(const char* why);   // starts a load now; false when one is running
+    bool asset_loading() const { return asset_running_.load(); }
+    std::string asset_running_key() const;  // the running game's build key (host hooks), else FC27.exe's header, "" unknown
+    std::string asset_load_note;            // last load: "<status line> (<ms> ms, <why>)" for Tools > Status
+    // A write of a hidden id: one line in turbo_output\asset_writes.log (and the GUI log); false when it was not written
+    bool log_asset_write(const std::string& target, const std::string& field, const std::string& old_value, const std::string& new_value);
+    // All / In this save / Hidden filter per picker, remembered in gui_settings.json (asset_scope.<picker>)
+    assets::Scope asset_scope(const std::string& picker) const;
+    void set_asset_scope(const std::string& picker, assets::Scope s);
+    std::filesystem::path turbo_output() const { return bridge.root() / "turbo_output"; }
+
 private:
     bool legacy_repaired_ = false;  // repair_dds_files ran (first tick)
     void load_voice();               // constructor: turbo_output\callnames\voice_swaps.json
@@ -385,6 +402,24 @@ private:
     std::atomic<bool> bank_cancel_{false};
     bool bank_done_ = false;
     BankCapture bank_result_;
+    // asset catalog loading (asset_catalog(), asset_reload())
+    void asset_tick();         // tick: take a finished load; poll the catalog folder every 5 s
+    void finish_asset_load();  // tick: swap the loaded catalog in, log it, rebuild the pickers
+    void publish_asset_catalog();  // the pickers' catalog (set_faces_catalog, set_gear_catalog, callnames, asset_view)
+    void publish_asset_use();      // asset_view()'s DbUse, once per model.version() while a catalog is loaded
+    std::mutex asset_m_;
+    std::thread asset_thread_;
+    std::atomic<bool> asset_running_{false};
+    bool asset_done_ = false;
+    std::shared_ptr<const assets::Catalog> asset_cat_;     // the catalog the pickers read (render thread only)
+    std::shared_ptr<const assets::Catalog> asset_result_;  // a finished load waiting for finish_asset_load (asset_m_)
+    std::string asset_result_note_;                        // its "(ms, why)" part (asset_m_)
+    std::string asset_sig_;                                // assets::dir_signature at the last load start
+    double asset_next_poll_ = 0.0;
+    bool asset_started_ = false;
+    assets::DbUse asset_use_;
+    bool asset_use_built_ = false;
+    uint64_t asset_view_version_ = ~0ull;  // model.version() of the DbUse published in asset_view()
 };
 
 // panels

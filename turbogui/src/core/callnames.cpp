@@ -239,7 +239,9 @@ bool parse_master_list_json(const std::string& text, const std::string& lang, Ma
 }
 
 std::string own_recording_source_name(int own, SpokenSet::From game_from, const std::string& masters) {
-    const char* game = game_from == SpokenSet::From::BankCapture ? "the bank capture" : "the game's audio service";
+    const char* game = game_from == SpokenSet::From::BankCapture ? "the bank capture"
+                       : game_from == SpokenSet::From::Catalog   ? "the game's commentary files"
+                                                                 : "the game's audio service";
     if ((own & kOwnFromGame) && (own & kOwnFromMasters)) return std::string(game) + " and " + masters;
     if (own & kOwnFromGame) return game;
     if (own & kOwnFromMasters) return masters;
@@ -459,7 +461,114 @@ void Callnames::refresh(const fs::path& le_root, const fs::path& game_root, cons
         spoken.source = "no spoken-id list or bank capture for this language: every commentary id playernames uses counts as spoken (unverified)";
         spoken.ids = index.used_ids;
     }
+    // the live capture's players (bank capture / audio service cache): they pick the commentary team in automatic mode
+    capture_players.clear();
+    if (spoken.players_from == SpokenSet::From::GameAudio || spoken.players_from == SpokenSet::From::BankCapture)
+        for (const auto& kv : spoken.players) capture_players.insert(kv.first);
+    apply_bank();  // a current asset catalog's bank beats all of the above
     refreshed = true;
+}
+
+void Callnames::use_catalog(std::shared_ptr<const assets::Catalog> cat) {
+    catalog = std::move(cat);
+    refreshed = false;     // the spoken set and the pickers' index are rebuilt on the next use (ensure_ready)
+    index.built = false;
+}
+
+void Callnames::set_bank_team(const std::string& setting) {
+    if (setting == bank_team_setting) return;
+    bank_team_setting = setting;
+    refreshed = false;
+    index.built = false;
+}
+
+std::string Callnames::resolve_bank_team(std::string* why) const {
+    auto say = [why](const std::string& w) {
+        if (why) *why = w;
+    };
+    say("");
+    if (!catalog || !catalog->loaded() || lang.empty()) return "";
+    const std::vector<std::string> teams = catalog->callname_teams(lang);
+    if (teams.size() <= 1) return teams.empty() ? std::string() : teams.front();  // a single-team pack (ita_it: "")
+    if (bank_team_setting == "*") {
+        say("your choice: a recording by any team counts");
+        return "";
+    }
+    if (!bank_team_setting.empty() && std::find(teams.begin(), teams.end(), bank_team_setting) != teams.end()) {
+        say("your choice");
+        return bank_team_setting;
+    }
+    if (!capture_players.empty()) {
+        // the captured players (asked from the bank the game loaded) against each team's SIMPLE / LINK recordings: the
+        // team that alone records most of them is the loaded one
+        std::vector<std::unordered_set<int64_t>> sets(teams.size());
+        for (size_t i = 0; i < teams.size(); ++i)
+            for (assets::CallKind k : {assets::CallKind::Simple, assets::CallKind::Link})
+                for (int64_t id : catalog->callname_ids(lang, teams[i], k)) sets[i].insert(id);
+        std::vector<size_t> only(teams.size(), 0), any(teams.size(), 0);
+        for (int64_t pid : capture_players) {
+            size_t n = 0, last = 0;
+            for (size_t i = 0; i < teams.size(); ++i)
+                if (sets[i].count(pid)) ++n, ++any[i], last = i;
+            if (n == 1) ++only[last];
+        }
+        size_t best = 0;
+        for (size_t i = 1; i < teams.size(); ++i)
+            if (only[i] > only[best] || (only[i] == only[best] && any[i] > any[best])) best = i;
+        bool unique = true;
+        for (size_t i = 0; i < teams.size(); ++i)
+            if (i != best && only[i] == only[best] && any[i] == any[best]) unique = false;
+        if (any[best] > 0 && unique) {
+            say("matches the live capture: " + std::to_string(any[best]) + " of its " + std::to_string(capture_players.size()) +
+                " players with their own recording are recorded by " + teams[best] + ", " + std::to_string(only[best]) +
+                " of them only by " + teams[best]);
+            return teams[best];
+        }
+    }
+    if (std::find(teams.begin(), teams.end(), "dr") != teams.end()) {
+        say(capture_players.empty() ? "default: dr (Derek Rae, the team checked in game); no live capture to tell"
+                                    : "default: dr (Derek Rae, the team checked in game); the live capture does not tell");
+        return "dr";
+    }
+    say("default: the first team of the language");
+    return teams.front();
+}
+
+void Callnames::apply_bank() {
+    if (!catalog) {
+        bank_team.clear();
+        bank_team_why.clear();
+        use_bank(CatalogBank{});
+        return;
+    }
+    bank_team = resolve_bank_team(&bank_team_why);
+    use_bank(catalog_bank(*catalog, lang, bank_team));
+}
+
+void Callnames::use_bank(CatalogBank b) {
+    bank = std::move(b);
+    if (!bank.loaded() || !bank.current) return;  // a stale catalog only adds rows to All callnames
+    const bool had_list = spoken.from == SpokenSet::From::ListFile;
+    spoken.verified = true;
+    spoken.from = SpokenSet::From::Catalog;
+    spoken.ids = bank.generic;
+    spoken.players.clear();
+    // only SIMPLE / LINK: the kick-off GetCallname check asks PLAYER_LOW_SIMPLE / _LINK, never the HIGH set, so a
+    // HIGH-only player is not "spoken by his own recording" (the 2.0 SIMPLE|LINK rule of the FC 27 masters)
+    size_t high_only = 0;
+    for (const auto& kv : bank.own) {
+        if (kv.second & kBankSpoken)
+            spoken.players[kv.first] = kv.second;
+        else
+            ++high_only;
+    }
+    spoken.players_from = SpokenSet::From::Catalog;
+    spoken.players_checked = bank.own.size();
+    spoken.source = "the game's commentary files (asset catalog " + bank.build_key + ", " + bank.where() + "): " +
+                    std::to_string(bank.generic.size()) + " generic ids, " + std::to_string(spoken.players.size()) +
+                    " players with their own recording";
+    if (high_only) spoken.source += " (" + std::to_string(high_only) + " more with only a high-intensity recording: not counted)";
+    if (had_list) spoken.source += "; your spoken-id list is not used while the catalog is current";
 }
 
 bool Callnames::apply_capture(const BankCapture& c, const fs::path& le_root, const std::string& when, const std::string& build,
@@ -491,6 +600,17 @@ bool Callnames::apply_capture(const BankCapture& c, const fs::path& le_root, con
     if (!read_text(p, text) || !parse_bank_cache_json(text, cache, &perr)) {
         if (err) *err = "the cache just written cannot be read back: " + perr;
         return false;
+    }
+    if (spoken.from == SpokenSet::From::Catalog) {
+        // cached; the game's commentary files (a current asset catalog) stay the spoken set, but in automatic mode the
+        // new capture may name another commentary team: then the next refresh re-reads it and switches
+        capture_players.clear();
+        for (const auto& kv : cache.players) capture_players.insert(kv.first);
+        if (resolve_bank_team() != bank_team) {
+            refreshed = false;
+            index.built = false;
+        }
+        return true;
     }
     if (spoken.from == SpokenSet::From::ListFile) {
         spoken.players = cache.players;  // the hand-made list keeps the surnames
@@ -584,6 +704,7 @@ void Callnames::build_index(Database& db, const Model& model, const std::unorder
 
 SpokenAnswer Callnames::spoken_answer(int64_t cid) const {
     if (cid <= kNoCallname) return SpokenAnswer::Silent;
+    if (spoken.from == SpokenSet::From::Catalog) return spoken.spoken(cid) ? SpokenAnswer::Spoken : SpokenAnswer::Silent;
     if (spoken.spoken(cid) || masters.generic_ids.count(cid)) return SpokenAnswer::Spoken;
     // The spoken set answers for the range Turbo asks the game about (and a hand-made list holds only that range);
     // the fallback set is every id playernames uses, which says nothing about a playernamemap id
@@ -595,6 +716,7 @@ SpokenAnswer Callnames::spoken_answer(int64_t cid) const {
 
 std::string Callnames::silent_source(int64_t cid) const {
     if (cid <= kNoCallname) return "no callname";
+    if (spoken.from == SpokenSet::From::Catalog) return "the game's commentary files (asset catalog " + bank.build_key + ")";
     if (cid > kCallnameMax) return masters.label() + " (the game is not asked about ids above " + std::to_string(kCallnameMax) + ")";
     std::string game;
     switch (spoken.from) {

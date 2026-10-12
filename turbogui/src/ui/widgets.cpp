@@ -361,7 +361,12 @@ bool enum_editor(App& app, const Table& t, uint64_t rec, const Field& f, const c
             std::string txt;
         };
         std::vector<Row> rows;
-        for (int64_t v : codes) rows.push_back({v, code_value_text(f.name, v, live_users(app, t, f, v))});
+        for (int64_t v : codes) {
+            std::string txt = code_value_text(f.name, v, live_users(app, t, f, v));
+            // gear codes with the game asset catalog: "[Hidden]" (no player uses it), "[preview only]", "[not in the game files]"
+            if (const std::string note = gear_code_note(app, t, f.name, v); !note.empty()) txt += "  [" + note + "]";
+            rows.push_back({v, std::move(txt)});
+        }
         // descriptors read in alphabetical order (roles, colours, weather...); item catalogues ("Boots #1432") stay in code order
         if (labels::has_descriptors(f.name))
             std::stable_sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) {

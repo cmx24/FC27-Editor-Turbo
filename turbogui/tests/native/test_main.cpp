@@ -112,18 +112,41 @@ static std::string fmt(const char* f, ...) {
     va_end(ap);
     return buf;
 }
+// TURBO_TEST_ONLY=<text>: run only the cases whose name contains the text (any letter case), e.g.
+// TURBO_TEST_ONLY="gear pictures". Cases inside a selected case always run. Checks outside run_case still run.
+static int g_skipped = 0, g_case_depth = 0;
+static std::string lower_ascii(std::string s) {
+    for (char& c : s)
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    return s;
+}
+static const std::string& test_only() {
+    static const std::string only = [] {
+        const char* e = std::getenv("TURBO_TEST_ONLY");
+        return lower_ascii(e ? e : "");
+    }();
+    return only;
+}
 static void run_case(const char* name, const std::function<void()>& fn) {
+    if (g_case_depth == 0 && !test_only().empty() && lower_ascii(name).find(test_only()) == std::string::npos) {
+        ++g_skipped;
+        return;
+    }
+    const std::string outer = g_case;
     g_case = name;
     int before = g_fail;
+    ++g_case_depth;
     try {
         fn();
     } catch (const std::exception& e) {
         ++g_fail;
         std::printf("  FAIL [%s] exception: %s\n", name, e.what());
     }
+    --g_case_depth;
     // code between cases (group setup, runners of their own) must not be blamed on a case that already printed PASS
     g_case = std::string("(after) ") + name;
     std::printf("  %s %s\n", g_fail == before ? "PASS" : "FAIL", name);
+    if (g_case_depth > 0) g_case = outer;
 }
 
 // ---------------------------------------------------------------- simulated address space
@@ -308,7 +331,7 @@ static void test_field_labels() {
         CHECK(code_text("facialhaircolorcode", 4, "") == "Light Blonde" && code_text("facialhaircolorcode", 7, "") == "Red" &&
                   code_text("facialhaircolorcode", 21, "") == "Jet Black" && offered_codes("facialhaircolorcode", {}, 0).size() == 28,
               "facial hair colours use the hair palette (28)");
-        CHECK(faces::key_label(faces::kHairColour, 21) == "Jet Black" && faces::key_label(faces::kBeardColour, 16) == "Golden Blonde",
+        CHECK(faces::trait_label(faces::kHairColour, 21) == "Jet Black" && faces::trait_label(faces::kBeardColour, 16) == "Golden Blonde",
               "the real-face chooser uses the same names");
         // kit and boots
         CHECK(code_text("shoecolorcode1", 30, "") == "Dark Red" && code_text("shoecolorcode2", 31, "") == "Light Green", "boot colours (LE)");
@@ -3302,6 +3325,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_file_picker.h"   // in-overlay file picker and the Export / Import dialogs (test_file_picker_ui)
 
 #include "test_edit_unlock.h"  // game editors unlock: core and UI cases (synthetic fixtures)
+#include "test_asset_app.h"    // 2.1: asset catalog wiring (pickers, lua_gate.txt session)
 // ================================================================ live team names (core/teamname_override.h)
 static void test_team_names_live() {
     run_case("live team names: the keys the game asks for (TeamName[_AbbrN]_<id>, IWL_, any case), nothing else", [&] {
@@ -5451,18 +5475,18 @@ static void test_ui() {
         });
 
 
-        run_case("Real-face chooser filters: exact skin / hair / eye colours, style looks, gender, ethnicity groups, counts, combined filters, sort", [&] {
+        run_case("Real-face chooser filters: skin / hair / eye colour groups (at most 5 per menu), style looks, gender, ethnicity groups, counts, combined filters, sort", [&] {
             using namespace faces;
             auto bucket = [](Facet f, int64_t raw) { return key_label(f, facet_key(f, raw)); };
-            CHECK(bucket(kSkin, 20) == "Caucasian 2" && bucket(kSkin, 30) == "Caucasian 3" && bucket(kSkin, 60) == "Latin Asian 3" &&
-                      bucket(kSkin, 80) == "African 1" && bucket(kSkin, 100) == "African 3" && bucket(kSkin, 5) == "Latin Asian 2" &&
-                      bucket(kSkin, 55) == "Skin tone 55" && facet_key(kSkin, 20) != facet_key(kSkin, 10) && trait_label(kSkin, 20) == "Caucasian 2",
-                  "exact skin tones (FC 27: 10..100, Live Editor's names)");
-            CHECK(bucket(kHairColour, 0) == "Black" && bucket(kHairColour, 3) == "Dark Brown" && bucket(kHairColour, 4) == "Light Blonde" &&
-                      bucket(kHairColour, 12) == "Ginger" && bucket(kHairColour, 9) == "Silver" && bucket(kHairColour, 21) == "Jet Black" &&
-                      bucket(kHairColour, 40) == "Colour 40" &&
-                      facet_key(kHairColour, 5) != facet_key(kHairColour, 6) && bucket(kBeardColour, 7) == "Red" &&
-                      trait_label(kHairColour, 3) == "Dark Brown", "exact hair colours");
+            // at most 5 choices per menu (Cassio, 2026-10-11): colours and eyes are grouped, the tooltip keeps the exact name
+            CHECK(bucket(kSkin, 10) == bucket(kSkin, 20) && bucket(kSkin, 30) == bucket(kSkin, 40) && bucket(kSkin, 20) != bucket(kSkin, 30) &&
+                      bucket(kSkin, 100).rfind("Dark", 0) == 0 && bucket(kSkin, 5) == bucket(kSkin, 60) && bucket(kSkin, 55) == bucket(kSkin, 60) &&
+                      trait_label(kSkin, 20) == "Caucasian 2" && trait_label(kSkin, 55) == "Skin tone 55",
+                  "skin tone groups (FC 27: 10..100, Live Editor's names in the tooltip)");
+            CHECK(bucket(kHairColour, 0) == "Black" && bucket(kHairColour, 21) == "Black" && bucket(kHairColour, 3) == "Brown" &&
+                      bucket(kHairColour, 4) == "Blonde" && bucket(kHairColour, 12) == "Red & ginger" && bucket(kHairColour, 9) == "Grey, white & dyed" &&
+                      bucket(kHairColour, 40) == "Grey, white & dyed" && facet_key(kHairColour, 5) == facet_key(kHairColour, 6) &&
+                      bucket(kBeardColour, 7) == "Red & ginger" && trait_label(kHairColour, 3) == "Dark Brown", "hair colour groups");
             // facial hair looks (face_looks.h, from the game's previews); 68 and 999 show no facial hair in the game
             CHECK(bucket(kBeard, 0) == "Clean-shaven" && bucket(kBeard, 68) == "Clean-shaven" && bucket(kBeard, 999) == "Clean-shaven" &&
                       bucket(kBeard, 243) == "Stubble" && bucket(kBeard, 261) == "Moustache & goatee" && bucket(kBeard, 30) == "Short beard" &&
@@ -5471,8 +5495,9 @@ static void test_ui() {
             CHECK(bucket(kBeard, 50) == "Stubble" && bucket(kBeard, 256) == "Stubble" && bucket(kBeard, 300) == "Moustache & goatee" &&
                       bucket(kBeard, 5000) == "Clean-shaven" && !style_listed(kBeard, 256) && style_listed(kBeard, 255),
                   "unlisted facial hair codes: nearest listed id (50 -> 47; 256 ties 255 / 257 -> the lower; 300 -> 299; past 999 -> 999)");
-            CHECK(bucket(kEyes, 3) == "Brown" && bucket(kEyes, 8) == "Medium Blue" && bucket(kEyes, 5) == "Hazel" && bucket(kEyes, 10) == "Saturated Green" &&
-                      bucket(kEyes, 40) == "Eye colour 40" && facet_key(kEyes, 1) != facet_key(kEyes, 2), "exact eye colours");
+            CHECK(bucket(kEyes, 3) == "Brown" && bucket(kEyes, 8) == "Blue" && bucket(kEyes, 5) == "Hazel & light brown" && bucket(kEyes, 10) == "Green" &&
+                      bucket(kEyes, 40) == "Other" && facet_key(kEyes, 1) == facet_key(kEyes, 2) && trait_label(kEyes, 10) == "Saturated Green",
+                  "eye colour groups");
             // hair looks: face_looks.h for the styles the hair catalog has not classified (classified: test_hair_catalog.h)
             auto hair_look = [&](int64_t id, const char* fallback) {
                 const hair::Style* s = hair::find(id);
@@ -5493,7 +5518,7 @@ static void test_ui() {
             CHECK(bucket(kEthnicity, 34) == "European" && bucket(kEthnicity, 520) == "Asian" && bucket(kEthnicity, 1024) == "African" &&
                       bucket(kEthnicity, 1502) == "Latin" && bucket(kEthnicity, 7010) == "European" && bucket(kEthnicity, 15000) == "Mixed & other",
                   "ethnicity from the head type ranges");
-            // every code of the FC 27 field ranges has a named choice: the colours one each, the styles and ethnicity at most 5 groups
+            // every code of the FC 27 field ranges has a named choice, at most 5 groups per facet
             // (the database facets; the 3D facets: test_face3d_looks.h)
             const int64_t kMaxRaw[kDbFacetCount] = {16000, 100, 50, 10000, 512, 50, 64, 1};
             for (int i = 0; i < kDbFacetCount; ++i) {
@@ -5514,9 +5539,8 @@ static void test_ui() {
                 for (const auto& c : cs) listed += c.n;
                 const bool exact = facet_exact(fc);
                 const bool five_looks = (fc != kHair && fc != kBeard) || cs.size() == size_t(kMaxBuckets);  // styles: all 5 looks used
-                const bool sized = exact ? cs.size() == every.size() : cs.size() <= size_t(kMaxBuckets);
-                CHECK(named && five_looks && sized && listed == int(every.size()) &&
-                          exact == (fc == kSkin || fc == kHairColour || fc == kBeardColour || fc == kEyes),
+                const bool sized = cs.size() <= size_t(kMaxBuckets);
+                CHECK(named && five_looks && sized && listed == int(every.size()) && !exact,
                       fmt("%s: every code in a group (%d), %zu choices, %d of %zu listed", facet_title(fc), int(named), cs.size(), listed, every.size()));
             }
             CHECK(kSortCount <= kMaxBuckets, "sort menu");
@@ -5547,8 +5571,9 @@ static void test_ui() {
                   "a style group's picture is a listed style (251), not the first head's unlisted 274");
             flt.sel[kHairColour] = facet_key(kHairColour, 0);  // black hair: 1, 3, 4
             std::vector<Count> skins = facet_counts(heads, pool, flt, kSkin);
-            CHECK(skins.size() == 3 && skins[0].key == 20 && skins[0].n == 1 && skins[1].key == 90 && skins[2].key == 100 && skins[2].n == 1,
-                  "exact skin counts under the hair filter");
+            CHECK(skins.size() == 2 && skins[0].key == facet_key(kSkin, 20) && skins[0].n == 1 && skins[1].key == facet_key(kSkin, 90) &&
+                      skins[1].n == 2,
+                  "skin groups under the hair filter (90 and 100: one group)");
             std::vector<Count> hairs = facet_counts(heads, pool, flt, kHairColour);
             CHECK(hairs.size() == 2 && hairs[0].n == 3 && hairs[1].key == facet_key(kHairColour, 3) && hairs[1].n == 1,
                   "a facet's own filter does not narrow its counts");
@@ -5687,9 +5712,18 @@ static void test_ui() {
             CHECK(ui.find("face1001", "Choose a real face") && ui.find("face1003", "Choose a real face"), "every real face listed");
             CHECK(ui.click("Hair colour: Any##facet2", "Choose a real face"), "hair colour filter");
             ui.frames(2);
-            CHECK(ui.click("Dark Brown (1)##v3"), "exact hair colour Dark Brown (code 3): 1003 only (1005 Light Brown, 1006 Medium Brown)");
+            // at most 5 choices per menu: Dark Brown (3), Light Brown (5) and Medium Brown (6) are the group Brown (key 2)
+            int browns = 0;
+            bool brown1001 = false;
+            for (const auto& f : player_faces(app))
+                if (f.real && f.raw[faces::kHairColour] >= 0 && faces::facet_key(faces::kHairColour, f.raw[faces::kHairColour]) == 2) {
+                    ++browns;
+                    brown1001 = brown1001 || f.id == 1001;
+                }
+            CHECK(browns >= 1 && ui.click(fmt("Brown (%d)##v2", browns)), fmt("hair colour group Brown (%d heads)", browns));
             ui.frames(2);
-            CHECK(ui.find("face1003", "Choose a real face") && !ui.find("face1001", "Choose a real face"), "filtered to Dark Brown");
+            CHECK(ui.find("face1003", "Choose a real face") && (ui.find("face1001", "Choose a real face") != nullptr) == brown1001,
+                  "filtered to the Brown group");
             CHECK(ui.click("Clear filters", "Choose a real face"), "clear");
             ui.frames(2);
             CHECK(ui.click("Gender: Any##facet7", "Choose a real face"), "gender filter");
@@ -5745,9 +5779,18 @@ static void test_ui() {
                   "filters of the fields the manager table has");
             CHECK(ui.click("Skin tone: Any##facet1", "Choose a real face##mgr"), "skin filter");
             ui.frames(2);
-            CHECK(ui.click("Caucasian 3 (1)##v30"), "exact skin tone Caucasian 3 (skin 30): Arteta");
+            // skin 30 (Caucasian 3) is in the group Light (key 2) with Latin Asian 1
+            int lights = 0;
+            bool light502 = false;
+            for (const auto& f : manager_faces(app))
+                if (f.real && f.raw[faces::kSkin] >= 0 && faces::facet_key(faces::kSkin, f.raw[faces::kSkin]) == 2) {
+                    ++lights;
+                    light502 = light502 || f.id == 502;
+                }
+            CHECK(lights >= 1 && ui.click(fmt("%s (%d)##v2", faces::key_label(faces::kSkin, 2).c_str(), lights)),
+                  fmt("skin tone group Light (Caucasian 3: Arteta; %d heads)", lights));
             ui.frames(2);
-            CHECK(ui.find("mface501", "Choose a real face##mgr") && !ui.find("mface502", "Choose a real face##mgr"), "filtered");
+            CHECK(ui.find("mface501", "Choose a real face##mgr") && (ui.find("mface502", "Choose a real face##mgr") != nullptr) == light502, "filtered");
             CHECK(ui.click("mface501", "Choose a real face##mgr"), "pick the head of Arteta");
             CHECK(app.db.get_int(*mt, mrec, "headassetid") == 7501 && app.db.get_int(*mt, mrec, "headtypecode") == 1501, "head of Arteta given");
             CHECK(ui.toast_contains("he shows that head"), "toast");
@@ -5787,8 +5830,8 @@ static void test_ui() {
             for (const auto& f : player_faces(app)) unc += (f.real && !f.look) ? 1 : 0;
             CHECK(ui.click("Hair length: Any##facet10", W), "hair length filter");
             ui.frames(2);
-            CHECK(ui.find("Bald (1)##v0") && ui.find("Buzz cut (0)##v1") && ui.find("Short (2)##v2") && ui.find(fmt("not classified yet (%d)##v255", unc)),
-                  fmt("every value with its count, then not classified yet (%d)", unc));
+            CHECK(ui.find("Bald (1)##v0") && ui.find("Buzz cut (0)##v1") && ui.find("Short (2)##v2") && !ui.find(fmt("not classified yet (%d)##v255", unc)),
+                  fmt("every group with its count; the %d heads without a look are no choice (at most 5 per menu)", unc));
             CHECK(ui.click("Long (1)##v4"), "long hair: 1003");
             ui.frames(2);
             CHECK(ui.find("face1003", W) && !ui.find("face1001", W) && !ui.find("face1005", W) && !ui.find("face1006", W),
@@ -5798,12 +5841,12 @@ static void test_ui() {
             ui.frames(2);
             CHECK(ui.click("Facial hair: Any##facet12", W), "facial hair filter");
             ui.frames(2);
-            CHECK(ui.click(fmt("not classified yet (%d)##v255", unc)), "not classified yet");
+            int real_heads = 0;
+            for (const auto& f : player_faces(app)) real_heads += f.real ? 1 : 0;
+            CHECK(!ui.find(fmt("not classified yet (%d)##v255", unc)) && ui.click(fmt("Any (%d)##vany", real_heads)),
+                  "facial hair: no 'not classified yet' choice; Any");
             ui.frames(2);
-            CHECK(ui.find("face1005", W) && ui.find("face1006", W) && !ui.find("face1001", W) && !ui.find("face1004", W),
-                  "not classified yet: the heads without a look only");
-            CHECK(ui.click("Clear filters", W), "clear again");
-            ui.frames(2);
+            CHECK(ui.find("face1005", W) && ui.find("face1006", W) && ui.find("face1001", W), "Any: every head");
             CHECK(ui.click("Only heads with a 3D look", W), "only heads with a 3D look");
             ui.frames(2);
             CHECK(ui.find("face1001", W) && ui.find("face1004", W) && !ui.find("face1005", W) && !ui.find("face1006", W), "heads without a look hidden");
@@ -8292,6 +8335,7 @@ static void test_ui() {
         test_bodytypes_ui(app, ui, le);  // test_bodytypes.h
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
+        test_asset_app_ui(app, ui, le);    // test_asset_app.h
 
         parity_test::run_ui(app, ui, le);  // test_parity.h
 
@@ -13352,6 +13396,7 @@ int main(int argc, char** argv) {
         ++g_fail;
         std::printf("  FAIL UI setup: %s\n", e.what());
     }
+    if (!test_only().empty()) std::printf("TURBO_TEST_ONLY=\"%s\": %d cases skipped\n", test_only().c_str(), g_skipped);
     std::printf("RESULT %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
