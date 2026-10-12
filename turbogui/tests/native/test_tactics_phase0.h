@@ -112,7 +112,14 @@ static void test_badges() {
                                               "match.weather", "match.cpu_subs_off", "opp.injury_frequency_offset", "opp.injury_severity_offset"};
         CHECK(seen == expect, fmt("exactly the proven rows carry 'seen in a played match': %zu", seen.size()));
         // the help texts exist for every badge
-        for (WriteKind k : {WriteKind::GameVar, WriteKind::DbRow, WriteKind::Preview, WriteKind::TurboOnly}) CHECK(written_help(k)[0] != 0, "written help");
+        for (WriteKind k : {WriteKind::GameVar, WriteKind::DbRow, WriteKind::Preview, WriteKind::TurboOnly, WriteKind::LiveSheet}) CHECK(written_help(k)[0] != 0, "written help");
+        // channel E's badges (ui_live_tactic.cpp): written "live team sheet", seen "untested" until the in-game acceptance test
+        for (const char* k : {"live.build_up", "live.depth", "live.role"}) {
+            const TacticStatus ls = live_sheet_status(k, "x");
+            CHECK(ls.written == WriteKind::LiveSheet && std::string(written_badge(ls.written)) == "live team sheet" && ls.seen == SeenKind::Untested &&
+                      seen_badge(ls) == "untested" && ls.date.empty() && !ls.note.empty() && status_tag(ls).find("live team sheet, untested: ") == 0,
+                  std::string(k) + ": " + status_tag(ls));
+        }
         for (SeenKind k : {SeenKind::SeenInMatch, SeenKind::NoEffectSeen, SeenKind::Untested, SeenKind::Legacy, SeenKind::NothingWritten}) CHECK(seen_help(k)[0] != 0, "seen help");
     });
 
@@ -238,13 +245,17 @@ static void test_writes() {
 
     run_case("phase0 kill switches: one file per write channel, the master blocks everything, the channel file only its rows", [] {
         const auto& ks = kill_switches();
-        CHECK(ks.size() == 4 && std::string(ks.front().file) == "tactics_off.txt" && ks.front().all, "tactics_off.txt stays the master switch, first in the list");
+        CHECK(ks.size() == 5 && std::string(ks.front().file) == "tactics_off.txt" && ks.front().all, "tactics_off.txt stays the master switch, first in the list");
         std::set<std::string> files;
         for (const KillSwitch& k : ks) {
             files.insert(k.file);
             CHECK(std::string(k.file).find("_off.txt") != std::string::npos && k.what[0] != 0, std::string(k.file) + ": named *_off.txt with a purpose");
         }
-        CHECK(files.count("tactics_gamevar_off.txt") && files.count("tactics_db_off.txt") && files.count("tactics_legacy_off.txt"), "one switch per channel");
+        CHECK(files.count("tactics_gamevar_off.txt") && files.count("tactics_db_off.txt") && files.count("tactics_legacy_off.txt") &&
+                  files.count("call_team_sheet_off.txt"),
+              "one switch per channel (call_team_sheet_off.txt: your club's live tactic, channel E)");
+        CHECK(std::string(channel_switch_file(WriteChannel::LiveSheet)) == "call_team_sheet_off.txt" && std::string(channel_name(WriteChannel::LiveSheet)) == "live team sheet",
+              "the live team sheet channel");
         CHECK(channel_of_target("GAMEPLAY_CUSTOMIZATION/INJURY_FREQUENCY_USER") == WriteChannel::GameVar && channel_of_target("OVERRIDE/WEATHER") == WriteChannel::GameVar,
               "game variables");
         CHECK(channel_of_target("teams.defensivedepth") == WriteChannel::DbRow && channel_of_target("referee.foulstrictness") == WriteChannel::DbRow &&

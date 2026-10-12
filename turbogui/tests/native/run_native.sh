@@ -108,7 +108,7 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/ui/ui_zoom.cpp src/ui/ui_team_filter.cpp src/ui/ui_role_rules.cpp src/ui/ui_club_search.cpp \
          src/core/edit_unlock.cpp src/ui/ui_edit_unlock.cpp \
          src/core/edit_unlock_rules.cpp src/core/edit_unlock_hook.cpp tests/native/test_edit_unlock_hook.cpp tests/native/test_http_stub.cpp \
-         src/ui/pitch_view.cpp src/ui/ui_tactics.cpp src/core/sliders.cpp src/core/tactic_profiles.cpp src/core/tactics.cpp src/core/tactics_db.cpp src/core/opp_rules.cpp src/core/opposition.cpp src/core/teamname_override.cpp \
+         src/ui/pitch_view.cpp src/ui/ui_tactics.cpp src/ui/ui_live_tactic.cpp src/core/team_sheet.cpp src/core/sliders.cpp src/core/tactic_profiles.cpp src/core/tactics.cpp src/core/tactics_db.cpp src/core/opp_rules.cpp src/core/opposition.cpp src/core/teamname_override.cpp \
          tests/native/test_crash_report.cpp tests/native/test_main.cpp; do
   o="$BIN/obj/$(echo "$s" | sed 's#[/.]#_#g').o"
   # test_main.cpp (13k lines of test code) at -O0: about 50 s instead of 95 s; relative source paths keep the .d files valid

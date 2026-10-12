@@ -33,8 +33,8 @@
 namespace turbo {
 
 // ------------------------------------------------------------------------------------------------ badges
-// How a value reaches the game
-enum class WriteKind { GameVar, DbRow, Preview, TurboOnly };
+// How a value reaches the game (LiveSheet: tactics channel E, your club's live tactic record written in place, core/team_sheet.h)
+enum class WriteKind { GameVar, DbRow, Preview, TurboOnly, LiveSheet };
 // What was seen of its effect
 enum class SeenKind { SeenInMatch, NoEffectSeen, Untested, Legacy, NothingWritten };
 
@@ -53,6 +53,7 @@ inline const char* written_badge(WriteKind k) {
         case WriteKind::DbRow: return "database row";
         case WriteKind::Preview: return "preview";
         case WriteKind::TurboOnly: return "Turbo only";
+        case WriteKind::LiveSheet: return "live team sheet";
     }
     return "preview";
 }
@@ -75,6 +76,9 @@ inline const char* written_help(WriteKind k) {
         case WriteKind::DbRow: return "Written into the career database row; saved with the career.";
         case WriteKind::Preview: return "Shown in the preview only: no proven way to write it to the game. Nothing is written.";
         case WriteKind::TurboOnly: return "A Turbo setting: it shapes Turbo's own calculation and is never sent to the game.";
+        case WriteKind::LiveSheet:
+            return "Written in place into your club's live tactic record in the game's memory (channel E), on the game thread, and read back. It should "
+                   "reach the next match set up after it and your next in-game save (not verified yet).";
     }
     return "";
 }
@@ -97,7 +101,8 @@ inline std::string status_tag(const TacticStatus& s) {
         case WriteKind::Preview: return "not applied to game";
         case WriteKind::TurboOnly: return "Turbo only, never written to the game";
         case WriteKind::GameVar:
-        case WriteKind::DbRow: break;
+        case WriteKind::DbRow:
+        case WriteKind::LiveSheet: break;
     }
     std::string t = std::string(written_badge(s.written)) + ", " + seen_badge(s);
     if (!s.note.empty()) t += ": " + s.note;
@@ -203,8 +208,39 @@ inline const char* dead_target_reason(const std::string& target) {
     return nullptr;
 }
 
+// ------------------------------------------------------------------------------------------------ channel E (your club's live tactic)
+// The badges of the live tactic card (ui_live_tactic.cpp): written "live team sheet", seen "untested" until the in-game acceptance test of
+// turbo_output\TACTICS_CHANNEL_E_IMPL.txt is run (then the entry below gets SeenInMatch and its date). Not registry sliders: keyed live.*
+namespace tactics_status_detail {
+inline const std::map<std::string, Entry>& live_sheet_table() {
+    static const std::map<std::string, Entry> t = {
+        {"live.build_up", {SeenKind::Untested, "", "written into your club's live tactic record and read back; Edit Tactic and a played match not checked yet", false}},
+        {"live.depth", {SeenKind::Untested, "", "written into your club's live tactic record and read back; Edit Tactic and a played match not checked yet", false}},
+        {"live.role", {SeenKind::Untested, "", "the slot's three role values (word, role id, focus) written together and read back; Edit Tactic and a played match not checked yet", false}},
+    };
+    return t;
+}
+}  // namespace tactics_status_detail
+
+inline TacticStatus live_sheet_status(const std::string& key, const std::string& label) {
+    TacticStatus s;
+    s.label = label;
+    s.written = WriteKind::LiveSheet;
+    s.seen = SeenKind::Untested;
+    const auto& t = tactics_status_detail::live_sheet_table();
+    auto it = t.find(key);
+    if (it != t.end()) {
+        s.seen = it->second.seen;
+        s.date = it->second.date;
+        s.note = it->second.note;
+    } else {
+        s.note = "never seen working in a played match";
+    }
+    return s;
+}
+
 // ------------------------------------------------------------------------------------------------ kill switches
-enum class WriteChannel { GameVar, DbRow, LegacyDb };
+enum class WriteChannel { GameVar, DbRow, LegacyDb, LiveSheet };
 
 struct KillSwitch {
     const char* file;   // in turbo_output
@@ -219,6 +255,7 @@ inline const std::vector<KillSwitch>& kill_switches() {
         {"tactics_gamevar_off.txt", "game-variable overrides (channel A)", false, WriteChannel::GameVar},
         {"tactics_db_off.txt", "career database rows (teams, referee, players)", false, WriteChannel::DbRow},
         {"tactics_legacy_off.txt", "the old tactic table (mentalities: the legacy fields)", false, WriteChannel::LegacyDb},
+        {"call_team_sheet_off.txt", "your club's live tactic (channel E)", false, WriteChannel::LiveSheet},
     };
     return k;
 }
@@ -228,6 +265,7 @@ inline const char* channel_name(WriteChannel c) {
         case WriteChannel::GameVar: return "game variables";
         case WriteChannel::DbRow: return "database rows";
         case WriteChannel::LegacyDb: return "legacy tactic table";
+        case WriteChannel::LiveSheet: return "live team sheet";
     }
     return "";
 }

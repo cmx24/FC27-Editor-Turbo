@@ -26,6 +26,7 @@
 
 #include "ui_edit_unlock.h"
 #include "ui_tactics.h"
+#include "ui_live_tactic.h"
 
 namespace turbo {
 
@@ -914,6 +915,7 @@ void App::tick(double t) {
     }
 
     edit_unlock_tick(*this);  // Game editors: originals in, unlocked files out (ui_edit_unlock.cpp)
+    live_tactic_tick(*this);  // Tactics channel E: job results, the read-back 5 s after a write, the kick-off check (ui_live_tactic.cpp)
     // Voice swaps: the store goes to the service the host gave (once per service, then after every edit); the kill
     // switches are re-read every 2 s (the detours only read cached atomics)
     if (voice_service) {

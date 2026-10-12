@@ -137,7 +137,7 @@ the slot-4 identity on the live 6AC07E31 object.
   only the differing bytes are written, then read back; a failure part-way puts the blocks already written back.
   Result edits (both rows + the fixture's score), venue swaps and new opponents return their Change and have Undo; an
   Undo only writes while every block still holds what Turbo wrote.
-* `svm_live_vtable` / `fce_datamanager_vtable` are `adapt_optional` (8th field of the built-in rows): auto-adapt
+* `svm_live_vtable` / `fce_datamanager_vtable` are `adapt_optional` (9th field of the built-in rows; the 8th is channel E's exact_build): auto-adapt
   (`decide_adapt`) never refuses a future build because of them; their address stays 0 when missing.
 * The kRva* fallbacks of the view's vtables and the refresh (`svm::anchor_vtable`) apply on kRvaBuild only; elsewhere
   a missing signature is named ("signature svm_live_vtable was not found on game build ...").

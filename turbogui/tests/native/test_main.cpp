@@ -3375,6 +3375,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_playtest_fixes.h"  // 1.1.1 playtest fixes (playtest_fix_cases, run near the end of test_ui)
 #include "test_names_tab.h"  // Players > Names (ui_cases_names_tab, run before the playtest fixes)
 #include "test_tactics_tab.h"  // Teams > Tactics (ui_cases_tactics_tab, run before the Names cases)
+#include "test_team_sheet.h"   // tactics channel E: the live team sheet on a simulated layout (team_sheet_test::run, ::ui_cases)
 #include "test_club_search.h"  // Players list Gender filter, the club box by name or ID (ui_cases_club_search)
 #include "test_file_picker.h"   // in-overlay file picker and the Export / Import dialogs (test_file_picker_ui)
 
@@ -8621,6 +8622,7 @@ static void test_ui() {
         });
 
         ui_cases_tactics_tab(app, ui, le);  // test_tactics_tab.h
+        team_sheet_test::ui_cases(app, ui, le);  // test_team_sheet.h: the live tactic card (channel E)
         describe_ui_cases(app, ui);  // test_describe.h: edit log, undo toast, pickers, Technical details, the "no code N" walk
         ui_cases_names_tab(app, ui, mem, kMb);  // test_names_tab.h
         playtest_fix_cases(app, ui, le);
@@ -9302,9 +9304,9 @@ static void test_sigscan_adapt() {
         CHECK(!d.adopt && d.skipped == 1, "a table of placeholders only: refused");
     });
     run_case("signature auto-adapt: an entry marked adapt_optional never refuses the table (2.2: svm_live_vtable, fce_datamanager_vtable)", [&] {
-        Signature opt{"opt", "48 8D 05 ?? ?? ?? ??", "rip", 0, "", "", false, true};
+        Signature opt{"opt", "48 8D 05 ?? ?? ?? ??", "rip", 0, "", "", false, false, true};
         const SignatureTable t = table({{"a", "48 8B C4", "none", 0, ""}, opt, {"b", "40 53 48 83 EC 20", "none", 0, ""}});
-        CHECK(t.find("opt")->adapt_optional && !t.find("a")->adapt_optional, "the 8th field marks it");
+        CHECK(t.find("opt")->adapt_optional && !t.find("a")->adapt_optional, "the 9th field marks it (the 8th is exact_build)");
         AdaptDecision d = decide_adapt(t, {result("a", SigState::Found), result("opt", SigState::Missing), result("b", SigState::Found)});
         CHECK(d.adopt && d.found == 2 && d.missing == 0 && d.optional_missing == 1, "optional missing: adopted anyway (" + d.reason + ")");
         CHECK(d.reason == "2 of 2 signatures found exactly once; 1 optional not found (not blocking): opt", "reason: " + d.reason);
@@ -9352,11 +9354,16 @@ static void test_sigscan_adapt() {
               "the newest built-in table is the last build: " + (newest ? newest->build : std::string("none")));
         if (!newest) return;
         const SignatureTable a = adapt_signature_table(*newest, "6B000000-21500000");
-        bool same = a.sigs.size() == newest->sigs.size() && a.build == "6B000000-21500000" && a.game == newest->game;
+        // the exact-build entries (tactics channel E, core/team_sheet.h) are never carried to another build
+        std::vector<const Signature*> shared;
+        for (const auto& s : newest->sigs)
+            if (!s.exact_build) shared.push_back(&s);
+        CHECK(shared.size() + 11 == newest->sigs.size(), fmt("11 exact-build entries left out (%zu of %zu)", shared.size(), newest->sigs.size()));
+        bool same = a.sigs.size() == shared.size() && a.build == "6B000000-21500000" && a.game == newest->game;
         bool notes = true;
         for (size_t i = 0; same && i < a.sigs.size(); ++i) {
             const Signature& x = a.sigs[i];
-            const Signature& y = newest->sigs[i];
+            const Signature& y = *shared[i];
             same = x.name == y.name && x.pattern == y.pattern && x.resolve == y.resolve && x.offset == y.offset;
             notes = notes && x.note.rfind("adapted from 6AC07E31-2145C000:", 0) == 0 && x.note.find(y.note) != std::string::npos;
         }
@@ -9394,14 +9401,16 @@ static void test_sigscan_adapt() {
         d = decide_adapt(t, scan());
         CHECK(!d.adopt && d.missing == 1 && d.reason.find("site (missing)") != std::string::npos, "changed code: refused (" + d.reason + ")");
     });
-    run_case("built-in tables: build 6AC07E31-2145C000 shares the signature list of 6AB9813C-211EF000", [&] {
+    run_case("built-in tables: build 6AC07E31-2145C000 shares the signature list of 6AB9813C-211EF000 (plus its exact-build entries)", [&] {
         const SignatureTable* a = builtin_signature_table("6AB9813C-211EF000");
         const SignatureTable* b = builtin_signature_table("6AC07E31-2145C000");
         CHECK(a && b && a != b && a->build == "6AB9813C-211EF000" && b->build == "6AC07E31-2145C000", "both builds are built in");
         if (!a || !b) return;
         const std::vector<std::string> builds = builtin_builds();
         CHECK(builds.size() == 2 && builds[0] == "6AB9813C-211EF000" && builds[1] == "6AC07E31-2145C000", "builds listed oldest first");
-        bool same = a->sigs.size() == b->sigs.size() && a->sigs.size() >= 120;
+        // the shared list first, then the entries verified on 6AC07E31 alone (tactics channel E, core/team_sheet.h)
+        bool same = a->sigs.size() + 11 == b->sigs.size() && a->sigs.size() >= 120;
+        for (size_t i = a->sigs.size(); same && i < b->sigs.size(); ++i) same = b->sigs[i].exact_build;
         for (size_t i = 0; same && i < a->sigs.size(); ++i)
             same = a->sigs[i].name == b->sigs[i].name && a->sigs[i].pattern == b->sigs[i].pattern &&
                    a->sigs[i].resolve == b->sigs[i].resolve && a->sigs[i].offset == b->sigs[i].offset &&
@@ -9459,7 +9468,8 @@ static void test_sigscan_adapt() {
         }
         CHECK(unchecked.empty(), "every offset checked; unchecked:" + unchecked);
         CHECK(bad_expect.empty(), "every expect parses and sits on a rip operand; bad:" + bad_expect);
-        CHECK(expects == 16 && probes == 2, fmt("16 expects, 2 hook probes (%d, %d)", expects, probes));
+        // 16 shared expects + 4 of tactics channel E's exact-build entries (VT1, VT2, the registry's two operands)
+        CHECK(expects == 20 && probes == 2, fmt("20 expects, 2 hook probes (%d, %d)", expects, probes));
         const Signature* cd = b->find("career_event_dispatch");
         const Signature* st = b->find("loc_strtab_get");
         CHECK(cd && cd->hook_probe && cd->offset == -24 && st && st->hook_probe && st->offset == -10, "the hook probes");
@@ -14304,6 +14314,7 @@ int main(int argc, char** argv) {
     tactics_core_test::run();
     gameplay_sliders_test::run();
     tactics_phase0_test::run();
+    team_sheet_test::run();
     std::printf("native voice swaps\n");
     test_callname_voice();
     test_callname_voice_host();

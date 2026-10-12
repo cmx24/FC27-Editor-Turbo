@@ -38,13 +38,18 @@ struct Signature {
     // The address is only probed for another module's inline hook and used only when one is seen there
     // (career_event_dispatch, loc_strtab_get), so an offset outside the pattern needs no expect.
     bool hook_probe = false;
+    // Only for the exact build of its table: a layout verified on that build alone (tactics channel E, core/team_sheet.h). Auto-adapt
+    // leaves such entries out, so a later title update that moves them never blocks the other hooks, and their feature stays off there.
+    bool exact_build = false;
     // Optional for auto-adapt (2.2 review): a miss of this entry on a build in no table does not refuse the adapted table
     // (decide_adapt counts it as optional_missing). Its own address stays 0 then (the host's game_signature only returns
     // found entries), so its users fall back or refuse on their own. For entries never yet scanned on a released build.
     bool adapt_optional = false;
-    // Positional like the rows of the built-in table: {name, pattern, resolve, offset, note[, expect[, hook_probe[, adapt_optional]]]}
+    // Positional like the rows of the built-in table:
+    // {name, pattern, resolve, offset, note[, expect[, hook_probe[, exact_build[, adapt_optional]]]]}
     Signature(std::string name_ = {}, std::string pattern_ = {}, std::string resolve_ = {}, int offset_ = 0,
-              std::string note_ = {}, std::string expect_ = {}, bool hook_probe_ = false, bool adapt_optional_ = false)
+              std::string note_ = {}, std::string expect_ = {}, bool hook_probe_ = false, bool exact_build_ = false,
+              bool adapt_optional_ = false)
         : name(std::move(name_)),
           pattern(std::move(pattern_)),
           resolve(std::move(resolve_)),
@@ -52,6 +57,7 @@ struct Signature {
           note(std::move(note_)),
           expect(std::move(expect_)),
           hook_probe(hook_probe_),
+          exact_build(exact_build_),
           adapt_optional(adapt_optional_) {}
 };
 
@@ -104,7 +110,8 @@ uint64_t signature_set_fingerprint(const SignatureTable& t);
 // the pattern whose instruction ("rip": prefixes, REX, opcode, ModRM up to the operand) is fixed pattern bytes.
 bool signature_offset_checked(const Signature& s);
 
-// Auto-adapt for a build in no table: a copy of `from` for `build`, each note prefixed "adapted from <from.build>:".
+// Auto-adapt for a build in no table: a copy of `from` for `build`, each note prefixed "adapted from <from.build>:". Entries marked
+// exact_build are left out (they hold only on the build they were verified on).
 SignatureTable adapt_signature_table(const SignatureTable& from, const std::string& build);
 // All or nothing: adopt only when every signature with a pattern was found exactly once in the scan and its offset is
 // checked (signature_offset_checked; else it counts as missing, "unverified offset"). Results are matched by name;

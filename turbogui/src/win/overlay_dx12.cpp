@@ -32,6 +32,7 @@
 #include "standings_refresh_win.h"
 #include "transfer_list_win.h"
 #include "match_setup_win.h"
+#include "team_sheet_win.h"
 #include "teamname_override_win.h"
 #include "game_hooks.h"
 #include "host.h"
@@ -1088,6 +1089,10 @@ bool start_overlay(HMODULE) {
     // installed on the first fix
     install_match_setup();
     g_app->match_setup = match_setup_service();
+    // tactics channel E (team_sheet_win.cpp): your club's live tactic record, written in place on the game thread from the Tactics tab
+    // (opt-in turbo_output\call_team_sheet_on.txt); nothing is hooked
+    install_team_sheet();
+    g_app->team_sheet = team_sheet_service();
     // game editors' in-memory fallback (edit_unlock_hook_win.cpp): post-hook on the editor config loader, switches from
     // gui_settings "edit_unlock" (stage 1 on by default)
     install_edit_unlock_hook();
@@ -1106,6 +1111,7 @@ bool start_overlay(HMODULE) {
         for (const auto& line : callname_voice_status()) r.calls.push_back(line);
         for (const auto& line : edit_unlock_hook_status()) r.calls.push_back(line);
         for (const auto& line : team_names_status()) r.calls.push_back(line);
+        for (const auto& line : team_sheet_status()) r.calls.push_back(line);
         return r;
     };
     install_player_capture(*g_app);  // miniface from the 3D model (player_capture_win.cpp): needs the game hooks above
