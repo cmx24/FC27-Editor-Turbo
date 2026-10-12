@@ -347,9 +347,14 @@ function M.repair_entries(role_of, dry, opts)
     if native == nil then native = M.native() end
     local note = ""
     local game_added, game_created = 0, {}
+    local no_removal = false
     if native and not dry then
         local added, text, left, created, off = repair_native(native, st, club, missing, role_of, opts.prefer_game_role == true, user_team)
         if added and (left or 0) == 0 then return added, text, left, created end
+        if added and tostring(text):find("creation is off", 1, true) then
+            -- the kill switch call_squad_role_create_off.txt: no entry is created or removed, not even in memory (2.1)
+            return added, text, left, created
+        end
         if added then
             -- 2.0.4: the game's call left players out (Turbo.dll not answering yet right after a load, a queued or refused call):
             -- the memory path adds the rest now, after the table is read again (the game's call may have added some meanwhile)
@@ -359,6 +364,7 @@ function M.repair_entries(role_of, dry, opts)
             missing = missing_of(st)
             if #missing == 0 then return added, text, 0, created end
             game_added, game_created = added, created or {}
+            no_removal = true   -- 2.1: the game's Remove already decided which stale entries may go: memory only adds
             note = string.format(" (in memory; the game's AddPlayer: %s)", tostring(text))
         else
             note = string.format(" (in memory: %s)", tostring(off))
@@ -368,7 +374,7 @@ function M.repair_entries(role_of, dry, opts)
     -- no room: entries of players who are no longer at your club (and not out on loan from it) go first, the way the
     -- game's Remove (0x147D90C80) does it: the entries after it move down one slot, an empty one goes last, count - 1
     local removed = 0
-    if st.count + #missing > P.slots then
+    if not no_removal and st.count + #missing > P.slots then
         local lent = M.loaned_out(user_team)
         local i = 0
         while i < st.count and st.count + #missing > P.slots do

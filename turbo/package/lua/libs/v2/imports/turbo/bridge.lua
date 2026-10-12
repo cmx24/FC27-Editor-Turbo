@@ -607,11 +607,14 @@ function M.repair_squad_status(event_id)
     end
     local events = require 'imports/turbo/core/events'
     local at_load = event_id ~= nil and event_id == events.resolve("POST_LOAD_PREPARE")
+    S.status_repair_t = os.time()   -- before the run: an error is throttled too (2.1)
     local added, text, left = role.repair_entries(role_of, false, { prefer_game_role = not at_load })
     -- 2.0.4: until every player has an entry the guard runs again on every career-mode event (at most once a second, see
     -- on_career_event), not only on the load / day / match build-up events
     S.status_repair_pending = (added == nil) or ((left or 0) > 0)
-    S.status_repair_t = os.time()
+    -- 2.1: the same failure three times in a row -> retry only on the guard's own events (load, hub, day, match build-up), so a
+    -- shortfall the guard cannot fix costs nothing on every other event and never runs inside a game transaction for long
+    if S.status_repair_pending and text == S.status_repair_last then S.status_repair_same = (S.status_repair_same or 0) + 1 else S.status_repair_same = 0 end
     -- logged when something was added or the reason changes (not on every day); players still without an entry: a warning
     if added and added > 0 then
         if (left or 0) > 0 then log.warn("match crash guard: %s", text) else log.info("match crash guard: %s", text) end
@@ -625,6 +628,7 @@ end
 -- true when the guard should run on this event: its own events, and any event (once a second) while players are missing
 local function status_repair_due(event_id)
     if status_repair_ids()[event_id] then return true end
+    if (S.status_repair_same or 0) >= 3 then return false end
     return S.status_repair_pending ~= false and os.time() - (S.status_repair_t or 0) >= 1
 end
 
@@ -655,7 +659,9 @@ function M.on_career_event(event_id)
     -- the match crash guard after the pump and the natives: its game calls (TurboSquadRole) then run at once on this thread.
     -- A career load makes it pending again (a new career's table); pending also covers the first events after the game starts,
     -- when the bridge was started by the event itself (2.0.4: the load event used to be skipped then)
-    if reload then S.status_repair_pending = true end
+    if reload then S.status_repair_pending = true; S.status_repair_same = 0 end
+    -- a game call the pump just finished is collected first, so the guard's own game calls are not refused as "still queued" (2.1)
+    if S.call_pending then pcall(M.check_game_call) end
     if status_repair_due(event_id) then
         local okq, qerr = pcall(M.repair_squad_status, event_id)
         if not okq then log.warn("match crash guard: %s", tostring(qerr)) end
