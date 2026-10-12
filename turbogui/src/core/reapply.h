@@ -32,6 +32,13 @@ namespace turbo {
 const std::vector<std::string>& kit_colour_prefixes();
 // "teamcolorprimr" yes; "teamtechid", "teamcolorprimpercent", "TeamColor" no
 bool kit_colour_field(const std::string& field);
+// 2.3: the other teamkits fields a kit import (Teams > Kits, a FIFA Kit Creator settings.json) writes and the store
+// keeps: teamcolorprimpercent, teamcolorsecpercent, teamcolortertpercent, jerseycollargeometrytype,
+// jerseynamelayouttype, shortstyle
+const std::vector<std::string>& kit_setting_fields();
+bool kit_setting_field(const std::string& field);
+// What a kit entry may hold and a career load may write: kit_colour_field or kit_setting_field (never a key column)
+bool kit_kept_field(const std::string& field);
 
 // One teamkits row's kept fields (Teams > Colours writes the three channels of a colour at a time)
 struct KitEdit {
@@ -104,6 +111,8 @@ public:
     void set_kit_field(int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& team, const std::string& when,
                        const std::string& field, int64_t value);
     bool forget_kit(int64_t teamtechid, int64_t kittype, int64_t teamkitid);  // false when there was no entry
+    // One field of that kit entry (the entry goes when it was its last field); false when it was not kept
+    bool forget_kit_field(int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& field);
     // The entry of that kit row; for a known teamkitid with no entry of its own, an entry kept without a kit id
     const KitEdit* kit(int64_t teamtechid, int64_t kittype, int64_t teamkitid) const;
     size_t kits_of_type(int64_t teamtechid, int64_t kittype) const;  // entries of (teamtechid, kittype), any teamkitid
@@ -120,6 +129,7 @@ std::string reapply_json(const ReapplyStore& s);
 // wrong shape (missing ids, non-integer values, a commentary id outside 900001..965000, a kit field that is not one of
 // the colour channels, kit_colour_field, a players field that is not kept_player_field or whose value equals the value
 // it replaced) are dropped and counted in *dropped; the rest is kept. No "keep_players" (an older store) = on.
+// Kit fields: kit_kept_field (the colour channels and, since 2.3, the kit import's settings).
 bool parse_reapply_json(const std::string& text, ReapplyStore& out, std::string* err, size_t* dropped = nullptr);
 
 // <Live Editor>\turbo_output\reapply_edits.json

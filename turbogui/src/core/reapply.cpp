@@ -32,6 +32,21 @@ bool kit_colour_field(const std::string& field) {
     return false;
 }
 
+const std::vector<std::string>& kit_setting_fields() {
+    // ui_kits.cpp: the settings.json keys of a FIFA Kit Creator zip that are not colours (core/kit_import.h)
+    static const std::vector<std::string> f = {"teamcolorprimpercent", "teamcolorsecpercent", "teamcolortertpercent",
+                                               "jerseycollargeometrytype", "jerseynamelayouttype", "shortstyle"};
+    return f;
+}
+
+bool kit_setting_field(const std::string& field) {
+    for (const auto& f : kit_setting_fields())
+        if (f == field) return true;
+    return false;
+}
+
+bool kit_kept_field(const std::string& field) { return kit_colour_field(field) || kit_setting_field(field); }
+
 void ReapplyStore::set_kit_field(int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& team, const std::string& when,
                                  const std::string& field, int64_t value) {
     if (teamkitid < 0) teamkitid = -1;
@@ -46,6 +61,13 @@ void ReapplyStore::set_kit_field(int64_t teamtechid, int64_t kittype, int64_t te
 
 bool ReapplyStore::forget_kit(int64_t teamtechid, int64_t kittype, int64_t teamkitid) {
     return kits.erase(KitKey{teamtechid, kittype, teamkitid < 0 ? -1 : teamkitid}) > 0;
+}
+
+bool ReapplyStore::forget_kit_field(int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& field) {
+    auto it = kits.find(KitKey{teamtechid, kittype, teamkitid < 0 ? -1 : teamkitid});
+    if (it == kits.end() || !it->second.fields.erase(field)) return false;
+    if (it->second.fields.empty()) kits.erase(it);
+    return true;
 }
 
 const KitEdit* ReapplyStore::kit(int64_t teamtechid, int64_t kittype, int64_t teamkitid) const {
@@ -143,7 +165,7 @@ std::string reapply_json(const ReapplyStore& s) {
     j["note"] = "Edits FC 27 forgets when a career loads (it reloads teamkits and playernamemap from its base data; your players' "
                 "development plans outrank the players table). Turbo writes them again when it connects to a newly loaded career, "
                 "a player field only while it holds the value the edit replaced. Forget an entry in Teams > Colours, Players > "
-                "Callname or Turbo Tools > Kept player edits.";
+                "Callname, Teams > Kits or Turbo Tools > Kept player edits.";
     json kits = json::array();
     for (const auto& kv : s.kits) {
         const KitEdit& k = kv.second;
@@ -213,9 +235,10 @@ bool parse_reapply_json(const std::string& text, ReapplyStore& out, std::string*
                     continue;
                 }
                 for (auto f = fi->begin(); f != fi->end(); ++f) {
-                    // only the colour channels Teams > Colours writes: a hand-edited key column (teamtechid,
-                    // teamkitid, ...) or any other int is never written back at a career load
-                    if (!kit_colour_field(f.key()) || !f.value().is_number_integer()) {
+                    // only the colour channels Teams > Colours writes and the settings Teams > Kits writes: a
+                    // hand-edited key column (teamtechid, teamkitid, ...) or any other int is never written back at a
+                    // career load
+                    if (!kit_kept_field(f.key()) || !f.value().is_number_integer()) {
                         ++bad;
                         continue;
                     }

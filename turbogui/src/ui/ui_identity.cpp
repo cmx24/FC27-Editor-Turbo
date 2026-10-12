@@ -317,14 +317,23 @@ bool write_colour(App& app, const Table& t, uint64_t rec, const std::string& pre
 }
 
 const char* kit_type_name(int64_t type) {
+    // 2.3: the numbers FC 27's own kit assets use for teamkits.teamkittypetechid (2.2 and earlier said 2 = third, 3 =
+    // goalkeeper home, ...). Evidence (turbo_output\KITS_IMPORT_RESEARCH.txt 1a): the 3D kit folders of the game's TOCs
+    // are <kind>_<type>_0 with home_0_0 (1,419 clubs), away_1_0 (1,073), goalie_home_2_0 (1,303), third_3_0 (110),
+    // fourth_4_0 (19), referee_5_0 (72), training_home_6_0, training_away_7_0, training_home_bibs_8_0,
+    // training_away_bibs_9_0; the minikits j<type>_<teamid>_0.dds use the same number (FIFER's FC 26 goalkeeper kit
+    // updates are all j2_*, and a club with home, away and goalkeeper kits only has j0, j1, j2)
     switch (type) {
         case 0: return "Home";
         case 1: return "Away";
-        case 2: return "Third";
-        case 3: return "Goalkeeper home";
-        case 4: return "Goalkeeper away";
-        case 5: return "Goalkeeper third";
-        case 6: return "Fourth";
+        case 2: return "Goalkeeper";
+        case 3: return "Third";
+        case 4: return "Fourth";
+        case 5: return "Referee";
+        case 6: return "Training home";
+        case 7: return "Training away";
+        case 8: return "Training home bibs";
+        case 9: return "Training away bibs";
         default: return "Kit";
     }
 }

@@ -1946,7 +1946,7 @@ static void test_reapply_store() {
         // malformed entries: dropped one by one, the rest is kept
         const char* mixed = R"({"turbo_reapply": 1,
             "kits": [{"teamtechid": 7, "teamkittypetechid": 0, "fields": {"teamcolorprimr": 1, "TeamColor": 2, "teamcolorprimg": "3",
-                                                                         "teamtechid": 8, "teamkitid": 5, "teamcolorprimpercent": 50}},
+                                                                         "teamtechid": 8, "teamkitid": 5, "jerseytemplateindex": 50}},
                      {"teamkittypetechid": 1, "fields": {"teamcolorprimr": 1}},
                      {"teamtechid": 1, "teamkittypetechid": 1, "fields": {}},
                      "not an object"],
@@ -3383,6 +3383,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_edit_unlock.h"  // game editors unlock: core and UI cases (synthetic fixtures)
 #include "test_asset_app.h"    // 2.1: asset catalog wiring (pickers, lua_gate.txt session)
 #include "test_player_id.h"    // 2.3: Create player > Player ID (typed id checks, the head / callname of the id)
+#include "test_kit_import.h"   // 2.3: Teams > Kits, FIFA Kit Creator zips (test_kit_import, kit_import_ui_cases)
 // ================================================================ live team names (core/teamname_override.h)
 static void test_team_names_live() {
     run_case("live team names: the keys the game asks for (TeamName[_AbbrN]_<id>, IWL_, any case), nothing else", [&] {
@@ -4319,7 +4320,8 @@ static void test_ui() {
             uint64_t krec = app.db.find(*kt, "teamkitid", 70);
             uint8_t kv[3] = {1, 2, 3};
             CHECK(write_colour(app, *kt, krec, "teamcolorprim", kv, &msg) && app.db.get_int(*kt, krec, "teamcolorprimb") == 3, "kit colour written");
-            CHECK(kit_type_name(0) == std::string("Home") && kit_type_name(3) == std::string("Goalkeeper home"), "kit type names");
+            CHECK(kit_type_name(0) == std::string("Home") && kit_type_name(2) == std::string("Goalkeeper") && kit_type_name(3) == std::string("Third"),
+                  "kit type names (2.3: the game's numbers, 2 = goalkeeper, 3 = third)");
             // FC 27 reloads teamkits at every career load: the kit colour is kept (and written again then), the club
             // colour (teams, saved with the career) is not
             const KitEdit* kept = app.reapply.kit(7, 0, 70);
@@ -4424,6 +4426,7 @@ static void test_ui() {
             Rgba src = solid(64, 64, 1, 2, 3);
             CHECK(!apply_crest(app, 241, src, Framing(), false, 40, &msg) && msg.find("not loaded yet") != std::string::npos, "unknown formats: refused (" + msg + ")");
         });
+        kit_import_ui_cases(app, ui, le);  // test_kit_import.h: Teams > Kits (2.3)
 
         run_case("UI: Managers, edit text within the field's byte limit", [&] {
             CHECK(ui.click("Managers"), "Managers tab");
@@ -7493,7 +7496,7 @@ static void test_ui() {
             {
                 std::ofstream(reapply_store_path(le).string(), std::ios::binary | std::ios::trunc)
                     << R"({"turbo_reapply": 1, "kits": [{"teamtechid": 1, "teamkittypetechid": 0, "teamkitid": 10,
-                          "fields": {"teamkitid": 99, "teamtechid": 5, "teamcolorprimpercent": 1, "teamcolorprimg": 9}}]})";
+                          "fields": {"teamkitid": 99, "teamtechid": 5, "jerseytemplateindex": 1, "teamcolorprimg": 9}}]})";
                 ReapplyStore hand;
                 std::string err;
                 size_t dropped = 0;
@@ -14275,6 +14278,8 @@ int main(int argc, char** argv) {
     test_ux_filters_core();
     std::printf("native pictures\n");
     test_images();
+    std::printf("native kit import\n");
+    test_kit_import();
     std::printf("native dev service\n");
     test_devops();
     std::printf("native signature scanning\n");
