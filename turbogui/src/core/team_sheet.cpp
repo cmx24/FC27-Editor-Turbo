@@ -2438,7 +2438,7 @@ void CoreService::run_kickoff(KickoffArm arm, int attempt) {
             }
             line = "kick-off check" + std::string(attempt > 1 ? " (again)" : "") + ": " + std::to_string(hits.size()) + " cop" + (hits.size() == 1 ? "y" : "ies") +
                    " of the live role words, " + std::to_string(copies.size()) + " in the match-setup layout" +
-                   (copies.empty() ? std::string() : " (" + where + ")" + (arm.turbo_values ? ": the match uses the written roles" : "") + "; " + dump +
+                   (copies.empty() ? std::string() : " (" + where + "): the match copied this tactic's role words; " + dump +
                                                          "; Line Height " + std::to_string(arm.line_height) + (common.empty() ? " not found outside the known blocks" : " at" + lh)) +
                    (timed_out ? " (scan ran out of time)" : "") + "; looked for the tactic " + arm.when + " (Line Height " + std::to_string(arm.line_height) +
                    ", Build-Up Style " + build_up_text(arm.build_up) + ", Defensive Approach " + approach_text(arm.approach) +

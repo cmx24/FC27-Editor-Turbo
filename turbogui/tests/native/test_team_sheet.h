@@ -1571,7 +1571,7 @@ static void run() {
         rig.clock += 1e6;
         rig.svc->kickoff_tick();
         const std::string ks = rig.svc->kickoff_status();
-        CHECK(ks.find("2 copies of the live role words, 1 in the match-setup layout (0x429F9EB08): the match uses the written roles") != std::string::npos &&
+        CHECK(ks.find("2 copies of the live role words, 1 in the match-setup layout (0x429F9EB08): the match copied this tactic's role words") != std::string::npos &&
                   ks.find("dumped to turbo_output\\channel_e_kickoff_dump.bin (1 x 0x3A0 bytes from out+0x00") != std::string::npos &&
                   ks.find("Line Height 90 at +0x1A4") != std::string::npos,
               "status: " + ks);
