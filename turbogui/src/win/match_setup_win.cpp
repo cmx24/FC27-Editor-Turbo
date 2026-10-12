@@ -215,8 +215,12 @@ void rewrite(const char* hook, mfix::Hook which, void* self, void* msg, uint64_t
     mfix::Owner owner;
     owner.vtable = documented_rva(game_build_key(), game_image_base(), vtable_rva);
     owner.handler = handler;
+    // 2.2 review: one result hook switched off at runtime (turbo_output\hook_fce_result_*_off.txt) would let the fixture's
+    // score and the table disagree: this hook then leaves a fixed result as played too (logged below)
+    const char* partner = which == mfix::Hook::Scheduling ? "fce_result_standings" : "fce_result_sched";
+    const std::string hold = game_hook_enabled(partner) ? std::string() : std::string("the other result hook is off: left as played (") + partner + ")";
     mfix::Applied a;
-    if (!mfix::apply_to_request(mem, reinterpret_cast<uint64_t>(self), owner, reinterpret_cast<uint64_t>(msg), *fixes, a)) return;
+    if (!mfix::apply_to_request(mem, reinterpret_cast<uint64_t>(self), owner, reinterpret_cast<uint64_t>(msg), *fixes, a, hold)) return;
     char line[320];
     if (!a.skipped.empty()) {
         ++g_fix_skipped;

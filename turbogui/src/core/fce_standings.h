@@ -200,9 +200,11 @@ constexpr const char* kWriteOffFile = "live_standings_write_off.txt";
 // What the views and the gate say while that file exists
 std::string write_off_reason();
 // Looked at right before each write: "" = Turbo may write now, else why not: `switched_off` (kWriteOffFile exists), a
-// read-only located set (Located::read_only), or the game processing a match day (svm::sim_busy on the career's manager
-// table `managers`, bridge_state.json "managers"; a table or SimDayManager that cannot be read counts as busy).
-std::string write_gate(Memory& mem, const Located& loc, bool switched_off, uint64_t managers);
+// read-only located set (Located::read_only), or the game processing a match day (the SimDayManager's state, type 103,
+// in the career's manager table: `managers` (bridge_state.json "managers"), else [[comm+0x20]+0x10] of `comm`
+// (bridge_state.json "comm_service"), as the standings refresh finds it). Neither table readable, or no readable
+// SimDayManager in it: refused, "match-day state unknown: ...".
+std::string write_gate(Memory& mem, const Located& loc, bool switched_off, uint64_t managers, uint64_t comm = 0);
 
 // One engine block Turbo changed (a 0x18-byte StandingData or FixtureData): its bytes before and the bytes Turbo wrote
 static_assert(kStandingSize == kFixtureSize, "a Patch holds a row or a fixture");

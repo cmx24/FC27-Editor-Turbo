@@ -571,7 +571,9 @@ struct WriteOffCache {
 
 std::string fce_write_refusal(App& app, const fce::Located& loc) {
     // the kill switch file is looked at now (never the banner's cache), the SimDayManager of the career's manager table too
-    return fce::write_gate(app.mem, loc, write_off_present(app), app.bridge.state().managers);
+    // (published, else through the comm service)
+    const BridgeState& st = app.bridge.state();
+    return fce::write_gate(app.mem, loc, write_off_present(app), st.managers, st.comm_service);
 }
 
 std::string fce_edit_off(App& app, const fce::Located& loc) {

@@ -3057,8 +3057,34 @@ struct FaultMemory : Memory {
     bool read(uint64_t a, void* out, size_t n) override { return inner.read(a, out, n); }
     bool write(uint64_t a, const void* in, size_t n) override {
         ++writes;
-        if (a < hi && a + n > lo) return drop;
+        if (a < hi && a + n > lo) {
+            if (pass > 0) {
+                --pass;
+                return inner.write(a, in, n);
+            }
+            return drop;
+        }
         return inner.write(a, in, n);
+    }
+    int pass = 0;  // writes touching [lo, hi) that still go through before the faults start
+};
+
+// A Memory over another where "the game" acts right after the first write touching [lo, hi) (2.2 review: the rollback
+// must never write over the game's own bytes)
+struct GameMemory : Memory {
+    Memory& inner;
+    uint64_t lo = 0, hi = 0;
+    std::function<void()> game;
+    bool fired = false;
+    explicit GameMemory(Memory& m) : inner(m) {}
+    bool read(uint64_t a, void* out, size_t n) override { return inner.read(a, out, n); }
+    bool write(uint64_t a, const void* in, size_t n) override {
+        const bool ok = inner.write(a, in, n);
+        if (ok && !fired && a < hi && a + n > lo && game) {
+            fired = true;
+            game();
+        }
+        return ok;
     }
 };
 }  // namespace
@@ -11451,7 +11477,20 @@ static void test_fce_standings() {
         const std::string busy = fce::write_gate(w.mem, loc, false, SvmWorld::kManagers);
         CHECK(busy.find("not while the game may be processing a match day") == 0 && busy.find("state 3") != std::string::npos, "match day: " + busy);
         w.mem.wr(SvmWorld::kSdm + svm::kOffSimDayState, int32_t(0));
-        CHECK(fce::write_gate(w.mem, loc, false, 0).find("SimDayManager is not available") != std::string::npos, "no manager table: refused (counts as busy)");
+        CHECK(fce::write_gate(w.mem, loc, false, 0).find("match-day state unknown: the career's manager table is not published") == 0,
+              "no manager table: refused (state unknown)");
+        // 2.2 second review (item 4): managers = 0 published (bridge.lua can), the comm service known: its table is used
+        CHECK(fce::write_gate(w.mem, loc, false, 0, SvmWorld::kComm).empty(), "managers through the comm service: idle, may write");
+        w.mem.wr(SvmWorld::kSdm + svm::kOffSimDayState, int32_t(3));
+        CHECK(fce::write_gate(w.mem, loc, false, 0, SvmWorld::kComm).find("not while the game may be processing a match day: SimDayManager state 3") == 0,
+              "through the comm service: busy refused");
+        w.mem.wr(SvmWorld::kSdm + svm::kOffSimDayState, int32_t(0));
+        CHECK(fce::write_gate(w.mem, loc, false, 0, 0x7F0000000000ULL).find("match-day state unknown") == 0, "an unreadable comm service: state unknown");
+        const uint64_t slot = SvmWorld::kManagers + svm::kSlotSize * uint64_t(svm::kSimDayTypeId) + svm::kSlotCount;
+        w.mem.wr(slot, int32_t(0));  // no SimDayManager in the table
+        CHECK(fce::write_gate(w.mem, loc, false, SvmWorld::kManagers).find("match-day state unknown: the SimDayManager is not available") == 0,
+              "no SimDayManager: state unknown: " + fce::write_gate(w.mem, loc, false, SvmWorld::kManagers));
+        w.mem.wr(slot, int32_t(1));
         CHECK(fce::write_gate(w.mem, fce::Located(), false, SvmWorld::kManagers) == "the standings are not located", "not located");
         CHECK(fce::write_gate(w.mem, loc, false, SvmWorld::kManagers).empty(), "idle again");
     });
@@ -11523,6 +11562,75 @@ static void test_fce_standings() {
         bad.drop = true;
         err = fce::write_row(bad, loc, r);
         CHECK(err.find("the row does not read back what Turbo wrote") == 0 && w.all_rows() == rows0, "write_row read-back: " + err);
+    });
+
+    run_case("FCE: a rollback never writes over the game's bytes, and a failed rollback says the block still holds Turbo's edit", [&] {
+        FceWorld w;
+        fce::Located loc;
+        CHECK(fce::locate(w.mem, w.ifce, FceWorld::documented(), loc).empty(), "located");
+        const std::vector<uint8_t> rows0 = w.all_rows(), fx0 = w.all_fixtures(3);
+        const uint64_t home = w.rows, away = w.rows + fce::kStandingSize, fix0 = w.fx;
+        auto block = [&](uint64_t a) { return w.bytes(a, fce::kStandingSize); };
+        // item 1: right after Turbo wrote the away row (block 1), the game changes it and the fixture: the fixture (patch 2)
+        // is refused as changed under Turbo, the home row is put back, the away row is left as the game has it
+        {
+            GameMemory g(w.mem);
+            g.lo = away;
+            g.hi = away + fce::kStandingSize;
+            g.game = [&]() {
+                w.w8(away + 0x17, 0x5A);         // the game's own byte in the away row
+                w.w32(fix0, 20260816);           // and the fixture's date
+            };
+            fce::Change c;
+            const std::string err = fce::edit_result(g, loc, 0, 1, 3, fce::Points(), &c);
+            CHECK(err.find("the fixture's score changed under Turbo") == 0 &&
+                      err.find("ROLLBACK INCOMPLETE: ROLLBACK SKIPPED: the away row changed by the game") != std::string::npos && c.empty(),
+                  "skipped: " + err);
+            CHECK(block(home) == std::vector<uint8_t>(rows0.begin(), rows0.begin() + fce::kStandingSize), "the home row (block 0) put back");
+            const std::vector<uint8_t> a = block(away);
+            CHECK(a[0x17] == 0x5A && a != std::vector<uint8_t>(rows0.begin() + fce::kStandingSize, rows0.begin() + 2 * fce::kStandingSize),
+                  "the away row left alone (Turbo's edit plus the game's byte)");
+            uint32_t date = 0;
+            w.mem.rd(fix0, date);
+            CHECK(date == 20260816, "the fixture keeps the game's change");
+        }
+        // reset the world
+        w.mem.write(w.rows, rows0.data(), rows0.size());
+        w.mem.write(w.fx, fx0.data(), fx0.size());
+        // item 2: the fixture is refused, and the rollback of the home row is refused too: it says it still holds Turbo's edit
+        {
+            FaultMemory fix_off(w.mem);
+            fix_off.lo = fix0;
+            fix_off.hi = fix0 + fce::kFixtureSize;
+            FaultMemory home_once(static_cast<Memory&>(fix_off));  // over fix_off (not a copy of it)
+            home_once.lo = home;
+            home_once.hi = home + fce::kStandingSize;
+            home_once.pass = 1;  // Turbo's edit goes through, the rollback write does not
+            const std::string err = fce::edit_result(home_once, loc, 0, 1, 3, fce::Points());
+            CHECK(err.find("writing the fixture's score failed (it holds its old bytes)") == 0 &&
+                      err.find("ROLLBACK INCOMPLETE: writing the home row failed (it still holds Turbo's edit)") != std::string::npos,
+                  "failed rollback wording: " + err);
+            CHECK(block(away) == std::vector<uint8_t>(rows0.begin() + fce::kStandingSize, rows0.begin() + 2 * fce::kStandingSize), "the away row put back");
+            CHECK(block(home) != std::vector<uint8_t>(rows0.begin(), rows0.begin() + fce::kStandingSize), "the home row holds Turbo's edit");
+        }
+        w.mem.write(w.rows, rows0.data(), rows0.size());
+        w.mem.write(w.fx, fx0.data(), fx0.size());
+        // put_block's own restore: the game changes a byte Turbo just wrote -> the read-back fails and the row is left alone
+        {
+            std::vector<fce::StandingRow> rows;
+            fce::read_rows(w.mem, loc, rows);
+            fce::StandingRow r = rows[1];
+            r.points = 40;
+            GameMemory g(w.mem);
+            g.lo = away;
+            g.hi = away + fce::kStandingSize;
+            g.game = [&]() { w.w16(away + 0x14, 41); };
+            const std::string err = fce::write_row(g, loc, r);
+            CHECK(err == "the row does not read back what Turbo wrote (ROLLBACK SKIPPED: the row changed by the game)", "write_row: " + err);
+            int16_t pts = 0;
+            w.mem.rd(away + 0x14, pts);
+            CHECK(pts == 41, "the game's value stays");
+        }
     });
 
     run_case("FCE: set_cell splits a total home / away, Pts follows W / D, P is capped by the fixtures, refusals leave the row alone", [&] {
@@ -13915,6 +14023,18 @@ static void test_match_setup() {
         mem.rd(msg + mfix::kOffHome, h);
         CHECK(h == 0, "home goals put back");
         // a good write reads back: changed
+        // 2.2 second review (item 3): the partner hook switched off: a fixed result is left as played, nothing written
+        message(0, 2);
+        const std::string hold = "the other result hook is off: left as played (fce_result_standings)";
+        CHECK(mfix::apply_to_request(mem, 0, mfix::Owner(), msg, fixes, a, hold) && !a.changed && a.skipped == hold && a.old_home == 0 &&
+                  a.old_away == 2,
+              "held: " + a.skipped);
+        mem.rd(msg + mfix::kOffHome, h);
+        mem.rd(msg + mfix::kOffAway, aw);
+        CHECK(h == 0 && aw == 2, "held: the played goals untouched");
+        mem.wr(msg + mfix::kOffFixture, int32_t(732));
+        CHECK(!mfix::apply_to_request(mem, 0, mfix::Owner(), msg, fixes, a, hold), "held: a fixture without a fix is not even reported");
+        mem.wr(msg + mfix::kOffFixture, int32_t(731));
         CHECK(mfix::apply_to_request(mem, 0, mfix::Owner(), msg, fixes, a) && a.changed && a.skipped.empty(), "rewritten and read back");
         // the two hooks: both rewrote (or found the score already) = no line; one rewrote, the other skipped = one line
         mfix::PairLog pairs;

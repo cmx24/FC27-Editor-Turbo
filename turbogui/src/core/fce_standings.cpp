@@ -357,12 +357,23 @@ std::string write_off_reason() {
     return std::string("turbo_output\\") + kWriteOffFile + " exists: Turbo writes no standings row or fixture (delete it to edit again)";
 }
 
-std::string write_gate(Memory& mem, const Located& loc, bool switched_off, uint64_t managers) {
+std::string write_gate(Memory& mem, const Located& loc, bool switched_off, uint64_t managers, uint64_t comm) {
     if (switched_off) return write_off_reason();
     if (!loc.ok()) return "the standings are not located";
     if (!loc.read_only.empty()) return loc.read_only;
-    const std::string busy = svm::sim_busy(mem, managers);
-    if (!busy.empty()) return "not while the game may be processing a match day: " + busy;
+    // the career's manager table: published, else from the comm service (as the standings refresh finds it); Lua may
+    // publish managers = 0 (bridge.lua) while the comm service is known
+    const uint64_t table = managers ? managers : (comm ? svm::manager_table(mem, comm) : 0);
+    if (!table)
+        return "match-day state unknown: the career's manager table is not published (bridge_state.json managers / comm_service), "
+               "Turbo writes nothing";
+    std::string err;
+    const uint64_t sdm = svm::manager_at(mem, table, svm::kSimDayTypeId, err);
+    int32_t state = 0;
+    if (!sdm) return "match-day state unknown: the SimDayManager is not available (" + err + "), Turbo writes nothing";
+    if (!mem.rd(sdm + svm::kOffSimDayState, state)) return "match-day state unknown: the SimDayManager is not readable, Turbo writes nothing";
+    if (state != 0)
+        return "not while the game may be processing a match day: SimDayManager state " + std::to_string(state) + " (try again when the hub is back)";
     return "";
 }
 
@@ -381,9 +392,13 @@ void diff_range(const uint8_t* a, const uint8_t* b, size_t& lo, size_t& hi) {
     if (lo > hi) lo = hi = 0;
 }
 
-// Write `img` over the block at `addr` that holds `cur`: only the bytes that differ, then read them back. On a failure the
-// bytes of `cur` are written back (and read back). "" or why, with what became of the block
-std::string put_block(Memory& mem, uint64_t addr, const uint8_t* cur, const uint8_t* img, const std::string& what) {
+// Write `img` over the block at `addr` that holds `cur`: only the bytes that differ, then read them back. "" or why, with
+// what became of the block. On a failure `cur` is put back only when that is safe: nothing is written while the block
+// still holds `cur` (a refused or dropped write changed nothing; `holds_cur` says what that is: "it holds its old bytes",
+// in a rollback "it still holds Turbo's edit"); it is written back (and read back) only while all 0x18 bytes are what this
+// write put there; anything else means the game changed the block: it is left alone ("ROLLBACK SKIPPED").
+std::string put_block(Memory& mem, uint64_t addr, const uint8_t* cur, const uint8_t* img, const std::string& what,
+                      const char* holds_cur = "it holds its old bytes") {
     size_t lo = 0, hi = 0;
     diff_range(cur, img, lo, hi);
     if (lo == hi) return "";
@@ -393,14 +408,17 @@ std::string put_block(Memory& mem, uint64_t addr, const uint8_t* cur, const uint
     else if (!mem.read(addr, back, kBlock)) err = what + " is not readable after the write";
     else if (std::memcmp(back + lo, img + lo, hi - lo) != 0) err = what + " does not read back what Turbo wrote";
     if (err.empty()) return "";
-    // `cur` back: nothing to do when the block still holds it (a refused or dropped write changed nothing), else written
-    // and read back
-    bool restored = mem.read(addr, back, kBlock) && std::memcmp(back + lo, cur + lo, hi - lo) == 0;
-    if (!restored) restored = mem.write(addr + lo, cur + lo, hi - lo) && mem.read(addr, back, kBlock) && std::memcmp(back + lo, cur + lo, hi - lo) == 0;
-    return err + (restored ? " (it holds its old bytes)" : " (putting it back FAILED: " + what + " may hold a part of the edit)");
+    uint8_t now[kBlock];
+    if (!mem.read(addr, now, kBlock)) return err + " (ROLLBACK SKIPPED: " + what + " is not readable)";
+    if (std::memcmp(now, cur, kBlock) == 0) return err + " (" + holds_cur + ")";
+    if (std::memcmp(now, img, kBlock) != 0) return err + " (ROLLBACK SKIPPED: " + what + " changed by the game)";
+    const bool restored = mem.write(addr + lo, cur + lo, hi - lo) && mem.read(addr, back, kBlock) && std::memcmp(back, cur, kBlock) == 0;
+    return err + (restored ? std::string(" (put back: ") + holds_cur + ")" : " (putting it back FAILED: " + what + " may hold a part of the edit)");
 }
 
-// The patches in order, each against the bytes it was built from; a failure part-way puts the blocks already written back
+// The patches in order, each against the bytes it was built from; a failure part-way puts the blocks already written back,
+// each only while all its 0x18 bytes are still what Turbo wrote (else the game changed it since: left alone, "ROLLBACK
+// SKIPPED: <what> changed by the game")
 std::string apply_patches(Memory& mem, const std::vector<Patch>& ps) {
     for (size_t i = 0; i < ps.size(); ++i) {
         const Patch& p = ps[i];
@@ -417,11 +435,15 @@ std::string apply_patches(Memory& mem, const std::vector<Patch>& ps) {
             diff_range(ps[j].before, ps[j].after, lo, hi);
             if (lo == hi) continue;
             any = true;
-            const std::string e = put_block(mem, ps[j].addr, ps[j].after, ps[j].before, ps[j].what);
+            uint8_t now[kBlock];
+            std::string e;
+            if (!mem.read(ps[j].addr, now, kBlock)) e = "ROLLBACK SKIPPED: " + ps[j].what + " is not readable";
+            else if (std::memcmp(now, ps[j].after, kBlock) != 0) e = "ROLLBACK SKIPPED: " + ps[j].what + " changed by the game";
+            else e = put_block(mem, ps[j].addr, ps[j].after, ps[j].before, ps[j].what, "it still holds Turbo's edit");
             if (!e.empty()) failed += (failed.empty() ? "" : "; ") + e;
         }
         if (!any) return err;
-        return err + (failed.empty() ? "; the blocks written before it were put back: nothing changed" : "; ROLLBACK FAILED: " + failed);
+        return err + (failed.empty() ? "; the blocks written before it were put back: nothing changed" : "; ROLLBACK INCOMPLETE: " + failed);
     }
     return "";
 }

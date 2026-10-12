@@ -219,7 +219,10 @@ struct Applied {
 // unreadable or foreign message is left alone. 2.2 review: both goal ints are read back after the write; a failed write
 // or a mismatch puts the played goals back (read back as well) and marks the result skipped ("... put back as played" or
 // "... putting the played result back FAILED").
-bool apply_to_request(Memory& mem, uint64_t self, const Owner& owner, uint64_t msg, const FixTable& fixes, Applied& out);
+// `hold` not "" = leave a fixed result as played with that reason, nothing written (2.2 review: the host passes "the other
+// result hook is off: left as played" while the partner hook is switched off, so fixture and table cannot disagree).
+bool apply_to_request(Memory& mem, uint64_t self, const Owner& owner, uint64_t msg, const FixTable& fixes, Applied& out,
+                      const std::string& hold = std::string());
 // The same with the manager's exact vtable only (0 = not checked)
 inline bool apply_to_request(Memory& mem, uint64_t self, uint64_t expected_vtable, uint64_t msg, const FixTable& fixes, Applied& out) {
     Owner o;

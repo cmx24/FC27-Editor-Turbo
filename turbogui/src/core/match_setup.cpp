@@ -458,7 +458,8 @@ std::string check_owner(Memory& mem, uint64_t self, const Owner& owner) {
     return "";
 }
 
-bool apply_to_request(Memory& mem, uint64_t self, const Owner& owner, uint64_t msg, const FixTable& fixes, Applied& out) {
+bool apply_to_request(Memory& mem, uint64_t self, const Owner& owner, uint64_t msg, const FixTable& fixes, Applied& out,
+                      const std::string& hold) {
     out = Applied();
     if (fixes.empty() || !is_ptr(msg, 8)) return false;
     int32_t type = 0;
@@ -477,6 +478,10 @@ bool apply_to_request(Memory& mem, uint64_t self, const Owner& owner, uint64_t m
     }
     if (!mem.rd(msg + kOffHome, out.old_home) || !mem.rd(msg + kOffAway, out.old_away)) {
         out.skipped = "the result is not readable";
+        return true;
+    }
+    if (!hold.empty()) {
+        out.skipped = hold;
         return true;
     }
     bool ok1 = false, ok2 = false;
