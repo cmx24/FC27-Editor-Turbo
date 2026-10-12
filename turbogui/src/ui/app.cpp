@@ -338,6 +338,7 @@ void App::finish_asset_load() {
     if (!c) return;
     const bool changed = !asset_cat_ || asset_cat_->state() != c->state() || asset_cat_->status().build_key != c->status().build_key ||
                          asset_cat_->status().file != c->status().file || asset_cat_->hidden_off() != c->hidden_off();
+    const bool was_loaded = asset_cat_ && asset_cat_->loaded();
     asset_cat_ = std::move(c);
     asset_load_note = asset_cat_->status_line() + note;
     if (!asset_cat_->status().note.empty()) asset_load_note += "; " + asset_cat_->status().note;
@@ -346,7 +347,8 @@ void App::finish_asset_load() {
         log("asset catalog: " + asset_load_note);
         if (log_hook) log_hook("asset catalog: " + asset_load_note);
     }
-    ++gen;  // pickers rebuild their lists
+    // pickers rebuild their lists only when there is (or was) a catalog to show: no catalog = 2.0 behaviour, untouched
+    if (changed && (was_loaded || asset_cat_->loaded())) ++gen;
 }
 
 void App::asset_tick() {
