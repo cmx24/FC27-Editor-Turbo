@@ -4,6 +4,8 @@
 # with Live Editor's own Lua libs (copy <Live Editor>\lua\libs) in turbo/le27/libs.
 #
 # usage: run_native.sh [OUT_DIR]      (default: turbogui/build/native_test)
+#   A relative OUT_DIR is taken from the current folder (from scripts/msys.sh: the repository root, so turbogui/build/run1).
+#   Inside the repository OUT_DIR must be under turbogui/build (gitignored); the run empties it first.
 # Runs may overlap: from several worktrees, or in one worktree with different OUT_DIRs. Each run keeps its fixtures, logs,
 # test binary and temp files (TMP/TEMP/TMPDIR, TURBO_TEST_TMP for the Lua side) inside its own OUT_DIR; the object files a
 # worktree shares are compiled under a lock (build/native_bin/.compile.lock). A second run that finds the default OUT_DIR
@@ -22,8 +24,9 @@ on_exit() {
       case $rc in
         1) why=" (test failures: see the FAIL lines above)";;
         67) why=" (a C++ exception nobody caught: Windows code 0x20474343; the CRASH line above names the case)";;
+        3) why=" (abort() or std::terminate in the test binary; the CRASH line above names the case)";;
         126) why=" (the test binary could not be started: is another run relinking it?)";;
-        127) why=" (the test binary aborted or died on an unhandled exception; the CRASH line above names the case)";;
+        127) why=" (the test binary died on an unhandled exception: the CRASH line above names the case; with no CRASH line it could not start at all, e.g. a missing DLL)";;
         130) why=" (interrupted)";;
         134|139) why=" (the test binary crashed with a signal; the CRASH line above names the case)";;
         *) why=" (unexpected exit code: the binary was probably killed from outside)";;
@@ -46,8 +49,20 @@ take_out() {  # take_out <dir>: lock <dir>.lock on fd 9; fails when another run 
   flock -n 9 || { exec 9>&-; return 1; }
 }
 if [ $# -ge 1 ] && [ -n "$1" ]; then
-  OUT="$1"
-  mkdir -p "$(dirname "$OUT")"
+  # absolute from here on: the lock, the cleanup and everything after `cd "$ROOT"` (link, Lua world, temp files) must use
+  # the same folder. A relative OUT_DIR is taken from the caller's folder (scripts/msys.sh starts in the repository root).
+  ARG="$1"; new_top=""; d="${ARG%/}"; [ -n "$d" ] || d="/"
+  while [ ! -e "$d" ]; do new_top="$d"; d="$(dirname "$d")"; done   # the topmost folder this run creates
+  mkdir -p "$ARG"
+  OUT="$(cd "$ARG" && pwd)"
+  REPO="$(cd "$ROOT/.." && pwd)"
+  refuse_out() {  # leaves no folder behind that this run created
+    if [ -n "$new_top" ]; then d="${ARG%/}"; while rmdir -- "$d" 2>/dev/null && [ "$d" != "$new_top" ]; do d="$(dirname "$d")"; done; fi
+    echo "run_native.sh: not using $OUT as OUT_DIR (the run empties it): $1"; OUT=""; exit 3
+  }
+  case "$ROOT/" in "${OUT%/}/"*) refuse_out "it holds the sources: pick a folder under turbogui/build";; esac
+  case "$OUT/" in "$BIN/"*) refuse_out "it holds the compiled objects: pick another folder under turbogui/build";; esac
+  case "$OUT/" in "$REPO/"*) case "$OUT/" in "$ROOT/build/"?*) ;; *) refuse_out "it is inside the repository: use turbogui/build/<name> (gitignored)";; esac;; esac
   take_out "$OUT" || { echo "run_native.sh: another run is using $OUT: give this run its own folder (run_native.sh <OUT_DIR>)"; exit 3; }
 else
   OUT="$ROOT/build/native_test"

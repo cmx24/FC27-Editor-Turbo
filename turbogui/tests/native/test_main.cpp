@@ -121,6 +121,8 @@ static void run_case(const char* name, const std::function<void()>& fn) {
         ++g_fail;
         std::printf("  FAIL [%s] exception: %s\n", name, e.what());
     }
+    // code between cases (group setup, runners of their own) must not be blamed on a case that already printed PASS
+    g_case = std::string("(after) ") + name;
     std::printf("  %s %s\n", g_fail == before ? "PASS" : "FAIL", name);
 }
 
@@ -13028,10 +13030,12 @@ int main(int argc, char** argv) {
     std::printf("native game editors unlock\n");
     test_edit_unlock();
     std::printf("native game editors hook\n");
+    g_case = "test_edit_unlock_hook";  // its own runner: no run_case, so name it for a CRASH line
     test_edit_unlock_hook(g_pass, g_fail);
     std::printf("native live team names\n");
     test_team_names_live();
     std::printf("native UI\n");
+    g_case = "UI setup";
     try {
         test_ui();
     } catch (const std::exception& e) {
