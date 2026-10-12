@@ -150,7 +150,8 @@ void team_transfers_tab(App& app, int64_t teamid) {
         return;
     }
     if (ImGui::BeginTable("##xfrows", 6,
-                          ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable,
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable |
+                              ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable,
                           ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Date", ImGuiTableColumnFlags_WidthFixed, S(80.0f));
@@ -257,7 +258,8 @@ void scouts_section(App& app) {
                        "(turbo_output\\turbo_scouts_backup.json); Restore puts them back.");
     if (g_s.list.empty()) {
         ImGui::TextDisabled("Your career has no scouts yet (hire one in the game's Transfers > Scouting).");
-    } else if (ImGui::BeginTable("##scouts", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit)) {
+    } else if (ImGui::BeginTable("##scouts", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit |
+                                                     ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable)) {
         ImGui::TableSetupColumn("ID");
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Experience (0-4)");
