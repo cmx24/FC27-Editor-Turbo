@@ -166,6 +166,22 @@ H.case("tactics channel E's gate: the match phase and the last save start follow
     H.ok(st3.save_t and st3.save_t >= before and st3.save_t <= os.time(), "the save start is stamped: " .. tostring(st3.save_t))
     H.eq(st3.match_phase, "hub", "a save does not change the phase")
     H.ok(st3.seq > st2.seq, "and rewrites the state")
+    -- Team Management (Edit Tactic): open from ENTERING_TEAM_MANAGEMENT until LEAVING_TEAM_MANAGEMENT or another phase event
+    local ENTERING_TM, LEAVING_TM = 82, 83
+    H.eq(st3.team_mgmt, false, "Team Management closed at first")
+    sim:fire("post__CareerModeEvent", 0, ENTERING_TM, 0)
+    local st4 = read_json("bridge_state.json")
+    H.eq(st4.team_mgmt, true, "entering Team Management is reported")
+    H.eq(st4.match_phase, "hub", "and is still the hub")
+    H.ok(st4.seq > st3.seq, "it rewrites the state")
+    sim:fire("post__CareerModeEvent", 0, LEAVING_TM, 0)
+    H.eq(read_json("bridge_state.json").team_mgmt, false, "leaving it is reported")
+    sim:fire("post__CareerModeEvent", 0, ENTERING_TM, 0)
+    sim:fire("post__CareerModeEvent", 0, ABOUT_TO_ENTER_PREMATCH, 0)
+    local st5 = read_json("bridge_state.json")
+    H.eq(st5.team_mgmt, false, "a phase event closes it (no LEAVING seen)")
+    H.eq(st5.match_phase, "prematch", "pre-match")
+    sim:fire("post__CareerModeEvent", 0, USER_MATCH_COMPLETED, 0)
 end)
 
 H.case("mailbox: ping is answered on the next career event, with a heartbeat", function()

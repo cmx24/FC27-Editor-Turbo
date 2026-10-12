@@ -77,6 +77,10 @@ void game_hook_called(const char* name);
 const char* run_on_game_thread(std::function<void()> fn);
 // True while the game_tick hook is active (prompt dispatch)
 bool game_thread_hooked();
+// A function the game_tick hook calls on the game thread once per frame, after the frame's jobs (inside the hook's exception guard). It must
+// be cheap and never block (tactics channel E's kick-off check: one try-lock and a clock compare). Called from the install path only (one
+// thread); at most 8, never removed. false = refused (null or full)
+bool add_game_tick_listener(void (*fn)());
 // Thread id of the game thread the queue last ran on (0 = never)
 uint32_t game_thread_id();
 // The GUI has (or no longer has) a mailbox command waiting for Turbo's Lua side: the next ticks send the synthetic

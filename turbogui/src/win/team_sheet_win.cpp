@@ -20,6 +20,12 @@ bool g_installed = false;
 std::string g_off;  // why channel E has no service at all ("" = the service exists; its anchors say the rest)
 ProcessMemory g_mem;
 std::shared_ptr<tsheet::CoreService> g_service;
+tsheet::CoreService* g_tick_service = nullptr;  // set once before the game_tick listener is added, never reset
+
+// Turbo's game_tick listener (game thread, every frame): the kick-off check, whether or not the Turbo window or its card is drawn
+void team_sheet_game_tick() {
+    if (tsheet::CoreService* s = g_tick_service) s->kickoff_tick();
+}
 
 std::string hex(uint64_t v) {
     char b[32];
@@ -74,12 +80,20 @@ void install_team_sheet() {
     h.log = [](const std::string& s) { log("%s", s.c_str()); };
     h.clock_us = &now_us;
     g_service = std::make_shared<tsheet::CoreService>(std::move(h));
+    g_tick_service = g_service.get();
     if (!game_hooks_allowed()) {
         g_off = "game hooks are off for this game build";
         log("game calls: team_sheet (channel E) off (%s)", g_off.c_str());
         return;
     }
     const std::string why = g_service->anchors_status();  // logs the outcome once
+    if (why.empty()) {
+        if (add_game_tick_listener(&team_sheet_game_tick))
+            log("game calls: team_sheet (channel E) kick-off check on the game_tick listener%s",
+                game_thread_hooked() ? "" : " (the game_tick hook is not running: the Turbo window's tick stands in)");
+        else
+            log("game calls: team_sheet (channel E) kick-off check: no game_tick listener slot left (the Turbo window's tick stands in)");
+    }
     if (why.empty())
         log("game calls: team_sheet (channel E) resolved: VT1 %s VT2 %s SetSheet %s UpdateSheet %s GetActiveSheetId %s registry %s; writes need "
             "turbo_output\\%s, kill switches turbo_output\\%s and \\%s, the registry Find off with \\%s, the cm_mentalities mirror only with \\%s (\\%s switches it off)",

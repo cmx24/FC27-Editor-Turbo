@@ -1,8 +1,9 @@
 // FC 27 LE Turbo GUI - Teams > Tactics > My team: your club's LIVE tactic (tactics channel E, core/team_sheet.h). A summary line of the
 // live record (always, read-only) and the card "Edit the live tactic (channel E)": badges (written: live team sheet, seen: untested), the
-// opt-in, the gates G1..G6 with the first reason, the read-out, the editor (build-up, defensive depth, role id / focus per slot: raw
-// numbers, the labels are not decoded), Apply (asks first), Undo, and what the last job, the cm_mentalities mirror, the read-back 5 s later
-// and the kick-off check said. The undo file is turbo_output\channel_e_undo.json.
+// safety line (Yes in the game's team-sheet prompt autosaves), the opt-in, the gates G1..G6 with the first reason, the read-out with Edit
+// Tactic's working copies, the editor (Defensive Approach / Line Height / Build-Up Style in the game's words, role id / focus per slot as
+// raw numbers), Apply (asks first), Undo, and what the last job, the cm_mentalities mirror, the read-back 5 s later and the kick-off check
+// said. The undo file is turbo_output\channel_e_undo.json.
 #pragma once
 #include <string>
 #include <vector>
@@ -36,6 +37,10 @@ struct LiveTacticState {
     int edit_slot = 0;
     std::string allow;                    // the role allow-list's status line
     std::vector<int> role_choices, focus_choices;  // the role ids / focuses the editor offers for the edited slot
+    std::vector<int> approach_choices, build_up_choices;  // the Defensive Approach / Build-Up Style values offered (the known ones)
+    std::string line_hint;                // the Line Height's band against the chosen approach
+    std::string safety;                   // the safety line ("... AUTOSAVES your career.")
+    std::vector<std::string> copies;      // one line per Edit Tactic working copy
 };
 const LiveTacticState& live_tactic_state();
 

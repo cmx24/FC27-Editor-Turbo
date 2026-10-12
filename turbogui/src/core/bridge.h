@@ -54,6 +54,8 @@ struct BridgeState {
     // save start (os.time(), 0 = none)
     std::string match_phase;
     long long phase_t = 0, save_t = 0;
+    // Lua saw ENTERING_TEAM_MANAGEMENT and no LEAVING_TEAM_MANAGEMENT (or other phase event) since: channel E's G2 refuses while it is open
+    bool team_mgmt = false;
     GameDate date;
     // Effective Turbo settings (turbo_config.json + gui_settings.json) as Lua last saw them
     bool has_settings = false;
