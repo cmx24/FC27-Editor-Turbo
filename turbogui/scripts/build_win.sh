@@ -25,14 +25,16 @@ CXXFLAGS="-std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-cast-function-
 CFLAGS="-O2 $DEFS -Ithird_party/minhook/include"
 
 objs=()
+# parallel, incremental compiles (only changed sources and the objects whose headers changed)
+PC_SCRIPT="$0"; . "$ROOT/scripts/parallel_compile.sh"
 # GCC 13 reports "array subscript [0, 4] is outside array bounds of 'bool [5]'" inside imgui.cpp:
 # the range it prints is inside the array (known false positive), so it is silenced for Dear ImGui only.
 compile_cxx() {
   local src="$1"; local o="$OBJ/$(echo "$src" | sed 's#[/.]#_#g').o"; local extra=""
   case "$src" in third_party/*) extra="-Wno-array-bounds";; esac
-  $CXX $CXXFLAGS $extra -c "$ROOT/$src" -o "$o"; objs+=("$o")
+  pc_add "$o" "$ROOT/$src" $CXX $CXXFLAGS $extra; objs+=("$o")
 }
-compile_c()   { local src="$1"; local o="$OBJ/$(echo "$src" | sed 's#[/.]#_#g').o"; $CC $CFLAGS -c "$ROOT/$src" -o "$o"; objs+=("$o"); }
+compile_c()   { local src="$1"; local o="$OBJ/$(echo "$src" | sed 's#[/.]#_#g').o"; pc_add "$o" "$ROOT/$src" $CC $CFLAGS; objs+=("$o"); }
 
 for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_party/imgui/imgui_tables.cpp \
          third_party/imgui/imgui_widgets.cpp third_party/imgui/backends/imgui_impl_win32.cpp \
@@ -55,6 +57,7 @@ for s in third_party/minhook/src/hook.c third_party/minhook/src/buffer.c third_p
   compile_c "$s"
 done
 
+pc_wait
 $CXX -shared -o "$OUT/Turbo.dll" "${objs[@]}" -static -static-libgcc -static-libstdc++ \
   -lgdi32 -luser32 -limm32 -lole32 -Wl,--subsystem,windows
 # Turbo.dll may be loaded while the game starts: it must not import Direct3D 12, DXGI, the shader compiler, DWM or the shell
