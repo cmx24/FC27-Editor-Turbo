@@ -34,7 +34,7 @@ static void ui_cases_club_search(App& app, Ui& ui, SimMemory& mem, uint64_t kMb)
         CHECK(expect_gender(1, 0) && app.list_player_ids.size() == 1 && app.list_player_ids[0] == 1005, "Women: 1005 only");
         CHECK(ui.click("##fgender", "##plist") && ui.click("Men", "##Combo"), "Men");
         CHECK(expect_gender(0, 0) && app.list_player_ids.size() == all - 1, "Men: everyone else");
-        CHECK(ui.type_into(ui.find("Min OVR", "##plist"), "87"), "min OVR 87");
+        CHECK(ui.type_into(ui.find("##ovr_from", "##plist"), "87"), "OVR from 87 (filter grid)");
         CHECK(expect_gender(0, 87) && !app.list_player_ids.empty(), "Men with OVR >= 87");
         CHECK(ui.click("##fgender", "##plist") && ui.click("Women", "##Combo"), "Women again");
         CHECK(app.list_player_ids.empty(), "no woman with OVR >= 87 (1005 is 80)");

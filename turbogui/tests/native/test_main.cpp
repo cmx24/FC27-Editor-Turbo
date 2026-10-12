@@ -2799,7 +2799,7 @@ public:
 // open state lives in ImGui and so carries over from one case to the next: open it only when it is closed
 static const char* const kStandingsAdvanced = "Advanced: home / away counters, points per result, played results##lsadv";
 static void open_standings_advanced(Ui& ui) {
-    if (ui.find("Win", "##lsedit") != nullptr) return;
+    if (ui.find("##ptswin", "##lsedit") != nullptr) return;
     ui.click(kStandingsAdvanced);
     ui.frames(2);
 }
@@ -7434,11 +7434,11 @@ static void test_ui() {
             ui.frames(2);
             CHECK(ui.find("Try again") == nullptr && ui.find("Reload") != nullptr, "live view reachable through the published ifce");
             // the precise home / away counters are under Advanced, closed by default (the table cells are the main way)
-            CHECK(ui.find(kStandingsAdvanced) != nullptr && ui.find("Win", "##lsedit") == nullptr, "Advanced closed by default");
+            CHECK(ui.find(kStandingsAdvanced) != nullptr && ui.find("##ptswin", "##lsedit") == nullptr, "Advanced closed by default");
             CHECK(ui.click("1##ls0"), "select the leader (Arsenal, row 0)");
             ui.frames(2);
             open_standings_advanced(ui);
-            const ItemRec* pts = ui.find("Points", "##lsedit");
+            const ItemRec* pts = ui.find("##lspoints", "##lsedit");
             CHECK(pts != nullptr, "points editor shown");
             CHECK(ui.type_into(pts, "9"), "type 9 points");
             CHECK(ui.click("Apply to the game", "##lsedit"), "Apply to the game");
@@ -7488,7 +7488,7 @@ static void test_ui() {
             app.toasts.clear();
             CHECK(ui.click("1##ls0"), "select the leader again");
             ui.frames(2);
-            pts = ui.find("Points", "##lsedit");
+            pts = ui.find("##lspoints", "##lsedit");
             CHECK(pts != nullptr && ui.type_into(pts, "11"), "type 11 points");
             CHECK(ui.click("Apply to the game", "##lsedit"), "Apply again");
             ui.frames(2);
@@ -7501,7 +7501,7 @@ static void test_ui() {
             app.toasts.clear();
             CHECK(ui.click("1##ls0"), "select the leader once more");
             ui.frames(2);
-            pts = ui.find("Points", "##lsedit");
+            pts = ui.find("##lspoints", "##lsedit");
             CHECK(pts != nullptr && ui.type_into(pts, "12"), "type 12 points");
             CHECK(ui.click("Apply to the game", "##lsedit"), "Apply without a service");
             ui.frames(2);
@@ -7696,7 +7696,7 @@ static void test_ui() {
             ui.frames(2);
             // the Advanced section shows the selected club's precise counters
             open_standings_advanced(ui);
-            CHECK(ui.find("Home wins", "##lsedit") != nullptr && ui.find("Apply to the game", "##lsedit") != nullptr, "Advanced: counters");
+            CHECK(ui.find("##Home wins", "##lsedit") != nullptr && ui.find("Apply to the game", "##lsedit") != nullptr, "Advanced: counters");
             // restore the state for the cases after this one
             app.standings_refresh = nullptr;
             st = saved;
@@ -7784,7 +7784,7 @@ static void test_ui() {
             CHECK(ui.click("1##ls4"), "select the pool's leader (row 4)");
             ui.frames(2);
             open_standings_advanced(ui);
-            const ItemRec* pts = ui.find("Points", "##lsedit");
+            const ItemRec* pts = ui.find("##lspoints", "##lsedit");
             CHECK(pts != nullptr && ui.type_into(pts, "6"), "type 6 points");
             CHECK(ui.click("Apply to the game", "##lsedit"), "Apply on the pool row");
             ui.frames(2);
@@ -7809,7 +7809,7 @@ static void test_ui() {
             CHECK(live_standings_view_warning().empty(), "no warning for the shown group");
             CHECK(ui.click("1##ls0"), "select the league leader (row 0)");
             ui.frames(2);
-            pts = ui.find("Points", "##lsedit");
+            pts = ui.find("##lspoints", "##lsedit");
             CHECK(pts != nullptr && ui.type_into(pts, "10"), "type 10 points");
             CHECK(ui.click("Apply to the game", "##lsedit"), "Apply on the league row");
             ui.frames(2);

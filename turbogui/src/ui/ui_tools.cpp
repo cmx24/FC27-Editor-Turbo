@@ -43,6 +43,13 @@ static json& auto_cfg(App& app, const char* name) {
     return a;
 }
 
+// A short label before an inline control (label left, control right, on one line with other controls)
+static void inline_label(const char* label) {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(label);
+    ImGui::SameLine();
+}
+
 static void apply_auto(App& app, const char* label) {
     if (app.save_gui_settings()) app.send({{"op", "boot"}}, label);
     else app.notify("cannot write turbo_output\\gui_settings.json", true);
@@ -63,6 +70,7 @@ void draw_tools(App& app) {
     else if (!app.lua_alive())
         ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "Turbo's Lua side has not answered yet: advance a day or open a menu.");
     ImGui::BeginChild("##tools");
+    form_label_width(S(170.0f));  // label column of this tab's form rows; reset at the end
 
     // ---------------------------------------------------------------- squad
     if (ImGui::CollapsingHeader("Your squad", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -76,18 +84,21 @@ void draw_tools(App& app) {
             fitness = fm.contains("fitness") ? fm.value("fitness", 0) : st.auto_fitness;
             init = true;
         }
+        form_label("Form", "0 = leave the form as it is");
         ImGui::SetNextItemWidth(S(200.0f));
-        ImGui::SliderInt("Form (0 = leave)", &form, 0, 100);
+        ImGui::SliderInt("##fmform", &form, 0, 100);
+        form_label("Morale", "0 = leave the morale as it is");
         ImGui::SetNextItemWidth(S(200.0f));
-        ImGui::SliderInt("Morale (0 = leave)", &morale, 0, 100);
+        ImGui::SliderInt("##fmmorale", &morale, 0, 100);
+        form_label("Fitness", "0 = leave the fitness as it is; otherwise 5 to 95");
         ImGui::SetNextItemWidth(S(200.0f));
-        ImGui::SliderInt("Fitness (0 = leave, 5-95)", &fitness, 0, 95);
+        ImGui::SliderInt("##fmfitness", &fitness, 0, 95);
         if (fitness > 0 && fitness < 5) fitness = 5;
         run_button(app, "Apply now##fm", "form_morale", {{"form", form}, {"morale", morale}, {"fitness", fitness}}, true,
                    "form_morale");
         ImGui::SameLine();
         bool keep = fm.value("enabled", st.auto_form_enabled);
-        if (ImGui::Checkbox("Keep every day (auto)##fm", &keep)) {
+        if (checkbox_right("Keep every day (auto)##fm", &keep, -1.0f)) {
             fm["enabled"] = keep;
             fm["form"] = form;
             fm["morale"] = morale;
@@ -99,11 +110,12 @@ void draw_tools(App& app) {
         static int role = 2;  // combo index: 2 = "3 Rotation", Turbo's default squad role
         static bool loaned = true;  // the game keeps a role for loaned-in players too (features/squad_role.lua)
         const char* roles[] = {"1 Crucial", "2 Important", "3 Rotation", "4 Sporadic", "5 Prospect"};
+        form_label("Squad role");
         ImGui::SetNextItemWidth(S(160.0f));
-        ImGui::Combo("Squad role", &role, [](void* d, int i) { return static_cast<const char**>(d)[i]; }, roles, 5);
+        ImGui::Combo("##squadrole", &role, [](void* d, int i) { return static_cast<const char**>(d)[i]; }, roles, 5);
         if (role < 0) role = 2;
         ImGui::SameLine();
-        ImGui::Checkbox("Include loaned-in", &loaned);
+        checkbox_right("Include loaned-in", &loaned, -1.0f);
         ImGui::SameLine();
         run_button(app, "Set role for whole squad", "squad_role", {{"role", role + 1}, {"include_loaned_in", loaned}}, true);
         if (ImGui::IsItemHovered())
@@ -114,7 +126,7 @@ void draw_tools(App& app) {
         const bool on_role = sr.contains("enabled") ? (sr.value("enabled", false) && sr.value("rule", std::string("age")) == "role")
                                                     : (st.auto_squad_role_enabled && st.auto_squad_role_rule == "role");
         bool keep_role = on_role;
-        if (ImGui::Checkbox("Set it again after each season reset (auto)##srauto", &keep_role)) {
+        if (checkbox_right("Set it again after each season reset (auto)##srauto", &keep_role)) {
             sr["enabled"] = keep_role;
             sr["rule"] = "role";
             sr["rule_role"] = role + 1;
@@ -127,13 +139,15 @@ void draw_tools(App& app) {
 
         ImGui::Separator();
         static int user_years = 4, cpu_years = 5;
+        form_label("Contract years", "Years added to the contracts of your squad (1 to 10)");
         ImGui::SetNextItemWidth(S(100.0f));
-        ImGui::InputInt("years##u", &user_years);
+        ImGui::InputInt("##yearsu", &user_years);
         user_years = std::max(1, std::min(user_years, 10));
         ImGui::SameLine();
         run_button(app, "Extend my squad's contracts", "extend_user_contracts", {{"years", user_years}}, true);
+        form_label("Other clubs: years", "Years added to the contracts of every other club's players (1 to 20)");
         ImGui::SetNextItemWidth(S(100.0f));
-        ImGui::InputInt("years##c", &cpu_years);
+        ImGui::InputInt("##yearsc", &cpu_years);
         cpu_years = std::max(1, std::min(cpu_years, 20));
         ImGui::SameLine();
         run_button(app, "Extend every other club's contracts", "extend_cpu_contracts", {{"years", cpu_years}}, false);
@@ -154,10 +168,11 @@ void draw_tools(App& app) {
             ImGui::SameLine();
             run_button(app, "Reveal club##rv", "reveal", {{"scope", {{"teamid", reveal_team}}}}, true, "reveal");
         }
+        form_label("League ID", "Reveal every club of a league: its ID, then tick the box");
         ImGui::SetNextItemWidth(S(110.0f));
         ImGui::InputInt("##rvleague", &reveal_league, 0);
         ImGui::SameLine();
-        ImGui::Checkbox("every club of the league##rvc", &reveal_confirm);
+        checkbox_right("every club of the league##rvc", &reveal_confirm, -1.0f);
         ImGui::SameLine();
         if (reveal_league > 0 && reveal_confirm)
             run_button(app, "Reveal league ID##rv", "reveal", {{"scope", {{"leagueid", reveal_league}}}, {"confirm", true}}, true, "reveal");
@@ -169,12 +184,13 @@ void draw_tools(App& app) {
         json& dv = auto_cfg(app, "development");
         static int squad_weekly = 1;
         static bool squad_no_decline = true;
+        form_label("Points per week");
         ImGui::SetNextItemWidth(S(160.0f));
-        ImGui::SliderInt("Points per week##dv", &squad_weekly, 1, 5);
+        ImGui::SliderInt("##dvweekly", &squad_weekly, 1, 5);
         ImGui::SameLine();
-        ImGui::Checkbox("No decline##dv", &squad_no_decline);
+        checkbox_right("No decline##dv", &squad_no_decline, -1.0f);
         bool squad = dv.value("user_team", false);
-        if (ImGui::Checkbox("Grow my whole squad every week (auto)##dv", &squad)) {
+        if (checkbox_right("Grow my whole squad every week (auto)##dv", &squad)) {
             dv["user_team"] = squad;
             dv["weekly"] = squad_weekly;
             dv["no_decline"] = squad_no_decline;
@@ -190,16 +206,21 @@ void draw_tools(App& app) {
         // youth academy (features/youth.lua)
         static int yid = 0, ypot = 0, ypos = -1, ytier = -1, yvar = -1;
         run_button(app, "List my youth academy##yt", "youth", {{"mode", "list"}}, true);
+        form_label("Youth player ID");
         ImGui::SetNextItemWidth(S(110.0f));
-        ImGui::InputInt("Youth player ID##yt", &yid, 0);
+        ImGui::InputInt("##ytid", &yid, 0);
+        form_label("Potential", "0 = leave");
         ImGui::SetNextItemWidth(S(110.0f));
-        ImGui::InputInt("Potential (0 = leave)##yt", &ypot, 0);
+        ImGui::InputInt("##ytpot", &ypot, 0);
+        form_label("Position", "The position code 0 to 27; -1 = leave");
         ImGui::SetNextItemWidth(S(110.0f));
-        ImGui::InputInt("Position 0-27 (-1 = leave)##yt", &ypos, 0);
+        ImGui::InputInt("##ytpos", &ypos, 0);
+        form_label("Tier", "-1 = leave");
         ImGui::SetNextItemWidth(S(110.0f));
-        ImGui::InputInt("Tier (-1 = leave)##yt", &ytier, 0);
+        ImGui::InputInt("##yttier", &ytier, 0);
+        form_label("Potential range", "The width of the potential range the scouts report: 0 = exact, -1 = leave");
         ImGui::SetNextItemWidth(S(110.0f));
-        ImGui::InputInt("Potential range width (0 = exact, -1 = leave)##yt", &yvar, 0);
+        ImGui::InputInt("##ytvar", &yvar, 0);
         if (yid > 0)
             run_button(app, "Set youth player##yt", "youth",
                        {{"mode", "set"}, {"playerid", yid}, {"potential", ypot}, {"position", ypos}, {"tier", ytier}, {"variance", yvar}}, true);
@@ -215,8 +236,9 @@ void draw_tools(App& app) {
         else
             ImGui::TextDisabled("Current budget: shown once a career is loaded");
         static long long amount = 50000000;
+        form_label("Amount");
         ImGui::SetNextItemWidth(S(200.0f));
-        ImGui::InputScalar("amount##tb", ImGuiDataType_S64, &amount);
+        ImGui::InputScalar("##tbamount", ImGuiDataType_S64, &amount);
         amount = std::max(0LL, std::min(amount, 2000000000LL));
         ImGui::SameLine();
         run_button(app, "Set budget", "transfer_budget", {{"mode", "set"}, {"amount", amount}}, true, "transfer_budget");
@@ -235,7 +257,7 @@ void draw_tools(App& app) {
         ImGui::SameLine();
         json& ps = auto_cfg(app, "pap_playstyles");
         bool keep = ps.value("enabled", st.auto_playstyles_enabled);
-        if (ImGui::Checkbox("Re-apply automatically##ps", &keep)) {
+        if (checkbox_right("Re-apply automatically##ps", &keep, -1.0f)) {
             ps["enabled"] = keep;
             apply_auto(app, "Auto PlayStyles");
         }
@@ -244,7 +266,7 @@ void draw_tools(App& app) {
     // ---------------------------------------------------------------- exports
     if (ImGui::CollapsingHeader("Exports (CSV in turbo_output)")) {
         static bool only_mine = false;
-        ImGui::Checkbox("Only my club", &only_mine);
+        checkbox_right("Only my club", &only_mine, -1.0f);
         ImGui::SameLine();
         run_button(app, "Season stats", "export_season_stats", {{"only_user_team", only_mine}}, true);
         ImGui::SameLine();
@@ -252,12 +274,14 @@ void draw_tools(App& app) {
         ImGui::SameLine();
         run_button(app, "Transfer history", "export_transfer_history", json::object(), true);
         static int jersey_team = 0;  // 0 = your club
+        form_label("Jersey numbers of", "Your club when empty, else a club picked by name or ID");
         club_search_box(app, "##jerseyteam", jersey_team, S(180.0f), "your club, or a club name or ID");
         ImGui::SameLine();
         run_button(app, "Jersey numbers", "team_jersey_numbers", {{"teamid", jersey_team}}, false);
         static char tables[256] = "teams";
+        form_label("Tables", "Database tables to export, separated by commas");
         ImGui::SetNextItemWidth(S(260.0f));
-        ImGui::InputText("tables (comma separated)", tables, sizeof(tables));
+        ImGui::InputText("##exptables", tables, sizeof(tables));
         ImGui::SameLine();
         json list = json::array();
         {
@@ -280,10 +304,11 @@ void draw_tools(App& app) {
     if (ImGui::CollapsingHeader("Transfer bans")) {
         static int until = 20990101;
         static bool exclude_mine = false;
+        form_label("Ban until", "The date the bans end, as YYYYMMDD");
         ImGui::SetNextItemWidth(S(120.0f));
-        ImGui::InputInt("Ban until (YYYYMMDD)", &until, 0);
+        ImGui::InputInt("##banuntil", &until, 0);
         ImGui::SameLine();
-        ImGui::Checkbox("Exclude my club", &exclude_mine);
+        checkbox_right("Exclude my club", &exclude_mine, -1.0f);
         if (const std::string* r = st.unavailable_reason("transfer_bans"))
             ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "Not possible with this Live Editor build: %s", r->c_str());
         run_button(app, "List bans", "transfer_bans", {{"mode", "list"}}, true, "transfer_bans");
@@ -315,6 +340,7 @@ void draw_tools(App& app) {
         if (scope == 1)
             ImGui::TextDisabled("%zu players: choose them with the Players tab's search and filters", app.list_player_ids.size());
         if (scope == 2) {
+            form_label("Team IDs", "Numbers separated by commas; or add a club by name with the box on the right");
             ImGui::SetNextItemWidth(S(200.0f));
             ImGui::InputTextWithHint("##beteams", "e.g. 1, 241", teams, sizeof(teams));
             // a club picked by name or ID (ui_club_search.h) joins the list (once)
@@ -339,13 +365,16 @@ void draw_tools(App& app) {
             }
             add_team = 0;
         }
-        if (scope == 3) ImGui::Checkbox("Yes, every player in the database##be", &confirm_all);
+        if (scope == 3) checkbox_right("Yes, every player in the database##be", &confirm_all);
 
         ImGui::SeparatorText("Set fields (players table, range-checked)");
         for (int i = 0; i < 4; ++i) {
             char nl[16], vl[16];
             std::snprintf(nl, sizeof(nl), "##fn%d", i);
             std::snprintf(vl, sizeof(vl), "##fv%d", i);
+            char fl[16];
+            std::snprintf(fl, sizeof(fl), "Field %d", i + 1);
+            form_label(fl, "A players-table field name, then its value (range-checked)");
             ImGui::SetNextItemWidth(S(200.0f));
             ImGui::InputTextWithHint(nl, "field, e.g. potential", fnames[i], sizeof(fnames[i]));
             ImGui::SameLine();
@@ -353,28 +382,30 @@ void draw_tools(App& app) {
             ImGui::InputInt(vl, &fvals[i], 0);
         }
         ImGui::SeparatorText("Career actions");
-        ImGui::Checkbox("Fitness##be", &use_fit);
+        checkbox_right("Fitness##be", &use_fit);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(S(160.0f));
         ImGui::SliderInt("##befit", &fit, 5, 95);
-        ImGui::Checkbox("Form##be", &use_form);
+        checkbox_right("Form##be", &use_form);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(S(160.0f));
         ImGui::SliderInt("##beform", &form, 0, 100);
-        ImGui::Checkbox("Morale##be", &use_morale);
+        checkbox_right("Morale##be", &use_morale);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(S(160.0f));
         ImGui::SliderInt("##bemorale", &morale, 0, 100);
-        ImGui::Checkbox("Development##be", &use_dev);
+        checkbox_right("Development##be", &use_dev);
         if (use_dev) {
             ImGui::SameLine();
+            inline_label("XP multiplier");
             ImGui::SetNextItemWidth(S(90.0f));
-            ImGui::InputFloat("XP multiplier##be", &xp_mult, 0.0f, 0.0f, "%.1f");
+            ImGui::InputFloat("##bexpmult", &xp_mult, 0.0f, 0.0f, "%.1f");
             ImGui::SameLine();
+            inline_label("Bonus XP");
             ImGui::SetNextItemWidth(S(90.0f));
-            ImGui::InputInt("Bonus XP##be", &bonus_xp, 0);
+            ImGui::InputInt("##bebonusxp", &bonus_xp, 0);
             ImGui::SameLine();
-            ImGui::Checkbox("No decline##be", &no_decline);
+            checkbox_right("No decline##be", &no_decline, -1.0f);
         }
 
         // Build the command; explain why it cannot be sent yet
@@ -432,8 +463,9 @@ void draw_tools(App& app) {
     // ---------------------------------------------------------------- maintenance
     if (ImGui::CollapsingHeader("Database maintenance")) {
         static int min_id = 460000;
+        form_label("Generated from ID", "Players with this ID or higher count as generated");
         ImGui::SetNextItemWidth(S(120.0f));
-        ImGui::InputInt("Generated players from ID", &min_id, 0);
+        ImGui::InputInt("##genfromid", &min_id, 0);
         ImGui::SameLine();
         run_button(app, "Count", "delete_generated_players", {{"min_playerid", min_id}, {"confirm", false}}, false);
         ImGui::SameLine();
@@ -457,7 +489,7 @@ void draw_tools(App& app) {
         static bool generic = true;
         run_button(app, "Capture real-face list", "headmodels", {{"mode", "capture"}}, false);
         ImGui::SameLine();
-        ImGui::Checkbox("Generic head for others", &generic);
+        checkbox_right("Generic head for others", &generic, -1.0f);
         ImGui::SameLine();
         run_button(app, "Apply real-face list", "headmodels", {{"mode", "apply"}, {"generic_for_others", generic}}, false);
     }
@@ -467,13 +499,14 @@ void draw_tools(App& app) {
         json& t = app.gui_settings["turbo"];
         if (!t.is_object()) t = json::object();
         bool dry = t.value("dry_run", st.dry_run);
-        if (ImGui::Checkbox("Dry run (Turbo Tools report only, write nothing)", &dry)) {
+        if (checkbox_right("Dry run (Turbo Tools report only, write nothing)", &dry)) {
             t["dry_run"] = dry;
             if (!app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);
         }
         ImGui::TextDisabled("Editors in the other tabs always write immediately, after range checks.");
     }
     draw_game_editors(app);  // "Game editors": FC 27's own edit screens unlocked (ui_edit_unlock.cpp)
+    form_label_width(0.0f);
     ImGui::EndChild();
 }
 
@@ -616,8 +649,9 @@ void draw_status(App& app) {
 
     ImGui::SeparatorText("Settings");
     hotkey_setting(app);  // hotkey_setting.h: pick the key from the list or by pressing it
+    form_label("UI size", "The size of the whole Turbo window, on top of the automatic size for the window height");
     ImGui::SetNextItemWidth(S(140.0f));
-    ImGui::SliderFloat("UI size", &app.ui_scale_user, 0.6f, 2.5f, "%.2fx", ImGuiSliderFlags_AlwaysClamp);
+    ImGui::SliderFloat("##uisize", &app.ui_scale_user, 0.6f, 2.5f, "%.2fx", ImGuiSliderFlags_AlwaysClamp);
     if (ImGui::IsItemDeactivatedAfterEdit() && !app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);
     ImGui::SameLine();
     if (ImGui::SmallButton("Reset size")) {

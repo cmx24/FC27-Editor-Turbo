@@ -119,7 +119,7 @@ void draw_game_editors(App& app) {
         "the Attributes and Brand animations sections), Edit Manager, Create a Club players and the main menu's Edit "
         "Players. Team stays locked (Turbo's moves do transfers properly) and a player's gender stays hidden. The files are "
         "built on this PC from the game's own; Restore the game's originals removes them.");
-    if (ImGui::Checkbox("Unlock the game's editors", &on)) {
+    if (checkbox_right("Unlock the game's editors", &on, -1.0f)) {
         if (!on) {
             std::string r = s.restore();
             log_line(app, r);
@@ -159,7 +159,7 @@ void draw_game_editors(App& app) {
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("After a game update: removes Turbo's files, exports the game's own again and rebuilds them");
-    if (ImGui::Checkbox("Unlock everything (experimental)", &o.experimental)) changed = true;
+    if (checkbox_right("Unlock everything (experimental)", &o.experimental)) changed = true;
     ImGui::PushStyleColor(ImGuiCol_Text, warn);
     ImGui::TextWrapped(
         "Not yet checked in game; back up your career save first. Adds to career Edit Player the game's own sock style, "
@@ -170,7 +170,7 @@ void draw_game_editors(App& app) {
         "head editor, outfit picker, manager gender, every celebration and the two hidden attributes: they could freeze or "
         "close the game).");
     ImGui::PopStyleColor();
-    if (ImGui::Checkbox("Career settings too (advanced)", &o.career_settings)) changed = true;
+    if (checkbox_right("Career settings too (advanced)", &o.career_settings)) changed = true;
     ImGui::PushStyleColor(ImGuiCol_Text, warn);
     ImGui::TextWrapped(
         "Unlocks the hub settings EA locks during a career (match setup, training and development rates, transfers, "
@@ -200,7 +200,7 @@ void draw_game_editors(App& app) {
         if (f.group != eu::Group::Source && o.file_on(f.path)) file_line(s, f);
     // ---- the in-memory fallback (core/edit_unlock_hook.h): same switches, same keep-list
     ImGui::BeginDisabled(!on);
-    changed |= ImGui::Checkbox("Also patch the editors in memory (fallback when Live Editor ignores the files)", &o.hook);
+    changed |= checkbox_right("Also patch the editors in memory (fallback when Live Editor ignores the files)", &o.hook);
     ImGui::EndDisabled();
     if (app.edit_unlock_hook) {
         for (const auto& line : app.edit_unlock_hook->status()) ImGui::TextDisabled("%s", line.c_str());
@@ -213,13 +213,13 @@ void draw_game_editors(App& app) {
     if (ImGui::TreeNode("Details")) {
         ImGui::BeginDisabled(!on);
         ImGui::TextDisabled("Screens");
-        changed |= ImGui::Checkbox("Career Edit Player", &o.career_players);
+        changed |= checkbox_right("Career Edit Player", &o.career_players, -1.0f);
         ImGui::SameLine();
-        changed |= ImGui::Checkbox("Create-a-Club players", &o.created_players);
+        changed |= checkbox_right("Create-a-Club players", &o.created_players, -1.0f);
         ImGui::SameLine();
-        changed |= ImGui::Checkbox("Your manager", &o.manager);
+        changed |= checkbox_right("Your manager", &o.manager, -1.0f);
         ImGui::SameLine();
-        changed |= ImGui::Checkbox("Main menu editors", &o.main_menu);
+        changed |= checkbox_right("Main menu editors", &o.main_menu, -1.0f);
         ImGui::TextDisabled("Files (Live Editor\\mods\\legacy\\...; originals in turbo_output\\edit_unlock\\originals)");
         for (const auto& f : eu::files()) {
             ImGui::PushID(f.path.c_str());
