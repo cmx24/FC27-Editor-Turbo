@@ -40,11 +40,11 @@ struct TacticsTabState {
     bool show_legacy = false;     // "show legacy fields" is ticked
     size_t legacy_hidden = 0;     // legacy rows of this scope not drawn
     bool confirm_open = false;    // the "Apply untested settings?" dialog is open
-    std::vector<std::string> confirm_lines; // what it lists
+    std::vector<std::string> confirm_lines; // what it lists ("Defensive line depth (teams.defensivedepth = 62 for Arsenal): untested")
     std::string receive_title;    // "What the game will receive"
-    std::vector<std::string> receive;      // one line per Live / DB write that will be sent
+    std::vector<std::string> receive;      // one line per Live / DB write that will be sent; a DB row names whose row it is ("teams.defensivedepth = 62 for Arsenal  [database row]")
     std::vector<std::string> not_written;  // switched-on settings this build does not write ("formations.offset{n}x: ...")
-    std::vector<std::string> writes_done;  // what the last Apply did, one line per DB row written ("mentalities.defensivewidth = 61: row 1 of 1 ...")
+    std::vector<std::string> writes_done;  // what the last Apply did, one line per DB row written ("mentalities.defensivewidth = 61 for Arsenal: row 1 of 1 ...")
     int changed = 0;              // "N changed"
     bool off = false;
     bool dry_run = false;

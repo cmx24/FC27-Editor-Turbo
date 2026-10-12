@@ -26,7 +26,8 @@ CFLAGS="-O2 $DEFS -Ithird_party/minhook/include"
 
 objs=()
 # parallel, incremental compiles (only changed sources and the objects whose headers changed)
-PC_SCRIPT="$0"; . "$ROOT/scripts/parallel_compile.sh"
+# (absolute: "$0" is relative when started from the repository root, and this script has changed folder since)
+PC_SCRIPT="$ROOT/scripts/build_win.sh"; . "$ROOT/scripts/parallel_compile.sh"
 # GCC 13 reports "array subscript [0, 4] is outside array bounds of 'bool [5]'" inside imgui.cpp:
 # the range it prints is inside the array (known false positive), so it is silenced for Dear ImGui only.
 compile_cxx() {

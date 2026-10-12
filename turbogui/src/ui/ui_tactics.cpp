@@ -52,10 +52,19 @@ struct OppState {
     TacticsTabState::OppCard card;  // what the card shows (kept between frames: the profile is only solved again when an input changed)
 };
 
+// The values of the database sliders that write one club's rows (teams, mentalities: My team) or one player's row (players:
+// Position/Role), put aside while another club or player is selected (sync_owners)
+struct OwnedValues {
+    SliderSet working, applied;
+};
+
 struct TacState {
     int scope = 0;  // SliderScope index
-    SliderSet working;   // what the sliders hold now
+    SliderSet working;   // what the sliders hold now (the club and player rows: the selected club's and player's values only)
     SliderSet applied;   // what was last applied (the base for "N changed" and Revert)
+    // whose club and player rows `working` / `applied` hold, and the values of every other club and player (sync_owners)
+    int64_t team_owner = -1, player_owner = -1;
+    std::map<int64_t, OwnedValues> team_values, player_values;
     bool dry_run = false;
     bool show_derived = true, show_heat = false, show_roam = false, show_risk = false;
     int phase = 2;       // Phase index
@@ -179,6 +188,80 @@ bool value_changed(const SliderDef& d) {
 const Profile* loaded_profile(App& app) {
     if (g_tac.selected_profile.empty()) return nullptr;
     return app.tactic_profiles.find(g_tac.selected_profile);
+}
+
+// ---------------------------------------------------------------------------------------------------------------- whose rows
+// A database value is bound to the club or player it was set for. A teams / mentalities value (My team) writes the selected club's rows
+// and a players value (Position/Role) the selected player's row, so when the selection changes the values of the club or player left
+// (switched on, last applied) are put aside and the newly selected one's come back. Apply, Reset and switching a row off + Apply then
+// only reach the rows of the club or player the values were set for: selecting the opponent (the Opposition scope asks for it) or
+// another player never sends your settings into his row, and the row Turbo wrote keeps its applied state for its own Reset.
+enum class RowOwner { None, Team, Player };
+
+RowOwner owner_of_target(const std::string& target) {
+    const std::string table = target.substr(0, target.find('.'));
+    if (table == "teams" || table == "mentalities") return RowOwner::Team;
+    if (table == "players") return RowOwner::Player;
+    return RowOwner::None;  // a game variable, every referee, a formation slot (not written)
+}
+
+RowOwner owner_of(const SliderDef& d) {
+    if (d.status != SliderStatus::DB || d.binding.targets.empty()) return RowOwner::None;
+    return owner_of_target(d.binding.targets.front());
+}
+
+// Moves the values of `o`'s sliders from one set to another (the flag and the value; `from` is left without them)
+void move_owned(SliderSet& from, SliderSet& to, RowOwner o) {
+    for (const SliderDef& d : slider_registry()) {
+        if (owner_of(d) != o) continue;
+        auto it = from.values.find(d.key);
+        if (it != from.values.end()) to.values[d.key] = it->second;
+        if (from.is_enabled(d.key)) to.enabled.insert(d.key);
+        from.reset(d.key);
+    }
+}
+
+void switch_owner(RowOwner o, int64_t& owner, int64_t now, std::map<int64_t, OwnedValues>& aside) {
+    if (owner == now) return;
+    OwnedValues left;
+    move_owned(g_tac.working, left.working, o);
+    move_owned(g_tac.applied, left.applied, o);
+    if (left.working.empty() && left.applied.empty()) aside.erase(owner);
+    else aside[owner] = std::move(left);
+    owner = now;
+    auto it = aside.find(now);
+    if (it == aside.end()) return;
+    move_owned(it->second.working, g_tac.working, o);
+    move_owned(it->second.applied, g_tac.applied, o);
+    aside.erase(it);
+}
+
+// Called at the top of every frame of the tab and before every write: the club and player rows hold the selected one's values
+void sync_owners(App& app) {
+    switch_owner(RowOwner::Team, g_tac.team_owner, app.sel_team, g_tac.team_values);
+    switch_owner(RowOwner::Player, g_tac.player_owner, app.sel_player, g_tac.player_values);
+}
+
+// Whose row a target writes, for the user: the selected club or player, every referee ("" = a game variable). Cheap (the frame path).
+std::string row_owner(App& app, const std::string& target) {
+    switch (owner_of_target(target)) {
+        case RowOwner::Team: {
+            const TeamRow* t = app.model.team(app.sel_team);
+            return t ? t->name : "no club selected";
+        }
+        case RowOwner::Player: {
+            const PlayerRow* p = app.model.player(app.sel_player);
+            return p ? p->name : "no player selected";
+        }
+        case RowOwner::None: break;
+    }
+    if (target.rfind("referee.", 0) == 0) return "every referee";
+    return "";
+}
+
+std::string for_owner(App& app, const std::string& target) {
+    const std::string who = row_owner(app, target);
+    return who.empty() ? "" : " for " + who;
 }
 
 // ---------------------------------------------------------------------------------------------------------------- formation
@@ -309,7 +392,7 @@ std::vector<EffWrite> effective_writes(const SliderSet& s, std::vector<std::stri
     return out;
 }
 
-// One DB write of "table.field" through App::edit (Database::set: range check, table_alive; undo steps for players; never saves).
+// One DB write of "table.field" through tactics_db_set (App::edit_field / App::edit, Database::set: range check, table_alive; undo steps for players; never saves).
 // Skipped = this build or this save cannot say where to write (not a failure of the write itself); Failed = the write was refused.
 enum class DbOutcome { Ok, Skipped, Failed };
 
@@ -378,12 +461,22 @@ DbTarget resolve_db(App& app, const std::string& target) {
         const uint64_t rec = rows.recs[rows.chosen];
         r.label = tr->name;
         r.recs.push_back({rec, snapshot_row(club, "mentalities:" + std::to_string(app.db.get_int(*r.t, rec, "mentalityid", int64_t(rec))))});
-        r.what = ": row " + std::to_string(rows.chosen + 1) + " of " + std::to_string(rows.recs.size()) + " of " + tr->name +
-                 (rows.has_active ? " (the active tactic)" : "");
+        r.what = ": row " + std::to_string(rows.chosen + 1) + " of " + std::to_string(rows.recs.size()) + (rows.has_active ? " (the active tactic)" : "");
     } else {
         return fail(DbOutcome::Skipped, "which row of " + r.table + " to write is not resolved in this build");
     }
     return r;
+}
+
+// Every database write of the tab and every put-back (Reset, a row switched off + Apply, tactics_off.txt) goes through here. A tactic is
+// a match setting, not a player edit: a players field other than the overall goes through App::edit_field, so
+// players.preferredposition1 written or put back by the tab never moves the stored overall (App::edit would make it follow,
+// ui_players.cpp overall_follow_edit, and the put-back of a position Turbo wrote would move it by the formula's difference between
+// the two positions). An A/B run that writes the baseline back, and every way of undoing a write, leave the overall as it was.
+bool tactics_db_set(App& app, const Table& t, uint64_t rec, const Field& f, int64_t value) {
+    const Value v = Value::of_int(value);
+    const bool plain = t.name == "players" && f.name != "overallrating";
+    return plain ? app.edit_field(t, rec, f, v) : app.edit(t, rec, f, v);
 }
 
 // Before the first write to a row, its value is kept (turbo_output\tactics_snapshot.json) so Reset can put it back
@@ -403,12 +496,7 @@ DbOutcome write_db(App& app, const SliderWrite& w, std::string& why, std::string
         Value before;
         if (app.db.get(*r.t, rec.first, *r.f, before) && before.type == FieldType::Int)
             kept = snaps.remember(w.target, rec.second, before.i, stamp(), r.label) || kept;
-        // 2.1: a tactics write is a match setting, not a player edit: players.preferredposition1 written here does not move
-        // the stored overall (App::edit would make it follow, ui_players.cpp overall_follow_edit), so an A/B run that
-        // writes the baseline back leaves the overall exactly as it was
-        const bool plain = r.t->name == "players" && r.f->name != "overallrating";
-        const Value v = Value::of_int(w.value);
-        if (!(plain ? app.edit_field(*r.t, rec.first, *r.f, v) : app.edit(*r.t, rec.first, *r.f, v))) {
+        if (!tactics_db_set(app, *r.t, rec.first, *r.f, w.value)) {
             if (kept) persist_snapshots(app);
             why = "the game's database refused the value";
             return DbOutcome::Failed;
@@ -416,7 +504,7 @@ DbOutcome write_db(App& app, const SliderWrite& w, std::string& why, std::string
         kept = snaps.note_written(w.target, rec.second, w.value) || kept;
     }
     if (kept) persist_snapshots(app);
-    what = w.target + " = " + std::to_string(w.value) + r.what;
+    what = w.target + " = " + std::to_string(w.value) + (r.label.empty() ? "" : " for " + r.label) + r.what;
     return DbOutcome::Ok;
 }
 
@@ -448,7 +536,7 @@ int restore_db(App& app, const SliderDef& d, std::string& why) {
                           "): not restored";
                 continue;
             }
-            if (app.edit(*r.t, rec.first, *r.f, Value::of_int(s->value))) {
+            if (tactics_db_set(app, *r.t, rec.first, *r.f, s->value)) {
                 ++restored;
                 snaps.forget(target, rec.second);
                 changed = true;
@@ -497,7 +585,7 @@ RestoreAll restore_all_db(App& app) {
         }
         switch (restore_verdict(s, club, cur.i)) {
             case RestoreVerdict::Restore:
-                if (app.edit(*t, rec, *f, Value::of_int(s.value))) {
+                if (tactics_db_set(app, *t, rec, *f, s.value)) {
                     ++out.restored;
                     snaps.forget(s.target, s.row);
                     changed = true;
@@ -595,14 +683,16 @@ bool kill_switch_now(App& app) {
 
 std::string off_text(const std::string& file) { return "off: turbo_output\\" + file + " exists"; }
 
-// The enabled writes nobody has seen work in a played match (untested, no effect seen, legacy): Apply asks about these first
-std::vector<std::string> untested_lines(const std::vector<EffWrite>& writes) {
+// The enabled writes nobody has seen work in a played match (untested, no effect seen, legacy): Apply asks about these first, naming the
+// club or player whose row each one writes
+std::vector<std::string> untested_lines(App& app, const std::vector<EffWrite>& writes) {
     std::vector<std::string> out;
     for (const EffWrite& e : writes) {
         const SliderDef* d = find_slider(e.w.key);
         if (!d) continue;
         const TacticStatus s = tactic_status(*d);
-        if (untested_write(s)) out.push_back(s.label + " (" + e.w.target + " = " + std::to_string(e.w.value) + "): " + seen_badge(s));
+        if (untested_write(s))
+            out.push_back(s.label + " (" + e.w.target + " = " + std::to_string(e.w.value) + for_owner(app, e.w.target) + "): " + seen_badge(s));
     }
     return out;
 }
@@ -610,14 +700,16 @@ std::vector<std::string> untested_lines(const std::vector<EffWrite>& writes) {
 // Apply: untested settings ask first (confirmed = the user said "Apply anyway"); every switched-on value is sent (the writes are
 // idempotent; the rows' read-back lines show what the game holds); a channel whose kill switch file exists is skipped and named; a slider
 // switched off since the last Apply gets its default back (the game variable cleared, the database row restored from the snapshot).
+// The club and player rows are the selected club's and player's only (sync_owners): another club's values are never sent.
 void apply_changes(App& app, bool confirmed = false) {
+    sync_owners(app);
     if (kill_switch_now(app)) {
         app.notify("Tactics are off: turbo_output\\tactics_off.txt exists, nothing was written", true);
         return;
     }
     const std::vector<EffWrite> writes = effective_writes(g_tac.working);
     if (!confirmed) {
-        const std::vector<std::string> ask = untested_lines(writes);
+        const std::vector<std::string> ask = untested_lines(app, writes);
         if (!ask.empty()) {
             g_tac.confirm_lines = ask;
             g_tac.confirm_request = true;
@@ -631,6 +723,7 @@ void apply_changes(App& app, bool confirmed = false) {
     g_tac.writes_done.clear();
     int ok = 0, failed = 0, skipped = 0, blocked = 0, restored = 0;
     std::string first_error, first_skip, first_block;
+    std::vector<std::string> rows_of;  // whose database rows were written ("Arsenal", "every referee")
     auto fail = [&](const std::string& key, const std::string& why) {
         ++failed;
         if (first_error.empty()) first_error = key + ": " + why;
@@ -686,6 +779,8 @@ void apply_changes(App& app, bool confirmed = false) {
             if (o == DbOutcome::Ok) {
                 ++ok;
                 g_tac.writes_done.push_back(what);
+                const std::string who = row_owner(app, w.target);
+                if (!who.empty() && std::find(rows_of.begin(), rows_of.end(), who) == rows_of.end()) rows_of.push_back(who);
             } else if (o == DbOutcome::Skipped) {
                 ++skipped;
                 if (first_skip.empty()) first_skip = w.key + ": " + why;
@@ -694,6 +789,11 @@ void apply_changes(App& app, bool confirmed = false) {
     }
     if (failed == 0 && blocked == 0) g_tac.applied = g_tac.working;
     std::string msg = "Tactics: " + std::to_string(ok) + " write(s) sent to the game";
+    if (!rows_of.empty()) {
+        msg += " (database rows of ";
+        for (size_t i = 0; i < rows_of.size(); ++i) msg += (i ? ", " : "") + rows_of[i];
+        msg += ")";
+    }
     if (restored) msg += ", " + std::to_string(restored) + " row(s) restored to the value before Turbo";
     if (skipped) msg += ", " + std::to_string(skipped) + " not written (" + first_skip + ")";
     if (blocked) msg += ", " + std::to_string(blocked) + " blocked by a kill switch (" + first_block + ")";
@@ -702,8 +802,10 @@ void apply_changes(App& app, bool confirmed = false) {
 }
 
 // Reset to default for one row: back to "the game decides" and the game's default restored at once (a game variable is cleared, a
-// database row gets the value kept before Turbo's first write). Honours the kill switches and the dry run.
+// database row gets the value kept before Turbo's first write). Honours the kill switches and the dry run. A club or player row is the one
+// the row's values belong to (the selected club or player, sync_owners); the values of the others stay as they are.
 void reset_row(App& app, const SliderDef& d) {
+    sync_owners(app);
     const TacticStatus st = tactic_status(d);
     g_tac.working.reset(d.key);
     if (!writes_game(d) || d.binding.targets.empty()) {
@@ -742,9 +844,10 @@ void reset_row(App& app, const SliderDef& d) {
     std::string why;
     const int n = restore_db(app, d, why);
     g_tac.applied.reset(d.key);
-    if (n > 0) app.notify(st.label + ": " + std::to_string(n) + " row(s) restored to the value before Turbo's first write" + (why.empty() ? "" : " (" + why + ")"));
-    else if (!why.empty()) app.notify(st.label + ": nothing restored, " + why, true);
-    else app.notify(st.label + ": nothing to restore, Turbo never wrote this row");
+    const std::string who = for_owner(app, d.binding.targets.front());
+    if (n > 0) app.notify(st.label + ": " + std::to_string(n) + " row(s) restored to the value before Turbo's first write" + who + (why.empty() ? "" : " (" + why + ")"));
+    else if (!why.empty()) app.notify(st.label + ": nothing restored" + who + ", " + why, true);
+    else app.notify(st.label + ": nothing to restore" + who + ", Turbo never wrote this row");
 }
 
 // ---------------------------------------------------------------------------------------------------------------- the pitch
@@ -1593,7 +1696,8 @@ void draw_right(App& app) {
     for (const EffWrite& e : writes) {
         const SliderDef* d = find_slider(e.w.key);
         const bool offset = !e.note.empty();
-        const std::string line = e.w.target + " = " + (d && !offset ? name_of(*d, e.w.value) : std::to_string(e.w.value)) + "  [" +
+        // a database row names whose row it is (the selected club or player, every referee)
+        const std::string line = e.w.target + " = " + (d && !offset ? name_of(*d, e.w.value) : std::to_string(e.w.value)) + for_owner(app, e.w.target) + "  [" +
                                  written_badge(e.w.status == SliderStatus::Live ? WriteKind::GameVar : WriteKind::DbRow) + "]" + (offset ? "  (" + e.note + ")" : "");
         g_state.receive.push_back(line);
         ImGui::TextUnformatted(line.c_str());
@@ -1660,7 +1764,10 @@ void draw_live_banner(App& app) {
             if (!app.match_setup->clear_all(why)) app.notify("Clear overrides: " + why, true);
             else {
                 g_tac.live_written = 0;
-                g_tac.applied = SliderSet();
+                // only the game variables are gone: a database row keeps its applied state, so switching it off + Apply still puts the
+                // value before Turbo's first write back
+                for (const SliderDef& d : slider_registry())
+                    if (d.status == SliderStatus::Live) g_tac.applied.reset(d.key);
                 app.notify("Game overrides cleared: the game decides again");
             }
         }
@@ -1669,6 +1776,7 @@ void draw_live_banner(App& app) {
 
 void draw_body(App& app) {
     g_state = TacticsTabState();
+    sync_owners(app);  // the club and player rows: the selected club's and player's values
     const std::string shown_error = g_tac.error;  // an error stays shown while it keeps happening, then goes
     g_tac.error.clear();
     g_state.scope = g_tac.scope;
