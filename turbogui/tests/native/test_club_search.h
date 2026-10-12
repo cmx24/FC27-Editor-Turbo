@@ -42,6 +42,29 @@ static void ui_cases_club_search(App& app, Ui& ui, SimMemory& mem, uint64_t kMb)
         CHECK(app.list_player_ids.size() == all, "Clear resets the gender filter with the others");
     });
 
+    run_case("UI: Players list: Loans filter on the search line (off without a playerloans table), reset by Clear", [&] {
+        if (app.busy()) ui.click("Cancel");
+        app.request_tab = 0;
+        ui.frames(3);
+        CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
+        CHECK(ui.click("Clear##filters", "##plist"), "Clear");
+        const size_t all = app.model.players().size();
+        CHECK(ui.find("##floan", "##plist") != nullptr, "Loans combo on the search line");
+        size_t on_loan = 0;
+        for (const auto& p : app.model.players()) on_loan += p.on_loan;
+        if (!app.model.loans_known()) {
+            CHECK(on_loan == 0, "no playerloans table: no row is on loan");
+            ui.click("##floan", "##plist");  // disabled: no popup opens
+            ui.frames(2);
+            CHECK(!ui.find("Loaned in", "##Combo") && app.list_player_ids.size() == all, "disabled: the list keeps every player");
+        } else {
+            CHECK(ui.click("##floan", "##plist") && ui.click("On loan", "##Combo"), "On loan");
+            CHECK(app.list_player_ids.size() == on_loan, "On loan: the playerloans rows");
+            CHECK(ui.click("Clear##filters", "##plist"), "Clear");
+            CHECK(app.list_player_ids.size() == all, "Clear resets the Loans filter");
+        }
+    });
+
     run_case("UI: Transfer / Loan... destination by club name or ID: dropdown and click, Enter, Up / Down, leaving the box, Esc", [&] {
         if (app.busy()) ui.click("Cancel");
         app.request_tab = 0;
