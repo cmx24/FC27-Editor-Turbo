@@ -121,6 +121,8 @@ static void run_case(const char* name, const std::function<void()>& fn) {
         ++g_fail;
         std::printf("  FAIL [%s] exception: %s\n", name, e.what());
     }
+    // code between cases (group setup, runners of their own) must not be blamed on a case that already printed PASS
+    g_case = std::string("(after) ") + name;
     std::printf("  %s %s\n", g_fail == before ? "PASS" : "FAIL", name);
 }
 
@@ -233,6 +235,10 @@ static json read_json(const fs::path& p) { return json::parse(read_file(p)); }
 
 static fs::path g_out;
 static std::string g_lua;
+
+// A scratch folder for one case, inside this run's output folder: never the shared %TEMP%, where two runs at once (two
+// worktrees, or one worktree with two output folders) would clear and fill each other's files
+static fs::path test_tmp_dir(const char* name) { return g_out / "tmp" / name; }
 
 static int run_lua(const char* mode) {
     const char* lua_env = std::getenv("TURBO_LUA");
@@ -8393,7 +8399,7 @@ static void test_images() {
             std::vector<uint8_t> head_only(game.begin(), game.begin() + 128);
             CHECK(parse_dds_format(head_only, bf, &err) && bf.mips == 4, "header only: count kept");
             // the startup scan repairs such files under mods\legacy and backs up the original
-            fs::path le_root = fs::temp_directory_path() / "turbo_dds_repair_test";
+            fs::path le_root = test_tmp_dir("turbo_dds_repair_test");
             fs::remove_all(le_root);
             LegacyImages lg(le_root);
             fs::path crest_file = lg.mods_dir() / "data" / "ui" / "imgAssets" / "crest" / "light" / "l48.dds";
@@ -13080,7 +13086,13 @@ static void test_match_setup() {
 // Turbo 2.1 Phase 0: badges, legacy hiding, kill switches per channel, only-on-change, presets, snapshots (core/tactics_status.h)
 #include "test_tactics_phase0.h"
 
+void install_crash_report(const std::string* current_case);  // test_crash_report.cpp
+
 int main(int argc, char** argv) {
+    // Unbuffered: on Windows stdout into a pipe or a file is fully buffered, so a crash or a killed run lost every line still
+    // in the buffer (a run that "exited with no output"). The crash report names the case that was running.
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    install_crash_report(&g_case);
     if (argc < 3) {
         std::printf("usage: %s <out_dir> <gui_world.lua>\n", argv[0]);
         return 2;
@@ -13153,10 +13165,12 @@ int main(int argc, char** argv) {
     std::printf("native game editors unlock\n");
     test_edit_unlock();
     std::printf("native game editors hook\n");
+    g_case = "test_edit_unlock_hook";  // its own runner: no run_case, so name it for a CRASH line
     test_edit_unlock_hook(g_pass, g_fail);
     std::printf("native live team names\n");
     test_team_names_live();
     std::printf("native UI\n");
+    g_case = "UI setup";
     try {
         test_ui();
     } catch (const std::exception& e) {

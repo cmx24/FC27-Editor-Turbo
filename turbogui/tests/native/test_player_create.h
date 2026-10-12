@@ -571,7 +571,7 @@ static void test_player_create() {
     });
 
     run_case("player_create: the opt-in and kill switch files (core part: names and presence)", [&] {
-        const fs::path dir = fs::temp_directory_path() / "turbo_player_create_switch_test";
+        const fs::path dir = test_tmp_dir("turbo_player_create_switch_test");
         std::error_code ec;
         fs::remove_all(dir, ec);
         fs::create_directories(dir, ec);
@@ -588,7 +588,7 @@ static void test_player_create() {
     });
 
     run_case("player_create: the payload file and the database columns are read from turbo_output (load_payload)", [&] {
-        const fs::path dir = fs::temp_directory_path() / "turbo_player_create_payload_test";
+        const fs::path dir = test_tmp_dir("turbo_player_create_payload_test");
         std::error_code ec;
         fs::remove_all(dir, ec);
         fs::create_directories(dir, ec);

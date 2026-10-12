@@ -28,12 +28,27 @@ local function sh(cmd)
     assert(ok, "command failed: " .. cmd)
 end
 
+-- A new, empty folder for one Live Editor: under TURBO_TEST_TMP when it is set (run_tests.sh and run_native.sh give each
+-- run its own, removed or replaced by the next run), else next to an os.tmpname() file in the system temp folder
+local function new_le_dir()
+    local base = os.getenv("TURBO_TEST_TMP")
+    if base and base ~= "" then
+        base = base:gsub("\\", "/")
+        local p = io.popen(string.format("mkdir -p '%s' && mktemp -d '%s/le_XXXXXX'", base, base))
+        local le = p and p:read("l")
+        if p then p:close() end
+        assert(le and le ~= "", "could not make a Live Editor folder under TURBO_TEST_TMP=" .. base)
+        return le
+    end
+    local tmp = os.tmpname()
+    os.remove(tmp)
+    return tmp .. "_LE"
+end
+
 -- Create <tmp>/LE with lua/libs from FC 27 LE + Turbo files merged on top
 function H.make_le_dir(opts)
     opts = opts or {}
-    local tmp = os.tmpname()
-    os.remove(tmp)
-    local le = tmp .. "_LE"
+    local le = new_le_dir()
     sh(string.format("mkdir -p '%s/lua' && cp -r '%s/le27/libs' '%s/lua/' && cp -r '%s/package/.' '%s/'", le, H.ROOT, le, H.ROOT, le))
     if opts.no_config then os.remove(le .. "/turbo_config.json") end
     return le
