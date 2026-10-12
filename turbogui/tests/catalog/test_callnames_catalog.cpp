@@ -5,6 +5,7 @@
 // Run: bash turbogui/tests/catalog/run_callnames.sh
 #include <cstdio>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -160,14 +161,18 @@ int main(int argc, char** argv) {
         CHECK(!callname_row_shown(off, Scope::All, *p2) && callname_row_shown(off, Scope::All, *p1), "asset_hidden_off.txt: hidden rows never listed");
 
         // the voice-source gate
-        CHECK(voice_source_gate(b, *p2).ok, "hidden source with a recording, current catalog: allowed");
+        CHECK(voice_source_gate(b, *p4).ok, "hidden source with a SIMPLE recording, current catalog: allowed");
+        const VoiceGate r2 = voice_source_gate(b, *p2);
+        CHECK(!r2.ok && r2.why.find("only a high-intensity recording") != std::string::npos,
+              "a HIGH-only player is not a voice source (the kick-off check asks SIMPLE / LINK): " + r2.why);
+        CHECK(b.high_only(90002) && !b.has_spoken_own(90002) && b.has_spoken_own(90004) && b.has_own(90002), "bank bits");
         CHECK(voice_source_gate(b, *g1).ok, "generic with a recording: allowed");
         const VoiceGate r5 = voice_source_gate(b, *p5);
         CHECK(!r5.ok && r5.why.find("no recording of this player in the ita_it commentary files") != std::string::npos,
               "a master-only id without a recording is refused as a voice source: " + r5.why);
         CHECK(!voice_source_gate(b, *g3).ok, "a master-only generic id is refused as a kick-off callname");
         const CatalogBank stale = fx.bank("ita_it", "", /*current*/ false);
-        CHECK(!voice_source_gate(stale, *p2).ok && voice_source_gate(stale, *p1).ok, "stale catalog: hidden sources refused, the save's kept");
+        CHECK(!voice_source_gate(stale, *p4).ok && voice_source_gate(stale, *p1).ok, "stale catalog: hidden sources refused, the save's kept");
         CHECK(voice_source_gate(CatalogBank{}, *p5).ok, "no catalog: the 2.0 rules (no gate)");
 
         // the count line
@@ -214,7 +219,10 @@ int main(int argc, char** argv) {
         cn.use_bank(fx.bank("ita_it", ""));
         CHECK(cn.spoken.from == SpokenSet::From::Catalog && cn.spoken.verified && cn.spoken.players_from == SpokenSet::From::Catalog,
               "current: the bank is the spoken set");
-        CHECK(cn.own_recording(90002) == kOwnFromGame && cn.own_recording(90005) == 0, "the bank beats the master list");
+        CHECK(cn.own_recording(90004) == kOwnFromGame && cn.own_recording(90005) == 0, "the bank beats the master list");
+        CHECK(cn.own_recording(90002) == 0 && !cn.spoken.real(90002) && cn.spoken.players.size() == 2 &&
+                  cn.spoken.source.find("1 more with only a high-intensity recording") != std::string::npos,
+              "a HIGH-only id is not his own recording (SIMPLE|LINK rule): " + cn.spoken.source);
         CHECK(cn.own_source(kOwnFromGame) == "the game's commentary files", "source name: " + cn.own_source(kOwnFromGame));
         CHECK(cn.spoken_answer(990001) == SpokenAnswer::Spoken && cn.spoken_answer(990003) == SpokenAnswer::Silent &&
                   cn.spoken_answer(900017) == SpokenAnswer::Silent,
@@ -239,6 +247,53 @@ int main(int argc, char** argv) {
             CHECK(b.player_names.size() == ref.player_names.size(), "names through Catalog::name");
             const CatalogBank gm = catalog_bank(cat, "eng_us", "gm");
             CHECK(gm.own_other_team.size() == 2, "teams through the Catalog");
+        } else {
+            std::printf("  note: the catalog loader is not in this build yet (%s): Catalog-backed bank checks skipped\n", err.c_str());
+        }
+    }
+
+    // ---- the commentary team: setting, else the live capture, else dr; a single-team pack has none
+    {
+        json j = fx.j;
+        j["families"]["callnames"]["eng_us"]["teams"]["gm"]["simple"] = json::array({90001, 90006});  // 90006: gm only
+        const std::string tmp = "build/catalog/callnames_team_fixture.json";
+        {
+            std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
+            o << j.dump();
+        }
+        auto cat = std::make_shared<assets::Catalog>();
+        std::string err;
+        if (cat->load_file(tmp, "0000AAAA-0000BBBB", &err)) {
+            Callnames cn;
+            cn.lang = "eng_us";
+            cn.catalog = cat;
+            std::string why;
+            CHECK(cn.resolve_bank_team(&why) == "dr" && why.find("default: dr") != std::string::npos, "no capture: dr (" + why + ")");
+            cn.capture_players = {90001};  // both teams record him: tells nothing
+            CHECK(cn.resolve_bank_team(&why) == "dr" && why.find("does not tell") != std::string::npos, "ambiguous capture: dr (" + why + ")");
+            cn.capture_players = {90001, 90006};
+            CHECK(cn.resolve_bank_team(&why) == "gm" && why.find("live capture") != std::string::npos, "capture of gm-only players: gm (" + why + ")");
+            cn.capture_players = {90002, 90003, 90006};
+            CHECK(cn.resolve_bank_team() == "dr", "more dr-only players: dr");
+            cn.bank_team_setting = "*";
+            CHECK(cn.resolve_bank_team(&why).empty() && why.find("any team") != std::string::npos, "Every team: union");
+            cn.bank_team_setting = "gm";
+            CHECK(cn.resolve_bank_team() == "gm", "your choice");
+            cn.bank_team_setting = "zz";
+            CHECK(cn.resolve_bank_team() == "dr", "an unknown team setting = automatic");
+            cn.bank_team_setting.clear();
+            cn.capture_players.clear();
+            cn.apply_bank();
+            CHECK(cn.bank_team == "dr" && cn.bank.team == "dr" && cn.spoken.from == SpokenSet::From::Catalog && !cn.spoken.real(90006) &&
+                      cn.spoken.real(90003),
+                  "apply_bank: automatic = dr, gm-only players are not spoken");
+            cn.set_bank_team("gm");
+            CHECK(!cn.refreshed && cn.bank_team_setting == "gm", "a new setting asks for a refresh");
+            cn.apply_bank();
+            CHECK(cn.bank_team == "gm" && cn.spoken.real(90006) && !cn.spoken.real(90003), "gm: its own recordings only");
+            cn.lang = "ita_it";
+            cn.apply_bank();
+            CHECK(cn.bank_team.empty() && cn.bank.loaded() && !cn.bank.multi_team(), "a single-team pack has no team");
         } else {
             std::printf("  note: the catalog loader is not in this build yet (%s): Catalog-backed bank checks skipped\n", err.c_str());
         }

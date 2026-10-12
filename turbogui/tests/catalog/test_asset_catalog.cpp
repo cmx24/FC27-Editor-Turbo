@@ -58,7 +58,8 @@ static bool is_game_path(const json& v) {
     });
 }
 static bool known_source(const std::string& s) {
-    static const std::set<std::string> fixed = {"workbook", "extra_names", "slug", "kit_slug", "managers"};
+    static const std::set<std::string> fixed = {"workbook", "extra_names", "slug", "kit_slug", "managers", "kind", "loc_strings",
+                                                "le_team_names", "turbo_team_names"};
     return fixed.count(s) || (s.rfind("master:", 0) == 0 && s.size() > 7);
 }
 

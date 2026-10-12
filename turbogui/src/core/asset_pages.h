@@ -212,7 +212,8 @@ inline std::vector<AssetPictureSource> asset_miniface_sources(bool manager, bool
 inline std::vector<AssetPictureSource> asset_crest_sources(bool catalog_loaded) {
     if (!catalog_loaded) return {};
     return {{assets::Family::Crest, "Crests in the game files",
-             "Every club crest the game ships, also of clubs no longer in the database (named from the game files)"}};
+             "Every club crest the game ships, also of clubs no longer in the database. Names: the database, else the game's "
+             "team names or kit folders when the catalog has them, else \"Team #id\" (search by id)"}};
 }
 
 }  // namespace turbo

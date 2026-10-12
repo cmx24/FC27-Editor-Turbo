@@ -341,6 +341,50 @@ static void assign_player_callname(App& app, const PlayerRow& p, int64_t comment
     if (!r.notified) app.notify(msg, !r.ok());
 }
 
+// "dr (Derek Rae)", "gm (Guy Mowbray)", "every team"
+static std::string commentary_team_label(const std::string& team) {
+    if (team.empty()) return "every team";
+    if (team == "dr") return "dr (Derek Rae)";
+    if (team == "gm") return "gm (Guy Mowbray)";
+    return team;
+}
+
+// The commentary team of the catalog bank (eng_us: dr / gm): Automatic (the live capture, else dr), Every team, or one
+// team; remembered in gui_settings.json callnames.bank_team. It decides the spoken set and the voice-source gate of
+// every tab, not only All callnames.
+static void commentary_team_combo(App& app, float width) {
+    Callnames& cn = app.callnames;
+    const CatalogBank& bank = cn.bank;
+    ImGui::SetNextItemWidth(width);
+    const std::string cur = cn.bank_team_setting.empty() ? "Auto: " + commentary_team_label(cn.bank_team)
+                                                         : cn.bank_team_setting == "*" ? std::string("Every team")
+                                                                                       : commentary_team_label(cn.bank_team_setting);
+    auto choose = [&](const std::string& setting) {
+        cn.set_bank_team(setting);
+        if (!app.gui_settings.is_object()) app.gui_settings = nlohmann::json::object();
+        if (setting.empty()) {
+            if (app.gui_settings.contains("callnames") && app.gui_settings["callnames"].is_object()) app.gui_settings["callnames"].erase("bank_team");
+        } else {
+            app.gui_settings["callnames"]["bank_team"] = setting;
+        }
+        if (!app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);
+        refresh_all(app);
+    };
+    if (ImGui::BeginCombo("##cnteam", cur.c_str())) {
+        if (ImGui::Selectable("Automatic (live capture, else dr)", cn.bank_team_setting.empty())) choose("");
+        if (ImGui::Selectable("Every team", cn.bank_team_setting == "*")) choose("*");
+        for (const std::string& tm : bank.teams)
+            if (!tm.empty() && ImGui::Selectable(commentary_team_label(tm).c_str(), cn.bank_team_setting == tm)) choose(tm);
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The commentary team whose own recordings count (the game's commentary setting, which Turbo cannot read).\n"
+                          "It decides who has his own recording and which voice sources pass, in every tab.\n"
+                          "Automatic: the team the live capture of the game's bank matches, else dr (checked in game).\n"
+                          "Every team: a recording by either team counts.\nNow: %s - %s",
+                          commentary_team_label(cn.bank_team).c_str(), cn.bank_team_why.c_str());
+}
+
 static void language_line(App& app) {
     Callnames& cn = app.callnames;
     ImGui::AlignTextToFramePadding();
@@ -392,6 +436,15 @@ static void language_line(App& app) {
                                   "game about a few ids every few seconds and builds the whole set as soon as the game answers 'yes' (on the\n"
                                   "Create Player screen, main menu or career, or in a match); the result is cached for the next sessions.");
         }
+    }
+    // the asset catalog's commentary team (eng_us dr / gm): it decides the spoken set of every tab, so it is shown here
+    if (cn.bank.loaded() && cn.bank.multi_team()) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("Commentary team:");
+        ImGui::SameLine();
+        commentary_team_combo(app, S(230.0f));
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", cn.bank_team_why.c_str());
     }
     if (!cn.list_error.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", cn.list_error.c_str());
     if (!cn.cache_error.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", cn.cache_error.c_str());
@@ -974,17 +1027,7 @@ static void all_callnames_picker(App& app, const Table& t, const PlayerRow& p) {
         asset_scope_combo("##cnallscope", g_all_scope, S(130.0f));
         if (bank.multi_team()) {
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(S(130.0f));
-            const std::string cur = cn.bank_team.empty() ? std::string("Every team") : cn.bank_team;
-            if (ImGui::BeginCombo("##cnallteam", cur.c_str())) {
-                if (ImGui::Selectable("Every team", cn.bank_team.empty())) cn.set_bank_team("");
-                for (const std::string& tm : bank.teams)
-                    if (!tm.empty() && ImGui::Selectable(tm.c_str(), cn.bank_team == tm)) cn.set_bank_team(tm);
-                ImGui::EndCombo();
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("The commentary team whose own recordings count (the game's commentary setting; Turbo cannot\n"
-                                  "read it). Every team: a recording by either team counts.");
+            commentary_team_combo(app, S(170.0f));
         }
         // the reconciliation line: the bank against the master list against the database
         const std::string line = callname_count_line(counts, bank, cn.masters);
@@ -1047,10 +1090,16 @@ static void all_callnames_picker(App& app, const Table& t, const PlayerRow& p) {
                                                      "of it for this language (and team), so it cannot be used in matches");
             }
             ImGui::TableNextColumn();
-            if (r.own())
+            if (r.own() && from_bank && bank.high_only(r.playerid)) {
+                ImGui::TextDisabled("%s", r.hidden ? "high-intensity recording only, not in this save" : "high-intensity recording only");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Only the high-intensity set has him: the kick-off name check asks the simple and link sets, so the\n"
+                                      "game does not use him as 'his own recording' and he cannot be a voice source.");
+            } else if (r.own()) {
                 ImGui::TextDisabled("%s", r.hidden ? "own recording, not in this save" : "own recording");
-            else
+            } else {
                 ImGui::Text("%d name row%s, %d player%s", r.name_rows, r.name_rows == 1 ? "" : "s", r.users, r.users == 1 ? "" : "s");
+            }
         }
         ImGui::EndTable();
     }

@@ -60,6 +60,29 @@ static void test_asset_app_ui(App& app, Ui& ui, const fs::path& le) {
         ui.frames(2);
         CHECK(asset_view().use && asset_view().use != use_before, "new DbUse after a model rebuild");
 
+        // the catalog is rebuilt under the SAME build key after a content change (folder poll / Reload catalog): every
+        // picker gets the new copy, not only lua_gate.txt and the browsers
+        {
+            std::ifstream in("tests/fixtures/asset_catalog_v1_small.json", std::ios::binary);
+            nlohmann::json j = nlohmann::json::parse(in, nullptr, false);
+            CHECK(!j.is_discarded(), "fixture parsed");
+            j["built_at"] = "2026-10-12T09:00:00-04:00";
+            j["families"]["hair"]["model"] = nlohmann::json::array({1, 2, 3});                     // hair 4 dropped
+            j["families"]["head3d"]["ids"] = nlohmann::json::array({90001, 90002, 90003, 90100});  // head 90004 dropped
+            std::ofstream out_f(dir / ("catalog_" + key + ".json"), std::ios::binary | std::ios::trunc);
+            out_f << j.dump();
+        }
+        load("test: rebuilt with the same key");
+        const auto cat2 = app.asset_catalog();
+        CHECK(cat2 != cat && cat2->current() && cat2->status().build_key == key, "the rebuilt catalog is loaded: " + app.asset_load_note);
+        CHECK(app.callnames.catalog == cat2 && asset_view().catalog == cat2, "callnames and the browsers read the rebuilt catalog");
+        const std::vector<int64_t> hair2 = gallery_codes(app, "hairtypecode");
+        CHECK(std::find(hair2.begin(), hair2.end(), 3) != hair2.end() && std::find(hair2.begin(), hair2.end(), 4) == hair2.end(),
+              "hair gallery and gate: 4 is gone after the rebuild");
+        size_t hidden_heads2 = 0;
+        for (const auto& f : game_faces(app)) hidden_heads2 += f.game_head ? 1 : 0;
+        CHECK(hidden_heads2 == 3, fmt("real-face chooser: the dropped head is gone (%zu)", hidden_heads2));
+
         // the catalog goes away: every picker is back on its 2.0 source
         fs::remove(dir / ("catalog_" + key + ".json"), ec);
         load("test: catalog removed");

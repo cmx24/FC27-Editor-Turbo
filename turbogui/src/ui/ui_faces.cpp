@@ -399,6 +399,7 @@ struct Chooser {
     RealFaceOptions opts;
     AssetScope scope = AssetScope::All;  // All / In this save / Hidden (game heads); this session only
     int64_t pending_game_head = 0;       // a game head clicked: the confirmation row asks before writing
+    float confirm_h = 0.0f;              // height of that confirmation block last frame (the grid leaves room for it)
 };
 static Chooser g_player_ch, g_manager_ch;
 
@@ -975,7 +976,13 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
     head3d_bar(app, rows);  // the renders themselves: tick_faces3d, every frame from App::draw
     const float cell = S(96.0f);
     const Face* picked = nullptr;
-    ImGui::BeginChild("##facegrid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 2.2f), ImGuiChildFlags_Borders);
+    // below the grid: the "pictures loading" line and Close, plus the game-head confirmation (Apply / Cancel and its
+    // warnings) while one is pending, so Apply is never below the fold of the fixed-size modal. Its height is measured
+    // each frame (game_head_confirm); the first frame estimates it.
+    float below = ImGui::GetFrameHeightWithSpacing() * 2.2f;
+    if (ch.pending_game_head > 0)
+        below += ch.confirm_h > 0.0f ? ch.confirm_h : ImGui::GetTextLineHeightWithSpacing() * 7.0f + ImGui::GetFrameHeightWithSpacing();
+    ImGui::BeginChild("##facegrid", ImVec2(0, -below), ImGuiChildFlags_Borders);
     const int cols = std::max(1, int((ImGui::GetContentRegionAvail().x + ImGui::GetStyle().ItemSpacing.x) / (cell + ImGui::GetStyle().ItemSpacing.x)));
     const int nrows = int((rows.size() + size_t(cols) - 1) / size_t(cols));
     ImGuiListClipper clip;
@@ -1062,13 +1069,19 @@ static bool game_head_confirm(App& app, Chooser& ch, int64_t target_id, bool tar
     }
     std::string why;
     const bool ok = game_heads::may_give(g_heads_cat, h->id, &why);
+    const float y0 = ImGui::GetCursorPosY();
     ImGui::Separator();
     ImGui::Text("Give the game head %s?", game_heads::display_name(*h).c_str());
     ImGui::SameLine();
     asset_badge(AssetBadge::Hidden);
-    ImGui::TextDisabled("Writes headassetid %lld, headclasscode 0, hashighqualityhead 1, headvariation %d (headtypecode kept); logged in asset_writes.log.",
-                        static_cast<long long>(h->id), h->vars.empty() ? 0 : h->vars.front());
-    ImGui::TextDisabled("%s Not yet checked in a match: try it on a copy of your save first.", game_heads::gender_note());
+    // wrapped: the modal is 880 wide and these lines are longer
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("Writes headassetid %lld, headclasscode 0, hashighqualityhead 1, headvariation %d (headtypecode kept); logged in asset_writes.log.",
+                       static_cast<long long>(h->id), h->vars.empty() ? 0 : h->vars.front());
+    ImGui::PopStyleColor();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.75f, 0.35f, 1.0f));
+    ImGui::TextWrapped("%s Not yet checked in a match: try it on a copy of your save first.", game_heads::gender_note());
+    ImGui::PopStyleColor();
     bool given = false;
     ImGui::BeginDisabled(!ok);
     if (ImGui::Button("Apply##gamehead")) {
@@ -1081,9 +1094,11 @@ static bool game_head_confirm(App& app, Chooser& ch, int64_t target_id, bool tar
     ImGui::SameLine();
     if (ImGui::Button("Cancel##gamehead")) ch.pending_game_head = 0;
     if (!ok) {
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.95f, 0.45f, 0.35f, 1.0f), "%s", why.c_str());
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.45f, 0.35f, 1.0f));
+        ImGui::TextWrapped("%s", why.c_str());
+        ImGui::PopStyleColor();
     }
+    ch.confirm_h = ImGui::GetCursorPosY() - y0;  // the grid of the next frame leaves this much room
     return given;
 }
 

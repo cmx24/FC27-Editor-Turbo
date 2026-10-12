@@ -1011,9 +1011,11 @@ void tattoo_editor(App& app, const Table& t, uint64_t rec) {
 // an item the game has no picture for says so at once instead of waiting for the game.
 // With the game asset catalog (set_gear_catalog, docs/asset-catalog.md) hair, facial hair, boots, GK gloves and tattoos
 // list what the game ships instead (core/gear_ids.h): 3D models + manifest-confirmed previews with their exact paths,
-// "3D only" placeholders, preview-only ids greyed and refused, "Hidden" tags, the All / In this save / Hidden filter,
-// and hidden ids written only while the catalog is current (each write logged in turbo_output\asset_writes.log).
-// Accessories and managers' outfits keep the list above.
+// "3D only" placeholders, preview-only ids greyed and refused, content_ts-only boots and tattoos outside the save's
+// tattoo table listed and refused (not checked in a match), "Hidden" tags, the All / In this save / Hidden filter, and
+// hidden ids written only while the catalog is current (each write logged in turbo_output\asset_writes.log).
+// Accessories 1-4: the players' codes only (referee, NPC and outfit items left out), named from the game folders, Hidden
+// tags and the filter, no new write gate. Managers' outfits keep the list above.
 struct GallerySource {
     const char* folder;  // under data/ui/imgAssets/ (nullptr = unused)
     const char* prefix;  // file name prefix before the id
@@ -1200,7 +1202,7 @@ static void gear_stale_banner(const gear::FamilyView& v) {
     if (!v.active || v.current) return;
     ImGui::TextColored(kWarn, "The game asset catalog was built for another game build (%s): items no player uses cannot be applied.",
                        v.build_key.c_str());
-    ImGui::TextDisabled("Rebuild it: %s", assets::rebuild_command().c_str());
+    ImGui::TextWrapped("Rebuild it: %s (%s)", assets::rebuild_command().c_str(), assets::rebuild_where().c_str());
 }
 
 static void log_hidden_write(App& app, const Table& t, uint64_t rec, const char* field, int64_t old_v, int64_t new_v,
@@ -1233,8 +1235,8 @@ static bool gear_cell(App& app, const gear::Item* it, const std::string& path, f
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
     const float line = ImGui::GetTextLineHeight();
     bool clicked = false;
-    if (it->model && it->preview.empty()) {
-        placeholder(cell, "3D only");
+    if ((it->model || it->model_ts) && it->preview.empty()) {
+        placeholder(cell, it->model ? "3D only" : "3D, content_ts");
         ImGui::SetCursorScreenPos(p0);
         clicked = ImGui::InvisibleButton(bid, ImVec2(cell, cell + line));
         ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -1246,7 +1248,9 @@ static bool gear_cell(App& app, const gear::Item* it, const std::string& path, f
         clicked = picture_cell(app, path, true, cell, caption, bid, selected, false);
     }
     if (!it->writable) ImGui::GetWindowDrawList()->AddRectFilled(p0, ImVec2(p0.x + cell, p0.y + cell), IM_COL32(20, 20, 24, 150));
-    if (!it->model && !it->preview.empty() && !it->in_save && !it->known)
+    if (it->model_ts && !it->in_save)
+        tile_tag(p0, "Not checked", IM_COL32(70, 66, 50, 255), IM_COL32(200, 190, 150, 255));
+    else if (!it->model && !it->preview.empty() && !it->in_save && !it->known && !it->writable)
         tile_tag(p0, "Preview only", IM_COL32(70, 66, 50, 255), IM_COL32(200, 190, 150, 255));
     else if (it->hidden)
         tile_tag(p0, not_in_table ? "Hidden, no table row" : "Hidden", IM_COL32(52, 78, 120, 255), IM_COL32(220, 232, 255, 255));
@@ -1255,7 +1259,10 @@ static bool gear_cell(App& app, const gear::Item* it, const std::string& path, f
 
 static void gear_tooltip(const gear::Item* it, const std::string& head, bool not_in_table) {
     std::string tip = head;
+    if (!it->name.empty()) tip += "\nIn the game files: " + it->name;
     if (it->model && it->preview.empty()) tip += std::string("\n") + asset_badge_tooltip(AssetBadge::ModelOnly);
+    if (it->model_ts)
+        tip += "\n3D model only under content_ts (the gate's boots are under content/): not checked in a match yet";
     if (it->hidden) tip += std::string("\n") + asset_badge_tooltip(AssetBadge::Hidden);
     if (not_in_table) tip += std::string("\n") + asset_badge_tooltip(AssetBadge::NotInTable);
     if (!it->writable) tip += "\nCannot be applied: " + it->why;
@@ -1289,7 +1296,17 @@ static std::vector<int64_t> gallery_ids(App& app, const GalleryDef& g) {
 
 // The picture of item id; "" when the game has none. Without the list: the usual file name (asked from the game).
 static std::string item_path(App& app, const GalleryDef& g, int64_t id, int64_t colour) {
-    if (const gear::FamilyView& v = gear_view(gear::family_of_field(g.field)); v.active) return v.preview(id);  // "" = 3D only / not in the game
+    if (const gear::FamilyView& v = gear_view(gear::family_of_field(g.field)); v.active) {
+        // accessories have a picture per colour: the list's colour-aware name when it has the id, else the catalog's
+        if (g.colour_field && !v.preview(id).empty()) {
+            const GearPictureIndex& gx = gear_pictures(app);
+            if (!gx.empty()) {
+                std::string p = gx.find(g.src[0].folder, g.src[0].prefix, id, colour);
+                if (!p.empty()) return p;
+            }
+        }
+        return v.preview(id);  // "" = 3D only / not in the game
+    }
     const GearPictureIndex& gx = gear_pictures(app);
     if (gx.empty())
         return std::string("data/ui/imgAssets/") + g.src[0].folder + "/" + g.src[0].prefix + std::to_string(id) + g.src[0].rest + ".dds";

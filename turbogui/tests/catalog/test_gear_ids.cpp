@@ -37,6 +37,7 @@ static FamilyView view_of(const nlohmann::json& cat, const char* family, bool cu
     v.hidden_off = hidden_off;
     v.build_key = cat["build_key"].get<std::string>();
     v.active = !v.models.empty() || !v.previews.empty();
+    v.needs_known = std::string(family) == "tattoo";  // as gear::from_catalog
     return v;
 }
 
@@ -72,9 +73,12 @@ int main(int argc, char** argv) {
     CHECK(gear::family_of_field("tattooleftarm") == assets::Family::Tattoo &&
               gear::family_of_field("tattoohead") == assets::Family::Tattoo,
           "tattoo fields (arm sleeves = the arm tattoo fields)");
-    CHECK(gear::family_of_field("tattooid") == assets::Family::Count && gear::family_of_field("accessorycode1") == assets::Family::Count &&
-              gear::family_of_field("outfitid") == assets::Family::Count && gear::family_of_field("sockstylecode") == assets::Family::Count,
-          "accessories, outfits, socks and the tattoo table id keep their 2.0 source");
+    CHECK(gear::family_of_field("tattooid") == assets::Family::Count && gear::family_of_field("outfitid") == assets::Family::Count &&
+              gear::family_of_field("sockstylecode") == assets::Family::Count,
+          "outfits, socks and the tattoo table id keep their 2.0 source");
+    CHECK(gear::family_of_field("accessorycode1") == assets::Family::Accessory &&
+              gear::family_of_field("accessorycode4") == assets::Family::Accessory,
+          "accessories 1-4 read the catalog's accessory family");
 
     // no catalog = 2.0 behaviour: inactive view, the gate never refuses
     {
@@ -161,12 +165,86 @@ int main(int argc, char** argv) {
         CHECK(ids_of(items) == (std::vector<int64_t>{30, 31, 40}), "tattoos: catalog + table ids");
         const gear::Item* t31 = find(items, 31);
         const gear::Item* t40 = find(items, 40);
-        CHECK(t31 && t31->hidden && !t31->known && t31->writable && t31->preview.empty(), "model-only tattoo not in the table: hidden, writable");
+        CHECK(t31 && t31->hidden && !t31->known && !t31->writable && t31->preview.empty() &&
+                  t31->why.find("tattoo table") != std::string::npos,
+              "model-only tattoo not in the table: hidden, listed, refused until a tattoo is checked in a match");
         CHECK(t40 && t40->known && !t40->hidden && t40->writable, "table tattoo the catalog does not list: kept (the DB knows it)");
         const FamilyView stale = view_of(cat, "tattoo", false, true);
         const auto off = gear::items(stale, {}, &table, {40});
         CHECK(ids_of(off) == (std::vector<int64_t>{30, 40}) && find(off, 30)->writable && find(off, 40)->writable,
               "tattoos, stale + hidden off: table tattoos stay listed and writable");
+    }
+
+    // ---- review fixes, through the real loader (assets::Catalog + gear::from_catalog) on a derived fixture:
+    // content_ts-only boots, tattoos outside the table, accessories (player set, names, no gate), crest templates
+    {
+        nlohmann::json j = cat;
+        j["families"]["boots"]["model_ts_only"] = nlohmann::json::array({12, 14, 15});  // 12 is also under content/
+        j["families"]["boots"]["preview"]["14"] = "data/ui/imgAssets/shoe/shoe_14_0.dds";
+        j["families"]["accessory"] = {
+            {"model", nlohmann::json::array({2, 6, 16, 1001})},
+            {"preview", {{"16", "data/ui/imgAssets/accessories/item_16_0.dds"}, {"40", "data/ui/imgAssets/accessories/item_40_0.dds"}}},
+            {"desc", {{"2", "ref_earpiece"}, {"6", "wrist_athletic_tape"}, {"16", "player_glove"}, {"1001", "npc_rapper_glasses"}}}};
+        j["families"]["crest"]["ids"].push_back(99010101);
+        j["families"]["crest"]["paths"]["99010101"] = "data/ui/imgAssets/crest/custom/l99010101.dds";
+        const std::string tmp = "build/catalog/gear_review_fixture.json";
+        {
+            std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
+            o << j.dump();
+        }
+        assets::Catalog c;
+        std::string err;
+        CHECK(c.load_file(tmp, j["build_key"].get<std::string>(), &err) && c.current(), "derived fixture loads: " + err);
+        using assets::Family;
+        // boots: 14 (content_ts + preview) and 15 (content_ts, no preview) listed with their own reason
+        const FamilyView b = gear::from_catalog(&c, Family::Boots);
+        CHECK(b.models_ts == (std::vector<int64_t>{14, 15}) && b.has_model(12) && !b.has_model(14), "boots: content_ts-only set");
+        const auto bi = gear::items(b, {});
+        CHECK(ids_of(bi) == (std::vector<int64_t>{10, 11, 12, 13, 14, 15}), "boots: content_ts-only ids listed, with or without a preview");
+        const gear::Item* b14 = find(bi, 14);
+        const gear::Item* b15 = find(bi, 15);
+        CHECK(b14 && b14->model_ts && !b14->model && b14->hidden && !b14->writable && b14->why.find("content_ts") != std::string::npos,
+              "content_ts boot with a preview: refused for its own reason, not 'preview only'");
+        CHECK(b15 && b15->model_ts && b15->preview.empty() && b15->hidden && !b15->writable, "content_ts boot without a preview: listed, refused");
+        CHECK(gear::code_note(b, {}, 14) == "content_ts model, not checked" && gear::code_note(b, {}, 13) == "preview only", "boots notes");
+        CHECK(gear::writable(b, {15}, 15) && gear::combo_codes(b, {}) == (std::vector<int64_t>{0, 10, 11, 12}),
+              "a content_ts boot the save uses stays writable; the combo offers none");
+        std::string why;
+        CHECK(!c.writable(Family::Boots, 14, &why) && why.find("content_ts") != std::string::npos && c.has(Family::Boots, 15) &&
+                  c.model_ts_only(Family::Boots, 15) && !c.has_model(Family::Boots, 15),
+              "Catalog: content_ts proof bit and gate reason: " + why);
+        // tattoos: the table decides
+        const FamilyView t = gear::from_catalog(&c, Family::Tattoo);
+        const IdSet table{30};
+        const auto ti = gear::items(t, {}, &table, {30});
+        const gear::Item* t30 = find(ti, 30);
+        const gear::Item* t31 = find(ti, 31);
+        CHECK(t.needs_known && t31 && t31->hidden && !t31->writable && t30 && t30->writable, "tattoos: outside the table refused");
+        CHECK(gear::combo_codes(t, {}, &table) == (std::vector<int64_t>{0, 30}) && gear::writable(t, {31}, 31),
+              "tattoo combo: table ids only; a tattoo the save uses stays writable");
+        // accessories: the player set, folder names, Hidden badge, no gate
+        const FamilyView a = gear::from_catalog(&c, Family::Accessory);
+        const IdSet aused{7};
+        const auto ai = gear::items(a, aused);
+        CHECK(ids_of(ai) == (std::vector<int64_t>{6, 7, 16}), "accessories: player codes only (referee 2, outfit 40, NPC 1001 left out)");
+        const gear::Item* a6 = find(ai, 6);
+        const gear::Item* a7 = find(ai, 7);
+        const gear::Item* a16 = find(ai, 16);
+        CHECK(a6 && a6->name == "Wrist athletic tape" && a16 && a16->name == "Player glove" && a7 &&
+                  a7->name.find("Wrist athletic tape (odd code") == 0,
+              "accessory names from the game folders: " + (a7 ? a7->name : std::string()));
+        CHECK(a6->hidden && a6->writable && !a7->hidden && a7->writable && a16->hidden, "Hidden badge, no write gate");
+        CHECK(!gear::writable(a, {}, 2) && !gear::writable(a, {}, 1001) && gear::writable(a, {2}, 2) && gear::code_note(a, {}, 1001) == "not for players",
+              "referee / NPC items refused unless the save uses them");
+        CHECK(gear::preload_paths(a, {}) == (std::vector<std::string>{"data/ui/imgAssets/accessories/item_16_0.dds"}),
+              "accessories: only player pictures preloaded");
+        assets::Catalog stale;
+        CHECK(stale.load_file(tmp, "FFFF0000-FFFF0000", &err) && !stale.current(), "stale load");
+        CHECK(gear::writable(gear::from_catalog(&stale, Family::Accessory), {}, 6), "accessories: no gate, stale catalog too");
+        // crests: create-a-club templates (crest/custom only) are not club crests
+        CHECK(!c.has(Family::Crest, 99010101) && c.ids(Family::Crest) == (std::vector<int64_t>{9001, 9002}) &&
+                  c.preview_path(Family::Crest, 99010101).empty(),
+              "crest: custom-only templates dropped by the loader");
     }
 
     // a 50k-id family is listed fast (the galleries rebuild their rows per frame while open)

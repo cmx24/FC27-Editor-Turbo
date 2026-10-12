@@ -5,6 +5,7 @@
 #include "asset_catalog.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -80,6 +81,10 @@ std::string name_source_label(const std::string& source) {
     if (source == "slug") return "name from: game file name";
     if (source == "kit_slug") return "name from: kit folder name";
     if (source == "managers") return "name from: managers list";
+    if (source == "loc_strings") return "name from: the game's team names (language strings)";
+    if (source == "le_team_names") return "name from: Live Editor's custom team names";
+    if (source == "turbo_team_names") return "name from: a team renamed in Turbo";
+    if (source == "kind") return "not a club: kit / crest kind from its folder name";
     return "name from: " + source;
 }
 
@@ -135,8 +140,10 @@ fs::path hidden_off_path(const fs::path& turbo_output) { return turbo_output / "
 fs::path lua_gate_path(const fs::path& turbo_output) { return catalog_dir(turbo_output) / "lua_gate.txt"; }
 fs::path write_log_path(const fs::path& turbo_output) { return turbo_output / "asset_writes.log"; }
 
-std::string rebuild_command() {
-    return "re_venv\\Scripts\\python.exe -I turbo\\tools\\asset_catalog\\build_asset_catalog.py";
+std::string rebuild_command() { return "py -3 -I turbo\\tools\\asset_catalog\\build_asset_catalog.py"; }
+std::string rebuild_where() {
+    return "run it in a Turbo source checkout (Python 3; it also builds missing or outdated commentary banks); release "
+           "builds cannot build a catalog yet (a builder inside Turbo is planned)";
 }
 
 
@@ -315,6 +322,8 @@ struct Catalog::Impl {
     Status status;
     std::array<std::vector<int64_t>, kFamilyCount> ids;     // every id with any proof, sorted
     std::array<std::vector<int64_t>, kFamilyCount> models;  // gear "model" lists (sorted)
+    std::array<std::vector<int64_t>, kFamilyCount> models_ts;  // boots "model_ts_only" (sorted, no id of `models`)
+    std::array<std::unordered_map<int64_t, std::string>, kFamilyCount> descs;  // accessory "desc"
     std::array<std::unordered_map<int64_t, std::string>, kFamilyCount> paths;  // gear "preview", crest "paths"
     std::unordered_map<int64_t, std::vector<int>> head_vars;
     std::unordered_map<int64_t, std::string> head_toc;
@@ -327,6 +336,8 @@ struct Catalog::Impl {
     void clear_data() {
         for (auto& v : ids) v.clear();
         for (auto& v : models) v.clear();
+        for (auto& v : models_ts) v.clear();
+        for (auto& m : descs) m.clear();
         for (auto& m : paths) m.clear();
         head_vars.clear();
         head_toc.clear();
@@ -376,6 +387,14 @@ void Catalog::Impl::parse(const json& j) {
             }
             sort_unique(prev);
             ids[fi] = merged(models[fi], prev);
+            // boots: ids with a 3D model only under content_ts (not the gate's content/ models): listed, not writable
+            std::vector<int64_t> ts = id_list(v, "model_ts_only", where, false);
+            ts.erase(std::remove_if(ts.begin(), ts.end(), [&](int64_t id) { return sorted_has(models[fi], id); }), ts.end());
+            models_ts[fi] = ts;
+            ids[fi] = merged(ids[fi], ts);
+            if (auto d = v.find("desc"); d != v.end() && d->is_object())
+                for (auto e = d->begin(); e != d->end(); ++e)
+                    if (e.value().is_string()) descs[fi][id_key(e.key(), where + ".desc")] = e.value().get<std::string>();
         } else if (f == Family::Kit) {
             if (auto t = v.find("teams"); t != v.end() && !t->is_null()) {
                 if (!t->is_object()) bad(where + ".teams: not an object");
@@ -423,6 +442,18 @@ void Catalog::Impl::parse(const json& j) {
                         paths[fi][id_key(e.key(), where + ".paths")] = e.value().get<std::string>();
                     }
                 }
+                // create-a-club crest templates (crest/custom/l99xxxxxx.dds only, no club, no kit, no name) are not club
+                // crests: a catalog built before the builder left them out still lists them, so they are dropped here
+                auto custom_only = [&](int64_t id) {
+                    auto it = paths[fi].find(id);
+                    if (it == paths[fi].end()) return false;
+                    std::string lp = it->second;
+                    for (char& c : lp) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    return lp.find("/custom/") != std::string::npos;
+                };
+                ids[fi].erase(std::remove_if(ids[fi].begin(), ids[fi].end(), custom_only), ids[fi].end());
+                for (auto it = paths[fi].begin(); it != paths[fi].end();)
+                    it = sorted_has(ids[fi], it->first) ? std::next(it) : paths[fi].erase(it);
             }
             if (f == Family::Head3d) {
                 if (auto vv = v.find("vars"); vv != v.end() && vv->is_object()) {
@@ -550,7 +581,8 @@ bool Catalog::load_dir(const fs::path& turbo_output, const std::string& running_
     }
     if (newest.empty()) {
         d_->status.state = State::NotLoaded;
-        d_->status.error = "no catalog in " + catalog_dir(turbo_output).u8string() + ": build one with " + rebuild_command();
+        d_->status.error = "no catalog in " + catalog_dir(turbo_output).u8string() + ": build one with " + rebuild_command() + " (" +
+                           rebuild_where() + "); without one every picker works as before";
         if (err) *err = d_->status.error;
         return false;
     }
@@ -571,7 +603,7 @@ std::string Catalog::status_line() const {
         case State::Error: return "error - " + s.error;
         case State::Stale:
             return "stale - built for " + s.build_key + ", running " + (s.running_key.empty() ? std::string("an unknown build") : s.running_key) +
-                   ": rebuild with " + rebuild_command();
+                   ": rebuild with " + rebuild_command() + " (" + rebuild_where() + ")";
         case State::Current: break;
     }
     std::string line = "current - build " + s.build_key;
@@ -595,6 +627,7 @@ uint8_t Catalog::proof(Family f, int64_t id) const {
     if (family_has_models(f)) {
         uint8_t p = kProofNone;
         if (sorted_has(d_->models[fi], id)) p |= kProofModel;
+        else if (sorted_has(d_->models_ts[fi], id)) p |= kProofModelTs;
         if (d_->paths[fi].count(id)) p |= kProofPreview;
         return p;
     }
@@ -610,6 +643,13 @@ uint8_t Catalog::proof(Family f, int64_t id) const {
 }
 bool Catalog::has(Family f, int64_t id) const { return proof(f, id) != kProofNone; }
 bool Catalog::has_model(Family f, int64_t id) const { return (proof(f, id) & kProofModel) != 0; }
+bool Catalog::model_ts_only(Family f, int64_t id) const { return (proof(f, id) & kProofModelTs) != 0; }
+std::string Catalog::desc(Family f, int64_t id) const {
+    const size_t fi = static_cast<size_t>(f);
+    if (fi >= kFamilyCount || !loaded()) return "";
+    auto it = d_->descs[fi].find(id);
+    return it == d_->descs[fi].end() ? std::string() : it->second;
+}
 
 std::vector<int64_t> Catalog::ids(Family f) const {
     const size_t fi = static_cast<size_t>(f);
@@ -721,6 +761,8 @@ bool Catalog::writable(Family f, int64_t id, std::string* why) const {
         case Family::Gkglove:
         case Family::Tattoo:
         case Family::Ball:
+            if (!(p & kProofModel) && (p & kProofModelTs))
+                return no(fallback_name(f, id) + ": its 3D model is only under content_ts, not checked in a match yet" + key);
             if (!(p & kProofModel)) return no(fallback_name(f, id) + ": the game has only a preview picture, no 3D model" + key);
             return true;
         default: return true;  // listed cranium presets, pictures in the manifests, kits, recordings

@@ -58,6 +58,7 @@ enum Proof : uint8_t {
     kProofModel = 1,      // 3D model / EBX (head3d, gear "model", cranium presets)
     kProofPreview = 2,    // legacy file listed in the game's ChunkFileCollector manifests
     kProofRecording = 4,  // commentary bank recording
+    kProofModelTs = 8,    // boots: a 3D model only under content_ts ("model_ts_only"): listed, never writable until checked in game
 };
 
 // Callname recording kinds in a bank (schema: callnames.<lang>.teams.<team>.<kind>)
@@ -69,7 +70,8 @@ enum class NameKind : uint8_t { Player, Team, Commentary };
 
 struct Name {
     std::string text;    // "" when the catalog has no name (fallback() gives "Head #id" etc.)
-    std::string source;  // "master:<lang>", "workbook", "extra_names", "slug", "kit_slug", "managers"; "" when unnamed
+    std::string source;  // "master:<lang>", "workbook", "extra_names", "slug", "kit_slug", "managers", "kind",
+                         // "loc_strings", "le_team_names", "turbo_team_names"; "" when unnamed
 };
 // "name from: ita_it master" / "name from: game file name" / ... for tooltips; "" for an empty source
 std::string name_source_label(const std::string& source);
@@ -100,8 +102,11 @@ std::filesystem::path catalog_off_path(const std::filesystem::path& turbo_output
 std::filesystem::path hidden_off_path(const std::filesystem::path& turbo_output);   // asset_hidden_off.txt
 std::filesystem::path lua_gate_path(const std::filesystem::path& turbo_output);     // asset_catalog\lua_gate.txt
 std::filesystem::path write_log_path(const std::filesystem::path& turbo_output);    // asset_writes.log
-// The one-line rebuild command shown in the stale banner and in Tools > Status
-std::string rebuild_command();
+// The rebuild command shown in the stale banner, the gates' refusals and Tools > Status. The builder lives in the Turbo
+// source repository: run it in a checkout with Python 3 (numpy makes the first run fast); it builds missing or outdated
+// commentary banks itself. Release builds ship no builder yet (WP-14), so release users cannot build a catalog.
+std::string rebuild_command();  // the bare command line, for the clipboard
+std::string rebuild_where();    // one sentence: where to run it, and that release builds cannot
 // Build key of an FC27.exe file on disk, read from its PE header ("6AC07E31-2145C000", the format of sigscan's
 // build_key); "" when the file cannot be read or is not a PE image. The GUI prefers the running game's key (host).
 std::string exe_build_key(const std::filesystem::path& exe);
@@ -172,6 +177,10 @@ public:
     uint8_t proof(Family f, int64_t id) const;  // Proof bits, kProofNone when the game does not ship the id
     bool has(Family f, int64_t id) const;       // proof != none
     bool has_model(Family f, int64_t id) const;
+    // Boots: a 3D model only under content_ts (no content/ model): listed with its own badge, refused by every gate
+    bool model_ts_only(Family f, int64_t id) const;
+    // Accessories: the game folder's description of the id ("wrist_athletic_tape"), "" when the catalog has none
+    std::string desc(Family f, int64_t id) const;
     std::vector<int64_t> ids(Family f) const;   // sorted; every id with any proof (Kit/Crest: team ids)
     // Exact preview path as listed in the manifests (letter case kept), "" when there is none
     std::string preview_path(Family f, int64_t id) const;
@@ -197,7 +206,8 @@ public:
 
     // ---- write gate (4.1). True when `id` may be written to a field of family `f`:
     //  - the catalog is Current (a stale or missing catalog refuses: `why` says so);
-    //  - head3d: the head has a model; gear (hair, facialhair, boots, gkglove, tattoo): a 3D model (preview-only refused);
+    //  - head3d: the head has a model; gear (hair, facialhair, boots, gkglove, tattoo): a 3D model (preview-only and
+    //    content_ts-only boots refused; tattoos the save's table lacks are refused by the galleries, core/gear_ids.h);
     //    eyebrow / skinsurface: listed; 0 = none is always writable for gear codes;
     //  - accessory: no gate yet (always true while loaded).
     bool writable(Family f, int64_t id, std::string* why = nullptr) const;

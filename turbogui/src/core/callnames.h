@@ -294,16 +294,26 @@ public:
     // spoken set (it beats the hand-made list and the captures; refresh() keeps it); a stale one only adds rows to All
     // callnames. No catalog = the 2.0 behaviour.
     void use_catalog(std::shared_ptr<const assets::Catalog> cat);
-    void set_bank_team(const std::string& team);  // "" = every team of the language
+    // The commentary team setting (gui_settings.json callnames.bank_team): "" = automatic, "*" = every team, else a team
+    // code ("dr", "gm"). Applied on the next refresh.
+    void set_bank_team(const std::string& setting);
     std::shared_ptr<const assets::Catalog> catalog;
-    std::string bank_team;  // the commentary team picked in All callnames ("" = every team)
+    std::string bank_team_setting;  // "" automatic, "*" every team, else a team code
+    std::string bank_team;          // the team in use (resolve_bank_team); "" = every team, or a single-team pack
+    std::string bank_team_why;      // one line for the UI: why this team
+    // Players with their own recording in the live capture of the language (the bank capture / the game's audio service
+    // cache): in automatic mode they pick the team, so the union of every team is not the spoken set
+    std::unordered_set<int64_t> capture_players;
+    // Which team of `lang` the bank uses: the setting when it names a team of the catalog ("*": every team), else the team
+    // whose SIMPLE / LINK recordings the live capture matches (most players recorded only by that team), else dr (Derek
+    // Rae, the team checked in game on 10-08), else the first one. "" for a single-team pack or no catalog.
+    std::string resolve_bank_team(std::string* why = nullptr) const;
     CatalogBank bank;
     // Makes `b` the bank and, when its catalog is current, the spoken set (refresh() calls it with the catalog's bank of
-    // lang / bank_team; tests give a bank directly)
+    // lang / bank_team; tests give a bank directly). Only SIMPLE / LINK recordings make a player spoken (kBankSpoken).
     void use_bank(CatalogBank b);
-
-private:
-    void apply_bank() { use_bank(catalog ? catalog_bank(*catalog, lang, bank_team) : CatalogBank{}); }
+    // resolve_bank_team(), then use_bank() with the catalog's bank of `lang` and that team (no catalog: no bank)
+    void apply_bank();
 };
 
 // Lua actions (set_display_name: "keep shown name") waiting for Turbo's mailbox, which holds one command at a time:

@@ -48,8 +48,10 @@ static void test_gear_pictures() {
         set_gear_catalog(none);
         CHECK(!gear::from_catalog(none.get(), assets::Family::Hair).active, "not loaded: inactive hair view");
         CHECK(gear::family_of_field("smallsidedshoetypecode") == assets::Family::Boots &&
-                  gear::family_of_field("accessorycode1") == assets::Family::Count,
-              "small-sided boots use the boots family, accessories keep the hash list");
+                  gear::family_of_field("accessorycode1") == assets::Family::Accessory &&
+                  !gear::from_catalog(none.get(), assets::Family::Accessory).active,
+              "small-sided boots use the boots family; accessories read the catalog's accessory family, inactive (hash list) "
+              "without a loaded catalog");
         set_gear_catalog(nullptr);
     });
 }

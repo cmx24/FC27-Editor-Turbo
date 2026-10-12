@@ -165,8 +165,9 @@ inline std::string callname_name_source_label(const std::string& source, const M
     return assets::name_source_label(source);
 }
 
-// The voice-source gate (docs/asset-catalog.md section 5): a voice swap source / a kick-off generic id needs a
-// recording in the bank of the active language (and team). No bank = the 2.0 rules (always ok).
+// The voice-source gate (docs/asset-catalog.md section 5): a voice swap source needs a SIMPLE or LINK recording (a
+// HIGH-only one is refused), a kick-off generic id a generic recording, in the bank of the active language (and team).
+// No bank = the 2.0 rules (always ok).
 struct VoiceGate {
     bool ok = true;
     std::string why;  // when refused: one line for the UI
@@ -174,10 +175,14 @@ struct VoiceGate {
 inline VoiceGate voice_source_gate(const CatalogBank& b, const AllCallnameRow& r) {
     VoiceGate g;
     if (!b.loaded()) return g;
-    const bool recorded = r.own() ? b.has_own(r.playerid) : b.has_generic(r.commentaryid);
+    // an own recording counts only as SIMPLE / LINK: the kick-off name check never asks the HIGH set (kBankSpoken)
+    const bool recorded = r.own() ? b.has_spoken_own(r.playerid) : b.has_generic(r.commentaryid);
     if (!recorded) {
         g.ok = false;
-        if (r.own() && b.own_other_team.count(r.playerid))
+        if (r.own() && b.high_only(r.playerid))
+            g.why = "only a high-intensity recording of this player in the " + b.where() +
+                    " commentary files: the kick-off name needs a simple or link recording, so a swap from him would say no name";
+        else if (r.own() && b.own_other_team.count(r.playerid))
             g.why = "recorded only by the other " + b.lang + " commentary team, not " + b.team;
         else
             g.why = std::string("no recording of this ") + (r.own() ? "player" : "callname") + " in the " + b.where() +

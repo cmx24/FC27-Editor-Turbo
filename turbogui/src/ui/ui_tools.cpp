@@ -575,9 +575,10 @@ static void asset_catalog_status(App& app) {
     ImGui::SameLine();
     if (ImGui::SmallButton("Copy rebuild command##asset")) {
         ImGui::SetClipboardText(assets::rebuild_command().c_str());
-        app.notify("Copied: " + assets::rebuild_command() + " (run it in the Live Editor folder)");
+        app.notify("Copied: " + assets::rebuild_command() + " (" + assets::rebuild_where() + ")");
     }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\n(run it in the Live Editor folder; read-only on the game)", assets::rebuild_command().c_str());
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s\n(%s; read-only on the game)", assets::rebuild_command().c_str(), assets::rebuild_where().c_str());
     if (!app.asset_load_note.empty()) {
         ImGui::SameLine();
         ImGui::TextDisabled("(?)");

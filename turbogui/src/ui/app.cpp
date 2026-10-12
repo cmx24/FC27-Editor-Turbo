@@ -339,8 +339,11 @@ void App::finish_asset_load() {
     }
     if (asset_thread_.joinable()) asset_thread_.join();
     if (!c) return;
+    // for the log only: a catalog rebuilt under the same build key keeps its state, key and file, so when it was built and
+    // its counts are compared too
     const bool changed = !asset_cat_ || asset_cat_->state() != c->state() || asset_cat_->status().build_key != c->status().build_key ||
-                         asset_cat_->status().file != c->status().file || asset_cat_->hidden_off() != c->hidden_off();
+                         asset_cat_->status().file != c->status().file || asset_cat_->hidden_off() != c->hidden_off() ||
+                         asset_cat_->status().built_at != c->status().built_at || asset_cat_->status().counts != c->status().counts;
     const bool was_loaded = asset_cat_ && asset_cat_->loaded();
     asset_cat_ = std::move(c);
     asset_load_note = asset_cat_->status_line() + note;
@@ -350,8 +353,11 @@ void App::finish_asset_load() {
         log("asset catalog: " + asset_load_note);
         if (log_hook) log_hook("asset catalog: " + asset_load_note);
     }
-    // pickers rebuild their lists only when there is (or was) a catalog to show: no catalog = 2.0 behaviour, untouched
-    if (changed && (was_loaded || asset_cat_->loaded())) {
+    // Every finished load reaches the pickers while there is (or was) a catalog: a catalog_<same key>.json rebuilt after a
+    // content change (folder poll, Status > Reload catalog) must not leave the face / gear / callnames gates on the old
+    // copy while lua_gate.txt already follows the new one. Loads are rare (start-up, a catalog file or switch changed,
+    // the Reload button). No catalog = 2.0 behaviour, untouched.
+    if (was_loaded || asset_cat_->loaded()) {
         publish_asset_catalog();
         ++gen;
     }
@@ -1276,6 +1282,11 @@ void App::load_gui_settings() {
             double us = g["ui_scale"].get<double>();
             if (std::isfinite(us) && us > 0.0) ui_scale_user = std::max(kUiScaleMin, std::min(kUiScaleMax, static_cast<float>(us)));
         }
+    }
+    // the asset catalog's commentary team ("" automatic, "*" every team, "dr" ...): Callnames, docs/asset-catalog.md
+    if (gui_settings.contains("callnames") && gui_settings["callnames"].is_object()) {
+        const json& c = gui_settings["callnames"];
+        if (c.contains("bank_team") && c["bank_team"].is_string()) callnames.bank_team_setting = c["bank_team"].get<std::string>();
     }
 }
 

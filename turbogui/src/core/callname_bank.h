@@ -26,7 +26,10 @@ namespace turbo {
 // CatalogBank::own bits: which recording kinds the bank holds for a player
 constexpr int kBankSimple = 1;  // PLAYER_NAMES_SIMPLE
 constexpr int kBankLink = 2;    // PLAYER_NAMES_LINK
-constexpr int kBankHigh = 4;    // high-intensity set
+constexpr int kBankHigh = 4;    // high-intensity set (informational: the kick-off name check never asks it)
+// What makes a player "spoken by his own recording": the game's kick-off GetCallname check asks only
+// PLAYER_LOW_SIMPLE / _LINK (the 2.0 SIMPLE|LINK rule, build_callname_master.py), so a HIGH-only id is not
+constexpr int kBankSpoken = kBankSimple | kBankLink;
 
 // One commentary team's lists as the catalog stores them (callnames.<lang>.teams.<team>)
 struct BankTeamLists {
@@ -49,7 +52,18 @@ struct CatalogBank {
 
     bool loaded() const { return !generic.empty() || !own.empty(); }
     bool has_generic(int64_t cid) const { return generic.count(cid) > 0; }
-    bool has_own(int64_t playerid) const { return own.count(playerid) > 0; }
+    bool has_own(int64_t playerid) const { return own.count(playerid) > 0; }  // any kind, HIGH included
+    int own_bits(int64_t playerid) const {
+        auto it = own.find(playerid);
+        return it == own.end() ? 0 : it->second;
+    }
+    // a SIMPLE or LINK recording: what the game says at kick-off (the spoken set and the voice-source gate use this)
+    bool has_spoken_own(int64_t playerid) const { return (own_bits(playerid) & kBankSpoken) != 0; }
+    // only a high-intensity recording: listed (informational), never a voice source
+    bool high_only(int64_t playerid) const {
+        const int b = own_bits(playerid);
+        return b != 0 && (b & kBankSpoken) == 0;
+    }
     bool multi_team() const { return teams.size() > 1; }
     // "ita_it", "eng_us dr", "eng_us (every team)"
     std::string where() const {

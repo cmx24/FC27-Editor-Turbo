@@ -30,8 +30,11 @@ not packaged, and repository tests use the synthetic fixture `turbogui/tests/fix
 signature scan uses). At start-up the GUI loads `catalog_<running key>.json`; if there is none it loads the newest
 `catalog_*.json` as **stale** (section 4).
 
-Rebuild: `re_venv\Scripts\python.exe -I turbo\tools\asset_catalog\build_asset_catalog.py` (read-only on the game, Live
-Editor and saves; writes only under `turbo_output\asset_catalog\`).
+Rebuild, in a Turbo source checkout with Python 3: `py -3 -I turbo\tools\asset_catalog\build_asset_catalog.py`
+(read-only on the game, Live Editor and saves; writes only under `turbo_output\asset_catalog\`; it also builds missing
+or outdated commentary banks). **Release builds ship no builder**: release users cannot build a catalog until the
+builder inside Turbo (WP-14) exists, and without one every picker works exactly as in 2.0. The GUI's status line and
+Copy rebuild command say so.
 
 ## 2. Schema v1
 
@@ -79,7 +82,7 @@ Rules (checked by `turbogui/tests/catalog/test_asset_catalog.cpp`, `validate_v1`
 - `callnames.<lang>.teams.<team>`: `<team>` is the commentary team (`dr`, `gm`, ...) or `""` for single-team packs; its
   keys are among `generic`, `simple`, `link`, `high` (missing key = empty).
 - `names.<table>.<id>` = `[name, source]`, name not empty, source one of `master:<lang>`, `workbook`, `extra_names`,
-  `slug`, `kit_slug`, `managers` (section 3).
+  `slug`, `kit_slug`, `managers`, `kind`, `loc_strings`, `le_team_names`, `turbo_team_names` (section 3).
 
 ### Families
 
@@ -92,13 +95,13 @@ Rules (checked by `turbogui/tests/catalog/test_asset_catalog.cpp`, `validate_v1`
 | `legendface` | id | legend pictures | picture copies |
 | `hair` | hairtypecode | `model` (EBX) and/or `preview` | `hairtypecode` |
 | `facialhair` | facialhairtypecode | model / preview | `facialhairtypecode` |
-| `boots` | shoetypecode | `model` = the shoe ids under `content/` (the gate); optional `model_ts_only`: ids only under `content_ts/` (listed, not writable until checked in game) | `shoetypecode`, `smallsidedshoetypecode` |
+| `boots` | shoetypecode | `model` = the shoe ids under `content/` (the gate); optional `model_ts_only`: ids only under `content_ts/` (proof bit `kProofModelTs`: listed with a "Not checked" badge, refused with their own reason until one is checked in game) | `shoetypecode`, `smallsidedshoetypecode` |
 | `gkglove` | gkglovetypecode | model / preview | `gkglovetypecode` |
 | `tattoo` | tattoo id | model / preview | `tattoo*` (7 fields) |
-| `accessory` | accessory code | model / preview (mapping unknown); optional `desc`: folder description per id. `model` includes NPC and referee items, so it is **not** a write gate | `accessorycode1..4` (no gate) |
+| `accessory` | accessory code | model / preview; optional `desc`: folder description per id (the GUI's names). `model` includes NPC, referee and outfit items, so it is **not** a write gate: the galleries offer players only the player set (6-17, 22-27) | `accessorycode1..4` (no gate) |
 | `eyebrow` | eyebrowcode | cranium preset | `eyebrowcode` |
 | `skinsurface` | skinsurfacepack | cranium preset | `skinsurfacepack` |
-| `crest` | teamid | `paths`: crest file per team | picture copies |
+| `crest` | teamid | `paths`: crest file per team. Create-a-club templates (only `crest/custom/l<id>.dds`, 99010101..99171212) are left out by the builder and dropped by the loader of an older catalog | picture copies |
 | `kit` | teamid | `teams.<id>`: kit folder slug + kit folders | none yet (crest browser names) |
 | `ball` | ball id | model / preview | none yet |
 | `callnames` | playerid (own) / commentaryid (generic) | bank recording per language and team | voice sources, kick-off generic ids |
@@ -113,9 +116,16 @@ The builder keeps the **first** source that names an id; the GUI puts the live D
 | 1 | `master:<lang>` | callname masters `LE\turbo\callnames\masters\<lang>.json` |
 | 2 | `workbook`, `extra_names` | FC 26 workbooks' `names` sheet; `turbo_dev\masters\raw\extra_player_names.json` |
 | 3 | `slug` | EBX head folder slug (`doe_john` -> "Doe John") |
-| 4 | `kit_slug` | kit folder slug (teams) |
-| 5 | `managers` | `turbo_dev\managers.csv` |
-| 6 | (unnamed) | fallback "Head #id", "Youth face #id", "Callname #id" (`assets::fallback_name`) |
+| 4 | `managers` | `turbo_dev\managers.csv` |
+| 5 | (unnamed) | fallback "Head #id", "Youth face #id", "Callname #id" (`assets::fallback_name`) |
+
+Teams (crests and kits), in order: `kind` (an id that is not a club, from its kit slug: default, generic, goalkeeper,
+referee, walk-out: "Referee kit (referee_..., not a club)"); `loc_strings` (the game's `TeamName_<id>` strings from a
+language-strings dump: `--team-names-loc`, default `<out>\names\LanguageStrings*.txt` and
+`C:\FC_Tools\My Mods\loc\LanguageStrings*.txt`); `kit_slug`; then the user's renames `le_team_names` (Live Editor's
+`custom_team_names.csv`) and `turbo_team_names` (`turbo_output\team_names.json`). On this PC (10-11) 1,194 of the 1,730
+club crests have a name (853 game strings, 338 kit slugs, 3 kinds); the other 536 show "Team #id" and are found by id.
+The dump on this PC is FC 26's: clubs new in FC 27 come from the kit slugs only.
 
 Tooltips say where a name came from (`assets::name_source_label`: "name from: ita_it master", "name from: game file
 name", ...).
@@ -225,12 +235,12 @@ Both are listed in Tools > Status with their state.
 - The same kind of runner per picker, each a few seconds to 15 s: `run_game_heads.sh` (core/game_heads.h + the 5-choice
   face filter), `run_gear.sh` (core/gear_ids.h), `run_pages.sh` (core/asset_pages.h), `run_callnames.sh`
   (core/callname_bank.h, core/callnames_catalog.h).
-- Python (synthetic bytes only, under 2 s): `re_venv\Scripts\python.exe -I turbo\tools\asset_catalog\test_asset_catalog_builder.py`,
+- Python (synthetic bytes only, under 2 s): `py -3 -I turbo\tools\asset_catalog\test_asset_catalog_builder.py`,
   `-I turbo\tools\fc27_commentary\test_fc27_commentary.py`, and (without `-I`: openpyxl is in the user site-packages)
   `turbo\tools\test_callname_master_teams.py`.
 - Native: `TURBO_TEST_ONLY="asset catalog wiring"` (tests/native/test_asset_app.h): the app hands a loaded catalog to the
-  real-face chooser, the gear galleries, callnames and the browsers, writes `lua_gate.txt` with its session, and takes it
-  all back when the catalog goes away. `TURBO_TEST_ONLY="gear pictures"`: a catalog that is not loaded keeps the 2.0
+  real-face chooser, the gear galleries, callnames and the browsers, writes `lua_gate.txt` with its session, hands a
+  catalog rebuilt under the same build key to every picker again, and takes it all back when the catalog goes away. `TURBO_TEST_ONLY="gear pictures"`: a catalog that is not loaded keeps the 2.0
   galleries.
 - Lua: `lua5.4 turbo/tests/t26_asset_gate.lua` (under 1 s).
 - Native GUI cases: `TURBO_TEST_ONLY=<text> bash turbogui/tests/native/run_native.sh` runs only the cases whose name
@@ -269,27 +279,37 @@ Both are listed in Tools > Status with their state.
 ## 10. Building the catalog (offline, read-only on the game)
 
 ```
-re_venv\Scripts\python.exe -I turbo\tools\asset_catalog\build_asset_catalog.py
+py -3 -I turbo\tools\asset_catalog\build_asset_catalog.py
 ```
+
+Run it in a Turbo source checkout (any Python 3; numpy, as in `re_venv`, makes the first legacy census fast). Release
+builds have no builder yet (WP-14).
 
 Defaults: game `C:\Program Files\EA Games\EA SPORTS FC 27`, Live Editor `C:\FC 27 Live Editor`, output
 `<LE>\turbo_output\asset_catalog`. Options: `--game`, `--le`, `--out`, `--bank <file>` (repeatable; replaces the
-discovered banks), `--masters`, `--workbook-names`, `--extra-names`, `--managers`. It reads the game, Live Editor and saves
-and writes only under the output folder.
+discovered banks and skips the bank build), `--no-bank-build`, `--masters`, `--workbook-names`, `--extra-names`,
+`--managers`, `--team-names-loc <file>` (repeatable). It reads the game, Live Editor and saves and writes only under the
+output folder.
 
 - **Steps**: build key from the FC27.exe PE header; legacy census (CFC manifests, FNV-1 of the candidate names from both
   Live Editor csv files plus generated patterns); EBX census (bundle manifests of every Data and Patch toc); commentary
   banks; names (section 3); `catalog_<key>.json` + `catalog_<key>.summary.txt`.
 - **Time on this PC (build 6AC07E31-2145C000, game 1.0.141.12554)**: first run 9 to 14 s; unchanged rerun under 2 s
   (the per-toc cache). After a title update only the changed tocs are scanned again.
-- **Banks**: the builder reads every `turbo_output\asset_catalog\banks\*.json` and `turbo_output\commentary_banks\*.json`
-  (plus two research files when present). Make them with `fc27_commentary.py`, one per installed language:
-  `re_venv\Scripts\python.exe -I turbo\tools\fc27_commentary\fc27_commentary.py --lang eng_us --out <LE>\turbo_output\asset_catalog\banks\eng_us_bank.json`.
+- **Banks**: since the review fixes the builder **builds them itself**: for every installed language (a
+  `commentaryfull_` / `commentarylaunch_<lang>.toc` in Data, Patch or `<game>\commentary`) it runs `fc27_commentary`
+  into `banks\<lang>_bank.json` when the file is missing, has another format or game build, or one of the game files it
+  was read from changed size or time; the summary has one "Bank <lang>:" line (up to date / built / NOT built). Then it
+  reads `banks\*.json`, and `turbo_output\commentary_banks\*.json` and the two research files only for languages the
+  built banks lack. By hand: `py -3 -I turbo\tools\fc27_commentary\fc27_commentary.py --lang eng_us --out <LE>\turbo_output\asset_catalog\banks\eng_us_bank.json`.
   Since 2.1 it finds the base-game packs (Patch, then Data, then the downloaded `<game>\commentary` copy), reads every
   `<lang>[_<team>]_<full|demo|licensed>` set and records per set; a family it cannot read is an error of that set, not of
   the run. The builder merges a team's sets (eng_us: Derek Rae `dr` and Guy Mowbray `gm`; ita_it: one team, `""`).
 - **Boots**: `model` holds the 862 shoe ids under `content/`. The 120 ids that exist only under `content_ts/` (2200 and
-  up, used by no DB row) are `model_ts_only`: listed, not writable.
+  up, used by no DB row; 82 with a preview, 38 without) are `model_ts_only`: listed with a "Not checked" badge (a "3D,
+  content_ts" tile when there is no preview), refused with "its 3D model is only under content_ts".
+- **Crests**: 1,730 club crests. The 3,204 create-a-club templates (`crest/custom/l99010101..l99171212.dds`, no kit, no
+  name) are left out; the summary counts them.
 - **Not in schema v1** (counted in the summary only): the 216 outfield glove models (probably variants of accessory 16,
   unverified).
 - **Callname masters** (FC 27, team-aware): `turbo\tools\build_callname_master.py` with a new-format bank lists the union
@@ -305,15 +325,17 @@ exactly 2.0's. The All / In this save / Hidden filter is remembered per picker i
 | Picker | With a catalog | Writes |
 |---|---|---|
 | Players / Managers > Appearance > Choose a real face | The save's heads, then **game heads**: every shipped 3D head no player or manager row uses (generic heads left out), named DB > master > workbook > game file name (a file name always shows the id), badged Hidden. Tiles show the game miniface when the catalog lists one, else "no picture" (most hidden heads have none; a head that no row uses cannot be rendered before Apply). Every menu offers at most 5 choices (colours, eyes and the 3D looks are grouped; the tooltip keeps the exact value) | A click asks first (what is written, gender unknown, not checked in a match). Gate: current catalog, a 3D head, not generic; stale = refused with the rebuild command. Writes `headassetid`, `headclasscode` 0, `hashighqualityhead` 1, the first shipped `headvariation`; `headtypecode` kept; optional copy of the game miniface `p<head>` to the player's. Every field logged |
-| Gear galleries: hair, facial hair, boots, small-sided boots (new row), GK gloves | 3D models + previews confirmed in the manifests, with their exact paths. Model-only ids: "3D only" placeholder tile. Preview-only ids: greyed, "Preview only", refused. Hash-list ids the game does not ship are gone | Gate: 0 and ids the save uses always; others need a current catalog and a 3D model. Hidden writes logged |
-| Gear code combos (widgets) | `[Hidden]`, `[preview only]`, `[not in the game files]` marks | same gate |
-| Tattoos (grid and combo) | The save's tattoo table plus every tattoo model the game ships, "not in the tattoo table" note | Gate: tattoo model in a current catalog. **No player uses a tattoo, so this is unchecked in a match** |
-| Accessories 1-4, managers' outfits | Unchanged (hash list): the accessory code to asset mapping is unknown | none new |
+| Gear galleries: hair, facial hair, boots, small-sided boots (new row), GK gloves | 3D models + previews confirmed in the manifests, with their exact paths. Model-only ids: "3D only" placeholder tile. Preview-only ids: greyed, "Preview only", refused. content_ts-only boots: greyed, "Not checked", refused. Hash-list ids the game does not ship are gone | Gate: 0 and ids the save uses always; others need a current catalog and a `content/` 3D model. Hidden writes logged |
+| Gear code combos (widgets) | `[Hidden]`, `[preview only]`, `[content_ts model, not checked]`, `[not in the game files]` marks; refused ids are not offered | same gate |
+| Tattoos (grid and combo) | The save's tattoo table plus every tattoo model the game ships; ids outside the table are listed greyed ("Hidden, no table row") | Gate: the save's tattoo table (or a tattoo the save uses). **Tattoos outside the table are refused** until one is checked in a match (section 14 item 6) |
+| Accessories 1-4 | The players' codes only (6/7 wrist athletic tape ... 26/27 wrist rubber bracelet; the odd code of a pair is named after the even one, "unverified"), named from the game folders (tooltip "In the game files: ..."), Hidden badge, All / In this save / Hidden filter; referee (2, 4, 20, 32, 34), card (28, 30), NPC and outfit items (36 and up, 1001+) are not offered | none new (no write gate, as in 2.0); a code the save already uses stays listed |
+| Managers' outfits | Unchanged (hash list) | none new |
 | Socks and sleeves (new rows) | `sockstylecode`, `socklengthcode`, `jerseysleevelengthcode` as named lists | normal field writes |
 | Miniface editor (players / managers) | Tabs **Game minifaces**, **Youth faces** (only the picture is copied: no 3D youth heads exist), **Legend pictures**, and **Staff faces** for managers: a paged browser (200 tiles a page, only tiles on screen ask for pictures), search by name or id, Hidden badge | The picture becomes the new miniface's source (existing writer, backups kept) |
-| Crest editor | Tab **Crests in the game files** (default filter Hidden), clubs named from the kit folder slug with the id | Copy the files to this club or use as a picture (existing writer) |
-| Callnames > All callnames | Every recording of the bank for the language and team (players who left the database: Hidden), plus master-list ids the bank lacks ("No recording"); team combo for eng_us; a count line bank / master list / save; names DB > catalog > master > "Callname #id" | Voice source and kick-off generic id need a recording in the bank of the language and team; a stale catalog refuses hidden sources |
-| Callnames: spoken set | A **current** catalog's bank is the spoken set (it beats `spoken_<lang>.txt` and the captures); a stale one only adds rows to All callnames | n/a |
+| Crest editor | Tab **Crests in the game files** (default filter Hidden): the 1,730 club crests, named DB > the game's team strings > kit folder slug (with the id) > "Team #id"; ids that are not clubs say so | Copy the files to this club or use as a picture (existing writer) |
+| Callnames > All callnames | Every recording of the bank for the language and team (players who left the database: Hidden), plus master-list ids the bank lacks ("No recording"); players with only a high-intensity recording are listed as "high-intensity recording only"; a count line bank / master list / save; names DB > catalog > master > "Callname #id" | A voice source needs a SIMPLE or LINK recording (HIGH-only refused: the kick-off name check never asks the HIGH set); a kick-off generic id a generic recording; in the bank of the language and team; a stale catalog refuses hidden sources |
+| Callnames: commentary team (eng_us) | **Commentary team** line in the callnames header (and the combo in All callnames): Automatic = the team whose SIMPLE / LINK recordings the live capture (bank capture / audio service cache) matches, else dr (Derek Rae, checked in game); Every team; dr; gm. Remembered in gui_settings.json `callnames.bank_team` | It decides the spoken set and the voice-source gate of every tab |
+| Callnames: spoken set | A **current** catalog's bank (of that team) is the spoken set (it beats `spoken_<lang>.txt` and the captures); only SIMPLE / LINK recordings make a player "spoken by his own recording" (the 2.0 rule); a stale one only adds rows to All callnames | n/a |
 | Lua: `custom_headassets`, `create_player` | `lua_gate.txt` (section 5) | refused / real face as in section 5 |
 
 ## 12. Not covered (known, out of scope for 2.1)
@@ -324,14 +346,16 @@ exactly 2.0's. The All / In this save / Hidden filter is remembered per picker i
 - **Eyebrows and skin surface**: in the catalog (`eyebrow`, `skinsurface`) and in DbUse, but their code fields keep the
   values-in-use list (no picker change, no gate in the UI yet).
 - **Accessories**: the DB uses codes 0, 6-9, 16, 22-27; the even codes have folders (6 wrist athletic tape, 8 wrist
-  sweatband, 16 player glove, 22 finger tape, 24 wrist long tape, 26 wrist rubber bracelet), the odd ones are probably
-  the other side (unverified). No gate until one in-game check of an odd code.
+  sweatband, 10 knee athletic tape, 12 knee brace, 14 ankle tapes, 16 player glove, 22 finger tape, 24 wrist long tape,
+  26 wrist rubber bracelet), the odd ones are probably the other side (unverified). The galleries offer players only
+  these codes; there is no write gate (as in 2.0) until one in-game check of an odd code.
 - **Kits and balls**: in the catalog, no picker (kits need `teamkits` rows; ball tables are not exported). Kit slugs name
   crests only; the 102 referee, goalkeeper and generic kit ids get no team name.
 - **Stadiums, sleeve badges, jersey fonts, kit numbers, armbands, flags, league logos, trophies**: not mapped.
 - **Referees**: only referee kits exist, no referee heads.
 - **Women's heads**: EBX head names carry no gender. The chooser warns ("gender unknown") and asks before writing; the
-  catalog stores no per-head gender yet.
+  catalog stores no per-head gender yet, so **a cross-gender head is not refused**: only the warning stands in front of
+  it (critic S1's refusal is not done).
 - **Callname selectors** other than the name families (for example `pgoal_scored_player`) are not catalogued; the voice
   gate checks the name families only.
 
@@ -352,5 +376,7 @@ when git tracks such a file or the staged package holds one (by name, or any fil
 4. The Lua gate: with the GUI running, `custom_headassets` on an id not in the gate is refused and the log says "checked";
    with the GUI closed it says "unchecked".
 5. Optional: a game-heads tile for a manager (does the manager capture render a hidden head without a write?).
-6. Later, each before its gate opens: a `content_ts`-only boot, a tattoo in a match, an odd accessory code, a women's head
-   on a men's player.
+6. Later, each before its gate opens: a `content_ts`-only boot (refused today), a tattoo outside the save's tattoo table
+   in a match (refused today), an odd accessory code (offered today without a gate, as in 2.0).
+7. A women's head on a men's player: **no gate closes this today** (only the "gender unknown" warning); check it before
+   relying on game heads for men's players, and until then treat every game head as possibly the wrong gender.

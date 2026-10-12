@@ -499,17 +499,22 @@ Honest limits: simulated matches ignore every override (`simsettings.ini` is loa
 
 Full contract: `docs/asset-catalog.md`. Short version:
 
-- **Builder** (offline, Python, read-only on the game): `re_venv\Scripts\python.exe -I turbo\tools\asset_catalog\build_asset_catalog.py`
+- **Builder** (offline, Python, read-only on the game, in a Turbo source checkout; release builds have none until WP-14):
+  `py -3 -I turbo\tools\asset_catalog\build_asset_catalog.py`
   writes `turbo_output\asset_catalog\catalog_<FC27.exe TimeDateStamp-SizeOfImage>.json` (schema `turbo-asset-catalog/1`) and a
   summary. Proof per family: CFC legacy manifests (FNV-1 of the path) for pictures, EBX names in the toc bundle manifests for
-  3D assets, `fc27_commentary` banks (`turbo_output\asset_catalog\banks\<lang>_bank.json`) for callnames. Per-toc cache:
-  an unchanged rerun takes under 2 s.
+  3D assets, `fc27_commentary` banks (`turbo_output\asset_catalog\banks\<lang>_bank.json`, built by the builder itself
+  when missing or outdated) for callnames. Per-toc cache: an unchanged rerun takes under 2 s.
 - **GUI** (`core/asset_catalog.*`, `App::asset_*`): loaded on a worker thread at the first tick, swapped in on the render
   thread, folder polled every 5 s. The running build's file = current; else the newest file = stale (lists only, hidden
   ids refused). `App::publish_asset_catalog` hands it to `set_faces_catalog`, `set_gear_catalog`, `Callnames::use_catalog`
-  and `set_asset_view` (with `DbUse`, rebuilt once per `model.version()`); not loaded = nullptr = 2.0 behaviour.
+  and `set_asset_view` (with `DbUse`, rebuilt once per `model.version()`) after **every** finished load, a rebuild under
+  the same build key included; not loaded = nullptr = 2.0 behaviour.
 - **Hidden** is computed live against the save (`assets::DbUse`), never stored. **Write gate** `Catalog::writable`: a
-  current catalog and, for heads and gear, a 3D model (0 = none always allowed). Writes of hidden ids:
+  current catalog and, for heads and gear, a 3D model (0 = none always allowed; content_ts-only boots refused). The
+  galleries (`core/gear_ids.h`) also refuse tattoos outside the save's tattoo table and offer accessories only for the
+  players' codes (no gate). Callnames: only SIMPLE / LINK recordings count as a player's own (`kBankSpoken`); the eng_us
+  team is automatic (live capture, else dr) or chosen (`callnames.bank_team`). Writes of hidden ids:
   `turbo_output\asset_writes.log`.
 - **Lua** (`core/asset_gate.lua`): `asset_catalog\lua_gate.txt` (`#turbo-asset-gate 1`, `#build`, `#session`, `head3d <id>`
   lines), written by the GUI only while the catalog is current and trusted only when `#session` equals a fresh

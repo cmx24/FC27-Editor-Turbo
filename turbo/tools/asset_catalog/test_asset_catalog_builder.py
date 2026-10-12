@@ -129,9 +129,76 @@ def test_names_priority():
     check(j["player"]["90003"] == ["Test Extra Three", "extra_names"], "extra names beat the slug")
     check("90100" not in j["player"], "generic slug is not a name")
     check("55555" not in j["player"], "ids outside the catalog are dropped")
-    check(j["team"] == {"9001": ["Test Club One", "kit_slug"]}, "kit slug team name, referee slug skipped")
+    check(j["team"] == {"9001": ["Test Club One", "kit_slug"], "6001": ["Referee kit (referee_test, not a club)", "kind"]},
+          "kit slug team name; a referee kit id is labelled by its kind")
     check(j["commentary"] == {"990001": ["Testname", "master:ita_it"]}, "commentary name")
     check(j["player"]["92001"] == ["Test Coach", "managers"], "managers name")
+
+
+def test_team_names():
+    with tempfile.TemporaryDirectory() as tmp:
+        loc = os.path.join(tmp, "LanguageStrings1.txt")
+        with open(loc, "w", encoding="utf-8-sig") as f:
+            f.write("stringid\tsourcetext\thashid\n")
+            f.write("TeamName_9001\tTest Club One FC\t-1\n")
+            f.write("TeamName_9002\tTest Club Two\t2\n")
+            f.write("TeamName_Abbr3_9002\tTCT\t3\n")
+            f.write("TeamName_9003_FUT-Custom\tTeamName_Abbr15_9003\t4\n")
+        csvp = os.path.join(tmp, "custom_team_names.csv")
+        with open(csvp, "w", encoding="utf-8") as f:
+            f.write("key;value\nTeamName_9004;Test Renamed Four\nTeamName_Abbr3_9004;TRF\n")
+        tj = os.path.join(tmp, "team_names.json")
+        with open(tj, "w", encoding="utf-8") as f:
+            json.dump({"teams": [{"teamid": 9005, "name": "Test Turbo Five"}]}, f)
+        locn = namesmod.load_loc_team_names([loc])
+        check(locn == {9001: "Test Club One FC", 9002: "Test Club Two"}, "loc strings: TeamName_<id> rows only %s" % locn)
+        le = namesmod.load_le_team_names(csvp)
+        tt = namesmod.load_turbo_team_names(tj)
+        check(le == {9004: "Test Renamed Four"} and tt == {9005: "Test Turbo Five"}, "LE csv and Turbo json team names")
+        kits = {9001: {"slug": "test_club_one"}, 9004: {"slug": "test_club_four"}, 0: {"slug": "_default"},
+                111: {"slug": "otp_generic"}}
+        N = namesmod.build_names(set(), {0, 111, 9001, 9002, 9004, 9005, 9006}, set(), {}, kits,
+                                 team_sources=[("loc_strings", locn), ("le_team_names", le), ("turbo_team_names", tt)])
+        t = N.as_json()["team"]
+        check(t["9001"] == ["Test Club One FC", "loc_strings"] and t["9002"] == ["Test Club Two", "loc_strings"],
+              "the game's team names beat the kit slug")
+        check(t["9004"] == ["Test Club Four", "kit_slug"] and t["9005"] == ["Test Turbo Five", "turbo_team_names"],
+              "renames only fill gaps")
+        check(t["0"][1] == "kind" and "not a club" in t["0"][0] and t["111"] == ["Generic team (otp_generic, not a club)", "kind"],
+              "non-team ids labelled by kind")
+        check("9006" not in t, "no source: no name (the GUI shows Team #id)")
+
+
+def test_banks_auto():
+    with tempfile.TemporaryDirectory() as tmp:
+        for rel in (("Data", "Win32", "commentaryfull_eng_us.toc"), ("Data", "Win32", "commentarylaunch_eng_us.toc"),
+                    ("commentary", "commentaryfull_ita_it.toc"), ("Data", "Win32", "commentarywc_fre_fr.toc")):
+            os.makedirs(os.path.join(tmp, *rel[:-1]), exist_ok=True)
+            open(os.path.join(tmp, *rel), "wb").close()
+        check(B.installed_languages(tmp) == ["eng_us", "ita_it"], "installed languages: full / launch packs, downloaded copy")
+        src = os.path.join(tmp, "Data", "Win32", "commentaryfull_eng_us.toc")
+        st = os.stat(src)
+        import datetime as dt
+        bank = {"turbo_bank": 1, "lang": "eng_us", "game_build": "1.0.1", "sets": {},
+                "source_files": [{"path": src, "size": st.st_size,
+                                  "modified": dt.datetime.fromtimestamp(st.st_mtime).isoformat(timespec="seconds")}]}
+        bp = os.path.join(tmp, "eng_us_bank.json")
+        with open(bp, "w", encoding="utf-8") as f:
+            json.dump(bank, f)
+        check(B.bank_outdated(bp, "1.0.1") == "", "bank up to date")
+        check(B.bank_outdated(bp, "1.0.2").startswith("built for game"), "another game build: outdated")
+        with open(src, "wb") as f:
+            f.write(b"x")
+        check(B.bank_outdated(bp, "1.0.1").startswith("a source file changed"), "a changed toc: outdated")
+        check(B.bank_outdated(os.path.join(tmp, "none.json"), "1.0.1") == "missing", "missing bank")
+        os.makedirs(os.path.join(tmp, "out", "banks"))
+        os.makedirs(os.path.join(tmp, "le", "turbo_output", "commentary_banks"))
+        for p in (os.path.join(tmp, "out", "banks", "eng_us_bank.json"),
+                  os.path.join(tmp, "le", "turbo_output", "commentary_banks", "eng_us_old.json"),
+                  os.path.join(tmp, "le", "turbo_output", "commentary_banks", "ita_it_old.json")):
+            open(p, "w").close()
+        got = [os.path.basename(p) for p in B.default_banks(os.path.join(tmp, "le"), os.path.join(tmp, "out"))]
+        check(got == ["eng_us_bank.json", "ita_it_old.json"], "built banks first; older files only for other languages %s" % got)
 
 
 def fake_pe(stamp, size):
@@ -254,7 +321,8 @@ def validate_v1(cat):
         errs.append("head3d keys")
     for table, t in cat["names"].items():
         for i, n in t.items():
-            if not (i.isdigit() and len(n) == 2 and n[0] and (n[1] in ("workbook", "extra_names", "slug", "kit_slug", "managers") or n[1].startswith("master:"))):
+            if not (i.isdigit() and len(n) == 2 and n[0] and (n[1] in ("workbook", "extra_names", "slug", "kit_slug", "managers", "kind",
+                                                                   "loc_strings", "le_team_names", "turbo_team_names") or n[1].startswith("master:"))):
                 errs.append("names")
     return errs
 
@@ -265,7 +333,8 @@ def test_assemble_schema():
     leg = {"families": {"miniface": {"90001": "data/ui/imgAssets/heads/p90001.dds"},
                         "hair": {"4": "data/ui/imgAssets/craniumhair/hair_4_0.dds"},
                         "hair_old": {"4": "data/ui/imgAssets/hairstyle/item_4_0.dds", "5": "data/ui/imgAssets/hairstyle/item_5_0.dds"},
-                        "crest": {"9001": "data/ui/imgAssets/crest/light/l9001.dds"}}}
+                        "crest": {"9001": "data/ui/imgAssets/crest/light/l9001.dds",
+                                  "99010101": "data/ui/imgAssets/crest/custom/l99010101.dds"}}}
     banks = {"ita_it": {"": {"simple": {90004, 90001}, "generic": {990001}}}}
     cat = B.assemble("0000AAAA-0000BBBB", "0.0.1.1", "2026-10-11T12:00:00-04:00", {"Data/Win32/contentsb.toc": {"size": 1, "mtime": 2}},
                      census, leg, banks)
@@ -280,6 +349,7 @@ def test_assemble_schema():
           "new preview folder preferred, older one fills gaps")
     check(F["boots"]["model"] == [10] and F["boots"]["model_ts_only"] == [2200], "boots gate = content/ ids")
     check(F["callnames"]["ita_it"]["teams"][""]["simple"] == [90001, 90004], "bank ids sorted")
+    check(F["crest"]["ids"] == [9001] and "99010101" not in F["crest"]["paths"], "create-a-club crest templates left out")
     check(cat["names"]["player"]["90001"] == ["Test Head", "slug"], "slug name in the catalog")
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "turbogui", "tests", "fixtures",
                            "asset_catalog_v1_small.json"), encoding="utf-8") as f:
@@ -301,7 +371,8 @@ if __name__ == "__main__":
     import time
     t = time.time()
     for fn in (test_fnv, test_brute, test_manifest_chunk, test_bundle_manifest_and_classify, test_names_priority,
-               test_build_key, test_cache_skips_unchanged, test_bank_reader, test_assemble_schema, test_classify_path):
+               test_team_names, test_banks_auto, test_build_key, test_cache_skips_unchanged, test_bank_reader,
+               test_assemble_schema, test_classify_path):
         fn()
     print("%d failed, %.1fs" % (len(FAILS), time.time() - t))
     sys.exit(1 if FAILS else 0)

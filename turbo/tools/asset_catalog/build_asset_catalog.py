@@ -1,10 +1,13 @@
 """Build Turbo's game asset catalog (docs/asset-catalog.md, schema v1) for the installed FC 27 build.
 
 Read-only on the game, Live Editor and saves. Writes only under <out> (default <LE>\\turbo_output\\asset_catalog):
-catalog_<buildkey>.json, catalog_<buildkey>.summary.txt and cache\\*.json (per toc, keyed by size + mtime, so an
-unchanged rerun takes seconds).
+catalog_<buildkey>.json, catalog_<buildkey>.summary.txt, cache\\*.json (per toc, keyed by size + mtime, so an
+unchanged rerun takes seconds) and banks\\<lang>_bank.json: the commentary bank of every installed language is built
+(turbo\\tools\\fc27_commentary) when it is missing or its game files changed, so one command does everything.
 
-usage: python -I build_asset_catalog.py [--game DIR] [--le DIR] [--out DIR] [--bank FILE ...] [--workbook-names FILE]
+usage: python -I build_asset_catalog.py [--game DIR] [--le DIR] [--out DIR] [--bank FILE ...] [--no-bank-build]
+                                        [--workbook-names FILE] [--team-names-loc FILE ...]
+Run it in a Turbo source checkout with Python 3 (numpy makes the first run fast): py -3 -I turbo\\tools\\asset_catalog\\build_asset_catalog.py
 """
 import argparse
 import datetime
@@ -12,6 +15,7 @@ import glob
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 
@@ -210,15 +214,100 @@ def legacy_census(game, le, game_io, cache_dir, log):
 
 
 # ---------------------------------------------------------------- banks
-def default_banks(le):
-    pats = [os.path.join(le, "turbo_output", "asset_catalog", "banks", "*.json"),
-            os.path.join(le, "turbo_output", "commentary_banks", "*.json"),
-            os.path.join(le, "turbo_output", "asset_research", "callnames", "ita_it_bank_now.json"),
-            os.path.join(le, "turbo_output", "asset_research", "callnames", "eng_us_namebank.json")]
-    out = []
-    for p in pats:
-        out += sorted(glob.glob(p))
-    return out
+PACK_RX = re.compile(r"^commentary(?:full|launch)_([a-z]{3}_[a-z]{2})\.toc$", re.I)
+
+
+def installed_languages(game):
+    """Commentary languages with a full or launch pack: Data / Patch Win32 and the downloaded <game>\\commentary copy."""
+    langs = set()
+    for d in (os.path.join(game, "Data", "Win32"), os.path.join(game, "Patch", "Win32"), os.path.join(game, "commentary")):
+        try:
+            names = os.listdir(d)
+        except OSError:
+            continue
+        for n in names:
+            m = PACK_RX.match(n)
+            if m:
+                langs.add(m.group(1).lower())
+    return sorted(langs)
+
+
+def bank_outdated(path, game_version):
+    """Why the bank file must be built again ("" = up to date): missing, another format, another game build, or one of
+    the game files it was read from changed (size or time) or is gone."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            b = json.load(f)
+    except OSError:
+        return "missing"
+    except ValueError:
+        return "not readable"
+    if b.get("turbo_bank") != 1 or not isinstance(b.get("sets"), dict):
+        return "old format"
+    if game_version != "unknown" and b.get("game_build") not in (None, game_version):
+        return "built for game %s" % b.get("game_build")
+    for s in b.get("source_files") or ():
+        p = s.get("path") if isinstance(s, dict) else None
+        if not p or s.get("size") is None:
+            continue
+        try:
+            st = os.stat(p)
+        except OSError:
+            return "a source file is gone: %s" % os.path.basename(p)
+        when = datetime.datetime.fromtimestamp(st.st_mtime).isoformat(timespec="seconds")
+        if st.st_size != s.get("size") or when != s.get("modified"):
+            return "a source file changed: %s" % os.path.basename(p)
+    return ""
+
+
+def ensure_banks(game, out, game_version, log):
+    """Builds banks\\<lang>_bank.json with fc27_commentary for every installed language whose bank is missing or
+    outdated. Returns {lang: note} for the summary. A language that fails keeps its old bank (the note says so)."""
+    notes = {}
+    tool = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fc27_commentary")
+    bank_dir = os.path.join(out, "banks")
+    os.makedirs(bank_dir, exist_ok=True)
+    for lang in installed_languages(game):
+        path = os.path.join(bank_dir, "%s_bank.json" % lang)
+        why = bank_outdated(path, game_version)
+        if not why:
+            notes[lang] = "up to date"
+            continue
+        t = time.time()
+        log("  bank %s: %s, building it with fc27_commentary" % (lang, why))
+        try:
+            if tool not in sys.path:
+                sys.path.insert(0, tool)
+            import fc27_commentary  # noqa: E402  (turbo\\tools\\fc27_commentary, a sibling folder of this tool)
+            tmp = path + ".building"
+            rc = fc27_commentary.main(["--lang", lang, "--game", game, "--out", tmp])
+            if rc not in (0, None) or not os.path.isfile(tmp):
+                raise RuntimeError("fc27_commentary exit %s" % rc)
+            os.replace(tmp, path)
+            notes[lang] = "built (%s) in %.1fs" % (why, time.time() - t)
+        except Exception as ex:  # a failed language keeps its old bank; the run goes on
+            notes[lang] = "NOT built (%s): %s%s" % (why, ex, "; the old bank is used" if os.path.isfile(path) else "")
+        log("  bank %s: %s" % (lang, notes[lang]))
+    return notes
+
+
+def default_banks(le, out=None):
+    """The built banks (<out>\\banks), then, for languages they lack, the older locations."""
+    out = out or os.path.join(le, "turbo_output", "asset_catalog")
+    built = sorted(glob.glob(os.path.join(out, "banks", "*.json")))
+    have = set()
+    for p in built:
+        m = re.match(r"^([a-z]{3}_[a-z]{2})_bank\.json$", os.path.basename(p), re.I)
+        if m:
+            have.add(m.group(1).lower())
+    extra = []
+    for p in [os.path.join(le, "turbo_output", "commentary_banks", "*.json"),
+              os.path.join(le, "turbo_output", "asset_research", "callnames", "ita_it_bank_now.json"),
+              os.path.join(le, "turbo_output", "asset_research", "callnames", "eng_us_namebank.json")]:
+        for q in sorted(glob.glob(p)):
+            if os.path.basename(q)[:6].lower() not in have:
+                extra.append(q)
+    return built + extra
 
 
 def _row_ids(rows, key):
@@ -325,7 +414,8 @@ def assemble(game_key, game_version, built_at, sources, census, leg, banks):
                          "desc": {str(i): acc[i] for i in sorted(acc)}}
     fams["eyebrow"] = {"ids": model("eyebrow")}
     fams["skinsurface"] = {"ids": model("skinsurface")}
-    crest = lf.get("crest", {})
+    # create-a-club crest templates (crest/custom/l<id>.dds only: 99010101..99171212, no kit, no name) are not club crests
+    crest = {k: v for k, v in lf.get("crest", {}).items() if "/custom/" not in v.lower()}
     fams["crest"] = {"ids": ids_of(crest), "paths": {k: crest[k] for k in sorted(crest, key=int)}}
     kits = census.get("kit", {})
     fams["kit"] = {"teams": {str(i): {"slug": k["slug"], "kits": sorted(k["kits"])} for i, k in sorted(kits.items())}}
@@ -370,6 +460,10 @@ def summary_text(cat, timings, stats, leg, extra):
             md = set(v["model"])
             note += "%s model-only %d, preview-only %d" % ("," if note else "", len(md - pv), len(pv - md))
             L.append("%-13s %8d   %8d   %s" % (k, len(v["model"]), len(v["preview"]), note))
+        elif k == "crest":
+            templates = sum(1 for v in leg["families"].get("crest", {}).values() if "/custom/" in v.lower())
+            L.append("%-13s %8d   %8s   club crests; create-a-club templates (crest/custom only) left out: %d" % (
+                k, len(v["ids"]), "", templates))
         elif k == "kit":
             teams = [t for t in v["teams"].values() if not families.NON_TEAM_SLUG.match(t["slug"])]
             L.append("%-13s %8d   %8s   club kits %d, other kit ids (referee, goalkeeper, generic) %d" % (
@@ -394,6 +488,8 @@ def summary_text(cat, timings, stats, leg, extra):
         L.append("Not in schema v1 (counted only): outfield glove models %d" % extra["glove"])
     for k, v in extra.get("checks", {}).items():
         L.append("Check %s: %s" % (k, v))
+    for lang, note in sorted((extra.get("banks") or {}).items()):
+        L.append("Bank %s: %s" % (lang, note))
     L.append("Timings: " + ", ".join("%s %.1fs" % kv for kv in timings.items()))
     return "\n".join(L) + "\n"
 
@@ -425,6 +521,11 @@ def main(argv=None):
     ap.add_argument("--le", default=DEFAULT_LE)
     ap.add_argument("--out", default=None, help="output folder (default <LE>\\turbo_output\\asset_catalog)")
     ap.add_argument("--bank", action="append", default=None, help="commentary bank json (repeatable; default: discovered)")
+    ap.add_argument("--no-bank-build", action="store_true",
+                    help="do not build missing or outdated banks (default: built with fc27_commentary)")
+    ap.add_argument("--team-names-loc", action="append", default=None,
+                    help="dump of the game's language strings with TeamName_<id> rows (repeatable; default: "
+                         "<out>\\names\\LanguageStrings*.txt and C:\\FC_Tools\\My Mods\\loc\\LanguageStrings*.txt)")
     ap.add_argument("--workbook-names", default=None, help="JSON dump of the FC 26 workbooks' names sheets")
     ap.add_argument("--extra-names", default=None)
     ap.add_argument("--managers", default=None)
@@ -458,7 +559,10 @@ def main(argv=None):
     for k, v in leg["key"]["csv"].items():
         sources["LE/" + k] = v
     t = time.time()
-    banks, bank_files = {}, a.bank if a.bank is not None else default_banks(a.le)
+    bank_notes = {}
+    if a.bank is None and not a.no_bank_build:
+        bank_notes = ensure_banks(a.game, out, game_version, log)
+    banks, bank_files = {}, a.bank if a.bank is not None else default_banks(a.le, out)
     for p in bank_files:
         try:
             lang, teams, src = read_bank(p, a.game)
@@ -479,14 +583,22 @@ def main(argv=None):
     masters = namesmod.load_masters(a.masters or os.path.join(a.le, "turbo", "callnames", "masters"))
     wb = a.workbook_names or os.path.join(a.le, "turbo_output", "asset_research", "callnames", "names_sheets.json")
     dev = os.path.join(a.le, "turbo_dev")
+    loc_files = a.team_names_loc if a.team_names_loc is not None else (
+        sorted(glob.glob(os.path.join(out, "names", "LanguageStrings*.txt"))) +
+        sorted(glob.glob(os.path.join(r"C:\FC_Tools\My Mods\loc", "LanguageStrings*.txt"))))
+    team_sources = [("loc_strings", namesmod.load_loc_team_names(loc_files)),
+                    ("le_team_names", namesmod.load_le_team_names(os.path.join(a.le, "extensions", "global", "custom_team_names.csv"))),
+                    ("turbo_team_names", namesmod.load_turbo_team_names(os.path.join(a.le, "turbo_output", "team_names.json")))]
     N = namesmod.build_names(player, team, commentary, census.get("head3d", {}), census.get("kit", {}), masters,
                              namesmod.load_workbook_names(wb),
                              namesmod.load_extra_names(a.extra_names or os.path.join(dev, "masters", "raw", "extra_player_names.json")),
-                             namesmod.load_managers(a.managers or os.path.join(dev, "managers.csv")))
+                             namesmod.load_managers(a.managers or os.path.join(dev, "managers.csv")),
+                             team_sources=team_sources)
     cat["names"] = N.as_json()
     timings["names"] = time.time() - t
     hashes = {int(h, 16) for h in leg["hashes"]}
-    extra = {"name_sources": N.counts, "glove": len(census.get("glove", {})), "checks": export_checks(a.le, hashes)}
+    extra = {"name_sources": N.counts, "glove": len(census.get("glove", {})), "checks": export_checks(a.le, hashes),
+             "banks": bank_notes}
     path = os.path.join(out, "catalog_%s.json" % key)
     write_json(path, cat)
     timings["total"] = time.time() - t0
