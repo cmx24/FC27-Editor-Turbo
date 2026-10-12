@@ -15,6 +15,7 @@
 #include "ui_faces.h"
 #include "ui_club_tools.h"
 #include "ui_images.h"
+#include "ui_parity.h"
 
 namespace turbo {
 
@@ -392,6 +393,10 @@ void draw_tools(App& app) {
             std::snprintf(vl, sizeof(vl), "##fv%d", i);
             ImGui::SetNextItemWidth(S(200.0f));
             ImGui::InputTextWithHint(nl, "field, e.g. potential", fnames[i], sizeof(fnames[i]));
+            ImGui::SameLine();
+            char pl[16];
+            std::snprintf(pl, sizeof(pl), "##fp%d", i);
+            bulk_field_pick(pl, fnames[i], sizeof(fnames[i]));  // ui_parity.h: release clause, wage, contract, ...
             ImGui::SameLine();
             ImGui::SetNextItemWidth(S(100.0f));
             ImGui::InputInt(vl, &fvals[i], 0);

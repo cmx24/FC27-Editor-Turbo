@@ -11,6 +11,7 @@
 #include "ui_faces.h"
 #include "ui_identity.h"
 #include "ui_images.h"
+#include "ui_parity.h"
 #include "ui_role_rules.h"
 #include "ui_team_filter.h"
 
@@ -49,14 +50,22 @@ static void team_list(App& app) {
     }
     ImGui::SameLine();
     league_filter_combo(app, "##tleague", f_league, f_nation, half);
+    transfer_columns_controls(app);  // ui_parity.h: In / Out / Spent / Received / Net columns (read only)
+    const bool xf = transfer_columns_on();
     std::string q = lower(search);
-    if (ImGui::BeginTable("##teams", 3,
+    if (ImGui::BeginTable(xf ? "##teamsxf" : "##teams", xf ? 8 : 3,
                           ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | table_sort_flags(),
                           ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, S(62.0f));
         ImGui::TableSetupColumn("Name");
         ImGui::TableSetupColumn("OVR", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, S(36.0f));
+        if (xf) {
+            for (const char* c : {"In", "Out"})
+                ImGui::TableSetupColumn(c, ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, S(30.0f));
+            for (const char* c : {"Spent", "Recv", "Net"})
+                ImGui::TableSetupColumn(c, ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, S(48.0f));
+        }
         ImGui::TableHeadersRow();
         std::vector<const TeamRow*> rows;
         for (const auto& t : app.model.teams()) {
@@ -64,7 +73,21 @@ static void team_list(App& app) {
             if (!team_in_geo(app, t, f_nation, f_league)) continue;
             rows.push_back(&t);
         }
-        table_sort(rows, [](const TeamRow* a, const TeamRow* b, int col) {
+        table_sort(rows, [&app](const TeamRow* a, const TeamRow* b, int col) {
+            if (col >= 3) {  // transfer columns: a club without moves counts as 0
+                static const xfer::TeamStats none;
+                const xfer::TeamStats* x = transfer_stats_of(app, a->teamid);
+                const xfer::TeamStats* y = transfer_stats_of(app, b->teamid);
+                const xfer::TeamStats& sa = x ? *x : none;
+                const xfer::TeamStats& sb = y ? *y : none;
+                switch (col) {
+                    case 3: return cmp_num(sa.in + sa.loans_in, sb.in + sb.loans_in);
+                    case 4: return cmp_num(sa.out + sa.loans_out, sb.out + sb.loans_out);
+                    case 5: return cmp_num(sa.spent, sb.spent);
+                    case 6: return cmp_num(sa.received, sb.received);
+                    default: return cmp_num(sa.net(), sb.net());
+                }
+            }
             switch (col) {
                 case 0: return cmp_num(a->teamid, b->teamid);
                 case 1: return cmp_text(a->name, b->name);
@@ -86,6 +109,19 @@ static void team_list(App& app) {
                 ImGui::TextUnformatted(t->name.c_str());
                 ImGui::TableNextColumn();
                 ImGui::Text("%d", t->overall);
+                if (xf) {
+                    const xfer::TeamStats* s = transfer_stats_of(app, t->teamid);
+                    ImGui::TableNextColumn();
+                    if (s) ImGui::Text("%d", s->in + s->loans_in);
+                    ImGui::TableNextColumn();
+                    if (s) ImGui::Text("%d", s->out + s->loans_out);
+                    ImGui::TableNextColumn();
+                    if (s) ImGui::TextUnformatted(xfer::money_short(s->spent).c_str());
+                    ImGui::TableNextColumn();
+                    if (s) ImGui::TextUnformatted(xfer::money_short(s->received).c_str());
+                    ImGui::TableNextColumn();
+                    if (s) ImGui::TextUnformatted(xfer::money_short(s->net()).c_str());
+                }
             }
         }
         ImGui::EndTable();
@@ -455,6 +491,12 @@ static void team_editor(App& app) {
             squad_table(app, tr->teamid);
             ImGui::EndTabItem();
         }
+        if (ImGui::BeginTabItem("Transfers")) {
+            ImGui::BeginChild("##txfer");
+            team_transfers_tab(app, tr->teamid);  // ui_parity.h (read only)
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
         if (ImGui::BeginTabItem("Name")) {
             ImGui::BeginChild("##tname");
             team_name_editor(app, *t, tr->rec, tr->teamid);
@@ -727,6 +769,7 @@ void draw_managers(App& app) {
                                      ? &mgrs[static_cast<size_t>(app.sel_manager)] : nullptr;
     manager_rules_section(app);
     manager_market_section(app, selected);
+    scouts_section(app);  // ui_parity.h: your career's scouts
     ImGui::Separator();
     if (app.sel_manager >= 0 && app.sel_manager < static_cast<int>(mgrs.size())) {
         const auto& m = mgrs[static_cast<size_t>(app.sel_manager)];
