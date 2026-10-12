@@ -53,11 +53,17 @@ Outputs:
                  "real_players" (PLAYER_NAMES_SIMPLE | PLAYER_NAMES_LINK ids = players with their own recording),
                  "real_simple_players", "real_link_players", "generic_ids", "real_high_players" (PLAYER_NAMES_HIGH by
                  player id; not in real_players: the game's kick-off check asks SIMPLE / LINK only), "generic_high_ids"
-                 (PLAYER_NAMES_HIGH by surname_ID), "names" {"<playerid>": name, SIMPLE only},
+                 (PLAYER_NAMES_HIGH by surname_ID), "names" {"<playerid>": name, every player with an own
+                 recording: SIMPLE, LINK or HIGH}, "unnamed_players" (those without a name),
                  "generic_names" {"<commentaryid>": text}, "wav_dir" (--wav-dir),
                  "segments" {"generic": {"<commentaryid>": [seg, ...]}, "real": {"<playerid>": [seg, ...]} (SIMPLE),
                              "real_link" / "real_high" / "generic_high": {...} only the segments whose wav is in
                              wav_dir\\real_link, real_high, generic_high}}
+                A bank with per-set ids (fc27_commentary "sets"; eng_us: teams dr / gm): the id lists (real_players,
+                real_simple_players, real_link_players, real_high_players, generic_ids, generic_high_ids) are the
+                union of the team's sets of --kinds (--team, default the bank's primary set's team; a team other than
+                the primary set's is refused), plus "team", "bank_sets" and "real_players_all_teams" (SIMPLE | LINK
+                of every set); the rows and segments stay the primary set's.
                 The bank's real_link / real_high / generic_high rows are added to 'callnames' as types "real link",
                 "real high", "generic high" (column F = HYPERLINK to the wav: the Play macro plays only "real" and
                 "generic"); the FC 26 types' rows stay exactly as before.
@@ -289,8 +295,32 @@ def segments_by_id(rows, key):
     return {str(i): sorted(v) for i, v in sorted(out.items())}
 
 
+def team_ids(bank, team=None, kinds=None):
+    """The id lists of one commentary team from a bank with per-set ids (fc27_commentary "sets", asset catalog WP-03):
+    {"team", "sets", "simple", "link", "high", "generic", "generic_high"}, the union of the team's sets of the kinds
+    asked (default full, demo, licensed); None for an older bank (no "sets"). team None = the primary set's team.
+    The rows (segments, workbook) are the primary set's, so a team other than the primary set's is refused."""
+    sets = bank.get('sets')
+    if not isinstance(sets, dict) or not sets:
+        return None
+    prim_team = sets.get(bank.get('primary_set'), {}).get('team', '')
+    tm = prim_team if team is None else team
+    if tm != prim_team:
+        raise ValueError(f'--team {tm!r}: the bank\'s rows are those of {bank.get("primary_set")} (team {prim_team!r}); '
+                         f'extract the bank again with fc27_commentary --team {tm}')
+    kinds = tuple(kinds or ('full', 'demo', 'licensed'))
+    chosen = sorted(s for s, v in sets.items() if v.get('team', '') == tm and v.get('kind') in kinds)
+    if not chosen:
+        raise ValueError(f'the bank has no set of team {tm!r} and kinds {", ".join(kinds)}')
+    out = {'team': tm, 'sets': chosen}
+    for k in ('simple', 'link', 'high', 'generic', 'generic_high'):
+        out[k] = sorted(set().union(*(set(sets[s].get('ids', {}).get(k, [])) for s in chosen)))
+    return out
+
+
 def build(bank_path, players_path, edited_path, names_path, comm_path, template, out_xlsm, out_json, lang=None,
-          wav_dir=None, vba_from=None, vba_to=None, copy_to=None, log=print, extra_names=None, names_from=()):
+          wav_dir=None, vba_from=None, vba_to=None, copy_to=None, log=print, extra_names=None, names_from=(),
+          team=None, kinds=None):
     import openpyxl
 
     check_destinations(template, out_xlsm, out_json, copy_to)  # before anything is written
@@ -316,6 +346,9 @@ def build(bank_path, players_path, edited_path, names_path, comm_path, template,
     with open(bank_path, encoding='utf-8') as f:
         bank = json.load(f)
     lang = lang or bank.get('lang')
+    tids = team_ids(bank, team, kinds)   # before anything is written: a wrong --team fails here
+    if tids:
+        log(f'team {tids["team"]!r}: sets {", ".join(tids["sets"])}')
     names = read_tsv_map(names_path)
     comm = read_tsv_map(comm_path)
     players = read_csv_by_playerid(players_path)
@@ -361,6 +394,15 @@ def build(bank_path, players_path, edited_path, names_path, comm_path, template,
             votes[players[pid].get('nationality')][cat] += 1
     nat_cat = {n: c.most_common(1)[0][0] for n, c in votes.items()}
 
+    def real_name(i):
+        """(name, source) of a player id: FC 27 database, template, --extra-names, --names-from; (None, None)"""
+        for where, get in (('fc27 db', player_name), ('template', lambda x: name26.get(('real', x))),
+                           ('extra names', extra.get), ('other masters', other.get)):
+            n = get(i)
+            if n:
+                return n, where
+        return None, None
+
     rows = []
     missing_names = collections.Counter()
     name_from = collections.Counter()   # where the 'real' rows' names came from (logged)
@@ -368,13 +410,9 @@ def build(bank_path, players_path, edited_path, names_path, comm_path, template,
         for b in bank.get(bkey, []) if typ not in OLD_TYPES else bank[bkey]:
             i = int(b[key])
             if key == 'playerid':
-                n = None
-                for where, get in (('fc27 db', player_name), ('template', lambda x: name26.get(('real', x))),
-                                   ('extra names', extra.get), ('other masters', other.get)):
-                    n = get(i)
-                    if n:
-                        name_from[where] += 1
-                        break
+                n, where = real_name(i)
+                if n:
+                    name_from[where] += 1
                 cat = cat26.get(('real', i)) or (nat_cat.get(players[i].get('nationality')) if i in players else None)
             else:
                 n = comm.get(i) or name26.get(('generic', i))
@@ -433,7 +471,22 @@ def build(bank_path, players_path, edited_path, names_path, comm_path, template,
     high_ids = sorted({int(b['playerid']) for b in bank.get('real_high', [])})
     gen_ids = sorted({int(b['commentaryid']) for b in bank['generic']})
     gen_high_ids = sorted({int(b['commentaryid']) for b in bank.get('generic_high', [])})
+    if tids:   # a bank with per-set ids: the team's sets (the rows above are its primary set only)
+        real_ids, link_ids, high_ids = tids['simple'], tids['link'], tids['high']
+        gen_ids, gen_high_ids = tids['generic'], tids['generic_high']
     real_set = set(real_ids)
+    # names of every player with an own recording (SIMPLE, LINK or HIGH), rows first, then the same name chain
+    own_ids = real_set | set(link_ids) | set(high_ids)
+    player_names = {}
+    for seg, var, i, n, typ, cat in rows:
+        if n and typ in ('real', 'real link', 'real high'):
+            player_names.setdefault(i, n)
+    for i in sorted(own_ids - set(player_names)):
+        n, _where = real_name(i)
+        if n:
+            player_names[i] = n
+    unnamed = sorted(own_ids - set(player_names))
+    log(f'own-recording players: {len(own_ids)}, without a name: {len(unnamed)} {unnamed[:20]}')
     counts = {'rows': len(rows), 'real_rows': sum(r[4] == 'real' for r in rows),
               'generic_rows': sum(r[4] == 'generic' for r in rows), 'real_players': len(real_ids),
               'real_link_players': len(link_ids), 'own_recording_players': len(real_set | set(link_ids)),
@@ -443,7 +496,8 @@ def build(bank_path, players_path, edited_path, names_path, comm_path, template,
               'real_high_rows': sum(r[4] == 'real high' for r in rows),
               'generic_high_rows': sum(r[4] == 'generic high' for r in rows),
               'real_high_players': len(high_ids), 'generic_high_ids': len(gen_high_ids),
-              'any_recording_players': len(real_set | set(link_ids) | set(high_ids))}
+              'any_recording_players': len(real_set | set(link_ids) | set(high_ids)),
+              'unnamed_players': len(unnamed)}
     # real_players stays SIMPLE | LINK: the game's kick-off check (GetCallname) asks PLAYER_LOW_SIMPLE / _LINK only
     # (docs/re/inmatch-callnames.md section 0.2), so a HIGH-only player still gets his database callname
     out = {'turbo_masters': 1, 'language': lang, 'game': 'fc27', 'game_build': bank.get('game_build'),
@@ -451,9 +505,15 @@ def build(bank_path, players_path, edited_path, names_path, comm_path, template,
            'real_players': sorted(real_set | set(link_ids)), 'real_simple_players': real_ids,
            'real_link_players': link_ids, 'generic_ids': gen_ids,
            'real_high_players': high_ids, 'generic_high_ids': gen_high_ids,
-           'names': {str(i): n for i, n in sorted(idnames.items()) if i in real_set},
+           'names': {str(i): n for i, n in sorted(player_names.items()) if i in own_ids},
+           'unnamed_players': unnamed,
            'generic_names': {str(i): comm.get(i, '') for i in gen_ids},
            'wav_dir': wav_dir, 'segments': segments}
+    if tids:
+        u = bank.get('union') or {}
+        out.update({'team': tids['team'], 'bank_sets': tids['sets'],
+                    'real_players_all_teams': sorted(set(u.get('simple', [])) | set(u.get('link', [])))})
+        counts['real_players_all_teams'] = len(out['real_players_all_teams'])
     out_json_dir = os.path.dirname(os.path.abspath(out_json))
     os.makedirs(out_json_dir, exist_ok=True)
     with open(out_json, 'w', encoding='utf-8') as f:
@@ -660,7 +720,8 @@ def self_test():
             j = json.load(f)
         check(list(j) == ['turbo_masters', 'language', 'game', 'game_build', 'source', 'built', 'counts',
                           'real_players', 'real_simple_players', 'real_link_players', 'generic_ids',
-                          'real_high_players', 'generic_high_ids', 'names', 'generic_names', 'wav_dir', 'segments'],
+                          'real_high_players', 'generic_high_ids', 'names', 'unnamed_players', 'generic_names',
+                          'wav_dir', 'segments'],
               'json keys')
         check(j['wav_dir'] == wav_dir, 'json wav_dir')
         check(j['segments'] == {'generic': {'900001': [1], '900002': [2]},
@@ -673,13 +734,14 @@ def self_test():
               and j['game_build'] == '1.0.test' and j['source'] == out_xlsm, 'json header fields')
         check(j['real_players'] == [100, 200, 300, 400, 500] and j['real_simple_players'] == [100, 200, 300, 400]
               and j['real_link_players'] == [100, 500] and j['generic_ids'] == [900001, 900002], 'json id lists')
-        check(j['names'] == {'100': 'Émile Zola', '200': 'Ángel Álvarez', '300': 'Beta'}, 'json names (SIMPLE only)')
+        check(j['names'] == {'100': 'Émile Zola', '200': 'Ángel Álvarez', '300': 'Beta'}
+              and j['unnamed_players'] == [400, 500], 'json names (own recordings) and the unnamed players')
         check(j['generic_names'] == {'900001': 'Rossi', '900002': 'Äbel'}, 'json generic names')
         check(j['counts'] == {'rows': 11, 'real_rows': 5, 'generic_rows': 2, 'real_players': 4, 'real_link_players': 2,
                               'own_recording_players': 5, 'generic_ids': 2, 'real_in_fc27_db': 3,
                               'missing_names': {'real': 1, 'real link': 1}, 'category_empty': 3, 'real_link_rows': 2,
                               'real_high_rows': 1, 'generic_high_rows': 1, 'real_high_players': 1, 'generic_high_ids': 1,
-                              'any_recording_players': 5}, 'json counts')
+                              'any_recording_players': 5, 'unnamed_players': 2}, 'json counts')
         check(out == j, 'returned dict equals the written JSON')
         # no --wav-dir and none in the bank: an empty wav_dir, the SIMPLE / generic segments, no real_link
         out2 = build(p('ita_it_bank.json'), p('players.csv'), p('edited.csv'), p('names.txt'), p('comm.txt'),
@@ -848,6 +910,10 @@ def main(argv=None):
     ap.add_argument('--copy-to')
     ap.add_argument('--extra-names', help=f'default: {DEFAULT_EXTRA_NAMES} when it exists; \'\' = none')
     ap.add_argument('--names-from', action='append', default=[], metavar='WORKBOOK')
+    ap.add_argument('--team', help='commentary team of a bank with per-set ids (eng_us: dr, gm); default: the bank\'s '
+                                   'primary set\'s team')
+    ap.add_argument('--kinds', default='full,demo,licensed',
+                    help='set kinds whose ids make the lists (default %(default)s)')
     ap.add_argument('--self-test', action='store_true')
     a = ap.parse_args(argv)
     if a.self_test:
@@ -881,7 +947,7 @@ def main(argv=None):
             ap.error(f'--names-from {wbp} not found')
     out = build(a.bank, a.players, a.edited, a.names, a.commentary, a.template, a.out_xlsm, a.out_json, a.lang,
                 wav_dir=a.wav_dir, vba_from=a.vba_from, vba_to=a.vba_to, copy_to=a.copy_to, extra_names=extra or None,
-                names_from=a.names_from)
+                names_from=a.names_from, team=a.team, kinds=[k.strip() for k in a.kinds.split(',') if k.strip()])
     print(json.dumps(out['counts'], indent=1))
     print(f"wrote {out['source']}\nwrote {a.out_json}")
     return 0
