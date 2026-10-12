@@ -72,6 +72,8 @@ inline const std::vector<Spec>& all() {
         {"##keptlist", "Turbo Tools > Kept player edits", kData | ImGuiTableFlags_ScrollY, true},
         {"##clubrows", "Club search dropdown (popup under the box)", ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV, true, true},
         {"##keptplayer", "Players > kept edits tooltip (auto-sizing, cannot be clicked)", ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg, false, true},
+        {"##pidtable", "Players > Create player > Use a hidden player's id (auto-sizing modal)",
+         ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit, true, true},
     };
     return v;
 }

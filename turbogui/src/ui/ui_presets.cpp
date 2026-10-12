@@ -488,7 +488,182 @@ static void clone_dialog(App& app, const PlayerRow& p) {
     }
 }
 
+// ---------------------------------------------------------------- Create player: the Player ID box (core/player_id.h)
+// Empty = automatic (Lua's first free id, as before). A typed id is checked against every per-player table of this career
+// and the asset catalog while it is typed (the verdict below the box), again from a fresh scan at the click, and once more
+// by Lua's create_player and Turbo.dll's player_create before anything is written.
+static CreateIdState g_create_id;
+const CreateIdState& create_id_state() { return g_create_id; }
+
+struct CreateIdBox {
+    char text[16] = "";
+    player_id::Use use;
+    uint64_t use_version = ~0ull;
+    bool typed_off = false;
+    // the verdict is worked out again only when one of its inputs changes
+    std::string v_text, v_lang;
+    const void* v_cat = nullptr;
+    uint64_t v_version = ~0ull;
+    bool v_off = false, v_done = false;
+    // the picker's list
+    std::vector<player_id::Hidden> hidden;
+    const void* h_cat = nullptr;
+    uint64_t h_version = ~0ull;
+    std::string h_lang;
+    char search[64] = "";
+    int want = 0;
+};
+
+static bool typed_ids_off(App& app) {
+    std::error_code ec;
+    return fs::exists(app.turbo_output() / player_id::typed_off_name(), ec);
+}
+
+static const char* const kPlayerIdTip =
+    "Empty = automatic: the first free id above every existing one (ids that carry a game head are passed over).\n"
+    "A typed id must be 1 to 459,999 and free in every per-player table of this career (players, names, club links, loans, "
+    "transfers, career tables); Turbo checks it again right before the player is created.\n"
+    "When the game files ship a 3D head or a callname for the id, the new player uses them.";
+
+// The box, its verdict lines and the "Use a hidden player's id" picker; returns the verdict for the Create button
+static const player_id::Verdict& player_id_box(App& app, CreateIdBox& b) {
+    if (ImGui::IsWindowAppearing() || b.use_version != app.model.version()) {
+        b.use = player_id::scan(app.db);
+        b.use_version = app.model.version();
+        b.typed_off = typed_ids_off(app);
+    }
+    const auto cat = app.asset_catalog();
+    const std::string& lang = app.callnames.lang;
+    if (!b.v_done || b.v_text != b.text || b.v_cat != cat.get() || b.v_version != b.use_version || b.v_lang != lang || b.v_off != b.typed_off) {
+        g_create_id.verdict = player_id::check(b.text, b.use, cat.get(), lang, b.typed_off);
+        b.v_text = b.text;
+        b.v_cat = cat.get();
+        b.v_version = b.use_version;
+        b.v_lang = lang;
+        b.v_off = b.typed_off;
+        b.v_done = true;
+    }
+    g_create_id.text = b.text;
+    g_create_id.typed_off = b.typed_off;
+    const player_id::Verdict& v = g_create_id.verdict;
+
+    ImGui::SeparatorText("Player ID");
+    form_label("Player ID", kPlayerIdTip);
+    ImGui::SetNextItemWidth(S(110.0f));
+    if (b.typed_off) ImGui::BeginDisabled();
+    ImGui::InputTextWithHint("##playerid", "automatic", b.text, sizeof(b.text), ImGuiInputTextFlags_CharsDecimal);
+    if (b.typed_off) ImGui::EndDisabled();
+    ImGui::SameLine();
+    std::string pick_why;
+    if (b.typed_off) pick_why = std::string("typed player ids are switched off (turbo_output\\") + player_id::typed_off_name() + ")";
+    else if (!cat->loaded()) pick_why = "no asset catalog is loaded: " + cat->status_line();
+    else if (cat->hidden_off()) pick_why = "hidden assets are switched off (turbo_output\\asset_hidden_off.txt)";
+    if (!pick_why.empty()) ImGui::BeginDisabled();
+    if (ImGui::Button("Use a hidden player's id...")) {
+        b.search[0] = 0;
+        ImGui::OpenPopup("##pidpick");
+    }
+    if (!pick_why.empty()) ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("%s", pick_why.empty() ? "Ids whose 3D head or callname ships with the game and that no player of this save has" : pick_why.c_str());
+
+    const ImVec4 warn(1, 0.6f, 0.3f, 1), good(0.45f, 0.85f, 0.45f, 1);
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + S(560.0f));
+    if (!v.ok) {
+        std::string why = v.reason;
+        if (!v.owners.empty() && v.owners.front() == "players") {
+            const std::string who = app.model.player_name(v.id);
+            if (!who.empty()) why += " (" + who + ")";
+        }
+        ImGui::TextColored(warn, "Not possible: %s", why.c_str());
+    } else if (v.automatic) {
+        ImGui::TextDisabled("Automatic: the first free id above every existing one, below 460,000.");
+    } else {
+        ImGui::TextColored(good, "Player ID %lld is free in this career.", static_cast<long long>(v.id));
+        if (!v.assets_line.empty()) ImGui::TextWrapped("%s", v.assets_line.c_str());
+        for (const auto& n : v.notes) ImGui::TextDisabled("Note: %s", n.c_str());
+    }
+    ImGui::PopTextWrapPos();
+
+    if (ImGui::BeginPopupModal("##pidpick", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (b.h_cat != cat.get() || b.h_version != b.use_version || b.h_lang != lang) {
+            b.hidden = player_id::hidden_ids(cat.get(), b.use, lang);
+            b.h_cat = cat.get();
+            b.h_version = b.use_version;
+            b.h_lang = lang;
+        }
+        ImGui::TextUnformatted("Use a hidden player's id");
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + S(560.0f));
+        ImGui::TextDisabled("Ids whose 3D head or callname (%s) ships with the game and that no player of this save has, usually players "
+                            "who left the database. A new player with the id uses them. Names come from the asset catalog on this PC.",
+                            lang.empty() ? "any language" : lang.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::SetNextItemWidth(S(240.0f));
+        ImGui::InputTextWithHint("##pidsearch", "name or id", b.search, sizeof(b.search));
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(S(200.0f));
+        if (ImGui::BeginCombo("##pidwant", player_id::want_label(static_cast<player_id::Want>(b.want)))) {
+            for (int w = 0; w < 4; ++w)
+                if (ImGui::Selectable(player_id::want_label(static_cast<player_id::Want>(w)), b.want == w)) b.want = w;
+            ImGui::EndCombo();
+        }
+        const std::vector<const player_id::Hidden*> rows = player_id::pick(b.hidden, static_cast<player_id::Want>(b.want), b.search);
+        g_create_id.hidden = b.hidden.size();
+        g_create_id.shown = rows.size();
+        ImGui::TextDisabled("%zu of %zu ids", rows.size(), b.hidden.size());
+        const ImGuiTableFlags tf = ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit;
+        if (ImGui::BeginTable("##pidtable", 5, tf, ImVec2(S(560.0f), S(300.0f)))) {
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableSetupColumn("ID");
+            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("3D head");
+            ImGui::TableSetupColumn("Callname");
+            ImGui::TableSetupColumn("");
+            ImGui::TableHeadersRow();
+            ImGuiListClipper clip;
+            clip.Begin(static_cast<int>(rows.size()));
+            while (clip.Step()) {
+                for (int i = clip.DisplayStart; i < clip.DisplayEnd; ++i) {
+                    const player_id::Hidden& h = *rows[static_cast<size_t>(i)];
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%lld", static_cast<long long>(h.id));
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(h.name.empty() ? "(no name in the catalog)" : h.name.c_str());
+                    if (!h.source.empty() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", assets::name_source_label(h.source).c_str());
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(h.head ? (h.miniface ? "yes + miniface" : "yes") : "-");
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(h.callname ? "yes" : "-");
+                    ImGui::TableNextColumn();
+                    char lbl[40];
+                    std::snprintf(lbl, sizeof(lbl), "Use##pid%lld", static_cast<long long>(h.id));
+                    if (ImGui::SmallButton(lbl)) {
+                        std::snprintf(b.text, sizeof(b.text), "%lld", static_cast<long long>(h.id));
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+            }
+            ImGui::EndTable();
+        }
+        if (ImGui::Button("Cancel##pidpick")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+    return v;
+}
+
+// The overrides' id part of a create: nothing for an automatic id; "playerid" for a typed one, and "id_assets" when a
+// current catalog knows a head or a callname for it (Lua gives that head: headassetid = id, headclasscode 0)
+static void put_player_id(json& o, const player_id::Verdict& v) {
+    if (!v.ok || v.automatic) return;
+    o["playerid"] = v.id;
+    const player_id::Assets& a = v.assets;
+    if (a.loaded && a.current && a.any())
+        o["id_assets"] = {{"head3d", v.give_head}, {"headvariation", a.head_var}, {"callname", a.callname()}, {"miniface", a.miniface}};
+}
+
 static void create_dialog(App& app, const PlayerRow& p) {
+    static CreateIdBox idbox;
     static int teamid = 111592;
     static char first[64] = "", last[64] = "", common[64] = "", jname[64] = "";
     static int overall = 65, potential = 70, position = 25, birth_year = 2004, nationality = 0, foot = 1, height = 180, weight = 75;
@@ -526,6 +701,7 @@ static void create_dialog(App& app, const PlayerRow& p) {
         ImGui::SeparatorText("Club");
         club_picker(app, teamid);
         club_notes(app, teamid);
+        const player_id::Verdict& idv = player_id_box(app, idbox);
         ImGui::SeparatorText("Profile");
         form_label("Position", "The game's positions; internal codes behind the toggle in the list");
         position_combo("##position", position, S(200.0f));
@@ -558,10 +734,23 @@ static void create_dialog(App& app, const PlayerRow& p) {
         potential = std::max(1, std::min(potential, 99));
         birth_year = std::max(1950, std::min(birth_year, 2030));
         bool has_name = first[0] || last[0] || common[0];
-        bool can = has_name && app.model.team(teamid) != nullptr;
+        bool can = has_name && app.model.team(teamid) != nullptr && idv.ok;
         if (!has_name) ImGui::TextDisabled("Give the player a name.");
         if (!can) ImGui::BeginDisabled();
-        if (ImGui::Button("Create player")) {
+        bool create = ImGui::Button("Create player");
+        if (create) {
+            // the id again from a fresh scan: the tables may have changed since the box was checked
+            const player_id::Use fresh = player_id::scan(app.db);
+            const player_id::Verdict now = player_id::check(idbox.text, fresh, app.asset_catalog().get(), app.callnames.lang, typed_ids_off(app));
+            g_create_id.verdict = now;
+            idbox.v_done = false;
+            if (!now.ok) {
+                app.notify("Create player: " + now.reason, true);
+                create = false;
+            }
+        }
+        if (create) {
+            const player_id::Verdict& now = g_create_id.verdict;
             GameDate bd{birth_year, 7, 1};
             json set = json::object();
             const Table* pt = app.db.table("players");
@@ -578,6 +767,11 @@ static void create_dialog(App& app, const PlayerRow& p) {
             put("birthdate", gregorian_days_from_date(bd));
             json o = {{"source", {{"playerid", p.playerid}}}, {"teamid", teamid}, {"set", set},
                       {"names", names_json(first, last, common, jname)}};
+            put_player_id(o, now);
+            g_create_id.sent = o;
+            app.log(now.automatic ? std::string("Create player: automatic player id")
+                                  : "Create player: player id " + std::to_string(now.id) + " typed" +
+                                        (o.contains("id_assets") ? " (game files: " + now.assets_line + ")" : std::string()));
             app.send({{"op", "run"}, {"module", "create_player"}, {"overrides", o}}, "Create player");
             ImGui::CloseCurrentPopup();
         }
