@@ -1,0 +1,607 @@
+{
+  "_doc": [
+    "Turbo gameplay tuning knobs for FC27.exe build 6AC07E31-2145C000 (turbogui/src/core/tuning.h).",
+    "Source: turbo_output\\TACTICS_MOD_CATALOGUE.txt sections 2, 4, 6 and 7 (FC 27 type data). collection = the attribulator group, field = the",
+    "reflected field name, offset = its offset in the group's type, default = FC 27's own value (copy_defaults: a database copy whose FC 27",
+    "value differs). min / max are Turbo's generic safety bounds. No gameplay mod's values are in this file; Turbo's presets are relative.",
+    "A knob or locator with 'verified': false is shown as 'not located on this build' and never written. 'verified': true is set only from a",
+    "live locator run in the running game (turbo_output\\ATTRIBULATOR_LIVE.json: the type found by name with this signature / size / field",
+    "count, one instance per variant found by its Name, the field offsets equal). A verified knob needs collection, field, locator, offset,",
+    "min, max and default; a verified attrib locator needs type, type_signature, type_size, type_fields and every variant's instance name,",
+    "else the whole file is refused. Variants = the attribulator database copies of a group (base gameplayattribdb, simulation = Authentic):",
+    "one knob writes every copy together. head (optional) = what an instance holds at +0 ('typeinfo' or 'image'), head_rva = its exact RVA.",
+    "Keys starting with '_' are comments."
+  ],
+  "schema": "turbo-tuning-knobs/1",
+  "build": "6AC07E31-2145C000",
+  "version": 3,
+  "note": "catalogue entries (FC 27 type data and FC 27's own values); the attacking line group and the defensive depth bands verified live 2026-10-13",
+  "locators": [
+    {
+      "name": "attrib.attackinglinelengthwidth",
+      "kind": "attrib",
+      "type": "AttribSchema_gp_positioningformation_linelengthwidth",
+      "type_signature": "0x1f261d29",
+      "type_size": "0x58",
+      "type_fields": 12,
+      "variants": [
+        {
+          "name": "base",
+          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioningformation/gp_positioningformation_attackinglinelengthwidth_runtime",
+          "db": "Fifa/Attribulator/Gameplay/gameplayattribdb",
+          "guid": "1852d61d-8c0d-edf7-37a7-258314497a5c"
+        }
+      ],
+      "verified": true,
+      "note": "team shape with the ball (catalogue 6 #4-#5). VERIFIED live 2026-10-13 (ATTRIBULATOR_LIVE.json, hub run): one object shared by all 15 gameplay databases incl. simulation (Authentic); type, field offsets, vtable, TypeInfo, Name, asset GUID and the database chain",
+      "db_type": "AttribDBRuntime_gameplayattribdb",
+      "db_type_signature": "0xa5106425",
+      "group_type": "AttribGroupRuntime_gp_positioningformation",
+      "group_type_signature": "0x7ade3bd5",
+      "family_slot": "0x128",
+      "group_slot": "0x28",
+      "head": "typeinfo",
+      "head_rva": "0xa9ba448"
+    },
+    {
+      "name": "attrib.defensivelinelengthwidth",
+      "kind": "attrib",
+      "type": "AttribSchema_gp_positioningformation_linelengthwidth",
+      "type_signature": "0x1f261d29",
+      "type_size": "0x58",
+      "type_fields": 12,
+      "variants": [
+        {
+          "name": "base",
+          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioningformation/gp_positioningformation_defensivelinelengthwidth_runtime"
+        }
+      ],
+      "verified": false,
+      "note": "team shape without the ball (catalogue 6 #2-#3); base database only"
+    },
+    {
+      "name": "attrib.zonal_defense",
+      "kind": "attrib",
+      "type": "AttribSchema_gp_positioning_zonal_defense",
+      "type_signature": "0x3edbaf9a",
+      "type_size": "0x6c8",
+      "type_fields": 237,
+      "variants": [
+        {
+          "name": "base",
+          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioning/gp_positioning_zonal_defense_runtime"
+        },
+        {
+          "name": "simulation",
+          "instance": "Fifa/Attribulator/Gameplay/databases/simulation/groups/gp_positioning/gp_positioning_zonal_defense_runtime"
+        }
+      ],
+      "verified": false,
+      "note": "gaps between the lines, pressing / zone marking depths (catalogue 6 #7, #9); base and Authentic (simulation) copies, written together"
+    },
+    {
+      "name": "attrib.defense_general",
+      "kind": "attrib",
+      "type": "AttribSchema_gp_positioning_defense_general",
+      "type_signature": "0xab567373",
+      "type_size": "0xc0",
+      "type_fields": 24,
+      "variants": [
+        {
+          "name": "base",
+          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioning/gp_positioning_defense_general_runtime"
+        },
+        {
+          "name": "simulation",
+          "instance": "Fifa/Attribulator/Gameplay/databases/simulation/groups/gp_positioning/gp_positioning_defense_general_runtime"
+        }
+      ],
+      "verified": false,
+      "note": "line holding depth, team press switches (catalogue 6 #11); base and Authentic (simulation) copies, written together"
+    },
+    {
+      "name": "attrib.markingtightness",
+      "kind": "attrib",
+      "type": "AttribSchema_gp_positioning_markingtightness",
+      "type_signature": "0xb7e8579a",
+      "type_size": "0x30",
+      "type_fields": 1,
+      "variants": [
+        {
+          "name": "base",
+          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioning/gp_positioning_markingtightness_runtime"
+        }
+      ],
+      "verified": false,
+      "note": "marking tightness of every player (catalogue 6 #16)"
+    },
+    {
+      "name": "attrib.attackingaggressiveness",
+      "kind": "attrib",
+      "type": "AttribSchema_gp_positioning_attackingaggressiveness",
+      "type_signature": "0xe2687849",
+      "type_size": "0x30",
+      "type_fields": 1,
+      "variants": [
+        {
+          "name": "base",
+          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioning/gp_positioning_attackingaggressiveness_runtime"
+        }
+      ],
+      "verified": false,
+      "note": "how often players make runs (catalogue 6 #17)"
+    },
+    {
+      "name": "attrib.teamtacticssettings",
+      "kind": "attrib",
+      "type": "AttribSchema_pm_teamtacticssettings",
+      "type_signature": "0xe7e46eee",
+      "type_size": "0x50",
+      "type_fields": 9,
+      "variants": [
+        {
+          "name": "base",
+          "instance": "Fifa/Attribulator/PreMatch/groups/pm_teamtacticssettings/teamtacticssettings_runtime",
+          "db": "Fifa/Attribulator/PreMatch/prematchattribdb",
+          "guid": "ff0dde9e-c31f-b1e4-d8a6-d1796b57655e"
+        }
+      ],
+      "verified": true,
+      "note": "prematch: the defensive depth bands of the four defensive styles (catalogue 6 #1). VERIFIED live 2026-10-13 (ATTRIBULATOR_LIVE.json, hub run): type, field offsets, vtable, TypeInfo, Name, asset GUID and the database chain",
+      "db_type": "AttribDBRuntime_prematchattribdb",
+      "db_type_signature": "0xb8b9b8bb",
+      "group_type": "AttribGroupRuntime_pm_teamtacticssettings",
+      "group_type_signature": "0xf1168603",
+      "family_slot": "0x40",
+      "group_slot": "0x18",
+      "head": "typeinfo",
+      "head_rva": "0xa9bf170"
+    }
+  ],
+  "knobs": [
+    {
+      "id": "shape.width_in",
+      "label": "Team width with the ball",
+      "group": "Shape with the ball",
+      "collection": "gp_positioningformation_attackinglinelengthwidth",
+      "field": "lineWidthModifier",
+      "type": "f32",
+      "unit": "x",
+      "min": 0.6,
+      "max": 1.7,
+      "default": 1.0,
+      "step": 0.01,
+      "locator": "attrib.attackinglinelengthwidth",
+      "offset": "0x28",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": true,
+      "notes": "How wide the team spreads out when it has the ball. 1.00 = FC 27; higher = wider."
+    },
+    {
+      "id": "shape.width_in_cb",
+      "label": "Centre-back split with the ball",
+      "group": "Shape with the ball",
+      "collection": "gp_positioningformation_attackinglinelengthwidth",
+      "field": "lineWidthModifierForCB",
+      "type": "f32",
+      "unit": "x",
+      "min": 0.6,
+      "max": 1.7,
+      "default": 1.0,
+      "step": 0.01,
+      "locator": "attrib.attackinglinelengthwidth",
+      "offset": "0x3c",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": true,
+      "notes": "How far apart the centre-backs split when the team builds up. 1.00 = FC 27; higher = wider."
+    },
+    {
+      "id": "shape.length_in",
+      "label": "Team length with the ball (balanced build-up)",
+      "group": "Shape with the ball",
+      "collection": "gp_positioningformation_attackinglinelengthwidth",
+      "field": "LineLengthModifierForBalanced",
+      "type": "f32",
+      "unit": "x",
+      "min": 0.5,
+      "max": 1.5,
+      "default": 0.84,
+      "step": 0.01,
+      "locator": "attrib.attackinglinelengthwidth",
+      "offset": "0x30",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": true,
+      "notes": "Distance from the back line to the front line when attacking with the balanced build-up. Higher = a longer, more stretched team."
+    },
+    {
+      "id": "shape.length_in_possession",
+      "label": "Team length with the ball (possession build-up)",
+      "group": "Shape with the ball",
+      "collection": "gp_positioningformation_attackinglinelengthwidth",
+      "field": "LineLengthModifierForPossession",
+      "type": "f32",
+      "unit": "x",
+      "min": 0.5,
+      "max": 1.5,
+      "default": 0.8,
+      "step": 0.01,
+      "locator": "attrib.attackinglinelengthwidth",
+      "offset": "0x50",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": true,
+      "notes": "The same for the possession (short passing) build-up. Higher = a longer, more stretched team."
+    },
+    {
+      "id": "shape.width_out",
+      "label": "Team width without the ball",
+      "group": "Shape without the ball",
+      "collection": "gp_positioningformation_defensivelinelengthwidth",
+      "field": "lineWidthModifier",
+      "type": "f32",
+      "unit": "x",
+      "min": 0.6,
+      "max": 1.7,
+      "default": 1.0,
+      "step": 0.01,
+      "locator": "attrib.defensivelinelengthwidth",
+      "offset": "0x28",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "How wide the team defends. 1.00 = FC 27; lower = narrower, more compact. Not yet confirmed in the running game: shown, never written."
+    },
+    {
+      "id": "shape.length_out",
+      "label": "Team length without the ball",
+      "group": "Shape without the ball",
+      "collection": "gp_positioningformation_defensivelinelengthwidth",
+      "field": "LineLengthModifierForBalanced",
+      "type": "f32",
+      "unit": "x",
+      "min": 0.5,
+      "max": 1.5,
+      "default": 1.0,
+      "step": 0.01,
+      "locator": "attrib.defensivelinelengthwidth",
+      "offset": "0x30",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "Distance from the back line to the front line when defending (balanced build-up). Lower = a shorter, more compact block. Not yet confirmed in the running game: shown, never written."
+    },
+    {
+      "id": "shape.gap_dmf",
+      "label": "Gap between the back line and the holding midfielders",
+      "group": "Shape without the ball",
+      "collection": "gp_positioning_zonal_defense",
+      "field": "dmfLineOffsetWhenTouchIsOnPar",
+      "type": "f32",
+      "unit": "m",
+      "min": 4.0,
+      "max": 24.0,
+      "default": 8.0,
+      "step": 0.1,
+      "locator": "attrib.zonal_defense",
+      "offset": "0x664",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "Metres between the defensive line and the holding-midfield line when defending, ball level with the lines. Lower = tighter lines. Not yet confirmed in the running game: shown, never written."
+    },
+    {
+      "id": "shape.gap_dmf_deep",
+      "label": "Gap between the back line and the holding midfielders (ball deep)",
+      "group": "Shape without the ball",
+      "collection": "gp_positioning_zonal_defense",
+      "field": "dmfLineOffsetWhenTouchIsDeep",
+      "type": "f32",
+      "unit": "m",
+      "min": 4.0,
+      "max": 24.0,
+      "default": 9.0,
+      "step": 0.1,
+      "locator": "attrib.zonal_defense",
+      "offset": "0x658",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "The same gap while the ball is deep in your half. Not yet confirmed in the running game: shown, never written."
+    },
+    {
+      "id": "shape.gap_mf_deep",
+      "label": "Gap to the midfield line (ball deep)",
+      "group": "Shape without the ball",
+      "collection": "gp_positioning_zonal_defense",
+      "field": "mfLineOffsetWithDmfLineWhenTouchIsDeep",
+      "type": "f32",
+      "unit": "m",
+      "min": 4.0,
+      "max": 24.0,
+      "default": 14.0,
+      "step": 0.1,
+      "locator": "attrib.zonal_defense",
+      "offset": "0x67c",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "Metres from the defensive line to the midfield line (formations with holding midfielders) while the ball is deep in your half. Not yet confirmed in the running game: shown, never written."
+    },
+    {
+      "id": "shape.holding_line_depth",
+      "label": "Depth at which the back line holds",
+      "group": "Shape without the ball",
+      "collection": "gp_positioning_defense_general",
+      "field": "depthThresholdForHoldingLine",
+      "type": "f32",
+      "unit": "",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.3,
+      "step": 0.01,
+      "locator": "attrib.defense_general",
+      "offset": "0x9c",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "The tactic depth (0..1) at which the back line switches to holding its height instead of dropping with the play. What a change does in a match is not measured yet. Not yet confirmed in the running game: shown, never written."
+    },
+    {
+      "id": "lineband.deep_max",
+      "label": "Deep: up to depth",
+      "group": "Defensive line depth bands",
+      "collection": "pm_teamtacticssettings",
+      "field": "maxDepthThresholdForDeepDefensiveStyle",
+      "type": "i32",
+      "unit": "",
+      "min": 0,
+      "max": 100,
+      "default": 30,
+      "locator": "attrib.teamtacticssettings",
+      "offset": "0x3c",
+      "applies": "next match setup",
+      "when": [
+        "hub"
+      ],
+      "below": [
+        "lineband.balanced_min"
+      ],
+      "verified": true,
+      "notes": "A club's Defensive Depth (1..100, in its tactic) picks one of four defensive styles: Deep, Balanced, High, Aggressive. These bands say where each style starts and ends (FC 27: Deep 1-30, Balanced 31-60, High 61-90, Aggressive 91-100). Moving a band moves the line height of every club whose depth falls in it; read when a match is set up."
+    },
+    {
+      "id": "lineband.balanced_min",
+      "label": "Balanced: from depth",
+      "group": "Defensive line depth bands",
+      "collection": "pm_teamtacticssettings",
+      "field": "minDepthThresholdForBalancedDefensiveStyle",
+      "type": "i32",
+      "unit": "",
+      "min": 0,
+      "max": 100,
+      "default": 31,
+      "locator": "attrib.teamtacticssettings",
+      "offset": "0x40",
+      "applies": "next match setup",
+      "when": [
+        "hub"
+      ],
+      "verified": true,
+      "notes": "A club's Defensive Depth (1..100, in its tactic) picks one of four defensive styles: Deep, Balanced, High, Aggressive. These bands say where each style starts and ends (FC 27: Deep 1-30, Balanced 31-60, High 61-90, Aggressive 91-100). Moving a band moves the line height of every club whose depth falls in it; read when a match is set up."
+    },
+    {
+      "id": "lineband.balanced_max",
+      "label": "Balanced: up to depth",
+      "group": "Defensive line depth bands",
+      "collection": "pm_teamtacticssettings",
+      "field": "maxDepthThresholdForBalancedDefensiveStyle",
+      "type": "i32",
+      "unit": "",
+      "min": 0,
+      "max": 100,
+      "default": 60,
+      "locator": "attrib.teamtacticssettings",
+      "offset": "0x2c",
+      "applies": "next match setup",
+      "when": [
+        "hub"
+      ],
+      "below": [
+        "lineband.high_min"
+      ],
+      "verified": true,
+      "notes": "A club's Defensive Depth (1..100, in its tactic) picks one of four defensive styles: Deep, Balanced, High, Aggressive. These bands say where each style starts and ends (FC 27: Deep 1-30, Balanced 31-60, High 61-90, Aggressive 91-100). Moving a band moves the line height of every club whose depth falls in it; read when a match is set up."
+    },
+    {
+      "id": "lineband.high_min",
+      "label": "High: from depth",
+      "group": "Defensive line depth bands",
+      "collection": "pm_teamtacticssettings",
+      "field": "minDepthThresholdForHighDefensiveStyle",
+      "type": "i32",
+      "unit": "",
+      "min": 0,
+      "max": 100,
+      "default": 61,
+      "locator": "attrib.teamtacticssettings",
+      "offset": "0x38",
+      "applies": "next match setup",
+      "when": [
+        "hub"
+      ],
+      "verified": true,
+      "notes": "A club's Defensive Depth (1..100, in its tactic) picks one of four defensive styles: Deep, Balanced, High, Aggressive. These bands say where each style starts and ends (FC 27: Deep 1-30, Balanced 31-60, High 61-90, Aggressive 91-100). Moving a band moves the line height of every club whose depth falls in it; read when a match is set up."
+    },
+    {
+      "id": "lineband.high_max",
+      "label": "High: up to depth",
+      "group": "Defensive line depth bands",
+      "collection": "pm_teamtacticssettings",
+      "field": "maxDepthThresholdForHighDefensiveStyle",
+      "type": "i32",
+      "unit": "",
+      "min": 0,
+      "max": 100,
+      "default": 90,
+      "locator": "attrib.teamtacticssettings",
+      "offset": "0x44",
+      "applies": "next match setup",
+      "when": [
+        "hub"
+      ],
+      "below": [
+        "lineband.aggressive_min"
+      ],
+      "verified": true,
+      "notes": "A club's Defensive Depth (1..100, in its tactic) picks one of four defensive styles: Deep, Balanced, High, Aggressive. These bands say where each style starts and ends (FC 27: Deep 1-30, Balanced 31-60, High 61-90, Aggressive 91-100). Moving a band moves the line height of every club whose depth falls in it; read when a match is set up."
+    },
+    {
+      "id": "lineband.aggressive_min",
+      "label": "Aggressive: from depth",
+      "group": "Defensive line depth bands",
+      "collection": "pm_teamtacticssettings",
+      "field": "minDepthThresholdForAggressiveDefensiveStyle",
+      "type": "i32",
+      "unit": "",
+      "min": 0,
+      "max": 100,
+      "default": 91,
+      "locator": "attrib.teamtacticssettings",
+      "offset": "0x34",
+      "applies": "next match setup",
+      "when": [
+        "hub"
+      ],
+      "verified": true,
+      "notes": "A club's Defensive Depth (1..100, in its tactic) picks one of four defensive styles: Deep, Balanced, High, Aggressive. These bands say where each style starts and ends (FC 27: Deep 1-30, Balanced 31-60, High 61-90, Aggressive 91-100). Moving a band moves the line height of every club whose depth falls in it; read when a match is set up."
+    },
+    {
+      "id": "pressing.trigger_depth",
+      "label": "Pressing starts at depth",
+      "group": "Pressing",
+      "collection": "gp_positioning_zonal_defense",
+      "field": "TacticDepthThresholdForZonePressing",
+      "type": "f32",
+      "unit": "",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.31,
+      "step": 0.01,
+      "locator": "attrib.zonal_defense",
+      "offset": "0x644",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "Tactic depth (0..1) from which the team presses in zones. Lower = the team presses earlier and more often. Not yet confirmed in the running game: shown, never written."
+    },
+    {
+      "id": "pressing.zone_marking_depth",
+      "label": "Zone marking starts at depth",
+      "group": "Pressing",
+      "collection": "gp_positioning_zonal_defense",
+      "field": "TacticDepthThresholdForZoneMarking",
+      "type": "f32",
+      "unit": "",
+      "min": 0.0,
+      "max": 1.5,
+      "default": 1.01,
+      "step": 0.01,
+      "locator": "attrib.zonal_defense",
+      "offset": "0x684",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "Tactic depth from which defenders mark zones instead of holding the line. Lower = zone marking starts earlier. Not yet confirmed in the running game: shown, never written."
+    },
+    {
+      "id": "pressing.no_double_marking_own_half",
+      "label": "No double marking when pressing in your own half",
+      "group": "Pressing",
+      "collection": "gp_positioning_defense_general",
+      "field": "teamPressDisableDoubleManMarkingInDefenderHalf",
+      "type": "bool",
+      "unit": "",
+      "default": 1,
+      "copy_defaults": {
+        "simulation": 0
+      },
+      "locator": "attrib.defense_general",
+      "offset": "0xb8",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "On: when the team presses in its own half, two players do not close down the same opponent. FC 27 has it on in the base database and off in Authentic (simulation); one switch writes both. Not yet confirmed in the running game: shown, never written."
+    },
+    {
+      "id": "marking.tightness",
+      "label": "Marking tightness (every player)",
+      "group": "Marking",
+      "collection": "gp_positioning_markingtightness",
+      "field": "markingTightnessUniversalModifier",
+      "type": "f32",
+      "unit": "x",
+      "min": 0.0,
+      "max": 2.5,
+      "default": 0.5,
+      "step": 0.01,
+      "locator": "attrib.markingtightness",
+      "offset": "0x28",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "How closely players stay on the opponent they mark. Higher = tighter. Not yet confirmed in the running game: shown, never written."
+    },
+    {
+      "id": "runs.frequency",
+      "label": "How often players make runs",
+      "group": "Attacking runs",
+      "collection": "gp_positioning_attackingaggressiveness",
+      "field": "runFrequencyUniversialModifier",
+      "type": "f32",
+      "unit": "x",
+      "min": 0.1,
+      "max": 5.0,
+      "default": 0.5,
+      "step": 0.01,
+      "locator": "attrib.attackingaggressiveness",
+      "offset": "0x28",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "How often attackers and supporting players make runs. Higher = more runs. Not yet confirmed in the running game: shown, never written."
+    }
+  ]
+}

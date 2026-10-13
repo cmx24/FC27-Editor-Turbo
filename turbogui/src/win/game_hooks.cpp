@@ -181,7 +181,7 @@ bool locate_game(std::string& err) {
 }
 
 // Scan one signature over every executable section (the match must be unique across all of them)
-turbo::SigResult scan_signature(const turbo::Signature& s) {
+turbo::SigResult scan_signature(const turbo::Signature& s, const std::vector<ExecSection>& sections = g_sections) {
     turbo::SigResult total;
     total.name = s.name;
     total.state = turbo::SigState::Missing;
@@ -189,7 +189,7 @@ turbo::SigResult scan_signature(const turbo::Signature& s) {
     if (s.pattern.empty()) return turbo::resolve_signature(s, nullptr, 0, 0);
     ProcessMemory mem;
     std::vector<uint8_t> buf;
-    for (const auto& sec : g_sections) {
+    for (const auto& sec : sections) {
         const size_t len = static_cast<size_t>(sec.end - sec.start);
         // The image section is readable in-process, but copy it through ReadProcessMemory so an unmapped page (the
         // protected parts of FC27.exe) fails instead of faulting. Pages that cannot be read are skipped in 64 KB steps.
@@ -492,6 +492,30 @@ uint64_t game_signature(const char* name) {
     for (const auto& r : g_results)
         if (r.name == name && r.state == turbo::SigState::Found) return r.address;
     return 0;
+}
+
+turbo::SigResult game_scan_signature(const turbo::Signature& s) {
+    std::vector<ExecSection> sections;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (g_installed && g_allowed) sections = g_sections;
+    }
+    if (sections.empty()) {
+        turbo::SigResult r;
+        r.name = s.name;
+        r.state = turbo::SigState::Skipped;
+        r.error = "game hooks are off: FC27.exe's code is not scanned";
+        return r;
+    }
+    try {
+        return scan_signature(s, sections);
+    } catch (const std::exception& e) {
+        turbo::SigResult r;
+        r.name = s.name;
+        r.state = turbo::SigState::Missing;
+        r.error = e.what();
+        return r;
+    }
 }
 
 bool game_hook_enabled(const char* name) {

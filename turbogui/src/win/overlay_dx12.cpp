@@ -33,6 +33,7 @@
 #include "transfer_list_win.h"
 #include "match_setup_win.h"
 #include "team_sheet_win.h"
+#include "tuning_win.h"
 #include "teamname_override_win.h"
 #include "game_hooks.h"
 #include "host.h"
@@ -1093,6 +1094,10 @@ bool start_overlay(HMODULE) {
     // (opt-in turbo_output\call_team_sheet_on.txt); nothing is hooked
     install_team_sheet();
     g_app->team_sheet = team_sheet_service();
+    // gameplay tuning (tuning_win.cpp): the engine's tuning tables from turbo\tuning\knobs_<build>.json, written on the game thread from
+    // Competitions > Gameplay tuning (opt-in turbo_output\tuning_on.txt); nothing is hooked, nothing is written at start-up
+    install_tuning();
+    g_app->tuning = tuning_service();
     // game editors' in-memory fallback (edit_unlock_hook_win.cpp): post-hook on the editor config loader, switches from
     // gui_settings "edit_unlock" (stage 1 on by default)
     install_edit_unlock_hook();
@@ -1112,6 +1117,7 @@ bool start_overlay(HMODULE) {
         for (const auto& line : edit_unlock_hook_status()) r.calls.push_back(line);
         for (const auto& line : team_names_status()) r.calls.push_back(line);
         for (const auto& line : team_sheet_status()) r.calls.push_back(line);
+        for (const auto& line : tuning_status()) r.calls.push_back(line);
         return r;
     };
     install_player_capture(*g_app);  // miniface from the 3D model (player_capture_win.cpp): needs the game hooks above

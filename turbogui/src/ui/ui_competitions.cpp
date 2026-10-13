@@ -13,6 +13,7 @@
 #include "imgui.h"
 #include "table_sort.h"
 #include "ui_team_filter.h"
+#include "ui_tuning.h"
 
 namespace turbo {
 
@@ -426,6 +427,13 @@ void draw_competitions(App& app) {
         }
         if (ImGui::BeginTabItem("Match setup")) {
             draw_match_setup(app);
+            ImGui::EndTabItem();
+        }
+        // the engine's gameplay tuning tables (ui_tuning.cpp): engine-wide, every club and every match, so here and not in a club's Tactics tab
+        if (ImGui::BeginTabItem("Gameplay tuning")) {
+            ImGui::BeginChild("##tuning");
+            draw_tuning(app);
+            ImGui::EndChild();
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Career database copy")) {

@@ -33,6 +33,7 @@
 #include "core/t3db.h"
 #include "core/tactic_profiles.h"
 #include "core/team_sheet.h"
+#include "core/tuning.h"
 #include "core/teamname_override.h"
 #include "nlohmann/json.hpp"
 #include "gui_prefs.h"
@@ -175,6 +176,8 @@ public:
     std::shared_ptr<msetup::Service> match_setup;
     // Tactics channel E: your club's live tactic record (core/team_sheet.h; Windows host; tests use a simulated game; null = none)
     std::shared_ptr<tsheet::Service> team_sheet;
+    // Gameplay tuning: the engine's tuning tables (core/tuning.h, ui_tuning.cpp; Windows host; tests use a simulated table; null = none)
+    std::shared_ptr<tuning::Service> tuning;
     std::string match_setup_status;  // last variable outcome shown in the Match setup view
     int texture_test_frames = 0;
     double lua_heartbeat_seen_at = -1.0;
