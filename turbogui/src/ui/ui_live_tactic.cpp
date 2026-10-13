@@ -638,6 +638,16 @@ void handle_result(App& app, const ApplyResult& r) {
     } else if (r.ok) {
         if (g.prev_have) save_record(app, g.prev);
         app.notify("Live tactic: " + r.message);
+    } else if (r.restore_failed) {
+        // putting back FAILED: values of this job may still be in the game, Edit Tactic's copies' too. The record (this Apply merged with an
+        // earlier write) names every field the job wrote, the copies with their values from before Turbo's first write, so Undo (allowed after
+        // "failed") can put back each one that still holds Turbo's value
+        UndoRecord u = g.undo;
+        add_job_writes(u, r.writes);
+        u.state = "failed";
+        u.note = r.stage + ": " + r.message;
+        save_record(app, u);
+        app.notify("Live tactic not written: " + r.message, true);
     } else {
         // nothing of this Apply is in the game (refused before writing, or every field put back): the earlier record stays
         if (g.prev_have && g.prev.state == "written") {
@@ -646,7 +656,7 @@ void handle_result(App& app, const ApplyResult& r) {
             save_record(app, u);
         } else {
             UndoRecord u = g.undo;
-            u.state = r.undone ? "undone" : (r.restore_failed ? "failed" : "aborted");
+            u.state = r.undone ? "undone" : "aborted";
             u.note = r.stage + ": " + r.message;
             save_record(app, u);
         }

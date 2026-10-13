@@ -294,6 +294,21 @@ struct FlakyMemory : Memory {
     }
 };
 
+// A memory where, while `on`, the writes to `drop` never land and a write to `once` lands the first time only (putting it back then fails)
+struct StickyMemory : Memory {
+    SimMemory& m;
+    bool on = false;
+    uint64_t drop = 0, once = 0;
+    int once_writes = 0;
+    explicit StickyMemory(SimMemory& mm) : m(mm) {}
+    bool read(uint64_t a, void* out, size_t n) override { return m.read(a, out, n); }
+    bool write(uint64_t a, const void* in, size_t n) override {
+        if (on && a == drop) return true;
+        if (on && a == once && once_writes++ > 0) return true;
+        return m.write(a, in, n);
+    }
+};
+
 static LiveTactic live(SheetWorld& w) {
     LiveTactic lt;
     read_live(w.mem, SheetWorld::kSvc, w.team, w.anchors(), lt);
@@ -2118,6 +2133,92 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         for (const char* f : {opt_in_file(), kill_switch_file(), undo_file(), mirror_on_file()}) fs::remove(out / f, ec);
         st = saved;
         st["seq"] = saved.value("seq", 0LL) + 50;
+        write_state();
+        live_tactic_reset();
+    });
+
+    // review: a job whose putting back failed may leave values in Edit Tactic's working copies; the undo file must name them (it named the
+    // map record's fields only), so Undo can put them back
+    run_case("UI: channel E - putting back failed: the undo file names every field the job wrote, Edit Tactic's copies too; Undo puts them back", [&] {
+        live_tactic_reset();
+        const fs::path out = le / "turbo_output";
+        std::error_code ec;
+        for (const char* f : {opt_in_file(), kill_switch_file(), master_switch_file(), undo_file(), mirror_off_file(), mirror_on_file()}) fs::remove(out / f, ec);
+        SheetWorld w(1, 10);
+        StickyMemory sm(w.mem);
+        ServiceRig rig(w, out, &sm);
+        rig.find_returns = SheetWorld::kSvc;
+        rig.jobs.inline_run = true;
+        app.team_sheet = rig.svc;
+        const fs::path state_file = out / "bridge_state.json";
+        json st = read_json(state_file);
+        const json saved = st;
+        int bumps = 600;
+        auto write_state = [&]() {
+            {
+                std::ofstream f(state_file.string(), std::ios::binary | std::ios::trunc);
+                f << st.dump();
+            }
+            fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(2 * ++bumps));
+            app.next_poll = 0.0;
+            ui.frames(3);
+        };
+        st["match_phase"] = "hub";
+        st["team_mgmt"] = false;
+        st["managers"] = hex_addr(SheetWorld::kManagers);
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        tactics_tab_test::select_team(app, ui, 7);
+        tactics_tab_test::go_scope(ui, "My team");
+        ui.frames(3);
+        const LiveTacticState& s = live_tactic_state();
+        rig.clock += 6e6;
+        ui.frames(70);
+        CHECK(s.read_ok && s.summary.find("Defensive Approach Deep (0), Line Height 25") != std::string::npos, "read: " + s.summary);
+        if (!s.card_open) ui.click("Edit the live tactic (channel E)##ltcard", "##tacright");
+        ui.frames(2);
+        std::ofstream(out / opt_in_file()) << "x";
+        lt_scroll_to(ui, "Deep##ltap0");
+        CHECK(ui.click("Aggressive##ltap3", "##tacright"), "Aggressive picked");
+        ui.frames(2);
+        CHECK(ui.type_into(ui.find("##ltlhbox", "##tacright"), "90"), "line height typed");
+        ui.frames(2);
+        CHECK(ui.click("Counter##ltbu1", "##tacright"), "Counter picked");
+        ui.frames(130);
+        CHECK(s.can_apply && s.status == "ready", "ready: " + s.status);
+        // the map record's Line Height write never lands (read-back mismatch); svc+0xF80's approach takes the write, then refuses to go back
+        sm.drop = SheetWorld::kRecs + kRecLineHeight;
+        sm.once = w.copy_rec(0xF80) + kRecApproach;
+        sm.on = true;
+        lt_scroll_top(ui);
+        CHECK(ui.click("Apply to the live tactic##ltapply", "##tacright"), "Apply clicked");
+        ui.frames(2);
+        CHECK(ui.click("Apply##ltyes", "Apply to the live tactic?"), "confirmed");
+        ui.frames(4);
+        sm.on = false;
+        CHECK(s.last.find("READ-BACK MISMATCH") != std::string::npos && s.last.find("undo FAILED") != std::string::npos, "last: " + s.last);
+        CHECK(w.i32(SheetWorld::kRecs + kRecApproach) == 0 && w.i32(SheetWorld::kRecs + kRecLineHeight) == 25 && w.i32(w.copy_rec(0x1170) + kRecApproach) == 0 &&
+                  w.i32(w.copy_rec(0xF80) + kRecLineHeight) == 25 && w.i32(w.copy_rec(0xF80) + kRecApproach) == 3,
+              "everything put back but svc+0xF80's Defensive Approach");
+        UndoRecord u;
+        std::string err;
+        bool names_copy = false;
+        CHECK(load_undo(out / undo_file(), u, &err) && u.state == "failed", "undo file: failed: " + u.state + " " + err);
+        for (const FieldWrite& x : u.writes) names_copy = names_copy || (x.copy == 0xF80 && x.kind == FieldKind::Approach && x.old_value == 0 && x.new_value == 3);
+        CHECK(names_copy && u.writes.size() == 3 + 6, fmt("the undo file names the copies' fields too (%zu)", u.writes.size()));
+        // Undo (allowed after "failed", while channel E is off for the session): svc+0xF80's approach goes back; the rest already holds its value
+        ui.frames(130);
+        CHECK(s.can_undo, "Undo offered: " + s.status);
+        CHECK(ui.click("Undo Turbo's write##ltundo", "##tacright"), "Undo clicked");
+        ui.frames(4);
+        CHECK(w.i32(w.copy_rec(0xF80) + kRecApproach) == 0, "svc+0xF80's Defensive Approach put back");
+        CHECK(load_undo(out / undo_file(), u, &err) && u.state == "restored", "undo file: restored: " + u.state + " " + u.note);
+        CHECK(rig.logged("channel E: undo team 1 record 0; Edit Tactic copy svc+0xF80 too (read back ok)"), "the undo is logged");
+        // clean up
+        app.team_sheet = nullptr;
+        for (const char* f : {opt_in_file(), undo_file()}) fs::remove(out / f, ec);
+        st = saved;
+        st["seq"] = saved.value("seq", 0LL) + 60;
         write_state();
         live_tactic_reset();
     });
