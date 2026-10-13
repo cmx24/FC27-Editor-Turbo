@@ -15,7 +15,7 @@
   "schema": "turbo-tuning-knobs/1",
   "build": "6AC07E31-2145C000",
   "version": 3,
-  "note": "catalogue entries (FC 27 type data and FC 27's own values), not verified in the running game yet",
+  "note": "catalogue entries (FC 27 type data and FC 27's own values); the attacking line group and the defensive depth bands verified live 2026-10-13",
   "locators": [
     {
       "name": "attrib.attackinglinelengthwidth",
@@ -27,11 +27,21 @@
       "variants": [
         {
           "name": "base",
-          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioningformation/gp_positioningformation_attackinglinelengthwidth_runtime"
+          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioningformation/gp_positioningformation_attackinglinelengthwidth_runtime",
+          "db": "Fifa/Attribulator/Gameplay/gameplayattribdb",
+          "guid": "1852d61d-8c0d-edf7-37a7-258314497a5c"
         }
       ],
-      "verified": false,
-      "note": "team shape with the ball (catalogue 6 #4-#5); base database only"
+      "verified": true,
+      "note": "team shape with the ball (catalogue 6 #4-#5). VERIFIED live 2026-10-13 (ATTRIBULATOR_LIVE.json, hub run): one object shared by all 15 gameplay databases incl. simulation (Authentic); type, field offsets, vtable, TypeInfo, Name, asset GUID and the database chain",
+      "db_type": "AttribDBRuntime_gameplayattribdb",
+      "db_type_signature": "0xa5106425",
+      "group_type": "AttribGroupRuntime_gp_positioningformation",
+      "group_type_signature": "0x7ade3bd5",
+      "family_slot": "0x128",
+      "group_slot": "0x28",
+      "head": "typeinfo",
+      "head_rva": "0xa9ba448"
     },
     {
       "name": "attrib.defensivelinelengthwidth",
@@ -131,11 +141,21 @@
       "variants": [
         {
           "name": "base",
-          "instance": "Fifa/Attribulator/Prematch/groups/pm_teamtacticssettings/teamtacticssettings_runtime"
+          "instance": "Fifa/Attribulator/PreMatch/groups/pm_teamtacticssettings/teamtacticssettings_runtime",
+          "db": "Fifa/Attribulator/PreMatch/prematchattribdb",
+          "guid": "ff0dde9e-c31f-b1e4-d8a6-d1796b57655e"
         }
       ],
-      "verified": false,
-      "note": "prematch: the defensive depth bands of the four defensive styles (catalogue 6 #1); read when a match is set up"
+      "verified": true,
+      "note": "prematch: the defensive depth bands of the four defensive styles (catalogue 6 #1). VERIFIED live 2026-10-13 (ATTRIBULATOR_LIVE.json, hub run): type, field offsets, vtable, TypeInfo, Name, asset GUID and the database chain",
+      "db_type": "AttribDBRuntime_prematchattribdb",
+      "db_type_signature": "0xb8b9b8bb",
+      "group_type": "AttribGroupRuntime_pm_teamtacticssettings",
+      "group_type_signature": "0xf1168603",
+      "family_slot": "0x40",
+      "group_slot": "0x18",
+      "head": "typeinfo",
+      "head_rva": "0xa9bf170"
     }
   ],
   "knobs": [
@@ -157,8 +177,8 @@
       "when": [
         "hub"
       ],
-      "verified": false,
-      "notes": "How wide the team spreads out when it has the ball. 1.00 = FC 27; higher = wider. Not yet confirmed in the running game: shown, never written."
+      "verified": true,
+      "notes": "How wide the team spreads out when it has the ball. 1.00 = FC 27; higher = wider."
     },
     {
       "id": "shape.width_in_cb",
@@ -178,8 +198,8 @@
       "when": [
         "hub"
       ],
-      "verified": false,
-      "notes": "How far apart the centre-backs split when the team builds up. 1.00 = FC 27; higher = wider. Not yet confirmed in the running game: shown, never written."
+      "verified": true,
+      "notes": "How far apart the centre-backs split when the team builds up. 1.00 = FC 27; higher = wider."
     },
     {
       "id": "shape.length_in",
@@ -199,8 +219,8 @@
       "when": [
         "hub"
       ],
-      "verified": false,
-      "notes": "Distance from the back line to the front line when attacking with the balanced build-up. Higher = a longer, more stretched team. Not yet confirmed in the running game: shown, never written."
+      "verified": true,
+      "notes": "Distance from the back line to the front line when attacking with the balanced build-up. Higher = a longer, more stretched team."
     },
     {
       "id": "shape.length_in_possession",
@@ -220,8 +240,8 @@
       "when": [
         "hub"
       ],
-      "verified": false,
-      "notes": "The same for the possession (short passing) build-up. Higher = a longer, more stretched team. Not yet confirmed in the running game: shown, never written."
+      "verified": true,
+      "notes": "The same for the possession (short passing) build-up. Higher = a longer, more stretched team."
     },
     {
       "id": "shape.width_out",
@@ -369,8 +389,8 @@
       "below": [
         "lineband.balanced_min"
       ],
-      "verified": false,
-      "notes": "A club's Defensive Depth (1..100, in its tactic) picks one of four defensive styles: Deep, Balanced, High, Aggressive. These bands say where each style starts and ends (FC 27: Deep 1-30, Balanced 31-60, High 61-90, Aggressive 91-100). Moving a band moves the line height of every club whose depth falls in it; read when a match is set up. Not yet confirmed in the running game: shown, never written."
+      "verified": true,
+      "notes": "A club's Defensive Depth (1..100, in its tactic) picks one of four defensive styles: Deep, Balanced, High, Aggressive. These bands say where each style starts and ends (FC 27: Deep 1-30, Balanced 31-60, High 61-90, Aggressive 91-100). Moving a band moves the line height of every club whose depth falls in it; read when a match is set up."
     },
     {
       "id": "lineband.balanced_min",
@@ -389,8 +409,8 @@
       "when": [
         "hub"
       ],
-      "verified": false,
-      "notes": "A club's Defensive Depth (1..100, in its tactic) picks one of four defensive styles: Deep, Balanced, High, Aggressive. These bands say where each style starts and ends (FC 27: Deep 1-30, Balanced 31-60, High 61-90, Aggressive 91-100). Moving a band moves the line height of every club whose depth falls in it; read when a match is set up. Not yet confirmed in the running game: shown, never written."
+      "verified": true,
+      "notes": "A club's Defensive Depth (1..100, in its tactic) picks one of four defensive styles: Deep, Balanced, High, Aggressive. These bands say where each style starts and ends (FC 27: Deep 1-30, Balanced 31-60, High 61-90, Aggressive 91-100). Moving a band moves the line height of every club whose depth falls in it; read when a match is set up."
     },
     {
       "id": "lineband.balanced_max",
@@ -412,8 +432,8 @@
       "below": [
         "lineband.high_min"
       ],
-      "verified": false,
-      "notes": "A club's Defensive Depth (1..100, in its tactic) picks one of four defensive styles: Deep, Balanced, High, Aggressive. These bands say where each style starts and ends (FC 27: Deep 1-30, Balanced 31-60, High 61-90, Aggressive 91-100). Moving a band moves the line height of every club whose depth falls in it; read when a match is set up. Not yet confirmed in the running game: shown, never written."
+      "verified": true,
+      "notes": "A club's Defensive Depth (1..100, in its tactic) picks one of four defensive styles: Deep, Balanced, High, Aggressive. These bands say where each style starts and ends (FC 27: Deep 1-30, Balanced 31-60, High 61-90, Aggressive 91-100). Moving a band moves the line height of every club whose depth falls in it; read when a match is set up."
     },
     {
       "id": "lineband.high_min",
@@ -432,8 +452,8 @@
       "when": [
         "hub"
       ],
-      "verified": false,
-      "notes": "A club's Defensive Depth (1..100, in its tactic) picks one of four defensive styles: Deep, Balanced, High, Aggressive. These bands say where each style starts and ends (FC 27: Deep 1-30, Balanced 31-60, High 61-90, Aggressive 91-100). Moving a band moves the line height of every club whose depth falls in it; read when a match is set up. Not yet confirmed in the running game: shown, never written."
+      "verified": true,
+      "notes": "A club's Defensive Depth (1..100, in its tactic) picks one of four defensive styles: Deep, Balanced, High, Aggressive. These bands say where each style starts and ends (FC 27: Deep 1-30, Balanced 31-60, High 61-90, Aggressive 91-100). Moving a band moves the line height of every club whose depth falls in it; read when a match is set up."
     },
     {
       "id": "lineband.high_max",
@@ -455,8 +475,8 @@
       "below": [
         "lineband.aggressive_min"
       ],
-      "verified": false,
-      "notes": "A club's Defensive Depth (1..100, in its tactic) picks one of four defensive styles: Deep, Balanced, High, Aggressive. These bands say where each style starts and ends (FC 27: Deep 1-30, Balanced 31-60, High 61-90, Aggressive 91-100). Moving a band moves the line height of every club whose depth falls in it; read when a match is set up. Not yet confirmed in the running game: shown, never written."
+      "verified": true,
+      "notes": "A club's Defensive Depth (1..100, in its tactic) picks one of four defensive styles: Deep, Balanced, High, Aggressive. These bands say where each style starts and ends (FC 27: Deep 1-30, Balanced 31-60, High 61-90, Aggressive 91-100). Moving a band moves the line height of every club whose depth falls in it; read when a match is set up."
     },
     {
       "id": "lineband.aggressive_min",
@@ -475,8 +495,8 @@
       "when": [
         "hub"
       ],
-      "verified": false,
-      "notes": "A club's Defensive Depth (1..100, in its tactic) picks one of four defensive styles: Deep, Balanced, High, Aggressive. These bands say where each style starts and ends (FC 27: Deep 1-30, Balanced 31-60, High 61-90, Aggressive 91-100). Moving a band moves the line height of every club whose depth falls in it; read when a match is set up. Not yet confirmed in the running game: shown, never written."
+      "verified": true,
+      "notes": "A club's Defensive Depth (1..100, in its tactic) picks one of four defensive styles: Deep, Balanced, High, Aggressive. These bands say where each style starts and ends (FC 27: Deep 1-30, Balanced 31-60, High 61-90, Aggressive 91-100). Moving a band moves the line height of every club whose depth falls in it; read when a match is set up."
     },
     {
       "id": "pressing.trigger_depth",

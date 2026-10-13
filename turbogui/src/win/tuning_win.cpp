@@ -33,20 +33,25 @@ double now_us() {
 std::map<std::string, tuning::NativeLocator> native_locators() { return {}; }
 
 // Reads [start, end) in chunks of kChunk (+ `overlap` bytes so a match across a chunk border is seen); a chunk that cannot be read is
-// tried again in 64 KB pieces (the unreadable pieces are skipped). fn(buf, n, at) sees every readable piece; false = stop
+// tried again in 64 KB pieces (the unreadable pieces are skipped). fn(buf, n, at) sees every readable piece; false = stop.
+// The search runs inside the game process, so its own read buffer (a copy of game memory, a region of its own: 1 MB is above the heap's
+// large-block size) would show copies of the objects it looks for: a piece that overlaps the buffer is never handed to fn.
 constexpr size_t kChunk = 1u << 20;
 bool walk(uint64_t start, uint64_t end, size_t overlap, double deadline, const std::function<void(const uint8_t*, size_t, uint64_t)>& fn) {
     std::vector<uint8_t> buf;
+    buf.reserve(kChunk + overlap + 0x10000);
+    const uint64_t self_lo = uint64_t(reinterpret_cast<uintptr_t>(buf.data())), self_hi = self_lo + buf.capacity();
+    auto own = [&](uint64_t a, size_t n) { return a < self_hi && a + n > self_lo; };
     for (uint64_t at = start; at < end; at += kChunk) {
         if (now_us() > deadline) return false;
         const size_t n = size_t(std::min<uint64_t>(kChunk + overlap, end - at));
-        if (g_mem.read_block(at, n, buf)) {
+        if (!own(at, n) && g_mem.read_block(at, n, buf)) {
             fn(buf.data(), n, at);
             continue;
         }
         for (uint64_t p = at; p < at + n && p < end; p += 0x10000) {
             const size_t m = size_t(std::min<uint64_t>(0x10000 + overlap, end - p));
-            if (g_mem.read_block(p, m, buf)) fn(buf.data(), m, p);
+            if (!own(p, m) && g_mem.read_block(p, m, buf)) fn(buf.data(), m, p);
         }
     }
     return true;

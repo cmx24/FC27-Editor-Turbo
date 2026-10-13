@@ -129,7 +129,11 @@ struct HeaderCheck {
 // is found by its own Name, which must then be unique)
 struct Variant {
     std::string name, instance, db;
+    std::vector<uint8_t> guid;  // the asset's GUID in the 16 bytes before the instance (file: "guid": "1852d61d-8c0d-..."; empty = not checked)
 };
+// A GUID "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" as the 16 bytes in memory (the first three groups little-endian) and back
+bool guid_bytes(const std::string& text, std::vector<uint8_t>& out);
+std::string guid_text(const std::vector<uint8_t>& b);
 
 struct Locator {
     std::string name, kind = "chain";  // "chain" | "native" | "attrib"
@@ -198,7 +202,7 @@ bool write_value(Memory& mem, uint64_t addr, ValueType t, double v);
 // instance of a type), +0x18 its Name (the asset path)
 constexpr uint64_t kTdName = 0x00, kTdSize = 0x0E, kTdFieldCount = 0x32, kTdSignature = 0x34, kTdFields = 0x40;
 constexpr uint64_t kFiStride = 0x20, kFiName = 0x00, kFiOffset = 0x10, kFiType = 0x18;
-constexpr uint64_t kInstName = 0x18, kInstTypeInfo = 0x08;
+constexpr uint64_t kInstName = 0x18, kInstTypeInfo = 0x08, kInstGuidBefore = 0x10;
 constexpr uint64_t kSlotTag = 4;  // tag bit 2 of the pointer slots in database / group runtime objects
 constexpr int kMaxTypeFields = 4096;
 struct FieldInfo {

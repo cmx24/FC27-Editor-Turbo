@@ -299,6 +299,38 @@ std::string Locator::placeholder() const {
 
 std::string copy_key(const std::string& id, const std::string& copy) { return copy.empty() ? id : id + "@" + copy; }
 
+bool guid_bytes(const std::string& text, std::vector<uint8_t>& out) {
+    out.clear();
+    static const int groups[] = {8, 4, 4, 4, 12};
+    std::vector<uint8_t> raw;
+    size_t at = 0;
+    for (int g = 0; g < 5; ++g) {
+        if (g > 0) {
+            if (at >= text.size() || text[at] != '-') return false;
+            ++at;
+        }
+        for (int i = 0; i < groups[g]; i += 2) {
+            if (at + 2 > text.size() || !std::isxdigit(static_cast<unsigned char>(text[at])) || !std::isxdigit(static_cast<unsigned char>(text[at + 1])))
+                return false;
+            raw.push_back(uint8_t(std::stoi(text.substr(at, 2), nullptr, 16)));
+            at += 2;
+        }
+    }
+    if (at != text.size()) return false;
+    // the first three groups are stored little-endian
+    out = {raw[3], raw[2], raw[1], raw[0], raw[5], raw[4], raw[7], raw[6]};
+    out.insert(out.end(), raw.begin() + 8, raw.end());
+    return true;
+}
+
+std::string guid_text(const std::vector<uint8_t>& b) {
+    if (b.size() != 16) return "";
+    char t[40];
+    std::snprintf(t, sizeof(t), "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x", b[3], b[2], b[1], b[0], b[5], b[4], b[7], b[6], b[8],
+                  b[9], b[10], b[11], b[12], b[13], b[14], b[15]);
+    return t;
+}
+
 const CopyAt* KnobLive::copy(const std::string& variant) const {
     for (const CopyAt& c : copies)
         if (c.variant == variant) return &c;
@@ -446,6 +478,11 @@ static bool parse_locator(const json& o, Locator& l, std::string& err) {
                 vr.name = x.is_object() ? str_of(x, "name") : "";
                 vr.instance = x.is_object() ? str_of(x, "instance") : "";
                 vr.db = x.is_object() ? str_of(x, "db") : "";
+                const std::string guid = x.is_object() ? str_of(x, "guid") : "";
+                if (!guid.empty() && !guid_bytes(guid, vr.guid)) {
+                    err = who + ": variant guid must look like 1852d61d-8c0d-edf7-37a7-258314497a5c";
+                    return false;
+                }
                 if (!valid_id(vr.name)) {
                     err = who + ": a variant name must be 1..64 of a-z 0-9 . _ -";
                     return false;
@@ -854,6 +891,7 @@ std::string registry_json(const Registry& r) {
             for (const Variant& v : l.variants) {
                 ojson x = {{"name", v.name}, {"instance", v.instance}};
                 if (!v.db.empty()) x["db"] = v.db;
+                if (!v.guid.empty()) x["guid"] = guid_text(v.guid);
                 vs.push_back(x);
             }
             o["variants"] = vs;
@@ -1158,6 +1196,13 @@ static bool named(Memory& mem, uint64_t obj, const std::string& name) {
     return np && !name.empty() && same_name(mem.read_cstr(np, name.size() + 2), name);
 }
 
+// The asset GUID in the 16 bytes before an instance (an empty guid is not checked)
+static bool guid_ok(Memory& mem, uint64_t inst, const std::vector<uint8_t>& guid) {
+    if (guid.empty()) return true;
+    std::vector<uint8_t> got;
+    return inst > kInstGuidBefore && mem.read_block(inst - kInstGuidBefore, guid.size(), got) && got == guid;
+}
+
 // L3: the instance a database runtime object points at (+family_slot -> the group object, of group_type when given; +group_slot -> the
 // instance). "" + inst, else why
 static std::string via_db(Memory& mem, const Locator& l, const Lookup& lk, const Anchor& a, uint64_t db, uint64_t& inst) {
@@ -1217,7 +1262,7 @@ static Anchor resolve_attrib(Memory& mem, const Locator& l, const Lookup& lk) {
                     uint64_t t0 = 0;
                     if (!mem.rd(cand, t0) || !in_image(lk, t0)) continue;
                     uint64_t vt = 0;
-                    if (!check_head(mem, lk, cand, inst_td, l.head_rva, vt).empty()) {
+                    if (!check_head(mem, lk, cand, inst_td, l.head_rva, vt).empty() || !guid_ok(mem, cand, v.guid)) {
                         ++other_head;
                         continue;
                     }
@@ -1226,7 +1271,8 @@ static Anchor resolve_attrib(Memory& mem, const Locator& l, const Lookup& lk) {
             if (found.size() != 1) {
                 a.why = "variant " + v.name + ": " +
                         (!found.empty() ? std::to_string(found.size()) + " instances carry its name"
-                         : other_head   ? std::to_string(other_head) + " object(s) carry its name, none with the type's head (" + head_text + ")"
+                         : other_head   ? std::to_string(other_head) + " object(s) carry its name, none with the type's head (" + head_text + ")" +
+                                            (v.guid.empty() ? std::string() : " and its asset GUID")
                                         : std::string("its instance is not in memory (the attribulator not loaded yet?)"));
                 return a;
             }
@@ -1253,6 +1299,7 @@ static Anchor resolve_attrib(Memory& mem, const Locator& l, const Lookup& lk) {
                 w = check_head(mem, lk, inst, inst_td, l.head_rva, vt);
                 if (!w.empty()) w = "the instance " + hex(inst) + " its database points at: " + w;
                 else if (!named(mem, inst, v.instance)) w = "the instance " + hex(inst) + " its database points at is not named " + v.instance;
+                else if (!guid_ok(mem, inst, v.guid)) w = "the instance " + hex(inst) + " its database points at does not carry the asset GUID " + guid_text(v.guid);
             }
             if (!w.empty()) {
                 a.why = "variant " + v.name + ": " + w;
@@ -1400,6 +1447,8 @@ std::string chase(Memory& mem, const Locator& l, const Anchor& anchor, const Loo
                 if (!ti || mem.ptr(ti) != anchor.td)
                     return "variant " + c.variant + ": the instance at " + hex(c.base) + " no longer holds its TypeInfo: locate again";
             }
+            if (v && !guid_ok(mem, c.base, v->guid))
+                return "variant " + c.variant + ": the instance at " + hex(c.base) + " no longer carries its asset GUID: locate again";
             const uint64_t np = mem.ptr(c.base + kInstName, 1);
             const std::string n = np ? mem.read_cstr(np, v ? v->instance.size() + 2 : 2) : std::string();
             if (!v || !same_name(n, v->instance)) return "variant " + c.variant + ": the instance at " + hex(c.base) + " is no longer named " + (v ? v->instance : "?");

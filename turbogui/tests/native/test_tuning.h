@@ -464,11 +464,23 @@ static void run() {
         std::string err;
         CHECK(parse_registry(text, reg, err), "it parses: " + err);
         CHECK(reg.build == kBuildKey && reg.knobs.size() >= 20, fmt("build %s, %zu knobs", reg.build.c_str(), reg.knobs.size()));
-        CHECK(reg.placeholders() == int(reg.knobs.size()), "every knob is unverified or a placeholder: nothing is written until T1 confirms it");
-        bool verified = false;
-        for (const Knob& k : reg.knobs) verified = verified || k.verified;
-        for (const Locator& l : reg.locators) verified = verified || l.verified;
-        CHECK(!verified, "no knob and no locator is marked verified");
+        // VERIFIED only what the live run proved (turbo_output\ATTRIBULATOR_LIVE.json): the attacking line group and the depth bands, each
+        // through its database chain with the TypeInfo at +8, the vtable RVA and the asset GUID
+        const std::set<std::string> proven = {"attrib.attackinglinelengthwidth", "attrib.teamtacticssettings"};
+        for (const Locator& l : reg.locators) {
+            CHECK(l.verified == (proven.count(l.name) == 1), l.name + ": verified only when the live run proved it");
+            if (l.verified)
+                CHECK(l.l3() && l.head == "typeinfo" && l.head_rva && l.family_slot && l.group_slot && !l.group_type.empty() && l.variants.size() == 1 &&
+                          l.variants[0].guid.size() == 16,
+                      l.name + ": the database chain, TypeInfo, vtable and asset GUID");
+        }
+        for (const Knob& k : reg.knobs) CHECK(k.verified == (proven.count(k.locator) == 1), k.id + ": verified exactly with its locator");
+        CHECK(reg.placeholders() == 11, fmt("%d knobs not confirmed", reg.placeholders()));
+        std::vector<uint8_t> gb;
+        CHECK(guid_bytes("1852d61d-8c0d-edf7-37a7-258314497a5c", gb) &&
+                  gb == std::vector<uint8_t>({0x1d, 0xd6, 0x52, 0x18, 0x0d, 0x8c, 0xf7, 0xed, 0x37, 0xa7, 0x25, 0x83, 0x14, 0x49, 0x7a, 0x5c}) &&
+                  guid_text(gb) == "1852d61d-8c0d-edf7-37a7-258314497a5c" && !guid_bytes("1852d61d-8c0d", gb),
+              "the asset GUID as the bytes before the instance (the live run's attacking line group)");
         // the catalogue knobs: group / field / type / offset from FC 27's type data, FC 27's own value inside Turbo's range, an attrib locator
         int catalogue = 0;
         for (const Knob& k : reg.knobs) {
@@ -518,8 +530,8 @@ static void run() {
         for (const Fc27& f : fc27) {
             const Knob* k = reg.knob(f.id);
             CHECK(k && k->collection == f.collection && k->field == f.field && k->type == f.type && k->offset == f.offset && k->def == f.value &&
-                      !k->verified && k->when == std::vector<std::string>({"hub"}),
-                  std::string(f.id) + ": FC 27's group, field, type, offset and own value; unverified; the hub only");
+                      k->when == std::vector<std::string>({"hub"}),
+                  std::string(f.id) + ": FC 27's group, field, type, offset and own value; the hub only");
         }
         // the one copy whose FC 27 value differs: the Authentic (simulation) database has the double-marking switch off
         const Knob* dm = reg.knob("pressing.no_double_marking_own_half");
@@ -541,8 +553,8 @@ static void run() {
               "the line height bands: kept below the next band, read at match setup");
         for (const Knob& k : reg.knobs)
             CHECK(std::find(standard_groups().begin(), standard_groups().end(), k.group) != standard_groups().end() &&
-                      k.notes.find("Not yet confirmed in the running game") != std::string::npos,
-                  k.id + ": a standard group, the notes say it is not confirmed yet");
+                      (k.verified || k.notes.find("Not yet confirmed in the running game") != std::string::npos),
+                  k.id + ": a standard group, an unconfirmed knob says so");
         for (const char* g : {"Shape with the ball", "Shape without the ball", "Defensive line depth bands", "Pressing", "Marking", "Attacking runs"}) {
             bool has = false;
             for (const Knob& k : reg.knobs) has = has || k.group == g;
@@ -561,7 +573,7 @@ static void run() {
         for (const Knob& k : reg.knobs) {
             KnobAt at;
             const std::string why = locate_knob(w.mem, reg, k, am, lk, at);
-            CHECK(why.find(k.field.empty() ? "not located on this build (placeholder" : "not located on this build (unverified: ") == 0, k.id + ": " + why);
+            CHECK(why.find(k.verified ? "not located on this build (" : "not located on this build (unverified: ") == 0, k.id + ": " + why);
         }
         // the round trip through registry_json parses back to the same knobs
         Registry again;
@@ -1186,6 +1198,24 @@ static void run() {
             l.variants[1].instance = "Fifa/Attribulator/Gameplay/groups/test/other_runtime";
             CHECK(resolve_anchor(w.mem, l, lk).why.find("variant simulation: the instance 0x24001000 its database points at is not named") == 0,
                   resolve_anchor(w.mem, l, lk).why);
+        }
+        // the asset GUID in the 16 bytes before the instance: checked at the search and in every job
+        {
+            const std::vector<uint8_t> g16 = {0x1d, 0xd6, 0x52, 0x18, 0x0d, 0x8c, 0xf7, 0xed, 0x37, 0xa7, 0x25, 0x83, 0x14, 0x49, 0x7a, 0x5c};
+            w.mem.map(AttribWorld::kBase - 0x10, 0x10);
+            w.mem.write(AttribWorld::kBase - 0x10, g16.data(), g16.size());
+            Registry lg = l3;
+            lg.locators[0].variants[0].guid = g16;
+            AnchorMap gm;
+            gm["attrib.l3"] = resolve_anchor(w.mem, lg.locators[0], lk);
+            CHECK(gm["attrib.l3"].ok, "guid: " + gm["attrib.l3"].why);
+            const uint8_t x = 0;
+            w.mem.write(AttribWorld::kBase - 0x10, &x, 1);
+            KnobAt gat;
+            const std::string gw = locate_knob(w.mem, lg, *lg.knob("shape.speed"), gm, lk, gat);
+            CHECK(gw.find("variant base: the instance at 0x24000000 no longer carries its asset GUID: locate again") != std::string::npos, gw);
+            CHECK(resolve_anchor(w.mem, lg.locators[0], lk).why.find("does not carry the asset GUID 1852d61d-8c0d-edf7-37a7-258314497a5c") != std::string::npos,
+                  "guid at the search");
         }
         // the file: L3 needs its slots; the round trip keeps the chain
         Registry x;
