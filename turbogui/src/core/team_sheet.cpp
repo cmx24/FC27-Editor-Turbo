@@ -1006,14 +1006,16 @@ std::vector<FieldWrite> copy_writes(const LiveTactic& now, const Plan& plan, std
     std::vector<std::string> written, same, left;
     for (const WorkCopy& c : now.copies) {
         if (!c.matches) continue;
-        // a slot of the plan must hold the same player and position group in the copy, or the copy is left out
+        // every slot of the copy must hold the map record's player (the code and the formation ids alone do not tell your club's tactic from
+        // another team's or another line-up's with the same code), a slot of the plan the same position group, or the copy is left out
         std::string bad;
+        for (int s = 0; s < kSlots && bad.empty(); ++s)
+            if (c.pids[size_t(s)] != now.slots[size_t(s)].pid) bad = "its slot " + std::to_string(s) + " holds player " + std::to_string(c.pids[size_t(s)]);
         for (const FieldWrite& w : plan.writes) {
-            if (w.copy || w.slot < 0 || w.slot >= kSlots) continue;
-            const SlotView& v = now.slots[size_t(w.slot)];
-            if (c.pids[size_t(w.slot)] != v.pid) bad = "its slot " + std::to_string(w.slot) + " holds player " + std::to_string(c.pids[size_t(w.slot)]);
-            else if (role_group(c.roles[size_t(w.slot)]) != v.group()) bad = "its slot " + std::to_string(w.slot) + " is another position group";
             if (!bad.empty()) break;
+            if (w.copy || w.slot < 0 || w.slot >= kSlots) continue;
+            if (role_group(c.roles[size_t(w.slot)]) != now.slots[size_t(w.slot)].group())
+                bad = "its slot " + std::to_string(w.slot) + " is another position group";
         }
         if (!bad.empty()) {
             left.push_back(c.label() + " (" + bad + ")");

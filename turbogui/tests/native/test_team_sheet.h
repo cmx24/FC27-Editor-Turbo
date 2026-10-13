@@ -1703,6 +1703,23 @@ static void run() {
               "svc+0xF80 written, svc+0x1170 left: " + r2.copies);
         CHECK(r2.copies.find("svc+0x1170 (its slot 9 holds player 100003) NOT written") != std::string::npos && r2.log_line.find("NOT written") != std::string::npos,
               "said so: " + r2.log_line);
+        // review: the same code and formation but other players (another team's or another line-up's tactic) in a slot the plan does not write:
+        // an Apply of the approach / line height / build-up only leaves that copy out too (players are compared in all 11 slots)
+        SheetWorld o;
+        o.mem.wr(o.copy_slot(0x1170, 4) + kSlotPid, int32_t(200005));
+        const LiveTactic lo = live(o);
+        CHECK(lo.copy(0x1170) && lo.copy(0x1170)->matches, "the code still names it this tactic (the card lists it so)");
+        Plan po;
+        CHECK(make_plan(lo, r, po, nullptr).empty(), "plan");
+        std::string onote;
+        const std::vector<FieldWrite> ocw = copy_writes(lo, po, onote);
+        CHECK(ocw.size() == 3 && ocw[0].copy == 0xF80 && onote.find("svc+0x1170 (its slot 4 holds player 200005) NOT written") != std::string::npos,
+              "the preview leaves it out: " + onote);
+        const ApplyResult ro = apply_plan(o.mem, SheetWorld::kSvc, o.anchors(), po);
+        CHECK(ro.ok && ro.copies_written == 1 && o.i32(o.copy_rec(0xF80) + kRecApproach) == 3 && o.i32(o.copy_rec(0x1170) + kRecApproach) == 0 &&
+                  o.i32(o.copy_rec(0x1170) + kRecLineHeight) == 25 && o.i32(o.copy_rec(0x1170) + kRecBuildUp) == 0 && o.i32(SheetWorld::kRecs + kRecApproach) == 3,
+              "map and svc+0xF80 written, svc+0x1170 untouched: " + ro.copies);
+        CHECK(ro.log_line.find("svc+0x1170 (its slot 4 holds player 200005) NOT written") != std::string::npos, "logged: " + ro.log_line);
         // a copy that already holds the values is not written again
         SheetWorld y;
         y.put_copy(0x1170, SheetWorld::kCode, 90, 1, 3);

@@ -353,7 +353,8 @@ std::string check_plan(const LiveTactic& now, const Plan& plan, const JobChecks&
 // The address of a field inside the located record or a matching working copy (0 when the slot is out of range or the copy does not match)
 uint64_t field_address(const LiveTactic& now, const FieldWrite& w);
 // The same fields for every working copy that holds this tactic (WorkCopy::matches): the copy's own current values as old values, the plan's
-// new values; a copy whose written slot holds another player or position group is left out (`note` says why). Only values that differ.
+// new values; a copy whose 11 slots do not hold the map record's players slot by slot (another team's or another line-up's tactic with the
+// same code), or whose written slot is another position group, is left out (`note` says why). Only values that differ.
 std::vector<FieldWrite> copy_writes(const LiveTactic& now, const Plan& plan, std::string& note);
 
 // ------------------------------------------------------------------------------------------------ the write (game thread)
