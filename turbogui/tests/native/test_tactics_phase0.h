@@ -119,6 +119,10 @@ static void test_badges() {
             CHECK(ls.written == WriteKind::LiveSheet && std::string(written_badge(ls.written)) == "live team sheet" && ls.seen == SeenKind::Untested &&
                       seen_badge(ls) == "untested" && ls.date.empty() && !ls.note.empty() && status_tag(ls).find("live team sheet, untested: ") == 0,
                   std::string(k) + ": " + status_tag(ls));
+            // nothing of channel E ran in the game: the help never implies Edit Tactic or a match was checked
+            CHECK(ls.note.find("Edit Tactic") != std::string::npos && ls.note.find("not checked yet") != std::string::npos &&
+                      (std::string(k) == "live.role" || ls.note.find("whether Edit Tactic shows it") != std::string::npos),
+                  std::string(k) + ": " + ls.note);
         }
         for (SeenKind k : {SeenKind::SeenInMatch, SeenKind::NoEffectSeen, SeenKind::Untested, SeenKind::Legacy, SeenKind::NothingWritten}) CHECK(seen_help(k)[0] != 0, "seen help");
     });
