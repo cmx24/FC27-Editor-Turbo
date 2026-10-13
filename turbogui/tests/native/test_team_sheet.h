@@ -1624,6 +1624,17 @@ static void run() {
         match_again();
         CHECK(rig.svc->kickoff_status() == "kick-off check off (turbo_output\\channel_e_kickoff_off.txt)", rig.svc->kickoff_status());
         rig.remove(kickoff_off_file());
+        // review: channel E's kill switches stop it too (the opt-in still there): no scan of the match's memory, no dump
+        fs::remove(o / kickoff_dump_file(), ec);
+        for (const char* k : {kill_switch_file(), master_switch_file()}) {
+            rig.touch(k);
+            match_again();
+            CHECK(rig.svc->kickoff_status() == std::string("no kick-off check: kill switch turbo_output\\") + k + " is present (channel E is off)",
+                  rig.svc->kickoff_status());
+            CHECK(rig.logged(std::string("channel E: no kick-off check: kill switch turbo_output\\") + k), "logged");
+            rig.remove(k);
+        }
+        CHECK(!fs::exists(o / kickoff_dump_file()), "nothing dumped while a kill switch is present");
         rig.remove(opt_in_file());
         match_again();
         CHECK(rig.svc->kickoff_status().find("no kick-off check: channel E is not switched on") == 0, rig.svc->kickoff_status());

@@ -120,7 +120,7 @@ constexpr uint64_t kCopyRoles = 0x118, kCopyPids = 0x168, kCopyTeam = 0x28;
 constexpr double kKickoffDelayUs = 20e6, kKickoffRetryUs = 30e6;
 constexpr size_t kKickoffHead = 0x1A0, kKickoffTail = 0x200, kKickoffMaxCopies = 4;
 inline const char* kickoff_dump_file() { return "channel_e_kickoff_dump.bin"; }
-inline const char* kickoff_off_file() { return "channel_e_kickoff_off.txt"; }  // no kick-off check (it needs the opt-in besides)
+inline const char* kickoff_off_file() { return "channel_e_kickoff_off.txt"; }  // no kick-off check (it needs the opt-in and no kill switch besides)
 inline const char* kickoff_index_file() { return "channel_e_kickoff_dump.txt"; }
 
 // ------------------------------------------------------------------------------------------------ the game's words (Edit Tactic)

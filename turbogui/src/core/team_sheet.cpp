@@ -2360,11 +2360,16 @@ void CoreService::run_kickoff(KickoffArm arm, int attempt) {
     auto job = [this, arm, attempt]() {
         std::string line;
         bool none = true, skipped = false;
-        // read-only, yet it reads all of memory during a match: only for a tester who switched channel E on, and with its own off switch
+        // read-only, yet it reads all of memory during a match: only for a tester who switched channel E on, never while a kill switch says
+        // channel E is off (the Status tab says "off" then), and with its own off switch
+        const Switches sw = h_.out_dir.empty() ? Switches() : read_switches(h_.out_dir);
         if (!h_.out_dir.empty() && file_exists(h_.out_dir / kickoff_off_file())) {
             line = std::string("kick-off check off (turbo_output\\") + kickoff_off_file() + ")";
             skipped = true;
-        } else if (!h_.out_dir.empty() && !file_exists(h_.out_dir / opt_in_file())) {
+        } else if (!sw.blocking().empty()) {
+            line = "no kick-off check: kill switch turbo_output\\" + sw.blocking() + " is present (channel E is off)";
+            skipped = true;
+        } else if (!h_.out_dir.empty() && !sw.opt_in) {
             line = std::string("no kick-off check: channel E is not switched on (turbo_output\\") + opt_in_file() + ")";
             skipped = true;
         } else if (!arm.armed) {
