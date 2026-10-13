@@ -114,11 +114,15 @@ static void test_badges() {
         // the help texts exist for every badge
         for (WriteKind k : {WriteKind::GameVar, WriteKind::DbRow, WriteKind::Preview, WriteKind::TurboOnly, WriteKind::LiveSheet}) CHECK(written_help(k)[0] != 0, "written help");
         // channel E's badges (ui_live_tactic.cpp): written "live team sheet", seen "untested" until the in-game acceptance test
-        for (const char* k : {"live.build_up", "live.depth", "live.role"}) {
+        for (const char* k : {"live.build_up", "live.line_height", "live.approach", "live.role"}) {
             const TacticStatus ls = live_sheet_status(k, "x");
             CHECK(ls.written == WriteKind::LiveSheet && std::string(written_badge(ls.written)) == "live team sheet" && ls.seen == SeenKind::Untested &&
                       seen_badge(ls) == "untested" && ls.date.empty() && !ls.note.empty() && status_tag(ls).find("live team sheet, untested: ") == 0,
                   std::string(k) + ": " + status_tag(ls));
+            // nothing of channel E ran in the game: the help never implies Edit Tactic or a match was checked
+            CHECK(ls.note.find("Edit Tactic") != std::string::npos && ls.note.find("not checked yet") != std::string::npos &&
+                      (std::string(k) == "live.role" || ls.note.find("whether Edit Tactic shows it") != std::string::npos),
+                  std::string(k) + ": " + ls.note);
         }
         for (SeenKind k : {SeenKind::SeenInMatch, SeenKind::NoEffectSeen, SeenKind::Untested, SeenKind::Legacy, SeenKind::NothingWritten}) CHECK(seen_help(k)[0] != 0, "seen help");
     });

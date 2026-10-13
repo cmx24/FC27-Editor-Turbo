@@ -1,7 +1,8 @@
 // FC 27 LE Turbo GUI - your club's live tactic, tactics channel E (see ui_live_tactic.h, core/team_sheet.h).
 //
 // Frame-loop rules as in ui_tactics.cpp: never throws (an inline error instead), file I/O only on a click, at the first look (the undo
-// file) and every 2 s (the switch files), the live record is read at most once a second while the card is drawn.
+// file) and every 2 s (the switch files), the live record is read at most once a second while the card is drawn. The kick-off check is
+// the service's (core/team_sheet.h kickoff_tick: Turbo's game_tick listener, this card's tick only as a fallback), not the card's.
 #include "ui_live_tactic.h"
 
 #include <algorithm>
@@ -33,7 +34,7 @@ struct Lt {
     double next_read = -1.0;
     // the editor (filled from the read-out of a record; kept while the same record is shown)
     std::string editor_key;
-    int build_up = 0, depth = 1, slot = 0;
+    int line_height = 1, build_up = 0, approach = 0, slot = 0;
     std::array<int, kSlots> role_id{}, focus{};
     // switch files (every 2 s)
     Switches sw;
@@ -54,9 +55,6 @@ struct Lt {
     // the read-back after a write, and when the window is shown again
     double recheck_at = -1.0;
     bool was_visible = false;
-    // the kick-off check
-    std::string last_phase;
-    double kickoff_at = -1.0;
     // the confirmation
     bool confirm_request = false;
     std::vector<std::string> confirm_lines;
@@ -99,11 +97,13 @@ Context ctx_of(App& app) {
     c.managers = st.managers;
     c.in_cm = st.loaded && st.in_cm;
     c.allow_find = g.sw.opt_in && g.sw.blocking().empty() && !g.sw.find_off;
+    c.phase = st.loaded ? st.match_phase : std::string();
     // G2 as the UI sees it now (the locate check aside): the game-thread jobs refuse when it no longer holds
     GateInput in;
     in.bridge = st.loaded;
     in.in_cm = st.in_cm;
     in.match_phase = st.match_phase;
+    in.team_mgmt = st.team_mgmt;
     in.save_age = st.save_t > 0 ? (long long)(std::time(nullptr)) - st.save_t : -1;
     in.load_gen = st.load_gen;
     in.located_load_gen = st.load_gen;
@@ -148,8 +148,9 @@ std::string editor_key_of(const LiveTactic& lt) {
 }
 
 void fill_editor(const LiveTactic& lt) {
+    g.line_height = lt.line_height;
     g.build_up = lt.build_up;
-    g.depth = lt.depth;
+    g.approach = lt.approach;
     for (int s = 0; s < kSlots; ++s) {
         g.role_id[size_t(s)] = lt.slots[size_t(s)].role_id;
         g.focus[size_t(s)] = lt.slots[size_t(s)].focus;
@@ -190,8 +191,9 @@ bool read_now(App& app) {
 
 Request request_from_editor() {
     Request r;
+    r.line_height = g.line_height;
     r.build_up = g.build_up;
-    r.depth = g.depth;
+    r.approach = g.approach;
     for (int s = 0; s < kSlots; ++s) r.slots.push_back({s, g.role_id[size_t(s)], g.focus[size_t(s)]});
     return r;
 }
@@ -203,6 +205,7 @@ GateInput gate_input(App& app, const std::string& plan_why, bool undo) {
     in.bridge = st.loaded;
     in.in_cm = st.in_cm;
     in.match_phase = st.match_phase;
+    in.team_mgmt = st.team_mgmt;
     in.save_age = st.save_t > 0 ? (long long)(std::time(nullptr)) - st.save_t : -1;
     in.load_gen = st.load_gen;
     in.located_load_gen = app.team_sheet ? app.team_sheet->located_load_gen() : -1;
@@ -216,10 +219,18 @@ GateInput gate_input(App& app, const std::string& plan_why, bool undo) {
 }
 
 std::string plan_line(const FieldWrite& w, const LiveTactic& lt) {
+    if (w.copy) return "";
+    const bool kept = w.old_value == w.new_value;
     switch (w.kind) {
-        case FieldKind::BuildUp: return "build-up (buildupplay) " + std::to_string(w.old_value) + " -> " + std::to_string(w.new_value);
-        case FieldKind::Depth:
-            return "defensive depth " + std::to_string(w.old_value) + " -> " + std::to_string(w.new_value) + " (" + depth_band_text(w.new_value) + ")";
+        case FieldKind::Approach:
+            return kept ? "Defensive Approach " + approach_text(w.old_value) + " (kept: written with the other two)"
+                        : "Defensive Approach " + approach_text(w.old_value) + " -> " + approach_text(w.new_value);
+        case FieldKind::LineHeight:
+            return kept ? "Line Height " + std::to_string(w.old_value) + " (kept: written with the other two)"
+                        : "Line Height " + std::to_string(w.old_value) + " -> " + std::to_string(w.new_value) + " (" + line_band_text(w.new_value) + ")";
+        case FieldKind::BuildUp:
+            return kept ? "Build-Up Style " + build_up_text(w.old_value) + " (kept: written with the other two)"
+                        : "Build-Up Style " + build_up_text(w.old_value) + " -> " + build_up_text(w.new_value);
         case FieldKind::Role: {
             const SlotView& v = lt.slots[size_t(std::clamp(w.slot, 0, kSlots - 1))];
             return "slot " + std::to_string(w.slot) + " (" + position_name(v.position) + ") role word " + std::to_string(w.old_value) + " -> " +
@@ -238,8 +249,26 @@ std::vector<std::string> plan_lines(const Plan& p, const LiveTactic& lt) {
         std::string l = plan_line(w, lt);
         if (!l.empty()) out.push_back(l);
     }
-    if (!out.empty()) out.push_back("then the sheet's dirty flag = 1 (as the game's UpdateSheet does)");
+    if (!out.empty()) {
+        // Edit Tactic's working copies, as the job will find them (it checks again on the game thread)
+        std::string note;
+        const std::vector<FieldWrite> cw = copy_writes(lt, p, note);
+        out.push_back("Edit Tactic's working copies (checked again in the job): " + note);
+        out.push_back("then the sheet's dirty flag = 1 (as the game's UpdateSheet does); all of it read back in the same job");
+    }
     return out;
+}
+
+// The card's safety line (findings 2: Yes copies Edit Tactic's screen into the team sheet and autosaves)
+const char* safety_text() {
+    return "If you open Edit Tactic and answer Yes to 'save your changes to your team sheet', the game commits its screen values and AUTOSAVES "
+           "your career.";
+}
+
+std::string copy_line(const WorkCopy& c) {
+    if (!c.why.empty()) return c.label() + ": not this tactic (" + c.why + ")";
+    return c.label() + ": code " + c.code + (c.matches ? " = this tactic" : " (another tactic: an Edit Tactic save not committed?)") + " | Line Height " +
+           std::to_string(c.line_height) + ", Build-Up Style " + build_up_text(c.build_up) + ", Defensive Approach " + approach_text(c.approach);
 }
 
 // ---------------------------------------------------------------------------------------------------------------- the cm_mentalities mirror
@@ -323,7 +352,14 @@ void do_mirror(App& app, UndoRecord& u, const std::vector<FieldWrite>& writes, c
         skip("the row changed since the last mirror (artificialkey " + std::to_string(key) + ", was " + std::to_string(u.mirror_row_key) + ")");
         return;
     }
-    why = mirror_row_check([&](const std::string& name, int64_t& v) { return row_int(app, *t, rec, name, v); }, live, writes);
+    auto row_str = [&](const std::string& name, std::string& v) {
+        const Field* f = t->field(name);
+        Value x;
+        if (!f || !app.db.get(*t, rec, *f, x) || x.type != FieldType::String) return false;
+        v = x.s;
+        return true;
+    };
+    why = mirror_row_check([&](const std::string& name, int64_t& v) { return row_int(app, *t, rec, name, v); }, live, writes, row_str);
     if (!why.empty()) {
         skip("artificialkey " + std::to_string(key) + ": " + why);
         return;
@@ -385,7 +421,20 @@ void do_mirror(App& app, UndoRecord& u, const std::vector<FieldWrite>& writes, c
     u.mirror_note.clear();
     std::string list;
     for (const auto& d : done) list += (list.empty() ? "" : ", ") + d;
-    g.mirror_line = "cm_mentalities (artificialkey " + std::to_string(key) + ") mirrored and read back: " + (list.empty() ? "nothing to change" : list);
+    // the row's identity (it passed: teamid, activetactic 1, sourceformationid, teamsheetid, the 11 slot players and positions, its code and
+    // the live old values), so the log shows whose row this is
+    std::string code;
+    row_str("code", code);
+    const std::string who = "teamid " + std::to_string(app.db.get_int(*t, rec, "teamid", -1)) + ", mentalityid " +
+                            std::to_string(app.db.get_int(*t, rec, "mentalityid", -1)) + ", activetactic 1, sourceformationid " +
+                            std::to_string(u.source_formation) +
+                            (t->field("teamsheetid") ? ", teamsheetid " + std::to_string(app.db.get_int(*t, rec, "teamsheetid", -2)) : std::string()) +
+                            (code.empty() ? std::string() : ", code " + code) + ", the 11 slot players and positions of the live record";
+    bool approach = false;
+    for (const FieldWrite& w : writes) approach = approach || (w.kind == FieldKind::Approach && !w.copy && w.old_value != w.new_value);
+    g.mirror_line = "cm_mentalities (artificialkey " + std::to_string(key) + ": " + who + ") mirrored and read back: " +
+                    (list.empty() ? "nothing to change" : list) +
+                    (approach ? "; the Defensive Approach is not mirrored (cm_mentalities has no column for it)" : "");
     log_line(app, "channel E: " + g.mirror_line);
 }
 
@@ -577,16 +626,28 @@ void handle_result(App& app, const ApplyResult& r) {
     if (r.ok && r.written) {
         UndoRecord u = g.undo;
         u.state = "written";
+        add_job_writes(u, r.writes);  // Edit Tactic's working copies the job wrote too (their values before Turbo's first write)
+        u.copies = r.copies;
         if (!g.merged) u.dirty_before = r.dirty_before;  // a merged record keeps the flag from before Turbo's first write
         do_mirror(app, u, r.writes, r.after);
         save_record(app, u);
         g.recheck_at = app.now + 5.0;  // report 4.5: re-read 5 s later (an Edit Tactic overwrite shows then)
         fill_editor(r.after);
-        app.notify("Written into your club's live tactic and read back. It should reach the next match set up from the hub and your next in-game save "
-                   "(not verified yet).");
+        app.notify("Written into your club's live tactic and read back" + std::string(r.copies.empty() ? "" : " (" + r.copies + ")") +
+                   ". It should reach the next match set up from the hub (not verified yet). " + safety_text());
     } else if (r.ok) {
         if (g.prev_have) save_record(app, g.prev);
         app.notify("Live tactic: " + r.message);
+    } else if (r.restore_failed) {
+        // putting back FAILED: values of this job may still be in the game, Edit Tactic's copies' too. The record (this Apply merged with an
+        // earlier write) names every field the job wrote, the copies with their values from before Turbo's first write, so Undo (allowed after
+        // "failed") can put back each one that still holds Turbo's value
+        UndoRecord u = g.undo;
+        add_job_writes(u, r.writes);
+        u.state = "failed";
+        u.note = r.stage + ": " + r.message;
+        save_record(app, u);
+        app.notify("Live tactic not written: " + r.message, true);
     } else {
         // nothing of this Apply is in the game (refused before writing, or every field put back): the earlier record stays
         if (g.prev_have && g.prev.state == "written") {
@@ -595,7 +656,7 @@ void handle_result(App& app, const ApplyResult& r) {
             save_record(app, u);
         } else {
             UndoRecord u = g.undo;
-            u.state = r.undone ? "undone" : (r.restore_failed ? "failed" : "aborted");
+            u.state = r.undone ? "undone" : "aborted";
             u.note = r.stage + ": " + r.message;
             save_record(app, u);
         }
@@ -629,6 +690,25 @@ bool input_int(const char* text, const char* id, int* v, int lo, int hi, const c
     return changed;
 }
 
+// A row of small buttons in the form's control column that wraps (at the column's left edge) instead of running out of the window
+struct ButtonFlow {
+    float x0, right;  // the column's left edge (window coordinates) and the window's right edge (screen coordinates)
+    bool first = true;
+    ButtonFlow() : x0(ImGui::GetCursorPosX()), right(ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x) {}
+    void next(const std::string& label) {
+        if (first) {
+            first = false;
+            return;
+        }
+        const float w = ImGui::CalcTextSize(label.c_str(), nullptr, true).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        ImGui::SameLine();
+        if (ImGui::GetCursorScreenPos().x + w > right) {
+            ImGui::NewLine();
+            ImGui::SetCursorPosX(x0);
+        }
+    }
+};
+
 void draw_confirm(App& app) {
     if (g.confirm_request) {
         ImGui::OpenPopup("Apply to the live tactic?##ltconfirm");
@@ -640,8 +720,11 @@ void draw_confirm(App& app) {
         g_state.confirm_lines = g.confirm_lines;
         ImGui::TextUnformatted("Turbo writes these values into your club's live tactic record (channel E):");
         for (const std::string& l : g.confirm_lines) ImGui::BulletText("%s", l.c_str());
-        ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.4f, 1), "Untested: nobody has seen channel E in Edit Tactic or a played match yet.");
+        ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.4f, 1), "Untested: the match effect of Line Height, Build-Up Style and Defensive Approach is not proven yet.");
         ImGui::TextUnformatted("Team Management (Edit Tactic) must be closed. The values before the write go to turbo_output\\channel_e_undo.json.");
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0.6f, 0.3f, 1));
+        ImGui::TextWrapped("%s", safety_text());
+        ImGui::PopStyleColor();
         if (ImGui::Button("Apply##ltyes")) {
             ImGui::CloseCurrentPopup();
             do_apply(app);
@@ -668,8 +751,9 @@ void draw_body(App& app) {
 
     // the summary line (always, read-only)
     if (g.have) {
-        g_state.summary = "Your club's live tactic (read now): \"" + (g.lt.name.empty() ? std::string("?") : g.lt.name) + "\", depth " +
-                          std::to_string(g.lt.depth) + ", build-up " + std::to_string(g.lt.build_up);
+        g_state.summary = "Your club's live tactic (read now): \"" + (g.lt.name.empty() ? std::string("?") : g.lt.name) + "\", Defensive Approach " +
+                          approach_text(g.lt.approach) + ", Line Height " + std::to_string(g.lt.line_height) + ", Build-Up Style " +
+                          build_up_text(g.lt.build_up);
     } else {
         g_state.summary = "Your club's live tactic: not read (" + g.read_err + ")";
     }
@@ -686,7 +770,7 @@ void draw_body(App& app) {
     if (!g_state.card_open) return;
     ImGui::PushID("ltcard");
     // badges (Phase 0: how it is written / what was seen)
-    const TacticStatus bs = live_sheet_status("live.depth", "Live tactic");
+    const TacticStatus bs = live_sheet_status("live.line_height", "Live tactic");
     g_state.written = written_badge(bs.written);
     g_state.seen = seen_badge(bs);
     g_state.tag = status_tag(bs);
@@ -695,6 +779,10 @@ void draw_body(App& app) {
     ImGui::SameLine();
     ImGui::TextColored(seen_colour_e(bs.seen), "[%s]", g_state.seen.c_str());
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\n%s", seen_help(bs.seen), bs.note.c_str());
+    g_state.safety = safety_text();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0.6f, 0.3f, 1));
+    ImGui::TextWrapped("%s", g_state.safety.c_str());
+    ImGui::PopStyleColor();
     // the opt-in
     bool on = g.sw.opt_in;
     if (checkbox_right("Channel E on (turbo_output\\call_team_sheet_on.txt)##ltopt", &on)) {
@@ -759,12 +847,79 @@ void draw_body(App& app) {
 
     // the editor
     g_state.slots.clear();
+    g_state.copies.clear();
+    g_state.approach_choices.clear();
+    g_state.build_up_choices.clear();
+    g_state.line_hint.clear();
     if (g.have) {
         const LiveTactic& lt = g.lt;
-        ImGui::SeparatorText("New values (raw numbers)");
-        input_int("Build-up (0-3)", "##ltbu", &g.build_up, kBuildUpMin, kBuildUpMax,
-                  "buildupplay of the active record; what each number means in Edit Tactic is not decoded yet");
-        input_int("Defensive depth (1-100)", "##ltdd", &g.depth, kDepthMin, kDepthMax, "defensivedepth of the active record");
+        ImGui::SeparatorText("New values (Edit Tactic's words)");
+        // Defensive Approach: the known values as buttons; picking one puts in its default Line Height (still editable below)
+        form_label("Defensive Approach",
+                   "record +0xB4, written together with Line Height and Build-Up Style. Deep and Balanced were seen in Edit Tactic; High and Aggressive "
+                   "follow the game's band order and EA's list (not yet seen). Picking one puts in its default Line Height.");
+        ButtonFlow ap_row;
+        for (const EnumLabel& e : defensive_approaches()) {
+            g_state.approach_choices.push_back(e.value);
+            const std::string id = std::string(e.label) + "##ltap" + std::to_string(e.value);
+            ap_row.next(id);
+            const bool sel = e.value == g.approach;
+            if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            if (ImGui::SmallButton(id.c_str()) && !sel) {
+                g.approach = e.value;
+                if (e.default_line > 0) g.line_height = e.default_line;
+            }
+            if (sel) ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s = %d: %s%s", e.label, e.value, e.source,
+                                  e.default_line > 0 ? (std::string("\nDefault Line Height ") + std::to_string(e.default_line) +
+                                                        (e.default_line_seen ? " (seen in Edit Tactic)" : " (EA's notes)"))
+                                                           .c_str()
+                                                     : "");
+        }
+        if (!defensive_approach(g.approach)) ImGui::TextDisabled("live value %d has no known label: kept unless you pick one", g.approach);
+        // Line Height 1..100: a slider and a box for the exact number
+        form_label("Line Height", "record +0xA4 (cm_mentalities.defensivedepth), 1..100: Edit Tactic's Line Height slider");
+        {
+            // the slider and the box for the exact number side by side, or the box under the slider when the column is narrow
+            const float box = S(60.0f), gap = ImGui::GetStyle().ItemSpacing.x, avail = ImGui::GetContentRegionAvail().x, x0 = ImGui::GetCursorPosX();
+            const bool one_line = avail >= S(60.0f) + gap + box;
+            ImGui::SetNextItemWidth(one_line ? std::min(avail - box - gap, S(220.0f)) : std::max(avail, S(60.0f)));
+            ImGui::SliderInt("##ltlh", &g.line_height, kLineMin, kLineMax);
+            if (one_line) ImGui::SameLine();
+            else ImGui::SetCursorPosX(x0);
+            ImGui::SetNextItemWidth(box);
+            ImGui::InputInt("##ltlhbox", &g.line_height, 0, 0);
+        }
+        g.line_height = std::clamp(g.line_height, kLineMin, kLineMax);
+        if (const EnumLabel* ap = defensive_approach(g.approach)) {
+            if (line_band(g.line_height) != g.approach) {
+                const EnumLabel* band = defensive_approach(line_band(g.line_height));
+                g_state.line_hint = "Line Height " + std::to_string(g.line_height) + " lies in " + (band ? band->label : "another approach") + "'s band (" +
+                                    line_band_text(g.line_height) + "), not " + ap->label +
+                                    "'s: written as you set it; after an in-game save and reload the game may show the band's approach (not verified)";
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0.7f, 0.3f, 1));
+                ImGui::TextWrapped("%s", g_state.line_hint.c_str());
+                ImGui::PopStyleColor();
+            } else {
+                g_state.line_hint = line_band_text(g.line_height) + ": " + ap->label + "'s band";
+                ImGui::TextDisabled("%s", g_state.line_hint.c_str());
+            }
+        }
+        // Build-Up Style: the known values as buttons
+        form_label("Build-Up Style", "record +0xB0 (cm_mentalities.buildupplay). Short Passing is not offered: its stored value (2 or 3) is not decoded yet");
+        ButtonFlow bu_row;
+        for (const EnumLabel& e : build_up_styles()) {
+            g_state.build_up_choices.push_back(e.value);
+            const std::string id = std::string(e.label) + "##ltbu" + std::to_string(e.value);
+            bu_row.next(id);
+            const bool sel = e.value == g.build_up;
+            if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            if (ImGui::SmallButton(id.c_str())) g.build_up = e.value;
+            if (sel) ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s = %d: %s", e.label, e.value, e.source);
+        }
+        if (!build_up_style(g.build_up)) ImGui::TextDisabled("live value %d has no known label (Short Passing?): kept unless you pick one", g.build_up);
         input_int("Slot (0-10)", "##ltslot", &g.slot, 0, kSlots - 1, "the slot whose role id and focus the buttons below set");
         g_state.edit_slot = g.slot;
         const SlotView& v = lt.slots[size_t(g.slot)];
@@ -778,13 +933,15 @@ void draw_body(App& app) {
             std::vector<int> roles = allow->role_ids(v.group());
             if (std::find(roles.begin(), roles.end(), v.role_id) == roles.end()) roles.insert(roles.begin(), v.role_id);  // the live one stays offered
             form_label("Role id", "the role ids the game uses in this position group (raw numbers: the labels are not decoded)");
+            ButtonFlow role_row;
             for (size_t i = 0; i < roles.size(); ++i) {
                 const int x = roles[i];
                 g_state.role_choices.push_back(x);
-                if (i) ImGui::SameLine();
+                const std::string id = std::to_string(x) + "##ltrole" + std::to_string(x);
+                role_row.next(id);
                 const bool sel = x == rid;
                 if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-                if (ImGui::SmallButton((std::to_string(x) + "##ltrole" + std::to_string(x)).c_str()) && !sel) {
+                if (ImGui::SmallButton(id.c_str()) && !sel) {
                     rid = x;
                     const std::vector<int> fs = allow->focuses(v.group(), x);
                     if (x == v.role_id) foc = v.focus;
@@ -795,20 +952,21 @@ void draw_body(App& app) {
             std::vector<int> focs = allow->focuses(v.group(), rid);
             if (rid == v.role_id && std::find(focs.begin(), focs.end(), v.focus) == focs.end()) focs.insert(focs.begin(), v.focus);
             form_label("Focus", "the focuses the game uses with this role (raw numbers)");
+            ButtonFlow foc_row;
             for (size_t i = 0; i < focs.size(); ++i) {
                 const int x = focs[i];
                 g_state.focus_choices.push_back(x);
-                if (i) ImGui::SameLine();
+                const std::string id = std::to_string(x) + "##ltfoc" + std::to_string(x);
+                foc_row.next(id);
                 const bool sel = x == foc;
                 if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-                if (ImGui::SmallButton((std::to_string(x) + "##ltfoc" + std::to_string(x)).c_str())) foc = x;
+                if (ImGui::SmallButton(id.c_str())) foc = x;
                 if (sel) ImGui::PopStyleColor();
             }
             if (focs.empty()) ImGui::TextDisabled("Focus: none seen with role %d", rid);
         } else {
             ImGui::TextDisabled("Role / focus: not editable (%s)", g_state.allow.c_str());
         }
-        ImGui::TextDisabled("%s", depth_band_text(g.depth).c_str());
         ImGui::TextWrapped("Slot %d: %s, %s, position group %d (kept)", g.slot, position_name(v.position), player_label(app, v.pid).c_str(), v.group());
         if (ImGui::SmallButton("Reset to the live values##ltreset")) fill_editor(lt);
         if (!g_state.plan.empty()) {
@@ -817,8 +975,8 @@ void draw_body(App& app) {
         } else if (!pw.empty()) {
             ImGui::TextDisabled("Apply: %s", pw.c_str());
         }
-        g_state.not_written = "Not written in 2.2: preset " + std::to_string(lt.preset) + " (ids not decoded), formation " + std::to_string(lt.formation) +
-                              " (needs all 11 slots: 2.3), takers, names, positions";
+        g_state.not_written = "Not written: preset " + std::to_string(lt.preset) + " (ids not decoded), formation " + std::to_string(lt.formation) +
+                              " (needs all 11 slots), the tactic code, takers, names, positions";
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         ImGui::TextWrapped("%s", g_state.not_written.c_str());
         ImGui::PopStyleColor();
@@ -841,11 +999,12 @@ void draw_body(App& app) {
     // the read-out
     if (g.have) {
         const LiveTactic& lt = g.lt;
-        g_state.readout = "\"" + lt.name + "\": formation " + std::to_string(lt.formation) + " (source " + std::to_string(lt.source_formation) + "), depth " +
-                          std::to_string(lt.depth) + " " + depth_band_text(lt.depth) + ", build-up " + std::to_string(lt.build_up) + ", preset " +
-                          std::to_string(lt.preset) + " | sheet " + std::to_string(lt.sheet_id) + ", mode " + std::to_string(lt.mode) + ", dirty " +
-                          std::to_string(lt.dirty) + ", record " + std::to_string(lt.at.record_index) + " of " + std::to_string(lt.at.records);
-        ImGui::TextWrapped("Live record: %s", g_state.readout.c_str());
+        g_state.readout = "\"" + lt.name + "\" code " + (lt.code.empty() ? std::string("?") : lt.code) + ": formation " + std::to_string(lt.formation) +
+                          " (source " + std::to_string(lt.source_formation) + "), Defensive Approach " + approach_text(lt.approach) + ", Line Height " +
+                          std::to_string(lt.line_height) + " " + line_band_text(lt.line_height) + ", Build-Up Style " + build_up_text(lt.build_up) +
+                          ", preset " + std::to_string(lt.preset) + " | sheet " + std::to_string(lt.sheet_id) + ", mode " + std::to_string(lt.mode) +
+                          ", dirty " + std::to_string(lt.dirty) + ", record " + std::to_string(lt.at.record_index) + " of " + std::to_string(lt.at.records);
+        ImGui::TextWrapped("Live record (what the next match copies): %s", g_state.readout.c_str());
         for (int s = 0; s < kSlots; ++s) {
             const SlotView& v = lt.slots[size_t(s)];
             g_state.slots.push_back("slot " + std::to_string(s) + " " + position_name(v.position) + " " + player_label(app, v.pid) + ": role " +
@@ -854,6 +1013,14 @@ void draw_body(App& app) {
         }
         if (ImGui::TreeNode("Slots (11)##ltslots")) {
             for (const std::string& l : g_state.slots) ImGui::TextWrapped("%s", l.c_str());
+            ImGui::TreePop();
+        }
+        for (const WorkCopy& c : lt.copies) g_state.copies.push_back(copy_line(c));
+        const int n = lt.matching_copies();
+        if (ImGui::TreeNode((std::string("Edit Tactic working copies (") + std::to_string(n) + " hold this tactic)##ltcopies").c_str())) {
+            for (const std::string& l : g_state.copies) ImGui::TextWrapped("%s", l.c_str());
+            if (n == 0)
+                ImGui::TextWrapped("None holds this tactic: Turbo writes the map record only and Edit Tactic shows its own copy until the next career load.");
             ImGui::TreePop();
         }
     } else {
@@ -866,9 +1033,11 @@ void draw_body(App& app) {
         g.next_read = 0.0;
     }
     ImGui::TextWrapped(
-        "Apply in the career hub with Team Management (Edit Tactic) closed, before the pre-match screen: the next match set up afterwards should copy "
-        "the record and your next in-game save should keep it (not verified yet). Turbo re-reads the record 5 s after a write and says so when Edit "
-        "Tactic overwrote it.");
+        "Apply in the career hub with Team Management (Edit Tactic) closed, before the pre-match screen: Turbo writes the live record and Edit "
+        "Tactic's working copy of the same tactic; the next match set up afterwards should copy the record (not verified yet). Leave Team "
+        "Management with No when the game asks to save your team sheet. Turbo never saves; the cm_mentalities copy is opt-in. Turbo re-reads the "
+        "record 5 s after a write and says so when Edit Tactic overwrote it; 20 s after kick-off it dumps the match's copy of the tactic to "
+        "turbo_output\\channel_e_kickoff_dump.bin (read-only).");
     ImGui::PopID();
 }
 
@@ -944,35 +1113,8 @@ void live_tactic_tick(App& app) {
                 }
             }
         }
-        // report 4.5: once a match is set up after a write, look for the written role words in the match copy (read-only)
-        const std::string& phase = app.bridge.state().match_phase;
-        if (phase != g.last_phase) {
-            if (phase == "match" && g.have_undo && g.undo.state == "written") g.kickoff_at = app.now + 20.0;
-            g.last_phase = phase;
-        }
-        if (g.kickoff_at > 0 && app.now >= g.kickoff_at) {
-            g.kickoff_at = -1.0;
-            // only when a role word was written and every written one still holds Turbo's value: the 11 words searched are the live ones with
-            // the undo record's NEW words in the written slots (depth and build-up are not part of the match copy's role block: not checked)
-            bool any = false, still = true;
-            if (read_now(app)) {
-                std::array<int32_t, kSlots> roles{}, pids{};
-                for (int s = 0; s < kSlots; ++s) {
-                    roles[size_t(s)] = g.lt.slots[size_t(s)].role;
-                    pids[size_t(s)] = g.lt.slots[size_t(s)].pid;
-                }
-                for (const FieldWrite& w : g.undo.writes) {
-                    if (w.kind != FieldKind::Role || w.slot < 0 || w.slot >= kSlots) continue;
-                    any = true;
-                    if (roles[size_t(w.slot)] != w.new_value) still = false;
-                    roles[size_t(w.slot)] = w.new_value;
-                }
-                if (any && still) app.team_sheet->kickoff_check(g.lt.at.user, roles, pids);
-                else
-                    log_line(app, std::string("channel E: no kick-off check: ") +
-                                      (any ? "a written role word is no longer in place" : "no role word was written (depth and build-up are not checked by it)"));
-            }
-        }
+        // the kick-off check (core/team_sheet.h): the game_tick listener runs it; this tick only stands in when the game thread is not hooked
+        app.team_sheet->kickoff_tick();
     } catch (const std::exception& e) {
         g.error = e.what();
     } catch (...) {

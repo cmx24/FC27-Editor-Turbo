@@ -214,8 +214,9 @@ inline const char* dead_target_reason(const std::string& target) {
 namespace tactics_status_detail {
 inline const std::map<std::string, Entry>& live_sheet_table() {
     static const std::map<std::string, Entry> t = {
-        {"live.build_up", {SeenKind::Untested, "", "written into your club's live tactic record and read back; Edit Tactic and a played match not checked yet", false}},
-        {"live.depth", {SeenKind::Untested, "", "written into your club's live tactic record and read back; Edit Tactic and a played match not checked yet", false}},
+        {"live.build_up", {SeenKind::Untested, "", "Build-Up Style: written into your club's live tactic record (and Edit Tactic's working copy when one holds this tactic and these players), read back; whether Edit Tactic shows it and a played match uses it: not checked yet", false}},
+        {"live.line_height", {SeenKind::Untested, "", "Line Height: written into your club's live tactic record (and Edit Tactic's working copy when one holds this tactic and these players), read back; whether Edit Tactic shows it and a played match uses it: not checked yet", false}},
+        {"live.approach", {SeenKind::Untested, "", "Defensive Approach: written into your club's live tactic record (and Edit Tactic's working copy when one holds this tactic and these players), read back; whether Edit Tactic shows it and a played match uses it: not checked yet", false}},
         {"live.role", {SeenKind::Untested, "", "the slot's three role values (word, role id, focus) written together and read back; Edit Tactic and a played match not checked yet", false}},
     };
     return t;

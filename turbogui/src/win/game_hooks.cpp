@@ -65,6 +65,10 @@ thread_local int t_drain_depth = 0;  // a Lua pump that happens inside a queued 
 // prompt Lua commands: the synthetic career event (core/gamethread.h, docs/re/game_thread.md section 4)
 using CareerEventFn = void* (*)(void*, int, void*);
 std::atomic<bool> g_lua_wanted{false};
+// functions the game_tick hook calls on the game thread after each frame's jobs (add_game_tick_listener): set once, never removed
+constexpr int kTickListeners = 8;
+std::atomic<void (*)()> g_tick_listeners[kTickListeners] = {};
+std::atomic<int> g_tick_listener_count{0};
 std::atomic<bool> g_in_trigger{false};
 std::atomic<long long> g_lua_triggers{0}, g_lua_trigger_pumps{0};
 std::atomic<unsigned long long> g_next_trigger{0}, g_next_hook_check{0};
@@ -468,6 +472,9 @@ void* hk_tick(void* a, void* b, void* c, void* d) {
     HOOK_BODY("game_tick", {
         drain_queue("game_tick hook", kJobsPerTick);
         maybe_trigger_lua();
+        const int n = g_tick_listener_count.load();
+        for (int i = 0; i < n && i < kTickListeners; ++i)
+            if (void (*fn)() = g_tick_listeners[i].load()) fn();
     });
     return r;
 }
@@ -584,6 +591,15 @@ const char* run_on_game_thread(std::function<void()> fn) {
 }
 
 bool game_thread_hooked() { return g_tick_hooked.load() && game_hook_enabled("game_tick"); }
+
+bool add_game_tick_listener(void (*fn)()) {
+    if (!fn) return false;
+    const int i = g_tick_listener_count.load();
+    if (i >= kTickListeners) return false;
+    g_tick_listeners[i].store(fn);  // the slot first, then the count the hook reads
+    g_tick_listener_count.store(i + 1);
+    return true;
+}
 uint32_t game_thread_id() { return g_game_tid.load(); }
 
 void want_lua_pump(bool wanted) {
