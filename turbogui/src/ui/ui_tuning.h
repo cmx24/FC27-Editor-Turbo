@@ -33,7 +33,7 @@ struct TuningViewState {
     struct Row {
         std::string id, label, group;
         std::string located;    // "located" / "not located"
-        std::string applies;    // "applies live" / "applies next match" / "applies: not known yet"
+        std::string applies;    // "meant live, not measured" / "meant for next match, not measured" / "applies: not known yet"
         std::string why;        // why not located ("" when located)
         std::string game, turbo, def;  // the value in memory now, the slider's value, FC 27's own value (formatted; "" = not known)
         std::string copies;     // "base 8, simulation 8.5" when the knob has several database copies ("" = one)

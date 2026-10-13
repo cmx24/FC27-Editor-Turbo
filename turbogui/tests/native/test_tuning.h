@@ -1787,11 +1787,11 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             return nullptr;
         };
         const TuningViewState::Row* rp = row("pressing.intensity");
-        CHECK(rp && rp->located == "located" && rp->applies == "applies next match" && rp->game == "0.50" && rp->def == "0.50" && rp->editable &&
+        CHECK(rp && rp->located == "located" && rp->applies == "meant for next match, not measured" && rp->game == "0.50" && rp->def == "0.50" && rp->editable &&
                   !rp->can_reset,
               "a located row: FC 27's value and the value now; nothing to reset");
         const TuningViewState::Row* rg = row("passing.error_ground");
-        CHECK(rg && rg->applies == "applies live", "a live knob");
+        CHECK(rg && rg->applies == "meant live, not measured", "a live knob");
         const TuningViewState::Row* rk = row("gk.reaction");
         CHECK(rk && rk->located == "not located" && !rk->editable && rk->why.find("not located on this build (placeholder") == 0, "a placeholder row");
         CHECK(!s.measure_enabled && s.measure_label.find("coming") != std::string::npos, "Measure: coming (disabled)");
@@ -1813,7 +1813,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         tuning_top(ui);
         ui.frames(2);
         CHECK(s.can_apply && s.status == "ready", "ready: " + s.status);
-        CHECK(has_text(s.plan, "Pressing intensity: 0.50 -> 0.65 (applies at the next match setup)") && has_text(s.plan, "Defensive line height: 45 % -> 70 %"),
+        CHECK(has_text(s.plan, "Pressing intensity: 0.50 -> 0.65 (meant for the next match setup)") && has_text(s.plan, "Defensive line height: 45 % -> 70 %"),
               "Apply will write both");
         CHECK(w.f32(TuneWorld::kBase) == 0.5f, "nothing written yet");
         CHECK(ui.click("Apply##tvapply"), "Apply clicked");
@@ -1826,7 +1826,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         UndoRecord u;
         std::string err;
         CHECK(load_undo(out / undo_file(), u, &err) && u.state == "written" && u.knobs.size() == 2 && u.load_gen == gen, "undo file: written " + err);
-        CHECK(ui.toast_contains("Gameplay tuning written and read back: it reaches the next match set up from the hub"), "toast");
+        CHECK(ui.toast_contains("Gameplay tuning written to the engine table and read back; whether the match uses it is not measured yet"), "toast");
         CHECK(s.can_undo && s.can_restore, "Undo and Restore offered");
         // a pre-match screen: Apply refused for hub-only knobs
         st["match_phase"] = "prematch";

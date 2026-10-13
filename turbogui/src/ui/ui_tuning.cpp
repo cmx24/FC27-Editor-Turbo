@@ -300,8 +300,8 @@ std::vector<std::string> plan_lines(const Registry& reg, const Plan& p) {
     for (const Write& w : p.writes) {
         const Knob* k = reg.knob(w.id);
         if (!k) continue;
-        const char* when = k->applies == Applies::Live ? "applies at once" : k->applies == Applies::NextMatchSetup ? "applies at the next match setup"
-                                                                                                                   : "when it applies is not known yet";
+        const char* when = k->applies == Applies::Live ? "meant to apply at once" : k->applies == Applies::NextMatchSetup ? "meant for the next match setup"
+                                                                                                                         : "when it applies is not known yet";
         out.push_back(k->label + (w.copy.empty() ? std::string() : " [" + w.copy + "]") + ": " + format_value(*k, w.old_value) + " -> " +
                       format_value(*k, w.new_value) + " (" + when + ")");
     }
@@ -519,14 +519,9 @@ void handle_result(App& app, const ApplyResult& r) {
             save_keep_store(app);
         }
         after_job_follow(r.writes);
-        bool next_match = false, unknown = false;
-        for (const Write& w : r.writes)
-            if (const Knob* k = reg->knob(w.id)) {
-                next_match = next_match || k->applies == Applies::NextMatchSetup;
-                unknown = unknown || k->applies == Applies::Unknown;
-            }
-        app.notify(std::string(r.kind == PlanKind::Reapply ? "Kept gameplay tuning written again" : "Gameplay tuning written") + " and read back" +
-                   (next_match ? ": it reaches the next match set up from the hub" : unknown ? ": when the game reads it is not known yet" : ": live now"));
+        // no knob's effect on a match has been measured: say only what was proven (written + read back)
+        app.notify(std::string(r.kind == PlanKind::Reapply ? "Kept gameplay tuning written again" : "Gameplay tuning written") +
+                   " to the engine table and read back; whether the match uses it is not measured yet");
     } else if (r.ok) {
         if (g.prev_have) save_record(app, g.prev);
         if (r.kind == PlanKind::Apply) app.notify("Gameplay tuning: " + r.message);
@@ -743,8 +738,8 @@ void draw_presets(App& app) {
 // ---------------------------------------------------------------------------------------------------------------- drawing
 const char* applies_badge(Applies a) {
     switch (a) {
-        case Applies::Live: return "applies live";
-        case Applies::NextMatchSetup: return "applies next match";
+        case Applies::Live: return "meant live, not measured";
+        case Applies::NextMatchSetup: return "meant for next match, not measured";
         case Applies::Unknown: return "applies: not known yet";
     }
     return "applies: not known yet";
@@ -834,8 +829,8 @@ void draw_row(App& app, const Knob& k, const std::map<std::string, double>& defs
     ImGui::SameLine();
     ImGui::TextColored(k.applies == Applies::Live ? ImVec4(0.5f, 0.8f, 0.95f, 1) : ImVec4(0.9f, 0.8f, 0.4f, 1), "[%s]", row.applies.c_str());
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("%s", k.applies == Applies::Live ? "the game reads this table while a match is played: a write shows at once"
-                                : k.applies == Applies::NextMatchSetup ? "the game reads this table when it sets a match up: a write reaches the next match set up from the hub"
+        ImGui::SetTooltip("%s", k.applies == Applies::Live ? "meant to be read while a match is played; a write is checked by reading it back, whether the match uses it is not measured yet"
+                                : k.applies == Applies::NextMatchSetup ? "meant to be read when the game sets a match up; a write is checked by reading it back, whether the match uses it is not measured yet"
                                                                        : "when the game reads this table is not known yet");
     // the game's own value, the value now, Reset
     if (located) {
