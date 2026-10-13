@@ -1852,6 +1852,37 @@ ApplyResult apply_plan(Memory& game, const Registry& reg, const AnchorMap& ancho
                                         std::to_string(located_copies[kv.first].size()) +
                                         " copies; every copy of a knob is written together: nothing written");
             }
+        // the knobs that must stay below others (the line height bands), checked here too so that Apply, re-apply, Undo, Restore and a
+        // row Reset never leave two bands overlapping: the value of each copy after the plan is the planned one, else the one located now
+        std::map<std::string, std::map<std::string, double>> after;  // by knob, by copy
+        std::set<std::string> tried;
+        auto values_after = [&](const Knob& k) -> const std::map<std::string, double>* {
+            if (tried.insert(k.id).second) {
+                KnobAt at;
+                if (locate_knob(mem, reg, k, anchors, lk, at).empty())
+                    for (const CopyAt& x : at.copies) after[k.id][x.variant] = x.value;
+                for (const Item& it : items)
+                    if (it.k->id == k.id) after[k.id][it.copy] = it.want;
+            }
+            auto f = after.find(k.id);
+            return f == after.end() || f->second.empty() ? nullptr : &f->second;
+        };
+        for (const Knob& k : reg.knobs)
+            for (const std::string& b : k.below) {
+                if (!planned_copies.count(k.id) && !planned_copies.count(b)) continue;
+                const Knob* o = reg.knob(b);
+                if (!o) continue;
+                const auto* va = values_after(k);
+                const auto* vc = values_after(*o);
+                if (!va || !vc) continue;
+                for (const auto& kv : *va) {
+                    auto c = vc->find(kv.first);
+                    const double cv = c != vc->end() ? c->second : vc->begin()->second;
+                    if (!(representable(k, kv.second) < representable(*o, cv)))
+                        return fail("plan", k.label + copy_label(va->size() > 1 ? kv.first : std::string()) + " (" + format_value(k, kv.second) +
+                                                ") must stay below " + o->label + " (" + format_value(*o, cv) + "): nothing written");
+                }
+            }
         // 4. the snapshot (what every copy holds now)
         for (const Item& it : items) r.snapshot[copy_key(it.k->id, it.copy)] = it.snap;
         if (opt.cancel && opt.cancel->load()) return fail("cancelled", "the job was given up: nothing written");

@@ -1333,6 +1333,36 @@ static void run() {
         CHECK(make_plan(reg, live, {{"band.deep_max", 31}}, PlanKind::Apply, p) == "Deep up to (31) must stay below Balanced from (31)", "overlap refused");
         CHECK(make_plan(reg, live, {{"band.deep_max", 40}, {"band.bal_min", 41}}, PlanKind::Apply, p).empty() && p.writes.size() == 2, "both moved together");
         CHECK(make_plan(reg, live, {{"band.bal_min", 20}}, PlanKind::Apply, p).find("must stay below") != std::string::npos, "the other side too");
+        auto i32 = [&mem](uint64_t a) {
+            int32_t v = 0;
+            mem.rd(a, v);
+            return v;
+        };
+        // the job checks it too: Apply 30 -> 40 and 31 -> 41, then a row Reset of Balanced from alone (41 -> 31) is refused, nothing written
+        CHECK(make_plan(reg, live, {{"band.deep_max", 40}, {"band.bal_min", 41}}, PlanKind::Apply, p).empty(), "apply planned");
+        CHECK(apply_plan(mem, reg, am, lk, p).ok && i32(0x22000000) == 40 && i32(0x22000004) == 41, "applied");
+        const auto after = live_of(mem, reg, am, lk);
+        const std::map<std::string, double> defs = {{copy_key("band.deep_max", ""), 30}, {copy_key("band.bal_min", ""), 31}};
+        std::vector<std::string> skipped;
+        CHECK(make_restore_plan(reg, after, defs, p, skipped, "band.bal_min").empty() && p.writes.size() == 1, "row Reset planned");
+        ApplyResult r = apply_plan(mem, reg, am, lk, p);
+        CHECK(!r.ok && r.stage == "plan" && r.message == "Deep up to (40) must stay below Balanced from (31): nothing written", r.message);
+        CHECK(i32(0x22000000) == 40 && i32(0x22000004) == 41, "row Reset: no overlap written");
+        // reset together (what the row's Reset does for knobs tied by a below rule): both back
+        CHECK(make_restore_plan(reg, after, defs, p, skipped).empty() && p.writes.size() == 2, "both reset planned");
+        CHECK(apply_plan(mem, reg, am, lk, p).ok && i32(0x22000000) == 30 && i32(0x22000004) == 31, "both reset");
+        // Undo of a record that holds only Balanced from (41 -> 31) while Deep up to is 40: refused, nothing written
+        mem.wr(uint64_t(0x22000000), int32_t(40));
+        mem.wr(uint64_t(0x22000004), int32_t(41));
+        UndoRecord u;
+        u.state = "written";
+        u.session = "s";
+        u.load_gen = 1;
+        u.knobs.push_back({"band.bal_min", 31, 41, ""});
+        CHECK(make_undo_plan(reg, live_of(mem, reg, am, lk), u, "s", 1, p, skipped).empty() && p.writes.size() == 1, "undo planned");
+        r = apply_plan(mem, reg, am, lk, p);
+        CHECK(!r.ok && r.message.find("must stay below") != std::string::npos, "undo refused: " + r.message);
+        CHECK(i32(0x22000000) == 40 && i32(0x22000004) == 41, "undo: no overlap written");
         Registry bad;
         CHECK(!parse_registry(R"({"schema": "turbo-tuning-knobs/1", "build": "b", "knobs": [{"id": "a", "label": "A", "group": "Shape", "type": "i32",
               "below": ["zz"]}]})", bad, err) && err.find("below names knob zz") != std::string::npos, err);

@@ -420,8 +420,20 @@ void do_reset(App& app, const std::string& id) {
         g.last = k->label + ": slider back to the game's value (" + none + ")";
         return;
     }
+    // the knobs tied to it by a "below" rule (the line height bands) are reset with it, so a Reset never leaves two bands overlapping
+    bool tied = false;
+    for (const Knob& o : reg->knobs) {
+        if (o.id == id || (std::find(o.below.begin(), o.below.end(), id) == o.below.end() &&
+                           std::find(k->below.begin(), k->below.end(), o.id) == k->below.end()))
+            continue;
+        std::map<std::string, double> od;
+        if (!reset_defaults(o, app.tuning->defaults(), od).empty()) continue;
+        g.touched.erase(o.id);
+        defs.insert(od.begin(), od.end());
+        tied = true;
+    }
     Plan plan;
-    const std::string w = make_restore_plan(*reg, g.live, defs, plan, g.skipped, id);
+    const std::string w = make_restore_plan(*reg, g.live, defs, plan, g.skipped, tied ? std::string() : id);
     if (!w.empty() || plan.writes.empty()) {
         app.notify(k->label + " not reset: " + (w.empty() ? std::string("nothing to put back") : w) + (g.skipped.empty() ? "" : " (" + g.skipped.front() + ")"),
                    true);
