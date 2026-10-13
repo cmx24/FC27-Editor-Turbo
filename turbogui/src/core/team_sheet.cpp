@@ -1017,6 +1017,17 @@ std::vector<FieldWrite> copy_writes(const LiveTactic& now, const Plan& plan, std
             if (role_group(c.roles[size_t(w.slot)]) != now.slots[size_t(w.slot)].group())
                 bad = "its slot " + std::to_string(w.slot) + " is another position group";
         }
+        // G6 for the copy: a value without a known label is written back unchanged into the map record only (the game put it there); a copy
+        // holding another value does not get it (check_plan never sees the copies' writes of an Apply)
+        for (const FieldWrite& w : plan.writes) {
+            if (!bad.empty()) break;
+            if (w.copy || (w.kind != FieldKind::BuildUp && w.kind != FieldKind::Approach)) continue;
+            const bool known = w.kind == FieldKind::BuildUp ? build_up_style(w.new_value) != nullptr : defensive_approach(w.new_value) != nullptr;
+            const int32_t cur = value_in(now, w.kind, -1, c.offset);
+            if (!known && cur != w.new_value)
+                bad = "its " + std::string(field_label(w.kind)) + " is " + std::to_string(cur) + "; the live record's " + std::to_string(w.new_value) +
+                      " has no known label and is not copied";
+        }
         if (!bad.empty()) {
             left.push_back(c.label() + " (" + bad + ")");
             continue;

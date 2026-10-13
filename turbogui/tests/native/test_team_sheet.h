@@ -1720,6 +1720,26 @@ static void run() {
                   o.i32(o.copy_rec(0x1170) + kRecLineHeight) == 25 && o.i32(o.copy_rec(0x1170) + kRecBuildUp) == 0 && o.i32(SheetWorld::kRecs + kRecApproach) == 3,
               "map and svc+0xF80 written, svc+0x1170 untouched: " + ro.copies);
         CHECK(ro.log_line.find("svc+0x1170 (its slot 4 holds player 200005) NOT written") != std::string::npos, "logged: " + ro.log_line);
+        // review: the map record holds a Build-Up Style without a known label (the game's 2) and only the line height changes: the map record
+        // keeps its 2 (written back unchanged), a copy holding 0 never gets the unknown 2 (left out), a copy holding 2 already is written
+        SheetWorld u;
+        u.mem.wr(SheetWorld::kRecs + kRecBuildUp, int32_t(2));
+        u.put_copy(0xF80, SheetWorld::kCode, 25, 2, 0);
+        Request rl;
+        rl.line_height = 60;
+        Plan pu;
+        CHECK(make_plan(live(u), rl, pu, nullptr).empty() && pu.writes.size() == 3 && pu.writes[2].kind == FieldKind::BuildUp && pu.writes[2].new_value == 2,
+              "plan: the game's build-up 2 kept");
+        const ApplyResult ru = apply_plan(u.mem, SheetWorld::kSvc, u.anchors(), pu);
+        CHECK(ru.ok && ru.copies_written == 1 && u.i32(SheetWorld::kRecs + kRecLineHeight) == 60 && u.i32(SheetWorld::kRecs + kRecBuildUp) == 2 &&
+                  u.i32(u.copy_rec(0xF80) + kRecLineHeight) == 60 && u.i32(u.copy_rec(0x1170) + kRecBuildUp) == 0 &&
+                  u.i32(u.copy_rec(0x1170) + kRecLineHeight) == 25,
+              "map and svc+0xF80 (already 2) written, svc+0x1170 left: " + ru.copies);
+        CHECK(ru.copies.find("svc+0x1170 (its Build-Up Style is 0; the live record's 2 has no known label and is not copied) NOT written") != std::string::npos,
+              "said so: " + ru.copies);
+        bool unknown_copied = false;
+        for (const FieldWrite& x : ru.writes) unknown_copied = unknown_copied || (x.copy && x.kind == FieldKind::BuildUp);
+        CHECK(!unknown_copied, "no Build-Up Style write into a copy");
         // a copy that already holds the values is not written again
         SheetWorld y;
         y.put_copy(0x1170, SheetWorld::kCode, 90, 1, 3);
