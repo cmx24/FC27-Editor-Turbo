@@ -1,0 +1,783 @@
+{
+  "_doc": [
+    "Turbo gameplay tuning knobs for FC27.exe build 6AC07E31-2145C000 (turbogui/src/core/tuning.h). NOTHING HERE IS VERIFIED IN THE RUNNING GAME:",
+    "every knob and locator is 'verified': false, so Turbo shows 'not located on this build' and never writes it.",
+    "Source: turbo_output\\TACTICS_MOD_CATALOGUE.txt (FC 27 type data). collection = the attribulator group, field = the reflected field",
+    "name, offset = its offset in the group's type, default = FC 27's own value (display / Reset only; the live value read first rules).",
+    "min / max are Turbo's safety range. No gameplay mod's values are in this file; Turbo's presets are relative changes.",
+    "Track T1 (the live locator) confirms each locator in the running game (type found by name with this signature / size / field count,",
+    "one instance per variant found by its Name, the field offsets equal) and each knob, fills the simulation variants' instance names,",
+    "and only then sets 'verified': true. A verified knob needs collection, field, locator, offset, min and max; a verified attrib locator",
+    "needs type, type_signature, type_size, type_fields and every variant's instance name, else the whole file is refused.",
+    "Locator kinds: 'attrib' (type + field names, variants = database copies written together), 'chain' (signature + pointer chain + header",
+    "checks), 'native' (code in src/win/tuning_win.cpp). A knob's 'below' lists knobs it must stay below (the line height bands).",
+    "Keys starting with '_' are comments."
+  ],
+  "schema": "turbo-tuning-knobs/1",
+  "build": "6AC07E31-2145C000",
+  "version": 2,
+  "note": "catalogue entries (FC 27 type data), all unverified: waiting for the live locator (track T1)",
+  "locators": [
+    {
+      "name": "attrib.defensivelinelengthwidth",
+      "kind": "attrib",
+      "type": "AttribSchema_gp_positioningformation_linelengthwidth",
+      "type_signature": "0x1f261d29",
+      "type_size": "0x58",
+      "type_fields": 12,
+      "variants": [
+        {
+          "name": "base",
+          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioningformation/gp_positioningformation_defensivelinelengthwidth_runtime"
+        }
+      ],
+      "verified": false,
+      "note": "out-of-possession line width / length (catalogue 6 #2-#3); instance name pattern [A] from the attacking one [V]"
+    },
+    {
+      "name": "attrib.attackinglinelengthwidth",
+      "kind": "attrib",
+      "type": "AttribSchema_gp_positioningformation_linelengthwidth",
+      "type_signature": "0x1f261d29",
+      "type_size": "0x58",
+      "type_fields": 12,
+      "variants": [
+        {
+          "name": "base",
+          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioningformation/gp_positioningformation_attackinglinelengthwidth_runtime"
+        }
+      ],
+      "verified": false,
+      "note": "in-possession line width / length (catalogue 6 #4-#5); instance name [V] (catalogue 2)"
+    },
+    {
+      "name": "attrib.zonal_defense",
+      "kind": "attrib",
+      "type": "AttribSchema_gp_positioning_zonal_defense",
+      "type_signature": "0x3edbaf9a",
+      "type_size": "0x6c8",
+      "type_fields": 237,
+      "variants": [
+        {
+          "name": "base",
+          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioning/gp_positioning_zonal_defense_runtime"
+        },
+        {
+          "name": "simulation",
+          "instance": ""
+        }
+      ],
+      "verified": false,
+      "note": "gaps between the lines and the pressing / zone marking trigger depths (catalogue 6 #7, #9); the Authentic (simulation) database has its own copy: T1 fills its instance name"
+    },
+    {
+      "name": "attrib.defense_general",
+      "kind": "attrib",
+      "type": "AttribSchema_gp_positioning_defense_general",
+      "type_signature": "0xab567373",
+      "type_size": "0xc0",
+      "type_fields": 24,
+      "variants": [
+        {
+          "name": "base",
+          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioning/gp_positioning_defense_general_runtime"
+        },
+        {
+          "name": "simulation",
+          "instance": ""
+        }
+      ],
+      "verified": false,
+      "note": "line holding depth and the team press switches (catalogue 6 #11); simulation copy: T1 fills its instance name"
+    },
+    {
+      "name": "attrib.markingtightness",
+      "kind": "attrib",
+      "type": "AttribSchema_gp_positioning_markingtightness",
+      "type_signature": "0xb7e8579a",
+      "type_size": "0x30",
+      "type_fields": 1,
+      "variants": [
+        {
+          "name": "base",
+          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioning/gp_positioning_markingtightness_runtime"
+        }
+      ],
+      "verified": false,
+      "note": "global man-marking tightness (catalogue 6 #16)"
+    },
+    {
+      "name": "attrib.attackingaggressiveness",
+      "kind": "attrib",
+      "type": "AttribSchema_gp_positioning_attackingaggressiveness",
+      "type_signature": "0xe2687849",
+      "type_size": "0x30",
+      "type_fields": 1,
+      "variants": [
+        {
+          "name": "base",
+          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioning/gp_positioning_attackingaggressiveness_runtime"
+        }
+      ],
+      "verified": false,
+      "note": "global run frequency (catalogue 6 #17)"
+    },
+    {
+      "name": "attrib.teamtacticssettings",
+      "kind": "attrib",
+      "type": "AttribSchema_pm_teamtacticssettings",
+      "type_signature": "0xe7e46eee",
+      "type_size": "0x50",
+      "type_fields": 9,
+      "variants": [
+        {
+          "name": "base",
+          "instance": "Fifa/Attribulator/Prematch/groups/pm_teamtacticssettings/teamtacticssettings_runtime"
+        }
+      ],
+      "verified": false,
+      "note": "prematch: maps a club's defensive depth 1..100 to the 4 defensive styles (catalogue 6 #1); read at match setup [A]"
+    }
+  ],
+  "knobs": [
+    {
+      "id": "shape.width_out",
+      "label": "Team width out of possession",
+      "group": "Shape",
+      "collection": "gp_positioningformation_defensivelinelengthwidth",
+      "field": "lineWidthModifier",
+      "type": "f32",
+      "unit": "x",
+      "min": 0.6,
+      "max": 1.7,
+      "default": 1.0,
+      "step": 0.01,
+      "locator": "attrib.defensivelinelengthwidth",
+      "offset": "0x28",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "higher = the team defends wider; from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "shape.length_out",
+      "label": "Team length out of possession",
+      "group": "Shape",
+      "collection": "gp_positioningformation_defensivelinelengthwidth",
+      "field": "LineLengthModifierForBalanced",
+      "type": "f32",
+      "unit": "x",
+      "min": 0.5,
+      "max": 1.5,
+      "default": 1.0,
+      "step": 0.01,
+      "locator": "attrib.defensivelinelengthwidth",
+      "offset": "0x30",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "distance from the last line to the first when defending (balanced build-up); lower = more compact; from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "shape.width_in",
+      "label": "Team width in possession",
+      "group": "Shape",
+      "collection": "gp_positioningformation_attackinglinelengthwidth",
+      "field": "lineWidthModifier",
+      "type": "f32",
+      "unit": "x",
+      "min": 0.6,
+      "max": 1.7,
+      "default": 1.0,
+      "step": 0.01,
+      "locator": "attrib.attackinglinelengthwidth",
+      "offset": "0x28",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "higher = the team spreads wider with the ball; from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "shape.width_in_cb",
+      "label": "Centre-back width in possession",
+      "group": "Shape",
+      "collection": "gp_positioningformation_attackinglinelengthwidth",
+      "field": "lineWidthModifierForCB",
+      "type": "f32",
+      "unit": "x",
+      "min": 0.6,
+      "max": 1.7,
+      "default": 1.0,
+      "step": 0.01,
+      "locator": "attrib.attackinglinelengthwidth",
+      "offset": "0x3c",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "how far the centre-backs split when building up; from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "shape.length_in",
+      "label": "Team length in possession",
+      "group": "Shape",
+      "collection": "gp_positioningformation_attackinglinelengthwidth",
+      "field": "LineLengthModifierForBalanced",
+      "type": "f32",
+      "unit": "x",
+      "min": 0.5,
+      "max": 1.5,
+      "default": 0.84,
+      "step": 0.01,
+      "locator": "attrib.attackinglinelengthwidth",
+      "offset": "0x30",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "balanced build-up; higher = a longer, more stretched team; from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "shape.length_in_possession",
+      "label": "Team length in possession (possession build-up)",
+      "group": "Shape",
+      "collection": "gp_positioningformation_attackinglinelengthwidth",
+      "field": "LineLengthModifierForPossession",
+      "type": "f32",
+      "unit": "x",
+      "min": 0.5,
+      "max": 1.5,
+      "default": 0.8,
+      "step": 0.01,
+      "locator": "attrib.attackinglinelengthwidth",
+      "offset": "0x50",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "the same for teams with the possession build-up style; from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "shape.gap_dmf",
+      "label": "Gap between defence and holding midfield",
+      "group": "Shape",
+      "collection": "gp_positioning_zonal_defense",
+      "field": "dmfLineOffsetWhenTouchIsOnPar",
+      "type": "f32",
+      "unit": "m",
+      "min": 4.0,
+      "max": 24.0,
+      "default": 8.0,
+      "step": 0.1,
+      "locator": "attrib.zonal_defense",
+      "offset": "0x664",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "out of possession, ball level with the line; from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "shape.gap_dmf_deep",
+      "label": "Gap between defence and holding midfield (ball deep)",
+      "group": "Shape",
+      "collection": "gp_positioning_zonal_defense",
+      "field": "dmfLineOffsetWhenTouchIsDeep",
+      "type": "f32",
+      "unit": "m",
+      "min": 4.0,
+      "max": 24.0,
+      "default": 9.0,
+      "step": 0.1,
+      "locator": "attrib.zonal_defense",
+      "offset": "0x658",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "out of possession, ball deep in your half; from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "shape.gap_mf_deep",
+      "label": "Gap to the midfield line (ball deep)",
+      "group": "Shape",
+      "collection": "gp_positioning_zonal_defense",
+      "field": "mfLineOffsetWithDmfLineWhenTouchIsDeep",
+      "type": "f32",
+      "unit": "m",
+      "min": 4.0,
+      "max": 24.0,
+      "default": 14.0,
+      "step": 0.1,
+      "locator": "attrib.zonal_defense",
+      "offset": "0x67c",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "with a holding midfield line, ball deep; from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "lineband.deep_max",
+      "label": "Line height bands: Deep up to depth",
+      "group": "Shape",
+      "collection": "pm_teamtacticssettings",
+      "field": "maxDepthThresholdForDeepDefensiveStyle",
+      "type": "i32",
+      "unit": "",
+      "min": 0,
+      "max": 100,
+      "default": 30,
+      "step": 1,
+      "locator": "attrib.teamtacticssettings",
+      "offset": "0x3c",
+      "applies": "next match setup",
+      "when": [
+        "hub"
+      ],
+      "below": [
+        "lineband.balanced_min"
+      ],
+      "verified": false,
+      "notes": "a club's defensive depth 1..100 up to this value plays the Deep defensive style; from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "lineband.balanced_min",
+      "label": "Line height bands: Balanced from depth",
+      "group": "Shape",
+      "collection": "pm_teamtacticssettings",
+      "field": "minDepthThresholdForBalancedDefensiveStyle",
+      "type": "i32",
+      "unit": "",
+      "min": 0,
+      "max": 100,
+      "default": 31,
+      "step": 1,
+      "locator": "attrib.teamtacticssettings",
+      "offset": "0x40",
+      "applies": "next match setup",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "keep it Deep's end + 1; from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "lineband.balanced_max",
+      "label": "Line height bands: Balanced up to depth",
+      "group": "Shape",
+      "collection": "pm_teamtacticssettings",
+      "field": "maxDepthThresholdForBalancedDefensiveStyle",
+      "type": "i32",
+      "unit": "",
+      "min": 0,
+      "max": 100,
+      "default": 60,
+      "step": 1,
+      "locator": "attrib.teamtacticssettings",
+      "offset": "0x2c",
+      "applies": "next match setup",
+      "when": [
+        "hub"
+      ],
+      "below": [
+        "lineband.high_min"
+      ],
+      "verified": false,
+      "notes": "from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "lineband.high_min",
+      "label": "Line height bands: High from depth",
+      "group": "Shape",
+      "collection": "pm_teamtacticssettings",
+      "field": "minDepthThresholdForHighDefensiveStyle",
+      "type": "i32",
+      "unit": "",
+      "min": 0,
+      "max": 100,
+      "default": 61,
+      "step": 1,
+      "locator": "attrib.teamtacticssettings",
+      "offset": "0x38",
+      "applies": "next match setup",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "keep it Balanced's end + 1; from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "lineband.high_max",
+      "label": "Line height bands: High up to depth",
+      "group": "Shape",
+      "collection": "pm_teamtacticssettings",
+      "field": "maxDepthThresholdForHighDefensiveStyle",
+      "type": "i32",
+      "unit": "",
+      "min": 0,
+      "max": 100,
+      "default": 90,
+      "step": 1,
+      "locator": "attrib.teamtacticssettings",
+      "offset": "0x44",
+      "applies": "next match setup",
+      "when": [
+        "hub"
+      ],
+      "below": [
+        "lineband.aggressive_min"
+      ],
+      "verified": false,
+      "notes": "from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "lineband.aggressive_min",
+      "label": "Line height bands: Aggressive from depth",
+      "group": "Shape",
+      "collection": "pm_teamtacticssettings",
+      "field": "minDepthThresholdForAggressiveDefensiveStyle",
+      "type": "i32",
+      "unit": "",
+      "min": 0,
+      "max": 100,
+      "default": 91,
+      "step": 1,
+      "locator": "attrib.teamtacticssettings",
+      "offset": "0x34",
+      "applies": "next match setup",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "keep it High's end + 1; from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "pressing.trigger_depth",
+      "label": "Pressing trigger depth",
+      "group": "Pressing",
+      "collection": "gp_positioning_zonal_defense",
+      "field": "TacticDepthThresholdForZonePressing",
+      "type": "f32",
+      "unit": "",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.31,
+      "step": 0.01,
+      "locator": "attrib.zonal_defense",
+      "offset": "0x644",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "the defensive depth at which the team switches to zone pressing; lower = presses earlier; from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "pressing.zone_marking_depth",
+      "label": "Zone marking trigger depth",
+      "group": "Pressing",
+      "collection": "gp_positioning_zonal_defense",
+      "field": "TacticDepthThresholdForZoneMarking",
+      "type": "f32",
+      "unit": "",
+      "min": 0.0,
+      "max": 1.5,
+      "default": 1.01,
+      "step": 0.01,
+      "locator": "attrib.zonal_defense",
+      "offset": "0x684",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "lower = zone marking starts earlier; from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "pressing.no_double_marking_own_half",
+      "label": "No double marking when pressing in your own half",
+      "group": "Pressing",
+      "collection": "gp_positioning_defense_general",
+      "field": "teamPressDisableDoubleManMarkingInDefenderHalf",
+      "type": "bool",
+      "unit": "",
+      "min": null,
+      "max": null,
+      "default": 1,
+      "step": null,
+      "locator": "attrib.defense_general",
+      "offset": "0xb8",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "on = the team press does not double up on the ball carrier in your half; from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "marking.tightness",
+      "label": "Marking tightness",
+      "group": "Marking",
+      "collection": "gp_positioning_markingtightness",
+      "field": "markingTightnessUniversalModifier",
+      "type": "f32",
+      "unit": "x",
+      "min": 0.0,
+      "max": 2.5,
+      "default": 0.5,
+      "step": 0.01,
+      "locator": "attrib.markingtightness",
+      "offset": "0x28",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "how close markers stay to their man; from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "marking.holding_line_depth",
+      "label": "Depth at which the back line holds",
+      "group": "Marking",
+      "collection": "gp_positioning_defense_general",
+      "field": "depthThresholdForHoldingLine",
+      "type": "f32",
+      "unit": "",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.3,
+      "step": 0.01,
+      "locator": "attrib.defense_general",
+      "offset": "0x9c",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "when the back line stops dropping and holds; from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "runs.frequency",
+      "label": "Run frequency",
+      "group": "Attacking runs",
+      "collection": "gp_positioning_attackingaggressiveness",
+      "field": "runFrequencyUniversialModifier",
+      "type": "f32",
+      "unit": "x",
+      "min": 0.1,
+      "max": 5.0,
+      "default": 0.5,
+      "step": 0.01,
+      "locator": "attrib.attackingaggressiveness",
+      "offset": "0x28",
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "how often players make attacking and support runs; from the catalogue (FC 27 type data), not verified in the running game yet"
+    },
+    {
+      "id": "passing.error_ground",
+      "label": "Ground pass error",
+      "group": "Passing",
+      "collection": "",
+      "field": "",
+      "type": "f32",
+      "unit": "",
+      "min": null,
+      "max": null,
+      "default": null,
+      "step": null,
+      "locator": "",
+      "offset": null,
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "PLACEHOLDER: the catalogue has no scalar field for it yet (the error / CPU AI sliders are arrays in gp_customization)"
+    },
+    {
+      "id": "passing.error_lofted",
+      "label": "Lofted pass error",
+      "group": "Passing",
+      "collection": "",
+      "field": "",
+      "type": "f32",
+      "unit": "",
+      "min": null,
+      "max": null,
+      "default": null,
+      "step": null,
+      "locator": "",
+      "offset": null,
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "PLACEHOLDER: the catalogue has no scalar field for it yet (the error / CPU AI sliders are arrays in gp_customization)"
+    },
+    {
+      "id": "passing.error_through",
+      "label": "Through ball error",
+      "group": "Passing",
+      "collection": "",
+      "field": "",
+      "type": "f32",
+      "unit": "",
+      "min": null,
+      "max": null,
+      "default": null,
+      "step": null,
+      "locator": "",
+      "offset": null,
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "PLACEHOLDER: the catalogue has no scalar field for it yet (the error / CPU AI sliders are arrays in gp_customization)"
+    },
+    {
+      "id": "passing.first_touch_error",
+      "label": "First touch error",
+      "group": "Passing",
+      "collection": "",
+      "field": "",
+      "type": "f32",
+      "unit": "",
+      "min": null,
+      "max": null,
+      "default": null,
+      "step": null,
+      "locator": "",
+      "offset": null,
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "PLACEHOLDER: the catalogue has no scalar field for it yet (the error / CPU AI sliders are arrays in gp_customization)"
+    },
+    {
+      "id": "shooting.error",
+      "label": "Shot error",
+      "group": "Shooting",
+      "collection": "",
+      "field": "",
+      "type": "f32",
+      "unit": "",
+      "min": null,
+      "max": null,
+      "default": null,
+      "step": null,
+      "locator": "",
+      "offset": null,
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "PLACEHOLDER: the catalogue has no scalar field for it yet (the error / CPU AI sliders are arrays in gp_customization)"
+    },
+    {
+      "id": "cpuai.pass_risk",
+      "label": "CPU passing risk",
+      "group": "CPU AI",
+      "collection": "",
+      "field": "",
+      "type": "f32",
+      "unit": "",
+      "min": null,
+      "max": null,
+      "default": null,
+      "step": null,
+      "locator": "",
+      "offset": null,
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "PLACEHOLDER: the catalogue has no scalar field for it yet (the error / CPU AI sliders are arrays in gp_customization)"
+    },
+    {
+      "id": "cpuai.tackle_aggression",
+      "label": "CPU tackling aggression",
+      "group": "CPU AI",
+      "collection": "",
+      "field": "",
+      "type": "f32",
+      "unit": "",
+      "min": null,
+      "max": null,
+      "default": null,
+      "step": null,
+      "locator": "",
+      "offset": null,
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "PLACEHOLDER: the catalogue has no scalar field for it yet (the error / CPU AI sliders are arrays in gp_customization)"
+    },
+    {
+      "id": "gk.rush_out",
+      "label": "Goalkeeper rushing out",
+      "group": "Goalkeeper",
+      "collection": "",
+      "field": "",
+      "type": "f32",
+      "unit": "",
+      "min": null,
+      "max": null,
+      "default": null,
+      "step": null,
+      "locator": "",
+      "offset": null,
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "PLACEHOLDER: the catalogue has no scalar field for it yet (the error / CPU AI sliders are arrays in gp_customization)"
+    },
+    {
+      "id": "roles.position_discipline",
+      "label": "How strictly players keep their positions",
+      "group": "Roles",
+      "collection": "",
+      "field": "",
+      "type": "f32",
+      "unit": "",
+      "min": null,
+      "max": null,
+      "default": null,
+      "step": null,
+      "locator": "",
+      "offset": null,
+      "applies": "unknown",
+      "when": [
+        "hub"
+      ],
+      "verified": false,
+      "notes": "PLACEHOLDER: the catalogue has no scalar field for it yet (the error / CPU AI sliders are arrays in gp_customization)"
+    }
+  ]
+}

@@ -3376,6 +3376,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_names_tab.h"  // Players > Names (ui_cases_names_tab, run before the playtest fixes)
 #include "test_tactics_tab.h"  // Teams > Tactics (ui_cases_tactics_tab, run before the Names cases)
 #include "test_team_sheet.h"   // tactics channel E: the live team sheet on a simulated layout (team_sheet_test::run, ::ui_cases)
+#include "test_tuning.h"      // gameplay tuning: the engine tuning tables on a simulated table (tuning_test::run, ::ui_cases)
 #include "test_club_search.h"  // Players list Gender filter, the club box by name or ID (ui_cases_club_search)
 #include "test_file_picker.h"   // in-overlay file picker and the Export / Import dialogs (test_file_picker_ui)
 
@@ -8623,6 +8624,7 @@ static void test_ui() {
 
         ui_cases_tactics_tab(app, ui, le);  // test_tactics_tab.h
         team_sheet_test::ui_cases(app, ui, le);  // test_team_sheet.h: the live tactic card (channel E)
+        tuning_test::ui_cases(app, ui, le);  // test_tuning.h: Competitions > Gameplay tuning
         describe_ui_cases(app, ui);  // test_describe.h: edit log, undo toast, pickers, Technical details, the "no code N" walk
         ui_cases_names_tab(app, ui, mem, kMb);  // test_names_tab.h
         playtest_fix_cases(app, ui, le);
@@ -14315,6 +14317,7 @@ int main(int argc, char** argv) {
     gameplay_sliders_test::run();
     tactics_phase0_test::run();
     team_sheet_test::run();
+    tuning_test::run();
     std::printf("native voice swaps\n");
     test_callname_voice();
     test_callname_voice_host();

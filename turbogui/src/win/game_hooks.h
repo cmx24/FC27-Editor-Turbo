@@ -47,6 +47,10 @@ void install_game_hooks();
 bool game_hooks_allowed();
 // Resolved address of a signature (0 when it is missing, ambiguous, skipped or the build is unknown)
 uint64_t game_signature(const char* name);
+// Scans one more signature (not in the table) over FC27.exe's executable sections, unique match required, resolved like the
+// table's (gameplay tuning's inline locator patterns, core/tuning.h). Slow (the whole code): never from the render thread or a detour.
+// Skipped while game hooks are off.
+turbo::SigResult game_scan_signature(const turbo::Signature& s);
 // Install a hook on the function a signature resolved to. Refused (false, logged) when hooks are not allowed, the
 // signature is not Found, the per-hook kill switch exists, or MinHook fails. `original` receives the trampoline.
 bool install_game_hook(const char* name, const char* signature, void* detour, void** original);
