@@ -3,10 +3,11 @@
 // src/win/tuning_win.cpp gives it the game's memory, the signatures, the code scan and Turbo's game-thread dispatcher.
 //
 // DATA-DRIVEN. What can be tuned is a knob registry read from turbo\tuning\knobs_<build>.json (the package's
-// turbo/package/turbo/tuning/knobs_6AC07E31.json). Every knob is shipped UNVERIFIED ("verified": false): it reads "not located on this
-// build" and nothing is ever written for it until track T1 (the live locator) confirms its group, field, type and offset in the running
-// game and sets verified. The entries come from turbo_output\TACTICS_MOD_CATALOGUE.txt (FC 27 type data: group, field, type, offset,
-// FC 27's own value); nothing here guesses an address, and no gameplay mod's values are in it.
+// turbo/package/turbo/tuning/knobs_6AC07E31.json). A knob shipped UNVERIFIED ("verified": false) reads "not located on this build" and
+// nothing is ever written for it; only the live locator run (track T1, turbo_output\ATTRIBULATOR_LIVE.json) that confirms its group's
+// type, field offset and instances in the running game sets verified. The entries come from turbo_output\TACTICS_MOD_CATALOGUE.txt
+// (FC 27 type data: group, field, type, offset, FC 27's own value per database copy); nothing here guesses an address, and no gameplay
+// mod's values are in it (ranges are generic bounds).
 //
 // A LOCATOR names how a knob's table is found in memory, re-chased inside every job. Kind "attrib" (the attribulator, catalogue
 // sections 2 and 7) resolves by TYPE AND FIELD NAMES:
@@ -28,12 +29,15 @@
 //
 // WRITES (one game-thread job per Apply, every changed knob and every copy together): gates G1 opt-in turbo_output\tuning_on.txt, no
 // tuning_off.txt / call_attrib_off.txt / tactics_off.txt; G2 a career phase every changed knob allows ("when", default the hub only; no save started in the last 30 s); G3 a
-// knobs file for this exact game build; G4 every knob located now; G5 values (type, range); a read-back mismatch switches tuning off for
-// the session. The job re-locates every knob, checks each still holds the value Apply was pressed for, snapshots, writes, reads every
-// knob back and puts EVERY knob back from the snapshot on a mismatch. In the service a knob with a known FC 27 value is written only
-// while it holds that value or the value Turbo wrote last (anything else: another tool or mod owns it). The values before Turbo's first write of a knob in this game
-// session are the "game defaults" (Restore game defaults). Undo (turbo_output\tuning_undo.json) is bound to the career load it was
-// written in. Undo and Restore game defaults put the game's values back: they need no opt-in and the kill switches do not block them.
+// knobs file for this exact game build; G4 every knob located now (a knob not "verified" in the file is never located); G5 values
+// (type, range); a read-back mismatch switches tuning off for the session. The job re-locates every knob, checks each still holds the
+// value Apply was pressed for, that every copy of each knob is in the plan (base and simulation together or not at all), snapshots,
+// writes, reads every knob back and puts EVERY knob back from the snapshot on a mismatch. In the service every copy is written only
+// while it holds FC 27's own value of that copy ("default" / "copy_defaults" of the knobs file) or the value Turbo wrote last (anything
+// else: another tool or mod owns it; refused). The values before Turbo's first write of a knob in this game session are the "game
+// defaults" (Restore game defaults). Undo (turbo_output\tuning_undo.json) is bound to the career load it was written in. Undo and
+// Restore game defaults put the game's values back: they need no opt-in and the kill switches do not block them. Attribulator data is
+// not in the career save: values last for this game session; turbo_output\tuning_keep.json (opt-in) writes them again at career loads.
 #pragma once
 #include <atomic>
 #include <cstdint>
@@ -70,8 +74,10 @@ constexpr long long kSaveQuietSeconds = 30;
 // A job the game thread runs later than this after Apply writes nothing; one not back after kJobLostUs was dropped
 constexpr double kJobDeadlineUs = 2e6, kJobLostUs = 10e6;
 constexpr int kMaxChain = 8, kMaxKnobs = 512;
-// A slow anchor (an attribulator search, an inline pattern) that failed is searched again after this long
-constexpr double kAnchorRetryUs = 60e6;
+// A slow anchor (an attribulator search, an inline pattern) that failed is searched again after this long, doubled after every further
+// failure up to kAnchorRetryMaxUs (a whole-memory search must not run every minute while the attribulator is not loaded)
+constexpr double kAnchorRetryUs = 60e6, kAnchorRetryMaxUs = 960e6;
+double anchor_retry_us(int failures);  // 60 s, 120 s, 240 s, ... at most 16 min
 
 // ------------------------------------------------------------------------------------------------ the registry
 enum class ValueType { F32, I32, U8, Bool };
@@ -82,7 +88,7 @@ enum class Applies { NextMatchSetup, Live, Unknown };
 const char* applies_name(Applies a);  // "next match setup" "live" "unknown"
 bool applies_from_name(const std::string& s, Applies& a);
 // The groups the view shows, in order (a knob of another group is listed after them)
-const std::vector<std::string>& standard_groups();  // Shape, Pressing, Marking, Attacking runs, Passing, Shooting, CPU AI, Goalkeeper, Roles
+const std::vector<std::string>& standard_groups();  // Shape with / without the ball, Defensive line depth bands, Shape, Pressing, Marking, Attacking runs, ...
 // The career phases a knob's "when" may name (Lua's match phase, core/bridge.h)
 const std::vector<std::string>& phases();           // hub, prematch, match
 
@@ -90,7 +96,8 @@ struct Knob {
     std::string id, label, group, collection, field, unit, locator, notes;
     ValueType type = ValueType::F32;
     bool has_min = false, has_max = false, has_default = false;
-    double min = 0, max = 0, def = 0;  // def: the shipped game value when known (display only; the live first snapshot rules)
+    double min = 0, max = 0, def = 0;  // def: FC 27's own value of every copy (the owner rule, Reset, presets' base)
+    std::map<std::string, double> copy_defaults;  // FC 27's own value of a copy that differs from def ("simulation": 0)
     int64_t offset = -1;               // bytes from the locator's base; -1 = not known (placeholder)
     Applies applies = Applies::Unknown;
     std::vector<std::string> when{"hub"};  // phases a write is allowed in
@@ -99,6 +106,8 @@ struct Knob {
     std::vector<std::string> below;    // knobs whose value this one must stay below (the line height bands do not overlap)
     bool allows(const std::string& phase) const;
     bool has_range() const { return has_min && has_max; }
+    // FC 27's own value of one copy ("" = a chain / native locator's only copy): copy_defaults, else def. false = not known
+    bool game_value(const std::string& copy, double& v) const;
     // why the knob is not complete in the file ("" = complete): placeholder, no locator, no offset
     std::string placeholder() const;
 };
@@ -131,6 +140,11 @@ struct Locator {
     uint32_t type_signature = 0, type_size = 0;
     int type_fields = -1;
     std::vector<Variant> variants;
+    // attrib: what an instance holds at +0 (catalogue section 10: TypeInfo* or a vtable, the live locator says which). "" / "image" =
+    // any pointer into FC27.exe, the same for every copy; "typeinfo" = the type's TypeInfo object (its +0 is the TypeInfoData L1 found);
+    // head_rva (not 0) = exactly FC27.exe's base + head_rva
+    std::string head;
+    uint64_t head_rva = 0;
     bool verified = false;
     std::string note;
     // why the locator cannot be used ("" = complete): placeholder, no anchor / type / variants
@@ -217,9 +231,9 @@ struct Anchor {
     bool ok = false, pending = false;  // pending: its inline pattern / its attribulator data is being searched
     uint64_t addr = 0;
     std::string why;
-    // attrib: the type found by name (L1), the instances' common type pointer and one instance per variant (L2)
+    // attrib: the type found by name (L1: its TypeInfoData td), the instances' common type pointer and one instance per variant (L2)
     TypeLayout layout;
-    uint64_t type_ptr = 0;
+    uint64_t td = 0, type_ptr = 0;
     std::vector<Copy> copies;
 };
 using AnchorMap = std::map<std::string, Anchor>;
@@ -307,10 +321,14 @@ struct Plan {
     std::string session;
 };
 // The diff of the wanted values against the live ones: each wanted knob must be in the registry, located and writable, its value must
-// pass check_value and keep the knob below the knobs it must stay below; it is written into every copy that does not hold it yet.
+// pass check_value and keep the knob below the knobs it must stay below. A key is a knob id (one value for every copy) or a copy_key
+// ("id@simulation": that copy's value; then every copy of the knob needs its own key). COPIES GO TOGETHER: a knob any copy of which
+// changes is written into EVERY copy (a copy that already holds its value is written with that same value), never into some of them.
 // "" + plan (possibly empty), else the first refusal
 std::string make_plan(const Registry& reg, const std::map<std::string, KnobLive>& live, const std::map<std::string, double>& wanted, PlanKind kind,
                       Plan& out);
+// The knob id and the copy of a copy_key ("shape.gap_dmf@simulation" -> "shape.gap_dmf", "simulation"; "shape.gap_dmf" -> it, "")
+void split_copy_key(const std::string& key, std::string& id, std::string& copy);
 
 struct ApplyResult {
     PlanKind kind = PlanKind::Apply;
@@ -321,9 +339,10 @@ struct ApplyResult {
     double micros = 0;
     int reads = 0;
 };
-// Re-locate every knob, the plan's old values still in place, G5 again, snapshot, write, read every knob back; a mismatch puts EVERY
-// knob back from the snapshot (and reads that back). Never throws. `cancel` set: nothing is written. owner_check: a knob with a known
-// FC 27 value (its "default") is written only while it holds that value or the one Turbo wrote last (last_written, by copy_key)
+// Re-locate every knob, the plan's old values still in place, G5 again, every copy of each knob in the plan (copies go together),
+// snapshot, write, read every knob back; a mismatch puts EVERY knob back from the snapshot (and reads that back). Never throws. `cancel`
+// set: nothing is written. owner_check: a copy is written only while it holds FC 27's own value (Knob::game_value) or the value Turbo
+// wrote last (last_written, by copy_key); a copy whose FC 27 value the knobs file does not give is not written at all
 struct JobOptions {
     const std::atomic<bool>* cancel = nullptr;
     bool owner_check = false;
@@ -347,14 +366,16 @@ bool save_undo(const std::filesystem::path& p, const UndoRecord& u, std::string*
 std::string same_career(const UndoRecord& u, const std::string& session, long long load_gen);
 // A second Apply in the same career load keeps the old values of the first (merged by knob); another career load: `next` as it is
 UndoRecord merge_undo(const UndoRecord& prev, const UndoRecord& next);
-// The undo plan: knobs that still hold Turbo's value get their old value back; the others are listed in `skipped`. Refused (why) across
-// career loads, when nothing is written in place or nothing can be put back
+// The undo plan: knobs whose every copy still holds Turbo's value get their old values back (copies go together: one copy changed by
+// someone else leaves the whole knob alone); the others are listed in `skipped`. Refused (why) across career loads, when nothing is
+// written in place or nothing can be put back
 std::string make_undo_plan(const Registry& reg, const std::map<std::string, KnobLive>& live, const UndoRecord& u, const std::string& session,
                            long long load_gen, Plan& out, std::vector<std::string>& skipped);
-// The Restore game defaults plan: every knob copy with a game default (the first snapshot of this game session, by copy_key) that is
-// located and holds another value gets the default back. "" + plan, else why
+// The Restore game defaults plan: every knob with a game default for each of its copies (the first snapshot of this game session, by
+// copy_key) that is located and of which a copy holds another value gets every copy's default back (copies go together). `only` (not
+// empty): that knob only (the row's Reset). "" + plan, else why
 std::string make_restore_plan(const Registry& reg, const std::map<std::string, KnobLive>& live, const std::map<std::string, double>& defaults, Plan& out,
-                              std::vector<std::string>& skipped);
+                              std::vector<std::string>& skipped, const std::string& only = std::string());
 
 // ------------------------------------------------------------------------------------------------ kept values (tuning_keep.json)
 // Opt-in ("on"): the values are written again at the first hub of every career load (one job), for the located knobs of this build
@@ -385,7 +406,7 @@ struct Preset {
     std::string to_json() const;
     static bool parse(const std::string& text, Preset& out, std::string* err);
 };
-// Turbo's own presets: relative changes only (no real field values are known yet); Turbo's own design, no mod's value table
+// Turbo's own presets: relative changes from FC 27's values only; Turbo's own design, no mod's value table
 const std::vector<Preset>& builtin_presets();
 std::string preset_file_name(const Preset& p);  // "turbo_high_line_press.json" (Turbo's own), "<safe name>.json"
 // Writes Turbo's own presets into dir when a file is missing (an existing file is never overwritten). Returns how many were written
@@ -470,6 +491,7 @@ private:
     std::string reg_why_;
     AnchorMap anchors_;
     std::map<std::string, double> anchor_failed_at_;  // clock_us of a slow anchor's last failed search
+    std::map<std::string, int> anchor_failures_;      // failed searches in a row (the retry backs off)
     long long anchors_epoch_ = 0;  // bumps on reload: a scan of an older registry does not fill the new map
     std::vector<ApplyResult> results_;
     bool busy_ = false;

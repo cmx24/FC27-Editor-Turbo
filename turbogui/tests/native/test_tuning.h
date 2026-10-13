@@ -79,19 +79,19 @@ static const char* const kTestKnobs = R"({
     {"id": "pressing.intensity", "label": "Pressing intensity", "group": "Pressing", "collection": "gp_test_press", "field": "intensity",
      "type": "f32", "min": 0, "max": 1, "default": 0.5, "step": 0.01, "locator": "test_coll", "offset": "0x0", "applies": "next match setup", "verified": true},
     {"id": "shape.line_height", "label": "Defensive line height", "group": "Shape", "collection": "gp_test_shape", "field": "line",
-     "type": "i32", "unit": "%", "min": 0, "max": 100, "locator": "test_coll", "offset": 4, "applies": "next match setup", "verified": true},
+     "type": "i32", "unit": "%", "min": 0, "max": 100, "default": 45, "locator": "test_coll", "offset": 4, "applies": "next match setup", "verified": true},
     {"id": "marking.tightness", "label": "Marking tightness", "group": "Marking", "collection": "gp_test_mark", "field": "tight",
-     "type": "u8", "min": 0, "max": 100, "locator": "test_coll", "offset": 8, "verified": true},
+     "type": "u8", "min": 0, "max": 100, "default": 60, "locator": "test_coll", "offset": 8, "verified": true},
     {"id": "runs.in_behind", "label": "Runs in behind the defence", "group": "Attacking runs", "collection": "gp_test_runs", "field": "behind",
-     "type": "bool", "locator": "test_coll", "offset": 9, "applies": "next match setup", "verified": true},
+     "type": "bool", "default": 1, "locator": "test_coll", "offset": 9, "applies": "next match setup", "verified": true},
     {"id": "passing.error_ground", "label": "Ground pass error", "group": "Passing", "collection": "gp_test_pass", "field": "err_ground",
-     "type": "f32", "min": 0, "max": 1, "locator": "test_coll", "offset": "0xC", "applies": "live", "when": ["hub", "prematch", "match"], "verified": true},
+     "type": "f32", "min": 0, "max": 1, "default": 0.2, "locator": "test_coll", "offset": "0xC", "applies": "live", "when": ["hub", "prematch", "match"], "verified": true},
     {"id": "passing.error_lofted", "label": "Lofted pass error", "group": "Passing", "collection": "gp_test_pass", "field": "err_lofted",
-     "type": "f32", "min": 0, "max": 1, "locator": "test_coll", "offset": "0x10", "applies": "next match setup", "verified": true},
+     "type": "f32", "min": 0, "max": 1, "default": 0.3, "locator": "test_coll", "offset": "0x10", "applies": "next match setup", "verified": true},
     {"id": "shooting.error", "label": "Shot error", "group": "Shooting", "collection": "gp_test_shot", "field": "err",
-     "type": "f32", "min": 0, "max": 2, "locator": "inline_coll", "offset": "0x14", "applies": "next match setup", "verified": true},
+     "type": "f32", "min": 0, "max": 2, "default": 0.7, "locator": "inline_coll", "offset": "0x14", "applies": "next match setup", "verified": true},
     {"id": "cpuai.pass_risk", "label": "CPU passing risk", "group": "CPU AI", "collection": "gp_test_cpu", "field": "risk",
-     "type": "f32", "min": 0, "max": 1, "locator": "native_coll", "offset": "0x18", "applies": "next match setup", "verified": true},
+     "type": "f32", "min": 0, "max": 1, "default": 0.4, "locator": "native_coll", "offset": "0x18", "applies": "next match setup", "verified": true},
     {"id": "gk.reaction", "label": "Goalkeeper reaction time", "group": "Goalkeeper", "type": "f32", "locator": "todo_coll", "verified": false}
   ]
 })";
@@ -355,17 +355,17 @@ static const char* const kAttribKnobs = R"({
   ],
   "knobs": [
     {"id": "shape.speed", "label": "Speed", "group": "Shape", "collection": "test_group", "field": "speedModifier", "type": "f32", "min": 0, "max": 2,
-     "default": 0.75, "locator": "attrib.test", "offset": "0x28", "verified": true},
+     "default": 0.75, "copy_defaults": {"simulation": 0.8}, "locator": "attrib.test", "offset": "0x28", "verified": true},
     {"id": "shape.count", "label": "Count", "group": "Shape", "collection": "test_group", "field": "count", "type": "i32", "min": 0, "max": 10,
      "default": 5, "locator": "attrib.test", "offset": "0x2c", "verified": true},
     {"id": "shape.enabled", "label": "Enabled", "group": "Shape", "collection": "test_group", "field": "enabled", "type": "bool",
      "default": 1, "locator": "attrib.test", "offset": "0x30", "verified": true},
     {"id": "shape.wrong_offset", "label": "Wrong offset", "group": "Shape", "collection": "test_group", "field": "speedModifier", "type": "f32",
-     "min": 0, "max": 2, "locator": "attrib.test", "offset": "0x2c", "verified": true},
+     "min": 0, "max": 2, "default": 0.75, "locator": "attrib.test", "offset": "0x2c", "verified": true},
     {"id": "shape.missing", "label": "Missing", "group": "Shape", "collection": "test_group", "field": "nope", "type": "f32",
-     "min": 0, "max": 2, "locator": "attrib.test", "offset": "0x34", "verified": true},
+     "min": 0, "max": 2, "default": 1, "locator": "attrib.test", "offset": "0x34", "verified": true},
     {"id": "shape.wrong_type", "label": "Wrong type", "group": "Shape", "collection": "test_group", "field": "speedModifier", "type": "i32",
-     "min": 0, "max": 2, "locator": "attrib.test", "offset": "0x28", "verified": true}
+     "min": 0, "max": 2, "default": 1, "locator": "attrib.test", "offset": "0x28", "verified": true}
   ]
 })";
 
@@ -414,21 +414,72 @@ static void run() {
             CHECK(k.has_range() && k.has_default && check_value(k, k.def).empty(), k.id + ": FC 27's value inside Turbo's range");
             CHECK(k.label.find('_') == std::string::npos && k.label.find(k.field) == std::string::npos, k.id + ": a plain label, not the field name");
         }
-        CHECK(catalogue >= 20, fmt("%d catalogue knobs", catalogue));
+        CHECK(catalogue >= 20 && catalogue == int(reg.knobs.size()), fmt("%d catalogue knobs, no field-less placeholder", catalogue));
+        // FC 27's own values and type data only (TACTICS_MOD_CATALOGUE sections 4 and 6): group, field, type, offset, value; nothing else
+        struct Fc27 {
+            const char* id;
+            const char* collection;
+            const char* field;
+            ValueType type;
+            int64_t offset;
+            double value;
+        };
+        const Fc27 fc27[] = {
+            {"shape.width_in", "gp_positioningformation_attackinglinelengthwidth", "lineWidthModifier", ValueType::F32, 0x28, 1.0},
+            {"shape.width_in_cb", "gp_positioningformation_attackinglinelengthwidth", "lineWidthModifierForCB", ValueType::F32, 0x3c, 1.0},
+            {"shape.length_in", "gp_positioningformation_attackinglinelengthwidth", "LineLengthModifierForBalanced", ValueType::F32, 0x30, 0.84},
+            {"shape.length_in_possession", "gp_positioningformation_attackinglinelengthwidth", "LineLengthModifierForPossession", ValueType::F32, 0x50, 0.8},
+            {"shape.width_out", "gp_positioningformation_defensivelinelengthwidth", "lineWidthModifier", ValueType::F32, 0x28, 1.0},
+            {"shape.length_out", "gp_positioningformation_defensivelinelengthwidth", "LineLengthModifierForBalanced", ValueType::F32, 0x30, 1.0},
+            {"shape.gap_dmf", "gp_positioning_zonal_defense", "dmfLineOffsetWhenTouchIsOnPar", ValueType::F32, 0x664, 8.0},
+            {"shape.gap_dmf_deep", "gp_positioning_zonal_defense", "dmfLineOffsetWhenTouchIsDeep", ValueType::F32, 0x658, 9.0},
+            {"shape.gap_mf_deep", "gp_positioning_zonal_defense", "mfLineOffsetWithDmfLineWhenTouchIsDeep", ValueType::F32, 0x67c, 14.0},
+            {"shape.holding_line_depth", "gp_positioning_defense_general", "depthThresholdForHoldingLine", ValueType::F32, 0x9c, 0.3},
+            {"lineband.deep_max", "pm_teamtacticssettings", "maxDepthThresholdForDeepDefensiveStyle", ValueType::I32, 0x3c, 30},
+            {"lineband.balanced_min", "pm_teamtacticssettings", "minDepthThresholdForBalancedDefensiveStyle", ValueType::I32, 0x40, 31},
+            {"lineband.balanced_max", "pm_teamtacticssettings", "maxDepthThresholdForBalancedDefensiveStyle", ValueType::I32, 0x2c, 60},
+            {"lineband.high_min", "pm_teamtacticssettings", "minDepthThresholdForHighDefensiveStyle", ValueType::I32, 0x38, 61},
+            {"lineband.high_max", "pm_teamtacticssettings", "maxDepthThresholdForHighDefensiveStyle", ValueType::I32, 0x44, 90},
+            {"lineband.aggressive_min", "pm_teamtacticssettings", "minDepthThresholdForAggressiveDefensiveStyle", ValueType::I32, 0x34, 91},
+            {"pressing.trigger_depth", "gp_positioning_zonal_defense", "TacticDepthThresholdForZonePressing", ValueType::F32, 0x644, 0.31},
+            {"pressing.zone_marking_depth", "gp_positioning_zonal_defense", "TacticDepthThresholdForZoneMarking", ValueType::F32, 0x684, 1.01},
+            {"pressing.no_double_marking_own_half", "gp_positioning_defense_general", "teamPressDisableDoubleManMarkingInDefenderHalf", ValueType::Bool, 0xb8, 1},
+            {"marking.tightness", "gp_positioning_markingtightness", "markingTightnessUniversalModifier", ValueType::F32, 0x28, 0.5},
+            {"runs.frequency", "gp_positioning_attackingaggressiveness", "runFrequencyUniversialModifier", ValueType::F32, 0x28, 0.5},
+        };
+        CHECK(reg.knobs.size() == sizeof(fc27) / sizeof(fc27[0]), fmt("%zu knobs, each in the FC 27 table of this test", reg.knobs.size()));
+        for (const Fc27& f : fc27) {
+            const Knob* k = reg.knob(f.id);
+            CHECK(k && k->collection == f.collection && k->field == f.field && k->type == f.type && k->offset == f.offset && k->def == f.value &&
+                      !k->verified && k->when == std::vector<std::string>({"hub"}),
+                  std::string(f.id) + ": FC 27's group, field, type, offset and own value; unverified; the hub only");
+        }
+        // the one copy whose FC 27 value differs: the Authentic (simulation) database has the double-marking switch off
+        const Knob* dm = reg.knob("pressing.no_double_marking_own_half");
+        double sim = -1, base = -1;
+        CHECK(dm && dm->game_value("simulation", sim) && sim == 0 && dm->game_value("base", base) && base == 1 && dm->copy_defaults.size() == 1,
+              "copy_defaults: base on, simulation off");
         const Knob* gap = reg.knob("shape.gap_dmf");
-        CHECK(gap && gap->field == "dmfLineOffsetWhenTouchIsOnPar" && gap->offset == 0x664 && gap->def == 8 && gap->unit == "m", "the defence - midfield gap");
+        CHECK(gap && gap->unit == "m" && gap->min == 4 && gap->max == 24, "the defence - midfield gap in metres, generic bounds");
         const Locator* zd = gap ? reg.locator(gap->locator) : nullptr;
         CHECK(zd && zd->type == "AttribSchema_gp_positioning_zonal_defense" && zd->type_signature == 0x3edbaf9a && zd->type_size == 0x6c8 &&
-                  zd->type_fields == 237 && zd->variants.size() == 2 && zd->variants[1].name == "simulation" && zd->variants[1].instance.empty(),
-              "zonal_defense: base and simulation copies (the simulation instance name: T1)");
+                  zd->type_fields == 237 && zd->variants.size() == 2 && zd->variants[1].name == "simulation" &&
+                  zd->variants[1].instance.find("/databases/simulation/") != std::string::npos && !zd->verified,
+              "zonal_defense: base and simulation (Authentic) copies, unverified");
+        const Locator* lw = reg.locator("attrib.attackinglinelengthwidth");
+        CHECK(lw && lw->variants.size() == 1 && lw->type_signature == 0x1f261d29 && lw->type_size == 0x58 && lw->type_fields == 12, "linelengthwidth: base only");
         const Knob* band = reg.knob("lineband.deep_max");
-        CHECK(band && band->type == ValueType::I32 && band->def == 30 && band->below == std::vector<std::string>({"lineband.balanced_min"}) &&
-                  band->applies == Applies::NextMatchSetup,
-              "the line height bands: i32, FC 27's 30, kept below the next band, read at match setup");
-        for (const std::string& g : standard_groups()) {
+        CHECK(band && band->below == std::vector<std::string>({"lineband.balanced_min"}) && band->applies == Applies::NextMatchSetup &&
+                  band->group == "Defensive line depth bands",
+              "the line height bands: kept below the next band, read at match setup");
+        for (const Knob& k : reg.knobs)
+            CHECK(std::find(standard_groups().begin(), standard_groups().end(), k.group) != standard_groups().end() &&
+                      k.notes.find("Not yet confirmed in the running game") != std::string::npos,
+                  k.id + ": a standard group, the notes say it is not confirmed yet");
+        for (const char* g : {"Shape with the ball", "Shape without the ball", "Defensive line depth bands", "Pressing", "Marking", "Attacking runs"}) {
             bool has = false;
             for (const Knob& k : reg.knobs) has = has || k.group == g;
-            CHECK(has, "group " + g + " has knobs");
+            CHECK(has, std::string("group ") + g + " has knobs");
         }
         for (const Preset& pr : builtin_presets()) {
             CHECK(pr.turbo() && !pr.changes.empty(), pr.name + " is Turbo's own");
@@ -481,6 +532,16 @@ static void run() {
         refused(knob(R"({"id": "a", "label": "A", "group": "Shape", "type": "f32", "locator": "c", "min": 0, "max": 1, "collection": "x", "field": "y", "verified": true})"),
                 "marked verified without");
         refused(knob(R"({"id": "a", "label": "A", "group": "Shape", "type": "f32", "offset": "0xZZ"})"), "offset must be");
+        // the owner rule needs FC 27's own value: a verified knob without it is refused, and so is a copy value of another locator's copy
+        refused(knob(R"({"id": "a", "label": "A", "group": "Shape", "type": "f32", "locator": "c", "min": 0, "max": 1, "collection": "x", "field": "y", "offset": 0, "verified": true})"),
+                "marked verified without FC 27's own value (default)");
+        refused(knob(R"({"id": "a", "label": "A", "group": "Shape", "type": "f32", "locator": "c", "min": 0, "max": 1, "default": 0.5, "copy_defaults": {"simulation": 0.4}})"),
+                "copy_defaults names simulation, which is not a variant of its locator");
+        refused(knob(R"({"id": "a", "label": "A", "group": "Shape", "type": "f32", "min": 0, "max": 1, "copy_defaults": {"simulation": 4}})"),
+                "copy_defaults: simulation is outside min..max");
+        refused(knob(R"({"id": "a", "label": "A", "group": "Shape", "type": "i32", "min": 0, "max": 10, "default": 2.5})"), "default of an integer");
+        refused(R"({"schema": "turbo-tuning-knobs/1", "build": "b", "locators": [{"name": "a", "kind": "attrib", "type": "T", "head": "vtable"}], "knobs": []})",
+                "head must be");
         refused(R"({"schema": "turbo-tuning-knobs/1", "build": "b", "locators": [{"name": "c", "signature": "s", "verified": true}], "knobs": []})",
                 "without a header check");
         refused(R"({"schema": "turbo-tuning-knobs/1", "build": "b", "locators": [{"name": "c", "verified": true}], "knobs": []})", "without a signature");
@@ -581,9 +642,9 @@ static void run() {
         }
         {
             TuneWorld w;
-            w.mem.wr(TuneWorld::kBase, 7.5f);  // outside 0..1: the layout is wrong
+            w.mem.wr(TuneWorld::kBase, 7.5f);  // outside 0..1: another tool, or the layout is wrong
             const std::string why = why_of(w, lookup_of(w));
-            CHECK(why.find("reads 7.5, outside the knob's range 0..1: wrong layout?") != std::string::npos, why);
+            CHECK(why.find("reads 7.5, outside Turbo's range 0..1: another tool changed it, or the layout differs on this build") != std::string::npos, why);
         }
         {
             TuneWorld w;
@@ -821,8 +882,17 @@ static void run() {
         w.mem.wr(AttribWorld::kSim + 0x28, 1.5f);
         live = live_of(w.mem, reg, am, lk);
         CHECK(make_restore_plan(reg, live, {{"shape.speed@base", 0.75}, {"shape.speed@simulation", 0.8}, {"shape.gone@base", 1}}, p, skipped).empty() &&
-                  p.writes.size() == 1 && p.writes[0].copy == "simulation" && has_text(skipped, "shape.gone@base is not in the knobs file"),
-              "restore: only the copy that differs");
+                  p.writes.size() == 2 && p.writes[0].copy == "base" && p.writes[0].new_value == 0.75 && p.writes[1].copy == "simulation" &&
+                  p.writes[1].new_value == double(float(0.8)) && has_text(skipped, "shape.gone@base is not in the knobs file"),
+              "restore: one copy differs, both copies go back together");
+        CHECK(make_restore_plan(reg, live, {{"shape.speed@simulation", 0.8}}, p, skipped).empty() && p.writes.empty() &&
+                  has_text(skipped, "Speed [base]: no game default recorded for this copy"),
+              "restore: a knob without the default of every copy is left alone");
+        CHECK(make_restore_plan(reg, live, {{"shape.speed@base", 0.75}, {"shape.speed@simulation", 0.8}, {"shape.count@base", 1}, {"shape.count@simulation", 1}},
+                                p, skipped, "shape.speed")
+                      .empty() &&
+                  p.writes.size() == 2 && p.writes[0].id == "shape.speed",
+              "restore of one knob (the row's Reset)");
         // a partial write across copies: the simulation copy's write is dropped -> both copies back
         live = live_of(w.mem, reg, am, lk);
         CHECK(make_plan(reg, live, {{"shape.speed", 1.25}}, PlanKind::Apply, p).empty() && p.writes.size() == 2, "plan");
@@ -842,9 +912,102 @@ static void run() {
         CHECK(!r.ok && r.stage == "owner" && r.message.find("neither FC 27's 5 nor Turbo's last write") != std::string::npos,
               "owner: " + r.message);
         last["shape.count@base"] = 7;
-        last["shape.count@simulation"] = 5;
         r = apply_plan(w.mem, reg, am, lk, p, jo);
-        CHECK(r.ok, "Turbo's last write is Turbo's: " + r.message);
+        CHECK(r.ok, "Turbo's last write is Turbo's (base), FC 27's own value (simulation): " + r.message);
+        // COPIES GO TOGETHER: a value for one copy only is refused, a value per copy is fine, a copy that already holds the value is
+        // written with it; a hand-made plan that names one copy of two is refused by the job before anything is written
+        live = live_of(w.mem, reg, am, lk);
+        CHECK(make_plan(reg, live, {{"shape.speed@base", 1.0}}, PlanKind::Apply, p) ==
+                  "Speed: no value for its simulation copy (every copy of a knob is written together)",
+              "one copy only: refused");
+        CHECK(make_plan(reg, live, {{"shape.speed@base", 1.0}, {"shape.speed@simulation", 1.1}}, PlanKind::Apply, p).empty() && p.writes.size() == 2 &&
+                  p.writes[1].copy == "simulation" && p.writes[1].new_value == double(1.1f),
+              "a value per copy");
+        CHECK(make_plan(reg, live, {{"shape.speed", 1.0}, {"shape.speed@simulation", 1.1}}, PlanKind::Apply, p).find("not both") != std::string::npos, "both forms");
+        CHECK(make_plan(reg, live, {{"shape.speed@smallsided", 1.0}}, PlanKind::Apply, p) == "Speed: there is no copy \"smallsided\" on this build", "no such copy");
+        CHECK(make_plan(reg, live, {{"shape.speed", 0.75}}, PlanKind::Apply, p).empty() && p.writes.size() == 2 && p.writes[0].old_value == double(0.75f) &&
+                  p.writes[0].new_value == double(0.75f) && p.writes[1].old_value == double(1.5f),
+              "base already holds 0.75: written with it, together with the simulation copy");
+        Plan one = p;
+        one.writes.resize(1);
+        {
+            DropMemory counted(w.mem);
+            r = apply_plan(counted, reg, am, lk, one);
+            CHECK(!r.ok && r.stage == "plan" && r.message == "Speed: the plan writes 1 of its 2 copies; every copy of a knob is written together: nothing written" &&
+                      counted.writes == 0,
+                  "one copy of two: nothing written: " + r.message);
+            // VALUES IN RANGE: a hand-made plan with a value outside the knob's range is refused in the job (G5), nothing written
+            Plan big;
+            big.writes = {{"shape.speed", double(0.75f), 5.0, "base"}, {"shape.speed", double(1.5f), 5.0, "simulation"}};
+            r = apply_plan(counted, reg, am, lk, big);
+            CHECK(!r.ok && r.stage == "G5" && r.message.find("Speed: 5 is outside 0..2") == 0 && counted.writes == 0, "out of range: " + r.message);
+            // NOT VERIFIED: the same knob marked unverified is never located, so the job writes nothing
+            Registry unverified = reg;
+            for (Knob& k : unverified.knobs) k.verified = false;
+            r = apply_plan(counted, unverified, am, lk, p);
+            CHECK(!r.ok && r.stage == "locate" && r.message.find("not located on this build (unverified: ") != std::string::npos && counted.writes == 0,
+                  "unverified: " + r.message);
+            Registry unverified_loc = reg;
+            unverified_loc.locators[0].verified = false;
+            r = apply_plan(counted, unverified_loc, am, lk, p);
+            CHECK(!r.ok && r.stage == "locate" && r.message.find("has not been confirmed in the running game yet") != std::string::npos && counted.writes == 0,
+                  "unverified locator: " + r.message);
+        }
+        // FC 27's own value per copy (copy_defaults): the Authentic copy of a switch that is off in FC 27
+        {
+            Registry r2 = reg;
+            for (Knob& k : r2.knobs)
+                if (k.id == "shape.enabled") k.copy_defaults["simulation"] = 0;
+            w.mem.wr(AttribWorld::kSim + 0x30, uint8_t(0));
+            auto l2 = live_of(w.mem, r2, am, lk);
+            CHECK(make_plan(r2, l2, {{"shape.enabled", 0}}, PlanKind::Apply, p).empty() && p.writes.size() == 2, "plan: switch off in both copies");
+            std::map<std::string, double> last2;
+            JobOptions j2;
+            j2.owner_check = true;
+            j2.last_written = &last2;
+            r = apply_plan(w.mem, r2, am, lk, p, j2);
+            CHECK(r.ok, "base holds FC 27's on, simulation FC 27's off: both FC 27's own: " + r.message);
+            last2["shape.enabled@base"] = 0;
+            last2["shape.enabled@simulation"] = 0;
+            w.mem.wr(AttribWorld::kSim + 0x30, uint8_t(1));  // another tool switches the Authentic copy on
+            l2 = live_of(w.mem, r2, am, lk);
+            CHECK(make_plan(r2, l2, {{"shape.enabled", 1}}, PlanKind::Apply, p).empty(), "plan");
+            r = apply_plan(w.mem, r2, am, lk, p, j2);
+            CHECK(!r.ok && r.stage == "owner" && r.message == "Enabled [simulation] is on, neither FC 27's off nor Turbo's last write: another tool or mod changed it; "
+                                                              "nothing written",
+                  "owner by copy: " + r.message);
+            uint8_t b0 = 9;
+            w.mem.rd(AttribWorld::kBase + 0x30, b0);
+            CHECK(b0 == 0, "the base copy was not written either");
+            // a knob whose FC 27 value is not known: only Turbo's own last write may be written over
+            Registry r3 = reg;
+            for (Knob& k : r3.knobs)
+                if (k.id == "shape.speed") k.has_default = false;
+            auto l3 = live_of(w.mem, r3, am, lk);
+            CHECK(make_plan(r3, l3, {{"shape.speed", 1.0}}, PlanKind::Apply, p).empty(), "plan");
+            r = apply_plan(w.mem, r3, am, lk, p, j2);
+            CHECK(!r.ok && r.stage == "owner" && r.message.find("FC 27's own value of it is not in the knobs file") != std::string::npos, "unknown: " + r.message);
+            w.mem.wr(AttribWorld::kBase + 0x30, uint8_t(1));
+            w.mem.wr(AttribWorld::kSim + 0x30, uint8_t(1));
+        }
+        // the instance head (catalogue section 10: TypeInfo* or a vtable at +0): "typeinfo" and head_rva keep only instances of the type
+        {
+            AttribWorld wh;
+            wh.mem.wr(AttribWorld::kTypePtr, AttribWorld::kTd);  // the type pointer of every instance is a TypeInfo whose +0 is the TypeInfoData
+            Locator l = *reg.locator("attrib.test");
+            l.head = "typeinfo";
+            const Anchor h1 = resolve_anchor(wh.mem, l, wh.lookup());
+            CHECK(h1.ok && h1.td == AttribWorld::kTd && h1.copies.size() == 2, "head typeinfo: " + h1.why);
+            l.head_rva = AttribWorld::kTypePtr - AttribWorld::kImage;
+            CHECK(resolve_anchor(wh.mem, l, wh.lookup()).ok, "head_rva");
+            l.head_rva += 8;
+            const Anchor h2 = resolve_anchor(wh.mem, l, wh.lookup());
+            CHECK(!h2.ok && h2.why == "variant base: 1 object(s) carry its name, none with the type's head at +0 (FC27.exe+0xD005008)", h2.why);
+            l.head_rva = 0;
+            wh.mem.wr(AttribWorld::kTypePtr, uint64_t(0));
+            const Anchor h3 = resolve_anchor(wh.mem, l, wh.lookup());
+            CHECK(!h3.ok && h3.why == "variant base: 1 object(s) carry its name, none with the type's head at +0 (its TypeInfo)", h3.why);
+        }
         // re-checks inside every locate: the instance freed (another object type) or renamed
         w.mem.wr(AttribWorld::kSim, uint64_t(0x14D009000ULL));
         live = live_of(w.mem, reg, am, lk);
@@ -962,9 +1125,9 @@ static void run() {
           "locators": [{"name": "c", "kind": "native", "verified": true}],
           "knobs": [
             {"id": "band.deep_max", "label": "Deep up to", "group": "Shape", "collection": "g", "field": "a", "type": "i32", "min": 0, "max": 100,
-             "locator": "c", "offset": 0, "below": ["band.bal_min"], "verified": true},
+             "default": 30, "locator": "c", "offset": 0, "below": ["band.bal_min"], "verified": true},
             {"id": "band.bal_min", "label": "Balanced from", "group": "Shape", "collection": "g", "field": "b", "type": "i32", "min": 0, "max": 100,
-             "locator": "c", "offset": 4, "verified": true}]})";
+             "default": 31, "locator": "c", "offset": 4, "verified": true}]})";
         Registry reg;
         std::string err;
         CHECK(parse_registry(text, reg, err), err);
@@ -1046,7 +1209,7 @@ static void run() {
         fs::remove_all(dir, ec);
         TuneRig rig(w, dir);
         CHECK(rig.svc->registry_status().empty() && rig.svc->registry()->knobs.size() == 9, "loaded: " + rig.svc->registry_status());
-        CHECK(rig.logged("gameplay tuning: knobs file") && rig.logged("9 knobs (1 placeholders"), "logged");
+        CHECK(rig.logged("gameplay tuning: knobs file") && rig.logged("9 knobs (8 verified in the running game, 1 not, never written)") && rig.logged("call_attrib_off.txt"), "logged");
         auto live = rig.live();
         CHECK(live["pressing.intensity"].located && live["shooting.error"].located && live["cpuai.pass_risk"].located && !live["gk.reaction"].located,
               "read: located / not located");
@@ -1072,6 +1235,12 @@ static void run() {
         rig.jobs.pump();
         CHECK(rig.svc->poll(r) && r.stage == "G1" && r.message.find("tactics_off.txt") != std::string::npos, "master switch: " + r.message);
         rig.remove(master_switch_file());
+        rig.touch(attrib_switch_file());
+        CHECK(rig.svc->submit(rig.ctx(), p, why), "queued");
+        rig.jobs.pump();
+        CHECK(rig.svc->poll(r) && r.stage == "G1" && r.message.find("call_attrib_off.txt") != std::string::npos && w.f32(TuneWorld::kBase) == 0.5f,
+              "the attribulator switch: " + r.message);
+        rig.remove(attrib_switch_file());
         // the phase changes between Apply and the job
         CHECK(rig.svc->submit(rig.ctx(), p, why), "queued");
         rig.svc->note_context(rig.ctx(3, "prematch"));
@@ -1114,6 +1283,29 @@ static void run() {
               "restored with the kill switch present: " + r.message);
         rig.remove(kill_switch_file());
         CHECK(rig.svc->defaults().size() == 3, "a restore does not change the defaults");
+        // Undo with EVERY kill switch present and no opt-in: it puts the values from before Turbo's write back; an Apply is refused
+        CHECK(make_plan(*rig.svc->registry(), rig.live(), {{"pressing.intensity", 0.55}}, PlanKind::Apply, p).empty() && rig.svc->submit(rig.ctx(), p, why),
+              "queued");
+        rig.jobs.pump();
+        CHECK(rig.svc->poll(r) && r.ok && w.f32(TuneWorld::kBase) == 0.55f, "written: " + r.message);
+        {
+            UndoRecord ur;
+            ur.session = "s1";
+            ur.load_gen = 3;
+            ur.state = "written";
+            ur.knobs = r.writes;
+            for (const char* f : {kill_switch_file(), master_switch_file(), attrib_switch_file()}) rig.touch(f);
+            rig.remove(opt_in_file());
+            CHECK(make_undo_plan(*rig.svc->registry(), rig.live(), ur, "s1", 3, p, skipped).empty() && rig.svc->submit(rig.ctx(), p, why), "undo queued: " + why);
+            rig.jobs.pump();
+            CHECK(rig.svc->poll(r) && r.ok && w.f32(TuneWorld::kBase) == 0.5f, "undone with every kill switch present: " + r.message);
+            rig.touch(opt_in_file());
+            CHECK(make_plan(*rig.svc->registry(), rig.live(), {{"pressing.intensity", 0.6}}, PlanKind::Apply, p).empty() && rig.svc->submit(rig.ctx(), p, why),
+                  "queued");
+            rig.jobs.pump();
+            CHECK(rig.svc->poll(r) && !r.ok && r.stage == "G1" && w.f32(TuneWorld::kBase) == 0.5f, "Apply refused under the kill switches: " + r.message);
+            for (const char* f : {kill_switch_file(), master_switch_file(), attrib_switch_file()}) rig.remove(f);
+        }
         // a read-back mismatch switches tuning off for the session; Restore still goes
         {
             TuneWorld w2;
@@ -1238,19 +1430,20 @@ static void run() {
         std::error_code ec;
         fs::remove_all(dir, ec);
         std::string err;
-        CHECK(ensure_builtin_presets(dir, &err) == 3, "Turbo's three presets written: " + err);
-        CHECK(fs::exists(dir / "turbo_high_line_press.json") && fs::exists(dir / "turbo_deep_block.json") && fs::exists(dir / "turbo_passing_errors.json"), "files");
+        CHECK(ensure_builtin_presets(dir, &err) == 2, "Turbo's two presets written: " + err);
+        CHECK(fs::exists(dir / "turbo_high_line_press.json") && fs::exists(dir / "turbo_deep_block.json"), "files");
         CHECK(ensure_builtin_presets(dir, &err) == 0, "an unchanged file is not written again");
         // a stale Turbo file is replaced; a user's file of the same name is never touched
         std::ofstream(dir / "turbo_deep_block.json", std::ios::binary | std::ios::trunc)
             << R"({"turbo_tuning_preset": 1, "id": "turbo_deep_block", "name": "Deep compact block", "author": "Turbo", "changes": []})";
-        std::ofstream(dir / "turbo_passing_errors.json", std::ios::binary | std::ios::trunc)
+        std::ofstream(dir / "turbo_high_line_press.json", std::ios::binary | std::ios::trunc)
             << R"({"turbo_tuning_preset": 1, "name": "My own", "author": "me", "changes": [{"knob": "pressing.intensity", "value": 0.7}]})";
         CHECK(ensure_builtin_presets(dir, &err) == 1, "only the stale Turbo file is rewritten");
         std::ofstream(dir / "broken.json", std::ios::binary | std::ios::trunc) << "{";
         std::vector<std::string> errors;
         const std::vector<Preset> list = load_presets(dir, &errors);
-        CHECK(list.size() == 3 && list[0].turbo() && list[1].turbo() && list[2].name == "My own", fmt("listed %zu, Turbo's first", list.size()));
+        CHECK(list.size() == 2 && list[0].turbo() && list[0].name == "Deep compact block" && list[1].name == "My own" && !list[1].turbo(),
+              fmt("listed %zu, Turbo's first; the user's file with a Turbo name kept", list.size()));
         CHECK(errors.size() == 1 && errors[0].find("broken.json") == 0, "a broken file is reported");
         // values: relative from each knob's base (the game default), clamped, representable; switches and placeholders skipped
         Preset p;
@@ -1397,7 +1590,9 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.click("Gameplay tuning"), "the Gameplay tuning view");
         ui.frames(3);
         const TuningViewState& s = tuning_view_state();
-        CHECK(s.drawn && s.registry_line.find("knobs_6AC07E31.json: 9 knobs (1 placeholder) for game build 6AC07E31-2145C000") != std::string::npos, s.registry_line);
+        CHECK(s.drawn && s.registry_line.find("knobs_6AC07E31.json: 9 knobs (1 not confirmed) for game build 6AC07E31-2145C000") != std::string::npos &&
+                  s.session_note,
+              s.registry_line);
         CHECK(s.groups.size() == 8 && s.groups[0] == "Shape" && s.groups[1] == "Pressing", "the groups in the standard order");
         auto row = [&](const std::string& id) -> const TuningViewState::Row* {
             for (const auto& r : s.rows)
@@ -1405,13 +1600,15 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             return nullptr;
         };
         const TuningViewState::Row* rp = row("pressing.intensity");
-        CHECK(rp && rp->located == "located" && rp->applies == "applies next match" && rp->game == "0.50" && rp->editable, "a located row");
+        CHECK(rp && rp->located == "located" && rp->applies == "applies next match" && rp->game == "0.50" && rp->def == "0.50" && rp->editable &&
+                  !rp->can_reset,
+              "a located row: FC 27's value and the value now; nothing to reset");
         const TuningViewState::Row* rg = row("passing.error_ground");
         CHECK(rg && rg->applies == "applies live", "a live knob");
         const TuningViewState::Row* rk = row("gk.reaction");
         CHECK(rk && rk->located == "not located" && !rk->editable && rk->why.find("not located on this build (placeholder") == 0, "a placeholder row");
         CHECK(!s.measure_enabled && s.measure_label.find("coming") != std::string::npos, "Measure: coming (disabled)");
-        CHECK(s.presets.size() == 4 && s.presets[0].find("(Turbo)") != std::string::npos && s.presets[3] == "Test press" &&
+        CHECK(s.presets.size() == 3 && s.presets[0].find("(Turbo)") != std::string::npos && s.presets[2] == "Test press" &&
                   fs::exists(out / presets_dir() / "turbo_deep_block.json"),
               "Turbo's own presets are written and listed first, then the user's");
         CHECK(!s.can_apply && s.status.find("G1 switches: off until turbo_output\\tuning_on.txt exists") == 0, "off without the opt-in: " + s.status);
@@ -1474,7 +1671,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(s.plan.empty(), "nothing to write after Discard edits");
         CHECK(ui.click("##tvpreset"), "preset combo");
         ui.frames(2);
-        CHECK(ui.click("Test press##tvp3"), "the user's preset picked");
+        CHECK(ui.click("Test press##tvp2"), "the user's preset picked");
         ui.frames(2);
         CHECK(ui.click("Load into the sliders##tvload"), "loaded");
         ui.frames(2);
@@ -1524,6 +1721,20 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(load_undo(out / undo_file(), u, &err) && u.state == "written" && u.load_gen == gen + 1, "the re-apply can be undone in its career load");
         ui.frames(130);
         CHECK(rig.jobs.ran == ran + 1, "once per career load");
+        // the row's Reset: FC 27's own value back now (one restore job for that knob; the others keep Turbo's values), no longer kept
+        {
+            const TuningViewState::Row* rr = row("pressing.intensity");
+            CHECK(rr && rr->can_reset && rr->game == "0.70" && rr->def == "0.50", "Reset offered while the knob holds Turbo's value");
+            const ItemRec* reset = bring_tuning(ui, "Reset##tvreset_pressing.intensity");
+            CHECK(reset && ui.click(reset), "Reset clicked");
+            ui.frames(4);
+            CHECK(w.f32(TuneWorld::kBase) == 0.5f && w.u8(TuneWorld::kBase + 8) == 80 && rig.jobs.ran == ran + 2, "only that knob back to FC 27's value");
+            CHECK(load_keep(out / keep_file(), k, &err) && k.values.size() == 1 && k.values.count("marking.tightness") == 1, "no longer kept: " + err);
+            tuning_top(ui);
+            ui.frames(2);
+            rr = row("pressing.intensity");
+            CHECK(rr && !rr->can_reset && rr->game == "0.50", "nothing left to reset");
+        }
         // Undo of another career load's write: refused
         st["load_gen"] = gen + 2;
         st["seq"] = st.value("seq", 0LL) + 1;

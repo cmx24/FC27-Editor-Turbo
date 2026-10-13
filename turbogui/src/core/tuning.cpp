@@ -235,7 +235,8 @@ bool applies_from_name(const std::string& s, Applies& a) {
 }
 
 const std::vector<std::string>& standard_groups() {
-    static const std::vector<std::string> g = {"Shape", "Pressing", "Marking", "Attacking runs", "Passing", "Shooting", "CPU AI", "Goalkeeper", "Roles"};
+    static const std::vector<std::string> g = {"Shape with the ball", "Shape without the ball", "Defensive line depth bands", "Shape", "Pressing",
+                                                "Marking", "Attacking runs", "Passing", "Shooting", "CPU AI", "Goalkeeper", "Roles"};
     return g;
 }
 
@@ -257,18 +258,29 @@ const char* plan_kind_name(PlanKind k) {
 // ------------------------------------------------------------------------------------------------ registry
 bool Knob::allows(const std::string& phase) const { return std::find(when.begin(), when.end(), phase) != when.end(); }
 
+bool Knob::game_value(const std::string& copy, double& v) const {
+    auto it = copy_defaults.find(copy);
+    if (it != copy_defaults.end()) {
+        v = it->second;
+        return true;
+    }
+    if (!has_default) return false;
+    v = def;
+    return true;
+}
+
 std::string Knob::placeholder() const {
-    if (!verified && field.empty()) return "placeholder: no game field yet (the live locator, track T1, fills it in)";
+    if (!verified && field.empty()) return "placeholder: no game field yet";
     if (!verified)
         return "unverified: " + (collection.empty() ? field : collection + "." + field) +
-               " is not confirmed in the running game yet (the live locator, track T1, confirms it)";
+               " has not been confirmed in the running game yet; Turbo writes it only after a live check confirms it on this build";
     if (locator.empty()) return "no locator";
     if (offset < 0) return "no field offset";
     return "";
 }
 
 std::string Locator::placeholder() const {
-    if (!verified) return "placeholder: locator " + name + " is not verified on this build yet";
+    if (!verified) return "placeholder: locator " + name + " has not been confirmed in the running game yet";
     if (kind == "chain" && signature.empty() && pattern.pattern.empty()) return "locator " + name + " has no signature";
     if (kind == "attrib") {
         if (type.empty()) return "locator " + name + " names no type";
@@ -438,6 +450,18 @@ static bool parse_locator(const json& o, Locator& l, std::string& err) {
                     }
                 l.variants.push_back(vr);
             }
+        }
+        l.head = str_of(o, "head");
+        if (l.head != "" && l.head != "image" && l.head != "typeinfo") {
+            err = who + ": head must be \"image\" or \"typeinfo\"";
+            return false;
+        }
+        if (o.contains("head_rva") && !o["head_rva"].is_null()) {
+            if (!json_int(o["head_rva"], v) || v <= 0 || v > 0x7FFFFFFFLL) {
+                err = who + ": head_rva must be an offset inside FC27.exe (hex string)";
+                return false;
+            }
+            l.head_rva = uint64_t(v);
         }
         l.verified = o.value("verified", false);
         l.note = str_of(o, "note");
@@ -610,6 +634,29 @@ static bool parse_knob(const json& o, const Registry& reg, Knob& k, std::string&
         err = who + ": default outside min..max";
         return false;
     }
+    if (k.has_default && (k.type != ValueType::F32 && k.def != std::floor(k.def))) {
+        err = who + ": the default of an integer or a switch is a whole number";
+        return false;
+    }
+    if (o.contains("copy_defaults") && !o["copy_defaults"].is_null()) {
+        if (!o["copy_defaults"].is_object()) {
+            err = who + ": copy_defaults must be an object {\"<variant>\": FC 27's value of that copy}";
+            return false;
+        }
+        for (auto it = o["copy_defaults"].begin(); it != o["copy_defaults"].end(); ++it) {
+            if (it.key().rfind('_', 0) == 0) continue;
+            if (!valid_id(it.key()) || !it.value().is_number() || !std::isfinite(it.value().get<double>())) {
+                err = who + ": copy_defaults: \"" + it.key() + "\" needs a variant name and a number";
+                return false;
+            }
+            const double v = it.value().get<double>();
+            if ((k.has_min && (v < k.min || v > k.max)) || (k.type != ValueType::F32 && v != std::floor(v))) {
+                err = who + ": copy_defaults: " + it.key() + " is outside min..max or not a whole number";
+                return false;
+            }
+            k.copy_defaults[it.key()] = v;
+        }
+    }
     if (o.contains("offset") && !o["offset"].is_null()) {
         int64_t v = 0;
         if (!json_int(o["offset"], v) || v < 0 || v > 0x100000) {
@@ -632,12 +679,27 @@ static bool parse_knob(const json& o, const Registry& reg, Knob& k, std::string&
         }
     }
     k.verified = o.value("verified", false);
-    if (!k.locator.empty() && !reg.locator(k.locator)) {
+    const Locator* loc = k.locator.empty() ? nullptr : reg.locator(k.locator);
+    if (!k.locator.empty() && !loc) {
         err = who + ": locator \"" + k.locator + "\" is not in the file's locators";
         return false;
     }
+    for (const auto& cd : k.copy_defaults) {
+        bool known = false;
+        if (loc)
+            for (const Variant& v : loc->variants) known = known || v.name == cd.first;
+        if (!known) {
+            err = who + ": copy_defaults names " + cd.first + ", which is not a variant of its locator";
+            return false;
+        }
+    }
     if (k.verified && (k.locator.empty() || k.offset < 0 || !k.has_range() || k.collection.empty() || k.field.empty())) {
         err = who + ": marked verified without collection, field, locator, offset and min / max";
+        return false;
+    }
+    // the owner rule needs FC 27's own value of every copy: a verified knob without it could overwrite another tool's value
+    if (k.verified && !k.has_default) {
+        err = who + ": marked verified without FC 27's own value (default)";
         return false;
     }
     return true;
@@ -761,6 +823,8 @@ std::string registry_json(const Registry& r) {
             ojson vs = ojson::array();
             for (const Variant& v : l.variants) vs.push_back({{"name", v.name}, {"instance", v.instance}});
             o["variants"] = vs;
+            if (!l.head.empty()) o["head"] = l.head;
+            if (l.head_rva) o["head_rva"] = hex(l.head_rva);
         }
         o["verified"] = l.verified;
         o["note"] = l.note;
@@ -780,6 +844,11 @@ std::string registry_json(const Registry& r) {
         o["min"] = num_or_null(k.has_min && k.type != ValueType::Bool, k.min);
         o["max"] = num_or_null(k.has_max && k.type != ValueType::Bool, k.max);
         o["default"] = num_or_null(k.has_default, k.def);
+        if (!k.copy_defaults.empty()) {
+            ojson cd = ojson::object();
+            for (const auto& kv : k.copy_defaults) cd[kv.first] = kv.second;
+            o["copy_defaults"] = cd;
+        }
         o["step"] = k.step > 0 ? ojson(k.step) : ojson(nullptr);
         o["locator"] = k.locator;
         o["offset"] = k.offset >= 0 ? ojson(hex(uint64_t(k.offset))) : ojson(nullptr);
@@ -1028,21 +1097,30 @@ static Anchor resolve_attrib(Memory& mem, const Locator& l, const Lookup& lk) {
         a.why = "type " + l.type + " is described " + std::to_string(tds.size()) + " times in FC27.exe";
         return a;
     }
-    // L2: one instance per variant, found by its Name, all with the same image pointer at +0
+    a.td = tds.front();
+    // L2: one instance per variant, found by its Name, all with the same image pointer at +0 (the head the locator names, when it does)
     std::vector<std::string> names;
     for (const Variant& v : l.variants) names.push_back(v.instance);
     std::map<std::string, std::vector<uint64_t>> ir = lk.refs(names, false);
     for (const Variant& v : l.variants) {
         std::vector<uint64_t> found;
+        int other_head = 0;
         for (uint64_t slot : ir[v.instance]) {
             const uint64_t inst = slot - kInstName;
             uint64_t t0 = 0;
             if (!mem.rd(inst, t0) || !in_image(lk, t0)) continue;
+            if ((l.head_rva && t0 != lk.image_base + l.head_rva) || (l.head == "typeinfo" && mem.ptr(t0) != a.td)) {
+                ++other_head;
+                continue;
+            }
             if (std::find(found.begin(), found.end(), inst) == found.end()) found.push_back(inst);
         }
         if (found.size() != 1) {
-            a.why = "variant " + v.name + ": " + (found.empty() ? std::string("its instance is not in memory (the attribulator not loaded yet?)")
-                                                               : std::to_string(found.size()) + " instances carry its name");
+            a.why = "variant " + v.name + ": " +
+                    (!found.empty() ? std::to_string(found.size()) + " instances carry its name"
+                     : other_head   ? std::to_string(other_head) + " object(s) carry its name, none with the type's head at +0 (" +
+                                        (l.head_rva ? "FC27.exe+" + hex(l.head_rva) : std::string("its TypeInfo")) + ")"
+                                    : std::string("its instance is not in memory (the attribulator not loaded yet?)"));
             return a;
         }
         uint64_t t0 = 0;
@@ -1264,8 +1342,8 @@ std::string locate_knob(Memory& mem, const Registry& reg, const Knob& k, const A
         double v = 0;
         if (!read_value(mem, addr, k.type, v)) return no("the value at " + hex(addr) + which + " is not readable");
         if (k.has_range() && (v < k.min || v > k.max || !std::isfinite(v)))
-            return no("the value at " + hex(addr) + which + " reads " + num(v) + ", outside the knob's range " + num(k.min) + ".." + num(k.max) +
-                      ": wrong layout?");
+            return no("the value at " + hex(addr) + which + " reads " + num(v) + ", outside Turbo's range " + num(k.min) + ".." + num(k.max) +
+                      ": another tool changed it, or the layout differs on this build");
         out.copies.push_back({c.variant, addr, v});
     }
     out.addr = out.copies.front().addr;
@@ -1361,16 +1439,60 @@ static void sort_by_registry(const Registry& reg, std::vector<Write>& ws) {
 // The copy's label in lines ("" for the only copy of a chain / native locator)
 static std::string copy_label(const std::string& copy) { return copy.empty() ? std::string() : " [" + copy + "]"; }
 
-// The knob's value after a plan: the wanted one, else its value now (the first copy)
-static bool value_after(const std::map<std::string, KnobLive>& live, const std::map<std::string, double>& wanted, const std::string& id, double& v) {
-    auto w = wanted.find(id);
-    if (w != wanted.end()) {
-        v = w->second;
-        return true;
+void split_copy_key(const std::string& key, std::string& id, std::string& copy) {
+    const size_t at = key.find('@');
+    if (at == std::string::npos) {
+        id = key;
+        copy.clear();
+    } else {
+        id = key.substr(0, at);
+        copy = key.substr(at + 1);
+    }
+}
+
+namespace {
+// The wanted values of one knob: one value for every copy, or one per copy
+struct Want {
+    bool all = false;
+    double v = 0;
+    std::map<std::string, double> per;
+};
+std::map<std::string, Want> wants_by_knob(const std::map<std::string, double>& wanted) {
+    std::map<std::string, Want> by;
+    for (const auto& kv : wanted) {
+        std::string id, copy;
+        split_copy_key(kv.first, id, copy);
+        Want& w = by[id];
+        if (kv.first.find('@') == std::string::npos) {
+            w.all = true;
+            w.v = kv.second;
+        } else {
+            w.per[copy] = kv.second;
+        }
+    }
+    return by;
+}
+}  // namespace
+
+// The value of one copy of a knob after a plan: the wanted one, else its value now (the same variant, else the first copy)
+static bool value_after(const std::map<std::string, KnobLive>& live, const std::map<std::string, Want>& by, const std::string& id,
+                        const std::string& copy, double& v) {
+    auto w = by.find(id);
+    if (w != by.end()) {
+        if (w->second.all) {
+            v = w->second.v;
+            return true;
+        }
+        auto p = w->second.per.find(copy);
+        if (p != w->second.per.end()) {
+            v = p->second;
+            return true;
+        }
     }
     auto l = live.find(id);
-    if (l == live.end() || !l->second.located) return false;
-    v = l->second.value;
+    if (l == live.end() || !l->second.located || l->second.copies.empty()) return false;
+    const CopyAt* c = l->second.copy(copy);
+    v = c ? c->value : l->second.copies.front().value;
     return true;
 }
 
@@ -1378,28 +1500,54 @@ std::string make_plan(const Registry& reg, const std::map<std::string, KnobLive>
                       Plan& out) {
     out = Plan();
     out.kind = kind;
-    for (const auto& kv : wanted) {
-        const Knob* k = reg.knob(kv.first);
-        if (!k) return "knob " + kv.first + " is not in the knobs file";
-        auto it = live.find(kv.first);
+    const std::map<std::string, Want> by = wants_by_knob(wanted);
+    for (const auto& kb : by) {
+        const Knob* k = reg.knob(kb.first);
+        if (!k) return "knob " + kb.first + " is not in the knobs file";
+        const Want& w = kb.second;
+        if (w.all && !w.per.empty()) return k->label + ": give one value for every copy or one value per copy, not both";
+        auto it = live.find(kb.first);
         if (it == live.end() || !it->second.located)
             return k->label + ": " + (it == live.end() || it->second.why.empty() ? std::string("not located on this build") : it->second.why);
         if (!it->second.writable) return k->label + ": no value range (min / max) in the knobs file: read-only";
-        const std::string why = check_value(*k, kv.second);
-        if (!why.empty()) return why;
-        const double v = representable(*k, kv.second);
-        for (const CopyAt& c : it->second.copies)
-            if (!same_value(k->type, c.value, v)) out.writes.push_back({k->id, c.value, v, c.variant});
+        if (it->second.copies.empty()) return k->label + ": not located on this build";
+        for (const auto& p : w.per)
+            if (!it->second.copy(p.first)) return k->label + ": there is no copy \"" + p.first + "\" on this build";
+        // every copy's target: the knob is written into EVERY copy or into none
+        std::vector<Write> ws;
+        bool changes = false;
+        for (const CopyAt& c : it->second.copies) {
+            double v = w.v;
+            if (!w.all) {
+                auto p = w.per.find(c.variant);
+                if (p == w.per.end()) return k->label + ": no value for its " + c.variant + " copy (every copy of a knob is written together)";
+                v = p->second;
+            }
+            const std::string why = check_value(*k, v);
+            if (!why.empty()) return why;
+            v = representable(*k, v);
+            changes = changes || !same_value(k->type, c.value, v);
+            ws.push_back({k->id, c.value, v, c.variant});
+        }
+        if (changes) out.writes.insert(out.writes.end(), ws.begin(), ws.end());
     }
-    // the knobs that must stay below others (the line height bands): checked with the values after the plan
+    // the knobs that must stay below others (the line height bands): checked with the values after the plan, copy by copy
     for (const Knob& k : reg.knobs)
         for (const std::string& b : k.below) {
-            if (!wanted.count(k.id) && !wanted.count(b)) continue;
-            double a = 0, c = 0;
-            if (!value_after(live, wanted, k.id, a) || !value_after(live, wanted, b, c)) continue;
+            if (!by.count(k.id) && !by.count(b)) continue;
             const Knob* o = reg.knob(b);
-            if (o && !(representable(k, a) < representable(*o, c)))
-                return k.label + " (" + format_value(k, a) + ") must stay below " + o->label + " (" + format_value(*o, c) + ")";
+            auto lk = live.find(k.id);
+            if (!o || lk == live.end() || !lk->second.located) continue;
+            std::vector<std::string> copies;
+            for (const CopyAt& c : lk->second.copies) copies.push_back(c.variant);
+            if (copies.empty()) copies.push_back("");
+            for (const std::string& cp : copies) {
+                double a = 0, c = 0;
+                if (!value_after(live, by, k.id, cp, a) || !value_after(live, by, b, cp, c)) continue;
+                if (!(representable(k, a) < representable(*o, c)))
+                    return k.label + copy_label(copies.size() > 1 ? cp : std::string()) + " (" + format_value(k, a) + ") must stay below " + o->label + " (" +
+                           format_value(*o, c) + ")";
+            }
         }
     sort_by_registry(reg, out.writes);
     return "";
@@ -1446,6 +1594,7 @@ ApplyResult apply_plan(Memory& game, const Registry& reg, const AnchorMap& ancho
         };
         std::vector<Item> items;
         std::set<std::string> seen;
+        std::map<std::string, std::set<std::string>> located_copies, planned_copies;  // by knob: the copies located now, the copies the plan writes
         for (const Write& w : plan.writes) {
             const Knob* k = reg.knob(w.id);
             if (!k) return fail("registry", "knob " + w.id + " is not in the knobs file: nothing written");
@@ -1465,30 +1614,43 @@ ApplyResult apply_plan(Memory& game, const Registry& reg, const AnchorMap& ancho
             if (!same_value(k->type, c->value, w.old_value))
                 return fail("changed", label + " is " + format_value(*k, c->value) + ", not " + format_value(*k, w.old_value) +
                                            " as when Apply was pressed: nothing written");
-            // 3. who owns the value: FC 27's own value or Turbo's last write, nothing else (another tool or mod changed it). The knob's
-            //    "default" is FC 27's value of its FIRST copy (base); another copy (simulation) is checked against Turbo's last write once
-            //    Turbo wrote it (its own FC 27 value is not in the knobs file)
-            if (opt.owner_check && k->has_default) {
-                const bool first = at.copies.front().variant == w.copy;
-                bool turbo = false, written = false;
+            // 3. who owns the value: FC 27's own value of this copy (Knob::game_value) or Turbo's last write, nothing else (another tool
+            //    or mod changed it). A copy whose FC 27 value the knobs file does not give is only written over Turbo's own last write
+            if (opt.owner_check) {
+                double fc = 0;
+                const bool known = k->game_value(w.copy, fc);
+                bool turbo = false;
                 if (opt.last_written) {
                     auto lw = opt.last_written->find(copy_key(w.id, w.copy));
-                    written = lw != opt.last_written->end();
-                    turbo = written && same_value(k->type, c->value, lw->second);
+                    turbo = lw != opt.last_written->end() && same_value(k->type, c->value, lw->second);
                 }
-                const bool vanilla = first ? same_value(k->type, c->value, representable(*k, k->def)) : !written;
-                if (!vanilla && !turbo)
-                    return fail("owner", label + " is " + format_value(*k, c->value) +
-                                             (first ? ", neither FC 27's " + format_value(*k, k->def) + " nor Turbo's last write"
-                                                    : ", not Turbo's last write") +
-                                             ": another tool or mod changed it; nothing written");
+                const bool vanilla = known && same_value(k->type, c->value, representable(*k, fc));
+                if (!vanilla && !turbo) {
+                    if (!known)
+                        return fail("owner", label + " is " + format_value(*k, c->value) +
+                                                 ": FC 27's own value of it is not in the knobs file, so Turbo cannot tell whether another tool or mod "
+                                                 "changed it; nothing written");
+                    return fail("owner", label + " is " + format_value(*k, c->value) + ", neither FC 27's " + format_value(*k, representable(*k, fc)) +
+                                             " nor Turbo's last write: another tool or mod changed it; nothing written");
+                }
             }
+            if (!located_copies.count(w.id))
+                for (const CopyAt& x : at.copies) located_copies[w.id].insert(x.variant);
+            planned_copies[w.id].insert(w.copy);
             for (const Item& o : items)
                 if (c->addr < o.addr + type_size(o.k->type) && o.addr < c->addr + type_size(k->type))
                     return fail("plan", label + " and " + o.k->label + copy_label(o.copy) + " overlap at " + hex(c->addr) +
                                             ": the knobs file is wrong; nothing written");
             items.push_back({k, w.copy, c->addr, c->value, representable(*k, w.new_value)});
         }
+        // copies go together: a knob is written into every copy located now (base and simulation) or the job writes nothing
+        for (const auto& kv : planned_copies)
+            if (kv.second != located_copies[kv.first]) {
+                const Knob* k = reg.knob(kv.first);
+                return fail("plan", (k ? k->label : kv.first) + ": the plan writes " + std::to_string(kv.second.size()) + " of its " +
+                                        std::to_string(located_copies[kv.first].size()) +
+                                        " copies; every copy of a knob is written together: nothing written");
+            }
         // 4. the snapshot (what every copy holds now)
         for (const Item& it : items) r.snapshot[copy_key(it.k->id, it.copy)] = it.snap;
         if (opt.cancel && opt.cancel->load()) return fail("cancelled", "the job was given up: nothing written");
@@ -1657,29 +1819,49 @@ std::string make_undo_plan(const Registry& reg, const std::map<std::string, Knob
     if (u.state != "written" && u.state != "failed") return "nothing to put back (the undo file says \"" + u.state + "\")";
     const std::string sc = same_career(u, session, load_gen);
     if (!sc.empty()) return sc;
+    // by knob, in the record's order: every copy of a knob goes back together, or none of them
+    std::vector<std::string> order;
+    std::map<std::string, std::vector<const Write*>> by;
     for (const Write& w : u.knobs) {
-        const Knob* k = reg.knob(w.id);
+        if (!by.count(w.id)) order.push_back(w.id);
+        by[w.id].push_back(&w);
+    }
+    for (const std::string& id : order) {
+        const Knob* k = reg.knob(id);
         if (!k) {
-            skipped.push_back(w.id + " is not in the knobs file");
+            skipped.push_back(id + " is not in the knobs file");
             continue;
         }
-        const std::string label = k->label + copy_label(w.copy);
-        std::string why;
-        const CopyAt* c = live_copy(live, w.id, w.copy, why);
-        if (!c) {
-            skipped.push_back(label + ": " + why);
+        std::vector<Write> ws;
+        std::string skip;
+        for (const Write* w : by[id]) {
+            const std::string label = k->label + copy_label(w->copy);
+            std::string why;
+            const CopyAt* c = live_copy(live, id, w->copy, why);
+            if (!c) {
+                skip = label + ": " + why;
+                break;
+            }
+            if (!same_value(k->type, c->value, w->new_value)) {
+                skip = label + " is " + format_value(*k, c->value) + ", not Turbo's " + format_value(*k, w->new_value);
+                break;
+            }
+            why = check_value(*k, w->old_value);
+            if (!why.empty()) {
+                skip = why;
+                break;
+            }
+            ws.push_back({id, c->value, representable(*k, w->old_value), w->copy});
+        }
+        auto l = live.find(id);
+        if (skip.empty() && l != live.end() && ws.size() != l->second.copies.size())
+            skip = k->label + ": the undo file holds " + std::to_string(ws.size()) + " of its " + std::to_string(l->second.copies.size()) +
+                   " copies (every copy goes back together)";
+        if (!skip.empty()) {
+            skipped.push_back(skip);
             continue;
         }
-        if (!same_value(k->type, c->value, w.new_value)) {
-            skipped.push_back(label + " is " + format_value(*k, c->value) + ", not Turbo's " + format_value(*k, w.new_value));
-            continue;
-        }
-        why = check_value(*k, w.old_value);
-        if (!why.empty()) {
-            skipped.push_back(why);
-            continue;
-        }
-        out.writes.push_back({w.id, c->value, representable(*k, w.old_value), w.copy});
+        out.writes.insert(out.writes.end(), ws.begin(), ws.end());
     }
     sort_by_registry(reg, out.writes);
     if (out.writes.empty()) {
@@ -1691,44 +1873,57 @@ std::string make_undo_plan(const Registry& reg, const std::map<std::string, Knob
 }
 
 std::string make_restore_plan(const Registry& reg, const std::map<std::string, KnobLive>& live, const std::map<std::string, double>& defaults, Plan& out,
-                              std::vector<std::string>& skipped) {
+                              std::vector<std::string>& skipped, const std::string& only) {
     out = Plan();
     out.kind = PlanKind::Restore;
     skipped.clear();
     if (defaults.empty()) return "nothing to restore: Turbo has not written a knob in this game session";
     std::set<std::string> used;
     for (const Knob& k : reg.knobs) {
-        auto it = live.find(k.id);
-        const bool located = it != live.end() && it->second.located;
-        // every copy the defaults hold for this knob (by copy_key)
+        // the copies the defaults hold for this knob (by copy_key)
+        std::map<std::string, double> mine;
         for (const auto& kv : defaults) {
-            const std::string& key = kv.first;
-            std::string copy;
-            if (key == k.id) copy.clear();
-            else if (key.size() > k.id.size() + 1 && key.compare(0, k.id.size() + 1, k.id + "@") == 0) copy = key.substr(k.id.size() + 1);
-            else continue;
-            used.insert(key);
-            const std::string label = k.label + copy_label(copy);
-            if (!located) {
-                skipped.push_back(label + ": " + (it == live.end() ? std::string("not located") : it->second.why));
-                continue;
-            }
-            const CopyAt* c = it->second.copy(copy);
-            if (!c) {
-                skipped.push_back(label + ": no such copy on this build");
-                continue;
-            }
-            if (same_value(k.type, c->value, kv.second)) continue;
-            const std::string why = check_value(k, kv.second);
-            if (!why.empty()) {
-                skipped.push_back(why);
-                continue;
-            }
-            out.writes.push_back({k.id, c->value, representable(k, kv.second), copy});
+            std::string id, copy;
+            split_copy_key(kv.first, id, copy);
+            if (id != k.id) continue;
+            used.insert(kv.first);
+            mine[copy] = kv.second;
         }
+        if (mine.empty() || (!only.empty() && k.id != only)) continue;
+        auto it = live.find(k.id);
+        if (it == live.end() || !it->second.located) {
+            skipped.push_back(k.label + ": " + (it == live.end() ? std::string("not located") : it->second.why));
+            continue;
+        }
+        // every copy located now needs its default (copies go back together)
+        std::vector<Write> ws;
+        std::string skip;
+        bool changes = false;
+        for (const CopyAt& c : it->second.copies) {
+            auto d = mine.find(c.variant);
+            if (d == mine.end()) {
+                skip = k.label + copy_label(c.variant) + ": no game default recorded for this copy";
+                break;
+            }
+            const std::string why = check_value(k, d->second);
+            if (!why.empty()) {
+                skip = why;
+                break;
+            }
+            changes = changes || !same_value(k.type, c.value, d->second);
+            ws.push_back({k.id, c.value, representable(k, d->second), c.variant});
+        }
+        for (const auto& m : mine)
+            if (skip.empty() && !it->second.copy(m.first)) skip = k.label + copy_label(m.first) + ": no such copy on this build";
+        if (!skip.empty()) {
+            skipped.push_back(skip);
+            continue;
+        }
+        if (changes) out.writes.insert(out.writes.end(), ws.begin(), ws.end());
     }
-    for (const auto& kv : defaults)
-        if (!used.count(kv.first)) skipped.push_back(kv.first + " is not in the knobs file");
+    if (only.empty())
+        for (const auto& kv : defaults)
+            if (!used.count(kv.first)) skipped.push_back(kv.first + " is not in the knobs file");
     sort_by_registry(reg, out.writes);
     return "";
 }
@@ -1807,9 +2002,12 @@ std::string make_keep_plan(const Registry& reg, const std::map<std::string, Knob
             skipped.push_back(why);
             continue;
         }
+        // every copy, or none (copies go together)
         const double v = representable(*kn, kv.second);
-        for (const CopyAt& c : it->second.copies)
-            if (!same_value(kn->type, c.value, v)) out.writes.push_back({kv.first, c.value, v, c.variant});
+        bool changes = false;
+        for (const CopyAt& c : it->second.copies) changes = changes || !same_value(kn->type, c.value, v);
+        if (changes)
+            for (const CopyAt& c : it->second.copies) out.writes.push_back({kv.first, c.value, v, c.variant});
     }
     sort_by_registry(reg, out.writes);
     return "";
@@ -1918,14 +2116,6 @@ const std::vector<Preset>& builtin_presets() {
                      {"shape.length_out", true, -15, 0}, {"shape.gap_dmf", true, -15, 0}, {"shape.gap_mf_deep", true, -15, 0},
                      {"pressing.trigger_depth", true, 30, 0}};
         v.push_back(b);
-        Preset c;
-        c.id = "turbo_passing_errors";
-        c.name = "Realistic passing errors";
-        c.author = "Turbo";
-        c.note = "Turbo's own: more error on ground passes, lofted passes, through balls and first touches. Relative to the game's values.";
-        c.changes = {{"passing.error_ground", true, 15, 0}, {"passing.error_lofted", true, 15, 0}, {"passing.error_through", true, 20, 0},
-                     {"passing.first_touch_error", true, 10, 0}};
-        v.push_back(c);
         return v;
     }();
     return p;
@@ -2050,6 +2240,12 @@ Preset preset_from_values(const std::string& name, const Registry& reg, const st
 }
 
 // ------------------------------------------------------------------------------------------------ the service
+double anchor_retry_us(int failures) {
+    double t = kAnchorRetryUs;
+    for (int i = 1; i < failures && t < kAnchorRetryMaxUs; ++i) t *= 2;
+    return std::min(t, kAnchorRetryMaxUs);
+}
+
 CoreService::CoreService(Host h) : h_(std::move(h)) {
     std::lock_guard<std::mutex> lock(mu_);
     load_locked();
@@ -2061,6 +2257,8 @@ void CoreService::log(const std::string& s) {
 
 void CoreService::load_locked() {
     anchors_.clear();
+    anchor_failed_at_.clear();
+    anchor_failures_.clear();
     ++anchors_epoch_;
     auto empty = std::make_shared<Registry>();
     empty->build = h_.build;
@@ -2080,9 +2278,10 @@ void CoreService::load_locked() {
     }
     reg_why_.clear();
     const int ph = r.placeholders();
-    log("gameplay tuning: knobs file " + r.source + " for build " + r.build + ": " + std::to_string(r.knobs.size()) + " knobs (" + std::to_string(ph) +
-        " placeholders, not located until the live locator fills them in), " + std::to_string(r.locators.size()) + " locators; writes need turbo_output\\" +
-        opt_in_file() + ", kill switches turbo_output\\" + kill_switch_file() + " and \\" + master_switch_file());
+    log("gameplay tuning: knobs file " + r.source + " for build " + r.build + ": " + std::to_string(r.knobs.size()) + " knobs (" +
+        std::to_string(int(r.knobs.size()) - ph) + " verified in the running game, " + std::to_string(ph) + " not, never written), " +
+        std::to_string(r.locators.size()) + " locators; writes need turbo_output\\" + opt_in_file() + ", kill switches turbo_output\\" +
+        kill_switch_file() + ", \\" + attrib_switch_file() + " and \\" + master_switch_file());
     reg_ = std::make_shared<Registry>(std::move(r));
 }
 
@@ -2118,9 +2317,9 @@ void CoreService::ensure_anchors() {
         for (const Locator& l : reg->locators) {
             auto have = anchors_.find(l.name);
             if (have != anchors_.end()) {
-                // a slow anchor that failed (the attribulator not loaded yet, a freed instance) is searched again after kAnchorRetryUs
+                // a slow anchor that failed (the attribulator not loaded yet, a freed instance) is searched again after a back-off
                 const bool retry = !have->second.ok && !have->second.pending && slow_anchor(l) && l.placeholder().empty() && h_.clock_us &&
-                                   now() - anchor_failed_at_[l.name] > kAnchorRetryUs;
+                                   now() - anchor_failed_at_[l.name] > anchor_retry_us(anchor_failures_[l.name]);
                 if (!retry) continue;
             }
             const bool background = l.placeholder().empty() && slow_anchor(l) && h_.mem &&
@@ -2136,7 +2335,12 @@ void CoreService::ensure_anchors() {
                 NullMemory none;
                 anchors_[l.name] = resolve_anchor(m ? *m : none, l, h_.lookup);
                 const Anchor& a = anchors_[l.name];
-                if (!a.ok) anchor_failed_at_[l.name] = now();
+                if (!a.ok) {
+                    anchor_failed_at_[l.name] = now();
+                    ++anchor_failures_[l.name];
+                } else {
+                    anchor_failures_.erase(l.name);
+                }
                 if (l.placeholder().empty())
                     log("gameplay tuning: locator " + l.name + (a.ok ? " anchored at " + hex(a.addr) : " not resolved: " + a.why));
             }
@@ -2179,7 +2383,12 @@ void CoreService::ensure_anchors() {
             std::lock_guard<std::mutex> lock(mu_);
             if (anchors_epoch_ != epoch) continue;
             anchors_[l.name] = a;
-            if (!a.ok) anchor_failed_at_[l.name] = now();
+            if (!a.ok) {
+                anchor_failed_at_[l.name] = now();
+                ++anchor_failures_[l.name];
+            } else {
+                anchor_failures_.erase(l.name);
+            }
         }
     };
     if (h_.run_background) h_.run_background(job);
@@ -2205,7 +2414,7 @@ std::string CoreService::anchors_status() {
     if (ph) s += ", " + std::to_string(ph) + " placeholder" + (ph == 1 ? "" : "s");
     if (pending) s += ", " + std::to_string(pending) + " resolving ...";
     if (!first.empty()) s += " (" + first + ")";
-    if (reg_->locators.empty()) s = "no locator in the knobs file yet (track T1 adds them)";
+    if (reg_->locators.empty()) s = "no locator in the knobs file yet";
     return s;
 }
 
@@ -2296,12 +2505,17 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
         cancel_ = std::make_shared<std::atomic<bool>>(false);
         cancel = cancel_;
     }
-    // the switch files once more right before queuing (no file I/O inside the job); Undo / Restore game defaults are not blocked
+    // the switch files once more right before queuing (no file I/O inside the job): tactics_off.txt, tuning_off.txt, call_attrib_off.txt
+    // and the opt-in. Undo / Restore game defaults put the game's values back: they are not blocked
     std::string switch_block;
-    if (!puts_back(plan.kind) && !h_.out_dir.empty()) {
-        if (file_exists(h_.out_dir / master_switch_file())) switch_block = master_switch_file();
-        else if (file_exists(h_.out_dir / kill_switch_file())) switch_block = kill_switch_file();
-        else if (!file_exists(h_.out_dir / opt_in_file())) switch_block = std::string("no ") + opt_in_file();
+    if (!puts_back(plan.kind)) {
+        if (h_.out_dir.empty()) {
+            switch_block = std::string("no turbo_output folder (") + opt_in_file() + ")";
+        } else {
+            const Switches sw = read_switches(h_.out_dir);
+            if (!sw.blocking().empty()) switch_block = sw.blocking();
+            else if (!sw.opt_in) switch_block = std::string("no ") + opt_in_file();
+        }
     }
     const double queued = now();
     const std::string via = h_.run_on_game_thread([this, reg, anchors, plan, switch_block, queued, seq, cancel]() {

@@ -146,7 +146,7 @@ std::vector<std::string> tuning_status() {
     if (!sess.empty()) state = "off for this session (" + sess + ")";
     const auto reg = g_service->registry();
     out.push_back("gameplay tuning: " + state + " | " + std::to_string(reg->knobs.size()) + " knobs, " + std::to_string(reg->placeholders()) +
-                  " placeholders | " + g_service->anchors_status());
+                  " not confirmed in the running game (never written) | " + g_service->anchors_status());
     return out;
 }
 

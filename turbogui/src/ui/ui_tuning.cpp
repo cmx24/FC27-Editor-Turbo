@@ -198,15 +198,45 @@ void read_now(App& app) {
     }
 }
 
-// The game default of a knob: the first snapshot of this game session, else (Turbo never wrote it) the value it holds now
-// (the first copy's: a knob with several database copies shows and keeps its first one, "base")
+// The game default of one copy of a knob: FC 27's own value from the knobs file, else the first snapshot of this game session, else
+// (neither known) false
+bool copy_default(const Knob& k, const std::map<std::string, double>& defaults, const std::string& copy, double& v) {
+    if (k.game_value(copy, v)) {
+        v = representable(k, v);
+        return true;
+    }
+    auto d = defaults.find(copy_key(k.id, copy));
+    if (d == defaults.end()) return false;
+    v = d->second;
+    return true;
+}
+
+// The game default of a knob (its first copy, "base": a knob with several database copies shows and keeps its first one): FC 27's own
+// value, else the first snapshot of this game session, else (Turbo never wrote it) the value it holds now
 bool base_of(App& app, const std::map<std::string, double>& defaults, const std::string& id, double& v) {
     auto l = g.live.find(id);
     if (l == g.live.end() || !l->second.located) return false;
     const std::string first = l->second.copies.empty() ? std::string() : l->second.copies.front().variant;
-    auto d = defaults.find(copy_key(id, first));
-    v = d != defaults.end() ? d->second : l->second.value;
+    const auto reg = app.tuning ? app.tuning->registry() : nullptr;
+    const Knob* k = reg ? reg->knob(id) : nullptr;
+    if (k && copy_default(*k, defaults, first, v)) return true;
+    v = l->second.value;
     return true;
+}
+
+// The per-copy game defaults of one knob (the row's Reset): "" + map by copy_key, else why there is nothing to reset
+std::string reset_defaults(const Knob& k, const std::map<std::string, double>& defaults, std::map<std::string, double>& out) {
+    out.clear();
+    auto l = g.live.find(k.id);
+    if (l == g.live.end() || !l->second.located) return "not located";
+    bool differs = false;
+    for (const CopyAt& c : l->second.copies) {
+        double v = 0;
+        if (!copy_default(k, defaults, c.variant, v)) return "the game's own value of its " + (c.variant.empty() ? std::string("table") : c.variant + " copy") + " is not known";
+        out[copy_key(k.id, c.variant)] = v;
+        differs = differs || !same_value(k.type, c.value, v);
+    }
+    return differs ? "" : "it holds the game's own value";
 }
 
 // The touched sliders that differ from the game's value
@@ -372,6 +402,37 @@ void do_undo(App& app) {
         return;
     }
     queue(app, plan, "Nothing put back");
+}
+
+// The row's Reset: the knob's every copy back to the game's own value now (a Restore job for that knob: no opt-in, the kill switches
+// do not block it, the owner rule holds); a slider edit of the knob is dropped
+void do_reset(App& app, const std::string& id) {
+    if (!app.tuning) return;
+    g.touched.erase(id);
+    refresh_switches(app, true);
+    read_now(app);
+    const auto reg = registry_of(app);
+    const Knob* k = reg->knob(id);
+    if (!k) return;
+    std::map<std::string, double> defs;
+    const std::string none = reset_defaults(*k, app.tuning->defaults(), defs);
+    if (!none.empty()) {
+        g.last = k->label + ": slider back to the game's value (" + none + ")";
+        return;
+    }
+    Plan plan;
+    const std::string w = make_restore_plan(*reg, g.live, defs, plan, g.skipped, id);
+    if (!w.empty() || plan.writes.empty()) {
+        app.notify(k->label + " not reset: " + (w.empty() ? std::string("nothing to put back") : w) + (g.skipped.empty() ? "" : " (" + g.skipped.front() + ")"),
+                   true);
+        return;
+    }
+    const Gates gs = evaluate(gate_input(app, *reg, &plan, "", "", true));
+    if (!gs.pass()) {
+        app.notify(k->label + " not reset: " + gs.first(), true);
+        return;
+    }
+    queue(app, plan, k->label + " not reset");
 }
 
 void do_restore(App& app) {
@@ -723,8 +784,10 @@ void draw_row(App& app, const Knob& k, const std::map<std::string, double>& defs
     row.located = located ? "located" : "not located";
     row.applies = applies_badge(k.applies);
     row.why = located ? "" : (l == g.live.end() ? std::string("not read yet") : l->second.why);
+    // FC 27's own value (of the first copy: the knobs file, else the value before Turbo's first write), the value in memory now
     double def = 0;
-    const bool have_def = located && base_of(app, defs, k.id, def);
+    const std::string first = located && !l->second.copies.empty() ? l->second.copies.front().variant : std::string();
+    const bool have_def = copy_default(k, defs, first, def);
     if (located) row.game = format_value(k, l->second.value);
     if (have_def) row.def = format_value(k, def);
     ImGui::PushID(k.id.c_str());
@@ -761,7 +824,7 @@ void draw_row(App& app, const Knob& k, const std::map<std::string, double>& defs
         row.turbo = format_value(k, v);
         row.changed = !same_value(k.type, representable(k, v), l->second.value);
     } else {
-        ImGui::TextDisabled("%s", located ? "read-only (no value range in the knobs file)" : "not located on this build");
+        ImGui::TextDisabled("%s", located ? "read-only (no value range in the knobs file)" : "Not located on this build: shown only, never written");
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", row.why.empty() ? "no value range" : row.why.c_str());
     }
     // the badges
@@ -774,10 +837,12 @@ void draw_row(App& app, const Knob& k, const std::map<std::string, double>& defs
         ImGui::SetTooltip("%s", k.applies == Applies::Live ? "the game reads this table while a match is played: a write shows at once"
                                 : k.applies == Applies::NextMatchSetup ? "the game reads this table when it sets a match up: a write reaches the next match set up from the hub"
                                                                        : "when the game reads this table is not known yet");
-    // the game's value now, the default, Reset
+    // the game's own value, the value now, Reset
     if (located) {
         ImGui::SameLine();
-        ImGui::TextDisabled("game: %s%s", row.game.c_str(), have_def && !same_value(k.type, def, l->second.value) ? (", default " + row.def).c_str() : "");
+        ImGui::TextDisabled("FC 27: %s | now: %s", have_def ? row.def.c_str() : "?", row.game.c_str());
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("FC 27: the game's own value (Reset puts it back). now: what the game holds in memory at this moment.");
         if (l->second.copies.size() > 1) {
             // one knob, several database copies (base, simulation = Authentic, ...): every copy is written together
             std::string cs;
@@ -785,15 +850,26 @@ void draw_row(App& app, const Knob& k, const std::map<std::string, double>& defs
             row.copies = cs;
             ImGui::SameLine();
             ImGui::TextDisabled("(%zu copies: %s)", l->second.copies.size(), cs.c_str());
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The game keeps this table once per gameplay database (base, simulation = Authentic). Turbo writes every copy "
+                                  "together, or none.");
         }
         if (writable) {
+            std::map<std::string, double> rd;
+            const std::string none = reset_defaults(k, defs, rd);
+            row.can_reset = (none.empty() || g.touched.count(k.id)) && !g.pending;
             ImGui::SameLine();
-            if (ImGui::SmallButton(("Reset##tvreset_" + k.id).c_str()) && have_def) {
-                g.edit[k.id] = def;
-                g.touched.insert(k.id);
-            }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("The slider back to the game default (%s): Apply writes it", row.def.c_str());
+            ImGui::BeginDisabled(!row.can_reset);
+            if (ImGui::SmallButton(("Reset##tvreset_" + k.id).c_str())) do_reset(app, k.id);
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", none.empty() ? ("Puts the game's own value (" + row.def + ") back now, in every copy (no Apply needed).").c_str()
+                                        : g.touched.count(k.id) ? "Drops your slider edit (the knob already holds the game's own value)."
+                                                                : ("Nothing to reset: " + none + ".").c_str());
         }
+    } else if (have_def) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("FC 27: %s", row.def.c_str());
     }
     ImGui::PopID();
     g_state.rows.push_back(row);
@@ -815,16 +891,25 @@ void draw_body(App& app) {
     g_state.busy = g.pending;
 
     ImGui::TextWrapped(
-        "The game engine's gameplay tuning tables: how teams press, mark, run, pass and shoot in every match (every club, both teams). Turbo writes "
-        "them in memory, nothing is saved into the career.");
+        "The game engine's gameplay tuning tables: how teams hold their shape, press, mark and make runs in every match (every club, both teams).");
+    ImGui::TextWrapped(
+        "Values last for this game session only: the game does not keep these tables in the career save, so they are back to FC 27's own values "
+        "the next time the game starts. Turbo writes them again at a career load only if you switch on \"Write these values again at every career "
+        "load\" below.");
+    g_state.session_note = true;
     if (reg_why.empty()) {
         const int ph = reg->placeholders();
         g_state.registry_line = "turbo\\tuning\\" + fs::path(reg->source).filename().string() + ": " + std::to_string(reg->knobs.size()) + " knobs (" +
-                                std::to_string(ph) + " placeholder" + (ph == 1 ? "" : "s") + ") for game build " + reg->build;
+                                std::to_string(ph) + " not confirmed) for game build " + reg->build;
         ImGui::TextDisabled("%s", g_state.registry_line.c_str());
-        if (ph > 0)
-            ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.4f, 1), "%d knob(s) are placeholders: not located on this build until the live locator (track T1) fills the knobs file in.",
-                               ph);
+        int located = 0;
+        for (const auto& kv : g.live) located += kv.second.located ? 1 : 0;
+        if (ph > 0 && located == 0)
+            ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.4f, 1),
+                               "Not located on this build: none of these knobs has been confirmed in the running game yet. They are shown with "
+                               "FC 27's own values; Turbo writes nothing until a live check confirms them on this game build.");
+        else if (ph > 0)
+            ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.4f, 1), "%d knob(s) not confirmed on this build: shown only, never written.", ph);
     } else {
         g_state.registry_line = reg_why;
         ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", reg_why.c_str());
@@ -854,8 +939,8 @@ void draw_body(App& app) {
         log_line(app, std::string("gameplay tuning: ") + (g.sw.opt_in ? "switched on" : "switched off") + " (turbo_output\\" + opt_in_file() + ")");
     }
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Off by default. On creates turbo_output\\tuning_on.txt; tuning_off.txt or tactics_off.txt switch every write off (Undo and Restore "
-                          "game defaults still work).");
+        ImGui::SetTooltip("Off by default. On creates turbo_output\\tuning_on.txt; tuning_off.txt, call_attrib_off.txt or tactics_off.txt switch "
+                          "every write off (Undo, Reset and Restore game defaults still work: they put the game's own values back).");
 
     // the plans and the gates
     const ApplyView av = apply_view(*reg);
@@ -958,7 +1043,7 @@ void draw_body(App& app) {
     }
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("The values Turbo wrote are written again at the first hub of every career load (one job, the same gates and checks). "
-                          "Off by default.");
+                          "Off by default: without it the values last until the game is closed.");
     g_state.keep_on = g.keep.on;
     g_state.keep_line = g.keep.on ? std::to_string(g.keep.values.size()) + " value(s) kept" + (g.reapplied_key.empty() ? "" : "; last career load: " + g.reapplied_key)
                                   : std::string("not kept");
@@ -995,7 +1080,7 @@ void draw_body(App& app) {
     ImGui::BeginDisabled(true);
     ImGui::Button("Measure 60 s of a match (coming)##tvmeasure");
     ImGui::EndDisabled();
-    ImGui::TextDisabled("Coming: Turbo plays 60 s of a match before and after Apply and compares pressing, line height, runs and passing errors.");
+    ImGui::TextDisabled("Coming: Turbo measures 60 s of a match before and after Apply and compares the line height, team width and length, pressing and runs.");
 
     // what happened
     if (!g.last.empty()) ImGui::TextWrapped("Last: %s", g.last.c_str());

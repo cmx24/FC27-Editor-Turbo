@@ -13,7 +13,7 @@ namespace host {
 // After install_game_hooks(): reads the knobs file of the running build and logs what it found (nothing is written at start-up)
 void install_tuning();
 std::shared_ptr<turbo::tuning::Service> tuning_service();
-// Status tab lines ("gameplay tuning: off until turbo_output\tuning_on.txt exists | 24 knobs, 24 placeholders | ...")
+// Status tab lines ("gameplay tuning: off until turbo_output\tuning_on.txt exists | 21 knobs, 21 not confirmed in the running game ...")
 std::vector<std::string> tuning_status();
 
 }  // namespace host
