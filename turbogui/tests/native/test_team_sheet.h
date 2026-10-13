@@ -1638,6 +1638,49 @@ static void run() {
         rig.remove(opt_in_file());
         match_again();
         CHECK(rig.svc->kickoff_status().find("no kick-off check: channel E is not switched on") == 0, rig.svc->kickoff_status());
+        // review: "Turbo's values" only while the tactic read is exactly what Turbo's write left: the game changed the line height since (same
+        // career load) -> the game's values; back to Turbo's 90 -> Turbo's values again
+        rig.touch(opt_in_file());
+        auto look_in_match = [&](Context& cx) {
+            cx.phase = "match";
+            cx.hub = false;
+            rig.svc->note_context(cx);
+            rig.clock += 20e6;
+            rig.svc->kickoff_tick();
+            return rig.svc->kickoff_status();
+        };
+        w.mem.wr(SheetWorld::kRecs + kRecLineHeight, int32_t(50));
+        c.phase = "hub";
+        c.hub = true;
+        CHECK(rig.svc->read(c, lt, why) && lt.line_height == 50, "read in the hub: " + why);
+        std::string k = look_in_match(c);
+        CHECK(k.find("1 in the match-setup layout") != std::string::npos && k.find("Line Height 50, ") != std::string::npos &&
+                  k.find(", the game's values)") != std::string::npos && k.find("Turbo's values") == std::string::npos,
+              "a value the game changed is not called Turbo's: " + k);
+        w.mem.wr(SheetWorld::kRecs + kRecLineHeight, int32_t(90));
+        c.phase = "hub";
+        c.hub = true;
+        CHECK(rig.svc->read(c, lt, why) && lt.line_height == 90, "read in the hub: " + why);
+        k = look_in_match(c);
+        CHECK(k.find("1 in the match-setup layout") != std::string::npos && k.find(", Turbo's values)") != std::string::npos, "Turbo's values again: " + k);
+        // review: the career was reloaded (load 4) since the tactic was read: not looked for (the reload rebuilt the record from the save);
+        // after a read in load 4's hub the same values are the game's (the reload threw Turbo's write away), not Turbo's
+        Context c4 = rig.ctx(4);
+        c4.phase = "hub";
+        rig.svc->note_context(c4);
+        k = look_in_match(c4);
+        CHECK(k == "no kick-off check: the live tactic was last read in career load 3, this match is in load 4 (open Teams > Tactics > My team once in the hub)",
+              "an earlier load's tactic: " + k);
+        CHECK(rig.logged("channel E: no kick-off check: the live tactic was last read in career load 3, this match is in load 4"), "logged");
+        c4.phase = "hub";
+        c4.hub = true;
+        CHECK(!rig.svc->read(c4, lt, why), "load 4: the service is located again first");
+        rig.jobs.pump();
+        CHECK(rig.svc->read(c4, lt, why) && lt.line_height == 90, "read in load 4's hub: " + why);
+        k = look_in_match(c4);
+        CHECK(k.find("1 in the match-setup layout") != std::string::npos && k.find(", the game's values)") != std::string::npos &&
+                  k.find("Turbo's values") == std::string::npos,
+              "after the reload the values are not called Turbo's: " + k);
         c.phase = "hub";
         rig.svc->note_context(c);
         CHECK(kKickoffHead == 0x1A0 && kKickoffTail == 0x200 && kickoff_value_offsets(dump, 90) == std::vector<size_t>({0x1A4}), "the offsets helper");

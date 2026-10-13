@@ -479,7 +479,7 @@ struct KickoffArm {
     std::array<int32_t, kSlots> roles{}, pids{};
     int32_t line_height = 0, build_up = 0, approach = 0;
     std::string code, when;  // when: "read in the hub" / "after Turbo's write" (+ the clock)
-    bool turbo_values = false;  // Turbo's last job wrote these values (and no undo since)
+    bool turbo_values = false;  // these are the values Turbo's last write of this career load left (no undo, reload or other value since)
 };
 // One dumped match-setup copy: out = hit - 0x118, bytes = out+0x00 .. +0x1A0 + 0x200
 struct KickoffCopy {
@@ -547,7 +547,7 @@ public:
     virtual std::string session_off() = 0;     // "" = on; else why channel E is off for this session
     // Report 4.5 / findings 3d: the kick-off check. Called on the game thread every frame (Turbo's game_tick listener) and from the UI's
     // tick as a fallback; cheap, never blocks (a try-lock). 20 s after Lua's phase became "match" (note_context) it looks for the
-    // match-setup copy of the live tactic last read in the hub (read-only, background), dumps each copy to
+    // match-setup copy of the live tactic last read in the hub of this career load (read-only, background), dumps each copy to
     // turbo_output\channel_e_kickoff_dump.bin (+ .txt index) and logs the outcome either way; once more 30 s later when none was found
     virtual void kickoff_tick() = 0;
     virtual std::string kickoff_status() = 0;
@@ -633,9 +633,12 @@ private:
     bool kick_pending_ = false;      // a check is due at kick_due_ (set when the phase became "match")
     double kick_due_ = 0.0;
     int kick_tries_ = 0;             // checks run for this match (a retry when the first found no copy)
-    bool turbo_values_ = false;      // Turbo's last job wrote the live values (no undo since)
+    // what Turbo's last write left in place (armed; cleared by an undo): an arm is "Turbo's values" only while it reads exactly this, in
+    // the same career load (a reload, Edit Tactic's Yes or the game put other values in otherwise)
+    KickoffArm turbo_arm_;
     void arm_from(const LiveTactic& lt, long long gen, const char* when);  // with mu_ held
-    void run_kickoff(KickoffArm arm, int attempt);
+    // gen: the career load the UI saw when the check came due (an arm of another load is not looked for)
+    void run_kickoff(KickoffArm arm, int attempt, long long gen);
     std::atomic<int> scans_{0}, finds_{0};
     // a service the scan picked, waiting for its kScanConfirmUs re-check
     uint64_t cand_svc_ = 0;

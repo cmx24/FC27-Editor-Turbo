@@ -2292,8 +2292,12 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
         std::lock_guard<std::mutex> lock(mu_);
         if (r.session_off) session_off_ = r.message;
         if (r.ok && r.written && r.after.at.record) {
-            turbo_values_ = !plan.undo;
+            if (plan.undo) turbo_arm_ = KickoffArm();  // the game's values are back
             arm_from(r.after, plan.load_gen, plan.undo ? "after Turbo's undo" : "after Turbo's write");
+            if (!plan.undo) {
+                turbo_arm_ = arm_;  // what this write left in place (read back)
+                arm_.turbo_values = turbo_arm_.turbo_values = true;
+            }
         }
         results_.push_back(r);
         if (seq == job_seq_) busy_ = false;  // a lost job's late result leaves a newer job's wait alone
@@ -2337,7 +2341,11 @@ void CoreService::arm_from(const LiveTactic& lt, long long gen, const char* when
     arm_.build_up = lt.build_up;
     arm_.approach = lt.approach;
     arm_.code = lt.code;
-    arm_.turbo_values = turbo_values_;
+    // "Turbo's values" only while the tactic read is exactly what Turbo's last write of this career load left (after a reload, an undo,
+    // Edit Tactic's Yes or the game's own change these are the game's values)
+    const KickoffArm& t = turbo_arm_;
+    arm_.turbo_values = t.armed && t.load_gen == gen && t.user == arm_.user && t.code == arm_.code && t.roles == arm_.roles && t.pids == arm_.pids &&
+                        t.line_height == arm_.line_height && t.build_up == arm_.build_up && t.approach == arm_.approach;
     arm_.when = when;
 }
 
@@ -2353,11 +2361,11 @@ void CoreService::kickoff_tick() {
     kickoff_running_ = true;
     kickoff_ = "kick-off check running ...";
     lock.unlock();
-    run_kickoff(arm, attempt);  // everything else (the switch files, the log, the scan, the dump) away from the game thread
+    run_kickoff(arm, attempt, cur_gen_.load());  // everything else (the switch files, the log, the scan, the dump) away from the game thread
 }
 
-void CoreService::run_kickoff(KickoffArm arm, int attempt) {
-    auto job = [this, arm, attempt]() {
+void CoreService::run_kickoff(KickoffArm arm, int attempt, long long gen) {
+    auto job = [this, arm, attempt, gen]() {
         std::string line;
         bool none = true, skipped = false;
         // read-only, yet it reads all of memory during a match: only for a tester who switched channel E on, never while a kill switch says
@@ -2374,6 +2382,11 @@ void CoreService::run_kickoff(KickoffArm arm, int attempt) {
             skipped = true;
         } else if (!arm.armed) {
             line = "no kick-off check: the live tactic was not read in the career hub before this match (open Teams > Tactics > My team once in the hub)";
+            skipped = true;
+        } else if (arm.load_gen != gen) {
+            // the tactic of an earlier career load (the reload rebuilt the record from the save): not what this match was set up from
+            line = "no kick-off check: the live tactic was last read in career load " + std::to_string(arm.load_gen) + ", this match is in load " +
+                   std::to_string(gen) + " (open Teams > Tactics > My team once in the hub)";
             skipped = true;
         }
         if (!skipped) try {
