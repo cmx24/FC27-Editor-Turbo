@@ -1,8 +1,28 @@
 # Turbo handover (read this first)
 
-Last updated: 2026-10-12 09:10 ET (Turbo 2.2.0 released after the in-game acceptance test). Older sections below keep their own timestamps. Update this file after EVERY release and every session that changes code, saves or game state. Every update MUST end with a fresh section 11 (next-LLM prompt) that matches the current state.
+Last updated: 2026-10-13 18:40 ET (Turbo 2.3.0 released). Older sections below keep their own timestamps. Update this file after EVERY release and every session that changes code, saves or game state. Every update MUST end with a fresh section 11 (next-LLM prompt) that matches the current state.
 
-## 00. Update 2026-10-12 09:10 - Turbo 2.2.0 RELEASED (read first)
+## 00. Update 2026-10-13 18:40 - Turbo 2.3.0 RELEASED (read first)
+- **Released:** tag v2.3.0 = turbo-2.0 e952411 (pushed), https://github.com/cmx24/FC27-Editor-Turbo/releases/tag/v2.3.0 with
+  FC27_LE_Turbo_2.3.0.zip (5104653 bytes, sha256 294ab9186ec42963d987d7493ac53ac098cfd744f05ba630237d6e9c4a1e5dbc, digest verified via the
+  API; 112 files). Installed on Cassio's PC from wt-23-release e952411 (Turbo.dll cb079e84...). Game closed. Temp branches deleted.
+- **Saves:** TORINO 2ded2b76, LB c45b2b12, LEICESTER 1e78df22, LTEST 3dced956 - unchanged all day (LTEST used for tests, never saved).
+  Backup turbo_dev\backups\20261013-1729-pre-resume-23.
+- **check_all (e7f20cf / e952411):** BUILD 0 warnings, LUA 405/0, NATIVE 38462/0, PY and CATALOG green.
+- **How 2.3 was built:** branches 2.3/player-id 1abccb0, 2.3/archetype-target e96426d, 2.3/face-looks 8c11efd, 2.3/kits 0fd7625,
+  2.3/channel-e2 014f81a (6 review fixes), 2.3/gameplay-tuning 8b486ad; merged on 2.3/release; review workflow (3 lenses + skeptics) found 3
+  real issues: two fixed (e7f20cf "below" rule in the write job + row Reset of tied knobs; 18547f8 honest wording), the third (prematch GUID
+  unread) was proven correct in game. Evidence: turbo_dev\evidence\2026-10-13\TEST_23.md.
+- **In-game status (LTEST):** player id PASS; archetype target overall PASS; kit import phase 1 PASS (settings, colours, minikit file, 24
+  textures staged; minikit on a game screen not checked; 3D kit on the pitch = phase 2); live standings PASS (regression); channel E2: the
+  write lands and reads back, but Edit Tactic still shows BALANCED / DEEP (FAIL of the screen check; experimental, opt-in); gameplay tuning:
+  both tables located in the running game, tab Apply 1.00 -> 1.40 and Undo read back ok; a live write during a match read back fine and the
+  match ran on. **Not proven: that the match uses the tuning value (no on-pitch measurement yet).**
+- **Engine tuning facts:** attribulator manager slot 0x14C26B128 (static); 15 AttribDBRuntime copies; one shared instance of the in-possession
+  width table for all 15; heap addresses change at every relaunch (Turbo re-locates in-process in about 20 s at the first tab open).
+  turbo_output\ATTRIBULATOR_LIVE.json/.txt, TUNING_FRAMEWORK.txt, TACTICS_MOD_CATALOGUE.txt.
+
+## 00c. Update 2026-10-12 09:10 - Turbo 2.2.0 RELEASED (read first)
 - **Released:** tag v2.2.0 = turbo-2.0 ae3c23a (pushed), GitHub release https://github.com/cmx24/FC27-Editor-Turbo/releases/tag/v2.2.0 with FC27_LE_Turbo_2.2.0.zip (sha256 bfbf05a23cc37d6e5d481d86bbd1c3c27dd316fa3ab42c87bbb2de67be7a135c, digest verified via the API). Installed on Cassio's PC (deploy from wt-22-release). Game closed.
 - **Saves unchanged:** TORINO 2ded2b76, LB c45b2b12, LEICESTER 1e78df22, LTEST 3dced956 (LTEST loaded for the test, never saved). Backup: turbo_dev\backups\20261012-0713-pre22test.
 - **How 2.2 was built (07:15-08:15):** 2.2/channel-e 2da8c71 + e532ecc (adversarial review: 1 blocker - role/focus values the game never uses - and 7 majors, all fixed: role allow-list from the other clubs' cached sheets, job re-checks club / load / service, scan fails closed + 5 s re-check, undo validated and bound to the career load, DB mirror opt-in `channel_e_db_mirror_on.txt`, hub phase only); 2.2/standings da1fdbe + d59c391 (review 7 findings closed; second review 4 minors fixed: rollback checks the block first, gate via the comm service). Merged on 2.2/release (recipe turbo_output\MERGE_22_RECIPE.txt, resolver merge_22_resolve.py; the only code conflict = the 8th/9th positional Signature fields exact_build / adapt_optional). check_all green: Lua 394/0, native 37028/0, build 0 warnings.
@@ -126,28 +146,30 @@ ORCHESTRATOR_BRIEF_20261011.md · OVR1_BISECT.txt/.json · STEP2_DRAFT_B.txt · 
 ## 9. Game window (planned 16:30-18:15 ET 2026-10-11; NOT run by the orchestrator session)
 Plan: `turbo_dev\evidence\2026-10-11\RUNBOOK.md` (backups, install 2.0.3, TORINO read-only diag, TTEST copy, day-advance probe, repair trial on one player, A/B arms for channel A, TORINO repair under the consent of 14:30). Results, screenshots and the timestamped log go to that folder. Cassio's confirmation of 14:30 covers exactly: the repair on TORINO after a clean TTEST trial that holds past a day advance.
 
-## 10. Open items, in order (2026-10-12 09:10)
-0. **Channel E build-up / depth:** find what Edit Tactic and the match read for build-up and defensive depth (the DB row cm_mentalities? another copy of the record?). Next test: with `channel_e_db_mirror_on.txt` (mirror on) apply depth 75 and check Edit Tactic; decode the match-setup copy (out+0x1C..+0x118) for depth / build-up. Then the Turbo kick-off check, which logged nothing (it seems to run only while the card is drawn).
-1. **Standings writes on 6AC07E31 not checked in game:** a table edit + refresh + Undo; a result fix in a played match.
-2. **2.1 features not checked in game:** hidden head drawn in a match after apply; gear writes; overall follow; FC 26 parity views; tactics badges.
-3. **UI:** All callnames list squeezed to about 2 rows (the UI tests need the small height).
-4. **Match sliders:** channel B (the slider block) is the next candidate (channel A disproven).
-5. **OVR-1 repair on TORINO:** Cassio's 2026-10-11 14:30 conditional yes covers it only after a clean trial on a copy.
-6. **Languages:** Q2-Q6 (LANGUAGE_STRUCTURE_AUDIT 9).
-7. **Repo hygiene:** stale worktrees (turbo_dev\2.0\wt-*, a-..h-, turbo_dev\wt-*, FC27-Editor-Turbo\.claude\worktrees); branches 2.2/* are merged (tmp/merge-rehearsal* are throwaway); every older 2.0/* branch is on old shas (masters rewrite before any merge).
-8. **Game driving:** computer-use access to the game may be refused; use turbo_dev\tools\gk.ps1 (section 00) only with Cassio's approval in chat.
+## 10. Open items, in order (2026-10-13 18:40)
+0. **On-pitch effect of gameplay tuning (top):** turbo_dev\tools\match_measure.py has a new route (HUD FifaPlayerData objects found from a
+   starter's player id; `python match_measure.py --check -v`), only tested offline (the Lua-binding root S0 is empty in real matches).
+   One short LTEST session: kick off a Tactical View match, run --check (FAIL -> kill at once), then 30 s baseline, write width 1.4 from the
+   tab (needs the hub) or ab_width.py with the instance from the tab's log line, 30 s again, --compare, kill. Prove the 11 other knobs'
+   tables live (attrib_locate.py groups 3-12) before marking them verified.
+1. **Channel E2:** Edit Tactic fills its working copies from another source when it opens (not the live record). Find that source (dump the
+   service while Edit Tactic is open after a Turbo write) or accept the record-only write; check whether the match uses +0xA4/+0xB0/+0xB4.
+2. **Kit import phase 2:** the 3D kit on the pitch from the staged textures (KITS_IMPORT_RESEARCH.txt section 5); minikit on a game screen.
+3. **Carry-overs:** standings writes not checked in game; 2.1 features not checked in game; OVR-1 repair on TORINO (conditional yes, trial
+   on a copy first); languages; repo hygiene (stale worktrees wt-23-*, wt-23-rehearsal; 2.3/* branches are merged).
+4. **Voice generation (3.0 PT-BR):** parked by Cassio.
 
 ## 11. Prompt for the next LLM (copy this as the first message)
 ```
-You are continuing the FC 27 Turbo project for the user Cassio. Read docs/HANDOVER.md first (branch turbo-2.0, worktree C:\FC 27 Live Editor\turbo_dev\2.0\integration), section 00 then section 10, then the memory notes in C:\Users\cmode\.claude\projects\C--FC-27-Live-Editor\memory\ (MEMORY.md index).
-State: Turbo 2.2.0 is released (tag v2.2.0, GitHub release with the zip) and installed; the game is closed; the saves TORINO / LB / LEICESTER are untouched (LTEST is a throwaway copy of LEICESTER for tests).
-Rules:
-- Never send Escape to the game.
-- Back up every save before any game run.
-- Write to none of TORINO / LB / LEICESTER without Cassio's explicit confirmation in chat; test on LTEST and never save it.
-- Live Editor's own DLL and launcher are off limits.
-- The callname masters and the asset catalog never leave the PC.
-- Keep in-game tests short: prove the pass/fail point, screenshot, kill the game.
-- Claims by older sessions are not verification.
-FIRST TASK: section 10 item 0 - find what the game's Edit Tactic screen and the match read for build-up and defensive depth (channel E wrote 2 / 75 into the live record, Edit Tactic still showed BALANCED / DEEP; the match-setup copies did take the written role word). Offline first (code, turbo_output\TACTICS_CHANNEL_E_REPORT.txt, turbo_dev\evidence\2026-10-12), then one short in-game test on LTEST with Cassio's approval. Report in turbo_output and turbo_dev\evidence\<date>, update this handover (section 00, a fresh section 11), and commit with the Co-Authored-By trailer.
+You are continuing the FC 27 Turbo project for the user Cassio. Read docs/HANDOVER.md first (branch turbo-2.0), section 00 then section 10,
+then the memory notes in C:\Users\cmode\.claude\projects\C--FC-27-Live-Editor\memory\ (MEMORY.md index).
+State: Turbo 2.3.0 is released (tag v2.3.0, GitHub release with the zip) and installed; the game is closed; TORINO / LB / LEICESTER
+untouched (LTEST is a throwaway copy of LEICESTER for tests).
+Rules: never send Escape to the game; back up every save before any game run; write to none of TORINO / LB / LEICESTER without Cassio's
+explicit confirmation in chat; test on LTEST only and never save it; keep in-game tests short (prove one point, screenshot, kill the game;
+never keep a match running for probing; agents prepare offline and hand over a scripted check of 2 minutes at most); every game write needs a
+kill switch, a read-back and an undo; publish no gameplay mod values; Live Editor's own DLL and launcher are off limits; masters and the asset
+catalog never leave the PC; at every new-version request show an agent deployment plan first.
+FIRST TASK: section 10 item 0 (on-pitch measurement of the tuning width knob), then item 1 (channel E2's Edit Tactic source). Report in
+turbo_output and turbo_dev\evidence\<date>, update this handover (section 00, a fresh section 11), commit with the Co-Authored-By trailer.
 ```
