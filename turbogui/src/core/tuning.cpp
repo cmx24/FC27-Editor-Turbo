@@ -279,6 +279,12 @@ std::string Knob::placeholder() const {
     return "";
 }
 
+bool Locator::l3() const {
+    for (const Variant& v : variants)
+        if (!v.db.empty()) return true;
+    return false;
+}
+
 std::string Locator::placeholder() const {
     if (!verified) return "placeholder: locator " + name + " has not been confirmed in the running game yet";
     if (kind == "chain" && signature.empty() && pattern.pattern.empty()) return "locator " + name + " has no signature";
@@ -439,6 +445,7 @@ static bool parse_locator(const json& o, Locator& l, std::string& err) {
                 Variant vr;
                 vr.name = x.is_object() ? str_of(x, "name") : "";
                 vr.instance = x.is_object() ? str_of(x, "instance") : "";
+                vr.db = x.is_object() ? str_of(x, "db") : "";
                 if (!valid_id(vr.name)) {
                     err = who + ": a variant name must be 1..64 of a-z 0-9 . _ -";
                     return false;
@@ -462,6 +469,29 @@ static bool parse_locator(const json& o, Locator& l, std::string& err) {
                 return false;
             }
             l.head_rva = uint64_t(v);
+        }
+        // L3: the database / group runtime objects
+        l.db_type = str_of(o, "db_type");
+        l.group_type = str_of(o, "group_type");
+        for (const char* key : {"db_type_signature", "group_type_signature"}) {
+            if (!o.contains(key) || o[key].is_null()) continue;
+            if (!json_int(o[key], v) || v <= 0 || v > 0xFFFFFFFFLL) {
+                err = who + ": " + key + " must be a u32 (hex string)";
+                return false;
+            }
+            (std::string(key) == "db_type_signature" ? l.db_type_signature : l.group_type_signature) = uint32_t(v);
+        }
+        for (const char* key : {"family_slot", "group_slot"}) {
+            if (!o.contains(key) || o[key].is_null()) continue;
+            if (!json_int(o[key], v) || v < 0x18 || v > 0x10000 || (v & 7)) {
+                err = who + ": " + key + " must be an 8-aligned offset 0x18..0x10000 (hex string)";
+                return false;
+            }
+            (std::string(key) == "family_slot" ? l.family_slot : l.group_slot) = uint64_t(v);
+        }
+        if (l.l3() && (l.db_type.empty() || !l.family_slot || !l.group_slot)) {
+            err = who + ": a variant names its database (L3): db_type, family_slot and group_slot are needed";
+            return false;
         }
         l.verified = o.value("verified", false);
         l.note = str_of(o, "note");
@@ -821,10 +851,20 @@ std::string registry_json(const Registry& r) {
             o["type_size"] = hex(l.type_size);
             o["type_fields"] = l.type_fields > 0 ? ojson(l.type_fields) : ojson(nullptr);
             ojson vs = ojson::array();
-            for (const Variant& v : l.variants) vs.push_back({{"name", v.name}, {"instance", v.instance}});
+            for (const Variant& v : l.variants) {
+                ojson x = {{"name", v.name}, {"instance", v.instance}};
+                if (!v.db.empty()) x["db"] = v.db;
+                vs.push_back(x);
+            }
             o["variants"] = vs;
             if (!l.head.empty()) o["head"] = l.head;
             if (l.head_rva) o["head_rva"] = hex(l.head_rva);
+            if (!l.db_type.empty()) o["db_type"] = l.db_type;
+            if (l.db_type_signature) o["db_type_signature"] = hex(l.db_type_signature);
+            if (!l.group_type.empty()) o["group_type"] = l.group_type;
+            if (l.group_type_signature) o["group_type_signature"] = hex(l.group_type_signature);
+            if (l.family_slot) o["family_slot"] = hex(l.family_slot);
+            if (l.group_slot) o["group_slot"] = hex(l.group_slot);
         }
         o["verified"] = l.verified;
         o["note"] = l.note;
@@ -1062,75 +1102,171 @@ std::vector<std::pair<uint64_t, uint64_t>> find_qwords(const uint8_t* buf, size_
     return out;
 }
 
+// The TypeInfoData of a type found by its name in FC27.exe (refs: the 8-aligned slots that point at the name in the image), with its
+// signature / size / field count when they are given (0 / 0 / -1 = not checked). "" + td + layout, else why
+static std::string find_type(Memory& mem, const std::map<std::string, std::vector<uint64_t>>& refs, const std::string& name, uint32_t sig, uint32_t size,
+                             int fields, uint64_t& td_out, TypeLayout& layout) {
+    std::vector<uint64_t> tds;
+    std::string why_not;
+    auto it = refs.find(name);
+    if (it != refs.end())
+        for (uint64_t td : it->second) {
+            TypeLayout t;
+            const std::string w = parse_type_info(mem, td, t);
+            if (!w.empty()) {
+                why_not = w;
+                continue;
+            }
+            if (t.name != name) continue;
+            if (sig && t.signature != sig) why_not = "type " + name + " has signature " + hex(t.signature) + ", not " + hex(sig);
+            else if (size && t.size != size) why_not = "type " + name + " is " + hex(t.size) + " bytes, not " + hex(size);
+            else if (fields > 0 && t.fields != fields) why_not = "type " + name + " has " + std::to_string(t.fields) + " fields, not " + std::to_string(fields);
+            else {
+                if (std::find(tds.begin(), tds.end(), td) == tds.end()) tds.push_back(td);
+                layout = t;
+            }
+        }
+    if (tds.empty()) return (why_not.empty() ? "type " + name + " was not found in FC27.exe" : why_not) + ": the layout may have changed on this build";
+    if (tds.size() > 1) return "type " + name + " is described " + std::to_string(tds.size()) + " times in FC27.exe";
+    td_out = tds.front();
+    return "";
+}
+
+// An object's head (the live run: +0 the vtable in FC27.exe, +8 its TypeInfo*): +0 must point into FC27.exe (exactly FC27.exe + rva
+// when rva is not 0) and, when td is not 0, +8 must be a TypeInfo in FC27.exe whose +0 is td. "" + the vtable, else why
+static std::string check_head(Memory& mem, const Lookup& lk, uint64_t obj, uint64_t td, uint64_t rva, uint64_t& vt) {
+    vt = 0;
+    if (!mem.rd(obj, vt) || !in_image(lk, vt)) return "no vtable at +0";
+    if (rva && vt != lk.image_base + rva) return "its vtable is " + hex(vt) + ", not FC27.exe+" + hex(rva);
+    if (td) {
+        const uint64_t ti = mem.ptr(obj + kInstTypeInfo);
+        if (!ti || !in_image(lk, ti) || mem.ptr(ti) != td) return "its TypeInfo at +8 is not the type's";
+    }
+    return "";
+}
+
+// A pointer slot of a database / group runtime object (tag bit 2 masked); 0 = none
+static uint64_t slot_ptr(Memory& mem, uint64_t at) {
+    uint64_t v = 0;
+    if (!mem.rd(at, v)) return 0;
+    v &= ~kSlotTag;
+    return is_ptr(v, 8) ? v : 0;
+}
+
+static bool named(Memory& mem, uint64_t obj, const std::string& name) {
+    const uint64_t np = mem.ptr(obj + kInstName, 1);
+    return np && !name.empty() && same_name(mem.read_cstr(np, name.size() + 2), name);
+}
+
+// L3: the instance a database runtime object points at (+family_slot -> the group object, of group_type when given; +group_slot -> the
+// instance). "" + inst, else why
+static std::string via_db(Memory& mem, const Locator& l, const Lookup& lk, const Anchor& a, uint64_t db, uint64_t& inst) {
+    inst = 0;
+    const uint64_t grp = slot_ptr(mem, db + l.family_slot);
+    if (!grp) return "the database object " + hex(db) + " holds no group at +" + hex(l.family_slot);
+    if (a.group_td) {
+        uint64_t vt = 0;
+        const std::string w = check_head(mem, lk, grp, a.group_td, 0, vt);
+        if (!w.empty()) return "the group object " + hex(grp) + " is not a " + l.group_type + " (" + w + ")";
+    }
+    inst = slot_ptr(mem, grp + l.group_slot);
+    if (!inst) return "the group object " + hex(grp) + " holds no instance at +" + hex(l.group_slot);
+    return "";
+}
+
 static Anchor resolve_attrib(Memory& mem, const Locator& l, const Lookup& lk) {
     Anchor a;
     if (!lk.refs) {
         a.why = "finding attribulator data needs the game's memory search, which this Turbo does not have here";
         return a;
     }
-    // L1: the reflected type, by name, with the file's signature, size and field count
-    std::map<std::string, std::vector<uint64_t>> tr = lk.refs({l.type}, true);
-    std::vector<uint64_t> tds;
-    std::string why_not;
-    for (uint64_t td : tr[l.type]) {
-        TypeLayout t;
-        const std::string w = parse_type_info(mem, td, t);
-        if (!w.empty()) {
-            why_not = w;
-            continue;
-        }
-        if (t.name != l.type) continue;
-        if (l.type_signature && t.signature != l.type_signature) why_not = "type " + l.type + " has signature " + hex(t.signature) + ", not " + hex(l.type_signature);
-        else if (l.type_size && t.size != l.type_size) why_not = "type " + l.type + " is " + hex(t.size) + " bytes, not " + hex(l.type_size);
-        else if (l.type_fields > 0 && t.fields != l.type_fields) why_not = "type " + l.type + " has " + std::to_string(t.fields) + " fields, not " + std::to_string(l.type_fields);
-        else {
-            if (std::find(tds.begin(), tds.end(), td) == tds.end()) tds.push_back(td);
-            a.layout = t;
-            continue;
-        }
+    // L1: the reflected types by name in one search of FC27.exe: the group's schema with the file's signature, size and field count;
+    // for L3 also the database (and group) runtime types
+    std::vector<std::string> tnames = {l.type};
+    if (l.l3()) {
+        tnames.push_back(l.db_type);
+        if (!l.group_type.empty()) tnames.push_back(l.group_type);
     }
-    if (tds.empty()) {
-        a.why = (why_not.empty() ? "type " + l.type + " was not found in FC27.exe" : why_not) + ": the layout may have changed on this build";
+    const std::map<std::string, std::vector<uint64_t>> tr = lk.refs(tnames, true);
+    std::string w = find_type(mem, tr, l.type, l.type_signature, l.type_size, l.type_fields, a.td, a.layout);
+    if (w.empty() && l.l3()) {
+        TypeLayout other;
+        w = find_type(mem, tr, l.db_type, l.db_type_signature, 0, -1, a.db_td, other);
+        if (w.empty() && !l.group_type.empty()) w = find_type(mem, tr, l.group_type, l.group_type_signature, 0, -1, a.group_td, other);
+    }
+    if (!w.empty()) {
+        a.why = w;
         return a;
     }
-    if (tds.size() > 1) {
-        a.why = "type " + l.type + " is described " + std::to_string(tds.size()) + " times in FC27.exe";
-        return a;
-    }
-    a.td = tds.front();
-    // L2: one instance per variant, found by its Name, all with the same image pointer at +0 (the head the locator names, when it does)
+    // L2 / L3: one instance per variant, all with the same vtable at +0 (and the head the locator names)
     std::vector<std::string> names;
-    for (const Variant& v : l.variants) names.push_back(v.instance);
-    std::map<std::string, std::vector<uint64_t>> ir = lk.refs(names, false);
+    for (const Variant& v : l.variants) names.push_back(v.db.empty() ? v.instance : v.db);
+    const std::map<std::string, std::vector<uint64_t>> ir = lk.refs(names, false);
+    const uint64_t inst_td = l.head == "typeinfo" ? a.td : 0;
+    const std::string head_text = l.head_rva ? "vtable FC27.exe+" + hex(l.head_rva) : std::string("its TypeInfo at +8");
     for (const Variant& v : l.variants) {
-        std::vector<uint64_t> found;
-        int other_head = 0;
-        for (uint64_t slot : ir[v.instance]) {
-            const uint64_t inst = slot - kInstName;
-            uint64_t t0 = 0;
-            if (!mem.rd(inst, t0) || !in_image(lk, t0)) continue;
-            if ((l.head_rva && t0 != lk.image_base + l.head_rva) || (l.head == "typeinfo" && mem.ptr(t0) != a.td)) {
-                ++other_head;
-                continue;
+        uint64_t inst = 0, db = 0;
+        auto it = ir.find(v.db.empty() ? v.instance : v.db);
+        if (v.db.empty()) {
+            // L2: the instance by its own Name (unique)
+            std::vector<uint64_t> found;
+            int other_head = 0;
+            if (it != ir.end())
+                for (uint64_t slot : it->second) {
+                    const uint64_t cand = slot - kInstName;
+                    uint64_t t0 = 0;
+                    if (!mem.rd(cand, t0) || !in_image(lk, t0)) continue;
+                    uint64_t vt = 0;
+                    if (!check_head(mem, lk, cand, inst_td, l.head_rva, vt).empty()) {
+                        ++other_head;
+                        continue;
+                    }
+                    if (std::find(found.begin(), found.end(), cand) == found.end()) found.push_back(cand);
+                }
+            if (found.size() != 1) {
+                a.why = "variant " + v.name + ": " +
+                        (!found.empty() ? std::to_string(found.size()) + " instances carry its name"
+                         : other_head   ? std::to_string(other_head) + " object(s) carry its name, none with the type's head (" + head_text + ")"
+                                        : std::string("its instance is not in memory (the attribulator not loaded yet?)"));
+                return a;
             }
-            if (std::find(found.begin(), found.end(), inst) == found.end()) found.push_back(inst);
-        }
-        if (found.size() != 1) {
-            a.why = "variant " + v.name + ": " +
-                    (!found.empty() ? std::to_string(found.size()) + " instances carry its name"
-                     : other_head   ? std::to_string(other_head) + " object(s) carry its name, none with the type's head at +0 (" +
-                                        (l.head_rva ? "FC27.exe+" + hex(l.head_rva) : std::string("its TypeInfo")) + ")"
-                                    : std::string("its instance is not in memory (the attribulator not loaded yet?)"));
-            return a;
+            inst = found[0];
+        } else {
+            // L3: the database runtime object by its Name and its TypeInfo, then its family slot and the group's slot
+            std::vector<uint64_t> dbs;
+            if (it != ir.end())
+                for (uint64_t slot : it->second) {
+                    const uint64_t cand = slot - kInstName;
+                    uint64_t vt = 0;
+                    if (check_head(mem, lk, cand, a.db_td, 0, vt).empty() && std::find(dbs.begin(), dbs.end(), cand) == dbs.end()) dbs.push_back(cand);
+                }
+            if (dbs.size() != 1) {
+                a.why = "variant " + v.name + ": " +
+                        (dbs.empty() ? "its database " + v.db + " (" + l.db_type + ") is not in memory (the attribulator not loaded yet?)"
+                                     : std::to_string(dbs.size()) + " " + l.db_type + " objects carry the name " + v.db);
+                return a;
+            }
+            db = dbs[0];
+            w = via_db(mem, l, lk, a, db, inst);
+            if (w.empty()) {
+                uint64_t vt = 0;
+                w = check_head(mem, lk, inst, inst_td, l.head_rva, vt);
+                if (!w.empty()) w = "the instance " + hex(inst) + " its database points at: " + w;
+                else if (!named(mem, inst, v.instance)) w = "the instance " + hex(inst) + " its database points at is not named " + v.instance;
+            }
+            if (!w.empty()) {
+                a.why = "variant " + v.name + ": " + w;
+                return a;
+            }
         }
         uint64_t t0 = 0;
-        mem.rd(found[0], t0);
+        mem.rd(inst, t0);
         if (a.type_ptr && t0 != a.type_ptr) {
             a.why = "variant " + v.name + "'s instance has another object type (" + hex(t0) + ", not " + hex(a.type_ptr) + ")";
             return a;
         }
         a.type_ptr = t0;
-        a.copies.push_back({v.name, found[0]});
+        a.copies.push_back({v.name, inst, db});
     }
     a.addr = l.variants.empty() ? 0 : a.copies.front().base;
     a.ok = true;
@@ -1240,14 +1376,30 @@ std::string chase(Memory& mem, const Locator& l, const Anchor& anchor, const Loo
     bases.clear();
     if (!anchor.ok) return anchor.why.empty() ? "locator " + l.name + " is not resolved" : anchor.why;
     if (l.kind == "attrib") {
-        // every copy again: the same object type at +0 and its Name at +0x18 (an instance freed and reused fails here)
+        // every copy again: (L3) the database object still the one and still pointing at the instance; the same vtable at +0, its
+        // TypeInfo at +8 (head "typeinfo") and its Name at +0x18 (an instance freed and reused fails here)
         for (const Copy& c : anchor.copies) {
-            uint64_t t0 = 0;
-            if (!mem.rd(c.base, t0) || t0 != anchor.type_ptr)
-                return "variant " + c.variant + ": the instance at " + hex(c.base) + " no longer holds its object type (" + hex(t0) + "): locate again";
             const Variant* v = nullptr;
             for (const Variant& x : l.variants)
                 if (x.name == c.variant) v = &x;
+            if (c.db) {
+                uint64_t vt = 0;
+                if (!v || !check_head(mem, lk, c.db, anchor.db_td, 0, vt).empty() || !named(mem, c.db, v->db))
+                    return "variant " + c.variant + ": the database object at " + hex(c.db) + " is no longer " + (v ? v->db : std::string("?")) + ": locate again";
+                uint64_t inst = 0;
+                const std::string w = via_db(mem, l, lk, anchor, c.db, inst);
+                if (!w.empty()) return "variant " + c.variant + ": " + w + ": locate again";
+                if (inst != c.base)
+                    return "variant " + c.variant + ": its database now points at another instance (" + hex(inst) + ", was " + hex(c.base) + "): locate again";
+            }
+            uint64_t t0 = 0;
+            if (!mem.rd(c.base, t0) || t0 != anchor.type_ptr)
+                return "variant " + c.variant + ": the instance at " + hex(c.base) + " no longer holds its object type (" + hex(t0) + "): locate again";
+            if (l.head == "typeinfo") {
+                const uint64_t ti = mem.ptr(c.base + kInstTypeInfo);
+                if (!ti || mem.ptr(ti) != anchor.td)
+                    return "variant " + c.variant + ": the instance at " + hex(c.base) + " no longer holds its TypeInfo: locate again";
+            }
             const uint64_t np = mem.ptr(c.base + kInstName, 1);
             const std::string n = np ? mem.read_cstr(np, v ? v->instance.size() + 2 : 2) : std::string();
             if (!v || !same_name(n, v->instance)) return "variant " + c.variant + ": the instance at " + hex(c.base) + " is no longer named " + (v ? v->instance : "?");
@@ -2355,7 +2507,11 @@ void CoreService::ensure_anchors() {
         for (const Locator& l : slow)
             if (l.kind == "attrib") {
                 types.push_back(l.type);
-                for (const Variant& v : l.variants) insts.push_back(v.instance);
+                if (l.l3()) {
+                    types.push_back(l.db_type);
+                    if (!l.group_type.empty()) types.push_back(l.group_type);
+                }
+                for (const Variant& v : l.variants) insts.push_back(v.db.empty() ? v.instance : v.db);
             }
         if (!types.empty() && h_.lookup.refs) {
             std::map<std::string, std::vector<uint64_t>> tmap, imap;

@@ -249,18 +249,29 @@ struct TuneRig {
     }
 };
 
-// The attribulator layout of TACTICS_MOD_CATALOGUE section 7 on a simulated memory: a reflected type (TypeInfoData with its name, size,
-// field count, signature and three FieldInfoData whose types are Float32 / Int32 / Boolean) in the image, and two instances of it in
-// the heap (base and simulation, each with the type pointer at +0 and its asset name at +0x18), plus a decoy that carries the base name
-// but no image pointer. Lookup::refs searches the simulated pages with the same helpers the host uses.
+// The attribulator layout of TACTICS_MOD_CATALOGUE section 7 and the live run (turbo_output\ATTRIBULATOR_LIVE.json) on a simulated
+// memory: a reflected type (TypeInfoData with its name, size, field count, signature and three FieldInfoData whose types are Float32 /
+// Int32 / Boolean) and its TypeInfo in the image, and two instances of it in the heap (base and simulation, each with its vtable at +0,
+// its TypeInfo at +8 and its asset name at +0x18), plus a decoy that carries the base name but no image pointer. L3: two database
+// runtime objects (type AttribDBRuntime_test: +8 its TypeInfo, +0x18 its Name, +0x40 the group object with tag bit 2 set) and their
+// group objects (type AttribGroupRuntime_test, +0x28 the instance), plus a decoy database object of another type with the base
+// database's name. `twin`: a second instance with the base instance's name, vtable and TypeInfo that no database points at (the live
+// run found one for the attacking line group). Lookup::refs searches the simulated pages with the same helpers the host uses.
 struct AttribWorld {
     SimMemory mem;
     static constexpr uint64_t kImage = 0x140000000ULL, kImageSize = 0x2145C000ULL;
     static constexpr uint64_t kTd = 0x14D000000ULL, kFields = 0x14D001000ULL, kTiF = 0x14D002000ULL, kTiI = 0x14D002010ULL, kTiB = 0x14D002020ULL;
+    static constexpr uint64_t kTiG = 0x14D002030ULL;  // the group type's TypeInfo (its +0 = kTd)
     static constexpr uint64_t kTdF = 0x14D003000ULL, kTdI = 0x14D003100ULL, kTdB = 0x14D003200ULL, kTypePtr = 0x14D005000ULL, kStrings = 0x14E000000ULL;
-    static constexpr uint64_t kBase = 0x24000000ULL, kSim = 0x24001000ULL, kDecoy = 0x24002000ULL, kNames = 0x24100000ULL;
+    static constexpr uint64_t kDbTd = 0x14D004000ULL, kDbTi = 0x14D004100ULL, kGrpTd = 0x14D004200ULL, kGrpTi = 0x14D004300ULL;
+    static constexpr uint64_t kDbVt = 0x14D006000ULL, kGrpVt = 0x14D006100ULL;
+    static constexpr uint64_t kBase = 0x24000000ULL, kSim = 0x24001000ULL, kDecoy = 0x24002000ULL, kNames = 0x24100000ULL, kNames2 = 0x24110000ULL;
+    static constexpr uint64_t kDbBase = 0x24200000ULL, kDbSim = 0x24201000ULL, kGrpBase = 0x24202000ULL, kGrpSim = 0x24203000ULL;
+    static constexpr uint64_t kDbDecoy = 0x24204000ULL, kTwin = 0x24205000ULL;
     static constexpr const char* kBaseName = "Fifa/Attribulator/Gameplay/groups/test/test_group_runtime";
     static constexpr const char* kSimName = "Fifa/Attribulator/Gameplay/databases/simulation/groups/test/test_group_runtime";
+    static constexpr const char* kDbBaseName = "Fifa/Attribulator/Gameplay/gameplayattribdb";
+    static constexpr const char* kDbSimName = "Fifa/Attribulator/Gameplay/databases/simulation/simulation";
     uint64_t str_at = kStrings;
     uint64_t put_str(const std::string& s) {
         const uint64_t a = str_at;
@@ -269,7 +280,15 @@ struct AttribWorld {
         str_at += (s.size() + 16) & ~uint64_t(7);
         return a;
     }
-    explicit AttribWorld(uint32_t sig = 0x12345678) {
+    void put_type(uint64_t td, uint64_t ti, const char* name, uint16_t size, uint32_t sig) {
+        mem.map(td, 0x48);
+        mem.wr(td, put_str(name));
+        mem.wr(td + 0x0E, size);
+        mem.wr(td + 0x34, sig);
+        mem.map(ti, 8);
+        mem.wr(ti, td);
+    }
+    explicit AttribWorld(uint32_t sig = 0x12345678, bool twin = false) {
         // the field types' TypeInfoData, their TypeInfo objects
         const std::pair<uint64_t, const char*> types[] = {{kTdF, "Float32"}, {kTdI, "Int32"}, {kTdB, "Boolean"}};
         const uint64_t tis[] = {kTiF, kTiI, kTiB};
@@ -279,13 +298,15 @@ struct AttribWorld {
             mem.map(tis[i], 8);
             mem.wr(tis[i], types[i].first);
         }
-        // the group's type
+        // the group's type and its TypeInfo
         mem.map(kTd, 0x48);
         mem.wr(kTd, put_str("AttribSchema_test_group"));
         mem.wr(kTd + 0x0E, uint16_t(0x40));
         mem.wr(kTd + 0x32, uint16_t(3));
         mem.wr(kTd + 0x34, sig);
         mem.wr(kTd + 0x40, kFields);
+        mem.map(kTiG, 8);
+        mem.wr(kTiG, kTd);
         const char* names[] = {"speedModifier", "count", "enabled"};
         const uint32_t offs[] = {0x28, 0x2c, 0x30};
         mem.map(kFields, 3 * 0x20);
@@ -295,20 +316,48 @@ struct AttribWorld {
             mem.wr(kFields + 0x20 * uint64_t(i) + 0x18, tis[i]);
         }
         mem.map(kTypePtr, 8);
+        // the database and group runtime types (no fields: only their name, size and signature are read)
+        put_type(kDbTd, kDbTi, "AttribDBRuntime_test", 0x170, 0xA5106425);
+        put_type(kGrpTd, kGrpTi, "AttribGroupRuntime_test", 0x40, 0x7ADE3BD5);
         // the instances (heap)
         mem.map(kNames, 0x400);
         mem.write(kNames, kBaseName, std::strlen(kBaseName) + 1);
         mem.write(kNames + 0x100, kSimName, std::strlen(kSimName) + 1);
         mem.write(kNames + 0x200, kBaseName, std::strlen(kBaseName) + 1);  // the decoy's own copy of the name
+        mem.write(kNames + 0x300, kDbBaseName, std::strlen(kDbBaseName) + 1);
+        mem.write(kNames + 0x340, kDbSimName, std::strlen(kDbSimName) + 1);
+        mem.write(kNames + 0x3A0, kDbBaseName, std::strlen(kDbBaseName) + 1);  // the decoy database's own copy
         put_inst(kBase, kNames, 0.75f);
         put_inst(kSim, kNames + 0x100, 0.8f);
         mem.map(kDecoy, 0x40);
         mem.wr(kDecoy, uint64_t(0x30000000));  // not an image pointer
         mem.wr(kDecoy + 0x18, kNames + 0x200);
+        // L3: database runtime objects -> group objects (tag bit 2 on the slots) -> the instances
+        put_obj(kDbBase, kDbVt, kDbTi, kNames + 0x300);
+        put_obj(kDbSim, kDbVt, kDbTi, kNames + 0x340);
+        mem.wr(kDbBase + 0x40, kGrpBase | 4);
+        mem.wr(kDbSim + 0x40, kGrpSim);
+        put_obj(kGrpBase, kGrpVt, kGrpTi, 0);
+        put_obj(kGrpSim, kGrpVt, kGrpTi, 0);
+        mem.wr(kGrpBase + 0x28, kBase);
+        mem.wr(kGrpSim + 0x28, kSim | 4);
+        put_obj(kDbDecoy, kDbVt, kTiF, kNames + 0x3A0);  // the base database's name, another type
+        if (twin) {
+            mem.map(kNames2, 0x100);
+            mem.write(kNames2, kBaseName, std::strlen(kBaseName) + 1);
+            put_inst(kTwin, kNames2, 0.75f);
+        }
+    }
+    void put_obj(uint64_t o, uint64_t vt, uint64_t ti, uint64_t name) {
+        mem.map(o, 0x80);
+        mem.wr(o, vt);
+        mem.wr(o + 8, ti);
+        if (name) mem.wr(o + 0x18, name);
     }
     void put_inst(uint64_t i, uint64_t name, float speed) {
         mem.map(i, 0x40);
         mem.wr(i, kTypePtr);
+        mem.wr(i + 8, kTiG);
         mem.wr(i + 0x18, name);
         mem.wr(i + 0x28, speed);
         mem.wr(i + 0x2c, int32_t(5));
@@ -366,6 +415,24 @@ static const char* const kAttribKnobs = R"({
      "min": 0, "max": 2, "default": 1, "locator": "attrib.test", "offset": "0x34", "verified": true},
     {"id": "shape.wrong_type", "label": "Wrong type", "group": "Shape", "collection": "test_group", "field": "speedModifier", "type": "i32",
      "min": 0, "max": 2, "default": 1, "locator": "attrib.test", "offset": "0x28", "verified": true}
+  ]
+})";
+
+// The same group through the database chain (L3), as the live run proved it: database runtime object by its Name and TypeInfo,
+// +family_slot -> group object (its type checked), +group_slot -> the instance; vtable RVA and TypeInfo at +8 checked
+static const char* const kAttribL3Knobs = R"({
+  "schema": "turbo-tuning-knobs/1", "build": "6AC07E31-2145C000",
+  "locators": [
+    {"name": "attrib.l3", "kind": "attrib", "type": "AttribSchema_test_group", "type_signature": "0x12345678", "type_size": "0x40", "type_fields": 3,
+     "db_type": "AttribDBRuntime_test", "db_type_signature": "0xA5106425", "group_type": "AttribGroupRuntime_test", "group_type_signature": "0x7ADE3BD5",
+     "family_slot": "0x40", "group_slot": "0x28", "head": "typeinfo", "head_rva": "0xD005000",
+     "variants": [{"name": "base", "instance": "Fifa/Attribulator/Gameplay/groups/test/test_group_runtime", "db": "Fifa/Attribulator/Gameplay/gameplayattribdb"},
+                  {"name": "simulation", "instance": "Fifa/Attribulator/Gameplay/databases/simulation/groups/test/test_group_runtime",
+                   "db": "Fifa/Attribulator/Gameplay/databases/simulation/simulation"}], "verified": true}
+  ],
+  "knobs": [
+    {"id": "shape.speed", "label": "Speed", "group": "Shape", "collection": "test_group", "field": "speedModifier", "type": "f32", "min": 0, "max": 2,
+     "default": 0.75, "copy_defaults": {"simulation": 0.8}, "locator": "attrib.l3", "offset": "0x28", "verified": true}
   ]
 })";
 
@@ -990,10 +1057,9 @@ static void run() {
             w.mem.wr(AttribWorld::kBase + 0x30, uint8_t(1));
             w.mem.wr(AttribWorld::kSim + 0x30, uint8_t(1));
         }
-        // the instance head (catalogue section 10: TypeInfo* or a vtable at +0): "typeinfo" and head_rva keep only instances of the type
+        // the instance head (the live run: +0 the vtable, +8 the TypeInfo): "typeinfo" and head_rva keep only instances of the type
         {
             AttribWorld wh;
-            wh.mem.wr(AttribWorld::kTypePtr, AttribWorld::kTd);  // the type pointer of every instance is a TypeInfo whose +0 is the TypeInfoData
             Locator l = *reg.locator("attrib.test");
             l.head = "typeinfo";
             const Anchor h1 = resolve_anchor(wh.mem, l, wh.lookup());
@@ -1002,11 +1068,21 @@ static void run() {
             CHECK(resolve_anchor(wh.mem, l, wh.lookup()).ok, "head_rva");
             l.head_rva += 8;
             const Anchor h2 = resolve_anchor(wh.mem, l, wh.lookup());
-            CHECK(!h2.ok && h2.why == "variant base: 1 object(s) carry its name, none with the type's head at +0 (FC27.exe+0xD005008)", h2.why);
+            CHECK(!h2.ok && h2.why == "variant base: 1 object(s) carry its name, none with the type's head (vtable FC27.exe+0xD005008)", h2.why);
             l.head_rva = 0;
-            wh.mem.wr(AttribWorld::kTypePtr, uint64_t(0));
+            wh.mem.wr(AttribWorld::kTiG, uint64_t(AttribWorld::kTdF));  // the TypeInfo at +8 now describes another type
             const Anchor h3 = resolve_anchor(wh.mem, l, wh.lookup());
-            CHECK(!h3.ok && h3.why == "variant base: 1 object(s) carry its name, none with the type's head at +0 (its TypeInfo)", h3.why);
+            CHECK(!h3.ok && h3.why == "variant base: 1 object(s) carry its name, none with the type's head (its TypeInfo at +8)", h3.why);
+            // a TypeInfo changed after the search: every locate re-checks it
+            wh.mem.wr(AttribWorld::kTiG, uint64_t(AttribWorld::kTd));
+            AnchorMap hm;
+            Registry rh = reg;
+            for (Locator& x : rh.locators) x.head = "typeinfo";
+            hm["attrib.test"] = resolve_anchor(wh.mem, rh.locators[0], wh.lookup());
+            wh.mem.wr(AttribWorld::kSim + 8, uint64_t(AttribWorld::kTiF));
+            KnobAt at;
+            const std::string why = locate_knob(wh.mem, rh, *rh.knob("shape.speed"), hm, wh.lookup(), at);
+            CHECK(why.find("variant simulation: the instance at 0x24001000 no longer holds its TypeInfo: locate again") != std::string::npos, why);
         }
         // re-checks inside every locate: the instance freed (another object type) or renamed
         w.mem.wr(AttribWorld::kSim, uint64_t(0x14D009000ULL));
@@ -1044,6 +1120,87 @@ static void run() {
               "variants": [{"name": "base", "instance": "n"}, {"name": "simulation", "instance": ""}]}], "knobs": []})", x, err) &&
                   x.locators[0].placeholder().find("placeholder") == 0,
               "unverified: fine, and a placeholder");
+    });
+
+    run_case("tuning: the attrib locator through the database chain (L3) - the instance the game uses, not a twin with its name; re-checked in every job", [] {
+        AttribWorld w(0x12345678, true);  // with a twin: a second object with the base instance's name, vtable and TypeInfo
+        Registry l2, l3;
+        std::string err;
+        CHECK(parse_registry(kAttribKnobs, l2, err) && parse_registry(kAttribL3Knobs, l3, err), "parse: " + err);
+        const Lookup lk = w.lookup();
+        // by name only (L2) the twin makes the base copy ambiguous: refused, never guessed
+        const Anchor by_name = resolve_anchor(w.mem, *l2.locator("attrib.test"), lk);
+        CHECK(!by_name.ok && by_name.why == "variant base: 2 instances carry its name", by_name.why);
+        // through the database chain (L3): the database objects by name and TypeInfo (the decoy of another type left out), the group
+        // objects (tag bit 2 masked), the instances the databases point at
+        AnchorMap am;
+        am["attrib.l3"] = resolve_anchor(w.mem, *l3.locator("attrib.l3"), lk);
+        const Anchor& a = am["attrib.l3"];
+        CHECK(a.ok && a.copies.size() == 2 && a.copies[0].base == AttribWorld::kBase && a.copies[0].db == AttribWorld::kDbBase &&
+                  a.copies[1].base == AttribWorld::kSim && a.copies[1].db == AttribWorld::kDbSim && a.db_td == AttribWorld::kDbTd &&
+                  a.group_td == AttribWorld::kGrpTd,
+              "L3: " + a.why);
+        auto live = live_of(w.mem, l3, am, lk);
+        CHECK(live["shape.speed"].located && live["shape.speed"].copies.size() == 2, "located: " + live["shape.speed"].why);
+        Plan p;
+        CHECK(make_plan(l3, live, {{"shape.speed", 1.2}}, PlanKind::Apply, p).empty() && p.writes.size() == 2, "plan");
+        std::map<std::string, double> last;
+        JobOptions jo;
+        jo.owner_check = true;
+        jo.last_written = &last;
+        ApplyResult r = apply_plan(w.mem, l3, am, lk, p, jo);
+        CHECK(r.ok && w.f32(AttribWorld::kBase + 0x28) == 1.2f && w.f32(AttribWorld::kSim + 0x28) == 1.2f && w.f32(AttribWorld::kTwin + 0x28) == 0.75f,
+              "both copies the databases use written, the twin untouched: " + r.message);
+        // every job re-checks the chain: a database that points at another instance, a database object freed, a group of another type
+        w.mem.wr(AttribWorld::kGrpBase + 0x28, AttribWorld::kTwin);
+        KnobAt at;
+        std::string why = locate_knob(w.mem, l3, *l3.knob("shape.speed"), am, lk, at);
+        CHECK(why.find("variant base: its database now points at another instance (0x24205000, was 0x24000000): locate again") != std::string::npos, why);
+        w.mem.wr(AttribWorld::kGrpBase + 0x28, AttribWorld::kBase);
+        w.mem.wr(AttribWorld::kDbSim + 8, AttribWorld::kTiF);
+        why = locate_knob(w.mem, l3, *l3.knob("shape.speed"), am, lk, at);
+        CHECK(why.find("variant simulation: the database object at 0x24201000 is no longer Fifa/Attribulator/Gameplay/databases/simulation/simulation: "
+                       "locate again") != std::string::npos,
+              why);
+        live = live_of(w.mem, l3, am, lk);
+        CHECK(make_plan(l3, live, {{"shape.speed", 1.0}}, PlanKind::Apply, p).find("not located on this build") != std::string::npos, "nothing planned");
+        w.mem.wr(AttribWorld::kDbSim + 8, AttribWorld::kDbTi);
+        w.mem.wr(AttribWorld::kGrpSim + 8, AttribWorld::kTiF);
+        why = locate_knob(w.mem, l3, *l3.knob("shape.speed"), am, lk, at);
+        CHECK(why.find("the group object 0x24203000 is not a AttribGroupRuntime_test") != std::string::npos, why);
+        const Anchor g = resolve_anchor(w.mem, *l3.locator("attrib.l3"), lk);
+        CHECK(!g.ok && g.why.find("variant simulation: the group object 0x24203000 is not a AttribGroupRuntime_test") == 0, g.why);
+        w.mem.wr(AttribWorld::kGrpSim + 8, AttribWorld::kGrpTi);
+        // refusals at the search: the database type's signature, a database not loaded, an instance of another name
+        {
+            Locator l = *l3.locator("attrib.l3");
+            l.db_type_signature = 0x1;
+            CHECK(resolve_anchor(w.mem, l, lk).why == "type AttribDBRuntime_test has signature 0xA5106425, not 0x1: the layout may have changed on this build",
+                  resolve_anchor(w.mem, l, lk).why);
+            l = *l3.locator("attrib.l3");
+            l.variants[1].db = "Fifa/Attribulator/Gameplay/databases/smallsided/smallsided";
+            CHECK(resolve_anchor(w.mem, l, lk).why.find("variant simulation: its database Fifa/Attribulator/Gameplay/databases/smallsided/smallsided "
+                                                        "(AttribDBRuntime_test) is not in memory") == 0,
+                  resolve_anchor(w.mem, l, lk).why);
+            l = *l3.locator("attrib.l3");
+            l.variants[1].instance = "Fifa/Attribulator/Gameplay/groups/test/other_runtime";
+            CHECK(resolve_anchor(w.mem, l, lk).why.find("variant simulation: the instance 0x24001000 its database points at is not named") == 0,
+                  resolve_anchor(w.mem, l, lk).why);
+        }
+        // the file: L3 needs its slots; the round trip keeps the chain
+        Registry x;
+        CHECK(!parse_registry(R"({"schema": "turbo-tuning-knobs/1", "build": "b", "locators": [{"name": "a", "kind": "attrib", "type": "T",
+              "variants": [{"name": "base", "instance": "n", "db": "d"}]}], "knobs": []})", x, err) &&
+                  err.find("db_type, family_slot and group_slot are needed") != std::string::npos,
+              err);
+        CHECK(!parse_registry(R"({"schema": "turbo-tuning-knobs/1", "build": "b", "locators": [{"name": "a", "kind": "attrib", "type": "T", "db_type": "D",
+              "family_slot": "0x12A", "group_slot": "0x28", "variants": [{"name": "base", "instance": "n", "db": "d"}]}], "knobs": []})", x, err) &&
+                  err.find("8-aligned") != std::string::npos,
+              err);
+        CHECK(parse_registry(registry_json(l3), x, err) && x.locators[0].l3() && x.locators[0].family_slot == 0x40 && x.locators[0].group_slot == 0x28 &&
+                  x.locators[0].variants[1].db == AttribWorld::kDbSimName && x.locators[0].group_type == "AttribGroupRuntime_test" &&
+                  x.locators[0].head_rva == 0xD005000 && x.knobs[0].copy_defaults.at("simulation") == 0.8,
+              "round trip: " + err);
     });
 
     run_case("tuning: the service with an attrib locator - one search for every locator, every copy, defaults by copy, the owner rule, search again", [] {

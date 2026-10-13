@@ -14,8 +14,10 @@
 //   type      the reflected type ("AttribSchema_gp_positioning_zonal_defense"): its TypeInfoData in FC27.exe is found by name and must
 //             have the file's signature, size and field count (L1); a knob's offset is the type's field of the knob's "field" name, and
 //             must equal the offset the file gives
-//   variants  one instance per attribulator database copy (base gameplayattribdb, databases/simulation = Authentic, ...), each found by
-//             its asset name (the instance's Name at +0x18) with the same type pointer at +0 (L2): ONE KNOB WRITES EVERY COPY together
+//   variants  one instance per attribulator database copy (base gameplayattribdb, databases/simulation = Authentic, ...): L3 through the
+//             database runtime object named "db" (+family_slot -> the group object, +group_slot -> the instance), else L2 by the
+//             instance's own Name at +0x18 (unique); each with the same vtable at +0, its TypeInfo at +8 ("head": "typeinfo") and its
+//             Name re-checked in every job: ONE KNOB WRITES EVERY COPY together
 // Kind "chain":
 //   anchor   a signature: a name in Turbo's signature table (core/sigscan.cpp) or an inline pattern of the knobs file (scanned once in
 //            FC27.exe's code, unique match required, resolved like any signature)
@@ -122,9 +124,11 @@ struct HeaderCheck {
     std::string note;
 };
 
-// One attribulator database copy of a group: its name ("base", "simulation") and the instance's asset name (its Name at +0x18)
+// One attribulator database copy of a group: its name ("base", "simulation"), the instance's asset name (its Name at +0x18) and, for
+// L3, the Name of the database runtime object that points at it ("Fifa/Attribulator/Gameplay/gameplayattribdb"; "" = L2: the instance
+// is found by its own Name, which must then be unique)
 struct Variant {
-    std::string name, instance;
+    std::string name, instance, db;
 };
 
 struct Locator {
@@ -140,11 +144,18 @@ struct Locator {
     uint32_t type_signature = 0, type_size = 0;
     int type_fields = -1;
     std::vector<Variant> variants;
-    // attrib: what an instance holds at +0 (catalogue section 10: TypeInfo* or a vtable, the live locator says which). "" / "image" =
-    // any pointer into FC27.exe, the same for every copy; "typeinfo" = the type's TypeInfo object (its +0 is the TypeInfoData L1 found);
-    // head_rva (not 0) = exactly FC27.exe's base + head_rva
+    // attrib: an instance's head (the live run, ATTRIBULATOR_LIVE.json: +0 a vtable in FC27.exe, +8 its TypeInfo*, +0x18 its Name).
+    // +0 is always a pointer into FC27.exe, the same for every copy; head "typeinfo" = +8 must be the type's TypeInfo (whose +0 is the
+    // TypeInfoData L1 found); head_rva (not 0) = +0 exactly FC27.exe's base + head_rva (the vtable)
     std::string head;
     uint64_t head_rva = 0;
+    // attrib L3 (variants with a "db"): the database runtime object (type db_type, found by its Name at +0x18 with its TypeInfo at +8)
+    // holds the family's group object at +family_slot; the group object (type group_type when given) holds the instance at +group_slot.
+    // Pointer slots carry tag bit 2 (masked). The chain picks the instance the game uses when several objects carry its name
+    std::string db_type, group_type;
+    uint32_t db_type_signature = 0, group_type_signature = 0;
+    uint64_t family_slot = 0, group_slot = 0;
+    bool l3() const;  // a variant names its database
     bool verified = false;
     std::string note;
     // why the locator cannot be used ("" = complete): placeholder, no anchor / type / variants
@@ -187,7 +198,8 @@ bool write_value(Memory& mem, uint64_t addr, ValueType t, double v);
 // instance of a type), +0x18 its Name (the asset path)
 constexpr uint64_t kTdName = 0x00, kTdSize = 0x0E, kTdFieldCount = 0x32, kTdSignature = 0x34, kTdFields = 0x40;
 constexpr uint64_t kFiStride = 0x20, kFiName = 0x00, kFiOffset = 0x10, kFiType = 0x18;
-constexpr uint64_t kInstName = 0x18;
+constexpr uint64_t kInstName = 0x18, kInstTypeInfo = 0x08;
+constexpr uint64_t kSlotTag = 4;  // tag bit 2 of the pointer slots in database / group runtime objects
 constexpr int kMaxTypeFields = 4096;
 struct FieldInfo {
     uint32_t offset = 0;
@@ -221,10 +233,11 @@ struct Lookup {
     std::function<std::map<std::string, std::vector<uint64_t>>(const std::vector<std::string>& names, bool in_image)> refs;
     uint64_t image_base = 0, image_size = 0;                // FC27.exe (size 0 = no range check: tests)
 };
-// One copy of a table: its variant ("" for a chain / native locator) and its base address
+// One copy of a table: its variant ("" for a chain / native locator), its base address and (L3) the database runtime object
 struct Copy {
     std::string variant;
     uint64_t base = 0;
+    uint64_t db = 0;
 };
 // A locator's anchor, resolved once per process (the anchor is code or static data)
 struct Anchor {
@@ -234,6 +247,7 @@ struct Anchor {
     // attrib: the type found by name (L1: its TypeInfoData td), the instances' common type pointer and one instance per variant (L2)
     TypeLayout layout;
     uint64_t td = 0, type_ptr = 0;
+    uint64_t db_td = 0, group_td = 0;  // L3: the database and group runtime types' TypeInfoData (0 = not checked)
     std::vector<Copy> copies;
 };
 using AnchorMap = std::map<std::string, Anchor>;
