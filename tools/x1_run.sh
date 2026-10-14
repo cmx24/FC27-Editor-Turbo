@@ -153,7 +153,8 @@ if ! timeout "$(awk -v k="$SCALE" 'BEGIN{printf "%d", 150*k+30}')" "$PY" "$HERE/
 fi
 tail -2 "$X1_DIR/${STAMP}_check.log"
 LEFT=$((DEADLINE - $(vnow) - 15))
-W=$(( (LEFT - 3 * (SETTLE + WRITE_S)) / 4 )); [ "$W" -gt "$WIN" ] && W=$WIN
+LOC=0; [ "$MODE" = seq ] && LOC="${X1_LOCATE_S:-25}"  # seq: every window run re-locates (about 21 s on 10-13, x1_tonight run 2)
+W=$(( (LEFT - 3 * (SETTLE + WRITE_S) - 4 * LOC) / 4 )); [ "$W" -gt "$WIN" ] && W=$WIN
 if [ "$W" -lt 45 ]; then verdict INCONCLUSIVE "only $LEFT s left before the half-time margin: windows would be $W s (< 45 s)"; exit; fi
 say "windows $W s (requested $WIN), $LEFT s left before the half-time margin"
 write_step() {  # $1 = set|revert, $2 = next window label
