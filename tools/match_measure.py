@@ -384,10 +384,13 @@ class Match:
         return ops
 
     def read_sample(self):
+        res = mbytes(self.sample_ops(), 30)
+        return self.parse_sample(res, time.time())
+
+    def parse_sample(self, res, t):
+        """the raw results of sample_ops() -> (t, positions, ball, carrier). Split out of read_sample so the knob battery can fetch several
+        snapshots in one dev-service seq request (battery_write.py) and parse them with exactly the same code."""
         L = self.lay
-        ops = self.sample_ops()
-        res = mbytes(ops, 30)
-        t = time.time()
         out = []
         i = 0
         for p in self.players:
