@@ -3402,9 +3402,13 @@ void CoreService::ensure_anchors() {
                     std::string where;
                     for (const Copy& c : a.copies) where += (where.empty() ? "" : ", ") + c.variant + " " + hex(c.base);
                     const bool verified = l.placeholder().empty();
-                    log("tuning: chain " + l.name + ": " +
-                        (a.ok ? where + (verified ? " (identity ok)" : " (identity ok; not verified in the knobs file: not located, never written)")
-                              : std::string(a.refused ? "REFUSED for this session: " : "not located: ") + a.why));
+                    // "REFUSED" only for a verified group (the S-A1 check looks for it); an unverified one is a read-only diagnostic
+                    if (verified)
+                        log("tuning: chain " + l.name + ": " +
+                            (a.ok ? where + " (identity ok)" : std::string(a.refused ? "REFUSED for this session: " : "not located: ") + a.why));
+                    else
+                        log("tuning: chain " + l.name + " (not verified in the knobs file: not located, never written): " +
+                            (a.ok ? where + " (identity ok)" : std::string(a.refused ? "identity check failed: " : "not reached: ") + a.why));
                     if (verified) got[l.name] = a;
                 }
                 // the first run on a build: the name search must find the same instances (turbo_output\tuning_chain_check.json)

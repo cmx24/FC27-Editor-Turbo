@@ -605,7 +605,7 @@ static void chain_cases() {
         CHECK(r.logged("tuning: attribute manager: G 0x14C26B128, mgr 0x30000000, current database Fifa/Attribulator/Gameplay/gameplayattribdb (index 0), "
                        "prematch database at mgr+0x8, 15 of 15 gameplay databases"),
               "the manager's summary");
-        CHECK(r.logged("tuning: chain attrib.unverified: base 0x35001000, simulation 0x35002000 (identity ok; not verified in the knobs file: not located, never written)"),
+        CHECK(r.logged("tuning: chain attrib.unverified (not verified in the knobs file: not located, never written): base 0x35001000, simulation 0x35002000 (identity ok)"),
               "an unverified group is checked and logged only");
         CHECK(r.logged("tuning: chain cross-check with the name search (first run on this build): 3 agree, 0 refused"), "the cross-check ran (first run)");
         ChainCheck cc;

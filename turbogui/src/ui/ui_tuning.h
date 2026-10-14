@@ -15,6 +15,7 @@
 // The tick (tuning_tick, every frame): job results, the profile file (every 2 s), the locate (every second), and the profile's automatic
 // moments (core/tuning.h MomentTracker): boot (main menu), career_load, hub; each one job, logged "tuning: profile applied (...)".
 #pragma once
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -71,5 +72,8 @@ void draw_tuning(App& app);
 void tuning_tick(App& app);
 // Tests: forget the view's state (a new simulated table)
 void tuning_reset();
+// The wall clock (seconds) the profile's moments measure the prematch window with (default std::chrono::system_clock; never App::now,
+// which runs faster than wall time in game). Tests drive it by hand; nullptr = the default
+void tuning_set_wall_clock(std::function<double()> clock);
 
 }  // namespace turbo

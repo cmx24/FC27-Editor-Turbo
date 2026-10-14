@@ -9487,8 +9487,9 @@ static void test_sigscan_adapt() {
         }
         CHECK(unchecked.empty(), "every offset checked; unchecked:" + unchecked);
         CHECK(bad_expect.empty(), "every expect parses and sits on a rip operand; bad:" + bad_expect);
-        // 16 shared expects + 4 of tactics channel E's exact-build entries (VT1, VT2, the registry's two operands)
-        CHECK(expects == 20 && probes == 2, fmt("20 expects, 2 hook probes (%d, %d)", expects, probes));
+        // 17 shared expects (2.4: attrib_db_getter's mov rcx,[rip+G]) + 4 of tactics channel E's exact-build entries (VT1, VT2, the
+        // registry's two operands)
+        CHECK(expects == 21 && probes == 2, fmt("21 expects, 2 hook probes (%d, %d)", expects, probes));
         const Signature* cd = b->find("career_event_dispatch");
         const Signature* st = b->find("loc_strtab_get");
         CHECK(cd && cd->hook_probe && cd->offset == -24 && st && st->hook_probe && st->offset == -10, "the hook probes");

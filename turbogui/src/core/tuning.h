@@ -554,7 +554,10 @@ constexpr long long kPrematchGuardSeconds = 5;
 // "" when no prematch was seen in the last kPrematchGuardSeconds (prematch_t: Lua's os.time() of it, 0 = none; wall: now)
 std::string prematch_guard(long long wall, long long prematch_t);
 struct MomentInput {
-    double now = 0;              // the GUI clock (seconds)
+    // A WALL clock in seconds with sub-second resolution (the view: std::chrono::system_clock). Never the GUI clock App::now: that is
+    // QueryPerformanceCounter, and in game it ran about 3x wall time on 10-13 (a "5 s" wait was ~1.7 s real); the 5 s prematch window
+    // must be 5 real seconds
+    double now = 0;
     long long wall = 0;          // os time (seconds): Lua's prematch_t is os.time()
     bool bridge = false, in_cm = false;
     std::string phase, session;

@@ -1820,6 +1820,9 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         }
         rig.jobs.inline_run = true;
         app.tuning = rig.svc;
+        // the moments' wall clock, driven by hand: the GUI clock (App::now) runs ~3x wall time in game, the prematch window must not use it
+        double wall = 1000.0;
+        tuning_set_wall_clock([&wall]() { return wall; });
         // Lua's state: in the hub
         const fs::path state_file = out / "bridge_state.json";
         json st = read_json(state_file);
@@ -1949,10 +1952,14 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         st["match_phase"] = "hub";
         st["seq"] = st.value("seq", 0LL) + 1;
         write_state();
-        ui.frames(60);
-        CHECK(count("tuning: profile applied (hub)") == hubs, "nothing within 5 s of the prematch phase");
-        ui.frames(300);
-        CHECK(count("tuning: profile applied (hub)") == hubs + 1, "the hub entry applies once the 5 s passed");
+        ui.frames(400);  // 6.7 s of the GUI clock, 0 s of wall time
+        CHECK(count("tuning: profile applied (hub)") == hubs, "nothing within 5 s of WALL time after the prematch phase, however far the GUI clock ran");
+        wall += 4.0;
+        ui.frames(5);
+        CHECK(count("tuning: profile applied (hub)") == hubs, "4 s of wall time: still nothing");
+        wall += 1.5;
+        ui.frames(5);
+        CHECK(count("tuning: profile applied (hub)") == hubs + 1, "the hub entry applies once 5 s of wall time passed");
         // Lua's prematch stamp (the GUI's 0.5 s poll may miss the phase): a profile change in the hub waits for it too
         st["prematch_t"] = (long long)(std::time(nullptr));
         st["seq"] = st.value("seq", 0LL) + 1;
@@ -2015,6 +2022,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(130);
         CHECK(count("tuning: profile applied (boot)") == 1, "once");
         // clean up (Competitions back on its first view for the cases after this one)
+        tuning_set_wall_clock(nullptr);
         tuning_top(ui);
         app.tuning = nullptr;
         for (const char* f : {opt_in_file(), kill_switch_file(), undo_file(), profile_file(), profile_off_file()}) fs::remove(out / f, ec);

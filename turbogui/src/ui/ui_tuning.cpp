@@ -6,6 +6,7 @@
 #include "ui_tuning.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <ctime>
@@ -80,6 +81,14 @@ struct Tv {
 };
 Tv g;
 TuningViewState g_state;
+std::function<double()> g_wall_clock;  // tests: a clock driven by hand (tuning_set_wall_clock)
+
+// The wall clock of the moments' prematch window: system_clock (the system time, unaffected by the game's QueryPerformanceCounter
+// scaling that makes App::now run ~3x wall time in game), unless a test drives it
+double wall_seconds() {
+    if (g_wall_clock) return g_wall_clock();
+    return double(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()) / 1000.0;
+}
 
 fs::path out_dir(App& app) { return app.bridge.root() / "turbo_output"; }
 fs::path undo_path(App& app) { return out_dir(app) / undo_file(); }
@@ -623,7 +632,7 @@ void moments_tick(App& app) {
     }
     const BridgeState& st = app.bridge.state();
     MomentInput in;
-    in.now = app.now;
+    in.now = wall_seconds();  // a real 5 s window (App::now runs faster than wall time in game)
     in.wall = (long long)(std::time(nullptr));
     in.bridge = st.loaded;
     in.in_cm = st.loaded && st.in_cm;
@@ -1181,6 +1190,8 @@ void tuning_reset() {
     g = Tv();
     g_state = TuningViewState();
 }
+
+void tuning_set_wall_clock(std::function<double()> clock) { g_wall_clock = std::move(clock); }
 
 void draw_tuning(App& app) {
     g_state = TuningViewState();
