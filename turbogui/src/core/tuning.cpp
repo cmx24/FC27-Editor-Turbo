@@ -2903,8 +2903,13 @@ Moment MomentTracker::next(const MomentInput& in) {
     observe(in);
     if (!in.profile_on || !in.ready || in.busy) return Moment::None;
     const bool career = in.bridge && in.in_cm;
-    if (!career && !boot_before) return Moment::Boot;
-    if (!career || in.load_gen < 0 || in.phase != "hub") return Moment::None;
+    if (!career && !boot_before) {
+        // M1: only on Lua's fresh report of the main menu (never in a Kick-Off / skill game / any match; no Lua report = no boot)
+        const long long age = in.front_end_t > 0 ? in.wall - in.front_end_t : -1;
+        const bool front_end = in.bridge && age >= 0 && age <= kBootReportSeconds && in.phase != "prematch" && in.phase != "match";
+        return front_end ? Moment::Boot : Moment::None;
+    }
+    if (!career || in.load_gen < 0 || in.phase != "hub" || in.team_mgmt) return Moment::None;
     if (!prematch_guard(in.wall, in.prematch_t).empty() || in.now - prematch_seen_ < double(kPrematchGuardSeconds)) return Moment::None;
     const std::string key = in.session + "#" + std::to_string(in.load_gen);
     if (key != load_done_) return Moment::CareerLoad;
@@ -2924,16 +2929,20 @@ void MomentTracker::fired(Moment m, const MomentInput& in) {
     }
 }
 
-std::string moment_gate(const std::string& moment, bool in_cm, const std::string& phase, long long prematch_age, long long save_age,
-                        const std::vector<const Knob*>& knobs) {
+std::string moment_gate(const std::string& moment, const MomentContext& c, const std::vector<const Knob*>& knobs) {
     if (moment == "boot") {
-        if (in_cm) return "a career is loaded (the boot moment is for the main menu)";
+        if (c.in_cm) return "a career is loaded (the boot moment is for the main menu)";
+        if (c.front_end_age < 0) return "Lua has not reported the main menu (no boot write without that report)";
+        if (c.front_end_age > kBootReportSeconds)
+            return "Lua's report of the main menu is " + std::to_string(c.front_end_age) + " s old (at most " + std::to_string(kBootReportSeconds) + " s)";
+        if (c.phase == "prematch" || c.phase == "match") return "a match is set up or played (Lua: " + c.phase + ")";
     } else if (moment == "career_load" || moment == "hub") {
-        if (!in_cm) return "no career is loaded";
-        if (phase != "hub") return "not in the career hub (Lua: " + (phase.empty() ? std::string("unknown") : phase) + ")";
-        if (prematch_age >= 0 && prematch_age < kPrematchGuardSeconds)
-            return "a match was being set up " + std::to_string(prematch_age) + " s ago (Lua: prematch)";
-        if (save_age >= 0 && save_age < kSaveQuietSeconds) return "a save started " + std::to_string(save_age) + " s ago";
+        if (!c.in_cm) return "no career is loaded";
+        if (c.phase != "hub") return "not in the career hub (Lua: " + (c.phase.empty() ? std::string("unknown") : c.phase) + ")";
+        if (c.team_mgmt) return "Team Management is open";
+        if (c.prematch_age >= 0 && c.prematch_age < kPrematchGuardSeconds)
+            return "a match was being set up " + std::to_string(c.prematch_age) + " s ago (Lua: prematch)";
+        if (c.save_age >= 0 && c.save_age < kSaveQuietSeconds) return "a save started " + std::to_string(c.save_age) + " s ago";
     } else {
         return "\"" + moment + "\" is not a moment";
     }
@@ -3913,7 +3922,14 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
             } else if (!plan.moment.empty()) {
                 std::vector<const Knob*> ks;
                 for (const Write& wr : plan.writes) ks.push_back(reg->knob(wr.id));
-                const std::string g = moment_gate(plan.moment, cur_in_cm_, cur_phase_, prematch_age, save_age, ks);
+                MomentContext mc;
+                mc.in_cm = cur_in_cm_;
+                mc.phase = cur_phase_;
+                mc.prematch_age = prematch_age;
+                mc.save_age = save_age;
+                mc.front_end_age = cur_bridge_ && cur_front_end_t_ > 0 ? w - cur_front_end_t_ : -1;
+                mc.team_mgmt = cur_team_mgmt_;
+                const std::string g = moment_gate(plan.moment, mc, ks);
                 if (!g.empty()) {
                     stage = "G2";
                     block = g;
@@ -4029,6 +4045,9 @@ void CoreService::note_context(const Context& ctx) {
     cur_in_cm_ = ctx.in_cm;
     cur_prematch_t_ = ctx.prematch_t;
     cur_save_t_ = ctx.save_t;
+    cur_bridge_ = ctx.bridge;
+    cur_front_end_t_ = ctx.front_end_t;
+    cur_team_mgmt_ = ctx.team_mgmt;
 }
 
 }  // namespace tuning

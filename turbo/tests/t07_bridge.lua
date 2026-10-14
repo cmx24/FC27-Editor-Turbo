@@ -129,11 +129,13 @@ H.case("leaving career mode is a structural change", function()
     H.eq(st1.date, nil, "no date outside career")
     H.eq(st1.db_gen, st0.db_gen + 1, "db_gen bumped")
     H.eq(st1.load_gen, st0.load_gen + 1, "load_gen bumped")
+    H.ok(st1.front_end_t and st1.front_end_t <= os.time() and st1.front_end_t >= os.time() - 5, "no career: Lua reports the main menu (gameplay tuning's boot moment)")
     sim.in_cm = true
     sim:fire("post__CareerModeEvent", 0, 7, 0)
     local st2 = read_json("bridge_state.json")
     H.eq(st2.in_cm, true); H.eq(st2.db_gen, st0.db_gen + 2, "bumped again")
     H.eq(st2.load_gen, st0.load_gen + 2, "load_gen bumped again (career entered)")
+    H.eq(st2.front_end_t, nil, "in a career: no main-menu report")
 end)
 
 H.case("tactics channel E's gate: the match phase and the last save start follow the career events", function()

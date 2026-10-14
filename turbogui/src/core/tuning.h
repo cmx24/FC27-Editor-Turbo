@@ -554,6 +554,9 @@ enum class Moment { None, Boot, CareerLoad, Hub };
 const char* moment_name(Moment m);  // "" "boot" "career_load" "hub"
 // A hub write waits this long after Lua's last prematch event (hub -> prematch -> hub 0.5 s -> match at kick-off)
 constexpr long long kPrematchGuardSeconds = 5;
+// The boot moment needs Lua's report of the main menu (bridge_state.json front_end_t: Lua running, no career) at most this old (M1,
+// review 2026-10-13): Lua sees no event outside career mode, so only a fresh report tells the main menu from a Kick-Off match
+constexpr long long kBootReportSeconds = 60;
 // "" when no prematch was seen in the last kPrematchGuardSeconds (prematch_t: Lua's os.time() of it, 0 = none; wall: now)
 std::string prematch_guard(long long wall, long long prematch_t);
 struct MomentInput {
@@ -566,13 +569,16 @@ struct MomentInput {
     std::string phase, session;
     long long load_gen = -1;
     long long prematch_t = 0;
+    long long front_end_t = 0;   // Lua's report of the main menu (os.time(); 0 = none): the boot moment needs it fresh
+    bool team_mgmt = false;      // Team Management is open (Lua): no career_load / hub moment then
     bool profile_on = false;     // the profile says on and tuning_profile_off.txt is absent
     long long profile_rev = 0;   // changes when the profile file changes (a change in the hub applies it there)
     bool ready = false;          // LocateStatus::ready
     bool busy = false;           // a tuning job is queued or running
 };
-// Which moment is due (pure logic; the view's tick feeds it every frame). boot: once per game session, when ready and no career is
-// loaded (a career seen first skips it: its career_load covers it). career_load: once per Lua session and career load, in its hub.
+// Which moment is due (pure logic; the view's tick feeds it every frame). boot: once per game session, when ready, no career is loaded
+// and Lua reported the main menu at most kBootReportSeconds ago (no Lua report = no boot moment; a career seen first skips it: its
+// career_load covers it). career_load: once per Lua session and career load, in its hub.
 // hub: every entry into the hub (and right after a career_load, and when the profile changes or is switched on in the hub), never
 // within kPrematchGuardSeconds of a prematch phase (Lua's stamp and the tracker's own sight). Nothing while the profile is off, the
 // locate is not ready or a job is busy. fired() after the moment's job was queued (or found nothing to do)
@@ -591,10 +597,18 @@ private:
     long long last_rev_ = 0;
     double prematch_seen_ = -1e18;
 };
-// The job's own gate of a moment (re-checked on the game thread): boot = no career loaded; career_load / hub = the hub, no prematch in the
-// last kPrematchGuardSeconds, no save in the last kSaveQuietSeconds; every knob of the plan allows the moment. "" = pass
-std::string moment_gate(const std::string& moment, bool in_cm, const std::string& phase, long long prematch_age, long long save_age,
-                        const std::vector<const Knob*>& knobs);
+// What the job knows about the career when it runs (from Lua's last state)
+struct MomentContext {
+    bool in_cm = false;
+    std::string phase;
+    long long prematch_age = -1, save_age = -1;  // seconds since Lua's last prematch / save start (-1 = none)
+    long long front_end_age = -1;                 // seconds since Lua's report of the main menu (-1 = none)
+    bool team_mgmt = false;
+};
+// The job's own gate of a moment (re-checked on the game thread): boot = no career loaded, Lua's main-menu report at most
+// kBootReportSeconds old, no prematch / match phase; career_load / hub = the hub, Team Management closed, no prematch in the last
+// kPrematchGuardSeconds, no save in the last kSaveQuietSeconds; every knob of the plan allows the moment. "" = pass
+std::string moment_gate(const std::string& moment, const MomentContext& c, const std::vector<const Knob*>& knobs);
 
 // ------------------------------------------------------------------------------------------------ presets (turbo_output\tuning_presets)
 struct PresetChange {
@@ -640,6 +654,9 @@ struct Context {
     std::string phase;   // Lua's match phase
     bool in_cm = false;
     long long prematch_t = 0, save_t = 0;  // Lua's os.time() of its last prematch event / save start (0 = none)
+    bool bridge = false;                   // Lua's state of this game session was read
+    long long front_end_t = 0;             // Lua's report of the main menu (os.time(); 0 = none)
+    bool team_mgmt = false;                // Team Management open (Lua)
 };
 
 class Service {
@@ -733,8 +750,8 @@ private:
     std::map<std::string, double> defaults_;
     std::map<std::string, double> last_written_;
     std::string cur_phase_, cur_session_;
-    long long cur_gen_ = -1, cur_prematch_t_ = 0, cur_save_t_ = 0;
-    bool cur_in_cm_ = false;
+    long long cur_gen_ = -1, cur_prematch_t_ = 0, cur_save_t_ = 0, cur_front_end_t_ = 0;
+    bool cur_in_cm_ = false, cur_bridge_ = false, cur_team_mgmt_ = false;
 };
 
 }  // namespace tuning

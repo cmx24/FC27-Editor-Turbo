@@ -2043,14 +2043,26 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(w.f32(TuneWorld::kBase) == 0.6f && w.u8(TuneWorld::kBase + 8) == 75 && count("tuning: profile applied (career_load)") == 2,
               "the new career load's career_load moment");
         CHECK(load_undo(out / undo_file(), u, &err) && u.state == "written" && u.load_gen == gen + 1, "the moment can be undone in its career load");
-        // the boot moment: a new game session at the main menu (no career): applied once (the view's state reset once Lua reports no career)
+        // the boot moment: a new game session at the main menu (no career): applied once (the view's state reset once Lua reports no career);
+        // M1: only on Lua's fresh report of the main menu (bridge_state.json front_end_t), never without it
         st["in_cm"] = false;
         st["match_phase"] = "unknown";
+        st.erase("front_end_t");
         st["seq"] = st.value("seq", 0LL) + 1;
         write_state();
         tuning_reset();
         w.mem.wr(TuneWorld::kBase, 0.5f);
         ui.frames(70);
+        CHECK(w.f32(TuneWorld::kBase) == 0.5f && !rig.logged("tuning: profile applied (boot)"), "no main-menu report from Lua: no boot write");
+        st["front_end_t"] = (long long)(std::time(nullptr)) - 100;
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        ui.frames(10);
+        CHECK(w.f32(TuneWorld::kBase) == 0.5f && !rig.logged("tuning: profile applied (boot)"), "a 100 s old report: no boot write");
+        st["front_end_t"] = (long long)(std::time(nullptr));
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        ui.frames(10);
         CHECK(w.f32(TuneWorld::kBase) == 0.6f && rig.logged("tuning: profile applied (boot) 3 knobs (read back ok)"),
               "the boot moment at the main menu: " + s.moment_line + " | " + (rig.logs.empty() ? std::string() : rig.logs.back()));
         ui.frames(130);

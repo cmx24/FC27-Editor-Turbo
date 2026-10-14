@@ -194,6 +194,9 @@ Context ctx_of(App& app) {
     c.in_cm = st.loaded && st.in_cm;
     c.prematch_t = st.prematch_t;
     c.save_t = st.save_t;
+    c.bridge = st.loaded;
+    c.front_end_t = st.loaded ? st.front_end_t : 0;
+    c.team_mgmt = st.loaded && st.team_mgmt;
     return c;
 }
 
@@ -650,6 +653,8 @@ void moments_tick(App& app) {
     in.session = st.session;
     in.load_gen = st.load_gen;
     in.prematch_t = st.prematch_t;
+    in.front_end_t = st.loaded ? st.front_end_t : 0;
+    in.team_mgmt = st.loaded && st.team_mgmt;
     in.profile_on = g.prof.on && g.sw.blocking_moments().empty();
     in.profile_rev = g.prof_rev;
     in.ready = g.locate.ready && app.tuning->registry_status().empty();

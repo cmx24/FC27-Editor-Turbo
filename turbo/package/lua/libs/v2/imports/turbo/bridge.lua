@@ -391,6 +391,10 @@ function M.collect_state()
         -- gameplay tuning (turbogui core/tuning.h): when Lua last saw the prematch event (os.time()). The phase goes hub -> prematch ->
         -- hub (about 0.5 s) -> match at kick-off: Turbo.dll's hub writes wait 5 s after it, also when its 0.5 s poll missed the prematch
         prematch_t = S.prematch_t,
+        -- gameplay tuning's boot moment (turbogui core/tuning.h kBootReportSeconds): Lua's report of the main menu = a state written
+        -- while no career is loaded (the bridge started there by turbo_gui_load.lua, or a career left); Turbo.dll writes the boot moment
+        -- only within 60 s of it, never without it (Lua sees no event outside career mode: no Kick-Off / skill game can be told apart later)
+        front_end_t = (not in_cm) and os.time() or nil,
         -- Team Management open (ENTERING_TEAM_MANAGEMENT seen, no LEAVING_TEAM_MANAGEMENT or other phase event since): channel E's G2
         -- refuses then (Edit Tactic's screen holds its own values; leaving it may ask to save the team sheet, and Yes autosaves the career)
         team_mgmt = S.team_mgmt == true,

@@ -361,6 +361,13 @@ static Context chain_ctx(const std::string& phase, bool in_cm, long long gen = 3
     c.phase = phase;
     c.in_cm = in_cm;
     c.prematch_t = prematch_t;
+    c.bridge = true;
+    return c;
+}
+// The main menu as Lua reports it (M1): Lua's bridge running, no career, its state written `age` s ago
+static Context menu_ctx(long long wall, long long age = 1, long long gen = 1) {
+    Context c = chain_ctx("unknown", false, gen);
+    c.front_end_t = wall - age;
     return c;
 }
 
@@ -795,7 +802,7 @@ static void chain_cases() {
         CHECK(p.kind == PlanKind::Reapply && p.moment == "boot" && p.writes.size() == 4, fmt("4 writes: width 1 copy, gap 2 copies, deep 1 (%zu)", p.writes.size()));
         std::string why;
         cw.writes.clear();
-        CHECK(r.svc->submit(chain_ctx("", false, -1), p, why), "boot queued: " + why);
+        CHECK(r.svc->submit(menu_ctx(r.wall), p, why), "boot queued: " + why);
         ApplyResult res;
         CHECK(r.svc->poll(res) && res.ok && res.written && res.moment == "boot", "boot written: " + res.message);
         CHECK(r.logged("tuning: profile applied (boot) 3 knobs (read back ok)"), "the exact boot line");
@@ -818,9 +825,25 @@ static void chain_cases() {
         CHECK(r.svc->submit(chain_ctx("hub", true, 3, r.wall - 6), p, why) && r.svc->poll(res) && res.ok && w.f32(ChainWorld::kLlw + 0x28) == 0.7f,
               "6 s after the prematch: written");
         CHECK(r.logged("tuning: profile applied (hub) 1 knobs (read back ok)"), "the hub line");
-        // the job's own gates: boot with a career loaded, hub in a match, a knob whose `when` lacks the moment
+        // the job's own gates: boot with a career loaded, without Lua's main-menu report, with a stale one, in a Lua match phase; hub in a
+        // match, a knob whose `when` lacks the moment
         p = profile_plan(r, {{"shape.width_in", 0.8}}, "boot");
         CHECK(r.svc->submit(chain_ctx("hub", true), p, why) && r.svc->poll(res) && !res.ok && res.message.find("a career is loaded") == 0, res.message);
+        Context no_lua = chain_ctx("", false, -1);
+        no_lua.bridge = false;
+        CHECK(r.svc->submit(no_lua, p, why) && r.svc->poll(res) && !res.ok && res.message.find("Lua has not reported the main menu") == 0,
+              "no Lua report: no boot write: " + res.message);
+        CHECK(r.svc->submit(menu_ctx(r.wall, 61), p, why) && r.svc->poll(res) && !res.ok && res.message.find("is 61 s old") != std::string::npos,
+              "a stale report: " + res.message);
+        Context kickoff = menu_ctx(r.wall);
+        kickoff.phase = "match";
+        CHECK(r.svc->submit(kickoff, p, why) && r.svc->poll(res) && !res.ok && res.message.find("a match is set up or played") == 0, res.message);
+        Context tm = chain_ctx("hub", true);
+        tm.team_mgmt = true;
+        p = profile_plan(r, {{"shape.width_in", 0.8}}, "hub");
+        CHECK(r.svc->submit(tm, p, why) && r.svc->poll(res) && !res.ok && res.message.find("Team Management is open") == 0, "m8: " + res.message);
+        CHECK(w.f32(ChainWorld::kLlw + 0x28) == 0.7f, "none of these wrote");
+        p = profile_plan(r, {{"shape.width_in", 0.8}}, "boot");
         p = profile_plan(r, {{"shape.width_in", 0.8}}, "hub");
         CHECK(r.svc->submit(chain_ctx("match", true), p, why) && r.svc->poll(res) && !res.ok && res.message.find("not in the career hub (Lua: match)") == 0, res.message);
         std::vector<std::string> sk;
@@ -854,7 +877,7 @@ static void chain_cases() {
         std::string why;
         ApplyResult res;
         Plan p = profile_plan(r, {{"shape.width_in", 0.6}}, "boot");
-        CHECK(r.svc->submit(chain_ctx("", false, -1), p, why) && r.svc->poll(res) && res.ok, "boot wrote 0.6");
+        CHECK(r.svc->submit(menu_ctx(r.wall), p, why) && r.svc->poll(res) && res.ok, "boot wrote 0.6");
         // another tool changes the value between the moments: the career_load moment refuses it (neither FC 27's nor Turbo's last write)
         w.mem.wr(ChainWorld::kLlw + 0x28, 0.75f);
         p = profile_plan(r, {{"shape.width_in", 0.6}}, "career_load");
@@ -924,7 +947,16 @@ static void chain_cases() {
         in.busy = true;
         CHECK(t.next(in) == Moment::None, "not while a job is busy");
         in.busy = false;
-        CHECK(t.next(in) == Moment::Boot, "boot: ready, no career (the bridge not started yet)");
+        CHECK(t.next(in) == Moment::None, "M1: no Lua report (the bridge not started): no boot");
+        in.bridge = true;
+        CHECK(t.next(in) == Moment::None, "Lua running but no main-menu report: no boot");
+        in.front_end_t = in.wall - 61;
+        CHECK(t.next(in) == Moment::None, "a 61 s old report: no boot (a Kick-Off may have started since)");
+        in.front_end_t = in.wall - 2;
+        in.phase = "match";
+        CHECK(t.next(in) == Moment::None, "a Lua match phase: no boot");
+        in.phase = "unknown";
+        CHECK(t.next(in) == Moment::Boot, "boot: ready, no career, Lua reported the main menu 2 s ago");
         t.fired(Moment::Boot, in);
         CHECK(t.next(in) == Moment::None && t.boot_done(), "boot once");
         // a career loads: its hub -> career_load, then hub
@@ -978,6 +1010,13 @@ static void chain_cases() {
         CHECK(t.next(in) == Moment::CareerLoad, "career_load once per load");
         t.fired(Moment::CareerLoad, in);
         CHECK(t.load_done() == "s1#2", t.load_done());
+        // Team Management open: no career_load / hub moment until it closes (m8)
+        in.load_gen = 3;
+        in.team_mgmt = true;
+        CHECK(t.next(in) == Moment::None, "Team Management open: nothing");
+        in.team_mgmt = false;
+        CHECK(t.next(in) == Moment::CareerLoad, "closed: the career_load moment");
+        t.fired(Moment::CareerLoad, in);
         // a career seen before the locate is ready: no boot moment (career_load covers it)
         MomentTracker t3;
         MomentInput c = in;
@@ -989,12 +1028,27 @@ static void chain_cases() {
         Knob hub_only;
         hub_only.label = "H";
         hub_only.when = {"hub"};
-        CHECK(moment_gate("boot", false, "", -1, -1, {}).empty() && moment_gate("boot", true, "hub", -1, -1, {}).find("a career is loaded") == 0, "boot");
-        CHECK(moment_gate("hub", true, "hub", 3, -1, {}).find("3 s ago") != std::string::npos && moment_gate("hub", true, "hub", 5, -1, {}).empty(), "the 5 s window");
-        CHECK(moment_gate("career_load", true, "hub", -1, 10, {}).find("a save started 10 s ago") == 0, "a save");
-        CHECK(moment_gate("career_load", false, "hub", -1, -1, {}) == "no career is loaded", "career_load needs a career");
-        CHECK(moment_gate("career_load", true, "hub", -1, -1, {&hub_only}) == "H is not written at career_load", "when");
-        CHECK(moment_gate("kickoff", true, "hub", -1, -1, {}).find("is not a moment") != std::string::npos, "unknown");
+        auto mc = [](bool in_cm, const std::string& phase, long long prematch = -1, long long save = -1, long long front = -1, bool tmg = false) {
+            MomentContext c;
+            c.in_cm = in_cm;
+            c.phase = phase;
+            c.prematch_age = prematch;
+            c.save_age = save;
+            c.front_end_age = front;
+            c.team_mgmt = tmg;
+            return c;
+        };
+        CHECK(moment_gate("boot", mc(false, "", -1, -1, 3), {}).empty() && moment_gate("boot", mc(true, "hub", -1, -1, 3), {}).find("a career is loaded") == 0,
+              "boot");
+        CHECK(moment_gate("boot", mc(false, ""), {}).find("Lua has not reported the main menu") == 0 && moment_gate("boot", mc(false, "", -1, -1, 61), {}).find("61 s old") != std::string::npos &&
+                  moment_gate("boot", mc(false, "match", -1, -1, 3), {}).find("a match is set up or played") == 0,
+              "boot needs Lua's fresh main-menu report, no match phase");
+        CHECK(moment_gate("hub", mc(true, "hub", 3), {}).find("3 s ago") != std::string::npos && moment_gate("hub", mc(true, "hub", 5), {}).empty(), "the 5 s window");
+        CHECK(moment_gate("career_load", mc(true, "hub", -1, 10), {}).find("a save started 10 s ago") == 0, "a save");
+        CHECK(moment_gate("career_load", mc(false, "hub"), {}) == "no career is loaded", "career_load needs a career");
+        CHECK(moment_gate("hub", mc(true, "hub", -1, -1, -1, true), {}) == "Team Management is open", "Team Management (m8)");
+        CHECK(moment_gate("career_load", mc(true, "hub"), {&hub_only}) == "H is not written at career_load", "when");
+        CHECK(moment_gate("kickoff", mc(true, "hub"), {}).find("is not a moment") != std::string::npos, "unknown");
         CHECK(prematch_guard(1000, 996).find("4 s ago") != std::string::npos && prematch_guard(1000, 995).empty() && prematch_guard(1000, 0).empty(), "prematch_guard");
     });
 
