@@ -923,6 +923,32 @@ static void test_any_club_slots(const fs::path& base) {
         check(ae && table->swap_item(ae->item) && ae->data, "the away block is the one that is replaced");
         check(table->bytes() > 0, "watch-only blocks add no replacement bytes");
     }
+    {   // sharing on: a byte-identical block inside ANOTHER chunk of the same club is still left to the game (no patched fragment)
+        World2 w3 = make_world2(base / "w2c");
+        GameBuilder& g = w3.g;
+        std::vector<uint8_t> raw;
+        {
+            const auto st = chunk_bytes(g, 0);  // home jersey_color raw bytes
+            read_blocks(st, stand_in_oodle(), raw, nullptr);
+        }
+        using T = GameBuilder::TexSpec;
+        g.add_bundle({T{P("third_3_0", "shorts", "shorts_120_3_0_color", 120), 55, 256, 256, 9, raw, -1, 16384}});
+        g.write();
+        GameFiles f3(w3.root);
+        f3.init(nullptr);
+        KitIndex i3;
+        scan_kits(f3, stand_in_oodle(), i3, nullptr, nullptr);
+        stage_kit(w3, 120, 0, "home", {kJerseyColor}, nullptr);
+        StagedKit hk;
+        load_staged(w3.le / "turbo_output" / "kits" / "120" / "home", hk, nullptr);
+        Options o3;
+        o3.watch_club = false;
+        o3.share_within_club = true;
+        TableBuilder tb3;
+        Plan p3 = build_plan(f3, stand_in_oodle(), i3, hk, o3, true, tb3, nullptr);
+        const PlanItem* hj = item_of(p3, "jersey_120_0_0_color");
+        check(hj && !hj->swap && hj->reason.find("byte-identical") != std::string::npos, "identical block in another chunk of the club stays the game's even with sharing on: " + (hj ? hj->reason : "?"));
+    }
     {   // a watch-only record with the same block as a real item never wins and never conflicts
         TableBuilder b;
         std::vector<uint8_t> key(64, 5), rep1(64, 1);
@@ -1049,6 +1075,7 @@ static void test_guards_and_cache(const fs::path& base) {
         Runtime rt(w.le, w.root, stand_in_oodle());
         rt.require_opt_in = true;
         rt.ensure_hook = [&](std::string*) { return true; };
+        rt.set_hook_installed(true, "");
         rt.set_killed(true);
         rt.start();
         rt.wait_idle();

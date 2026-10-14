@@ -1118,14 +1118,8 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
                     auto w = want.find({cs, ds});
                     if (w != want.end() && files.read(l.cas, l.off + p + 8, cs, pay)) {
                         const uint64_t f = fnv1a64(pay.data(), pay.size());
-                        bool same_club = !kv.second.empty();
-                        for (const KitUser& u : kv.second) same_club = same_club && u.team == staged.team && u.slot >= 0;
                         for (const auto& cb : w->second)
                             if (cands[cb.first].fnv[cb.second] == f) {
-                                if (same_club && opt.share_within_club) {  // the same block in this club's other kit: it shows the replacement too
-                                    if (cands[cb.first].note.empty()) cands[cb.first].note = "a block is shared with this club's " + kv.second[0].kind + ": that kit shows it too";
-                                    continue;
-                                }
                                 bad.insert(cb.first);
                                 if (!bad_why.count(cb.first)) {
                                     const KitUser* u = kv.second.empty() ? nullptr : &kv.second[0];
@@ -1374,8 +1368,13 @@ void Runtime::set_killed(bool k) {
         std::lock_guard<std::mutex> lk(m_);
         again = build_skipped_ && !slots_.empty();
     }
-    std::string why;
-    if (again && hook_ready(&why)) rebuild_async();  // the build the switch skipped (with the hook the host could not install while the switch was there)
+    bool hooked = false;
+    {
+        std::lock_guard<std::mutex> lk(m_);
+        hooked = hook_ || !ensure_hook;
+        if (again && !hooked) message_ = "kill switch released: switch the kit on again to install the hook";  // never install a hook from the watcher thread
+    }
+    if (again && hooked) rebuild_async();  // the build the switch skipped
 }
 
 bool Runtime::activate(int team, int slot, Mode mode, std::string* err) {
