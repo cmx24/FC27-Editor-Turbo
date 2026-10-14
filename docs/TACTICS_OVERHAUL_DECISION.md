@@ -162,7 +162,7 @@ answers (section 8).
   Tactic shows these values after the next career load".
 - **Overwrite detection:** in the hub, after Team Management was open (bridge `team_mgmt` flag or the prompt), re-read the record; if it no
   longer holds Turbo's values, show "the game replaced your tactic (LH 50 / Balanced / Balanced). Re-apply?" with one click. Never automatic.
-- **Removed:** channel A (`gameplay_sliders.*`, `match_setup.*` gv service, `sliders.cpp` slider block, `ui_match.cpp` tab) with its tests;
+- **Removed:** channel A (`gameplay_sliders.*`, what channel A added to the `match_setup.*` gv service and the `ui_match.cpp` tab - the generated per-side variables, the A/B panel - and the `sliders.cpp` slider block) with its tests; `match_setup.*` and the Match setup tab themselves STAY (amended 2026-10-13 22:05: they carry proven features - weather, injuries, CPU subs, result fixing, fixtures editor; T6 delete table; REVIEW_cleanup.md);
   E2 working-copy writes (svc+0xF80/+0x1078/+0x1170/+0x1268); legacy `mentalities` fields; teams.* writes unless X2 = teams.*.
 - **Enums:** BU 2/3 and DA 3 stay refused until X3's Q5 read; then the labels are added as data.
 
