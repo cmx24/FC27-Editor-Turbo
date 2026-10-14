@@ -26,8 +26,8 @@ effect of gameplay tuning (unproven).
 - **Installed:** `C:\FC 27 Live Editor\turbo\Turbo.dll` sha256 e7cf8d41..., which is 2.3.0 rebuilt at 19:45 from wt-23-release e952411. It
   is source-identical to the release, but not byte-identical to the zip's cb079e84. The 2.4 channel E3 build was deployed at 19:42 and
   replaced at 19:45; the game never loaded it.
-- **Switch files:** `turbo_output` holds only `repair_ovr1_off.txt` (keep it); there is no `*_on.txt`. `tuning_keep.json` holds a stale
-  width of 1.4 with `"on": false`. It does nothing now; reset it before anyone turns keep on.
+- **Switch files:** `turbo_output` holds only `repair_ovr1_off.txt` (keep it); there is no `*_on.txt`. `tuning_keep.json` was moved aside at 20:08 (stale
+  width 1.4, `"on": false`) to turbo_dev/backups/tuning_keep_20261013-2008_stale.json.
 - **Saves:** TORINO 2ded2b76, LB c45b2b12, LEICESTER 1e78df22, LTEST 3dced956. Unchanged all day; equal to
   `turbo_dev\backups\20261013-1729-pre-resume-23` and `...-1934-pre-width-ab2`. LTEST was used for every test and never saved.
 - **Git:**
@@ -239,7 +239,6 @@ Plan: `turbo_dev\evidence\2026-10-11\RUNBOOK.md` (backups, install 2.0.3, TORINO
 4. **Tools hygiene:**
    - put `turbo_dev\tools` under version control (no game data, no mod values);
    - fix `dev2.py`'s nested write gate;
-   - reset the stale `tuning_keep.json` value.
 5. **Kit import phase 2:** the 3D kit on the pitch from the staged textures (KITS_IMPORT_RESEARCH.txt section 5), and the minikit on a game
    screen.
 6. **Carry-overs:**

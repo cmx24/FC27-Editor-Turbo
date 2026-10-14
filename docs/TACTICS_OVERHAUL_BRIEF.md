@@ -53,7 +53,7 @@ disk: `TO\fc27_image.bin`). Heap addresses change at every game launch.
 | Branch | turbo-2.0 = 89e0c24 on origin (the 18:40 handover), plus the commit that holds this brief [V] |
 | Installed | `LE\turbo\Turbo.dll` sha256 e7cf8d41..., 2.3.0 rebuilt 19:45 from wt-23-release e952411. Same source as the release, not byte-identical to the zip's cb079e84 [V] |
 | Game | Closed. `TOOLS\GAME_STATE.txt` = `CLOSED (19:41)` [V] |
-| Switch files | Only `TO\repair_ovr1_off.txt` (keep it). No `*_on.txt` file [V]. `TO\tuning_keep.json` holds a stale width 1.4 with `"on": false`: inert, but reset it before anyone turns keep on [V] |
+| Switch files | Only `TO\repair_ovr1_off.txt` (keep it). No `*_on.txt` file [V]. `TO\tuning_keep.json` (stale width 1.4, `"on": false`) was moved to turbo_dev/backups/tuning_keep_20261013-2008_stale.json at 20:08 [V] |
 | Saves (md5, first 8 chars) | TORINO 2ded2b76, LB c45b2b12, LEICESTER 1e78df22, LTEST 3dced956. Unchanged all day; equal to `turbo_dev\backups\20261013-1729-pre-resume-23` and `...-1934-pre-width-ab2` [V] |
 | Unpushed work | `2.4/channel-e3` = 468fe54 in worktree `turbo_dev\2.0\wt-24-channel-e3` (local only). It also writes the svc+0xA60 inline sheet's record copy. check_all green (LUA 405/0, NATIVE 38488/0). **Never run in game.** Report `TO\CHANNEL_E3.txt`, probe `TOOLS\channel_e3_probe.py` [V] |
 | Release rule | **Ship only when working** (Cassio 18:39): no tag or release until every fix and addition is proven in game. 2.3.0 shipped two unproven items before this rule existed: the E2 Edit Tactic display and the tuning on-pitch effect [V] |
@@ -519,7 +519,7 @@ bash scripts/deploy.sh                                                     # GAM
   sub-ops `{"op":"write",...}` gets through. Fix it before any agent tool uses multi or seq.
 - The tuning heap search takes 24 s at each launch. A `chain` locator from G (a signature for 0x141077070) would make it deterministic.
 - Knobs are hub-only. The phase reads hub -> prematch -> hub -> match at kick-off.
-- `TO\tuning_keep.json` holds a stale `shape.width_in` 1.4 (`"on": false`). Reset it before enabling keep.
+- `TO\tuning_keep.json` (stale `shape.width_in` 1.4, `"on": false`) was moved aside at 20:08; there is no keep file now.
 - The match object global G1 (route C) exists only in `TOOLS\match_measure.py`, not in Turbo.
 - Stale docs:
   - HANDOVER sections 1, 4, 5 and 8;
