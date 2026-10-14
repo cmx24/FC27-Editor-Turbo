@@ -59,25 +59,19 @@ def sheet_info(b, label):
             "dirty": b[0x288], "mode": i(0x28C) if len(b) >= 0x290 else None}
 
 
-def from_log(path=None):
-    """-> (svc or None, team or None) from Turbo's log: the latest values since the last start of the GUI"""
-    try:
-        lines = open(path or LOG, encoding="utf-8", errors="replace").read().splitlines()
-    except OSError:
-        return None, None
-    start = 0
-    for i, l in enumerate(lines):
-        if "Turbo GUI loading in process" in l:
-            start = i
+def from_log(path=None, mock_mem=None):
+    """-> (svc or None, team or None, pid) from Turbo's log: only the lines after the latest 'Turbo GUI loading in process <pid>',
+    and only when that pid is the running FC27.exe (review B1); raises harness.StaleLog otherwise"""
+    pid, _start, lines = harness.current_log(path or LOG, mock_mem)
     svc = team = None
-    for l in lines[start:]:
+    for l in lines:
         m = re.search(r"channel E: service located .* at (0x[0-9A-Fa-f]+)", l)
         if m:
             svc = int(m.group(1), 16)
         m = re.search(r"channel E: team (\d+) record", l) or re.search(r"channel E: role allow-list: .*your club (\d+) left out", l)
         if m:
             team = int(m.group(1))
-    return svc, team
+    return svc, team, pid
 
 
 class Unusable(Exception):
@@ -224,10 +218,10 @@ def mock_world(path, log_path=None, x0=None, load=(25, 0, 0), copies=("C0", "A0"
                 (recv, record(MOCK_CODE, *load) + record("", 0, 0, 0, 0))]
     mods = [{"name": "FC27.exe", "base": "0x%X" % harness.IMAGE_BASE, "size": harness.BUILDS["6AC07E31"]["size"]}]
     regions.append((harness.IMAGE_BASE, harness.pe_header(0x6AC07E31, harness.BUILDS["6AC07E31"]["size"])))
-    mem = harness.MockMem.create(path, regions, mods)
+    mem = harness.MockMem.create(path, regions, mods, kv={"fc27_pid": harness.MOCK_PID})
     if log_path:
         with open(log_path, "a", encoding="utf-8") as f:
-            f.write("2026-10-13 21:00:00.000  Turbo GUI loading in process\n")
+            f.write("2026-10-13 21:00:00.000  Turbo GUI loading in process %d\n" % harness.MOCK_PID)
             f.write("2026-10-13 21:00:01.000  channel E: service located by the registry Find at 0x%X (Find returned 0x%X)\n" % (svc, svc))
             f.write("2026-10-13 21:00:02.000  channel E: team %d record 0 approach 0->0 line height 25->25 build-up 0->0 (read back ok)\n"
                     % MOCK_TEAM)

@@ -71,20 +71,23 @@ class Dev:
         raise Refused("FC27.exe not in the module list")
 
 
-def instance_from_log(path, regex):
-    hit = None
+def instance_from_log(path, regex, mock_mem=None):
+    """-> (instance, pid): the last tuning-tab locator line of the RUNNING game's Turbo (lines after the latest 'Turbo GUI loading in
+    process <pid>', that pid = the running FC27.exe); a line of an earlier process is never used (review B1)"""
     try:
-        with open(path, encoding="utf-8", errors="replace") as f:
-            for line in f:
-                m = re.search(regex, line)
-                if m:
-                    hit = (line[:23], int(m.group(1), 16))
-    except OSError as e:
-        raise Refused("log %s unreadable: %s" % (path, e))
+        pid, start, lines = harness.current_log(path, mock_mem)
+    except harness.StaleLog as e:
+        raise Refused(str(e))
+    hit = None
+    for line in lines:
+        m = re.search(regex, line)
+        if m:
+            hit = (line[:23], int(m.group(1), 16))
     if not hit:
-        raise Refused("no tuning-tab locator line in %s: open Competitions > Gameplay tuning first (about 25 s locate)" % path)
-    print("instance from the tuning tab's locator line of %s: 0x%X" % hit)
-    return hit[1]
+        raise Refused("no tuning-tab locator line since the start of process %d (%s): open Competitions > Gameplay tuning first "
+                      "(about 25 s locate)" % (pid, start[:23]))
+    print("instance from the tuning tab's locator line of %s (process %d): 0x%X" % (hit[0], pid, hit[1]))
+    return hit[1], pid
 
 
 def identity(dev, knob, build, inst, base, size):
@@ -166,7 +169,15 @@ def main(argv=None):
         build, base, size = dev.build()
         if build not in k["typeinfo"]:
             raise Refused("build %s: no TypeInfo constant for %s (unknown build is refused)" % (build, a.knob))
-        inst = int(a.inst, 16) if a.inst else instance_from_log(a.log, k["log_re"])
+        mm_ = a.mock_mem if a.mock else None
+        if a.inst:  # explicit address: bound to the single running FC27.exe (refused when none / several run)
+            inst = int(a.inst, 16)
+            pids = harness.running_fc27_pids(mm_)
+            if len(pids) != 1:
+                raise Refused("--inst needs exactly one running FC27.exe (found %s)" % (sorted(pids) or "none"))
+            a.pid = pids.pop()
+        else:
+            inst, a.pid = instance_from_log(a.log, k["log_re"], mm_)
         val, bad = identity(dev, a.knob, build, inst, base, size)
         if bad:
             raise Failed("identity check failed at 0x%X: %s" % (inst, "; ".join(bad)))
@@ -202,26 +213,43 @@ def write_job(a, dev, k, build, base, size, inst, target):
     if bad:
         raise Failed("identity check failed at 0x%X: %s" % (inst, "; ".join(bad)))
     st = load_state(a.state)
-    mine = st.get("value") if st.get("inst") == "0x%X" % inst and st.get("build") == build else None
-    if abs(val - k["vanilla"]) > 1e-6 and (mine is None or abs(val - mine) > 1e-6):
+    same = st.get("inst") == "0x%X" % inst and st.get("build") == build and st.get("pid") == getattr(a, "pid", None)
+    mine = [v for v in (st.get("value"), st.get("prev")) if v is not None] if same else []  # another process's state: ignored (B1)
+    if abs(val - k["vanilla"]) > 1e-6 and not any(abs(val - m) <= 1e-6 for m in mine):
         raise Refused("value %.6f is neither FC 27's %.1f nor this tool's last write (%s): someone else owns it" % (val, k["vanilla"], mine))
     if os.path.exists(a.off):  # re-read right before the write
         raise Refused("kill switch %s exists" % a.off)
-    dev.write(inst + k["off"], struct.pack(k["fmt"], target))
+
+    def save(value, prev=None):
+        with open(a.state, "w", encoding="utf-8") as f:
+            json.dump({"build": build, "pid": getattr(a, "pid", None), "inst": "0x%X" % inst, "value": value, "prev": prev,
+                       "t": time.strftime("%H:%M:%S")}, f)
+    save(target, val)  # BEFORE the write (review M1): a write that raises may still have landed - both values count as this tool's
+    werr = None
+    try:
+        dev.write(inst + k["off"], struct.pack(k["fmt"], target))
+    except (Failed, Refused) as e:
+        werr = e
     back, bad = identity(dev, a.knob, build, inst, base, size)
-    if bad or back is None or abs(back - target) > 1e-6:
-        dev.write(inst + k["off"], struct.pack(k["fmt"], val))
-        rb, _ = identity(dev, a.knob, build, inst, base, size)
-        line = "x1_write: %s 0x%X %.6f -> %.6f READ-BACK MISMATCH (%s); rolled back to %.6f (read back %s)" % (
-            a.knob, inst, val, target, "; ".join(bad) or "read %s" % back, val, rb)
+    if werr or bad or back is None or abs(back - target) > 1e-6:
+        if bad:  # never write into an object that is no longer the knob (review minor 4)
+            rb = "identity changed: no rollback"
+        else:
+            try:
+                dev.write(inst + k["off"], struct.pack(k["fmt"], val))
+                rbv, _ = identity(dev, a.knob, build, inst, base, size)
+                rb = "rolled back to %.6f (read back %s)" % (val, rbv)
+            except (Failed, Refused) as e2:
+                rb = "ROLLBACK FAILED: %s" % e2
+        line = "x1_write: %s 0x%X %.6f -> %.6f FAILED (%s); %s" % (a.knob, inst, val, target, werr or "; ".join(bad) or "read %s" % back, rb)
+        print(line)
         harness.append_log(a.wlog, line)
         raise Failed(line)
     line = "x1_write: %s 0x%X %.6f -> %.6f (read back ok)" % (a.knob, inst, val, target)
     print(line)
     sys.stdout.flush()
     harness.append_log(a.wlog, line)
-    with open(a.state, "w", encoding="utf-8") as f:
-        json.dump({"build": build, "inst": "0x%X" % inst, "value": target, "t": time.strftime("%H:%M:%S")}, f)
+    save(target)
     return val
 
 
@@ -343,6 +371,43 @@ def self_test():
         check(rc == 3 and "unknown build" in out, "unknown build: refused")
         rc, out = run("check", *[c if c != log_p else os.path.join(d, "nolog.txt") for c in common])
         check(rc == 3 and "unreadable" in out, "no log, no --inst: refused")
+        # review B1: a two-process log - the locator line belongs to process 1111, the latest start is 2222
+        two = os.path.join(d, "two.log")
+        with open(two, "w") as f:
+            f.write("t  Turbo GUI loading in process 1111\n")
+            f.write("t  gameplay tuning: locator attrib.attackinglinelengthwidth found: type X, base 0x%X\n" % inst)
+            f.write("t  Turbo GUI loading in process 2222\n")
+        tw = [c if c != log_p else two for c in common]
+        mem.set_kv("fc27_pid", 2222)
+        rc, out = run("check", *tw)
+        check(rc == 3 and "no tuning-tab locator line since the start of process 2222" in out,
+              "two-process log, game = the newer process: the older process's address is never used (refused)")
+        mem.set_kv("fc27_pid", 1111)
+        rc, out = run("check", *tw)
+        check(rc == 3 and "latest Turbo start is process 2222 but the running FC27.exe is [1111]" in out,
+              "two-process log, running pid != the log's latest start: refused as stale")
+        mem.set_kv("fc27_pid", 2222)
+        with open(two, "a") as f:
+            f.write("t  gameplay tuning: locator attrib.attackinglinelengthwidth found: type X, base 0x%X\n" % inst)
+        rc, out = run("check", *tw)
+        check(rc == 0 and "(process 2222)" in out, "after the newer process logs its own locator line: accepted")
+        mem.write(inst + 0x28, struct.pack("<f", 0.6))
+        json.dump({"build": "6AC07E31", "pid": 1111, "inst": "0x%X" % inst, "value": 0.6}, open(os.path.join(d, "st.json"), "w"))
+        rc, out = run("revert", "--allow-write", *tw)
+        check(rc == 3 and "someone else owns it" in out, "the owner state of another process (pid 1111) is ignored")
+        mem.write(inst + 0x28, struct.pack("<f", 1.0))
+        # review M1: a write call that raises - the rollback still runs, the owner state was saved before the write
+        os.environ["MOCK_WRITE_FAIL"] = "0x%X" % (inst + 0x28)
+        try:
+            rc, out = run("set", "0.6", "--allow-write", *tw)
+        finally:
+            del os.environ["MOCK_WRITE_FAIL"]
+        v = struct.unpack("<f", mem.read(inst + 0x28, 4))[0]
+        st = json.load(open(os.path.join(d, "st.json")))
+        check(rc == 1 and "FAILED" in out and "ROLLBACK FAILED" in out and abs(v - 1.0) < 1e-6 and st.get("prev") == 1.0,
+              "a raising write: FAIL, rollback attempted, owner state saved before the write (exit %d)" % rc)
+        rc, out = run("revert", "--allow-write", *tw)
+        check(rc == 0, "the revert after that failure is accepted by the owner rule")
     print("SELF-TEST " + ("PASSED" if ok else "FAILED"))
     return 0 if ok else 1
 

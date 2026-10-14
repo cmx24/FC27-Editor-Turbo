@@ -106,20 +106,46 @@ def main(argv=None, plan_obj=None, tool="x3_sentinels", state_name="x3_sentinels
 
 
 def locate(a, dev):
-    lsvc, lteam = sc.from_log(a.log)
+    """-> (svc, team, pid, resolve result). svc / club from the RUNNING game's log lines (review B1) unless both are given"""
+    lsvc = lteam = None
+    if not (a.svc and a.team is not None):
+        try:
+            lsvc, lteam, pid = sc.from_log(a.log, a.mock or None)
+        except harness.StaleLog as e:
+            raise Refused(str(e))
+    else:
+        pids = harness.running_fc27_pids(a.mock or None)
+        if len(pids) != 1:
+            raise Refused("--svc / --team need exactly one running FC27.exe (found %s)" % (sorted(pids) or "none"))
+        pid = pids.pop()
     svc = int(a.svc, 16) if a.svc else lsvc
     team = a.team if a.team is not None else lteam
     if not svc or team is None:
         raise Refused("no service address / club: open Turbo's Tactics card once (log 'channel E: service located ... at 0x...' and "
-                      "'channel E: team N record'), or pass --svc / --team")
+                      "'channel E: role allow-list ... your club N left out'), or pass --svc / --team")
     R = sc.resolve(dev.read, svc, team)
     if not R["map_code"]:
         raise Refused("the club's active map record holds no tactic code: nothing to anchor the identity check on")
-    return svc, team, R
+    return svc, team, pid, R
+
+
+def save_state(a, st):
+    """the undo source, rewritten atomically after every step (a run that dies anywhere leaves every touched record listed)"""
+    st["t"] = time.strftime("%H:%M:%S")
+    tmp = a.state + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(st, f, indent=1)
+    os.replace(tmp, a.state)
+
+
+def owned(cur, old, new):
+    """field-wise footprint rule: every field holds either the value before this tool or this tool's value (covers a record whose
+    LH was written but not its BU / DA)"""
+    return all(c in (o, n) for c, o, n in zip(cur, old, new))
 
 
 def write(a, dev, plan, tool):
-    svc, team, R = locate(a, dev)
+    svc, team, pid, R = locate(a, dev)
     code = R["map_code"]
     load = plan["career_load"]
     load_v = [load["line"], load["buildup"], load["approach"]]
@@ -127,8 +153,9 @@ def write(a, dev, plan, tool):
         prev = json.load(open(a.state, encoding="utf-8"))
     except (OSError, ValueError):
         prev = {}
-    mine = {e["addr"]: e["new"] for e in prev.get("entries", []) if prev.get("svc") == sc.H(svc)}
-    first = {e["addr"]: e["old"] for e in prev.get("entries", []) if prev.get("svc") == sc.H(svc)}  # the values before this tool
+    same = prev.get("svc") == sc.H(svc) and prev.get("pid") == pid  # a state of another game process is ignored (review B1)
+    mine = {e["addr"]: e["new"] for e in prev.get("entries", [])} if same else {}
+    first = {e["addr"]: e["old"] for e in prev.get("entries", [])} if same else {}  # the values before this tool ever wrote there
     want = set(a.copies.split(",")) if a.copies else None
     todo, notes = [], []
     for s in plan["sentinels"]:
@@ -148,9 +175,8 @@ def write(a, dev, plan, tool):
             continue
         cur = vals(f)
         if cur != load_v and cur != mine.get(sc.H(addr)):
-            raise Refused("%s (%s at %s) holds %s: neither the career-load %s nor this tool's last write -> someone else owns it" % (
-                cp, lab, sc.H(addr), cur, load_v))
-        # undo source: the values before this tool ever wrote there (a re-run over its own write keeps the first snapshot)
+            raise Refused("%s (%s at %s) holds %s: neither the career-load %s nor this tool's last write -> someone else owns it "
+                          "(a partial write of an earlier run: --undo first)" % (cp, lab, sc.H(addr), cur, load_v))
         orig = first.get(sc.H(addr), cur) if cur == mine.get(sc.H(addr)) else cur
         todo.append({"copy": cp, "label": lab, "addr": addr, "old": cur, "new": new, "orig": orig})
     for n in notes:
@@ -162,40 +188,65 @@ def write(a, dev, plan, tool):
         return harness.finish("INCONCLUSIVE", ["no copy to write"], tool=tool)
     if a.dry_run:
         return harness.finish("PASS", ["dry run: nothing written"], tool=tool)
-    done = []
+    # the undo source BEFORE the first write (review M1): this run's records + the earlier run's records of the same process
+    entries = {sc.H(t["addr"]): {"copy": t["copy"], "addr": sc.H(t["addr"]), "old": t["orig"], "new": t["new"], "status": "planned"}
+               for t in todo}
+    for e in (prev.get("entries", []) if same else []):
+        entries.setdefault(e["addr"], e)
+    st = {"tool": tool, "pid": pid, "svc": sc.H(svc), "team": team, "code": code, "entries": list(entries.values())}
+    E = {e["addr"]: e for e in st["entries"]}
+    save_state(a, st)
+    touched = []
     try:
         for t in todo:
+            e = E[sc.H(t["addr"])]
             if os.path.exists(a.off):
                 raise Refused("kill switch %s exists" % a.off)
             b = dev.read([(t["addr"], sc.REC)])[0]
             f = sc.rec_fields(b) if b else None
             if not f or f["code"] != code or vals(f) != t["old"]:
                 raise Failed("%s changed between the resolve and the write (identity / values): stopped" % t["copy"])
+            e["status"] = "writing"
+            touched.append(t)
+            save_state(a, st)
             put(dev, t["addr"], *t["new"])
-            done.append(t)
             b = dev.read([(t["addr"], sc.REC)])[0]
             f = sc.rec_fields(b) if b else None
             if not f or f["code"] != code or vals(f) != t["new"]:
                 raise Failed("%s read back %s instead of %s" % (t["copy"], vals(f) if f else "nothing", t["new"]))
+            e["status"] = "written"
+            save_state(a, st)
             line = "%s: %s %s LH %d->%d BU %d->%d DA %d->%d (read back ok)" % (tool, t["copy"], sc.H(t["addr"]), t["old"][0], t["new"][0],
                                                                              t["old"][1], t["new"][1], t["old"][2], t["new"][2])
             print(line)
             harness.append_log(a.wlog, line)
-    except (Failed, Refused) as e:
-        for t in reversed(done):
-            put(dev, t["addr"], *t["old"])
-            b = dev.read([(t["addr"], sc.REC)])[0]
-            ok = b is not None and vals(sc.rec_fields(b)) == t["old"]
-            line = "%s: %s %s ROLLED BACK to LH %d BU %d DA %d (%s)" % (tool, t["copy"], sc.H(t["addr"]), t["old"][0], t["old"][1], t["old"][2],
-                                                                    "read back ok" if ok else "READ-BACK MISMATCH")
-            print(line)
-            harness.append_log(a.wlog, line)
+    except BaseException:
+        rollback(a, dev, tool, code, touched, E)
+        save_state(a, st)
         raise
-    # the undo source (only after a complete run; a rolled-back run leaves the previous state valid)
-    json.dump({"tool": tool, "t": time.strftime("%H:%M:%S"), "svc": sc.H(svc), "team": team, "code": code,
-               "entries": [{"copy": t["copy"], "addr": sc.H(t["addr"]), "old": t["orig"], "new": t["new"]} for t in done]},
-              open(a.state, "w", encoding="utf-8"), indent=1)
-    return harness.finish("PASS", ["%d copies written and read back; undo: %s --undo --allow-write" % (len(done), tool)], tool=tool)
+    return harness.finish("PASS", ["%d copies written and read back; undo: %s --undo --allow-write" % (len(todo), tool)], tool=tool)
+
+
+def rollback(a, dev, tool, code, touched, E):
+    """every touched record back to its value before THIS run - one record's failure never stops the others; a record whose
+    identity changed is left alone (never write into a foreign object); the outcome per record goes into the state file"""
+    for t in reversed(touched):
+        e = E[sc.H(t["addr"])]
+        try:
+            b = dev.read([(t["addr"], sc.REC)])[0]
+            f = sc.rec_fields(b) if b else None
+            if not f or f["code"] != code:
+                e["status"] = "left alone: identity changed"
+            else:
+                put(dev, t["addr"], *t["old"])
+                b = dev.read([(t["addr"], sc.REC)])[0]
+                e["status"] = "rolled back" if b is not None and vals(sc.rec_fields(b)) == t["old"] else "ROLLBACK FAILED (read back)"
+        except BaseException as ex:  # noqa: B902 - the rollback of the other records must still run
+            e["status"] = "ROLLBACK FAILED (%s)" % ex
+        line = "%s: %s %s ROLLBACK to LH %d BU %d DA %d: %s" % (tool, t["copy"], sc.H(t["addr"]), t["old"][0], t["old"][1], t["old"][2],
+                                                             e["status"])
+        print(line)
+        harness.append_log(a.wlog, line)
 
 
 def undo(a, dev, tool):
@@ -203,22 +254,39 @@ def undo(a, dev, tool):
         st = json.load(open(a.state, encoding="utf-8"))
     except (OSError, ValueError):
         raise Refused("no state file %s: nothing to undo" % a.state)
-    restored, skipped = 0, []
+    restored, skipped, failed = 0, [], []
     for e in st["entries"]:
         addr = int(e["addr"], 16)
-        b = dev.read([(addr, sc.REC)])[0]
-        f = sc.rec_fields(b) if b else None
-        if not f or f["code"] != st["code"] or vals(f) != e["new"]:
-            skipped.append("%s %s: no longer holds this tool's write (%s): left alone" % (e["copy"], e["addr"], vals(f) if f else "unreadable"))
+        try:
+            b = dev.read([(addr, sc.REC)])[0]
+            f = sc.rec_fields(b) if b else None
+            if not f or f["code"] != st["code"]:
+                skipped.append("%s %s: identity changed / unreadable: left alone" % (e["copy"], e["addr"]))
+                continue
+            cur = vals(f)
+            if cur == e["old"]:
+                print("  %s %s: already at the values before this tool (%s)" % (e["copy"], e["addr"], cur))
+                continue
+            if not owned(cur, e["old"], e["new"]):
+                skipped.append("%s %s: holds %s, not this tool's footprint (%s / %s): left alone" % (e["copy"], e["addr"], cur, e["old"],
+                                                                                                 e["new"]))
+                continue
+            put(dev, addr, *e["old"])
+            b = dev.read([(addr, sc.REC)])[0]
+            if b is None or vals(sc.rec_fields(b)) != e["old"]:
+                failed.append("undo of %s did not read back" % e["copy"])
+                continue
+        except (Failed, Refused) as ex:
+            failed.append("undo of %s: %s" % (e["copy"], ex))
             continue
-        put(dev, addr, *e["old"])
-        b = dev.read([(addr, sc.REC)])[0]
-        if b is None or vals(sc.rec_fields(b)) != e["old"]:
-            raise Failed("undo of %s did not read back" % e["copy"])
-        line = "%s: %s %s undo -> LH %d BU %d DA %d (read back ok)" % (tool, e["copy"], e["addr"], *e["old"])
+        e["status"] = "undone"
+        line = "%s: %s %s undo %s -> LH %d BU %d DA %d (read back ok)" % (tool, e["copy"], e["addr"], cur, *e["old"])
         print(line)
         harness.append_log(a.wlog, line)
         restored += 1
+    if failed:
+        save_state(a, st)  # the failed records stay listed for the next --undo
+        return harness.finish("FAIL", ["%d restored" % restored] + skipped + failed, tool=tool)
     os.replace(a.state, a.state + ".undone")
     return harness.finish("PASS" if not skipped else "INCONCLUSIVE", ["%d restored" % restored] + skipped, tool=tool)
 
@@ -272,9 +340,46 @@ def self_test():
         finally:
             del os.environ["MOCK_WRITE_FAIL"]
         c = copies()
-        check(rc == 1 and out.count("ROLLED BACK") == 3 and out.count("(read back ok)") == 6
+        check(rc == 1 and out.count(": rolled back") == 3
               and all(vals(sc.target(c, cp)[1][1]) == [25, 0, 0] for cp in ("map", "B0", "A0", "C0")),
               "a failing write on the 4th copy: the 3 written copies are rolled back and read back, FAIL (exit %d)" % rc)
+        b0, a0 = sc.target(copies(), "B0")[1][0], sc.target(copies(), "A0")[1][0]
+        # review M1 repro 1: B0's second write (BU / DA) fails, also during its rollback -> B0 is touched but listed in the state
+        os.environ["MOCK_WRITE_FAIL"] = sc.H(b0 + sc.F_BU)
+        try:
+            rc, out = go("--allow-write")
+        finally:
+            del os.environ["MOCK_WRITE_FAIL"]
+        st = json.load(open(os.path.join(d, "st.json")))
+        stat = {e["copy"]: e["status"] for e in st["entries"]}
+        check(rc == 1 and stat.get("map") == "rolled back" and stat.get("B0", "").startswith("ROLLBACK FAILED")
+              and all(vals(sc.target(copies(), cp)[1][1]) == [25, 0, 0] for cp in ("map", "B0")),
+              "partial record write (B0 BU/DA fails): map rolled back, B0 listed as touched in the state file (exit %d)" % rc)
+        # review M1 repro 2: write attempts #5 (A0 LH) and #6 (A0's rollback) fail -> the rollback goes on with B0 and map
+        mem.set_kv("write_attempts", 0)
+        os.environ["MOCK_WRITE_FAIL_NTH"] = "5,6"
+        try:
+            rc, out = go("--allow-write")
+        finally:
+            del os.environ["MOCK_WRITE_FAIL_NTH"]
+        stat = {e["copy"]: e["status"] for e in json.load(open(os.path.join(d, "st.json")))["entries"]}
+        check(rc == 1 and stat.get("A0", "").startswith("ROLLBACK FAILED") and stat.get("B0") == "rolled back" and stat.get("map") == "rolled back"
+              and all(vals(sc.target(copies(), cp)[1][1]) == [25, 0, 0] for cp in ("map", "B0", "A0", "C0")),
+              "write #5 and #6 fail: the rollback does not stop at the first failure (B0 and map rolled back) (exit %d)" % rc)
+        # ... and #5-#7 fail: B0's rollback fails too -> B0 stays 85/1/1, listed for --undo
+        mem.set_kv("write_attempts", 0)
+        os.environ["MOCK_WRITE_FAIL_NTH"] = "5,6,7"
+        try:
+            rc, out = go("--allow-write")
+            b0_after = vals(sc.target(copies(), "B0")[1][1])
+        finally:
+            del os.environ["MOCK_WRITE_FAIL_NTH"]
+        stat = {e["copy"]: e["status"] for e in json.load(open(os.path.join(d, "st.json")))["entries"]}
+        check(rc == 1 and b0_after == [85, 1, 1] and stat.get("B0", "").startswith("ROLLBACK FAILED") and stat.get("map") == "rolled back",
+              "a failed rollback leaves B0 (85/1/1) listed in the state file for --undo")
+        rc, out = go("--undo", "--allow-write")
+        check(rc == 0 and all(vals(sc.target(copies(), cp)[1][1]) == [25, 0, 0] for cp in ("map", "B0", "A0", "C0")),
+              "--undo after the failed rollback restores B0 (field-wise footprint rule) and leaves the rest (exit %d)" % rc)
         a0 = sc.target(copies(), "A0")[1][0]
         mem.write(a0 + sc.F_LH, struct.pack("<i", 50))  # someone else's value in A0
         rc, out = go("--allow-write")

@@ -67,7 +67,12 @@ def main(argv=None):
 
 def run(a):
     plan = json.load(open(a.plan, encoding="utf-8"))
-    lsvc, lteam = sc.from_log(a.log)
+    lsvc = lteam = None
+    if not (a.svc and a.team is not None):
+        try:
+            lsvc, lteam, _pid = sc.from_log(a.log, a.mock or None)
+        except harness.StaleLog as e:
+            return harness.finish("INCONCLUSIVE", ["refused: %s" % e], tool=TOOL)
     svc = int(a.svc, 16) if a.svc else lsvc
     team = a.team if a.team is not None else lteam
     if not svc or team is None:
@@ -168,7 +173,20 @@ def self_test():
         rc, out = go("--phase", "hub", "--mock", m4, "--log", log)
         check(rc == 3 and "header checks" in out, "a service failing its header checks: INCONCLUSIVE, nothing trusted")
         rc, out = go("--phase", "hub", "--mock", mem_p, "--log", os.path.join(d, "none.log"))
-        check(rc == 3 and "no service address" in out, "no log lines and no --svc: INCONCLUSIVE")
+        check(rc == 3 and "unreadable" in out, "no log and no --svc: refused, INCONCLUSIVE")
+        # review B1: a two-process log - the service line belongs to process 1111, the latest start is the running 4242
+        two = os.path.join(d, "two.log")
+        with open(two, "w") as f:
+            f.write("t  Turbo GUI loading in process 1111\n")
+            f.write("t  channel E: service located by the registry Find at 0x%X (Find returned 0x%X)\n" % (svc, svc))
+            f.write("t  channel E: role allow-list: 1 triples from 2 teams (your club %d left out, 0 club(s) skipped)\n" % sc.MOCK_TEAM)
+            f.write("t  Turbo GUI loading in process %d\n" % harness.MOCK_PID)
+        rc, out = go("--phase", "hub", "--mock", mem_p, "--log", two)
+        check(rc == 3 and "no service address" in out, "two-process log: the older process's service address is never used")
+        mem.set_kv("fc27_pid", 1111)
+        rc, out = go("--phase", "hub", "--mock", mem_p, "--log", two)
+        check(rc == 3 and "addresses are stale" in out, "two-process log, running pid != the latest start: refused as stale")
+        mem.set_kv("fc27_pid", harness.MOCK_PID)
         st = os.path.join(d, "GAME_STATE.txt")
         open(st, "w").write("state: CLOSED (21:00) - offline\n")
         r = subprocess.run([sys.executable, os.path.abspath(__file__), "--phase", "hub"], capture_output=True, text=True, timeout=60,

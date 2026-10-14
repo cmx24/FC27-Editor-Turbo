@@ -79,6 +79,64 @@ def timebox(seconds, tool=""):
     return t
 
 
+# ----------------------------------------------------------------------------------------------------------- Turbo's log, per process
+# turbo_gui.log is appended across game launches. Addresses (knob instances, the team-sheet service) are valid only in the process
+# that logged them, so every tool reads ONLY the lines after the latest "Turbo GUI loading in process <pid>" line and refuses unless
+# that pid is the running FC27.exe (review B1, 2026-10-13: the latest locator line belonged to the previous process).
+MOCK_PID = 4242  # the synthetic FC27.exe pid of the mock worlds
+
+
+class StaleLog(Exception):
+    pass
+
+
+def log_since_start(path):
+    """-> (pid, start line, [lines after it]) of the LATEST Turbo start in the log; (None, None, []) when there is none"""
+    import re
+    rx = re.compile(r"Turbo GUI loading in process (\d+)")
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            lines = f.read().splitlines()
+    except OSError as e:
+        raise StaleLog("log %s unreadable: %s" % (path, e))
+    for i in range(len(lines) - 1, -1, -1):
+        m = rx.search(lines[i])
+        if m:
+            return int(m.group(1)), lines[i], lines[i + 1:]
+    return None, None, []
+
+
+def running_fc27_pids(mock_mem=None):
+    """pids of the running FC27.exe (tasklist, read-only); with a mock world: its synthetic pid (kv fc27_pid)"""
+    if mock_mem:
+        p = MockMem(mock_mem).kv("fc27_pid")
+        return {int(p)} if p else set()
+    import csv as _csv, io as _io, subprocess
+    try:
+        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq FC27.exe", "/FO", "CSV", "/NH"], capture_output=True, text=True,
+                             timeout=20).stdout
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    pids = set()
+    for row in _csv.reader(_io.StringIO(out)):
+        if len(row) >= 2 and row[0].lower() == "fc27.exe" and row[1].isdigit():
+            pids.add(int(row[1]))
+    return pids
+
+
+def current_log(path, mock_mem=None):
+    """-> (pid, start line, lines) of the RUNNING game's Turbo only; raises StaleLog when the log has no start line or its latest start
+    is not a running FC27.exe (a stale address from an earlier process is never used)"""
+    pid, start, lines = log_since_start(path)
+    if pid is None:
+        raise StaleLog("no 'Turbo GUI loading in process' line in %s" % path)
+    pids = running_fc27_pids(mock_mem)
+    if pid not in pids:
+        raise StaleLog("the log's latest Turbo start is process %d but the running FC27.exe is %s: its addresses are stale" % (
+            pid, sorted(pids) or "none"))
+    return pid, start, lines
+
+
 def write_marker(path, label):
     """the window marker file read by match_measure.py --marker (first token = the label of the current samples)"""
     if not path:
@@ -209,7 +267,13 @@ class MockMem:
             return {"ok": True, "hits": hits[:int(op.get("max", 16))]}
         if name == "write":
             a = int(str(op["addr"]), 16)
-            if os.environ.get("MOCK_WRITE_FAIL", "").lower() == ("0x%x" % a):  # tests: one address refuses the write
+            nth = os.environ.get("MOCK_WRITE_FAIL_NTH")  # tests: the n-th write attempts fail (a dev timeout / error)
+            if nth:
+                n = int(self.kv("write_attempts", 0)) + 1
+                self.set_kv("write_attempts", n)
+                if str(n) in nth.split(","):
+                    return {"ok": False, "error": "mock: write attempt %d refused" % n}
+            if ("0x%x" % a) in os.environ.get("MOCK_WRITE_FAIL", "").lower().split(","):  # tests: these addresses refuse the write
                 return {"ok": False, "error": "mock: write refused at 0x%X" % a}
             data = bytes.fromhex(str(op.get("hex") or op.get("bytes")).replace(" ", ""))
             if not self.write(a, data):
@@ -279,10 +343,11 @@ def build_x1_world(path, log_path=None, knob="width_in", build="6AC07E31", value
     name = k["name"].encode() + b"\0"
     mods = [{"name": "FC27.exe", "base": "0x%X" % IMAGE_BASE, "size": size}]
     mem = MockMem.create(path, [(IMAGE_BASE, pe_header(int(build, 16), size)), (inst, bytes(blob)),
-                                (namep, name + bytes(64 - len(name) % 64))], mods)
+                                (namep, name + bytes(64 - len(name) % 64))], mods, kv={"fc27_pid": MOCK_PID})
     if log_path:
         with open(log_path, "a", encoding="utf-8") as f:
-            f.write("2026-10-13 21:00:00.000  gameplay tuning: locator attrib.attackinglinelengthwidth found: type "
+            f.write("2026-10-13 21:00:00.000  Turbo GUI loading in process %d\n" % MOCK_PID)
+            f.write("2026-10-13 21:00:30.000  gameplay tuning: locator attrib.attackinglinelengthwidth found: type "
                     "AttribSchema_gp_positioningformation_linelengthwidth, base 0x%X\n" % inst)
     return mem, inst
 

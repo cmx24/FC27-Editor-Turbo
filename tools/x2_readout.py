@@ -292,7 +292,10 @@ def main(argv=None):
             import dev2
             DEV = dev2.call
         if a.team is None:
-            a.team = sc.from_log(a.log)[1]
+            try:
+                a.team = sc.from_log(a.log, a.mock or None)[1]
+            except harness.StaleLog as e:
+                print("club from the log refused: %s" % e)
         B = Budget(a.budget)
         results, verdict = decode(a, B)
         if results is None or len(results) != 2 or verdict:
@@ -351,7 +354,7 @@ def mock_world(path, user=(95, 1, 0), other=(50, 0, 1), user_team=sc.MOCK_TEAM, 
         d[D_LH], d[D_STYLE + 9], d[D_STYLE + 10], d[D_BU], d[D_DA] = sty[0], 2, 2, sty[1], sty[2]
         regions.append((S[side] + S_DBLOCK, bytes(d)))
     mods = [{"name": "FC27.exe", "base": "0x%X" % base, "size": size}]
-    return harness.MockMem.create(path, regions, mods)
+    return harness.MockMem.create(path, regions, mods, kv={"fc27_pid": harness.MOCK_PID})
 
 
 def self_test():
