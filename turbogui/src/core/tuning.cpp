@@ -259,7 +259,8 @@ bool applies_from_name(const std::string& s, Applies& a) {
 
 const std::vector<std::string>& standard_groups() {
     static const std::vector<std::string> g = {"Shape with the ball", "Shape without the ball", "Defensive line depth bands", "Shape", "Pressing",
-                                                "Marking", "Attacking runs", "Passing", "Shooting", "CPU AI", "Goalkeeper", "Roles"};
+                                                "Marking", "Attacking runs", "Passing", "Shooting", "CPU AI", "Goalkeeper", "Roles", "Defending", "Pace and fatigue",
+                                                "Referee and fouls", "Ball and physics"};
     return g;
 }
 
@@ -681,6 +682,28 @@ static bool parse_knob(const json& o, const Registry& reg, Knob& k, std::string&
     k.unit = str_of(o, "unit");
     k.locator = str_of(o, "locator");
     k.notes = str_of(o, "notes");
+    k.impact = str_of(o, "impact");
+    k.category = str_of(o, "category");
+    k.scale = str_of(o, "scale");
+    if (!k.impact.empty() && k.impact != "high" && k.impact != "medium" && k.impact != "low") {
+        err = who + ": impact must be high, medium or low";
+        return false;
+    }
+    if (o.contains("candidate") && !o["candidate"].is_null()) {
+        if (!o["candidate"].is_boolean()) {
+            err = who + ": candidate must be true or false";
+            return false;
+        }
+        k.candidate = o["candidate"].get<bool>();
+    }
+    if (o.contains("rank") && !o["rank"].is_null()) {
+        int64_t rk = 0;
+        if (!json_int(o["rank"], rk) || rk < 1 || rk > 100000) {
+            err = who + ": rank must be a whole number 1..100000";
+            return false;
+        }
+        k.rank = int(rk);
+    }
     if (!applies_from_name(str_of(o, "applies"), k.applies)) {
         err = who + ": applies must be \"next match setup\", \"live\" or \"unknown\"";
         return false;
@@ -809,6 +832,11 @@ static bool parse_knob(const json& o, const Registry& reg, Knob& k, std::string&
         }
     }
     k.verified = o.value("verified", false);
+    // a candidate of the inventory is never a working knob: unverified, no proof, no slider, not live (the honest UI; the package guard checks the same)
+    if (k.candidate && (k.verified || k.proof.given() || k.slider || k.live)) {
+        err = who + ": a candidate must be unverified, with no proof, no slider and not live";
+        return false;
+    }
     const Locator* loc = k.locator.empty() ? nullptr : reg.locator(k.locator);
     if (!k.locator.empty() && !loc) {
         err = who + ": locator \"" + k.locator + "\" is not in the file's locators";
@@ -1107,6 +1135,11 @@ std::string registry_json(const Registry& r) {
             o["proof"] = p;
         }
         o["verified"] = k.verified;
+        if (k.candidate) o["candidate"] = true;
+        if (k.rank > 0) o["rank"] = k.rank;
+        if (!k.impact.empty()) o["impact"] = k.impact;
+        if (!k.category.empty()) o["category"] = k.category;
+        if (!k.scale.empty()) o["scale"] = k.scale;
         o["notes"] = k.notes;
         ks.push_back(o);
     }

@@ -458,7 +458,7 @@ static void run() {
     std::printf("native gameplay tuning (engine tuning tables)\n");
     chain_cases();
 
-    run_case("tuning: the shipped knobs file v4 - the attribute manager, chain slots per group, two groups verified, the moments, no slider without a proof", [] {
+    run_case("tuning: the shipped knobs file v5 - the attribute manager, chain slots per group, two groups verified, the moments, no slider without a proof, the inventory candidates", [] {
         const fs::path p = fs::path("..") / "turbo" / "package" / "turbo" / "tuning" / "knobs_6AC07E31.json";
         std::ifstream f(p, std::ios::binary);
         std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
@@ -466,7 +466,7 @@ static void run() {
         Registry reg;
         std::string err;
         CHECK(parse_registry(text, reg, err), "it parses: " + err);
-        CHECK(reg.build == kBuildKey && reg.version == 4 && reg.knobs.size() == 23 && reg.locators.size() == 8,
+        CHECK(reg.build == kBuildKey && reg.version == 5 && reg.knobs.size() == 124 && reg.locators.size() == 36,
               fmt("build %s, v%d, %zu knobs, %zu locators", reg.build.c_str(), reg.version, reg.knobs.size(), reg.locators.size()));
         // the attribute manager: the signature, the current database chain, the prematch handle [A], the 15 + 1 databases' names
         const AttribManager& m = reg.manager;
@@ -478,7 +478,8 @@ static void run() {
               "attrib_manager");
         const SignatureTable* sig = builtin_signature_table(kBuildKey);
         CHECK(sig && sig->find(m.signature), "its signature is in the built-in table");
-        // every locator through the databases: FC 27's type data (T5 layout_T5.json) for its family and group slots
+        // every locator through the databases: FC 27's type data (T5 layout_T5.json) for its family and group slots (the 8 locators of v4; the
+        // 28 new ones belong to the inventory candidates and are checked below)
         struct Slots {
             const char* locator;
             uint64_t family, group;
@@ -509,8 +510,9 @@ static void run() {
             if (l.verified)
                 CHECK(l.head == "typeinfo" && l.head_rva && l.variants.size() == 1 && l.variants[0].guid.size() == 16, l.name + ": TypeInfo, vtable and asset GUID");
         }
-        for (const Knob& k : reg.knobs) CHECK(k.verified == (proven.count(k.locator) == 1), k.id + ": verified exactly with its locator");
-        CHECK(reg.placeholders() == 13, fmt("%d knobs not confirmed", reg.placeholders()));
+        for (const Knob& k : reg.knobs)
+            CHECK(k.verified == (proven.count(k.locator) == 1 && !k.candidate), k.id + ": verified exactly with its locator (a v5 candidate never: its effect and field are not confirmed)");
+        CHECK(reg.placeholders() == 13 + 101, fmt("%d knobs not confirmed (the 13 of v4 and the 101 inventory candidates)", reg.placeholders()));
         // the moments, no live write, the honest UI: a slider only with a proof (a pure data change adds one: "proof" + "slider")
         for (const Knob& k : reg.knobs) {
             CHECK(k.when == std::vector<std::string>({"boot", "career_load", "hub"}) && !k.live, k.id + ": the three moments, not live (gate X1 decides)");
@@ -564,11 +566,63 @@ static void run() {
             {"pressing.partial_highworkratetime", "gp_positioning_partialteampress", "partialTeamPressHighWorkRateTime", ValueType::F32, 0x84, 6.0},
             {"pressing.partial_cooldownmultiplier", "gp_positioning_partialteampress", "partialTeamPressCooldownMultiplier", ValueType::F32, 0x74, 1.0},
         };
-        CHECK(reg.knobs.size() == sizeof(fc27) / sizeof(fc27[0]), fmt("%zu knobs, each in the FC 27 table of this test", reg.knobs.size()));
+        // v5: the 23 knobs of v4 first and unchanged (saved presets name them), then the 101 inventory candidates
+        CHECK(reg.knobs.size() == sizeof(fc27) / sizeof(fc27[0]) + 101, fmt("%zu knobs: the %zu of the FC 27 table of this test and 101 candidates", reg.knobs.size(), sizeof(fc27) / sizeof(fc27[0])));
+        for (size_t i = 0; i < sizeof(fc27) / sizeof(fc27[0]); ++i) CHECK(reg.knobs[i].id == fc27[i].id && !reg.knobs[i].candidate, std::string(fc27[i].id) + ": still in its v4 place, not a candidate");
         for (const Fc27& x : fc27) {
             const Knob* k = reg.knob(x.id);
             CHECK(k && k->collection == x.collection && k->field == x.field && k->type == x.type && k->offset == x.offset && k->def == x.value,
                   std::string(x.id) + ": FC 27's group, field, type, offset and own value");
+        }
+        // v5 candidates: offline inventory only. Never verified, no proof, no slider, not live; ranked 1..N with the 23 old knobs; FC 27's own values
+        {
+            int cands = 0;
+            std::set<int> ranks;
+            for (const Knob& k : reg.knobs) {
+                CHECK(k.rank >= 1 && k.rank <= int(reg.knobs.size()) && ranks.insert(k.rank).second, k.id + ": a unique rank 1..N");
+                CHECK(k.impact == "high" || k.impact == "medium" || k.impact == "low", k.id + ": an impact word");
+                CHECK(!k.category.empty(), k.id + ": a category");
+                if (!k.candidate) continue;
+                ++cands;
+                CHECK(!k.verified && !k.proven() && !k.slider && !k.live && k.placeholder().find("unverified") == 0, k.id + ": a candidate is unverified, no proof, no slider, not live");
+                CHECK(k.scale == "mult" || k.scale == "add" || k.scale == "int" || k.scale == "switch", k.id + ": a scale class");
+                const Locator* cl = reg.locator(k.locator);
+                bool v4_loc = false;  // a locator of v4 (verified or not, as before); the new ones are unverified and carry the asset GUID
+                for (const Slots& s : slots) v4_loc = v4_loc || k.locator == s.locator;
+                CHECK(cl && cl->kind == "attrib" && cl->variants[0].name == "base" && cl->variants[0].instance.rfind("Fifa/Attribulator/", 0) == 0 && cl->family_slot &&
+                          cl->group_slot && cl->l3() && (v4_loc || (!cl->verified && cl->variants[0].guid.size() == 16)),
+                      k.id + ": a chain locator with its slots and instance name (a new one is unverified and has the asset GUID)");
+            }
+            CHECK(cands == 101, fmt("%d candidates", cands));
+            struct Cand {
+                const char* id;
+                const char* collection;
+                const char* field;
+                ValueType type;
+                int64_t offset;
+                double value;
+                double sim;  // the Authentic copy's value (-1 = the same)
+            };
+            const Cand cand[] = {
+                {"pressing.cut_lane_reach", "gp_positioning_zonal_defense_cutpassinglanes", "MaxDistToIntercept_WithoutInstruction", ValueType::F32, 0x28, 3.5, 6.0},
+                {"marking.tight_in_box", "gp_positioning_zonal_defense", "TightMarkingInBoxEnabled", ValueType::Bool, 0x6bf, 0, -1},
+                {"marking.after_kickoff_period", "gp_positioning_zonal_defense", "AfterKickoffZonalMarkingPeriod", ValueType::I32, 0x634, 20, -1},
+                {"goalkeeper.rush_radius", "gp_goalkeeper_goalkeeper", "GK_RushToContain_Max_Radius", ValueType::F32, 0x90, 60, -1},
+                {"recovery.defenders_sprint_back", "gp_positioning_backwardspeed", "defenderSprintBackSpeedRate", ValueType::F32, 0x2c, 1.0, -1},
+                {"shooting.base_speed_max", "gp_kickshot_shooting", "SHOT_BaseSpeedMax", ValueType::F32, 0x2d0, 35.75, -1},
+                {"ball.linear_drag", "gp_physics_physics", "BallLinearDrag", ValueType::F32, 0x50, 0.003, -1},
+                {"defending.jockey_speed", "gp_defense_jockey", "Jockey_SpeedJog", ValueType::F32, 0x78, 0.28, 0.18},
+            };
+            for (const Cand& x : cand) {
+                const Knob* k = reg.knob(x.id);
+                double s = -1;
+                CHECK(k && k->candidate && k->collection == x.collection && k->field == x.field && k->type == x.type && k->offset == x.offset && k->def == x.value &&
+                          (x.sim < 0 ? k->copy_defaults.empty() : (k->game_value("simulation", s) && s == x.sim)),
+                      std::string(x.id) + ": FC 27's group, field, type, offset, value (and the Authentic copy's)");
+            }
+            const Locator* cl = reg.locator("attrib.positioning_zonal_defense_cutpassinglanes");
+            CHECK(cl && cl->variants.size() == 2 && cl->variants[1].name == "simulation" && cl->variants[1].db == "Fifa/Attribulator/Gameplay/databases/simulation/simulation",
+                  "a candidate's group that the Authentic database copies has both variants");
         }
         // the one copy whose FC 27 value differs: the Authentic (simulation) database has the double-marking switch off
         const Knob* dm = reg.knob("pressing.no_double_marking_own_half");
@@ -608,6 +662,41 @@ static void run() {
         CHECK(parse_registry(registry_json(reg), again, err) && again.knobs.size() == reg.knobs.size() && again.manager.gameplay_dbs == m.gameplay_dbs,
               "registry_json round trip: " + err);
         CHECK(knobs_file_names(kBuildKey) == std::vector<std::string>({"knobs_6AC07E31-2145C000.json", "knobs_6AC07E31.json"}), "file names");
+    });
+
+    run_case("tuning: knobs file v5 fields - candidate, rank, impact, category, scale; a candidate is never a working knob", [] {
+        auto file = [](const std::string& body) {
+            return std::string(R"({"schema": "turbo-tuning-knobs/1", "build": "6AC07E31-2145C000", "locators": [], "knobs": [)") + body + "]}";
+        };
+        const std::string base = R"("id": "a.one", "label": "One", "group": "Shape", "type": "f32", "min": 0, "max": 2, "default": 1)";
+        Registry r;
+        std::string err;
+        CHECK(parse_registry(file("{" + base + R"(, "candidate": true, "rank": 7, "impact": "high", "category": "Pressing", "scale": "mult"})"), r, err) && r.knobs.size() == 1 &&
+                  r.knobs[0].candidate && r.knobs[0].rank == 7 && r.knobs[0].impact == "high" && r.knobs[0].category == "Pressing" && r.knobs[0].scale == "mult",
+              "a candidate with its ranking parses: " + err);
+        CHECK(!r.knobs[0].proven() && !r.knobs[0].slider && !r.knobs[0].verified && !r.knobs[0].placeholder().empty(), "and is a placeholder");
+        Registry again;
+        CHECK(parse_registry(registry_json(r), again, err) && again.knobs.size() == 1 && again.knobs[0].candidate && again.knobs[0].rank == 7 &&
+                  again.knobs[0].impact == "high" && again.knobs[0].category == "Pressing" && again.knobs[0].scale == "mult",
+              "the ranking survives registry_json: " + err);
+        Registry plain;
+        const bool plain_ok = parse_registry(file("{" + base + "}"), plain, err);
+        CHECK(plain_ok && !plain.knobs[0].candidate && plain.knobs[0].rank == 0 && plain.knobs[0].impact.empty() &&
+                  registry_json(plain).find("\"candidate\"") == std::string::npos && registry_json(plain).find("\"rank\"") == std::string::npos,
+              "a v4 knob has none of it and registry_json writes none: " + err);
+        auto refused = [&](const std::string& extra, const std::string& part) {
+            Registry x;
+            std::string e;
+            const bool ok = parse_registry(file("{" + base + extra + "}"), x, e);
+            CHECK(!ok && e.find(part) != std::string::npos, "refused (" + part + "): " + e);
+        };
+        refused(R"(, "candidate": "yes")", "candidate must be");
+        refused(R"(, "rank": 0)", "rank must be");
+        refused(R"(, "rank": "first")", "rank must be");
+        refused(R"(, "impact": "huge")", "impact must be");
+        refused(R"(, "candidate": true, "slider": true)", "a candidate must be unverified");
+        refused(R"(, "candidate": true, "live": true)", "a candidate must be unverified");
+        refused(R"(, "candidate": true, "proof": {"session": "P1", "evidence": "EV/2026-10-14/TEST.md"})", "a candidate must be unverified");
     });
 
     run_case("tuning: a knobs file with an error is refused as a whole", [] {
