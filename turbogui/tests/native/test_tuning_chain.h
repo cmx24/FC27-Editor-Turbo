@@ -672,6 +672,20 @@ static void chain_cases() {
                   live["marking.unverified"].why.find("unverified") != std::string::npos,
               "the knobs located through the chain; the unverified one not");
         CHECK(r.svc->anchors_status().find("3 of 3 locators resolved (3 through the attribute manager)") == 0, r.svc->anchors_status());
+        // the 2.3 line the coordinator's tools read (TOOLS\ab_width.py, X1P\x1p_check.py: regex
+        // "locator attrib\.attackinglinelengthwidth found: .* base (0x[0-9A-Fa-f]+)"), one per located group, after the chain locate too
+        CHECK(r.logged("gameplay tuning: locator attrib.llw found: type AttribSchema_gp_positioningformation_linelengthwidth, base 0x35000000") &&
+                  r.logged("gameplay tuning: locator attrib.zonal found: type AttribSchema_gp_positioning_zonal_defense, base 0x35001000, simulation 0x35002000") &&
+                  r.logged("gameplay tuning: locator attrib.bands found: type AttribSchema_pm_teamtacticssettings, base 0x35003000") &&
+                  !r.logged("gameplay tuning: locator attrib.unverified found"),
+              "the 2.3 lines for the located groups");
+        {
+            const std::string l = r.line("gameplay tuning: locator attrib.llw found: ");
+            const size_t b = l.find(" base 0x");
+            CHECK(l.find("gameplay tuning: locator attrib.llw found: type ") == 0 && b != std::string::npos &&
+                      std::strtoull(l.c_str() + b + 8, nullptr, 16) == ChainWorld::kLlw,
+                  "the tools' regex takes the instance address from it: " + l);
+        }
         // a second game session on the same build: no name search again (the marker), the same instances
         ChainRig r2(w, g_out / "tuning_chain_svc", chain_knobs(), w.lookup(), nullptr, false);
         ls = r2.svc->locate_status();
@@ -693,7 +707,9 @@ static void chain_cases() {
         ls = r4.svc->locate_status();
         CHECK(ls.path == "search" && r4.logged("tuning: signature attrib_db_getter was not found on this game build: the attribulator is located by the name search (fallback)"),
               "fallback: " + ls.path);
-        CHECK(ls.ready && r4.live()["shape.width_in"].located && r4.logged("found by the name search"), "located by the name search");
+        CHECK(ls.ready && r4.live()["shape.width_in"].located &&
+                  r4.logged("gameplay tuning: locator attrib.llw found: type AttribSchema_gp_positioningformation_linelengthwidth, base 0x35000000 (the name search)"),
+              "located by the name search (the 2.3 line)");
         // the game is starting (no manager): not ready, tried again after a back-off; then located
         ChainWorld w5;
         w5.mem.wr(ChainWorld::kG, uint64_t(0));

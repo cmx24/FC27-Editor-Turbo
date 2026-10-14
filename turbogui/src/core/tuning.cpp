@@ -3622,17 +3622,25 @@ void CoreService::ensure_anchors() {
                 int groups = 0, knobs = 0;
                 std::string first;
                 bool unreached = false;
+                std::vector<std::string> found_lines;
                 for (const auto& kv : got) {
                     anchors_[kv.first] = kv.second;
                     if (kv.second.refused) refused_.insert(kv.first);
                     if (kv.second.ok) {
                         ++groups;
+                        // the 2.3 line for every located group, exactly as 2.3 wrote it (the coordinator's tools take the instance from it:
+                        // "gameplay tuning: locator <name> found: type <type>, base 0x<instance>[, simulation 0x..]")
+                        const Locator* fl = reg->locator(kv.first);
+                        std::string where;
+                        for (const Copy& c : kv.second.copies) where += (where.empty() ? "" : ", ") + c.variant + " " + hex(c.base);
+                        found_lines.push_back("gameplay tuning: locator " + kv.first + " found: type " + (fl ? fl->type : std::string()) + ", " + where);
                         for (const Knob& k : reg->knobs) knobs += k.locator == kv.first && k.placeholder().empty() ? 1 : 0;
                     } else {
                         if (first.empty()) first = kv.first + ": " + kv.second.why;
                         if (!kv.second.refused) unreached = true;
                     }
                 }
+                for (const std::string& fl : found_lines) log(fl);
                 if (unreached) {
                     // a variant beyond the current database (the enumeration did not complete): the locate runs again later
                     chain_stage_ = 0;
@@ -3694,7 +3702,8 @@ void CoreService::ensure_anchors() {
             std::string where;
             for (const Copy& c : a.copies) where += (where.empty() ? "" : ", ") + c.variant + " " + hex(c.base);
             log("gameplay tuning: locator " + l.name +
-                (a.ok ? (l.kind == "attrib" ? " found by the name search: type " + l.type + ", " + where : " anchored at " + hex(a.addr) + " (inline pattern)")
+                // the 2.3 line, kept exactly (the coordinator's tools find the instance with it): "locator <name> found: type <type>, base 0x.."
+                (a.ok ? (l.kind == "attrib" ? " found: type " + l.type + ", " + where + " (the name search)" : " anchored at " + hex(a.addr) + " (inline pattern)")
                       : " not resolved: " + a.why));
             std::lock_guard<std::mutex> lock(mu_);
             if (anchors_epoch_ != epoch) continue;

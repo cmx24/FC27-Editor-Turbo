@@ -1302,7 +1302,7 @@ static void run() {
         };
         auto live = read();
         CHECK(live["shape.speed"].located && live["shape.speed"].copies.size() == 2 && searches == 2, fmt("located, one image + one heap search (%d)", searches));
-        CHECK(has_text(logs, "locator attrib.test found by the name search: type AttribSchema_test_group, base 0x24000000, simulation 0x24001000"), "logged");
+        CHECK(has_text(logs, "gameplay tuning: locator attrib.test found: type AttribSchema_test_group, base 0x24000000, simulation 0x24001000"), "logged (the 2.3 line)");
         Context c;
         c.session = "s";
         c.load_gen = 1;
