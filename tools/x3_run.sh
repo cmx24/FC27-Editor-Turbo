@@ -28,13 +28,14 @@ fi
 say() { echo "[x3 $(date +%H:%M:%S)] $*"; }
 kill_game() {
   if [ "$MOCK" = 1 ]; then echo "killed $(date +%H:%M:%S) phase $PHASE" >> "$X3_DIR/killed.txt"; say "mock: kill recorded (none sent)"; return 0; fi
+  "$PY" "$HERE/harness.py" state --write > /dev/null || { say "GAME_STATE is no longer a coordinator session (re-read before the kill): the game is NOT killed"; return 0; }
   MSYS_NO_PATHCONV=1 taskkill /IM FC27.exe /F > /dev/null 2>&1 || powershell -NoProfile -Command "Stop-Process -Name FC27 -Force" > /dev/null 2>&1
   rmdir "$TO/turbo_dev_client.lock" 2> /dev/null
   say "game killed (post-flight C.8: GAME_STATE CLOSED, md5 of CmMgrC*; the sentinels die with the process)"
 }
 [ "$PHASE" = hub ] || [ "$PHASE" = open ] || [ "$PHASE" = after ] || { sed -n '2,17p' "$0"; exit 2; }
 if [ "$MOCK" != 1 ]; then
-  "$PY" "$HERE/harness.py" state || { echo "VERDICT INCONCLUSIVE (x3_run $PHASE: refused, nothing sent, nothing killed)"; exit 3; }
+  "$PY" "$HERE/harness.py" state --write || { echo "VERDICT INCONCLUSIVE (x3_run $PHASE: refused, nothing sent, nothing killed)"; exit 3; }
 fi
 RC=3; KEEP=0
 cleanup() { [ "$KEEP" = 1 ] || kill_game; exit "$RC"; }

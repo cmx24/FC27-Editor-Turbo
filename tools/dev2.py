@@ -92,8 +92,10 @@ def call(req, timeout=60, repost=0.7, allow_write=False):
     if not allow_write and has_write_op(req):
         return {"error": "dev2: write/key ops need allow_write=True (coordinator only)"}
     tok, line = harness.read_game_state()
-    if tok not in harness.LIVE_TOKENS:
-        return {"error": "dev2: GAME_STATE is %s (%r): no request posted" % (tok or "missing", line)}
+    writes = has_write_op(req)
+    if tok not in (harness.WRITE_TOKENS if writes else harness.LIVE_TOKENS):
+        return {"error": "dev2: GAME_STATE is %s (%r): no %s posted" % (tok or "missing", line,
+                                                                       "write (needs LAUNCHING / MATCH-AB)" if writes else "request")}
     deadline = time.time() + timeout
     if not _acquire(deadline):
         return {"error": "dev2: lock busy (another client)"}
@@ -193,6 +195,12 @@ def self_test():
                 f.write("state: MATCH-AB (21:00) - coordinator\n")
             tok, _ = harness.read_game_state()
             check(tok == "MATCH-AB", "GAME_STATE token parsed: %s" % tok)
+            with open(st, "w") as f:
+                f.write("state: HUB (21:00) - read-only agent window\n")
+            r = call({"op": "write", "addr": "0x10", "hex": "00"}, timeout=1, allow_write=True)
+            check("needs LAUNCHING / MATCH-AB" in r.get("error", ""), "a write while GAME_STATE is HUB (read-only window): refused")
+            with open(st, "w") as f:
+                f.write("state: MATCH-AB (21:00) - coordinator\n")
             r = call({"op": "ping"}, timeout=0.6, repost=0.2)  # live state, nobody answers: posts, then times out
             check(r.get("error") == "timeout" and os.path.exists(REQ) and not os.path.exists(LOCK),
                   "live state: request posted, timeout reported, lock released")

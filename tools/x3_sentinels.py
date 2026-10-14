@@ -80,7 +80,7 @@ def main(argv=None, plan_obj=None, tool="x3_sentinels", state_name="x3_sentinels
     if a.self_test:
         return self_test()
     harness.require_mock_file(a.mock, tool=tool)
-    harness.require_live(a.mock is not None, tool=tool)
+    harness.require_live(a.mock is not None, tool=tool, write=not a.dry_run)
     box = harness.timebox(a.budget + 15, tool)
     try:
         if a.mock is not None and not a.mock:

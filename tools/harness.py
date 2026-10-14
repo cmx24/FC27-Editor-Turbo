@@ -25,6 +25,8 @@ EXIT = {"PASS": PASS, "FAIL": FAIL, "INCONCLUSIVE": INCONCLUSIVE}
 
 # GAME_STATE tokens (brief C.7). Live tools run only when the first line names one of these.
 LIVE_TOKENS = ("LAUNCHING", "HUB", "MATCH", "MATCH-AB")
+# Writes to the game and game kills need a coordinator-only state (review minor 5): HUB / MATCH are read-only agent windows (C.7).
+WRITE_TOKENS = ("LAUNCHING", "MATCH-AB")
 
 
 def read_game_state(path=None):
@@ -42,15 +44,16 @@ def read_game_state(path=None):
     return (words[0].upper() if words else None), line
 
 
-def require_live(mock, path=None, tool=""):
-    """Refuse (exit 3, INCONCLUSIVE) unless --mock or GAME_STATE names a live state. Returns the token."""
+def require_live(mock, path=None, tool="", write=False):
+    """Refuse (exit 3, INCONCLUSIVE) unless --mock or GAME_STATE names a live state (a write: LAUNCHING / MATCH-AB). Returns the token."""
     if mock:
         return "MOCK"
     tok, line = read_game_state(path)
-    if tok not in LIVE_TOKENS:
+    if tok not in (WRITE_TOKENS if write else LIVE_TOKENS):
         why = "missing or unreadable" if tok is None else "says %s" % tok
-        print("%s: refused - %s %s (line: %r). Live tools run only in a coordinator session (brief C.7); "
-              "use --mock for the offline proof." % (tool or os.path.basename(sys.argv[0]), path or GAME_STATE, why, line))
+        print("%s: refused - %s %s (line: %r). Live tools run only in a coordinator session (brief C.7)%s; "
+              "use --mock for the offline proof." % (tool or os.path.basename(sys.argv[0]), path or GAME_STATE, why, line,
+                                                     ", writes only in LAUNCHING / MATCH-AB" if write else ""))
         print("VERDICT INCONCLUSIVE")
         sys.stdout.flush()
         sys.exit(INCONCLUSIVE)
@@ -371,10 +374,10 @@ def _cli(argv):
     """python harness.py state            -> prints the GAME_STATE line; exit 0 when live, 3 otherwise
        python harness.py mock-x1 DIR      -> builds the X1 mock world in DIR (mem.json, turbo_gui.log); prints the instance
        python harness.py marker FILE LBL  -> atomically writes the window marker"""
-    if argv[:1] == ["state"]:
+    if argv[:1] == ["state"]:  # state [--write]: --write = a coordinator-only state (writes, kills)
         tok, line = read_game_state()
         print("GAME_STATE %s: %s" % (tok or "missing", line or GAME_STATE))
-        return 0 if tok in LIVE_TOKENS else INCONCLUSIVE
+        return 0 if tok in (WRITE_TOKENS if "--write" in argv else LIVE_TOKENS) else INCONCLUSIVE
     if argv[:1] == ["mock-x1"] and len(argv) == 2:
         os.makedirs(argv[1], exist_ok=True)
         mem, inst = build_x1_world(os.path.join(argv[1], "mem.json"), os.path.join(argv[1], "turbo_gui.log"))

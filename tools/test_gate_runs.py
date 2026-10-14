@@ -89,6 +89,12 @@ def self_test(bash=None):
         for script, phase in (("x2_run.sh", "match"), ("x3_run.sh", "after")):
             rc, out = run(script, [phase])
             check(rc == 3 and "refused" in out, "%s %s without --mock while GAME_STATE is CLOSED: refused, exit 3" % (script, phase))
+        for token in ("USER", "HUB"):  # USER = Cassio's own game; HUB = a read-only window (wrappers may write and kill)
+            with open(env0["TURBO_GAME_STATE"], "w") as f:
+                f.write("state: %s (21:00) - offline test\n" % token)
+            for script in ("x1_run.sh", "x2_run.sh", "x3_run.sh"):
+                rc, out = run(script, ["hub"])
+                check(rc == 3 and "refused" in out, "%s hub while GAME_STATE is %s: refused before any trap, exit 3" % (script, token))
         check(not os.path.exists(calls), "no taskkill / tasklist / powershell call was made by any run")
     print("SELF-TEST " + ("PASSED" if ok else "FAILED"))
     return 0 if ok else 1

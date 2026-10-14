@@ -74,6 +74,7 @@ kill_game() {
   if [ "$MOCK" = 1 ]; then
     echo "killed $(date +%H:%M:%S) phase $PHASE" >> "$MD/killed.txt"; say "mock: game kill recorded (no kill sent)"; return 0
   fi
+  "$PY" "$HERE/harness.py" state --write > /dev/null || { say "GAME_STATE is no longer a coordinator session (re-read before the kill): the game is NOT killed"; return 0; }
   MSYS_NO_PATHCONV=1 taskkill /IM FC27.exe /F > /dev/null 2>&1 \
     || powershell -NoProfile -Command "Stop-Process -Name FC27 -Force" > /dev/null 2>&1
   rmdir "$TO/turbo_dev_client.lock" 2> /dev/null
@@ -93,27 +94,26 @@ fi
 
 # ------------------------------------------------------------------------------------------------------------------ refusals
 if [ "$MOCK" != 1 ]; then
-  "$PY" "$HERE/harness.py" state || { echo "VERDICT INCONCLUSIVE (x1_run $PHASE: refused, nothing sent, nothing killed)"; exit 3; }
+  "$PY" "$HERE/harness.py" state --write || { echo "VERDICT INCONCLUSIVE (x1_run $PHASE: refused, nothing sent, nothing killed)"; exit 3; }
   game_running || { echo "FC27.exe is not running: nothing to do"; echo "VERDICT INCONCLUSIVE (x1_run $PHASE)"; exit 3; }
 fi
 
 LOG="$X1_DIR/${STAMP}_$PHASE.log"
 exec > >(tee -a "$LOG") 2>&1
-RC=3; MPID=""; KEEP_GAME=0
+RC=3; MPID=""; CHILD=""; KEEP_GAME=0
 rm -f "$PAUSE" "$STOP"
 cleanup() {
   [ -n "${WDOG:-}" ] && kill "$WDOG" 2> /dev/null
+  [ -n "$CHILD" ] && kill "$CHILD" 2> /dev/null
   [ -n "$MPID" ] && kill "$MPID" 2> /dev/null
   rm -f "$PAUSE" "$STOP"
-  if [ "$KEEP_GAME" != 1 ]; then
-    if ! xw check --expect 1.0 > /dev/null 2>&1; then
-      say "value is not FC 27's 1.0: revert before the kill"; xw revert --allow-write | tail -3
-    fi
-    kill_game
-  fi
+  # kill FIRST, no dev call before it (review minor 8): a written value dies with the process; kill_game re-reads GAME_STATE (minor 6)
+  [ "$KEEP_GAME" != 1 ] && kill_game
   say "log: $LOG"
   exit "$RC"
 }
+# long python steps run in the background and are waited for: a TERM (watchdog, Ctrl-C) runs the trap at once (review minor 7)
+bgwait() { "$@" & CHILD=$!; wait "$CHILD"; local rc=$?; CHILD=""; return $rc; }
 trap cleanup EXIT
 trap 'say "interrupted"; RC=3; exit' INT TERM
 say "phase $PHASE value $VALUE mode $MODE mock $MOCK (scale $SCALE) dir $X1_DIR"
@@ -141,7 +141,7 @@ fi
 # (KO_END - SINCE_KO) simulated seconds from now = about 445 s after kick-off: 35 s before the half-time whistle of 8-minute halves
 DEADLINE=$((KO_END - SINCE_KO))
 # the watchdog must not hold this script's output pipe (an orphaned sleep would keep a caller's pipeline open)
-( exec > /dev/null 2>&1; sleep "$(awk -v s="$((DEADLINE + 25))" -v k="$SCALE" 'BEGIN{printf "%.3f", s*k}')"
+( exec > /dev/null 2>&1; sleep "$(awk -v s="${X1_WATCHDOG_S:-$((DEADLINE + 25))}" -v k="$SCALE" 'BEGIN{printf "%.3f", s*k}')"
   echo "[x1 $(date +%H:%M:%S)] watchdog: the deadline passed, TERM sent" >> "$LOG"; kill -TERM $$ ) &
 WDOG=$!
 if ! xw check --expect "$VALUE"; then
@@ -149,7 +149,7 @@ if ! xw check --expect "$VALUE"; then
 fi
 RUN="$X1_DIR/${STAMP}_run"
 say "check: match_measure --check (20 s)"
-if ! timeout "$(awk -v k="$SCALE" 'BEGIN{printf "%d", 150*k+30}')" "$PY" "$HERE/match_measure.py" --check -v --label x1check \
+if ! bgwait timeout "$(awk -v k="$SCALE" 'BEGIN{printf "%d", 150*k+30}')" "$PY" "$HERE/match_measure.py" --check -v --label x1check \
      --marker "$M" --run-dir "${RUN}_check" "${MM[@]}" > "$X1_DIR/${STAMP}_check.log" 2>&1; then
   tail -3 "$X1_DIR/${STAMP}_check.log"; verdict FAIL "match_measure --check failed (route C / 22 players / moving)"; exit
 fi
@@ -187,7 +187,7 @@ wait_measure() {
 }
 if [ "$MODE" = inproc ]; then
   say "in-process schedule: x1_write.py schedule (sampler + 3 writes in ONE process; live-proven pattern)"
-  "$PY" "$HERE/x1_write.py" schedule "$VALUE" --allow-write --win "$W" --run-dir "$RUN" "${XW[@]}" > "$RUN.log" 2>&1
+  bgwait "$PY" "$HERE/x1_write.py" schedule "$VALUE" --allow-write --win "$W" --run-dir "$RUN" "${XW[@]}" > "$RUN.log" 2>&1
   src=$?
   grep -a -E "^schedule|-> (A1|B2|A2)|read back|stopped|written:|VERDICT" "$RUN.log" | cut -c1-170
   [ "$src" = 0 ] || { verdict FAIL "the in-process schedule failed (exit $src, see $RUN.log)"; exit; }
@@ -210,7 +210,7 @@ else
   WINS=(--csv "$RUN/positions.csv")
 fi
 kill "$WDOG" 2> /dev/null
-xw check --expect 1.0 || say "WARNING: the final check did not read 1.0 (cleanup reverts before the kill)"
+xw check --expect 1.0 || say "WARNING: the final check did not read 1.0 (the value dies with the kill below)"
 kill_game; KEEP_GAME=1  # killed here, right after the last window; the analysis needs no game
 BASE=()
 [ -n "${X1_BASELINE:-}" ] && BASE=(--x1-baseline "$X1_BASELINE")

@@ -89,8 +89,13 @@ def self_test(bash=None):
         rc, out, nk, _, _ = run("late", ["--mock", "hub"], X1_MOCK_ENGINE="live")
         rc, out, nk, _, x1 = run("late", ["--mock", "match", "--since-ko", "300"], X1_MOCK_ENGINE="live", X1_KO_END="445")
         wl = open(os.path.join(x1, "mock", "x1_write.log")).read()
-        check(rc == 3 and "windows would be" in out and nk == 1 and wl.strip().splitlines()[-1].endswith("-> 1.000000 (read back ok)"),
-              "started too late (300 s after kick-off): INCONCLUSIVE, knob reverted, killed (exit %d)" % rc)
+        check(rc == 3 and "windows would be" in out and nk == 1 and wl.count("(read back ok)") == 1,
+              "started too late (300 s after kick-off): INCONCLUSIVE, killed at once (no dev call before the kill) (exit %d)" % rc)
+        rc, out, nk, _, _ = run("wd", ["--mock", "hub"], X1_MOCK_ENGINE="live")
+        rc, out, nk, sec, x1 = run("wd", ["--mock", "match"], X1_MOCK_ENGINE="live", X1_WATCHDOG_S="140")
+        log = open(sorted(os.path.join(x1, f) for f in os.listdir(x1) if f.endswith("_match.log"))[-1]).read()
+        check(rc == 3 and nk == 1 and "watchdog" in log and sec < 18,
+              "the watchdog stops a running schedule at once and kills (exit %d, %.0f s; a full run takes ~21 s)" % (rc, sec))
         # 4. live path with GAME_STATE CLOSED: refused before anything (no process lookup, no kill)
         with open(base_env["TURBO_GAME_STATE"], "w") as f:
             f.write("state: CLOSED (21:00) - offline test\n")

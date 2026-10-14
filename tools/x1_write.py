@@ -140,7 +140,7 @@ def main(argv=None):
     ap.add_argument("--mock", action="store_true")
     ap.add_argument("--mock-mem", default=os.environ.get("TURBO_MOCK_MEM"))
     a = ap.parse_args(argv)
-    harness.require_live(a.mock, tool=TOOL)
+    harness.require_live(a.mock, tool=TOOL, write=a.cmd != "check")
     if a.budget is None:
         a.budget = 4 * a.win + 150 if a.cmd == "schedule" else 30.0
     if a.cmd == "schedule" and not a.run_dir:
