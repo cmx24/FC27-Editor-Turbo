@@ -71,6 +71,11 @@ void install_kit_swap(turbo::App& app) {
     };
     auto* rt = new Runtime(le_root(), game, oodle);  // lives as long as the process
     app.kit_swap = rt;
+    // Without turbo_output\\kits3d_on.txt a kit left on in an old session reads nothing, scans nothing and installs no hook
+    rt->require_opt_in = true;
+    // The reading of the game's kit data (and the plan) runs below normal priority so it does not compete with the game's own loading
+    rt->worker_init = []() { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL); };
+    rt->set_killed(file_exists(le_root() / "turbo_output" / "kits3d_off.txt"));  // before start(): the kill switch also stops the first build
     // The hook goes in when a kit is first switched on (or one was left on last session), never for a player who does not use it
     rt->ensure_hook = [rt](std::string* why_out) {
         std::string why;

@@ -521,6 +521,11 @@ bool scan_kits(GameFiles& files, const OodleFn& oodle, KitIndex& out, Progress* 
             kb.bundle = uint32_t(i);
             kb.team = first.team;
             kb.kind = first.kind;
+            for (const auto& kind : kinds) {
+                const int ks = kind_slot(kind);
+                if (ks >= 0) kb.slot_mask |= 1u << ks;
+                out.kinds[first.team].insert(kind);
+            }
             out.bundles.push_back(kb);
             for (size_t c = 0; c < m.chunks.size(); ++c) {
                 auto& u = out.users[phys_key(locs[base + c])];
@@ -534,6 +539,194 @@ bool scan_kits(GameFiles& files, const OodleFn& oodle, KitIndex& out, Progress* 
     }
     out.seconds = now_s() - t0;
     return true;
+}
+
+// ---------------------------------------------------------------- the kit index on disk
+std::string index_signature(const GameFiles& files) {
+    std::string sig = "v1";
+    auto add = [&](const std::string& rel) {
+        std::error_code ec;
+        const fs::path p = files.root() / fs::path(rel);
+        const auto sz = fs::file_size(p, ec);
+        const auto tm = fs::last_write_time(p, ec);
+        sig += "|" + rel + ":" + (ec ? std::string("?") : std::to_string(sz) + ":" + std::to_string(tm.time_since_epoch().count()));
+    };
+    add("Data/layout.toc");
+    for (const auto& t : files.list_tocs()) add(t);
+    return sig;
+}
+
+namespace {
+struct Wr {
+    std::vector<uint8_t> b;
+    void u32(uint32_t v) {
+        for (int i = 0; i < 4; ++i) b.push_back(uint8_t(v >> (8 * i)));
+    }
+    void i32(int32_t v) { u32(uint32_t(v)); }
+    void str(const std::string& s) {
+        u32(uint32_t(s.size()));
+        b.insert(b.end(), s.begin(), s.end());
+    }
+};
+struct Rd {
+    const std::vector<uint8_t>& b;
+    size_t p = 0;
+    bool ok = true;
+    explicit Rd(const std::vector<uint8_t>& v) : b(v) {}
+    uint32_t u32() {
+        if (b.size() - p < 4) { ok = false; return 0; }
+        const uint32_t v = le32(&b[p]);
+        p += 4;
+        return v;
+    }
+    int32_t i32() { return int32_t(u32()); }
+    std::string str() {
+        const uint32_t n = u32();
+        if (!ok || b.size() - p < n) { ok = false; return {}; }
+        std::string s(reinterpret_cast<const char*>(&b[p]), n);
+        p += n;
+        return s;
+    }
+};
+constexpr uint32_t kCacheMagic = 0x58494B54;  // "TKIX"
+constexpr uint32_t kCacheVersion = 2;
+}  // namespace
+
+bool save_index_cache(const GameFiles& files, const KitIndex& idx, const fs::path& file) {
+    try {
+        std::vector<std::string> kinds;
+        std::unordered_map<std::string, uint32_t> kidx;
+        auto kid = [&](const std::string& k) {
+            auto it = kidx.find(k);
+            if (it != kidx.end()) return it->second;
+            kinds.push_back(k);
+            return kidx[k] = uint32_t(kinds.size() - 1);
+        };
+        Wr w;
+        w.u32(kCacheMagic);
+        w.u32(kCacheVersion);
+        w.str(index_signature(files));
+        w.u32(uint32_t(idx.tocs.size()));
+        for (const auto& t : idx.tocs) w.str(t);
+        w.i32(idx.bundles_seen);
+        w.i32(idx.unreadable);
+        w.u32(uint32_t(idx.bundles.size()));
+        for (const auto& b : idx.bundles) {
+            w.i32(b.toc);
+            w.u32(b.bundle);
+            w.i32(b.team);
+            w.u32(kid(b.kind));
+            w.u32(b.slot_mask);
+        }
+        w.u32(uint32_t(idx.users.size()));
+        for (const auto& kv : idx.users) {
+            w.str(kv.first);
+            w.u32(uint32_t(kv.second.size()));
+            for (const auto& u : kv.second) {
+                w.i32(u.team);
+                w.i32(u.slot);
+                w.u32(kid(u.kind));
+            }
+        }
+        w.u32(uint32_t(idx.kinds.size()));
+        for (const auto& kv : idx.kinds) {
+            w.i32(kv.first);
+            w.u32(uint32_t(kv.second.size()));
+            for (const auto& k : kv.second) w.u32(kid(k));
+        }
+        Wr head;
+        head.u32(uint32_t(kinds.size()));
+        for (const auto& k : kinds) head.str(k);
+        std::error_code ec;
+        fs::create_directories(file.parent_path(), ec);
+        const fs::path tmp = file.string() + ".tmp";
+        {
+            std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+            f.write(reinterpret_cast<const char*>(head.b.data()), std::streamsize(head.b.size()));
+            f.write(reinterpret_cast<const char*>(w.b.data()), std::streamsize(w.b.size()));
+            if (!f) return false;
+        }
+        fs::remove(file, ec);
+        fs::rename(tmp, file, ec);
+        return !ec;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool load_index_cache(const GameFiles& files, const fs::path& file, KitIndex& out) {
+    try {
+        std::ifstream f(file, std::ios::binary | std::ios::ate);
+        if (!f) return false;
+        const std::streamoff n = f.tellg();
+        if (n < 16 || n > (std::streamoff(1) << 29)) return false;
+        std::vector<uint8_t> d;
+        d.resize(size_t(n));
+        f.seekg(0);
+        f.read(reinterpret_cast<char*>(d.data()), n);
+        if (!f) return false;
+        Rd r(d);
+        const uint32_t nk = r.u32();
+        if (!r.ok || nk > 1000000) return false;
+        std::vector<std::string> kinds;
+        for (uint32_t i = 0; i < nk && r.ok; ++i) kinds.push_back(r.str());
+        if (r.u32() != kCacheMagic || r.u32() != kCacheVersion || !r.ok) return false;
+        if (r.str() != index_signature(files)) return false;  // a patch or another build: scan again
+        KitIndex o;
+        const uint32_t nt = r.u32();
+        if (!r.ok || nt > 100000) return false;
+        for (uint32_t i = 0; i < nt && r.ok; ++i) o.tocs.push_back(r.str());
+        o.bundles_seen = r.i32();
+        o.unreadable = r.i32();
+        auto kind_of = [&](uint32_t i) -> const std::string& {
+            static const std::string none;
+            if (i >= kinds.size()) { r.ok = false; return none; }
+            return kinds[i];
+        };
+        const uint32_t nb = r.u32();
+        if (!r.ok || nb > 5000000) return false;
+        for (uint32_t i = 0; i < nb && r.ok; ++i) {
+            KitBundle b;
+            b.toc = r.i32();
+            b.bundle = r.u32();
+            b.team = r.i32();
+            b.kind = kind_of(r.u32());
+            b.slot_mask = r.u32();
+            if (b.toc < 0 || size_t(b.toc) >= o.tocs.size()) return false;
+            o.bundles.push_back(std::move(b));
+        }
+        const uint32_t nu = r.u32();
+        if (!r.ok || nu > 20000000) return false;
+        o.users.reserve(nu);
+        for (uint32_t i = 0; i < nu && r.ok; ++i) {
+            std::string key = r.str();
+            const uint32_t c = r.u32();
+            if (!r.ok || c > 100000) return false;
+            std::vector<KitUser> us;
+            for (uint32_t k = 0; k < c && r.ok; ++k) {
+                KitUser u;
+                u.team = r.i32();
+                u.slot = r.i32();
+                u.kind = kind_of(r.u32());
+                us.push_back(std::move(u));
+            }
+            o.users.emplace(std::move(key), std::move(us));
+        }
+        const uint32_t nteams = r.u32();
+        if (!r.ok || nteams > 1000000) return false;
+        for (uint32_t i = 0; i < nteams && r.ok; ++i) {
+            const int32_t team = r.i32();
+            const uint32_t c = r.u32();
+            if (!r.ok || c > 100000) return false;
+            for (uint32_t k = 0; k < c && r.ok; ++k) o.kinds[team].insert(kind_of(r.u32()));
+        }
+        if (!r.ok || r.p != d.size()) return false;
+        o.from_cache = true;
+        out = std::move(o);
+        return true;
+    } catch (...) {
+        return false;
+    }
 }
 
 // ---------------------------------------------------------------- staged textures
@@ -584,7 +777,8 @@ uint32_t TableBuilder::add_item(std::shared_ptr<std::vector<uint8_t>> data, bool
     return uint32_t(d_->storage.size() - 1);
 }
 bool TableBuilder::add_block(uint32_t item, uint32_t csize, uint32_t dsize, uint64_t head, uint64_t fnv, const uint8_t* data, std::string*) {
-    if (item >= d_->storage.size() || !data || !csize || !dsize) return false;
+    if (item >= d_->storage.size() || !csize || !dsize) return false;
+    if (!data && d_->storage[item]) return false;  // a real item needs its replacement bytes; a watch-only item has none
     Impl::Rec r;
     r.e.csize = csize;
     r.e.dsize = dsize;
@@ -615,17 +809,22 @@ std::shared_ptr<Table> TableBuilder::finish(std::vector<std::string>* dropped, s
     std::sort(order.begin(), order.end(), [&](size_t a, size_t b) { return key(a) < key(b) || (key(a) == key(b) && a < b); });
     for (size_t i = 0; i < order.size();) {
         size_t j = i + 1;
-        const size_t first = order[i];
-        while (j < order.size() && key(order[j]) == key(first)) {
-            auto& other = recs[order[j]];
-            if (std::memcmp(recs[first].e.data, other.e.data, other.e.dsize) == 0) {
-                other.dead = true;
+        while (j < order.size() && key(order[j]) == key(order[i])) ++j;
+        // the survivor of a group of identical blocks: the first one that carries replacement bytes (a watch-only record never wins over a real one)
+        size_t first = order[i];
+        for (size_t k = i; k < j; ++k)
+            if (recs[order[k]].e.data) { first = order[k]; break; }
+        for (size_t k = i; k < j; ++k) {
+            const size_t oi = order[k];
+            if (oi == first) continue;
+            auto& other = recs[oi];
+            if (!other.e.data || !recs[first].e.data || std::memcmp(recs[first].e.data, other.e.data, other.e.dsize) == 0) {
+                other.dead = true;  // identical block, same replacement (or watch only): one entry, both counters
                 if (other.e.item != recs[first].e.item) aliases[first].push_back(other.e.item);
             } else {
                 poisoned.insert(recs[first].e.item);
                 poisoned.insert(other.e.item);
             }
-            ++j;
         }
         i = j;
     }
@@ -650,7 +849,7 @@ std::shared_ptr<Table> TableBuilder::finish(std::vector<std::string>* dropped, s
             e.alias_n = uint32_t(t->alias_pool_.size()) - e.alias_off;
         }
         t->entries_.push_back(e);
-        t->bytes_ += e.dsize;
+        if (e.data) t->bytes_ += e.dsize;
         t->min_csize_ = std::min(t->min_csize_, e.csize);
         t->max_csize_ = std::max(t->max_csize_, e.csize);
     }
@@ -697,8 +896,10 @@ struct Tex {
     TexHeader hdr;
     Loc loc;
     uint32_t logical = 0;
+    bool in_slot = true;  // false: a texture of another kit folder of the club (only watched)
 };
 struct Cand {
+    std::string note;  // swapped, with a caveat (shared with the club's other kits)
     uint32_t item;
     std::vector<Block> blocks;
     std::vector<uint64_t> fnv;
@@ -718,7 +919,8 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
         std::map<int, std::vector<std::vector<Loc>>> toc_cache;
         std::vector<Tex> texs;
         for (const KitBundle& kb : index.bundles) {
-            if (kb.team != staged.team || kind_slot(kb.kind) != staged.slot) continue;
+            const bool in_slot_bundle = staged.slot >= 0 && staged.slot < 32 && (kb.slot_mask & (1u << staged.slot));
+            if (kb.team != staged.team || !(in_slot_bundle || (opt.watch_club && kb.slot_mask))) continue;
             if (progress && progress->cancel.load()) { plan.error = "cancelled"; return plan; }
             auto it = toc_cache.find(kb.toc);
             if (it == toc_cache.end()) {
@@ -745,8 +947,12 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
             for (size_t r = 0; r < nr; ++r) {
                 if (m.res[r].type != kTextureResType) continue;
                 const KitName kn = parse_kit_name(m.res[r].name);
-                if (!kn.ok) continue;
+                if (!kn.ok || kn.team != staged.team) continue;
+                const int rs = kind_slot(kn.kind);  // the slot is decided per texture (a bundle can name kit folders of several slots)
+                const bool in_slot = rs == staged.slot;
+                if (!in_slot && !(opt.watch_club && rs >= 0)) continue;
                 Tex t;
+                t.in_slot = in_slot;
                 t.res = m.res[r].name;
                 t.leaf = kn.leaf;
                 t.kind = kn.kind;
@@ -771,7 +977,9 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
             }
         }
         std::sort(texs.begin(), texs.end(), [](const Tex& a, const Tex& b) { return std::tie(a.kind, a.part, a.leaf) < std::tie(b.kind, b.part, b.leaf); });
-        if (texs.empty()) {
+        bool any_in_slot = false;
+        for (const Tex& t : texs) any_in_slot = any_in_slot || t.in_slot;
+        if (!any_in_slot) {
             plan.error = "the game has no 3D kit textures for this club's slot (nothing to swap)";
             return plan;
         }
@@ -783,6 +991,7 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
         std::map<std::string, std::shared_ptr<std::vector<uint8_t>>> role_data;  // one copy of a staged picture's data per role
         std::set<std::string> seen_tex;                                          // the same resource at the same place, listed by several bundles
         for (const Tex& t : texs) {
+            if (!t.in_slot) continue;
             if (!seen_tex.insert(t.res + "@" + phys_key(t.loc)).second) continue;
             PlanItem it;
             it.res = t.res;
@@ -799,6 +1008,7 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
             if (sr == by_role.end()) { skip("not in the zip: the game's own texture stays"); continue; }
             const bool decal = t.role.compare(0, 5, "brand") == 0 || t.role.compare(0, 5, "crest") == 0;
             if (decal && !opt.include_decals) { skip("decals are left to the game"); continue; }
+            if (t.role.compare(0, 5, "crest") == 0 && opt.keep_game_crest) { skip("the game's own club badge stays (the zip's crest picture is not served)"); continue; }
             const StagedTexture& st = *sr->second;
             const uint32_t dxgi = dxgi_of_format(t.hdr.fmt_id);
             if (!dxgi) { skip("game format id " + std::to_string(t.hdr.fmt_id) + " is not one Turbo converts"); continue; }
@@ -815,10 +1025,20 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
             const auto us = index.users.find(phys_key(t.loc));
             bool shared = false;
             std::string who;
+            std::set<std::string> club_kinds;  // this club's OTHER kit slots that use the same chunk
             if (us != index.users.end())
-                for (const KitUser& u : us->second)
-                    if (u.team != staged.team || u.slot != staged.slot) { shared = true; who = "team " + std::to_string(u.team) + " " + u.kind; break; }
+                for (const KitUser& u : us->second) {
+                    if (u.team != staged.team || u.slot < 0) { shared = true; who = "team " + std::to_string(u.team) + " " + u.kind; break; }
+                    if (u.slot != staged.slot) club_kinds.insert(u.kind);
+                }
             if (shared) { skip("the chunk is also used by " + who + ": left to the game"); continue; }
+            std::string club_note;
+            if (!club_kinds.empty()) {
+                std::string list;
+                for (const auto& k : club_kinds) list += (list.empty() ? "" : ", ") + k;
+                if (!opt.share_within_club) { skip("the chunk is also used by this club's " + list + ": left to the game (the option 'also change this club's other kits that share a texture' serves it)"); continue; }
+                club_note = "shared with this club's " + list + ": those kits show it too";
+            }
             // blocks
             std::vector<uint8_t> chunk;
             if (!files.read_loc(t.loc, chunk)) { skip("the chunk cannot be read"); continue; }
@@ -862,6 +1082,8 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
             it.bytes = sum;
             c.plan_index = plan.items.size();
             c.own_key = phys_key(t.loc);
+            c.note = club_note;
+            it.reason = club_note;
             plan.items.push_back(it);
             data_of[c.plan_index] = rd->second;
             cands.push_back(std::move(c));
@@ -896,8 +1118,14 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
                     auto w = want.find({cs, ds});
                     if (w != want.end() && files.read(l.cas, l.off + p + 8, cs, pay)) {
                         const uint64_t f = fnv1a64(pay.data(), pay.size());
+                        bool same_club = !kv.second.empty();
+                        for (const KitUser& u : kv.second) same_club = same_club && u.team == staged.team && u.slot >= 0;
                         for (const auto& cb : w->second)
                             if (cands[cb.first].fnv[cb.second] == f) {
+                                if (same_club && opt.share_within_club) {  // the same block in this club's other kit: it shows the replacement too
+                                    if (cands[cb.first].note.empty()) cands[cb.first].note = "a block is shared with this club's " + kv.second[0].kind + ": that kit shows it too";
+                                    continue;
+                                }
                                 bad.insert(cb.first);
                                 if (!bad_why.count(cb.first)) {
                                     const KitUser* u = kv.second.empty() ? nullptr : &kv.second[0];
@@ -909,6 +1137,8 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
                 }
             }
             plan.notes.push_back("block census: " + std::to_string(scanned) + " other kit chunks checked");
+            for (const Cand& c : cands)
+                if (!c.note.empty() && !bad.count(size_t(&c - cands.data()))) plan.items[c.plan_index].reason = c.note;
             for (size_t ci : bad) {
                 PlanItem& it = plan.items[cands[ci].plan_index];
                 it.swap = false;
@@ -931,7 +1161,55 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
             it.table_item = id;
             ++plan.swapped;
         }
-        // item ids are the builder's: keep the plan's own numbering out of the table (hits are looked up by the Runtime)
+        // 5. watch only: the club's other kit folders (and this slot's textures the zip does not carry), counted when the game loads them
+        if (opt.watch_club) {
+            static const char* kProbeRoles[] = {"jersey_color", "jersey_normal", "jersey_taa", "jersey_coeff", "shorts_color", "shorts_normal", "socks_color", "socks_normal"};
+            std::set<std::string> done;
+            for (const Cand& c : cands) done.insert(c.own_key);
+            for (const Tex& t : texs) {
+                if (progress && progress->cancel.load()) { plan.error = "cancelled"; return plan; }
+                bool want = false;
+                for (const char* r : kProbeRoles) want = want || t.role == r;
+                const std::string key = phys_key(t.loc);
+                if (!want || done.count(key)) continue;
+                const auto us = index.users.find(key);
+                bool exclusive = us != index.users.end();
+                std::set<std::string> kinds;
+                if (exclusive)
+                    for (const KitUser& u : us->second) {
+                        exclusive = exclusive && u.team == staged.team;
+                        kinds.insert(u.kind);
+                    }
+                if (!exclusive) continue;  // shared with another club: a hit would say nothing about this club
+                std::vector<uint8_t> chunk;
+                std::vector<Block> blocks;
+                if (!files.read_loc(t.loc, chunk) || !block_headers(chunk, blocks) || blocks.empty()) continue;
+                done.insert(key);
+                std::vector<const Block*> usable;
+                for (const Block& b : blocks)
+                    if ((b.ctype == 0x19 || b.ctype == 0x15 || b.ctype == 0x11) && b.csize >= opt.min_csize) usable.push_back(&b);
+                if (usable.empty()) continue;
+                const uint32_t id = tb.add_item(nullptr, false);
+                for (const Block* b : usable) {
+                    uint64_t h8 = 0;
+                    std::memcpy(&h8, &chunk[size_t(b->payload)], 8);
+                    tb.add_block(id, b->csize, b->dsize, h8, fnv1a64(&chunk[size_t(b->payload)], b->csize), nullptr, nullptr);
+                }
+                PlanItem pi;
+                pi.res = t.res;
+                std::string joined;
+                for (const auto& k : kinds) joined += (joined.empty() ? "" : "+") + k;
+                pi.kind = joined;
+                pi.role = t.role;
+                pi.probe = true;
+                pi.swap = false;
+                pi.blocks = int(usable.size());
+                pi.table_item = id;
+                pi.reason = "watch only: the game's own texture, counted when a match loads it";
+                plan.items.push_back(pi);
+                ++plan.probes;
+            }
+        }
         plan.ok = true;
     } catch (const std::exception& e) {
         plan.ok = false;
@@ -970,6 +1248,7 @@ bool Runtime::opted_in() const {
 
 fs::path Runtime::state_path() const { return le_ / "turbo_output" / "kits" / "swap_state.json"; }
 fs::path Runtime::log_path() const { return le_ / "turbo_output" / "kit_swap_log.txt"; }
+fs::path Runtime::index_cache_path() const { return le_ / "turbo_output" / "kits" / "kit_index.cache"; }
 fs::path Runtime::staged_dir(int team, int slot) const { return le_ / "turbo_output" / "kits" / std::to_string(team) / slot_folder_name(slot); }
 
 void Runtime::set_hook_installed(bool on, const std::string& why) {
@@ -979,8 +1258,10 @@ void Runtime::set_hook_installed(bool on, const std::string& why) {
 }
 
 void Runtime::save_state_locked() {
-    json j = {{"version", 1}, {"kits", json::array()}};
-    for (const auto& s : slots_) j["kits"].push_back({{"team", s.team}, {"slot", slot_folder_name(s.slot)}, {"slot_type", s.slot}, {"mode", mode_name(s.mode)}});
+    json j = {{"version", 2}, {"kits", json::array()}, {"watch_club", options.watch_club}};
+    for (const auto& s : slots_)
+        j["kits"].push_back({{"team", s.team}, {"slot", slot_folder_name(s.slot)}, {"slot_type", s.slot}, {"mode", mode_name(s.mode)}, {"decals", s.decals},
+                             {"keep_game_crest", s.keep_crest}, {"share_within_club", s.share_club}});
     std::error_code ec;
     fs::create_directories(state_path().parent_path(), ec);
     const fs::path tmp = state_path().string() + ".tmp";
@@ -1010,20 +1291,91 @@ void Runtime::start() {
         std::ifstream f(state_path(), std::ios::binary);
         if (f) {
             json j = json::parse(f, nullptr, false);
-            if (j.is_object() && j.contains("kits") && j["kits"].is_array())
+            if (j.is_object() && j.contains("kits") && j["kits"].is_array()) {
+                if (j.value("version", 1) >= 2) options.watch_club = j.value("watch_club", options.watch_club);
                 for (const json& k : j["kits"]) {
                     SlotState s;
                     s.team = k.value("team", -1);
                     s.slot = k.value("slot_type", -1);
                     const std::string m = k.value("mode", "observe");
                     s.mode = m == "swap" ? Mode::Swap : Mode::Observe;
+                    s.decals = k.value("decals", true);  // a version 1 file has none of these: the defaults
+                    s.keep_crest = k.value("keep_game_crest", true);
+                    s.share_club = k.value("share_within_club", false);
                     if (s.team >= 0 && s.slot >= 0 && s.slot <= 4) slots_.push_back(s);
                 }
+            }
         }
         if (slots_.empty()) return;
     }
-    hook_ready(nullptr);  // a kit left on in the last session: the hook comes back before the table is built
+    // A kit left on in the last session: nothing is read, scanned or hooked while the opt-in file is missing, the kill switch is there, or the
+    // host refuses the hook (the state file stays as it is; switching a kit on later builds everything)
+    std::string why;
+    if (require_opt_in && !opted_in()) why = "turbo_output\\kits3d_on.txt is missing: nothing is read or hooked";
+    else if (killed_.load()) why = "kill switch turbo_output\\kits3d_off.txt is present: nothing is read or hooked";
+    else if (!hook_ready(&why)) {
+    }
+    if (!why.empty()) {
+        std::lock_guard<std::mutex> lk(m_);
+        state_ = "off";
+        message_ = why;
+        build_skipped_ = true;
+        return;
+    }
     rebuild_async();
+}
+
+bool Runtime::set_slot_options(int team, int slot, bool decals, bool keep_crest, bool share_club) {
+    {
+        std::lock_guard<std::mutex> lk(m_);
+        bool found = false;
+        for (auto& s : slots_)
+            if (s.team == team && s.slot == slot) {
+                s.decals = decals;
+                s.keep_crest = keep_crest;
+                s.share_club = share_club;
+                found = true;
+            }
+        if (!found) return false;
+        save_state_locked();
+    }
+    rebuild_async();
+    return true;
+}
+
+bool Runtime::slot_options(int team, int slot, bool* decals, bool* keep_crest, bool* share_club) const {
+    std::lock_guard<std::mutex> lk(m_);
+    for (const auto& s : slots_)
+        if (s.team == team && s.slot == slot) {
+            if (decals) *decals = s.decals;
+            if (keep_crest) *keep_crest = s.keep_crest;
+            if (share_club) *share_club = s.share_club;
+            return true;
+        }
+    return false;
+}
+
+std::set<std::string> Runtime::kinds_of(int team) const {
+    std::lock_guard<std::mutex> lk(m_);
+    if (!index_) return {};
+    auto it = index_->kinds.find(team);
+    return it == index_->kinds.end() ? std::set<std::string>() : it->second;
+}
+
+void Runtime::set_killed(bool k) {
+    const bool was = killed_.exchange(k);
+    if (was == k) return;
+    if (k) {
+        progress_.cancel = true;  // a running scan / build stops at once (the worker sees the switch and ends)
+        return;
+    }
+    bool again = false;
+    {
+        std::lock_guard<std::mutex> lk(m_);
+        again = build_skipped_ && !slots_.empty();
+    }
+    std::string why;
+    if (again && hook_ready(&why)) rebuild_async();  // the build the switch skipped (with the hook the host could not install while the switch was there)
 }
 
 bool Runtime::activate(int team, int slot, Mode mode, std::string* err) {
@@ -1031,6 +1383,7 @@ bool Runtime::activate(int team, int slot, Mode mode, std::string* err) {
         deactivate(team, slot);
         return true;
     }
+    if (require_opt_in && !opted_in()) return fail(err, "turbo_output\\kits3d_on.txt is missing: the 3D kit feature is off");
     StagedKit sk;
     if (!load_staged(staged_dir(team, slot), sk, err)) return false;
     if (sk.team != team || sk.slot != slot) return fail(err, "the staged textures belong to another club or slot");
@@ -1101,14 +1454,30 @@ void Runtime::publish(std::shared_ptr<Table> t) {
 }
 
 void Runtime::worker() {
+    if (worker_init) {
+        try {
+            worker_init();
+        } catch (...) {
+        }
+    }
     for (;;) {
         if (stop_.load()) {
             std::lock_guard<std::mutex> lk(m_);
             running_ = false;
             return;
         }
+        if (killed_.load() || (require_opt_in && !opted_in())) {  // no scan, no table while the kill switch / a missing opt-in says so
+            std::lock_guard<std::mutex> lk(m_);
+            state_ = "off";
+            message_ = killed_.load() ? "kill switch turbo_output\\kits3d_off.txt is present: nothing is read or swapped" : "turbo_output\\kits3d_on.txt is missing: nothing is read or swapped";
+            build_skipped_ = true;
+            running_ = false;
+            return;
+        }
         const int gen = generation_.load();
         progress_.cancel = false;
+        progress_.done = 0;
+        progress_.total = 0;
         std::vector<SlotState> slots;
         {
             std::lock_guard<std::mutex> lk(m_);
@@ -1137,10 +1506,17 @@ void Runtime::worker() {
             } else {
                 if (!index) {
                     auto ni = std::make_shared<KitIndex>();
-                    if (scan_kits(files, oodle_, *ni, &progress_, &err)) {
+                    if (load_index_cache(files, index_cache_path(), *ni)) {  // the game's tocs are unchanged since the last scan
                         index = ni;
                         std::lock_guard<std::mutex> lk(m_);
                         index_ = ni;
+                        index_cached_ = true;
+                    } else if (scan_kits(files, oodle_, *ni, &progress_, &err)) {
+                        index = ni;
+                        save_index_cache(files, *ni, index_cache_path());
+                        std::lock_guard<std::mutex> lk(m_);
+                        index_ = ni;
+                        index_cached_ = false;
                     } else if (err != "cancelled") {
                         state = "error";
                         message = "reading the game's kit data failed: " + err;
@@ -1149,7 +1525,7 @@ void Runtime::worker() {
                 if (index && state != "error") {
                     idx_s = index->seconds;
                     TableBuilder tb;
-                    const Options opts = get_options();
+                    const Options base_opts = get_options();
                     int swapped = 0, skipped = 0;
                     std::vector<std::string> msgs;
                     for (const SlotState& s : slots) {
@@ -1160,6 +1536,10 @@ void Runtime::worker() {
                             msgs.push_back("team " + std::to_string(s.team) + " " + slot_folder_name(s.slot) + ": " + e);
                             continue;
                         }
+                        Options opts = base_opts;
+                        opts.include_decals = s.decals;
+                        opts.keep_game_crest = s.keep_crest;
+                        opts.share_within_club = s.share_club;
                         Plan pl = build_plan(files, oodle_, *index, sk, opts, s.mode == Mode::Swap, tb, &progress_);
                         if (!pl.ok) {
                             msgs.push_back("team " + std::to_string(s.team) + " " + slot_folder_name(s.slot) + ": " + pl.error);
@@ -1176,8 +1556,15 @@ void Runtime::worker() {
                             st.role = it.role;
                             st.reason = it.reason;
                             st.swap = it.swap;
+                            st.probe = it.probe;
                             st.blocks = it.blocks;
                             st.table_item = it.table_item;
+                            if (!it.swap && !it.probe) {  // the same resource left to the game at several places (big clubs): one line
+                                bool merged = false;
+                                for (auto& o : items)
+                                    if (!o.swap && !o.probe && o.team == st.team && o.slot == st.slot && o.res == st.res && o.reason == st.reason) { ++o.copies; merged = true; break; }
+                                if (merged) continue;
+                            }
                             items.push_back(st);
                         }
                     }
@@ -1209,6 +1596,7 @@ void Runtime::worker() {
             state_ = state;
             message_ = message;
             index_seconds_ = idx_s;
+            build_skipped_ = false;
             items_ = items;
             swap_any_ = false;
             for (const auto& s : slots_) swap_any_ = swap_any_.load() || s.mode == Mode::Swap;
@@ -1232,7 +1620,7 @@ int Runtime::on_block(const uint8_t* src, uint64_t srclen, uint8_t* dst, uint64_
     if (!e) return 0;
     hits_.fetch_add(1, std::memory_order_relaxed);
     t->count_hit(*e);
-    if (!t->swap_item(e->item) || !dst) return 1;
+    if (!t->swap_item(e->item) || !dst || !e->data) return 1;
     std::memcpy(dst, e->data, size_t(e->dsize));
     swapped_.fetch_add(1, std::memory_order_relaxed);
     return 2;
@@ -1260,7 +1648,7 @@ int Runtime::on_decompressed(const uint8_t* src, uint64_t srclen, uint8_t* dst, 
         unserved_.fetch_add(1, std::memory_order_relaxed);
         return 1;
     }
-    if (!t->swap_item(e->item) || !dst) return 1;
+    if (!t->swap_item(e->item) || !dst || !e->data) return 1;
     std::memcpy(dst, e->data, size_t(e->dsize));
     swapped_.fetch_add(1, std::memory_order_relaxed);
     return 2;
@@ -1290,6 +1678,32 @@ Status Runtime::status() const {
     }
     s.items = items_;
     for (auto& it : s.items) it.hits = (t && it.table_item != 0xFFFFFFFFu) ? t->hits(it.table_item) : 0;
+    s.index_cached = index_cached_;
+    s.scanning = running_ && !index_;
+    s.scan_done = progress_.done.load();
+    s.scan_total = progress_.total.load();
+    // per club and kit folder: what the match decompressed (replaced textures and watch-only ones)
+    // (the same game texture can be registered by two kits' plans, as a watch-only item each: counted once, with the larger count)
+    std::map<std::tuple<int, std::string, std::string>, uint64_t> uniq;
+    for (const auto& it : s.items) {
+        if (it.table_item == 0xFFFFFFFFu) continue;
+        uint64_t& h = uniq[std::make_tuple(it.team, it.kind, it.res)];
+        h = std::max(h, it.hits);
+    }
+    for (const auto& u : uniq) {
+        KindSeen* k = nullptr;
+        for (auto& x : s.kinds)
+            if (x.team == std::get<0>(u.first) && x.kind == std::get<1>(u.first)) k = &x;
+        if (!k) {
+            s.kinds.push_back({});
+            k = &s.kinds.back();
+            k->team = std::get<0>(u.first);
+            k->kind = std::get<1>(u.first);
+        }
+        ++k->textures;
+        if (u.second) ++k->textures_seen;
+        k->blocks_seen += u.second;
+    }
     return s;
 }
 
@@ -1320,10 +1734,15 @@ void Runtime::flush_log(bool force) {
             o << line;
         }
     }
-    for (const auto& sl : s.slots) o << "kit team " << sl.team << " " << slot_folder_name(sl.slot) << " mode " << mode_name(sl.mode) << "\n";
+    for (const auto& sl : s.slots)
+        o << "kit team " << sl.team << " " << slot_folder_name(sl.slot) << " mode " << mode_name(sl.mode) << ", zip decals " << (sl.decals ? "on" : "off") << ", game's club badge "
+          << (sl.keep_crest ? "kept" : "replaced by the zip's") << ", share within club " << (sl.share_club ? "on" : "off") << "\n";
+    o << "kit index: " << (s.index_cached ? "from turbo_output\\kits\\kit_index.cache" : "scanned from the game's tocs") << "\n";
+    o << "KIT FOLDERS THE GAME LOADED (per club and kit folder: textures seen / registered, blocks decompressed; 0 = that folder was not used):\n";
+    for (const auto& k : s.kinds) o << "  team " << k.team << " " << k.kind << ": " << k.textures_seen << " of " << k.textures << " textures, " << k.blocks_seen << " blocks\n";
     for (const auto& it : s.items)
-        o << (it.swap ? "  in table  " : "  left      ") << it.kind << "/" << it.res.substr(it.res.rfind('/') == std::string::npos ? 0 : it.res.rfind('/') + 1) << "  blocks " << it.blocks << "  seen "
-          << it.hits << (it.reason.empty() ? "" : "  (" + it.reason + ")") << "\n";
+        o << (it.swap ? "  in table  " : it.probe ? "  watch     " : "  left      ") << it.kind << "/" << it.res.substr(it.res.rfind('/') == std::string::npos ? 0 : it.res.rfind('/') + 1) << "  blocks " << it.blocks << "  seen "
+          << it.hits << (it.copies > 1 ? "  x" + std::to_string(it.copies) + " copies" : std::string()) << (it.reason.empty() ? "" : "  (" + it.reason + ")") << "\n";
     std::error_code ec;
     fs::create_directories(log_path().parent_path(), ec);
     std::ofstream f(log_path(), std::ios::binary | std::ios::trunc);
