@@ -25,7 +25,7 @@ OUT = harness.TO
 REQ = os.path.join(OUT, "turbo_dev_request.json")
 RES = os.path.join(OUT, "turbo_dev_result.json")
 LOCK = os.path.join(OUT, "turbo_dev_client.lock")
-WRITE_OPS = {"write", "key"}
+WRITE_OPS = {"write", "key", "dump"}  # dump writes a file into TO (review minor 12): gated like a write
 ESCAPE_VK = 27
 
 
@@ -45,27 +45,28 @@ def has_write_op(node, in_steps=False):
     return False
 
 
+def vk_ok(vk):
+    """review M4: the service converts vk with nlohmann's int conversion (floats and booleans cast, 64-bit values truncated), so only a
+    plain int (not bool) in 1..255 whose low byte is not 0x1B (Escape) is accepted - anything else could become Escape in the game"""
+    return type(vk) is int and 1 <= vk <= 255 and (vk & 0xFF) != ESCAPE_VK
+
+
 def has_escape(node, in_steps=False):
-    """True when any key op (dict or string step) names VK 27 / escape"""
+    """True (= refuse) when any key op - a dict at any nesting or a string step 'key <vk>' - names Escape or a vk that is not a plain
+    integer 1..255 (see vk_ok)"""
     if isinstance(node, dict):
-        if node.get("op") == "key":
-            vk = node.get("vk")
-            try:
-                if int(str(vk), 0) == ESCAPE_VK:
-                    return True
-            except ValueError:
-                if str(vk).lower() in ("esc", "escape"):
-                    return True
+        if node.get("op") == "key" and not vk_ok(node.get("vk")):
+            return True
         return any(has_escape(v, k in ("ops", "steps")) for k, v in node.items())
     if isinstance(node, (list, tuple)):
         return any(has_escape(v, in_steps) for v in node)
     if isinstance(node, str) and in_steps:
         w = node.lower().split()
-        if len(w) >= 2 and w[0] == "key":
+        if w and w[0] == "key":
             try:
-                return int(w[1], 0) == ESCAPE_VK
+                return len(w) < 2 or not vk_ok(int(w[1], 0))
             except ValueError:
-                return w[1] in ("esc", "escape")
+                return True
     return False
 
 
@@ -87,7 +88,7 @@ def _acquire(deadline):
 
 def call(req, timeout=60, repost=0.7, allow_write=False):
     if has_escape(req):
-        return {"error": "dev2: Escape (VK 27) is never sent"}
+        return {"error": "dev2: Escape (VK 27) is never sent; a key op needs a plain integer vk 1..255"}
     if not allow_write and has_write_op(req):
         return {"error": "dev2: write/key ops need allow_write=True (coordinator only)"}
     tok, line = harness.read_game_state()
@@ -139,12 +140,20 @@ GATE_CASES = [  # (request, must be blocked without allow_write?) - the sweep's 
     ({"op": "seq", "steps": [{"op": "bytes", "addr": "0x10", "len": 4}]}, False),
     ({"op": "find", "pattern": "write 48 8B", "note": "the word write inside a value is not an op"}, False),
     ({"op": "seq", "steps": [["write 0x10 00"]]}, True),
+    ({"op": "dump", "file": "x.bin", "addr": "0x10", "len": 16}, True),
 ]
 ESC_CASES = [  # built from ESCAPE_VK so that no literal Escape send exists anywhere in tools/ (test_tools_guard.py greps for it)
     ({"op": "key", "vk": ESCAPE_VK}, True), ({"op": "key", "vk": hex(ESCAPE_VK)}, True), ({"op": "key", "vk": "ESC".lower() + "ape"}, True),
     ({"op": "seq", "steps": [{"op": "key", "vk": 13}, {"op": "key", "vk": ESCAPE_VK}]}, True),
     ({"op": "multi", "ops": ["key %d" % ESCAPE_VK]}, True),
     ({"op": "key", "vk": 107}, False), ({"op": "bytes", "addr": hex(ESCAPE_VK), "len": ESCAPE_VK}, False),
+    # review M4: every value the service would turn into Escape (or that is no plain int 1..255) is refused
+    ({"op": "key", "vk": float(ESCAPE_VK)}, True), ({"op": "key", "vk": ESCAPE_VK + 0.9}, True),
+    ({"op": "key", "vk": ESCAPE_VK + (1 << 32)}, True), ({"op": "key", "vk": ESCAPE_VK - (1 << 32)}, True),
+    ({"op": "key", "vk": ESCAPE_VK + 256}, True), ({"op": "key", "vk": True}, True), ({"op": "key", "vk": str(ESCAPE_VK)}, True),
+    ({"op": "key", "vk": 107.0}, True), ({"op": "key", "vk": 0}, True), ({"op": "key"}, True),
+    ({"op": "seq", "steps": [{"op": "key", "vk": 13}, {"op": "key", "vk": float(ESCAPE_VK)}]}, True),
+    ({"op": "multi", "ops": ["key 107"]}, False), ({"op": "multi", "ops": ["key x"]}, True),
 ]
 
 
