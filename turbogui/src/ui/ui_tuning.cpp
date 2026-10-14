@@ -234,6 +234,16 @@ bool save_record(App& app, const UndoRecord& u, std::string* err = nullptr) {
     return true;
 }
 
+// The same file on a case-insensitive file system too (Windows): "Turbo_compact.json" is Turbo's "turbo_compact.json"
+bool same_file(const fs::path& a, const fs::path& b) {
+    std::error_code ec;
+    if (fs::equivalent(a, b, ec) && !ec) return true;
+    std::string x = a.filename().string(), y = b.filename().string();
+    for (char& c : x) c = char(std::tolower((unsigned char)c));
+    for (char& c : y) c = char(std::tolower((unsigned char)c));
+    return x == y && a.parent_path() == b.parent_path();
+}
+
 void load_presets_now(App& app) {
     std::string err;
     const int n = ensure_builtin_presets(preset_dir(app), &err);
@@ -756,7 +766,7 @@ void save_preset(App& app) {
     }
     const fs::path f = preset_dir(app) / preset_file_name(p);
     for (const Preset& q : g.presets)
-        if (q.file == f && q.turbo()) {
+        if (q.turbo() && (same_name(q.name, p.name) || same_file(q.file, f))) {
             app.notify("That name is one of Turbo's own presets: pick another", true);
             return;
         }
@@ -792,7 +802,7 @@ void import_preset(App& app, const fs::path& from) {
     if (p.turbo()) p.author = "imported";  // only Turbo writes Turbo's own presets
     const fs::path to = preset_dir(app) / preset_file_name(p);
     for (const Preset& q : g.presets)
-        if (q.file == to && q.turbo()) {
+        if (q.turbo() && (same_name(q.name, p.name) || same_file(q.file, to))) {
             app.notify("Not imported: its name is one of Turbo's own presets", true);
             return;
         }
@@ -1092,11 +1102,11 @@ std::string plain_gate(const std::string& s) {
     return s;
 }
 
-// The knob differs from FC 27: the game holds another value now, the profile names one, or the slider was moved to another value
+// The knob differs from FC 27 NOW: the game holds another value in memory, or a slider was moved to another value (an edit not written yet).
+// The profile's values are NOT counted here: a profile that is off writes nothing (profile_differs below)
 bool knob_changed(const Knob& k, const std::map<std::string, double>& defs) {
     auto l = g.live.find(k.id);
     if (l == g.live.end() || !l->second.located) return false;
-    if (g.prof.values.count(k.id)) return true;
     const std::string first = !l->second.copies.empty() ? l->second.copies.front().variant : std::string();
     double def = 0;
     if (copy_default(k, defs, first, def) && !same_value(k.type, l->second.value, def)) return true;
@@ -1104,12 +1114,34 @@ bool knob_changed(const Knob& k, const std::map<std::string, double>& defs) {
     return g.touched.count(k.id) && e != g.edit.end() && !same_value(k.type, representable(k, e->second), l->second.value);
 }
 
-// The search box matches the label, the id, the group, the table field and the notes
+// The profile names a value for the knob that differs from FC 27's own (whether or not the profile is on, whether or not it was written)
+bool profile_differs(const Knob& k, const std::map<std::string, double>& defs) {
+    auto pv = g.prof.values.find(k.id);
+    if (pv == g.prof.values.end()) return false;
+    auto l = g.live.find(k.id);
+    if (l == g.live.end() || !l->second.located) return false;
+    const std::string first = !l->second.copies.empty() ? l->second.copies.front().variant : std::string();
+    double def = 0;
+    if (!copy_default(k, defs, first, def)) return true;
+    return !same_value(k.type, representable(k, pv->second), def);
+}
+
+// The search box matches the label, the id, the group, the category and the table field of the knob, case-insensitively; several words must
+// all match (some field). The collection name and the notes are NOT searched: every knob of a table shares its name ("...linelengthwidth"
+// holds the length knobs too), so searching them kept the rows a person typing "width" did not mean (T27-F1)
 bool knob_matches(const Knob& k, const std::string& needle) {
-    if (needle.empty()) return true;
-    for (const std::string* f : {&k.label, &k.id, &k.group, &k.field, &k.collection, &k.notes})
-        if (lower_of(*f).find(needle) != std::string::npos) return true;
-    return false;
+    std::istringstream words(needle);
+    std::string w;
+    while (words >> w) {
+        bool hit = false;
+        for (const std::string* f : {&k.label, &k.id, &k.group, &k.category, &k.field})
+            if (lower_of(*f).find(w) != std::string::npos) {
+                hit = true;
+                break;
+            }
+        if (!hit) return false;
+    }
+    return true;
 }
 
 ImVec4 badge_colour(Badge b) {
@@ -1190,7 +1222,7 @@ void draw_row(App& app, const Knob& k, const std::map<std::string, double>& defs
     ImGui::SameLine();
     std::string info = std::string("FC 27: ") + (have_def ? row.def : std::string("?"));
     if (!have_def || row.game != row.def) info += " | now: " + row.game;
-    if (!row.profile.empty()) info += " | profile: " + row.profile;
+    if (!row.profile.empty()) info += std::string(" | profile") + (g.prof.on ? "" : " (off, not written)") + ": " + row.profile;
     ImGui::TextDisabled("%s", info.c_str());
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("FC 27: the game's own value (Restore FC 27 defaults puts it back). now: what the game holds in memory at this moment "
@@ -1220,6 +1252,66 @@ void draw_row(App& app, const Knob& k, const std::map<std::string, double>& defs
     }
     ImGui::PopID();
     g_state.rows.push_back(row);
+}
+
+// How far a candidate is from working, in words (a candidate is never verified, but the text follows the knob's own fields)
+std::string candidate_status(const Knob& k) {
+    if (k.proven()) return "effect measured";
+    if (k.engine_check.given()) return "engine read confirmed, effect not proven";
+    if (k.verified) return "located, effect not proven";
+    return "not verified in game, no engine check, no proof";
+}
+
+// UI only (2.6): the catalogue's unverified candidates, collapsed, read-only, never written. Rows are recorded in the state whether or not the
+// header is open
+void draw_candidates(const Registry& reg, const std::string& needle) {
+    std::vector<const Knob*> all;
+    for (const Knob& k : reg.knobs)
+        if (k.candidate && state_of(k) == KnobState::Unlocated && knob_matches(k, needle)) all.push_back(&k);
+    std::stable_sort(all.begin(), all.end(), [](const Knob* a, const Knob* b) {
+        const int ra = a->rank > 0 ? a->rank : 1 << 30, rb = b->rank > 0 ? b->rank : 1 << 30;
+        return ra != rb ? ra < rb : a->label < b->label;
+    });
+    g_state.candidates_shown = int(all.size());
+    for (const Knob* k : all) {
+        TuningViewState::Candidate c;
+        c.id = k->id;
+        c.label = k->label;
+        c.group = k->group;
+        c.field = k->field;
+        c.category = k->category.empty() ? k->group : k->category;
+        c.rank = k->rank;
+        c.impact = k->impact;
+        c.status = candidate_status(*k);
+        g_state.candidate_rows.push_back(c);
+    }
+    if (g_state.candidates == 0) return;
+    if (!needle.empty() && all.empty()) return;
+    const std::string head = "Experimental candidates (" + std::to_string(all.size()) + ", read-only, never written)###tvcand";
+    g_state.candidates_open = false;
+    if (!ImGui::CollapsingHeader(head.c_str())) return;
+    g_state.candidates_open = true;
+    ImGui::TextWrapped(
+        "The engine tables the offline inventory lists as candidates, ranked by the expected size of their effect on the pitch (1 = largest). None is "
+        "verified in the running game and none has a measured effect: Turbo reads and writes nothing for them. This is the catalogue, so you can see "
+        "what may come.");
+    std::vector<std::string> cats;
+    for (const auto& c : g_state.candidate_rows)
+        if (std::find(cats.begin(), cats.end(), c.category) == cats.end()) cats.push_back(c.category);
+    for (const std::string& cat : cats) {
+        int n = 0;
+        for (const auto& c : g_state.candidate_rows) n += c.category == cat ? 1 : 0;
+        if (!needle.empty()) ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+        if (!ImGui::TreeNode((cat + " (" + std::to_string(n) + ")###tvcc_" + cat).c_str())) continue;
+        for (const auto& c : g_state.candidate_rows) {
+            if (c.category != cat) continue;
+            const std::string line = (c.rank > 0 ? "#" + std::to_string(c.rank) + " " : std::string()) + c.label + "  (" + c.group +
+                                     (c.field.empty() ? std::string() : " / " + c.field) + ")  " + (c.impact.empty() ? "impact not rated" : c.impact + " impact") +
+                                     "  -  " + c.status;
+            ImGui::BulletText("%s", line.c_str());
+        }
+        ImGui::TreePop();
+    }
 }
 
 void draw_body(App& app) {
@@ -1400,22 +1492,42 @@ void draw_body(App& app) {
     } else if (!g_state.plan_error.empty()) {
         ImGui::TextDisabled("Nothing to apply: %s", g_state.plan_error.c_str());
     }
-    // the knobs that hold another value than FC 27 now (or in the profile)
+    // the knobs that hold another value than FC 27 NOW (in the game, or a slider edit not written yet); the profile's values are listed apart
     g_state.differs.clear();
+    g_state.profile_differs.clear();
     for (const Knob& k : reg->knobs) {
-        if (!knob_changed(k, defs)) continue;
         auto l = g.live.find(k.id);
+        if (l == g.live.end() || !l->second.located) continue;
         double def = 0;
         const std::string first = !l->second.copies.empty() ? l->second.copies.front().variant : std::string();
         const bool have_def = copy_default(k, defs, first, def);
-        auto pv = g.prof.values.find(k.id);
-        g_state.differs.push_back(k.label + ": now " + format_value(k, l->second.value) + (have_def ? " (FC 27 " + format_value(k, def) + ")" : std::string()) +
-                                  (pv != g.prof.values.end() ? ", profile " + format_value(k, pv->second) : std::string()));
+        if (knob_changed(k, defs)) {
+            auto e = g.edit.find(k.id);
+            const bool game_differs = have_def && !same_value(k.type, l->second.value, def);
+            const bool edit_differs = g.touched.count(k.id) && e != g.edit.end() && !same_value(k.type, representable(k, e->second), l->second.value);
+            std::string t = k.label + ": ";
+            if (game_differs) t += "the game holds " + format_value(k, l->second.value) + " (FC 27 " + format_value(k, def) + ")";
+            if (edit_differs) t += std::string(game_differs ? "; " : "") + "slider at " + format_value(k, e->second) + ", not written yet";
+            g_state.differs.push_back(t);
+        }
+        if (profile_differs(k, defs)) {
+            auto pv = g.prof.values.find(k.id);
+            g_state.profile_differs.push_back(k.label + ": profile " + format_value(k, pv->second) + (have_def ? " (FC 27 " + format_value(k, def) + ")" : std::string()) +
+                                              ", the game holds " + format_value(k, l->second.value));
+        }
     }
     if (!g_state.differs.empty() &&
-        ImGui::TreeNode(("Different from FC 27: " + std::to_string(g_state.differs.size()) + " knob(s)###tvdiffs").c_str())) {
+        ImGui::TreeNode(("Different from FC 27 in the game now or in the sliders: " + std::to_string(g_state.differs.size()) + " knob(s)###tvdiffs").c_str())) {
         for (const std::string& l : g_state.differs) ImGui::BulletText("%s", l.c_str());
         ImGui::TreePop();
+    }
+    if (!g_state.profile_differs.empty()) {
+        g_state.profile_differs_line = "Your profile holds " + std::to_string(g_state.profile_differs.size()) + " value(s) different from FC 27 (" +
+                                       (g.prof.on ? "the profile is on: they are written at the next career load and hub" : "the profile is off: nothing of it is written to the game") + ")";
+        if (ImGui::TreeNode((g_state.profile_differs_line + "###tvprofdiffs").c_str())) {
+            for (const std::string& l : g_state.profile_differs) ImGui::BulletText("%s", l.c_str());
+            ImGui::TreePop();
+        }
     }
     ImGui::BeginDisabled(!g_state.can_apply);
     if (ImGui::Button("Apply##tvapply")) {
@@ -1512,6 +1624,7 @@ void draw_body(App& app) {
             }
         }
     }
+    draw_candidates(*reg, needle);
     if (reg->knobs.empty()) ImGui::TextDisabled("No knobs: %s", reg_why.empty() ? "the knobs file lists none" : reg_why.c_str());
 
     // what happened

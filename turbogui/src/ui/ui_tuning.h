@@ -71,7 +71,17 @@ struct TuningViewState {
     std::string active_preset;         // 2.5: the profile's preset ("" = none: custom values)
     std::string active_line;           // "Active preset: Turbo compact | not applied automatically (profile off)"
     bool active_modified = false;      // the values now differ from what the active preset gives
-    std::vector<std::string> differs;  // 2.5: the knobs that hold another value than FC 27 (now or in the profile)
+    std::vector<std::string> differs;  // the knobs that hold another value than FC 27 in the GAME NOW or in a slider edit not written yet (2.6: never the profile's)
+    std::vector<std::string> profile_differs;  // 2.6: the knobs whose PROFILE value differs from FC 27 (written only while the profile is on)
+    std::string profile_differs_line;          // "Your profile holds N value(s) different from FC 27 (the profile is off: nothing of it is written to the game)"
+    // 2.6: the catalogue's unverified candidates (UI only, read-only, collapsed by default); recorded whether or not the header is open
+    struct Candidate {
+        std::string id, label, group, field, category, impact, status;
+        int rank = 0;
+    };
+    std::vector<Candidate> candidate_rows;
+    int candidates_shown = 0;
+    bool candidates_open = false;
     std::string search;                // 2.5: the search box
     bool only_changed = false;
     int shown = 0;                     // knob rows the search and filter leave

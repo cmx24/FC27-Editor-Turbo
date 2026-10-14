@@ -2228,6 +2228,346 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.click("Live standings (game)");
         ui.frames(2);
     });
+    run_case("UI: Gameplay tuning 2.6 pagefix - the search matches label/id/group/category/field only, the differences count the game and the sliders (never an "
+             "off profile), the candidates view, presets end to end (duplicate, rename, delete, export, import, use, 2.4 files)",
+             [&] {
+        tuning_reset();
+        const fs::path out = le / "turbo_output";
+        std::error_code ec;
+        for (const char* f : {opt_in_file(), kill_switch_file(), master_switch_file(), undo_file(), keep_file(), profile_file(), profile_off_file()})
+            fs::remove(out / f, ec);
+        fs::remove_all(out / presets_dir(), ec);
+        fs::create_directories(out / presets_dir(), ec);
+        // 2.4 files: a user preset naming unlocated knobs of 2.4 next to a located one, and Turbo's own stale 2.4 "Turbo compact"
+        const std::string old24 =
+            R"({"turbo_tuning_preset": 1, "id": "user_Old_24", "name": "Old 24", "author": "me", "note": "from 2.4", "changes": [{"knob": "shape.width_in", "relative_pct": -30}, {"knob": "shape.gap_dmf", "relative_pct": 10}, {"knob": "runs.frequency", "value": 0.5}]})";
+        std::ofstream(out / presets_dir() / "Old_24.json", std::ios::binary) << old24;
+        std::ofstream(out / presets_dir() / "turbo_compact.json", std::ios::binary)
+            << R"({"turbo_tuning_preset": 1, "id": "turbo_compact", "name": "Turbo compact", "author": "Turbo", "changes": [{"knob": "shape.gap_dmf", "relative_pct": -10}]})";
+        // the simulated table in the real catalogue's shape: the width and the length knob share a table whose NAME holds "width" (T27-F1)
+        std::string kt = ui_knobs();
+        auto swap = [&](const std::string& a, const std::string& b) {
+            const size_t at = kt.find(a);
+            if (at != std::string::npos) kt.replace(at, a.size(), b);
+        };
+        swap(R"("id": "passing.error_ground", "label": "Ground pass error", "group": "Passing", "collection": "gp_test_pass", "field": "err_ground")",
+             R"("id": "shape.width_in", "label": "Team width with the ball", "group": "Shape with the ball", "collection": "gp_test_attackinglinelengthwidth", "field": "lineWidthModifier")");
+        swap(R"("id": "passing.error_lofted", "label": "Lofted pass error", "group": "Passing", "collection": "gp_test_pass", "field": "err_lofted")",
+             R"("id": "shape.length_in", "label": "Team length with the ball", "group": "Shape with the ball", "collection": "gp_test_attackinglinelengthwidth", "field": "LineLengthModifierForBalanced")");
+        {
+            const std::string at = "{\"id\": \"shape.width_in\"";
+            const size_t a = kt.find(at);
+            const size_t e = kt.find("\"verified\": true}", a);
+            kt.insert(e, "\"when\": [\"boot\", \"career_load\", \"hub\"], \"proof\": {\"session\": \"P9\", \"evidence\": \"EV/2026-10-14/TEST_25.md#w\"}, \"slider\": true, ");
+        }
+        {
+            const std::string cands =
+                R"({"id": "pressing.stepup", "label": "Defender step-up reach", "group": "Pressing", "collection": "gp_test_stepup", "field": "distanceBonusByStepUp", "type": "f32", "min": 2, "max": 18, "default": 7.5, "locator": "todo_coll", "offset": "0x58", "verified": false, "candidate": true, "rank": 8, "impact": "high", "category": "Pressing"},
+    {"id": "shape.cover", "label": "Cover shadow reach", "group": "Shape without the ball", "collection": "gp_test_cover", "field": "coverWidth", "type": "f32", "min": 0, "max": 2, "default": 1, "locator": "todo_coll", "offset": "0x60", "verified": false, "candidate": true, "rank": 3, "impact": "medium", "category": "Shape without the ball"},
+    )";
+            const size_t at = kt.find("{\"id\": \"gk.reaction\"");
+            kt.insert(at, cands);
+        }
+        TuneWorld w;
+        TuneRig rig(w, g_out / "tuning_ui26", kt);
+        rig.out = out;
+        {
+            Host h;
+            h.mem = &w.mem;
+            h.build = kBuildKey;
+            h.knobs_dir = rig.knobs;
+            h.out_dir = out;
+            h.lookup = lookup_of(w);
+            h.run_on_game_thread = [&rig](std::function<void()> f) { return rig.jobs.run(std::move(f)); };
+            h.run_background = [](std::function<void()> f) { f(); };
+            h.log = [&rig](const std::string& s) { rig.logs.push_back(s); };
+            h.clock_us = [&rig]() { return rig.clock; };
+            rig.svc = std::make_shared<CoreService>(std::move(h));
+        }
+        rig.jobs.inline_run = true;
+        app.tuning = rig.svc;
+        double wall = 1000.0;
+        tuning_set_wall_clock([&wall]() { return wall; });
+        const fs::path state_file = out / "bridge_state.json";
+        json st = read_json(state_file);
+        const json saved = st;
+        int bumps = 900;
+        auto write_state = [&]() {
+            {
+                std::ofstream f(state_file.string(), std::ios::binary | std::ios::trunc);
+                f << st.dump();
+            }
+            fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(2 * ++bumps));
+            app.next_poll = 0.0;
+            ui.frames(3);
+        };
+        st["match_phase"] = "hub";
+        st["in_cm"] = true;
+        st.erase("prematch_t");
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        app.request_tab = 3;
+        ui.frames(3);
+        CHECK(ui.click("Gameplay tuning"), "the Gameplay tuning view");
+        ui.frames(70);
+        const TuningViewState& s = tuning_view_state();
+        CHECK(s.drawn && s.proven == 4 && s.located == 4 && s.candidates == 2 && s.unlocated == 1,
+              fmt("%d proven, %d located, %d candidates, %d not working", s.proven, s.located, s.candidates, s.unlocated));
+        auto row = [&](const std::string& id) -> const TuningViewState::Row* {
+            for (const auto& r : s.rows)
+                if (r.id == id) return &r;
+            return nullptr;
+        };
+        std::string err;
+
+        // ---- F1: the search box
+        auto set_search = [&](const std::string& text) {
+            tuning_top(ui);
+            const ItemRec* sb = bring_tuning(ui, "##tvsearch");
+            const bool ok = sb && ui.type_into(sb, text);
+            ui.frames(2);
+            return ok;
+        };
+        CHECK(set_search("width"), "width typed");
+        CHECK(s.search == "width" && s.shown == 1 && row("shape.width_in") && !row("shape.length_in") && !row("pressing.intensity") && !row("shape.line_height"),
+              fmt("width keeps only the width knob (%d shown); the length knob sharing the table's name is gone", s.shown));
+        CHECK(s.groups == std::vector<std::string>({"Shape with the ball"}), "only the category with a match is drawn, the empty ones are hidden");
+        CHECK(s.candidates_shown == 1 && s.candidate_rows.size() == 1 && s.candidate_rows[0].field == "coverWidth", "the candidates list follows the search (its field)");
+        for (const char* q : {"WIDTH", "Width", "lineWidth", "shape.width", "ball width"}) {
+            CHECK(set_search(q), std::string("typed ") + q);
+            CHECK(s.shown == 1 && row("shape.width_in"), fmt("'%s' finds the width knob only (%d shown)", q, s.shown));
+        }
+        CHECK(set_search("team length"), "typed");
+        CHECK(s.shown == 1 && row("shape.length_in") && !row("shape.width_in"), "several words must all match (label)");
+        CHECK(set_search("shape"), "typed");
+        CHECK(s.shown == 3 && row("shape.line_height") && row("shape.width_in") && row("shape.length_in"), fmt("'shape': id and group match (%d)", s.shown));
+        CHECK(set_search("pressing"), "typed");
+        CHECK(s.shown == 1 && row("pressing.intensity") && s.candidates_shown == 1, "category/group: the pressing knob and the pressing candidate");
+        CHECK(set_search("xyzzy-no-knob"), "typed");
+        CHECK(s.shown == 0 && s.groups.empty() && s.rows.empty() && s.candidates_shown == 0, "nothing matches: no category, no row");
+        CHECK(set_search(""), "cleared");
+        CHECK(s.shown == 8 && s.groups.size() >= 5, fmt("all located knobs again (%d)", s.shown));
+        // the same frame: typing without Enter narrows the list in the frame that takes the character
+        {
+            const ItemRec* sb = bring_tuning(ui, "##tvsearch");
+            CHECK(sb && ui.click(sb), "search box focused");
+            ImGui::GetIO().AddInputCharactersUTF8("width");
+            ui.frame();
+            CHECK(s.search == "width" && s.shown == 1, fmt("the list narrowed in the frame of the keystroke (%d shown)", s.shown));
+            CHECK(set_search(""), "cleared again");
+            CHECK(s.search.empty() && s.shown == 8, "and widened when the text goes");
+        }
+
+        // ---- the candidates view (UI only): collapsed by default, ranked, read-only, with the proof status
+        tuning_top(ui);
+        CHECK(!s.candidates_open && s.candidates_shown == 2 && s.candidate_rows.size() == 2, "collapsed by default, both candidates counted");
+        CHECK(s.candidate_rows[0].id == "shape.cover" && s.candidate_rows[0].rank == 3 && s.candidate_rows[0].impact == "medium" &&
+                  s.candidate_rows[0].category == "Shape without the ball" && s.candidate_rows[1].id == "pressing.stepup" && s.candidate_rows[1].rank == 8 &&
+                  s.candidate_rows[1].status == "not verified in game, no engine check, no proof",
+              "ranked by the expected effect, with group, field, impact and the proof status");
+        CHECK(!row("shape.cover") && !row("pressing.stepup") && !bring_tuning(ui, "##tvbox_pressing.stepup") && !bring_tuning(ui, "Reset##tvreset_pressing.stepup"),
+              "a candidate has no knob row, no slider, no Reset");
+        const std::string cand_head = "Experimental candidates (2, read-only, never written)###tvcand";
+        CHECK(bring_tuning(ui, cand_head) && ui.click(cand_head), "the header opens");
+        ui.frames(2);
+        CHECK(s.candidates_open, "open");
+        CHECK(ui.click(cand_head), "and closes");
+        ui.frames(2);
+        CHECK(!s.candidates_open, "closed again");
+
+        // ---- F2: what "different from FC 27" counts
+        tuning::Profile pf;
+        pf.on = false;
+        pf.preset = "custom";
+        pf.values["shape.width_in"] = 0.6;
+        CHECK(save_profile(out / profile_file(), pf, &err), "an OFF profile that holds width 0.6: " + err);
+        ui.frames(150);
+        tuning_top(ui);
+        CHECK(w.f32(TuneWorld::kBase + 0x0C) == 0.2f, "nothing was written: the game holds FC 27's width");
+        CHECK(s.differs.empty(), fmt("the game and the sliders differ from FC 27 in %zu knob(s): an off profile is not the game", s.differs.size()));
+        CHECK(s.profile_differs.size() == 1 && s.profile_differs[0].find("Team width with the ball: profile 0.600 (FC 27 0.200), the game holds 0.200") == 0 &&
+                  s.profile_differs_line.find("Your profile holds 1 value(s) different from FC 27 (the profile is off: nothing of it is written to the game)") == 0,
+              s.profile_differs_line);
+        CHECK(!ui.find("Different from FC 27 in the game now or in the sliders: 1 knob(s)###tvdiffs") &&
+                  ui.find("Your profile holds 1 value(s) different from FC 27 (the profile is off: nothing of it is written to the game)###tvprofdiffs"),
+              "the profile line is its own, clearly labelled node");
+        CHECK(bring_tuning(ui, "Shape with the ball (2)###tvg_Shape with the ball") != nullptr, "the category header counts no change");
+        CHECK(row("shape.width_in") && row("shape.width_in")->profile == "0.600" && row("shape.width_in")->game == "0.200", "the row still shows the profile's value");
+        // a slider moved (an edit not written yet) counts
+        const ItemRec* box = bring_tuning(ui, "##tvbox_shape.width_in");
+        CHECK(box && ui.type_into(box, "0.5"), "the width slider typed");
+        tuning_top(ui);
+        ui.frames(2);
+        CHECK(s.differs.size() == 1 && s.differs[0] == "Team width with the ball: slider at 0.500, not written yet", s.differs.empty() ? "none" : s.differs[0]);
+        CHECK(bring_tuning(ui, "Shape with the ball (2, 1 changed)###tvg_Shape with the ball") != nullptr, "the header says 1 changed");
+        CHECK(bring_tuning(ui, "Only changed##tvonlychanged") && ui.click("Only changed##tvonlychanged"), "Only changed");
+        ui.frames(2);
+        CHECK(s.shown == 1 && row("shape.width_in") && !row("shape.length_in"), "Only changed keeps the moved knob");
+        ui.click("Only changed##tvonlychanged");
+        ui.frames(2);
+        tuning_top(ui);
+        CHECK(ui.click("Discard edits##tvdiscard"), "Discard edits");
+        ui.frames(3);
+        CHECK(s.differs.empty() && s.profile_differs.size() == 1, "discarded: the sliders match the game again, the profile line stays");
+        // the profile ON: the next moment writes it, and then the game really differs
+        CHECK(ui.click("Apply my tuning profile automatically (every career load, the hub)##tvprof"), "profile on");
+        ui.frames(10);
+        CHECK(w.f32(TuneWorld::kBase + 0x0C) == 0.6f, "the profile wrote the width");
+        tuning_top(ui);
+        CHECK(s.differs.size() == 1 && s.differs[0].find("the game holds 0.600 (FC 27 0.200)") != std::string::npos && s.profile_differs.size() == 1 &&
+                  s.profile_differs_line.find("the profile is on") != std::string::npos,
+              "written: both lists name it, the profile line says on: " + s.profile_differs_line);
+        CHECK(ui.click("Restore FC 27 defaults##tvrestore"), "Restore");
+        ui.frames(4);
+        CHECK(w.f32(TuneWorld::kBase + 0x0C) == 0.2f && s.differs.empty() && s.profile_differs.size() == 1 && s.profile_differs_line.find("the profile is off") != std::string::npos,
+              "restored: the game differs nowhere, the (off) profile still holds its value");
+
+        // ---- F3: presets end to end
+        const fs::path pdir = out / presets_dir();
+        auto read_text = [&](const fs::path& f) {
+            std::ifstream i(f, std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(i)), std::istreambuf_iterator<char>());
+        };
+        auto pick = [&](const std::string& name_with_id) {
+            tuning_top(ui);
+            const bool a = ui.click("##tvpreset");
+            ui.frames(2);
+            const bool b = ui.click(name_with_id);
+            ui.frames(2);
+            return a && b;
+        };
+        auto parsed = [&](const fs::path& f, Preset& p) { return Preset::parse(read_text(f), p, &err); };
+        // Turbo's stale 2.4 file was rewritten by this version; the user's 2.4 file is untouched and listed
+        CHECK(read_text(pdir / "turbo_compact.json").find("shape.width_in") != std::string::npos && read_text(pdir / "turbo_compact.json").find("gap_dmf") == std::string::npos,
+              "Turbo's stale 2.4 'Turbo compact' was replaced by the located-knob version");
+        CHECK(read_text(pdir / "Old_24.json") == old24 && has_text(s.presets, "Old 24") && s.presets.size() == 6, "the user's 2.4 file is untouched and listed");
+        CHECK(pick("Old 24##tvp5"), "Old 24 picked");
+        CHECK(s.preset_status == "3 knobs: 1 effect measured, 0 engine-confirmed, 0 located only, 2 not in this build", s.preset_status);
+        CHECK(ui.click("Use this preset##tvuse"), "Use");
+        ui.frames(3);
+        CHECK(s.preset_line.find("\"Old 24\": 1 knob(s) set in the sliders and the profile, 2 not set (") == 0 &&
+                  s.preset_line.find("shape.gap_dmf: not in the knobs file") != std::string::npos,
+              s.preset_line);
+        tuning::Profile got;
+        CHECK(load_profile(out / profile_file(), got, &err) && got.preset == "Old 24" && got.values.size() == 1 && std::fabs(got.values["shape.width_in"] - 0.14) < 1e-6 && !got.on,
+              "the profile holds the preset's value (-30 % of 0.2), still off: " + err);
+        CHECK(w.f32(TuneWorld::kBase + 0x0C) == 0.2f, "Use writes nothing");
+        CHECK(s.active_preset == "Old 24" && !s.active_modified && s.active_line.find("not applied automatically (profile off)") != std::string::npos, s.active_line);
+        // duplicate
+        tuning_top(ui);
+        CHECK(ui.click("Duplicate##tvdup"), "Duplicate");
+        ui.frames(3);
+        Preset dup;
+        CHECK(fs::exists(pdir / "Old_24_copy.json") && parsed(pdir / "Old_24_copy.json", dup) && dup.name == "Old 24 copy" && dup.changes.size() == 3 && dup.author.empty() &&
+                  dup.note == "Copy of \"Old 24\"" && has_text(s.presets, "Old 24 copy"),
+              "the copy: a new file with the same three changes, yours: " + err);
+        CHECK(read_text(pdir / "Old_24.json") == old24, "the source file is byte-identical");
+        CHECK(ui.click("Duplicate##tvdup"), "Duplicate again");
+        ui.frames(3);
+        CHECK(has_text(s.presets, "Old 24 copy copy") && fs::exists(pdir / "Old_24_copy_copy.json") && s.presets.size() == 8, "a second copy gets its own name");
+        // a Turbo preset is duplicated into a user's one
+        CHECK(pick("Turbo compact (Turbo)##tvp1"), "Turbo compact picked");
+        CHECK(ui.click("Duplicate##tvdup"), "Duplicate a Turbo preset");
+        ui.frames(3);
+        CHECK(fs::exists(pdir / "Turbo_compact_copy.json") && parsed(pdir / "Turbo_compact_copy.json", dup) && !dup.turbo() && dup.name == "Turbo compact copy",
+              "the copy of a Turbo preset is the user's own");
+        // export the copy through the in-overlay picker
+        const fs::path dest = g_out / "tuning_io26";
+        fs::remove_all(dest, ec);
+        fs::create_directories(dest, ec);
+        tuning_top(ui);
+        CHECK(ui.click("Export...##tvexp"), "Export...");
+        ui.frames(2);
+        CHECK(ui.find("Save##fp", "##tvexppick") != nullptr, "the picker is drawn");
+        CHECK(ui.type_into(ui.find("##fppath", "##tvexppick"), path_text(dest)), "folder");
+        CHECK(ui.type_into(ui.find("File name##fpname", "##tvexppick"), "my_export.json"), "file name");
+        CHECK(ui.click("Save##fp", "##tvexppick"), "Save");
+        ui.frames(3);
+        Preset ex;
+        CHECK(fs::exists(dest / "my_export.json") && parsed(dest / "my_export.json", ex) && ex.name == "Turbo compact copy" && ex.changes.size() == dup.changes.size() &&
+                  s.preset_line.find("Exported \"Turbo compact copy\"") == 0,
+              "exported: " + s.preset_line + err);
+        // delete the exported preset, import it back from the file; a 2.4 file; a clash with Turbo's own; a broken file
+        CHECK(ui.click("Delete...##tvdel"), "Delete...");
+        ui.frames(3);
+        CHECK(ui.click("Delete##tvdeleteok", "Delete preset?"), "confirmed");
+        ui.frames(3);
+        CHECK(!fs::exists(pdir / "Turbo_compact_copy.json") && !has_text(s.presets, "Turbo compact copy"), "deleted");
+        auto import_file = [&](const std::string& name) {
+            tuning_top(ui);
+            bool ok = ui.click("Import...##tvimp");
+            ui.frames(2);
+            ok = ok && ui.type_into(ui.find("##fppath", "##tvimppick"), path_text(dest));
+            ok = ok && ui.click(name, "##tvimppick");
+            ui.frames(4);
+            return ok;
+        };
+        CHECK(import_file("my_export.json"), "import clicked");
+        CHECK(fs::exists(pdir / "Turbo_compact_copy.json") && has_text(s.presets, "Turbo compact copy") && s.preset_line.find("Imported \"Turbo compact copy\"") == 0, s.preset_line);
+        std::ofstream(dest / "from24.json", std::ios::binary)
+            << R"({"turbo_tuning_preset": 1, "id": "user_From_24", "name": "From 24", "author": "a friend", "changes": [{"knob": "shape.width_in", "relative_pct": 5}, {"knob": "pressing.press_trigger", "value": 3}]})";
+        CHECK(import_file("from24.json") && fs::exists(pdir / "From_24.json") && has_text(s.presets, "From 24"), "a 2.4 file imports");
+        const std::string compact_before = read_text(pdir / "turbo_compact.json");
+        std::ofstream(dest / "clash.json", std::ios::binary)
+            << R"({"turbo_tuning_preset": 1, "name": "Turbo compact", "author": "Turbo", "changes": [{"knob": "shape.width_in", "relative_pct": 99}]})";
+        CHECK(import_file("clash.json") && read_text(pdir / "turbo_compact.json") == compact_before && ui.toast_contains("Not imported: its name is one of Turbo's own presets"),
+              "a file named like a Turbo preset is refused, Turbo's file is untouched");
+        std::ofstream(dest / "broken.json", std::ios::binary) << "{ not json";
+        const size_t n_before = s.presets.size();
+        CHECK(import_file("broken.json") && s.presets.size() == n_before && ui.toast_contains("Not imported"), "a broken file is refused");
+        // use the imported 2.4 file: its located knob is set, the unknown one named
+        {
+            bool picked = false;
+            for (int i = 5; i < 12 && !picked; ++i)
+                if (i < int(s.presets.size()) && s.presets[size_t(i)] == "From 24") picked = pick("From 24##tvp" + std::to_string(i));
+            CHECK(picked, "From 24 picked");
+        }
+        CHECK(ui.click("Use this preset##tvuse"), "Use");
+        ui.frames(3);
+        CHECK(s.preset_line.find("\"From 24\": 1 knob(s) set") == 0 && s.preset_line.find("pressing.press_trigger: not in the knobs file") != std::string::npos, s.preset_line);
+        // rename the user's active preset: the profile follows the name; then delete it: the name goes, the values stay
+        CHECK(load_profile(out / profile_file(), got, &err) && got.preset == "From 24", "the profile names From 24");
+        tuning_top(ui);
+        CHECK(ui.click("Rename...##tvren"), "Rename...");
+        ui.frames(3);
+        CHECK(ui.type_into(ui.find("##tvrenamebox"), "Wide 24") && ui.click("Rename##tvrenameok", "Rename preset"), "renamed to Wide 24");
+        ui.frames(3);
+        CHECK(!fs::exists(pdir / "From_24.json") && fs::exists(pdir / "Wide_24.json") && has_text(s.presets, "Wide 24") && !has_text(s.presets, "From 24"),
+              "the old file is gone, the new one is there");
+        CHECK(load_profile(out / profile_file(), got, &err) && got.preset == "Wide 24" && got.values.size() == 1, "the profile follows the new name, keeps its value");
+        CHECK(ui.click("Rename...##tvren"), "Rename... to an existing name");
+        ui.frames(3);
+        CHECK(ui.type_into(ui.find("##tvrenamebox"), "old 24") && ui.click("Rename##tvrenameok", "Rename preset"), "typed");
+        ui.frames(3);
+        CHECK(fs::exists(pdir / "Wide_24.json") && ui.toast_contains("A preset with that name exists"), "a name taken (any case) is refused");
+        CHECK(ui.click("Delete...##tvdel"), "Delete...");
+        ui.frames(3);
+        CHECK(ui.click("Delete##tvdeleteok", "Delete preset?"), "confirmed");
+        ui.frames(3);
+        CHECK(!fs::exists(pdir / "Wide_24.json") && load_profile(out / profile_file(), got, &err) && got.preset == "custom" && got.values.size() == 1 && s.active_preset.empty(),
+              "deleted: the profile keeps its value, the preset name goes");
+        // FC 27 default: Use sets the profile empty
+        CHECK(pick("FC 27 default (Turbo)##tvp0"), "FC 27 default picked");
+        CHECK(ui.click("Use this preset##tvuse"), "Use");
+        ui.frames(3);
+        CHECK(load_profile(out / profile_file(), got, &err) && got.preset == "FC 27 default" && got.values.size() == 4 && std::fabs(got.values["shape.width_in"] - 0.2) < 1e-6 && !got.on,
+              "FC 27 default puts FC 27's own value of every proven knob into the profile, still off");
+        for (const char* f : {"turbo_fc27_default.json", "turbo_compact.json", "turbo_expansive.json", "turbo_wide_short.json", "turbo_narrow_long.json"})
+            CHECK(fs::exists(pdir / f), std::string(f) + " still there");
+
+        // clean up
+        tuning_set_wall_clock(nullptr);
+        tuning_top(ui);
+        app.tuning = nullptr;
+        for (const char* f : {opt_in_file(), kill_switch_file(), undo_file(), profile_file(), profile_off_file()}) fs::remove(out / f, ec);
+        fs::remove_all(out / presets_dir(), ec);
+        st = saved;
+        st["seq"] = saved.value("seq", 0LL) + 50;
+        write_state();
+        tuning_reset();
+        ui.click("Live standings (game)");
+        ui.frames(2);
+    });
 }
 
 }  // namespace tuning_test
