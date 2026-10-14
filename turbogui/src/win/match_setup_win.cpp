@@ -189,6 +189,12 @@ bool queue_var(const std::string& name, int32_t value, bool clear_it, std::strin
     if (!clear_it) {
         why = gv::check_name(name);
         if (!why.empty()) return false;
+        // 2.4: only the variables Turbo offers (gv::known_vars) are set; the removed per-side slider family (tactics channel A,
+        // refuted 2026-10-11) and any other name stay with the game
+        if (!gv::known(name)) {
+            why = name + " is not a game variable Turbo offers";
+            return false;
+        }
     }
     const uint32_t game = game_thread_id();
     if (game != 0 && GetCurrentThreadId() == game) {
@@ -308,23 +314,6 @@ struct HostService : msetup::Service {
         out = g_results.front();
         g_results.pop_front();
         return true;
-    }
-    // Read-only: the value the live table holds now (gv::current walks the table without any game call or lock)
-    bool read_back(const std::string& name, int32_t& value, std::string& why) override {
-        if (!g_installed) {
-            why = "game calls are not installed";
-            return false;
-        }
-        if (!g_off.empty()) {
-            why = g_off;
-            return false;
-        }
-        why = gv::check_name(name);
-        if (!why.empty()) return false;
-        ProcessMemory mem;
-        if (gv::current(mem, g_fns, name, value)) return true;
-        why = "the game's table holds no value for " + name + " (cleared, never set, or not an integer)";
-        return false;
     }
     std::vector<msetup::VarLine> vars() override {
         std::vector<msetup::VarLine> out;

@@ -9,11 +9,9 @@
 #include "comp_picker.h"
 #include "core/comp_list.h"
 #include "core/fce_standings.h"
-#include "core/gameplay_sliders.h"
 #include "core/match_setup.h"
 #include "core/user_text.h"
 #include "imgui.h"
-#include "ui_tactics.h"  // tactics_off_now: the A/B presets honour turbo_output\tactics_off.txt as well
 
 namespace turbo {
 
@@ -35,12 +33,7 @@ struct MatchState {
     std::string undo_what;  // "Everton v Arsenal: home and away swapped"
     std::string edit_off;   // why the fixtures cannot be edited now (fce_edit_off; "" = they can)
     std::map<std::string, int> edit;  // variable -> value in its box
-    // channel A: per-side gameplay sliders (core/gameplay_sliders.h) and the A/B presets
-    std::map<std::string, int> side_edit;              // variable -> value in its box (50 = neutral until typed)
-    std::map<std::string, std::string> read_back;      // variable -> "read back: 100" / why not, from the Read back buttons
-    std::string ab_selected;                           // preset id whose plan is shown, "" = none
-    int live_written = 0;                              // variables this panel set (cleared again when Turbo unloads)
-    bool show_side = false;                            // the 68-row per-side table is open
+    int live_written = 0;             // variables this panel set (cleared again when Turbo unloads)
 };
 
 MatchState g_ms;
@@ -315,8 +308,7 @@ void draw_vars(App& app) {
         ImGui::TableSetupColumn("");
         ImGui::TableHeadersRow();
         int i = 0;
-        for (const gv::KnownVar* vp : gv::known_proven()) {  // the untested per-side family has its own table below
-            const gv::KnownVar& v = *vp;
+        for (const gv::KnownVar& v : gv::known_vars()) {
             ImGui::PushID(i++);
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
@@ -378,176 +370,6 @@ void draw_vars(App& app) {
         "The switches live in the game's own variable store until the game closes; the game reads them when the next match is set "
         "up. Clear one and the game decides again. Fatigue, offsides, VAR and referee strictness have no such switch in this game "
         "build (docs/re/match_setup.md).");
-}
-
-// Read the live table for one variable and remember the outcome for the "Read back" column (read-only, no game call)
-void read_back_one(App& app, const std::string& name) {
-    int32_t v = 0;
-    std::string why;
-    const bool ok = app.match_setup->read_back(name, v, why);
-    g_ms.read_back[name] = ok ? "read back: " + std::to_string(v) : "no read-back: " + why;
-    app.log("match setup: " + name + (ok ? " read back " + std::to_string(v) : ": no read-back (" + why + ")"));
-}
-
-// Clear every active override (the A/B "baseline" arm does the same before sending nothing)
-void clear_all_overrides(App& app, const char* what) {
-    std::string err;
-    if (!app.match_setup->clear_all(err)) app.notify(std::string(what) + ": " + err, true);
-    else {
-        app.notify(std::string(what) + ": every override is being cleared (the game decides again)");
-        app.log(std::string("match setup: ") + what + ": clear all overrides");
-        g_ms.read_back.clear();
-    }
-}
-
-// Channel A: one row per slider and side; OFF (cleared) by default, the value box starts at the neutral 50 but nothing is sent until Set
-void draw_side_sliders(App& app, bool ready, const std::map<std::string, msetup::VarLine>& lines) {
-    ImGui::SeparatorText("Gameplay sliders per side (channel A: accepted by the game, untested in a match)");
-    ImGui::TextWrapped(
-        "Each slider exists once for your team (_USER) and once for the CPU team (_CPU): 34 sliders, 68 game variables. The game's settings "
-        "reset reads them into its slider block; whether that value survives to kick-off is exactly what the A/B test below decides. Every "
-        "row is OFF by default (off = the variable is cleared, 50 is never sent as off) and carries the badge \"accepted, untested\": the game "
-        "stores the value and reads it back, but no played match has shown an effect yet. EA's slider menu is never touched.");
-    ImGui::Checkbox("Show the 68 per-side sliders##side", &g_ms.show_side);
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!ready);
-    if (ImGui::SmallButton("Read back every active override")) {
-        int n = 0;
-        for (const auto& kv : lines)
-            if (kv.second.active) {
-                read_back_one(app, kv.first);
-                ++n;
-            }
-        if (n == 0) app.notify("Read back: no override is active");
-    }
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Clear all overrides##side")) clear_all_overrides(app, "Clear all overrides");
-    ImGui::EndDisabled();
-    if (!g_ms.show_side) return;
-    ImGui::BeginDisabled(!ready);
-    if (ImGui::BeginTable("##sidevars", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable |
-                                              ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp |
-                                              ImGuiTableFlags_ScrollY, ImVec2(0, S(380.0f)))) {
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("Slider");
-        ImGui::TableSetupColumn("Side");
-        ImGui::TableSetupColumn("Now");
-        ImGui::TableSetupColumn("Value");
-        ImGui::TableSetupColumn("");
-        ImGui::TableSetupColumn("Read back");
-        ImGui::TableHeadersRow();
-        int i = 0;
-        gs::Group last_group = gs::Group::Basic;
-        bool first = true;
-        for (const gs::Slider& s : gs::family()) {
-            if (first || s.group != last_group) {
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                ImGui::TextDisabled("%s", gs::group_name(s.group));
-                last_group = s.group;
-                first = false;
-            }
-            for (gs::Side side : {gs::Side::User, gs::Side::Cpu}) {
-                const std::string name = gs::var_name(s, side);
-                const gv::KnownVar* kv = gv::known(name);
-                if (!kv) continue;
-                ImGui::PushID(i++);
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(s.label);
-                if (ImGui::IsItemHovered()) {
-                    ImGui::BeginTooltip();
-                    ImGui::Text("%s", s.what);
-                    ImGui::TextColored(ImVec4(1, 0.75f, 0.3f, 1), "%s", kv->untested ? "accepted, untested: no played match has shown an effect yet"
-                                                                                       : "proven in a played match (injury override)");
-                    ImGui::TextDisabled("%s", name.c_str());
-                    ImGui::EndTooltip();
-                }
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(gs::side_label(side));
-                ImGui::TableNextColumn();
-                auto it = lines.find(name);
-                if (it != lines.end() && it->second.active) ImGui::Text("%d", it->second.value);
-                else ImGui::TextDisabled("off (game decides)");
-                ImGui::TableNextColumn();
-                int& val = g_ms.side_edit.emplace(name, gs::kNeutral).first->second;
-                ImGui::SetNextItemWidth(S(80.0f));
-                ImGui::InputInt("##sv", &val);
-                val = std::clamp(val, int(kv->min), int(kv->max));
-                ImGui::TableNextColumn();
-                if (ImGui::SmallButton("Set")) {
-                    std::string err;
-                    if (!app.match_setup->set_var(name, val, err)) app.notify(std::string("Match setup: ") + kv->label + ": " + err, true);
-                    else {
-                        app.match_setup_status = usertext::match_var_set(name, val);
-                        ++g_ms.live_written;
-                    }
-                }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Clear")) {
-                    std::string err;
-                    if (!app.match_setup->clear_var(name, err)) app.notify(std::string("Match setup: ") + kv->label + ": " + err, true);
-                    else app.match_setup_status = usertext::match_var_clear(name);
-                }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Read back")) read_back_one(app, name);
-                ImGui::TableNextColumn();
-                auto rb = g_ms.read_back.find(name);
-                if (rb != g_ms.read_back.end()) ImGui::TextUnformatted(rb->second.c_str());
-                else ImGui::TextDisabled("-");
-                ImGui::PopID();
-            }
-        }
-        ImGui::EndTable();
-    }
-    ImGui::EndDisabled();
-}
-
-// The two one-click A/B presets: pressing one shows exactly what Apply will send; Apply sends it (clear first, then the writes)
-void draw_ab(App& app, bool ready, const std::string& not_ready_why) {
-    ImGui::SeparatorText("A/B test: does channel A reach the pitch? (one match per arm, same save)");
-    ImGui::TextWrapped(
-        "Arm A: press the baseline, Apply, play one match, note the CPU's pace, pass accuracy and injuries. Reload the same save. Arm B: "
-        "press the CPU handicap extremes, Apply, play the same fixture. Works = CPU forwards visibly slow in replays, CPU pass accuracy in Match "
-        "Facts far below arm A, soft goals past their keeper, 2 or more CPU injuries in the first half. Does not work = both matches look alike. "
-        "Both arms clear every override first; nothing is sent while turbo_output\\tactics_off.txt or call_gamevar_off.txt exists.");
-    for (const gs::Preset& p : gs::presets()) {
-        if (ImGui::Button(p.title)) g_ms.ab_selected = p.id;
-        ImGui::SameLine();
-    }
-    ImGui::NewLine();
-    const gs::Preset* sel = g_ms.ab_selected.empty() ? nullptr : gs::preset(g_ms.ab_selected);
-    if (!sel) return;
-    ImGui::TextWrapped("%s", sel->summary);
-    ImGui::TextUnformatted("Apply will do, in this order:");
-    for (const std::string& line : gs::describe(*sel)) ImGui::BulletText("%s", line.c_str());
-    std::vector<gs::Write> planned;
-    const bool tactics_off = tactics_off_now(app);
-    const std::string gate = gs::plan(*sel, tactics_off, !ready, not_ready_why, planned);
-    if (!gate.empty()) ImGui::TextColored(ImVec4(1, 0.5f, 0.3f, 1), "Blocked: %s", gate.c_str());
-    ImGui::BeginDisabled(!gate.empty());
-    if (ImGui::Button("Apply##ab")) {
-        // the kill switches are read again at the moment of the write, never from a cache
-        std::vector<gs::Write> now;
-        const std::string gate2 = gs::plan(*sel, tactics_off_now(app), !app.match_setup->vars_ready(nullptr), "the host refuses game variables", now);
-        if (!gate2.empty()) app.notify("A/B preset not applied: " + gate2, true);
-        else {
-            const gs::ApplyReport r = gs::apply(*app.match_setup, *sel, now);
-            g_ms.live_written += r.sent;
-            g_ms.read_back.clear();
-            std::string msg = std::string(sel->title) + ": " + (r.cleared_all ? "every override cleared" : "clear refused") + ", " +
-                              std::to_string(r.sent) + " variable(s) sent";
-            if (r.refused) msg += ", " + std::to_string(r.refused) + " refused (" + r.first_error + ")";
-            app.notify(msg, r.refused > 0);
-            app.log("match setup: A/B preset " + std::string(sel->id) + ": " + msg);
-            for (const gs::Write& w : now) app.log("match setup: A/B preset " + std::string(sel->id) + " sends " + w.name + " = " + std::to_string(w.value));
-        }
-    }
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel##ab")) g_ms.ab_selected.clear();
-    ImGui::TextDisabled("Each variable's outcome arrives as a notification (\"ok\" = the game's SetInt stored it and Turbo read it back). The Status tab lists "
-                        "the active overrides with their read-back values.");
 }
 
 }  // namespace
@@ -632,14 +454,6 @@ void draw_match_setup(App& app) {
         draw_fixes(app);
     }
     draw_vars(app);
-    if (app.match_setup) {
-        std::string why;
-        const bool ready = app.match_setup->vars_ready(&why);
-        std::map<std::string, msetup::VarLine> lines;
-        for (const msetup::VarLine& l : app.match_setup->vars()) lines[l.name] = l;
-        draw_side_sliders(app, ready, lines);
-        draw_ab(app, ready, why);
-    }
 }
 
 }  // namespace turbo

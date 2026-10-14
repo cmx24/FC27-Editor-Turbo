@@ -139,8 +139,8 @@ std::string clear(Memory& mem, Caller& caller, const Fns& fns, Override& ov);
 // Current value of `name` in the live table: false when absent / no value / unreadable
 bool current(Memory& mem, const Fns& fns, const std::string& name, int32_t& value);
 
-// The variables Turbo offers (each read site proven in docs/re/match_setup.md; the per-side gameplay slider family of
-// core/gameplay_sliders.h is appended with untested = true: its read site is the settings reset, nobody has seen it in a match)
+// The variables Turbo offers (each read site proven in docs/re/match_setup.md). The host sets no other name (2.4: the per-side
+// GAMEPLAY_CUSTOMIZATION slider family of tactics channel A was removed: the match ignores it)
 struct KnownVar {
     const char* name;
     const char* label;  // short, for the UI
@@ -148,12 +148,9 @@ struct KnownVar {
     const char* when;   // when the game reads it
     int32_t min, max;   // range the UI allows (the game's own checks are documented)
     int32_t off;        // the value that means "the game decides" (also what the caller passes as default)
-    bool untested;      // true = the game accepts the write (read back ok) but no played match has shown an effect yet
 };
 const std::vector<KnownVar>& known_vars();
 const KnownVar* known(const std::string& name);
-// The known variables that are not of the untested gameplay slider family (the classic Match setup switches)
-std::vector<const KnownVar*> known_proven();
 
 }  // namespace gv
 
@@ -280,14 +277,6 @@ public:
     virtual bool clear_all(std::string& why) = 0;
     virtual bool poll(VarResult& out) = 0;
     virtual std::vector<VarLine> vars() = 0;  // overrides known to the host (active or cleared this session)
-    // Read-only: the value the game's variable table holds for `name` right now (gv::current), without any game call. false +
-    // why when the table has no value for it or no read path exists (the default: "no read-back available")
-    virtual bool read_back(const std::string& name, int32_t& value, std::string& why) {
-        (void)name;
-        (void)value;
-        why = "no read-back available";
-        return false;
-    }
     // Result fixing: the hooks are installed on the first fix (opt-in); the new table is used from the next message on
     virtual bool fix(uint16_t fixture, int home, int away, const std::string& label, std::string& why) = 0;
     virtual bool unfix(uint16_t fixture) = 0;

@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <fstream>
 
-#include "core/gameplay_sliders.h"
 #include "core/match_setup.h"
 #include "core/sliders.h"
 #include "core/tactic_profiles.h"
@@ -127,44 +126,30 @@ static void test_badges() {
         for (SeenKind k : {SeenKind::SeenInMatch, SeenKind::NoEffectSeen, SeenKind::Untested, SeenKind::Legacy, SeenKind::NothingWritten}) CHECK(seen_help(k)[0] != 0, "seen help");
     });
 
-    run_case("phase0 x channel A: the per-side gameplay slider variables are 'game variable' + 'untested', load switched OFF, one switch blocks them", [] {
-        size_t n = 0;
-        for (const SliderDef& d : slider_registry()) {
-            if (!d.untested) continue;
-            ++n;
-            const TacticStatus s = tactic_status(d);
-            const gs::Slider* gsl = nullptr;
-            gs::Side side = gs::Side::User;
-            CHECK(d.binding.targets.size() == 1 && gs::parse_var(d.binding.targets[0], gsl, side), d.key + ": a channel A variable");
-            CHECK(s.written == WriteKind::GameVar && std::string(written_badge(s.written)) == "game variable", d.key + ": written as a game variable");
-            CHECK(s.seen == SeenKind::Untested && seen_badge(s) == "untested" && untested_write(s) && !s.legacy_hidden, d.key + ": untested: " + seen_badge(s));
-            CHECK(s.note.find("variable store") != std::string::npos && status_tag(s).find("game variable, untested: accepted by the game's variable store") == 0,
-                  d.key + ": tag: " + status_tag(s));
-            CHECK(!d.binding.targets.empty() && channel_of_target(d.binding.targets[0]) == WriteChannel::GameVar, d.key + ": the game-variable channel");
+    // 2.4 (docs/TACTICS_OVERHAUL_DECISION.md 3.2 "Removed"): tactics channel A, the per-side GAMEPLAY_CUSTOMIZATION slider variables, was
+    // refuted in game (stored, read back, ignored by the match) and is gone: no registry row, no known variable, nothing a preset can send
+    run_case("2.4 channel A removed: no per-side gameplay slider variable is in the registry or known to the host; only the proven injury names stay", [] {
+        size_t gc = 0;
+        for (const gv::KnownVar& v : gv::known_vars()) {
+            const std::string n = v.name;
+            if (n.rfind("GAMEPLAY_CUSTOMIZATION/", 0) != 0) continue;
+            ++gc;
+            CHECK(n.find("/INJURY_") != std::string::npos && (n.find("_USER") != std::string::npos || n.find("_CPUAI") != std::string::npos),
+                  n + ": only the proven injury variables carry the GAMEPLAY_CUSTOMIZATION prefix");
         }
-        CHECK(n == 66, fmt("66 channel A rows, got %zu", n));
-        // the proven rows keep their own evidence (the channel A note is only for untested rows)
-        CHECK(status_of("match.injury_frequency_user").seen == SeenKind::SeenInMatch && status_of("match.never_injure").note.find("variable store") == std::string::npos,
-              "the classic rows keep their notes");
-        // kill switches: the master and the game-variable file block channel A, the database file does not
-        SwitchState sw;
-        CHECK(!sw.blocks(WriteChannel::GameVar), "no file: not blocked");
-        sw.present = {"tactics_db_off.txt"};
-        CHECK(!sw.blocks(WriteChannel::GameVar), "tactics_db_off.txt leaves game variables alone");
-        sw.present = {"tactics_gamevar_off.txt"};
-        CHECK(sw.blocks(WriteChannel::GameVar) && sw.blocking_file(WriteChannel::GameVar) == "tactics_gamevar_off.txt", "tactics_gamevar_off.txt blocks them");
-        sw.present = {"tactics_off.txt"};
-        CHECK(sw.blocks(WriteChannel::GameVar) && sw.blocking_file(WriteChannel::GameVar) == "tactics_off.txt", "the master blocks them");
-        // a preset never switches a channel A variable on by itself
-        Profile p;
-        p.category = ProfileCategory::Match;
-        p.sliders.set("match.injury_frequency_user", 65, true);
-        p.sliders.set("match.sprint_speed_cpu", 0, true);
+        CHECK(gc == 4 && gv::known_vars().size() == 9, fmt("9 known variables, 4 of them injury sliders (%zu, %zu)", gv::known_vars().size(), gc));
+        for (const char* n : {"GAMEPLAY_CUSTOMIZATION/SPRINT_SPEED_CPU", "GAMEPLAY_CUSTOMIZATION/SPRINT_SPEED_USER", "GAMEPLAY_CUSTOMIZATION/POS_DEF_LINE_HEIGHT_CPU",
+                              "GAMEPLAY_CUSTOMIZATION/INJURY_FREQUENCY_CPU", "GAMEPLAY_CUSTOMIZATION/DRIBBLE_FREQUENCY_CPU"})
+            CHECK(gv::known(n) == nullptr, std::string(n) + ": not a variable Turbo offers");
+        for (const SliderDef& d : slider_registry()) {
+            CHECK(d.group.rfind("Per side: ", 0) != 0, d.key + ": no per-side channel A group");
+            for (const std::string& t : d.binding.targets)
+                if (d.binding.kind == BindingKind::GameVar) CHECK(gv::known(t) != nullptr, d.key + ": " + t + " is a known variable");
+        }
+        CHECK(find_slider("match.sprint_speed_cpu") == nullptr && find_slider("match.pos_def_line_height_user") == nullptr, "the channel A keys are gone");
+        // a preset saved by 2.1-2.3 that still names a channel A key: the key is not known, so nothing is ever sent for it
         SliderSet w;
-        const ProfileLoadResult r = load_profile_into(p, w);
-        CHECK(w.is_enabled("match.injury_frequency_user") && !w.is_enabled("match.sprint_speed_cpu") && w.value_or_default("match.sprint_speed_cpu") == 0,
-              "the channel A value is loaded switched off");
-        CHECK(r.held_off == std::vector<std::string>({"match.sprint_speed_cpu"}), fmt("held off: %zu", r.held_off.size()));
+        CHECK(!w.set("match.sprint_speed_cpu", 0, true) && game_writes(w).empty(), "an old channel A key is never written");
     });
 
     run_case("phase0 status table: every key it names is in the registry; a 'seen' or 'no effect seen' row carries its date and its evidence", [] {

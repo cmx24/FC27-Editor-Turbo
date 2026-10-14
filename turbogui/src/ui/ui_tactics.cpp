@@ -311,24 +311,6 @@ ImVec4 seen_colour(SeenKind k) {
     return ImVec4(1, 1, 1, 1);
 }
 
-// Tactics channel A (core/gameplay_sliders.h): the per-side gameplay slider game variables (SliderDef::untested) map into the two badges as
-// "game variable" + "untested", off by default like every untested write; while no played match has shown them working, their "seen"
-// badge keeps channel A's orange caution and its own hover text
-bool channel_a_untested(const SliderDef& d, const TacticStatus& st) {
-    return d.untested && st.written == WriteKind::GameVar && st.seen == SeenKind::Untested;
-}
-
-ImVec4 seen_colour_of(const SliderDef& d, const TacticStatus& st) {
-    if (channel_a_untested(d, st)) return ImVec4(1, 0.75f, 0.3f, 1);
-    return seen_colour(st.seen);
-}
-
-const char* seen_help_of(const SliderDef& d, const TacticStatus& st) {
-    if (channel_a_untested(d, st))
-        return "Accepted by the game's variable store (read back ok). No played match has shown an effect yet: off by default.";
-    return seen_help(st.seen);
-}
-
 // The channel of a slider's first target (every target of one slider goes through the same channel today)
 WriteChannel channel_of_def(const SliderDef& d) {
     if (d.binding.targets.empty()) return WriteChannel::GameVar;
@@ -1241,8 +1223,8 @@ void draw_row(App& app, const SliderDef& d, const Profile* cmp, const std::map<s
     ImGui::TextColored(written_colour(st.written), "  [%s]", row.written.c_str());
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", written_help(st.written));
     ImGui::SameLine();
-    ImGui::TextColored(seen_colour_of(d, st), "[%s]", row.seen.c_str());
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", seen_help_of(d, st));
+    ImGui::TextColored(seen_colour(st.seen), "[%s]", row.seen.c_str());
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", seen_help(st.seen));
     if (!d.technical.empty()) ImGui::TextDisabled("  %s", d.technical.c_str());
     if (!off.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "  %s", off_text(off).c_str());
     int v = w.value_or_default(d.key);
