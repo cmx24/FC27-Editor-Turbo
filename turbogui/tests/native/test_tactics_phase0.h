@@ -242,7 +242,9 @@ static void test_writes() {
 
     run_case("phase0 kill switches: one file per write channel, the master blocks everything, the channel file only its rows", [] {
         const auto& ks = kill_switches();
-        CHECK(ks.size() == 4 && std::string(ks.front().file) == "tactics_off.txt" && ks.front().all, "tactics_off.txt stays the master switch, first in the list");
+        CHECK(ks.size() == 5 && std::string(ks.front().file) == "tactics_off.txt" && ks.front().all, "tactics_off.txt stays the master switch, first in the list");
+        CHECK(std::string(channel_switch_file(WriteChannel::Tuning)) == "tuning_profile_off.txt" && std::string(channel_name(WriteChannel::Tuning)) == "gameplay tuning profile",
+              "the tuning profile's automatic writes (2.4)");
         std::set<std::string> files;
         for (const KillSwitch& k : ks) {
             files.insert(k.file);

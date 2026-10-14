@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <fstream>
 #include <limits>
 #include <sstream>
@@ -46,6 +47,28 @@ bool read_file(const fs::path& p, std::string& out) {
     std::stringstream ss;
     ss << f.rdbuf();
     out = ss.str();
+    return true;
+}
+
+// A small settings file (the profile, the chain check, the undo record): refused above max_bytes, so a huge or wrong file never stalls a
+// frame or the locate thread. false + why ("" = absent)
+bool read_small_file(const fs::path& p, std::string& out, uintmax_t max_bytes, std::string& why) {
+    why.clear();
+    std::error_code ec;
+    if (!fs::exists(p, ec)) return false;
+    const uintmax_t size = fs::file_size(p, ec);
+    if (ec) {
+        why = "cannot read its size";
+        return false;
+    }
+    if (size > max_bytes) {
+        why = "too big (" + std::to_string(size) + " bytes, at most " + std::to_string(max_bytes) + ")";
+        return false;
+    }
+    if (!read_file(p, out)) {
+        why = "cannot be read";
+        return false;
+    }
     return true;
 }
 
@@ -245,6 +268,16 @@ const std::vector<std::string>& phases() {
     return p;
 }
 
+const std::vector<std::string>& moments() {
+    static const std::vector<std::string> m = {"boot", "career_load", "hub"};
+    return m;
+}
+
+const std::vector<std::string>& when_values() {
+    static const std::vector<std::string> w = {"boot", "career_load", "hub", "prematch", "match"};
+    return w;
+}
+
 const char* plan_kind_name(PlanKind k) {
     switch (k) {
         case PlanKind::Apply: return "apply";
@@ -256,7 +289,12 @@ const char* plan_kind_name(PlanKind k) {
 }
 
 // ------------------------------------------------------------------------------------------------ registry
-bool Knob::allows(const std::string& phase) const { return std::find(when.begin(), when.end(), phase) != when.end(); }
+bool Knob::allows_moment(const std::string& moment) const { return std::find(when.begin(), when.end(), moment) != when.end(); }
+
+bool Knob::allows(const std::string& phase) const {
+    if (phase == "prematch" || phase == "match") return live || allows_moment(phase);
+    return phase == "hub" && allows_moment("hub");
+}
 
 bool Knob::game_value(const std::string& copy, double& v) const {
     auto it = copy_defaults.find(copy);
@@ -649,17 +687,42 @@ static bool parse_knob(const json& o, const Registry& reg, Knob& k, std::string&
     }
     if (o.contains("when") && !o["when"].is_null()) {
         if (!o["when"].is_array() || o["when"].empty()) {
-            err = who + ": when must be a non-empty list of phases (hub, prematch, match)";
+            err = who + ": when must be a non-empty list of moments and phases (boot, career_load, hub, prematch, match)";
             return false;
         }
         k.when.clear();
         for (const auto& p : o["when"]) {
-            if (!p.is_string() || std::find(phases().begin(), phases().end(), p.get<std::string>()) == phases().end()) {
-                err = who + ": when lists an unknown phase (hub, prematch, match)";
+            if (!p.is_string() || std::find(when_values().begin(), when_values().end(), p.get<std::string>()) == when_values().end()) {
+                err = who + ": when lists an unknown moment or phase (boot, career_load, hub, prematch, match)";
                 return false;
             }
-            k.when.push_back(p.get<std::string>());
+            if (std::find(k.when.begin(), k.when.end(), p.get<std::string>()) == k.when.end()) k.when.push_back(p.get<std::string>());
         }
+    }
+    if (o.contains("live") && !o["live"].is_null()) {
+        if (!o["live"].is_boolean()) {
+            err = who + ": live must be true or false";
+            return false;
+        }
+        k.live = o["live"].get<bool>();
+    }
+    if (o.contains("slider") && !o["slider"].is_null()) {
+        if (!o["slider"].is_boolean()) {
+            err = who + ": slider must be true or false";
+            return false;
+        }
+        k.slider = o["slider"].get<bool>();
+    }
+    if (o.contains("proof") && !o["proof"].is_null()) {
+        const json& p = o["proof"];
+        if (!p.is_object() || !p.contains("session") || !p["session"].is_string() || !p.contains("evidence") || !p["evidence"].is_string() ||
+            p["session"].get<std::string>().empty() || p["evidence"].get<std::string>().empty()) {
+            err = who + ": proof must be {\"session\": \"P2\", \"evidence\": \"EV/<date>/TEST_25.md#...\"} (both not empty)";
+            return false;
+        }
+        k.proof.session = p["session"].get<std::string>();
+        k.proof.evidence = p["evidence"].get<std::string>();
+        k.proof.note = str_of(p, "note");
     }
     if (!json_num(o, "min", k.has_min, k.min, err, who) || !json_num(o, "max", k.has_max, k.max, err, who) ||
         !json_num(o, "default", k.has_default, k.def, err, who))
@@ -772,6 +835,88 @@ static bool parse_knob(const json& o, const Registry& reg, Knob& k, std::string&
     return true;
 }
 
+static bool parse_manager(const json& o, AttribManager& m, std::string& err) {
+    const std::string who = "attrib_manager";
+    if (!o.is_object()) {
+        err = who + " must be an object";
+        return false;
+    }
+    m = AttribManager();
+    m.present = true;
+    if (o.contains("signature")) m.signature = str_of(o, "signature");
+    if (m.signature.empty()) {
+        err = who + ": signature names the entry of Turbo's signature table that resolves to the manager slot G";
+        return false;
+    }
+    if (o.contains("current") && !o["current"].is_null()) {
+        if (!o["current"].is_array() || o["current"].empty() || o["current"].size() > size_t(kMaxChain)) {
+            err = who + ": current must be a list of 1.." + std::to_string(kMaxChain) + " offsets";
+            return false;
+        }
+        m.current.clear();
+        for (const auto& x : o["current"]) {
+            int64_t v = 0;
+            if (!json_int(x, v) || v < 0 || v > 0x10000 || (v & 7)) {
+                err = who + ": a current offset must be 8-aligned 0..0x10000";
+                return false;
+            }
+            m.current.push_back(v);
+        }
+    }
+    struct Off {
+        const char* key;
+        int64_t* at;
+        int64_t lo, hi;
+    } offs[] = {{"prematch_slot", &m.prematch_slot, 0, 0x10000}, {"handle_db", &m.handle_db, 0, 0x10000}, {"mgr_size", &m.mgr_size, 8, 0x10000},
+                {"index_at", &m.index_at, 0, 0x10000}};
+    for (const Off& f : offs) {
+        if (!o.contains(f.key) || o[f.key].is_null()) continue;
+        int64_t v = 0;
+        if (!json_int(o[f.key], v) || v < f.lo || v > f.hi || (std::string(f.key) != "index_at" && (v & 7))) {
+            err = who + ": " + f.key + " must be an offset " + std::to_string(f.lo) + "..0x10000 (8-aligned)";
+            return false;
+        }
+        *f.at = v;
+    }
+    m.gameplay_db_type = str_of(o, "gameplay_db_type");
+    m.prematch_db_type = str_of(o, "prematch_db_type");
+    if (m.gameplay_db_type.empty()) {
+        err = who + ": gameplay_db_type is needed (AttribDBRuntime_gameplayattribdb)";
+        return false;
+    }
+    for (const char* key : {"gameplay_db_signature", "prematch_db_signature"}) {
+        if (!o.contains(key) || o[key].is_null()) continue;
+        int64_t v = 0;
+        if (!json_int(o[key], v) || v <= 0 || v > 0xFFFFFFFFLL) {
+            err = who + ": " + key + " must be a u32 (hex string)";
+            return false;
+        }
+        (std::string(key) == "gameplay_db_signature" ? m.gameplay_db_signature : m.prematch_db_signature) = uint32_t(v);
+    }
+    for (const char* key : {"gameplay_dbs", "prematch_dbs"}) {
+        if (!o.contains(key) || o[key].is_null()) continue;
+        if (!o[key].is_array() || o[key].size() > 64) {
+            err = who + ": " + key + " must be a list of at most 64 database names";
+            return false;
+        }
+        std::vector<std::string>& list = std::string(key) == "gameplay_dbs" ? m.gameplay_dbs : m.prematch_dbs;
+        for (const auto& x : o[key]) {
+            if (!x.is_string() || x.get<std::string>().empty()) {
+                err = who + ": " + key + " lists an empty name";
+                return false;
+            }
+            for (const std::string& n : list)
+                if (same_name(n, x.get<std::string>())) {
+                    err = who + ": " + key + " lists " + n + " twice";
+                    return false;
+                }
+            list.push_back(x.get<std::string>());
+        }
+    }
+    m.note = str_of(o, "note");
+    return true;
+}
+
 bool parse_registry(const std::string& text, Registry& out, std::string& err) {
     json j = json::parse(text, nullptr, false);
     if (j.is_discarded() || !j.is_object()) {
@@ -791,6 +936,7 @@ bool parse_registry(const std::string& text, Registry& out, std::string& err) {
         }
         r.note = str_of(j, "note");
         r.version = j.value("version", 0);
+        if (j.contains("attrib_manager") && !j["attrib_manager"].is_null() && !parse_manager(j["attrib_manager"], r.manager, err)) return false;
         if (j.contains("locators") && !j["locators"].is_null()) {
             if (!j["locators"].is_array()) {
                 err = "locators must be a list";
@@ -851,6 +997,26 @@ std::string registry_json(const Registry& r) {
     j["build"] = r.build;
     j["version"] = r.version;
     j["note"] = r.note;
+    if (r.manager.present) {
+        const AttribManager& m = r.manager;
+        ojson o = ojson::object();
+        o["signature"] = m.signature;
+        ojson cur = ojson::array();
+        for (int64_t c : m.current) cur.push_back(hex(uint64_t(c)));
+        o["current"] = cur;
+        o["prematch_slot"] = hex(uint64_t(m.prematch_slot));
+        o["handle_db"] = hex(uint64_t(m.handle_db));
+        o["mgr_size"] = hex(uint64_t(m.mgr_size));
+        o["index_at"] = hex(uint64_t(m.index_at));
+        o["gameplay_db_type"] = m.gameplay_db_type;
+        if (m.gameplay_db_signature) o["gameplay_db_signature"] = hex(m.gameplay_db_signature);
+        o["prematch_db_type"] = m.prematch_db_type;
+        if (m.prematch_db_signature) o["prematch_db_signature"] = hex(m.prematch_db_signature);
+        o["gameplay_dbs"] = m.gameplay_dbs;
+        o["prematch_dbs"] = m.prematch_dbs;
+        o["note"] = m.note;
+        j["attrib_manager"] = o;
+    }
     ojson ls = ojson::array();
     for (const Locator& l : r.locators) {
         ojson o = ojson::object();
@@ -932,7 +1098,14 @@ std::string registry_json(const Registry& r) {
         o["offset"] = k.offset >= 0 ? ojson(hex(uint64_t(k.offset))) : ojson(nullptr);
         o["applies"] = applies_name(k.applies);
         o["when"] = k.when;
+        if (k.live) o["live"] = true;
         if (!k.below.empty()) o["below"] = k.below;
+        if (k.slider) o["slider"] = true;
+        if (k.proof.given()) {
+            ojson p = {{"session", k.proof.session}, {"evidence", k.proof.evidence}};
+            if (!k.proof.note.empty()) p["note"] = k.proof.note;
+            o["proof"] = p;
+        }
         o["verified"] = k.verified;
         o["notes"] = k.notes;
         ks.push_back(o);
@@ -1313,7 +1486,7 @@ static Anchor resolve_attrib(Memory& mem, const Locator& l, const Lookup& lk) {
             return a;
         }
         a.type_ptr = t0;
-        a.copies.push_back({v.name, inst, db});
+        a.copies.push_back({v.name, inst, db, std::string()});
     }
     a.addr = l.variants.empty() ? 0 : a.copies.front().base;
     a.ok = true;
@@ -1431,8 +1604,10 @@ std::string chase(Memory& mem, const Locator& l, const Anchor& anchor, const Loo
                 if (x.name == c.variant) v = &x;
             if (c.db) {
                 uint64_t vt = 0;
-                if (!v || !check_head(mem, lk, c.db, anchor.db_td, 0, vt).empty() || !named(mem, c.db, v->db))
-                    return "variant " + c.variant + ": the database object at " + hex(c.db) + " is no longer " + (v ? v->db : std::string("?")) + ": locate again";
+                const std::string dbn = !c.db_name.empty() ? c.db_name : v ? v->db : std::string();
+                if (!v || dbn.empty() || !check_head(mem, lk, c.db, anchor.db_td, 0, vt).empty() || !named(mem, c.db, dbn))
+                    return "variant " + c.variant + ": the database object at " + hex(c.db) + " is no longer " + (dbn.empty() ? std::string("?") : dbn) +
+                           ": locate again";
                 uint64_t inst = 0;
                 const std::string w = via_db(mem, l, lk, anchor, c.db, inst);
                 if (!w.empty()) return "variant " + c.variant + ": " + w + ": locate again";
@@ -1442,7 +1617,7 @@ std::string chase(Memory& mem, const Locator& l, const Anchor& anchor, const Loo
             uint64_t t0 = 0;
             if (!mem.rd(c.base, t0) || t0 != anchor.type_ptr)
                 return "variant " + c.variant + ": the instance at " + hex(c.base) + " no longer holds its object type (" + hex(t0) + "): locate again";
-            if (l.head == "typeinfo") {
+            if (l.head == "typeinfo" || anchor.path == "chain") {
                 const uint64_t ti = mem.ptr(c.base + kInstTypeInfo);
                 if (!ti || mem.ptr(ti) != anchor.td)
                     return "variant " + c.variant + ": the instance at " + hex(c.base) + " no longer holds its TypeInfo: locate again";
@@ -1471,7 +1646,7 @@ std::string chase(Memory& mem, const Locator& l, const Anchor& anchor, const Loo
         }
         if (!why.empty()) return why;
         if (!is_ptr(b)) return "native locator " + l.name + " gave no table address";
-        bases.push_back({"", b});
+        bases.push_back({"", b, 0, std::string()});
         return "";
     }
     std::vector<uint64_t> objs;
@@ -1495,7 +1670,7 @@ std::string chase(Memory& mem, const Locator& l, const Anchor& anchor, const Loo
     }
     const uint64_t base = cur + uint64_t(l.add);
     if (!is_ptr(base)) return "the table address " + hex(base) + " is not a pointer";
-    bases.push_back({"", base});
+    bases.push_back({"", base, 0, std::string()});
     if (objects) *objects = objs;
     return "";
 }
@@ -1552,6 +1727,389 @@ std::string locate_knob(Memory& mem, const Registry& reg, const Knob& k, const A
     return "";
 }
 
+// ------------------------------------------------------------------------------------------------ the chain from the attribute manager
+// The TypeInfoData behind an object's TypeInfo at +8 (both in FC27.exe): its type name and signature. "" + ti / td, else why
+static std::string object_type(Memory& mem, const Lookup& lk, uint64_t obj, uint64_t& ti, uint64_t& td, std::string& name, uint32_t& sig) {
+    ti = td = 0;
+    name.clear();
+    sig = 0;
+    ti = mem.ptr(obj + kInstTypeInfo);
+    if (!ti || !in_image(lk, ti)) return "no TypeInfo in FC27.exe at +8";
+    td = mem.ptr(ti);
+    if (!td || !in_image(lk, td)) return "its TypeInfo holds no TypeInfoData";
+    const uint64_t np = mem.ptr(td + kTdName, 1);
+    if (np) name = mem.read_cstr(np, 160);
+    if (name.empty()) return "its type has no name";
+    if (!mem.rd(td + kTdSignature, sig)) return "its type header is not readable";
+    return "";
+}
+
+static std::string lower_ascii(std::string s) {
+    for (char& c : s) c = char(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+}
+
+// A database runtime object: +0 a vtable in FC27.exe, its type `type` (signature `sig` when not 0), its Name at +0x18 one of `names` (an
+// empty list: any "Fifa/Attribulator/..." name). "" + its Name, TypeInfoData and vtable, else why
+static std::string db_check(Memory& mem, const Lookup& lk, uint64_t db, const std::string& type, uint32_t sig, const std::vector<std::string>& names,
+                            std::string& name, uint64_t& td, uint64_t& vt) {
+    name.clear();
+    td = vt = 0;
+    if (!mem.rd(db, vt) || !in_image(lk, vt)) return "no vtable in FC27.exe at +0";
+    uint64_t ti = 0;
+    std::string tn;
+    uint32_t ts = 0;
+    const std::string w = object_type(mem, lk, db, ti, td, tn, ts);
+    if (!w.empty()) return w;
+    if (tn != type) return "it is a " + tn + ", not a " + type;
+    if (sig && ts != sig) return "type " + type + " has signature " + hex(ts) + ", not " + hex(sig);
+    const uint64_t np = mem.ptr(db + kInstName, 1);
+    if (np) name = mem.read_cstr(np, 260);
+    if (name.empty()) return "no Name at +0x18";
+    if (names.empty()) {
+        if (!(name.size() > 18 && same_name(name.substr(0, 18), "Fifa/Attribulator/"))) return "its Name " + name + " is not an attribulator database";
+        return "";
+    }
+    for (const std::string& n : names)
+        if (same_name(n, name)) return "";
+    return "its Name " + name + " is not one of the knobs file's databases";
+}
+
+std::string AttribDbs::summary() const {
+    int gp = 0;
+    for (const AttribDb& d : dbs) gp += d.prematch ? 0 : 1;
+    std::string s = "G " + hex(g) + ", mgr " + hex(mgr) +
+                    (seed_slot_found() ? ", no current database yet (seeded from mgr+" + hex(uint64_t(seed_slot)) + ": " + current_name + ")"
+                                       : ", current database " + (current_name.empty() ? std::string("?") : current_name)) +
+                    " (index " + std::to_string(index) + ")";
+    s += prematch ? ", prematch database at mgr+" + hex(uint64_t(prematch_slot)) : std::string(", prematch database not found");
+    s += ", " + (enum_why.empty() ? std::to_string(gp) + " gameplay database(s)" : enum_why);
+    return s;
+}
+
+std::string walk_manager(Memory& mem, const AttribManager& m, const Lookup& lk, AttribDbs& out, bool& transient) {
+    out = AttribDbs();
+    transient = false;
+    const uint64_t g = lk.signature ? lk.signature(m.signature) : 0;
+    if (!g) return "signature " + m.signature + " was not found on this game build";
+    if (lk.image_size && !in_image(lk, g)) return "the manager slot " + hex(g) + " is outside FC27.exe";
+    out.g = g;
+    out.mgr = mem.ptr(g);
+    if (!out.mgr) {
+        transient = true;
+        return "the attribute manager does not exist yet ([G] holds no pointer)";
+    }
+    uint64_t cur = out.mgr;
+    std::string none;
+    for (size_t i = 0; i < m.current.size() && none.empty(); ++i) {
+        const uint64_t next = slot_ptr(mem, cur + uint64_t(m.current[i]));
+        if (!next) none = "no current gameplay database yet ([" + hex(cur) + " + " + hex(uint64_t(m.current[i])) + "] holds no pointer)";
+        cur = next;
+    }
+    if (!none.empty()) {
+        // no current database yet (e.g. the main menu before a mode is set): any manager slot whose handle holds an identity-checked
+        // gameplay database seeds the enumeration (its TypeInfo and vtable); read-only, bounded to the manager's first mgr_size bytes
+        for (int64_t s = 0; s + 8 <= m.mgr_size && !out.seed_slot_found(); s += 8) {
+            const uint64_t h = slot_ptr(mem, out.mgr + uint64_t(s));
+            const uint64_t db = h ? slot_ptr(mem, h + uint64_t(m.handle_db)) : 0;
+            std::string name;
+            uint64_t td = 0, vt = 0;
+            if (db && db_check(mem, lk, db, m.gameplay_db_type, m.gameplay_db_signature, m.gameplay_dbs, name, td, vt).empty()) {
+                out.seed_slot = s;
+                cur = db;
+            }
+        }
+        if (!out.seed_slot_found()) {
+            transient = true;
+            return none;
+        }
+    }
+    const std::string w = db_check(mem, lk, cur, m.gameplay_db_type, m.gameplay_db_signature, m.gameplay_dbs, out.current_name, out.gameplay_td, out.gameplay_vt);
+    if (!w.empty()) return "the current gameplay database " + hex(cur) + ": " + w;
+    out.current = cur;
+    out.gameplay_ti = mem.ptr(cur + kInstTypeInfo);
+    int32_t idx = -1;
+    if (mem.rd(out.mgr + uint64_t(m.index_at), idx)) out.index = idx;
+    out.dbs.push_back({cur, out.current_name, false});
+    if (!m.prematch_db_type.empty()) {
+        // the named slot first, then every 8-aligned slot of the manager (the handle's offset is [A], T5 2.2): read-only, bounded
+        auto try_slot = [&](int64_t slot) {
+            const uint64_t h = slot_ptr(mem, out.mgr + uint64_t(slot));
+            const uint64_t db = h ? slot_ptr(mem, h + uint64_t(m.handle_db)) : 0;
+            if (!db) return false;
+            std::string name;
+            uint64_t td = 0, vt = 0;
+            if (!db_check(mem, lk, db, m.prematch_db_type, m.prematch_db_signature, m.prematch_dbs, name, td, vt).empty()) return false;
+            out.prematch = db;
+            out.prematch_slot = slot;
+            out.prematch_td = td;
+            out.dbs.push_back({db, name, true});
+            return true;
+        };
+        if (!try_slot(m.prematch_slot))
+            for (int64_t s = 0; s + 8 <= m.mgr_size; s += 8)
+                if (s != m.prematch_slot && try_slot(s)) break;
+    }
+    return "";
+}
+
+void enumerate_dbs(Memory& mem, const AttribManager& m, const Lookup& lk, const std::vector<uint64_t>& family_slots, AttribDbs& io) {
+    io.enumerated = false;
+    if (!io.current || io.dbs.empty()) {
+        io.enum_why = "no current gameplay database";
+        return;
+    }
+    if (!lk.heap_qwords) {
+        io.enum_why = "the current gameplay database only (no heap search here)";
+        return;
+    }
+    if (!io.gameplay_ti) {
+        io.enum_why = "the current gameplay database only (its TypeInfo is not readable)";
+        return;
+    }
+    std::vector<uint64_t> slots;
+    try {
+        slots = lk.heap_qwords(io.gameplay_ti, 4096);
+    } catch (...) {
+        io.enum_why = "the current gameplay database only (the heap search failed)";
+        return;
+    }
+    std::map<std::string, std::vector<uint64_t>> by;  // lower-case Name -> database objects
+    std::map<std::string, std::string> shown;
+    for (uint64_t s : slots) {
+        if (s < kInstTypeInfo) continue;
+        const uint64_t obj = s - kInstTypeInfo;
+        std::string name;
+        uint64_t td = 0, vt = 0;
+        if (!db_check(mem, lk, obj, m.gameplay_db_type, m.gameplay_db_signature, m.gameplay_dbs, name, td, vt).empty()) continue;
+        if (vt != io.gameplay_vt || td != io.gameplay_td) continue;
+        std::vector<uint64_t>& v = by[lower_ascii(name)];
+        if (std::find(v.begin(), v.end(), obj) == v.end()) v.push_back(obj);
+        shown[lower_ascii(name)] = name;
+    }
+    std::vector<std::string> want = m.gameplay_dbs;
+    if (want.empty())
+        for (const auto& kv : shown) want.push_back(kv.second);
+    std::vector<AttribDb> gp = {io.dbs.front()};
+    std::vector<std::string> missing, ambiguous;
+    const std::string cur = lower_ascii(io.current_name);
+    for (const std::string& n : want) {
+        const std::string key = lower_ascii(n);
+        if (key == cur) continue;  // the current one, from G
+        auto it = by.find(key);
+        if (it == by.end() || it->second.empty()) {
+            missing.push_back(n);
+            continue;
+        }
+        bool same = true;  // byte copies of one database point at the same group objects: one database
+        for (uint64_t fs : family_slots)
+            for (uint64_t o : it->second) same = same && slot_ptr(mem, o + fs) == slot_ptr(mem, it->second.front() + fs);
+        if (!same) {
+            ambiguous.push_back(n);
+            continue;
+        }
+        gp.push_back({it->second.front(), shown[key], false});
+    }
+    for (const AttribDb& d : io.dbs)
+        if (d.prematch) gp.push_back(d);
+    io.dbs = gp;
+    io.enumerated = missing.empty() && ambiguous.empty();
+    int n = 0;
+    for (const AttribDb& d : io.dbs) n += d.prematch ? 0 : 1;
+    io.enum_why = std::to_string(n) + " of " + std::to_string(std::max<size_t>(want.size(), 1)) + " gameplay databases";
+    auto list = [](const std::vector<std::string>& v) {
+        std::string s;
+        for (const auto& x : v) s += (s.empty() ? "" : ", ") + x;
+        return s;
+    };
+    if (!missing.empty()) io.enum_why += "; not found: " + list(missing);
+    if (!ambiguous.empty()) io.enum_why += "; ambiguous (several objects with different groups): " + list(ambiguous);
+}
+
+Anchor resolve_attrib_chain(Memory& mem, const AttribManager& m, const Locator& l, const AttribDbs& dbs, const Lookup& lk) {
+    Anchor a;
+    a.path = "chain";
+    auto refuse = [&](const std::string& w) {
+        a.ok = false;
+        a.refused = true;
+        a.why = w;
+        a.copies.clear();
+        return a;
+    };
+    if (!l.chain_capable()) {
+        a.why = "locator " + l.name + " names no database chain (db_type, family_slot, group_slot)";
+        return a;
+    }
+    const bool pm = m.prematch(l);
+    if (!pm && l.db_type != m.gameplay_db_type) {
+        a.why = "its database type " + l.db_type + " is not one the attribute manager reaches";
+        return a;
+    }
+    std::vector<const AttribDb*> set;
+    for (const AttribDb& d : dbs.dbs)
+        if (d.prematch == pm) set.push_back(&d);
+    if (set.empty()) {
+        a.why = pm ? "the prematch database was not found from the attribute manager" : "no gameplay database";
+        return a;
+    }
+    struct Found {
+        uint64_t inst, db;
+        std::string db_name;
+        const Variant* v;
+    };
+    std::vector<Found> found;
+    uint64_t group_td = 0, inst_td = 0, vt0 = 0;
+    TypeLayout layout;
+    for (const AttribDb* d : set) {
+        const uint64_t grp = slot_ptr(mem, d->addr + l.family_slot);
+        if (!grp) continue;  // this database does not carry the family
+        uint64_t gti = 0, gtd = 0;
+        std::string gname;
+        uint32_t gsig = 0;
+        std::string w = object_type(mem, lk, grp, gti, gtd, gname, gsig);
+        if (!w.empty()) return refuse("the group object " + hex(grp) + " of " + d->name + ": " + w);
+        if (!l.group_type.empty() && gname != l.group_type) return refuse("the group object " + hex(grp) + " of " + d->name + " is a " + gname + ", not a " + l.group_type);
+        if (l.group_type_signature && gsig != l.group_type_signature)
+            return refuse("group type " + gname + " has signature " + hex(gsig) + ", not " + hex(l.group_type_signature));
+        if (group_td && gtd != group_td) return refuse("the databases' group objects are of different types");
+        group_td = gtd;
+        const uint64_t inst = slot_ptr(mem, grp + l.group_slot);
+        if (!inst) continue;  // not carried by this database
+        bool seen = false;
+        for (const Found& f : found) seen = seen || f.inst == inst;
+        if (seen) continue;  // shared by several databases: one copy
+        const std::string at = "the instance " + hex(inst) + " (" + d->name + ")";
+        uint64_t vt = 0;
+        if (!mem.rd(inst, vt) || !in_image(lk, vt)) return refuse(at + " has no vtable in FC27.exe at +0");
+        if (l.head_rva && vt != lk.image_base + l.head_rva) return refuse(at + ": its vtable is " + hex(vt) + ", not FC27.exe+" + hex(l.head_rva));
+        if (vt0 && vt != vt0) return refuse("the copies have different vtables (" + hex(vt0) + ", " + hex(vt) + ")");
+        vt0 = vt;
+        uint64_t ti = 0, td = 0;
+        std::string tn;
+        uint32_t ts = 0;
+        w = object_type(mem, lk, inst, ti, td, tn, ts);
+        if (!w.empty()) return refuse(at + ": " + w);
+        if (tn != l.type) return refuse(at + " is a " + tn + ", not a " + l.type);
+        if (!inst_td) {
+            const std::string pw = parse_type_info(mem, td, layout);
+            if (!pw.empty()) return refuse(pw);
+            if (l.type_signature && layout.signature != l.type_signature)
+                return refuse("type " + l.type + " has signature " + hex(layout.signature) + ", not " + hex(l.type_signature));
+            if (l.type_size && layout.size != l.type_size) return refuse("type " + l.type + " is " + hex(layout.size) + " bytes, not " + hex(l.type_size));
+            if (l.type_fields > 0 && layout.fields != l.type_fields)
+                return refuse("type " + l.type + " has " + std::to_string(layout.fields) + " fields, not " + std::to_string(l.type_fields));
+            inst_td = td;
+        } else if (td != inst_td) {
+            return refuse("the copies have different types");
+        }
+        const uint64_t np = mem.ptr(inst + kInstName, 1);
+        const std::string name = np ? mem.read_cstr(np, 260) : std::string();
+        const Variant* v = nullptr;
+        for (const Variant& x : l.variants)
+            if (same_name(x.instance, name)) v = &x;
+        if (!v)
+            return refuse("an undeclared copy " + (name.empty() ? std::string("without a Name") : name) + " at " + hex(inst) + " (" + d->name +
+                          "): the knobs file does not describe this build's copies");
+        if (!guid_ok(mem, inst, v->guid)) return refuse(at + " does not carry the asset GUID " + guid_text(v->guid));
+        for (const Found& f : found)
+            if (f.v == v) return refuse("two instances carry the name " + v->instance + " (" + hex(f.inst) + ", " + hex(inst) + ")");
+        found.push_back({inst, d->addr, d->name, v});
+    }
+    for (const Variant& v : l.variants) {
+        bool have = false;
+        for (const Found& f : found) have = have || f.v == &v;
+        if (have) continue;
+        if (pm || dbs.enumerated) return refuse("variant " + v.name + " (" + v.instance + "): no database holds it");
+        a.why = "variant " + v.name + " is not reachable from the current database (" + (dbs.enum_why.empty() ? std::string("not enumerated") : dbs.enum_why) + ")";
+        return a;
+    }
+    if (found.empty()) {
+        a.why = "no database holds the group";
+        return a;
+    }
+    a.td = inst_td;
+    a.layout = layout;
+    a.type_ptr = vt0;
+    a.group_td = group_td;
+    a.db_td = pm ? dbs.prematch_td : dbs.gameplay_td;
+    for (const Variant& v : l.variants)
+        for (const Found& f : found)
+            if (f.v == &v) a.copies.push_back({v.name, f.inst, f.db, f.db_name});
+    a.addr = a.copies.front().base;
+    a.ok = true;
+    return a;
+}
+
+std::string same_instances(const Anchor& chain, const Anchor& search) {
+    if (!chain.ok || !search.ok) return "not both located";
+    for (const Copy& c : chain.copies) {
+        const Copy* s = nullptr;
+        for (const Copy& x : search.copies)
+            if (x.variant == c.variant) s = &x;
+        if (!s) return "variant " + c.variant + ": the name search has no copy";
+        if (s->base != c.base) return "variant " + c.variant + ": the chain found " + hex(c.base) + ", the name search " + hex(s->base);
+    }
+    if (search.copies.size() != chain.copies.size()) return "the name search found another number of copies";
+    if (search.td && chain.td && search.td != chain.td) return "the type data differ";
+    return "";
+}
+
+std::string ChainCheck::to_json() const {
+    ojson j = ojson::object();
+    j["turbo_tuning_chain_check"] = 1;
+    j["build"] = build;
+    j["when"] = when;
+    j["agree"] = std::vector<std::string>(agree.begin(), agree.end());
+    j["note"] = "the attrib locators whose chain from the attribute manager found the same instances as the name search on this build";
+    return j.dump(1, ' ', false, ojson::error_handler_t::replace) + "\n";
+}
+
+bool ChainCheck::parse(const std::string& text, ChainCheck& out, std::string* err) {
+    json j = json::parse(text, nullptr, false);
+    if (j.is_discarded() || !j.is_object() || !j.contains("turbo_tuning_chain_check")) {
+        if (err) *err = "not a tuning chain check file";
+        return false;
+    }
+    ChainCheck c;
+    c.build = str_of(j, "build");  // type-checked: a null or a number is "" (never a throw on the locate thread)
+    c.when = str_of(j, "when");
+    if (j.contains("agree") && j["agree"].is_array())
+        for (const auto& x : j["agree"])
+            if (x.is_string()) c.agree.insert(x.get<std::string>());
+    out = std::move(c);
+    return true;
+}
+
+bool load_chain_check(const fs::path& p, ChainCheck& out, std::string* err) {
+    std::string text, why;
+    if (!read_small_file(p, text, 64 * 1024, why)) {
+        if (err) *err = why;
+        return false;
+    }
+    try {
+        return ChainCheck::parse(text, out, err);
+    } catch (const std::exception& e) {
+        if (err) *err = e.what();
+        return false;
+    }
+}
+
+bool save_chain_check(const fs::path& p, const ChainCheck& c, std::string* err) { return write_file(p, c.to_json(), err); }
+
+const char* knob_state_name(KnobState s) {
+    switch (s) {
+        case KnobState::Proven: return "proven";
+        case KnobState::Located: return "located";
+        case KnobState::Unlocated: return "unlocated";
+    }
+    return "unlocated";
+}
+
+KnobState knob_state(const Knob& k, const KnobLive* live) {
+    if (!live || !live->located) return KnobState::Unlocated;
+    return k.proven() && live->writable ? KnobState::Proven : KnobState::Located;
+}
+
 // ------------------------------------------------------------------------------------------------ gates
 std::string Switches::blocking() const {
     if (master) return master_switch_file();
@@ -1560,12 +2118,22 @@ std::string Switches::blocking() const {
     return "";
 }
 
+std::string Switches::blocking_moments() const {
+    const std::string b = blocking();
+    if (!b.empty()) return b;
+    return profile_off ? profile_off_file() : "";
+}
+
 Switches read_switches(const fs::path& out) {
     Switches s;
     s.opt_in = file_exists(out / opt_in_file());
     s.off = file_exists(out / kill_switch_file());
     s.master = file_exists(out / master_switch_file());
     s.attrib = file_exists(out / attrib_switch_file());
+    s.profile_off = file_exists(out / profile_off_file());
+    s.test_unproven = file_exists(out / test_unproven_file());
+    Profile p;
+    s.profile_on = load_profile(out / profile_file(), p, nullptr) && p.on;
     return s;
 }
 
@@ -1593,12 +2161,17 @@ Gates evaluate(const GateInput& in) {
         Gate g{"G1 switches", ""};
         const std::string block = in.sw.blocking();
         if (!in.restore && !block.empty()) g.why = "kill switch turbo_output\\" + block + " is present";
-        else if (!in.restore && !in.sw.opt_in) g.why = std::string("off until turbo_output\\") + opt_in_file() + " exists (opt-in)";
+        else if (!in.restore && !in.sw.opted_in())
+            g.why = std::string("off: tick \"write in this game session\", switch the tuning profile on, or create turbo_output\\") + opt_in_file() + " (opt-in)";
         gs.list.push_back(g);
     }
     {
         Gate g{"G2 career phase", ""};
-        if (!in.bridge) g.why = "Turbo's Lua side has not reported the career yet";
+        if (in.restore && (!in.bridge || !in.in_cm)) {
+            // M2 (review 2026-10-13): Undo / Reset / Restore FC 27 defaults also at the main menu (the way back from a boot write); only a
+            // match phase Lua reports holds them back
+            if (in.match_phase == "prematch" || in.match_phase == "match") g.why = "a match is set up or played (Lua: " + in.match_phase + ")";
+        } else if (!in.bridge) g.why = "Turbo's Lua side has not reported the career yet";
         else if (!in.in_cm) g.why = "not in a career";
         else if (in.match_phase.empty()) g.why = "this Lua side does not report the match phase: update Turbo's Lua files";
         else if (in.match_phase == "unknown")
@@ -1612,6 +2185,12 @@ Gates evaluate(const GateInput& in) {
                         g.why = k->label + " may be written in " + when_text(k->when) + " only (Lua: " + in.match_phase + ")";
                         break;
                     }
+            }
+            if (g.why.empty() && !in.restore && in.team_mgmt) g.why = "Team Management is open: apply after leaving it";
+            if (g.why.empty() && in.match_phase == "hub" && in.prematch_age >= 0 && in.prematch_age < kPrematchGuardSeconds) {
+                bool all_live = !in.knobs.empty();
+                for (const Knob* k : in.knobs) all_live = all_live && k && k->live;
+                if (!all_live) g.why = "a match was being set up " + std::to_string(in.prematch_age) + " s ago (Lua: prematch): wait a moment";
             }
             if (g.why.empty() && in.save_age >= 0 && in.save_age < kSaveQuietSeconds)
                 g.why = "a save started " + std::to_string(in.save_age) + " s ago: wait a moment";
@@ -1977,6 +2556,7 @@ std::string UndoRecord::to_json() const {
     j["state"] = state;
     j["knobs"] = writes_json(knobs);
     j["note"] = note;
+    if (boot) j["boot"] = true;
     return j.dump(1, ' ', false, ojson::error_handler_t::replace) + "\n";
 }
 
@@ -1994,6 +2574,7 @@ bool UndoRecord::parse(const std::string& text, UndoRecord& out, std::string* er
         u.load_gen = j.value("load_gen", -1LL);
         u.state = j.value("state", std::string());
         u.note = j.value("note", std::string());
+        u.boot = j.contains("boot") && j["boot"].is_boolean() && j["boot"].get<bool>();
         if (!writes_from(j.value("knobs", json::array()), u.knobs, err)) return false;
         out = std::move(u);
         return true;
@@ -2004,9 +2585,9 @@ bool UndoRecord::parse(const std::string& text, UndoRecord& out, std::string* er
 }
 
 bool load_undo(const fs::path& p, UndoRecord& out, std::string* err) {
-    std::string text;
-    if (!read_file(p, text)) {
-        if (err) *err = "no " + p.filename().string();
+    std::string text, why;
+    if (!read_small_file(p, text, 1024 * 1024, why)) {
+        if (err) *err = why.empty() ? "no " + p.filename().string() : p.filename().string() + " is " + why;
         return false;
     }
     return UndoRecord::parse(text, out, err);
@@ -2022,7 +2603,10 @@ std::string same_career(const UndoRecord& u, const std::string& session, long lo
 }
 
 UndoRecord merge_undo(const UndoRecord& prev, const UndoRecord& next) {
-    if (prev.session != next.session || prev.load_gen != next.load_gen || (prev.state != "written" && prev.state != "failed")) return next;
+    // a boot write (main menu) of the same Lua session carries its old values (FC 27's) into the next career load's record (M2): Undo
+    // there puts FC 27's values back, not Turbo's boot values
+    const bool carry = prev.boot && prev.session == next.session;
+    if (prev.session != next.session || (prev.load_gen != next.load_gen && !carry) || (prev.state != "written" && prev.state != "failed")) return next;
     UndoRecord out = next;
     for (const Write& p : prev.knobs) {
         auto it = std::find_if(out.knobs.begin(), out.knobs.end(), [&](const Write& w) { return w.id == p.id && w.copy == p.copy; });
@@ -2160,68 +2744,91 @@ std::string make_restore_plan(const Registry& reg, const std::map<std::string, K
     return "";
 }
 
-// ------------------------------------------------------------------------------------------------ kept values
-std::string KeepStore::to_json() const {
+/// ------------------------------------------------------------------------------------------------ the profile
+std::string Profile::to_json() const {
     ojson j = ojson::object();
-    j["turbo_tuning_keep"] = 1;
     j["on"] = on;
-    j["build"] = build;
-    j["when"] = when;
+    j["preset"] = preset.empty() ? std::string("custom") : preset;
     ojson v = ojson::object();
     for (const auto& kv : values) v[kv.first] = kv.second;
     j["values"] = v;
     return j.dump(1, ' ', false, ojson::error_handler_t::replace) + "\n";
 }
 
-bool KeepStore::parse(const std::string& text, KeepStore& out, std::string* err) {
+bool Profile::parse(const std::string& text, Profile& out, std::string* err) {
     json j = json::parse(text, nullptr, false);
-    if (j.is_discarded() || !j.is_object() || !j.contains("turbo_tuning_keep")) {
-        if (err) *err = "not a gameplay tuning keep file";
+    if (j.is_discarded() || !j.is_object()) {
+        if (err) *err = "not a JSON object";
         return false;
     }
-    KeepStore k;
-    k.on = j.value("on", false);
-    k.build = j.value("build", std::string());
-    k.when = j.value("when", std::string());
-    if (j.contains("values")) {
+    if (!j.contains("on") || !j["on"].is_boolean()) {
+        if (err) *err = "\"on\" must be true or false";
+        return false;
+    }
+    Profile p;
+    p.on = j["on"].get<bool>();
+    if (j.contains("preset") && !j["preset"].is_null()) {
+        if (!j["preset"].is_string()) {
+            if (err) *err = "\"preset\" must be a name";
+            return false;
+        }
+        p.preset = j["preset"].get<std::string>();
+    }
+    if (p.preset.empty()) p.preset = "custom";
+    if (j.contains("values") && !j["values"].is_null()) {
         if (!j["values"].is_object()) {
-            if (err) *err = "values is not an object";
+            if (err) *err = "\"values\" must be an object {\"<knob id>\": value}";
             return false;
         }
         for (auto it = j["values"].begin(); it != j["values"].end(); ++it) {
+            if (it.key().rfind('_', 0) == 0) continue;
             if (!it.value().is_number() || !std::isfinite(it.value().get<double>())) {
-                if (err) *err = "value of " + it.key() + " is not a number";
+                if (err) *err = "the value of " + it.key() + " is not a number";
                 return false;
             }
-            k.values[it.key()] = it.value().get<double>();
+            p.values[it.key()] = it.value().get<double>();
         }
     }
-    out = std::move(k);
+    out = std::move(p);
     return true;
 }
 
-bool load_keep(const fs::path& p, KeepStore& out, std::string* err) {
-    std::string text;
-    if (!read_file(p, text)) {
-        if (err) *err = "";
+bool load_profile(const fs::path& p, Profile& out, std::string* err) {
+    std::string text, why;
+    if (!read_small_file(p, text, kMaxProfileBytes, why)) {
+        if (err) *err = why;
         return false;
     }
-    return KeepStore::parse(text, out, err);
+    try {
+        return Profile::parse(text, out, err);
+    } catch (const std::exception& e) {
+        if (err) *err = e.what();
+        return false;
+    }
 }
 
-bool save_keep(const fs::path& p, const KeepStore& k, std::string* err) { return write_file(p, k.to_json(), err); }
+bool save_profile(const fs::path& p, const Profile& pr, std::string* err) { return write_file(p, pr.to_json(), err); }
 
-std::string make_keep_plan(const Registry& reg, const std::map<std::string, KnobLive>& live, const KeepStore& k, Plan& out,
-                           std::vector<std::string>& skipped) {
+std::string make_profile_plan(const Registry& reg, const std::map<std::string, KnobLive>& live, const Profile& p, const std::string& moment, Plan& out,
+                              std::vector<std::string>& skipped, bool allow_unproven) {
     out = Plan();
     out.kind = PlanKind::Reapply;
+    out.moment = moment;
     skipped.clear();
-    if (!k.on) return "keeping is off";
-    if (!k.build.empty() && k.build != reg.build) return "the kept values are for game build " + k.build + ", the game is " + reg.build;
-    for (const auto& kv : k.values) {
+    if (std::find(moments().begin(), moments().end(), moment) == moments().end()) return "\"" + moment + "\" is not a moment (boot, career_load, hub)";
+    for (const auto& kv : p.values) {
         const Knob* kn = reg.knob(kv.first);
         if (!kn) {
             skipped.push_back(kv.first + " is not in the knobs file");
+            continue;
+        }
+        if (!kn->allows_moment(moment)) {
+            skipped.push_back(kn->label + ": not written at " + moment);
+            continue;
+        }
+        if (!kn->proven() && !allow_unproven) {
+            skipped.push_back(kn->label + ": its effect is not proven: not written by the profile (test switch turbo_output\\" + std::string(test_unproven_file()) +
+                              " absent)");
             continue;
         }
         auto it = live.find(kv.first);
@@ -2234,14 +2841,138 @@ std::string make_keep_plan(const Registry& reg, const std::map<std::string, Knob
             skipped.push_back(why);
             continue;
         }
-        // every copy, or none (copies go together)
+        // every copy, also one that already holds the value: the job reads every one back
         const double v = representable(*kn, kv.second);
-        bool changes = false;
-        for (const CopyAt& c : it->second.copies) changes = changes || !same_value(kn->type, c.value, v);
-        if (changes)
-            for (const CopyAt& c : it->second.copies) out.writes.push_back({kv.first, c.value, v, c.variant});
+        for (const CopyAt& c : it->second.copies) out.writes.push_back({kv.first, c.value, v, c.variant});
     }
     sort_by_registry(reg, out.writes);
+    return "";
+}
+
+std::string make_vanilla_plan(const Registry& reg, const std::map<std::string, KnobLive>& live, Plan& out, std::vector<std::string>& skipped) {
+    out = Plan();
+    out.kind = PlanKind::Restore;
+    skipped.clear();
+    for (const Knob& k : reg.knobs) {
+        auto it = live.find(k.id);
+        if (it == live.end() || !it->second.located) continue;
+        std::vector<Write> ws;
+        std::string skip;
+        bool changes = false;
+        for (const CopyAt& c : it->second.copies) {
+            double v = 0;
+            if (!k.game_value(c.variant, v)) {
+                skip = k.label + copy_label(c.variant) + ": FC 27's own value is not in the knobs file";
+                break;
+            }
+            v = representable(k, v);
+            changes = changes || !same_value(k.type, c.value, v);
+            ws.push_back({k.id, c.value, v, c.variant});
+        }
+        if (!skip.empty()) {
+            skipped.push_back(skip);
+            continue;
+        }
+        if (changes) out.writes.insert(out.writes.end(), ws.begin(), ws.end());
+    }
+    sort_by_registry(reg, out.writes);
+    return "";
+}
+
+// ------------------------------------------------------------------------------------------------ the automatic moments
+const char* moment_name(Moment m) {
+    switch (m) {
+        case Moment::None: return "";
+        case Moment::Boot: return "boot";
+        case Moment::CareerLoad: return "career_load";
+        case Moment::Hub: return "hub";
+    }
+    return "";
+}
+
+std::string prematch_guard(long long wall, long long prematch_t) {
+    if (prematch_t <= 0) return "";
+    const long long age = wall - prematch_t;
+    if (age >= 0 && age < kPrematchGuardSeconds)
+        return "a match was being set up " + std::to_string(age) + " s ago (Lua: prematch; the hub before kick-off lasts about 0.5 s)";
+    return "";
+}
+
+void MomentTracker::observe(const MomentInput& in) {
+    const bool career = in.bridge && in.in_cm;
+    if (in.phase == "prematch") prematch_seen_ = in.now;
+    if (career && in.phase == "hub") {
+        if (!seen_ || last_phase_ != "hub") hub_pending_ = true;        // entered the hub
+        if (in.profile_on && !was_on_) hub_pending_ = true;             // the profile was switched on in the hub
+        if (seen_ && in.profile_rev != last_rev_) hub_pending_ = true;  // the profile changed in the hub
+    }
+    if (in.phase != "hub") hub_pending_ = false;  // left the hub: the next entry arms it again
+    if (career) boot_done_ = true;                // a career first: its career_load moment covers the boot one
+    was_on_ = in.profile_on;
+    last_rev_ = in.profile_rev;
+    last_phase_ = in.phase;
+    seen_ = true;
+}
+
+Moment MomentTracker::next(const MomentInput& in) {
+    const bool boot_before = boot_done_;
+    observe(in);
+    if (!in.profile_on || !in.ready || in.busy) return Moment::None;
+    const bool career = in.bridge && in.in_cm;
+    if (!career && !boot_before) {
+        // M1: only on Lua's fresh report of the main menu (never in a Kick-Off / skill game / any match; no Lua report = no boot)
+        const long long age = in.front_end_t > 0 ? in.wall - in.front_end_t : -1;
+        const bool front_end = in.bridge && age >= 0 && age <= kBootReportSeconds && in.phase != "prematch" && in.phase != "match";
+        return front_end ? Moment::Boot : Moment::None;
+    }
+    if (!career || in.load_gen < 0 || in.phase != "hub" || in.team_mgmt) return Moment::None;
+    if (!prematch_guard(in.wall, in.prematch_t).empty() || in.now - prematch_seen_ < double(kPrematchGuardSeconds)) return Moment::None;
+    const std::string key = in.session + "#" + std::to_string(in.load_gen);
+    if (key != load_done_) return Moment::CareerLoad;
+    if (hub_pending_) return Moment::Hub;
+    return Moment::None;
+}
+
+void MomentTracker::rearm(Moment m) {
+    switch (m) {
+        case Moment::Boot: boot_done_ = false; break;  // observe() marks it done again as soon as a career is seen
+        case Moment::CareerLoad: load_done_.clear(); break;
+        case Moment::Hub: hub_pending_ = true; break;
+        case Moment::None: break;
+    }
+}
+
+void MomentTracker::fired(Moment m, const MomentInput& in) {
+    switch (m) {
+        case Moment::Boot: boot_done_ = true; break;
+        case Moment::CareerLoad:
+            load_done_ = in.session + "#" + std::to_string(in.load_gen);
+            hub_pending_ = true;  // the hub moment follows (it reads every profile knob back once more)
+            break;
+        case Moment::Hub: hub_pending_ = false; break;
+        case Moment::None: break;
+    }
+}
+
+std::string moment_gate(const std::string& moment, const MomentContext& c, const std::vector<const Knob*>& knobs) {
+    if (moment == "boot") {
+        if (c.in_cm) return "a career is loaded (the boot moment is for the main menu)";
+        if (c.front_end_age < 0) return "Lua has not reported the main menu (no boot write without that report)";
+        if (c.front_end_age > kBootReportSeconds)
+            return "Lua's report of the main menu is " + std::to_string(c.front_end_age) + " s old (at most " + std::to_string(kBootReportSeconds) + " s)";
+        if (c.phase == "prematch" || c.phase == "match") return "a match is set up or played (Lua: " + c.phase + ")";
+    } else if (moment == "career_load" || moment == "hub") {
+        if (!c.in_cm) return "no career is loaded";
+        if (c.phase != "hub") return "not in the career hub (Lua: " + (c.phase.empty() ? std::string("unknown") : c.phase) + ")";
+        if (c.team_mgmt) return "Team Management is open";
+        if (c.prematch_age >= 0 && c.prematch_age < kPrematchGuardSeconds)
+            return "a match was being set up " + std::to_string(c.prematch_age) + " s ago (Lua: prematch)";
+        if (c.save_age >= 0 && c.save_age < kSaveQuietSeconds) return "a save started " + std::to_string(c.save_age) + " s ago";
+    } else {
+        return "\"" + moment + "\" is not a moment";
+    }
+    for (const Knob* k : knobs)
+        if (k && !k->allows_moment(moment)) return k->label + " is not written at " + moment;
     return "";
 }
 
@@ -2253,6 +2984,7 @@ std::string Preset::to_json() const {
     j["name"] = name;
     j["author"] = author;
     j["note"] = note;
+    if (fc27) j["fc27"] = true;
     ojson cs = ojson::array();
     for (const PresetChange& c : changes) {
         ojson x = ojson::object();
@@ -2272,10 +3004,11 @@ bool Preset::parse(const std::string& text, Preset& out, std::string* err) {
         return false;
     }
     Preset p;
-    p.id = j.value("id", std::string());
-    p.name = j.value("name", std::string());
-    p.author = j.value("author", std::string());
-    p.note = j.value("note", std::string());
+    p.id = str_of(j, "id");  // type-checked (a hand-edited file never throws)
+    p.name = str_of(j, "name");
+    p.author = str_of(j, "author");
+    p.note = str_of(j, "note");
+    p.fc27 = j.contains("fc27") && j["fc27"].is_boolean() && j["fc27"].get<bool>();
     if (p.name.empty()) {
         if (err) *err = "the preset has no name";
         return false;
@@ -2324,30 +3057,35 @@ bool Preset::parse(const std::string& text, Preset& out, std::string* err) {
 }
 
 const std::vector<Preset>& builtin_presets() {
-    // Turbo's own presets, relative changes from the game's values (the knob ids of the knobs file). They name a direction and a size,
-    // not a value table (no gameplay mod's values): once the live locator confirms a knob, its change lands on the real field.
+    // Turbo's own presets (docs/TACTICS_OVERHAUL_DECISION.md 2.3): FC 27's own values, and relative changes from them (the knob ids of the
+    // knobs file). They name a direction and a size, Turbo's own generic numbers, not a value table (no gameplay mod's values). Only the
+    // knobs proven in a played match are set from a preset in the view; the others are listed as not proven yet.
     static const std::vector<Preset> p = [] {
         std::vector<Preset> v;
-        Preset a;
-        a.id = "turbo_high_line_press";
-        a.name = "High line + aggressive press";
-        a.author = "Turbo";
-        a.note = "Turbo's own: the High band starts at a lower defensive depth, the press and zone marking start earlier, markers stay closer, "
-                 "the team defends shorter. Relative to the game's values.";
-        a.changes = {{"lineband.balanced_max", true, -15, 0}, {"lineband.high_min", true, -15, 0}, {"pressing.trigger_depth", true, -40, 0},
-                     {"pressing.zone_marking_depth", true, -30, 0}, {"marking.tightness", true, 20, 0}, {"shape.length_out", true, -10, 0},
-                     {"shape.gap_dmf", true, -15, 0}};
-        v.push_back(a);
-        Preset b;
-        b.id = "turbo_deep_block";
-        b.name = "Deep compact block";
-        b.author = "Turbo";
-        b.note = "Turbo's own: the Deep band reaches a higher defensive depth, the block is narrower and shorter with smaller gaps between the "
-                 "lines, the press starts later. Relative to the game's values.";
-        b.changes = {{"lineband.deep_max", true, 33, 0}, {"lineband.balanced_min", true, 32, 0}, {"shape.width_out", true, -10, 0},
-                     {"shape.length_out", true, -15, 0}, {"shape.gap_dmf", true, -15, 0}, {"shape.gap_mf_deep", true, -15, 0},
-                     {"pressing.trigger_depth", true, 30, 0}};
-        v.push_back(b);
+        Preset d;
+        d.id = "turbo_fc27_default";
+        d.name = "FC 27 default";
+        d.author = "Turbo";
+        d.fc27 = true;
+        d.note = "Turbo's own: every knob at FC 27's own value (the game as shipped).";
+        v.push_back(d);
+        Preset c;
+        c.id = "turbo_compact";
+        c.name = "Turbo compact";
+        c.author = "Turbo";
+        c.note = "Turbo's own: a narrower and shorter team, smaller gaps between the lines, closer marking. Relative to FC 27's values.";
+        c.changes = {{"shape.width_in", true, -10, 0},  {"shape.width_out", true, -10, 0}, {"shape.length_in", true, -10, 0},
+                     {"shape.length_out", true, -10, 0}, {"shape.gap_dmf", true, -15, 0},   {"shape.gap_mf_deep", true, -15, 0},
+                     {"marking.tightness", true, 20, 0}};
+        v.push_back(c);
+        Preset e;
+        e.id = "turbo_expansive";
+        e.name = "Turbo expansive";
+        e.author = "Turbo";
+        e.note = "Turbo's own: a wider and longer team with the ball, more runs forward. Relative to FC 27's values.";
+        e.changes = {{"shape.width_in", true, 10, 0}, {"shape.length_in", true, 10, 0}, {"shape.length_in_possession", true, 10, 0},
+                     {"runs.frequency", true, 40, 0}};
+        v.push_back(e);
         return v;
     }();
     return p;
@@ -2362,6 +3100,12 @@ int ensure_builtin_presets(const fs::path& dir, std::string* err) {
     int n = 0;
     std::error_code ec;
     fs::create_directories(dir, ec);
+    // Turbo 2.3's own presets are no longer Turbo's: removed when the file is still Turbo's (a user's file of that name is never touched)
+    for (const char* old : {"turbo_high_line_press.json", "turbo_deep_block.json"}) {
+        std::string have;
+        Preset on_disk;
+        if (read_file(dir / old, have) && Preset::parse(have, on_disk, nullptr) && on_disk.turbo()) fs::remove(dir / old, ec);
+    }
     for (const Preset& p : builtin_presets()) {
         const fs::path f = dir / preset_file_name(p);
         const std::string want = p.to_json();
@@ -2407,8 +3151,16 @@ std::vector<Preset> load_presets(const fs::path& dir, std::vector<std::string>* 
     return out;
 }
 
-PresetValues preset_values(const Preset& p, const Registry& reg, const std::function<bool(const std::string&, double&)>& base_of) {
+PresetValues preset_values(const Preset& p, const Registry& reg, const std::function<bool(const std::string&, double&)>& base_of,
+                           const std::function<std::string(const Knob&)>& usable) {
     PresetValues out;
+    if (p.fc27)
+        for (const Knob& k : reg.knobs) {
+            if (!k.has_default || !k.has_range() || !check_value(k, k.def).empty()) continue;
+            const std::string no = usable ? usable(k) : std::string();
+            if (!no.empty()) continue;  // listed once below only when a change names it
+            out.values[k.id] = representable(k, k.def);
+        }
     for (const PresetChange& c : p.changes) {
         const Knob* k = reg.knob(c.knob);
         if (!k) {
@@ -2417,6 +3169,11 @@ PresetValues preset_values(const Preset& p, const Registry& reg, const std::func
         }
         if (!k->has_range()) {
             out.skipped.push_back(k->label + ": no value range yet");
+            continue;
+        }
+        const std::string no = usable ? usable(*k) : std::string();
+        if (!no.empty()) {
+            out.skipped.push_back(k->label + ": " + no);
             continue;
         }
         double v = 0;
@@ -2471,11 +3228,31 @@ Preset preset_from_values(const std::string& name, const Registry& reg, const st
     return p;
 }
 
-// ------------------------------------------------------------------------------------------------ the service
+/// ------------------------------------------------------------------------------------------------ the service
 double anchor_retry_us(int failures) {
     double t = kAnchorRetryUs;
     for (int i = 1; i < failures && t < kAnchorRetryMaxUs; ++i) t *= 2;
     return std::min(t, kAnchorRetryMaxUs);
+}
+
+// The chain locate tries again after this long while the attribute manager does not exist yet (the game is starting), doubled up to 60 s
+static double chain_retry_us(int failures) {
+    double t = 5e6;
+    for (int i = 1; i < failures && t < 60e6; ++i) t *= 2;
+    return std::min(t, 60e6);
+}
+
+static std::string stamp_now() {
+    std::time_t t = std::time(nullptr);
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    char b[32];
+    std::strftime(b, sizeof(b), "%Y-%m-%d %H:%M:%S", &tm);
+    return b;
 }
 
 CoreService::CoreService(Host h) : h_(std::move(h)) {
@@ -2487,11 +3264,20 @@ void CoreService::log(const std::string& s) {
     if (h_.log) h_.log(s);
 }
 
+long long CoreService::wall() const { return h_.wall_s ? h_.wall_s() : static_cast<long long>(std::time(nullptr)); }
+
 void CoreService::load_locked() {
     anchors_.clear();
     anchor_failed_at_.clear();
     anchor_failures_.clear();
     ++anchors_epoch_;
+    chain_stage_ = 0;
+    chain_next_ = chain_started_ = 0;
+    chain_failures_ = 0;
+    chain_why_.clear();
+    chain_logged_why_.clear();
+    fallback_logged_.clear();
+    dbs_ = AttribDbs();
     auto empty = std::make_shared<Registry>();
     empty->build = h_.build;
     if (!h_.off.empty()) {
@@ -2510,10 +3296,16 @@ void CoreService::load_locked() {
     }
     reg_why_.clear();
     const int ph = r.placeholders();
+    int proven = 0;
+    for (const Knob& k : r.knobs) proven += k.proven() && k.placeholder().empty() ? 1 : 0;
     log("gameplay tuning: knobs file " + r.source + " for build " + r.build + ": " + std::to_string(r.knobs.size()) + " knobs (" +
-        std::to_string(int(r.knobs.size()) - ph) + " verified in the running game, " + std::to_string(ph) + " not, never written), " +
-        std::to_string(r.locators.size()) + " locators; writes need turbo_output\\" + opt_in_file() + ", kill switches turbo_output\\" +
-        kill_switch_file() + ", \\" + attrib_switch_file() + " and \\" + master_switch_file());
+        std::to_string(int(r.knobs.size()) - ph) + " verified in the running game, " + std::to_string(ph) + " not, never written; " +
+        std::to_string(proven) + " proven in a played match), " + std::to_string(r.locators.size()) + " locators" +
+        (r.manager.present ? ", located through the attribute manager (signature " + r.manager.signature + ")" : std::string()) +
+        "; kill switches turbo_output\\" + kill_switch_file() + ", \\" + profile_off_file() + ", \\" + attrib_switch_file() + " and \\" +
+        master_switch_file());
+    for (const Knob& k : r.knobs)
+        if (k.slider && !k.proven()) log("gameplay tuning: " + k.id + " asks for a slider without a proof in the knobs file: shown read-only");
     reg_ = std::make_shared<Registry>(std::move(r));
 }
 
@@ -2533,22 +3325,59 @@ bool CoreService::reload(std::string& why) {
         why = "a gameplay tuning job is still queued or running";
         return false;
     }
+    if (chain_stage_ == 1) {
+        why = "the attribulator is being located: try again in a moment";
+        return false;
+    }
     load_locked();
     why = reg_why_;
     return reg_why_.empty();
+}
+
+bool CoreService::chain_mode_locked(const Registry& reg) {
+    // a walk refused for this session (the manager is not what the knobs file describes): the name search (fallback)
+    if (!reg.manager.present || !h_.mem || (!chain_why_.empty() && chain_stage_ == 2 && dbs_.current == 0)) return false;
+    return h_.lookup.signature && h_.lookup.signature(reg.manager.signature) != 0;
+}
+
+// M3 (review 2026-10-13): no new locate (no search, no heap pass) while tactics_off.txt, tuning_off.txt or call_attrib_off.txt exists;
+// anchors already found stay usable (Undo / Restore). "" = none, else the file
+static std::string locate_kill_switch(const fs::path& out) {
+    if (out.empty()) return "";
+    for (const char* f : {master_switch_file(), kill_switch_file(), attrib_switch_file()})
+        if (file_exists(out / f)) return f;
+    return "";
 }
 
 void CoreService::ensure_anchors() {
     std::shared_ptr<const Registry> reg;
     long long epoch = 0;
     std::vector<Locator> slow;
+    std::function<void()> chain_job;
+    const std::string kill = locate_kill_switch(h_.out_dir);
+    if (!kill.empty()) {
+        std::lock_guard<std::mutex> lock(mu_);
+        if (kill_logged_ != kill) {
+            kill_logged_ = kill;
+            log("tuning: kill switch turbo_output\\" + kill + " is present: the tuning tables are not located (no search)");
+        }
+        return;
+    }
     {
         std::lock_guard<std::mutex> lock(mu_);
         reg = reg_;
         epoch = anchors_epoch_;
+        const bool chain = chain_mode_locked(*reg);
+        if (reg->manager.present && !chain && fallback_logged_.empty()) {
+            fallback_logged_ = "1";
+            log("tuning: " + (chain_why_.empty() ? "signature " + reg->manager.signature + " was not found on this game build" : chain_why_) +
+                ": the attribulator is located by the name search (fallback)");
+        }
         for (const Locator& l : reg->locators) {
+            if (chain && l.chain_capable()) continue;  // the chain locate below
             auto have = anchors_.find(l.name);
             if (have != anchors_.end()) {
+                if (have->second.refused) continue;  // refused for this game session
                 // a slow anchor that failed (the attribulator not loaded yet, a freed instance) is searched again after a back-off
                 const bool retry = !have->second.ok && !have->second.pending && slow_anchor(l) && l.placeholder().empty() && h_.clock_us &&
                                    now() - anchor_failed_at_[l.name] > anchor_retry_us(anchor_failures_[l.name]);
@@ -2559,6 +3388,7 @@ void CoreService::ensure_anchors() {
             if (background) {
                 Anchor a;
                 a.pending = true;
+                a.path = l.kind == "attrib" ? "search" : "";
                 a.why = l.kind == "attrib" ? "searching the game's memory for its attribulator data ..." : "resolving its pattern in FC27.exe ...";
                 anchors_[l.name] = a;
                 slow.push_back(l);
@@ -2577,9 +3407,265 @@ void CoreService::ensure_anchors() {
                     log("gameplay tuning: locator " + l.name + (a.ok ? " anchored at " + hex(a.addr) : " not resolved: " + a.why));
             }
         }
+        // the chain locate (WP-A1), one background job: the G walk, the database enumeration (one heap pass), every chain-capable locator
+        // through the databases (identity per instance), the cross-check with the name search on the first run per build; then the anchors
+        // are published and logged ("tuning: chain locate ok <n> groups <m> knobs <ms> ms"). Due when not running or done (a walk that
+        // found no manager yet is tried again after a back-off)
+        bool chain_due = chain && chain_stage_ == 0 && now() >= chain_next_;
+        bool any = false;
+        if (chain_due)
+            for (const Locator& l : reg->locators) any = any || (l.chain_capable() && !refused_.count(l.name));
+        if (chain_due && any) {
+            chain_stage_ = 1;
+            if (chain_started_ == 0) chain_started_ = now();
+            for (const Locator& l : reg->locators)
+                if (l.chain_capable() && l.placeholder().empty() && !refused_.count(l.name)) {
+                    Anchor& a = anchors_[l.name];
+                    if (!a.ok) {
+                        a = Anchor();
+                        a.pending = true;
+                        a.path = "chain";
+                        a.why = chain_why_.empty() ? std::string("locating through the attribute manager ...")
+                                                   : "waiting for the attribute manager (" + chain_why_ + ")";
+                    }
+                }
+            const std::set<std::string> refused = refused_;
+            const AttribDbs cached = dbs_;  // m9: this session's enumeration, kept when the databases are still the same
+            chain_job = [this, reg, epoch, refused, cached]() {
+                const double t0 = now();
+                Memory& mem = *h_.mem;
+                const Lookup& lk = h_.lookup;
+                const AttribManager& m = reg->manager;
+                AttribDbs dbs;
+                bool transient = false;
+                std::string why;
+                try {
+                    why = walk_manager(mem, m, lk, dbs, transient);
+                } catch (const std::exception& e) {
+                    why = std::string("the walk failed: ") + e.what();
+                    transient = true;
+                } catch (...) {
+                    why = "the walk failed";
+                    transient = true;
+                }
+                if (!why.empty()) {
+                    std::lock_guard<std::mutex> lock(mu_);
+                    if (epoch != anchors_epoch_) return;
+                    chain_why_ = why;
+                    if (transient) {
+                        chain_stage_ = 0;
+                        ++chain_failures_;
+                        const double wait = chain_retry_us(chain_failures_);
+                        chain_next_ = now() + wait;
+                        for (const Locator& l : reg->locators) {
+                            auto it = anchors_.find(l.name);
+                            if (l.chain_capable() && it != anchors_.end() && it->second.pending)
+                                it->second.why = "waiting for the attribute manager (" + why + ")";
+                        }
+                        if (chain_logged_why_ != why) {
+                            chain_logged_why_ = why;
+                            char b[48];
+                            std::snprintf(b, sizeof(b), " (trying again every %.0f s up to 60 s)", wait / 1e6);
+                            log("tuning: chain locate: " + why + b);
+                        }
+                    } else {
+                        // the manager is there but not what the knobs file describes: the name search for this game session (fallback)
+                        chain_stage_ = 2;
+                        for (const Locator& l : reg->locators)
+                            if (l.chain_capable()) anchors_.erase(l.name);
+                        log("tuning: chain locate REFUSED for this session: " + why);
+                    }
+                    return;
+                }
+                // every gameplay database (one heap pass), for the copies of each group
+                std::vector<uint64_t> fams;
+                for (const Locator& l : reg->locators)
+                    if (l.chain_capable() && !m.prematch(l) && std::find(fams.begin(), fams.end(), l.family_slot) == fams.end()) fams.push_back(l.family_slot);
+                const double te = now();
+                // m9 (review 2026-10-13): a re-run (a variant not reached, an instance moved) keeps this session's enumeration while every
+                // database of it still passes its check and the manager's current one is among them: no new heap pass
+                bool kept = false;
+                if (cached.enumerated && cached.mgr == dbs.mgr && cached.gameplay_td == dbs.gameplay_td) {
+                    bool current_in = false, all_ok = true;
+                    for (const AttribDb& d : cached.dbs) {
+                        if (d.prematch) continue;
+                        current_in = current_in || d.addr == dbs.current;
+                        std::string n;
+                        uint64_t td = 0, vt = 0;
+                        if (!db_check(mem, lk, d.addr, m.gameplay_db_type, m.gameplay_db_signature, m.gameplay_dbs, n, td, vt).empty() || !same_name(n, d.name))
+                            all_ok = false;
+                    }
+                    if (current_in && all_ok) {
+                        std::vector<AttribDb> v = {dbs.dbs.front()};
+                        for (const AttribDb& d : cached.dbs)
+                            if (!d.prematch && d.addr != dbs.current) v.push_back(d);
+                        for (const AttribDb& d : dbs.dbs)
+                            if (d.prematch) v.push_back(d);
+                        dbs.dbs = v;
+                        dbs.enumerated = true;
+                        dbs.enum_why = cached.enum_why + " (kept from this session's enumeration)";
+                        kept = true;
+                    }
+                }
+                if (!kept) try {
+                        enumerate_dbs(mem, m, lk, fams, dbs);
+                    } catch (...) {
+                        dbs.enum_why = "the database enumeration failed";
+                    }
+                char tb[48];
+                std::snprintf(tb, sizeof(tb), " (%.0f ms)", (now() - te) / 1e3);
+                log("tuning: attribute manager: " + dbs.summary() + tb);
+                // every chain-capable locator; the unverified ones are only checked and logged (they stay not located, never written)
+                std::map<std::string, Anchor> got;
+                for (const Locator& l : reg->locators) {
+                    if (!l.chain_capable() || refused.count(l.name)) continue;
+                    Anchor a;
+                    try {
+                        a = resolve_attrib_chain(mem, m, l, dbs, lk);
+                    } catch (...) {
+                        a = Anchor();
+                        a.path = "chain";
+                        a.why = "the chain walk failed";
+                    }
+                    std::string where;
+                    for (const Copy& c : a.copies) where += (where.empty() ? "" : ", ") + c.variant + " " + hex(c.base);
+                    const bool verified = l.placeholder().empty();
+                    // "REFUSED" only for a verified group (the S-A1 check looks for it); an unverified one is a read-only diagnostic
+                    if (verified)
+                        log("tuning: chain " + l.name + ": " +
+                            (a.ok ? where + " (identity ok)" : std::string(a.refused ? "REFUSED for this session: " : "not located: ") + a.why));
+                    else
+                        log("tuning: chain " + l.name + " (not verified in the knobs file: not located, never written): " +
+                            (a.ok ? where + " (identity ok)" : std::string(a.refused ? "identity check failed: " : "not reached: ") + a.why));
+                    if (verified) got[l.name] = a;
+                }
+                // the first run on a build: the name search must find the same instances (turbo_output\tuning_chain_check.json)
+                std::map<std::string, std::string> disagree;
+                ChainCheck cc;
+                const fs::path ccp = h_.out_dir.empty() ? fs::path() : h_.out_dir / chain_check_file();
+                if (!ccp.empty()) load_chain_check(ccp, cc, nullptr);
+                if (cc.build != reg->build) cc = ChainCheck();
+                cc.build = reg->build;
+                std::vector<const Locator*> need;
+                for (const auto& kv : got)
+                    if (kv.second.ok && !cc.agree.count(kv.first)) need.push_back(reg->locator(kv.first));
+                if (!need.empty()) {
+                    const double tx = now();
+                    if (!lk.refs) {
+                        for (const Locator* l : need) disagree[l->name] = "no name search here to cross-check the chain on its first run on this build";
+                    } else {
+                        std::vector<std::string> types, insts;
+                        for (const Locator* l : need) {
+                            types.push_back(l->type);
+                            if (l->l3()) {
+                                types.push_back(l->db_type);
+                                if (!l->group_type.empty()) types.push_back(l->group_type);
+                            }
+                            for (const Variant& v : l->variants) insts.push_back(v.db.empty() ? v.instance : v.db);
+                        }
+                        std::map<std::string, std::vector<uint64_t>> tmap, imap;
+                        try {
+                            tmap = lk.refs(types, true);
+                            imap = lk.refs(insts, false);
+                        } catch (...) {
+                        }
+                        Lookup lk2 = lk;
+                        lk2.refs = [tmap, imap](const std::vector<std::string>& names, bool in_image) {
+                            std::map<std::string, std::vector<uint64_t>> out;
+                            const auto& src = in_image ? tmap : imap;
+                            for (const std::string& n : names) {
+                                auto it = src.find(n);
+                                if (it != src.end()) out[n] = it->second;
+                            }
+                            return out;
+                        };
+                        int agree = 0;
+                        for (const Locator* l : need) {
+                            Anchor s;
+                            try {
+                                s = resolve_anchor(mem, *l, lk2);
+                            } catch (...) {
+                                s.why = "the name search failed";
+                            }
+                            const std::string w = s.ok ? same_instances(got[l->name], s) : "the name search did not find it (" + s.why + ")";
+                            if (w.empty()) {
+                                cc.agree.insert(l->name);
+                                ++agree;
+                            } else {
+                                disagree[l->name] = w;
+                            }
+                        }
+                        cc.when = stamp_now();
+                        std::string err;
+                        if (!ccp.empty() && agree > 0 && !save_chain_check(ccp, cc, &err)) log("tuning: " + ccp.string() + " not written: " + err);
+                        char b[160];
+                        std::snprintf(b, sizeof(b), "tuning: chain cross-check with the name search (first run on this build): %d agree, %zu refused (%.1f s)",
+                                      agree, disagree.size(), (now() - tx) / 1e6);
+                        log(b);
+                    }
+                }
+                for (const auto& d : disagree) {
+                    Anchor& a = got[d.first];
+                    a.ok = false;
+                    a.refused = true;
+                    a.why = "the chain and the name search do not agree: " + d.second;
+                    a.copies.clear();
+                    log("tuning: chain " + d.first + ": REFUSED for this session: " + a.why);
+                }
+                // publish
+                std::lock_guard<std::mutex> lock(mu_);
+                if (epoch != anchors_epoch_) return;
+                dbs_ = dbs;
+                chain_why_.clear();
+                chain_failures_ = 0;
+                chain_stage_ = 2;
+                int groups = 0, knobs = 0;
+                std::string first;
+                bool unreached = false;
+                std::vector<std::string> found_lines;
+                for (const auto& kv : got) {
+                    anchors_[kv.first] = kv.second;
+                    if (kv.second.refused) refused_.insert(kv.first);
+                    if (kv.second.ok) {
+                        ++groups;
+                        // the 2.3 line for every located group, exactly as 2.3 wrote it (the coordinator's tools take the instance from it:
+                        // "gameplay tuning: locator <name> found: type <type>, base 0x<instance>[, simulation 0x..]")
+                        const Locator* fl = reg->locator(kv.first);
+                        std::string where;
+                        for (const Copy& c : kv.second.copies) where += (where.empty() ? "" : ", ") + c.variant + " " + hex(c.base);
+                        found_lines.push_back("gameplay tuning: locator " + kv.first + " found: type " + (fl ? fl->type : std::string()) + ", " + where);
+                        for (const Knob& k : reg->knobs) knobs += k.locator == kv.first && k.placeholder().empty() ? 1 : 0;
+                    } else {
+                        if (first.empty()) first = kv.first + ": " + kv.second.why;
+                        if (!kv.second.refused) unreached = true;
+                    }
+                }
+                for (const std::string& fl : found_lines) log(fl);
+                if (unreached) {
+                    // a variant beyond the current database (the enumeration did not complete): the locate runs again later
+                    chain_stage_ = 0;
+                    ++chain_failures_;
+                    chain_next_ = now() + anchor_retry_us(chain_failures_);
+                }
+                char b[160];
+                if (groups > 0) {
+                    std::snprintf(b, sizeof(b), "tuning: chain locate ok %d groups %d knobs %.0f ms", groups, knobs, (now() - t0) / 1e3);
+                    log(b);
+                } else {
+                    log("tuning: chain locate found no group" + (first.empty() ? std::string() : ": " + first));
+                }
+            };
+        }
+    }
+    if (chain_job) {
+        // B1 (review 2026-10-13): nothing may escape a background locate (an escaped exception on a detached thread ends FC27.exe): a failure
+        // switches gameplay tuning off for the game session and is logged
+        auto guarded = [this, chain_job, epoch, reg]() { guard_locate(epoch, *reg, chain_job); };
+        if (h_.run_background) h_.run_background(guarded);
+        else guarded();
     }
     if (slow.empty()) return;
-    auto job = [this, slow, epoch]() {
+    auto job0 = [this, slow, epoch]() {
         // the attribulator searches of every locator in one go: one pass over the image for the type names, one over the heap for the
         // instance names (each pass reads the whole memory once, whatever the number of names)
         Lookup lk = h_.lookup;
@@ -2611,11 +3697,14 @@ void CoreService::ensure_anchors() {
             };
         }
         for (const Locator& l : slow) {
-            const Anchor a = resolve_anchor(*h_.mem, l, lk);
+            Anchor a = resolve_anchor(*h_.mem, l, lk);
+            if (l.kind == "attrib") a.path = "search";
             std::string where;
             for (const Copy& c : a.copies) where += (where.empty() ? "" : ", ") + c.variant + " " + hex(c.base);
             log("gameplay tuning: locator " + l.name +
-                (a.ok ? (l.kind == "attrib" ? " found: type " + l.type + ", " + where : " anchored at " + hex(a.addr) + " (inline pattern)") : " not resolved: " + a.why));
+                // the 2.3 line, kept exactly (the coordinator's tools find the instance with it): "locator <name> found: type <type>, base 0x.."
+                (a.ok ? (l.kind == "attrib" ? " found: type " + l.type + ", " + where + " (the name search)" : " anchored at " + hex(a.addr) + " (inline pattern)")
+                      : " not resolved: " + a.why));
             std::lock_guard<std::mutex> lock(mu_);
             if (anchors_epoch_ != epoch) continue;
             anchors_[l.name] = a;
@@ -2627,30 +3716,142 @@ void CoreService::ensure_anchors() {
             }
         }
     };
+    auto job = [this, job0, epoch, reg]() { guard_locate(epoch, *reg, job0); };
     if (h_.run_background) h_.run_background(job);
     else job();
+}
+
+std::string CoreService::chain_liveness(const Plan& plan, const Registry& reg, const AnchorMap& anchors, const AttribDbs& dbs) const {
+    bool chain = false;
+    for (const Write& w : plan.writes) {
+        const Knob* k = reg.knob(w.id);
+        auto it = k ? anchors.find(k->locator) : anchors.end();
+        chain = chain || (it != anchors.end() && it->second.path == "chain");
+    }
+    if (!chain || !dbs.g || !h_.mem) return "";
+    Memory& mem = *h_.mem;
+    uint64_t cur = mem.ptr(dbs.g);
+    for (int64_t off : reg.manager.current) {
+        if (!cur) break;
+        cur = slot_ptr(mem, cur + uint64_t(off));
+    }
+    if (!cur) return "";  // no current database (the main menu): the databases' own checks hold
+    for (const AttribDb& d : dbs.dbs)
+        if (d.addr == cur) return "";
+    return "the attribute manager's current database " + hex(cur) + " is not one Turbo located (rebuilt?): nothing written, located again";
+}
+
+std::string CoreService::job_switch_block(const Plan& plan, const Registry& reg) const {
+    if (h_.out_dir.empty()) return "";
+    const fs::path& out = h_.out_dir;
+    for (const char* f : {master_switch_file(), kill_switch_file(), attrib_switch_file()})
+        if (file_exists(out / f)) return "turbo_output\\" + std::string(f) + " (read again in the job)";
+    if (!plan.moment.empty()) {
+        if (file_exists(out / profile_off_file())) return "turbo_output\\" + std::string(profile_off_file()) + " (read again in the job)";
+        bool unproven = false;
+        for (const Write& w : plan.writes) {
+            const Knob* k = reg.knob(w.id);
+            unproven = unproven || (k && !k->proven());
+        }
+        if (unproven && !file_exists(out / test_unproven_file()))
+            return "turbo_output\\" + std::string(test_unproven_file()) + " is gone (read again in the job): an unproven knob is not written";
+    }
+    return "";
+}
+
+void CoreService::guard_locate(long long epoch, const Registry& reg, const std::function<void()>& fn) {
+    std::string what;
+    try {
+        fn();
+        return;
+    } catch (const std::exception& e) {
+        what = e.what();
+    } catch (...) {
+        what = "unknown error";
+    }
+    std::string line;
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        if (epoch != anchors_epoch_) return;
+        locate_failed_ = what;
+        chain_stage_ = 2;
+        session_off_ = "the attribulator locate failed (" + what + "): gameplay tuning is off for this game session";
+        for (const Locator& l : reg.locators)
+            if (l.kind == "attrib") {
+                Anchor a;
+                a.refused = true;
+                a.why = session_off_;
+                anchors_[l.name] = a;
+                refused_.insert(l.name);
+            }
+        line = "tuning: locate FAILED (" + what + "): gameplay tuning is off for this game session";
+    }
+    try {
+        log(line);
+    } catch (...) {
+    }
 }
 
 std::string CoreService::anchors_status() {
     std::lock_guard<std::mutex> lock(mu_);
     if (!reg_why_.empty()) return reg_why_;
-    int ok = 0, pending = 0, ready = 0;
+    int ok = 0, pending = 0, ready = 0, chain = 0, refused = 0;
     std::string first;
     for (const Locator& l : reg_->locators) {
         if (!l.placeholder().empty()) continue;
         ++ready;
         auto it = anchors_.find(l.name);
         if (it == anchors_.end()) continue;
-        if (it->second.ok) ++ok;
-        else if (it->second.pending) ++pending;
-        else if (first.empty()) first = l.name + ": " + it->second.why;
+        if (it->second.ok) {
+            ++ok;
+            chain += it->second.path == "chain" ? 1 : 0;
+        } else if (it->second.pending) {
+            ++pending;
+        } else {
+            refused += it->second.refused ? 1 : 0;
+            if (first.empty()) first = l.name + ": " + it->second.why;
+        }
     }
     const int ph = int(reg_->locators.size()) - ready;
     std::string s = std::to_string(ok) + " of " + std::to_string(ready) + " locators resolved";
+    if (chain) s += " (" + std::to_string(chain) + " through the attribute manager)";
+    if (refused) s += ", " + std::to_string(refused) + " refused for this session";
     if (ph) s += ", " + std::to_string(ph) + " placeholder" + (ph == 1 ? "" : "s");
     if (pending) s += ", " + std::to_string(pending) + " resolving ...";
     if (!first.empty()) s += " (" + first + ")";
     if (reg_->locators.empty()) s = "no locator in the knobs file yet";
+    return s;
+}
+
+LocateStatus CoreService::locate_status() {
+    ensure_anchors();
+    std::lock_guard<std::mutex> lock(mu_);
+    LocateStatus s;
+    if (!reg_why_.empty()) {
+        s.why = reg_why_;
+        return s;
+    }
+    const bool chain = chain_mode_locked(*reg_);
+    bool attrib = false;
+    s.ready = true;
+    for (const Locator& l : reg_->locators) {
+        if (!l.placeholder().empty()) continue;
+        attrib = attrib || l.kind == "attrib";
+        auto it = anchors_.find(l.name);
+        if (it == anchors_.end() || it->second.pending) {
+            s.ready = false;
+            if (s.why.empty()) s.why = l.name + ": " + (it == anchors_.end() ? std::string("not resolved yet") : it->second.why);
+            continue;
+        }
+        if (!it->second.ok) continue;
+        ++s.groups;
+        for (const Knob& k : reg_->knobs) s.knobs += k.locator == l.name && k.placeholder().empty() ? 1 : 0;
+    }
+    if (chain && chain_stage_ == 1) {
+        s.ready = false;
+        if (s.why.empty()) s.why = "locating through the attribute manager ...";
+    }
+    s.path = attrib ? (chain ? "chain" : "search") : "";
     return s;
 }
 
@@ -2678,17 +3879,40 @@ std::vector<KnobLive> CoreService::read() {
             l.copies = at.copies;
             l.writable = l.located && k.has_range();
             if (l.why.find("locate again") != std::string::npos) {
-                // an attribulator instance was freed or moved: its locator is searched again
+                // an attribulator instance was freed or moved: its locator is located again (the chain: the whole walk, after 5 s)
                 std::lock_guard<std::mutex> lock(mu_);
-                if (anchors_.count(k.locator) && anchors_[k.locator].ok) {
-                    anchors_.erase(k.locator);
-                    log("gameplay tuning: locator " + k.locator + " lost its data (" + l.why + "): searching again");
+                auto it = anchors_.find(k.locator);
+                if (it != anchors_.end() && it->second.ok) {
+                    const bool chain = it->second.path == "chain";
+                    anchors_.erase(it);
+                    if (chain && chain_stage_ == 2) {
+                        chain_stage_ = 0;
+                        chain_next_ = now() + 5e6;
+                    }
+                    log("gameplay tuning: locator " + k.locator + " lost its data (" + l.why + "): " +
+                        (chain ? "locating through the attribute manager again" : "searching again"));
                 }
             }
         }
         out.push_back(l);
     }
     return out;
+}
+
+void CoreService::set_session_opt_in(bool on) {
+    std::lock_guard<std::mutex> lock(mu_);
+    if (session_opt_in_ != on) log(std::string("gameplay tuning: writes from the view ") + (on ? "allowed" : "no longer allowed") + " in this game session");
+    session_opt_in_ = on;
+}
+
+bool CoreService::session_opt_in() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return session_opt_in_;
+}
+
+AttribDbs CoreService::databases() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return dbs_;
 }
 
 bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& why) {
@@ -2708,10 +3932,16 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
         why = "the plan was made in career load " + std::to_string(plan.load_gen) + ", this is load " + std::to_string(ctx.load_gen);
         return false;
     }
+    if (!plan.moment.empty() && std::find(moments().begin(), moments().end(), plan.moment) == moments().end()) {
+        why = "\"" + plan.moment + "\" is not a moment";
+        return false;
+    }
     std::shared_ptr<const Registry> reg;
     AnchorMap anchors;
     int seq = 0;
     std::shared_ptr<std::atomic<bool>> cancel;
+    bool session = false;
+    AttribDbs live_dbs;
     {
         std::lock_guard<std::mutex> lock(mu_);
         if (!reg_why_.empty()) {
@@ -2735,28 +3965,48 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
         }
         reg = reg_;
         anchors = anchors_;
+        session = session_opt_in_;
+        live_dbs = dbs_;
         busy_ = true;
         busy_since_ = now();
         seq = ++job_seq_;
         cancel_ = std::make_shared<std::atomic<bool>>(false);
         cancel = cancel_;
     }
-    // the switch files once more right before queuing (no file I/O inside the job): tactics_off.txt, tuning_off.txt, call_attrib_off.txt
-    // and the opt-in. Undo / Restore game defaults put the game's values back: they are not blocked
+    // the switch files once more right before queuing (no file I/O inside the job): tactics_off.txt, tuning_off.txt, call_attrib_off.txt,
+    // for the automatic moments tuning_profile_off.txt and the profile's "on", for a write from the view the opt-in. Undo / Restore put
+    // the game's values back: they are not blocked
     std::string switch_block;
     if (!puts_back(plan.kind)) {
         if (h_.out_dir.empty()) {
-            switch_block = std::string("no turbo_output folder (") + opt_in_file() + ")";
+            switch_block = "no turbo_output folder";
         } else {
-            const Switches sw = read_switches(h_.out_dir);
-            if (!sw.blocking().empty()) switch_block = sw.blocking();
-            else if (!sw.opt_in) switch_block = std::string("no ") + opt_in_file();
+            Switches sw = read_switches(h_.out_dir);
+            sw.session = session;
+            if (!plan.moment.empty()) {
+                if (!sw.blocking_moments().empty()) switch_block = "turbo_output\\" + sw.blocking_moments();
+                else if (!sw.profile_on) switch_block = std::string("turbo_output\\") + profile_file() + " is off";
+                else if (!sw.test_unproven)
+                    for (const Write& wr : plan.writes) {
+                        const Knob* k = reg->knob(wr.id);
+                        if (k && !k->proven()) {
+                            switch_block = (k ? k->label : wr.id) + ": its effect is not proven (the profile writes it only with turbo_output\\" +
+                                           test_unproven_file() + ")";
+                            break;
+                        }
+                    }
+            } else if (!sw.blocking().empty()) {
+                switch_block = "turbo_output\\" + sw.blocking();
+            } else if (!sw.opted_in()) {
+                switch_block = std::string("no opt-in (the session tick, the tuning profile or turbo_output\\") + opt_in_file() + ")";
+            }
         }
     }
     const double queued = now();
-    const std::string via = h_.run_on_game_thread([this, reg, anchors, plan, switch_block, queued, seq, cancel]() {
+    const std::string via = h_.run_on_game_thread([this, reg, anchors, plan, switch_block, queued, seq, cancel, live_dbs]() {
         ApplyResult r;
         r.kind = plan.kind;
+        r.moment = plan.moment;
         const double t0 = now();
         std::string stage, block;
         if (cancel->load()) {
@@ -2769,20 +4019,58 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
             block = b;
         } else if (!switch_block.empty()) {
             stage = "G1";
-            block = "turbo_output\\" + switch_block;
+            block = switch_block;
+        } else if (!puts_back(plan.kind) && !(block = job_switch_block(plan, *reg)).empty()) {
+            stage = "G1";  // m1 (review 2026-10-13): the kill switches read again inside the job (a few file checks on the game thread)
+        } else if (!(block = chain_liveness(plan, *reg, anchors, live_dbs)).empty()) {
+            stage = "rebuilt";  // m4: the manager's current database is not one Turbo located: nothing written, located again
         } else {
             std::lock_guard<std::mutex> lock(mu_);
+            const long long w = wall();
+            const long long prematch_age = cur_prematch_t_ > 0 ? w - cur_prematch_t_ : -1;
+            const long long save_age = cur_save_t_ > 0 ? w - cur_save_t_ : -1;
             if (cur_gen_ != plan.load_gen) {
                 stage = "G2";
                 block = "the career was reloaded since Apply (load " + std::to_string(cur_gen_) + ", the plan's " + std::to_string(plan.load_gen) + ")";
+            } else if (!plan.moment.empty()) {
+                std::vector<const Knob*> ks;
+                for (const Write& wr : plan.writes) ks.push_back(reg->knob(wr.id));
+                MomentContext mc;
+                mc.in_cm = cur_in_cm_;
+                mc.phase = cur_phase_;
+                mc.prematch_age = prematch_age;
+                mc.save_age = save_age;
+                mc.front_end_age = cur_bridge_ && cur_front_end_t_ > 0 ? w - cur_front_end_t_ : -1;
+                mc.team_mgmt = cur_team_mgmt_;
+                const std::string g = moment_gate(plan.moment, mc, ks);
+                if (!g.empty()) {
+                    stage = "G2";
+                    block = g;
+                }
+            } else if (puts_back(plan.kind) && !cur_in_cm_) {
+                // M2: Undo / Reset / Restore at the main menu (no career): only a match phase Lua reports holds them back
+                if (cur_phase_ == "prematch" || cur_phase_ == "match") {
+                    stage = "G2";
+                    block = "a match is set up or played (Lua: " + cur_phase_ + ")";
+                }
             } else {
-                for (const Write& w : plan.writes) {
-                    const Knob* k = reg->knob(w.id);
+                bool all_live = true;
+                for (const Write& wr : plan.writes) {
+                    const Knob* k = reg->knob(wr.id);
+                    all_live = all_live && k && k->live;
                     if (k && !k->allows(cur_phase_)) {
                         stage = "G2";
                         block = k->label + " may be written in " + when_text(k->when) + " only (now: " + (cur_phase_.empty() ? "unknown" : cur_phase_) + ")";
                         break;
                     }
+                }
+                if (block.empty() && cur_phase_ == "hub" && !all_live && prematch_age >= 0 && prematch_age < kPrematchGuardSeconds) {
+                    stage = "G2";
+                    block = "a match was being set up " + std::to_string(prematch_age) + " s ago (Lua: prematch)";
+                }
+                if (block.empty() && !puts_back(plan.kind) && cur_team_mgmt_) {  // B.4 rule 2, re-checked here
+                    stage = "G2";
+                    block = "Team Management is open";
                 }
             }
         }
@@ -2801,8 +4089,17 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
             }
             opt.last_written = &last;
             r = apply_plan(*h_.mem, *reg, anchors, h_.lookup, plan, opt);
+            r.moment = plan.moment;
         }
         r.micros = h_.clock_us ? h_.clock_us() - t0 : 0.0;
+        if (!plan.moment.empty()) {
+            std::set<std::string> ids;
+            for (const Write& wr : plan.writes) ids.insert(wr.id);
+            if (r.ok && r.written)
+                r.lines.push_back("tuning: profile applied (" + plan.moment + ") " + std::to_string(ids.size()) + " knobs (read back ok)");
+            else
+                r.lines.push_back("tuning: profile not applied (" + plan.moment + "): " + (r.stage.empty() ? std::string() : r.stage + ": ") + r.message);
+        }
         std::lock_guard<std::mutex> lock(mu_);
         // the first snapshot of a knob in this game session = its game default (Apply and re-apply only: an undo writes Turbo's values back)
         if (!puts_back(plan.kind) && (r.written || r.undone || r.restore_failed))
@@ -2811,6 +4108,10 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
         if (r.ok && r.written)
             for (const Write& w : r.writes) last_written_[copy_key(w.id, w.copy)] = w.new_value;
         if (r.session_off) session_off_ = r.message;
+        if (r.stage == "rebuilt" && chain_stage_ == 2) {
+            chain_stage_ = 0;  // the chain locate runs again at the next look (its re-run keeps nothing the check does not pass)
+            chain_next_ = now();
+        }
         results_.push_back(r);
         if (seq == job_seq_) busy_ = false;
     });
@@ -2832,6 +4133,7 @@ bool CoreService::poll(ApplyResult& out) {
         r = results_.front();
         results_.erase(results_.begin());
     }
+    for (const std::string& l : r.lines) log(l);
     if (!r.log_line.empty()) {
         char t[64];
         std::snprintf(t, sizeof(t), " [job %.0f us, %d reads]", r.micros, r.reads);
@@ -2867,6 +4169,12 @@ void CoreService::note_context(const Context& ctx) {
     cur_phase_ = ctx.phase;
     cur_session_ = ctx.session;
     cur_gen_ = ctx.load_gen;
+    cur_in_cm_ = ctx.in_cm;
+    cur_prematch_t_ = ctx.prematch_t;
+    cur_save_t_ = ctx.save_t;
+    cur_bridge_ = ctx.bridge;
+    cur_front_end_t_ = ctx.front_end_t;
+    cur_team_mgmt_ = ctx.team_mgmt;
 }
 
 }  // namespace tuning

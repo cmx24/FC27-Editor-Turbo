@@ -9345,8 +9345,9 @@ static void test_sigscan_adapt() {
             int optional = 0;
             for (const auto& s : b->sigs) optional += s.adapt_optional ? 1 : 0;
             CHECK(b->find("svm_live_vtable") && b->find("svm_live_vtable")->adapt_optional && b->find("fce_datamanager_vtable") &&
-                      b->find("fce_datamanager_vtable")->adapt_optional && optional == 2,
-                  "build " + build + ": svm_live_vtable and fce_datamanager_vtable optional, nothing else");
+                      b->find("fce_datamanager_vtable")->adapt_optional && b->find("attrib_db_getter") && b->find("attrib_db_getter")->adapt_optional &&
+                      optional == 3,
+                  "build " + build + ": svm_live_vtable, fce_datamanager_vtable and attrib_db_getter (2.4) optional, nothing else");
             // a title update where only those two miss: every other hook is adopted (their users stay fail closed: 0 address)
             const SignatureTable ad = adapt_signature_table(*b, "6B000000-21500000");
             std::vector<SigResult> rs;
@@ -9487,8 +9488,9 @@ static void test_sigscan_adapt() {
         }
         CHECK(unchecked.empty(), "every offset checked; unchecked:" + unchecked);
         CHECK(bad_expect.empty(), "every expect parses and sits on a rip operand; bad:" + bad_expect);
-        // 16 shared expects + 4 of tactics channel E's exact-build entries (VT1, VT2, the registry's two operands)
-        CHECK(expects == 20 && probes == 2, fmt("20 expects, 2 hook probes (%d, %d)", expects, probes));
+        // 17 shared expects (2.4: attrib_db_getter's mov rcx,[rip+G]) + 4 of tactics channel E's exact-build entries (VT1, VT2, the
+        // registry's two operands)
+        CHECK(expects == 21 && probes == 2, fmt("21 expects, 2 hook probes (%d, %d)", expects, probes));
         const Signature* cd = b->find("career_event_dispatch");
         const Signature* st = b->find("loc_strtab_get");
         CHECK(cd && cd->hook_probe && cd->offset == -24 && st && st->hook_probe && st->offset == -10, "the hook probes");

@@ -1,21 +1,63 @@
 {
   "_doc": [
-    "Turbo gameplay tuning knobs for FC27.exe build 6AC07E31-2145C000 (turbogui/src/core/tuning.h).",
-    "Source: turbo_output\\TACTICS_MOD_CATALOGUE.txt sections 2, 4, 6 and 7 (FC 27 type data). collection = the attribulator group, field = the",
-    "reflected field name, offset = its offset in the group's type, default = FC 27's own value (copy_defaults: a database copy whose FC 27",
-    "value differs). min / max are Turbo's generic safety bounds. No gameplay mod's values are in this file; Turbo's presets are relative.",
-    "A knob or locator with 'verified': false is shown as 'not located on this build' and never written. 'verified': true is set only from a",
-    "live locator run in the running game (turbo_output\\ATTRIBULATOR_LIVE.json: the type found by name with this signature / size / field",
-    "count, one instance per variant found by its Name, the field offsets equal). A verified knob needs collection, field, locator, offset,",
-    "min, max and default; a verified attrib locator needs type, type_signature, type_size, type_fields and every variant's instance name,",
-    "else the whole file is refused. Variants = the attribulator database copies of a group (base gameplayattribdb, simulation = Authentic):",
-    "one knob writes every copy together. head (optional) = what an instance holds at +0 ('typeinfo' or 'image'), head_rva = its exact RVA.",
+    "Turbo gameplay tuning knobs for FC27.exe build 6AC07E31-2145C000 (turbogui/src/core/tuning.h), version 4 (2.4, docs/TACTICS_OVERHAUL_DECISION.md 3.1).",
+    "Source: turbo_output\\TACTICS_MOD_CATALOGUE.txt sections 2, 4, 6 and 7 (FC 27 type data), the 2026-10-13 read-only locate run",
+    "(ATTRIBULATOR_LIVE.json) and the offline sweep T5 (layout_T5.json: family and group slots from the image's reflection data). collection =",
+    "the attribulator group, field = the reflected field name, offset = its offset in the group's type, default = FC 27's own value",
+    "(copy_defaults: a database copy whose FC 27 value differs). min / max are Turbo's generic safety bounds. No gameplay mod's values.",
+    "attrib_manager: the deterministic locate. The signature attrib_db_getter (get_current_gameplay_attribdb) resolves the manager slot G;",
+    "[G] = the manager; [[mgr+0]+8] = the current gameplay database; [[mgr+prematch_slot]+8] = the prematch database (every manager slot is",
+    "tried when that one does not hold it); every gameplay database (gameplay_dbs) is enumerated once per session from the heap slots holding",
+    "its TypeInfo. A locator with db_type / family_slot / group_slot is reached through the databases: +family_slot the group object",
+    "(group_type), +group_slot the instance; its copies are the distinct instances, matched to the variants by Name (variant db = the",
+    "database the name search uses for the cross-check / fallback). Identity per instance: vtable (head_rva), TypeInfo -> type name,",
+    "signature, size, field count, Name, GUID; a mismatch refuses the group for the session.",
+    "A knob or locator with 'verified': false is shown as 'not yet working on this build' and never written. when = the moments the tuning",
+    "profile writes the knob at (boot, career_load, hub); live: true also allows prematch / match (only after gate X1 shows a live effect).",
+    "proof = {session, evidence}: the in-game measurement of the knob's effect (P-sessions); only a proven knob is a slider in the view, the",
+    "others are read-only rows 'located, effect not proven'. slider: true without a proof is refused by scripts/package.sh --guard.",
     "Keys starting with '_' are comments."
   ],
   "schema": "turbo-tuning-knobs/1",
   "build": "6AC07E31-2145C000",
-  "version": 3,
-  "note": "catalogue entries (FC 27 type data and FC 27's own values); the attacking line group and the defensive depth bands verified live 2026-10-13",
+  "version": 4,
+  "note": "v4 (2.4): located through the attribute manager (attrib_manager, no memory search for the chain); the profile's moments (boot, career_load, hub); FC 27 defaults only; no knob proven yet (every knob read-only until a P-session adds its proof)",
+  "attrib_manager": {
+    "signature": "attrib_db_getter",
+    "current": [
+      "0x0",
+      "0x8"
+    ],
+    "prematch_slot": "0x8",
+    "handle_db": "0x8",
+    "mgr_size": "0x240",
+    "index_at": "0x18",
+    "gameplay_db_type": "AttribDBRuntime_gameplayattribdb",
+    "gameplay_db_signature": "0xa5106425",
+    "prematch_db_type": "AttribDBRuntime_prematchattribdb",
+    "prematch_db_signature": "0xb8b9b8bb",
+    "gameplay_dbs": [
+      "Fifa/Attribulator/Gameplay/gameplayattribdb",
+      "Fifa/Attribulator/Gameplay/databases/simulation/simulation",
+      "Fifa/Attribulator/Gameplay/databases/smallsided/smallsided",
+      "Fifa/Attribulator/Gameplay/databases/smallsided/databases/1v1/1v1",
+      "Fifa/Attribulator/Gameplay/databases/smallsided/databases/2v2/2v2",
+      "Fifa/Attribulator/Gameplay/databases/smallsided/databases/3v3/3v3",
+      "Fifa/Attribulator/Gameplay/databases/smallsided/databases/penta/penta",
+      "Fifa/Attribulator/Gameplay/databases/smallsided/databases/kickabouts/kickabouts",
+      "Fifa/Attribulator/Gameplay/databases/smallsided/databases/kickabouts/databases/attackingscenarios/attackingscenarios",
+      "Fifa/Attribulator/Gameplay/databases/smallsided/databases/kickabouts/databases/bocce/bocce",
+      "Fifa/Attribulator/Gameplay/databases/smallsided/databases/kickabouts/databases/bucketball/bucketball",
+      "Fifa/Attribulator/Gameplay/databases/smallsided/databases/kickabouts/databases/closesttothepin/closesttothepin",
+      "Fifa/Attribulator/Gameplay/databases/smallsided/databases/kickabouts/databases/drawtheline/drawtheline",
+      "Fifa/Attribulator/Gameplay/databases/smallsided/databases/kickabouts/databases/foottennis/foottennis",
+      "Fifa/Attribulator/Gameplay/databases/smallsided/databases/kickabouts/databases/teamkeepaway/teamkeepaway"
+    ],
+    "prematch_dbs": [
+      "Fifa/Attribulator/PreMatch/prematchattribdb"
+    ],
+    "note": "G = 0x14C26B128 on 6AC07E31 [V live]; [[mgr+0]+8] = the current gameplay database [V live]; mgr+0x8 = the prematch handle [A, T5 2.2: the only reader of mgr+8 in the build 6AB9813C image walks it to pm_formation]; i32 mgr+0x18 = the current database index [V old image]"
+  },
   "locators": [
     {
       "name": "attrib.attackinglinelengthwidth",
@@ -53,11 +95,18 @@
       "variants": [
         {
           "name": "base",
-          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioningformation/gp_positioningformation_defensivelinelengthwidth_runtime"
+          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioningformation/gp_positioningformation_defensivelinelengthwidth_runtime",
+          "db": "Fifa/Attribulator/Gameplay/gameplayattribdb"
         }
       ],
       "verified": false,
-      "note": "team shape without the ball (catalogue 6 #2-#3); base database only"
+      "note": "team shape without the ball (catalogue 6 #2-#3); base database only",
+      "db_type": "AttribDBRuntime_gameplayattribdb",
+      "db_type_signature": "0xa5106425",
+      "group_type": "AttribGroupRuntime_gp_positioningformation",
+      "group_type_signature": "0x7ade3bd5",
+      "family_slot": "0x128",
+      "group_slot": "0x30"
     },
     {
       "name": "attrib.zonal_defense",
@@ -69,15 +118,23 @@
       "variants": [
         {
           "name": "base",
-          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioning/gp_positioning_zonal_defense_runtime"
+          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioning/gp_positioning_zonal_defense_runtime",
+          "db": "Fifa/Attribulator/Gameplay/gameplayattribdb"
         },
         {
           "name": "simulation",
-          "instance": "Fifa/Attribulator/Gameplay/databases/simulation/groups/gp_positioning/gp_positioning_zonal_defense_runtime"
+          "instance": "Fifa/Attribulator/Gameplay/databases/simulation/groups/gp_positioning/gp_positioning_zonal_defense_runtime",
+          "db": "Fifa/Attribulator/Gameplay/databases/simulation/simulation"
         }
       ],
       "verified": false,
-      "note": "gaps between the lines, pressing / zone marking depths (catalogue 6 #7, #9); base and Authentic (simulation) copies, written together"
+      "note": "gaps between the lines, pressing / zone marking depths (catalogue 6 #7, #9); base and Authentic (simulation) copies, written together",
+      "db_type": "AttribDBRuntime_gameplayattribdb",
+      "db_type_signature": "0xa5106425",
+      "group_type": "AttribGroupRuntime_gp_positioning",
+      "group_type_signature": "0xf3a936e7",
+      "family_slot": "0x38",
+      "group_slot": "0x148"
     },
     {
       "name": "attrib.defense_general",
@@ -89,15 +146,23 @@
       "variants": [
         {
           "name": "base",
-          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioning/gp_positioning_defense_general_runtime"
+          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioning/gp_positioning_defense_general_runtime",
+          "db": "Fifa/Attribulator/Gameplay/gameplayattribdb"
         },
         {
           "name": "simulation",
-          "instance": "Fifa/Attribulator/Gameplay/databases/simulation/groups/gp_positioning/gp_positioning_defense_general_runtime"
+          "instance": "Fifa/Attribulator/Gameplay/databases/simulation/groups/gp_positioning/gp_positioning_defense_general_runtime",
+          "db": "Fifa/Attribulator/Gameplay/databases/simulation/simulation"
         }
       ],
       "verified": false,
-      "note": "line holding depth, team press switches (catalogue 6 #11); base and Authentic (simulation) copies, written together"
+      "note": "line holding depth, team press switches (catalogue 6 #11); base and Authentic (simulation) copies, written together",
+      "db_type": "AttribDBRuntime_gameplayattribdb",
+      "db_type_signature": "0xa5106425",
+      "group_type": "AttribGroupRuntime_gp_positioning",
+      "group_type_signature": "0xf3a936e7",
+      "family_slot": "0x38",
+      "group_slot": "0xa8"
     },
     {
       "name": "attrib.markingtightness",
@@ -109,11 +174,18 @@
       "variants": [
         {
           "name": "base",
-          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioning/gp_positioning_markingtightness_runtime"
+          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioning/gp_positioning_markingtightness_runtime",
+          "db": "Fifa/Attribulator/Gameplay/gameplayattribdb"
         }
       ],
       "verified": false,
-      "note": "marking tightness of every player (catalogue 6 #16)"
+      "note": "marking tightness of every player (catalogue 6 #16)",
+      "db_type": "AttribDBRuntime_gameplayattribdb",
+      "db_type_signature": "0xa5106425",
+      "group_type": "AttribGroupRuntime_gp_positioning",
+      "group_type_signature": "0xf3a936e7",
+      "family_slot": "0x38",
+      "group_slot": "0x68"
     },
     {
       "name": "attrib.attackingaggressiveness",
@@ -125,11 +197,18 @@
       "variants": [
         {
           "name": "base",
-          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioning/gp_positioning_attackingaggressiveness_runtime"
+          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioning/gp_positioning_attackingaggressiveness_runtime",
+          "db": "Fifa/Attribulator/Gameplay/gameplayattribdb"
         }
       ],
       "verified": false,
-      "note": "how often players make runs (catalogue 6 #17)"
+      "note": "how often players make runs (catalogue 6 #17)",
+      "db_type": "AttribDBRuntime_gameplayattribdb",
+      "db_type_signature": "0xa5106425",
+      "group_type": "AttribGroupRuntime_gp_positioning",
+      "group_type_signature": "0xf3a936e7",
+      "family_slot": "0x38",
+      "group_slot": "0x30"
     },
     {
       "name": "attrib.teamtacticssettings",
@@ -156,6 +235,29 @@
       "group_slot": "0x18",
       "head": "typeinfo",
       "head_rva": "0xa9bf170"
+    },
+    {
+      "name": "attrib.partialteampress",
+      "kind": "attrib",
+      "type": "AttribSchema_gp_positioning_partialteampress",
+      "type_signature": "0xf045b267",
+      "type_size": "0xa8",
+      "type_fields": 25,
+      "variants": [
+        {
+          "name": "base",
+          "instance": "Fifa/Attribulator/Gameplay/groups/gp_positioning/gp_positioning_partialteampress_runtime",
+          "db": "Fifa/Attribulator/Gameplay/gameplayattribdb"
+        }
+      ],
+      "verified": false,
+      "note": "how far / long the partial team press runs (catalogue 6 #12; T5 draft); not located live yet",
+      "db_type": "AttribDBRuntime_gameplayattribdb",
+      "db_type_signature": "0xa5106425",
+      "group_type": "AttribGroupRuntime_gp_positioning",
+      "group_type_signature": "0xf3a936e7",
+      "family_slot": "0x38",
+      "group_slot": "0x128"
     }
   ],
   "knobs": [
@@ -175,6 +277,8 @@
       "offset": "0x28",
       "applies": "unknown",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "verified": true,
@@ -196,6 +300,8 @@
       "offset": "0x3c",
       "applies": "unknown",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "verified": true,
@@ -217,6 +323,8 @@
       "offset": "0x30",
       "applies": "unknown",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "verified": true,
@@ -238,6 +346,8 @@
       "offset": "0x50",
       "applies": "unknown",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "verified": true,
@@ -259,6 +369,8 @@
       "offset": "0x28",
       "applies": "unknown",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "verified": false,
@@ -280,6 +392,8 @@
       "offset": "0x30",
       "applies": "unknown",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "verified": false,
@@ -301,6 +415,8 @@
       "offset": "0x664",
       "applies": "unknown",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "verified": false,
@@ -322,6 +438,8 @@
       "offset": "0x658",
       "applies": "unknown",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "verified": false,
@@ -343,6 +461,8 @@
       "offset": "0x67c",
       "applies": "unknown",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "verified": false,
@@ -364,6 +484,8 @@
       "offset": "0x9c",
       "applies": "unknown",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "verified": false,
@@ -384,6 +506,8 @@
       "offset": "0x3c",
       "applies": "next match setup",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "below": [
@@ -407,6 +531,8 @@
       "offset": "0x40",
       "applies": "next match setup",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "verified": true,
@@ -427,6 +553,8 @@
       "offset": "0x2c",
       "applies": "next match setup",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "below": [
@@ -450,6 +578,8 @@
       "offset": "0x38",
       "applies": "next match setup",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "verified": true,
@@ -470,6 +600,8 @@
       "offset": "0x44",
       "applies": "next match setup",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "below": [
@@ -493,6 +625,8 @@
       "offset": "0x34",
       "applies": "next match setup",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "verified": true,
@@ -514,6 +648,8 @@
       "offset": "0x644",
       "applies": "unknown",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "verified": false,
@@ -535,6 +671,8 @@
       "offset": "0x684",
       "applies": "unknown",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "verified": false,
@@ -556,6 +694,8 @@
       "offset": "0xb8",
       "applies": "unknown",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "verified": false,
@@ -577,6 +717,8 @@
       "offset": "0x28",
       "applies": "unknown",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "verified": false,
@@ -598,10 +740,58 @@
       "offset": "0x28",
       "applies": "unknown",
       "when": [
+        "boot",
+        "career_load",
         "hub"
       ],
       "verified": false,
       "notes": "How often attackers and supporting players make runs. Higher = more runs. Not yet confirmed in the running game: shown, never written."
+    },
+    {
+      "id": "pressing.partial_highworkratetime",
+      "label": "Partial team press: duration (high work rate)",
+      "group": "Pressing",
+      "collection": "gp_positioning_partialteampress",
+      "field": "partialTeamPressHighWorkRateTime",
+      "type": "f32",
+      "unit": "",
+      "min": 0.5,
+      "max": 30.0,
+      "default": 6.0,
+      "step": 0.01,
+      "locator": "attrib.partialteampress",
+      "offset": "0x84",
+      "applies": "unknown",
+      "when": [
+        "boot",
+        "career_load",
+        "hub"
+      ],
+      "verified": false,
+      "notes": "T5 candidate (catalogue 6 #12); FC 27's own value from FC 27's EBX. Not yet confirmed in the running game: shown as not yet working, never written."
+    },
+    {
+      "id": "pressing.partial_cooldownmultiplier",
+      "label": "Partial team press: cooldown",
+      "group": "Pressing",
+      "collection": "gp_positioning_partialteampress",
+      "field": "partialTeamPressCooldownMultiplier",
+      "type": "f32",
+      "unit": "",
+      "min": 0.1,
+      "max": 5.0,
+      "default": 1.0,
+      "step": 0.01,
+      "locator": "attrib.partialteampress",
+      "offset": "0x74",
+      "applies": "unknown",
+      "when": [
+        "boot",
+        "career_load",
+        "hub"
+      ],
+      "verified": false,
+      "notes": "T5 candidate (catalogue 6 #12); FC 27's own value from FC 27's EBX. Not yet confirmed in the running game: shown as not yet working, never written."
     }
   ]
 }
