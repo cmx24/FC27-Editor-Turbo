@@ -371,13 +371,15 @@ static Context menu_ctx(long long wall, long long age = 1, long long gen = 1) {
     return c;
 }
 
-static Plan profile_plan(ChainRig& r, const std::map<std::string, double>& values, const std::string& moment, std::vector<std::string>* skipped = nullptr) {
+// (allow_unproven: the job mechanics are tested with unproven knobs too; the rig then needs the test switch file)
+static Plan profile_plan(ChainRig& r, const std::map<std::string, double>& values, const std::string& moment, std::vector<std::string>* skipped = nullptr,
+                         bool allow_unproven = true) {
     tuning::Profile p;
     p.on = true;
     p.values = values;
     Plan plan;
     std::vector<std::string> sk;
-    make_profile_plan(*r.svc->registry(), r.live(), p, moment, plan, sk);
+    make_profile_plan(*r.svc->registry(), r.live(), p, moment, plan, sk, allow_unproven);
     if (skipped) *skipped = sk;
     return plan;
 }
@@ -796,6 +798,7 @@ static void chain_cases() {
         ChainRig r(w, g_out / "tuning_chain_moments", chain_knobs(), w.lookup(), &cw);
         r.jobs.inline_run = true;
         r.svc->locate_status();
+        r.touch(test_unproven_file());  // the proof-session switch: gap_dmf / deep_max are not proven
         r.profile(true, {{"shape.width_in", 0.6}, {"shape.gap_dmf", 6.0}, {"lineband.deep_max", 25}});
         // boot: the main menu (no career)
         Plan p = profile_plan(r, {{"shape.width_in", 0.6}, {"shape.gap_dmf", 6.0}, {"lineband.deep_max", 25}}, "boot");
@@ -880,6 +883,7 @@ static void chain_cases() {
         ChainRig r(w, g_out / "tuning_chain_owner", chain_knobs(), w.lookup());
         r.jobs.inline_run = true;
         r.svc->locate_status();
+        r.touch(test_unproven_file());
         r.profile(true, {{"shape.width_in", 0.6}});
         std::string why;
         ApplyResult res;
@@ -907,6 +911,66 @@ static void chain_cases() {
         CHECK(w.f32(ChainWorld::kLlw + 0x28) == 1.0f && w.f32(ChainWorld::kZonal + 0x664) == 8.0f && w.f32(ChainWorld::kZonalSim + 0x664) == 9.0f,
               "FC 27's own values: base 8, simulation 9 (copy_defaults)");
         CHECK(make_vanilla_plan(*r.svc->registry(), r.live(), v, sk).empty() && v.writes.empty(), "nothing left to restore");
+    });
+
+    run_case("tuning 2.4: M5 - the profile writes proven knobs only; unproven ones only with tuning_test_unproven_on.txt (re-checked in the job); m1 / m3", [] {
+        ChainWorld w;
+        ChainRig r(w, g_out / "tuning_chain_m5", chain_knobs(), w.lookup());
+        r.jobs.inline_run = true;
+        r.svc->locate_status();
+        r.profile(true, {{"shape.width_in", 0.6}, {"shape.length_in", 0.9}});
+        std::vector<std::string> sk;
+        Plan p = profile_plan(r, {{"shape.width_in", 0.6}, {"shape.length_in", 0.9}}, "boot", &sk, false);
+        CHECK(p.writes.size() == 1 && p.writes[0].id == "shape.width_in" &&
+                  has_text(sk, "Team length with the ball: its effect is not proven: not written by the profile (test switch turbo_output\\tuning_test_unproven_on.txt absent)"),
+              "the proven knob only, the unproven one listed");
+        p = profile_plan(r, {{"shape.width_in", 0.6}, {"shape.length_in", 0.9}}, "boot", &sk, true);
+        CHECK(p.writes.size() == 2, "with the test switch: both");
+        std::string why;
+        ApplyResult res;
+        CHECK(r.svc->submit(menu_ctx(r.wall), p, why) && r.svc->poll(res) && !res.ok && res.stage == "G1" &&
+                  res.message.find("Team length with the ball: its effect is not proven (the profile writes it only with turbo_output\\tuning_test_unproven_on.txt)") == 0,
+              "an unproven knob in a moment's plan without the switch file: refused: " + res.message);
+        r.touch(test_unproven_file());
+        CHECK(r.svc->submit(menu_ctx(r.wall), p, why) && r.svc->poll(res) && res.ok && w.f32(ChainWorld::kLlw + 0x30) == 0.9f, "with it: written");
+        // m1: the switch file removed between the submit and the job, a kill switch created there: the job reads them again
+        p = profile_plan(r, {{"shape.length_in", 0.84}}, "boot");
+        r.jobs.inline_run = false;
+        CHECK(r.svc->submit(menu_ctx(r.wall), p, why), "queued");
+        r.remove(test_unproven_file());
+        r.jobs.pump();
+        CHECK(r.svc->poll(res) && !res.ok && res.stage == "G1" && res.message.find("tuning_test_unproven_on.txt is gone (read again in the job)") != std::string::npos, res.message);
+        r.touch(test_unproven_file());
+        CHECK(r.svc->submit(menu_ctx(r.wall), p, why), "queued");
+        r.touch(kill_switch_file());
+        r.jobs.pump();
+        CHECK(r.svc->poll(res) && !res.ok && res.stage == "G1" && res.message.find("turbo_output\\tuning_off.txt (read again in the job)") == 0 &&
+                  w.f32(ChainWorld::kLlw + 0x30) == 0.9f,
+              "m1: a kill switch created after the submit: " + res.message);
+        r.remove(kill_switch_file());
+        Plan v;
+        CHECK(make_vanilla_plan(*r.svc->registry(), r.live(), v, sk).empty() && r.svc->submit(menu_ctx(r.wall), v, why), "Restore queued");
+        r.touch(kill_switch_file());
+        r.jobs.pump();
+        CHECK(r.svc->poll(res) && res.ok && w.f32(ChainWorld::kLlw + 0x30) == 0.84f, "a Restore is not held back by a kill switch in the job");
+        r.remove(kill_switch_file());
+        // m3: the tracker arms a moment again
+        MomentTracker t;
+        MomentInput in;
+        in.wall = 1000;
+        in.bridge = true;
+        in.front_end_t = 999;
+        in.profile_on = in.ready = true;
+        CHECK(t.next(in) == Moment::Boot, "boot");
+        t.fired(Moment::Boot, in);
+        CHECK(t.next(in) == Moment::None, "done");
+        t.rearm(Moment::Boot);
+        CHECK(t.next(in) == Moment::Boot, "re-armed after a late / cancelled job");
+        in.in_cm = true;
+        in.phase = "hub";
+        in.load_gen = 1;
+        t.rearm(Moment::Boot);
+        CHECK(t.next(in) == Moment::CareerLoad && t.boot_done(), "a career seen: the re-armed boot is dropped");
     });
 
     run_case("tuning 2.4: M2 - Undo, Reset and Restore FC 27 defaults at the main menu; a boot write's undo gives FC 27's values back", [] {

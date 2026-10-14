@@ -23,6 +23,10 @@ name_guard() {  # $1 = staged folder
 # Knobs guard (2.4, scripts/knobs_guard.py): a gameplay tuning knob is a slider only with its in-game proof; a knobs file with a
 # slider (or a live knob) without a proof, or a proof without its evidence, is refused
 knobs_guard() {  # $1 = staged folder
+  # the coordinator's proof-session switch must never ship (it makes the profile write knobs whose effect is not proven)
+  if [ -n "$(find "$1" -name tuning_test_unproven_on.txt -print -quit)" ]; then
+    echo "knobs guard: refused: tuning_test_unproven_on.txt is in the package"; return 1
+  fi
   local py=""
   for c in python3 python "py -3"; do $c -c "import json" >/dev/null 2>&1 && { py="$c"; break; }; done
   [ -n "$py" ] || { echo "knobs guard: no Python found (python3 / python / py -3)"; return 1; }

@@ -37,6 +37,7 @@ struct TuningViewState {
     bool profile_on = false;
     std::string profile_line;   // "Profile: Turbo compact, 3 value(s) ..." (and its file error)
     std::string moment_line;    // what the last automatic moment did
+    bool test_mode = false;     // tuning_test_unproven_on.txt is present (the red line was drawn)
     struct Row {
         std::string id, label, group;
         std::string state;      // "proven" / "located" (unlocated knobs have no row: not_working)

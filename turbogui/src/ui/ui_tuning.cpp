@@ -555,7 +555,14 @@ void handle_result(App& app, const ApplyResult& r) {
     } clear_after;
     g.last = r.log_line.empty() ? r.message : r.log_line;
     const BridgeState& st = app.bridge.state();
-    if (!r.moment.empty()) g.moment_line = (r.lines.empty() ? g.last : r.lines.front()) + " (" + stamp() + ")";
+    if (!r.moment.empty()) {
+        g.moment_line = (r.lines.empty() ? g.last : r.lines.front()) + " (" + stamp() + ")";
+        // m3: a moment whose job did not run is due again
+        if (!r.ok && (r.stage == "late" || r.stage == "cancelled" || r.stage == "G1")) {
+            for (Moment m : {Moment::Boot, Moment::CareerLoad, Moment::Hub})
+                if (r.moment == moment_name(m)) g.moments.rearm(m);
+        }
+    }
     if (r.kind == PlanKind::Undo || r.kind == PlanKind::Restore) {
         if (r.ok && r.written) {
             if (g.have_undo && same_career(g.undo, st.session, st.load_gen).empty() && (g.undo.state == "written" || g.undo.state == "failed")) {
@@ -664,13 +671,15 @@ void moments_tick(App& app) {
     const Moment m = g.moments.next(in);
     if (m == Moment::None) return;
     const std::string mn = moment_name(m);
-    g.moments.fired(m, in);
     load_undo_once(app);
     read_now(app);
     const auto reg = registry_of(app);
     Plan plan;
     std::vector<std::string> skipped;
-    const std::string w = make_profile_plan(*reg, g.live, g.prof, mn, plan, skipped);
+    const std::string w = make_profile_plan(*reg, g.live, g.prof, mn, plan, skipped, g.sw.test_unproven);
+    // m3 (review 2026-10-13): marked done once queued (or when there is nothing to write); a job that does not run (late, cancelled, a
+    // switch that appeared) arms the moment again (handle_result)
+    g.moments.fired(m, in);
     if (!w.empty() || plan.writes.empty()) {
         g.moment_line = "tuning: profile (" + mn + "): nothing to apply" + (w.empty() ? std::string() : ": " + w) +
                         (skipped.empty() ? std::string() : " (" + joined(skipped) + ")");
@@ -678,6 +687,13 @@ void moments_tick(App& app) {
         return;
     }
     if (!skipped.empty()) log_line(app, "tuning: profile (" + mn + "): skipped " + joined(skipped));
+    std::string unproven;
+    for (const Write& wr : plan.writes)
+        if (const Knob* k = reg->knob(wr.id))
+            if (!k->proven() && unproven.find(k->label) == std::string::npos) unproven += (unproven.empty() ? "" : ", ") + k->label;
+    if (!unproven.empty())
+        log_line(app, "tuning: TEST MODE (turbo_output\\" + std::string(test_unproven_file()) + "): the profile writes knobs whose effect is NOT proven: " +
+                          unproven);
     if (!submit_write(app, plan, "Tuning profile (" + mn + ")")) {
         g.moment_line = "tuning: profile not applied (" + mn + "): " + g.last;
         log_line(app, g.moment_line);
@@ -1052,6 +1068,12 @@ void draw_body(App& app) {
         ImGui::TextWrapped("%s", g_state.profile_line.c_str());
         g_state.moment_line = g.moment_line;
         if (!g.moment_line.empty()) ImGui::TextDisabled("Last: %s", g.moment_line.c_str());
+        g_state.test_mode = g.sw.test_unproven;
+        if (g.sw.test_unproven)
+            ImGui::TextColored(ImVec4(1, 0.35f, 0.3f, 1),
+                               "TEST MODE: turbo_output\\%s makes the profile write knobs whose effect is not proven (the coordinator's proof sessions "
+                               "only; delete it to stop).",
+                               test_unproven_file());
     }
     bool tick = app.tuning && app.tuning->session_opt_in();
     if (checkbox_right("Write in this game session (Apply, Reset)##tvsess", &tick) && app.tuning) {

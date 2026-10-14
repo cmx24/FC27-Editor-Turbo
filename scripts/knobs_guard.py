@@ -5,7 +5,8 @@ knobs file in which:
   - a knob asks for a slider ("slider": true) without a proof,
   - a proof misses its session or its evidence, or its evidence is not under EV/ (turbo_dev\\evidence\\<date>\\...),
   - a proven knob is not verified (a knob that is not located in the running game cannot have been measured),
-  - a knob is "live": true without a proof (a mid-match write needs the measured live effect of gate X1 outcome 1),
+  - a knob is "live": true, or names prematch / match in its "when", without a proof (a mid-match write needs the measured live
+    effect of gate X1 outcome 1),
   - the file does not parse as JSON.
 Usage: python -I scripts/knobs_guard.py <folder with knobs_*.json>   (exit 0 = ok, 1 = refused)
        python -I scripts/knobs_guard.py --self-test
@@ -29,6 +30,9 @@ def problems(doc):
             out.append("%s: proven but not verified in the running game" % kid)
         if k.get("live") is True and not has_proof:
             out.append("%s: live without a proof" % kid)
+        when = k.get("when") if isinstance(k.get("when"), list) else []
+        if any(x in ("prematch", "match") for x in when) and not has_proof:
+            out.append("%s: written in prematch / match (when) without a proof" % kid)
     return out
 
 
@@ -74,6 +78,8 @@ def self_test():
     expect("evidence outside EV/", {"knobs": [{"id": "a", "verified": True, "proof": {"session": "P1", "evidence": "notes.txt"}}]}, 1)
     expect("proven but unverified", {"knobs": [{"id": "a", "proof": proof}]}, 1)
     expect("live without a proof", {"knobs": [{"id": "a", "verified": True, "live": True}]}, 1)
+    expect("when: match without a proof", {"knobs": [{"id": "a", "verified": True, "when": ["hub", "match"]}]}, 1)
+    expect("when: match with a proof", {"knobs": [{"id": "a", "verified": True, "when": ["match"], "proof": proof}]}, 0)
     here = os.path.dirname(os.path.abspath(__file__))
     shipped = os.path.join(here, "..", "turbo", "package", "turbo", "tuning")
     good = check_folder(shipped) == 0

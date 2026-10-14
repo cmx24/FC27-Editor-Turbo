@@ -90,6 +90,9 @@ inline const char* keep_file() { return "tuning_keep.json"; }       // 2.3's kep
 inline const char* profile_file() { return "tuning_profile.json"; } // the profile the automatic moments apply (written by the UI)
 inline const char* profile_off_file() { return "tuning_profile_off.txt"; }  // kill switch of the automatic moments only
 inline const char* chain_check_file() { return "tuning_chain_check.json"; } // the chain / name search cross-check of each build
+// The coordinator's proof-session switch (M5, review 2026-10-13): only with it does the profile write knobs whose effect is not proven.
+// Never created by the view (tools/s_a1_check.py --setup creates it, --restore removes it); refused in a package
+inline const char* test_unproven_file() { return "tuning_test_unproven_on.txt"; }
 inline const char* presets_dir() { return "tuning_presets"; }
 // The knobs file names tried for a build key ("6AC07E31-2145C000"): knobs_6AC07E31-2145C000.json, then knobs_6AC07E31.json
 std::vector<std::string> knobs_file_names(const std::string& build);
@@ -421,6 +424,7 @@ KnobState knob_state(const Knob& k, const KnobLive* live);
 struct Switches {
     bool opt_in = false, off = false, master = false, attrib = false;
     bool profile_off = false, profile_on = false, session = false;
+    bool test_unproven = false;  // tuning_test_unproven_on.txt: the profile also writes unproven knobs (proof sessions only)
     bool opted_in() const { return opt_in || profile_on || session; }  // G1 of a write from the view
     std::string blocking() const;  // the kill switch file that blocks an Apply ("" = none)
     std::string blocking_moments() const;  // ... and the automatic moments (tuning_profile_off.txt too)
@@ -546,8 +550,10 @@ bool save_profile(const std::filesystem::path& p, const Profile& pr, std::string
 // The plan of an automatic moment: every profile value whose knob is in the registry, located, writable and allowed at that moment
 // (`when`), its value in range: EVERY copy of each, also a copy that already holds the value (the job writes it again and reads every
 // one back, so "read back ok" covers the whole profile). The others are skipped (listed). Kind Reapply, the moment set
+// Only PROVEN knobs (a proof in the knobs file) are written (M5); allow_unproven (the test switch tuning_test_unproven_on.txt) writes
+// the located ones too
 std::string make_profile_plan(const Registry& reg, const std::map<std::string, KnobLive>& live, const Profile& p, const std::string& moment,
-                              Plan& out, std::vector<std::string>& skipped);
+                              Plan& out, std::vector<std::string>& skipped, bool allow_unproven = false);
 // Restore FC 27 defaults: FC 27's own value (the knobs file's default / copy_defaults) back into every copy of every located knob of
 // which a copy holds another value; a knob without FC 27's value of a copy is skipped. Kind Restore
 std::string make_vanilla_plan(const Registry& reg, const std::map<std::string, KnobLive>& live, Plan& out, std::vector<std::string>& skipped);
@@ -589,6 +595,8 @@ class MomentTracker {
 public:
     Moment next(const MomentInput& in);
     void fired(Moment m, const MomentInput& in);
+    // the moment's job did not run (late, cancelled, refused by a switch that appeared): due again (boot only while no career is seen)
+    void rearm(Moment m);
     bool boot_done() const { return boot_done_; }
     bool hub_pending() const { return hub_pending_; }
     const std::string& load_done() const { return load_done_; }
@@ -720,6 +728,8 @@ private:
     void load_locked();       // reads the knobs file (mu_ held)
     void ensure_anchors();    // resolves every locator's anchor once (inline patterns, the attribulator in the background)
     bool chain_mode_locked(const Registry& reg);  // the registry has an attrib_manager and the signature resolves (mu_ held)
+    // the kill switches (and for a moment the profile's switch and the test switch) read again inside the job (m1); "" = none
+    std::string job_switch_block(const Plan& plan, const Registry& reg) const;
     // runs a background locate job; an exception switches tuning off for the session (logged), never escapes the thread
     void guard_locate(long long epoch, const Registry& reg, const std::function<void()>& fn);
     void log(const std::string& s);

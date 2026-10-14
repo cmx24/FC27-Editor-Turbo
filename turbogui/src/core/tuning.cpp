@@ -2131,6 +2131,7 @@ Switches read_switches(const fs::path& out) {
     s.master = file_exists(out / master_switch_file());
     s.attrib = file_exists(out / attrib_switch_file());
     s.profile_off = file_exists(out / profile_off_file());
+    s.test_unproven = file_exists(out / test_unproven_file());
     Profile p;
     s.profile_on = load_profile(out / profile_file(), p, nullptr) && p.on;
     return s;
@@ -2809,7 +2810,7 @@ bool load_profile(const fs::path& p, Profile& out, std::string* err) {
 bool save_profile(const fs::path& p, const Profile& pr, std::string* err) { return write_file(p, pr.to_json(), err); }
 
 std::string make_profile_plan(const Registry& reg, const std::map<std::string, KnobLive>& live, const Profile& p, const std::string& moment, Plan& out,
-                              std::vector<std::string>& skipped) {
+                              std::vector<std::string>& skipped, bool allow_unproven) {
     out = Plan();
     out.kind = PlanKind::Reapply;
     out.moment = moment;
@@ -2823,6 +2824,11 @@ std::string make_profile_plan(const Registry& reg, const std::map<std::string, K
         }
         if (!kn->allows_moment(moment)) {
             skipped.push_back(kn->label + ": not written at " + moment);
+            continue;
+        }
+        if (!kn->proven() && !allow_unproven) {
+            skipped.push_back(kn->label + ": its effect is not proven: not written by the profile (test switch turbo_output\\" + std::string(test_unproven_file()) +
+                              " absent)");
             continue;
         }
         auto it = live.find(kv.first);
@@ -2925,6 +2931,15 @@ Moment MomentTracker::next(const MomentInput& in) {
     if (key != load_done_) return Moment::CareerLoad;
     if (hub_pending_) return Moment::Hub;
     return Moment::None;
+}
+
+void MomentTracker::rearm(Moment m) {
+    switch (m) {
+        case Moment::Boot: boot_done_ = false; break;  // observe() marks it done again as soon as a career is seen
+        case Moment::CareerLoad: load_done_.clear(); break;
+        case Moment::Hub: hub_pending_ = true; break;
+        case Moment::None: break;
+    }
 }
 
 void MomentTracker::fired(Moment m, const MomentInput& in) {
@@ -3671,6 +3686,24 @@ void CoreService::ensure_anchors() {
     else job();
 }
 
+std::string CoreService::job_switch_block(const Plan& plan, const Registry& reg) const {
+    if (h_.out_dir.empty()) return "";
+    const fs::path& out = h_.out_dir;
+    for (const char* f : {master_switch_file(), kill_switch_file(), attrib_switch_file()})
+        if (file_exists(out / f)) return "turbo_output\\" + std::string(f) + " (read again in the job)";
+    if (!plan.moment.empty()) {
+        if (file_exists(out / profile_off_file())) return "turbo_output\\" + std::string(profile_off_file()) + " (read again in the job)";
+        bool unproven = false;
+        for (const Write& w : plan.writes) {
+            const Knob* k = reg.knob(w.id);
+            unproven = unproven || (k && !k->proven());
+        }
+        if (unproven && !file_exists(out / test_unproven_file()))
+            return "turbo_output\\" + std::string(test_unproven_file()) + " is gone (read again in the job): an unproven knob is not written";
+    }
+    return "";
+}
+
 void CoreService::guard_locate(long long epoch, const Registry& reg, const std::function<void()>& fn) {
     std::string what;
     try {
@@ -3896,6 +3929,15 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
             if (!plan.moment.empty()) {
                 if (!sw.blocking_moments().empty()) switch_block = "turbo_output\\" + sw.blocking_moments();
                 else if (!sw.profile_on) switch_block = std::string("turbo_output\\") + profile_file() + " is off";
+                else if (!sw.test_unproven)
+                    for (const Write& wr : plan.writes) {
+                        const Knob* k = reg->knob(wr.id);
+                        if (k && !k->proven()) {
+                            switch_block = (k ? k->label : wr.id) + ": its effect is not proven (the profile writes it only with turbo_output\\" +
+                                           test_unproven_file() + ")";
+                            break;
+                        }
+                    }
             } else if (!sw.blocking().empty()) {
                 switch_block = "turbo_output\\" + sw.blocking();
             } else if (!sw.opted_in()) {
@@ -3921,6 +3963,8 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
         } else if (!switch_block.empty()) {
             stage = "G1";
             block = switch_block;
+        } else if (!puts_back(plan.kind) && !(block = job_switch_block(plan, *reg)).empty()) {
+            stage = "G1";  // m1 (review 2026-10-13): the kill switches read again inside the job (a few file checks on the game thread)
         } else {
             std::lock_guard<std::mutex> lock(mu_);
             const long long w = wall();
