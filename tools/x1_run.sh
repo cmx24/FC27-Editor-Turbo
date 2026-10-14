@@ -8,14 +8,16 @@
 #        0x141077070), then the B1 precondition: x1_write set 0.6 (identity re-check, owner rule, read-back) + marker B1.
 #        PASS -> the game stays up for the Tactical View kick-off (overlay off, TV seq, then `x1_run.sh match` at once).
 #        Any other exit -> the game is killed.
-#   bash x1_run.sh match [--value 0.6] [--since-ko S] [--win S] [--mode pause|seq]
+#   bash x1_run.sh match [--value 0.6] [--since-ko S] [--win S] [--mode inproc|seq|pause]
 #        Right after the Tactical View kick-off (S = real seconds since the kick-off, default 30). Value still 0.6 (else the hub write
 #        did not reach the match), match_measure --check (20 s), then B1 W s | revert | A1 W s | set | B2 W s | revert | A2 W s
 #        (W = --win, default 90 s, shortened to fit before about 445 s after the kick-off; 5 s 'x' after every write), final check
 #        1.0, KILL, mm_stats --x1 -> "OUTCOME 1/2/3" (decision table 4.1) + VERDICT.
-#        mode pause (default): ONE continuous sampler; before every write it is paused through a file so the write gets the dev
-#        lock (the 10-13 v1 run starved: the 1 Hz sampler held the lock). mode seq: one sampler run per window (the proven
-#        ab_run2.sh / x1_tonight.sh pattern; costs a locate per window).
+#        mode inproc (default, LIVE-PROVEN 2026-10-13 run 3 as x1_cont.py): `x1_write.py schedule` = the sampler and the three writes
+#          in ONE process (writes between two samples; no second dev2 client, so no lock starvation).
+#        mode seq (live-proven, run 2): one sampler run per window, writes between the runs; costs a ~21 s re-locate per window.
+#        mode pause (OFFLINE-PROVEN ONLY, never run live): one continuous sampler paused through a file while a separate x1_write
+#          process takes the dev lock.
 #        The game is killed on EVERY exit path (trap); the knob is reverted first when the value is not FC 27's.
 #   bash x1_run.sh analyse RUN_DIR [more mm_stats args]   mm_stats --x1 again on a finished run (offline)
 #   --mock (before the phase): the whole flow offline over a synthetic engine (harness.MockMem; X1_MOCK_ENGINE live|once|none|b1only,
@@ -30,7 +32,7 @@ PY="${PYTHON:-python}"
 MOCK=0
 [ "${1:-}" = "--mock" ] && { MOCK=1; shift; }
 PHASE="${1:-}"; shift || true
-VALUE=0.6; SINCE_KO=30; WIN=90; MODE=pause; SETTLE=5; KO_END="${X1_KO_END:-445}"; WRITE_S=6
+VALUE=0.6; SINCE_KO=30; WIN=90; MODE=inproc; SETTLE=5; KO_END="${X1_KO_END:-445}"; WRITE_S=6
 while [ $# -gt 0 ]; do
   case "$1" in
     --value) VALUE="$2"; shift 2 ;;
@@ -153,8 +155,13 @@ if ! timeout "$(awk -v k="$SCALE" 'BEGIN{printf "%d", 150*k+30}')" "$PY" "$HERE/
 fi
 tail -2 "$X1_DIR/${STAMP}_check.log"
 LEFT=$((DEADLINE - $(vnow) - 15))
-LOC=0; [ "$MODE" = seq ] && LOC="${X1_LOCATE_S:-25}"  # seq: every window run re-locates (about 21 s on 10-13, x1_tonight run 2)
-W=$(( (LEFT - 3 * (SETTLE + WRITE_S) - 4 * LOC) / 4 )); [ "$W" -gt "$WIN" ] && W=$WIN
+case "$MODE" in  # time the writes / re-locates cost on top of the four windows
+  inproc) OVH=9 ;;                                                         # 3 in-process writes, about 3 s each
+  pause) OVH=$((3 * (SETTLE + WRITE_S))) ;;                                # 3 tool starts + settle
+  seq) OVH=$((3 * (SETTLE + WRITE_S) + 4 * ${X1_LOCATE_S:-25})) ;;         # + a re-locate per window (about 21 s on 10-13)
+  *) verdict INCONCLUSIVE "unknown --mode $MODE (inproc | seq | pause)"; exit ;;
+esac
+W=$(( (LEFT - OVH) / 4 )); [ "$W" -gt "$WIN" ] && W=$WIN
 if [ "$W" -lt 45 ]; then verdict INCONCLUSIVE "only $LEFT s left before the half-time margin: windows would be $W s (< 45 s)"; exit; fi
 say "windows $W s (requested $WIN), $LEFT s left before the half-time margin"
 write_step() {  # $1 = set|revert, $2 = next window label
@@ -178,7 +185,14 @@ wait_measure() {
   while kill -0 "$MPID" 2> /dev/null && [ "$t" -lt 600 ]; do sleep 0.2; t=$((t + 1)); done
   wait "$MPID"; local rc=$?; MPID=""; return $rc
 }
-if [ "$MODE" = seq ]; then
+if [ "$MODE" = inproc ]; then
+  say "in-process schedule: x1_write.py schedule (sampler + 3 writes in ONE process; live-proven pattern)"
+  "$PY" "$HERE/x1_write.py" schedule "$VALUE" --allow-write --win "$W" --run-dir "$RUN" "${XW[@]}" > "$RUN.log" 2>&1
+  src=$?
+  grep -a -E "^schedule|-> (A1|B2|A2)|read back|stopped|written:|VERDICT" "$RUN.log" | cut -c1-170
+  [ "$src" = 0 ] || { verdict FAIL "the in-process schedule failed (exit $src, see $RUN.log)"; exit; }
+  WINS=(--csv "$RUN/positions.csv")
+elif [ "$MODE" = seq ]; then
   for step in "B1:" "A1:revert" "B2:set" "A2:revert"; do
     w="${step%%:*}"; act="${step#*:}"
     [ -n "$act" ] && write_step "$act" "$w"

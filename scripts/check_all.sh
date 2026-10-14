@@ -37,10 +37,10 @@ else
   # it needs this bash: TOOLS_BASH). It never talks to the game.
   command -v cygpath > /dev/null 2>&1 && export TOOLS_BASH="$(cygpath -w "$BASH")"
   for t in turbo/tools/import_callname_masters turbo/tools/replicate_language_structure tools/selftest_all; do
-    n="$(basename "$t")"
-    $py "$t.py" --self-test > "$L/check_py_$n.log" 2>&1; e=$?
-    grep -E "^  FAIL|Traceback" "$L/check_py_$n.log" | head -5
-    r="$r $n=$(grep -o 'SELF-TEST [A-Z]*' "$L/check_py_$n.log" | tail -1 | cut -d' ' -f2)(exit $e, $(grep -c '^  ok' "$L/check_py_$n.log") ok)"
+    tn="$(basename "$t")"  # not n: n holds the NATIVE exit code
+    $py "$t.py" --self-test > "$L/check_py_$tn.log" 2>&1; e=$?
+    grep -E "^  FAIL|Traceback" "$L/check_py_$tn.log" | head -5
+    r="$r $tn=$(grep -o 'SELF-TEST [A-Z]*' "$L/check_py_$tn.log" | tail -1 | cut -d' ' -f2)(exit $e, $(grep -c '^  ok' "$L/check_py_$tn.log") ok)"
   done
   echo "PY$r"
 fi

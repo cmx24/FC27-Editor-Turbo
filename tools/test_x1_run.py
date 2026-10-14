@@ -65,11 +65,16 @@ def self_test(bash=None):
         rc, out, nk, _, _ = run("live", ["--mock", "hub"], X1_MOCK_ENGINE="live")
         check(rc == 0 and nk == 0 and "VERDICT PASS (x1_run hub)" in out, "hub: identity + 1.0, 0.6 written, marker B1, game kept (exit %d)" % rc)
         rc, out, nk, sec, x1 = run("live", ["--mock", "match"], X1_MOCK_ENGINE="live")
-        check(rc == 0 and "OUTCOME 1" in out and nk == 1, "match, engine reads live: OUTCOME 1, PASS, killed once (exit %d, %.0f s)" % (rc, sec))
-        check(out.count("(read back ok)") >= 3, "match: the three mid-match writes got through the dev lock (pause file)")
+        check(rc == 0 and "OUTCOME 1" in out and nk == 1 and "in-process schedule" in out,
+              "match (default inproc mode, the live-proven pattern), engine reads live: OUTCOME 1, PASS, killed once (exit %d, %.0f s)" % (rc, sec))
+        check(out.count("(read back ok)") >= 3, "inproc: the three mid-match writes ran between samples of the same process")
         wl = open(os.path.join(x1, "mock", "x1_write.log")).read()
         check(wl.count("(read back ok)") == 4 and wl.strip().splitlines()[-1].endswith("0.600000 -> 1.000000 (read back ok)"),
               "write log: B1 set, revert, set, revert - last line reverts to 1.0")
+        rc, out, nk, _, _ = run("pause", ["--mock", "hub"], X1_MOCK_ENGINE="live")
+        rc, out, nk, sec, _ = run("pause", ["--mock", "match", "--mode", "pause"], X1_MOCK_ENGINE="live")
+        check(rc == 0 and "OUTCOME 1" in out and nk == 1 and out.count("(read back ok)") >= 3,
+              "--mode pause (offline-proven only): the separate writer gets the emulated dev lock, OUTCOME 1 (exit %d, %.0f s)" % (rc, sec))
         # 2. engine reads once at setup -> outcome 3 (the ABAB cannot see it)
         rc, out, nk, _, _ = run("once", ["--mock", "hub"], X1_MOCK_ENGINE="once")
         rc, out, nk, sec, _ = run("once", ["--mock", "match"], X1_MOCK_ENGINE="once")

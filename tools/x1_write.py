@@ -4,6 +4,8 @@ usage
   python x1_write.py check [--expect V]                      read-only: identity + current value (FAIL if --expect differs)
   python x1_write.py set V --allow-write [--marker F --label B1 [--transition x]]
   python x1_write.py revert --allow-write [--marker F --label A1 [--transition x]]   (= set FC 27's vanilla value)
+  python x1_write.py schedule V --allow-write --win 90 --run-dir DIR   gate X1 in ONE process (live-proven pattern, see schedule()):
+        match_measure as a module + B1|A1|B2|A2 time schedule + the three mid-match writes between samples; ends at FC 27's value
 options: --knob width_in (default; the only X1 knob) --inst HEX (else the last tuning-tab locator line of TO\\turbo_gui.log)
          --log PATH --state PATH --budget S (time box, default 30) --mock --mock-mem PATH (offline: harness.MockMem)
 
@@ -115,7 +117,7 @@ def load_state(path):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["check", "set", "revert"])
+    ap.add_argument("cmd", choices=["check", "set", "revert", "schedule"])
     ap.add_argument("value", nargs="?", type=float)
     ap.add_argument("--knob", default="width_in", choices=sorted(harness.KNOBS))
     ap.add_argument("--inst", default=None, help="instance address (hex); default: the tuning tab's last locator line")
@@ -128,12 +130,19 @@ def main(argv=None):
     ap.add_argument("--marker", default=None)
     ap.add_argument("--label", default=None)
     ap.add_argument("--transition", default=None, help="marker label while the value changes (e.g. x)")
-    ap.add_argument("--budget", type=float, default=30.0)
+    ap.add_argument("--budget", type=float, default=None, help="time box in s (default 30; schedule: 4 x win + 150)")
+    ap.add_argument("--win", type=float, default=90.0, help="schedule: window length in s")
+    ap.add_argument("--guard", type=float, default=5.0, help="schedule: seconds after each write labelled x (dropped)")
+    ap.add_argument("--run-dir", default=None, help="schedule: the measuring run's folder")
     ap.add_argument("--mock", action="store_true")
     ap.add_argument("--mock-mem", default=os.environ.get("TURBO_MOCK_MEM"))
     a = ap.parse_args(argv)
     harness.require_live(a.mock, tool=TOOL)
-    box = harness.timebox(a.budget, TOOL)
+    if a.budget is None:
+        a.budget = 4 * a.win + 150 if a.cmd == "schedule" else 30.0
+    if a.cmd == "schedule" and not a.run_dir:
+        a.run_dir = os.path.join(harness.TO, "x1", time.strftime("%Y%m%d-%H%M%S") + "_run")
+    box = harness.timebox(a.budget + 30, TOOL)
     k = harness.KNOBS[a.knob]
     try:
         if a.mock:
@@ -166,30 +175,14 @@ def main(argv=None):
             if a.expect is not None and abs(val - a.expect) > 1e-5:
                 raise Failed("value %.6f != expected %.6f" % (val, a.expect))
             return harness.finish("PASS", tool=TOOL)
-        st = load_state(a.state)
-        mine = st.get("value") if st.get("inst") == "0x%X" % inst and st.get("build") == build else None
-        if abs(val - k["vanilla"]) > 1e-6 and (mine is None or abs(val - mine) > 1e-6):
-            raise Refused("value %.6f is neither FC 27's %.1f nor this tool's last write (%s): someone else owns it" % (
-                val, k["vanilla"], mine))
-        if os.path.exists(a.off):  # re-read right before the write
-            raise Refused("kill switch %s exists" % a.off)
+        if a.cmd == "schedule":
+            if abs(val - target) > 1e-5:
+                raise Refused("B1 precondition: the value is %.6f, not %.6f (the hub write did not reach the match / was not made)" % (
+                    val, target))
+            return schedule(a, dev, k, build, base, size, inst, target)
         if a.marker and a.transition:
             harness.write_marker(a.marker, a.transition)
-        data = struct.pack(k["fmt"], target)
-        dev.write(inst + k["off"], data)
-        back, bad = identity(dev, a.knob, build, inst, base, size)
-        if bad or back is None or abs(back - target) > 1e-6:
-            dev.write(inst + k["off"], struct.pack(k["fmt"], val))
-            rb, _ = identity(dev, a.knob, build, inst, base, size)
-            line = "x1_write: %s 0x%X %.6f -> %.6f READ-BACK MISMATCH (%s); rolled back to %.6f (read back %s)" % (
-                a.knob, inst, val, target, "; ".join(bad) or "read %s" % back, val, rb)
-            harness.append_log(a.wlog, line)
-            raise Failed(line)
-        line = "x1_write: %s 0x%X %.6f -> %.6f (read back ok)" % (a.knob, inst, val, target)
-        print(line)
-        harness.append_log(a.wlog, line)
-        with open(a.state, "w", encoding="utf-8") as f:
-            json.dump({"build": build, "inst": "0x%X" % inst, "value": target, "t": time.strftime("%H:%M:%S")}, f)
+        write_job(a, dev, k, build, base, size, inst, target)
         if a.marker and a.label:
             harness.write_marker(a.marker, a.label)
             print("marker %s = %s" % (a.marker, a.label))
@@ -200,6 +193,92 @@ def main(argv=None):
         return harness.finish("FAIL", [str(e)], tool=TOOL)
     finally:
         box.cancel()
+
+
+def write_job(a, dev, k, build, base, size, inst, target):
+    """ONE guarded write: identity re-check, owner rule, kill switch re-read, write, read-back of identity + value, rollback on any
+    mismatch, one log line, state = this tool's last write. Raises Refused / Failed."""
+    val, bad = identity(dev, a.knob, build, inst, base, size)
+    if bad:
+        raise Failed("identity check failed at 0x%X: %s" % (inst, "; ".join(bad)))
+    st = load_state(a.state)
+    mine = st.get("value") if st.get("inst") == "0x%X" % inst and st.get("build") == build else None
+    if abs(val - k["vanilla"]) > 1e-6 and (mine is None or abs(val - mine) > 1e-6):
+        raise Refused("value %.6f is neither FC 27's %.1f nor this tool's last write (%s): someone else owns it" % (val, k["vanilla"], mine))
+    if os.path.exists(a.off):  # re-read right before the write
+        raise Refused("kill switch %s exists" % a.off)
+    dev.write(inst + k["off"], struct.pack(k["fmt"], target))
+    back, bad = identity(dev, a.knob, build, inst, base, size)
+    if bad or back is None or abs(back - target) > 1e-6:
+        dev.write(inst + k["off"], struct.pack(k["fmt"], val))
+        rb, _ = identity(dev, a.knob, build, inst, base, size)
+        line = "x1_write: %s 0x%X %.6f -> %.6f READ-BACK MISMATCH (%s); rolled back to %.6f (read back %s)" % (
+            a.knob, inst, val, target, "; ".join(bad) or "read %s" % back, val, rb)
+        harness.append_log(a.wlog, line)
+        raise Failed(line)
+    line = "x1_write: %s 0x%X %.6f -> %.6f (read back ok)" % (a.knob, inst, val, target)
+    print(line)
+    sys.stdout.flush()
+    harness.append_log(a.wlog, line)
+    with open(a.state, "w", encoding="utf-8") as f:
+        json.dump({"build": build, "inst": "0x%X" % inst, "value": target, "t": time.strftime("%H:%M:%S")}, f)
+    return val
+
+
+def schedule(a, dev, k, build, base, size, inst, value):
+    """gate X1 in ONE process (the pattern proven live on 2026-10-13 by the coordinator's x1_cont.py, run 3): match_measure is
+    imported as a module, its per-sample marker reader is replaced by a time schedule from the first sample - B1 [0,W) | A1 [W,2W) |
+    B2 [2W,3W) | A2 [3W,4W) - and at each boundary write_job runs BETWEEN two samples on the same thread (no second dev2 client: no
+    lock starvation). Samples within --guard s after a write are labelled 'x'; after 4W the run stops itself. Ends with FC 27's value."""
+    import match_measure as mm
+    W, guard = a.win, a.guard
+    plan = [("B1", None), ("A1", k["vanilla"]), ("B2", value), ("A2", k["vanilla"])]
+    st = {"t0": None, "idx": 0, "last": -1e9, "writes": 0, "stopped": False}
+    stop = os.path.normpath(a.run_dir) + ".stop"
+    if os.path.exists(stop):
+        os.remove(stop)
+
+    def label(path=None, default=None):
+        now = mm._now()
+        if st["t0"] is None:
+            st["t0"] = now
+            print("schedule start %s: windows of %.0f s (B1 %.3f since the hub | A1 | B2 | A2), guard %.0f s" % (
+                time.strftime("%H:%M:%S"), W, value, guard))
+            sys.stdout.flush()
+        el = now - st["t0"]
+        due = min(int(el // W), 3)
+        while st["idx"] < due:
+            st["idx"] += 1
+            lab, val = plan[st["idx"]]
+            print("%s -> %s at %.0f s: write %.3f" % (time.strftime("%H:%M:%S"), lab, el, val))
+            write_job(a, dev, k, build, base, size, inst, val)
+            st["last"], st["writes"] = mm._now(), st["writes"] + 1
+        if el >= 4 * W:
+            if not st["stopped"]:
+                open(stop, "w").close()
+                st["stopped"] = True
+            return "end"
+        return "x" if mm._now() - st["last"] < guard else plan[st["idx"]][0]
+
+    mm.read_marker = label
+    argv = ["--seconds", str(int(4 * W + 60)), "--label", a.label or "x1", "--marker", "schedule", "--stop", stop,
+            "--run-dir", a.run_dir, "--budget", str(a.budget)]
+    if a.mock:
+        argv += ["--mock", "--mock-mem", a.mock_mem]
+    rc = None
+    try:
+        rc = mm.main(argv)
+    finally:
+        if os.path.exists(stop):
+            os.remove(stop)
+        cur, _ = identity(dev, a.knob, build, inst, base, size)
+        if cur is not None and abs(cur - k["vanilla"]) > 1e-6:
+            print("final revert to FC 27's %.1f" % k["vanilla"])
+            write_job(a, dev, k, build, base, size, inst, k["vanilla"])
+    if rc != 0 or st["writes"] != 3:
+        raise Failed("schedule incomplete: sampler exit %s, %d of 3 mid-match writes" % (rc, st["writes"]))
+    print("schedule complete: 3 mid-match writes, run %s" % a.run_dir)
+    return harness.finish("PASS", tool=TOOL)
 
 
 # ------------------------------------------------------------------------------------------------------------------- self-test
