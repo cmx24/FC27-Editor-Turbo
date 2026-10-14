@@ -2181,6 +2181,7 @@ Gates evaluate(const GateInput& in) {
                         break;
                     }
             }
+            if (g.why.empty() && !in.restore && in.team_mgmt) g.why = "Team Management is open: apply after leaving it";
             if (g.why.empty() && in.match_phase == "hub" && in.prematch_age >= 0 && in.prematch_age < kPrematchGuardSeconds) {
                 bool all_live = !in.knobs.empty();
                 for (const Knob* k : in.knobs) all_live = all_live && k && k->live;
@@ -3948,6 +3949,10 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
                 if (block.empty() && cur_phase_ == "hub" && !all_live && prematch_age >= 0 && prematch_age < kPrematchGuardSeconds) {
                     stage = "G2";
                     block = "a match was being set up " + std::to_string(prematch_age) + " s ago (Lua: prematch)";
+                }
+                if (block.empty() && !puts_back(plan.kind) && cur_team_mgmt_) {  // B.4 rule 2, re-checked here
+                    stage = "G2";
+                    block = "Team Management is open";
                 }
             }
         }

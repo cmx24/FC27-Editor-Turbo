@@ -433,6 +433,7 @@ struct GateInput {
     std::string match_phase;   // Lua's "hub" / "prematch" / "match" / "unknown" ("" = a Lua side without it)
     long long save_age = -1;   // seconds since Lua saw a save start (-1 = none)
     long long prematch_age = -1;  // seconds since Lua's last prematch event (-1 = none): a hub write waits kPrematchGuardSeconds
+    bool team_mgmt = false;       // Team Management open (Lua): a write from the view waits (Undo / Reset / Restore do not)
     long long load_gen = -1;
     std::string registry;      // G3 ("" = a knobs file for this build)
     std::string locate;        // G4 ("" = every knob of the plan located)

@@ -334,6 +334,7 @@ GateInput gate_input(App& app, const Registry& reg, const Plan* plan, const std:
     const long long now_s = (long long)(std::time(nullptr));
     in.save_age = st.save_t > 0 ? now_s - st.save_t : -1;
     in.prematch_age = st.prematch_t > 0 ? now_s - st.prematch_t : -1;
+    in.team_mgmt = st.loaded && st.team_mgmt;
     in.load_gen = st.load_gen;
     in.registry = app.tuning ? app.tuning->registry_status() : "this Turbo has no gameplay tuning service";
     in.locate = locate;

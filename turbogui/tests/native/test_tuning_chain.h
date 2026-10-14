@@ -842,6 +842,13 @@ static void chain_cases() {
         tm.team_mgmt = true;
         p = profile_plan(r, {{"shape.width_in", 0.8}}, "hub");
         CHECK(r.svc->submit(tm, p, why) && r.svc->poll(res) && !res.ok && res.message.find("Team Management is open") == 0, "m8: " + res.message);
+        // a click (Apply) while Team Management is open: refused in the job too (B.4 rule 2); a Restore is not
+        r.svc->set_session_opt_in(true);
+        Plan ap;
+        CHECK(make_plan(*r.svc->registry(), r.live(), {{"shape.width_in", 0.9}}, PlanKind::Apply, ap).empty(), "an Apply plan");
+        CHECK(r.svc->submit(tm, ap, why) && r.svc->poll(res) && !res.ok && res.stage == "G2" && res.message.find("Team Management is open") == 0,
+              "Apply in Team Management: " + res.message);
+        r.svc->set_session_opt_in(false);
         CHECK(w.f32(ChainWorld::kLlw + 0x28) == 0.7f, "none of these wrote");
         p = profile_plan(r, {{"shape.width_in", 0.8}}, "boot");
         p = profile_plan(r, {{"shape.width_in", 0.8}}, "hub");
@@ -1079,6 +1086,11 @@ static void chain_cases() {
         in.knobs = {reg.knob("shape.width_in")};
         in.prematch_age = 7;
         CHECK(evaluate(in).pass(), "7 s later");
+        in.team_mgmt = true;
+        g = evaluate(in);
+        CHECK(!g.pass() && g.first() == "G2 career phase: Team Management is open: apply after leaving it", "B.4 rule 2: " + g.first());
+        in.restore = true;
+        CHECK(evaluate(in).pass(), "Undo / Reset / Restore are not held back by Team Management");
     });
 
     run_case("tuning 2.4: Turbo's own presets - FC 27 default, Turbo compact, Turbo expansive; only usable (proven) knobs are set, the others listed", [] {

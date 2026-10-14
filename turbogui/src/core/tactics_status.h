@@ -241,7 +241,7 @@ inline TacticStatus live_sheet_status(const std::string& key, const std::string&
 }
 
 // ------------------------------------------------------------------------------------------------ kill switches
-enum class WriteChannel { GameVar, DbRow, LegacyDb, LiveSheet };
+enum class WriteChannel { GameVar, DbRow, LegacyDb, LiveSheet, Tuning };
 
 struct KillSwitch {
     const char* file;   // in turbo_output
@@ -257,6 +257,7 @@ inline const std::vector<KillSwitch>& kill_switches() {
         {"tactics_db_off.txt", "career database rows (teams, referee, players)", false, WriteChannel::DbRow},
         {"tactics_legacy_off.txt", "the old tactic table (mentalities: the legacy fields)", false, WriteChannel::LegacyDb},
         {"call_team_sheet_off.txt", "your club's live tactic (channel E)", false, WriteChannel::LiveSheet},
+        {"tuning_profile_off.txt", "the gameplay tuning profile's automatic writes (main menu, career load, hub)", false, WriteChannel::Tuning},
     };
     return k;
 }
@@ -267,6 +268,7 @@ inline const char* channel_name(WriteChannel c) {
         case WriteChannel::DbRow: return "database rows";
         case WriteChannel::LegacyDb: return "legacy tactic table";
         case WriteChannel::LiveSheet: return "live team sheet";
+        case WriteChannel::Tuning: return "gameplay tuning profile";
     }
     return "";
 }
