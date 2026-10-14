@@ -1331,9 +1331,11 @@ static void chain_cases() {
         CHECK(evaluate(in).pass(), "Undo / Reset / Restore are not held back by Team Management");
     });
 
-    run_case("tuning 2.4: Turbo's own presets - FC 27 default, Turbo compact, Turbo expansive; only usable (proven) knobs are set, the others listed", [] {
+    run_case("tuning 2.4/2.5: Turbo's own presets - FC 27 default and four starters (located knobs only); only usable (proven) knobs are set, the others listed", [] {
         const auto& b = builtin_presets();
-        CHECK(b.size() == 3 && b[0].name == "FC 27 default" && b[0].fc27 && b[1].name == "Turbo compact" && b[2].name == "Turbo expansive", "three presets");
+        CHECK(b.size() == 5 && b[0].name == "FC 27 default" && b[0].fc27 && b[1].name == "Turbo compact" && b[2].name == "Turbo expansive" &&
+                  b[3].name == "Turbo wide and short" && b[4].name == "Turbo narrow and long",
+              "five presets");
         for (const Preset& p : b) {
             CHECK(p.turbo() && p.note.find("Turbo's own") == 0, p.name + " is Turbo's own");
             for (const PresetChange& c : p.changes) CHECK(c.relative && std::fabs(c.pct) <= 50, p.name + ": " + c.knob + " a relative change, a generic size");
@@ -1370,8 +1372,62 @@ static void chain_cases() {
         std::ofstream(dir / "turbo_deep_block.json") << old.to_json();
         old.author = "me";
         std::ofstream(dir / "turbo_high_line_press.json") << old.to_json();
-        CHECK(ensure_builtin_presets(dir, &err) == 3 && !fs::exists(dir / "turbo_deep_block.json") && fs::exists(dir / "turbo_high_line_press.json") &&
+        CHECK(ensure_builtin_presets(dir, &err) == 5 && !fs::exists(dir / "turbo_deep_block.json") && fs::exists(dir / "turbo_high_line_press.json") &&
                   fs::exists(dir / "turbo_compact.json") && fs::exists(dir / "turbo_fc27_default.json"),
               "Turbo's own written, 2.3's own removed, the user's kept");
+    });
+
+    run_case("tuning 2.5: knob badges (engine_check), preset proof status, unique names, preset files", [] {
+        std::string err;
+        Registry reg;
+        std::string text = chain_knobs();
+        const size_t a = text.find("{\"id\": \"shape.length_in\"");
+        CHECK(a != std::string::npos, "the simulated file has shape.length_in");
+        const size_t e = text.find("\"verified\": true}", a);
+        const std::string original = text;
+        text.insert(e, "\"engine_check\": {\"session\": \"X1P\", \"evidence\": \"EV/2026-10-14/TEST_26.md#length\"}, ");
+        CHECK(parse_registry(text, reg, err), "parses with engine_check: " + err);
+        const Knob* w = reg.knob("shape.width_in");
+        const Knob* l = reg.knob("shape.length_in");
+        CHECK(w && l && knob_badge(*w) == Badge::EffectMeasured && knob_badge(*l) == Badge::EngineConfirmed && l->engine_confirmed() && !l->proven(),
+              "badges: measured, engine-confirmed");
+        CHECK(std::string(badge_name(Badge::LocatedNotProven)) == "located, not proven" && std::string(badge_name(Badge::EngineConfirmed)) == "engine-confirmed" &&
+                  std::string(badge_name(Badge::EffectMeasured)) == "effect measured",
+              "badge words");
+        Registry again;
+        CHECK(parse_registry(registry_json(reg), again, err) && again.knob("shape.length_in") && again.knob("shape.length_in")->engine_check.given(),
+              "engine_check survives the round trip: " + err);
+        CHECK(!parse_registry(original.substr(0, e) + "\"engine_check\": {\"session\": \"X1P\"}, " + original.substr(e), again, err) && err.find("engine_check") != std::string::npos,
+              "an engine_check without evidence is refused: " + err);
+        Preset p;
+        p.name = "s";
+        p.changes = {{"shape.width_in", true, 5, 0}, {"shape.length_in", true, 5, 0}, {"nope", true, 5, 0}};
+        const PresetStatus ps = preset_status(p, reg);
+        CHECK(ps.total == 3 && ps.measured == 1 && ps.confirmed == 1 && ps.missing == 1, "status counts: " + ps.text());
+        const PresetStatus pl = preset_status(p, reg, [](const std::string& id) { return id == "shape.width_in"; });
+        CHECK(pl.text() == "3 knobs: 1 effect measured, 0 engine-confirmed, 0 located only, 2 not in this build", pl.text());
+        // names: unique, case-insensitive
+        std::vector<Preset> have(2);
+        have[0].name = "Press";
+        have[1].name = "press 2";
+        CHECK(unique_preset_name(have, "Other") == "Other" && unique_preset_name(have, "PRESS") == "PRESS 3" && unique_preset_name(have, "  ") == "Preset",
+              "unique names: " + unique_preset_name(have, "PRESS"));
+        // files: write, delete (never Turbo's own)
+        const fs::path dir = g_out / "tuning_presets_25";
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        Preset mine;
+        mine.name = "Mine one";
+        mine.changes = {{"shape.width_in", true, 5, 0}};
+        CHECK(write_preset_file(dir, mine, &err) && fs::exists(dir / "Mine_one.json") && mine.file == dir / "Mine_one.json", "written: " + err);
+        std::vector<std::string> errors;
+        std::vector<Preset> list = load_presets(dir, &errors);
+        CHECK(list.size() == 1 && list[0].name == "Mine one" && delete_preset_file(list[0], &err) && !fs::exists(dir / "Mine_one.json"), "deleted: " + err);
+        ensure_builtin_presets(dir, &err);
+        list = load_presets(dir, &errors);
+        CHECK(!list.empty() && list[0].turbo() && !delete_preset_file(list[0], &err) && fs::exists(list[0].file), "Turbo's own is not deleted: " + err);
+        for (const Preset& b : builtin_presets())
+            for (const PresetChange& c : b.changes)
+                CHECK(c.knob.rfind("shape.", 0) == 0 && c.knob.find("_in") != std::string::npos, "starter " + b.name + " uses a with-the-ball shape knob: " + c.knob);
     });
 }

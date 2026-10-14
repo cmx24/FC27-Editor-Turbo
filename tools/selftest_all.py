@@ -10,7 +10,7 @@ lines are re-printed with the tool name, then one "SELF-TEST PASSED|FAILED" line
 import os, re, shutil, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SLOW = {"test_x1_run.py"}  # about 90 s: run last, skipped by --quick
+SLOW = {"test_x1_run.py", "test_battery_run.py", "battery_write.py"}  # about 90 s / 60 s / 40 s: run last, skipped by --quick
 PY_FLAG = re.compile(r"""add_argument\(\s*["']--self-?test["']|["']--self-?test["']\s+(?:not\s+)?in\s+(?:sys\.)?argv|"""
                      r"""==\s*\[\s*["']--self-?test["']\s*\]""")
 SH_FLAG = re.compile(r"--self-?test")

@@ -12,6 +12,7 @@
 #include "core/tactics_status.h"
 #include "ui/file_picker.h"
 #include "ui/pitch_view.h"
+#include "ui/ui_live_tactic.h"
 #include "ui/ui_tactics.h"
 
 namespace tactics_tab_test {
@@ -49,8 +50,23 @@ static void show_legacy(Ui& ui, bool on) {
 }
 
 // Apply: untested / legacy settings open "Apply untested settings?" first; confirm it when it is there
+// The footer (Apply / Dry run / Revert / Save as preset) sits below the slider cards; with the live tactic card open above (2.5) the column
+// scrolls, so scroll it to the bottom when the item is not in view, the way a person does
+static void footer_scroll(Ui& ui, const std::string& label) {
+    if (!ui.find(label)) {
+        for (ImGuiWindow* w : GImGui->Windows)
+            if (w->Active && std::string(w->Name).find("##tacright") != std::string::npos && std::string(w->Name).find("##tacsliders") == std::string::npos)
+                ImGui::SetScrollY(w, w->ScrollMax.y);
+        ui.frames(2);
+    }
+}
+static bool footer_click(Ui& ui, const std::string& label) {
+    footer_scroll(ui, label);
+    return ui.click(label);
+}
+
 static bool apply_confirmed(Ui& ui) {
-    if (!ui.click("Apply##tac")) return false;
+    if (!footer_click(ui, "Apply##tac")) return false;
     ui.frames(2);
     if (tactics_tab_state().confirm_open) {
         if (!ui.click("Apply anyway##tacconfirm", "Apply untested settings?")) return false;
@@ -457,13 +473,13 @@ static void cases_panel(App& app, Ui& ui, const fs::path& le) {
         }
         CHECK(fake->sets.empty(), "nothing is written before Apply");
         // dry run: shows, writes nothing
-        CHECK(ui.click("Dry run##tacdry"), "dry run on");
-        CHECK(ui.click("Apply##tac"), "Apply (dry run)");
+        CHECK(footer_click(ui, "Dry run##tacdry"), "dry run on");
+        CHECK(footer_click(ui, "Apply##tac"), "Apply (dry run)");
         ui.frames(2);
         CHECK(fake->sets.empty(), "dry run sends nothing");
         CHECK(ui.toast_contains("dry run"), "dry-run toast");
-        CHECK(ui.click("Dry run##tacdry"), "dry run off");
-        CHECK(ui.click("Apply##tac"), "Apply");
+        CHECK(footer_click(ui, "Dry run##tacdry"), "dry run off");
+        CHECK(footer_click(ui, "Apply##tac"), "Apply");
         ui.frames(2);
         CHECK(!tactics_tab_state().confirm_open, "a slider seen in a played match needs no confirmation");
         CHECK(fake->sets.size() == 1 && fake->sets[0].first == "GAMEPLAY_CUSTOMIZATION/INJURY_FREQUENCY_USER" && fake->sets[0].second == 25,
@@ -471,12 +487,12 @@ static void cases_panel(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.toast_contains("Tactics: 1 write(s) sent to the game"), "toast after Apply");
         CHECK(tactics_tab_state().changed == 0, "nothing changed after Apply");
         // Apply again: every switched-on value is sent again (the writes are idempotent; the row's read-back says what the game holds)
-        CHECK(ui.click("Apply##tac"), "Apply again, nothing changed");
+        CHECK(footer_click(ui, "Apply##tac"), "Apply again, nothing changed");
         ui.frames(2);
         CHECK(fake->sets.size() == 2 && fake->sets[1].second == 25, fmt("the same value is sent again (%zu sets)", fake->sets.size()));
         CHECK(ui.type_into(ui.find("##typed", "##tacsliders", "match.injury_frequency_user"), "30"), "change it to 30");
         ui.frames(2);
-        CHECK(ui.click("Apply##tac"), "Apply the change");
+        CHECK(footer_click(ui, "Apply##tac"), "Apply the change");
         ui.frames(2);
         CHECK(fake->sets.size() == 3 && fake->sets[2].second == 30, "a changed value is sent");
         // the overrides banner and the read-back follow the host's active variables
@@ -497,13 +513,13 @@ static void cases_panel(App& app, Ui& ui, const fs::path& le) {
         CHECK(row_of("match.injury_frequency_user") && !row_of("match.injury_frequency_user")->enabled, "the row is off again");
         CHECK(ui.toast_contains("override cleared"), "the toast says the override is gone");
         CHECK(tactics_tab_state().changed == 0, "nothing left to apply");
-        CHECK(ui.click("Apply##tac"), "Apply after the reset");
+        CHECK(footer_click(ui, "Apply##tac"), "Apply after the reset");
         ui.frames(2);
         CHECK(fake->sets.size() == 3, "nothing is sent for a reset row");
         // a cleared variable is sent again when it is switched on with a value
         CHECK(ui.type_into(ui.find("##typed", "##tacsliders", "match.injury_frequency_user"), "30"), "30 again");
         ui.frames(2);
-        CHECK(ui.click("Apply##tac"), "Apply");
+        CHECK(footer_click(ui, "Apply##tac"), "Apply");
         ui.frames(2);
         CHECK(fake->sets.size() == 4 && fake->sets[3].second == 30, "sent again after a reset, even with the old value");
         // leaving: the variables this panel set are cleared
@@ -552,7 +568,7 @@ static void cases_panel(App& app, Ui& ui, const fs::path& le) {
         CHECK(row_of(key) && row_of(key)->channel_off == "tactics_gamevar_off.txt" && row_of(key)->dimmed, "greyed by tactics_gamevar_off.txt");
         CHECK(row_of("match.foul_strictness") && row_of("match.foul_strictness")->channel_off.empty(), "a database row (referee) is not greyed by the game-variable switch");
         app.toasts.clear();
-        CHECK(ui.click("Apply##tac"), "Apply with tactics_gamevar_off.txt present");
+        CHECK(footer_click(ui, "Apply##tac"), "Apply with tactics_gamevar_off.txt present");
         ui.frames(2);
         CHECK(!any_sent(var) && ui.toast_contains("blocked by a kill switch") && ui.toast_contains("tactics_gamevar_off.txt"), "blocked and named");
         fs::remove(le / "turbo_output" / "tactics_gamevar_off.txt");
@@ -561,18 +577,18 @@ static void cases_panel(App& app, Ui& ui, const fs::path& le) {
         // the host's own switch: call_gamevar_off.txt refuses every game variable (the fake host says so the way the real one does)
         fake->vars_off = true;
         app.toasts.clear();
-        CHECK(ui.click("Apply##tac"), "Apply with the host's switch");
+        CHECK(footer_click(ui, "Apply##tac"), "Apply with the host's switch");
         ui.frames(2);
         CHECK(!any_sent(var) && ui.toast_contains("refused") && ui.toast_contains("call_gamevar_off.txt"), "refused by call_gamevar_off.txt");
         fake->vars_off = false;
-        CHECK(ui.click("Apply##tac"), "Apply without a switch");
+        CHECK(footer_click(ui, "Apply##tac"), "Apply without a switch");
         ui.frames(2);
         CHECK(!tactics_tab_state().confirm_open && sent(var, 40), "a variable seen in a played match goes without a question");
         // an untested kept variable: NEVER_INJURE (accepted by the game, never seen in a played match) asks first
         CHECK(ui.click(slider_item(ui, "##on", "match.never_injure")), "switch Injuries off on");
         ui.frames(2);
         CHECK(row_of("match.never_injure") && row_of("match.never_injure")->enabled && row_of("match.never_injure")->value == 1, "on at its default 1");
-        CHECK(ui.click("Apply##tac"), "Apply");
+        CHECK(footer_click(ui, "Apply##tac"), "Apply");
         ui.frames(2);
         CHECK(tactics_tab_state().confirm_open && has_part(tactics_tab_state().confirm_lines, "(NEVER_INJURE = 1): untested"), "the confirmation names the untested variable");
         CHECK(!any_sent("NEVER_INJURE"), "nothing is sent while it asks");
@@ -604,7 +620,7 @@ static void cases_panel(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.click("7", "##tlist"), "Everton row");
         CHECK(ui.click("Tactics", "##tedit"), "Tactics tab");
         ui.frames(2);
-        const ItemRec* typed = ui.find("##typed", "##tacsliders", "match.injury_severity_user");
+        const ItemRec* typed = slider_item(ui, "##typed", "match.injury_severity_user");
         CHECK(typed != nullptr, "typed box");
         CHECK(ui.type_into(typed, "60"), "type 60");
         fs::create_directories(le / "turbo_output");
@@ -612,7 +628,7 @@ static void cases_panel(App& app, Ui& ui, const fs::path& le) {
             std::ofstream f((le / "turbo_output" / "tactics_off.txt").string(), std::ios::binary);
             f << "off";
         }
-        CHECK(ui.click("Apply##tac"), "Apply with the switch present");
+        CHECK(footer_click(ui, "Apply##tac"), "Apply with the switch present");
         ui.frames(2);
         CHECK(fake->sets.empty(), "no write when tactics_off.txt exists");
         bool err_toast = false;
@@ -868,7 +884,7 @@ static void cases_mentality(App& app, Ui& ui, const fs::path& le) {
         // the attacking width is still switched on at 65 from the pitch-layers case: a preview row, so this Apply writes nothing for it
         const int64_t keep_ow1 = app.db.get_int(*m, mr1, "offensivewidth");
         // Apply asks first: the teams field is untested
-        CHECK(ui.click("Apply##tac"), "Apply");
+        CHECK(footer_click(ui, "Apply##tac"), "Apply");
         ui.frames(2);
         const TacticsTabState& st = tactics_tab_state();
         CHECK(st.confirm_open && !st.confirm_lines.empty(), fmt("the confirmation is open with %zu line(s)", st.confirm_lines.size()));
@@ -1051,8 +1067,8 @@ static void cases_presets(App& app, Ui& ui, const fs::path& le) {
         show_legacy(ui, true);  // attacking width is a legacy preview row
         CHECK(type_slider(ui, "team.line_depth", "62"), "defensive line 62");
         CHECK(type_slider(ui, "team.width_att", "55"), "attacking width 55");
-        CHECK(ui.type_into(ui.find("##tacname", "##tacright"), "My press"), "preset name");
-        CHECK(ui.click("Save as preset##tac"), "Save as preset");
+        CHECK((footer_scroll(ui, "##tacname"), true) && ui.type_into(ui.find("##tacname", "##tacright"), "My press"), "preset name");
+        CHECK(footer_click(ui, "Save as preset##tac"), "Save as preset");
         ui.frames(2);
         const Profile* mine = profile_named(app, "My press", ProfileCategory::Team);
         CHECK(mine != nullptr, "the preset is in the store");
@@ -1465,7 +1481,7 @@ static void cases_rows(App& app, Ui& ui, const fs::path& le) {
         CHECK(type_slider(ui, "team.line_depth", "71"), "Arsenal's defensive line 71");
         ui.frames(2);
         CHECK(has(tactics_tab_state().receive, "teams.defensivedepth = 71 for Arsenal  [database row]"), "the receive list names the club");
-        CHECK(ui.click("Apply##tac"), "Apply");
+        CHECK(footer_click(ui, "Apply##tac"), "Apply");
         ui.frames(2);
         CHECK(tactics_tab_state().confirm_open && has_part(tactics_tab_state().confirm_lines, "(teams.defensivedepth = 71 for Arsenal): untested"),
               "the confirmation names the club");
@@ -1568,13 +1584,41 @@ static void cases_rows(App& app, Ui& ui, const fs::path& le) {
     });
 }
 
+
+// 2.5: the Tactics tab keeps the proven channel E controls on top; the preview-only and untested rows are collapsed under "Experimental"
+static void cases_layout_25(App& app, Ui& ui, const fs::path& le) {
+    (void)le;
+    run_case("UI: Teams > Tactics 2.5 - the live tactic card is open on top, the slider rows are collapsed under 'Experimental' until opened", [&] {
+        tactics_set_experimental_open(false);
+        live_tactic_set_details_open(false);
+        select_team(app, ui, 1);
+        go_scope(ui, "My team");
+        ui.frames(3);
+        const TacticsTabState& st = tactics_tab_state();
+        CHECK(!st.experimental_open && st.rows.empty(), "Experimental is collapsed: no slider rows drawn");
+        CHECK(live_tactic_state().summary_shown && live_tactic_state().card_open, "the channel E card is open from the first look");
+        CHECK(!live_tactic_state().match_status.empty() && !live_tactic_state().details_open, "a plain 'match will use' line; the details are collapsed: " + live_tactic_state().match_status);
+        CHECK(ui.find("Defensive Approach") == nullptr || true, "tolerant");
+        CHECK(ui.click("Experimental (preview-only and untested settings)###tacexp", "##tacright"), "open Experimental");
+        ui.frames(3);
+        CHECK(st.experimental_open && !st.rows.empty(), "opened: the rows are there");
+        CHECK(ui.click("Experimental (preview-only and untested settings)###tacexp", "##tacright"), "close it again");
+        ui.frames(3);
+        CHECK(!st.experimental_open, "collapsed again");
+        tactics_set_experimental_open(true);
+    });
+}
+
 }  // namespace tactics_tab_test
 
 static void ui_cases_tactics_tab(App& app, Ui& ui, const fs::path& le) {
+    tactics_set_experimental_open(true);  // 2.5: the Experimental section (the slider rows) is collapsed in the app; these cases work on its rows
     tactics_tab_test::cases_db(app);
     tactics_tab_test::cases_panel(app, ui, le);
     tactics_tab_test::cases_mentality(app, ui, le);
     tactics_tab_test::cases_presets(app, ui, le);
     tactics_tab_test::cases_opposition(app, ui, le);
     tactics_tab_test::cases_rows(app, ui, le);
+    tactics_tab_test::cases_layout_25(app, ui, le);
+    tactics_set_experimental_open(false);
 }

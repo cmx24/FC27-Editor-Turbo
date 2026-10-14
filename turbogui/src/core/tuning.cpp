@@ -259,7 +259,8 @@ bool applies_from_name(const std::string& s, Applies& a) {
 
 const std::vector<std::string>& standard_groups() {
     static const std::vector<std::string> g = {"Shape with the ball", "Shape without the ball", "Defensive line depth bands", "Shape", "Pressing",
-                                                "Marking", "Attacking runs", "Passing", "Shooting", "CPU AI", "Goalkeeper", "Roles"};
+                                                "Marking", "Attacking runs", "Passing", "Shooting", "CPU AI", "Goalkeeper", "Roles", "Defending", "Pace and fatigue",
+                                                "Referee and fouls", "Ball and physics"};
     return g;
 }
 
@@ -681,6 +682,28 @@ static bool parse_knob(const json& o, const Registry& reg, Knob& k, std::string&
     k.unit = str_of(o, "unit");
     k.locator = str_of(o, "locator");
     k.notes = str_of(o, "notes");
+    k.impact = str_of(o, "impact");
+    k.category = str_of(o, "category");
+    k.scale = str_of(o, "scale");
+    if (!k.impact.empty() && k.impact != "high" && k.impact != "medium" && k.impact != "low") {
+        err = who + ": impact must be high, medium or low";
+        return false;
+    }
+    if (o.contains("candidate") && !o["candidate"].is_null()) {
+        if (!o["candidate"].is_boolean()) {
+            err = who + ": candidate must be true or false";
+            return false;
+        }
+        k.candidate = o["candidate"].get<bool>();
+    }
+    if (o.contains("rank") && !o["rank"].is_null()) {
+        int64_t rk = 0;
+        if (!json_int(o["rank"], rk) || rk < 1 || rk > 100000) {
+            err = who + ": rank must be a whole number 1..100000";
+            return false;
+        }
+        k.rank = int(rk);
+    }
     if (!applies_from_name(str_of(o, "applies"), k.applies)) {
         err = who + ": applies must be \"next match setup\", \"live\" or \"unknown\"";
         return false;
@@ -723,6 +746,17 @@ static bool parse_knob(const json& o, const Registry& reg, Knob& k, std::string&
         k.proof.session = p["session"].get<std::string>();
         k.proof.evidence = p["evidence"].get<std::string>();
         k.proof.note = str_of(p, "note");
+    }
+    if (o.contains("engine_check") && !o["engine_check"].is_null()) {
+        const json& p = o["engine_check"];
+        if (!p.is_object() || !p.contains("session") || !p["session"].is_string() || !p.contains("evidence") || !p["evidence"].is_string() ||
+            p["session"].get<std::string>().empty() || p["evidence"].get<std::string>().empty()) {
+            err = who + ": engine_check must be {\"session\": \"X1P\", \"evidence\": \"EV/<date>/TEST_26.md#...\"} (both not empty)";
+            return false;
+        }
+        k.engine_check.session = p["session"].get<std::string>();
+        k.engine_check.evidence = p["evidence"].get<std::string>();
+        k.engine_check.note = str_of(p, "note");
     }
     if (!json_num(o, "min", k.has_min, k.min, err, who) || !json_num(o, "max", k.has_max, k.max, err, who) ||
         !json_num(o, "default", k.has_default, k.def, err, who))
@@ -809,6 +843,11 @@ static bool parse_knob(const json& o, const Registry& reg, Knob& k, std::string&
         }
     }
     k.verified = o.value("verified", false);
+    // a candidate of the inventory is never a working knob: unverified, no proof, no slider, not live (the honest UI; the package guard checks the same)
+    if (k.candidate && (k.verified || k.proof.given() || k.slider || k.live)) {
+        err = who + ": a candidate must be unverified, with no proof, no slider and not live";
+        return false;
+    }
     const Locator* loc = k.locator.empty() ? nullptr : reg.locator(k.locator);
     if (!k.locator.empty() && !loc) {
         err = who + ": locator \"" + k.locator + "\" is not in the file's locators";
@@ -1106,7 +1145,17 @@ std::string registry_json(const Registry& r) {
             if (!k.proof.note.empty()) p["note"] = k.proof.note;
             o["proof"] = p;
         }
+        if (k.engine_check.given()) {
+            ojson p = {{"session", k.engine_check.session}, {"evidence", k.engine_check.evidence}};
+            if (!k.engine_check.note.empty()) p["note"] = k.engine_check.note;
+            o["engine_check"] = p;
+        }
         o["verified"] = k.verified;
+        if (k.candidate) o["candidate"] = true;
+        if (k.rank > 0) o["rank"] = k.rank;
+        if (!k.impact.empty()) o["impact"] = k.impact;
+        if (!k.category.empty()) o["category"] = k.category;
+        if (!k.scale.empty()) o["scale"] = k.scale;
         o["notes"] = k.notes;
         ks.push_back(o);
     }
@@ -2110,6 +2159,20 @@ KnobState knob_state(const Knob& k, const KnobLive* live) {
     return k.proven() && live->writable ? KnobState::Proven : KnobState::Located;
 }
 
+Badge knob_badge(const Knob& k) {
+    if (k.proven()) return Badge::EffectMeasured;
+    return k.engine_check.given() ? Badge::EngineConfirmed : Badge::LocatedNotProven;
+}
+
+const char* badge_name(Badge b) {
+    switch (b) {
+        case Badge::EffectMeasured: return "effect measured";
+        case Badge::EngineConfirmed: return "engine-confirmed";
+        case Badge::LocatedNotProven: return "located, not proven";
+    }
+    return "?";
+}
+
 // ------------------------------------------------------------------------------------------------ gates
 std::string Switches::blocking() const {
     if (master) return master_switch_file();
@@ -3069,23 +3132,32 @@ const std::vector<Preset>& builtin_presets() {
         d.fc27 = true;
         d.note = "Turbo's own: every knob at FC 27's own value (the game as shipped).";
         v.push_back(d);
-        Preset c;
-        c.id = "turbo_compact";
-        c.name = "Turbo compact";
-        c.author = "Turbo";
-        c.note = "Turbo's own: a narrower and shorter team, smaller gaps between the lines, closer marking. Relative to FC 27's values.";
-        c.changes = {{"shape.width_in", true, -10, 0},  {"shape.width_out", true, -10, 0}, {"shape.length_in", true, -10, 0},
-                     {"shape.length_out", true, -10, 0}, {"shape.gap_dmf", true, -15, 0},   {"shape.gap_mf_deep", true, -15, 0},
-                     {"marking.tightness", true, 20, 0}};
-        v.push_back(c);
-        Preset e;
-        e.id = "turbo_expansive";
-        e.name = "Turbo expansive";
-        e.author = "Turbo";
-        e.note = "Turbo's own: a wider and longer team with the ball, more runs forward. Relative to FC 27's values.";
-        e.changes = {{"shape.width_in", true, 10, 0}, {"shape.length_in", true, 10, 0}, {"shape.length_in_possession", true, 10, 0},
-                     {"runs.frequency", true, 40, 0}};
-        v.push_back(e);
+        // 2.5: the starter presets use only knobs that are located in the running game (the four "with the ball" shape knobs, FC 27 build
+        // 6AC07E31): none of them has its effect measured yet, so "Use" sets nothing until a knob is proven; the view shows each preset's
+        // proof status (preset_status). Relative changes only: Turbo's own generic numbers, no mod's value table.
+        auto starter = [&](const char* id, const char* name, const char* note, double wi, double wcb, double li, double lp) {
+            Preset s;
+            s.id = id;
+            s.name = name;
+            s.author = "Turbo";
+            s.note = note;
+            s.changes = {{"shape.width_in", true, wi, 0}, {"shape.width_in_cb", true, wcb, 0}, {"shape.length_in", true, li, 0},
+                         {"shape.length_in_possession", true, lp, 0}};
+            v.push_back(s);
+        };
+        starter("turbo_compact", "Turbo compact",
+                "Turbo's own starter: a narrower and shorter team with the ball. Uses located knobs only (shape width and length with the ball), "
+                "relative to FC 27's values.",
+                -10, -10, -10, -10);
+        starter("turbo_expansive", "Turbo expansive",
+                "Turbo's own starter: a wider and longer team with the ball. Uses located knobs only (shape width and length with the ball), "
+                "relative to FC 27's values.",
+                10, 10, 10, 10);
+        starter("turbo_wide_short", "Turbo wide and short",
+                "Turbo's own starter: wide wingers and centre-backs, a short team with the ball. Located knobs only, relative to FC 27's values.",
+                15, 10, -10, -10);
+        starter("turbo_narrow_long", "Turbo narrow and long",
+                "Turbo's own starter: a narrow, stretched team with the ball. Located knobs only, relative to FC 27's values.", -15, -10, 10, 10);
         return v;
     }();
     return p;
@@ -3226,6 +3298,66 @@ Preset preset_from_values(const std::string& name, const Registry& reg, const st
         p.changes.push_back(c);
     }
     return p;
+}
+
+std::string PresetStatus::text() const {
+    return std::to_string(total) + (total == 1 ? " knob: " : " knobs: ") + std::to_string(measured) + " effect measured, " + std::to_string(confirmed) +
+           " engine-confirmed, " + std::to_string(located) + " located only, " + std::to_string(missing) + " not in this build";
+}
+
+PresetStatus preset_status(const Preset& p, const Registry& reg, const std::function<bool(const std::string&)>& located) {
+    PresetStatus s;
+    for (const PresetChange& c : p.changes) {
+        ++s.total;
+        const Knob* k = reg.knob(c.knob);
+        if (!k || (located && !located(c.knob))) {
+            ++s.missing;
+            continue;
+        }
+        switch (knob_badge(*k)) {
+            case Badge::EffectMeasured: ++s.measured; break;
+            case Badge::EngineConfirmed: ++s.confirmed; break;
+            case Badge::LocatedNotProven: ++s.located; break;
+        }
+    }
+    return s;
+}
+
+std::string unique_preset_name(const std::vector<Preset>& have, const std::string& wanted) {
+    auto taken = [&](const std::string& n) {
+        for (const Preset& q : have)
+            if (same_name(q.name, n)) return true;
+        return false;
+    };
+    std::string base = wanted;
+    while (!base.empty() && base.back() == ' ') base.pop_back();
+    if (base.empty()) base = "Preset";
+    if (!taken(base)) return base;
+    for (int i = 2; i < 1000; ++i)
+        if (!taken(base + " " + std::to_string(i))) return base + " " + std::to_string(i);
+    return base + " copy";
+}
+
+bool write_preset_file(const fs::path& dir, Preset& p, std::string* err) {
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    const fs::path f = dir / preset_file_name(p);
+    if (!write_file(f, p.to_json(), err)) return false;
+    p.file = f;
+    return true;
+}
+
+bool delete_preset_file(const Preset& p, std::string* err) {
+    if (p.turbo()) {
+        if (err) *err = "Turbo's own presets cannot be deleted";
+        return false;
+    }
+    std::error_code ec;
+    if (p.file.empty() || !fs::remove(p.file, ec) || ec) {
+        if (err) *err = "cannot delete " + p.file.string();
+        return false;
+    }
+    return true;
 }
 
 /// ------------------------------------------------------------------------------------------------ the service

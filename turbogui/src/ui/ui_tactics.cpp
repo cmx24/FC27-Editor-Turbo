@@ -85,6 +85,7 @@ struct TacState {
     double next_check = -1.0;
     int live_written = 0;  // game variables this panel set (cleared when Turbo unloads)
     std::vector<std::string> writes_done;  // what the last Apply wrote, one line per DB row (shown until the next Apply)
+    bool exp_open = false;                 // 2.5: the "Experimental" section (the preview-only and untested rows) is open
     bool show_legacy = false;              // "show legacy fields"
     // the snapshot store (the value of a database field before Turbo's first write), loaded at the first look at the kill switches (the
     // panel's file I/O slot), saved on every change
@@ -113,6 +114,7 @@ struct TacState {
     bool plan_open = false;
 };
 TacState g_tac;
+bool g_force_exp = false;  // tests: the Experimental section stays open (tactics_set_experimental_open)
 TacticsTabState g_state;
 
 const char* const kScopeLabels[4] = {"Match (both teams)", "My team", "Position/Role", "Opposition"};
@@ -1627,6 +1629,19 @@ void draw_right(App& app) {
         draw_live_tactic(app);
         ImGui::Separator();
     }
+    // 2.5: everything below is preview-only or untested: collapsed. The proven controls (channel E, above) are the tab's working part
+    ImGui::SetNextItemOpen(g_tac.exp_open || g_force_exp, ImGuiCond_Always);
+    const bool exp_shown = ImGui::CollapsingHeader("Experimental (preview-only and untested settings)###tacexp");
+    if (!g_force_exp) g_tac.exp_open = exp_shown;  // a test that keeps it open does not change what the person left
+    g_state.experimental_open = exp_shown;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Most of these settings only change Turbo's picture of a tactic, not the game. A setting marked [game variable] or "
+                          "[database row] is sent when you press Apply and has not been proven in a played match.");
+    if (!exp_shown) {
+        if (sc != SliderScope::Team)
+            ImGui::TextWrapped("This scope has only experimental settings. Open the section above to see them: most are Turbo's preview, not what the game does.");
+        return;
+    }
     // legacy fields (EA removed them in FC 25) are drawn only behind "show legacy fields"
     std::vector<const SliderDef*> visible;
     size_t legacy = 0;
@@ -1662,7 +1677,8 @@ void draw_right(App& app) {
     const float nlines = float(std::max<size_t>(1, writes.size()) + unsent.size());
     const float footer = std::min(ImGui::GetContentRegionAvail().y * 0.6f,
                                   ImGui::GetFrameHeightWithSpacing() * 3.0f + ImGui::GetTextLineHeightWithSpacing() * (nlines + 2.0f) + S(10.0f));
-    ImGui::BeginChild("##tacsliders", ImVec2(0, -footer));
+    // 2.5: the live tactic card above is open by default, so the rows keep a minimum height and the column scrolls to the footer
+    ImGui::BeginChild("##tacsliders", ImVec2(0, std::max(S(220.0f), ImGui::GetContentRegionAvail().y - footer)));
     for (const std::string& g : groups) {
         ImGui::PushID(g.c_str());
         if (ImGui::CollapsingHeader(g.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
@@ -1770,17 +1786,16 @@ void draw_body(App& app) {
     g_state.switches = g_tac.sw.files();
     if (g_tac.off) {
         g_state.off_line = "Tactics are off: turbo_output\\tactics_off.txt exists. Nothing is written and the effect layers are grey.";
-        ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", g_state.off_line.c_str());
+        ImGui::TextWrapped("%s", g_state.off_line.c_str());
     } else if (!g_state.switches.empty()) {
         std::string line = "Some tactics channels are off:";
         for (const KillSwitch& k : kill_switches())
             if (g_tac.sw.present.count(k.file)) line += std::string(" turbo_output\\") + k.file + " (" + k.what + ")";
         g_state.off_line = line + ". Their rows are grey and nothing is written for them.";
-        ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", g_state.off_line.c_str());
+        ImGui::TextWrapped("%s", g_state.off_line.c_str());
     }
     if (!g_tac.snaps_error.empty())
-        ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "turbo_output\\tactics_snapshot.json is not used (%s): Reset cannot put database rows back.",
-                           g_tac.snaps_error.c_str());
+        ImGui::TextWrapped("turbo_output\\tactics_snapshot.json is not used (%s): Reset cannot put database rows back.", g_tac.snaps_error.c_str());
     draw_live_banner(app);
     if (!shown_error.empty()) ImGui::TextColored(ImVec4(1, 0.5f, 0.3f, 1), "Tactics error: %s", shown_error.c_str());
     const float total = ImGui::GetContentRegionAvail().x;
@@ -1837,6 +1852,8 @@ void draw_tactics(App& app) {
         ImGui::TextColored(ImVec4(1, 0.5f, 0.3f, 1), "Tactics error");
     }
 }
+
+void tactics_set_experimental_open(bool open) { g_force_exp = open; }
 
 void tactics_clear_on_exit(App& app) {
     try {

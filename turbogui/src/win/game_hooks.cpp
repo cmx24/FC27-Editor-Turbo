@@ -1,10 +1,12 @@
 // FC 27 LE Turbo GUI - game-code hooks inside FC27.exe (see game_hooks.h and docs/re/game_thread.md)
 #include "game_hooks.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <deque>
 #include <fstream>
+#include <iterator>
 #include <mutex>
 #include <sstream>
 #include <vector>
@@ -588,6 +590,91 @@ bool install_game_hook_at(const char* name, void* target, void* detour, void** o
     }
     h->active = true;
     log("game hook %s installed at 0x%llX (kill switch: turbo_output\\hook_%s_off.txt)", name,
+        static_cast<unsigned long long>(reinterpret_cast<uint64_t>(target)), name);
+    return true;
+}
+
+bool install_game_dll_export_hook(const char* name, const wchar_t* module, const char* export_name, void* detour, void** original, std::string* why) {
+    auto no = [&](const std::string& s) {
+        if (why) *why = s;
+        log("game hook %s: not installed (%s)", name ? name : "?", s.c_str());
+        return false;
+    };
+    if (!name || !module || !export_name || !detour || !original) return no("bad arguments");
+    if (!game_hooks_allowed()) return no("game hooks are off: " + g_note);
+    if (find_hook(name)) return no("already installed");
+    if (file_exists(hook_off_path(name))) return no(std::string("kill switch turbo_output\\hook_") + name + "_off.txt present");
+    HMODULE m = GetModuleHandleW(module);
+    if (!m) return no("the module is not loaded in the game");
+    wchar_t mp[MAX_PATH * 2] = {0}, ep[MAX_PATH * 2] = {0};
+    GetModuleFileNameW(m, mp, MAX_PATH * 2);
+    GetModuleFileNameW(GetModuleHandleW(nullptr), ep, MAX_PATH * 2);
+    std::error_code ec;
+    if (fs::path(mp).parent_path() != fs::path(ep).parent_path()) return no("the module is not in the game folder");
+    // the export's bytes in the file on disk (parsed from the PE export table)
+    std::vector<uint8_t> file;
+    {
+        std::ifstream f(fs::path(mp), std::ios::binary);
+        if (!f) return no("cannot read the module file");
+        file.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+    }
+    auto u32 = [&](size_t o) { return o + 4 <= file.size() ? *reinterpret_cast<const uint32_t*>(&file[o]) : 0u; };
+    auto u16 = [&](size_t o) { return o + 2 <= file.size() ? *reinterpret_cast<const uint16_t*>(&file[o]) : uint16_t(0); };
+    if (file.size() < 0x200 || file[0] != 'M') return no("module file is not a PE image");
+    const size_t pe = u32(0x3C), opt = pe + 24, nsec = u16(pe + 6), szopt = u16(pe + 20);
+    const uint32_t exp_rva = u32(opt + 112);
+    if (!exp_rva || u32(pe) != 0x4550) return no("module has no export table");
+    struct Sec { uint32_t va, vs, ro, rs; };
+    std::vector<Sec> secs;
+    for (size_t i = 0; i < nsec && i < 96; ++i) {
+        const size_t so = opt + szopt + i * 40;
+        secs.push_back({u32(so + 12), u32(so + 8), u32(so + 20), u32(so + 16)});
+    }
+    auto r2o = [&](uint32_t rva) -> size_t {
+        for (const auto& s : secs)
+            if (rva >= s.va && rva < s.va + std::max(s.vs, s.rs)) return size_t(rva - s.va + s.ro);
+        return 0;
+    };
+    const size_t eo = r2o(exp_rva);
+    if (!eo) return no("bad export table");
+    const uint32_t nn = u32(eo + 24), aof = u32(eo + 28), aon = u32(eo + 32), aoo = u32(eo + 36);
+    uint32_t fn_rva = 0;
+    for (uint32_t i = 0; i < nn && i < 4096; ++i) {
+        const size_t no_ = r2o(u32(r2o(aon) + i * 4));
+        if (!no_ || no_ >= file.size()) continue;
+        if (std::strncmp(reinterpret_cast<const char*>(&file[no_]), export_name, 64) == 0) {
+            const uint16_t ord = u16(r2o(aoo) + i * 2);
+            fn_rva = u32(r2o(aof) + size_t(ord) * 4);
+            break;
+        }
+    }
+    if (!fn_rva) return no(std::string("export ") + export_name + " not found in the module file");
+    const size_t fo = r2o(fn_rva);
+    if (!fo || fo + 32 > file.size()) return no("export code is outside the file");
+    uint8_t* target = reinterpret_cast<uint8_t*>(m) + fn_rva;
+    uint8_t live[32] = {0};
+    ProcessMemory mem;
+    if (!mem.read(reinterpret_cast<uint64_t>(target), live, sizeof(live))) return no("export code is not readable");
+    if (std::memcmp(live, &file[fo], 32) != 0) return no("the export's first bytes differ from the DLL file (already hooked, or another file): refused");
+    if (live[0] == 0xE9 || live[0] == 0xEB || (live[0] == 0xFF && live[1] == 0x25) || live[0] == 0xCC) return no("the export starts with a jump or a breakpoint");
+    auto* h = new HookRec();
+    h->name = name;
+    h->target = target;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_hooks.push_back(h);  // registered before enabling: the detour may run at once
+    }
+    guard_hold("installing a game DLL hook");
+    MH_STATUS st = MH_CreateHook(target, detour, original);
+    if (st == MH_OK) st = MH_EnableHook(target);
+    guard_release();
+    if (st != MH_OK) {
+        h->note = std::string("MinHook: ") + MH_StatusToString(st);
+        if (st != MH_ERROR_ALREADY_CREATED) MH_RemoveHook(target);
+        return no(h->note);
+    }
+    h->active = true;
+    log("game hook %s installed on %s!%s at 0x%llX (kill switch: turbo_output\\hook_%s_off.txt)", name, "game DLL", export_name,
         static_cast<unsigned long long>(reinterpret_cast<uint64_t>(target)), name);
     return true;
 }

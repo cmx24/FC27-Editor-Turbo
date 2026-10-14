@@ -1,0 +1,813 @@
+// 3D kits on the pitch (core/kit_swap.h): resolver, plan, block table, runtime. Everything is generated here: a synthetic "game"
+// (layout.toc DbObject, a toc, cas files whose blocks use a stand-in for Oodle: csize == dsize, the payload is the raw data),
+// never an EA file. Optional: `test_kit_swap --game "<FC 27 folder>" --team 95 --slot 0` reads the real install (read only), runs the
+// scan and the plan with random stand-in textures of the game's own sizes and prints the result (no file is written in the game).
+#include <array>
+#include <chrono>
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <map>
+#include <random>
+#include <string>
+#include <thread>
+#include <vector>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+#include "core/kit_swap.h"
+#include "nlohmann/json.hpp"
+
+using namespace turbo::kitswap;
+namespace fs = std::filesystem;
+using nlohmann::json;
+
+static int g_pass = 0, g_fail = 0;
+static void check(bool ok, const std::string& what) {
+    if (ok) ++g_pass;
+    else {
+        ++g_fail;
+        std::printf("  FAIL %s\n", what.c_str());
+    }
+}
+
+// ---------------------------------------------------------------- byte helpers
+static void be32(std::vector<uint8_t>& d, uint32_t v) {
+    for (int i = 3; i >= 0; --i) d.push_back(uint8_t(v >> (8 * i)));
+}
+static void le32(std::vector<uint8_t>& d, uint32_t v) {
+    for (int i = 0; i < 4; ++i) d.push_back(uint8_t(v >> (8 * i)));
+}
+static void put_le32(std::vector<uint8_t>& d, size_t at, uint32_t v) {
+    for (int i = 0; i < 4; ++i) d[at + size_t(i)] = uint8_t(v >> (8 * i));
+}
+static void put_le16(std::vector<uint8_t>& d, size_t at, uint32_t v) {
+    d[at] = uint8_t(v);
+    d[at + 1] = uint8_t(v >> 8);
+}
+
+// DbObject writer (just what layout.toc needs)
+static void varint(std::vector<uint8_t>& d, uint64_t v) {
+    while (v >= 0x80) {
+        d.push_back(uint8_t(v | 0x80));
+        v >>= 7;
+    }
+    d.push_back(uint8_t(v));
+}
+static void db_named(std::vector<uint8_t>& d, uint8_t type, const std::string& name) {
+    d.push_back(type);
+    d.insert(d.end(), name.begin(), name.end());
+    d.push_back(0);
+}
+static std::vector<uint8_t> db_obj(const std::vector<uint8_t>& body) {
+    std::vector<uint8_t> v;
+    varint(v, body.size() + 1);
+    v.insert(v.end(), body.begin(), body.end());
+    v.push_back(0);
+    return v;
+}
+static std::vector<uint8_t> make_layout(uint32_t persistent, const std::string& pkg) {
+    std::vector<uint8_t> chunk_body;
+    db_named(chunk_body, 8, "persistentIndex");
+    le32(chunk_body, persistent);
+    db_named(chunk_body, 7, "name");
+    varint(chunk_body, pkg.size() + 1);
+    chunk_body.insert(chunk_body.end(), pkg.begin(), pkg.end());
+    chunk_body.push_back(0);
+    std::vector<uint8_t> chunk;  // unnamed object (type 0x82)
+    chunk.push_back(0x82);
+    auto cb = db_obj(chunk_body);
+    chunk.insert(chunk.end(), cb.begin(), cb.end());
+    std::vector<uint8_t> list;
+    db_named(list, 1, "installChunks");
+    auto lb = chunk;
+    lb.push_back(0);
+    varint(list, lb.size());
+    list.insert(list.end(), lb.begin(), lb.end());
+    std::vector<uint8_t> im;
+    db_named(im, 2, "installManifest");
+    auto ib = db_obj(list);
+    im.insert(im.end(), ib.begin(), ib.end());
+    std::vector<uint8_t> root;
+    root.push_back(0x02);
+    root.push_back(0);  // unnamed? the root is read with a name; use an empty name
+    auto rb = db_obj(im);
+    root.insert(root.end(), rb.begin(), rb.end());
+    return root;
+}
+
+// ---------------------------------------------------------------- the synthetic game
+static const char* kPkg = "superbundlelayout/installpackage_00";
+static const uint32_t kPersistent = 0xAABBCCDDu;
+static const char* kCasId = "0000aabbccdd0001";
+
+struct GameBuilder {
+    fs::path root;
+    std::vector<uint8_t> cas;  // cas_01.cas content
+    struct B {
+        std::vector<std::string> ebx;
+        struct R {
+            std::string name;
+            std::vector<uint8_t> hdr;  // decompressed texture header
+            std::string guid;
+        };
+        std::vector<R> res;
+        struct C {
+            std::string guid;
+            uint32_t logical;
+            uint64_t off;
+            uint32_t size;
+        };
+        std::vector<C> chunks;
+    };
+    std::vector<B> bundles;
+   
+    std::mt19937 rng{7};
+
+    uint64_t append(const std::vector<uint8_t>& b) {
+        const uint64_t at = cas.size();
+        cas.insert(cas.end(), b.begin(), b.end());
+        return at;
+    }
+    // one Oodle-style block stream; stand-in codec: csize == dsize (type 0x19)
+    std::vector<uint8_t> blocks_of(const std::vector<uint8_t>& raw, size_t block) {
+        std::vector<uint8_t> out;
+        for (size_t at = 0; at < raw.size(); at += block) {
+            const size_t n = std::min(block, raw.size() - at);
+            be32(out, uint32_t(n));
+            out.push_back(0x19);
+            out.push_back(0x70);
+            out.push_back(uint8_t(n >> 8));
+            out.push_back(uint8_t(n));
+            out.insert(out.end(), raw.begin() + std::ptrdiff_t(at), raw.begin() + std::ptrdiff_t(at + n));
+        }
+        return out;
+    }
+    std::vector<uint8_t> random_bytes(size_t n) {
+        std::vector<uint8_t> v(n);
+        for (auto& x : v) x = uint8_t(rng());
+        return v;
+    }
+    static std::vector<uint8_t> tex_header(uint32_t fmt, int w, int h, int mips, const std::string& guid_hex, const std::vector<uint32_t>& sizes) {
+        std::vector<uint8_t> hd(184, 0);
+        put_le32(hd, 0x0C, fmt);
+        put_le16(hd, 0x16, uint32_t(w));
+        put_le16(hd, 0x18, uint32_t(h));
+        hd[0x1E] = uint8_t(mips);
+        for (int i = 0; i < 16; ++i) hd[0x28 + size_t(i)] = uint8_t(std::stoi(guid_hex.substr(size_t(i) * 2, 2), nullptr, 16));
+        for (size_t i = 0; i < sizes.size(); ++i) put_le32(hd, 0x38 + i * 4, sizes[i]);
+        return hd;
+    }
+    static std::string guid_of(int n) {
+        char b[40];
+        std::snprintf(b, sizeof(b), "%032x", n * 7919 + 13);
+        return b;
+    }
+    // Adds a bundle with the given textures (name, format id, w, h, mips, raw data, chunk location override: when has_loc the
+    // chunk is NOT written again (it points at an earlier chunk's location: physical sharing)).
+    struct TexSpec {
+        std::string name;
+        uint32_t fmt;
+        int w, h, mips;
+        std::vector<uint8_t> raw;  // empty = random
+        int share_with = -1;       // another TexSpec's chunk location (by registration order across the game)
+        size_t block = 16384;
+    };
+    std::vector<std::array<uint64_t, 2>> chunk_locs;  // registration order
+    int add_bundle(const std::vector<TexSpec>& texs, const std::string& extra_ebx = "") {
+        B b;
+        std::vector<std::array<uint64_t, 2>> lc;
+        for (size_t i = 0; i < texs.size(); ++i) {
+            const TexSpec& t = texs[i];
+            const uint32_t dxgi = dxgi_of_format(t.fmt);
+            const auto sizes = bc_mip_sizes(dxgi, t.w, t.h, t.mips);
+            uint32_t total = 0;
+            for (uint32_t s : sizes) total += s;
+            std::vector<uint8_t> raw = t.raw.empty() ? random_bytes(total) : t.raw;
+            const std::string g = guid_of(int(chunk_locs.size() + 1));
+            uint64_t off, size;
+            if (t.share_with >= 0) {
+                off = chunk_locs[size_t(t.share_with)][0];
+                size = chunk_locs[size_t(t.share_with)][1];
+            } else {
+                auto bl = blocks_of(raw, t.block);
+                off = append(bl);
+                size = bl.size();
+            }
+            chunk_locs.push_back({off, size});
+            b.chunks.push_back({g, total, off, uint32_t(size)});
+            b.res.push_back({t.name, tex_header(t.fmt, t.w, t.h, t.mips, g, sizes), g});
+            b.ebx.push_back(t.name);
+        }
+        if (!extra_ebx.empty()) b.ebx.push_back(extra_ebx);
+        bundles.push_back(std::move(b));
+        return int(bundles.size() - 1);
+    }
+    // Writes layout.toc, the toc and the cas file
+    void write() {
+        fs::create_directories(root / "Data" / "Win32" / "superbundlelayout" / "installpackage_00");
+        const auto lay = make_layout(kPersistent, kPkg);
+        std::ofstream(root / "Data" / "layout.toc", std::ios::binary).write(reinterpret_cast<const char*>(lay.data()), std::streamsize(lay.size()));
+        // bundle manifests and RES / chunk locations
+        std::vector<std::vector<std::array<uint64_t, 2>>> L;
+        for (const B& b : bundles) {
+            std::vector<std::array<uint64_t, 2>> l;
+            // manifest
+            std::vector<uint8_t> strings;
+            std::vector<uint32_t> ebx_off, res_off;
+            for (const auto& n : b.ebx) {
+                ebx_off.push_back(uint32_t(strings.size()));
+                strings.insert(strings.end(), n.begin(), n.end());
+                strings.push_back(0);
+            }
+            for (const auto& r : b.res) {
+                res_off.push_back(uint32_t(strings.size()));
+                strings.insert(strings.end(), r.name.begin(), r.name.end());
+                strings.push_back(0);
+            }
+            const uint32_t ne = uint32_t(b.ebx.size()), nr = uint32_t(b.res.size()), nc = uint32_t(b.chunks.size()), total = ne + nr + nc;
+            std::vector<uint8_t> m(4, 0);  // size prefix (unused)
+            le32(m, kManifestMagicForTest());
+            le32(m, total);
+            le32(m, ne);
+            le32(m, nr);
+            le32(m, nc);
+            const size_t so_at = m.size();
+            le32(m, 0);  // strings offset, patched
+            le32(m, 0);
+            le32(m, 0);
+            m.insert(m.end(), 20 * size_t(total), 0);  // sha1s
+            for (uint32_t i = 0; i < ne; ++i) {
+                le32(m, ebx_off[i]);
+                le32(m, 300);
+            }
+            for (uint32_t i = 0; i < nr; ++i) {
+                le32(m, res_off[i]);
+                le32(m, 184);
+            }
+            for (uint32_t i = 0; i < nr; ++i) le32(m, 0x6BDE20BA);
+            m.insert(m.end(), 24 * size_t(nr), 0);
+            for (const auto& c : b.chunks) {
+                for (int i = 0; i < 16; ++i) m.push_back(uint8_t(std::stoi(c.guid.substr(size_t(i) * 2, 2), nullptr, 16)));
+                le32(m, 0);
+                le32(m, c.logical);
+            }
+            put_le32(m, so_at, uint32_t(m.size() - 4));
+            m.insert(m.end(), strings.begin(), strings.end());
+            l.push_back({append(m), m.size()});
+            for (uint32_t i = 0; i < ne; ++i) {  // EBX: 20 filler bytes
+                auto e = random_bytes(20);
+                l.push_back({append(e), e.size()});
+            }
+            for (const auto& r : b.res) {  // RES: one block stream with the header
+                auto bl = blocks_of(r.hdr, 1 << 20);
+                l.push_back({append(bl), bl.size()});
+            }
+            for (const auto& c : b.chunks) l.push_back({c.off, c.size});
+            L.push_back(std::move(l));
+        }
+        std::ofstream(root / "Data" / "Win32" / "superbundlelayout" / "installpackage_00" / "cas_01.cas", std::ios::binary)
+            .write(reinterpret_cast<const char*>(cas.data()), std::streamsize(cas.size()));
+        // toc
+        std::vector<uint8_t> toc(0x22C, 0);
+        const size_t base = 0x22C;
+        std::vector<uint8_t> payload;  // after the header (60) and the bundle table
+        const size_t table_off = 60;
+        const size_t table_size = bundles.size() * 16;
+        std::vector<uint8_t> bdata;
+        std::vector<std::pair<uint32_t, uint64_t>> entries;  // (size, off relative to TOC_DATA)
+        for (const auto& l : L) {
+            std::vector<uint8_t> bd;
+            const uint32_t cnt = uint32_t(l.size());
+            for (int i = 0; i < 9; ++i) be32(bd, 0);
+            const uint32_t flags_off = 36, p0 = 36 + cnt;
+            bd.resize(36);
+            std::vector<uint8_t> flags(cnt, 0), loc;
+            flags[0] = 0x80;
+            for (uint32_t i = 0; i < cnt; ++i) {
+                if (i == 0)
+                    for (int k = 0; k < 8; ++k) loc.push_back(uint8_t(std::stoi(std::string(kCasId).substr(size_t(k) * 2, 2), nullptr, 16)));
+                be32(loc, uint32_t(l[i][0]));
+                be32(loc, uint32_t(l[i][1]));
+            }
+            bd.insert(bd.end(), flags.begin(), flags.end());
+            bd.insert(bd.end(), loc.begin(), loc.end());
+            auto set = [&](size_t at, uint32_t v) {
+                for (int i = 0; i < 4; ++i) bd[at + size_t(i)] = uint8_t(v >> (8 * (3 - i)));
+            };
+            set(8, flags_off);
+            set(12, cnt);
+            set(16, p0);
+            entries.push_back({0x40000000u | uint32_t(bd.size()), table_off + table_size + bdata.size()});
+            bdata.insert(bdata.end(), bd.begin(), bd.end());
+        }
+        std::vector<uint8_t> body;
+        std::vector<uint32_t> h(15, 0);
+        h[1] = uint32_t(table_off);
+        h[2] = uint32_t(bundles.size());
+        for (uint32_t v : h) be32(body, v);
+        for (const auto& e : entries) {
+            be32(body, 1);
+            be32(body, e.first);
+            be32(body, uint32_t(e.second >> 32));
+            be32(body, uint32_t(e.second));
+        }
+        body.insert(body.end(), bdata.begin(), bdata.end());
+        toc.insert(toc.end(), body.begin(), body.end());
+        (void)base;
+        std::ofstream(root / "Data" / "Win32" / "contentsb.toc", std::ios::binary).write(reinterpret_cast<const char*>(toc.data()), std::streamsize(toc.size()));
+    }
+    static uint32_t kManifestMagicForTest() { return 0x9D798ED6u; }
+};
+
+static OodleFn stand_in_oodle() {
+    return [](const uint8_t* src, size_t n, uint8_t* dst, size_t dn) {
+        if (n != dn) return false;
+        std::memcpy(dst, src, n);
+        return true;
+    };
+}
+
+// staged DDS: header + `data` (random) for a texture of the given format
+static void stage_texture(const fs::path& dir, const std::string& role, uint32_t fmt, int w, int h, int mips, std::vector<json>& textures, std::mt19937& rng,
+                          std::vector<uint8_t>* keep = nullptr) {
+    const uint32_t dxgi = dxgi_of_format(fmt);
+    const auto sizes = bc_mip_sizes(dxgi, w, h, mips);
+    uint64_t total = 0;
+    for (auto s : sizes) total += s;
+    std::vector<uint8_t> f(kDdsHeader, 0);
+    std::memcpy(f.data(), "DDS ", 4);
+    put_le32(f, 4, 124);
+    put_le32(f, 12, uint32_t(h));
+    put_le32(f, 16, uint32_t(w));
+    put_le32(f, 28, uint32_t(mips));
+    std::memcpy(&f[84], "DX10", 4);
+    put_le32(f, 128, dxgi);
+    std::vector<uint8_t> data;
+    data.resize(size_t(total));
+    for (auto& x : data) x = uint8_t(rng());
+    f.insert(f.end(), data.begin(), data.end());
+    if (keep) *keep = data;
+    fs::create_directories(dir);
+    std::ofstream(dir / (role + ".dds"), std::ios::binary).write(reinterpret_cast<const char*>(f.data()), std::streamsize(f.size()));
+    textures.push_back({{"role", role}, {"file", role + ".dds"}, {"dxgi", dxgi}, {"width", w}, {"height", h}, {"mips", mips}, {"bytes", f.size()}});
+}
+
+static void write_manifest(const fs::path& dir, int team, int slot, const std::vector<json>& textures) {
+    json j = {{"turbo_kit_stage", 1}, {"teamid", team}, {"teamkittypetechid", slot}, {"textures", textures}};
+    std::ofstream(dir / "manifest.json") << j.dump(2);
+}
+
+static std::string P(const char* kind, const char* part, const char* leaf, int team = 95) {
+    return std::string("content/character/kit/kit_0/testfc_") + std::to_string(team) + "/" + kind + "/" + part + "/" + leaf;
+}
+
+// ---------------------------------------------------------------- tests
+static void test_names() {
+    check(kind_slot("home_0_0") == 0 && kind_slot("away_1_0") == 1 && kind_slot("goalie_home_2_0") == 2 && kind_slot("third_3_0") == 3 && kind_slot("fourth_4_0") == 4, "kind_slot base kinds");
+    check(kind_slot("loc2_home_40_0") == 0 && kind_slot("loc2_goalie_home_42_0") == 2 && kind_slot("loc2_fourth_44_0") == 4, "kind_slot loc2 kinds");
+    check(kind_slot("referee_5_0") == -1 && kind_slot("home") == -1 && kind_slot("x_45_0") == -1, "kind_slot others");
+    check(role_of("jersey_95_0_0_color", 95) == "jersey_color", "role jersey_color");
+    check(role_of("brand_shorts_95_40_0_normal", 95) == "brand_shorts_normal", "role brand_shorts_normal");
+    check(role_of("crest_shorts_95_0_0_coeff", 95) == "crest_shorts_coeff", "role crest_shorts_coeff");
+    check(role_of("weave_jersey_95_0_0_coeff_array", 95) == "weave_jersey_coeff_array", "role weave array");
+    check(role_of("jersey_96_0_0_color", 95).empty() && role_of("hotspots_95_0_0", 95).empty(), "role mismatches");
+    const KitName k = parse_kit_name("content/character/kit/kit_0/leicester_city_95/home_0_0/jersey/jersey_95_0_0_color");
+    check(k.ok && k.team == 95 && k.slug == "leicester_city_95" && k.kind == "home_0_0" && k.part == "jersey" && k.leaf == "jersey_95_0_0_color", "parse_kit_name");
+    const KitName k2 = parse_kit_name("content/character/kit/kit_0/leicester_city_95/home_0_0/hotspots_95_0_0");
+    check(k2.ok && k2.part.empty() && k2.leaf == "hotspots_95_0_0", "parse_kit_name without part");
+    check(!parse_kit_name("content/character/head/x").ok, "parse_kit_name refuses non-kit names");
+    const auto sz = bc_mip_sizes(72, 2048, 2048, 12);
+    uint64_t s = 0;
+    for (auto x : sz) s += x;
+    check(s == 2796216 && sz.back() == 8, "BC1 2048 mip chain = the game's 2,796,216 bytes");
+    uint64_t s2 = 0;
+    for (auto x : bc_mip_sizes(98, 1024, 1024, 11)) s2 += x;
+    check(s2 == 1398128, "BC7 1024 chain = 1,398,128");
+    check(dxgi_of_format(55) == 72 && dxgi_of_format(63) == 83 && dxgi_of_format(66) == 98 && dxgi_of_format(1) == 0, "format ids");
+}
+
+static void test_blocks() {
+    std::vector<uint8_t> raw(40000);
+    for (size_t i = 0; i < raw.size(); ++i) raw[i] = uint8_t(i * 7);
+    GameBuilder g;
+    auto bl = g.blocks_of(raw, 16384);
+    std::vector<Block> bs;
+    check(block_headers(bl, bs) && bs.size() == 3 && bs[0].dsize == 16384 && bs[2].dsize == 40000 - 32768 && bs[0].ctype == 0x19 && bs[1].payload == 8 + 16384 + 8, "block_headers");
+    std::vector<uint8_t> out;
+    check(read_blocks(bl, stand_in_oodle(), out, nullptr) && out == raw, "read_blocks with the stand-in codec");
+    auto cut = bl;
+    cut.pop_back();
+    check(!block_headers(cut, bs), "a cut block stream is refused");
+    check(!read_blocks(bl, nullptr, out, nullptr), "Oodle block without a decompressor is refused");
+}
+
+struct World {
+    fs::path root, le;
+    GameBuilder g;
+    std::mt19937 rng{11};
+    std::vector<uint8_t> jersey_color_data;
+};
+
+static World make_world(const fs::path& base) {
+    World w;
+    w.root = base / "game";
+    w.le = base / "le";
+    w.g.root = w.root;
+    // chunk registration order: 0 jersey_color, 1 jersey_normal, 2 brand_normal(tiny csize), 3 jersey_coeff (shared phys with team 96)...
+    using T = GameBuilder::TexSpec;
+    // team 95 home jersey bundle: BC1 sRGB color 256x256 (8 mips), normal BC5 128x128, brand decal BC5 64x64 (tiny), coeff BC1 128x128 shared, taa BC7 128x128
+    w.g.add_bundle({T{P("home_0_0", "jersey", "jersey_95_0_0_color"), 55, 256, 256, 9, {}, -1, 16384},  // 0
+                    T{P("home_0_0", "jersey", "jersey_95_0_0_normal"), 63, 128, 128, 8, {}, -1, 8192},  // 1
+                    T{P("home_0_0", "jersey", "brand_jersey_95_0_0_normal"), 63, 16, 16, 5, {}, -1, 8192},  // 2 (tiny: csize < 1024)
+                    T{P("home_0_0", "jersey", "jersey_95_0_0_coeff"), 54, 128, 128, 8, {}, -1, 8192},  // 3 (shared with team 96)
+                    T{P("home_0_0", "jersey", "jersey_95_0_0_taa"), 66, 128, 128, 8, {}, -1, 8192},  // 4 (census: same bytes in another chunk)
+                    T{P("home_0_0", "jersey", "weave_jersey_95_0_0_coeff_array"), 63, 64, 64, 7, {}, -1, 8192}});  // 5 (no role)
+    // the same club's loc2 variant: same chunks for jersey_color? no: its own jersey_color, but SHARED normal (same slot: allowed)
+    w.g.add_bundle({T{P("loc2_home_40_0", "jersey", "jersey_95_40_0_color"), 55, 256, 256, 9, {}, -1, 16384},  // 6 own
+                    T{P("loc2_home_40_0", "jersey", "jersey_95_40_0_normal"), 63, 128, 128, 8, {}, 1, 8192}});  // 7 shares chunk 1
+    // team 96: shares team 95's jersey_coeff chunk physically, and holds a byte-identical copy of team 95's taa at another place
+    // (the census case: needs the raw bytes of chunk 4: read back from the cas below)
+    w.g.add_bundle({T{P("home_0_0", "jersey", "jersey_96_0_0_coeff", 96), 54, 128, 128, 8, {}, 3, 8192}});  // 8 shares chunk 3
+    // team 95 away (another slot): own textures, must not be touched by a home import
+    w.g.add_bundle({T{P("away_1_0", "jersey", "jersey_95_1_0_color"), 55, 256, 256, 9, {}, -1, 16384}});  // 9
+    // team 97: a byte-identical copy of team 95's taa chunk bytes at a different physical place: add after capturing the raw bytes
+    {
+        // chunk 4's raw bytes are the cas bytes of its blocks: rebuild them from the builder's storage by reading the cas
+        const auto& c = w.g.chunk_locs[4];
+        std::vector<uint8_t> raw;
+        std::vector<uint8_t> stream(w.g.cas.begin() + std::ptrdiff_t(c[0]), w.g.cas.begin() + std::ptrdiff_t(c[0] + c[1]));
+        read_blocks(stream, stand_in_oodle(), raw, nullptr);
+        T t{P("home_0_0", "jersey", "jersey_97_0_0_taa", 97), 66, 128, 128, 8, raw, -1, 8192};
+        w.g.add_bundle({t});  // 10
+    }
+    // team 95 home: crest and crest_shorts normal share ONE chunk (the game stores them once); a zip with different pictures for the two
+    // cannot be served by one block: both stay the game's
+    w.g.add_bundle({T{P("home_0_0", "jersey", "crest_95_0_0_normal"), 63, 64, 64, 7, {}, -1, 8192},  // 11
+                    T{P("home_0_0", "shorts", "crest_shorts_95_0_0_normal"), 63, 64, 64, 7, {}, 11, 8192}});  // 12 shares chunk 11
+    w.g.write();
+    return w;
+}
+
+static StagedKit stage_home(World& w, bool with_shorts_color = false) {
+    const fs::path dir = w.le / "turbo_output" / "kits" / "95" / "home";
+    std::vector<json> tex;
+    stage_texture(dir, "jersey_color", 55, 256, 256, 9, tex, w.rng, &w.jersey_color_data);
+    stage_texture(dir, "jersey_normal", 63, 128, 128, 8, tex, w.rng);
+    stage_texture(dir, "brand_jersey_normal", 63, 16, 16, 5, tex, w.rng);
+    stage_texture(dir, "jersey_coeff", 54, 128, 128, 8, tex, w.rng);
+    stage_texture(dir, "jersey_taa", 66, 128, 128, 8, tex, w.rng);
+    if (with_shorts_color) stage_texture(dir, "shorts_color", 55, 64, 64, 7, tex, w.rng);
+    stage_texture(dir, "crest_normal", 63, 64, 64, 7, tex, w.rng);
+    stage_texture(dir, "crest_shorts_normal", 63, 64, 64, 7, tex, w.rng);
+    write_manifest(dir, 95, 0, tex);
+    StagedKit sk;
+    std::string err;
+    check(load_staged(dir, sk, &err), "load_staged: " + err);
+    return sk;
+}
+
+static const PlanItem* item_named(const Plan& p, const std::string& leaf, const std::string& kind) {
+    for (const auto& i : p.items)
+        if (i.res.size() > leaf.size() && i.res.compare(i.res.size() - leaf.size() - 1, leaf.size() + 1, "/" + leaf) == 0 && i.kind == kind) return &i;
+    return nullptr;
+}
+
+static void test_scan_and_plan(const fs::path& base) {
+    World w = make_world(base / "scan");
+    GameFiles files(w.root);
+    std::string err;
+    check(files.init(&err), "GameFiles::init (layout.toc): " + err);
+    check(files.cas_path(kCasId).filename() == "cas_01.cas", "cas path from the layout package");
+    KitIndex idx;
+    check(scan_kits(files, stand_in_oodle(), idx, nullptr, &err), "scan_kits: " + err);
+    check(idx.bundles.size() == 6 && idx.tocs.size() == 1, "6 kit bundles found, got " + std::to_string(idx.bundles.size()));
+    int t95 = 0;
+    for (const auto& b : idx.bundles) t95 += b.team == 95;
+    check(t95 == 4, "team 95 has 4 bundles");
+    // physical sharing: chunk 3 is used by team 95 and team 96
+    Loc l3;
+    l3.cas = kCasId;
+    l3.off = w.g.chunk_locs[3][0];
+    l3.size = uint32_t(w.g.chunk_locs[3][1]);
+    const auto it = idx.users.find(phys_key(l3));
+    check(it != idx.users.end() && it->second.size() == 2, "chunk 3 has two users");
+
+    StagedKit sk = stage_home(w);
+    Options opt;
+    opt.min_csize = 1024;
+    TableBuilder tb;
+    Plan plan = build_plan(files, stand_in_oodle(), idx, sk, opt, true, tb, nullptr);
+    check(plan.ok, "plan ok: " + plan.error);
+    for (const auto& i : plan.items) std::printf("    %-12s %-34s %s %s\n", i.kind.c_str(), i.res.substr(i.res.rfind('/') + 1).c_str(), i.swap ? "SWAP" : "left", i.reason.c_str());
+    const PlanItem* jc = item_named(plan, "jersey_95_0_0_color", "home_0_0");
+    check(jc && jc->swap && jc->blocks == 3, "jersey_color: swapped, 3 blocks (256x256 BC1 chain in 16 KB blocks)");
+    const PlanItem* jn = item_named(plan, "jersey_95_0_0_normal", "home_0_0");
+    check(jn && jn->swap, "jersey_normal swapped (shared only within the same club and slot)");
+    const PlanItem* jn2 = item_named(plan, "jersey_95_40_0_normal", "loc2_home_40_0");
+    check(jn2 && jn2->swap, "loc2 normal swapped too (same bytes, one entry)");
+    const PlanItem* jc2 = item_named(plan, "jersey_95_40_0_color", "loc2_home_40_0");
+    check(jc2 && jc2->swap, "loc2 jersey_color swapped too (same role, its own chunk)");
+    const PlanItem* bn = item_named(plan, "brand_jersey_95_0_0_normal", "home_0_0");
+    check(bn && !bn->swap && bn->reason.find("uniform fill") != std::string::npos, "brand normal: left (tiny compressed block)");
+    const PlanItem* co = item_named(plan, "jersey_95_0_0_coeff", "home_0_0");
+    check(co && !co->swap && co->reason.find("also used by team 96") != std::string::npos, "jersey_coeff: left (chunk shared with team 96)");
+    const PlanItem* ta = item_named(plan, "jersey_95_0_0_taa", "home_0_0");
+    check(ta && !ta->swap && ta->reason.find("byte-identical") != std::string::npos, "taa: left (identical compressed block in team 97's chunk)");
+    const PlanItem* wv = item_named(plan, "weave_jersey_95_0_0_coeff_array", "home_0_0");
+    check(wv && !wv->swap, "weave array: left");
+    check(!item_named(plan, "jersey_95_1_0_color", "away_1_0"), "the away kit is not part of a home plan");
+    check(!item_named(plan, "jersey_96_0_0_coeff", "home_0_0"), "team 96 is not part of team 95's plan");
+}
+
+static void test_table(const fs::path& base) {
+    World w = make_world(base / "table");
+    GameFiles files(w.root);
+    std::string err;
+    files.init(&err);
+    KitIndex idx;
+    scan_kits(files, stand_in_oodle(), idx, nullptr, &err);
+    StagedKit sk = stage_home(w);
+    Options opt;
+    TableBuilder tb;
+    Plan plan = build_plan(files, stand_in_oodle(), idx, sk, opt, true, tb, nullptr);
+    std::vector<std::string> dropped;
+    auto table = tb.finish(&dropped);
+    check(dropped.size() == 2, "the crest / crest_shorts conflict drops exactly those two items");
+    // jersey_color (5 blocks), jersey_normal (home + loc2: one entry set), loc2 jersey_color (5 blocks, other bytes), normal 128x128 BC5 chain = 21856 B -> 2 blocks of 8192+..
+    check(table->size() > 0, "table has entries: " + std::to_string(table->size()));
+    // read the real compressed blocks of the home jersey_color chunk and look them up
+    const auto& c = w.g.chunk_locs[0];
+    std::vector<uint8_t> chunk(w.g.cas.begin() + std::ptrdiff_t(c[0]), w.g.cas.begin() + std::ptrdiff_t(c[0] + c[1]));
+    std::vector<Block> bl;
+    block_headers(chunk, bl);
+    uint64_t at = 0;
+    int found = 0;
+    for (const Block& b : bl) {
+        const Entry* e = table->match(&chunk[size_t(b.payload)], b.csize, b.dsize);
+        if (e && std::memcmp(e->data, &w.jersey_color_data[size_t(at)], b.dsize) == 0) ++found;
+        at += b.dsize;
+    }
+    check(found == int(bl.size()), "every block of the jersey_color chunk matches and its replacement is the staged bytes at the right offset");
+    // one flipped byte, or other sizes: no match
+    std::vector<uint8_t> flipped(chunk.begin() + std::ptrdiff_t(bl[0].payload), chunk.begin() + std::ptrdiff_t(bl[0].payload + bl[0].csize));
+    flipped[flipped.size() / 2] ^= 1;
+    check(!table->match(flipped.data(), flipped.size(), bl[0].dsize), "a flipped byte: no match");
+    check(!table->match(&chunk[size_t(bl[0].payload)], bl[0].csize, bl[0].dsize + 1), "other raw size: no match");
+    check(!table->match(&chunk[size_t(bl[0].payload)], bl[0].csize - 1, bl[0].dsize), "other compressed size: no match");
+    // the away kit's color chunk (same sizes, other bytes) is not in the table
+    const auto& ca = w.g.chunk_locs[9];
+    std::vector<uint8_t> ach(w.g.cas.begin() + std::ptrdiff_t(ca[0]), w.g.cas.begin() + std::ptrdiff_t(ca[0] + ca[1]));
+    std::vector<Block> ab;
+    block_headers(ach, ab);
+    check(!table->match(&ach[size_t(ab[0].payload)], ab[0].csize, ab[0].dsize), "the away kit's blocks are not matched");
+
+    // builder: conflict and alias
+    TableBuilder b2;
+    std::vector<uint8_t> d1(64, 1), d2(64, 2), key(64, 9);
+    auto s1 = std::make_shared<std::vector<uint8_t>>(d1), s2 = std::make_shared<std::vector<uint8_t>>(d1), s3 = std::make_shared<std::vector<uint8_t>>(d2), s4 = std::make_shared<std::vector<uint8_t>>(d1);
+    const uint32_t i1 = b2.add_item(s1, true), i2 = b2.add_item(s2, true), i3 = b2.add_item(s3, true), i4 = b2.add_item(s4, true);
+    uint64_t head;
+    std::memcpy(&head, key.data(), 8);
+    const uint64_t f = fnv1a64(key.data(), key.size());
+    b2.add_block(i1, 64, 64, head, f, s1->data(), nullptr);
+    b2.add_block(i2, 64, 64, head, f, s2->data(), nullptr);  // same key, same bytes: alias
+    std::vector<uint8_t> key2(64, 7);
+    std::memcpy(&head, key2.data(), 8);
+    const uint64_t f2 = fnv1a64(key2.data(), key2.size());
+    b2.add_block(i3, 64, 64, head, f2, s3->data(), nullptr);
+    b2.add_block(i4, 64, 64, head, f2, s4->data(), nullptr);  // same key, other bytes: conflict, both items dropped
+    std::vector<std::string> dr;
+    auto t2 = b2.finish(&dr);
+    check(t2->size() == 1 && dr.size() == 2, "conflicting items dropped, identical ones merged (size " + std::to_string(t2->size()) + ", dropped " + std::to_string(dr.size()) + ")");
+    uint64_t kh;
+    std::memcpy(&kh, key.data(), 8);
+    const Entry* e = t2->match(key.data(), 64, 64);
+    check(e != nullptr, "merged entry matches");
+    if (e) {
+        t2->count_hit(*e);
+        check(t2->hits(i1) == 1 && t2->hits(i2) == 1, "the alias item counts the hit too");
+    }
+    (void)kh;
+}
+
+static void test_runtime(const fs::path& base) {
+    World w = make_world(base / "rt");
+    StagedKit sk = stage_home(w);
+    (void)sk;
+    // the block bytes the game would decompress
+    const auto& c = w.g.chunk_locs[0];
+    std::vector<uint8_t> chunk(w.g.cas.begin() + std::ptrdiff_t(c[0]), w.g.cas.begin() + std::ptrdiff_t(c[0] + c[1]));
+    std::vector<Block> bl;
+    block_headers(chunk, bl);
+
+    {
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        rt.options.min_csize = 1024;
+        rt.set_hook_installed(true, "");
+        std::string err;
+        check(!rt.activate(95, 3, Mode::Observe, &err) && !err.empty(), "activating a slot with nothing staged is refused: " + err);
+        check(rt.activate(95, 0, Mode::Observe, &err), "activate observe: " + err);
+        rt.wait_idle();
+        Status s = rt.status();
+        check(s.state == "ready" && s.blocks > 0, "ready with blocks: " + s.state + " / " + s.message);
+        check(fs::exists(rt.state_path()), "swap_state.json written");
+        std::vector<uint8_t> out(bl[0].dsize, 0xEE);
+        const uint8_t* src = &chunk[size_t(bl[0].payload)];
+        check(rt.on_block(src, bl[0].csize, out.data(), bl[0].dsize) == 1 && out[0] == 0xEE, "observe: recognised, output untouched");
+        s = rt.status();
+        check(s.hits == 1 && s.swapped == 0, "observe counters");
+        bool seen_item = false;
+        for (const auto& it : s.items)
+            if (it.res.find("jersey_95_0_0_color") != std::string::npos && it.hits == 1) seen_item = true;
+        check(seen_item, "the item's seen counter is 1");
+        check(rt.activate(95, 0, Mode::Swap, &err), "switch to swap");
+        rt.wait_idle();
+        std::vector<uint8_t> out2(bl[0].dsize, 0xEE);
+        check(rt.on_block(src, bl[0].csize, out2.data(), bl[0].dsize) == 2, "swap: overwritten");
+        check(std::memcmp(out2.data(), w.jersey_color_data.data(), bl[0].dsize) == 0, "the output is the staged bytes of block 0");
+        rt.set_killed(true);
+        std::vector<uint8_t> out3(bl[0].dsize, 0xEE);
+        check(rt.on_block(src, bl[0].csize, out3.data(), bl[0].dsize) == 0 && out3[0] == 0xEE, "kill switch: nothing recognised, nothing written");
+        rt.set_killed(false);
+        check(rt.on_block(src, bl[0].csize, out3.data(), bl[0].dsize) == 2, "kill switch released");
+        // a block of the same size that is not ours
+        std::vector<uint8_t> other(src, src + bl[0].csize);
+        other[10] ^= 0xFF;
+        check(rt.on_block(other.data(), other.size(), out3.data(), bl[0].dsize) == 0, "an unknown block with the same sizes is left alone");
+        // the detour's entry: what the game passes decides whether the swap can work
+        {
+            std::vector<uint8_t> o1(bl[0].dsize, 0xEE), o2(bl[0].dsize, 0xEE), o3(bl[0].dsize, 0xEE);
+            check(rt.on_decompressed(src, bl[0].csize, o1.data(), bl[0].dsize, int64_t(bl[0].dsize), 0, 3) == 2 &&
+                      std::memcmp(o1.data(), w.jersey_color_data.data(), bl[0].dsize) == 0,
+                  "on_decompressed: full decode -> overwritten");
+            const uint64_t before_unserved = rt.status().unserved;
+            check(rt.on_decompressed(src, bl[0].csize, o2.data(), bl[0].dsize, int64_t(bl[0].dsize) - 5, 0, 3) == 1 && o2[0] == 0xEE &&
+                      rt.status().unserved == before_unserved + 1,
+                  "on_decompressed: the original returned another size -> recognised, counted, NOT overwritten");
+            const uint64_t cb0 = rt.status().with_callback, ph0 = rt.status().other_phase;
+            rt.on_decompressed(src, bl[0].csize, o3.data(), bl[0].dsize, int64_t(bl[0].dsize), 1, 1);
+            check(rt.status().with_callback == cb0 + 1 && rt.status().other_phase == ph0 + 1, "on_decompressed: callback and phase counted");
+            check(rt.on_decompressed(src, 4, o3.data(), 4, 4, 0, 3) == 0 && rt.on_decompressed(nullptr, bl[0].csize, o3.data(), bl[0].dsize, 0, 0, 3) == 0, "on_decompressed: tiny / null input ignored");
+        }
+        rt.flush_log(true);
+        std::ifstream lf(rt.log_path());
+        std::string log((std::istreambuf_iterator<char>(lf)), std::istreambuf_iterator<char>());
+        bool crest_left = false;
+        for (const auto& it : s.items)
+            if (it.res.find("crest_95_0_0_normal") != std::string::npos && !it.swap && it.reason.find("same data") != std::string::npos) crest_left = true;
+        check(crest_left, "crest_normal / crest_shorts_normal: one game chunk, two different pictures -> both left to the game");
+        check(log.find("blocks overwritten") != std::string::npos && log.find("jersey_95_0_0_color") != std::string::npos && log.find("first ") != std::string::npos &&
+                  log.find("threadPhase != 3") != std::string::npos,
+              "log file written, with the call ring");
+    }
+    {  // a new session restores the state and builds the table by itself
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        rt.start();
+        rt.wait_idle();
+        Mode m = Mode::Off;
+        check(rt.is_active(95, 0, &m) && m == Mode::Swap, "state restored: swap");
+        check(rt.status().state == "ready" && rt.table() && rt.table()->size() > 0, "table rebuilt at start");
+        rt.deactivate(95, 0);
+        rt.wait_idle();
+        check(!rt.is_active(95, 0) && rt.table() == nullptr && rt.status().state == "off", "undo: no table, state off");
+        std::vector<uint8_t> out(bl[0].dsize, 0xEE);
+        check(rt.on_block(&chunk[size_t(bl[0].payload)], bl[0].csize, out.data(), bl[0].dsize) == 0, "after undo nothing is recognised");
+    }
+    {
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        rt.start();
+        rt.wait_idle();
+        check(!rt.is_active(95, 0) && rt.status().state == "off", "undo persisted across a restart");
+    }
+    {  // the hook is installed once, when a kit is first switched on; a refusal refuses the activation
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        int installs = 0;
+        bool allow = false;
+        rt.ensure_hook = [&](std::string* why) {
+            ++installs;
+            if (!allow && why) *why = "test: not allowed";
+            return allow;
+        };
+        std::string err;
+        check(installs == 0, "no hook before a kit is switched on");
+        check(!rt.activate(95, 0, Mode::Observe, &err) && err.find("not allowed") != std::string::npos && !rt.is_active(95, 0), "hook refused: the activation is refused, nothing saved: " + err);
+        allow = true;
+        check(rt.activate(95, 0, Mode::Observe, &err) && installs == 2, "hook installed on the next try");
+        check(rt.activate(95, 0, Mode::Swap, &err) && installs == 2, "once installed it is not asked again");
+        rt.wait_idle();
+        rt.deactivate(95, 0);
+        rt.wait_idle();
+    }
+    {  // a missing Oodle decompressor and a missing game are reported, never thrown
+        Runtime rt(w.le, w.root, nullptr);
+        std::string err;
+        check(rt.activate(95, 0, Mode::Observe, &err), "activate without Oodle is accepted");
+        rt.wait_idle();
+        check(rt.status().state == "error", "state error without Oodle: " + rt.status().message);
+        Runtime rt2(w.le, w.root / "nowhere", stand_in_oodle());
+        rt2.activate(95, 0, Mode::Observe, &err);
+        rt2.wait_idle();
+        check(rt2.status().state == "error", "state error without a game");
+    }
+}
+
+// ---------------------------------------------------------------- optional: the real install (read only)
+static int real_game(const std::string& game, int team, int slot) {
+    OodleFn oodle;
+#ifdef _WIN32
+    HMODULE m = LoadLibraryW((fs::path(game) / "oo2core_9_win64.dll").wstring().c_str());
+    using Fn = int64_t (*)(const void*, int64_t, void*, int64_t, int, int, int, void*, int64_t, void*, void*, void*, int64_t, int);
+    Fn fn = m ? reinterpret_cast<Fn>(reinterpret_cast<void*>(GetProcAddress(m, "OodleLZ_Decompress"))) : nullptr;
+    if (fn)
+        oodle = [fn](const uint8_t* s, size_t n, uint8_t* d, size_t dn) { return fn(s, int64_t(n), d, int64_t(dn), 1, 0, 0, nullptr, 0, nullptr, nullptr, nullptr, 0, 3) == int64_t(dn); };
+#endif
+    if (!oodle) {
+        std::printf("no Oodle (Windows only)\n");
+        return 2;
+    }
+    GameFiles files(game);
+    std::string err;
+    if (!files.init(&err)) {
+        std::printf("init: %s\n", err.c_str());
+        return 2;
+    }
+    const auto t0 = std::chrono::steady_clock::now();
+    KitIndex idx;
+    Progress pg;
+    if (!scan_kits(files, oodle, idx, &pg, &err)) {
+        std::printf("scan: %s\n", err.c_str());
+        return 2;
+    }
+    std::printf("scan: %zu tocs, %d bundles read, %zu kit bundles, %zu kit chunks, %d unreadable, %.1f s\n", idx.tocs.size(), idx.bundles_seen, idx.bundles.size(), idx.users.size(),
+                idx.unreadable, idx.seconds);
+    // stand-in staged textures of the game's own sizes: gather the club's textures first
+    fs::path tmp = fs::temp_directory_path() / "kitswap_real";
+    fs::remove_all(tmp);
+    // roles from a first plan with an empty staged set tells us each texture's header; simplest: a plan per role needs the sizes, so
+    // build the staged set from the game's headers through a dry plan
+    StagedKit empty;
+    empty.team = team;
+    empty.slot = slot;
+    StagedTexture dummy;
+    empty.textures.push_back(dummy);
+    // the staged set: one random DDS per role found (the spec of the 24 roles with the game's sizes)
+    struct R { const char* role; uint32_t fmt; int w, h, mips; };
+    const R roles[] = {{"jersey_color", 55, 2048, 2048, 12}, {"jersey_coeff", 54, 1024, 1024, 11}, {"jersey_normal", 63, 1024, 1024, 11}, {"jersey_taa", 66, 1024, 1024, 11},
+                       {"shorts_color", 55, 1024, 512, 11}, {"shorts_coeff", 54, 1024, 512, 11}, {"shorts_normal", 63, 1024, 512, 11}, {"shorts_taa", 66, 1024, 512, 11},
+                       {"socks_color", 55, 512, 256, 10}, {"socks_coeff", 54, 512, 256, 10}, {"socks_normal", 63, 512, 256, 10}, {"socks_taa", 66, 512, 256, 10},
+                       {"brand_jersey_color", 61, 256, 256, 9}, {"brand_jersey_normal", 63, 256, 256, 9}, {"brand_jersey_coeff", 60, 128, 128, 8},
+                       {"crest_color", 61, 256, 256, 9}, {"crest_normal", 63, 256, 256, 9}, {"crest_coeff", 60, 128, 128, 8},
+                       {"brand_shorts_color", 61, 256, 256, 9}, {"brand_shorts_normal", 63, 256, 256, 9}, {"brand_shorts_coeff", 60, 128, 128, 8},
+                       {"crest_shorts_color", 61, 256, 256, 9}, {"crest_shorts_normal", 63, 256, 256, 9}, {"crest_shorts_coeff", 60, 128, 128, 8}};
+    std::mt19937 rng(5);
+    std::vector<json> tex;
+    for (const R& r : roles) stage_texture(tmp, r.role, r.fmt, r.w, r.h, r.mips, tex, rng);
+    write_manifest(tmp, team, slot, tex);
+    StagedKit sk;
+    if (!load_staged(tmp, sk, &err)) {
+        std::printf("staged: %s\n", err.c_str());
+        return 2;
+    }
+    Options opt;
+    TableBuilder tb;
+    const auto t1 = std::chrono::steady_clock::now();
+    Plan plan = build_plan(files, oodle, idx, sk, opt, false, tb, &pg);
+    const double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t1).count();
+    std::printf("plan: ok=%d error=%s swapped=%d left=%d in %.1f s (total %.1f s)\n", plan.ok, plan.error.c_str(), plan.swapped, plan.skipped, s,
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+    for (const auto& i : plan.items)
+        std::printf("  %-18s %-34s %-5s blocks %2d %s\n", i.kind.c_str(), i.res.substr(i.res.rfind('/') + 1).c_str(), i.swap ? "SWAP" : "left", i.blocks, i.reason.c_str());
+    for (const auto& n : plan.notes) std::printf("  note: %s\n", n.c_str());
+    std::vector<std::string> dropped;
+    auto table = tb.finish(&dropped);
+    std::printf("table: %zu blocks, %llu bytes, csize %u..%u, dropped %zu\n", table->size(), static_cast<unsigned long long>(table->bytes()), table->min_csize(), table->max_csize(), dropped.size());
+    fs::remove_all(tmp);
+    return plan.ok ? 0 : 1;
+}
+
+int main(int argc, char** argv) {
+    std::string game;
+    int team = 95, slot = 0;
+    for (int i = 1; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--game" && i + 1 < argc) game = argv[++i];
+        else if (a == "--team" && i + 1 < argc) team = std::atoi(argv[++i]);
+        else if (a == "--slot" && i + 1 < argc) slot = std::atoi(argv[++i]);
+    }
+    if (!game.empty()) return real_game(game, team, slot);
+    const fs::path base = fs::temp_directory_path() / "turbo_kit_swap_test";
+    fs::remove_all(base);
+    fs::create_directories(base);
+    test_names();
+    test_blocks();
+    test_scan_and_plan(base);
+    test_table(base);
+    test_runtime(base);
+    fs::remove_all(base);
+    std::printf("%d passed, %d failed\n", g_pass, g_fail);
+    return g_fail ? 1 : 0;
+}

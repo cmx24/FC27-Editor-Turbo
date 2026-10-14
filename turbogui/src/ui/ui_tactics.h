@@ -15,6 +15,7 @@ class App;
 
 // What the panel drew in its last frame (plain text is not an ImGui item, so the tests read it here)
 struct TacticsTabState {
+    bool experimental_open = false;  // 2.5: the collapsed "Experimental" section (the preview-only and untested rows) is open
     struct Row {
         std::string key;
         std::string status;       // "Live" "DB" "Local" "Preview" "RE" (the registry's write-path status)
@@ -97,5 +98,7 @@ void draw_tactics(App& app);
 bool tactics_off_now(App& app);
 // Clear the game variables this panel set (the host unloading Turbo; nothing is written otherwise). Never throws.
 void tactics_clear_on_exit(App& app);
+// Tests: open / close the "Experimental" section (closed in the app until the person opens it)
+void tactics_set_experimental_open(bool open);
 
 }  // namespace turbo

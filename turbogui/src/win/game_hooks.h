@@ -56,6 +56,11 @@ turbo::SigResult game_scan_signature(const turbo::Signature& s);
 bool install_game_hook(const char* name, const char* signature, void* detour, void** original);
 // Install a hook at an address the caller resolved itself (must be inside FC27.exe's executable sections).
 bool install_game_hook_at(const char* name, void* target, void* detour, void** original);
+// Install a hook on an export of a DLL that sits in the game folder next to FC27.exe and is loaded by it (the Oodle decompressor
+// oo2core_9_win64.dll for the 3D kit swap). Refused (false, `why` says it) when hooks are not allowed, the module is not loaded or
+// is not in the game folder, the export is missing, the per-hook kill switch exists, the first bytes in memory differ from the DLL
+// file's (another hook, or a different file) or start with a jump (someone else's hook), or MinHook fails.
+bool install_game_dll_export_hook(const char* name, const wchar_t* module, const char* export_name, void* detour, void** original, std::string* why);
 // Per-hook kill switch (turbo_output\hook_<name>_off.txt), cached and re-read every 2 s; also false when the global
 // switch is on. A detour calls this first and, when it returns false, only calls the original.
 bool game_hook_enabled(const char* name);

@@ -46,7 +46,7 @@ else
 fi
 # 2.1 asset catalog: the fast standalone runners (g++ only, synthetic data; turbogui/tests/catalog)
 c=0; cr=""
-for t in run run_callnames run_game_heads run_gear run_pages; do
+for t in run run_callnames run_game_heads run_gear run_pages run_kitswap; do
   bash "turbogui/tests/catalog/$t.sh" > "$L/check_catalog_$t.log" 2>&1 || c=1
   cr="$cr $t=$(grep -E -o '[0-9]+ (passed|checks)' "$L/check_catalog_$t.log" | tail -1 | cut -d' ' -f1)/$(grep -E -o '[0-9]+ failed' "$L/check_catalog_$t.log" | tail -1 | cut -d' ' -f1)"
 done

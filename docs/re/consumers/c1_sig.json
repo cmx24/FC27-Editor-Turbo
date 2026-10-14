@@ -1,0 +1,619 @@
+{
+ "shape.width_in": [
+  {
+   "sig": "C5 F2 58 D4 C5 EA 59 5F 28",
+   "hits": 1,
+   "start": "0x140f5637b",
+   "insns": 2,
+   "func": "0x140f56030",
+   "read": "0x140f5637f",
+   "txt": "vmulss xmm3, xmm2, dword ptr [rdi + 0x28]"
+  }
+ ],
+ "shape.length_in": [
+  {
+   "sig": "8B 97 54 05 00 00 C4 C1 7A 10 71 30",
+   "hits": 1,
+   "start": "0x140f571ca",
+   "insns": 2,
+   "func": "0x140f57098",
+   "read": "0x140f571d0",
+   "txt": "vmovss xmm6, dword ptr [r9 + 0x30]"
+  }
+ ],
+ "shape.length_in_possession": [
+  {
+   "sig": "0F 85 ?? ?? ?? ?? C4 C1 7A 10 71 50",
+   "hits": 1,
+   "start": "0x140f571dc",
+   "insns": 2,
+   "func": "0x140f57098",
+   "read": "0x140f571e2",
+   "txt": "vmovss xmm6, dword ptr [r9 + 0x50]"
+  }
+ ],
+ "shape.width_out": [
+  {
+   "sig": "C4 C1 6A 58 C5 C4 C1 7A 59 42 28",
+   "hits": 1,
+   "start": "0x140f56189",
+   "insns": 2,
+   "func": "0x140f56030",
+   "read": "0x140f5618e",
+   "txt": "vmulss xmm0, xmm0, dword ptr [r10 + 0x28]"
+  }
+ ],
+ "marking.tightness": [
+  {
+   "sig": "48 83 E2 FB C5 FA 10 4A 28",
+   "hits": 1,
+   "start": "0x1413342ad",
+   "insns": 2,
+   "func": "0x141333f8b",
+   "read": "0x1413342b1",
+   "txt": "vmovss xmm1, dword ptr [rdx + 0x28]"
+  }
+ ],
+ "pressing.stepup_distance_bonus": [
+  {
+   "sig": "48 83 E0 FB C5 FA 10 78 58",
+   "hits": 1,
+   "start": "0x146f20659",
+   "insns": 2,
+   "func": "0x146f205f0",
+   "read": "0x146f2065d",
+   "txt": "vmovss xmm7, dword ptr [rax + 0x58]"
+  }
+ ],
+ "pressing.stepup_mid_distance_bonus": [
+  {
+   "sig": "C5 72 59 78 6C C5 7A 10 50 70",
+   "hits": 1,
+   "start": "0x1416969f9",
+   "insns": 2,
+   "func": "0x1416966f8",
+   "read": "0x1416969fe",
+   "txt": "vmovss xmm10, dword ptr [rax + 0x70]"
+  }
+ ],
+ "pressing.stepup_trigger_speed": [
+  {
+   "sig": "45 8B B6 BC 0F 00 00 C4 41 7A 10 85 80 00 00 00",
+   "hits": 1,
+   "start": "0x146f2d8c7",
+   "insns": 2,
+   "func": "0x146f2d4c0",
+   "read": "0x146f2d8ce",
+   "txt": "vmovss xmm8, dword ptr [r13 + 0x80]"
+  }
+ ],
+ "pressing.stepup_opponent_range": [
+  {
+   "sig": "C5 FA 11 44 24 2C C4 C1 6A 59 85 A4 00 00 00",
+   "hits": 1,
+   "start": "0x146f2d93d",
+   "insns": 2,
+   "func": "0x146f2d4c0",
+   "read": "0x146f2d943",
+   "txt": "vmulss xmm0, xmm2, dword ptr [r13 + 0xa4]"
+  }
+ ],
+ "pressing.aggressive_interception_depth": [
+  {
+   "sig": "49 83 E0 FB C4 C1 78 2F 80 A0 00 00 00",
+   "hits": 1,
+   "start": "0x141f45ff0",
+   "insns": 2,
+   "func": "0x141f45ebc",
+   "read": "0x141f45ff4",
+   "txt": "vcomiss xmm0, dword ptr [r8 + 0xa0]"
+  }
+ ],
+ "pressing.keep_press_after_gain": [
+  {
+   "sig": "48 8B 80 A8 00 00 00 48 83 E0 FB 44 38 A8 B9 00 00 00",
+   "hits": 1,
+   "start": "0x1418a4685",
+   "insns": 3,
+   "func": "0x1418a4304",
+   "read": "0x1418a4690",
+   "txt": "cmp byte ptr [rax + 0xb9], r13b"
+  }
+ ],
+ "marking.reaction_defenders": [
+  {
+   "sig": "48 8D 53 58 C5 FA 10 B3 4C 01 00 00",
+   "hits": 1,
+   "start": "0x141a12a7f",
+   "insns": 2,
+   "func": "0x141a12888",
+   "read": "0x141a12a83",
+   "txt": "vmovss xmm6, dword ptr [rbx + 0x14c]"
+  }
+ ],
+ "marking.top_speed_defenders": [
+  {
+   "sig": "C5 7A 10 8A 54 01 00 00 C5 7A 10 92 44 01 00 00",
+   "hits": 1,
+   "start": "0x141c30f8e",
+   "insns": 2,
+   "func": "0x141c30e24",
+   "read": "0x141c30f96",
+   "txt": "vmovss xmm10, dword ptr [rdx + 0x144]"
+  }
+ ],
+ "marking.global_reaction": [
+  {
+   "sig": "E8 ?? ?? ?? ?? C4 C1 7A 59 94 24 DC 01 00 00",
+   "hits": 1,
+   "start": "0x1416f2b17",
+   "insns": 2,
+   "func": "0x1416f2750",
+   "read": "0x1416f2b1c",
+   "txt": "vmulss xmm2, xmm0, dword ptr [r12 + 0x1dc]"
+  }
+ ],
+ "marking.after_kickoff_period": [
+  {
+   "sig": "48 83 E0 FB 44 6B 80 34 06 00 00 3C",
+   "hits": 1,
+   "start": "0x140d1a030",
+   "insns": 2,
+   "func": "0x140d199d4",
+   "read": "0x140d1a034",
+   "txt": "imul r8d, dword ptr [rax + 0x634], 0x3c"
+  },
+  {
+   "sig": "48 83 E0 FB 44 6B 80 34 06 00 00 3C",
+   "hits": 1,
+   "start": "0x140d1a030",
+   "insns": 2,
+   "func": "0x140d19ffb",
+   "read": "0x140d1a034",
+   "txt": "imul r8d, dword ptr [rax + 0x634], 0x3c"
+  }
+ ],
+ "runs.stick_to_position_frequency": [
+  {
+   "sig": "74 0A C5 FA 10 81 80 00 00 00",
+   "hits": 1,
+   "start": "0x146ed4018",
+   "insns": 2,
+   "func": "0x146ed3fd8",
+   "read": "0x146ed401a",
+   "txt": "vmovss xmm0, dword ptr [rcx + 0x80]"
+  }
+ ],
+ "runs.come_short_frequency": [
+  {
+   "sig": "73 0A C5 FA 10 81 F0 00 00 00",
+   "hits": 1,
+   "start": "0x146ed400a",
+   "insns": 2,
+   "func": "0x146ed3fd8",
+   "read": "0x146ed400c",
+   "txt": "vmovss xmm0, dword ptr [rcx + 0xf0]"
+  }
+ ],
+ "runs.form_return_defenders": [
+  {
+   "sig": "75 F4 C5 8A 5C 42 2C",
+   "hits": 1,
+   "start": "0x14139a4d6",
+   "insns": 2,
+   "func": "0x14139a22c",
+   "read": "0x14139a4d8",
+   "txt": "vsubss xmm0, xmm14, dword ptr [rdx + 0x2c]"
+  },
+  {
+   "sig": "C4 C1 7A 59 CC C5 F2 58 52 2C",
+   "hits": 1,
+   "start": "0x14139a4dd",
+   "insns": 2,
+   "func": "0x14139a22c",
+   "read": "0x14139a4e2",
+   "txt": "vaddss xmm2, xmm1, dword ptr [rdx + 0x2c]"
+  }
+ ],
+ "runs.form_return_forwards": [
+  {
+   "sig": "C5 DA 59 52 44 C5 7A 10 72 5C",
+   "hits": 1,
+   "start": "0x14139a427",
+   "insns": 2,
+   "func": "0x14139a22c",
+   "read": "0x14139a42c",
+   "txt": "vmovss xmm14, dword ptr [rdx + 0x5c]"
+  }
+ ],
+ "runs.build_up_cb_cover": [
+  {
+   "sig": "C5 FA 10 15 ?? ?? ?? ?? C4 41 52 59 40 28",
+   "hits": 1,
+   "start": "0x1422d3a74",
+   "insns": 2,
+   "func": "0x1422d397c",
+   "read": "0x1422d3a7c",
+   "txt": "vmulss xmm8, xmm5, dword ptr [r8 + 0x28]"
+  }
+ ],
+ "recovery.defenders_sprint_back": [
+  {
+   "sig": "75 0A C5 FA 10 43 2C",
+   "hits": 1,
+   "start": "0x146ed95ce",
+   "insns": 2,
+   "func": "0x146ed94f4",
+   "read": "0x146ed95d0",
+   "txt": "vmovss xmm0, dword ptr [rbx + 0x2c]"
+  }
+ ],
+ "recovery.midfielders_sprint_back": [
+  {
+   "sig": "EB 6D C5 FA 10 43 38",
+   "hits": 1,
+   "start": "0x146ed95ef",
+   "insns": 2,
+   "func": "0x146ed94f4",
+   "read": "0x146ed95f1",
+   "txt": "vmovss xmm0, dword ptr [rbx + 0x38]"
+  }
+ ],
+ "recovery.forwards_sprint_back": [
+  {
+   "sig": "77 74 C5 FA 10 43 48",
+   "hits": 1,
+   "start": "0x146ed95e8",
+   "insns": 2,
+   "func": "0x146ed94f4",
+   "read": "0x146ed95ea",
+   "txt": "vmovss xmm0, dword ptr [rbx + 0x48]"
+  }
+ ],
+ "passing.transition_error": [
+  {
+   "sig": "48 83 E0 FB C5 FA 10 80 B0 05 00 00",
+   "hits": 1,
+   "start": "0x14142e704",
+   "insns": 2,
+   "func": "0x14142e2bc",
+   "read": "0x14142e708",
+   "txt": "vmovss xmm0, dword ptr [rax + 0x5b0]"
+  }
+ ],
+ "goalkeeper.rush_radius": [
+  {
+   "sig": "C5 EA 5E D0 C5 FA 10 82 90 00 00 00",
+   "hits": 1,
+   "start": "0x146fd6ead",
+   "insns": 2,
+   "func": "0x146fd6ce4",
+   "read": "0x146fd6eb1",
+   "txt": "vmovss xmm0, dword ptr [rdx + 0x90]"
+  }
+ ],
+ "goalkeeper.rush_min_distance": [
+  {
+   "sig": "C4 41 50 5C C1 C5 FA 10 AA F4 00 00 00",
+   "hits": 1,
+   "start": "0x146fd6e37",
+   "insns": 2,
+   "func": "0x146fd6ce4",
+   "read": "0x146fd6e3c",
+   "txt": "vmovss xmm5, dword ptr [rdx + 0xf4]"
+  }
+ ],
+ "goalkeeper.rush_enabled": [
+  {
+   "sig": "48 83 E0 FB 8A 98 31 01 00 00",
+   "hits": 1,
+   "start": "0x146d6e9f8",
+   "insns": 2,
+   "func": "0x146d6e948",
+   "read": "0x146d6e9fc",
+   "txt": "mov bl, byte ptr [rax + 0x131]"
+  }
+ ],
+ "goalkeeper.cover_far_post": [
+  {
+   "sig": "74 54 E8 ?? ?? ?? ?? 48 8B 80 60 01 00 00 48 83 E0 FB 48 8B 40 28 48 83 E0 FB 80 B8 30 01 00 00 00",
+   "hits": 1,
+   "start": "0x1414314f3",
+   "insns": 7,
+   "func": "0x141431290",
+   "read": "0x14143150d",
+   "txt": "cmp byte ptr [rax + 0x130], 0"
+  },
+  {
+   "sig": "48 83 E0 FB 44 38 A8 30 01 00 00",
+   "hits": 1,
+   "start": "0x141f42984",
+   "insns": 2,
+   "func": "0x141f424fc",
+   "read": "0x141f42988",
+   "txt": "cmp byte ptr [rax + 0x130], r13b"
+  }
+ ],
+ "goalkeeper.catch_score": [
+  {
+   "sig": "77 11 C5 FA 10 82 8C 00 00 00",
+   "hits": 1,
+   "start": "0x146fe8d2c",
+   "insns": 2,
+   "func": "0x146fe8ce4",
+   "read": "0x146fe8d2e",
+   "txt": "vmovss xmm0, dword ptr [rdx + 0x8c]"
+  }
+ ],
+ "goalkeeper.parry_close_score": [
+  {
+   "sig": "EB 21 C5 FA 10 82 94 00 00 00",
+   "hits": 1,
+   "start": "0x146fe8d1c",
+   "insns": 2,
+   "func": "0x146fe8ce4",
+   "read": "0x146fe8d1e",
+   "txt": "vmovss xmm0, dword ptr [rdx + 0x94]"
+  }
+ ],
+ "goalkeeper.playback_scale": [
+  {
+   "sig": "48 83 E0 FB C5 FA 10 80 88 00 00 00",
+   "hits": 1,
+   "start": "0x141b77d79",
+   "insns": 2,
+   "func": "0x141b77d50",
+   "read": "0x141b77d7d",
+   "txt": "vmovss xmm0, dword ptr [rax + 0x88]"
+  }
+ ],
+ "defending.jockey_speed": [
+  {
+   "sig": "48 83 E0 FB C5 FA 5D 50 78",
+   "hits": 1,
+   "start": "0x140b5524d",
+   "insns": 2,
+   "func": "0x140b551e4",
+   "read": "0x140b55251",
+   "txt": "vminss xmm2, xmm0, dword ptr [rax + 0x78]"
+  },
+  {
+   "sig": "C5 FA 10 8B B4 0C 00 00 C5 BA 59 77 78",
+   "hits": 1,
+   "start": "0x141985fe1",
+   "insns": 2,
+   "func": "0x141985c50",
+   "read": "0x141985fe9",
+   "txt": "vmulss xmm6, xmm8, dword ptr [rdi + 0x78]"
+  }
+ ],
+ "defending.instant_effort_distance": [
+  {
+   "sig": "C3 C5 FA 10 82 10 01 00 00",
+   "hits": 1,
+   "start": "0x1422c0474",
+   "insns": 2,
+   "func": "0x1422c03cc",
+   "read": "0x1422c0475",
+   "txt": "vmovss xmm0, dword ptr [rdx + 0x110]"
+  }
+ ],
+ "referee.yellow_threshold": [
+  {
+   "sig": "41 89 81 4C 01 00 00 41 8B 80 18 01 00 00",
+   "hits": 1,
+   "start": "0x146a5310f",
+   "insns": 2,
+   "func": "0x146a52fb4",
+   "read": "0x146a53116",
+   "txt": "mov eax, dword ptr [r8 + 0x118]"
+  }
+ ],
+ "referee.red_threshold": [
+  {
+   "sig": "41 89 81 50 01 00 00 41 8B 80 FC 00 00 00",
+   "hits": 1,
+   "start": "0x146a5311d",
+   "insns": 2,
+   "func": "0x146a52fb4",
+   "read": "0x146a53124",
+   "txt": "mov eax, dword ptr [r8 + 0xfc]"
+  }
+ ],
+ "referee.advantage_window": [
+  {
+   "sig": "48 8B 51 58 48 83 E2 FB 8B 42 70",
+   "hits": 1,
+   "start": "0x1469dfacf",
+   "insns": 3,
+   "func": "0x1469df924",
+   "read": "0x1469dfad7",
+   "txt": "mov eax, dword ptr [rdx + 0x70]"
+  }
+ ],
+ "fatigue.long_term_speed": [
+  {
+   "sig": "89 01 C5 FA 10 9F EC 00 00 00",
+   "hits": 1,
+   "start": "0x14141fafa",
+   "insns": 2,
+   "func": "0x14141f604",
+   "read": "0x14141fafc",
+   "txt": "vmovss xmm3, dword ptr [rdi + 0xec]"
+  }
+ ],
+ "fatigue.pressing_cost": [
+  {
+   "sig": "0F 84 ?? ?? ?? ?? C5 FA 10 AF D8 00 00 00",
+   "hits": 1,
+   "start": "0x14141f98f",
+   "insns": 2,
+   "func": "0x14141f604",
+   "read": "0x14141f995",
+   "txt": "vmovss xmm5, dword ptr [rdi + 0xd8]"
+  }
+ ],
+ "fatigue.injury_scalar": [
+  {
+   "sig": "48 83 E3 FB E8 ?? ?? ?? ?? C5 FA 10 8B A8 00 00 00",
+   "hits": 1,
+   "start": "0x140feb963",
+   "insns": 3,
+   "func": "0x140feb620",
+   "read": "0x140feb96c",
+   "txt": "vmovss xmm1, dword ptr [rbx + 0xa8]"
+  },
+  {
+   "sig": "48 83 E3 FB E8 ?? ?? ?? ?? C5 FA 10 8B A8 00 00 00",
+   "hits": 1,
+   "start": "0x140feb963",
+   "insns": 3,
+   "func": "0x140feb91c",
+   "read": "0x140feb96c",
+   "txt": "vmovss xmm1, dword ptr [rbx + 0xa8]"
+  }
+ ],
+ "shape.def_line_range_max": [
+  {
+   "sig": "41 89 8B A0 5B 00 00 41 8B 8A 10 01 00 00",
+   "hits": 1,
+   "start": "0x146a522d1",
+   "insns": 2,
+   "func": "0x146a521ec",
+   "read": "0x146a522d8",
+   "txt": "mov ecx, dword ptr [r10 + 0x110]"
+  }
+ ],
+ "shape.def_line_range_min": [
+  {
+   "sig": "EB D9 41 8B 8A 78 01 00 00",
+   "hits": 1,
+   "start": "0x146a522c1",
+   "insns": 2,
+   "func": "0x146a521ec",
+   "read": "0x146a522c3",
+   "txt": "mov ecx, dword ptr [r10 + 0x178]"
+  }
+ ],
+ "pressing.partial_cooldownmultiplier": [
+  {
+   "sig": "C5 FA 10 05 ?? ?? ?? ?? C4 C1 7A 5F 40 74",
+   "hits": 1,
+   "start": "0x14164f43c",
+   "insns": 2,
+   "func": "0x14164f338",
+   "read": "0x14164f444",
+   "txt": "manual"
+  }
+ ],
+ "pressing.partial_highworkratetime": [
+  {
+   "sig": "74 2E C4 C1 7A 10 88 84 00 00 00",
+   "hits": 1,
+   "start": "0x14164f62d",
+   "insns": 2,
+   "func": "0x14164f5a8",
+   "read": "0x14164f62f",
+   "txt": "manual"
+  }
+ ],
+ "pressing.partial_lowworkratetime": [
+  {
+   "sig": "C4 C1 7A 10 88 84 00 00 00 C4 C1 7A 10 80 9C 00 00 00",
+   "hits": 1,
+   "start": "0x14164f62f",
+   "insns": 2,
+   "func": "0x14164f5a8",
+   "read": "0x14164f638",
+   "txt": "manual"
+  }
+ ],
+ "pressing.partial_min_penalty": [
+  {
+   "sig": "0F 84 ?? ?? ?? ?? C4 C1 7A 10 B0 A0 00 00 00",
+   "hits": 1,
+   "start": "0x14164f416",
+   "insns": 2,
+   "func": "0x14164f338",
+   "read": "0x14164f41c",
+   "txt": "manual"
+  }
+ ],
+ "pressing.partial_max_penalty": [
+  {
+   "sig": "C4 C1 7A 10 B0 A0 00 00 00 C4 C1 7A 10 80 88 00 00 00",
+   "hits": 1,
+   "start": "0x14164f41c",
+   "insns": 2,
+   "func": "0x14164f338",
+   "read": "0x14164f425",
+   "txt": "manual"
+  }
+ ],
+ "lineband.deep_max": [
+  {
+   "sig": "48 83 E0 FB 44 8B 70 3C",
+   "hits": 1,
+   "start": "0x141daad66",
+   "insns": 2,
+   "func": "0x141daad24",
+   "read": "0x141daad6a",
+   "txt": "manual"
+  }
+ ],
+ "lineband.balanced_min": [
+  {
+   "sig": "8B 70 28 44 8B 58 40",
+   "hits": 1,
+   "start": "0x141daad7c",
+   "insns": 2,
+   "func": "0x141daad24",
+   "read": "0x141daad7f",
+   "txt": "manual"
+  }
+ ],
+ "lineband.balanced_max": [
+  {
+   "sig": "41 8B DE 8B 68 2C",
+   "hits": 1,
+   "start": "0x141daad6e",
+   "insns": 2,
+   "func": "0x141daad24",
+   "read": "0x141daad71",
+   "txt": "manual"
+  }
+ ],
+ "lineband.high_min": [
+  {
+   "sig": "41 2B CB 8B 78 38",
+   "hits": 1,
+   "start": "0x141daad83",
+   "insns": 2,
+   "func": "0x141daad24",
+   "read": "0x141daad86",
+   "txt": "manual"
+  }
+ ],
+ "lineband.high_max": [
+  {
+   "sig": "8B CD 8B 50 44",
+   "hits": 1,
+   "start": "0x141daad74",
+   "insns": 2,
+   "func": "0x141daad24",
+   "read": "0x141daad76",
+   "txt": "manual"
+  }
+ ],
+ "lineband.aggressive_min": [
+  {
+   "sig": "44 2B CF 44 8B 78 34",
+   "hits": 1,
+   "start": "0x141daad89",
+   "insns": 2,
+   "func": "0x141daad24",
+   "read": "0x141daad8c",
+   "txt": "manual"
+  }
+ ]
+}

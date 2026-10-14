@@ -1,0 +1,14 @@
+# battery_knobs.txt - the default knob list of battery_write.py (one knob per line; '#' comments).
+# Line: <knob id> [explicit extreme value(s)] [both]    'both' = schedule every default extreme of the knob.
+# ORDER IS PRIORITY: plan_schedule schedules the knobs that can be DECIDED in the time (>= 3 replicate windows each, a-priori MDE <= dmin), in this
+# order; one launch has about 400 s, which decides ONE knob of the width family (the others are deferred with the seconds they would need - see
+# `battery_run.sh plan`). To decide width_out use battery_knobs_width_out.txt. Knobs the plan defers as under-powered need a different measurement
+# (a metric closer to the consumer, or a longer run), not a repeat.
+# A knob with a deterministic engine-read observable first (band_att / band_def / paired_len), then the effect-only ones.
+shape.width_in
+shape.width_out
+shape.width_in_cb
+shape.length_in
+shape.length_in_possession
+marking.tightness
+runs.frequency
