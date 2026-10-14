@@ -413,6 +413,21 @@ struct DbWorld {
     }
 };
 
+// The game's one address space, for the UI tests: the simulated sheet's pages from the SheetWorld, everything else (the career database the
+// card reads and the job writes) from the app's memory (the GUI world image)
+struct SplitMemory : Memory {
+    SimMemory& sheet;
+    Memory& rest;
+    SplitMemory(SimMemory& s, Memory& r) : sheet(s), rest(r) {}
+    bool in_sheet(uint64_t a, size_t n) const {
+        for (uint64_t p = a / SimMemory::kPage; p <= (a + (n ? n - 1 : 0)) / SimMemory::kPage; ++p)
+            if (!sheet.pages.count(p)) return false;
+        return true;
+    }
+    bool read(uint64_t a, void* o, size_t n) override { return in_sheet(a, n) ? sheet.read(a, o, n) : rest.read(a, o, n); }
+    bool write(uint64_t a, const void* i, size_t n) override { return in_sheet(a, n) ? sheet.write(a, i, n) : rest.write(a, i, n); }
+};
+
 static LiveTactic live(SheetWorld& w) {
     LiveTactic lt;
     read_live(w.mem, SheetWorld::kSvc, w.team, w.anchors(), lt);
@@ -478,6 +493,7 @@ struct ServiceRig {
         };
         h.log = [this](const std::string& s) { logs.push_back(s); };
         h.clock_us = [this]() { return clock; };
+        h.wall_us = [this]() { return clock; };  // one clock in the tests (the host gives the system clock for the wall waits)
         if (tweak) tweak(h);
         svc = std::make_shared<CoreService>(std::move(h));
     }
@@ -1693,6 +1709,155 @@ static void run() {
               "the row written in the service's job: " + res.log_line);
     });
 
+    run_case("channel E 2.4 review: switches re-read in the job; a record write that fails with a row in the plan; putting back fails with a row", [] {
+        Request r;
+        r.approach = 2;
+        r.line_height = 70;
+        r.build_up = 1;
+        {
+            // m1: a kill switch dropped (or the opt-in removed, or the row's switch dropped) after the click: seen in the job itself
+            const fs::path out = test_tmp_dir("channel_e_jobswitch");
+            std::error_code ec;
+            fs::remove_all(out, ec);
+            SheetWorld w;
+            DbWorld db(w.mem);
+            const uint64_t rec = db.row(0, w, 0, 25, 0);
+            ServiceRig rig(w, out);
+            rig.find_returns = SheetWorld::kSvc;
+            rig.touch(opt_in_file());
+            LiveTactic lt;
+            std::string why;
+            rig.svc->read(rig.ctx(), lt, why);
+            rig.jobs.pump();
+            CHECK(rig.svc->read(rig.ctx(), lt, why), "read: " + why);
+            auto plan_now = [&]() {
+                Plan p;
+                make_plan(lt, r, p, nullptr);
+                p.load_gen = 3;
+                p.rows.push_back(db.target(rec, p, lt));
+                return p;
+            };
+            ApplyResult res;
+            for (const char* k : {kill_switch_file(), master_switch_file()}) {
+                CHECK(rig.svc->submit(rig.ctx(), plan_now(), why), "queued: " + why);
+                rig.touch(k);
+                rig.jobs.pump();
+                CHECK(rig.svc->poll(res) && !res.ok && res.stage == "G1" && res.message.find(std::string(k) + " (seen in the job)") != std::string::npos &&
+                          w.i32(SheetWorld::kRecs + kRecLineHeight) == 25 && db.get(rec, "defensivedepth") == 25,
+                      std::string(k) + " after the click: " + res.message);
+                rig.remove(k);
+            }
+            CHECK(rig.svc->submit(rig.ctx(), plan_now(), why), "queued");
+            rig.remove(opt_in_file());
+            rig.jobs.pump();
+            CHECK(rig.svc->poll(res) && !res.ok && res.stage == "G1" && res.message.find("no call_team_sheet_on.txt (seen in the job)") != std::string::npos,
+                  "the opt-in removed after the click: " + res.message);
+            rig.touch(opt_in_file());
+            CHECK(rig.svc->submit(rig.ctx(), plan_now(), why), "queued");
+            rig.touch(db_row_off_file());
+            rig.jobs.pump();
+            CHECK(rig.svc->poll(res) && res.ok && res.written && res.rows.empty() && db.get(rec, "defensivedepth") == 25 &&
+                      w.i32(SheetWorld::kRecs + kRecLineHeight) == 70 &&
+                      res.log_line.find("[cm_mentalities not written: kill switch turbo_output\\channel_e_db_off.txt is present]") != std::string::npos,
+                  "channel_e_db_off.txt after the click: the row left out in the job: " + res.log_line);
+            rig.remove(db_row_off_file());
+        }
+        {
+            // M4.1: the record write is silently dropped with a row in the plan: the row WAS written and is put back with everything else
+            SheetWorld w;
+            DbWorld db(w.mem);
+            const uint64_t rec = db.row(0, w, 0, 25, 0);
+            Plan p;
+            CHECK(make_plan(live(w), r, p, nullptr).empty(), "plan");
+            p.rows.push_back(db.target(rec, p, live(w)));
+            FlakyMemory fm(w.mem);
+            fm.drop = SheetWorld::kRecs + kRecLineHeight;
+            const ApplyResult res = apply_plan(fm, SheetWorld::kSvc, w.anchors(), p);
+            CHECK(!res.ok && res.undone && !res.restore_failed && res.message.find("Line Height reads 25, not 70") != std::string::npos, "mismatch: " + res.message);
+            CHECK(db.get(rec, "defensivedepth") == 25 && db.get(rec, "buildupplay") == 0 && w.i32(SheetWorld::kRecs + kRecApproach) == 0 &&
+                      w.i32(SheetWorld::kRecs + kRecBuildUp) == 0,
+                  "the row and the record are back");
+            CHECK(res.rows.size() == 1 && res.rows[0].fields.size() == 2 && res.log_line.find("; cm_mentalities artificialkey 0 defensivedepth 25->70") != std::string::npos,
+                  "the row is named (it was written): " + res.log_line);
+            // m9: the record write REFUSED by the memory layer: the row is never tried, and neither the result nor the log claims it
+            SheetWorld w2;
+            DbWorld db2(w2.mem);
+            const uint64_t rec2 = db2.row(0, w2, 0, 25, 0);
+            Plan p2;
+            make_plan(live(w2), r, p2, nullptr);
+            p2.rows.push_back(db2.target(rec2, p2, live(w2)));
+            FlakyMemory fm2(w2.mem);
+            fm2.drop = SheetWorld::kRecs + kRecLineHeight;
+            fm2.refuse = true;
+            const ApplyResult res2 = apply_plan(fm2, SheetWorld::kSvc, w2.anchors(), p2);
+            CHECK(!res2.ok && res2.undone && res2.rows.empty() && res2.rows_note == "not written: the live record's write failed first" &&
+                      res2.log_line.find("cm_mentalities artificialkey") == std::string::npos && db2.get(rec2, "defensivedepth") == 25,
+                  "no row claimed: " + res2.log_line);
+        }
+        {
+            // M4.2: putting back fails with a row: the approach and the row's depth stay at Turbo's values; the undo file names them; the undo
+            // puts both back (the row although its live field, the line height, already holds the game's value)
+            struct OnceMemory : Memory {
+                SimMemory& m;
+                bool on = true;
+                uint64_t drop = 0;
+                std::map<uint64_t, int> once;  // address -> writes seen (the first lands, the rest are dropped)
+                explicit OnceMemory(SimMemory& mm) : m(mm) {}
+                bool read(uint64_t a, void* o, size_t n) override { return m.read(a, o, n); }
+                bool write(uint64_t a, const void* i, size_t n) override {
+                    if (on && a == drop) return true;
+                    auto it = once.find(a);
+                    if (on && it != once.end() && it->second++ > 0) return true;
+                    return m.write(a, i, n);
+                }
+            };
+            SheetWorld w;
+            DbWorld db(w.mem);
+            const uint64_t rec = db.row(0, w, 0, 25, 0);
+            Plan p;
+            CHECK(make_plan(live(w), r, p, nullptr).empty(), "plan");
+            p.load_gen = 3;
+            p.rows.push_back(db.target(rec, p, live(w)));
+            OnceMemory om(w.mem);
+            om.drop = SheetWorld::kRecs + kRecLineHeight;
+            om.once[SheetWorld::kRecs + kRecApproach] = 0;
+            om.once[rec + db.field("defensivedepth")->byte_off()] = 0;
+            const ApplyResult res = apply_plan(om, SheetWorld::kSvc, w.anchors(), p);
+            om.on = false;
+            CHECK(!res.ok && res.restore_failed && !res.undone && res.session_off, "putting back failed: " + res.message);
+            CHECK(w.i32(SheetWorld::kRecs + kRecApproach) == 2 && w.i32(SheetWorld::kRecs + kRecLineHeight) == 25 && w.i32(SheetWorld::kRecs + kRecBuildUp) == 0 &&
+                      db.get(rec, "defensivedepth") == 70 && db.get(rec, "buildupplay") == 0,
+                  "stuck at Turbo's: the approach and the row's depth");
+            WriteHistory hist;
+            hist.note(p, res.writes, res.rows);  // what the service records after such a job
+            UndoRecord u = UndoRecord::from_plan(p);
+            u.load_gen = 3;
+            u.state = "failed";
+            add_job_writes(u, res.writes);
+            add_job_rows(u, res.rows, false);
+            CHECK(u.mirror_state == "written" && u.mirror.size() == 2, "the undo file names the row's fields");
+            Plan up;
+            std::vector<std::string> skipped;
+            CHECK(make_undo_plan(live(w), u, "", 3, up, skipped).empty() && up.writes.size() == 1 && up.writes[0].kind == FieldKind::Approach,
+                  fmt("the undo plan: the approach only (%zu)", up.writes.size()));
+            auto get = [&](const std::string& n, int64_t& v) { return db.get_ok(rec, n, v); };
+            std::vector<std::string> left;
+            const LiveTactic now = live(w);
+            DbRowWrite ur = db.bare(rec);
+            ur.fields = undo_row_fields(u, up, get, left, &now);
+            CHECK(ur.fields.size() == 1 && ur.fields[0].name == "defensivedepth" && ur.fields[0].new_value == 25 && left.size() == 1,
+                  "the row's depth goes back although the line height is not in the plan: " + (left.empty() ? std::string() : left[0]));
+            std::vector<std::string> left0;
+            CHECK(undo_row_fields(u, up, get, left0).empty(), "without the live read: the old rule (only fields this undo puts back)");
+            up.rows.push_back(ur);
+            JobChecks hck;
+            hck.history = &hist;
+            const ApplyResult ures = apply_plan(w.mem, SheetWorld::kSvc, w.anchors(), up, hck);
+            CHECK(ures.ok && ures.undo && w.i32(SheetWorld::kRecs + kRecApproach) == 0 && db.get(rec, "defensivedepth") == 25,
+                  "undone: the approach and the row: " + ures.log_line);
+        }
+    });
+
     run_case("channel E: the gates G1..G6 in order, with the first reason", [] {
         GateInput in;
         in.sw.opt_in = true;
@@ -2078,17 +2243,67 @@ static void run() {
         k = match(c);
         CHECK(k.find("roles 11/11 = game (differs: copy 2: roles 10/11) | 2 copies") != std::string::npos, "roles differ (found by its pids): " + k);
         w.mem.wr(out2 + kCopyRoles + 4 * 9, int32_t(38214));
-        // a match whose copies are not made yet: one more look 30 s later
+        // a match whose copies are made late: a look every 15 s of wall time, found on the third
         w.mem.wr(out1 + kCopyTeam, int32_t(7));
         w.mem.wr(out2 + kCopyTeam, int32_t(7));
         k = match(c);
-        CHECK(k.find("channel E kick-off: no match copy found (") == 0 && rig.logged("looking again in 30 s"), "none yet: looks again: " + k);
+        CHECK(k.find("channel E kick-off: no match copy found (") == 0 && k.find("(look 1 of 5)") != std::string::npos && rig.logged("looking again in 15 s"),
+              "none yet: looks again: " + k);
+        rig.clock += 14e6;
+        rig.svc->kickoff_tick();
+        CHECK(rig.svc->kickoff_status() == k, "not before 15 s");
+        rig.clock += 1e6;
+        rig.svc->kickoff_tick();
+        CHECK(rig.svc->kickoff_status().find("(look 2 of 5)") != std::string::npos, "look 2: " + rig.svc->kickoff_status());
         w.mem.wr(out1 + kCopyTeam, int32_t(95));
         w.mem.wr(out2 + kCopyTeam, int32_t(95));
-        rig.clock += 30e6;
+        rig.clock += 15e6;
         rig.svc->kickoff_tick();
         k = rig.svc->kickoff_status();
-        CHECK(k.find("= Turbo (ok) | 2 copies") != std::string::npos && k.find("(second look)") != std::string::npos, "found on the second look: " + k);
+        CHECK(k.find("= Turbo (ok) | 2 copies") != std::string::npos && k.find("(look 3 of 5)") != std::string::npos, "found on the third look: " + k);
+        // never found: five looks, the last one says so and nothing is scheduled after it
+        w.mem.wr(out1 + kCopyTeam, int32_t(7));
+        w.mem.wr(out2 + kCopyTeam, int32_t(7));
+        k = match(c);
+        for (int i = 0; i < 6; ++i) {
+            rig.clock += 15e6;
+            rig.svc->kickoff_tick();
+        }
+        k = rig.svc->kickoff_status();
+        CHECK(k.find("channel E kick-off: no match copy found (") == 0 && k.find("(look 5 of 5)") != std::string::npos, "the last look: " + k);
+        CHECK(!rig.logged("(look 6 of 5)"), "no sixth look");
+        w.mem.wr(out1 + kCopyTeam, int32_t(95));
+        w.mem.wr(out2 + kCopyTeam, int32_t(95));
+        // review m7: the background thread cannot be started: the check says so and is not stuck "running" for the session
+        {
+            SheetWorld w7;
+            const fs::path o7 = test_tmp_dir("channel_e_kickoff7");
+            fs::remove_all(o7, ec);
+            bool fail_start = true;
+            ServiceRig r7(w7, o7, nullptr, [&fail_start](Host& h) {
+                h.run_background = [&fail_start](std::function<void()> f) {
+                    if (fail_start) throw std::runtime_error("thread");
+                    f();
+                };
+            });
+            Context c7 = r7.ctx();
+            c7.phase = "match";
+            c7.hub = false;
+            r7.svc->note_context(c7);
+            r7.clock += 20e6;
+            r7.svc->kickoff_tick();
+            CHECK(r7.svc->kickoff_status() == "channel E kick-off: check failed (the background thread could not be started)" &&
+                      r7.logged("channel E kick-off: check failed (the background thread could not be started)"),
+                  "said: " + r7.svc->kickoff_status());
+            fail_start = false;
+            c7.phase = "hub";
+            r7.svc->note_context(c7);
+            c7.phase = "match";
+            r7.svc->note_context(c7);
+            r7.clock += 20e6;
+            r7.svc->kickoff_tick();
+            CHECK(r7.svc->kickoff_status().find("channel E kick-off: not checked (") == 0, "the next match is checked again: " + r7.svc->kickoff_status());
+        }
         // its own off switch, channel E's kill switches and the opt-in (it reads all of memory during a match: testers only)
         rig.touch(kickoff_off_file());
         k = match(c);
@@ -2667,7 +2882,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
                   s.focus_choices.size() == 3,
               "focuses offered");
         CHECK(ui.click("6##ltfoc6", "##tacright"), "focus 6 picked");
-        // the cm_mentalities row is part of the write (2.4: no opt-in); this save's cm_mentalities has no playerid0..10: the row is left out
+        // the cm_mentalities row is part of the write (2.4: no opt-in); here the row's depth is not the live one: the row is left out
         ui.frames(130);
         CHECK(s.can_apply && s.status == "ready", "ready: " + s.status);
         CHECK(has_part(s.plan, "Defensive Approach Deep (0) -> High (2)") && has_part(s.plan, "Line Height 25 -> 90 (band 2 (61-90))") &&
@@ -2694,16 +2909,16 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         std::string err;
         CHECK(load_undo(out / undo_file(), u, &err) && u.state == "written" && u.team == 1 && u.writes.size() == 6 && u.code == SheetWorld::kCode && u.copies.empty(),
               fmt("undo file: written, the map record's 6 fields (%zu) ", u.writes.size()) + err);
-        // the row: cm_mentalities artificialkey 2 (55 / 2) cannot be matched to the live slots (no playerid0..10 / position0..10 in this save): the
-        // live record is written alone, the log line and the card say why
+        // the row: cm_mentalities artificialkey 2 holds the live slots but depth 55 / build-up 2, not the live 25 / 0 (it is not the live tactic):
+        // the live record is written alone, the log line and the card say why
         const Table* cm = app.db.table("cm_mentalities");
         const uint64_t row = cm ? app.db.find(*cm, "artificialkey", 2) : 0;
         CHECK(row && app.db.get_int(*cm, row, "defensivedepth") == 55 && app.db.get_int(*cm, row, "buildupplay") == 2, "the row is not touched");
-        CHECK(u.mirror_state == "skipped" && u.mirror.empty() && s.mirror.find("cm_mentalities not written: artificialkey 2: this save's cm_mentalities has no "
-                                                                               "playerid0 / position0") == 0,
+        CHECK(u.mirror_state == "skipped" && u.mirror.empty() &&
+                  s.mirror.find("cm_mentalities not written: artificialkey 2: defensivedepth is 55 in the database, the live value before the write was 25: "
+                                "the row is not the live tactic") == 0,
               "row left out: " + s.mirror);
-        CHECK(rig.logged("(read back ok) [cm_mentalities not written: artificialkey 2: this save's cm_mentalities has no playerid0 / position0"),
-              "the log line says so");
+        CHECK(rig.logged("(read back ok) [cm_mentalities not written: artificialkey 2: defensivedepth is 55 in the database"), "the log line says so");
         // the game overwrites the line height: the 5-second re-read and the card say so
         w.mem.wr(SheetWorld::kRecs + kRecLineHeight, int32_t(25));
         ui.frames(70);
@@ -2941,6 +3156,133 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         for (const char* f : {opt_in_file(), undo_file()}) fs::remove(out / f, ec);
         st = saved;
         st["seq"] = saved.value("seq", 0LL) + 70;
+        write_state();
+        live_tactic_reset();
+    });
+
+    // review M4.3 / M4.5: the real row code of the card (mirror_row, the teamsheetid filter, add_row_checks with the tactic code) on its success
+    // path, the db_mirror of the undo file, Undo putting the row back; and Team Management / a save starting between the click and the job
+    run_case("UI: channel E - the cm_mentalities row written and put back by the card's own code; Team Management or a save between click and job", [&] {
+        live_tactic_reset();
+        const fs::path out = le / "turbo_output";
+        std::error_code ec;
+        for (const char* f : {opt_in_file(), kill_switch_file(), master_switch_file(), undo_file(), db_row_off_file(), db_row_off_legacy_file()}) fs::remove(out / f, ec);
+        SheetWorld w(1, 10);
+        // the live record holds what Arsenal's active cm_mentalities row (artificialkey 2) holds: Balanced / 55 / build-up 2 (the game's value)
+        w.mem.wr(SheetWorld::kRecs + kRecLineHeight, int32_t(55));
+        w.mem.wr(SheetWorld::kRecs + kRecApproach, int32_t(1));
+        w.mem.wr(SheetWorld::kRecs + kRecBuildUp, int32_t(2));
+        SplitMemory split(w.mem, app.db.memory());  // the job writes the card's database row through the game's one address space
+        ServiceRig rig(w, out, &split);
+        rig.find_returns = SheetWorld::kSvc;
+        rig.jobs.inline_run = true;
+        app.team_sheet = rig.svc;
+        const fs::path state_file = out / "bridge_state.json";
+        json st = read_json(state_file);
+        const json saved = st;
+        int bumps = 800;
+        auto write_state = [&]() {
+            {
+                std::ofstream f(state_file.string(), std::ios::binary | std::ios::trunc);
+                f << st.dump();
+            }
+            fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(2 * ++bumps));
+            app.next_poll = 0.0;
+            ui.frames(3);
+        };
+        st["match_phase"] = "hub";
+        st["team_mgmt"] = false;
+        st["managers"] = hex_addr(SheetWorld::kManagers);
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        tactics_tab_test::select_team(app, ui, 7);
+        tactics_tab_test::go_scope(ui, "My team");
+        ui.frames(3);
+        const LiveTacticState& s = live_tactic_state();
+        rig.clock += 6e6;
+        ui.frames(70);
+        CHECK(s.read_ok && s.summary.find("Defensive Approach Balanced (1), Line Height 55, Build-Up Style unknown value 2") != std::string::npos, "read: " + s.summary);
+        const Table* cm = app.db.table("cm_mentalities");
+        const uint64_t row = cm ? app.db.find(*cm, "artificialkey", 2) : 0;
+        CHECK(row && app.db.get_int(*cm, row, "defensivedepth") == 55 && app.db.get_int(*cm, row, "playerid9") == 100010 && app.db.get_int(*cm, row, "pos9role") == 38213,
+              "the fixture's row is the live tactic's");
+        if (!s.card_open) ui.click("Edit the live tactic (channel E)##ltcard", "##tacright");
+        ui.frames(2);
+        std::ofstream(out / opt_in_file()) << "x";
+        lt_scroll_to(ui, "Deep##ltap0");
+        CHECK(ui.click("High##ltap2", "##tacright"), "High picked (its default Line Height 70; the game's build-up 2 kept)");
+        ui.frames(130);
+        CHECK(s.can_apply && s.status == "ready", "ready: " + s.status);
+        lt_scroll_top(ui);
+        CHECK(ui.click("Apply to the live tactic##ltapply", "##tacright"), "Apply clicked");
+        ui.frames(2);
+        CHECK(ui.click("Apply##ltyes", "Apply to the live tactic?"), "confirmed");
+        ui.frames(4);
+        CHECK(w.i32(SheetWorld::kRecs + kRecLineHeight) == 70 && w.i32(SheetWorld::kRecs + kRecApproach) == 2 && w.i32(SheetWorld::kRecs + kRecBuildUp) == 2,
+              "the live record written: " + s.last);
+        CHECK(app.db.get_int(*cm, row, "defensivedepth") == 70 && app.db.get_int(*cm, row, "buildupplay") == 2 && app.db.get_int(*cm, row, "teamid") == 1,
+              "the row written in the same job (the card's own mirror_row / add_row_checks)");
+        CHECK(s.last.find("approach 1->2 line height 55->70; cm_mentalities artificialkey 2 defensivedepth 55->70 (read back ok) [record now LH 70 BU 2 DA 2]") !=
+                  std::string::npos,
+              "last: " + s.last);
+        CHECK(s.mirror == "cm_mentalities artificialkey 2: defensivedepth 55 -> 70 (in the same job, read back)", "the card: " + s.mirror);
+        UndoRecord u;
+        std::string err;
+        CHECK(load_undo(out / undo_file(), u, &err) && u.state == "written" && u.mirror_state == "written" && u.mirror_table == "cm_mentalities" &&
+                  u.mirror_row_key == 2 && u.mirror.size() == 1 && u.mirror[0].field == "defensivedepth" && u.mirror[0].old_value == 55 && u.mirror[0].new_value == 70,
+              "the undo file's db_mirror: " + u.mirror_state + " " + err);
+        // Undo: the live record and the row back, in one job
+        ui.frames(130);
+        lt_scroll_top(ui);
+        CHECK(s.can_undo, "Undo offered: " + s.status);
+        CHECK(ui.click("Undo Turbo's write##ltundo", "##tacright"), "Undo clicked");
+        ui.frames(4);
+        CHECK(w.i32(SheetWorld::kRecs + kRecLineHeight) == 55 && w.i32(SheetWorld::kRecs + kRecApproach) == 1 && app.db.get_int(*cm, row, "defensivedepth") == 55,
+              "undone, row too: " + s.last);
+        CHECK(load_undo(out / undo_file(), u, &err) && u.state == "restored" && u.mirror_state == "restored", "undo file: " + u.state + " / " + u.mirror_state);
+        CHECK(s.mirror == "cm_mentalities artificialkey 2: defensivedepth 70 -> 55 (in the same job, read back)", "the card: " + s.mirror);
+        // M4.5: Team Management opens between the click and the game thread's job: refused in the job (the UI's hub view), nothing written
+        rig.jobs.inline_run = false;
+        ui.frames(130);
+        lt_scroll_to(ui, "Deep##ltap0");
+        CHECK(ui.click("High##ltap2", "##tacright"), "High again");
+        ui.frames(130);
+        lt_scroll_top(ui);
+        CHECK(ui.click("Apply to the live tactic##ltapply", "##tacright"), "Apply clicked");
+        ui.frames(2);
+        CHECK(ui.click("Apply##ltyes", "Apply to the live tactic?"), "confirmed");
+        ui.frames(2);
+        CHECK(rig.jobs.q.size() == 1, "the job waits for the game thread");
+        st["team_mgmt"] = true;
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        rig.jobs.pump();
+        ui.frames(4);
+        CHECK(w.i32(SheetWorld::kRecs + kRecLineHeight) == 55 && app.db.get_int(*cm, row, "defensivedepth") == 55 && s.last.find("refused (G2)") != std::string::npos,
+              "Team Management opened: refused in the job: " + s.last);
+        st["team_mgmt"] = false;
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        // a save starts between the click and the job: refused too
+        ui.frames(130);
+        lt_scroll_top(ui);
+        CHECK(ui.click("Apply to the live tactic##ltapply", "##tacright"), "Apply clicked");
+        ui.frames(2);
+        CHECK(ui.click("Apply##ltyes", "Apply to the live tactic?"), "confirmed");
+        ui.frames(2);
+        CHECK(rig.jobs.q.size() == 1, "queued");
+        st["save_t"] = (long long)(std::time(nullptr));
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        rig.jobs.pump();
+        ui.frames(4);
+        CHECK(w.i32(SheetWorld::kRecs + kRecLineHeight) == 55 && app.db.get_int(*cm, row, "defensivedepth") == 55 && s.last.find("refused (G2)") != std::string::npos,
+              "a save started: refused in the job: " + s.last);
+        // clean up (the fixture's row is back at 55)
+        app.team_sheet = nullptr;
+        for (const char* f : {opt_in_file(), undo_file()}) fs::remove(out / f, ec);
+        st = saved;
+        st["seq"] = saved.value("seq", 0LL) + 80;
         write_state();
         live_tactic_reset();
     });

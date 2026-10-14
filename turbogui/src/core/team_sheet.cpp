@@ -1367,6 +1367,7 @@ ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan&
             size_t row, field;
             const Field* f;
             int64_t value, want;
+            bool attempted = false;  // the write was tried (a record write failed first: never)
         };
         std::vector<RowSnap> rsnap;
         for (size_t i = 0; i < plan.rows.size(); ++i) {
@@ -1380,7 +1381,7 @@ ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan&
                 if (v.i != fld.old_value)
                     return fail("changed", row.label() + " " + fld.name + " is " + std::to_string(v.i) + ", not " + std::to_string(fld.old_value) +
                                                " as when Apply was pressed: nothing written");
-                rsnap.push_back({i, k, f, v.i, fld.new_value});
+                rsnap.push_back({i, k, f, v.i, fld.new_value, false});
             }
         }
         const uint64_t dirty_addr = now.at.sheet + kSheetDirty;
@@ -1392,9 +1393,13 @@ ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan&
             if (!mem.wr(snap[i].addr, writes[i].new_value)) write_failed = true;
         const uint8_t one = 1;
         if (!write_failed && !mem.wr(dirty_addr, one)) write_failed = true;
+        const bool record_failed = write_failed;
         if (!write_failed)
-            for (const RowSnap& x : rsnap)
+            for (RowSnap& x : rsnap) {
+                if (write_failed) break;
+                x.attempted = true;
                 if (!db.set(plan.rows[x.row].table, plan.rows[x.row].rec, *x.f, Value::of_int(x.want))) write_failed = true;
+            }
         // 4. read back every written field
         std::string bad;
         for (size_t i = 0; i < writes.size(); ++i) {
@@ -1408,21 +1413,24 @@ ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan&
         if (bad.empty() && (!mem.rd(dirty_addr, dirty_back) || dirty_back != 1)) bad = "the dirty flag reads " + std::to_string(dirty_back);
         for (const RowSnap& x : rsnap) {
             if (!bad.empty()) break;
+            if (!x.attempted) continue;
             Value v;
             if (!db.get(plan.rows[x.row].table, plan.rows[x.row].rec, *x.f, v) || v.type != FieldType::Int || v.i != x.want)
                 bad = plan.rows[x.row].label() + " " + x.f->name + " reads " + (v.type == FieldType::Int ? std::to_string(v.i) : std::string("?")) + ", not " +
                       std::to_string(x.want);
         }
         if (write_failed && bad.empty()) bad = "a write was refused by the memory layer";
-        // what the rows hold now (old = the snapshot): the result and the undo file name them
+        // the rows' fields this job actually tried (old = the snapshot): the result, the log and the undo file name them, nothing else
         std::vector<DbRowWrite> rows_done;
-        for (const DbRowWrite& row : plan.rows) {
-            DbRowWrite d = row;
+        for (size_t i = 0; i < plan.rows.size(); ++i) {
+            DbRowWrite d = plan.rows[i];
             d.fields.clear();
-            rows_done.push_back(std::move(d));
+            for (const RowSnap& x : rsnap)
+                if (x.row == i && x.attempted) d.fields.push_back({plan.rows[i].fields[x.field].name, x.value, x.want});
+            if (!d.fields.empty()) rows_done.push_back(std::move(d));
         }
-        for (const RowSnap& x : rsnap) rows_done[x.row].fields.push_back({plan.rows[x.row].fields[x.field].name, x.value, x.want});
         r.rows_note = plan.rows_note;
+        if (record_failed && !plan.rows.empty()) r.rows_note = "not written: the live record's write failed first";
         if (!bad.empty()) {
             // full undo from the snapshot (fields, the dirty flag, the rows): every field that does not hold its old value is written back, then
             // everything is read back (a field the write never reached already holds it)
@@ -1433,6 +1441,7 @@ ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan&
             uint8_t d = 0;
             if (!mem.rd(dirty_addr, d) || d != r.dirty_before) mem.wr(dirty_addr, r.dirty_before);
             for (const RowSnap& x : rsnap) {
+                if (!x.attempted) continue;  // never written: it holds its old value
                 Value v;
                 if (!db.get(plan.rows[x.row].table, plan.rows[x.row].rec, *x.f, v) || v.type != FieldType::Int || v.i != x.value)
                     db.set(plan.rows[x.row].table, plan.rows[x.row].rec, *x.f, Value::of_int(x.value));
@@ -1955,7 +1964,7 @@ std::string undo_row_check(const Switches& sw, const std::function<bool(const st
 }
 
 std::vector<DbRowField> undo_row_fields(const UndoRecord& u, const Plan& undo_plan, const std::function<bool(const std::string&, int64_t&)>& get,
-                                        std::vector<std::string>& left) {
+                                        std::vector<std::string>& left, const LiveTactic* now) {
     std::vector<DbRowField> out;
     left.clear();
     std::set<std::string> live_back;
@@ -1963,6 +1972,12 @@ std::vector<DbRowField> undo_row_fields(const UndoRecord& u, const Plan& undo_pl
         const std::string n = mirror_field_name(w);
         if (!n.empty()) live_back.insert(n);
     }
+    // the live fields that no longer hold Turbo's value (the game's or the snapshot's value is back there)
+    if (now)
+        for (const FieldWrite& w : u.writes) {
+            const std::string n = mirror_field_name(w);
+            if (!n.empty() && value_in(*now, w.kind, w.slot, 0) != w.new_value) live_back.insert(n);
+        }
     for (const MirrorField& m : u.mirror) {
         if (!live_back.count(m.field)) {
             left.push_back(m.field + " (its live field is not put back)");
@@ -2296,15 +2311,20 @@ void CoreService::log(const std::string& s) {
 }
 
 std::string CoreService::anchors_status() {
-    std::lock_guard<std::mutex> lock(mu_);
-    if (!anchors_checked_) {
-        anchors_why_ = h_.mem ? check_anchors(*h_.mem, h_.anchors) : "no game memory";
-        anchors_checked_ = true;
-        log(anchors_why_.empty() ? "channel E: anchors ok on build " + h_.anchors.build + " (VT1 " + hex(h_.anchors.vt1) + ", SetSheet " + hex(h_.anchors.set) +
-                                       ", UpdateSheet " + hex(h_.anchors.update) + ", registry " + hex(h_.anchors.registry) + ")"
-                                 : "channel E: not available on this build (" + anchors_why_ + ")");
+    std::string line, why;
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        if (!anchors_checked_) {
+            anchors_why_ = h_.mem ? check_anchors(*h_.mem, h_.anchors) : "no game memory";
+            anchors_checked_ = true;
+            line = anchors_why_.empty() ? "channel E: anchors ok on build " + h_.anchors.build + " (VT1 " + hex(h_.anchors.vt1) + ", SetSheet " +
+                                              hex(h_.anchors.set) + ", UpdateSheet " + hex(h_.anchors.update) + ", registry " + hex(h_.anchors.registry) + ")"
+                                        : "channel E: not available on this build (" + anchors_why_ + ")";
+        }
+        why = anchors_why_;
     }
-    return anchors_why_;
+    if (!line.empty()) log(line);  // never while holding mu_ (the game thread's job takes it)
+    return why;
 }
 
 uint64_t CoreService::located() {
@@ -2365,7 +2385,7 @@ void CoreService::note_context(const Context& ctx) {
             if (phase_ == "match") {
                 // the kick-off check: 20 s from now, on the game_tick listener (kickoff_tick), whether or not the card is drawn
                 kick_pending_ = true;
-                kick_due_ = now() + kKickoffDelayUs;
+                kick_due_ = wall() + kKickoffDelayUs;
                 kick_tries_ = 0;
                 line = "channel E: Lua phase " + was + " -> match: kick-off check in " + std::to_string(int(kKickoffDelayUs / 1e6)) + " s (" +
                        (arm_.armed ? "the tactic " + arm_.when + ": Line Height " + std::to_string(arm_.line_height) + ", Build-Up Style " +
@@ -2505,7 +2525,7 @@ void CoreService::scan_for_service(long long gen) {
                     if (gen != locating_gen_) return;
                     cand_svc_ = svc;
                     cand_gen_ = gen;
-                    cand_at_ = now();
+                    cand_at_ = wall();
                 }
                 log("channel E: the vtable-pair scan picked " + hex(svc) + " (" + std::to_string(hits.size()) + " hit(s), the others failed the header checks): " +
                     "checked again in " + std::to_string(int(kScanConfirmUs / 1e6)) + " s before it is used");
@@ -2524,13 +2544,14 @@ void CoreService::scan_for_service(long long gen) {
 }
 
 void CoreService::start_locate(const Context& ctx) {
+    std::string lost;
     {
         std::lock_guard<std::mutex> lock(mu_);
         const double t = now();
         if (locating_ && locating_gen_ == ctx.load_gen) {
             if (!h_.clock_us || t - locating_since_ <= kLocateLostUs) return;
-            log("channel E: the locate of career load " + std::to_string(ctx.load_gen) + " did not finish in " + std::to_string(int(kLocateLostUs / 1e6)) +
-                " s (the registry Find job was not run?): locating again");
+            lost = "channel E: the locate of career load " + std::to_string(ctx.load_gen) + " did not finish in " + std::to_string(int(kLocateLostUs / 1e6)) +
+                   " s (the registry Find job was not run?): locating again";
         } else if (!locating_ && failed_gen_ == ctx.load_gen && (!h_.clock_us || t - failed_at_ < kLocateRetryUs)) {
             return;  // this career load's last locate failed a moment ago: "Locate again" (relocate) or the next career load tries again
         }
@@ -2541,6 +2562,7 @@ void CoreService::start_locate(const Context& ctx) {
         cand_gen_ = -1;
         locate_why_.clear();
     }
+    if (!lost.empty()) log(lost);
     const long long gen = ctx.load_gen;
     // preferred: the registry's Find on the game thread (the call the match setup makes), only with the opt-in, in the hub, unless off
     std::string why;
@@ -2619,7 +2641,7 @@ bool CoreService::read(const Context& ctx, LiveTactic& out, std::string& why) {
             cgen = cand_gen_;
             at = cand_at_;
         }
-        if (cand && cgen == ctx.load_gen && (!h_.clock_us || now() - at >= kScanConfirmUs)) {
+        if (cand && cgen == ctx.load_gen && (!timed() || wall() - at >= kScanConfirmUs)) {
             const std::string w = check_service(*h_.mem, cand, h_.anchors);
             if (w.empty()) {
                 log("channel E: service located by the vtable-pair scan at " + hex(cand) + " (it passed its header checks again " +
@@ -2665,6 +2687,14 @@ bool CoreService::read(const Context& ctx, LiveTactic& out, std::string& why) {
     return why.empty();
 }
 
+std::string CoreService::job_switch_block() const {
+    if (h_.out_dir.empty()) return "";
+    if (file_exists(h_.out_dir / master_switch_file())) return std::string("turbo_output\\") + master_switch_file() + " (seen in the job)";
+    if (file_exists(h_.out_dir / kill_switch_file())) return std::string("turbo_output\\") + kill_switch_file() + " (seen in the job)";
+    if (!file_exists(h_.out_dir / opt_in_file())) return std::string("turbo_output\\no ") + opt_in_file() + " (seen in the job)";
+    return "";
+}
+
 bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& why) {
     why.clear();
     note_context(ctx);
@@ -2686,6 +2716,15 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
     int seq = 0;
     std::shared_ptr<std::atomic<bool>> cancel;
     std::shared_ptr<const RoleAllowList> allow;
+    std::string given_up;
+    // logged after mu_ is released on every way out (the inner lock scope ends first)
+    struct LogAfter {
+        CoreService* self;
+        std::string* line;
+        ~LogAfter() {
+            if (!line->empty()) self->log(*line);
+        }
+    } log_after{this, &given_up};
     {
         std::lock_guard<std::mutex> lock(mu_);
         if (!session_off_.empty() && !plan.undo) {
@@ -2695,8 +2734,8 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
         if (busy_) {
             if (h_.clock_us && now() - busy_since_ > kJobLostUs) {
                 if (cancel_) cancel_->store(true);
-                log("channel E: the last job did not come back in " + std::to_string(int(kJobLostUs / 1e6)) +
-                    " s (dropped by the game-thread queue?): given up (cancelled: if it still runs it writes nothing)");
+                given_up = "channel E: the last job did not come back in " + std::to_string(int(kJobLostUs / 1e6)) +
+                           " s (dropped by the game-thread queue?): given up (cancelled: if it still runs it writes nothing)";
                 busy_ = false;
             } else {
                 why = "a channel E job is still queued or running";
@@ -2716,8 +2755,9 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
         if (allow_gen_ == plan.load_gen) allow = allow_;
     }
     const Anchors a = h_.anchors;
-    // the switch files once more right before queuing (read here, not on the game thread: no file I/O inside the job, which runs within
-    // kJobDeadlineUs of this or writes nothing). An undo puts the game's values back and is not blocked by a kill switch.
+    // the switch files right before queuing (a refusal here costs no game-thread time) and AGAIN inside the job (job_switch_block: three file
+    // attribute reads, microseconds), so a kill switch dropped after the click still stops the write. An undo puts the game's values back and
+    // is not blocked by a kill switch.
     std::string switch_block;
     if (!plan.undo && !h_.out_dir.empty()) {
         if (file_exists(h_.out_dir / master_switch_file())) switch_block = master_switch_file();
@@ -2751,6 +2791,8 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
         } else if (!switch_block.empty()) {
             stage = "G1";
             block = "turbo_output\\" + switch_block;
+        } else if (!plan.undo && !(block = job_switch_block()).empty()) {
+            stage = "G1";  // a kill switch dropped (or the opt-in removed) after Apply: re-read in the job itself
         } else if (!cur_hub_.load()) {
             stage = "G2";
             block = "not in the career hub any more";
@@ -2811,10 +2853,19 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
             chk.allow = allow.get();
             chk.history = &hist;
             chk.cancel = cancel.get();
-            r = apply_plan(*h_.mem, svc, a, plan, chk);
-            if (!plan.undo && (r.written || r.undone || r.restore_failed)) {
+            // the database row's switches again in the job: a channel_e_db_off.txt dropped after Apply leaves the row out
+            Plan jp = plan;
+            if (!jp.rows.empty() && !h_.out_dir.empty()) {
+                const std::string db = read_switches(h_.out_dir).db_row_block();
+                if (!db.empty()) {
+                    jp.rows.clear();
+                    jp.rows_note = db;
+                }
+            }
+            r = apply_plan(*h_.mem, svc, a, jp, chk);
+            if (!jp.undo && (r.written || r.undone || r.restore_failed)) {
                 std::lock_guard<std::mutex> lock(mu_);
-                history_.note(plan, r.writes, r.rows);
+                history_.note(jp, r.writes, r.rows);
             }
         }
         r.micros = h_.clock_us ? h_.clock_us() - t0 : 0.0;
@@ -2883,14 +2934,24 @@ void CoreService::kickoff_tick() {
     std::unique_lock<std::mutex> lock(mu_, std::try_to_lock);
     if (!lock.owns_lock()) return;
     if (!kick_pending_ || kickoff_running_) return;
-    if (h_.clock_us && now() < kick_due_) return;
+    if (timed() && wall() < kick_due_) return;
     kick_pending_ = false;
     const int attempt = ++kick_tries_;
     const KickoffArm arm = arm_;
     kickoff_running_ = true;
     kickoff_ = "kick-off check running ...";
     lock.unlock();
-    run_kickoff(arm, attempt, cur_gen_.load());  // everything else (the switch files, the log, the scan, the dump) away from the game thread
+    try {
+        run_kickoff(arm, attempt, cur_gen_.load());  // everything else (the switch files, the log, the scan, the dump) away from the game thread
+    } catch (...) {
+        // the background thread could not be started: the check must not stay "running" for the rest of the session
+        {
+            std::lock_guard<std::mutex> relock(mu_);
+            kickoff_running_ = false;
+            kickoff_ = "channel E kick-off: check failed (the background thread could not be started)";
+        }
+        log("channel E kick-off: check failed (the background thread could not be started)");
+    }
 }
 
 void CoreService::run_kickoff(KickoffArm arm, int attempt, long long gen) {
@@ -2923,7 +2984,7 @@ void CoreService::run_kickoff(KickoffArm arm, int attempt, long long gen) {
             std::vector<uint8_t> buf;
             std::vector<uint64_t> outs;  // candidate copy starts
             size_t pid_hits = 0, role_hits = 0;
-            const double t0 = h_.clock_us ? h_.clock_us() : 0.0;
+            const double t0 = wall();
             bool timed_out = false;
             auto add = [&](uint64_t out) {
                 if (std::find(outs.begin(), outs.end(), out) == outs.end()) outs.push_back(out);
@@ -2944,7 +3005,7 @@ void CoreService::run_kickoff(KickoffArm arm, int attempt, long long gen) {
                             }
                     }
                     at += chunk;
-                    if (h_.clock_us && h_.clock_us() - t0 > h_.scan_budget_s * 1e6) {
+                    if (timed() && wall() - t0 > h_.scan_budget_s * 1e6) {
                         timed_out = true;
                         break;
                     }
@@ -3017,7 +3078,7 @@ void CoreService::run_kickoff(KickoffArm arm, int attempt, long long gen) {
                                             window_hex(reads.front().window) + "; " + dump + "; " + looked;
                 line = kickoff_line(arm, reads, details);
             }
-            if (attempt > 1) line += " (second look)";
+            if (attempt > 1 || none) line += " (look " + std::to_string(attempt) + " of " + std::to_string(kKickoffMaxLooks) + ")";
         } catch (const std::exception& e) {
             line = std::string("channel E kick-off: check failed: ") + e.what();
         } catch (...) {
@@ -3029,14 +3090,14 @@ void CoreService::run_kickoff(KickoffArm arm, int attempt, long long gen) {
             std::lock_guard<std::mutex> lock(mu_);
             kickoff_ = line;
             kickoff_running_ = false;
-            // no copy yet: once more 30 s later (the copy may be made after the first look), while the match lasts
-            if (none && attempt < 2 && phase_ == "match") {
+            // no copy yet: again 15 s (wall) later (the copy may be made after the first look), while the match lasts, at most kKickoffMaxLooks
+            if (none && attempt < kKickoffMaxLooks && phase_ == "match") {
                 kick_pending_ = true;
-                kick_due_ = now() + kKickoffRetryUs;
+                kick_due_ = wall() + kKickoffRetryUs;
                 again = true;
             }
         }
-        log(line + (again ? "; looking again in 30 s" : ""));
+        log(line + (again ? "; looking again in " + std::to_string(int(kKickoffRetryUs / 1e6)) + " s" : ""));
     };
     if (h_.run_background) h_.run_background(job);
     else job();

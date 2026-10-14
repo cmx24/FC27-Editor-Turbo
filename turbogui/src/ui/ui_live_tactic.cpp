@@ -444,7 +444,7 @@ void attach_undo_db_row(App& app, Plan& plan, const UndoRecord& u) {
     row.table = *t;
     row.rec = rec;
     row.key = u.mirror_row_key;
-    row.fields = undo_row_fields(u, plan, get, left);
+    row.fields = undo_row_fields(u, plan, get, left, &g.lt);
     if (row.fields.empty()) {
         std::string l;
         for (const auto& x : left) l += (l.empty() ? "" : ", ") + x;

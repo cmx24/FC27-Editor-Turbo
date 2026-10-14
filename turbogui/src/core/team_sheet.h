@@ -108,8 +108,8 @@ constexpr double kJobLostUs = 10e6;
 // The vtable-pair scan runs once per career load; after a failed locate the next try waits this long (or "Locate again"); a Find job the
 // game thread never ran counts as failed after kLocateLostUs
 constexpr double kLocateRetryUs = 60e6, kLocateLostUs = 90e6;
-// A service the vtable-pair scan picked becomes "located" only when it passes check_service again this long after the scan (a freed copy
-// keeps its header for a while, report 2.5); a scan that ran out of time or reached kScanMaxHits hits locates nothing
+// A service the vtable-pair scan picked becomes "located" only when it passes check_service again this long (WALL time, Host::wall_us) after
+// the scan (a freed copy keeps its header for a while, report 2.5); a scan that ran out of time or reached kScanMaxHits hits locates nothing
 constexpr double kScanConfirmUs = 5e6;
 constexpr size_t kScanMaxHits = 16;
 // The role allow-list walk (every cached team's sheets): at most this many map nodes (64 hops a bucket, kMaxSheets a node), this long
@@ -121,9 +121,12 @@ constexpr uint64_t kCopyRoles = 0x118, kCopyPids = 0x168, kCopyTeam = 0x28, kCop
 constexpr int kMaxPosition = 27;
 // The raw bytes the kick-off line carries: the style block of the copy (T2: out+0x150..+0x167, record +0x88..+0xBF converted byte-wise)
 constexpr uint64_t kCopyStyleWindow = 0x150, kCopyStyleWindowLen = 0x18;
-// The kick-off check (read-only): 20 s after Lua's phase became "match" (once more 30 s later when no copy was found), on Turbo's game_tick
-// listener; each match-setup copy is dumped from out+0x00: the 0x1A0 bytes of the known layout and the 0x200 bytes after them
-constexpr double kKickoffDelayUs = 20e6, kKickoffRetryUs = 30e6;
+// The kick-off check (read-only), on Turbo's game_tick listener: 20 s of WALL time (Host::wall_us; Turbo's QPC clock ran ~3x in game) after
+// Lua's phase became "match", then every 15 s while no copy is found, at most kKickoffMaxLooks looks (about 80 s): a copy made late is
+// still read, and only the last look says "no match copy found ... (look 5 of 5)". Each match-setup copy is dumped from out+0x00: the 0x1A0
+// bytes of the known layout and the 0x200 bytes after them; the scan's budget is scan_budget_s of wall time
+constexpr double kKickoffDelayUs = 20e6, kKickoffRetryUs = 15e6;
+constexpr int kKickoffMaxLooks = 5;
 constexpr size_t kKickoffHead = 0x1A0, kKickoffTail = 0x200, kKickoffMaxCopies = 4;
 inline const char* kickoff_dump_file() { return "channel_e_kickoff_dump.bin"; }
 inline const char* kickoff_off_file() { return "channel_e_kickoff_off.txt"; }  // no kick-off check (it needs the opt-in and no kill switch besides)
@@ -533,10 +536,11 @@ std::vector<DbRowField> apply_row_fields(const Plan& plan, const std::function<b
 // record's tactic: teamid == u.team, activetactic == 1, sourceformationid == u.source_formation, artificialkey == u.mirror_row_key. "" = it
 // may be put back
 std::string undo_row_check(const Switches& sw, const std::function<bool(const std::string&, int64_t&)>& get, const UndoRecord& u);
-// The undo's row fields: every field of the undo record's db_mirror whose live field this undo plan puts back and whose row value (get) is
-// still Turbo's goes back to its value from before Turbo's first write; `left` names the others. Empty when nothing goes back
+// The undo's row fields: every field of the undo record's db_mirror whose row value (get) is still Turbo's goes back to its value from before
+// Turbo's first write, when this undo plan puts its live field back OR the live record (now) no longer holds Turbo's value there (a job
+// whose putting back failed can leave the row at Turbo's value while the live field is the game's); `left` names the others
 std::vector<DbRowField> undo_row_fields(const UndoRecord& u, const Plan& undo_plan, const std::function<bool(const std::string&, int64_t&)>& get,
-                                        std::vector<std::string>& left);
+                                        std::vector<std::string>& left, const LiveTactic* now = nullptr);
 // After a job: the rows it wrote into the undo record's db_mirror (state "written", table, artificialkey; a field written again keeps its
 // value from before Turbo's first write); an undo's rows mark it "restored"
 void add_job_rows(UndoRecord& u, const std::vector<DbRowWrite>& rows, bool undo);
@@ -723,6 +727,9 @@ struct Host {
     std::function<uint64_t(uint64_t fn, uint64_t registry, uint32_t id)> call_find;
     std::function<void(const std::string&)> log;
     std::function<double()> clock_us;  // microseconds (the job's duration)
+    // wall-clock microseconds for the waits a user or the game paces: the kick-off check's schedule and scan budget, the scan pick's re-check
+    // (null = clock_us). The Windows host gives the system clock: Turbo's QPC / steady clocks ran ~3x wall time in game (2026-10-13)
+    std::function<double()> wall_us;
     double scan_budget_s = 45.0;       // seconds per scan
 };
 
@@ -756,6 +763,9 @@ private:
     void start_allow(long long gen, uint64_t svc);  // builds the role allow-list of a located service (background)
     void log(const std::string& s);
     double now() const { return h_.clock_us ? h_.clock_us() : 0.0; }
+    double wall() const { return h_.wall_us ? h_.wall_us() : now(); }
+    std::string job_switch_block() const;  // the master / channel kill switch or a missing opt-in, read in the job ("" = none)
+    bool timed() const { return h_.clock_us || h_.wall_us; }
 
     Host h_;
     std::mutex mu_;
