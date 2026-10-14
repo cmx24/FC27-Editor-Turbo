@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
@@ -63,7 +64,8 @@ struct Lt {
     bool was_visible = false;
     // after Team Management was open: re-read twice (the game's Yes copies its screen into the record and autosaves first); the prompt
     bool tm_was = false;
-    std::vector<double> tm_checks;
+    bool tm_watch = false;         // Team Management closed after a write: every hub read checks for the game's copy of its screen
+    double next_watch_read = 0.0;  // wall seconds (wall_now): the tick reads once a second while watching
     std::string replaced;  // "the game replaced your tactic (LH 50 / Balanced / Balanced). Re-apply?" ("" = none)
     std::string other_note;  // "the active tactic is another one now (...)": said, no Re-apply
     std::string prompt_session;  // the Lua session and career load the prompt was made in: another one drops it (never re-applied there)
@@ -74,6 +76,15 @@ struct Lt {
 };
 Lt g;
 LiveTacticState g_state;
+std::function<double()> g_wall;  // tests: the wall clock (live_tactic_test_wall_clock)
+
+// Wall time in seconds. Not Turbo's QPC / steady clocks: in game they ran 3x wall time on 2026-10-13 (IMPL_tactic.md)
+double wall_now() {
+    if (g_wall) return g_wall();
+    return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+void check_replaced(App& app);  // read_now's last step while watching
 
 fs::path out_dir(App& app) { return app.bridge.root() / "turbo_output"; }
 fs::path undo_path(App& app) { return out_dir(app) / undo_file(); }
@@ -198,8 +209,32 @@ bool read_now(App& app) {
                 g.overwritten.push_back("Turbo's write of " + g.undo.when + " was in an earlier career load; the live tactic does not hold it now (" + rv.front() +
                                         (rv.size() > 1 ? ", ..." : "") + "): no in-game save after the write?");
         }
+        check_replaced(app);
     }
     return ok;
+}
+
+// While watching (Team Management was closed after Turbo's write in this career load): every good read in the hub decides the prompt. The
+// game's Yes may copy Edit Tactic's screen into the record at any time after Lua's flag cleared, so there is no deadline: the watch lasts
+// until the user acts (Re-apply, Dismiss, Apply, Undo) or the career is reloaded. Never writes.
+void check_replaced(App& app) {
+    if (!g.tm_watch || !g.have || !g.have_undo || g.undo.state != "written") return;
+    const BridgeState& st = app.bridge.state();
+    if (!same_career(g.undo, st.session, st.load_gen).empty() || st.session != g.prompt_session || st.load_gen != g.prompt_gen) return;
+    const std::string p = replaced_prompt(g.lt, g.undo);
+    const std::string note = other_tactic_note(g.lt, g.undo);
+    if (note != g.other_note) {
+        g.other_note = note;
+        if (!note.empty()) log_line(app, "channel E: after Team Management: " + note);
+    }
+    if (!p.empty() && p != g.replaced) {
+        g.replaced = p;
+        log_line(app, "channel E: after Team Management: " + p + " (waiting for the user's click)");
+        app.notify("Turbo: " + p + " (Teams > Tactics > My team)", true);
+    } else if (p.empty() && !g.replaced.empty()) {
+        g.replaced.clear();
+        log_line(app, "channel E: after Team Management: Turbo's values are in place again (prompt dropped)");
+    }
 }
 
 Request request_from_editor() {
@@ -513,7 +548,7 @@ void drop_stale_prompt(App& app) {
     if ((g.replaced.empty() && g.other_note.empty()) || (st.session == g.prompt_session && st.load_gen == g.prompt_gen)) return;
     g.replaced.clear();
     g.other_note.clear();
-    g.tm_checks.clear();
+    g.tm_watch = false;
     log_line(app, "channel E: the Re-apply prompt was dropped: the career was (re)loaded");
 }
 
@@ -604,6 +639,7 @@ void handle_result(App& app, const ApplyResult& r) {
             save_record(app, u);
             g.overwritten.clear();
             g.replaced.clear();
+            g.tm_watch = false;
             app.notify("Live tactic put back to the values before Turbo's write (read back)" + std::string(u.note.empty() ? "" : ": " + u.note));
         } else {
             UndoRecord u = g.undo;
@@ -631,6 +667,7 @@ void handle_result(App& app, const ApplyResult& r) {
         g.recheck_at = app.now + 5.0;  // report 4.5: re-read 5 s later (an Edit Tactic overwrite shows then)
         fill_editor(r.after);
         g.replaced.clear();
+        g.tm_watch = false;  // a new write: the next Team Management visit starts a new watch
         app.notify("Written into your club's live tactic and read back" + std::string(r.copies.empty() ? "" : " (" + r.copies + ")") +
                    (r.rows.empty() ? std::string() : ", its cm_mentalities row too") + ". After kick-off Turbo logs whether the match copied it. " +
                    safety_text());
@@ -784,7 +821,10 @@ void draw_body(App& app) {
             ImGui::SetTooltip("Writes Turbo's last values into the live record again (the same guarded job as Apply, with its gates). Turbo never "
                               "does this by itself.");
         ImGui::SameLine();
-        if (ImGui::SmallButton("Dismiss##ltreplacedno")) g.replaced.clear();
+        if (ImGui::SmallButton("Dismiss##ltreplacedno")) {
+            g.replaced.clear();
+            g.tm_watch = false;  // the user decided: no more asking until the next Team Management visit
+        }
     }
 
     g_state.card_open = ImGui::CollapsingHeader("Edit the live tactic (channel E)##ltcard");
@@ -1074,6 +1114,8 @@ void draw_body(App& app) {
 
 const LiveTacticState& live_tactic_state() { return g_state; }
 
+void live_tactic_test_wall_clock(std::function<double()> wall) { g_wall = std::move(wall); }
+
 void live_tactic_reset() {
     g = Lt();
     g_state = LiveTacticState();
@@ -1124,36 +1166,29 @@ void live_tactic_tick(App& app) {
             }
             log_line(app, "channel E: " + g.last);
         }
-        // after Team Management was open (Lua's team_mgmt flag back to false): re-read in the hub 5 s and 20 s later (the game's Yes copies
-        // Edit Tactic's screen into the record and autosaves first); when Turbo's values are gone, the card asks once (Re-apply), never acts
+        // after Team Management was open (Lua's team_mgmt flag back to false) following Turbo's write in this career load: watch the live
+        // record. Every good read in the hub (once a second of WALL time here, and the card's own reads) decides the prompt (check_replaced);
+        // no deadline, since the game's Yes and its copy of Edit Tactic's screen may land at any time. Never acts by itself.
         {
             const BridgeState& st = app.bridge.state();
             drop_stale_prompt(app);  // the prompt belongs to the career load it was made in
             const bool tm = st.loaded && st.team_mgmt;
             if (g.tm_was && !tm) {
-                g.tm_checks = {app.now + 5.0, app.now + 20.0};
-                log_line(app, "channel E: Team Management closed: the live record is re-read in the hub (5 s, 20 s)");
-            }
-            if (tm) g.tm_checks.clear();  // open again: wait for the next close
-            g.tm_was = tm;
-            if (!g.tm_checks.empty() && app.now >= g.tm_checks.front() && st.loaded && st.match_phase == "hub") {
-                g.tm_checks.erase(g.tm_checks.begin());
                 load_undo_once(app);
-                if (g.have_undo && g.undo.state == "written" && same_career(g.undo, st.session, st.load_gen).empty() && read_now(app)) {
-                    const std::string p = replaced_prompt(g.lt, g.undo);
+                if (g.have_undo && g.undo.state == "written" && same_career(g.undo, st.session, st.load_gen).empty()) {
+                    g.tm_watch = true;
+                    g.next_watch_read = 0.0;
                     g.prompt_session = st.session;
                     g.prompt_gen = st.load_gen;
-                    g.other_note = other_tactic_note(g.lt, g.undo);
-                    if (!p.empty() && p != g.replaced) {
-                        g.replaced = p;
-                        g.tm_checks.clear();
-                        log_line(app, "channel E: after Team Management: " + p + " (waiting for the user's click)");
-                        app.notify("Turbo: " + p + " (Teams > Tactics > My team)", true);
-                    } else if (p.empty()) {
-                        g.replaced.clear();
-                        log_line(app, "channel E: after Team Management: Turbo's values are still in place");
-                    }
+                    log_line(app, "channel E: Team Management closed: watching your club's live record in the hub for the game's copy of Edit Tactic's "
+                                  "screen (a Yes on leaving); the card asks before anything is written");
                 }
+            }
+            g.tm_was = tm;
+            if (g.tm_watch && (st.session != g.prompt_session || st.load_gen != g.prompt_gen)) g.tm_watch = false;  // reloaded: the watch is over
+            if (g.tm_watch && !tm && st.loaded && st.match_phase == "hub" && wall_now() >= g.next_watch_read) {
+                g.next_watch_read = wall_now() + 1.0;
+                read_now(app);  // check_replaced runs on the good read
             }
         }
         // report 4.5: re-read 5 s after a write, and when the Turbo window is shown again (the user may have used Edit Tactic meanwhile)

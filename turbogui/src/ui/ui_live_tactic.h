@@ -6,6 +6,7 @@
 // Apply (asks first; the live record and its cm_mentalities row in one job), Undo, and what the last job, the row, the read-back 5 s later
 // and the kick-off check said. The undo file is turbo_output\channel_e_undo.json.
 #pragma once
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -55,5 +56,7 @@ void draw_live_tactic(App& app);
 void live_tactic_tick(App& app);
 // Tests: forget the card's state (a new simulated game)
 void live_tactic_reset();
+// Tests: the wall clock (seconds) the Team Management watch uses (null = the system clock; Turbo's QPC clock runs ~3x in game)
+void live_tactic_test_wall_clock(std::function<double()> wall);
 
 }  // namespace turbo

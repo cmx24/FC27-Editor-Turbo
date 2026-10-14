@@ -2794,6 +2794,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         rig.find_returns = SheetWorld::kSvc;
         rig.jobs.inline_run = true;
         app.team_sheet = rig.svc;
+        double wall = 1.0e9;  // the watch runs on wall time (not Turbo's QPC clock, ~3x in game): the test drives it
+        live_tactic_test_wall_clock([&wall]() { return wall; });
         std::vector<std::string> hooked;  // the card's own log lines (log_line: App::log + log_hook)
         app.log_hook = [&hooked](const std::string& x) { hooked.push_back(x); };
         auto app_logged = [&hooked](const std::string& part) { return has_part(hooked, part); };
@@ -2849,7 +2851,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             st["team_mgmt"] = false;
             st["seq"] = st.value("seq", 0LL) + 1;
             write_state();
-            ui.t += 6.0;
             ui.frames(3);
         };
         // Team Management opens; the user answers Yes on leaving: the game copies Edit Tactic's screen (Balanced / 50 / Balanced) into the record
@@ -2862,8 +2863,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         st["team_mgmt"] = false;
         st["seq"] = st.value("seq", 0LL) + 1;
         write_state();
-        CHECK(app_logged("channel E: Team Management closed: the live record is re-read in the hub (5 s, 20 s)"), "the close is seen");
-        ui.t += 6.0;
+        CHECK(app_logged("channel E: Team Management closed: watching your club's live record in the hub"), "the close is seen");
         ui.frames(3);
         CHECK(s.replaced == "the game replaced your tactic (LH 50 / Balanced / Balanced). Re-apply?" && s.can_reapply, "the prompt: " + s.replaced);
         CHECK(app_logged("channel E: after Team Management: the game replaced your tactic (LH 50 / Balanced / Balanced). Re-apply? (waiting for the user's click)"),
@@ -2892,9 +2892,10 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         st["team_mgmt"] = false;
         st["seq"] = st.value("seq", 0LL) + 1;
         write_state();
-        ui.t += 6.0;
         ui.frames(3);
-        CHECK(s.replaced.empty() && app_logged("channel E: after Team Management: Turbo's values are still in place"), "No: nothing to ask");
+        wall += 5.0;
+        ui.frames(3);
+        CHECK(s.replaced.empty() && !app_logged("still in place"), "No: nothing to ask, nothing claimed");
         // Undo puts back what the game had put there before the re-apply (Balanced / 50 / Balanced)
         ui.frames(130);
         lt_scroll_top(ui);
@@ -2914,8 +2915,15 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.click("Apply##ltyes", "Apply to the live tactic?"), "confirmed");
         ui.frames(4);
         CHECK(w.i32(SheetWorld::kRecs + kRecLineHeight) == 70, "written again: " + s.last);
-        tm_yes(50, 1, 0);
-        CHECK(!s.replaced.empty() && s.can_reapply, "prompted again: " + s.replaced);
+        // review M3: the game's copy lands late (8 s of wall time after Lua's flag cleared, long after any timed re-read): still prompted
+        tm_yes(70, 2, 1);  // closed with Turbo's values still there
+        CHECK(s.replaced.empty(), "nothing replaced yet");
+        wall += 8.0;
+        w.mem.wr(SheetWorld::kRecs + kRecLineHeight, int32_t(50));
+        w.mem.wr(SheetWorld::kRecs + kRecApproach, int32_t(1));
+        w.mem.wr(SheetWorld::kRecs + kRecBuildUp, int32_t(0));
+        ui.frames(3);
+        CHECK(!s.replaced.empty() && s.can_reapply, "the late copy is seen: " + s.replaced);
         st["load_gen"] = st.value("load_gen", 0LL) + 1;
         st["seq"] = st.value("seq", 0LL) + 1;
         write_state();
@@ -2927,6 +2935,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(130);
         CHECK(w.i32(SheetWorld::kRecs + kRecLineHeight) == 50 && w.i32(SheetWorld::kRecs + kRecApproach) == 1, "nothing written into the reloaded career");
         // clean up
+        live_tactic_test_wall_clock(nullptr);
         app.log_hook = nullptr;
         app.team_sheet = nullptr;
         for (const char* f : {opt_in_file(), undo_file()}) fs::remove(out / f, ec);
