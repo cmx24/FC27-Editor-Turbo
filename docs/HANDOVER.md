@@ -56,13 +56,13 @@ when; X2 which source feeds the match's LH/BU/DA; X3 where Edit Tactic loads fro
 implementer never stops to ask. Release 2.4.0 only when every item is proven in game (ETA 10-14 ~15:00 ET).
 
 **State at 21:05:**
-- Game closed (`turbo_dev	ools\GAME_STATE.txt` = CLOSED 19:41). Saves unchanged: TORINO 2ded2b76, LB c45b2b12, LEICESTER 1e78df22,
+- Game closed (`turbo_dev\tools\GAME_STATE.txt` = CLOSED 19:41). Saves unchanged: TORINO 2ded2b76, LB c45b2b12, LEICESTER 1e78df22,
   LTEST 3dced956. Installed Turbo.dll = 2.3.0 (sha256 e7cf8d41...). No `*_on.txt` in turbo_output.
 - A background workflow (`tactics-assessment-sweep`, started 20:20) writes the offline evidence sweep T1-T6 (+ audits) into
-  `turbo_outputssessment_20261013\` and the experiment pack (PACK.md, `turbo_dev	ools\SESSION_25/26/27_PLAN.md`, the x1_/x2_/x3_
+  `turbo_output\assessment_20261013\` and the experiment pack (PACK.md, `turbo_dev\tools\SESSION_25/26/27_PLAN.md`, the x1_/x2_/x3_
   scripts, chain_check.py, mm_stats.py, dev2.py nested-write gate fixed with a dev2.py.bak_pack backup). Its outputs are inputs for
   WP0 (the gates); the decision does not depend on them (DECISION section 9). If a file is missing when WP0 starts, X1 runs with
-  `TOOLSb_run2.sh` + `ab_width.py` at width 0.6 (DECISION 4.1).
+  `TOOLS\ab_run2.sh` + `ab_width.py` at width 0.6 (DECISION 4.1).
 - Cassio's A.10 questions were asked at 20:25 and are unanswered; the plan assumes the defaults in DECISION section 8.
 - `2.4/channel-e3` (468fe54, local, untested) merges only in X3 branch (a).
 
