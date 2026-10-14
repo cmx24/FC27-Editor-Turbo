@@ -275,3 +275,16 @@ game with evidence in turbo_dev\evidence\<date>. Agents never drive the game or 
 turbo_dev\tools\GAME_LAUNCH_HOLD.txt (agents pause builds) and delete it after the kill. Status + ETA to Cassio every 30 min with
 screenshots. At the end: HANDOVER 00 + fresh 10/11, memory note, commit with Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>.
 ```
+
+## 2.4.0 release state (2026-10-14 10:30 ET, coordinator)
+- Code: tag `v2.4.0` = merge 19c88ec on `turbo-2.0` (code identical to `2.4/release` ee496d0, which built the shipped zip; the merge only adds this file's earlier handover text).
+  Zip `FC27_LE_Turbo_2.4.0.zip` sha256 `b51392a77578b671312846c930b0fe32b1c3d929c1e97bf9defcfaa1ae216f20`, Turbo.dll `576e8bf2...4063`. Installed in the LE folder and smoke-tested.
+- Proofs (TEST_26.md in `turbo_dev\evidence\2026-10-13`): S-A1 career_load + hub PASS (boot moment NOT claimed: Lua never reports the main menu on 6AC07E31), S-B1 PASS
+  (kick-off line = Turbo's values), differential PASS (no Apply = game's values), cleanup PASS, X1P PASS for "engine reads the profile value" (WHEN undecided: the
+  mid-match write was refused by ab_width.py's owner rule because ab_width_state.json had been overwritten by aborted runs; x1p_check.py now accepts the pitch in feet),
+  X3 PASS: Edit Tactic loads from the MAP record (screen = sentinel LH 95), so one write feeds match and screen.
+- Open for 2.4.x / 2.5: X1P mid-match write (WHEN), on-pitch effect of tuning knobs (sliders stay off), boot moment (needs a Lua main-menu report), Q5 (Short Passing storage;
+  the `x3_run.sh after` readout of 2026-10-14 had no Short Passing step behind it and is not a result), Build-Up styles 2/3 and Defensive Approach 3 still refused.
+- GitHub release for v2.4.0: see the end of this section if it says published; the zip sits on the orphan branch `tmp-release-assets` until it is attached.
+- Test-drive notes: menus drop to "Press Any Button" after ~5 s, so every gk.ps1 sequence starts with an Enter wake (never when a destructive screen is awake: the 09:30 Enter loaded
+  Cassio's EVERTON save for 10 s, killed, nothing saved); arrows need mode 2; Turbo overlay clicks via gk.ps1 click work; Weather +/- steppers skip, type the value.
