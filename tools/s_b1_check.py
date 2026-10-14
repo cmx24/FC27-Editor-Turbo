@@ -179,10 +179,10 @@ APPLY_NOROW = ("2026-10-14 09:31:02.100  channel E: team 95 record 0 approach 0-
                "[cm_mentalities not written: kill switch turbo_output\\channel_e_db_off.txt is present] [record now LH 70 BU 1 DA 2] [job 380 us, 28 reads]")
 APPLY_ROW_SAME = ("2026-10-14 09:31:02.100  channel E: team 95 record 0 approach 0->2 line height 25->70 build-up 0->1 (read back ok) "
                   "[cm_mentalities not written: cm_mentalities artificialkey 0 already holds these values] [record now LH 70 BU 1 DA 2]")
-LAUNCH = "2026-10-14 09:28:00.001  channel E: anchors ok on build 6AC07E31-2145C000 (VT1 0x10000000, SetSheet 0x10001000, UpdateSheet 0x10002000, registry 0x10003000)"
+LAUNCH = "2026-10-14 09:28:00.001  channel E: anchors ok on build 6AC07E31-2145C000 (VT1 0x10000000, SetSheet 0x11000000, UpdateSheet 0x12000000, registry 0x13000000)"
 PHASE = "2026-10-14 09:32:10.000  channel E: Lua phase hub -> match: kick-off check in 20 s (the tactic after Turbo's write: Line Height 70, ...)"
 KICK_OK = ("2026-10-14 09:32:30.700  channel E kick-off: match copy team 95 LH 70 BU 1 DA 2 roles 11/11 = Turbo (ok) | 2 copies (0x10000000, "
-           "0x10001000; 3 pid / 3 role-word hit(s)); decode LH +0x158 BU +0x15B DA +0x15C u8 (T2 ...); raw LH +0x158=46 BU +0x15B=01 DA +0x15C=02; "
+           "0x11000000; 3 pid / 3 role-word hit(s)); decode LH +0x158 BU +0x15B DA +0x15C u8 (T2 ...); raw LH +0x158=46 BU +0x15B=01 DA +0x15C=02; "
            "u8 70 at +0x158; window +0x150: 00 00 00 00 00 00 00 00 46 02 02 01 02")
 KICK_DIFF = ("2026-10-14 09:32:30.700  channel E kick-off: match copy team 95 LH 25 BU 0 DA 0 roles 11/11 = game (differs: copy 1: LH 25 not 70, "
              "BU 0 not 1, DA 0 not 2; copy 2: LH 25 not 70, BU 0 not 1, DA 0 not 2) | 2 copies (...)")
