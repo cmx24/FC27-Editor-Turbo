@@ -5,6 +5,8 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
 ## Unreleased
 
+- **Club tactic (channel E): Turbo no longer writes Line Height above 90 or Aggressive** (Build-Up Style 2 / 3 and Defensive Approach 3 stay refused).
+
 ### Removed: tactics channel A and the legacy tactic fields (2.4 cleanup; offline suites only, nothing here needs a game check)
 - **Per-side gameplay sliders (tactics channel A) are gone.** The 68 game variables `GAMEPLAY_CUSTOMIZATION/<slider>_USER` / `_CPU` (sprint speed, pass error, line height, CPU behaviour and the rest) were tested in a played match on 2026-10-11: the game stores the value and reads it back, but the match ignores it (`turbo_output\TACTICS_CHANNEL_A_REPORT.txt`). Removed: their 66 rows in Teams > Tactics (Match scope, the "Per side" groups), the per-side table and the two A/B presets ("baseline", "CPU handicap extremes") in Competitions > Match setup, and the names from the list of game variables Turbo knows. Turbo now refuses to set any game variable that is not on that list. A preset saved by 2.1 - 2.3 that still holds one of these settings loads without it (nothing is ever sent for it).
 - **Kept as they were:** Match setup's fixtures (swap home and away, another opponent), fixed results and its nine game-variable switches (injury frequency and severity, weather and CPU makes no substitutions were seen working in played matches; injuries off, time of day and difficulty as before, not seen to work), and the same variables' rows in the Tactics tab. `call_gamevar_off.txt` stops every game variable (Match setup and the Tactics tab), `tactics_gamevar_off.txt` only the Tactics tab's game-variable rows, `call_match_fix_off.txt` the fixed results.
