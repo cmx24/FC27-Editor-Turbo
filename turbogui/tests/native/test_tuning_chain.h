@@ -380,8 +380,22 @@ static void chain_cases() {
         for (const std::string& b : builtin_builds()) {
             const SignatureTable* t = builtin_signature_table(b);
             const Signature* s = t ? t->find("attrib_db_getter") : nullptr;
-            CHECK(s && s->resolve == "rip" && s->offset == 0 && s->expect == "48 8B 0D" && !s->exact_build && !s->adapt_optional && signature_offset_checked(*s),
-                  "build " + b + ": attrib_db_getter is a checked rip signature, kept by auto-adapt, not optional");
+            CHECK(s && s->resolve == "rip" && s->offset == 0 && s->expect == "48 8B 0D" && !s->exact_build && s->adapt_optional && signature_offset_checked(*s),
+                  "build " + b + ": attrib_db_getter is a checked rip signature, kept by auto-adapt, optional (review M4)");
+        }
+        // a title update where only attrib_db_getter misses: every other hook is adopted (the chain is off there, the name search remains)
+        {
+            const SignatureTable ad = adapt_signature_table(*newest_builtin_table(), "6B000000-21500000");
+            std::vector<SigResult> rs;
+            for (const auto& s : ad.sigs)
+                if (!s.pattern.empty()) {
+                    SigResult x;
+                    x.name = s.name;
+                    x.state = s.name == "attrib_db_getter" ? SigState::Ambiguous : SigState::Found;
+                    rs.push_back(x);
+                }
+            const AdaptDecision d = decide_adapt(ad, rs);
+            CHECK(d.adopt && d.optional_missing == 1 && d.reason.find("attrib_db_getter") != std::string::npos, "a missing getter never blocks the adapted table: " + d.reason);
         }
         ChainWorld w;
         std::vector<uint8_t> code;

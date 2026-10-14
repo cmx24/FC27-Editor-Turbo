@@ -9345,8 +9345,9 @@ static void test_sigscan_adapt() {
             int optional = 0;
             for (const auto& s : b->sigs) optional += s.adapt_optional ? 1 : 0;
             CHECK(b->find("svm_live_vtable") && b->find("svm_live_vtable")->adapt_optional && b->find("fce_datamanager_vtable") &&
-                      b->find("fce_datamanager_vtable")->adapt_optional && optional == 2,
-                  "build " + build + ": svm_live_vtable and fce_datamanager_vtable optional, nothing else");
+                      b->find("fce_datamanager_vtable")->adapt_optional && b->find("attrib_db_getter") && b->find("attrib_db_getter")->adapt_optional &&
+                      optional == 3,
+                  "build " + build + ": svm_live_vtable, fce_datamanager_vtable and attrib_db_getter (2.4) optional, nothing else");
             // a title update where only those two miss: every other hook is adopted (their users stay fail closed: 0 address)
             const SignatureTable ad = adapt_signature_table(*b, "6B000000-21500000");
             std::vector<SigResult> rs;

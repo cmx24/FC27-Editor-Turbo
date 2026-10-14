@@ -688,9 +688,12 @@ static std::vector<Signature> fc27_signatures() {
          // mov rcx,[rip+G]; xor eax,eax; test rcx,rcx; jz; mov rdx,[rcx]; test rdx,rdx; jz; mov rax,[rdx+8]; ret. Unique in the build
          // 6AB9813C image (0x141078530, G 0x14C269128; checked offline) and in the running 6AC07E31 game (0x141077070, G 0x14C26B128; the
          // 2026-10-13 read-only locate run). "rip" at 0 resolves the static attribute manager slot G: [G] = the manager, [[mgr]+8] = the
-         // current gameplay database. Read only: nothing is hooked, nothing is called
+         // current gameplay database. Read only: nothing is hooked, nothing is called. adapt_optional (DECISION 3.1 as amended by the
+         // coordinator, review M4): a miss on a title update never switches the other hooks off; it only disables the chain (the name
+         // search stays as the fallback)
          {"attrib_db_getter", "48 8B 0D ?? ?? ?? ?? 33 C0 48 85 C9 74 0C 48 8B 11 48 85 D2 74 04 48 8B 42 08 C3", "rip", 0,
-          "the attribute manager slot G (0x14C26B128): mov rcx,[rip+G] at the start of get_current_gameplay_attribdb 0x141077070", "48 8B 0D"},
+          "the attribute manager slot G (0x14C26B128): mov rcx,[rip+G] at the start of get_current_gameplay_attribdb 0x141077070", "48 8B 0D",
+          false, false, true},
     };
 }
 
