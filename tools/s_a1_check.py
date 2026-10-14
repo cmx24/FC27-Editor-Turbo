@@ -193,8 +193,8 @@ def restore(out):
 SAMPLE_GOOD = """2026-10-14 09:00:00.000  hooks installed; press Num + in game to show Turbo
 2026-10-14 09:00:01.000  game hooks: signature attrib_db_getter: found, match 0x141077070 -> 0x14C26B128
 2026-10-14 09:01:10.000  gameplay tuning: knobs file C:\\FC 27 Live Editor\\turbo\\tuning\\knobs_6AC07E31.json for build 6AC07E31-2145C000: 23 knobs
-2026-10-14 09:01:19.000  tuning: attribute manager: G 0x14C26B128, mgr 0x3C6807F0, current database Fifa/Attribulator/Gameplay/gameplayattribdb (index 0), prematch database at mgr+0x8, 15 of 15 gameplay databases (8000 ms)
-2026-10-14 09:01:19.100  tuning: chain attrib.attackinglinelengthwidth: base 0x834C6EF0 (identity ok)
+2026-10-14 09:01:19.000  tuning: attribute manager: G 0x14C26B128, mgr 0x20000000, current database Fifa/Attribulator/Gameplay/gameplayattribdb (index 0), prematch database at mgr+0x8, 15 of 15 gameplay databases (8000 ms)
+2026-10-14 09:01:19.100  tuning: chain attrib.attackinglinelengthwidth: base 0x10000000 (identity ok)
 2026-10-14 09:01:44.000  tuning: chain cross-check with the name search (first run on this build): 2 agree, 0 refused (24.9 s)
 2026-10-14 09:01:44.001  tuning: chain locate ok 2 groups 10 knobs 34001 ms
 2026-10-14 09:01:45.000  tuning: profile applied (boot) 2 knobs (read back ok)
@@ -225,7 +225,7 @@ def self_test():
     expect("no chain line yet: inconclusive", SAMPLE_GOOD.split("2026-10-14 09:01:10.000")[0], "boot", 3)
     expect("signature missing: FAIL", SAMPLE_GOOD.replace("signature attrib_db_getter: found, match 0x141077070 -> 0x14C26B128",
                                                           "signature attrib_db_getter: missing (no match)"), "boot", 1, "signature")
-    expect("a refused group: FAIL", SAMPLE_GOOD.replace("base 0x834C6EF0 (identity ok)", "REFUSED for this session: the instance 0x834C6EF0 is a X, not a Y"),
+    expect("a refused group: FAIL", SAMPLE_GOOD.replace("base 0x10000000 (identity ok)", "REFUSED for this session: the instance 0x10000000 is a X, not a Y"),
            "boot", 1, "chain")
     expect("one group only: FAIL", SAMPLE_GOOD.replace("locate ok 2 groups", "locate ok 1 groups"), "boot", 1, "chain")
     expect("the name search fallback: FAIL", SAMPLE_GOOD.replace("tuning: chain locate ok 2 groups 10 knobs 34001 ms",
