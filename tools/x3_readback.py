@@ -104,9 +104,9 @@ def run(a):
         return harness.finish("PASS" if ok else "FAIL", ["all %d checked sentinels read back" % checked if ok else
                                                          "a sentinel did not read back"], tool=TOOL)
     x0 = copies.get("X0")
-    if not x0 or not x0[1]["code"]:
-        return harness.finish("FAIL", ["X0 (svc+0xF80, the record Edit Tactic displays) holds no tactic: Edit Tactic is not open or the "
-                                       "layout moved"], tool=TOOL)
+    if not x0 or not x0[1]["code"]:  # review minor 11: not a table-4.3 outcome -> INCONCLUSIVE (x3_run.sh kills on it)
+        return harness.finish("INCONCLUSIVE", ["X0 (svc+0xF80, the record Edit Tactic displays) holds no tactic: Edit Tactic is not open "
+                                               "or the layout moved"], tool=TOOL)
     f = x0[1]
     if a.phase == "open":
         by_line = {s["line"]: s["copy"] for s in sent}
@@ -168,7 +168,11 @@ def self_test():
         rc, out = go("--phase", "after", "--mock", m3, "--log", log)
         check(rc == 0 and "stored as Build-Up 2" in out, "after Short Passing: Q5 value printed")
         rc, out = go("--phase", "open", "--mock", mem_p, "--log", log)
-        check(rc == 1 and "holds no tactic" in out, "open while X0 is empty: FAIL")
+        check(rc == 3 and "holds no tactic" in out, "open while X0 is empty: INCONCLUSIVE (not a table-4.3 outcome)")
+        m5 = os.path.join(d, "foreign.json")
+        sc.mock_world(m5, None, foreign=("B0",))
+        rc, out = go("--phase", "hub", "--mock", m5, "--log", log)
+        check("B0.rec0" not in out and "A0.rec0" in out, "review minor 3: an inline sheet of another club is never a copy / target")
         m4 = os.path.join(d, "freed.json")
         sc.mock_world(m4, None, loaded=0)
         rc, out = go("--phase", "hub", "--mock", m4, "--log", log)

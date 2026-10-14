@@ -802,7 +802,7 @@ def find_writable(pattern, spans, mx, budget, log=print):
     hits, todo, t0 = [], list(spans), time.time()
     while todo and time.time() - t0 < budget:
         a, b = todo.pop(0)
-        r = dev2.call({"op": "find", "pattern": pattern, "max": mx, "from": H(a), "to": H(b), "writable": True}, timeout=30)
+        r = _dev2().call({"op": "find", "pattern": pattern, "max": mx, "from": H(a), "to": H(b), "writable": True}, timeout=30)
         if r.get("error") and not r.get("ok"):
             log("  find %s..%s: %s" % (H(a), H(b), r.get("error")))
             continue

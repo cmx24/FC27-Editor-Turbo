@@ -106,6 +106,8 @@ def resolve(read, svc, team, say=print):
             continue
         s = sheet_info(b, lab)
         say("  sheet %s svc+%s: team %d current %d records %d mode %s" % (lab, H(off), s["team"], s["current"], s["n"], s["mode"]))
+        if s["team"] != team:  # review minor 3: another club's sheet is never a copy of ours (a shared preset code is not enough)
+            continue
         for r in range(s["n"]):
             pairs2.append(("%s.rec%d" % (lab, r), s["vec"][0] + REC * r))
     for k, (lab, off) in enumerate(RECS.items()):
@@ -185,7 +187,7 @@ def sheet(team, vec, n):
     return bytes(b)
 
 
-def mock_world(path, log_path=None, x0=None, load=(25, 0, 0), copies=("C0", "A0", "B0"), loaded=1):
+def mock_world(path, log_path=None, x0=None, load=(25, 0, 0), copies=("C0", "A0", "B0"), loaded=1, foreign=()):
     """synthetic CachedTeamSheetService in a harness.MockMem file: inline sheets `copies` with one active heap record each holding
     MOCK_CODE and the career-load values `load` (LH, BU, DA), empty X/Y records (x0 = (LH, BU, DA) fills X0 as an open Edit Tactic),
     the map record of MOCK_TEAM. Writes Turbo-style log lines naming the svc and the team when log_path is given. -> (MockMem, svc)"""
@@ -199,7 +201,7 @@ def mock_world(path, log_path=None, x0=None, load=(25, 0, 0), copies=("C0", "A0"
         vec = heap
         heap += 0x1000
         regions.append((vec, record(MOCK_CODE, *load) + record("", 0, 0, 0, 0)))
-        blob[off:off + 0x288] = sheet(MOCK_TEAM, vec, 2)[:0x288]
+        blob[off:off + 0x288] = sheet(MOCK_TEAM + (1 if lab in foreign else 0), vec, 2)[:0x288]  # foreign: another club's sheet
     if x0:
         blob[RECS["X0"]:RECS["X0"] + REC] = record(MOCK_CODE, *x0)
     buckets, nb = heap, 7
