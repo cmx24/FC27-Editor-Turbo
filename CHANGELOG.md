@@ -3,6 +3,12 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## Unreleased (2.7, track "tactics-effect"; offline work, NOT verified in game)
+
+- **Proof promotion:** `tools/promote_proof.py` turns an evidence folder's verdicts (battery `result.json` or a `verdicts.json`) into the knobs file's proof block, only for a knob with engine-read PASS and visible-effect PASS; dry run with a diff by default, `--apply` to write. `scripts/knobs_guard.py` also refuses `live` without `applies: live`, `applies: live` without a proof and a candidate with a proof, slider, live or verified.
+- **Gameplay tuning page (only when a knob is proven):** each slider row says when it applies (now (live) / next match (latched at kick-off) / not measured), always reads back the engine's value, and a knob proven live gets "Apply now" (row) and "Apply now (live)" (Changes block) that write during a match with the owner rule, read-back and rollback. `turbo_output	uning_live_off.txt` stops every write in a match. With no proven knob the page is as in 2.6.0.
+- **Turbo mixed styles:** High press, Low block, Wide, Narrow, Counter, Possession; each holds only the knobs proven in the knobs file (empty and greyed until a knob is promoted). An absolute preset value outside a knob's range is brought into it and the page says so.
+
 ## 2.6.0 (2026-10-14)
 
 Verified in game 2026-10-14 (test career LEICESTER, never saved, save files byte-identical afterwards; `turbo_dev\evidence\2026-10-14\TEST_28.md`), build 6AC07E31. Everything not listed as verified passes the offline suites only (build 0 warnings, Lua 405/0, native 31,856/0, Python 463, catalog 0 failed).

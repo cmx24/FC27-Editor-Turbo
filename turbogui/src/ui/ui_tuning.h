@@ -52,12 +52,23 @@ struct TuningViewState {
         bool editable = false;  // the slider is enabled
         bool changed = false;   // the slider differs from the game's value
         bool can_reset = false; // Reset is enabled (a copy differs from FC 27's own value, or the slider was moved)
+        // 2.7 (proven knobs only): when a written value reaches the match, the value read back from the game, the live apply
+        std::string timing;     // "now (live)" / "next match (latched at kick-off)" / "not measured: assume the next match" ("" = not a slider)
+        bool live = false;      // proven and declared live: the row has "Apply now"
+        bool latched = false;   // proven, read when the match is built
+        std::string readback;   // "in the game now: 0.85 (read from the engine table)" (a slider row always shows it)
+        bool can_apply_now = false;  // the row's "Apply now" is enabled
+        std::string apply_now_why;   // why not ("" = it can)
     };
     std::vector<Row> rows;
     std::vector<std::string> not_working;  // the labels of the knobs not located on this build (hidden)
     std::vector<std::string> groups;
     int proven = 0, located = 0, unlocated = 0;
     int candidates = 0;  // 2.5: inventory candidates of the knobs file (unverified, never written); not counted in `unlocated`, not listed in not_working
+    // 2.7: "Apply now (live)": drawn only when the catalogue has a knob that is proven live; writes only moved sliders of such knobs
+    bool live_shown = false, can_apply_live = false;
+    std::string live_why;                 // why "Apply now (live)" is greyed ("" = it can)
+    std::vector<std::string> live_plan;   // what it will write
     std::vector<std::string> plan;  // what Apply will write
     std::string plan_error;
     bool can_apply = false, can_undo = false, can_restore = false, busy = false;
@@ -67,6 +78,7 @@ struct TuningViewState {
     std::string last, undo_state;
     std::vector<std::string> presets;  // the presets listed ("Turbo compact (Turbo)")
     std::string preset_line;           // the last preset use / save / import / export outcome
+    std::vector<std::string> presets_empty;  // 2.7: the Turbo styles that hold no knob yet ("empty until its knobs are proven")
     std::string preset_status;         // 2.5: the picked preset's proof status ("4 knobs: 0 effect measured, 0 engine-confirmed, 4 located only, 0 not in this build")
     std::string active_preset;         // 2.5: the profile's preset ("" = none: custom values)
     std::string active_line;           // "Active preset: Turbo compact | not applied automatically (profile off)"

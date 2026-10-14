@@ -434,7 +434,10 @@ static void chain_cases() {
         Knob live;
         live.live = true;
         live.when = {"hub"};
-        CHECK(live.allows("prematch") && live.allows("match") && live.allows("hub") && !live.allows_moment("boot"), "live: prematch and match too");
+        CHECK(!live.allows("prematch") && !live.allows("match") && live.allows("hub"), "2.7: live: true without a proof allows no mid-match write");
+        live.proof.session = "P1";
+        live.proof.evidence = "EV/2026-10-14/TEST_25.md#x";
+        CHECK(live.allows("prematch") && live.allows("match") && live.allows("hub") && !live.allows_moment("boot"), "live and proven: prematch and match too");
         CHECK(r.locator("attrib.llw")->chain_capable() && r.locator("attrib.bands")->chain_capable() && r.manager.prematch(*r.locator("attrib.bands")) &&
                   !r.manager.prematch(*r.locator("attrib.llw")),
               "chain-capable locators, the prematch one by its database type");

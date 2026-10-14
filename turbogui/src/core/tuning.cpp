@@ -293,8 +293,17 @@ const char* plan_kind_name(PlanKind k) {
 bool Knob::allows_moment(const std::string& moment) const { return std::find(when.begin(), when.end(), moment) != when.end(); }
 
 bool Knob::allows(const std::string& phase) const {
-    if (phase == "prematch" || phase == "match") return live || allows_moment(phase);
+    if (phase == "prematch" || phase == "match") return live_ok() || allows_moment(phase);
     return phase == "hub" && allows_moment("hub");
+}
+
+const char* Knob::timing_label() const {
+    switch (timing()) {
+        case Timing::Now: return "now (live)";
+        case Timing::NextMatch: return "next match (latched at kick-off)";
+        case Timing::Unknown: break;
+    }
+    return "not measured: assume the next match";
 }
 
 bool Knob::game_value(const std::string& copy, double& v) const {
@@ -2195,6 +2204,7 @@ Switches read_switches(const fs::path& out) {
     s.attrib = file_exists(out / attrib_switch_file());
     s.profile_off = file_exists(out / profile_off_file());
     s.test_unproven = file_exists(out / test_unproven_file());
+    s.live_off = file_exists(out / live_off_file());
     Profile p;
     s.profile_on = load_profile(out / profile_file(), p, nullptr) && p.on;
     return s;
@@ -2212,6 +2222,16 @@ std::string Gates::first() const {
     return "";
 }
 
+// 2.7: every knob of the plan is proven and declared live (the page's "Apply now (live)")
+static bool all_knobs_live_ok(const Registry& reg, const Plan& plan) {
+    if (plan.writes.empty()) return false;
+    for (const Write& w : plan.writes) {
+        const Knob* k = reg.knob(w.id);
+        if (!k || !k->live_ok()) return false;
+    }
+    return true;
+}
+
 static std::string when_text(const std::vector<std::string>& w) {
     std::string s;
     for (size_t i = 0; i < w.size(); ++i) s += (i ? (i + 1 == w.size() ? " or " : ", ") : "") + std::string(w[i] == "hub" ? "the career hub" : w[i]);
@@ -2223,7 +2243,10 @@ Gates evaluate(const GateInput& in) {
     {
         Gate g{"G1 switches", ""};
         const std::string block = in.sw.blocking();
+        const bool in_match = in.match_phase == "prematch" || in.match_phase == "match";
         if (!in.restore && !block.empty()) g.why = "kill switch turbo_output\\" + block + " is present";
+        else if (!in.restore && in.sw.live_off && (in.live_apply || in_match))
+            g.why = std::string("kill switch turbo_output\\") + live_off_file() + " is present (no gameplay tuning write during a match)";
         else if (!in.restore && !in.sw.opted_in())
             g.why = std::string("off: tick \"write in this game session\", switch the tuning profile on, or create turbo_output\\") + opt_in_file() + " (opt-in)";
         gs.list.push_back(g);
@@ -2243,16 +2266,23 @@ Gates evaluate(const GateInput& in) {
             if (in.knobs.empty()) {
                 if (in.match_phase != "hub") g.why = "a match is being set up or played (Lua: " + in.match_phase + "): apply in the career hub";
             } else {
-                for (const Knob* k : in.knobs)
-                    if (k && !k->allows(in.match_phase)) {
-                        g.why = k->label + " may be written in " + when_text(k->when) + " only (Lua: " + in.match_phase + ")";
+                for (const Knob* k : in.knobs) {
+                    if (k && in.live_apply && !k->live_ok()) {
+                        g.why = k->label + " is not proven live (it is read when the match starts): use Apply in the career hub, before kick-off";
                         break;
                     }
+                    if (k && !k->allows(in.match_phase)) {
+                        g.why = k->label + " may be written in " + when_text(k->when) + " only (Lua: " + in.match_phase + ")";
+                        if (k->proven() && (in.match_phase == "prematch" || in.match_phase == "match"))
+                            g.why += ": it is latched when the match starts, so write it in the career hub before kick-off";
+                        break;
+                    }
+                }
             }
             if (g.why.empty() && !in.restore && in.team_mgmt) g.why = "Team Management is open: apply after leaving it";
             if (g.why.empty() && in.match_phase == "hub" && in.prematch_age >= 0 && in.prematch_age < kPrematchGuardSeconds) {
                 bool all_live = !in.knobs.empty();
-                for (const Knob* k : in.knobs) all_live = all_live && k && k->live;
+                for (const Knob* k : in.knobs) all_live = all_live && k && k->live_ok();
                 if (!all_live) g.why = "a match was being set up " + std::to_string(in.prematch_age) + " s ago (Lua: prematch): wait a moment";
             }
             if (g.why.empty() && in.save_age >= 0 && in.save_age < kSaveQuietSeconds)
@@ -3163,6 +3193,49 @@ const std::vector<Preset>& builtin_presets() {
     return p;
 }
 
+const std::vector<StyleRecipe>& style_recipes() {
+    // Directions from the catalogue notes (lower pressing depth = earlier press; lower length / gap = more compact; higher tightness / runs = more).
+    // Sizes are Turbo's own round numbers, clamped to each knob's range when used. Every id is a real, non-candidate catalogue knob (tested).
+    static const std::vector<StyleRecipe> r = {
+        {"turbo_style_high_press", "Turbo style: High press",
+         "Presses earlier and tighter with a compact block: earlier pressing and zone marking, tighter marking, shorter and narrower without the ball.",
+         {{"pressing.trigger_depth", -30}, {"pressing.zone_marking_depth", -20}, {"marking.tightness", 40}, {"shape.length_out", -10},
+          {"shape.gap_dmf", -15}, {"shape.width_out", -10}}},
+        {"turbo_style_low_block", "Turbo style: Low block",
+         "Sits deep and compact: later pressing, later zone marking, a short, narrow block with tight lines.",
+         {{"pressing.trigger_depth", 40}, {"pressing.zone_marking_depth", 25}, {"shape.length_out", -15}, {"shape.width_out", -10}, {"shape.gap_dmf", -20},
+          {"marking.tightness", 10}}},
+        {"turbo_style_wide", "Turbo style: Wide", "Spreads out with the ball and when defending.",
+         {{"shape.width_in", 20}, {"shape.width_in_cb", 10}, {"shape.width_out", 10}}},
+        {"turbo_style_narrow", "Turbo style: Narrow", "Plays through the middle: narrow with the ball and when defending.",
+         {{"shape.width_in", -20}, {"shape.width_in_cb", -10}, {"shape.width_out", -15}}},
+        {"turbo_style_counter", "Turbo style: Counter", "A compact block that stretches when it wins the ball: more runs, longer with the ball.",
+         {{"shape.length_in", 15}, {"shape.length_in_possession", 10}, {"runs.frequency", 40}, {"shape.length_out", -10}}},
+        {"turbo_style_possession", "Turbo style: Possession", "Short and patient: a compact team with the ball, a little wider, pressing a little earlier.",
+         {{"shape.length_in", -10}, {"shape.length_in_possession", -10}, {"shape.width_in", 10}, {"pressing.trigger_depth", -15}}},
+    };
+    return r;
+}
+
+std::vector<Preset> style_presets(const Registry& reg) {
+    std::vector<Preset> out;
+    for (const StyleRecipe& r : style_recipes()) {
+        Preset p;
+        p.id = r.id;
+        p.name = r.name;
+        p.author = "Turbo";
+        for (const auto& c : r.changes) {
+            const Knob* k = reg.knob(c.first);
+            if (!k || !k->proven() || !k->slider || k->candidate || !k->has_range() || k->type == ValueType::Bool) continue;
+            p.changes.push_back({c.first, true, c.second, 0});
+        }
+        p.note = "Turbo's own style: " + r.note + " Holds only knobs proven in a played match (" + std::to_string(p.changes.size()) + " of " +
+                 std::to_string(r.changes.size()) + " today)" + (p.changes.empty() ? "; empty until its knobs are proven." : ".");
+        out.push_back(std::move(p));
+    }
+    return out;
+}
+
 std::string preset_file_name(const Preset& p) {
     if (p.turbo() && p.id.rfind("turbo_", 0) == 0) return safe_name(p.id) + ".json";
     return safe_name(p.name) + ".json";
@@ -3262,14 +3335,21 @@ PresetValues preset_values(const Preset& p, const Registry& reg, const std::func
             v = base * (1.0 + c.pct / 100.0);
             v = std::min(std::max(v, k->min), k->max);
         } else {
-            const std::string why = check_value(*k, c.value);
+            // 2.7: an absolute value outside the knob's catalogue range is brought to the range (and said so); anything else wrong is skipped
+            v = c.value;
+            if (std::isfinite(v) && k->has_range() && (v < k->min || v > k->max)) {
+                const double to = std::min(std::max(v, k->min), k->max);
+                out.clamped.push_back(k->label + ": " + num(v) + " -> " + num(to));
+                v = to;
+            }
+            const std::string why = check_value(*k, v);
             if (!why.empty()) {
                 out.skipped.push_back(why);
                 continue;
             }
-            v = c.value;
         }
-        out.values[c.knob] = representable(*k, v);
+        // what the game would hold; an f32 rounded up past the range's own edge (1.7 -> 1.70000005) stays inside it (the plan's check_value is on the range)
+        out.values[c.knob] = std::min(std::max(representable(*k, v), k->min), k->max);
     }
     return out;
 }
@@ -3873,9 +3953,11 @@ std::string CoreService::chain_liveness(const Plan& plan, const Registry& reg, c
     return "the attribute manager's current database " + hex(cur) + " is not one Turbo located (rebuilt?): nothing written, located again";
 }
 
-std::string CoreService::job_switch_block(const Plan& plan, const Registry& reg) const {
+std::string CoreService::job_switch_block(const Plan& plan, const Registry& reg, const std::string& phase) const {
     if (h_.out_dir.empty()) return "";
     const fs::path& out = h_.out_dir;
+    if (!puts_back(plan.kind) && (plan.live || phase == "prematch" || phase == "match") && file_exists(out / live_off_file()))
+        return "turbo_output\\" + std::string(live_off_file()) + " (read again in the job): no gameplay tuning write during a match";
     for (const char* f : {master_switch_file(), kill_switch_file(), attrib_switch_file()})
         if (file_exists(out / f)) return "turbo_output\\" + std::string(f) + " (read again in the job)";
     if (!plan.moment.empty()) {
@@ -4129,6 +4211,10 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
                     }
             } else if (!sw.blocking().empty()) {
                 switch_block = "turbo_output\\" + sw.blocking();
+            } else if (sw.live_off && (plan.live || ctx.phase == "prematch" || ctx.phase == "match")) {
+                switch_block = std::string("turbo_output\\") + live_off_file() + ": no gameplay tuning write during a match";
+            } else if (plan.live && !all_knobs_live_ok(*reg, plan)) {
+                switch_block = "a knob of the plan is not proven live (Apply now is for live-proven knobs only)";
             } else if (!sw.opted_in()) {
                 switch_block = std::string("no opt-in (the session tick, the tuning profile or turbo_output\\") + opt_in_file() + ")";
             }
@@ -4152,7 +4238,10 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
         } else if (!switch_block.empty()) {
             stage = "G1";
             block = switch_block;
-        } else if (!puts_back(plan.kind) && !(block = job_switch_block(plan, *reg)).empty()) {
+        } else if (!puts_back(plan.kind) && !(block = job_switch_block(plan, *reg, [&] {
+                       std::lock_guard<std::mutex> lk(mu_);
+                       return cur_phase_;
+                   }())).empty()) {
             stage = "G1";  // m1 (review 2026-10-13): the kill switches read again inside the job (a few file checks on the game thread)
         } else if (!(block = chain_liveness(plan, *reg, anchors, live_dbs)).empty()) {
             stage = "rebuilt";  // m4: the manager's current database is not one Turbo located: nothing written, located again
@@ -4189,7 +4278,12 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
                 bool all_live = true;
                 for (const Write& wr : plan.writes) {
                     const Knob* k = reg->knob(wr.id);
-                    all_live = all_live && k && k->live;
+                    all_live = all_live && k && k->live_ok();
+                    if (k && plan.live && !k->live_ok()) {
+                        stage = "G2";
+                        block = k->label + " is not proven live: nothing written";
+                        break;
+                    }
                     if (k && !k->allows(cur_phase_)) {
                         stage = "G2";
                         block = k->label + " may be written in " + when_text(k->when) + " only (now: " + (cur_phase_.empty() ? "unknown" : cur_phase_) + ")";

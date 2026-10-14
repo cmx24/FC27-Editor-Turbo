@@ -451,6 +451,28 @@ static GateInput hub_input() {
     return in;
 }
 
+// 2.7: the simulated table with a promoted catalogue: pressing.intensity proven AND live (applies "live"), shape.line_height proven and latched
+// ("next match setup"), marking.tightness proven with "applies" unknown; shooting.error is `"live": true` WITHOUT a proof (it is not live_ok).
+// promoted = false: the same file with no proof at all (the 2.6.0 state)
+static std::string live_knobs_text(bool promoted = true) {
+    std::string t = kTestKnobs;
+    auto begin_of = [&](const std::string& id) { return t.find("{\"id\": \"" + id + "\""); };
+    auto end_of = [&](const std::string& id) { return t.find("\"verified\": true}", begin_of(id)); };
+    auto add = [&](const std::string& id, const std::string& extra) { t.insert(end_of(id), extra); };
+    if (promoted) {
+        const std::string a = "pressing.intensity";
+        const size_t b0 = begin_of(a), b1 = end_of(a);
+        std::string o = t.substr(b0, b1 - b0);
+        o.replace(o.find("next match setup"), 16, "live");
+        t = t.substr(0, b0) + o + t.substr(b1);
+        for (const char* id : {"pressing.intensity", "shape.line_height", "marking.tightness"})
+            add(id, std::string("\"proof\": {\"session\": \"T29\", \"evidence\": \"EV/2026-10-20/battery_010101/result.json#") + id + "\"}, \"slider\": true, " +
+                        (std::string(id) == "pressing.intensity" ? "\"live\": true, " : ""));
+    }
+    add("shooting.error", "\"live\": true, ");
+    return t;
+}
+
 #include "test_tuning_chain.h"  // 2.4: the chain from the attribute manager, the profile, the moments (chain_cases)
 
 // --------------------------------------------------------------------------------------------------------------------------- core
@@ -1776,6 +1798,195 @@ static void run() {
         CHECK(make_restore_plan(reg, live, {}, p, skipped) == "nothing to restore: Turbo has not written a knob in this game session", "no defaults");
     });
 
+    run_case("tuning 2.7: live-proven knobs - Timing, the gates, tuning_live_off.txt, a live plan refuses a latched knob, a mid-match write is read back, Undo/Restore stay open", [] {
+        Registry reg;
+        std::string err;
+        CHECK(parse_registry(live_knobs_text(), reg, err), "a promoted catalogue parses: " + err);
+        const Knob* a = reg.knob("pressing.intensity");
+        const Knob* b = reg.knob("shape.line_height");
+        const Knob* c = reg.knob("marking.tightness");
+        const Knob* d = reg.knob("shooting.error");
+        CHECK(a && b && c && d, "knobs");
+        CHECK(a->live_ok() && a->timing() == Knob::Timing::Now && std::string(a->timing_label()) == "now (live)", "proven + live: now");
+        CHECK(!b->live_ok() && b->timing() == Knob::Timing::NextMatch && std::string(b->timing_label()) == "next match (latched at kick-off)", "proven latched");
+        CHECK(!c->live_ok() && c->timing() == Knob::Timing::Unknown && std::string(c->timing_label()) == "not measured: assume the next match", "proven, applies unknown");
+        CHECK(d->live && !d->live_ok() && !d->allows("match") && !d->allows("prematch"), "live: true without a proof is NOT live (no mid-match write)");
+        CHECK(a->allows("match") && a->allows("prematch") && a->allows("hub") && !a->allows_moment("match"), "a live-proven knob is allowed mid-match without 'match' in when");
+        CHECK(!b->allows("match") && !b->allows("prematch") && b->allows("hub") && !c->allows("match"), "a latched / unmeasured knob is hub-only");
+        // the gates
+        GateInput in = hub_input();
+        in.match_phase = "match";
+        in.knobs = {a};
+        in.live_apply = true;
+        CHECK(evaluate(in).pass(), "match phase, live plan of a live-proven knob: all gates pass: " + evaluate(in).first());
+        in.knobs = {a, b};
+        CHECK(evaluate(in).first() == "G2 career phase: Defensive line height is not proven live (it is read when the match starts): use Apply in the career hub, before kick-off",
+              evaluate(in).first());
+        in.live_apply = false;
+        CHECK(evaluate(in).first().find("G2 career phase: Defensive line height may be written in the career hub only (Lua: match): it is latched when the match starts") == 0, evaluate(in).first());
+        in.knobs = {d};
+        in.live_apply = true;
+        CHECK(evaluate(in).first().find("is not proven live") != std::string::npos, "live: true without a proof is refused by the live gate");
+        in = hub_input();
+        in.knobs = {a};
+        in.live_apply = true;
+        CHECK(evaluate(in).pass(), "Apply now in the hub passes too");
+        in.sw.live_off = true;
+        CHECK(evaluate(in).first() == "G1 switches: kill switch turbo_output\\tuning_live_off.txt is present (no gameplay tuning write during a match)", evaluate(in).first());
+        in.live_apply = false;
+        in.knobs = {b};
+        CHECK(evaluate(in).pass(), "the live kill switch does not stop a normal hub Apply");
+        in.match_phase = "match";
+        in.knobs = {a};
+        CHECK(!evaluate(in).pass(), "... but it stops any write during a match");
+        in.restore = true;
+        CHECK(evaluate(in).pass(), "... and Undo / Restore are not blocked");
+        // the service: a mid-match write
+        TuneWorld w;
+        const fs::path dir = g_out / "tuning_test" / "live27";
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        TuneRig rig(w, dir, live_knobs_text());
+        rig.touch(opt_in_file());
+        auto live = rig.live();
+        CHECK(live["pressing.intensity"].located && live["shape.line_height"].located, "located");
+        Plan p;
+        CHECK(make_plan(*rig.svc->registry(), live, {{"pressing.intensity", 0.8}}, PlanKind::Apply, p).empty(), "live plan");
+        p.live = true;
+        std::string why;
+        rig.svc->note_context(rig.ctx(3, "match"));
+        CHECK(rig.svc->submit(rig.ctx(3, "match"), p, why), "queued mid-match: " + why);
+        rig.jobs.pump();
+        ApplyResult r;
+        CHECK(rig.svc->poll(r) && r.ok && r.written && r.message == "written and read back" && w.f32(TuneWorld::kBase) == 0.8f, "written mid-match and read back: " + r.message);
+        // a live plan that holds a latched knob is refused before queuing; a normal plan of it is refused in the job (match phase)
+        Plan q;
+        CHECK(make_plan(*rig.svc->registry(), live, {{"shape.line_height", 70}}, PlanKind::Apply, q).empty(), "latched plan");
+        Plan ql = q;
+        ql.live = true;
+        CHECK(rig.svc->submit(rig.ctx(3, "match"), ql, why), "queued (the job refuses it)");
+        rig.jobs.pump();
+        CHECK(rig.svc->poll(r) && !r.ok && r.stage == "G1" && r.message.find("not proven live") != std::string::npos && w.i32(TuneWorld::kBase + 4) == 45,
+              "a live plan of a latched knob writes nothing: " + r.message);
+        CHECK(rig.svc->submit(rig.ctx(3, "match"), q, why), "queued");
+        rig.jobs.pump();
+        CHECK(rig.svc->poll(r) && !r.ok && r.stage == "G2" && r.message.find("Defensive line height may be written in the career hub only (now: match)") == 0 &&
+                  w.i32(TuneWorld::kBase + 4) == 45,
+              "a latched knob is not written mid-match: " + r.message);
+        // the kill switch is read right before queuing and again in the job
+        Plan p2;
+        live = rig.live();
+        CHECK(make_plan(*rig.svc->registry(), live, {{"pressing.intensity", 0.3}}, PlanKind::Apply, p2).empty(), "second live plan");
+        p2.live = true;
+        rig.touch(live_off_file());
+        CHECK(rig.svc->submit(rig.ctx(3, "match"), p2, why), "queued");
+        rig.jobs.pump();
+        CHECK(rig.svc->poll(r) && !r.ok && r.stage == "G1" && r.message.find("tuning_live_off.txt") != std::string::npos && w.f32(TuneWorld::kBase) == 0.8f,
+              "the live kill switch: " + r.message);
+        rig.remove(live_off_file());
+        CHECK(rig.svc->submit(rig.ctx(3, "match"), p2, why), "queued again");
+        rig.touch(live_off_file());
+        rig.jobs.pump();
+        CHECK(rig.svc->poll(r) && !r.ok && r.stage == "G1" && w.f32(TuneWorld::kBase) == 0.8f, "the switch is read again inside the job: " + r.message);
+        // Restore mid-match with the kill switch present: not blocked
+        live = rig.live();
+        Plan rs;
+        std::vector<std::string> sk;
+        CHECK(make_vanilla_plan(*rig.svc->registry(), live, rs, sk).empty() && rs.writes.size() == 1, "a vanilla plan for the live knob");
+        CHECK(rig.svc->submit(rig.ctx(3, "match"), rs, why), "Restore queued mid-match: " + why);
+        rig.jobs.pump();
+        CHECK(rig.svc->poll(r) && r.ok && r.written && w.f32(TuneWorld::kBase) == 0.5f, "FC 27's value is back mid-match: " + r.message);
+        // 0 proven = 2.6.0: no knob is proven, live_ok or newly allowed mid-match
+        Registry none;
+        CHECK(parse_registry(live_knobs_text(false), none, err), "the unpromoted file parses");
+        bool any = false;
+        for (const Knob& k : none.knobs) any = any || k.live_ok() || k.proven() || (k.allows("match") && k.id != "passing.error_ground");
+        CHECK(!any, "0 proven: no knob is proven, live_ok or allowed mid-match (passing.error_ground names 'match' in when, as in 2.6.0)");
+    });
+
+    run_case("tuning 2.7: Turbo mixed styles - six in memory, only proven knobs, empty with 0 proven, clamped to the catalogue range, ids exist in the shipped catalogue", [] {
+        const fs::path p = fs::path("..") / "turbo" / "package" / "turbo" / "tuning" / "knobs_6AC07E31.json";
+        std::ifstream f(p, std::ios::binary);
+        std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        Registry reg;
+        std::string err;
+        CHECK(parse_registry(text, reg, err), "shipped catalogue: " + err);
+        const auto& rec = style_recipes();
+        CHECK(rec.size() == 6 && rec[0].name == "Turbo style: High press" && rec[1].name == "Turbo style: Low block" && rec[2].name == "Turbo style: Wide" &&
+                  rec[3].name == "Turbo style: Narrow" && rec[4].name == "Turbo style: Counter" && rec[5].name == "Turbo style: Possession",
+              "the six styles");
+        for (const StyleRecipe& r : rec) {
+            CHECK(r.id.rfind("turbo_style_", 0) == 0 && !r.changes.empty(), r.id + ": id and changes");
+            for (const auto& ch : r.changes) {
+                const Knob* k = reg.knob(ch.first);
+                CHECK(k && !k->candidate && k->has_range() && k->type == ValueType::F32 && std::fabs(ch.second) <= 100.0, r.id + ": " + ch.first + " is a real, non-candidate catalogue knob");
+            }
+        }
+        // 0 proven (the shipped state): all six empty
+        std::vector<Preset> st = style_presets(reg);
+        bool all_empty = st.size() == 6;
+        for (const Preset& s : st) all_empty = all_empty && s.changes.empty() && is_style_preset(s) && s.turbo() && s.note.find("empty until its knobs are proven") != std::string::npos;
+        CHECK(all_empty, "0 proven knobs: every style is empty");
+        const PresetValues none = preset_values(st[0], reg, [](const std::string&, double& v) { v = 1; return true; });
+        CHECK(none.values.empty() && none.skipped.empty(), "an empty style gives nothing");
+        // the files: Turbo's file presets are unchanged (the styles are never written)
+        const fs::path dir = g_out / "tuning_test" / "styles27";
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        CHECK(ensure_builtin_presets(dir, &err) == 5, "still five Turbo files");
+        int files = 0;
+        for (const auto& en : fs::directory_iterator(dir)) files += en.path().filename().string().find("style") != std::string::npos ? 1 : 0;
+        CHECK(files == 0, "no style file on disk");
+        // some proven: width_in and length_in promoted in the data
+        auto promote = [&](const std::vector<std::string>& ids) {
+            std::string t = text;
+            for (const std::string& id : ids) {
+                const size_t a = t.find("\"id\": \"" + id + "\"");
+                const size_t v = t.find("\"verified\": true,", a);
+                CHECK(a != std::string::npos && v != std::string::npos, id + " in the file");
+                t.insert(v, "\"proof\": {\"session\": \"T29\", \"evidence\": \"EV/2026-10-20/b/result.json#" + id + "\"}, \"slider\": true, ");
+            }
+            Registry r2;
+            std::string e2;
+            CHECK(parse_registry(t, r2, e2), "promoted file parses: " + e2);
+            return r2;
+        };
+        Registry r2 = promote({"shape.width_in", "shape.length_in"});
+        st = style_presets(r2);
+        std::map<std::string, size_t> n;
+        for (const Preset& s : st) n[s.name] = s.changes.size();
+        CHECK(n["Turbo style: Wide"] == 1 && n["Turbo style: Narrow"] == 1 && n["Turbo style: Possession"] == 2 && n["Turbo style: Counter"] == 1 &&
+                  n["Turbo style: High press"] == 0 && n["Turbo style: Low block"] == 0,
+              "styles hold only the two proven knobs: Wide 1, Narrow 1, Possession 2, Counter 1, High press 0, Low block 0");
+        for (const Preset& s : st)
+            for (const PresetChange& ch : s.changes) CHECK(r2.knob(ch.knob)->proven(), s.name + ": " + ch.knob + " is proven");
+        CHECK(st[2].note.find("1 of 3 today") != std::string::npos, "the note counts: " + st[2].note);
+        // values: relative to FC 27's value, clamped to the catalogue range, made representable
+        const auto base = [&](const std::string& id, double& v) {
+            const Knob* k = r2.knob(id);
+            v = k->def;
+            return true;
+        };
+        const PresetValues pw = preset_values(st[2], r2, base);  // Wide: width_in +20 %
+        CHECK(pw.values.size() == 1 && std::fabs(pw.values.at("shape.width_in") - 1.2) < 1e-6, "Wide: width_in 1.0 -> 1.2");
+        Preset big = st[2];
+        big.changes = {{"shape.width_in", true, 500, 0}, {"shape.length_in", true, -500, 0}};
+        const PresetValues pb = preset_values(big, r2, base);
+        CHECK(pb.values.at("shape.width_in") == 1.7 && pb.values.at("shape.length_in") == 0.5, "relative changes are clamped to min..max");
+        Preset abs = st[2];
+        abs.changes = {{"shape.width_in", false, 0, 9.0}, {"shape.length_in", false, 0, -3.0}};
+        const PresetValues pa = preset_values(abs, r2, base);
+        CHECK(pa.values.at("shape.width_in") == 1.7 && pa.values.at("shape.length_in") == 0.5 && pa.clamped.size() == 2 &&
+                  pa.clamped[0] == "Team width with the ball: 9 -> 1.7" && pa.skipped.empty(),
+              "absolute values outside the range are clamped and said so: " + (pa.clamped.empty() ? std::string("none") : pa.clamped[0]));
+        Preset nan = st[2];
+        nan.changes = {{"shape.width_in", false, 0, std::numeric_limits<double>::quiet_NaN()}};
+        CHECK(preset_values(nan, r2, base).values.empty(), "NaN is refused");
+        CHECK(preset_status(st[5], r2).measured == 2, "the status of a style: 2 measured");
+        Preset back;
+        CHECK(Preset::parse(st[5].to_json(), back, &err) && back.changes.size() == 2 && back.turbo() && back.name == "Turbo style: Possession", "round trip: " + err);
+    });
+
     run_case("tuning: presets - Turbo's own relative presets, files in turbo_output\\tuning_presets, import format, values from the game defaults", [] {
         const Registry reg = test_registry();
         const fs::path dir = g_out / "tuning_test" / "presets";
@@ -1813,12 +2024,12 @@ static void run() {
             v = it->second;
             return true;
         });
-        CHECK(pv.values.size() == 4 && pv.values.at("pressing.intensity") == double(0.6f) && pv.values.at("shape.line_height") == 41 &&
-                  pv.values.at("marking.tightness") == 100 && pv.values.at("passing.error_ground") == double(0.35f),
-              "relative +20 % of 0.5, -10 % of 45 rounded, +100 % of 60 clamped to 100, an absolute value");
+        CHECK(pv.values.size() == 5 && pv.values.at("pressing.intensity") == double(0.6f) && pv.values.at("shape.line_height") == 41 &&
+                  pv.values.at("marking.tightness") == 100 && pv.values.at("passing.error_ground") == double(0.35f) && pv.values.at("passing.error_lofted") == 1.0,
+              "relative +20 % of 0.5, -10 % of 45 rounded, +100 % of 60 clamped to 100, an absolute value, an absolute 7 clamped to the range's 1 (2.7)");
         CHECK(has_text(pv.skipped, "is a switch") && has_text(pv.skipped, "Goalkeeper reaction time: no value range") && has_text(pv.skipped, "nope: not in the knobs file") &&
-                  has_text(pv.skipped, "Lofted pass error: 7 is outside 0..1"),
-              "skipped with reasons");
+                  pv.skipped.size() == 3 && pv.clamped == std::vector<std::string>({"Lofted pass error: 7 -> 1"}),
+              "skipped with reasons; the out-of-range absolute value is clamped and said so (2.7)");
         // a preset from the sliders: relative to the base, an absolute value when the base is 0 or a switch
         base["cpuai.pass_risk"] = 0;
         const Preset q = preset_from_values("My press", reg, {{"pressing.intensity", 0.6}, {"shape.line_height", 45}, {"runs.in_behind", 0}, {"cpuai.pass_risk", 0.2}},
@@ -1994,7 +2205,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(!row("gk.reaction") && std::find(s.groups.begin(), s.groups.end(), "Goalkeeper") == s.groups.end(), "the not-working knob has no row, no group");
         CHECK(!bring_tuning(ui, "##tvbox_passing.error_ground") && !bring_tuning(ui, "##tvs_passing.error_ground"), "no slider for a located knob");
         tuning_top(ui);
-        CHECK(s.presets.size() == 6 && s.presets[0] == "FC 27 default (Turbo)" && s.presets[5] == "Test press" && fs::exists(out / presets_dir() / "turbo_compact.json"),
+        CHECK(s.presets.size() == 12 && s.presets[0] == "FC 27 default (Turbo)" && s.presets[11] == "Test press" && fs::exists(out / presets_dir() / "turbo_compact.json"),
               "Turbo's own presets are written and listed first, then the user's");
         CHECK(!s.profile_on && s.profile_line.find("Profile: off, custom, 0 value(s)") == 0, s.profile_line);
         CHECK(!s.can_apply && s.status.find("G1 switches: off: tick \"write in this game session\"") == 0, "off without an opt-in: " + s.status);
@@ -2042,7 +2253,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(s.preset_line.find("\"Turbo compact\": 0 knob(s) set in the sliders and the profile, 4 not set (shape.width_in: not in the knobs file") == 0, s.preset_line);
         CHECK(ui.click("##tvpreset"), "preset combo");
         ui.frames(2);
-        CHECK(ui.click("Test press##tvp5"), "the user's preset picked");
+        CHECK(ui.click("Test press##tvp11"), "the user's preset picked");
         ui.frames(2);
         CHECK(ui.click("Use this preset##tvuse"), "used");
         ui.frames(2);
@@ -2440,8 +2651,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         // Turbo's stale 2.4 file was rewritten by this version; the user's 2.4 file is untouched and listed
         CHECK(read_text(pdir / "turbo_compact.json").find("shape.width_in") != std::string::npos && read_text(pdir / "turbo_compact.json").find("gap_dmf") == std::string::npos,
               "Turbo's stale 2.4 'Turbo compact' was replaced by the located-knob version");
-        CHECK(read_text(pdir / "Old_24.json") == old24 && has_text(s.presets, "Old 24") && s.presets.size() == 6, "the user's 2.4 file is untouched and listed");
-        CHECK(pick("Old 24##tvp5"), "Old 24 picked");
+        CHECK(read_text(pdir / "Old_24.json") == old24 && has_text(s.presets, "Old 24") && s.presets.size() == 12, "the user's 2.4 file is untouched and listed");
+        CHECK(pick("Old 24##tvp11"), "Old 24 picked");
         CHECK(s.preset_status == "3 knobs: 1 effect measured, 0 engine-confirmed, 0 located only, 2 not in this build", s.preset_status);
         CHECK(ui.click("Use this preset##tvuse"), "Use");
         ui.frames(3);
@@ -2464,7 +2675,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(read_text(pdir / "Old_24.json") == old24, "the source file is byte-identical");
         CHECK(ui.click("Duplicate##tvdup"), "Duplicate again");
         ui.frames(3);
-        CHECK(has_text(s.presets, "Old 24 copy copy") && fs::exists(pdir / "Old_24_copy_copy.json") && s.presets.size() == 8, "a second copy gets its own name");
+        CHECK(has_text(s.presets, "Old 24 copy copy") && fs::exists(pdir / "Old_24_copy_copy.json") && s.presets.size() == 14, "a second copy gets its own name");
         // a Turbo preset is duplicated into a user's one
         CHECK(pick("Turbo compact (Turbo)##tvp1"), "Turbo compact picked");
         CHECK(ui.click("Duplicate##tvdup"), "Duplicate a Turbo preset");
@@ -2560,6 +2771,175 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         tuning_top(ui);
         app.tuning = nullptr;
         for (const char* f : {opt_in_file(), kill_switch_file(), undo_file(), profile_file(), profile_off_file()}) fs::remove(out / f, ec);
+        fs::remove_all(out / presets_dir(), ec);
+        st = saved;
+        st["seq"] = saved.value("seq", 0LL) + 50;
+        write_state();
+        tuning_reset();
+        ui.click("Live standings (game)");
+        ui.frames(2);
+    });
+
+    run_case("UI: Gameplay tuning 2.7 - with 0 live knobs nothing new is drawn; after a promotion (knobs file read again) sliders carry their timing, Apply now (live) writes in the hub and "
+             "mid-match, latched knobs are refused mid-match, the live kill switch, the styles are empty / greyed",
+             [&] {
+        tuning_reset();
+        const fs::path out = le / "turbo_output";
+        std::error_code ec;
+        for (const char* f : {opt_in_file(), kill_switch_file(), master_switch_file(), undo_file(), keep_file(), profile_file(), profile_off_file(), live_off_file()})
+            fs::remove(out / f, ec);
+        fs::remove_all(out / presets_dir(), ec);
+        TuneWorld w;
+        TuneRig rig(w, g_out / "tuning_ui27", ui_knobs());
+        rig.out = out;
+        {
+            Host h;
+            h.mem = &w.mem;
+            h.build = kBuildKey;
+            h.knobs_dir = rig.knobs;
+            h.out_dir = out;
+            h.lookup = lookup_of(w);
+            h.run_on_game_thread = [&rig](std::function<void()> f) { return rig.jobs.run(std::move(f)); };
+            h.run_background = [](std::function<void()> f) { f(); };
+            h.log = [&rig](const std::string& s) { rig.logs.push_back(s); };
+            h.clock_us = [&rig]() { return rig.clock; };
+            rig.svc = std::make_shared<CoreService>(std::move(h));
+        }
+        rig.jobs.inline_run = true;
+        app.tuning = rig.svc;
+        double wall = 1000.0;
+        tuning_set_wall_clock([&wall]() { return wall; });
+        const fs::path state_file = out / "bridge_state.json";
+        json st = read_json(state_file);
+        const json saved = st;
+        int bumps = 900;
+        auto write_state = [&]() {
+            {
+                std::ofstream f(state_file.string(), std::ios::binary | std::ios::trunc);
+                f << st.dump();
+            }
+            fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(2 * ++bumps));
+            app.next_poll = 0.0;
+            ui.frames(3);
+        };
+        auto set_phase = [&](const char* phase) {
+            st["match_phase"] = phase;
+            st["in_cm"] = true;
+            st.erase("prematch_t");
+            st["seq"] = st.value("seq", 0LL) + 1;
+            write_state();
+        };
+        set_phase("hub");
+        app.request_tab = 3;
+        ui.frames(3);
+        CHECK(ui.click("Gameplay tuning"), "the Gameplay tuning view");
+        ui.frames(70);
+        const TuningViewState& s = tuning_view_state();
+        auto row = [&](const std::string& id) -> const TuningViewState::Row* {
+            for (const auto& r : s.rows)
+                if (r.id == id) return &r;
+            return nullptr;
+        };
+        rig.svc->set_session_opt_in(true);
+        ui.frames(3);
+        // 0 live knobs (the 2.6.0 catalogue state: three sliders without a live declaration): no live button, no live row
+        const TuningViewState::Row* rp = row("pressing.intensity");
+        CHECK(s.drawn && s.proven == 3 && !s.live_shown && !ui.find("Apply now (live)##tvlive") && rp && !rp->live && rp->latched &&
+                  rp->timing == "next match (latched at kick-off)" && row("marking.tightness")->timing == "not measured: assume the next match" &&
+                  rp->readback == "in the game now: 0.50",
+              "0 live knobs: the slider rows say when they apply, no 'Apply now (live)' anywhere");
+        CHECK(!bring_tuning(ui, "Apply now##tvnow_pressing.intensity"), "no per-row Apply now for a latched knob");
+        tuning_top(ui);
+        // the Turbo styles: six in the list; this table has only marking.tightness of their knobs (proven here), so High press / Low block hold it and the
+        // other four are empty (greyed, Use does nothing)
+        CHECK(s.presets_empty.size() == 4 && has_text(s.presets, "Turbo style: Wide (Turbo) - empty until its knobs are proven") &&
+                  has_text(s.presets, "Turbo style: High press (Turbo)") && !has_text(s.presets, "Turbo style: High press (Turbo) - empty"),
+              fmt("six empty Turbo styles are listed (%zu empty, %zu presets, [5] '%s')", s.presets_empty.size(), s.presets.size(), s.presets.size() > 5 ? s.presets[5].c_str() : "-"));
+        CHECK(ui.click("##tvpreset"), "preset combo");
+        ui.frames(2);
+        int wide = -1;
+        for (size_t i = 0; i < s.presets.size(); ++i)
+            if (s.presets[i].find("Turbo style: Wide") == 0) wide = int(i);
+        CHECK(wide >= 0 && ui.click(("Turbo style: Wide (Turbo) - empty until its knobs are proven##tvp" + std::to_string(wide)).c_str()), "an empty style picked");
+        ui.frames(2);
+        const std::string line_before = s.preset_line;
+        ui.click("Use this preset##tvuse");
+        ui.frames(2);
+        CHECK(s.preset_line == line_before && s.preset_line.find("Turbo style") == std::string::npos && s.preset_status.find("0 knobs") == 0,
+              "Use is greyed for an empty style (a click does nothing): " + s.preset_status);
+        // a promotion: the knobs file now has the proofs; read again
+        {
+            std::ofstream(rig.knobs / "knobs_6AC07E31.json", std::ios::binary | std::ios::trunc) << live_knobs_text();
+        }
+        CHECK(ui.click("Read the knobs file again##tvreload"), "read again");
+        ui.frames(70);
+        rp = row("pressing.intensity");
+        const TuningViewState::Row* rl = row("shape.line_height");
+        CHECK(s.live_shown && rp && rp->live && !rp->latched && rp->timing == "now (live)" && rl && !rl->live && rl->latched && rl->timing == "next match (latched at kick-off)",
+              "after the promotion: pressing.intensity is live, line height latched");
+        CHECK(ui.find("Apply now (live)##tvlive") && !s.can_apply_live && s.live_why == "no moved slider of a knob that is proven live", "the button is drawn and greyed: " + s.live_why);
+        // hub: move the live slider, Apply now writes it at once (no confirmation window), read back
+        const ItemRec* box = bring_tuning(ui, "##tvbox_pressing.intensity");
+        CHECK(box && ui.type_into(box, "0.8"), "typed 0.8");
+        tuning_top(ui);
+        ui.frames(2);
+        CHECK(s.can_apply_live && has_text(s.live_plan, "Pressing intensity: 0.50 -> 0.80 (proven in T29)"), "Apply now (live) will write it: " + s.live_why);
+        CHECK(ui.click("Apply now (live)##tvlive"), "Apply now (live) clicked");
+        ui.frames(4);
+        CHECK(w.f32(TuneWorld::kBase) == 0.8f && rig.jobs.ran == 1 && ui.toast_contains("written LIVE into the engine table and read back"), "written live and read back");
+        ui.frames(70);
+        CHECK(row("pressing.intensity")->readback == "in the game now: 0.80", "the row reads the engine table back: " + row("pressing.intensity")->readback);
+        // the match starts: the latched knob cannot be written, the live one can
+        set_phase("match");
+        ui.frames(70);
+        const ItemRec* box2 = bring_tuning(ui, "##tvbox_shape.line_height");
+        CHECK(box2 && ui.type_into(box2, "70"), "line height typed");
+        tuning_top(ui);
+        ui.frames(2);
+        CHECK(!s.can_apply_live && s.live_why == "no moved slider of a knob that is proven live", "mid-match: a moved latched slider does not enable Apply now (live): " + s.live_why);
+        CHECK(!s.can_apply && s.status.find("it is latched when the match starts") != std::string::npos, "Apply says why: " + s.status);
+        const ItemRec* box3 = bring_tuning(ui, "##tvbox_pressing.intensity");
+        CHECK(box3 && ui.type_into(box3, "0.3"), "pressing typed 0.3 mid-match");
+        tuning_top(ui);
+        ui.frames(2);
+        CHECK(s.can_apply_live && s.live_plan.size() == 1 && s.live_plan[0].find("Pressing intensity: 0.80 -> 0.30") == 0, "mid-match the live plan holds only the live knob");
+        const TuningViewState::Row* rpn = row("pressing.intensity");
+        CHECK(rpn && rpn->can_apply_now, "the row's own Apply now is enabled");
+        // the live kill switch: greyed with the reason
+        std::ofstream(out / live_off_file()) << "x";
+        ui.frames(200);
+        CHECK(!s.can_apply_live && s.live_why.find("tuning_live_off.txt") != std::string::npos, "the kill switch greys it: " + s.live_why);
+        fs::remove(out / live_off_file(), ec);
+        ui.frames(200);
+        CHECK(s.can_apply_live, "the kill switch removed: enabled again: " + s.live_why);
+        CHECK(ui.click("Apply now (live)##tvlive"), "clicked mid-match");
+        ui.frames(4);
+        CHECK(w.f32(TuneWorld::kBase) == 0.3f && w.i32(TuneWorld::kBase + 4) == 45 && rig.jobs.ran == 2, "0.3 written live mid-match; the latched knob was not touched");
+        // Undo mid-match brings the game's value back (not blocked)
+        CHECK(s.can_undo && ui.click("Undo last Apply##tvundo"), "Undo clicked mid-match");
+        ui.frames(4);
+        CHECK(w.f32(TuneWorld::kBase) == 0.5f, "Undo mid-match: FC 27's value is back");
+        // a style that holds a proven knob: Use sets the slider (+40 % of 60, a whole number) and the profile; nothing is written
+        set_phase("hub");
+        ui.frames(70);
+        CHECK(ui.click("##tvpreset"), "preset combo");
+        ui.frames(2);
+        int press = -1;
+        for (size_t i = 0; i < s.presets.size(); ++i)
+            if (s.presets[i].find("Turbo style: High press") == 0) press = int(i);
+        CHECK(press >= 0 && ui.click(("Turbo style: High press (Turbo)##tvp" + std::to_string(press)).c_str()), "High press picked");
+        ui.frames(2);
+        CHECK(s.preset_status == "1 knob: 1 effect measured, 0 engine-confirmed, 0 located only, 0 not in this build", s.preset_status);
+        CHECK(ui.click("Use this preset##tvuse"), "Use");
+        ui.frames(70);
+        CHECK(s.preset_line.find("\"Turbo style: High press\": 1 knob(s) set in the sliders and the profile") == 0 && row("marking.tightness") && row("marking.tightness")->turbo == "84",
+              s.preset_line);
+        CHECK(w.u8(TuneWorld::kBase + 8) == 60, "nothing was written by Use");
+        // clean up
+        tuning_set_wall_clock(nullptr);
+        tuning_top(ui);
+        app.tuning = nullptr;
+        for (const char* f : {opt_in_file(), kill_switch_file(), undo_file(), profile_file(), profile_off_file(), live_off_file()}) fs::remove(out / f, ec);
         fs::remove_all(out / presets_dir(), ec);
         st = saved;
         st["seq"] = saved.value("seq", 0LL) + 50;

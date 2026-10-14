@@ -27,6 +27,10 @@ knobs_guard() {  # $1 = staged folder
   if [ -n "$(find "$1" -name tuning_test_unproven_on.txt -print -quit)" ]; then
     echo "knobs guard: refused: tuning_test_unproven_on.txt is in the package"; return 1
   fi
+  # 2.7: tuning_live_off.txt is the user's kill switch of every gameplay tuning write in a match; a package that carried it would switch live apply off for everyone
+  if [ -n "$(find "$1" -name tuning_live_off.txt -print -quit)" ]; then
+    echo "knobs guard: refused: tuning_live_off.txt is in the package"; return 1
+  fi
   local py=""
   for c in python3 python "py -3"; do $c -c "import json" >/dev/null 2>&1 && { py="$c"; break; }; done
   [ -n "$py" ] || { echo "knobs guard: no Python found (python3 / python / py -3)"; return 1; }
