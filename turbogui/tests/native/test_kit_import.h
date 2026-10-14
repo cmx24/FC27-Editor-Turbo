@@ -693,6 +693,10 @@ static void kit_import_ui_cases(App& app, Ui& ui, const fs::path& le) {
         // controls still switch the state, Undo of the import switches the swap off. Core behaviour: tests/catalog/test_kit_swap.cpp.
         {
             g_kit_rt.reset(new kitswap::Runtime(le, le / "no_game_here", nullptr));
+            app.kit_swap = g_kit_rt.get();
+            ui.frames(2);
+            CHECK(!ui.find("Show it on the pitch##kswap", "##tkits", "home"), "without turbo_output/kits3d_on.txt the 3D controls are not offered");
+            std::ofstream(le / "turbo_output" / "kits3d_on.txt") << "on";
             kitswap::Runtime& rt = *g_kit_rt;
             app.kit_swap = &rt;
             ui.frames(2);
@@ -736,6 +740,8 @@ static void kit_import_ui_cases(App& app, Ui& ui, const fs::path& le) {
             g_kit_rt->wait_idle();
             app.kit_swap = nullptr;
             g_kit_rt.reset();
+            std::error_code ec_on;
+            fs::remove(le / "turbo_output" / "kits3d_on.txt", ec_on);
         }
         CHECK(app.db.get_int(*kt, row, "teamcolorprimr") == prim_r && app.db.get_int(*kt, row, "teamcolorprimpercent") == pct &&
                   app.db.get_int(*kt, row, "jerseycollargeometrytype") == collar,

@@ -74,6 +74,11 @@ void install_kit_swap(turbo::App& app) {
     // The hook goes in when a kit is first switched on (or one was left on last session), never for a player who does not use it
     rt->ensure_hook = [rt](std::string* why_out) {
         std::string why;
+        if (!rt->opted_in()) {
+            g_off = "opt-in file turbo_output\\kits3d_on.txt is missing: no hook is installed";
+            if (why_out) *why_out = g_off;
+            return false;
+        }
         if (file_exists(le_root() / "turbo_output" / "kits3d_off.txt")) {
             // a kit left on must not bring the hook back at the next start while the kill switch is there (crash recovery)
             g_off = "turbo_output\\kits3d_off.txt is present: the hook is not installed (delete it, then switch the kit on again)";

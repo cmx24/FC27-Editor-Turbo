@@ -322,6 +322,8 @@ public:
     void flush_log(bool force = false);
     // Waits for the worker (tests)
     void wait_idle() const;
+    // The explicit opt-in: turbo_output\kits3d_on.txt. Without it the feature is invisible in the UI and the Oodle hook is never installed (default = no new hook).
+    bool opted_in() const;
     std::filesystem::path state_path() const;
     std::filesystem::path log_path() const;
     std::filesystem::path staged_dir(int team, int slot) const;

@@ -730,6 +730,11 @@ static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
         ImGui::Unindent();
         return;
     }
+    if (!rt->opted_in()) {  // experimental, off by default: it adds a hook on the game's decompressor, so it needs an explicit opt-in file
+        ImGui::TextDisabled("3D kit on the pitch: experimental, off. To try it create the empty file turbo_output\\kits3d_on.txt and restart the game (no hook is installed without it).");
+        ImGui::Unindent();
+        return;
+    }
     const int slot = kits::slot_type(s);
     kitswap::Mode m = kitswap::Mode::Off;
     const bool active = rt->is_active(int(teamid), slot, &m);

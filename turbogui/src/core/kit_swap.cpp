@@ -963,6 +963,11 @@ Runtime::~Runtime() {
     if (worker_.joinable()) worker_.join();
 }
 
+bool Runtime::opted_in() const {
+    std::error_code ec;
+    return fs::exists(le_ / "turbo_output" / "kits3d_on.txt", ec);
+}
+
 fs::path Runtime::state_path() const { return le_ / "turbo_output" / "kits" / "swap_state.json"; }
 fs::path Runtime::log_path() const { return le_ / "turbo_output" / "kit_swap_log.txt"; }
 fs::path Runtime::staged_dir(int team, int slot) const { return le_ / "turbo_output" / "kits" / std::to_string(team) / slot_folder_name(slot); }
