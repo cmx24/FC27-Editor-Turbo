@@ -44,7 +44,7 @@ struct TacticsTabState {
     std::string receive_title;    // "What the game will receive"
     std::vector<std::string> receive;      // one line per Live / DB write that will be sent; a DB row names whose row it is ("teams.defensivedepth = 62 for Arsenal  [database row]")
     std::vector<std::string> not_written;  // switched-on settings this build does not write ("formations.offset{n}x: ...")
-    std::vector<std::string> writes_done;  // what the last Apply did, one line per DB row written ("mentalities.defensivewidth = 61 for Arsenal: row 1 of 1 ...")
+    std::vector<std::string> writes_done;  // what the last Apply did, one line per DB row written ("teams.defensivedepth = 62 for Arsenal")
     int changed = 0;              // "N changed"
     bool off = false;
     bool dry_run = false;

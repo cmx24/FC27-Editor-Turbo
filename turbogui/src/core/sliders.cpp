@@ -204,19 +204,15 @@ std::vector<SliderDef> build() {
     b.db("team.line_depth", "Defensive shape", "Defensive line depth", "How high up the pitch the back line stands.", {"teams.defensivedepth"}, 1,
          100, 50);
     b.re("team.line_length", "Defensive shape", "Compactness", "How tightly the lines stay together: higher is tighter.", "line length");
-    b.db("team.width_def", "Width", "Defensive width", "How wide the team spreads without the ball.", {"mentalities.defensivewidth"}, 1, 100, 50);
-    b.db("team.width_att", "Width", "Attacking width", "How wide the team spreads with the ball.", {"mentalities.offensivewidth"}, 1, 100, 50);
+    // 2.4: the two widths are Turbo's preview only. They wrote the old mentalities table (legacy fields EA removed in FC 25: FC 27's
+    // tactic has no width); the pitch preview and the opposition solver still draw and shape the width band from them
+    b.re("team.width_def", "Width", "Defensive width", "How wide the team spreads without the ball (Turbo's preview only).");
+    b.re("team.width_att", "Width", "Attacking width", "How wide the team spreads with the ball (Turbo's preview only).");
     b.re("team.marking", "Defensive shape", "Marking tightness", "How closely defenders stay with their man.", "defence positioning");
     b.re("team.press_intensity", "Pressing", "Pressure intensity", "How hard the team closes the ball down.");
     b.re("team.press_trigger", "Pressing", "Press trigger", "How easily a loose touch sets the press off.");
     b.re("team.engagement_height", "Pressing", "Engagement height", "How far up the pitch the team starts to press.", "line of engagement");
     b.re("team.forward_runs", "Attacking", "Forward runs", "How often players run beyond the ball.");
-    b.db("team.players_in_box_cross", "Attacking", "Players in the box (crosses)", "How many players join the attack in the box on a cross.",
-         {"mentalities.playersinboxcross"}, 0, 9, 4);
-    b.db("team.players_in_box_corner", "Set pieces", "Players in the box (corners)", "How many players go into the box on a corner.",
-         {"mentalities.playersinboxcorner"}, 0, 4, 2);
-    b.db("team.players_in_box_fk", "Set pieces", "Players in the box (free kicks)", "How many players go into the box on a free kick.",
-         {"mentalities.playersinboxfk"}, 0, 4, 2);
     b.re("team.tempo", "Attacking", "Tempo", "How quickly the team moves the ball forward.");
     b.re("team.directness", "Attacking", "Pass directness", "Short and patient, or long and direct.");
     b.re("team.buildup_short", "Attacking", "Short build-up", "How much the team builds out from the back with short passes.");
@@ -229,12 +225,9 @@ std::vector<SliderDef> build() {
     b.re("team.regroup_depth", "Transitions", "Regroup depth", "How deep the team drops to regroup.");
     b.re("team.offside_trap", "Defending", "Offside trap", "How often the back line steps up to catch attackers offside.");
     b.re("team.tackle_aggr", "Defending", "Tackle aggression", "How readily defenders go in for a tackle.");
-    // the four style enums: the schema gives the ranges, not the names of the steps, so no labels are shown
+    // the schema gives the range, not the names of the steps, so no labels are shown. 2.4: the legacy writes into the old mentalities table
+    // (players in the box, chance creation, attacking / defensive style: EA removed them in FC 25) are gone
     b.db("team.buildup_play", "Style", "Build-up play", "How the team builds out of defence.", {"teams.buildupplay"}, 0, 3, 0).kind = SliderKind::Enum;
-    b.db("team.chance_creation", "Style", "Chance creation", "How the team creates chances.", {"mentalities.chancecreation"}, 0, 3, 0).kind =
-        SliderKind::Enum;
-    b.db("team.offensive_style", "Style", "Attacking style", "How the team attacks.", {"mentalities.offensivestyle"}, 0, 3, 0).kind = SliderKind::Enum;
-    b.db("team.defensive_style", "Style", "Defensive style", "How the team defends.", {"mentalities.defensivestyle"}, 0, 4, 0).kind = SliderKind::Enum;
 
     // ------------------------------------------------------------------ position / role settings
     // players.role1..9 are the player's own role familiarity (Role+ / Role++, field_labels.h "role"), not the role of a slot in the tactic
