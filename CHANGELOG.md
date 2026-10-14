@@ -3,6 +3,14 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 2.7 (not released) - 3D kits: every slot, any club (offline only; nothing here is proven in game)
+
+- **Away, goalkeeper, third and fourth kits** use the same path as the home kit, for any club: the slot comes from the game's kit folder names (`home_0_0`, `away_1_0`, `goalie_home_2_0`, `third_3_0`, `fourth_4_0` and the `loc2_*_4x_0` variants of the same slot). Each imported kit has its own controls and its own saved choices (`swap_state.json` version 2; a version 1 file still loads).
+- **Keep the game's club badge** (default on, per kit): the zip's `crest_*` / `crest_shorts_*` pictures are not served, so a blank crest decal in the zip does not remove the game's dynamic badge. Untick it to serve the zip's crest pictures as in 2.6.0. The sponsor (`brand_*`) pictures follow "Also use the zip's badge and brand pictures".
+- **Also change this club's other kits that share a texture** (default off, per kit): big clubs let several kits use one texture chunk; off, such a texture stays the game's, on it is served and the list says which other kits show it too. A texture another club uses is never served.
+- **Which kit folder the match loads:** the club's other kit folders are watched (never replaced); `turbo_output\kit_swap_log.txt` has a "KIT FOLDERS THE GAME LOADED" block (per folder: textures and blocks decompressed).
+- **The reading of the game's kit data is cheaper and obeys the switches:** the index is saved in `turbo_output\kits\kit_index.cache` (valid until the game's tocs change), it runs below normal priority, it never runs without `kits3d_on.txt`, and `kits3d_off.txt` stops it (also while it runs).
+
 ## 2.6.0 (2026-10-14)
 
 Verified in game 2026-10-14 (test career LEICESTER, never saved, save files byte-identical afterwards; `turbo_dev\evidence\2026-10-14\TEST_28.md`), build 6AC07E31. Everything not listed as verified passes the offline suites only (build 0 warnings, Lua 405/0, native 31,856/0, Python 463, catalog 0 failed).
