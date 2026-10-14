@@ -117,18 +117,13 @@ class WorldMem(harness.MockMem):
             return {"ok": True, "hex": self.read(a, len(data)).hex()}
         return {"ok": False, "error": "mock: op %s not supported" % name}
 
-    def call(self, req, timeout=60, repost=0.7, allow_write=False):
-        """the dev2 gates (write / key / Escape) then the dispatch; a simulated per-call latency (spec lat=, sim seconds) makes the
+    def call(self, *args, **kwargs):
+        """harness.MockMem.call (the same gates as the real dev client) after a simulated per-call latency (spec lat=, sim seconds), which makes the
         throughput of the sampler measurable offline"""
-        import dev2
-        if dev2.has_escape(req):
-            return {"error": "dev2: Escape (VK 27) is never sent"}
-        if not allow_write and dev2.has_write_op(req):
-            return {"error": "dev2: write/key ops need allow_write=True (coordinator only)"}
         self.world.calls += 1
         if self.world.latency > 0:
             time.sleep(self.world.latency * self.world.scale)
-        return self._dispatch(req)
+        return harness.MockMem.call(self, *args, **kwargs)
 
     def _dispatch(self, req):
         self.world.tick()

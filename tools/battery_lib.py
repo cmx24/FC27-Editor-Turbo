@@ -826,7 +826,8 @@ def self_test():
     check(m == 3 and abs(sum(wts.values())) < 1e-12 and len(ws) == 7 and ws[0]["kind"] == "base" and ws[-1]["kind"] == "base",
           "design: 3 replicates -> A E A E A E A, the estimator weights sum to zero (drift-free to first order)")
     se = prior_se(ws, ("shape.width_in", 0.3), 8.0)
-    var = sum(w * w / 30.0 for w in wts.values()) * 64.0
+    dur_ = {w["name"]: w["dur"] for w in ws}
+    var = sum(w * w / dur_[n] for n, w in wts.items()) * 64.0
     check(abs(se - math.sqrt(var)) < 1e-9 and 0.8 < se < 1.6, "design: a-priori SE of 3 x 30 s windows at sigma 8 is %.2f m" % se)
     # --- schedule
     ent3, _ = parse_knob_list("\n".join(["shape.width_in", "shape.width_out", "shape.width_in_cb", "marking.tightness", "lineband.deep_max"]))
@@ -849,7 +850,7 @@ def self_test():
     w2, d2, n2 = plan_schedule(ent3, win=50, budget=100)
     check(w2 == [] and len(d2) >= 4, "schedule: a budget that fits no 3-replicate group schedules nothing and says why (%d deferred)" % len(d2))
     w3, d3, n3 = plan_schedule(ent3, win=50, budget=900, allow_underpowered=True)
-    check(w3 and all(w["dur"] == 40 for w in w3), "schedule: win capped at 40 s")
+    check(w3 and all(w["dur"] == 40 for w in w3 if w["kind"] == "ext") and max(w["dur"] for w in w3) == 40, "schedule: win capped at 40 s (the two end baselines are %d s)" % END_WIN)
     # --- metrics
     smp = _synth_samples([("A1", 25)], 1, {})
     roles = derive_roles(smp, {"A1"})
@@ -884,8 +885,9 @@ def self_test():
     h15 = sum(_judge_synth(W1, 300 + sd, 0.5, hz=1.5)["ext"][0]["verdict"] == "PASS" for sd in range(8))
     check(h15 >= 6, "stats: the same design sampled at 1.5 Hz judges the same way (PASS %d of 8)" % h15)
     # drift: a linear drift of the lateral spread (30 % over the run) must not create an effect
-    td = _judge_synth(W1, 15, 1.0, drift=0.3 / 385.0)["ext"][0]
-    check(abs(td["effect"]) < 2.0, "stats: a linear drift is removed by the interpolated neighbouring baselines (effect %+.2f m)" % td["effect"])
+    dd_ = [_judge_synth(W1, 500 + sd, 1.0, drift=0.3 / 385.0)["ext"][0]["effect"] - _judge_synth(W1, 500 + sd, 1.0)["ext"][0]["effect"] for sd in range(8)]
+    check(abs(statistics.fmean(dd_)) < 0.5 and max(abs(x) for x in dd_) < 1.2,
+          "stats: a linear drift (30 %% of the spread over the run) adds %+.2f m on average to the effect (same noise with / without drift, 8 runs)" % statistics.fmean(dd_))
     # two replicates are never decisive
     W2 = W1[:5]
     t2 = _judge_synth(W2, 16, 0.5)["ext"][0]

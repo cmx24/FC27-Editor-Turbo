@@ -1535,7 +1535,7 @@ def self_test():
         # ---- full run, everything live; the match resolves the SIMULATION copy
         lst("shape.width_in", "shape.gap_dmf")
         t = time.time()
-        rc, out, w, ev = run_mock("scale=0.02;delay=2;lat=1.0", ["run", "--allow-write", "--allow-underpowered", "--win", "20"], "live")
+        rc, out, w, ev = run_mock("scale=0.05;delay=2;lat=1.0", ["run", "--allow-write", "--allow-underpowered", "--win", "20"], "live")
         print(out[-3300:])
         by, res = result_of(ev)
         check(rc == 0, "run: completed, exit 0 (%.0f s)" % (time.time() - t))
@@ -1559,10 +1559,10 @@ def self_test():
               "evidence files written: power notes, sampler stats, the copy the engine reads")
         n_fast = sum(1 for _ in open(os.path.join(ev, "positions.csv"))) // 22
         # the same schedule with the 2.5 sampler (one request per position sample, one per engine read) for the throughput comparison
-        rc, out2, w_, ev2 = run_mock("scale=0.02;delay=2;lat=1.0", ["run", "--allow-write", "--allow-underpowered", "--win", "20", "--legacy-sampler",
+        rc, out2, w_, ev2 = run_mock("scale=0.05;delay=2;lat=1.0", ["run", "--allow-write", "--allow-underpowered", "--win", "20", "--legacy-sampler",
                                                                      "--engine-every", "1"], "legacy")
         n_old = sum(1 for _ in open(os.path.join(ev2, "positions.csv"))) // 22
-        check(rc == 0 and n_fast >= 2.9 * n_old,
+        check(rc == 0 and n_fast >= 2.6 * n_old,   # x3.3 on an idle machine; the mock clock runs 50x fast, so CPU time of the Python side counts as simulated seconds (scale 0.05 keeps that small)
               "sampler: %d position samples in the same schedule against %d with the 2.5 sampler (x%.1f; the request latency is simulated at 1 s)" % (
                   n_fast, n_old, n_fast / max(1, n_old)))
         buf = io.StringIO()
@@ -1648,6 +1648,28 @@ def self_test():
               "engine-read assertion: the engine's instance == the written copy passes; another object is a refusal")
         check(len(check_dbs(run_, [kio_.resolved["inst"], world.addr["db"], world.addr["sdb"], 0x1234])) == 2,
               "database check: only real gameplay database objects pass (instance, garbage and small addresses are rejected)")
+        # ---- the split of match_measure's read_sample (parse_sample) parses the snapshots of a seq request exactly like the old read_sample
+        mm_ = run_.mm
+        lay_ = {"pl_altpos": 0x100, "pl_flag": 0x110, "st_pos": 0x10, "bframe": 0x40, "ring": 4, "rshift": 4, "rpos": 0, "pbuf": 0, "pstride": 0x10,
+                "poff": 0, "psize": 0x100}
+        mt_ = mm_.Match(lay_)
+        mt_.players = [{"obj": 0x1000, "state": 0x2000, "team": 0, "handle": 1, "fpos": 0, "pid": None},
+                       {"obj": 0x1100, "state": 0x2100, "team": 1, "handle": 2, "fpos": 0, "pid": None}]
+        mt_.ball, mt_.R = 0, 0
+        alt1 = struct.pack("<3f", 1.0, 2.0, 3.0) + bytes(4) + bytes(1)
+        alt1 = alt1[:16] + b""
+        alt2 = bytes(17)
+        st = struct.pack("<3f", 4.0, 5.0, 6.0) + bytes(4)
+        res_ = [alt1, st, alt2, st]
+        old_mb = mm_.mbytes
+        mm_.mbytes = lambda ops_, timeout=60: res_
+        try:
+            r_old = mt_.read_sample()
+        finally:
+            mm_.mbytes = old_mb
+        r_new = mt_.parse_sample(res_, r_old[0])
+        check(r_old[1:] == r_new[1:] and r_new[1] == [(1.0, 2.0, 3.0), (4.0, 5.0, 6.0)] and len(mt_.sample_ops()) == 4,
+              "match_measure: parse_sample(results) equals read_sample() (alt position when its flag is set, else the state position)")
         # ---- no match -> INCONCLUSIVE
         lst("shape.width_in", "shape.width_out")
         world = bmock.build_world("scale=0.02;delay=100000")

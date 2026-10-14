@@ -2,6 +2,8 @@
 
   python battery_noise.py EVIDENCE_DIR [EVIDENCE_DIR ...] [--bin 20] [--json OUT]    sigma table (m * sqrt(s)) per run and the prior to paste into
                                                                                      battery_lib.NOISE_PRIOR; the settling profile after a write
+  python battery_noise.py settle EVIDENCE_DIR [...] [--metric wide_abs:with]       how long a write takes to show: the metric in bins of 4 s after each
+                                                                                     label change into 'x' (the guard), averaged over the windows, per target
   python battery_noise.py --self-test
 
 Method: per run the positions are turned into the battery's metrics (battery_lib.sample_records, wide players from the baseline windows), each metric
@@ -97,9 +99,40 @@ def self_test():
     return 0 if ok else 1
 
 
+def settle(dirs, key="wide_abs:with", binw=4.0, nbins=10):
+    """the post-write trajectory of a metric: aligned on the first sample labelled x after a window (the write happened just before it); -> {target: [(bin start s,
+    mean, n)]}, target = 'E<value>' (into an extreme) or 'A' (the revert). Works on the saved evidence of any battery run (positions.csv + plan.json)."""
+    acc = collections.defaultdict(lambda: collections.defaultdict(list))
+    for d in dirs:
+        samples, windows, plan = load_run(d)
+        kind = {w["name"]: ("A" if w["kind"] == "base" else "E%g" % w["value"]) for w in windows}
+        base = {w["name"] for w in windows if w["kind"] == "base"}
+        recs = bl.sample_records(samples, plan["L"], plan["W"], bl.derive_roles(samples, base))
+        pts = sorted((r["t"], r["win"], r["v"][key]) for r in recs if key in r["v"])
+        trans, prev = [], None
+        for t, w, v in pts:
+            if w == "x" and prev not in (None, "x"):
+                trans.append(t)
+            prev = w
+        for i, t0 in enumerate(trans):
+            nxt = next((w for t, w, v in pts if t > t0 and w != "x"), None)
+            if nxt is None:
+                continue
+            for t, w, v in pts:
+                if t0 <= t < t0 + binw * nbins:
+                    acc[kind[nxt]][int((t - t0) // binw)].append(v)
+    return {k: [(b * binw, statistics.fmean(v), len(v)) for b, v in sorted(bb.items())] for k, bb in acc.items()}
+
+
 def main(argv):
     if "--self-test" in argv:
         return self_test()
+    if argv and argv[0] == "settle":
+        dirs = [a for a in argv[1:] if not a.startswith("--") and os.path.isdir(a)]
+        key = argv[argv.index("--metric") + 1] if "--metric" in argv else "wide_abs:with"
+        for tgt, rows in sorted(settle(dirs, key).items()):
+            print("%-8s %s" % (tgt, "  ".join("%.0fs:%.1f(n%d)" % r for r in rows)))
+        return 0
     dirs = [a for a in argv if not a.startswith("--") and os.path.isdir(a)]
     if not dirs:
         print(__doc__)
