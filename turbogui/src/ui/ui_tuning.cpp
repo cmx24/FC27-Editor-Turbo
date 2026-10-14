@@ -132,11 +132,17 @@ void refresh_profile(App& app, bool now) {
     g.next_profile = app.now + 2.0;
     std::string text;
     {
-        std::ifstream f(profile_path(app), std::ios::binary);
-        if (f) {
-            std::stringstream ss;
-            ss << f.rdbuf();
-            text = ss.str();
+        std::error_code ec;
+        const uintmax_t size = fs::exists(profile_path(app), ec) ? fs::file_size(profile_path(app), ec) : 0;
+        if (!ec && size > kMaxProfileBytes) {
+            text = "(too big: " + std::to_string(size) + " bytes)";  // not parsed: reported once below, the profile is off
+        } else {
+            std::ifstream f(profile_path(app), std::ios::binary);
+            if (f) {
+                std::stringstream ss;
+                ss << f.rdbuf();
+                text = ss.str();
+            }
         }
     }
     if (g.prof_have && text == g.prof_text) return;

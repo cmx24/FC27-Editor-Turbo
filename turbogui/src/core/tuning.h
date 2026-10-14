@@ -537,7 +537,8 @@ struct Profile {
     std::string to_json() const;
     static bool parse(const std::string& text, Profile& out, std::string* err);
 };
-bool load_profile(const std::filesystem::path& p, Profile& out, std::string* err);  // false when absent (err "") or unreadable
+constexpr uintmax_t kMaxProfileBytes = 64 * 1024;  // a bigger profile file is not used (read every 2 s on the render thread)
+bool load_profile(const std::filesystem::path& p, Profile& out, std::string* err);  // false when absent (err "") or unreadable / too big
 bool save_profile(const std::filesystem::path& p, const Profile& pr, std::string* err);
 // The plan of an automatic moment: every profile value whose knob is in the registry, located, writable and allowed at that moment
 // (`when`), its value in range: EVERY copy of each, also a copy that already holds the value (the job writes it again and reads every
@@ -699,6 +700,8 @@ private:
     void load_locked();       // reads the knobs file (mu_ held)
     void ensure_anchors();    // resolves every locator's anchor once (inline patterns, the attribulator in the background)
     bool chain_mode_locked(const Registry& reg);  // the registry has an attrib_manager and the signature resolves (mu_ held)
+    // runs a background locate job; an exception switches tuning off for the session (logged), never escapes the thread
+    void guard_locate(long long epoch, const Registry& reg, const std::function<void()>& fn);
     void log(const std::string& s);
     double now() const { return h_.clock_us ? h_.clock_us() : 0.0; }
     long long wall() const;
@@ -718,6 +721,7 @@ private:
     std::string chain_why_, chain_logged_why_, fallback_logged_;
     AttribDbs dbs_;
     std::set<std::string> refused_;  // attrib locators refused for this game session (identity mismatch, the cross-check disagreed)
+    std::string locate_failed_;      // a background locate threw: tuning off for the session
     std::vector<ApplyResult> results_;
     bool busy_ = false;
     double busy_since_ = 0;

@@ -280,6 +280,7 @@ struct ChainRig {
     double clock = 1000.0;
     long long wall = 1760000000;
     std::vector<std::string> logs;
+    std::string throw_on;  // the test host's log throws on a line starting with it (an exception inside a background locate)
     fs::path knobs, out;
     std::shared_ptr<CoreService> svc;
     ChainRig(ChainWorld& world, const fs::path& dir, const std::string& text, Lookup lk, Memory* mem = nullptr, bool fresh = true) : w(world) {
@@ -298,7 +299,10 @@ struct ChainRig {
         h.lookup = lk;
         h.run_on_game_thread = [this](std::function<void()> f) { return jobs.run(std::move(f)); };
         h.run_background = [](std::function<void()> f) { f(); };
-        h.log = [this](const std::string& s) { logs.push_back(s); };
+        h.log = [this](const std::string& s) {
+            logs.push_back(s);
+            if (!throw_on.empty() && s.find(throw_on) == 0) throw std::runtime_error("test: the log failed");
+        };
         h.clock_us = [this]() { return clock; };
         h.wall_s = [this]() { return wall; };
         svc = std::make_shared<CoreService>(std::move(h));
@@ -668,6 +672,73 @@ static void chain_cases() {
         r6.svc->locate_status();
         ls = r6.svc->locate_status();
         CHECK(ls.path == "search" && r6.logged("tuning: chain locate REFUSED for this session") && ls.ready, "refused chain -> name search: " + ls.path);
+    });
+
+    run_case("tuning 2.4: B1 - a malformed tuning_chain_check.json or an exception in the locate never escapes; tuning off for the session", [] {
+        ChainWorld w;
+        const fs::path dir = g_out / "tuning_chain_b1";
+        const char* bad[] = {R"({"turbo_tuning_chain_check": 1, "build": null, "agree": ["attrib.llw"]})",
+                             R"({"turbo_tuning_chain_check": 1, "build": 5, "when": {"x": 1}, "agree": [1, null, "attrib.bands"]})",
+                             R"([1, 2, 3])", R"({"turbo_tuning_chain_check": 1, "bu)", ""};
+        int k = 0;
+        for (const char* text : bad) {
+            ChainRig r(w, dir, chain_knobs(), w.lookup());
+            std::ofstream(r.out / chain_check_file(), std::ios::binary | std::ios::trunc) << text;
+            LocateStatus ls;
+            bool threw = false;
+            try {
+                ls = r.svc->locate_status();
+            } catch (...) {
+                threw = true;
+            }
+            CHECK(!threw && ls.ready && ls.groups == 3 && r.logged("tuning: chain cross-check with the name search (first run on this build): 3 agree"),
+                  fmt("bad file %d: no throw, the cross-check runs again, 3 groups", k));
+            ChainCheck cc;
+            CHECK(load_chain_check(r.out / chain_check_file(), cc, nullptr) && cc.build == kBuildKey && cc.agree.size() == 3, fmt("bad file %d: rewritten", k));
+            ++k;
+        }
+        {
+            ChainRig r(w, dir, chain_knobs(), w.lookup());  // a huge file: not read (too big), the cross-check runs again
+            {
+                std::ofstream f(r.out / chain_check_file(), std::ios::binary | std::ios::trunc);
+                f << R"({"turbo_tuning_chain_check": 1, "build": "6AC07E31-2145C000", "agree": ["attrib.llw", "attrib.zonal", "attrib.bands"], "pad": ")";
+                f << std::string(200 * 1024, 'x') << "\"}";
+            }
+            std::string err;
+            ChainCheck cc;
+            CHECK(!load_chain_check(r.out / chain_check_file(), cc, &err) && err.find("too big") == 0, "a 200 KB file is not read: " + err);
+            CHECK(r.svc->locate_status().ready && r.logged("cross-check with the name search"), "the cross-check runs again");
+        }
+        {
+            ChainRig r(w, dir, chain_knobs(), w.lookup());  // an exception inside the background job (the host's log throws)
+            r.throw_on = "tuning: attribute manager:";
+            bool threw = false;
+            LocateStatus ls;
+            try {
+                ls = r.svc->locate_status();
+                ls = r.svc->locate_status();
+            } catch (...) {
+                threw = true;
+            }
+            CHECK(!threw && r.logged("tuning: locate FAILED (test: the log failed): gameplay tuning is off for this game session"), "caught and logged");
+            CHECK(r.svc->session_off().find("the attribulator locate failed (test: the log failed)") == 0 && ls.ready && ls.groups == 0 &&
+                      !r.live()["shape.width_in"].located,
+                  "tuning off for the session, nothing located: " + r.svc->session_off());
+            r.throw_on.clear();
+            r.clock += 120e6;
+            r.svc->locate_status();
+            CHECK(r.count("tuning: chain locate ok") == 0 && r.count("tuning: attribute manager:") == 1, "no new locate in this session");
+            Plan p;
+            std::string why;
+            p.moment = "boot";
+            p.writes.push_back({"shape.width_in", 1.0, 0.6, "base"});
+            CHECK(!r.svc->submit(chain_ctx("", false, -1), p, why) && why.find("off for this session") != std::string::npos, "no write: " + why);
+        }
+        Preset pr;
+        std::string err;
+        CHECK(!Preset::parse(R"({"turbo_tuning_preset": 1, "name": 5, "changes": []})", pr, &err), "a preset with a number for its name: refused, no throw");
+        tuning::Profile prof;
+        CHECK(!load_profile(dir / "nope.json", prof, &err) && err.empty(), "absent profile: no error");
     });
 
     run_case("tuning 2.4: the profile's moments in the job - boot / career_load / hub, every copy once, read back, the log line, the prematch guard", [] {

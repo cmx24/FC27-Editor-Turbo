@@ -50,6 +50,28 @@ bool read_file(const fs::path& p, std::string& out) {
     return true;
 }
 
+// A small settings file (the profile, the chain check, the undo record): refused above max_bytes, so a huge or wrong file never stalls a
+// frame or the locate thread. false + why ("" = absent)
+bool read_small_file(const fs::path& p, std::string& out, uintmax_t max_bytes, std::string& why) {
+    why.clear();
+    std::error_code ec;
+    if (!fs::exists(p, ec)) return false;
+    const uintmax_t size = fs::file_size(p, ec);
+    if (ec) {
+        why = "cannot read its size";
+        return false;
+    }
+    if (size > max_bytes) {
+        why = "too big (" + std::to_string(size) + " bytes, at most " + std::to_string(max_bytes) + ")";
+        return false;
+    }
+    if (!read_file(p, out)) {
+        why = "cannot be read";
+        return false;
+    }
+    return true;
+}
+
 // Writes through a .tmp file and a rename (a crash never leaves half a file)
 bool write_file(const fs::path& p, const std::string& text, std::string* err) {
     std::error_code ec;
@@ -2049,8 +2071,8 @@ bool ChainCheck::parse(const std::string& text, ChainCheck& out, std::string* er
         return false;
     }
     ChainCheck c;
-    c.build = j.value("build", std::string());
-    c.when = j.value("when", std::string());
+    c.build = str_of(j, "build");  // type-checked: a null or a number is "" (never a throw on the locate thread)
+    c.when = str_of(j, "when");
     if (j.contains("agree") && j["agree"].is_array())
         for (const auto& x : j["agree"])
             if (x.is_string()) c.agree.insert(x.get<std::string>());
@@ -2059,12 +2081,17 @@ bool ChainCheck::parse(const std::string& text, ChainCheck& out, std::string* er
 }
 
 bool load_chain_check(const fs::path& p, ChainCheck& out, std::string* err) {
-    std::string text;
-    if (!read_file(p, text)) {
-        if (err) err->clear();
+    std::string text, why;
+    if (!read_small_file(p, text, 64 * 1024, why)) {
+        if (err) *err = why;
         return false;
     }
-    return ChainCheck::parse(text, out, err);
+    try {
+        return ChainCheck::parse(text, out, err);
+    } catch (const std::exception& e) {
+        if (err) *err = e.what();
+        return false;
+    }
 }
 
 bool save_chain_check(const fs::path& p, const ChainCheck& c, std::string* err) { return write_file(p, c.to_json(), err); }
@@ -2550,9 +2577,9 @@ bool UndoRecord::parse(const std::string& text, UndoRecord& out, std::string* er
 }
 
 bool load_undo(const fs::path& p, UndoRecord& out, std::string* err) {
-    std::string text;
-    if (!read_file(p, text)) {
-        if (err) *err = "no " + p.filename().string();
+    std::string text, why;
+    if (!read_small_file(p, text, 1024 * 1024, why)) {
+        if (err) *err = why.empty() ? "no " + p.filename().string() : p.filename().string() + " is " + why;
         return false;
     }
     return UndoRecord::parse(text, out, err);
@@ -2756,12 +2783,17 @@ bool Profile::parse(const std::string& text, Profile& out, std::string* err) {
 }
 
 bool load_profile(const fs::path& p, Profile& out, std::string* err) {
-    std::string text;
-    if (!read_file(p, text)) {
-        if (err) err->clear();
+    std::string text, why;
+    if (!read_small_file(p, text, kMaxProfileBytes, why)) {
+        if (err) *err = why;
         return false;
     }
-    return Profile::parse(text, out, err);
+    try {
+        return Profile::parse(text, out, err);
+    } catch (const std::exception& e) {
+        if (err) *err = e.what();
+        return false;
+    }
 }
 
 bool save_profile(const fs::path& p, const Profile& pr, std::string* err) { return write_file(p, pr.to_json(), err); }
@@ -2938,10 +2970,10 @@ bool Preset::parse(const std::string& text, Preset& out, std::string* err) {
         return false;
     }
     Preset p;
-    p.id = j.value("id", std::string());
-    p.name = j.value("name", std::string());
-    p.author = j.value("author", std::string());
-    p.note = j.value("note", std::string());
+    p.id = str_of(j, "id");  // type-checked (a hand-edited file never throws)
+    p.name = str_of(j, "name");
+    p.author = str_of(j, "author");
+    p.note = str_of(j, "note");
     p.fc27 = j.contains("fc27") && j["fc27"].is_boolean() && j["fc27"].get<bool>();
     if (p.name.empty()) {
         if (err) *err = "the preset has no name";
@@ -3540,11 +3572,14 @@ void CoreService::ensure_anchors() {
         }
     }
     if (chain_job) {
-        if (h_.run_background) h_.run_background(chain_job);
-        else chain_job();
+        // B1 (review 2026-10-13): nothing may escape a background locate (an escaped exception on a detached thread ends FC27.exe): a failure
+        // switches gameplay tuning off for the game session and is logged
+        auto guarded = [this, chain_job, epoch, reg]() { guard_locate(epoch, *reg, chain_job); };
+        if (h_.run_background) h_.run_background(guarded);
+        else guarded();
     }
     if (slow.empty()) return;
-    auto job = [this, slow, epoch]() {
+    auto job0 = [this, slow, epoch]() {
         // the attribulator searches of every locator in one go: one pass over the image for the type names, one over the heap for the
         // instance names (each pass reads the whole memory once, whatever the number of names)
         Lookup lk = h_.lookup;
@@ -3594,8 +3629,42 @@ void CoreService::ensure_anchors() {
             }
         }
     };
+    auto job = [this, job0, epoch, reg]() { guard_locate(epoch, *reg, job0); };
     if (h_.run_background) h_.run_background(job);
     else job();
+}
+
+void CoreService::guard_locate(long long epoch, const Registry& reg, const std::function<void()>& fn) {
+    std::string what;
+    try {
+        fn();
+        return;
+    } catch (const std::exception& e) {
+        what = e.what();
+    } catch (...) {
+        what = "unknown error";
+    }
+    std::string line;
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        if (epoch != anchors_epoch_) return;
+        locate_failed_ = what;
+        chain_stage_ = 2;
+        session_off_ = "the attribulator locate failed (" + what + "): gameplay tuning is off for this game session";
+        for (const Locator& l : reg.locators)
+            if (l.kind == "attrib") {
+                Anchor a;
+                a.refused = true;
+                a.why = session_off_;
+                anchors_[l.name] = a;
+                refused_.insert(l.name);
+            }
+        line = "tuning: locate FAILED (" + what + "): gameplay tuning is off for this game session";
+    }
+    try {
+        log(line);
+    } catch (...) {
+    }
 }
 
 std::string CoreService::anchors_status() {

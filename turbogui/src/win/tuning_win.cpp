@@ -148,7 +148,18 @@ void install_tuning() {
         const char* via = run_on_game_thread(std::move(fn));
         return via ? via : "";
     };
-    h.run_background = [](std::function<void()> fn) { std::thread(std::move(fn)).detach(); };
+    // no exception may leave a detached thread (it would end FC27.exe): the service guards its jobs, this guards the thread itself too
+    h.run_background = [](std::function<void()> fn) {
+        std::thread([fn = std::move(fn)]() {
+            try {
+                fn();
+            } catch (const std::exception& e) {
+                log("gameplay tuning: a background job failed: %s", e.what());
+            } catch (...) {
+                log("gameplay tuning: a background job failed");
+            }
+        }).detach();
+    };
     h.log = [](const std::string& s) { log("%s", s.c_str()); };
     h.clock_us = &now_us;
     if (!game_hooks_allowed()) h.off = "game hooks are off for this game build";
