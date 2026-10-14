@@ -245,7 +245,7 @@ struct KillSwitch {
 inline const std::vector<KillSwitch>& kill_switches() {
     static const std::vector<KillSwitch> k = {
         {"tactics_off.txt", "every tactics write (and the effect layers of the pitch)", true, WriteChannel::GameVar},
-        {"tactics_gamevar_off.txt", "game-variable overrides (injuries, weather, time of day, difficulty, CPU substitutions)", false, WriteChannel::GameVar},
+        {"tactics_gamevar_off.txt", "the Tactics tab's game-variable rows (injuries, weather, time of day, difficulty, CPU substitutions)", false, WriteChannel::GameVar},
         {"tactics_db_off.txt", "career database rows (teams, referee, players)", false, WriteChannel::DbRow},
         {"call_team_sheet_off.txt", "your club's live tactic (channel E)", false, WriteChannel::LiveSheet},
     };
