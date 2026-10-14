@@ -280,7 +280,8 @@ std::string read_live(Memory& mem, uint64_t svc, int user, const Anchors& a, Liv
 // and +0xAC != 0; -1 when none). Turbo walks it itself: the game's function would write the service cache. false = a sheet could not be
 // read (G5 then refuses)
 bool active_sheet_id(Memory& mem, const Located& at, int32_t mode, int32_t& id);
-// "" when SetSheet would not run vf 0xF8 for this sheet either (mode -1, or the sheet is not the active one of its mode)
+// "" only for mode -1 (your club's own sheet). Any mode > -1 is refused (decision WP-B1); the active sheet of its mode with the reason that
+// SetSheet would run vf 0xF8 for it
 std::string check_g5(Memory& mem, const LiveTactic& lt);
 
 // ------------------------------------------------------------------------------------------------ the role allow-list (G6)

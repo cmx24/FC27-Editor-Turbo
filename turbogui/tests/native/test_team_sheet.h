@@ -712,7 +712,7 @@ static void run() {
         CHECK(locate(two.mem, SheetWorld::kSvc, 95, two.anchors(), at).empty() && at.sheet == SheetWorld::kSheet && at.sheets == 2, "a second, not current sheet is fine");
     });
 
-    run_case("channel E: G5 - SetSheet's propagation (vf 0xF8) would run for an active sheet with a mode: refused", [] {
+    run_case("channel E: G5 - only mode -1 is written (decision WP-B1); the active sheet of a mode names vf 0xF8", [] {
         SheetWorld w;
         CHECK(check_g5(w.mem, live(w)).empty(), "mode -1: pass");
         w.mem.wr(SheetWorld::kSheet + kSheetMode, int32_t(0));
@@ -734,8 +734,25 @@ static void run() {
         w.mem.wr(SheetWorld::kSheet + kSheetId, int32_t(2));
         w.mem.wr(SheetWorld::kNodeB + kNodeEnd, SheetWorld::kSheet + 2 * kSheetStride);
         lt = live(w);
-        CHECK(lt.at.sheet == SheetWorld::kSheet + kSheetStride && active_sheet_id(w.mem, lt.at, 0, id) && id == 2 && check_g5(w.mem, lt).empty(),
-              "the sheet is not the active one of its mode: pass");
+        CHECK(lt.at.sheet == SheetWorld::kSheet + kSheetStride && active_sheet_id(w.mem, lt.at, 0, id) && id == 2 &&
+                  check_g5(w.mem, lt).find("sheet mode 0: only mode -1 (your club's own sheet) is written (decision WP-B1: mode > -1 refused)") == 0,
+              "2.4: not the active one of its mode, still refused (mode > -1): " + check_g5(w.mem, lt));
+        // in the job: mode 0, not the active sheet -> stage G5, nothing written
+        Request r;
+        r.approach = 2;
+        r.line_height = 70;
+        Plan p;
+        CHECK(make_plan(lt, r, p, nullptr).empty(), "plan");
+        const std::vector<uint8_t> recs_before = w.bytes(SheetWorld::kRecs, 5 * kRecStride);
+        const ApplyResult res = apply_plan(w.mem, SheetWorld::kSvc, w.anchors(), p);
+        CHECK(!res.ok && !res.written && res.stage == "G5" && res.message.find("mode > -1 refused") != std::string::npos &&
+                  w.bytes(SheetWorld::kRecs, 5 * kRecStride) == recs_before && w.u8(SheetWorld::kSheet + kSheetStride + kSheetDirty) == 1,
+              "the job refuses a mode-0 sheet: " + res.stage + " " + res.message);
+        // mode 1 too (any mode > -1)
+        w.mem.wr(SheetWorld::kSheet + kSheetStride + kSheetMode, int32_t(1));
+        CHECK(!check_g5(w.mem, live(w)).empty(), "mode 1: refused");
+        w.mem.wr(SheetWorld::kSheet + kSheetStride + kSheetMode, int32_t(-1));
+        CHECK(check_g5(w.mem, live(w)).empty(), "back to mode -1: pass");
     });
 
     run_case("channel E: G6 - value ranges, known enum values, the group stays, preset and formation refused, the plan", [] {

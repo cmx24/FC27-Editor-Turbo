@@ -607,10 +607,13 @@ bool active_sheet_id(Memory& mem, const Located& at, int32_t mode, int32_t& id) 
 
 std::string check_g5(Memory& mem, const LiveTactic& lt) {
     if (lt.mode == -1) return "";
+    // 2.4 (decision WP-B1: "mode > -1 refused"): only your own sheet (mode -1, report 2.7) is written; a sheet with a mode has a save and
+    // propagation path nobody traced, whether or not it is the active one of its mode
     int32_t active = -1;
     if (!active_sheet_id(mem, lt.at, lt.mode, active))
         return "GetActiveSheetId's loop could not read the club's sheets (mode " + std::to_string(lt.mode) + "): refused";
-    if (lt.sheet_id != active) return "";
+    if (lt.sheet_id != active)
+        return "sheet mode " + std::to_string(lt.mode) + ": only mode -1 (your club's own sheet) is written (decision WP-B1: mode > -1 refused)";
     return "SetSheet would run its propagation step (vf 0xF8) for this sheet (mode " + std::to_string(lt.mode) + ", sheet " + std::to_string(lt.sheet_id) +
            " is the active one): refused until vf 0xF8 is traced";
 }
