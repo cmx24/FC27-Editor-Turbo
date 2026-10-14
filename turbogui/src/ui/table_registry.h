@@ -66,10 +66,9 @@ inline const std::vector<Spec>& all() {
         {"##tattoos", "Players > Tattoos", kColumns | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit, false},
         {"##galleries", "Players > Appearance galleries", kColumns | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit, false},
         {"##all", "All fields (widgets.cpp)", kData | ImGuiTableFlags_ScrollY, true},
-        // Tables of the 1.2.5 line, Turbo 2.0's tactics channel A and the filter grid (merged into 2.0/rc after this list
-        // was written)
+        // Tables of the 1.2.5 line and the filter grid (merged into 2.0/rc after this list was written; 2.4 removed the per-side
+        // gameplay slider table of tactics channel A)
         {"##pfilters", "Players > filter grid (four blocks, no header row)", kGrid | ImGuiTableFlags_SizingStretchProp, false},
-        {"##sidevars", "Match > per-side gameplay sliders", kData | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_ScrollY, true},
         {"##keptlist", "Turbo Tools > Kept player edits", kData | ImGuiTableFlags_ScrollY, true},
         {"##clubrows", "Club search dropdown (popup under the box)", ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV, true, true},
         {"##keptplayer", "Players > kept edits tooltip (auto-sizing, cannot be clicked)", ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg, false, true},

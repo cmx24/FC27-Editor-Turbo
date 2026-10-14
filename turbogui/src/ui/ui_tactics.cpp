@@ -53,8 +53,8 @@ struct OppState {
     TacticsTabState::OppCard card;  // what the card shows (kept between frames: the profile is only solved again when an input changed)
 };
 
-// The values of the database sliders that write one club's rows (teams, mentalities: My team) or one player's row (players:
-// Position/Role), put aside while another club or player is selected (sync_owners)
+// The values of the database sliders that write one club's rows (teams: My team) or one player's row (players: Position/Role), put
+// aside while another club or player is selected (sync_owners)
 struct OwnedValues {
     SliderSet working, applied;
 };
@@ -192,7 +192,7 @@ const Profile* loaded_profile(App& app) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------- whose rows
-// A database value is bound to the club or player it was set for. A teams / mentalities value (My team) writes the selected club's rows
+// A database value is bound to the club or player it was set for. A teams value (My team) writes the selected club's row
 // and a players value (Position/Role) the selected player's row, so when the selection changes the values of the club or player left
 // (switched on, last applied) are put aside and the newly selected one's come back. Apply, Reset and switching a row off + Apply then
 // only reach the rows of the club or player the values were set for: selecting the opponent (the Opposition scope asks for it) or
@@ -201,7 +201,7 @@ enum class RowOwner { None, Team, Player };
 
 RowOwner owner_of_target(const std::string& target) {
     const std::string table = target.substr(0, target.find('.'));
-    if (table == "teams" || table == "mentalities") return RowOwner::Team;
+    if (table == "teams") return RowOwner::Team;
     if (table == "players") return RowOwner::Player;
     return RowOwner::None;  // a game variable, every referee, a formation slot (not written)
 }
@@ -311,24 +311,6 @@ ImVec4 seen_colour(SeenKind k) {
     return ImVec4(1, 1, 1, 1);
 }
 
-// Tactics channel A (core/gameplay_sliders.h): the per-side gameplay slider game variables (SliderDef::untested) map into the two badges as
-// "game variable" + "untested", off by default like every untested write; while no played match has shown them working, their "seen"
-// badge keeps channel A's orange caution and its own hover text
-bool channel_a_untested(const SliderDef& d, const TacticStatus& st) {
-    return d.untested && st.written == WriteKind::GameVar && st.seen == SeenKind::Untested;
-}
-
-ImVec4 seen_colour_of(const SliderDef& d, const TacticStatus& st) {
-    if (channel_a_untested(d, st)) return ImVec4(1, 0.75f, 0.3f, 1);
-    return seen_colour(st.seen);
-}
-
-const char* seen_help_of(const SliderDef& d, const TacticStatus& st) {
-    if (channel_a_untested(d, st))
-        return "Accepted by the game's variable store (read back ok). No played match has shown an effect yet: off by default.";
-    return seen_help(st.seen);
-}
-
 // The channel of a slider's first target (every target of one slider goes through the same channel today)
 WriteChannel channel_of_def(const SliderDef& d) {
     if (d.binding.targets.empty()) return WriteChannel::GameVar;
@@ -399,7 +381,7 @@ std::vector<EffWrite> effective_writes(const SliderSet& s, std::vector<std::stri
 enum class DbOutcome { Ok, Skipped, Failed };
 
 // The row(s) a "table.field" target means for the current selection: teams = the selected club, players = the selected player, referee =
-// every referee, mentalities = the club's active row of the old tactic table (the legacy fields). Each record carries its key in the
+// every referee (2.4: the old mentalities table is no write target any more). Each record carries its key in the
 // snapshot store, which names the loaded career's club ("club:1|referee:155": core/tactics_status.h snapshot_row). Your saved tactic row
 // (cm_mentalities) is never a write target. A failure leaves `outcome` set and `why` said.
 struct DbTarget {
@@ -452,18 +434,6 @@ DbTarget resolve_db(App& app, const std::string& target) {
             }
         if (r.recs.empty()) return fail(DbOutcome::Failed, "the referee table has no rows");
         r.label = std::to_string(r.recs.size()) + " referees";
-    } else if (r.table == "mentalities") {
-        // the team's own row of the old tactic table (legacy fields only), found by its teamid: the active tactic when one is flagged, else
-        // the first row
-        const TeamRow* tr = app.model.team(app.sel_team);
-        if (!tr) return fail(DbOutcome::Failed, "select a team first");
-        const TeamRows rows = team_rows(app.db, *r.t, tr->teamid);
-        if (rows.key_missing) return fail(DbOutcome::Skipped, r.table + " has no teamid field in this save");
-        if (rows.recs.empty()) return fail(DbOutcome::Skipped, tr->name + " has no row in " + r.table);
-        const uint64_t rec = rows.recs[rows.chosen];
-        r.label = tr->name;
-        r.recs.push_back({rec, snapshot_row(club, "mentalities:" + std::to_string(app.db.get_int(*r.t, rec, "mentalityid", int64_t(rec))))});
-        r.what = ": row " + std::to_string(rows.chosen + 1) + " of " + std::to_string(rows.recs.size()) + (rows.has_active ? " (the active tactic)" : "");
     } else {
         return fail(DbOutcome::Skipped, "which row of " + r.table + " to write is not resolved in this build");
     }
@@ -1241,8 +1211,8 @@ void draw_row(App& app, const SliderDef& d, const Profile* cmp, const std::map<s
     ImGui::TextColored(written_colour(st.written), "  [%s]", row.written.c_str());
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", written_help(st.written));
     ImGui::SameLine();
-    ImGui::TextColored(seen_colour_of(d, st), "[%s]", row.seen.c_str());
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", seen_help_of(d, st));
+    ImGui::TextColored(seen_colour(st.seen), "[%s]", row.seen.c_str());
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", seen_help(st.seen));
     if (!d.technical.empty()) ImGui::TextDisabled("  %s", d.technical.c_str());
     if (!off.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "  %s", off_text(off).c_str());
     int v = w.value_or_default(d.key);
@@ -1670,7 +1640,7 @@ void draw_right(App& app) {
     if (legacy > 0) {
         checkbox_right("Show legacy fields##taclegacy", &g_tac.show_legacy);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("%zu field(s) EA removed in FC 25 (the old tactic table). Hidden by default, off by default, likely ignored by the game.", legacy);
+            ImGui::SetTooltip("%zu control(s) EA removed in FC 25. Hidden by default; Turbo's preview only, nothing is written to the game.", legacy);
     }
     refresh_readback(app, visible);
     std::map<std::string, msetup::VarLine> lines;  // the host's overrides, read once per frame
@@ -1723,7 +1693,7 @@ void draw_right(App& app) {
     if (ImGui::Button("Apply##tac")) apply_changes(app);
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Sends every switched-on setting. Untested or legacy settings ask first. A setting switched off gets the game's default back.");
+        ImGui::SetTooltip("Sends every switched-on setting. Untested settings ask first. A setting switched off gets the game's default back.");
     draw_confirm_dialog(app);
     ImGui::SameLine();
     if (ImGui::Button("Revert##tac")) {
