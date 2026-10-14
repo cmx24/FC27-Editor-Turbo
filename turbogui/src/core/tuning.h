@@ -144,6 +144,12 @@ struct Knob {
     bool slider = false;               // "slider": true in the file: offered as a slider; needs a proof (the package guard refuses it without)
     bool verified = false;             // T1 checked the knob on the file's build
     double step = 0;                   // slider step (0 = the type's)
+    // 2.5 (catalogue v5, the offline inventory): ranking and judgement only; none of it decides what is written (that stays proof + slider)
+    bool candidate = false;            // an inventory candidate: unverified, no proof, never written
+    int rank = 0;                      // 1 = the largest expected on-pitch effect of the catalogue (0 = not ranked)
+    std::string impact;                // "high" "medium" "low" (the offline assessment)
+    std::string category;              // the area of the engine table ("Pressing", "Shape", ...)
+    std::string scale;                 // how the value may be changed: "mult" "add" "int" "switch" (an offline judgement)
     std::vector<std::string> below;    // knobs whose value this one must stay below (the line height bands do not overlap)
     // A phase: "hub" when `when` names it; "prematch" / "match" when `live` or `when` names it
     bool allows(const std::string& phase) const;

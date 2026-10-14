@@ -1008,6 +1008,10 @@ void draw_body(App& app) {
         const int ph = reg->placeholders();
         g_state.registry_line = "turbo\\tuning\\" + fs::path(reg->source).filename().string() + ": " + std::to_string(reg->knobs.size()) + " knobs (" +
                                 std::to_string(ph) + " not confirmed) for game build " + reg->build;
+        int nc = 0;
+        for (const Knob& k : reg->knobs) nc += k.candidate ? 1 : 0;
+        if (nc > 0) g_state.registry_line = "turbo\\tuning\\" + fs::path(reg->source).filename().string() + ": " + std::to_string(reg->knobs.size() - nc) + " knobs (" +
+                                            std::to_string(ph - nc) + " not confirmed), " + std::to_string(nc) + " candidates of the engine-table inventory (not offered) for game build " + reg->build;
         ImGui::TextDisabled("%s", g_state.registry_line.c_str());
     } else {
         g_state.registry_line = reg_why;
@@ -1038,6 +1042,7 @@ void draw_body(App& app) {
         const KnobState s = state_of(k);
         if (s == KnobState::Proven) ++g_state.proven;
         else if (s == KnobState::Located) ++g_state.located;
+        else if (k.candidate) ++g_state.candidates;
         else ++g_state.unlocated;
     }
     if (reg_why.empty())
@@ -1198,12 +1203,12 @@ void draw_body(App& app) {
         form_label_width(0.0f);
     }
     for (const Knob& k : reg->knobs)
-        if (state_of(k) == KnobState::Unlocated) g_state.not_working.push_back(k.label);
+        if (state_of(k) == KnobState::Unlocated && !k.candidate) g_state.not_working.push_back(k.label);
     if (!g_state.not_working.empty()) {
         if (ImGui::CollapsingHeader(("Not yet working on this build (" + std::to_string(g_state.not_working.size()) + ")##tvnotyet").c_str())) {
             ImGui::TextWrapped("These knobs are not located in the running game yet, so Turbo shows and writes nothing for them: %s.", joined(g_state.not_working).c_str());
             for (const Knob& k : reg->knobs) {
-                if (state_of(k) != KnobState::Unlocated) continue;
+                if (state_of(k) != KnobState::Unlocated || k.candidate) continue;
                 const KnobLive* l = live_of(k.id);
                 ImGui::BulletText("%s", k.label.c_str());
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", l && !l->why.empty() ? l->why.c_str() : "not read yet");

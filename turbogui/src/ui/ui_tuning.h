@@ -54,6 +54,7 @@ struct TuningViewState {
     std::vector<std::string> not_working;  // the labels of the knobs not located on this build (hidden)
     std::vector<std::string> groups;
     int proven = 0, located = 0, unlocated = 0;
+    int candidates = 0;  // 2.5: inventory candidates of the knobs file (unverified, never written); not counted in `unlocated`, not listed in not_working
     std::vector<std::string> plan;  // what Apply will write
     std::string plan_error;
     bool can_apply = false, can_undo = false, can_restore = false, busy = false;
