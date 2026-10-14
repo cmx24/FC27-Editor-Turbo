@@ -1693,8 +1693,10 @@ static void run() {
         std::error_code ec;
         fs::remove_all(dir, ec);
         std::string err;
-        CHECK(ensure_builtin_presets(dir, &err) == 3, "Turbo's three presets written: " + err);
-        CHECK(fs::exists(dir / "turbo_fc27_default.json") && fs::exists(dir / "turbo_compact.json") && fs::exists(dir / "turbo_expansive.json"), "files");
+        CHECK(ensure_builtin_presets(dir, &err) == 5, "Turbo's five presets written: " + err);
+        CHECK(fs::exists(dir / "turbo_fc27_default.json") && fs::exists(dir / "turbo_compact.json") && fs::exists(dir / "turbo_expansive.json") &&
+                  fs::exists(dir / "turbo_wide_short.json") && fs::exists(dir / "turbo_narrow_long.json"),
+              "files");
         CHECK(ensure_builtin_presets(dir, &err) == 0, "an unchanged file is not written again");
         // a stale Turbo file is replaced; a user's file of the same name is never touched
         std::ofstream(dir / "turbo_compact.json", std::ios::binary | std::ios::trunc)
@@ -1705,8 +1707,8 @@ static void run() {
         std::ofstream(dir / "broken.json", std::ios::binary | std::ios::trunc) << "{";
         std::vector<std::string> errors;
         const std::vector<Preset> list = load_presets(dir, &errors);
-        CHECK(list.size() == 3 && list[0].turbo() && list[0].name == "FC 27 default" && list[1].name == "Turbo compact" && !list[1].changes.empty() &&
-                  list[2].name == "My own" && !list[2].turbo(),
+        CHECK(list.size() == 5 && list[0].turbo() && list[0].name == "FC 27 default" && list[1].name == "Turbo compact" && !list[1].changes.empty() &&
+                  list[4].name == "My own" && !list[4].turbo(),
               fmt("listed %zu, Turbo's first; the user's file with a Turbo name kept", list.size()));
         CHECK(errors.size() == 1 && errors[0].find("broken.json") == 0, "a broken file is reported");
         // values: relative from each knob's base (the game default), clamped, representable; switches and placeholders skipped
@@ -1903,7 +1905,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(!row("gk.reaction") && std::find(s.groups.begin(), s.groups.end(), "Goalkeeper") == s.groups.end(), "the not-working knob has no row, no group");
         CHECK(!bring_tuning(ui, "##tvbox_passing.error_ground") && !bring_tuning(ui, "##tvs_passing.error_ground"), "no slider for a located knob");
         tuning_top(ui);
-        CHECK(s.presets.size() == 4 && s.presets[0] == "FC 27 default (Turbo)" && s.presets[3] == "Test press" && fs::exists(out / presets_dir() / "turbo_compact.json"),
+        CHECK(s.presets.size() == 6 && s.presets[0] == "FC 27 default (Turbo)" && s.presets[5] == "Test press" && fs::exists(out / presets_dir() / "turbo_compact.json"),
               "Turbo's own presets are written and listed first, then the user's");
         CHECK(!s.profile_on && s.profile_line.find("Profile: off, custom, 0 value(s)") == 0, s.profile_line);
         CHECK(!s.can_apply && s.status.find("G1 switches: off: tick \"write in this game session\"") == 0, "off without an opt-in: " + s.status);
@@ -1948,10 +1950,10 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(2);
         CHECK(ui.click("Use this preset##tvuse"), "used");
         ui.frames(2);
-        CHECK(s.preset_line.find("\"Turbo compact\": 1 knob(s) set in the sliders and the profile, 6 not set (shape.width_in: not in the knobs file") == 0, s.preset_line);
+        CHECK(s.preset_line.find("\"Turbo compact\": 0 knob(s) set in the sliders and the profile, 4 not set (shape.width_in: not in the knobs file") == 0, s.preset_line);
         CHECK(ui.click("##tvpreset"), "preset combo");
         ui.frames(2);
-        CHECK(ui.click("Test press##tvp3"), "the user's preset picked");
+        CHECK(ui.click("Test press##tvp5"), "the user's preset picked");
         ui.frames(2);
         CHECK(ui.click("Use this preset##tvuse"), "used");
         ui.frames(2);
@@ -1961,6 +1963,54 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
                   prof.values["marking.tightness"] == 66 && !prof.on,
               "the preset's values in the profile (+20 %, +15 % rounded, +10 % from FC 27's values)");
         CHECK(w.f32(TuneWorld::kBase) == 0.5f && rig.jobs.ran == 2, "nothing written by a preset");
+        // 2.5: the active preset, its proof status, the knob search, and duplicate / rename / delete of the user's presets
+        ui.frames(2);
+        CHECK(s.active_preset == "Test press" && s.active_line.find("Active preset: Test press") == 0 && !s.active_modified &&
+                  s.active_line.find("not applied automatically (profile off)") != std::string::npos,
+              "the active preset: " + s.active_line);
+        CHECK(s.preset_status == "4 knobs: 3 effect measured, 0 engine-confirmed, 0 located only, 1 not in this build", "the picked preset's proof status: " + s.preset_status);
+        {
+            tuning_top(ui);
+            const ItemRec* sb = bring_tuning(ui, "##tvsearch");
+            CHECK(sb && ui.type_into(sb, "pressing"), "search typed");
+            ui.frames(3);
+            CHECK(s.search == "pressing" && s.shown >= 1 && s.shown < s.proven + s.located && row("pressing.intensity") && !row("passing.error_ground"),
+                  fmt("the search keeps the matching knobs only (%d shown)", s.shown));
+            sb = bring_tuning(ui, "##tvsearch");
+            CHECK(sb && ui.type_into(sb, "xyzzy-no-knob"), "search typed again");
+            ui.frames(3);
+            CHECK(s.shown == 0 && s.rows.empty(), "nothing matches");
+            sb = bring_tuning(ui, "##tvsearch");
+            CHECK(sb && ui.type_into(sb, ""), "search cleared");
+            ui.frames(3);
+            CHECK(s.shown == s.proven + s.located && row("passing.error_ground"), "all knobs again");
+        }
+        tuning_top(ui);
+        CHECK(ui.click("Duplicate##tvdup"), "Duplicate clicked");
+        ui.frames(3);
+        CHECK(fs::exists(out / presets_dir() / "Test_press_copy.json") && has_text(s.presets, "Test press copy"), "the copy is a file and listed");
+        CHECK(ui.click("Rename...##tvren"), "Rename clicked");
+        ui.frames(3);
+        const ItemRec* rb = ui.find("##tvrenamebox");
+        CHECK(rb && ui.type_into(rb, "Renamed press"), "new name typed");
+        CHECK(ui.click("Rename##tvrenameok", "Rename preset"), "rename confirmed");
+        ui.frames(3);
+        CHECK(!fs::exists(out / presets_dir() / "Test_press_copy.json") && fs::exists(out / presets_dir() / "Renamed_press.json") && has_text(s.presets, "Renamed press"),
+              "renamed: the old file is gone, the new one is there");
+        CHECK(ui.click("Delete...##tvdel"), "Delete clicked");
+        ui.frames(3);
+        CHECK(ui.click("Delete##tvdeleteok", "Delete preset?"), "delete confirmed");
+        ui.frames(3);
+        CHECK(!fs::exists(out / presets_dir() / "Renamed_press.json") && !has_text(s.presets, "Renamed press") && fs::exists(out / presets_dir() / "Test_press.json"),
+              "deleted; the original stays");
+        // Turbo's own presets cannot be deleted (the button is greyed): pick one, the file stays
+        CHECK(ui.click("##tvpreset"), "preset combo");
+        ui.frames(2);
+        CHECK(ui.click("Turbo compact (Turbo)##tvp1"), "Turbo compact picked");
+        ui.frames(2);
+        ui.click("Delete...##tvdel");
+        ui.frames(3);
+        CHECK(!s.confirm_open && fs::exists(out / presets_dir() / "turbo_compact.json"), "Turbo's own preset cannot be deleted");
         ui.click("Discard edits##tvdiscard");
         ui.frames(2);
         // the profile on in the hub of a loaded career: its career_load moment (the load had none), then the hub moment

@@ -6,6 +6,7 @@
 #include "ui_tuning.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -65,6 +66,11 @@ struct Tv {
     int preset_sel = -1;
     char preset_name[64] = "";
     FilePicker export_fp, import_fp;
+    char rename_buf[64] = "";
+    bool rename_request = false, delete_request = false;
+    // the knob list's search and filter (2.5)
+    char search[64] = "";
+    bool only_changed = false;
     // the job in flight
     bool pending = false;
     PlanKind pending_kind = PlanKind::Apply;
@@ -726,6 +732,12 @@ void use_preset(App& app, const Preset& p) {
                     ". Written by Apply, or by the profile at its next moment when it is on.";
 }
 
+void select_preset_named(const std::string& name) {
+    g.preset_sel = -1;
+    for (size_t i = 0; i < g.presets.size(); ++i)
+        if (same_name(g.presets[i].name, name)) g.preset_sel = int(i);
+}
+
 void save_preset(App& app) {
     const auto reg = registry_of(app);
     const std::string name = g.preset_name;
@@ -759,7 +771,13 @@ void save_preset(App& app) {
     o.close();
     g.preset_line = "Saved \"" + p.name + "\" (" + std::to_string(p.changes.size()) + " knob(s)) to turbo_output\\" + presets_dir() + "\\" + f.filename().string();
     log_line(app, "gameplay tuning: " + g.preset_line);
+    // what was saved is the profile's preset from now on (the active preset)
+    if (g.prof.preset != p.name) {
+        g.prof.preset = p.name;
+        save_profile_now(app, "preset name set by Save");
+    }
     load_presets_now(app);
+    select_preset_named(p.name);
 }
 
 void import_preset(App& app, const fs::path& from) {
@@ -806,29 +824,173 @@ void export_preset(App& app, const fs::path& to) {
     log_line(app, "gameplay tuning: " + g.preset_line);
 }
 
-void draw_presets(App& app) {
+void duplicate_preset(App& app) {
+    if (g.preset_sel < 0 || g.preset_sel >= int(g.presets.size())) return;
+    Preset p = g.presets[size_t(g.preset_sel)];
+    const std::string source = p.name;
+    p.name = unique_preset_name(g.presets, p.name + " copy");
+    p.id.clear();      // a new id from the new name
+    p.author.clear();  // the copy is yours, also when the source is Turbo's own
+    p.note = "Copy of \"" + source + "\"";
+    std::string err;
+    if (!write_preset_file(preset_dir(app), p, &err)) {
+        app.notify("The preset could not be copied: " + err, true);
+        return;
+    }
+    g.preset_line = "Copied to \"" + p.name + "\"";
+    log_line(app, "gameplay tuning: " + g.preset_line);
+    load_presets_now(app);
+    select_preset_named(p.name);
+}
+
+void rename_preset(App& app, const std::string& wanted) {
+    if (g.preset_sel < 0 || g.preset_sel >= int(g.presets.size())) return;
+    Preset p = g.presets[size_t(g.preset_sel)];
+    if (p.turbo()) {
+        app.notify("Turbo's own presets cannot be renamed: duplicate one first", true);
+        return;
+    }
+    std::string name = wanted;
+    while (!name.empty() && name.back() == ' ') name.pop_back();
+    if (name.empty()) {
+        app.notify("Type a name for the preset", true);
+        return;
+    }
+    if (name == p.name) return;
+    std::vector<Preset> others;
+    for (size_t i = 0; i < g.presets.size(); ++i)
+        if (int(i) != g.preset_sel) others.push_back(g.presets[i]);
+    if (unique_preset_name(others, name) != name) {
+        app.notify("A preset with that name exists: pick another name", true);
+        return;
+    }
+    const Preset old = p;
+    p.name = name;
+    p.id.clear();
+    std::string err;
+    if (!write_preset_file(preset_dir(app), p, &err)) {
+        app.notify("The preset was not renamed: " + err, true);
+        return;
+    }
+    if (old.file != p.file && !delete_preset_file(old, &err)) log_line(app, "gameplay tuning: the old preset file was not removed: " + err);
+    if (same_name(g.prof.preset, old.name)) {
+        g.prof.preset = p.name;
+        save_profile_now(app, "preset renamed");
+    }
+    g.preset_line = "Renamed \"" + old.name + "\" to \"" + p.name + "\"";
+    log_line(app, "gameplay tuning: " + g.preset_line);
+    load_presets_now(app);
+    select_preset_named(p.name);
+}
+
+void delete_preset(App& app) {
+    if (g.preset_sel < 0 || g.preset_sel >= int(g.presets.size())) return;
+    const Preset p = g.presets[size_t(g.preset_sel)];
+    std::string err;
+    if (!delete_preset_file(p, &err)) {
+        app.notify("The preset was not deleted: " + err, true);
+        return;
+    }
+    if (same_name(g.prof.preset, p.name)) {
+        g.prof.preset = "custom";  // the values stay in the profile; only the name goes
+        save_profile_now(app, "preset deleted");
+    }
+    g.preset_line = "Deleted \"" + p.name + "\"";
+    log_line(app, "gameplay tuning: " + g.preset_line);
+    g.preset_sel = -1;
+    load_presets_now(app);
+}
+
+bool located_now(const std::string& id) {
+    auto l = g.live.find(id);
+    return l != g.live.end() && l->second.located;
+}
+
+// The active preset: the profile's preset name, and whether the values now (the profile's, with the moved sliders) still equal what the preset gives
+struct ActivePreset {
+    std::string name;    // "" = none (custom values)
+    bool known = false;  // the preset's file is there
+    bool modified = false;
+    std::string status;  // the preset's proof status text
+};
+ActivePreset active_preset(App& app, const Registry& reg) {
+    ActivePreset a;
+    if (g.prof.preset.empty() || g.prof.preset == "custom") return a;
+    a.name = g.prof.preset;
+    const Preset* found = nullptr;
+    for (const Preset& p : g.presets)
+        if (same_name(p.name, a.name)) found = &p;
+    if (!found) return a;
+    a.known = true;
+    const std::map<std::string, double> defs = app.tuning ? app.tuning->defaults() : std::map<std::string, double>();
+    auto usable = [](const Knob& k) -> std::string {
+        if (state_of(k) == KnobState::Unlocated) return "not located on this build";
+        if (!k.proven()) return "located, its effect not proven yet";
+        return "";
+    };
+    const PresetValues pv = preset_values(*found, reg, [&](const std::string& id, double& v) { return base_of(app, defs, id, v); }, usable);
+    std::map<std::string, double> now = g.prof.values;
+    for (const std::string& id : g.touched)
+        if (g.edit.count(id)) now[id] = g.edit[id];
+    for (const auto& kv : pv.values) {
+        auto it = now.find(kv.first);
+        const Knob* k = reg.knob(kv.first);
+        if (it == now.end() || !k || !same_value(k->type, representable(*k, it->second), kv.second)) a.modified = true;
+    }
+    for (const auto& kv : now)
+        if (!pv.values.count(kv.first)) a.modified = true;
+    a.status = preset_status(*found, reg, located_now).text();
+    return a;
+}
+
+void draw_presets(App& app, const Registry& reg) {
     ImGui::SeparatorText("Presets");
+    ImGui::TextDisabled("A preset is a named, complete set of knob values. Use one to fill the sliders and your profile; Apply (or the profile) writes it.");
     for (const Preset& p : g.presets) g_state.presets.push_back(p.name + (p.turbo() ? " (Turbo)" : ""));
     const std::string cur = g.preset_sel >= 0 && g.preset_sel < int(g.presets.size()) ? g_state.presets[size_t(g.preset_sel)] : std::string("(pick a preset)");
     ImGui::SetNextItemWidth(S(260.0f));
     if (ImGui::BeginCombo("##tvpreset", cur.c_str())) {
         for (size_t i = 0; i < g.presets.size(); ++i) {
             if (ImGui::Selectable((g_state.presets[i] + "##tvp" + std::to_string(i)).c_str(), int(i) == g.preset_sel)) g.preset_sel = int(i);
-            if (ImGui::IsItemHovered() && !g.presets[i].note.empty()) ImGui::SetTooltip("%s", g.presets[i].note.c_str());
+            if (ImGui::IsItemHovered()) {
+                const PresetStatus ps = preset_status(g.presets[i], reg, located_now);
+                ImGui::SetTooltip("%s%s%s", g.presets[i].note.c_str(), g.presets[i].note.empty() ? "" : "\n", ps.text().c_str());
+            }
         }
         ImGui::EndCombo();
     }
     const bool have = g.preset_sel >= 0 && g.preset_sel < int(g.presets.size());
+    const bool mine = have && !g.presets[size_t(g.preset_sel)].turbo();
     ImGui::SameLine();
     ImGui::BeginDisabled(!have || g.pending);
     if (ImGui::Button("Use this preset##tvuse") && have) use_preset(app, g.presets[size_t(g.preset_sel)]);
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("Sets the sliders and the tuning profile from the preset (relative changes start from FC 27's own values). Only the knobs "
-                          "proven in a played match are set. Nothing is written until Apply, or the profile's next moment when it is on.");
+                          "with a measured effect are set. Nothing is written until Apply, or the profile's next moment when it is on.");
+    g_state.preset_status.clear();
+    if (have) {
+        g_state.preset_status = preset_status(g.presets[size_t(g.preset_sel)], reg, located_now).text();
+        ImGui::TextDisabled("%s: %s", g.presets[size_t(g.preset_sel)].name.c_str(), g_state.preset_status.c_str());
+    }
+    // manage
+    ImGui::BeginDisabled(!have);
+    if (ImGui::SmallButton("Duplicate##tvdup")) duplicate_preset(app);
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!mine);
+    if (ImGui::SmallButton("Rename...##tvren")) {
+        std::snprintf(g.rename_buf, sizeof(g.rename_buf), "%s", have ? g.presets[size_t(g.preset_sel)].name.c_str() : "");
+        g.rename_request = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Delete...##tvdel")) g.delete_request = true;
+    ImGui::EndDisabled();
+    if (have && !mine && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Turbo's own presets cannot be renamed or deleted: duplicate one first.");
     ImGui::SameLine();
     ImGui::BeginDisabled(!have);
-    if (ImGui::Button("Export...##tvexp")) {
+    if (ImGui::SmallButton("Export...##tvexp")) {
         FilePicker& fp = g.export_fp;
         fp.mode = PickMode::Save;
         fp.title = "Export the preset to";
@@ -840,7 +1002,7 @@ void draw_presets(App& app) {
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
-    if (ImGui::Button("Import...##tvimp")) {
+    if (ImGui::SmallButton("Import...##tvimp")) {
         FilePicker& fp = g.import_fp;
         fp.mode = PickMode::Open;
         fp.title = "Choose a Turbo gameplay tuning preset";
@@ -852,13 +1014,43 @@ void draw_presets(App& app) {
     fs::path chosen;
     if (file_picker_modal("##tvexppick", g.export_fp, chosen)) export_preset(app, chosen);
     if (file_picker_modal("##tvimppick", g.import_fp, chosen)) import_preset(app, chosen);
+    // the two small dialogs
+    if (g.rename_request) {
+        ImGui::OpenPopup("Rename preset##tvrenamepop");
+        g.rename_request = false;
+    }
+    if (ImGui::BeginPopupModal("Rename preset##tvrenamepop", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::SetNextItemWidth(S(240.0f));
+        ImGui::InputText("##tvrenamebox", g.rename_buf, sizeof(g.rename_buf));
+        if (ImGui::Button("Rename##tvrenameok")) {
+            rename_preset(app, g.rename_buf);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel##tvrenameno")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+    if (g.delete_request) {
+        ImGui::OpenPopup("Delete preset?##tvdeletepop");
+        g.delete_request = false;
+    }
+    if (ImGui::BeginPopupModal("Delete preset?##tvdeletepop", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Delete \"%s\"? The file is removed; your profile keeps its values.", have ? g.presets[size_t(g.preset_sel)].name.c_str() : "?");
+        if (ImGui::Button("Delete##tvdeleteok")) {
+            delete_preset(app);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Keep it##tvdeleteno")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
     form_label("Save the profile as", "A preset of your own in turbo_output\\tuning_presets: each knob of the profile (and each moved slider) as a change "
-                                      "relative to FC 27's own value");
+                                      "relative to FC 27's own value. The same name replaces your earlier preset of that name.");
     ImGui::SetNextItemWidth(S(200.0f));
     ImGui::InputText("##tvname", g.preset_name, sizeof(g.preset_name));
     ImGui::SameLine();
     if (ImGui::Button("Save preset##tvsave")) save_preset(app);
-    for (const std::string& e : g.preset_errors) ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "Preset not read: %s", e.c_str());
+    for (const std::string& e : g.preset_errors) ImGui::TextDisabled("A preset file was skipped: %s", e.c_str());
     if (!g.preset_line.empty()) ImGui::TextWrapped("%s", g.preset_line.c_str());
     g_state.preset_line = g.preset_line;
 }
@@ -888,6 +1080,47 @@ void draw_confirm(App& app) {
     }
 }
 
+std::string lower_of(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+    return s;
+}
+
+// The text before the first ": " of a gate line is its code ("G1 switches: off: tick ..."): the person reads what follows
+std::string plain_gate(const std::string& s) {
+    const size_t c = s.find(": ");
+    if (s.size() > 2 && s[0] == 'G' && std::isdigit((unsigned char)s[1]) && c != std::string::npos) return s.substr(c + 2);
+    return s;
+}
+
+// The knob differs from FC 27: the game holds another value now, the profile names one, or the slider was moved to another value
+bool knob_changed(const Knob& k, const std::map<std::string, double>& defs) {
+    auto l = g.live.find(k.id);
+    if (l == g.live.end() || !l->second.located) return false;
+    if (g.prof.values.count(k.id)) return true;
+    const std::string first = !l->second.copies.empty() ? l->second.copies.front().variant : std::string();
+    double def = 0;
+    if (copy_default(k, defs, first, def) && !same_value(k.type, l->second.value, def)) return true;
+    auto e = g.edit.find(k.id);
+    return g.touched.count(k.id) && e != g.edit.end() && !same_value(k.type, representable(k, e->second), l->second.value);
+}
+
+// The search box matches the label, the id, the group, the table field and the notes
+bool knob_matches(const Knob& k, const std::string& needle) {
+    if (needle.empty()) return true;
+    for (const std::string* f : {&k.label, &k.id, &k.group, &k.field, &k.collection, &k.notes})
+        if (lower_of(*f).find(needle) != std::string::npos) return true;
+    return false;
+}
+
+ImVec4 badge_colour(Badge b) {
+    switch (b) {
+        case Badge::EffectMeasured: return ImVec4(0.45f, 0.85f, 0.45f, 1);
+        case Badge::EngineConfirmed: return ImVec4(0.45f, 0.75f, 0.9f, 1);
+        case Badge::LocatedNotProven: return ImVec4(0.75f, 0.75f, 0.55f, 1);
+    }
+    return ImVec4(1, 1, 1, 1);
+}
+
 void draw_row(App& app, const Knob& k, const std::map<std::string, double>& defs) {
     TuningViewState::Row row;
     row.id = k.id;
@@ -896,8 +1129,10 @@ void draw_row(App& app, const Knob& k, const std::map<std::string, double>& defs
     auto l = g.live.find(k.id);
     const KnobState st = state_of(k);
     const bool proven = st == KnobState::Proven;
+    const Badge badge = knob_badge(k);
     row.state = knob_state_name(st);
     row.located = "located";
+    row.badge = badge_name(badge);
     row.applies = proven ? "proven in " + k.proof.session : "located, effect not proven";
     // FC 27's own value (of the first copy: the knobs file, else the value before Turbo's first write), the value in memory now
     double def = 0;
@@ -911,8 +1146,11 @@ void draw_row(App& app, const Knob& k, const std::map<std::string, double>& defs
     // the label (tooltip: the table field, the notes, the proof)
     std::string tip = k.collection.empty() ? std::string("table field not known yet") : k.collection + " / " + k.field;
     if (!k.notes.empty()) tip += "\n" + k.notes;
-    tip += proven ? "\nProven in a played match: " + k.proof.session + " (" + k.proof.evidence + ")"
-                  : std::string("\nLocated and checked in the running game; its effect on a match has not been measured yet, so Turbo shows it read-only.");
+    if (proven) tip += "\nEffect measured in a played match: " + k.proof.session + " (" + k.proof.evidence + ")";
+    else if (badge == Badge::EngineConfirmed)
+        tip += "\nThe engine read was confirmed in game (" + k.engine_check.session + ", " + k.engine_check.evidence +
+               "); its effect on a match has not been measured yet, so Turbo shows it read-only.";
+    else tip += "\nLocated and checked in the running game; its effect on a match has not been measured yet, so Turbo shows it read-only.";
     form_label(k.label.c_str(), tip.c_str());
     row.editable = proven && !g.pending;
     if (proven) {
@@ -946,14 +1184,17 @@ void draw_row(App& app, const Knob& k, const std::map<std::string, double>& defs
     }
     // the badge
     ImGui::SameLine();
-    ImGui::TextColored(proven ? ImVec4(0.45f, 0.85f, 0.45f, 1) : ImVec4(0.75f, 0.75f, 0.55f, 1), "[%s]", row.applies.c_str());
+    ImGui::TextColored(badge_colour(badge), "[%s]", row.badge.c_str());
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip.c_str());
-    // the game's own value, the value now, the profile's, Reset
+    // FC 27's own value, the value now when it differs, the profile's, Reset
     ImGui::SameLine();
-    ImGui::TextDisabled("FC 27: %s | now: %s%s", have_def ? row.def.c_str() : "?", row.game.c_str(), row.profile.empty() ? "" : (" | profile: " + row.profile).c_str());
+    std::string info = std::string("FC 27: ") + (have_def ? row.def : std::string("?"));
+    if (!have_def || row.game != row.def) info += " | now: " + row.game;
+    if (!row.profile.empty()) info += " | profile: " + row.profile;
+    ImGui::TextDisabled("%s", info.c_str());
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("FC 27: the game's own value (Restore FC 27 defaults puts it back). now: what the game holds in memory at this moment. "
-                          "profile: the value your tuning profile writes at its moments.");
+        ImGui::SetTooltip("FC 27: the game's own value (Restore FC 27 defaults puts it back). now: what the game holds in memory at this moment "
+                          "(shown when it differs). profile: the value your tuning profile writes at its moments.");
     if (l->second.copies.size() > 1) {
         // one knob, several database copies (base, simulation = Authentic, ...): every copy is written together
         std::string cs;
@@ -998,8 +1239,8 @@ void draw_body(App& app) {
     g_state.busy = g.pending;
 
     ImGui::TextWrapped(
-        "The game engine's gameplay tuning tables (shape, pressing, marking, runs; FC 27 reads them for every club). Turbo offers a knob as a slider "
-        "only once its effect on a played match was measured; the others are shown read-only.");
+        "The game engine's gameplay tuning tables (shape, pressing, marking, runs, line depth; FC 27 reads them for every club in every match). "
+        "A knob gets a slider only after its effect was measured in a played match; the others are shown read-only with their proof status.");
     ImGui::TextWrapped(
         "The game keeps these tables in memory only (not in the career save). Your tuning profile writes its values again at every "
         "career load and each time you enter the hub, while it is on.");
@@ -1011,7 +1252,7 @@ void draw_body(App& app) {
         ImGui::TextDisabled("%s", g_state.registry_line.c_str());
     } else {
         g_state.registry_line = reg_why;
-        ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", reg_why.c_str());
+        ImGui::TextWrapped("Gameplay tuning is not available: %s", reg_why.c_str());
     }
     // how the tables were located
     {
@@ -1041,12 +1282,25 @@ void draw_body(App& app) {
         else ++g_state.unlocated;
     }
     if (reg_why.empty())
-        ImGui::TextWrapped("%d proven in a played match (sliders), %d located and checked but their effect not proven yet (read-only), %d not yet working on "
+        ImGui::TextWrapped("%d with a measured effect (sliders), %d located and checked but their effect not proven yet (read-only), %d not yet working on "
                            "this build (listed at the end).",
                            g_state.proven, g_state.located, g_state.unlocated);
 
-    // the tuning profile
-    ImGui::SeparatorText("Your tuning profile");
+    // the active preset and the tuning profile
+    ImGui::SeparatorText("Active preset and profile");
+    {
+        const ActivePreset ap = active_preset(app, *reg);
+        g_state.active_preset = ap.name;
+        g_state.active_modified = ap.modified;
+        if (ap.name.empty()) {
+            g_state.active_line = "Active preset: none (your own values)";
+        } else {
+            g_state.active_line = "Active preset: " + ap.name + (ap.known ? (ap.modified ? " (values changed since)" : "") : " (its file is gone)");
+        }
+        g_state.active_line += g.prof.on ? " | applied automatically at every career load and in the hub" : " | not applied automatically (profile off)";
+        ImGui::TextWrapped("%s", g_state.active_line.c_str());
+        if (!ap.status.empty()) ImGui::TextDisabled("%s", ap.status.c_str());
+    }
     bool pon = g.prof.on;
     if (checkbox_right("Apply my tuning profile automatically (every career load, the hub)##tvprof", &pon)) {
         g.prof.on = pon;
@@ -1069,7 +1323,7 @@ void draw_body(App& app) {
         if (g.sw.profile_off) g_state.profile_line += " (turbo_output\\" + std::string(profile_off_file()) + ": automatic writes off)";
         ImGui::TextWrapped("%s", g_state.profile_line.c_str());
         g_state.moment_line = g.moment_line;
-        if (!g.moment_line.empty()) ImGui::TextDisabled("Last: %s", g.moment_line.c_str());
+        if (!g.moment_line.empty()) ImGui::TextDisabled("Last automatic write: %s", g.moment_line.c_str());
         g_state.test_mode = g.sw.test_unproven;
         if (g.sw.test_unproven)
             ImGui::TextColored(ImVec4(1, 0.35f, 0.3f, 1),
@@ -1086,6 +1340,8 @@ void draw_body(App& app) {
         ImGui::SetTooltip("Lets Apply and a row's Reset write the tables in this game session (off at every start). The profile being on allows them too.");
     g_state.session_tick = tick;
     g_state.opt_in = g.sw.opted_in();
+
+    draw_presets(app, *reg);
 
     // the plans and the gates
     const ApplyView av = apply_view(*reg);
@@ -1120,24 +1376,41 @@ void draw_body(App& app) {
         // switching the profile off is always possible (even when every knob holds FC 27's value)
         g_state.can_restore = (w.empty() || (g.prof.on && w == "every located knob holds FC 27's own value")) && !g.pending && app.tuning != nullptr;
     }
-    ImGui::PushStyleColor(ImGuiCol_Text, gs.pass() ? ImVec4(0.55f, 0.85f, 0.55f, 1) : ImVec4(1, 0.7f, 0.3f, 1));
-    ImGui::TextWrapped("%s", gs.pass() ? "Ready to write." : ("Not ready: " + g_state.status).c_str());
+
+    // what Apply writes, the actions (above the knobs: always in view)
+    const std::map<std::string, double> defs = app.tuning ? app.tuning->defaults() : std::map<std::string, double>();
+    g_state.plan = plan_lines(*reg, av.plan);
+    ImGui::SeparatorText("Changes");
+    ImGui::PushStyleColor(ImGuiCol_Text, gs.pass() ? ImVec4(0.55f, 0.85f, 0.55f, 1) : ImVec4(0.9f, 0.8f, 0.5f, 1));
+    ImGui::TextWrapped("%s", gs.pass() ? "Ready to write." : ("Cannot write yet: " + plain_gate(g_state.status)).c_str());
     ImGui::PopStyleColor();
     if (ImGui::IsItemHovered()) {
         std::string tip;
         for (const auto& x : g_state.gates) tip += x + "\n";
         ImGui::SetTooltip("%s", tip.c_str());
     }
-
-    // what Apply writes, the actions (above the knobs: always in view)
-    const std::map<std::string, double> defs = app.tuning ? app.tuning->defaults() : std::map<std::string, double>();
-    g_state.plan = plan_lines(*reg, av.plan);
-    ImGui::SeparatorText("Apply");
     if (!g_state.plan.empty()) {
-        ImGui::TextUnformatted("Apply will write:");
+        ImGui::TextUnformatted("Not written yet (Apply will write):");
         for (const std::string& l : g_state.plan) ImGui::BulletText("%s", l.c_str());
     } else if (!g_state.plan_error.empty()) {
-        ImGui::TextDisabled("Apply: %s", g_state.plan_error.c_str());
+        ImGui::TextDisabled("Nothing to apply: %s", g_state.plan_error.c_str());
+    }
+    // the knobs that hold another value than FC 27 now (or in the profile)
+    g_state.differs.clear();
+    for (const Knob& k : reg->knobs) {
+        if (!knob_changed(k, defs)) continue;
+        auto l = g.live.find(k.id);
+        double def = 0;
+        const std::string first = !l->second.copies.empty() ? l->second.copies.front().variant : std::string();
+        const bool have_def = copy_default(k, defs, first, def);
+        auto pv = g.prof.values.find(k.id);
+        g_state.differs.push_back(k.label + ": now " + format_value(k, l->second.value) + (have_def ? " (FC 27 " + format_value(k, def) + ")" : std::string()) +
+                                  (pv != g.prof.values.end() ? ", profile " + format_value(k, pv->second) : std::string()));
+    }
+    if (!g_state.differs.empty() &&
+        ImGui::TreeNode(("Different from FC 27: " + std::to_string(g_state.differs.size()) + " knob(s)###tvdiffs").c_str())) {
+        for (const std::string& l : g_state.differs) ImGui::BulletText("%s", l.c_str());
+        ImGui::TreePop();
     }
     ImGui::BeginDisabled(!g_state.can_apply);
     if (ImGui::Button("Apply##tvapply")) {
@@ -1171,32 +1444,56 @@ void draw_body(App& app) {
     }
     draw_confirm(app);
 
-    draw_presets(app);
-
-    // the knobs, one group each: proven and located rows; the unlocated ones are listed at the end
+    // the knob list: search, filter, one collapsible category each (proven and located rows; the unlocated ones are listed at the end)
+    ImGui::SeparatorText("Knobs");
+    ImGui::SetNextItemWidth(S(220.0f));
+    ImGui::InputTextWithHint("##tvsearch", "search knobs (name, group, field)", g.search, sizeof(g.search));
+    ImGui::SameLine();
+    checkbox_right("Only changed##tvonlychanged", &g.only_changed, -1.0f);
+    const std::string needle = lower_of(g.search);
+    g_state.search = g.search;
+    g_state.only_changed = g.only_changed;
+    int total_shown = 0, total_listed = 0;
+    for (const Knob& k : reg->knobs) total_listed += state_of(k) != KnobState::Unlocated ? 1 : 0;
+    auto shown = [&](const Knob& k) { return state_of(k) != KnobState::Unlocated && knob_matches(k, needle) && (!g.only_changed || knob_changed(k, defs)); };
     g_state.groups.clear();
+    const bool narrowed = !needle.empty() || g.only_changed;
     for (const std::string& grp : reg->groups()) {
-        bool any = false;
-        for (const Knob& k : reg->knobs) any = any || (k.group == grp && state_of(k) != KnobState::Unlocated);
-        if (!any) continue;
+        int n_all = 0, n_shown = 0, n_proven = 0, n_changed = 0;
+        for (const Knob& k : reg->knobs) {
+            if (k.group != grp || state_of(k) == KnobState::Unlocated) continue;
+            ++n_all;
+            n_proven += state_of(k) == KnobState::Proven ? 1 : 0;
+            n_changed += knob_changed(k, defs) ? 1 : 0;
+            n_shown += shown(k) ? 1 : 0;
+        }
+        if (!n_all || !n_shown) continue;
+        total_shown += n_shown;
         g_state.groups.push_back(grp);
-        if (!ImGui::CollapsingHeader((grp + "##tvg").c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+        // a short list opens whole; a long catalogue opens the categories with a slider or a change, the rest stay closed (the search opens all it finds)
+        if (narrowed) ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+        else ImGui::SetNextItemOpen(total_listed <= 24 || n_proven > 0 || n_changed > 0, ImGuiCond_Once);
+        const std::string head = grp + " (" + std::to_string(n_shown) + (n_changed ? ", " + std::to_string(n_changed) + " changed" : std::string()) + ")###tvg_" + grp;
+        if (!ImGui::CollapsingHeader(head.c_str())) {
             for (const Knob& k : reg->knobs)
-                if (k.group == grp && state_of(k) != KnobState::Unlocated) {
+                if (k.group == grp && shown(k)) {
                     TuningViewState::Row r;
                     r.id = k.id;
                     r.label = k.label;
                     r.group = grp;
                     r.state = knob_state_name(state_of(k));
+                    r.badge = badge_name(knob_badge(k));
                     g_state.rows.push_back(r);  // listed (collapsed)
                 }
             continue;
         }
         form_label_width(S(260.0f));
         for (const Knob& k : reg->knobs)
-            if (k.group == grp && state_of(k) != KnobState::Unlocated) draw_row(app, k, defs);
+            if (k.group == grp && shown(k)) draw_row(app, k, defs);
         form_label_width(0.0f);
     }
+    g_state.shown = total_shown;
+    if (narrowed && total_shown == 0) ImGui::TextDisabled("No knob matches.");
     for (const Knob& k : reg->knobs)
         if (state_of(k) == KnobState::Unlocated) g_state.not_working.push_back(k.label);
     if (!g_state.not_working.empty()) {
@@ -1221,7 +1518,7 @@ void draw_body(App& app) {
     else if (!g.undo_err.empty())
         ImGui::TextWrapped("turbo_output\\%s is not used: %s", undo_file(), g.undo_err.c_str());
     const std::string so = app.tuning ? app.tuning->session_off() : "";
-    if (!so.empty()) ImGui::TextColored(ImVec4(1, 0.5f, 0.3f, 1), "Off for this session: %s", so.c_str());
+    if (!so.empty()) ImGui::TextWrapped("Gameplay tuning is off for this game session: %s", so.c_str());
 }
 
 }  // namespace

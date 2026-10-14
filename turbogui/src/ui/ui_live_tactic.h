@@ -45,6 +45,8 @@ struct LiveTacticState {
     std::string replaced;                 // after Team Management: "the game replaced your tactic (LH 50 / Balanced / Balanced). Re-apply?"
     bool can_reapply = false;             // the one-click Re-apply button is enabled
     std::string other_note;               // "the active tactic is another one now (...)" (no Re-apply)
+    std::string match_status;             // 2.5: "The next match will use these values: Turbo's change is in place."
+    bool details_open = false;            // 2.5: the "More" node (roles per slot, the live record, details) is open
     std::string edit_tactic_badge;        // WP-B2 branch (c) only: "Edit Tactic shows these values after the next career load" (off: "")
 };
 const LiveTacticState& live_tactic_state();
@@ -57,6 +59,8 @@ void live_tactic_tick(App& app);
 // Tests: forget the card's state (a new simulated game)
 void live_tactic_reset();
 // Tests: the wall clock (seconds) the Team Management watch uses (null = the system clock; Turbo's QPC clock runs ~3x in game)
+// Tests: open / close the "More" node (closed in the app until the person opens it)
+void live_tactic_set_details_open(bool open);
 void live_tactic_test_wall_clock(std::function<double()> wall);
 
 }  // namespace turbo

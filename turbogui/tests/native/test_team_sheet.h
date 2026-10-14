@@ -2796,6 +2796,7 @@ static void lt_scroll_top(Ui& ui) {
 
 // Teams > Tactics > My team: the summary line, the card, Apply (asks first), the cm_mentalities row in the job, the read-back, Undo, the gates
 static void ui_cases(App& app, Ui& ui, const fs::path& le) {
+    live_tactic_set_details_open(true);  // 2.5: the card's "More" node (role / focus per slot, the live record) is collapsed in the app
     run_case("UI: Teams > Tactics > My team: channel E - the live read-out, opt-in, Apply writes in place + mirror, overwrite seen, Undo, gates", [&] {
         live_tactic_reset();
         const fs::path out = le / "turbo_output";
@@ -3372,6 +3373,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         write_state();
         live_tactic_reset();
     });
+    live_tactic_set_details_open(false);
 }
 
 }  // namespace team_sheet_test
