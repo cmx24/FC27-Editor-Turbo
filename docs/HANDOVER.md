@@ -1,77 +1,32 @@
 # Turbo handover (read this first)
 
-Last updated: 2026-10-13 19:50 ET (tactics overhaul handover: Fable assesses, then Opus implements; Turbo 2.3.0 is the released and installed version). Older sections below keep their own timestamps. Update this file after EVERY release and every session that changes code, saves or game state. Every update MUST end with a fresh section 11 (next-LLM prompt) that matches the current state.
+Last updated: 2026-10-13 21:05 ET (the tactics overhaul decision exists: docs/TACTICS_OVERHAUL_DECISION.md; Opus implements; Turbo 2.3.0 is the released and installed version). Older sections below keep their own timestamps. Update this file after EVERY release and every session that changes code, saves or game state. Every update MUST end with a fresh section 11 (next-LLM prompt) that matches the current state.
 
-## 00. Update 2026-10-13 19:50 - tactics overhaul handover (read first)
+## 00. Update 2026-10-13 21:05 - the tactics overhaul DECISION exists (read first)
 
-**Cassio, 19:44:** "prepare a handover. this has been taking too long - focus the next step on properly identifying how to finally
-implement the tactics overhaul for good; i plan to have fable ultracode do the assessment, and opus extra to write the code."
+**Cassio, 20:35:** "opus will implement - i need you to build a surefire plan and thats it."
 
-**Next phase:**
-- First, **Fable (claude-fable-5-1) in ultracode mode** runs the assessment from **`docs/TACTICS_OVERHAUL_BRIEF.md` Part A**. The output is
-  a decision document, `docs/TACTICS_OVERHAUL_DECISION.md`.
-- Then **Opus 5.5 at extra effort** implements it from **Part B** of the brief plus the decision document.
-- **Part C** is the session protocol for whoever drives the game.
-- No ad-hoc probing and no new tactics product code before the decision.
-- Full fact base: `turbo_output\handover_24\01_tactics_knowledge.md`, `02_infra_rules.md`, `03_code_release.md`,
-  `04_goals_constraints.md`. Every claim in them carries a [V]/[A]/[U] tag and an evidence path.
+**The plan is `docs/TACTICS_OVERHAUL_DECISION.md`.** Opus implements it from Part B of `docs/TACTICS_OVERHAUL_BRIEF.md` (codebase,
+conventions, write safety, build, release) and Part C (session protocol). Section 11 below holds the prompt.
 
-**New rule (Cassio 18:39, memory `feedback-ship-only-when-working`):** no tag, release push or GitHub release until EVERY fix and addition
-in the version is proven working in game (evidence and a screenshot in `turbo_dev\evidence\<date>`). Failing items are fixed or taken out,
-and Cassio is told. 2.3.0 shipped two unproven items before this rule existed: the channel E2 Edit Tactic display (FAIL) and the on-pitch
-effect of gameplay tuning (unproven).
+**Decision in one paragraph:** G1 (the engine tuning layer) is the product: Turbo applies a tuning profile to the attribulator tables at
+boot, at career load and in the hub before every match, located deterministically from the static manager slot (G 0x14C26B128 via
+get_current_gameplay_attribdb 0x141077070), written to every DB copy; only knobs with a measured on-pitch effect get a slider. G2 (the
+club's tactic) is one write (map record + DB row) proven by a kick-off read-back of the match's own copy; the Edit Tactic display is fixed
+per gate X3. Channel A, the E2 working-copy writes and the legacy fields are removed. Three decision gates (X1 engine reads tuning and
+when; X2 which source feeds the match's LH/BU/DA; X3 where Edit Tactic loads from) each have a pre-decided branch table, so the
+implementer never stops to ask. Release 2.4.0 only when every item is proven in game (ETA 10-14 ~15:00 ET).
 
-**State at 19:50:**
-- **Game:** closed (`turbo_dev\tools\GAME_STATE.txt` = CLOSED 19:41).
-- **Installed:** `C:\FC 27 Live Editor\turbo\Turbo.dll` sha256 e7cf8d41..., which is 2.3.0 rebuilt at 19:45 from wt-23-release e952411. It
-  is source-identical to the release, but not byte-identical to the zip's cb079e84. The 2.4 channel E3 build was deployed at 19:42 and
-  replaced at 19:45; the game never loaded it.
-- **Switch files:** `turbo_output` holds only `repair_ovr1_off.txt` (keep it); there is no `*_on.txt`. `tuning_keep.json` was moved aside at 20:08 (stale
-  width 1.4, `"on": false`) to turbo_dev/backups/tuning_keep_20261013-2008_stale.json.
-- **Saves:** TORINO 2ded2b76, LB c45b2b12, LEICESTER 1e78df22, LTEST 3dced956. Unchanged all day; equal to
-  `turbo_dev\backups\20261013-1729-pre-resume-23` and `...-1934-pre-width-ab2`. LTEST was used for every test and never saved.
-- **Git:**
-  - turbo-2.0 = 89e0c24 on origin, plus this handover commit. Tag v2.3.0 = e952411.
-  - **Local only: `2.4/channel-e3` = 468fe54** (worktree `turbo_dev\2.0\wt-24-channel-e3`). It also writes the inline sheet svc+0xA60's
-    record copy. check_all is green (LUA 405/0, NATIVE 38488/0). It was **never run in game**. Report: `turbo_output\CHANNEL_E3.txt`.
-    Probe: `turbo_dev\tools\channel_e3_probe.py`.
-  - **`turbo_dev\tools\` is not in git.** It holds match_measure.py, ab_width.py, ab_run.sh / ab_run2.sh, attrib_locate.py, the probes,
-    gk.ps1, dev2.py and launch_fc27.ps1.
-
-**Tactics facts of the day (details and evidence in the brief, Part A.2):**
-- **Edit Tactic never followed Turbo's writes.** It opened on the CAREER-LOAD values (25 / Balanced / Deep) in 3 sessions, whatever Turbo
-  wrote to the live map record (+0xA4/+0xB0/+0xB4) or to the cm_mentalities DB row. In the mirror test at 19:22 the DB went 25->95 and
-  0->1 and read back ok, and the screen still showed BALANCED/DEEP. The DB row is refuted as Edit Tactic's source.
-- **Roles reach the match** (proven 10-12). Whether the match uses Line Height, Build-Up and Approach is unknown.
-- **Engine tuning (attribulator):**
-  - The manager slot is 0x14C26B128 (static on build 6AC07E31-2145C000). There are 15 AttribDBRuntime copies, with ONE shared instance of
-    the attacking line width/length table.
-  - Heap addresses change at every launch. Turbo's tab locates the tables in-process in about 20-25 s at the first open.
-  - 10 knobs are located live; 11 were never located.
-  - Tab Apply (1.00->1.40) and Undo read back ok, and writes made mid-match read back with the match running on.
-- **Measurement:** `match_measure.py` route C (match object global G1 = 0x14C27F138, 8 code signatures) reads all 22 players live in a
-  Tactical View match. The engine works in FEET (pitch 344.48 x 223.09 = 105 x 68 m), converted to metres. Routes A (Lua root) and B (HUD
-  FifaPlayerData) are dead ends.
-- **First on-pitch width A/B (19:38-19:41) was INCONCLUSIVE.** It ran 30 s at 1.0, then 30 s at 1.4 written mid-match. With the ball, team
-  0 got 4.4 m wider and team 1 2.8 m narrower. The back lines moved 15-17 m because territory flipped. `ab_run2.sh` is prepared but was
-  not run: it writes 1.7 in the hub before kick-off, then runs 45 s B1 / 45 s A / 45 s B2.
-- **The Tactical View sim seems to run faster than real time:** players move up to about 18 m between 1 s reads.
-
-**Game-driving lessons of the day (all in the brief, Part C):**
-- `gk.ps1 seq` now checks before EVERY step that the game is in front. This came from an incident: keys reached Cassio's Chrome tab after
-  he switched windows mid-sequence. No order was possible; a coupon captcha appeared.
-- After Edit Tactic, the game lands in Team Management. That screen can only be left with Escape, which is forbidden, and the mouse Back
-  did not register. Make Edit Tactic checks the LAST step before a kill.
-- The offline prompt appears only on the first Manager Career entry per launch. "EA Servers unavailable" dialogs appear if Reconnect (q)
-  was hit.
-- `dev2.py` now re-posts every 0.7 s, because the first post is often missed. Its write gate does not see `write` ops nested as dicts in
-  multi/seq, so fix that before any agent tool uses them.
-
-**Corrections:**
-- The 2.3.0 native count is 38462. 38452 was the earlier 8cafca1 merge.
-- Sections 1, 4, 5 and 8 below are stale. Use section 00d for the 2.3.0 release facts and this section for the current state.
-- `docs/turbo-reference.md` (titled 0.2.5) has old test counts, and it calls `call_team_sheet_on/off.txt` "reserved".
-- `scripts/msys.sh` points to `docs/BUILD_WINDOWS.md`, which does not exist.
+**State at 21:05:**
+- Game closed (`turbo_dev	ools\GAME_STATE.txt` = CLOSED 19:41). Saves unchanged: TORINO 2ded2b76, LB c45b2b12, LEICESTER 1e78df22,
+  LTEST 3dced956. Installed Turbo.dll = 2.3.0 (sha256 e7cf8d41...). No `*_on.txt` in turbo_output.
+- A background workflow (`tactics-assessment-sweep`, started 20:20) writes the offline evidence sweep T1-T6 (+ audits) into
+  `turbo_outputssessment_20261013\` and the experiment pack (PACK.md, `turbo_dev	ools\SESSION_25/26/27_PLAN.md`, the x1_/x2_/x3_
+  scripts, chain_check.py, mm_stats.py, dev2.py nested-write gate fixed with a dev2.py.bak_pack backup). Its outputs are inputs for
+  WP0 (the gates); the decision does not depend on them (DECISION section 9). If a file is missing when WP0 starts, X1 runs with
+  `TOOLSb_run2.sh` + `ab_width.py` at width 0.6 (DECISION 4.1).
+- Cassio's A.10 questions were asked at 20:25 and are unanswered; the plan assumes the defaults in DECISION section 8.
+- `2.4/channel-e3` (468fe54, local, untested) merges only in X3 branch (a).
 
 ## 00d. Update 2026-10-13 18:40 - Turbo 2.3.0 RELEASED (read first)
 - **Released:** tag v2.3.0 = turbo-2.0 e952411 (pushed), https://github.com/cmx24/FC27-Editor-Turbo/releases/tag/v2.3.0 with
@@ -217,86 +172,38 @@ ORCHESTRATOR_BRIEF_20261011.md · OVR1_BISECT.txt/.json · STEP2_DRAFT_B.txt · 
 ## 9. Game window (planned 16:30-18:15 ET 2026-10-11; NOT run by the orchestrator session)
 Plan: `turbo_dev\evidence\2026-10-11\RUNBOOK.md` (backups, install 2.0.3, TORINO read-only diag, TTEST copy, day-advance probe, repair trial on one player, A/B arms for channel A, TORINO repair under the consent of 14:30). Results, screenshots and the timestamped log go to that folder. Cassio's confirmation of 14:30 covers exactly: the repair on TORINO after a clean TTEST trial that holds past a day advance.
 
-## 10. Open items, in order (2026-10-13 19:50)
-0. **Tactics overhaul assessment (top).** Fable runs it in ultracode mode from `docs/TACTICS_OVERHAUL_BRIEF.md` Part A:
-   - an offline evidence sweep in 6 parallel tracks;
-   - an experiment pack;
-   - at most 3 short scripted LTEST sessions (X1: does the engine read tuning, and when; X2: which source the match uses for Line Height,
-     Build-Up and Approach; X3: where Edit Tactic loads from);
-   - synthesis, then adversarial verification.
-
-   Output: `docs/TACTICS_OVERHAUL_DECISION.md`. It holds the verdicts for Q1-Q11, the chosen architecture for G1 (engine tuning) and G2
-   (the club's live tactic), an ordered implementation plan, a test plan with in-game pass points, and an agent deployment plan.
-1. **Implementation.** Opus 5.5 at extra effort works from Part B and the decision document, on `2.4/<track>` worktrees from turbo-2.0. All
-   proven items go out in ONE release, and only when every item has its in-game proof.
-2. **Questions for Cassio** (brief A.10; ask in one message at the start of the assessment):
-   - scope beyond shape, pressing and marking, runs and roles;
-   - engine-wide versus per-club behaviour;
-   - should tuning persist like a mod;
-   - importing a .fifamod he owns, locally (D12);
-   - may a throwaway career be saved once (then restored) to test persistence?
-3. **`2.4/channel-e3` (468fe54, local).** Test it in X3, or drop it, as the decision says.
-4. **Tools hygiene:**
-   - put `turbo_dev\tools` under version control (no game data, no mod values);
-   - fix `dev2.py`'s nested write gate;
-5. **Kit import phase 2:** the 3D kit on the pitch from the staged textures (KITS_IMPORT_RESEARCH.txt section 5), and the minikit on a game
-   screen.
-6. **Carry-overs:**
-   - live standings writes are not checked in game;
-   - the 2.1 features are not checked in game;
-   - the OVR-1 repair on TORINO (conditional yes; trial on a copy first);
-   - languages;
-   - repo hygiene: 79 worktrees, the stale wt-23-* and rehearsal worktrees, and the stale sections 1/4/5/8 of this file and of
-     turbo-reference.md.
-7. **Voice generation (3.0 PT-BR):** parked by Cassio.
+## 10. Open items, in order (2026-10-13 21:05)
+0. **Implement the tactics overhaul per `docs/TACTICS_OVERHAUL_DECISION.md`** (Opus 5.5, extra effort). First show Cassio the agent
+   deployment plan (DECISION section 7), then: WP0 gates X1-X3 (coordinator, LTEST, Part C), code tracks WP-A1/A2(/A3), WP-B1/B2(/B3),
+   WP-C, WP-D in parallel worktrees `2.4/<track>` from turbo-2.0, reviews, merge rehearsal, proofs P1-P4 + S-A1/S-B1/S-B2, WP-E release
+   2.4.0 only when every item is proven in game.
+1. **Cassio's answers** to the 5 questions (DECISION section 8); until then the defaults apply.
+2. **Pick up the sweep outputs** (`turbo_outputssessment_20261013\T1..T6.md`, their `_verify.md` audits, PACK.md, the session plans and
+   scripts in `turbo_dev	ools`) when they land; an audit's downgrade wins over a track's claim.
+3. Kit import phase 2 (3D kit on the pitch), live standings in-game check, 2.1 features in-game check, OVR-1 repair on TORINO
+   (conditional yes, trial on a copy), languages, repo hygiene (79 worktrees; stale sections 1/4/5/8 here and turbo-reference.md).
+4. Voice generation (3.0 PT-BR): parked by Cassio.
 
 ## 11. Prompt for the next LLM (copy this as the first message)
-Assessment (Fable, claude-fable-5-1, ultracode mode) - use now:
-```
-You are continuing the FC 27 Turbo project for the user Cassio, as the ASSESSOR of the tactics overhaul. Cassio (2026-10-13 19:44):
-"this has been taking too long - focus the next step on properly identifying how to finally implement the tactics overhaul for good".
-Read, in this order:
-  1. docs/TACTICS_OVERHAUL_BRIEF.md (branch turbo-2.0, worktree C:\FC 27 Live Editor\turbo_dev\2.0\integration). Part A is your task,
-     Part C is the session protocol.
-  2. docs/HANDOVER.md sections 00, 10 and 11.
-  3. C:\FC 27 Live Editor\turbo_output\handover_24\01..04 (the full fact base, tagged [V]/[A]/[U], with evidence paths).
-  4. The memory notes in C:\Users\cmode\.claude\projects\C--FC-27-Live-Editor\memory\ (MEMORY.md index).
-State: Turbo 2.3.0 is released and installed. The game is closed. TORINO / LB / LEICESTER are untouched; LTEST is the throwaway test copy.
-2.4/channel-e3 (468fe54) is local and untested.
-Task: run the assessment as Part A describes:
-  - Phase 0: ask Cassio the A.10 questions in one message.
-  - Phase 1: an offline evidence sweep, with 6 parallel read-only tracks.
-  - Phase 2: an experiment pack, proven offline.
-  - Phase 3: at most 3 short scripted LTEST sessions (X1-X3). Only you drive the game, and only after Cassio's "go".
-  - Phase 4: synthesis.
-  - Phase 5: adversarial verification by 3 skeptics.
-Deliver docs/TACTICS_OVERHAUL_DECISION.md per A.8: the verdicts for Q1-Q11, the chosen architecture for G1 and G2 with the rejected ones,
-an ordered implementation plan, a test plan with in-game pass points and scripted checks, and an agent deployment plan for the implementer.
-Write no product code and make no release.
-Rules:
-  - Never send Escape.
-  - Back up the saves before every launch and compare the md5 after every kill.
-  - Test on LTEST only, never save it, and answer NO to the team-sheet save prompt.
-  - Make an Edit Tactic / Team Management check the last step before the kill.
-  - Keep in-game tests short and scripted: one pass/fail point, a screenshot, kill. Agents never drive the game and never write memory.
-  - Every game write needs an opt-in, a kill switch, a read-back and an undo.
-  - Publish no gameplay mod values. Live Editor's DLL and launcher are off limits. No online or anti-cheat work.
-  - Ship only when every item is proven in game.
-  - Say up front where ultracode fan-out helps (the offline sweep and the review) and where it does not (the live sessions are serial).
-  - Send Cassio short status + ETA every 30 min, with screenshots.
-At the end: update this handover (section 00, a fresh section 10 and 11 that hands over to the implementer), add a memory note, and commit
-with the Co-Authored-By trailer.
-```
-Implementation (Opus 5.5, extra effort) - use AFTER the decision document exists:
+Implementation (Opus 5.5, extra effort) - use now:
 ```
 You are continuing the FC 27 Turbo project for the user Cassio, as the IMPLEMENTER of the tactics overhaul. Read, in this order:
-  1. docs/TACTICS_OVERHAUL_DECISION.md (what to build, the test plan, the agent plan).
-  2. docs/TACTICS_OVERHAUL_BRIEF.md Part B (codebase, conventions, write safety, build/deploy, in-game proof, release) and Part C (session
-     protocol).
-  3. docs/HANDOVER.md sections 00, 10 and 11, and the memory notes (MEMORY.md index).
-First show Cassio the agent deployment plan (tracks, parallelism, critical path, shared resources, ETA), then build it on 2.4/<track>
-worktrees from turbo-2.0. Every work package states its in-game pass point and its scripted check (<= 2 min) before the code is written.
-Release 2.4.0 only when every item is proven in game; evidence goes in turbo_dev\evidence\<date>.
-The same rules as the assessment apply (no Escape, LTEST never saved, backups and md5, short scripted tests, coordinator-only game writes,
-opt-in / kill switch / read-back / undo, no mod values, LE DLL off limits).
+  1. docs/TACTICS_OVERHAUL_DECISION.md (branch turbo-2.0, worktree C:\FC 27 Live Editor	urbo_dev.0\integration): the architecture,
+     the three decision gates with their branch tables, the work packages, the proof protocol, the test plan, the agent plan, the ETA.
+  2. docs/TACTICS_OVERHAUL_BRIEF.md Part B (codebase map, conventions, write-safety checklist, build/deploy, in-game proof, release) and
+     Part C (session protocol: never Escape, LTEST never saved, NO to the team-sheet prompt, backups + md5, short scripted tests,
+     Edit Tactic last, kill last).
+  3. docs/HANDOVER.md sections 00 and 10, and the memory notes (MEMORY.md index), especially feedback-ship-only-when-working,
+     feedback-short-tests, fc27-input-without-computer-use, feedback-agent-deployment-per-version.
+  4. turbo_outputssessment_20261013\ (T1..T6.md + _verify.md audits, PACK.md) and turbo_dev	ools\SESSION_25/26/27_PLAN.md with the
+     x1_/x2_/x3_ scripts, if present (a background sweep writes them; DECISION section 9 says what to take from each).
+State: Turbo 2.3.0 installed; game closed; saves TORINO 2ded2b76 / LB c45b2b12 / LEICESTER 1e78df22 / LTEST 3dced956 untouched;
+2.4/channel-e3 (468fe54) local, untested, merged only in X3 branch (a).
+Task: first show Cassio the agent deployment plan (DECISION section 7: tracks, parallelism, critical path, shared resources, ETA), then
+run it: WP0 gates X1-X3 as the coordinator (only you drive the game, only after Cassio's "go"), code tracks in parallel worktrees
+2.4/<track> from turbo-2.0, adversarial review per track, merge rehearsal early, proofs, release 2.4.0 only when every item is proven in
+game with evidence in turbo_dev\evidence\<date>. Every work package names its in-game pass point and its <= 2 min scripted check before
+code is written. Every game write: opt-in, kill switch, identity re-check in the job, read-back, undo. No mod values in git or the zip.
+Live Editor's DLL and launcher are off limits. Agents never drive the game or use the dev service. Status + ETA to Cassio every 30 min
+with screenshots. At the end: HANDOVER 00 + fresh 10/11, memory note, commit with Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>.
 ```
