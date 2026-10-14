@@ -3,9 +3,18 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
-## 2.7 (not released, offline only; nothing here is proven in game)
+## 2.7.0 (2026-10-14)
 
-### 3D kits: every slot, any club (track kits-slots)
+Verified in game 2026-10-14 on build 6AC07E31 (test career LEICESTER, never saved, saves byte-identical afterwards; `turbo_dev\evidence6-10-14\TEST_29.md`). Offline suites: build 0 warnings, Lua 405/0, native 31,992/0, Python and catalog all pass.
+
+### In short
+- **3D kits, verified in game for one club (Leicester):** the Home kit and the Goalkeeper kit from FIFA Kit Creator zips show on the pitch, and **the zip's shirt names and numbers show on them** (readable back views; moving the number rectangle in the zip's file visibly shrank the number, so the placement is what drives it).
+- **Not verified:** the away kit worn on the pitch (the game's load swapped it, but Leicester played in its home kit), the kit select screen's 3D preview, any other club, the keep-badge A/B, sharing within a club. Leicester has no 3D third kit in the game.
+- **Still no tuning slider and the tactics overhaul is not done.** The slider pipeline (proof promotion, live apply, styles) is in, but no knob has both proofs, so the page is as in 2.6.0.
+
+### Details (offline-tested items are marked)
+
+### 3D kits: every slot, any club (the goalkeeper slot is verified in game for Leicester; away and other clubs are offline-tested only)
 - **Away, goalkeeper, third and fourth kits** use the same path as the home kit, for any club: the slot comes from the game's kit folder names (`home_0_0`, `away_1_0`, `goalie_home_2_0`, `third_3_0`, `fourth_4_0` and the `loc2_*_4x_0` variants of the same slot). Each imported kit has its own controls and its own saved choices (`swap_state.json` version 2; a version 1 file still loads).
 - **Keep the game's club badge** (default on, per kit): the zip's `crest_*` / `crest_shorts_*` pictures are not served, so a blank crest decal in the zip does not remove the game's dynamic badge. Untick it to serve the zip's crest pictures as in 2.6.0. The sponsor (`brand_*`) pictures follow "Also use the zip's badge and brand pictures".
 - **Also change this club's other kits that share a texture** (default off, per kit): big clubs let several kits use one texture chunk; off, such a texture stays the game's, on it is served and the list says which other kits show it too. A texture another club uses is never served.
@@ -13,7 +22,7 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 - **The reading of the game's kit data is cheaper and obeys the switches:** the index is saved in `turbo_output\kits\kit_index.cache` (valid until the game's tocs change), it runs below normal priority, it never runs without `kits3d_on.txt`, and `kits3d_off.txt` stops it (also while it runs).
 
 ### 3D kit hotspots (track kits-numbers)
-- **3D kit: the zip's name / number / sleeve-badge placement (hotspots), NOT PROVEN IN GAME.** Each kit has one small hotspot asset in the game (`.../hotspots_<team>_<type>_<var>`, 25 rectangles in jersey UV space). With the 3D kit switched on, Turbo now also overwrites the rectangles the zip names (back number, name, name arc, shorts number, sleeve badges, centre badge) in that asset when the game decompresses it, through the same Oodle hook and with the same kill switches. A zip point where the game has a rectangle (the zip's front number) never replaces the game's rectangle; the zip's "not used" team / brand badge follows the "use the zip's badge and brand pictures" option. New option "Also use the zip's name and number placement (hotspots)" (default on). The log lists every patched rectangle (old and new values) and, per item, the clock time of the first and last block the game loaded (shows which screen loaded what, for the kit select question). Default OFF behaviour is unchanged: no opt-in file, no kit on = no hook, no write.
+- **3D kit: the zip's name / number / sleeve-badge placement (hotspots), verified in game for Leicester Home and Goalkeeper.** Each kit has one small hotspot asset in the game (`.../hotspots_<team>_<type>_<var>`, 25 rectangles in jersey UV space). With the 3D kit switched on, Turbo now also overwrites the rectangles the zip names (back number, name, name arc, shorts number, sleeve badges, centre badge) in that asset when the game decompresses it, through the same Oodle hook and with the same kill switches. A zip point where the game has a rectangle (the zip's front number) never replaces the game's rectangle; the zip's "not used" team / brand badge follows the "use the zip's badge and brand pictures" option. New option "Also use the zip's name and number placement (hotspots)" (default on). The log lists every patched rectangle (old and new values) and, per item, the clock time of the first and last block the game loaded (shows which screen loaded what, for the kit select question). Default OFF behaviour is unchanged: no opt-in file, no kit on = no hook, no write.
 
 ### Tactics and gameplay tuning (track tactics-effect)
 - **Proof promotion:** `tools/promote_proof.py` turns an evidence folder's verdicts (battery `result.json` or a `verdicts.json`) into the knobs file's proof block, only for a knob with engine-read PASS and visible-effect PASS; dry run with a diff by default, `--apply` to write. `scripts/knobs_guard.py` also refuses `live` without `applies: live`, `applies: live` without a proof and a candidate with a proof, slider, live or verified.
