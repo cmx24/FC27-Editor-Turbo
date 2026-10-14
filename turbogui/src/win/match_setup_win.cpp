@@ -187,14 +187,10 @@ void run_var(const std::string& name, int32_t value, bool clear_it) {
 bool queue_var(const std::string& name, int32_t value, bool clear_it, std::string& why) {
     if (!vars_ready_impl(&why)) return false;
     if (!clear_it) {
-        why = gv::check_name(name);
-        if (!why.empty()) return false;
         // 2.4: only the variables Turbo offers (gv::known_vars) are set; the removed per-side slider family (tactics channel A,
-        // refuted 2026-10-11) and any other name stay with the game
-        if (!gv::known(name)) {
-            why = name + " is not a game variable Turbo offers";
-            return false;
-        }
+        // refuted 2026-10-11) and any other name stay with the game (gv::settable, tested natively)
+        why = gv::settable(name);
+        if (!why.empty()) return false;
     }
     const uint32_t game = game_thread_id();
     if (game != 0 && GetCurrentThreadId() == game) {

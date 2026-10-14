@@ -151,6 +151,9 @@ struct KnownVar {
 };
 const std::vector<KnownVar>& known_vars();
 const KnownVar* known(const std::string& name);
+// "" when the host may SET `name`: a well-formed name (check_name) of known_vars(); else why not. The host (match_setup_win.cpp
+// queue_var) refuses every other name (2.4); clears are never refused, so an override can always be taken back
+std::string settable(const std::string& name);
 
 }  // namespace gv
 

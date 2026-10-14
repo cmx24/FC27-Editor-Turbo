@@ -347,6 +347,13 @@ const KnownVar* known(const std::string& name) {
     return nullptr;
 }
 
+std::string settable(const std::string& name) {
+    std::string why = check_name(name);
+    if (!why.empty()) return why;
+    if (!known(name)) return name + " is not a game variable Turbo offers";
+    return "";
+}
+
 }  // namespace gv
 
 // ================================================================ result fixing
