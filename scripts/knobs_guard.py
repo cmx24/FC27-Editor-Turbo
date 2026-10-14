@@ -8,7 +8,8 @@ knobs file in which:
   - an "engine_check" (2.5: the deterministic engine-read check passed in game; still read-only) misses its session or its evidence, has
     evidence outside EV/, or sits on a knob that is not verified,
   - a knob is "live": true, or names prematch / match in its "when", without a proof (a mid-match write needs the measured live
-    effect of gate X1 outcome 1),
+    effect of gate X1 outcome 1); "live": true needs "applies": "live" and "applies": "live" needs a proof (2.7),
+  - an inventory candidate has a proof, a slider, live or verified (2.7: the C++ loader would refuse the whole file),
   - the file does not parse as JSON.
 Usage: python -I scripts/knobs_guard.py <folder with knobs_*.json>   (exit 0 = ok, 1 = refused)
        python -I scripts/knobs_guard.py --self-test
@@ -40,6 +41,14 @@ def problems(doc):
             out.append("%s: proven but not verified in the running game" % kid)
         if k.get("live") is True and not has_proof:
             out.append("%s: live without a proof" % kid)
+        # 2.7: a mid-match write needs the knob to be declared live in the data too, and a live declaration needs the proof; an inventory
+        # candidate is never a working knob (the C++ loader refuses the whole file for it, which switches gameplay tuning off)
+        if k.get("live") is True and has_proof and k.get("applies") != "live":
+            out.append("%s: live: true but applies is not \"live\" (the proof must say the engine reads it live)" % kid)
+        if k.get("applies") == "live" and not has_proof:
+            out.append("%s: applies \"live\" without a proof" % kid)
+        if k.get("candidate") is True and (has_proof or k.get("slider") is True or k.get("live") is True or k.get("verified") is True):
+            out.append("%s: an inventory candidate must be unverified, with no proof, no slider and not live" % kid)
         when = k.get("when") if isinstance(k.get("when"), list) else []
         if any(x in ("prematch", "match") for x in when) and not has_proof:
             out.append("%s: written in prematch / match (when) without a proof" % kid)
@@ -95,6 +104,13 @@ def self_test():
     expect("live without a proof", {"knobs": [{"id": "a", "verified": True, "live": True}]}, 1)
     expect("when: match without a proof", {"knobs": [{"id": "a", "verified": True, "when": ["hub", "match"]}]}, 1)
     expect("when: match with a proof", {"knobs": [{"id": "a", "verified": True, "when": ["match"], "proof": proof}]}, 0)
+    expect("live with a proof and applies live", {"knobs": [{"id": "a", "verified": True, "live": True, "applies": "live", "proof": proof}]}, 0)
+    expect("live but applies is not live", {"knobs": [{"id": "a", "verified": True, "live": True, "applies": "next match setup", "proof": proof}]}, 1)
+    expect("applies live without a proof", {"knobs": [{"id": "a", "verified": True, "applies": "live"}]}, 1)
+    expect("a latched proven slider", {"knobs": [{"id": "a", "verified": True, "slider": True, "applies": "next match setup", "proof": proof}]}, 0)
+    expect("a candidate with a proof", {"knobs": [{"id": "a", "candidate": True, "proof": proof}]}, 2)
+    expect("a candidate with a slider", {"knobs": [{"id": "a", "candidate": True, "slider": True}]}, 2)
+    expect("a plain candidate", {"knobs": [{"id": "a", "candidate": True}]}, 0)
     here = os.path.dirname(os.path.abspath(__file__))
     shipped = os.path.join(here, "..", "turbo", "package", "turbo", "tuning")
     good = check_folder(shipped) == 0
