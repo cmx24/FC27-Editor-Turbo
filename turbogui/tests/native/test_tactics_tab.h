@@ -446,6 +446,89 @@ static void cases_panel(App& app, Ui& ui, const fs::path& le) {
         app.match_setup = nullptr;
     });
 
+    // The game-variable kill switches on the rows that stay (2.4 review M1; the same checks lived in the removed channel A case): a kept
+    // row (CPU injury severity, seen in a played match) is greyed and blocked by tactics_gamevar_off.txt and refused by the host's
+    // call_gamevar_off.txt, both named; an untested kept variable (NEVER_INJURE) asks first; Reset clears both overrides at once
+    run_case("UI: Teams > Tactics: the kept game-variable rows - tactics_gamevar_off.txt greys and blocks them, call_gamevar_off.txt refuses them, an untested one asks first, Reset clears", [&] {
+        auto fake = std::make_shared<FakeMatchSetup>();
+        app.match_setup = fake;
+        go_scope(ui, "Match (both teams)");
+        const char* key = "match.injury_severity_cpu";
+        const std::string var = "GAMEPLAY_CUSTOMIZATION/INJURY_SEVERITY_CPUAI";
+        auto sent = [&](const std::string& name, int value) {
+            for (const auto& kv : fake->sets)
+                if (kv.first == name && kv.second == value) return true;
+            return false;
+        };
+        auto any_sent = [&](const std::string& name) {
+            for (const auto& kv : fake->sets)
+                if (kv.first == name) return true;
+            return false;
+        };
+        const TacticsTabState::Row* r = row_of(key);
+        CHECK(r != nullptr, "the Match scope lists the CPU injury severity row");
+        if (r) {
+            CHECK(r->written == "game variable" && r->seen == "seen in a played match 2026-10-07" && !r->untested && !r->legacy, "badges: " + r->written + " / " + r->seen);
+            CHECK(!r->enabled && r->channel_off.empty() && !r->dimmed, "off by default, not greyed");
+        }
+        CHECK(type_slider(ui, key, "40"), "CPU injury severity 40");
+        ui.frames(2);
+        CHECK(row_of(key) && row_of(key)->enabled && row_of(key)->value == 40, "switched on at 40");
+        CHECK(has(tactics_tab_state().receive, var + " = 40  [game variable]"), "listed in What the game will receive");
+        // the Tactics tab's game-variable channel switch greys the row and blocks its write, naming the file
+        fs::create_directories(le / "turbo_output");
+        {
+            std::ofstream f((le / "turbo_output" / "tactics_gamevar_off.txt").string(), std::ios::binary);
+            f << "off";
+        }
+        ui.frames(130);  // the panel looks at the switches every 2 s
+        CHECK(row_of(key) && row_of(key)->channel_off == "tactics_gamevar_off.txt" && row_of(key)->dimmed, "greyed by tactics_gamevar_off.txt");
+        CHECK(row_of("match.foul_strictness") && row_of("match.foul_strictness")->channel_off.empty(), "a database row (referee) is not greyed by the game-variable switch");
+        app.toasts.clear();
+        CHECK(ui.click("Apply##tac"), "Apply with tactics_gamevar_off.txt present");
+        ui.frames(2);
+        CHECK(!any_sent(var) && ui.toast_contains("blocked by a kill switch") && ui.toast_contains("tactics_gamevar_off.txt"), "blocked and named");
+        fs::remove(le / "turbo_output" / "tactics_gamevar_off.txt");
+        ui.frames(130);
+        CHECK(row_of(key) && row_of(key)->channel_off.empty() && !row_of(key)->dimmed, "the switch is gone");
+        // the host's own switch: call_gamevar_off.txt refuses every game variable (the fake host says so the way the real one does)
+        fake->vars_off = true;
+        app.toasts.clear();
+        CHECK(ui.click("Apply##tac"), "Apply with the host's switch");
+        ui.frames(2);
+        CHECK(!any_sent(var) && ui.toast_contains("refused") && ui.toast_contains("call_gamevar_off.txt"), "refused by call_gamevar_off.txt");
+        fake->vars_off = false;
+        CHECK(ui.click("Apply##tac"), "Apply without a switch");
+        ui.frames(2);
+        CHECK(!tactics_tab_state().confirm_open && sent(var, 40), "a variable seen in a played match goes without a question");
+        // an untested kept variable: NEVER_INJURE (accepted by the game, never seen in a played match) asks first
+        CHECK(ui.click(slider_item(ui, "##on", "match.never_injure")), "switch Injuries off on");
+        ui.frames(2);
+        CHECK(row_of("match.never_injure") && row_of("match.never_injure")->enabled && row_of("match.never_injure")->value == 1, "on at its default 1");
+        CHECK(ui.click("Apply##tac"), "Apply");
+        ui.frames(2);
+        CHECK(tactics_tab_state().confirm_open && has_part(tactics_tab_state().confirm_lines, "(NEVER_INJURE = 1): untested"), "the confirmation names the untested variable");
+        CHECK(!any_sent("NEVER_INJURE"), "nothing is sent while it asks");
+        CHECK(ui.click("Apply anyway##tacconfirm", "Apply untested settings?"), "Apply anyway");
+        ui.frames(2);
+        CHECK(sent("NEVER_INJURE", 1), "NEVER_INJURE is set");
+        // Reset: back to "the game decides", the override cleared at once
+        fake->clears.clear();
+        app.toasts.clear();
+        CHECK(ui.click(reset_button(ui, key)), "Reset on the injury severity row");
+        ui.frames(2);
+        CHECK(fake->clears.size() == 1 && fake->clears[0] == var, fmt("the override was cleared (%zu clears)", fake->clears.size()));
+        CHECK(row_of(key) && !row_of(key)->enabled && ui.toast_contains("override cleared"), "the row is off again");
+        CHECK(ui.click(reset_button(ui, "match.never_injure")), "Reset on Injuries off");
+        ui.frames(2);
+        CHECK(fake->clears.size() == 2 && fake->clears[1] == "NEVER_INJURE" && row_of("match.never_injure") && !row_of("match.never_injure")->enabled,
+              "NEVER_INJURE cleared and off");
+        // the card list back at the top for the next case (it finds the injury rows without scrolling)
+        if (ImGuiWindow* cw = cards_window()) ImGui::SetScrollY(cw, 0.0f);
+        ui.frames(2);
+        app.match_setup = nullptr;
+    });
+
     run_case("UI: Teams > Tactics: tactics_off.txt blocks every write and greys the effect layers", [&] {
         auto fake = std::make_shared<FakeMatchSetup>();
         app.match_setup = fake;
