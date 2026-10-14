@@ -419,6 +419,7 @@ bool submit_write(App& app, const Plan& plan, const std::string& what) {
     rec.when = stamp();
     rec.state = "pending";
     rec.note = plan.moment.empty() ? std::string() : "the tuning profile (" + plan.moment + ")";
+    rec.boot = plan.moment == "boot";
     std::string err;
     if (!save_record(app, rec, &err)) {
         if (plan.moment.empty()) app.notify(what + ": turbo_output\\" + std::string(undo_file()) + " could not be written (" + err + ")", true);

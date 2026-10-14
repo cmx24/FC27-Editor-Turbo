@@ -2059,6 +2059,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         write_state();
         ui.frames(10);
         CHECK(w.f32(TuneWorld::kBase) == 0.5f && !rig.logged("tuning: profile applied (boot)"), "a 100 s old report: no boot write");
+        w.mem.wr(TuneWorld::kBase + 4, int32_t(45));  // FC 27's values before the boot write (a new game session)
+        w.mem.wr(TuneWorld::kBase + 8, uint8_t(60));
         st["front_end_t"] = (long long)(std::time(nullptr));
         st["seq"] = st.value("seq", 0LL) + 1;
         write_state();
@@ -2067,6 +2069,13 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
               "the boot moment at the main menu: " + s.moment_line + " | " + (rig.logs.empty() ? std::string() : rig.logs.back()));
         ui.frames(130);
         CHECK(count("tuning: profile applied (boot)") == 1, "once");
+        // M2: at the main menu Undo and Restore are offered; Undo puts FC 27's own values back
+        tuning_top(ui);
+        ui.frames(2);
+        CHECK(s.can_undo && s.can_restore, "the main menu: Undo and Restore offered: " + s.undo_why + " / " + s.restore_why);
+        CHECK(ui.click("Undo last Apply##tvundo"), "Undo clicked at the main menu");
+        ui.frames(4);
+        CHECK(w.f32(TuneWorld::kBase) == 0.5f && w.i32(TuneWorld::kBase + 4) == 45 && w.u8(TuneWorld::kBase + 8) == 60, "FC 27's own values back after the boot write");
         // clean up (Competitions back on its first view for the cases after this one)
         tuning_set_wall_clock(nullptr);
         tuning_top(ui);

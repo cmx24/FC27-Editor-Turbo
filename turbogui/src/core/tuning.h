@@ -507,6 +507,7 @@ std::string describe_writes(const Registry& reg, const std::vector<Write>& ws); 
 struct UndoRecord {
     std::string build, when, session, state, note;  // state: "pending" "written" "undone" "aborted" "restored" "failed"
     long long load_gen = -1;
+    bool boot = false;  // written by the profile's boot moment (main menu): its old values (FC 27's) carry over into the next career load
     std::vector<Write> knobs;  // one per knob and copy: old = the value before Turbo's first write in this career load, new = Turbo's
     std::string to_json() const;
     static bool parse(const std::string& text, UndoRecord& out, std::string* err);
@@ -515,7 +516,8 @@ bool load_undo(const std::filesystem::path& p, UndoRecord& out, std::string* err
 bool save_undo(const std::filesystem::path& p, const UndoRecord& u, std::string* err);
 // "" when the record belongs to this Lua session and career load
 std::string same_career(const UndoRecord& u, const std::string& session, long long load_gen);
-// A second Apply in the same career load keeps the old values of the first (merged by knob); another career load: `next` as it is
+// A second Apply in the same career load keeps the old values of the first (merged by knob); another career load: `next` as it is,
+// except after a boot write (prev.boot) of the same Lua session: its old values (FC 27's) are kept
 UndoRecord merge_undo(const UndoRecord& prev, const UndoRecord& next);
 // The undo plan: knobs whose every copy still holds Turbo's value get their old values back (copies go together: one copy changed by
 // someone else leaves the whole knob alone); the others are listed in `skipped`. Refused (why) across career loads, when nothing is

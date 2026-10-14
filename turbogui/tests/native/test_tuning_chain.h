@@ -909,6 +909,81 @@ static void chain_cases() {
         CHECK(make_vanilla_plan(*r.svc->registry(), r.live(), v, sk).empty() && v.writes.empty(), "nothing left to restore");
     });
 
+    run_case("tuning 2.4: M2 - Undo, Reset and Restore FC 27 defaults at the main menu; a boot write's undo gives FC 27's values back", [] {
+        ChainWorld w;
+        ChainRig r(w, g_out / "tuning_chain_m2", chain_knobs(), w.lookup());
+        r.jobs.inline_run = true;
+        r.svc->locate_status();
+        r.profile(true, {{"shape.width_in", 0.6}});
+        r.touch("tuning_test_unproven_on.txt");
+        std::string why;
+        ApplyResult res;
+        const Context menu = menu_ctx(r.wall, 1, 1);
+        // the gates: puts-back pass at the main menu (with or without Lua), a click does not; a Lua match phase holds them back
+        Registry reg;
+        std::string err;
+        parse_registry(chain_knobs(), reg, err);
+        GateInput gi;
+        gi.restore = true;
+        gi.match_phase = "unknown";
+        gi.knobs = {reg.knob("shape.width_in")};
+        CHECK(evaluate(gi).pass(), "Restore with no Lua report");
+        gi.bridge = true;
+        CHECK(evaluate(gi).pass(), "Restore at Lua's main menu");
+        gi.match_phase = "match";
+        CHECK(!evaluate(gi).pass() && evaluate(gi).first().find("a match is set up or played") != std::string::npos, evaluate(gi).first());
+        gi.match_phase = "unknown";
+        gi.restore = false;
+        gi.sw.session = true;
+        CHECK(evaluate(gi).first() == "G2 career phase: not in a career", "a click is still for the hub");
+        // the boot write, then Restore FC 27 defaults at the main menu
+        Plan p = profile_plan(r, {{"shape.width_in", 0.6}}, "boot");
+        CHECK(r.svc->submit(menu, p, why) && r.svc->poll(res) && res.ok && w.f32(ChainWorld::kLlw + 0x28) == 0.6f, "boot wrote 0.6: " + res.message);
+        Plan v;
+        std::vector<std::string> sk;
+        CHECK(make_vanilla_plan(*r.svc->registry(), r.live(), v, sk).empty() && v.writes.size() == 1, "a vanilla plan");
+        CHECK(r.svc->submit(menu, v, why) && r.svc->poll(res) && res.ok && w.f32(ChainWorld::kLlw + 0x28) == 1.0f, "Restore at the main menu: " + res.message);
+        // the boot write again, then Undo at the main menu (the record of the boot write, bound to Lua's session and load)
+        p = profile_plan(r, {{"shape.width_in", 0.6}}, "boot");
+        CHECK(r.svc->submit(menu, p, why) && r.svc->poll(res) && res.ok, "boot again");
+        UndoRecord u;
+        u.session = "s1";
+        u.load_gen = 1;
+        u.state = "written";
+        u.boot = true;
+        u.knobs = res.writes;
+        Plan up;
+        CHECK(make_undo_plan(*r.svc->registry(), r.live(), u, "s1", 1, up, sk).empty() && r.svc->submit(menu, up, why) && r.svc->poll(res) && res.ok &&
+                  w.f32(ChainWorld::kLlw + 0x28) == 1.0f,
+              "Undo at the main menu: FC 27's value back: " + res.message);
+        // a Reset (a Restore of one knob) at the main menu
+        p = profile_plan(r, {{"shape.width_in", 0.6}}, "boot");
+        CHECK(r.svc->submit(menu, p, why) && r.svc->poll(res) && res.ok, "boot again");
+        Plan rs;
+        CHECK(make_restore_plan(*r.svc->registry(), r.live(), {{"shape.width_in@base", 1.0}}, rs, sk, "shape.width_in").empty() && r.svc->submit(menu, rs, why) &&
+                  r.svc->poll(res) && res.ok && w.f32(ChainWorld::kLlw + 0x28) == 1.0f,
+              "Reset at the main menu: " + res.message);
+        // a Lua match phase outside a career: the puts-back wait
+        Context kickoff = menu;
+        kickoff.phase = "match";
+        p = profile_plan(r, {{"shape.width_in", 0.6}}, "boot");
+        CHECK(r.svc->submit(menu, p, why) && r.svc->poll(res) && res.ok, "boot again");
+        CHECK(r.svc->submit(kickoff, v, why) && r.svc->poll(res) && !res.ok && res.message.find("a match is set up or played") == 0, res.message);
+        // the boot record's FC 27 values carry into the next career load's record (same Lua session), not into another session's
+        UndoRecord boot = u, career;
+        boot.knobs = {{"shape.width_in", 1.0, 0.6, "base"}};
+        career.session = "s1";
+        career.load_gen = 2;
+        career.state = "pending";
+        career.knobs = {{"shape.width_in", 0.6, 0.6, "base"}};
+        UndoRecord m = merge_undo(boot, career);
+        CHECK(m.load_gen == 2 && m.knobs.size() == 1 && m.knobs[0].old_value == 1.0 && !m.boot, "after a boot write: Undo in the career gives FC 27's value");
+        career.session = "s2";
+        CHECK(merge_undo(boot, career).knobs[0].old_value == 0.6, "another Lua session: not carried");
+        UndoRecord back;
+        CHECK(UndoRecord::parse(boot.to_json(), back, &err) && back.boot && !UndoRecord().boot, "the boot flag in the undo file: " + err);
+    });
+
     run_case("tuning 2.4: the profile file - JSON round trip, bad files refused, the moments' plan, the switches read with it", [] {
         tuning::Profile p;
         p.on = true;

@@ -2166,7 +2166,11 @@ Gates evaluate(const GateInput& in) {
     }
     {
         Gate g{"G2 career phase", ""};
-        if (!in.bridge) g.why = "Turbo's Lua side has not reported the career yet";
+        if (in.restore && (!in.bridge || !in.in_cm)) {
+            // M2 (review 2026-10-13): Undo / Reset / Restore FC 27 defaults also at the main menu (the way back from a boot write); only a
+            // match phase Lua reports holds them back
+            if (in.match_phase == "prematch" || in.match_phase == "match") g.why = "a match is set up or played (Lua: " + in.match_phase + ")";
+        } else if (!in.bridge) g.why = "Turbo's Lua side has not reported the career yet";
         else if (!in.in_cm) g.why = "not in a career";
         else if (in.match_phase.empty()) g.why = "this Lua side does not report the match phase: update Turbo's Lua files";
         else if (in.match_phase == "unknown")
@@ -2551,6 +2555,7 @@ std::string UndoRecord::to_json() const {
     j["state"] = state;
     j["knobs"] = writes_json(knobs);
     j["note"] = note;
+    if (boot) j["boot"] = true;
     return j.dump(1, ' ', false, ojson::error_handler_t::replace) + "\n";
 }
 
@@ -2568,6 +2573,7 @@ bool UndoRecord::parse(const std::string& text, UndoRecord& out, std::string* er
         u.load_gen = j.value("load_gen", -1LL);
         u.state = j.value("state", std::string());
         u.note = j.value("note", std::string());
+        u.boot = j.contains("boot") && j["boot"].is_boolean() && j["boot"].get<bool>();
         if (!writes_from(j.value("knobs", json::array()), u.knobs, err)) return false;
         out = std::move(u);
         return true;
@@ -2596,7 +2602,10 @@ std::string same_career(const UndoRecord& u, const std::string& session, long lo
 }
 
 UndoRecord merge_undo(const UndoRecord& prev, const UndoRecord& next) {
-    if (prev.session != next.session || prev.load_gen != next.load_gen || (prev.state != "written" && prev.state != "failed")) return next;
+    // a boot write (main menu) of the same Lua session carries its old values (FC 27's) into the next career load's record (M2): Undo
+    // there puts FC 27's values back, not Turbo's boot values
+    const bool carry = prev.boot && prev.session == next.session;
+    if (prev.session != next.session || (prev.load_gen != next.load_gen && !carry) || (prev.state != "written" && prev.state != "failed")) return next;
     UndoRecord out = next;
     for (const Write& p : prev.knobs) {
         auto it = std::find_if(out.knobs.begin(), out.knobs.end(), [&](const Write& w) { return w.id == p.id && w.copy == p.copy; });
@@ -3934,6 +3943,12 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
                 if (!g.empty()) {
                     stage = "G2";
                     block = g;
+                }
+            } else if (puts_back(plan.kind) && !cur_in_cm_) {
+                // M2: Undo / Reset / Restore at the main menu (no career): only a match phase Lua reports holds them back
+                if (cur_phase_ == "prematch" || cur_phase_ == "match") {
+                    stage = "G2";
+                    block = "a match is set up or played (Lua: " + cur_phase_ + ")";
                 }
             } else {
                 bool all_live = true;
