@@ -366,6 +366,8 @@ inline const char* snapshot_key_field(const std::string& kind) {
     if (kind == "team") return "teamid";
     if (kind == "player") return "playerid";
     if (kind == "referee") return "refereeid";
+    // the 2.3 upgrade path: since 2.4 nothing writes the old mentalities table, but a row a 2.1-2.3 Turbo wrote there is still put back by
+    // tactics_off.txt through this key (native case "the 2.3 upgrade path"): keep this line
     if (kind == "mentalities") return "mentalityid";
     return "";
 }

@@ -315,6 +315,73 @@ static void cases_panel(App& app, Ui& ui, const fs::path& le) {
         }
     });
 
+    // The 2.3 upgrade path (2.4 review M2): 2.4 writes the old mentalities table no more, but a row a 2.1-2.3 Turbo wrote there is still put
+    // back when tactics_off.txt appears (restore_all_db finds it by snapshot_key_field("mentalities") = mentalityid, no write channel
+    // involved). This case runs before any other Tactics case so the tab reads the seeded store at its first look at the switches.
+    run_case("UI: Teams > Tactics: the 2.3 upgrade path - mentalities rows a 2.1-2.3 Turbo wrote are put back when tactics_off.txt appears", [&] {
+        const int64_t club = app.bridge.state().user_team;
+        const Table* m = app.db.table("mentalities");
+        CHECK(m != nullptr, "the simulated save has the old mentalities table");
+        if (!m) return;
+        const uint64_t mr1 = app.db.find(*m, "teamid", 1);  // Arsenal's row, mentalityid 1
+        CHECK(mr1 != 0 && app.db.get_int(*m, mr1, "mentalityid") == 1, "Arsenal's mentalities row");
+        const int64_t dw = app.db.get_int(*m, mr1, "defensivewidth"), box = app.db.get_int(*m, mr1, "playersinboxcross"),
+                      ow = app.db.get_int(*m, mr1, "offensivewidth");
+        // what a 2.3 Turbo left behind: two values it wrote (its store kept the values before its first write) and a third row it wrote that
+        // somebody changed since
+        CHECK(app.db.set_int(*m, mr1, "defensivewidth", 61) && app.db.set_int(*m, mr1, "playersinboxcross", 5), "2.3's writes are in the row");
+        const std::string row = snapshot_row(club, "mentalities:1");
+        TacticSnapshots kept;
+        kept.remember("mentalities.defensivewidth", row, dw, "2026-10-12 10:00", "Arsenal");
+        kept.note_written("mentalities.defensivewidth", row, 61);
+        kept.remember("mentalities.playersinboxcross", row, box, "2026-10-12 10:00", "Arsenal");
+        kept.note_written("mentalities.playersinboxcross", row, 5);
+        kept.remember("mentalities.offensivewidth", row, ow, "2026-10-12 10:00", "Arsenal");
+        kept.note_written("mentalities.offensivewidth", row, 70);  // the row holds `ow`, not 2.3's 70: changed since, left alone
+        std::string err;
+        fs::create_directories(le / "turbo_output");
+        CHECK(save_tactic_snapshots(tactics_snapshot_path(le), kept, &err), "a 2.3-style snapshot file: " + err);
+        select_team(app, ui, 1);  // the Tactics tab reads the store at its first look at the switches
+        ui.frames(3);
+        app.toasts.clear();
+        {
+            std::ofstream f((le / "turbo_output" / "tactics_off.txt").string(), std::ios::binary);
+            f << "off";
+        }
+        ui.frames(130);  // the panel looks at the switches every 2 s
+        CHECK(tactics_tab_state().off, "the master switch is on");
+        CHECK(app.db.get_int(*m, mr1, "defensivewidth") == dw && app.db.get_int(*m, mr1, "playersinboxcross") == box,
+              fmt("the two values 2.3 wrote are back (%lld, %lld)", (long long)app.db.get_int(*m, mr1, "defensivewidth"), (long long)app.db.get_int(*m, mr1, "playersinboxcross")));
+        CHECK(app.db.get_int(*m, mr1, "offensivewidth") == ow, "the value changed since 2.3 wrote it is left as it is");
+        CHECK(ui.toast_contains("2 database row(s) put back to the value before Turbo's first write") && ui.toast_contains("1 row(s) changed since Turbo wrote them left as they are"),
+              "the toast counts the legacy rows");
+        {
+            TacticSnapshots snaps;
+            CHECK(load_tactic_snapshots(tactics_snapshot_path(le), snaps, &err), "it loads: " + err);
+            CHECK(!snaps.find("mentalities.defensivewidth", row) && !snaps.find("mentalities.playersinboxcross", row), "the restored rows are forgotten");
+            CHECK(snaps.find("mentalities.offensivewidth", row) != nullptr, "the row that changed since stays kept");
+        }
+        fs::remove(le / "turbo_output" / "tactics_off.txt");
+        ui.frames(130);
+        CHECK(!tactics_tab_state().off, "the switch is gone");
+        // once the row holds 2.3's value again, the next appearance of the switch puts it back too (the store is empty for the cases after)
+        CHECK(app.db.set_int(*m, mr1, "offensivewidth", 70), "the row holds 2.3's value again");
+        app.toasts.clear();
+        {
+            std::ofstream f((le / "turbo_output" / "tactics_off.txt").string(), std::ios::binary);
+            f << "off";
+        }
+        ui.frames(130);
+        CHECK(app.db.get_int(*m, mr1, "offensivewidth") == ow && ui.toast_contains("1 database row(s) put back to the value before Turbo's first write"), "put back as well");
+        {
+            TacticSnapshots snaps;
+            CHECK(load_tactic_snapshots(tactics_snapshot_path(le), snaps, &err) && snaps.empty(), "nothing is kept any more");
+        }
+        fs::remove(le / "turbo_output" / "tactics_off.txt");
+        ui.frames(130);
+        CHECK(!tactics_tab_state().off, "the switch is gone again");
+    });
+
     run_case("UI: Teams > Tactics: Match scope, a Live slider, Apply sends the game variable, preview-only rows never", [&] {
         auto fake = std::make_shared<FakeMatchSetup>();
         app.match_setup = fake;
