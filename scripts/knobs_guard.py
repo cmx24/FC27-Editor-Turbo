@@ -5,6 +5,8 @@ knobs file in which:
   - a knob asks for a slider ("slider": true) without a proof,
   - a proof misses its session or its evidence, or its evidence is not under EV/ (turbo_dev\\evidence\\<date>\\...),
   - a proven knob is not verified (a knob that is not located in the running game cannot have been measured),
+  - an "engine_check" (2.5: the deterministic engine-read check passed in game; still read-only) misses its session or its evidence, has
+    evidence outside EV/, or sits on a knob that is not verified,
   - a knob is "live": true, or names prematch / match in its "when", without a proof (a mid-match write needs the measured live
     effect of gate X1 outcome 1),
   - the file does not parse as JSON.
@@ -24,6 +26,14 @@ def problems(doc):
             out.append("%s: a proof needs its session and its evidence" % kid)
         if has_proof and not str(proof.get("evidence")).replace("\\", "/").startswith("EV/"):
             out.append("%s: the proof's evidence must be under EV/ (turbo_dev\\evidence): %s" % (kid, proof.get("evidence")))
+        ec = k.get("engine_check")
+        has_ec = isinstance(ec, dict) and bool(ec.get("session")) and bool(ec.get("evidence"))
+        if ec is not None and not has_ec:
+            out.append("%s: an engine_check needs its session and its evidence" % kid)
+        if has_ec and not str(ec.get("evidence")).replace("\\", "/").startswith("EV/"):
+            out.append("%s: the engine_check's evidence must be under EV/ (turbo_dev\evidence): %s" % (kid, ec.get("evidence")))
+        if has_ec and k.get("verified") is not True:
+            out.append("%s: engine_check on a knob that is not verified in the running game" % kid)
         if k.get("slider") is True and not has_proof:
             out.append("%s: a slider without a proof (its effect was never measured in a played match)" % kid)
         if has_proof and k.get("verified") is not True:
@@ -77,6 +87,11 @@ def self_test():
     expect("a proof without evidence", {"knobs": [{"id": "a", "verified": True, "slider": True, "proof": {"session": "P1"}}]}, 2)
     expect("evidence outside EV/", {"knobs": [{"id": "a", "verified": True, "proof": {"session": "P1", "evidence": "notes.txt"}}]}, 1)
     expect("proven but unverified", {"knobs": [{"id": "a", "proof": proof}]}, 1)
+    ec = {"session": "X1P", "evidence": "EV/2026-10-14/TEST_26.md#width_in"}
+    expect("an engine_check (read-only)", {"knobs": [{"id": "a", "verified": True, "engine_check": ec}]}, 0)
+    expect("an engine_check without evidence", {"knobs": [{"id": "a", "verified": True, "engine_check": {"session": "X1P"}}]}, 1)
+    expect("engine_check evidence outside EV/", {"knobs": [{"id": "a", "verified": True, "engine_check": {"session": "X1P", "evidence": "notes.txt"}}]}, 1)
+    expect("engine_check on an unverified knob", {"knobs": [{"id": "a", "engine_check": ec}]}, 1)
     expect("live without a proof", {"knobs": [{"id": "a", "verified": True, "live": True}]}, 1)
     expect("when: match without a proof", {"knobs": [{"id": "a", "verified": True, "when": ["hub", "match"]}]}, 1)
     expect("when: match with a proof", {"knobs": [{"id": "a", "verified": True, "when": ["match"], "proof": proof}]}, 0)

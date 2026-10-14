@@ -41,6 +41,11 @@
 // Restore game defaults put the game's values back: they need no opt-in and the kill switches do not block them. Attribulator data is
 // not in the career save: values last for this game session.
 //
+// 2.5 (page track): a knob may carry an "engine_check" {session, evidence} (the deterministic engine-read check passed in game; the evidence
+// under EV/) next to the "proof" (the effect seen in a played match). The view's badge: proof = "effect measured" (a slider), engine_check
+// only = "engine-confirmed" (read-only), neither = "located, not proven" (read-only). Presets: preset_status counts a preset's knobs by
+// badge; write_preset_file / delete_preset_file / unique_preset_name are the file operations of the view (Turbo's own are never deleted).
+//
 // 2.4 (docs/TACTICS_OVERHAUL_DECISION.md 3.1, WP-A1):
 //   * DETERMINISTIC LOCATE. With the knobs file's "attrib_manager" and the signature attrib_db_getter (get_current_gameplay_attribdb:
 //     mov rcx,[rip+G]) an attrib locator is found WITHOUT a memory search: G -> mgr = [G] -> the current gameplay database
@@ -141,6 +146,7 @@ struct Knob {
     std::vector<std::string> when{"hub"};  // the moments (boot, career_load, hub) and phases a write is allowed in
     bool live = false;                 // may also be written while a match is set up or played (gate X1 outcome 1)
     Proof proof;                       // the in-game proof of its effect (none = not proven: read-only in the view)
+    Proof engine_check;                // 2.5: the deterministic engine-read check passed in game (optional "engine_check" {session, evidence}); still read-only
     bool slider = false;               // "slider": true in the file: offered as a slider; needs a proof (the package guard refuses it without)
     bool verified = false;             // T1 checked the knob on the file's build
     double step = 0;                   // slider step (0 = the type's)
@@ -155,6 +161,7 @@ struct Knob {
     bool allows(const std::string& phase) const;
     bool allows_moment(const std::string& moment) const;  // `when` names the moment
     bool proven() const { return proof.given(); }         // a slider in the view (a "slider" without a proof is not one)
+    bool engine_confirmed() const { return engine_check.given() || proof.given(); }  // the engine read was confirmed (a proven knob was, too)
     bool has_range() const { return has_min && has_max; }
     // FC 27's own value of one copy ("" = a chain / native locator's only copy): copy_defaults, else def. false = not known
     bool game_value(const std::string& copy, double& v) const;
@@ -424,6 +431,11 @@ struct KnobLive {
 enum class KnobState { Proven, Located, Unlocated };
 const char* knob_state_name(KnobState s);  // "proven" "located" "unlocated"
 KnobState knob_state(const Knob& k, const KnobLive* live);
+// 2.5: the proof badge of a knob in the view. "effect measured" (a proof: a slider), "engine-confirmed" (the engine-read check passed in game,
+// the effect not seen yet: read-only), "located, not proven" (read-only)
+enum class Badge { EffectMeasured, EngineConfirmed, LocatedNotProven };
+Badge knob_badge(const Knob& k);
+const char* badge_name(Badge b);  // "effect measured" "engine-confirmed" "located, not proven"
 
 // ------------------------------------------------------------------------------------------------ gates
 // The switch files (and the profile's "on"); `session` is the tab's tick for this game session (set by the caller)
@@ -650,6 +662,19 @@ std::string preset_file_name(const Preset& p);  // "turbo_high_line_press.json" 
 int ensure_builtin_presets(const std::filesystem::path& dir, std::string* err);
 // Every *.json preset in dir, by name; a file that does not parse is listed in `errors`. Turbo's own come first
 std::vector<Preset> load_presets(const std::filesystem::path& dir, std::vector<std::string>* errors);
+// 2.5: what a preset's knobs are worth today (the view labels a preset with it): how many of its knobs are proven (a slider, written), only
+// engine-confirmed, only located, or not in this build's knobs file / not located (`located`: knob id -> located now; null = every knob of
+// the file counts as located)
+struct PresetStatus {
+    int total = 0, measured = 0, confirmed = 0, located = 0, missing = 0;
+    std::string text() const;  // "4 knobs: 0 effect measured, 1 engine-confirmed, 3 located only, 0 not in this build"
+    bool all_measured() const { return total > 0 && measured == total; }
+};
+PresetStatus preset_status(const Preset& p, const Registry& reg, const std::function<bool(const std::string&)>& located = nullptr);
+// 2.5 file operations on the user's presets (never Turbo's own: author "Turbo"). Names are unique case-insensitively
+std::string unique_preset_name(const std::vector<Preset>& have, const std::string& wanted);  // "Name", else "Name 2", "Name 3" ...
+bool write_preset_file(const std::filesystem::path& dir, Preset& p, std::string* err);       // sets p.file; creates dir
+bool delete_preset_file(const Preset& p, std::string* err);                                   // refuses Turbo's own
 // The values a preset gives: a relative change from the knob's base (base_of: its game default; false = not known), clamped to the
 // knob's range and made representable; an absolute value must pass check_value; "fc27": every knob with FC 27's value and a range at
 // that value. Knobs not in the registry, without a base or a range, switches with a relative change, and (usable given) knobs it refuses

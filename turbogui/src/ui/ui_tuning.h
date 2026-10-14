@@ -3,14 +3,16 @@
 // Why Competitions: the tables are engine-wide. They change how every club plays every match (both teams, every competition), not the
 // tactic of the club selected in Teams; Competitions already holds the other match-wide controls, and the view needs no club picked first.
 //
-// The view (2.4, docs/TACTICS_OVERHAUL_DECISION.md 3.1 / WP-A2): what the tables are and that values live in memory only (the profile
-// writes them again); the knobs file's line and how the tables were located (through the attribute manager, or the name search); the
-// tuning profile (turbo_output\tuning_profile.json: on / off, its preset and values, what the last automatic moment did); the tick that
-// allows writes from the view in this game session; the status line with the first gate that stops a write; Apply (asks first), Undo last
-// Apply, Restore FC 27 defaults (FC 27's own values back, the profile off), Discard edits; Turbo's own presets and the user's (use one for
-// the profile, save, import, export); one collapsible group per knob group: a PROVEN knob (a "proof" in the knobs file: its effect was
-// measured in a played match) has a slider and a number box, a LOCATED one a read-only row "located, effect not proven" with the value
-// now, FC 27's own value and the profile's value; an UNLOCATED one is hidden and listed under "Not yet working on this build".
+// The page (2.5, one page, driven by the knob catalogue knobs_<build>.json, so it scales to many knobs): what the tables are and that values
+// live in memory only; the knobs file's line and how the tables were located; the ACTIVE PRESET line (the profile's preset, "values changed
+// since", its proof status) with the switch "apply at every career load and in the hub" and the session tick; the presets (use, duplicate,
+// rename, delete, export, import, save the profile as one; Turbo's own starters are read-only); the CHANGES block (the first failing gate in
+// plain words, what Apply will write, the knobs that differ from FC 27) with Apply (asks first), Undo last Apply, Restore FC 27 defaults and
+// Discard edits; the KNOBS: a search box and "only changed", one collapsible category per catalogue group (a long catalogue opens the
+// categories that hold a slider or a change; the search opens what it finds). Each row: a slider and a typed box only for a knob with a
+// MEASURED effect (a "proof" in the knobs file), Reset, FC 27's own value, and a badge: "effect measured" (slider), "engine-confirmed" (the
+// engine-read check passed in game, optional "engine_check" in the knobs file; read-only), "located, not proven" (read-only). A knob that is
+// not located is hidden and listed under "Not yet working on this build".
 //
 // The tick (tuning_tick, every frame): job results, the profile file (every 2 s), the locate (every second), and the profile's automatic
 // moments (core/tuning.h MomentTracker): boot (main menu), career_load, hub; each one job, logged "tuning: profile applied (...)".
@@ -41,6 +43,7 @@ struct TuningViewState {
     struct Row {
         std::string id, label, group;
         std::string state;      // "proven" / "located" (unlocated knobs have no row: not_working)
+        std::string badge;      // "effect measured" / "engine-confirmed" / "located, not proven" (2.5)
         std::string located;    // "located" / "not located"
         std::string applies;    // "proven in <session>" / "located, effect not proven"
         std::string why;        // why not located ("" when located)
@@ -64,6 +67,14 @@ struct TuningViewState {
     std::string last, undo_state;
     std::vector<std::string> presets;  // the presets listed ("Turbo compact (Turbo)")
     std::string preset_line;           // the last preset use / save / import / export outcome
+    std::string preset_status;         // 2.5: the picked preset's proof status ("4 knobs: 0 effect measured, 0 engine-confirmed, 4 located only, 0 not in this build")
+    std::string active_preset;         // 2.5: the profile's preset ("" = none: custom values)
+    std::string active_line;           // "Active preset: Turbo compact | not applied automatically (profile off)"
+    bool active_modified = false;      // the values now differ from what the active preset gives
+    std::vector<std::string> differs;  // 2.5: the knobs that hold another value than FC 27 (now or in the profile)
+    std::string search;                // 2.5: the search box
+    bool only_changed = false;
+    int shown = 0;                     // knob rows the search and filter leave
     std::string error;
 };
 const TuningViewState& tuning_view_state();

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <ctime>
@@ -73,9 +74,11 @@ struct Lt {
     // the confirmation
     bool confirm_request = false;
     std::vector<std::string> confirm_lines;
+    bool details_open = false;  // 2.5: the "More" node (roles per slot, the live record, details)
 };
 Lt g;
 LiveTacticState g_state;
+bool g_force_details = false;  // tests: the "More" node stays open (live_tactic_set_details_open); survives live_tactic_reset
 std::function<double()> g_wall;  // tests: the wall clock (live_tactic_test_wall_clock)
 
 // Wall time in seconds. Not Turbo's QPC / steady clocks: in game they ran 3x wall time on 2026-10-13 (IMPL_tactic.md)
@@ -747,6 +750,13 @@ struct ButtonFlow {
     }
 };
 
+// "G2 career hub: not in the hub" -> "not in the hub": the person reads what follows the gate's code
+std::string plain_gate(const std::string& s) {
+    const size_t c = s.find(": ");
+    if (s.size() > 2 && s[0] == 'G' && std::isdigit(static_cast<unsigned char>(s[1])) && c != std::string::npos) return s.substr(c + 2);
+    return s;
+}
+
 void draw_confirm(App& app) {
     if (g.confirm_request) {
         ImGui::OpenPopup("Apply to the live tactic?##ltconfirm");
@@ -798,6 +808,15 @@ void draw_body(App& app) {
     }
     g_state.summary_shown = true;
     ImGui::TextWrapped("%s", g_state.summary.c_str());
+    // 2.5: what the next match will use, in one plain sentence
+    if (g.have) {
+        const bool ours = g.have_undo && g.undo.state == "written" && same_career(g.undo, app.bridge.state().session, app.bridge.state().load_gen).empty();
+        g_state.match_status = ours ? "The next match will use these values: Turbo's change is in place."
+                                    : "The next match will use these values: the game's own tactic, Turbo has changed nothing in this career load.";
+    } else {
+        g_state.match_status = "The next match: Turbo cannot read your live tactic yet, so it cannot tell which values the match will use.";
+    }
+    ImGui::TextDisabled("%s", g_state.match_status.c_str());
     for (const std::string& o : g.overwritten) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0.6f, 0.3f, 1));
         ImGui::TextWrapped("%s", o.c_str());
@@ -827,6 +846,7 @@ void draw_body(App& app) {
         }
     }
 
+    ImGui::SetNextItemOpen(true, ImGuiCond_Once);  // 2.5: the proven controls are the tab's working part: open from the first look
     g_state.card_open = ImGui::CollapsingHeader("Edit the live tactic (channel E)##ltcard");
     if (!g_state.card_open) return;
     ImGui::PushID("ltcard");
@@ -885,7 +905,7 @@ void draw_body(App& app) {
     const Gates ug = evaluate(gate_input(app, "", true));
     g_state.can_undo = ug.pass() && !g.pending && g.have_undo && (g.undo.state == "written" || g.undo.state == "failed");
     ImGui::PushStyleColor(ImGuiCol_Text, gs.pass() ? ImVec4(0.55f, 0.85f, 0.55f, 1) : ImVec4(1, 0.7f, 0.3f, 1));
-    ImGui::TextWrapped("%s", gs.pass() ? "Ready to write." : ("Not ready: " + g_state.status).c_str());
+    ImGui::TextWrapped("%s", gs.pass() ? "Ready to write." : ("Cannot write yet: " + plain_gate(g_state.status)).c_str());
     ImGui::PopStyleColor();
     if (ImGui::IsItemHovered()) {
         std::string tip;
@@ -998,54 +1018,6 @@ void draw_body(App& app) {
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s = %d: %s", e.label, e.value, e.source);
         }
         if (!build_up_style(g.build_up)) ImGui::TextDisabled("live value %d has no known label (Short Passing?): kept unless you pick one", g.build_up);
-        input_int("Slot (0-10)", "##ltslot", &g.slot, 0, kSlots - 1, "the slot whose role id and focus the buttons below set");
-        g_state.edit_slot = g.slot;
-        const SlotView& v = lt.slots[size_t(g.slot)];
-        // role id / focus: only the triples the game itself uses (the role allow-list of every other club's sheets), as buttons
-        g_state.allow = app.team_sheet ? app.team_sheet->allow_status() : "";
-        g_state.role_choices.clear();
-        g_state.focus_choices.clear();
-        if (allow && allow->ok) {
-            int& rid = g.role_id[size_t(g.slot)];
-            int& foc = g.focus[size_t(g.slot)];
-            std::vector<int> roles = allow->role_ids(v.group());
-            if (std::find(roles.begin(), roles.end(), v.role_id) == roles.end()) roles.insert(roles.begin(), v.role_id);  // the live one stays offered
-            form_label("Role id", "the role ids the game uses in this position group (raw numbers: the labels are not decoded)");
-            ButtonFlow role_row;
-            for (size_t i = 0; i < roles.size(); ++i) {
-                const int x = roles[i];
-                g_state.role_choices.push_back(x);
-                const std::string id = std::to_string(x) + "##ltrole" + std::to_string(x);
-                role_row.next(id);
-                const bool sel = x == rid;
-                if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-                if (ImGui::SmallButton(id.c_str()) && !sel) {
-                    rid = x;
-                    const std::vector<int> fs = allow->focuses(v.group(), x);
-                    if (x == v.role_id) foc = v.focus;
-                    else if (!fs.empty() && std::find(fs.begin(), fs.end(), foc) == fs.end()) foc = fs.front();
-                }
-                if (sel) ImGui::PopStyleColor();
-            }
-            std::vector<int> focs = allow->focuses(v.group(), rid);
-            if (rid == v.role_id && std::find(focs.begin(), focs.end(), v.focus) == focs.end()) focs.insert(focs.begin(), v.focus);
-            form_label("Focus", "the focuses the game uses with this role (raw numbers)");
-            ButtonFlow foc_row;
-            for (size_t i = 0; i < focs.size(); ++i) {
-                const int x = focs[i];
-                g_state.focus_choices.push_back(x);
-                const std::string id = std::to_string(x) + "##ltfoc" + std::to_string(x);
-                foc_row.next(id);
-                const bool sel = x == foc;
-                if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-                if (ImGui::SmallButton(id.c_str())) foc = x;
-                if (sel) ImGui::PopStyleColor();
-            }
-            if (focs.empty()) ImGui::TextDisabled("Focus: none seen with role %d", rid);
-        } else {
-            ImGui::TextDisabled("Role / focus: not editable (%s)", g_state.allow.c_str());
-        }
-        ImGui::TextWrapped("Slot %d: %s, %s, position group %d (kept)", g.slot, position_name(v.position), player_label(app, v.pid).c_str(), v.group());
         if (ImGui::SmallButton("Reset to the live values##ltreset")) fill_editor(lt);
         if (!g_state.plan.empty()) {
             ImGui::TextUnformatted("Apply will write:");
@@ -1055,26 +1027,22 @@ void draw_body(App& app) {
         }
         g_state.not_written = "Not written: preset " + std::to_string(lt.preset) + " (ids not decoded), formation " + std::to_string(lt.formation) +
                               " (needs all 11 slots), the tactic code, takers, names, positions";
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        ImGui::TextWrapped("%s", g_state.not_written.c_str());
-        ImGui::PopStyleColor();
+        g_state.edit_slot = g.slot;
+        g_state.allow = app.team_sheet ? app.team_sheet->allow_status() : "";
+        g_state.role_choices.clear();
+        g_state.focus_choices.clear();
     }
 
     // what happened
-    if (app.team_sheet) ImGui::TextDisabled("%s", app.team_sheet->allow_status().c_str());
     if (!g.last.empty()) ImGui::TextWrapped("Last: %s", g.last.c_str());
     if (!g.mirror_line.empty()) ImGui::TextWrapped("Database row: %s", g.mirror_line.c_str());
     const std::string ko = app.team_sheet ? app.team_sheet->kickoff_status() : "";
     if (!ko.empty()) ImGui::TextWrapped("%s", ko.c_str());
-    if (g.have_undo)
-        ImGui::TextWrapped("Undo file: %s, %s%s", g.undo.state.c_str(), g.undo.when.c_str(), g.undo.note.empty() ? "" : (" (" + g.undo.note + ")").c_str());
-    else if (!g.undo_err.empty())
-        ImGui::TextWrapped("turbo_output\\channel_e_undo.json is not used: %s", g.undo_err.c_str());
     g_state.last = g.last;
     g_state.mirror = g.mirror_line;
     g_state.kickoff = ko;
 
-    // the read-out
+    // the read-out, as state (tests) and, below, behind "More"
     if (g.have) {
         const LiveTactic& lt = g.lt;
         g_state.readout = "\"" + lt.name + "\" code " + (lt.code.empty() ? std::string("?") : lt.code) + ": formation " + std::to_string(lt.formation) +
@@ -1082,41 +1050,111 @@ void draw_body(App& app) {
                           std::to_string(lt.line_height) + " " + line_band_text(lt.line_height) + ", Build-Up Style " + build_up_text(lt.build_up) +
                           ", preset " + std::to_string(lt.preset) + " | sheet " + std::to_string(lt.sheet_id) + ", mode " + std::to_string(lt.mode) +
                           ", dirty " + std::to_string(lt.dirty) + ", record " + std::to_string(lt.at.record_index) + " of " + std::to_string(lt.at.records);
-        ImGui::TextWrapped("Live record (the next match is set up from it; its roles were seen in a match, its Line Height / Build-Up Style / "
-                           "Defensive Approach are what the kick-off line checks): %s",
-                           g_state.readout.c_str());
         for (int s = 0; s < kSlots; ++s) {
             const SlotView& v = lt.slots[size_t(s)];
             g_state.slots.push_back("slot " + std::to_string(s) + " " + position_name(v.position) + " " + player_label(app, v.pid) + ": role " +
                                     std::to_string(v.role) + " = group " + std::to_string(v.group()) + " / role " + std::to_string(v.role_id) + " / focus " +
                                     std::to_string(v.focus));
         }
-        if (ImGui::TreeNode("Slots (11)##ltslots")) {
-            for (const std::string& l : g_state.slots) ImGui::TextWrapped("%s", l.c_str());
-            ImGui::TreePop();
-        }
     } else {
         g_state.readout.clear();
-        ImGui::TextWrapped("Live record not read: %s", g.read_err.c_str());
     }
-    ImGui::TextWrapped("Service: %s", g_state.locate.c_str());
-    if (ImGui::SmallButton("Locate again##ltreloc") && app.team_sheet) {
-        app.team_sheet->relocate();
-        g.next_read = 0.0;
+
+    // 2.5: the details behind one collapsed node (roles per slot, the live record, the service): the card's working part is above
+    ImGui::SetNextItemOpen(g.details_open || g_force_details, ImGuiCond_Always);
+    const bool details_shown = ImGui::TreeNode("More: roles per slot, the live record, details###ltmore");
+    if (!g_force_details) g.details_open = details_shown;  // a test that keeps it open does not change what the person left
+    g_state.details_open = details_shown;
+    if (details_shown) {
+        if (g.have) {
+            const LiveTactic& lt = g.lt;
+            input_int("Slot (0-10)", "##ltslot", &g.slot, 0, kSlots - 1, "the slot whose role id and focus the buttons below set");
+            g_state.edit_slot = g.slot;
+            const SlotView& v = lt.slots[size_t(g.slot)];
+            // role id / focus: only the triples the game itself uses (the role allow-list of every other club's sheets), as buttons
+            if (allow && allow->ok) {
+                int& rid = g.role_id[size_t(g.slot)];
+                int& foc = g.focus[size_t(g.slot)];
+                std::vector<int> roles = allow->role_ids(v.group());
+                if (std::find(roles.begin(), roles.end(), v.role_id) == roles.end()) roles.insert(roles.begin(), v.role_id);  // the live one stays offered
+                form_label("Role id", "the role ids the game uses in this position group (raw numbers: the labels are not decoded)");
+                ButtonFlow role_row;
+                for (size_t i = 0; i < roles.size(); ++i) {
+                    const int x = roles[i];
+                    g_state.role_choices.push_back(x);
+                    const std::string id = std::to_string(x) + "##ltrole" + std::to_string(x);
+                    role_row.next(id);
+                    const bool sel = x == rid;
+                    if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                    if (ImGui::SmallButton(id.c_str()) && !sel) {
+                        rid = x;
+                        const std::vector<int> fs = allow->focuses(v.group(), x);
+                        if (x == v.role_id) foc = v.focus;
+                        else if (!fs.empty() && std::find(fs.begin(), fs.end(), foc) == fs.end()) foc = fs.front();
+                    }
+                    if (sel) ImGui::PopStyleColor();
+                }
+                std::vector<int> focs = allow->focuses(v.group(), rid);
+                if (rid == v.role_id && std::find(focs.begin(), focs.end(), v.focus) == focs.end()) focs.insert(focs.begin(), v.focus);
+                form_label("Focus", "the focuses the game uses with this role (raw numbers)");
+                ButtonFlow foc_row;
+                for (size_t i = 0; i < focs.size(); ++i) {
+                    const int x = focs[i];
+                    g_state.focus_choices.push_back(x);
+                    const std::string id = std::to_string(x) + "##ltfoc" + std::to_string(x);
+                    foc_row.next(id);
+                    const bool sel = x == foc;
+                    if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                    if (ImGui::SmallButton(id.c_str())) foc = x;
+                    if (sel) ImGui::PopStyleColor();
+                }
+                if (focs.empty()) ImGui::TextDisabled("Focus: none seen with role %d", rid);
+            } else {
+                ImGui::TextDisabled("Role / focus: not editable (%s)", g_state.allow.c_str());
+            }
+            ImGui::TextWrapped("Slot %d: %s, %s, position group %d (kept)", g.slot, position_name(v.position), player_label(app, v.pid).c_str(), v.group());
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            ImGui::TextWrapped("%s", g_state.not_written.c_str());
+            ImGui::PopStyleColor();
+        }
+        if (app.team_sheet) ImGui::TextDisabled("%s", app.team_sheet->allow_status().c_str());
+        if (g.have_undo)
+            ImGui::TextWrapped("Undo file: %s, %s%s", g.undo.state.c_str(), g.undo.when.c_str(), g.undo.note.empty() ? "" : (" (" + g.undo.note + ")").c_str());
+        else if (!g.undo_err.empty())
+            ImGui::TextWrapped("turbo_output\\channel_e_undo.json is not used: %s", g.undo_err.c_str());
+        if (g.have) {
+            ImGui::TextWrapped("Live record (the next match is set up from it; its roles were seen in a match, its Line Height / Build-Up Style / "
+                               "Defensive Approach are what the kick-off line checks): %s",
+                               g_state.readout.c_str());
+            if (ImGui::TreeNode("Slots (11)##ltslots")) {
+                for (const std::string& l : g_state.slots) ImGui::TextWrapped("%s", l.c_str());
+                ImGui::TreePop();
+            }
+        } else {
+            ImGui::TextWrapped("Live record not read: %s", g.read_err.c_str());
+        }
+        ImGui::TextWrapped("Service: %s", g_state.locate.c_str());
+        if (ImGui::SmallButton("Locate again##ltreloc") && app.team_sheet) {
+            app.team_sheet->relocate();
+            g.next_read = 0.0;
+        }
+        ImGui::TextWrapped(
+            "Apply in the career hub with Team Management (Edit Tactic) closed, before the pre-match screen: Turbo writes your club's live tactic "
+            "record (the record the next match is set up from: its roles were seen in a match; whether its Line Height, Build-Up Style and Defensive "
+            "Approach reach the match is what the kick-off line checks) and, when it matches, its cm_mentalities row. Leave Team Management with No "
+            "when the game asks to save your team sheet. Turbo never saves. Turbo re-reads the record 5 s after a write and watches it after Team "
+            "Management was open, and says so when the game replaced it; after kick-off it reads the match's own copy of the tactic (read-only) "
+            "and logs whether it holds these values.");
+        ImGui::TreePop();
     }
-    ImGui::TextWrapped(
-        "Apply in the career hub with Team Management (Edit Tactic) closed, before the pre-match screen: Turbo writes your club's live tactic "
-        "record (the record the next match is set up from: its roles were seen in a match; whether its Line Height, Build-Up Style and Defensive "
-        "Approach reach the match is what the kick-off line checks) and, when it matches, its cm_mentalities row. Leave Team Management with No "
-        "when the game asks to save your team sheet. Turbo never saves. Turbo re-reads the record 5 s after a write and watches it after Team "
-        "Management was open, and says so when the game replaced it; after kick-off it reads the match's own copy of the tactic (read-only) "
-        "and logs whether it holds these values.");
     ImGui::PopID();
 }
 
 }  // namespace
 
 const LiveTacticState& live_tactic_state() { return g_state; }
+
+void live_tactic_set_details_open(bool open) { g_force_details = open; }
 
 void live_tactic_test_wall_clock(std::function<double()> wall) { g_wall = std::move(wall); }
 
