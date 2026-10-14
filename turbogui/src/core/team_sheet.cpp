@@ -121,18 +121,24 @@ std::string line_band_text(int line) {
 // with their line height bands and defaults), Live Editor's label list (loc/eng_us/localize.json: balanced, counter, short_passing).
 const std::vector<EnumLabel>& build_up_styles() {
     static const std::vector<EnumLabel> v = {
-        {0, "Balanced", true, -1, false, "seen in Edit Tactic (2026-10-12: BALANCED = 0)"},
-        {1, "Counter", true, -1, false, "seen in Edit Tactic (2026-10-12: COUNTER = 1)"},
+        {0, "Balanced", true, -1, false, "seen in Edit Tactic (2026-10-12: BALANCED = 0)", true},
+        {1, "Counter", true, -1, false, "seen in Edit Tactic (2026-10-12: COUNTER = 1)", true},
     };
     return v;
 }
 
 const std::vector<EnumLabel>& defensive_approaches() {
     static const std::vector<EnumLabel> v = {
-        {0, "Deep", true, 25, true, "seen in Edit Tactic (2026-10-12: DEEP = 0, line height 25 at career load)"},
-        {1, "Balanced", true, 50, true, "seen in Edit Tactic (2026-10-12: BALANCED = 1, line height 50)"},
-        {2, "High", false, 70, false, "the game's band order (code and IQ_DEFENSIVE_2) and EA's list; default 70 from EA's notes; not yet seen in Edit Tactic"},
-        {3, "Aggressive", false, 95, false, "the game's band order (code and IQ_DEFENSIVE_3) and EA's list; default 95 from EA's notes; not yet seen in Edit Tactic"},
+        {0, "Deep", true, 25, true, "seen in Edit Tactic (2026-10-12: DEEP = 0, line height 25 at career load)", true},
+        {1, "Balanced", true, 50, true, "seen in Edit Tactic (2026-10-12: BALANCED = 1, line height 50)", true},
+        {2, "High", false, 70, false,
+         "the game's band order (code and IQ_DEFENSIVE_2) and EA's list; the other clubs' records hold 2 with lines 65-90 (2026-10-13); default 70 "
+         "from EA's notes; not yet seen in Edit Tactic",
+         true},
+        {3, "Aggressive", false, 95, false,
+         "the game's band order (code and IQ_DEFENSIVE_3) and EA's list; no record of any club holds 3: not written until its stored value is "
+         "decoded (X3)",
+         false},
     };
     return v;
 }
@@ -145,6 +151,25 @@ static const EnumLabel* find_label(const std::vector<EnumLabel>& v, int value) {
 
 const EnumLabel* build_up_style(int value) { return find_label(build_up_styles(), value); }
 const EnumLabel* defensive_approach(int value) { return find_label(defensive_approaches(), value); }
+
+bool build_up_writable(int value) {
+    const EnumLabel* e = build_up_style(value);
+    return e && e->writable;
+}
+
+bool approach_writable(int value) {
+    const EnumLabel* e = defensive_approach(value);
+    return e && e->writable;
+}
+
+int max_writable_line() {
+    static const int kTop[4] = {30, 60, 90, 100};
+    int top = 0;
+    for (int b = 0; b < 4; ++b)
+        if (approach_writable(b)) top = kTop[b];
+        else break;  // the bands are contiguous from Deep up
+    return top;
+}
 
 std::string build_up_text(int value) {
     const EnumLabel* e = build_up_style(value);
@@ -162,12 +187,9 @@ std::string Switches::blocking() const {
     return "";
 }
 
-std::string Switches::mirror_block() const {
-    const char* f = master ? master_switch_file() : off ? kill_switch_file() : db_off ? db_off_file() : mirror_off ? mirror_off_file() : nullptr;
+std::string Switches::db_row_block() const {
+    const char* f = db_row_off ? db_row_off_file() : db_row_off_legacy ? db_row_off_legacy_file() : db_off ? db_off_file() : nullptr;
     if (f) return std::string("kill switch turbo_output\\") + f + " is present";
-    if (!mirror_on)
-        return std::string("off until turbo_output\\") + mirror_on_file() +
-               " exists (opt-in in 2.2: your in-game save writes the live tactic into the career database anyway)";
     return "";
 }
 
@@ -177,9 +199,9 @@ Switches read_switches(const fs::path& out) {
     s.off = file_exists(out / kill_switch_file());
     s.master = file_exists(out / master_switch_file());
     s.find_off = file_exists(out / find_off_file());
-    s.mirror_off = file_exists(out / mirror_off_file());
+    s.db_row_off = file_exists(out / db_row_off_file());
+    s.db_row_off_legacy = file_exists(out / db_row_off_legacy_file());
     s.db_off = file_exists(out / db_off_file());
-    s.mirror_on = file_exists(out / mirror_on_file());
     return s;
 }
 
@@ -826,19 +848,38 @@ RoleAllowList build_role_allow_list(Memory& game, uint64_t svc, const Anchors& a
 }
 
 // ------------------------------------------------------------------------------------------------ plans
-// G6 for a value Turbo itself picks (not an undo): known, or the value the map record holds now (written back unchanged)
+// G6 for a value Turbo itself picks (not an undo): known and writable, or the value the map record holds now (written back unchanged)
 static std::string enum_refusal(FieldKind k, int32_t v, const LiveTactic& now) {
     if (k == FieldKind::BuildUp) {
         if (v < kBuildUpMin || v > kBuildUpMax) return "Build-Up Style " + std::to_string(v) + " is outside 0..3";
-        if (!build_up_style(v) && v != now.build_up)
+        if (v != now.build_up && !build_up_style(v))
             return "Build-Up Style value " + std::to_string(v) + " has no known label (Short Passing is 2 or 3, not decoded yet): not written";
+        if (v != now.build_up && !build_up_writable(v))
+            return "Build-Up Style " + build_up_text(v) + ": its stored value is not decoded yet: not written";
     } else if (k == FieldKind::Approach) {
         if (v < kApproachMin || v > kApproachMax) return "Defensive Approach " + std::to_string(v) + " is outside 0..3";
-        if (!defensive_approach(v) && v != now.approach) return "Defensive Approach value " + std::to_string(v) + " has no known label: not written";
+        if (v != now.approach && !defensive_approach(v)) return "Defensive Approach value " + std::to_string(v) + " has no known label: not written";
+        if (v != now.approach && !approach_writable(v))
+            return "Defensive Approach " + approach_text(v) + ": its stored value is not decoded yet (no record of any club holds it): not written";
     } else if (k == FieldKind::LineHeight) {
         if (v < kLineMin || v > kLineMax) return "Line Height " + std::to_string(v) + " is outside 1..100";
+        if (v != now.line_height && !approach_writable(line_band(v))) {
+            const EnumLabel* e = defensive_approach(line_band(v));
+            return "Line Height " + std::to_string(v) + " lies in " + (e ? std::string(e->label) : std::string("an unknown approach")) + "'s band (" +
+                   line_band_text(v) + "), whose Defensive Approach is not written: Turbo writes up to " + std::to_string(max_writable_line()) +
+                   " (the approach band-consistent with the line height)";
+        }
     }
     return "";
+}
+
+// A non-undo write of the three record fields: the approach is the line height's band (Turbo writes them band-consistent, as the game's own
+// CPU records are; X2 writes the inconsistent pair with the dev service, never Turbo). "" = consistent
+static std::string band_refusal(int32_t line, int32_t approach) {
+    if (approach == line_band(line)) return "";
+    const EnumLabel* want = defensive_approach(line_band(line));
+    return "Defensive Approach " + approach_text(approach) + " is not Line Height " + std::to_string(line) + "'s band (" + line_band_text(line) + ": " +
+           (want ? std::string(want->label) : std::string("?")) + "): Turbo writes them band-consistent (pick the approach, or a line height in its band)";
 }
 
 std::string make_plan(const LiveTactic& now, const Request& req, Plan& out, const RoleAllowList* allow) {
@@ -860,9 +901,14 @@ std::string make_plan(const LiveTactic& now, const Request& req, Plan& out, cons
         const std::string w = enum_refusal(FieldKind::Approach, ap, now);
         if (!w.empty()) return w;
     }
+    const bool record_change = line != now.line_height || bu != now.build_up || ap != now.approach;
+    if (record_change) {
+        const std::string w = band_refusal(line, ap);
+        if (!w.empty()) return w;
+    }
     fill_identity(now, out);
     // Defensive Approach, Line Height and Build-Up Style go together (findings 3a): all three when one of them changes
-    if (line != now.line_height || bu != now.build_up || ap != now.approach) {
+    if (record_change) {
         out.writes.push_back({FieldKind::Approach, -1, now.approach, ap});
         out.writes.push_back({FieldKind::LineHeight, -1, now.line_height, line});
         out.writes.push_back({FieldKind::BuildUp, -1, now.build_up, bu});
@@ -906,15 +952,47 @@ static std::string write_label(const FieldWrite& w) {
            (w.copy ? " in " + copy_label(w.copy) : std::string());
 }
 
-void WriteHistory::note(const Plan& p, const std::vector<FieldWrite>& written) {
+void WriteHistory::note(const Plan& p, const std::vector<FieldWrite>& written, const std::vector<DbRowWrite>& rows) {
     if (p.undo) return;
     if (p.user != user || p.record_index != record_index || p.load_gen != load_gen) {
         original.clear();
+        last.clear();
+        db_original.clear();
+        db_last.clear();
         user = p.user;
         record_index = p.record_index;
         load_gen = p.load_gen;
     }
-    for (const FieldWrite& w : written) original.emplace(std::make_tuple(w.copy, int(w.kind), w.slot), w.old_value);  // the first write's value stays
+    for (const DbRowWrite& row : rows)
+        for (const DbRowField& f : row.fields) {
+            const auto key = std::make_tuple(row.table.name, row.key, f.name);
+            auto o = db_original.find(key);
+            if (o == db_original.end()) db_original.emplace(key, f.old_value);
+            else {
+                auto l = db_last.find(key);
+                if (l != db_last.end() && l->second != f.old_value) o->second = f.old_value;  // the game's save wrote another value since
+            }
+            db_last[key] = f.new_value;
+        }
+    // a slot is one unit: it "changed since Turbo's write" when its role word does not hold what Turbo wrote last
+    std::set<std::pair<uint64_t, int>> slot_changed;
+    for (const FieldWrite& w : written) {
+        if (w.kind != FieldKind::Role) continue;
+        auto it = last.find(std::make_tuple(w.copy, int(w.kind), w.slot));
+        if (it != last.end() && it->second != w.old_value) slot_changed.insert(std::make_pair(w.copy, w.slot));
+    }
+    for (const FieldWrite& w : written) {
+        const auto key = std::make_tuple(w.copy, int(w.kind), w.slot);
+        auto o = original.find(key);
+        if (o == original.end()) {
+            original.emplace(key, w.old_value);  // the first write's value
+        } else {
+            auto l = last.find(key);
+            const bool changed = w.slot >= 0 ? slot_changed.count(std::make_pair(w.copy, w.slot)) != 0 : (l != last.end() && l->second != w.old_value);
+            if (changed) o->second = w.old_value;  // the game put another value there since: that is what this write replaced
+        }
+        last[key] = w.new_value;
+    }
 }
 
 std::string WriteHistory::check_undo(const Plan& p) const {
@@ -927,6 +1005,14 @@ std::string WriteHistory::check_undo(const Plan& p) const {
             return write_label(w) + ": the undo would write " + std::to_string(w.new_value) + ", but the game held " + std::to_string(it->second) +
                    " before Turbo's first write: not put back";
     }
+    for (const DbRowWrite& row : p.rows)
+        for (const DbRowField& f : row.fields) {
+            auto it = db_original.find(std::make_tuple(row.table.name, row.key, f.name));
+            if (it == db_original.end()) return row.label() + " " + f.name + " was not written by Turbo in this career load: not put back";
+            if (it->second != f.new_value)
+                return row.label() + " " + f.name + ": the undo would write " + std::to_string(f.new_value) + ", but the row held " +
+                       std::to_string(it->second) + " before Turbo's first write: not put back";
+        }
     return "";
 }
 
@@ -937,8 +1023,10 @@ std::string check_plan(const LiveTactic& now, const Plan& plan, const JobChecks&
         const std::string f = write_label(w);
         if (!seen.insert(std::make_tuple(w.copy, int(w.kind), w.slot)).second) return f + " is in the plan twice";
         if (w.copy) {
-            // a working copy is named by an undo only (an Apply's job adds the copies itself), and only while it still holds this tactic
+            // a working copy is named by an undo only (an Apply's job adds the copies itself), only a copy target (2.4: none by default), and
+            // only while it still holds this tactic
             if (!plan.undo) return f + ": only an undo names a working copy";
+            if (!copy_target(chk, w.copy)) return f + ": Turbo writes no Edit Tactic working copy (2.4): not put back";
             const WorkCopy* c = now.copy(w.copy);
             if (!c) return f + ": not one of Edit Tactic's working copies";
             if (!c->matches)
@@ -986,6 +1074,38 @@ std::string check_plan(const LiveTactic& now, const Plan& plan, const JobChecks&
             if (!chk.allow->has(word)) return sl + ": role word " + std::to_string(word) + " was never seen in the game's own sheets (role allow-list)";
         }
     }
+    if (!plan.undo) {
+        // the map record's three fields go together, the approach band-consistent with the line height (make_plan's rule, again in the job)
+        const FieldWrite *ln = nullptr, *ap = nullptr, *bu = nullptr;
+        for (const FieldWrite& w : plan.writes) {
+            if (w.copy) continue;
+            if (w.kind == FieldKind::LineHeight) ln = &w;
+            else if (w.kind == FieldKind::Approach) ap = &w;
+            else if (w.kind == FieldKind::BuildUp) bu = &w;
+        }
+        if ((ln || ap || bu) && !(ln && ap && bu)) return "Defensive Approach, Line Height and Build-Up Style are written together or not at all";
+        if (ln && ap) {
+            const std::string b = band_refusal(ln->new_value, ap->new_value);
+            if (!b.empty()) return b;
+        }
+    }
+    // the database rows: each field in its range; an Apply's field is the mirror of one of this plan's map-record writes, with its new value
+    for (const DbRowWrite& row : plan.rows) {
+        if (!row.rec) return row.label() + ": no record";
+        std::set<std::string> names;
+        for (const DbRowField& f : row.fields) {
+            if (!names.insert(f.name).second) return row.label() + " " + f.name + " is in the plan twice";
+            int64_t lo = 0, hi = 0;
+            if (!db_row_field_range(f.name, lo, hi)) return row.label() + " " + f.name + " is not a field Turbo writes";
+            if (f.new_value < lo || f.new_value > hi)
+                return row.label() + " " + f.name + " " + std::to_string(f.new_value) + " is outside " + std::to_string(lo) + ".." + std::to_string(hi);
+            if (plan.undo) continue;
+            bool mirrored = false;
+            for (const FieldWrite& w : plan.writes)
+                mirrored = mirrored || (!w.copy && mirror_field_name(w) == f.name && int64_t(w.new_value) == f.new_value);
+            if (!mirrored) return row.label() + " " + f.name + " = " + std::to_string(f.new_value) + " is not what the live record gets: not written";
+        }
+    }
     if (plan.undo) {
         if (!chk.history) return "an undo writes only values Turbo read from the game before its write (none known)";
         const std::string w = chk.history->check_undo(plan);
@@ -1000,12 +1120,13 @@ static std::string join_list(const std::vector<std::string>& v) {
     return r;
 }
 
-std::vector<FieldWrite> copy_writes(const LiveTactic& now, const Plan& plan, std::string& note) {
+std::vector<FieldWrite> copy_writes(const LiveTactic& now, const Plan& plan, std::string& note, const std::set<uint64_t>* targets) {
     std::vector<FieldWrite> out;
     note.clear();
+    if (!targets || targets->empty()) return out;  // 2.4: no copy target (the E2 working copies are never written)
     std::vector<std::string> written, same, left;
     for (const WorkCopy& c : now.copies) {
-        if (!c.matches) continue;
+        if (!c.matches || !targets->count(c.offset)) continue;
         // every slot of the copy must hold the map record's player (the code and the formation ids alone do not tell your club's tactic from
         // another team's or another line-up's with the same code), a slot of the plan the same position group, or the copy is left out
         std::string bad;
@@ -1090,6 +1211,69 @@ std::string describe_writes(int user, int record_index, const std::vector<FieldW
     return s;
 }
 
+// "; cm_mentalities artificialkey 0 defensivedepth 25->90 buildupplay 0->1" (a row whose fields did not change: "... unchanged")
+static std::string describe_rows(const std::vector<DbRowWrite>& rows) {
+    std::string s;
+    for (const DbRowWrite& row : rows) {
+        s += "; " + row.label();
+        if (row.fields.empty()) s += " already holds these values";
+        for (const DbRowField& f : row.fields) s += " " + f.name + " " + std::to_string(f.old_value) + "->" + std::to_string(f.new_value);
+    }
+    return s;
+}
+
+// ------------------------------------------------------------------------------------------------ the database row
+std::string DbRowWrite::label() const { return (table.name.empty() ? std::string("row") : table.name) + " artificialkey " + std::to_string(key); }
+
+bool db_row_field_range(const std::string& name, int64_t& lo, int64_t& hi) {
+    if (name == "defensivedepth") {
+        lo = kLineMin;
+        hi = kLineMax;
+        return true;
+    }
+    if (name == "buildupplay") {
+        lo = kBuildUpMin;
+        hi = kBuildUpMax;
+        return true;
+    }
+    // pos0role .. pos10role
+    if (name.size() >= 8 && name.compare(0, 3, "pos") == 0 && name.compare(name.size() - 4, 4, "role") == 0) {
+        const std::string n = name.substr(3, name.size() - 7);
+        if (n.empty() || n.size() > 2 || !std::all_of(n.begin(), n.end(), [](char c) { return c >= '0' && c <= '9'; })) return false;
+        if (std::stoi(n) >= kSlots) return false;
+        lo = 0;
+        hi = kRoleWordMax;
+        return true;
+    }
+    return false;
+}
+
+std::string check_db_row(Memory& mem, const DbRowWrite& row) {
+    Database db(mem);
+    if (!row.rec) return "no record";
+    if (!db.table_alive(row.table, row.rec)) return "the database changed (another save loaded?)";
+    if (!db.record_valid(row.table, row.rec)) return "the record is deleted";
+    for (const DbRowCheck& c : row.checks) {
+        const Field* f = row.table.field(c.name);
+        Value v;
+        if (!f || !db.get(row.table, row.rec, *f, v)) return c.name + " is not readable";
+        if (!(v == c.value)) return c.name + " is " + v.to_string() + ", not " + c.value.to_string() + " (another row now?)";
+    }
+    for (const DbRowField& fld : row.fields) {
+        const Field* f = row.table.field(fld.name);
+        Value v;
+        if (!f || f->type != FieldType::Int || !db.get(row.table, row.rec, *f, v) || v.type != FieldType::Int) return fld.name + " is not readable";
+        if (v.i != fld.old_value)
+            return fld.name + " is " + std::to_string(v.i) + ", not " + std::to_string(fld.old_value) + " as when Apply was pressed (someone else wrote it)";
+        int64_t lo = 0, hi = 0;
+        if (!db_row_field_range(fld.name, lo, hi)) return fld.name + " is not a field Turbo writes";
+        if (fld.new_value < lo || fld.new_value > hi) return fld.name + " " + std::to_string(fld.new_value) + " is outside " + std::to_string(lo) + ".." + std::to_string(hi);
+        const std::string w = Database::validate(*f, Value::of_int(fld.new_value));
+        if (!w.empty()) return fld.name + ": " + w;
+    }
+    return "";
+}
+
 // ------------------------------------------------------------------------------------------------ the write
 ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan& plan, const JobChecks& chk) {
     ApplyResult r;
@@ -1142,7 +1326,7 @@ ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan&
         std::vector<FieldWrite> writes = plan.writes;
         if (!plan.undo) {
             std::string note;
-            const std::vector<FieldWrite> cw = copy_writes(now, plan, note);
+            const std::vector<FieldWrite> cw = copy_writes(now, plan, note, chk.copy_targets);
             writes.insert(writes.end(), cw.begin(), cw.end());
             r.copies = note;
         }
@@ -1154,6 +1338,11 @@ ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan&
             std::string l;
             for (uint64_t c : copies_touched) l += (l.empty() ? "" : ", ") + std::string("svc+") + hex(c);
             r.copies = "Edit Tactic copy " + l + " put back too";
+        }
+        // the career database rows (the same job): the table, the record, the row's identity and the owner rule again
+        for (const DbRowWrite& row : plan.rows) {
+            const std::string w = check_db_row(mem, row);
+            if (!w.empty()) return fail("db row", row.label() + ": " + w + ": nothing written");
         }
         // 2. snapshot (the old values, as they are in memory now)
         struct Snap {
@@ -1170,15 +1359,39 @@ ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan&
                                            " as when Apply was pressed: nothing written");
             snap.push_back({ad, cur});
         }
+        Database db(mem);
+        struct RowSnap {
+            size_t row, field;
+            const Field* f;
+            int64_t value, want;
+        };
+        std::vector<RowSnap> rsnap;
+        for (size_t i = 0; i < plan.rows.size(); ++i) {
+            const DbRowWrite& row = plan.rows[i];
+            for (size_t k = 0; k < row.fields.size(); ++k) {
+                const DbRowField& fld = row.fields[k];
+                const Field* f = row.table.field(fld.name);
+                Value v;
+                if (!f || !db.get(row.table, row.rec, *f, v) || v.type != FieldType::Int)
+                    return fail("snapshot", row.label() + " " + fld.name + " is not readable: nothing written");
+                if (v.i != fld.old_value)
+                    return fail("changed", row.label() + " " + fld.name + " is " + std::to_string(v.i) + ", not " + std::to_string(fld.old_value) +
+                                               " as when Apply was pressed: nothing written");
+                rsnap.push_back({i, k, f, v.i, fld.new_value});
+            }
+        }
         const uint64_t dirty_addr = now.at.sheet + kSheetDirty;
         if (!mem.rd(dirty_addr, r.dirty_before)) return fail("snapshot", "the dirty flag is not readable: nothing written");
         if (chk.cancel && chk.cancel->load()) return fail("cancelled", "the job was given up: nothing written");
-        // 3. write (map record and working copies); then the dirty flag as UpdateSheet does
+        // 3. write (map record and copies); then the dirty flag as UpdateSheet does; then the database rows
         bool write_failed = false;
         for (size_t i = 0; i < writes.size(); ++i)
             if (!mem.wr(snap[i].addr, writes[i].new_value)) write_failed = true;
         const uint8_t one = 1;
         if (!write_failed && !mem.wr(dirty_addr, one)) write_failed = true;
+        if (!write_failed)
+            for (const RowSnap& x : rsnap)
+                if (!db.set(plan.rows[x.row].table, plan.rows[x.row].rec, *x.f, Value::of_int(x.want))) write_failed = true;
         // 4. read back every written field
         std::string bad;
         for (size_t i = 0; i < writes.size(); ++i) {
@@ -1190,9 +1403,25 @@ ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan&
         }
         uint8_t dirty_back = 0;
         if (bad.empty() && (!mem.rd(dirty_addr, dirty_back) || dirty_back != 1)) bad = "the dirty flag reads " + std::to_string(dirty_back);
+        for (const RowSnap& x : rsnap) {
+            if (!bad.empty()) break;
+            Value v;
+            if (!db.get(plan.rows[x.row].table, plan.rows[x.row].rec, *x.f, v) || v.type != FieldType::Int || v.i != x.want)
+                bad = plan.rows[x.row].label() + " " + x.f->name + " reads " + (v.type == FieldType::Int ? std::to_string(v.i) : std::string("?")) + ", not " +
+                      std::to_string(x.want);
+        }
         if (write_failed && bad.empty()) bad = "a write was refused by the memory layer";
+        // what the rows hold now (old = the snapshot): the result and the undo file name them
+        std::vector<DbRowWrite> rows_done;
+        for (const DbRowWrite& row : plan.rows) {
+            DbRowWrite d = row;
+            d.fields.clear();
+            rows_done.push_back(std::move(d));
+        }
+        for (const RowSnap& x : rsnap) rows_done[x.row].fields.push_back({plan.rows[x.row].fields[x.field].name, x.value, x.want});
+        r.rows_note = plan.rows_note;
         if (!bad.empty()) {
-            // full undo from the snapshot (fields and the dirty flag): every field that does not hold its old value is written back, then
+            // full undo from the snapshot (fields, the dirty flag, the rows): every field that does not hold its old value is written back, then
             // everything is read back (a field the write never reached already holds it)
             for (const Snap& s : snap) {
                 int32_t cur = 0;
@@ -1200,21 +1429,32 @@ ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan&
             }
             uint8_t d = 0;
             if (!mem.rd(dirty_addr, d) || d != r.dirty_before) mem.wr(dirty_addr, r.dirty_before);
+            for (const RowSnap& x : rsnap) {
+                Value v;
+                if (!db.get(plan.rows[x.row].table, plan.rows[x.row].rec, *x.f, v) || v.type != FieldType::Int || v.i != x.value)
+                    db.set(plan.rows[x.row].table, plan.rows[x.row].rec, *x.f, Value::of_int(x.value));
+            }
             bool restored = true;
             for (const Snap& s : snap) {
                 int32_t back = 0;
                 if (!mem.rd(s.addr, back) || back != s.value) restored = false;
             }
             if (!mem.rd(dirty_addr, d) || d != r.dirty_before) restored = false;
+            for (const RowSnap& x : rsnap) {
+                Value v;
+                if (!db.get(plan.rows[x.row].table, plan.rows[x.row].rec, *x.f, v) || v.type != FieldType::Int || v.i != x.value) restored = false;
+            }
             r.undone = restored;
             r.restore_failed = !restored;
             r.session_off = true;
             r.writes = writes;
+            r.rows = rows_done;
             r.ok = false;
             r.stage = "readback";
-            r.message = "read-back mismatch (" + bad + "): " + (restored ? "every field and the dirty flag were put back" : "PUTTING BACK FAILED") +
+            r.message = "read-back mismatch (" + bad + "): " +
+                        (restored ? "every field, the dirty flag and the database row were put back" : "PUTTING BACK FAILED") +
                         "; channel E is off for this session";
-            r.log_line = "channel E: " + describe_writes(plan.user, plan.record_index, writes) + " READ-BACK MISMATCH (" + bad + "), " +
+            r.log_line = "channel E: " + describe_writes(plan.user, plan.record_index, writes) + describe_rows(rows_done) + " READ-BACK MISMATCH (" + bad + "), " +
                          (restored ? "undone from the snapshot" : "undo FAILED");
             r.reads = mem.reads;
             return r;
@@ -1223,14 +1463,19 @@ ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan&
         r.ok = true;
         r.written = true;
         r.writes = writes;
+        r.rows = rows_done;
         r.stage = "done";
         PageCache after(mem);
         std::string why_after = read_live(after, svc, plan.user, a, r.after);
         r.message = std::string(plan.undo ? "put back" : "written") + " and read back" + (why_after.empty() ? "" : " (read-out after: " + why_after + ")");
         // the copies' note when it says more than the write list: no copy written, or one left out
         const bool say = !r.copies.empty() && (r.copies_written == 0 || r.copies.find("NOT written") != std::string::npos);
-        r.log_line = "channel E: " + std::string(plan.undo ? "undo " : "") + describe_writes(plan.user, plan.record_index, writes) + " (read back ok)" +
-                     (say ? " [" + r.copies + "]" : std::string());
+        r.log_line = "channel E: " + std::string(plan.undo ? "undo " : "") + describe_writes(plan.user, plan.record_index, writes) + describe_rows(rows_done) +
+                     " (read back ok)" + (say ? " [" + r.copies + "]" : std::string()) +
+                     (plan.rows.empty() && !plan.rows_note.empty() ? " [cm_mentalities not written: " + plan.rows_note + "]" : std::string());
+        if (why_after.empty())
+            r.log_line += " [record now LH " + std::to_string(r.after.line_height) + " BU " + std::to_string(r.after.build_up) + " DA " +
+                          std::to_string(r.after.approach) + "]";
         r.reads = mem.reads;
         return r;
     } catch (const std::exception& e) {
@@ -1419,7 +1664,7 @@ std::string same_career(const UndoRecord& u, const std::string& session, long lo
 }
 
 std::string make_undo_plan(const LiveTactic& now, const UndoRecord& u, const std::string& session, long long load_gen, Plan& out,
-                           std::vector<std::string>& skipped) {
+                           std::vector<std::string>& skipped, const std::set<uint64_t>* copy_targets) {
     out = Plan();
     skipped.clear();
     if (u.writes.empty()) return "the undo file holds no field Turbo wrote";
@@ -1441,6 +1686,12 @@ std::string make_undo_plan(const LiveTactic& now, const UndoRecord& u, const std
     std::set<uint64_t> copy_gone;
     for (const FieldWrite& w : u.writes) {
         if (!w.copy || copy_gone.count(w.copy)) continue;
+        if (!copy_targets || !copy_targets->count(w.copy)) {
+            // a working copy an earlier Turbo wrote (2.3's E2): 2.4 writes none, not even back
+            copy_gone.insert(w.copy);
+            skipped.push_back("Edit Tactic copy svc+" + hex(w.copy) + ": Turbo 2.4 writes no Edit Tactic working copy: left as it is");
+            continue;
+        }
         const WorkCopy* c = now.copy(w.copy);
         if (!c || !c->matches) {
             copy_gone.insert(w.copy);
@@ -1561,6 +1812,59 @@ std::vector<std::string> reverted(const LiveTactic& now, const UndoRecord& u) {
     return out;
 }
 
+// ------------------------------------------------------------------------------------------------ overwrite detection and Re-apply
+std::string replaced_prompt(const LiveTactic& now, const UndoRecord& u) {
+    if (u.state != "written" || u.team != now.at.user) return "";
+    bool replaced = false;
+    for (const FieldWrite& w : u.writes) {
+        if (w.copy || w.kind == FieldKind::RoleId || w.kind == FieldKind::Focus) continue;  // the map record's fields; a slot by its word
+        if (w.kind == FieldKind::Role) {
+            const int s = w.slot;
+            if (s < 0 || s >= kSlots) continue;
+            if (now.slots[size_t(s)].pid != u.pids[size_t(s)] || now.slots[size_t(s)].role != w.new_value) replaced = true;
+            continue;
+        }
+        if (value_in(now, w.kind, -1, 0) != w.new_value) replaced = true;
+    }
+    if (!replaced) return "";
+    const EnumLabel* bu = build_up_style(now.build_up);
+    const EnumLabel* ap = defensive_approach(now.approach);
+    return "the game replaced your tactic (LH " + std::to_string(now.line_height) + " / " +
+           (bu ? std::string(bu->label) : "build-up " + std::to_string(now.build_up)) + " / " +
+           (ap ? std::string(ap->label) : "approach " + std::to_string(now.approach)) + "). Re-apply?";
+}
+
+Request reapply_request(const LiveTactic& now, const UndoRecord& u, std::vector<std::string>& skipped) {
+    Request r;
+    skipped.clear();
+    for (const FieldWrite& w : u.writes) {
+        if (w.copy) continue;
+        switch (w.kind) {
+            case FieldKind::LineHeight: r.line_height = w.new_value; break;
+            case FieldKind::BuildUp: r.build_up = w.new_value; break;
+            case FieldKind::Approach: r.approach = w.new_value; break;
+            case FieldKind::Role: {
+                const int s = w.slot;
+                if (s < 0 || s >= kSlots) break;
+                const SlotView& v = now.slots[size_t(s)];
+                if (v.pid != u.pids[size_t(s)]) {
+                    skipped.push_back("slot " + std::to_string(s) + " holds player " + std::to_string(v.pid) + " now, not " + std::to_string(u.pids[size_t(s)]));
+                    break;
+                }
+                if (v.group() != role_group(w.new_value)) {
+                    skipped.push_back("slot " + std::to_string(s) + " is position group " + std::to_string(v.group()) + " now");
+                    break;
+                }
+                r.slots.push_back({s, role_id_of(w.new_value), focus_of(w.new_value)});
+                break;
+            }
+            case FieldKind::RoleId:
+            case FieldKind::Focus: break;  // the word carries them
+        }
+    }
+    return r;
+}
+
 // ------------------------------------------------------------------------------------------------ the cm_mentalities mirror's checks
 std::string mirror_field_name(const FieldWrite& w) {
     if (w.copy) return "";  // the working copies have no row of their own
@@ -1601,16 +1905,78 @@ std::string mirror_row_check(const std::function<bool(const std::string&, int64_
     return "";
 }
 
-std::string undo_mirror_check(const Switches& sw, const std::function<bool(const std::string&, int64_t&)>& get, const UndoRecord& u) {
-    const std::string block = sw.mirror_block();
+std::vector<DbRowField> apply_row_fields(const Plan& plan, const std::function<bool(const std::string&, int64_t&)>& get) {
+    std::vector<DbRowField> out;
+    for (const FieldWrite& w : plan.writes) {
+        const std::string name = mirror_field_name(w);
+        if (name.empty()) continue;
+        int64_t cur = 0;
+        if (!get(name, cur) || cur == w.new_value) continue;
+        out.push_back({name, cur, w.new_value});
+    }
+    return out;
+}
+
+std::string undo_row_check(const Switches& sw, const std::function<bool(const std::string&, int64_t&)>& get, const UndoRecord& u) {
+    const std::string block = sw.db_row_block();
     if (!block.empty()) return block;
-    int64_t team = -1, active = -1, src = -1;
-    const bool ok = get("teamid", team) && get("activetactic", active) && get("sourceformationid", src);
-    if (!ok || team != u.team || active != 1 || src != u.source_formation)
+    int64_t team = -1, active = -1, src = -1, key = -1;
+    const bool ok = get("teamid", team) && get("activetactic", active) && get("sourceformationid", src) && get("artificialkey", key);
+    if (!ok || team != u.team || active != 1 || src != u.source_formation || key != u.mirror_row_key)
         return "row " + std::to_string(u.mirror_row_key) + " is not club " + std::to_string(u.team) + "'s active tactic with sourceformationid " +
                std::to_string(u.source_formation) + " (teamid " + std::to_string(team) + ", activetactic " + std::to_string(active) + ", sourceformationid " +
-               std::to_string(src) + ")";
+               std::to_string(src) + ", artificialkey " + std::to_string(key) + ")";
     return "";
+}
+
+std::vector<DbRowField> undo_row_fields(const UndoRecord& u, const Plan& undo_plan, const std::function<bool(const std::string&, int64_t&)>& get,
+                                        std::vector<std::string>& left) {
+    std::vector<DbRowField> out;
+    left.clear();
+    std::set<std::string> live_back;
+    for (const FieldWrite& w : undo_plan.writes) {
+        const std::string n = mirror_field_name(w);
+        if (!n.empty()) live_back.insert(n);
+    }
+    for (const MirrorField& m : u.mirror) {
+        if (!live_back.count(m.field)) {
+            left.push_back(m.field + " (its live field is not put back)");
+            continue;
+        }
+        int64_t cur = 0;
+        if (!get(m.field, cur)) {
+            left.push_back(m.field + " (not readable)");
+            continue;
+        }
+        if (cur != m.new_value) {
+            left.push_back(m.field + " is " + std::to_string(cur) + ", not Turbo's " + std::to_string(m.new_value));
+            continue;
+        }
+        if (cur != m.old_value) out.push_back({m.field, cur, m.old_value});
+    }
+    return out;
+}
+
+void add_job_rows(UndoRecord& u, const std::vector<DbRowWrite>& rows, bool undo) {
+    if (rows.empty()) return;
+    if (undo) {
+        u.mirror_state = "restored";
+        return;
+    }
+    const DbRowWrite& row = rows.front();  // one cm_mentalities row per job
+    if (u.mirror_row_key != row.key || u.mirror_table != row.table.name) u.mirror.clear();  // another row: its fields start over
+    u.mirror_table = row.table.name;
+    u.mirror_row_key = row.key;
+    u.mirror_state = "written";
+    u.mirror_note.clear();
+    for (const DbRowField& f : row.fields) {
+        auto it = std::find_if(u.mirror.begin(), u.mirror.end(), [&](const MirrorField& m) { return m.field == f.name; });
+        if (it == u.mirror.end()) u.mirror.push_back({f.name, f.old_value, f.new_value});
+        else {
+            if (it->new_value != f.old_value) it->old_value = f.old_value;  // the game's save wrote another value since: that is what was replaced
+            it->new_value = f.new_value;
+        }
+    }
 }
 
 // ------------------------------------------------------------------------------------------------ the kick-off check
@@ -1640,16 +2006,124 @@ std::vector<uint64_t> find_bytes(const uint8_t* buf, size_t len, uint64_t base, 
     return hits;
 }
 
-bool is_match_copy(Memory& mem, uint64_t hit, int user, const std::array<int32_t, kSlots>& pids) {
-    if (hit < kCopyRoles) return false;
-    const uint64_t out = hit - kCopyRoles;
+const std::vector<CopyField>& match_copy_fields() {
+    static const std::vector<CopyField> v = {
+        {"LH", 0x158, 1, true},
+        {"BU", 0x15B, 1, true},
+        {"DA", 0x15C, 1, true},
+    };
+    return v;
+}
+
+const char* match_copy_fields_source() {
+    return "T2 static decode, old build: record +0xA4/+0xB0/+0xB4 -> +0x158/+0x15B/+0x15C; [A] here, a line naming Turbo's values proves it";
+}
+
+bool is_match_copy_at(Memory& mem, uint64_t out, int user, const std::array<int32_t, kSlots>& pids) {
+    if (!is_ptr(out, 4)) return false;
     int32_t team = 0;
     if (!mem.rd(out + kCopyTeam, team) || team != user) return false;
     for (int s = 0; s < kSlots; ++s) {
-        int32_t pid = 0;
+        int32_t pid = 0, pos = -1;
         if (!mem.rd(out + kCopyPids + 4 * uint64_t(s), pid) || pid != pids[size_t(s)]) return false;
+        if (!mem.rd(out + kCopyPositions + 4 * uint64_t(s), pos) || pos < 0 || pos > kMaxPosition || (s == 0 && pos != 0)) return false;
     }
     return true;
+}
+
+bool is_match_copy(Memory& mem, uint64_t hit, int user, const std::array<int32_t, kSlots>& pids) {
+    if (hit < kCopyRoles) return false;
+    return is_match_copy_at(mem, hit - kCopyRoles, user, pids);
+}
+
+std::string window_hex(const std::vector<uint8_t>& b) {
+    std::string s;
+    char x[4];
+    for (size_t i = 0; i < b.size(); ++i) {
+        std::snprintf(x, sizeof(x), "%02x", unsigned(b[i]));
+        s += (i ? " " : "") + std::string(x);
+    }
+    return s;
+}
+
+KickoffRead decode_match_copy(const KickoffCopy& c, const KickoffArm& arm, const std::vector<CopyField>& fields) {
+    KickoffRead r;
+    r.out = c.out;
+    auto i32 = [&](size_t o) {
+        int32_t x = 0;
+        if (o + 4 <= c.bytes.size()) std::memcpy(&x, c.bytes.data() + o, 4);
+        return x;
+    };
+    r.team = i32(kCopyTeam);
+    for (int s = 0; s < kSlots; ++s) {
+        r.roles[size_t(s)] = i32(kCopyRoles + 4 * size_t(s));
+        if (r.roles[size_t(s)] == arm.roles[size_t(s)]) ++r.roles_match;
+    }
+    for (const CopyField& f : fields) {
+        if (f.width < 1 || f.width > 4 || size_t(f.offset) + f.width > c.bytes.size()) continue;
+        // the raw bytes at the table's offset, known or not (X2 reads them off the line)
+        char b[48];
+        std::snprintf(b, sizeof(b), "%s +0x%X=", f.name, unsigned(f.offset));
+        std::string raw = b;
+        for (uint32_t k = 0; k < f.width; ++k) {
+            std::snprintf(b, sizeof(b), "%02x", unsigned(c.bytes[f.offset + k]));
+            raw += b;
+        }
+        r.raw += (r.raw.empty() ? "" : " ") + raw + (f.known ? "" : " (not decoded)");
+        if (!f.known) continue;
+        uint32_t v = 0;
+        for (uint32_t k = 0; k < f.width; ++k) v |= uint32_t(c.bytes[f.offset + k]) << (8 * k);
+        const int value = int(v);
+        if (std::strcmp(f.name, "LH") == 0) r.lh = value;
+        else if (std::strcmp(f.name, "BU") == 0) r.bu = value;
+        else if (std::strcmp(f.name, "DA") == 0) r.da = value;
+    }
+    if (kCopyStyleWindow + kCopyStyleWindowLen <= c.bytes.size())
+        r.window.assign(c.bytes.begin() + long(kCopyStyleWindow), c.bytes.begin() + long(kCopyStyleWindow + kCopyStyleWindowLen));
+    const std::vector<size_t> at = kickoff_byte_offsets(c.bytes, arm.line_height);
+    r.lh_bytes.assign(at.begin(), at.begin() + long(std::min<size_t>(at.size(), 6)));
+    return r;
+}
+
+std::string kickoff_verdict(const KickoffArm& arm, const std::vector<KickoffRead>& reads, bool& ok) {
+    ok = false;
+    if (reads.empty()) return "= unknown (no copy)";
+    std::vector<std::string> undecoded;
+    for (const KickoffRead& r : reads) {
+        if (r.lh < 0 && std::find(undecoded.begin(), undecoded.end(), "LH") == undecoded.end()) undecoded.push_back("LH");
+        if (r.bu < 0 && std::find(undecoded.begin(), undecoded.end(), "BU") == undecoded.end()) undecoded.push_back("BU");
+        if (r.da < 0 && std::find(undecoded.begin(), undecoded.end(), "DA") == undecoded.end()) undecoded.push_back("DA");
+    }
+    // what differs from the values looked for (Turbo's, or the hub's read when no Turbo write is in place), per copy
+    std::string diff;
+    for (size_t i = 0; i < reads.size(); ++i) {
+        const KickoffRead& r = reads[i];
+        std::string d;
+        if (r.lh >= 0 && r.lh != arm.line_height) d += (d.empty() ? "" : ", ") + std::string("LH ") + std::to_string(r.lh) + " not " + std::to_string(arm.line_height);
+        if (r.bu >= 0 && r.bu != arm.build_up) d += (d.empty() ? "" : ", ") + std::string("BU ") + std::to_string(r.bu) + " not " + std::to_string(arm.build_up);
+        if (r.da >= 0 && r.da != arm.approach) d += (d.empty() ? "" : ", ") + std::string("DA ") + std::to_string(r.da) + " not " + std::to_string(arm.approach);
+        if (r.roles_match != kSlots) d += (d.empty() ? "" : ", ") + std::string("roles ") + std::to_string(r.roles_match) + "/11";
+        if (!d.empty()) diff += (diff.empty() ? "" : "; ") + (reads.size() > 1 ? "copy " + std::to_string(i + 1) + ": " : std::string()) + d;
+    }
+    if (!diff.empty()) return std::string("= game (differs") + (arm.turbo_values ? "" : " from the hub's read") + ": " + diff + ")";
+    if (!undecoded.empty()) {
+        std::string u;
+        for (const auto& x : undecoded) u += (u.empty() ? "" : "/") + x;
+        return "= unknown (" + u + " not decoded: see the raw window)";
+    }
+    if (!arm.turbo_values) return "= game (the hub's values; no Turbo write in place)";
+    ok = true;
+    return "= Turbo (ok)";
+}
+
+std::string kickoff_line(const KickoffArm& arm, const std::vector<KickoffRead>& reads, const std::string& details) {
+    if (reads.empty()) return "channel E kick-off: no match copy" + (details.empty() ? std::string() : " | " + details);
+    const KickoffRead& r = reads.front();
+    auto num = [](int v) { return v < 0 ? std::string("?") : std::to_string(v); };
+    bool ok = false;
+    const std::string v = kickoff_verdict(arm, reads, ok);
+    return "channel E kick-off: match copy team " + std::to_string(r.team) + " LH " + num(r.lh) + " BU " + num(r.bu) + " DA " + num(r.da) + " roles " +
+           std::to_string(r.roles_match) + "/11 " + v + (details.empty() ? std::string() : " | " + details);
 }
 
 std::vector<size_t> kickoff_value_offsets(const std::vector<uint8_t>& bytes, int32_t v) {
@@ -1663,6 +2137,15 @@ std::vector<size_t> kickoff_value_offsets(const std::vector<uint8_t>& bytes, int
         std::memcpy(&x, bytes.data() + o, 4);
         if (x == v) out.push_back(o);
     }
+    return out;
+}
+
+std::vector<size_t> kickoff_byte_offsets(const std::vector<uint8_t>& bytes, int v) {
+    auto known = [](size_t o) { return (o >= 0x30 && o < 0x144) || (o >= kCopyPids && o < kCopyPids + 4 * kSlots); };
+    std::vector<size_t> out;
+    if (v < 0 || v > 255) return out;
+    for (size_t o = 0; o < bytes.size(); ++o)
+        if (!known(o) && bytes[o] == uint8_t(v)) out.push_back(o);
     return out;
 }
 
@@ -1707,9 +2190,21 @@ std::string kickoff_index(const KickoffArm& arm, const std::vector<KickoffCopy>&
           << ", +0x28 team " << i32(c.bytes, kCopyTeam) << ", +0x2C audio " << i32(c.bytes, 0x2C) << "\n";
         o << "  +0x30 positions " << list(c.bytes, 0x30) << "\n  +0x118 roles " << list(c.bytes, kCopyRoles) << "\n  +0x168 pids " << list(c.bytes, kCopyPids)
           << "\n";
+        const KickoffRead d = decode_match_copy(c, arm);
+        o << "  decode (match_copy_fields):";
+        for (const CopyField& f : match_copy_fields())
+            o << " " << f.name << " +0x" << std::hex << std::uppercase << f.offset << std::nouppercase << std::dec << " = "
+              << (std::strcmp(f.name, "LH") == 0 ? d.lh : std::strcmp(f.name, "BU") == 0 ? d.bu : d.da);
+        o << ", roles " << d.roles_match << "/11\n  +0x" << std::hex << std::uppercase << kCopyStyleWindow << std::nouppercase << std::dec
+          << " window: " << window_hex(d.window) << "\n";
         o << "  i32 == Line Height " << arm.line_height << " outside the known blocks at:";
         if (at.empty()) o << " none";
         for (size_t x : at) o << " +0x" << std::hex << std::uppercase << x << std::nouppercase << std::dec;
+        o << "\n  u8 == Line Height " << arm.line_height << " outside the known blocks at:";
+        const std::vector<size_t> bt = kickoff_byte_offsets(c.bytes, arm.line_height);
+        if (bt.empty()) o << " none";
+        for (size_t i = 0; i < bt.size() && i < 24; ++i) o << " +0x" << std::hex << std::uppercase << bt[i] << std::nouppercase << std::dec;
+        if (bt.size() > 24) o << " ...";
         o << "\n";
     }
     o << "\nLine Height " << arm.line_height << " at the same offset in every block:";
@@ -2204,6 +2699,15 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
         else if (file_exists(h_.out_dir / kill_switch_file())) switch_block = kill_switch_file();
         else if (!file_exists(h_.out_dir / opt_in_file())) switch_block = std::string("no ") + opt_in_file();
     }
+    // the database row's switches at the same moment: an Apply or an undo leaves the row out while one of them exists (the live record is
+    // still written; the log and the undo file say so)
+    if (!plan.rows.empty() && !h_.out_dir.empty()) {
+        const std::string db = read_switches(h_.out_dir).db_row_block();
+        if (!db.empty()) {
+            plan.rows.clear();
+            plan.rows_note = db;
+        }
+    }
     const double queued = now();
     const uint64_t managers = ctx.managers;
     const bool find_ok = ctx.allow_find;
@@ -2285,7 +2789,7 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
             r = apply_plan(*h_.mem, svc, a, plan, chk);
             if (!plan.undo && (r.written || r.undone || r.restore_failed)) {
                 std::lock_guard<std::mutex> lock(mu_);
-                history_.note(plan, r.writes);
+                history_.note(plan, r.writes, r.rows);
             }
         }
         r.micros = h_.clock_us ? h_.clock_us() - t0 : 0.0;
@@ -2371,38 +2875,49 @@ void CoreService::run_kickoff(KickoffArm arm, int attempt, long long gen) {
         // read-only, yet it reads all of memory during a match: only for a tester who switched channel E on, never while a kill switch says
         // channel E is off (the Status tab says "off" then), and with its own off switch
         const Switches sw = h_.out_dir.empty() ? Switches() : read_switches(h_.out_dir);
-        if (!h_.out_dir.empty() && file_exists(h_.out_dir / kickoff_off_file())) {
-            line = std::string("kick-off check off (turbo_output\\") + kickoff_off_file() + ")";
-            skipped = true;
-        } else if (!sw.blocking().empty()) {
-            line = "no kick-off check: kill switch turbo_output\\" + sw.blocking() + " is present (channel E is off)";
-            skipped = true;
-        } else if (!h_.out_dir.empty() && !sw.opt_in) {
-            line = std::string("no kick-off check: channel E is not switched on (turbo_output\\") + opt_in_file() + ")";
-            skipped = true;
-        } else if (!arm.armed) {
-            line = "no kick-off check: the live tactic was not read in the career hub before this match (open Teams > Tactics > My team once in the hub)";
-            skipped = true;
-        } else if (arm.load_gen != gen) {
+        std::string why_not;
+        if (!h_.out_dir.empty() && file_exists(h_.out_dir / kickoff_off_file())) why_not = std::string("off: turbo_output\\") + kickoff_off_file();
+        else if (!sw.blocking().empty()) why_not = "kill switch turbo_output\\" + sw.blocking() + " is present (channel E is off)";
+        else if (!h_.out_dir.empty() && !sw.opt_in)
+            why_not = std::string("channel E is not switched on (turbo_output\\") + opt_in_file() + ")";
+        else if (!arm.armed)
+            why_not = "the live tactic was not read in the career hub before this match (Apply, or open Teams > Tactics > My team once in the hub)";
+        else if (arm.load_gen != gen)
             // the tactic of an earlier career load (the reload rebuilt the record from the save): not what this match was set up from
-            line = "no kick-off check: the live tactic was last read in career load " + std::to_string(arm.load_gen) + ", this match is in load " +
-                   std::to_string(gen) + " (open Teams > Tactics > My team once in the hub)";
+            why_not = "the live tactic was last read in career load " + std::to_string(arm.load_gen) + ", this match is in load " + std::to_string(gen) +
+                      " (open Teams > Tactics > My team once in the hub)";
+        if (!why_not.empty()) {
+            line = "channel E kick-off: not checked (" + why_not + ")";
             skipped = true;
         }
         if (!skipped) try {
-            const std::vector<uint8_t> pat = role_pattern(arm.roles);
+            // the match-setup copies: by the 11 player ids (out+0x168) and by the 11 role words (out+0x118), the layout checked at out
+            const std::vector<uint8_t> pid_pat = role_pattern(arm.pids), role_pat = role_pattern(arm.roles);
             const std::vector<Region> regs = h_.regions ? h_.regions() : std::vector<Region>();
             const size_t chunk = 1u << 20;
             std::vector<uint8_t> buf;
-            std::vector<uint64_t> hits;
+            std::vector<uint64_t> outs;  // candidate copy starts
+            size_t pid_hits = 0, role_hits = 0;
             const double t0 = h_.clock_us ? h_.clock_us() : 0.0;
             bool timed_out = false;
+            auto add = [&](uint64_t out) {
+                if (std::find(outs.begin(), outs.end(), out) == outs.end()) outs.push_back(out);
+            };
             for (const Region& g : regs) {
-                for (uint64_t at = g.start; at < g.end && hits.size() < 64;) {
-                    const size_t n = size_t(std::min<uint64_t>(chunk + pat.size(), g.end - at));
-                    if (n >= pat.size() && h_.mem->read_block(at, n, buf))
-                        for (uint64_t x : find_bytes(buf.data(), n, at, pat, 64, 4))
-                            if (std::find(hits.begin(), hits.end(), x) == hits.end()) hits.push_back(x);
+                for (uint64_t at = g.start; at < g.end && outs.size() < 128;) {
+                    const size_t n = size_t(std::min<uint64_t>(chunk + pid_pat.size(), g.end - at));
+                    if (n >= pid_pat.size() && h_.mem->read_block(at, n, buf)) {
+                        for (uint64_t x : find_bytes(buf.data(), n, at, pid_pat, 64, 4))
+                            if (x >= kCopyPids) {
+                                ++pid_hits;
+                                add(x - kCopyPids);
+                            }
+                        for (uint64_t x : find_bytes(buf.data(), n, at, role_pat, 64, 4))
+                            if (x >= kCopyRoles) {
+                                ++role_hits;
+                                add(x - kCopyRoles);
+                            }
+                    }
                     at += chunk;
                     if (h_.clock_us && h_.clock_us() - t0 > h_.scan_budget_s * 1e6) {
                         timed_out = true;
@@ -2411,14 +2926,15 @@ void CoreService::run_kickoff(KickoffArm arm, int attempt, long long gen) {
                 }
                 if (timed_out) break;
             }
+            std::sort(outs.begin(), outs.end());
             std::vector<KickoffCopy> copies;
             std::string where;
             bool short_tail = false;
-            for (uint64_t x : hits) {
+            for (uint64_t out : outs) {
                 if (copies.size() >= kKickoffMaxCopies) break;
-                if (!is_match_copy(*h_.mem, x, arm.user, arm.pids)) continue;
+                if (!is_match_copy_at(*h_.mem, out, arm.user, arm.pids)) continue;
                 KickoffCopy c;
-                c.out = x - kCopyRoles;
+                c.out = out;
                 if (!h_.mem->read_block(c.out, kKickoffHead + kKickoffTail, c.bytes)) {
                     // the bytes after the known layout may cross into memory that is not readable: the layout alone, zero-filled after it
                     if (!h_.mem->read_block(c.out, kKickoffHead, c.bytes)) continue;
@@ -2441,43 +2957,46 @@ void CoreService::run_kickoff(KickoffArm arm, int attempt, long long gen) {
                     const bool ok_bin = bool(bin);
                     bin.close();
                     std::ofstream txt(h_.out_dir / kickoff_index_file(), std::ios::binary | std::ios::trunc);
-                    txt << kickoff_index(arm, copies, hits.size());
+                    txt << kickoff_index(arm, copies, pid_hits + role_hits);
                     const bool ok_txt = bool(txt);
-                    char b[160];
-                    std::snprintf(b, sizeof(b), "%zu x 0x%zX bytes from out+0x00", copies.size(), size_t(kKickoffHead + kKickoffTail));
+                    char b[96];
+                    std::snprintf(b, sizeof(b), "%zu x 0x%zX bytes", copies.size(), size_t(kKickoffHead + kKickoffTail));
                     dump = std::string(ok_bin && ok_txt ? "dumped to turbo_output\\" : "dump FAILED: turbo_output\\") + kickoff_dump_file() + " (" + b +
-                           (short_tail ? ", a tail zero-filled: not readable" : "") + "; index " + kickoff_index_file() + ")";
+                           (short_tail ? ", a tail zero-filled" : "") + ")";
                 }
             }
-            // where the expected Line Height sits in every copy (outside the known blocks): a hint for the next decode
-            std::vector<size_t> common;
-            for (size_t i = 0; i < copies.size(); ++i) {
-                const std::vector<size_t> at = kickoff_value_offsets(copies[i].bytes, arm.line_height);
-                if (i == 0) common = at;
-                else {
-                    std::vector<size_t> keep;
-                    for (size_t o : common)
-                        if (std::find(at.begin(), at.end(), o) != at.end()) keep.push_back(o);
-                    common = keep;
+            const std::string looked = "looked for the tactic " + arm.when + " (LH " + std::to_string(arm.line_height) + " BU " + std::to_string(arm.build_up) +
+                                       " DA " + std::to_string(arm.approach) + (arm.turbo_values ? ", Turbo's values)" : ", the game's values)");
+            const std::string found = std::to_string(pid_hits) + " pid / " + std::to_string(role_hits) + " role-word hit(s)" + (timed_out ? ", scan ran out of time" : "");
+            if (copies.empty()) {
+                line = "channel E kick-off: no match copy found (" + found + ", 0 in the match-setup layout); " + looked;
+            } else {
+                std::vector<KickoffRead> reads;
+                for (const KickoffCopy& c : copies) reads.push_back(decode_match_copy(c, arm));
+                std::string fields;
+                for (const CopyField& f : match_copy_fields()) {
+                    char b[40];
+                    std::snprintf(b, sizeof(b), "%s +0x%X%s", f.name, unsigned(f.offset), f.known ? "" : " (unknown)");
+                    fields += (fields.empty() ? "" : " ") + std::string(b);
                 }
+                // the raw bytes always (known or not: the line doubles as X2's readout), where the Line Height looked for sits as a byte
+                std::string lhb;
+                for (size_t o : reads.front().lh_bytes) {
+                    char b[16];
+                    std::snprintf(b, sizeof(b), " +0x%zX", o);
+                    lhb += b;
+                }
+                const std::string details = std::to_string(copies.size()) + (copies.size() == 1 ? " copy (" : " copies (") + where + "; " + found + "); decode " +
+                                            fields + " u8 (" + match_copy_fields_source() + "); raw " + reads.front().raw + "; u8 " +
+                                            std::to_string(arm.line_height) + " at" + (lhb.empty() ? std::string(" none") : lhb) + "; window +0x150: " +
+                                            window_hex(reads.front().window) + "; " + dump + "; " + looked;
+                line = kickoff_line(arm, reads, details);
             }
-            std::string lh;
-            for (size_t o : common) {
-                char b[24];
-                std::snprintf(b, sizeof(b), " +0x%zX", o);
-                lh += b;
-            }
-            line = "kick-off check" + std::string(attempt > 1 ? " (again)" : "") + ": " + std::to_string(hits.size()) + " cop" + (hits.size() == 1 ? "y" : "ies") +
-                   " of the live role words, " + std::to_string(copies.size()) + " in the match-setup layout" +
-                   (copies.empty() ? std::string() : " (" + where + "): the match copied this tactic's role words; " + dump +
-                                                         "; Line Height " + std::to_string(arm.line_height) + (common.empty() ? " not found outside the known blocks" : " at" + lh)) +
-                   (timed_out ? " (scan ran out of time)" : "") + "; looked for the tactic " + arm.when + " (Line Height " + std::to_string(arm.line_height) +
-                   ", Build-Up Style " + build_up_text(arm.build_up) + ", Defensive Approach " + approach_text(arm.approach) +
-                   (arm.turbo_values ? ", Turbo's values)" : ", the game's values)");
+            if (attempt > 1) line += " (second look)";
         } catch (const std::exception& e) {
-            line = std::string("kick-off check failed: ") + e.what();
+            line = std::string("channel E kick-off: check failed: ") + e.what();
         } catch (...) {
-            line = "kick-off check failed";
+            line = "channel E kick-off: check failed";
         }
         if (skipped) none = false;  // nothing to look for again
         bool again = false;
@@ -2492,7 +3011,7 @@ void CoreService::run_kickoff(KickoffArm arm, int attempt, long long gen) {
                 again = true;
             }
         }
-        log("channel E: " + line + (again ? "; looking again in 30 s" : ""));
+        log(line + (again ? "; looking again in 30 s" : ""));
     };
     if (h_.run_background) h_.run_background(job);
     else job();

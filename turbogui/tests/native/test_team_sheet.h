@@ -309,6 +309,110 @@ struct StickyMemory : Memory {
     }
 };
 
+// A simulated cm_mentalities table in the T3DB layout core/t3db.h walks (header: +0x30 first record, +0x40 shortname, +0x44 record size,
+// +0x78 / +0x7A capacity, +0x7C rows written; records bit-packed, last byte bit 0x80 = deleted): fields at odd bit offsets, one with a minimum
+// (teamsheetid -1), the 11 slot players / positions / role words of the live tactic
+struct DbWorld {
+    static constexpr uint64_t kHdr = 0x5A000000ULL, kRecs = 0x5A010000ULL;
+    static constexpr uint32_t kRecSize = 0x60, kRows = 4;
+    SimMemory& mem;
+    Table t;
+    explicit DbWorld(SimMemory& m) : mem(m) {
+        t.name = "cm_mentalities";
+        t.shortname = "cmme";
+        t.header = kHdr;
+        t.first_record = kRecs;
+        t.record_size = kRecSize;
+        t.written = kRows;
+        t.capacity = kRows;
+        uint32_t bit = 0;
+        auto add = [&](const std::string& n, int depth, int64_t min = 0) {
+            Field f;
+            f.name = n;
+            f.shortname = n.substr(0, 4);
+            f.type = FieldType::Int;
+            f.raw_type = 0;
+            f.bit_offset = bit;
+            f.depth = depth;
+            f.min = min;
+            t.by_name[n] = int(t.fields.size());
+            t.fields.push_back(f);
+            bit += uint32_t(depth);
+        };
+        add("artificialkey", 16);
+        add("teamid", 16);
+        add("activetactic", 1);
+        add("sourceformationid", 11);
+        add("teamsheetid", 32, -1);
+        add("defensivedepth", 7);
+        add("buildupplay", 2);
+        for (int s = 0; s < 11; ++s) add("playerid" + std::to_string(s), 32);
+        for (int s = 0; s < 11; ++s) add("position" + std::to_string(s), 5);
+        for (int s = 0; s < 11; ++s) add("pos" + std::to_string(s) + "role", 16);
+        mem.map(kHdr, 0x100);
+        mem.write(kHdr + 0x40, "cmme", 4);
+        mem.wr(kHdr + 0x30, kRecs);
+        mem.wr(kHdr + 0x44, int32_t(kRecSize));
+        mem.wr(kHdr + 0x78, uint16_t(kRows));
+        mem.wr(kHdr + 0x7A, uint16_t(kRows));
+        mem.wr(kHdr + 0x7C, uint16_t(kRows));
+        mem.map(kRecs, kRecSize * kRows);
+    }
+    uint64_t rec(int i) const { return kRecs + uint64_t(kRecSize) * uint64_t(i); }
+    const Field* field(const std::string& n) const { return t.field(n); }
+    void set(uint64_t r, const std::string& n, int64_t v) {
+        Database d(mem);
+        d.set(t, r, *t.field(n), Value::of_int(v));
+    }
+    void mem_set(int i, const std::string& n, int64_t v) { set(rec(i), n, v); }
+    bool get_ok(uint64_t r, const std::string& n, int64_t& v) {
+        Database d(mem);
+        Value x;
+        const Field* f = t.field(n);
+        if (!f || !d.get(t, r, *f, x) || x.type != FieldType::Int) return false;
+        v = x.i;
+        return true;
+    }
+    int64_t get(uint64_t r, const std::string& n) {
+        int64_t v = INT64_MIN;
+        get_ok(r, n, v);
+        return v;
+    }
+    // row i: the live tactic of the world's club (its 11 players, positions and role words), this key, line height and build-up
+    uint64_t row(int i, const SheetWorld& w, int64_t key, int64_t depth, int64_t buildup) {
+        const uint64_t r = rec(i);
+        set(r, "artificialkey", key);
+        set(r, "teamid", w.team);
+        set(r, "activetactic", 1);
+        set(r, "sourceformationid", w.source_formation);
+        set(r, "teamsheetid", -1);
+        set(r, "defensivedepth", depth);
+        set(r, "buildupplay", buildup);
+        for (int s = 0; s < 11; ++s) {
+            set(r, "playerid" + std::to_string(s), w.pids[size_t(s)]);
+            set(r, "position" + std::to_string(s), SheetWorld::kPositions[size_t(s)]);
+            set(r, "pos" + std::to_string(s) + "role", SheetWorld::kRoles[size_t(s)]);
+        }
+        return r;
+    }
+    // what ui_live_tactic.cpp builds (attach_db_row / attach_undo_db_row): the table, the row, its identity; the Apply's fields
+    DbRowWrite bare(uint64_t r) {
+        DbRowWrite x;
+        x.table = t;
+        x.rec = r;
+        x.key = get(r, "artificialkey");
+        for (const char* n : {"artificialkey", "teamid", "activetactic", "sourceformationid", "teamsheetid"}) x.checks.push_back({n, Value::of_int(get(r, n))});
+        return x;
+    }
+    DbRowWrite target(uint64_t r, const Plan& p, const LiveTactic&) {
+        DbRowWrite x = bare(r);
+        for (int s = 0; s < 11; ++s)
+            for (const std::string& n : {"playerid" + std::to_string(s), "position" + std::to_string(s)}) x.checks.push_back({n, Value::of_int(get(r, n))});
+        x.fields = apply_row_fields(p, [&](const std::string& n, int64_t& v) { return get_ok(r, n, v); });
+        return x;
+    }
+};
+
 static LiveTactic live(SheetWorld& w) {
     LiveTactic lt;
     read_live(w.mem, SheetWorld::kSvc, w.team, w.anchors(), lt);
@@ -681,11 +785,46 @@ static void run() {
         CHECK(defensive_approach(0)->seen && defensive_approach(1)->seen && !defensive_approach(3)->seen && defensive_approach(1)->default_line == 50 &&
                   defensive_approach(1)->default_line_seen && defensive_approach(3)->default_line == 95 && !defensive_approach(3)->default_line_seen,
               "seen / defaults (BALANCED showed 50)");
+        // 2.4: Build-Up Style 2 / 3 and Aggressive (3) stay refused; Turbo writes the approach band-consistent, so up to Line Height 90
+        CHECK(build_up_writable(0) && build_up_writable(1) && !build_up_writable(2) && !build_up_writable(3) && approach_writable(0) &&
+                  approach_writable(1) && approach_writable(2) && !approach_writable(3) && !approach_writable(4) && max_writable_line() == 90,
+              "writable: build-up 0 / 1, approach 0..2, line height up to 90");
+        r = Request();
+        r.approach = 3;
+        r.line_height = 95;
+        CHECK(plan(r).find("Line Height 95 lies in Aggressive's band") != std::string::npos && plan(r).find("up to 90") != std::string::npos,
+              "Aggressive's band refused: " + plan(r));
+        r.line_height = 90;
+        CHECK(plan(r).find("Defensive Approach Aggressive (3): its stored value is not decoded yet") == 0, "Aggressive refused: " + plan(r));
+        r = Request();
+        r.approach = 2;
+        CHECK(plan(r).find("is not Line Height 25's band") != std::string::npos && plan(r).find("band-consistent") != std::string::npos,
+              "High with line 25: refused (band): " + plan(r));
+        r.line_height = 61;
+        CHECK(plan(r).empty() && p.writes.size() == 3 && p.writes[0].new_value == 2 && p.writes[1].new_value == 61, "High with 61: consistent");
+        r = Request();
+        r.line_height = 30;
+        CHECK(plan(r).empty() && p.writes.size() == 3 && p.writes[0].new_value == 0, "Deep stays with 30");
+        r.line_height = 31;
+        CHECK(plan(r).find("band-consistent") != std::string::npos, "31 is Balanced's band: the approach must follow");
+        // the game's own Aggressive / 95 (or 2.3's write) is written back unchanged when only the build-up changes
+        LiveTactic ag = lt;
+        ag.approach = 3;
+        ag.line_height = 95;
+        r = Request();
+        r.build_up = 1;
+        CHECK(make_plan(ag, r, p, &al).empty() && p.writes.size() == 3 && p.writes[0].new_value == 3 && p.writes[1].new_value == 95 && p.writes[2].new_value == 1,
+              "the game's 95 / Aggressive kept: " + make_plan(ag, r, p, &al));
+        // a live record whose approach is not its line's band: a build-up change alone is refused (Turbo would write the pair as it is)
+        LiveTactic odd_band = lt;
+        odd_band.approach = 1;
+        CHECK(make_plan(odd_band, r, p, &al).find("Defensive Approach Balanced (1) is not Line Height 25's band") == 0, "inconsistent live pair: refused");
         // a live value without a label is written back unchanged when only another field changes (it is the game's own value)
         LiveTactic sp = lt;
         sp.build_up = 3;
         r = Request();
-        r.approach = 2;
+        r.approach = 1;
+        r.line_height = 50;
         CHECK(make_plan(sp, r, p, &al).empty() && p.writes.size() == 3 && p.writes[2].kind == FieldKind::BuildUp && p.writes[2].old_value == 3 &&
                   p.writes[2].new_value == 3,
               "the game's build-up 3 kept: " + make_plan(sp, r, p, &al));
@@ -714,6 +853,7 @@ static void run() {
         CHECK(make_plan(lt, r, p, &none).find("ran out of time") != std::string::npos, "a failed list: refused with its reason");
         r = Request();
         r.line_height = 60;
+        r.approach = 1;
         CHECK(make_plan(lt, r, p, nullptr).empty() && p.writes.size() == 3, "line height stays editable without the list (with the other two)");
         // nothing changes
         r = Request();
@@ -722,33 +862,46 @@ static void run() {
         r.approach = 0;
         r.slots = {{9, 21, 5}};
         CHECK(plan(r).empty() && p.writes.empty(), "the same values: an empty plan");
-        // the 2.3 acceptance test's change: Deep -> Aggressive, line height 90, Counter, the striker's focus 5 -> 6
+        // the 2.4 acceptance change: Deep -> High, line height 90 (High's band), Counter, the striker's focus 5 -> 6
         r = Request();
-        r.approach = 3;
+        r.approach = 2;
         r.line_height = 90;
         r.build_up = 1;
         r.slots = {{9, -1, 6}};
         CHECK(plan(r).empty() && p.writes.size() == 6, fmt("approach, line height, build-up, the three role values (%zu writes)", p.writes.size()));
-        CHECK(p.writes[0].kind == FieldKind::Approach && p.writes[0].old_value == 0 && p.writes[0].new_value == 3 && p.writes[1].kind == FieldKind::LineHeight &&
+        CHECK(p.writes[0].kind == FieldKind::Approach && p.writes[0].old_value == 0 && p.writes[0].new_value == 2 && p.writes[1].kind == FieldKind::LineHeight &&
                   p.writes[1].old_value == 25 && p.writes[1].new_value == 90 && p.writes[2].kind == FieldKind::BuildUp && p.writes[2].new_value == 1 &&
                   p.writes[3].kind == FieldKind::Role && p.writes[3].slot == 9 && p.writes[3].old_value == 38213 && p.writes[3].new_value == 38214 &&
                   p.writes[4].kind == FieldKind::RoleId && p.writes[4].new_value == 21 && p.writes[5].kind == FieldKind::Focus && p.writes[5].new_value == 6,
-              "approach 0->3, line height 25->90, build-up 0->1, slot 9 38213->38214 (21 / 6)");
+              "approach 0->2, line height 25->90, build-up 0->1, slot 9 38213->38214 (21 / 6)");
         CHECK(p.user == 95 && p.record_index == 0 && p.formation == 27 && p.source_formation == 36 && p.sheet_id == -1 && p.pids[9] == 100010 &&
                   p.code == SheetWorld::kCode,
               "the plan names its record and code");
-        // only the approach changes: all three are in the plan (written together), the other two with their live values
+        // only the build-up changes: all three are in the plan (written together), the other two with their live values
         r = Request();
-        r.approach = 1;
-        CHECK(plan(r).empty() && p.writes.size() == 3 && p.writes[1].old_value == 25 && p.writes[1].new_value == 25 && p.writes[2].new_value == 0,
+        r.build_up = 1;
+        CHECK(plan(r).empty() && p.writes.size() == 3 && p.writes[0].new_value == 0 && p.writes[1].old_value == 25 && p.writes[1].new_value == 25 &&
+                  p.writes[2].new_value == 1,
               "the three record fields together");
+        // the job checks the same rules on a plan it is handed (a forged or stale plan): together, band-consistent, writable
+        Plan forged = p;
+        forged.writes.pop_back();
+        CHECK(check_plan(lt, forged, checks(&al)).find("written together or not at all") != std::string::npos, "two of three: refused in the job");
+        forged = p;
+        forged.writes[1].new_value = 80;
+        CHECK(check_plan(lt, forged, checks(&al)).find("is not Line Height 80's band") != std::string::npos, "an inconsistent pair: refused in the job");
+        forged.writes[0].new_value = 3;
+        forged.writes[1].new_value = 95;
+        CHECK(check_plan(lt, forged, checks(&al)).find("Defensive Approach Aggressive (3): its stored value is not decoded yet") == 0, "Aggressive in the job");
+        forged.writes[0].new_value = 2;
+        CHECK(check_plan(lt, forged, checks(&al)).find("Line Height 95 lies in Aggressive's band") == 0, "Aggressive's band in the job");
     });
 
-    run_case("channel E: the write - approach, line height and build-up together, map record and Edit Tactic's working copies, read back, nothing else", [] {
+    run_case("channel E: the write - approach, line height and build-up together, the map record only (no Edit Tactic copy), read back, nothing else", [] {
         SheetWorld w;
         const LiveTactic lt = live(w);
         Request r;
-        r.approach = 3;
+        r.approach = 2;
         r.line_height = 90;
         r.build_up = 1;
         r.slots = {{9, -1, 6}};
@@ -776,22 +929,21 @@ static void run() {
         const ApplyResult res = apply_plan(counting, SheetWorld::kSvc, w.anchors(), p, ck);
         CHECK(res.ok && res.written && !res.undone && res.stage == "done", "written: " + res.message);
         CHECK(res.log_line ==
-                  "channel E: team 95 record 0 approach 0->3 line height 25->90 build-up 0->1 slot 9 role 38213->38214; Edit Tactic copies svc+0xF80, "
-                  "svc+0x1170 too (read back ok)",
+                  "channel E: team 95 record 0 approach 0->2 line height 25->90 build-up 0->1 slot 9 role 38213->38214 (read back ok) [record now LH 90 BU 1 DA 2]",
               "log: " + res.log_line);
-        CHECK(res.copies_written == 2 && res.copies.find("svc+0xF80, svc+0x1170 (code ?ZaE&CYzKoT7) written too") != std::string::npos, "copies: " + res.copies);
+        CHECK(res.copies_written == 0 && res.copies.empty(), "no Edit Tactic copy (2.4): " + res.copies);
         // the walks read whole pages (the working copies share the service's page); the snapshot and the read-back read each field itself
-        CHECK(res.reads == counting.reads && res.reads > 0 && res.reads <= 80 && counting.writes == 19 && w.mem.failed_reads == reads_before,
-              fmt("%d reads (%d counted), %d writes: 6 fields + 2 x 6 in the copies + the dirty flag", res.reads, counting.reads, counting.writes));
-        CHECK(w.i32(SheetWorld::kRecs + kRecApproach) == 3 && w.i32(SheetWorld::kRecs + kRecLineHeight) == 90 && w.i32(SheetWorld::kRecs + kRecBuildUp) == 1,
-              "the map record: Aggressive, 90, Counter");
+        CHECK(res.reads == counting.reads && res.reads > 0 && res.reads <= 80 && counting.writes == 7 && w.mem.failed_reads == reads_before,
+              fmt("%d reads (%d counted), %d writes: 6 fields + the dirty flag", res.reads, counting.reads, counting.writes));
+        CHECK(w.i32(SheetWorld::kRecs + kRecApproach) == 2 && w.i32(SheetWorld::kRecs + kRecLineHeight) == 90 && w.i32(SheetWorld::kRecs + kRecBuildUp) == 1,
+              "the map record: High, 90, Counter");
         for (uint64_t c : {uint64_t(0xF80), uint64_t(0x1170)})
-            CHECK(w.i32(w.copy_rec(c) + kRecApproach) == 3 && w.i32(w.copy_rec(c) + kRecLineHeight) == 90 && w.i32(w.copy_rec(c) + kRecBuildUp) == 1 &&
-                      w.i32(w.copy_slot(c, 9) + kSlotRole) == 38214 && w.i32(w.copy_slot(c, 9) + kSlotFocus) == 6,
-                  fmt("Edit Tactic's working copy svc+0x%llX holds the same values", (unsigned long long)c));
+            CHECK(w.i32(w.copy_rec(c) + kRecApproach) == 0 && w.i32(w.copy_rec(c) + kRecLineHeight) == 25 && w.i32(w.copy_rec(c) + kRecBuildUp) == 0 &&
+                      w.i32(w.copy_slot(c, 9) + kSlotRole) == 38213 && w.i32(w.copy_slot(c, 9) + kSlotFocus) == 5,
+                  fmt("Edit Tactic's working copy svc+0x%llX is not written (2.4)", (unsigned long long)c));
         CHECK(w.i32(w.slot(9) + kSlotRole) == 38214 && w.i32(w.slot(9) + kSlotRoleId) == 21 && w.i32(w.slot(9) + kSlotFocus) == 6, "slot 9: 38214 / 21 / 6");
         CHECK(w.u8(SheetWorld::kSheet + kSheetDirty) == 1 && res.dirty_before == 0 && res.dirty_after == 1, "dirty 0 -> 1");
-        CHECK(res.after.line_height == 90 && res.after.approach == 3 && res.after.slots[9].focus == 6 && res.after.copy(0xF80)->approach == 3,
+        CHECK(res.after.line_height == 90 && res.after.approach == 2 && res.after.slots[9].focus == 6 && res.after.copy(0xF80)->approach == 0,
               "the read-out after the write");
         // byte for byte: only the written fields and the dirty flag changed
         auto diff = [](const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
@@ -800,11 +952,8 @@ static void run() {
                 if (a[i] != b[i]) d.push_back(i);
             return d;
         };
-        // the service: only the working copies' three fields (its cache +0x13A0 / +0x13A4 and the templates untouched)
-        CHECK(diff(svc_before, w.bytes(SheetWorld::kSvc, kSvcSize)) ==
-                  std::vector<size_t>({0xF80 + kRecLineHeight, 0xF80 + kRecBuildUp, 0xF80 + kRecApproach, 0x1170 + kRecLineHeight, 0x1170 + kRecBuildUp,
-                                       0x1170 + kRecApproach}),
-              "the service: only the two working copies' line height / build-up / approach");
+        // the service: untouched (its cache +0x13A0 / +0x13A4, the working copies, the templates)
+        CHECK(diff(svc_before, w.bytes(SheetWorld::kSvc, kSvcSize)).empty(), "the service: not one byte changed");
         CHECK(diff(sheet_before, w.bytes(SheetWorld::kSheet, kSheetStride)) == std::vector<size_t>({kSheetDirty}), "the sheet: only the dirty flag");
         std::vector<size_t> rd = diff(rec_before, w.bytes(SheetWorld::kRecs, 5 * kRecStride));
         CHECK(rd == std::vector<size_t>({kRecLineHeight, kRecBuildUp, kRecApproach}), fmt("the records: only the three fields (%zu bytes)", rd.size()));
@@ -826,6 +975,7 @@ static void run() {
         SheetWorld w;
         Request r;
         r.line_height = 60;
+        r.approach = 1;
         r.slots = {{9, 22, 1}};
         Plan p;
         const RoleAllowList al = allow_of(w);
@@ -883,7 +1033,7 @@ static void run() {
         for (uint64_t c : {uint64_t(0xF80), uint64_t(0x1170)})
             CHECK(w.i32(w.copy_rec(c) + kRecApproach) == 0 && w.i32(w.copy_rec(c) + kRecLineHeight) == 25 && w.i32(w.copy_rec(c) + kRecBuildUp) == 0 &&
                       w.i32(w.copy_slot(c, 9) + kSlotRole) == 38213,
-                  "the working copies were put back too");
+                  "the working copies untouched");
         CHECK(w.u8(SheetWorld::kSheet + kSheetDirty) == 0, "the dirty flag is back to 0");
         // a write the memory layer refuses: the same full undo
         SheetWorld w2;
@@ -920,9 +1070,10 @@ static void run() {
         // a write: no opt-in -> the job refuses; then on
         Request r;
         r.line_height = 70;
+        r.approach = 2;
         Plan p;
         rig.svc->read(rig.ctx(), lt, why);
-        make_plan(lt, r, p, nullptr);
+        CHECK(make_plan(lt, r, p, nullptr).empty(), "plan");
         CHECK(rig.svc->submit(rig.ctx(), p, why), "queued: " + why);
         CHECK(rig.svc->busy(), "busy while queued");
         std::string why2;
@@ -952,8 +1103,8 @@ static void run() {
         rig.svc->submit(rig.ctx(), p, why);
         rig.jobs.pump();
         CHECK(rig.svc->poll(res) && res.ok && res.written && w.i32(SheetWorld::kRecs + kRecLineHeight) == 70, "written: " + res.message);
-        CHECK(rig.logged("channel E: team 95 record 0 line height 25->70; Edit Tactic copies svc+0xF80, svc+0x1170 too (read back ok) [job"),
-              "logged with the job time");
+        CHECK(rig.logged("channel E: team 95 record 0 approach 0->2 line height 25->70 (read back ok) [record now LH 70 BU 0 DA 2] [job"), "logged with the job time");
+        CHECK(w.i32(w.copy_rec(0xF80) + kRecLineHeight) == 25 && w.i32(w.copy_rec(0x1170) + kRecLineHeight) == 25, "the service's job writes no Edit Tactic copy");
         // another career load: located again (the cached service belongs to load 3)
         CHECK(!rig.svc->read(rig.ctx(4), lt, why) && why.find("locating") != std::string::npos, "load 4: locating again");
         CHECK(!rig.svc->submit(rig.ctx(4), p, why) && why.find("not located") != std::string::npos, "no write before it is located: " + why);
@@ -996,7 +1147,8 @@ static void run() {
         Plan p2;
         Request r2;
         r2.line_height = 33;
-        make_plan(lt, r2, p2, nullptr);
+        r2.approach = 1;
+        CHECK(make_plan(lt, r2, p2, nullptr).empty(), "plan 2");
         CHECK(rig2.svc->submit(rig2.ctx(), p2, why), "queued");
         CHECK(rig2.svc->poll(res) && res.undone && !rig2.svc->session_off().empty(), "mismatch: " + res.message);
         CHECK(!rig2.svc->submit(rig2.ctx(), p2, why) && why.find("off for this session") != std::string::npos, "no further write: " + why);
@@ -1049,8 +1201,9 @@ static void run() {
         CHECK(rig.svc->read(rig.ctx(), lt, why), "located: " + why);
         Request r;
         r.line_height = 44;
+        r.approach = 1;
         Plan p;
-        make_plan(lt, r, p, nullptr);
+        CHECK(make_plan(lt, r, p, nullptr).empty(), "plan");
         // job 1 is queued and never run (the dispatcher dropped it): after 10 s the service stops waiting
         CHECK(rig.svc->submit(rig.ctx(), p, why) && rig.svc->busy(), "job 1 queued");
         rig.clock += 5e6;
@@ -1191,8 +1344,9 @@ static void run() {
             SheetWorld w;
             Request r;
             r.line_height = 70;
+            r.approach = 2;
             Plan p;
-            make_plan(live(w), r, p, nullptr);
+            CHECK(make_plan(live(w), r, p, nullptr).empty(), "plan");
             std::atomic<bool> cancel{true};
             JobChecks ck;
             ck.cancel = &cancel;
@@ -1241,12 +1395,13 @@ static void run() {
         }
     });
 
-    run_case("channel E: the cm_mentalities mirror's checks - the row must be the live tactic; its undo obeys the switches and the row", [] {
+    run_case("channel E: the cm_mentalities row's checks - the row must be the live tactic; its fields; its undo obeys the database switches and the row", [] {
         SheetWorld w;
         const LiveTactic lt = live(w);
         Request r;
         r.build_up = 1;
         r.line_height = 75;
+        r.approach = 2;
         Plan p;
         CHECK(make_plan(lt, r, p, nullptr).empty() && p.writes.size() == 3, "plan");
         std::map<std::string, int64_t> row;
@@ -1275,20 +1430,250 @@ static void run() {
         row.erase("position0");
         CHECK(mirror_row_check(get, lt, p.writes).find("no playerid0 / position0") != std::string::npos, "no slot fields: skipped");
         CHECK(mirror_field_name({FieldKind::Role, 9, 0, 0}) == "pos9role" && mirror_field_name({FieldKind::Focus, 9, 0, 0}).empty(), "field names");
+        row["position0"] = lt.slots[0].position;
+        // the Apply's row fields: the mirrored fields that change (the approach has no column; line height and build-up do)
+        const std::vector<DbRowField> af = apply_row_fields(p, get);
+        CHECK(af.size() == 2 && af[0].name == "defensivedepth" && af[0].old_value == 25 && af[0].new_value == 75 && af[1].name == "buildupplay" &&
+                  af[1].old_value == 0 && af[1].new_value == 1,
+              fmt("defensivedepth 25 -> 75, buildupplay 0 -> 1 (%zu)", af.size()));
+        row["buildupplay"] = 1;
+        CHECK(apply_row_fields(p, get).size() == 1, "a field that already holds the value is left out");
+        row["buildupplay"] = 0;
+        int64_t lo = 0, hi = 0;
+        CHECK(db_row_field_range("defensivedepth", lo, hi) && lo == 1 && hi == 100 && db_row_field_range("buildupplay", lo, hi) && hi == 3 &&
+                  db_row_field_range("pos10role", lo, hi) && hi == 60000 && !db_row_field_range("pos11role", lo, hi) && !db_row_field_range("teamid", lo, hi) &&
+                  !db_row_field_range("posxrole", lo, hi),
+              "the ranges Turbo writes in");
+        // the undo's row: the database switches and the row's identity
         UndoRecord u = UndoRecord::from_plan(p);
         u.mirror_row_key = 2;
+        row["artificialkey"] = 2;
         Switches sw;
-        CHECK(undo_mirror_check(sw, get, u).find("off until") != std::string::npos, "the mirror is opt-in: its undo too");
-        sw.mirror_on = true;
-        CHECK(undo_mirror_check(sw, get, u).empty(), "on, the tactic's row: put back");
+        CHECK(undo_row_check(sw, get, u).empty(), "the tactic's row: put back");
         sw.off = true;
-        CHECK(undo_mirror_check(sw, get, u).find("call_team_sheet_off.txt") != std::string::npos, "the kill switch stops it");
-        sw.off = false;
-        sw.mirror_off = true;
-        CHECK(undo_mirror_check(sw, get, u).find("channel_e_db_mirror_off.txt") != std::string::npos, "the mirror's own switch");
-        sw.mirror_off = false;
+        sw.master = true;
+        CHECK(undo_row_check(sw, get, u).empty(), "the channel's kill switches do not stop an undo (it puts the game's values back)");
+        sw.off = sw.master = false;
+        sw.db_row_off = true;
+        CHECK(undo_row_check(sw, get, u).find("channel_e_db_off.txt") != std::string::npos, "the row's own switch");
+        sw.db_row_off = false;
+        sw.db_row_off_legacy = true;
+        CHECK(undo_row_check(sw, get, u).find("channel_e_db_mirror_off.txt") != std::string::npos, "2.3's name of it");
+        sw.db_row_off_legacy = false;
+        sw.db_off = true;
+        CHECK(undo_row_check(sw, get, u).find("tactics_db_off.txt") != std::string::npos, "the database rows channel");
+        CHECK(sw.blocking().empty() && !sw.db_row_block().empty(), "a database switch does not stop the live write");
+        sw.db_off = false;
+        row["artificialkey"] = 3;
+        CHECK(undo_row_check(sw, get, u).find("is not club 95's active tactic") != std::string::npos, "another artificialkey: refused");
+        row["artificialkey"] = 2;
         row["teamid"] = 7;
-        CHECK(undo_mirror_check(sw, get, u).find("is not club 95's active tactic") != std::string::npos, "another club's artificialkey: refused");
+        CHECK(undo_row_check(sw, get, u).find("is not club 95's active tactic") != std::string::npos, "another club's row: refused");
+        row["teamid"] = 95;
+        // the undo's fields: those whose live field the undo puts back and that still hold Turbo's value
+        u.mirror = {{"defensivedepth", 25, 75}, {"buildupplay", 0, 1}};
+        u.mirror_state = "written";
+        row["defensivedepth"] = 75;
+        row["buildupplay"] = 1;
+        Plan up;
+        up.undo = true;
+        up.writes = {{FieldKind::Approach, -1, 2, 0}, {FieldKind::LineHeight, -1, 75, 25}, {FieldKind::BuildUp, -1, 1, 0}};
+        std::vector<std::string> left;
+        std::vector<DbRowField> uf = undo_row_fields(u, up, get, left);
+        CHECK(uf.size() == 2 && uf[0].old_value == 75 && uf[0].new_value == 25 && uf[1].new_value == 0 && left.empty(), "both back");
+        row["buildupplay"] = 3;  // the game's save wrote another value since
+        up.writes.pop_back();    // and the live build-up is not put back
+        uf = undo_row_fields(u, up, get, left);
+        CHECK(uf.size() == 1 && uf[0].name == "defensivedepth" && left.size() == 1 && left[0].find("buildupplay") == 0, "only the line height: " + left[0]);
+        // add_job_rows: the first value before Turbo's write stays; another row starts over; an undo marks it restored
+        UndoRecord v;
+        DbRowWrite rw;
+        rw.table.name = "cm_mentalities";
+        rw.key = 2;
+        rw.fields = {{"defensivedepth", 25, 75}};
+        add_job_rows(v, {rw}, false);
+        rw.fields = {{"defensivedepth", 75, 60}, {"buildupplay", 0, 1}};
+        add_job_rows(v, {rw}, false);
+        CHECK(v.mirror_state == "written" && v.mirror_row_key == 2 && v.mirror.size() == 2 && v.mirror[0].old_value == 25 && v.mirror[0].new_value == 60,
+              "merged: defensivedepth 25 -> 60");
+        rw.fields = {{"defensivedepth", 50, 70}};  // the game's save put 50 there since
+        add_job_rows(v, {rw}, false);
+        CHECK(v.mirror[0].old_value == 50 && v.mirror[0].new_value == 70, "a value the game wrote in between is what was replaced");
+        rw.key = 9;
+        add_job_rows(v, {rw}, false);
+        CHECK(v.mirror_row_key == 9 && v.mirror.size() == 1, "another row starts over");
+        add_job_rows(v, {rw}, true);
+        CHECK(v.mirror_state == "restored", "an undo's rows: restored");
+    });
+
+    run_case("channel E 2.4: one job - the live record and its cm_mentalities row written, read back, rolled back and put back together", [] {
+        SheetWorld w;
+        DbWorld db(w.mem);
+        const uint64_t rec = db.row(0, w, 0, 25, 0);
+        db.row(1, w, 1, 50, 1);  // another row of the club (not the active tactic): never touched
+        db.mem_set(1, "teamid", 95);
+        db.mem_set(1, "activetactic", 0);
+        const std::vector<uint8_t> other_before = w.bytes(DbWorld::kRecs + DbWorld::kRecSize, DbWorld::kRecSize);
+        Request r;
+        r.approach = 2;
+        r.line_height = 70;
+        r.build_up = 1;
+        Plan p;
+        CHECK(make_plan(live(w), r, p, nullptr).empty(), "plan");
+        p.load_gen = 3;
+        p.rows.push_back(db.target(rec, p, live(w)));
+        CHECK(p.rows[0].fields.size() == 2 && p.rows[0].checks.size() >= 26, fmt("the row: 2 fields, %zu checks", p.rows[0].checks.size()));
+        const ApplyResult res = apply_plan(w.mem, SheetWorld::kSvc, w.anchors(), p);
+        CHECK(res.ok && res.written, "written: " + res.message);
+        CHECK(res.log_line == "channel E: team 95 record 0 approach 0->2 line height 25->70 build-up 0->1; cm_mentalities artificialkey 0 defensivedepth 25->70 "
+                             "buildupplay 0->1 (read back ok) [record now LH 70 BU 1 DA 2]",
+              "log: " + res.log_line);
+        CHECK(db.get(rec, "defensivedepth") == 70 && db.get(rec, "buildupplay") == 1 && db.get(rec, "teamid") == 95 && db.get(rec, "pos9role") == 38213,
+              "the row holds the new values, the rest as it was");
+        CHECK(w.i32(SheetWorld::kRecs + kRecLineHeight) == 70 && w.i32(SheetWorld::kRecs + kRecApproach) == 2, "the live record too");
+        CHECK(w.bytes(DbWorld::kRecs + DbWorld::kRecSize, DbWorld::kRecSize) == other_before, "the other row untouched");
+        CHECK(res.rows.size() == 1 && res.rows[0].fields.size() == 2 && res.rows[0].fields[0].old_value == 25 && res.rows[0].fields[0].new_value == 70,
+              "the result names the row's snapshot");
+        // the undo: one job again, live record and row back
+        WriteHistory hist;
+        hist.note(p, res.writes, res.rows);
+        UndoRecord u = UndoRecord::from_plan(p);
+        u.load_gen = 3;
+        u.state = "written";
+        add_job_rows(u, res.rows, false);
+        CHECK(u.mirror_state == "written" && u.mirror_table == "cm_mentalities" && u.mirror_row_key == 0 && u.mirror.size() == 2, "the undo record names the row");
+        UndoRecord back;
+        std::string err;
+        CHECK(UndoRecord::parse(u.to_json(), back, &err) && back.mirror.size() == 2 && back.mirror[0].old_value == 25 && back.mirror_row_key == 0,
+              "the row survives the JSON (db_mirror): " + err);
+        Plan up;
+        std::vector<std::string> skipped;
+        CHECK(make_undo_plan(live(w), u, "", 3, up, skipped).empty() && up.writes.size() == 3, "undo plan");
+        auto get = [&](const std::string& n, int64_t& v) { return db.get_ok(rec, n, v); };
+        CHECK(undo_row_check(Switches(), get, u).empty(), "the row is the tactic's");
+        std::vector<std::string> left;
+        DbRowWrite ur = db.bare(rec);
+        ur.fields = undo_row_fields(u, up, get, left);
+        up.rows.push_back(ur);
+        // an undo row value that is not the row's original: refused in the job
+        Plan forged = up;
+        forged.rows[0].fields[0].new_value = 40;
+        JobChecks hck;
+        hck.history = &hist;
+        const ApplyResult fr = apply_plan(w.mem, SheetWorld::kSvc, w.anchors(), forged, hck);
+        CHECK(!fr.ok && fr.stage == "G6" && fr.message.find("the row held 25 before Turbo's first write") != std::string::npos && db.get(rec, "defensivedepth") == 70,
+              "forged row undo: " + fr.message);
+        const ApplyResult ures = apply_plan(w.mem, SheetWorld::kSvc, w.anchors(), up, hck);
+        CHECK(ures.ok && ures.undo && db.get(rec, "defensivedepth") == 25 && db.get(rec, "buildupplay") == 0 && w.i32(SheetWorld::kRecs + kRecLineHeight) == 25 &&
+                  w.i32(SheetWorld::kRecs + kRecApproach) == 0,
+              "undone: live record and row back: " + ures.message);
+        CHECK(ures.log_line.find("channel E: undo team 95 record 0 approach 2->0 line height 70->25 build-up 1->0; cm_mentalities artificialkey 0 defensivedepth "
+                                 "70->25 buildupplay 1->0 (read back ok)") == 0,
+              "log: " + ures.log_line);
+    });
+
+    run_case("channel E 2.4: one job - the row re-checked in the job (identity, owner rule, table, ranges, mirror), a row write that does not land rolls back all", [] {
+        Request r;
+        r.approach = 2;
+        r.line_height = 70;
+        r.build_up = 1;
+        struct Case {
+            const char* name;
+            std::function<void(SheetWorld&, DbWorld&, uint64_t, Plan&)> mutate;
+            const char* stage;
+            const char* expect;
+        };
+        const std::vector<Case> cases = {
+            {"another club in the row", [](SheetWorld&, DbWorld& d, uint64_t, Plan&) { d.mem_set(0, "teamid", 96); }, "db row", "teamid is 96, not 95"},
+            {"no longer the active tactic", [](SheetWorld&, DbWorld& d, uint64_t, Plan&) { d.mem_set(0, "activetactic", 0); }, "db row", "activetactic is 0"},
+            {"another player in slot 4", [](SheetWorld&, DbWorld& d, uint64_t, Plan&) { d.mem_set(0, "playerid4", 1); }, "db row", "playerid4 is 1"},
+            {"the depth written by someone else", [](SheetWorld&, DbWorld& d, uint64_t, Plan&) { d.mem_set(0, "defensivedepth", 33); }, "db row",
+             "defensivedepth is 33, not 25"},
+            {"the table moved (another save loaded)", [](SheetWorld& w, DbWorld&, uint64_t, Plan&) { w.mem.wr(DbWorld::kHdr + 0x30, uint64_t(0x5B000000ULL)); }, "db row",
+             "the database changed"},
+            {"the row deleted", [](SheetWorld& w, DbWorld&, uint64_t rec, Plan&) { w.mem.wr(rec + DbWorld::kRecSize - 1, uint8_t(0x80)); }, "db row", "deleted"},
+            {"a row value that is not the live record's", [](SheetWorld&, DbWorld&, uint64_t, Plan& p) { p.rows[0].fields[0].new_value = 71; }, "G6",
+             "is not what the live record gets"},
+            {"a depth outside 1..100", [](SheetWorld&, DbWorld&, uint64_t, Plan& p) { p.rows[0].fields[0].new_value = 0; }, "G6", "outside 1..100"},
+            {"a field Turbo never writes", [](SheetWorld&, DbWorld&, uint64_t, Plan& p) { p.rows[0].fields[0].name = "teamid"; }, "G6", "not a field Turbo writes"},
+        };
+        for (const Case& c : cases) {
+            SheetWorld w;
+            DbWorld db(w.mem);
+            const uint64_t rec = db.row(0, w, 0, 25, 0);
+            Plan p;
+            make_plan(live(w), r, p, nullptr);
+            p.rows.push_back(db.target(rec, p, live(w)));
+            c.mutate(w, db, rec, p);
+            const std::vector<uint8_t> recs_before = w.bytes(SheetWorld::kRecs, kRecStride);
+            const ApplyResult res = apply_plan(w.mem, SheetWorld::kSvc, w.anchors(), p);
+            CHECK(!res.ok && !res.written && res.stage == c.stage && res.message.find(c.expect) != std::string::npos && res.message.find("nothing written") != std::string::npos &&
+                      w.bytes(SheetWorld::kRecs, kRecStride) == recs_before,
+                  std::string(c.name) + ": " + res.stage + " " + res.message);
+        }
+        // the row's write does not land: the live record, the dirty flag and the row are put back, channel E off for the session
+        SheetWorld w;
+        w.mem.wr(SheetWorld::kSheet + kSheetDirty, uint8_t(0));
+        DbWorld db(w.mem);
+        const uint64_t rec = db.row(0, w, 0, 25, 0);
+        Plan p;
+        make_plan(live(w), r, p, nullptr);
+        p.rows.push_back(db.target(rec, p, live(w)));
+        FlakyMemory fm(w.mem);
+        fm.drop = rec + db.field("defensivedepth")->byte_off();
+        const ApplyResult res = apply_plan(fm, SheetWorld::kSvc, w.anchors(), p);
+        CHECK(!res.ok && res.undone && res.session_off && res.message.find("cm_mentalities artificialkey 0 defensivedepth reads 25, not 70") != std::string::npos,
+              "mismatch named: " + res.message);
+        CHECK(w.i32(SheetWorld::kRecs + kRecLineHeight) == 25 && w.i32(SheetWorld::kRecs + kRecApproach) == 0 && w.i32(SheetWorld::kRecs + kRecBuildUp) == 0 &&
+                  w.u8(SheetWorld::kSheet + kSheetDirty) == 0 && db.get(rec, "defensivedepth") == 25 && db.get(rec, "buildupplay") == 0,
+              "the live record, the dirty flag and the row are back");
+        CHECK(res.log_line.find("READ-BACK MISMATCH") != std::string::npos && res.log_line.find("undone from the snapshot") != std::string::npos, res.log_line);
+    });
+
+    run_case("channel E 2.4: the service strips the row while channel_e_db_off.txt / tactics_db_off.txt exist (the live record is still written)", [] {
+        const fs::path out = test_tmp_dir("channel_e_dbrow");
+        std::error_code ec;
+        fs::remove_all(out, ec);
+        SheetWorld w;
+        DbWorld db(w.mem);
+        const uint64_t rec = db.row(0, w, 0, 25, 0);
+        ServiceRig rig(w, out);
+        rig.find_returns = SheetWorld::kSvc;
+        rig.touch(opt_in_file());
+        rig.jobs.inline_run = true;
+        LiveTactic lt;
+        std::string why;
+        CHECK(rig.svc->read(rig.ctx(), lt, why), "read: " + why);
+        for (const char* k : {db_row_off_file(), db_row_off_legacy_file(), db_off_file()}) {
+            Request r;
+            r.approach = lt.approach == 2 ? 1 : 2;
+            r.line_height = r.approach == 2 ? 70 : 50;
+            Plan p;
+            CHECK(make_plan(lt, r, p, nullptr).empty(), "plan");
+            p.load_gen = 3;
+            p.rows.push_back(db.target(rec, p, lt));
+            rig.touch(k);
+            ApplyResult res;
+            CHECK(rig.svc->submit(rig.ctx(), p, why) && rig.svc->poll(res) && res.ok && res.written && res.rows.empty(), std::string(k) + ": " + res.message);
+            CHECK(res.log_line.find(std::string("[cm_mentalities not written: kill switch turbo_output\\") + k + " is present]") != std::string::npos,
+                  "said so: " + res.log_line);
+            CHECK(db.get(rec, "defensivedepth") == 25 && w.i32(SheetWorld::kRecs + kRecLineHeight) == r.line_height, "the row untouched, the live record written");
+            rig.remove(k);
+            rig.svc->read(rig.ctx(), lt, why);
+        }
+        // no switch: the service's job writes the row with the live record
+        Request r;
+        r.approach = 0;
+        r.line_height = 25;
+        Plan p;
+        CHECK(make_plan(lt, r, p, nullptr).empty(), "plan");
+        p.load_gen = 3;
+        db.mem_set(0, "defensivedepth", lt.line_height);
+        p.rows.push_back(db.target(rec, p, lt));
+        ApplyResult res;
+        CHECK(rig.svc->submit(rig.ctx(), p, why) && rig.svc->poll(res) && res.ok && res.rows.size() == 1 && db.get(rec, "defensivedepth") == 25 &&
+                  rig.logged("; cm_mentalities artificialkey 0 defensivedepth " + std::to_string(lt.line_height) + "->25"),
+              "the row written in the service's job: " + res.log_line);
     });
 
     run_case("channel E: the gates G1..G6 in order, with the first reason", [] {
@@ -1374,6 +1759,7 @@ static void run() {
         Request r;
         r.build_up = 1;
         r.line_height = 75;
+        r.approach = 2;
         r.slots = {{9, -1, 6}};
         Plan p;
         const RoleAllowList al = allow_of(w);
@@ -1403,8 +1789,8 @@ static void run() {
         CHECK(reverted(live(w), u).empty(), "nothing overwritten");
         Plan up;
         std::vector<std::string> skipped;
-        CHECK(make_undo_plan(live(w), u, "", 3, up, skipped).empty() && up.undo && up.writes.size() == 5 && skipped.empty() && up.load_gen == 3,
-              "the undo plan: line height, build-up and the slot (the approach was not changed)");
+        CHECK(make_undo_plan(live(w), u, "", 3, up, skipped).empty() && up.undo && up.writes.size() == 6 && skipped.empty() && up.load_gen == 3,
+              "the undo plan: approach, line height, build-up and the slot");
         // another career load (or Lua session): refused, the reload threw the change away
         Plan tmp;
         CHECK(make_undo_plan(live(w), u, "", 4, tmp, skipped).find("another career load") != std::string::npos, "undo across load_gen: refused");
@@ -1444,15 +1830,16 @@ static void run() {
             CHECK(!orr.ok && orr.message.find("before Turbo's first write") != std::string::npos, "an undo value not in the history: " + orr.message);
             Plan fresh;
             make_undo_plan(live(w), u, "", 3, fresh, skipped);
-            CHECK(fresh.writes.size() == 5 && !apply_plan(w.mem, SheetWorld::kSvc, w.anchors(), fresh, checks(nullptr)).ok, "an undo without the history: refused");
+            CHECK(fresh.writes.size() == 6 && !apply_plan(w.mem, SheetWorld::kSvc, w.anchors(), fresh, checks(nullptr)).ok, "an undo without the history: refused");
         }
         // Edit Tactic changed the depth since: that field is left alone, the rest goes back
         w.mem.wr(SheetWorld::kRecs + kRecLineHeight, int32_t(40));
         CHECK(has_part(reverted(live(w), u), "Line Height 75 -> 40"), "the overwrite is seen");
-        CHECK(make_undo_plan(live(w), u, "", 3, up, skipped).empty() && up.writes.size() == 4 && has_part(skipped, "Line Height is 40"), "line height left as it is");
+        CHECK(make_undo_plan(live(w), u, "", 3, up, skipped).empty() && up.writes.size() == 5 && has_part(skipped, "Line Height is 40"), "line height left as it is");
         const ApplyResult ur = apply_plan(w.mem, SheetWorld::kSvc, w.anchors(), up, uck);
-        CHECK(ur.ok && ur.undo && w.i32(SheetWorld::kRecs + kRecBuildUp) == 0 && w.i32(w.slot(9) + kSlotRole) == 38213 && w.i32(SheetWorld::kRecs + kRecLineHeight) == 40,
-              "build-up and the slot back, line height kept: " + ur.message);
+        CHECK(ur.ok && ur.undo && w.i32(SheetWorld::kRecs + kRecBuildUp) == 0 && w.i32(w.slot(9) + kSlotRole) == 38213 && w.i32(SheetWorld::kRecs + kRecLineHeight) == 40 &&
+                  w.i32(SheetWorld::kRecs + kRecApproach) == 0,
+              "approach, build-up and the slot back, line height kept: " + ur.message);
         CHECK(ur.log_line.find("channel E: undo team 95") == 0, ur.log_line);
         CHECK(!make_undo_plan(live(w), u, "", 3, up, skipped).empty(), "nothing holds Turbo's values any more");
         // another record: refused
@@ -1464,8 +1851,9 @@ static void run() {
         Plan p1, p2;
         Request a;
         a.line_height = 60;
+        a.approach = 1;
         a.slots = {{9, -1, 6}};
-        make_plan(live(w2), a, p1, &al);
+        CHECK(make_plan(live(w2), a, p1, &al).empty(), "plan 1");
         apply_plan(w2.mem, SheetWorld::kSvc, w2.anchors(), p1, checks(&al));
         WriteHistory hist2;
         hist2.note(p1);
@@ -1474,8 +1862,9 @@ static void run() {
         u1.dirty_before = 0;
         Request b;
         b.line_height = 70;
+        b.approach = 2;
         b.build_up = 1;
-        make_plan(live(w2), b, p2, nullptr);
+        CHECK(make_plan(live(w2), b, p2, nullptr).empty(), "plan 2");
         UndoRecord u2 = merge_undo(u1, UndoRecord::from_plan(p2));
         auto find = [](const UndoRecord& x, FieldKind k, int slot) -> const FieldWrite* {
             for (const auto& fw : x.writes)
@@ -1502,7 +1891,7 @@ static void run() {
         CHECK(merge_undo(u1, later).writes.size() == later.writes.size(), "another career load is not merged");
     });
 
-    run_case("channel E: the kick-off check - on the game tick 20 s after Lua's match phase, the match-setup copy dumped (read-only), logged either way", [] {
+    run_case("channel E 2.4: the kick-off self-proof - 20 s after Lua's match phase the match copies are found (pids / role words), decoded, ONE line names the values", [] {
         SheetWorld w;
         const fs::path o = test_tmp_dir("channel_e_kickoff");
         std::error_code ec;
@@ -1510,6 +1899,13 @@ static void run() {
         ServiceRig rig(w, o);
         rig.find_returns = SheetWorld::kSvc;
         rig.touch(opt_in_file());
+        // the decode table: one place, T2's offsets, u8
+        const std::vector<CopyField>& tbl = match_copy_fields();
+        CHECK(tbl.size() == 3 && std::string(tbl[0].name) == "LH" && tbl[0].offset == 0x158 && std::string(tbl[1].name) == "BU" && tbl[1].offset == 0x15B &&
+                  std::string(tbl[2].name) == "DA" && tbl[2].offset == 0x15C && tbl[0].width == 1 && tbl[1].width == 1 && tbl[2].width == 1 && tbl[0].known &&
+                  tbl[1].known && tbl[2].known,
+              "LH +0x158, BU +0x15B, DA +0x15C, u8");
+        CHECK(kCopyStyleWindow == 0x150 && kCopyStyleWindowLen == 0x18 && kKickoffHead == 0x1A0 && kKickoffTail == 0x200, "the window and the dump");
         std::array<int32_t, 11> roles{}, pids{};
         for (int s = 0; s < 11; ++s) {
             roles[size_t(s)] = SheetWorld::kRoles[size_t(s)];
@@ -1522,7 +1918,7 @@ static void run() {
         std::memcpy(buf.data() + 0x41, pat.data(), pat.size());
         std::memcpy(buf.data() + 0x80, pat.data(), pat.size());
         CHECK(find_bytes(buf.data(), buf.size(), 0x1000, pat, 10, 4) == std::vector<uint64_t>({0x1080}), "4-aligned hits only");
-        // a match with no tactic read in the hub before: the check says so (and nothing is dumped)
+        // a match with no tactic read in the hub before: not checked, said so, nothing dumped
         Context c = rig.ctx();
         c.phase = "hub";
         rig.svc->note_context(c);
@@ -1534,9 +1930,9 @@ static void run() {
         CHECK(rig.svc->kickoff_status().empty(), "not before 20 s");
         rig.clock += 20e6;
         rig.svc->kickoff_tick();
-        CHECK(rig.logged("no kick-off check: the live tactic was not read in the career hub before this match"), "no arm: logged");
+        CHECK(rig.logged("channel E kick-off: not checked (the live tactic was not read in the career hub before this match"), "no arm: logged");
         CHECK(!fs::exists(o / kickoff_dump_file()), "nothing dumped");
-        // in the hub: Turbo writes Aggressive / 90 / Counter and the striker's focus 6 (the service arms the check with the values it read back)
+        // in the hub: Turbo writes High / 70 / Counter and the striker's focus 6 (the service arms the check with the values it read back)
         c.phase = "hub";
         c.hub = true;
         LiveTactic lt;
@@ -1545,8 +1941,8 @@ static void run() {
         rig.jobs.pump();
         CHECK(rig.svc->read(c, lt, why), "read in the hub: " + why);
         Request r;
-        r.approach = 3;
-        r.line_height = 90;
+        r.approach = 2;
+        r.line_height = 70;
         r.build_up = 1;
         r.slots = {{9, -1, 6}};
         Plan p;
@@ -1557,148 +1953,209 @@ static void run() {
         rig.jobs.pump();
         ApplyResult res;
         CHECK(rig.svc->poll(res) && res.ok && res.written, "written: " + res.message);
-        // the match copy (report 2.12): team at +0x28, roles at +0x118, pids at +0x168, and the tactic's line height somewhere after it;
-        // a second hit without the pids (a UI copy)
-        const uint64_t out = 0x429F9EB08ULL, ui = 0xFA6ECCF0ULL;
-        w.mem.map(out, kKickoffHead + kKickoffTail);
-        w.mem.wr(out + 0x1C, int32_t(27));
-        w.mem.wr(out + kCopyTeam, int32_t(95));
-        w.mem.write(out + kCopyRoles, pat.data(), pat.size());
-        for (int s = 0; s < 11; ++s) w.mem.wr(out + kCopyPids + 4 * uint64_t(s), pids[size_t(s)]);
-        w.mem.wr(out + 0x1A4, int32_t(90));
+        // the two match-setup copies the game made on 2026-10-12 (report 2.12 + T2's style block): team, formation ids, positions, role words,
+        // pids, Line Height / Build-Up Style / Defensive Approach as bytes at +0x158 / +0x15B / +0x15C; and a third hit of the role words
+        // without the layout (a UI copy)
+        auto put_copy = [&](uint64_t out, int32_t team, int lh, int bu, int da, const std::array<int32_t, 11>& rw) {
+            w.mem.map(out, kKickoffHead + kKickoffTail);
+            w.mem.wr(out + 0x1C, int32_t(27));
+            w.mem.wr(out + 0x20, int32_t(36));
+            w.mem.wr(out + 0x24, int32_t(36));
+            w.mem.wr(out + kCopyTeam, team);
+            w.mem.wr(out + 0x2C, int32_t(18));
+            for (int s = 0; s < 11; ++s) {
+                w.mem.wr(out + kCopyPositions + 4 * uint64_t(s), SheetWorld::kPositions[size_t(s)]);
+                w.mem.wr(out + kCopyRoles + 4 * uint64_t(s), rw[size_t(s)]);
+                w.mem.wr(out + kCopyPids + 4 * uint64_t(s), pids[size_t(s)]);
+            }
+            w.mem.wr(out + 0x158, uint8_t(lh));
+            w.mem.wr(out + 0x159, uint8_t(2));
+            w.mem.wr(out + 0x15A, uint8_t(2));
+            w.mem.wr(out + 0x15B, uint8_t(bu));
+            w.mem.wr(out + 0x15C, uint8_t(da));
+        };
+        const uint64_t out1 = 0x429F9EB08ULL, out2 = 0x429FA0000ULL, ui = 0xFA6ECCF0ULL;
+        put_copy(out1, 95, 70, 1, 2, roles);
+        put_copy(out2, 95, 70, 1, 2, roles);
         w.mem.map(ui, 0x100);
         w.mem.write(ui, pat.data(), pat.size());
-        CHECK(is_match_copy(w.mem, out + kCopyRoles, 95, pids) && !is_match_copy(w.mem, ui, 95, pids) && !is_match_copy(w.mem, out + kCopyRoles, 96, pids),
+        CHECK(is_match_copy_at(w.mem, out1, 95, pids) && is_match_copy(w.mem, out1 + kCopyRoles, 95, pids) && !is_match_copy(w.mem, ui, 95, pids) &&
+                  !is_match_copy_at(w.mem, out1, 96, pids),
               "the layout tells them apart");
-        const std::vector<uint8_t> before = w.bytes(out, kKickoffHead + kKickoffTail);
+        w.mem.wr(out2 + kCopyPositions, int32_t(3));
+        CHECK(!is_match_copy_at(w.mem, out2, 95, pids), "positions: the goalkeeper first");
+        w.mem.wr(out2 + kCopyPositions, int32_t(0));
+        w.mem.wr(out2 + kCopyPositions + 8, int32_t(28));
+        CHECK(!is_match_copy_at(w.mem, out2, 95, pids), "positions 0..27");
+        w.mem.wr(out2 + kCopyPositions + 8, SheetWorld::kPositions[2]);
+        const std::vector<uint8_t> before1 = w.bytes(out1, kKickoffHead + kKickoffTail), before2 = w.bytes(out2, kKickoffHead + kKickoffTail);
+        auto match = [&](Context& cx) {
+            cx.phase = "prematch";
+            cx.hub = false;
+            rig.svc->note_context(cx);
+            cx.phase = "match";
+            rig.svc->note_context(cx);
+            rig.clock += 20e6;
+            rig.svc->kickoff_tick();
+            return rig.svc->kickoff_status();
+        };
         // the pre-match screen, then the match: 20 s later the game tick runs the check (the card is never drawn here)
         c.phase = "prematch";
         c.hub = false;
         rig.svc->note_context(c);
         c.phase = "match";
         rig.svc->note_context(c);
-        CHECK(rig.logged("Lua phase prematch -> match: kick-off check in 20 s (the tactic after Turbo's write: Line Height 90, Build-Up Style Counter (1), "
-                         "Defensive Approach Aggressive (3))"),
+        CHECK(rig.logged("Lua phase prematch -> match: kick-off check in 20 s (the tactic after Turbo's write: Line Height 70, Build-Up Style Counter (1), "
+                         "Defensive Approach High (2))"),
               "armed with Turbo's values");
         rig.clock += 19e6;
         rig.svc->kickoff_tick();
         CHECK(!fs::exists(o / kickoff_dump_file()), "19 s: not yet");
         rig.clock += 1e6;
+        const size_t logs0 = rig.logs.size();
         rig.svc->kickoff_tick();
         const std::string ks = rig.svc->kickoff_status();
-        CHECK(ks.find("2 copies of the live role words, 1 in the match-setup layout (0x429F9EB08): the match copied this tactic's role words") != std::string::npos &&
-                  ks.find("dumped to turbo_output\\channel_e_kickoff_dump.bin (1 x 0x3A0 bytes from out+0x00") != std::string::npos &&
-                  ks.find("Line Height 90 at +0x1A4") != std::string::npos,
-              "status: " + ks);
-        CHECK(rig.logged("channel E: kick-off check: 2 copies"), "logged");
+        CHECK(ks.find("channel E kick-off: match copy team 95 LH 70 BU 1 DA 2 roles 11/11 = Turbo (ok) | 2 copies (0x429F9EB08, 0x429FA0000; ") == 0,
+              "THE line: " + ks);
+        CHECK(ks.find("decode LH +0x158 BU +0x15B DA +0x15C u8 (T2 static decode") != std::string::npos &&
+                  ks.find("; raw LH +0x158=46 BU +0x15B=01 DA +0x15C=02; u8 70 at +0x158; ") != std::string::npos &&
+                  ks.find("window +0x150: 00 00 00 00 00 00 00 00 46 02 02 01 02 00") != std::string::npos &&
+                  ks.find("dumped to turbo_output\\channel_e_kickoff_dump.bin (2 x 0x3A0 bytes)") != std::string::npos &&
+                  ks.find("looked for the tactic after Turbo's write (LH 70 BU 1 DA 2, Turbo's values)") != std::string::npos,
+              "the details: " + ks);
+        CHECK(ks.size() < 1000, fmt("one log line fits Turbo's log buffer (%zu chars)", ks.size()));
+        size_t lines = 0;
+        for (size_t i = logs0; i < rig.logs.size(); ++i) lines += rig.logs[i].find("channel E kick-off:") == 0 ? 1 : 0;
+        CHECK(lines == 1 && rig.logs.back() == ks, fmt("exactly one kick-off line logged (%zu)", lines));
         std::vector<uint8_t> dump;
         {
             std::ifstream f(o / kickoff_dump_file(), std::ios::binary);
             dump.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
         }
-        CHECK(dump == before, fmt("the dump is out+0x00 .. +0x3A0 byte for byte (%zu bytes)", dump.size()));
+        std::vector<uint8_t> both = before1;
+        both.insert(both.end(), before2.begin(), before2.end());
+        CHECK(dump == both, fmt("the dump is both copies byte for byte (%zu bytes)", dump.size()));
         std::string idx;
         {
             std::ifstream f(o / kickoff_index_file(), std::ios::binary);
             idx.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
         }
         CHECK(idx.find("block 0: out 0x429F9EB08") != std::string::npos && idx.find("+0x28 team 95") != std::string::npos &&
-                  idx.find("Line Height 90 at the same offset in every block: +0x1A4") != std::string::npos &&
-                  idx.find("Defensive Approach Aggressive (3) (Turbo's values)") != std::string::npos,
-              "the index: " + idx.substr(0, 400));
-        CHECK(w.bytes(out, kKickoffHead + kKickoffTail) == before, "nothing written to the game");
+                  idx.find("decode (match_copy_fields): LH +0x158 = 70 BU +0x15B = 1 DA +0x15C = 2, roles 11/11") != std::string::npos &&
+                  idx.find("u8 == Line Height 70 outside the known blocks at: +0x158") != std::string::npos &&
+                  idx.find("Defensive Approach High (2) (Turbo's values)") != std::string::npos,
+              "the index: " + idx.substr(0, 600));
+        CHECK(w.bytes(out1, kKickoffHead + kKickoffTail) == before1 && w.bytes(out2, kKickoffHead + kKickoffTail) == before2, "nothing written to the game");
         // once per match: the next ticks do nothing
         const size_t logs = rig.logs.size();
         rig.clock += 60e6;
         rig.svc->kickoff_tick();
         CHECK(rig.logs.size() == logs, "once per match");
-        // a match whose copy is not made yet: one more look 30 s later
-        w.mem.wr(out + kCopyTeam, int32_t(7));
-        c.phase = "hub";
-        rig.svc->note_context(c);
-        c.phase = "match";
-        rig.svc->note_context(c);
-        rig.clock += 20e6;
-        rig.svc->kickoff_tick();
-        CHECK(rig.logged("0 in the match-setup layout") && rig.logged("looking again in 30 s"), "none yet: looks again");
-        w.mem.wr(out + kCopyTeam, int32_t(95));
+        // the match was set up from other values: the line says what differs
+        w.mem.wr(out1 + 0x158, uint8_t(25));
+        std::string k = match(c);
+        CHECK(k.find("channel E kick-off: match copy team 95 LH 25 BU 1 DA 2 roles 11/11 = game (differs: copy 1: LH 25 not 70) | ") == 0, "LH differs: " + k);
+        w.mem.wr(out1 + 0x158, uint8_t(70));
+        // a copy found by its player ids whose role words are not Turbo's: roles 10/11
+        w.mem.wr(out2 + kCopyRoles + 4 * 9, int32_t(38213));
+        k = match(c);
+        CHECK(k.find("roles 11/11 = game (differs: copy 2: roles 10/11) | 2 copies") != std::string::npos, "roles differ (found by its pids): " + k);
+        w.mem.wr(out2 + kCopyRoles + 4 * 9, int32_t(38214));
+        // a match whose copies are not made yet: one more look 30 s later
+        w.mem.wr(out1 + kCopyTeam, int32_t(7));
+        w.mem.wr(out2 + kCopyTeam, int32_t(7));
+        k = match(c);
+        CHECK(k.find("channel E kick-off: no match copy found (") == 0 && rig.logged("looking again in 30 s"), "none yet: looks again: " + k);
+        w.mem.wr(out1 + kCopyTeam, int32_t(95));
+        w.mem.wr(out2 + kCopyTeam, int32_t(95));
         rig.clock += 30e6;
         rig.svc->kickoff_tick();
-        CHECK(rig.svc->kickoff_status().find("kick-off check (again): 2 copies of the live role words, 1 in the match-setup layout") != std::string::npos,
-              "found on the second look: " + rig.svc->kickoff_status());
-        // its own off switch, and the opt-in (it reads all of memory during a match: testers only)
-        auto match_again = [&]() {
-            c.phase = "hub";
-            rig.svc->note_context(c);
-            c.phase = "match";
-            rig.svc->note_context(c);
-            rig.clock += 20e6;
-            rig.svc->kickoff_tick();
-        };
+        k = rig.svc->kickoff_status();
+        CHECK(k.find("= Turbo (ok) | 2 copies") != std::string::npos && k.find("(second look)") != std::string::npos, "found on the second look: " + k);
+        // its own off switch, channel E's kill switches and the opt-in (it reads all of memory during a match: testers only)
         rig.touch(kickoff_off_file());
-        match_again();
-        CHECK(rig.svc->kickoff_status() == "kick-off check off (turbo_output\\channel_e_kickoff_off.txt)", rig.svc->kickoff_status());
+        k = match(c);
+        CHECK(k == "channel E kick-off: not checked (off: turbo_output\\channel_e_kickoff_off.txt)", k);
         rig.remove(kickoff_off_file());
-        // review: channel E's kill switches stop it too (the opt-in still there): no scan of the match's memory, no dump
         fs::remove(o / kickoff_dump_file(), ec);
-        for (const char* k : {kill_switch_file(), master_switch_file()}) {
-            rig.touch(k);
-            match_again();
-            CHECK(rig.svc->kickoff_status() == std::string("no kick-off check: kill switch turbo_output\\") + k + " is present (channel E is off)",
-                  rig.svc->kickoff_status());
-            CHECK(rig.logged(std::string("channel E: no kick-off check: kill switch turbo_output\\") + k), "logged");
-            rig.remove(k);
+        for (const char* ks2 : {kill_switch_file(), master_switch_file()}) {
+            rig.touch(ks2);
+            k = match(c);
+            CHECK(k == std::string("channel E kick-off: not checked (kill switch turbo_output\\") + ks2 + " is present (channel E is off))", k);
+            rig.remove(ks2);
         }
         CHECK(!fs::exists(o / kickoff_dump_file()), "nothing dumped while a kill switch is present");
         rig.remove(opt_in_file());
-        match_again();
-        CHECK(rig.svc->kickoff_status().find("no kick-off check: channel E is not switched on") == 0, rig.svc->kickoff_status());
-        // review: "Turbo's values" only while the tactic read is exactly what Turbo's write left: the game changed the line height since (same
-        // career load) -> the game's values; back to Turbo's 90 -> Turbo's values again
+        k = match(c);
+        CHECK(k.find("channel E kick-off: not checked (channel E is not switched on") == 0, k);
         rig.touch(opt_in_file());
-        auto look_in_match = [&](Context& cx) {
-            cx.phase = "match";
-            cx.hub = false;
-            rig.svc->note_context(cx);
-            rig.clock += 20e6;
-            rig.svc->kickoff_tick();
-            return rig.svc->kickoff_status();
-        };
+        // "Turbo's values" only while the tactic read is exactly what Turbo's write left: the game changed the line height (same career load)
         w.mem.wr(SheetWorld::kRecs + kRecLineHeight, int32_t(50));
         c.phase = "hub";
         c.hub = true;
         CHECK(rig.svc->read(c, lt, why) && lt.line_height == 50, "read in the hub: " + why);
-        std::string k = look_in_match(c);
-        CHECK(k.find("1 in the match-setup layout") != std::string::npos && k.find("Line Height 50, ") != std::string::npos &&
-                  k.find(", the game's values)") != std::string::npos && k.find("Turbo's values") == std::string::npos,
-              "a value the game changed is not called Turbo's: " + k);
-        w.mem.wr(SheetWorld::kRecs + kRecLineHeight, int32_t(90));
+        k = match(c);
+        CHECK(k.find("LH 70 BU 1 DA 2 roles 11/11 = game (differs from the hub's read: copy 1: LH 70 not 50; copy 2: LH 70 not 50) | ") != std::string::npos &&
+                  k.find("the game's values)") != std::string::npos,
+              "the hub read the game's 50: " + k);
+        w.mem.wr(out1 + 0x158, uint8_t(50));
+        w.mem.wr(out2 + 0x158, uint8_t(50));
+        k = match(c);
+        CHECK(k.find("LH 50 BU 1 DA 2 roles 11/11 = game (the hub's values; no Turbo write in place) | ") != std::string::npos, "the game's values: " + k);
+        w.mem.wr(SheetWorld::kRecs + kRecLineHeight, int32_t(70));
+        w.mem.wr(out1 + 0x158, uint8_t(70));
+        w.mem.wr(out2 + 0x158, uint8_t(70));
         c.phase = "hub";
         c.hub = true;
-        CHECK(rig.svc->read(c, lt, why) && lt.line_height == 90, "read in the hub: " + why);
-        k = look_in_match(c);
-        CHECK(k.find("1 in the match-setup layout") != std::string::npos && k.find(", Turbo's values)") != std::string::npos, "Turbo's values again: " + k);
-        // review: the career was reloaded (load 4) since the tactic was read: not looked for (the reload rebuilt the record from the save);
-        // after a read in load 4's hub the same values are the game's (the reload threw Turbo's write away), not Turbo's
+        CHECK(rig.svc->read(c, lt, why) && lt.line_height == 70, "read in the hub: " + why);
+        k = match(c);
+        CHECK(k.find("= Turbo (ok) | ") != std::string::npos, "Turbo's values again: " + k);
+        // the career was reloaded (load 4) since the tactic was read: not checked; after a read in load 4's hub the values are the game's
         Context c4 = rig.ctx(4);
         c4.phase = "hub";
         rig.svc->note_context(c4);
-        k = look_in_match(c4);
-        CHECK(k == "no kick-off check: the live tactic was last read in career load 3, this match is in load 4 (open Teams > Tactics > My team once in the hub)",
+        k = match(c4);
+        CHECK(k == "channel E kick-off: not checked (the live tactic was last read in career load 3, this match is in load 4 (open Teams > Tactics > My team "
+                   "once in the hub))",
               "an earlier load's tactic: " + k);
-        CHECK(rig.logged("channel E: no kick-off check: the live tactic was last read in career load 3, this match is in load 4"), "logged");
         c4.phase = "hub";
         c4.hub = true;
         CHECK(!rig.svc->read(c4, lt, why), "load 4: the service is located again first");
         rig.jobs.pump();
-        CHECK(rig.svc->read(c4, lt, why) && lt.line_height == 90, "read in load 4's hub: " + why);
-        k = look_in_match(c4);
-        CHECK(k.find("1 in the match-setup layout") != std::string::npos && k.find(", the game's values)") != std::string::npos &&
-                  k.find("Turbo's values") == std::string::npos,
-              "after the reload the values are not called Turbo's: " + k);
+        CHECK(rig.svc->read(c4, lt, why) && lt.line_height == 70, "read in load 4's hub: " + why);
+        k = match(c4);
+        CHECK(k.find("= game (the hub's values; no Turbo write in place) | ") != std::string::npos, "after the reload the values are not called Turbo's: " + k);
         c.phase = "hub";
         rig.svc->note_context(c);
-        CHECK(kKickoffHead == 0x1A0 && kKickoffTail == 0x200 && kickoff_value_offsets(dump, 90) == std::vector<size_t>({0x1A4}), "the offsets helper");
+        // a field the table does not know: "?" and "= unknown (...)"; the helpers
+        KickoffCopy kc;
+        kc.out = out1;
+        kc.bytes = before1;
+        KickoffArm arm;
+        arm.armed = true;
+        arm.roles = roles;
+        arm.pids = pids;
+        arm.line_height = 70;
+        arm.build_up = 1;
+        arm.approach = 2;
+        arm.turbo_values = true;
+        std::vector<CopyField> no_da = {{"LH", 0x158, 1, true}, {"BU", 0x15B, 1, true}, {"DA", 0x15C, 1, false}};
+        const KickoffRead kr = decode_match_copy(kc, arm, no_da);
+        bool ok = true;
+        CHECK(kr.lh == 70 && kr.bu == 1 && kr.da == -1 && !kr.decoded() && kickoff_verdict(arm, {kr}, ok) == "= unknown (DA not decoded: see the raw window)" && !ok,
+              "an unknown field is never guessed");
+        CHECK(kr.raw == "LH +0x158=46 BU +0x15B=01 DA +0x15C=02 (not decoded)" && kr.lh_bytes == std::vector<size_t>({0x158}),
+              "its raw byte is still carried (X2's readout): " + kr.raw);
+        // a table entry X2 finds elsewhere (say +0x160, two bytes): raw bytes read there, decoded when known
+        const KickoffRead k2 = decode_match_copy(kc, arm, {{"LH", 0x160, 2, false}});
+        CHECK(k2.raw == "LH +0x160=0000 (not decoded)" && k2.lh == -1, "another offset, raw: " + k2.raw);
+        CHECK(kickoff_line(arm, {kr}, "") == "channel E kick-off: match copy team 95 LH 70 BU 1 DA ? roles 11/11 = unknown (DA not decoded: see the raw window)",
+              kickoff_line(arm, {kr}, ""));
+        const KickoffRead full = decode_match_copy(kc, arm);
+        CHECK(kickoff_verdict(arm, {full}, ok) == "= Turbo (ok)" && ok, "decoded: Turbo (ok)");
+        CHECK(window_hex({0x46, 0x02, 0xff}) == "46 02 ff" && kickoff_value_offsets(before1, 27) == std::vector<size_t>({0x1C}) &&
+                  kickoff_byte_offsets(before1, 70) == std::vector<size_t>({0x158}),
+              "the offset helpers");
     });
 
     run_case("channel E 2.3: Edit Tactic's working copies - header checks, matched by the map record's code, never guessed", [] {
@@ -1741,24 +2198,55 @@ static void run() {
         CHECK(live(nc).code.empty() && live(nc).matching_copies() == 0, "a map record without a readable code: nothing matches");
     });
 
-    run_case("channel E 2.3: no working copy holds the tactic -> map record only, said so; a copy with another player in a slot is left out", [] {
+    run_case("channel E copy machinery (X3 branches a / b): only a copy target is written, none by default; a copy of another tactic or line-up is left out", [] {
+        // stand-in targets: the inline working copies (2.4 never names them: the service's jobs pass no copy target)
+        const std::set<uint64_t> e2(kWorkCopyOffsets.begin(), kWorkCopyOffsets.end());
+        auto tck = [&e2](const RoleAllowList* al) {
+            JobChecks c;
+            c.allow = al;
+            c.copy_targets = &e2;
+            return c;
+        };
+        Request r;
+        r.approach = 2;
+        r.line_height = 90;
+        r.build_up = 1;
+        // the default: no target, copies holding the tactic stay as they are, nothing is said
+        {
+            SheetWorld d;
+            Plan pd;
+            CHECK(make_plan(live(d), r, pd, nullptr).empty(), "plan");
+            std::string dn;
+            CHECK(copy_writes(live(d), pd, dn, nullptr).empty() && dn.empty(), "no target: no copy write, no note");
+            const std::vector<uint8_t> svc_before = d.bytes(SheetWorld::kSvc, kSvcSize);
+            const ApplyResult rd = apply_plan(d.mem, SheetWorld::kSvc, d.anchors(), pd);
+            CHECK(rd.ok && rd.written && rd.copies_written == 0 && rd.copies.empty() && d.bytes(SheetWorld::kSvc, kSvcSize) == svc_before &&
+                      d.i32(SheetWorld::kRecs + kRecApproach) == 2,
+                  "the default writes the map record only: " + rd.log_line);
+            // one target: only that copy
+            const std::set<uint64_t> one = {0x1170};
+            JobChecks c1;
+            c1.copy_targets = &one;
+            SheetWorld o1;
+            Plan po1;
+            CHECK(make_plan(live(o1), r, po1, nullptr).empty(), "plan");
+            const ApplyResult r1 = apply_plan(o1.mem, SheetWorld::kSvc, o1.anchors(), po1, c1);
+            CHECK(r1.ok && r1.copies_written == 1 && o1.i32(o1.copy_rec(0x1170) + kRecApproach) == 2 && o1.i32(o1.copy_rec(0xF80) + kRecApproach) == 0,
+                  "only the target is written: " + r1.copies);
+        }
         SheetWorld w;
         w.mem.write(w.copy_rec(0xF80) + kRecCode, SheetWorld::kOtherCode, 12);  // Edit Tactic saved another tactic (not committed)
         w.mem.write(w.copy_rec(0x1170) + kRecCode, SheetWorld::kOtherCode, 12);
         const std::vector<uint8_t> svc_before = w.bytes(SheetWorld::kSvc, kSvcSize);
-        Request r;
-        r.approach = 3;
-        r.line_height = 90;
-        r.build_up = 1;
         Plan p;
         CHECK(make_plan(live(w), r, p, nullptr).empty(), "plan");
-        const ApplyResult res = apply_plan(w.mem, SheetWorld::kSvc, w.anchors(), p);
+        const ApplyResult res = apply_plan(w.mem, SheetWorld::kSvc, w.anchors(), p, tck(nullptr));
         CHECK(res.ok && res.written && res.copies_written == 0, "the map record written: " + res.message);
         CHECK(res.copies.find("no Edit Tactic working copy holds this tactic (code ?ZaE&CYzKoT7)") != std::string::npos &&
                   res.copies.find("Edit Tactic shows its own copy until the next career load") != std::string::npos,
               "said so: " + res.copies);
         CHECK(res.log_line.find("(read back ok) [no Edit Tactic working copy holds this tactic") != std::string::npos, "in the log line: " + res.log_line);
-        CHECK(w.i32(SheetWorld::kRecs + kRecApproach) == 3 && w.bytes(SheetWorld::kSvc, kSvcSize) == svc_before, "map written, the service untouched");
+        CHECK(w.i32(SheetWorld::kRecs + kRecApproach) == 2 && w.bytes(SheetWorld::kSvc, kSvcSize) == svc_before, "map written, the service untouched");
         // one copy holds the tactic but another player stands in the written slot: that copy is left out (map and the other copy written)
         SheetWorld x;
         x.mem.wr(x.copy_slot(0x1170, 9) + kSlotPid, int32_t(100003));
@@ -1767,39 +2255,40 @@ static void run() {
         Plan pp;
         const RoleAllowList al = allow_of(x);
         CHECK(make_plan(live(x), rr, pp, &al).empty(), "plan");
-        const ApplyResult r2 = apply_plan(x.mem, SheetWorld::kSvc, x.anchors(), pp, checks(&al));
+        const ApplyResult r2 = apply_plan(x.mem, SheetWorld::kSvc, x.anchors(), pp, tck(&al));
         CHECK(r2.ok && r2.copies_written == 1 && x.i32(x.copy_slot(0xF80, 9) + kSlotFocus) == 6 && x.i32(x.copy_slot(0x1170, 9) + kSlotFocus) == 5,
               "svc+0xF80 written, svc+0x1170 left: " + r2.copies);
         CHECK(r2.copies.find("svc+0x1170 (its slot 9 holds player 100003) NOT written") != std::string::npos && r2.log_line.find("NOT written") != std::string::npos,
               "said so: " + r2.log_line);
-        // review: the same code and formation but other players (another team's or another line-up's tactic) in a slot the plan does not write:
-        // an Apply of the approach / line height / build-up only leaves that copy out too (players are compared in all 11 slots)
+        // the same code and formation but other players (another team's or another line-up's tactic) in a slot the plan does not write: an
+        // Apply of the approach / line height / build-up only leaves that copy out too (players are compared in all 11 slots)
         SheetWorld o;
         o.mem.wr(o.copy_slot(0x1170, 4) + kSlotPid, int32_t(200005));
         const LiveTactic lo = live(o);
-        CHECK(lo.copy(0x1170) && lo.copy(0x1170)->matches, "the code still names it this tactic (the card lists it so)");
+        CHECK(lo.copy(0x1170) && lo.copy(0x1170)->matches, "the code still names it this tactic");
         Plan po;
         CHECK(make_plan(lo, r, po, nullptr).empty(), "plan");
         std::string onote;
-        const std::vector<FieldWrite> ocw = copy_writes(lo, po, onote);
+        const std::vector<FieldWrite> ocw = copy_writes(lo, po, onote, &e2);
         CHECK(ocw.size() == 3 && ocw[0].copy == 0xF80 && onote.find("svc+0x1170 (its slot 4 holds player 200005) NOT written") != std::string::npos,
               "the preview leaves it out: " + onote);
-        const ApplyResult ro = apply_plan(o.mem, SheetWorld::kSvc, o.anchors(), po);
-        CHECK(ro.ok && ro.copies_written == 1 && o.i32(o.copy_rec(0xF80) + kRecApproach) == 3 && o.i32(o.copy_rec(0x1170) + kRecApproach) == 0 &&
-                  o.i32(o.copy_rec(0x1170) + kRecLineHeight) == 25 && o.i32(o.copy_rec(0x1170) + kRecBuildUp) == 0 && o.i32(SheetWorld::kRecs + kRecApproach) == 3,
+        const ApplyResult ro = apply_plan(o.mem, SheetWorld::kSvc, o.anchors(), po, tck(nullptr));
+        CHECK(ro.ok && ro.copies_written == 1 && o.i32(o.copy_rec(0xF80) + kRecApproach) == 2 && o.i32(o.copy_rec(0x1170) + kRecApproach) == 0 &&
+                  o.i32(o.copy_rec(0x1170) + kRecLineHeight) == 25 && o.i32(o.copy_rec(0x1170) + kRecBuildUp) == 0 && o.i32(SheetWorld::kRecs + kRecApproach) == 2,
               "map and svc+0xF80 written, svc+0x1170 untouched: " + ro.copies);
         CHECK(ro.log_line.find("svc+0x1170 (its slot 4 holds player 200005) NOT written") != std::string::npos, "logged: " + ro.log_line);
-        // review: the map record holds a Build-Up Style without a known label (the game's 2) and only the line height changes: the map record
-        // keeps its 2 (written back unchanged), a copy holding 0 never gets the unknown 2 (left out), a copy holding 2 already is written
+        // the map record holds a Build-Up Style without a known label (the game's 2) and only the line height changes: the map record keeps its
+        // 2 (written back unchanged), a copy holding 0 never gets the unknown 2 (left out), a copy holding 2 already is written
         SheetWorld u;
         u.mem.wr(SheetWorld::kRecs + kRecBuildUp, int32_t(2));
         u.put_copy(0xF80, SheetWorld::kCode, 25, 2, 0);
         Request rl;
         rl.line_height = 60;
+        rl.approach = 1;
         Plan pu;
         CHECK(make_plan(live(u), rl, pu, nullptr).empty() && pu.writes.size() == 3 && pu.writes[2].kind == FieldKind::BuildUp && pu.writes[2].new_value == 2,
               "plan: the game's build-up 2 kept");
-        const ApplyResult ru = apply_plan(u.mem, SheetWorld::kSvc, u.anchors(), pu);
+        const ApplyResult ru = apply_plan(u.mem, SheetWorld::kSvc, u.anchors(), pu, tck(nullptr));
         CHECK(ru.ok && ru.copies_written == 1 && u.i32(SheetWorld::kRecs + kRecLineHeight) == 60 && u.i32(SheetWorld::kRecs + kRecBuildUp) == 2 &&
                   u.i32(u.copy_rec(0xF80) + kRecLineHeight) == 60 && u.i32(u.copy_rec(0x1170) + kRecBuildUp) == 0 &&
                   u.i32(u.copy_rec(0x1170) + kRecLineHeight) == 25,
@@ -1807,42 +2296,76 @@ static void run() {
         CHECK(ru.copies.find("svc+0x1170 (its Build-Up Style is 0; the live record's 2 has no known label and is not copied) NOT written") != std::string::npos,
               "said so: " + ru.copies);
         bool unknown_copied = false;
-        for (const FieldWrite& x : ru.writes) unknown_copied = unknown_copied || (x.copy && x.kind == FieldKind::BuildUp);
+        for (const FieldWrite& fw : ru.writes) unknown_copied = unknown_copied || (fw.copy && fw.kind == FieldKind::BuildUp);
         CHECK(!unknown_copied, "no Build-Up Style write into a copy");
         // a copy that already holds the values is not written again
         SheetWorld y;
-        y.put_copy(0x1170, SheetWorld::kCode, 90, 1, 3);
+        y.put_copy(0x1170, SheetWorld::kCode, 90, 1, 2);
         Plan py;
         CHECK(make_plan(live(y), r, py, nullptr).empty(), "plan");
-        const ApplyResult r3 = apply_plan(y.mem, SheetWorld::kSvc, y.anchors(), py);
+        const ApplyResult r3 = apply_plan(y.mem, SheetWorld::kSvc, y.anchors(), py, tck(nullptr));
         CHECK(r3.ok && r3.copies_written == 1 && r3.copies.find("svc+0x1170 already holds these values") != std::string::npos, "already there: " + r3.copies);
     });
 
-    run_case("channel E 2.3: copies in the snapshot, the read-back and the undo (history, another code since, a copy write that does not land)", [] {
-        SheetWorld w;
-        const fs::path out = test_tmp_dir("channel_e_copies");
-        std::error_code ec;
-        fs::remove_all(out, ec);
-        ServiceRig rig(w, out);
-        rig.find_returns = SheetWorld::kSvc;
-        rig.touch(opt_in_file());
-        rig.jobs.inline_run = true;
-        LiveTactic lt;
-        std::string why;
-        CHECK(rig.svc->read(rig.ctx(), lt, why), "located and read: " + why);
+    run_case("channel E copy machinery: copies in the snapshot, the read-back and the undo; the service's job and undo leave every copy alone", [] {
+        const std::set<uint64_t> e2(kWorkCopyOffsets.begin(), kWorkCopyOffsets.end());
         Request r;
-        r.approach = 3;
+        r.approach = 2;
         r.line_height = 90;
         r.build_up = 1;
+        {
+            // the service (no copy target): map record only, and an undo file naming a copy (2.3's E2) leaves that copy as it is
+            SheetWorld w;
+            const fs::path out = test_tmp_dir("channel_e_copies");
+            std::error_code ec;
+            fs::remove_all(out, ec);
+            ServiceRig rig(w, out);
+            rig.find_returns = SheetWorld::kSvc;
+            rig.touch(opt_in_file());
+            rig.jobs.inline_run = true;
+            LiveTactic lt;
+            std::string why;
+            CHECK(rig.svc->read(rig.ctx(), lt, why), "located and read: " + why);
+            Plan p;
+            CHECK(make_plan(lt, r, p, nullptr).empty(), "plan");
+            p.load_gen = 3;
+            CHECK(rig.svc->submit(rig.ctx(), p, why), "queued: " + why);
+            ApplyResult res;
+            CHECK(rig.svc->poll(res) && res.ok && res.written && res.writes.size() == 3 && w.i32(w.copy_rec(0xF80) + kRecApproach) == 0 &&
+                      w.i32(w.copy_rec(0x1170) + kRecApproach) == 0,
+                  fmt("map 3, no copy (%zu)", res.writes.size()));
+            UndoRecord u = UndoRecord::from_plan(p);
+            u.load_gen = 3;
+            u.state = "written";
+            u.writes.push_back({FieldKind::Approach, -1, 0, 2, 0xF80});  // as a 2.3 undo file would name it
+            w.mem.wr(w.copy_rec(0xF80) + kRecApproach, int32_t(2));
+            rig.svc->read(rig.ctx(), lt, why);
+            Plan up;
+            std::vector<std::string> skipped;
+            CHECK(make_undo_plan(lt, u, "", 3, up, skipped).empty() && up.writes.size() == 3 && has_part(skipped, "Turbo 2.4 writes no Edit Tactic working copy"),
+                  "the copy is left alone: " + (skipped.empty() ? std::string() : skipped[0]));
+            CHECK(rig.svc->submit(rig.ctx(), up, why) && rig.svc->poll(res) && res.ok && res.undo && w.i32(SheetWorld::kRecs + kRecApproach) == 0 &&
+                      w.i32(w.copy_rec(0xF80) + kRecApproach) == 2,
+                  "undone: the map record back, the copy as it is: " + res.message);
+            Plan forged = up;
+            forged.writes = {{FieldKind::Approach, -1, 2, 0, 0xF80}};
+            CHECK(check_plan(live(w), forged, checks(nullptr)).find("Turbo writes no Edit Tactic working copy (2.4)") != std::string::npos,
+                  "a copy undo without the target: refused in the job");
+        }
+        // the machinery with stand-in targets
+        SheetWorld w;
+        JobChecks ck;
+        ck.copy_targets = &e2;
         Plan p;
-        CHECK(make_plan(lt, r, p, nullptr).empty(), "plan");
+        CHECK(make_plan(live(w), r, p, nullptr).empty(), "plan");
         p.load_gen = 3;
+        const ApplyResult res = apply_plan(w.mem, SheetWorld::kSvc, w.anchors(), p, ck);
+        CHECK(res.ok && res.written && res.writes.size() == 3 + 6, fmt("map 3 + copies 2 x 3 (%zu)", res.writes.size()));
+        WriteHistory hist;
+        hist.note(p, res.writes);
         UndoRecord u = UndoRecord::from_plan(p);
         u.session = "";
         u.load_gen = 3;
-        CHECK(rig.svc->submit(rig.ctx(), p, why), "queued: " + why);
-        ApplyResult res;
-        CHECK(rig.svc->poll(res) && res.ok && res.written && res.writes.size() == 3 + 6, fmt("map 3 + copies 2 x 3 (%zu)", res.writes.size()));
         u.state = "written";
         add_job_writes(u, res.writes);
         CHECK(u.writes.size() == 9, "the undo record lists the copies too");
@@ -1856,25 +2379,27 @@ static void run() {
         bad.replace(at, 7, "\"0xF88\"");
         CHECK(!UndoRecord::parse(bad, back, &err) && err.find("not one of Edit Tactic's") != std::string::npos, "an unknown copy offset: " + err);
         // Edit Tactic saved svc+0xF80 since (another code): the undo puts back the map record and svc+0x1170, leaves svc+0xF80 alone
-        rig.svc->read(rig.ctx(), lt, why);
-        CHECK(reverted(lt, u).empty(), "nothing overwritten yet");
+        CHECK(reverted(live(w), u).empty(), "nothing overwritten yet");
         w.mem.write(w.copy_rec(0xF80) + kRecCode, SheetWorld::kOtherCode, 12);
         w.mem.wr(w.copy_rec(0xF80) + kRecLineHeight, int32_t(50));
-        rig.svc->read(rig.ctx(), lt, why);
+        LiveTactic lt = live(w);
         CHECK(has_part(reverted(lt, u), "Edit Tactic copy svc+0xF80 holds another tactic now"), "the copy's change is seen");
         Plan up;
         std::vector<std::string> skipped;
-        CHECK(make_undo_plan(lt, u, "", 3, up, skipped).empty() && up.writes.size() == 3 + 3 && has_part(skipped, "svc+0xF80 does not hold this tactic any more"),
+        CHECK(make_undo_plan(lt, u, "", 3, up, skipped, &e2).empty() && up.writes.size() == 3 + 3 && has_part(skipped, "svc+0xF80 does not hold this tactic any more"),
               fmt("map (approach, line height, build-up) + svc+0x1170 (%zu): ", up.writes.size()) + (skipped.empty() ? "" : skipped[0]));
-        CHECK(rig.svc->submit(rig.ctx(), up, why), "undo queued: " + why);
-        CHECK(rig.svc->poll(res) && res.ok && res.written && res.undo, "undone: " + res.message);
+        JobChecks uck;
+        uck.history = &hist;
+        uck.copy_targets = &e2;
+        const ApplyResult ur = apply_plan(w.mem, SheetWorld::kSvc, w.anchors(), up, uck);
+        CHECK(ur.ok && ur.written && ur.undo, "undone: " + ur.message);
         CHECK(w.i32(SheetWorld::kRecs + kRecApproach) == 0 && w.i32(SheetWorld::kRecs + kRecLineHeight) == 25 && w.i32(SheetWorld::kRecs + kRecBuildUp) == 0,
               "map back to Deep / 25 / Balanced");
         CHECK(w.i32(w.copy_rec(0x1170) + kRecApproach) == 0 && w.i32(w.copy_rec(0x1170) + kRecLineHeight) == 25 && w.i32(w.copy_rec(0x1170) + kRecBuildUp) == 0,
               "svc+0x1170 back");
-        CHECK(w.i32(w.copy_rec(0xF80) + kRecLineHeight) == 50 && w.i32(w.copy_rec(0xF80) + kRecApproach) == 3, "svc+0xF80 (Edit Tactic's) left as it is");
-        CHECK(res.log_line.find("channel E: undo team 95 record 0 approach 3->0 line height 90->25 build-up 1->0; Edit Tactic copy svc+0x1170 too (read back ok)") == 0,
-              "log: " + res.log_line);
+        CHECK(w.i32(w.copy_rec(0xF80) + kRecLineHeight) == 50 && w.i32(w.copy_rec(0xF80) + kRecApproach) == 2, "svc+0xF80 (Edit Tactic's) left as it is");
+        CHECK(ur.log_line.find("channel E: undo team 95 record 0 approach 2->0 line height 90->25 build-up 1->0; Edit Tactic copy svc+0x1170 too (read back ok)") == 0,
+              "log: " + ur.log_line);
         // an undo value that is not the copy's original (history) is refused in the job
         WriteHistory h;
         h.note(p, {{FieldKind::LineHeight, -1, 25, 90, 0x1170}});  // the copy held 25 before Turbo's first write
@@ -1885,22 +2410,90 @@ static void run() {
         forged.undo = true;
         forged.writes = {{FieldKind::LineHeight, -1, 25, 60, 0x1170}};
         LiveTactic now = live(w);
-        CHECK(check_plan(now, forged, checks(nullptr, &h)).find("Line Height in Edit Tactic copy svc+0x1170: the undo would write 60, but the game held 25") == 0,
-              "a forged copy undo: " + check_plan(now, forged, checks(nullptr, &h)));
+        JobChecks fck;
+        fck.history = &h;
+        fck.copy_targets = &e2;
+        CHECK(check_plan(now, forged, fck).find("Line Height in Edit Tactic copy svc+0x1170: the undo would write 60, but the game held 25") == 0,
+              "a forged copy undo: " + check_plan(now, forged, fck));
         forged.writes[0].copy = 0xF80;  // Edit Tactic's own tactic now
-        CHECK(check_plan(now, forged, checks(nullptr, &h)).find("does not hold this tactic any more") != std::string::npos, "a copy of another tactic: refused");
+        CHECK(check_plan(now, forged, fck).find("does not hold this tactic any more") != std::string::npos, "a copy of another tactic: refused");
         // a copy write that does not land: everything (map and copies) is put back, channel E off for the session
         SheetWorld z;
         FlakyMemory fm(z.mem);
         fm.drop = z.copy_rec(0x1170) + kRecApproach;
         Plan pz;
         CHECK(make_plan(live(z), r, pz, nullptr).empty(), "plan");
-        const ApplyResult rz = apply_plan(fm, SheetWorld::kSvc, z.anchors(), pz);
-        CHECK(!rz.ok && rz.undone && rz.session_off && rz.message.find("Defensive Approach in Edit Tactic copy svc+0x1170 reads 0, not 3") != std::string::npos,
+        const ApplyResult rz = apply_plan(fm, SheetWorld::kSvc, z.anchors(), pz, ck);
+        CHECK(!rz.ok && rz.undone && rz.session_off && rz.message.find("Defensive Approach in Edit Tactic copy svc+0x1170 reads 0, not 2") != std::string::npos,
               "mismatch: " + rz.message);
         CHECK(z.i32(SheetWorld::kRecs + kRecApproach) == 0 && z.i32(SheetWorld::kRecs + kRecLineHeight) == 25 && z.i32(z.copy_rec(0xF80) + kRecLineHeight) == 25 &&
                   z.i32(z.copy_rec(0xF80) + kRecApproach) == 0,
               "map and the other copy put back");
+    });
+
+    run_case("channel E 2.4: overwrite detection and Re-apply - the prompt names what the game put there; one plan puts Turbo's values back; Undo still exact", [] {
+        SheetWorld w;
+        const RoleAllowList al = allow_of(w);
+        Request r;
+        r.approach = 2;
+        r.line_height = 70;
+        r.build_up = 1;
+        r.slots = {{9, -1, 6}};
+        Plan p;
+        CHECK(make_plan(live(w), r, p, &al).empty(), "plan");
+        p.load_gen = 3;
+        const ApplyResult res = apply_plan(w.mem, SheetWorld::kSvc, w.anchors(), p, checks(&al));
+        CHECK(res.ok && res.written, "written: " + res.message);
+        WriteHistory hist;
+        hist.note(p, res.writes);
+        UndoRecord u = UndoRecord::from_plan(p);
+        u.state = "written";
+        u.load_gen = 3;
+        CHECK(replaced_prompt(live(w), u).empty(), "Turbo's values in place: no prompt");
+        UndoRecord pend = u;
+        pend.state = "pending";
+        // the game's Yes on leaving Team Management copies Edit Tactic's screen into the record: Balanced / 50 / Balanced, the striker's old focus
+        w.mem.wr(SheetWorld::kRecs + kRecLineHeight, int32_t(50));
+        w.mem.wr(SheetWorld::kRecs + kRecApproach, int32_t(1));
+        w.mem.wr(SheetWorld::kRecs + kRecBuildUp, int32_t(0));
+        w.mem.wr(w.slot(9) + kSlotRole, int32_t(38213));
+        w.mem.wr(w.slot(9) + kSlotFocus, int32_t(5));
+        const std::string pr = replaced_prompt(live(w), u);
+        CHECK(pr == "the game replaced your tactic (LH 50 / Balanced / Balanced). Re-apply?", "the prompt: " + pr);
+        CHECK(replaced_prompt(live(w), pend).empty(), "only a write in place is watched");
+        // only the striker's focus changed back: still replaced
+        UndoRecord only_slot = u;
+        only_slot.writes = {u.writes[3], u.writes[4], u.writes[5]};
+        CHECK(!replaced_prompt(live(w), only_slot).empty(), "a role word the game put back: replaced");
+        // Re-apply: Turbo's values as one request, G6 again
+        std::vector<std::string> skipped;
+        const Request rr = reapply_request(live(w), u, skipped);
+        CHECK(rr.line_height == 70 && rr.build_up == 1 && rr.approach == 2 && rr.slots.size() == 1 && rr.slots[0].slot == 9 && rr.slots[0].role_id == 21 &&
+                  rr.slots[0].focus == 6 && skipped.empty(),
+              "Turbo's values as a request");
+        Plan p2;
+        CHECK(make_plan(live(w), rr, p2, &al).empty() && p2.writes.size() == 6, fmt("plan: the record and the slot (%zu)", p2.writes.size()));
+        p2.load_gen = 3;
+        const ApplyResult r2 = apply_plan(w.mem, SheetWorld::kSvc, w.anchors(), p2, checks(&al));
+        CHECK(r2.ok && r2.written && w.i32(SheetWorld::kRecs + kRecLineHeight) == 70 && w.i32(SheetWorld::kRecs + kRecApproach) == 2 && w.i32(w.slot(9) + kSlotRole) == 38214,
+              "re-applied: " + r2.message);
+        hist.note(p2, r2.writes);
+        CHECK(replaced_prompt(live(w), u).empty(), "in place again: no prompt");
+        // the undo after a re-apply puts back what the game had put there (Edit Tactic's values), and the job's history agrees
+        UndoRecord n2 = UndoRecord::from_plan(p2);
+        n2.load_gen = 3;
+        const UndoRecord u2 = merge_undo(u, n2);
+        Plan up;
+        CHECK(make_undo_plan(live(w), u2, "", 3, up, skipped).empty() && up.writes.size() == 6, fmt("undo plan (%zu)", up.writes.size()));
+        const ApplyResult ur = apply_plan(w.mem, SheetWorld::kSvc, w.anchors(), up, checks(nullptr, &hist));
+        CHECK(ur.ok && ur.undo && w.i32(SheetWorld::kRecs + kRecLineHeight) == 50 && w.i32(SheetWorld::kRecs + kRecApproach) == 1 &&
+                  w.i32(SheetWorld::kRecs + kRecBuildUp) == 0 && w.i32(w.slot(9) + kSlotRole) == 38213 && w.i32(w.slot(9) + kSlotFocus) == 5,
+              "the undo puts back the game's values from before the re-apply: " + ur.message);
+        // a slot that holds another player now is left out of the re-apply, and named
+        w.mem.wr(w.slot(9) + kSlotPid, int32_t(100012));
+        const Request rs = reapply_request(live(w), u, skipped);
+        CHECK(rs.slots.empty() && skipped.size() == 1 && skipped[0] == "slot 9 holds player 100012 now, not 100010", "another player: " + (skipped.empty() ? "" : skipped[0]));
+        CHECK(!replaced_prompt(live(w), u).empty(), "another player in a written slot: replaced");
     });
 
     run_case("channel E 2.3: G2 refuses while Lua says Team Management is open", [] {
@@ -1937,13 +2530,13 @@ static void lt_scroll_top(Ui& ui) {
     ui.frames(2);
 }
 
-// Teams > Tactics > My team: the summary line, the card, Apply (asks first), the cm_mentalities mirror, the read-back, Undo, the gates
+// Teams > Tactics > My team: the summary line, the card, Apply (asks first), the cm_mentalities row in the job, the read-back, Undo, the gates
 static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     run_case("UI: Teams > Tactics > My team: channel E - the live read-out, opt-in, Apply writes in place + mirror, overwrite seen, Undo, gates", [&] {
         live_tactic_reset();
         const fs::path out = le / "turbo_output";
         std::error_code ec;
-        for (const char* f : {opt_in_file(), kill_switch_file(), master_switch_file(), undo_file(), mirror_off_file(), mirror_on_file()}) fs::remove(out / f, ec);
+        for (const char* f : {opt_in_file(), kill_switch_file(), master_switch_file(), undo_file(), db_row_off_file(), db_row_off_legacy_file()}) fs::remove(out / f, ec);
         // the simulated game: your club (Arsenal, 1) with the tactic of cm_mentalities row artificialkey 2 (active, sourceformationid 10)
         SheetWorld w(1, 10);
         ServiceRig rig(w, out);
@@ -1992,9 +2585,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(s.safety == "If you open Edit Tactic and answer Yes to 'save your changes to your team sheet', the game commits its screen values and AUTOSAVES "
                           "your career.",
               "the safety line: " + s.safety);
-        CHECK(s.copies.size() == 4 && has_part(s.copies, "svc+0xF80: code ?ZaE&CYzKoT7 = this tactic | Line Height 25") &&
-                  has_part(s.copies, "svc+0x1078: not this tactic (no tactic code (an empty template))"),
-              "Edit Tactic's working copies listed");
         CHECK(s.slots.size() == 11 && s.slots[9].find("role 38213 = group 9 / role 21 / focus 5") != std::string::npos, "slot 9: " + (s.slots.size() > 9 ? s.slots[9] : ""));
         CHECK(s.not_written.find("preset 1") != std::string::npos && s.not_written.find("formation 27") != std::string::npos, s.not_written);
         CHECK(!s.can_apply && s.status.find("G1") == 0, "off without the opt-in: " + s.status);
@@ -2003,15 +2593,21 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(2);
         CHECK(fs::exists(out / opt_in_file()) && s.opt_in, "opt-in file created");
         CHECK(s.status.find("G6 values: nothing changed") == 0, "now only the values hold it back: " + s.status);
-        // the 2.3 acceptance test's change: Deep -> Aggressive (its default 95 comes in), Line Height 90, Counter, the striker's focus 5 -> 6
-        CHECK(s.approach_choices == std::vector<int>({0, 1, 2, 3}) && s.build_up_choices == std::vector<int>({0, 1}), "only the known values are offered");
+        // the 2.4 acceptance change: Deep -> High (its default 70 comes in), Line Height 90 (High's band), Counter, the striker's focus 5 -> 6
+        CHECK(s.approach_choices == std::vector<int>({0, 1, 2}) && s.build_up_choices == std::vector<int>({0, 1}),
+              "only the writable values are offered (no Aggressive)");
+        CHECK(!ui.find("Aggressive##ltap3", "##tacright"), "no Aggressive button");
         lt_scroll_to(ui, "Deep##ltap0");  // the editor at the top of the column
-        CHECK(ui.click("Aggressive##ltap3", "##tacright"), "Aggressive picked");
+        CHECK(ui.click("High##ltap2", "##tacright"), "High picked");
         ui.frames(2);
-        CHECK(s.line_hint.find("band 3 (91-100): Aggressive's band") == 0, "its default Line Height 95 came in: " + s.line_hint);
+        CHECK(s.line_hint.find("band 2 (61-90): High's band") == 0, "its default Line Height 70 came in: " + s.line_hint);
+        // a line in Aggressive's band: the approach follows the line and Apply refuses it (Aggressive is not written)
+        CHECK(ui.type_into(ui.find("##ltlhbox", "##tacright"), "95"), "line height 95 typed");
+        ui.frames(2);
+        CHECK(s.plan_error.find("Line Height 95 lies in Aggressive's band") == 0 && !s.can_apply, "95 refused: " + s.plan_error);
         CHECK(ui.type_into(ui.find("##ltlhbox", "##tacright"), "90"), "line height typed");
         ui.frames(2);
-        CHECK(s.line_hint.find("Line Height 90 lies in High's band (band 2 (61-90)), not Aggressive's") == 0, "the band hint: " + s.line_hint);
+        CHECK(s.line_hint.find("band 2 (61-90): High's band") == 0, "90 is High's band, the approach followed: " + s.line_hint);
         CHECK(ui.click("Counter##ltbu1", "##tacright"), "Counter picked");
         CHECK(ui.type_into(ui.find("##ltslot", "##tacright"), "9"), "slot 9");
         ui.frames(2);
@@ -2022,42 +2618,43 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
                   s.focus_choices.size() == 3,
               "focuses offered");
         CHECK(ui.click("6##ltfoc6", "##tacright"), "focus 6 picked");
-        // the mirror is opt-in: on, it still checks the row (this save's cm_mentalities has no playerid0..10: skipped)
-        std::ofstream(out / mirror_on_file()) << "x";
+        // the cm_mentalities row is part of the write (2.4: no opt-in); this save's cm_mentalities has no playerid0..10: the row is left out
         ui.frames(130);
         CHECK(s.can_apply && s.status == "ready", "ready: " + s.status);
-        CHECK(has_part(s.plan, "Defensive Approach Deep (0) -> Aggressive (3)") && has_part(s.plan, "Line Height 25 -> 90 (band 2 (61-90))") &&
+        CHECK(has_part(s.plan, "Defensive Approach Deep (0) -> High (2)") && has_part(s.plan, "Line Height 25 -> 90 (band 2 (61-90))") &&
                   has_part(s.plan, "Build-Up Style Balanced (0) -> Counter (1)") &&
-                  has_part(s.plan, "slot 9 (ST) role word 38213 -> 38214 = group 9 / role 21 / focus 6") &&
-                  has_part(s.plan, "Edit Tactic's working copies (checked again in the job): Edit Tactic copy svc+0xF80, svc+0x1170 (code ?ZaE&CYzKoT7) written too"),
-              "Apply will write the four changes into the map record and the working copies");
+                  has_part(s.plan, "slot 9 (ST) role word 38213 -> 38214 = group 9 / role 21 / focus 6") && !has_part(s.plan, "working cop"),
+              "Apply will write the four changes into the map record (no Edit Tactic copy)");
         CHECK(w.i32(SheetWorld::kRecs + kRecLineHeight) == 25, "nothing written yet");
         lt_scroll_top(ui);
         CHECK(ui.click("Apply to the live tactic##ltapply", "##tacright"), "Apply clicked");
         ui.frames(2);
-        CHECK(s.confirm_open && has_part(s.confirm_lines, "38213 -> 38214") && has_part(s.confirm_lines, "Aggressive (3)"), "Apply asks first");
+        CHECK(s.confirm_open && has_part(s.confirm_lines, "38213 -> 38214") && has_part(s.confirm_lines, "High (2)"), "Apply asks first");
         CHECK(ui.click("Apply##ltyes", "Apply to the live tactic?"), "confirmed");
         ui.frames(4);
-        CHECK(w.i32(SheetWorld::kRecs + kRecBuildUp) == 1 && w.i32(SheetWorld::kRecs + kRecLineHeight) == 90 && w.i32(SheetWorld::kRecs + kRecApproach) == 3 &&
+        CHECK(w.i32(SheetWorld::kRecs + kRecBuildUp) == 1 && w.i32(SheetWorld::kRecs + kRecLineHeight) == 90 && w.i32(SheetWorld::kRecs + kRecApproach) == 2 &&
                   w.i32(w.slot(9) + kSlotRole) == 38214 && w.i32(w.slot(9) + kSlotFocus) == 6 && w.u8(SheetWorld::kSheet + kSheetDirty) == 1,
               "written into the live record");
         for (uint64_t c : {uint64_t(0xF80), uint64_t(0x1170)})
-            CHECK(w.i32(w.copy_rec(c) + kRecApproach) == 3 && w.i32(w.copy_rec(c) + kRecLineHeight) == 90 && w.i32(w.copy_rec(c) + kRecBuildUp) == 1 &&
-                      w.i32(w.copy_slot(c, 9) + kSlotRole) == 38214,
-                  "and into Edit Tactic's working copy");
-        CHECK(s.last.find("team 1 record 0 approach 0->3 line height 25->90 build-up 0->1 slot 9 role 38213->38214; Edit Tactic copies svc+0xF80, svc+0x1170 "
-                          "too (read back ok)") != std::string::npos,
+            CHECK(w.i32(w.copy_rec(c) + kRecApproach) == 0 && w.i32(w.copy_rec(c) + kRecLineHeight) == 25 && w.i32(w.copy_rec(c) + kRecBuildUp) == 0 &&
+                      w.i32(w.copy_slot(c, 9) + kSlotRole) == 38213,
+                  "Edit Tactic's working copies are not written (2.4)");
+        CHECK(s.last.find("team 1 record 0 approach 0->2 line height 25->90 build-up 0->1 slot 9 role 38213->38214 (read back ok)") != std::string::npos,
               "last: " + s.last);
         UndoRecord u;
         std::string err;
-        CHECK(load_undo(out / undo_file(), u, &err) && u.state == "written" && u.team == 1 && u.writes.size() == 18 && u.code == SheetWorld::kCode &&
-                  u.copies.find("written too") != std::string::npos,
-              fmt("undo file: written, the map record's 6 fields and the copies' 12 (%zu) ", u.writes.size()) + err);
-        // the mirror: cm_mentalities row artificialkey 2 (55 / 2) cannot be matched to the live slots (no playerid0..10 / position0..10 in this save)
+        CHECK(load_undo(out / undo_file(), u, &err) && u.state == "written" && u.team == 1 && u.writes.size() == 6 && u.code == SheetWorld::kCode && u.copies.empty(),
+              fmt("undo file: written, the map record's 6 fields (%zu) ", u.writes.size()) + err);
+        // the row: cm_mentalities artificialkey 2 (55 / 2) cannot be matched to the live slots (no playerid0..10 / position0..10 in this save): the
+        // live record is written alone, the log line and the card say why
         const Table* cm = app.db.table("cm_mentalities");
         const uint64_t row = cm ? app.db.find(*cm, "artificialkey", 2) : 0;
         CHECK(row && app.db.get_int(*cm, row, "defensivedepth") == 55 && app.db.get_int(*cm, row, "buildupplay") == 2, "the row is not touched");
-        CHECK(u.mirror_state == "skipped" && u.mirror.empty() && s.mirror.find("no playerid0 / position0") != std::string::npos, "mirror skipped: " + s.mirror);
+        CHECK(u.mirror_state == "skipped" && u.mirror.empty() && s.mirror.find("cm_mentalities not written: artificialkey 2: this save's cm_mentalities has no "
+                                                                               "playerid0 / position0") == 0,
+              "row left out: " + s.mirror);
+        CHECK(rig.logged("(read back ok) [cm_mentalities not written: artificialkey 2: this save's cm_mentalities has no playerid0 / position0"),
+              "the log line says so");
         // the game overwrites the line height: the 5-second re-read and the card say so
         w.mem.wr(SheetWorld::kRecs + kRecLineHeight, int32_t(25));
         ui.frames(70);
@@ -2095,7 +2692,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         st["team_mgmt"] = false;
         st["seq"] = st.value("seq", 0LL) + 1;
         write_state();
-        // the mirror's undo record points at another club's row (artificialkey 3, club 7): it must never be put back there
+        // the undo record's row is another club's (artificialkey 3, club 7): it must never be put back there
         {
             UndoRecord fake;
             CHECK(load_undo(out / undo_file(), fake, &err), "undo file: " + err);
@@ -2111,7 +2708,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         std::ofstream(out / kill_switch_file()) << "x";
         ui.frames(130);
         CHECK(!s.can_apply && s.status.find("call_team_sheet_off.txt") != std::string::npos && s.can_undo, "kill switch: " + s.status);
-        // Undo: the fields that still hold Turbo's values go back; the overwritten depth is left as it is; the mirror goes back
+        // Undo: the fields that still hold Turbo's values go back; the overwritten depth is left as it is
         CHECK(ui.click("Undo Turbo's write##ltundo", "##tacright"), "Undo clicked");
         ui.frames(4);
         CHECK(w.i32(SheetWorld::kRecs + kRecBuildUp) == 0 && w.i32(w.slot(9) + kSlotRole) == 38213 && w.i32(w.slot(9) + kSlotFocus) == 5 &&
@@ -2120,30 +2717,146 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         for (uint64_t c : {uint64_t(0xF80), uint64_t(0x1170)})
             CHECK(w.i32(w.copy_rec(c) + kRecApproach) == 0 && w.i32(w.copy_rec(c) + kRecLineHeight) == 25 && w.i32(w.copy_rec(c) + kRecBuildUp) == 0 &&
                       w.i32(w.copy_slot(c, 9) + kSlotRole) == 38213 && w.i32(w.copy_slot(c, 9) + kSlotFocus) == 5,
-                  "Edit Tactic's working copy put back too");
+                  "Edit Tactic's working copies untouched");
         CHECK(load_undo(out / undo_file(), u, &err) && u.state == "restored" && u.note.find("Line Height is 25") != std::string::npos, "undo file: " + u.state + " " + u.note);
-        // the mirror's undo: refused by the kill switch (call_team_sheet_off.txt stops the mirror both ways); no row touched
+        // the row's undo: refused (artificialkey 3 is club 7's row), in the same job; no row touched
         const uint64_t row3 = cm ? app.db.find(*cm, "artificialkey", 3) : 0;
         CHECK(app.db.get_int(*cm, row, "defensivedepth") == 55 && row3 && app.db.get_int(*cm, row3, "defensivedepth") == 45 && u.mirror_state == "written" &&
-                  s.mirror.find("not put back: kill switch turbo_output\\call_team_sheet_off.txt") != std::string::npos,
-              "the mirror's undo refused: " + s.mirror);
+                  s.mirror.find("cm_mentalities not put back: row 3 is not club 1's active tactic") == 0,
+              "the row's undo refused: " + s.mirror);
         CHECK(!s.can_undo, "nothing left to undo");
         // clean up
         app.team_sheet = nullptr;
-        for (const char* f : {opt_in_file(), kill_switch_file(), undo_file(), mirror_on_file()}) fs::remove(out / f, ec);
+        for (const char* f : {opt_in_file(), kill_switch_file(), undo_file()}) fs::remove(out / f, ec);
         st = saved;
         st["seq"] = saved.value("seq", 0LL) + 50;
         write_state();
         live_tactic_reset();
     });
 
-    // review: a job whose putting back failed may leave values in Edit Tactic's working copies; the undo file must name them (it named the
-    // map record's fields only), so Undo can put them back
-    run_case("UI: channel E - putting back failed: the undo file names every field the job wrote, Edit Tactic's copies too; Undo puts them back", [&] {
+    // 2.4: after Team Management the game replaced Turbo's tactic: the card asks once, one click re-applies, nothing happens by itself
+    run_case("UI: channel E - after Team Management the game replaced the tactic: the prompt, one-click Re-apply, never automatic", [&] {
         live_tactic_reset();
         const fs::path out = le / "turbo_output";
         std::error_code ec;
-        for (const char* f : {opt_in_file(), kill_switch_file(), master_switch_file(), undo_file(), mirror_off_file(), mirror_on_file()}) fs::remove(out / f, ec);
+        for (const char* f : {opt_in_file(), kill_switch_file(), master_switch_file(), undo_file(), db_row_off_file()}) fs::remove(out / f, ec);
+        SheetWorld w(1, 10);
+        ServiceRig rig(w, out);
+        rig.find_returns = SheetWorld::kSvc;
+        rig.jobs.inline_run = true;
+        app.team_sheet = rig.svc;
+        std::vector<std::string> hooked;  // the card's own log lines (log_line: App::log + log_hook)
+        app.log_hook = [&hooked](const std::string& x) { hooked.push_back(x); };
+        auto app_logged = [&hooked](const std::string& part) { return has_part(hooked, part); };
+        const fs::path state_file = out / "bridge_state.json";
+        json st = read_json(state_file);
+        const json saved = st;
+        int bumps = 700;
+        auto write_state = [&]() {
+            {
+                std::ofstream f(state_file.string(), std::ios::binary | std::ios::trunc);
+                f << st.dump();
+            }
+            fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(2 * ++bumps));
+            app.next_poll = 0.0;
+            ui.frames(3);
+        };
+        st["match_phase"] = "hub";
+        st["team_mgmt"] = false;
+        st["managers"] = hex_addr(SheetWorld::kManagers);
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        tactics_tab_test::select_team(app, ui, 7);
+        tactics_tab_test::go_scope(ui, "My team");
+        ui.frames(3);
+        const LiveTacticState& s = live_tactic_state();
+        rig.clock += 6e6;
+        ui.frames(70);
+        CHECK(s.read_ok, "read: " + s.summary);
+        if (!s.card_open) ui.click("Edit the live tactic (channel E)##ltcard", "##tacright");
+        ui.frames(2);
+        std::ofstream(out / opt_in_file()) << "x";
+        lt_scroll_to(ui, "Deep##ltap0");
+        CHECK(ui.click("High##ltap2", "##tacright"), "High picked (its default Line Height 70)");
+        CHECK(ui.click("Counter##ltbu1", "##tacright"), "Counter picked");
+        ui.frames(130);
+        CHECK(s.can_apply && s.status == "ready", "ready: " + s.status);
+        lt_scroll_top(ui);
+        CHECK(ui.click("Apply to the live tactic##ltapply", "##tacright"), "Apply clicked");
+        ui.frames(2);
+        CHECK(ui.click("Apply##ltyes", "Apply to the live tactic?"), "confirmed");
+        ui.frames(4);
+        CHECK(w.i32(SheetWorld::kRecs + kRecLineHeight) == 70 && w.i32(SheetWorld::kRecs + kRecApproach) == 2 && w.i32(SheetWorld::kRecs + kRecBuildUp) == 1,
+              "written: " + s.last);
+        CHECK(s.replaced.empty() && !s.can_reapply, "no prompt after Turbo's own write");
+        // Team Management opens; the user answers Yes on leaving: the game copies Edit Tactic's screen (Balanced / 50 / Balanced) into the record
+        st["team_mgmt"] = true;
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        w.mem.wr(SheetWorld::kRecs + kRecLineHeight, int32_t(50));
+        w.mem.wr(SheetWorld::kRecs + kRecApproach, int32_t(1));
+        w.mem.wr(SheetWorld::kRecs + kRecBuildUp, int32_t(0));
+        st["team_mgmt"] = false;
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        CHECK(app_logged("channel E: Team Management closed: the live record is re-read in the hub (5 s, 20 s)"), "the close is seen");
+        ui.t += 6.0;
+        ui.frames(3);
+        CHECK(s.replaced == "the game replaced your tactic (LH 50 / Balanced / Balanced). Re-apply?" && s.can_reapply, "the prompt: " + s.replaced);
+        CHECK(app_logged("channel E: after Team Management: the game replaced your tactic (LH 50 / Balanced / Balanced). Re-apply? (waiting for the user's click)"),
+              "logged once");
+        // never automatic: time passes, the record keeps the game's values
+        ui.t += 30.0;
+        ui.frames(130);
+        CHECK(w.i32(SheetWorld::kRecs + kRecLineHeight) == 50 && w.i32(SheetWorld::kRecs + kRecApproach) == 1 && !s.replaced.empty(), "nothing re-applied by itself");
+        // one click
+        lt_scroll_top(ui);
+        CHECK(ui.click("Re-apply##ltreapply", "##tacright"), "Re-apply clicked");
+        ui.frames(4);
+        CHECK(w.i32(SheetWorld::kRecs + kRecLineHeight) == 70 && w.i32(SheetWorld::kRecs + kRecApproach) == 2 && w.i32(SheetWorld::kRecs + kRecBuildUp) == 1,
+              "re-applied: " + s.last);
+        CHECK(s.replaced.empty() && app_logged("channel E: re-apply of Turbo's tactic queued (the user's click after the game replaced it)") &&
+                  rig.logged("channel E: team 1 record 0 approach 1->2 line height 50->70 build-up 0->1"),
+              "the prompt is gone, the write logged: " + s.last);
+        UndoRecord u;
+        std::string err;
+        CHECK(load_undo(out / undo_file(), u, &err) && u.state == "written" && u.note == "re-apply after the game replaced the tactic",
+              "undo file: written, the re-apply named: " + u.state + " " + u.note + " " + err);
+        // Team Management again, No this time (nothing changes): no prompt
+        st["team_mgmt"] = true;
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        st["team_mgmt"] = false;
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        ui.t += 6.0;
+        ui.frames(3);
+        CHECK(s.replaced.empty() && app_logged("channel E: after Team Management: Turbo's values are still in place"), "No: nothing to ask");
+        // Undo puts back what the game had put there before the re-apply (Balanced / 50 / Balanced)
+        ui.frames(130);
+        lt_scroll_top(ui);
+        CHECK(s.can_undo, "Undo offered: " + s.status);
+        CHECK(ui.click("Undo Turbo's write##ltundo", "##tacright"), "Undo clicked");
+        ui.frames(4);
+        CHECK(w.i32(SheetWorld::kRecs + kRecLineHeight) == 50 && w.i32(SheetWorld::kRecs + kRecApproach) == 1 && w.i32(SheetWorld::kRecs + kRecBuildUp) == 0,
+              "undone to the game's values: " + s.last);
+        // clean up
+        app.log_hook = nullptr;
+        app.team_sheet = nullptr;
+        for (const char* f : {opt_in_file(), undo_file()}) fs::remove(out / f, ec);
+        st = saved;
+        st["seq"] = saved.value("seq", 0LL) + 70;
+        write_state();
+        live_tactic_reset();
+    });
+
+    // review: a job whose putting back failed may leave values in Edit Tactic's working copies; the undo file must name them (it named the
+    // map record's fields only), so Undo can put them back
+    run_case("UI: channel E - putting back failed: the undo file names every field the job wrote; Undo puts back what still holds Turbo's value", [&] {
+        live_tactic_reset();
+        const fs::path out = le / "turbo_output";
+        std::error_code ec;
+        for (const char* f : {opt_in_file(), kill_switch_file(), master_switch_file(), undo_file(), db_row_off_file(), db_row_off_legacy_file()}) fs::remove(out / f, ec);
         SheetWorld w(1, 10);
         StickyMemory sm(w.mem);
         ServiceRig rig(w, out, &sm);
@@ -2179,16 +2892,16 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(2);
         std::ofstream(out / opt_in_file()) << "x";
         lt_scroll_to(ui, "Deep##ltap0");
-        CHECK(ui.click("Aggressive##ltap3", "##tacright"), "Aggressive picked");
+        CHECK(ui.click("High##ltap2", "##tacright"), "High picked");
         ui.frames(2);
         CHECK(ui.type_into(ui.find("##ltlhbox", "##tacright"), "90"), "line height typed");
         ui.frames(2);
         CHECK(ui.click("Counter##ltbu1", "##tacright"), "Counter picked");
         ui.frames(130);
         CHECK(s.can_apply && s.status == "ready", "ready: " + s.status);
-        // the map record's Line Height write never lands (read-back mismatch); svc+0xF80's approach takes the write, then refuses to go back
+        // the map record's Line Height write never lands (read-back mismatch); its approach takes the write, then refuses to go back
         sm.drop = SheetWorld::kRecs + kRecLineHeight;
-        sm.once = w.copy_rec(0xF80) + kRecApproach;
+        sm.once = SheetWorld::kRecs + kRecApproach;
         sm.on = true;
         lt_scroll_top(ui);
         CHECK(ui.click("Apply to the live tactic##ltapply", "##tacright"), "Apply clicked");
@@ -2197,23 +2910,23 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(4);
         sm.on = false;
         CHECK(s.last.find("READ-BACK MISMATCH") != std::string::npos && s.last.find("undo FAILED") != std::string::npos, "last: " + s.last);
-        CHECK(w.i32(SheetWorld::kRecs + kRecApproach) == 0 && w.i32(SheetWorld::kRecs + kRecLineHeight) == 25 && w.i32(w.copy_rec(0x1170) + kRecApproach) == 0 &&
-                  w.i32(w.copy_rec(0xF80) + kRecLineHeight) == 25 && w.i32(w.copy_rec(0xF80) + kRecApproach) == 3,
-              "everything put back but svc+0xF80's Defensive Approach");
+        CHECK(w.i32(SheetWorld::kRecs + kRecApproach) == 2 && w.i32(SheetWorld::kRecs + kRecLineHeight) == 25 && w.i32(SheetWorld::kRecs + kRecBuildUp) == 0 &&
+                  w.i32(w.copy_rec(0xF80) + kRecApproach) == 0,
+              "everything put back but the Defensive Approach");
         UndoRecord u;
         std::string err;
-        bool names_copy = false;
+        bool names_ap = false;
         CHECK(load_undo(out / undo_file(), u, &err) && u.state == "failed", "undo file: failed: " + u.state + " " + err);
-        for (const FieldWrite& x : u.writes) names_copy = names_copy || (x.copy == 0xF80 && x.kind == FieldKind::Approach && x.old_value == 0 && x.new_value == 3);
-        CHECK(names_copy && u.writes.size() == 3 + 6, fmt("the undo file names the copies' fields too (%zu)", u.writes.size()));
-        // Undo (allowed after "failed", while channel E is off for the session): svc+0xF80's approach goes back; the rest already holds its value
+        for (const FieldWrite& x : u.writes) names_ap = names_ap || (!x.copy && x.kind == FieldKind::Approach && x.old_value == 0 && x.new_value == 2);
+        CHECK(names_ap && u.writes.size() == 3, fmt("the undo file names every field the job wrote (%zu)", u.writes.size()));
+        // Undo (allowed after "failed", while channel E is off for the session): the approach goes back; the rest already holds its value
         ui.frames(130);
         CHECK(s.can_undo, "Undo offered: " + s.status);
         CHECK(ui.click("Undo Turbo's write##ltundo", "##tacright"), "Undo clicked");
         ui.frames(4);
-        CHECK(w.i32(w.copy_rec(0xF80) + kRecApproach) == 0, "svc+0xF80's Defensive Approach put back");
+        CHECK(w.i32(SheetWorld::kRecs + kRecApproach) == 0, "the Defensive Approach put back");
         CHECK(load_undo(out / undo_file(), u, &err) && u.state == "restored", "undo file: restored: " + u.state + " " + u.note);
-        CHECK(rig.logged("channel E: undo team 1 record 0; Edit Tactic copy svc+0xF80 too (read back ok)"), "the undo is logged");
+        CHECK(rig.logged("channel E: undo team 1 record 0 approach 2->0 (read back ok)"), "the undo is logged");
         // clean up
         app.team_sheet = nullptr;
         for (const char* f : {opt_in_file(), undo_file()}) fs::remove(out / f, ec);

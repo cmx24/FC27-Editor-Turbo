@@ -483,6 +483,11 @@ bool tactics_db_set(App& app, const Table& t, uint64_t rec, const Field& f, int6
 
 // Before the first write to a row, its value is kept (turbo_output\tactics_snapshot.json) so Reset can put it back
 DbOutcome write_db(App& app, const SliderWrite& w, std::string& why, std::string& what) {
+    // the club tactic's teams.* fields: gate X2 decides who writes them (core/tactics_status.h teams_tactic_route, the one place)
+    if (const char* not_here = teams_tactic_refusal(w.target)) {
+        why = not_here;
+        return DbOutcome::Skipped;
+    }
     DbTarget r = resolve_db(app, w.target);
     if (r.outcome != DbOutcome::Ok) {
         why = r.why;

@@ -96,10 +96,12 @@ void install_team_sheet() {
     }
     if (why.empty())
         log("game calls: team_sheet (channel E) resolved: VT1 %s VT2 %s SetSheet %s UpdateSheet %s GetActiveSheetId %s registry %s; writes need "
-            "turbo_output\\%s, kill switches turbo_output\\%s and \\%s, the registry Find off with \\%s, the cm_mentalities mirror only with \\%s (\\%s switches it off)",
+            "turbo_output\\%s, kill switches turbo_output\\%s and \\%s, the registry Find off with \\%s, the cm_mentalities row (written in the same job) "
+            "off with \\%s, the kick-off check off with \\%s",
             hex(game_signature("teamsheet_vt1")).c_str(), hex(game_signature("teamsheet_vt2")).c_str(), hex(game_signature("teamsheet_set")).c_str(),
             hex(game_signature("teamsheet_update")).c_str(), hex(game_signature("teamsheet_active")).c_str(), hex(game_signature("service_registry")).c_str(),
-            tsheet::opt_in_file(), tsheet::kill_switch_file(), tsheet::master_switch_file(), tsheet::find_off_file(), tsheet::mirror_on_file(), tsheet::mirror_off_file());
+            tsheet::opt_in_file(), tsheet::kill_switch_file(), tsheet::master_switch_file(), tsheet::find_off_file(), tsheet::db_row_off_file(),
+            tsheet::kickoff_off_file());
     else
         log("game calls: team_sheet (channel E) not available on this build: %s", why.c_str());
 }

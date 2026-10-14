@@ -214,9 +214,9 @@ inline const char* dead_target_reason(const std::string& target) {
 namespace tactics_status_detail {
 inline const std::map<std::string, Entry>& live_sheet_table() {
     static const std::map<std::string, Entry> t = {
-        {"live.build_up", {SeenKind::Untested, "", "Build-Up Style: written into your club's live tactic record (and Edit Tactic's working copy when one holds this tactic and these players), read back; whether Edit Tactic shows it and a played match uses it: not checked yet", false}},
-        {"live.line_height", {SeenKind::Untested, "", "Line Height: written into your club's live tactic record (and Edit Tactic's working copy when one holds this tactic and these players), read back; whether Edit Tactic shows it and a played match uses it: not checked yet", false}},
-        {"live.approach", {SeenKind::Untested, "", "Defensive Approach: written into your club's live tactic record (and Edit Tactic's working copy when one holds this tactic and these players), read back; whether Edit Tactic shows it and a played match uses it: not checked yet", false}},
+        {"live.build_up", {SeenKind::Untested, "", "Build-Up Style: written into your club's live tactic record and its cm_mentalities row in one job, read back; the match's own copy is read at kick-off (log line); whether Edit Tactic shows it and a played match uses it: not checked yet", false}},
+        {"live.line_height", {SeenKind::Untested, "", "Line Height: written into your club's live tactic record and its cm_mentalities row in one job, read back; the match's own copy is read at kick-off (log line); whether Edit Tactic shows it and a played match uses it: not checked yet", false}},
+        {"live.approach", {SeenKind::Untested, "", "Defensive Approach: written into your club's live tactic record, band-consistent with the Line Height, read back; the match's own copy is read at kick-off (log line); whether Edit Tactic shows it and a played match uses it: not checked yet", false}},
         {"live.role", {SeenKind::Untested, "", "the slot's three role values (word, role id, focus) written together and read back; Edit Tactic and a played match not checked yet", false}},
     };
     return t;
@@ -238,6 +238,29 @@ inline TacticStatus live_sheet_status(const std::string& key, const std::string&
         s.note = "never seen working in a played match";
     }
     return s;
+}
+
+// ------------------------------------------------------------------------------------------------ the club tactic's teams.* fields (gate X2)
+// teams.defensivedepth / teams.buildupplay are database sliders of the Tactics tab (team.line_depth / team.buildup_play, "accepted, untested").
+// Gate X2 (docs/TACTICS_OVERHAUL_DECISION.md 4.2) decides where they go, and THIS function is the one place that says it:
+//   TacticsTab - until X2: the Tactics tab writes them as today;
+//   Removed    - X2 shows the match copy takes the map record's value: the tab no longer writes them (the club tactic is My team's job);
+//   ChannelE   - X2 shows the match copy takes teams.*: the tab no longer writes them; channel E's job writes the club's teams row with the
+//                live record (a second core/team_sheet.h DbRowWrite: the same fields, defensivedepth / buildupplay, checks and rollback).
+enum class TeamsTacticRoute { TacticsTab, Removed, ChannelE };
+inline TeamsTacticRoute teams_tactic_route() { return TeamsTacticRoute::TacticsTab; }
+inline bool teams_tactic_target(const std::string& target) { return target == "teams.defensivedepth" || target == "teams.buildupplay"; }
+// nullptr = the Tactics tab writes this target; else why it does not (the row says it)
+inline const char* teams_tactic_refusal(const std::string& target) {
+    if (!teams_tactic_target(target)) return nullptr;
+    switch (teams_tactic_route()) {
+        case TeamsTacticRoute::TacticsTab: return nullptr;
+        case TeamsTacticRoute::Removed:
+            return "not written: the match takes your club's tactic from its live record (gate X2): set it in My team (channel E)";
+        case TeamsTacticRoute::ChannelE:
+            return "not written here: My team (channel E) writes it together with your club's live tactic (gate X2)";
+    }
+    return nullptr;
 }
 
 // ------------------------------------------------------------------------------------------------ kill switches
