@@ -213,6 +213,22 @@ def press_raw_lines(rig, rec, words=None):
     return L
 
 
+def press_raw_unbound(dev, players, limit=6):
+    """when the identity gate fails: the raw words of the first `limit` players so the offsets can still be judged by eye (read-only). -> lines"""
+    L = []
+    ss = [_q(b) for b in dev.multi([(p["obj"] + 0x28, 8) for p in players[:limit]])]
+    for p, s_ in zip(players[:limit], ss):
+        if not be.ptr_ok(s_):
+            L.append("  h%s team%s [obj+0x28] = %s (not a pointer)" % (p["handle"], p["team"], s_))
+            continue
+        hdr, blk = dev.multi([(s_, 0x40), (s_ + B0, BLEN)])
+        q8 = ["%X" % _q(hdr, o) for o in range(0, 0x40, 8)] if hdr and len(hdr) >= 0x40 else None
+        dw = ["%d" % _i(blk, o) for o in range(0, BLEN - 3, 4)] if blk and len(blk) >= BLEN else None
+        L.append("  h%s team%s s=%X info(route C)=%s  [s+0..0x38] qwords=%s" % (p["handle"], p["team"], s_, "%X" % p["info"] if p.get("info") else None, q8))
+        L.append("     [s+0x23C..0x2A0] dwords=%s  (wr@+0, end@+0x48, start@+0x4C, last@+0x50, acc@+0x54 f32, flag@+0x58 u8, why@+0x5C)" % (dw,))
+    return L
+
+
 def press_watch2(dev, rig, secs, hz, clock, sleep, words_fn=None, log=print, raw=True):
     """sample every 1/hz s. With dev.seq (one request, several snapshots) the cadence is not limited by the ~1 s request latency; else one multi per sample."""
     t0 = clock()
@@ -384,6 +400,10 @@ def main(argv=None):
             return harness.EXIT["INCONCLUSIVE"]
         dev = be.DevMulti(dev2.call)
         rig, src = bind_best(dev, m)
+        if rig["bound"] < 8:
+            print("identity gate failed; raw words of the first players (judge the offsets by eye):")
+            for line in press_raw_unbound(dev, m.players):
+                print(line)
         ctx, _bad = be.resolve(dev)
         words_fn = (lambda: tactic_words(dev, ctx)) if ctx else None
         secs = float(opts.get("secs", 60 if a.cmd[0] == "press-raw" else 120))
@@ -577,7 +597,9 @@ def self_test():
     wt = _PressWorld(hi=25.0, lo=25.0)
     rt, st_ = _run_press(wt, 20)
     check(press_diag(rt, st_)[0] in ("TRIGGERED_NO_CYCLE", "NEVER_TRIGGERED"), "short watch: no cycle diagnosed (%s)" % press_diag(rt, st_)[0])
-    # 6. work-rate level that changes during the burst is skipped
+    ru = press_raw_unbound(wi, wi.players, limit=2)
+    check(len(ru) == 4 and "qwords" in ru[0] and "dwords" in ru[1], "press_raw_unbound: raw qwords + dwords for the first players when identity fails")
+    # 6. raw viewer
     smp = [dict(r) for r in smps[-1]]
     check(isinstance(press_raw_lines(rig, smp, None), list) and len(press_raw_lines(rig, smp, None)) == 23, "press_raw_lines: header + 22 rows")
     # 7. state series: covariate-adjusted judge on a synthetic deterministic origin
