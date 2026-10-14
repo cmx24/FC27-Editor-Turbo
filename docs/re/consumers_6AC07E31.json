@@ -24,7 +24,9 @@
     0.05,
     0.9
    ],
-   "effect": "when the team starts to press, by field depth"
+   "effect": "when the team starts to press, by field depth",
+   "metric_sign": 0,
+   "dmin": 1.0
   },
   "shape.length_out": {
    "id": "shape.length_out",
@@ -47,7 +49,9 @@
     0.5,
     1.5
    ],
-   "effect": "no effect expected"
+   "effect": "no effect expected",
+   "metric_sign": 0,
+   "dmin": 2.0
   },
   "shape.width_in": {
    "id": "shape.width_in",
@@ -126,7 +130,9 @@
     0.1,
     3.0
    ],
-   "effect": "attackers' off-ball run frequency"
+   "effect": "attackers' off-ball run frequency",
+   "metric_sign": 1,
+   "dmin": 0.05
   },
   "marking.tightness": {
    "id": "marking.tightness",
@@ -157,7 +163,9 @@
     0.0,
     1.2
    ],
-   "effect": "above the saturation point (v x Tm >= 1, Tm unknown [U]) nothing changes: the catalogue maximum 2.5 is wasted, 1.2 is the safe high extreme"
+   "effect": "above the saturation point (v x Tm >= 1, Tm unknown [U]) nothing changes: the catalogue maximum 2.5 is wasted, 1.2 is the safe high extreme",
+   "metric_sign": -1,
+   "dmin": 1.0
   },
   "shape.length_in": {
    "id": "shape.length_in",
@@ -188,7 +196,9 @@
     0.5,
     1.5
    ],
-   "effect": "team compactness with the ball"
+   "effect": "team compactness with the ball",
+   "metric_sign": 0,
+   "dmin": 2.0
   },
   "pressing.stepup_distance_bonus": {
    "id": "pressing.stepup_distance_bonus",
@@ -219,7 +229,9 @@
     2.25,
     18.0
    ],
-   "effect": "defenders leave the line to press an advancing carrier"
+   "effect": "defenders leave the line to press an advancing carrier",
+   "metric_sign": 1,
+   "dmin": 1.0
   },
   "pressing.partial_cooldownmultiplier": {
    "id": "pressing.partial_cooldownmultiplier",
@@ -250,7 +262,9 @@
     0.1,
     5.0
    ],
-   "effect": "how often the partial press re-arms"
+   "effect": "how often the partial press re-arms",
+   "metric_sign": -1,
+   "dmin": 1.0
   },
   "pressing.partial_highworkratetime": {
    "id": "pressing.partial_highworkratetime",
@@ -281,7 +295,9 @@
     2.0,
     25.0
    ],
-   "effect": "how long a pressing player keeps closing down before he rests (default 6 s): the most direct 'press harder' lever found"
+   "effect": "how long a pressing player keeps closing down before he rests (default 6 s): the most direct 'press harder' lever found",
+   "metric_sign": 1,
+   "dmin": 1.0
   },
   "pressing.zone_marking_depth": {
    "id": "pressing.zone_marking_depth",
@@ -304,7 +320,9 @@
     0.0,
     1.5
    ],
-   "effect": "zone to man marking switch"
+   "effect": "zone to man marking switch",
+   "metric_sign": 0,
+   "dmin": 1.0
   },
   "shape.length_in_possession": {
    "id": "shape.length_in_possession",
@@ -363,7 +381,9 @@
     1.8,
     15.0
    ],
-   "effect": "midfielders step out to the carrier"
+   "effect": "midfielders step out to the carrier",
+   "metric_sign": 1,
+   "dmin": 1.0
   },
   "lineband.deep_max": {
    "id": "lineband.deep_max",
@@ -478,7 +498,9 @@
     40,
     75
    ],
-   "effect": "re-shapes how the Line Height slider maps to depth; read at tactic set-up (prematch DB), not per frame"
+   "effect": "re-shapes how the Line Height slider maps to depth; read at tactic set-up (prematch DB), not per frame",
+   "metric_sign": 0,
+   "dmin": 2.0
   },
   "lineband.high_max": {
    "id": "lineband.high_max",
@@ -557,7 +579,9 @@
     1.35,
     18.0
    ],
-   "effect": "how long the nearest defender contains"
+   "effect": "how long the nearest defender contains",
+   "metric_sign": 0,
+   "dmin": 1.0
   },
   "pressing.opponent_third_press_depth": {
    "id": "pressing.opponent_third_press_depth",
@@ -580,7 +604,9 @@
     0.0,
     1.5
    ],
-   "effect": "pressing in the opponent third"
+   "effect": "pressing in the opponent third",
+   "metric_sign": 0,
+   "dmin": 1.0
   },
   "pressing.cut_lane_reach": {
    "id": "pressing.cut_lane_reach",
@@ -603,7 +629,9 @@
     1.05,
     10.5
    ],
-   "effect": "passing-lane cutting reach"
+   "effect": "passing-lane cutting reach",
+   "metric_sign": -1,
+   "dmin": 1.0
   },
   "marking.tight_in_box": {
    "id": "marking.tight_in_box",
@@ -654,7 +682,9 @@
     0.3,
     2.5
    ],
-   "effect": "defenders' marking reaction time"
+   "effect": "defenders' marking reaction time",
+   "metric_sign": 1,
+   "dmin": 1.0
   },
   "marking.reaction_midfielders": {
    "id": "marking.reaction_midfielders",
@@ -705,7 +735,9 @@
     0.3,
     2.5
    ],
-   "effect": "defenders' reaction delay to attackers' movement"
+   "effect": "defenders' reaction delay to attackers' movement",
+   "metric_sign": 1,
+   "dmin": 1.0
   },
   "offside.play_offside_depth": {
    "id": "offside.play_offside_depth",
@@ -728,7 +760,9 @@
     0.0,
     1.0
    ],
-   "effect": "defensive line steps up / holds for the offside trap"
+   "effect": "defensive line steps up / holds for the offside trap",
+   "metric_sign": 0,
+   "dmin": 2.5
   },
   "runs.decisive_run_enabled": {
    "id": "runs.decisive_run_enabled",
@@ -819,7 +853,9 @@
     0.6,
     1.3
    ],
-   "effect": "how fast defenders recover when the ball is lost"
+   "effect": "how fast defenders recover when the ball is lost",
+   "metric_sign": 0,
+   "dmin": 2.0
   },
   "recovery.midfielders_sprint_back": {
    "id": "recovery.midfielders_sprint_back",
@@ -964,7 +1000,9 @@
     18.0,
     120.0
    ],
-   "effect": "sweeper-keeper behaviour: distance from the goal line when an opposing runner is through"
+   "effect": "sweeper-keeper behaviour: distance from the goal line when an opposing runner is through",
+   "metric_sign": 1,
+   "dmin": 3.0
   },
   "goalkeeper.rush_enabled": {
    "id": "goalkeeper.rush_enabled",
@@ -995,7 +1033,9 @@
     0,
     1
    ],
-   "effect": "switch: the keeper never charges / may charge"
+   "effect": "switch: the keeper never charges / may charge",
+   "metric_sign": 1,
+   "dmin": 3.0
   },
   "goalkeeper.catch_score": {
    "id": "goalkeeper.catch_score",
@@ -1087,7 +1127,9 @@
     0.05,
     0.6
    ],
-   "effect": "speed at which defenders jockey the carrier"
+   "effect": "speed at which defenders jockey the carrier",
+   "metric_sign": -1,
+   "dmin": 1.0
   },
   "shape.gap_dmf": {
    "id": "shape.gap_dmf",
@@ -1226,7 +1268,9 @@
     4.5,
     45.0
    ],
-   "effect": "pair with partial_min_penalty: 0 / 4.5 = almost no rest, 21 / 45 = long rests"
+   "effect": "pair with partial_min_penalty: 0 / 4.5 = almost no rest, 21 / 45 = long rests",
+   "metric_sign": -1,
+   "dmin": 1.0
   },
   "pressing.partial_min_penalty": {
    "id": "pressing.partial_min_penalty",
@@ -1257,7 +1301,9 @@
     0.0,
     21.0
    ],
-   "effect": "write min and max together: 0 / 0 = the press never rests (default 7..15 s); the rest range is exactly readable"
+   "effect": "write min and max together: 0 / 0 = the press never rests (default 7..15 s); the rest range is exactly readable",
+   "metric_sign": -1,
+   "dmin": 1.0
   },
   "pressing.stepup_opponent_range": {
    "id": "pressing.stepup_opponent_range",
@@ -1316,7 +1362,9 @@
     1.0,
     20.0
    ],
-   "effect": "low work-rate players' press burst"
+   "effect": "low work-rate players' press burst",
+   "metric_sign": 1,
+   "dmin": 1.0
   },
   "pressing.no_double_marking_own_half": {
    "id": "pressing.no_double_marking_own_half",
@@ -2472,9 +2520,9 @@
    },
    "c_rank": 104,
    "tier": "B",
-   "status": "V",
-   "freshness": "per-call",
-   "role": "read at the listed site (role not analysed)",
+   "status": "A",
+   "freshness": "copy-setup",
+   "role": "copied to [obj+0x150] by 0x146A52FB4 at some set-up; the consumer of the copy is not located [U]",
    "observable": null,
    "metric": null,
    "ext": [],
@@ -2500,9 +2548,9 @@
    },
    "c_rank": 105,
    "tier": "B",
-   "status": "V",
-   "freshness": "per-call",
-   "role": "read at the listed site (role not analysed)",
+   "status": "A",
+   "freshness": "copy-setup",
+   "role": "copied to [obj+0x154] by 0x146A52FB4 at some set-up; the consumer of the copy is not located [U]",
    "observable": null,
    "metric": null,
    "ext": [],
@@ -2676,7 +2724,9 @@
     7.5,
     20.0
    ],
-   "effect": "LATCHED at match construction: write in the hub before kick-off; a mid-match write is not expected to act"
+   "effect": "LATCHED at match construction: write in the hub before kick-off; a mid-match write is not expected to act",
+   "metric_sign": 1,
+   "dmin": 2.5
   },
   "shape.def_line_range_min": {
    "id": "shape.def_line_range_min",
@@ -2698,13 +2748,18 @@
    },
    "c_rank": 111,
    "tier": "B",
-   "status": "V",
-   "freshness": "per-call",
-   "role": "read at the listed site (role not analysed)",
-   "observable": null,
-   "metric": null,
-   "ext": [],
-   "effect": ""
+   "status": "A",
+   "freshness": "latched-ctor",
+   "role": "the min half of the line-height range: copied with _max by the match-settings constructor (0x146A521EC) into [obj+0x5BA0] (the read site is V OLD, the destination object A)",
+   "observable": "latched_copy:def_line",
+   "metric": "last_def_depth:without",
+   "ext": [
+    -20.0,
+    -7.5
+   ],
+   "effect": "LATCHED at match construction: write in the hub before kick-off",
+   "metric_sign": -1,
+   "dmin": 2.5
   },
   "pressing.keep_press_after_gain": {
    "id": "pressing.keep_press_after_gain",
@@ -2907,9 +2962,9 @@
    },
    "c_rank": 120,
    "tier": "C",
-   "status": "V",
-   "freshness": "per-call",
-   "role": "read at the listed site (role not analysed)",
+   "status": "A",
+   "freshness": "copy-setup",
+   "role": "copied to [obj+0x318] by 0x1469DF924 at some set-up; the consumer of the copy is not located [U]",
    "observable": null,
    "metric": null,
    "ext": [],

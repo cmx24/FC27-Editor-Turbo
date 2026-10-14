@@ -96,6 +96,29 @@ for x in sorted(kn, key=lambda x: x["rank"]):
         e.update(c_rank=n + x["rank"], tier="C" if x["impact"] == "low" else "B", status="V" if ss else "U", freshness="per-call" if ss else "unknown",
                  role="read at the listed site (role not analysed)" if ss else "no reader located", observable=None, metric=None, ext=[], effect="")
     out["knobs"][kid] = e
+# freshness of the knobs whose read site is a COPY into another object (not a per-call read): a live write must not be expected to act
+SETUP_COPY = {
+ "shape.def_line_range_min": dict(freshness="latched-ctor", status="A", observable="latched_copy:def_line", metric="last_def_depth:without", ext=[-20.0, -7.5],
+                                  role="the min half of the line-height range: copied with _max by the match-settings constructor (0x146A521EC) into [obj+0x5BA0] (the read site is V OLD, the destination object A)",
+                                  effect="LATCHED at match construction: write in the hub before kick-off"),
+ "referee.yellow_threshold": dict(freshness="copy-setup", status="A", role="copied to [obj+0x150] by 0x146A52FB4 at some set-up; the consumer of the copy is not located [U]"),
+ "referee.red_threshold": dict(freshness="copy-setup", status="A", role="copied to [obj+0x154] by 0x146A52FB4 at some set-up; the consumer of the copy is not located [U]"),
+ "referee.advantage_window": dict(freshness="copy-setup", status="A", role="copied to [obj+0x318] by 0x1469DF924 at some set-up; the consumer of the copy is not located [U]"),
+}
+for kid, upd in SETUP_COPY.items():
+    out["knobs"][kid].update(upd)
+# sign of the metric's change when the knob is RAISED (0 = unknown / either), and the smallest shift worth a slider in the metric's unit
+MSIGN = {"marking.tightness": -1, "pressing.partial_highworkratetime": +1, "pressing.partial_min_penalty": -1, "pressing.partial_max_penalty": -1,
+         "pressing.stepup_distance_bonus": +1, "shape.def_line_range_max": +1, "shape.def_line_range_min": -1, "runs.frequency": +1, "pressing.trigger_depth": 0,
+         "pressing.partial_cooldownmultiplier": -1, "goalkeeper.rush_radius": +1, "pressing.stepup_mid_distance_bonus": +1, "marking.global_reaction": +1,
+         "marking.reaction_defenders": +1, "offside.play_offside_depth": 0, "recovery.defenders_sprint_back": 0, "defending.jockey_speed": -1, "shape.length_in": 0,
+         "goalkeeper.rush_enabled": +1, "lineband.high_min": 0, "pressing.partial_lowworkratetime": +1, "pressing.contain_high_time": 0,
+         "pressing.opponent_third_press_depth": 0, "pressing.zone_marking_depth": 0, "pressing.cut_lane_reach": -1}
+DMIN = {"nn_opp": 1.0, "press_n8": 1.0, "press_min": 2.0, "last_def_depth": 2.5, "gk_out": 3.0, "beyond_share": 0.05, "backline_m": 2.0, "len_sd": 2.0, "press_m": 1.0}
+for kid, e in out["knobs"].items():
+    if e.get("metric"):
+        e["metric_sign"] = MSIGN.get(kid, 0)
+        e["dmin"] = DMIN.get(e["metric"].split(":")[0], 1.0)
 order = sorted(out["knobs"].values(), key=lambda v: (v["c_rank"], v["id"]))
 for i, v in enumerate(order):
     v["c_rank"] = i + 1

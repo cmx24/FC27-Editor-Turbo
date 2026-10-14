@@ -21,6 +21,7 @@ over dev2, or over the offline mock world) and only ever issue `bytes` reads:
   plan_windows(sd, dmin, p_phase, ...)       how many windows per arm a metric needs (the bar to beat: width moved ~3 m against an MDE of ~7 m).
   python tools/consumers_obs.py --table [--top N]    the ranked table;  --check-data  validates the data file against the catalogue;
   python tools/consumers_obs.py probe <knob id> [--mock]    one read-only identity probe (live: GAME_STATE must allow it);  --self-test
+  python tools/consumers_obs.py latched-copy want=-20,20 [--mock]      (match running, values written in the hub before kick-off)
   python tools/consumers_obs.py press-watch secs=90 expect=25 stale=6 [wr=2]   |   press-watch secs=120 rest=0,4.5 old=7,15     (live, read-only)
 """
 import argparse, json, math, os, statistics, struct, sys
@@ -107,6 +108,10 @@ def obs_instance(dev, knob_id, cat=None):
     db = be.q(dev.multi([(handle + 8, 8)])[0])
     if not be.ptr_ok(db):
         return "REFUSED", dict(ev, why="current %s database = %s" % ("prematch" if prematch else "gameplay", db))
+    dti = be.q(dev.multi([(db + 8, 8)])[0])
+    ev["db_typeinfo"] = dti
+    if not prematch and dti != be.C["TI_DB_GP"]:
+        return "REFUSED", dict(ev, why="current DB TypeInfo %s != gameplayattribdb %s" % (be.H(dti or 0), be.H(be.C["TI_DB_GP"])))
     gr = be.q(dev.multi([(db + fam, 8)])[0])
     grp = be.untag(gr)
     if not be.ptr_ok(grp):
@@ -426,20 +431,32 @@ def press_watch(dev, objs, secs, hz, clock, sleep, log=print):
     return samples, None
 
 
-def judge_press_cycle(bursts, expect_s, stale_s, wr=2, tol_s=0.8, hz=PRESS_HZ, min_n=2):
-    """The press-burst length of players with work-rate level `wr` must bracket expect_s seconds (the value written, e.g. 0x84 for level 2) within
-    tol_s; if instead they bracket stale_s (the old value) the table is ignored / latched. -> (verdict, evidence)"""
-    sel = [b for b in bursts if b["wr"] == wr]
+# Burst lengths other classes of players show by FC 27's own table (seconds): regular 0x84 / 0x9C, Relentless regular 0x70 / 0x6C, Relentless icon 0x8C / 0x58;
+# a level-0 player takes the mean of its class's two. A burst that fits one of these (and not the written / old value) belongs to another class and is not counted.
+OTHER_CLASS_S = {2: (9.0, 12.0), 1: (7.0, 10.0), 0: (8.0, 11.0)}
+
+
+def judge_press_cycle(bursts, expect_s, stale_s, wr=2, tol_s=0.8, hz=PRESS_HZ, min_n=2, others=None):
+    """The press-burst length of REGULAR-class players with work-rate level `wr` must bracket expect_s seconds (the value written, e.g. 0x84 for
+    level 2) within tol_s; if instead they bracket stale_s (the old value) the table is ignored / latched. Bursts that bracket a Relentless
+    default (OTHER_CLASS_S[wr]) and neither expect_s nor stale_s are another class and are left out (evidence["other_class"]). -> (verdict, evidence)"""
+    others = OTHER_CLASS_S.get(wr, ()) if others is None else others
 
     def fit(b, sec):
         return b["lo"] - tol_s * hz <= sec * hz <= b["hi"] + tol_s * hz
+    sel_all = [b for b in bursts if b["wr"] == wr]
+    sel = [b for b in sel_all if fit(b, expect_s) or fit(b, stale_s) or not any(fit(b, o) for o in others)]
     n_new = sum(1 for b in sel if fit(b, expect_s))
     n_old = sum(1 for b in sel if fit(b, stale_s))
-    ev = {"bursts": len(sel), "fit_expected": n_new, "fit_stale": n_old, "expect_s": expect_s, "stale_s": stale_s, "tol_s": tol_s}
+    ev = {"bursts": len(sel), "other_class": len(sel_all) - len(sel), "fit_expected": n_new, "fit_stale": n_old, "expect_s": expect_s, "stale_s": stale_s,
+          "tol_s": tol_s}
     if abs(expect_s - stale_s) <= 2 * tol_s:
         return "INCONCLUSIVE", dict(ev, why="expected and stale lengths are closer than twice the tolerance: write a value further from the old one")
+    if any(abs(expect_s - o) <= tol_s for o in others):
+        return "INCONCLUSIVE", dict(ev, why="the written length is within the tolerance of a Relentless-class default (%s): choose another value" % (list(others),))
     if len(sel) < min_n:
-        return "INCONCLUSIVE", dict(ev, why="%d completed bursts of work-rate level %d (need %d): the press did not trigger often enough" % (len(sel), wr, min_n))
+        return "INCONCLUSIVE", dict(ev, why="%d completed regular-class bursts of work-rate level %d (need %d): the press did not trigger often enough" % (
+            len(sel), wr, min_n))
     if n_new >= max(min_n, int(0.8 * len(sel))):
         return "PASS", dict(ev, why="%d of %d completed bursts last %.1f s (+/- %.1f): the engine uses the written length" % (n_new, len(sel), expect_s, tol_s))
     if n_old >= max(min_n, int(0.8 * len(sel))) and n_new == 0:
@@ -447,7 +464,56 @@ def judge_press_cycle(bursts, expect_s, stale_s, wr=2, tol_s=0.8, hz=PRESS_HZ, m
     return "INCONCLUSIVE", dict(ev, why="mixed bursts (%d new, %d stale of %d)" % (n_new, n_old, len(sel)))
 
 
+def press_clock(samples):
+    """median ticks of the engine clock per wall second over the samples (evidence for the 60 ticks / s assumption); None with fewer than two samples"""
+    first, lastd, rates = {}, {}, []
+    for smp in samples:
+        for r in smp:
+            if r.get("ok"):
+                first.setdefault(r["handle"], (r["t"], r["now"]))
+                lastd[r["handle"]] = (r["t"], r["now"])
+    for h, (t0, n0) in first.items():
+        t1, n1 = lastd[h]
+        if t1 - t0 >= 1.0:
+            rates.append((n1 - n0) / (t1 - t0))
+    return statistics.median(rates) if rates else None
+
+
 # ------------------------------------------------------------------------------------------------------------- data checks / table
+def probes_extra(data=None, cat=None):
+    """battery_lib.PROBES-style entries for the catalogue knobs that have none, built from the data file (the interface for the battery track:
+    `battery_lib.PROBES.update(consumers_obs.probes_extra())` makes battery_write / parse_knob_list accept them; nothing here writes). The engine-read
+    check of such a knob is NOT a battery_engine kind: `obs_ext` names the check in this file (press_cycle / press_rest / latched_copy:def_line / none).
+    Extremes are (value, expected sign of the metric's shift) with the sign = metric_sign x sign(value - default)."""
+    data = data or load_data()
+    cat = cat or load_cat()
+    out = {}
+    for kid, v in data["knobs"].items():
+        k = _knob(cat, kid)
+        if kid in bl.PROBES or k is None or not v.get("metric") or not v.get("ext"):
+            continue
+        d = float(k["default"])
+        ext = []
+        for e in v["ext"]:
+            if abs(e - d) < 1e-9:
+                continue
+            ext.append((float(e), int(v.get("metric_sign", 0)) * (1 if e > d else -1)))
+        if not ext:
+            continue
+        name, _, ctx = v["metric"].partition(":")
+        setup = v["freshness"] in ("latched-ctor", "setup", "copy-setup")
+        ent = dict(obs=None, metric=name, ctx=ctx or "without", unit="" if name in ("press_n8", "beyond_share") else "m", dmin=float(v.get("dmin", 1.0)),
+                   tmin=float(k["min"]), tmax=float(k["max"]), ext=ext,
+                   consumer="%s [%s OLD] %s" % ((v.get("consumer") or {}).get("read", "no reader located"), v["status"], v["role"][:140]),
+                   why_no_obs=("engine-read check: %s (tools/consumers_obs.py)" % v["observable"]) if v.get("observable") else "no persistent observable located [U]")
+        if v.get("observable"):
+            ent["obs_ext"] = v["observable"]
+        if setup:
+            ent.update(setup_only=True, skip_effect="applies at match construction / tactic set-up: write in the hub before kick-off, then a second launch or a fresh match is needed to A/B it")
+        out[kid] = ent
+    return out
+
+
 def check_data(data=None, cat=None, inv_path=INV):
     """-> list of problems (empty = consistent): ids vs the catalogue, unique ranks, V rows carry a unique signature inside the image, extremes
     inside the knob's range and away from its default, sim-distinct flags vs the inventory"""
@@ -485,6 +551,12 @@ def check_data(data=None, cat=None, inv_path=INV):
             d = float(k["default"])
             if len(v["ext"]) >= 2 and not any(abs(e - d) >= 0.25 * max(abs(d), 0.1) for e in v["ext"]):
                 bad.append("%s: no extreme is 25 %% away from the default %s" % (kid, d))
+        if v.get("metric") and (v.get("metric_sign") not in (-1, 0, 1) or not (v.get("dmin", 0) > 0)):
+            bad.append("%s: metric_sign / dmin missing" % kid)
+        if v["freshness"] not in ("per-call", "setup", "latched-ctor", "copy-setup", "unknown"):
+            bad.append("%s: freshness %r" % (kid, v["freshness"]))
+        if kid.startswith("referee.") and v["freshness"] != "copy-setup":
+            bad.append("%s: a copied threshold must be copy-setup" % kid)
         if inv is not None:
             g = inv.get(k["collection"])
             sd = bool(g and any(x.startswith("simulation") for x in g["variants"]))
@@ -592,6 +664,12 @@ def self_test():
     v7, ev7 = obs_instance(dev, "marking.tightness", cat)
     check(v7 == "PASS" and ev7["copy"] == "simulation" and "SIMULATION" in ev7["note"], "a simulation-path Name is reported as the simulation copy")
 
+    # a gameplay DB whose TypeInfo is not gameplayattribdb is refused
+    dbp = be.q(dev.multi([(be.q(dev.multi([(be.q(dev.multi([(be.C["G_ATTRIB"], 8)])[0]), 8)])[0]) + 8, 8)])[0])
+    old_ti = be.q(dev.multi([(dbp + 8, 8)])[0])
+    w.put(dbp + 8, "<Q", old_ti + 0x1000)
+    check(obs_instance(dev, "marking.tightness", cat)[0] == "REFUSED", "obs_instance: a current DB with another TypeInfo is a REFUSAL")
+    w.put(dbp + 8, "<Q", old_ti)
     # --- latched copy
     c, bad_ = be.resolve(dev)
     check(c is not None, "mock match context resolves (%s)" % (bad_[:1],))
@@ -732,6 +810,24 @@ def self_test():
     check(judge_press_rest(bursts, 3.0, 5.0, 8.0, 10.0)[0] == "FAIL", "judge_press_rest: rests of 9 s while 3..5 s is written -> FAIL (ignored / latched)")
     check(judge_press_rest(bursts, 8.0, 10.0, 9.0, 11.0)[0] == "INCONCLUSIVE", "judge_press_rest: overlapping ranges -> INCONCLUSIVE")
     check(judge_press_cycle(press_bursts(smps[:3]), 6.0, 25.0)[0] == "INCONCLUSIVE", "judge_press_cycle: no completed burst -> INCONCLUSIVE")
+    # Relentless-class players (other burst lengths) in the mix: excluded, the regular ones decide
+    fpr = FakePress(n=12)
+    for i, st in enumerate(fpr.state):
+        if i % 4 == 2:
+            st["wr"] = 2
+            st["rel"] = 9.0                 # a Relentless-regular level-2 player: 9 s bursts
+    base_burst = fpr.burst_ticks
+    fpr.burst_ticks = lambda st: int(st["rel"] * 60) if "rel" in st else base_burst(st)
+    smr = []
+    for _ in range(700):
+        fpr.advance(12)
+        smr.append(press_sample(fpr, fpr.objs, fpr.tick / 60.0))
+    br = press_bursts(smr)
+    v_r, ev_r = judge_press_cycle(br, 6.0, 25.0)
+    check(v_r == "PASS" and ev_r["other_class"] >= 1, "judge_press_cycle: Relentless 9 s bursts are left out (%d), the regular 6 s ones decide -> PASS" % ev_r["other_class"])
+    check(judge_press_cycle(br, 9.0, 25.0)[0] == "INCONCLUSIVE", "judge_press_cycle: a written length equal to a Relentless default is refused as ambiguous")
+    ck = press_clock(smr)
+    check(ck is not None and abs(ck - 60.0) < 3.0, "press_clock: the synthetic clock runs at %.1f ticks / s" % (ck or 0))
     clk = {"t": 0.0}
     fpw = FakePress(n=10)
 
@@ -749,6 +845,32 @@ def self_test():
     fp3 = FakePress()
     fp3.mem[fp3.objs[0][2] + 0x28] = struct.pack("<Q", 0)
     check(not press_sample(fp3, fp3.objs, 0.0)[0]["ok"], "press_sample: a null state pointer is not plausible (ok False), never a value")
+    # --- probes_extra: the battery interface
+    px = probes_extra(data, cat)
+    check(len(px) >= 15 and all(e["ext"] and e["tmin"] < e["tmax"] for e in px.values()) and "marking.tightness" not in px,
+          "probes_extra: %d new entries with extremes inside the catalogue range; knobs the battery already probes are left alone" % len(px))
+    saved = dict(bl.PROBES)
+    try:
+        newp = {k_: v_ for k_, v_ in px.items() if k_ not in bl.PROBES}
+        bl.PROBES.update(newp)
+        text_ok = "pressing.stepup_distance_bonus 18\nshape.def_line_range_max 20\npressing.partial_min_penalty 0 both\n"
+        ents, probs = bl.parse_knob_list(text_ok, set(k_["id"] for k_ in cat["knobs"]))
+        check(not probs and len(ents) == 3, "battery_lib.parse_knob_list accepts the new knobs once merged (%s)" % (probs[:1],))
+        _, probs2 = bl.parse_knob_list("pressing.stepup_distance_bonus 99\n", set(k_["id"] for k_ in cat["knobs"]))
+        check(bool(probs2), "a value outside the engine-safe range is still refused")
+    finally:
+        bl.PROBES.clear()
+        bl.PROBES.update(saved)
+    check(len(bl.PROBES) == len(saved) and px["shape.def_line_range_max"].get("setup_only") and not px["pressing.partial_min_penalty"].get("setup_only"),
+          "the merge is undone (PROBES back to %d entries); latched knobs are setup_only, per-call ones are not" % len(saved))
+    # --- CLI on the mock world
+    import io, contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc1 = main(["latched-copy", "want=-20,20", "--mock"])
+        rc2 = main(["probe", "marking.tightness", "--mock"])
+    out_ = buf.getvalue()
+    check(rc1 == 0 and "VERDICT PASS" in out_ and rc2 == 0, "CLI latched-copy / probe on the mock world: PASS (exit 0)")
     print("SELF-TEST " + ("PASSED" if ok else "FAILED"))
     return 0 if ok else 1
 
@@ -781,6 +903,11 @@ def main(argv=None):
         secs, wr = float(opts.get("secs", 90)), int(opts.get("wr", 2))
         key, base, lay = mm.load_layout(False)
         m = mm.locate_any(key, lay, argparse.Namespace(team_pids="", relocate=False), print)
+        if not str(getattr(m, "route", "")).startswith("C"):
+            print("REFUSED: positions come from route %r; the press state is reached from route C's Player* vector only (its objects differ on the other routes)" % (
+                getattr(m, "route", None),))
+            print("VERDICT INCONCLUSIVE")
+            return harness.EXIT["INCONCLUSIVE"]
         objs = [(p["handle"], p["team"], p["obj"]) for p in m.players]
         samples, refusal = press_watch(be.DevMulti(dev2.call), objs, secs, float(opts.get("hz", 5)), time.time, time.sleep)
         if refusal:
@@ -788,6 +915,8 @@ def main(argv=None):
             print("VERDICT INCONCLUSIVE")
             return harness.EXIT["INCONCLUSIVE"]
         bursts = press_bursts(samples)
+        ck = press_clock(samples)
+        print("engine clock: %s ticks per wall second (the code assumes 60 per game second; a game-speed setting scales it)" % ("%.1f" % ck if ck else "n/a"))
         print("completed bursts: %d (work-rate levels %s)" % (len(bursts), sorted({b["wr"] for b in bursts})))
         for b in bursts[:12]:
             print("  player %s team %s level %s: burst %.1f..%.1f s%s" % (b["handle"], b["team"], b["wr"], b["lo"] / PRESS_HZ, b["hi"] / PRESS_HZ,
@@ -801,6 +930,32 @@ def main(argv=None):
         else:
             v, ev = "INCONCLUSIVE", {"why": "no judgement requested (give expect=<s> stale=<s> [wr=2] or rest=<min>,<max> old=<min>,<max>)"}
         print(json.dumps(ev))
+        print("VERDICT %s" % v)
+        return harness.EXIT.get(v, harness.INCONCLUSIVE)
+    if a.cmd[:1] == ["latched-copy"]:
+        harness.require_live(a.mock, tool="consumers_obs.py latched-copy")
+        opts = dict(x.split("=", 1) for x in a.cmd[1:] if "=" in x)
+        lo_, hi_ = (float(x) for x in opts.get("want", "-7.5,7.5").split(","))
+        cat = load_cat()
+        if a.mock:
+            import battery_mock as bm
+            w = bm.MockWorld(scale=0.01, match_delay=0.0)
+            w.put(w.kobjs[0] + KOBJ_DEFLINE_MIN, "<2f", lo_, hi_)
+            call = w.mem.call
+        else:
+            import dev2
+            call = dev2.call
+        dev = be.DevMulti(call)
+        ctx, bad = be.resolve(dev)
+        if ctx is None:
+            print("REFUSED: match chain: %s" % "; ".join(bad[:3]))
+            print("VERDICT INCONCLUSIVE")
+            return harness.EXIT["INCONCLUSIVE"]
+        for kid in ("shape.def_line_range_min", "shape.def_line_range_max"):
+            v, ev = obs_instance(dev, kid, cat)
+            print("%s: %s value %s copy %s" % (kid, v, ev.get("value"), ev.get("copy")))
+        v, ev = obs_latched_copy(dev, ctx, cat, lo_, hi_)
+        print(json.dumps(ev, default=str))
         print("VERDICT %s" % v)
         return harness.EXIT.get(v, harness.INCONCLUSIVE)
     if a.cmd[:1] == ["probe"] and len(a.cmd) == 2:
