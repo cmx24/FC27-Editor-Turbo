@@ -5,14 +5,14 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
 ## 2.7.0 (2026-10-14)
 
-Verified in game 2026-10-14 on build 6AC07E31 (test career LEICESTER, never saved, saves byte-identical afterwards; `turbo_dev\evidence6-10-14\TEST_29.md`). Offline suites: build 0 warnings, Lua 405/0, native 31,992/0, Python and catalog all pass.
+Seen in game 2026-10-14 on build 6AC07E31 (test career LEICESTER, never saved, save files byte-identical afterwards; `turbo_dev\evidence6-10-14\TEST_29.md`). Offline suites: build 0 warnings, Lua 405/0, native 31,992/0, Python and catalog all pass.
 
 ### In short
-- **3D kits, verified in game for one club (Leicester):** the Home kit and the Goalkeeper kit from FIFA Kit Creator zips show on the pitch, and **the zip's shirt names and numbers show on them** (readable back views; moving the number rectangle in the zip's file visibly shrank the number, so the placement is what drives it).
-- **Not verified:** the away kit worn on the pitch (the game's load swapped it, but Leicester played in its home kit), the kit select screen's 3D preview, any other club, the keep-badge A/B, sharing within a club. Leicester has no 3D third kit in the game.
-- **Still no tuning slider and the tactics overhaul is not done.** The slider pipeline (proof promotion, live apply, styles) is in, but no knob has both proofs, so the page is as in 2.6.0.
+- **3D kits, seen in game for one club (Leicester City), Home and Goalkeeper slots.** The zip's kit shows on the players in a played match, and **the zip's shirt names and numbers show on the back** (names and numbers were read on the release candidate; moving the number rectangle in the zip's file visibly shrank the number of the same player, so the zip's placement is what the game uses). On the final 2.7.0 binary the Leicester players' zip kit on the pitch and the served hotspot assets were seen (log). The goalkeeper's pink zip kit was seen, **not compared against the game's own goalkeeper kit**.
+- **Not verified:** the away kit worn in a match (the game loaded and replaced its textures, but Leicester played in its home kit), the kit select screen's 3D preview, any other club, the new "keep the game's club badge" default (what the chest badge looks like was not checked), sharing within a club, the third and fourth slots (the game has no 3D third kit for Leicester). These are offline-tested only.
+- **Still no tuning slider and the tactics overhaul is not done.** The slider pipeline (proof promotion, live apply, style presets) is in but no knob has both proofs, so the page is as in 2.6.0 (the style presets are greyed and empty). Press-cycle check this release: the chain was verified but the press never triggered in 45 s (inconclusive).
 
-### Details (offline-tested items are marked)
+### Details (everything below is offline-tested only unless the lines above say it was seen in game)
 
 ### 3D kits: every slot, any club (the goalkeeper slot is verified in game for Leicester; away and other clubs are offline-tested only)
 - **Away, goalkeeper, third and fourth kits** use the same path as the home kit, for any club: the slot comes from the game's kit folder names (`home_0_0`, `away_1_0`, `goalie_home_2_0`, `third_3_0`, `fourth_4_0` and the `loc2_*_4x_0` variants of the same slot). Each imported kit has its own controls and its own saved choices (`swap_state.json` version 2; a version 1 file still loads).
