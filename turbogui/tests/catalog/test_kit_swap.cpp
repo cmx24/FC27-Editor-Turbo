@@ -666,6 +666,25 @@ static void test_runtime(const fs::path& base) {
         rt.wait_idle();
         check(!rt.is_active(95, 0) && rt.status().state == "off", "undo persisted across a restart");
     }
+    {  // the hook is installed once, when a kit is first switched on; a refusal refuses the activation
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        int installs = 0;
+        bool allow = false;
+        rt.ensure_hook = [&](std::string* why) {
+            ++installs;
+            if (!allow && why) *why = "test: not allowed";
+            return allow;
+        };
+        std::string err;
+        check(installs == 0, "no hook before a kit is switched on");
+        check(!rt.activate(95, 0, Mode::Observe, &err) && err.find("not allowed") != std::string::npos && !rt.is_active(95, 0), "hook refused: the activation is refused, nothing saved: " + err);
+        allow = true;
+        check(rt.activate(95, 0, Mode::Observe, &err) && installs == 2, "hook installed on the next try");
+        check(rt.activate(95, 0, Mode::Swap, &err) && installs == 2, "once installed it is not asked again");
+        rt.wait_idle();
+        rt.deactivate(95, 0);
+        rt.wait_idle();
+    }
     {  // a missing Oodle decompressor and a missing game are reported, never thrown
         Runtime rt(w.le, w.root, nullptr);
         std::string err;

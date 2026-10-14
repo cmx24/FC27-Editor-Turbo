@@ -3,6 +3,14 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 2.6.0 (not released: 3D kits on the pitch, offline-tested only, NOT yet seen in game)
+
+### Kits: the staged FIFA Kit Creator textures are served to the game (phase 2 of the 2.3 kit import)
+- **Teams > Kits, under "Kits imported for this club": "3D kit on the pitch: Off / Watch only / Show it on the pitch".** Turbo hooks the game's Oodle decompressor (`OodleLZ_Decompress` in `oo2core_9_win64.dll`, the DLL FC27.exe imports) the first time a kit is switched on (never for a player who does not use it). FC 27 stores every kit texture as a chunk of Oodle blocks; Turbo recognises the blocks of the club's kit textures by compressed size, raw size, first bytes and a 64-bit hash, and in "Show it" mode overwrites the decompressed output with the staged textures' bytes (same size, format and mip chain as the game's own: checked against the game's texture headers before anything is used). "Watch only" changes nothing and only counts which kit blocks the game loads (`turbo_output\kit_swap_log.txt`).
+- **Safety rules:** a texture is swapped only when every use of its data in the game is this club's same kit slot (the home kit and its `loc2_home_40_0` variant are both served); data shared with other clubs (for example the 119-club brand normal map), blocks under 1 KB (uniform fill), textures with a byte-identical block elsewhere, textures the zip does not carry, and weave arrays stay the game's own. A texture is all-or-nothing. Kill switches: `turbo_output\kits3d_off.txt` (feature, within 2 s), `turbo_output\hook_kit_oodle_off.txt`, `game_hooks_off.txt`. Undo of the kit import switches the swap off. The choice is kept across game starts (`turbo_output\kits\swap_state.json`).
+- Takes effect when the game next loads the kit (the next match load; after a game restart when the kit was already loaded in this session). Nothing is written to the game's files or to the save.
+- New offline tool `turbo	ools\kits3d\kit_chunks.py` (read-only): resolves a club's kit textures to their chunks, headers and blocks in every toc and lists what is shared.
+
 ## 2.4.0 (2026-10-14)
 
 Verified in game 2026-10-14 (test career LEICESTER, never saved; `turbo_dev\evidence6-10-13\TEST_26.md`, screenshots in `evidence6-10-14`), build 6AC07E31:

@@ -291,6 +291,10 @@ public:
     Runtime(std::filesystem::path le_root, std::filesystem::path game_root, OodleFn oodle);
     ~Runtime();
     void set_hook_installed(bool on, const std::string& why_not);
+    // The host's installer of the decompress hook: called ONCE, the first time a kit is activated (or restored at start-up), so a
+    // player who never uses the feature has no hook at all. false + reason = not installed (activation refused). Unset = no hook
+    // needed (tests).
+    std::function<bool(std::string* why)> ensure_hook;
     // Loads turbo_output\kits\swap_state.json and starts building the table for the slots in it (async)
     void start();
     // Activates a staged kit (turbo_output\kits\<team>\<slot>) in `mode`; async build. false + reason: nothing staged, unknown slot
@@ -318,6 +322,7 @@ public:
     Options options;
 
 private:
+    bool hook_ready(std::string* err);
     void save_state_locked();
     void rebuild_async();
     void worker();

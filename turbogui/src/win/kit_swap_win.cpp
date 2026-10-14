@@ -68,19 +68,21 @@ void install_kit_swap(turbo::App& app) {
     };
     auto* rt = new Runtime(le_root(), game, oodle);  // lives as long as the process
     app.kit_swap = rt;
-    std::string why;
-    void* orig = nullptr;
-    if (install_game_dll_export_hook("kit_oodle", L"oo2core_9_win64.dll", "OodleLZ_Decompress", reinterpret_cast<void*>(&detour), &orig, &why)) {
-        g_orig = reinterpret_cast<DecompressFn>(orig);
-        g_handle = game_hook_handle("kit_oodle");
-        g_rt = rt;
-        g_installed = true;
-        g_off.clear();
-        rt->set_hook_installed(true, "");
-    } else {
+    // The hook goes in when a kit is first switched on (or one was left on last session), never for a player who does not use it
+    rt->ensure_hook = [rt](std::string* why_out) {
+        std::string why;
+        // MinHook stores the trampoline into g_orig BEFORE it enables the hook: the detour can run at once
+        if (install_game_dll_export_hook("kit_oodle", L"oo2core_9_win64.dll", "OodleLZ_Decompress", reinterpret_cast<void*>(&detour), reinterpret_cast<void**>(&g_orig), &why)) {
+            g_handle = game_hook_handle("kit_oodle");
+            g_rt = rt;
+            g_installed = true;
+            g_off.clear();
+            return true;
+        }
         g_off = why;
-        rt->set_hook_installed(false, "the Oodle hook is off: " + why);
-    }
+        if (why_out) *why_out = why;
+        return false;
+    };
     rt->start();
     // the kill switch file and the log, every 2 s, even while the window is hidden
     std::thread([rt]() {
@@ -91,14 +93,14 @@ void install_kit_swap(turbo::App& app) {
             std::this_thread::sleep_for(std::chrono::seconds(2));
         }
     }).detach();
-    log("kit swap: %s", g_installed.load() ? "Oodle hook installed (kill switch turbo_output\\kits3d_off.txt)" : ("off: " + g_off).c_str());
+    log("kit swap: ready (the Oodle hook is installed when a kit is first switched on; kill switch turbo_output\\kits3d_off.txt)");
 }
 
 std::vector<std::string> kit_swap_status() {
     std::vector<std::string> v;
     turbo::kitswap::Runtime* rt = g_rt.load();
     if (!rt) {
-        v.push_back("3D kit swap: off (" + (g_off.empty() ? std::string("hook not installed") : g_off) + ")");
+        v.push_back(std::string("3D kit swap: no kit switched on, no hook installed") + (g_off.empty() ? "" : " (" + g_off + ")"));
         return v;
     }
     const auto s = rt->status();

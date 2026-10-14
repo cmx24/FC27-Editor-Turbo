@@ -780,7 +780,10 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
         for (const auto& s : staged.textures) by_role[s.role] = &s;
         std::vector<Cand> cands;
         std::map<size_t, std::shared_ptr<std::vector<uint8_t>>> data_of;
+        std::map<std::string, std::shared_ptr<std::vector<uint8_t>>> role_data;  // one copy of a staged picture's data per role
+        std::set<std::string> seen_tex;                                          // the same resource at the same place, listed by several bundles
         for (const Tex& t : texs) {
+            if (!seen_tex.insert(t.res + "@" + phys_key(t.loc)).second) continue;
             PlanItem it;
             it.res = t.res;
             it.kind = t.kind;
@@ -836,14 +839,21 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
                 std::memcpy(&h8, &chunk[size_t(b.payload)], 8);
                 c.head.push_back(h8);
             }
-            // the staged data
-            std::vector<uint8_t> file;
-            {
-                std::ifstream f(st.file, std::ios::binary);
-                file.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+            // the staged data (read and checked once per role)
+            auto rd = role_data.find(t.role);
+            if (rd == role_data.end()) {
+                std::vector<uint8_t> file;
+                {
+                    std::ifstream f(st.file, std::ios::binary);
+                    file.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+                }
+                std::shared_ptr<std::vector<uint8_t>> data;
+                if (file.size() == st.bytes && file.size() >= kDdsHeader && std::memcmp(file.data(), "DDS ", 4) == 0 && le32(&file[128]) == dxgi &&
+                    int(le32(&file[12])) == t.hdr.h && int(le32(&file[16])) == t.hdr.w && int(le32(&file[28])) == t.hdr.mips)
+                    data = std::make_shared<std::vector<uint8_t>>(file.begin() + std::ptrdiff_t(kDdsHeader), file.end());
+                rd = role_data.emplace(t.role, data).first;
             }
-            if (file.size() != st.bytes || file.size() < kDdsHeader || std::memcmp(file.data(), "DDS ", 4) != 0 || le32(&file[128]) != dxgi || int(le32(&file[12])) != t.hdr.h ||
-                int(le32(&file[16])) != t.hdr.w || int(le32(&file[28])) != t.hdr.mips) {
+            if (!rd->second) {
                 skip("the staged DDS file does not match its manifest");
                 continue;
             }
@@ -853,7 +863,7 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
             c.plan_index = plan.items.size();
             c.own_key = phys_key(t.loc);
             plan.items.push_back(it);
-            data_of[c.plan_index] = std::make_shared<std::vector<uint8_t>>(file.begin() + std::ptrdiff_t(kDdsHeader), file.end());
+            data_of[c.plan_index] = rd->second;
             cands.push_back(std::move(c));
         }
         // 3. the block census: no OTHER kit chunk may hold a byte-identical compressed block
@@ -977,6 +987,18 @@ void Runtime::save_state_locked() {
     fs::rename(tmp, state_path(), ec);
 }
 
+bool Runtime::hook_ready(std::string* err) {
+    {
+        std::lock_guard<std::mutex> lk(m_);
+        if (hook_ || !ensure_hook) return true;
+    }
+    std::string why;
+    const bool ok = ensure_hook(&why);  // outside the lock: it installs a hook
+    set_hook_installed(ok, ok ? std::string() : "the Oodle hook is not installed: " + why);
+    if (!ok) return fail(err, "the decompress hook could not be installed: " + why);
+    return true;
+}
+
 void Runtime::start() {
     {
         std::lock_guard<std::mutex> lk(m_);
@@ -995,6 +1017,7 @@ void Runtime::start() {
         }
         if (slots_.empty()) return;
     }
+    hook_ready(nullptr);  // a kit left on in the last session: the hook comes back before the table is built
     rebuild_async();
 }
 
@@ -1006,6 +1029,7 @@ bool Runtime::activate(int team, int slot, Mode mode, std::string* err) {
     StagedKit sk;
     if (!load_staged(staged_dir(team, slot), sk, err)) return false;
     if (sk.team != team || sk.slot != slot) return fail(err, "the staged textures belong to another club or slot");
+    if (!hook_ready(err)) return false;
     {
         std::lock_guard<std::mutex> lk(m_);
         bool found = false;
