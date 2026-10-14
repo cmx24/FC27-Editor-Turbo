@@ -3,9 +3,20 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
-## Unreleased
+## 2.4.0 (2026-10-14)
 
-- **Club tactic (channel E): Turbo no longer writes Line Height above 90 or Aggressive** (Build-Up Style 2 / 3 and Defensive Approach 3 stay refused).
+Verified in game 2026-10-14 (test career LEICESTER, never saved; `turbo_dev\evidence6-10-13\TEST_26.md`, screenshots in `evidence6-10-14`), build 6AC07E31:
+
+### Club tactic (channel E): one write, and the game's own screens show it
+- **Verified in game:** Apply in Teams > Tactics > My team (High, Line Height 70, Counter) wrote the live record and the `cm_mentalities` row in one job and read both back; at kick-off the match's own copy of your club's tactic held exactly those values (`LH 70 BU 1 DA 2 roles 11/11 = Turbo`). With no Apply, the match held the game's own values (`LH 25 BU 0 DA 0 = game`). Edit Tactic (Squad > Team Management > Edit Active Tactic) loads from that same record (sentinel test: it showed the sentinel written into the map record), so what Turbo wrote is what Edit Tactic shows.
+- **Behaviour change:** Turbo no longer writes Line Height above 90 or Aggressive (Build-Up Style 2 / 3 and Defensive Approach 3 stay refused); the game's own 95 / Aggressive is kept.
+- Still not available: the live tactic is not part of an in-game save made after the write (Turbo says so in the panel after a career reload).
+
+### Gameplay tuning: found through the game's attribute manager; your tuning profile
+- The tables are found through the game's attribute manager (the name search stays as the first-run cross-check and the fallback); every database copy of a group is written together and once. Nothing is searched unless you use the tab or your profile.
+- Your tuning profile (`turbo_output	uning_profile.json`) replaces "write again at every career load": while on it is applied at every career load and each time you enter the hub (never in the 5 s before kick-off, never in Team Management). **Verified in game** on three launches: `profile applied (career_load)` and `(hub)`, each read back. A third moment at the main menu exists in the code but needs Turbo's Lua side to report the main menu, which did not happen in this build: it is **not** claimed. Kill switch for the automatic writes: `turbo_output	uning_profile_off.txt`.
+- **Verified in game (engine side):** with the profile's team width 0.60 written at the hub, the match's formation AI read 0.60 (all 12 with-ball samples fell in the predicted band, control OK; the engine's instance is the one Turbo writes). Whether a value changed during a match takes effect is not known, and the size of the effect on the pitch has not been measured: **every knob is shown read-only** ("located, effect not proven"); a slider appears only once an effect is measured in a played match.
+- Restore FC 27 defaults puts FC 27's own values back and switches the profile off. Turbo's own presets: FC 27 default, Turbo compact, Turbo expansive. `tuning_keep.json` is no longer read.
 
 ### Removed: tactics channel A and the legacy tactic fields (2.4 cleanup; offline suites only, nothing here needs a game check)
 - **Per-side gameplay sliders (tactics channel A) are gone.** The 68 game variables `GAMEPLAY_CUSTOMIZATION/<slider>_USER` / `_CPU` (sprint speed, pass error, line height, CPU behaviour and the rest) were tested in a played match on 2026-10-11: the game stores the value and reads it back, but the match ignores it (`turbo_output\TACTICS_CHANNEL_A_REPORT.txt`). Removed: their 66 rows in Teams > Tactics (Match scope, the "Per side" groups), the per-side table and the two A/B presets ("baseline", "CPU handicap extremes") in Competitions > Match setup, and the names from the list of game variables Turbo knows. Turbo now refuses to set any game variable that is not on that list. A preset saved by 2.1 - 2.3 that still holds one of these settings loads without it (nothing is ever sent for it).

@@ -1001,7 +1001,7 @@ void draw_body(App& app) {
         "The game engine's gameplay tuning tables (shape, pressing, marking, runs; FC 27 reads them for every club). Turbo offers a knob as a slider "
         "only once its effect on a played match was measured; the others are shown read-only.");
     ImGui::TextWrapped(
-        "The game keeps these tables in memory only (not in the career save). Your tuning profile writes its values again at the main menu, at every "
+        "The game keeps these tables in memory only (not in the career save). Your tuning profile writes its values again at every "
         "career load and each time you enter the hub, while it is on.");
     g_state.session_note = true;
     if (reg_why.empty()) {
@@ -1048,12 +1048,12 @@ void draw_body(App& app) {
     // the tuning profile
     ImGui::SeparatorText("Your tuning profile");
     bool pon = g.prof.on;
-    if (checkbox_right("Apply my tuning profile automatically (main menu, every career load, the hub)##tvprof", &pon)) {
+    if (checkbox_right("Apply my tuning profile automatically (every career load, the hub)##tvprof", &pon)) {
         g.prof.on = pon;
         save_profile_now(app, pon ? "switched on" : "switched off");
     }
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Off by default. On: turbo_output\\tuning_profile.json is applied at the main menu, at every career load and each time you enter the hub "
+        ImGui::SetTooltip("Off by default. On: turbo_output\\tuning_profile.json is applied at every career load and each time you enter the hub "
                           "(never while a match is set up or played). turbo_output\\tuning_profile_off.txt stops these automatic writes; tuning_off.txt, "
                           "call_attrib_off.txt and tactics_off.txt stop every write.");
     g_state.profile_on = g.prof.on;

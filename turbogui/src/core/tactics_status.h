@@ -286,7 +286,7 @@ inline const std::vector<KillSwitch>& kill_switches() {
         {"call_team_sheet_off.txt", "your club's live tactic (channel E)", false, WriteChannel::LiveSheet},
         // after the channel's own file (channel_switch_file names the first one): only the cm_mentalities row channel E writes with the record
         {"channel_e_db_off.txt", "the cm_mentalities row of your club's live tactic (channel E writes the live record alone)", false, WriteChannel::LiveSheet},
-        {"tuning_profile_off.txt", "the gameplay tuning profile's automatic writes (main menu, career load, hub)", false, WriteChannel::Tuning},
+        {"tuning_profile_off.txt", "the gameplay tuning profile's automatic writes (career load, hub)", false, WriteChannel::Tuning},
     };
     return k;
 }

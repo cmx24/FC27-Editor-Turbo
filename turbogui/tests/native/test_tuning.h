@@ -1964,7 +1964,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.click("Discard edits##tvdiscard");
         ui.frames(2);
         // the profile on in the hub of a loaded career: its career_load moment (the load had none), then the hub moment
-        CHECK(ui.click("Apply my tuning profile automatically (main menu, every career load, the hub)##tvprof"), "profile on clicked");
+        CHECK(ui.click("Apply my tuning profile automatically (every career load, the hub)##tvprof"), "profile on clicked");
         ui.frames(10);
         CHECK(load_profile(out / profile_file(), prof, &err) && prof.on, "the file says on");
         CHECK(w.f32(TuneWorld::kBase) == 0.6f && w.i32(TuneWorld::kBase + 4) == 52 && w.u8(TuneWorld::kBase + 8) == 66, "the profile written");
