@@ -22,6 +22,7 @@ import harness  # noqa: E402
 IMG_LO, IMG_HI = 0x140000000, 0x140000000 + 0x2145C000  # FC27.exe 6AC07E31-2145C000
 ALLOW = {  # value -> reason (guard allow-list)
     0x2145C000: "FC27.exe SizeOfImage of build 6AC07E31 (documented build constant)",
+    0x6AC07E31: "FC27.exe PE TimeDateStamp = the build id 6AC07E31 (not an address)",
     0x5EED00000000: "harness.MOCK_HEAP: synthetic mock heap base, not a game address",
     0x7FFFFFFFFFFF: "user-space pointer upper bound",
     0x113EA820: "service registry id passed to Find (decision 4.3, a documented constant, not an address)",

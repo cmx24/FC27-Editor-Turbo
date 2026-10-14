@@ -1,0 +1,25 @@
+{
+  "_doc": "Gate X3 sentinel plan (decision 4.3; from the sweep's T3/x3_sentinels.json). One DISTINCT valid Line Height per candidate copy; DA deliberately NOT the band of the LH (answers Q4 in every branch); BU 1 (Counter) everywhere until the Q5 step. Decision 4.3 numbers win over T3's: svc+0xA60 (B0) = 85, map record = 95, the other copies T3 names = 75 / 65 / 55 / 45. Written by x3_sentinels.py (identity = the map record's tactic code at +0x68 in every target, owner rule = the career-load values or this tool's last write, read-back, rollback, undo); read by x3_readback.py. The club and the service come from Turbo's log, never from this file.",
+  "career_load": {"line": 25, "buildup": 0, "approach": 0},
+  "sentinels": [
+    {"copy": "map", "line": 95, "buildup": 1, "approach": 0, "where": "svc map[club] -> sheet 0 -> active record (channel E's target)"},
+    {"copy": "B0", "line": 85, "buildup": 1, "approach": 1, "where": "svc+0xA60 inline sheet B[0] -> active record (2.4/channel-e3's target)"},
+    {"copy": "A0", "line": 75, "buildup": 1, "approach": 0, "where": "svc+0x550 inline sheet A[0] (Team-Management working sheet) -> active record"},
+    {"copy": "C0", "line": 65, "buildup": 1, "approach": 1, "where": "svc+0x40 inline sheet C[0] -> active record"},
+    {"copy": "X0", "line": 55, "buildup": 1, "approach": 0, "where": "svc+0xF80 inline record X[0] (Edit Tactic's display record) - only if it holds the tactic in the hub"},
+    {"copy": "Y0", "line": 45, "buildup": 1, "approach": 0, "where": "svc+0x1170 inline record Y[0] - only if it holds the tactic in the hub"},
+    {"copy": "db.mentalities", "line": 35, "buildup": 1, "approach": 0, "where": "DB row (Turbo's Tactics tab, legacy fields) - optional, not written by x3_sentinels.py"}
+  ],
+  "screen_LH_to_branch": {
+    "95": "map record: WP-B1 alone fixes the display",
+    "85": "svc+0xA60 (B0): WP-B2 (a), merge 2.4/channel-e3",
+    "75": "A0: WP-B2 (b)",
+    "65": "C0: WP-B2 (b)",
+    "55": "X0 was already filled in the hub: WP-B2 (b)",
+    "45": "Y0: WP-B2 (b)",
+    "35": "DB row: reload path",
+    "25": "career-load value: WP-B2 (c), reload-based display, honest badge"
+  },
+  "Q4_rule": "the screen's Approach label next to the sentinel LH: the band label (Aggressive with 95, High with 85/75/65, Balanced with 55/45) = DERIVED; the written DA (Deep 0 / Balanced 1) = STORED",
+  "Q5_step": "Edit Tactic: Build-Up 'Short Passing', Save Changes, x3_readback.py --phase after (prints X[0]+0xB0), screenshot, KILL (Team Management trap)"
+}

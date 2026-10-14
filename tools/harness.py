@@ -195,8 +195,20 @@ class MockMem:
             a, n = int(str(op["addr"]), 16), int(op["len"])
             b = self.read(a, n, d)
             return {"ok": True, "hex": b.hex()} if b is not None else {"ok": False, "error": "unreadable"}
+        if name == "find":  # pattern with ?? wildcards over the mock regions inside [from, to)
+            toks = [None if t == "??" else int(t, 16) for t in op["pattern"].split()]
+            lo, hi = int(str(op.get("from", "0x0")), 16), int(str(op.get("to", "0x7FFFFFFFFFFF")), 16)
+            hits = []
+            for base, hx in d["regions"]:
+                data = bytes.fromhex(hx)
+                for i in range(len(data) - len(toks) + 1):
+                    if lo <= base + i < hi and all(t is None or data[i + j] == t for j, t in enumerate(toks)):
+                        hits.append("0x%X" % (base + i))
+            return {"ok": True, "hits": hits[:int(op.get("max", 16))]}
         if name == "write":
             a = int(str(op["addr"]), 16)
+            if os.environ.get("MOCK_WRITE_FAIL", "").lower() == ("0x%x" % a):  # tests: one address refuses the write
+                return {"ok": False, "error": "mock: write refused at 0x%X" % a}
             data = bytes.fromhex(str(op.get("hex") or op.get("bytes")).replace(" ", ""))
             if not self.write(a, data):
                 return {"ok": False, "error": "unwritable"}
