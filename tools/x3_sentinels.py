@@ -254,9 +254,16 @@ def undo(a, dev, tool):
         st = json.load(open(a.state, encoding="utf-8"))
     except (OSError, ValueError):
         raise Refused("no state file %s: nothing to undo" % a.state)
+    pids = harness.running_fc27_pids(a.mock or None)
+    if st.get("pid") not in pids:  # review M2: addresses of another game process are never written
+        raise Refused("the state file belongs to game process %s but the running FC27.exe is %s: its addresses are stale, nothing "
+                      "undone (the sentinels died with that process)" % (st.get("pid"), sorted(pids) or "none"))
     restored, skipped, failed = 0, [], []
     for e in st["entries"]:
         addr = int(e["addr"], 16)
+        if not a.dry_run and os.path.exists(a.off):  # review M2: the kill switch is re-read before every undo record
+            save_state(a, st)
+            raise Refused("kill switch %s exists: undo stopped, %d record(s) restored, the rest stay listed" % (a.off, restored))
         try:
             b = dev.read([(addr, sc.REC)])[0]
             f = sc.rec_fields(b) if b else None
@@ -271,6 +278,10 @@ def undo(a, dev, tool):
                 skipped.append("%s %s: holds %s, not this tool's footprint (%s / %s): left alone" % (e["copy"], e["addr"], cur, e["old"],
                                                                                                  e["new"]))
                 continue
+            if a.dry_run:  # review M2: --undo --dry-run only prints the plan
+                print("  undo plan: %s %s LH %d BU %d DA %d -> LH %d BU %d DA %d" % (e["copy"], e["addr"], *cur, *e["old"]))
+                restored += 1
+                continue
             put(dev, addr, *e["old"])
             b = dev.read([(addr, sc.REC)])[0]
             if b is None or vals(sc.rec_fields(b)) != e["old"]:
@@ -284,6 +295,8 @@ def undo(a, dev, tool):
         print(line)
         harness.append_log(a.wlog, line)
         restored += 1
+    if a.dry_run:
+        return harness.finish("PASS", ["dry run: %d record(s) would be restored, nothing written" % restored] + skipped, tool=tool)
     if failed:
         save_state(a, st)  # the failed records stay listed for the next --undo
         return harness.finish("FAIL", ["%d restored" % restored] + skipped + failed, tool=tool)
@@ -330,6 +343,22 @@ def self_test():
         check(rc2 == 0, "x3_readback --phase hub confirms every sentinel (exit %d)" % rc2)
         rc, out = go("--allow-write")
         check(rc == 0, "a second run over its own values is allowed (owner rule: this tool's last write)")
+        w0 = harness.MockMem(mem_p)._read_json()["writes"]
+        rc, out = go("--undo", "--dry-run")
+        check(rc == 0 and out.count("undo plan:") == 4 and harness.MockMem(mem_p)._read_json()["writes"] == w0,
+              "--undo --dry-run (no --allow-write): prints the 4-record plan, writes nothing (review M2)")
+        rc, out = go("--undo")
+        check(rc == 3 and "--allow-write" in out, "--undo without --allow-write: refused")
+        open(os.path.join(d, "off.txt"), "w").close()
+        rc, out = go("--undo", "--allow-write")
+        os.remove(os.path.join(d, "off.txt"))
+        check(rc == 3 and "kill switch" in out and harness.MockMem(mem_p)._read_json()["writes"] == w0,
+              "--undo with the kill switch: stopped before any write")
+        mem.set_kv("fc27_pid", 777)
+        rc, out = go("--undo", "--allow-write")
+        mem.set_kv("fc27_pid", harness.MOCK_PID)
+        check(rc == 3 and "addresses are stale" in out and harness.MockMem(mem_p)._read_json()["writes"] == w0,
+              "--undo of a state from another game process: refused, nothing written")
         rc, out = go("--undo", "--allow-write")
         c = copies()
         check(rc == 0 and all(vals(sc.target(c, cp)[1][1]) == [25, 0, 0] for cp in ("map", "B0", "A0", "C0")), "undo restores 25/0/0 everywhere")
