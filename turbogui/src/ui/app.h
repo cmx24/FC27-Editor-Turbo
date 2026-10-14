@@ -21,6 +21,7 @@
 #include "core/commentary_audio.h"
 #include "core/edit_unlock_hook.h"
 #include "core/fce_standings.h"
+#include "core/kit_swap.h"
 #include "core/legacy.h"
 #include "core/match_setup.h"
 #include "core/mem.h"
@@ -283,6 +284,7 @@ public:
     // player's own recording, or his own recording is turned off and a generic callname used. Nothing is written to the
     // database or the save. The store (turbo_output\callnames\voice_swaps.json, all careers) is loaded at start-up and
     // published to the host's hooks then and after every edit; the GUI tick refreshes the kill switches every 2 s.
+    kitswap::Runtime* kit_swap = nullptr;     // 3D kits on the pitch (win/kit_swap_win.cpp; core/kit_swap.h); nullptr = no game hooks (tests set a fake-backed one)
     voice::Service* voice_service = nullptr;  // the host's (win/callname_voice_win.cpp); nullptr = off; tests set a fake
     voice::VoiceStore voice_store;
     std::string voice_error;                  // the store's last load / save note ("" = fine)

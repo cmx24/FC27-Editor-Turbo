@@ -474,7 +474,8 @@ bool undo_kit_import(App& app, int64_t teamid, Slot s, std::string* msg) {
         }
         app.textures.forget(app.legacy.custom_file(mpath));
     }
-    // ---- staged textures and the record
+    // ---- the 3D swap of this kit goes first (the table no longer reads the staged files), then the staged textures and the record
+    if (app.kit_swap) app.kit_swap->deactivate(int(teamid), int(type));
     std::error_code ec;
     const fs::path dir = kits::slot_dir(app.bridge.root(), teamid, s);
     size_t removed = 0;
@@ -604,8 +605,9 @@ static void poll_jobs(App& app) {
         char mb[32];
         std::snprintf(mb, sizeof(mb), "%.1f MB", double(bytes) / (1024.0 * 1024.0));
         p.line = "textures staged for " + plural(ok, "kit", "kits") + " (" + std::to_string(files) + " files, " + mb +
-                 ") in turbo_output\\kits; the game does not read them yet (in-match swap: phase 2)" +
+                 ") in turbo_output\\kits; turn on 3D kit on the pitch under Kits imported for this club to use them in matches" +
                  (first_error.empty() ? std::string() : "; not staged: " + first_error);
+        if (ok && app.kit_swap && !app.kit_swap->status().slots.empty()) app.kit_swap->rebuild();  // new staged textures of an active kit
         app.notify("Kit import: " + p.line, !first_error.empty());
         p.stage.reset();
         p.staging.clear();
@@ -717,6 +719,74 @@ static void settings_table(App& app, int64_t teamid, const KitPanel::Item& it, s
         ImGui::PopID();
     }
     ImGui::EndTable();
+}
+
+// 3D kit on the pitch for one imported slot: off / watch only / show (core/kit_swap.h, win/kit_swap_win.cpp)
+static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
+    kitswap::Runtime* rt = app.kit_swap;
+    ImGui::Indent();
+    if (!rt) {
+        ImGui::TextDisabled("3D kit on the pitch: not available in this session (Turbo's game hooks are off)");
+        ImGui::Unindent();
+        return;
+    }
+    const int slot = kits::slot_type(s);
+    kitswap::Mode m = kitswap::Mode::Off;
+    const bool active = rt->is_active(int(teamid), slot, &m);
+    int sel = !active ? 0 : m == kitswap::Mode::Swap ? 2 : 1;
+    bool changed = false;
+    if (!staged) ImGui::BeginDisabled();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("3D kit on the pitch:");
+    ImGui::SameLine();
+    changed |= ImGui::RadioButton("Off##kswap", &sel, 0);
+    ImGui::SameLine();
+    changed |= ImGui::RadioButton("Watch only (log what the game loads)##kswap", &sel, 1);
+    ImGui::SameLine();
+    changed |= ImGui::RadioButton("Show it on the pitch##kswap", &sel, 2);
+    if (!staged) ImGui::EndDisabled();
+    if (changed) {
+        std::string err;
+        const bool ok = rt->activate(int(teamid), slot, sel == 0 ? kitswap::Mode::Off : sel == 1 ? kitswap::Mode::Observe : kitswap::Mode::Swap, &err);
+        app.log(std::string("kit swap: team ") + std::to_string(teamid) + " " + kits::slot_label(s) + ": " + (ok ? kitswap::mode_name(sel == 0 ? kitswap::Mode::Off : sel == 1 ? kitswap::Mode::Observe : kitswap::Mode::Swap) : "refused: " + err));
+        if (!ok) app.notify("3D kit: " + err, true);
+    }
+    if (active) {
+        const kitswap::Status st = rt->status();
+        int in_table = 0, left = 0;
+        uint64_t seen = 0;
+        for (const auto& it : st.items)
+            if (it.team == teamid && it.slot == slot) {
+                if (it.swap) ++in_table;
+                else ++left;
+                seen += it.hits;
+            }
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(st.state == "error" ? kWarn : kGood, "%s%s", st.state.c_str(), st.killed ? " (kill switch kits3d_off.txt is present: nothing is swapped)" : "");
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s | %d textures in the table, %d left to the game | blocks seen in the game so far: %llu | %s", st.message.c_str(), in_table, left,
+                            static_cast<unsigned long long>(seen), st.hook ? "hook installed" : "HOOK NOT INSTALLED");
+        ImGui::PopTextWrapPos();
+        if (ImGui::TreeNode("Textures##kswap")) {
+            for (const auto& it : st.items)
+                if (it.team == teamid && it.slot == slot) {
+                    const std::string leaf = it.res.substr(it.res.rfind('/') == std::string::npos ? 0 : it.res.rfind('/') + 1);
+                    ImGui::TextDisabled("%s %s/%s: %s%s", it.swap ? "[in table]" : "[game's own]", it.kind.c_str(), leaf.c_str(),
+                                        it.swap ? ("seen " + std::to_string(it.hits) + " of " + std::to_string(it.blocks) + " blocks").c_str() : it.reason.c_str(), "");
+                }
+            ImGui::TreePop();
+        }
+    }
+    bool decals = rt->options.include_decals;
+    if (ImGui::Checkbox("Also use the zip's badge and brand pictures##kswap", &decals)) {
+        rt->options.include_decals = decals;
+        if (!rt->status().slots.empty()) rt->rebuild();
+    }
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextDisabled("Takes effect when the game next loads this kit (the next match load, or after a game restart when the kit was already loaded this session). "
+                        "turbo_output\\kits3d_off.txt switches it off at once; the log is turbo_output\\kit_swap_log.txt.");
+    ImGui::PopTextWrapPos();
+    ImGui::Unindent();
 }
 
 void kits_editor(App& app, int64_t teamid) {
@@ -863,6 +933,7 @@ void kits_editor(App& app, int64_t teamid) {
             app.notify("Kit import: " + msg, !ok);
         }
         if (!can) ImGui::EndDisabled();
+        kit_swap_controls(app, teamid, s, staged && !staging_slot(teamid, s));
         ImGui::PopID();
     }
     if (!any) ImGui::TextDisabled("none");
@@ -870,8 +941,8 @@ void kits_editor(App& app, int64_t teamid) {
     ImGui::PushTextWrapPos(0.0f);
     ImGui::TextDisabled("Live now: the kit settings (kept for every career load, like Teams > Colours; turbo_output\\reapply_off.txt turns "
                         "the career-load re-apply off) and the minikit (mods\\legacy; menus show it when the screen is drawn again). "
-                        "Not yet: the 3D kit on the pitch. Turbo converts the textures to FC 27's own sizes and formats and keeps them "
-                        "in turbo_output\\kits\\<club id>\\<slot>\\ for its in-match texture swap (phase 2).");
+                        "The 3D kit on the pitch: Turbo converts the textures to FC 27's own sizes and formats, keeps them in "
+                        "turbo_output\\kits\\<club id>\\<slot>\\ and, with Show it on the pitch on, serves them to the game while it loads the kit.");
     ImGui::PopTextWrapPos();
 }
 

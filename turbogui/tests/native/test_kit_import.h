@@ -613,6 +613,7 @@ static bool kit_wait(Ui& ui, double seconds = 30.0) {
     return false;
 }
 
+static std::unique_ptr<kitswap::Runtime> g_kit_rt;
 static void kit_import_ui_cases(App& app, Ui& ui, const fs::path& le) {
     using namespace kit_test;
     run_case("UI: Teams > Kits: a team folder of kit zips -> kit settings (kept), minikit, staged textures; career load; Undo", [&] {
@@ -688,6 +689,32 @@ static void kit_import_ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(kit_panel_line().find("textures staged for 2 kits") == 0, "panel line: " + kit_panel_line());
         ui.frames(2);
         CHECK(ui.find("Undo##kitundo", "##tkits", "home") && ui.find("Undo##kitundo", "##tkits", "away"), "both imports listed with Undo");
+        // ---- 2.6: 3D kit on the pitch controls. The game's files are not there (no game folder in the tests): the Runtime reports it, the
+        // controls still switch the state, Undo of the import switches the swap off. Core behaviour: tests/catalog/test_kit_swap.cpp.
+        {
+            g_kit_rt.reset(new kitswap::Runtime(le, le / "no_game_here", nullptr));
+            kitswap::Runtime& rt = *g_kit_rt;
+            app.kit_swap = &rt;
+            ui.frames(2);
+            CHECK(ui.find("Watch only (log what the game loads)##kswap", "##tkits", "home") && ui.find("Show it on the pitch##kswap", "##tkits", "home") &&
+                      ui.find("Off##kswap", "##tkits", "home"),
+                  "the 3D kit controls are listed for the home kit");
+            CHECK(!rt.is_active(7, 0), "off by default");
+            CHECK(ui.click("Show it on the pitch##kswap", "##tkits", "home"), "Show it on the pitch");
+            CHECK(rt.is_active(7, 0) && fs::exists(rt.state_path()), "the kit is active and the state is saved");
+            kitswap::Mode md = kitswap::Mode::Off;
+            rt.is_active(7, 0, &md);
+            CHECK(md == kitswap::Mode::Swap, "mode swap");
+            rt.wait_idle();
+            ui.frames(2);
+            CHECK(rt.status().state == "error", "no game files: reported as an error, not a crash: " + rt.status().message);
+            CHECK(ui.click("Watch only (log what the game loads)##kswap", "##tkits", "home") && rt.is_active(7, 0, &md) && md == kitswap::Mode::Observe, "watch only");
+            rt.wait_idle();
+            CHECK(ui.click("Off##kswap", "##tkits", "home") && !rt.is_active(7, 0), "off");
+            CHECK(ui.click("Show it on the pitch##kswap", "##tkits", "home") && rt.is_active(7, 0), "on again");
+            rt.wait_idle();
+            // Undo of the import (below) must take the swap off: it runs with the Runtime still attached
+        }
         // ---- the next career load: FC 27 reloads teamkits; the kept settings go back in
         CHECK(app.db.set_int(*kt, row, "jerseycollargeometrytype", collar) && app.db.set_int(*kt, row, "teamcolorprimpercent", pct) &&
                   app.db.set_int(*kt, row, "teamcolorprimr", prim_r),
@@ -704,6 +731,12 @@ static void kit_import_ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(r2.ok && r2.minikit, "imported again: " + r2.line);
         // ---- Undo (home through the button, away through the function)
         CHECK(ui.click("Undo##kitundo", "##tkits", "home"), "Undo home");
+        if (g_kit_rt) {
+            CHECK(!g_kit_rt->is_active(7, 0), "Undo of the import switched the 3D swap off");
+            g_kit_rt->wait_idle();
+            app.kit_swap = nullptr;
+            g_kit_rt.reset();
+        }
         CHECK(app.db.get_int(*kt, row, "teamcolorprimr") == prim_r && app.db.get_int(*kt, row, "teamcolorprimpercent") == pct &&
                   app.db.get_int(*kt, row, "jerseycollargeometrytype") == collar,
               "the game's values are back");

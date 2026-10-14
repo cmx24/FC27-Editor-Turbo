@@ -296,6 +296,8 @@ public:
     // Activates a staged kit (turbo_output\kits\<team>\<slot>) in `mode`; async build. false + reason: nothing staged, unknown slot
     bool activate(int team, int slot, Mode mode, std::string* err);
     void deactivate(int team, int slot);
+    // Builds the table again (the staged textures of an active kit changed)
+    void rebuild() { rebuild_async(); }
     bool is_active(int team, int slot, Mode* mode = nullptr) const;
     Status status() const;
     void set_killed(bool k) { killed_.store(k); }
