@@ -777,9 +777,11 @@ static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
             ImGui::TreePop();
         }
     }
-    bool decals = rt->options.include_decals;
+    kitswap::Options kopt = rt->get_options();
+    bool decals = kopt.include_decals;
     if (ImGui::Checkbox("Also use the zip's badge and brand pictures##kswap", &decals)) {
-        rt->options.include_decals = decals;
+        kopt.include_decals = decals;
+        rt->set_options(kopt);
         if (!rt->status().slots.empty()) rt->rebuild();
     }
     ImGui::PushTextWrapPos(0.0f);

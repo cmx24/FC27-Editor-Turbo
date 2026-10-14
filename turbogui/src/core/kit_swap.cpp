@@ -954,7 +954,7 @@ static const char* slot_folder_name(int s) {
     return s >= 0 && s <= 4 ? n[s] : "unknown";
 }
 
-Runtime::Runtime(fs::path le_root, fs::path game_root, OodleFn oodle) : le_(std::move(le_root)), game_(std::move(game_root)), oodle_(std::move(oodle)) {}
+Runtime::Runtime(fs::path le_root, fs::path game_root, OodleFn oodle) : le_(std::move(le_root)), game_(std::move(game_root)), oodle_(std::move(oodle)), diag_(new Diag[kDiag]) {}
 
 Runtime::~Runtime() {
     stop_ = true;
@@ -1144,6 +1144,7 @@ void Runtime::worker() {
                 if (index && state != "error") {
                     idx_s = index->seconds;
                     TableBuilder tb;
+                    const Options opts = get_options();
                     int swapped = 0, skipped = 0;
                     std::vector<std::string> msgs;
                     for (const SlotState& s : slots) {
@@ -1154,7 +1155,7 @@ void Runtime::worker() {
                             msgs.push_back("team " + std::to_string(s.team) + " " + slot_folder_name(s.slot) + ": " + e);
                             continue;
                         }
-                        Plan pl = build_plan(files, oodle_, *index, sk, options, s.mode == Mode::Swap, tb, &progress_);
+                        Plan pl = build_plan(files, oodle_, *index, sk, opts, s.mode == Mode::Swap, tb, &progress_);
                         if (!pl.ok) {
                             msgs.push_back("team " + std::to_string(s.team) + " " + slot_folder_name(s.slot) + ": " + pl.error);
                             continue;
@@ -1232,6 +1233,34 @@ int Runtime::on_block(const uint8_t* src, uint64_t srclen, uint8_t* dst, uint64_
     return 2;
 }
 
+int Runtime::on_decompressed(const uint8_t* src, uint64_t srclen, uint8_t* dst, uint64_t dstlen, int64_t ret, uint32_t flags, int phase) {
+    const Table* t = table_.load(std::memory_order_acquire);
+    if (!t || killed_.load(std::memory_order_relaxed) || !src || srclen < 8 || srclen < t->min_csize() || srclen > t->max_csize() || dstlen == 0 || dstlen > 0x1000000) return 0;
+    candidates_.fetch_add(1, std::memory_order_relaxed);
+    const Entry* e = t->match(src, srclen, dstlen);
+    const uint32_t i = diag_n_.fetch_add(1, std::memory_order_relaxed);
+    if (i < kDiag) {
+        uint64_t head;
+        std::memcpy(&head, src, 8);
+        diag_[i].a.store(srclen << 32 | (dstlen & 0xFFFFFFFFu), std::memory_order_relaxed);
+        diag_[i].b.store(head, std::memory_order_relaxed);
+        diag_[i].c.store(uint64_t(uint32_t(ret)) << 32 | uint64_t(flags & 0xFF) << 16 | uint64_t(phase & 0xFF) << 8 | (e ? 1u : 0u), std::memory_order_relaxed);
+    }
+    if (!e) return 0;
+    hits_.fetch_add(1, std::memory_order_relaxed);
+    t->count_hit(*e);
+    if (flags & 1) with_cb_.fetch_add(1, std::memory_order_relaxed);
+    if (phase != 3) other_phase_.fetch_add(1, std::memory_order_relaxed);
+    if (ret != int64_t(dstlen)) {
+        unserved_.fetch_add(1, std::memory_order_relaxed);
+        return 1;
+    }
+    if (!t->swap_item(e->item) || !dst) return 1;
+    std::memcpy(dst, e->data, size_t(e->dsize));
+    swapped_.fetch_add(1, std::memory_order_relaxed);
+    return 2;
+}
+
 Status Runtime::status() const {
     Status s;
     std::lock_guard<std::mutex> lk(m_);
@@ -1244,6 +1273,9 @@ Status Runtime::status() const {
     s.candidates = candidates_.load();
     s.hits = hits_.load();
     s.swapped = swapped_.load();
+    s.unserved = unserved_.load();
+    s.with_callback = with_cb_.load();
+    s.other_phase = other_phase_.load();
     s.slots = slots_;
     s.index_seconds = index_seconds_;
     const Table* t = table_.load();
@@ -1271,6 +1303,18 @@ void Runtime::flush_log(bool force) {
     o << "Turbo kit swap log (turbo_output\\kit_swap_log.txt)\nstate " << s.state << (s.killed ? " (kill switch kits3d_off.txt present)" : "") << ": " << s.message << "\n";
     o << "hook " << (s.hook ? "installed" : "NOT installed") << ", decompress calls " << s.calls << ", size candidates " << s.candidates << ", blocks recognised " << s.hits
       << ", blocks overwritten " << s.swapped << ", table " << s.blocks << " blocks (" << s.bytes << " bytes), index " << s.index_seconds << " s\n";
+    o << "recognised but not overwritten (original returned another size): " << s.unserved << ", with an Oodle callback: " << s.with_callback << ", threadPhase != 3: " << s.other_phase << "\n";
+    {
+        const uint32_t n = std::min<uint32_t>(diag_n_.load(), kDiag);
+        o << "first " << n << " decompress calls whose compressed size the table knows (srclen rawlen ret head8 flags(1 cb,2 decbuf,4 decmem) phase matched):\n";
+        for (uint32_t i = 0; i < n; ++i) {
+            const uint64_t a = diag_[i].a.load(), b = diag_[i].b.load(), c = diag_[i].c.load();
+            char line[160];
+            std::snprintf(line, sizeof(line), "  %u %u %d %016llx %u %u %u\n", unsigned(a >> 32), unsigned(a & 0xFFFFFFFFu), int(int32_t(c >> 32)), static_cast<unsigned long long>(b),
+                          unsigned((c >> 16) & 0xFF), unsigned((c >> 8) & 0xFF), unsigned(c & 1));
+            o << line;
+        }
+    }
     for (const auto& sl : s.slots) o << "kit team " << sl.team << " " << slot_folder_name(sl.slot) << " mode " << mode_name(sl.mode) << "\n";
     for (const auto& it : s.items)
         o << (it.swap ? "  in table  " : "  left      ") << it.kind << "/" << it.res.substr(it.res.rfind('/') == std::string::npos ? 0 : it.res.rfind('/') + 1) << "  blocks " << it.blocks << "  seen "

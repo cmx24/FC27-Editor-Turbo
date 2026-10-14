@@ -638,6 +638,21 @@ static void test_runtime(const fs::path& base) {
         std::vector<uint8_t> other(src, src + bl[0].csize);
         other[10] ^= 0xFF;
         check(rt.on_block(other.data(), other.size(), out3.data(), bl[0].dsize) == 0, "an unknown block with the same sizes is left alone");
+        // the detour's entry: what the game passes decides whether the swap can work
+        {
+            std::vector<uint8_t> o1(bl[0].dsize, 0xEE), o2(bl[0].dsize, 0xEE), o3(bl[0].dsize, 0xEE);
+            check(rt.on_decompressed(src, bl[0].csize, o1.data(), bl[0].dsize, int64_t(bl[0].dsize), 0, 3) == 2 &&
+                      std::memcmp(o1.data(), w.jersey_color_data.data(), bl[0].dsize) == 0,
+                  "on_decompressed: full decode -> overwritten");
+            const uint64_t before_unserved = rt.status().unserved;
+            check(rt.on_decompressed(src, bl[0].csize, o2.data(), bl[0].dsize, int64_t(bl[0].dsize) - 5, 0, 3) == 1 && o2[0] == 0xEE &&
+                      rt.status().unserved == before_unserved + 1,
+                  "on_decompressed: the original returned another size -> recognised, counted, NOT overwritten");
+            const uint64_t cb0 = rt.status().with_callback, ph0 = rt.status().other_phase;
+            rt.on_decompressed(src, bl[0].csize, o3.data(), bl[0].dsize, int64_t(bl[0].dsize), 1, 1);
+            check(rt.status().with_callback == cb0 + 1 && rt.status().other_phase == ph0 + 1, "on_decompressed: callback and phase counted");
+            check(rt.on_decompressed(src, 4, o3.data(), 4, 4, 0, 3) == 0 && rt.on_decompressed(nullptr, bl[0].csize, o3.data(), bl[0].dsize, 0, 0, 3) == 0, "on_decompressed: tiny / null input ignored");
+        }
         rt.flush_log(true);
         std::ifstream lf(rt.log_path());
         std::string log((std::istreambuf_iterator<char>(lf)), std::istreambuf_iterator<char>());
@@ -645,7 +660,9 @@ static void test_runtime(const fs::path& base) {
         for (const auto& it : s.items)
             if (it.res.find("crest_95_0_0_normal") != std::string::npos && !it.swap && it.reason.find("same data") != std::string::npos) crest_left = true;
         check(crest_left, "crest_normal / crest_shorts_normal: one game chunk, two different pictures -> both left to the game");
-        check(log.find("blocks overwritten") != std::string::npos && log.find("jersey_95_0_0_color") != std::string::npos, "log file written");
+        check(log.find("blocks overwritten") != std::string::npos && log.find("jersey_95_0_0_color") != std::string::npos && log.find("first ") != std::string::npos &&
+                  log.find("threadPhase != 3") != std::string::npos,
+              "log file written, with the call ring");
     }
     {  // a new session restores the state and builds the table by itself
         Runtime rt(w.le, w.root, stand_in_oodle());

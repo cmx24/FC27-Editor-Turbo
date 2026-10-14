@@ -36,8 +36,11 @@ int64_t detour(const void* comp, int64_t comp_len, void* raw, int64_t raw_len, i
     turbo::kitswap::Runtime* rt = g_rt.load(std::memory_order_acquire);
     if (rt) {
         rt->count_call();
-        if (r == raw_len && raw_len > 0 && comp_len > 0 && game_hook_live(g_handle.load(std::memory_order_acquire)))
-            HOOK_BODY("kit_oodle", { rt->on_block(static_cast<const uint8_t*>(comp), uint64_t(comp_len), static_cast<uint8_t*>(raw), uint64_t(raw_len)); });
+        if (game_hook_live(g_handle.load(std::memory_order_acquire)))
+            HOOK_BODY("kit_oodle", {
+                rt->on_decompressed(static_cast<const uint8_t*>(comp), comp_len > 0 ? uint64_t(comp_len) : 0, static_cast<uint8_t*>(raw), raw_len > 0 ? uint64_t(raw_len) : 0, r,
+                                    (cb ? 1u : 0u) | (dec_base ? 2u : 0u) | (dec_mem ? 4u : 0u), phase);
+            });
     }
     return r;
 }
@@ -71,6 +74,12 @@ void install_kit_swap(turbo::App& app) {
     // The hook goes in when a kit is first switched on (or one was left on last session), never for a player who does not use it
     rt->ensure_hook = [rt](std::string* why_out) {
         std::string why;
+        if (file_exists(le_root() / "turbo_output" / "kits3d_off.txt")) {
+            // a kit left on must not bring the hook back at the next start while the kill switch is there (crash recovery)
+            g_off = "turbo_output\\kits3d_off.txt is present: the hook is not installed (delete it, then switch the kit on again)";
+            if (why_out) *why_out = g_off;
+            return false;
+        }
         // MinHook stores the trampoline into g_orig BEFORE it enables the hook: the detour can run at once
         if (install_game_dll_export_hook("kit_oodle", L"oo2core_9_win64.dll", "OodleLZ_Decompress", reinterpret_cast<void*>(&detour), reinterpret_cast<void**>(&g_orig), &why)) {
             g_handle = game_hook_handle("kit_oodle");

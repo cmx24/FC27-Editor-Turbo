@@ -279,6 +279,9 @@ struct Status {
     uint64_t candidates = 0; // calls whose sizes the table could match (full hash computed)
     uint64_t hits = 0;       // blocks recognised
     uint64_t swapped = 0;    // blocks overwritten
+    uint64_t unserved = 0;   // recognised, but the original returned something other than the raw size (not overwritten)
+    uint64_t with_callback = 0;  // recognised, and the game passed an Oodle callback (it may read the output during the decode)
+    uint64_t other_phase = 0;    // recognised, and threadPhase was not 3 (all phases)
     size_t blocks = 0;       // blocks in the table
     uint64_t bytes = 0;
     std::vector<SlotState> slots;
@@ -310,6 +313,11 @@ public:
     // Call it after the original decompress returned dstlen.
     int on_block(const uint8_t* src, uint64_t srclen, uint8_t* dst, uint64_t dstlen);
     void count_call() { calls_.fetch_add(1, std::memory_order_relaxed); }
+    // The detour's whole job after the original returned `ret` (the number of raw bytes it wrote) for a block of `srclen` compressed
+    // bytes: flags 1 = fpCallback was set, 2 = decBufBase, 4 = decoderMemory; phase = threadPhase. Records the first 256 calls whose
+    // compressed size the table knows (what the game really passes: the log shows them) and does what on_block does when
+    // ret == dstlen. Returns on_block's code (0 when nothing was served).
+    int on_decompressed(const uint8_t* src, uint64_t srclen, uint8_t* dst, uint64_t dstlen, int64_t ret, uint32_t flags, int phase);
     // Writes turbo_output\kit_swap_log.txt when the counters changed (at most every 5 s unless force)
     void flush_log(bool force = false);
     // Waits for the worker (tests)
@@ -319,7 +327,15 @@ public:
     std::filesystem::path staged_dir(int team, int slot) const;
     // Tests: the table as published
     const Table* table() const { return table_.load(); }
-    Options options;
+    Options options;  // set before activating; the UI changes it through set_options (the worker copies it under the lock)
+    void set_options(const Options& o) {
+        std::lock_guard<std::mutex> lk(m_);
+        options = o;
+    }
+    Options get_options() const {
+        std::lock_guard<std::mutex> lk(m_);
+        return options;
+    }
 
 private:
     bool hook_ready(std::string* err);
@@ -347,7 +363,14 @@ private:
     std::atomic<bool> swap_any_{false};
     std::vector<std::shared_ptr<Table>> keep_;                 // published tables (m_)
     std::vector<std::pair<std::shared_ptr<Table>, double>> retired_;  // replaced tables, freed after a grace period (m_)
-    std::atomic<uint64_t> calls_{0}, candidates_{0}, hits_{0}, swapped_{0};
+    std::atomic<uint64_t> calls_{0}, candidates_{0}, hits_{0}, swapped_{0}, unserved_{0}, with_cb_{0}, other_phase_{0};
+    // first 256 candidate calls (compressed size known to the table), written lock-free by the detour, read by flush_log
+    struct Diag {
+        std::atomic<uint64_t> a{0}, b{0}, c{0};
+    };
+    static constexpr uint32_t kDiag = 256;
+    std::unique_ptr<Diag[]> diag_;
+    std::atomic<uint32_t> diag_n_{0};
     uint64_t logged_hits_ = 0, logged_calls_ = 0;
     double last_log_ = -100;
 };
