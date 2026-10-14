@@ -58,7 +58,7 @@ def self_test():
         import battery_write as bw
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            rc = bw.main(["plan", "--knobs", kf], world=None)
+            rc = bw.main(["plan", "--knobs", kf, "--allow-underpowered"], world=None)
         out = buf.getvalue()
         check(rc == 0 and "pressing.stepup_distance_bonus" in out and "deferred / skipped: shape.def_line_range_max" in out,
               "plan: the effect-only knob is scheduled, the latched one is reported as set-up only (exit %d)" % rc)

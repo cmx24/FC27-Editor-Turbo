@@ -39,7 +39,23 @@ INV = os.path.join(ROOT, "docs", "re", "attrib_inventory_6AC07E31.json")
 KOBJ_DEFLINE_MIN, KOBJ_DEFLINE_MAX = 0x5BA0, 0x5BA4     # [A] constructor copy 0x146A521EC (OLD): [r11+0x5BA0] <- +0x178, [r11+0x5BA4] <- +0x110
 SIM_PATH = "/databases/simulation/"
 FMT = {"f32": "<f", "i32": "<i", "u32": "<I", "bool": "<B", "i8": "<b", "u8": "<B"}
-TAU = 3.0                    # autocorrelation time in samples (battery_lib.window_means)
+TAU = 3.0                    # autocorrelation time in samples
+
+
+def _window_means(values, block=20):
+    """-> (mean, se, n): sd of the block means / sqrt(blocks) (>= 3 blocks), else sd / sqrt(n / TAU). Local copy: battery2 dropped
+    battery_lib.window_means for its replicate-window estimator."""
+    n = len(values)
+    if n == 0:
+        return float("nan"), float("nan"), 0
+    mean = statistics.fmean(values)
+    if n < 2:
+        return mean, float("inf"), n
+    nb = n // block
+    if nb >= 3:
+        bm = [statistics.fmean(values[k * block:(k + 1) * block]) for k in range(nb)]
+        return mean, statistics.stdev(bm) / math.sqrt(nb), n
+    return mean, statistics.stdev(values) / math.sqrt(max(1.0, n / TAU)), n
 Z_MDE = getattr(bl, "Z_MDE", 2.8)
 
 
@@ -296,8 +312,8 @@ def judge_pair(a_vals, b_vals, dmin, sign=0):
     """two arms of a metric (A = baseline windows pooled, B = extreme windows pooled), values in time order -> (verdict, evidence).
     Same bar as the battery: PASS needs |shift| >= dmin and z >= 3 with the expected sign; FAIL = no effect although the MDE <= dmin (or a
     significant wrong sign); else INCONCLUSIVE. Reuses battery_lib.judge / window_means."""
-    ma, sea, na = bl.window_means(list(a_vals))
-    mb, seb, nb = bl.window_means(list(b_vals))
+    ma, sea, na = _window_means(list(a_vals))
+    mb, seb, nb = _window_means(list(b_vals))
     if na == 0 or nb == 0:
         return "INCONCLUSIVE", {"why": "an arm is empty (the phase never occurred)", "n": (na, nb)}
     effect = mb - ma
@@ -637,7 +653,8 @@ def self_test():
     dev = be.DevMulti(w.mem.call)
     for kid in ("marking.tightness", "pressing.stepup_distance_bonus", "goalkeeper.rush_radius", "shape.def_line_range_max", "lineband.high_min", "defending.jockey_speed"):
         v, ev = obs_instance(dev, kid, cat)
-        check(v == "PASS" and ev["copy"] == "base" and ev["db_kind"] == ("prematch" if kid.startswith("lineband") else "gameplay") and ev["equals_fc27_value"],
+        want_copy = "simulation" if kid == "defending.jockey_speed" else "base"  # a group with a simulation instance reports that copy
+        check(v == "PASS" and ev["copy"] == want_copy and ev["db_kind"] == ("prematch" if kid.startswith("lineband") else "gameplay") and ev["equals_fc27_value"],
               "obs_instance(%s): PASS, %s copy, value = FC 27's (%s)" % (kid, ev.get("copy"), ev.get("value")))
     v, ev = obs_instance(dev, "marking.tightness", cat)
     kn = _knob(cat, "marking.tightness")
