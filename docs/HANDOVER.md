@@ -1,8 +1,46 @@
 # Turbo handover (read this first)
 
-Last updated: 2026-10-13 21:05 ET (the tactics overhaul decision exists: docs/TACTICS_OVERHAUL_DECISION.md; Opus implements; Turbo 2.3.0 is the released and installed version). Older sections below keep their own timestamps. Update this file after EVERY release and every session that changes code, saves or game state. Every update MUST end with a fresh section 11 (next-LLM prompt) that matches the current state.
+Last updated: 2026-10-13 21:30 ET (2.4 implementation started: four code tracks in wt-24-* worktrees; gate X1 run in game = outcome 3; X2/X3 pending; Turbo 2.3.0 is still the released and installed version). Older sections below keep their own timestamps. Update this file after EVERY release and every session that changes code, saves or game state. Every update MUST end with a fresh section 11 (next-LLM prompt) that matches the current state.
 
-## 00. Update 2026-10-13 21:05 - the tactics overhaul DECISION exists (read first)
+## 00. Update 2026-10-13 21:30 - 2.4 implementation running; gate X1 done (outcome 3); X2/X3 pending (read first)
+
+**Cassio, 20:38:** "resume the build after Fable's plan and updates ... never spend too much time on game tests - get in, prove the
+point, get out. i expect everything to be completed before 10pm." Told at 20:50: a PROVEN 2.4.0 cannot be released by 22:00 (the
+decision's critical path is ~10.5 h; ship-only-when-working); what fits tonight = the gates + the code tracks + this handover.
+
+**Code tracks (background agents, Opus xhigh, from turbo-2.0 f7c74a2):** worktrees `turbo_dev\2.0\wt-24-<track>`, branches
+`2.4/<track>`; rules `turbo_output\assessment_20261013\AGENT_RULES_24.md` (no game, no dev service, build hold file, commits, eol);
+progress `IMPL_<track>.md`; gate results `GATES.md` (same folder).
+- 2.4/tuning (WP-A1 deterministic chain locate from G 0x14C26B128 + apply at boot / career_load / hub + tuning_profile.json; WP-A2 knob
+  states PROVEN / LOCATED / UNLOCATED, presets, package guard).
+- 2.4/tactic (WP-B1 one write map record + cm_mentalities row, kick-off self-proof line, overwrite detection + re-apply, E2 working-copy
+  writes removed; WP-B2/B3 wait for X2/X3).
+- 2.4/tools (WP-C proof harness in `tools/`: x1_run.sh, x1_write.py, mm_stats --x1, match_measure, gate-fixed dev2, chain_check,
+  gk.ps1 / launch_fc27.ps1 with GAME_STATE gates, x2_sentinels, x3_sentinels, x3_readback, x3_plan.json, guard + self-tests).
+- 2.4/cleanup (WP-D: channel A removed - match_setup.* KEPT, it carries proven features; legacy mentalities fields removed; docs
+  turbo-reference / BUILD_WINDOWS / HANDOVER 1/4/5/8; CHANGELOG Unreleased; RELEASE_24_CHECKLIST).
+- X1P (offline agent): a deterministic observable for "does the engine read the tuning table" (per-player formation targets or the
+  table's consumer copy) -> `turbo_output\assessment_20261013\X1P\X1P.md` + read-only `x1p_check.py`.
+- **Build hold:** `turbo_dev\tools\GAME_LAUNCH_HOLD.txt` makes every agent pause builds; create it before a launch, delete after.
+
+**Gate X1 (TEST_24.md, 3 LTEST launches 20:43-21:21, never saved, killed, saves md5 unchanged 2ded2b76 c45b2b12 1e78df22 3dced956):**
+width_in 0.6 written in the hub before kick-off (identity + read-back ok each time), Tactical View, ABAB.
+- Run 1: no data - a continuous match_measure run holds the dev2 lock, so the separate mid-match writer starved; script killed the game.
+- Run 2 (sequential windows): pooled with-ball width B-A -6.4 m p 0.047 - pre-registered criterion (-8 m, 2x noise floor) not met.
+- Run 3 (`TOOLS\x1_cont.py` + `x1_run3.sh`: schedule and writes INSIDE the measuring process - works live): pooled -3.0 m p 0.30; run 2's
+  lat_sd signal did not replicate.
+- **Result: outcome 3 / inconclusive after two launches** -> width ships LOCATED (read-only), no `live` knobs, WP-A1 unchanged (its boot
+  apply is the outcome-3 retest). One half of an 8-min match cannot resolve < ~8 m against 4-12 m of game-state noise; proofs need
+  the X1P observable or a powered multi-launch design.
+- Menu facts: on the Manager Career LIVE/ORIGINAL screen focus sits on the right-hand button; Up/Down there switches LIVE/ORIGINAL,
+  Left jumps to the side icon column (not the list). Entering Play Manager Live gives "EA Servers unavailable" (Enter = Ok).
+
+**X2 / X3:** not run. X3 is pre-registered in `turbo_dev\evidence\2026-10-13\TEST_25.md` (tools on 2.4/tools 319bda6, self-tests
+passed 21:26; asked Cassio for a "go" at 21:24). X2 waits for its readout (S-B1 kick-off line or x2_readout.py).
+
+**State at 21:30:** game closed (`GAME_STATE.txt` CLOSED 21:21); no `*_on.txt` opt-ins; installed Turbo 2.3.0; nothing released.
+
+## 00e. Update 2026-10-13 21:05 - the tactics overhaul DECISION exists (read first)
 
 **Cassio, 20:35:** "opus will implement - i need you to build a surefire plan and thats it."
 
@@ -172,38 +210,39 @@ ORCHESTRATOR_BRIEF_20261011.md · OVR1_BISECT.txt/.json · STEP2_DRAFT_B.txt · 
 ## 9. Game window (planned 16:30-18:15 ET 2026-10-11; NOT run by the orchestrator session)
 Plan: `turbo_dev\evidence\2026-10-11\RUNBOOK.md` (backups, install 2.0.3, TORINO read-only diag, TTEST copy, day-advance probe, repair trial on one player, A/B arms for channel A, TORINO repair under the consent of 14:30). Results, screenshots and the timestamped log go to that folder. Cassio's confirmation of 14:30 covers exactly: the repair on TORINO after a clean TTEST trial that holds past a day advance.
 
-## 10. Open items, in order (2026-10-13 21:05)
-0. **Implement the tactics overhaul per `docs/TACTICS_OVERHAUL_DECISION.md`** (Opus 5.5, extra effort). First show Cassio the agent
-   deployment plan (DECISION section 7), then: WP0 gates X1-X3 (coordinator, LTEST, Part C), code tracks WP-A1/A2(/A3), WP-B1/B2(/B3),
-   WP-C, WP-D in parallel worktrees `2.4/<track>` from turbo-2.0, reviews, merge rehearsal, proofs P1-P4 + S-A1/S-B1/S-B2, WP-E release
-   2.4.0 only when every item is proven in game.
-1. **Cassio's answers** to the 5 questions (DECISION section 8); until then the defaults apply.
-2. **Pick up the sweep outputs** (`turbo_outputssessment_20261013\T1..T6.md`, their `_verify.md` audits, PACK.md, the session plans and
-   scripts in `turbo_dev	ools`) when they land; an audit's downgrade wins over a track's claim.
-3. Kit import phase 2 (3D kit on the pitch), live standings in-game check, 2.1 features in-game check, OVR-1 repair on TORINO
-   (conditional yes, trial on a copy), languages, repo hygiene (79 worktrees; stale sections 1/4/5/8 here and turbo-reference.md).
-4. Voice generation (3.0 PT-BR): parked by Cassio.
+## 10. Open items, in order (2026-10-13 22:00)
+0. **Finish the 2.4 code tracks** (background agents, worktrees `turbo_dev\2.0\wt-24-{tuning,tactic,tools,cleanup}`, branches
+   `2.4/<track>` from turbo-2.0 f7c74a2; rules `turbo_output\assessment_20261013\AGENT_RULES_24.md`; progress `IMPL_<track>.md`; gate
+   results `GATES.md`). Then adversarial review per track, merge rehearsal (`tmp/merge-rehearsal-24`), check_all with the sum rule.
+1. **Gates X2 and X3** (one LTEST launch each, Cassio's "go"): tools on 2.4/tools (`tools/x2_sentinels.py`, `x3_sentinels.py`,
+   `x3_readback.py`, `x3_plan.json`; X3 plan pre-registered in `turbo_dev\evidence\2026-10-13\TEST_25.md`). X2's readout = T-tactic's
+   kick-off line (S-B1) or `x2_readout.py` when it lands. Needs `call_team_sheet_on.txt` and the channel E card opened once (the service
+   line `channel E: service located ... at 0x..` is what the tools read).
+2. **X1 retest with the boot apply** (outcome-3 branch): after WP-A1 is deployed, value set at the main menu, then a deterministic check
+   if the X1P agent finds one (`turbo_output\assessment_20261013\X1P\X1P.md`: per-player formation targets or the table's consumer copy),
+   else the powered design it proposes. No knob is PROVEN today: every tuning knob ships LOCATED (read-only).
+3. Proofs S-A1 / S-B1 / S-B2 / P-sessions per DECISION 5-6, then WP-E release 2.4.0 only when every item is proven in game.
+4. Cassio's 5 A.10 answers (defaults in DECISION 8). Older items: HANDOVER 00e item list (kit phase 2, standings check, OVR-1 repair,
+   languages, worktree hygiene); voice generation parked.
 
 ## 11. Prompt for the next LLM (copy this as the first message)
-Implementation (Opus 5.5, extra effort) - use now:
+Implementation continues (Opus 5.5, extra effort) - use now:
 ```
-You are continuing the FC 27 Turbo project for the user Cassio, as the IMPLEMENTER of the tactics overhaul. Read, in this order:
-  1. docs/TACTICS_OVERHAUL_DECISION.md (branch turbo-2.0, worktree C:\FC 27 Live Editor	urbo_dev.0\integration): the architecture,
-     the three decision gates with their branch tables, the work packages, the proof protocol, the test plan, the agent plan, the ETA.
-  2. docs/TACTICS_OVERHAUL_BRIEF.md Part B (codebase map, conventions, write-safety checklist, build/deploy, in-game proof, release) and
-     Part C (session protocol: never Escape, LTEST never saved, NO to the team-sheet prompt, backups + md5, short scripted tests,
-     Edit Tactic last, kill last).
-  3. docs/HANDOVER.md sections 00 and 10, and the memory notes (MEMORY.md index), especially feedback-ship-only-when-working,
-     feedback-short-tests, fc27-input-without-computer-use, feedback-agent-deployment-per-version.
-  4. turbo_outputssessment_20261013\ (T1..T6.md + _verify.md audits, PACK.md) and turbo_dev	ools\SESSION_25/26/27_PLAN.md with the
-     x1_/x2_/x3_ scripts, if present (a background sweep writes them; DECISION section 9 says what to take from each).
-State: Turbo 2.3.0 installed; game closed; saves TORINO 2ded2b76 / LB c45b2b12 / LEICESTER 1e78df22 / LTEST 3dced956 untouched;
-2.4/channel-e3 (468fe54) local, untested, merged only in X3 branch (a).
-Task: first show Cassio the agent deployment plan (DECISION section 7: tracks, parallelism, critical path, shared resources, ETA), then
-run it: WP0 gates X1-X3 as the coordinator (only you drive the game, only after Cassio's "go"), code tracks in parallel worktrees
-2.4/<track> from turbo-2.0, adversarial review per track, merge rehearsal early, proofs, release 2.4.0 only when every item is proven in
-game with evidence in turbo_dev\evidence\<date>. Every work package names its in-game pass point and its <= 2 min scripted check before
-code is written. Every game write: opt-in, kill switch, identity re-check in the job, read-back, undo. No mod values in git or the zip.
-Live Editor's DLL and launcher are off limits. Agents never drive the game or use the dev service. Status + ETA to Cassio every 30 min
-with screenshots. At the end: HANDOVER 00 + fresh 10/11, memory note, commit with Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>.
+You are continuing the FC 27 Turbo project for the user Cassio, as the COORDINATOR / IMPLEMENTER of the 2.4 tactics overhaul.
+Read, in this order:
+  1. docs/HANDOVER.md sections 00 and 10 (worktree C:\FC 27 Live Editor\turbo_dev\2.0\integration, branch turbo-2.0).
+  2. docs/TACTICS_OVERHAUL_DECISION.md (architecture, gates X1-X3 with branch tables, work packages, proof protocol) and
+     docs/TACTICS_OVERHAUL_BRIEF.md Part B (codebase, conventions, write safety, build, release) and Part C (session protocol).
+  3. C:\FC 27 Live Editor\turbo_output\assessment_20261013\: GATES.md, AGENT_RULES_24.md, IMPL_tuning/tactic/tools/cleanup.md,
+     X1P\X1P.md (if present), the sweep T1..T6.md + audits.
+  4. turbo_dev\evidence\2026-10-13\TEST_24.md (X1 result) and TEST_25.md (X3 plan), and the memory notes (MEMORY.md index), especially
+     turbo-2-4-gates, feedback-ship-only-when-working, feedback-short-tests, fc27-input-without-computer-use.
+State: Turbo 2.3.0 installed; game closed; saves TORINO 2ded2b76 / LB c45b2b12 / LEICESTER 1e78df22 / LTEST 3dced956 untouched.
+X1 = outcome 3 (no knob proven; all tuning knobs ship read-only until a P-session proves one). X2 / X3 not run yet.
+Task: check each wt-24-* track (commits, check_all counts, IMPL report); finish or fix what is open; adversarial review per track;
+merge rehearsal; run X3 and X2 (one short LTEST launch each, only after Cassio's chat "go", tools from 2.4/tools, kill last); take
+the branch the tables give; deploy (game closed) and prove S-A1 / S-B1 / S-B2; release 2.4.0 only when every item in it is proven in
+game with evidence in turbo_dev\evidence\<date>. Agents never drive the game or use the dev service. Before any launch create
+turbo_dev\tools\GAME_LAUNCH_HOLD.txt (agents pause builds) and delete it after the kill. Status + ETA to Cassio every 30 min with
+screenshots. At the end: HANDOVER 00 + fresh 10/11, memory note, commit with Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>.
 ```
