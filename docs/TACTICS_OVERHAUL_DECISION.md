@@ -118,7 +118,7 @@ answers (section 8).
 - **Locate (deterministic):**
   1. Signature `attrib_db_getter` for `get_current_gameplay_attribdb` (0x141077070 on 6AC07E31; it reads G = 0x14C26B128 RIP-relative).
      Bytes: read once, read-only, in X1's hub phase (`bytes` op at 0x141077070, 96 bytes) and from the old image's equivalent (sweep T1/T5);
-     wildcard the displacement; `resolve: rip` to G. `adapt_optional: false`, `exact_build: false` (the function is stable in shape [A]).
+     wildcard the displacement; `resolve: rip` to G. `adapt_optional: true` (amended 2026-10-13 22:20 after REVIEW_tuning.md M4: a miss on a new title update must never switch off the other hooks; it only disables the chain path, the name search stays as the fallback), `exact_build: false` (the function is stable in shape [A]).
   2. mgr = [G]; the manager's DB table and current index as walked by `TOOLS\attrib_locate.py` / `TO\ATTRIBULATOR_LIVE.json` (mgr
      0x3C6807F0 -> current DB in the 17:41 run). The implementer copies that walk; if the sweep's T5 gives the reflected offsets, use them.
   3. DB -> family slot (gp_positioningformation +0x128, gp_positioning +0x38, gp_customization +0x50, gp_cpuai +0x68, gp_team +0xA8,
