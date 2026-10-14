@@ -362,11 +362,17 @@ def verdict(results, crit, noise, without=None, underblocked=False):
     if not vals or len(vals) < len(keys):
         return "INCONCLUSIVE", checks, ["missing data for a team"]
     passed = [v["pass"] for v in vals]
-    if crit["without_half"] and without:
+    if crit["without_half"]:  # review minor 10: a missing without-ball control is NOT a pass
         for k in keys:
-            w = without.get(k)
+            w = (without or {}).get(k)
             r = results.get(k)
-            if w and r and abs(w["obs"]) >= 0.5 * abs(r["obs"]):
+            if r is None:
+                continue
+            if not w:
+                reasons.append("without-ball control missing for %s: the 'without < half' condition cannot pass" % (
+                    "the pool" if k == "pooled" else "team %s" % k))
+                passed = [False]
+            elif abs(w["obs"]) >= 0.5 * abs(r["obs"]):
                 reasons.append("without-ball shift %.1f m is not < half the with-ball shift %.1f m (team %s)" % (w["obs"], r["obs"], k))
                 passed = [False]
     if all(passed) and not reasons:
@@ -470,6 +476,12 @@ def ab_test(recs, D, A, B, crit, noise_labels=None, block_arg="auto", perm=5000,
     if rp:
         results["pooled"] = rp
         say("  pooled: B - A = %+6.2f m  p = %.3f  MDE95 = %.2f m  n_A %d n_B %d" % (rp["obs"], rp["p"], rp["mde95"], rp["n_a"], rp["n_b"]))
+    if mt == "width_with":  # the pooled without-ball control (the pooled criterion's 'without < half')
+        wp = perm_test(blocks_of(recs, A, 0, "width_without", block) + blocks_of(recs, A, 1, "width_without", block),
+                       blocks_of(recs, B, 0, "width_without", block) + blocks_of(recs, B, 1, "width_without", block), perm, seed)
+        if wp:
+            without["pooled"] = wp
+            say("          pooled without-ball width B - A = %+6.2f m  p = %.3f" % (wp["obs"], wp["p"]))
     noise = noise_floor(recs, mt, [w for w in (noise_labels or A) if w], say)
     v, checks, reasons = verdict(results, crit, noise, without, underblocked)
     return {"verdict": v, "checks": checks, "reasons": reasons, "results": results, "without": without, "noise": noise,
@@ -575,6 +587,16 @@ def x1_decide(recs, perm=5000, seed=1, block_arg="auto", baseline=None, say=prin
                          "consistent with the value being read ONCE at match setup (the in-match ABAB cannot show that); "
                          "confirm with a 1.0-at-kick-off control match" % max(need, 5.0))
     return out
+
+
+def x1_deviations(args):
+    """review minor 9: the analysis settings of --x1 that differ from the pre-registered ones (decision 4.1 + sweep T4 defaults)"""
+    dev = []
+    for name, want in (("stratum", ""), ("stoppage", None), ("ball_still", None), ("drop_dead_ball", False), ("max_dt", 1.5),
+                       ("block", "auto"), ("perm", 5000), ("seed", 1), ("length", L_DEFAULT), ("width", W_DEFAULT)):
+        if getattr(args, name) != want:
+            dev.append("--%s %s" % (name.replace("_", "-"), getattr(args, name)))
+    return dev
 
 
 def load_recs(specs, csv_path=None, length=L_DEFAULT, width=W_DEFAULT):
@@ -689,8 +711,14 @@ def main(argv=None):
                 base.extend(apply_filters(load_recs([], b, args.length, args.width), max_dt=args.max_dt))  # every row
             else:
                 print("baseline %s: no positions.csv, skipped" % b)
+        devs = x1_deviations(args)
+        if devs:
+            print("NOT PRE-REGISTERED: the X1 analysis runs with %s (pre-registered: no stratum / stoppage / ball-still / dead-ball "
+                  "filter, max-dt 1.5, block auto, 5000 permutations, seed 1)" % ", ".join(devs))
         res = x1_decide(recs, args.perm, args.seed, args.block, base or None)
-        print("\nCRITERION  %s  (decision 4.1, pre-registered)" % X1_CRITERION)
+        res["preregistered"] = not devs
+        print("\nCRITERION  %s  (%s)" % (X1_CRITERION, "decision 4.1, pre-registered" if not devs else
+                                          "NOT PRE-REGISTERED: " + ", ".join(devs)))
         print("OUTCOME %d  - %s" % (res["outcome"], res["branch"]))
         out["x1"] = res
         if args.json:
@@ -834,6 +862,19 @@ def self_test():
         p = synth_csv(os.path.join(d, "short.csv"), x1_plan(0.6, 1.0, 0.6, 1.0, secs=6), 8)
         rc, oc, txt, _ = x1(p)
         check(rc == 3 and oc != 1, "6 s windows (too few blocks): INCONCLUSIVE, no PASS (exit %d)" % rc)
+        rc, oc, txt, res = x1(os.path.join(d, "live.csv"), "--stratum", "poss=own")
+        check("NOT PRE-REGISTERED" in txt and "--stratum poss=own" in txt and res.get("preregistered") is False,
+              "review minor 9: an extra filter in --x1 is labelled NOT PRE-REGISTERED")
+        ns = argparse.Namespace(stratum="", stoppage=None, ball_still=None, drop_dead_ball=False, max_dt=1.5, block="auto", perm=5000,
+                                seed=1, length=L_DEFAULT, width=W_DEFAULT)
+        check(x1_deviations(ns) == [], "the default --x1 settings are the pre-registered ones")
+        r_ = {"obs": -10.0, "p": 0.001, "mde95": 2.0, "blocks_a": 9, "blocks_b": 9, "mean_a": 40.0, "mean_b": 30.0, "n_a": 50, "n_b": 50}
+        w_ = {"obs": 0.1, "p": 0.9}
+        v, _, why = verdict({0: r_, 1: r_}, parse_criterion(X1_CRITERION), {0: 1.0, 1: 1.0}, {0: w_})
+        check(v != "PASS" and any("without-ball control missing for team 1" in x for x in why),
+              "review minor 10: a missing without-ball control is not a pass")
+        v, _, _ = verdict({0: r_, 1: r_}, parse_criterion(X1_CRITERION), {0: 1.0, 1: 1.0}, {0: w_, 1: w_})
+        check(v == "PASS", "... and with both controls present the same numbers pass")
         p = synth_csv(os.path.join(d, "noA2.csv"), x1_plan(0.6, 1.0, 0.6, 1.0)[:-1], 9)
         rc, oc, txt, _ = x1(p)
         check(rc == 3 and oc == 3 and "A2" in txt, "window A2 missing: INCONCLUSIVE, OUTCOME 3")
