@@ -3430,7 +3430,8 @@ void CoreService::ensure_anchors() {
                     }
                 }
             const std::set<std::string> refused = refused_;
-            chain_job = [this, reg, epoch, refused]() {
+            const AttribDbs cached = dbs_;  // m9: this session's enumeration, kept when the databases are still the same
+            chain_job = [this, reg, epoch, refused, cached]() {
                 const double t0 = now();
                 Memory& mem = *h_.mem;
                 const Lookup& lk = h_.lookup;
@@ -3481,11 +3482,36 @@ void CoreService::ensure_anchors() {
                 for (const Locator& l : reg->locators)
                     if (l.chain_capable() && !m.prematch(l) && std::find(fams.begin(), fams.end(), l.family_slot) == fams.end()) fams.push_back(l.family_slot);
                 const double te = now();
-                try {
-                    enumerate_dbs(mem, m, lk, fams, dbs);
-                } catch (...) {
-                    dbs.enum_why = "the database enumeration failed";
+                // m9 (review 2026-10-13): a re-run (a variant not reached, an instance moved) keeps this session's enumeration while every
+                // database of it still passes its check and the manager's current one is among them: no new heap pass
+                bool kept = false;
+                if (cached.enumerated && cached.mgr == dbs.mgr && cached.gameplay_td == dbs.gameplay_td) {
+                    bool current_in = false, all_ok = true;
+                    for (const AttribDb& d : cached.dbs) {
+                        if (d.prematch) continue;
+                        current_in = current_in || d.addr == dbs.current;
+                        std::string n;
+                        uint64_t td = 0, vt = 0;
+                        if (!db_check(mem, lk, d.addr, m.gameplay_db_type, m.gameplay_db_signature, m.gameplay_dbs, n, td, vt).empty() || !same_name(n, d.name))
+                            all_ok = false;
+                    }
+                    if (current_in && all_ok) {
+                        std::vector<AttribDb> v = {dbs.dbs.front()};
+                        for (const AttribDb& d : cached.dbs)
+                            if (!d.prematch && d.addr != dbs.current) v.push_back(d);
+                        for (const AttribDb& d : dbs.dbs)
+                            if (d.prematch) v.push_back(d);
+                        dbs.dbs = v;
+                        dbs.enumerated = true;
+                        dbs.enum_why = cached.enum_why + " (kept from this session's enumeration)";
+                        kept = true;
+                    }
                 }
+                if (!kept) try {
+                        enumerate_dbs(mem, m, lk, fams, dbs);
+                    } catch (...) {
+                        dbs.enum_why = "the database enumeration failed";
+                    }
                 char tb[48];
                 std::snprintf(tb, sizeof(tb), " (%.0f ms)", (now() - te) / 1e3);
                 log("tuning: attribute manager: " + dbs.summary() + tb);
@@ -3684,6 +3710,26 @@ void CoreService::ensure_anchors() {
     auto job = [this, job0, epoch, reg]() { guard_locate(epoch, *reg, job0); };
     if (h_.run_background) h_.run_background(job);
     else job();
+}
+
+std::string CoreService::chain_liveness(const Plan& plan, const Registry& reg, const AnchorMap& anchors, const AttribDbs& dbs) const {
+    bool chain = false;
+    for (const Write& w : plan.writes) {
+        const Knob* k = reg.knob(w.id);
+        auto it = k ? anchors.find(k->locator) : anchors.end();
+        chain = chain || (it != anchors.end() && it->second.path == "chain");
+    }
+    if (!chain || !dbs.g || !h_.mem) return "";
+    Memory& mem = *h_.mem;
+    uint64_t cur = mem.ptr(dbs.g);
+    for (int64_t off : reg.manager.current) {
+        if (!cur) break;
+        cur = slot_ptr(mem, cur + uint64_t(off));
+    }
+    if (!cur) return "";  // no current database (the main menu): the databases' own checks hold
+    for (const AttribDb& d : dbs.dbs)
+        if (d.addr == cur) return "";
+    return "the attribute manager's current database " + hex(cur) + " is not one Turbo located (rebuilt?): nothing written, located again";
 }
 
 std::string CoreService::job_switch_block(const Plan& plan, const Registry& reg) const {
@@ -3886,6 +3932,7 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
     int seq = 0;
     std::shared_ptr<std::atomic<bool>> cancel;
     bool session = false;
+    AttribDbs live_dbs;
     {
         std::lock_guard<std::mutex> lock(mu_);
         if (!reg_why_.empty()) {
@@ -3910,6 +3957,7 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
         reg = reg_;
         anchors = anchors_;
         session = session_opt_in_;
+        live_dbs = dbs_;
         busy_ = true;
         busy_since_ = now();
         seq = ++job_seq_;
@@ -3946,7 +3994,7 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
         }
     }
     const double queued = now();
-    const std::string via = h_.run_on_game_thread([this, reg, anchors, plan, switch_block, queued, seq, cancel]() {
+    const std::string via = h_.run_on_game_thread([this, reg, anchors, plan, switch_block, queued, seq, cancel, live_dbs]() {
         ApplyResult r;
         r.kind = plan.kind;
         r.moment = plan.moment;
@@ -3965,6 +4013,8 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
             block = switch_block;
         } else if (!puts_back(plan.kind) && !(block = job_switch_block(plan, *reg)).empty()) {
             stage = "G1";  // m1 (review 2026-10-13): the kill switches read again inside the job (a few file checks on the game thread)
+        } else if (!(block = chain_liveness(plan, *reg, anchors, live_dbs)).empty()) {
+            stage = "rebuilt";  // m4: the manager's current database is not one Turbo located: nothing written, located again
         } else {
             std::lock_guard<std::mutex> lock(mu_);
             const long long w = wall();
@@ -4049,6 +4099,10 @@ bool CoreService::submit(const Context& ctx, const Plan& plan_in, std::string& w
         if (r.ok && r.written)
             for (const Write& w : r.writes) last_written_[copy_key(w.id, w.copy)] = w.new_value;
         if (r.session_off) session_off_ = r.message;
+        if (r.stage == "rebuilt" && chain_stage_ == 2) {
+            chain_stage_ = 0;  // the chain locate runs again at the next look (its re-run keeps nothing the check does not pass)
+            chain_next_ = now();
+        }
         results_.push_back(r);
         if (seq == job_seq_) busy_ = false;
     });

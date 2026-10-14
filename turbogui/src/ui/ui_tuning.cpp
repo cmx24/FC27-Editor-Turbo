@@ -873,7 +873,8 @@ void draw_confirm(App& app) {
     if (ImGui::BeginPopupModal("Apply gameplay tuning?##tvconfirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         g_state.confirm_open = true;
         g_state.confirm_lines = g.confirm_lines;
-        ImGui::TextUnformatted("Turbo writes these values into the game's tuning tables (every club, every match):");
+        ImGui::TextUnformatted("Turbo writes these values into the game's tuning tables (FC 27 reads them for every club; their effect on a match is");
+        ImGui::TextUnformatted("measured knob by knob in Turbo's proof sessions):");
         for (const std::string& l : g.confirm_lines) ImGui::BulletText("%s", l.c_str());
         ImGui::TextUnformatted("They also become your tuning profile's values. The values before the write go to turbo_output\\tuning_undo.json;");
         ImGui::TextUnformatted("Restore FC 27 defaults puts FC 27's own values back.");
@@ -997,7 +998,8 @@ void draw_body(App& app) {
     g_state.busy = g.pending;
 
     ImGui::TextWrapped(
-        "The game engine's gameplay tuning tables: how teams hold their shape, press, mark and make runs in every match (every club, both teams).");
+        "The game engine's gameplay tuning tables (shape, pressing, marking, runs; FC 27 reads them for every club). Turbo offers a knob as a slider "
+        "only once its effect on a played match was measured; the others are shown read-only.");
     ImGui::TextWrapped(
         "The game keeps these tables in memory only (not in the career save). Your tuning profile writes its values again at the main menu, at every "
         "career load and each time you enter the hub, while it is on.");

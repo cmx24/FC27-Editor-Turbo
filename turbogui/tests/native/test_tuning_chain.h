@@ -490,6 +490,25 @@ static void chain_cases() {
         w.mem.wr(ChainWorld::kMgr, ChainWorld::kHandleA | 4);
         why = walk_manager(w.mem, reg.manager, lk, dbs, transient);
         CHECK(why.empty() && dbs.current == w.db(0), "a tagged handle slot is masked");
+        // seed negatives (m10): a manager slot whose handle holds a group object, the prematch database or a database with a foreign Name
+        // never seeds; only the knobs file's gameplay databases do
+        {
+            ChainWorld w2;
+            w2.mem.wr(ChainWorld::kHandleA + 8, uint64_t(0));
+            w2.mem.map(ChainWorld::kExtra, 0x200);
+            w2.mem.wr(ChainWorld::kExtra + 0x08, ChainWorld::kGrpF);  // a handle -> a group object
+            w2.mem.wr(ChainWorld::kExtra + 0x18, ChainWorld::kPmDb);  // +0x10 handle -> the prematch database
+            w2.put_obj(ChainWorld::kExtra + 0x100, 0x170, ChainWorld::kVtDb, "AttribDBRuntime_gameplayattribdb",
+                       w2.heap_str("Fifa/Attribulator/Gameplay/databases/other/other"));
+            w2.mem.wr(ChainWorld::kExtra + 0x28, ChainWorld::kExtra + 0x100);  // +0x20 handle -> a foreign database
+            w2.mem.wr(ChainWorld::kMgr + 0x110, ChainWorld::kExtra);
+            w2.mem.wr(ChainWorld::kMgr + 0x118, ChainWorld::kExtra + 0x10);
+            w2.mem.wr(ChainWorld::kMgr + 0x120, ChainWorld::kExtra + 0x20);
+            AttribDbs d2;
+            bool tr2 = false;
+            const std::string why2 = walk_manager(w2.mem, reg.manager, w2.lookup(), d2, tr2);
+            CHECK(!why2.empty() && tr2 && !d2.seed_slot_found(), "no seed from a group object, the prematch database or a foreign one: " + why2);
+        }
         // the game is starting: no manager yet -> transient
         w.mem.wr(ChainWorld::kG, uint64_t(0));
         why = walk_manager(w.mem, reg.manager, lk, dbs, transient);
@@ -762,6 +781,70 @@ static void chain_cases() {
         CHECK(!Preset::parse(R"({"turbo_tuning_preset": 1, "name": 5, "changes": []})", pr, &err), "a preset with a number for its name: refused, no throw");
         tuning::Profile prof;
         CHECK(!load_profile(dir / "nope.json", prof, &err) && err.empty(), "absent profile: no error");
+    });
+
+    run_case("tuning 2.4: m4 / m9 / m10 - a rebuilt database refuses the job and locates again; a moved instance is found again without a new heap pass; boot with no current database", [] {
+        ChainWorld w;
+        int passes = 0;
+        Lookup lk = w.lookup();
+        auto inner = lk.heap_qwords;
+        lk.heap_qwords = [&passes, inner](uint64_t v, size_t m) {
+            ++passes;
+            return inner(v, m);
+        };
+        ChainRig r(w, g_out / "tuning_chain_m4", chain_knobs(), lk);
+        r.jobs.inline_run = true;
+        r.touch(test_unproven_file());
+        r.profile(true, {{"shape.width_in", 0.6}});
+        CHECK(r.svc->locate_status().ready && passes == 1, "located: one heap pass");
+        std::string why;
+        ApplyResult res;
+        // m4: the manager's current database becomes another object (a rebuild): the job writes nothing and the chain locates again
+        w.put_obj(ChainWorld::kCopy, 0x170, ChainWorld::kVtDb, "AttribDBRuntime_gameplayattribdb", w.name_ptr[0]);
+        w.mem.wr(ChainWorld::kCopy + 0x128, ChainWorld::kGrpF);
+        w.mem.wr(ChainWorld::kCopy + 0x38, ChainWorld::kGrpP);
+        w.mem.wr(ChainWorld::kHandleA + 8, ChainWorld::kCopy);
+        Plan p = profile_plan(r, {{"shape.width_in", 0.6}}, "hub");
+        CHECK(r.svc->submit(chain_ctx("hub", true), p, why) && r.svc->poll(res) && !res.ok && res.stage == "rebuilt" &&
+                  res.message.find("is not one Turbo located") != std::string::npos && w.f32(ChainWorld::kLlw + 0x28) == 1.0f,
+              "m4: nothing written into the old databases' tables: " + res.message);
+        CHECK(r.svc->locate_status().ready && passes == 2 && r.svc->databases().current == ChainWorld::kCopy, "located again (a new enumeration: the current one is new)");
+        p = profile_plan(r, {{"shape.width_in", 0.6}}, "hub");
+        CHECK(r.svc->submit(chain_ctx("hub", true), p, why) && r.svc->poll(res) && res.ok && w.f32(ChainWorld::kLlw + 0x28) == 0.6f, "then written: " + res.message);
+        // m10.2: the instance moves (every group now points at a new one, the old one freed): read() says "locate again", the chain runs
+        // again after 5 s, keeps this session's enumeration (m9: no heap pass) and the next job writes the new instance only
+        w.put_obj(ChainWorld::kExtra, 0x60, ChainWorld::kVtLlw, "AttribSchema_gp_positioningformation_linelengthwidth", w.heap_str(ChainWorld::kLlwName));
+        w.mem.wr(ChainWorld::kExtra + 0x28, 1.0f);
+        w.mem.wr(ChainWorld::kExtra + 0x30, 0.84f);
+        for (int k = 0; k < 15; ++k) w.mem.wr(ChainWorld::kGrpF + 0x1000 * uint64_t(k) + 0x28, ChainWorld::kExtra);
+        w.mem.wr(ChainWorld::kLlw + 8, uint64_t(0));
+        auto live = r.live();
+        CHECK(!live["shape.width_in"].located && r.logged("lost its data") && r.logged("locating through the attribute manager again"), "locate again: " + live["shape.width_in"].why);
+        r.svc->locate_status();
+        CHECK(!r.live()["shape.width_in"].located, "not before 5 s");
+        r.clock += 6e6;
+        CHECK(r.svc->locate_status().ready && r.live()["shape.width_in"].addr == ChainWorld::kExtra + 0x28 && passes == 2 &&
+                  r.logged("(kept from this session's enumeration)"),
+              fmt("m9: found again at the new instance without a heap pass (%d)", passes));
+        p = profile_plan(r, {{"shape.width_in", 0.7}}, "hub");
+        CHECK(r.svc->submit(chain_ctx("hub", true), p, why) && r.svc->poll(res) && res.ok && w.f32(ChainWorld::kExtra + 0x28) == 0.7f &&
+                  w.f32(ChainWorld::kLlw + 0x28) == 0.6f,
+              "the new instance written, the freed one untouched: " + res.message);
+        // m10.10: no current database (the main menu): seeded from another manager slot, located, the boot moment writes
+        ChainWorld w2;
+        w2.mem.wr(ChainWorld::kHandleA + 8, uint64_t(0));
+        w2.mem.map(ChainWorld::kExtra, 0x20);
+        w2.mem.wr(ChainWorld::kExtra + 8, w2.db(3));
+        w2.mem.wr(ChainWorld::kMgr + 0x110, ChainWorld::kExtra);
+        ChainRig r2(w2, g_out / "tuning_chain_m4b", chain_knobs(), w2.lookup());
+        r2.jobs.inline_run = true;
+        r2.touch(test_unproven_file());
+        r2.profile(true, {{"shape.width_in", 0.6}});
+        LocateStatus ls = r2.svc->locate_status();
+        CHECK(ls.ready && ls.groups == 3 && r2.logged("no current database yet (seeded from mgr+0x110: "), "seeded: " + ls.why);
+        p = profile_plan(r2, {{"shape.width_in", 0.6}}, "boot");
+        CHECK(r2.svc->submit(menu_ctx(r2.wall), p, why) && r2.svc->poll(res) && res.ok && w2.f32(ChainWorld::kLlw + 0x28) == 0.6f,
+              "the boot write with no current database: " + res.message);
     });
 
     run_case("tuning 2.4: M3 - no locate (no heap pass, no search) while tuning_off / call_attrib_off / tactics_off exists", [] {

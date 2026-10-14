@@ -728,6 +728,8 @@ private:
     void load_locked();       // reads the knobs file (mu_ held)
     void ensure_anchors();    // resolves every locator's anchor once (inline patterns, the attribulator in the background)
     bool chain_mode_locked(const Registry& reg);  // the registry has an attrib_manager and the signature resolves (mu_ held)
+    // m4: the manager's current database (read now, in the job) must be one of the databases Turbo located; "" = so (or no chain knob)
+    std::string chain_liveness(const Plan& plan, const Registry& reg, const AnchorMap& anchors, const AttribDbs& dbs) const;
     // the kill switches (and for a moment the profile's switch and the test switch) read again inside the job (m1); "" = none
     std::string job_switch_block(const Plan& plan, const Registry& reg) const;
     // runs a background locate job; an exception switches tuning off for the session (logged), never escapes the thread
