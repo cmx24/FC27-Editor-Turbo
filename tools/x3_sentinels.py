@@ -74,11 +74,12 @@ def main(argv=None, plan_obj=None, tool="x3_sentinels", state_name="x3_sentinels
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--undo", action="store_true")
     ap.add_argument("--budget", type=float, default=60.0)
-    ap.add_argument("--mock", nargs="?", const=os.environ.get("TURBO_MOCK_MEM"), default=None, metavar="MEMFILE")
+    ap.add_argument("--mock", nargs="?", const=os.environ.get("TURBO_MOCK_MEM") or "", default=None, metavar="MEMFILE")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args(argv)
     if a.self_test:
         return self_test()
+    harness.require_mock_file(a.mock, tool=tool)
     harness.require_live(a.mock is not None, tool=tool)
     box = harness.timebox(a.budget + 15, tool)
     try:
@@ -343,6 +344,15 @@ def self_test():
         check(rc2 == 0, "x3_readback --phase hub confirms every sentinel (exit %d)" % rc2)
         rc, out = go("--allow-write")
         check(rc == 0, "a second run over its own values is allowed (owner rule: this tool's last write)")
+        st_closed = os.path.join(d, "GS_closed.txt")
+        open(st_closed, "w").write("state: CLOSED (21:00) - offline\n")
+        env_m3 = dict(os.environ, TURBO_GAME_STATE=st_closed)
+        env_m3.pop("TURBO_MOCK_MEM", None)
+        for script in ("x3_sentinels.py", "x2_sentinels.py", "x3_readback.py", "x2_readout.py"):
+            r = subprocess.run([sys.executable, os.path.join(HERE, script), "--mock", "--dry-run"] if "sentinels" in script else
+                               [sys.executable, os.path.join(HERE, script), "--mock"], capture_output=True, text=True, timeout=60, env=env_m3)
+            check(r.returncode == 3 and "--mock needs a MEMFILE" in r.stdout and "GAME_STATE" not in r.stdout,
+                  "review M3: bare --mock in %s refuses (never the live path)" % script)
         w0 = harness.MockMem(mem_p)._read_json()["writes"]
         rc, out = go("--undo", "--dry-run")
         check(rc == 0 and out.count("undo plan:") == 4 and harness.MockMem(mem_p)._read_json()["writes"] == w0,

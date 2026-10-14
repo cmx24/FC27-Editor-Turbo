@@ -57,6 +57,15 @@ def require_live(mock, path=None, tool=""):
     return tok
 
 
+def require_mock_file(mock, tool=""):
+    """review M3: '--mock' given without a MEMFILE (and no TURBO_MOCK_MEM) refuses - it never falls through to the live path"""
+    if mock is not None and not mock:
+        print("%s: refused - --mock needs a MEMFILE (or TURBO_MOCK_MEM); nothing sent" % (tool or os.path.basename(sys.argv[0])))
+        print("VERDICT INCONCLUSIVE")
+        sys.stdout.flush()
+        sys.exit(INCONCLUSIVE)
+
+
 def finish(verdict, reasons=(), tool=""):
     """print the reasons and the one VERDICT line; return the exit code (0 / 1 / 3)"""
     for r in reasons:

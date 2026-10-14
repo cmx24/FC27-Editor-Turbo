@@ -278,11 +278,12 @@ def main(argv=None):
     ap.add_argument("--map-da", type=int, default=0)
     ap.add_argument("--teams-lh", type=int, default=77)
     ap.add_argument("--teams-bu", type=int, default=0)
-    ap.add_argument("--mock", nargs="?", const=os.environ.get("TURBO_MOCK_MEM"), default=None, metavar="MEMFILE")
+    ap.add_argument("--mock", nargs="?", const=os.environ.get("TURBO_MOCK_MEM") or "", default=None, metavar="MEMFILE")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args(argv)
     if a.self_test:
         return self_test()
+    harness.require_mock_file(a.mock, tool=TOOL)
     harness.require_live(a.mock is not None, tool=TOOL)
     box = harness.timebox(a.budget + 20, TOOL)
     try:
