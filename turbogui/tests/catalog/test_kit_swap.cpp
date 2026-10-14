@@ -124,6 +124,7 @@ struct GameBuilder {
         std::vector<C> chunks;
     };
     std::vector<B> bundles;
+    std::map<std::string, std::vector<uint8_t>> ebx_data;  // raw bytes of named EBX assets (others get 20 filler bytes)
    
     std::mt19937 rng{7};
 
@@ -258,8 +259,9 @@ struct GameBuilder {
             put_le32(m, so_at, uint32_t(m.size() - 4));
             m.insert(m.end(), strings.begin(), strings.end());
             l.push_back({append(m), m.size()});
-            for (uint32_t i = 0; i < ne; ++i) {  // EBX: 20 filler bytes
-                auto e = random_bytes(20);
+            for (uint32_t i = 0; i < ne; ++i) {  // EBX: 20 filler bytes, or the registered asset as one block
+                const auto ed = ebx_data.find(b.ebx[i]);
+                auto e = ed == ebx_data.end() ? random_bytes(20) : blocks_of(ed->second, 1 << 20);
                 l.push_back({append(e), e.size()});
             }
             for (const auto& r : b.res) {  // RES: one block stream with the header
@@ -356,8 +358,8 @@ static void stage_texture(const fs::path& dir, const std::string& role, uint32_t
     textures.push_back({{"role", role}, {"file", role + ".dds"}, {"dxgi", dxgi}, {"width", w}, {"height", h}, {"mips", mips}, {"bytes", f.size()}});
 }
 
-static void write_manifest(const fs::path& dir, int team, int slot, const std::vector<json>& textures) {
-    json j = {{"turbo_kit_stage", 1}, {"teamid", team}, {"teamkittypetechid", slot}, {"textures", textures}};
+static void write_manifest(const fs::path& dir, int team, int slot, const std::vector<json>& textures, const std::string& hotspots = "") {
+    json j = {{"turbo_kit_stage", 1}, {"teamid", team}, {"teamkittypetechid", slot}, {"textures", textures}, {"hotspots", hotspots}};
     std::ofstream(dir / "manifest.json") << j.dump(2);
 }
 
@@ -594,6 +596,203 @@ static void test_table(const fs::path& base) {
     (void)kh;
 }
 
+// ---------------------------------------------------------------- hotspots
+// A synthetic hotspot asset in the layout read from the real install: RIFF EBX container, 25 at 0x8C, 25 entries of 0x30 bytes from 0x90,
+// the asset's own path right behind them.
+static std::vector<uint8_t> make_hotspot_ebx(const std::string& path, std::mt19937& rng) {
+    std::vector<uint8_t> d(0x540 + path.size() + 1 + 0x40, 0);
+    std::memcpy(d.data(), "RIFF", 4);
+    put_le32(d, 4, uint32_t(d.size() - 8));
+    std::memcpy(&d[8], "EBX\0EBXD", 8);
+    put_le32(d, 0x8C, 25);
+    auto setf = [&](int i, float x, float y, float z, float w, float rot = 0.f) {
+        float f[4] = {x, y, z, w};
+        std::memcpy(&d[0x90 + size_t(i) * 0x30], f, 16);
+        std::memcpy(&d[0x90 + size_t(i) * 0x30 + 0x20], &rot, 4);
+        for (int k = 0; k < 8; ++k) d[0x90 + size_t(i) * 0x30 + 0x10 + size_t(k)] = uint8_t(rng());  // pointer-like bytes the patch must not touch
+    };
+    for (int i = 0; i < 25; ++i) setf(i, 0.1f, 0.1f, 0.2f, 0.2f);
+    setf(0, 0.5437f, 0.575f, 0.6008f, 0.6262f);   // jersey team
+    setf(1, 0.589f, 0.3959f, 0.4108f, 0.2317f);   // numberback
+    setf(2, 0.4601f, 0.6943f, 0.54f, 0.7603f);    // numberfront (a rectangle in the game)
+    setf(3, 0.582f, 0.4428f, 0.418f, 0.4143f);    // name
+    setf(4, 0.5f, 0.2542f, 0.5f, 0.2542f);        // namearccenter (a point)
+    setf(5, 0.5f, 0.4321f, 0.5f, 0.4321f);
+    setf(7, -0.5f, -0.5f, -0.5f, -0.5f);          // jersey brand (not used)
+    setf(11, 0.3379f, 0.8298f, 0.3926f, 0.9198f);
+    setf(12, 0.5799f, 0.8016f, 0.6647f, 0.9144f);
+    setf(20, 0.6808f, 0.4434f, 0.7512f, 0.5566f, 90.f);
+    setf(24, -1.f, -1.f, -1.f, -1.f);
+    std::memcpy(&d[0x540], path.c_str(), path.size() + 1);
+    return d;
+}
+static float getf(const std::vector<uint8_t>& d, int entry, int k) {
+    float f;
+    std::memcpy(&f, &d[0x90 + size_t(entry) * 0x30 + size_t(k) * 4], 4);
+    return f;
+}
+// the Leicester h.zip's hotspots (values as found in the zip), trimmed to what matters here
+static const char* kZipHotspots = R"({"HotspotFormatVersion":1,"Hotspots":[
+ {"Group":"jersey","Name":"numberback","Bounds":{"X":0.5803,"Y":0.3831,"Z":0.4197,"W":0.2224},"Rotation":0},
+ {"Group":"jersey","Name":"numberfront","Bounds":{"X":0.5,"Y":0.6689,"Z":0.5,"W":0.6689},"Rotation":0},
+ {"Group":"jersey","Name":"name","Bounds":{"X":0.5806,"Y":0.436,"Z":0.4194,"W":0.3921},"Rotation":0},
+ {"Group":"jersey","Name":"namearccenter","Bounds":{"X":0.5,"Y":0.2509,"Z":0.5,"W":0.2509},"Rotation":0},
+ {"Group":"shorts","Name":"number","Bounds":{"X":0.5859,"Y":0.708,"Z":0.6543,"W":0.8389},"Rotation":0},
+ {"Group":"competition","Name":"LeftSleeveLong","Bounds":{"X":0.67431640625,"Y":0.4287109375,"Z":0.74267578125,"W":0.5498046875},"Rotation":90},
+ {"Group":"competition","Name":"Center","Bounds":{"X":0.4915771484375,"Y":0.5814208984375,"Z":0.5084228515625,"W":0.5982666015625},"Rotation":0},
+ {"Group":"jersey","Name":"team","Bounds":{"X":-0.5,"Y":-0.5,"Z":-0.5,"W":-0.5},"Rotation":0},
+ {"Group":"jersey","Name":"brand","Bounds":{"X":-0.5,"Y":-0.5,"Z":-0.5,"W":-0.5},"Rotation":0}]})";
+
+static int count_patched(const std::vector<std::string>& ch) {
+    int n = 0;
+    for (const auto& c : ch) n += c.find(" -> ") != std::string::npos;
+    return n;
+}
+
+static void test_hotspots(const fs::path& base) {
+    std::mt19937 rng(5);
+    const std::string path = "content/character/kit/kit_0/testfc_95/home_0_0/hotspots_95_0_0";
+    const std::vector<uint8_t> orig = make_hotspot_ebx(path, rng);
+    HotspotMap zip;
+    std::string err;
+    const std::string js = kZipHotspots;
+    check(parse_hotspots(std::vector<uint8_t>(js.begin(), js.end()), zip, &err) && zip.size() == 9, "parse_hotspots: 9 entries: " + err);
+    check(zip.count("jersey/numberback") && zip.count("competition/leftsleevelong"), "keys are group/name in lower case");
+    check(!parse_hotspots(std::vector<uint8_t>{'x'}, zip, &err) && !parse_hotspots(std::vector<uint8_t>{'{', '}'}, zip, &err), "garbage / no Hotspots array refused");
+    check(parse_hotspots(std::vector<uint8_t>(js.begin(), js.end()), zip, &err), "parse again");
+
+    std::vector<uint8_t> e = orig;
+    std::vector<std::string> ch;
+    check(patch_hotspot_ebx(e, path, zip, true, &ch, &err), "patch ok: " + err);
+    check(e.size() == orig.size(), "same size");
+    check(getf(e, 1, 0) == 0.5803f && getf(e, 1, 1) == 0.3831f && getf(e, 1, 2) == 0.4197f && getf(e, 1, 3) == 0.2224f, "numberback rectangle patched (entry 1)");
+    check(getf(e, 3, 0) == 0.5806f && getf(e, 3, 3) == 0.3921f, "name rectangle patched (entry 3)");
+    check(getf(e, 12, 0) == 0.5859f && getf(e, 12, 3) == 0.8389f, "shorts number patched (entry 12)");
+    check(getf(e, 11, 0) == 0.3379f, "shorts team (entry 11) untouched: the zip did not name it");
+    check(getf(e, 2, 0) == getf(orig, 2, 0) && getf(e, 2, 1) == getf(orig, 2, 1), "numberfront: the zip's point does not replace the game's rectangle");
+    check(getf(e, 4, 1) == 0.2509f && getf(e, 4, 0) == 0.5f, "namearccenter: a point replaces a point");
+    check(getf(e, 20, 0) == 0.67431640625f && getf(e, 20, 1) == 0.4287109375f, "sleeve badge rectangle patched (entry 20)");
+    check(getf(e, 24, 0) == 0.4915771484375f && getf(e, 24, 3) == 0.5982666015625f, "competition Center enabled (entry 24)");
+    float rot;
+    std::memcpy(&rot, &e[0x90 + 20 * 0x30 + 0x20], 4);
+    check(rot == 90.f, "sleeve rotation kept at 90");
+    check(getf(e, 0, 0) == -0.5f && getf(e, 7, 0) == -0.5f, "decals on: the zip's 'not used' team / brand applied");
+    int stray = 0;
+    for (size_t i = 0; i < e.size(); ++i) {
+        if (e[i] == orig[i]) continue;
+        bool allowed = false;
+        for (int en : {0, 1, 3, 4, 12, 20, 24})
+            if (i >= 0x90 + size_t(en) * 0x30 && i < 0x90 + size_t(en) * 0x30 + 16) allowed = true;
+        stray += !allowed;
+    }
+    check(stray == 0, "no byte outside the patched rectangles changed (pointer fields, strings, header)");
+    check(count_patched(ch) == 7, "change list: one text per patched entry (7), got " + std::to_string(count_patched(ch)));
+    // decals off: team / brand stay the game's
+    std::vector<uint8_t> e2 = orig;
+    check(patch_hotspot_ebx(e2, path, zip, false, nullptr, &err) && getf(e2, 0, 0) == 0.5437f && getf(e2, 7, 0) == -0.5f && getf(e2, 1, 0) == 0.5803f,
+          "decals off: team / brand kept, numbers still patched");
+    // idempotent
+    std::vector<uint8_t> e3 = e;
+    ch.clear();
+    patch_hotspot_ebx(e3, path, zip, true, &ch, &err);
+    check(e3 == e && count_patched(ch) == 0, "patching twice: no further change");
+    // refusals leave the bytes alone
+    std::vector<uint8_t> bad = orig;
+    check(!patch_hotspot_ebx(bad, path + "x", zip, true, nullptr, &err) && bad == orig, "another asset path: refused, untouched");
+    bad[0x8C] = 24;
+    const std::vector<uint8_t> bad_copy = bad;
+    check(!patch_hotspot_ebx(bad, path, zip, true, nullptr, &err) && bad == bad_copy, "other entry count: refused");
+    std::vector<uint8_t> small(orig.begin(), orig.begin() + 0x500);
+    check(!patch_hotspot_ebx(small, path, zip, true, nullptr, &err), "cut-off asset: refused");
+    HotspotMap crazy;
+    crazy["jersey/numberback"] = {5.f, 0.f, 0.f, 0.f, 0.f};
+    crazy["jersey/name"] = {0.5f, 0.5f, 0.4f, 0.4f, 0.f};
+    std::vector<uint8_t> e4 = orig;
+    check(patch_hotspot_ebx(e4, path, crazy, true, nullptr, &err) && getf(e4, 1, 0) == getf(orig, 1, 0) && getf(e4, 3, 0) == 0.5f, "an out-of-range value is not written, the rest is");
+    HotspotMap neg;
+    neg["jersey/numberback"] = {-0.5f, -0.5f, -0.5f, -0.5f, 0.f};
+    std::vector<uint8_t> e5 = orig;
+    patch_hotspot_ebx(e5, path, neg, true, nullptr, &err);
+    check(e5 == orig, "a number / name 'not used' is never applied");
+    {
+        HotspotMap same;
+        same["jersey/numberback"] = {getf(orig, 1, 0), getf(orig, 1, 1), getf(orig, 1, 2), getf(orig, 1, 3), 0.f};
+        std::vector<uint8_t> e6 = orig;
+        std::vector<std::string> c6;
+        check(patch_hotspot_ebx(e6, path, same, true, &c6, &err) && e6 == orig && c6.empty(), "equal hotspots: no change, empty list");
+    }
+
+    // --- the plan, the table and the runtime on a synthetic game
+    using T = GameBuilder::TexSpec;
+    World w;
+    w.root = base / "hs" / "game";
+    w.le = base / "hs" / "le";
+    w.g.root = w.root;
+    w.g.ebx_data[path] = orig;
+    w.g.add_bundle({T{P("home_0_0", "jersey", "jersey_95_0_0_color"), 55, 64, 64, 7, {}, -1, 4096}}, path);
+    const std::string other = "content/character/kit/kit_0/testfc_96/home_0_0/hotspots_96_0_0";
+    w.g.ebx_data[other] = make_hotspot_ebx(other, rng);
+    w.g.add_bundle({T{P("home_0_0", "jersey", "jersey_96_0_0_color", 96), 55, 64, 64, 7, {}, -1, 4096}}, other);
+    w.g.write();
+    const fs::path dir = w.le / "turbo_output" / "kits" / "95" / "home";
+    std::vector<json> tex;
+    stage_texture(dir, "jersey_color", 55, 64, 64, 7, tex, w.rng);
+    std::ofstream(dir / "hotspots.hotspot", std::ios::binary) << js;
+    write_manifest(dir, 95, 0, tex, "hotspots.hotspot");
+    StagedKit sk;
+    check(load_staged(dir, sk, &err) && !sk.hotspots.empty(), "load_staged finds the staged hotspots.hotspot: " + err);
+    GameFiles files(w.root);
+    files.init(&err);
+    KitIndex idx;
+    check(scan_kits(files, stand_in_oodle(), idx, nullptr, &err) && idx.bundles.size() == 2, "scan: two kit bundles");
+    Options opt;
+    TableBuilder tb;
+    Plan plan = build_plan(files, stand_in_oodle(), idx, sk, opt, true, tb, nullptr);
+    check(plan.ok, "plan ok: " + plan.error);
+    const PlanItem* hi = item_named(plan, "hotspots_95_0_0", "home_0_0");
+    check(hi && hi->swap && hi->role == "hotspots" && hi->blocks == 1 && hi->reason.find("patched") != std::string::npos, "the hotspot asset is a plan item and in the table: " + (hi ? hi->reason : "missing"));
+    check(!item_named(plan, "hotspots_96_0_0", "home_0_0"), "another club's hotspot asset is not part of the plan");
+    std::vector<std::string> dropped;
+    auto table = tb.finish(&dropped);
+    GameBuilder gb;
+    const std::vector<uint8_t> stream = gb.blocks_of(orig, 1 << 20);  // the asset as stored in the cas
+    std::vector<Block> bl;
+    block_headers(stream, bl);
+    const Entry* en = table->match(&stream[size_t(bl[0].payload)], bl[0].csize, bl[0].dsize);
+    check(en != nullptr && en->dsize == orig.size(), "the hotspot block is recognised by (csize, dsize, hash)");
+    if (en) check(std::vector<uint8_t>(en->data, en->data + en->dsize) == e, "its replacement is the patched asset");
+    {
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        rt.set_hook_installed(true, "");
+        std::string e2s;
+        check(rt.activate(95, 0, Mode::Swap, &e2s), "activate swap: " + e2s);
+        rt.wait_idle();
+        std::vector<uint8_t> out(orig.begin(), orig.end());
+        check(rt.on_decompressed(&stream[size_t(bl[0].payload)], bl[0].csize, out.data(), bl[0].dsize, int64_t(bl[0].dsize), 0, 3) == 2 && out == e,
+              "runtime: the game's decompressed hotspot asset is replaced by the patched one");
+        const Status st = rt.status();
+        bool timed = false;
+        for (const auto& it : st.items)
+            if (it.role == "hotspots" && it.hits == 1 && it.first_ms > 0 && it.last_ms >= it.first_ms) timed = true;
+        check(timed, "the hotspot item shows its hit with a first / last time");
+        rt.flush_log(true);
+        std::ifstream lf(rt.log_path());
+        std::string log((std::istreambuf_iterator<char>(lf)), std::istreambuf_iterator<char>());
+        check(log.find("hotspots_95_0_0") != std::string::npos && log.find("hotspot rectangle(s) patched") != std::string::npos && log.find("jersey/numberback (0.5890,") != std::string::npos,
+              "the log lists the patched rectangles with old and new values");
+        Options o = rt.get_options();
+        o.apply_hotspots = false;
+        rt.set_options(o);
+        rt.rebuild();
+        rt.wait_idle();
+        std::vector<uint8_t> out2(orig.begin(), orig.end());
+        check(rt.on_decompressed(&stream[size_t(bl[0].payload)], bl[0].csize, out2.data(), bl[0].dsize, int64_t(bl[0].dsize), 0, 3) == 0 && out2 == orig,
+              "option off: the hotspot asset is not touched");
+        rt.deactivate(95, 0);
+        rt.wait_idle();
+    }
+}
+
 static void test_runtime(const fs::path& base) {
     World w = make_world(base / "rt");
     StagedKit sk = stage_home(w);
@@ -716,6 +915,7 @@ static void test_runtime(const fs::path& base) {
 }
 
 // ---------------------------------------------------------------- optional: the real install (read only)
+static std::string g_real_hotspots;  // --hotspots FILE: the zip's hotspots.hotspot, staged beside the stand-in textures of the real-install smoke test
 static int real_game(const std::string& game, int team, int slot) {
     OodleFn oodle;
 #ifdef _WIN32
@@ -766,7 +966,8 @@ static int real_game(const std::string& game, int team, int slot) {
     std::mt19937 rng(5);
     std::vector<json> tex;
     for (const R& r : roles) stage_texture(tmp, r.role, r.fmt, r.w, r.h, r.mips, tex, rng);
-    write_manifest(tmp, team, slot, tex);
+    if (!g_real_hotspots.empty()) fs::copy_file(g_real_hotspots, tmp / "hotspots.hotspot", fs::copy_options::overwrite_existing);
+    write_manifest(tmp, team, slot, tex, g_real_hotspots.empty() ? "" : "hotspots.hotspot");
     StagedKit sk;
     if (!load_staged(tmp, sk, &err)) {
         std::printf("staged: %s\n", err.c_str());
@@ -797,6 +998,7 @@ int main(int argc, char** argv) {
         if (a == "--game" && i + 1 < argc) game = argv[++i];
         else if (a == "--team" && i + 1 < argc) team = std::atoi(argv[++i]);
         else if (a == "--slot" && i + 1 < argc) slot = std::atoi(argv[++i]);
+        else if (a == "--hotspots" && i + 1 < argc) g_real_hotspots = argv[++i];
     }
     if (!game.empty()) return real_game(game, team, slot);
     const fs::path base = fs::temp_directory_path() / "turbo_kit_swap_test";
@@ -807,6 +1009,7 @@ int main(int argc, char** argv) {
     test_scan_and_plan(base);
     test_table(base);
     test_runtime(base);
+    test_hotspots(base);
     fs::remove_all(base);
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

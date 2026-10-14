@@ -3,7 +3,10 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <cctype>
 #include <cstdio>
+#include <ctime>
 #include <cstring>
 #include <set>
 #include <iterator>
@@ -546,6 +549,9 @@ bool load_staged(const fs::path& dir, StagedKit& out, std::string* err) {
     try {
         out.team = int(j.at("teamid").get<int64_t>());
         out.slot = int(j.at("teamkittypetechid").get<int64_t>());
+        const std::string hs = j.value("hotspots", std::string());
+        std::error_code ec0;
+        if (!hs.empty() && hs.find_first_of("/\\") == std::string::npos && fs::is_regular_file(dir / hs, ec0)) out.hotspots = dir / hs;
         for (const json& t : j.at("textures")) {
             StagedTexture s;
             s.role = t.at("role").get<std::string>();
@@ -636,6 +642,12 @@ std::shared_ptr<Table> TableBuilder::finish(std::vector<std::string>* dropped, s
     t->n_items_ = uint32_t(d_->storage.size());
     t->hits_.reset(new std::atomic<uint64_t>[t->n_items_ ? t->n_items_ : 1]);
     for (uint32_t i = 0; i < t->n_items_; ++i) t->hits_[i].store(0);
+    t->first_ms_.reset(new std::atomic<uint64_t>[t->n_items_ ? t->n_items_ : 1]);
+    t->last_ms_.reset(new std::atomic<uint64_t>[t->n_items_ ? t->n_items_ : 1]);
+    for (uint32_t i = 0; i < t->n_items_; ++i) {
+        t->first_ms_[i].store(0);
+        t->last_ms_[i].store(0);
+    }
     t->item_swap_ = d_->swap;
     t->storage_ = d_->storage;
     for (size_t ri = 0; ri < recs.size(); ++ri) {
@@ -690,6 +702,106 @@ const Entry* Table::match(const uint8_t* src, uint64_t srclen, uint64_t dstlen) 
     return nullptr;
 }
 
+// ---------------------------------------------------------------- hotspots
+namespace {
+struct HsSlot {
+    const char* key;
+    int index;
+    bool badge;  // team / brand: the zip's "not used" (all negative) is applied when decals follow the zip
+    bool rot;    // the entry has a meaningful rotation (competition sleeve badges)
+};
+const HsSlot kHsSlots[] = {
+    {"jersey/team", 0, true, false},          {"jersey/numberback", 1, false, false},   {"jersey/numberfront", 2, false, false},
+    {"jersey/name", 3, false, false},         {"jersey/namearccenter", 4, false, false}, {"jersey/namearctangent", 5, false, false},
+    {"jersey/brand", 7, true, false},         {"shorts/team", 11, true, false},          {"shorts/number", 12, false, false},
+    {"shorts/brand", 13, true, false},        {"competition/leftsleevelong", 20, false, true}, {"competition/leftsleeveshort", 21, false, true},
+    {"competition/rightsleevelong", 22, false, true}, {"competition/rightsleeveshort", 23, false, true}, {"competition/center", 24, false, true}};
+constexpr size_t kHsData = 0x90, kHsStride = 0x30, kHsCount = 25;
+std::string lower(std::string s) {
+    for (char& c : s) c = char(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+}
+std::string f4(float v) {
+    char b[32];
+    std::snprintf(b, sizeof(b), "%.4f", double(v));
+    return b;
+}
+}  // namespace
+
+bool parse_hotspots(const std::vector<uint8_t>& bytes, HotspotMap& out, std::string* err) {
+    out.clear();
+    json j = json::parse(bytes.begin(), bytes.end(), nullptr, false);
+    if (j.is_discarded() || !j.is_object() || !j.contains("Hotspots") || !j["Hotspots"].is_array()) return fail(err, "hotspots.hotspot is not the expected JSON (Hotspots array missing)");
+    for (const json& h : j["Hotspots"]) {
+        try {
+            if (!h.is_object() || !h.contains("Group") || !h.contains("Name") || !h.contains("Bounds")) continue;
+            const json& b = h["Bounds"];
+            HotspotRect r;
+            r.x = b.at("X").get<float>();
+            r.y = b.at("Y").get<float>();
+            r.z = b.at("Z").get<float>();
+            r.w = b.at("W").get<float>();
+            r.rot = h.contains("Rotation") ? h["Rotation"].get<float>() : 0.f;
+            out[lower(h["Group"].get<std::string>()) + "/" + lower(h["Name"].get<std::string>())] = r;
+        } catch (const std::exception&) {
+        }
+    }
+    return !out.empty() || fail(err, "hotspots.hotspot lists no usable hotspot");
+}
+
+bool patch_hotspot_ebx(std::vector<uint8_t>& ebx, const std::string& res_name, const HotspotMap& zip, bool decals, std::vector<std::string>* changes, std::string* why) {
+    auto no = [&](const std::string& m) {
+        if (why) *why = m;
+        return false;
+    };
+    const size_t path_at = kHsData + kHsCount * kHsStride;
+    if (ebx.size() < path_at + res_name.size() + 1) return no("the hotspot asset has another size than the known layout");
+    if (std::memcmp(ebx.data(), "RIFF", 4) != 0 || std::memcmp(&ebx[8], "EBX\0EBXD", 8) != 0) return no("not an EBX container");
+    if (le32(&ebx[0x8C]) != kHsCount) return no("the hotspot asset does not hold 25 entries");
+    if (std::memcmp(&ebx[path_at], res_name.c_str(), res_name.size() + 1) != 0) return no("the asset's own path is not at the expected place");
+    for (size_t i = 0; i < kHsCount; ++i)
+        for (int k = 0; k < 4; ++k) {
+            float f;
+            std::memcpy(&f, &ebx[kHsData + i * kHsStride + size_t(k) * 4], 4);
+            if (!std::isfinite(f)) return no("a game rectangle is not a finite number");
+        }
+    std::vector<uint8_t> w = ebx;
+    std::vector<std::string> ch;
+    for (const HsSlot& sl : kHsSlots) {
+        auto it = zip.find(sl.key);
+        if (it == zip.end()) continue;
+        const HotspotRect& z = it->second;
+        const float v[4] = {z.x, z.y, z.z, z.w};
+        bool fin = true, neg = true;
+        for (float f : v) {
+            fin = fin && std::isfinite(f) && f > -2.f && f < 2.f;
+            neg = neg && f < 0.f;
+        }
+        if (!fin || !std::isfinite(z.rot) || z.rot < -360.f || z.rot > 360.f) { ch.push_back(std::string(sl.key) + ": zip value out of range, game's kept"); continue; }
+        uint8_t* e = &w[kHsData + size_t(sl.index) * kHsStride];
+        float g[4];
+        std::memcpy(g, e, 16);
+        if (neg) {
+            if (!sl.badge || !decals) { ch.push_back(std::string(sl.key) + ": zip says 'not used', game's kept"); continue; }
+        } else {
+            const bool zpoint = std::fabs(z.x - z.z) < 1e-6f && std::fabs(z.y - z.w) < 1e-6f;
+            const bool gpoint = std::fabs(g[0] - g[2]) < 1e-6f && std::fabs(g[1] - g[3]) < 1e-6f;
+            if (zpoint && !gpoint) { ch.push_back(std::string(sl.key) + ": zip gives a point where the game has a rectangle, game's kept"); continue; }
+        }
+        float rot_old;
+        std::memcpy(&rot_old, e + 0x20, 4);
+        const bool same = std::memcmp(g, v, 16) == 0 && (!sl.rot || rot_old == z.rot);
+        if (same) continue;
+        std::memcpy(e, v, 16);
+        if (sl.rot) std::memcpy(e + 0x20, &z.rot, 4);
+        ch.push_back(std::string(sl.key) + " (" + f4(g[0]) + "," + f4(g[1]) + "," + f4(g[2]) + "," + f4(g[3]) + ") -> (" + f4(v[0]) + "," + f4(v[1]) + "," + f4(v[2]) + "," + f4(v[3]) + ")" +
+                     (sl.rot ? " rot " + f4(rot_old) + " -> " + f4(z.rot) : std::string()));
+    }
+    ebx = std::move(w);
+    if (changes) *changes = std::move(ch);
+    return true;
+}
+
 // ---------------------------------------------------------------- plan
 namespace {
 struct Tex {
@@ -698,6 +810,20 @@ struct Tex {
     Loc loc;
     uint32_t logical = 0;
 };
+struct HsEbx {
+    std::string res, kind;
+    Loc loc;
+};
+bool is_hotspot_leaf(const std::string& leaf, int team) {
+    const std::string pre = "hotspots_" + std::to_string(team) + "_";
+    if (leaf.compare(0, pre.size(), pre) != 0) return false;
+    int us = 0;
+    for (size_t i = pre.size(); i < leaf.size(); ++i) {
+        if (leaf[i] == '_') ++us;
+        else if (leaf[i] < '0' || leaf[i] > '9') return false;
+    }
+    return us == 1 && leaf.back() != '_';
+}
 struct Cand {
     uint32_t item;
     std::vector<Block> blocks;
@@ -717,6 +843,7 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
         // 1. every texture of the club's kit bundles of that slot
         std::map<int, std::vector<std::vector<Loc>>> toc_cache;
         std::vector<Tex> texs;
+        std::vector<HsEbx> hs_ebx;
         for (const KitBundle& kb : index.bundles) {
             if (kb.team != staged.team || kind_slot(kb.kind) != staged.slot) continue;
             if (progress && progress->cancel.load()) { plan.error = "cancelled"; return plan; }
@@ -742,6 +869,11 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
             }
             const size_t ne = m.ebx.size(), nr = m.res.size();
             if (locs.size() < 1 + ne + nr + m.chunks.size()) continue;
+            for (size_t e = 0; e < ne; ++e) {
+                const KitName kn = parse_kit_name(m.ebx[e]);
+                if (!kn.ok || kn.team != staged.team || kind_slot(kn.kind) != staged.slot || !is_hotspot_leaf(kn.leaf, staged.team)) continue;
+                hs_ebx.push_back({m.ebx[e], kn.kind, locs[1 + e]});
+            }
             for (size_t r = 0; r < nr; ++r) {
                 if (m.res[r].type != kTextureResType) continue;
                 const KitName kn = parse_kit_name(m.res[r].name);
@@ -930,6 +1062,65 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
             }
             it.table_item = id;
             ++plan.swapped;
+        }
+        // 5. the hotspot asset(s): the zip's name / number / sleeve-badge placement
+        if (opt.apply_hotspots && !staged.hotspots.empty()) {
+            HotspotMap zip;
+            std::string e;
+            std::vector<uint8_t> jb;
+            {
+                std::ifstream f(staged.hotspots, std::ios::binary);
+                jb.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+            }
+            if (!parse_hotspots(jb, zip, &e)) {
+                plan.notes.push_back("hotspots: " + e + " (the game's name and number positions stay)");
+            } else {
+                std::set<std::string> seen_hs;
+                for (const HsEbx& h : hs_ebx) {
+                    if (!seen_hs.insert(h.res + "@" + phys_key(h.loc)).second) continue;
+                    PlanItem it;
+                    it.res = h.res;
+                    it.kind = h.kind;
+                    it.role = "hotspots";
+                    auto skip = [&](const std::string& why) {
+                        it.swap = false;
+                        it.reason = why;
+                        plan.items.push_back(it);
+                        ++plan.skipped;
+                    };
+                    std::vector<uint8_t> raw, dec;
+                    std::vector<Block> bl;
+                    if (!files.read_loc(h.loc, raw) || !block_headers(raw, bl)) { skip("the hotspot asset cannot be read"); continue; }
+                    if (bl.size() != 1 || (bl[0].ctype != 0x19 && bl[0].ctype != 0x15 && bl[0].ctype != 0x11)) { skip("the hotspot asset is not one Oodle block: left to the game"); continue; }
+                    if (bl[0].csize < kMinEbxCsize) { skip("the hotspot asset's block is too small to recognise safely"); continue; }
+                    if (!read_blocks(raw, oodle, dec, &e) || dec.size() != bl[0].dsize) { skip("the hotspot asset does not decompress (" + e + ")"); continue; }
+                    std::vector<std::string> ch;
+                    std::string why;
+                    if (!patch_hotspot_ebx(dec, h.res, zip, opt.include_decals, &ch, &why)) { skip(why + ": left to the game"); continue; }
+                    int n = 0;
+                    std::string txt;
+                    for (const auto& c : ch) {
+                        if (c.find(" -> ") != std::string::npos) ++n;
+                        txt += (txt.empty() ? "" : "; ") + c;
+                    }
+                    if (n == 0) { skip("the zip's hotspots equal the game's: nothing to change" + (txt.empty() ? std::string() : " (" + txt + ")")); continue; }
+                    auto data = std::make_shared<std::vector<uint8_t>>(std::move(dec));
+                    uint64_t h8 = 0;
+                    std::memcpy(&h8, &raw[size_t(bl[0].payload)], 8);
+                    const uint32_t id = tb.add_item(data, swap);
+                    tb.add_block(id, bl[0].csize, bl[0].dsize, h8, fnv1a64(&raw[size_t(bl[0].payload)], bl[0].csize), data->data(), nullptr);
+                    it.swap = true;
+                    it.blocks = 1;
+                    it.bytes = bl[0].dsize;
+                    it.table_item = id;
+                    it.reason = std::to_string(n) + " hotspot rectangle(s) patched: " + txt;
+                    plan.items.push_back(it);
+                    ++plan.swapped;
+                }
+                if (hs_ebx.empty()) plan.notes.push_back("hotspots: the game has no hotspot asset for this kit's slot");
+            }
+        } else if (!staged.hotspots.empty() && !opt.apply_hotspots) {
+            plan.notes.push_back("hotspots: not applied (option off): the game's name and number positions stay");
         }
         // item ids are the builder's: keep the plan's own numbering out of the table (hits are looked up by the Runtime)
         plan.ok = true;
@@ -1243,7 +1434,7 @@ int Runtime::on_decompressed(const uint8_t* src, uint64_t srclen, uint8_t* dst, 
     if (!t || killed_.load(std::memory_order_relaxed) || !src || srclen < 8 || srclen < t->min_csize() || srclen > t->max_csize() || dstlen == 0 || dstlen > 0x1000000) return 0;
     candidates_.fetch_add(1, std::memory_order_relaxed);
     const Entry* e = t->match(src, srclen, dstlen);
-    const uint32_t i = diag_n_.fetch_add(1, std::memory_order_relaxed);
+    const uint32_t i = (e || srclen >= 1024) ? diag_n_.fetch_add(1, std::memory_order_relaxed) : kDiag;  // small non-matching blocks (hotspot sizes) stay out of the ring
     if (i < kDiag) {
         uint64_t head;
         std::memcpy(&head, src, 8);
@@ -1289,8 +1480,27 @@ Status Runtime::status() const {
         s.bytes = t->bytes();
     }
     s.items = items_;
-    for (auto& it : s.items) it.hits = (t && it.table_item != 0xFFFFFFFFu) ? t->hits(it.table_item) : 0;
+    for (auto& it : s.items) {
+        const bool in = t && it.table_item != 0xFFFFFFFFu;
+        it.hits = in ? t->hits(it.table_item) : 0;
+        it.first_ms = in ? t->first_ms(it.table_item) : 0;
+        it.last_ms = in ? t->last_ms(it.table_item) : 0;
+    }
     return s;
+}
+
+static std::string clock_text(uint64_t ms) {
+    if (!ms) return "-";
+    const time_t t = time_t(ms / 1000);
+    std::tm tmv;
+#ifdef _WIN32
+    localtime_s(&tmv, &t);
+#else
+    localtime_r(&t, &tmv);
+#endif
+    char b[40];
+    std::snprintf(b, sizeof(b), "%02d:%02d:%02d.%03d", tmv.tm_hour, tmv.tm_min, tmv.tm_sec, int(ms % 1000));
+    return b;
 }
 
 void Runtime::flush_log(bool force) {
@@ -1323,7 +1533,7 @@ void Runtime::flush_log(bool force) {
     for (const auto& sl : s.slots) o << "kit team " << sl.team << " " << slot_folder_name(sl.slot) << " mode " << mode_name(sl.mode) << "\n";
     for (const auto& it : s.items)
         o << (it.swap ? "  in table  " : "  left      ") << it.kind << "/" << it.res.substr(it.res.rfind('/') == std::string::npos ? 0 : it.res.rfind('/') + 1) << "  blocks " << it.blocks << "  seen "
-          << it.hits << (it.reason.empty() ? "" : "  (" + it.reason + ")") << "\n";
+          << it.hits << (it.hits ? "  first " + clock_text(it.first_ms) + " last " + clock_text(it.last_ms) : std::string()) << (it.reason.empty() ? "" : "  (" + it.reason + ")") << "\n";
     std::error_code ec;
     fs::create_directories(log_path().parent_path(), ec);
     std::ofstream f(log_path(), std::ios::binary | std::ios::trunc);

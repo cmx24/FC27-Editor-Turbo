@@ -776,8 +776,9 @@ static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
             for (const auto& it : st.items)
                 if (it.team == teamid && it.slot == slot) {
                     const std::string leaf = it.res.substr(it.res.rfind('/') == std::string::npos ? 0 : it.res.rfind('/') + 1);
-                    ImGui::TextDisabled("%s %s/%s: %s%s", it.swap ? "[in table]" : "[game's own]", it.kind.c_str(), leaf.c_str(),
-                                        it.swap ? ("seen " + std::to_string(it.hits) + " of " + std::to_string(it.blocks) + " blocks").c_str() : it.reason.c_str(), "");
+                    const std::string detail = it.swap ? "seen " + std::to_string(it.hits) + " of " + std::to_string(it.blocks) + " blocks" + (it.role == "hotspots" ? " | " + it.reason : std::string())
+                                                       : it.reason;
+                    ImGui::TextDisabled("%s %s/%s: %s", it.swap ? "[in table]" : "[game's own]", it.kind.c_str(), leaf.c_str(), detail.c_str());
                 }
             ImGui::TreePop();
         }
@@ -786,6 +787,12 @@ static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
     bool decals = kopt.include_decals;
     if (ImGui::Checkbox("Also use the zip's badge and brand pictures##kswap", &decals)) {
         kopt.include_decals = decals;
+        rt->set_options(kopt);
+        if (!rt->status().slots.empty()) rt->rebuild();
+    }
+    bool hot = kopt.apply_hotspots;
+    if (ImGui::Checkbox("Also use the zip's name and number placement (hotspots)##kswap", &hot)) {
+        kopt.apply_hotspots = hot;
         rt->set_options(kopt);
         if (!rt->status().slots.empty()) rt->rebuild();
     }

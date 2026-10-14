@@ -3,6 +3,10 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 2.7.0 (NOT RELEASED, track kits-numbers: offline only, nothing here has run in the game)
+
+- **3D kit: the zip's name / number / sleeve-badge placement (hotspots), NOT PROVEN IN GAME.** Each kit has one small hotspot asset in the game (`.../hotspots_<team>_<type>_<var>`, 25 rectangles in jersey UV space). With the 3D kit switched on, Turbo now also overwrites the rectangles the zip names (back number, name, name arc, shorts number, sleeve badges, centre badge) in that asset when the game decompresses it, through the same Oodle hook and with the same kill switches. A zip point where the game has a rectangle (the zip's front number) never replaces the game's rectangle; the zip's "not used" team / brand badge follows the "use the zip's badge and brand pictures" option. New option "Also use the zip's name and number placement (hotspots)" (default on). The log lists every patched rectangle (old and new values) and, per item, the clock time of the first and last block the game loaded (shows which screen loaded what, for the kit select question). Default OFF behaviour is unchanged: no opt-in file, no kit on = no hook, no write.
+
 ## 2.6.0 (2026-10-14)
 
 Verified in game 2026-10-14 (test career LEICESTER, never saved, save files byte-identical afterwards; `turbo_dev\evidence\2026-10-14\TEST_28.md`), build 6AC07E31. Everything not listed as verified passes the offline suites only (build 0 warnings, Lua 405/0, native 31,856/0, Python 463, catalog 0 failed).

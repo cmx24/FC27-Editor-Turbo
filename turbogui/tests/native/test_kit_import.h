@@ -704,6 +704,9 @@ static void kit_import_ui_cases(App& app, Ui& ui, const fs::path& le) {
                       ui.find("Off##kswap", "##tkits", "home"),
                   "the 3D kit controls are listed for the home kit");
             CHECK(!rt.is_active(7, 0), "off by default");
+            CHECK(ui.find("Also use the zip's name and number placement (hotspots)##kswap", "##tkits", "home") && rt.get_options().apply_hotspots, "the hotspots option is offered and on by default");
+            CHECK(ui.click("Also use the zip's name and number placement (hotspots)##kswap", "##tkits", "home") && !rt.get_options().apply_hotspots, "the hotspots option switches off");
+            CHECK(ui.click("Also use the zip's name and number placement (hotspots)##kswap", "##tkits", "home") && rt.get_options().apply_hotspots, "and on again");
             CHECK(ui.click("Show it on the pitch##kswap", "##tkits", "home"), "Show it on the pitch");
             CHECK(rt.is_active(7, 0) && fs::exists(rt.state_path()), "the kit is active and the state is saved");
             kitswap::Mode md = kitswap::Mode::Off;
