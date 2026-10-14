@@ -200,6 +200,8 @@ class MockMem:
             lo, hi = int(str(op.get("from", "0x0")), 16), int(str(op.get("to", "0x7FFFFFFFFFFF")), 16)
             hits = []
             for base, hx in d["regions"]:
+                if base + len(hx) // 2 <= lo or base >= hi:
+                    continue
                 data = bytes.fromhex(hx)
                 for i in range(len(data) - len(toks) + 1):
                     if lo <= base + i < hi and all(t is None or data[i + j] == t for j, t in enumerate(toks)):
