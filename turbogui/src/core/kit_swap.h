@@ -17,6 +17,7 @@
 // Platform independent (g++ tests: tests/catalog/run_kitswap.sh).
 #pragma once
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -163,6 +164,7 @@ struct StagedKit {
     int team = -1;
     int slot = -1;
     std::vector<StagedTexture> textures;
+    std::filesystem::path hotspots;  // the zip's hotspots.hotspot (JSON), empty when the kit has none
 };
 bool load_staged(const std::filesystem::path& dir, StagedKit& out, std::string* err = nullptr);
 constexpr size_t kDdsHeader = 148;  // DX10 DDS: the mip data starts here
@@ -185,12 +187,13 @@ public:
     uint32_t items() const { return n_items_; }
     uint64_t hits(uint32_t item) const { return item < n_items_ ? hits_[item].load() : 0; }
     void count_hit(const Entry& e) const {
-        if (e.item < n_items_) hits_[e.item].fetch_add(1);
-        for (uint32_t i = 0; i < e.alias_n; ++i) {
-            const uint32_t a = alias_pool_[e.alias_off + i];
-            if (a < n_items_) hits_[a].fetch_add(1);
-        }
+        bump(e.item);
+        for (uint32_t i = 0; i < e.alias_n; ++i) bump(alias_pool_[e.alias_off + i]);
     }
+    // Wall-clock time (ms since the Unix epoch) of the first / last block recognised for an item, 0 = never. Tells which game screen
+    // (match load, kit select, hub) loaded which kit data.
+    uint64_t first_ms(uint32_t item) const { return item < n_items_ ? first_ms_[item].load() : 0; }
+    uint64_t last_ms(uint32_t item) const { return item < n_items_ ? last_ms_[item].load() : 0; }
     uint64_t bytes() const { return bytes_; }
     bool swap_item(uint32_t item) const { return item < item_swap_.size() && item_swap_[item]; }
     bool may_match(uint64_t srclen, uint64_t dstlen) const;  // cheap size pre-check
@@ -199,11 +202,19 @@ public:
 
 private:
     friend class TableBuilder;
+    void bump(uint32_t i) const {
+        if (i >= n_items_) return;
+        hits_[i].fetch_add(1);
+        const uint64_t t = uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+        uint64_t zero = 0;
+        first_ms_[i].compare_exchange_strong(zero, t);
+        last_ms_[i].store(t);
+    }
     std::vector<Entry> entries_;
     std::vector<uint32_t> slots_;  // open addressing, 0 = empty, else index + 1
     uint32_t mask_ = 0;
     std::vector<std::shared_ptr<std::vector<uint8_t>>> storage_;
-    std::unique_ptr<std::atomic<uint64_t>[]> hits_;
+    std::unique_ptr<std::atomic<uint64_t>[]> hits_, first_ms_, last_ms_;
     std::vector<uint32_t> alias_pool_;
     std::vector<uint8_t> item_swap_;  // 1 = overwrite, 0 = observe only
     uint32_t n_items_ = 0;
@@ -226,7 +237,35 @@ struct Options {
     bool include_decals = true;   // brand_* / crest_* textures of the zip
     uint32_t min_csize = 1024;    // blocks with a smaller compressed size are uniform fill: never matched
     bool census = true;           // the block census over every kit chunk (header hops over the whole game's kit data)
+    bool apply_hotspots = true;   // also put the zip's name / number / sleeve-badge placement (hotspots.hotspot) into the game's hotspot asset
 };
+// The smallest compressed block accepted for a hotspot asset (a whole small EBX in one block; its raw bytes carry the club's own path, so
+// no other asset can have the same bytes: all 4,851 kit hotspot assets of the install have distinct raw bytes, 494..979 compressed bytes)
+constexpr uint32_t kMinEbxCsize = 256;
+
+// ---------------------------------------------------------------- hotspots (name / number / sleeve-badge placement)
+// FC 27 keeps a kit's decal placement in one small EBX asset per kit: content/character/kit/kit_<b>/<slug>/<kind>/hotspots_<team>_<type>_<var>
+// (plus a *_hotspot_brt wrapper that only references it). Layout (read from the install, 4,851 assets): RIFF "EBX EBXD" container, the
+// instance starts at 0x90 (a 25 in the u32 at 0x8C), 25 entries of 0x30 bytes: 4 floats (the rectangle X, Y, Z, W in jersey UV space,
+// the same four numbers as the zip's Bounds), 16 bytes of self-relative pointers, a float rotation at +0x20, padding; behind them the
+// string table starting with the asset's own path. Entry order: jersey 0 team, 1 numberback, 2 numberfront, 3 name, 4 namearccenter,
+// 5 namearctangent, 6 armband, 7 brand, 8 weave_tiles, 9 effectParams, 10 decalEffectParams; shorts 11 team, 12 number, 13 brand,
+// 14 weave_tiles, 15 effectParams, 16 decalEffectParams; socks 17..19; competition 20 LeftSleeveLong, 21 LeftSleeveShort,
+// 22 RightSleeveLong, 23 RightSleeveShort, 24 Center. [V] the layout and the order of entries 1..5 and 20..23 against the Leicester asset
+// and the zip's values; [A] shorts team / number (11 / 12) by the value ranges.
+struct HotspotRect {
+    float x = 0, y = 0, z = 0, w = 0, rot = 0;
+};
+using HotspotMap = std::map<std::string, HotspotRect>;  // "jersey/numberback" (lower case group/name)
+// The zip's hotspots.hotspot JSON
+bool parse_hotspots(const std::vector<uint8_t>& json_bytes, HotspotMap& out, std::string* err = nullptr);
+// Patches the decompressed hotspot asset `ebx` (same size out) of the game resource `res_name` with the zip's rectangles. Rules: only the
+// entries the zip names and the table above knows; a zip rectangle that is a point (X==Z and Y==W) never replaces the game's rectangle
+// (the zip's numberfront is a point); an entry the game has switched off (all four floats negative, e.g. Center -1) stays off; an all-negative rectangle (the zip's "not used") is applied only to team / brand entries and only
+// when `decals` is true (the zip bakes the badge into the jersey colour); non-finite or out-of-range values are refused. Returns false
+// with `why` when the asset is not the expected layout (nothing is changed then); true with `changes` (one text per patched entry,
+// may be empty = nothing differed).
+bool patch_hotspot_ebx(std::vector<uint8_t>& ebx, const std::string& res_name, const HotspotMap& zip, bool decals, std::vector<std::string>* changes, std::string* why);
 struct Plan {
     int team = -1, slot = -1;
     bool ok = false;
@@ -268,6 +307,7 @@ struct ItemStatus {
     bool swap = false;
     int blocks = 0;
     uint64_t hits = 0;
+    uint64_t first_ms = 0, last_ms = 0;  // wall clock of the first / last recognised block (0 = never)
     uint32_t table_item = 0xFFFFFFFFu;
 };
 struct Status {
