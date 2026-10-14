@@ -9,7 +9,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # (file, slow) - every tool with a --self-test; new tools are added here
 TESTS = [("dev2.py", False), ("x1_write.py", False), ("mm_stats.py", False), ("match_measure.py", False),
          ("test_tools_guard.py", False), ("chain_check.py", False), ("x2_readout.py", False), ("x2_sentinels.py", False),
-         ("x3_sentinels.py", False), ("x3_readback.py", False), ("test_x1_run.py", True)]
+         ("x3_sentinels.py", False), ("x3_readback.py", False), ("test_ps1_gates.py", False),
+         ("test_x1_run.py", True)]
 
 
 def main(argv):
