@@ -260,18 +260,19 @@ static void cases_db(App& app) {
             CHECK(field(tb, "teamid") != nullptr, std::string(tb) + " is keyed by teamid");
             CHECK(field(tb, "activetactic") != nullptr && field(tb, "sourceformationid") != nullptr, std::string(tb) + " flags the active tactic and names its formation");
         }
-        // every DB slider that the team scope writes through a mentality table can find its row by teamid
+        // 2.4: no slider of the Tactics tab writes a mentality table any more (the legacy fields are gone); the live tactic's database copy
+        // (ui_live_tactic.cpp) writes cm_mentalities.buildupplay / defensivedepth: both fields are in the real schema
         size_t seen = 0;
         for (const SliderDef& d : slider_registry()) {
             if (d.binding.kind != BindingKind::DbField) continue;
             for (const std::string& t : d.binding.targets) {
                 const std::string table = t.substr(0, t.find('.'));
-                if (table != "mentalities" && table != "cm_mentalities") continue;
-                ++seen;
-                CHECK(field(table.c_str(), "teamid") != nullptr, d.key + ": " + table + " can be found by teamid");
+                if (table == "mentalities" || table == "cm_mentalities") ++seen;
             }
         }
-        CHECK(seen >= 8, fmt("mentality-bound targets checked: %zu", seen));
+        CHECK(seen == 0, fmt("no slider writes a mentality table: %zu", seen));
+        CHECK(field("cm_mentalities", "buildupplay") != nullptr && field("cm_mentalities", "defensivedepth") != nullptr,
+              "cm_mentalities has the live tactic copy's two fields");
     });
 }
 
