@@ -471,6 +471,16 @@ static void chain_cases() {
         w.mem.wr(ChainWorld::kHandleA + 8, uint64_t(0));
         why = walk_manager(w.mem, reg.manager, lk, dbs, transient);
         CHECK(!why.empty() && transient && why.find("no current gameplay database yet") != std::string::npos, "no current database yet: transient: " + why);
+        // no current database, but another manager slot's handle holds a gameplay database (a list at +0x110): it seeds the enumeration
+        w.mem.map(ChainWorld::kHandleA + 0x100, 0x10);
+        w.mem.wr(ChainWorld::kHandleA + 0x108, w.db(3));
+        w.mem.wr(ChainWorld::kMgr + 0x110, ChainWorld::kHandleA + 0x100);
+        why = walk_manager(w.mem, reg.manager, lk, dbs, transient);
+        CHECK(why.empty() && dbs.seed_slot == 0x110 && dbs.current == w.db(3) && dbs.summary().find("no current database yet (seeded from mgr+0x110: ") != std::string::npos,
+              "seeded from mgr+0x110: " + why + " " + dbs.summary());
+        enumerate_dbs(w.mem, reg.manager, lk, {0x128, 0x38}, dbs);
+        CHECK(dbs.enumerated && dbs.dbs.front().addr == w.db(3), "the 15 databases found from the seed: " + dbs.enum_why);
+        w.mem.wr(ChainWorld::kMgr + 0x110, uint64_t(0));
         // the current database is something else: not transient (the chain is refused for the session, the name search takes over)
         w.mem.wr(ChainWorld::kHandleA + 8, ChainWorld::kLlw);
         why = walk_manager(w.mem, reg.manager, lk, dbs, transient);

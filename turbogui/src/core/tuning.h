@@ -342,6 +342,8 @@ struct AttribDb {
 struct AttribDbs {
     uint64_t g = 0, mgr = 0, current = 0, prematch = 0;
     int64_t prematch_slot = -1;           // the manager slot that held the prematch handle (-1 = not found)
+    int64_t seed_slot = -1;               // no current database yet: the manager slot whose handle gave a gameplay database (-1 = none)
+    bool seed_slot_found() const { return seed_slot >= 0; }
     int32_t index = -1;                   // i32 at mgr + index_at (the game's current database index; diagnostics)
     std::string current_name;
     uint64_t gameplay_td = 0, prematch_td = 0, gameplay_ti = 0, gameplay_vt = 0;

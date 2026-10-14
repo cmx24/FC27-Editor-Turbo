@@ -1756,7 +1756,9 @@ static std::string db_check(Memory& mem, const Lookup& lk, uint64_t db, const st
 std::string AttribDbs::summary() const {
     int gp = 0;
     for (const AttribDb& d : dbs) gp += d.prematch ? 0 : 1;
-    std::string s = "G " + hex(g) + ", mgr " + hex(mgr) + ", current database " + (current_name.empty() ? std::string("?") : current_name) +
+    std::string s = "G " + hex(g) + ", mgr " + hex(mgr) +
+                    (seed_slot_found() ? ", no current database yet (seeded from mgr+" + hex(uint64_t(seed_slot)) + ": " + current_name + ")"
+                                       : ", current database " + (current_name.empty() ? std::string("?") : current_name)) +
                     " (index " + std::to_string(index) + ")";
     s += prematch ? ", prematch database at mgr+" + hex(uint64_t(prematch_slot)) : std::string(", prematch database not found");
     s += ", " + (enum_why.empty() ? std::to_string(gp) + " gameplay database(s)" : enum_why);
@@ -1776,13 +1778,29 @@ std::string walk_manager(Memory& mem, const AttribManager& m, const Lookup& lk, 
         return "the attribute manager does not exist yet ([G] holds no pointer)";
     }
     uint64_t cur = out.mgr;
-    for (size_t i = 0; i < m.current.size(); ++i) {
+    std::string none;
+    for (size_t i = 0; i < m.current.size() && none.empty(); ++i) {
         const uint64_t next = slot_ptr(mem, cur + uint64_t(m.current[i]));
-        if (!next) {
-            transient = true;
-            return "no current gameplay database yet ([" + hex(cur) + " + " + hex(uint64_t(m.current[i])) + "] holds no pointer)";
-        }
+        if (!next) none = "no current gameplay database yet ([" + hex(cur) + " + " + hex(uint64_t(m.current[i])) + "] holds no pointer)";
         cur = next;
+    }
+    if (!none.empty()) {
+        // no current database yet (e.g. the main menu before a mode is set): any manager slot whose handle holds an identity-checked
+        // gameplay database seeds the enumeration (its TypeInfo and vtable); read-only, bounded to the manager's first mgr_size bytes
+        for (int64_t s = 0; s + 8 <= m.mgr_size && !out.seed_slot_found(); s += 8) {
+            const uint64_t h = slot_ptr(mem, out.mgr + uint64_t(s));
+            const uint64_t db = h ? slot_ptr(mem, h + uint64_t(m.handle_db)) : 0;
+            std::string name;
+            uint64_t td = 0, vt = 0;
+            if (db && db_check(mem, lk, db, m.gameplay_db_type, m.gameplay_db_signature, m.gameplay_dbs, name, td, vt).empty()) {
+                out.seed_slot = s;
+                cur = db;
+            }
+        }
+        if (!out.seed_slot_found()) {
+            transient = true;
+            return none;
+        }
     }
     const std::string w = db_check(mem, lk, cur, m.gameplay_db_type, m.gameplay_db_signature, m.gameplay_dbs, out.current_name, out.gameplay_td, out.gameplay_vt);
     if (!w.empty()) return "the current gameplay database " + hex(cur) + ": " + w;
