@@ -18,7 +18,9 @@ Evidence folder (either or both):
                                                   "note": "free text"}]}      (checks the battery does not run: latched knobs, hub A/B)
 A knob named in both with different verdicts is refused.
 
-  python -I tools/promote_proof.py EVIDENCE_DIR --session S [--knobs FILE] [--ev-root DIR] [--knob ID ...] [--diff-out FILE] [--apply]
+  python -I tools/promote_proof.py EVIDENCE_DIR --session S [--knobs FILE] [--ev-root DIR] [--knob ID ...] [--diff-out FILE] [--no-live] [--apply]
+  --no-live: promote as latched whatever the verdict says (the way back when the in-game live test of a live promotion fails: revert the
+             promotion commit, then repeat with --no-live --apply). It can only downgrade; it never sets live.
   python -I tools/promote_proof.py --self-test
 Exit: 0 = done (dry run or applied), 1 = error / guard refused the result, 2 = usage, 3 = nothing could be promoted.
 """
@@ -133,7 +135,7 @@ def refusal(k, v):
     return "; ".join(why)
 
 
-def promote(doc, verdicts, session, evroot_rel, only=None):
+def promote(doc, verdicts, session, evroot_rel, only=None, allow_live=True):
     """-> (new doc, [(knob, note)] promoted, [(knob, why)] refused). evroot_rel(file) -> the 'EV/...' path of an evidence file"""
     new = copy.deepcopy(doc)
     by = {k.get("id"): k for k in new.get("knobs", [])}
@@ -148,7 +150,7 @@ def promote(doc, verdicts, session, evroot_rel, only=None):
             refused.append((kid, why))
             continue
         ev = "%s#%s" % (evroot_rel(v["file"]), kid)
-        live = v.get("live") is True
+        live = allow_live and v.get("live") is True  # --no-live can only downgrade to latched, never set live
         proof = {"session": session, "evidence": ev}
         if v.get("note"):
             proof["note"] = v["note"]
@@ -228,7 +230,7 @@ def run(a, out=print):
     for kid, v in list(verdicts.items()):
         if v["file"] not in ok_files:
             v["conflict"] = "evidence file %s is missing" % v["file"]
-    new, promoted, refused = promote(doc, verdicts, session, lambda f: evrel(f), set(a.knob) if a.knob else None)
+    new, promoted, refused = promote(doc, verdicts, session, lambda f: evrel(f), set(a.knob) if a.knob else None, allow_live=not a.no_live)
     out("promote_proof: evidence %s (EV/%s), session %s, knobs file %s" % (folder, rel, session, a.knobs))
     for kid, why in refused:
         out("  REFUSED  %-36s %s" % (kid, why))
@@ -275,6 +277,7 @@ def build_parser():
     ap.add_argument("--knob", action="append")
     ap.add_argument("--diff-out")
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--no-live", action="store_true", help="promote as latched (applies next match setup, no live) whatever the verdict says live")
     ap.add_argument("--self-test", action="store_true")
     return ap
 
@@ -353,6 +356,14 @@ def self_test():
         check(others == [k for k in sdoc["knobs"] if k["id"] not in ("shape.width_in", "shape.length_in")], "every other knob is byte-for-byte the same data")
         rc, out = go(d1)
         check("already has a proof" in out and rc == 3, "a second run refuses to overwrite a proof")
+        # 1b. --no-live: the same live PASS/PASS evidence promoted as latched; a guard-clean result; --no-live never sets live
+        with open(kf, "w", encoding="utf-8", newline="\n") as f:
+            f.write(shipped)
+        rc, out = go(d1, "--no-live", "--apply", "--knob", "shape.width_in")
+        nd = json.loads(open(kf, encoding="utf-8", newline="").read())
+        w = {k["id"]: k for k in nd["knobs"]}["shape.width_in"]
+        check(rc == 0 and "latched" in out and w["slider"] is True and "live" not in w and w["applies"] == "next match setup" and guard.problems(nd) == [],
+              "--no-live: live PASS/PASS evidence is promoted as latched (no live), the guard is happy")
         # 2. verdicts.json: a latched knob (hub A/B), conflicting sources, missing session
         with open(kf, "w", encoding="utf-8", newline="\n") as f:
             f.write(shipped)
