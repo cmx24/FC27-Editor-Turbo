@@ -18,13 +18,13 @@ state: <TOKEN> (HH:MM) - <note>
 
 Enforcement:
 - `harness.require_live()` at the start of every Python tool that talks to the game (x1_write, match_measure, chain_check, x2_readout,
-  x2_sentinels, x3_sentinels, x3_readback); `--mock` / `--self-test` never touch the game and skip it. `test_tools_guard.py` fails the
+  x2_sentinels, x3_sentinels, x3_readback, battery_write); `--mock` / `--self-test` never touch the game and skip it. `test_tools_guard.py` fails the
   PY step if a tool imports dev2 without calling it.
 - `dev2.call()` itself refuses to post a request unless the state is live (defence in depth), refuses Escape (VK 27) always, and
   refuses any write / key op at any nesting without `allow_write=True`.
 - `gk.ps1` refuses every command except `shot` unless the state is live; `launch_fc27.ps1` refuses unless it is LAUNCHING.
 - `harness.require_live(write=True)` / `harness.py state --write` / dev2 for write ops accept only LAUNCHING and MATCH-AB.
-- Wrappers (`x1_run.sh`, `x2_run.sh`, `x3_run.sh`) refuse BEFORE installing their kill trap: a refusal never kills (while CLOSED or
+- Wrappers (`x1_run.sh`, `x2_run.sh`, `x3_run.sh`, `battery_run.sh`) refuse BEFORE installing their kill trap: a refusal never kills (while CLOSED or
   USER the game may be Cassio's). Once running, they kill FC27 on every exit path (`taskkill /IM FC27.exe /F`) at once (no dev call
   before the kill: a written value dies with the process), but only after re-reading GAME_STATE: if it no longer names a
   coordinator state (LAUNCHING / MATCH-AB), the game is NOT killed.

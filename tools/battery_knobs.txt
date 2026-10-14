@@ -1,0 +1,10 @@
+# battery_knobs.txt - the default knob list of battery_write.py (one knob per line; '#' comments).
+# Line: <knob id> [explicit extreme value(s)] [both]    'both' = schedule every default extreme of the knob.
+# A knob with a deterministic engine-read observable first (band_att / band_def / paired_len), then the effect-only ones.
+shape.width_in
+shape.width_out
+shape.width_in_cb
+shape.length_in
+shape.length_in_possession
+marking.tightness
+runs.frequency
