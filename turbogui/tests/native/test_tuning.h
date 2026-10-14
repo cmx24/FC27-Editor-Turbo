@@ -1788,6 +1788,40 @@ static std::string ui_knobs() {
 }
 
 static void ui_cases(App& app, Ui& ui, const fs::path& le) {
+    run_case("UI: gameplay tuning 2.4 (M3) - no profile and the tab never opened: no locate at all; the profile on: located", [&] {
+        tuning_reset();
+        const fs::path out = le / "turbo_output";
+        std::error_code ec;
+        for (const char* f : {profile_file(), kill_switch_file(), master_switch_file(), attrib_switch_file(), profile_off_file()}) fs::remove(out / f, ec);
+        ChainWorld w;
+        int passes = 0;
+        Lookup lk = w.lookup();
+        auto inner = lk.heap_qwords;
+        lk.heap_qwords = [&passes, inner](uint64_t v, size_t m) {
+            ++passes;
+            return inner(v, m);
+        };
+        ChainRig r(w, g_out / "tuning_ui_m3", chain_knobs(), lk);
+        r.jobs.inline_run = true;
+        app.tuning = r.svc;
+        ui.frames(200);
+        CHECK(!tuning_view_state().drawn && passes == 0 && !r.logged("tuning: chain locate") && !r.logged("tuning: attribute manager"),
+              fmt("no locate without an opt-in (%d heap passes)", passes));
+        tuning::Profile p;
+        p.on = true;
+        std::string err;
+        save_profile(out / profile_file(), p, &err);
+        ui.frames(200);
+        CHECK(passes == 1 && r.logged("tuning: chain locate ok 3 groups"), fmt("the profile on: located (%d heap passes)", passes));
+        // a kill switch: the view stops asking (no new locate either way)
+        std::ofstream(out / kill_switch_file()) << "x";
+        ui.frames(200);
+        CHECK(passes == 1, "a kill switch: nothing more");
+        for (const char* f : {profile_file(), kill_switch_file()}) fs::remove(out / f, ec);
+        app.tuning = nullptr;
+        tuning_reset();
+    });
+
     run_case("UI: Competitions > Gameplay tuning 2.4 - proven sliders / located rows / not working, the session tick, Apply into the profile, the "
              "profile's moments (career_load, hub, boot, the prematch window), Restore FC 27 defaults",
              [&] {

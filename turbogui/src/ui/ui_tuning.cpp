@@ -56,6 +56,7 @@ struct Tv {
     LocateStatus locate;
     double next_locate = -1.0;
     MomentTracker moments;
+    bool view_seen = false;  // the tab was drawn in this game session (the locate runs for it)
     std::string moment_line;
     // presets
     std::vector<Preset> presets;
@@ -632,7 +633,10 @@ void handle_result(App& app, const ApplyResult& r) {
 
 // The profile's automatic moments (core/tuning.h MomentTracker): boot, career_load, hub; one job each
 void moments_tick(App& app) {
-    if (app.now >= g.next_locate) {
+    // M3 (review 2026-10-13): the locate (a heap pass, the first run's name search) runs only for a user who opted in: the profile on, the
+    // tab opened in this session, or the session tick; never under a kill switch (a user without a profile pays nothing at launch)
+    const bool opted = (g.prof.on && g.sw.blocking_moments().empty()) || g.view_seen || app.tuning->session_opt_in();
+    if (opted && g.sw.blocking().empty() && app.now >= g.next_locate) {
         g.next_locate = app.now + 1.0;
         g.locate = app.tuning->locate_status();
     }
@@ -955,6 +959,7 @@ void draw_row(App& app, const Knob& k, const std::map<std::string, double>& defs
 
 void draw_body(App& app) {
     g_state.drawn = true;
+    g.view_seen = true;  // the tab was opened in this session: it locates (M3)
     refresh_switches(app, false);
     refresh_profile(app, false);
     load_undo_once(app);

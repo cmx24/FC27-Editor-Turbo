@@ -3306,11 +3306,29 @@ bool CoreService::chain_mode_locked(const Registry& reg) {
     return h_.lookup.signature && h_.lookup.signature(reg.manager.signature) != 0;
 }
 
+// M3 (review 2026-10-13): no new locate (no search, no heap pass) while tactics_off.txt, tuning_off.txt or call_attrib_off.txt exists;
+// anchors already found stay usable (Undo / Restore). "" = none, else the file
+static std::string locate_kill_switch(const fs::path& out) {
+    if (out.empty()) return "";
+    for (const char* f : {master_switch_file(), kill_switch_file(), attrib_switch_file()})
+        if (file_exists(out / f)) return f;
+    return "";
+}
+
 void CoreService::ensure_anchors() {
     std::shared_ptr<const Registry> reg;
     long long epoch = 0;
     std::vector<Locator> slow;
     std::function<void()> chain_job;
+    const std::string kill = locate_kill_switch(h_.out_dir);
+    if (!kill.empty()) {
+        std::lock_guard<std::mutex> lock(mu_);
+        if (kill_logged_ != kill) {
+            kill_logged_ = kill;
+            log("tuning: kill switch turbo_output\\" + kill + " is present: the tuning tables are not located (no search)");
+        }
+        return;
+    }
     {
         std::lock_guard<std::mutex> lock(mu_);
         reg = reg_;

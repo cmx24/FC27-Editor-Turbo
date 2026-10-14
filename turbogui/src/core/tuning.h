@@ -722,6 +722,7 @@ private:
     AttribDbs dbs_;
     std::set<std::string> refused_;  // attrib locators refused for this game session (identity mismatch, the cross-check disagreed)
     std::string locate_failed_;      // a background locate threw: tuning off for the session
+    std::string kill_logged_;        // the kill switch that held the locate back (logged once)
     std::vector<ApplyResult> results_;
     bool busy_ = false;
     double busy_since_ = 0;

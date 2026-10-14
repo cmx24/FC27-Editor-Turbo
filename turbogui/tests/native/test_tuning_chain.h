@@ -755,6 +755,34 @@ static void chain_cases() {
         CHECK(!load_profile(dir / "nope.json", prof, &err) && err.empty(), "absent profile: no error");
     });
 
+    run_case("tuning 2.4: M3 - no locate (no heap pass, no search) while tuning_off / call_attrib_off / tactics_off exists", [] {
+        ChainWorld w;
+        int passes = 0;
+        Lookup lk = w.lookup();
+        auto inner = lk.heap_qwords;
+        lk.heap_qwords = [&passes, inner](uint64_t v, size_t m) {
+            ++passes;
+            return inner(v, m);
+        };
+        for (const char* f : {kill_switch_file(), attrib_switch_file(), master_switch_file()}) {
+            passes = 0;
+            ChainRig r(w, g_out / "tuning_chain_m3", chain_knobs(), lk);
+            r.touch(f);
+            LocateStatus ls = r.svc->locate_status();
+            auto live = r.live();
+            CHECK(passes == 0 && !ls.ready && !live["shape.width_in"].located &&
+                      r.logged(std::string("tuning: kill switch turbo_output\\") + f + " is present: the tuning tables are not located (no search)") &&
+                      !r.logged("tuning: chain locate ok"),
+                  std::string(f) + ": no locate");
+            r.remove(f);
+            ls = r.svc->locate_status();
+            CHECK(passes == 1 && ls.ready && ls.groups == 3, std::string(f) + " removed: located (one heap pass)");
+            // a kill switch after the locate: no new search, the anchors stay (Undo / Restore still find the tables)
+            r.touch(f);
+            CHECK(r.live()["shape.width_in"].located && passes == 1, std::string(f) + " after the locate: the tables stay found");
+        }
+    });
+
     run_case("tuning 2.4: the profile's moments in the job - boot / career_load / hub, every copy once, read back, the log line, the prematch guard", [] {
         ChainWorld w;
         CountingWrites cw(w.mem);
