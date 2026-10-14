@@ -54,6 +54,8 @@ struct BridgeState {
     // save start (os.time(), 0 = none)
     std::string match_phase;
     long long phase_t = 0, save_t = 0;
+    // gameplay tuning (core/tuning.h): os.time() of Lua's last prematch event (0 = none): the profile's hub writes wait 5 s after it
+    long long prematch_t = 0;
     // Lua saw ENTERING_TEAM_MANAGEMENT and no LEAVING_TEAM_MANAGEMENT (or other phase event) since: channel E's G2 refuses while it is open
     bool team_mgmt = false;
     GameDate date;

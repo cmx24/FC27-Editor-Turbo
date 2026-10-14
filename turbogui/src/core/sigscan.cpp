@@ -684,6 +684,13 @@ static std::vector<Signature> fc27_signatures() {
           "StrTab::GetString(table, out, key) 0x140B1C034, anchored at +10 because Live Editor's jmp [rip] owns the first 10 "
           "bytes: report only (Live Editor's custom team names), never hooked",
           "", true},  // hook probe: only read to report Live Editor's hook there
+         // Gameplay tuning (core/tuning.h, docs/TACTICS_OVERHAUL_DECISION.md 3.1): get_current_gameplay_attribdb, the whole function:
+         // mov rcx,[rip+G]; xor eax,eax; test rcx,rcx; jz; mov rdx,[rcx]; test rdx,rdx; jz; mov rax,[rdx+8]; ret. Unique in the build
+         // 6AB9813C image (0x141078530, G 0x14C269128; checked offline) and in the running 6AC07E31 game (0x141077070, G 0x14C26B128; the
+         // 2026-10-13 read-only locate run). "rip" at 0 resolves the static attribute manager slot G: [G] = the manager, [[mgr]+8] = the
+         // current gameplay database. Read only: nothing is hooked, nothing is called
+         {"attrib_db_getter", "48 8B 0D ?? ?? ?? ?? 33 C0 48 85 C9 74 0C 48 8B 11 48 85 D2 74 04 48 8B 42 08 C3", "rip", 0,
+          "the attribute manager slot G (0x14C26B128): mov rcx,[rip+G] at the start of get_current_gameplay_attribdb 0x141077070", "48 8B 0D"},
     };
 }
 

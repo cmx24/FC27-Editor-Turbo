@@ -29,7 +29,9 @@ double now_us() {
 
 // The native locators: code for a table a pointer chain cannot reach (e.g. a hash map of the game's tuning collections). Each one is
 // read-only, fast (it runs inside the game-thread job, re-chased at every write) and returns "" + the table's base address, or why not.
-// None yet: the live locator (track T1) adds them here when a knobs file names a locator of kind "native".
+// None: the attribulator walk from the static manager slot G (get_current_gameplay_attribdb -> [G] -> databases -> groups -> instances,
+// WP-A1) is data-driven in core/tuning.cpp (the knobs file's "attrib_manager" + the attrib locators' family / group slots), so it runs
+// in the native tests on a simulated image; the host gives it the signature attrib_db_getter and heap_qwords below.
 std::map<std::string, tuning::NativeLocator> native_locators() { return {}; }
 
 // Reads [start, end) in chunks of kChunk (+ `overlap` bytes so a match across a chunk border is seen); a chunk that cannot be read is
@@ -100,6 +102,27 @@ std::map<std::string, std::vector<uint64_t>> name_refs(const std::vector<std::st
     return out;
 }
 
+// tuning::Lookup::heap_qwords: the 8-aligned qwords of the game's writable private memory equal to `value` (the chain locate's database
+// enumeration: the slots that hold the gameplay database type's TypeInfo). One pass, at most max_hits, 60 s
+std::vector<uint64_t> heap_qwords(uint64_t value, size_t max_hits) {
+    std::vector<uint64_t> out;
+    if (!value) return out;
+    const double t0 = now_us(), deadline = t0 + 60e6;
+    const std::set<uint64_t> values = {value};
+    bool done = true;
+    for (const Region& r : private_regions(0)) {
+        done = walk(r.start & ~uint64_t(7), r.end, 0, deadline, [&](const uint8_t* b, size_t n, uint64_t at) {
+            if (out.size() >= max_hits) return;
+            for (const auto& h : tuning::find_qwords(b, n, at, values, max_hits - out.size()))
+                if (std::find(out.begin(), out.end(), h.second) == out.end()) out.push_back(h.second);
+        });
+        if (!done || out.size() >= max_hits) break;
+    }
+    log("gameplay tuning: searched the heap for the qword 0x%llX: %zu slot(s)%s (%.1f s)", static_cast<unsigned long long>(value), out.size(),
+        done ? "" : ", STOPPED at the time limit", (now_us() - t0) / 1e6);
+    return out;
+}
+
 }  // namespace
 
 std::shared_ptr<tuning::Service> tuning_service() { return g_service; }
@@ -116,6 +139,7 @@ void install_tuning() {
     h.lookup.scan = [](const Signature& s) { return game_scan_signature(s); };
     h.lookup.natives = native_locators();
     h.lookup.refs = &name_refs;
+    h.lookup.heap_qwords = &heap_qwords;
     h.lookup.image_base = game_image_base();
     h.lookup.image_size = game_image_size();
     // the prompt dispatcher only (the game_tick hook): a job that waited for the next career event could run after the hub was left
@@ -142,16 +166,20 @@ std::vector<std::string> tuning_status() {
         out.push_back("gameplay tuning: off (" + why + ")");
         return out;
     }
-    const tuning::Switches sw = tuning::read_switches(le_root() / "turbo_output");
+    tuning::Switches sw = tuning::read_switches(le_root() / "turbo_output");
+    sw.session = g_service->session_opt_in();
     const std::string block = sw.blocking();
-    std::string state = !block.empty() ? "off (kill switch turbo_output\\" + block + ")"
-                        : !sw.opt_in   ? std::string("off until turbo_output\\") + tuning::opt_in_file() + " exists"
-                                       : "on";
+    std::string state = !block.empty()     ? "off (kill switch turbo_output\\" + block + ")"
+                        : !sw.opted_in()   ? std::string("off (no opt-in: the session tick, the profile or turbo_output\\") + tuning::opt_in_file() + ")"
+                                           : "on";
     const std::string sess = g_service->session_off();
     if (!sess.empty()) state = "off for this session (" + sess + ")";
     const auto reg = g_service->registry();
-    out.push_back("gameplay tuning: " + state + " | " + std::to_string(reg->knobs.size()) + " knobs, " + std::to_string(reg->placeholders()) +
+    out.push_back("gameplay tuning: " + state + " | profile " + (sw.profile_on ? "on" : "off") + (sw.profile_off ? " (tuning_profile_off.txt)" : "") +
+                  " | " + std::to_string(reg->knobs.size()) + " knobs, " + std::to_string(reg->placeholders()) +
                   " not confirmed in the running game (never written) | " + g_service->anchors_status());
+    const tuning::AttribDbs dbs = g_service->databases();
+    if (dbs.current) out.push_back("gameplay tuning: attribute manager: " + dbs.summary());
     return out;
 }
 

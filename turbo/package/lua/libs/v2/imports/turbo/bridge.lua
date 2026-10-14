@@ -388,6 +388,9 @@ function M.collect_state()
         match_phase = S.match_phase or "unknown",
         phase_t = S.phase_t,
         save_t = S.save_t,
+        -- gameplay tuning (turbogui core/tuning.h): when Lua last saw the prematch event (os.time()). The phase goes hub -> prematch ->
+        -- hub (about 0.5 s) -> match at kick-off: Turbo.dll's hub writes wait 5 s after it, also when its 0.5 s poll missed the prematch
+        prematch_t = S.prematch_t,
         -- Team Management open (ENTERING_TEAM_MANAGEMENT seen, no LEAVING_TEAM_MANAGEMENT or other phase event since): channel E's G2
         -- refuses then (Edit Tactic's screen holds its own values; leaving it may ask to save the team sheet, and Yes autosaves the career)
         team_mgmt = S.team_mgmt == true,
@@ -408,7 +411,7 @@ local function same_state(a, b)
     if a.db_service ~= b.db_service or a.in_cm ~= b.in_cm or a.user_team ~= b.user_team then return false end
     if a.svm ~= b.svm or a.managers ~= b.managers or a.ifce ~= b.ifce then return false end
     if a.transfer_budget ~= b.transfer_budget then return false end
-    if a.match_phase ~= b.match_phase or a.phase_t ~= b.phase_t or a.save_t ~= b.save_t then return false end
+    if a.match_phase ~= b.match_phase or a.phase_t ~= b.phase_t or a.save_t ~= b.save_t or a.prematch_t ~= b.prematch_t then return false end
     if a.team_mgmt ~= b.team_mgmt then return false end
     if a.meta_error ~= b.meta_error then return false end
     if (a.game_call and a.game_call.seq or 0) ~= (b.game_call and b.game_call.seq or 0) then return false end
@@ -601,6 +604,8 @@ function M.track_phase(event_id)
         S.match_phase = phase
         S.phase_t = os.time()
     end
+    -- every prematch event (also one that does not change the phase): the tuning profile's hub writes wait after it
+    if phase == "prematch" then S.prematch_t = os.time() end
     if saves[event_id] then S.save_t = os.time() end
     local tm = S.team_mgmt_ids or {}
     if tm.enter and event_id == tm.enter then S.team_mgmt = true
