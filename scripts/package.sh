@@ -20,11 +20,21 @@ name_guard() {  # $1 = staged folder
   [ -z "$s" ] || { echo "name guard: files with real names would be packaged:"; echo "$s"; }
   [ -z "$g$s" ]
 }
+# Knobs guard (2.4, scripts/knobs_guard.py): a gameplay tuning knob is a slider only with its in-game proof; a knobs file with a
+# slider (or a live knob) without a proof, or a proof without its evidence, is refused
+knobs_guard() {  # $1 = staged folder
+  local py=""
+  for c in python3 python "py -3"; do $c -c "import json" >/dev/null 2>&1 && { py="$c"; break; }; done
+  [ -n "$py" ] || { echo "knobs guard: no Python found (python3 / python / py -3)"; return 1; }
+  $py -I "$ROOT/scripts/knobs_guard.py" "$1/turbo/tuning"
+}
 if [ "${1:-}" = "--guard" ]; then
   G="$(mktemp -d)"; trap 'rm -rf "$G"' EXIT
   cp -r "$ROOT/turbo/package/." "$G/"; rm -rf "$G/turbo/callnames/masters"
-  name_guard "$G" && echo "name guard: ok (git and turbo/package hold no catalog, gate, bank or name files)"
-  exit
+  r=0
+  name_guard "$G" && echo "name guard: ok (git and turbo/package hold no catalog, gate, bank or name files)" || r=1
+  knobs_guard "$G" || r=1
+  exit $r
 fi
 VER="$(sed -n 's/.*version = "\([0-9.]*\)".*/\1/p' "$ROOT/turbo/package/lua/libs/v2/imports/turbo/core/version.lua" | head -1)"
 [ -n "$VER" ] || { echo "cannot read the version"; exit 1; }
@@ -41,6 +51,7 @@ rm -rf "$STAGE/turbo/callnames/masters"
 mkdir -p "$STAGE/turbo"
 cp "$ROOT/turbogui/build/win/Turbo.dll" "$ROOT/turbogui/build/win/TurboInjector.exe" "$ROOT/turbogui/build/win/TurboProbe.exe" "$STAGE/turbo/"
 name_guard "$STAGE" || { echo "package refused: remove those files first"; exit 1; }
+knobs_guard "$STAGE" || { echo "package refused: a tuning knob is offered as a slider without its in-game proof"; exit 1; }
 find "$STAGE" -exec touch -d "2026-01-01 00:00:00" {} +
 mkdir -p "$ROOT/dist"; rm -f "$OUT"
 (cd "$STAGE" && find . -type f | LC_ALL=C sort | sed 's#^\./##' | zip -X -q "$OUT" -@)
