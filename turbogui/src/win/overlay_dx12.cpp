@@ -24,6 +24,7 @@
 #include "nlohmann/json.hpp"
 #include "callname_audio_win.h"
 #include "callname_voice_win.h"
+#include "kit_swap_win.h"
 #include "commentary_audio_win.h"
 #include "edit_unlock_hook_win.h"
 #include "game_calls_win.h"
@@ -1098,6 +1099,9 @@ bool start_overlay(HMODULE) {
     // Competitions > Gameplay tuning (opt-in turbo_output\tuning_on.txt); nothing is hooked, nothing is written at start-up
     install_tuning();
     g_app->tuning = tuning_service();
+    // 3D kits on the pitch (kit_swap_win.cpp): one hook on the game's Oodle decompressor (oo2core_9_win64.dll), observe / swap per kit
+    // from Teams > Kits, kill switch turbo_output\kits3d_off.txt
+    install_kit_swap(*g_app);
     // game editors' in-memory fallback (edit_unlock_hook_win.cpp): post-hook on the editor config loader, switches from
     // gui_settings "edit_unlock" (stage 1 on by default)
     install_edit_unlock_hook();
@@ -1118,6 +1122,7 @@ bool start_overlay(HMODULE) {
         for (const auto& line : team_names_status()) r.calls.push_back(line);
         for (const auto& line : team_sheet_status()) r.calls.push_back(line);
         for (const auto& line : tuning_status()) r.calls.push_back(line);
+        for (const auto& line : kit_swap_status()) r.calls.push_back(line);
         return r;
     };
     install_player_capture(*g_app);  // miniface from the 3D model (player_capture_win.cpp): needs the game hooks above

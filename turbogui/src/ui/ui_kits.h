@@ -7,8 +7,8 @@
 //   2. minikit.png as a custom legacy file (mods\legacy\data\ui\imgAssets\kits\j<type>_<teamid>_0.dds) in the game
 //      file's own size / format / mips, the crest writer's way (backup in turbo_output\kit_backups);
 //   3. the 24 textures converted to FC 27's sizes and formats (core/kit_import.h) and staged with manifest.json in
-//      turbo_output\kits\<teamid>\<slot>\ on a worker thread. The game does not read them yet (phase 2: Turbo's
-//      in-match texture swap).
+//      turbo_output\kits\<teamid>\<slot>\ on a worker thread. Turbo's in-match texture swap
+//      (core/kit_swap.h, 2.6) serves them to the game; Undo switches it off.
 // What was replaced is kept in turbo_output\kits\<teamid>\<slot>\import.json, so Undo works after a restart too.
 #pragma once
 #include <cstdint>
