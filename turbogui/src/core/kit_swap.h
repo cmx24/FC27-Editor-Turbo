@@ -128,7 +128,8 @@ struct KitBundle {
     int toc = 0;          // index in KitIndex::tocs
     uint32_t bundle = 0;
     int team = -1;
-    std::string kind;
+    std::string kind;     // the first kit folder the bundle names
+    uint32_t slot_mask = 0;  // bit s (0..4) = the bundle holds a kit folder of slot s (home, away, goalkeeper, third, fourth; loc2 variants too)
 };
 struct KitUser {
     int team = -1;
@@ -140,9 +141,12 @@ struct KitIndex {
     std::vector<KitBundle> bundles;
     // physical key "cas:offset:size" of every kit chunk -> who uses it
     std::unordered_map<std::string, std::vector<KitUser>> users;
+    // every kit folder the game has for a club ("home_0_0", "loc2_home_40_0", "away_1_0", "goalie_home_2_0", "third_3_0"...): which slots exist
+    std::map<int, std::set<std::string>> kinds;
     int bundles_seen = 0;
     int unreadable = 0;
     double seconds = 0;
+    bool from_cache = false;
 };
 struct Progress {
     std::atomic<bool> cancel{false};
@@ -151,6 +155,11 @@ struct Progress {
 };
 bool scan_kits(GameFiles& files, const OodleFn& oodle, KitIndex& out, Progress* progress = nullptr, std::string* err = nullptr);
 std::string phys_key(const Loc& l);
+// The index on disk (turbo_output\kits\kit_index.cache): valid while every toc (and layout.toc) has the same size and write time. A miss
+// (no file, other game build, damaged file) is never an error: the caller scans again.
+std::string index_signature(const GameFiles& files);
+bool save_index_cache(const GameFiles& files, const KitIndex& idx, const std::filesystem::path& file);
+bool load_index_cache(const GameFiles& files, const std::filesystem::path& file, KitIndex& out);
 
 // ---------------------------------------------------------------- staged textures (phase 1: turbo_output\kits\<team>\<slot>)
 struct StagedTexture {
@@ -229,12 +238,22 @@ struct PlanItem {
     std::string role;     // zip role, "" when the texture has none (weave arrays)
     bool swap = false;
     std::string reason;   // why not, or a note
+    bool probe = false;   // 2.7: watch only (a texture of another kit folder of the club, counted when the game loads it, never replaced)
     int blocks = 0;
     uint64_t bytes = 0;   // raw bytes swapped
     uint32_t table_item = 0xFFFFFFFFu;  // the item number in the Table (hit counters), when swap
 };
 struct Options {
     bool include_decals = true;   // brand_* / crest_* textures of the zip
+    // 2.7: keep the game's own club badge: the zip's crest_* / crest_shorts_* pictures are not served (the zip's decal is usually blank, which
+    // removes the game's dynamic badge). brand_* (sponsor) pictures follow include_decals. Default on: a blank zip decal never removes the badge.
+    bool keep_game_crest = true;
+    // 2.7: a texture the game shares between this club's kits (home / away / goalkeeper / third use one chunk) is served too and then shows in
+    // every kit that shares it. Off: such a texture stays the game's. Textures shared with ANOTHER club are never served.
+    bool share_within_club = false;
+    // 2.7: also register the game's own blocks of the club's other kit folders (watch only, never replaced) so one match shows which kit
+    // folders (home_0_0, loc2_home_40_0, away_1_0, ...) it really loads
+    bool watch_club = true;
     uint32_t min_csize = 1024;    // blocks with a smaller compressed size are uniform fill: never matched
     bool census = true;           // the block census over every kit chunk (header hops over the whole game's kit data)
     bool apply_hotspots = true;   // also put the zip's name / number / sleeve-badge placement (hotspots.hotspot) into the game's hotspot asset
@@ -271,7 +290,7 @@ struct Plan {
     bool ok = false;
     std::string error;
     std::vector<PlanItem> items;
-    int swapped = 0, skipped = 0;
+    int swapped = 0, skipped = 0, probes = 0;
     std::vector<std::string> notes;
 };
 // Builds the plan and appends the accepted blocks to `b` (see TableBuilder). Never throws.
@@ -280,6 +299,7 @@ public:
     TableBuilder();
     ~TableBuilder();
     // Adds a plan's blocks; plan items are numbered by the builder (item index = running count over all plans)
+    // data == nullptr: a watch-only item (its blocks carry no replacement and never conflict with a real one)
     uint32_t add_item(std::shared_ptr<std::vector<uint8_t>> data, bool swap);
     bool add_block(uint32_t item, uint32_t csize, uint32_t dsize, uint64_t head, uint64_t fnv, const uint8_t* data, std::string* conflict);
     // dropped_items: the items that lost every block (the same compressed block wanted with other bytes)
@@ -300,15 +320,29 @@ struct SlotState {
     int team = -1;
     int slot = -1;
     Mode mode = Mode::Observe;
+    // per kit (saved in swap_state.json, version 2; a version 1 file gets the defaults)
+    bool decals = true;       // serve the zip's brand_* / crest_* pictures at all
+    bool keep_crest = true;   // ... but not the crest_* ones (the game's club badge stays)
+    bool share_club = false;  // serve textures the game shares with this club's other kits
 };
 struct ItemStatus {
     int team = -1, slot = -1;
     std::string res, kind, role, reason;
     bool swap = false;
+    bool probe = false;   // watch only (another kit folder of the club)
+    int copies = 1;       // identical left-to-the-game entries (same resource at several places) are listed once
     int blocks = 0;
     uint64_t hits = 0;
     uint64_t first_ms = 0, last_ms = 0;  // wall clock of the first / last recognised block (0 = never)
     uint32_t table_item = 0xFFFFFFFFu;
+};
+// One kit folder of a club as the match used it: how many of its game textures (blocks) were decompressed so far
+struct KindSeen {
+    int team = -1;
+    std::string kind;        // "home_0_0", "loc2_home_40_0", "away_1_0", or "home_0_0+away_1_0" for one chunk both use
+    int textures = 0;        // textures registered (replaced + watch only)
+    int textures_seen = 0;   // of them at least one block was decompressed
+    uint64_t blocks_seen = 0;
 };
 struct Status {
     std::string state;       // "off", "building", "ready", "error"
@@ -326,7 +360,11 @@ struct Status {
     uint64_t bytes = 0;
     std::vector<SlotState> slots;
     std::vector<ItemStatus> items;
+    std::vector<KindSeen> kinds;  // per club and kit folder, from the items
     double index_seconds = 0;
+    bool index_cached = false;    // the kit index came from turbo_output\kits\kit_index.cache (no scan of the game's tocs)
+    int scan_done = 0, scan_total = 0;  // a running scan of the game's tocs (bundles)
+    bool scanning = false;
 };
 class Runtime {
 public:
@@ -334,6 +372,10 @@ public:
     Runtime(std::filesystem::path le_root, std::filesystem::path game_root, OodleFn oodle);
     ~Runtime();
     void set_hook_installed(bool on, const std::string& why_not);
+    // The host sets it: without turbo_output\kits3d_on.txt nothing is read, scanned or hooked (a kit left on in an old session stays inert)
+    bool require_opt_in = false;
+    // Runs at the start of every worker thread (the host lowers its priority so a scan does not compete with the game)
+    std::function<void()> worker_init;
     // The host's installer of the decompress hook: called ONCE, the first time a kit is activated (or restored at start-up), so a
     // player who never uses the feature has no hook at all. false + reason = not installed (activation refused). Unset = no hook
     // needed (tests).
@@ -343,11 +385,17 @@ public:
     // Activates a staged kit (turbo_output\kits\<team>\<slot>) in `mode`; async build. false + reason: nothing staged, unknown slot
     bool activate(int team, int slot, Mode mode, std::string* err);
     void deactivate(int team, int slot);
+    // Per-kit choices (decals, keep the game's badge, share within the club): saved, and the table is built again
+    bool set_slot_options(int team, int slot, bool decals, bool keep_crest, bool share_club);
+    bool slot_options(int team, int slot, bool* decals, bool* keep_crest, bool* share_club) const;
+    // The kit folders the game has for a club (empty until the kit index exists)
+    std::set<std::string> kinds_of(int team) const;
     // Builds the table again (the staged textures of an active kit changed)
     void rebuild() { rebuild_async(); }
     bool is_active(int team, int slot, Mode* mode = nullptr) const;
     Status status() const;
-    void set_killed(bool k) { killed_.store(k); }
+    // The kill switch: raised, it stops a running scan / build and the hot path; released, a build that was skipped because of it runs
+    void set_killed(bool k);
     bool killed() const { return killed_.load(); }
     // The hot path (any thread, no lock, no allocation). 0 = not a kit block, 1 = recognised, 2 = recognised and overwritten.
     // Call it after the original decompress returned dstlen.
@@ -366,6 +414,7 @@ public:
     bool opted_in() const;
     std::filesystem::path state_path() const;
     std::filesystem::path log_path() const;
+    std::filesystem::path index_cache_path() const;
     std::filesystem::path staged_dir(int team, int slot) const;
     // Tests: the table as published
     const Table* table() const { return table_.load(); }
@@ -401,6 +450,8 @@ private:
     std::atomic<bool> stop_{false};
     Progress progress_;
     std::atomic<bool> killed_{false};
+    bool build_skipped_ = false;  // a build did not run because of the kill switch / missing opt-in (m_)
+    bool index_cached_ = false;   // (m_)
     std::atomic<const Table*> table_{nullptr};
     std::atomic<bool> swap_any_{false};
     std::vector<std::shared_ptr<Table>> keep_;                 // published tables (m_)

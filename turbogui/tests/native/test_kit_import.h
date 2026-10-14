@@ -720,6 +720,43 @@ static void kit_import_ui_cases(App& app, Ui& ui, const fs::path& le) {
             CHECK(ui.click("Off##kswap", "##tkits", "home") && !rt.is_active(7, 0), "off");
             CHECK(ui.click("Show it on the pitch##kswap", "##tkits", "home") && rt.is_active(7, 0), "on again");
             rt.wait_idle();
+            // ---- 2.7: every slot has its own controls and its own saved choices (the away kit sits below the fold: scroll the panel there)
+            auto wheel = [&](float dy) {
+                if (const ItemRec* p = ui.find("Off##kswap", "##tkits", "home")) {
+                    ImGuiIO& io = ImGui::GetIO();
+                    io.AddMousePosEvent(p->rect.GetCenter().x, p->rect.GetCenter().y);
+                    ui.frame();
+                    io.AddMouseWheelEvent(0.0f, dy);
+                    ui.frames(3);
+                }
+            };
+            wheel(-30.0f);
+            CHECK(ui.find("Show it on the pitch##kswap", "##tkits", "away") && ui.find("Keep the game's club badge (do not use the zip's crest pictures)##kswap", "##tkits", "away") &&
+                      ui.find("Also change this club's other kits that share a texture with this one##kswap", "##tkits", "away"),
+                  "the away kit has its own 3D controls and options");
+            CHECK(!rt.is_active(7, 1), "away: off until switched on");
+            CHECK(ui.click("Show it on the pitch##kswap", "##tkits", "away") && rt.is_active(7, 1, &md) && md == kitswap::Mode::Swap && rt.is_active(7, 0), "away: Show it on the pitch, home stays on");
+            rt.wait_idle();
+            ui.frames(2);
+            {
+                bool d = false, k = false, sc = true;
+                CHECK(rt.slot_options(7, 1, &d, &k, &sc) && d && k && !sc, "away: default choices (zip decals on, game's badge kept, no sharing)");
+                CHECK(ui.click("Also change this club's other kits that share a texture with this one##kswap", "##tkits", "away"), "away: tick sharing");
+                CHECK(rt.slot_options(7, 1, &d, &k, &sc) && sc, "away: sharing saved");
+                bool d0 = false, k0 = false, s0 = true;
+                CHECK(rt.slot_options(7, 0, &d0, &k0, &s0) && !s0, "... and the home kit's own choice is untouched");
+                CHECK(ui.click("Keep the game's club badge (do not use the zip's crest pictures)##kswap", "##tkits", "away") && rt.slot_options(7, 1, &d, &k, &sc) && !k && sc, "away: untick keep the game's badge");
+                rt.wait_idle();
+            }
+            CHECK(ui.click("Off##kswap", "##tkits", "away") && !rt.is_active(7, 1) && rt.is_active(7, 0), "away: Off leaves the home kit on");
+            rt.wait_idle();
+            if (const ItemRec* p = ui.find("Off##kswap", "##tkits", "away")) {  // back to the top for the cases after this one
+                ImGuiIO& io = ImGui::GetIO();
+                io.AddMousePosEvent(p->rect.GetCenter().x, p->rect.GetCenter().y);
+                ui.frame();
+                io.AddMouseWheelEvent(0.0f, 60.0f);
+                ui.frames(3);
+            }
             // Undo of the import (below) must take the swap off: it runs with the Runtime still attached
         }
         // ---- the next career load: FC 27 reloads teamkits; the kept settings go back in

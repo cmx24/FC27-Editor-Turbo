@@ -40,6 +40,20 @@ static std::string now_text() {
     return when;
 }
 
+static std::string clock_text(uint64_t ms) {
+    if (!ms) return "-";
+    const time_t t = time_t(ms / 1000);
+    std::tm tmv;
+#ifdef _WIN32
+    localtime_s(&tmv, &t);
+#else
+    localtime_r(&t, &tmv);
+#endif
+    char b[40];
+    std::snprintf(b, sizeof(b), "%02d:%02d:%02d.%03d", tmv.tm_hour, tmv.tm_min, tmv.tm_sec, int(ms % 1000));
+    return b;
+}
+
 static std::string plural(size_t n, const char* one, const char* many) { return std::to_string(n) + " " + (n == 1 ? one : many); }
 
 static bool read_all(const fs::path& p, std::string& out) {
@@ -756,37 +770,80 @@ static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
         app.log(std::string("kit swap: team ") + std::to_string(teamid) + " " + kits::slot_label(s) + ": " + (ok ? kitswap::mode_name(sel == 0 ? kitswap::Mode::Off : sel == 1 ? kitswap::Mode::Observe : kitswap::Mode::Swap) : "refused: " + err));
         if (!ok) app.notify("3D kit: " + err, true);
     }
+    const kitswap::Status st = rt->status();
     if (active) {
-        const kitswap::Status st = rt->status();
-        int in_table = 0, left = 0;
+        int in_table = 0, left = 0, watch = 0;
         uint64_t seen = 0;
         for (const auto& it : st.items)
             if (it.team == teamid && it.slot == slot) {
-                if (it.swap) ++in_table;
+                if (it.probe) ++watch;
+                else if (it.swap) ++in_table;
                 else ++left;
-                seen += it.hits;
+                if (!it.probe) seen += it.hits;
             }
         ImGui::PushTextWrapPos(0.0f);
         ImGui::TextColored(st.state == "error" ? kWarn : kGood, "%s%s", st.state.c_str(), st.killed ? " (kill switch kits3d_off.txt is present: nothing is swapped)" : "");
         ImGui::SameLine();
-        ImGui::TextDisabled("%s | %d textures in the table, %d left to the game | blocks seen in the game so far: %llu | %s", st.message.c_str(), in_table, left,
-                            static_cast<unsigned long long>(seen), st.hook ? "hook installed" : "HOOK NOT INSTALLED");
+        if (st.scanning)
+            ImGui::TextDisabled("reading the game's kit data (%d of %d bundles; once per game update, then it is kept in turbo_output\\kits\\kit_index.cache)", st.scan_done, st.scan_total);
+        else
+            ImGui::TextDisabled("%s | %d textures in the table, %d left to the game, %d more watched | blocks of this kit seen in the game so far: %llu | %s | kit index %s",
+                                st.message.c_str(), in_table, left, watch, static_cast<unsigned long long>(seen), st.hook ? "hook installed" : "HOOK NOT INSTALLED",
+                                st.index_cached ? "from the saved copy" : "scanned this session");
         ImGui::PopTextWrapPos();
         if (ImGui::TreeNode("Textures##kswap")) {
             for (const auto& it : st.items)
                 if (it.team == teamid && it.slot == slot) {
                     const std::string leaf = it.res.substr(it.res.rfind('/') == std::string::npos ? 0 : it.res.rfind('/') + 1);
-                    const std::string detail = it.swap ? "seen " + std::to_string(it.hits) + " of " + std::to_string(it.blocks) + " blocks" + (it.role == "hotspots" ? " | " + it.reason : std::string())
-                                                       : it.reason;
-                    ImGui::TextDisabled("%s %s/%s: %s", it.swap ? "[in table]" : "[game's own]", it.kind.c_str(), leaf.c_str(), detail.c_str());
+                    const std::string copies = it.copies > 1 ? " (" + std::to_string(it.copies) + " copies in the game)" : "";
+                    std::string detail = it.swap || it.probe ? "seen " + std::to_string(it.hits) + " of " + std::to_string(it.blocks) + " blocks" : it.reason;
+                    if ((it.swap || it.probe) && it.hits) detail += " | first " + clock_text(it.first_ms) + ", last " + clock_text(it.last_ms);
+                    if ((it.swap || it.probe) && !it.reason.empty()) detail += (it.role == "hotspots" ? " | " : " - ") + it.reason;
+                    ImGui::TextDisabled("%s %s/%s: %s%s", it.probe ? "[watched]" : it.swap ? "[in table]" : "[game's own]", it.kind.c_str(), leaf.c_str(), detail.c_str(), copies.c_str());
                 }
             ImGui::TreePop();
         }
     }
+    // what the game has for this club, and what the last match used (all slots of the club)
+    const std::set<std::string> have = rt->kinds_of(int(teamid));
+    if (!have.empty()) {
+        std::string list;
+        for (const auto& k : have)
+            if (kitswap::kind_slot(k) >= 0) list += (list.empty() ? "" : ", ") + k;
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("3D kit folders the game has for this club: %s", list.c_str());
+        bool mine = false;
+        for (const auto& k : have) mine = mine || kitswap::kind_slot(k) == slot;
+        if (!mine) ImGui::TextColored(kWarn, "The game has no 3D %s kit for this club: switching it on finds nothing to replace.", kits::slot_label(s));
+        ImGui::PopTextWrapPos();
+    }
+    bool any_seen = false;
+    for (const auto& k : st.kinds) any_seen = any_seen || (k.team == teamid && k.blocks_seen);
+    if (active && ImGui::TreeNode("Kit folders the match loaded##kswap")) {
+        for (const auto& k : st.kinds)
+            if (k.team == teamid) ImGui::TextDisabled("%s: %d of %d textures, %llu blocks%s", k.kind.c_str(), k.textures_seen, k.textures, static_cast<unsigned long long>(k.blocks_seen),
+                                                      k.blocks_seen ? "  <- loaded" : "");
+        if (st.kinds.empty()) ImGui::TextDisabled("(nothing registered yet)");
+        else if (!any_seen) ImGui::TextDisabled("no match has loaded this club's kits since the game started");
+        ImGui::TreePop();
+    }
+    // per-kit choices (saved)
+    bool decals = true, keep_crest = true, share_club = false;
+    const bool have_opts = rt->slot_options(int(teamid), slot, &decals, &keep_crest, &share_club);
+    bool opt_changed = false;
+    if (!have_opts) ImGui::BeginDisabled();
+    opt_changed |= ImGui::Checkbox("Also use the zip's badge and brand pictures##kswap", &decals);
+    if (!decals) ImGui::BeginDisabled();
+    ImGui::SameLine();
+    opt_changed |= ImGui::Checkbox("Keep the game's club badge (do not use the zip's crest pictures)##kswap", &keep_crest);
+    if (!decals) ImGui::EndDisabled();
+    opt_changed |= ImGui::Checkbox("Also change this club's other kits that share a texture with this one##kswap", &share_club);
+    if (!have_opts) ImGui::EndDisabled();
+    if (opt_changed && have_opts) rt->set_slot_options(int(teamid), slot, decals, keep_crest, share_club);
     kitswap::Options kopt = rt->get_options();
-    bool decals = kopt.include_decals;
-    if (ImGui::Checkbox("Also use the zip's badge and brand pictures##kswap", &decals)) {
-        kopt.include_decals = decals;
+    bool watch_club = kopt.watch_club;
+    if (ImGui::Checkbox("Log which of this club's kit folders the match loads (watch only, all slots)##kswap", &watch_club)) {
+        kopt.watch_club = watch_club;
         rt->set_options(kopt);
         if (!rt->status().slots.empty()) rt->rebuild();
     }
@@ -798,7 +855,9 @@ static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
     }
     ImGui::PushTextWrapPos(0.0f);
     ImGui::TextDisabled("Takes effect when the game next loads this kit (the next match load, or after a game restart when the kit was already loaded this session). "
-                        "turbo_output\\kits3d_off.txt switches it off at once; the log is turbo_output\\kit_swap_log.txt.");
+                        "The zip's crest picture is usually blank: with 'keep the game's club badge' the game draws its own badge (if the zip's jersey also has a badge baked in, you may see two). "
+                        "A texture the game shares with another club is never replaced. turbo_output\\kits3d_off.txt switches the feature off at once (it also stops the reading of the game's kit data); "
+                        "the log is turbo_output\\kit_swap_log.txt.");
     ImGui::PopTextWrapPos();
     ImGui::Unindent();
 }

@@ -501,6 +501,8 @@ static void test_scan_and_plan(const fs::path& base) {
     StagedKit sk = stage_home(w);
     Options opt;
     opt.min_csize = 1024;
+    opt.keep_game_crest = false;  // the 2.6 behaviour: the zip's crest pictures are served
+    opt.watch_club = false;
     TableBuilder tb;
     Plan plan = build_plan(files, stand_in_oodle(), idx, sk, opt, true, tb, nullptr);
     check(plan.ok, "plan ok: " + plan.error);
@@ -534,6 +536,8 @@ static void test_table(const fs::path& base) {
     scan_kits(files, stand_in_oodle(), idx, nullptr, &err);
     StagedKit sk = stage_home(w);
     Options opt;
+    opt.keep_game_crest = false;
+    opt.watch_club = false;
     TableBuilder tb;
     Plan plan = build_plan(files, stand_in_oodle(), idx, sk, opt, true, tb, nullptr);
     std::vector<std::string> dropped;
@@ -806,10 +810,13 @@ static void test_runtime(const fs::path& base) {
     {
         Runtime rt(w.le, w.root, stand_in_oodle());
         rt.options.min_csize = 1024;
+        rt.options.watch_club = false;
         rt.set_hook_installed(true, "");
         std::string err;
         check(!rt.activate(95, 3, Mode::Observe, &err) && !err.empty(), "activating a slot with nothing staged is refused: " + err);
         check(rt.activate(95, 0, Mode::Observe, &err), "activate observe: " + err);
+        rt.wait_idle();
+        check(rt.set_slot_options(95, 0, true, false, false), "per-kit options: zip crest served");
         rt.wait_idle();
         Status s = rt.status();
         check(s.state == "ready" && s.blocks > 0, "ready with blocks: " + s.state + " / " + s.message);
@@ -914,8 +921,442 @@ static void test_runtime(const fs::path& base) {
     }
 }
 
+
+// ---------------------------------------------------------------- 2.7: every slot of any club
+// Club 120 ("testfc_120"): home, away, goalkeeper, third and a loc2 away; the away jersey normal map is the home's chunk (a club-internal share);
+// the goalkeeper's normal map is also club 121's (never served). Chunk registration order: see the list below.
+struct World2 {
+    fs::path root, le;
+    GameBuilder g;
+    std::mt19937 rng{23};
+};
+static World2 make_world2(const fs::path& base) {
+    World2 w;
+    w.root = base / "game";
+    w.le = base / "le";
+    w.g.root = w.root;
+    using T = GameBuilder::TexSpec;
+    const int C = 120;
+    // 0 home jersey_color, 1 home jersey_normal, 2 home shorts_color, 3 home crest_color
+    w.g.add_bundle({T{P("home_0_0", "jersey", "jersey_120_0_0_color", C), 55, 256, 256, 9, {}, -1, 16384}, T{P("home_0_0", "jersey", "jersey_120_0_0_normal", C), 63, 128, 128, 8, {}, -1, 8192},
+                    T{P("home_0_0", "shorts", "shorts_120_0_0_color", C), 55, 128, 128, 8, {}, -1, 8192}, T{P("home_0_0", "jersey", "crest_120_0_0_color", C), 61, 64, 64, 7, {}, -1, 8192}});
+    // 4 away jersey_color, 5 away jersey_normal (the home's chunk), 6 away shorts_color, 7 away crest_color
+    w.g.add_bundle({T{P("away_1_0", "jersey", "jersey_120_1_0_color", C), 55, 256, 256, 9, {}, -1, 16384}, T{P("away_1_0", "jersey", "jersey_120_1_0_normal", C), 63, 128, 128, 8, {}, 1, 8192},
+                    T{P("away_1_0", "shorts", "shorts_120_1_0_color", C), 55, 128, 128, 8, {}, -1, 8192}, T{P("away_1_0", "jersey", "crest_120_1_0_color", C), 61, 64, 64, 7, {}, -1, 8192}});
+    // 8 goalkeeper jersey_color, 9 goalkeeper jersey_normal
+    w.g.add_bundle({T{P("goalie_home_2_0", "jersey", "jersey_120_2_0_color", C), 55, 256, 256, 9, {}, -1, 16384}, T{P("goalie_home_2_0", "jersey", "jersey_120_2_0_normal", C), 63, 128, 128, 8, {}, -1, 8192}});
+    // 10 third jersey_color
+    w.g.add_bundle({T{P("third_3_0", "jersey", "jersey_120_3_0_color", C), 55, 256, 256, 9, {}, -1, 16384}});
+    // 11 loc2 away jersey_color (its own chunk)
+    w.g.add_bundle({T{P("loc2_away_41_0", "jersey", "jersey_120_41_0_color", C), 55, 256, 256, 9, {}, -1, 16384}});
+    // 12 club 121: shares the goalkeeper's jersey_normal chunk
+    w.g.add_bundle({T{P("home_0_0", "jersey", "jersey_121_0_0_normal", 121), 63, 128, 128, 8, {}, 9, 8192}});
+    w.g.write();
+    return w;
+}
+struct RoleSpec {
+    const char* role;
+    uint32_t fmt;
+    int w, h, mips;
+};
+static const RoleSpec kJerseyColor = {"jersey_color", 55, 256, 256, 9}, kJerseyNormal = {"jersey_normal", 63, 128, 128, 8}, kShortsColor = {"shorts_color", 55, 128, 128, 8},
+                      kCrestColor = {"crest_color", 61, 64, 64, 7};
+static fs::path stage_kit(World2& w, int team, int slot, const char* folder, const std::vector<RoleSpec>& roles, std::map<std::string, std::vector<uint8_t>>* keep = nullptr) {
+    const fs::path dir = w.le / "turbo_output" / "kits" / std::to_string(team) / folder;
+    std::vector<json> tex;
+    for (const RoleSpec& r : roles) {
+        std::vector<uint8_t> data;
+        stage_texture(dir, r.role, r.fmt, r.w, r.h, r.mips, tex, w.rng, &data);
+        if (keep) (*keep)[r.role] = data;
+    }
+    write_manifest(dir, team, slot, tex);
+    return dir;
+}
+static std::vector<uint8_t> chunk_bytes(const GameBuilder& g, size_t idx) {
+    const auto& c = g.chunk_locs[idx];
+    return std::vector<uint8_t>(g.cas.begin() + std::ptrdiff_t(c[0]), g.cas.begin() + std::ptrdiff_t(c[0] + c[1]));
+}
+// the first block of chunk `idx`: its compressed bytes and sizes
+struct Blk {
+    std::vector<uint8_t> src;
+    uint32_t dsize = 0;
+};
+static Blk first_block(const GameBuilder& g, size_t idx) {
+    const auto chunk = chunk_bytes(g, idx);
+    std::vector<Block> bl;
+    block_headers(chunk, bl);
+    Blk b;
+    b.src.assign(chunk.begin() + std::ptrdiff_t(bl[0].payload), chunk.begin() + std::ptrdiff_t(bl[0].payload + bl[0].csize));
+    b.dsize = bl[0].dsize;
+    return b;
+}
+static const PlanItem* item_of(const Plan& p, const std::string& leaf) {
+    for (const auto& i : p.items)
+        if (i.res.size() > leaf.size() && i.res.compare(i.res.size() - leaf.size() - 1, leaf.size() + 1, "/" + leaf) == 0) return &i;
+    return nullptr;
+}
+
+static void test_any_club_slots(const fs::path& base) {
+    World2 w = make_world2(base / "w2");
+    GameFiles files(w.root);
+    std::string err;
+    files.init(&err);
+    KitIndex idx;
+    check(scan_kits(files, stand_in_oodle(), idx, nullptr, &err), "scan club 120: " + err);
+    const auto& kinds = idx.kinds[120];
+    check(kinds.count("home_0_0") && kinds.count("away_1_0") && kinds.count("goalie_home_2_0") && kinds.count("third_3_0") && kinds.count("loc2_away_41_0") && kinds.size() == 5,
+          "the game's kit folders of club 120 are read from its names (home, away, goalkeeper, third, loc2 away), got " + std::to_string(kinds.size()));
+    check(idx.kinds[121].size() == 1, "club 121 has one folder");
+    uint32_t away_mask = 0;
+    for (const auto& b : idx.bundles)
+        if (b.team == 120 && b.kind == "away_1_0") away_mask = b.slot_mask;
+    check(away_mask == (1u << 1), "bundle slot mask of the away bundle = slot 1");
+
+    Options opt;
+    opt.watch_club = false;
+    // ---- away: jersey_color + shorts_color served, the normal map is the home's chunk (left), the crest stays the game's (default keep), loc2 away color served too
+    std::map<std::string, std::vector<uint8_t>> away_data;
+    stage_kit(w, 120, 1, "away", {kJerseyColor, kJerseyNormal, kShortsColor, kCrestColor}, &away_data);
+    StagedKit away;
+    check(load_staged(w.le / "turbo_output" / "kits" / "120" / "away", away, &err), "load away: " + err);
+    {
+        TableBuilder tb;
+        Plan p = build_plan(files, stand_in_oodle(), idx, away, opt, true, tb, nullptr);
+        check(p.ok, "away plan ok: " + p.error);
+        const PlanItem* jc = item_of(p, "jersey_120_1_0_color");
+        const PlanItem* jn = item_of(p, "jersey_120_1_0_normal");
+        const PlanItem* sc = item_of(p, "shorts_120_1_0_color");
+        const PlanItem* cc = item_of(p, "crest_120_1_0_color");
+        const PlanItem* l2 = item_of(p, "jersey_120_41_0_color");
+        check(jc && jc->swap && sc && sc->swap, "away: jersey_color and shorts_color served");
+        check(l2 && l2->swap && l2->kind == "loc2_away_41_0", "away: the loc2 away folder is part of the away slot");
+        check(jn && !jn->swap && jn->reason.find("used by this club's home_0_0") != std::string::npos, "away: the normal map shared with the home kit stays the game's: " + (jn ? jn->reason : "?"));
+        check(cc && !cc->swap && cc->reason.find("club badge stays") != std::string::npos, "away: the crest picture is not served by default (the game's badge stays)");
+        check(!item_of(p, "jersey_120_0_0_color") && !item_of(p, "jersey_120_2_0_color") && !item_of(p, "jersey_120_3_0_color"), "away plan: no item of the home / goalkeeper / third kits");
+        check(p.probes == 0, "watch_club off: no watch-only items");
+    }
+    {   // the crest option off: the crest picture is served; the zip's decals off: neither crest nor brand
+        Options o2 = opt;
+        o2.keep_game_crest = false;
+        TableBuilder tb;
+        Plan p = build_plan(files, stand_in_oodle(), idx, away, o2, true, tb, nullptr);
+        const PlanItem* cc = item_of(p, "crest_120_1_0_color");
+        check(cc && cc->swap, "keep_game_crest off: the zip's crest picture is served");
+        o2.include_decals = false;
+        TableBuilder tb2;
+        Plan p2 = build_plan(files, stand_in_oodle(), idx, away, o2, true, tb2, nullptr);
+        const PlanItem* cc2 = item_of(p2, "crest_120_1_0_color");
+        check(cc2 && !cc2->swap && cc2->reason.find("decals") != std::string::npos, "decals off: crest left");
+        check(item_of(p2, "jersey_120_1_0_color")->swap, "decals off: the jersey is still served");
+    }
+    {   // share within the club: the away kit's normal map is served and the note says the home kit shows it too
+        Options o2 = opt;
+        o2.share_within_club = true;
+        TableBuilder tb;
+        Plan p = build_plan(files, stand_in_oodle(), idx, away, o2, true, tb, nullptr);
+        const PlanItem* jn = item_of(p, "jersey_120_1_0_normal");
+        check(jn && jn->swap && jn->reason.find("home_0_0") != std::string::npos && jn->reason.find("show it too") != std::string::npos, "share_within_club: served, with the note: " + (jn ? jn->reason : "?"));
+        // a table over BOTH home and away with different normal maps: the shared chunk is wanted with two different pictures -> both dropped
+        stage_kit(w, 120, 0, "home", {kJerseyColor, kJerseyNormal}, nullptr);
+        StagedKit home;
+        load_staged(w.le / "turbo_output" / "kits" / "120" / "home", home, &err);
+        TableBuilder tb2;
+        Plan ph = build_plan(files, stand_in_oodle(), idx, home, o2, true, tb2, nullptr);
+        Plan pa = build_plan(files, stand_in_oodle(), idx, away, o2, true, tb2, nullptr);
+        std::set<uint32_t> dropped;
+        std::vector<std::string> dr;
+        auto table = tb2.finish(&dr, &dropped);
+        const PlanItem* hn = item_of(ph, "jersey_120_0_0_normal");
+        const PlanItem* an = item_of(pa, "jersey_120_1_0_normal");
+        check(hn && an && dropped.count(hn->table_item) && dropped.count(an->table_item), "home + away with different pictures for the shared chunk: both are dropped (no half-served kit)");
+        check(!dropped.count(item_of(pa, "jersey_120_1_0_color")->table_item), "... the other textures of the away kit stay");
+        // the same picture for both kits is fine (one entry, two counters)
+        (void)table;
+    }
+    // ---- goalkeeper and third
+    stage_kit(w, 120, 2, "goalkeeper", {kJerseyColor, kJerseyNormal}, nullptr);
+    stage_kit(w, 120, 3, "third", {kJerseyColor}, nullptr);
+    StagedKit gk, third;
+    load_staged(w.le / "turbo_output" / "kits" / "120" / "goalkeeper", gk, &err);
+    load_staged(w.le / "turbo_output" / "kits" / "120" / "third", third, &err);
+    {
+        TableBuilder tb;
+        Plan p = build_plan(files, stand_in_oodle(), idx, gk, opt, true, tb, nullptr);
+        const PlanItem* jc = item_of(p, "jersey_120_2_0_color");
+        const PlanItem* jn = item_of(p, "jersey_120_2_0_normal");
+        check(p.ok && jc && jc->swap, "goalkeeper: jersey_color served");
+        check(jn && !jn->swap && jn->reason.find("team 121") != std::string::npos, "goalkeeper: the normal map another club uses stays the game's, even with sharing on: " + (jn ? jn->reason : "?"));
+        Options o2 = opt;
+        o2.share_within_club = true;
+        TableBuilder tb2;
+        Plan p2 = build_plan(files, stand_in_oodle(), idx, gk, o2, true, tb2, nullptr);
+        check(!item_of(p2, "jersey_120_2_0_normal")->swap, "share_within_club never serves a texture another CLUB uses");
+        TableBuilder tb3;
+        Plan p3 = build_plan(files, stand_in_oodle(), idx, third, opt, true, tb3, nullptr);
+        check(p3.ok && item_of(p3, "jersey_120_3_0_color") && item_of(p3, "jersey_120_3_0_color")->swap, "third: jersey_color served");
+    }
+    {   // a club without the slot: a clear plan error, nothing written
+        StagedKit fourth = third;
+        fourth.slot = 4;
+        TableBuilder tb;
+        Plan p = build_plan(files, stand_in_oodle(), idx, fourth, opt, true, tb, nullptr);
+        check(!p.ok && p.error.find("no 3D kit textures") != std::string::npos, "a slot the game has no kit for: an error that says so: " + p.error);
+    }
+    // ---- watch only: the other kit folders of the club are registered without replacement data
+    {
+        Options o2;
+        o2.min_csize = 1024;
+        TableBuilder tb;
+        Plan p = build_plan(files, stand_in_oodle(), idx, away, o2, true, tb, nullptr);
+        check(p.ok && p.probes > 0, "watch_club on: watch-only items for the club's other kit folders: " + std::to_string(p.probes));
+        const PlanItem* hp = item_of(p, "jersey_120_0_0_color");
+        const PlanItem* tp = item_of(p, "jersey_120_3_0_color");
+        const PlanItem* gp = item_of(p, "jersey_120_2_0_normal");
+        check(hp && hp->probe && !hp->swap && tp && tp->probe, "home and third jersey colours are watched");
+        check(!gp || !gp->probe, "a chunk another club uses is not watched (a hit would say nothing about this club)");
+        auto table = tb.finish(nullptr);
+        const Blk hb = first_block(w.g, 0), ab = first_block(w.g, 4);
+        const Entry* he = table->match(hb.src.data(), hb.src.size(), hb.dsize);
+        check(he && !table->swap_item(he->item) && he->data == nullptr, "a watched block is found but has no replacement and no swap flag");
+        const Entry* ae = table->match(ab.src.data(), ab.src.size(), ab.dsize);
+        check(ae && table->swap_item(ae->item) && ae->data, "the away block is the one that is replaced");
+        check(table->bytes() > 0, "watch-only blocks add no replacement bytes");
+    }
+    {   // sharing on: a byte-identical block inside ANOTHER chunk of the same club is still left to the game (no patched fragment)
+        World2 w3 = make_world2(base / "w2c");
+        GameBuilder& g = w3.g;
+        std::vector<uint8_t> raw;
+        {
+            const auto st = chunk_bytes(g, 0);  // home jersey_color raw bytes
+            read_blocks(st, stand_in_oodle(), raw, nullptr);
+        }
+        using T = GameBuilder::TexSpec;
+        g.add_bundle({T{P("third_3_0", "shorts", "shorts_120_3_0_color", 120), 55, 256, 256, 9, raw, -1, 16384}});
+        g.write();
+        GameFiles f3(w3.root);
+        f3.init(nullptr);
+        KitIndex i3;
+        scan_kits(f3, stand_in_oodle(), i3, nullptr, nullptr);
+        stage_kit(w3, 120, 0, "home", {kJerseyColor}, nullptr);
+        StagedKit hk;
+        load_staged(w3.le / "turbo_output" / "kits" / "120" / "home", hk, nullptr);
+        Options o3;
+        o3.watch_club = false;
+        o3.share_within_club = true;
+        TableBuilder tb3;
+        Plan p3 = build_plan(f3, stand_in_oodle(), i3, hk, o3, true, tb3, nullptr);
+        const PlanItem* hj = item_of(p3, "jersey_120_0_0_color");
+        check(hj && !hj->swap && hj->reason.find("byte-identical") != std::string::npos, "identical block in another chunk of the club stays the game's even with sharing on: " + (hj ? hj->reason : "?"));
+    }
+    {   // a watch-only record with the same block as a real item never wins and never conflicts
+        TableBuilder b;
+        std::vector<uint8_t> key(64, 5), rep1(64, 1);
+        auto real = std::make_shared<std::vector<uint8_t>>(rep1);
+        const uint32_t probe = b.add_item(nullptr, false), item = b.add_item(real, true);
+        uint64_t head;
+        std::memcpy(&head, key.data(), 8);
+        const uint64_t f = fnv1a64(key.data(), key.size());
+        check(b.add_block(probe, 64, 64, head, f, nullptr, nullptr), "watch-only block accepted without data");
+        check(!b.add_block(item, 64, 64, head, f, nullptr, nullptr), "a real item needs data");
+        check(b.add_block(item, 64, 64, head, f, real->data(), nullptr), "real block");
+        std::set<uint32_t> dropped;
+        auto t = b.finish(nullptr, &dropped);
+        const Entry* e = t->match(key.data(), 64, 64);
+        check(dropped.empty() && t->size() == 1 && e && e->data && t->swap_item(e->item), "the real record survives, nothing is dropped");
+        if (e) {
+            t->count_hit(*e);
+            check(t->hits(probe) == 1 && t->hits(item) == 1, "both counters tick");
+        }
+        // watch-only first, real second (order must not matter)
+        TableBuilder b2;
+        const uint32_t i2 = b2.add_item(real, true), p2 = b2.add_item(nullptr, false);
+        b2.add_block(i2, 64, 64, head, f, real->data(), nullptr);
+        b2.add_block(p2, 64, 64, head, f, nullptr, nullptr);
+        auto t2 = b2.finish(nullptr, nullptr);
+        const Entry* e2 = t2->match(key.data(), 64, 64);
+        check(t2->size() == 1 && e2 && e2->data, "order does not matter");
+    }
+}
+
+static void test_runtime_slots(const fs::path& base) {
+    World2 w = make_world2(base / "w2rt");
+    std::map<std::string, std::vector<uint8_t>> away_data, gk_data;
+    stage_kit(w, 120, 1, "away", {kJerseyColor, kShortsColor}, &away_data);
+    stage_kit(w, 120, 2, "goalkeeper", {kJerseyColor}, &gk_data);
+    Runtime rt(w.le, w.root, stand_in_oodle());
+    rt.options.min_csize = 1024;
+    rt.set_hook_installed(true, "");
+    std::string err;
+    check(rt.activate(120, 1, Mode::Swap, &err), "activate away: " + err);
+    check(rt.activate(120, 2, Mode::Observe, &err), "activate goalkeeper (observe): " + err);
+    rt.wait_idle();
+    Status s = rt.status();
+    check(s.state == "ready", "two slots of club 120: ready: " + s.state + " / " + s.message);
+    check(!rt.kinds_of(120).empty() && rt.kinds_of(120).count("third_3_0") && rt.kinds_of(7).empty(), "kinds_of(club) from the index");
+    const Blk away_blk = first_block(w.g, 4), home_blk = first_block(w.g, 0), third_blk = first_block(w.g, 10), gk_blk = first_block(w.g, 8), l2_blk = first_block(w.g, 11);
+    std::vector<uint8_t> out(away_blk.dsize, 0xEE);
+    check(rt.on_block(away_blk.src.data(), away_blk.src.size(), out.data(), away_blk.dsize) == 2 && std::memcmp(out.data(), away_data["jersey_color"].data(), out.size()) == 0,
+          "the away jersey block is overwritten with the away picture");
+    std::vector<uint8_t> out2(gk_blk.dsize, 0xEE);
+    check(rt.on_block(gk_blk.src.data(), gk_blk.src.size(), out2.data(), gk_blk.dsize) == 1 && out2[0] == 0xEE, "goalkeeper in observe mode: recognised, not overwritten (no leak between the slots)");
+    std::vector<uint8_t> out3(home_blk.dsize, 0xEE), out4(third_blk.dsize, 0xEE);
+    check(rt.on_block(home_blk.src.data(), home_blk.src.size(), out3.data(), home_blk.dsize) == 1 && out3[0] == 0xEE, "the home kit (not switched on) is only watched, never overwritten");
+    check(rt.on_block(third_blk.src.data(), third_blk.src.size(), out4.data(), third_blk.dsize) == 1 && out4[0] == 0xEE, "the third kit is only watched");
+    std::vector<uint8_t> out5(l2_blk.dsize, 0xEE);
+    check(rt.on_block(l2_blk.src.data(), l2_blk.src.size(), out5.data(), l2_blk.dsize) == 2, "the loc2 away folder is overwritten too (same slot)");
+    s = rt.status();
+    auto seen = [&](const std::string& kind) -> uint64_t {
+        for (const auto& k : s.kinds)
+            if (k.team == 120 && k.kind == kind) return k.blocks_seen;
+        return uint64_t(-1);
+    };
+    check(seen("away_1_0") == 1 && seen("home_0_0") == 1 && seen("third_3_0") == 1 && seen("goalie_home_2_0") == 1 && seen("loc2_away_41_0") == 1, "the per-kit-folder summary shows which folders the match loaded");
+    rt.flush_log(true);
+    std::ifstream lf(rt.log_path());
+    std::string log((std::istreambuf_iterator<char>(lf)), std::istreambuf_iterator<char>());
+    check(log.find("KIT FOLDERS THE GAME LOADED") != std::string::npos && log.find("team 120 third_3_0: 1 of") != std::string::npos && log.find("team 120 home_0_0: 1 of") != std::string::npos &&
+              log.find("kit index: scanned") != std::string::npos && log.find("zip decals on") != std::string::npos,
+          "the log lists the kit folders the match loaded");
+    check(fs::exists(rt.index_cache_path()), "the kit index was saved after the first scan");
+    // per-kit options: persisted, a restart brings them back
+    check(rt.set_slot_options(120, 1, false, false, true), "set_slot_options");
+    rt.wait_idle();
+    {
+        Runtime r2(w.le, w.root, stand_in_oodle());
+        r2.start();
+        r2.wait_idle();
+        bool d = true, k = true, sc = false;
+        check(r2.slot_options(120, 1, &d, &k, &sc) && !d && !k && sc, "per-kit options survive a restart");
+        check(r2.status().state == "ready" && r2.status().index_cached, "the restart reads the saved kit index instead of scanning the game");
+        Mode m;
+        check(r2.is_active(120, 2, &m) && m == Mode::Observe, "the goalkeeper's mode survives");
+    }
+    rt.deactivate(120, 1);
+    rt.deactivate(120, 2);
+    rt.wait_idle();
+}
+
+static void test_guards_and_cache(const fs::path& base) {
+    World2 w = make_world2(base / "w2g");
+    stage_kit(w, 120, 1, "away", {kJerseyColor}, nullptr);
+    const fs::path state = w.le / "turbo_output" / "kits" / "swap_state.json";
+    fs::create_directories(state.parent_path());
+    {   // a version 1 state file (no options): defaults, and it still loads
+        std::ofstream(state) << R"({"version":1,"kits":[{"team":120,"slot":"away","slot_type":1,"mode":"swap"}]})";
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        rt.start();
+        rt.wait_idle();
+        bool d = false, k = false, sc = true;
+        check(rt.slot_options(120, 1, &d, &k, &sc) && d && k && !sc, "a version 1 state file loads with the default options");
+        check(rt.status().state == "ready", "... and builds: " + rt.status().state);
+        rt.deactivate(120, 1);
+        rt.wait_idle();
+        fs::remove(rt.index_cache_path());
+        fs::remove(rt.log_path());
+    }
+    std::ofstream(state) << R"({"version":2,"kits":[{"team":120,"slot":"away","slot_type":1,"mode":"swap","decals":true,"keep_game_crest":true,"share_within_club":false}]})";
+    const fs::path opt_in = w.le / "turbo_output" / "kits3d_on.txt";
+    {   // no opt-in file: a kit left on reads nothing, scans nothing, writes nothing
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        rt.require_opt_in = true;
+        int hook_calls = 0;
+        rt.ensure_hook = [&](std::string*) { ++hook_calls; return true; };
+        rt.start();
+        rt.wait_idle();
+        check(rt.status().state == "off" && rt.status().message.find("kits3d_on.txt") != std::string::npos, "no opt-in file: state off, says why: " + rt.status().message);
+        check(rt.kinds_of(120).empty() && !fs::exists(rt.index_cache_path()) && !fs::exists(rt.log_path()), "no opt-in file: no scan, no cache, no log");
+        std::string err;
+        check(!rt.activate(120, 1, Mode::Swap, &err) && err.find("kits3d_on.txt") != std::string::npos, "no opt-in file: activation refused: " + err);
+        check(hook_calls == 0, "no opt-in file: the hook was never asked for");
+    }
+    std::ofstream(opt_in) << "on";
+    {   // the kill switch before start: no scan; released: the skipped build runs
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        rt.require_opt_in = true;
+        rt.ensure_hook = [&](std::string*) { return true; };
+        rt.set_hook_installed(true, "");
+        rt.set_killed(true);
+        rt.start();
+        rt.wait_idle();
+        check(rt.status().state == "off" && rt.status().message.find("kits3d_off.txt") != std::string::npos && rt.kinds_of(120).empty() && !fs::exists(rt.index_cache_path()),
+              "kill switch at start: no scan, no cache: " + rt.status().message);
+        rt.set_killed(false);
+        rt.wait_idle();
+        check(rt.status().state == "ready" && fs::exists(rt.index_cache_path()), "kill switch released: the skipped build runs: " + rt.status().state);
+        check(!rt.status().index_cached, "... as a scan (no cache yet)");
+    }
+    {   // a second session: the saved index is used; a changed toc invalidates it
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        rt.require_opt_in = true;
+        rt.start();
+        rt.wait_idle();
+        check(rt.status().state == "ready" && rt.status().index_cached, "second session: kit index from the saved copy");
+    }
+    {
+        std::ofstream t(w.root / "Data" / "Win32" / "contentsb.toc", std::ios::binary | std::ios::app);
+        t.put('\0');
+    }
+    {
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        rt.require_opt_in = true;
+        rt.start();
+        rt.wait_idle();
+        check(rt.status().state == "ready" && !rt.status().index_cached, "a changed toc (a game update): the index is scanned again");
+    }
+    {   // a damaged cache is a miss, never a failure
+        std::ofstream bad(w.le / "turbo_output" / "kits" / "kit_index.cache", std::ios::binary | std::ios::trunc);
+        bad << "not a cache";
+    }
+    {
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        rt.start();
+        rt.wait_idle();
+        check(rt.status().state == "ready" && !rt.status().index_cached, "a damaged cache: scanned again");
+        GameFiles gf(w.root);
+        gf.init(nullptr);
+        KitIndex a, b;
+        scan_kits(gf, stand_in_oodle(), a, nullptr, nullptr);
+        const fs::path cf = w.le / "cache_roundtrip.bin";
+        check(save_index_cache(gf, a, cf) && load_index_cache(gf, cf, b) && b.bundles.size() == a.bundles.size() && b.users.size() == a.users.size() && b.kinds == a.kinds && b.from_cache,
+              "index cache round trip");
+        // truncated copies never load
+        std::ifstream in(cf, std::ios::binary);
+        std::string all((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        bool any_loaded = false;
+        for (size_t cut : {all.size() - 1, all.size() / 2, size_t(20), size_t(3)}) {
+            std::ofstream(cf, std::ios::binary | std::ios::trunc).write(all.data(), std::streamsize(cut));
+            KitIndex c;
+            any_loaded = any_loaded || load_index_cache(gf, cf, c);
+        }
+        check(!any_loaded, "truncated cache files are refused");
+    }
+    // ---- the kill switch stops a build that is running (the plan reads the game's texture headers through the slow decompressor)
+    {
+        fs::remove(w.le / "turbo_output" / "kits" / "kit_index.cache");
+        std::atomic<int> calls{0};
+        OodleFn slow = [&](const uint8_t* src, size_t n, uint8_t* dst, size_t dn) {
+            ++calls;
+            std::this_thread::sleep_for(std::chrono::milliseconds(40));
+            return stand_in_oodle()(src, n, dst, dn);
+        };
+        Runtime rt(w.le, w.root, slow);
+        rt.require_opt_in = true;
+        rt.start();
+        for (int i = 0; i < 200 && calls.load() == 0; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        check(calls.load() > 0, "the build is running (slow decompressor)");
+        rt.set_killed(true);
+        rt.wait_idle();
+        const int at_stop = calls.load();
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        check(calls.load() == at_stop && rt.status().state == "off", "the kill switch stops a running build: " + std::to_string(at_stop) + " decompressions, state " + rt.status().state);
+        check(rt.table() == nullptr, "... and publishes no table");
+    }
+    fs::remove(opt_in);
+}
+
 // ---------------------------------------------------------------- optional: the real install (read only)
 static std::string g_real_hotspots;  // --hotspots FILE: the zip's hotspots.hotspot, staged beside the stand-in textures of the real-install smoke test
+static bool g_real_share = false, g_real_zip_crest = false, g_real_nowatch = false;
 static int real_game(const std::string& game, int team, int slot) {
     OodleFn oodle;
 #ifdef _WIN32
@@ -974,6 +1415,25 @@ static int real_game(const std::string& game, int team, int slot) {
         return 2;
     }
     Options opt;
+    opt.share_within_club = g_real_share;
+    opt.keep_game_crest = !g_real_zip_crest;
+    opt.watch_club = !g_real_nowatch;
+    {
+        const fs::path cf = fs::temp_directory_path() / "kitswap_real_index.cache";
+        KitIndex again;
+        const auto tc = std::chrono::steady_clock::now();
+        const bool saved = save_index_cache(files, idx, cf);
+        const double save_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - tc).count();
+        const auto tl = std::chrono::steady_clock::now();
+        const bool loaded = load_index_cache(files, cf, again);
+        std::error_code ec;
+        std::printf("index cache: saved=%d (%.2f s, %llu bytes) loaded=%d in %.2f s, same bundles %d users %d\n", saved, save_s, static_cast<unsigned long long>(fs::file_size(cf, ec)), loaded,
+                    std::chrono::duration<double>(std::chrono::steady_clock::now() - tl).count(), int(again.bundles.size() == idx.bundles.size()), int(again.users.size() == idx.users.size()));
+        fs::remove(cf, ec);
+        std::string ks;
+        for (const auto& k : idx.kinds[team]) ks += k + " ";
+        std::printf("kit folders of team %d: %s\n", team, ks.c_str());
+    }
     TableBuilder tb;
     const auto t1 = std::chrono::steady_clock::now();
     Plan plan = build_plan(files, oodle, idx, sk, opt, false, tb, &pg);
@@ -981,7 +1441,8 @@ static int real_game(const std::string& game, int team, int slot) {
     std::printf("plan: ok=%d error=%s swapped=%d left=%d in %.1f s (total %.1f s)\n", plan.ok, plan.error.c_str(), plan.swapped, plan.skipped, s,
                 std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
     for (const auto& i : plan.items)
-        std::printf("  %-18s %-34s %-5s blocks %2d %s\n", i.kind.c_str(), i.res.substr(i.res.rfind('/') + 1).c_str(), i.swap ? "SWAP" : "left", i.blocks, i.reason.c_str());
+        std::printf("  %-18s %-34s %-5s blocks %2d %s\n", i.kind.c_str(), i.res.substr(i.res.rfind('/') + 1).c_str(), i.swap ? "SWAP" : i.probe ? "watch" : "left", i.blocks, i.reason.c_str());
+    std::printf("watch-only items: %d\n", plan.probes);
     for (const auto& n : plan.notes) std::printf("  note: %s\n", n.c_str());
     std::vector<std::string> dropped;
     auto table = tb.finish(&dropped);
@@ -999,6 +1460,9 @@ int main(int argc, char** argv) {
         else if (a == "--team" && i + 1 < argc) team = std::atoi(argv[++i]);
         else if (a == "--slot" && i + 1 < argc) slot = std::atoi(argv[++i]);
         else if (a == "--hotspots" && i + 1 < argc) g_real_hotspots = argv[++i];
+        else if (a == "--share") g_real_share = true;
+        else if (a == "--zip-crest") g_real_zip_crest = true;
+        else if (a == "--no-watch") g_real_nowatch = true;
     }
     if (!game.empty()) return real_game(game, team, slot);
     const fs::path base = fs::temp_directory_path() / "turbo_kit_swap_test";
@@ -1010,6 +1474,9 @@ int main(int argc, char** argv) {
     test_table(base);
     test_runtime(base);
     test_hotspots(base);
+    test_any_club_slots(base);
+    test_runtime_slots(base);
+    test_guards_and_cache(base);
     fs::remove_all(base);
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
