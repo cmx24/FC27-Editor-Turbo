@@ -2510,7 +2510,39 @@ static void run() {
         w.mem.wr(w.slot(9) + kSlotPid, int32_t(100012));
         const Request rs = reapply_request(live(w), u, skipped);
         CHECK(rs.slots.empty() && skipped.size() == 1 && skipped[0] == "slot 9 holds player 100012 now, not 100010", "another player: " + (skipped.empty() ? "" : skipped[0]));
-        CHECK(!replaced_prompt(live(w), u).empty(), "another player in a written slot: replaced");
+        CHECK(!replaced_prompt(live(w), u).empty(), "the record fields are the game's: replaced");
+        // review m4: only a written slot with another player while LH / BU / DA hold Turbo's values -> nothing Re-apply could put back: no prompt
+        w.mem.wr(SheetWorld::kRecs + kRecLineHeight, int32_t(70));
+        w.mem.wr(SheetWorld::kRecs + kRecApproach, int32_t(2));
+        w.mem.wr(SheetWorld::kRecs + kRecBuildUp, int32_t(1));
+        CHECK(replaced_prompt(live(w), u).empty(), "a line-up change alone: no prompt");
+        w.mem.wr(w.slot(9) + kSlotPid, int32_t(100010));
+        // Edit Tactic's save gives the record a new code: still the same tactic record, still prompted
+        w.mem.wr(SheetWorld::kRecs + kRecLineHeight, int32_t(50));
+        w.mem.wr(SheetWorld::kRecs + kRecApproach, int32_t(1));
+        w.mem.write(SheetWorld::kRecs + kRecCode, SheetWorld::kOtherCode, 12);
+        CHECK(same_tactic_record(u, live(w)) && !replaced_prompt(live(w), u).empty() && other_tactic_note(live(w), u).empty(), "a new code: the same record");
+        CHECK(reapply_check(live(w), u, "", 3).empty(), "re-apply allowed: " + reapply_check(live(w), u, "", 3));
+        // review M2: another career load or Lua session: refused
+        CHECK(reapply_check(live(w), u, "", 4).find("another career load") != std::string::npos, "another load: refused");
+        CHECK(reapply_check(live(w), u, "S2", 3).find("another career load") != std::string::npos, "another session: refused");
+        UndoRecord other_club = u;
+        other_club.team = 96;
+        CHECK(replaced_prompt(live(w), other_club).empty() && reapply_check(live(w), other_club, "", 3).find("club 96") != std::string::npos, "another club");
+        // review m4: the user made another record the active tactic: no prompt, a note, no Re-apply
+        UndoRecord other_rec = u;
+        other_rec.record_index = 1;
+        other_rec.formation = 28;
+        CHECK(replaced_prompt(live(w), other_rec).empty() && other_tactic_note(live(w), other_rec).find("the active tactic is another one now") == 0 &&
+                  reapply_check(live(w), other_rec, "", 3).find("the active tactic is another one now") == 0,
+              "another record: " + other_tactic_note(live(w), other_rec));
+        // Turbo's values back in place: nothing to re-apply
+        w.mem.wr(SheetWorld::kRecs + kRecLineHeight, int32_t(70));
+        w.mem.wr(SheetWorld::kRecs + kRecApproach, int32_t(2));
+        w.mem.wr(SheetWorld::kRecs + kRecBuildUp, int32_t(1));
+        w.mem.wr(w.slot(9) + kSlotRole, int32_t(38214));
+        w.mem.wr(w.slot(9) + kSlotFocus, int32_t(6));
+        CHECK(reapply_check(live(w), u, "", 3).find("in place again") != std::string::npos, "in place: " + reapply_check(live(w), u, "", 3));
     });
 
     run_case("channel E 2.3: G2 refuses while Lua says Team Management is open", [] {
@@ -2806,6 +2838,20 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(w.i32(SheetWorld::kRecs + kRecLineHeight) == 70 && w.i32(SheetWorld::kRecs + kRecApproach) == 2 && w.i32(SheetWorld::kRecs + kRecBuildUp) == 1,
               "written: " + s.last);
         CHECK(s.replaced.empty() && !s.can_reapply, "no prompt after Turbo's own write");
+        // Team Management open; on leaving the user answers Yes: the game copies Edit Tactic's screen into the record; closed; the re-read
+        auto tm_yes = [&](int32_t lh, int32_t ap, int32_t bu) {
+            st["team_mgmt"] = true;
+            st["seq"] = st.value("seq", 0LL) + 1;
+            write_state();
+            w.mem.wr(SheetWorld::kRecs + kRecLineHeight, lh);
+            w.mem.wr(SheetWorld::kRecs + kRecApproach, ap);
+            w.mem.wr(SheetWorld::kRecs + kRecBuildUp, bu);
+            st["team_mgmt"] = false;
+            st["seq"] = st.value("seq", 0LL) + 1;
+            write_state();
+            ui.t += 6.0;
+            ui.frames(3);
+        };
         // Team Management opens; the user answers Yes on leaving: the game copies Edit Tactic's screen (Balanced / 50 / Balanced) into the record
         st["team_mgmt"] = true;
         st["seq"] = st.value("seq", 0LL) + 1;
@@ -2857,6 +2903,29 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(4);
         CHECK(w.i32(SheetWorld::kRecs + kRecLineHeight) == 50 && w.i32(SheetWorld::kRecs + kRecApproach) == 1 && w.i32(SheetWorld::kRecs + kRecBuildUp) == 0,
               "undone to the game's values: " + s.last);
+        // review M2: a prompt of one career load never survives a reload: Apply again, the game replaces it, the career is reloaded -> gone
+        lt_scroll_to(ui, "Deep##ltap0");
+        CHECK(ui.click("High##ltap2", "##tacright"), "High picked again");
+        CHECK(ui.click("Counter##ltbu1", "##tacright"), "Counter picked again");
+        ui.frames(130);
+        lt_scroll_top(ui);
+        CHECK(ui.click("Apply to the live tactic##ltapply", "##tacright"), "Apply clicked");
+        ui.frames(2);
+        CHECK(ui.click("Apply##ltyes", "Apply to the live tactic?"), "confirmed");
+        ui.frames(4);
+        CHECK(w.i32(SheetWorld::kRecs + kRecLineHeight) == 70, "written again: " + s.last);
+        tm_yes(50, 1, 0);
+        CHECK(!s.replaced.empty() && s.can_reapply, "prompted again: " + s.replaced);
+        st["load_gen"] = st.value("load_gen", 0LL) + 1;
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        ui.frames(3);
+        CHECK(s.replaced.empty() && !s.can_reapply && !ui.find("Re-apply##ltreapply", "##tacright") &&
+                  app_logged("channel E: the Re-apply prompt was dropped: the career was (re)loaded"),
+              "the reload dropped the prompt: " + s.replaced);
+        ui.t += 30.0;
+        ui.frames(130);
+        CHECK(w.i32(SheetWorld::kRecs + kRecLineHeight) == 50 && w.i32(SheetWorld::kRecs + kRecApproach) == 1, "nothing written into the reloaded career");
         // clean up
         app.log_hook = nullptr;
         app.team_sheet = nullptr;

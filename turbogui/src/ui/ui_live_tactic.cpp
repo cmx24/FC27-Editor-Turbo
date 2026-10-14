@@ -65,6 +65,9 @@ struct Lt {
     bool tm_was = false;
     std::vector<double> tm_checks;
     std::string replaced;  // "the game replaced your tactic (LH 50 / Balanced / Balanced). Re-apply?" ("" = none)
+    std::string other_note;  // "the active tactic is another one now (...)": said, no Re-apply
+    std::string prompt_session;  // the Lua session and career load the prompt was made in: another one drops it (never re-applied there)
+    long long prompt_gen = -1;
     // the confirmation
     bool confirm_request = false;
     std::vector<std::string> confirm_lines;
@@ -504,11 +507,32 @@ void apply_request(App& app, const Request& req, bool reapply) {
 
 void do_apply(App& app) { apply_request(app, request_from_editor(), false); }
 
+// The Re-apply prompt belongs to the career load (and Lua session) it was made in: a reload drops it, so it never writes there
+void drop_stale_prompt(App& app) {
+    const BridgeState& st = app.bridge.state();
+    if ((g.replaced.empty() && g.other_note.empty()) || (st.session == g.prompt_session && st.load_gen == g.prompt_gen)) return;
+    g.replaced.clear();
+    g.other_note.clear();
+    g.tm_checks.clear();
+    log_line(app, "channel E: the Re-apply prompt was dropped: the career was (re)loaded");
+}
+
 // One click after the game replaced Turbo's tactic: Turbo's last values onto the live record (never automatic)
 void do_reapply(App& app) {
     if (!g.have_undo) return;
     if (!read_now(app)) {
         app.notify("Live tactic not re-applied: " + g.read_err, true);
+        return;
+    }
+    // the prompt must still be this career load's, this club's, this tactic record's, and the record must still miss Turbo's values
+    const BridgeState& st = app.bridge.state();
+    const std::string why = g.prompt_session != st.session || g.prompt_gen != st.load_gen
+                                ? std::string("the prompt was made in another career load")
+                                : reapply_check(g.lt, g.undo, st.session, st.load_gen);
+    if (!why.empty()) {
+        g.replaced.clear();
+        log_line(app, "channel E: re-apply refused: " + why);
+        app.notify("Live tactic not re-applied: " + why, true);
         return;
     }
     std::vector<std::string> skipped;
@@ -744,8 +768,11 @@ void draw_body(App& app) {
     }
     g_state.overwritten = g.overwritten;
     // after Team Management: the game replaced Turbo's values -> one click puts them back (never automatic)
+    drop_stale_prompt(app);  // made in another career load: never shown (nor clicked) here
     g_state.replaced = g.replaced;
+    g_state.other_note = g.other_note;
     g_state.can_reapply = !g.replaced.empty() && !g.pending && app.team_sheet != nullptr;
+    if (!g.other_note.empty()) ImGui::TextDisabled("%s", g.other_note.c_str());
     if (!g.replaced.empty()) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0.6f, 0.3f, 1));
         ImGui::TextWrapped("%s", g.replaced.c_str());
@@ -1101,6 +1128,7 @@ void live_tactic_tick(App& app) {
         // Edit Tactic's screen into the record and autosaves first); when Turbo's values are gone, the card asks once (Re-apply), never acts
         {
             const BridgeState& st = app.bridge.state();
+            drop_stale_prompt(app);  // the prompt belongs to the career load it was made in
             const bool tm = st.loaded && st.team_mgmt;
             if (g.tm_was && !tm) {
                 g.tm_checks = {app.now + 5.0, app.now + 20.0};
@@ -1113,6 +1141,9 @@ void live_tactic_tick(App& app) {
                 load_undo_once(app);
                 if (g.have_undo && g.undo.state == "written" && same_career(g.undo, st.session, st.load_gen).empty() && read_now(app)) {
                     const std::string p = replaced_prompt(g.lt, g.undo);
+                    g.prompt_session = st.session;
+                    g.prompt_gen = st.load_gen;
+                    g.other_note = other_tactic_note(g.lt, g.undo);
                     if (!p.empty() && p != g.replaced) {
                         g.replaced = p;
                         g.tm_checks.clear();

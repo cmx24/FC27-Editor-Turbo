@@ -1816,15 +1816,21 @@ std::vector<std::string> reverted(const LiveTactic& now, const UndoRecord& u) {
 }
 
 // ------------------------------------------------------------------------------------------------ overwrite detection and Re-apply
+bool same_tactic_record(const UndoRecord& u, const LiveTactic& now) {
+    return u.team == now.at.user && u.record_index == now.at.record_index && u.formation == now.formation &&
+           u.source_formation == now.source_formation && u.sheet_id == now.sheet_id;
+}
+
 std::string replaced_prompt(const LiveTactic& now, const UndoRecord& u) {
-    if (u.state != "written" || u.team != now.at.user) return "";
+    if (u.state != "written" || !same_tactic_record(u, now)) return "";
     bool replaced = false;
     for (const FieldWrite& w : u.writes) {
         if (w.copy || w.kind == FieldKind::RoleId || w.kind == FieldKind::Focus) continue;  // the map record's fields; a slot by its word
         if (w.kind == FieldKind::Role) {
             const int s = w.slot;
             if (s < 0 || s >= kSlots) continue;
-            if (now.slots[size_t(s)].pid != u.pids[size_t(s)] || now.slots[size_t(s)].role != w.new_value) replaced = true;
+            // a slot that holds another player now: Re-apply would leave it out, so it does not count as "replaced"
+            if (now.slots[size_t(s)].pid == u.pids[size_t(s)] && now.slots[size_t(s)].role != w.new_value) replaced = true;
             continue;
         }
         if (value_in(now, w.kind, -1, 0) != w.new_value) replaced = true;
@@ -1835,6 +1841,22 @@ std::string replaced_prompt(const LiveTactic& now, const UndoRecord& u) {
     return "the game replaced your tactic (LH " + std::to_string(now.line_height) + " / " +
            (bu ? std::string(bu->label) : "build-up " + std::to_string(now.build_up)) + " / " +
            (ap ? std::string(ap->label) : "approach " + std::to_string(now.approach)) + "). Re-apply?";
+}
+
+std::string other_tactic_note(const LiveTactic& now, const UndoRecord& u) {
+    if (u.state != "written" || u.team != now.at.user || same_tactic_record(u, now)) return "";
+    return "the active tactic is another one now (record " + std::to_string(now.at.record_index) + ", formation " + std::to_string(now.formation) +
+           "; Turbo wrote record " + std::to_string(u.record_index) + ", formation " + std::to_string(u.formation) +
+           "): Turbo's values are not re-applied to it";
+}
+
+std::string reapply_check(const LiveTactic& now, const UndoRecord& u, const std::string& session, long long load_gen) {
+    const std::string sc = same_career(u, session, load_gen);
+    if (!sc.empty()) return "the prompt belongs to another career load: " + sc;
+    if (u.team != now.at.user) return "the write was for club " + std::to_string(u.team) + ", the live tactic is club " + std::to_string(now.at.user) + "'s";
+    if (!same_tactic_record(u, now)) return other_tactic_note(now, u);
+    if (replaced_prompt(now, u).empty()) return "Turbo's values are in place again: nothing to re-apply";
+    return "";
 }
 
 Request reapply_request(const LiveTactic& now, const UndoRecord& u, std::vector<std::string>& skipped) {

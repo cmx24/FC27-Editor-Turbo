@@ -43,6 +43,7 @@ struct LiveTacticState {
     std::string safety;                   // the safety line ("... AUTOSAVES your career.")
     std::string replaced;                 // after Team Management: "the game replaced your tactic (LH 50 / Balanced / Balanced). Re-apply?"
     bool can_reapply = false;             // the one-click Re-apply button is enabled
+    std::string other_note;               // "the active tactic is another one now (...)" (no Re-apply)
     std::string edit_tactic_badge;        // WP-B2 branch (c) only: "Edit Tactic shows these values after the next career load" (off: "")
 };
 const LiveTacticState& live_tactic_state();

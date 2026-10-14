@@ -546,9 +546,17 @@ void add_job_rows(UndoRecord& u, const std::vector<DbRowWrite>& rows, bool undo)
 // record, state "written") left, else the one-line prompt "the game replaced your tactic (LH 50 / Balanced / Balanced). Re-apply?" (LH /
 // Build-Up Style / Defensive Approach as they are now). Never acted on automatically.
 std::string replaced_prompt(const LiveTactic& now, const UndoRecord& u);
+// Only for the record Turbo wrote: the same club, record index, formation ids and sheet (the tactic code may differ: Edit Tactic's save makes
+// a new one). A slot that holds another player now does not count (Re-apply would leave it out).
+bool same_tactic_record(const UndoRecord& u, const LiveTactic& now);
+// The active tactic is another record than the one Turbo wrote: the card says so, with no Re-apply ("" = it is the same one)
+std::string other_tactic_note(const LiveTactic& now, const UndoRecord& u);
 // Re-apply: Turbo's last values onto the live record as a Request (make_plan applies G6 again): the three record fields as Turbo left them,
 // each slot role Turbo wrote whose live slot holds the same player and position group (others are named in `skipped`)
 Request reapply_request(const LiveTactic& now, const UndoRecord& u, std::vector<std::string>& skipped);
+// "" when a Re-apply may be planned now: the undo record is of this Lua session and career load, of the live club and the same tactic record,
+// and the record no longer holds Turbo's values; else why not (the click is refused and the prompt dropped)
+std::string reapply_check(const LiveTactic& now, const UndoRecord& u, const std::string& session, long long load_gen);
 
 // The DB field a live write of the map record mirrors to: Build-Up Style -> "buildupplay", Line Height -> "defensivedepth" (the schema's
 // 1..100), the role word -> "pos<slot>role"; "" for role id / focus (the word carries them), for the Defensive Approach (cm_mentalities
