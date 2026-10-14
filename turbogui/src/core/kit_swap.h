@@ -261,7 +261,7 @@ using HotspotMap = std::map<std::string, HotspotRect>;  // "jersey/numberback" (
 bool parse_hotspots(const std::vector<uint8_t>& json_bytes, HotspotMap& out, std::string* err = nullptr);
 // Patches the decompressed hotspot asset `ebx` (same size out) of the game resource `res_name` with the zip's rectangles. Rules: only the
 // entries the zip names and the table above knows; a zip rectangle that is a point (X==Z and Y==W) never replaces the game's rectangle
-// (the zip's numberfront is a point); an all-negative rectangle (the zip's "not used") is applied only to team / brand entries and only
+// (the zip's numberfront is a point); an entry the game has switched off (all four floats negative, e.g. Center -1) stays off; an all-negative rectangle (the zip's "not used") is applied only to team / brand entries and only
 // when `decals` is true (the zip bakes the badge into the jersey colour); non-finite or out-of-range values are refused. Returns false
 // with `why` when the asset is not the expected layout (nothing is changed then); true with `changes` (one text per patched entry,
 // may be empty = nothing differed).

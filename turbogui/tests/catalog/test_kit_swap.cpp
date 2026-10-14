@@ -672,7 +672,7 @@ static void test_hotspots(const fs::path& base) {
     check(getf(e, 2, 0) == getf(orig, 2, 0) && getf(e, 2, 1) == getf(orig, 2, 1), "numberfront: the zip's point does not replace the game's rectangle");
     check(getf(e, 4, 1) == 0.2509f && getf(e, 4, 0) == 0.5f, "namearccenter: a point replaces a point");
     check(getf(e, 20, 0) == 0.67431640625f && getf(e, 20, 1) == 0.4287109375f, "sleeve badge rectangle patched (entry 20)");
-    check(getf(e, 24, 0) == 0.4915771484375f && getf(e, 24, 3) == 0.5982666015625f, "competition Center enabled (entry 24)");
+    check(getf(e, 24, 0) == -1.f && getf(e, 24, 3) == -1.f, "competition Center: the game has it off, the zip's rectangle does not switch it on (entry 24)");
     float rot;
     std::memcpy(&rot, &e[0x90 + 20 * 0x30 + 0x20], 4);
     check(rot == 90.f, "sleeve rotation kept at 90");
@@ -681,12 +681,12 @@ static void test_hotspots(const fs::path& base) {
     for (size_t i = 0; i < e.size(); ++i) {
         if (e[i] == orig[i]) continue;
         bool allowed = false;
-        for (int en : {0, 1, 3, 4, 12, 20, 24})
+        for (int en : {0, 1, 3, 4, 12, 20})
             if (i >= 0x90 + size_t(en) * 0x30 && i < 0x90 + size_t(en) * 0x30 + 16) allowed = true;
         stray += !allowed;
     }
     check(stray == 0, "no byte outside the patched rectangles changed (pointer fields, strings, header)");
-    check(count_patched(ch) == 7, "change list: one text per patched entry (7), got " + std::to_string(count_patched(ch)));
+    check(count_patched(ch) == 6, "change list: one text per patched entry (6), got " + std::to_string(count_patched(ch)));
     // decals off: team / brand stay the game's
     std::vector<uint8_t> e2 = orig;
     check(patch_hotspot_ebx(e2, path, zip, false, nullptr, &err) && getf(e2, 0, 0) == 0.5437f && getf(e2, 7, 0) == -0.5f && getf(e2, 1, 0) == 0.5803f,

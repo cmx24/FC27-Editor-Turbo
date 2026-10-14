@@ -781,6 +781,8 @@ bool patch_hotspot_ebx(std::vector<uint8_t>& ebx, const std::string& res_name, c
         uint8_t* e = &w[kHsData + size_t(sl.index) * kHsStride];
         float g[4];
         std::memcpy(g, e, 16);
+        const bool goff = g[0] < 0.f && g[1] < 0.f && g[2] < 0.f && g[3] < 0.f;  // the game has this decal switched off for this kit
+        if (goff && !neg) { ch.push_back(std::string(sl.key) + ": game has it off, kept"); continue; }
         if (neg) {
             if (!sl.badge || !decals) { ch.push_back(std::string(sl.key) + ": zip says 'not used', game's kept"); continue; }
         } else {
