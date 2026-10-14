@@ -11,7 +11,12 @@ loose gap, g in [0.85, 1.20] and h in [0.50, 0.80] vary with time, cap = clamp(l
 the formation length follows the table value through a blend weight, the ball vector is frozen during a dead-ball stretch of each 25 s
 cycle. Per-knob engine modes: live (reads the table each call), ignore (uses FC 27's value), latch (uses the value present at match start).
 MockMatch2 is the position source (route C stand-in): 22 players whose spread follows the table values per knob mode and an effect
-strength, plus AR(1) noise, so the statistics see game-state noise.
+strength, plus AR(1) noise and a SLOW game-state component, so the statistics see game-state noise.
+2.6: two gameplay databases like the game's - the base one (current in the hub) and the simulation one (current in the match); a locator with a
+simulation variant has a SEPARATE instance in the simulation database (the position model reads the copy the CURRENT database resolves, so a
+write to the base copy alone has no effect in the match: the trap of TEST_27), every other group is one shared object. The dev service ops
+seq (bytes + sleep steps, <= 200) and find (fixed bytes) exist; spec options lat=<sim s per call>, dbslot=0|1 (manager lists the other databases),
+trap is the default.
 """
 import json, math, os, random, statistics, struct, sys, time
 
@@ -27,10 +32,12 @@ DEAD = 8.0
 POSS_PERIOD = 12.0
 
 DEFAULT_ENGINE = {"width_in": "live", "width_out": "live", "length": "live"}
+MOCKPOS = harness.MOCK_HEAP + 0x7F000     # pseudo address: a bytes read here returns the position snapshot (JSON) of the mock match
+MOCKPOS_LEN = 8192
 DEFAULT_EFFECTS = {   # knob id -> (mode, strength 0..1: how much of the table change reaches the positions)
     "shape.width_in": ("live", 0.8), "shape.width_out": ("live", 0.8), "shape.width_in_cb": ("live", 0.9),
     "shape.length_in": ("live", 0.7), "shape.length_in_possession": ("live", 0.7), "shape.length_out": ("ignore", 0.0),
-    "runs.frequency": ("live", 0.6), "marking.tightness": ("live", 0.6),
+    "runs.frequency": ("live", 0.6), "marking.tightness": ("live", 0.6), "shape.gap_dmf": ("live", 1.0),
 }
 
 
@@ -69,17 +76,40 @@ class WorldMem(harness.MockMem):
 
     def _one(self, op, d=None):
         name = op.get("op")
+        w = self.world
         if name == "ping":
             return {"ok": True, "pong": True}
         if name == "modules":
             return {"ok": True, "modules": [{"name": "FC27.exe", "base": "0x%X" % be.BASE, "size": be.IMAGE_SIZE}]}
+        if name == "sleep":
+            time.sleep(min(10000, max(0, int(op.get("ms", 0)))) / 1000.0 * w.scale)
+            return {"ok": True}
         if name == "bytes":
-            b = self.read(int(str(op["addr"]), 16), int(op["len"]))
+            a = int(str(op["addr"]), 16)
+            if a == MOCKPOS:
+                snap = w.position_snapshot()
+                return {"ok": True, "hex": (snap + bytes(max(0, int(op["len"]) - len(snap))))[:int(op["len"])].hex()}
+            b = self.read(a, int(op["len"]))
             return {"ok": True, "hex": b.hex()} if b is not None else {"ok": False, "error": "unreadable"}
+        if name == "find":    # fixed bytes only (the battery searches a TypeInfo qword), over the mock regions
+            pat = bytes(int(t, 16) for t in op["pattern"].split())
+            lo, hi = int(str(op.get("from", "0x0")), 16), int(str(op.get("to", "0x7FFFFFFFFFFF")), 16)
+            hits = []
+            for base, buf in self.regions:
+                i = 0
+                while True:
+                    i = bytes(buf).find(pat, i)
+                    if i < 0:
+                        break
+                    if lo <= base + i < hi:
+                        hits.append("0x%X" % (base + i))
+                    i += 1
+            w.finds += 1
+            return {"ok": True, "hits": hits[:int(op.get("max", 16))]}
         if name == "write":
             a = int(str(op["addr"]), 16)
-            self.world.write_attempts += 1
-            if self.world.fail_writes or self.world.write_attempts in self.world.fail_nth:
+            w.write_attempts += 1
+            if w.fail_writes or w.write_attempts in w.fail_nth:
                 return {"ok": False, "error": "mock: write refused (dev timeout)"}
             data = bytes.fromhex(str(op.get("hex") or op.get("bytes")).replace(" ", ""))
             if not self.write(a, data):
@@ -87,15 +117,46 @@ class WorldMem(harness.MockMem):
             return {"ok": True, "hex": self.read(a, len(data)).hex()}
         return {"ok": False, "error": "mock: op %s not supported" % name}
 
+    def call(self, req, timeout=60, repost=0.7, allow_write=False):
+        """the dev2 gates (write / key / Escape) then the dispatch; a simulated per-call latency (spec lat=, sim seconds) makes the
+        throughput of the sampler measurable offline"""
+        import dev2
+        if dev2.has_escape(req):
+            return {"error": "dev2: Escape (VK 27) is never sent"}
+        if not allow_write and dev2.has_write_op(req):
+            return {"error": "dev2: write/key ops need allow_write=True (coordinator only)"}
+        self.world.calls += 1
+        if self.world.latency > 0:
+            time.sleep(self.world.latency * self.world.scale)
+        return self._dispatch(req)
+
     def _dispatch(self, req):
         self.world.tick()
         if req.get("op") == "multi":
             return {"ok": True, "results": [self._one(o) for o in req.get("ops", [])]}
+        if req.get("op") == "seq":
+            if self.world.noseq:
+                return {"ok": False, "error": "mock: seq is not supported"}
+            steps = req.get("steps", [])
+            if len(steps) > 200:
+                return {"ok": False, "error": "steps: a list of at most 200"}
+            out = []
+            for st in steps:
+                if st.get("op") != "sleep":
+                    self.world.tick()
+                out.append(self._one(st))
+            return {"ok": all(x.get("ok") for x in out), "results": out}
         return self._one(req)
 
 
 class MockWorld:
-    def __init__(self, catalogue=None, engine=None, effects=None, scale=0.02, match_delay=3.0, seed=7, styles=(1, 0)):
+    def __init__(self, catalogue=None, engine=None, effects=None, scale=0.02, match_delay=3.0, seed=7, styles=(1, 0), latency=0.0, dbslot=1,
+                 curdb="sim", drift=0.0, slow=0.12, noseq=0, end=None):
+        self.latency, self.dbslot, self.curdb = latency, dbslot, curdb
+        self.noseq, self.end = noseq, end
+        self.calls, self.finds = 0, 0
+        self.drift, self.slow = drift, slow
+        self.pos_model = None
         self.cat = catalogue or load_catalogue()
         self.engine = dict(DEFAULT_ENGINE, **(engine or {}))
         self.effects = dict(DEFAULT_EFFECTS, **(effects or {}))
@@ -107,7 +168,9 @@ class MockWorld:
         self.rng = random.Random(seed)
         self.mem = WorldMem(self)
         self.addr = {}
-        self.knob_addr = {}      # knob id -> instance address
+        self.knob_addr = {}      # knob id -> address of the field in the BASE copy
+        self.knob_addr_sim = {}  # knob id -> address of the field in the SIMULATION copy (only knobs whose locator has a simulation variant)
+        self.loc_where = {}      # locator name -> (family slot, group slot)
         self.name_ptr = {}
         self._build()
 
@@ -141,22 +204,31 @@ class MockWorld:
             "33C04885C9740C488B114885D27404488B4208C3")
         assert m.write(be.C["GETTER"], stub)
         vt = be.BASE + 0x100000
-        mgr, h0, h1 = self.alloc(0x240), self.alloc(0x40), self.alloc(0x40)
-        db, pdb = self.alloc(0x170), self.alloc(0x70)
+        mgr, h0, h1, h2, h3 = self.alloc(0x240), self.alloc(0x40), self.alloc(0x40), self.alloc(0x40), self.alloc(0x40)
+        db, sdb, pdb = self.alloc(0x170), self.alloc(0x170), self.alloc(0x70)
         self.put(be.C["G_ATTRIB"], "<Q", mgr)
         self.put(mgr, "<Q", h0)
         self.put(mgr + 8, "<Q", h1)
-        self.put(h0 + 8, "<Q", db)
+        self.put(h0 + 8, "<Q", db)           # the current database: the base one in the hub, the simulation one in a match (tick)
         self.put(h1 + 8, "<Q", pdb)
-        for d_, ti in ((db, be.C["TI_DB_GP"]), (pdb, be.C["TI_DB_GP"] + 0x10)):
+        if self.dbslot:                      # the manager also lists the two gameplay databases (slots +0x20 / +0x28)
+            self.put(mgr + 0x20, "<Q", h2)
+            self.put(mgr + 0x28, "<Q", h3)
+            self.put(h2 + 8, "<Q", db)
+            self.put(h3 + 8, "<Q", sdb)
+        self.h0 = h0
+        for d_, ti in ((db, be.C["TI_DB_GP"]), (sdb, be.C["TI_DB_GP"]), (pdb, be.C["TI_DB_GP"] + 0x10)):
             self.put(d_, "<Q", vt)
             self.put(d_ + 8, "<Q", ti)
-        for d_, nm_ in ((db, b"Fifa/Attribulator/Gameplay/gameplayattribdb\0"), (pdb, b"Fifa/Attribulator/PreMatch/prematchattribdb\0")):
+        for d_, nm_ in ((db, b"Fifa/Attribulator/Gameplay/gameplayattribdb\0"),
+                        (sdb, b"Fifa/Attribulator/Gameplay/databases/simulation/simulation\0"),
+                        (pdb, b"Fifa/Attribulator/PreMatch/prematchattribdb\0")):
             nmp_ = self.alloc(len(nm_) + 8)
             assert m.write(nmp_, nm_)
             self.put(d_ + 0x18, "<Q", nmp_)
-        self.addr.update(mgr=mgr, db=db, pdb=pdb)
+        self.addr.update(mgr=mgr, db=db, sdb=sdb, pdb=pdb)
         groups = {}
+        loc_group = {}
         n_tag = 0
         for loc in self.cat["locators"]:
             dbo = pdb if "prematch" in loc.get("db_type", "") else db
@@ -180,10 +252,46 @@ class MockWorld:
             n_tag += 1
             self.put(g + int(loc["group_slot"], 16), "<Q", inst | (4 if n_tag == 3 else 0))
             self.addr["inst:" + loc["name"]] = inst
+            self.loc_where[loc["name"]] = (fam, int(loc["group_slot"], 16))
+            loc_group[loc["name"]] = (dbo, fam, g)
             for k in self.cat["knobs"]:
                 if k["locator"] == loc["name"]:
                     self.knob_addr[k["id"]] = inst + int(k["offset"], 16)
                     self.put_knob(k, k["default"])
+        # the simulation database: a group object of its own for every family; a locator with a simulation variant has a separate instance
+        # (its own Name, FC 27's value of that copy), every other group slot points at the SAME instance as the base database
+        sgroups = {}
+        for (dbo, fam), g in groups.items():
+            if dbo != db:
+                continue
+            gs = self.alloc(0x200)
+            self.put(gs, "<Q", vt)
+            self.put(gs + 8, "<Q", self.get(g + 8, "<Q"))
+            self.put(sdb + fam, "<Q", gs | (self.get(db + fam, "<Q") & 4))
+            sgroups[fam] = gs
+            for off in range(0x10, 0x200, 8):
+                self.put(gs + off, "<Q", self.get(g + off, "<Q"))
+        for loc in self.cat["locators"]:
+            if "prematch" in loc.get("db_type", ""):
+                continue
+            fam, slot = self.loc_where[loc["name"]]
+            sim = next((v for v in loc["variants"] if v["name"] == "simulation"), None)
+            if not sim:
+                continue
+            base_inst = self.addr["inst:" + loc["name"]]
+            size = int(loc["type_size"], 16)
+            inst = self.alloc(size)
+            assert m.write(inst, self.mem.read(base_inst, size))
+            nm = sim["instance"].encode() + b"\0"
+            nmp = self.alloc(len(nm) + 8)
+            assert m.write(nmp, nm)
+            self.put(inst + 0x18, "<Q", nmp)
+            self.put(sgroups[fam] + slot, "<Q", inst)
+            self.addr["sim_inst:" + loc["name"]] = inst
+            for k in self.cat["knobs"]:
+                if k["locator"] == loc["name"]:
+                    self.knob_addr_sim[k["id"]] = inst + int(k["offset"], 16)
+                    self.put_knob_at(k, self.knob_addr_sim[k["id"]], (k.get("copy_defaults") or {}).get("simulation", k["default"]))
         att = self.addr["inst:attrib.attackinglinelengthwidth"]
         for off, v in ((0x2C, 0.9), (0x38, 0.8), (0x3C, 1.0), (0x4C, 0.7), (0x54, 0.9)):
             self.put(att + off, "<f", v)
@@ -224,14 +332,36 @@ class MockWorld:
         fmt = {"f32": "<f", "i32": "<i", "bool": "<B"}[k["type"]]
         self.put(a, fmt, float(v) if k["type"] == "f32" else int(v))
 
-    def knob_value(self, kid):
+    def put_knob_at(self, k, addr, v):
+        fmt = {"f32": "<f", "i32": "<i", "bool": "<B"}[k["type"]]
+        self.put(addr, fmt, float(v) if k["type"] == "f32" else int(v))
+
+    def knob_value(self, kid, copy="base"):
+        """the value in the base copy (default) or the simulation copy of a knob"""
         k = next(x for x in self.cat["knobs"] if x["id"] == kid)
         fmt = {"f32": "<f", "i32": "<i", "bool": "<B"}[k["type"]]
-        return self.get(self.knob_addr[kid], fmt)
+        addr = self.knob_addr_sim.get(kid) if copy == "simulation" else self.knob_addr[kid]
+        if addr is None:
+            addr = self.knob_addr[kid]       # one shared object: both copies are the same bytes
+        return self.get(addr, fmt)
+
+    def resolved_knob_value(self, kid):
+        """the value the engine reads: the instance the CURRENT database resolves for the knob's group (what the position model follows)"""
+        k = next(x for x in self.cat["knobs"] if x["id"] == kid)
+        fam, slot = self.loc_where[k["locator"]]
+        cur = self.get(self.get(self.get(be.C["G_ATTRIB"], "<Q"), "<Q") + 8, "<Q")
+        grp = self.get(cur + fam, "<Q") & ~4
+        inst = self.get(grp + slot, "<Q") & ~4
+        fmt = {"f32": "<f", "i32": "<i", "bool": "<B"}[k["type"]]
+        return self.get(inst + int(k["offset"], 16), fmt)
+
+    def position_snapshot(self):
+        t, out, ball, carrier = self.positions_model().read_sample(paid=True)
+        return json.dumps({"t": t, "pos": out, "ball": ball, "carrier": carrier}).encode()
 
     # ---- dynamics
     def in_match(self):
-        return (not self.killed) and self.now() >= self.match_delay
+        return (not self.killed) and self.now() >= self.match_delay and (self.end is None or self.now() < self.end)
 
     def poss(self, t):
         ph = (t % (2 * POSS_PERIOD))
@@ -263,6 +393,9 @@ class MockWorld:
         t = self.now()
         g1 = be.BASE + be.C["G1_RVA"]
         want = self.M if self.in_match() else 0
+        cur = self.addr["sdb"] if (want and self.curdb == "sim") else self.addr["db"]     # the match loads the simulation database
+        if self.get(self.h0 + 8, "<Q") != cur:
+            self.put(self.h0 + 8, "<Q", cur)
         if self.get(g1, "<Q") != want:
             self.put(g1, "<Q", want)
         if not want:
@@ -298,7 +431,9 @@ class MockWorld:
 
     # ---- positions (route C stand-in)
     def positions_model(self):
-        return MockMatch2(self)
+        if self.pos_model is None:
+            self.pos_model = MockMatch2(self)
+        return self.pos_model
 
 
 class MockMatch2:
@@ -318,13 +453,23 @@ class MockMatch2:
         self.last_ball_vel = None
         self.last_clock = None
         self.latch = {}
+        self.slow, self.slow_t = 0.0, None
 
     def locate(self):
         return self
 
+    def sample_ops(self):
+        """the stand-in for match_measure.Match.sample_ops: one read of the pseudo address that returns this model's snapshot"""
+        return [(MOCKPOS, MOCKPOS_LEN)]
+
+    def parse_sample(self, res, t):
+        d = json.loads(res[0].rstrip(bytes([0])).decode())
+        pos = [tuple(q) if q else None for q in d["pos"]]
+        return t, pos, (tuple(d["ball"]) if d["ball"] else None), d["carrier"]
+
     def factor(self, kid, t):
         mode, strength = self.w.effects.get(kid, ("ignore", 0.0))
-        v = self.w.knob_value(kid)
+        v = self.w.resolved_knob_value(kid)      # the copy the CURRENT database resolves: a write to the other copy has no effect
         k = next(x for x in self.w.cat["knobs"] if x["id"] == kid)
         dflt = float(k["default"])
         if mode == "ignore":
@@ -334,11 +479,19 @@ class MockMatch2:
         ratio = (v / dflt) if dflt else 1.0
         return 1.0 + strength * (ratio - 1.0)
 
-    def read_sample(self):
+    def read_sample(self, paid=False):
         w, rng = self.w, self.rng
+        if not paid and w.latency > 0:      # a direct (one request per sample) read costs one simulated request; a seq snapshot has paid already
+            time.sleep(w.latency * w.scale)
         t = w.now()
         poss = w.poss(t)
         ball = w.ball(t)
+        if w.slow or w.drift:       # slow game-state variation of the spread (correlation time 10 s) and an optional linear drift
+            dt = 0.0 if self.slow_t is None else max(0.0, t - self.slow_t)
+            a = math.exp(-dt / 10.0)
+            self.slow = a * self.slow + rng.gauss(0, math.sqrt(max(0.0, 1 - a * a)))
+            self.slow_t = t
+        g_slow = (1.0 + w.slow * self.slow) * (1.0 + w.drift * t)
         lat_base = [0, -28, -10, 10, 28, -22, -6, 6, 22, -12, 12]
         dep_base = [3, 14, 16, 16, 14, 34, 36, 36, 34, 55, 55]
         out = []
@@ -354,17 +507,20 @@ class MockMatch2:
                 f_l = self.factor("shape.length_out", t)
             f_run = self.factor("runs.frequency", t) if has else 1.0
             f_mark = self.factor("marking.tightness", t) if (poss in (0, 1) and not has) else 1.0
+            f_gap = self.factor("shape.gap_dmf", t) if not has else 1.0
             for k in range(11):
                 n = self.noise[(tm, k)]
                 n[0] = self.ar * n[0] + rng.gauss(0, 3.0 * math.sqrt(1 - self.ar ** 2))
                 n[1] = self.ar * n[1] + rng.gauss(0, 1.5 * math.sqrt(1 - self.ar ** 2))
-                spread = (1.1 if has else 0.9) * f_w
+                spread = (1.1 if has else 0.9) * f_w * (g_slow if has else 1.0)
                 lat = lat_base[k] * spread + n[0]
                 if k in (2, 3):
                     lat = lat_base[k] * 1.0 * f_cb * (1.1 if has else 0.9) + n[0]
                 dep = (dep_base[k] - 10) * f_l + 0.2 * (s * ball[0] + 52.5) + n[1]
                 if k >= 9 and has:
                     dep += 6.0 * (f_run - 1.0) * 3.0
+                if not has and 5 <= k <= 8:
+                    dep += 25.0 * (f_gap - 1.0)
                 if not has and k >= 1:
                     lat = lat * (1.0 + 0.15 * (f_mark - 1.0))
                 out.append((s * (52.5 - dep), 0.0, lat))
@@ -398,6 +554,20 @@ def build_world(spec=None, **kw):
             extra["fail_nth"] = {int(x) for x in val.split(",")}
         elif key == "styles":
             extra["styles"] = tuple(int(x) for x in val.split(","))
+        elif key == "lat":
+            extra["latency"] = float(val)
+        elif key == "dbslot":
+            extra["dbslot"] = int(val)
+        elif key == "curdb":
+            extra["curdb"] = val
+        elif key == "slow":
+            extra["slow"] = float(val)
+        elif key == "noseq":
+            extra["noseq"] = int(val)
+        elif key == "end":
+            extra["end"] = float(val)
+        elif key == "drift":
+            extra["drift"] = float(val)
     fail_nth = extra.pop("fail_nth", None)
     w = MockWorld(engine=engine, effects=effects, **extra)
     if fail_nth:

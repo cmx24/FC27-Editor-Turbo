@@ -4,16 +4,19 @@
 # COORDINATOR ONLY (brief Part C: LTEST, never saved, NO to the team-sheet prompt, never Escape). Agents run only --mock.
 #
 #   bash battery_run.sh plan [battery_write.py options]          offline: the window schedule and the knob / observable table (any GAME_STATE)
-#   bash battery_run.sh hub  [--knobs FILE] [--owned k=v] [--prewrite k=v --allow-write]
-#        In the LTEST hub (GAME_STATE HUB or MATCH-AB). Read-only preflight: build, getter, attribute chain, every listed knob located and
-#        identity-checked, current values against the owner rule (declare Turbo's own values with --owned knob=value, e.g. the profile's
-#        shape.width_in=0.6, or reset them). --prewrite knob=value (+ --allow-write, MATCH-AB) writes a band knob before kick-off for the
-#        set-up-latch test; then pass --prewritten knob=value to `match`. The game stays up. Any failure -> the game stays up as well
-#        (nothing was written); this phase never kills.
-#   bash battery_run.sh match [--knobs FILE] [--win 35] [--budget 420] [--wait-start 150] [--owned k=v] [--prewritten k=v]
+#   bash battery_run.sh hub  [--knobs FILE] [--find-dbs] [--owned k=v] [--prewrite k=v --allow-write]
+#        In the LTEST hub (GAME_STATE HUB or MATCH-AB). Read-only preflight: build, getter, attribute chain, the gameplay databases (the hub's
+#        copy lives in the base database, a match resolves the simulation one: --find-dbs searches the heap for the other database object and
+#        caches its address for the match phase), every listed knob located in EVERY copy and identity-checked, current values against the owner
+#        rule per copy (declare Turbo's own values with --owned knob=value, e.g. the profile's shape.width_in=0.6, or reset them). --prewrite
+#        knob=value (+ --allow-write, MATCH-AB) writes a band knob (all copies) before kick-off for the set-up-latch test; then pass
+#        --prewritten knob=value to `match`. The game stays up. Any failure -> the game stays up as well (nothing was written); this phase never kills.
+#   bash battery_run.sh match [--knobs FILE] [--win auto] [--budget 420] [--wait-start 150] [--owned k=v] [--prewritten k=v] [--allow-underpowered]
 #        Right after the Tactical View kick-off (GAME_STATE MATCH-AB). battery_write.py run waits for the clock (22 players moving), locates
-#        and identity-checks the knobs, runs baseline A | extreme E1.. | A ... windows (<= 40 s each), writes between two samples, restores every
-#        knob, prints the per-knob table. The game is KILLED when the run ends, on EVERY exit path (trap), before any further dev call.
+#        every copy of the knobs (databases from the manager slots + the hub cache) and identity-checks them, asserts that the engine reads the
+#        written copy, runs baseline A | extreme E1 | A | E2 ... A windows (the replicate extremes of the knobs that can be decided in the time),
+#        writes between two requests, restores every copy of every knob, prints the per-knob table. The game is KILLED when the run ends, on
+#        EVERY exit path (trap), before any further dev call.
 #   bash battery_run.sh analyse EVIDENCE_DIR                     offline re-judgement of a saved run
 #   --mock (before the phase): the whole flow offline over the synthetic world of battery_mock.py (BATTERY_MOCK_WORLD spec, BATTERY_TIME_SCALE);
 #        the kill is NOT sent in mock mode (it is recorded in $BATTERY_DIR/mock/killed.txt).
@@ -101,7 +104,7 @@ WDOG=$!
 CHILD=$!
 wait "$CHILD"; RC=$?; CHILD=""
 cat "$LOG.run" >> "$LOG"
-grep -a -E "^  - |PROBLEM|waiting for the match|^battery evidence|the clock runs|engine chain resolved|REFUSED|located|-> (A|E|P)[0-9]+ at|battery_write:|no frozen|run ended|A/A control|^  E[0-9]|^KNOB|^shape\.|^marking\.|^runs\.|^pressing\.|^lineband\.|BATTERY KNOB|BATTERY SKIPPED|VERDICT|RESTORE FAILED|FAILED" "$LOG.run" | cut -c1-230
+grep -a -E "^  - |PROBLEM|waiting for the match|^battery evidence|the clock runs|engine chain resolved|gameplay databases|engine-read assertion|engine-resolved|REFUSED|located|-> (A|E|P)[0-9]+ at|battery_write:|no frozen|run ended|sampler:|final schedule|a-priori|decidable|UNDER-POWERED|deferred|A/A control|^  E[0-9]|^KNOB|^shape\.|^marking\.|^runs\.|^pressing\.|^lineband\.|BATTERY KNOB|BATTERY SKIPPED|VERDICT|RESTORE FAILED|FAILED|restored" "$LOG.run" | cut -c1-230
 kill "$WDOG" 2> /dev/null; WDOG=""
 case "$RC" in 0) RC=0 ;; 1) RC=1 ;; *) RC=3 ;; esac
 echo "VERDICT $([ $RC = 0 ] && echo PASS || ([ $RC = 1 ] && echo FAIL || echo INCONCLUSIVE)) (battery_run match)"

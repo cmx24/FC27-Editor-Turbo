@@ -47,6 +47,7 @@ GUARD_S = 1.0
 MIN_N = 6
 CONFORM_SHARE, STALE_SHARE = 0.85, 0.80
 MULTI_MAX = 200
+SEQ_MAX = 200        # steps of one dev-service seq request (devops.cpp: "a list of at most 200"; a seq cannot be nested)
 
 
 class DevError(RuntimeError):
@@ -116,6 +117,32 @@ class DevMulti:
                 out.append(bytes.fromhex(x["hex"]) if x.get("ok") and x.get("hex") is not None else None)
             self.calls += 1
         return out
+
+    def seq(self, steps, timeout=None):
+        """one dev-service SEQ request: read-only bytes steps with sleep steps between them (the service runs them one after the other in one
+        round trip, so several position snapshots cost one ~1 s request latency). Never split. -> [bytes | None] for the bytes steps, in order."""
+        assert 0 < len(steps) <= SEQ_MAX, "a seq holds at most %d steps" % SEQ_MAX
+        assert all(s["op"] in ("bytes", "sleep") for s in steps), "read-only: bytes and sleep steps only"
+        r = self.call({"op": "seq", "steps": steps}, timeout=timeout or self.timeout)
+        if "results" not in r:
+            raise DevError(str(r.get("error") or r))
+        res = r["results"]
+        out = []
+        for i, s in enumerate(steps):
+            if s["op"] != "bytes":
+                continue
+            x = res[i] if i < len(res) else None
+            out.append(bytes.fromhex(x["hex"]) if x and x.get("ok") and x.get("hex") is not None else None)
+        self.calls += 1
+        return out
+
+
+def bytes_step(addr, n):
+    return {"op": "bytes", "addr": H(addr), "len": int(n)}
+
+
+def sleep_step(ms):
+    return {"op": "sleep", "ms": int(ms)}
 
 
 # ------------------------------------------------------------------------------------------------------------- resolve
