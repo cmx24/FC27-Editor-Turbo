@@ -76,6 +76,8 @@ struct Tv {
     PlanKind pending_kind = PlanKind::Apply;
     std::string pending_moment;
     bool pending_restore_all = false;  // the job is Restore FC 27 defaults (the profile keeps its values, switched off)
+    bool pending_live = false;         // 2.7: the job is "Apply now (live)"
+    std::string styles_sig;            // 2.7: which knobs are proven when the Turbo styles were built (rebuilt when it changes)
     double pending_since = -1.0;
     UndoRecord prev;
     bool prev_have = false;
@@ -244,19 +246,39 @@ bool same_file(const fs::path& a, const fs::path& b) {
     return x == y && a.parent_path() == b.parent_path();
 }
 
+std::shared_ptr<const Registry> registry_of(App& app) {
+    if (!app.tuning) return std::make_shared<Registry>();
+    return app.tuning->registry();
+}
+
+// 2.7: the proven knobs of the knobs file, as one string (the Turbo styles are rebuilt when it changes)
+std::string proven_signature(const Registry& reg) {
+    std::string s;
+    for (const Knob& k : reg.knobs)
+        if (k.proven() && k.slider) s += k.id + ";";
+    return s;
+}
+
 void load_presets_now(App& app) {
     std::string err;
     const int n = ensure_builtin_presets(preset_dir(app), &err);
     if (n > 0) log_line(app, "gameplay tuning: " + std::to_string(n) + " of Turbo's own presets written to turbo_output\\" + presets_dir());
     g.preset_errors.clear();
+    std::string keep;
+    if (g.preset_sel >= 0 && g.preset_sel < int(g.presets.size())) keep = g.presets[size_t(g.preset_sel)].name;
     g.presets = load_presets(preset_dir(app), &g.preset_errors);
-    if (g.preset_sel >= int(g.presets.size())) g.preset_sel = -1;
+    // 2.7 "Turbo mixed styles": in memory, after Turbo's own file presets, holding only the proven knobs of the knobs file
+    const auto reg = registry_of(app);
+    std::vector<Preset> styles = style_presets(*reg);
+    size_t at = 0;
+    while (at < g.presets.size() && g.presets[at].turbo()) ++at;
+    g.presets.insert(g.presets.begin() + std::ptrdiff_t(at), styles.begin(), styles.end());
+    g.styles_sig = proven_signature(*reg);
+    g.preset_sel = -1;
+    if (!keep.empty())
+        for (size_t i = 0; i < g.presets.size(); ++i)
+            if (same_name(g.presets[i].name, keep)) g.preset_sel = int(i);
     g.presets_loaded = true;
-}
-
-std::shared_ptr<const Registry> registry_of(App& app) {
-    if (!app.tuning) return std::make_shared<Registry>();
-    return app.tuning->registry();
 }
 
 // One read of every knob; untouched sliders follow the game's values
@@ -340,7 +362,8 @@ std::map<std::string, double> wanted(const Registry& reg) {
     return w;
 }
 
-GateInput gate_input(App& app, const Registry& reg, const Plan* plan, const std::string& locate, const std::string& values, bool restore) {
+GateInput gate_input(App& app, const Registry& reg, const Plan* plan, const std::string& locate, const std::string& values, bool restore,
+                     bool live_apply = false) {
     const BridgeState& st = app.bridge.state();
     GateInput in;
     in.sw = g.sw;
@@ -357,6 +380,7 @@ GateInput gate_input(App& app, const Registry& reg, const Plan* plan, const std:
     in.values = values;
     in.session_off = app.tuning ? app.tuning->session_off() : "";
     in.restore = restore;
+    in.live_apply = live_apply;
     if (plan)
         for (const Write& w : plan->writes)
             if (const Knob* k = reg.knob(w.id)) in.knobs.push_back(k);
@@ -415,6 +439,7 @@ bool queue(App& app, const Plan& plan_in, const std::string& what) {
     g.pending_kind = plan.kind;
     g.pending_moment = plan.moment;
     g.pending_restore_all = false;
+    g.pending_live = plan.live;
     g.pending_since = app.now;
     g.last = std::string(plan_kind_name(plan.kind)) + (plan.moment.empty() ? "" : " (" + plan.moment + ")") + " queued for the game thread ...";
     return true;
@@ -467,6 +492,44 @@ void do_apply(App& app) {
         return;
     }
     submit_write(app, v.plan, "Gameplay tuning not written");
+}
+
+std::string plain_gate(const std::string& s);  // below
+
+// 2.7: the plan of "Apply now (live)": the moved sliders of the knobs that are proven live, all of them or just `only`. "" = a plan that passes
+// every gate (G1 switches incl. tuning_live_off.txt, G2 phase, the plan, G4 / G5), else why not in plain words
+std::string live_plan(App& app, const Registry& reg, const std::string& only, Plan& out) {
+    std::map<std::string, double> w = wanted(reg);
+    for (auto it = w.begin(); it != w.end();) {
+        const Knob* k = reg.knob(it->first);
+        if (!k || !k->live_ok() || (!only.empty() && it->first != only)) it = w.erase(it);
+        else ++it;
+    }
+    if (w.empty()) return "no moved slider of a knob that is proven live";
+    const std::string bad = make_plan(reg, g.live, w, PlanKind::Apply, out);
+    if (!bad.empty()) return bad;
+    if (out.writes.empty()) return "nothing changed";
+    out.live = true;
+    if (g.pending) return "a write is still running";
+    const Gates gs = evaluate(gate_input(app, reg, &out, "", "", false, true));
+    if (!gs.pass()) return plain_gate(gs.first());
+    return "";
+}
+
+void do_apply_live(App& app, const std::string& only) {
+    if (!app.tuning) return;
+    refresh_switches(app, true);
+    load_undo_once(app);
+    read_now(app);
+    const auto reg = registry_of(app);
+    Plan plan;
+    const std::string why = live_plan(app, *reg, only, plan);
+    if (!why.empty()) {
+        app.notify("Gameplay tuning not written live: " + why, true);
+        g.last = "live write not made: " + why;
+        return;
+    }
+    submit_write(app, plan, "Gameplay tuning not written live");
 }
 
 void do_undo(App& app) {
@@ -566,6 +629,8 @@ void do_restore(App& app) {
 
 void handle_result(App& app, const ApplyResult& r) {
     g.pending = false;
+    const bool was_live = g.pending_live;
+    g.pending_live = false;
     struct Clear {
         ~Clear() { g.pending_restore_all = false; }
     } clear_after;
@@ -637,7 +702,7 @@ void handle_result(App& app, const ApplyResult& r) {
             for (const Write& w : r.writes) g.prof.values[w.id] = w.new_value;
             g.prof.preset = "custom";
             save_profile_now(app, "updated by Apply");
-            app.notify("Gameplay tuning written to the engine table and read back");
+            app.notify(was_live ? "Gameplay tuning written LIVE into the engine table and read back" : "Gameplay tuning written to the engine table and read back");
         }
         after_job_follow(r.writes);
     } else if (r.ok) {
@@ -654,7 +719,7 @@ void handle_result(App& app, const ApplyResult& r) {
             u.note = r.stage + ": " + r.message;
             save_record(app, u);
         }
-        if (r.kind == PlanKind::Apply) app.notify("Gameplay tuning not written: " + r.message, true);
+        if (r.kind == PlanKind::Apply) app.notify(std::string(was_live ? "Gameplay tuning not written live: " : "Gameplay tuning not written: ") + r.message, true);
     }
     read_now(app);
 }
@@ -739,6 +804,7 @@ void use_preset(App& app, const Preset& p) {
     }
     g.preset_line = "\"" + p.name + "\": " + std::to_string(pv.values.size()) + " knob(s) set in the sliders and the profile" +
                     (pv.skipped.empty() ? "" : ", " + std::to_string(pv.skipped.size()) + " not set (" + joined(pv.skipped) + ")") +
+                    (pv.clamped.empty() ? "" : "; brought into the knob's range: " + joined(pv.clamped)) +
                     ". Written by Apply, or by the profile at its next moment when it is on.";
 }
 
@@ -956,12 +1022,21 @@ ActivePreset active_preset(App& app, const Registry& reg) {
 void draw_presets(App& app, const Registry& reg) {
     ImGui::SeparatorText("Presets");
     ImGui::TextDisabled("A preset is a named, complete set of knob values. Use one to fill the sliders and your profile; Apply (or the profile) writes it.");
-    for (const Preset& p : g.presets) g_state.presets.push_back(p.name + (p.turbo() ? " (Turbo)" : ""));
+    if (g.presets_loaded && g.styles_sig != proven_signature(reg)) load_presets_now(app);  // 2.7: a knob was promoted (or the file read again)
+    g_state.presets_empty.clear();
+    for (const Preset& p : g.presets) {
+        const bool empty_style = is_style_preset(p) && p.changes.empty();
+        if (empty_style) g_state.presets_empty.push_back(p.name);
+        g_state.presets.push_back(p.name + (p.turbo() ? " (Turbo)" : "") + (empty_style ? " - empty until its knobs are proven" : ""));
+    }
     const std::string cur = g.preset_sel >= 0 && g.preset_sel < int(g.presets.size()) ? g_state.presets[size_t(g.preset_sel)] : std::string("(pick a preset)");
     ImGui::SetNextItemWidth(S(260.0f));
-    if (ImGui::BeginCombo("##tvpreset", cur.c_str())) {
+    if (ImGui::BeginCombo("##tvpreset", cur.c_str(), ImGuiComboFlags_HeightLarge)) {  // 2.7: the Turbo styles make the list long
         for (size_t i = 0; i < g.presets.size(); ++i) {
+            const bool grey = is_style_preset(g.presets[i]) && g.presets[i].changes.empty();
+            if (grey) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
             if (ImGui::Selectable((g_state.presets[i] + "##tvp" + std::to_string(i)).c_str(), int(i) == g.preset_sel)) g.preset_sel = int(i);
+            if (grey) ImGui::PopStyleColor();
             if (ImGui::IsItemHovered()) {
                 const PresetStatus ps = preset_status(g.presets[i], reg, located_now);
                 ImGui::SetTooltip("%s%s%s", g.presets[i].note.c_str(), g.presets[i].note.empty() ? "" : "\n", ps.text().c_str());
@@ -971,13 +1046,15 @@ void draw_presets(App& app, const Registry& reg) {
     }
     const bool have = g.preset_sel >= 0 && g.preset_sel < int(g.presets.size());
     const bool mine = have && !g.presets[size_t(g.preset_sel)].turbo();
+    const bool empty_pick = have && is_style_preset(g.presets[size_t(g.preset_sel)]) && g.presets[size_t(g.preset_sel)].changes.empty();
     ImGui::SameLine();
-    ImGui::BeginDisabled(!have || g.pending);
-    if (ImGui::Button("Use this preset##tvuse") && have) use_preset(app, g.presets[size_t(g.preset_sel)]);
+    ImGui::BeginDisabled(!have || g.pending || empty_pick);
+    if (ImGui::Button("Use this preset##tvuse") && have && !empty_pick) use_preset(app, g.presets[size_t(g.preset_sel)]);
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Sets the sliders and the tuning profile from the preset (relative changes start from FC 27's own values). Only the knobs "
-                          "with a measured effect are set. Nothing is written until Apply, or the profile's next moment when it is on.");
+        ImGui::SetTooltip("%s", empty_pick ? "This Turbo style holds only knobs that are proven in a played match, and none of its knobs is proven yet: nothing to use."
+                                           : "Sets the sliders and the tuning profile from the preset (relative changes start from FC 27's own values). Only the knobs "
+                                             "with a measured effect are set. Nothing is written until Apply, or the profile's next moment when it is on.");
     g_state.preset_status.clear();
     if (have) {
         g_state.preset_status = preset_status(g.presets[size_t(g.preset_sel)], reg, located_now).text();
@@ -1218,10 +1295,27 @@ void draw_row(App& app, const Knob& k, const std::map<std::string, double>& defs
     ImGui::SameLine();
     ImGui::TextColored(badge_colour(badge), "[%s]", row.badge.c_str());
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip.c_str());
+    // 2.7: when a written value reaches the match (a slider row only): live = the engine reads it while the match runs ("Apply now"), else
+    // it is read when the match is built (write it in the hub before kick-off)
+    if (proven) {
+        row.live = k.live_ok();
+        row.latched = !row.live;
+        row.timing = k.timing_label();
+        ImGui::SameLine();
+        ImGui::TextColored(row.live ? ImVec4(0.45f, 0.85f, 0.45f, 1) : k.timing() == Knob::Timing::NextMatch ? ImVec4(0.9f, 0.75f, 0.4f, 1) : ImVec4(0.7f, 0.7f, 0.7f, 1),
+                           "[applies: %s]", row.timing.c_str());
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", row.live ? "The engine reads this value while the match runs: \"Apply now\" writes it into the running match (the owner rule, a read-back "
+                                               "and a rollback on a mismatch apply; turbo_output\tuning_live_off.txt stops it). The tuning profile writes it again at the "
+                                               "next hub."
+                                             : "The engine reads this value once, when the match is built (kick-off). Write it in the career hub (Apply) before kick-off; "
+                                               "changing it during a match does nothing until the next kick-off, so Turbo does not offer a live write.");
+    }
     // FC 27's own value, the value now when it differs, the profile's, Reset
     ImGui::SameLine();
     std::string info = std::string("FC 27: ") + (have_def ? row.def : std::string("?"));
-    if (!have_def || row.game != row.def) info += " | now: " + row.game;
+    if (proven || !have_def || row.game != row.def) info += " | now: " + row.game;  // 2.7: a slider row always reads back what the game holds
+    if (proven) row.readback = "in the game now: " + row.game;
     if (!row.profile.empty()) info += std::string(" | profile") + (g.prof.on ? "" : " (off, not written)") + ": " + row.profile;
     ImGui::TextDisabled("%s", info.c_str());
     if (ImGui::IsItemHovered())
@@ -1249,6 +1343,20 @@ void draw_row(App& app, const Knob& k, const std::map<std::string, double>& defs
             ImGui::SetTooltip("%s", none.empty() ? ("Puts the game's own value (" + row.def + ") back now, in every copy, and takes the knob out of the profile.").c_str()
                                     : g.touched.count(k.id) ? "Drops your slider edit (the knob already holds the game's own value)."
                                                             : ("Nothing to reset: " + none + ".").c_str());
+    }
+    if (row.live) {
+        // hotkey-free: a button on the page, for a knob proven live only; the plan passes every gate or the button is greyed with the reason
+        Plan pl;
+        const auto regp = registry_of(app);
+        row.apply_now_why = row.changed ? live_plan(app, *regp, k.id, pl) : std::string("move the slider first");
+        row.can_apply_now = row.apply_now_why.empty();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!row.can_apply_now);
+        if (ImGui::SmallButton(("Apply now##tvnow_" + k.id).c_str())) do_apply_live(app, k.id);
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", row.can_apply_now ? "Writes this knob now, also during a match; the value is read back and put back if it does not read as written."
+                                                      : ("Cannot write now: " + row.apply_now_why).c_str());
     }
     ImGui::PopID();
     g_state.rows.push_back(row);
@@ -1558,6 +1666,25 @@ void draw_body(App& app) {
     if (ImGui::Button("Discard edits##tvdiscard")) {
         g.touched.clear();
         read_now(app);
+    }
+    // 2.7: "Apply now (live)": only when the knobs file has a knob that is proven live (with none, the page is exactly 2.6.0's)
+    g_state.live_shown = false;
+    g_state.live_plan.clear();
+    for (const Knob& k : reg->knobs) g_state.live_shown = g_state.live_shown || (state_of(k) == KnobState::Proven && k.live_ok());
+    if (g_state.live_shown) {
+        Plan lp;
+        g_state.live_why = live_plan(app, *reg, "", lp);
+        g_state.can_apply_live = g_state.live_why.empty() && app.tuning != nullptr;
+        if (g_state.can_apply_live) g_state.live_plan = plan_lines(*reg, lp);
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!g_state.can_apply_live);
+        if (ImGui::Button("Apply now (live)##tvlive")) do_apply_live(app, "");
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", g_state.can_apply_live ? "Writes the moved sliders of the knobs proven live now, also during a match (read back; rolled back on a mismatch)."
+                                                          : ("Cannot write live now: " + g_state.live_why).c_str());
+        ImGui::TextDisabled("Apply now (live) writes only knobs marked [applies: now (live)]; the others are read when the match starts, so use Apply in the hub before "
+                            "kick-off. turbo_output\%s stops every write during a match.", live_off_file());
     }
     draw_confirm(app);
 

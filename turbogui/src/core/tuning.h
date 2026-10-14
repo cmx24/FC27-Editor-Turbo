@@ -97,6 +97,9 @@ inline const char* profile_off_file() { return "tuning_profile_off.txt"; }  // k
 inline const char* chain_check_file() { return "tuning_chain_check.json"; } // the chain / name search cross-check of each build
 // The coordinator's proof-session switch (M5, review 2026-10-13): only with it does the profile write knobs whose effect is not proven.
 // Never created by the view (tools/s_a1_check.py --setup creates it, --restore removes it); refused in a package
+// 2.7: the kill switch of every write during a match (prematch / match) and of the page's "Apply now (live)": a live-proven knob is written mid-match only
+// while this file is absent. Undo / Restore are not blocked by it (they put the game's values back)
+inline const char* live_off_file() { return "tuning_live_off.txt"; }
 inline const char* test_unproven_file() { return "tuning_test_unproven_on.txt"; }
 inline const char* presets_dir() { return "tuning_presets"; }
 // The knobs file names tried for a build key ("6AC07E31-2145C000"): knobs_6AC07E31-2145C000.json, then knobs_6AC07E31.json
@@ -161,6 +164,14 @@ struct Knob {
     bool allows(const std::string& phase) const;
     bool allows_moment(const std::string& moment) const;  // `when` names the moment
     bool proven() const { return proof.given(); }         // a slider in the view (a "slider" without a proof is not one)
+    // 2.7: a mid-match write is allowed only for a knob that is proven AND declared live (promote_proof.py sets "live": true and "applies": "live" together
+    // with the proof when the evidence shows the engine reading the value live); a knob that is merely `live: true` without a proof is not
+    bool live_ok() const { return live && proven(); }
+    // When a written value reaches the match: Now (read live by the engine: the page offers "Apply now (live)"), NextMatch (latched when the match
+    // is built: write it in the hub before kick-off), Unknown (not measured: treated as the next match)
+    enum class Timing { Now, NextMatch, Unknown };
+    Timing timing() const { return live_ok() ? Timing::Now : applies == Applies::NextMatchSetup ? Timing::NextMatch : Timing::Unknown; }
+    const char* timing_label() const;   // "now (live)" "next match (latched at kick-off)" "not measured: assume the next match"
     bool engine_confirmed() const { return engine_check.given() || proof.given(); }  // the engine read was confirmed (a proven knob was, too)
     bool has_range() const { return has_min && has_max; }
     // FC 27's own value of one copy ("" = a chain / native locator's only copy): copy_defaults, else def. false = not known
@@ -443,6 +454,7 @@ struct Switches {
     bool opt_in = false, off = false, master = false, attrib = false;
     bool profile_off = false, profile_on = false, session = false;
     bool test_unproven = false;  // tuning_test_unproven_on.txt: the profile also writes unproven knobs (proof sessions only)
+    bool live_off = false;       // 2.7 tuning_live_off.txt: no write in a match (prematch / match), no "Apply now (live)"
     bool opted_in() const { return opt_in || profile_on || session; }  // G1 of a write from the view
     std::string blocking() const;  // the kill switch file that blocks an Apply ("" = none)
     std::string blocking_moments() const;  // ... and the automatic moments (tuning_profile_off.txt too)
@@ -463,6 +475,7 @@ struct GateInput {
     std::string session_off;
     std::vector<const Knob*> knobs;  // the plan's knobs (their "when" for G2; none = the hub only)
     bool restore = false;      // Undo / Restore game defaults: no opt-in, the kill switches do not block, the session switch neither
+    bool live_apply = false;   // 2.7: "Apply now (live)": every knob of the plan must be proven live
 };
 struct Gate {
     std::string name, why;  // "" = pass
@@ -490,6 +503,7 @@ struct Plan {
     long long load_gen = -1;  // the career load it was made in (-1 = the submitting context's)
     std::string session;
     std::string moment;       // the profile's automatic moment ("boot", "career_load", "hub"; "" = a click in the view)
+    bool live = false;        // 2.7: the page's "Apply now (live)": every knob must be proven live (Knob::live_ok); tuning_live_off.txt blocks it
 };
 // The diff of the wanted values against the live ones: each wanted knob must be in the registry, located and writable, its value must
 // pass check_value and keep the knob below the knobs it must stay below. A key is a knob id (one value for every copy) or a copy_key
@@ -671,6 +685,19 @@ struct PresetStatus {
     bool all_measured() const { return total > 0 && measured == total; }
 };
 PresetStatus preset_status(const Preset& p, const Registry& reg, const std::function<bool(const std::string&)>& located = nullptr);
+// 2.7 "Turbo mixed styles": six Turbo presets (high press, low block, wide, narrow, counter, possession) built from RECIPES (knob ids and relative
+// changes, Turbo's own generic sizes, no mod's values) and filtered against the knobs file: a style holds ONLY the knobs that are proven
+// (a slider) in that file today. With no proven knob every style is empty ("empty until its knobs are proven": Use sets nothing, nothing is
+// written to disk); when promote_proof.py promotes a knob, the styles that name it hold it from the next knobs-file read. They live in memory
+// (never written as files), author "Turbo", so they are read-only, duplicable and exportable like the others. The recipe directions are an
+// offline assessment [A] from the catalogue notes; the effect size is whatever the proof measured
+struct StyleRecipe {
+    std::string id, name, note;
+    std::vector<std::pair<std::string, double>> changes;  // knob id, relative change in percent
+};
+const std::vector<StyleRecipe>& style_recipes();
+std::vector<Preset> style_presets(const Registry& reg);
+inline bool is_style_preset(const Preset& p) { return p.turbo() && p.id.rfind("turbo_style_", 0) == 0; }
 // 2.5 file operations on the user's presets (never Turbo's own: author "Turbo"). Names are unique case-insensitively
 std::string unique_preset_name(const std::vector<Preset>& have, const std::string& wanted);  // "Name", else "Name 2", "Name 3" ...
 bool write_preset_file(const std::filesystem::path& dir, Preset& p, std::string* err);       // sets p.file; creates dir
@@ -682,6 +709,7 @@ bool delete_preset_file(const Preset& p, std::string* err);                     
 struct PresetValues {
     std::map<std::string, double> values;
     std::vector<std::string> skipped;
+    std::vector<std::string> clamped;  // 2.7: an absolute value outside the knob's range was brought to the range ("Team width: 3 -> 1.7")
 };
 PresetValues preset_values(const Preset& p, const Registry& reg, const std::function<bool(const std::string&, double&)>& base_of,
                            const std::function<std::string(const Knob&)>& usable = nullptr);
@@ -762,7 +790,7 @@ private:
     // m4: the manager's current database (read now, in the job) must be one of the databases Turbo located; "" = so (or no chain knob)
     std::string chain_liveness(const Plan& plan, const Registry& reg, const AnchorMap& anchors, const AttribDbs& dbs) const;
     // the kill switches (and for a moment the profile's switch and the test switch) read again inside the job (m1); "" = none
-    std::string job_switch_block(const Plan& plan, const Registry& reg) const;
+    std::string job_switch_block(const Plan& plan, const Registry& reg, const std::string& phase) const;
     // runs a background locate job; an exception switches tuning off for the session (logged), never escapes the thread
     void guard_locate(long long epoch, const Registry& reg, const std::function<void()>& fn);
     void log(const std::string& s);
