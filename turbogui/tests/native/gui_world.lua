@@ -431,15 +431,31 @@ local function build_world(sim)
         rows = { { teamid = 1, formationid = 10, teamstyleid = 1 }, { teamid = 7, formationid = 2, teamstyleid = 1 },
                  { teamid = 241, formationid = 12, teamstyleid = 1 }, { teamid = 1318, formationid = 11, teamstyleid = 2 } },
     })
-    -- career tactics: several rows per team, one flagged as the active tactic (cm_mentalities); the static table has the width and box fields
+    -- career tactics: several rows per team, one flagged as the active tactic (cm_mentalities); the static table has the width and box fields.
+    -- 2.4 (channel E's row, test_team_sheet.h): FC 27's teamsheetid / code / playerid0..10 / position0..10 / pos0role..pos10role; Arsenal's
+    -- active row (artificialkey 2) holds the 11 players, positions, role words and tactic code of the simulated live sheet (SheetWorld(1, 10))
+    local cm_fields = { { name = "artificialkey", short = "akey", depth = 16 }, { name = "teamid", short = "tid_", depth = 18, min = -1 },
+                        { name = "activetactic", short = "atac", depth = 1 }, { name = "mentalityid", short = "mid_", depth = 13 },
+                        { name = "defensivedepth", short = "ddep", depth = 7, min = 1 }, { name = "buildupplay", short = "bupl", depth = 2 },
+                        { name = "sourceformationid", short = "sfid", depth = 19, min = -1 }, { name = "teamsheetid", short = "tsid", depth = 16, min = -1 },
+                        { name = "code", short = "code", type = "string", depth = 8 * 13 } }
+    for i = 0, 10 do cm_fields[#cm_fields + 1] = { name = "playerid" .. i, short = string.format("pl%02d", i), depth = 22, min = -1 } end
+    for i = 0, 10 do cm_fields[#cm_fields + 1] = { name = "position" .. i, short = string.format("po%02d", i), depth = 5 } end
+    for i = 0, 10 do cm_fields[#cm_fields + 1] = { name = "pos" .. i .. "role", short = string.format("pr%02d", i), depth = 16 } end
+    local arsenal_tactic = { artificialkey = 2, teamid = 1, activetactic = 1, mentalityid = 101, defensivedepth = 55, buildupplay = 2, sourceformationid = 10,
+                             teamsheetid = -1, code = "?ZaE&CYzKoT7" }
+    local slot_pos = { 0, 3, 4, 6, 7, 9, 11, 18, 23, 25, 27 }
+    local slot_role = { 4227, 8581, 12737, 12867, 8581, 18306, 17155, 29571, 33797, 38213, 33797 }
+    for i = 0, 10 do
+        arsenal_tactic["playerid" .. i] = 100001 + i
+        arsenal_tactic["position" .. i] = slot_pos[i + 1]
+        arsenal_tactic["pos" .. i .. "role"] = slot_role[i + 1]
+    end
     sim:add_table({
         name = "cm_mentalities", short = "cmmt",
-        fields = { { name = "artificialkey", short = "akey", depth = 16 }, { name = "teamid", short = "tid_", depth = 18, min = -1 },
-                   { name = "activetactic", short = "atac", depth = 1 }, { name = "mentalityid", short = "mid_", depth = 13 },
-                   { name = "defensivedepth", short = "ddep", depth = 7, min = 1 }, { name = "buildupplay", short = "bupl", depth = 2 },
-                   { name = "sourceformationid", short = "sfid", depth = 19, min = -1 } },
+        fields = cm_fields,
         rows = { { artificialkey = 1, teamid = 1, activetactic = 0, mentalityid = 100, defensivedepth = 40, buildupplay = 1, sourceformationid = 10 },
-                 { artificialkey = 2, teamid = 1, activetactic = 1, mentalityid = 101, defensivedepth = 55, buildupplay = 2, sourceformationid = 10 },
+                 arsenal_tactic,
                  { artificialkey = 3, teamid = 7, activetactic = 0, mentalityid = 102, defensivedepth = 45, buildupplay = 0, sourceformationid = 2 },
                  { artificialkey = 4, teamid = 111592, activetactic = 1, mentalityid = 103, defensivedepth = 50, buildupplay = 0, sourceformationid = 10 } },
     })

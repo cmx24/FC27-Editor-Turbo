@@ -27,12 +27,12 @@
 //
 // What Turbo does (report section 4): a GUARDED IN-PLACE WRITE, not a SetSheet call. For your sheet (mode -1, report 2.7) SetSheet is
 // UpdateSheet = deep copy + dirty = 1 + the cache, so writing the scalar fields and setting dirty = 1 reaches the same end state without
-// allocating anything. Written: Defensive Approach, Line Height and Build-Up Style together, per slot the three role values together,
-// then the dirty flag; in the SAME job the same fields into every Edit Tactic working copy whose code is the map record's (none: map
-// only, Edit Tactic shows its own copy until the next career load). Never: formation ids, positions, offsets, names, codes, takers,
-// presets, the service cache, any game function (Turbo never triggers the team-sheet prompt or a save). Every field is read back in the
-// same game-thread job; a mismatch puts every field and the dirty flag back from the snapshot taken in that job and switches channel E
-// off for the session.
+// allocating anything. Written: Defensive Approach, Line Height and Build-Up Style together (the approach band-consistent with the line
+// height), per slot the three role values together, then the dirty flag. 2.4 (docs/TACTICS_OVERHAUL_DECISION.md 3.2): no Edit Tactic
+// working copy is written any more (E2 refuted, R4; the copy machinery stays for X3's branches, JobChecks::copy_targets, empty by default).
+// Never: formation ids, positions, offsets, names, codes, takers, presets, the service cache, any game function (Turbo never triggers the
+// team-sheet prompt or a save). Every field is read back in the same game-thread job; a mismatch puts every field and the dirty flag back
+// from the snapshot taken in that job and switches channel E off for the session.
 //
 // Gates (report 4.3): G1 opt-in turbo_output\call_team_sheet_on.txt, no call_team_sheet_off.txt / tactics_off.txt; G2 career hub only
 // (Lua's match phase "hub" only, Team Management not open; no save started in the last kSaveQuietSeconds; the located service belongs to
@@ -54,6 +54,7 @@
 
 #include "mem.h"
 #include "memmap.h"
+#include "t3db.h"
 
 namespace turbo {
 namespace tsheet {
@@ -84,7 +85,8 @@ constexpr uint64_t kRecName = 0x00, kRecNameSize = 0x08, kRecCode = 0x68, kRecAc
                    kRecSourceFormation2 = 0xD0, kRecSlotBegin = 0xD8, kRecSlotEnd = 0xE0;
 constexpr int kCodeLen = 12;  // the tactic code: 12 printable characters then NUL (both codes seen on 2026-10-12)
 constexpr int kMaxRecords = 8;
-// Edit Tactic's working copies: inline records in the service (2026-10-12 dump of svc+0xB00..+0x1400) [V]
+// Edit Tactic's working copies: inline records in the service (2026-10-12 dump of svc+0xB00..+0x1400) [V]. Read only since 2.4: writing
+// them did not change Edit Tactic's screen (R4, 2026-10-13 19:34); they are never a copy target of the service's jobs
 constexpr std::array<uint64_t, 4> kWorkCopyOffsets = {0xF80, 0x1078, 0x1170, 0x1268};
 // slot
 constexpr uint64_t kSlotStride = 0x48;
@@ -106,18 +108,25 @@ constexpr double kJobLostUs = 10e6;
 // The vtable-pair scan runs once per career load; after a failed locate the next try waits this long (or "Locate again"); a Find job the
 // game thread never ran counts as failed after kLocateLostUs
 constexpr double kLocateRetryUs = 60e6, kLocateLostUs = 90e6;
-// A service the vtable-pair scan picked becomes "located" only when it passes check_service again this long after the scan (a freed copy
-// keeps its header for a while, report 2.5); a scan that ran out of time or reached kScanMaxHits hits locates nothing
+// A service the vtable-pair scan picked becomes "located" only when it passes check_service again this long (WALL time, Host::wall_us) after
+// the scan (a freed copy keeps its header for a while, report 2.5); a scan that ran out of time or reached kScanMaxHits hits locates nothing
 constexpr double kScanConfirmUs = 5e6;
 constexpr size_t kScanMaxHits = 16;
 // The role allow-list walk (every cached team's sheets): at most this many map nodes (64 hops a bucket, kMaxSheets a node), this long
 constexpr int kAllowMaxNodes = 20000;
 constexpr double kAllowBudgetUs = 10e6;
-// match-setup copy (report 2.12) [V]: roles at out+0x118, pids at out+0x168, team id at out+0x28
-constexpr uint64_t kCopyRoles = 0x118, kCopyPids = 0x168, kCopyTeam = 0x28;
-// The kick-off check (read-only): 20 s after Lua's phase became "match" (once more 30 s later when no copy was found), on Turbo's game_tick
-// listener; each match-setup copy is dumped from out+0x00: the 0x1A0 bytes of the known layout and the 0x200 bytes after them
-constexpr double kKickoffDelayUs = 20e6, kKickoffRetryUs = 30e6;
+// match-setup copy (report 2.12) [V]: roles at out+0x118, pids at out+0x168, team id at out+0x28, positions at out+0x30 (2026-10-12 dev
+// read of both copies: 0856_match_setup_copies.txt)
+constexpr uint64_t kCopyRoles = 0x118, kCopyPids = 0x168, kCopyTeam = 0x28, kCopyPositions = 0x30;
+constexpr int kMaxPosition = 27;
+// The raw bytes the kick-off line carries: the style block of the copy (T2: out+0x150..+0x167, record +0x88..+0xBF converted byte-wise)
+constexpr uint64_t kCopyStyleWindow = 0x150, kCopyStyleWindowLen = 0x18;
+// The kick-off check (read-only), on Turbo's game_tick listener: 20 s of WALL time (Host::wall_us; Turbo's QPC clock ran ~3x in game) after
+// Lua's phase became "match", then every 15 s while no copy is found, at most kKickoffMaxLooks looks (about 80 s): a copy made late is
+// still read, and only the last look says "no match copy found ... (look 5 of 5)". Each match-setup copy is dumped from out+0x00: the 0x1A0
+// bytes of the known layout and the 0x200 bytes after them; the scan's budget is scan_budget_s of wall time
+constexpr double kKickoffDelayUs = 20e6, kKickoffRetryUs = 15e6;
+constexpr int kKickoffMaxLooks = 5;
 constexpr size_t kKickoffHead = 0x1A0, kKickoffTail = 0x200, kKickoffMaxCopies = 4;
 inline const char* kickoff_dump_file() { return "channel_e_kickoff_dump.bin"; }
 inline const char* kickoff_off_file() { return "channel_e_kickoff_off.txt"; }  // no kick-off check (it needs the opt-in and no kill switch besides)
@@ -133,15 +142,22 @@ struct EnumLabel {
     int default_line;         // Defensive Approach: the Line Height Edit Tactic puts in when you pick it (-1 = not known)
     bool default_line_seen;   // that default was seen in Edit Tactic (else EA's notes)
     const char* source;
+    bool writable;            // Turbo may write this value (2.4: Build-Up Style 2 / 3 and Defensive Approach 3 stay refused until X3's Q5)
 };
 // Balanced 0, Counter 1 (both seen). Short Passing exists (IQ_BUILDUP_0..2, EA's notes, Live Editor's label list) but its stored value is
 // 2 or 3 (the match's map of the stored value treats 2 like 0): refused until decoded.
 const std::vector<EnumLabel>& build_up_styles();
 // Deep 0, Balanced 1 (both seen), High 2, Aggressive 3: the order of the game's band code (minDepthThresholdFor...DefensiveStyle,
-// IQ_DEFENSIVE_0..3) and EA's list; defaults 25 (seen at load), 50 (seen), 70 and 95 (EA)
+// IQ_DEFENSIVE_0..3) and EA's list; defaults 25 (seen at load), 50 (seen), 70 and 95 (EA). High is written (the other clubs' records hold
+// 2 with lines 65-90 [V 2026-10-13]); Aggressive (3) is never seen in any record and stays refused (decision 3.2, Q5)
 const std::vector<EnumLabel>& defensive_approaches();
 const EnumLabel* build_up_style(int value);       // nullptr = unknown
 const EnumLabel* defensive_approach(int value);
+bool build_up_writable(int value);                 // known and writable
+bool approach_writable(int value);
+// The highest Line Height Turbo writes: the top of the highest band whose Defensive Approach is writable (90 while Aggressive is refused).
+// Turbo keeps the approach band-consistent with the line height (the game's CPU records are [V]), so a line in a refused band is refused too.
+int max_writable_line();
 std::string build_up_text(int value);              // "Counter (1)" / "unknown value 3"
 std::string approach_text(int value);
 
@@ -161,17 +177,19 @@ inline const char* opt_in_file() { return "call_team_sheet_on.txt"; }
 inline const char* kill_switch_file() { return "call_team_sheet_off.txt"; }
 inline const char* master_switch_file() { return "tactics_off.txt"; }
 inline const char* find_off_file() { return "call_team_sheet_find_off.txt"; }        // registry Find not called: the scan only
-inline const char* mirror_off_file() { return "channel_e_db_mirror_off.txt"; }      // no cm_mentalities mirror
-inline const char* mirror_on_file() { return "channel_e_db_mirror_on.txt"; }        // the cm_mentalities mirror is opt-in in 2.2
-inline const char* db_off_file() { return "tactics_db_off.txt"; }                   // the database rows channel (stops the mirror too)
+// 2.4: the cm_mentalities row is part of the write (no opt-in any more); this kill switch leaves it out of every job (Apply and Undo)
+inline const char* db_row_off_file() { return "channel_e_db_off.txt"; }
+inline const char* db_row_off_legacy_file() { return "channel_e_db_mirror_off.txt"; }  // 2.3's name of the same switch, still honoured
+inline const char* db_off_file() { return "tactics_db_off.txt"; }                      // the database rows channel (leaves the row out too)
 inline const char* undo_file() { return "channel_e_undo.json"; }
 
 struct Switches {
-    bool opt_in = false, off = false, master = false, find_off = false, mirror_off = false, db_off = false, mirror_on = false;
+    bool opt_in = false, off = false, master = false, find_off = false, db_row_off = false, db_row_off_legacy = false, db_off = false;
     // the kill switch that blocks a write ("" = none)
     std::string blocking() const;
-    // why the cm_mentalities mirror (and its undo) does not run ("" = it may): not opted in, or one of its kill switches
-    std::string mirror_block() const;
+    // why a job leaves the cm_mentalities row out ("" = it is written with the live record): a database switch. An Apply is stopped
+    // altogether by blocking(); an undo puts the row back unless a database switch says no (it never touches the database then)
+    std::string db_row_block() const;
 };
 Switches read_switches(const std::filesystem::path& turbo_output);
 
@@ -265,7 +283,8 @@ std::string read_live(Memory& mem, uint64_t svc, int user, const Anchors& a, Liv
 // and +0xAC != 0; -1 when none). Turbo walks it itself: the game's function would write the service cache. false = a sheet could not be
 // read (G5 then refuses)
 bool active_sheet_id(Memory& mem, const Located& at, int32_t mode, int32_t& id);
-// "" when SetSheet would not run vf 0xF8 for this sheet either (mode -1, or the sheet is not the active one of its mode)
+// "" only for mode -1 (your club's own sheet). Any mode > -1 is refused (decision WP-B1); the active sheet of its mode with the reason that
+// SetSheet would run vf 0xF8 for it
 std::string check_g5(Memory& mem, const LiveTactic& lt);
 
 // ------------------------------------------------------------------------------------------------ the role allow-list (G6)
@@ -313,8 +332,38 @@ struct FieldWrite {
     int32_t old_value = 0, new_value = 0;
     uint64_t copy = 0;  // 0 = the map record; else the svc offset of the Edit Tactic working copy (kWorkCopyOffsets)
 };
+// ------------------------------------------------------------------------------------------------ the career database row (2.4)
+// The cm_mentalities row of the live tactic is written in the SAME game-thread job as the map record (decision 3.2): what the game's own
+// save writes from the map record (old build [V]) and what a career load reads, so the tactic persists the way the game's own does. The row
+// is found on the render thread through Turbo's database layer (core/t3db.h: the table's layout is copied into the plan); the job re-checks
+// the table header, the record, the row's identity and the owner rule (each field still holds the value it held when Apply was pressed,
+// which is the live record's old value), snapshots, writes, reads back and rolls back the row together with the map record. Kill switches
+// channel_e_db_off.txt / tactics_db_off.txt leave it out (the live record is still written; the log says so).
+struct DbRowField {
+    std::string name;  // "defensivedepth", "buildupplay", "pos9role"
+    int64_t old_value = 0, new_value = 0;
+};
+struct DbRowCheck {
+    std::string name;  // "teamid", "activetactic", "sourceformationid", "artificialkey", "playerid3", "position3", "code"
+    Value value;       // what the row must hold in the job
+};
+struct DbRowWrite {
+    Table table;       // the table as Turbo's database layer read it (header, record block, fields): a copy
+    uint64_t rec = 0;  // the row
+    int64_t key = -1;  // its artificialkey
+    std::vector<DbRowCheck> checks;
+    std::vector<DbRowField> fields;
+    std::string label() const;  // "cm_mentalities artificialkey 0"
+};
+// The range Turbo writes a mirrored field in (generic, the schema's): defensivedepth 1..100, buildupplay 0..3, pos<n>role 0..60000. false = not
+// a field Turbo writes
+bool db_row_field_range(const std::string& name, int64_t& lo, int64_t& hi);
+// In the job: the table still describes the same block, the record is valid, every check holds, every field holds its old value, every new
+// value is in the field's range and the database's own. "" = it may be written
+std::string check_db_row(Memory& mem, const DbRowWrite& row);
+
 // The record a plan was made for: the job writes only when it still finds exactly this record with exactly these old values. A plan made
-// from the editor holds map-record writes only; the job adds the working copies' writes itself. An undo plan names both.
+// from the editor holds map-record writes only; the job adds the copy targets' writes itself. An undo plan names both.
 struct Plan {
     int user = 0, record_index = -1;
     int32_t sheet_id = 0, formation = 0, source_formation = 0;
@@ -323,39 +372,57 @@ struct Plan {
     std::vector<FieldWrite> writes;
     bool undo = false;  // an undo: the dirty flag stays 1 (the game may have committed other changes since)
     long long load_gen = -1;  // the career load the plan was made in (-1 = the submitting context's)
+    std::vector<DbRowWrite> rows;  // the career database row(s) written in the same job (cm_mentalities; X2's teams branch adds the teams row)
+    std::string rows_note;         // why a row is not in the job ("" = the rows say it all)
 };
 // G6 and the diff against the live record: "" and the plan (possibly empty: nothing changes), else the refusal. When Line Height, Build-Up
 // Style or Defensive Approach changes, all three are in the plan (written together; the unchanged ones with their live value). A new
-// enum value must be known (build_up_styles / defensive_approaches); a role / focus change needs its triple in `allow` (null or not built:
-// refused)
+// enum value must be known and writable (build_up_writable / approach_writable), the approach must be the line height's band (line_band:
+// Turbo writes them band-consistent), a changed line height must lie in a band whose approach is writable (max_writable_line); a role /
+// focus change needs its triple in `allow` (null or not built: refused)
 std::string make_plan(const LiveTactic& now, const Request& req, Plan& out, const RoleAllowList* allow);
 
 // The values the write jobs read from the game right before Turbo's first write of each field (map record and working copies), for one
 // record in one career load. An undo may write back only these (never a value taken from the undo file alone).
+// A field the game (Edit Tactic's Yes, a reload of the sheet) changed after Turbo's write and Turbo wrote again (Re-apply): the value the game
+// put there is what the later write replaced, so it becomes the original (as merge_undo does for the undo file; a slot's three role values
+// as one unit, keyed by its role word).
 struct WriteHistory {
     int user = 0, record_index = -1;
     long long load_gen = -1;
     std::map<std::tuple<uint64_t, int, int>, int32_t> original;  // (copy, FieldKind, slot) -> value
-    void note(const Plan& p, const std::vector<FieldWrite>& written);  // a non-undo job whose writes were attempted
-    void note(const Plan& p) { note(p, p.writes); }
-    std::string check_undo(const Plan& p) const;  // "" when every value the undo writes is an original of this record and load
+    std::map<std::tuple<uint64_t, int, int>, int32_t> last;      // (copy, FieldKind, slot) -> the value Turbo's latest write put there
+    // the career database rows the jobs wrote: (table, artificialkey, field) -> the value before Turbo's first write / Turbo's latest
+    std::map<std::tuple<std::string, int64_t, std::string>, int64_t> db_original, db_last;
+    // a non-undo job whose writes were attempted (its rows with their snapshot values as old values)
+    void note(const Plan& p, const std::vector<FieldWrite>& written, const std::vector<DbRowWrite>& rows = {});
+    void note(const Plan& p) { note(p, p.writes, p.rows); }
+    // "" when every value the undo writes (live record and rows) is an original of this record and load
+    std::string check_undo(const Plan& p) const;
 };
 // What apply_plan checks besides the live record (a missing one refuses what needs it)
 struct JobChecks {
     const RoleAllowList* allow = nullptr;      // a non-undo role write needs its triple here
     const WriteHistory* history = nullptr;     // an undo needs its values here
     const std::atomic<bool>* cancel = nullptr; // set: nothing is written
+    // The record copies written with the map record (ids of LiveTactic::copies). Null or empty = none: the 2.4 default (the E2 working copies
+    // are never written). X3's branch (a) / (b) names the copy Edit Tactic loads from here; the tests drive the machinery with stand-ins.
+    const std::set<uint64_t>* copy_targets = nullptr;
 };
-// The plan on its own against the live record: kinds, slots, ranges, known enum values (a non-undo write), the three role values of a slot
-// together and consistent (word == role_word(live group, role id, focus)), the group unchanged; a non-undo role word in the allow-list; a
-// working copy only in an undo and only while it still holds this tactic; an undo's values in the history. "" = it may be written
+inline bool copy_target(const JobChecks& chk, uint64_t id) { return chk.copy_targets && chk.copy_targets->count(id) != 0; }
+// The plan on its own against the live record: kinds, slots, ranges, known and writable enum values (a non-undo write), a non-undo write's
+// three record fields together and band-consistent, the three role values of a slot together and consistent (word == role_word(live
+// group, role id, focus)), the group unchanged; a non-undo role word in the allow-list; a copy only in an undo, only a copy target and
+// only while it still holds this tactic; each row field in its range, an Apply's row field the mirror of a map-record write with the same
+// new value; an undo's values (live and rows) in the history. "" = it may be written
 std::string check_plan(const LiveTactic& now, const Plan& plan, const JobChecks& chk);
 // The address of a field inside the located record or a matching working copy (0 when the slot is out of range or the copy does not match)
 uint64_t field_address(const LiveTactic& now, const FieldWrite& w);
-// The same fields for every working copy that holds this tactic (WorkCopy::matches): the copy's own current values as old values, the plan's
-// new values; a copy whose 11 slots do not hold the map record's players slot by slot (another team's or another line-up's tactic with the
-// same code), or whose written slot is another position group, is left out (`note` says why). Only values that differ.
-std::vector<FieldWrite> copy_writes(const LiveTactic& now, const Plan& plan, std::string& note);
+// The same fields for every copy target that holds this tactic (WorkCopy::matches and its id in `targets`; none when `targets` is null):
+// the copy's own current values as old values, the plan's new values; a copy whose 11 slots do not hold the map record's players slot by
+// slot (another team's or another line-up's tactic with the same code), or whose written slot is another position group, is left out
+// (`note` says why). Only values that differ. `note` stays empty when there is no target.
+std::vector<FieldWrite> copy_writes(const LiveTactic& now, const Plan& plan, std::string& note, const std::set<uint64_t>* targets);
 
 // ------------------------------------------------------------------------------------------------ the write (game thread)
 struct ApplyResult {
@@ -366,17 +433,22 @@ struct ApplyResult {
     bool session_off = false;  // switch channel E off for the session (a mismatch)
     bool undo = false;         // the plan was an undo
     std::string stage, message;
-    std::vector<FieldWrite> writes;  // what was written (old = the snapshot), the working copies' writes included
-    std::string copies;              // what happened to Edit Tactic's working copies ("" = the plan wrote nothing a copy holds)
-    int copies_written = 0;          // working copies written by this job
+    std::vector<FieldWrite> writes;  // what was written (old = the snapshot), the copy targets' writes included
+    std::string copies;              // what happened to the copy targets ("" = none: the 2.4 default)
+    int copies_written = 0;          // copies written by this job
+    std::vector<DbRowWrite> rows;    // the database rows this job wrote or put back (old = the snapshot); empty when the plan had none
+    std::string rows_note;           // the plan's reason a row is not in the job
     uint8_t dirty_before = 0, dirty_after = 0;
     LiveTactic after;
-    std::string log_line;  // "channel E: team 95 record 0 line height 25->90 approach 0->3 build-up 0->1; Edit Tactic copies ... (read back ok)"
+    // "channel E: team 95 record 0 approach 0->2 line height 25->90 build-up 0->1; cm_mentalities artificialkey 0 defensivedepth 25->90
+    // buildupplay 0->1 (read back ok) [record now LH 90 BU 1 DA 2]"
+    std::string log_line;
     double micros = 0.0;   // time the job took (the host fills it)
     int reads = 0;         // reads of game memory the job made (whole pages for the walk, single fields for the read-back)
 };
-// Report 4.4: re-run L1-L4, G5, the plan's record, code and old values, the working copies that hold this tactic (copy_writes), snapshot,
-// write all of them, dirty = 1, read back; a mismatch restores every field (map record and copies) and the dirty flag from the snapshot.
+// Report 4.4: re-run L1-L4, G5, the plan's record, code and old values, the copy targets that hold this tactic (copy_writes), the database
+// rows (check_db_row), snapshot, write all of them, dirty = 1, read back; a mismatch restores every field (map record, copies, rows) and the
+// dirty flag from the snapshot.
 // The walks read the game through whole 4 KB pages (a handful of reads instead of several hundred: the job stays well under the report's
 // 50 us); the read-back reads each written field from the game itself. Never throws.
 ApplyResult apply_plan(Memory& mem, uint64_t svc, const Anchors& a, const Plan& plan, const JobChecks& chk = JobChecks());
@@ -420,11 +492,11 @@ struct UndoRecord {
     uint8_t dirty_before = 0;
     std::array<int32_t, kSlots> pids{};
     std::vector<FieldWrite> writes;
-    // the cm_mentalities mirror (written on the GUI thread after the live write)
-    std::string mirror_state;  // "" none, "written", "skipped", "failed", "restored"
+    // the cm_mentalities row (2.4: written in the same game-thread job as the live record; "db_mirror" in the JSON, the 2.2 name)
+    std::string mirror_state;  // "" none, "pending" (in the job), "written", "skipped" (left out: mirror_note), "restored"
     std::string mirror_note, mirror_table;
     int64_t mirror_row_key = -1;  // the row's artificialkey
-    std::vector<MirrorField> mirror;
+    std::vector<MirrorField> mirror;  // old = the value before Turbo's first write, new = Turbo's
     std::string note;
     std::string to_json() const;
     static bool parse(const std::string& text, UndoRecord& out, std::string* err);
@@ -434,10 +506,11 @@ bool load_undo(const std::filesystem::path& p, UndoRecord& out, std::string* err
 bool save_undo(const std::filesystem::path& p, const UndoRecord& u, std::string* err);
 // An undo plan: the fields that still hold the value Turbo wrote get their old value back; a slot whose three role values do not all
 // hold Turbo's values is left alone (listed in `skipped`); a working copy that no longer holds this tactic (another code, e.g. after an
-// Edit Tactic save) is left alone too. "" and the plan, else why nothing can be put back
+// Edit Tactic save) or is not a copy target (`copy_targets`, none by default: 2.4 writes no working copy) is left alone too. "" and the
+// plan, else why nothing can be put back
 // Refused when the undo record is from another Lua session or career load (a reload throws the in-memory change away anyway)
 std::string make_undo_plan(const LiveTactic& now, const UndoRecord& u, const std::string& session, long long load_gen, Plan& out,
-                           std::vector<std::string>& skipped);
+                           std::vector<std::string>& skipped, const std::set<uint64_t>* copy_targets = nullptr);
 // "" when the undo record belongs to this Lua session and career load, else why it does not
 std::string same_career(const UndoRecord& u, const std::string& session, long long load_gen);
 // Report 4.5: fields Turbo wrote that no longer hold its value (Edit Tactic or the game wrote them since)
@@ -449,15 +522,46 @@ std::vector<std::string> reverted(const LiveTactic& now, const UndoRecord& u);
 UndoRecord merge_undo(const UndoRecord& prev, const UndoRecord& next);
 // After the job: its working-copy writes into the undo record (a copy written again keeps its value from before Turbo's first write)
 void add_job_writes(UndoRecord& u, const std::vector<FieldWrite>& job);
-// The cm_mentalities mirror's row check: the row's playerid0..10 / position0..10 must be the live slots', its code (when the save has the
-// field and get_str can read it) the live record's code, and every field about to be written must hold the live OLD value. get(name,
-// value) reads one int field of the row (false = the field is missing). "" = it may be written, else why it is skipped
+// The cm_mentalities row check (render thread, when Apply is pressed): the row's playerid0..10 / position0..10 must be the live slots', its
+// code (when the save has the field and get_str can read it) the live record's code, and every field about to be written must hold the
+// live OLD value. get(name, value) reads one int field of the row (false = the field is missing). "" = it may be written, else why the row
+// is left out (the live record is written alone)
 std::string mirror_row_check(const std::function<bool(const std::string&, int64_t&)>& get, const LiveTactic& now,
                              const std::vector<FieldWrite>& writes,
                              const std::function<bool(const std::string&, std::string&)>& get_str = nullptr);
-// The mirror's undo: the same switches as the mirror (sw.mirror_block) and the row (get reads its int fields) must still be the record's
-// tactic: teamid == u.team, activetactic == 1, sourceformationid == u.source_formation. "" = it may be put back
-std::string undo_mirror_check(const Switches& sw, const std::function<bool(const std::string&, int64_t&)>& get, const UndoRecord& u);
+// The Apply's row fields (render thread): the fields the map record's writes mirror to (mirror_field_name), old = the row's value now (get),
+// new = the write's new value; only those that differ (empty: the row already holds the values)
+std::vector<DbRowField> apply_row_fields(const Plan& plan, const std::function<bool(const std::string&, int64_t&)>& get);
+// The undo's row identity (render thread): the database switches (sw.db_row_block) and the row (get reads its int fields) must still be the
+// record's tactic: teamid == u.team, activetactic == 1, sourceformationid == u.source_formation, artificialkey == u.mirror_row_key. "" = it
+// may be put back
+std::string undo_row_check(const Switches& sw, const std::function<bool(const std::string&, int64_t&)>& get, const UndoRecord& u);
+// The undo's row fields: every field of the undo record's db_mirror whose row value (get) is still Turbo's goes back to its value from before
+// Turbo's first write, when this undo plan puts its live field back OR the live record (now) no longer holds Turbo's value there (a job
+// whose putting back failed can leave the row at Turbo's value while the live field is the game's); `left` names the others
+std::vector<DbRowField> undo_row_fields(const UndoRecord& u, const Plan& undo_plan, const std::function<bool(const std::string&, int64_t&)>& get,
+                                        std::vector<std::string>& left, const LiveTactic* now = nullptr);
+// After a job: the rows it wrote into the undo record's db_mirror (state "written", table, artificialkey; a field written again keeps its
+// value from before Turbo's first write); an undo's rows mark it "restored"
+void add_job_rows(UndoRecord& u, const std::vector<DbRowWrite>& rows, bool undo);
+// ------------------------------------------------------------------------------------------------ overwrite detection and Re-apply (2.4)
+// After Team Management was open (Lua's team_mgmt flag back to false in the hub) the UI re-reads the record: the game's "Yes, save your
+// team sheet" copies Edit Tactic's screen into it (and autosaves). "" when the live record still holds every value Turbo's write (the undo
+// record, state "written") left, else the one-line prompt "the game replaced your tactic (LH 50 / Balanced / Balanced). Re-apply?" (LH /
+// Build-Up Style / Defensive Approach as they are now). Never acted on automatically.
+std::string replaced_prompt(const LiveTactic& now, const UndoRecord& u);
+// Only for the record Turbo wrote: the same club, record index, formation ids and sheet (the tactic code may differ: Edit Tactic's save makes
+// a new one). A slot that holds another player now does not count (Re-apply would leave it out).
+bool same_tactic_record(const UndoRecord& u, const LiveTactic& now);
+// The active tactic is another record than the one Turbo wrote: the card says so, with no Re-apply ("" = it is the same one)
+std::string other_tactic_note(const LiveTactic& now, const UndoRecord& u);
+// Re-apply: Turbo's last values onto the live record as a Request (make_plan applies G6 again): the three record fields as Turbo left them,
+// each slot role Turbo wrote whose live slot holds the same player and position group (others are named in `skipped`)
+Request reapply_request(const LiveTactic& now, const UndoRecord& u, std::vector<std::string>& skipped);
+// "" when a Re-apply may be planned now: the undo record is of this Lua session and career load, of the live club and the same tactic record,
+// and the record no longer holds Turbo's values; else why not (the click is refused and the prompt dropped)
+std::string reapply_check(const LiveTactic& now, const UndoRecord& u, const std::string& session, long long load_gen);
+
 // The DB field a live write of the map record mirrors to: Build-Up Style -> "buildupplay", Line Height -> "defensivedepth" (the schema's
 // 1..100), the role word -> "pos<slot>role"; "" for role id / focus (the word carries them), for the Defensive Approach (cm_mentalities
 // has no column for it) and for every working-copy write
@@ -465,11 +569,35 @@ std::string mirror_field_name(const FieldWrite& w);
 bool same_record(const UndoRecord& u, const LiveTactic& now);
 
 // ------------------------------------------------------------------------------------------------ the kick-off check (read-only)
-// The 44 bytes of the 11 role words in slot order (the pattern the match-setup copy carries at out+0x118)
+// 2.4 (decision 3.2): the check is the self-proof of the write. 20 s (Turbo's clock) after Lua's phase became "match" it finds the match-setup
+// copies of your club's tactic (by the 11 player ids at out+0x168 or the 11 role words at out+0x118; team and positions checked), reads
+// Line Height / Build-Up Style / Defensive Approach through the decode table below and logs exactly one line:
+//   channel E kick-off: match copy team 95 LH 70 BU 1 DA 2 roles 11/11 = Turbo (ok) | <copies, the table's offsets, the raw window, the dump>
+// "= Turbo (ok)" only when every copy holds the values Turbo's last write left (read back, this career load), all three fields decoded.
+// Otherwise "= game (differs: ...)", "= game (the hub's values; no Turbo write in place)" or "= unknown (... not decoded ...)".
+// TeamState (DefendingTeamStyle +0x230, Mentality +0x280: old-build type data) is not chained on this build (T2, kickoff_readout.py): not read.
+
+// The tactic fields of the match-setup copy, ONE table (an offset changes here and nowhere else). Source: T2's static decode of the old build
+// 6AB9813C (the converter 0x148060BE4 copies record +0x88..+0xBF byte-wise to out+0x150..+0x164: record +0xA4 Line Height -> out+0x158,
+// +0xB0 Build-Up Style -> +0x15B, +0xB4 Defensive Approach -> +0x15C; the style consumer 0x1481446F0 reads +0x15B / +0x15C as bytes). The
+// live build kept the old layout for team, positions, roles and pids (2026-10-12) [V]; these three are [A] on 6AC07E31 until a kick-off line
+// that names Turbo's values proves them (X2's readout confirms them by code signature). known == false: not read ("?" and the raw window).
+struct CopyField {
+    const char* name;  // "LH" "BU" "DA"
+    uint32_t offset;   // from out+0x00
+    uint32_t width;    // bytes, little-endian, unsigned (1 = u8)
+    bool known;
+};
+const std::vector<CopyField>& match_copy_fields();
+const char* match_copy_fields_source();  // one line for the log: where the table comes from
+// The 44 bytes of the 11 role words (or player ids) in slot order (the patterns the match-setup copy carries at out+0x118 / out+0x168)
 std::vector<uint8_t> role_pattern(const std::array<int32_t, kSlots>& roles);
 // Every 4-aligned position of the pattern in buf (first byte at `base`), at most max_hits
 std::vector<uint64_t> find_bytes(const uint8_t* buf, size_t len, uint64_t base, const std::vector<uint8_t>& pat, size_t max_hits, size_t align);
-// A hit is a match-setup copy (report 2.12) when the 11 pids sit 0x50 bytes later and the team id at hit - 0x118 + 0x28
+// `out` is a match-setup copy of club `user`'s tactic: team id at out+0x28, the 11 pids at out+0x168, 11 positions 0..27 at out+0x30 with
+// the goalkeeper (0) first
+bool is_match_copy_at(Memory& mem, uint64_t out, int user, const std::array<int32_t, kSlots>& pids);
+// A role-word hit (out = hit - 0x118) that is a match-setup copy
 bool is_match_copy(Memory& mem, uint64_t hit, int user, const std::array<int32_t, kSlots>& pids);
 // What the kick-off check looks for: the live tactic as last read in the hub (or after Turbo's last job)
 struct KickoffArm {
@@ -481,15 +609,40 @@ struct KickoffArm {
     std::string code, when;  // when: "read in the hub" / "after Turbo's write" (+ the clock)
     bool turbo_values = false;  // these are the values Turbo's last write of this career load left (no undo, reload or other value since)
 };
-// One dumped match-setup copy: out = hit - 0x118, bytes = out+0x00 .. +0x1A0 + 0x200
+// One dumped match-setup copy: bytes = out+0x00 .. +0x1A0 + 0x200
 struct KickoffCopy {
     uint64_t out = 0;
     std::vector<uint8_t> bytes;
 };
+// One copy decoded through match_copy_fields()
+struct KickoffRead {
+    uint64_t out = 0;
+    int32_t team = 0;
+    int lh = -1, bu = -1, da = -1;          // -1 = not decoded (field unknown, or outside the bytes)
+    int roles_match = 0;                     // slots whose role word is the one looked for
+    std::array<int32_t, kSlots> roles{};
+    std::vector<uint8_t> window;             // out+kCopyStyleWindow .. +kCopyStyleWindowLen
+    // the raw bytes at every table offset, known or not ("LH +0x158=46", "DA +0x15C=02 (not decoded)"): the line always carries them, so the
+    // S-B1 check doubles as X2's readout even when a field is not decoded
+    std::string raw;
+    std::vector<size_t> lh_bytes;            // offsets where a byte equals the Line Height looked for (outside the known blocks), at most 6
+    bool decoded() const { return lh >= 0 && bu >= 0 && da >= 0; }
+};
+KickoffRead decode_match_copy(const KickoffCopy& c, const KickoffArm& arm, const std::vector<CopyField>& fields = match_copy_fields());
+// The verdict part: "= Turbo (ok)", "= game (differs: LH 25 not 95, roles 10/11)", "= game (the hub's values; no Turbo write in place)",
+// "= unknown (LH not decoded: see the raw window)"; ok = the copies hold Turbo's values
+std::string kickoff_verdict(const KickoffArm& arm, const std::vector<KickoffRead>& reads, bool& ok);
+// The one kick-off line: "channel E kick-off: match copy team 95 LH 70 BU 1 DA 2 roles 11/11 = Turbo (ok)" + (details.empty() ? "" : " | " +
+// details). reads must not be empty
+std::string kickoff_line(const KickoffArm& arm, const std::vector<KickoffRead>& reads, const std::string& details);
+// "4b 02 02 01 02 ..." (lower-case hex, space separated)
+std::string window_hex(const std::vector<uint8_t>& b);
 // The 4-aligned offsets inside the dump where an i32 equals v, outside the known blocks (positions, x / y, the role words, the pids)
 std::vector<size_t> kickoff_value_offsets(const std::vector<uint8_t>& bytes, int32_t v);
-// The index file next to the dump: what was looked for, each copy's address, team, formation ids, roles, pids, and where the expected
-// line height sits (offsets in every copy)
+// The offsets where a byte equals v (0..255) outside the known blocks: where a u8 field holding v may sit
+std::vector<size_t> kickoff_byte_offsets(const std::vector<uint8_t>& bytes, int v);
+// The index file next to the dump: what was looked for, each copy's address, team, formation ids, roles, pids, the decode, and where the
+// expected line height sits (i32 and u8 offsets in every copy)
 std::string kickoff_index(const KickoffArm& arm, const std::vector<KickoffCopy>& copies, size_t hits);
 
 // ------------------------------------------------------------------------------------------------ gates
@@ -574,6 +727,9 @@ struct Host {
     std::function<uint64_t(uint64_t fn, uint64_t registry, uint32_t id)> call_find;
     std::function<void(const std::string&)> log;
     std::function<double()> clock_us;  // microseconds (the job's duration)
+    // wall-clock microseconds for the waits a user or the game paces: the kick-off check's schedule and scan budget, the scan pick's re-check
+    // (null = clock_us). The Windows host gives the system clock: Turbo's QPC / steady clocks ran ~3x wall time in game (2026-10-13)
+    std::function<double()> wall_us;
     double scan_budget_s = 45.0;       // seconds per scan
 };
 
@@ -607,6 +763,9 @@ private:
     void start_allow(long long gen, uint64_t svc);  // builds the role allow-list of a located service (background)
     void log(const std::string& s);
     double now() const { return h_.clock_us ? h_.clock_us() : 0.0; }
+    double wall() const { return h_.wall_us ? h_.wall_us() : now(); }
+    std::string job_switch_block() const;  // the master / channel kill switch or a missing opt-in, read in the job ("" = none)
+    bool timed() const { return h_.clock_us || h_.wall_us; }
 
     Host h_;
     std::mutex mu_;

@@ -1,10 +1,12 @@
 // FC 27 LE Turbo GUI - Teams > Tactics > My team: your club's LIVE tactic (tactics channel E, core/team_sheet.h). A summary line of the
-// live record (always, read-only) and the card "Edit the live tactic (channel E)": badges (written: live team sheet, seen: untested), the
-// safety line (Yes in the game's team-sheet prompt autosaves), the opt-in, the gates G1..G6 with the first reason, the read-out with Edit
-// Tactic's working copies, the editor (Defensive Approach / Line Height / Build-Up Style in the game's words, role id / focus per slot as
-// raw numbers), Apply (asks first), Undo, and what the last job, the cm_mentalities mirror, the read-back 5 s later and the kick-off check
-// said. The undo file is turbo_output\channel_e_undo.json.
+// live record (always, read-only), the prompt after Team Management when the game replaced Turbo's values (one-click Re-apply, never
+// automatic), and the card "Edit the live tactic (channel E)": badges (written: live team sheet, seen: untested), the safety line (Yes in the
+// game's team-sheet prompt autosaves), the opt-in, the gates G1..G6 with the first reason, the read-out, the editor (Defensive Approach /
+// Line Height / Build-Up Style in the game's words, the approach band-consistent with the line, role id / focus per slot as raw numbers),
+// Apply (asks first; the live record and its cm_mentalities row in one job), Undo, and what the last job, the row, the read-back 5 s later
+// and the kick-off check said. The undo file is turbo_output\channel_e_undo.json.
 #pragma once
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -40,16 +42,21 @@ struct LiveTacticState {
     std::vector<int> approach_choices, build_up_choices;  // the Defensive Approach / Build-Up Style values offered (the known ones)
     std::string line_hint;                // the Line Height's band against the chosen approach
     std::string safety;                   // the safety line ("... AUTOSAVES your career.")
-    std::vector<std::string> copies;      // one line per Edit Tactic working copy
+    std::string replaced;                 // after Team Management: "the game replaced your tactic (LH 50 / Balanced / Balanced). Re-apply?"
+    bool can_reapply = false;             // the one-click Re-apply button is enabled
+    std::string other_note;               // "the active tactic is another one now (...)" (no Re-apply)
+    std::string edit_tactic_badge;        // WP-B2 branch (c) only: "Edit Tactic shows these values after the next career load" (off: "")
 };
 const LiveTacticState& live_tactic_state();
 
 // The summary line and the card (Tactics tab, My team scope). Never throws.
 void draw_live_tactic(App& app);
-// Every frame (App::tick): job results (undo file, the cm_mentalities mirror), the read-back 5 s after a write and when the window is
-// shown again, the kick-off check once a match is set up after a write. Never throws.
+// Every frame (App::tick): job results (undo file, the cm_mentalities row), the re-read after Team Management, the read-back 5 s after a
+// write and when the window is shown again, the kick-off check once a match is set up after a write. Never throws.
 void live_tactic_tick(App& app);
 // Tests: forget the card's state (a new simulated game)
 void live_tactic_reset();
+// Tests: the wall clock (seconds) the Team Management watch uses (null = the system clock; Turbo's QPC clock runs ~3x in game)
+void live_tactic_test_wall_clock(std::function<double()> wall);
 
 }  // namespace turbo

@@ -37,6 +37,11 @@ double now_us() {
     return double(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
 }
 
+// Wall time (the system clock): what a user and the game's own pacing follow
+double wall_us() {
+    return double(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+}
+
 // Find(registry, id) of the service registry (registry vtable +0x38; the match tactic copy calls it with rcx = registry, edx = id and takes
 // the result from rax). Called on the game thread only, after registry_find_fn checked both pointers lie inside FC27.exe.
 uint64_t call_registry_find(uint64_t fn, uint64_t registry, uint32_t id) {
@@ -79,6 +84,7 @@ void install_team_sheet() {
     h.call_find = &call_registry_find;
     h.log = [](const std::string& s) { log("%s", s.c_str()); };
     h.clock_us = &now_us;
+    h.wall_us = &wall_us;  // the kick-off schedule and the scan pick's re-check: Turbo's steady / QPC clock ran ~3x wall time in game
     g_service = std::make_shared<tsheet::CoreService>(std::move(h));
     g_tick_service = g_service.get();
     if (!game_hooks_allowed()) {
@@ -96,10 +102,12 @@ void install_team_sheet() {
     }
     if (why.empty())
         log("game calls: team_sheet (channel E) resolved: VT1 %s VT2 %s SetSheet %s UpdateSheet %s GetActiveSheetId %s registry %s; writes need "
-            "turbo_output\\%s, kill switches turbo_output\\%s and \\%s, the registry Find off with \\%s, the cm_mentalities mirror only with \\%s (\\%s switches it off)",
+            "turbo_output\\%s, kill switches turbo_output\\%s and \\%s, the registry Find off with \\%s, the cm_mentalities row (written in the same job) "
+            "off with \\%s, the kick-off check off with \\%s",
             hex(game_signature("teamsheet_vt1")).c_str(), hex(game_signature("teamsheet_vt2")).c_str(), hex(game_signature("teamsheet_set")).c_str(),
             hex(game_signature("teamsheet_update")).c_str(), hex(game_signature("teamsheet_active")).c_str(), hex(game_signature("service_registry")).c_str(),
-            tsheet::opt_in_file(), tsheet::kill_switch_file(), tsheet::master_switch_file(), tsheet::find_off_file(), tsheet::mirror_on_file(), tsheet::mirror_off_file());
+            tsheet::opt_in_file(), tsheet::kill_switch_file(), tsheet::master_switch_file(), tsheet::find_off_file(), tsheet::db_row_off_file(),
+            tsheet::kickoff_off_file());
     else
         log("game calls: team_sheet (channel E) not available on this build: %s", why.c_str());
 }

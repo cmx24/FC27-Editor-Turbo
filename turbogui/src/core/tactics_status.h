@@ -9,9 +9,10 @@
 //   2. Which controls are legacy (EA removed them in FC 25) and stay hidden behind "show legacy fields". Since 2.4 none of them writes: the
 //      old mentalities table is no write target any more; the two widths and the 7-step mentality are Turbo's preview only. (The role
 //      editor's name, "Role familiarity N (Role+ / Role++)", is the registry's own label: core/sliders.cpp.)
-//   3. Dead write targets: your club's saved tactic row (cm_mentalities) is read once at career load and overwritten at every save
-//      (docs/re/realtime_transfers.md:170-187), so a Turbo write there can never reach a match. The registry no longer names it; this
-//      guard refuses it anyway.
+//   3. Targets the Tactics tab never writes: your club's saved tactic row (cm_mentalities) is read once at career load and overwritten from
+//      the live copy at every save (docs/re/realtime_transfers.md:170-187), so a write there alone can never reach a match. The registry
+//      no longer names it; this guard refuses it anyway. 2.4: its defensivedepth / buildupplay / pos<n>role columns ARE written, by My team
+//      (channel E, core/team_sheet.h) in the same job as the live record they mirror; the reason says so (still refused here).
 //   4. One kill-switch file per write channel in turbo_output (tactics_off.txt stays the master switch).
 //   5. Loading a preset: controls that write but were never seen working stay switched OFF (the user switches them on himself).
 //   6. The snapshot store: the value of a database field before Turbo's first write, kept in turbo_output\tactics_snapshot.json per career
@@ -193,11 +194,23 @@ inline bool untested_write(const TacticStatus& s) {
 }
 
 // ------------------------------------------------------------------------------------------------ dead write targets
-// Targets no build may write: nullptr = fine, else the one-line reason
+// The columns of the saved tactic row that channel E (My team) writes with the live record (2.4 WP-B1): defensivedepth, buildupplay,
+// pos0role..pos10role
+inline bool channel_e_row_column(const std::string& field) {
+    if (field == "defensivedepth" || field == "buildupplay") return true;
+    if (field.size() < 8 || field.size() > 9 || field.compare(0, 3, "pos") != 0 || field.compare(field.size() - 4, 4, "role") != 0) return false;
+    const std::string n = field.substr(3, field.size() - 7);
+    if (n.empty() || n.find_first_not_of("0123456789") != std::string::npos) return false;
+    return std::atoi(n.c_str()) <= 10;
+}
+
+// Targets the Tactics tab never writes: nullptr = fine, else the one-line reason (both kinds of cm_mentalities column are refused here)
 inline const char* dead_target_reason(const std::string& target) {
-    if (target.rfind("cm_mentalities.", 0) == 0)
-        return "dead: your saved tactic row is read once at career load and overwritten from the live copy at every save (not written)";
-    return nullptr;
+    if (target.rfind("cm_mentalities.", 0) != 0) return nullptr;
+    if (channel_e_row_column(target.substr(15)))
+        return "not written here: My team (channel E) writes this column of your saved tactic row together with your club's live tactic (the row "
+               "alone is read once at career load and overwritten from the live copy at every save)";
+    return "dead: your saved tactic row is read once at career load and overwritten from the live copy at every save (not written)";
 }
 
 // ------------------------------------------------------------------------------------------------ channel E (your club's live tactic)
@@ -206,9 +219,9 @@ inline const char* dead_target_reason(const std::string& target) {
 namespace tactics_status_detail {
 inline const std::map<std::string, Entry>& live_sheet_table() {
     static const std::map<std::string, Entry> t = {
-        {"live.build_up", {SeenKind::Untested, "", "Build-Up Style: written into your club's live tactic record (and Edit Tactic's working copy when one holds this tactic and these players), read back; whether Edit Tactic shows it and a played match uses it: not checked yet", false}},
-        {"live.line_height", {SeenKind::Untested, "", "Line Height: written into your club's live tactic record (and Edit Tactic's working copy when one holds this tactic and these players), read back; whether Edit Tactic shows it and a played match uses it: not checked yet", false}},
-        {"live.approach", {SeenKind::Untested, "", "Defensive Approach: written into your club's live tactic record (and Edit Tactic's working copy when one holds this tactic and these players), read back; whether Edit Tactic shows it and a played match uses it: not checked yet", false}},
+        {"live.build_up", {SeenKind::Untested, "", "Build-Up Style: written into your club's live tactic record (and in the same job its cm_mentalities row, when that row matches the live tactic: the Apply line says which), read back; the match's own copy is read at kick-off (log line); whether Edit Tactic shows it and a played match uses it: not checked yet", false}},
+        {"live.line_height", {SeenKind::Untested, "", "Line Height: written into your club's live tactic record (and in the same job its cm_mentalities row, when that row matches the live tactic: the Apply line says which), read back; the match's own copy is read at kick-off (log line); whether Edit Tactic shows it and a played match uses it: not checked yet", false}},
+        {"live.approach", {SeenKind::Untested, "", "Defensive Approach: written into your club's live tactic record, band-consistent with the Line Height, read back; the match's own copy is read at kick-off (log line); whether Edit Tactic shows it and a played match uses it: not checked yet", false}},
         {"live.role", {SeenKind::Untested, "", "the slot's three role values (word, role id, focus) written together and read back; Edit Tactic and a played match not checked yet", false}},
     };
     return t;
@@ -232,6 +245,29 @@ inline TacticStatus live_sheet_status(const std::string& key, const std::string&
     return s;
 }
 
+// ------------------------------------------------------------------------------------------------ the club tactic's teams.* fields (gate X2)
+// teams.defensivedepth / teams.buildupplay are database sliders of the Tactics tab (team.line_depth / team.buildup_play, "accepted, untested").
+// Gate X2 (docs/TACTICS_OVERHAUL_DECISION.md 4.2) decides where they go, and THIS function is the one place that says it:
+//   TacticsTab - until X2: the Tactics tab writes them as today;
+//   Removed    - X2 shows the match copy takes the map record's value: the tab no longer writes them (the club tactic is My team's job);
+//   ChannelE   - X2 shows the match copy takes teams.*: the tab no longer writes them; channel E's job writes the club's teams row with the
+//                live record (a second core/team_sheet.h DbRowWrite: the same fields, defensivedepth / buildupplay, checks and rollback).
+enum class TeamsTacticRoute { TacticsTab, Removed, ChannelE };
+inline TeamsTacticRoute teams_tactic_route() { return TeamsTacticRoute::TacticsTab; }
+inline bool teams_tactic_target(const std::string& target) { return target == "teams.defensivedepth" || target == "teams.buildupplay"; }
+// nullptr = the Tactics tab writes this target; else why it does not (the row says it)
+inline const char* teams_tactic_refusal(const std::string& target) {
+    if (!teams_tactic_target(target)) return nullptr;
+    switch (teams_tactic_route()) {
+        case TeamsTacticRoute::TacticsTab: return nullptr;
+        case TeamsTacticRoute::Removed:
+            return "not written: the match takes your club's tactic from its live record (gate X2): set it in My team (channel E)";
+        case TeamsTacticRoute::ChannelE:
+            return "not written here: My team (channel E) writes it together with your club's live tactic (gate X2)";
+    }
+    return nullptr;
+}
+
 // ------------------------------------------------------------------------------------------------ kill switches
 enum class WriteChannel { GameVar, DbRow, LiveSheet, Tuning };
 
@@ -248,6 +284,8 @@ inline const std::vector<KillSwitch>& kill_switches() {
         {"tactics_gamevar_off.txt", "the Tactics tab's game-variable rows (injuries, weather, time of day, difficulty, CPU substitutions)", false, WriteChannel::GameVar},
         {"tactics_db_off.txt", "career database rows (teams, referee, players)", false, WriteChannel::DbRow},
         {"call_team_sheet_off.txt", "your club's live tactic (channel E)", false, WriteChannel::LiveSheet},
+        // after the channel's own file (channel_switch_file names the first one): only the cm_mentalities row channel E writes with the record
+        {"channel_e_db_off.txt", "the cm_mentalities row of your club's live tactic (channel E writes the live record alone)", false, WriteChannel::LiveSheet},
         {"tuning_profile_off.txt", "the gameplay tuning profile's automatic writes (main menu, career load, hub)", false, WriteChannel::Tuning},
     };
     return k;

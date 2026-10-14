@@ -202,6 +202,12 @@ static void test_writes() {
     run_case("phase0 dead targets: the saved tactic row (cm_mentalities) is gone from the registry and refused anyway; the teams row stays (P0-2)", [] {
         CHECK(dead_target_reason("cm_mentalities.defensivedepth") != nullptr && dead_target_reason("cm_mentalities.buildupplay") != nullptr, "cm_mentalities is dead");
         CHECK(std::string(dead_target_reason("cm_mentalities.defensivedepth")).find("overwritten") != std::string::npos, "the reason names the overwrite at save");
+        // 2.4: the columns channel E writes with the live record are named as such (still never a Tactics-tab target); the rest stays dead
+        CHECK(std::string(dead_target_reason("cm_mentalities.buildupplay")).find("My team (channel E) writes this column") != std::string::npos &&
+                  std::string(dead_target_reason("cm_mentalities.pos10role")).find("channel E") != std::string::npos &&
+                  std::string(dead_target_reason("cm_mentalities.offensivestyle")).find("dead:") == 0 &&
+                  std::string(dead_target_reason("cm_mentalities.pos11role")).find("dead:") == 0,
+              "channel E's columns vs the rest");
         for (const char* t : {"teams.defensivedepth", "teams.buildupplay", "referee.foulstrictness", "players.role1", "mentalities.defensivewidth",
                               "GAMEPLAY_CUSTOMIZATION/INJURY_FREQUENCY_USER"})
             CHECK(dead_target_reason(t) == nullptr, std::string(t) + " is not dead");
@@ -242,7 +248,7 @@ static void test_writes() {
 
     run_case("phase0 kill switches: one file per write channel, the master blocks everything, the channel file only its rows", [] {
         const auto& ks = kill_switches();
-        CHECK(ks.size() == 5 && std::string(ks.front().file) == "tactics_off.txt" && ks.front().all, "tactics_off.txt stays the master switch, first in the list");
+        CHECK(ks.size() == 6 && std::string(ks.front().file) == "tactics_off.txt" && ks.front().all, "tactics_off.txt stays the master switch, first in the list");
         CHECK(std::string(channel_switch_file(WriteChannel::Tuning)) == "tuning_profile_off.txt" && std::string(channel_name(WriteChannel::Tuning)) == "gameplay tuning profile",
               "the tuning profile's automatic writes (2.4)");
         std::set<std::string> files;
@@ -250,7 +256,8 @@ static void test_writes() {
             files.insert(k.file);
             CHECK(std::string(k.file).find("_off.txt") != std::string::npos && k.what[0] != 0, std::string(k.file) + ": named *_off.txt with a purpose");
         }
-        CHECK(files.count("tactics_gamevar_off.txt") && files.count("tactics_db_off.txt") && files.count("call_team_sheet_off.txt"),
+        CHECK(files.count("tactics_gamevar_off.txt") && files.count("tactics_db_off.txt") && files.count("call_team_sheet_off.txt") &&
+                  files.count("channel_e_db_off.txt"),
               "one switch per channel (call_team_sheet_off.txt: your club's live tactic, channel E)");
         CHECK(files.count("tactics_legacy_off.txt") == 0, "2.4: the legacy table has no channel (nothing writes it) and no switch");
         CHECK(std::string(channel_switch_file(WriteChannel::LiveSheet)) == "call_team_sheet_off.txt" && std::string(channel_name(WriteChannel::LiveSheet)) == "live team sheet",
