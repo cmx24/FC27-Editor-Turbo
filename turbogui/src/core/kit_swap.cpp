@@ -1955,8 +1955,7 @@ void Runtime::flush_log(bool force) {
     for (const auto& it : s.items)
         o << (it.swap ? "  in table  " : it.probe ? "  watch     " : "  left      ") << it.kind << "/" << it.res.substr(it.res.rfind('/') == std::string::npos ? 0 : it.res.rfind('/') + 1) << "  blocks " << it.blocks << "  seen "
           << it.hits << (it.hits ? "  first " + clock_text(it.first_ms) + " last " + clock_text(it.last_ms) : std::string()) << (it.copies > 1 ? "  x" + std::to_string(it.copies) + " copies" : std::string())
-          << (it.reason.empty() ? "" : "  (" + it.reason + ")") << "
-";
+          << (it.reason.empty() ? "" : "  (" + it.reason + ")") << "\n";
     std::error_code ec;
     fs::create_directories(log_path().parent_path(), ec);
     std::ofstream f(log_path(), std::ios::binary | std::ios::trunc);
