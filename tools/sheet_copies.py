@@ -9,7 +9,8 @@ layout of build 6AC07E31 = the 6AB9813C layout decoded in T3.md s.2). Library fo
   record: +0x68 code (12 printable chars + NUL, the identity; never written), +0x80 active, +0xA4 Line Height, +0xB0 Build-Up,
           +0xB4 Defensive Approach (i32 each).
 Service address: Turbo's log line "channel E: service located ... at 0x..." (latest since the last "Turbo GUI loading in process");
-team: "channel E: team N record ..." or --team. Header checks (loaded flag +0x1404 == 1, bucket / node counts sane) refuse a wrong
+club: "channel E: role allow-list: ... your club N left out" (logged when the Tactics card opens) or "channel E: team N record"
+(after an Apply), or --team. Header checks (loaded flag +0x1404 == 1, bucket / node counts sane) refuse a wrong
 or freed copy. mock_world() builds a synthetic service (no dump, no real ids or codes) for the offline tests.
 """
 import os, re, struct, sys
@@ -73,7 +74,7 @@ def from_log(path=None):
         m = re.search(r"channel E: service located .* at (0x[0-9A-Fa-f]+)", l)
         if m:
             svc = int(m.group(1), 16)
-        m = re.search(r"channel E: team (\d+) record", l)
+        m = re.search(r"channel E: team (\d+) record", l) or re.search(r"channel E: role allow-list: .*your club (\d+) left out", l)
         if m:
             team = int(m.group(1))
     return svc, team
