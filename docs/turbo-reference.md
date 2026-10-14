@@ -1,7 +1,12 @@
-# FC 27 LE Turbo — technical reference (0.2.5)
+# FC 27 LE Turbo — technical reference (2.4)
 
 Turbo adds FC 26 Live Editor features to **FC 27 Live Editor** (public build v27.1.0 or newer). It is a user-owned add-on
 that runs next to an official, unmodified Live Editor. Offline Career Mode / Kick-Off only.
+
+This file is the technical contract. It was first written for 0.2.5; sections carry the version that introduced them. Brought up to
+date for 2.4 (2026-10-13): the module map, build and test, the tactics sections (channel A and the legacy fields removed, the 2.4
+design) and the kill switches. Release state and open items: `docs/HANDOVER.md`; what each release changed: `CHANGELOG.md`; how to
+build on the development PC: `docs/BUILD_WINDOWS.md`.
 
 ## Ground rules
 
@@ -60,7 +65,7 @@ never loaded. 0.2.3 therefore loads `Turbo.dll` at launch again, but inert. The 
 
 | Part | Where | What |
 | --- | --- | --- |
-| Turbo (Lua) | `turbo/package` | Feature pack that runs inside Live Editor's Lua engine: 19 feature modules, 25 `turbo_*.lua` runner scripts, auto features, config, and the GUI bridge. |
+| Turbo (Lua) | `turbo/package` | Feature pack that runs inside Live Editor's Lua engine: 33 feature modules, 40 `turbo_*.lua` runner scripts (2.4), auto features, config, and the GUI bridge. |
 | Turbo GUI (C++) | `turbogui/` | `Turbo.dll`: a Dear ImGui overlay (DirectX 12 `Present` hook via MinHook) with Players / Teams / Managers / Database editors and a button for every Turbo tool. `TurboProbe.exe` finds the hook targets in a separate process. `TurboInjector.exe` is an optional loader. |
 
 Turbo.dll reads and writes the live database itself (`ReadProcessMemory`/`WriteProcessMemory` on the game process, using the
@@ -77,7 +82,8 @@ and run by Live Editor's Lua engine on the next career-mode event (or when the u
 - `libs/v2/imports/turbo/turbo.lua`: module registry and `M.run(name, overrides, opts)` (`opts.silent` suppresses the message box).
 - `core/`: version, log, trace (start-up breadcrumbs), util, env, config, db (validated writes), game, mem, events, csv, calib, select,
   names (a player's name texts: name ids via GetDBTableRows playernames, editedplayernames).
-- `features/`: probe, form_morale, pap_playstyles, custom_headassets, custom_tattoos, delete_generated_players,
+- `features/` (the 1.x list below; 2.4 has 33 modules, among them also bodytypes, callnames, development, job_offer, manager_move,
+  manager_rules, probe_tactics, repair_ovr1, reveal, team_mass, transfer_budget, youth): probe, form_morale, pap_playstyles, custom_headassets, custom_tattoos, delete_generated_players,
   export_season_stats, export_fixtures, export_transfer_history, extend_cpu_contracts, extend_user_contracts, headmodels,
   transfer_bans, squad_role, team_jersey_numbers, bulk_edit, player_moves, db_edit, export_table, player_presets
   (export to Live Editor preset CSV `extensions\player_presets` + Turbo player JSON with the miniface in
@@ -157,6 +163,21 @@ whole-second resolution with this toolchain and a stamp alone missed a rewrite l
 - `probe/main.cpp`: `TurboProbe.exe` (see Overlay below).
 - `injector/main.cpp`: `TurboInjector.exe` (waits for FC27.exe with Live Editor, then `CreateRemoteThread` + `LoadLibraryW`).
 
+### Module map (2.4)
+Every `core/` file is platform independent and runs in the native tests on simulated memory; its `win/<name>_win.cpp` host makes the
+game calls, installs the hooks and reads the switch files inside FC27.exe; `ui/` draws it. Each header's first lines say what it is.
+
+| Area | core | win host | ui |
+| --- | --- | --- | --- |
+| Database, model, bridge | `t3db`, `model`, `bridge`, `mem`, `memmap`, `le_log`, `field_labels`, `user_text` | `memmap_win`, `dllmain` | `app`, `widgets`, `ui_database` |
+| Game hooks and calls | `sigscan` (built-in signature table per game build, auto-adapt), `gamethread` (game-thread queue), `game_calls` | `game_hooks` (MinHook, `HOOK_BODY`, `hook_<name>_off.txt`, game_tick listeners), `game_calls_win` | Status tab |
+| Players | `overall`, `archetypes`, `player_create`, `player_id`, `player_move`, `player_morale`, `squad_role`, `reveal`, `reapply`, `player_capture`, `face_filter`, `face3d_looks`, `hair_catalog`, `bodytype_catalog`, `callnames`, `callname_voice`, `callname_audio`, `commentary_*` | the matching `*_win.cpp` | `ui_players`, `ui_presets`, `ui_faces`, `ui_bodytypes`, `ui_callnames`, `ui_names`, `ui_archetype` |
+| Clubs | `teamnames`, `teamname_override`, `kit_import`, `hub_customise`, `transfer_list`, `transfer_stats`, `scouts`, `manager_rules` | the matching `*_win.cpp` | `ui_teams`, `ui_identity`, `ui_kits`, `ui_club_tools`, `ui_parity` |
+| Competitions | `fce_standings` (live tables, fixtures), `standings_refresh`, `comp_list`, `match_setup` (game variables + result fixing) | `standings_refresh_win`, `match_setup_win` | `ui_competitions`, `ui_standings`, `ui_match` |
+| Tactics | `sliders` (registry), `tactics_status` (badges, kill switches, snapshots), `tactics` (preview model), `tactics_db`, `tactic_profiles`, `opposition`, `opp_rules`, `team_sheet` (channel E), `tuning` (engine tuning tables) | `team_sheet_win`, `tuning_win` | `ui_tactics`, `pitch_view`, `ui_live_tactic`, `ui_tuning` |
+| Assets | `asset_catalog`, `asset_pages`, `gear_ids`, `game_heads`, `callnames_catalog` | - | `ui_asset_browser` |
+| Game editors | `edit_unlock`, `edit_unlock_rules`, `edit_unlock_hook` | `edit_unlock_hook_win` | `ui_edit_unlock` |
+
 ## Overlay (`win/overlay_dx12.cpp`)
 
 - **Hook targets**: `IDXGISwapChain::Present` / `Present1` / `ResizeBuffers`, `IDXGISwapChain3::ResizeBuffers1`,
@@ -189,7 +210,7 @@ whole-second resolution with this toolchain and a stamp alone missed a rewrite l
   `FramePadding.y` after `ScaleAllSizes`, so table rows (text + 2 x CellPadding.y), list rows (text + ItemSpacing.y) and
   widget rows (FrameHeight) follow one setting; the font size stays the UI size.
 - **Tables and panes (`ui/table_registry.h`)**: every table has resizable, reorderable and hideable columns; the registry
-  lists the 32 tables with their flags and `tests/native/test_ux_resize.h` scans `src/ui` so none loses them. The
+  lists the tables (36 at 2.4) with their flags and `tests/native/test_ux_resize.h` scans `src/ui` so none loses them. The
   exceptions are the tables inside an auto-sizing popup (`Spec::popup`): `##comptable` in the competition picker's combo
   (with the column flags Dear ImGui saved its column settings and the popup's second opening failed, native "Live
   standings: groups" case), `##clubrows` in the club search dropdown and `##keptplayer` in the kept-edits tooltip; they
@@ -220,17 +241,22 @@ whole-second resolution with this toolchain and a stamp alone missed a rewrite l
 
 ## Build and test
 
+How to set the development PC up and the exact commands: `docs/BUILD_WINDOWS.md`. In short:
+
 | Command | What it does | Needs |
 | --- | --- | --- |
-| `bash turbo/tests/run_tests.sh` | 105 Lua tests over a simulated game memory (incl. launch safety; `GetDBMeta` as Lua tables, as iterable C++ objects and as index-only C++ objects) | lua5.4, `turbo/le27/libs` |
+| `bash scripts/msys.sh "bash scripts/check_all.sh"` | the whole gate in about 3-4 minutes: BUILD (0 warnings expected), LUA, NATIVE, PY, CATALOG; one summary line each, logs in `turbogui/build/check_logs` | MSYS2 UCRT64, lua5.4, `turbo/le27/libs`, Python with openpyxl |
+| `bash turbo/tests/run_tests.sh` | the Lua suite: 33 test files over a simulated game memory (launch safety, bridge, every feature module; `GetDBMeta` as Lua tables, as iterable C++ objects and as index-only C++ objects). 2.3.0: 405 checks | lua5.4, `turbo/le27/libs` |
 | `luacheck --config turbo/tests/.luacheckrc turbo/package/lua` | lint | luacheck |
-| `bash turbogui/tests/native/run_native.sh` | 3,283 native checks (engine vs Live Editor's Lua T3DB library, headless ImGui UI driving, ASan + UBSan). Includes clicking every GUI button that sends a command (28) and running each command through Turbo's real Lua bridge in a simulated career, the Players list filters against a brute-force oracle, and the Live Editor log reader against real FC 27 log lines | g++, lua5.4, `turbo/le27/libs` |
+| `bash turbogui/tests/native/run_native.sh` | the native suite: the database engine against Live Editor's Lua T3DB library, every core module on simulated memory, headless ImGui UI driving of every tab (each button that sends a command runs through Turbo's real Lua bridge in a simulated career). 2.3.0: 38,462 checks; 2.4/cleanup alone: 28,849 (the removed channel A and legacy rows took about 9,900 checks with them, most of them per-slider loops; 282 were added) | g++, lua5.4, `turbo/le27/libs` |
+| `bash turbogui/tests/catalog/run*.sh` | the asset catalog runners (g++ only, synthetic data, seconds) | g++ |
 | `python3 scripts/check_field_names.py` | every table / field name in the GUI and Lua sources against EA's `db_meta.xml` (FIFA 21 Live Editor) and the names xAranaktu's FC 24–26 Live Editor scripts use | git, GitHub access |
-| `bash turbogui/scripts/build_win.sh` | cross-compiles `Turbo.dll` + `TurboProbe.exe` + `TurboInjector.exe` | mingw-w64 (posix) |
-| `bash turbogui/tests/win/run_smoke.sh` | loads the real `Turbo.dll` under Wine in 10 modes: imports, refusal without Live Editor, no hooking without a game window, kill switch, crash guard (clean exit / kill), mailbox, Lua-side start, and launch mode (touches nothing and loads no graphics DLL until Live Editor's `Initial setup done` for this process or a fresh `bridge_state.json`; earlier sessions, the launcher log and stale files do not count) | Wine, mingw-w64 |
-| `bash turbogui/tests/win/run_overlay_wine.sh` (`MODE=probe` default, `MODE=fallback`) | runs `tests/win/game_stub.cpp`, a Direct3D 12 stand-in game (not FC 27), under Wine + vkd3d + Mesa lavapipe on Xvfb; it loads `Turbo.dll` in launch mode while presenting, writes Live Editor's `Initial setup done` half a second later, presses F8 from another thread and resizes its swap chain. Checks the log (waited for Live Editor before anything else, hooked, queue, ImGui ready, start and drawing proven, no errors, crash flag cleared) and screenshots (nothing drawn while hidden, the window after F8 and after the resize) | Wine, Xvfb, mesa-vulkan-drivers, ImageMagick |
-| `bash scripts/package.sh` | builds `dist/FC27_LE_Turbo_<version>.zip` (the files to copy into the Live Editor folder) | zip, built binaries |
-| `python scripts/callname_voice_log.py --self-test` / `python scripts/playtest_monitor.py --self-test` | the voice-swap log parser and summary; the play-session watcher (log classifiers, following, rotation, dumps, FC27.exe start / exit, stop rules) on temporary folders | Python 3 |
+| `bash turbogui/scripts/build_win.sh` | builds `Turbo.dll` + `TurboProbe.exe` + `TurboInjector.exe` (parallel and incremental through `turbogui/scripts/parallel_compile.sh`); fails if a graphics DLL appears in the import table | mingw-w64 (posix) or MSYS2 UCRT64 |
+| `bash turbogui/tests/win/run_smoke.sh` | loads the real `Turbo.dll` under Wine in 10 modes: imports, refusal without Live Editor, no hooking without a game window, kill switch, crash guard (clean exit / kill), mailbox, Lua-side start, and launch mode | Wine, mingw-w64 |
+| `bash turbogui/tests/win/run_overlay_wine.sh` (`MODE=probe` default, `MODE=fallback`) | runs `tests/win/game_stub.cpp`, a Direct3D 12 stand-in game (not FC 27), under Wine + vkd3d + Mesa lavapipe on Xvfb; checks the log and screenshots of the overlay | Wine, Xvfb, mesa-vulkan-drivers, ImageMagick |
+| `bash scripts/package.sh [--guard]` | builds `dist/FC27_LE_Turbo_<version>.zip` (the files to copy into the Live Editor folder); `--guard` runs only the name guard (no masters, catalog, banks, gate files) | zip (MSYS2), built binaries |
+| `bash scripts/deploy.sh` | installs this worktree's build into the Live Editor folder (game closed; backs up what it replaces) | Git Bash |
+| `python scripts/callname_voice_log.py --self-test` / `python scripts/playtest_monitor.py --self-test` | the voice-swap log parser and summary; the play-session watcher on temporary folders | Python 3 |
 
 ## What is and is not verified
 
@@ -500,19 +526,20 @@ one of the user's players; clone into the user's club.
   default). The per-side +/- counters, the points per result and the played results (Change result) are under
   **Advanced**, closed by default.
 
-## Turbo 2.0 additions (Unreleased)
+## Tactics (2.0 - 2.4)
 
-Design and rationale: `docs/TURBO_2_0_PLAN.md`. This section is the short technical contract; what actually ships is in `CHANGELOG.md` under "Unreleased 2.0".
+Design and rationale: `docs/TURBO_2_0_PLAN.md` (2.0), `docs/plans/tactics-2.1/` (2.1), `docs/TACTICS_OVERHAUL_DECISION.md` (2.4). This section is
+the short technical contract; what each release shipped is in `CHANGELOG.md`.
 
 ### Slider tiers
 
-Since 2.1 Phase 0 every row carries TWO badges (`core/tactics_status.h`): how it is written (game variable / database row / preview / Turbo only) and what was seen of it (seen in a played match + date / no effect seen + date / untested / legacy, likely ignored / nothing written); the registry tier below is the write path only and is no longer shown as a "Live" badge. A row that writes but was never seen working in a played match (untested, no effect seen, legacy) loads switched off from a preset, and Apply lists those rows and asks before writing them. Legacy rows (EA removed the fields in FC 25) are hidden behind "Show legacy fields". The saved-tactic targets `cm_mentalities.defensivedepth` / `cm_mentalities.buildupplay` are gone from the registry (the game reads that row once at career load and overwrites it from its live copy at every save) and `dead_target_reason()` refuses any `cm_mentalities.*` target. The role editor is "Role familiarity N (Role+ / Role++)": the player's own list, not the role of a tactic slot. The 66 per-side gameplay slider variables of tactics channel A (`core/gameplay_sliders.h`, `SliderDef::untested`) are "game variable" + "untested" rows like any other (off by default, held off by presets, Apply asks first); their "untested" badge keeps channel A's orange and says the game's variable store accepts the write (read back ok) but no played match has shown an effect yet; Reset clears the override at once. Every row that writes shows a read-back line: a game variable as the host read it back after the write, a database field as it is now (with the value before Turbo's first write). Before Turbo's first write to a database row the row's value is kept in `turbo_output\tactics_snapshot.json` (per career club, target and row); the row's Reset button, switching the row off + Apply, and `tactics_off.txt` appearing put it back, only while the row still holds the value Turbo wrote. Since 2.1 a database value belongs to the club or player it was set for: the My team rows (`teams`, `mentalities`) are the selected club's and the Position/Role rows (`players`) the selected player's, and selecting another club or player puts the values (switched on, last applied) aside until he is selected again. Apply, Reset and switching a row off + Apply therefore only reach the rows the values were set for (selecting the opponent for the Opposition scope and pressing Apply never writes your club's settings into his row), and "What the game will receive", the Apply confirmation, the Apply log and its toast name the club or player ("teams.defensivedepth = 62 for Arsenal"). Every write and every put-back of a `players` field other than `overallrating` goes through `App::edit_field`: a preferred position written or put back by the tab never moves the stored overall (the overall follow of the player editor is not run), so an A/B run, a Reset, off + Apply and `tactics_off.txt` leave the overall as it was. "Clear overrides" clears the game variables only: the database rows keep their applied state, so switching one off + Apply still puts it back.
+Since 2.1 Phase 0 every row carries TWO badges (`core/tactics_status.h`): how it is written (game variable / database row / preview / Turbo only / live team sheet) and what was seen of it (seen in a played match + date / no effect seen + date / untested / nothing written); the registry tier below is the write path only and is no longer shown as a "Live" badge. A row that writes but was never seen working in a played match (untested, no effect seen) loads switched off from a preset, and Apply lists those rows and asks before writing them. Controls EA removed in FC 25 are hidden behind "Show legacy fields"; since 2.4 none of them writes: the two widths (`team.width_def` / `team.width_att`) and the 7-step mentality are Turbo's preview only (the pitch's width band and the opposition solver use the widths), and the rows that wrote the old `mentalities` table (players in the box, chance creation, attacking / defensive style) are gone. The saved-tactic targets `cm_mentalities.defensivedepth` / `cm_mentalities.buildupplay` are not in the registry (the game reads that row once at career load and overwrites it from its live copy at every save) and `dead_target_reason()` refuses any `cm_mentalities.*` target; that row is written only by channel E as the live tactic's database copy (`ui_live_tactic.cpp`: opt-in in 2.3; in 2.4, pending proof, part of the one channel E write). The role editor is "Role familiarity N (Role+ / Role++)": the player's own list, not the role of a tactic slot. **2.4 removed tactics channel A**: the 66 per-side `GAMEPLAY_CUSTOMIZATION/<slider>_USER` / `_CPU` rows (the game stores and reads them back, the match ignores them: `turbo_output\TACTICS_CHANNEL_A_REPORT.txt` VERDICT, 2026-10-11) are gone from the registry, from Competitions > Match setup (with the A/B presets) and from `gv::known_vars()`; the host refuses any variable name outside that list, and a 2.1-2.3 preset that still names one of their keys keeps it as an unknown key that is never written. Every row that writes shows a read-back line: a game variable as the host read it back after the write, a database field as it is now (with the value before Turbo's first write). Before Turbo's first write to a database row the row's value is kept in `turbo_output\tactics_snapshot.json` (per career club, target and row); the row's Reset button, switching the row off + Apply, and `tactics_off.txt` appearing put it back, only while the row still holds the value Turbo wrote (a `mentalities` row kept by 2.1-2.3 is still put back by `tactics_off.txt`). Since 2.1 a database value belongs to the club or player it was set for: the My team rows (`teams`) are the selected club's and the Position/Role rows (`players`) the selected player's, and selecting another club or player puts the values (switched on, last applied) aside until he is selected again. Apply, Reset and switching a row off + Apply therefore only reach the rows the values were set for (selecting the opponent for the Opposition scope and pressing Apply never writes your club's settings into his row), and "What the game will receive", the Apply confirmation, the Apply log and its toast name the club or player ("teams.defensivedepth = 62 for Arsenal"). Every write and every put-back of a `players` field other than `overallrating` goes through `App::edit_field`: a preferred position written or put back by the tab never moves the stored overall (the overall follow of the player editor is not run), so a Reset, off + Apply and `tactics_off.txt` leave the overall as it was. "Clear overrides" clears the game variables only: the database rows keep their applied state, so switching one off + Apply still puts it back.
 
 Every tactics/match slider carries one registry tier, defined by where its value goes:
 
 | Tier | Meaning | Write path | Effect in a played match |
 | --- | --- | --- | --- |
-| Live | A game variable set through the `gv` bridge (`GAMEPLAY_CUSTOMIZATION/...`, `OVERRIDE/...`, `NEVER_INJURE`, `DISABLE_CPU_SUBSTITUTION`, `OVERRIDE_MATCH_DIFFICULTY`) | process-wide override, not saved with the career, cleared when the game closes | Accepted by the game; the in-game effect of each key is verified one by one (the "what was seen" badge says which: see the plan, section 3) |
+| Live | A game variable of `gv::known_vars()` set through the `gv` bridge (the four injury sliders `GAMEPLAY_CUSTOMIZATION/INJURY_*_USER` / `_CPUAI`, `OVERRIDE/WEATHER`, `OVERRIDE/TOD`, `NEVER_INJURE`, `DISABLE_CPU_SUBSTITUTION`, `OVERRIDE_MATCH_DIFFICULTY`) | process-wide override, not saved with the career, cleared when the game closes | Accepted by the game; the in-game effect of each key is verified one by one (the "what was seen" badge says which: see the plan, section 3) |
 | DB | A field of the career database (players role/position/trait fields, formation tables) | normal DB write, saved with the career | Only if the game reads that field at match setup; the `TeamSheet` runtime copy may overwrite DB edits |
 | Preview | A Turbo-side model (pitch heat grid, opposition solver output) | none, nothing is sent to the game | None. It is a visual aid, not engine truth |
 | RE | No known write site yet (needs reverse engineering) | none | None. Shown as Preview only until promoted |
@@ -526,18 +553,50 @@ Honest limits: simulated matches ignore every override (`simsettings.ini` is loa
 | Pitch dots | The selected club's saved formation: `teamformationteamstylelinks` (team id to formation id), else the `sourceformationid` of the club's active tactic in `cm_mentalities` / `mentalities`, else a `formations` row carrying the club's id; positions from `formations.position0..10`, offsets from `formations.offset0x..offset10y`, or `formationoffsets` when those are all zero. Read through `core/tactics_db.cpp`, cached by `App::gen`. A goalkeeper near the far goal line turns the y axis round. | Exact (E), solid; your club: "your saved tactic as of your last save" (change it in the game's Edit Tactic), another club: "saved data (the club's saved tactic row)"; both say nothing on the pitch is written. When nothing usable is found Turbo's own shape from `fallback_formations()` is drawn and the reason is shown. |
 | Lines, band, arrows | `build_preview` (core/tactics.h) through `PreviewCache`; drawn only for sliders that are switched on | Derived (D): dashed, "62/100 (schematic)", never a unit |
 | Grid, rings, exposure | The same model, only when asked for | Modelled (M): hatched or stippled, "(arbitrary)", off by default |
-| Team sliders written to the database | `teams.defensivedepth` / `teams.buildupplay` of the selected club; the legacy fields (hidden behind "Show legacy fields") in the club's `mentalities` row by `teamid` (the row flagged `activetactic`, else the first) | Database row, untested / legacy, likely ignored; a club without a row is reported, nothing is created; your saved tactic row (`cm_mentalities`) is never written |
+| Team sliders written to the database | `teams.defensivedepth` / `teams.buildupplay` of the selected club (2.4: nothing else; the old `mentalities` table is no write target) | Database row, untested; your saved tactic row (`cm_mentalities`) is never written by this tab |
 | Opposition card | `core/opposition.cpp` with the built-in rules plus `turbo_output/opp_rules.json`; seed from the career, the season, the day, the opponent and the re-roll count | Preview, except injury and difficulty offsets, which are game variables and are sent only by the card's Apply button as base plus offset |
 
 ### Kill switches (files in `turbo_output`)
 
-`reapply_off.txt`, `turbo_gui_disable.txt`, `call_<name>_off.txt`, `hook_<name>_off.txt`, the crash flag `turbo_gui_start.flag`, and new in 2.0: `tactics_off.txt` (no tactics writes, effect layers greyed; since 2.1 Phase 0 its appearance first puts back the database rows the Tactics tab wrote in this career, see "Slider tiers") and `role_reapply_off.txt` (no squad-role re-apply on season reset). 2.1 Phase 0 adds one switch per tactics write channel (`core/tactics_status.h` `kill_switches()`): `tactics_gamevar_off.txt` (game variables), `tactics_db_off.txt` (teams / referee / players rows), `tactics_legacy_off.txt` (the old `mentalities` table); a switched-off channel's rows are greyed with the file name, its writes and resets are skipped and counted in the Apply toast. Reserved for later channels (not read by any build yet): `opp_auto_off.txt` (per-fixture opposition engine), `call_team_sheet_on.txt` (opt-in) and `call_team_sheet_off.txt` (your live tactic, channel E), restore file `opp_db_restore.json`. Tactics channel A (`core/gameplay_sliders.h`): the Match tab's A/B presets send nothing while `tactics_off.txt` or `call_gamevar_off.txt` exists, `call_gamevar_off.txt` also stops every game-variable write of the Tactics tab (the host refuses it), and `tactics_gamevar_off.txt` blocks the Tactics tab's game-variable rows, the 66 per-side channel A rows included. From the 1.2.5 line (2.0.3): `squad_status_repair_off.txt` (no match crash guard: `bridge.lua` `repair_squad_status` adds no squad status entries at career load / day / pre-match events; tested in `turbo/tests/t04_squad_role.lua`), `call_squad_role_create_off.txt` (the `squad_role` game call, op 14, creates and removes no entries; `turbogui/tests/native/test_squad_role.h`), `plan_sync_off.txt` (the Turbo window sends no development-plan sync for its player edits; `turbogui/tests/native/test_main.cpp`), and `call_player_morale_create_off.txt` (no morale records created by the morale mass action; `t18_team_mass.lua`). Unreleased (after 2.0.3): `create_status_repair_off.txt` (no squad status repair right after `create_player` at the user's club; `squad_status_repair_off.txt` stops it too; `t25_arrivals_guard.lua`) and the opt-in `db_move_user_club_on.txt` (database moves into the user's club allowed again, with a warning; `t25_arrivals_guard.lua`). The user-facing table is in `turbo/package/TURBO_README.md`.
+`reapply_off.txt`, `turbo_gui_disable.txt`, `call_<name>_off.txt`, `hook_<name>_off.txt`, the crash flag `turbo_gui_start.flag`, and new in 2.0: `tactics_off.txt` (no tactics writes, effect layers greyed; since 2.1 Phase 0 its appearance first puts back the database rows the Tactics tab wrote in this career, see "Slider tiers") and `role_reapply_off.txt` (no squad-role re-apply on season reset). 2.1 Phase 0 adds one switch per tactics write channel (`core/tactics_status.h` `kill_switches()`): `tactics_gamevar_off.txt` (the game-variable rows: injuries, weather, time of day, difficulty, CPU substitutions) and `tactics_db_off.txt` (teams / referee / players rows), plus `call_team_sheet_off.txt` for your live tactic (channel E, since 2.2); a switched-off channel's rows are greyed with the file name, its writes and resets are skipped and counted in the Apply toast. 2.4 dropped `tactics_legacy_off.txt` (nothing writes the old `mentalities` table any more). Match setup (`core/match_setup.h`): `call_gamevar_off.txt` (the host refuses every game-variable write, from the Tactics tab and from Match setup alike), `call_match_fix_off.txt` (fixed results), `live_standings_write_off.txt` (every competition-engine write and its Undo) and `call_standings_refresh_off.txt`. Channel E (2.2 / 2.3, `core/team_sheet.h`; read by every build since 2.2, no longer "reserved"): opt-in `call_team_sheet_on.txt` (the card's "Channel E on" box), kill switches `call_team_sheet_off.txt`, `call_team_sheet_find_off.txt` (no registry lookup), `channel_e_kickoff_off.txt` (no kick-off check); in 2.3 the `cm_mentalities` database copy is opt-in (`channel_e_db_mirror_on.txt`, kill switch `channel_e_db_mirror_off.txt`); 2.4 (branch `2.4/tactic`, pending its in-game proof) removes that opt-in: the row is written in the same channel E job as the live record, and `channel_e_db_off.txt` (or `tactics_db_off.txt`; 2.3's `channel_e_db_mirror_off.txt` still honoured) leaves it out; undo file `channel_e_undo.json`. Gameplay tuning (2.3, `core/tuning.h`): opt-in `tuning_on.txt`, kill switches `tuning_off.txt` and `call_attrib_off.txt` (and `tactics_off.txt`); keep file `tuning_keep.json` (2.4, branch `2.4/tuning`, no longer reads it: the profile `tuning_profile.json` and its switch `tuning_profile_off.txt` replace it, see "Tactics 2.4"; pending in-game proof). Game hooks: `game_hooks_off.txt`, `signature_adapt_off.txt` (no auto-adapt of the signature table on an unknown build). Still reserved (not read by any build): `opp_auto_off.txt` (per-fixture opposition engine) and the restore file `opp_db_restore.json`. From the 1.2.5 line (2.0.3): `squad_status_repair_off.txt` (no match crash guard: `bridge.lua` `repair_squad_status` adds no squad status entries at career load / day / pre-match events; tested in `turbo/tests/t04_squad_role.lua`), `call_squad_role_create_off.txt` (the `squad_role` game call, op 14, creates and removes no entries; `turbogui/tests/native/test_squad_role.h`), `plan_sync_off.txt` (the Turbo window sends no development-plan sync for its player edits; `turbogui/tests/native/test_main.cpp`), and `call_player_morale_create_off.txt` (no morale records created by the morale mass action; `t18_team_mass.lua`). Since 2.0.4: `create_status_repair_off.txt` (no squad status repair right after `create_player` at the user's club; `squad_status_repair_off.txt` stops it too; `t25_arrivals_guard.lua`) and the opt-in `db_move_user_club_on.txt` (database moves into the user's club allowed again, with a warning; `t25_arrivals_guard.lua`). The user-facing table is in `turbo/package/TURBO_README.md`.
 
 ### Schema coverage
 
 `python3 scripts/check_fc27_schema.py --coverage [schema.json]` lists the fields of `players`, `teams` and `manager` in the game's schema dump (`turbo/le27/fc27_db_schema.json`) that no `turbogui/src/ui/*.cpp` or `turbogui/src/core/field_labels.h` mentions as a whole word. It is informational (exit 0) and prints a hint instead of failing when the schema file is absent. Without `--coverage` the script keeps its old job: checking every name Turbo uses against the schema.
 
-## Game asset catalog (2.1, Unreleased)
+### Tactics 2.4: the plan (docs/TACTICS_OVERHAUL_DECISION.md), NOT the current code
+**Status (2026-10-13): planned.** Only the removals of the cleanup branch (channel A, the legacy `mentalities` writes) are in code at the
+time of writing; everything else below is the design of the decision document, built on the branches `2.4/tuning`, `2.4/tactic` and
+`2.4/tools`, subject to the decision gates X1-X3 and to its in-game proof. It becomes true only with the 2.4.0 release merge, and only for
+the items proven in game (the rest is taken out of 2.4.0). Check `CHANGELOG.md` 2.4.0 before relying on any of it.
+- **G1, the engine tuning layer (planned).** Turbo is to apply a *tuning profile* (its own values; FC 27's defaults as the baseline; no
+  mod values) to the attribulator tables at three moments: at boot (the first game tick at the main menu once the signatures and the locate
+  succeeded), at career load, and in the hub before every match (never in the ~0.5 s hub blip between prematch and match). The tables are
+  to be located deterministically from the static manager slot (`get_current_gameplay_attribdb` -> G -> manager -> database -> family slot
+  -> group slot -> instance), identity-checked in the same job (vtable, TypeInfo at +8, Name at +0x18, owner rule), and written to every
+  database copy. Planned files and switches: profile `turbo_output\tuning_profile.json` (`{"on", "preset", "values"}`), undo
+  `tuning_undo.json`, kill switches `tuning_off.txt` (all), `tuning_profile_off.txt` (the automatic moments only), `call_attrib_off.txt`,
+  `tactics_off.txt`; log lines `tuning: chain locate ok ...` and `tuning: profile applied (boot|career_load|hub) <k> knobs (read back ok)`.
+  Gate X1 decides whether a knob may also be written during a match.
+- **Honest knobs (planned).** A knob is to have one of three states: PROVEN (a slider; the knobs file carries a `proof` entry naming the
+  session and the evidence), LOCATED (a read-only row: "located, effect not proven"), UNLOCATED (hidden); the package guard is to refuse a
+  slider-enabled knob without `proof`. Proof = an A/B on the pitch: the value written in the hub before kick-off, windows B1 / A1 / B2 / A2
+  of 45 s, both teams, stratified by possession and ball third, block permutation test, criterion written down before the run.
+- **G2, the club's tactic (planned).** One guarded write of the active record of your club's sheet in `CachedTeamSheetService` (Line
+  Height +0xA4, Build-Up +0xB0, Defensive Approach +0xB4, 11 role words) together with the `cm_mentalities` row (`buildupplay`,
+  `defensivedepth`), one undo file. The kick-off listener is to read the match's own copy back and log `channel E kick-off: match copy team
+  <id> LH .. BU .. DA .. roles 11/11 = Turbo (ok)`, the proof line. Gate X2 decides which source the match reads; gate X3 decides how Edit
+  Tactic is made to show the values (the inline sheet, another service copy, or only after the next career load). When the game's own
+  "Yes" on leaving Team Management replaced Turbo's values, Turbo is to offer a one-click re-apply, never an automatic one. Build-Up 2 / 3
+  and Defensive Approach 3 stay refused until decoded.
+- **To be removed in 2.4:** tactics channel A and the legacy `mentalities` writes (done on `2.4/cleanup`); the Edit Tactic working-copy
+  writes (E2) and the `channel_e_db_mirror_on.txt` opt-in (done on `2.4/tactic`); `tuning_keep.json` (no longer read on `2.4/tuning`); the
+  "experimental" wording; the `teams.*` writes unless gate X2 shows the match reads them. Every 2.4 item stays pending until its in-game
+  proof and the release merge.
+- **Decision gates** (coordinator, short LTEST sessions): X1 (does the engine read the tuning tables, and when), X2 (which source feeds the
+  match's Line Height / Build-Up / Approach), X3 (where Edit Tactic loads from). Each has a pre-decided branch table in the decision document.
+
+## Game asset catalog (2.1)
 
 Full contract: `docs/asset-catalog.md`. Short version:
 
@@ -569,6 +628,7 @@ Full contract: `docs/asset-catalog.md`. Short version:
 
 ## Not implemented yet
 
-Match setup overrides, gameplay toggles (CPU vs CPU, unlimited subs, never tired, match time/score), manager market / job security /
-fire, endless career, reveal player data, negotiation bypasses, match-fixing and job offers. These need code hooks
-inside FC27.exe and in-game analysis first (minifaces from the 3D model are in, pending the first in-game run). The full FC 26 → Turbo map is `docs/fc26-parity.md`.
+The FC 26 → Turbo map with the state of every feature is `docs/fc26-parity.md`; the open items in order are in `docs/HANDOVER.md`
+section 10. Known gaps at 2.4: the 3D kit on the pitch (kit import phase 2: an in-match texture swap), per-club CPU tactics and a local
+`.fifamod` reader (2.5, pending Cassio's answers), the engine tuning groups beyond shape / pressing / marking / runs (CPU AI, realism,
+career boosts: 2.5), and anything that needs a game function FC 27 Live Editor v27.1.2 lacks (see the API section above).

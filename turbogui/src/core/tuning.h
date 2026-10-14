@@ -39,7 +39,27 @@
 // else: another tool or mod owns it; refused). The values before Turbo's first write of a knob in this game session are the "game
 // defaults" (Restore game defaults). Undo (turbo_output\tuning_undo.json) is bound to the career load it was written in. Undo and
 // Restore game defaults put the game's values back: they need no opt-in and the kill switches do not block them. Attribulator data is
-// not in the career save: values last for this game session; turbo_output\tuning_keep.json (opt-in) writes them again at career loads.
+// not in the career save: values last for this game session.
+//
+// 2.4 (docs/TACTICS_OVERHAUL_DECISION.md 3.1, WP-A1):
+//   * DETERMINISTIC LOCATE. With the knobs file's "attrib_manager" and the signature attrib_db_getter (get_current_gameplay_attribdb:
+//     mov rcx,[rip+G]) an attrib locator is found WITHOUT a memory search: G -> mgr = [G] -> the current gameplay database
+//     [[mgr+0]+8] and the prematch database [[mgr+8]+8] (each pointer slot masked & ~4) -> +family_slot the group object (its type
+//     checked) -> +group_slot the instance. Every gameplay database (15) is enumerated once per game session from the heap slots that
+//     hold the database type's TypeInfo (one background pass); the distinct instances of a group over all databases are its copies,
+//     matched to the knobs file's variants by their Name. Identity per instance: +0 a vtable in FC27.exe (the RVA when the file gives
+//     it), +8 its TypeInfo whose TypeInfoData has the locator's type name, signature, size and field count, +0x18 the variant's asset
+//     path, the asset GUID. A mismatch refuses that group for the game session (logged). The name search of the 2.3 locator stays as
+//     the cross-check on the first run per build (both must find the same instances: turbo_output\tuning_chain_check.json) and as
+//     the fallback when the signature is missing. Log: "tuning: chain locate ok <n> groups <m> knobs <ms> ms".
+//   * THE PROFILE turbo_output\tuning_profile.json {"on", "preset", "values"} (written by the UI only) is applied at three moments:
+//     boot (the first tick after the locate, no career loaded: the main menu), career_load (once per career load, in its hub) and hub
+//     (every time the hub is entered, never within 5 s of a prematch phase: Lua goes hub -> prematch -> hub 0.5 s -> match). A knob
+//     is written at a moment its "when" names; in prematch / match only with "live": true. Kill switches: tuning_off.txt (every write),
+//     tuning_profile_off.txt (the automatic moments), call_attrib_off.txt, tactics_off.txt. Log: "tuning: profile applied (<moment>)
+//     <k> knobs (read back ok)". Restore FC 27 defaults writes FC 27's own values from the knobs file and switches the profile off.
+//   * HONEST UI (WP-A2): a knob is PROVEN (a "proof" in the knobs file: the in-game session and its evidence; a slider), LOCATED
+//     (read-only: located, effect not proven) or UNLOCATED (hidden, listed as not yet working).
 #pragma once
 #include <atomic>
 #include <cstdint>
@@ -66,7 +86,13 @@ inline const char* kill_switch_file() { return "tuning_off.txt"; }
 inline const char* master_switch_file() { return "tactics_off.txt"; }  // every tactics channel
 inline const char* attrib_switch_file() { return "call_attrib_off.txt"; }  // the attribulator writes (TACTICS_MOD_CATALOGUE section 8)
 inline const char* undo_file() { return "tuning_undo.json"; }
-inline const char* keep_file() { return "tuning_keep.json"; }       // the values written again at every career load (opt-in)
+inline const char* keep_file() { return "tuning_keep.json"; }       // 2.3's kept values: no longer read (replaced by the profile)
+inline const char* profile_file() { return "tuning_profile.json"; } // the profile the automatic moments apply (written by the UI)
+inline const char* profile_off_file() { return "tuning_profile_off.txt"; }  // kill switch of the automatic moments only
+inline const char* chain_check_file() { return "tuning_chain_check.json"; } // the chain / name search cross-check of each build
+// The coordinator's proof-session switch (M5, review 2026-10-13): only with it does the profile write knobs whose effect is not proven.
+// Never created by the view (tools/s_a1_check.py --setup creates it, --restore removes it); refused in a package
+inline const char* test_unproven_file() { return "tuning_test_unproven_on.txt"; }
 inline const char* presets_dir() { return "tuning_presets"; }
 // The knobs file names tried for a build key ("6AC07E31-2145C000"): knobs_6AC07E31-2145C000.json, then knobs_6AC07E31.json
 std::vector<std::string> knobs_file_names(const std::string& build);
@@ -91,8 +117,18 @@ const char* applies_name(Applies a);  // "next match setup" "live" "unknown"
 bool applies_from_name(const std::string& s, Applies& a);
 // The groups the view shows, in order (a knob of another group is listed after them)
 const std::vector<std::string>& standard_groups();  // Shape with / without the ball, Defensive line depth bands, Shape, Pressing, Marking, Attacking runs, ...
-// The career phases a knob's "when" may name (Lua's match phase, core/bridge.h)
+// The career phases (Lua's match phase, core/bridge.h) and the profile's apply moments
 const std::vector<std::string>& phases();           // hub, prematch, match
+const std::vector<std::string>& moments();          // boot, career_load, hub
+// What a knob's "when" may name: the moments and the phases
+const std::vector<std::string>& when_values();      // boot, career_load, hub, prematch, match
+
+// The in-game proof of a knob's effect on a match (the P-sessions, docs/TACTICS_OVERHAUL_DECISION.md section 5): the session and the
+// evidence it wrote ("EV/2026-10-14/TEST_25.md#width_in"). Adding a proof to the knobs file is a pure data change
+struct Proof {
+    std::string session, evidence, note;
+    bool given() const { return !session.empty() && !evidence.empty(); }
+};
 
 struct Knob {
     std::string id, label, group, collection, field, unit, locator, notes;
@@ -102,11 +138,17 @@ struct Knob {
     std::map<std::string, double> copy_defaults;  // FC 27's own value of a copy that differs from def ("simulation": 0)
     int64_t offset = -1;               // bytes from the locator's base; -1 = not known (placeholder)
     Applies applies = Applies::Unknown;
-    std::vector<std::string> when{"hub"};  // phases a write is allowed in
+    std::vector<std::string> when{"hub"};  // the moments (boot, career_load, hub) and phases a write is allowed in
+    bool live = false;                 // may also be written while a match is set up or played (gate X1 outcome 1)
+    Proof proof;                       // the in-game proof of its effect (none = not proven: read-only in the view)
+    bool slider = false;               // "slider": true in the file: offered as a slider; needs a proof (the package guard refuses it without)
     bool verified = false;             // T1 checked the knob on the file's build
     double step = 0;                   // slider step (0 = the type's)
     std::vector<std::string> below;    // knobs whose value this one must stay below (the line height bands do not overlap)
+    // A phase: "hub" when `when` names it; "prematch" / "match" when `live` or `when` names it
     bool allows(const std::string& phase) const;
+    bool allows_moment(const std::string& moment) const;  // `when` names the moment
+    bool proven() const { return proof.given(); }         // a slider in the view (a "slider" without a proof is not one)
     bool has_range() const { return has_min && has_max; }
     // FC 27's own value of one copy ("" = a chain / native locator's only copy): copy_defaults, else def. false = not known
     bool game_value(const std::string& copy, double& v) const;
@@ -160,10 +202,29 @@ struct Locator {
     uint32_t db_type_signature = 0, group_type_signature = 0;
     uint64_t family_slot = 0, group_slot = 0;
     bool l3() const;  // a variant names its database
+    // the chain from the attribute manager can reach it (WP-A1): db_type, family_slot and group_slot are given
+    bool chain_capable() const { return kind == "attrib" && !db_type.empty() && family_slot && group_slot; }
     bool verified = false;
     std::string note;
     // why the locator cannot be used ("" = complete): placeholder, no anchor / type / variants
     std::string placeholder() const;
+};
+
+// The knobs file's "attrib_manager" (WP-A1): how the attribulator databases are reached from the static manager slot G without a memory
+// search. signature (Turbo's table) resolves to G; mgr = [G]; the current gameplay database = the pointer chain `current` from mgr (each
+// step [obj + off] & ~4); the prematch database = [[mgr + prematch_slot] + handle_db] (when that slot does not hold it, every 8-aligned slot
+// of the manager's first mgr_size bytes is tried and the one found is logged). A database is checked by its TypeInfo's TypeInfoData (type
+// name, signature) and its Name at +0x18 (one of gameplay_dbs / prematch_dbs; empty list = any "Fifa/Attribulator/..." name).
+struct AttribManager {
+    bool present = false;
+    std::string signature = "attrib_db_getter";
+    std::vector<int64_t> current{0x0, 0x8};
+    int64_t prematch_slot = 0x8, handle_db = 0x8, mgr_size = 0x240, index_at = 0x18;
+    std::string gameplay_db_type, prematch_db_type;
+    uint32_t gameplay_db_signature = 0, prematch_db_signature = 0;
+    std::vector<std::string> gameplay_dbs, prematch_dbs;
+    std::string note;
+    bool prematch(const Locator& l) const { return !prematch_db_type.empty() && l.db_type == prematch_db_type; }
 };
 
 struct Registry {
@@ -171,6 +232,7 @@ struct Registry {
     std::string source;  // the file it was read from ("" = none)
     std::string note;
     int version = 0;
+    AttribManager manager;
     std::vector<Knob> knobs;
     std::vector<Locator> locators;
     const Knob* knob(const std::string& id) const;
@@ -235,17 +297,24 @@ struct Lookup {
     // attrib: for each name, the 8-aligned qword slots that point at a NUL-terminated copy of it (letter case ignored), in FC27.exe's
     // image (in_image) or in the game's writable heap. Slow (whole memory): the host runs it away from the render thread
     std::function<std::map<std::string, std::vector<uint64_t>>(const std::vector<std::string>& names, bool in_image)> refs;
+    // The 8-aligned qword slots of the game's writable heap that hold exactly `value` (one pass, at most max_hits). Slow: the database
+    // enumeration of the chain locate runs it once per game session, away from the render thread (null = not available)
+    std::function<std::vector<uint64_t>(uint64_t value, size_t max_hits)> heap_qwords;
     uint64_t image_base = 0, image_size = 0;                // FC27.exe (size 0 = no range check: tests)
 };
-// One copy of a table: its variant ("" for a chain / native locator), its base address and (L3) the database runtime object
+// One copy of a table: its variant ("" for a chain / native locator), its base address and (L3) the database runtime object and its Name
+// (the chain locate: the database the copy was reached from; "" = the variant's "db")
 struct Copy {
     std::string variant;
     uint64_t base = 0;
     uint64_t db = 0;
+    std::string db_name;
 };
 // A locator's anchor, resolved once per process (the anchor is code or static data)
 struct Anchor {
     bool ok = false, pending = false;  // pending: its inline pattern / its attribulator data is being searched
+    bool refused = false;              // an identity mismatch: refused for this game session (never located again)
+    std::string path;                  // attrib: "chain" (the attribute manager) or "search" (the name search)
     uint64_t addr = 0;
     std::string why;
     // attrib: the type found by name (L1: its TypeInfoData td), the instances' common type pointer and one instance per variant (L2)
@@ -265,6 +334,58 @@ std::string chase(Memory& mem, const Locator& l, const Anchor& anchor, const Loo
 // The knob's offset in its table: attrib = the type's field of the knob's field name, which must equal the file's offset and fit the
 // type and the knob's type; else the file's offset. "" + off, else why
 std::string field_offset(const Knob& k, const Locator& l, const Anchor& a, uint64_t& off);
+
+// ------------------------------------------------------------------------------------------------ the chain from the attribute manager
+// The attribulator databases the G walk found in this game session
+struct AttribDb {
+    uint64_t addr = 0;
+    std::string name;
+    bool prematch = false;
+};
+struct AttribDbs {
+    uint64_t g = 0, mgr = 0, current = 0, prematch = 0;
+    int64_t prematch_slot = -1;           // the manager slot that held the prematch handle (-1 = not found)
+    int64_t seed_slot = -1;               // no current database yet: the manager slot whose handle gave a gameplay database (-1 = none)
+    bool seed_slot_found() const { return seed_slot >= 0; }
+    int32_t index = -1;                   // i32 at mgr + index_at (the game's current database index; diagnostics)
+    std::string current_name;
+    uint64_t gameplay_td = 0, prematch_td = 0, gameplay_ti = 0, gameplay_vt = 0;
+    std::vector<AttribDb> dbs;            // the current gameplay database first, then the other gameplay ones, then the prematch one
+    bool enumerated = false;              // every gameplay database of the manager's list was found (else: the current one only)
+    std::string enum_why;                 // the enumeration's outcome ("15 of 15 gameplay databases", "... missing ...")
+    std::string summary() const;          // one log line
+};
+// The walk G -> mgr -> the current gameplay database and the prematch database, each identity-checked (TypeInfo -> TypeInfoData name and
+// signature, Name). "" + out; else why: transient = the manager or the database does not exist yet (the game is still starting: retry)
+std::string walk_manager(Memory& mem, const AttribManager& m, const Lookup& lk, AttribDbs& out, bool& transient);
+// Every gameplay database from the heap slots that hold the current database's TypeInfo (Lookup::heap_qwords): each with the current one's
+// vtable and TypeInfo and a Name of the manager's list, each Name once (byte copies of a database that point at the same groups are one).
+// Fills io.dbs / enumerated / enum_why; never fails the walk (the current database stays)
+void enumerate_dbs(Memory& mem, const AttribManager& m, const Lookup& lk, const std::vector<uint64_t>& family_slots, AttribDbs& io);
+// One attrib locator through the databases, no search: each database +family_slot -> the group object (type group_type) +group_slot ->
+// the instance; the distinct instances matched to the variants by Name. Identity per instance as in the file header. refused = an
+// identity mismatch (the group is refused for the session); else !ok = not reachable yet (a variant not found before the enumeration)
+Anchor resolve_attrib_chain(Memory& mem, const AttribManager& m, const Locator& l, const AttribDbs& dbs, const Lookup& lk);
+
+// The cross-check record (turbo_output\tuning_chain_check.json): per build, the locators whose chain copies equalled the name search's
+struct ChainCheck {
+    std::string build, when;
+    std::set<std::string> agree;
+    std::string to_json() const;
+    static bool parse(const std::string& text, ChainCheck& out, std::string* err);
+};
+bool load_chain_check(const std::filesystem::path& p, ChainCheck& out, std::string* err);
+bool save_chain_check(const std::filesystem::path& p, const ChainCheck& c, std::string* err);
+// "" when the chain's and the name search's anchors hold the same instance for every variant, else what differs
+std::string same_instances(const Anchor& chain, const Anchor& search);
+
+// What the locate has reached (the automatic moments wait for `ready`)
+struct LocateStatus {
+    bool ready = false;   // nothing pending: every usable locator resolved (or refused), the chain's databases enumerated
+    std::string path;     // "chain" (the attribute manager), "search" (the name search: fallback), "" (no attrib locator)
+    int groups = 0, knobs = 0;  // verified locators located now, their verified knobs
+    std::string why;      // not ready: what it waits for
+};
 
 struct CopyAt {
     std::string variant;
@@ -292,10 +413,21 @@ struct KnobLive {
     const CopyAt* copy(const std::string& variant) const;
 };
 
+// The view's state of a knob (WP-A2): PROVEN = a proof in the knobs file and located with a range (a slider); LOCATED = located, its
+// effect not proven (a read-only row); UNLOCATED = not located on this build (hidden, listed as not yet working)
+enum class KnobState { Proven, Located, Unlocated };
+const char* knob_state_name(KnobState s);  // "proven" "located" "unlocated"
+KnobState knob_state(const Knob& k, const KnobLive* live);
+
 // ------------------------------------------------------------------------------------------------ gates
+// The switch files (and the profile's "on"); `session` is the tab's tick for this game session (set by the caller)
 struct Switches {
     bool opt_in = false, off = false, master = false, attrib = false;
+    bool profile_off = false, profile_on = false, session = false;
+    bool test_unproven = false;  // tuning_test_unproven_on.txt: the profile also writes unproven knobs (proof sessions only)
+    bool opted_in() const { return opt_in || profile_on || session; }  // G1 of a write from the view
     std::string blocking() const;  // the kill switch file that blocks an Apply ("" = none)
+    std::string blocking_moments() const;  // ... and the automatic moments (tuning_profile_off.txt too)
 };
 Switches read_switches(const std::filesystem::path& turbo_output);
 
@@ -304,6 +436,8 @@ struct GateInput {
     bool bridge = false, in_cm = false;
     std::string match_phase;   // Lua's "hub" / "prematch" / "match" / "unknown" ("" = a Lua side without it)
     long long save_age = -1;   // seconds since Lua saw a save start (-1 = none)
+    long long prematch_age = -1;  // seconds since Lua's last prematch event (-1 = none): a hub write waits kPrematchGuardSeconds
+    bool team_mgmt = false;       // Team Management open (Lua): a write from the view waits (Undo / Reset / Restore do not)
     long long load_gen = -1;
     std::string registry;      // G3 ("" = a knobs file for this build)
     std::string locate;        // G4 ("" = every knob of the plan located)
@@ -337,6 +471,7 @@ struct Plan {
     std::vector<Write> writes;
     long long load_gen = -1;  // the career load it was made in (-1 = the submitting context's)
     std::string session;
+    std::string moment;       // the profile's automatic moment ("boot", "career_load", "hub"; "" = a click in the view)
 };
 // The diff of the wanted values against the live ones: each wanted knob must be in the registry, located and writable, its value must
 // pass check_value and keep the knob below the knobs it must stay below. A key is a knob id (one value for every copy) or a copy_key
@@ -351,6 +486,8 @@ void split_copy_key(const std::string& key, std::string& id, std::string& copy);
 struct ApplyResult {
     PlanKind kind = PlanKind::Apply;
     bool ok = false, written = false, undone = false, restore_failed = false, session_off = false;
+    std::string moment;              // the plan's moment ("" = a click in the view)
+    std::vector<std::string> lines;  // logged exactly as they are (the profile's "tuning: profile applied (...)" line)
     std::string stage, message, log_line;
     std::vector<Write> writes;               // what was written (old = the snapshot)
     std::map<std::string, double> snapshot;  // copy_key -> the value the job read before writing (the first snapshot = the game default)
@@ -374,6 +511,7 @@ std::string describe_writes(const Registry& reg, const std::vector<Write>& ws); 
 struct UndoRecord {
     std::string build, when, session, state, note;  // state: "pending" "written" "undone" "aborted" "restored" "failed"
     long long load_gen = -1;
+    bool boot = false;  // written by the profile's boot moment (main menu): its old values (FC 27's) carry over into the next career load
     std::vector<Write> knobs;  // one per knob and copy: old = the value before Turbo's first write in this career load, new = Turbo's
     std::string to_json() const;
     static bool parse(const std::string& text, UndoRecord& out, std::string* err);
@@ -382,7 +520,8 @@ bool load_undo(const std::filesystem::path& p, UndoRecord& out, std::string* err
 bool save_undo(const std::filesystem::path& p, const UndoRecord& u, std::string* err);
 // "" when the record belongs to this Lua session and career load
 std::string same_career(const UndoRecord& u, const std::string& session, long long load_gen);
-// A second Apply in the same career load keeps the old values of the first (merged by knob); another career load: `next` as it is
+// A second Apply in the same career load keeps the old values of the first (merged by knob); another career load: `next` as it is,
+// except after a boot write (prev.boot) of the same Lua session: its old values (FC 27's) are kept
 UndoRecord merge_undo(const UndoRecord& prev, const UndoRecord& next);
 // The undo plan: knobs whose every copy still holds Turbo's value get their old values back (copies go together: one copy changed by
 // someone else leaves the whole knob alone); the others are listed in `skipped`. Refused (why) across career loads, when nothing is
@@ -395,20 +534,92 @@ std::string make_undo_plan(const Registry& reg, const std::map<std::string, Knob
 std::string make_restore_plan(const Registry& reg, const std::map<std::string, KnobLive>& live, const std::map<std::string, double>& defaults, Plan& out,
                               std::vector<std::string>& skipped, const std::string& only = std::string());
 
-// ------------------------------------------------------------------------------------------------ kept values (tuning_keep.json)
-// Opt-in ("on"): the values are written again at the first hub of every career load (one job), for the located knobs of this build
-struct KeepStore {
+// ------------------------------------------------------------------------------------------------ the profile (tuning_profile.json)
+// {"on": true|false, "preset": "<name>|custom", "values": {"<knob id>": <value>}}: what the automatic moments apply (on), written by the
+// UI only (Apply, a preset, the on switch, Restore FC 27 defaults). Keys starting with "_" are comments
+struct Profile {
     bool on = false;
-    std::string build, when;
+    std::string preset = "custom";
     std::map<std::string, double> values;
     std::string to_json() const;
-    static bool parse(const std::string& text, KeepStore& out, std::string* err);
+    static bool parse(const std::string& text, Profile& out, std::string* err);
 };
-bool load_keep(const std::filesystem::path& p, KeepStore& out, std::string* err);  // false when absent or unreadable
-bool save_keep(const std::filesystem::path& p, const KeepStore& k, std::string* err);
-// The re-apply plan of the kept values for this registry: knobs not in the registry / not located / out of range are skipped (listed)
-std::string make_keep_plan(const Registry& reg, const std::map<std::string, KnobLive>& live, const KeepStore& k, Plan& out,
-                           std::vector<std::string>& skipped);
+constexpr uintmax_t kMaxProfileBytes = 64 * 1024;  // a bigger profile file is not used (read every 2 s on the render thread)
+bool load_profile(const std::filesystem::path& p, Profile& out, std::string* err);  // false when absent (err "") or unreadable / too big
+bool save_profile(const std::filesystem::path& p, const Profile& pr, std::string* err);
+// The plan of an automatic moment: every profile value whose knob is in the registry, located, writable and allowed at that moment
+// (`when`), its value in range: EVERY copy of each, also a copy that already holds the value (the job writes it again and reads every
+// one back, so "read back ok" covers the whole profile). The others are skipped (listed). Kind Reapply, the moment set
+// Only PROVEN knobs (a proof in the knobs file) are written (M5); allow_unproven (the test switch tuning_test_unproven_on.txt) writes
+// the located ones too
+std::string make_profile_plan(const Registry& reg, const std::map<std::string, KnobLive>& live, const Profile& p, const std::string& moment,
+                              Plan& out, std::vector<std::string>& skipped, bool allow_unproven = false);
+// Restore FC 27 defaults: FC 27's own value (the knobs file's default / copy_defaults) back into every copy of every located knob of
+// which a copy holds another value; a knob without FC 27's value of a copy is skipped. Kind Restore
+std::string make_vanilla_plan(const Registry& reg, const std::map<std::string, KnobLive>& live, Plan& out, std::vector<std::string>& skipped);
+
+// ------------------------------------------------------------------------------------------------ the automatic moments
+enum class Moment { None, Boot, CareerLoad, Hub };
+const char* moment_name(Moment m);  // "" "boot" "career_load" "hub"
+// A hub write waits this long after Lua's last prematch event (hub -> prematch -> hub 0.5 s -> match at kick-off)
+constexpr long long kPrematchGuardSeconds = 5;
+// The boot moment needs Lua's report of the main menu (bridge_state.json front_end_t: Lua running, no career) at most this old (M1,
+// review 2026-10-13): Lua sees no event outside career mode, so only a fresh report tells the main menu from a Kick-Off match
+constexpr long long kBootReportSeconds = 60;
+// "" when no prematch was seen in the last kPrematchGuardSeconds (prematch_t: Lua's os.time() of it, 0 = none; wall: now)
+std::string prematch_guard(long long wall, long long prematch_t);
+struct MomentInput {
+    // A WALL clock in seconds with sub-second resolution (the view: std::chrono::system_clock). Never the GUI clock App::now: that is
+    // QueryPerformanceCounter, and in game it ran about 3x wall time on 10-13 (a "5 s" wait was ~1.7 s real); the 5 s prematch window
+    // must be 5 real seconds
+    double now = 0;
+    long long wall = 0;          // os time (seconds): Lua's prematch_t is os.time()
+    bool bridge = false, in_cm = false;
+    std::string phase, session;
+    long long load_gen = -1;
+    long long prematch_t = 0;
+    long long front_end_t = 0;   // Lua's report of the main menu (os.time(); 0 = none): the boot moment needs it fresh
+    bool team_mgmt = false;      // Team Management is open (Lua): no career_load / hub moment then
+    bool profile_on = false;     // the profile says on and tuning_profile_off.txt is absent
+    long long profile_rev = 0;   // changes when the profile file changes (a change in the hub applies it there)
+    bool ready = false;          // LocateStatus::ready
+    bool busy = false;           // a tuning job is queued or running
+};
+// Which moment is due (pure logic; the view's tick feeds it every frame). boot: once per game session, when ready, no career is loaded
+// and Lua reported the main menu at most kBootReportSeconds ago (no Lua report = no boot moment; a career seen first skips it: its
+// career_load covers it). career_load: once per Lua session and career load, in its hub.
+// hub: every entry into the hub (and right after a career_load, and when the profile changes or is switched on in the hub), never
+// within kPrematchGuardSeconds of a prematch phase (Lua's stamp and the tracker's own sight). Nothing while the profile is off, the
+// locate is not ready or a job is busy. fired() after the moment's job was queued (or found nothing to do)
+class MomentTracker {
+public:
+    Moment next(const MomentInput& in);
+    void fired(Moment m, const MomentInput& in);
+    // the moment's job did not run (late, cancelled, refused by a switch that appeared): due again (boot only while no career is seen)
+    void rearm(Moment m);
+    bool boot_done() const { return boot_done_; }
+    bool hub_pending() const { return hub_pending_; }
+    const std::string& load_done() const { return load_done_; }
+
+private:
+    void observe(const MomentInput& in);
+    bool boot_done_ = false, hub_pending_ = false, was_on_ = false, seen_ = false;
+    std::string load_done_, last_phase_;
+    long long last_rev_ = 0;
+    double prematch_seen_ = -1e18;
+};
+// What the job knows about the career when it runs (from Lua's last state)
+struct MomentContext {
+    bool in_cm = false;
+    std::string phase;
+    long long prematch_age = -1, save_age = -1;  // seconds since Lua's last prematch / save start (-1 = none)
+    long long front_end_age = -1;                 // seconds since Lua's report of the main menu (-1 = none)
+    bool team_mgmt = false;
+};
+// The job's own gate of a moment (re-checked on the game thread): boot = no career loaded, Lua's main-menu report at most
+// kBootReportSeconds old, no prematch / match phase; career_load / hub = the hub, Team Management closed, no prematch in the last
+// kPrematchGuardSeconds, no save in the last kSaveQuietSeconds; every knob of the plan allows the moment. "" = pass
+std::string moment_gate(const std::string& moment, const MomentContext& c, const std::vector<const Knob*>& knobs);
 
 // ------------------------------------------------------------------------------------------------ presets (turbo_output\tuning_presets)
 struct PresetChange {
@@ -418,13 +629,15 @@ struct PresetChange {
 };
 struct Preset {
     std::string id, name, note, author;  // author "Turbo" = Turbo's own (read-only in the view)
+    bool fc27 = false;                   // "fc27": true = every knob at FC 27's own value first, the changes on top
     std::vector<PresetChange> changes;
     std::filesystem::path file;          // where it was read from
     bool turbo() const { return author == "Turbo"; }
     std::string to_json() const;
     static bool parse(const std::string& text, Preset& out, std::string* err);
 };
-// Turbo's own presets: relative changes from FC 27's values only; Turbo's own design, no mod's value table
+// Turbo's own presets ("FC 27 default", "Turbo compact", "Turbo expansive"): FC 27's values and relative changes from them only;
+// Turbo's own generic numbers, no mod's value table
 const std::vector<Preset>& builtin_presets();
 std::string preset_file_name(const Preset& p);  // "turbo_high_line_press.json" (Turbo's own), "<safe name>.json"
 // Writes Turbo's own presets into dir when a file is missing (an existing file is never overwritten). Returns how many were written
@@ -432,13 +645,15 @@ int ensure_builtin_presets(const std::filesystem::path& dir, std::string* err);
 // Every *.json preset in dir, by name; a file that does not parse is listed in `errors`. Turbo's own come first
 std::vector<Preset> load_presets(const std::filesystem::path& dir, std::vector<std::string>* errors);
 // The values a preset gives: a relative change from the knob's base (base_of: its game default; false = not known), clamped to the
-// knob's range and made representable; an absolute value must pass check_value. Knobs not in the registry, without a base or a range,
-// switches with a relative change: skipped (listed)
+// knob's range and made representable; an absolute value must pass check_value; "fc27": every knob with FC 27's value and a range at
+// that value. Knobs not in the registry, without a base or a range, switches with a relative change, and (usable given) knobs it refuses
+// ("not proven yet"): skipped (listed)
 struct PresetValues {
     std::map<std::string, double> values;
     std::vector<std::string> skipped;
 };
-PresetValues preset_values(const Preset& p, const Registry& reg, const std::function<bool(const std::string&, double&)>& base_of);
+PresetValues preset_values(const Preset& p, const Registry& reg, const std::function<bool(const std::string&, double&)>& base_of,
+                           const std::function<std::string(const Knob&)>& usable = nullptr);
 // A preset from the knobs that differ from their base: a relative change (rounded to 0.1 %) when the base is not 0, else the value
 Preset preset_from_values(const std::string& name, const Registry& reg, const std::map<std::string, double>& values,
                           const std::function<bool(const std::string&, double&)>& base_of);
@@ -449,6 +664,10 @@ struct Context {
     long long load_gen = -1;
     std::string phase;   // Lua's match phase
     bool in_cm = false;
+    long long prematch_t = 0, save_t = 0;  // Lua's os.time() of its last prematch event / save start (0 = none)
+    bool bridge = false;                   // Lua's state of this game session was read
+    long long front_end_t = 0;             // Lua's report of the main menu (os.time(); 0 = none)
+    bool team_mgmt = false;                // Team Management open (Lua)
 };
 
 class Service {
@@ -465,6 +684,9 @@ public:
     virtual std::string session_off() = 0;                   // "" = on
     virtual std::map<std::string, double> defaults() = 0;    // the first snapshot of this game session, by copy_key
     virtual void note_context(const Context& ctx) = 0;       // every frame: the job compares its phase and career load with it
+    virtual LocateStatus locate_status() = 0;                // advances the locate (cheap); the automatic moments wait for ready
+    virtual void set_session_opt_in(bool on) = 0;            // the tab's tick: writes from the view allowed in this game session
+    virtual bool session_opt_in() = 0;
 };
 
 // What the host gives the platform-independent service (src/win/tuning_win.cpp; tests give a simulated table)
@@ -475,9 +697,10 @@ struct Host {
     std::filesystem::path out_dir;               // turbo_output: the switch files are looked at again right before a job is queued
     Lookup lookup;
     std::function<std::string(std::function<void()>)> run_on_game_thread;  // "" = not queued
-    std::function<void(std::function<void()>)> run_background;            // inline-pattern scans (tests: inline)
+    std::function<void(std::function<void()>)> run_background;            // inline-pattern scans, the chain locate (tests: inline)
     std::function<void(const std::string&)> log;
     std::function<double()> clock_us;
+    std::function<long long()> wall_s;           // os time in seconds (Lua's stamps); null = std::time
     std::string off;                             // set: the whole feature is off (e.g. game hooks off for this build)
 };
 
@@ -495,13 +718,25 @@ public:
     std::string session_off() override;
     std::map<std::string, double> defaults() override;
     void note_context(const Context& ctx) override;
+    LocateStatus locate_status() override;
+    void set_session_opt_in(bool on) override;
+    bool session_opt_in() override;
     std::map<std::string, double> last_written();  // tests: what Turbo wrote last, by copy_key
+    AttribDbs databases();                         // what the chain locate's G walk found (tests, the status line)
 
 private:
     void load_locked();       // reads the knobs file (mu_ held)
-    void ensure_anchors();    // resolves every locator's anchor once (inline patterns in the background)
+    void ensure_anchors();    // resolves every locator's anchor once (inline patterns, the attribulator in the background)
+    bool chain_mode_locked(const Registry& reg);  // the registry has an attrib_manager and the signature resolves (mu_ held)
+    // m4: the manager's current database (read now, in the job) must be one of the databases Turbo located; "" = so (or no chain knob)
+    std::string chain_liveness(const Plan& plan, const Registry& reg, const AnchorMap& anchors, const AttribDbs& dbs) const;
+    // the kill switches (and for a moment the profile's switch and the test switch) read again inside the job (m1); "" = none
+    std::string job_switch_block(const Plan& plan, const Registry& reg) const;
+    // runs a background locate job; an exception switches tuning off for the session (logged), never escapes the thread
+    void guard_locate(long long epoch, const Registry& reg, const std::function<void()>& fn);
     void log(const std::string& s);
     double now() const { return h_.clock_us ? h_.clock_us() : 0.0; }
+    long long wall() const;
 
     Host h_;
     std::mutex mu_;
@@ -511,16 +746,27 @@ private:
     std::map<std::string, double> anchor_failed_at_;  // clock_us of a slow anchor's last failed search
     std::map<std::string, int> anchor_failures_;      // failed searches in a row (the retry backs off)
     long long anchors_epoch_ = 0;  // bumps on reload: a scan of an older registry does not fill the new map
+    // the chain locate (WP-A1): 0 = due (at chain_next_), 1 = running in the background, 2 = done for this registry
+    int chain_stage_ = 0;
+    double chain_next_ = 0, chain_started_ = 0;
+    int chain_failures_ = 0;
+    std::string chain_why_, chain_logged_why_, fallback_logged_;
+    AttribDbs dbs_;
+    std::set<std::string> refused_;  // attrib locators refused for this game session (identity mismatch, the cross-check disagreed)
+    std::string locate_failed_;      // a background locate threw: tuning off for the session
+    std::string kill_logged_;        // the kill switch that held the locate back (logged once)
     std::vector<ApplyResult> results_;
     bool busy_ = false;
     double busy_since_ = 0;
     int job_seq_ = 0;
     std::shared_ptr<std::atomic<bool>> cancel_;
     std::string session_off_;
+    bool session_opt_in_ = false;
     std::map<std::string, double> defaults_;
     std::map<std::string, double> last_written_;
     std::string cur_phase_, cur_session_;
-    long long cur_gen_ = -1;
+    long long cur_gen_ = -1, cur_prematch_t_ = 0, cur_save_t_ = 0, cur_front_end_t_ = 0;
+    bool cur_in_cm_ = false, cur_bridge_ = false, cur_team_mgmt_ = false;
 };
 
 }  // namespace tuning

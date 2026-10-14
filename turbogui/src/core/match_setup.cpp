@@ -3,9 +3,6 @@
 
 #include <cstdio>
 #include <cstring>
-#include <deque>
-
-#include "gameplay_sliders.h"
 
 namespace turbo {
 
@@ -319,63 +316,28 @@ bool current(Memory& mem, const Fns& fns, const std::string& name, int32_t& valu
 }
 
 const std::vector<KnownVar>& known_vars() {
-    // read sites: docs/re/match_setup.md section 2 (every one a GetInt call with the name as a literal)
-    static const std::vector<KnownVar> k = [] {
-        std::vector<KnownVar> v = {
-            {"NEVER_INJURE", "Injuries off", "1 = no player gets injured in the played match (the match's injury setup reads it)",
-             "at kick-off", 0, 1, 0, false},
-            {"GAMEPLAY_CUSTOMIZATION/INJURY_FREQUENCY_USER", "Injury frequency (your team)",
-             "0..100, replaces the Gameplay slider (also beyond the menu's range); cleared = the slider again", "at kick-off", 0, 100, -1, false},
-            {"GAMEPLAY_CUSTOMIZATION/INJURY_FREQUENCY_CPUAI", "Injury frequency (CPU team)", "0..100, replaces the slider", "at kick-off", 0, 100, -1,
-             false},
-            {"GAMEPLAY_CUSTOMIZATION/INJURY_SEVERITY_USER", "Injury severity (your team)", "0..100, replaces the slider", "at kick-off", 0, 100, -1,
-             false},
-            {"GAMEPLAY_CUSTOMIZATION/INJURY_SEVERITY_CPUAI", "Injury severity (CPU team)", "0..100, replaces the slider", "at kick-off", 0, 100, -1,
-             false},
-            // weather reads by Live Editor's names (core/field_labels.h "weather": 0 Clear .. 4 Overcast, 5..8 unnamed); time of day has no
-            // names anywhere yet (core/user_text.h time_of_day_text says so; which number is which look is not verified in the game)
-            {"OVERRIDE/WEATHER", "Weather",
-             "the weather of the next matches: 0 Clear, 1 Partly Clear, 2 Rain, 3 Snow, 4 Overcast (5 to 8 have no name yet; -1 = the game decides)",
-             "when a match is set up", -1, 8, -1, false},
-            {"OVERRIDE/TOD", "Time of day",
-             "a time-of-day setting: 0, 1, 3 or 4 (the game ignores other numbers; which is which is not verified yet; -1 = the game decides)",
-             "when a match is set up", -1, 4, -1, false},
-            {"OVERRIDE_MATCH_DIFFICULTY", "Difficulty", "0 Beginner up to 5 Legendary for the next matches (-1 = your setting)",
-             "when a match is set up", -1, 5, -1, false},
-            {"DISABLE_CPU_SUBSTITUTION", "CPU makes no substitutions", "1 = the CPU team's substitution AI stays idle", "during the match", 0, 1, 0,
-             false},
-        };
-        // The per-side gameplay slider family (core/gameplay_sliders.h): 34 sliders x {USER, CPU}, 0..100, off = cleared (-1 is never
-        // sent). Read site: the GameSettings reset 0x1442DC794 with GetInt(name, current slider byte) (research.json "gameplay-sliders").
-        // UNTESTED: whether the value survives to kick-off is what the A/B match decides; nothing here was seen in a played match.
-        static std::deque<std::string> store;  // stable storage for the generated strings (KnownVar holds const char*)
-        auto keep = [](const std::string& s) {
-            store.push_back(s);
-            return store.back().c_str();
-        };
-        for (const gs::Slider& s : gs::family()) {
-            for (gs::Side side : {gs::Side::User, gs::Side::Cpu}) {
-                const std::string name = gs::var_name(s, side);
-                bool already = false;  // INJURY_FREQUENCY_USER / INJURY_SEVERITY_USER are the proven entries above: one entry per name
-                for (const KnownVar& e : v)
-                    if (name == e.name) already = true;
-                if (already) continue;
-                KnownVar kv{};
-                kv.name = keep(name);
-                kv.label = keep(std::string(s.label) + " (" + gs::side_label(side) + ")");
-                kv.what = keep(std::string("0..100, replaces the ") + gs::side_label(side) + " slider byte in the settings block when the game's "
-                                                                                              "settings reset runs; " +
-                               s.what + " UNTESTED: no played match has shown an effect yet.");
-                kv.when = "at the settings reset (untested whether it survives to kick-off)";
-                kv.min = gs::kMin;
-                kv.max = gs::kMax;
-                kv.off = gs::kOff;
-                kv.untested = true;
-                v.push_back(kv);
-            }
-        }
-        return v;
-    }();
+    // read sites: docs/re/match_setup.md section 2 (every one a GetInt call with the name as a literal). 2.4: the per-side
+    // GAMEPLAY_CUSTOMIZATION slider family (tactics channel A) is gone: stored and read back, ignored by the match
+    // (turbo_output\TACTICS_CHANNEL_A_REPORT.txt VERDICT, 2026-10-11), so set_var refuses those names as unknown.
+    static const std::vector<KnownVar> k = {
+        {"NEVER_INJURE", "Injuries off", "1 = no player gets injured in the played match (the match's injury setup reads it)", "at kick-off", 0, 1, 0},
+        {"GAMEPLAY_CUSTOMIZATION/INJURY_FREQUENCY_USER", "Injury frequency (your team)",
+         "0..100, replaces the Gameplay slider (also beyond the menu's range); cleared = the slider again", "at kick-off", 0, 100, -1},
+        {"GAMEPLAY_CUSTOMIZATION/INJURY_FREQUENCY_CPUAI", "Injury frequency (CPU team)", "0..100, replaces the slider", "at kick-off", 0, 100, -1},
+        {"GAMEPLAY_CUSTOMIZATION/INJURY_SEVERITY_USER", "Injury severity (your team)", "0..100, replaces the slider", "at kick-off", 0, 100, -1},
+        {"GAMEPLAY_CUSTOMIZATION/INJURY_SEVERITY_CPUAI", "Injury severity (CPU team)", "0..100, replaces the slider", "at kick-off", 0, 100, -1},
+        // weather reads by Live Editor's names (core/field_labels.h "weather": 0 Clear .. 4 Overcast, 5..8 unnamed); time of day has no
+        // names anywhere yet (core/user_text.h time_of_day_text says so; which number is which look is not verified in the game)
+        {"OVERRIDE/WEATHER", "Weather",
+         "the weather of the next matches: 0 Clear, 1 Partly Clear, 2 Rain, 3 Snow, 4 Overcast (5 to 8 have no name yet; -1 = the game decides)",
+         "when a match is set up", -1, 8, -1},
+        {"OVERRIDE/TOD", "Time of day",
+         "a time-of-day setting: 0, 1, 3 or 4 (the game ignores other numbers; which is which is not verified yet; -1 = the game decides)",
+         "when a match is set up", -1, 4, -1},
+        {"OVERRIDE_MATCH_DIFFICULTY", "Difficulty", "0 Beginner up to 5 Legendary for the next matches (-1 = your setting)", "when a match is set up",
+         -1, 5, -1},
+        {"DISABLE_CPU_SUBSTITUTION", "CPU makes no substitutions", "1 = the CPU team's substitution AI stays idle", "during the match", 0, 1, 0},
+    };
     return k;
 }
 
@@ -385,11 +347,11 @@ const KnownVar* known(const std::string& name) {
     return nullptr;
 }
 
-std::vector<const KnownVar*> known_proven() {
-    std::vector<const KnownVar*> out;
-    for (const KnownVar& v : known_vars())
-        if (!v.untested) out.push_back(&v);
-    return out;
+std::string settable(const std::string& name) {
+    std::string why = check_name(name);
+    if (!why.empty()) return why;
+    if (!known(name)) return name + " is not a game variable Turbo offers";
+    return "";
 }
 
 }  // namespace gv

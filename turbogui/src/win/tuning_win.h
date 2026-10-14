@@ -10,10 +10,12 @@
 
 namespace host {
 
-// After install_game_hooks(): reads the knobs file of the running build and logs what it found (nothing is written at start-up)
+// After install_game_hooks(): reads the knobs file of the running build and logs what it found. Nothing is written by the install; the
+// tuning profile (turbo_output\tuning_profile.json, opt-in) is applied by the view's tick at the boot / career_load / hub moments
 void install_tuning();
 std::shared_ptr<turbo::tuning::Service> tuning_service();
-// Status tab lines ("gameplay tuning: off until turbo_output\tuning_on.txt exists | 21 knobs, 21 not confirmed in the running game ...")
+// Status tab lines ("gameplay tuning: on | profile on | 23 knobs, 13 not confirmed in the running game ... | 2 of 2 locators resolved (2
+// through the attribute manager)", then the attribute manager's summary once the chain locate ran)
 std::vector<std::string> tuning_status();
 
 }  // namespace host

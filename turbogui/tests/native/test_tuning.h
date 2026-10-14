@@ -451,11 +451,14 @@ static GateInput hub_input() {
     return in;
 }
 
+#include "test_tuning_chain.h"  // 2.4: the chain from the attribute manager, the profile, the moments (chain_cases)
+
 // --------------------------------------------------------------------------------------------------------------------------- core
 static void run() {
     std::printf("native gameplay tuning (engine tuning tables)\n");
+    chain_cases();
 
-    run_case("tuning: the shipped knobs file - catalogue entries, all unverified, never located, every group, Turbo's presets name its knobs", [] {
+    run_case("tuning: the shipped knobs file v4 - the attribute manager, chain slots per group, two groups verified, the moments, no slider without a proof", [] {
         const fs::path p = fs::path("..") / "turbo" / "package" / "turbo" / "tuning" / "knobs_6AC07E31.json";
         std::ifstream f(p, std::ios::binary);
         std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
@@ -463,38 +466,71 @@ static void run() {
         Registry reg;
         std::string err;
         CHECK(parse_registry(text, reg, err), "it parses: " + err);
-        CHECK(reg.build == kBuildKey && reg.knobs.size() >= 20, fmt("build %s, %zu knobs", reg.build.c_str(), reg.knobs.size()));
-        // VERIFIED only what the live run proved (turbo_output\ATTRIBULATOR_LIVE.json): the attacking line group and the depth bands, each
-        // through its database chain with the TypeInfo at +8, the vtable RVA and the asset GUID
+        CHECK(reg.build == kBuildKey && reg.version == 4 && reg.knobs.size() == 23 && reg.locators.size() == 8,
+              fmt("build %s, v%d, %zu knobs, %zu locators", reg.build.c_str(), reg.version, reg.knobs.size(), reg.locators.size()));
+        // the attribute manager: the signature, the current database chain, the prematch handle [A], the 15 + 1 databases' names
+        const AttribManager& m = reg.manager;
+        CHECK(m.present && m.signature == "attrib_db_getter" && m.current == std::vector<int64_t>({0, 8}) && m.prematch_slot == 8 && m.handle_db == 8 &&
+                  m.mgr_size == 0x240 && m.gameplay_db_type == "AttribDBRuntime_gameplayattribdb" && m.gameplay_db_signature == 0xA5106425 &&
+                  m.prematch_db_type == "AttribDBRuntime_prematchattribdb" && m.prematch_db_signature == 0xB8B9B8BB && m.gameplay_dbs.size() == 15 &&
+                  m.prematch_dbs == std::vector<std::string>({"Fifa/Attribulator/PreMatch/prematchattribdb"}) &&
+                  m.gameplay_dbs[0] == "Fifa/Attribulator/Gameplay/gameplayattribdb",
+              "attrib_manager");
+        const SignatureTable* sig = builtin_signature_table(kBuildKey);
+        CHECK(sig && sig->find(m.signature), "its signature is in the built-in table");
+        // every locator through the databases: FC 27's type data (T5 layout_T5.json) for its family and group slots
+        struct Slots {
+            const char* locator;
+            uint64_t family, group;
+            const char* group_type;
+            uint32_t group_sig;
+            bool prematch;
+        };
+        const Slots slots[] = {
+            {"attrib.attackinglinelengthwidth", 0x128, 0x28, "AttribGroupRuntime_gp_positioningformation", 0x7ADE3BD5, false},
+            {"attrib.defensivelinelengthwidth", 0x128, 0x30, "AttribGroupRuntime_gp_positioningformation", 0x7ADE3BD5, false},
+            {"attrib.zonal_defense", 0x38, 0x148, "AttribGroupRuntime_gp_positioning", 0xF3A936E7, false},
+            {"attrib.defense_general", 0x38, 0xA8, "AttribGroupRuntime_gp_positioning", 0xF3A936E7, false},
+            {"attrib.markingtightness", 0x38, 0x68, "AttribGroupRuntime_gp_positioning", 0xF3A936E7, false},
+            {"attrib.attackingaggressiveness", 0x38, 0x30, "AttribGroupRuntime_gp_positioning", 0xF3A936E7, false},
+            {"attrib.teamtacticssettings", 0x40, 0x18, "AttribGroupRuntime_pm_teamtacticssettings", 0xF1168603, true},
+            {"attrib.partialteampress", 0x38, 0x128, "AttribGroupRuntime_gp_positioning", 0xF3A936E7, false},
+        };
+        for (const Slots& s : slots) {
+            const Locator* l = reg.locator(s.locator);
+            CHECK(l && l->chain_capable() && l->family_slot == s.family && l->group_slot == s.group && l->group_type == s.group_type &&
+                      l->group_type_signature == s.group_sig && m.prematch(*l) == s.prematch && l->l3(),
+                  std::string(s.locator) + ": its chain slots, group type, database (and each variant's database for the name search)");
+        }
+        // VERIFIED only what the live run proved (turbo_output\ATTRIBULATOR_LIVE.json): the attacking line group and the depth bands
         const std::set<std::string> proven = {"attrib.attackinglinelengthwidth", "attrib.teamtacticssettings"};
         for (const Locator& l : reg.locators) {
             CHECK(l.verified == (proven.count(l.name) == 1), l.name + ": verified only when the live run proved it");
             if (l.verified)
-                CHECK(l.l3() && l.head == "typeinfo" && l.head_rva && l.family_slot && l.group_slot && !l.group_type.empty() && l.variants.size() == 1 &&
-                          l.variants[0].guid.size() == 16,
-                      l.name + ": the database chain, TypeInfo, vtable and asset GUID");
+                CHECK(l.head == "typeinfo" && l.head_rva && l.variants.size() == 1 && l.variants[0].guid.size() == 16, l.name + ": TypeInfo, vtable and asset GUID");
         }
         for (const Knob& k : reg.knobs) CHECK(k.verified == (proven.count(k.locator) == 1), k.id + ": verified exactly with its locator");
-        CHECK(reg.placeholders() == 11, fmt("%d knobs not confirmed", reg.placeholders()));
-        std::vector<uint8_t> gb;
-        CHECK(guid_bytes("1852d61d-8c0d-edf7-37a7-258314497a5c", gb) &&
-                  gb == std::vector<uint8_t>({0x1d, 0xd6, 0x52, 0x18, 0x0d, 0x8c, 0xf7, 0xed, 0x37, 0xa7, 0x25, 0x83, 0x14, 0x49, 0x7a, 0x5c}) &&
-                  guid_text(gb) == "1852d61d-8c0d-edf7-37a7-258314497a5c" && !guid_bytes("1852d61d-8c0d", gb),
-              "the asset GUID as the bytes before the instance (the live run's attacking line group)");
-        // the catalogue knobs: group / field / type / offset from FC 27's type data, FC 27's own value inside Turbo's range, an attrib locator
-        int catalogue = 0;
+        CHECK(reg.placeholders() == 13, fmt("%d knobs not confirmed", reg.placeholders()));
+        // the moments, no live write, the honest UI: a slider only with a proof (a pure data change adds one: "proof" + "slider")
         for (const Knob& k : reg.knobs) {
-            if (k.field.empty()) continue;
-            ++catalogue;
+            CHECK(k.when == std::vector<std::string>({"boot", "career_load", "hub"}) && !k.live, k.id + ": the three moments, not live (gate X1 decides)");
+            CHECK(!k.slider || k.proven(), k.id + ": no slider without a proof");
+            CHECK(!k.proven() || (k.verified && k.proof.evidence.rfind("EV/", 0) == 0), k.id + ": a proof names its evidence and needs a verified knob");
+        }
+        // the catalogue knobs: group / field / type / offset from FC 27's type data, FC 27's own value inside Turbo's range
+        for (const Knob& k : reg.knobs) {
             const Locator* l = reg.locator(k.locator);
             CHECK(l && l->kind == "attrib" && !l->type.empty() && l->type_signature && l->type_size && l->type_fields > 0 && !l->variants.empty(),
                   k.id + ": an attrib locator with its type check");
-            CHECK(!k.collection.empty() && k.offset >= 0 && l && uint64_t(k.offset) + type_size(k.type) <= l->type_size, k.id + ": group, offset inside the type");
+            CHECK(!k.collection.empty() && !k.field.empty() && k.offset >= 0 && l && uint64_t(k.offset) + type_size(k.type) <= l->type_size,
+                  k.id + ": group, field, offset inside the type");
             CHECK(k.has_range() && k.has_default && check_value(k, k.def).empty(), k.id + ": FC 27's value inside Turbo's range");
             CHECK(k.label.find('_') == std::string::npos && k.label.find(k.field) == std::string::npos, k.id + ": a plain label, not the field name");
+            CHECK(std::find(standard_groups().begin(), standard_groups().end(), k.group) != standard_groups().end() &&
+                      (k.verified || k.notes.find("Not yet confirmed in the running game") != std::string::npos),
+                  k.id + ": a standard group, an unconfirmed knob says so");
         }
-        CHECK(catalogue >= 20 && catalogue == int(reg.knobs.size()), fmt("%d catalogue knobs, no field-less placeholder", catalogue));
-        // FC 27's own values and type data only (TACTICS_MOD_CATALOGUE sections 4 and 6): group, field, type, offset, value; nothing else
+        // FC 27's own values and type data only (TACTICS_MOD_CATALOGUE sections 4 and 6; T5 for the partial press): nothing else
         struct Fc27 {
             const char* id;
             const char* collection;
@@ -525,48 +561,40 @@ static void run() {
             {"pressing.no_double_marking_own_half", "gp_positioning_defense_general", "teamPressDisableDoubleManMarkingInDefenderHalf", ValueType::Bool, 0xb8, 1},
             {"marking.tightness", "gp_positioning_markingtightness", "markingTightnessUniversalModifier", ValueType::F32, 0x28, 0.5},
             {"runs.frequency", "gp_positioning_attackingaggressiveness", "runFrequencyUniversialModifier", ValueType::F32, 0x28, 0.5},
+            {"pressing.partial_highworkratetime", "gp_positioning_partialteampress", "partialTeamPressHighWorkRateTime", ValueType::F32, 0x84, 6.0},
+            {"pressing.partial_cooldownmultiplier", "gp_positioning_partialteampress", "partialTeamPressCooldownMultiplier", ValueType::F32, 0x74, 1.0},
         };
         CHECK(reg.knobs.size() == sizeof(fc27) / sizeof(fc27[0]), fmt("%zu knobs, each in the FC 27 table of this test", reg.knobs.size()));
-        for (const Fc27& f : fc27) {
-            const Knob* k = reg.knob(f.id);
-            CHECK(k && k->collection == f.collection && k->field == f.field && k->type == f.type && k->offset == f.offset && k->def == f.value &&
-                      k->when == std::vector<std::string>({"hub"}),
-                  std::string(f.id) + ": FC 27's group, field, type, offset and own value; the hub only");
+        for (const Fc27& x : fc27) {
+            const Knob* k = reg.knob(x.id);
+            CHECK(k && k->collection == x.collection && k->field == x.field && k->type == x.type && k->offset == x.offset && k->def == x.value,
+                  std::string(x.id) + ": FC 27's group, field, type, offset and own value");
         }
         // the one copy whose FC 27 value differs: the Authentic (simulation) database has the double-marking switch off
         const Knob* dm = reg.knob("pressing.no_double_marking_own_half");
         double sim = -1, base = -1;
         CHECK(dm && dm->game_value("simulation", sim) && sim == 0 && dm->game_value("base", base) && base == 1 && dm->copy_defaults.size() == 1,
               "copy_defaults: base on, simulation off");
-        const Knob* gap = reg.knob("shape.gap_dmf");
-        CHECK(gap && gap->unit == "m" && gap->min == 4 && gap->max == 24, "the defence - midfield gap in metres, generic bounds");
-        const Locator* zd = gap ? reg.locator(gap->locator) : nullptr;
-        CHECK(zd && zd->type == "AttribSchema_gp_positioning_zonal_defense" && zd->type_signature == 0x3edbaf9a && zd->type_size == 0x6c8 &&
-                  zd->type_fields == 237 && zd->variants.size() == 2 && zd->variants[1].name == "simulation" &&
-                  zd->variants[1].instance.find("/databases/simulation/") != std::string::npos && !zd->verified,
-              "zonal_defense: base and simulation (Authentic) copies, unverified");
-        const Locator* lw = reg.locator("attrib.attackinglinelengthwidth");
-        CHECK(lw && lw->variants.size() == 1 && lw->type_signature == 0x1f261d29 && lw->type_size == 0x58 && lw->type_fields == 12, "linelengthwidth: base only");
+        const Locator* zd = reg.locator("attrib.zonal_defense");
+        CHECK(zd && zd->variants.size() == 2 && zd->variants[1].name == "simulation" && zd->variants[1].db == "Fifa/Attribulator/Gameplay/databases/simulation/simulation" &&
+                  zd->variants[1].instance.find("/databases/simulation/") != std::string::npos,
+              "zonal_defense: base and simulation (Authentic) copies, each with its database");
         const Knob* band = reg.knob("lineband.deep_max");
         CHECK(band && band->below == std::vector<std::string>({"lineband.balanced_min"}) && band->applies == Applies::NextMatchSetup &&
                   band->group == "Defensive line depth bands",
               "the line height bands: kept below the next band, read at match setup");
-        for (const Knob& k : reg.knobs)
-            CHECK(std::find(standard_groups().begin(), standard_groups().end(), k.group) != standard_groups().end() &&
-                      (k.verified || k.notes.find("Not yet confirmed in the running game") != std::string::npos),
-                  k.id + ": a standard group, an unconfirmed knob says so");
         for (const char* g : {"Shape with the ball", "Shape without the ball", "Defensive line depth bands", "Pressing", "Marking", "Attacking runs"}) {
             bool has = false;
             for (const Knob& k : reg.knobs) has = has || k.group == g;
             CHECK(has, std::string("group ") + g + " has knobs");
         }
-        for (const Preset& pr : builtin_presets()) {
-            CHECK(pr.turbo() && !pr.changes.empty(), pr.name + " is Turbo's own");
-            for (const PresetChange& c : pr.changes) {
-                CHECK(reg.knob(c.knob) != nullptr, pr.name + " names knob " + c.knob);
-                CHECK(c.relative, pr.name + ": " + c.knob + " is a relative change (no real value is known)");
-            }
-        }
+        for (const Preset& pr : builtin_presets())
+            for (const PresetChange& c : pr.changes) CHECK(reg.knob(c.knob) != nullptr && c.relative, pr.name + " names knob " + c.knob + " (a relative change)");
+        std::vector<uint8_t> gb;
+        CHECK(guid_bytes("1852d61d-8c0d-edf7-37a7-258314497a5c", gb) &&
+                  gb == std::vector<uint8_t>({0x1d, 0xd6, 0x52, 0x18, 0x0d, 0x8c, 0xf7, 0xed, 0x37, 0xa7, 0x25, 0x83, 0x14, 0x49, 0x7a, 0x5c}) &&
+                  guid_text(gb) == "1852d61d-8c0d-edf7-37a7-258314497a5c" && !guid_bytes("1852d61d-8c0d", gb),
+              "the asset GUID as the bytes before the instance (the live run's attacking line group)");
         TuneWorld w;
         const Lookup lk = lookup_of(w);
         const AnchorMap am = anchors_of(w.mem, reg, lk);
@@ -575,9 +603,10 @@ static void run() {
             const std::string why = locate_knob(w.mem, reg, k, am, lk, at);
             CHECK(why.find(k.verified ? "not located on this build (" : "not located on this build (unverified: ") == 0, k.id + ": " + why);
         }
-        // the round trip through registry_json parses back to the same knobs
+        // the round trip through registry_json parses back to the same knobs and manager
         Registry again;
-        CHECK(parse_registry(registry_json(reg), again, err) && again.knobs.size() == reg.knobs.size(), "registry_json round trip: " + err);
+        CHECK(parse_registry(registry_json(reg), again, err) && again.knobs.size() == reg.knobs.size() && again.manager.gameplay_dbs == m.gameplay_dbs,
+              "registry_json round trip: " + err);
         CHECK(knobs_file_names(kBuildKey) == std::vector<std::string>({"knobs_6AC07E31-2145C000.json", "knobs_6AC07E31.json"}), "file names");
     });
 
@@ -605,7 +634,9 @@ static void run() {
         refused(knob(R"({"id": "a", "label": "A", "group": "Shape", "type": "f32", "min": 0})"), "both min and max");
         refused(knob(R"({"id": "a", "label": "A", "group": "Shape", "type": "u8", "min": 0, "max": 300})"), "u8 range");
         refused(knob(R"({"id": "a", "label": "A", "group": "Shape", "type": "f32", "min": 0, "max": 1, "default": 2})"), "default outside");
-        refused(knob(R"({"id": "a", "label": "A", "group": "Shape", "type": "f32", "when": ["kickoff"]})"), "unknown phase");
+        refused(knob(R"({"id": "a", "label": "A", "group": "Shape", "type": "f32", "when": ["kickoff"]})"), "unknown moment or phase");
+        refused(knob(R"({"id": "a", "label": "A", "group": "Shape", "type": "f32", "live": "yes"})"), "live must be");
+        refused(knob(R"({"id": "a", "label": "A", "group": "Shape", "type": "f32", "proof": {"session": "P1"}})"), "proof must be");
         refused(knob(R"({"id": "a", "label": "A", "group": "Shape", "type": "f32", "applies": "sometimes"})"), "applies must be");
         refused(knob(R"({"id": "a", "label": "A", "group": "Shape", "type": "f32", "locator": "nope"})"), "not in the file's locators");
         refused(knob(R"({"id": "a", "label": "A", "group": "Shape", "type": "f32", "locator": "c", "min": 0, "max": 1, "collection": "x", "field": "y", "verified": true})"),
@@ -1271,7 +1302,7 @@ static void run() {
         };
         auto live = read();
         CHECK(live["shape.speed"].located && live["shape.speed"].copies.size() == 2 && searches == 2, fmt("located, one image + one heap search (%d)", searches));
-        CHECK(has_text(logs, "locator attrib.test found: type AttribSchema_test_group, base 0x24000000, simulation 0x24001000"), "logged");
+        CHECK(has_text(logs, "gameplay tuning: locator attrib.test found: type AttribSchema_test_group, base 0x24000000, simulation 0x24001000"), "logged (the 2.3 line)");
         Context c;
         c.session = "s";
         c.load_gen = 1;
@@ -1373,7 +1404,9 @@ static void run() {
         GateInput in = hub_input();
         CHECK(evaluate(in).pass(), "all pass");
         in.sw.opt_in = false;
-        CHECK(evaluate(in).first() == "G1 switches: off until turbo_output\\tuning_on.txt exists (opt-in)", evaluate(in).first());
+        CHECK(evaluate(in).first() ==
+                  "G1 switches: off: tick \"write in this game session\", switch the tuning profile on, or create turbo_output\\tuning_on.txt (opt-in)",
+              evaluate(in).first());
         in.sw.opt_in = true;
         in.sw.off = true;
         CHECK(evaluate(in).first() == "G1 switches: kill switch turbo_output\\tuning_off.txt is present", evaluate(in).first());
@@ -1426,7 +1459,9 @@ static void run() {
         fs::remove_all(dir, ec);
         TuneRig rig(w, dir);
         CHECK(rig.svc->registry_status().empty() && rig.svc->registry()->knobs.size() == 9, "loaded: " + rig.svc->registry_status());
-        CHECK(rig.logged("gameplay tuning: knobs file") && rig.logged("9 knobs (8 verified in the running game, 1 not, never written)") && rig.logged("call_attrib_off.txt"), "logged");
+        CHECK(rig.logged("gameplay tuning: knobs file") && rig.logged("9 knobs (8 verified in the running game, 1 not, never written; 0 proven in a played match)") &&
+                  rig.logged("call_attrib_off.txt") && rig.logged("tuning_profile_off.txt"),
+              "logged");
         auto live = rig.live();
         CHECK(live["pressing.intensity"].located && live["shooting.error"].located && live["cpuai.pass_risk"].located && !live["gk.reaction"].located,
               "read: located / not located");
@@ -1439,8 +1474,19 @@ static void run() {
         CHECK(rig.svc->submit(rig.ctx(), p, why), "queued: " + why);
         rig.jobs.pump();
         ApplyResult r;
-        CHECK(rig.svc->poll(r) && !r.ok && r.stage == "G1" && r.message.find("no tuning_on.txt") != std::string::npos && w.f32(TuneWorld::kBase) == 0.5f,
+        CHECK(rig.svc->poll(r) && !r.ok && r.stage == "G1" && r.message.find("no opt-in (the session tick, the tuning profile or turbo_output\\tuning_on.txt)") == 0 &&
+                  w.f32(TuneWorld::kBase) == 0.5f,
               "no opt-in: " + r.message);
+        // the tab's session tick is an opt-in, the profile on is one too
+        rig.svc->set_session_opt_in(true);
+        CHECK(rig.svc->session_opt_in() && rig.svc->submit(rig.ctx(), p, why), "queued with the session tick");
+        rig.svc->set_session_opt_in(false);
+        rig.jobs.pump();
+        CHECK(rig.svc->poll(r) && r.stage != "G1", "the session tick passes G1: " + r.stage + " " + r.message);
+        rig.jobs.q.clear();
+        // (that job wrote: FC 27's values back into the table for the cases below)
+        w.mem.wr(TuneWorld::kBase, 0.5f);
+        w.mem.wr(TuneWorld::kBase + 4, int32_t(45));
         rig.touch(opt_in_file());
         rig.touch(kill_switch_file());
         CHECK(rig.svc->submit(rig.ctx(), p, why), "queued");
@@ -1647,19 +1693,20 @@ static void run() {
         std::error_code ec;
         fs::remove_all(dir, ec);
         std::string err;
-        CHECK(ensure_builtin_presets(dir, &err) == 2, "Turbo's two presets written: " + err);
-        CHECK(fs::exists(dir / "turbo_high_line_press.json") && fs::exists(dir / "turbo_deep_block.json"), "files");
+        CHECK(ensure_builtin_presets(dir, &err) == 3, "Turbo's three presets written: " + err);
+        CHECK(fs::exists(dir / "turbo_fc27_default.json") && fs::exists(dir / "turbo_compact.json") && fs::exists(dir / "turbo_expansive.json"), "files");
         CHECK(ensure_builtin_presets(dir, &err) == 0, "an unchanged file is not written again");
         // a stale Turbo file is replaced; a user's file of the same name is never touched
-        std::ofstream(dir / "turbo_deep_block.json", std::ios::binary | std::ios::trunc)
-            << R"({"turbo_tuning_preset": 1, "id": "turbo_deep_block", "name": "Deep compact block", "author": "Turbo", "changes": []})";
-        std::ofstream(dir / "turbo_high_line_press.json", std::ios::binary | std::ios::trunc)
+        std::ofstream(dir / "turbo_compact.json", std::ios::binary | std::ios::trunc)
+            << R"({"turbo_tuning_preset": 1, "id": "turbo_compact", "name": "Turbo compact", "author": "Turbo", "changes": []})";
+        std::ofstream(dir / "turbo_expansive.json", std::ios::binary | std::ios::trunc)
             << R"({"turbo_tuning_preset": 1, "name": "My own", "author": "me", "changes": [{"knob": "pressing.intensity", "value": 0.7}]})";
         CHECK(ensure_builtin_presets(dir, &err) == 1, "only the stale Turbo file is rewritten");
         std::ofstream(dir / "broken.json", std::ios::binary | std::ios::trunc) << "{";
         std::vector<std::string> errors;
         const std::vector<Preset> list = load_presets(dir, &errors);
-        CHECK(list.size() == 2 && list[0].turbo() && list[0].name == "Deep compact block" && list[1].name == "My own" && !list[1].turbo(),
+        CHECK(list.size() == 3 && list[0].turbo() && list[0].name == "FC 27 default" && list[1].name == "Turbo compact" && !list[1].changes.empty() &&
+                  list[2].name == "My own" && !list[2].turbo(),
               fmt("listed %zu, Turbo's first; the user's file with a Turbo name kept", list.size()));
         CHECK(errors.size() == 1 && errors[0].find("broken.json") == 0, "a broken file is reported");
         // values: relative from each knob's base (the game default), clamped, representable; switches and placeholders skipped
@@ -1693,7 +1740,7 @@ static void run() {
         CHECK(q.changes.size() == 3 && q.changes[0].knob == "pressing.intensity" && q.changes[0].relative && q.changes[0].pct == 20 && !q.changes[1].relative &&
                   q.changes[1].knob == "runs.in_behind" && !q.changes[2].relative && q.changes[2].value == 0.2,
               "from values");
-        CHECK(preset_file_name(q) == "My_press.json" && preset_file_name(builtin_presets()[0]) == "turbo_high_line_press.json", "file names");
+        CHECK(preset_file_name(q) == "My_press.json" && preset_file_name(builtin_presets()[0]) == "turbo_fc27_default.json", "file names");
         Preset back;
         CHECK(Preset::parse(q.to_json(), back, &err) && back.changes.size() == 3 && back.name == "My press" && back.id == "user_My_press", "round trip: " + err);
         CHECK(!Preset::parse(R"({"turbo_tuning_preset": 1, "name": "x", "changes": [{"knob": "a", "relative_pct": 5, "value": 1}]})", back, &err) &&
@@ -1703,35 +1750,6 @@ static void run() {
                   err.find("-100..1000") != std::string::npos,
               "a -500 % change: " + err);
         CHECK(!Preset::parse(R"({"turbo_tuning_preset": 1, "changes": []})", back, &err) && err == "the preset has no name", err);
-    });
-
-    run_case("tuning: kept values - the keep file, the re-apply plan of a career load skips what is not located or out of range", [] {
-        TuneWorld w;
-        const Registry reg = test_registry();
-        const Lookup lk = lookup_of(w);
-        const AnchorMap am = anchors_of(w.mem, reg, lk);
-        const auto live = live_of(w.mem, reg, am, lk);
-        KeepStore k;
-        k.on = true;
-        k.build = kBuildKey;
-        k.values = {{"pressing.intensity", 0.8}, {"shape.line_height", 45}, {"gk.reaction", 1}, {"marking.tightness", 300}, {"gone", 1}};
-        KeepStore back;
-        std::string err;
-        CHECK(KeepStore::parse(k.to_json(), back, &err) && back.on && back.values.size() == 5, "JSON round trip: " + err);
-        Plan p;
-        std::vector<std::string> skipped;
-        CHECK(make_keep_plan(reg, live, k, p, skipped).empty() && p.kind == PlanKind::Reapply && p.writes.size() == 1 && p.writes[0].id == "pressing.intensity",
-              "only the located, changed, in-range value");
-        CHECK(skipped.size() == 3 && has_text(skipped, "gone is not in the knobs file") && has_text(skipped, "300 is outside") && has_text(skipped, "Goalkeeper"),
-              "skipped: " + std::to_string(skipped.size()));
-        k.on = false;
-        CHECK(make_keep_plan(reg, live, k, p, skipped) == "keeping is off", "off");
-        k.on = true;
-        k.build = "6AB9813C-211EF000";
-        CHECK(make_keep_plan(reg, live, k, p, skipped).find("are for game build 6AB9813C") != std::string::npos, "another build's values");
-        const fs::path f = g_out / "tuning_test" / "keep" / keep_file();
-        CHECK(save_keep(f, k, &err) && load_keep(f, back, &err) && back.build == "6AB9813C-211EF000", "file: " + err);
-        CHECK(!load_keep(g_out / "tuning_test" / "keep" / "none.json", back, &err), "absent");
     });
 }
 
@@ -1752,12 +1770,66 @@ static void tuning_top(Ui& ui) {
     ui.frames(2);
 }
 
+// The simulated table with three knobs proven in a played match (sliders) and written at the profile's three moments; the others located
+// (read-only) and one not located (not yet working)
+static std::string ui_knobs() {
+    std::string t = kTestKnobs;
+    auto proven = [&](const std::string& id, const std::string& session) {
+        const std::string at = "{\"id\": \"" + id + "\"";
+        const size_t a = t.find(at);
+        const size_t e = t.find("\"verified\": true}", a);
+        t.insert(e, "\"when\": [\"boot\", \"career_load\", \"hub\"], \"proof\": {\"session\": \"" + session + "\", \"evidence\": \"EV/2026-10-14/TEST_25.md#" + id +
+                        "\"}, \"slider\": true, ");
+    };
+    proven("pressing.intensity", "P1");
+    proven("shape.line_height", "P1");
+    proven("marking.tightness", "P2");
+    return t;
+}
+
 static void ui_cases(App& app, Ui& ui, const fs::path& le) {
-    run_case("UI: Competitions > Gameplay tuning - rows and badges, opt-in, Apply in one job + Undo, Restore game defaults, presets, kill switch, kept values", [&] {
+    run_case("UI: gameplay tuning 2.4 (M3) - no profile and the tab never opened: no locate at all; the profile on: located", [&] {
         tuning_reset();
         const fs::path out = le / "turbo_output";
         std::error_code ec;
-        for (const char* f : {opt_in_file(), kill_switch_file(), master_switch_file(), undo_file(), keep_file()}) fs::remove(out / f, ec);
+        for (const char* f : {profile_file(), kill_switch_file(), master_switch_file(), attrib_switch_file(), profile_off_file()}) fs::remove(out / f, ec);
+        ChainWorld w;
+        int passes = 0;
+        Lookup lk = w.lookup();
+        auto inner = lk.heap_qwords;
+        lk.heap_qwords = [&passes, inner](uint64_t v, size_t m) {
+            ++passes;
+            return inner(v, m);
+        };
+        ChainRig r(w, g_out / "tuning_ui_m3", chain_knobs(), lk);
+        r.jobs.inline_run = true;
+        app.tuning = r.svc;
+        ui.frames(200);
+        CHECK(!tuning_view_state().drawn && passes == 0 && !r.logged("tuning: chain locate") && !r.logged("tuning: attribute manager"),
+              fmt("no locate without an opt-in (%d heap passes)", passes));
+        tuning::Profile p;
+        p.on = true;
+        std::string err;
+        save_profile(out / profile_file(), p, &err);
+        ui.frames(200);
+        CHECK(passes == 1 && r.logged("tuning: chain locate ok 3 groups"), fmt("the profile on: located (%d heap passes)", passes));
+        // a kill switch: the view stops asking (no new locate either way)
+        std::ofstream(out / kill_switch_file()) << "x";
+        ui.frames(200);
+        CHECK(passes == 1, "a kill switch: nothing more");
+        for (const char* f : {profile_file(), kill_switch_file()}) fs::remove(out / f, ec);
+        app.tuning = nullptr;
+        tuning_reset();
+    });
+
+    run_case("UI: Competitions > Gameplay tuning 2.4 - proven sliders / located rows / not working, the session tick, Apply into the profile, the "
+             "profile's moments (career_load, hub, boot, the prematch window), Restore FC 27 defaults",
+             [&] {
+        tuning_reset();
+        const fs::path out = le / "turbo_output";
+        std::error_code ec;
+        for (const char* f : {opt_in_file(), kill_switch_file(), master_switch_file(), undo_file(), keep_file(), profile_file(), profile_off_file()})
+            fs::remove(out / f, ec);
         fs::remove_all(out / presets_dir(), ec);
         // a preset of the user's for the simulated knobs (Turbo's own name the shipped knobs, which this simulated table does not have)
         fs::create_directories(out / presets_dir(), ec);
@@ -1765,9 +1837,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             << R"({"turbo_tuning_preset": 1, "name": "Test press", "author": "me", "changes": [{"knob": "pressing.intensity", "relative_pct": 20},
                  {"knob": "shape.line_height", "relative_pct": 15}, {"knob": "marking.tightness", "relative_pct": 10}, {"knob": "gk.reaction", "relative_pct": 5}]})";
         TuneWorld w;
-        TuneRig rig(w, g_out / "tuning_ui");
+        TuneRig rig(w, g_out / "tuning_ui", ui_knobs());
         rig.out = out;  // the switch files the job re-reads are the window's
-        // the service looks at the window's turbo_output (a new rig with that folder)
         {
             Host h;
             h.mem = &w.mem;
@@ -1783,6 +1854,9 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         }
         rig.jobs.inline_run = true;
         app.tuning = rig.svc;
+        // the moments' wall clock, driven by hand: the GUI clock (App::now) runs ~3x wall time in game, the prematch window must not use it
+        double wall = 1000.0;
+        tuning_set_wall_clock([&wall]() { return wall; });
         // Lua's state: in the hub
         const fs::path state_file = out / "bridge_state.json";
         json st = read_json(state_file);
@@ -1798,6 +1872,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             ui.frames(3);
         };
         st["match_phase"] = "hub";
+        st["in_cm"] = true;
+        st.erase("prematch_t");
         st["seq"] = st.value("seq", 0LL) + 1;
         write_state();
         const long long gen = app.bridge.state().load_gen;
@@ -1805,37 +1881,39 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         app.request_tab = 3;
         ui.frames(3);
         CHECK(ui.click("Gameplay tuning"), "the Gameplay tuning view");
-        ui.frames(3);
+        ui.frames(70);
         const TuningViewState& s = tuning_view_state();
         CHECK(s.drawn && s.registry_line.find("knobs_6AC07E31.json: 9 knobs (1 not confirmed) for game build 6AC07E31-2145C000") != std::string::npos &&
                   s.session_note,
               s.registry_line);
-        CHECK(s.groups.size() == 8 && s.groups[0] == "Shape" && s.groups[1] == "Pressing", "the groups in the standard order");
+        CHECK(s.locate_line == "3 locator(s) resolved", "located: " + s.locate_line);
+        // the three states: proven (sliders), located (read-only), not working (hidden, listed)
+        CHECK(s.proven == 3 && s.located == 5 && s.unlocated == 1 && s.not_working == std::vector<std::string>({"Goalkeeper reaction time"}),
+              fmt("%d proven, %d located, %d not working", s.proven, s.located, s.unlocated));
         auto row = [&](const std::string& id) -> const TuningViewState::Row* {
             for (const auto& r : s.rows)
                 if (r.id == id) return &r;
             return nullptr;
         };
         const TuningViewState::Row* rp = row("pressing.intensity");
-        CHECK(rp && rp->located == "located" && rp->applies == "meant for next match, not measured" && rp->game == "0.50" && rp->def == "0.50" && rp->editable &&
-                  !rp->can_reset,
-              "a located row: FC 27's value and the value now; nothing to reset");
+        CHECK(rp && rp->state == "proven" && rp->applies == "proven in P1" && rp->game == "0.50" && rp->def == "0.50" && rp->editable && !rp->can_reset,
+              "a proven row: a slider, FC 27's value and the value now");
         const TuningViewState::Row* rg = row("passing.error_ground");
-        CHECK(rg && rg->applies == "meant live, not measured", "a live knob");
-        const TuningViewState::Row* rk = row("gk.reaction");
-        CHECK(rk && rk->located == "not located" && !rk->editable && rk->why.find("not located on this build (placeholder") == 0, "a placeholder row");
-        CHECK(!s.measure_enabled && s.measure_label.find("coming") != std::string::npos, "Measure: coming (disabled)");
-        CHECK(s.presets.size() == 3 && s.presets[0].find("(Turbo)") != std::string::npos && s.presets[2] == "Test press" &&
-                  fs::exists(out / presets_dir() / "turbo_deep_block.json"),
+        CHECK(rg && rg->state == "located" && rg->applies == "located, effect not proven" && !rg->editable && rg->game == "0.200", "a located row: read-only");
+        CHECK(!row("gk.reaction") && std::find(s.groups.begin(), s.groups.end(), "Goalkeeper") == s.groups.end(), "the not-working knob has no row, no group");
+        CHECK(!bring_tuning(ui, "##tvbox_passing.error_ground") && !bring_tuning(ui, "##tvs_passing.error_ground"), "no slider for a located knob");
+        tuning_top(ui);
+        CHECK(s.presets.size() == 4 && s.presets[0] == "FC 27 default (Turbo)" && s.presets[3] == "Test press" && fs::exists(out / presets_dir() / "turbo_compact.json"),
               "Turbo's own presets are written and listed first, then the user's");
-        CHECK(!s.can_apply && s.status.find("G1 switches: off until turbo_output\\tuning_on.txt exists") == 0, "off without the opt-in: " + s.status);
+        CHECK(!s.profile_on && s.profile_line.find("Profile: off, custom, 0 value(s)") == 0, s.profile_line);
+        CHECK(!s.can_apply && s.status.find("G1 switches: off: tick \"write in this game session\"") == 0, "off without an opt-in: " + s.status);
         CHECK(!s.can_undo && !s.can_restore, "nothing to undo or restore");
-        // the opt-in
-        CHECK(ui.click("Gameplay tuning on (turbo_output\\tuning_on.txt)##tvopt"), "opt-in clicked");
+        // the session tick (not a file)
+        CHECK(ui.click("Write in this game session (Apply, Reset)##tvsess"), "the session tick clicked");
         ui.frames(2);
-        CHECK(fs::exists(out / opt_in_file()) && s.opt_in, "opt-in file created");
+        CHECK(s.session_tick && s.opt_in && rig.svc->session_opt_in() && !fs::exists(out / opt_in_file()), "opted in for this game session, no file");
         CHECK(s.status == "G5 values: nothing changed", "only the values hold it back: " + s.status);
-        // two knobs typed in
+        // two proven knobs typed in, Apply: written, the values become the profile's
         const ItemRec* box = bring_tuning(ui, "##tvbox_pressing.intensity");
         CHECK(box && ui.type_into(box, "0.65"), "pressing typed");
         const ItemRec* box2 = bring_tuning(ui, "##tvbox_shape.line_height");
@@ -1843,128 +1921,166 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         tuning_top(ui);
         ui.frames(2);
         CHECK(s.can_apply && s.status == "ready", "ready: " + s.status);
-        CHECK(has_text(s.plan, "Pressing intensity: 0.50 -> 0.65 (meant for the next match setup)") && has_text(s.plan, "Defensive line height: 45 % -> 70 %"),
-              "Apply will write both");
-        CHECK(w.f32(TuneWorld::kBase) == 0.5f, "nothing written yet");
+        CHECK(has_text(s.plan, "Pressing intensity: 0.50 -> 0.65 (proven in P1)") && has_text(s.plan, "Defensive line height: 45 % -> 70 %"), "Apply will write both");
         CHECK(ui.click("Apply##tvapply"), "Apply clicked");
         ui.frames(2);
         CHECK(s.confirm_open && has_text(s.confirm_lines, "0.50 -> 0.65"), "Apply asks first");
         CHECK(ui.click("Apply##tvyes", "Apply gameplay tuning?"), "confirmed");
         ui.frames(4);
-        CHECK(w.f32(TuneWorld::kBase) == 0.65f && w.i32(TuneWorld::kBase + 4) == 70, "both written in one job");
-        CHECK(rig.jobs.ran == 1, fmt("one job (%d)", rig.jobs.ran));
+        CHECK(w.f32(TuneWorld::kBase) == 0.65f && w.i32(TuneWorld::kBase + 4) == 70 && rig.jobs.ran == 1, "both written in one job");
         UndoRecord u;
         std::string err;
         CHECK(load_undo(out / undo_file(), u, &err) && u.state == "written" && u.knobs.size() == 2 && u.load_gen == gen, "undo file: written " + err);
-        CHECK(ui.toast_contains("Gameplay tuning written to the engine table and read back; whether the match uses it is not measured yet"), "toast");
-        CHECK(s.can_undo && s.can_restore, "Undo and Restore offered");
-        // a pre-match screen: Apply refused for hub-only knobs
-        st["match_phase"] = "prematch";
-        st["seq"] = st.value("seq", 0LL) + 1;
-        write_state();
-        ui.frames(2);
-        CHECK(!s.can_undo && s.undo_why.find("G2 career phase") == 0, "pre-match: no undo: " + s.undo_why);
-        st["match_phase"] = "hub";
-        st["seq"] = st.value("seq", 0LL) + 1;
-        write_state();
-        // Undo
-        CHECK(ui.click("Undo last Apply##tvundo"), "Undo clicked");
+        CHECK(ui.toast_contains("Gameplay tuning written to the engine table and read back"), "toast");
+        tuning::Profile prof;
+        CHECK(load_profile(out / profile_file(), prof, &err) && !prof.on && prof.preset == "custom" && prof.values.size() == 2 && prof.values["shape.line_height"] == 70,
+              "the applied values are the profile's (still off): " + err);
+        // Undo: put back, and out of the profile
+        CHECK(s.can_undo && ui.click("Undo last Apply##tvundo"), "Undo clicked");
         ui.frames(4);
         CHECK(w.f32(TuneWorld::kBase) == 0.5f && w.i32(TuneWorld::kBase + 4) == 45, "put back");
         CHECK(load_undo(out / undo_file(), u, &err) && u.state == "restored", "undo file: " + u.state);
-        CHECK(!s.can_undo, "nothing left to undo");
-        // a preset into the sliders, then Apply, then Restore game defaults (with the kill switch present)
+        CHECK(load_profile(out / profile_file(), prof, &err) && prof.values.empty(), "the profile no longer holds them");
+        // Turbo's own preset on this table: none of its knobs is here; the user's: the three proven knobs, the not-working one listed
         CHECK(ui.click("##tvpreset"), "preset combo");
         ui.frames(2);
-        CHECK(ui.click("High line + aggressive press (Turbo)##tvp1"), "Turbo's high line preset picked (Turbo's own are listed by name)");
+        CHECK(ui.click("Turbo compact (Turbo)##tvp1"), "Turbo compact picked");
         ui.frames(2);
-        CHECK(ui.click("Load into the sliders##tvload"), "loaded");
+        CHECK(ui.click("Use this preset##tvuse"), "used");
         ui.frames(2);
-        CHECK(s.preset_line.find("Loaded \"High line + aggressive press\" into the sliders: 1 knob(s) set, 6 skipped (lineband.balanced_max: not in the knobs "
-                                 "file") == 0,
-              "Turbo's preset on this table: only marking is here: " + s.preset_line);
-        CHECK(ui.click("Discard edits##tvdiscard"), "discarded");
-        ui.frames(2);
-        CHECK(s.plan.empty(), "nothing to write after Discard edits");
+        CHECK(s.preset_line.find("\"Turbo compact\": 1 knob(s) set in the sliders and the profile, 6 not set (shape.width_in: not in the knobs file") == 0, s.preset_line);
         CHECK(ui.click("##tvpreset"), "preset combo");
         ui.frames(2);
-        CHECK(ui.click("Test press##tvp2"), "the user's preset picked");
+        CHECK(ui.click("Test press##tvp3"), "the user's preset picked");
         ui.frames(2);
-        CHECK(ui.click("Load into the sliders##tvload"), "loaded");
+        CHECK(ui.click("Use this preset##tvuse"), "used");
         ui.frames(2);
-        CHECK(s.preset_line.find("Loaded \"Test press\" into the sliders: 3 knob(s) set, 1 skipped (Goalkeeper reaction time: no value range yet)") == 0,
+        CHECK(s.preset_line.find("\"Test press\": 3 knob(s) set in the sliders and the profile, 1 not set (Goalkeeper reaction time: no value range yet)") == 0,
               s.preset_line);
-        CHECK(has_text(s.plan, "Pressing intensity: 0.50 -> 0.60") && has_text(s.plan, "Defensive line height: 45 % -> 52 %") &&
-                  has_text(s.plan, "Marking tightness: 60 -> 66"),
-              "+20 % pressing, +15 % line (rounded), +10 % marking, from the game defaults");
-        CHECK(ui.click("Apply##tvapply"), "Apply");
+        CHECK(load_profile(out / profile_file(), prof, &err) && prof.preset == "Test press" && prof.values.size() == 3 && prof.values["shape.line_height"] == 52 &&
+                  prof.values["marking.tightness"] == 66 && !prof.on,
+              "the preset's values in the profile (+20 %, +15 % rounded, +10 % from FC 27's values)");
+        CHECK(w.f32(TuneWorld::kBase) == 0.5f && rig.jobs.ran == 2, "nothing written by a preset");
+        ui.click("Discard edits##tvdiscard");
         ui.frames(2);
-        CHECK(ui.click("Apply##tvyes", "Apply gameplay tuning?"), "confirmed");
-        ui.frames(4);
-        CHECK(w.f32(TuneWorld::kBase) == 0.6f && w.i32(TuneWorld::kBase + 4) == 52 && w.u8(TuneWorld::kBase + 8) == 66, "the preset's values written");
-        // the kept values: on, then a new career load writes them again
-        CHECK(ui.click("Write these values again at every career load (turbo_output\\tuning_keep.json)##tvkeep"), "keep on");
-        ui.frames(2);
-        KeepStore k;
-        CHECK(load_keep(out / keep_file(), k, &err) && k.on && k.values.size() == 3 && k.values["shape.line_height"] == 52, "keep file: " + err);
+        // the profile on in the hub of a loaded career: its career_load moment (the load had none), then the hub moment
+        CHECK(ui.click("Apply my tuning profile automatically (every career load, the hub)##tvprof"), "profile on clicked");
+        ui.frames(10);
+        CHECK(load_profile(out / profile_file(), prof, &err) && prof.on, "the file says on");
+        CHECK(w.f32(TuneWorld::kBase) == 0.6f && w.i32(TuneWorld::kBase + 4) == 52 && w.u8(TuneWorld::kBase + 8) == 66, "the profile written");
+        CHECK(rig.logged("tuning: profile applied (career_load) 3 knobs (read back ok)") && rig.logged("tuning: profile applied (hub) 3 knobs (read back ok)"),
+              "the career_load and hub lines");
+        CHECK(s.moment_line.find("tuning: profile applied (hub) 3 knobs (read back ok)") == 0, "the view says what the last moment did: " + s.moment_line);
+        auto count = [&](const std::string& part) {
+            int n = 0;
+            for (const auto& l : rig.logs) n += l.find(part) != std::string::npos ? 1 : 0;
+            return n;
+        };
+        const int hubs = count("tuning: profile applied (hub)");
+        ui.frames(130);
+        CHECK(count("tuning: profile applied (hub)") == hubs && count("tuning: profile applied (career_load)") == 1, "once each while staying in the hub");
+        // kick-off: hub -> prematch -> hub (0.5 s) -> match: nothing in the 5 s window after the prematch phase; a hub entry after it applies
+        st["match_phase"] = "prematch";
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        st["match_phase"] = "hub";
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        ui.frames(400);  // 6.7 s of the GUI clock, 0 s of wall time
+        CHECK(count("tuning: profile applied (hub)") == hubs, "nothing within 5 s of WALL time after the prematch phase, however far the GUI clock ran");
+        wall += 4.0;
+        ui.frames(5);
+        CHECK(count("tuning: profile applied (hub)") == hubs, "4 s of wall time: still nothing");
+        wall += 1.5;
+        ui.frames(5);
+        CHECK(count("tuning: profile applied (hub)") == hubs + 1, "the hub entry applies once 5 s of wall time passed");
+        // Lua's prematch stamp (the GUI's 0.5 s poll may miss the phase): a profile change in the hub waits for it too
+        st["prematch_t"] = (long long)(std::time(nullptr));
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        prof.values["marking.tightness"] = 70;
+        save_profile(out / profile_file(), prof, &err);
+        ui.frames(130);
+        CHECK(w.u8(TuneWorld::kBase + 8) == 66, "a changed profile within 5 s of Lua's prematch stamp: not yet");
+        st["prematch_t"] = (long long)(std::time(nullptr)) - 10;
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        ui.frames(10);
+        CHECK(w.u8(TuneWorld::kBase + 8) == 70 && count("tuning: profile applied (hub)") == hubs + 2, "then applied in the hub");
+        // tuning_profile_off.txt: the automatic moments stop (a click still works)
+        std::ofstream(out / profile_off_file()) << "x";
+        prof.values["marking.tightness"] = 75;
+        save_profile(out / profile_file(), prof, &err);
+        ui.frames(130);
+        CHECK(w.u8(TuneWorld::kBase + 8) == 70 && s.profile_line.find("tuning_profile_off.txt: automatic writes off") != std::string::npos, s.profile_line);
+        fs::remove(out / profile_off_file(), ec);
+        ui.frames(130);
+        CHECK(w.u8(TuneWorld::kBase + 8) == 75, "switched back on: the changed profile applied in the hub");
+        // the kill switch: Apply off; Restore FC 27 defaults: the profile off (its values kept), FC 27's own values back
         std::ofstream(out / kill_switch_file()) << "x";
         ui.frames(130);
         CHECK(!s.can_apply && s.status.find("tuning_off.txt") != std::string::npos && s.can_restore, "kill switch: Apply off, Restore on: " + s.status);
-        CHECK(ui.click("Restore game defaults##tvrestore"), "Restore clicked");
+        CHECK(ui.click("Restore FC 27 defaults##tvrestore"), "Restore clicked");
         ui.frames(4);
-        CHECK(w.f32(TuneWorld::kBase) == 0.5f && w.i32(TuneWorld::kBase + 4) == 45 && w.u8(TuneWorld::kBase + 8) == 60,
-              "game defaults back (with the kill switch present)");
-        CHECK(load_keep(out / keep_file(), k, &err) && k.on && k.values.empty(), "the restored knobs are no longer kept");
+        CHECK(w.f32(TuneWorld::kBase) == 0.5f && w.i32(TuneWorld::kBase + 4) == 45 && w.u8(TuneWorld::kBase + 8) == 60, "FC 27's own values back (kill switch present)");
+        CHECK(load_profile(out / profile_file(), prof, &err) && !prof.on && prof.values.size() == 3, "the profile off, its values kept");
         fs::remove(out / kill_switch_file(), ec);
-        // keep two values and load another career: its first hub writes them again (one job)
-        k.values = {{"pressing.intensity", 0.7}, {"marking.tightness", 80}};
-        save_keep(out / keep_file(), k, &err);
-        const int ran = rig.jobs.ran;
+        ui.frames(130);
+        CHECK(w.f32(TuneWorld::kBase) == 0.5f, "nothing written while the profile is off");
+        // another career load with the profile on: its hub writes it (career_load, then hub), not before the hub
+        prof.on = true;
+        save_profile(out / profile_file(), prof, &err);
         st["load_gen"] = gen + 1;
         st["match_phase"] = "unknown";
         st["seq"] = st.value("seq", 0LL) + 1;
         write_state();
-        tuning_reset();  // the keep file is read again
         ui.frames(130);
-        CHECK(w.f32(TuneWorld::kBase) == 0.5f && rig.jobs.ran == ran, "not before the hub of the new career load");
+        CHECK(w.f32(TuneWorld::kBase) == 0.5f && count("tuning: profile applied (career_load)") == 1, "not before the hub of the new career load");
         st["match_phase"] = "hub";
         st["seq"] = st.value("seq", 0LL) + 1;
         write_state();
-        ui.frames(130);
-        CHECK(w.f32(TuneWorld::kBase) == 0.7f && w.u8(TuneWorld::kBase + 8) == 80 && rig.jobs.ran == ran + 1, "the kept values written again in one job");
-        bool queued_logged = false;
-        for (const auto& l : app.log_lines) queued_logged = queued_logged || l.find("gameplay tuning: kept values queued for this career load") != std::string::npos;
-        CHECK(queued_logged, "logged");
-        CHECK(load_undo(out / undo_file(), u, &err) && u.state == "written" && u.load_gen == gen + 1, "the re-apply can be undone in its career load");
-        ui.frames(130);
-        CHECK(rig.jobs.ran == ran + 1, "once per career load");
-        // the row's Reset: FC 27's own value back now (one restore job for that knob; the others keep Turbo's values), no longer kept
-        {
-            const TuningViewState::Row* rr = row("pressing.intensity");
-            CHECK(rr && rr->can_reset && rr->game == "0.70" && rr->def == "0.50", "Reset offered while the knob holds Turbo's value");
-            const ItemRec* reset = bring_tuning(ui, "Reset##tvreset_pressing.intensity");
-            CHECK(reset && ui.click(reset), "Reset clicked");
-            ui.frames(4);
-            CHECK(w.f32(TuneWorld::kBase) == 0.5f && w.u8(TuneWorld::kBase + 8) == 80 && rig.jobs.ran == ran + 2, "only that knob back to FC 27's value");
-            CHECK(load_keep(out / keep_file(), k, &err) && k.values.size() == 1 && k.values.count("marking.tightness") == 1, "no longer kept: " + err);
-            tuning_top(ui);
-            ui.frames(2);
-            rr = row("pressing.intensity");
-            CHECK(rr && !rr->can_reset && rr->game == "0.50", "nothing left to reset");
-        }
-        // Undo of another career load's write: refused
-        st["load_gen"] = gen + 2;
+        ui.frames(10);
+        CHECK(w.f32(TuneWorld::kBase) == 0.6f && w.u8(TuneWorld::kBase + 8) == 75 && count("tuning: profile applied (career_load)") == 2,
+              "the new career load's career_load moment");
+        CHECK(load_undo(out / undo_file(), u, &err) && u.state == "written" && u.load_gen == gen + 1, "the moment can be undone in its career load");
+        // the boot moment: a new game session at the main menu (no career): applied once (the view's state reset once Lua reports no career);
+        // M1: only on Lua's fresh report of the main menu (bridge_state.json front_end_t), never without it
+        st["in_cm"] = false;
+        st["match_phase"] = "unknown";
+        st.erase("front_end_t");
         st["seq"] = st.value("seq", 0LL) + 1;
-        k.on = false;
-        save_keep(out / keep_file(), k, &err);
-        tuning_reset();
         write_state();
-        ui.frames(3);
-        CHECK(!s.can_undo && s.undo_why.find("another career load") != std::string::npos, "undo across career loads refused: " + s.undo_why);
+        tuning_reset();
+        w.mem.wr(TuneWorld::kBase, 0.5f);
+        ui.frames(70);
+        CHECK(w.f32(TuneWorld::kBase) == 0.5f && !rig.logged("tuning: profile applied (boot)"), "no main-menu report from Lua: no boot write");
+        st["front_end_t"] = (long long)(std::time(nullptr)) - 100;
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        ui.frames(10);
+        CHECK(w.f32(TuneWorld::kBase) == 0.5f && !rig.logged("tuning: profile applied (boot)"), "a 100 s old report: no boot write");
+        w.mem.wr(TuneWorld::kBase + 4, int32_t(45));  // FC 27's values before the boot write (a new game session)
+        w.mem.wr(TuneWorld::kBase + 8, uint8_t(60));
+        st["front_end_t"] = (long long)(std::time(nullptr));
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        ui.frames(10);
+        CHECK(w.f32(TuneWorld::kBase) == 0.6f && rig.logged("tuning: profile applied (boot) 3 knobs (read back ok)"),
+              "the boot moment at the main menu: " + s.moment_line + " | " + (rig.logs.empty() ? std::string() : rig.logs.back()));
+        ui.frames(130);
+        CHECK(count("tuning: profile applied (boot)") == 1, "once");
+        // M2: at the main menu Undo and Restore are offered; Undo puts FC 27's own values back
+        tuning_top(ui);
+        ui.frames(2);
+        CHECK(s.can_undo && s.can_restore, "the main menu: Undo and Restore offered: " + s.undo_why + " / " + s.restore_why);
+        CHECK(ui.click("Undo last Apply##tvundo"), "Undo clicked at the main menu");
+        ui.frames(4);
+        CHECK(w.f32(TuneWorld::kBase) == 0.5f && w.i32(TuneWorld::kBase + 4) == 45 && w.u8(TuneWorld::kBase + 8) == 60, "FC 27's own values back after the boot write");
         // clean up (Competitions back on its first view for the cases after this one)
+        tuning_set_wall_clock(nullptr);
         tuning_top(ui);
         app.tuning = nullptr;
-        for (const char* f : {opt_in_file(), kill_switch_file(), undo_file(), keep_file()}) fs::remove(out / f, ec);
+        for (const char* f : {opt_in_file(), kill_switch_file(), undo_file(), profile_file(), profile_off_file()}) fs::remove(out / f, ec);
         fs::remove_all(out / presets_dir(), ec);
         st = saved;
         st["seq"] = saved.value("seq", 0LL) + 50;

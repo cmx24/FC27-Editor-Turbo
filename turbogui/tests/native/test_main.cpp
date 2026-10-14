@@ -9345,8 +9345,9 @@ static void test_sigscan_adapt() {
             int optional = 0;
             for (const auto& s : b->sigs) optional += s.adapt_optional ? 1 : 0;
             CHECK(b->find("svm_live_vtable") && b->find("svm_live_vtable")->adapt_optional && b->find("fce_datamanager_vtable") &&
-                      b->find("fce_datamanager_vtable")->adapt_optional && optional == 2,
-                  "build " + build + ": svm_live_vtable and fce_datamanager_vtable optional, nothing else");
+                      b->find("fce_datamanager_vtable")->adapt_optional && b->find("attrib_db_getter") && b->find("attrib_db_getter")->adapt_optional &&
+                      optional == 3,
+                  "build " + build + ": svm_live_vtable, fce_datamanager_vtable and attrib_db_getter (2.4) optional, nothing else");
             // a title update where only those two miss: every other hook is adopted (their users stay fail closed: 0 address)
             const SignatureTable ad = adapt_signature_table(*b, "6B000000-21500000");
             std::vector<SigResult> rs;
@@ -9487,8 +9488,9 @@ static void test_sigscan_adapt() {
         }
         CHECK(unchecked.empty(), "every offset checked; unchecked:" + unchecked);
         CHECK(bad_expect.empty(), "every expect parses and sits on a rip operand; bad:" + bad_expect);
-        // 16 shared expects + 4 of tactics channel E's exact-build entries (VT1, VT2, the registry's two operands)
-        CHECK(expects == 20 && probes == 2, fmt("20 expects, 2 hook probes (%d, %d)", expects, probes));
+        // 17 shared expects (2.4: attrib_db_getter's mov rcx,[rip+G]) + 4 of tactics channel E's exact-build entries (VT1, VT2, the
+        // registry's two operands)
+        CHECK(expects == 21 && probes == 2, fmt("21 expects, 2 hook probes (%d, %d)", expects, probes));
         const Signature* cd = b->find("career_event_dispatch");
         const Signature* st = b->find("loc_strtab_get");
         CHECK(cd && cd->hook_probe && cd->offset == -24 && st && st->hook_probe && st->offset == -10, "the hook probes");
@@ -13777,6 +13779,39 @@ static void test_match_setup() {
               "the offered set (no stadium override)");
     });
 
+    // 2.4: the contract with the game's read sites (docs/re/match_setup.md section 2), pinned entry by entry, and the host's name gate
+    run_case("game variables: the 9 switches Turbo offers are pinned (name, range, 'game decides' value, order); nothing else is settable", [&] {
+        struct Pin {
+            const char* name;
+            int32_t min, max, off;
+        };
+        const Pin pins[] = {
+            {"NEVER_INJURE", 0, 1, 0},
+            {"GAMEPLAY_CUSTOMIZATION/INJURY_FREQUENCY_USER", 0, 100, -1},
+            {"GAMEPLAY_CUSTOMIZATION/INJURY_FREQUENCY_CPUAI", 0, 100, -1},
+            {"GAMEPLAY_CUSTOMIZATION/INJURY_SEVERITY_USER", 0, 100, -1},
+            {"GAMEPLAY_CUSTOMIZATION/INJURY_SEVERITY_CPUAI", 0, 100, -1},
+            {"OVERRIDE/WEATHER", -1, 8, -1},
+            {"OVERRIDE/TOD", -1, 4, -1},
+            {"OVERRIDE_MATCH_DIFFICULTY", -1, 5, -1},
+            {"DISABLE_CPU_SUBSTITUTION", 0, 1, 0},
+        };
+        const std::vector<gv::KnownVar>& k = gv::known_vars();
+        CHECK(k.size() == 9, fmt("9 known variables, got %zu", k.size()));
+        for (size_t i = 0; i < 9 && i < k.size(); ++i) {
+            const Pin& p = pins[i];
+            CHECK(std::string(k[i].name) == p.name && k[i].min == p.min && k[i].max == p.max && k[i].off == p.off,
+                  fmt("entry %zu: %s %d..%d off %d (expected %s %d..%d off %d)", i, k[i].name, k[i].min, k[i].max, k[i].off, p.name, p.min, p.max, p.off));
+            CHECK(k[i].label && *k[i].label && k[i].what && *k[i].what && k[i].when && *k[i].when, std::string(p.name) + ": label, text and timing are there");
+            CHECK(gv::settable(p.name).empty(), std::string(p.name) + ": the host may set it");
+        }
+        // the removed channel A family, a _CPU injury name (channel A's positive control), and names the game has but Turbo never offers
+        for (const char* n : {"GAMEPLAY_CUSTOMIZATION/SPRINT_SPEED_CPU", "GAMEPLAY_CUSTOMIZATION/POS_DEF_LINE_HEIGHT_USER", "GAMEPLAY_CUSTOMIZATION/INJURY_FREQUENCY_CPU",
+                              "GAMEPLAY_CUSTOMIZATION/POWER_BAR_SPEED_USER", "GAME_SPEED", "OVERRIDE/STADIUM"})
+            CHECK(gv::settable(n) == std::string(n) + " is not a game variable Turbo offers", std::string(n) + ": refused: " + gv::settable(n));
+        CHECK(!gv::settable("never_injure").empty() && gv::settable("never_injure") == gv::check_name("never_injure"), "a malformed name is refused by the name check first");
+    });
+
     run_case("game variables: locate the table, refuse a broken one", [&] {
         GvWorld w;
         gv::Table t;
@@ -14254,8 +14289,6 @@ static void test_match_setup() {
 #include "test_role_rules.h"  // Turbo 2.0 track G: the squad role rule editor
 // slider registry, tactic profiles, tactics preview, opposition solver (Turbo 2.0 b-core)
 #include "test_tactics_core.h"
-// Turbo 2.1 tactics channel A: per-side gameplay slider game variables and the A/B presets (core/gameplay_sliders.h)
-#include "test_gameplay_sliders.h"
 // Turbo 2.1 Phase 0: badges, legacy hiding, kill switches per channel, only-on-change, presets, snapshots (core/tactics_status.h)
 #include "test_tactics_phase0.h"
 
@@ -14333,7 +14366,6 @@ int main(int argc, char** argv) {
     std::printf("native club customisation and career settings\n");
     club_tools_test::run();
     tactics_core_test::run();
-    gameplay_sliders_test::run();
     tactics_phase0_test::run();
     team_sheet_test::run();
     tuning_test::run();

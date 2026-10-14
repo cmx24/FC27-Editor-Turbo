@@ -50,7 +50,7 @@ namespace labels {
 struct CodeUsers;  // core/field_labels.h
 }
 
-constexpr const char* kGuiVersion = "2.3.0";
+constexpr const char* kGuiVersion = "2.4.0";
 
 // UI scale (window height and the user's "UI size" setting): every fixed size in the panels goes through S()
 extern float g_ui_scale;
@@ -482,7 +482,7 @@ std::string fce_edit_off(App& app, const fce::Located& loc);
 // Competitions tab, "Match setup" view: the user's next fixtures (venue, opponent, fixed result) and the gameplay switches
 // (game variables) for the next matches (ui_match.cpp)
 void draw_match_setup(App& app);
-// Clear the game variables the Match setup panel set (its Set buttons and the A/B presets) when the host unloads Turbo. Never throws.
+// Clear the game variables the Match setup panel set (its Set buttons) when the host unloads Turbo. Never throws.
 void match_setup_clear_on_exit(App& app);
 void draw_database(App& app);
 void draw_tools(App& app);

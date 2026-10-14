@@ -62,8 +62,8 @@ static void test_sliders() {
                               "team.line_length", "team.width_def", "team.width_att", "team.marking", "team.press_intensity", "team.press_trigger",
                               "team.engagement_height", "team.forward_runs", "team.tempo", "team.directness", "team.buildup_short",
                               "team.cross_freq", "team.shot_patience", "team.dribble_freq", "team.counter_press", "team.counter_attack",
-                              "team.regroup_depth", "team.offside_trap", "team.tackle_aggr", "team.buildup_play", "team.chance_creation",
-                              "team.defensive_style", "pos.role1", "pos.role9", "pos.forward_runs", "pos.roam", "pos.hold_pos", "pos.close_down",
+                              "team.regroup_depth", "team.offside_trap", "team.tackle_aggr", "team.buildup_play",
+                              "pos.role1", "pos.role9", "pos.forward_runs", "pos.roam", "pos.hold_pos", "pos.close_down",
                               "pos.shot_freq", "pos.risk_passing", "pos.cross_depth", "opp.injury_frequency_offset", "opp.difficulty_offset",
                               "opp.variety_strength", "opp.quality_scaling", "opp.mirroring", "opp.underdog_bias", "opp.favourite_bias", "opp.jitter",
                               "opp.family_weight_gegenpress", "opp.family_weight_balanced", "opp.formation", "opp.adaptation"})
@@ -97,17 +97,21 @@ static void test_sliders() {
                 CHECK(d.binding.kind == BindingKind::DbField && !d.binding.targets.empty(), d.key + ": DB has a table.field");
             }
         }
-        CHECK(re >= 40 && live >= 9 && db >= 20, fmt("re %zu live %zu db %zu", re, live, db));
+        CHECK(re >= 40 && live >= 9 && db >= 15, fmt("re %zu live %zu db %zu", re, live, db));
         // the plan's Live rows are exactly the proven game variables
         auto* d = find_slider("match.injury_frequency_cpu");
         CHECK(d && d->binding.targets.at(0) == "GAMEPLAY_CUSTOMIZATION/INJURY_FREQUENCY_CPUAI" && d->status == SliderStatus::Live, "injury frequency cpu binding");
         d = find_slider("match.time_of_day");
         CHECK(d && d->allowed == std::vector<int>({0, 1, 3, 4}), "time of day allows 0 1 3 4");
         // promoted from the schema
-        for (const char* k : {"team.line_depth", "team.buildup_play", "team.chance_creation", "team.offensive_style", "team.defensive_style",
-                              "team.width_def", "team.width_att", "team.players_in_box_cross", "match.card_strictness", "match.foul_strictness"}) {
+        for (const char* k : {"team.line_depth", "team.buildup_play", "match.card_strictness", "match.foul_strictness"}) {
             d = find_slider(k);
             CHECK(d && d->status == SliderStatus::DB, std::string(k) + " is DB (schema-proven)");
+        }
+        // 2.4: the legacy widths are Turbo's preview only (they wrote the old mentalities table, removed in FC 25)
+        for (const char* k : {"team.width_def", "team.width_att"}) {
+            d = find_slider(k);
+            CHECK(d && d->status == SliderStatus::RE && !writes_game(*d), std::string(k) + " is preview only");
         }
         CHECK(find_slider("team.mentality")->status == SliderStatus::RE && find_slider("team.tempo")->status == SliderStatus::RE, "unproven rows stay RE");
         CHECK(find_slider("team.formation")->status == SliderStatus::Preview, "formation stays Preview");

@@ -14,8 +14,8 @@
 namespace turbo {
 
 enum class SliderScope { Match, Team, Position, Opposition };
-// Live   = written to a proven game variable (gv::apply), takes effect in played matches; with `untested` set the game accepts the
-//          write (read back ok) but no played match has shown an effect yet (badge "Live, untested", off by default)
+// Live   = written to a game variable Turbo offers (gv::apply, core/match_setup.h gv::known_vars); what was seen of it in played
+//          matches is the "seen" badge of core/tactics_status.h
 // DB     = written to a career database field that exists in the FC 27 schema (evidence Real = write proven, Plausible = field and
 //          range proven by turbo/le27/fc27_db_schema.json, in-game effect not verified yet)
 // Local  = a Turbo parameter (the opposition solver): applies inside Turbo, never written to the game
@@ -46,7 +46,6 @@ struct SliderDef {
     bool labels_provisional = false;      // names are Turbo's, not read from the game
     bool range_from_meta = false;         // the real range comes from GetDBMeta at run time; min/max are only a safe envelope
     bool per_side = false;                // match slider that exists once for your team and once for the CPU team
-    bool untested = false;                // Live, but no played match has shown an effect yet (channel A sliders, core/gameplay_sliders.h)
     SliderBinding binding;
     SliderStatus status = SliderStatus::RE;
     SliderEvidence evidence = SliderEvidence::NeedsRe;

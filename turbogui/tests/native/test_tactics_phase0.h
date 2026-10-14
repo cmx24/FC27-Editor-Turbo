@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <fstream>
 
-#include "core/gameplay_sliders.h"
 #include "core/match_setup.h"
 #include "core/sliders.h"
 #include "core/tactic_profiles.h"
@@ -61,13 +60,21 @@ static void test_badges() {
         }
         CHECK(status_of("match.never_injure").note.find("2026-10-04") != std::string::npos, "NEVER_INJURE: the note says when it was accepted");
         CHECK(status_of("team.line_depth").note.find("NOT written") != std::string::npos, "line depth: the note says the saved tactic row is not written");
-        // legacy: EA removed these controls in FC 25: hidden, off, labelled
-        for (const char* k : {"team.width_def", "team.width_att", "team.players_in_box_cross", "team.players_in_box_corner", "team.players_in_box_fk",
-                              "team.chance_creation", "team.offensive_style", "team.defensive_style"}) {
+        // legacy (EA removed these controls in FC 25), 2.4: nothing writes the old mentalities table any more. The two widths stay as
+        // Turbo's preview only (the pitch's width band, the opposition solver), hidden behind "show legacy fields"; the rest is gone
+        for (const char* k : {"team.width_def", "team.width_att"}) {
             const TacticStatus s = status_of(k);
-            CHECK(s.written == WriteKind::DbRow && s.seen == SeenKind::Legacy && seen_badge(s) == "legacy, likely ignored", std::string(k) + ": legacy badge: " + seen_badge(s));
-            CHECK(s.legacy_hidden && legacy_hidden(*find_slider(k)) && untested_write(s), std::string(k) + ": hidden behind 'show legacy fields', off by default");
+            const SliderDef* d = find_slider(k);
+            CHECK(d && d->status == SliderStatus::RE && d->binding.targets.empty() && !writes_game(*d), std::string(k) + ": preview only, no write target");
+            CHECK(s.written == WriteKind::Preview && s.seen == SeenKind::NothingWritten && status_tag(s) == "not applied to game", std::string(k) + ": " + status_tag(s));
+            CHECK(s.legacy_hidden && legacy_hidden(*d) && !untested_write(s), std::string(k) + ": hidden behind 'show legacy fields', nothing to hold off");
         }
+        for (const char* k : {"team.players_in_box_cross", "team.players_in_box_corner", "team.players_in_box_fk", "team.chance_creation", "team.offensive_style",
+                              "team.defensive_style"})
+            CHECK(find_slider(k) == nullptr && tactics_status_detail::table().count(k) == 0, std::string(k) + ": the legacy field is gone");
+        for (const SliderDef& d : slider_registry())
+            for (const std::string& t : d.binding.targets)
+                CHECK(t.rfind("mentalities.", 0) != 0 && t.rfind("cm_mentalities.", 0) != 0, d.key + ": no slider writes a mentality table: " + t);
         // the 7-step mentality: FC 27 has no such control: hidden, preview, nothing written
         {
             const TacticStatus s = status_of("team.mentality");
@@ -127,44 +134,30 @@ static void test_badges() {
         for (SeenKind k : {SeenKind::SeenInMatch, SeenKind::NoEffectSeen, SeenKind::Untested, SeenKind::Legacy, SeenKind::NothingWritten}) CHECK(seen_help(k)[0] != 0, "seen help");
     });
 
-    run_case("phase0 x channel A: the per-side gameplay slider variables are 'game variable' + 'untested', load switched OFF, one switch blocks them", [] {
-        size_t n = 0;
-        for (const SliderDef& d : slider_registry()) {
-            if (!d.untested) continue;
-            ++n;
-            const TacticStatus s = tactic_status(d);
-            const gs::Slider* gsl = nullptr;
-            gs::Side side = gs::Side::User;
-            CHECK(d.binding.targets.size() == 1 && gs::parse_var(d.binding.targets[0], gsl, side), d.key + ": a channel A variable");
-            CHECK(s.written == WriteKind::GameVar && std::string(written_badge(s.written)) == "game variable", d.key + ": written as a game variable");
-            CHECK(s.seen == SeenKind::Untested && seen_badge(s) == "untested" && untested_write(s) && !s.legacy_hidden, d.key + ": untested: " + seen_badge(s));
-            CHECK(s.note.find("variable store") != std::string::npos && status_tag(s).find("game variable, untested: accepted by the game's variable store") == 0,
-                  d.key + ": tag: " + status_tag(s));
-            CHECK(!d.binding.targets.empty() && channel_of_target(d.binding.targets[0]) == WriteChannel::GameVar, d.key + ": the game-variable channel");
+    // 2.4 (docs/TACTICS_OVERHAUL_DECISION.md 3.2 "Removed"): tactics channel A, the per-side GAMEPLAY_CUSTOMIZATION slider variables, was
+    // refuted in game (stored, read back, ignored by the match) and is gone: no registry row, no known variable, nothing a preset can send
+    run_case("2.4 channel A removed: no per-side gameplay slider variable is in the registry or known to the host; only the proven injury names stay", [] {
+        size_t gc = 0;
+        for (const gv::KnownVar& v : gv::known_vars()) {
+            const std::string n = v.name;
+            if (n.rfind("GAMEPLAY_CUSTOMIZATION/", 0) != 0) continue;
+            ++gc;
+            CHECK(n.find("/INJURY_") != std::string::npos && (n.find("_USER") != std::string::npos || n.find("_CPUAI") != std::string::npos),
+                  n + ": only the proven injury variables carry the GAMEPLAY_CUSTOMIZATION prefix");
         }
-        CHECK(n == 66, fmt("66 channel A rows, got %zu", n));
-        // the proven rows keep their own evidence (the channel A note is only for untested rows)
-        CHECK(status_of("match.injury_frequency_user").seen == SeenKind::SeenInMatch && status_of("match.never_injure").note.find("variable store") == std::string::npos,
-              "the classic rows keep their notes");
-        // kill switches: the master and the game-variable file block channel A, the database file does not
-        SwitchState sw;
-        CHECK(!sw.blocks(WriteChannel::GameVar), "no file: not blocked");
-        sw.present = {"tactics_db_off.txt"};
-        CHECK(!sw.blocks(WriteChannel::GameVar), "tactics_db_off.txt leaves game variables alone");
-        sw.present = {"tactics_gamevar_off.txt"};
-        CHECK(sw.blocks(WriteChannel::GameVar) && sw.blocking_file(WriteChannel::GameVar) == "tactics_gamevar_off.txt", "tactics_gamevar_off.txt blocks them");
-        sw.present = {"tactics_off.txt"};
-        CHECK(sw.blocks(WriteChannel::GameVar) && sw.blocking_file(WriteChannel::GameVar) == "tactics_off.txt", "the master blocks them");
-        // a preset never switches a channel A variable on by itself
-        Profile p;
-        p.category = ProfileCategory::Match;
-        p.sliders.set("match.injury_frequency_user", 65, true);
-        p.sliders.set("match.sprint_speed_cpu", 0, true);
+        CHECK(gc == 4 && gv::known_vars().size() == 9, fmt("9 known variables, 4 of them injury sliders (%zu, %zu)", gv::known_vars().size(), gc));
+        for (const char* n : {"GAMEPLAY_CUSTOMIZATION/SPRINT_SPEED_CPU", "GAMEPLAY_CUSTOMIZATION/SPRINT_SPEED_USER", "GAMEPLAY_CUSTOMIZATION/POS_DEF_LINE_HEIGHT_CPU",
+                              "GAMEPLAY_CUSTOMIZATION/INJURY_FREQUENCY_CPU", "GAMEPLAY_CUSTOMIZATION/DRIBBLE_FREQUENCY_CPU"})
+            CHECK(gv::known(n) == nullptr, std::string(n) + ": not a variable Turbo offers");
+        for (const SliderDef& d : slider_registry()) {
+            CHECK(d.group.rfind("Per side: ", 0) != 0, d.key + ": no per-side channel A group");
+            for (const std::string& t : d.binding.targets)
+                if (d.binding.kind == BindingKind::GameVar) CHECK(gv::known(t) != nullptr, d.key + ": " + t + " is a known variable");
+        }
+        CHECK(find_slider("match.sprint_speed_cpu") == nullptr && find_slider("match.pos_def_line_height_user") == nullptr, "the channel A keys are gone");
+        // a preset saved by 2.1-2.3 that still names a channel A key: the key is not known, so nothing is ever sent for it
         SliderSet w;
-        const ProfileLoadResult r = load_profile_into(p, w);
-        CHECK(w.is_enabled("match.injury_frequency_user") && !w.is_enabled("match.sprint_speed_cpu") && w.value_or_default("match.sprint_speed_cpu") == 0,
-              "the channel A value is loaded switched off");
-        CHECK(r.held_off == std::vector<std::string>({"match.sprint_speed_cpu"}), fmt("held off: %zu", r.held_off.size()));
+        CHECK(!w.set("match.sprint_speed_cpu", 0, true) && game_writes(w).empty(), "an old channel A key is never written");
     });
 
     run_case("phase0 status table: every key it names is in the registry; a 'seen' or 'no effect seen' row carries its date and its evidence", [] {
@@ -179,7 +172,7 @@ static void test_badges() {
                 CHECK(std::string(e.date).empty(), kv.first + ": only seen / no-effect rows carry a date");
             CHECK(std::string(e.note).size() > 0, kv.first + ": every row says why");
         }
-        CHECK(n >= 30, fmt("status rows: %zu", n));
+        CHECK(n >= 25, fmt("status rows: %zu", n));
         // every slider the registry shows has a note when it writes something nobody saw working (the tag says why)
         for (const SliderDef& d : slider_registry()) {
             const TacticStatus s = tactic_status(d);
@@ -209,6 +202,12 @@ static void test_writes() {
     run_case("phase0 dead targets: the saved tactic row (cm_mentalities) is gone from the registry and refused anyway; the teams row stays (P0-2)", [] {
         CHECK(dead_target_reason("cm_mentalities.defensivedepth") != nullptr && dead_target_reason("cm_mentalities.buildupplay") != nullptr, "cm_mentalities is dead");
         CHECK(std::string(dead_target_reason("cm_mentalities.defensivedepth")).find("overwritten") != std::string::npos, "the reason names the overwrite at save");
+        // 2.4: the columns channel E writes with the live record are named as such (still never a Tactics-tab target); the rest stays dead
+        CHECK(std::string(dead_target_reason("cm_mentalities.buildupplay")).find("My team (channel E) writes this column") != std::string::npos &&
+                  std::string(dead_target_reason("cm_mentalities.pos10role")).find("channel E") != std::string::npos &&
+                  std::string(dead_target_reason("cm_mentalities.offensivestyle")).find("dead:") == 0 &&
+                  std::string(dead_target_reason("cm_mentalities.pos11role")).find("dead:") == 0,
+              "channel E's columns vs the rest");
         for (const char* t : {"teams.defensivedepth", "teams.buildupplay", "referee.foulstrictness", "players.role1", "mentalities.defensivewidth",
                               "GAMEPLAY_CUSTOMIZATION/INJURY_FREQUENCY_USER"})
             CHECK(dead_target_reason(t) == nullptr, std::string(t) + " is not dead");
@@ -249,15 +248,18 @@ static void test_writes() {
 
     run_case("phase0 kill switches: one file per write channel, the master blocks everything, the channel file only its rows", [] {
         const auto& ks = kill_switches();
-        CHECK(ks.size() == 5 && std::string(ks.front().file) == "tactics_off.txt" && ks.front().all, "tactics_off.txt stays the master switch, first in the list");
+        CHECK(ks.size() == 6 && std::string(ks.front().file) == "tactics_off.txt" && ks.front().all, "tactics_off.txt stays the master switch, first in the list");
+        CHECK(std::string(channel_switch_file(WriteChannel::Tuning)) == "tuning_profile_off.txt" && std::string(channel_name(WriteChannel::Tuning)) == "gameplay tuning profile",
+              "the tuning profile's automatic writes (2.4)");
         std::set<std::string> files;
         for (const KillSwitch& k : ks) {
             files.insert(k.file);
             CHECK(std::string(k.file).find("_off.txt") != std::string::npos && k.what[0] != 0, std::string(k.file) + ": named *_off.txt with a purpose");
         }
-        CHECK(files.count("tactics_gamevar_off.txt") && files.count("tactics_db_off.txt") && files.count("tactics_legacy_off.txt") &&
-                  files.count("call_team_sheet_off.txt"),
+        CHECK(files.count("tactics_gamevar_off.txt") && files.count("tactics_db_off.txt") && files.count("call_team_sheet_off.txt") &&
+                  files.count("channel_e_db_off.txt"),
               "one switch per channel (call_team_sheet_off.txt: your club's live tactic, channel E)");
+        CHECK(files.count("tactics_legacy_off.txt") == 0, "2.4: the legacy table has no channel (nothing writes it) and no switch");
         CHECK(std::string(channel_switch_file(WriteChannel::LiveSheet)) == "call_team_sheet_off.txt" && std::string(channel_name(WriteChannel::LiveSheet)) == "live team sheet",
               "the live team sheet channel");
         CHECK(channel_of_target("GAMEPLAY_CUSTOMIZATION/INJURY_FREQUENCY_USER") == WriteChannel::GameVar && channel_of_target("OVERRIDE/WEATHER") == WriteChannel::GameVar,
@@ -265,9 +267,8 @@ static void test_writes() {
         CHECK(channel_of_target("teams.defensivedepth") == WriteChannel::DbRow && channel_of_target("referee.foulstrictness") == WriteChannel::DbRow &&
                   channel_of_target("players.role1") == WriteChannel::DbRow,
               "database rows");
-        CHECK(channel_of_target("mentalities.defensivewidth") == WriteChannel::LegacyDb, "the old tactic table is its own channel");
-        CHECK(std::string(channel_switch_file(WriteChannel::GameVar)) == "tactics_gamevar_off.txt" && std::string(channel_switch_file(WriteChannel::DbRow)) == "tactics_db_off.txt" &&
-                  std::string(channel_switch_file(WriteChannel::LegacyDb)) == "tactics_legacy_off.txt",
+        CHECK(channel_of_target("mentalities.defensivewidth") == WriteChannel::DbRow, "a 2.3 row of the old tactic table is a database row (its put-back)");
+        CHECK(std::string(channel_switch_file(WriteChannel::GameVar)) == "tactics_gamevar_off.txt" && std::string(channel_switch_file(WriteChannel::DbRow)) == "tactics_db_off.txt",
               "channel to file");
         // every slider that writes has a channel with a switch file
         for (const SliderDef& d : slider_registry()) {
@@ -278,12 +279,12 @@ static void test_writes() {
         CHECK(!none.all() && !none.blocks(WriteChannel::GameVar) && !none.blocks(WriteChannel::DbRow) && none.blocking_file(WriteChannel::DbRow).empty(), "no file: nothing blocked");
         SwitchState db;
         db.present.insert("tactics_db_off.txt");
-        CHECK(!db.all() && db.blocks(WriteChannel::DbRow) && !db.blocks(WriteChannel::GameVar) && !db.blocks(WriteChannel::LegacyDb), "the db file blocks only database rows");
+        CHECK(!db.all() && db.blocks(WriteChannel::DbRow) && !db.blocks(WriteChannel::GameVar) && !db.blocks(WriteChannel::LiveSheet), "the db file blocks only database rows");
         CHECK(db.blocking_file(WriteChannel::DbRow) == "tactics_db_off.txt" && db.blocking_file(WriteChannel::GameVar).empty(), "it names itself");
         SwitchState all;
         all.present.insert("tactics_off.txt");
-        CHECK(all.all() && all.blocks(WriteChannel::GameVar) && all.blocks(WriteChannel::DbRow) && all.blocks(WriteChannel::LegacyDb), "the master blocks every channel");
-        CHECK(all.blocking_file(WriteChannel::LegacyDb) == "tactics_off.txt", "and is the file named");
+        CHECK(all.all() && all.blocks(WriteChannel::GameVar) && all.blocks(WriteChannel::DbRow) && all.blocks(WriteChannel::LiveSheet), "the master blocks every channel");
+        CHECK(all.blocking_file(WriteChannel::DbRow) == "tactics_off.txt", "and is the file named");
         // read from a directory
         const fs::path dir = scratch("switches");
         CHECK(read_switches(dir).present.empty(), "an empty directory: no switch");
@@ -317,7 +318,7 @@ static void test_presets() {
         CHECK(w.value_or_default("match.foul_strictness") == 2 && w.value_or_default("team.width_att") == 85, "the held-off values are kept for the user to switch on");
         CHECK(!w.is_enabled("match.weather") && !w.has("match.weather"), "what the preset leaves to the game is reset");
         CHECK(r.held_off.size() == 4 && r.enabled.size() == 3, fmt("report: %zu held off, %zu enabled", r.held_off.size(), r.enabled.size()));
-        CHECK(std::find(r.held_off.begin(), r.held_off.end(), "team.width_att") != r.held_off.end(), "the report names the legacy field");
+        CHECK(std::find(r.held_off.begin(), r.held_off.end(), "team.width_att") != r.held_off.end(), "the report names the legacy (preview) field");
         // the built-ins no longer seed a legacy field at all (P0-3: Wing play, Possession and Balanced used to set the widths)
         for (const Profile& b : builtin_profiles())
             for (const auto& kv : b.sliders.values) {
