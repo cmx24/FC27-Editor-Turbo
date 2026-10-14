@@ -2,12 +2,16 @@
 """s_b1_check.py - the S-B1 pass point of the 2.4 tactics overhaul (WP-B1, docs/TACTICS_OVERHAUL_DECISION.md section 6), read-only.
 
 What it proves, from Turbo's own log (turbo_output\\turbo_gui.log), for the last game launch:
-  1. a channel E Apply in the hub was written and read back:
-       "channel E: team 95 record 0 approach 0->2 line height 25->70 build-up 0->1; cm_mentalities ... (read back ok) ... [record now LH 70 BU 1 DA 2]"
+  1. a channel E Apply in the hub wrote the live record AND its cm_mentalities row in one job and read both back:
+       "channel E: team 95 record 0 approach 0->2 line height 25->70 build-up 0->1; cm_mentalities artificialkey 0 defensivedepth 25->70
+        buildupplay 0->1 (read back ok) [record now LH 70 BU 1 DA 2]"
   2. after kick-off the match's own copy of the tactic holds exactly those values:
        "channel E kick-off: match copy team 95 LH 70 BU 1 DA 2 roles 11/11 = Turbo (ok) | ..."
-PASS only when the kick-off line comes after the Apply line, names the same club, says "= Turbo (ok)" with roles 11/11, and its LH / BU / DA
-equal the Apply line's "record now" values (and no undo was logged in between).
+PASS (exit 0) only when both hold: the kick-off line comes after the Apply line, names the same club, says "= Turbo (ok)" with roles 11/11,
+its LH / BU / DA equal the Apply line's "record now" values, no undo was logged in between, AND the Apply line names the row
+("; cm_mentalities artificialkey N <field> old->new ... (read back ok)"). A match copy holding Turbo's values while the row was left out
+("[cm_mentalities not written: ...]") is a FAIL ("FAIL row ..."): the record half is proven, the persistence half is not.
+No match copy found after every look (the line says "(look 5 of 5)"), or a check that could not run, is INCONCLUSIVE (exit 3), never FAIL.
 
 It never touches the game, the dev service or any file but the log it reads. It does not launch or kill FC 27: the coordinator kills the game
 after it (Part C). Time-boxed: --wait polls the log for the kick-off line (default 100 s, the check stays under 2 minutes).
@@ -34,11 +38,13 @@ TS = r"(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\s+"
 RE_LAUNCH = re.compile(TS + r"channel E: anchors ok on build (?P<build>\S+)")
 RE_APPLY = re.compile(TS + r"channel E: team (?P<team>\d+) record (?P<rec>\d+)(?P<what>.*?) \(read back ok\)(?P<tail>.*)$")
 RE_NOW = re.compile(r"\[record now LH (?P<lh>\d+) BU (?P<bu>\d+) DA (?P<da>\d+)\]")
+RE_ROW = re.compile(r"; cm_mentalities artificialkey (?P<key>-?\d+)(?P<fields>( \w+ -?\d+->-?\d+)+)")
+RE_ROW_NOTE = re.compile(r"\[cm_mentalities not written: (?P<why>[^\]]*)\]")
 RE_UNDO = re.compile(TS + r"channel E: undo team (?P<team>\d+) record \d+.*\(read back ok\)")
 RE_KICK = re.compile(TS + r"channel E kick-off: match copy team (?P<team>-?\d+) LH (?P<lh>\S+) BU (?P<bu>\S+) DA (?P<da>\S+) roles (?P<roles>\d+)/11 "
                      r"(?P<verdict>= [^|]*?)(?: \| (?P<details>.*))?$")
-RE_KICK_OTHER = re.compile(TS + r"channel E kick-off: (?P<what>(?:not checked|no match copy|check failed).*)$")
-RE_PHASE = re.compile(TS + r"channel E: Lua phase \S+ -> match")
+RE_KICK_NOT = re.compile(TS + r"channel E kick-off: not checked (?P<what>.*)$")
+RE_KICK_NONE = re.compile(TS + r"channel E kick-off: (?P<what>(?:no match copy|check failed).*)$")
 
 # switch files in turbo_output: (name, must exist)
 SWITCHES = [("call_team_sheet_on.txt", True), ("call_team_sheet_off.txt", False), ("tactics_off.txt", False),
@@ -66,10 +72,11 @@ def launch_start(lines, since):
 
 
 def evaluate(lines, start):
-    """(verdict, message lines): verdict 'PASS', 'FAIL' or 'WAIT' (no kick-off line yet)."""
+    """(verdict, message lines): 'PASS', 'FAIL', 'INCONCLUSIVE' or 'WAIT' (no kick-off result yet)."""
     out = []
     apply_i, apply_m, now = -1, None, None
     kick = None
+    none_final = None
     for i in range(start, len(lines)):
         l = lines[i]
         m = RE_APPLY.match(l)
@@ -77,7 +84,7 @@ def evaluate(lines, start):
             n = RE_NOW.search(m.group("tail"))
             if n:
                 apply_i, apply_m, now = i, m, n
-                kick = None  # a newer Apply: the kick-off must come after it
+                kick, none_final = None, None  # a newer Apply: the kick-off must come after it
             continue
         if apply_m is None:
             continue
@@ -85,20 +92,27 @@ def evaluate(lines, start):
             apply_i, apply_m, now = -1, None, None  # Turbo's values were put back before any kick-off
             out.append("note: an undo after the Apply at " + l[:23] + " (Apply again before kick-off)")
             continue
+        if kick is not None:
+            continue
         k = RE_KICK.match(l)
-        if k and kick is None:
+        if k:
             kick = (i, k)
             continue
-        o = RE_KICK_OTHER.match(l)
-        if o and kick is None:
-            out.append("kick-off line without a match copy: " + l)
+        o = RE_KICK_NOT.match(l)
+        if o:
+            return "FAIL", out + ["kick-off: " + l, "FAIL kick-off check did not run: not checked " + o.group("what")]
+        o = RE_KICK_NONE.match(l)
+        if o:
+            out.append("kick-off: " + l[:300])
             if "looking again" not in l:
-                return "FAIL", out + ["FAIL kick-off check did not read the match copy: " + o.group("what")]
+                none_final = o.group("what")
     if apply_m is None:
         return "FAIL", out + ["FAIL no channel E Apply line '(read back ok) ... [record now LH .. BU .. DA ..]' in this launch (Apply in the hub first)"]
     out.append("apply  : " + lines[apply_i])
     if kick is None:
-        return "WAIT", out + ["no kick-off line yet (kick off in Tactical View; the line comes about 20 s of Turbo's clock after Lua's match phase)"]
+        if none_final is not None:
+            return "INCONCLUSIVE", out + ["INCONCLUSIVE the match copy was not read (" + none_final[:200] + "): nothing proven either way"]
+        return "WAIT", out + ["no kick-off line yet (kick off in Tactical View; the line comes about 20 s of wall time after Lua's match phase)"]
     i, k = kick
     out.append("kickoff: " + lines[i][:400] + (" ..." if len(lines[i]) > 400 else ""))
     want = (apply_m.group("team"), now.group("lh"), now.group("bu"), now.group("da"))
@@ -112,14 +126,19 @@ def evaluate(lines, start):
     if k.group("roles") != "11":
         bad.append("roles %s/11" % k.group("roles"))
     verdict = k.group("verdict").strip()
+    if verdict.startswith("= unknown"):
+        return "INCONCLUSIVE", out + ["INCONCLUSIVE the match copy was found but a field is not decoded (" + verdict + "): read the raw bytes on the line"]
     if verdict != "= Turbo (ok)":
         bad.append("verdict '%s'" % verdict)
     if bad:
         return "FAIL", out + ["FAIL the match copy does not hold Turbo's values: " + "; ".join(bad)]
-    row = "cm_mentalities row written in the same job" if "; cm_mentalities artificialkey" in apply_m.group("what") else \
-        "cm_mentalities row NOT written (" + (re.search(r"\[cm_mentalities not written: ([^\]]*)\]", apply_m.group("tail")) or [None, "nothing to change"])[1] + ")"
-    return "PASS", out + ["PASS team %s LH %s BU %s DA %s roles 11/11 in the match copy = Turbo's Apply (%s; Apply %s, kick-off %s)" %
-                          (got + (row, lines[apply_i][:23], lines[i][:23]))]
+    row = RE_ROW.search(apply_m.group("what"))
+    if not row:
+        note = RE_ROW_NOTE.search(apply_m.group("tail"))
+        return "FAIL", out + ["FAIL row: the match copy holds Turbo's values (record proven) but the Apply's job did not write the cm_mentalities row (" +
+                              (note.group("why") if note else "no row named on the Apply line") + "): the one-write persistence half is not proven"]
+    return "PASS", out + ["PASS team %s LH %s BU %s DA %s roles 11/11 in the match copy = Turbo's Apply; cm_mentalities artificialkey %s%s written and read "
+                          "back in the same job (Apply %s, kick-off %s)" % (got + (row.group("key"), row.group("fields"), lines[apply_i][:23], lines[i][:23]))]
 
 
 def preflight(out_dir):
@@ -148,36 +167,50 @@ def run(log, since, wait, out_dir, quiet_preflight=False):
             if v == "WAIT":
                 print("INCONCLUSIVE no kick-off line within %.0f s" % wait)
                 return 3
-            return 0 if v == "PASS" else 1
+            return {"PASS": 0, "FAIL": 1, "INCONCLUSIVE": 3}[v]
         time.sleep(2.0)
 
 
 # ----------------------------------------------------------------------------------------------------------------- self-test
+# synthetic lines (round addresses: no game address is carried in git)
 APPLY = ("2026-10-14 09:31:02.100  channel E: team 95 record 0 approach 0->2 line height 25->70 build-up 0->1; cm_mentalities artificialkey 0 "
          "defensivedepth 25->70 buildupplay 0->1 (read back ok) [record now LH 70 BU 1 DA 2] [job 412 us, 31 reads]")
 APPLY_NOROW = ("2026-10-14 09:31:02.100  channel E: team 95 record 0 approach 0->2 line height 25->70 build-up 0->1 (read back ok) "
                "[cm_mentalities not written: kill switch turbo_output\\channel_e_db_off.txt is present] [record now LH 70 BU 1 DA 2] [job 380 us, 28 reads]")
-LAUNCH = "2026-10-14 09:28:00.001  channel E: anchors ok on build 6AC07E31-2145C000 (VT1 0x14AD7F6C8, SetSheet 0x145E43A60, UpdateSheet 0x145E43BA4, registry 0x14BE2A1F8)"
+APPLY_ROW_SAME = ("2026-10-14 09:31:02.100  channel E: team 95 record 0 approach 0->2 line height 25->70 build-up 0->1 (read back ok) "
+                  "[cm_mentalities not written: cm_mentalities artificialkey 0 already holds these values] [record now LH 70 BU 1 DA 2]")
+LAUNCH = "2026-10-14 09:28:00.001  channel E: anchors ok on build 6AC07E31-2145C000 (VT1 0x10000000, SetSheet 0x10001000, UpdateSheet 0x10002000, registry 0x10003000)"
 PHASE = "2026-10-14 09:32:10.000  channel E: Lua phase hub -> match: kick-off check in 20 s (the tactic after Turbo's write: Line Height 70, ...)"
-KICK_OK = ("2026-10-14 09:32:16.700  channel E kick-off: match copy team 95 LH 70 BU 1 DA 2 roles 11/11 = Turbo (ok) | 2 copies (0xFA6EF878, "
-           "0xFA76FA80; 3 pid / 3 role-word hit(s)); decode LH +0x158 BU +0x15B DA +0x15C u8 (T2 ...); window +0x150: 00 00 00 00 00 00 00 00 46 02 02 01 02")
-KICK_DIFF = ("2026-10-14 09:32:16.700  channel E kick-off: match copy team 95 LH 25 BU 0 DA 0 roles 11/11 = game (differs: copy 1: LH 25 not 70, "
+KICK_OK = ("2026-10-14 09:32:30.700  channel E kick-off: match copy team 95 LH 70 BU 1 DA 2 roles 11/11 = Turbo (ok) | 2 copies (0x10000000, "
+           "0x10001000; 3 pid / 3 role-word hit(s)); decode LH +0x158 BU +0x15B DA +0x15C u8 (T2 ...); raw LH +0x158=46 BU +0x15B=01 DA +0x15C=02; "
+           "u8 70 at +0x158; window +0x150: 00 00 00 00 00 00 00 00 46 02 02 01 02")
+KICK_DIFF = ("2026-10-14 09:32:30.700  channel E kick-off: match copy team 95 LH 25 BU 0 DA 0 roles 11/11 = game (differs: copy 1: LH 25 not 70, "
              "BU 0 not 1, DA 0 not 2; copy 2: LH 25 not 70, BU 0 not 1, DA 0 not 2) | 2 copies (...)")
-KICK_NOT = "2026-10-14 09:32:16.700  channel E kick-off: not checked (channel E is not switched on (turbo_output\\call_team_sheet_on.txt))"
-KICK_NONE1 = "2026-10-14 09:32:16.700  channel E kick-off: no match copy found (0 pid / 0 role-word hit(s), 0 in the match-setup layout); looked for ...; looking again in 30 s"
-KICK_NONE2 = "2026-10-14 09:32:26.700  channel E kick-off: no match copy found (0 pid / 0 role-word hit(s), 0 in the match-setup layout); looked for ... (second look)"
+KICK_UNKNOWN = ("2026-10-14 09:32:30.700  channel E kick-off: match copy team 95 LH 70 BU 1 DA ? roles 11/11 = unknown (DA not decoded: see the raw window) | "
+                "1 copy (0x10000000; ...); raw LH +0x158=46 BU +0x15B=01 DA +0x15C=02 (not decoded)")
+KICK_NOT = "2026-10-14 09:32:30.700  channel E kick-off: not checked (channel E is not switched on (turbo_output\\call_team_sheet_on.txt))"
+KICK_NONE1 = ("2026-10-14 09:32:30.700  channel E kick-off: no match copy found (0 pid / 0 role-word hit(s), 0 in the match-setup layout); looked for ... "
+              "(look 1 of 5); looking again in 15 s")
+KICK_NONE5 = ("2026-10-14 09:33:30.700  channel E kick-off: no match copy found (0 pid / 0 role-word hit(s), 0 in the match-setup layout); looked for ... "
+              "(look 5 of 5)")
+KICK_THREAD = "2026-10-14 09:32:30.700  channel E kick-off: check failed (the background thread could not be started)"
 UNDO = "2026-10-14 09:31:40.000  channel E: undo team 95 record 0 approach 2->0 line height 70->25 build-up 1->0 (read back ok) [record now LH 25 BU 0 DA 0]"
 OLD_LAUNCH_APPLY = APPLY.replace("2026-10-14 09:31", "2026-10-13 19:22")
 
 
 def self_test():
     cases = [
-        ("pass", [OLD_LAUNCH_APPLY, LAUNCH, APPLY, PHASE, KICK_OK], 0, "PASS team 95 LH 70 BU 1 DA 2", "cm_mentalities row written in the same job"),
-        ("pass, row left out", [LAUNCH, APPLY_NOROW, PHASE, KICK_OK], 0, "PASS", "cm_mentalities row NOT written (kill switch"),
+        ("pass: the record and the row", [OLD_LAUNCH_APPLY, LAUNCH, APPLY, PHASE, KICK_OK], 0, "PASS team 95 LH 70 BU 1 DA 2",
+         "cm_mentalities artificialkey 0 defensivedepth 25->70 buildupplay 0->1 written"),
+        ("the row left out by a switch: FAIL row", [LAUNCH, APPLY_NOROW, PHASE, KICK_OK], 1, "FAIL row: the match copy holds Turbo's values (record proven)",
+         "kill switch turbo_output\\channel_e_db_off.txt"),
+        ("the row already held the values: FAIL row (Apply other values)", [LAUNCH, APPLY_ROW_SAME, PHASE, KICK_OK], 1, "FAIL row:", "already holds these values"),
         ("the match copy differs", [LAUNCH, APPLY, PHASE, KICK_DIFF], 1, "FAIL the match copy does not hold Turbo's values", "LH 25, Turbo wrote 70"),
-        ("not checked", [LAUNCH, APPLY, PHASE, KICK_NOT], 1, "FAIL kick-off check did not read the match copy", "not switched on"),
-        ("no copy twice", [LAUNCH, APPLY, PHASE, KICK_NONE1, KICK_NONE2], 1, "FAIL kick-off check did not read the match copy", "second look"),
-        ("no copy yet, retry pending", [LAUNCH, APPLY, PHASE, KICK_NONE1], 3, "INCONCLUSIVE", ""),
+        ("a field not decoded: INCONCLUSIVE", [LAUNCH, APPLY, PHASE, KICK_UNKNOWN], 3, "INCONCLUSIVE the match copy was found but a field is not decoded", ""),
+        ("not checked: FAIL (a setup problem, said)", [LAUNCH, APPLY, PHASE, KICK_NOT], 1, "FAIL kick-off check did not run", "not switched on"),
+        ("no copy after 5 looks: INCONCLUSIVE, not FAIL", [LAUNCH, APPLY, PHASE, KICK_NONE1, KICK_NONE5], 3, "INCONCLUSIVE the match copy was not read", "look 5 of 5"),
+        ("no copy yet, more looks pending", [LAUNCH, APPLY, PHASE, KICK_NONE1], 3, "INCONCLUSIVE no kick-off line within", ""),
+        ("the check could not start: INCONCLUSIVE", [LAUNCH, APPLY, PHASE, KICK_THREAD], 3, "INCONCLUSIVE the match copy was not read", "background thread"),
         ("no apply in this launch (only the last launch's)", [OLD_LAUNCH_APPLY, LAUNCH, PHASE, KICK_OK], 1, "FAIL no channel E Apply line", ""),
         ("no kick-off yet", [LAUNCH, APPLY, PHASE], 3, "INCONCLUSIVE no kick-off line", ""),
         ("undo before kick-off", [LAUNCH, APPLY, UNDO, PHASE, KICK_OK], 1, "FAIL no channel E Apply line", "an undo after the Apply"),

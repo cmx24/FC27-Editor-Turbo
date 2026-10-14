@@ -1082,7 +1082,9 @@ void draw_body(App& app) {
                           std::to_string(lt.line_height) + " " + line_band_text(lt.line_height) + ", Build-Up Style " + build_up_text(lt.build_up) +
                           ", preset " + std::to_string(lt.preset) + " | sheet " + std::to_string(lt.sheet_id) + ", mode " + std::to_string(lt.mode) +
                           ", dirty " + std::to_string(lt.dirty) + ", record " + std::to_string(lt.at.record_index) + " of " + std::to_string(lt.at.records);
-        ImGui::TextWrapped("Live record (what the next match copies): %s", g_state.readout.c_str());
+        ImGui::TextWrapped("Live record (the next match is set up from it; its roles were seen in a match, its Line Height / Build-Up Style / "
+                           "Defensive Approach are what the kick-off line checks): %s",
+                           g_state.readout.c_str());
         for (int s = 0; s < kSlots; ++s) {
             const SlotView& v = lt.slots[size_t(s)];
             g_state.slots.push_back("slot " + std::to_string(s) + " " + position_name(v.position) + " " + player_label(app, v.pid) + ": role " +
@@ -1104,9 +1106,11 @@ void draw_body(App& app) {
     }
     ImGui::TextWrapped(
         "Apply in the career hub with Team Management (Edit Tactic) closed, before the pre-match screen: Turbo writes your club's live tactic "
-        "record, the record the next match copies. Leave Team Management with No when the game asks to save your team sheet. Turbo never saves. "
-        "Turbo re-reads the record 5 s after a write and after Team Management was open, and says so when the game replaced it; after kick-off "
-        "it reads the match's own copy of the tactic (read-only) and logs whether it holds these values.");
+        "record (the record the next match is set up from: its roles were seen in a match; whether its Line Height, Build-Up Style and Defensive "
+        "Approach reach the match is what the kick-off line checks) and, when it matches, its cm_mentalities row. Leave Team Management with No "
+        "when the game asks to save your team sheet. Turbo never saves. Turbo re-reads the record 5 s after a write and watches it after Team "
+        "Management was open, and says so when the game replaced it; after kick-off it reads the match's own copy of the tactic (read-only) "
+        "and logs whether it holds these values.");
     ImGui::PopID();
 }
 
