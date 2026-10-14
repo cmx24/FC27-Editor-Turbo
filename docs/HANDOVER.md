@@ -1,8 +1,37 @@
 # Turbo handover (read this first)
 
-Last updated: 2026-10-13 21:30 ET (2.4 implementation started: four code tracks in wt-24-* worktrees; gate X1 run in game = outcome 3; X2/X3 pending; Turbo 2.3.0 is still the released and installed version). Older sections below keep their own timestamps. Update this file after EVERY release and every session that changes code, saves or game state. Every update MUST end with a fresh section 11 (next-LLM prompt) that matches the current state.
+Last updated: 2026-10-13 23:20 ET (2.4.0 release candidate built on 2.4/release, not deployed; proofs TEST_26 pending Cassio's go; Turbo 2.3.0 is still the released and installed version). Older sections below keep their own timestamps. Update this file after EVERY release and every session that changes code, saves or game state. Every update MUST end with a fresh section 11 (next-LLM prompt) that matches the current state.
 
-## 00. Update 2026-10-13 21:30 - 2.4 implementation running; gate X1 done (outcome 3); X2/X3 pending (read first)
+## 00. Update 2026-10-13 23:20 - 2.4.0 release candidate built (not deployed); proofs pending Cassio's "go" (read first)
+
+**State:** game closed (Cassio played his own career 21:32-~22:50 on the installed 2.3.0; GAME_STATE CLOSED). Nothing deployed, pushed,
+tagged or released since 2.3.0. Saves: his career was played and saved by him - take fresh md5 baselines before the next session.
+
+**Release candidate:** branch `2.4/release` (worktree `turbo_dev\2.0\wt-24-release`) head 6a8a865 = turbo-2.0 36b72f3 + --no-ff merges of
+2.4/cleanup 9367c69, 2.4/tools e639c24, 2.4/tuning 47f47eb, 2.4/tactic eb18396 + guard sample fix 1b0132d + version 2.4.0 (6a8a865).
+check_all green: BUILD 0 warnings, LUA 405/0, NATIVE 29911/0 (= sum rule exactly), PY selftest_all 230 ok, CATALOG green; package
+--guard ok (23 knobs, 0 proven); dist zip sha256 2b6639ab...5d81, Turbo.dll 6bccf502...e054. Report `turbo_output\assessment_20261013\RC_24.md`.
+A last tuning fix (REVIEW_tuning_2.md: boot write must check "no match running" in the job; re-arm of a "rebuilt" moment; 2.3 keep
+notice) is in progress on 2.4/tuning and must be merged into 2.4/release (resolver `merge_24_resolver.sh`) before deploying.
+
+**Reviews:** every track got an adversarial review + fix pass (REVIEW_{tactic,tools,cleanup,tuning,tuning_2}.md in the same folder):
+tuning B1 (start-up crash on a malformed cross-check file) found and closed; tactic M2 (stale Re-apply into another career) closed;
+tools blocker (stale log addresses) closed; cleanup kept match_setup.* (proven features) - DECISION 3.2 and 3.1 (adapt_optional)
+amended on turbo-2.0 (7d03bd7, 0a13eab).
+
+**X1P (deterministic X1):** `turbo_output\assessment_20261013\X1P\` - the formation AI reads lineWidthModifier on every call (old-build
+static trace) into per-team state width; `x1p_check.py` reads it live (read-only) and judges PASS outcome 1/2 / FAIL 3 in <= 120 s.
+
+**Next session = TEST_26.md (pre-registered):** deploy 6a8a865+ (game closed, Cassio's go), launch 1 S-A1 + S-B1 (= X2) + X1P, launch 2
+differential + cleanup check, launch 3 X3 + S-B2 + Q5. Then CHANGELOG from the results, re-package, tag v2.4.0, push, GitHub release -
+only for what passed (tuning knobs stay LOCATED read-only unless an on-pitch proof exists; ask Cassio whether an X1P engine-read
+PASS should be enough to enable a slider - product decision, not taken).
+
+**Asset question (Cassio 22:45):** heads are complete for the installed files (census of all 714 character folders: 6,141 + Haidara
+201955 missed by the regex); callnames are complete for eng_us + ita_it; the other 11 languages are not installed (1 KB wc stubs, no
+cas). Cassio: "nothing to do on that front for now".
+
+## 00f. Update 2026-10-13 21:30 - 2.4 implementation running; gate X1 done (outcome 3); X2/X3 pending (read first)
 
 **Cassio, 20:38:** "resume the build after Fable's plan and updates ... never spend too much time on game tests - get in, prove the
 point, get out. i expect everything to be completed before 10pm." Told at 20:50: a PROVEN 2.4.0 cannot be released by 22:00 (the
