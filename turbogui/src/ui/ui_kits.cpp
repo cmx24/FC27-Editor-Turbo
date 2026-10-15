@@ -835,7 +835,7 @@ static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
     opt_changed |= ImGui::Checkbox("Also use the zip's badge and brand pictures##kswap", &decals);
     if (!decals) ImGui::BeginDisabled();
     ImGui::SameLine();
-    opt_changed |= ImGui::Checkbox("Keep the game's club badge (do not use the zip's crest pictures)##kswap", &keep_crest);
+    opt_changed |= ImGui::Checkbox("Do not use the zip's crest pictures##kswap", &keep_crest);
     if (!decals) ImGui::EndDisabled();
     opt_changed |= ImGui::Checkbox("Also change this club's other kits that share a texture with this one##kswap", &share_club);
     if (!have_opts) ImGui::EndDisabled();
@@ -855,7 +855,8 @@ static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
     }
     ImGui::PushTextWrapPos(0.0f);
     ImGui::TextDisabled("Takes effect when the game next loads this kit (the next match load, or after a game restart when the kit was already loaded this session). "
-                        "The zip's crest picture is usually blank: with 'keep the game's club badge' the game draws its own badge (if the zip's jersey also has a badge baked in, you may see two). "
+                        "The zip's crest picture is usually blank and its badge is baked into the jersey picture: its hotspot 'team' is then 'not used' (-0.5), and with 'Also use the zip's badge and brand pictures' ticked (default) the game's own chest badge is switched off, so you see ONE badge (the baked one). "
+                        "With that option unticked the game's badge is drawn as well and you may see two. "
                         "A texture the game shares with another club is never replaced. turbo_output\\kits3d_off.txt switches the feature off at once (it also stops the reading of the game's kit data); "
                         "the log is turbo_output\\kit_swap_log.txt.");
     ImGui::PopTextWrapPos();

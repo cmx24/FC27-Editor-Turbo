@@ -695,6 +695,16 @@ static void test_hotspots(const fs::path& base) {
     std::vector<uint8_t> e2 = orig;
     check(patch_hotspot_ebx(e2, path, zip, false, nullptr, &err) && getf(e2, 0, 0) == 0.5437f && getf(e2, 7, 0) == -0.5f && getf(e2, 1, 0) == 0.5803f,
           "decals off: team / brand kept, numbers still patched");
+    {   // decals off: the change list warns that the game's decal is drawn next to the zip's baked one (two badges); decals on: no such text
+        std::vector<uint8_t> e2b = orig, e2c = orig;
+        std::vector<std::string> chb, chc;
+        patch_hotspot_ebx(e2b, path, zip, false, &chb, &err);
+        patch_hotspot_ebx(e2c, path, zip, true, &chc, &err);
+        auto has = [](const std::vector<std::string>& v, const std::string& k) { for (const auto& t : v) if (t.find(k) != std::string::npos) return true; return false; };
+        check(has(chb, "jersey/team: zip says 'not used'") && has(chb, "baked into the picture") && has(chb, "second badge"), "decals off: the team entry's text explains the two-badge result");
+        check(!has(chc, "baked into the picture") && has(chc, "jersey/team (0.5437"), "decals on: the team entry is switched off, no warning");
+        check(count_patched(chb) < count_patched(chc) && !has(chb, "baked into the picture) ->"), "decals off: fewer rectangles patched (team kept), the warning text is not counted as a patch");
+    }
     // idempotent
     std::vector<uint8_t> e3 = e;
     ch.clear();
@@ -756,6 +766,23 @@ static void test_hotspots(const fs::path& base) {
     const PlanItem* hi = item_named(plan, "hotspots_95_0_0", "home_0_0");
     check(hi && hi->swap && hi->role == "hotspots" && hi->blocks == 1 && hi->reason.find("patched") != std::string::npos, "the hotspot asset is a plan item and in the table: " + (hi ? hi->reason : "missing"));
     check(!item_named(plan, "hotspots_96_0_0", "home_0_0"), "another club's hotspot asset is not part of the plan");
+    {  // watch only: the hotspot step is not run at all (no plan item, nothing in the table, a note says why)
+        TableBuilder twb;
+        Plan wplan = build_plan(files, stand_in_oodle(), idx, sk, opt, false, twb, nullptr);
+        check(wplan.ok, "watch plan ok: " + wplan.error);
+        bool any_hs = false, note = false;
+        for (const auto& pi : wplan.items) if (pi.role == "hotspots") any_hs = true;
+        for (const auto& n : wplan.notes) if (n.find("hotspots: not applied (watch only)") != std::string::npos) note = true;
+        check(!any_hs && note, "watch only: no hotspot plan item, a note instead");
+        std::vector<std::string> wdropped;
+        auto wtable = twb.finish(&wdropped);
+        GameBuilder wgb;
+        const std::vector<uint8_t> wstream = wgb.blocks_of(orig, 1 << 20);
+        std::vector<Block> wbl;
+        block_headers(wstream, wbl);
+        const Entry* wen = wtable->match(&wstream[size_t(wbl[0].payload)], wbl[0].csize, wbl[0].dsize);
+        check(wen == nullptr || !wtable->swap_item(wen->item), "watch only: the hotspot block is not a swap entry");
+    }
     std::vector<std::string> dropped;
     auto table = tb.finish(&dropped);
     GameBuilder gb;

@@ -731,7 +731,7 @@ static void kit_import_ui_cases(App& app, Ui& ui, const fs::path& le) {
                 }
             };
             wheel(-30.0f);
-            CHECK(ui.find("Show it on the pitch##kswap", "##tkits", "away") && ui.find("Keep the game's club badge (do not use the zip's crest pictures)##kswap", "##tkits", "away") &&
+            CHECK(ui.find("Show it on the pitch##kswap", "##tkits", "away") && ui.find("Do not use the zip's crest pictures##kswap", "##tkits", "away") &&
                       ui.find("Also change this club's other kits that share a texture with this one##kswap", "##tkits", "away"),
                   "the away kit has its own 3D controls and options");
             CHECK(!rt.is_active(7, 1), "away: off until switched on");
@@ -745,7 +745,7 @@ static void kit_import_ui_cases(App& app, Ui& ui, const fs::path& le) {
                 CHECK(rt.slot_options(7, 1, &d, &k, &sc) && sc, "away: sharing saved");
                 bool d0 = false, k0 = false, s0 = true;
                 CHECK(rt.slot_options(7, 0, &d0, &k0, &s0) && !s0, "... and the home kit's own choice is untouched");
-                CHECK(ui.click("Keep the game's club badge (do not use the zip's crest pictures)##kswap", "##tkits", "away") && rt.slot_options(7, 1, &d, &k, &sc) && !k && sc, "away: untick keep the game's badge");
+                CHECK(ui.click("Do not use the zip's crest pictures##kswap", "##tkits", "away") && rt.slot_options(7, 1, &d, &k, &sc) && !k && sc, "away: untick keep the game's badge");
                 rt.wait_idle();
             }
             CHECK(ui.click("Off##kswap", "##tkits", "away") && !rt.is_active(7, 1) && rt.is_active(7, 0), "away: Off leaves the home kit on");

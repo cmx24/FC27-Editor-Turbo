@@ -983,7 +983,12 @@ bool patch_hotspot_ebx(std::vector<uint8_t>& ebx, const std::string& res_name, c
         const bool goff = g[0] < 0.f && g[1] < 0.f && g[2] < 0.f && g[3] < 0.f;  // the game has this decal switched off for this kit
         if (goff && !neg) { ch.push_back(std::string(sl.key) + ": game has it off, kept"); continue; }
         if (neg) {
-            if (!sl.badge || !decals) { ch.push_back(std::string(sl.key) + ": zip says 'not used', game's kept"); continue; }
+            if (!sl.badge) { ch.push_back(std::string(sl.key) + ": zip says 'not used', game's kept"); continue; }
+            if (!decals) {
+                ch.push_back(std::string(sl.key) + ": zip says 'not used' (its badge / sponsor is baked into the picture), game's kept: with the zip's decals off the game's own decal is drawn too"
+                             " (a second badge / sponsor next to the baked one); tick 'Also use the zip's badge and brand pictures' for one");
+                continue;
+            }
         } else {
             const bool zpoint = std::fabs(z.x - z.z) < 1e-6f && std::fabs(z.y - z.w) < 1e-6f;
             const bool gpoint = std::fabs(g[0] - g[2]) < 1e-6f && std::fabs(g[1] - g[3]) < 1e-6f;
@@ -1290,7 +1295,9 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
             ++plan.swapped;
         }
         // 5. the hotspot asset(s): the zip's name / number / sleeve-badge placement
-        if (opt.apply_hotspots && !staged.hotspots.empty()) {
+        if (!swap && opt.apply_hotspots && !staged.hotspots.empty()) {
+            plan.notes.push_back("hotspots: not applied (watch only): the game's name and number positions stay");
+        } else if (opt.apply_hotspots && !staged.hotspots.empty()) {
             HotspotMap zip;
             std::string e;
             std::vector<uint8_t> jb;
