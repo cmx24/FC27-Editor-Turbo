@@ -1295,7 +1295,9 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
             ++plan.swapped;
         }
         // 5. the hotspot asset(s): the zip's name / number / sleeve-badge placement
-        if (opt.apply_hotspots && !staged.hotspots.empty()) {
+        if (!swap && opt.apply_hotspots && !staged.hotspots.empty()) {
+            plan.notes.push_back("hotspots: not applied (watch only): the game's name and number positions stay");
+        } else if (opt.apply_hotspots && !staged.hotspots.empty()) {
             HotspotMap zip;
             std::string e;
             std::vector<uint8_t> jb;

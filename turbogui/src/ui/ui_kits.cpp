@@ -835,7 +835,7 @@ static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
     opt_changed |= ImGui::Checkbox("Also use the zip's badge and brand pictures##kswap", &decals);
     if (!decals) ImGui::BeginDisabled();
     ImGui::SameLine();
-    opt_changed |= ImGui::Checkbox("Keep the game's club badge (do not use the zip's crest pictures)##kswap", &keep_crest);
+    opt_changed |= ImGui::Checkbox("Do not use the zip's crest pictures##kswap", &keep_crest);
     if (!decals) ImGui::EndDisabled();
     opt_changed |= ImGui::Checkbox("Also change this club's other kits that share a texture with this one##kswap", &share_club);
     if (!have_opts) ImGui::EndDisabled();
