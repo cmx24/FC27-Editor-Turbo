@@ -3,6 +3,29 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 2.8.0 (2026-10-15)
+
+Seen in game 2026-10-15 on build 6AC07E31 (test career LEICESTER, never saved). Everything not listed as seen is offline-tested only. Offline suites: SUITES_PLACEHOLDER
+
+**In-game verification of the INSTALLED 2.8.0 build is pending** (the sightings below were made on development builds of this code; to be updated after the installed build is launched).
+
+### In short
+- **NEW: 3D hair and beard on real scanned faces (opt-in).** Players > Appearance > "3D hair and beard": enrol a scanned player, pick a generic hair and/or beard, with a live preview. The first time a player is enrolled the game needs one restart; after that, changes made in the picker show in the capture preview without a restart.
+  - **Seen in game (build 6AC07E31, LEICESTER):** Chilwell, Evans and Coulibaly in Squad Hub and Edit Players; an 8-minute match stayed stable; a deliberately broken (syntax-error) override fell back to the game's own file; the capture preview updated without a restart (hair 155 / 696 and beard 46 were seen).
+  - **Not proven:** any other player id, in-match close-ups, any other game build (the feature switches itself off on every build except 6AC07E31), any other career, long sessions.
+- **How it works:** the game compiles `player_kit.lua` with Lua's `lua_load`; Turbo installs one hook on that call and serves a substituted `player_kit.lua` for that file only. The stock file is captured from your own game (`turbo_output\faces3d\stock_player_kit.cache`) and is never bundled with Turbo. On any mismatch (stock md5, anchor lines, build key) or compile error the game's own file is served.
+- **Kits (carried from 2.7.x, `799919e..2.7/kits-next`):** the status text now says plainly one badge (zip baked in) versus two (decals off) and the two-badge case is logged; the hotspot patch (name / number placement) is applied only for "Show" slots, never for "Watch only"; the crest option label says what it does. Offline-tested only; the kit results from 2.7.0 stand as written there.
+- **Not in this release:** game-settings presets (parked), tactics (no tuning slider; the tactics overhaul is not done).
+
+### Switches
+- Opt-in: `turbo_output\faces3d_on.txt` (written by the picker when you Apply). Without it the hook is not installed and nothing is scanned or logged.
+- Kill switches (any one present = every call passes through untouched, re-read every 250 ms): `turbo_output\faces3d_off.txt`, `turbo_output\hook_lua_load_off.txt`, `turbo_output\game_hooks_off.txt`.
+- Developer opt-ins (not needed for the picker): `lua_loader_on.txt` (log only), `lua_loader_substitute.txt` (with the first).
+- A `player_kit.lua` under `mods\legacy\data\fifarna\lua\assets\` is a conflict: Turbo warns and refuses to substitute.
+
+### Uninstall
+Press Remove in the picker, or delete `turbo_output\faces3d_on.txt` (and `turbo_output\lua_override\player_kit.lua`) and restart the game. Your choices stay in `turbo_output\faces3d\players.json`.
+
 ## 2.7.0 (2026-10-14)
 
 Seen in game 2026-10-14 on build 6AC07E31 (test career LEICESTER, never saved, save files byte-identical afterwards; `turbo_dev\evidence6-10-14\TEST_29.md`). Offline suites: build 0 warnings, Lua 405/0, native 31,992/0, Python and catalog all pass.
