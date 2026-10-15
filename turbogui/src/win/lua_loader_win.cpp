@@ -8,8 +8,11 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <memory>
+#include <mutex>
 
 #include "MinHook.h"
+#include "core/devops.h"
 #include "core/lua_loader.h"
 #include "host.h"
 
@@ -26,8 +29,19 @@ std::atomic<bool> g_installed{false};
 std::atomic<bool> g_substitute{false};
 std::string g_state = "starting";  // written by the loader thread only, before g_installed / g_done
 std::atomic<bool> g_done{false};   // g_state is final
+std::atomic<bool> g_legacy_refused{false};
+std::atomic<bool> g_cache_written{false};
 std::string g_build;
 uint64_t g_exe_base = 0, g_exe_size = 0;
+
+// STOCK CAPTURE: the first publishable capture, handed from a game thread to the watcher (which writes the cache file)
+std::mutex g_cap_m;
+std::shared_ptr<const std::string> g_cap_bytes;
+std::string g_cap_md5, g_cap_row, g_cache_error;
+// reader_capturable: the verdict for the last reader address checked (one address in practice)
+std::mutex g_rv_m;
+uint64_t g_rv_addr = 0;
+bool g_rv_ok = false;
 
 ll::Engine* g_engine = nullptr;  // never freed: the detours read it for the lifetime of the process
 ll::LineQueue g_lines(50000);
@@ -145,6 +159,59 @@ bool lua_pop1(void* L) {
     return true;
 }
 
+// The live code at `reader` equals kOtherReaderExpect (exact bytes): only then does Turbo call that reader itself
+bool reader_capturable(uint64_t reader) {
+    {
+        std::lock_guard<std::mutex> lk(g_rv_m);
+        if (reader && reader == g_rv_addr) return g_rv_ok;
+    }
+    std::vector<uint8_t> eb;
+    std::vector<bool> em;
+    bool ok = false;
+    uint8_t code[64] = {0};
+    if (reader && turbo::parse_pattern(ll::kOtherReaderExpect, eb, em) && eb.size() <= sizeof(code) && ProcessMemory().read(reader, code, eb.size()))
+        ok = std::memcmp(code, eb.data(), eb.size()) == 0;
+    {
+        std::lock_guard<std::mutex> lk(g_rv_m);
+        g_rv_addr = reader;
+        g_rv_ok = ok;
+    }
+    g_lines.push(std::string("lua_loader: reader ") + where(reader) +
+                 (ok ? " has the verified one-shot reader bytes (35): stock capture on" : " is NOT the verified one-shot reader: no capture, pass-through"));
+    return ok;
+}
+
+void save_capture(const std::string& row, std::shared_ptr<const std::string> bytes, const std::string& md5) {
+    std::lock_guard<std::mutex> lk(g_cap_m);
+    if (g_cap_bytes) return;
+    g_cap_bytes = std::move(bytes);
+    g_cap_md5 = md5;
+    g_cap_row = row;
+}
+
+void write_pending_capture() {
+    std::shared_ptr<const std::string> b;
+    std::string md5, row;
+    {
+        std::lock_guard<std::mutex> lk(g_cap_m);
+        if (!g_cap_bytes || g_cache_written.load() || !g_cache_error.empty()) return;
+        b = g_cap_bytes;
+        md5 = g_cap_md5;
+        row = g_cap_row;
+    }
+    const fs::path p = out_dir() / ll::kStockCacheRel;
+    std::string err;
+    if (ll::write_file_atomic(p.u8string(), *b, &err)) {
+        g_cache_written = true;
+        log("lua_loader: stock %s cache written: turbo_output\\%s, %llu bytes, md5 %s", row.c_str(), ll::kStockCacheRel,
+            static_cast<unsigned long long>(b->size()), md5.c_str());
+    } else {
+        std::lock_guard<std::mutex> lk(g_cap_m);
+        g_cache_error = err;
+        log("lua_loader: stock %s cache NOT written: %s", row.c_str(), err.c_str());
+    }
+}
+
 std::string now_text() {
     SYSTEMTIME st;
     GetLocalTime(&st);
@@ -238,15 +305,17 @@ void set_state(const std::string& s) { g_state = s; }
 void watcher() {
     const fs::path off = out_dir() / "hook_lua_load_off.txt";
     const fs::path all_off = out_dir() / "game_hooks_off.txt";
+    const fs::path faces_off = out_dir() / "faces3d_off.txt";
     bool was = g_engine->killed();
     for (;;) {
-        const bool k = file_exists(off) || file_exists(all_off);
+        const bool k = file_exists(off) || file_exists(all_off) || file_exists(faces_off);
         g_engine->set_killed(k);
         if (k != was) {
             log("lua_loader: kill switch %s: %s", k ? "present" : "removed", k ? "every lua_load call passes through untouched" : "logging again");
             was = k;
         }
         for (const auto& line : g_lines.take()) log("%s", line.c_str());
+        write_pending_capture();
         static long long dropped_logged = 0;
         const long long d = g_lines.dropped();
         if (d != dropped_logged) {
@@ -259,11 +328,21 @@ void watcher() {
 
 void run() {
     const fs::path out = out_dir();
-    if (!file_exists(out / "lua_loader_on.txt")) return;  // not opted in: nothing at all, not even a log line
+    ll::StartSwitches sw;
+    sw.lua_on = file_exists(out / "lua_loader_on.txt");
+    sw.lua_substitute = file_exists(out / "lua_loader_substitute.txt");
+    sw.faces_on = file_exists(out / "faces3d_on.txt");
+    sw.faces_off = file_exists(out / "faces3d_off.txt");
+    sw.hook_off = file_exists(out / "hook_lua_load_off.txt");
+    sw.game_hooks_off = file_exists(out / "game_hooks_off.txt");
+    sw.legacy_present = file_exists(le_root() / ll::kLegacyKitRel);
+    const ll::StartDecision dec = ll::decide_start(sw);
+    if (!dec.opted_in) return;  // not opted in: nothing at all, not even a log line
     g_opted_in = true;
-    const bool substitute = file_exists(out / "lua_loader_substitute.txt");
-    log("lua_loader: opt-in turbo_output\\lua_loader_on.txt present: %s (kill switch turbo_output\\hook_lua_load_off.txt)",
-        substitute ? "SUBSTITUTE mode (turbo_output\\lua_loader_substitute.txt present)" : "LOG-ONLY mode");
+    const bool substitute = dec.substitute;
+    log("lua_loader: opt-in %s present: %s (kill switches turbo_output\\hook_lua_load_off.txt, faces3d_off.txt)",
+        sw.faces_on ? "turbo_output\\faces3d_on.txt" : "turbo_output\\lua_loader_on.txt",
+        substitute ? "SUBSTITUTE mode" : dec.capture_mode ? "LOG-ONLY mode (capture mode: the first stock capture is cached)" : "LOG-ONLY mode");
     auto refuse = [](const std::string& why) {
         set_state("off: " + why);
         g_done = true;
@@ -271,8 +350,11 @@ void run() {
     };
     if (env_is(L"TURBO_GUI_DISABLE", L"1") || file_exists(out / "turbo_gui_disable.txt")) return refuse("Turbo GUI kill switch (turbo_gui_disable.txt)");
     if (env_is(L"TURBO_GUI_NO_GAME_HOOKS", L"1")) return refuse("TURBO_GUI_NO_GAME_HOOKS=1");
-    if (file_exists(out / "game_hooks_off.txt")) return refuse("turbo_output\\game_hooks_off.txt present");
-    if (file_exists(out / "hook_lua_load_off.txt")) return refuse("kill switch turbo_output\\hook_lua_load_off.txt present");
+    if (dec.refused) return refuse(dec.why);
+    if (dec.legacy_refused) {
+        g_legacy_refused = true;
+        log("lua_loader: %s", dec.why.c_str());
+    }
     const fs::path flag = out / "lua_loader_start.flag";
     if (file_exists(flag))
         return refuse("turbo_output\\lua_loader_start.flag is left from an install that did not finish (the game may have crashed): delete it to try again");
@@ -292,6 +374,12 @@ void run() {
             ll::Override& o = overrides[i];
             o.error = ok ? ll::override_refusal(bytes) : "file missing";
             if (o.error.empty()) {
+                const ll::OverrideHeader h = ll::parse_override_header(bytes);
+                if (h.ok)
+                    log("lua_loader: row %s override header: build %s (running %s: %s), stock %s, table %s", rows[i].name.c_str(), h.build.c_str(),
+                        g_build.c_str(), h.build == g_build ? "ok" : "STALE, stock will be served", h.stock.c_str(), h.table.c_str());
+                else
+                    log("lua_loader: row %s override header: %s (stock will be served)", rows[i].name.c_str(), h.error.c_str());
                 char* keep = new char[bytes.size()];
                 std::memcpy(keep, bytes.data(), bytes.size());
                 o.data = keep;
@@ -303,11 +391,12 @@ void run() {
             } else {
                 log("lua_loader: row %s: turbo_output\\%s not used: %s", rows[i].name.c_str(), rows[i].override_rel.c_str(), o.error.c_str());
             }
-            if (!rows[i].chunkname.empty())
-                log("lua_loader: row %s also matches by chunkname \"%s\" on build %s (running %s: %s)", rows[i].name.c_str(), rows[i].chunkname.c_str(),
-                    rows[i].build.c_str(), g_build.c_str(), rows[i].build == g_build ? "gate passes" : "gate CLOSED, no chunkname substitution");
         }
     }
+    for (const auto& r : rows)
+        if (!r.chunkname.empty())
+            log("lua_loader: row %s: stock capture by chunkname \"%s\" on the verified one-shot reader (chunkname seen on %s; running %s)", r.name.c_str(),
+                r.chunkname.c_str(), r.build.c_str(), g_build.c_str());
 
     const std::vector<turbo::Signature> sigs = ll::signatures();
     const std::vector<turbo::Signature> first(sigs.begin(), sigs.begin() + 1);  // lua_load alone until it shows up
@@ -373,6 +462,8 @@ void run() {
     env.thread_id = []() { return uint32_t(GetCurrentThreadId()); };
     env.now = now_text;
     env.emit = [](const std::string& s) { g_lines.push(s); };
+    env.reader_capturable = reader_capturable;
+    env.save_capture = save_capture;
     if (at.top_layout_ok) {  // the fallback's pop is safe only on the layout checked in lua_load's own bytes
         env.stack_depth = lua_stack_depth;
         env.top_message = lua_top_message;
@@ -401,7 +492,11 @@ void run() {
             blob = 0;
         }
     }
-    g_engine->configure(at.gets, blob, substitute, rows, overrides, g_build);
+    ll::CaptureConfig cap;
+    cap.enabled = true;
+    cap.capture_mode = dec.capture_mode;
+    cap.legacy_present = sw.legacy_present;
+    g_engine->configure(at.gets, blob, substitute, rows, overrides, g_build, cap);
     g_substitute = substitute;
     void* target = reinterpret_cast<void*>(static_cast<uintptr_t>(at.lua_load));
     MH_STATUS st = MH_CreateHook(target, reinterpret_cast<void*>(&hk_lua_load), reinterpret_cast<void**>(&o_lua_load));
@@ -456,7 +551,34 @@ std::vector<std::string> lua_loader_status() {
                 " | substituted " + std::to_string(s.substituted) + " | fallbacks " + std::to_string(s.fallbacks) + " | errors " + std::to_string(s.errors) + (g_engine->killed() ? " [kill switch]" : "");
     }
     v.push_back(line);
+    const turbo::lualoader::Faces3dStatus f = faces3d_status();
+    if (f.installed) {
+        std::string l2 = "Faces 3D (player_kit.lua): ";
+        l2 += f.captured_md5.empty() ? std::string("stock not captured yet") : "stock " + std::to_string(f.captured_size) + " B md5 " + f.captured_md5;
+        l2 += f.legacy_refused ? " | substitution REFUSED (mods\\legacy player_kit.lua present)" : f.substitute ? " | substitute" : " | log-only";
+        if (f.substitute)
+            l2 += std::string(" | override header ") +
+                  (!f.header_ok ? "missing/invalid" : !f.build_key_ok ? "other build" : (f.stock_matches_header || f.captured_md5.empty()) ? "ok" : "STALE");
+        l2 += " | captures " + std::to_string(f.captures) + " | served stock " + std::to_string(f.served_stock) + " | substituted " + std::to_string(f.substituted) +
+              " | fallbacks " + std::to_string(f.fallbacks) + (f.cache_written ? " | cache written" : "");
+        if (!f.last_error.empty()) l2 += " | last: " + f.last_error;
+        v.push_back(l2);
+    }
     return v;
+}
+
+turbo::lualoader::Faces3dStatus faces3d_status() {
+    turbo::lualoader::Faces3dStatus st;
+    st.opted_in = g_opted_in.load();
+    st.installed = g_installed.load() && g_engine;
+    if (st.installed) g_engine->fill_status(st);
+    st.legacy_refused = st.legacy_refused || g_legacy_refused.load();
+    st.cache_written = g_cache_written.load();
+    {
+        std::lock_guard<std::mutex> lk(g_cap_m);
+        if (!g_cache_error.empty() && st.last_error.empty()) st.last_error = "cache: " + g_cache_error;
+    }
+    return st;
 }
 
 }  // namespace host

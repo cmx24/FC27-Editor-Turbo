@@ -1,8 +1,11 @@
 // FC 27 LE Turbo GUI - Lua loader hook, platform-independent part (see lua_loader.h)
 #include "core/lua_loader.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 
 #include "core/devops.h"
 
@@ -266,6 +269,136 @@ std::string override_refusal(const std::string& bytes) {
     return "";
 }
 
+// ---------------------------------------------------------------- faces3d
+const char* const kOtherReaderExpect =
+    "80 7A 08 00 74 0A 49 C7 00 00 00 00 00 33 C0 C3 48 8B 02 C6 42 08 01 48 8B 48 20 49 89 08 48 8B 40 18 C3";
+const char* const kStockCacheRel = "faces3d\\stock_player_kit.cache";
+const char* const kLegacyKitRel = "mods\\legacy\\data\\fifarna\\lua\\assets\\player_kit.lua";
+
+namespace {
+bool is_md5_hex(const std::string& s) {
+    if (s.size() != 32) return false;
+    for (char c : s)
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+    return true;
+}
+std::string lower(std::string s) {
+    for (char& c : s)
+        if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
+    return s;
+}
+}  // namespace
+
+OverrideHeader parse_override_header(const std::string& bytes) {
+    OverrideHeader h;
+    size_t e = bytes.find('\n');
+    std::string line = bytes.substr(0, e == std::string::npos ? std::min<size_t>(bytes.size(), 512) : std::min<size_t>(e, 512));
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    std::vector<std::string> t;
+    size_t i = 0;
+    while (i < line.size()) {
+        while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) ++i;
+        size_t j = i;
+        while (j < line.size() && line[j] != ' ' && line[j] != '\t') ++j;
+        if (j > i) t.push_back(line.substr(i, j - i));
+        i = j;
+    }
+    if (t.size() < 2 || t[0] != "--" || t[1] != "TURBO") {
+        h.error = "no TURBO header on the first line (want `-- TURBO build <key> stock <md5> table <hash>`)";
+        return h;
+    }
+    if (t.size() != 8 || t[2] != "build" || t[4] != "stock" || t[6] != "table") {
+        h.error = "malformed TURBO header: " + line.substr(0, 160);
+        return h;
+    }
+    h.build = t[3];
+    h.stock = lower(t[5]);
+    h.table = t[7];
+    if (!is_md5_hex(h.stock)) {
+        h.error = "TURBO header stock is not an md5: " + t[5];
+        return h;
+    }
+    h.ok = true;
+    return h;
+}
+
+std::string make_override_header(const std::string& build, const std::string& stock_md5, const std::string& table) {
+    return "-- TURBO build " + build + " stock " + lower(stock_md5) + " table " + table;
+}
+
+StartDecision decide_start(const StartSwitches& s) {
+    StartDecision d;
+    d.opted_in = s.lua_on || s.faces_on;
+    if (!d.opted_in) return d;
+    if (s.game_hooks_off) d.why = "turbo_output\\game_hooks_off.txt present";
+    else if (s.hook_off) d.why = "kill switch turbo_output\\hook_lua_load_off.txt present";
+    else if (s.faces_off) d.why = "kill switch turbo_output\\faces3d_off.txt present";
+    if (!d.why.empty()) {
+        d.refused = true;
+        return d;
+    }
+    const bool want_sub = s.faces_on || (s.lua_on && s.lua_substitute);
+    if (want_sub && s.legacy_present) {
+        d.legacy_refused = true;
+        d.why = std::string(kLegacyKitRel) +
+                " is present: substitution refused (LE would serve that file; a longer player_kit.lua crashes match load). Remove it; the hook "
+                "runs LOG-ONLY and caches nothing.";
+    }
+    d.substitute = want_sub && !s.legacy_present;
+    d.capture_mode = !d.substitute && !s.legacy_present;
+    return d;
+}
+
+bool write_file_atomic(const std::string& path_utf8, const std::string& bytes, std::string* err) {
+    namespace fs = std::filesystem;
+    const fs::path p = fs::u8path(path_utf8);
+    std::error_code ec;
+    if (p.has_parent_path()) fs::create_directories(p.parent_path(), ec);
+    fs::path tmp = p;
+    tmp += ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+        if (!f) {
+            if (err) *err = "cannot write " + tmp.u8string();
+            return false;
+        }
+        f.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        f.flush();
+        if (!f) {
+            if (err) *err = "writing " + tmp.u8string() + " failed";
+            f.close();
+            fs::remove(tmp, ec);
+            return false;
+        }
+    }
+    fs::rename(tmp, p, ec);  // libstdc++ on Windows: MoveFileExW(MOVEFILE_REPLACE_EXISTING)
+    if (ec) {
+        std::error_code ec2;
+        fs::remove(p, ec2);
+        ec.clear();
+        fs::rename(tmp, p, ec);
+        if (ec) {
+            fs::remove(tmp, ec2);
+            if (err) *err = "rename to " + p.u8string() + " failed: " + ec.message();
+            return false;
+        }
+    }
+    return true;
+}
+
+bool set_faces3d_opt_in(const std::string& turbo_output_utf8, bool on, std::string* err) {
+    namespace fs = std::filesystem;
+    const fs::path p = fs::u8path(turbo_output_utf8) / "faces3d_on.txt";
+    if (on) return write_file_atomic(p.u8string(), "faces3d opt-in (Turbo GUI): the Lua loader hook serves turbo_output\\lua_override\\player_kit.lua\r\n", err);
+    std::error_code ec;
+    fs::remove(p, ec);
+    if (ec && fs::exists(p)) {
+        if (err) *err = "cannot remove " + p.u8string() + ": " + ec.message();
+        return false;
+    }
+    return true;
+}
+
 // ---------------------------------------------------------------- engine
 const char* reader_kind_name(ReaderKind k) {
     switch (k) {
@@ -317,12 +450,19 @@ std::string format_line(const CallRecord& r) {
     } else {
         s += " size=-";
     }
+    if (r.captured) {
+        char b[128];
+        std::snprintf(b, sizeof(b), " captured stock %s: %llu bytes md5 ", r.row.c_str(), static_cast<unsigned long long>(r.size));
+        s += b;
+        s += r.md5;
+    }
     if (!r.note.empty()) s += " note=\"" + r.note + "\"";
+    if (r.served_stock) s += " served captured stock";
     if (r.substituted && r.by_chunkname) {
         char b[128];
         std::snprintf(b, sizeof(b), " SUBSTITUTED row=%s override bytes %llu md5 ", r.row.c_str(), static_cast<unsigned long long>(r.new_size));
         s += b;
-        s += r.new_md5 + " (stock unknown: chunkname match)";
+        s += r.new_md5 + (r.captured ? " (chunkname match, header matches the captured stock)" : " (stock unknown: chunkname match)");
     } else if (r.substituted) {
         char b[96];
         std::snprintf(b, sizeof(b), " SUBSTITUTED row=%s new_size=0x%llX(%llu) new_md5=", r.row.c_str(), static_cast<unsigned long long>(r.new_size),
@@ -331,7 +471,8 @@ std::string format_line(const CallRecord& r) {
         s += r.new_md5;
     }
     if (r.fallback)
-        s += " fallback to original (override failed: rc=" + std::to_string(r.override_rc) + " " + r.override_msg + ")";
+        s += std::string(r.captured ? " fallback to captured stock" : " fallback to original") + " (override failed: rc=" + std::to_string(r.override_rc) +
+             " " + r.override_msg + ")";
     s += " rc=" + std::to_string(r.rc);
     return s;
 }
@@ -349,6 +490,46 @@ const char* sub_reader(void*, void* data, size_t* size) {
     s->done = true;
     *size = s->n;
     return s->p;
+}
+
+// The captured stock source, replayed to lua_load after Turbo drained the game's reader (which is then consumed). Fixed-size piece
+// table on the detour's stack (no allocation before the drain is complete); `copy` (when set) is Turbo's own contiguous copy, else
+// the pieces are replayed exactly as the game's reader returned them; `tail` is the game's reader itself when more than kMax
+// pieces came (the rest is read through it: no md5, no substitution, no rewind).
+struct Replay {
+    static const int kMax = 64;
+    const char* p[kMax];
+    size_t n[kMax];
+    int count = 0;
+    int idx = 0;
+    Reader tail = nullptr;
+    void* tail_data = nullptr;
+    const char* copy = nullptr;
+    size_t copy_n = 0;
+    bool copy_done = false;
+    void rewind() {
+        idx = 0;
+        copy_done = false;
+    }
+};
+const char* replay_reader(void* L, void* data, size_t* size) {
+    auto* r = static_cast<Replay*>(data);
+    if (r->copy) {
+        if (r->copy_done) {
+            *size = 0;
+            return nullptr;
+        }
+        r->copy_done = true;
+        *size = r->copy_n;
+        return r->copy;
+    }
+    if (r->idx < r->count) {
+        *size = r->n[r->idx];
+        return r->p[r->idx++];
+    }
+    if (r->tail) return r->tail(L, r->tail_data, size);
+    *size = 0;
+    return nullptr;
 }
 }  // namespace
 
@@ -369,16 +550,67 @@ struct DepthGuard {
 }  // namespace
 
 void Engine::configure(uint64_t gets, uint64_t blob_reader, bool substitute, std::vector<Row> rows, std::vector<Override> overrides,
-                       std::string running_build) {
+                       std::string running_build, CaptureConfig capture) {
     gets_ = gets;
     blob_ = blob_reader;
-    substitute_ = substitute;
+    capture_ = capture;
+    substitute_ = substitute && !capture.legacy_present;
     rows_ = std::move(rows);
     overrides_ = std::move(overrides);
     overrides_.resize(rows_.size());
     build_ = std::move(running_build);
     failed_.reset(new std::atomic<bool>[rows_.size() + 1]);
-    for (size_t i = 0; i <= rows_.size(); ++i) failed_[i].store(false);
+    published_.reset(new std::atomic<bool>[rows_.size() + 1]);
+    for (size_t i = 0; i <= rows_.size(); ++i) {
+        failed_[i].store(false);
+        published_[i].store(false);
+    }
+    headers_.assign(rows_.size(), OverrideHeader());
+    for (size_t i = 0; i < rows_.size(); ++i) {
+        const Override& o = overrides_[i];
+        if (o.data && o.size && o.error.empty()) headers_[i] = parse_override_header(std::string(o.data, std::min<size_t>(o.size, 600)));
+        else headers_[i].error = o.error.empty() ? "override not loaded" : o.error;
+    }
+}
+
+void Engine::set_error(const std::string& e) {
+    std::lock_guard<std::mutex> lk(st_m_);
+    last_error_ = e;
+}
+
+void Engine::note_capture(uint64_t size, const std::string& md5) {
+    std::lock_guard<std::mutex> lk(st_m_);
+    if (captured_md5_.empty()) {
+        captured_md5_ = md5;
+        captured_size_ = size;
+    } else if (captured_md5_ != md5 || captured_size_ != size) {
+        ++capture_mismatch_;
+        last_error_ = "two captures of the same row differ: " + captured_md5_ + " vs " + md5;
+    }
+}
+
+void Engine::fill_status(Faces3dStatus& st) const {
+    const Stats s = stats();
+    st.captures = s.captures;
+    st.served_stock = s.served_stock;
+    st.substituted = s.substituted;
+    st.fallbacks = s.fallbacks;
+    st.capture_refused = s.capture_refused;
+    st.capture_mismatch = s.capture_mismatch;
+    st.running_build = build_;
+    st.substitute = substitute_;
+    st.legacy_refused = capture_.legacy_present;
+    st.killed = killed();
+    if (!headers_.empty()) {
+        st.header_ok = headers_[0].ok;
+        st.build_key_ok = headers_[0].ok && !build_.empty() && headers_[0].build == build_;
+        st.header_stock = headers_[0].stock;
+    }
+    std::lock_guard<std::mutex> lk(st_m_);
+    st.captured_md5 = captured_md5_;
+    st.captured_size = captured_size_;
+    st.stock_matches_header = st.header_ok && !captured_md5_.empty() && captured_md5_ == st.header_stock;
+    if (!last_error_.empty()) st.last_error = last_error_;
 }
 
 Engine::Stats Engine::stats() const {
@@ -392,6 +624,11 @@ Engine::Stats Engine::stats() const {
     s.substituted = substituted_.load();
     s.errors = errors_.load();
     s.fallbacks = fallbacks_.load();
+    s.captures = captures_.load();
+    s.served_stock = served_stock_.load();
+    s.capture_refused = capture_refused_.load();
+    s.capture_mismatch = capture_mismatch_.load();
+    s.published = published_count_.load();
     return s;
 }
 
@@ -475,6 +712,9 @@ int Engine::on_lua_load(LuaLoadFn orig, void* L, Reader reader, void* data, cons
     bool raw_ok = false;
     int chunk_row = -1;           // >= 0: substituted by chunkname (the fallback applies)
     long long depth_before = -1;  // stack depth before the substituted call
+    Replay replay;                // the drained stock source (STOCK CAPTURE); fixed size, on this thread's stack
+    bool drained = false;         // the game's reader was consumed: every path from here serves `replay` or the override
+    std::string copy;             // Turbo's copy of the drained stock (outlives every lua_load call below)
     try {
         fill_common(rec, raw, raw_ok, reader, chunkname, mode, caller);
         ctx.data = data;
@@ -519,46 +759,120 @@ int Engine::on_lua_load(LuaLoadFn orig, void* L, Reader reader, void* data, cons
             } else {
                 rec.note = "reader data unreadable";
             }
-        } else if (substitute_ && raw_ok) {
-            // A reader Turbo cannot measure: substitution by exact chunkname, behind every gate
+        } else if (raw_ok && capture_.enabled) {
+            // STOCK CAPTURE: a chunkname row on a reader whose live bytes are the known one-shot leaf reader
             const int row = match_chunkname_row(rows_, raw.data(), raw.size());
             if (row >= 0) {
                 const Row& rw = rows_[size_t(row)];
-                const Override& o = overrides_[size_t(row)];
-                if (rw.build.empty() || build_.empty() || rw.build != build_) {
-                    rec.note = "row " + rw.name + " chunkname matched; build gate: running " + (build_.empty() ? std::string("unknown") : build_) +
-                               ", row wants " + (rw.build.empty() ? std::string("none") : rw.build) + ": original";
-                } else if (!(o.data && o.size && o.error.empty())) {
-                    rec.note = "row " + rw.name + " chunkname matched but its override is not loaded";
-                } else if (!ctx.text_ok) {
-                    rec.note = "row " + rw.name + " chunkname matched but mode refuses text: original";
-                } else if (!env_.stack_depth || !env_.top_message || !env_.pop1) {
-                    rec.note = "row " + rw.name + " chunkname matched but the lua_load stack layout is not confirmed (no safe fallback): original";
-                } else if (failed_[size_t(row)].load(std::memory_order_acquire)) {
-                    rec.note = "row " + rw.name + " override failed to compile earlier: original";
-                } else if ((depth_before = env_.stack_depth(L)) < 0) {
-                    rec.note = "row " + rw.name + " chunkname matched but the Lua stack is unreadable: original";
+                rec.row = rw.name;
+                const uint64_t ra = reinterpret_cast<uint64_t>(reader);
+                if (!env_.reader_capturable || !env_.reader_capturable(ra)) {
+                    ++capture_refused_;
+                    rec.note = "row " + rw.name + " chunkname matched but the reader's code is not the verified one-shot reader: not captured, original";
+                    set_error(rec.note);
                 } else {
-                    sub = SubSource{o.data, o.size, false};
-                    use_reader = &sub_reader;
-                    use_data = &sub;
-                    chunk_row = row;
-                    rec.substituted = true;
-                    rec.by_chunkname = true;
-                    rec.row = rw.name;
-                    rec.new_size = o.size;
-                    rec.new_md5 = o.md5;
+                    // 1. drain (no allocation, nothing that throws): the lua_Reader contract, until NULL or size 0
+                    bool complete = false;
+                    while (replay.count < Replay::kMax) {
+                        size_t sz = 0;
+                        const char* p = reader(L, data, &sz);
+                        if (!p || sz == 0) {
+                            complete = true;
+                            break;
+                        }
+                        replay.p[replay.count] = p;
+                        replay.n[replay.count] = sz;
+                        ++replay.count;
+                    }
+                    if (!complete) {
+                        replay.tail = reader;  // more pieces than kMax: the rest comes from the game's reader itself
+                        replay.tail_data = data;
+                    }
+                    drained = true;
+                    use_reader = &replay_reader;
+                    use_data = &replay;
+                    // 2. copy + md5 (may throw: the catch below keeps serving `replay` as drained)
+                    uint64_t total = 0;
+                    bool readable = complete;
+                    for (int i = 0; i < replay.count && readable; ++i) {
+                        total += replay.n[i];
+                        if (!env_.readable(replay.p[i], replay.n[i])) readable = false;
+                    }
+                    if (!complete) {
+                        rec.note = "row " + rw.name + ": the reader returned more than " + std::to_string(Replay::kMax) + " pieces: not measured, original";
+                        set_error(rec.note);
+                    } else if (!readable) {
+                        rec.note = "row " + rw.name + ": drained source unreadable: replayed as returned, not measured";
+                        set_error(rec.note);
+                    } else {
+                        copy.reserve(size_t(total));
+                        for (int i = 0; i < replay.count; ++i) copy.append(replay.p[i], replay.n[i]);
+                        rec.have_source = true;
+                        rec.size = total;
+                        rec.md5 = md5_hex(reinterpret_cast<const uint8_t*>(copy.data()), copy.size());
+                        rec.captured = true;
+                        replay.copy = copy.data();
+                        replay.copy_n = copy.size();
+                        ++captures_;
+                        note_capture(total, rec.md5);
+                        // 3. publish the first capture once (the host writes the cache on its own thread)
+                        if (!capture_.legacy_present && (capture_.capture_mode || rec.md5 == rw.md5) && env_.save_capture) {
+                            bool expect = false;
+                            if (published_[size_t(row)].compare_exchange_strong(expect, true)) {
+                                ++published_count_;
+                                env_.save_capture(rw.name, std::make_shared<const std::string>(copy), rec.md5);
+                            }
+                        }
+                    }
+                    // 4. what lua_load gets: the override only behind every gate, else the captured stock (replay)
+                    if (substitute_) {
+                        const Override& o = overrides_[size_t(row)];
+                        const OverrideHeader& h = headers_[size_t(row)];
+                        std::string why;
+                        if (!rec.captured) why = "stock not measured";
+                        else if (!(o.data && o.size && o.error.empty())) why = "override not loaded (" + (o.error.empty() ? std::string("missing") : o.error) + ")";
+                        else if (!h.ok) why = "override refused: " + h.error;
+                        else if (build_.empty() || h.build != build_)
+                            why = "stale override: header build " + h.build + ", running " + (build_.empty() ? std::string("unknown") : build_);
+                        else if (h.stock != rec.md5) why = "stale override: made for stock " + h.stock + ", the game compiled " + rec.md5;
+                        else if (!ctx.text_ok) why = "mode refuses text";
+                        else if (!env_.stack_depth || !env_.top_message || !env_.pop1) why = "the lua_load stack layout is not confirmed (no safe fallback)";
+                        else if (failed_[size_t(row)].load(std::memory_order_acquire)) why = "override failed to compile earlier";
+                        else if ((depth_before = env_.stack_depth(L)) < 0) why = "the Lua stack is unreadable";
+                        if (why.empty()) {
+                            sub = SubSource{o.data, o.size, false};
+                            use_reader = &sub_reader;
+                            use_data = &sub;
+                            chunk_row = row;
+                            rec.substituted = true;
+                            rec.by_chunkname = true;
+                            rec.new_size = o.size;
+                            rec.new_md5 = o.md5;
+                        } else {
+                            rec.note = "row " + rw.name + ": " + why + ": stock served";
+                            set_error(rec.note);
+                        }
+                    }
+                    if (!rec.substituted && rec.captured) rec.served_stock = true;
                 }
             }
         }
     } catch (...) {
         ++errors_;
-        use_reader = reader;
-        use_data = data;
+        if (drained) {  // the game's reader is consumed: what was drained is the only correct source
+            replay.rewind();
+            use_reader = &replay_reader;
+            use_data = &replay;
+        } else {
+            use_reader = reader;
+            use_data = data;
+        }
         rec.substituted = false;
         rec.by_chunkname = false;
+        rec.served_stock = drained;
         chunk_row = -1;
     }
+    if (rec.served_stock) ++served_stock_;
     int rc = orig(L, use_reader, use_data, chunkname, mode);
     if (chunk_row >= 0 && rc != 0) {
         // The override did not compile. lua_load pushed exactly one error object; drop it and load the original (its reader and
@@ -580,10 +894,14 @@ int Engine::on_lua_load(LuaLoadFn orig, void* L, Reader reader, void* data, cons
             rec.fallback = true;
             rec.substituted = false;
             ++fallbacks_;
-            rc = orig(L, reader, data, chunkname, mode);
+            // the game's reader was drained: replay the captured stock (never the consumed original reader)
+            replay.rewind();
+            rc = drained ? orig(L, &replay_reader, &replay, chunkname, mode) : orig(L, reader, data, chunkname, mode);
         }
         try {
             rec.override_msg = msg;
+            set_error("override failed to compile (rc=" + std::to_string(rec.override_rc) + " " + msg + ")" +
+                      (popped ? std::string(": stock served") : std::string(": stack not as expected, no retry")));
             if (!popped)
                 rec.note = "override failed (rc=" + std::to_string(rec.override_rc) + " " + msg + ") and the stack is not as expected (depth " +
                            std::to_string(depth_before) + " -> " + std::to_string(after) + "): no retry";

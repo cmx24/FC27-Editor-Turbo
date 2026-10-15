@@ -626,7 +626,7 @@ Full contract: `docs/asset-catalog.md`. Short version:
 - **Tests**: `turbogui/tests/catalog/run*.sh` (g++ only, seconds), the Python tests next to each tool, `t26_asset_gate.lua`,
   native case "UI: asset catalog wiring". No test reads the game folder.
 
-## Lua loader hook (2.9 branch, opt-in, NOT verified in game)
+## Lua loader hook (2.9 branch, opt-in; install + boot compile + chunkname substitution verified in game on 6AC07E31, Launches L1/L2)
 
 `core/lua_loader.{h,cpp}` (logic, tests `turbogui/tests/catalog/run_lualoader.sh`) and `win/lua_loader_win.cpp` (host). Research:
 `turbo_dev/research/c2_lua_loader/C2_LUA_LOADER.md`. Started from `DllMain` on its own thread; without the opt-in file it returns at
@@ -636,22 +636,33 @@ once (nothing scanned, hooked or logged, the Status tab unchanged).
 |---|---|
 | `lua_loader_on.txt` | opt-in, LOG-ONLY: scan for `lua_load` every 250 ms for up to 60 s (`TURBO_LUA_LOADER_WAIT_MS`), install when `lua_load`, its cross-check (luaL_loadstring's call) agree and the prologue is not a jump; one `lua_loader: #N ...` line per call in `turbo_gui.log` (time, thread, caller, reader, chunkname, size + md5 for the blob reader and getS, rc) |
 | `lua_loader_substitute.txt` | with the opt-in: a source whose (size, md5) matches a row is replaced by its override (`lua_override\player_kit.lua` for player_kit 0x41140 / 9399e39a...); for a reader Turbo cannot measure ("other"), a row also matches by exact chunkname (`data/fifarna/lua/assets/player_kit.lua`, one leading `@` tolerated) but only on the row's build (`6AC07E31-2145C000`, the running exe's build key) and only when the lua_load stack layout was confirmed at install; text chunks only; the override must be compile-checked offline with Lua 5.4 first |
+| `faces3d_on.txt` | product opt-in written by the GUI (`set_faces3d_opt_in`, tmp + rename): the same as `lua_loader_on.txt` + `lua_loader_substitute.txt` |
+| `faces3d_off.txt` | kill switch like `hook_lua_load_off.txt` |
+| `faces3d\stock_player_kit.cache` | written by the hook (watcher thread, tmp + rename): the first captured stock player_kit.lua; in LOG-ONLY (capture mode) whatever its md5, in SUBSTITUTE only when it equals the row's expected md5; never while `mods\legacy\...\player_kit.lua` exists |
 | `hook_lua_load_off.txt` | kill switch: refuses the install; while installed, re-read every 250 ms, every call passes through untouched (`game_hooks_off.txt` too) |
 | `lua_loader_start.flag` | left behind only if the game died while the hooks were being written: the next start refuses until it is deleted |
 
 How the source is seen: getS's data `{const char*, uint32}` is read, never called; the blob reader is hooked itself and records what
-the original returned when the parser asked for it (no early call, no state restore); other readers are never called (substitution by chunkname only, below). Signatures are from
-build 6AB9813C (checked offline on `fc27_image.bin`); on 6AC07E31 they are unverified ("lua_loader: signature not found (build X)" = no
-install). MinHook may be initialised by the loader before the overlay; the overlay then accepts `MH_ERROR_ALREADY_INITIALIZED` and on a
+the original returned when the parser asked for it (no early call, no state restore); other readers are never called (substitution by chunkname only, below). Signatures were read on
+build 6AB9813C (`fc27_image.bin`); Launch L1 found all four live on 6AC07E31 (lua_load FC27.exe+0x81F470, getS +0x46A769C, blob reader
++0x89E334C) and installed ~3 s after Turbo loaded, ~4 s before the boot compile of player_kit.lua. MinHook may be initialised by the loader before the overlay; the overlay then accepts `MH_ERROR_ALREADY_INITIALIZED` and on a
 failed start removes only its own hooks.
+
+Stock capture (2.9 WP-B, NOT run in game yet): player_kit.lua comes through the game's one-shot reader (6AB9813C 0x1446B08C8 /
+6AC07E31 FC27.exe+0x46AE738), a leaf: `if (d->done) {*size=0; return NULL;} d->done=1; *size=obj[+0x20]; return obj[+0x18];` (no call,
+no Lua API, cannot raise). Turbo calls it itself only when the live 35 bytes equal `kOtherReaderExpect` exactly; it drains it (until NULL
+or size 0), copies + md5s the bytes, logs `captured stock player_kit: N bytes md5 X`, and from then on hands lua_load its own replay
+reader (the game's reader is consumed). The override is served only when its first line is `-- TURBO build <key> stock <md5> table
+<hash>` naming the running build and the md5 just captured; otherwise (no header, other build, stale stock, mode, layout, latch) the
+captured stock bytes are served and the reason is logged and kept as the Status `last`. A failed override compile replays the captured
+stock. A `mods\legacy\dataifarna\luassets\player_kit.lua` refuses substitution (log-only, no cache). Status:
+`host::faces3d_status()` (`Faces3dStatus`) and a second Status tab line.
 
 Substitution by chunkname (Launch L1, 6AC07E31: player_kit is compiled at boot through reader `FC27.exe+0x46AE738`, 18 calls on 18
 threads, chunkname without `@`): lua_load is called with the same L / chunkname / mode and Turbo's one-shot reader over the override
-(loaded once at start, immutable, shared read-only; the reader state is a per-call struct on the detour's stack). The game's reader and
-its data are never called or changed. If that compile fails, the host reads the error message, pops it (L->top -= 16, only when
+(loaded once at start, immutable, shared read-only; the reader state is a per-call struct on the detour's stack). The game's reader is drained once by the capture above. If that compile fails, the host reads the error message, pops it (L->top -= 16, only when
 `L->top - L->ci->func` grew by exactly one slot; the layout is checked live in lua_load's bytes after luaD_protectedparser,
-`44 8B D8 85 C0 75 ?? 48 8B 4B 10 4C 8B 51 F0` at +0x45, else no chunkname substitution at all) and calls lua_load again with the
-original reader + data; that rc is returned and a per-row latch sends every later call straight to the original. Log:
+`44 8B D8 85 C0 75 ?? 48 8B 4B 10 4C 8B 51 F0` at +0x45, else no chunkname substitution at all) and calls lua_load again over the captured stock bytes; that rc is returned and a per-row latch sends every later call straight to the original. Log:
 `SUBSTITUTED row=player_kit override bytes N md5 X (stock unknown: chunkname match)` or `fallback to original (override failed: rc=3
 "msg")`; the Status line counts `fallbacks`. Not covered: an override that compiles but fails or faults when it runs.
 

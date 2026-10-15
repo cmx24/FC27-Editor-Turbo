@@ -9,9 +9,14 @@
 //     nothing installed.
 //   * MinHook: the loader may initialise MinHook long before the overlay does; the overlay then accepts
 //     MH_ERROR_ALREADY_INITIALIZED and, on a failed start, removes only its own hooks (lua_loader_uses_minhook()).
+//   * faces3d_on.txt (GUI, turbo::lualoader::set_faces3d_opt_in) = opt-in + SUBSTITUTE; faces3d_off.txt = kill switch. The stock
+//     player_kit.lua is captured from the verified one-shot reader on every compile; the first capture is cached by the watcher
+//     thread (LOG-ONLY, or md5 == the row's) in turbo_output\faces3d\stock_player_kit.cache.
 #pragma once
 #include <string>
 #include <vector>
+
+#include "core/lua_loader.h"
 
 namespace host {
 
@@ -20,5 +25,7 @@ void start_lua_loader_early();
 bool lua_loader_uses_minhook();
 // Status tab lines; empty when the opt-in file was absent at start (the Status tab is then unchanged)
 std::vector<std::string> lua_loader_status();
+// For the Status tab / Appearance page (all fields default when not opted in)
+turbo::lualoader::Faces3dStatus faces3d_status();
 
 }  // namespace host

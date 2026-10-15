@@ -5,7 +5,12 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -532,7 +537,7 @@ static int fake_lua_load_L(void* Lv, Reader reader, void* data, const char*, con
     }
     L->depth += 16;
     if (L->extra_push) L->depth += 16;
-    if (L->out.compare(0, 3, "ERR") == 0) {
+    if (L->out.compare(0, 3, "ERR") == 0 || L->out.find("\nERR") != std::string::npos) {  // a line starting with ERR does not compile
         L->err = "\"[string \\\"player_kit\\\"]:1: syntax error\"";
         return 3;
     }
@@ -564,15 +569,53 @@ static int hooked_lua_load_L(void* L, Reader r, void* d, const char* c, const ch
 static std::atomic<uint32_t> g_next_tid{100};
 static thread_local uint32_t t_tid = 0;
 
-static Engine* make_chunk_engine(bool substitute, const std::string& over, const std::string& running_build, bool with_fallback = true,
-                                 bool over_ok = true, const std::string& row_build = "6AC07E31-2145C000") {
+// ---- STOCK CAPTURE (faces3d WP-B): the verified one-shot reader is drained by Turbo, the parser always gets Turbo's replay
+// A multi-chunk reader (the generic lua_Reader protocol): pieces in order, then NULL (or a non-NULL pointer with size 0)
+struct MultiData {
+    std::vector<std::string> parts;
+    size_t i = 0;
+    int calls = 0;
+    bool zero_size_end = false;
+};
+static const char* multi_reader(void*, void* data, size_t* size) {
+    auto* m = static_cast<MultiData*>(data);
+    ++m->calls;
+    if (m->i >= m->parts.size()) {
+        *size = 0;
+        return m->zero_size_end ? "" : nullptr;
+    }
+    const std::string& s = m->parts[m->i++];
+    *size = s.size();
+    return s.data();
+}
+
+static std::atomic<bool> g_verify{true};       // reader_capturable answer for the fake readers
+static const void* g_unreadable = nullptr;      // env.readable says no for this pointer
+static std::atomic<bool> g_save_throws{false};
+struct Saved {
+    std::mutex m;
+    int count = 0;
+    std::string row, md5, bytes;
+};
+static Saved g_saved;
+
+struct ChunkOpts {
+    bool substitute = true;
+    std::string over;                 // override bytes ("" = not loaded)
+    std::string running = "6AC07E31-2145C000";
+    bool with_fallback = true;
+    CaptureConfig cap{true, false, false};
+    std::string row_md5;              // the row's expected stock md5 ("" = the default row's)
+};
+
+static Engine* make_chunk_engine(const ChunkOpts& o) {
     Env env;
     env.read = [](uint64_t a, void* out, size_t n) {
         if (a < 0x10000) return false;
         std::memcpy(out, reinterpret_cast<const void*>(static_cast<uintptr_t>(a)), n);
         return true;
     };
-    env.readable = [](const void* p, size_t) { return reinterpret_cast<uint64_t>(p) >= 0x10000; };
+    env.readable = [](const void* p, size_t) { return reinterpret_cast<uint64_t>(p) >= 0x10000 && p != g_unreadable; };
     env.where = [](uint64_t a) {
         char b[32];
         std::snprintf(b, sizeof(b), "0x%llX", static_cast<unsigned long long>(a));
@@ -587,7 +630,7 @@ static Engine* make_chunk_engine(bool substitute, const std::string& over, const
         std::lock_guard<std::mutex> lk(g_lines_m);
         g_lines.push_back(s);
     };
-    if (with_fallback) {
+    if (o.with_fallback) {
         env.stack_depth = [](void* L) { return static_cast<FakeL*>(L)->depth_unreadable ? -1LL : static_cast<FakeL*>(L)->depth; };
         env.top_message = [](void* L) { return static_cast<FakeL*>(L)->err; };
         env.pop1 = [](void* L) {
@@ -596,21 +639,36 @@ static Engine* make_chunk_engine(bool substitute, const std::string& over, const
             return true;
         };
     }
+    env.reader_capturable = [](uint64_t r) {
+        return g_verify.load() && (r == reinterpret_cast<uint64_t>(&game_other_reader) || r == reinterpret_cast<uint64_t>(&multi_reader));
+    };
+    env.save_capture = [](const std::string& row, std::shared_ptr<const std::string> bytes, const std::string& md5) {
+        if (g_save_throws.load()) throw std::runtime_error("save failed");
+        std::lock_guard<std::mutex> lk(g_saved.m);
+        ++g_saved.count;
+        g_saved.row = row;
+        g_saved.md5 = md5;
+        g_saved.bytes = *bytes;
+    };
+    {
+        std::lock_guard<std::mutex> lk(g_saved.m);
+        g_saved.count = 0;
+        g_saved.bytes.clear();
+        g_saved.md5.clear();
+    }
     auto* e = new Engine(env);
-    // the default row as shipped (content row + chunkname), with the row build under test
     std::vector<Row> rows = default_rows();
-    rows[0].build = row_build;
+    if (!o.row_md5.empty()) rows[0].md5 = o.row_md5;
     std::vector<Override> ovs(1);
-    if (over_ok) {
-        auto* keep = new std::string(over);
+    if (!o.over.empty()) {
+        auto* keep = new std::string(o.over);
         ovs[0].data = keep->data();
         ovs[0].size = keep->size();
-        ovs[0].md5 = md5s(over);
+        ovs[0].md5 = md5s(o.over);
     } else {
         ovs[0].error = "file missing";
     }
-    // getS / blob addresses that the other reader is not
-    e->configure(reinterpret_cast<uint64_t>(&game_getS), reinterpret_cast<uint64_t>(&hooked_blob_reader), substitute, rows, ovs, running_build);
+    e->configure(reinterpret_cast<uint64_t>(&game_getS), reinterpret_cast<uint64_t>(&hooked_blob_reader), o.substitute, rows, ovs, o.running, o.cap);
     return e;
 }
 
@@ -619,249 +677,418 @@ static std::string line0() {
     return g_lines.empty() ? std::string("none") : g_lines[0];
 }
 
-static void test_chunkname() {
+struct OneCall {
+    FakeL L;
+    OtherObj ob;
+    OtherData od{nullptr, false};
+    int rc = -99;
+};
+static void run_other(OneCall& c, const std::string& stock, const std::string& chunk, const char* mode = nullptr) {
+    c.ob.bytes = stock;
+    c.od = OtherData{&c.ob, false};
+    c.rc = hooked_lua_load_L(&c.L, &game_other_reader, &c.od, chunk.c_str(), mode);
+}
+
+static void test_header_and_switches() {
+    const std::string md5 = "9399e39a1e46a15d151ada423759abe9";
+    OverrideHeader h = parse_override_header("-- TURBO build 6AC07E31-2145C000 stock " + md5 + " table 1a2b3c\r\nlocal x = 1\r\n");
+    check(h.ok && h.build == "6AC07E31-2145C000" && h.stock == md5 && h.table == "1a2b3c", "header CRLF parsed");
+    h = parse_override_header("--  TURBO   build B  stock 9399E39A1E46A15D151ADA423759ABE9 table t\nreturn 1\n");
+    check(h.ok && h.build == "B" && h.stock == md5, "header LF, repeated spaces, upper-case md5 normalised");
+    h = parse_override_header("-- TURBO build B stock " + md5 + " table t");
+    check(h.ok, "header without newline");
+    check(!parse_override_header("local x = 1\n").ok && has(parse_override_header("local x = 1\n").error, "no TURBO header"), "missing header refused");
+    check(!parse_override_header("\n-- TURBO build B stock " + md5 + " table t\n").ok, "header must be the first line");
+    check(!parse_override_header("-- TURBO build B stock " + md5 + "\n").ok, "header without table refused");
+    check(!parse_override_header("-- TURBO build B stock nothex table t\n").ok, "header stock not md5 refused");
+    check(!parse_override_header("-- TURBO stock " + md5 + " build B table t\n").ok, "header fields out of order refused");
+    check(make_override_header("B", "9399E39A1E46A15D151ADA423759ABE9", "t") == "-- TURBO build B stock " + md5 + " table t", "make_override_header");
+    check(parse_override_header(make_override_header("B", md5, "t") + "\n").ok, "make -> parse round trip");
+
+    StartSwitches s;
+    StartDecision d = decide_start(s);
+    check(!d.opted_in && !d.substitute, "start: nothing opted in");
+    s.lua_on = true;
+    d = decide_start(s);
+    check(d.opted_in && !d.refused && !d.substitute && d.capture_mode, "start: lua_loader_on = LOG-ONLY capture mode");
+    s.lua_substitute = true;
+    d = decide_start(s);
+    check(d.substitute && !d.capture_mode, "start: dev substitute");
+    s = StartSwitches();
+    s.faces_on = true;
+    d = decide_start(s);
+    check(d.opted_in && d.substitute && !d.capture_mode, "start: faces3d_on = substitute");
+    s.lua_substitute = true;  // without lua_on: no effect on its own
+    s.faces_on = false;
+    check(!decide_start(s).opted_in, "start: substitute file alone is not an opt-in");
+    s = StartSwitches();
+    s.faces_on = true;
+    s.legacy_present = true;
+    d = decide_start(s);
+    check(d.opted_in && !d.refused && !d.substitute && !d.capture_mode && d.legacy_refused && has(d.why, "player_kit.lua is present"),
+          "start: legacy player_kit.lua refuses substitution and caching: " + d.why);
+    for (int k = 0; k < 3; ++k) {
+        s = StartSwitches();
+        s.faces_on = true;
+        s.lua_on = true;
+        (k == 0 ? s.faces_off : k == 1 ? s.hook_off : s.game_hooks_off) = true;
+        d = decide_start(s);
+        check(d.refused && !d.substitute && !d.why.empty(), "start: kill switch " + std::to_string(k) + " refuses: " + d.why);
+    }
+
+    // atomic writes (a temp folder of the test)
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path dir = fs::temp_directory_path() / ("turbo_ll_test_" + std::to_string(::time(nullptr)));
+    fs::remove_all(dir, ec);
+    std::string err;
+    check(set_faces3d_opt_in(dir.u8string(), true, &err) && fs::exists(dir / "faces3d_on.txt") && !fs::exists(dir / "faces3d_on.txt.tmp"),
+          "faces3d_on.txt written atomically (" + err + ")");
+    check(set_faces3d_opt_in(dir.u8string(), true, &err), "faces3d_on.txt rewritten over itself");
+    check(set_faces3d_opt_in(dir.u8string(), false, &err) && !fs::exists(dir / "faces3d_on.txt"), "faces3d_on.txt removed");
+    check(set_faces3d_opt_in(dir.u8string(), false, &err), "removing an absent faces3d_on.txt is ok");
+    const fs::path cache = dir / "faces3d" / "stock_player_kit.cache";
+    check(write_file_atomic(cache.u8string(), "AAA", &err) && write_file_atomic(cache.u8string(), "BBBB", &err), "cache written twice");
+    std::ifstream f(cache, std::ios::binary);
+    std::string got((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    f.close();
+    check(got == "BBBB" && !fs::exists(fs::path(cache.u8string() + ".tmp")), "cache replaced, no tmp left");
+    fs::remove_all(dir, ec);
+    check(std::string(kStockCacheRel) == "faces3d\\stock_player_kit.cache" &&
+              std::string(kLegacyKitRel) == "mods\\legacy\\data\\fifarna\\lua\\assets\\player_kit.lua",
+          "cache / legacy paths");
+    std::vector<uint8_t> eb;
+    std::vector<bool> em;
+    check(parse_pattern(kOtherReaderExpect, eb, em) && eb.size() == 35 && std::all_of(em.begin(), em.end(), [](bool b) { return b; }),
+          "other reader pattern: 35 exact bytes");
+}
+
+static void test_capture() {
     const std::string pk = "data/fifarna/lua/assets/player_kit.lua";
-    const std::string stock = "-- stock kit (unknown to Turbo)\nreturn 1\n";
-    const std::string over = "-- marker override\nreturn 2\n";
+    const std::string stock = "-- stock kit (captured by Turbo)\nreturn 1\n";
+    const std::string sm = md5s(stock);
     const std::string build = "6AC07E31-2145C000";
+    const std::string over = make_override_header(build, sm, "tbl1") + "\r\n-- marker override\nreturn 2\n";
+    const std::string bad = make_override_header(build, sm, "tbl1") + "\nERR this does not compile";
+    char cap_txt[160];
+    std::snprintf(cap_txt, sizeof(cap_txt), "captured stock player_kit: %zu bytes md5 %s", stock.size(), sm.c_str());
 
-    // ---- chunkname row on the unsupported reader: Turbo's reader serves the override; the game reader is never called
-    g_eng = make_chunk_engine(true, over, build);
+    // ---- LOG-ONLY capture mode: drained once by Turbo, the parser gets the stock bytes, published once
+    ChunkOpts lo;
+    lo.substitute = false;
+    lo.cap = CaptureConfig{true, true, false};
+    g_eng = make_chunk_engine(lo);
     g_lines.clear();
     {
-        FakeL L;
-        OtherObj ob;
-        ob.bytes = stock;
-        OtherData od{&ob, false};
-        const int rc = hooked_lua_load_L(&L, &game_other_reader, &od, pk.c_str(), nullptr);
-        check(rc == 0 && L.out == over && ob.calls == 0 && !od.done && L.depth == 48 && L.loads == 1 && L.pops == 0,
-              "chunkname: override compiled, original reader untouched, one slot pushed");
-        char want[160];
-        std::snprintf(want, sizeof(want), "SUBSTITUTED row=player_kit override bytes %zu md5 %s (stock unknown: chunkname match) rc=0", over.size(),
-                      md5s(over).c_str());
+        OneCall c;
+        run_other(c, stock, pk);
         const std::string l = line0();
-        check(g_lines.size() == 1 && has(l, "(other)") && has(l, "chunk=\"" + pk + "\"") && has(l, "size=-") && has(l, want) && has(l, "t=15:08:54.651") &&
-                  has(l, "caller=0x142277C9C"),
-              "chunkname: log line: " + l);
-        check(g_eng->stats().substituted == 1 && g_eng->stats().fallbacks == 0, "chunkname: stats substituted 1");
+        check(c.rc == 0 && c.L.out == stock && c.ob.calls == 1 && c.od.done && c.L.loads == 1 && c.L.depth == 48, "log-only capture: stock compiled, reader drained once");
+        check(has(l, cap_txt) && has(l, "served captured stock") && !has(l, "SUBSTITUTED") && has(l, "md5=" + sm), "log-only capture line: " + l);
+        check(g_saved.count == 1 && g_saved.bytes == stock && g_saved.md5 == sm && g_saved.row == "player_kit", "capture published once (capture mode)");
     }
-    // ---- leading '@'
+    {
+        OneCall c;
+        run_other(c, stock, pk);
+        check(c.L.out == stock && g_saved.count == 1, "second capture: not published again");
+        Faces3dStatus st;
+        g_eng->fill_status(st);
+        check(st.captures == 2 && st.served_stock == 2 && st.substituted == 0 && st.captured_md5 == sm && st.captured_size == stock.size() &&
+                  st.capture_mismatch == 0 && !st.substitute,
+              "status after two log-only captures");
+    }
+    // another chunkname on the same reader: untouched by Turbo (the parser calls the game's reader)
     g_lines.clear();
     {
-        FakeL L;
-        OtherObj ob;
-        ob.bytes = stock;
-        OtherData od{&ob, false};
-        hooked_lua_load_L(&L, &game_other_reader, &od, ("@" + pk).c_str(), nullptr);
-        check(L.out == over && ob.calls == 0 && has(line0(), "chunkname match"), "chunkname: leading @ tolerated");
+        OneCall c;
+        run_other(c, stock, "data/fifarna/lua/assets/pitch.lua");
+        check(c.L.out == stock && c.ob.calls == 1 && !has(line0(), "captured") && g_eng->stats().captures == 2, "other chunkname not captured");
     }
-    // ---- other chunknames (same reader): untouched, no note
-    g_lines.clear();
-    for (const std::string& name : {std::string("data/fifarna/lua/assets/prop_loader.lua"), pk + ".bak", std::string("player_kit.lua")}) {
-        FakeL L;
-        OtherObj ob;
-        ob.bytes = stock;
-        OtherData od{&ob, false};
-        hooked_lua_load_L(&L, &game_other_reader, &od, name.c_str(), nullptr);
-        check(L.out == stock && ob.calls == 1 && od.done && L.depth == 48, "chunkname: " + name + " passes through");
+    // killed: pure pass-through
+    g_eng->set_killed(true);
+    {
+        OneCall c;
+        run_other(c, stock, pk);
+        check(c.L.out == stock && g_eng->stats().captures == 2, "killed: no capture");
     }
-    check(g_lines.size() == 3 && !has(g_lines[0], "SUBSTITUTED") && !has(g_lines[0], "note="), "chunkname: others logged plainly");
-    // ---- mode "b": refused
+    g_eng->set_killed(false);
+
+    // ---- the reader's bytes are not verified: never drained, the original as before
+    g_verify = false;
+    g_eng = make_chunk_engine(lo);
     g_lines.clear();
     {
-        FakeL L;
-        OtherObj ob;
-        ob.bytes = stock;
-        OtherData od{&ob, false};
-        hooked_lua_load_L(&L, &game_other_reader, &od, pk.c_str(), "b");
-        check(L.out == stock && has(line0(), "mode refuses text"), "chunkname: mode b -> original");
+        OneCall c;
+        run_other(c, stock, pk);
+        check(c.L.out == stock && c.ob.calls == 1 && has(line0(), "not the verified one-shot reader") && g_eng->stats().capture_refused == 1 &&
+                  g_eng->stats().captures == 0 && g_saved.count == 0,
+              "unverified reader: original, no capture: " + line0());
+    }
+    g_verify = true;
+    // capture disabled in the config: the old pass-through
+    {
+        ChunkOpts o = lo;
+        o.cap.enabled = false;
+        g_eng = make_chunk_engine(o);
+        OneCall c;
+        run_other(c, stock, pk);
+        check(c.L.out == stock && g_eng->stats().captures == 0, "capture disabled: pass-through");
     }
 
-    // ---- build gate off (another build, or unknown): pass-through
-    for (const std::string& running : {std::string("6AB9813C-211EF000"), std::string()}) {
-        g_eng = make_chunk_engine(true, over, running);
+    // ---- multi-chunk reader (generic protocol): pieces concatenated, md5 over all, the parser gets the same bytes
+    for (int zero_end = 0; zero_end < 2; ++zero_end) {
+        g_eng = make_chunk_engine(lo);
         g_lines.clear();
         FakeL L;
-        OtherObj ob;
-        ob.bytes = stock;
-        OtherData od{&ob, false};
-        const int rc = hooked_lua_load_L(&L, &game_other_reader, &od, pk.c_str(), nullptr);
-        check(rc == 0 && L.out == stock && ob.calls == 1 && has(line0(), "build gate") && !has(line0(), "SUBSTITUTED") && g_eng->stats().substituted == 0,
-              "build gate off (" + (running.empty() ? std::string("unknown") : running) + ") -> original: " + line0());
+        MultiData m;
+        m.parts = {"-- part one\n", "local a = 1\n", "return a\n"};
+        m.zero_size_end = zero_end != 0;
+        const int rc = hooked_lua_load_L(&L, &multi_reader, &m, pk.c_str(), nullptr);
+        const std::string all = m.parts[0] + m.parts[1] + m.parts[2];
+        check(rc == 0 && L.out == all && m.calls == 4 && has(line0(), "md5=" + md5s(all)) && g_saved.bytes == all,
+              std::string("multi-chunk reader, end by ") + (zero_end ? "size 0" : "NULL") + ": " + line0());
     }
-    // a row without a build never substitutes by chunkname
-    g_eng = make_chunk_engine(true, over, build, true, true, "");
-    g_lines.clear();
+    // more pieces than the table holds: replayed, then the game's reader for the rest; nothing measured
     {
+        g_eng = make_chunk_engine(lo);
+        g_lines.clear();
         FakeL L;
-        OtherObj ob;
-        ob.bytes = stock;
-        OtherData od{&ob, false};
-        hooked_lua_load_L(&L, &game_other_reader, &od, pk.c_str(), nullptr);
-        check(L.out == stock && has(line0(), "row wants none"), "row without build -> original");
+        MultiData m;
+        std::string all;
+        for (int i = 0; i < 100; ++i) {
+            m.parts.push_back("-- " + std::to_string(i) + "\n");
+            all += m.parts.back();
+        }
+        const int rc = hooked_lua_load_L(&L, &multi_reader, &m, pk.c_str(), nullptr);
+        check(rc == 0 && L.out == all && has(line0(), "more than 64 pieces") && g_eng->stats().captures == 0 && g_saved.count == 0,
+              "overflow: every byte served, not measured: " + line0().substr(0, 200));
     }
-    // ---- log-only: never
-    g_eng = make_chunk_engine(false, over, build);
-    g_lines.clear();
+    // a drained piece the host says is unreadable: replayed as returned, not measured
     {
-        FakeL L;
-        OtherObj ob;
-        ob.bytes = stock;
-        OtherData od{&ob, false};
-        hooked_lua_load_L(&L, &game_other_reader, &od, pk.c_str(), nullptr);
-        check(L.out == stock && ob.calls == 1 && !has(line0(), "SUBSTITUTED") && !has(line0(), "note="), "log-only: chunkname row inert");
+        g_eng = make_chunk_engine(lo);
+        g_lines.clear();
+        OneCall c;
+        c.ob.bytes = stock;
+        g_unreadable = c.ob.bytes.data();
+        c.od = OtherData{&c.ob, false};
+        c.rc = hooked_lua_load_L(&c.L, &game_other_reader, &c.od, pk.c_str(), nullptr);
+        g_unreadable = nullptr;
+        check(c.rc == 0 && c.L.out == stock && c.ob.calls == 1 && has(line0(), "unreadable") && g_eng->stats().captures == 0, "unreadable drained source: replayed");
     }
-    // ---- override not loaded
-    g_eng = make_chunk_engine(true, over, build, true, false);
-    g_lines.clear();
+    // an exception after the drain (here: the publish callback throws): the drained stock is still what the parser gets
     {
-        FakeL L;
-        OtherObj ob;
-        ob.bytes = stock;
-        OtherData od{&ob, false};
-        hooked_lua_load_L(&L, &game_other_reader, &od, pk.c_str(), nullptr);
-        check(L.out == stock && has(line0(), "override is not loaded"), "chunkname: override missing -> original");
-    }
-    // ---- no fallback capability (layout not confirmed): refused
-    g_eng = make_chunk_engine(true, over, build, false);
-    g_lines.clear();
-    {
-        FakeL L;
-        OtherObj ob;
-        ob.bytes = stock;
-        OtherData od{&ob, false};
-        hooked_lua_load_L(&L, &game_other_reader, &od, pk.c_str(), nullptr);
-        check(L.out == stock && has(line0(), "stack layout is not confirmed"), "chunkname: no safe pop -> original");
-    }
-    // ---- stack unreadable before the call: refused
-    g_eng = make_chunk_engine(true, over, build);
-    g_lines.clear();
-    {
-        FakeL L;
-        L.depth_unreadable = true;
-        OtherObj ob;
-        ob.bytes = stock;
-        OtherData od{&ob, false};
-        hooked_lua_load_L(&L, &game_other_reader, &od, pk.c_str(), nullptr);
-        check(L.out == stock && has(line0(), "stack is unreadable"), "chunkname: stack unreadable -> original");
+        g_save_throws = true;
+        g_eng = make_chunk_engine(lo);
+        g_lines.clear();
+        OneCall c;
+        run_other(c, stock, pk);
+        g_save_throws = false;
+        check(c.rc == 0 && c.L.out == stock && c.ob.calls == 1 && g_eng->stats().errors == 1 && g_eng->stats().served_stock == 1,
+              "exception after the drain: stock replayed");
     }
 
-    // ---- override compile failure: message read, one slot popped, the ORIGINAL reader/data loaded, its rc returned
-    const std::string bad = "ERR this does not compile";
-    g_eng = make_chunk_engine(true, bad, build);
+    // ---- SUBSTITUTE, header names the running build and the captured md5: the override
+    ChunkOpts so;
+    so.over = over;
+    g_eng = make_chunk_engine(so);
     g_lines.clear();
     {
-        FakeL L;
-        OtherObj ob;
-        ob.bytes = stock;
-        OtherData od{&ob, false};
-        const int rc = hooked_lua_load_L(&L, &game_other_reader, &od, pk.c_str(), nullptr);
-        check(rc == 0 && L.out == stock && ob.calls == 1 && od.done && L.loads == 2 && L.pops == 1 && L.depth == 48,
-              "fallback: original compiled after the override failed, net one slot");
+        OneCall c;
+        run_other(c, stock, pk);
+        char want[200];
+        std::snprintf(want, sizeof(want), "SUBSTITUTED row=player_kit override bytes %zu md5 %s (chunkname match, header matches the captured stock)", over.size(),
+                      md5s(over).c_str());
         const std::string l = line0();
-        check(has(l, "fallback to original (override failed: rc=3 \"[string") && has(l, " rc=0") && !has(l, "SUBSTITUTED"), "fallback line: " + l);
-        check(g_eng->stats().fallbacks == 1 && g_eng->stats().substituted == 0, "fallback counted");
+        check(c.rc == 0 && c.L.out == over && c.ob.calls == 1 && c.L.loads == 1 && c.L.depth == 48 && c.L.pops == 0, "substitute: override compiled");
+        check(has(l, want) && has(l, cap_txt) && !has(l, "served captured stock"), "substitute line: " + l);
+        check(g_saved.count == 0, "substitute mode: md5 differs from the row's expected stock: not published");
+        Faces3dStatus st;
+        g_eng->fill_status(st);
+        check(st.substitute && st.header_ok && st.build_key_ok && st.stock_matches_header && st.substituted == 1 && st.captures == 1 && st.last_error.empty(),
+              "status: substituted, header ok");
     }
-    // the latch: later calls go straight to the original, one lua_load each, no compile attempt
-    g_lines.clear();
     {
-        FakeL L;
-        OtherObj ob;
-        ob.bytes = stock;
-        OtherData od{&ob, false};
-        const int rc = hooked_lua_load_L(&L, &game_other_reader, &od, pk.c_str(), nullptr);
-        check(rc == 0 && L.out == stock && L.loads == 1 && L.pops == 0 && has(line0(), "failed to compile earlier"), "latch: original directly: " + line0());
+        OneCall c;
+        run_other(c, stock, "@" + pk);
+        check(c.L.out == over, "substitute: leading @ tolerated");
     }
-    // the original itself fails too: its rc is what the game gets
-    g_eng = make_chunk_engine(true, bad, build);
-    g_lines.clear();
+    // substitute mode publishes when the md5 is the row's expected stock md5
     {
-        FakeL L;
-        OtherObj ob;
-        ob.bytes = "ERR stock broken";
-        OtherData od{&ob, false};
-        const int rc = hooked_lua_load_L(&L, &game_other_reader, &od, pk.c_str(), nullptr);
-        check(rc == 3 && L.out == ob.bytes && L.depth == 48 && L.pops == 1, "fallback: the original's own rc returned");
-    }
-    // the stack grew by more than one slot: no pop, no retry, the failed rc stands
-    g_eng = make_chunk_engine(true, bad, build);
-    g_lines.clear();
-    {
-        FakeL L;
-        L.extra_push = true;
-        OtherObj ob;
-        ob.bytes = stock;
-        OtherData od{&ob, false};
-        const int rc = hooked_lua_load_L(&L, &game_other_reader, &od, pk.c_str(), nullptr);
-        check(rc == 3 && L.pops == 0 && L.loads == 1 && ob.calls == 0 && has(line0(), "no retry"), "unexpected stack -> no retry: " + line0());
+        ChunkOpts o = so;
+        o.row_md5 = sm;
+        g_eng = make_chunk_engine(o);
+        OneCall c;
+        run_other(c, stock, pk);
+        check(c.L.out == over && g_saved.count == 1 && g_saved.md5 == sm, "substitute mode: expected md5 -> published");
     }
 
-    // ---- 18 threads at once (Launch L1: 18 calls on 18 threads within 11 ms): each gets the whole override, no shared state
-    g_eng = make_chunk_engine(true, over, build);
+    // ---- every refusal after the drain serves the CAPTURED STOCK (the game's reader is consumed): out == stock, reader called once
+    struct Case {
+        std::string name;
+        ChunkOpts o;
+        std::string mode;
+        bool depth_unreadable;
+        std::string note;
+    };
+    std::vector<Case> cases;
+    {
+        Case k{"stale header build", so, "", false, "stale override: header build 6AB9813C-211EF000"};
+        k.o.over = make_override_header("6AB9813C-211EF000", sm, "t") + "\nreturn 3\n";
+        cases.push_back(k);
+    }
+    {
+        Case k{"stale header stock", so, "", false, "stale override: made for stock 00000000000000000000000000000000"};
+        k.o.over = make_override_header(build, "00000000000000000000000000000000", "t") + "\nreturn 3\n";
+        cases.push_back(k);
+    }
+    {
+        Case k{"missing header", so, "", false, "no TURBO header"};
+        k.o.over = "-- marker override without a header\nreturn 2\n";
+        cases.push_back(k);
+    }
+    {
+        Case k{"running build unknown", so, "", false, "running unknown"};
+        k.o.running = "";
+        cases.push_back(k);
+    }
+    {
+        Case k{"override not loaded", so, "", false, "override not loaded"};
+        k.o.over = "";
+        cases.push_back(k);
+    }
+    cases.push_back(Case{"mode b", so, "b", false, "mode refuses text"});
+    {
+        Case k{"no safe pop", so, "", false, "stack layout is not confirmed"};
+        k.o.with_fallback = false;
+        cases.push_back(k);
+    }
+    cases.push_back(Case{"stack unreadable", so, "", true, "Lua stack is unreadable"});
+    {
+        Case k{"legacy file present", so, "", false, ""};
+        k.o.cap.legacy_present = true;
+        k.o.row_md5 = sm;
+        cases.push_back(k);
+    }
+    for (const auto& k : cases) {
+        g_eng = make_chunk_engine(k.o);
+        g_lines.clear();
+        OneCall c;
+        c.L.depth_unreadable = k.depth_unreadable;
+        run_other(c, stock, pk, k.mode.empty() ? nullptr : k.mode.c_str());
+        const std::string l = line0();
+        check(c.rc == 0 && c.L.out == stock && c.ob.calls == 1 && c.L.loads == 1 && has(l, "served captured stock") && !has(l, "SUBSTITUTED") &&
+                  has(l, k.note) && g_eng->stats().substituted == 0,
+              "refusal after drain -> captured stock (" + k.name + "): " + l);
+        Faces3dStatus st;
+        g_eng->fill_status(st);
+        if (k.name == "legacy file present")
+            check(st.legacy_refused && !st.substitute && g_saved.count == 0, "legacy: never substituted, never published");
+        else
+            check(!st.last_error.empty() && has(st.last_error, k.note), "status last_error (" + k.name + "): " + st.last_error);
+        if (k.name == "stale header build") check(!st.build_key_ok && st.header_ok, "status: build key not ok");
+        if (k.name == "stale header stock") check(st.build_key_ok && !st.stock_matches_header, "status: stale stock");
+    }
+
+    // ---- the override fails to compile: one pop, the CAPTURED STOCK replayed (the game's reader is not called again)
+    ChunkOpts sb = so;
+    sb.over = bad;
+    g_eng = make_chunk_engine(sb);
     g_lines.clear();
     {
-        const int N = 18;
+        OneCall c;
+        run_other(c, stock, pk);
+        const std::string l = line0();
+        check(c.rc == 0 && c.L.out == stock && c.ob.calls == 1 && c.L.loads == 2 && c.L.pops == 1 && c.L.depth == 48,
+              "compile failure: captured stock replayed, game reader drained once, net one slot");
+        check(has(l, "fallback to captured stock (override failed: rc=3") && has(l, cap_txt) && !has(l, "SUBSTITUTED"), "fallback line: " + l);
+        Faces3dStatus st;
+        g_eng->fill_status(st);
+        check(st.fallbacks == 1 && st.substituted == 0 && has(st.last_error, "failed to compile"), "fallback in status: " + st.last_error);
+    }
+    g_lines.clear();
+    {
+        OneCall c;
+        run_other(c, stock, pk);
+        check(c.rc == 0 && c.L.out == stock && c.L.loads == 1 && c.L.pops == 0 && has(line0(), "failed to compile earlier"), "latch: captured stock directly");
+    }
+    // the stock itself fails too: its rc is what the game gets
+    g_eng = make_chunk_engine(sb);
+    {
+        OneCall c;
+        const std::string st = "ERR stock broken";
+        ChunkOpts o = sb;
+        o.over = make_override_header(build, md5s(st), "t") + "\nERR x";
+        g_eng = make_chunk_engine(o);
+        run_other(c, st, pk);
+        check(c.rc == 3 && c.L.out == st && c.L.pops == 1 && c.L.depth == 48 && c.ob.calls == 1, "fallback: the stock's own rc returned");
+    }
+    // the stack grew by more than one slot: no pop, no retry
+    g_eng = make_chunk_engine(sb);
+    g_lines.clear();
+    {
+        OneCall c;
+        c.L.extra_push = true;
+        run_other(c, stock, pk);
+        check(c.rc == 3 && c.L.pops == 0 && c.L.loads == 1 && has(line0(), "no retry"), "unexpected stack -> no retry: " + line0());
+    }
+
+    // ---- 18 threads x 50 (Launch L1: 18 compiles on 18 threads at boot): every thread captures on its own, one publish
+    for (int mode = 0; mode < 2; ++mode) {
+        ChunkOpts o = mode == 0 ? lo : so;
+        g_eng = make_chunk_engine(o);
+        g_lines.clear();
+        const int N = 18, K = 50;
         std::vector<FakeL> Ls(N);
         std::vector<OtherObj> obs(N);
-        std::vector<OtherData> ods(N);
-        for (int i = 0; i < N; ++i) {
-            obs[i].bytes = stock;
-            ods[i] = OtherData{&obs[i], false};
-        }
+        for (int i = 0; i < N; ++i) obs[i].bytes = stock;
         std::atomic<int> go{0};
-        std::vector<int> rcs(N, -1);
+        std::vector<int> bad_calls(N, 0);
         std::vector<std::thread> th;
         for (int i = 0; i < N; ++i)
             th.emplace_back([&, i]() {
                 while (!go.load()) std::this_thread::yield();
-                for (int k = 0; k < 50; ++k) {  // each thread loads the chunk 50 times
-                    rcs[i] = hooked_lua_load_L(&Ls[i], &game_other_reader, &ods[i], pk.c_str(), nullptr);
-                    if (rcs[i] != 0 || Ls[i].out != over) break;
+                for (int k = 0; k < K; ++k) {
+                    OtherData od{&obs[i], false};
+                    const int rc = hooked_lua_load_L(&Ls[i], &game_other_reader, &od, pk.c_str(), nullptr);
+                    if (rc != 0 || Ls[i].out != (mode == 0 ? stock : over) || !od.done) ++bad_calls[i];
                 }
             });
         go = 1;
         for (auto& t : th) t.join();
         bool all = true;
         for (int i = 0; i < N; ++i)
-            if (rcs[i] != 0 || Ls[i].out != over || obs[i].calls != 0 || Ls[i].depth != 32 + 50 * 16) all = false;
-        check(all, "18 threads x 50: every call compiled the whole override, original readers untouched");
-        check(g_eng->stats().substituted == N * 50 && g_lines.size() == size_t(N * 50) && g_eng->stats().errors == 0, "18 threads: counts");
-        std::vector<uint32_t> tids;
-        for (const auto& l : g_lines) {
-            const size_t a = l.find("tid=");
-            tids.push_back(uint32_t(std::stoul(l.substr(a + 4))));
-        }
-        std::sort(tids.begin(), tids.end());
-        check(std::unique(tids.begin(), tids.end()) - tids.begin() == N, "18 threads: 18 thread ids logged");
+            if (bad_calls[i] || obs[i].calls != K || Ls[i].depth != 32 + K * 16) all = false;
+        const auto s = g_eng->stats();
+        Faces3dStatus st;
+        g_eng->fill_status(st);
+        const std::string tag = mode == 0 ? "log-only" : "substitute";
+        check(all, "18 threads x 50 (" + tag + "): every call got the whole source, each reader drained once per call");
+        check(s.captures == N * K && s.capture_mismatch == 0 && st.captured_md5 == sm && s.errors == 0 && g_lines.size() == size_t(N * K),
+              "18 threads (" + tag + "): counts, one md5");
+        check(g_saved.count == (mode == 0 ? 1 : 0) && s.published == (mode == 0 ? 1 : 0), "18 threads (" + tag + "): published exactly " + std::to_string(g_saved.count));
+        check(mode == 0 ? (s.served_stock == N * K && s.substituted == 0) : (s.substituted == N * K && s.served_stock == 0), "18 threads (" + tag + "): served counts");
     }
-    // ---- 18 threads, the override fails: every thread ends with the original and one net slot
-    g_eng = make_chunk_engine(true, bad, build);
-    g_lines.clear();
+    // 18 threads, the override fails: everyone ends with the captured stock
     {
+        g_eng = make_chunk_engine(sb);
+        g_lines.clear();
         const int N = 18;
-        std::vector<FakeL> Ls(N);
-        std::vector<OtherObj> obs(N);
-        std::vector<OtherData> ods(N);
-        for (int i = 0; i < N; ++i) {
-            obs[i].bytes = stock;
-            ods[i] = OtherData{&obs[i], false};
-        }
+        std::vector<OneCall> cs(N);
         std::atomic<int> go{0};
-        std::vector<int> rcs(N, -1);
         std::vector<std::thread> th;
         for (int i = 0; i < N; ++i)
             th.emplace_back([&, i]() {
                 while (!go.load()) std::this_thread::yield();
-                rcs[i] = hooked_lua_load_L(&Ls[i], &game_other_reader, &ods[i], pk.c_str(), nullptr);
+                run_other(cs[i], stock, pk);
             });
         go = 1;
         for (auto& t : th) t.join();
         bool all = true;
         for (int i = 0; i < N; ++i)
-            if (rcs[i] != 0 || Ls[i].out != stock || obs[i].calls != 1 || Ls[i].depth != 48 || Ls[i].pops > 1) all = false;
+            if (cs[i].rc != 0 || cs[i].L.out != stock || cs[i].ob.calls != 1 || cs[i].L.depth != 48 || cs[i].L.pops > 1) all = false;
         const auto st = g_eng->stats();
         check(all && st.fallbacks >= 1 && st.fallbacks <= N && st.substituted == 0 && g_lines.size() == size_t(N),
-              "18 threads, failing override: all original, fallbacks " + std::to_string(st.fallbacks));
+              "18 threads, failing override: all captured stock, fallbacks " + std::to_string(st.fallbacks));
     }
 }
 
@@ -870,7 +1097,8 @@ int main() {
     test_signatures();
     test_rows_and_format();
     test_engine();
-    test_chunkname();
+    test_header_and_switches();
+    test_capture();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
