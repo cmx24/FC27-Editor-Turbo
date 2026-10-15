@@ -16,6 +16,7 @@
 #include "core/hub_customise.h"
 #include "file_picker.h"
 #include "imgui.h"
+#include "table_registry.h"
 
 namespace turbo {
 
@@ -286,7 +287,8 @@ void draw_values() {
             ImGui::TextDisabled("Nothing in the slider map for this group.");
             continue;
         }
-        if (ImGui::BeginTable(("##gst_" + grp).c_str(), 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::PushID(grp.c_str());  // one registered table ID (table_registry.h "##gsvals"), one table per group
+        if (ImGui::BeginTable("##gsvals", 3, tbl::kData | ImGuiTableFlags_SizingStretchProp)) {
             ImGui::TableSetupColumn("Setting", ImGuiTableColumnFlags_WidthStretch, 3.0f);
             ImGui::TableSetupColumn("In the file now", ImGuiTableColumnFlags_WidthStretch, 1.4f);
             ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthStretch, 1.6f);
@@ -309,6 +311,7 @@ void draw_values() {
             }
             ImGui::EndTable();
         }
+        ImGui::PopID();
     }
     g_state.slots = int(g.snap.slots.size());
     if (!g.map.regions.empty() &&
@@ -341,7 +344,7 @@ void draw_presets(App& app) {
     const bool have = g.preset_sel >= 0 && g.preset_sel < int(g.presets.size());
     ImGui::SameLine();
     ImGui::BeginDisabled(!have);
-    if (ImGui::Button("Load (stage for the next launch)##gsload")) load_preset(app);
+    if (ImGui::Button("Load: apply when the game is closed (stage)##gsload")) load_preset(app);
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("Writes turbo_output\\%s (the verified sliders of the preset). Nothing changes in the game until you close it and run "

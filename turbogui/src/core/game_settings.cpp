@@ -1112,11 +1112,15 @@ Outcome write_markers(const fs::path& settings_dir, const fs::path& out_dir, con
     const std::string head =
         "Turbo settings marker test (set " + set + ") - copy of " + name + " (md5 " + o.md5_before + ")\r\n"
         "marker copy md5 " + o.md5_after + "\r\n\r\n"
-        "1. Close FC 27. Back up the settings folder with md5s (CmMgrC* included).\r\n"
+        "1. Close FC 27. Back up the whole settings folder with md5s of every file (CmMgrC* included).\r\n"
         "2. turbo\\turbo_settings_apply.exe --install-markers \"<this folder>\" (it checks the file is still " + name + ", backs it up, patches it).\r\n"
-        "3. Start the game; Settings > Game Settings: switch the Gameplay Type to Custom first, screenshot the User and the CPU sliders\r\n"
-        "   (and the Match / Player pages). Each number on screen gives its region and slot below. Never save a career.\r\n"
-        "4. Close the game; turbo\\turbo_settings_apply.exe --undo (or --undo --force when the game saved a new file).\r\n\r\n"
+        "3. Start the game the usual way (desktop shortcut / launch_fc27.ps1); never send Escape to the game. Settings > Game Settings:\r\n"
+        "   note the Gameplay Type, switch the view to Custom first, screenshot the User and the CPU sliders. Each number on screen gives\r\n"
+        "   its region and slot below (set blocks marks only the slider blocks, not the Match / Player pages).\r\n"
+        "4. Load the throwaway career LEICESTER only (never save it) and screenshot its sliders: the markers there = the career uses\r\n"
+        "   these profile sliders; other values = the career keeps its own copy (CmMgrC*).\r\n"
+        "5. Kill the game. turbo\\turbo_settings_apply.exe --undo (or --undo --force when the game saved a new file), then compare the\r\n"
+        "   md5s of every file with step 1 (CmMgrC* unchanged, one Settings file with the pre-test md5).\r\n\r\n"
         "value = region slot (index, the value before)\r\n";
     std::string body = head;
     for (char ch : txt) {

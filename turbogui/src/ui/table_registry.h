@@ -63,6 +63,7 @@ inline const std::vector<Spec>& all() {
         {"##live_ha", "Competitions > live standings (home / away)", kData | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Sortable, true},
         {"##dbt", "Database > table (ID pushed per table name)", kData | ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit, true},
         {"##gvars", "Match > game variables", kData | ImGuiTableFlags_SizingStretchProp, false},
+        {"##gsvals", "Game settings > values (ID pushed per group: match, player, user, cpu)", kData | ImGuiTableFlags_SizingStretchProp, false},
         {"##tattoos", "Players > Tattoos", kColumns | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit, false},
         {"##galleries", "Players > Appearance galleries", kColumns | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit, false},
         {"##all", "All fields (widgets.cpp)", kData | ImGuiTableFlags_ScrollY, true},
