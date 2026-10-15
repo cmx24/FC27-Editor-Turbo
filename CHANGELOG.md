@@ -5,7 +5,7 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
 ## 2.8.0 (2026-10-15)
 
-Seen in game 2026-10-15 on build 6AC07E31 (test career LEICESTER, never saved). Everything not listed as seen is offline-tested only. Offline suites: SUITES_PLACEHOLDER
+Seen in game 2026-10-15 on build 6AC07E31 (test career LEICESTER, never saved). Everything not listed as seen is offline-tested only. Offline suites: build 0 warnings, Lua 405/0, native 32,030/0, Python 40+22+488 ok, catalog all pass (kitswap 193, lualoader 168, faces3d 143).
 
 **In-game verification of the INSTALLED 2.8.0 build is pending** (the sightings below were made on development builds of this code; to be updated after the installed build is launched).
 
