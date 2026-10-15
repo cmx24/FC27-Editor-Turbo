@@ -182,6 +182,7 @@ struct Faces3dStatus {
     bool header_ok = false;      // the override has a TURBO header
     bool build_key_ok = false;   // ... naming the running build
     std::string header_stock;    // the stock md5 the override was made from
+    std::string header_table;    // its table hash (md5(players.json)[:12]): which list this game start runs
     long long captures = 0, served_stock = 0, substituted = 0, fallbacks = 0, capture_refused = 0, capture_mismatch = 0;
     uint64_t captured_size = 0;
     std::string captured_md5;    // "" until the first capture

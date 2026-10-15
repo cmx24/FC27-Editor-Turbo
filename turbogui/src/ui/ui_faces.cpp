@@ -18,6 +18,7 @@
 #include "imgui.h"
 #include "ui_asset_browser.h"
 #include "ui_faces.h"
+#include "ui_faces3d_gate.h"
 
 namespace turbo {
 
@@ -552,6 +553,15 @@ static bool face3d_cached(App& app, bool manager, int64_t id) {
     return ok;
 }
 
+void faces3d_forget_render(App& app, bool manager, int64_t id) {
+    const fs::path f = face3d_file(app, manager, id);
+    std::error_code ec;
+    fs::remove(f, ec);
+    g_r3d.cached.erase(head3d_key(manager, id));
+    g_r3d.fails.erase(head3d_key(manager, id));
+    app.textures.forget(f);
+}
+
 static bool head3d_given_up(int64_t k) {
     auto it = g_r3d.fails.find(k);
     return it != g_r3d.fails.end() && it->second >= kMaxHeadFails;
@@ -694,6 +704,8 @@ static std::vector<Head3d> next_heads3d(App& app, size_t max) {
 void tick_faces3d(App& app) {
     capture::CaptureService* svc = app.capture.get();
     if (!svc) return;
+    // the 3D hair preview (ui_faces3d_gate.cpp) waits for its own picture: send nothing meanwhile, or its answer could be taken here
+    if (g_r3d.inflight.empty() && faces3d_preview_pending()) return;
     const double now = ImGui::GetTime();
     if (!g_r3d.inflight.empty()) {
         for (int n = 0; n < kResultsPerFrame && !g_r3d.inflight.empty(); ++n) {

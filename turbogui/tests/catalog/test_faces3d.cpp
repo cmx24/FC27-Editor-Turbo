@@ -316,13 +316,223 @@ static void test_real_f2() {
     std::printf("  real-stock byte compare done: override %s, %zu bytes\n", ov.md5.c_str(), ov.bytes.size());
 }
 
+// ---------------------------------------------------------------- v3 ("follow")
+static void test_players_json_v3() {
+    Table t;
+    std::string err;
+    check(parse_players_json("{\"229984\": {\"name\": \"Chilwell follow (no fallback)\", \"mode\": \"follow\"},\n"
+                             " \"230107\": {\"name\": \"C\", \"mode\": \"fixed\", \"hair\": 155, \"beard\": 46},\n"
+                             " \"5\": {\"mode\": \"follow\", \"parts\": [\"beard\"], \"beard_fallback\": 47, \"colours\": false}}",
+                             t, &err),
+          "v3 format parses (" + err + ")");
+    check(t[229984].follow && t[229984].follow_hair && t[229984].follow_beard && t[229984].hair == 0 && !t[230107].follow &&
+              t[230107].hair == 155 && t[5].follow && !t[5].follow_hair && t[5].follow_beard && t[5].beard_fallback == 47 && !t[5].hair_colour,
+          "follow / fixed / parts / fallback fields");
+    Table back;
+    t[229984].hair = 155;  // a follow entry's picker choice is memory only
+    const std::string js = players_json(t);
+    check(parse_players_json(js, back, &err) && back.size() == 3 && back[229984].follow && back[229984].hair == 0 && !back[5].follow_hair &&
+              back[5].beard_fallback == 47 && back[230107].hair == 155 && !back[230107].follow,
+          "v3 round trip (" + err + "): " + js);
+    check(js.find("\"hair\": 155, \"beard\"") == std::string::npos || js.find("\"mode\"") != std::string::npos, "follow hair not written");
+    // a fixed-only table is written as 2.8 wrote it (no mode field)
+    Table fx;
+    fx[1] = Entry{155, 46, true, false, ""};
+    check(players_json(fx) == "{\n  \"1\": {\"hair\": 155, \"beard\": 46, \"hair_colour\": true, \"beard_colour\": false}\n}\n", "fixed-only file unchanged");
+    for (const char* bad : {"{\"5\": {\"mode\": \"x\"}}", "{\"5\": {\"mode\": \"follow\", \"hair\": 155}}",
+                            "{\"5\": {\"mode\": \"fixed\", \"parts\": [\"hair\"]}}", "{\"5\": {\"mode\": \"follow\", \"parts\": []}}",
+                            "{\"5\": {\"mode\": \"follow\", \"parts\": [\"hair\", \"hair\"]}}", "{\"5\": {\"mode\": \"follow\", \"parts\": \"hair\"}}",
+                            "{\"5\": {\"mode\": \"follow\", \"parts\": [\"hair\"], \"beard_fallback\": 47}}",
+                            "{\"5\": {\"mode\": \"follow\", \"beard_fallback\": 259}}", "{\"5\": {\"mode\": \"follow\", \"hair_fallback\": 99999}}",
+                            "{\"5\": {\"mode\": 1}}", "{\"5\": {\"hair_fallback\": 250}}"}) {
+        Table x;
+        check(!parse_players_json(bad, x, &err), std::string("v3 refused: ") + bad);
+    }
+    // validate: follow needs no ids
+    Table v;
+    v[1].follow = true;
+    check(validate(v, nullptr).empty(), "follow entry without ids is valid");
+    v[1].follow_hair = v[1].follow_beard = false;
+    check(!validate(v, nullptr).empty(), "follow without parts refused");
+    check(std::string(template_v3_md5()) == "e007e38dc60cac3b75e02bcae7e34b1a" && md5s(template_v3_text()) == template_v3_md5(),
+          "embedded template v3 is e007e38d (LF)");
+    check(template_stock_md5(template_v3_text()) == "9399e39a1e46a15d151ada423759abe9", "v3 anchors the same stock");
+    Table f1;
+    f1[1].follow = true;
+    check(template_for(fx) == template_text() && template_for(f1) == template_v3_text(), "template_for: v2 fixed-only, v3 with follow");
+}
+
+static void test_running_and_gate() {
+    // parse_gate_entries over a synthetic gate block (v2 and v3 lines)
+    const std::string ov =
+        "-- TURBO build 6AC07E31-2145C000 stock 9399e39a1e46a15d151ada423759abe9 table 30ed1d5d0b6b\r\nlocal x\r\n"
+        "-- ===== TURBO PER-PLAYER FACE GATE v3 (Turbo-owned) =====\r\n"
+        "\t\t[229984] = { beard = -1, hair = -1, hc = true, bc = true },  -- follow Chilwell follow (no fallback)\r\n"
+        "\t\t[230107] = { beard = 46, hair = 155, hc = false, bc = true },  -- fixed Coulibaly\r\n"
+        "\t\t[5] = { beard = -1, bf = 47, hc = true, bc = false },  -- follow\r\n"
+        "\t\t1, 3, 5, 9,\r\n"
+        "-- ===== END TURBO PER-PLAYER FACE GATE v3 =====\r\n";
+    Table t;
+    check(parse_gate_entries(ov, t) && t.size() == 3, "gate entries parsed");
+    check(t[229984].follow && t[229984].follow_hair && t[229984].follow_beard && t[229984].name == "Chilwell follow (no fallback)", "follow entry");
+    check(!t[230107].follow && t[230107].hair == 155 && t[230107].beard == 46 && !t[230107].hair_colour && t[230107].name == "Coulibaly", "fixed entry");
+    check(t[5].follow && !t[5].follow_hair && t[5].follow_beard && t[5].beard_fallback == 47 && !t[5].beard_colour, "follow beard only");
+    Table none;
+    check(!parse_gate_entries("no gate", none), "no gate block");
+
+    const fs::path out = fs::temp_directory_path() / ("turbo_faces3d_run_" + std::to_string(std::rand()));
+    fs::remove_all(out);
+    std::string why;
+    Table r;
+    check(!running_table(out.u8string(), "30ed1d5d0b6b", r, &why) && why.find("restart") != std::string::npos, "nothing on disk: unknown");
+    write_file(out / "lua_override" / "player_kit.lua", ov);
+    check(running_table(out.u8string(), "30ed1d5d0b6b", r, &why) && r.size() == 3 && r[229984].follow, "override on disk with that table");
+    check(!running_table(out.u8string(), "aaaaaaaaaaaa", r, &why), "override of another table: unknown");
+    const std::string js = "{\n  \"77\": {\"mode\": \"follow\", \"hair_colour\": true, \"beard_colour\": true}\n}\n";
+    write_file(out / "faces3d" / "applied" / (table_hash(js) + ".json"), js);
+    check(running_table(out.u8string(), table_hash(js), r, &why) && r.size() == 1 && r[77].follow, "snapshot of the applied list");
+    write_file(out / "faces3d" / "applied" / "bbbbbbbbbbbb.json", js);
+    check(!running_table(out.u8string(), "bbbbbbbbbbbb", r, &why), "snapshot whose md5 is not its name is ignored");
+
+    // live_gate
+    lualoader::Faces3dStatus st;
+    check(!live_gate(nullptr, &t, 229984).active, "no hooks");
+    check(live_gate(&st, &t, 229984).why.find("off at this game start") != std::string::npos, "not opted in");
+    st.opted_in = st.installed = st.substitute = st.header_ok = st.build_key_ok = st.stock_matches_header = true;
+    st.substituted = 18;
+    LiveGate g = live_gate(&st, &t, 229984);
+    check(g.active && g.member && g.follow_hair && g.follow_beard, "active for a follow member: " + g.why);
+    g = live_gate(&st, &t, 230107);
+    check(!g.active && g.member && g.why.find("fixed look") != std::string::npos, "fixed member: " + g.why);
+    g = live_gate(&st, &t, 999);
+    check(!g.active && !g.member && g.why.find("restart") != std::string::npos, "not a member: " + g.why);
+    check(!live_gate(&st, nullptr, 229984).active, "running list unknown");
+    lualoader::Faces3dStatus k = st;
+    k.killed = true;
+    check(live_gate(&k, &t, 229984).why.find("kill switch") != std::string::npos, "kill switch");
+    k = st;
+    k.legacy_refused = true;
+    check(!live_gate(&k, &t, 229984).active, "legacy refused");
+    k = st;
+    k.substituted = 0;
+    k.fallbacks = 18;
+    check(live_gate(&k, &t, 229984).why.find("failed to compile") != std::string::npos, "fallbacks only");
+    k = st;
+    k.build_key_ok = false;
+    check(!live_gate(&k, &t, 229984).active, "other build");
+    k = st;
+    k.stock_matches_header = false;
+    check(live_gate(&k, &t, 229984).why.find("stale") != std::string::npos, "stale stock");
+
+    // backup + writes
+    PreviewBackup b, b2;
+    std::string err;
+    check(load_preview_backup(out.u8string(), b, &err) && b.empty(), "no backup file = empty");
+    b[229984].name = "Ben Chilwell";
+    b[229984].original = {{"hairtypecode", 696}, {"facialhairtypecode", 259}, {"hairstylecode", 0}};
+    b[229984].written = {{"hairtypecode", 155}, {"facialhairtypecode", 46}};
+    check(save_preview_backup(out.u8string(), b, &err) && fs::exists(out / "faces3d" / "preview_backup.json"), "backup saved");
+    check(load_preview_backup(out.u8string(), b2, &err) && b2.size() == 1 && b2[229984].original.at("hairtypecode") == 696 &&
+              b2[229984].written.at("facialhairtypecode") == 46 && b2[229984].name == "Ben Chilwell",
+          "backup read back");
+    check(save_preview_backup(out.u8string(), PreviewBackup{}, &err) && !fs::exists(out / "faces3d" / "preview_backup.json"), "empty backup deletes the file");
+    const std::map<std::string, int64_t> cur{{"hairtypecode", 696}, {"facialhairtypecode", 259}, {"hairstylecode", 3}};
+    auto w = preview_writes(155, 46, cur);
+    check(w.size() == 3 && w["hairtypecode"] == 155 && w["facialhairtypecode"] == 46 && w["hairstylecode"] == 0, "writes hair, beard, style 0");
+    w = preview_writes(155, 0, {{"hairtypecode", 155}, {"facialhairtypecode", 259}, {"hairstylecode", 0}});
+    check(w.empty(), "nothing that already holds");
+    w = preview_writes(0, 0, cur);
+    check(w.empty(), "no part chosen: nothing written");
+    fs::remove_all(out);
+}
+
+// v3 against build_gated_v3.py: the f3 launch file (F5 showed it in game) and fixtures built by the Python builder
+static void test_real_v3() {
+    const char* env = std::getenv("TURBO_RESEARCH_DIR");
+    const fs::path research = env ? fs::u8path(env) : fs::current_path() / ".." / ".." / ".." / "research";
+    const fs::path stock_p = research / ".." / "evidence" / "2026-10-15" / "bisect" / "stock_copy.lua";
+    const fs::path pj_p = research / "c2_lua_loader" / "players_v3_test.json";
+    std::string stock, pj, f3;
+    if (!read_file(stock_p, stock) || !read_file(pj_p, pj)) {
+        std::printf("  SKIP real-stock v3 byte compare (research files not here)\n");
+        return;
+    }
+    check(md5s(pj) == "30ed1d5d0b6b39ff319d0b222c2eeb06", "players_v3_test.json is the launch set");
+    Table t;
+    std::string err;
+    check(parse_players_json(pj, t, &err) && t.size() == 2 && t[229984].follow && !t[230107].follow, "players_v3_test.json parses (" + err + ")");
+    const Built body = generate_body(template_v3_text(), stock, t);
+    check(body.ok && body.md5 == "53e7dc9783629ff82bc88b9a4cca2c30", "real stock v3: body md5 == f3_body 53e7dc97... (" + body.md5 + body.error + ")");
+    const Built ov = generate_override(template_v3_text(), stock, t, "6AC07E31-2145C000", pj);
+    check(ov.ok && ov.md5 == "4cfdf40bb7af09422a90d94c95eca99f" && ov.bytes.size() == 273169,
+          "real stock v3: override md5 == f3 4CFDF40B... (" + ov.md5 + ")");
+    check(ov.bytes.compare(0, 92, "-- TURBO build 6AC07E31-2145C000 stock 9399e39a1e46a15d151ada423759abe9 table 30ed1d5d0b6b\r\n") == 0,
+          "real stock v3: header line (table 30ed1d5d0b6b)");
+    if (read_file(research / "c2_lua_loader" / "generated" / "f3_player_kit.lua", f3)) check(ov.bytes == f3, "byte-identical to generated\\f3_player_kit.lua");
+    // the generated file tells which players this start runs
+    Table run;
+    check(parse_gate_entries(ov.bytes, run) && run.size() == 2 && run[229984].follow && run[230107].hair == 155, "f3 gate entries read back");
+    // fixtures: md5 of build_gated_v3.py --players <json> (bodies), the JSON text is here
+    struct Fx {
+        const char* name;
+        const char* json;  // "" = research players.json (the F2 set)
+        const char* md5;
+    };
+    const Fx fx[] = {
+        {"A F2 set as v3", "", "cc4007322527144e46d7a95c8f2f4516"},
+        {"B fallbacks + colours false",
+         "{\"229984\": {\"mode\": \"follow\", \"hair_fallback\": 250, \"beard_fallback\": 47, \"name\": \"Chilwell\"}, \"230107\": {\"hair\": 155, "
+         "\"beard\": 46, \"colours\": false}}",
+         "3496b779a01a056105eae270ec086791"},
+        {"C parts hair / beard",
+         "{\"229984\": {\"mode\": \"follow\", \"parts\": [\"hair\"], \"hair_colour\": false}, \"230107\": {\"mode\": \"follow\", \"parts\": [\"beard\"], "
+         "\"beard_fallback\": 47, \"name\": \"Couli baly\"}}",
+         "7c92a61c875095882a0270076638ddb2"},
+        {"D empty", "{}", "5a9bb89ba69ffd9d040a332a59aa1669"},
+        {"E only dropped", "{\"5\": {\"mode\": \"fixed\", \"name\": \"nothing\"}}", "5a9bb89ba69ffd9d040a332a59aa1669"},
+    };
+    for (const Fx& f : fx) {
+        std::string js = f.json;
+        if (js.empty() && !read_file(research / "c2_lua_loader" / "players.json", js)) continue;
+        Table x;
+        check(parse_players_json(js, x, &err), std::string("fixture ") + f.name + " parses (" + err + ")");
+        const Built b = generate_body(template_v3_text(), stock, x);
+        check(b.ok && b.md5 == f.md5, std::string("fixture ") + f.name + ": " + b.md5 + " == " + f.md5 + " " + b.error);
+    }
+    // apply with a follow entry writes v3 + the snapshot; a fixed-only table still writes the v2 (F2) bytes
+    const fs::path out = fs::temp_directory_path() / ("turbo_faces3d_v3_" + std::to_string(std::rand()));
+    fs::remove_all(out);
+    write_file(out / "faces3d" / "stock_player_kit.cache", stock);
+    const ApplyResult r = apply(out.u8string(), t, "6AC07E31-2145C000", nullptr);
+    std::string written, js;
+    check(r.ok && read_file(out / "lua_override" / "player_kit.lua", written) && read_file(out / "faces3d" / "players.json", js) &&
+              written.substr(written.find("\r\n") + 2) == body.bytes && fs::exists(out / "faces3d" / "applied" / (r.table + ".json")),
+          "apply (follow) writes the v3 body + the applied snapshot (" + r.message + ")");
+    Table rt;
+    std::string why;
+    check(running_table(out.u8string(), r.table, rt, &why) && rt[229984].follow, "running_table finds the applied list");
+    Table fixed_only = t;
+    fixed_only.erase(229984);
+    const ApplyResult r2 = apply(out.u8string(), fixed_only, "6AC07E31-2145C000", nullptr);
+    const Built v2b = generate_body(template_text(), stock, fixed_only);
+    check(r2.ok && read_file(out / "lua_override" / "player_kit.lua", written) && v2b.ok && written.substr(written.find("\r\n") + 2) == v2b.bytes &&
+              written.find("GATE v2") != std::string::npos,
+          "apply (fixed only) writes the v2 body");
+    check(running_table(out.u8string(), r.table, rt, &why) && rt.size() == 2, "the first start's list is still known after a second Apply");
+    fs::remove_all(out);
+    std::printf("  real-stock v3 byte compare done: override %s, %zu bytes\n", ov.md5.c_str(), ov.bytes.size());
+}
+
 int main() {
     test_players_json();
+    test_players_json_v3();
     test_ids_and_validate();
     test_synthetic_generator();
     test_refusals();
     test_apply_remove();
+    test_running_and_gate();
     test_real_f2();
+    test_real_v3();
     std::printf("faces3d: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

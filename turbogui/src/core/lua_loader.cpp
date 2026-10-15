@@ -605,6 +605,7 @@ void Engine::fill_status(Faces3dStatus& st) const {
         st.header_ok = headers_[0].ok;
         st.build_key_ok = headers_[0].ok && !build_.empty() && headers_[0].build == build_;
         st.header_stock = headers_[0].stock;
+        st.header_table = headers_[0].table;
     }
     std::lock_guard<std::mutex> lk(st_m_);
     st.captured_md5 = captured_md5_;

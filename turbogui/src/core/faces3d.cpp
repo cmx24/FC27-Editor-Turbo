@@ -4,11 +4,13 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <set>
 #include <sstream>
+#include <tuple>
 
 #include "core/faces3d_data.h"
 #include "core/lua_loader.h"
@@ -22,6 +24,9 @@ using lualoader::md5_hex;
 const char* const kPlayersRel = "faces3d\\players.json";
 const char* const kOverrideRel = "lua_override\\player_kit.lua";
 const char* const kOptInRel = "faces3d_on.txt";
+const char* const kAppliedDirRel = "faces3d\\applied";
+const char* const kPreviewBackupRel = "faces3d\\preview_backup.json";
+const char* const kPreviewFields[3] = {"hairtypecode", "facialhairtypecode", "hairstylecode"};
 
 static std::string md5s(const std::string& s) { return md5_hex(reinterpret_cast<const uint8_t*>(s.data()), s.size()); }
 
@@ -67,14 +72,37 @@ bool parse_players_json(const std::string& bytes, Table& out, std::string* err) 
         if (!e.is_object()) return fail(it.key() + ": entry must be an object");
         Entry en;
         bool colours = true, have_hc = false, have_bc = false;
+        if (e.contains("mode")) {
+            const auto& m = e["mode"];
+            if (m.is_string() && m.get<std::string>() == "follow") en.follow = true;
+            else if (!(m.is_string() && m.get<std::string>() == "fixed"))
+                return fail(it.key() + ": mode must be \"fixed\" or \"follow\", got " + m.dump());
+        }
         for (auto f = e.begin(); f != e.end(); ++f) {
             const std::string& k = f.key();
             const auto& v = f.value();
-            if (k == "hair" || k == "beard") {
+            if (k == "mode") continue;
+            if ((k == "hair" || k == "beard") && !en.follow) {
                 if (v.is_null()) continue;
                 if (!v.is_number_integer() || v.get<int64_t>() < 1)
                     return fail(it.key() + ": " + k + " must be a positive integer model id, got " + v.dump());
                 (k == "hair" ? en.hair : en.beard) = v.get<int64_t>();
+            } else if ((k == "hair_fallback" || k == "beard_fallback") && en.follow) {
+                if (v.is_null()) continue;
+                if (!v.is_number_integer() || v.get<int64_t>() < 1)
+                    return fail(it.key() + ": " + k + " must be a positive integer model id, got " + v.dump());
+                (k == "hair_fallback" ? en.hair_fallback : en.beard_fallback) = v.get<int64_t>();
+            } else if (k == "parts" && en.follow) {
+                bool h = false, b = false, bad = !v.is_array() || v.empty();
+                if (!bad)
+                    for (const auto& x : v) {
+                        const std::string s = x.is_string() ? x.get<std::string>() : std::string();
+                        if (s == "hair" && !h) h = true;
+                        else if (s == "beard" && !b) b = true;
+                        else bad = true;
+                    }
+                if (bad) return fail(it.key() + ": parts must be a non-empty list of \"hair\" / \"beard\", got " + v.dump());
+                en.follow_hair = h, en.follow_beard = b;
             } else if (k == "colours" || k == "hair_colour" || k == "beard_colour") {
                 if (v.is_null()) continue;
                 if (!v.is_boolean()) return fail(it.key() + ": " + k + " must be true/false (colour codes are not supported), got " + v.dump());
@@ -85,11 +113,20 @@ bool parse_players_json(const std::string& bytes, Table& out, std::string* err) 
                 if (!v.is_string()) return fail(it.key() + ": name must be text");
                 en.name = v.get<std::string>();
             } else {
-                return fail(it.key() + ": unknown field \"" + k + "\"");
+                return fail(it.key() + ": unknown field \"" + k + "\" for " + (en.follow ? "follow" : "fixed") + " mode");
             }
         }
         if (!have_hc) en.hair_colour = colours;
         if (!have_bc) en.beard_colour = colours;
+        if (en.follow) {
+            for (const auto& [fb, followed, part, ok] :
+                 {std::tuple<int64_t, bool, const char*, bool>{en.hair_fallback, en.follow_hair, "hair", hair_id_ok(en.hair_fallback)},
+                  std::tuple<int64_t, bool, const char*, bool>{en.beard_fallback, en.follow_beard, "beard", beard_id_ok(en.beard_fallback)}}) {
+                if (fb > 0 && !followed) return fail(it.key() + ": " + part + "_fallback given but " + part + " is not a follow part");
+                if (fb > 0 && !ok)
+                    return fail(it.key() + ": " + part + "_fallback " + std::to_string(fb) + " is not a verified generic model");
+            }
+        }
         t[id] = en;
     }
     out = std::move(t);
@@ -102,8 +139,15 @@ std::string players_json(const Table& t) {
     for (const auto& [id, e] : t) {
         s += "  \"" + std::to_string(id) + "\": {";
         std::string f;
-        if (e.hair > 0) f += "\"hair\": " + std::to_string(e.hair) + ", ";
-        if (e.beard > 0) f += "\"beard\": " + std::to_string(e.beard) + ", ";
+        if (e.follow) {
+            f += "\"mode\": \"follow\", ";
+            if (!(e.follow_hair && e.follow_beard)) f += std::string("\"parts\": [\"") + (e.follow_hair ? "hair" : "beard") + "\"], ";
+            if (e.follow_hair && e.hair_fallback > 0) f += "\"hair_fallback\": " + std::to_string(e.hair_fallback) + ", ";
+            if (e.follow_beard && e.beard_fallback > 0) f += "\"beard_fallback\": " + std::to_string(e.beard_fallback) + ", ";
+        } else {
+            if (e.hair > 0) f += "\"hair\": " + std::to_string(e.hair) + ", ";
+            if (e.beard > 0) f += "\"beard\": " + std::to_string(e.beard) + ", ";
+        }
         f += std::string("\"hair_colour\": ") + (e.hair_colour ? "true" : "false") + ", ";
         f += std::string("\"beard_colour\": ") + (e.beard_colour ? "true" : "false");
         if (!e.name.empty()) f += ", \"name\": " + nlohmann::json(e.name).dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
@@ -129,9 +173,17 @@ std::vector<std::string> validate(const Table& t, const std::function<int64_t(in
     if (t.size() > kMaxEntries) v.push_back("too many players (" + std::to_string(t.size()) + ", at most " + std::to_string(kMaxEntries) + ")");
     for (const auto& [id, e] : t) {
         const std::string who = "player " + std::to_string(id) + (e.name.empty() ? "" : " (" + e.name + ")");
-        if (e.hair <= 0 && e.beard <= 0) v.push_back(who + ": choose a hair or a beard (or un-enrol him)");
-        if (e.hair > 0 && !hair_id_ok(e.hair)) v.push_back(who + ": hair " + std::to_string(e.hair) + " is not a verified generic hair id");
-        if (e.beard > 0 && !beard_id_ok(e.beard)) v.push_back(who + ": beard " + std::to_string(e.beard) + " is not a verified generic beard id");
+        if (e.follow) {
+            if (!e.follow_hair && !e.follow_beard) v.push_back(who + ": follow needs the hair or the beard part");
+            if (e.hair_fallback > 0 && (!e.follow_hair || !hair_id_ok(e.hair_fallback)))
+                v.push_back(who + ": hair fallback " + std::to_string(e.hair_fallback) + " is not a verified id of a followed part");
+            if (e.beard_fallback > 0 && (!e.follow_beard || !beard_id_ok(e.beard_fallback)))
+                v.push_back(who + ": beard fallback " + std::to_string(e.beard_fallback) + " is not a verified id of a followed part");
+        } else {
+            if (e.hair <= 0 && e.beard <= 0) v.push_back(who + ": choose a hair or a beard (or un-enrol him)");
+            if (e.hair > 0 && !hair_id_ok(e.hair)) v.push_back(who + ": hair " + std::to_string(e.hair) + " is not a verified generic hair id");
+            if (e.beard > 0 && !beard_id_ok(e.beard)) v.push_back(who + ": beard " + std::to_string(e.beard) + " is not a verified generic beard id");
+        }
         if (headclass) {
             const int64_t hc = headclass(id);
             if (hc < 0) v.push_back(who + ": not in the database");
@@ -144,6 +196,14 @@ std::vector<std::string> validate(const Table& t, const std::function<int64_t(in
 // ---------------------------------------------------------------- template
 const char* template_text() { return data::kTemplate; }
 const char* template_md5() { return data::kTemplateMd5; }
+const char* template_v3_text() { return data::kTemplateV3; }
+const char* template_v3_md5() { return data::kTemplateV3Md5; }
+bool has_follow(const Table& t) {
+    for (const auto& kv : t)
+        if (kv.second.follow) return true;
+    return false;
+}
+const char* template_for(const Table& t) { return has_follow(t) ? template_v3_text() : template_text(); }
 
 namespace {
 
@@ -165,7 +225,14 @@ struct Spec {
     std::vector<Ins> ins;
     std::vector<Add> add;
     std::string gate;  // the gate block, LF, ends with '\n'
+    bool v3 = false;   // the gate block has --@@OKHAIR@@ / --@@OKBEARD@@ (build_gated_v3.py)
 };
+
+size_t count_of(const std::string& s, const std::string& what) {
+    size_t n = 0;
+    for (size_t p = s.find(what); p != std::string::npos; p = s.find(what, p + 1)) ++n;
+    return n;
+}
 
 std::string replace_all(std::string s, const std::string& from, const std::string& to) {
     if (from.empty()) return s;
@@ -294,11 +361,17 @@ bool parse_template(const std::string& text0, Spec& sp, std::string& err) {
         return false;
     }
     sp.gate = text.substr(g0 + gb.size(), g1 + 1 - (g0 + gb.size()));
-    size_t count = 0;
-    for (size_t p = sp.gate.find("--@@ENTRIES@@"); p != std::string::npos; p = sp.gate.find("--@@ENTRIES@@", p + 1)) ++count;
-    if (count != 1) {
+    if (count_of(sp.gate, "--@@ENTRIES@@") != 1) {
         err = "template: gate block with exactly one --@@ENTRIES@@ marker required";
         return false;
+    }
+    const size_t oh = count_of(sp.gate, "--@@OKHAIR@@"), ob = count_of(sp.gate, "--@@OKBEARD@@");
+    if (oh || ob) {
+        if (oh != 1 || ob != 1) {
+            err = "template: gate block needs exactly one --@@OKHAIR@@ and one --@@OKBEARD@@ marker";
+            return false;
+        }
+        sp.v3 = true;
     }
     return true;
 }
@@ -334,6 +407,91 @@ bool entries_lua(const Table& t, std::string& out, std::string& err) {
     out.clear();
     for (size_t i = 0; i < lines.size(); ++i) out += (i ? "\n" : "") + lines[i];
     return true;
+}
+
+// build_gated_v3.py entries_lua(): fixed = v2's parts; follow = "beard = -1"[, "bf = N"], "hair = -1"[, "hf = N"]; then hc, bc;
+// the comment is always "  -- <mode>[ <name>]"
+bool entries_lua_v3(const Table& t, std::string& out, std::string& err) {
+    std::vector<std::string> lines;
+    for (const auto& [id, e] : t) {
+        const std::string key = std::to_string(id);
+        if (id <= 0) {
+            err = "players: key " + key + " is not a player id";
+            return false;
+        }
+        std::vector<std::string> parts;
+        if (!e.follow) {
+            if (e.hair < 0 || e.beard < 0) {
+                err = "player " + key + ": model ids must be positive";
+                return false;
+            }
+            if (e.hair == 0 && e.beard == 0) continue;
+            if (e.beard) parts.push_back("beard = " + std::to_string(e.beard));
+            if (e.hair) parts.push_back("hair = " + std::to_string(e.hair));
+        } else {
+            if (!e.follow_hair && !e.follow_beard) {
+                err = "player " + key + ": parts must be a non-empty list of 'hair'/'beard'";
+                return false;
+            }
+            struct P {
+                const char* part;
+                const char* shortname;
+                bool followed;
+                int64_t fb;
+                bool ok;
+            };
+            for (const P& p : {P{"beard", "bf", e.follow_beard, e.beard_fallback, beard_id_ok(e.beard_fallback)},
+                               P{"hair", "hf", e.follow_hair, e.hair_fallback, hair_id_ok(e.hair_fallback)}}) {
+                if (p.fb < 0) {
+                    err = "player " + key + ": " + p.part + "_fallback must be a positive integer model id";
+                    return false;
+                }
+                if (!p.followed) {
+                    if (p.fb > 0) {
+                        err = "player " + key + ": " + p.part + "_fallback given but " + p.part + " is not a follow part";
+                        return false;
+                    }
+                    continue;
+                }
+                if (p.fb > 0 && !p.ok) {
+                    err = "player " + key + ": " + p.part + "_fallback " + std::to_string(p.fb) + " is not a verified generic model (allow-list)";
+                    return false;
+                }
+                parts.push_back(std::string(p.part) + " = -1");
+                if (p.fb > 0) parts.push_back(std::string(p.shortname) + " = " + std::to_string(p.fb));
+            }
+        }
+        parts.push_back(std::string("hc = ") + (e.hair_colour ? "true" : "false"));
+        parts.push_back(std::string("bc = ") + (e.beard_colour ? "true" : "false"));
+        std::string joined;
+        for (size_t i = 0; i < parts.size(); ++i) joined += (i ? ", " : "") + parts[i];
+        const std::string name = sanitize_name(e.name);
+        lines.push_back("\t\t[" + key + "] = { " + joined + " },  -- " + (e.follow ? "follow" : "fixed") + (name.empty() ? "" : " " + name));
+    }
+    out.clear();
+    for (size_t i = 0; i < lines.size(); ++i) out += (i ? "\n" : "") + lines[i];
+    return true;
+}
+
+// build_gated_v3.py ranges_lua(): sorted inclusive ranges "lo, hi", 12 per line, "\t\t" + ", ".join + ","
+std::string ranges_lua(const std::vector<int>& ids0) {
+    std::vector<int> ids = ids0;
+    std::sort(ids.begin(), ids.end());
+    ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+    std::vector<std::pair<int, int>> r;
+    for (int v : ids) {
+        if (!r.empty() && v == r.back().second + 1) r.back().second = v;
+        else r.emplace_back(v, v);
+    }
+    std::string out;
+    for (size_t i = 0; i < r.size(); i += 12) {
+        if (i) out += "\n";
+        out += "\t\t";
+        for (size_t k = i; k < std::min(r.size(), i + 12); ++k)
+            out += (k > i ? ", " : "") + std::to_string(r[k].first) + ", " + std::to_string(r[k].second);
+        out += ",";
+    }
+    return out;
 }
 
 }  // namespace
@@ -373,7 +531,11 @@ Built generate_body(const std::string& tmpl, const std::string& stock, const Tab
     for (const auto& ad : sp.add)
         if (!anchor(ad.n, ad.h)) return r;
     std::string entries;
-    if (!entries_lua(t, entries, r.error)) return r;
+    if (!sp.v3 && has_follow(t)) {
+        r.error = "follow entries need the v3 template";
+        return r;
+    }
+    if (!(sp.v3 ? entries_lua_v3(t, entries, r.error) : entries_lua(t, entries, r.error))) return r;
 
     std::vector<std::string> nw = L;
     std::set<long long> ins_lines;
@@ -388,7 +550,12 @@ Built generate_body(const std::string& tmpl, const std::string& stock, const Tab
         nw[n - 1] = s;
     }
     for (const auto& ad : sp.add) nw[ad.n - 1] += nl + ad.t;
-    std::string gate = replace_all(sp.gate, "--@@ENTRIES@@\n", !t.empty() ? entries + "\n" : std::string());
+    // v2 tests the table (`if players`), v3 the entries text (`if ent`): a table of dropped entries differs between the two
+    std::string gate = replace_all(sp.gate, "--@@ENTRIES@@\n", (sp.v3 ? !entries.empty() : !t.empty()) ? entries + "\n" : std::string());
+    if (sp.v3) {
+        gate = replace_all(gate, "--@@OKHAIR@@\n", ranges_lua(ok_hair_ids()) + "\n");
+        gate = replace_all(gate, "--@@OKBEARD@@\n", ranges_lua(ok_beard_ids()) + "\n");
+    }
     while (!gate.empty() && gate.back() == '\n') gate.pop_back();
     gate = replace_all(gate, "\n", nl);
 
@@ -491,19 +658,23 @@ ApplyResult apply(const std::string& turbo_output_utf8, const Table& t, const st
                     "is missing). Press 'Enable capture', restart the game once, then Apply again.";
         return r;
     }
-    const std::string want = template_stock_md5(template_text());
+    const char* tmpl = template_for(t);
+    const std::string want = template_stock_md5(tmpl);
     if (md5s(stock) != want) {
         r.message = "Nothing written: the captured player_kit.lua (md5 " + md5s(stock) + ") is not the one this Turbo knows (" + want +
                     "): game update? Delete turbo_output\\faces3d\\stock_player_kit.cache and restart to capture it again.";
         return r;
     }
     const std::string js = players_json(t);
-    const Built b = generate_override(template_text(), stock, t, build_key, js);
+    const Built b = generate_override(tmpl, stock, t, build_key, js);
     if (!b.ok) {
         r.message = "Nothing written: " + b.error;
         return r;
     }
-    if (!lualoader::write_file_atomic(rel_path(turbo_output_utf8, kPlayersRel).u8string(), js, &err) ||
+    // the snapshot first: a game start that serves this override can then tell which list it runs (running_table)
+    const fs::path snap = rel_path(turbo_output_utf8, kAppliedDirRel) / (table_hash(js) + ".json");
+    if (!lualoader::write_file_atomic(snap.u8string(), js, &err) ||
+        !lualoader::write_file_atomic(rel_path(turbo_output_utf8, kPlayersRel).u8string(), js, &err) ||
         !lualoader::write_file_atomic(rel_path(turbo_output_utf8, kOverrideRel).u8string(), b.bytes, &err)) {
         r.message = "Write failed: " + err;
         return r;
@@ -515,9 +686,184 @@ ApplyResult apply(const std::string& turbo_output_utf8, const Table& t, const st
     r.ok = true;
     r.override_md5 = b.md5;
     r.table = table_hash(js);
-    r.message = "Applied for " + std::to_string(t.size()) + " player(s): override md5 " + b.md5 + ", table " + r.table +
-                ". Restart the game to see it (player_kit.lua is read only at game start).";
+    r.message = "Applied for " + std::to_string(t.size()) + " player(s) (gate " + (has_follow(t) ? "v3" : "v2") + "): override md5 " +
+                b.md5 + ", table " + r.table + ". Restart the game to see it (player_kit.lua is read only at game start).";
     return r;
+}
+
+// ---------------------------------------------------------------- the running list
+bool parse_gate_entries(const std::string& bytes, Table& out) {
+    const size_t a = bytes.find("TURBO PER-PLAYER FACE GATE v");
+    if (a == std::string::npos) return false;
+    size_t b = bytes.find("END TURBO PER-PLAYER FACE GATE", a);
+    if (b == std::string::npos) return false;
+    Table t;
+    size_t p = a;
+    while (p < b) {
+        size_t e = bytes.find('\n', p);
+        if (e == std::string::npos || e > b) e = b;
+        std::string line = bytes.substr(p, e - p);
+        p = e + 1;
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.compare(0, 3, "\t\t[") != 0) continue;
+        const size_t close = line.find("] = { ");
+        const size_t end = line.find(" },", close == std::string::npos ? 0 : close);
+        if (close == std::string::npos || end == std::string::npos) continue;
+        int64_t id = 0;
+        if (!positive_key(line.substr(3, close - 3), id)) continue;
+        Entry en;
+        en.follow_hair = en.follow_beard = false;
+        bool have_hair = false, have_beard = false;
+        for (const std::string& kv : split(line.substr(close + 6, end - (close + 6)), ", ")) {
+            const auto eq = kv.find(" = ");
+            if (eq == std::string::npos) continue;
+            const std::string k = kv.substr(0, eq), v = kv.substr(eq + 3);
+            long long n = 0;
+            if (k == "hc" || k == "bc") (k == "hc" ? en.hair_colour : en.beard_colour) = v == "true";
+            else if (!to_int(v, n)) continue;
+            else if (k == "hair") have_hair = true, en.hair = n;
+            else if (k == "beard") have_beard = true, en.beard = n;
+            else if (k == "hf") en.hair_fallback = n;
+            else if (k == "bf") en.beard_fallback = n;
+        }
+        if (have_hair && en.hair == -1) en.follow = en.follow_hair = true, en.hair = 0;
+        if (have_beard && en.beard == -1) en.follow = en.follow_beard = true, en.beard = 0;
+        if (!en.follow) en.follow_hair = en.follow_beard = true;  // the defaults (unused for fixed)
+        const size_t c = line.find("  -- ", end);
+        if (c != std::string::npos) {
+            std::string nm = line.substr(c + 5);
+            for (const char* m : {"follow ", "fixed "})
+                if (nm.compare(0, std::strlen(m), m) == 0) nm = nm.substr(std::strlen(m));
+            if (nm != "follow" && nm != "fixed") en.name = nm;
+        }
+        t[id] = en;
+    }
+    out = std::move(t);
+    return true;
+}
+
+bool running_table(const std::string& turbo_output_utf8, const std::string& header_table, Table& out, std::string* why) {
+    if (header_table.size() != 12) {
+        if (why) *why = "the override of this game start has no table hash";
+        return false;
+    }
+    std::string b, err;
+    const fs::path snap = rel_path(turbo_output_utf8, kAppliedDirRel) / (header_table + ".json");
+    if (read_file(snap, b) && table_hash(b) == header_table && parse_players_json(b, out, &err)) return true;
+    const fs::path ov = rel_path(turbo_output_utf8, kOverrideRel);
+    if (read_file(ov, b)) {
+        const lualoader::OverrideHeader h = lualoader::parse_override_header(b);
+        if (h.ok && h.table == header_table && parse_gate_entries(b, out)) return true;
+    }
+    if (why)
+        *why = "Turbo cannot tell which players this game start runs (no faces3d\\applied\\" + header_table +
+               ".json, and the override on disk was changed since): restart the game";
+    return false;
+}
+
+LiveGate live_gate(const lualoader::Faces3dStatus* st, const Table* running, int64_t pid) {
+    LiveGate g;
+    auto no = [&](const std::string& w) {
+        g.why = w;
+        return g;
+    };
+    if (!st) return no("no game hooks here (Turbo is not running inside the game)");
+    if (!st->opted_in) return no("the 3D hair hook was off at this game start (faces3d_on.txt was not there): Apply, then restart the game");
+    if (!st->installed) return no("the 3D hair hook is not installed this session (see the Status tab)");
+    if (st->killed) return no("a kill switch is present (faces3d_off.txt / hook_lua_load_off.txt): the gate is off");
+    if (st->legacy_refused) return no("mods\\legacy\\data\\fifarna\\lua\\assets\\player_kit.lua exists: Turbo refused the override this session");
+    if (!st->substitute) return no("the hook runs log-only this session (no override was served)");
+    if (!st->header_ok) return no("no Turbo override was there at this game start: Apply, then restart the game");
+    if (!st->build_key_ok) return no("the override was made for another game build: Apply again, then restart");
+    if (!st->stock_matches_header) return no("the override was made from another player_kit.lua than this game's (stale): Apply again, then restart");
+    if (st->substituted <= 0)
+        return no(st->fallbacks > 0 ? "the override failed to compile in the game (fallbacks " + std::to_string(st->fallbacks) + "): the stock file runs"
+                                    : "the game has not loaded the override this session (substituted 0)");
+    if (!running) return no("Turbo cannot tell which players this game start runs: restart the game");
+    const auto it = running->find(pid);
+    if (it == running->end())
+        return no("he was not on the list when the game started: enrolling a player takes effect after a game restart (Apply, restart, then preview)");
+    g.member = true;
+    if (!it->second.follow)
+        return no("he has a fixed look at this game start: the preview needs 'Follow his database codes' (tick it, Apply, restart once)");
+    g.follow_hair = it->second.follow_hair;
+    g.follow_beard = it->second.follow_beard;
+    g.active = true;
+    g.why = std::string("live: this game start follows his ") +
+            (g.follow_hair && g.follow_beard ? "hair and beard codes" : g.follow_hair ? "hair code (beard stays as it is)" : "beard code (hair stays as it is)");
+    return g;
+}
+
+// ---------------------------------------------------------------- preview backup
+bool load_preview_backup(const std::string& turbo_output_utf8, PreviewBackup& out, std::string* err) {
+    out.clear();
+    const fs::path p = rel_path(turbo_output_utf8, kPreviewBackupRel);
+    std::error_code ec;
+    if (!fs::exists(p, ec)) return true;
+    std::string b;
+    if (!read_file(p, b)) {
+        if (err) *err = "cannot read " + p.u8string();
+        return false;
+    }
+    try {
+        const nlohmann::json j = nlohmann::json::parse(b);
+        if (!j.is_object() || !j.contains("players") || !j["players"].is_object()) throw std::runtime_error("no \"players\" object");
+        for (auto it = j["players"].begin(); it != j["players"].end(); ++it) {
+            int64_t id = 0;
+            if (!positive_key(it.key(), id)) continue;
+            PreviewRecord r;
+            const auto& e = it.value();
+            if (e.contains("name") && e["name"].is_string()) r.name = e["name"].get<std::string>();
+            for (const char* which : {"original", "written"}) {
+                if (!e.contains(which) || !e[which].is_object()) continue;
+                auto& m = std::string(which) == "original" ? r.original : r.written;
+                for (auto f = e[which].begin(); f != e[which].end(); ++f)
+                    if (f.value().is_number_integer()) m[f.key()] = f.value().get<int64_t>();
+            }
+            if (!r.original.empty()) out[id] = r;
+        }
+    } catch (const std::exception& e) {
+        if (err) *err = "preview_backup.json: " + std::string(e.what());
+        return false;
+    }
+    return true;
+}
+
+bool save_preview_backup(const std::string& turbo_output_utf8, const PreviewBackup& b, std::string* err) {
+    const fs::path p = rel_path(turbo_output_utf8, kPreviewBackupRel);
+    if (b.empty()) {
+        std::error_code ec;
+        fs::remove(p, ec);
+        if (fs::exists(p)) {
+            if (err) *err = "cannot remove " + p.u8string();
+            return false;
+        }
+        return true;
+    }
+    nlohmann::json j;
+    j["note"] = "Turbo 3D hair preview: the database codes a preview replaced (Revert writes 'original' back when the codes still equal 'written')";
+    nlohmann::json pl = nlohmann::json::object();
+    for (const auto& [id, r] : b) {
+        nlohmann::json e;
+        e["name"] = r.name;
+        e["original"] = r.original;
+        e["written"] = r.written;
+        pl[std::to_string(id)] = e;
+    }
+    j["players"] = pl;
+    return lualoader::write_file_atomic(p.u8string(), j.dump(1, ' ', false, nlohmann::json::error_handler_t::replace) + "\n", err);
+}
+
+std::map<std::string, int64_t> preview_writes(int64_t hair, int64_t beard, const std::map<std::string, int64_t>& cur) {
+    std::map<std::string, int64_t> w;
+    auto now = [&](const char* f) {
+        const auto it = cur.find(f);
+        return it == cur.end() ? int64_t(-1) : it->second;
+    };
+    if (hair > 0 && now("hairtypecode") != hair) w["hairtypecode"] = hair;
+    if (beard > 0 && now("facialhairtypecode") != beard) w["facialhairtypecode"] = beard;
+    if ((hair > 0 || beard > 0) && cur.count("hairstylecode") && now("hairstylecode") != 0) w["hairstylecode"] = 0;
+    return w;
 }
 
 }  // namespace turbo::faces3d

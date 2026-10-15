@@ -655,7 +655,7 @@ or size 0), copies + md5s the bytes, logs `captured stock player_kit: N bytes md
 reader (the game's reader is consumed). The override is served only when its first line is `-- TURBO build <key> stock <md5> table
 <hash>` naming the running build and the md5 just captured; otherwise (no header, other build, stale stock, mode, layout, latch) the
 captured stock bytes are served and the reason is logged and kept as the Status `last`. A failed override compile replays the captured
-stock. A `mods\legacy\dataifarna\luassets\player_kit.lua` refuses substitution (log-only, no cache). Status:
+stock. A `mods\legacy\data\fifarna\lua\assets\player_kit.lua` refuses substitution (log-only, no cache). Status:
 `host::faces3d_status()` (`Faces3dStatus`) and a second Status tab line.
 
 Substitution by chunkname (Launch L1, 6AC07E31: player_kit is compiled at boot through reader `FC27.exe+0x46AE738`, 18 calls on 18
@@ -679,6 +679,16 @@ else `App::asset_running_key()`. No cache: Apply refuses; "Enable capture" write
 Remove: deletes the override and `faces3d_on.txt` (players.json kept). A `mods\legacy` player_kit.lua is warned about. The C++
 generator is a port of `build_gated_v2.py`: with the research `players.json` it reproduces the F2 override byte for byte (md5
 442d5115..., table 222cbba80890; checked by the catalog test when the research stock is on the machine, SKIP otherwise).
+
+2.9 live preview + follow (GUI NOT run in game yet): "Follow his database codes" makes a gate v3 entry (`build_gated_v3.py` port over the
+embedded TEMPLATE v3 e007e38d; reproduces f3 4CFDF40B / table 30ed1d5d0b6b byte for byte; a fixed-only list still builds v2 = F2 bytes).
+Apply also writes `faces3d\applied\<table>.json`; the running list = that snapshot named by the served header's table
+(`Faces3dStatus::header_table`). Preview (only when `faces3d::live_gate` is active: override substituted, right build/stock, no kill
+switch, he follows in the running list) backs up his hairtypecode / facialhairtypecode / hairstylecode in `faces3d\preview_backup.json`,
+writes the chosen codes RAW (no undo step, no kept edit; hairstylecode 0 when needed), asks `app.capture` for his 3D render (never the
+`cache\faces3d` files) and shows it. Revert writes the originals back; Keep bakes a fixed entry (Apply; restart) and puts the originals
+back, or keeps him following; it deletes the chooser's `p_<id>.dds`. A backup left by a crash is offered for Revert only while his
+codes still equal the written ones.
 
 ## Not implemented yet
 
