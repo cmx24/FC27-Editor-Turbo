@@ -25,6 +25,7 @@
 #include "callname_audio_win.h"
 #include "callname_voice_win.h"
 #include "kit_swap_win.h"
+#include "lua_loader_win.h"
 #include "commentary_audio_win.h"
 #include "edit_unlock_hook_win.h"
 #include "game_calls_win.h"
@@ -1036,9 +1037,15 @@ bool start_overlay(HMODULE) {
         if (!find_targets()) return false;
     }
     log("hook targets found; initialising MinHook");
-    if (MH_Initialize() != MH_OK) {
-        log("MinHook init failed");
-        return false;
+    {
+        // The Lua loader hook (lua_loader_win.h, opt-in) may have initialised MinHook at DLL load: that is not a failure here
+        const MH_STATUS mi = MH_Initialize();
+        if (mi == MH_ERROR_ALREADY_INITIALIZED && lua_loader_uses_minhook()) {
+            log("MinHook already initialised by the Lua loader hook");
+        } else if (mi != MH_OK) {
+            log("MinHook init failed");
+            return false;
+        }
     }
     struct Hook {
         void* target;
@@ -1052,11 +1059,20 @@ bool start_overlay(HMODULE) {
         {t_resize1, reinterpret_cast<void*>(&hk_resize1), reinterpret_cast<void**>(&o_resize1), "ResizeBuffers1"},
         {t_execute, reinterpret_cast<void*>(&hk_execute), reinterpret_cast<void**>(&o_execute), "ExecuteCommandLists"},
     };
+    // A failed start undoes MinHook; with the Lua loader hook in it, only the overlay's own hooks are removed (the loader's
+    // detour may be running on a game thread)
+    auto undo_minhook = [&hooks]() {
+        if (!lua_loader_uses_minhook()) {
+            MH_Uninitialize();
+            return;
+        }
+        for (const auto& h : hooks) MH_RemoveHook(h.target);
+    };
     for (const auto& h : hooks) {
         MH_STATUS st = MH_CreateHook(h.target, h.detour, h.original);
         if (st != MH_OK) {
             log("hooking %s failed: %s", h.name, MH_StatusToString(st));
-            MH_Uninitialize();
+            undo_minhook();
             return false;
         }
     }
@@ -1064,7 +1080,7 @@ bool start_overlay(HMODULE) {
     MH_STATUS st = MH_EnableHook(MH_ALL_HOOKS);
     if (st != MH_OK) {
         log("enabling hooks failed: %s", MH_StatusToString(st));
-        MH_Uninitialize();
+        undo_minhook();
         return false;
     }
     log("hooks installed; press %s in game to show Turbo", turbo::hotkey_name(g_app->toggle_vk, g_app->toggle_mods).c_str());
@@ -1123,6 +1139,7 @@ bool start_overlay(HMODULE) {
         for (const auto& line : team_sheet_status()) r.calls.push_back(line);
         for (const auto& line : tuning_status()) r.calls.push_back(line);
         for (const auto& line : kit_swap_status()) r.calls.push_back(line);
+        for (const auto& line : lua_loader_status()) r.calls.push_back(line);  // empty without turbo_output\lua_loader_on.txt
         return r;
     };
     install_player_capture(*g_app);  // miniface from the 3D model (player_capture_win.cpp): needs the game hooks above

@@ -1,0 +1,406 @@
+// FC 27 LE Turbo GUI - Lua loader hook, Windows host (see lua_loader_win.h, core/lua_loader.h)
+#include "lua_loader_win.h"
+
+#include <windows.h>
+
+#include <atomic>
+#include <cstdio>
+#include <cstring>
+#include <fstream>
+#include <iterator>
+
+#include "MinHook.h"
+#include "core/lua_loader.h"
+#include "host.h"
+
+namespace host {
+
+namespace fs = std::filesystem;
+namespace ll = turbo::lualoader;
+
+namespace {
+
+std::atomic<bool> g_opted_in{false};
+std::atomic<bool> g_uses_mh{false};
+std::atomic<bool> g_installed{false};
+std::atomic<bool> g_substitute{false};
+std::string g_state = "starting";  // written by the loader thread only, before g_installed / g_done
+std::atomic<bool> g_done{false};   // g_state is final
+std::string g_build;
+uint64_t g_exe_base = 0, g_exe_size = 0;
+
+ll::Engine* g_engine = nullptr;  // never freed: the detours read it for the lifetime of the process
+ll::LineQueue g_lines(50000);
+ll::LuaLoadFn o_lua_load = nullptr;
+ll::Reader o_blob = nullptr;
+
+fs::path out_dir() { return le_root() / "turbo_output"; }
+bool file_exists(const fs::path& p) {
+    std::error_code ec;
+    return fs::exists(p, ec);
+}
+bool env_is(const wchar_t* name, const wchar_t* value) {
+    wchar_t buf[16] = {0};
+    DWORD n = GetEnvironmentVariableW(name, buf, 16);
+    return n > 0 && n < 16 && std::wcscmp(buf, value) == 0;
+}
+int env_int(const wchar_t* name, int fallback) {
+    wchar_t buf[32];
+    DWORD n = GetEnvironmentVariableW(name, buf, 32);
+    if (n == 0 || n >= 32) return fallback;
+    return _wtoi(buf);
+}
+
+// ---------------------------------------------------------------- detours (x64: one calling convention)
+int hk_lua_load(void* L, ll::Reader reader, void* data, const char* chunkname, const char* mode) {
+    const uint64_t caller = reinterpret_cast<uint64_t>(__builtin_return_address(0));
+    return g_engine->on_lua_load(o_lua_load, L, reader, data, chunkname, mode, caller);
+}
+const char* hk_blob(void* L, void* data, size_t* size) { return g_engine->on_blob_read(o_blob, L, data, size); }
+
+// ---------------------------------------------------------------- env for the engine
+bool readable_range(const void* p, size_t n) {
+    uint64_t a = reinterpret_cast<uint64_t>(p);
+    const uint64_t end = a + n;
+    if (end < a) return false;
+    while (a < end) {
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (VirtualQuery(reinterpret_cast<LPCVOID>(a), &mbi, sizeof(mbi)) != sizeof(mbi)) return false;
+        if (mbi.State != MEM_COMMIT) return false;
+        const DWORD pr = mbi.Protect & 0xFF;
+        if ((mbi.Protect & PAGE_GUARD) || pr == PAGE_NOACCESS || pr == PAGE_EXECUTE) return false;
+        a = reinterpret_cast<uint64_t>(mbi.BaseAddress) + mbi.RegionSize;
+    }
+    return true;
+}
+
+std::string where(uint64_t addr) {
+    char b[160];
+    if (g_exe_base && addr >= g_exe_base && addr < g_exe_base + g_exe_size) {
+        std::snprintf(b, sizeof(b), "FC27.exe+0x%llX", static_cast<unsigned long long>(addr - g_exe_base));
+        return b;
+    }
+    HMODULE m = nullptr;
+    if (addr && GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                   reinterpret_cast<LPCWSTR>(static_cast<uintptr_t>(addr)), &m) &&
+        m) {
+        wchar_t path[MAX_PATH] = {0};
+        GetModuleFileNameW(m, path, MAX_PATH);
+        const wchar_t* base = path;
+        for (const wchar_t* q = path; *q; ++q)
+            if (*q == L'\\' || *q == L'/') base = q + 1;
+        std::string name;
+        for (const wchar_t* q = base; *q && name.size() < 60; ++q) name += *q < 128 ? char(*q) : '?';
+        std::snprintf(b, sizeof(b), "%s+0x%llX", name.c_str(), static_cast<unsigned long long>(addr - reinterpret_cast<uint64_t>(m)));
+        return b;
+    }
+    std::snprintf(b, sizeof(b), "0x%llX", static_cast<unsigned long long>(addr));
+    return b;
+}
+
+std::string now_text() {
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    char b[32];
+    std::snprintf(b, sizeof(b), "%02d:%02d:%02d.%03d", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+    return b;
+}
+
+// ---------------------------------------------------------------- the game image
+struct Section {
+    uint64_t start = 0, end = 0;
+};
+
+bool locate_exe(std::vector<Section>& secs, std::string& err) {
+    HMODULE exe = GetModuleHandleW(nullptr);
+    if (!exe) {
+        err = "GetModuleHandle(NULL) failed";
+        return false;
+    }
+    const uint8_t* base = reinterpret_cast<const uint8_t*>(exe);
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0 || dos->e_lfanew > 0x1000) {
+        err = "bad DOS header";
+        return false;
+    }
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE || nt->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
+        err = "not a 64-bit PE image";
+        return false;
+    }
+    g_exe_base = reinterpret_cast<uint64_t>(base);
+    g_exe_size = nt->OptionalHeader.SizeOfImage;
+    g_build = turbo::build_key(nt->FileHeader.TimeDateStamp, nt->OptionalHeader.SizeOfImage);
+    const IMAGE_SECTION_HEADER* sec = IMAGE_FIRST_SECTION(nt);
+    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections && i < 96; ++i) {
+        if (!(sec[i].Characteristics & IMAGE_SCN_MEM_EXECUTE) || sec[i].Misc.VirtualSize == 0) continue;
+        secs.push_back({g_exe_base + sec[i].VirtualAddress, g_exe_base + sec[i].VirtualAddress + sec[i].Misc.VirtualSize});
+    }
+    if (secs.empty()) {
+        err = "the main module has no executable section";
+        return false;
+    }
+    return true;
+}
+
+// Every signature over every executable section, from one copy of each section (unreadable pages read as zeros); a match in
+// two sections counts as ambiguous, like game_hooks.cpp's scan_signature.
+std::vector<turbo::SigResult> scan_all(const std::vector<turbo::Signature>& sigs, const std::vector<Section>& secs, std::vector<uint8_t>& buf) {
+    std::vector<turbo::SigResult> total(sigs.size());
+    for (size_t i = 0; i < sigs.size(); ++i) {
+        total[i].name = sigs[i].name;
+        total[i].state = turbo::SigState::Missing;
+        total[i].error = "no match";
+    }
+    ProcessMemory mem;
+    for (const auto& s : secs) {
+        const size_t len = size_t(s.end - s.start);
+        buf.resize(len);
+        for (size_t off = 0; off < len; off += 0x10000) {
+            const size_t n = len - off < 0x10000 ? len - off : 0x10000;
+            if (!mem.read(s.start + off, buf.data() + off, n)) std::memset(buf.data() + off, 0, n);
+        }
+        for (size_t i = 0; i < sigs.size(); ++i) {
+            if (total[i].state == turbo::SigState::Ambiguous || total[i].state == turbo::SigState::BadPattern) continue;
+            turbo::SigResult r = turbo::resolve_signature(sigs[i], buf.data(), len, s.start);
+            if (r.state == turbo::SigState::Found) {
+                if (total[i].state == turbo::SigState::Found) {
+                    total[i].state = turbo::SigState::Ambiguous;
+                    total[i].error = "matches in more than one section";
+                } else {
+                    total[i] = r;
+                }
+            } else if (r.state == turbo::SigState::Ambiguous || r.state == turbo::SigState::BadPattern) {
+                total[i] = r;
+            }
+        }
+    }
+    return total;
+}
+
+std::string read_file(const fs::path& p, bool& ok) {
+    std::ifstream f(p, std::ios::binary);
+    ok = bool(f);
+    if (!ok) return std::string();
+    return std::string(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+}
+
+void set_state(const std::string& s) { g_state = s; }
+
+// The watcher: kill switch (every 250 ms) and the log lines of the detours
+void watcher() {
+    const fs::path off = out_dir() / "hook_lua_load_off.txt";
+    const fs::path all_off = out_dir() / "game_hooks_off.txt";
+    bool was = g_engine->killed();
+    for (;;) {
+        const bool k = file_exists(off) || file_exists(all_off);
+        g_engine->set_killed(k);
+        if (k != was) {
+            log("lua_loader: kill switch %s: %s", k ? "present" : "removed", k ? "every lua_load call passes through untouched" : "logging again");
+            was = k;
+        }
+        for (const auto& line : g_lines.take()) log("%s", line.c_str());
+        static long long dropped_logged = 0;
+        const long long d = g_lines.dropped();
+        if (d != dropped_logged) {
+            log("lua_loader: %lld log lines dropped (queue full)", d - dropped_logged);
+            dropped_logged = d;
+        }
+        Sleep(250);
+    }
+}
+
+void run() {
+    const fs::path out = out_dir();
+    if (!file_exists(out / "lua_loader_on.txt")) return;  // not opted in: nothing at all, not even a log line
+    g_opted_in = true;
+    const bool substitute = file_exists(out / "lua_loader_substitute.txt");
+    log("lua_loader: opt-in turbo_output\\lua_loader_on.txt present: %s (kill switch turbo_output\\hook_lua_load_off.txt)",
+        substitute ? "SUBSTITUTE mode (turbo_output\\lua_loader_substitute.txt present)" : "LOG-ONLY mode");
+    auto refuse = [](const std::string& why) {
+        set_state("off: " + why);
+        g_done = true;
+        log("lua_loader: not installed: %s", why.c_str());
+    };
+    if (env_is(L"TURBO_GUI_DISABLE", L"1") || file_exists(out / "turbo_gui_disable.txt")) return refuse("Turbo GUI kill switch (turbo_gui_disable.txt)");
+    if (env_is(L"TURBO_GUI_NO_GAME_HOOKS", L"1")) return refuse("TURBO_GUI_NO_GAME_HOOKS=1");
+    if (file_exists(out / "game_hooks_off.txt")) return refuse("turbo_output\\game_hooks_off.txt present");
+    if (file_exists(out / "hook_lua_load_off.txt")) return refuse("kill switch turbo_output\\hook_lua_load_off.txt present");
+    const fs::path flag = out / "lua_loader_start.flag";
+    if (file_exists(flag))
+        return refuse("turbo_output\\lua_loader_start.flag is left from an install that did not finish (the game may have crashed): delete it to try again");
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+
+    std::vector<Section> secs;
+    std::string err;
+    if (!locate_exe(secs, err)) return refuse(err);
+
+    // Override sources (substitute mode only): read once, never freed
+    std::vector<ll::Row> rows = ll::default_rows();
+    std::vector<ll::Override> overrides(rows.size());
+    if (substitute) {
+        for (size_t i = 0; i < rows.size(); ++i) {
+            bool ok = false;
+            std::string bytes = read_file(out / rows[i].override_rel, ok);
+            ll::Override& o = overrides[i];
+            o.error = ok ? ll::override_refusal(bytes) : "file missing";
+            if (o.error.empty()) {
+                char* keep = new char[bytes.size()];
+                std::memcpy(keep, bytes.data(), bytes.size());
+                o.data = keep;
+                o.size = bytes.size();
+                o.md5 = ll::md5_hex(reinterpret_cast<const uint8_t*>(keep), o.size);
+                log("lua_loader: row %s (stock 0x%llX %s) -> turbo_output\\%s: 0x%llX bytes, md5 %s (must be validated offline with Lua 5.4 before use)",
+                    rows[i].name.c_str(), static_cast<unsigned long long>(rows[i].size), rows[i].md5.c_str(), rows[i].override_rel.c_str(),
+                    static_cast<unsigned long long>(o.size), o.md5.c_str());
+            } else {
+                log("lua_loader: row %s: turbo_output\\%s not used: %s", rows[i].name.c_str(), rows[i].override_rel.c_str(), o.error.c_str());
+            }
+        }
+    }
+
+    const std::vector<turbo::Signature> sigs = ll::signatures();
+    const std::vector<turbo::Signature> first(sigs.begin(), sigs.begin() + 1);  // lua_load alone until it shows up
+    const int wait_ms = env_int(L"TURBO_LUA_LOADER_WAIT_MS", 60000);
+    const DWORD t0 = GetTickCount();
+    std::vector<uint8_t> buf;
+    ll::Located at;
+    std::string last_why;
+    bool lua_load_seen = false;
+    int attempts = 0;
+    auto read = [](uint64_t a, void* o, size_t n) { return ProcessMemory().read(a, o, n); };
+    log("lua_loader: scanning build %s for lua_load every 250 ms for up to %d s", g_build.c_str(), wait_ms / 1000);
+    for (;;) {
+        ++attempts;
+        std::vector<turbo::SigResult> r1 = scan_all(first, secs, buf);
+        if (r1[0].state == turbo::SigState::Found) {
+            lua_load_seen = true;
+            std::vector<turbo::SigResult> rs = scan_all(sigs, secs, buf);
+            at = ll::decide_install(rs, read);
+            if (at.ok) {
+                for (const auto& r : rs)
+                    log("lua_loader: signature %s: %s%s", r.name.c_str(), turbo::sig_state_name(r.state),
+                        r.state == turbo::SigState::Found ? (" -> " + where(r.address)).c_str() : (" (" + r.error + ")").c_str());
+                break;
+            }
+            if (at.why != last_why) {
+                log("lua_loader: lua_load found but not installable yet: %s", at.why.c_str());
+                last_why = at.why;
+            }
+        } else if (r1[0].state == turbo::SigState::Ambiguous) {
+            return refuse("lua_load signature matches more than once on build " + g_build);
+        }
+        buf.clear();
+        buf.shrink_to_fit();  // ~the code section: not kept while waiting
+        if (GetTickCount() - t0 > DWORD(wait_ms)) {
+            if (!lua_load_seen) {
+                log("lua_loader: signature not found (build %s) after %d attempts in %lu ms: nothing installed", g_build.c_str(), attempts,
+                    static_cast<unsigned long>(GetTickCount() - t0));
+                set_state("off: signature not found (build " + g_build + ")");
+                g_done = true;
+                return;
+            }
+            return refuse("build " + g_build + ": " + last_why);
+        }
+        Sleep(250);
+    }
+    buf.clear();
+    buf.shrink_to_fit();
+    log("lua_loader: lua_load at %s after %d attempt(s), %lu ms%s%s", where(at.lua_load).c_str(), attempts, static_cast<unsigned long>(GetTickCount() - t0),
+        at.why.empty() ? "" : "; ", at.why.c_str());
+    if (file_exists(out / "hook_lua_load_off.txt") || file_exists(out / "game_hooks_off.txt"))
+        return refuse("kill switch appeared while scanning");
+
+    // MinHook: initialised here (the overlay accepts that later) or already by the overlay (a load into a running game)
+    const MH_STATUS mi = MH_Initialize();
+    if (mi != MH_OK && mi != MH_ERROR_ALREADY_INITIALIZED) return refuse(std::string("MinHook init: ") + MH_StatusToString(mi));
+    g_uses_mh = true;
+
+    ll::Env env;
+    env.read = [](uint64_t a, void* o, size_t n) { return ProcessMemory().read(a, o, n); };
+    env.readable = readable_range;
+    env.where = where;
+    env.thread_id = []() { return uint32_t(GetCurrentThreadId()); };
+    env.now = now_text;
+    env.emit = [](const std::string& s) { g_lines.push(s); };
+    g_engine = new ll::Engine(env);
+
+    {
+        std::error_code ec;
+        fs::create_directories(out, ec);
+        if (FILE* f = _wfopen(flag.wstring().c_str(), L"w")) {
+            std::fprintf(f, "lua_loader installing (process %lu)\n", static_cast<unsigned long>(GetCurrentProcessId()));
+            std::fclose(f);
+        }
+    }
+    // The blob reader first (pass-through until lua_load's detour gives it a context), then lua_load. The engine is configured
+    // before lua_load's hook is enabled and never changed afterwards.
+    uint64_t blob = at.blob_reader;
+    if (blob) {
+        void* target = reinterpret_cast<void*>(static_cast<uintptr_t>(blob));
+        MH_STATUS st = MH_CreateHook(target, reinterpret_cast<void*>(&hk_blob), reinterpret_cast<void**>(&o_blob));
+        if (st == MH_OK) st = MH_EnableHook(target);
+        if (st != MH_OK) {
+            log("lua_loader: blob reader hook at %s failed (%s): file sources are not measured, no substitution", where(blob).c_str(), MH_StatusToString(st));
+            if (st != MH_ERROR_ALREADY_CREATED) MH_RemoveHook(target);
+            blob = 0;
+        }
+    }
+    g_engine->configure(at.gets, blob, substitute, rows, overrides);
+    g_substitute = substitute;
+    void* target = reinterpret_cast<void*>(static_cast<uintptr_t>(at.lua_load));
+    MH_STATUS st = MH_CreateHook(target, reinterpret_cast<void*>(&hk_lua_load), reinterpret_cast<void**>(&o_lua_load));
+    if (st == MH_OK) st = MH_EnableHook(target);
+    if (st != MH_OK) {
+        if (st != MH_ERROR_ALREADY_CREATED) MH_RemoveHook(target);
+        if (blob) {
+            void* bt = reinterpret_cast<void*>(static_cast<uintptr_t>(blob));
+            MH_DisableHook(bt);  // the trampoline stays allocated (MinHook keeps its buffer): a reader call in flight returns safely
+        }
+        DeleteFileW(flag.wstring().c_str());
+        return refuse(std::string("MinHook on lua_load: ") + MH_StatusToString(st));
+    }
+    DeleteFileW(flag.wstring().c_str());
+    g_installed = true;
+    set_state(std::string(substitute ? "SUBSTITUTE" : "LOG-ONLY") + ": lua_load hooked at " + where(at.lua_load) +
+              (blob ? ", blob reader at " + where(blob) : ", blob reader not hooked") + (at.gets ? ", getS at " + where(at.gets) : ", getS unknown"));
+    g_done = true;
+    log("lua_loader: installed, %s", g_state.c_str());
+    watcher();  // this thread keeps the kill switch and the log lines (never returns)
+}
+
+DWORD WINAPI early_thread(LPVOID) {
+    try {
+        run();
+    } catch (const std::exception& e) {
+        log("lua_loader: unexpected error, not installed: %s", e.what());
+    } catch (...) {
+        log("lua_loader: unexpected error, not installed");
+    }
+    return 0;
+}
+
+}  // namespace
+
+void start_lua_loader_early() {
+    HANDLE th = CreateThread(nullptr, 0, early_thread, nullptr, 0, nullptr);
+    if (th) CloseHandle(th);
+}
+
+bool lua_loader_uses_minhook() { return g_uses_mh.load(); }
+
+std::vector<std::string> lua_loader_status() {
+    std::vector<std::string> v;
+    if (!g_opted_in.load()) return v;
+    std::string line = "Lua loader hook: ";
+    line += g_done.load() ? g_state : std::string("scanning for lua_load");
+    if (g_installed.load() && g_engine) {
+        const auto s = g_engine->stats();
+        line += " | calls " + std::to_string(s.calls) + " | logged " + std::to_string(s.logged) + " | blob reads " + std::to_string(s.blob_reads) +
+                " | substituted " + std::to_string(s.substituted) + " | errors " + std::to_string(s.errors) + (g_engine->killed() ? " [kill switch]" : "");
+    }
+    v.push_back(line);
+    return v;
+}
+
+}  // namespace host

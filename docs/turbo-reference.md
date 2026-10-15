@@ -626,6 +626,25 @@ Full contract: `docs/asset-catalog.md`. Short version:
 - **Tests**: `turbogui/tests/catalog/run*.sh` (g++ only, seconds), the Python tests next to each tool, `t26_asset_gate.lua`,
   native case "UI: asset catalog wiring". No test reads the game folder.
 
+## Lua loader hook (2.9 branch, opt-in, NOT verified in game)
+
+`core/lua_loader.{h,cpp}` (logic, tests `turbogui/tests/catalog/run_lualoader.sh`) and `win/lua_loader_win.cpp` (host). Research:
+`turbo_dev/research/c2_lua_loader/C2_LUA_LOADER.md`. Started from `DllMain` on its own thread; without the opt-in file it returns at
+once (nothing scanned, hooked or logged, the Status tab unchanged).
+
+| file in `turbo_output` | effect |
+|---|---|
+| `lua_loader_on.txt` | opt-in, LOG-ONLY: scan for `lua_load` every 250 ms for up to 60 s (`TURBO_LUA_LOADER_WAIT_MS`), install when `lua_load`, its cross-check (luaL_loadstring's call) agree and the prologue is not a jump; one `lua_loader: #N ...` line per call in `turbo_gui.log` (time, thread, caller, reader, chunkname, size + md5 for the blob reader and getS, rc) |
+| `lua_loader_substitute.txt` | with the opt-in: a source whose (size, md5) matches a row is replaced by its override (`lua_override\player_kit.lua` for player_kit 0x41140 / 9399e39a...); text chunks only; the override must be compile-checked offline with Lua 5.4 first |
+| `hook_lua_load_off.txt` | kill switch: refuses the install; while installed, re-read every 250 ms, every call passes through untouched (`game_hooks_off.txt` too) |
+| `lua_loader_start.flag` | left behind only if the game died while the hooks were being written: the next start refuses until it is deleted |
+
+How the source is seen: getS's data `{const char*, uint32}` is read, never called; the blob reader is hooked itself and records what
+the original returned when the parser asked for it (no early call, no state restore); other readers pass through. Signatures are from
+build 6AB9813C (checked offline on `fc27_image.bin`); on 6AC07E31 they are unverified ("lua_loader: signature not found (build X)" = no
+install). MinHook may be initialised by the loader before the overlay; the overlay then accepts `MH_ERROR_ALREADY_INITIALIZED` and on a
+failed start removes only its own hooks.
+
 ## Not implemented yet
 
 The FC 26 → Turbo map with the state of every feature is `docs/fc26-parity.md`; the open items in order are in `docs/HANDOVER.md`
