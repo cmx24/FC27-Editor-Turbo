@@ -626,6 +626,70 @@ Full contract: `docs/asset-catalog.md`. Short version:
 - **Tests**: `turbogui/tests/catalog/run*.sh` (g++ only, seconds), the Python tests next to each tool, `t26_asset_gate.lua`,
   native case "UI: asset catalog wiring". No test reads the game folder.
 
+## Lua loader hook (2.9 branch, opt-in; install + boot compile + chunkname substitution verified in game on 6AC07E31, Launches L1/L2)
+
+`core/lua_loader.{h,cpp}` (logic, tests `turbogui/tests/catalog/run_lualoader.sh`) and `win/lua_loader_win.cpp` (host). Research:
+`turbo_dev/research/c2_lua_loader/C2_LUA_LOADER.md`. Started from `DllMain` on its own thread; without the opt-in file it returns at
+once (nothing scanned, hooked or logged, the Status tab unchanged).
+
+| file in `turbo_output` | effect |
+|---|---|
+| `lua_loader_on.txt` | opt-in, LOG-ONLY: scan for `lua_load` every 250 ms for up to 60 s (`TURBO_LUA_LOADER_WAIT_MS`), install when `lua_load`, its cross-check (luaL_loadstring's call) agree and the prologue is not a jump; one `lua_loader: #N ...` line per call in `turbo_gui.log` (time, thread, caller, reader, chunkname, size + md5 for the blob reader and getS, rc) |
+| `lua_loader_substitute.txt` | with the opt-in: a source whose (size, md5) matches a row is replaced by its override (`lua_override\player_kit.lua` for player_kit 0x41140 / 9399e39a...); for a reader Turbo cannot measure ("other"), a row also matches by exact chunkname (`data/fifarna/lua/assets/player_kit.lua`, one leading `@` tolerated) but only on the row's build (`6AC07E31-2145C000`, the running exe's build key) and only when the lua_load stack layout was confirmed at install; text chunks only; the override must be compile-checked offline with Lua 5.4 first |
+| `faces3d_on.txt` | product opt-in written by the GUI (`set_faces3d_opt_in`, tmp + rename): the same as `lua_loader_on.txt` + `lua_loader_substitute.txt` |
+| `faces3d_off.txt` | kill switch like `hook_lua_load_off.txt` |
+| `faces3d\stock_player_kit.cache` | written by the hook (watcher thread, tmp + rename): the first captured stock player_kit.lua; in LOG-ONLY (capture mode) whatever its md5, in SUBSTITUTE only when it equals the row's expected md5; never while `mods\legacy\...\player_kit.lua` exists |
+| `hook_lua_load_off.txt` | kill switch: refuses the install; while installed, re-read every 250 ms, every call passes through untouched (`game_hooks_off.txt` too) |
+| `lua_loader_start.flag` | left behind only if the game died while the hooks were being written: the next start refuses until it is deleted |
+
+How the source is seen: getS's data `{const char*, uint32}` is read, never called; the blob reader is hooked itself and records what
+the original returned when the parser asked for it (no early call, no state restore); other readers are never called (substitution by chunkname only, below). Signatures were read on
+build 6AB9813C (`fc27_image.bin`); Launch L1 found all four live on 6AC07E31 (lua_load FC27.exe+0x81F470, getS +0x46A769C, blob reader
++0x89E334C) and installed ~3 s after Turbo loaded, ~4 s before the boot compile of player_kit.lua. MinHook may be initialised by the loader before the overlay; the overlay then accepts `MH_ERROR_ALREADY_INITIALIZED` and on a
+failed start removes only its own hooks.
+
+Stock capture (2.9 WP-B, NOT run in game yet): player_kit.lua comes through the game's one-shot reader (6AB9813C 0x1446B08C8 /
+6AC07E31 FC27.exe+0x46AE738), a leaf: `if (d->done) {*size=0; return NULL;} d->done=1; *size=obj[+0x20]; return obj[+0x18];` (no call,
+no Lua API, cannot raise). Turbo calls it itself only when the live 35 bytes equal `kOtherReaderExpect` exactly; it drains it (until NULL
+or size 0), copies + md5s the bytes, logs `captured stock player_kit: N bytes md5 X`, and from then on hands lua_load its own replay
+reader (the game's reader is consumed). The override is served only when its first line is `-- TURBO build <key> stock <md5> table
+<hash>` naming the running build and the md5 just captured; otherwise (no header, other build, stale stock, mode, layout, latch) the
+captured stock bytes are served and the reason is logged and kept as the Status `last`. A failed override compile replays the captured
+stock. A `mods\legacy\data\fifarna\lua\assets\player_kit.lua` refuses substitution (log-only, no cache). Status:
+`host::faces3d_status()` (`Faces3dStatus`) and a second Status tab line.
+
+Substitution by chunkname (Launch L1, 6AC07E31: player_kit is compiled at boot through reader `FC27.exe+0x46AE738`, 18 calls on 18
+threads, chunkname without `@`): lua_load is called with the same L / chunkname / mode and Turbo's one-shot reader over the override
+(loaded once at start, immutable, shared read-only; the reader state is a per-call struct on the detour's stack). The game's reader is drained once by the capture above. If that compile fails, the host reads the error message, pops it (L->top -= 16, only when
+`L->top - L->ci->func` grew by exactly one slot; the layout is checked live in lua_load's bytes after luaD_protectedparser,
+`44 8B D8 85 C0 75 ?? 48 8B 4B 10 4C 8B 51 F0` at +0x45, else no chunkname substitution at all) and calls lua_load again over the captured stock bytes; that rc is returned and a per-row latch sends every later call straight to the original. Log:
+`SUBSTITUTED row=player_kit override bytes N md5 X (stock unknown: chunkname match)` or `fallback to original (override failed: rc=3
+"msg")`; the Status line counts `fallbacks`. Not covered: an override that compiles but fails or faults when it runs.
+
+### 3D hair and beard picker (2.8 picker v1, no live preview; GUI NOT run in game yet)
+Players > Appearance > "3D hair and beard" (`ui/ui_faces3d_gate.cpp`; core `core/faces3d.{h,cpp}`, tests
+`turbogui/tests/catalog/run_faces3d.sh` + one native UI case). Enrol a scanned player (headclasscode 0 only), pick a generic hair
+and/or beard from the verified ids (`faces3d_data.h`, generated by `turbogui/scripts/gen_faces3d_data.py` from
+`turbo_dev/research/faces_ids/*_ids.json` ok == true: hair 1371, beard 105), colour flags (hc / bc). Apply: validate (verified ids,
+HeadClass 0, at most 100 entries) -> generate from the embedded TEMPLATE v2 (`player_kit_template_v2.lua` md5 5f3ddbce..., Turbo text +
+anchors only) and the stock read from `faces3d\stock_player_kit.cache` (md5 must be 9399e39a...; whole-file + every anchor line md5
+checked, any mismatch refuses and writes nothing) -> `faces3d\players.json`, `lua_override\player_kit.lua` (header
+`-- TURBO build <key> stock <md5> table <md5(players.json)[:12]>` CRLF + body), `faces3d_on.txt`. Build key: `faces3d_status().running_build`,
+else `App::asset_running_key()`. No cache: Apply refuses; "Enable capture" writes `faces3d_on.txt` so the next start captures it.
+Remove: deletes the override and `faces3d_on.txt` (players.json kept). A `mods\legacy` player_kit.lua is warned about. The C++
+generator is a port of `build_gated_v2.py`: with the research `players.json` it reproduces the F2 override byte for byte (md5
+442d5115..., table 222cbba80890; checked by the catalog test when the research stock is on the machine, SKIP otherwise).
+
+2.9 live preview + follow (GUI NOT run in game yet): "Follow his database codes" makes a gate v3 entry (`build_gated_v3.py` port over the
+embedded TEMPLATE v3 e007e38d; reproduces f3 4CFDF40B / table 30ed1d5d0b6b byte for byte; a fixed-only list still builds v2 = F2 bytes).
+Apply also writes `faces3d\applied\<table>.json`; the running list = that snapshot named by the served header's table
+(`Faces3dStatus::header_table`). Preview (only when `faces3d::live_gate` is active: override substituted, right build/stock, no kill
+switch, he follows in the running list) backs up his hairtypecode / facialhairtypecode / hairstylecode in `faces3d\preview_backup.json`,
+writes the chosen codes RAW (no undo step, no kept edit; hairstylecode 0 when needed), asks `app.capture` for his 3D render (never the
+`cache\faces3d` files) and shows it. Revert writes the originals back; Keep bakes a fixed entry (Apply; restart) and puts the originals
+back, or keeps him following; it deletes the chooser's `p_<id>.dds`. A backup left by a crash is offered for Revert only while his
+codes still equal the written ones.
+
 ## Not implemented yet
 
 The FC 26 → Turbo map with the state of every feature is `docs/fc26-parity.md`; the open items in order are in `docs/HANDOVER.md`

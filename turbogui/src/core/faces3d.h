@@ -1,0 +1,154 @@
+// FC 27 LE Turbo GUI - faces3d: per-player generic 3D hair / beard for scanned heads (Players > Appearance, 2.8 picker v1).
+//
+// What it does: the user enrols scanned players (HeadClass 0) with a generic hair and/or beard model id; Apply writes
+// turbo_output\faces3d\players.json, generates turbo_output\lua_override\player_kit.lua and writes faces3d_on.txt. At the next
+// game start the Lua loader hook (core/lua_loader.h) serves that override instead of the stock player_kit.lua when its first
+// line `-- TURBO build <key> stock <md5> table <hash>` names the running build and the stock it captured.
+//
+// The override is built like turbo_dev/research/c2_lua_loader/build_gated_v2.py for a list of fixed entries (ported byte-for-byte;
+// the F2 launch showed its output in game) or build_gated_v3.py when any entry follows the DB (ported byte-for-byte; the F5 launch
+// showed in game that the 3D capture runs the gate and that a DB write of the hair / beard codes shows in the next capture): the stock source is read at build time from the hook's capture cache (turbo_output/faces3d/
+// stock_player_kit.cache) and never stored by Turbo; the TEMPLATE (core/faces3d_data.h, generated from
+// player_kit_template_v2.lua) holds only Turbo's text plus anchors (stock line number + md5 of that stock line + byte column).
+// Every anchor line's md5 and the whole-file md5 are checked before anything is written; any mismatch refuses.
+//
+// Layers (kept apart so a later live-preview panel can reuse the model and the generator without the files):
+//   Table / parse_players_json / players_json   the model and its file format
+//   validate                                    product rules (verified ids, HeadClass 0, entry cap) - the GUI path
+//   generate_body / generate_override           pure text transform (template + stock + table)
+//   apply / remove                              the files in turbo_output
+// Platform independent (no ImGui, no Win32).
+#pragma once
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <string>
+#include <vector>
+
+#include "core/lua_loader.h"
+
+namespace turbo::faces3d {
+
+// One enrolled player. hair / beard = generic model id (0 = none: the scanned one stays). hair_colour: hair, eyebrow and
+// facial-hair colours from the DB for a hair entry (hc); beard_colour: the generic beard takes the DB facial-hair colours (bc).
+// follow (gate v3 "follow"): the ids come per call from the player's DB codes (initData.Hair / FacialHairType) when the code
+// is >= 1, HairStyle == 0 and the id is verified; else the part's fallback (0 = none: that part stays stock). hair / beard are
+// then NOT written to players.json nor into the gate: in memory they are the picker's choice for a live preview / Keep.
+struct Entry {
+    int64_t hair = 0, beard = 0;
+    bool hair_colour = true, beard_colour = true;
+    std::string name;  // comment in the generated Lua only (sanitised there)
+    bool follow = false;
+    bool follow_hair = true, follow_beard = true;   // "parts" (follow only; at least one)
+    int64_t hair_fallback = 0, beard_fallback = 0;  // follow only; verified ids of a followed part
+};
+using Table = std::map<int64_t, Entry>;  // playerid -> entry, sorted
+
+constexpr size_t kMaxEntries = 100;
+
+// players.json: {"<playerid>": {"mode": "fixed" | "follow" (default fixed), "name": "<text>", "colours": <bool>,
+//   "hair_colour": <bool>, "beard_colour": <bool>,
+//   fixed : "hair": <int>, "beard": <int>
+//   follow: "parts": ["hair", "beard"] (default both), "hair_fallback": <int>, "beard_fallback": <int>}}
+// (research\c2_lua_loader\build_gated_v3.py). "colours" (default true) is the default of both colour flags. Strict: unknown fields
+// for the mode, non-integer / < 1 model ids, non-boolean flags, keys that are not a positive player id (no leading zero), bad
+// parts, a fallback for a part not followed or not verified are refused.
+bool parse_players_json(const std::string& bytes, Table& out, std::string* err);
+// The file Turbo writes (sorted, one entry per line, LF, explicit flags; parse_players_json reads it back to the same Table, except
+// a follow entry's in-memory hair / beard, which are not written). A table of fixed entries is written exactly as 2.8 did.
+std::string players_json(const Table& t);
+
+// ---- verified ids (faces3d_data.h: mesh + colour + coeff exist for <id>_1_0)
+const std::vector<int>& ok_hair_ids();
+const std::vector<int>& ok_beard_ids();
+bool hair_id_ok(int64_t id);
+bool beard_id_ok(int64_t id);
+
+// Product rules for Apply: at most kMaxEntries entries, each fixed one with a hair or a beard, a follow one with at least one part
+// and verified fallbacks of followed parts only, every id verified, every player scanned
+// (headclass(playerid) == 0; -1 = not in the DB). Returns one message per problem (empty = ok).
+std::vector<std::string> validate(const Table& t, const std::function<int64_t(int64_t playerid)>& headclass);
+
+// ---- the generator
+const char* template_text();  // the embedded TEMPLATE v2 (LF)
+const char* template_md5();
+const char* template_v3_text();  // the embedded TEMPLATE v3 (LF): gate block with follow entries + the verified id ranges
+const char* template_v3_md5();
+bool has_follow(const Table& t);
+// What apply builds from: v2 for a table of fixed entries only (byte-identical to 2.8 / F2), v3 when any entry follows
+const char* template_for(const Table& t);
+std::string template_stock_md5(const std::string& tmpl);  // the template's @stock_md5 ("" when unreadable)
+
+struct Built {
+    bool ok = false;
+    std::string bytes;  // generate_body: the body; generate_override: header line + body
+    std::string md5;    // of bytes
+    std::string error;  // why !ok (nothing must be written then)
+};
+// The gated player_kit.lua body from stock + table (build_gated_v2.py / build_gated_v3.py build(), chosen by the template's
+// markers: v3 has --@@OKHAIR@@ and --@@OKBEARD@@): refuses on a template error, the stock md5, any anchor line md5, a column out
+// of range, or a bad entry (a follow entry with a v2 template too). Fixed entries with neither hair nor beard are left out.
+Built generate_body(const std::string& tmpl, const std::string& stock, const Table& t);
+// table field of the header: first 12 hex digits of md5(players.json bytes as written)
+std::string table_hash(const std::string& players_json_bytes);
+// `-- TURBO build <build> stock <md5(stock)> table <table_hash>\r\n` + body (CRLF header line, as the F1b/F2 overrides)
+Built generate_override(const std::string& tmpl, const std::string& stock, const Table& t, const std::string& build_key,
+                        const std::string& players_json_bytes);
+
+// ---- files (relative to turbo_output)
+extern const char* const kPlayersRel;   // "faces3d\\players.json"
+extern const char* const kOverrideRel;  // "lua_override\\player_kit.lua" (the lua_loader row's override)
+extern const char* const kOptInRel;     // "faces3d_on.txt"
+
+extern const char* const kAppliedDirRel;     // "faces3d\applied": players.json as applied, as <table>.json (what a game start runs)
+extern const char* const kPreviewBackupRel;  // "faces3d\preview_backup.json"
+
+bool load_players(const std::string& turbo_output_utf8, Table& out, std::string* err);  // missing file = empty table, true
+
+// ---- the list the running game compiled (the gate is compiled once per game start; later Applies do not reach it)
+// The entries of a generated override's gate block (fixed or follow, colour flags, fallbacks); false when there is no gate block
+bool parse_gate_entries(const std::string& override_bytes, Table& out);
+// The list of the game start whose override header carried `header_table`: faces3d\applied\<table>.json (its md5 must match),
+// else the override on disk when its header still names that table. false (and why) when neither tells.
+bool running_table(const std::string& turbo_output_utf8, const std::string& header_table, Table& out, std::string* why);
+
+// Can the live preview work for `playerid` this session? st = the hook state (nullptr: no game hooks), running = the list of this
+// game start (nullptr: unknown). active only when the override is served (substituted, right build and stock, no kill switch, no
+// mods\legacy file) and he follows the DB in that list; `why` says what is missing, in words for the panel.
+struct LiveGate {
+    bool active = false;
+    bool member = false;  // in the list of this game start
+    bool follow_hair = false, follow_beard = false;
+    std::string why;
+};
+LiveGate live_gate(const lualoader::Faces3dStatus* st, const Table* running, int64_t playerid);
+
+// ---- preview backup (crash safety): the DB codes a preview replaced, written before the first DB write
+struct PreviewRecord {
+    std::string name;
+    std::map<std::string, int64_t> original;  // field -> value before the first preview
+    std::map<std::string, int64_t> written;   // field -> value the last preview wrote
+};
+using PreviewBackup = std::map<int64_t, PreviewRecord>;
+bool load_preview_backup(const std::string& turbo_output_utf8, PreviewBackup& out, std::string* err);  // missing = empty, true
+bool save_preview_backup(const std::string& turbo_output_utf8, const PreviewBackup& b, std::string* err);  // atomic; empty = delete
+// The fields a preview may write, in order: hairtypecode, facialhairtypecode, hairstylecode
+extern const char* const kPreviewFields[3];
+// What a preview of hair / beard writes given his current codes (field -> value): hairtypecode = hair (> 0), facialhairtypecode =
+// beard (> 0), hairstylecode = 0 when a part is chosen and it is not 0 (the follow gate takes the DB codes only with HairStyle == 0;
+// that hairstylecode is initData.HairStyle is an inference). Only fields that change.
+std::map<std::string, int64_t> preview_writes(int64_t hair, int64_t beard, const std::map<std::string, int64_t>& current);
+
+struct ApplyResult {
+    bool ok = false;
+    std::string message;  // what was written, or why nothing was
+    std::string override_md5, table;
+};
+// validate (when headclass is set) -> players.json -> override from the stock cache -> faces3d_on.txt, each atomic; any failure
+// before the opt-in leaves faces3d_on.txt untouched. An empty table = remove(). build_key "" refuses (game build unknown).
+ApplyResult apply(const std::string& turbo_output_utf8, const Table& t, const std::string& build_key,
+                  const std::function<int64_t(int64_t)>& headclass);
+// Deletes the override and faces3d_on.txt (players.json is kept, so the choices come back)
+bool remove(const std::string& turbo_output_utf8, std::string* err);
+
+}  // namespace turbo::faces3d

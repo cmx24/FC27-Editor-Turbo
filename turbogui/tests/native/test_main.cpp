@@ -70,6 +70,7 @@
 #include "ui/playstyles.h"
 #include "core/face_filter.h"
 #include "ui/ui_faces.h"
+#include "ui/ui_faces3d_gate.h"
 #include "ui/ui_identity.h"
 #include "ui/ui_images.h"
 #include "ui/ui_presets.h"
@@ -4061,6 +4062,173 @@ static void test_ui() {
             app.legacy.flush();
             std::string want = read_file(le / "turbo_output" / "cache" / "legacy" / "want.txt");
             CHECK(want.find("data/ui/imgAssets/hairstyle/item_3261_0.dds") != std::string::npos, "previews asked from the game: " + want);
+        });
+
+        // 2.8 picker v1 (ui_faces3d_gate.cpp, core/faces3d.h): enrol a scanned head, Apply refuses without the stock cache and
+        // writes nothing, Enable capture writes faces3d_on.txt, Remove deletes it; a non-scanned head cannot be enrolled
+        run_case("UI: Players > Appearance > 3D hair and beard: enrol, Apply without the stock cache, Enable capture, Remove", [&] {
+            const Table* t = app.db.table("players");
+            CHECK(t && t->has("headclasscode"), "headclasscode in the test players table");
+            if (!t || !t->has("headclasscode")) return;
+            const uint64_t rec = app.db.find(*t, "playerid", 3001);
+            const int64_t hc0 = app.db.get_int(*t, rec, "headclasscode", 0);
+            const fs::path out = le / "turbo_output";
+            CHECK(app.db.set_int(*t, rec, "headclasscode", 0), "3001 scanned");
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.click("3001", "##plist"), "player 3001");
+            CHECK(ui.click("Appearance", "##pedit"), "Appearance tab");
+            ui.frames(2);
+            CHECK(ui.click("Give him a generic 3D hair and/or beard", "##app"), "enrol");
+            ui.frames(2);
+            const faces3d::Entry* e = faces3d_draft_entry(3001);
+            CHECK(e != nullptr && e->hair == 0 && e->beard == 0, "draft entry, nothing chosen yet");
+            if (e) const_cast<faces3d::Entry*>(e)->beard = 46;
+            ui.frames(1);
+            CHECK(ui.click("Apply##f3", "##app"), "Apply");
+            ui.frames(1);
+            CHECK(!fs::exists(out / "faces3d_on.txt") && !fs::exists(out / "lua_override" / "player_kit.lua") &&
+                      !fs::exists(out / "faces3d" / "players.json"),
+                  "no stock cache: Apply writes nothing");
+            CHECK(ui.click("Enable capture##f3", "##app"), "Enable capture");
+            CHECK(fs::exists(out / "faces3d_on.txt"), "faces3d_on.txt written");
+            CHECK(ui.click("Remove##f3", "##app"), "Remove");
+            CHECK(!fs::exists(out / "faces3d_on.txt"), "faces3d_on.txt removed");
+            // un-enrol, then a generic head cannot be enrolled
+            CHECK(ui.click("Give him a generic 3D hair and/or beard", "##app") && faces3d_draft_entry(3001) == nullptr, "un-enrol");
+            CHECK(app.db.set_int(*t, rec, "headclasscode", 1), "3001 generic");
+            ui.frames(2);
+            ui.click("Give him a generic 3D hair and/or beard", "##app");
+            ui.frames(1);
+            CHECK(faces3d_draft_entry(3001) == nullptr, "generic head: the checkbox is disabled");
+            app.db.set_int(*t, rec, "headclasscode", hc0);
+        });
+
+        // 2.9 live preview (ui_faces3d_gate.cpp): only for a player who follows his DB codes in the list THIS game start runs
+        // (faces3d\applied\<table>.json named by the running header); Preview = raw writes (no undo step, no kept edit) after the
+        // backup file, then a capture of him; the picture is shown; Revert puts the originals back; Keep without the stock cache
+        // refuses cleanly and changes nothing
+        run_case("UI: Players > Appearance > 3D hair: live preview (gate status, Preview, picture, Revert, Keep refusal)", [&] {
+            const Table* t = app.db.table("players");
+            if (!t || !t->has("headclasscode") || !t->has("hairtypecode") || !t->has("facialhairtypecode")) {
+                CHECK(false, "test players table lacks the appearance fields");
+                return;
+            }
+            const uint64_t rec = app.db.find(*t, "playerid", 3001);
+            const int64_t hc0 = app.db.get_int(*t, rec, "headclasscode", 0);
+            const int64_t h0 = app.db.get_int(*t, rec, "hairtypecode", 0), b0 = app.db.get_int(*t, rec, "facialhairtypecode", 0);
+            const bool has_style = t->has("hairstylecode");
+            const int64_t s0 = has_style ? app.db.get_int(*t, rec, "hairstylecode", 0) : 0;
+            const fs::path out = le / "turbo_output";
+            CHECK(app.db.set_int(*t, rec, "headclasscode", 0), "3001 scanned");
+            if (has_style) app.db.set_int(*t, rec, "hairstylecode", 2);
+            const size_t undo0 = app.undo_count(3001);
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.click("3001", "##plist"), "player 3001");
+            CHECK(ui.click("Appearance", "##pedit"), "Appearance tab");
+            ui.frames(2);
+            if (!faces3d_draft_entry(3001)) ui.click("Give him a generic 3D hair and/or beard", "##app");
+            ui.frames(1);
+            faces3d::Entry* e = const_cast<faces3d::Entry*>(faces3d_draft_entry(3001));
+            CHECK(e != nullptr, "enrolled");
+            if (!e) return;
+            e->hair = 155;
+            e->beard = 46;
+            e->follow = true;
+            auto fake = std::make_shared<FakeCapture>();
+            app.capture = fake;
+            fake->st.installed = fake->st.available = true;
+            fake->st.reason = "ready";
+            // no hooks: Preview disabled, says why
+            app.faces3d_report = nullptr;
+            ui.frames(2);
+            ui.click("Preview##f3pv", "##app");
+            CHECK(fake->requests.empty() && app.db.get_int(*t, rec, "hairtypecode", 0) == h0, "no hooks: nothing asked, nothing written");
+            // the running game: override served, header table T; the list of that start has 3001 following
+            const std::string js = "{\n  \"3001\": {\"mode\": \"follow\", \"hair_colour\": true, \"beard_colour\": true}\n}\n";
+            const std::string T = faces3d::table_hash(js);
+            fs::create_directories(out / "faces3d" / "applied");
+            std::ofstream(out / "faces3d" / "applied" / (T + ".json"), std::ios::binary) << js;
+            lualoader::Faces3dStatus st;
+            st.opted_in = st.installed = st.substitute = st.header_ok = st.build_key_ok = st.stock_matches_header = true;
+            st.substituted = 18;
+            st.header_table = T;
+            st.running_build = "6AC07E31-2145C000";
+            app.faces3d_report = [st]() { return st; };
+            ui.frames(2);
+            CHECK(ui.click("Preview##f3pv", "##app"), "Preview");
+            ui.frames(2);
+            CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == 155 && app.db.get_int(*t, rec, "facialhairtypecode", 0) == 46 &&
+                      (!has_style || app.db.get_int(*t, rec, "hairstylecode", -1) == 0),
+                  "Preview wrote hair 155, beard 46, hair style 0");
+            CHECK(app.undo_count(3001) == undo0, "no undo step from a preview");
+            std::string kept;
+            {
+                std::ifstream f(out / "reapply_edits.json", std::ios::binary);
+                kept.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+            }
+            CHECK(kept.find("hairtypecode") == std::string::npos && kept.find("facialhairtypecode") == std::string::npos, "nothing kept for other careers");
+            faces3d::PreviewBackup bk;
+            std::string err;
+            CHECK(faces3d::load_preview_backup(out.u8string(), bk, &err) && bk.count(3001) && bk[3001].original.at("hairtypecode") == h0 &&
+                      bk[3001].original.at("facialhairtypecode") == b0 && bk[3001].written.at("hairtypecode") == 155,
+                  "preview_backup.json holds the originals and what was written");
+            CHECK(fake->requests.size() == 1 && fake->requests.back().id == 3001 && faces3d_preview_pending(), "one capture asked for 3001");
+            // a second Preview while waiting: refused (the service is busy)
+            ui.click("Preview##f3pv", "##app");
+            CHECK(fake->requests.size() == 1, "no second request while one is in flight");
+            fake->next = capture::Result();
+            fake->next.ok = true;
+            fake->next.format = "DDS DXT5 256x256";
+            fake->next.image = solid(256, 256, 10, 200, 40);
+            fake->deliver = true;
+            ui.frames(3);
+            CHECK(!faces3d_preview_pending() && !fake->pending, "picture consumed by the preview");
+            // a second preview keeps the first originals
+            e->hair = 250;
+            ui.frames(1);
+            CHECK(ui.click("Preview##f3pv", "##app"), "Preview again");
+            CHECK(faces3d::load_preview_backup(out.u8string(), bk, &err) && bk[3001].original.at("hairtypecode") == h0 &&
+                      app.db.get_int(*t, rec, "hairtypecode", 0) == 250,
+                  "second preview: originals unchanged, hair 250 written");
+            fake->deliver = true;
+            ui.frames(3);
+            // Keep (fixed) without the stock cache: refused, nothing changes
+            CHECK(ui.click("Keep##f3pv", "##app"), "Keep");
+            CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == 250 && fs::exists(out / "faces3d" / "preview_backup.json") &&
+                      !fs::exists(out / "lua_override" / "player_kit.lua"),
+                  "Keep without the stock cache: refused, the preview stays");
+            // Revert: originals back, backup gone, one more capture asked
+            const size_t nreq = fake->requests.size();
+            CHECK(ui.click("Revert##f3pv", "##app"), "Revert");
+            CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == h0 && app.db.get_int(*t, rec, "facialhairtypecode", 0) == b0 &&
+                      (!has_style || app.db.get_int(*t, rec, "hairstylecode", -1) == 2),
+                  "Revert wrote the originals back");
+            CHECK(!fs::exists(out / "faces3d" / "preview_backup.json") && fake->requests.size() == nreq + 1, "backup removed; rendered again");
+            CHECK(app.undo_count(3001) == undo0, "still no undo step");
+            fake->deliver = true;
+            ui.frames(3);
+            // a player not in the running list: the gate says so, Preview does nothing
+            e->follow = true;
+            lualoader::Faces3dStatus st2 = st;
+            st2.header_table = "000000000000";
+            app.faces3d_report = [st2]() { return st2; };
+            ui.frames(2);
+            ui.click("Preview##f3pv", "##app");
+            CHECK(fake->requests.size() == nreq + 1 && app.db.get_int(*t, rec, "hairtypecode", 0) == h0, "unknown running list: nothing asked");
+            app.faces3d_report = [st]() { return st; };
+            CHECK(ui.click("Give him a generic 3D hair and/or beard", "##app") && faces3d_draft_entry(3001) == nullptr, "un-enrol");
+            ui.frames(1);
+            app.capture.reset();
+            app.faces3d_report = nullptr;
+            fs::remove_all(out / "faces3d" / "applied");
+            fs::remove(out / "faces3d" / "preview_backup.json");
+            app.db.set_int(*t, rec, "hairtypecode", h0);
+            app.db.set_int(*t, rec, "facialhairtypecode", b0);
+            if (has_style) app.db.set_int(*t, rec, "hairstylecode", s0);
+            app.db.set_int(*t, rec, "headclasscode", hc0);
+            ui.frames(1);
         });
 
         // the code combos offer what the loaded table uses and name player-specific codes by their players: 1004 has

@@ -22,6 +22,7 @@
 #include "ui_names.h"
 #include "ui_archetype.h"
 #include "ui_presets.h"
+#include "ui_faces3d_gate.h"
 #include "ui_team_filter.h"
 
 namespace turbo {
@@ -1391,6 +1392,8 @@ static void player_editor(App& app) {
             ImGui::TextDisabled("head asset %lld, head class %s", static_cast<long long>(app.db.get_int(*t, p->rec, "headassetid", 0)),
                                 code_value_text("headclasscode", app.db.get_int(*t, p->rec, "headclasscode", 0)).c_str());
             real_face_picker(app, p->playerid);
+            ImGui::SeparatorText("3D hair and beard (scanned heads, next game start)");
+            faces3d_gate_section(app, *t, *p);  // ui_faces3d_gate.cpp
             ImGui::SeparatorText("Tattoos");
             tattoo_editor(app, *t, p->rec);
             ImGui::SeparatorText("Hair, boots, gloves and accessories");

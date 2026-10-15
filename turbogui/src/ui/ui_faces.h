@@ -51,5 +51,7 @@ bool faces3d_running();      // "Render all filtered heads" is running
 std::string faces3d_line();  // "3D heads: 120 / 2779, 2 failed" while it runs, else ""
 std::string faces3d_status();  // one line for the Status tab
 void faces3d_stop();         // stop sending (the request in flight still finishes)
+// Forget the chooser's cached 3D render of a head (turbo_output\cache\faces3d\p_<id>.dds / m_<id>.dds): after his look changed
+void faces3d_forget_render(App& app, bool manager, int64_t id);
 
 }  // namespace turbo

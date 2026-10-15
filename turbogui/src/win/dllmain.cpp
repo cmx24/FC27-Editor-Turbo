@@ -17,6 +17,7 @@
 #include "core/edit_unlock.h"
 #include "core/le_log.h"
 #include "host.h"
+#include "lua_loader_win.h"
 #include "nlohmann/json.hpp"
 
 namespace fs = std::filesystem;
@@ -392,6 +393,8 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved) {
         host::g_root = host::find_root(inst);
         HANDLE th = CreateThread(nullptr, 0, host::init_thread, nullptr, 0, nullptr);
         if (th) CloseHandle(th);
+        // Lua loader hook (lua_loader_win.h): its own thread; without turbo_output\lua_loader_on.txt it returns at once
+        host::start_lua_loader_early();
     }
     return TRUE;
 }
