@@ -3378,6 +3378,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_tactics_tab.h"  // Teams > Tactics (ui_cases_tactics_tab, run before the Names cases)
 #include "test_team_sheet.h"   // tactics channel E: the live team sheet on a simulated layout (team_sheet_test::run, ::ui_cases)
 #include "test_tuning.h"      // gameplay tuning: the engine tuning tables on a simulated table (tuning_test::run, ::ui_cases)
+#include "test_game_settings.h"  // 2.8: the game's own settings file, presets, the apply tool's core (gsettings_test::run, ::ui_cases)
 #include "test_club_search.h"  // Players list Gender filter, the club box by name or ID (ui_cases_club_search)
 #include "test_file_picker.h"   // in-overlay file picker and the Export / Import dialogs (test_file_picker_ui)
 
@@ -3711,7 +3712,7 @@ static void test_ui() {
             app.tick(app.now + 3.0);
             json dll2 = read_json(le / "turbo_output" / "bridge_dll.json");
             CHECK(dll2["updated"].get<int64_t>() > 1000000000, "tick refreshes the time stamp");
-            for (int tab = 0; tab < 7; ++tab) {
+            for (int tab = 0; tab < 8; ++tab) {
                 app.request_tab = tab;
                 ui.frames(3);
             }
@@ -8640,6 +8641,7 @@ static void test_ui() {
         ui_cases_tactics_tab(app, ui, le);  // test_tactics_tab.h
         team_sheet_test::ui_cases(app, ui, le);  // test_team_sheet.h: the live tactic card (channel E)
         tuning_test::ui_cases(app, ui, le);  // test_tuning.h: Competitions > Gameplay tuning
+        gsettings_test::ui_cases(app, ui, le);  // test_game_settings.h: the Game settings tab (2.8)
         describe_ui_cases(app, ui);  // test_describe.h: edit log, undo toast, pickers, Technical details, the "no code N" walk
         ui_cases_names_tab(app, ui, mem, kMb);  // test_names_tab.h
         archetype_target_test::run_ui(app, ui, mem, kMb);  // test_archetype_target.h
@@ -8654,7 +8656,7 @@ static void test_ui() {
         parity_test::run_ui(app, ui, le);  // test_parity.h
 
         run_case("UI: no ImGui errors, layout stable over many frames", [&] {
-            for (int tab = 0; tab < 7; ++tab) {
+            for (int tab = 0; tab < 8; ++tab) {
                 app.request_tab = tab;
                 ui.frames(5);
             }
@@ -14369,6 +14371,7 @@ int main(int argc, char** argv) {
     tactics_phase0_test::run();
     team_sheet_test::run();
     tuning_test::run();
+    gsettings_test::run();  // test_game_settings.h (2.8)
     std::printf("native voice swaps\n");
     test_callname_voice();
     test_callname_voice_host();
@@ -14384,6 +14387,16 @@ int main(int argc, char** argv) {
     std::printf("native live team names\n");
     test_team_names_live();
     std::printf("native UI\n");
+    // 2.8: the Game settings tab reads %LOCALAPPDATA%\EA SPORTS FC 27\settings when no test folder is set: never the real one here
+    {
+        const std::string la = (g_out / "tmp" / "localappdata").string();
+        fs::create_directories(la);
+#ifdef _WIN32
+        _putenv_s("LOCALAPPDATA", la.c_str());
+#else
+        setenv("LOCALAPPDATA", la.c_str(), 1);
+#endif
+    }
     g_case = "UI setup";
     try {
         test_ui();
