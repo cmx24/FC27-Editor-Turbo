@@ -28,6 +28,7 @@
 #include "ui_tactics.h"
 #include "ui_live_tactic.h"
 #include "ui_tuning.h"
+#include "ui_game_settings.h"
 
 namespace turbo {
 
@@ -1535,11 +1536,11 @@ void App::draw() {
     ImGui::Separator();
 
     if (ImGui::BeginTabBar("##turbo_tabs")) {
-        const char* names[] = {"Players", "Teams", "Managers", "Competitions", "Database", "Turbo Tools", "Status"};
+        const char* names[] = {"Players", "Teams", "Managers", "Competitions", "Database", "Turbo Tools", "Status", "Game settings"};
         // Taken before drawing: a panel may request another tab (e.g. Squad -> player), for the next frame
         int req = request_tab;
         request_tab = -1;
-        for (int i = 0; i < 7; ++i) {
+        for (int i = 0; i < 8; ++i) {
             ImGuiTabItemFlags fl = (req == i) ? ImGuiTabItemFlags_SetSelected : 0;
             if (ImGui::BeginTabItem(names[i], nullptr, fl)) {
                 switch (i) {
@@ -1549,7 +1550,8 @@ void App::draw() {
                     case 3: draw_competitions(*this); break;
                     case 4: draw_database(*this); break;
                     case 5: draw_tools(*this); break;
-                    default: draw_status(*this); break;
+                    case 6: draw_status(*this); break;
+                    default: draw_game_settings(*this); break;  // 2.8: ui_game_settings.cpp (read-only; presets applied with the game closed)
                 }
                 ImGui::EndTabItem();
             }
