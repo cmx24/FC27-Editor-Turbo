@@ -21,7 +21,15 @@
 //     records the (pointer, size) the ORIGINAL reader returned, at the moment the parser asked for it (same thread, same
 //     order, same arguments). Substitution returns the override buffer from that detour instead; the done flag is already
 //     set by the original, so the next call returns NULL exactly as before.
-//   * any other reader: pass-through untouched (luaB_load's generic_reader can raise a Lua error; never called by Turbo).
+//   * any other reader: never called by Turbo (luaB_load's generic_reader can raise a Lua error). Its source is not seen.
+//     SUBSTITUTE mode can still replace it BY EXACT CHUNKNAME (a row with `chunkname` + `build`): lua_load is called with the
+//     same L / chunkname / mode and Turbo's own one-shot reader over the immutable override buffer (per-call reader state on
+//     the detour's stack). Gates: the running game build equals the row's build, the override file is valid, mode allows
+//     text, and the lua_load stack layout was checked at install (kLuaLoadTopCheck). If that compile fails (rc != 0) the
+//     error message lua_load pushed is read and popped (L->top -= one slot, only when the stack depth grew by exactly one
+//     slot) and lua_load is called again with the ORIGINAL reader and data, which were never touched; a per-row latch then
+//     serves the original directly on every later call. Launch L1 (6AC07E31): fifarna player_kit.lua comes through such a
+//     reader (FC27.exe+0x46AE738), chunkname "data/fifarna/lua/assets/player_kit.lua" (no '@'), 18 calls on 18 threads.
 // The override cannot be compile-checked in C++ without a Lua state: validate it offline (Lua 5.4 / lua_sim, the bisect
 // tooling) before deploying. Main chunk local limit: stock uses 193 of 200 locals.
 #pragma once
@@ -29,6 +37,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -57,6 +66,10 @@ std::vector<Signature> signatures();
 extern const char* const kGetSExpect;
 // First bytes of lua_load as the pattern has them (mov rax,rsp / push rbx / sub rsp,50h)
 extern const uint8_t kLuaLoadPrologue[8];
+// lua_load right after luaD_protectedparser returns (6AB9813C +0x45): mov r11d,eax / test eax,eax / jne / mov rcx,[rbx+10h] /
+// mov r10,[rcx-10h]: L->top at L+0x10, 16-byte stack slots. Required for the chunkname fallback (the pop of the error message).
+extern const char* const kLuaLoadTopCheck;
+extern const size_t kLuaLoadTopCheckOffset;
 
 // True when the bytes look like someone's inline hook / patch: E9 / EB / FF 25 / CC / 48 B8 .. FF E0 / 68 .. C3
 bool prologue_is_jump(const uint8_t* p, size_t n);
@@ -67,6 +80,7 @@ struct Located {
     uint64_t lua_load = 0;
     uint64_t gets = 0;         // 0 = not confirmed (loadstring sources are then logged without size/md5)
     uint64_t blob_reader = 0;  // 0 = not found (blob sources are then logged without size/md5, no substitution)
+    bool top_layout_ok = false;  // kLuaLoadTopCheck matched: the chunkname fallback may pop the error message
     std::string why;           // reason for !ok, or notes for ok
 };
 Located decide_install(const std::vector<SigResult>& results, const std::function<bool(uint64_t, void*, size_t)>& read);
@@ -77,10 +91,20 @@ struct Row {
     uint64_t size = 0;     // stock source size
     std::string md5;       // stock source md5, lower-case hex
     std::string override_rel;  // relative to turbo_output: "lua_override\\player_kit.lua"
+    // Optional: substitution BY CHUNKNAME for readers Turbo cannot measure ("other"). Exact text, one leading '@' tolerated on
+    // either side; only when the running build key (sigscan build_key, "6AC07E31-2145C000") equals `build`.
+    std::string chunkname;
+    std::string build;
 };
+// Build the chunkname rows are gated on (the build Launch L1 saw the chunkname on)
+extern const char* const kChunknameBuild;
 std::vector<Row> default_rows();
-// Matching row index or -1
+// Matching row index or -1 (size + md5; rows without size/md5 never match here)
 int match_row(const std::vector<Row>& rows, uint64_t size, const std::string& md5);
+// True when the chunkname `got` (n bytes, no NUL) equals `want`, ignoring one leading '@' on either
+bool chunkname_equal(const std::string& want, const char* got, size_t n);
+// Row whose chunkname matches, or -1 (build not checked here)
+int match_chunkname_row(const std::vector<Row>& rows, const char* got, size_t n);
 
 // An override source, loaded once and never freed (the parser may read it at any time after it was handed out)
 struct Override {
@@ -116,9 +140,13 @@ struct CallRecord {
     std::string md5;
     std::string note;      // e.g. "source unreadable", "binary chunk"
     bool substituted = false;
+    bool by_chunkname = false;  // substituted on the chunkname alone (stock source unknown)
     std::string row;
     uint64_t new_size = 0;
     std::string new_md5;
+    bool fallback = false;      // the override failed to compile; the original was loaded instead
+    int override_rc = 0;
+    std::string override_msg;
     int rc = 0;
 };
 std::string format_line(const CallRecord& r);
@@ -131,18 +159,27 @@ struct Env {
     std::function<uint32_t()> thread_id;
     std::function<std::string()> now;                               // "HH:MM:SS.mmm"
     std::function<void(const std::string& line)> emit;              // queue a log line (never blocks for long)
+    // The chunkname fallback (all three, or chunkname substitution is refused): the host sets them only when the lua_load layout
+    // check passed. depth = (L->top - L->ci->func) in bytes, -1 = unreadable; message = the error object at top-1 (quoted);
+    // pop1 = L->top -= one slot.
+    std::function<long long(void* L)> stack_depth;
+    std::function<std::string(void* L)> top_message;
+    std::function<bool(void* L)> pop1;
 };
 
 class Engine {
 public:
     explicit Engine(Env env) : env_(std::move(env)) {}
     // Set once before the hooks are enabled (not changed afterwards)
-    void configure(uint64_t gets, uint64_t blob_reader, bool substitute, std::vector<Row> rows, std::vector<Override> overrides);
+    // running_build: the game's build key (gates the chunkname rows; "" = no chunkname substitution)
+    void configure(uint64_t gets, uint64_t blob_reader, bool substitute, std::vector<Row> rows, std::vector<Override> overrides,
+                   std::string running_build = std::string());
     // Read by every call (atomic): true = pure pass-through, nothing logged
     void set_killed(bool k) { killed_.store(k, std::memory_order_release); }
     bool killed() const { return killed_.load(std::memory_order_acquire); }
 
-    // The lua_load detour body: always calls `orig` exactly once and returns its result.
+    // The lua_load detour body: calls `orig` once and returns its result; twice only when a chunkname override failed to compile
+    // (then the second call is the untouched original and its rc is returned).
     int on_lua_load(LuaLoadFn orig, void* L, Reader reader, void* data, const char* chunkname, const char* mode, uint64_t caller);
     // The blob reader detour body: always calls `orig` exactly once and returns its result, or (substitute mode, row match,
     // text chunk) the override buffer with its size.
@@ -150,13 +187,13 @@ public:
 
     struct Stats {
         long long calls = 0, logged = 0, nested = 0, passthrough_killed = 0, blob_reads = 0, blob_orphans = 0, substituted = 0,
-                  errors = 0;
+                  errors = 0, fallbacks = 0;
     };
     Stats stats() const;
 
 private:
     struct Ctx;
-    void fill_common(CallRecord& r, Reader reader, const char* chunkname, const char* mode, uint64_t caller);
+    void fill_common(CallRecord& r, std::string& raw, bool& raw_ok, Reader reader, const char* chunkname, const char* mode, uint64_t caller);
     bool text_allowed(const char* mode);
     const Override* override_for(uint64_t size, const std::string& md5, int* row_out) const;
 
@@ -165,10 +202,12 @@ private:
     bool substitute_ = false;
     std::vector<Row> rows_;
     std::vector<Override> overrides_;  // same index as rows_
+    std::string build_;
+    std::unique_ptr<std::atomic<bool>[]> failed_;  // per row: its override failed to compile once (then: original directly)
     std::atomic<bool> killed_{false};
     std::atomic<uint64_t> seq_{0};
     std::atomic<long long> calls_{0}, logged_{0}, nested_{0}, killed_calls_{0}, blob_reads_{0}, blob_orphans_{0}, substituted_{0},
-        errors_{0};
+        errors_{0}, fallbacks_{0};
 };
 
 // Bounded line queue (detours push, a watcher thread drains into the Turbo log)

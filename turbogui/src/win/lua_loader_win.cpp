@@ -98,6 +98,53 @@ std::string where(uint64_t addr) {
     return b;
 }
 
+// ---------------------------------------------------------------- the Lua 5.4 stack, for the chunkname fallback only
+// Layout read from lua_load itself (kLuaLoadTopCheck, checked live before these are handed to the engine): L->top at +0x10,
+// 16-byte slots. L->ci at +0x20 and ci->func at +0 (6AB9813C: 0x1446A0224 `mov rax,[rcx+20h] / mov rcx,[rcx+10h] / sub rcx,[rax]`)
+// give a depth that does not move when the stack is reallocated. The tag byte of a TValue is at +8 (collectable bit 0x40);
+// a string TString keeps shrlen at +0x0B, lnglen at +0x10 and the bytes at +0x18.
+long long lua_stack_depth(void* L) {
+    ProcessMemory mem;
+    const uint64_t a = reinterpret_cast<uint64_t>(L);
+    uint64_t top = 0, ci = 0, func = 0;
+    if (!a || !mem.read(a + 0x10, &top, 8) || !mem.read(a + 0x20, &ci, 8) || !ci || !mem.read(ci, &func, 8)) return -1;
+    if (top < func || top - func > (1ull << 30) || ((top - func) & 0xF) != 0) return -1;
+    return static_cast<long long>(top - func);
+}
+
+std::string lua_top_message(void* L) {
+    ProcessMemory mem;
+    const uint64_t a = reinterpret_cast<uint64_t>(L);
+    uint64_t top = 0, ts = 0;
+    uint8_t tag = 0;
+    if (!a || !mem.read(a + 0x10, &top, 8) || top < 0x10 || !mem.read(top - 0x10 + 8, &tag, 1)) return "(message unreadable)";
+    const uint8_t v = tag & 0x3F;
+    if (v != 0x04 && v != 0x14) return "(error object is not a string)";
+    if (!mem.read(top - 0x10, &ts, 8) || !ts) return "(message unreadable)";
+    uint64_t len = 0;
+    if (v == 0x04) {
+        uint8_t b = 0;
+        if (!mem.read(ts + 0x0B, &b, 1)) return "(message unreadable)";
+        len = b;
+    } else if (!mem.read(ts + 0x10, &len, 8)) {
+        return "(message unreadable)";
+    }
+    char buf[301] = {0};
+    const size_t n = len < 300 ? size_t(len) : 300;
+    if (n && !mem.read(ts + 0x18, buf, n)) return "(message unreadable)";
+    return ll::quote_chunkname(buf, n, 300);
+}
+
+bool lua_pop1(void* L) {
+    ProcessMemory mem;
+    const uint64_t a = reinterpret_cast<uint64_t>(L);
+    uint64_t top = 0;
+    if (!a || !mem.read(a + 0x10, &top, 8) || top < 0x10) return false;
+    // this thread runs lua_load on L right now: nobody else touches L->top
+    *reinterpret_cast<volatile uint64_t*>(static_cast<uintptr_t>(a + 0x10)) = top - 0x10;
+    return true;
+}
+
 std::string now_text() {
     SYSTEMTIME st;
     GetLocalTime(&st);
@@ -256,6 +303,9 @@ void run() {
             } else {
                 log("lua_loader: row %s: turbo_output\\%s not used: %s", rows[i].name.c_str(), rows[i].override_rel.c_str(), o.error.c_str());
             }
+            if (!rows[i].chunkname.empty())
+                log("lua_loader: row %s also matches by chunkname \"%s\" on build %s (running %s: %s)", rows[i].name.c_str(), rows[i].chunkname.c_str(),
+                    rows[i].build.c_str(), g_build.c_str(), rows[i].build == g_build ? "gate passes" : "gate CLOSED, no chunkname substitution");
         }
     }
 
@@ -323,6 +373,11 @@ void run() {
     env.thread_id = []() { return uint32_t(GetCurrentThreadId()); };
     env.now = now_text;
     env.emit = [](const std::string& s) { g_lines.push(s); };
+    if (at.top_layout_ok) {  // the fallback's pop is safe only on the layout checked in lua_load's own bytes
+        env.stack_depth = lua_stack_depth;
+        env.top_message = lua_top_message;
+        env.pop1 = lua_pop1;
+    }
     g_engine = new ll::Engine(env);
 
     {
@@ -346,7 +401,7 @@ void run() {
             blob = 0;
         }
     }
-    g_engine->configure(at.gets, blob, substitute, rows, overrides);
+    g_engine->configure(at.gets, blob, substitute, rows, overrides, g_build);
     g_substitute = substitute;
     void* target = reinterpret_cast<void*>(static_cast<uintptr_t>(at.lua_load));
     MH_STATUS st = MH_CreateHook(target, reinterpret_cast<void*>(&hk_lua_load), reinterpret_cast<void**>(&o_lua_load));
@@ -363,7 +418,8 @@ void run() {
     DeleteFileW(flag.wstring().c_str());
     g_installed = true;
     set_state(std::string(substitute ? "SUBSTITUTE" : "LOG-ONLY") + ": lua_load hooked at " + where(at.lua_load) +
-              (blob ? ", blob reader at " + where(blob) : ", blob reader not hooked") + (at.gets ? ", getS at " + where(at.gets) : ", getS unknown"));
+              (blob ? ", blob reader at " + where(blob) : ", blob reader not hooked") + (at.gets ? ", getS at " + where(at.gets) : ", getS unknown") +
+              (at.top_layout_ok ? ", stack layout confirmed" : ", stack layout NOT confirmed (no chunkname substitution)") + ", build " + g_build);
     g_done = true;
     log("lua_loader: installed, %s", g_state.c_str());
     watcher();  // this thread keeps the kill switch and the log lines (never returns)
@@ -397,7 +453,7 @@ std::vector<std::string> lua_loader_status() {
     if (g_installed.load() && g_engine) {
         const auto s = g_engine->stats();
         line += " | calls " + std::to_string(s.calls) + " | logged " + std::to_string(s.logged) + " | blob reads " + std::to_string(s.blob_reads) +
-                " | substituted " + std::to_string(s.substituted) + " | errors " + std::to_string(s.errors) + (g_engine->killed() ? " [kill switch]" : "");
+                " | substituted " + std::to_string(s.substituted) + " | fallbacks " + std::to_string(s.fallbacks) + " | errors " + std::to_string(s.errors) + (g_engine->killed() ? " [kill switch]" : "");
     }
     v.push_back(line);
     return v;

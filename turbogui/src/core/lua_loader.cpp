@@ -112,6 +112,9 @@ const char* const kSigLoadStringReader = "lua_getS";
 const char* const kSigBlobReader = "lua_game_blob_reader";
 const char* const kGetSExpect = "83 7A 08 00 75 03 33 C0 C3 8B 42 08 49 89 00 48 8B 02";
 const uint8_t kLuaLoadPrologue[8] = {0x48, 0x8B, 0xC4, 0x53, 0x48, 0x83, 0xEC, 0x50};
+const char* const kLuaLoadTopCheck = "44 8B D8 85 C0 75 ?? 48 8B 4B 10 4C 8B 51 F0";
+const size_t kLuaLoadTopCheckOffset = 0x45;
+const char* const kChunknameBuild = "6AC07E31-2145C000";
 
 namespace {
 const char* const kLuaLoadPattern =
@@ -184,6 +187,18 @@ Located decide_install(const std::vector<SigResult>& results, const std::functio
     L.ok = true;
     L.lua_load = ll->address;
     std::string notes;
+    {
+        std::vector<uint8_t> tb;
+        std::vector<bool> tm;
+        uint8_t code[32] = {0};
+        if (parse_pattern(kLuaLoadTopCheck, tb, tm) && tb.size() <= sizeof(code) && read(ll->address + kLuaLoadTopCheckOffset, code, tb.size())) {
+            bool same = true;
+            for (size_t i = 0; i < tb.size(); ++i)
+                if (tm[i] && code[i] != tb[i]) same = false;
+            L.top_layout_ok = same;
+        }
+        if (!L.top_layout_ok) notes += "lua_load stack layout not confirmed (no chunkname substitution); ";
+    }
     if (const SigResult* gs = get(kSigLoadStringReader)) {
         std::vector<uint8_t> eb;
         std::vector<bool> em;
@@ -213,12 +228,30 @@ Located decide_install(const std::vector<SigResult>& results, const std::functio
 // ---------------------------------------------------------------- rows
 std::vector<Row> default_rows() {
     // fifarna player_kit.lua as the game ships it (stock extract, turbo_dev\evidence\2026-10-15\bisect\stock_copy.lua)
-    return {{"player_kit", 0x41140, "9399e39a1e46a15d151ada423759abe9", "lua_override\\player_kit.lua"}};
+    // Launch L1 (6AC07E31, 2026-10-15): the game compiles it through reader FC27.exe+0x46AE738 ("other") with this chunkname,
+    // so the row also matches by chunkname on that build.
+    return {{"player_kit", 0x41140, "9399e39a1e46a15d151ada423759abe9", "lua_override\\player_kit.lua", "data/fifarna/lua/assets/player_kit.lua",
+             kChunknameBuild}};
 }
 
 int match_row(const std::vector<Row>& rows, uint64_t size, const std::string& md5) {
     for (size_t i = 0; i < rows.size(); ++i)
-        if (rows[i].size == size && rows[i].md5 == md5) return static_cast<int>(i);
+        if (rows[i].size != 0 && !rows[i].md5.empty() && rows[i].size == size && rows[i].md5 == md5) return static_cast<int>(i);
+    return -1;
+}
+
+bool chunkname_equal(const std::string& want, const char* got, size_t n) {
+    if (want.empty() || !got) return false;
+    const char* w = want.data();
+    size_t wn = want.size();
+    if (wn && w[0] == '@') ++w, --wn;
+    if (n && got[0] == '@') ++got, --n;
+    return wn != 0 && wn == n && std::memcmp(w, got, n) == 0;
+}
+
+int match_chunkname_row(const std::vector<Row>& rows, const char* got, size_t n) {
+    for (size_t i = 0; i < rows.size(); ++i)
+        if (chunkname_equal(rows[i].chunkname, got, n)) return static_cast<int>(i);
     return -1;
 }
 
@@ -285,13 +318,20 @@ std::string format_line(const CallRecord& r) {
         s += " size=-";
     }
     if (!r.note.empty()) s += " note=\"" + r.note + "\"";
-    if (r.substituted) {
+    if (r.substituted && r.by_chunkname) {
+        char b[128];
+        std::snprintf(b, sizeof(b), " SUBSTITUTED row=%s override bytes %llu md5 ", r.row.c_str(), static_cast<unsigned long long>(r.new_size));
+        s += b;
+        s += r.new_md5 + " (stock unknown: chunkname match)";
+    } else if (r.substituted) {
         char b[96];
         std::snprintf(b, sizeof(b), " SUBSTITUTED row=%s new_size=0x%llX(%llu) new_md5=", r.row.c_str(), static_cast<unsigned long long>(r.new_size),
                       static_cast<unsigned long long>(r.new_size));
         s += b;
         s += r.new_md5;
     }
+    if (r.fallback)
+        s += " fallback to original (override failed: rc=" + std::to_string(r.override_rc) + " " + r.override_msg + ")";
     s += " rc=" + std::to_string(r.rc);
     return s;
 }
@@ -328,13 +368,17 @@ struct DepthGuard {
 };
 }  // namespace
 
-void Engine::configure(uint64_t gets, uint64_t blob_reader, bool substitute, std::vector<Row> rows, std::vector<Override> overrides) {
+void Engine::configure(uint64_t gets, uint64_t blob_reader, bool substitute, std::vector<Row> rows, std::vector<Override> overrides,
+                       std::string running_build) {
     gets_ = gets;
     blob_ = blob_reader;
     substitute_ = substitute;
     rows_ = std::move(rows);
     overrides_ = std::move(overrides);
     overrides_.resize(rows_.size());
+    build_ = std::move(running_build);
+    failed_.reset(new std::atomic<bool>[rows_.size() + 1]);
+    for (size_t i = 0; i <= rows_.size(); ++i) failed_[i].store(false);
 }
 
 Engine::Stats Engine::stats() const {
@@ -347,6 +391,7 @@ Engine::Stats Engine::stats() const {
     s.blob_orphans = blob_orphans_.load();
     s.substituted = substituted_.load();
     s.errors = errors_.load();
+    s.fallbacks = fallbacks_.load();
     return s;
 }
 
@@ -365,7 +410,7 @@ const Override* Engine::override_for(uint64_t size, const std::string& md5, int*
     return (o.data && o.size && o.error.empty()) ? &o : nullptr;
 }
 
-void Engine::fill_common(CallRecord& r, Reader reader, const char* chunkname, const char* mode, uint64_t caller) {
+void Engine::fill_common(CallRecord& r, std::string& raw, bool& raw_ok, Reader reader, const char* chunkname, const char* mode, uint64_t caller) {
     r.seq = ++seq_;
     r.time = env_.now ? env_.now() : "";
     r.thread = env_.thread_id ? env_.thread_id() : 0;
@@ -392,6 +437,10 @@ void Engine::fill_common(CallRecord& r, Reader reader, const char* chunkname, co
             r.chunk = "(unreadable)";
         } else {
             size_t len = strnlen(buf, got);
+            if (len < got) {  // the whole name, NUL inside the window: usable for an exact chunkname match
+                raw.assign(buf, len);
+                raw_ok = true;
+            }
             // loadstring's chunkname is the source text itself: keep the line short
             r.chunk = quote_chunkname(buf, len < got ? len : got, r.kind == ReaderKind::LoadString ? 60 : 120);
             if (len == got && got == 128) r.chunk += "(cut)";
@@ -418,12 +467,16 @@ int Engine::on_lua_load(LuaLoadFn orig, void* L, Reader reader, void* data, cons
     DepthGuard depth;
     CallRecord rec;
     Ctx ctx;
-    SubSource sub{nullptr, 0, false};
+    SubSource sub{nullptr, 0, false};  // per call, on this thread's stack: outlives the lua_load call that reads it
     Reader use_reader = reader;
     void* use_data = data;
     void* const prev_ctx = t_ctx;
+    std::string raw;
+    bool raw_ok = false;
+    int chunk_row = -1;           // >= 0: substituted by chunkname (the fallback applies)
+    long long depth_before = -1;  // stack depth before the substituted call
     try {
-        fill_common(rec, reader, chunkname, mode, caller);
+        fill_common(rec, raw, raw_ok, reader, chunkname, mode, caller);
         ctx.data = data;
         ctx.rec = &rec;
         ctx.text_ok = text_allowed(mode);
@@ -466,14 +519,78 @@ int Engine::on_lua_load(LuaLoadFn orig, void* L, Reader reader, void* data, cons
             } else {
                 rec.note = "reader data unreadable";
             }
+        } else if (substitute_ && raw_ok) {
+            // A reader Turbo cannot measure: substitution by exact chunkname, behind every gate
+            const int row = match_chunkname_row(rows_, raw.data(), raw.size());
+            if (row >= 0) {
+                const Row& rw = rows_[size_t(row)];
+                const Override& o = overrides_[size_t(row)];
+                if (rw.build.empty() || build_.empty() || rw.build != build_) {
+                    rec.note = "row " + rw.name + " chunkname matched; build gate: running " + (build_.empty() ? std::string("unknown") : build_) +
+                               ", row wants " + (rw.build.empty() ? std::string("none") : rw.build) + ": original";
+                } else if (!(o.data && o.size && o.error.empty())) {
+                    rec.note = "row " + rw.name + " chunkname matched but its override is not loaded";
+                } else if (!ctx.text_ok) {
+                    rec.note = "row " + rw.name + " chunkname matched but mode refuses text: original";
+                } else if (!env_.stack_depth || !env_.top_message || !env_.pop1) {
+                    rec.note = "row " + rw.name + " chunkname matched but the lua_load stack layout is not confirmed (no safe fallback): original";
+                } else if (failed_[size_t(row)].load(std::memory_order_acquire)) {
+                    rec.note = "row " + rw.name + " override failed to compile earlier: original";
+                } else if ((depth_before = env_.stack_depth(L)) < 0) {
+                    rec.note = "row " + rw.name + " chunkname matched but the Lua stack is unreadable: original";
+                } else {
+                    sub = SubSource{o.data, o.size, false};
+                    use_reader = &sub_reader;
+                    use_data = &sub;
+                    chunk_row = row;
+                    rec.substituted = true;
+                    rec.by_chunkname = true;
+                    rec.row = rw.name;
+                    rec.new_size = o.size;
+                    rec.new_md5 = o.md5;
+                }
+            }
         }
     } catch (...) {
         ++errors_;
         use_reader = reader;
         use_data = data;
         rec.substituted = false;
+        rec.by_chunkname = false;
+        chunk_row = -1;
     }
-    const int rc = orig(L, use_reader, use_data, chunkname, mode);
+    int rc = orig(L, use_reader, use_data, chunkname, mode);
+    if (chunk_row >= 0 && rc != 0) {
+        // The override did not compile. lua_load pushed exactly one error object; drop it and load the original (its reader and
+        // data were never called or changed). Every check below must hold, else the failed rc stands (the lua_load contract:
+        // exactly one value pushed).
+        failed_[size_t(chunk_row)].store(true, std::memory_order_release);
+        std::string msg;
+        long long after = -1;
+        bool popped = false;
+        try {
+            msg = env_.top_message(L);
+            after = env_.stack_depth(L);
+            if (after == depth_before + 16) popped = env_.pop1(L);
+        } catch (...) {
+            ++errors_;
+        }
+        rec.override_rc = rc;
+        if (popped) {
+            rec.fallback = true;
+            rec.substituted = false;
+            ++fallbacks_;
+            rc = orig(L, reader, data, chunkname, mode);
+        }
+        try {
+            rec.override_msg = msg;
+            if (!popped)
+                rec.note = "override failed (rc=" + std::to_string(rec.override_rc) + " " + msg + ") and the stack is not as expected (depth " +
+                           std::to_string(depth_before) + " -> " + std::to_string(after) + "): no retry";
+        } catch (...) {
+            ++errors_;
+        }
+    }
     t_ctx = prev_ctx;
     try {
         if (rec.kind == ReaderKind::Blob && !ctx.seen && rec.note.empty()) rec.note = "blob reader not called";
