@@ -4209,14 +4209,104 @@ static void test_ui() {
             CHECK(app.undo_count(3001) == undo0, "still no undo step");
             fake->deliver = true;
             ui.frames(3);
+            // 2.8 in-game bug: after Revert the panel put back an empty record (bogus "not reverted: original nothing" banner) and
+            // the next Preview kept it, so preview_backup.json held {"name": "", "original": {}, "written": {}}
+            ui.frames(2);
+            CHECK(!ui.click("Revert it", "##app"), "after Revert: no leftover banner");
+            CHECK(!fs::exists(out / "faces3d" / "preview_backup.json"), "after Revert + frames: still no backup file");
+            auto backup_ok = [&](const char* what) {
+                faces3d::PreviewBackup b;
+                std::string e2;
+                const bool ok = faces3d::load_preview_backup(out.u8string(), b, &e2) && b.size() == 1 && b.count(3001) && !b[3001].name.empty() &&
+                                b[3001].original.count("hairtypecode") && b[3001].original.at("hairtypecode") == h0 &&
+                                b[3001].original.at("facialhairtypecode") == b0 && (!has_style || b[3001].original.at("hairstylecode") == 2) &&
+                                b[3001].written.count("hairtypecode") && b[3001].written.at("hairtypecode") == 155 && b[3001].written.at("facialhairtypecode") == 46;
+                CHECK(ok, std::string(what) + ": preview_backup.json holds his name, originals and the written codes");
+            };
+            e->hair = 155;
+            for (int round = 1; round <= 2; ++round) {
+                ui.frames(1);
+                CHECK(ui.click("Preview##f3pv", "##app"), "Preview after Revert, round " + std::to_string(round));
+                CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == 155 && app.db.get_int(*t, rec, "facialhairtypecode", 0) == 46, "preview written");
+                backup_ok(("Preview after Revert, round " + std::to_string(round)).c_str());
+                fake->deliver = true;
+                ui.frames(3);
+                backup_ok("after the picture");
+                CHECK(!ui.click("Revert it", "##app"), "his own preview: no leftover banner");
+                CHECK(ui.click("Revert##f3pv", "##app"), "Revert, round " + std::to_string(round));
+                CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == h0 && app.db.get_int(*t, rec, "facialhairtypecode", 0) == b0 &&
+                          (!has_style || app.db.get_int(*t, rec, "hairstylecode", -1) == 2),
+                      "Revert restored 696/259-style originals, round " + std::to_string(round));
+                fake->deliver = true;
+                ui.frames(3);
+                CHECK(!fs::exists(out / "faces3d" / "preview_backup.json") && !ui.click("Revert it", "##app"), "backup file gone, no banner");
+            }
+            // Preview -> Keep (fixed, then following): needs the game's stock player_kit.lua as the cache (the evidence copy)
+            {
+                std::vector<fs::path> cands;
+                if (const char* rd = std::getenv("TURBO_RESEARCH_DIR")) cands.push_back(fs::u8path(rd) / ".." / "evidence" / "2026-10-15" / "bisect" / "stock_copy.lua");
+                const fs::path here = fs::path(__FILE__).parent_path();  // turbogui/tests/native
+                cands.push_back(here / ".." / ".." / ".." / ".." / ".." / "evidence" / "2026-10-15" / "bisect" / "stock_copy.lua");
+                cands.push_back(fs::current_path() / ".." / ".." / ".." / ".." / ".." / "evidence" / "2026-10-15" / "bisect" / "stock_copy.lua");
+                std::string stock;
+                for (const auto& c : cands) {
+                    std::ifstream f(c, std::ios::binary);
+                    if (f) {
+                        stock.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+                        if (!stock.empty()) break;
+                    }
+                }
+                if (stock.empty()) {
+                    std::printf("  SKIP Preview -> Keep (evidence stock_copy.lua not here)\n");
+                } else {
+                    fs::create_directories(out / "faces3d");
+                    std::ofstream(out / "faces3d" / "stock_player_kit.cache", std::ios::binary) << stock;
+                    // fixed Keep: players.json gets the fixed look, his originals come back, the backup file goes
+                    ui.frames(1);
+                    CHECK(ui.click("Preview##f3pv", "##app"), "Preview before Keep");
+                    backup_ok("Preview before Keep");
+                    fake->deliver = true;
+                    ui.frames(3);
+                    CHECK(ui.click("Keep##f3pv", "##app"), "Keep (fixed)");
+                    ui.frames(2);
+                    CHECK(fs::exists(out / "lua_override" / "player_kit.lua") && app.db.get_int(*t, rec, "hairtypecode", 0) == h0 &&
+                              app.db.get_int(*t, rec, "facialhairtypecode", 0) == b0 && (!has_style || app.db.get_int(*t, rec, "hairstylecode", -1) == 2),
+                          "Keep (fixed): override written, his originals back");
+                    CHECK(!fs::exists(out / "faces3d" / "preview_backup.json") && !ui.click("Revert it", "##app"), "Keep (fixed): backup file gone, no banner");
+                    ui.frames(2);
+                    e = const_cast<faces3d::Entry*>(faces3d_draft_entry(3001));  // Keep replaced the draft
+                    CHECK(e && !e->follow && e->hair == 155, "the draft holds the fixed look");
+                    if (e) {
+                        // and a Preview after that Keep records the originals again
+                        e->follow = true;
+                        ui.frames(1);
+                        CHECK(ui.click("Preview##f3pv", "##app"), "Preview after Keep");
+                        backup_ok("Preview after Keep");
+                        fake->deliver = true;
+                        ui.frames(3);
+                        CHECK(ui.click("Revert##f3pv", "##app") && app.db.get_int(*t, rec, "hairtypecode", 0) == h0 &&
+                                  !fs::exists(out / "faces3d" / "preview_backup.json"),
+                              "Revert after Keep: originals back, file gone");
+                        fake->deliver = true;
+                        ui.frames(3);
+                    }
+                    fs::remove(out / "lua_override" / "player_kit.lua");
+                    fs::remove(out / "faces3d" / "players.json");
+                    fs::remove(out / "faces3d" / "stock_player_kit.cache");
+                    fs::remove(out / "faces3d_on.txt");
+                }
+                e = const_cast<faces3d::Entry*>(faces3d_draft_entry(3001));
+                if (!e) return;
+            }
             // a player not in the running list: the gate says so, Preview does nothing
             e->follow = true;
             lualoader::Faces3dStatus st2 = st;
             st2.header_table = "000000000000";
             app.faces3d_report = [st2]() { return st2; };
             ui.frames(2);
+            const size_t nreq2 = fake->requests.size();
             ui.click("Preview##f3pv", "##app");
-            CHECK(fake->requests.size() == nreq + 1 && app.db.get_int(*t, rec, "hairtypecode", 0) == h0, "unknown running list: nothing asked");
+            CHECK(fake->requests.size() == nreq2 && app.db.get_int(*t, rec, "hairtypecode", 0) == h0, "unknown running list: nothing asked");
             app.faces3d_report = [st]() { return st; };
             CHECK(ui.click("Give him a generic 3D hair and/or beard", "##app") && faces3d_draft_entry(3001) == nullptr, "un-enrol");
             ui.frames(1);

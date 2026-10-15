@@ -436,6 +436,19 @@ static void test_running_and_gate() {
               b2[229984].written.at("facialhairtypecode") == 46 && b2[229984].name == "Ben Chilwell",
           "backup read back");
     check(save_preview_backup(out.u8string(), PreviewBackup{}, &err) && !fs::exists(out / "faces3d" / "preview_backup.json"), "empty backup deletes the file");
+    // 2.8 in-game bug: a record without originals ({"name": "", "original": {}, "written": {}}) must never reach the file
+    PreviewBackup hollow;
+    hollow[229984];
+    check(save_preview_backup(out.u8string(), b, &err) && save_preview_backup(out.u8string(), hollow, &err) &&
+              !fs::exists(out / "faces3d" / "preview_backup.json"),
+          "a backup holding only a record without originals deletes the file");
+    hollow[230107] = b[229984];
+    check(save_preview_backup(out.u8string(), hollow, &err) && load_preview_backup(out.u8string(), b2, &err) && b2.size() == 1 && b2.count(230107) &&
+              b2[230107].original.at("hairtypecode") == 696,
+          "records without originals are left out of the file");
+    write_file(out / "faces3d" / "preview_backup.json", "{\"players\": {\"229984\": {\"name\": \"\", \"original\": {}, \"written\": {}}}}");
+    check(load_preview_backup(out.u8string(), b2, &err) && b2.empty(), "the in-game hollow file reads as no record");
+    fs::remove(out / "faces3d" / "preview_backup.json");
     const std::map<std::string, int64_t> cur{{"hairtypecode", 696}, {"facialhairtypecode", 259}, {"hairstylecode", 3}};
     auto w = preview_writes(155, 46, cur);
     check(w.size() == 3 && w["hairtypecode"] == 155 && w["facialhairtypecode"] == 46 && w["hairstylecode"] == 0, "writes hair, beard, style 0");
