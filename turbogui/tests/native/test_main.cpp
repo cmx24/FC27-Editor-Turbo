@@ -70,6 +70,7 @@
 #include "ui/playstyles.h"
 #include "core/face_filter.h"
 #include "ui/ui_faces.h"
+#include "ui/ui_faces3d_gate.h"
 #include "ui/ui_identity.h"
 #include "ui/ui_images.h"
 #include "ui/ui_presets.h"
@@ -4061,6 +4062,46 @@ static void test_ui() {
             app.legacy.flush();
             std::string want = read_file(le / "turbo_output" / "cache" / "legacy" / "want.txt");
             CHECK(want.find("data/ui/imgAssets/hairstyle/item_3261_0.dds") != std::string::npos, "previews asked from the game: " + want);
+        });
+
+        // 2.8 picker v1 (ui_faces3d_gate.cpp, core/faces3d.h): enrol a scanned head, Apply refuses without the stock cache and
+        // writes nothing, Enable capture writes faces3d_on.txt, Remove deletes it; a non-scanned head cannot be enrolled
+        run_case("UI: Players > Appearance > 3D hair and beard: enrol, Apply without the stock cache, Enable capture, Remove", [&] {
+            const Table* t = app.db.table("players");
+            CHECK(t && t->has("headclasscode"), "headclasscode in the test players table");
+            if (!t || !t->has("headclasscode")) return;
+            const uint64_t rec = app.db.find(*t, "playerid", 3001);
+            const int64_t hc0 = app.db.get_int(*t, rec, "headclasscode", 0);
+            const fs::path out = le / "turbo_output";
+            CHECK(app.db.set_int(*t, rec, "headclasscode", 0), "3001 scanned");
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.click("3001", "##plist"), "player 3001");
+            CHECK(ui.click("Appearance", "##pedit"), "Appearance tab");
+            ui.frames(2);
+            CHECK(ui.click("Give him a generic 3D hair and/or beard", "##app"), "enrol");
+            ui.frames(2);
+            const faces3d::Entry* e = faces3d_draft_entry(3001);
+            CHECK(e != nullptr && e->hair == 0 && e->beard == 0, "draft entry, nothing chosen yet");
+            if (e) const_cast<faces3d::Entry*>(e)->beard = 46;
+            ui.frames(1);
+            CHECK(ui.click("Apply##f3", "##app"), "Apply");
+            ui.frames(1);
+            CHECK(!fs::exists(out / "faces3d_on.txt") && !fs::exists(out / "lua_override" / "player_kit.lua") &&
+                      !fs::exists(out / "faces3d" / "players.json"),
+                  "no stock cache: Apply writes nothing");
+            CHECK(ui.click("Enable capture##f3", "##app"), "Enable capture");
+            CHECK(fs::exists(out / "faces3d_on.txt"), "faces3d_on.txt written");
+            CHECK(ui.click("Remove##f3", "##app"), "Remove");
+            CHECK(!fs::exists(out / "faces3d_on.txt"), "faces3d_on.txt removed");
+            // un-enrol, then a generic head cannot be enrolled
+            CHECK(ui.click("Give him a generic 3D hair and/or beard", "##app") && faces3d_draft_entry(3001) == nullptr, "un-enrol");
+            CHECK(app.db.set_int(*t, rec, "headclasscode", 1), "3001 generic");
+            ui.frames(2);
+            ui.click("Give him a generic 3D hair and/or beard", "##app");
+            ui.frames(1);
+            CHECK(faces3d_draft_entry(3001) == nullptr, "generic head: the checkbox is disabled");
+            app.db.set_int(*t, rec, "headclasscode", hc0);
         });
 
         // the code combos offer what the loaded table uses and name player-specific codes by their players: 1004 has

@@ -22,6 +22,7 @@
 #include "core/edit_unlock_hook.h"
 #include "core/fce_standings.h"
 #include "core/kit_swap.h"
+#include "core/lua_loader.h"
 #include "core/legacy.h"
 #include "core/match_setup.h"
 #include "core/mem.h"
@@ -169,6 +170,7 @@ public:
     bool texture_test = false;
     std::function<void(const std::string&)> log_hook;  // writes to turbo_gui.log (set by the Windows host)
     std::function<HookReport()> hook_report;           // game-code hook status for the Status tab (Windows host)
+    std::function<lualoader::Faces3dStatus()> faces3d_report;  // Lua loader / 3D hair+beard hook state (Windows host; unset = none)
     std::shared_ptr<capture::CaptureService> capture;   // miniface from the game's 3D model (Windows host; tests use a fake)
     // Standings refresh after a live table edit (core/standings_refresh.h; Windows host; tests use a fake; null = none)
     std::shared_ptr<svm::RefreshService> standings_refresh;

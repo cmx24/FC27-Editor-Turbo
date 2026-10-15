@@ -1129,6 +1129,7 @@ bool start_overlay(HMODULE) {
     // Name at once, above Live Editor's own team-names hook; the App publishes its store on the next tick
     install_team_names();
     g_app->team_names_service = team_names_service();
+    g_app->faces3d_report = []() { return faces3d_status(); };  // Players > Appearance > 3D hair and beard
     g_app->hook_report = []() {
         turbo::HookReport r = game_hooks_report();
         r.calls = game_calls_status();
