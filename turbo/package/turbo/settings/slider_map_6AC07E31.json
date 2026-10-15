@@ -1,0 +1,850 @@
+{
+ "turbo_settings_map": 1,
+ "build": "6AC07E31",
+ "layout": "fbchunks-454-bc650",
+ "array_base": "0x1BC4",
+ "note": "FC 27 Settings<timestamp> slider map (turbo_output\u0007ssessment_20261014\\SETTINGS_PRESETS.md). EVERY entry is verified:false: nothing is written by a preset until the marker launch proves an entry (index + verified:true + proof). The regions are the candidate blocks (array_base = payload offset of index 0, picked by hand; the blocks sit at payload 0x1F6C / 0x201C in all 21 backups 10-03..10-14). Names: GAMEPLAY_CUSTOMIZATION/* (docs/re/gamevars_fc27.txt).",
+ "regions": [
+  {
+   "id": "run36",
+   "first": "0xC6",
+   "count": 36,
+   "label": "36-value run (all 50 in every backup)",
+   "candidate": "unknown (CPU AI? per-mode copy?)"
+  },
+  {
+   "id": "block_a",
+   "first": "0xEA",
+   "count": 44,
+   "label": "Block A (44 values)",
+   "candidate": "CPU sliders (assessment: CPU ids 0xB0..)"
+  },
+  {
+   "id": "block_b",
+   "first": "0x116",
+   "count": 44,
+   "label": "Block B (44 values, equal to A today)",
+   "candidate": "User sliders (assessment: USER ids 0xDC..)"
+  }
+ ],
+ "entries": [
+  {
+   "id": "match.half_length",
+   "label": "Half length",
+   "group": "match",
+   "index": null,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "match.difficulty",
+   "label": "Difficulty level",
+   "group": "match",
+   "index": null,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "match.game_speed",
+   "label": "Game speed",
+   "group": "match",
+   "index": null,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "match.gameplay_type",
+   "label": "Gameplay type (Competitive / Authentic / Custom)",
+   "group": "match",
+   "index": null,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "match.injuries",
+   "label": "Injuries",
+   "group": "match",
+   "index": null,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "match.offsides",
+   "label": "Offsides",
+   "group": "match",
+   "index": null,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "match.bookings",
+   "label": "Bookings",
+   "group": "match",
+   "index": null,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "match.handballs",
+   "label": "Handballs",
+   "group": "match",
+   "index": null,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "player.auto_switching",
+   "label": "Auto switching",
+   "group": "player",
+   "index": null,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "player.auto_switching_move_assistance",
+   "label": "Auto switching move assistance",
+   "group": "player",
+   "index": null,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "player.pass_assistance",
+   "label": "Pass assistance",
+   "group": "player",
+   "index": null,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "player.shot_assistance",
+   "label": "Shot assistance",
+   "group": "player",
+   "index": null,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "player.through_pass_assistance",
+   "label": "Through pass assistance",
+   "group": "player",
+   "index": null,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "player.lob_pass_assistance",
+   "label": "Lob pass assistance",
+   "group": "player",
+   "index": null,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "player.cross_assistance",
+   "label": "Cross assistance",
+   "group": "player",
+   "index": null,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "player.camera",
+   "label": "Camera",
+   "group": "player",
+   "index": null,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.injury_frequency",
+   "label": "Injury frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.injury_severity",
+   "label": "Injury severity",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.power_bar_speed",
+   "label": "Power bar speed",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.acceleration",
+   "label": "Acceleration",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.ball_deflection_error",
+   "label": "Ball deflection error",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.buildup_speed",
+   "label": "Build-up speed",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.defending_aggression",
+   "label": "Defending aggression",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.dribble_error",
+   "label": "Dribble error",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.dribble_frequency",
+   "label": "Dribble frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.early_crossing_frequency",
+   "label": "Early crossing frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.first_touch_pass_frequency",
+   "label": "First touch pass frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.gk_ability",
+   "label": "Goalkeeper ability",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.header_pass_accuracy",
+   "label": "Header pass accuracy",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.header_shot_accuracy",
+   "label": "Header shot accuracy",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.intercept_trap_error",
+   "label": "Intercept trap error",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.normal_crossing_frequency",
+   "label": "Normal crossing frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.normal_shot_frequency",
+   "label": "Normal shot frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.pass_angle_error",
+   "label": "Pass angle error",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.pass_error",
+   "label": "Pass error",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.pass_speed",
+   "label": "Pass speed",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.pos_def_line_height",
+   "label": "Positioning: line height",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.pos_full_back",
+   "label": "Positioning: full back positioning",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.pos_line_length",
+   "label": "Positioning: line length",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.pos_line_width",
+   "label": "Positioning: line width",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.pos_marking",
+   "label": "Positioning: marking",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.pos_run_frequency",
+   "label": "Positioning: run frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.professional_foul_frequency",
+   "label": "Professional foul frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.shot_error",
+   "label": "Shot error",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.shot_speed",
+   "label": "Shot speed",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.skill_move_frequency",
+   "label": "Skill move frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.slide_tackle_frequency",
+   "label": "Slide tackle frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.sprint_speed",
+   "label": "Sprint speed",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.stand_tackle_frequency",
+   "label": "Stand tackle frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.tackle_accuracy",
+   "label": "Tackle accuracy",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.trap_error",
+   "label": "Trap error",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.injury_frequency",
+   "label": "Injury frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.injury_severity",
+   "label": "Injury severity",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.acceleration",
+   "label": "Acceleration",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.ball_deflection_error",
+   "label": "Ball deflection error",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.buildup_speed",
+   "label": "Build-up speed",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.defending_aggression",
+   "label": "Defending aggression",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.dribble_error",
+   "label": "Dribble error",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.dribble_frequency",
+   "label": "Dribble frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.early_crossing_frequency",
+   "label": "Early crossing frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.first_touch_pass_frequency",
+   "label": "First touch pass frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.gk_ability",
+   "label": "Goalkeeper ability",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.header_pass_accuracy",
+   "label": "Header pass accuracy",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.header_shot_accuracy",
+   "label": "Header shot accuracy",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.intercept_trap_error",
+   "label": "Intercept trap error",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.normal_crossing_frequency",
+   "label": "Normal crossing frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.normal_shot_frequency",
+   "label": "Normal shot frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.pass_angle_error",
+   "label": "Pass angle error",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.pass_error",
+   "label": "Pass error",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.pass_speed",
+   "label": "Pass speed",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.pos_def_line_height",
+   "label": "Positioning: line height",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.pos_full_back",
+   "label": "Positioning: full back positioning",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.pos_line_length",
+   "label": "Positioning: line length",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.pos_line_width",
+   "label": "Positioning: line width",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.pos_marking",
+   "label": "Positioning: marking",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.pos_run_frequency",
+   "label": "Positioning: run frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.professional_foul_frequency",
+   "label": "Professional foul frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.shot_error",
+   "label": "Shot error",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.shot_speed",
+   "label": "Shot speed",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.skill_move_frequency",
+   "label": "Skill move frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.slide_tackle_frequency",
+   "label": "Slide tackle frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.sprint_speed",
+   "label": "Sprint speed",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.stand_tackle_frequency",
+   "label": "Stand tackle frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.tackle_accuracy",
+   "label": "Tackle accuracy",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "cpu.trap_error",
+   "label": "Trap error",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  }
+ ]
+}
