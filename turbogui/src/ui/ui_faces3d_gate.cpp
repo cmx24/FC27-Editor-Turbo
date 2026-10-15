@@ -263,6 +263,7 @@ bool request_capture(App& app, const PlayerRow& p, std::string& err) {
 // otherwise a fresh record of what he has now
 faces3d::PreviewRecord& record_for(int64_t pid, const std::string& name, const std::map<std::string, int64_t>& cur) {
     auto it = g.backup.find(pid);
+    if (it != g.backup.end() && it->second.original.empty()) g.backup.erase(it), it = g.backup.end();  // no originals = no record
     if (it != g.backup.end() && !g.session_records.count(pid)) {
         bool same = true;
         for (const auto& [f, v] : it->second.written) {
@@ -277,6 +278,7 @@ faces3d::PreviewRecord& record_for(int64_t pid, const std::string& name, const s
         r.original = cur;
         it = g.backup.emplace(pid, r).first;
     }
+    if (it->second.name.empty()) it->second.name = name;
     g.session_records.insert(pid);
     return it->second;
 }
@@ -287,6 +289,10 @@ void do_preview(App& app, const Table& t, const PlayerRow& p, const faces3d::Ent
     std::string err;
     if (!w.empty()) {
         faces3d::PreviewRecord& r = record_for(p.playerid, p.name, cur);
+        if (r.original.empty()) {  // record_for always records his originals; never write without them
+            pv_say("Nothing written: his original codes could not be recorded", false);
+            return;
+        }
         std::map<std::string, int64_t> after = cur;
         for (const auto& [f, v] : w) after[f] = v;
         r.written.clear();
@@ -329,41 +335,39 @@ std::string codes_text(const std::map<std::string, int64_t>& m) {
     return s.empty() ? "nothing" : s;
 }
 
-// A record left by an earlier session (crash, Turbo closed mid-preview): Revert only while his codes are still the ones written
+// A record left by an earlier session (crash, Turbo closed mid-preview), shown only when it holds his originals and his codes
+// are still the ones written (otherwise it belongs to another career, or there is nothing to put back: no banner). An empty
+// record (no originals) is dropped from memory and the file.
 void leftover_banner(App& app, const Table& t) {
-    int64_t drop = 0;
-    for (const auto& [pid, r] : g.backup) {
-        if (g.session_records.count(pid) && g.draft.count(pid)) continue;  // his own panel has Revert
-        ImGui::PushID(static_cast<int>(pid & 0x7FFFFFFF));
-        const PlayerRow* p = app.model.player(pid);
-        bool still = p != nullptr;
-        if (p) {
-            const auto cur = read_codes(app, t, p->rec);
-            for (const auto& [f, v] : r.written) still = still && cur.count(f) && cur.at(f) == v;
-        }
-        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "A preview of %s (%lld) was not reverted: original %s.", r.name.c_str(),
-                           static_cast<long long>(pid), codes_text(r.original).c_str());
-        if (still) {
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Revert it")) {
-                std::string err;
-                if (revert_codes(app, t, p->rec, pid, err)) pv_say("Reverted the earlier preview of " + r.name + ".", true);
-                else pv_say("Revert failed: " + err, false);
-                ImGui::PopID();
-                return;  // the map changed
-            }
-        } else {
-            ImGui::SameLine();
-            ImGui::TextDisabled("(his codes here are not the previewed ones: another career?)");
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Forget it")) drop = pid;
-        }
-        ImGui::PopID();
-    }
-    if (drop) {
-        g.backup.erase(drop);
+    bool dropped = false;
+    for (auto it = g.backup.begin(); it != g.backup.end();)
+        if (it->second.original.empty()) it = g.backup.erase(it), dropped = true;
+        else ++it;
+    if (dropped) {
         std::string err;
         faces3d::save_preview_backup(app.turbo_output().u8string(), g.backup, &err);
+    }
+    for (const auto& [pid, r] : g.backup) {
+        if (g.session_records.count(pid) && g.draft.count(pid)) continue;  // his own panel has Revert
+        const PlayerRow* p = app.model.player(pid);
+        if (!p || r.written.empty()) continue;
+        const auto cur = read_codes(app, t, p->rec);
+        bool still = true;
+        for (const auto& [f, v] : r.written) still = still && cur.count(f) && cur.at(f) == v;
+        if (!still) continue;
+        const std::string name = r.name.empty() ? p->name : r.name;
+        ImGui::PushID(static_cast<int>(pid & 0x7FFFFFFF));
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "A preview of %s (%lld) was not reverted: original %s.", name.c_str(),
+                           static_cast<long long>(pid), codes_text(r.original).c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Revert it")) {
+            std::string err;
+            if (revert_codes(app, t, p->rec, pid, err)) pv_say("Reverted the earlier preview of " + name + ".", true);
+            else pv_say("Revert failed: " + err, false);
+            ImGui::PopID();
+            return;  // the map changed
+        }
+        ImGui::PopID();
     }
 }
 
@@ -445,7 +449,11 @@ void preview_panel(App& app, const Table& t, const PlayerRow& p, faces3d::Entry&
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Keep leaves him following the database: this career keeps the previewed codes; in other careers (TORINO, "
                           "EVERTON...) he shows whatever hair / beard codes that career holds.");
-    if (previewed) ImGui::TextDisabled("Original codes: %s", codes_text(g.backup[p.playerid].original).c_str());
+    // find, never operator[]: Revert / Keep above may have erased his record this frame ('previewed' is stale then), and
+    // operator[] would put back an empty one (in game: a bogus "not reverted: original nothing" banner, and the next Preview
+    // kept that empty record instead of recording his originals)
+    if (const auto bit = g.backup.find(p.playerid); bit != g.backup.end() && !bit->second.original.empty())
+        ImGui::TextDisabled("Original codes: %s", codes_text(bit->second.original).c_str());
     if (g.pending == p.playerid) {
         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "rendering... (%.0f s)", ImGui::GetTime() - g.sent_at);
         ImGui::SameLine();

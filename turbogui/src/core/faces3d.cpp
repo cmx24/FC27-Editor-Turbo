@@ -831,7 +831,9 @@ bool load_preview_backup(const std::string& turbo_output_utf8, PreviewBackup& ou
 
 bool save_preview_backup(const std::string& turbo_output_utf8, const PreviewBackup& b, std::string* err) {
     const fs::path p = rel_path(turbo_output_utf8, kPreviewBackupRel);
-    if (b.empty()) {
+    // a record without originals cannot put anything back: never written (no originals anywhere = no file)
+    const bool none = std::none_of(b.begin(), b.end(), [](const auto& kv) { return !kv.second.original.empty(); });
+    if (none) {
         std::error_code ec;
         fs::remove(p, ec);
         if (fs::exists(p)) {
@@ -844,6 +846,7 @@ bool save_preview_backup(const std::string& turbo_output_utf8, const PreviewBack
     j["note"] = "Turbo 3D hair preview: the database codes a preview replaced (Revert writes 'original' back when the codes still equal 'written')";
     nlohmann::json pl = nlohmann::json::object();
     for (const auto& [id, r] : b) {
+        if (r.original.empty()) continue;
         nlohmann::json e;
         e["name"] = r.name;
         e["original"] = r.original;
