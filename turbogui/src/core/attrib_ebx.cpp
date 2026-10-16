@@ -40,10 +40,6 @@ std::string num(double v) {
     std::snprintf(b, sizeof(b), "%.6g", v);
     return b;
 }
-uint64_t now_ms() {
-    return uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
-}
-
 }  // namespace
 
 // ---------------------------------------------------------------- EBX container
@@ -417,6 +413,21 @@ bool parse_preset(const std::string& text, Preset& out, std::string* why) {
             if (!std::isfinite(p.value)) return fail(why, at + "value is not finite");
             out.patches.push_back(p);
         }
+        if (j.contains("locations")) {
+            if (!j["locations"].is_array()) return fail(why, "attrib_preset.json: locations is not a list");
+            for (const auto& x : j["locations"]) {
+                KnownLoc l;
+                l.asset = x.value("asset", std::string());
+                l.toc = x.value("toc", std::string());
+                l.cas = x.value("cas", std::string());
+                if (!x.contains("off") || !x["off"].is_number_unsigned() || !x.contains("size") || !x["size"].is_number_unsigned())
+                    return fail(why, "attrib_preset.json: a location needs off and size");
+                l.off = x["off"].get<uint64_t>();
+                l.size = x["size"].get<uint32_t>();
+                if (l.asset.empty() || l.toc.empty() || l.cas.size() != 16 || l.size == 0) return fail(why, "attrib_preset.json: a location needs asset, toc, cas (16 hex digits) and size");
+                out.locations.push_back(l);
+            }
+        }
     } catch (const std::exception& ex) {
         return fail(why, std::string("attrib_preset.json: ") + ex.what());
     }
@@ -533,6 +544,38 @@ bool load_locs(const fs::path& file, const std::string& sig, const std::vector<s
     return true;
 }
 
+bool verify_asset(const std::vector<uint8_t>& stream, const kitswap::OodleFn& oodle, const std::string& asset, std::string* why) {
+    std::vector<kitswap::Block> bl;
+    if (!kitswap::block_headers(stream, bl) || bl.size() != 1) return fail(why, "not one block");
+    if (bl[0].ctype != 0x19 && bl[0].ctype != 0x15 && bl[0].ctype != 0x11) return fail(why, "not an Oodle block");
+    std::vector<uint8_t> raw;
+    std::string e;
+    if (!kitswap::read_blocks(stream, oodle, raw, &e)) return fail(why, "does not decompress (" + e + ")");
+    EbxView v;
+    if (!parse_ebx(raw.data(), raw.size(), v, &e)) return fail(why, e);
+    for (uint32_t o : v.dc)
+        if (lower(instance_name(raw.data(), raw.size(), v, v.payload + o)) == lower(asset)) return true;
+    return fail(why, "no instance is named " + asset);
+}
+
+bool known_locations(const Preset& p, const std::vector<std::string>& names, std::vector<std::vector<AssetLoc>>& found) {
+    std::vector<std::vector<AssetLoc>> out(names.size());
+    for (size_t i = 0; i < names.size(); ++i) {
+        for (const auto& l : p.locations)
+            if (lower(l.asset) == lower(names[i])) {
+                AssetLoc a;
+                a.toc = l.toc;
+                a.loc.cas = l.cas;
+                a.loc.off = l.off;
+                a.loc.size = l.size;
+                out[i].push_back(a);
+            }
+        if (out[i].empty()) return false;
+    }
+    found = std::move(out);
+    return true;
+}
+
 // ---------------------------------------------------------------- table
 bool add_asset(kitswap::TableBuilder& tb, const std::vector<uint8_t>& stream, const kitswap::OodleFn& oodle, const std::string& asset, const std::string& toc,
                const std::vector<Patch>& patches, Mode mode, ItemInfo& out, std::string* why) {
@@ -592,6 +635,25 @@ std::string clock_text(uint64_t ms) {
 
 Runtime::Runtime() = default;
 
+uint64_t Runtime::now_ms() {
+    return uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+}
+
+void Runtime::set_expected_sizes(const std::vector<std::pair<uint32_t, uint32_t>>& sizes) {
+    if (n_expect_.load()) return;  // once: the detour may be reading the list
+    uint32_t n = 0;
+    for (const auto& s : sizes) {
+        if (n >= 16) break;
+        bool dup = false;
+        for (uint32_t i = 0; i < n; ++i) dup = dup || (expect_[i].csize == s.first && expect_[i].dsize == s.second);
+        if (dup) continue;
+        expect_[n].csize = s.first;
+        expect_[n].dsize = s.second;
+        ++n;
+    }
+    n_expect_.store(n, std::memory_order_release);
+}
+
 void Runtime::publish(std::shared_ptr<kitswap::Table> table, std::vector<ItemInfo> items) {
     std::lock_guard<std::mutex> lk(m_);
     if (keep_) return;  // published once per process: a detour may hold the pointer
@@ -643,6 +705,8 @@ std::string Runtime::log_text(const std::string& head) const {
     o << "table " << (t ? "published " + clock_text(published_ms_) : std::string("NOT published")) << (killed_.load() ? " [kill switch attrib_ebx_off.txt]" : "")
       << " | decompress calls " << calls_.load() << " (before the table: " << calls_before_.load() << ") | attrib blocks recognised " << hits_.load()
       << " | overwritten " << patched_.load() << " | recognised, other size returned " << unserved_.load() << "\n";
+    o << "calls with an expected asset's sizes BEFORE the table was published: " << early_.load()
+      << (early_.load() ? " (first " + clock_text(early_first_ms_.load()) + ": the game decompressed it before Turbo's table was ready)" : std::string()) << "\n";
     for (const auto& it : items_) {
         const uint64_t h = t && it.table_item != 0xFFFFFFFFu ? t->hits(it.table_item) : 0;
         o << (it.patch ? "  patch  " : "  watch  ") << it.asset << " [" << it.toc << ", " << it.csize << "/" << it.dsize << " B]  seen " << h;

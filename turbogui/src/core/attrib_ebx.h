@@ -84,10 +84,20 @@ bool patch_ebx(std::vector<uint8_t>& raw, const std::string& asset, const std::v
 
 // ---------------------------------------------------------------- the preset (turbo_output\attrib_preset.json)
 enum class Mode { Observe, Patch };
+// A copy's place in the install, known in advance ("locations" of the preset: read offline, so the first launch does not have to scan the
+// tocs before the table goes up). Checked at load (verify_asset); a stale one = the tocs are searched as usual.
+struct KnownLoc {
+    std::string asset;
+    std::string toc;
+    std::string cas;
+    uint64_t off = 0;
+    uint32_t size = 0;
+};
 struct Preset {
     std::string build;     // "6AC07E31-2145C000": another running build = nothing is done
     Mode mode = Mode::Patch;
     std::vector<Patch> patches;
+    std::vector<KnownLoc> locations;
     std::vector<std::string> assets() const;  // distinct, in file order
 };
 bool parse_preset(const std::string& json_text, Preset& out, std::string* why);
@@ -106,6 +116,10 @@ bool find_assets(kitswap::GameFiles& files, const kitswap::OodleFn& oodle, const
 std::string tocs_signature(const kitswap::GameFiles& files);
 bool save_locs(const std::filesystem::path& file, const std::string& sig, const std::vector<std::string>& names, const std::vector<std::vector<AssetLoc>>& found);
 bool load_locs(const std::filesystem::path& file, const std::string& sig, const std::vector<std::string>& names, std::vector<std::vector<AssetLoc>>& found);
+// The bytes read at a known location are that asset: one Oodle block that decompresses to an EBX whose instance is Named `asset`
+bool verify_asset(const std::vector<uint8_t>& stream, const kitswap::OodleFn& oodle, const std::string& asset, std::string* why);
+// The preset's known locations as find_assets' result; false when one asset has none (then the tocs are searched)
+bool known_locations(const Preset& p, const std::vector<std::string>& names, std::vector<std::vector<AssetLoc>>& found);
 
 // ---------------------------------------------------------------- the table
 struct ItemInfo {
@@ -132,10 +146,25 @@ public:
     // Detour side (any thread, no lock, no allocation): after the original returned `ret` raw bytes for `srclen` compressed ones.
     // 0 = not an attrib block, 1 = recognised (watch only, or the original returned another size), 2 = recognised and overwritten.
     int on_decompressed(const uint8_t* src, uint64_t srclen, uint8_t* dst, uint64_t dstlen, int64_t ret);
-    void count_call() {
+    // Every decompress call. Before the table exists, a call with the (compressed, raw) sizes of an expected asset is counted with its
+    // time: "decompressed before Turbo's table" vs "never decompressed" (gate G-T1b's two FAIL branches)
+    void count_call(uint64_t srclen = 0, uint64_t dstlen = 0) {
         calls_.fetch_add(1, std::memory_order_relaxed);
-        if (!table_.load(std::memory_order_relaxed)) calls_before_.fetch_add(1, std::memory_order_relaxed);
+        if (table_.load(std::memory_order_relaxed)) return;
+        calls_before_.fetch_add(1, std::memory_order_relaxed);
+        const uint32_t n = n_expect_.load(std::memory_order_acquire);
+        for (uint32_t i = 0; i < n; ++i)
+            if (expect_[i].csize == srclen && expect_[i].dsize == dstlen) {
+                early_.fetch_add(1, std::memory_order_relaxed);
+                uint64_t zero = 0;
+                early_first_ms_.compare_exchange_strong(zero, now_ms());
+                break;
+            }
     }
+    // The (compressed, raw) sizes of the expected blocks, set once before the table is built (at most 16)
+    void set_expected_sizes(const std::vector<std::pair<uint32_t, uint32_t>>& sizes);
+    uint64_t early_calls() const { return early_.load(); }
+    static uint64_t now_ms();
     void set_killed(bool k) { killed_.store(k); }
     bool killed() const { return killed_.load(); }
     // The lines not reported yet: "attrib block seen <YYYY-MM-DD HH:MM:SS.mmm> <asset> (<toc>; patched: ... | watch only: ...)", one per
@@ -157,6 +186,12 @@ private:
     uint64_t published_ms_ = 0;
     std::atomic<bool> killed_{false};
     std::atomic<uint64_t> calls_{0}, calls_before_{0}, hits_{0}, patched_{0}, unserved_{0};
+    struct Sizes {
+        uint32_t csize = 0, dsize = 0;
+    };
+    Sizes expect_[16];
+    std::atomic<uint32_t> n_expect_{0};
+    std::atomic<uint64_t> early_{0}, early_first_ms_{0};
 };
 std::string clock_text(uint64_t ms_since_epoch);  // local "YYYY-MM-DD HH:MM:SS.mmm", "-" for 0
 

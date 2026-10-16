@@ -3,6 +3,15 @@
   "_doc": "Gate G-T1b (PLAN_tactics_settings.md section 2): the two G-T1 knobs patched in the attribulator EBX at load by Turbo's Oodle hook (turbogui/src/core/attrib_ebx.h). Copy to turbo_output\\attrib_preset.json to switch the patch on for the next launch (the file's presence IS the switch; turbo_output\\attrib_ebx_off.txt overrides it). mode observe = recognise and log only. offset / type_sig / expect from docs/re/attrib_inventory_6AC07E31.json (group gp_positioningformation_attackinglinelengthwidth, AttribSchema_gp_positioningformation_linelengthwidth); the offsets equal knobs_6AC07E31.json. Values below the sliders' bounds on purpose (extreme gate).",
   "build": "6AC07E31-2145C000",
   "mode": "patch",
+  "locations": [
+    {
+      "asset": "fifa/attribulator/gameplay/groups/gp_positioningformation/gp_positioningformation_attackinglinelengthwidth_runtime",
+      "toc": "Patch/Win32/fc/fcgame/fcgame.toc",
+      "cas": "0000a3a00de30001",
+      "off": 148793182,
+      "size": 279
+    }
+  ],
   "patches": [
     {
       "knob": "shape.length_in",

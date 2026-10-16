@@ -1066,7 +1066,7 @@ bool start_overlay(HMODULE) {
     // A failed start undoes MinHook; with the Lua loader hook in it, only the overlay's own hooks are removed (the loader's
     // detour may be running on a game thread)
     auto undo_minhook = [&hooks]() {
-        if (!lua_loader_uses_minhook()) {
+        if (!lua_loader_uses_minhook() && !attrib_ebx_uses_minhook()) {  // the attrib EBX detour on OodleLZ_Decompress may be running too
             MH_Uninitialize();
             return;
         }

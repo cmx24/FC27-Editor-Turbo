@@ -48,7 +48,7 @@ int64_t detour(const void* comp, int64_t comp_len, void* raw, int64_t raw_len, i
     turbo::attrib::Runtime* rt = g_rt.load(std::memory_order_acquire);
     if (rt) {
         try {
-            rt->count_call();
+            rt->count_call(comp_len > 0 ? uint64_t(comp_len) : 0, raw_len > 0 ? uint64_t(raw_len) : 0);
             rt->on_decompressed(static_cast<const uint8_t*>(comp), comp_len > 0 ? uint64_t(comp_len) : 0, static_cast<uint8_t*>(raw), raw_len > 0 ? uint64_t(raw_len) : 0, r);
         } catch (...) {
             g_errors.fetch_add(1, std::memory_order_relaxed);
@@ -168,13 +168,45 @@ DWORD WINAPI attrib_thread(LPVOID) {
     if (!files.init(&err)) return stop("hook in, but the game's layout.toc cannot be read: " + err + " (nothing recognised)"), 0;
     const std::vector<std::string> names = preset.assets();
     std::vector<std::vector<AssetLoc>> found;
+    // the expected blocks' sizes: calls that match them before the table exists are counted (decompressed too early vs never)
+    auto expect_sizes = [&]() {
+        std::vector<std::pair<uint32_t, uint32_t>> sizes;
+        for (const auto& v : found)
+            for (const auto& a : v) {
+                std::vector<uint8_t> s;
+                std::vector<turbo::kitswap::Block> bl;
+                if (files.read_loc(a.loc, s) && turbo::kitswap::block_headers(s, bl) && bl.size() == 1) sizes.push_back({bl[0].csize, bl[0].dsize});
+            }
+        rt->set_expected_sizes(sizes);
+    };
+    // where the copies are: the preset's known locations (checked), else the cache, else a search of the tocs
+    std::string where = "searched in the tocs";
+    bool located = false;
+    if (known_locations(preset, names, found)) {
+        located = true;
+        for (size_t i = 0; i < found.size() && located; ++i)
+            for (const AssetLoc& a : found[i]) {
+                std::vector<uint8_t> s;
+                std::string why;
+                if (!files.read_loc(a.loc, s) || !verify_asset(s, oodle, names[i], &why)) {
+                    log("attrib ebx: the preset's location of %s is stale (%s): searching the tocs", names[i].c_str(), why.empty() ? "unreadable" : why.c_str());
+                    located = false;
+                    break;
+                }
+            }
+        if (located) where = "the preset's known locations (verified)";
+    }
     const std::string sig = tocs_signature(files);
     const fs::path cache = out / "attrib_ebx_locs.json";
-    const bool cached = load_locs(cache, sig, names, found);
-    if (!cached) {
+    if (!located && load_locs(cache, sig, names, found)) {
+        located = true;
+        where = "turbo_output\\attrib_ebx_locs.json";
+    }
+    if (!located) {
         if (!find_assets(files, oodle, names, found, &err)) return stop("hook in, but the attrib assets cannot be found: " + err), 0;
         save_locs(cache, sig, names, found);
     }
+    expect_sizes();
     turbo::kitswap::TableBuilder tb;
     std::vector<ItemInfo> items;
     std::vector<std::string> notes;
@@ -208,7 +240,7 @@ DWORD WINAPI attrib_thread(LPVOID) {
     rt->publish(table, items);
     g_head = "hook installed " + hook_time + ", build " + build + ", mode " + (preset.mode == Mode::Patch ? "patch" : "observe") + ", assets " +
              std::to_string(names.size()) + ", copies registered " + std::to_string(items.size()) + " (" + std::to_string(patching) + " patched), locations " +
-             (cached ? "from turbo_output\\attrib_ebx_locs.json" : "searched in the tocs");
+             where + ", table published " + now_text();
     for (const auto& n : notes) g_head += "\nnote: " + n;
     log("attrib ebx: table published at %s: %zu cop(ies), %d patched; decompress calls before it: see attrib_ebx_log.txt", now_text().c_str(), items.size(), patching);
     for (const auto& it : items) log("attrib ebx: %s %s (%s): %s", it.patch ? "patch" : "watch", it.asset.c_str(), it.toc.c_str(), it.what.c_str());

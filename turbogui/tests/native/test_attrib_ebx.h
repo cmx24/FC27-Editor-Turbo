@@ -408,6 +408,49 @@ static void run() {
         CHECK(attrib_tocs().size() == 2 && attrib_tocs()[0].rfind("Patch/", 0) == 0, "Patch layer first");
     });
 
+    run_case("attrib ebx: known locations - the preset's location is used as is, checked against the bytes; a stale one is refused; early calls are counted", [] {
+        Preset pr;
+        std::string why;
+        CHECK(parse_preset(read_text(sample_preset()), pr, &why) && pr.locations.size() == 1 && pr.locations[0].cas == "0000a3a00de30001" && pr.locations[0].off == 148793182 &&
+                  pr.locations[0].size == 279,
+              "the G-T1 preset carries the asset's location (Patch layer): " + why);
+        std::vector<std::vector<AssetLoc>> found;
+        CHECK(known_locations(pr, pr.assets(), found) && found.size() == 1 && found[0].size() == 1 && found[0][0].toc == "Patch/Win32/fc/fcgame/fcgame.toc", "as find_assets' result");
+        CHECK(!known_locations(pr, {kLLWAsset, kActorAsset}, found), "an asset without a known location: the tocs are searched");
+        const auto stream = unhex(kLLWComp);
+        const auto rawv = unhex(kLLWRaw);
+        kitswap::OodleFn oodle = [&](const uint8_t* s, size_t n, uint8_t* d, size_t dn) {
+            if (n != 271 || dn != rawv.size() || std::memcmp(s, stream.data() + 8, n) != 0) return false;
+            std::memcpy(d, rawv.data(), dn);
+            return true;
+        };
+        CHECK(verify_asset(stream, oodle, kLLWAsset, &why), "the right bytes: " + why);
+        CHECK(!verify_asset(stream, oodle, kActorAsset, &why), "another asset's name: stale: " + why);
+        auto moved = stream;
+        moved[20] ^= 0xFF;
+        CHECK(!verify_asset(moved, oodle, kLLWAsset, &why), "other bytes at the place (the install changed): stale: " + why);
+        CHECK(!verify_asset(std::vector<uint8_t>(stream.begin(), stream.begin() + 100), oodle, kLLWAsset, &why), "a cut read: stale");
+        // locations need their fields
+        const std::string t = read_text(sample_preset());
+        std::string bad = t;
+        bad.replace(bad.find("\"0000a3a00de30001\""), 18, "\"a3a0\"");
+        CHECK(!parse_preset(bad, pr, &why), "a cas that is not 16 hex digits: refused: " + why);
+        // calls with the expected sizes before the table: counted, with a time; after the table: not
+        Runtime rt;
+        rt.set_expected_sizes({{271, 412}});
+        rt.count_call(271, 412);
+        rt.count_call(271, 413);
+        rt.count_call(5000, 412);
+        CHECK(rt.early_calls() == 1 && rt.calls() == 3, "one early call of the asset's sizes");
+        CHECK(rt.log_text("h").find("BEFORE the table was published: 1 (first 20") != std::string::npos, "the log names it with its time");
+        kitswap::TableBuilder tb;
+        ItemInfo it;
+        CHECK(add_asset(tb, stream, oodle, kLLWAsset, "t", pr.patches, Mode::Patch, it, &why), "table");
+        rt.publish(tb.finish(nullptr), {it});
+        rt.count_call(271, 412);
+        CHECK(rt.early_calls() == 1 && rt.calls() == 4, "after the table: not early");
+    });
+
     run_case("attrib ebx: clock text and the process runtime pointer", [] {
         CHECK(clock_text(0) == "-", "0 = never");
         const std::string t = clock_text(1760000000123ULL);
