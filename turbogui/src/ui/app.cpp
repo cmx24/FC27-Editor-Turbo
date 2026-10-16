@@ -30,6 +30,7 @@
 #include "ui_tactics.h"
 #include "ui_live_tactic.h"
 #include "ui_tactic_presets.h"
+#include "ui_club_page.h"
 #include "ui_tuning.h"
 #include "ui_game_settings.h"
 
@@ -1481,6 +1482,8 @@ void App::draw_pages() {
         request_tab = -1;
         if (pl.valid() && page_visible(pl.page, adv)) go_to_ = pl;
     }
+    // A link inside the Club & Kits area (club-tools "Kits" link, ui_club_page.h): taken here, same frame
+    if (const Page cp = club_take_page_request(); cp != Page::None) go(area_of(cp), cp);
     if (go_to_.valid() && page_visible(go_to_.page, adv)) place_ = go_to_;
     go_to_ = Place{};
     // Where we are: the area must be visible in this view (Advanced turned off: back to Squad & Players), the page one of its own
