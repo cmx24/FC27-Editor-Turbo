@@ -61,6 +61,11 @@ bool install_game_hook_at(const char* name, void* target, void* detour, void** o
 // is not in the game folder, the export is missing, the per-hook kill switch exists, the first bytes in memory differ from the DLL
 // file's (another hook, or a different file) or start with a jump (someone else's hook), or MinHook fails.
 bool install_game_dll_export_hook(const char* name, const wchar_t* module, const char* export_name, void* detour, void** original, std::string* why);
+// Registers a hook record (kill switch turbo_output\hook_<name>_off.txt, game_hook_live, error counter, Status tab) for a hook that is already
+// installed on `target` by Turbo's shared Oodle detour (win/oodle_shared_win.cpp): the 3D kit swap's "kit_oodle" when the attrib EBX patch
+// installed the detour first. Installs nothing in MinHook. Refused (false, `why`) when hooks are not allowed, the name is taken or its kill
+// switch file exists.
+bool attach_game_hook_record(const char* name, void* target, std::string* why);
 // Per-hook kill switch (turbo_output\hook_<name>_off.txt), cached and re-read every 2 s; also false when the global
 // switch is on. A detour calls this first and, when it returns false, only calls the original.
 bool game_hook_enabled(const char* name);

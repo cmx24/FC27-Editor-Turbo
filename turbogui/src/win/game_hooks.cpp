@@ -679,6 +679,30 @@ bool install_game_dll_export_hook(const char* name, const wchar_t* module, const
     return true;
 }
 
+bool attach_game_hook_record(const char* name, void* target, std::string* why) {
+    auto no = [&](const std::string& s) {
+        if (why) *why = s;
+        log("game hook %s: not attached (%s)", name ? name : "?", s.c_str());
+        return false;
+    };
+    if (!name || !target) return no("bad arguments");
+    if (!game_hooks_allowed()) return no("game hooks are off: " + g_note);
+    if (find_hook(name)) return no("already installed");
+    if (file_exists(hook_off_path(name))) return no(std::string("kill switch turbo_output\\hook_") + name + "_off.txt present");
+    auto* h = new HookRec();
+    h->name = name;
+    h->target = target;
+    h->note = "attached to a detour another Turbo feature installed on the same export";
+    h->active = true;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_hooks.push_back(h);
+    }
+    log("game hook %s attached at 0x%llX to the detour already installed there (kill switch: turbo_output\\hook_%s_off.txt)", name,
+        static_cast<unsigned long long>(reinterpret_cast<uint64_t>(target)), name);
+    return true;
+}
+
 bool install_game_hook(const char* name, const char* signature, void* detour, void** original) {
     if (!signature) return false;
     uint64_t addr = game_signature(signature);
