@@ -80,7 +80,14 @@ struct Patch {
 // instances of the type, the asset's Name differs from `asset`, the slot is not a pointer slot, an index out of range, the current
 // value is not `expect`, a non-finite value) nothing is changed and `why` says it. `changes`: one text per value ("path 0.84 -> 0.4").
 // No clamping: the gate values (length 0.4, width 0.5) lie below the slider bounds on purpose.
-bool patch_ebx(std::vector<uint8_t>& raw, const std::string& asset, const std::vector<Patch>& patches, std::vector<std::string>* changes, std::string* why);
+// `writes` (optional): one record per value written, for the per-location write log (A0).
+struct WriteRec {
+    std::string path;      // "lineWidthModifier", "Table[3]"
+    uint32_t at = 0;       // absolute offset of the value in the decompressed EBX
+    double before = 0, after = 0;
+};
+bool patch_ebx(std::vector<uint8_t>& raw, const std::string& asset, const std::vector<Patch>& patches, std::vector<std::string>* changes, std::string* why,
+               std::vector<WriteRec>* writes = nullptr);
 
 // ---------------------------------------------------------------- the preset (turbo_output\attrib_preset.json)
 enum class Mode { Observe, Patch };
@@ -100,6 +107,11 @@ struct Preset {
     std::vector<KnownLoc> locations;
     std::vector<std::string> assets() const;  // distinct, in file order
 };
+// A patch entry may carry "also": [{"asset": "<second copy>", "expect": <that copy's value>, "type_sig": n, "value": v}] (A0, two-copy write): the same
+// field is patched in each named copy, e.g. the databases/simulation/ partition next to the groups/ one. The asset may be written in full
+// ("fifa/attribulator/gameplay/databases/simulation/groups/<family>/<group>_runtime") or short ("databases/simulation/groups/..."). Its tail
+// (from "/groups/" on) must be the entry's own. expect / type_sig / value default to the entry's. Each copy becomes an ordinary Patch
+// (knob + ".also<n>"), so presets without "also" parse to the very same list as before.
 bool parse_preset(const std::string& json_text, Preset& out, std::string* why);
 
 // ---------------------------------------------------------------- finding the assets in the install
@@ -129,7 +141,14 @@ struct ItemInfo {
     std::string what;             // the changes, or why the copy is watch only
     uint32_t csize = 0, dsize = 0;
     uint32_t table_item = 0xFFFFFFFFu;
+    std::string cas;              // the copy's place in the install (the host sets it; "" = unknown): cas file, offset, size
+    uint64_t off = 0;
+    uint32_t size = 0;
+    std::vector<WriteRec> writes; // what a patched copy changes, value by value
 };
+// The per-location write log, one line per value: "attrib write <asset> [<toc> cas <cas> off <off> size <size>] <path> @0x<at> <old> -> <new>".
+// Empty for a copy that is watch only.
+std::vector<std::string> write_lines(const ItemInfo& it);
 // One copy of an asset: `stream` = its bytes in the cas (block headers included). Exactly one Oodle block is required. Patch mode: the
 // decompressed bytes are patched and registered as a replacement; when the patch does not fit, the copy is registered watch only
 // (observe line still written) and `what` says why. Observe mode: watch only. false = the copy cannot be registered at all.
