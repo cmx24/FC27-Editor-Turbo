@@ -7,7 +7,7 @@ Evidence folder: <anything>\\YYYY-MM-DD\\<name>, must not exist yet (a backup is
 old prelaunch / teardown scripts tie their baseline paths to 2026-10-15, so backup, md5 record, restore and teardown are done here.
 
 Steps (the first refusal stops everything, nothing is written or killed before the evidence folder is created):
-  0 preflight   refuse: kits3d_on.txt / attrib_ebx_off.txt / attrib_preset.json / settings_pending.json / turbo_gui_start.flag in turbo_output,
+  0 preflight   refuse: attrib_ebx_off.txt / attrib_preset.json / settings_pending.json / turbo_gui_start.flag in turbo_output,
                 game or launcher running, not exactly one Settings* file or its md5 differs from tools\\baseline.json, invalid preset
   1 backup      copy the whole game settings folder (saves included), fcsetup.ini, le_config.json, reapply_edits.json, Turbo.dll, lua assets
                 into <ev>\\pre and record every md5 (<ev>\\prelaunch_md5.txt); copies are md5-verified
@@ -309,11 +309,11 @@ def preflight(env, preset_path, ev, tools_dir, baseline=None, procs=procs_runnin
     running = procs()
     if running:
         r.append(LIVE + "game / launcher is running: " + ", ".join(running))
-    for label, p in (("kits3d_on.txt", env.kits), ("attrib_ebx_off.txt", env.ebx_off), ("attrib_preset.json", env.preset),
+    # kits3d_on.txt is no refusal since 2.11: the shared Oodle hook runs the 3D kit swap and the attrib patch together (combined test)
+    for label, p in (("attrib_ebx_off.txt", env.ebx_off), ("attrib_preset.json", env.preset),
                      ("settings_pending.json", env.pending), ("turbo_gui_start.flag", env.flag)):
         if os.path.exists(p):
-            why = {"kits3d_on.txt": "the 3D kit swap owns the Oodle hook, the attrib patch would be off",
-                   "attrib_ebx_off.txt": "the patch would be off", "attrib_preset.json": "a preset is installed already (another test?)",
+            why = {"attrib_ebx_off.txt": "the patch would be off", "attrib_preset.json": "a preset is installed already (another test?)",
                    "settings_pending.json": "a staged settings preset would be applied too", "turbo_gui_start.flag": "a crashed start is recorded"}[label]
             r.append(LIVE + "%s exists in turbo_output (%s); remove it yourself: %s" % (label, why, p))
     if not os.path.isfile(env.dll):
@@ -922,12 +922,16 @@ def dry_self_checks(ctx, env, ev, pre, real, tools_dir):
         none = lambda: []  # noqa: E731
         base = preflight(te, ctx.args.preset, dated, tools_dir, None, procs=none, need_pil=False)
         chk(base == [], "preflight on a clean sandbox: no refusal %s" % base)
-        for label, path, key in (("kits3d_on.txt", te.kits, "kits3d_on.txt"), ("attrib_preset.json", te.preset, "attrib_preset.json"),
+        for label, path, key in (("attrib_preset.json", te.preset, "attrib_preset.json"),
                                  ("attrib_ebx_off.txt", te.ebx_off, "attrib_ebx_off.txt"), ("settings_pending.json", te.pending, "settings_pending.json")):
             open(path, "w").write("x")
             rr = preflight(te, ctx.args.preset, dated, tools_dir, None, procs=none, need_pil=False)
             chk(any(key in x for x in rr), "refuses when %s exists" % label)
             os.remove(path)
+        open(te.kits, "w").write("x")       # 2.11: the 3D kit opt-in file is allowed next to an attrib preset (shared Oodle hook)
+        rr = preflight(te, ctx.args.preset, dated, tools_dir, None, procs=none, need_pil=False)
+        chk(rr == [], "does NOT refuse when kits3d_on.txt exists (combined kits3d + attrib test) %s" % rr)
+        os.remove(te.kits)
         rr = preflight(te, ctx.args.preset, dated, tools_dir, None, procs=lambda: ["game pid 1"], need_pil=False)
         chk(any("running" in x for x in rr), "refuses while the game / launcher runs")
         os.makedirs(dated)

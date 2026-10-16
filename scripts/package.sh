@@ -44,9 +44,9 @@ if [ "${1:-}" = "--guard" ]; then
   knobs_guard "$G" || r=1
   exit $r
 fi
-VER="$(sed -n 's/.*version = "\([0-9.]*\)".*/\1/p' "$ROOT/turbo/package/lua/libs/v2/imports/turbo/core/version.lua" | head -1)"
+VER="$(sed -n 's/.*version = "\([0-9][0-9A-Za-z.-]*\)".*/\1/p' "$ROOT/turbo/package/lua/libs/v2/imports/turbo/core/version.lua" | head -1)"
 [ -n "$VER" ] || { echo "cannot read the version"; exit 1; }
-GUI_VER="$(sed -n 's/.*kGuiVersion = "\([0-9.]*\)".*/\1/p' "$ROOT"/turbogui/src/ui/app.h "$ROOT"/turbogui/src/ui/app.cpp | head -1)"
+GUI_VER="$(sed -n 's/.*kGuiVersion = "\([0-9][0-9A-Za-z.-]*\)".*/\1/p' "$ROOT"/turbogui/src/ui/app.h "$ROOT"/turbogui/src/ui/app.cpp | head -1)"
 [ "$GUI_VER" = "$VER" ] || { echo "version mismatch: Lua $VER, GUI $GUI_VER"; exit 1; }
 for f in Turbo.dll TurboInjector.exe TurboProbe.exe turbo_settings_apply.exe; do
   [ -s "$ROOT/turbogui/build/win/$f" ] || { echo "turbogui/build/win/$f missing: run turbogui/scripts/build_win.sh"; exit 1; }

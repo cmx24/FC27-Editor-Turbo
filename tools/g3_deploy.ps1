@@ -11,9 +11,11 @@
 #               (it owns the CRC, the backup in turbo_output\settings_backup and the write). Before that the Settings file is copied to
 #               <evidence>\pre\settings and its name + md5 go into the deploy record. g3_undo.ps1 restores it (md5-verified).
 #               With -DryRun the tool runs --dry-run against a COPY of the Settings file in a temp folder: the live install is not written.
-# Refuses: game/launcher running, turbo_output\kits3d_on.txt present (the 3D kit swap owns the Oodle hook), attrib_ebx_off.txt present,
+# Refuses: game/launcher running, attrib_ebx_off.txt present,
 # a deploy record already there, an attrib_preset.json already there, wrong DLL md5, installed Turbo.dll not the known original
 # (877B33A2... 2.8.0 or 62600CED... 2.10.0), a pending settings file already there / not exactly one Settings* file (with -SettingsWrite).
+# turbo_output\kits3d_on.txt present is NOT a refusal since 2.11 (shared Oodle hook: the 3D kit swap and the attrib patch run together, so a
+# combined kits3d + attrib preset test can run); the deploy only prints a note and leaves the file alone.
 # Exit 0 = deployed, 1 = refused (nothing written), 2 = failed midway (run g3_undo.ps1).
 param(
   [switch]$DryRun,
@@ -92,7 +94,7 @@ $run = @(Get-Process -Name FC27, LauncherNoAuth -ErrorAction SilentlyContinue)
 if ($run.Count -gt 0) { Fail ('game/launcher is running: ' + (($run | ForEach-Object { $_.Name + ' pid ' + $_.Id }) -join ', ')) }
 foreach ($f in @($Inst, $Built)) { if (-not (Has $f)) { Fail ('missing: ' + $f) } }
 if (-not $PresetSrc) { Fail ('missing: attrib_preset_sentinel.json (looked in tools\, wt-30-release\tools, wt-30-ebx\tools)') }
-if (Has $Kits) { Fail ('kits3d_on.txt exists (' + $Kits + '): the 3D kit swap owns the Oodle hook and the attrib patch would be off; remove it yourself') }
+if (Has $Kits) { Write-Host ('NOTE: kits3d_on.txt exists (' + $Kits + '): the 3D kit swap runs together with the attrib patch (shared Oodle hook, 2.11); the file is left as it is') -ForegroundColor Yellow }
 if (Has $Off)  { Fail ('attrib_ebx_off.txt exists (' + $Off + '): the patch would be off; remove it yourself') }
 $builtNow = Md5 $Built
 if ($ExpectedMd5 -eq '') {
