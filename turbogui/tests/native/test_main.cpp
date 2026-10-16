@@ -2892,6 +2892,7 @@ static Rgba solid(int w, int h, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255
 static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_preload_hotkey.h"  // 1.1.1: show/hide key setting, background loading
 #include "test_ux_resize.h"  // 2026-10-11: table registry + resizable panes, preload order / cancellation, gui prefs
+#include "test_shell.h"  // 2026-10-16: GUI revamp contract (ui_shell.h areas/pages/registry, ui_theme.h palette)
 #include "test_gear_pictures.h"  // 1.1.4: gear preview pictures from the hash list
 #include "test_hair_catalog.h"  // hair catalog: gallery filters and the face chooser Hair facet
 #include "test_bodytypes.h"  // body type catalogue (runtime-loaded probe + localize.json) and its gallery
@@ -8909,6 +8910,7 @@ static void test_ui() {
 
         ui_cases_tactics_tab(app, ui, le);  // test_tactics_tab.h
         team_sheet_test::ui_cases(app, ui, le);  // test_team_sheet.h: the live tactic card (channel E)
+        test_shell_app(app);  // test_shell.h: page registry
         tuning_test::ui_cases(app, ui, le);  // test_tuning.h: Competitions > Gameplay tuning
         gsettings_test::ui_cases(app, ui, le);  // test_game_settings.h: the Game settings tab (2.8)
         tactic_presets_test::ui_cases(app, ui, le);  // test_tactic_presets.h: Teams > Tactic presets (2.12)
@@ -14628,6 +14630,7 @@ int main(int argc, char** argv) {
     std::printf("native show/hide key and background loading\n");
     test_hotkey_and_background();
     test_ux_resize();  // test_ux_resize.h
+    test_shell();  // test_shell.h: shell contract (pure cases)
     test_gear_pictures();
     test_hair_catalog();
     test_bodytype_catalog();
