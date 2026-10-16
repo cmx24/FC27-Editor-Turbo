@@ -15,13 +15,13 @@ Nothing here is shipped or claimed as a feature. Gates are in `turbo_dev\evidenc
 Seen in game 2026-10-15 on build 6AC07E31 (test career LEICESTER, never saved). Evidence: `turbo_dev\evidence6-10-15\TEST_31.md`, `launchA210\` and `launchB210\`. Only the three items under "Seen in game" are claimed; everything else is offline-tested only.
 
 ### Seen in game
-- **Load-time gameplay-data patch delivery (opt-in).** Turbo's Oodle hook patches the attribulator EBX (the game's gameplay tuning data) while the game loads it, and the live attribulator database read back the patched values in two launches. The patch is opt-in through `turbo_outputttrib_preset.json` (without that file nothing is patched) and is skipped when `turbo_output\kits3d_on.txt` exists (the 3D kit swap owns the Oodle hook). This proves delivery of the values only, not any effect on the pitch.
+- **Load-time gameplay-data patch delivery (opt-in).** Turbo's Oodle hook patches the attribulator EBX (the game's gameplay tuning data) while the game loads it, and the live attribulator database read back the patched values in two launches. The patch is opt-in through `turbo_output\attrib_preset.json` (without that file nothing is patched) and is skipped when `turbo_output\kits3d_on.txt` exists (the 3D kit swap owns the Oodle hook). This proves delivery of the values only, not any effect on the pitch.
 - **Game settings.** Turbo writes Sprint Speed User, Acceleration User and Sprint Speed CPU into the Custom block of the game's Settings file, and EA's Custom screen shows them. To see them the user must pick Gameplay Type CUSTOM in the EA menu. The other sliders are read-only.
 - **Safe undo.** The settings undo refuses until a game-written Settings file has been copied to evidence, so a settings undo can no longer overwrite what the game wrote.
 
 ### NOT PROVEN
 - Any slider's effect on match play (sprint speed, acceleration, CPU sprint speed).
-- Tactics effect: NOT PROVEN. L5 (preset length 0.5 / width 0.6) exited at the main menu with no crash dump; cause unknown; re-test next session with half-step values. Do not use these values. The attrib preset stays OFF unless turbo_outputttrib_preset.json is added.
+- Tactics effect: NOT PROVEN. L5 (preset length 0.5 / width 0.6) exited at the main menu with no crash dump; cause unknown; re-test next session with half-step values. Do not use these values. The attrib preset stays OFF unless turbo_output\attrib_preset.json is added.
 - Settings-live (changing the settings while the game runs) is not included.
 - Only 6AC07E31 is supported; other game builds, other careers and long sessions were not tested.
 
