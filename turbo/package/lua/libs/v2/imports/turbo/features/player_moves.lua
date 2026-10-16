@@ -124,6 +124,39 @@ local function check(a, i, team_set, player_set)
     return out
 end
 
+-- A transfer / loan through Live Editor's own native (FC 27 LE v27.1.4 has them). The native logs a refusal and does not raise
+-- it (2026-10-16: "Can't transfer player from 1 to 1" for a player moved earlier the same session, because with from_teamid 0
+-- it looks the club up in a view the first move did not update), so a pcall that returns is no proof. Therefore:
+--   * the player's club is read from the database and passed as from_teamid (a loaned player: 0, the game ends his loan itself);
+--   * the club link is read back afterwards; when he is not at the asked club, Turbo's own move (the game call / database
+--     move of core/moves.lua) is tried, and when that fails too the action counts as failed, with the reason in the summary.
+-- Returns ok, note (note = why, or what was done instead).
+local function native_move(a, dry)
+    if dry then return true end
+    local pid, to = a.playerid, a.to_teamid
+    local loaned = moves.loan_row(pid) ~= nil
+    local from = (not loaned) and moves.team_of_player(pid) or 0
+    local okc, err
+    if a.action == "transfer" then
+        okc, err = pcall(a.fn, pid, to, a.fee, a.wage, a.months, from, a.release_clause)
+    else
+        okc, err = pcall(a.fn, pid, to, a.months, a.loan_to_buy, from)
+    end
+    local now = moves.team_of_player(pid)
+    if okc and now == to then return true end
+    local why = okc and string.format("Live Editor's %s left player %d at team %s (asked for %d)", NEEDS[a.action], pid, tostring(now), to)
+        or string.format("Live Editor's %s raised an error for player %d: %s", NEEDS[a.action], pid, tostring(err))
+    local turbo = TURBO_IMPL[a.action]
+    if turbo then
+        local ok2, ok3, msg = pcall(turbo, a, false)
+        if ok2 and ok3 and moves.team_of_player(pid) == to then
+            return true, why .. "; Turbo's own move did it instead"
+        end
+        why = why .. "; Turbo's own move failed too: " .. tostring(ok2 and msg or ok3)
+    end
+    return false, why
+end
+
 function M.run(ctx)
     local actions = ctx.cfg.actions
     if type(actions) ~= "table" or #actions == 0 then return false, "actions list is empty" end
@@ -151,10 +184,10 @@ function M.run(ctx)
             if not okc then ok, msg = false, "error: " .. tostring(ok) end
             if ok then n = count or 1 else failed = failed + 1 end
             notes[#notes + 1] = tostring(msg)
-        elseif a.action == "transfer" then
-            if call(a.fn, a.playerid, a.to_teamid, a.fee, a.wage, a.months, 0, a.release_clause) then n = 1 end
-        elseif a.action == "loan" then
-            if call(a.fn, a.playerid, a.to_teamid, a.months, a.loan_to_buy, 0) then n = 1 end
+        elseif a.action == "transfer" or a.action == "loan" then
+            local okn, note = native_move(a, ctx.dry)
+            if okn then n = 1 else failed = failed + 1 end
+            if note then notes[#notes + 1] = note end
         elseif a.action == "release" or a.action == "terminate_loan" then
             if call(a.fn, a.playerid) then n = 1 end
         elseif a.action == "delete" then

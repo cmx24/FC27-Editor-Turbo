@@ -19,6 +19,9 @@ Integration build of the 2.10 side branches. Everything below is **offline-teste
 - **L6 (soccer ball radius) is a delivery demo only, not a user feature.** On 2026-10-16 (LEICESTER test career, never saved) the opt-in attrib preset made the ball about 3x its normal size on the pitch, so the load-time EBX patch route reaches a career match for the physics group. Turbo ships no ball-size preset and no UI for it.
 - Game settings sliders: effect on match play still NOT PROVEN (gate G-S3 failed in 2.10.0).
 
+### Fixed (offline-tested only, NOT yet seen in game)
+- **Season pack Undo did not move players back (seen in game 2026-10-16).** Live Editor 27.1.4's TransferPlayer logs "Can't transfer player from 1 to 1" and returns normally when it looks the club up itself for a player moved earlier the same session; player_moves counted that call as done. Now the player's club from the database is passed as from_teamid, the club link is read back after every transfer or loan, Turbo's own move is tried when Live Editor left him where he was, and a move nobody did is reported as a failed action (per-row reason in the summary), so the Undo record is kept and the window says what failed. Real-handler test: `turbo/tests/t28_pack_undo.lua`.
+
 ### Added (offline-tested, not proven in game as a combination)
 - **Shared Oodle decompress hook.** The 3D kit swap and the attribulator EBX patch share one detour, so both can be on together. `kits3d_on.txt` no longer switches the attrib patch off. The combined kits3d + attrib path has NOT been run in game.
 - **Second copy ("also") per attrib preset entry** (for assets that also exist under databases/simulation) with a per-location write log.

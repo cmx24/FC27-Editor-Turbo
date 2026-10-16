@@ -351,8 +351,29 @@ function Sim:install()
         end
     end
     TerminateLoan = function(pid) s:record("TerminateLoan", pid) end
-    cTransferPlayer = function(...) s:record("cTransferPlayer", ...) end
-    cLoanPlayer = function(...) s:record("cLoanPlayer", ...) end
+    -- Live Editor's moves change the club link. s.native_stale_view = true copies what the game did on 2026-10-16 (LE 27.1.4):
+    -- with from_teamid 0 the club is looked up in a view that is filled at the first lookup and not updated by the move, so
+    -- a second move of the same player fails with "Can't transfer player from X to X" (logged, never raised)
+    local function le_move(name, pid, from, to)
+        local links = s.tables and s.tables.teamplayerlinks
+        local rec = links and s:find_row("teamplayerlinks", "playerid", pid)
+        if not rec then return end
+        local now = s:value("teamplayerlinks", rec, "teamid")
+        if from == 0 then
+            if s.native_stale_view then
+                s.native_view = s.native_view or {}
+                s.native_view[pid] = s.native_view[pid] or now
+                from = s.native_view[pid]
+            else
+                from = now
+            end
+        end
+        if from == to then s:record(name .. "_error", pid, from, to) return end
+        s:set_field(rec, links.teamid, to)
+        if s.player_team then s.player_team[pid] = to end
+    end
+    cTransferPlayer = function(pid, from, to, ...) s:record("cTransferPlayer", pid, from, to, ...) le_move("cTransferPlayer", pid, from, to) end
+    cLoanPlayer = function(pid, from, to, ...) s:record("cLoanPlayer", pid, from, to, ...) le_move("cLoanPlayer", pid, from, to) end
     cReleasePlayer = function(...) s:record("cReleasePlayer", ...) end
     s.transfer_listed, s.loan_listed = {}, {}
     cIsPlayerTransferListed = function(pid) return s.transfer_listed[pid] == true end

@@ -91,7 +91,7 @@ H.case("player_moves runs transfer, loan, release, terminate, list by scope", fu
     H.eq(ok, true, msg)
     local t = sim.calls.cTransferPlayer[1]
     -- cTransferPlayer(playerid, from_teamid, to_teamid, transfersum, release_clause, wage, contract_length)
-    H.eq(t[1], 2001); H.eq(t[2], 0); H.eq(t[3], 7); H.eq(t[4], 1000000); H.eq(t[5], -1); H.eq(t[6], 20000); H.eq(t[7], 36)
+    H.eq(t[1], 2001); H.eq(t[2], 2, "his club from the database is passed as from_teamid"); H.eq(t[3], 7); H.eq(t[4], 1000000); H.eq(t[5], -1); H.eq(t[6], 20000); H.eq(t[7], 36)
     local l = sim.calls.cLoanPlayer[1]
     -- cLoanPlayer(playerid, from_teamid, to_teamid, loan_length, loantobuy)
     H.eq(l[1], 2002); H.eq(l[3], 241); H.eq(l[4], 6); H.eq(l[5], -1)
