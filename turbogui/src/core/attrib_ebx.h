@@ -112,6 +112,8 @@ struct Preset {
 // ("fifa/attribulator/gameplay/databases/simulation/groups/<family>/<group>_runtime") or short ("databases/simulation/groups/..."). Its tail
 // (from "/groups/" on) must be the entry's own. expect / type_sig / value default to the entry's. Each copy becomes an ordinary Patch
 // (knob + ".also<n>"), so presets without "also" parse to the very same list as before.
+// NOTE: with a preset "locations" list, every copy (also the "also" ones) needs a location entry; one without makes the first launch scan the tocs
+// before the table is published (risk: the game decompresses the asset first). The sim copy's EBX Name being its own path is unproven in game.
 bool parse_preset(const std::string& json_text, Preset& out, std::string* why);
 
 // ---------------------------------------------------------------- finding the assets in the install
