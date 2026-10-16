@@ -524,14 +524,14 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         // another formation: refused whole, with the way out; nothing asked, nothing written
         pick("OTHER");
         CHECK(s.selected >= 0 && s.gate.find("pick the preset's formation in Edit Tactic first") != std::string::npos, "gate: " + s.gate);
-        CHECK(ui.click("Load##tpload", "##tpresets"), "Load OTHER");
+        CHECK(ui.click("Apply preset##tpload", "##tpresets"), "Load OTHER");
         ui.frames(3);
         CHECK(!s.confirm_open && s.status.find("Not loaded: formation: preset 442 (source 11) / live 433 (source 10)") == 0 && live_is(25, 0, 0, 38213, 5) &&
                   !fs::exists(out / gsettings::pending_file(), ec),
               "refused: " + s.status);
         // an unwritable build-up: the rest loads, the note says so (cancelled here)
         pick("ODD");
-        CHECK(ui.click("Load##tpload", "##tpresets"), "Load ODD");
+        CHECK(ui.click("Apply preset##tpload", "##tpresets"), "Load ODD");
         ui.frames(3);
         CHECK(s.confirm_open && has_line(s.confirm_lines, "note: Build-Up Style"), "ODD asks, with the note");
         CHECK(ui.click("Cancel##tpno", "Load tactic preset"), "cancelled");
@@ -543,7 +543,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         write_state();
         pick("TEST");
         CHECK(s.gate.find("Team Management is open") != std::string::npos, "gate: " + s.gate);
-        CHECK(ui.click("Load##tpload", "##tpresets"), "Load while Team Management is open");
+        CHECK(ui.click("Apply preset##tpload", "##tpresets"), "Load while Team Management is open");
         ui.frames(3);
         CHECK(!s.confirm_open && s.status.find("Not loaded: G2 career hub: Team Management is open") == 0 && live_is(25, 0, 0, 38213, 5), "refused: " + s.status);
         st["team_mgmt"] = false;
@@ -553,7 +553,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         // TEST: Load asks first
         pick("TEST");
         CHECK(s.gate.empty(), "ready: " + s.gate);
-        CHECK(ui.click("Load##tpload", "##tpresets"), "Load TEST");
+        CHECK(ui.click("Apply preset##tpload", "##tpresets"), "Load TEST");
         ui.frames(3);
         CHECK(s.confirm_open && has_line(s.confirm_lines, "Defensive Approach Deep (0) -> High (2)") && has_line(s.confirm_lines, "Line Height 25 -> 90") &&
                   has_line(s.confirm_lines, "Build-Up Style Balanced (0) -> Counter (1)") && has_line(s.confirm_lines, "slot 9 role 21 / focus 5 -> role 21 / focus 6") &&
@@ -603,7 +603,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(!s.can_undo && s.status.find("Put back the values from before the load of \"TEST\"") == 0, "status: " + s.status);
         // load again, then the game "reloads the career": the sheet comes back with the old values and the load belongs to an earlier career load
         pick("TEST");
-        CHECK(ui.click("Load##tpload", "##tpresets"), "Load TEST again");
+        CHECK(ui.click("Apply preset##tpload", "##tpresets"), "Load TEST again");
         ui.frames(3);
         CHECK(ui.click("Load##tpyes", "Load tactic preset"), "confirmed again");
         ui.frames(6);
@@ -650,6 +650,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(s.reapply.empty() && live_is(25, 0, 0, 38213, 5) && tp::load_last(tp::last_load_path(out), ll, &err) && ll.state == "dismissed", "no more asking");
         // Delete: two clicks
         pick("OTHER");
+        CHECK(ui.click("More##tpmore", "##tpresets"), "More (destructive actions live there)");
+        ui.frames(2);
         CHECK(ui.click("Delete##tpdel", "##tpresets"), "Delete");
         ui.frames(2);
         CHECK(fs::exists(tp::presets_dir(out) / "OTHER.json", ec), "one click deletes nothing");
