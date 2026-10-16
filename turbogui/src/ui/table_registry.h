@@ -49,6 +49,7 @@ inline const std::vector<Spec>& all() {
         {"##nmidtable", "Players > Names > name ids", kData | ImGuiTableFlags_SizingStretchProp, false},
         {"##teams", "Teams > list", kData | ImGuiTableFlags_ScrollY, true},
         {"##teamsxf", "Teams > list with transfer columns (2.1 parity)", kData | ImGuiTableFlags_ScrollY, true},
+        {"##packrows", "Players > Season pack (preview rows)", kData | ImGuiTableFlags_ScrollY, true},
         {"##xfrows", "Teams > club transfers (2.1 parity)", kData | ImGuiTableFlags_ScrollY, true},
         {"##scouts", "Teams > scouts (2.1 parity)", kData | ImGuiTableFlags_SizingFixedFit, false},
         {"##squad", "Teams > Squad", kData | ImGuiTableFlags_ScrollY, true},

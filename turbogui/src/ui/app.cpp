@@ -1023,6 +1023,7 @@ void App::tick(double t) {
         std::string result;
         if (mailbox->take_result(ok, result)) {
             const std::string pending_before = pending_label;
+            const bool was_pack = pending_label.rfind("Season pack", 0) == 0;
             // the development plan after the window's own edits (flush_plan_sync): logged; a toast only when it failed
             const bool plan_sync = pending_label.rfind("Development plan (", 0) == 0;
             const std::string text = pending_label + ": " + (result.empty() ? (ok ? "done" : "failed") : result);
@@ -1053,6 +1054,7 @@ void App::tick(double t) {
             if (pending_label.rfind("Manager move", 0) == 0)  // Managers > Manager market
                 manager_move_status = (ok ? "" : "Failed: ") + (result.empty() ? std::string(ok ? "done" : "failed") : result);
             pending_label.clear();
+            if (was_pack) season_pack_on_result(*this, ok, result);   // the next queued command, or the end of the run
             flush_lua_queue();  // the mailbox is free: the next queued "keep shown name" actions
             // Lua may have changed the database (transfers, bulk edits): re-read the lists (a plan sync writes no table)
             if (db.ready() && !plan_sync) model_stale = true;

@@ -3381,6 +3381,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_tuning.h"      // gameplay tuning: the engine tuning tables on a simulated table (tuning_test::run, ::ui_cases)
 #include "test_settings_presets.h"  // 2.10: evidence guard of turbo_settings_apply --undo, verified-only flow (settings_presets_test::run)
 #include "test_game_settings.h"  // 2.8: the game's own settings file, presets, the apply tool's core (gsettings_test::run, ::ui_cases)
+#include "test_season_pack.h"  // 2.10 B3: season update pack importer (season_pack_test::run)
 #include "test_attrib_ebx.h"  // 2.10 T1: attribulator EBX patch at load (attrib_ebx_test::run, real install fixtures)
 #include "test_oodle_dispatch.h"  // 2.11: the shared Oodle decompress dispatcher: kits only, attrib only, both, neither (oodle_dispatch_test::run)
 #include "test_attrib_two_copies.h"  // 2.10 A0: second copy (databases/simulation) of an attrib asset, per-location write log (attrib_two_copies_test::run)
@@ -7477,6 +7478,7 @@ static void test_ui() {
             app.game_root.clear();
             app.callnames.refreshed = false;
         });
+        season_pack_test::ui_cases(app, ui, mem, kMb);  // test_season_pack.h (2.10 B3: Players > Season pack...)
         run_case("UI: kept edits: kit colours and player-specific callnames are written again when a newly loaded career connects", [&] {
             const auto npos = std::string::npos;
             std::vector<std::string> hooked;  // turbo_gui.log
@@ -14640,6 +14642,7 @@ int main(int argc, char** argv) {
     attrib_ebx_test::run();
     oodle_dispatch_test::run();  // test_oodle_dispatch.h (2.11)
     attrib_two_copies_test::run();
+    season_pack_test::run();  // test_season_pack.h (2.10 B3)
     std::printf("native voice swaps\n");
     test_callname_voice();
     test_callname_voice_host();
