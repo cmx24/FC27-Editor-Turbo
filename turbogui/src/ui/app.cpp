@@ -1432,7 +1432,9 @@ void App::go(shell::Area a, shell::Page p) {
 // A page nobody registered yet (its track has not landed): the panel it lived in before the revamp, drawn as it was, so that
 // nothing disappears while the pages move (ui_shell.h legacy_tab_of)
 static void draw_legacy_page(App& app, shell::Page p) {
-    const int lt = shell::legacy_tab_of(p);
+    // Transfers lived in Teams (legacy_tab_of) but the legacy request_tab 5 (Turbo Tools) lands on it (area_for): until T5's
+    // page is registered it shows the Turbo Tools panel; the Teams panel, transfers included, stays under Squad
+    const int lt = p == shell::Page::Transfers ? 5 : shell::legacy_tab_of(p);
     if (p == shell::Page::GameplayPresets) {
         if (app.prefs.advanced_mode) draw_unproven_banner();
         else theme::muted_text("Presets write the EA Custom slider block; the effect on play is not yet measured.");
@@ -1450,6 +1452,25 @@ static void draw_legacy_page(App& app, shell::Page p) {
     }
 }
 
+// One button of a strip (area or page): the selected one is filled, the others plain. Wraps to a new line when the window is
+// too narrow for the next one. True when clicked.
+static bool strip_button(const char* label, bool selected, bool first) {
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float w = ImGui::CalcTextSize(label).x + st.FramePadding.x * 2.0f;
+    if (!first) {
+        const float room = ImGui::GetContentRegionAvail().x - st.ItemSpacing.x;
+        if (room >= w) ImGui::SameLine();  // else: the next line
+    }
+    const ImVec4 fill = selected ? theme::accent() : ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    ImGui::PushStyleColor(ImGuiCol_Button, fill);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, selected ? theme::accent_hover() : ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, selected ? theme::accent_active() : ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive));
+    const bool hit = ImGui::Button(label);
+    ImGui::PopStyleColor(3);
+    return hit;
+}
+
+// Navigation happens in the frame it is asked for (a click, go(), request_tab): the page of the new place is drawn at once.
 void App::draw_pages() {
     using namespace shell;
     const bool adv = prefs.advanced_mode;
@@ -1460,39 +1481,52 @@ void App::draw_pages() {
         request_tab = -1;
         if (pl.valid() && page_visible(pl.page, adv)) go_to_ = pl;
     }
-    if (go_to_.valid() && !page_visible(go_to_.page, adv)) go_to_ = Place{};
+    if (go_to_.valid() && page_visible(go_to_.page, adv)) place_ = go_to_;
+    go_to_ = Place{};
+    // Where we are: the area must be visible in this view (Advanced turned off: back to Squad & Players), the page one of its own
+    if (!area_visible(place_.area, adv) || area_of(place_.page) != place_.area) {
+        const Area a = area_visible(place_.area, adv) ? place_.area : Area::Squad;
+        place_ = Place{a, default_page(a)};
+    }
+    area_page_[static_cast<int>(place_.area)] = place_.page;
+
     // Simple / Advanced view (gui_prefs.h): Simple hides the Advanced area (raw rows, bulk edit, not-proven panels)
     if (!adv) ImGui::TextDisabled("%s", simple_banner_text());
-    if (!ImGui::BeginTabBar("##turbo_areas", ImGuiTabBarFlags_FittingPolicyScroll)) return;
+
+    ImGui::PushID("##shell");
+    // the area strip
+    bool first = true;
     for (int ai = 0; ai < kAreaCount; ++ai) {
         const Area a = static_cast<Area>(ai);
         if (!area_visible(a, adv)) continue;
-        // A go() stays pending until its page was drawn: the area tab takes a frame to open, the page tab inside it the next
-        const bool want_area = go_to_.valid() && go_to_.area == a;
-        if (!ImGui::BeginTabItem(area_label(a), nullptr, want_area ? ImGuiTabItemFlags_SetSelected : 0)) continue;
-        const auto& strip = pages_of(a);
-        if (strip.size() <= 1) {
-            if (!strip.empty()) {
-                place_ = Place{a, strip.front()};
-                area_page_[ai] = strip.front();
-                if (go_to_.valid() && go_to_.page == strip.front()) go_to_ = Place{};
-                if (!draw_page(*this, strip.front(), adv)) draw_legacy_page(*this, strip.front());
-            }
-        } else if (ImGui::BeginTabBar((std::string("##turbo_pages_") + std::to_string(ai)).c_str(), ImGuiTabBarFlags_FittingPolicyScroll)) {
-            for (Page p : strip) {
-                const bool want_page = go_to_.valid() && go_to_.page == p;
-                if (!ImGui::BeginTabItem(page_label(p), nullptr, want_page ? ImGuiTabItemFlags_SetSelected : 0)) continue;
-                place_ = Place{a, p};
-                area_page_[ai] = p;
-                if (want_page) go_to_ = Place{};
-                if (!draw_page(*this, p, adv)) draw_legacy_page(*this, p);
-                ImGui::EndTabItem();
-            }
-            ImGui::EndTabBar();
+        if (strip_button(area_label(a), place_.area == a, first) && place_.area != a) {
+            const Page remembered = area_page_[ai];
+            place_ = Place{a, (remembered != Page::None && page_visible(remembered, adv)) ? remembered : default_page(a)};
+            area_page_[ai] = place_.page;
         }
-        ImGui::EndTabItem();
+        first = false;
     }
-    ImGui::EndTabBar();
+    // the page strip of the area (an area with one page, Settings, has none)
+    const auto& strip = pages_of(place_.area);
+    if (strip.size() > 1) {
+        // the page strip continues on the same row when it fits (one row of chrome, not two: the panels keep their height)
+        ImGui::SameLine(0.0f, S(14.0f));
+        ImGui::TextDisabled("|");
+        ImGui::PushID("##pages");
+        bool pfirst = false;
+        for (Page p : strip) {
+            if (strip_button(page_label(p), place_.page == p, pfirst)) {
+                place_.page = p;
+                area_page_[static_cast<int>(place_.area)] = p;
+            }
+            pfirst = false;
+        }
+        ImGui::PopID();
+    }
+    ImGui::PopID();
+
+    const Page page = place_.page;
+    if (!draw_page(*this, page, adv)) draw_legacy_page(*this, page);
 }
 
 void App::draw() {
