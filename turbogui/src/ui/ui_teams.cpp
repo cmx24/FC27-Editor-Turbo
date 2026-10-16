@@ -14,6 +14,7 @@
 #include "ui_kits.h"
 #include "ui_parity.h"
 #include "ui_role_rules.h"
+#include "ui_tactic_presets.h"
 #include "ui_team_filter.h"
 
 namespace turbo {
@@ -534,6 +535,13 @@ static void team_editor(App& app) {
             draw_unproven_banner();
             ImGui::BeginChild("##ttac");
             draw_tactics(app);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+        // 2.12: EA's own tactic and gameplay settings as presets; in the Simple view too (its banner says what is not proven)
+        if (ImGui::BeginTabItem("Tactic presets")) {
+            ImGui::BeginChild("##tpresets");
+            draw_tactic_presets(app);
             ImGui::EndChild();
             ImGui::EndTabItem();
         }

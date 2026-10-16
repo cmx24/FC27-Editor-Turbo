@@ -10,6 +10,19 @@ Nothing here is shipped or claimed as a feature. Gates are in `turbo_dev\evidenc
 - **UNPROVEN:** tactics sliders for team length and width (`shape.length_in`, `shape.width_in`). Gate G-T1 was INCONCLUSIVE in game (counted as FAIL for the live write route).
 - **UNPROVEN:** any effect of the game settings sliders on match play. Gate G-S3 (ratio >= 1.4).
 
+## 2.12.0
+
+**Tactic presets - offline-tested only, NOT yet seen in a played match** (checklist: `turbo_devesearch_20261016\TACTIC_PRESETS_PROOF.md`; native suite 33,097/0, Lua 408/0).
+
+- **Tactic presets** (Teams > Tactic presets, also in the Simple view). Saves EA's OWN tactic of your club (Defensive Approach, Line Height = depth, Build-Up Style, role id and focus of the 11 slots; the formation is recorded) and the Custom sliders block of the Settings file as `turbo_output\tactic_presets\<name>.json` (schema 1, build 6AC07E31-2145C000 only, out-of-range values refused). Load asks first, writes the tactic through the Tactics card's guarded channel E job (live record + its cm_mentalities row, `channel_e_undo.json`) and stages only the sliders verified in game (`settings_pending.json`, applied with FC 27 closed by `turbo_settings_apply.exe`, needs Gameplay Type CUSTOM). Another formation is refused (no formation writer is proven). Width is not part of a preset (the game's team sheet carries none). Undo last load, and a one-click Re-apply prompt after a career load (never automatic; own file `tactic_preset_last_load.json`, `reapply_edits.json` is never touched). Proof checklist: `turbo_dev\research_20261016\TACTIC_PRESETS_PROOF.md`.
+
+Limits, plainly:
+- The tactic half loads live in the career hub with Team Management closed (the Tactics card's guarded channel E job).
+- The slider half is only staged; it is applied with the game closed (`turbo_settings_apply.exe --apply`) and needs Gameplay Type CUSTOM in the EA menu.
+- EA's Edit Tactic screen may still show the old wording although the live record holds the preset. Never answer Yes on it (it autosaves).
+- After each career load, load the tactic again (the panel offers a one-click Re-apply, never automatic).
+- Build-Up Style 2 / 3 and Defensive Approach 3 (Aggressive) stay refused; another formation is refused.
+
 ## 2.11.0
 
 Integration build of the 2.10 side branches. Everything below is **offline-tested only** unless it says "Seen in game". Offline suites: build 0 warnings, Lua 405/0, native 32,920/0, Python 40+22+568 ok, catalog 840/0. Evidence for the blocked tactics route and the L6 delivery demo: `turbo_dev\evidence6-10-16\` (`BRANCH_A_RESULT.md`, `L6_RESULT.md`).

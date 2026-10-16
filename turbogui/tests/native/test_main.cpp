@@ -3381,6 +3381,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_tuning.h"      // gameplay tuning: the engine tuning tables on a simulated table (tuning_test::run, ::ui_cases)
 #include "test_settings_presets.h"  // 2.10: evidence guard of turbo_settings_apply --undo, verified-only flow (settings_presets_test::run)
 #include "test_game_settings.h"  // 2.8: the game's own settings file, presets, the apply tool's core (gsettings_test::run, ::ui_cases)
+#include "test_tactic_presets.h"  // 2.12: tactic presets (tactic_presets_test::run, ::ui_cases)
 #include "test_season_pack.h"  // 2.10 B3: season update pack importer (season_pack_test::run)
 #include "test_attrib_ebx.h"  // 2.10 T1: attribulator EBX patch at load (attrib_ebx_test::run, real install fixtures)
 #include "test_oodle_dispatch.h"  // 2.11: the shared Oodle decompress dispatcher: kits only, attrib only, both, neither (oodle_dispatch_test::run)
@@ -8910,6 +8911,7 @@ static void test_ui() {
         team_sheet_test::ui_cases(app, ui, le);  // test_team_sheet.h: the live tactic card (channel E)
         tuning_test::ui_cases(app, ui, le);  // test_tuning.h: Competitions > Gameplay tuning
         gsettings_test::ui_cases(app, ui, le);  // test_game_settings.h: the Game settings tab (2.8)
+        tactic_presets_test::ui_cases(app, ui, le);  // test_tactic_presets.h: Teams > Tactic presets (2.12)
         describe_ui_cases(app, ui);  // test_describe.h: edit log, undo toast, pickers, Technical details, the "no code N" walk
         ui_cases_names_tab(app, ui, mem, kMb);  // test_names_tab.h
         archetype_target_test::run_ui(app, ui, mem, kMb);  // test_archetype_target.h
@@ -14643,6 +14645,7 @@ int main(int argc, char** argv) {
     gsettings_test::run();  // test_game_settings.h (2.8)
     gsettings_test::run_custom();  // test_game_settings.h (2.10: the Custom u8 block)
     settings_presets_test::run();  // test_settings_presets.h (2.10)
+    tactic_presets_test::run();  // test_tactic_presets.h (2.12)
     attrib_ebx_test::run();
     oodle_dispatch_test::run();  // test_oodle_dispatch.h (2.11)
     attrib_two_copies_test::run();

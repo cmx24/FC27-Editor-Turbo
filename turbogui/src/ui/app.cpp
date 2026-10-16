@@ -28,6 +28,7 @@
 #include "ui_edit_unlock.h"
 #include "ui_tactics.h"
 #include "ui_live_tactic.h"
+#include "ui_tactic_presets.h"
 #include "ui_tuning.h"
 #include "ui_game_settings.h"
 
@@ -919,6 +920,7 @@ void App::tick(double t) {
 
     edit_unlock_tick(*this);  // Game editors: originals in, unlocked files out (ui_edit_unlock.cpp)
     live_tactic_tick(*this);  // Tactics channel E: job results, the read-back 5 s after a write, the kick-off check (ui_live_tactic.cpp)
+    tactic_presets_tick(*this);  // Tactic presets: a load / undo finishes when its channel E job came back (ui_tactic_presets.cpp)
     tuning_tick(*this);  // Gameplay tuning: job results, the undo file, the re-apply of kept values at a career load (ui_tuning.cpp)
     // Voice swaps: the store goes to the service the host gave (once per service, then after every edit); the kill
     // switches are re-read every 2 s (the detours only read cached atomics)

@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 
+#include "core/team_sheet.h"
+
 namespace turbo {
 
 class App;
@@ -61,6 +63,29 @@ void live_tactic_reset();
 // Tests: the wall clock (seconds) the Team Management watch uses (null = the system clock; Turbo's QPC clock runs ~3x in game)
 // Tests: open / close the "More" node (closed in the app until the person opens it)
 void live_tactic_set_details_open(bool open);
+
+// 2.12 tactic presets (ui_tactic_presets.cpp): the panel reuses the card's own read, gates and guarded game-thread job (nothing here writes
+// by another route). All of them are safe to call every frame except live_tactic_submit.
+// One read of the live record ("" in `why` = read). false: why it cannot be read (no service, not in the hub, gates of the locate step ...)
+bool live_tactic_read(App& app, tsheet::LiveTactic& out, std::string& why);
+// "" = a write of `req` is allowed right now (every gate G1..G6 passes, the plan changes something), else the first failing gate's text
+std::string live_tactic_gate(App& app, const tsheet::Request& req);
+// The card's Apply without its confirmation (the panel asks first): the undo file, the live record and its cm_mentalities row in one job.
+// true = queued; false = refused (`why`; the notice is raised too)
+bool live_tactic_submit(App& app, const tsheet::Request& req, std::string& why);
+// The card's Undo (channel_e_undo.json): puts back every value Turbo wrote in this career load, from the history (the game's role allow-list does
+// not apply to values the game itself held). true = queued
+bool live_tactic_undo(App& app, std::string& why);
+bool live_tactic_undo_ready(App& app);  // the undo file holds a write of this career load that can be put back
+bool live_tactic_busy();  // a job is in flight
+struct LiveJobResult {
+    long long seq = 0;  // counts the results that came back (never reset)
+    bool ok = false, written = false, undo = false;
+    std::string line;
+};
+LiveJobResult live_tactic_result();  // the latest job's result
+bool live_tactic_opt_in(App& app);   // turbo_output\call_team_sheet_on.txt
+void live_tactic_set_opt_in(App& app, bool on);
 void live_tactic_test_wall_clock(std::function<double()> wall);
 
 }  // namespace turbo

@@ -461,6 +461,89 @@ void game_settings_set_paths(const fs::path& settings_dir, const fs::path& map_f
     g.loaded = false;
 }
 
+bool game_settings_current(App& app, std::map<std::string, int>& values, std::string& layout, std::string& map_build, std::string& why) {
+    first_look(app);
+    read_file_now(app);  // the newest values the game saved
+    if (!g.map_ok) {
+        why = "no slider map: " + g.map_err;
+        return false;
+    }
+    if (!g.snap.ok) {
+        why = g.snap.why;
+        return false;
+    }
+    values.clear();
+    for (const auto& kv : g.snap.values)
+        if (kv.second >= 0 && kv.second <= 100) values[kv.first] = kv.second;
+    layout = g.snap.layout;
+    map_build = g.map.build;
+    why.clear();
+    return true;
+}
+
+bool game_settings_plan(App& app, const std::map<std::string, int>& values, int& writable, std::vector<std::string>& skipped, std::string& why) {
+    first_look(app);
+    writable = 0;
+    skipped.clear();
+    if (!g.map_ok) {
+        why = "no slider map: " + g.map_err;
+        return false;
+    }
+    Preset p;
+    p.name = "plan";
+    p.values = values;
+    const Plan plan = plan_preset(p, g.map);
+    writable = int(plan.values.size());
+    skipped = plan.skipped;
+    why.clear();
+    return true;
+}
+
+bool game_settings_stage(App& app, const std::string& name, const std::map<std::string, int>& values, std::string& msg, int& staged,
+                         std::vector<std::string>& skipped) {
+    first_look(app);
+    staged = 0;
+    skipped.clear();
+    if (!g.map_ok) {
+        msg = "Nothing staged: no slider map (" + g.map_err + ")";
+        return false;
+    }
+    Preset p;
+    p.name = name;
+    p.values = values;
+    const Plan plan = plan_preset(p, g.map);
+    skipped = plan.skipped;
+    const bool ok = stage_pending(out_dir(app), p, g.map, stamp("%Y-%m-%dT%H:%M:%S"), &msg);
+    if (ok) staged = int(plan.values.size());
+    log_line(app, "game settings: " + msg);
+    read_pending(app);
+    return ok;
+}
+
+bool game_settings_unstage(App& app, const std::string& name, std::string& msg) {
+    first_look(app);
+    read_pending(app);
+    if (!g.have_pending) {
+        msg = "Nothing staged any more (the apply tool already ran, or the staged file was discarded): the settings file is changed back only by "
+              "turbo_settings_apply.exe --undo";
+        return false;
+    }
+    if (g.pending.preset != name) {
+        msg = "The staged settings are another preset's (\"" + g.pending.preset + "\"): left alone";
+        return false;
+    }
+    std::error_code ec;
+    fs::remove(out_dir(app) / pending_file(), ec);
+    if (ec) {
+        msg = "The staged file could not be removed: " + ec.message();
+        return false;
+    }
+    msg = "The staged settings of \"" + name + "\" were discarded (nothing will be applied)";
+    log_line(app, "game settings: " + msg);
+    read_pending(app);
+    return true;
+}
+
 void draw_game_settings(App& app) {
     const int reads = g_state.file_reads;
     g_state = GameSettingsViewState();

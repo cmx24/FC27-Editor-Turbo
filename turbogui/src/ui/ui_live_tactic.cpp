@@ -78,6 +78,8 @@ struct Lt {
 };
 Lt g;
 LiveTacticState g_state;
+long long g_result_seq = 0;  // never reset: counts the jobs whose result came back
+LiveJobResult g_result;
 bool g_force_details = false;  // tests: the "More" node stays open (live_tactic_set_details_open); survives live_tactic_reset
 std::function<double()> g_wall;  // tests: the wall clock (live_tactic_test_wall_clock)
 
@@ -474,15 +476,21 @@ std::string rows_line(const ApplyResult& r) {
 // ---------------------------------------------------------------------------------------------------------------- Apply / Undo
 // Apply (the editor's values) and Re-apply (Turbo's last values after the game replaced them): one guarded job, the live record and the
 // cm_mentalities row together; the undo file is written first
-void apply_request(App& app, const Request& req, bool reapply) {
+// Returns true when the job was queued for the game thread; `why_out` gets the reason when not (the notice says it too)
+bool apply_request(App& app, const Request& req, bool reapply, std::string* why_out = nullptr) {
     auto svc = app.team_sheet;
-    if (!svc) return;
+    if (why_out) why_out->clear();
+    auto refuse = [&](const std::string& why) {
+        if (why_out) *why_out = why;
+        return false;
+    };
+    if (!svc) return refuse("this Turbo has no channel E service");
     const char* what = reapply ? "Live tactic not re-applied: " : "Live tactic not written: ";
     refresh_switches(app, true);
     load_undo_once(app);
     if (!read_now(app)) {
         app.notify(what + g.read_err, true);
-        return;
+        return refuse(g.read_err);
     }
     const BridgeState& st = app.bridge.state();
     Plan plan;
@@ -493,7 +501,7 @@ void apply_request(App& app, const Request& req, bool reapply) {
     const Gates gs = evaluate(gate_input(app, pw, false));
     if (!gs.pass()) {
         app.notify(what + gs.first(), true);
-        return;
+        return refuse(gs.first());
     }
     attach_db_row(app, plan, g.lt);  // the cm_mentalities row, in the same job
     UndoRecord rec = UndoRecord::from_plan(plan);
@@ -519,7 +527,7 @@ void apply_request(App& app, const Request& req, bool reapply) {
     // the undo file first: it holds the values before the write before anything is written
     if (!save_record(app, rec, &err)) {
         app.notify(what + std::string("turbo_output\\") + undo_file() + " could not be written (" + err + ")", true);
-        return;
+        return refuse(std::string("turbo_output\\") + undo_file() + " could not be written (" + err + ")");
     }
     std::string why;
     if (!svc->submit(ctx_of(app), plan, why)) {
@@ -531,7 +539,7 @@ void apply_request(App& app, const Request& req, bool reapply) {
         }
         app.notify(what + why, true);
         g.last = "not queued: " + why;
-        return;
+        return refuse(why);
     }
     g.pending = true;
     g.pending_undo = false;
@@ -541,9 +549,25 @@ void apply_request(App& app, const Request& req, bool reapply) {
         g.replaced.clear();  // asked once; a later replacement asks again
         log_line(app, "channel E: re-apply of Turbo's tactic queued (the user's click after the game replaced it)");
     }
+    return true;
 }
 
 void do_apply(App& app) { apply_request(app, request_from_editor(), false); }
+
+// The opt-in file (call_team_sheet_on.txt): the card's checkbox and the tactic presets panel switch it the same way
+void set_opt_in(App& app, bool on) {
+    std::error_code ec;
+    const fs::path p = out_dir(app) / opt_in_file();
+    if (on) {
+        fs::create_directories(out_dir(app), ec);
+        std::ofstream(p, std::ios::binary | std::ios::trunc) << "Turbo channel E on: Turbo may write your club's live tactic (switched on in the Turbo window "
+                                                             << stamp() << ")\n";
+    } else {
+        fs::remove(p, ec);
+    }
+    refresh_switches(app, true);
+    log_line(app, std::string("channel E: ") + (g.sw.opt_in ? "switched on" : "switched off") + " (turbo_output\\" + opt_in_file() + ")");
+}
 
 // The Re-apply prompt belongs to the career load (and Lua session) it was made in: a reload drops it, so it never writes there
 void drop_stale_prompt(App& app) {
@@ -583,18 +607,25 @@ void do_reapply(App& app) {
     apply_request(app, req, true);
 }
 
-void do_undo(App& app) {
+// Returns true when the undo job was queued; `why_out` gets the reason when not (the notice says it too)
+bool do_undo(App& app, std::string* why_out = nullptr) {
     auto svc = app.team_sheet;
-    if (!svc) return;
+    if (why_out) why_out->clear();
+    auto refuse = [&](const std::string& why) {
+        if (why_out) *why_out = why;
+        return false;
+    };
+    if (!svc) return refuse("this Turbo has no channel E service");
     refresh_switches(app, true);
     load_undo_once(app);
     if (!g.have_undo || (g.undo.state != "written" && g.undo.state != "failed")) {
-        app.notify("Nothing to put back: turbo_output\\" + std::string(undo_file()) + " holds no write in place", true);
-        return;
+        const std::string w = "turbo_output\\" + std::string(undo_file()) + " holds no write in place";
+        app.notify("Nothing to put back: " + w, true);
+        return refuse(w);
     }
     if (!read_now(app)) {
         app.notify("Nothing put back: " + g.read_err, true);
-        return;
+        return refuse(g.read_err);
     }
     Plan plan;
     std::vector<std::string> skipped;
@@ -604,27 +635,33 @@ void do_undo(App& app) {
     if (!w.empty()) {
         app.notify("Nothing put back: " + w, true);
         g.last = "undo: " + w;
-        return;
+        return refuse(w);
     }
     const Gates gs = evaluate(gate_input(app, "", true));
     if (!gs.pass()) {
         app.notify("Nothing put back: " + gs.first(), true);
-        return;
+        return refuse(gs.first());
     }
     attach_undo_db_row(app, plan, g.undo);  // the row Turbo wrote, in the same job
     std::string why;
     if (!svc->submit(ctx_of(app), plan, why)) {
         app.notify("Nothing put back: " + why, true);
-        return;
+        return refuse(why);
     }
     g.pending = true;
     g.pending_undo = true;
     g.pending_since = app.now;
     g.last = "undo queued for the game thread ...";
+    return true;
 }
 
 void handle_result(App& app, const ApplyResult& r) {
     g.pending = false;
+    g_result.seq = ++g_result_seq;  // 2.12: the tactic presets panel waits for the job it queued (live_tactic_result)
+    g_result.ok = r.ok;
+    g_result.written = r.ok && r.written;
+    g_result.undo = r.undo;
+    g_result.line = r.log_line.empty() ? r.message : r.log_line;
     g.last = r.log_line.empty() ? r.message : r.log_line;
     if (!r.message.empty() && r.log_line.find(r.message) == std::string::npos) g.last += ": " + r.message;
     g.mirror_line = rows_line(r);
@@ -872,19 +909,7 @@ void draw_body(App& app) {
     ImGui::PopStyleColor();
     // the opt-in
     bool on = g.sw.opt_in;
-    if (checkbox_right("Channel E on (turbo_output\\call_team_sheet_on.txt)##ltopt", &on)) {
-        std::error_code ec;
-        const fs::path p = out_dir(app) / opt_in_file();
-        if (on) {
-            fs::create_directories(out_dir(app), ec);
-            std::ofstream(p, std::ios::binary | std::ios::trunc) << "Turbo channel E on: Turbo may write your club's live tactic (switched on in the Turbo window "
-                                                                 << stamp() << ")\n";
-        } else {
-            fs::remove(p, ec);
-        }
-        refresh_switches(app, true);
-        log_line(app, std::string("channel E: ") + (g.sw.opt_in ? "switched on" : "switched off") + " (turbo_output\\" + opt_in_file() + ")");
-    }
+    if (checkbox_right("Channel E on (turbo_output\\call_team_sheet_on.txt)##ltopt", &on)) set_opt_in(app, on);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Off by default. On creates turbo_output\\call_team_sheet_on.txt; call_team_sheet_off.txt or tactics_off.txt switch every write off.");
 
@@ -1162,6 +1187,45 @@ void live_tactic_reset() {
     g = Lt();
     g_state = LiveTacticState();
 }
+
+// ---- 2.12: what the tactic presets panel (ui_tactic_presets.cpp) uses: the card's own read, gates and guarded job
+bool live_tactic_read(App& app, tsheet::LiveTactic& out, std::string& why) {
+    refresh_switches(app, false);
+    load_undo_once(app);
+    if (!read_now(app)) {
+        why = g.read_err;
+        return false;
+    }
+    out = g.lt;
+    why.clear();
+    return true;
+}
+
+std::string live_tactic_gate(App& app, const tsheet::Request& req) {
+    refresh_switches(app, false);
+    if (!g.have) return g.read_err.empty() ? std::string("not read yet") : g.read_err;
+    Plan plan;
+    const auto allow = app.team_sheet ? app.team_sheet->role_allow(app.bridge.state().load_gen) : nullptr;
+    std::string pw = make_plan(g.lt, req, plan, allow.get());
+    if (pw.empty() && plan.writes.empty()) pw = "nothing changed";
+    const Gates gs = evaluate(gate_input(app, pw, false));
+    return gs.pass() ? std::string() : gs.first();
+}
+
+bool live_tactic_submit(App& app, const tsheet::Request& req, std::string& why) { return apply_request(app, req, false, &why); }
+bool live_tactic_undo(App& app, std::string& why) { return do_undo(app, &why); }
+bool live_tactic_undo_ready(App& app) {
+    load_undo_once(app);
+    const BridgeState& st = app.bridge.state();
+    return g.have_undo && (g.undo.state == "written" || g.undo.state == "failed") && same_career(g.undo, st.session, st.load_gen).empty();
+}
+bool live_tactic_busy() { return g.pending; }
+LiveJobResult live_tactic_result() { return g_result; }
+bool live_tactic_opt_in(App& app) {
+    refresh_switches(app, false);
+    return g.sw.opt_in;
+}
+void live_tactic_set_opt_in(App& app, bool on) { set_opt_in(app, on); }
 
 void draw_live_tactic(App& app) {
     g_state = LiveTacticState();
