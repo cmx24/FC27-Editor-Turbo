@@ -351,8 +351,18 @@ bool SliderMap::parse(const std::string& text, SliderMap& out, std::string* err)
             if (g.first < o.first + o.count && o.first < g.first + g.count) return fail(g.id + " overlaps " + o.id);
         m.regions.push_back(g);
     }
+    if (j.contains("custom_block")) {
+        const auto& cb = j["custom_block"];
+        long long cbase = 0, ccount = 0;
+        if (!cb.is_object() || !cb.contains("base") || !cb.contains("count") || !int_of(cb["base"], cbase) || !int_of(cb["count"], ccount))
+            return fail("custom_block needs base and count");
+        if (cbase < static_cast<long long>(kCrcFrom + 5) || ccount <= 0 || ccount > 256 || cbase + ccount > static_cast<long long>(kPayloadSize))
+            return fail("custom_block is outside the payload");
+        m.custom_base = size_t(cbase);
+        m.custom_count = int(ccount);
+    }
     if (!j.contains("entries") || !j["entries"].is_array()) return fail("entries is not a list");
-    std::set<std::string> ids, used_index;
+    std::set<std::string> ids, used_index, used_custom;
     for (const auto& x : j["entries"]) {
         if (!x.is_object()) return fail("an entry is not an object");
         Entry e;
@@ -370,6 +380,12 @@ bool SliderMap::parse(const std::string& text, SliderMap& out, std::string* err)
             if (!m.region_of(e.index)) return fail(e.id + ": index " + hexs(uint64_t(e.index)) + " is outside every region");
             if (!used_index.insert(std::to_string(e.index)).second) return fail(e.id + ": index " + hexs(uint64_t(e.index)) + " is used twice");
         }
+        if (x.contains("custom_index") && !x["custom_index"].is_null()) {
+            long long ci = -1;
+            if (!int_of(x["custom_index"], ci) || ci < 0 || ci >= m.custom_count) return fail(e.id + ": custom_index is not a number inside the custom_block");
+            e.custom_index = int(ci);
+            if (!used_custom.insert(std::to_string(e.custom_index)).second) return fail(e.id + ": custom_index " + hexs(uint64_t(e.custom_index)) + " is used twice");
+        }
         long long mn = 0, mx = 100;
         if (x.contains("min") && !int_of(x["min"], mn)) return fail(e.id + ": min is not a number");
         if (x.contains("max") && !int_of(x["max"], mx)) return fail(e.id + ": max is not a number");
@@ -378,7 +394,7 @@ bool SliderMap::parse(const std::string& text, SliderMap& out, std::string* err)
         e.max = int(mx);
         e.verified = x.contains("verified") && x["verified"].is_boolean() && x["verified"].get<bool>();
         e.proof = str_of(x, "proof");
-        if (e.verified && e.index < 0) return fail(e.id + ": verified without an index");
+        if (e.verified && e.index < 0 && e.custom_index < 0) return fail(e.id + ": verified without an index");
         if (e.verified && e.proof.empty()) return fail(e.id + ": verified needs its proof (where the in-game check is)");
         m.entries.push_back(e);
     }
@@ -428,8 +444,14 @@ Snapshot read_current(const fs::path& settings_dir, const SliderMap& m) {
             uint32_t v = 0;
             if (get_u32(b, m.offset_of(i), v)) s.slots.push_back({i, v});
         }
+    if (m.custom_count > 0)
+        for (int i = 0; i < m.custom_count; ++i) s.custom_slots.push_back({i, b[kPayloadOff + m.custom_offset_of(i)]});
     for (const Entry& e : m.entries) {
         uint32_t v = 0;
+        if (e.custom_index >= 0 && m.custom_count > 0) {
+            s.values[e.id] = b[kPayloadOff + m.custom_offset_of(e.custom_index)];  // what the Custom screen shows wins over the u32 view
+            continue;
+        }
         if (e.index >= 0 && get_u32(b, m.offset_of(e.index), v)) s.values[e.id] = int(std::min<uint32_t>(v, 0x7FFFFFFF));
     }
     s.ok = true;
@@ -596,7 +618,7 @@ Plan plan_preset(const Preset& p, const SliderMap& m) {
             out.skipped.push_back(kv.first + ": not in the slider map");
             continue;
         }
-        if (e->index < 0) {
+        if (e->index < 0 && e->custom_index < 0) {
             out.skipped.push_back(e->label + ": not mapped yet");
             continue;
         }
@@ -796,6 +818,34 @@ Outcome patch(const Env& env, const SliderMap& m, const std::vector<Write>& writ
     ojson list = ojson::array();
     int changed = 0;
     for (const Write& w : writes) {
+        if (w.custom) {
+            if (m.custom_count <= 0 || w.index < 0 || w.index >= m.custom_count) {
+                o.message = "Refused: " + w.what + ": custom index " + hexs(uint64_t(w.index)) + " is outside the slider map's custom block";
+                return o;
+            }
+            const size_t pre = kPayloadOff + m.custom_base - sizeof(kCustomPrefix);
+            if (std::memcmp(after.data() + pre, kCustomPrefix, sizeof(kCustomPrefix)) != 0) {
+                o.message = "Refused: " + w.what + ": the bytes before the custom block are not 01 00 00 00 01 (the layout moved)";
+                return o;
+            }
+            const size_t at = kPayloadOff + m.custom_offset_of(w.index);
+            const uint32_t cur = after[at];
+            if (cur > 100) {
+                o.message = "Refused: " + w.what + " holds " + std::to_string(cur) + " now (a slider is 0..100): the layout moved";
+                return o;
+            }
+            const uint32_t v = std::min<uint32_t>(w.value, 100);
+            if (v != cur) ++changed;
+            after[at] = uint8_t(v);
+            o.lines.push_back(w.what + " (custom block byte " + hexs(uint64_t(w.index)) + "): " + std::to_string(cur) + " -> " + std::to_string(v));
+            ojson x = ojson::object();
+            x["what"] = w.what;
+            x["custom_index"] = w.index;
+            x["from"] = cur;
+            x["to"] = v;
+            list.push_back(x);
+            continue;
+        }
         const Region* r = m.region_of(w.index);
         if (!r) {
             o.message = "Refused: " + w.what + ": index " + hexs(uint64_t(w.index)) + " is outside the slider map's regions";
@@ -868,7 +918,8 @@ Outcome apply_pending(const Env& env, const SliderMap& m) {
             continue;
         }
         Write w;
-        w.index = e->index;
+        w.custom = e->custom_index >= 0;
+        w.index = w.custom ? e->custom_index : e->index;
         w.value = uint32_t(std::min(std::max(kv.second, e->min), e->max));
         w.what = e->id;
         writes.push_back(w);

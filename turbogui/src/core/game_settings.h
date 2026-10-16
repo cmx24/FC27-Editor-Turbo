@@ -44,6 +44,7 @@ constexpr size_t kPayloadOff = kHeaderSize + kMetaSize;  // 0x466
 constexpr size_t kFileSize = kPayloadOff + kPayloadSize;  // 772790
 constexpr size_t kCrcAt = 16, kCrcFrom = 48;              // payload offsets
 constexpr size_t kCrcLenAt = 0x30, kConstAt = 0x74;
+constexpr uint8_t kCustomPrefix[5] = {1, 0, 0, 0, 1};  // the bytes right before the Custom block
 constexpr uint32_t kConstWords[4] = {0x38943, 0x537, 0x2EE77, 0xF3};
 inline const char* layout_name() { return "fbchunks-454-bc650"; }
 
@@ -85,15 +86,21 @@ struct Region {
 };
 struct Entry {
     std::string id, label, group, note;  // group: match / player / user / cpu
-    int index = -1;                      // -1 = not mapped yet
+    int index = -1;                      // u32 array index (the service-id view; NOT what the Custom screen shows): -1 = not mapped yet
+    int custom_index = -1;               // byte index inside the 125-byte Custom block (GameplayTypeCustomData); -1 = not mapped
     int min = 0, max = 100;
     bool verified = false;               // proven in game (the marker launch); only then a preset writes it
     std::string proof;                   // where the proof is ("" = none)
-    bool writable() const { return verified && index >= 0; }
+    bool writable() const { return verified && (custom_index >= 0 || index >= 0); }
 };
 struct SliderMap {
     std::string build, layout, note;
     size_t base = 0;  // payload offset of index 0
+    // The Custom block (2.10, TEST_31 G-S1): custom_count u8 values at payload offset custom_base (file 0xB8DDC), element k = setting id
+    // 0x8C + k [A]; the five bytes before it must be 01 00 00 00 01. 0 = the map has none.
+    size_t custom_base = 0;
+    int custom_count = 0;
+    size_t custom_offset_of(int index) const { return custom_base + size_t(index); }
     std::vector<Region> regions;
     std::vector<Entry> entries;
     const Entry* entry(const std::string& id) const;
@@ -115,6 +122,7 @@ struct Snapshot {
     std::string name, md5, layout, profile;
     std::map<std::string, int> values;               // entry id -> value (mapped entries)
     std::vector<std::pair<int, uint32_t>> slots;     // every region index -> value (the candidate view)
+    std::vector<std::pair<int, uint32_t>> custom_slots;  // every Custom block byte index -> value (empty when the map has no block)
 };
 Snapshot read_current(const std::filesystem::path& settings_dir, const SliderMap& m);
 
@@ -174,9 +182,10 @@ struct Outcome {
     std::string md5_before, md5_after;
 };
 struct Write {
-    int index = 0;
+    int index = 0;      // u32 array index, or the byte index inside the Custom block when `custom`
     uint32_t value = 0;
     std::string what;  // "cpu.sprint_speed" / "block_a[3]"
+    bool custom = false;  // true: one byte of the Custom block
 };
 // The guarded patch (the rules above). `label` goes into backup.json
 Outcome patch(const Env& env, const SliderMap& m, const std::vector<Write>& writes, const std::string& label);

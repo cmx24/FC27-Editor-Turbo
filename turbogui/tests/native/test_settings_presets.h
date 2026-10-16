@@ -106,7 +106,7 @@ static void run() {
             verified += e.verified ? 1 : 0;
             with_proof += e.proof.empty() ? 0 : 1;
         }
-        CHECK(!shipped.entries.empty() && verified == 0 && with_proof == 0, "no shipped entry is verified or claims a proof (nothing is proven yet)");
+        CHECK(!shipped.entries.empty() && verified == 3 && with_proof == 3, "exactly the three G-S1 Custom bytes are verified, each with a proof");
         Preset p;
         p.name = "Mixed";
         p.values = {{"cpu.sprint_speed", 41}, {"user.sprint_speed", 59}, {"cpu.acceleration", 12}, {"match.half_length", 6}};

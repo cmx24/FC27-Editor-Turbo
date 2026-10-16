@@ -277,8 +277,8 @@ void draw_values() {
             r.label = e->label;
             r.group = grp;
             auto it = g.snap.values.find(e->id);
-            r.value = e->index < 0 ? "not mapped yet" : (it != g.snap.values.end() && g.snap.ok ? std::to_string(it->second) : "-");
-            r.state = e->index < 0 ? "not mapped yet" : e->verified ? "verified" : "not verified: read-only";
+            r.value = (e->index < 0 && e->custom_index < 0) ? "not mapped yet" : (it != g.snap.values.end() && g.snap.ok ? std::to_string(it->second) : "-");
+            r.state = (e->index < 0 && e->custom_index < 0) ? "not mapped yet" : e->verified ? "verified" : "not verified: read-only";
             g_state.rows.push_back(r);
         }
         const std::string head = std::string(group_label(grp)) + " (" + std::to_string(es.size()) + ")##gs_" + grp;
@@ -303,7 +303,7 @@ void draw_values() {
                 ImGui::TextUnformatted(e->label.c_str());
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s%s%s", e->id.c_str(), e->note.empty() ? "" : "\n", e->note.c_str());
                 ImGui::TableNextColumn();
-                if (e->index < 0) ImGui::TextDisabled("%s", r->value.c_str());
+                if ((e->index < 0 && e->custom_index < 0)) ImGui::TextDisabled("%s", r->value.c_str());
                 else ImGui::TextUnformatted(r->value.c_str());
                 ImGui::TableNextColumn();
                 if (e->verified) ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "%s", r->state.c_str());

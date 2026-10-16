@@ -47,6 +47,8 @@ static std::vector<uint8_t> fixture(uint32_t seed = 7) {
     }
     put32(b, P + base + 4u * 0x142, 50);
     put32(b, P + base + 4u * 0x143, 1700);  // a field that is not a slider (above 100)
+    for (int i = 0; i < 5; ++i) b[P + 0xB8976 - 5 + size_t(i)] = kCustomPrefix[i];  // the Custom block (GameplayTypeCustomData): 125 x 50
+    for (int i = 0; i < 125; ++i) b[P + 0xB8976 + size_t(i)] = 50;
     fix_crc(b);
     return b;
 }
@@ -208,7 +210,7 @@ static void run() {
             match += e.group == "match";
             player += e.group == "player";
         }
-        CHECK(verified == 0, fmt("nothing verified before the marker launch (%d)", verified));
+        CHECK(verified == 3, fmt("only the three Custom bytes observed in G-S1 are verified (%d)", verified));
         CHECK(m.base == 0x1BC4 && m.regions.size() == 3 && user >= 30 && cpu >= 30 && match >= 3 && player >= 3,
               fmt("base 0x%zX, %zu regions, %d user, %d cpu, %d match, %d player", m.base, m.regions.size(), user, cpu, match, player));
         CHECK(m.region_of(0xEA) && m.region_of(0xEA)->id == "block_a" && m.region_of(0x141) && m.region_of(0x141)->id == "block_b" &&
@@ -420,7 +422,11 @@ static void run() {
         // the shipped map (nothing verified): Save current saves nothing
         SliderMap shipped;
         load_map(fs::path("..") / "turbo" / "package" / "turbo" / "settings" / map_file(), shipped, &err);
-        CHECK(preset_from_snapshot("x", read_current(r.settings, shipped), shipped, "").values.empty(), "shipped map: nothing verified, nothing saved");
+        {
+            const Preset sp = preset_from_snapshot("x", read_current(r.settings, shipped), shipped, "");
+            CHECK(sp.values.size() == 3 && sp.values.count("user.sprint_speed") && sp.values.count("user.acceleration") && sp.values.count("cpu.sprint_speed"),
+                  "shipped map: only the three verified Custom bytes are saved");
+        }
     });
 
     run_case("game settings: Load stages settings_pending.json (verified only); --apply writes it, renames it; nothing staged twice; never with the shipped map", [] {
@@ -432,6 +438,7 @@ static void run() {
         // the shipped map: nothing verified, nothing staged
         SliderMap shipped;
         load_map(fs::path("..") / "turbo" / "package" / "turbo" / "settings" / map_file(), shipped, &msg);
+        for (Entry& e : shipped.entries) e.verified = false;  // 2.10: the shipped map now has 3 verified bytes; this case needs "none"
         Preset named;
         named.name = "Named";
         named.values = {{"cpu.sprint_speed", 41}};
@@ -643,12 +650,21 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         game_settings_set_paths(settings, fs::path("..") / "turbo" / "package" / "turbo" / "settings" / map_file());
         game_settings_reset();
         ui.frames(3);
-        CHECK(s.map_line.find("0 verified") != std::string::npos, s.map_line);
+        CHECK(s.map_line.find("3 verified") != std::string::npos, s.map_line);  // 2.10: the three observed Custom bytes
         const ItemRec* box2 = ui.find("##gsname");
         CHECK(box2 && ui.type_into(box2, "Nothing"), "name typed");
         CHECK(ui.click("Save current##gssave"), "Save current");
         ui.frames(2);
-        CHECK(!fs::exists(out / presets_dir() / "Nothing.json", ec) && s.preset_line.find("Nothing to save") != std::string::npos, s.preset_line);
+        {
+            // the three verified Custom bytes are saved (50/50/50 in the fixture); no unverified slider is in the preset
+            Preset sp;
+            std::string perr;
+            std::vector<uint8_t> pb;
+            CHECK(fs::exists(out / presets_dir() / "Nothing.json", ec) && read_bytes(out / presets_dir() / "Nothing.json", pb) &&
+                      Preset::parse(std::string(pb.begin(), pb.end()), sp, &perr) && sp.values.size() == 3 && sp.values.count("user.sprint_speed") == 1,
+                  "3 verified values saved: " + s.preset_line);
+            fs::remove(out / presets_dir() / "Nothing.json", ec);
+        }
         // a missing settings folder: a plain line, no throw, nothing created
         game_settings_set_paths(root / "nope", map);
         game_settings_reset();
@@ -659,6 +675,218 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         game_settings_reset();
         app.request_tab = 0;
         ui.frames(2);
+    });
+}
+
+// ---------------------------------------------------------------------------------------------- 2.10: the Custom u8 block (TEST_31 G-S1)
+static std::string custom_map(bool verified) {
+    const std::string v = verified ? R"("verified": true, "proof": "TEST_31 section 7")" : R"("verified": false)";
+    return std::string(R"({"turbo_settings_map": 1, "build": "6AC07E31", "layout": "fbchunks-454-bc650", "array_base": "0x1BC4",
+ "regions": [{"id": "run36", "first": "0xC6", "count": 36}, {"id": "block_a", "first": "0xEA", "count": 44}, {"id": "block_b", "first": "0x116", "count": 44}],
+ "custom_block": {"base": "0xB8976", "count": 125},
+ "entries": [
+  {"id": "user.sprint_speed", "label": "Sprint speed", "group": "user", "custom_index": "0x50", )") + v + R"(},
+  {"id": "user.acceleration", "label": "Acceleration", "group": "user", "custom_index": "0x51", )" + v + R"(},
+  {"id": "cpu.sprint_speed", "label": "Sprint speed", "group": "cpu", "custom_index": "0x24", )" + v + R"(},
+  {"id": "cpu.acceleration", "label": "Acceleration", "group": "cpu", "custom_index": "0x25", "verified": false}]})";
+}
+
+// The real G-S1 files (read-only evidence). TURBO_G_S1_DIR overrides; a missing folder is a loud SKIP, never a pass.
+static fs::path gs1_dir() {
+    if (const char* e = std::getenv("TURBO_G_S1_DIR")) return fs::path(e);
+    return fs::path("C:/FC 27 Live Editor/turbo_dev/evidence/2026-10-15/g_s1");
+}
+static bool gs1_load(std::vector<uint8_t>& before, std::vector<uint8_t>& after) {
+    const fs::path d = gs1_dir();
+    return read_bytes(d / "before" / "Settings20261015210509608", before, 1u << 20) && read_bytes(d / "after" / "Settings20261015210853207", after, 1u << 20);
+}
+static std::vector<Write> gs1_writes(const SliderMap& m) {
+    std::vector<Write> w;
+    for (auto [id, v] : {std::pair<const char*, int>{"user.sprint_speed", 37}, {"user.acceleration", 41}, {"cpu.sprint_speed", 63}}) {
+        Write x;
+        x.custom = true;
+        x.index = m.entry(id)->custom_index;
+        x.value = uint32_t(v);
+        x.what = id;
+        w.push_back(x);
+    }
+    return w;
+}
+static std::string hx(size_t v) {
+    char b[24];
+    std::snprintf(b, sizeof(b), "0x%zX", v);
+    return b;
+}
+
+static void run_custom() {
+    std::printf("native game settings: the Custom u8 block (2.10)\n");
+
+    run_case("game settings custom: map parse (custom_block, custom_index, verified rules)", [] {
+        SliderMap m;
+        std::string err;
+        CHECK(SliderMap::parse(custom_map(true), m, &err), err);
+        CHECK(m.custom_base == 0xB8976 && m.custom_count == 125 && m.custom_offset_of(0x50) == 0xB8976 + 0x50, "block base/count");
+        const Entry* e = m.entry("user.sprint_speed");
+        CHECK(e && e->custom_index == 0x50 && e->index == -1 && e->verified && e->writable(), "entry with a custom index only is writable when verified");
+        CHECK(!m.entry("cpu.acceleration")->writable(), "unverified stays read-only");
+        auto bad = [&](const std::string& from, const std::string& to, const char* want) {
+            std::string t = custom_map(true), er;
+            const size_t at = t.find(from);
+            CHECK(at != std::string::npos, "test text");
+            t.replace(at, from.size(), to);
+            SliderMap x;
+            CHECK(!SliderMap::parse(t, x, &er) && er.find(want) != std::string::npos, std::string(want) + ": " + er);
+        };
+        bad("\"custom_index\": \"0x50\"", "\"custom_index\": \"0x7D\"", "custom_index");  // one past the block
+        bad("\"custom_index\": \"0x51\"", "\"custom_index\": \"0x50\"", "used twice");
+        bad("\"count\": 125", "\"count\": 0", "custom_block");
+        bad("\"base\": \"0xB8976\"", "\"base\": \"0xBC650\"", "custom_block");
+        // verified with neither index is refused
+        std::string t = custom_map(true), er;
+        const std::string from = "\"custom_index\": \"0x25\", \"verified\": false";
+        t.replace(t.find(from), from.size(), "\"verified\": true, \"proof\": \"x\"");
+        SliderMap x;
+        CHECK(!SliderMap::parse(t, x, &er) && er.find("verified without an index") != std::string::npos, er);
+    });
+
+    run_case("game settings custom: patch writes the u8 bytes only, CRC valid, guards refuse", [] {
+        Rig r("custom_patch");
+        SliderMap m;
+        std::string err;
+        CHECK(SliderMap::parse(custom_map(true), m, &err), err);
+        r.map = m;
+        const std::vector<uint8_t> before = r.bytes();
+        const std::vector<Write> w = gs1_writes(m);
+        const std::string others = r.others();
+        Outcome o = patch(r.env, m, w, "custom test");
+        CHECK(o.ok, o.message);
+        const std::vector<uint8_t> after = r.bytes();
+        CHECK(validate(after).ok, "the CRC was fixed");
+        for (size_t i = 0; i < before.size(); ++i)
+            if (before[i] != after[i]) {
+                const size_t pi = i - kPayloadOff;
+                CHECK((pi >= kCrcAt && pi < kCrcAt + 4) || pi == 0xB8976 + 0x50 || pi == 0xB8976 + 0x51 || pi == 0xB8976 + 0x24, "unexpected byte " + hx(i));
+            }
+        CHECK(after[kPayloadOff + 0xB8976 + 0x50] == 37 && after[kPayloadOff + 0xB8976 + 0x51] == 41 && after[kPayloadOff + 0xB8976 + 0x24] == 63, "values");
+        CHECK(r.others() == others, "the other save files are untouched");
+        const gsettings::Snapshot s = read_current(r.settings, m);
+        CHECK(s.ok && s.values.at("user.sprint_speed") == 37 && s.values.at("cpu.sprint_speed") == 63 && s.values.at("cpu.acceleration") == 50 &&
+                  s.custom_slots.size() == 125 && s.custom_slots[0x50].second == 37,
+              "snapshot reads the custom bytes");
+        CHECK(undo_last(r.env, false).ok && r.bytes() == before, "undo restores the file");
+        auto refuse = [&](std::vector<uint8_t> file, int idx, const char* want, const char* what) {
+            Rig q("custom_guard", file);
+            Write x;
+            x.custom = true;
+            x.index = idx;
+            x.value = 10;
+            x.what = "g";
+            const Outcome g = patch(q.env, m, {x}, "g");
+            CHECK(!g.ok && g.message.find(want) != std::string::npos, std::string(what) + ": " + g.message);
+            CHECK(q.bytes() == file, std::string(what) + ": file unchanged");
+        };
+        refuse(before, 125, "outside", "index past the block");
+        refuse(before, -1, "outside", "negative index");
+        {
+            auto f = before;
+            f[kPayloadOff + 0xB8976 - 1] = 0;
+            fix_crc(f);
+            refuse(f, 0x50, "layout moved", "prefix changed");
+        }
+        {
+            auto f = before;
+            f[kPayloadOff + 0xB8976 + 0x50] = 101;
+            fix_crc(f);
+            refuse(f, 0x50, "0..100", "a byte above 100");
+        }
+        SliderMap none;
+        CHECK(SliderMap::parse(test_map(), none, &err), err);
+        Write x;
+        x.custom = true;
+        x.index = 0;
+        x.value = 5;
+        x.what = "n";
+        Rig q("custom_nomap");
+        CHECK(!patch(q.env, none, {x}, "n").ok, "a map with no custom block refuses a custom write");
+    });
+
+    run_case("game settings custom: apply_pending routes a verified custom entry to the byte", [] {
+        Rig r("custom_pending");
+        SliderMap m;
+        std::string err;
+        CHECK(SliderMap::parse(custom_map(true), m, &err), err);
+        Preset p;
+        p.name = "t";
+        p.values = {{"user.sprint_speed", 12}, {"cpu.acceleration", 99}};
+        std::string msg;
+        CHECK(stage_pending(r.out, p, m, "20261015-000000-000", &msg), msg);
+        const Outcome o = apply_pending(r.env, m);
+        CHECK(o.ok, o.message);
+        const auto b = r.bytes();
+        CHECK(b[kPayloadOff + 0xB8976 + 0x50] == 12 && b[kPayloadOff + 0xB8976 + 0x25] == 50, "verified written, unverified (cpu.acceleration) not");
+    });
+
+    run_case("game settings custom: G-S1 real files (game CRC reproduced; byte-identical to the game's file)", [] {
+        std::vector<uint8_t> before, after;
+        if (!gs1_load(before, after)) {
+            std::printf("  SKIP (NOT A PASS): the G-S1 evidence files are missing under %s (set TURBO_G_S1_DIR)\n", gs1_dir().u8string().c_str());
+            return;
+        }
+        CHECK(before.size() == kFileSize && after.size() == kFileSize, "sizes");
+        CHECK(md5_hex(before) == "d88f8b79906a80937c2a8d49564a58aa" && md5_hex(after) == "304c68b3bf5a82d5ba0fac9a84863be8", "the evidence files are the recorded ones");
+        // (a) the game's own CRC is what our code computes, on both real files
+        for (const auto* f : {&before, &after}) {
+            const Check c = validate(*f);
+            CHECK(c.ok && c.crc_stored == c.crc_calc, "real file validates: " + c.why);
+        }
+        CHECK(validate(after).crc_stored == 0xCE704494u, "the game's CRC of the after file");
+        // (b) only our writes on the real before file: exactly the 3 bytes + the 4 CRC bytes differ
+        SliderMap m;
+        std::string err;
+        CHECK(SliderMap::parse(custom_map(true), m, &err), err);
+        const std::vector<Write> w = gs1_writes(m);
+        Rig r("custom_real_b", before);
+        Outcome o = patch(r.env, m, w, "g_s1 isolated");
+        CHECK(o.ok, o.message);
+        const std::vector<uint8_t> mine = r.bytes();
+        std::vector<size_t> d;
+        for (size_t i = 0; i < before.size(); ++i)
+            if (before[i] != mine[i]) d.push_back(i);
+        CHECK(d == std::vector<size_t>({0x476, 0x477, 0x478, 0x479, 0xB8E00, 0xB8E2C, 0xB8E2D}), "isolated diff = CRC word + the 3 slider bytes");
+        // (c) before + what the game ALSO changed (meta block, 8 other payload bytes) + our 3 writes + fix_crc == the game's file, byte for byte
+        std::vector<uint8_t> t = before;
+        for (size_t i = kHeaderSize; i < kPayloadOff; ++i) t[i] = after[i];
+        for (size_t i : {size_t(0x2142), size_t(0x2146), size_t(0x2147), size_t(0x216A), size_t(0x2536), size_t(0x2537), size_t(0x77855), size_t(0x77856)})
+            t[i] = after[i];
+        fix_crc(t);  // a valid file to patch (the pre-patch CRC check); the patch must then end on the game's CRC
+        Rig r2("custom_real_c", t);
+        o = patch(r2.env, m, w, "g_s1 byte-identical");
+        CHECK(o.ok, o.message);
+        const std::vector<uint8_t> built = r2.bytes();
+        CHECK(built == after && md5_hex(built) == "304c68b3bf5a82d5ba0fac9a84863be8", "byte-identical to the game-written file (md5 " + md5_hex(built) + ")");
+        uint32_t v = 0;
+        CHECK(get_u32(after, 0x1BC4 + 4 * 0x116, v) && v == 35 && get_u32(after, 0x1BC4 + 4 * 0x117, v) && v == 48 && get_u32(after, 0x1BC4 + 4 * 0xEA, v) && v == 35,
+              "the u32 slots of the old map did not move");
+    });
+
+    run_case("game settings custom: the SHIPPED map (3 observed bytes verified, nothing else)", [] {
+        SliderMap m;
+        std::string err;
+        CHECK(load_map(fs::path("..") / "turbo" / "package" / "turbo" / "settings" / map_file(), m, &err), err);
+        CHECK(m.custom_base == 0xB8976 && m.custom_count == 125, "custom block in the shipped map");
+        std::set<std::string> ver;
+        for (const Entry& e : m.entries)
+            if (e.verified) {
+                ver.insert(e.id);
+                CHECK(e.custom_index >= 0 && e.index < 0 && !e.proof.empty(), e.id + ": verified only through the custom block, with a proof");
+            }
+        CHECK(ver == std::set<std::string>({"user.sprint_speed", "user.acceleration", "cpu.sprint_speed"}), "exactly the three observed bytes are verified");
+        CHECK(m.entry("user.sprint_speed")->custom_index == 0x50 && m.entry("user.acceleration")->custom_index == 0x51 && m.entry("cpu.sprint_speed")->custom_index == 0x24,
+              "observed indices");
+        CHECK(m.entry("cpu.acceleration")->custom_index == 0x25 && !m.entry("cpu.acceleration")->writable(), "cpu.acceleration assessed, read-only");
+        CHECK(m.entry("user.injury_frequency")->custom_index == 0x5C && !m.entry("user.injury_frequency")->writable(), "injury frequency (id 0xE8) assessed, read-only");
+        for (const Entry& e : m.entries)
+            if (e.group == "user" || e.group == "cpu") CHECK(e.index < 0, e.id + ": no u32 index");
     });
 }
 

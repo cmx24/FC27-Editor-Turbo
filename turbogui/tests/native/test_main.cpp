@@ -14373,6 +14373,7 @@ int main(int argc, char** argv) {
     team_sheet_test::run();
     tuning_test::run();
     gsettings_test::run();  // test_game_settings.h (2.8)
+    gsettings_test::run_custom();  // test_game_settings.h (2.10: the Custom u8 block)
     settings_presets_test::run();  // test_settings_presets.h (2.10)
     std::printf("native voice swaps\n");
     test_callname_voice();
