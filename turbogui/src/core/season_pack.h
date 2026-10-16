@@ -87,6 +87,7 @@ struct TeamInfo {
 struct Snapshot {
     std::map<int64_t, int64_t> player_club;       // playerid -> club team id (0 or kFreeAgents = free agent)
     std::map<int64_t, std::string> player_name;
+    std::map<int64_t, int64_t> on_loan;           // playerid -> parent club, for players on loan (their club link is the loan club)
     std::map<int64_t, TeamInfo> teams;
     std::map<int64_t, int64_t> manager_team;      // managerid -> team id (0 = free agent)
     std::map<int64_t, std::string> manager_name;

@@ -245,6 +245,7 @@ static void run() {
         Snapshot w = world();
         w.manager_team[106] = 4;   // two more managers at Club4 (no row below swaps with Club4)
         w.manager_team[107] = 4;
+        w.on_loan[1012] = 4;   // P1012 plays at Club1 on loan from Club4
         const fs::path dir = tmp_dir("rejects");
         put(dir / "transfers.csv",
             "playerid,from,to\n"
@@ -260,7 +261,8 @@ static void run() {
             "abc,1,2\n"         // bad id
             "1010,1,111592\n"   // release is not a pack row
             "9001,,2\n"         // free agent signs: fine
-            "1011,1,2\n");
+            "1011,1,2\n"
+            "1012,,3\n");       // on loan at Club1 from Club4: refused, even with from left empty
         put(dir / "managers.csv",
             "managerid,to\n"
             "105,1\n"           // manages the user's club
@@ -293,6 +295,7 @@ static void run() {
         CHECK(has(reason_of(Kind::Transfer, 1009, 10), "not in the career"), reason_of(Kind::Transfer, 1009, 10));
         CHECK(has(reason_of(Kind::Transfer, 1010, 12), "releasing him"), reason_of(Kind::Transfer, 1010, 12));
         CHECK(reason_of(Kind::Transfer, 9001, 13) == "OK", "a free agent can sign");
+        CHECK(reason_of(Kind::Transfer, 1012, 15) == "he is on loan at Club1 from Club4: end the loan first (Players > Terminate loan)", reason_of(Kind::Transfer, 1012, 15));
         // Club1 had 20: 1005 left (19), 1011 would leave 18 (still >= 18: fine)
         CHECK(reason_of(Kind::Transfer, 1011, 14) == "OK", reason_of(Kind::Transfer, 1011, 14));
         CHECK(has(reason_of(Kind::Manager, 105, 2), "touches your club"), reason_of(Kind::Manager, 105, 2));

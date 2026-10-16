@@ -236,6 +236,7 @@ Snapshot snapshot_from_model(const Model& m, int64_t user_team) {
     for (const auto& p : m.players()) {
         s.player_club[p.playerid] = p.club;
         s.player_name[p.playerid] = p.name;
+        if (p.on_loan) s.on_loan[p.playerid] = p.loaned_from;
     }
     for (const auto& mg : m.managers()) {
         s.manager_team[mg.managerid] = mg.teamid;
@@ -293,6 +294,11 @@ Preview preview(const Pack& pack, const Snapshot& live) {
         seen_player[t.playerid] = t.line;
         const int64_t cur = pit->second == 0 ? kFreeAgents : pit->second;
         r.from = cur;
+        auto loan = w.on_loan.find(t.playerid);
+        if (loan != w.on_loan.end()) {
+            fail("he is on loan at " + w.team_label(cur) + " from " + w.team_label(loan->second) + ": end the loan first (Players > Terminate loan)");
+            continue;
+        }
         const int64_t to = w.find_team(t.to_text);
         if (to < 0 || (to == 0)) { fail("target team '" + t.to_text + "' is not in the career"); continue; }
         r.to = to;
@@ -581,6 +587,7 @@ UndoPlan make_undo(const UndoSet& set, const Snapshot& live) {
             if (it == w.player_club.end()) { plan.skipped.push_back(nm + ": not in the career any more"); continue; }
             const int64_t cur = it->second == 0 ? kFreeAgents : it->second;
             if (cur != r.to) { plan.skipped.push_back(nm + ": moved since (now at " + w.team_label(cur) + ")"); continue; }
+            if (w.on_loan.count(r.id)) { plan.skipped.push_back(nm + ": on loan now"); continue; }
             if (r.from != kFreeAgents) {
                 auto tt = w.teams.find(r.from);
                 if (tt == w.teams.end() || tt->second.national) { plan.skipped.push_back(nm + ": " + w.team_label(r.from) + " is not a club of this career"); continue; }
