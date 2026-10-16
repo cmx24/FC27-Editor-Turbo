@@ -10,6 +10,14 @@ Nothing here is shipped or claimed as a feature. Gates are in `turbo_dev\evidenc
 - **UNPROVEN:** tactics sliders for team length and width (`shape.length_in`, `shape.width_in`). Gate G-T1 was INCONCLUSIVE in game (counted as FAIL for the live write route).
 - **UNPROVEN:** any effect of the game settings sliders on match play. Gate G-S3 (ratio >= 1.4).
 
+## 2.13.0
+
+**GUI revamp, first cut - offline-tested only, NOT seen in game** (checklist: `turbo_devesearch_20261016\P213_PROOF.md`; spec: `GUI_REVAMP_SPEC.md`).
+
+- Eight top-level tabs become five areas with a page strip: **Squad & Players**, **Club & Kits** (Kits, Identity, Stadium & extras), **Tactics & Gameplay** (Tactic presets, Gameplay presets, Standings), **Career tools** (Transfers, Job offer, Scouting, Budget, Exports, Bans, CMTracker, Changes & undo, Maintenance), **Settings**; **Advanced** (Database, Raw rows, Bulk edit, Maintenance, Tactics, Match setup, Gameplay tuning) only with the Advanced view toggle. Old `request_tab` cross-links land on the new pages (`shell::area_for`).
+- Every proven panel keeps its code path (kits, callnames, faces picker, club tools, tactic presets, standings, game settings, reapply log); only its place and chrome changed. The club-tools kit shortcut is now a link to Club & Kits > Kits.
+- Not in this build: the Squad & Players pages (Player edit sections, Squad, Staff): the 2.12.1 Players / Teams / Managers panels are drawn there unchanged (fallback). Not proven: anything in game (no launch yet); the in-match effect of slider presets and Tactics sliders (unchanged since 2.10).
+
 ## 2.12.1
 
 **More sliders and set pieces in tactic presets - offline-tested only, NOT seen in game** (one-launch checklist: `turbo_dev\research_20261016\P2121_PROOF.md`; the full table: `turbo_dev\research_20261016\SLIDER_MAP_FULL.md`; check_all green: build 0 warnings, Lua 418/0, native 33,591/0, catalog all 0 failed).
@@ -23,7 +31,8 @@ Nothing here is shipped or claimed as a feature. Gates are in `turbo_dev\evidenc
 
 ## 2.12.0
 
-**Tactic presets - offline-tested only, NOT yet seen in a played match** (checklist: `turbo_devesearch_20261016\TACTIC_PRESETS_PROOF.md`; native suite 33,097/0, Lua 408/0).
+**Tactic presets - offline-tested only, NOT yet seen in a played match** (checklist: `turbo_dev
+esearch_20261016\TACTIC_PRESETS_PROOF.md`; native suite 33,097/0, Lua 408/0).
 
 - **Tactic presets** (Teams > Tactic presets, also in the Simple view). Saves EA's OWN tactic of your club (Defensive Approach, Line Height = depth, Build-Up Style, role id and focus of the 11 slots; the formation is recorded) and the Custom sliders block of the Settings file as `turbo_output\tactic_presets\<name>.json` (schema 1, build 6AC07E31-2145C000 only, out-of-range values refused). Load asks first, writes the tactic through the Tactics card's guarded channel E job (live record + its cm_mentalities row, `channel_e_undo.json`) and stages only the sliders verified in game (`settings_pending.json`, applied with FC 27 closed by `turbo_settings_apply.exe`, needs Gameplay Type CUSTOM). Another formation is refused (no formation writer is proven). Width is not part of a preset (the game's team sheet carries none). Undo last load, and a one-click Re-apply prompt after a career load (never automatic; own file `tactic_preset_last_load.json`, `reapply_edits.json` is never touched). Proof checklist: `turbo_dev\research_20261016\TACTIC_PRESETS_PROOF.md`.
 
