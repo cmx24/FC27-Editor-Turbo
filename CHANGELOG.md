@@ -5,15 +5,28 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
 ## Unreleased
 
-Planned items from `turbo_dev\research_20261015\PLAN_tactics_settings.md`. **Everything below is UNPROVEN in game** until its gate in `turbo_dev\evidence\2026-10-15\TEST_31.md` passes. Nothing here is shipped or claimed as a feature.
+Nothing here is shipped or claimed as a feature. Gates are in `turbo_dev\evidence6-10-15\TEST_31.md`.
 
-- **UNPROVEN:** tactics attribulator EBX patcher in the Oodle hook (attrib bytes patched before instantiation; arrays and curves). Gate G-T1b.
-- **UNPROVEN:** tactics sliders for team length and width (`shape.length_in`, `shape.width_in`). Gate G-T1 (PASS-live or PASS-setup needed). Vanilla baseline not yet measured.
-- **UNPROVEN:** the live attribulator dump and diff against the mod map (read-only). Gate Step 0.
-- **UNPROVEN:** game settings: the file slot map for Sprint Speed, Acceleration and CPU Sprint Speed, and any live store. Gate G-S1.
-- **UNPROVEN:** game settings presets that write to the game (display in the EA menu). Gate G-S2.
-- **UNPROVEN:** any effect of sprint speed settings on the pitch. Gate G-S3 (ratio >= 1.4).
-- **UNPROVEN:** the settings "Undo" refusal when a newer game-written `Settings*` file is not yet copied to evidence.
+- **UNPROVEN:** tactics sliders for team length and width (`shape.length_in`, `shape.width_in`). Gate G-T1 was INCONCLUSIVE in game (counted as FAIL for the live write route).
+- **UNPROVEN:** any effect of the game settings sliders on match play. Gate G-S3 (ratio >= 1.4).
+
+## 2.10.0 (2026-10-15)
+
+Seen in game 2026-10-15 on build 6AC07E31 (test career LEICESTER, never saved). Evidence: `turbo_dev\evidence6-10-15\TEST_31.md`, `launchA210\` and `launchB210\`. Only the three items under "Seen in game" are claimed; everything else is offline-tested only.
+
+### Seen in game
+- **Load-time gameplay-data patch delivery (opt-in).** Turbo's Oodle hook patches the attribulator EBX (the game's gameplay tuning data) while the game loads it, and the live attribulator database read back the patched values in two launches. The patch is opt-in through `turbo_outputttrib_preset.json` (without that file nothing is patched) and is skipped when `turbo_output\kits3d_on.txt` exists (the 3D kit swap owns the Oodle hook). This proves delivery of the values only, not any effect on the pitch.
+- **Game settings.** Turbo writes Sprint Speed User, Acceleration User and Sprint Speed CPU into the Custom block of the game's Settings file, and EA's Custom screen shows them. To see them the user must pick Gameplay Type CUSTOM in the EA menu. The other sliders are read-only.
+- **Safe undo.** The settings undo refuses until a game-written Settings file has been copied to evidence, so a settings undo can no longer overwrite what the game wrote.
+
+### NOT PROVEN
+- Any slider's effect on match play (sprint speed, acceleration, CPU sprint speed).
+- Any tactics effect on the pitch. Gate L5: `L5: PENDING`
+- Settings-live (changing the settings while the game runs) is not included.
+- Only 6AC07E31 is supported; other game builds, other careers and long sessions were not tested.
+
+### Version
+- Turbo and the GUI report 2.10.0 (2.9 was not released).
 
 ## 2.8.0 (2026-10-15)
 
