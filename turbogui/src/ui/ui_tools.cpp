@@ -709,8 +709,14 @@ void page_adv_bulk(App& app) { lua_tool_page(app, editor_bulk); }
 void page_adv_maintenance(App& app) { lua_tool_page(app, editor_maintenance); }
 // Transfers and Job offer: the panels are the Squad track's (draw_transfers / draw_job_offer, weak references: see ui_career_page.h)
 void editor_transfers(App& app, void*) {
-    if (draw_transfers) draw_transfers(app);
-    else theme::muted_text("The transfers panel is not part of this build.");
+    if (draw_transfers) {
+        draw_transfers(app);
+        return;
+    }
+    // Integration 2.13.0 (Squad track not merged): the legacy request_tab 5 (Turbo Tools) lands here (shell::area_for), so until
+    // draw_transfers exists this page is the whole old Turbo Tools panel, as App::draw_legacy_page would draw it. Transfers
+    // themselves stay under Squad & Players > Squad (the old Teams panel).
+    draw_tools(app);
 }
 void editor_job_offer(App& app, void*) {
     if (draw_job_offer) draw_job_offer(app);

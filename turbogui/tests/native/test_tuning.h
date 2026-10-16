@@ -2180,9 +2180,10 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         write_state();
         const long long gen = app.bridge.state().load_gen;
         CHECK(app.bridge.state().match_phase == "hub" && gen >= 1, "the bridge reports the hub");
-        app.request_tab = 3;
+        // 2.13 shell: Gameplay tuning is Advanced > Gameplay tuning (request_tab 3 now lands on Tactics & Gameplay > Standings)
+        app.prefs.advanced_mode = true;
+        app.go(shell::Page::AdvGameplayTuning);
         ui.frames(3);
-        CHECK(ui.click("Gameplay tuning"), "the Gameplay tuning view");
         ui.frames(70);
         const TuningViewState& s = tuning_view_state();
         CHECK(s.drawn && s.registry_line.find("knobs_6AC07E31.json: 9 knobs (1 not confirmed) for game build 6AC07E31-2145C000") != std::string::npos &&
@@ -2517,9 +2518,10 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         st.erase("prematch_t");
         st["seq"] = st.value("seq", 0LL) + 1;
         write_state();
-        app.request_tab = 3;
+        // 2.13 shell: Gameplay tuning is Advanced > Gameplay tuning (request_tab 3 now lands on Tactics & Gameplay > Standings)
+        app.prefs.advanced_mode = true;
+        app.go(shell::Page::AdvGameplayTuning);
         ui.frames(3);
-        CHECK(ui.click("Gameplay tuning"), "the Gameplay tuning view");
         ui.frames(70);
         const TuningViewState& s = tuning_view_state();
         CHECK(s.drawn && s.proven == 4 && s.located == 4 && s.candidates == 2 && s.unlocated == 1,
@@ -2830,9 +2832,10 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             write_state();
         };
         set_phase("hub");
-        app.request_tab = 3;
+        // 2.13 shell: Gameplay tuning is Advanced > Gameplay tuning (request_tab 3 now lands on Tactics & Gameplay > Standings)
+        app.prefs.advanced_mode = true;
+        app.go(shell::Page::AdvGameplayTuning);
         ui.frames(3);
-        CHECK(ui.click("Gameplay tuning"), "the Gameplay tuning view");
         ui.frames(70);
         const TuningViewState& s = tuning_view_state();
         auto row = [&](const std::string& id) -> const TuningViewState::Row* {
