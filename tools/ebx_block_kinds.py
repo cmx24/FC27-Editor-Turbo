@@ -191,12 +191,13 @@ def selftest():
     assert family("fifa/attribulator/prematch/x") == "prematch" and family("zz") == "other"
     txt = render(mock_rows(), ["- mock"], "INCONCLUSIVE: x")
     assert "## Verdict" in txt and "INCONCLUSIVE: x" in txt and "oodle=2" in txt and "raw=1" in txt and "## prematch (1)" in txt
-    print("ebx_block_kinds selftest PASS")
+    print("  ok    block walk, summary, overrun detection, family, render")
+    print("SELF-TEST PASSED")
     return 0
 
 
 def main(a):
-    if "--selftest" in a:
+    if "--self-test" in sys.argv or "--selftest" in sys.argv:
         return selftest()
     def g(k, d=None):
         return a[a.index(k) + 1] if k in a else d
