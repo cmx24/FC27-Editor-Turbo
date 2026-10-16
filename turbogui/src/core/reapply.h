@@ -36,6 +36,12 @@ bool kit_colour_field(const std::string& field);
 // keeps: teamcolorprimpercent, teamcolorsecpercent, teamcolortertpercent, jerseycollargeometrytype,
 // jerseynamelayouttype, shortstyle
 const std::vector<std::string>& kit_setting_fields();
+// 2.11: the teamkits fonts Teams > Colours writes and the store keeps (jerseynamefonttype, numberfonttype,
+// shortsnumberfonttype, jerseynameoutlinewidth). Kept like the settings but NOT read from a settings.json: the kit
+// import (kit_import.cpp parse_settings) uses kit_setting_fields() alone, so its keys and 0..255 range are unchanged
+const std::vector<std::string>& kit_font_fields();
+bool kit_font_field(const std::string& field);
+// kit_setting_fields() or kit_font_fields(): what the UI counts as "a kit setting" (not a colour)
 bool kit_setting_field(const std::string& field);
 // What a kit entry may hold and a career load may write: kit_colour_field or kit_setting_field (never a key column)
 bool kit_kept_field(const std::string& field);

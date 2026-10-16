@@ -3389,6 +3389,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_asset_app.h"    // 2.1: asset catalog wiring (pickers, lua_gate.txt session)
 #include "test_player_id.h"    // 2.3: Create player > Player ID (typed id checks, the head / callname of the id)
 #include "test_kit_import.h"   // 2.3: Teams > Kits, FIFA Kit Creator zips (test_kit_import, kit_import_ui_cases)
+#include "test_kit_fonts.h"    // 2.11 K1: named kit font / layout choices (test_kit_fonts, kit_fonts_ui_cases)
 // ================================================================ live team names (core/teamname_override.h)
 static void test_team_names_live() {
     run_case("live team names: the keys the game asks for (TeamName[_AbbrN]_<id>, IWL_, any case), nothing else", [&] {
@@ -4598,6 +4599,8 @@ static void test_ui() {
             std::string err;
             CHECK(load_reapply_store(reapply_store_path(le), on_disk, &err) && on_disk.empty(), "the store on disk is empty again: " + err);
         });
+
+        kit_fonts_ui_cases(app, ui, le);  // test_kit_fonts.h: the kit font pickers (2.11 K1), the Colours tab is still open
 
         run_case("UI: Teams > Crest: picture -> custom files in each game variant's own format, backups, copy, remove", [&] {
             // the game's crest files for Everton (7) and Arsenal (1), as the Lua side exports them, in mixed formats
@@ -14577,6 +14580,7 @@ int main(int argc, char** argv) {
     test_images();
     std::printf("native kit import\n");
     test_kit_import();
+    test_kit_fonts();
     std::printf("native dev service\n");
     test_devops();
     std::printf("native signature scanning\n");

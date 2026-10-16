@@ -39,10 +39,23 @@ const std::vector<std::string>& kit_setting_fields() {
     return f;
 }
 
+const std::vector<std::string>& kit_font_fields() {
+    // 2.11 K1 (ui_identity.cpp, core/kit_fonts.h): the name font, number fonts and outline width Teams > Colours writes in
+    // teamkits. NOT in kit_setting_fields(): that list is the FIFA Kit Creator settings.json keys the importer reads
+    static const std::vector<std::string> f = {"jerseynamefonttype", "numberfonttype", "shortsnumberfonttype", "jerseynameoutlinewidth"};
+    return f;
+}
+
+bool kit_font_field(const std::string& field) {
+    for (const auto& f : kit_font_fields())
+        if (f == field) return true;
+    return false;
+}
+
 bool kit_setting_field(const std::string& field) {
     for (const auto& f : kit_setting_fields())
         if (f == field) return true;
-    return false;
+    return kit_font_field(field);
 }
 
 bool kit_kept_field(const std::string& field) { return kit_colour_field(field) || kit_setting_field(field); }
