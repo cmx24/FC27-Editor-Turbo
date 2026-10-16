@@ -117,7 +117,7 @@ bool gallery_picker(App& app, const char* title, const char* field, int64_t& val
     const float thumb = S(56.0f);
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(title);
-    ImGui::SameLine(S(70.0f));
+    ImGui::SameLine();
     if (value > 0) gallery_picture(app, field, value, thumb, name(static_cast<int>(value)));
     else gallery_picture(app, field, 0, thumb, "");
     ImGui::SameLine();
