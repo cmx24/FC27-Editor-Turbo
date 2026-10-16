@@ -20,6 +20,10 @@
 #include "lua_loader_win.h"
 #include "nlohmann/json.hpp"
 
+namespace host {
+void start_attrib_ebx_early();  // attrib_ebx_win.cpp: attribulator EBX patch at load (off without turbo_outputttrib_preset.json)
+}
+
 namespace fs = std::filesystem;
 
 namespace host {
@@ -395,6 +399,8 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved) {
         if (th) CloseHandle(th);
         // Lua loader hook (lua_loader_win.h): its own thread; without turbo_output\lua_loader_on.txt it returns at once
         host::start_lua_loader_early();
+        // Attribulator EBX patch (attrib_ebx_win.cpp): its own thread; without turbo_outputttrib_preset.json it returns at once
+        host::start_attrib_ebx_early();
     }
     return TRUE;
 }
