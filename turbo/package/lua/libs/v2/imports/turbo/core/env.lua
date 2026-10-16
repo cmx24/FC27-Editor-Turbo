@@ -134,6 +134,7 @@ M.WATCHED_FUNCTIONS = {
     "PlayerDevelopmentManagerLoad", "PlayerDevelopmentManagerSave",
     "PlayerDevelopmentManagerAddPlayer", "PlayerDevelopmentManagerRemovePlayer",
     "GameplayAttribulatorSetVar", "GameplayAttribulatorGetVarType",
+    "GameplayAttribulatorSaveToFile", "GameplayAttribulatorSetFloat", "GameplayAttribulatorGetFloat",
     "AardvarkGetInt", "AardvarkSetInt", "SetGameLocString", "GetGameLocString",
     "LegacyFileExist", "LegacyFileExport", "SendHTTPRequest",
 }
