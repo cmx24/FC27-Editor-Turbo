@@ -1,0 +1,37 @@
+{
+  "schema": "turbo-attrib-preset/1",
+  "_doc": "Launch 3 sentinel: same structure as attrib_preset_g_t1.json but values barely off the stock ones (length_in 0.8401, width_in 1.0001) so a match read-back shows whether the EBX patch reached the game without changing play. Copy to turbo_output\u0007ttrib_preset.json (g3_deploy.ps1 does it).",
+  "build": "6AC07E31-2145C000",
+  "mode": "patch",
+  "locations": [
+    {
+      "asset": "fifa/attribulator/gameplay/groups/gp_positioningformation/gp_positioningformation_attackinglinelengthwidth_runtime",
+      "toc": "Patch/Win32/fc/fcgame/fcgame.toc",
+      "cas": "0000a3a00de30001",
+      "off": 148793182,
+      "size": 279
+    }
+  ],
+  "patches": [
+    {
+      "knob": "shape.length_in",
+      "asset": "fifa/attribulator/gameplay/groups/gp_positioningformation/gp_positioningformation_attackinglinelengthwidth_runtime",
+      "type_sig": 522591529,
+      "path": "LineLengthModifierForBalanced",
+      "offset": "0x30",
+      "kind": "f32",
+      "expect": 0.84,
+      "value": 0.8401
+    },
+    {
+      "knob": "shape.width_in",
+      "asset": "fifa/attribulator/gameplay/groups/gp_positioningformation/gp_positioningformation_attackinglinelengthwidth_runtime",
+      "type_sig": 522591529,
+      "path": "lineWidthModifier",
+      "offset": "0x28",
+      "kind": "f32",
+      "expect": 1.0,
+      "value": 1.0001
+    }
+  ]
+}
