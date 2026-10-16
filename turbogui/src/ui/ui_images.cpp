@@ -1294,6 +1294,19 @@ static std::vector<int64_t> gallery_ids(App& app, const GalleryDef& g) {
     return ids;
 }
 
+// The picture of item id from the hash list alone (no catalog); "" when the list is at hand and has none. Without the
+// list: the usual file name (asked from the game).
+static std::string gx_item_path(const GearPictureIndex& gx, const GalleryDef& g, int64_t id, int64_t colour) {
+    if (gx.empty())
+        return std::string("data/ui/imgAssets/") + g.src[0].folder + "/" + g.src[0].prefix + std::to_string(id) + g.src[0].rest + ".dds";
+    for (const GallerySource& s : g.src) {
+        if (!s.folder) continue;
+        std::string p = gx.find(s.folder, s.prefix, id, colour);
+        if (!p.empty()) return p;
+    }
+    return "";
+}
+
 // The picture of item id; "" when the game has none. Without the list: the usual file name (asked from the game).
 static std::string item_path(App& app, const GalleryDef& g, int64_t id, int64_t colour) {
     if (const gear::FamilyView& v = gear_view(gear::family_of_field(g.field)); v.active) {
@@ -1307,15 +1320,7 @@ static std::string item_path(App& app, const GalleryDef& g, int64_t id, int64_t 
         }
         return v.preview(id);  // "" = 3D only / not in the game
     }
-    const GearPictureIndex& gx = gear_pictures(app);
-    if (gx.empty())
-        return std::string("data/ui/imgAssets/") + g.src[0].folder + "/" + g.src[0].prefix + std::to_string(id) + g.src[0].rest + ".dds";
-    for (const GallerySource& s : g.src) {
-        if (!s.folder) continue;
-        std::string p = gx.find(s.folder, s.prefix, id, colour);
-        if (!p.empty()) return p;
-    }
-    return "";
+    return gx_item_path(gear_pictures(app), g, id, colour);
 }
 
 // Tattoo preview of id; "" when the list is at hand and the game has none
@@ -1369,6 +1374,80 @@ std::vector<int64_t> gallery_codes(App& app, const std::string& field) {
     std::vector<int64_t> ids = gear_pictures(app).ids("tattoo", "item_");
     if (!ids.empty()) ids.insert(ids.begin(), 0);  // none
     return ids;
+}
+
+static const GalleryDef* gallery_def_of(const std::string& field) {
+    for (const GalleryDef& d : kGalleries)
+        if (field == d.field) return &d;
+    return nullptr;
+}
+
+std::string gallery_pick_path(const GearPictureIndex& gx, const std::string& field, int64_t id) {
+    const GalleryDef* d = gallery_def_of(field);
+    return d && id > 0 ? gx_item_path(gx, *d, id, 0) : std::string();
+}
+
+std::vector<GalleryPick> gallery_pick_list(const GearPictureIndex& gx, const std::string& field, const std::vector<int>& ids,
+                                           int hair_length) {
+    std::vector<GalleryPick> out;
+    const bool is_hair = field == "hairtypecode";
+    for (int id : ids) {
+        if (id <= 0) continue;
+        if (is_hair && hair_length >= 0 && hair::lookup(id).length != hair_length) continue;
+        out.push_back({id, gallery_pick_path(gx, field, id)});
+    }
+    return out;
+}
+
+std::string gallery_picture_path(App& app, const std::string& field, int64_t id) {
+    const GalleryDef* d = gallery_def_of(field);
+    return d && id > 0 ? item_path(app, *d, id, 0) : std::string();
+}
+
+// A box that says the preview is missing by showing the label in it (the label is the picture)
+static void text_tile(float side, const std::string& label) {
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRect(p, ImVec2(p.x + side, p.y + side), ImGui::GetColorU32(ImGuiCol_Border));
+    ImGui::Dummy(ImVec2(side, side));
+    const ImVec4 clip(p.x + 2.0f, p.y + 2.0f, p.x + side - 2.0f, p.y + side - 2.0f);
+    dl->AddText(nullptr, 0.0f, ImVec2(p.x + 4.0f, p.y + 4.0f), ImGui::GetColorU32(ImGuiCol_TextDisabled), label.c_str(), nullptr,
+                side - 8.0f, &clip);
+}
+
+bool gallery_picture(App& app, const std::string& field, int64_t id, float side, const std::string& fallback_text) {
+    if (id <= 0) {
+        placeholder(side, "none");
+        return false;
+    }
+    const std::string path = gallery_picture_path(app, field, id);
+    if (path.empty()) {
+        text_tile(side, fallback_text);
+        return false;
+    }
+    fs::path f;
+    const LegacyImages::State st = app.legacy.locate(path, &f, true);
+    if (st == LegacyImages::State::Missing || st == LegacyImages::State::Invalid) {
+        text_tile(side, fallback_text);
+        return false;
+    }
+    draw_legacy_picture(app, path, side, true);
+    return true;
+}
+
+bool gallery_picture_cell(App& app, const std::string& field, int64_t id, float side, const std::string& caption,
+                          const std::string& fallback_text, const char* bid, bool selected, bool none) {
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    const float line = ImGui::GetTextLineHeight();
+    gallery_picture(app, field, none ? 0 : id, side, fallback_text);
+    ImGui::SetCursorScreenPos(p0);
+    const bool clicked = ImGui::InvisibleButton(bid, ImVec2(side, side + line));
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec4 clip(p0.x, p0.y, p0.x + side, p0.y + side + line);
+    dl->AddText(nullptr, 0.0f, ImVec2(p0.x + 2.0f, p0.y + side), ImGui::GetColorU32(ImGuiCol_Text), caption.c_str(), nullptr, 0.0f, &clip);
+    if (selected || ImGui::IsItemHovered())
+        dl->AddRect(p0, ImVec2(p0.x + side, p0.y + side + line), ImGui::GetColorU32(selected ? ImGuiCol_CheckMark : ImGuiCol_ButtonHovered), 0.0f, 2.0f);
+    return clicked;
 }
 
 // favourites per gallery: gui_settings.json favourites.<field> = [ids]

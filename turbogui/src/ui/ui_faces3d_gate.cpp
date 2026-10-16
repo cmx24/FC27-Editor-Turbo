@@ -22,6 +22,7 @@
 #include "imgui.h"
 #include "textures.h"
 #include "ui_faces.h"
+#include "ui_images.h"
 
 namespace turbo {
 
@@ -38,6 +39,7 @@ struct GateUi {
     std::string message;     // last Apply / Remove outcome
     bool message_ok = true;
     char hair_search[48] = "", beard_search[48] = "";
+    int hair_length = -1;  // the hair gallery's length filter (hair::Length, -1 = any)
     // ---- live preview
     faces3d::PreviewBackup backup;       // = preview_backup.json (originals + what the preview wrote)
     std::set<int64_t> session_records;   // backup records made in this session (the others came from the file)
@@ -105,39 +107,91 @@ bool matches(const std::string& label, const char* search) {
     return a.find(b) != std::string::npos;
 }
 
-// Searchable id picker over a verified-id list; 0 = none
-bool id_picker(const char* label, int64_t& value, const std::vector<int>& ids, char* search, size_t search_size,
-               std::string (*name)(int)) {
+// Gallery picker over a verified-id list (2.10): a thumbnail of the current id, its label, and a modal grid of the game's
+// own preview pictures (the Players > Appearance gallery cell, ui_images.cpp). A cell with no preview shows the text label
+// instead. 0 = none. `length` (hair only, may be null): the length filter; -1 = any.
+bool gallery_picker(App& app, const char* title, const char* field, int64_t& value, const std::vector<int>& ids, char* search,
+                    size_t search_size, int* length, std::string (*name)(int)) {
     bool changed = false;
-    const std::string preview = value > 0 ? name(static_cast<int>(value)) : std::string("none (keep his own)");
-    ImGui::SetNextItemWidth(S(320.0f));
-    if (ImGui::BeginCombo(label, preview.c_str(), ImGuiComboFlags_HeightLarge)) {
-        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-        ImGui::SetNextItemWidth(-1);
-        ImGui::InputTextWithHint("##search", "id or words (short, curly, full beard...)", search, search_size);
-        if (ImGui::Selectable("none (keep his own)", value == 0)) {
+    ImGui::PushID(field);
+    const float thumb = S(56.0f);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(title);
+    ImGui::SameLine();
+    if (value > 0) gallery_picture(app, field, value, thumb, name(static_cast<int>(value)));
+    else gallery_picture(app, field, 0, thumb, "");
+    ImGui::SameLine();
+    ImGui::BeginGroup();
+    ImGui::TextUnformatted(value > 0 ? name(static_cast<int>(value)).c_str() : "none (keep his own)");
+    if (ImGui::Button("Choose...##pick")) ImGui::OpenPopup("##f3pick");
+    if (value > 0) {
+        ImGui::SameLine();
+        if (ImGui::Button("None##pickclear")) {
             value = 0;
             changed = true;
         }
-        std::vector<int> shown;
-        shown.reserve(ids.size());
-        for (int id : ids)
-            if (matches(name(id), search)) shown.push_back(id);
-        ImGuiListClipper clip;
-        clip.Begin(static_cast<int>(shown.size()));
-        while (clip.Step())
-            for (int i = clip.DisplayStart; i < clip.DisplayEnd; ++i) {
-                const int id = shown[i];
-                ImGui::PushID(id);
-                if (ImGui::Selectable(name(id).c_str(), value == id)) {
-                    value = id;
-                    changed = true;
-                }
-                ImGui::PopID();
-            }
-        if (shown.empty()) ImGui::TextDisabled("no verified id matches");
-        ImGui::EndCombo();
     }
+    ImGui::EndGroup();
+    ImGui::SetNextWindowSize(ImVec2(S(760.0f), S(560.0f)), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal("##f3pick", nullptr, ImGuiWindowFlags_NoSavedSettings)) {
+        ImGui::Text("%s: the verified ids (3D models on scanned heads), with the game's own previews", title);
+        if (length) {
+            const char* cur = *length < 0 ? "Any length" : hair::length_name(*length);
+            ImGui::SetNextItemWidth(S(170.0f));
+            if (ImGui::BeginCombo("##f3len", cur)) {
+                if (ImGui::Selectable("Any length", *length < 0)) *length = -1;
+                for (int l = 0; l < hair::kLengthCount; ++l)
+                    if (ImGui::Selectable(hair::length_name(l), *length == l)) *length = l;
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+        }
+        ImGui::SetNextItemWidth(S(260.0f));
+        ImGui::InputTextWithHint("##f3search", "id or words (short, curly, full beard...)", search, search_size);
+        std::vector<GalleryPick> shown;
+        for (const GalleryPick& pk : gallery_pick_list(gear_pictures(app), field, ids, length ? *length : -1))
+            if (matches(name(static_cast<int>(pk.id)), search)) shown.push_back(pk);
+        ImGui::TextDisabled("%zu of %zu verified ids", shown.size(), ids.size());
+        const float cell = S(100.0f);
+        ImGui::BeginChild("##f3grid", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.5f), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
+        const int cols = std::max(1, int((ImGui::GetContentRegionAvail().x + ImGui::GetStyle().ItemSpacing.x) /
+                                         (cell + ImGui::GetStyle().ItemSpacing.x)));
+        const size_t total = shown.size() + 1;  // cell 0 = none
+        const int nrows = int((total + size_t(cols) - 1) / size_t(cols));
+        ImGuiListClipper clip;
+        clip.Begin(nrows, cell + ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y);
+        int64_t picked = -1;
+        while (clip.Step()) {
+            for (int r = clip.DisplayStart; r < clip.DisplayEnd; ++r) {
+                for (int c = 0; c < cols; ++c) {
+                    const size_t i = size_t(r) * size_t(cols) + size_t(c);
+                    if (i >= total) break;
+                    const int64_t id = i == 0 ? 0 : shown[i - 1].id;
+                    if (c) ImGui::SameLine();
+                    ImGui::BeginGroup();
+                    ImGui::PushID(static_cast<int>(id));
+                    const std::string label = id ? name(static_cast<int>(id)) : std::string();
+                    std::string cap = id ? std::to_string(id) : std::string("None");
+                    if (id && length) cap += std::string(" ") + hair::length_name(hair::lookup(id).length);
+                    char bid[48];
+                    std::snprintf(bid, sizeof(bid), "%s%lld", field, static_cast<long long>(id));
+                    if (gallery_picture_cell(app, field, id, cell, cap, label, bid, value == id, id == 0)) picked = id;
+                    ImGui::PopID();
+                    ImGui::EndGroup();
+                    if (id && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", label.c_str());
+                }
+            }
+        }
+        ImGui::EndChild();
+        if (picked >= 0) {
+            value = picked;
+            changed = true;
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::Button("Close##f3pickclose")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+    ImGui::PopID();
     return changed;
 }
 
@@ -564,15 +618,15 @@ void faces3d_gate_section(App& app, const Table& t, const PlayerRow& p) {
     if (it != g.draft.end()) {
         faces3d::Entry& e = it->second;
         ImGui::Indent();
-        id_picker("Hair##f3h", e.hair, faces3d::ok_hair_ids(), g.hair_search, sizeof(g.hair_search), hair_label);
-        ImGui::SameLine();
+        gallery_picker(app, "Hair", "hairtypecode", e.hair, faces3d::ok_hair_ids(), g.hair_search, sizeof(g.hair_search), &g.hair_length,
+                       hair_label);
         if (e.hair <= 0) ImGui::BeginDisabled();
         ImGui::Checkbox("hair colours from the database##f3hc", &e.hair_colour);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("Hair, eyebrow and facial-hair colours from his DB colour fields (otherwise the scan's colour mask)");
         if (e.hair <= 0) ImGui::EndDisabled();
-        id_picker("Beard##f3b", e.beard, faces3d::ok_beard_ids(), g.beard_search, sizeof(g.beard_search), beard_label);
-        ImGui::SameLine();
+        gallery_picker(app, "Beard", "facialhairtypecode", e.beard, faces3d::ok_beard_ids(), g.beard_search, sizeof(g.beard_search), nullptr,
+                       beard_label);
         if (e.beard <= 0) ImGui::BeginDisabled();
         ImGui::Checkbox("beard colour from the database##f3bc", &e.beard_colour);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
