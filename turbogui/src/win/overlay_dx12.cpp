@@ -25,6 +25,10 @@
 #include "callname_audio_win.h"
 #include "callname_voice_win.h"
 #include "kit_swap_win.h"
+
+namespace host {
+bool attrib_ebx_uses_minhook();  // attrib_ebx_win.cpp
+}
 #include "lua_loader_win.h"
 #include "commentary_audio_win.h"
 #include "edit_unlock_hook_win.h"
@@ -1040,8 +1044,8 @@ bool start_overlay(HMODULE) {
     {
         // The Lua loader hook (lua_loader_win.h, opt-in) may have initialised MinHook at DLL load: that is not a failure here
         const MH_STATUS mi = MH_Initialize();
-        if (mi == MH_ERROR_ALREADY_INITIALIZED && lua_loader_uses_minhook()) {
-            log("MinHook already initialised by the Lua loader hook");
+        if (mi == MH_ERROR_ALREADY_INITIALIZED && (lua_loader_uses_minhook() || attrib_ebx_uses_minhook())) {
+            log("MinHook already initialised by the Lua loader hook or the attrib EBX patch");
         } else if (mi != MH_OK) {
             log("MinHook init failed");
             return false;
