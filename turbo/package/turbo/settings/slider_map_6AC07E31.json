@@ -1,0 +1,999 @@
+{
+ "turbo_settings_map": 1,
+ "build": "6AC07E31",
+ "layout": "fbchunks-454-bc650",
+ "array_base": "0x1BC4",
+ "note": "FC 27 Settings<timestamp> slider map. 2.10 (TEST_31 G-S1, evidence/2026-10-15/g_s1): the Game Settings CUSTOM sliders are a 125-byte u8 block (GameplayTypeCustomData, custom_block: payload 0xB8976 = file 0xB8DDC, element k = setting id 0x8C + k [assessed]); the u32 array (array_base) did NOT move and is NOT what the Custom screen shows: entries get custom_index (byte index in that block) and no u32 index. Only the three observed bytes are verified (user.sprint_speed 0x50, user.acceleration 0x51, cpu.sprint_speed 0x24). That the engine READS this block in a match (G-S2 display, G-S3 effect) is NOT proven; under Authentic the screen shows the preset and a Custom write may change nothing. Every other custom_index is ASSESSED: id and builder index-order derived (docs/re/settings_store_6AC07E31.md section 2), name from the match-copy anchors (sprint 0, acceleration 1, trap error 6, pass speed 13, injury frequency 14 = builder slider index; custom_index = side base + k) - read-only. Entries without custom_index: no derivable slot (name to slot order not known).",
+ "regions": [
+  {
+   "id": "run36",
+   "first": "0xC6",
+   "count": 36,
+   "label": "36-value run (all 50 in every backup)",
+   "candidate": "unknown (CPU AI? per-mode copy?)"
+  },
+  {
+   "id": "block_a",
+   "first": "0xEA",
+   "count": 44,
+   "label": "Block A (44 values)",
+   "candidate": "CPU sliders (assessment: CPU ids 0xB0..)"
+  },
+  {
+   "id": "block_b",
+   "first": "0x116",
+   "count": 44,
+   "label": "Block B (44 values, equal to A today)",
+   "candidate": "User sliders (assessment: USER ids 0xDC..)"
+  }
+ ],
+ "entries": [
+  {
+   "id": "match.half_length",
+   "label": "Half length",
+   "group": "match",
+   "index": null,
+   "verified": false,
+   "proof": "",
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "match.difficulty",
+   "label": "Difficulty level",
+   "group": "match",
+   "index": null,
+   "verified": false,
+   "proof": "",
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "match.game_speed",
+   "label": "Game speed",
+   "group": "match",
+   "index": null,
+   "verified": false,
+   "proof": "",
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "match.gameplay_type",
+   "label": "Gameplay type (Competitive / Authentic / Custom)",
+   "group": "match",
+   "index": null,
+   "verified": false,
+   "proof": "",
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "match.injuries",
+   "label": "Injuries",
+   "group": "match",
+   "index": null,
+   "verified": false,
+   "proof": "",
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "match.offsides",
+   "label": "Offsides",
+   "group": "match",
+   "index": null,
+   "verified": false,
+   "proof": "",
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "match.bookings",
+   "label": "Bookings",
+   "group": "match",
+   "index": null,
+   "verified": false,
+   "proof": "",
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "match.handballs",
+   "label": "Handballs",
+   "group": "match",
+   "index": null,
+   "verified": false,
+   "proof": "",
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "player.auto_switching",
+   "label": "Auto switching",
+   "group": "player",
+   "index": null,
+   "verified": false,
+   "proof": "",
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "player.auto_switching_move_assistance",
+   "label": "Auto switching move assistance",
+   "group": "player",
+   "index": null,
+   "verified": false,
+   "proof": "",
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "player.pass_assistance",
+   "label": "Pass assistance",
+   "group": "player",
+   "index": null,
+   "verified": false,
+   "proof": "",
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "player.shot_assistance",
+   "label": "Shot assistance",
+   "group": "player",
+   "index": null,
+   "verified": false,
+   "proof": "",
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "player.through_pass_assistance",
+   "label": "Through pass assistance",
+   "group": "player",
+   "index": null,
+   "verified": false,
+   "proof": "",
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "player.lob_pass_assistance",
+   "label": "Lob pass assistance",
+   "group": "player",
+   "index": null,
+   "verified": false,
+   "proof": "",
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "player.cross_assistance",
+   "label": "Cross assistance",
+   "group": "player",
+   "index": null,
+   "verified": false,
+   "proof": "",
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "player.camera",
+   "label": "Camera",
+   "group": "player",
+   "index": null,
+   "verified": false,
+   "proof": "",
+   "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
+  },
+  {
+   "id": "user.injury_frequency",
+   "label": "Injury frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "ASSESSED custom block byte 0x5c (id 0xe8 + builder order); not observed, read-only",
+   "custom_index": 92
+  },
+  {
+   "id": "user.injury_severity",
+   "label": "Injury severity",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.power_bar_speed",
+   "label": "Power bar speed",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "ASSESSED custom block byte 0x7c (id 0x108); not observed, read-only",
+   "custom_index": 124
+  },
+  {
+   "id": "user.acceleration",
+   "label": "Acceleration",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": true,
+   "proof": "evidence/2026-10-15/TEST_31.md section 7 (G-S1) + g_s1/before,after; test case 'game settings: G-S1 real files'",
+   "note": "Custom block byte 0x51 (file 0xB8E2D). OBSERVED in game (TEST_31 G-S1); engine use in a match not proven",
+   "custom_index": 81
+  },
+  {
+   "id": "user.ball_deflection_error",
+   "label": "Ball deflection error",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.buildup_speed",
+   "label": "Build-up speed",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.defending_aggression",
+   "label": "Defending aggression",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.dribble_error",
+   "label": "Dribble error",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.dribble_frequency",
+   "label": "Dribble frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.early_crossing_frequency",
+   "label": "Early crossing frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.first_touch_pass_frequency",
+   "label": "First touch pass frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.gk_ability",
+   "label": "Goalkeeper ability",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.header_pass_accuracy",
+   "label": "Header pass accuracy",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.header_shot_accuracy",
+   "label": "Header shot accuracy",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.intercept_trap_error",
+   "label": "Intercept trap error",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.normal_crossing_frequency",
+   "label": "Normal crossing frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.normal_shot_frequency",
+   "label": "Normal shot frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.pass_angle_error",
+   "label": "Pass angle error",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.pass_error",
+   "label": "Pass error",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.pass_speed",
+   "label": "Pass speed",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "ASSESSED custom block byte 0x5b (id 0xe7 + builder order); not observed, read-only",
+   "custom_index": 91
+  },
+  {
+   "id": "user.pos_def_line_height",
+   "label": "Positioning: line height",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.pos_full_back",
+   "label": "Positioning: full back positioning",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.pos_line_length",
+   "label": "Positioning: line length",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.pos_line_width",
+   "label": "Positioning: line width",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.pos_marking",
+   "label": "Positioning: marking",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.pos_run_frequency",
+   "label": "Positioning: run frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.professional_foul_frequency",
+   "label": "Professional foul frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.shot_error",
+   "label": "Shot error",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.shot_speed",
+   "label": "Shot speed",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.skill_move_frequency",
+   "label": "Skill move frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.slide_tackle_frequency",
+   "label": "Slide tackle frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.sprint_speed",
+   "label": "Sprint speed",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": true,
+   "proof": "evidence/2026-10-15/TEST_31.md section 7 (G-S1) + g_s1/before,after; test case 'game settings: G-S1 real files'",
+   "note": "Custom block byte 0x50 (file 0xB8E2C). OBSERVED in game (TEST_31 G-S1); engine use in a match not proven",
+   "custom_index": 80
+  },
+  {
+   "id": "user.stand_tackle_frequency",
+   "label": "Stand tackle frequency",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.tackle_accuracy",
+   "label": "Tackle accuracy",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "user.trap_error",
+   "label": "Trap error",
+   "group": "user",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "ASSESSED custom block byte 0x56 (id 0xe2 + builder order); not observed, read-only",
+   "custom_index": 86
+  },
+  {
+   "id": "cpu.injury_frequency",
+   "label": "Injury frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "ASSESSED custom block byte 0x30 (id 0xbc + builder order); not observed, read-only",
+   "custom_index": 48
+  },
+  {
+   "id": "cpu.injury_severity",
+   "label": "Injury severity",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.acceleration",
+   "label": "Acceleration",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "ASSESSED custom block byte 0x25 (id 0xb1 + builder order); not observed, read-only",
+   "custom_index": 37
+  },
+  {
+   "id": "cpu.ball_deflection_error",
+   "label": "Ball deflection error",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.buildup_speed",
+   "label": "Build-up speed",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.defending_aggression",
+   "label": "Defending aggression",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.dribble_error",
+   "label": "Dribble error",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.dribble_frequency",
+   "label": "Dribble frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.early_crossing_frequency",
+   "label": "Early crossing frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.first_touch_pass_frequency",
+   "label": "First touch pass frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.gk_ability",
+   "label": "Goalkeeper ability",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.header_pass_accuracy",
+   "label": "Header pass accuracy",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.header_shot_accuracy",
+   "label": "Header shot accuracy",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.intercept_trap_error",
+   "label": "Intercept trap error",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.normal_crossing_frequency",
+   "label": "Normal crossing frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.normal_shot_frequency",
+   "label": "Normal shot frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.pass_angle_error",
+   "label": "Pass angle error",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.pass_error",
+   "label": "Pass error",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.pass_speed",
+   "label": "Pass speed",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "ASSESSED custom block byte 0x2f (id 0xbb + builder order); not observed, read-only",
+   "custom_index": 47
+  },
+  {
+   "id": "cpu.pos_def_line_height",
+   "label": "Positioning: line height",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.pos_full_back",
+   "label": "Positioning: full back positioning",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.pos_line_length",
+   "label": "Positioning: line length",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.pos_line_width",
+   "label": "Positioning: line width",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.pos_marking",
+   "label": "Positioning: marking",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.pos_run_frequency",
+   "label": "Positioning: run frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.professional_foul_frequency",
+   "label": "Professional foul frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.shot_error",
+   "label": "Shot error",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.shot_speed",
+   "label": "Shot speed",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.skill_move_frequency",
+   "label": "Skill move frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.slide_tackle_frequency",
+   "label": "Slide tackle frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.sprint_speed",
+   "label": "Sprint speed",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": true,
+   "proof": "evidence/2026-10-15/TEST_31.md section 7 (G-S1) + g_s1/before,after; test case 'game settings: G-S1 real files'",
+   "note": "Custom block byte 0x24 (file 0xB8E00). OBSERVED in game (TEST_31 G-S1); engine use in a match not proven",
+   "custom_index": 36
+  },
+  {
+   "id": "cpu.stand_tackle_frequency",
+   "label": "Stand tackle frequency",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.tackle_accuracy",
+   "label": "Tackle accuracy",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "no derivable custom block slot yet (name to builder order not known); read-only"
+  },
+  {
+   "id": "cpu.trap_error",
+   "label": "Trap error",
+   "group": "cpu",
+   "index": null,
+   "min": 0,
+   "max": 100,
+   "verified": false,
+   "proof": "",
+   "note": "ASSESSED custom block byte 0x2a (id 0xb6 + builder order); not observed, read-only",
+   "custom_index": 42
+  }
+ ],
+ "custom_block": {
+  "base": "0xB8976",
+  "count": 125,
+  "before": "01 00 00 00 01",
+  "width": 1,
+  "slots_assessed": [
+   {
+    "k": "0-15",
+    "ids": "0x8C-0x9B",
+    "what": "CPU-AI, CPU side"
+   },
+   {
+    "k": "16-31",
+    "ids": "0x9C-0xAB",
+    "what": "CPU-AI, user side"
+   },
+   {
+    "k": "32-35",
+    "ids": "0xAC-0xAF",
+    "what": "not read by the builder"
+   },
+   {
+    "k": "36-72",
+    "ids": "0xB0-0xD4",
+    "what": "CPU sliders (37), builder order k0-8 -> slider index 0-8, k9-19 -> 11-21, k20 -> 37, k21-27 -> 22-28, k28 -> 38, k29-36 -> 29-36"
+   },
+   {
+    "k": "73-79",
+    "ids": "0xD5-0xDB",
+    "what": "CPU positioning (7)"
+   },
+   {
+    "k": "80-116",
+    "ids": "0xDC-0x100",
+    "what": "USER sliders (37), same order"
+   },
+   {
+    "k": "117-123",
+    "ids": "0x101-0x107",
+    "what": "USER positioning (7)"
+   },
+   {
+    "k": "124",
+    "ids": "0x108",
+    "what": "power bar speed (user)"
+   }
+  ],
+  "proven_bytes": {
+   "0x50": "user.sprint_speed (file 0xB8E2C)",
+   "0x51": "user.acceleration (0xB8E2D)",
+   "0x24": "cpu.sprint_speed (0xB8E00)"
+  }
+ }
+}

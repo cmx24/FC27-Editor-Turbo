@@ -48,7 +48,7 @@ VER="$(sed -n 's/.*version = "\([0-9.]*\)".*/\1/p' "$ROOT/turbo/package/lua/libs
 [ -n "$VER" ] || { echo "cannot read the version"; exit 1; }
 GUI_VER="$(sed -n 's/.*kGuiVersion = "\([0-9.]*\)".*/\1/p' "$ROOT"/turbogui/src/ui/app.h "$ROOT"/turbogui/src/ui/app.cpp | head -1)"
 [ "$GUI_VER" = "$VER" ] || { echo "version mismatch: Lua $VER, GUI $GUI_VER"; exit 1; }
-for f in Turbo.dll TurboInjector.exe TurboProbe.exe; do
+for f in Turbo.dll TurboInjector.exe TurboProbe.exe turbo_settings_apply.exe; do
   [ -s "$ROOT/turbogui/build/win/$f" ] || { echo "turbogui/build/win/$f missing: run turbogui/scripts/build_win.sh"; exit 1; }
 done
 OUT="$ROOT/dist/FC27_LE_Turbo_$VER.zip"
@@ -57,7 +57,8 @@ cp -r "$ROOT/turbo/package/." "$STAGE/"
 # the callname master JSONs hold real player names: they stay on the user's PC (built locally with turbo/tools/import_callname_masters.py)
 rm -rf "$STAGE/turbo/callnames/masters"
 mkdir -p "$STAGE/turbo"
-cp "$ROOT/turbogui/build/win/Turbo.dll" "$ROOT/turbogui/build/win/TurboInjector.exe" "$ROOT/turbogui/build/win/TurboProbe.exe" "$STAGE/turbo/"
+cp "$ROOT/turbogui/build/win/Turbo.dll" "$ROOT/turbogui/build/win/TurboInjector.exe" "$ROOT/turbogui/build/win/TurboProbe.exe" \
+  "$ROOT/turbogui/build/win/turbo_settings_apply.exe" "$STAGE/turbo/"
 name_guard "$STAGE" || { echo "package refused: remove those files first"; exit 1; }
 knobs_guard "$STAGE" || { echo "package refused: a tuning knob is offered as a slider without its in-game proof"; exit 1; }
 find "$STAGE" -exec touch -d "2026-01-01 00:00:00" {} +
