@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -402,6 +403,153 @@ static void swatch_row(App& app, const Table& t, uint64_t rec, const std::vector
     if (!any) ImGui::TextDisabled("(no colour fields)");
 }
 
+// ---- 2.11 K1: named font / layout choices of a kit (core/kit_fonts.h)
+struct KitFontCache {
+    bool valid = false;
+    int gen = -1;
+    kitfonts::Index idx;
+};
+static KitFontCache g_kitfonts;
+
+const kitfonts::Index& kit_font_index(App& app) {
+    const Table* kt = app.db.table("teamkits");
+    if (g_kitfonts.valid && g_kitfonts.gen == app.gen) return g_kitfonts.idx;
+    g_kitfonts.valid = true;
+    g_kitfonts.gen = app.gen;
+    std::vector<kitfonts::KitRow> rows;
+    Snapshot snap;
+    if (kt && snap.load(app.db.memory(), *kt)) {
+        const Field* tf = kt->field("teamtechid");
+        const Field* ty = kt->field("teamkittypetechid");
+        const Field* vf[kitfonts::kKinds];
+        for (int k = 0; k < kitfonts::kKinds; ++k) vf[k] = kt->field(kitfonts::field_of(static_cast<kitfonts::Kind>(k)));
+        if (tf)
+            for (uint32_t i : snap.valid) {
+                kitfonts::KitRow r;
+                r.team = snap.get_int(i, *tf);
+                r.type = ty ? snap.get_int(i, *ty) : 0;
+                for (int k = 0; k < kitfonts::kKinds; ++k) r.value[k] = vf[k] ? snap.get_int(i, *vf[k]) : -1;
+                rows.push_back(r);
+            }
+    }
+    g_kitfonts.idx.build(rows, [&app](int64_t team) { return app.model.team_name(team); });
+    return g_kitfonts.idx;
+}
+
+bool write_kit_font(App& app, const Table& kt, uint64_t rec, const std::string& field, int64_t value, std::string* msg) {
+    const Field* f = kt.field(field);
+    const bool ours = kit_font_field(field) || field == kitfonts::field_of(kitfonts::Kind::NameLayout);
+    if (kt.name != "teamkits" || !f || f->type != FieldType::Int || !ours) {
+        if (msg) *msg = field + " is not a kit font field of FC 27's teamkits table";
+        return false;
+    }
+    const std::string verr = Database::validate(*f, Value::of_int(value));
+    if (!verr.empty()) {
+        if (msg) *msg = verr;
+        return false;
+    }
+    const int64_t tid = app.db.get_int(kt, rec, "teamtechid", -1);
+    const int64_t type = app.db.get_int(kt, rec, "teamkittypetechid", 0);
+    const int64_t kitid = app.db.get_int(kt, rec, "teamkitid", -1);
+    if (!app.edit(kt, rec, *f, Value::of_int(value))) {
+        if (msg) *msg = "writing " + field + " failed";
+        return false;
+    }
+    g_kitfonts.valid = false;  // the wearers changed by this kit
+    // FC 27 reloads teamkits at every career load: kept and written again then, like the colours (ui_reapply.cpp)
+    app.remember_kit_field(tid, type, kitid, field, value, true);
+    if (msg) *msg = field + " = " + std::to_string(value);
+    return true;
+}
+
+// A combo of the ids by name ("291  Chelsea  -  worn by ...") with a filter box; picking writes the field
+static void kit_font_picker(App& app, const Table& kt, uint64_t rec, kitfonts::Kind kind) {
+    const Field* f = kt.field(kitfonts::field_of(kind));
+    if (!f || f->type != FieldType::Int) return;
+    const kitfonts::Index& idx = kit_font_index(app);
+    const int64_t cur = app.db.get_int(kt, rec, f->name, -1);
+    ImGui::PushID(f->name.c_str());
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(kitfonts::title_of(kind));
+    ImGui::SameLine(S(170.0f));
+    const std::string preview = cur < 0 ? std::string("unreadable") : kitfonts::short_label(kind, cur);
+    ImGui::SetNextItemWidth(S(300.0f));
+    int64_t pick = -1;
+    if (ImGui::BeginCombo("##kf", preview.c_str())) {
+        static char filter[64] = "";
+        if (ImGui::IsWindowAppearing()) {
+            filter[0] = '\0';
+            ImGui::SetKeyboardFocusHere();
+        }
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputTextWithHint("##kff", "filter: id, name or club (try chelsea)", filter, sizeof(filter));
+        std::vector<int64_t> ids = kitfonts::choice_ids(kind, idx);
+        if (cur >= 0 && std::find(ids.begin(), ids.end(), cur) == ids.end()) ids.insert(std::lower_bound(ids.begin(), ids.end(), cur), cur);
+        // a typed id nobody wears and the game does not name: still choosable within the field's range
+        char* end = nullptr;
+        const long long typed = std::strtoll(filter, &end, 10);
+        if (end != filter && *end == '\0' && typed >= f->min && typed <= f->max() && std::find(ids.begin(), ids.end(), typed) == ids.end())
+            ids.insert(std::lower_bound(ids.begin(), ids.end(), typed), typed);
+        size_t shown = 0;
+        for (int64_t id : ids) {
+            const kitfonts::Entry* e = idx.find(kind, id);
+            if (id != cur && !kitfonts::matches(kind, id, e, filter)) continue;
+            ++shown;
+            ImGui::PushID(static_cast<int>(id));
+            const std::string lbl = kitfonts::choice_label(kind, id, e);
+            if (ImGui::Selectable(lbl.c_str(), id == cur) && id != cur) pick = id;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\n%s", kitfonts::worn_by(e, 14).c_str(), f->name.c_str());
+            if (id == cur && ImGui::IsWindowAppearing()) ImGui::SetItemDefaultFocus();
+            ImGui::PopID();
+        }
+        if (!shown) ImGui::TextDisabled("Nothing matches.");
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered()) {
+        std::string tip = cur < 0 ? std::string("unreadable") : kitfonts::worn_by(idx.find(kind, cur), 14);
+        tip += std::string("\n") + f->name + " (" + std::to_string(f->min) + ".." + std::to_string(f->max()) + ")";
+        if (kind != kitfonts::Kind::NameLayout)
+            tip += "\nNames are the game's own folder names (an inference: the folder number is taken as the id).\nNo font sample: check the kit in the game.";
+        else
+            tip += "\n0 = straight, 1 = arched, as the FIFA Kit Creator FAQ says (FC 26).";
+        ImGui::SetTooltip("%s", tip.c_str());
+    }
+    if (pick >= 0) {
+        std::string msg;
+        if (!write_kit_font(app, kt, rec, f->name, pick, &msg)) app.notify(f->name + ": " + msg, true);
+    }
+    ImGui::PopID();
+}
+
+// Outline width of the jersey name (0..max of the field): written when the slider is let go
+static void kit_outline_width(App& app, const Table& kt, uint64_t rec) {
+    const Field* f = kt.field("jerseynameoutlinewidth");
+    if (!f || f->type != FieldType::Int) return;
+    static ImGuiID pending_id = 0;
+    static int pending = 0;
+    ImGui::PushID(f->name.c_str());
+    const ImGuiID id = ImGui::GetID("##ow");
+    const int cur = static_cast<int>(app.db.get_int(kt, rec, f->name, 0));
+    int v = pending_id == id ? pending : cur;
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Name outline width");
+    ImGui::SameLine(S(170.0f));
+    ImGui::SetNextItemWidth(S(300.0f));
+    if (ImGui::SliderInt("##ow", &v, static_cast<int>(f->min), static_cast<int>(f->max()))) {
+        pending_id = id;
+        pending = v;
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s (%lld..%lld): 0 = no outline", f->name.c_str(), static_cast<long long>(f->min), static_cast<long long>(f->max()));
+    if (pending_id == id && ImGui::IsItemDeactivated()) {
+        pending_id = 0;
+        if (pending != cur) {
+            std::string msg;
+            if (!write_kit_font(app, kt, rec, f->name, pending, &msg)) app.notify(f->name + ": " + msg, true);
+        }
+    }
+    ImGui::PopID();
+}
+
 void team_colours_editor(App& app, const Table& t, uint64_t rec, int64_t teamid) {
     ImGui::TextDisabled("Preview");
     ImGui::SameLine(S(170.0f));
@@ -463,14 +611,21 @@ void team_colours_editor(App& app, const Table& t, uint64_t rec, int64_t teamid)
             colour_editor(app, *kt, k.first, "shortsnumbercolorprim", "Shorts number 1");
             colour_editor(app, *kt, k.first, "shortsnumbercolorsec", "Shorts number 2");
             colour_editor(app, *kt, k.first, "shortsnumbercolorter", "Shorts number 3");
-            field_grid(app, *kt, k.first, {"teamcolorprimpercent", "teamcolorsecpercent", "teamcolortertpercent", "jerseynameoutlinewidth",
-                                           "jerseynamefonttype", "numberfonttype", "jerseytemplateindex", "shortstemplateindex", "sockstemplateindex"},
+            // 2.11 K1: the fonts and the name layout by name (the game's folder names, and which clubs wear each id)
+            kit_font_picker(app, *kt, k.first, kitfonts::Kind::NameFont);
+            kit_font_picker(app, *kt, k.first, kitfonts::Kind::NumberFont);
+            kit_font_picker(app, *kt, k.first, kitfonts::Kind::ShortsNumberFont);
+            kit_font_picker(app, *kt, k.first, kitfonts::Kind::NameLayout);
+            kit_outline_width(app, *kt, k.first);
+            field_grid(app, *kt, k.first, {"teamcolorprimpercent", "teamcolorsecpercent", "teamcolortertpercent", "jerseytemplateindex",
+                                           "shortstemplateindex", "sockstemplateindex"},
                        "##kitgrid", 3);
         }
         ImGui::PopID();
     }
     ImGui::TextDisabled("Written to the career database at once (range-checked); the game uses them when a kit or screen is loaded again.");
-    ImGui::TextDisabled("FC 27 reloads kit colours at every career load: Turbo keeps the kit colours set here and writes them again then.");
+    ImGui::TextDisabled("FC 27 reloads kit colours at every career load: Turbo keeps the kit colours, fonts and name layout set here and writes them again then.");
+    ImGui::TextDisabled("Fonts: no sample is drawn. The names are the game's own folder names; hover a font for the clubs that wear it. Not proven yet: whether a font change shows in a running career or only after the next game start.");
     reapply_status_line(app);
 }
 

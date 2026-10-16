@@ -146,15 +146,21 @@ local function build_world(sim)
             { name = "jerseynamelayouttype", short = "jnlt", depth = 8 }, { name = "shortstyle", short = "shst", depth = 3 },
             { name = "jerseynumbercolorprimr", short = "jnpr", depth = 8 }, { name = "jerseynumbercolorprimg", short = "jnpg", depth = 8 },
             { name = "jerseynumbercolorprimb", short = "jnpb", depth = 8 },
+            -- 2.11 K1 (Teams > Colours): the kit fonts by name; 9 bits = 0..511 as in FC 27, the outline width 0..15 here
+            { name = "jerseynamefonttype", short = "jnft", depth = 9 }, { name = "numberfonttype", short = "nbft", depth = 9 },
+            { name = "shortsnumberfonttype", short = "snft", depth = 9 }, { name = "jerseynameoutlinewidth", short = "jnow", depth = 4 },
         },
         rows = { { teamtechid = 1, teamkitid = 10, teamkittypetechid = 0, teamcolorprimr = 239, teamcolorprimg = 1, teamcolorprimb = 7,
-                   teamcolorsecr = 255, teamcolorsecg = 255, teamcolorsecb = 255, jerseynamecolorr = 255, jerseynamecolorg = 255, jerseynamecolorb = 255, teamcolorprimpercent = 80 },
+                   teamcolorsecr = 255, teamcolorsecg = 255, teamcolorsecb = 255, jerseynamecolorr = 255, jerseynamecolorg = 255, jerseynamecolorb = 255, teamcolorprimpercent = 80,
+                   jerseynamefonttype = 18, numberfonttype = 291, shortsnumberfonttype = 291, jerseynameoutlinewidth = 2 },
                  { teamtechid = 1, teamkitid = 11, teamkittypetechid = 1, teamcolorprimr = 255, teamcolorprimg = 230, teamcolorprimb = 0,
-                   teamcolorsecr = 0, teamcolorsecg = 0, teamcolorsecb = 60, jerseynamecolorr = 0, jerseynamecolorg = 0, jerseynamecolorb = 0, teamcolorprimpercent = 70 },
+                   teamcolorsecr = 0, teamcolorsecg = 0, teamcolorsecb = 60, jerseynamecolorr = 0, jerseynamecolorg = 0, jerseynamecolorb = 0, teamcolorprimpercent = 70,
+                   jerseynamefonttype = 18, numberfonttype = 291, shortsnumberfonttype = 291, jerseynameoutlinewidth = 2 },
                  { teamtechid = 7, teamkitid = 70, teamkittypetechid = 0, teamcolorprimr = 0, teamcolorprimg = 60, teamcolorprimb = 160,
                    teamcolorsecr = 255, teamcolorsecg = 255, teamcolorsecb = 255, jerseynamecolorr = 255, jerseynamecolorg = 255, jerseynamecolorb = 255, teamcolorprimpercent = 90,
                    teamcolorsecpercent = 10, jerseycollargeometrytype = 1, jerseynamelayouttype = 0, shortstyle = 2,
-                   jerseynumbercolorprimr = 20, jerseynumbercolorprimg = 30, jerseynumbercolorprimb = 40 } },
+                   jerseynumbercolorprimr = 20, jerseynumbercolorprimg = 30, jerseynumbercolorprimb = 40,
+                   jerseynamefonttype = 7, numberfonttype = 144, shortsnumberfonttype = 144, jerseynameoutlinewidth = 0 } },
     })
     -- league tables (Competitions tab): Arsenal 3W 1D 0L 9:2, Everton 1W 1D 2L 3:6 in league 13; points left stale
     local LT = { [1] = { 2, 1, 0, 1, 0, 0, 5, 1, 4, 1, 0, 2 }, [7] = { 1, 0, 1, 0, 1, 1, 2, 2, 1, 4, 9, 1 } }

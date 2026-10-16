@@ -7,6 +7,7 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
 Nothing here is shipped or claimed as a feature. Gates are in `turbo_dev\evidence6-10-15\TEST_31.md`.
 
+- **UNPROVEN (K1, offline tests only):** Teams > Colours kit font pickers (name font, number font, shorts number font, name layout, outline width). Labels are the game's own folder names from its bundle manifests (88 name fonts, 137 number fonts; the folder number being the database id is an inference) plus "worn by" clubs from the live teamkits. Kept for every career load like the colours. Not shown: any font sample. Not proven in game: that the names match the ids, and that a font change shows in a match.
 - **UNPROVEN:** tactics sliders for team length and width (`shape.length_in`, `shape.width_in`). Gate G-T1 was INCONCLUSIVE in game (counted as FAIL for the live write route).
 - **UNPROVEN:** any effect of the game settings sliders on match play. Gate G-S3 (ratio >= 1.4).
 

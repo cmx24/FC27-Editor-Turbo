@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "core/image.h"
+#include "core/kit_fonts.h"
 #include "core/legacy.h"
 #include "core/t3db.h"
 
@@ -52,6 +53,11 @@ void team_colours_editor(App& app, const Table& t, uint64_t rec, int64_t teamid)
 bool read_colour(App& app, const Table& t, uint64_t rec, const std::string& prefix, uint8_t rgb[3]);
 // Validated writes of the three fields (each through Database::set); false with a reason when a field is missing or refused
 bool write_colour(App& app, const Table& t, uint64_t rec, const std::string& prefix, const uint8_t rgb[3], std::string* msg);
+// 2.11 K1: one teamkits font / layout / outline-width field of a kit row (core/kit_fonts.h): validated, written through App::edit
+// and kept for every career load like the colours (App::remember_kit_field). False with a reason when refused.
+bool write_kit_font(App& app, const Table& kt, uint64_t rec, const std::string& field, int64_t value, std::string* msg);
+// The kit font index the pickers use: rebuilt from the loaded teamkits when the database generation changes (tests read it)
+const kitfonts::Index& kit_font_index(App& app);
 // The kit types FC 27 uses (teamkits.teamkittypetechid)
 const char* kit_type_name(int64_t type);
 
