@@ -530,7 +530,8 @@ static void team_editor(App& app) {
             mass_actions_tab(app, *tr);
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Tactics")) {
+        if (sub_tab_visible(SubTab::TeamsTactics, app.prefs.advanced_mode) && ImGui::BeginTabItem("Tactics")) {
+            draw_unproven_banner();
             ImGui::BeginChild("##ttac");
             draw_tactics(app);
             ImGui::EndChild();

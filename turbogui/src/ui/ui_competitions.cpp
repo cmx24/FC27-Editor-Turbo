@@ -425,12 +425,14 @@ void draw_competitions(App& app) {
             draw_live_standings(app);
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Match setup")) {
+        if (sub_tab_visible(SubTab::CompetitionsMatchSetup, app.prefs.advanced_mode) && ImGui::BeginTabItem("Match setup")) {
+            draw_unproven_banner();
             draw_match_setup(app);
             ImGui::EndTabItem();
         }
         // the engine's gameplay tuning tables (ui_tuning.cpp): engine-wide, every club and every match, so here and not in a club's Tactics tab
-        if (ImGui::BeginTabItem("Gameplay tuning")) {
+        if (sub_tab_visible(SubTab::CompetitionsGameplayTuning, app.prefs.advanced_mode) && ImGui::BeginTabItem("Gameplay tuning")) {
+            draw_unproven_banner();
             ImGui::BeginChild("##tuning");
             draw_tuning(app);
             ImGui::EndChild();

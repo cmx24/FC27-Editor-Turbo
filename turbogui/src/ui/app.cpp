@@ -1409,6 +1409,11 @@ bool App::save_gui_settings() {
     return bridge.write_gui_settings(gui_settings.dump(2));
 }
 
+// The Advanced view's note on a tab or panel with no proven in-game effect (gui_prefs.h unproven_banner_text)
+void draw_unproven_banner() {
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", unproven_banner_text());
+}
+
 // ---------------------------------------------------------------- main window
 void App::draw() {
     textures.new_frame(now);
@@ -1534,17 +1539,25 @@ void App::draw() {
     }
     ImGui::SameLine();
     ImGui::TextDisabled("v%s", kGuiVersion);
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Advanced view", &prefs.advanced_mode) && !save_gui_settings()) notify("cannot write gui_settings.json", true);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Off (Simple): only features proven to work in the game. On: everything, including tactics, tuning and raw tables");
     if (!hotkey_inline) hotkey_control(*this, "bar");  // no room on the status line: a line of its own
     ImGui::Separator();
 
+    // Simple / Advanced view (gui_prefs.h): Advanced shows every tab; Simple hides the ones without a proven in-game effect
+    if (!prefs.advanced_mode) ImGui::TextDisabled("%s", simple_banner_text());
     if (ImGui::BeginTabBar("##turbo_tabs")) {
         const char* names[] = {"Players", "Teams", "Managers", "Competitions", "Database", "Turbo Tools", "Status", "Game settings"};
         // Taken before drawing: a panel may request another tab (e.g. Squad -> player), for the next frame
         int req = request_tab;
         request_tab = -1;
-        for (int i = 0; i < 8; ++i) {
+        for (int i = 0; i < TabCount; ++i) {
+            if (!top_tab_visible(i, prefs.advanced_mode)) continue;
             ImGuiTabItemFlags fl = (req == i) ? ImGuiTabItemFlags_SetSelected : 0;
             if (ImGui::BeginTabItem(names[i], nullptr, fl)) {
+                if (top_tab_unproven(i)) draw_unproven_banner();
                 switch (i) {
                     case 0: draw_players(*this); break;
                     case 1: draw_teams(*this); break;

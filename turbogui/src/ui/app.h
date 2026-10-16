@@ -455,6 +455,7 @@ private:
 };
 
 // panels
+void draw_unproven_banner();  // app.cpp: the Advanced view note (gui_prefs.h)
 void draw_players(App& app);
 void draw_teams(App& app);
 // Teams > Tactics tab body (ui_tactics.cpp)
