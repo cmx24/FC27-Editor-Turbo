@@ -5,13 +5,14 @@
 // when each attrib asset was first decompressed ("attrib block seen <time> <asset>"), which is gate G-T1b's timing answer.
 //
 // Off unless turbo_output\attrib_preset.json exists (the values to write; mode "observe" only watches). Always off when one of these is
-// present: turbo_output\attrib_ebx_off.txt (also honoured at run time: the detour then only calls the original), game_hooks_off.txt,
-// hook_attrib_oodle_off.txt, env TURBO_GUI_NO_GAME_HOOKS=1, and turbo_output\kits3d_on.txt: the 3D kit swap hooks the same Oodle export
-// later and refuses a target that already carries a hook, so until one detour serves both (kit_swap_win.cpp calling
-// turbo::attrib::active_runtime()) the two never run together. The preset's build must be the running FC27.exe's.
+// present: turbo_output\attrib_ebx_off.txt (also honoured at run time: the handler then only counts), game_hooks_off.txt,
+// hook_attrib_oodle_off.txt, env TURBO_GUI_NO_GAME_HOOKS=1. The preset's build must be the running FC27.exe's.
 //
-// Hook: OodleLZ_Decompress of oo2core_9_win64.dll (the game folder's own copy), MinHook, the first bytes checked against a jump (another
-// module's hook). The detour always calls the original first and only then lets the Runtime overwrite a recognised block.
+// Hook: OodleLZ_Decompress of oo2core_9_win64.dll (the game folder's own copy). Since 2.11 ONE detour serves this patch and the 3D kit swap
+// (core/oodle_dispatch.h, win/oodle_shared_win.cpp): this file registers a handler in slot Attrib and installs the detour when it is first
+// (early, from DllMain's thread, with the checks it always had: module in the game folder, no jump at the entry), or attaches to the one the
+// kit swap installed. The detour always calls the original first and only then lets the Runtime overwrite a recognised block; with both
+// features on, the kit handler runs first and a block it overwrote is never offered to this one.
 #include <windows.h>
 
 #include <atomic>
@@ -23,10 +24,11 @@
 #include <iterator>
 #include <thread>
 
-#include "MinHook.h"
 #include "core/attrib_ebx.h"
 #include "core/kit_swap.h"
+#include "core/oodle_dispatch.h"
 #include "host.h"
+#include "oodle_shared_win.h"
 
 namespace host {
 
@@ -34,28 +36,9 @@ namespace fs = std::filesystem;
 
 namespace {
 
-using DecompressFn = int64_t (*)(const void*, int64_t, void*, int64_t, int, int, int, void*, int64_t, void*, void*, void*, int64_t, int);
-
-DecompressFn g_orig = nullptr;
-std::atomic<turbo::attrib::Runtime*> g_rt{nullptr};
-std::atomic<bool> g_uses_mh{false};
 std::atomic<uint64_t> g_errors{0};
 std::string g_head;  // the log's status line (written by the attrib thread only)
-
-int64_t detour(const void* comp, int64_t comp_len, void* raw, int64_t raw_len, int fuzz, int crc, int verb, void* dec_base, int64_t dec_size, void* cb,
-               void* cb_user, void* dec_mem, int64_t dec_mem_size, int phase) {
-    const int64_t r = g_orig(comp, comp_len, raw, raw_len, fuzz, crc, verb, dec_base, dec_size, cb, cb_user, dec_mem, dec_mem_size, phase);
-    turbo::attrib::Runtime* rt = g_rt.load(std::memory_order_acquire);
-    if (rt) {
-        try {
-            rt->count_call(comp_len > 0 ? uint64_t(comp_len) : 0, raw_len > 0 ? uint64_t(raw_len) : 0);
-            rt->on_decompressed(static_cast<const uint8_t*>(comp), comp_len > 0 ? uint64_t(comp_len) : 0, static_cast<uint8_t*>(raw), raw_len > 0 ? uint64_t(raw_len) : 0, r);
-        } catch (...) {
-            g_errors.fetch_add(1, std::memory_order_relaxed);
-        }
-    }
-    return r;
-}
+turbo::oodle::AttribBinding g_binding;  // the handler's context: lives as long as the process
 
 fs::path out_dir() { return le_root() / "turbo_output"; }
 bool file_exists(const fs::path& p) {
@@ -83,7 +66,9 @@ std::string exe_build_key() {
 }
 
 void write_log(turbo::attrib::Runtime* rt) {
-    const std::string text = rt->log_text(g_head + (g_errors.load() ? " | detour errors " + std::to_string(g_errors.load()) : std::string()));
+    // with the 3D kit swap in the same detour its slot is named too (who installed it, what each side recognised / overwrote / skipped)
+    const std::string shared = oodle_shared_stats(turbo::oodle::kSlotKits).registered ? "\n" + oodle_shared_summary() : std::string();
+    const std::string text = rt->log_text(g_head + (g_errors.load() ? " | detour errors " + std::to_string(g_errors.load()) : std::string()) + shared);
     std::error_code ec;
     fs::create_directories(out_dir(), ec);
     std::ofstream f(out_dir() / "attrib_ebx_log.txt", std::ios::binary | std::ios::trunc);
@@ -103,8 +88,6 @@ DWORD WINAPI attrib_thread(LPVOID) {
     if (file_exists(out / "attrib_ebx_off.txt")) return stop("turbo_output\\attrib_ebx_off.txt present: no hook"), 0;
     if (file_exists(out / "game_hooks_off.txt") || file_exists(out / "hook_attrib_oodle_off.txt") || env_is(L"TURBO_GUI_NO_GAME_HOOKS", L"1"))
         return stop("game hooks are switched off (game_hooks_off.txt, hook_attrib_oodle_off.txt or TURBO_GUI_NO_GAME_HOOKS): no hook"), 0;
-    if (file_exists(out / "kits3d_on.txt"))
-        return stop("turbo_output\\kits3d_on.txt present: the 3D kit swap owns the Oodle hook and the shared detour is not wired yet: no attrib patch this session"), 0;
 
     Preset preset;
     {
@@ -116,23 +99,6 @@ DWORD WINAPI attrib_thread(LPVOID) {
     const std::string build = exe_build_key();
     if (build != preset.build) return stop("the preset is for build " + preset.build + ", the game is " + (build.empty() ? "unknown" : build)), 0;
 
-    // the game loads the Oodle DLL itself; wait for it (never LoadLibrary: Turbo must not change what the game loads)
-    HMODULE m = nullptr;
-    for (int i = 0; i < 480 && !(m = GetModuleHandleW(L"oo2core_9_win64.dll")); ++i) Sleep(250);
-    if (!m) return stop("oo2core_9_win64.dll was not loaded within 120 s"), 0;
-    {
-        wchar_t mp[MAX_PATH * 2] = {0}, ep[MAX_PATH * 2] = {0};
-        GetModuleFileNameW(m, mp, MAX_PATH * 2);
-        GetModuleFileNameW(GetModuleHandleW(nullptr), ep, MAX_PATH * 2);
-        if (fs::path(mp).parent_path() != fs::path(ep).parent_path()) return stop("oo2core_9_win64.dll is not the game folder's copy"), 0;
-    }
-    void* target = reinterpret_cast<void*>(GetProcAddress(m, "OodleLZ_Decompress"));
-    if (!target) return stop("OodleLZ_Decompress is not exported"), 0;
-    {
-        const auto* b = static_cast<const uint8_t*>(target);
-        if (b[0] == 0xE9 || b[0] == 0xEB || (b[0] == 0xFF && b[1] == 0x25) || (b[0] == 0x48 && b[1] == 0xB8))
-            return stop("OodleLZ_Decompress already starts with a jump (another hook): not hooked"), 0;
-    }
     const fs::path game = fs::path(std::wstring([] {
                                        wchar_t e[MAX_PATH * 2] = {0};
                                        GetModuleFileNameW(nullptr, e, MAX_PATH * 2);
@@ -142,27 +108,26 @@ DWORD WINAPI attrib_thread(LPVOID) {
 
     auto* rt = new Runtime();  // lives as long as the process: the detour reads it
     rt->set_killed(file_exists(out / "attrib_ebx_off.txt"));
-    g_uses_mh = true;  // before the call: the overlay's own MH_Initialize may run at the same moment and must accept ALREADY_INITIALIZED
-    const MH_STATUS mi = MH_Initialize();
-    if (mi != MH_OK && mi != MH_ERROR_ALREADY_INITIALIZED) return stop(std::string("MinHook init: ") + MH_StatusToString(mi)), 0;
-    g_rt = rt;  // before the hook: the trampoline is stored by MH_CreateHook, and the Runtime passes everything until its table exists
-    MH_STATUS st = MH_CreateHook(target, reinterpret_cast<void*>(&detour), reinterpret_cast<void**>(&g_orig));
-    if (st == MH_OK) st = MH_EnableHook(target);
-    if (st != MH_OK) {
-        if (st != MH_ERROR_ALREADY_CREATED) MH_RemoveHook(target);
-        g_rt = nullptr;
-        return stop(std::string("MinHook on OodleLZ_Decompress: ") + MH_StatusToString(st)), 0;
+    // the handler goes in BEFORE the detour (the trampoline is stored by MinHook before it enables the hook, and the Runtime passes everything
+    // until its table exists); a failed install retires the slot
+    g_binding.rt = rt;
+    g_binding.errors = &g_errors;
+    if (!oodle_shared_register(turbo::oodle::kSlotAttrib, turbo::oodle::make_attrib_handler(&g_binding))) return stop("the attrib slot of the shared Oodle detour is taken"), 0;
+    std::string how, why_not;
+    if (!oodle_shared_install_early(&how, &why_not)) {
+        oodle_shared_retire(turbo::oodle::kSlotAttrib);
+        return stop(why_not), 0;
     }
     set_active_runtime(rt);
     const std::string hook_time = now_text();
-    log("attrib ebx: OodleLZ_Decompress hooked at %s (build %s, mode %s, %zu value(s) in the preset)", hook_time.c_str(), build.c_str(),
+    const bool attached = how.rfind("attached", 0) == 0;
+    log("attrib ebx: OodleLZ_Decompress hooked at %s (%s; build %s, mode %s, %zu value(s) in the preset)", hook_time.c_str(), how.c_str(), build.c_str(),
         preset.mode == Mode::Patch ? "patch" : "observe", preset.patches.size());
 
     // the table: below normal priority, the game is loading at the same time
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
-    turbo::kitswap::OodleFn oodle = [](const uint8_t* s, size_t n, uint8_t* d, size_t dn) {
-        return g_orig && g_orig(s, int64_t(n), d, int64_t(dn), 1, 0, 0, nullptr, 0, nullptr, nullptr, nullptr, 0, 3) == int64_t(dn);
-    };
+    // Turbo's own reads: the original (the shared trampoline), never the detour
+    turbo::kitswap::OodleFn oodle = [](const uint8_t* s, size_t n, uint8_t* d, size_t dn) { return oodle_shared_decompress(s, n, d, dn); };
     turbo::kitswap::GameFiles files(game);
     std::string err;
     if (!files.init(&err)) return stop("hook in, but the game's layout.toc cannot be read: " + err + " (nothing recognised)"), 0;
@@ -238,7 +203,7 @@ DWORD WINAPI attrib_thread(LPVOID) {
     int patching = 0;
     for (const auto& it : items) patching += it.patch ? 1 : 0;
     rt->publish(table, items);
-    g_head = "hook installed " + hook_time + ", build " + build + ", mode " + (preset.mode == Mode::Patch ? "patch" : "observe") + ", assets " +
+    g_head = std::string(attached ? "hook attached " : "hook installed ") + hook_time + " (" + how + ")" + ", build " + build + ", mode " + (preset.mode == Mode::Patch ? "patch" : "observe") + ", assets " +
              std::to_string(names.size()) + ", copies registered " + std::to_string(items.size()) + " (" + std::to_string(patching) + " patched), locations " +
              where + ", table published " + now_text();
     for (const auto& n : notes) g_head += "\nnote: " + n;
@@ -267,6 +232,6 @@ void start_attrib_ebx_early() {
     if (th) CloseHandle(th);
 }
 
-bool attrib_ebx_uses_minhook() { return g_uses_mh.load(); }
+bool attrib_ebx_uses_minhook() { return oodle_shared_uses_minhook(); }
 
 }  // namespace host
