@@ -189,6 +189,9 @@ DWORD WINAPI attrib_thread(LPVOID) {
                 notes.push_back(names[i] + " (" + a.toc + "): " + why);
                 continue;
             }
+            it.cas = a.loc.cas;
+            it.off = a.loc.off;
+            it.size = a.loc.size;
             items.push_back(it);
         }
     }
@@ -209,6 +212,8 @@ DWORD WINAPI attrib_thread(LPVOID) {
     for (const auto& n : notes) g_head += "\nnote: " + n;
     log("attrib ebx: table published at %s: %zu cop(ies), %d patched; decompress calls before it: see attrib_ebx_log.txt", now_text().c_str(), items.size(), patching);
     for (const auto& it : items) log("attrib ebx: %s %s (%s): %s", it.patch ? "patch" : "watch", it.asset.c_str(), it.toc.c_str(), it.what.c_str());
+    for (const auto& it : items)
+        for (const auto& l : write_lines(it)) log("%s", l.c_str());
     for (const auto& n : notes) log("attrib ebx: note: %s", n.c_str());
 
     // the kill switch and the log, every 2 s, for the life of the process

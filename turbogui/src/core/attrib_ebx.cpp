@@ -202,6 +202,7 @@ struct Write {
     Kind elem = Kind::F32;  // F32 / I32 / U32 / Bool
     double before = 0, value = 0;
     std::string what;
+    std::string path;
 };
 
 double read_elem(const uint8_t* d, size_t at, Kind k) {
@@ -321,8 +322,10 @@ bool same(Kind elem, double a, double b) {
 
 }  // namespace
 
-bool patch_ebx(std::vector<uint8_t>& raw, const std::string& asset, const std::vector<Patch>& patches, std::vector<std::string>* changes, std::string* why) {
+bool patch_ebx(std::vector<uint8_t>& raw, const std::string& asset, const std::vector<Patch>& patches, std::vector<std::string>* changes, std::string* why,
+               std::vector<WriteRec>* recs) {
     if (changes) changes->clear();
+    if (recs) recs->clear();
     EbxView v;
     std::string e;
     if (!parse_ebx(raw.data(), raw.size(), v, &e)) return fail(why, e);
@@ -343,6 +346,7 @@ bool patch_ebx(std::vector<uint8_t>& raw, const std::string& asset, const std::v
         if (!value_ok(w.elem, p.value, &e)) return fail(why, p.path + ": " + e);
         if (!seen.insert(w.at).second) return fail(why, p.path + ": the same value is named twice");
         w.what = p.path + " " + num(w.before) + " -> " + num(p.value);
+        w.path = p.path;
         w.value = p.value;
         writes.push_back(w);
     }
@@ -350,6 +354,14 @@ bool patch_ebx(std::vector<uint8_t>& raw, const std::string& asset, const std::v
     for (const Write& w : writes) {
         store(raw.data(), w.at, w.elem, w.value);
         if (changes) changes->push_back(w.what);
+        if (recs) {
+            WriteRec r;
+            r.path = w.path;
+            r.at = uint32_t(w.at);
+            r.before = w.before;
+            r.after = w.value;
+            recs->push_back(r);
+        }
     }
     return true;
 }
@@ -412,6 +424,43 @@ bool parse_preset(const std::string& text, Preset& out, std::string* why) {
             }
             if (!std::isfinite(p.value)) return fail(why, at + "value is not finite");
             out.patches.push_back(p);
+            if (x.contains("also")) {
+                if (!x["also"].is_array() || x["also"].empty()) return fail(why, at + "also is not a list of copies");
+                const size_t tail_at = p.asset.find("/groups/");
+                if (tail_at == std::string::npos) return fail(why, at + "also needs an asset with /groups/ in its path");
+                const std::string tail = p.asset.substr(tail_at);
+                int n = 0;
+                for (const auto& y : x["also"]) {
+                    const std::string at2 = at + "also " + std::to_string(n++) + ": ";
+                    if (!y.is_object()) return fail(why, at2 + "not an object");
+                    Patch q = p;
+                    q.asset = y.value("asset", std::string());
+                    if (q.asset.rfind("databases/", 0) == 0) q.asset = "fifa/attribulator/gameplay/" + q.asset;
+                    else if (q.asset.rfind("gameplay/", 0) == 0) q.asset = "fifa/attribulator/" + q.asset;
+                    if (q.asset.rfind("fifa/attribulator/", 0) != 0) return fail(why, at2 + "asset must be a fifa/attribulator/ EBX");
+                    const size_t t2 = q.asset.find("/groups/");
+                    if (t2 == std::string::npos || q.asset.substr(t2) != tail) return fail(why, at2 + "asset must end like the entry's (" + tail + ")");
+                    if (lower(q.asset) == lower(p.asset)) return fail(why, at2 + "the same asset as the entry");
+                    q.knob = p.knob + ".also" + std::to_string(n);
+                    if (y.contains("type_sig")) {
+                        if (!y["type_sig"].is_number_unsigned()) return fail(why, at2 + "type_sig is not a number");
+                        q.type_sig = y["type_sig"].get<uint32_t>();
+                    }
+                    if (y.contains("expect")) {
+                        if (!(y["expect"].is_number() || y["expect"].is_boolean())) return fail(why, at2 + "expect is not a number");
+                        q.has_expect = true;
+                        q.expect = y["expect"].is_boolean() ? (y["expect"].get<bool>() ? 1.0 : 0.0) : y["expect"].get<double>();
+                    }
+                    if (y.contains("value")) {
+                        if (!(y["value"].is_number() || y["value"].is_boolean())) return fail(why, at2 + "value is not a number");
+                        q.value = y["value"].is_boolean() ? (y["value"].get<bool>() ? 1.0 : 0.0) : y["value"].get<double>();
+                        if (!std::isfinite(q.value)) return fail(why, at2 + "value is not finite");
+                    }
+                    for (const Patch& o : out.patches)
+                        if (lower(o.asset) == lower(q.asset) && o.offset == q.offset && o.path == q.path) return fail(why, at2 + "the same value is named twice");
+                    out.patches.push_back(q);
+                }
+            }
         }
         if (j.contains("locations")) {
             if (!j["locations"].is_array()) return fail(why, "attrib_preset.json: locations is not a list");
@@ -600,7 +649,7 @@ bool add_asset(kitswap::TableBuilder& tb, const std::vector<uint8_t>& stream, co
     bool do_patch = false;
     if (mode == Mode::Patch) {
         std::vector<std::string> ch;
-        if (patch_ebx(*raw, asset, patches, &ch, &e)) {
+        if (patch_ebx(*raw, asset, patches, &ch, &e, &out.writes)) {
             do_patch = true;
             std::string t;
             for (const auto& c : ch) t += (t.empty() ? "" : ", ") + c;
@@ -616,6 +665,19 @@ bool add_asset(kitswap::TableBuilder& tb, const std::vector<uint8_t>& stream, co
     out.patch = do_patch;
     out.table_item = item;
     return true;
+}
+
+std::vector<std::string> write_lines(const ItemInfo& it) {
+    std::vector<std::string> r;
+    if (!it.patch) return r;
+    for (const WriteRec& w : it.writes) {
+        char at[16];
+        std::snprintf(at, sizeof(at), "0x%X", w.at);
+        std::string where = it.toc;
+        if (!it.cas.empty()) where += " cas " + it.cas + " off " + std::to_string(it.off) + " size " + std::to_string(it.size);
+        r.push_back("attrib write " + it.asset + " [" + where + "] " + w.path + " @" + at + " " + num(w.before) + " -> " + num(w.after));
+    }
+    return r;
 }
 
 // ---------------------------------------------------------------- runtime
@@ -713,6 +775,8 @@ std::string Runtime::log_text(const std::string& head) const {
         if (h) o << "  first " << clock_text(t->first_ms(it.table_item)) << "  last " << clock_text(t->last_ms(it.table_item));
         o << "  (" << it.what << ")\n";
     }
+    for (const auto& it : items_)
+        for (const auto& l : write_lines(it)) o << l << "\n";
     return o.str();
 }
 
