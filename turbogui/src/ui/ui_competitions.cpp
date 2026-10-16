@@ -12,6 +12,7 @@
 #include "geo.h"
 #include "imgui.h"
 #include "table_sort.h"
+#include "ui_tactics_pages.h"
 #include "ui_team_filter.h"
 #include "ui_tuning.h"
 
@@ -422,20 +423,16 @@ void draw_competitions(App& app) {
     }
     if (ImGui::BeginTabBar("##compviews")) {
         if (ImGui::BeginTabItem("Live standings (game)")) {
-            draw_live_standings(app);
+            draw_standings_page(app);  // 2.13: ui_standings.cpp (also the Standings page of Tactics & Gameplay)
             ImGui::EndTabItem();
         }
         if (sub_tab_visible(SubTab::CompetitionsMatchSetup, app.prefs.advanced_mode) && ImGui::BeginTabItem("Match setup")) {
-            draw_unproven_banner();
-            draw_match_setup(app);
+            draw_match_setup_page(app);  // 2.13: ui_match.cpp, with its amber line (also Advanced > Match setup)
             ImGui::EndTabItem();
         }
         // the engine's gameplay tuning tables (ui_tuning.cpp): engine-wide, every club and every match, so here and not in a club's Tactics tab
         if (sub_tab_visible(SubTab::CompetitionsGameplayTuning, app.prefs.advanced_mode) && ImGui::BeginTabItem("Gameplay tuning")) {
-            draw_unproven_banner();
-            ImGui::BeginChild("##tuning");
-            draw_tuning(app);
-            ImGui::EndChild();
+            draw_tuning_page(app);  // 2.13: ui_tuning.cpp, with its amber line (also Advanced > Gameplay tuning)
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Career database copy")) {

@@ -44,7 +44,21 @@ struct TacticPresetsState {
 };
 const TacticPresetsState& tactic_presets_state();
 
-// The panel (a tab of the team editor). Never throws.
+// 2.13 revamp: the Gameplay presets page (community slider presets: the presets that carry a Custom sliders block), same presets, same Load / Undo
+struct GameplayPageState {
+    bool drawn = false;
+    std::string note;                   // the one muted sentence under the title
+    std::vector<std::string> names;     // presets with a sliders block
+    int selected = -1;                  // index into the shown list (-1 = none)
+    bool can_apply = false, can_undo = false;
+    bool advanced_section = false;      // the old Game settings view was drawn (Advanced view only)
+    bool read_back_ok = false;          // the last load of the selected preset finished ("loaded")
+};
+const GameplayPageState& gameplay_page_state();
+// True when the two pages registered themselves with the shell at start-up (the registry can be cleared by tests later)
+bool tactic_pages_registered_at_start();
+
+// The Tactic presets page (2.13: the default page of Tactics & Gameplay; before, a tab of the team editor). Never throws.
 void draw_tactic_presets(App& app);
 // Every frame (App::tick): finishes a load / undo when its game-thread job came back (the last-load file, the staging of the sliders).
 void tactic_presets_tick(App& app);

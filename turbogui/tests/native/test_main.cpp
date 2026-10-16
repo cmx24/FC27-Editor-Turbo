@@ -2780,6 +2780,7 @@ class Ui {
 public:
     App& app;
     double t = 0.0;
+    std::function<void()> extra_draw;  // 2026-10-16: a page drawn in its own window after app.draw() (test_gameplay_page.h)
     explicit Ui(App& a) : app(a) {}
 
     void frame() {
@@ -2788,6 +2789,7 @@ public:
         ++g_frame;
         app.tick(t);
         app.draw();
+        if (extra_draw) extra_draw();
         ImGui::Render();
         ImGui_ImplNullRender_RenderDrawData(ImGui::GetDrawData());
         t += 1.0 / 60.0;
@@ -3383,6 +3385,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_settings_presets.h"  // 2.10: evidence guard of turbo_settings_apply --undo, verified-only flow (settings_presets_test::run)
 #include "test_game_settings.h"  // 2.8: the game's own settings file, presets, the apply tool's core (gsettings_test::run, ::ui_cases)
 #include "test_tactic_presets.h"  // 2.12: tactic presets (tactic_presets_test::run, ::ui_cases)
+#include "test_gameplay_page.h"  // 2.13 T4: the Gameplay presets page, the page registrations, the amber line (gameplay_page_test::ui_cases)
 #include "test_season_pack.h"  // 2.10 B3: season update pack importer (season_pack_test::run)
 #include "test_attrib_ebx.h"  // 2.10 T1: attribulator EBX patch at load (attrib_ebx_test::run, real install fixtures)
 #include "test_oodle_dispatch.h"  // 2.11: the shared Oodle decompress dispatcher: kits only, attrib only, both, neither (oodle_dispatch_test::run)
@@ -8914,6 +8917,7 @@ static void test_ui() {
         tuning_test::ui_cases(app, ui, le);  // test_tuning.h: Competitions > Gameplay tuning
         gsettings_test::ui_cases(app, ui, le);  // test_game_settings.h: the Game settings tab (2.8)
         tactic_presets_test::ui_cases(app, ui, le);  // test_tactic_presets.h: Teams > Tactic presets (2.12)
+        gameplay_page_test::ui_cases(app, ui, le);  // test_gameplay_page.h: Gameplay presets page (2.13 T4)
         describe_ui_cases(app, ui);  // test_describe.h: edit log, undo toast, pickers, Technical details, the "no code N" walk
         ui_cases_names_tab(app, ui, mem, kMb);  // test_names_tab.h
         archetype_target_test::run_ui(app, ui, mem, kMb);  // test_archetype_target.h

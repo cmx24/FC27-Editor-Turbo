@@ -12,6 +12,8 @@
 #include "core/match_setup.h"
 #include "core/user_text.h"
 #include "imgui.h"
+#include "ui_shell.h"
+#include "ui_tactics_pages.h"
 
 namespace turbo {
 
@@ -455,5 +457,16 @@ void draw_match_setup(App& app) {
     }
     draw_vars(app);
 }
+
+// 2.13: Advanced > Match setup (was Competitions > Match setup). The amber line is the only addition; drawn only in the Advanced view (ui_shell.h)
+void draw_match_setup_page(App& app) {
+    if (!app.connected()) {
+        not_connected_hint();
+        return;
+    }
+    draw_unproven_line("docs/GUI_AUDIT.md");
+    draw_match_setup(app);
+}
+TURBO_REGISTER_PAGE(shell::Page::AdvMatchSetup, draw_match_setup_page);
 
 }  // namespace turbo

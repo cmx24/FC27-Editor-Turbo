@@ -12,6 +12,8 @@
 #include "core/fce_standings.h"
 #include "core/standings_refresh.h"
 #include "imgui.h"
+#include "ui_shell.h"
+#include "ui_tactics_pages.h"
 
 namespace turbo {
 
@@ -925,5 +927,15 @@ void draw_live_standings(App& app) {
     }
     ImGui::EndChild();
 }
+
+// 2.13: the Standings page of Tactics & Gameplay (was Competitions > Live standings); the view itself is unchanged and drawn from here only
+void draw_standings_page(App& app) {
+    if (!app.connected()) {
+        not_connected_hint();
+        return;
+    }
+    draw_live_standings(app);
+}
+TURBO_REGISTER_PAGE(shell::Page::Standings, draw_standings_page);
 
 }  // namespace turbo

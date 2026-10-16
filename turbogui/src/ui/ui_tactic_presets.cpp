@@ -6,6 +6,8 @@
 #include "ui_tactic_presets.h"
 
 #include <algorithm>
+#include <cfloat>
+#include <cctype>
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
@@ -19,6 +21,9 @@
 #include "nlohmann/json.hpp"
 #include "ui_game_settings.h"
 #include "ui_live_tactic.h"
+#include "ui_shell.h"
+#include "ui_tactics_pages.h"
+#include "ui_theme.h"
 
 namespace turbo {
 
@@ -44,6 +49,7 @@ struct Pv {
     std::vector<std::string> errors;
     int sel = -1;
     char name[64] = "";
+    char filter[64] = "";  // 2.13: the select panel's search box
     bool include_settings = true;
     bool include_unverified = true;  // 2.12.1 test build: the table-mapped sliders are staged too (flag saved in the preset)
     bool include_setpieces = true;
@@ -581,15 +587,18 @@ void draw_confirm(App& app) {
     }
 }
 
-void draw_body(App& app) {
-    first_look(app);
-    read_live(app, false);
-    g_state.banner = kBanner;
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.3f, 1.0f));
-    ImGui::TextWrapped("%s", g_state.banner.c_str());
-    ImGui::PopStyleColor();
+// ---- 2.13 revamp: the page pattern of ui_shell.h ([select | editor] + ONE primary action). Chrome only: every button below calls the same
+// functions as before (save_current, start_load, start_undo, start_reapply, delete_selected ...); the ids (##tp*) are unchanged.
+bool contains_nocase(const std::string& hay, const char* needle) {
+    std::string h = hay, n = needle;
+    for (char& c : h) c = char(std::tolower((unsigned char)c));
+    for (char& c : n) c = char(std::tolower((unsigned char)c));
+    return h.find(n) != std::string::npos;
+}
 
-    // the live tactic
+// Everything the page shows that is computed, not drawn: the live tactic line, the latest load, what a Load would do now.
+void update_state(App& app) {
+    g_state.banner = kBanner;
     g_state.live_ok = g.have_live;
     if (g.have_live)
         g_state.live_line = "Your club's live tactic (read now): \"" + (g.live.name.empty() ? std::string("?") : g.live.name) + "\", Defensive Approach " +
@@ -597,108 +606,29 @@ void draw_body(App& app) {
                             tsheet::build_up_text(g.live.build_up);
     else
         g_state.live_line = "Your club's live tactic: not read (" + g.live_why + ")";
-    ImGui::TextWrapped("%s", g_state.live_line.c_str());
-
-    bool on = live_tactic_opt_in(app);
-    g_state.opt_in = on;
-    if (checkbox_right("Channel E on (turbo_output\\call_team_sheet_on.txt): needed to read and load the live tactic##tpopt", &on)) {
-        live_tactic_set_opt_in(app, on);
-        read_live(app, true);
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Off by default. On creates turbo_output\\call_team_sheet_on.txt; call_team_sheet_off.txt or tactics_off.txt switch every write off.");
-
-    // the latest load and the Re-apply prompt
+    g_state.opt_in = live_tactic_opt_in(app);
+    g_state.include_settings = g.include_settings;
+    g_state.include_unverified = g.include_unverified;
+    g_state.include_setpieces = g.include_setpieces;
     g_state.busy = g.job != JobKind::None || live_tactic_busy();
     g_state.last_line.clear();
     g_state.reapply.clear();
     if (g.have_last) {
         g_state.last_line = "Last load: \"" + g.last.preset + "\" (" + g.last.state + ", " + g.last.when + ")" + (g.last.note.empty() ? "" : ": " + g.last.note);
-        ImGui::TextDisabled("%s", g_state.last_line.c_str());
         if (g.have_live && !g_state.busy) {
             const BridgeState& st = app.bridge.state();
             g_state.reapply = tpreset::reapply_prompt(g.last, g.live, st.session, st.load_gen);
         }
-        if (!g_state.reapply.empty()) {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0.6f, 0.3f, 1));
-            ImGui::TextWrapped("%s", g_state.reapply.c_str());
-            ImGui::PopStyleColor();
-            if (ImGui::Button("Re-apply##tpreapply")) start_reapply(app);
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Dismiss##tpdismiss")) dismiss_prompt(app);
-        }
-    } else if (!g.last_err.empty()) {
-        ImGui::TextDisabled("turbo_output\\%s is not used: %s", tpreset::last_load_file(), g.last_err.c_str());
     }
-
-    // Save current
-    ImGui::SeparatorText("Save current");
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.45f);
-    ImGui::InputTextWithHint("##tpname", "Preset name", g.name, sizeof(g.name));
-    ImGui::SameLine();
-    ImGui::Checkbox("with the Custom sliders block##tpwithsliders", &g.include_settings);
-    g_state.include_settings = g.include_settings;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Also stores the Game Settings sliders (read from the settings file the game saved last). Loading stages the 3 screen-proven sliders, "
-                          "and the other table-mapped ones when 'unverified sliders' is ticked.");
-    g_state.can_save = !trimmed_name().empty();
-    ImGui::BeginDisabled(!g_state.can_save);
-    ImGui::SameLine();
-    if (ImGui::Button("Save current##tpsave")) save_current(app);
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    if (ImGui::Button("Refresh##tprefresh")) {  // a preset file edited or copied outside the game
-        load_presets_now(app);
-        load_last_now(app);
-        g.status = "The presets folder was read again";
-    }
-    ImGui::Checkbox("unverified sliders (test build)##tpunver", &g.include_unverified);
-    g_state.include_unverified = g.include_unverified;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("2.12.1 proof build: also stage the ~120 sliders the game's own slider table maps but the EA Custom screen has not shown yet. The flag is saved in the "
-                          "preset. Untick for the 3 screen-proven sliders only.");
-    ImGui::SameLine();
-    ImGui::Checkbox("with the set pieces##tpwithsp", &g.include_setpieces);
-    g_state.include_setpieces = g.include_setpieces;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Captain, penalty / free-kick / corner / throw-in takers, corner supports and pre-set substitutions of your club's team sheet. Read through "
-                          "Turbo's Lua side: press Read set pieces first. Loading writes the database columns (guarded, read back, undo); the running game may show "
-                          "them only after a career save and load.");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Read set pieces##tpreadsp")) {
-        send_setpieces(app, "get", tpreset::SetPieceBlock(), "", "Tactic preset: read set pieces");
-        g.status = "Asked Turbo's Lua side to read the set pieces (it runs at the next career event); press Save current afterwards";
-    }
-    if (app.now >= g.next_sp) {  // the small file is read at most once a second
-        g.next_sp = app.now + 1.0;
-        read_setpieces_current(app);
-    }
-    g_state.setpieces_line = g.sp_have ? "Set pieces read: team " + std::to_string(g.sp_current.team) + ", " + std::to_string(g.sp_current.values.size()) + " fields"
-                                       : "Set pieces: " + g.sp_why;
-    ImGui::TextDisabled("%s", g_state.setpieces_line.c_str());
-
-    // the list
-    ImGui::SeparatorText("Presets");
     g_state.names.clear();
     g_state.summaries.clear();
-    ImGui::BeginChild("##tplist", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 6.5f), ImGuiChildFlags_Borders);
-    for (size_t i = 0; i < g.presets.size(); ++i) {
-        const tpreset::Preset& p = g.presets[i];
-        g_state.names.push_back(p.name);
-        g_state.summaries.push_back(tpreset::summary(p));
-        const std::string label = p.name + "  -  " + g_state.summaries.back() + "##tpsel" + std::to_string(i);
-        if (ImGui::Selectable(label.c_str(), g.sel == int(i))) {
-            g.sel = int(i);
-            g.delete_armed = false;
-        }
+    for (const tpreset::Preset& pr : g.presets) {
+        g_state.names.push_back(pr.name);
+        g_state.summaries.push_back(tpreset::summary(pr));
     }
-    if (g.presets.empty()) ImGui::TextDisabled("No preset yet: type a name and press Save current.");
-    ImGui::EndChild();
     g_state.selected = g.sel;
-    for (const std::string& e : g.errors) ImGui::TextDisabled("Skipped %s", e.c_str());
     g_state.errors = g.errors;
-
-    // what a Load of the selected preset would do right now
+    g_state.status = g.status;
     const tpreset::Preset* p = selected();
     g_state.gate.clear();
     g_state.notes.clear();
@@ -706,47 +636,249 @@ void draw_body(App& app) {
         tsheet::Request req;
         const std::string rwhy = tpreset::request_for(p->tactic, g.live, req, g_state.notes);
         g_state.gate = rwhy.empty() ? live_tactic_gate(app, req) : rwhy;
-        for (const std::string& n : g_state.notes) ImGui::TextDisabled("%s", n.c_str());
-        if (!g_state.gate.empty()) ImGui::TextDisabled("Load now: %s", g_state.gate.c_str());
     } else if (p && p->tactic.present) {
         g_state.gate = g.live_why.empty() ? "the live tactic is not read" : g.live_why;
-        ImGui::TextDisabled("Load now: %s", g_state.gate.c_str());
     }
+    g_state.can_save = !trimmed_name().empty();
     g_state.can_load = p != nullptr && !g_state.busy;
     g_state.can_undo = g.have_last && g.last.state == "loaded" && !g_state.busy;
-    ImGui::BeginDisabled(!g_state.can_load);
-    if (ImGui::Button("Load##tpload")) start_load(app);
-    ImGui::EndDisabled();
+}
+
+// "Undo last load" on the right of the title line
+void undo_button_right(App& app, const char* label_with_id, const char* shown) {
+    const float bw = ImGui::CalcTextSize(shown).x + ImGui::GetStyle().FramePadding.x * 2.0f;
     ImGui::SameLine();
+    const float room = ImGui::GetContentRegionAvail().x - bw;
+    if (room > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + room);
     ImGui::BeginDisabled(!g_state.can_undo);
-    if (ImGui::Button("Undo last load##tpundo")) start_undo(app);
+    if (ImGui::Button(label_with_id)) start_undo(app);
     ImGui::EndDisabled();
+}
+
+void presets_select_panel(App& app, void*) {
+    ImGui::TextUnformatted("Presets");
     ImGui::SameLine();
-    ImGui::BeginDisabled(p == nullptr || g_state.busy);
-    if (ImGui::Button((g.delete_armed ? "Really delete?##tpdel" : "Delete##tpdel"))) {
-        if (g.delete_armed) delete_selected(app);
-        else g.delete_armed = true;
+    if (ImGui::SmallButton("Refresh##tprefresh")) {  // a preset file edited or copied outside the game
+        load_presets_now(app);
+        load_last_now(app);
+        g.status = "The presets folder was read again";
     }
-    ImGui::EndDisabled();
-    if (g.delete_armed && p) {
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::InputTextWithHint("##tpfilter", "Search", g.filter, sizeof(g.filter));
+    for (size_t i = 0; i < g.presets.size() && i < g_state.summaries.size(); ++i) {
+        const tpreset::Preset& p = g.presets[i];
+        if (g.filter[0] && !contains_nocase(p.name, g.filter)) continue;
+        const std::string label = p.name + "  -  " + g_state.summaries[i] + "##tpsel" + std::to_string(i);
+        if (ImGui::Selectable(label.c_str(), g.sel == int(i))) {
+            g.sel = int(i);
+            g.delete_armed = false;
+        }
+    }
+    if (g.presets.empty()) theme::muted_text("No preset yet: save your live tactic from the editor.");
+    for (const std::string& e : g.errors) theme::muted_text("Skipped %s", e.c_str());
+}
+
+void presets_editor_panel(App& app, void*) {
+    const tpreset::Preset* p = selected();
+    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * theme::kFontTitle);
+    ImGui::TextUnformatted(p ? p->name.c_str() : "Tactic presets");
+    ImGui::PopFont();
+    undo_button_right(app, "Undo last load##tpundo", "Undo last load");
+    if (p && g.sel >= 0 && size_t(g.sel) < g_state.summaries.size()) theme::muted_text("%s", g_state.summaries[size_t(g.sel)].c_str());
+    theme::muted_text("The game applies the values itself. The effect in a played match is not measured yet; limits are listed below.");
+    if (!g.status.empty()) ImGui::TextWrapped("%s", g.status.c_str());
+    if (g_state.last_line.empty() && !g.last_err.empty())
+        theme::muted_text("turbo_output\\%s is not used: %s", tpreset::last_load_file(), g.last_err.c_str());
+    if (!g_state.reapply.empty()) {
+        theme::warn_text("%s", g_state.reapply.c_str());
+        if (ImGui::Button("Re-apply##tpreapply")) start_reapply(app);
         ImGui::SameLine();
-        if (ImGui::SmallButton("Keep##tpkeep")) g.delete_armed = false;
+        if (ImGui::SmallButton("Dismiss##tpdismiss")) dismiss_prompt(app);
+    }
+
+    if (ImGui::CollapsingHeader("Live now##tpsec_live", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::TextWrapped("%s", g_state.live_line.c_str());
+        bool on = g_state.opt_in;
+        if (checkbox_right("Channel E on (turbo_output\\call_team_sheet_on.txt): needed to read and load the live tactic##tpopt", &on)) {
+            live_tactic_set_opt_in(app, on);
+            read_live(app, true);
+            g_state.opt_in = on;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Off by default. On creates turbo_output\\call_team_sheet_on.txt; call_team_sheet_off.txt or tactics_off.txt switch every write off.");
+        if (ImGui::SmallButton("Read live##tpreadlive")) read_live(app, true);
+    }
+    if (ImGui::CollapsingHeader("Selected preset##tpsec_sel", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (!p) theme::muted_text("Pick a preset on the left.");
+        for (const std::string& n : g_state.notes) theme::muted_text("%s", n.c_str());
+        if (p && !g_state.gate.empty()) theme::muted_text("Load now: %s", g_state.gate.c_str());
+        if (!g_state.last_line.empty()) theme::muted_text("%s", g_state.last_line.c_str());
+    }
+    if (ImGui::CollapsingHeader("Save current as a new preset##tpsec_save", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.45f);
+        ImGui::InputTextWithHint("##tpname", "Preset name", g.name, sizeof(g.name));
+        ImGui::SameLine();
+        ImGui::Checkbox("with the Custom sliders block##tpwithsliders", &g.include_settings);
+        g_state.include_settings = g.include_settings;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Also stores the Game Settings sliders (read from the settings file the game saved last). Loading stages the 3 screen-proven sliders, "
+                              "and the other table-mapped ones when 'unverified sliders' is ticked.");
+        g_state.can_save = !trimmed_name().empty();
+        ImGui::BeginDisabled(!g_state.can_save);
+        ImGui::SameLine();
+        if (ImGui::Button("Save current##tpsave")) save_current(app);
+        ImGui::EndDisabled();
+        ImGui::Checkbox("unverified sliders (test build)##tpunver", &g.include_unverified);
+        g_state.include_unverified = g.include_unverified;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("2.12.1 proof build: also stage the ~120 sliders the game's own slider table maps but the EA Custom screen has not shown yet. The flag is saved in the "
+                              "preset. Untick for the 3 screen-proven sliders only.");
+        ImGui::SameLine();
+        ImGui::Checkbox("with the set pieces##tpwithsp", &g.include_setpieces);
+        g_state.include_setpieces = g.include_setpieces;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Captain, penalty / free-kick / corner / throw-in takers, corner supports and pre-set substitutions of your club's team sheet. Read through "
+                              "Turbo's Lua side: press Read set pieces first. Loading writes the database columns (guarded, read back, undo); the running game may show "
+                              "them only after a career save and load.");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Read set pieces##tpreadsp")) {
+            send_setpieces(app, "get", tpreset::SetPieceBlock(), "", "Tactic preset: read set pieces");
+            g.status = "Asked Turbo's Lua side to read the set pieces (it runs at the next career event); press Save current afterwards";
+        }
+        if (app.now >= g.next_sp) {  // the small file is read at most once a second
+            g.next_sp = app.now + 1.0;
+            read_setpieces_current(app);
+        }
+        g_state.setpieces_line = g.sp_have ? "Set pieces read: team " + std::to_string(g.sp_current.team) + ", " + std::to_string(g.sp_current.values.size()) + " fields"
+                                           : "Set pieces: " + g.sp_why;
+        theme::muted_text("%s", g_state.setpieces_line.c_str());
+    }
+    if (ImGui::CollapsingHeader("Limits and safety##tpsec_limits")) {
+        theme::warn_text("Limits");
+        ImGui::TextWrapped("%s", g_state.banner.c_str());
+        ImGui::TextWrapped("%s", kSafety);
+    }
+    if (ImGui::CollapsingHeader("More##tpmore")) {
+        ImGui::BeginDisabled(p == nullptr || g_state.busy);
+        if (ImGui::Button((g.delete_armed ? "Really delete?##tpdel" : "Delete##tpdel"))) {
+            if (g.delete_armed) delete_selected(app);
+            else g.delete_armed = true;
+        }
+        ImGui::EndDisabled();
+        if (g.delete_armed && p) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Keep##tpkeep")) g.delete_armed = false;
+        }
+        theme::muted_text("Files: turbo_output\\%s\\<name>.json. The tactic goes through the Tactics card's guarded job (Undo in channel_e_undo.json too); "
+                          "reapply_edits.json is never touched.",
+                          tpreset::dir_name());
+    }
+}
+
+void draw_body(App& app) {
+    first_look(app);
+    read_live(app, false);
+    update_state(app);
+    shell::page::Primary primary;
+    primary.label = "Apply preset##tpload";
+    primary.enabled = g_state.can_load;
+    shell::page::frame(app, presets_select_panel, presets_editor_panel, nullptr, &primary);
+    if (primary.clicked) start_load(app);
+    draw_confirm(app);
+}
+
+// ---- Gameplay presets: the presets that carry a Custom sliders block (community slider presets), applied with the same start_load
+GameplayPageState g_gp;
+
+std::vector<int> gameplay_indices() {
+    std::vector<int> v;
+    for (size_t i = 0; i < g.presets.size(); ++i)
+        if (g.presets[i].settings.present) v.push_back(int(i));
+    return v;
+}
+
+void gameplay_select_panel(App& app, void*) {
+    ImGui::TextUnformatted("Slider presets");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Refresh##gprefresh")) {
+        load_presets_now(app);
+        g.status = "The presets folder was read again";
+    }
+    const std::vector<int> idx = gameplay_indices();
+    g_gp.names.clear();
+    g_gp.selected = -1;
+    for (size_t k = 0; k < idx.size(); ++k) {
+        const tpreset::Preset& p = g.presets[size_t(idx[k])];
+        g_gp.names.push_back(p.name);
+        if (g.sel == idx[k]) g_gp.selected = int(k);
+        const std::string label = p.name + "  -  " + std::to_string(p.settings.values.size()) + " sliders##gpsel" + std::to_string(k);
+        if (ImGui::Selectable(label.c_str(), g.sel == idx[k])) {
+            g.sel = idx[k];
+            g.delete_armed = false;
+        }
+    }
+    if (idx.empty()) theme::muted_text("No slider preset yet. Save one on Tactic presets with the Custom sliders block ticked.");
+}
+
+void gameplay_editor_panel(App& app, void*) {
+    const tpreset::Preset* p = selected();
+    const bool have = p != nullptr && p->settings.present;
+    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * theme::kFontTitle);
+    ImGui::TextUnformatted(have ? p->name.c_str() : "Gameplay presets");
+    ImGui::PopFont();
+    undo_button_right(app, "Undo last load##gpundo", "Undo last load");
+    g_gp.note = "Community slider presets. Write + EA screen read-back proven, on-pitch effect not measured.";
+    theme::muted_text("%s", g_gp.note.c_str());
+    g_gp.read_back_ok = false;
+    if (have) {
+        ImGui::TextWrapped("%zu sliders%s. Applying stages them; they are written to the game's settings file when FC 27 is closed "
+                           "(turbo_settings_apply.exe), then show on the EA Custom screen.",
+                           p->settings.values.size(), p->settings.include_unverified ? ", including sliders the EA screen has not shown yet" : "");
+        g_gp.read_back_ok = g.have_last && g.last.preset == p->name && g.last.state == "loaded";
+        if (g_gp.read_back_ok) theme::ok_text("Applied, read back OK (%s)", g.last.when.c_str());
+        else if (g.have_last && g.last.preset == p->name) theme::muted_text("Last apply: %s", g.last.state.c_str());
+    } else {
+        theme::muted_text("Pick a slider preset on the left.");
     }
     if (!g.status.empty()) ImGui::TextWrapped("%s", g.status.c_str());
-    g_state.status = g.status;
-    ImGui::TextDisabled("Files: turbo_output\\%s\\<name>.json. The tactic goes through the Tactics card's guarded job (Undo in channel_e_undo.json too); "
-                        "reapply_edits.json is never touched.",
-                        tpreset::dir_name());
+    if (!g_state.reapply.empty()) {
+        theme::warn_text("%s", g_state.reapply.c_str());
+        if (ImGui::Button("Re-apply##gpreapply")) start_reapply(app);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Dismiss##gpdismiss")) dismiss_prompt(app);
+    }
+    // the game's settings file and its own slider presets (was the Game settings tab): the Advanced view only
+    g_gp.advanced_section = false;
+    if (app.prefs.advanced_mode && ImGui::CollapsingHeader("Game settings file and slider values (Advanced)##gpadv")) {
+        g_gp.advanced_section = true;
+        draw_game_settings(app);
+    }
+}
+
+void draw_gameplay_body(App& app) {
+    first_look(app);
+    read_live(app, false);
+    update_state(app);
+    const tpreset::Preset* p = selected();
+    g_gp.can_apply = p != nullptr && p->settings.present && !g_state.busy;
+    g_gp.can_undo = g_state.can_undo;
+    shell::page::Primary primary;
+    primary.label = "Apply preset##gpload";
+    primary.enabled = g_gp.can_apply;
+    shell::page::frame(app, gameplay_select_panel, gameplay_editor_panel, nullptr, &primary);
+    if (primary.clicked) start_load(app);
     draw_confirm(app);
 }
 
 }  // namespace
 
 const TacticPresetsState& tactic_presets_state() { return g_state; }
+const GameplayPageState& gameplay_page_state() { return g_gp; }
 
 void tactic_presets_reset() {
     g = Pv();
     g_state = TacticPresetsState();
+    g_gp = GameplayPageState();
 }
 
 void draw_tactic_presets(App& app) {
@@ -754,11 +886,30 @@ void draw_tactic_presets(App& app) {
     try {
         draw_body(app);
     } catch (const std::exception& e) {
-        ImGui::TextColored(ImVec4(1, 0.5f, 0.3f, 1), "Tactic presets error: %s", e.what());
+        theme::err_text("Tactic presets error: %s", e.what());
     } catch (...) {
-        ImGui::TextColored(ImVec4(1, 0.5f, 0.3f, 1), "Tactic presets error");
+        theme::err_text("Tactic presets error");
     }
 }
+
+void draw_gameplay_presets(App& app) {
+    g_gp.drawn = true;
+    try {
+        draw_gameplay_body(app);
+    } catch (const std::exception& e) {
+        theme::err_text("Gameplay presets error: %s", e.what());
+    } catch (...) {
+        theme::err_text("Gameplay presets error");
+    }
+}
+
+// The two pages of the Tactics & Gameplay area that live here (ui_shell.h). Registered at static init; the flag lets a test see it
+// after another test cleared the registry.
+TURBO_REGISTER_PAGE(shell::Page::TacticPresets, draw_tactic_presets);
+TURBO_REGISTER_PAGE(shell::Page::GameplayPresets, draw_gameplay_presets);
+static const bool g_pages_registered_at_start =
+    shell::registered_page(shell::Page::TacticPresets) == draw_tactic_presets && shell::registered_page(shell::Page::GameplayPresets) == draw_gameplay_presets;
+bool tactic_pages_registered_at_start() { return g_pages_registered_at_start; }
 
 void tactic_presets_tick(App& app) {
     try {
