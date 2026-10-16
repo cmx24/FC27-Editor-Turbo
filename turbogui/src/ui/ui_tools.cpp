@@ -753,23 +753,28 @@ TURBO_REGISTER_PAGE(shell::Page::CareerMaintenance, page_career_maintenance);
 TURBO_REGISTER_PAGE(shell::Page::AdvBulkEdit, page_adv_bulk);
 TURBO_REGISTER_PAGE(shell::Page::AdvMaintenance, page_adv_maintenance);
 
-// Legacy entry (the old Turbo Tools tab, until the shell track removes it from app.cpp): every page of this file as
-// a collapsing header, so nothing is unreachable while the tab bar still exists. No section is drawn twice: the pages
-// above are the only callers of the section functions.
+// Legacy entry (the old Turbo Tools tab, until the shell track removes it from app.cpp): every page of this file one after the other, so nothing is unreachable while the tab bar still exists. No section is drawn twice: the pages
+// both in one frame).
 void draw_tools(App& app) {
-    static const Page kPages[] = {Page::Scouting, Page::Budget, Page::Exports, Page::Bans, Page::ChangesUndo,
-                                  Page::CareerMaintenance, Page::AdvBulkEdit, Page::AdvMaintenance};
     hotkey_control(app, "tools");  // hotkey_setting.h: the show/hide key, first thing in the tab (the new status bar has it too)
+    if (!tools_preamble(app)) return;
     ImGui::BeginChild("##tools");
+    form_label_width(S(170.0f));
     g_unframed = true;
-    for (Page p : kPages) {
-        if (ImGui::CollapsingHeader(shell::page_label(p), ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::PushID(static_cast<int>(p));
-            draw_career_tools_page(app, p);
-            ImGui::PopID();
-        }
-    }
+    // the old order of the sections (the tests and the habits of the old tab); the pages above hold the same functions
+    section_squad(app);
+    kept_player_edits_section(app);
+    section_scouting(app);
+    section_budget(app);
+    section_player_career(app);
+    section_exports(app);
+    section_bans(app);
+    section_bulk_edit(app);
+    section_db_maintenance(app);
+    section_safety(app);
+    draw_game_editors(app);
     g_unframed = false;
+    form_label_width(0.0f);
     ImGui::EndChild();
 }
 
