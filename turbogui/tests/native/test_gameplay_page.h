@@ -29,7 +29,6 @@ static void show_page(Ui& ui, void (*fn)(App&)) {
     ui.extra_draw = [app, fn]() {
         ImGui::SetNextWindowPos(ImVec2(0, 0));
         ImGui::SetNextWindowSize(ImVec2(1100, 700));
-        ImGui::SetNextWindowFocus();
         ImGui::Begin("T4 test page", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse);
         fn(*app);
         ImGui::End();
