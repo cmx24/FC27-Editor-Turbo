@@ -406,6 +406,24 @@ static json transfer_action(int64_t pid, int64_t to) {
 static json player_send(const std::vector<json>& actions) {
     return {{"op", "run"}, {"module", "player_moves"}, {"overrides", {{"actions", actions}}}};
 }
+// The mailbox holds kMaxSendBytes of command text (core/bridge.h kMbTextSize = 4096): a page's actions go out in as many
+// player_moves sends as that needs (50 transfers are about 4 KB)
+static void push_player_sends(std::vector<json>& sends, const std::vector<json>& actions) {
+    std::vector<json> chunk;
+    size_t bytes = 0;
+    const size_t base = player_send({}).dump().size();
+    for (const auto& a : actions) {
+        const size_t n = a.dump().size() + 1;
+        if (!chunk.empty() && base + bytes + n > kMaxSendBytes) {
+            sends.push_back(player_send(chunk));
+            chunk.clear();
+            bytes = 0;
+        }
+        chunk.push_back(a);
+        bytes += n;
+    }
+    if (!chunk.empty()) sends.push_back(player_send(chunk));
+}
 static json manager_send(int64_t mid, int64_t team, int64_t replacement) {
     json o = {{"enabled", true}, {"managerid", mid}, {"teamid", team}, {"confirm", true}};
     if (replacement > 0) o["replacement"] = replacement;
@@ -423,7 +441,7 @@ std::vector<Page> make_pages(const Preview& pv) {
         std::vector<json> actions;
         for (size_t i : pg.rows)
             if (pv.rows[i].kind == Kind::Transfer) actions.push_back(transfer_action(pv.rows[i].id, pv.rows[i].to));
-        if (!actions.empty()) pg.sends.push_back(player_send(actions));
+        push_player_sends(pg.sends, actions);
         for (size_t i : pg.rows)
             if (pv.rows[i].kind == Kind::Manager) pg.sends.push_back(manager_send(pv.rows[i].id, pv.rows[i].to, 0));
         pages.push_back(std::move(pg));
@@ -625,7 +643,7 @@ UndoPlan make_undo(const UndoSet& set, const Snapshot& live) {
         std::vector<json> actions;
         for (size_t i = a; i < end; ++i)
             if (steps[i].kind == Kind::Transfer) actions.push_back(transfer_action(steps[i].id, steps[i].team));
-        if (!actions.empty()) pg.sends.push_back(player_send(actions));
+        push_player_sends(pg.sends, actions);
         for (size_t i = a; i < end; ++i)
             if (steps[i].kind == Kind::Manager) pg.sends.push_back(manager_send(steps[i].id, steps[i].team, steps[i].replacement));
         pg.rows.resize(end - a);

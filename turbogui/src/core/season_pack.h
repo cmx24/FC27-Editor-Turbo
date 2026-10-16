@@ -40,6 +40,7 @@ class Model;
 namespace season_pack {
 
 constexpr size_t kPageRows = 50;          // the CMTracker page cap, kept: a pack applies this many rows per click
+constexpr size_t kMaxSendBytes = 3500;     // one command must fit the mailbox (4096 bytes): longer player_moves lists are split
 constexpr size_t kMaxPackRows = 5000;     // a sane bound on one pack (rows beyond it are ignored with a problem line)
 constexpr int64_t kFreeAgents = 111592;   // the Free Agents team
 constexpr int kMinSquad = 18, kMaxSquad = 52;
@@ -129,7 +130,8 @@ struct Preview {
 Preview preview(const Pack& pack, const Snapshot& live);
 
 // The accepted rows as pages of at most kPageRows rows; each page is the list of "send" JSONs (see the top of this file):
-// one player_moves send holding the page's transfers, then one manager_move send per manager row.
+// the page's transfers in as many player_moves sends as the mailbox needs (kMaxSendBytes each), then one manager_move send
+// per manager row.
 struct Page {
     std::vector<size_t> rows;             // indexes into Preview::rows (accepted rows only)
     std::vector<nlohmann::json> sends;

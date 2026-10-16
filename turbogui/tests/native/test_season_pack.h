@@ -225,7 +225,15 @@ static void run() {
         CHECK(pv.accepted == 120 && pv.rejected == 0 && pv.pages() == 3, "120 accepted, 3 pages");
         const auto pages = make_pages(pv);
         CHECK(pages.size() == 3 && pages[0].rows.size() == 50 && pages[1].rows.size() == 50 && pages[2].rows.size() == 20, "50 / 50 / 20");
-        for (const auto& p : pages) CHECK(p.sends.size() == 1 && p.sends[0]["overrides"]["actions"].size() == p.rows.size(), "one player send per page");
+        for (const auto& p : pages) {
+            size_t actions = 0;
+            bool fits = !p.sends.empty();
+            for (const auto& snd : p.sends) {
+                actions += snd["overrides"]["actions"].size();
+                fits = fits && snd.dump().size() <= kMaxSendBytes && snd.dump().size() < 4096;
+            }
+            CHECK(actions == p.rows.size() && fits, "a page's transfers are all there, every command fits the mailbox (" + std::to_string(p.sends.size()) + " commands)");
+        }
         Snapshot live = s;
         UndoStore store;
         for (const auto& p : pages) {
@@ -239,6 +247,37 @@ static void run() {
         CHECK(live.player_club == s.player_club, "restored");
         // a mixed page still counts player rows and manager rows against the same 50
         CHECK(kPageRows == 50, "the CMTracker page cap is kept");
+    });
+
+    run_case("season pack: a page of 50 long-id transfers is split into commands that each fit the mailbox", [] {
+        Snapshot s;
+        s.user_team = 99;
+        s.teams[99] = {"Mine", false};
+        s.teams[111500] = {"Source", false};
+        s.teams[111501] = {"Target", false};
+        std::string csv = "playerid,to\n";
+        for (int i = 0; i < 50; ++i) {
+            s.player_club[2000000000 + i] = 111500;
+            csv += std::to_string(2000000000 + i) + ",111501\n";
+        }
+        for (int i = 0; i < 20; ++i) s.player_club[1900000000 + i] = 111500;   // the source keeps 20 players
+        const fs::path dir = tmp_dir("longids");
+        put(dir / "transfers.csv", csv);
+        Pack pack;
+        CHECK(read_pack(dir, pack, nullptr), "read");
+        const Preview pv = preview(pack, s);
+        const auto pages = make_pages(pv);
+        CHECK(pv.accepted == 50 && pages.size() == 1 && pages[0].rows.size() == 50, "one page of 50");
+        CHECK(pages[0].sends.size() >= 2, "split over more than one command (50 long actions are about 4 KB)");
+        size_t actions = 0;
+        for (const auto& snd : pages[0].sends) {
+            actions += snd["overrides"]["actions"].size();
+            CHECK(snd.dump().size() <= kMaxSendBytes, "each command fits (" + std::to_string(snd.dump().size()) + " bytes)");
+        }
+        CHECK(actions == 50, "all 50 actions are in the commands");
+        Snapshot live = s;
+        execute(live, pages[0].sends);
+        CHECK(live.player_club[2000000049] == 111501, "executes");
     });
 
     run_case("season pack: rejections (user club, wrong from, duplicate, national, free agents, squad limits, bad rows, manager rules)", [] {
@@ -407,6 +446,162 @@ static void run() {
         CHECK(load_undo_store(rec, st, &err) && st.sets.size() == 1 && st.sets[0].rows.size() == 1, "bad entries dropped");
         // the reapply store is never touched by this module
         CHECK(undo_store_path("x").filename() != "reapply_edits.json", "separate file");
+    });
+}
+
+// ---------------------------------------------------------------- UI: Players > Season pack... (ui_cmtracker.cpp season_pack_dialog)
+// The test world's career: your club Arsenal (1), Everton (7), Inter (241), England (1318, national), Free Agents; players 2001/2002 at
+// Everton, 3001-3003 at Inter, 4001 a free agent; managers 501 Arteta (Arsenal), 502 Moyes (Everton), 503 Chivu (Inter).
+// The Lua side is not simulated here: the mailbox is answered by hand, so these cases prove what the window SENDS and records, not that
+// Lua accepts it (not proven offline; G9 in game).
+static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
+    auto last_cmd = [&]() { return json::parse(mem.read_cstr(kMb + 0x20, 0x1000), nullptr, false); };
+    auto answer = [&](bool ok, const char* msg) {
+        mem.wr(kMb + kMbStatus, static_cast<int32_t>(ok ? 1 : 2));
+        std::vector<uint8_t> text(kMbTextSize, 0);
+        std::memcpy(text.data(), msg, std::strlen(msg));
+        mem.write(kMb + kMbResult, text.data(), text.size());
+        mem.wr(kMb + kMbAckSeq, app.mailbox->seq());
+        ui.frames(3);
+    };
+    auto open_dialog = [&]() {
+        app.mailbox->cancel();
+        app.pack_queue.clear();
+        app.pack_status.clear();
+        app.request_tab = 0;
+        ui.frames(3);
+        ui.type_into(ui.find("##psearch", "##plist"), "");
+        ui.click("Clear##filters", "##plist");
+        CHECK(ui.click("1002", "##plist"), "player row 1002");
+        ui.frames(2);
+        CHECK(ui.click("From CMTracker..."), "From CMTracker... button");
+        ui.frames(2);
+        CHECK(ui.click("Season pack...", "##pcmt"), "Season pack... button in that dialog");
+        ui.frames(2);
+    };
+    auto close_dialog = [&]() {
+        ui.click("Close##packclose", "##pseasonpack");
+        ui.frames(2);
+        ui.click("Close##pcmt", "##pcmt");
+        ui.frames(2);
+    };
+    const fs::path undo_file = season_pack::undo_store_path(app.bridge.root());
+
+    run_case("UI: Season pack: preview shows accepted and rejected rows, Apply asks first, sends player_moves then manager_move, records undo", [&] {
+        std::error_code ec;
+        fs::remove(undo_file, ec);
+        const fs::path dir = tmp_dir("ui_pack");
+        put(dir / "pack.json", "{\"name\":\"UI Pack\",\"season\":\"test\"}");
+        put(dir / "transfers.csv", "playerid,to\n2002,241\n3002,7\n3001,1\n4001,7\n999999,7\n");
+        put(dir / "managers.csv", "managerid,to\n502,241\n501,7\n");
+        open_dialog();
+        CHECK(ui.find("Choose pack folder...##packchoose", "##pseasonpack") != nullptr, "dialog open with the folder button");
+        std::string err;
+        CHECK(!season_pack_open_folder(app, dir / "nope", &err) && !err.empty(), "a folder that is not a pack is refused with a reason");
+        CHECK(season_pack_open_folder(app, dir, &err), err);
+        ui.frames(3);
+        CHECK(ui.find("Check again##packrecheck", "##pseasonpack") != nullptr, "pack loaded");
+        // the same preview the dialog shows
+        Pack loaded;
+        CHECK(read_pack(dir, loaded, nullptr), "read the same pack");
+        const auto pv = preview(loaded, snapshot_from_model(app.model, app.bridge.state().user_team));
+        CHECK(pv.accepted == 4 && pv.rejected == 3, "4 rows can apply, 3 are rejected (your club x2, unknown player)");
+        // nothing is sent before the confirmation
+        CHECK(!app.busy(), "nothing sent yet");
+        CHECK(ui.click("Apply next page##packapply", "##pseasonpack"), "Apply next page");
+        ui.frames(2);
+        CHECK(!app.busy() && ui.find("Apply##packconfirm", "Apply season pack page?") != nullptr, "the confirmation opens, still nothing sent");
+        CHECK(ui.click("Cancel##packcancel", "Apply season pack page?"), "Cancel");
+        ui.frames(2);
+        CHECK(!app.busy() && !fs::exists(undo_file), "cancelled: nothing sent, nothing recorded");
+        CHECK(ui.click("Apply next page##packapply", "##pseasonpack"), "Apply next page again");
+        ui.frames(2);
+        CHECK(ui.click("Apply##packconfirm", "Apply season pack page?"), "Apply");
+        ui.frames(2);
+        CHECK(app.busy(), "first command sent");
+        json c = last_cmd();
+        CHECK(!c.is_discarded() && c.value("module", "") == "player_moves" && c["overrides"]["actions"].size() == 3, "player_moves with the 3 transfers: " + c.dump());
+        if (!c.is_discarded() && c.contains("overrides") && c["overrides"].contains("actions") && c["overrides"]["actions"].size() == 3) {
+            const json& a = c["overrides"]["actions"];
+            CHECK(a[0]["playerid"] == 2002 && a[0]["to_teamid"] == 241 && a[0]["action"] == "transfer" && a[0]["fee"] == 0, "2002 -> Inter, no fee");
+            CHECK(a[1]["playerid"] == 3002 && a[1]["to_teamid"] == 7 && a[2]["playerid"] == 4001 && a[2]["to_teamid"] == 7, "3002 -> Everton, 4001 -> Everton");
+        }
+        CHECK(app.pending_label.rfind("Season pack", 0) == 0, "label: " + app.pending_label);
+        // the undo record was written before the send
+        UndoStore rec;
+        std::string e2;
+        CHECK(load_undo_store(undo_file, rec, &e2) && rec.sets.size() == 1 && rec.sets[0].pack == "UI Pack" && rec.sets[0].rows.size() == 4, "undo record: 4 rows of UI Pack (" + e2 + ")");
+        answer(true, "transfer x3");
+        CHECK(app.busy(), "the manager command follows the answer");
+        c = last_cmd();
+        CHECK(!c.is_discarded() && c.value("module", "") == "manager_move" && c["overrides"].value("managerid", 0) == 502 &&
+                  c["overrides"].value("teamid", 0) == 241 && c["overrides"].value("enabled", false) && c["overrides"].value("confirm", false),
+              "manager_move 502 -> 241: " + c.dump());
+        answer(true, "moved: David Moyes -> Inter");
+        CHECK(!app.busy() && app.pack_queue.empty() && app.pack_status.find("apply done") != std::string::npos, "run finished: " + app.pack_status);
+        close_dialog();
+    });
+
+    run_case("UI: Season pack: a failed command stops the run and keeps the record; Undo of a record sends the reverse and drops it when done", [&] {
+        std::error_code ec;
+        fs::remove(undo_file, ec);
+        const fs::path dir = tmp_dir("ui_pack2");
+        put(dir / "transfers.csv", "playerid,to\n2002,241\n");
+        put(dir / "managers.csv", "managerid,to\n502,241\n");
+        open_dialog();
+        CHECK(season_pack_open_folder(app, dir, nullptr), "pack loaded");
+        ui.frames(3);
+        CHECK(ui.click("Apply next page##packapply", "##pseasonpack"), "Apply next page");
+        ui.frames(2);
+        CHECK(ui.click("Apply##packconfirm", "Apply season pack page?"), "Apply");
+        ui.frames(2);
+        CHECK(app.busy() && last_cmd().value("module", "") == "player_moves", "player_moves sent");
+        answer(false, "action 1: team 241 not found");
+        CHECK(!app.busy() && app.pack_queue.empty() && app.pack_failed, "failure: the manager command is not sent");
+        CHECK(app.pack_status.find("Failed after 0 of 2") != std::string::npos && app.pack_status.find("team 241 not found") != std::string::npos, app.pack_status);
+        UndoStore rec;
+        CHECK(load_undo_store(undo_file, rec, nullptr) && rec.sets.size() == 1 && rec.sets[0].rows.size() == 2, "the record stays");
+
+        // a record whose player is where the pack put him: Undo sends him back
+        UndoStore st;
+        UndoSet s;
+        s.pack = "Rec Pack";
+        s.when = "2026-10-16 12:00";
+        UndoRow r;
+        r.id = 2002;          // 2002 plays for Everton (7) in the test world
+        r.from = 241;
+        r.to = 7;
+        r.subject = "Generic Generic";
+        s.rows.push_back(r);
+        UndoRow gone = r;     // 3002 is at Inter, not where this row says: it stays
+        gone.id = 3002;
+        gone.from = 7;
+        gone.to = 1318;
+        s.rows.push_back(gone);
+        st.sets.push_back(s);
+        std::string err;
+        CHECK(save_undo_store(undo_file, st, &err), err);
+        app.pack_failed = false;
+        app.pack_status.clear();
+        ui.frames(3);
+        const ItemRec* undo_btn = ui.find("Undo this pack##packundo0", "##pseasonpack");
+        CHECK(undo_btn != nullptr, "an Undo button per recorded pack");
+        CHECK(ui.click(undo_btn), "Undo this pack");
+        ui.frames(2);
+        CHECK(!app.busy() && ui.find("Undo##packundoconfirm", "Undo season pack?") != nullptr, "the confirmation opens first");
+        CHECK(ui.click("Undo##packundoconfirm", "Undo season pack?"), "confirm Undo");
+        ui.frames(2);
+        CHECK(app.busy(), "undo command sent");
+        json c = last_cmd();
+        CHECK(!c.is_discarded() && c.value("module", "") == "player_moves" && c["overrides"]["actions"].size() == 1 &&
+                  c["overrides"]["actions"][0]["playerid"] == 2002 && c["overrides"]["actions"][0]["to_teamid"] == 241,
+              "2002 goes back to Inter only: " + c.dump());
+        answer(true, "transfer x1");
+        CHECK(!app.busy() && app.pack_status.find("undo done") != std::string::npos, app.pack_status);
+        UndoStore after;
+        CHECK(load_undo_store(undo_file, after, nullptr) && after.sets.empty(), "the spent record is removed");
+        fs::remove(undo_file, ec);
+        close_dialog();
     });
 }
 

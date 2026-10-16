@@ -7475,6 +7475,7 @@ static void test_ui() {
             app.game_root.clear();
             app.callnames.refreshed = false;
         });
+        season_pack_test::ui_cases(app, ui, mem, kMb);  // test_season_pack.h (2.10 B3: Players > Season pack...)
         run_case("UI: kept edits: kit colours and player-specific callnames are written again when a newly loaded career connects", [&] {
             const auto npos = std::string::npos;
             std::vector<std::string> hooked;  // turbo_gui.log

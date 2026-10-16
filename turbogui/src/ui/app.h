@@ -321,6 +321,12 @@ public:
     std::string manager_move_status;
     int64_t manager_move_team = 0;    // club picked for "Move to the picked club"
     char manager_move_search[64] = "";
+    // Season update pack importer (ui_cmtracker.cpp season_pack_dialog): the commands of the page or undo in flight, sent one at a
+    // time as Lua answers (season_pack_on_result is called from tick when an answer to a "Season pack" command arrives)
+    std::deque<nlohmann::json> pack_queue;
+    std::string pack_kind, pack_pack, pack_status;   // "apply" / "undo", the pack's name, what to show
+    bool pack_failed = false;
+    int pack_sent = 0, pack_total = 0;
 
     // ---- selections / UI state
     int64_t sel_player = 0;
@@ -600,5 +606,8 @@ bool range_filter_row(const char* label, const char* id, int& from, int& to, int
 // shown with its descriptor and stays selectable. Sets `pos` and returns true on a pick.
 bool position_combo(const char* id, int& pos, float width, const char* none_label = nullptr, int lo = 0, int hi = -1);
 bool& position_show_all();
+
+// ui_cmtracker.cpp: the answer of a "Season pack" command (sends the next queued one, or ends the run)
+void season_pack_on_result(App& app, bool ok, const std::string& result);
 
 }  // namespace turbo
