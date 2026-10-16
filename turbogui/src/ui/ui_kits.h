@@ -25,6 +25,22 @@ class App;
 
 // The Kits tab of the Teams editor (ui_teams.cpp); teamid = the club selected on the left (the import's target)
 void kits_editor(App& app, int64_t teamid);
+
+// 2.13 (GUI revamp): Club & Kits > Kits page. [slot list | editor] and ONE primary action, "Apply kit" (the ready kits of the
+// selected slot, through the same apply_items as the Apply all button). The selected slot's imported record, its
+// "Restore EA kit" (= undo_kit_import of that club + slot only: it never touches another club's or slot's kept rows) and the 3D
+// controls sit in the editor. Chrome only: the import, the apply and the undo are the 2.3 / 2.6 functions below.
+void kits_page(App& app, int64_t teamid);
+struct KitSlotRow {
+    kits::Slot slot = kits::Slot::Unknown;
+    const char* label = "";   // "Home", "Away", "Third", "Goalkeeper", "Fourth"
+    bool custom = false;      // imported by Turbo for this club (has_kit_import)
+    std::string state;        // "custom *" or "EA"
+};
+// The slot list of the page, in the order it is drawn (Home, Away, Third, Goalkeeper, Fourth)
+std::vector<KitSlotRow> kit_slot_rows(App& app, int64_t teamid);
+kits::Slot kit_page_slot();               // the slot selected on the page (Home at start)
+void kit_page_select(kits::Slot s);
 // Where "Import kit zip..." starts: C:\FC_Tools\My Mods when it exists, else the Live Editor folder (the picker
 // remembers the last folder under the key "kit_import")
 std::filesystem::path kit_import_start_folder(App& app);

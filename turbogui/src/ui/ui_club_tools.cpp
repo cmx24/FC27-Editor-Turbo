@@ -6,6 +6,9 @@
 #include "app.h"
 #include "core/hub_customise.h"
 #include "imgui.h"
+#include "ui_club_page.h"
+#include "ui_shell.h"
+#include "ui_theme.h"
 
 namespace turbo {
 
@@ -120,7 +123,14 @@ bool club_reopen(App& app, bool licensed_too) {
 }
 
 void draw_club_tools(App& app) {
-    if (ImGui::CollapsingHeader("Your club: customisation hub (kits, crest, stadium)")) draw_hub(app);
+    if (ImGui::CollapsingHeader("Your club: customisation hub (crest, stadium, the game's kit designer)")) {
+        // 2.13: Turbo's own kit import has one home, Club & Kits > Kits: this is a link, not a second entry point
+        ImGui::AlignTextToFramePadding();
+        theme::muted_text("Turbo's kit import (zips, colours, fonts, 3D kit): Club & Kits > Kits.");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Open Kits##clubtoolskits")) club_request_page(shell::Page::Kits);
+        draw_hub(app);
+    }
 }
 
 }  // namespace turbo

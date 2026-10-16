@@ -8,6 +8,7 @@
 #include "imgui.h"
 #include "table_sort.h"
 #include "ui_bodytypes.h"
+#include "ui_club_page.h"
 #include "ui_faces.h"
 #include "ui_identity.h"
 #include "ui_images.h"
@@ -501,13 +502,13 @@ static void team_editor(App& app) {
         }
         if (ImGui::BeginTabItem("Name")) {
             ImGui::BeginChild("##tname");
-            team_name_editor(app, *t, tr->rec, tr->teamid);
+            club_name_section(app);  // ui_club_page.h: the same section Club & Kits > Identity draws
             ImGui::EndChild();
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Colours")) {
             ImGui::BeginChild("##tcolours");
-            team_colours_editor(app, *t, tr->rec, tr->teamid);
+            club_colours_section(app, true);  // club + stadium + kit colours, as this tab always showed
             ImGui::EndChild();
             ImGui::EndTabItem();
         }
@@ -519,7 +520,7 @@ static void team_editor(App& app) {
         }
         if (ImGui::BeginTabItem("Crest")) {
             ImGui::BeginChild("##tcrest");
-            crest_editor(app, tr->teamid);
+            club_crest_section(app);
             ImGui::EndChild();
             ImGui::EndTabItem();
         }

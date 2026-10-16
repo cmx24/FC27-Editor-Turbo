@@ -20,7 +20,10 @@
 #include "imgui.h"
 #include "nlohmann/json.hpp"
 #include "table_registry.h"
+#include "ui_club_page.h"
 #include "ui_identity.h"
+#include "ui_shell.h"
+#include "ui_theme.h"
 
 namespace turbo {
 
@@ -863,16 +866,23 @@ static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
     ImGui::Unindent();
 }
 
-void kits_editor(App& app, int64_t teamid) {
+// The slot selected on the Kits page (2.13)
+static Slot g_page_slot = Slot::Home;
+
+// The editor body. in_page false = the legacy Teams > Kits tab (every slot's record in one list, an Apply per kit);
+// in_page true = Club & Kits > Kits (the selected slot only; the page's primary button applies, Restore EA kit undoes).
+static void kits_body(App& app, int64_t teamid, bool in_page) {
     KitPanel& p = g_panel;
     poll_jobs(app);
     const std::string club = app.model.team_name(teamid);
     const bool busy = kit_panel_busy();
 
-    ImGui::SeparatorText("Import a FIFA Kit Creator kit (fifakitcreator.com zip)");
-    ImGui::Text("Target club: %s (ID %lld)", club.c_str(), static_cast<long long>(teamid));
-    ImGui::SameLine();
-    ImGui::TextDisabled("pick another club in the list on the left");
+    ImGui::SeparatorText(in_page ? "Source: a FIFA Kit Creator kit (fifakitcreator.com zip)" : "Import a FIFA Kit Creator kit (fifakitcreator.com zip)");
+    if (!in_page) {
+        ImGui::Text("Target club: %s (ID %lld)", club.c_str(), static_cast<long long>(teamid));
+        ImGui::SameLine();
+        ImGui::TextDisabled("pick another club in the list on the left");
+    }
     if (busy) ImGui::BeginDisabled();
     if (ImGui::Button("Import kit zip...")) {
         p.fp_zip.mode = PickMode::Open;
@@ -941,16 +951,18 @@ void kits_editor(App& app, int64_t teamid) {
         for (const auto& n : it.pk.notes) ImGui::TextDisabled("%s", n.c_str());
         if (it.pk.ok && !it.pk.decals) ImGui::TextDisabled("brand / crest decals: the game's own stay");
         ImGui::PopTextWrapPos();
-        const bool can = is_ready && !busy && ms != LegacyImages::State::Waiting && app.model.team(teamid);
-        if (!can) ImGui::BeginDisabled();
-        char bid[32];
-        std::snprintf(bid, sizeof(bid), "Apply##kit%zu", i);
-        if (ImGui::Button(bid)) apply_items(app, teamid, {i});
-        if (!can) ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s", ms == LegacyImages::State::Waiting
-                                        ? "Waiting for the game's minikit file, so the new one is written in its own size and format"
-                                        : "Writes the settings into this club's kit row (kept for every career load), the minikit, and converts the textures");
+        if (!in_page) {  // on the page the one primary action, "Apply kit", applies the selected slot's ready kits
+            const bool can = is_ready && !busy && ms != LegacyImages::State::Waiting && app.model.team(teamid);
+            if (!can) ImGui::BeginDisabled();
+            char bid[32];
+            std::snprintf(bid, sizeof(bid), "Apply##kit%zu", i);
+            if (ImGui::Button(bid)) apply_items(app, teamid, {i});
+            if (!can) ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", ms == LegacyImages::State::Waiting
+                                            ? "Waiting for the game's minikit file, so the new one is written in its own size and format"
+                                            : "Writes the settings into this club's kit row (kept for every career load), the minikit, and converts the textures");
+        }
         if (is_ready) ready.push_back(i);
         ImGui::EndGroup();
         if (it.pk.ok && ImGui::TreeNode("##kitsettings", "Kit settings (settings.json) and this club's values")) {
@@ -980,9 +992,10 @@ void kits_editor(App& app, int64_t teamid) {
     }
 
     // ---- this club's imported kits (Undo)
-    ImGui::SeparatorText("Kits imported for this club");
+    ImGui::SeparatorText(in_page ? (std::string(kits::slot_label(g_page_slot)) + " kit: what Turbo imported").c_str() : "Kits imported for this club");
     bool any = false;
     for (Slot s : {Slot::Home, Slot::Away, Slot::Goalkeeper, Slot::Third, Slot::Fourth}) {
+        if (in_page && s != g_page_slot) continue;
         ImportRecord r;
         if (!load_record(app, teamid, s, r)) continue;
         any = true;
@@ -1000,7 +1013,7 @@ void kits_editor(App& app, int64_t teamid) {
         ImGui::SameLine();
         const bool can = !staging_slot(teamid, s);
         if (!can) ImGui::BeginDisabled();
-        if (ImGui::SmallButton("Undo##kitundo")) {
+        if (ImGui::SmallButton(in_page ? "Restore EA kit##kitundo" : "Undo##kitundo")) {
             std::string msg;
             const bool ok = undo_kit_import(app, teamid, s, &msg);
             p.line = msg;
@@ -1010,7 +1023,7 @@ void kits_editor(App& app, int64_t teamid) {
         kit_swap_controls(app, teamid, s, staged && !staging_slot(teamid, s));
         ImGui::PopID();
     }
-    if (!any) ImGui::TextDisabled("none");
+    if (!any) ImGui::TextDisabled(in_page ? "Nothing imported for this slot: the game's own (EA) kit is in use." : "none");
     ImGui::Spacing();
     ImGui::PushTextWrapPos(0.0f);
     ImGui::TextDisabled("Live now: the kit settings (kept for every career load, like Teams > Colours; turbo_output\\reapply_off.txt turns "
@@ -1018,6 +1031,82 @@ void kits_editor(App& app, int64_t teamid) {
                         "The 3D kit on the pitch: Turbo converts the textures to FC 27's own sizes and formats, keeps them in "
                         "turbo_output\\kits\\<club id>\\<slot>\\ and, with Show it on the pitch on, serves them to the game while it loads the kit.");
     ImGui::PopTextWrapPos();
+}
+
+// The Teams > Kits tab (the legacy tab bar; the Club & Kits page below replaces it)
+void kits_editor(App& app, int64_t teamid) { kits_body(app, teamid, false); }
+
+// ---------------------------------------------------------------- Club & Kits > Kits (2.13)
+std::vector<KitSlotRow> kit_slot_rows(App& app, int64_t teamid) {
+    std::vector<KitSlotRow> rows;
+    for (Slot s : {Slot::Home, Slot::Away, Slot::Third, Slot::Goalkeeper, Slot::Fourth}) {
+        KitSlotRow r;
+        r.slot = s;
+        r.label = kits::slot_label(s);
+        r.custom = has_kit_import(app, teamid, s);
+        r.state = r.custom ? "custom *" : "EA";
+        rows.push_back(std::move(r));
+    }
+    return rows;
+}
+Slot kit_page_slot() { return g_page_slot; }
+void kit_page_select(Slot s) {
+    if (s != Slot::Unknown) g_page_slot = s;
+}
+
+namespace {
+struct KitsPageCtx {
+    int64_t teamid = 0;
+};
+void kits_select_panel(App& app, void* user) {
+    const KitsPageCtx& c = *static_cast<KitsPageCtx*>(user);
+    theme::muted_text("Kit slot");
+    for (const KitSlotRow& r : kit_slot_rows(app, c.teamid)) {
+        const std::string id = std::string(r.label) + "##kslot";
+        if (ImGui::Selectable(id.c_str(), g_page_slot == r.slot)) g_page_slot = r.slot;
+        ImGui::SameLine(S(120.0f));
+        if (r.custom) theme::ok_text("%s", r.state.c_str());
+        else theme::muted_text("%s", r.state.c_str());
+    }
+    ImGui::Separator();
+    ImGui::PushTextWrapPos(0.0f);
+    theme::muted_text("* imported by Turbo. Restore EA kit puts one slot of this club back; other clubs are never touched.");
+    ImGui::PopTextWrapPos();
+}
+void kits_editor_panel(App& app, void* user) {
+    const KitsPageCtx& c = *static_cast<KitsPageCtx*>(user);
+    ImGui::Text("%s kit . %s", kits::slot_label(g_page_slot), app.model.team_name(c.teamid).c_str());
+    kits_body(app, c.teamid, true);
+    ImGui::Spacing();
+    if (ImGui::CollapsingHeader("Colours & numbers (kit colours, number fonts, outline)##kitcolours"))
+        club_kit_colours_section(app, c.teamid);
+}
+}  // namespace
+
+void kits_page(App& app, int64_t teamid) {
+    poll_jobs(app);
+    KitPanel& p = g_panel;
+    // a zip or folder was just read: show the slot of its first kit
+    static size_t seen_items = 0;
+    if (p.items.size() != seen_items) {
+        seen_items = p.items.size();
+        if (!p.items.empty()) kit_page_select(p.items.front().slot);
+    }
+    // the primary action: the ready kits of the selected slot
+    std::vector<size_t> which;
+    bool waiting = false;
+    for (size_t i = 0; i < p.items.size(); ++i) {
+        if (p.items[i].slot != g_page_slot || item_status(i) != "ready") continue;
+        which.push_back(i);
+        waiting = waiting || minikit_state(app, teamid, p.items[i].slot) == LegacyImages::State::Waiting;
+    }
+    KitsPageCtx ctx;
+    ctx.teamid = teamid;
+    shell::page::Primary primary;
+    primary.label = "Apply kit";
+    primary.enabled = !which.empty() && !waiting && !kit_panel_busy() && app.model.team(teamid) != nullptr;
+    shell::page::frame(app, kits_select_panel, kits_editor_panel, &ctx, &primary);
+    if (primary.clicked && primary.enabled) apply_items(app, teamid, which);
 }
 
 }  // namespace turbo
