@@ -1,9 +1,10 @@
 // Native tests (2026-10-16, GUI revamp contract, GUI_REVAMP_SPEC.md): the shell contract of ui/ui_shell.h and the palette of
 // ui/ui_theme.h. Included by test_main.cpp after test_ux_resize.h; test_shell() runs the pure cases, test_shell_app(app)
 // (inside the UI block, a real App) the page registry cases that need an App&.
-// Track T1 extends this file with the tab bar / request_tab cases.
+// Track T1 (2026-10-16): the tab bar / request_tab / go() / Settings page cases (test_shell_ui) and the sections_open round trip.
 #pragma once
 #include <cmath>
+#include <fstream>
 #include <set>
 #include <string>
 
@@ -125,6 +126,30 @@ static void test_shell() {
         CHECK(!turbo::top_tab_visible(turbo::TabDatabase, false) && !page_visible(Page::AdvDatabase, false), "Database hidden in Simple in both");
     });
 
+    run_case("shell: gui.sections_open round trip (defaults, set / get, other keys kept, junk ignored)", [&] {
+        using turbo::GuiPrefs;
+        GuiPrefs p;
+        CHECK(p.sections_open.empty() && p.section_open("x.a", true) && !p.section_open("x.a", false), "unset: the page's default");
+        CHECK(p.set_section_open("settings.log", true) && !p.set_section_open("settings.log", true), "set reports a change once");
+        CHECK(p.set_section_open("settings.preferences", false) && !p.section_open("settings.preferences", true), "closed beats the default");
+        nlohmann::json j = nlohmann::json::object();
+        j["gui"]["ui_scale"] = 1.2;
+        p.advanced_mode = true;
+        p.save(j);
+        CHECK(j["gui"]["ui_scale"] == 1.2 && j["gui"]["sections_open"]["settings.log"] == true &&
+                  j["gui"]["sections_open"]["settings.preferences"] == false,
+              "saved next to the other keys: " + j["gui"].dump());
+        const GuiPrefs q = GuiPrefs::load(j);
+        CHECK(q.advanced_mode && q.sections_open.size() == 2 && q.section_open("settings.log", false) && !q.section_open("settings.preferences", true),
+              "loaded back");
+        nlohmann::json bad = nlohmann::json::parse("{\"gui\":{\"sections_open\":{\"a\":true,\"b\":\"yes\",\"c\":3}}}");
+        const GuiPrefs r = GuiPrefs::load(bad);
+        CHECK(r.sections_open.size() == 1 && r.section_open("a", false), "only booleans are taken");
+        CHECK(GuiPrefs::load(nlohmann::json::parse("{\"gui\":{\"sections_open\":[1]}}")).sections_open.empty() &&
+                  GuiPrefs::load(nlohmann::json::object()).sections_open.empty(),
+              "wrong type / missing: empty");
+    });
+
     run_case("shell: theme palette and grid constants (spec 2.2)", [&] {
         using namespace turbo::theme;
         const ImVec4 cs[] = {accent(), ok(), warn(), err(), muted()};
@@ -145,6 +170,10 @@ static void test_shell() {
 
 // Registry cases: need a real App& for draw_page
 static void test_shell_app(turbo::App& app) {
+    // The pages the app registered at start-up (Settings, later the other tracks'): the registry case clears them, they are
+    // put back afterwards so the cases that follow (and test_shell_ui) see the real pages
+    turbo::shell::PageFn saved[turbo::shell::kPageCount] = {};
+    for (int i = 1; i < turbo::shell::kPageCount; ++i) saved[i] = turbo::shell::registered_page(static_cast<Page>(i));
     run_case("shell: page registry (register once, draw only visible pages, clear)", [&] {
         using namespace turbo::shell;
         clear_registry_for_tests();
@@ -161,7 +190,130 @@ static void test_shell_app(turbo::App& app) {
         CHECK(draw_page(app, Page::AdvDatabase, true) && g_shell_calls == 2, "Advanced page drawn in Advanced");
         clear_registry_for_tests();
         CHECK(registered_page(Page::Kits) == nullptr && !draw_page(app, Page::Kits, true), "cleared");
+        for (int i = 1; i < kPageCount; ++i)
+            if (saved[i]) register_page(static_cast<Page>(i), saved[i]);
+        CHECK(registered_page(Page::Settings) == saved[static_cast<int>(Page::Settings)], "start-up registrations restored");
     });
+}
+
+// UI cases: the area tabs, the page strip, request_tab / go(), the Advanced gate, the Settings page (T1)
+static void test_shell_ui(turbo::App& app, Ui& ui) {
+    using namespace turbo::shell;
+    const bool was_advanced = app.prefs.advanced_mode;
+    auto settle = [&](int n = 6) { ui.frames(n); };
+
+    run_case("shell UI: area tabs and the page strip (Simple has no Advanced tab); legacy request_tab lands on area_for", [&] {
+        app.prefs.advanced_mode = false;
+        app.request_tab = 0;
+        settle();
+        CHECK(ui.find("Squad & Players") && ui.find("Club & Kits") && ui.find("Tactics & Gameplay") && ui.find("Career tools") && ui.find("Settings"),
+              "the five area tabs");
+        CHECK(ui.find("Advanced", "FC 27 LE Turbo") == nullptr, "no Advanced tab in Simple");
+        CHECK(app.place() == area_for(0), "request_tab 0 -> Squad / Player edit");
+        CHECK(ui.find("Player edit") && ui.find("Staff"), "the Squad & Players page strip");
+        for (int t : {1, 2, 3, 5, 6, 7}) {
+            app.request_tab = t;
+            settle();
+            CHECK(app.place() == area_for(t), "request_tab " + std::to_string(t) + " -> " + page_label(area_for(t).page));
+        }
+        const Place before = app.place();
+        app.request_tab = 4;  // Database: hidden in Simple, as before
+        settle();
+        CHECK(app.place() == before, "request_tab 4 (Database) is ignored in Simple");
+        CHECK(app.request_tab == -1, "request consumed");
+        app.request_tab = 99;
+        settle(2);
+        CHECK(app.place() == before && app.request_tab == -1, "an out of range request is dropped");
+    });
+
+    run_case("shell UI: go(Area, Page) for every visible page; Advanced pages need the Advanced view", [&] {
+        app.prefs.advanced_mode = false;
+        for (int a = 0; a < kAreaCount; ++a)
+            for (Page p : pages_of(static_cast<Area>(a))) {
+                if (!page_visible(p, false)) continue;
+                app.go(static_cast<Area>(a), p);
+                settle();
+                CHECK(app.place().area == static_cast<Area>(a) && app.place().page == p,
+                      std::string("go -> ") + area_label(static_cast<Area>(a)) + " / " + page_label(p));
+            }
+        const Place at = app.place();
+        app.go(Area::Advanced, Page::AdvDatabase);
+        settle();
+        CHECK(app.place() == at, "go to an Advanced page is ignored in Simple");
+        app.go(Area::Club, Page::Standings);  // wrong area for the page
+        settle();
+        CHECK(app.place() == at, "a page in the wrong area is ignored");
+        app.prefs.advanced_mode = true;
+        settle();
+        CHECK(ui.find("Advanced", "FC 27 LE Turbo") != nullptr, "Advanced tab with the toggle");
+        for (Page p : pages_of(Area::Advanced)) {
+            app.go(p);  // the one-argument form takes the page's own area
+            settle();
+            CHECK(app.place() == place_of(p), std::string("go -> Advanced / ") + page_label(p));
+        }
+        app.prefs.advanced_mode = false;
+        settle();
+        CHECK(app.place().area != Area::Advanced, "turning Advanced off leaves the Advanced area");
+    });
+
+    run_case("shell UI: a registered page is drawn instead of the legacy panel; an unregistered one falls back", [&] {
+        PageFn saved[kPageCount] = {};
+        for (int i = 1; i < kPageCount; ++i) saved[i] = registered_page(static_cast<Page>(i));
+        clear_registry_for_tests();
+        g_shell_calls = 0;
+        app.prefs.advanced_mode = false;
+        app.go(Page::Kits);
+        settle();
+        CHECK(app.place().page == Page::Kits && g_shell_calls == 0, "unregistered page: opened, the old panel stands in, nothing registered is called");
+        CHECK(register_page(Page::Kits, shell_fake_page), "register Kits");
+        settle();
+        CHECK(g_shell_calls > 0, "registered page drawn");
+        const int n = g_shell_calls;
+        app.go(Page::Identity);
+        settle();
+        CHECK(g_shell_calls == n, "not drawn while another page is shown");
+        clear_registry_for_tests();
+        for (int i = 1; i < kPageCount; ++i)
+            if (saved[i]) register_page(static_cast<Page>(i), saved[i]);
+    });
+
+    run_case("shell UI: Settings page: Advanced view toggle and collapsing sections are saved in gui_settings.json", [&] {
+        auto read_gui = [&]() {
+            std::ifstream f(app.turbo_output() / "gui_settings.json", std::ios::binary);
+            nlohmann::json j = nlohmann::json::parse(f, nullptr, false);
+            return j.is_discarded() ? nlohmann::json::object() : j;
+        };
+        CHECK(registered_page(Page::Settings) != nullptr, "the Settings page is registered");
+        app.prefs.advanced_mode = false;
+        app.prefs.sections_open.clear();
+        app.go(Page::Settings);
+        settle();
+        CHECK(app.place() == place_of(Page::Settings), "on the Settings page");
+        CHECK(ui.find("Preferences") != nullptr && ui.find("Log") != nullptr, "sections drawn");
+        CHECK(ui.find("Change...##hotkey", "", "status") != nullptr && ui.find("Row density") != nullptr, "the preferences of the old Status tab");
+        CHECK(ui.click("Advanced view##settings", "FC 27 LE Turbo"), "click the toggle");
+        ui.frames(3);
+        CHECK(app.prefs.advanced_mode && read_gui()["gui"]["advanced_mode"] == true, "Advanced on, saved");
+        CHECK(ui.find("Advanced", "FC 27 LE Turbo") != nullptr, "the Advanced tab appeared");
+        CHECK(ui.click("Advanced view##settings", "FC 27 LE Turbo"), "click again");
+        ui.frames(3);
+        CHECK(!app.prefs.advanced_mode && read_gui()["gui"]["advanced_mode"] == false, "Advanced off, saved");
+        CHECK(app.prefs.sections_open.empty(), "drawing alone stores no section state");
+        CHECK(ui.click("Log", "FC 27 LE Turbo"), "open the Log section");
+        ui.frames(3);
+        CHECK(app.prefs.section_open("settings.log", false) && read_gui()["gui"]["sections_open"]["settings.log"] == true, "Log open, saved");
+        CHECK(ui.click("Preferences", "FC 27 LE Turbo"), "close Preferences");
+        ui.frames(3);
+        CHECK(!app.prefs.section_open("settings.preferences", true) && read_gui()["gui"]["sections_open"]["settings.preferences"] == false,
+              "Preferences closed, saved");
+        CHECK(ui.find("Row density") == nullptr, "the closed section is not drawn");
+        app.prefs.sections_open.clear();
+        app.save_gui_settings();
+    });
+
+    app.prefs.advanced_mode = was_advanced;
+    app.go(Page::PlayerEdit);
+    settle();
 }
 
 }  // namespace

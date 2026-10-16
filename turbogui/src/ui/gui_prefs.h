@@ -5,9 +5,12 @@
 //                       (App::update_style multiplies CellPadding.y / ItemSpacing.y / FramePadding.y)
 //   gui.advanced_mode   false (default): "Simple" view, only the screens with a proven in-game effect; true: "Advanced",
 //                       everything (A6 entry point of the GUI simplification; see turbo_dev/research_20261016/GUI_AUDIT.md)
+//   gui.sections_open   {"<page>.<section>": true|false}: which collapsing sections of the revamped pages are open (spec 2.1);
+//                       a section not listed uses the page's own default
 // Pure (json in / out), so the native tests can check the defaults and the round trip. The hotkey and the UI size keep
 // their own code in App::load_gui_settings / save_gui_settings.
 #pragma once
+#include <map>
 #include <string>
 
 #include "nlohmann/json.hpp"
@@ -56,7 +59,7 @@ inline bool sub_tab_visible(SubTab, bool advanced) { return advanced; }
 // Tabs the Advanced view marks with a banner (no proven in-game effect yet); sub tabs draw the banner themselves
 inline bool top_tab_unproven(int tab) { return tab == TabGameSettings; }
 inline const char* simple_banner_text() {
-    return "Simple view: only features proven to work in the game. Tactics, Gameplay tuning, Match setup, Game settings and the raw Database are under Advanced.";
+    return "Simple view: only features proven to work in the game. Experimental tactics, Gameplay tuning, Match setup, raw rows and bulk edit are under Advanced (Settings > Advanced view).";
 }
 inline const char* unproven_banner_text() {
     return "Advanced: no proven in-game effect yet. Values can be written and read back, but nobody has shown the match plays differently.";
@@ -66,6 +69,19 @@ struct GuiPrefs {
     bool advanced_mode = false;
     bool preload_images = true;
     RowDensity row_density = RowDensity::Normal;
+    std::map<std::string, bool> sections_open;  // "<page>.<section>" -> open (pages ask section_open(id, default))
+
+    bool section_open(const std::string& id, bool default_open) const {
+        auto it = sections_open.find(id);
+        return it == sections_open.end() ? default_open : it->second;
+    }
+    // true when the stored state changed (the caller then saves gui_settings.json)
+    bool set_section_open(const std::string& id, bool open) {
+        auto it = sections_open.find(id);
+        if (it != sections_open.end() && it->second == open) return false;
+        sections_open[id] = open;
+        return true;
+    }
 
     // From the whole gui_settings.json object (anything missing or malformed keeps the default)
     static GuiPrefs load(const nlohmann::json& gui_settings) {
@@ -79,6 +95,10 @@ struct GuiPrefs {
         if (pi != g->end() && pi->is_boolean()) p.preload_images = pi->get<bool>();
         auto rd = g->find("row_density");
         if (rd != g->end() && rd->is_string()) p.row_density = row_density_from_name(rd->get<std::string>());
+        auto so = g->find("sections_open");
+        if (so != g->end() && so->is_object())
+            for (auto it = so->begin(); it != so->end(); ++it)
+                if (it.value().is_boolean()) p.sections_open[it.key()] = it.value().get<bool>();
         return p;
     }
     // Into gui_settings.json["gui"] (other keys are kept)
@@ -89,6 +109,9 @@ struct GuiPrefs {
         g["advanced_mode"] = advanced_mode;
         g["preload_images"] = preload_images;
         g["row_density"] = row_density_name(row_density);
+        nlohmann::json so = nlohmann::json::object();
+        for (const auto& kv : sections_open) so[kv.first] = kv.second;
+        g["sections_open"] = so;
     }
 };
 

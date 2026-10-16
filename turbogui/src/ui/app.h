@@ -40,6 +40,7 @@
 #include "nlohmann/json.hpp"
 #include "gui_prefs.h"
 #include "ui_role_rules.h"
+#include "ui_shell.h"
 #include "textures.h"
 
 namespace turbo {
@@ -333,7 +334,18 @@ public:
     int64_t sel_team = 0;
     int sel_manager = -1;
     std::string db_table;
-    int request_tab = -1;  // 0 players, 1 teams, 2 managers, 3 competitions, 4 database, 5 tools, 6 status
+    // Legacy navigation shim (GUI revamp 2.13): request_tab = N lands on shell::area_for(N): 0 players, 1 teams, 2 managers,
+    // 3 competitions, 4 database, 5 tools, 6 status, 7 game settings. New code uses go().
+    int request_tab = -1;
+    // ---- shell (ui_shell.h): five areas + Advanced, each a strip of pages
+    // Open a page for the next frame (its area comes with it). Ignored when the page is hidden in the current view (Simple
+    // hides the Advanced area) or invalid.
+    void go(shell::Area a, shell::Page p);
+    void go(shell::Page p) { go(shell::area_of(p), p); }
+    // Where the shell is now (set while drawing; PlayerEdit before the first frame)
+    shell::Place place() const { return place_; }
+    // The area tabs, the page strip and the page: the body of the window under the status line (called by draw())
+    void draw_pages();
 
     // ---- helpers
     GameDate today() const;
@@ -398,6 +410,9 @@ public:
     std::filesystem::path turbo_output() const { return bridge.root() / "turbo_output"; }
 
 private:
+    shell::Place place_{shell::Area::Squad, shell::Page::PlayerEdit};
+    shell::Place go_to_;                                    // a go() waiting for the next draw_pages()
+    shell::Page area_page_[shell::kAreaCount] = {};         // the page last shown per area (None = the area's default)
     bool legacy_repaired_ = false;  // repair_dds_files ran (first tick)
     void load_voice();               // constructor: turbo_output\callnames\voice_swaps.json
     bool save_voice();
@@ -498,6 +513,10 @@ void match_setup_clear_on_exit(App& app);
 void draw_database(App& app);
 void draw_tools(App& app);
 void draw_status(App& app);
+// The Status tab in its three parts (ui_tools.cpp); the Settings page (ui_settings.cpp) draws the first two under its own title
+void draw_status_health(App& app);  // pictures, health, collapsed technical details
+void draw_preferences(App& app);    // show/hide key, UI size, row density, background loading
+void draw_status_log(App& app);     // the log, filling the window
 // Game-code hook status (part of the Status tab; App::hook_report supplies the data)
 void draw_hook_status(App& app);
 

@@ -2839,7 +2839,21 @@ public:
         }
         return true;
     }
+    // The eight top-level tabs of the old GUI are gone (GUI revamp 2.13: five areas + page strips): a click on one of their
+    // names goes through the legacy shim, App::request_tab = N -> shell::area_for(N)
+    static int legacy_tab_index(const std::string& label) {
+        static const char* names[] = {"Players", "Teams", "Managers", "Competitions", "Database", "Turbo Tools", "Status", "Game settings"};
+        for (int i = 0; i < 8; ++i)
+            if (label == names[i]) return i;
+        return -1;
+    }
     bool click(const std::string& label, const std::string& win = "", const std::string& scope = "") {
+        const int legacy = (win.empty() && scope.empty()) ? legacy_tab_index(label) : -1;
+        if (legacy >= 0) {
+            app.request_tab = legacy;
+            frames(3);
+            return true;
+        }
         const ItemRec* r = find(label, win, scope);
         if (!r) dump("click target not found: '" + label + "' in '" + win + "'");
         return click(r);
@@ -3726,7 +3740,7 @@ static void test_ui() {
                 app.request_tab = tab;
                 ui.frames(3);
             }
-            CHECK(ui.find("Players") && ui.find("Status") && ui.find("Turbo Tools") && ui.find("Competitions"), "tab items present");
+            CHECK(ui.find("Squad & Players") && ui.find("Club & Kits") && ui.find("Tactics & Gameplay") && ui.find("Career tools") && ui.find("Settings"), "area tabs present");
             // Status tab: the game-hook report (filled by the Windows host) renders in every state
             int reports = 0;
             app.hook_report = [&]() {
@@ -8911,6 +8925,7 @@ static void test_ui() {
         ui_cases_tactics_tab(app, ui, le);  // test_tactics_tab.h
         team_sheet_test::ui_cases(app, ui, le);  // test_team_sheet.h: the live tactic card (channel E)
         test_shell_app(app);  // test_shell.h: page registry
+        test_shell_ui(app, ui);  // test_shell.h: area tabs, request_tab / go(), Settings page
         tuning_test::ui_cases(app, ui, le);  // test_tuning.h: Competitions > Gameplay tuning
         gsettings_test::ui_cases(app, ui, le);  // test_game_settings.h: the Game settings tab (2.8)
         tactic_presets_test::ui_cases(app, ui, le);  // test_tactic_presets.h: Teams > Tactic presets (2.12)

@@ -715,7 +715,8 @@ static void asset_catalog_status(App& app) {
     }
 }
 
-void draw_status(App& app) {
+// Status tab / Settings page, first part: pictures, health, technical details (ui_settings.cpp draws it under the preferences)
+void draw_status_health(App& app) {
     const auto& st = app.bridge.state();
     images_status(app);
     // Background loading (ui/preload.h): what is ready, per kind of picture, most wanted first
@@ -792,7 +793,10 @@ void draw_status(App& app) {
     if (!app.team_names_error.empty()) ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "  %s", app.team_names_error.c_str());
     }  // Technical details
 
-    ImGui::SeparatorText("Settings");
+}
+
+// The preferences: show/hide key, UI size, row density, background loading (Status tab > Settings; Settings page)
+void draw_preferences(App& app) {
     hotkey_setting(app);  // hotkey_setting.h: pick the key from the list or by pressing it
     form_label("UI size", "The size of the whole Turbo window, on top of the automatic size for the window height");
     ImGui::SetNextItemWidth(S(140.0f));
@@ -825,11 +829,23 @@ void draw_status(App& app) {
         ImGui::SetTooltip("On: the galleries open with their pictures already loaded (the user's club first, then the listed players,\n"
                           "the real-face chooser, tattoos, galleries, crests, managers). Off: pictures load when a screen shows them.");
 
-    ImGui::SeparatorText("Log");
+}
+
+// The log lines (a bordered child filling the rest of the window)
+void draw_status_log(App& app) {
     ImGui::BeginChild("##log", ImVec2(0, 0), ImGuiChildFlags_Borders);
     for (const auto& l : app.log_lines) ImGui::TextUnformatted(l.c_str());
     if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) ImGui::SetScrollHereY(1.0f);
     ImGui::EndChild();
+}
+
+// The whole old Status tab, in its old order
+void draw_status(App& app) {
+    draw_status_health(app);
+    ImGui::SeparatorText("Settings");
+    draw_preferences(app);
+    ImGui::SeparatorText("Log");
+    draw_status_log(app);
 }
 
 }  // namespace turbo

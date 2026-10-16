@@ -1,4 +1,5 @@
 #include "app.h"
+#include "ui_theme.h"
 
 #include <algorithm>
 #include <chrono>
@@ -1419,6 +1420,81 @@ void draw_unproven_banner() {
 }
 
 // ---------------------------------------------------------------- main window
+// ---- GUI revamp shell (ui_shell.h): five areas + Advanced, each a strip of pages --------------------------------------------
+
+void App::go(shell::Area a, shell::Page p) {
+    using namespace shell;
+    if (p == Page::None || p == Page::Count || area_of(p) != a) return;
+    if (!page_visible(p, prefs.advanced_mode)) return;
+    go_to_ = Place{a, p};
+}
+
+// A page nobody registered yet (its track has not landed): the panel it lived in before the revamp, drawn as it was, so that
+// nothing disappears while the pages move (ui_shell.h legacy_tab_of)
+static void draw_legacy_page(App& app, shell::Page p) {
+    const int lt = shell::legacy_tab_of(p);
+    if (p == shell::Page::GameplayPresets) {
+        if (app.prefs.advanced_mode) draw_unproven_banner();
+        else theme::muted_text("Presets write the EA Custom slider block; the effect on play is not yet measured.");
+    }
+    switch (lt) {
+        case 0: draw_players(app); break;
+        case 1: draw_teams(app); break;
+        case 2: draw_managers(app); break;
+        case 3: draw_competitions(app); break;
+        case 4: draw_database(app); break;
+        case 5: draw_tools(app); break;
+        case 6: draw_status(app); break;
+        case 7: draw_game_settings(app); break;  // 2.8: ui_game_settings.cpp (presets applied with the game closed)
+        default: ImGui::TextDisabled("Nothing to show here."); break;
+    }
+}
+
+void App::draw_pages() {
+    using namespace shell;
+    const bool adv = prefs.advanced_mode;
+    // Legacy request_tab = N (cross-links, tests) -> its new home. Taken before drawing: a panel may request another place
+    // for the next frame. A page the view hides (Simple: the Advanced area) is not opened, as the old hidden tabs were not.
+    if (request_tab >= 0) {
+        const Place pl = area_for(request_tab);
+        request_tab = -1;
+        if (pl.valid() && page_visible(pl.page, adv)) go_to_ = pl;
+    }
+    if (go_to_.valid() && !page_visible(go_to_.page, adv)) go_to_ = Place{};
+    // Simple / Advanced view (gui_prefs.h): Simple hides the Advanced area (raw rows, bulk edit, not-proven panels)
+    if (!adv) ImGui::TextDisabled("%s", simple_banner_text());
+    if (!ImGui::BeginTabBar("##turbo_areas", ImGuiTabBarFlags_FittingPolicyScroll)) return;
+    for (int ai = 0; ai < kAreaCount; ++ai) {
+        const Area a = static_cast<Area>(ai);
+        if (!area_visible(a, adv)) continue;
+        // A go() stays pending until its page was drawn: the area tab takes a frame to open, the page tab inside it the next
+        const bool want_area = go_to_.valid() && go_to_.area == a;
+        if (!ImGui::BeginTabItem(area_label(a), nullptr, want_area ? ImGuiTabItemFlags_SetSelected : 0)) continue;
+        const auto& strip = pages_of(a);
+        if (strip.size() <= 1) {
+            if (!strip.empty()) {
+                place_ = Place{a, strip.front()};
+                area_page_[ai] = strip.front();
+                if (go_to_.valid() && go_to_.page == strip.front()) go_to_ = Place{};
+                if (!draw_page(*this, strip.front(), adv)) draw_legacy_page(*this, strip.front());
+            }
+        } else if (ImGui::BeginTabBar((std::string("##turbo_pages_") + std::to_string(ai)).c_str(), ImGuiTabBarFlags_FittingPolicyScroll)) {
+            for (Page p : strip) {
+                const bool want_page = go_to_.valid() && go_to_.page == p;
+                if (!ImGui::BeginTabItem(page_label(p), nullptr, want_page ? ImGuiTabItemFlags_SetSelected : 0)) continue;
+                place_ = Place{a, p};
+                area_page_[ai] = p;
+                if (want_page) go_to_ = Place{};
+                if (!draw_page(*this, p, adv)) draw_legacy_page(*this, p);
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
+        ImGui::EndTabItem();
+    }
+    ImGui::EndTabBar();
+}
+
 void App::draw() {
     textures.new_frame(now);
     zoom_input(*this);  // Ctrl + mouse wheel / Ctrl + 0 (ui_zoom.h); the style follows on the next tick
@@ -1550,33 +1626,7 @@ void App::draw() {
     if (!hotkey_inline) hotkey_control(*this, "bar");  // no room on the status line: a line of its own
     ImGui::Separator();
 
-    // Simple / Advanced view (gui_prefs.h): Advanced shows every tab; Simple hides the ones without a proven in-game effect
-    if (!prefs.advanced_mode) ImGui::TextDisabled("%s", simple_banner_text());
-    if (ImGui::BeginTabBar("##turbo_tabs")) {
-        const char* names[] = {"Players", "Teams", "Managers", "Competitions", "Database", "Turbo Tools", "Status", "Game settings"};
-        // Taken before drawing: a panel may request another tab (e.g. Squad -> player), for the next frame
-        int req = request_tab;
-        request_tab = -1;
-        for (int i = 0; i < TabCount; ++i) {
-            if (!top_tab_visible(i, prefs.advanced_mode)) continue;
-            ImGuiTabItemFlags fl = (req == i) ? ImGuiTabItemFlags_SetSelected : 0;
-            if (ImGui::BeginTabItem(names[i], nullptr, fl)) {
-                if (top_tab_unproven(i)) draw_unproven_banner();
-                switch (i) {
-                    case 0: draw_players(*this); break;
-                    case 1: draw_teams(*this); break;
-                    case 2: draw_managers(*this); break;
-                    case 3: draw_competitions(*this); break;
-                    case 4: draw_database(*this); break;
-                    case 5: draw_tools(*this); break;
-                    case 6: draw_status(*this); break;
-                    default: draw_game_settings(*this); break;  // 2.8: ui_game_settings.cpp (read-only; presets applied with the game closed)
-                }
-                ImGui::EndTabItem();
-            }
-        }
-        ImGui::EndTabBar();
-    }
+    draw_pages();  // the area tabs, the page strip and the page (App::draw_pages below)
     hotkey_popup(*this);  // hotkey_setting.h: waits for the new show/hide key after Change...
     // the capture window was not drawn this frame: stop waiting for a key (hotkey_setting.h)
     if (hotkey_capture && hotkey_capture_frame != ImGui::GetFrameCount()) hotkey_capture = false;
