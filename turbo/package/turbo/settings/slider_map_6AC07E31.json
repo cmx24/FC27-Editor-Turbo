@@ -215,7 +215,7 @@
    "min": 0,
    "max": 100,
    "verified": true,
-   "proof": "evidence/2026-10-15/TEST_31.md section 7 (G-S1) + g_s1/before,after; test case 'game settings: G-S1 real files'",
+   "proof": "evidence/2026-10-15/TEST_31.md section 7 (G-S1) + g_s1/before,after; test case 'game settings custom: G-S1 real files (game CRC reproduced; byte-identical to the game's file)' in test_game_settings.h:829",
    "note": "Custom block byte 0x51 (file 0xB8E2D). OBSERVED in game (TEST_31 G-S1); engine use in a match not proven",
    "custom_index": 81
   },
@@ -525,7 +525,7 @@
    "min": 0,
    "max": 100,
    "verified": true,
-   "proof": "evidence/2026-10-15/TEST_31.md section 7 (G-S1) + g_s1/before,after; test case 'game settings: G-S1 real files'",
+   "proof": "evidence/2026-10-15/TEST_31.md section 7 (G-S1) + g_s1/before,after; test case 'game settings custom: G-S1 real files (game CRC reproduced; byte-identical to the game's file)' in test_game_settings.h:829",
    "note": "Custom block byte 0x50 (file 0xB8E2C). OBSERVED in game (TEST_31 G-S1); engine use in a match not proven",
    "custom_index": 80
   },
@@ -904,7 +904,7 @@
    "min": 0,
    "max": 100,
    "verified": true,
-   "proof": "evidence/2026-10-15/TEST_31.md section 7 (G-S1) + g_s1/before,after; test case 'game settings: G-S1 real files'",
+   "proof": "evidence/2026-10-15/TEST_31.md section 7 (G-S1) + g_s1/before,after; test case 'game settings custom: G-S1 real files (game CRC reproduced; byte-identical to the game's file)' in test_game_settings.h:829",
    "note": "Custom block byte 0x24 (file 0xB8E00). OBSERVED in game (TEST_31 G-S1); engine use in a match not proven",
    "custom_index": 36
   },

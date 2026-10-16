@@ -891,7 +891,7 @@ Outcome patch(const Env& env, const SliderMap& m, const std::vector<Write>& writ
     rec["writes"] = list;
     if (!commit(env, o, file, before, after, rec)) return o;
     o.message = "Written: " + std::to_string(changed) + " value(s) in " + file.filename().u8string() + " (CRC checked; backup " + o.backup.u8string() +
-                "). Start the game to use them; Undo: turbo_settings_apply.exe --undo";
+                "). The 3 verified sliders are in the Settings file; the in-game settings screen and the on-pitch effect are NOT yet confirmed. Undo: turbo_settings_apply.exe --undo";
     return o;
 }
 
