@@ -3,7 +3,7 @@
  "build": "6AC07E31",
  "layout": "fbchunks-454-bc650",
  "array_base": "0x1BC4",
- "note": "FC 27 Settings<timestamp> slider map (turbo_output\u0007ssessment_20261014\\SETTINGS_PRESETS.md). EVERY entry is verified:false: nothing is written by a preset until the marker launch proves an entry (index + verified:true + proof). The regions are the candidate blocks (array_base = payload offset of index 0, picked by hand; the blocks sit at payload 0x1F6C / 0x201C in all 21 backups 10-03..10-14). Names: GAMEPLAY_CUSTOMIZATION/* (docs/re/gamevars_fc27.txt).",
+ "note": "FC 27 Settings<timestamp> slider map (turbo_output\\assessment_20261014\\SETTINGS_PRESETS.md). EVERY entry is verified:false (proof empty): nothing is written by a preset until the marker launch proves an entry (index + verified:true + proof). The regions are the candidate blocks (array_base = payload offset of index 0, picked by hand; the blocks sit at payload 0x1F6C / 0x201C in all 21 backups 10-03..10-14). Names: GAMEPLAY_CUSTOMIZATION/* (docs/re/gamevars_fc27.txt).",
  "regions": [
   {
    "id": "run36",
@@ -34,6 +34,7 @@
    "group": "match",
    "index": null,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -42,6 +43,7 @@
    "group": "match",
    "index": null,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -50,6 +52,7 @@
    "group": "match",
    "index": null,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -58,6 +61,7 @@
    "group": "match",
    "index": null,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -66,6 +70,7 @@
    "group": "match",
    "index": null,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -74,6 +79,7 @@
    "group": "match",
    "index": null,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -82,6 +88,7 @@
    "group": "match",
    "index": null,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -90,6 +97,7 @@
    "group": "match",
    "index": null,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -98,6 +106,7 @@
    "group": "player",
    "index": null,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -106,6 +115,7 @@
    "group": "player",
    "index": null,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -114,6 +124,7 @@
    "group": "player",
    "index": null,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -122,6 +133,7 @@
    "group": "player",
    "index": null,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -130,6 +142,7 @@
    "group": "player",
    "index": null,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -138,6 +151,7 @@
    "group": "player",
    "index": null,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -146,6 +160,7 @@
    "group": "player",
    "index": null,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -154,6 +169,7 @@
    "group": "player",
    "index": null,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -164,6 +180,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -174,6 +191,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -184,6 +202,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -194,6 +213,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -204,6 +224,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -214,6 +235,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -224,6 +246,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -234,6 +257,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -244,6 +268,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -254,6 +279,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -264,6 +290,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -274,6 +301,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -284,6 +312,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -294,6 +323,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -304,6 +334,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -314,6 +345,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -324,6 +356,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -334,6 +367,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -344,6 +378,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -354,6 +389,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -364,6 +400,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -374,6 +411,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -384,6 +422,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -394,6 +433,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -404,6 +444,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -414,6 +455,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -424,6 +466,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -434,6 +477,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -444,6 +488,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -454,6 +499,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -464,6 +510,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -474,6 +521,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -484,6 +532,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -494,6 +543,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -504,6 +554,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -514,6 +565,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -524,6 +576,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -534,6 +587,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -544,6 +598,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -554,6 +609,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -564,6 +620,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -574,6 +631,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -584,6 +642,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -594,6 +653,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -604,6 +664,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -614,6 +675,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -624,6 +686,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -634,6 +697,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -644,6 +708,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -654,6 +719,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -664,6 +730,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -674,6 +741,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -684,6 +752,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -694,6 +763,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -704,6 +774,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -714,6 +785,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -724,6 +796,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -734,6 +807,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -744,6 +818,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -754,6 +829,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -764,6 +840,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -774,6 +851,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -784,6 +862,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -794,6 +873,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -804,6 +884,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -814,6 +895,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -824,6 +906,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -834,6 +917,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   },
   {
@@ -844,6 +928,7 @@
    "min": 0,
    "max": 100,
    "verified": false,
+   "proof": "",
    "note": "not mapped yet: the marker launch (turbo_settings_apply.exe --write-markers) gives its index"
   }
  ]

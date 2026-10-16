@@ -307,7 +307,11 @@ void draw_values() {
                 else ImGui::TextUnformatted(r->value.c_str());
                 ImGui::TableNextColumn();
                 if (e->verified) ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "%s", r->state.c_str());
-                else ImGui::TextDisabled("%s", r->state.c_str());
+                else ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", r->state.c_str());  // 2.10: an unverified row is visible, not greyed out
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", e->verified ? ("Proof: " + e->proof).c_str()
+                                                         : "Not proven in game: shown read-only. Preset Apply writes verified rows only (a row is "
+                                                           "verified when slider_map has verified:true, an index and a proof).");
             }
             ImGui::EndTable();
         }
@@ -347,7 +351,7 @@ void draw_presets(App& app) {
     if (ImGui::Button("Load: apply when the game is closed (stage)##gsload")) load_preset(app);
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Writes turbo_output\\%s (the verified sliders of the preset). Nothing changes in the game until you close it and run "
+        ImGui::SetTooltip("Apply at next launch: writes turbo_output\\%s (the verified sliders of the preset). Nothing changes in the game until you close it and run "
                           "turbo\\turbo_settings_apply.exe --apply.",
                           pending_file());
     if (have) {
@@ -465,9 +469,9 @@ void draw_game_settings(App& app) {
     try {
         first_look(app);
         ImGui::TextWrapped("FC 27's own game settings (Settings > Game Settings: match, player, and the User / CPU sliders), as the game saved them "
-                           "in its settings file. Read-only here: presets of these values are applied OUTSIDE the game.");
+                           "in its settings file. Read-only here: presets of these values are applied OUTSIDE the game, at the NEXT LAUNCH (no live store is proven).");
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.3f, 1.0f));
-        ImGui::TextWrapped("The game must be CLOSED to apply a preset, and relaunched to use it: Load stages it, then close FC 27 and run "
+        ImGui::TextWrapped("Apply = applies at next launch: Load stages the VERIFIED rows only, then close FC 27 and run "
                            "turbo\\turbo_settings_apply.exe --apply (it backs the file up, checks it, and --undo puts it back). Turbo never touches "
                            "your careers (CmMgrC*), squads (Squads*) or ProfileOptions*.");
         ImGui::PopStyleColor();
@@ -491,6 +495,7 @@ void draw_game_settings(App& app) {
         g_state.map_line = g.map_ok ? std::string(map_file()) + ": " + std::to_string(g.map.entries.size()) + " sliders, " + std::to_string(verified_count()) +
                                           " verified in game"
                                     : "No slider map: " + g.map_err;
+        if (g.map_ok) g_state.map_line += ", " + std::to_string(int(g.map.entries.size()) - verified_count()) + " unverified (read-only)";
         ImGui::TextDisabled("%s", g_state.map_line.c_str());
         if (g.map_ok && verified_count() == 0)
             ImGui::TextWrapped("No slider is verified in game yet: every value is read-only and a preset stages nothing until the marker launch "

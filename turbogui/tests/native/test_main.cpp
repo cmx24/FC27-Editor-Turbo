@@ -3378,6 +3378,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_tactics_tab.h"  // Teams > Tactics (ui_cases_tactics_tab, run before the Names cases)
 #include "test_team_sheet.h"   // tactics channel E: the live team sheet on a simulated layout (team_sheet_test::run, ::ui_cases)
 #include "test_tuning.h"      // gameplay tuning: the engine tuning tables on a simulated table (tuning_test::run, ::ui_cases)
+#include "test_settings_presets.h"  // 2.10: evidence guard of turbo_settings_apply --undo, verified-only flow (settings_presets_test::run)
 #include "test_game_settings.h"  // 2.8: the game's own settings file, presets, the apply tool's core (gsettings_test::run, ::ui_cases)
 #include "test_club_search.h"  // Players list Gender filter, the club box by name or ID (ui_cases_club_search)
 #include "test_file_picker.h"   // in-overlay file picker and the Export / Import dialogs (test_file_picker_ui)
@@ -14372,6 +14373,7 @@ int main(int argc, char** argv) {
     team_sheet_test::run();
     tuning_test::run();
     gsettings_test::run();  // test_game_settings.h (2.8)
+    settings_presets_test::run();  // test_settings_presets.h (2.10)
     std::printf("native voice swaps\n");
     test_callname_voice();
     test_callname_voice_host();

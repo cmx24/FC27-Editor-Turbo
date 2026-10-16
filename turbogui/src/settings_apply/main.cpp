@@ -2,14 +2,15 @@
 // (core/game_settings.h: backup with md5s, temp file, CRC re-check, one Settings file, Undo). A console program next to Turbo.dll in
 // <Live Editor>\turbo\. It never touches CmMgrC* (careers), Squads* or ProfileOptions*.
 //
-// usage: turbo_settings_apply.exe --status | --apply [--dry-run] | --undo [--force] [--dry-run]
+// usage: turbo_settings_apply.exe --status | --apply [--dry-run] | --undo [--force] [--dry-run] [--evidence <dir>]
 //                                 | --write-markers <out_dir> [--set blocks|run] | --install-markers <out_dir> [--dry-run]
+//        --undo REFUSES while a game-written Settings* file (not the one Turbo wrote) exists that is not yet copied into the evidence dir;
+//        with --evidence <dir> it copies that file there first (md5 verified), also with --force (2.10: --undo --force once deleted a
+//        game-written Settings file without a copy).
 //        options: --le-root <Live Editor folder> (default: this exe's folder's parent), --settings-dir <folder> (default:
 //                 %LOCALAPPDATA%\EA SPORTS FC 27\settings), --map <slider map json> (default: <le-root>\turbo\settings\slider_map_6AC07E31.json)
 // Exit code 0 = done (or nothing to do), 1 = refused / failed, 2 = bad arguments. Every run is appended to turbo_output\settings_apply.log.
-#include <windows.h>
-#include <tlhelp32.h>
-
+#include <algorithm>
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
@@ -18,8 +19,106 @@
 #include <vector>
 
 #include "core/game_settings.h"
+#include "nlohmann/json.hpp"
 
 namespace fs = std::filesystem;
+
+// ------------------------------------------------------------------------------------------------ the undo evidence guard (pure: no Windows call)
+namespace turbo {
+namespace settings_tool {
+
+using namespace turbo::gsettings;
+
+struct GuardResult {
+    bool ok = true;
+    std::string message;             // why refused ("" = fine)
+    std::vector<std::string> lines;  // what was copied / would be copied
+};
+
+// Before --undo (with or without --force) replaces or removes a Settings* file: every Settings* file in the settings folder that is NOT the
+// one the newest backup says Turbo wrote (name + md5_after) and NOT the backed-up original (md5_before) is game-written evidence. It must
+// exist in `evidence_dir` (same md5) first. No evidence dir given -> refused; given -> the file is copied (md5 read back).
+// dry_run copies nothing and reports. Nothing to protect (no backup, or only Turbo's file) -> ok.
+inline GuardResult undo_evidence_guard(const fs::path& settings_dir, const fs::path& out_dir, const fs::path& evidence_dir, bool dry_run) {
+    GuardResult g;
+    std::error_code ec;
+    std::vector<fs::path> dirs;
+    for (const auto& e : fs::directory_iterator(out_dir / backup_dir(), ec))
+        if (e.is_directory(ec) && fs::exists(e.path() / "backup.json", ec)) dirs.push_back(e.path());
+    if (dirs.empty()) return g;  // undo_last says "Nothing to undo"
+    std::sort(dirs.begin(), dirs.end());
+    std::vector<uint8_t> rb;
+    nlohmann::json rec;
+    if (read_bytes(dirs.back() / "backup.json", rb, 1u << 20)) rec = nlohmann::json::parse(std::string(rb.begin(), rb.end()), nullptr, false);
+    auto str = [&](const char* k) { return rec.is_object() && rec.contains(k) && rec[k].is_string() ? rec[k].get<std::string>() : std::string(); };
+    const std::string wrote_name = str("file"), md5_after = str("md5_after"), md5_before = str("md5_before");
+    for (const auto& e : fs::directory_iterator(settings_dir, ec)) {
+        if (!e.is_regular_file(ec)) continue;
+        const std::string n = e.path().filename().u8string();
+        std::string low = n;
+        for (char& c : low) c = char(std::tolower((unsigned char)c));
+        if (low.rfind("settings", 0) != 0) continue;
+        std::vector<uint8_t> b;
+        if (!read_bytes(e.path(), b)) {
+            g.ok = false;
+            g.message = "Refused: cannot read " + n + " to check it against the evidence folder";
+            return g;
+        }
+        const std::string md5 = md5_hex(b);
+        if (n == wrote_name && !md5_after.empty() && md5 == md5_after) continue;  // still the file Turbo wrote
+        if (!md5_before.empty() && md5 == md5_before) continue;                    // the original itself
+        // game-written: needs a verified copy in the evidence dir
+        if (evidence_dir.empty()) {
+            g.ok = false;
+            g.message = "Refused: " + n + " (md5 " + md5 + ") was written by the game after Turbo's change and is not copied anywhere. --undo would replace it. "
+                        "Run again with --evidence <folder> to copy it first (this holds for --force too).";
+            return g;
+        }
+        std::vector<uint8_t> have;
+        const fs::path same = evidence_dir / fs::u8path(n);
+        bool covered = read_bytes(same, have) && md5_hex(have) == md5;
+        if (!covered) {
+            for (const auto& x : fs::directory_iterator(evidence_dir, ec)) {  // a copy under another name counts
+                if (!x.is_regular_file(ec) || x.file_size(ec) != b.size()) continue;
+                if (read_bytes(x.path(), have) && md5_hex(have) == md5) {
+                    covered = true;
+                    break;
+                }
+            }
+        }
+        if (covered) {
+            g.lines.push_back(n + ": already in the evidence folder (md5 " + md5 + ")");
+            continue;
+        }
+        if (dry_run) {
+            g.lines.push_back(n + ": would be copied to " + evidence_dir.u8string());
+            continue;
+        }
+        fs::path to = same;
+        if (fs::exists(to, ec)) to = evidence_dir / fs::u8path(n + "." + md5.substr(0, 8));
+        fs::create_directories(evidence_dir, ec);
+        {
+            std::ofstream f(to, std::ios::binary | std::ios::trunc);
+            f.write(reinterpret_cast<const char*>(b.data()), std::streamsize(b.size()));
+        }
+        std::vector<uint8_t> back;
+        if (!read_bytes(to, back) || md5_hex(back) != md5) {
+            g.ok = false;
+            g.message = "Refused: the evidence copy of " + n + " failed (" + to.u8string() + "); nothing was changed";
+            return g;
+        }
+        g.lines.push_back(n + ": copied to " + to.u8string() + " (md5 " + md5 + ")");
+    }
+    return g;
+}
+
+}  // namespace settings_tool
+}  // namespace turbo
+
+#ifndef TURBO_SETTINGS_APPLY_GUARD_ONLY  // the native tests include this file for the guard above
+#include <windows.h>
+#include <tlhelp32.h>
+
 using namespace turbo::gsettings;
 
 static std::string utf8(const std::wstring& w) {
@@ -64,7 +163,8 @@ static void usage() {
         "turbo_settings_apply.exe - FC 27 game settings presets (Turbo), with the game CLOSED\n"
         "  --status                         what the settings file holds (read-only)\n"
         "  --apply [--dry-run]              apply turbo_output\\settings_pending.json (staged in Turbo's Game settings tab)\n"
-        "  --undo [--force] [--dry-run]     put the newest backup back (turbo_output\\settings_backup)\n"
+        "  --undo [--force] [--dry-run] [--evidence <dir>]  put the newest backup back (turbo_output\\settings_backup); REFUSED while a\n"
+        "                                   game-written Settings* file is not copied into the evidence dir (--evidence copies it first, also with --force)\n"
         "  --write-markers <dir> [--set blocks|run]   write a marker COPY of the settings file + legend into <dir> (read-only on the game's folder)\n"
         "  --install-markers <dir> [--dry-run]        patch the settings file with that copy's markers (backup; --undo puts it back)\n"
         "  options: --le-root <folder>  --settings-dir <folder>  --map <slider map json>\n");
@@ -73,7 +173,7 @@ static void usage() {
 int wmain(int argc, wchar_t** argv) {
     std::vector<std::wstring> a(argv + 1, argv + argc);
     std::string cmd, set = "blocks";
-    fs::path arg_dir, le_root, settings_dir, map;
+    fs::path arg_dir, le_root, settings_dir, map, evidence;
     bool dry = false, force = false;
     for (size_t i = 0; i < a.size(); ++i) {
         const std::wstring& x = a[i];
@@ -92,6 +192,7 @@ int wmain(int argc, wchar_t** argv) {
         else if (x == L"--le-root") { if (!next(le_root)) { usage(); return 2; } }
         else if (x == L"--settings-dir") { if (!next(settings_dir)) { usage(); return 2; } }
         else if (x == L"--map") { if (!next(map)) { usage(); return 2; } }
+        else if (x == L"--evidence") { if (!next(evidence)) { usage(); return 2; } }
         else { usage(); return 2; }
     }
     if (cmd.empty()) {
@@ -149,7 +250,16 @@ int wmain(int argc, wchar_t** argv) {
         return 0;
     }
     if (cmd == "apply") o = apply_pending(env, m);
-    else if (cmd == "undo") o = undo_last(env, force);
+    else if (cmd == "undo") {
+        const turbo::settings_tool::GuardResult gr = turbo::settings_tool::undo_evidence_guard(settings_dir, env.out_dir, evidence, dry);
+        if (!gr.ok) {
+            o.lines = gr.lines;
+            o.message = gr.message;
+        } else {
+            o = undo_last(env, force);
+            o.lines.insert(o.lines.begin(), gr.lines.begin(), gr.lines.end());
+        }
+    }
     else if (cmd == "write-markers") o = write_markers(settings_dir, arg_dir, m, set);
     else if (cmd == "install-markers") o = install_markers(env, m, arg_dir);
     for (const std::string& l : o.lines) std::printf("  %s\n", l.c_str());
@@ -161,3 +271,4 @@ int wmain(int argc, wchar_t** argv) {
     for (const std::string& l : o.lines) log << "    " << l << "\r\n";
     return o.ok ? 0 : 1;
 }
+#endif  // TURBO_SETTINGS_APPLY_GUARD_ONLY
