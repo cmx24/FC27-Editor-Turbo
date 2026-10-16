@@ -85,9 +85,23 @@ def verdict(rows):
     return live, c, multi
 
 
-def render(rows, le_info):
+def render(rows, le_info, le_note=None):
     live, c, multi = verdict(rows)
+    bad = [k for k in c if k != "oodle"]
     L = ["# attrib EBX block kinds (offline, read-only)", "",
+         "## Verdict", "",
+         "- Block kind: %s." % ("EVERY effective attrib EBX asset (%d) is exactly one Oodle block (ctype %s) in the stored bytes; none raw, none "
+                               "multi-block" % (len(live), "/".join(sorted({t for r in live for t in r["ctypes"]}))) if live and not bad and not multi
+                               else "NOT uniform: %s, multi-block %d (see tables)" % (dict(c), multi)),
+         "- Same shape as the asset class the kit hotspot patcher already handles (`kit_swap.cpp` patch_hotspot_ebx accepts exactly one block of ctype "
+         "0x11/0x15/0x19; Turbo reads the asset from the TOC itself, decompresses with Oodle, patches, and registers a replacement table item). "
+         "STATIC match only.",
+         "- NOT proven: that the game's bundle loader consults Turbo's table for attrib assets, and the load timing of the attrib bundles vs the DLL. "
+         "Needs the observe-mode line in the first (b) launch.",
+         "- NOT known: whether the EBX patch can change an array/curve LENGTH (new bytes carry their own csize/dsize in the table, so probably yes, "
+         "but unproven); same-size scalar edits are the safe minimum.",
+         "- Live Editor natives: " + (le_note or "see the last section") if le_info is not None else "- Live Editor natives: not scanned (mock)",
+         "",
          "Assets scanned: %d (%d effective, rest shadowed by an earlier layer)." % (len(rows), len(live)), "",
          "Kind counts (effective): " + ", ".join("%s=%d" % kv for kv in sorted(c.items())),
          "Assets with more than one block: %d (the hotspot patcher handles one-Oodle-block assets only)." % multi, ""]
@@ -110,28 +124,54 @@ NATIVES = ["GameplayAttribulatorSaveToFile", "GameplayAttribulatorSetVar", "Game
            "GameplayAttribulatorSetFloat", "GameplayAttribulatorGetFloat"]
 
 
-def le_scan(root=r"C:\FC 27 Live Editor"):
-    lines = []
-    skip = ("turbo_dev", "turbo_output", ".git", "saves", "settings", "backup", "backups")
-    for dp, dn, fn in os.walk(root):
-        dn[:] = [d for d in dn if d.lower() not in skip]
+def pe_sections(d):
+    e = struct.unpack_from("<I", d, 0x3C)[0]
+    ns, so = struct.unpack_from("<H", d, e + 6)[0], struct.unpack_from("<H", d, e + 20)[0]
+    return [d[e + 24 + so + i * 40:e + 24 + so + i * 40 + 8].rstrip(b"\x00").decode("latin1") for i in range(ns)]
+
+
+def control_names(root):
+    """native names the stock LE Lua calls (control set: how many of THEM show up as plain strings in the DLL)"""
+    names = set()
+    base = os.path.join(root, "lua", "libs", "v2", "imports")
+    for dp, dn, fn in os.walk(base):
+        if os.sep + "turbo" in dp:
+            continue
         for f in fn:
-            fl = f.lower()
-            if fl.endswith((".dll", ".asi", ".exe")) and ("live" in fl or "editor" in fl or "lua" in fl):
-                p = os.path.join(dp, f)
+            if f.endswith(".lua"):
                 try:
-                    d = open(p, "rb").read()
+                    txt = open(os.path.join(dp, f), errors="ignore").read()
                 except OSError:
                     continue
-                hits = {n: (n.encode() in d or n.encode("utf-16-le") in d) for n in NATIVES}
-                lines.append("- `%s` (%d B): " % (p, len(d)) +
-                             ", ".join("%s=%s" % (n, "YES" if h else "no") for n, h in hits.items()))
-            elif fl in ("version.txt", "le_version.txt"):
-                try:
-                    lines.append("- version file `%s`: %s" % (os.path.join(dp, f), open(os.path.join(dp, f), errors="replace").read(80).strip()))
-                except OSError:
-                    pass
-    return lines or ["- no Live Editor DLL found under %s" % root]
+                names.update(re.findall(r"\b((?:Get|Set|Is|Has)[A-Z][A-Za-z]{6,40})\(", txt))
+    return sorted(names)
+
+
+def le_scan(root=r"C:\FC 27 Live Editor"):
+    """-> (lines, inconclusive_note). The plain-string result is only meaningful if the control names are mostly visible."""
+    lines, note = [], None
+    p = os.path.join(root, "FCLiveEditor.DLL")
+    if not os.path.isfile(p):
+        return ["- no FCLiveEditor.DLL under %s" % root], "no DLL found"
+    d = open(p, "rb").read()
+    hits = {n: (n.encode() in d or n.encode("utf-16-le") in d) for n in NATIVES}
+    ctl = control_names(root)
+    seen = [n for n in ctl if n.encode() in d]
+    vers = sorted({m.decode() for m in re.findall(rb"27\.\d+\.\d+", d)})
+    lines.append("- `%s` (%d B), PE sections: %s" % (p, len(d), ", ".join(pe_sections(d))))
+    lines.append("- Live Editor version strings inside the DLL: %s (installed LE = the highest, `version_info.json` only lists the "
+                 "versions that exist)" % ", ".join(vers))
+    for n, h in hits.items():
+        lines.append("- `%s` as a plain string (ASCII or UTF-16): **%s**" % (n, "found" if h else "NOT found"))
+    lines.append("- CONTROL: of %d native names the stock Lua calls (Get*/Set*/Is*/Has*), only %d appear as plain strings in the DLL."
+                 % (len(ctl), len(seen)))
+    if ctl and len(seen) * 2 < len(ctl):
+        note = ("INCONCLUSIVE: most natives that certainly exist are not plain strings in this DLL (no packer section: names are built, "
+                "hashed or obfuscated), so a miss proves nothing. Only the boot probe `type(_G.GameplayAttribulatorSaveToFile)` in launch 1 decides.")
+    elif not any(hits.values()):
+        note = "the names are not in the DLL and the control says they would be: the natives are probably absent."
+    lines.append("- READING: " + (note or "found: the natives are registered by this DLL."))
+    return lines, note
 
 
 def selftest():
@@ -148,8 +188,8 @@ def selftest():
     except ValueError:
         pass
     assert family("fifa/attribulator/prematch/x") == "prematch" and family("zz") == "other"
-    txt = render(mock_rows(), ["- mock"])
-    assert "oodle=2" in txt and "raw=1" in txt and "## prematch (1)" in txt
+    txt = render(mock_rows(), ["- mock"], "INCONCLUSIVE: x")
+    assert "## Verdict" in txt and "INCONCLUSIVE: x" in txt and "oodle=2" in txt and "raw=1" in txt and "## prematch (1)" in txt
     print("ebx_block_kinds selftest PASS")
     return 0
 
@@ -162,7 +202,8 @@ def main(a):
     rx = re.compile(g("--regex", r"^fifa/attribulator/"), re.I)
     mock = "--mock" in a
     rows = mock_rows() if mock else scan_game(rx)
-    txt = render(rows, ["- (mock)"] if mock else le_scan())
+    le, note = (["- (mock)"], None) if mock else le_scan()
+    txt = render(rows, le, note)
     out = g("--out")
     if out:
         open(out, "w", encoding="utf-8").write(txt)
