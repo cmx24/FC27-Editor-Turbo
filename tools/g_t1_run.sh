@@ -9,7 +9,8 @@
 #   bash g_t1_run.sh match [--length 0.4] [--width 0.5] [--since-ko S] [--win 60] [--vanilla length=M,width=M]
 #        Right after the kick-off. Extremes still in place (else the hub write did not reach the match), match_measure --check (20 s), then
 #        B W s | restore | A W s in ONE process (g_t1_write.py schedule), final check (vanilla), KILL, mm_stats --gt1 -> OUTCOME + VERDICT.
-#        --vanilla (or env G_T1_VANILLA) = the vanilla with-ball means from TEST_24's control windows; without it the analysis is INCONCLUSIVE.
+#        --vanilla (or env G_T1_VANILLA) = the vanilla with-ball means from TEST_24's control windows; --vanilla-csv (or G_T1_VANILLA_CSV) = a
+#        vanilla run whose means are computed through the SAME filters as the gate (preferred); without either the analysis is INCONCLUSIVE.
 #   bash g_t1_run.sh analyse RUN_DIR [--vanilla ...]    mm_stats --gt1 again on a finished run (offline)
 #   --mock (before the phase): the whole flow offline over a synthetic engine (X1_TIME_SCALE, X1_MOCK_ENGINE live|once|none|b1only,
 #        X1_MOCK_LATENCY). The kill is NOT sent in mock mode (recorded in $G_T1_DIR/mock/killed.txt). The synthetic engine reacts to
@@ -23,7 +24,7 @@ PY="${PYTHON:-python}"
 MOCK=0
 [ "${1:-}" = "--mock" ] && { MOCK=1; shift; }
 PHASE="${1:-}"; shift || true
-LENGTH=0.4; WIDTH=0.5; SINCE_KO=30; WIN=60; SETTLE=5; KO_END="${X1_KO_END:-445}"; VANILLA="${G_T1_VANILLA:-}"
+LENGTH=0.4; WIDTH=0.5; SINCE_KO=30; WIN=60; SETTLE=5; KO_END="${X1_KO_END:-445}"; VANILLA="${G_T1_VANILLA:-}"; VANILLA_CSV="${G_T1_VANILLA_CSV:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --length) LENGTH="$2"; shift 2 ;;
@@ -31,6 +32,7 @@ while [ $# -gt 0 ]; do
     --since-ko) SINCE_KO="$2"; shift 2 ;;
     --win) WIN="$2"; shift 2 ;;
     --vanilla) VANILLA="$2"; shift 2 ;;
+    --vanilla-csv) VANILLA_CSV="$2"; shift 2 ;;
     *) break ;;
   esac
 done
@@ -75,6 +77,7 @@ verdict() {  # $1 = PASS|FAIL|INCONCLUSIVE, rest = reason
 analyse() {  # $1 = positions.csv path or run dir, $2 = output prefix
   local VA=()
   [ -n "$VANILLA" ] && VA=(--gt1-vanilla "$VANILLA")
+  [ -n "$VANILLA_CSV" ] && VA=(--gt1-vanilla-csv "$VANILLA_CSV")
   "$PY" "$HERE/mm_stats.py" --gt1 --csv "$1" --json "$2.gt1_stats.json" "${VA[@]}" | tee "$2.gt1_stats.txt"
   case "${PIPESTATUS[0]}" in 0) return 0 ;; 1) return 1 ;; *) return 3 ;; esac
 }

@@ -85,7 +85,18 @@ def changed_between(d1, d2):
     return ch
 
 
-def render(rows, dump, mp, ch=None, top=40):
+def db_identity(d1, d2):
+    """-> dict: current-DB address / name of both dumps, same object?, how many instance addresses moved"""
+    def cur(d):
+        return (d.get("mgr") or {}).get("current_db") or {}
+    c1, c2 = cur(d1), cur(d2)
+    moved = [gn for gn, g in d1["groups"].items() if gn in d2["groups"] and g.get("instance") != d2["groups"][gn].get("instance")]
+    known = bool(c1.get("addr") and c2.get("addr"))
+    return {"first": c1, "second": c2, "known": known, "same_db": (c1.get("addr") == c2.get("addr")) if known else None,
+            "instances_moved": len(moved), "groups": len(d1["groups"]), "moved_names": moved[:10]}
+
+
+def render(rows, dump, mp, ch=None, top=40, ident=None):
     cnt = {s: 0 for s in STATES}
     for r in rows:
         cnt[r["state"]] += 1
@@ -114,6 +125,16 @@ def render(rows, dump, mp, ch=None, top=40):
     L += ["", "## scalars still at the FC 27 value that the map would move (top %d of %d)" % (min(top, len(mods)), len(mods)), "",
           "| group | field | FC 27 (= live) | map value | map/FC27 |", "|---|---|---|---|---|"]
     L += ["| %s | %s | %s | %s | %s |" % (r["group"], r["field"], r["fc27"], r["mod"], r["ratio_mod_vs_fc27"]) for r in mods[:top]]
+    if ident is not None:
+        L += ["", "## which database is current (dump vs dump2)", ""]
+        if not ident["known"]:
+            L.append("- the current-DB pointer is missing from a dump (older dump format): cannot say whether the DB object changed")
+        else:
+            L.append("- current DB: %s (%s) -> %s (%s): **%s**" % (ident["first"].get("addr"), ident["first"].get("name"), ident["second"].get("addr"),
+                                                                 ident["second"].get("name"), "same object" if ident["same_db"] else "A DIFFERENT OBJECT"))
+        L.append("- group instance addresses that moved: %d of %d%s" % (ident["instances_moved"], ident["groups"],
+                                                                         " (e.g. " + ", ".join(ident["moved_names"][:3]) + ")" if ident["moved_names"] else ""))
+        L.append("- equal scalar values do NOT mean the same DB: a copy holds the same numbers at other addresses")
     if ch is not None:
         L += ["", "## scalars that differ between the two dumps (%d)" % len(ch), ""]
         L += ["- %s . %s : %s -> %s" % (c["group"], c["field"], c["first"], c["second"]) for c in ch[:top]]
@@ -140,7 +161,9 @@ def main(argv=None):
     mp = json.load(open(a.map, encoding="utf-8"))
     rows = compare(dump, mp)
     ch = changed_between(dump, json.load(open(a.dump2, encoding="utf-8"))) if a.dump2 else None
-    txt, cnt = render(rows, dump, mp, ch, a.top)
+    d2 = json.load(open(a.dump2, encoding="utf-8")) if a.dump2 else None
+    ident = db_identity(dump, d2) if d2 else None
+    txt, cnt = render(rows, dump, mp, ch, a.top, ident)
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     open(a.out, "w", encoding="utf-8").write(txt)
     if a.json:
@@ -181,10 +204,23 @@ def self_test():
     check(rows[3]["state"] == "pointer-only" and rows[3]["state"] != "missing-field", "a curve is 'pointer only', never 'missing'")
     txt, cnt = render(rows, dump, mp, None)
     check(cnt["pointer-only"] == 2 and "## path missing: group (1)" in txt and "## live=other" in txt, "report: counts and sections")
-    d2 = json.loads(json.dumps(dump))
+    dumpa = dict(dump, mgr={"current_db": {"addr": "0x1000", "name": "gameplayattribdb"}})
+    for g in dumpa["groups"].values():
+        g["instance"] = "0x2000"
+    d2 = json.loads(json.dumps(dumpa))
     d2["groups"]["g_van"]["fields"]["a"]["value"] = 0.75
     ch = changed_between(dump, d2)
     check(len(ch) == 1 and ch[0]["field"] == "a" and ch[0]["second"] == 0.75, "dump vs dump2: only the changed scalar is listed")
+    check(db_identity(dumpa, d2)["same_db"] is True and db_identity(dumpa, d2)["instances_moved"] == 0, "same DB object, no moved instance: reported as the same")
+    d3 = json.loads(json.dumps(dumpa))
+    d3["mgr"]["current_db"]["addr"] = "0x5000"
+    for g in d3["groups"].values():
+        g["instance"] = "0x6000"
+    idn = db_identity(dumpa, d3)
+    t3, _ = render(rows, dumpa, mp, changed_between(dumpa, d3), 40, idn)
+    check(idn["same_db"] is False and idn["instances_moved"] == 2 and "A DIFFERENT OBJECT" in t3 and "none: both dumps read the same values" in t3,
+          "a swapped DB holding identical values: scalars say 'none', the DB section says DIFFERENT OBJECT")
+    check(db_identity(dump, d3)["known"] is False, "an old dump without the pointer: 'cannot say', never 'same'")
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         dp, mpth, out = os.path.join(d, "d.json"), os.path.join(d, "m.json"), os.path.join(d, "o.md")

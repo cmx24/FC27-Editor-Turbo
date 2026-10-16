@@ -102,6 +102,17 @@ def dump(dev, G, inv, say=print):
         for kind, tail in DB_NAME.items():
             if b is not None and name.lower().endswith(tail) and kind not in dbs:
                 dbs[kind] = {"mgr_slot": "0x%X" % o, "addr": q, "name": name, "block": b}
+    # the PROVEN current-DB pointer ([[mgr+0]+8], bit 2 masked), recorded whether or not its name matches a DB found above
+    A = u64(mb, 0) & MASK
+    cur = {"A": "0x%X" % A, "addr": None, "name": None, "is_gameplay_db": None}
+    if cc.is_heap_ptr(A):
+        (ab,) = dev.multi([(A, 0x10)])
+        q = (u64(ab, 8) & MASK) if ab else 0
+        if cc.is_heap_ptr(q):
+            (qb,) = dev.multi([(q, 0x20)])
+            (qn,) = dev.multi([(u64(qb, 0x18) & MASK, 0x80)]) if qb else (None,)
+            cur.update(addr="0x%X" % q, name=cc.cstr(qn), is_gameplay_db=(q == dbs.get("gameplay", {}).get("addr")))
+    res["mgr"]["current_db"] = cur
     for kind in DB_NAME:
         if kind not in dbs:
             raise Abort("database %s not found from the manager (name check) - %d candidates" % (DB_NAME[kind], len(cands)))
@@ -245,6 +256,8 @@ def build_world(inv, overrides=None, tag_first=True):
     mblk = bytearray(cc.MGR_SIZE)
     struct.pack_into("<Q", mblk, 0, hA)
     struct.pack_into("<Q", mblk, 0x20, hP)
+    hG = mem.put(struct.pack("<QQ", 0, dbobj["gameplay"][0]) + bytes(16))   # a second, untagged handle to the gameplay DB
+    struct.pack_into("<Q", mblk, 0x28, hG)
     mgr = mem.put(bytes(mblk))
     mem.write(G, struct.pack("<Q", mgr))
     return mem, G
@@ -342,6 +355,17 @@ def self_test():
     check("ptr" in g1["curveA"] and "ptr" in g1["listB"] and "value" not in g1["curveA"], "curve / array: raw pointer only, no value invented")
     check(g1["kind"] == {"off": 72, "kind": "enum", "raw": 2}, "enum: raw u32 only")
     check(r["groups"]["gp_a_one"]["instance"] != r["groups"]["gp_a_two"]["instance"], "two groups of one family resolve to two instances")
+    cdb = r["mgr"]["current_db"]
+    check(cdb["addr"] == r["dbs"]["gameplay"]["addr"] and cdb["is_gameplay_db"] and cdb["name"].lower().endswith("gameplayattribdb"),
+          "the proven current-DB pointer [[mgr+0]+8] is recorded and is the gameplay DB")
+    memc, Gc = build_world(inv)
+    mgr_c = struct.unpack("<Q", memc.read(Gc, 8))[0]
+    A_c = struct.unpack("<Q", memc.read(mgr_c, 8))[0]
+    prem = int(dump(cc.Dev(memc.call, 30), Gc, inv, say=quiet)["dbs"]["prematch"]["addr"], 16)
+    memc.write(A_c + 8, struct.pack("<Q", prem))  # the manager now points its current DB at another object
+    rc_ = dump(cc.Dev(memc.call, 30), Gc, inv, say=quiet)
+    check(rc_["mgr"]["current_db"]["is_gameplay_db"] is False and rc_["mgr"]["current_db"]["addr"] == "0x%X" % prem,
+          "a repointed [A+8] is recorded as current != the gameplay DB found by name")
     # a wrong Name FAILs that group only
     mem2, G2 = build_world(inv)
     a1 = int(r["groups"]["gp_a_two"]["instance"], 16)

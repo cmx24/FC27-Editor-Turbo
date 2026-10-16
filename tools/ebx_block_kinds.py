@@ -86,7 +86,23 @@ def verdict(rows):
     return live, c, multi
 
 
-def render(rows, le_info, le_note=None):
+def map_lengths(path):
+    """-> (n_same, n_diff, n_nolists) over the value map's array / curve rows (the map is kept outside git; None when absent)"""
+    if not path or not os.path.exists(path):
+        return None
+    c = [0, 0, 0]
+    for x in json.load(open(path, encoding="utf-8")).get("fields", []):
+        if x.get("kind") == "scalar":
+            continue
+        a, b = x.get("fc27_values"), x.get("mod_values")
+        c[2 if a is None or b is None else (0 if len(a) == len(b) else 1)] += 1
+    return tuple(c)
+
+
+DEFAULT_MAP = os.path.join(r"C:\FC 27 Live Editor", "turbo_output", "assessment_20261014", "MOD_MAP.json")
+
+
+def render(rows, le_info, le_note=None, lens=None):
     live, c, multi = verdict(rows)
     bad = [k for k in c if k != "oodle"]
     L = ["# attrib EBX block kinds (offline, read-only)", "",
@@ -99,8 +115,10 @@ def render(rows, le_info, le_note=None):
          "STATIC match only.",
          "- NOT proven: that the game's bundle loader consults Turbo's table for attrib assets, and the load timing of the attrib bundles vs the DLL. "
          "Needs the observe-mode line in the first (b) launch.",
-         "- NOT known: whether the EBX patch can change an array/curve LENGTH (new bytes carry their own csize/dsize in the table, so probably yes, "
-         "but unproven); same-size scalar edits are the safe minimum.",
+         ("- Array / curve LENGTH: in the local value map %d array/curve rows carry both lists: %d have the same length as FC 27's, %d differ; %d curve rows "
+          "carry no lists (not checked). So same-size byte edits cover every row that can be checked; whether the patch may CHANGE a length is moot "
+          "for those and unproven otherwise." % (lens[0] + lens[1], lens[0], lens[1], lens[2]) if lens else
+          "- Array / curve LENGTH: the value map was not available, not checked."),
          "- Live Editor natives: " + (le_note or "see the last section") if le_info is not None else "- Live Editor natives: not scanned (mock)",
          "",
          "Assets scanned: %d (%d effective, rest shadowed by an earlier layer)." % (len(rows), len(live)), "",
@@ -205,7 +223,7 @@ def main(a):
     mock = "--mock" in a
     rows = mock_rows() if mock else scan_game(rx)
     le, note = (["- (mock)"], None) if mock else le_scan()
-    txt = render(rows, le, note)
+    txt = render(rows, le, note, None if mock else map_lengths(g("--map", DEFAULT_MAP)))
     out = g("--out")
     if out:
         open(out, "w", encoding="utf-8").write(txt)

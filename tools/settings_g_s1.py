@@ -84,6 +84,25 @@ def hits_target(u, targets):
     return out
 
 
+def sub_hits(a, c, targets):
+    """packed values: a moved u32 may hold two u16 or four u8 sliders. -> [(name, 'u16@+k' | 'u8@+k')] for sub-units that CHANGED and now
+    equal a target; a u8 inside a u16 hit is not reported twice"""
+    out = []
+    for n, t in targets.items():
+        if not float(t).is_integer():
+            continue
+        t = int(t)
+        hit16 = set()
+        for k in (0, 2):
+            if (a >> (8 * k)) & 0xFFFF != (c >> (8 * k)) & 0xFFFF and (c >> (8 * k)) & 0xFFFF == t:
+                out.append((n, "u16@+%d" % k))
+                hit16.add(k)
+        for k in range(4):
+            if (a >> (8 * k)) & 0xFF != (c >> (8 * k)) & 0xFF and (c >> (8 * k)) & 0xFF == t and (k & 2) not in hit16:
+                out.append((n, "u8@+%d" % k))
+    return out
+
+
 def diff_settings(old, new, targets):
     """-> dict(moved [{word, payload_off, old, new, hits}], meta_changed int, crc_changed bool, found {target: [(word, how)]})"""
     wo, wn = words(old), words(new)
@@ -91,6 +110,8 @@ def diff_settings(old, new, targets):
     for i, (a, c) in enumerate(zip(wo, wn)):
         if a != c:
             h = hits_target(c, targets)
+            if not h:
+                h = sub_hits(a, c, targets)  # only when no whole-word reading fits: the sliders may be packed
             moved.append({"word": i, "payload_off": CRC_FROM + 4 * i, "old": a, "new": c,
                           "old_f32": struct.unpack("<f", struct.pack("<I", a))[0], "new_f32": struct.unpack("<f", struct.pack("<I", c))[0], "hits": h})
             for n, how in h:
@@ -340,6 +361,13 @@ def self_test():
         check(len(r["file"]["moved"]) == 3 and r["file"]["crc_changed"] and r["file"]["meta_changed"] >= 1,
               "moved list holds exactly the 3 words: the CRC word and the meta change are NOT in it")
         check(r["verdict"] == "PASS" and "slot map proven" in r["branch"][0], "verdict PASS, branch 1")
+        ob, nb = bytearray(o), bytearray(o)   # packed sliders: two u16 in one word, and a u8 in the second byte
+        for w, ov, nv in ((300, 0x00290023, 0x00290025), (301, 0, 0x003F0029), (302, 0, 41 << 8)):
+            struct.pack_into("<I", ob, POFF + CRC_FROM + 4 * w, ov)
+            struct.pack_into("<I", nb, POFF + CRC_FROM + 4 * w, nv)
+        pf = diff_settings(bytes(ob), bytes(nb), T)["found"]
+        check(pf["sprint_user"] == [(300, "u16@+0")] and (301, "u16@+0") in pf["accel_user"] and (302, "u8@+1") in pf["accel_user"] and pf["sprint_cpu"] == [(301, "u16@+2")],
+              "packed sliders: u16 and u8 sub-values of a moved word are found, with the byte offset (got %s)" % pf)
         po2, pn2, idx2 = make_fixture(d, mode="f32")
         o2, _ = load_settings(po2)
         n2, _ = load_settings(pn2)

@@ -702,6 +702,7 @@ def main(argv=None):
     ap.add_argument("--x1-baseline", action="append", default=[], help="a 1.0 reference run (DIR or CSV) for the setup-latch advisory")
     ap.add_argument("--gt1", action="store_true", help="gate G-T1 decision (windows B, A in --csv): see the GT1 block; needs --gt1-vanilla")
     ap.add_argument("--gt1-vanilla", default="", help="vanilla with-ball means in metres: length=M,width=M or team0=L/W,team1=L/W (from TEST_24 control windows)")
+    ap.add_argument("--gt1-vanilla-csv", default="", help="a vanilla run (positions.csv or its dir): the vanilla means computed through the SAME per_sample / filters (all rows of that run)")
     ap.add_argument("--gt1-min-n", type=int, default=20, help="minimum with-ball samples per window and team (default 20)")
     ap.add_argument("--A", default="", help="comma list of A window labels")
     ap.add_argument("--B", default="", help="comma list of B window labels")
@@ -784,11 +785,30 @@ def main(argv=None):
                 cells.append("%7.0f" % (neff * (v["tau"] or 1) / share))
             print("%-14s %-4d %6.2f %5.1f %5.2f | %s" % (w, tm, v["sd"], v["tau"] or 1, share, "  ".join(cells)))
     if args.gt1:
+        van = None
         try:
-            van = parse_gt1_vanilla(args.gt1_vanilla) if args.gt1_vanilla else None
+            if args.gt1_vanilla_csv:
+                vr = apply_filters(load_recs([], args.gt1_vanilla_csv, args.length, args.width), args.stoppage, args.ball_still, args.drop_dead_ball,
+                                   args.max_dt, strata)
+                van = {}
+                for tm in (0, 1):
+                    L_ = [r["length_with"] for r in vr if r["team"] == tm and r.get("length_with") is not None]
+                    W_ = [r["width_with"] for r in vr if r["team"] == tm and r.get("width_with") is not None]
+                    if len(L_) >= args.gt1_min_n:
+                        van[tm] = (statistics.fmean(L_), statistics.fmean(W_))
+                if set(van) != {0, 1}:
+                    print("vanilla run: fewer than %d with-ball samples for a team" % args.gt1_min_n)
+                    van = None
+                else:
+                    print("vanilla from %s (same filters): " % args.gt1_vanilla_csv + ", ".join("team %d length %.1f width %.1f" % (t, *van[t]) for t in (0, 1)))
+            elif args.gt1_vanilla:
+                van = parse_gt1_vanilla(args.gt1_vanilla)
         except ValueError as e:
             print(e)
             van = None
+        print("FILTERS    with-ball samples only (carrier on the team); stoppage %s m/s, max-dt %s s, ball-still %s, drop-dead-ball %s, frozen samples dropped; "
+              "TEST_31's vanilla numbers must be computed with these same filters (or use --gt1-vanilla-csv)" % (
+                  args.stoppage, args.max_dt, args.ball_still, args.drop_dead_ball))
         res = gt1_decide(recs, van, args.gt1_min_n)
         print("\nCRITERION  B: length <= %.0f%% and width <= %.0f%% of vanilla (both teams); A returns >= %.0f%%; FAIL = no B ratio < %.0f%%" % (
             100 * GT1_LEN_MAX, 100 * GT1_WID_MAX, 100 * GT1_A_MIN, 100 * GT1_FAIL_MIN))
@@ -1010,7 +1030,13 @@ def self_test():
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             rc = main(["--gt1", "--csv", p])
-        check(rc == 3 and "no vanilla baseline" in buf.getvalue(), "G-T1 CLI: no --gt1-vanilla: exit 3")
+        check(rc == 3 and "no vanilla baseline" in buf.getvalue() and "FILTERS" in buf.getvalue(), "G-T1 CLI: no --gt1-vanilla: exit 3, the filter set is printed")
+        pv = synth_csv(os.path.join(d, "van.csv"), [("V", 90, 1.0, 1.0)], 12)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = main(["--gt1", "--csv", p, "--gt1-vanilla-csv", pv])
+        check("vanilla from" in buf.getvalue() and "OUTCOME" in buf.getvalue() and "no vanilla baseline" not in buf.getvalue(),
+              "G-T1 CLI: --gt1-vanilla-csv computes the vanilla means through the same filters (exit %d)" % rc)
     print("SELF-TEST " + ("PASSED" if ok else "FAILED"))
     return 0 if ok else 1
 
