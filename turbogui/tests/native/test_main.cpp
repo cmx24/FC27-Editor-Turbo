@@ -3689,6 +3689,7 @@ static void test_ui() {
         App app(mem, le, kMb, "uitest");
         Ui ui(app);
         app.visible = true;
+        app.prefs.advanced_mode = true;  // the cases below drive Tactics, Gameplay tuning, Match setup, Database: Advanced view (default is Simple)
         // 1.2.5: keeping player edits for every career load and syncing your players' development plans have their own
         // case ("UI: kept player edits ..."); off for the cases before it, which edit your club's players with nobody
         // answering the mailbox
