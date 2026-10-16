@@ -90,6 +90,26 @@ std::vector<std::string> gallery_preload_paths(App& app);
 // tattoos), which its code combo offers too; empty for any other field. With a game asset catalog (set_gear_catalog):
 // none + the ids that may be written (3D models; hidden ones only while the catalog is current), core/gear_ids.h
 std::vector<int64_t> gallery_codes(App& app, const std::string& field);
+// The faces3d picker (ui_faces3d_gate.cpp) reuses the Players > Appearance gallery for scanned heads' generic hair
+// (hairtypecode: craniumhair/hair_<id>_0) and beard (facialhairtypecode: craniumfacialhair/Facial_hair_<id>_0).
+struct GalleryPick {
+    int64_t id = 0;
+    std::string path;  // the listed picture ("data/ui/imgAssets/..."); "" = none listed (the cell shows the text label)
+};
+// Picture path of `id` in the hair / facial-hair gallery from the hash list alone ("" = list at hand but no picture; the usual
+// file name when nothing is listed; "" for other fields and id <= 0). The catalog-aware twin that the cells draw is gallery_picture_path.
+std::string gallery_pick_path(const GearPictureIndex& gx, const std::string& field, int64_t id);
+// The picker's cells: `ids` (verified ids, ascending) minus ids <= 0, filtered by hair length (hair::Length, -1 = any; hair only),
+// each with its picture path
+std::vector<GalleryPick> gallery_pick_list(const GearPictureIndex& gx, const std::string& field, const std::vector<int>& ids,
+                                           int hair_length = -1);
+std::string gallery_picture_path(App& app, const std::string& field, int64_t id);
+// The picture of `id` in side x side; true when a game picture is (being) shown. No preview in the game (none listed, or the
+// game has none): a box showing `fallback_text` instead. id <= 0: "none".
+bool gallery_picture(App& app, const std::string& field, int64_t id, float side, const std::string& fallback_text);
+// Clickable cell: gallery_picture with `caption` under it; true when clicked
+bool gallery_picture_cell(App& app, const std::string& field, int64_t id, float side, const std::string& caption,
+                          const std::string& fallback_text, const char* bid, bool selected, bool none = false);
 // The game asset catalog the gear galleries and tattoo pickers read (docs/asset-catalog.md). The app sets it after every
 // catalog load or switch change; nullptr (catalog off, not loaded, refused) = every gallery behaves exactly as in 2.0.
 void set_gear_catalog(std::shared_ptr<const assets::Catalog> catalog);
