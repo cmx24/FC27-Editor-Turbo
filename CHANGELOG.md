@@ -21,7 +21,7 @@ Seen in game 2026-10-15 on build 6AC07E31 (test career LEICESTER, never saved). 
 
 ### NOT PROVEN
 - Any slider's effect on match play (sprint speed, acceleration, CPU sprint speed).
-- Any tactics effect on the pitch. Gate L5: `L5: PENDING`
+- Tactics effect: NOT PROVEN. L5 (preset length 0.5 / width 0.6) exited at the main menu with no crash dump; cause unknown; re-test next session with half-step values. Do not use these values. The attrib preset stays OFF unless turbo_outputttrib_preset.json is added.
 - Settings-live (changing the settings while the game runs) is not included.
 - Only 6AC07E31 is supported; other game builds, other careers and long sessions were not tested.
 
