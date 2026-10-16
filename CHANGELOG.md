@@ -20,7 +20,10 @@ Seen in game 2026-10-15 on build 6AC07E31 (test career LEICESTER, never saved). 
 - **Safe undo.** The settings undo refuses until a game-written Settings file has been copied to evidence, so a settings undo can no longer overwrite what the game wrote.
 
 ### NOT PROVEN
-- Any slider's effect on match play (sprint speed, acceleration, CPU sprint speed).
+- Any slider's effect on match play (sprint speed, acceleration, CPU sprint speed). Gate G-S3 FAILED: with sprint set to 0/0 the measured p95 sprint speed was 0.97 / 0.985 of vanilla, so the values show on the EA Custom screen but no change on the pitch was measured.
+- **Tactics do not work in this release.** The Tactics tab and its live-tactic (channel E) controls exist, but no on-pitch effect was proven and nothing is claimed. Do not rely on them.
+- Running Turbo alongside the FIFA Editor Tool or community gameplay mods: untested. They patch the same attribulator (attribdb) partitions that Turbo's opt-in preset patches, so combining them may conflict.
+- The attrib preset is an inert opt-in, off by default (no file, no patch). Delivery was proven, effect was not.
 - Tactics effect: NOT PROVEN. L5 (preset length 0.5 / width 0.6) exited at the main menu with no crash dump; cause unknown; re-test next session with half-step values. Do not use these values. The attrib preset stays OFF unless turbo_output\attrib_preset.json is added.
 - Settings-live (changing the settings while the game runs) is not included.
 - Only 6AC07E31 is supported; other game builds, other careers and long sessions were not tested.
