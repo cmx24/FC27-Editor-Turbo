@@ -5273,6 +5273,7 @@ static void test_ui() {
 
 
         run_case("UI: every Turbo Tools and player button sends a command Turbo's Lua side runs", [&] {
+            ShellTallWindow tall(ui, S(120.0f));  // test_shell.h: the Career page strip takes a second row
             // Click every button that queues a command, record the exact JSON it put in the mailbox, cancel it so
             // the next one can be sent, then run all of them through Turbo's real Lua bridge (gui_world.lua commands)
             json captured = json::array();
@@ -5523,6 +5524,7 @@ static void test_ui() {
         });
 
         run_case("UI: tools this Live Editor build cannot run are greyed out and send nothing", [&] {
+            ShellTallWindow tall(ui, S(120.0f));  // test_shell.h: the Career page strip takes a second row
             std::ofstream(le / "turbo_output" / "bridge_state.json")
                 << "{\"session\":\"X\",\"seq\":100,\"db_gen\":7,\"in_cm\":true,\"user_team\":1,\"db_service\":\"" +
                        hex_addr(app.bridge.state().db_service) +

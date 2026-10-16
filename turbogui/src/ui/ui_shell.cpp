@@ -37,7 +37,7 @@ const PageInfo kPages[] = {
     {Page::Scouting, Area::Career, "Scouting", 5},
     {Page::Budget, Area::Career, "Budget", 5},
     {Page::Exports, Area::Career, "Exports", 5},
-    {Page::Bans, Area::Career, "Transfer bans", 5},
+    {Page::Bans, Area::Career, "Bans", 5},
     {Page::CMTracker, Area::Career, "CMTracker", 5},
     {Page::ChangesUndo, Area::Career, "Changes & undo", 5},
     {Page::CareerMaintenance, Area::Career, "Maintenance", 3},

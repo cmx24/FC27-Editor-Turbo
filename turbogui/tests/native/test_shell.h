@@ -23,6 +23,26 @@ static std::vector<Page> shell_all_pages() {
     return v;
 }
 
+// The page strip of a long area (Career tools has nine pages) takes a second row: the cases that walk the whole old Turbo
+// Tools panel in one go ask for a taller window while they run
+struct ShellTallWindow {
+    ImVec2 old;
+    Ui& ui;
+    ShellTallWindow(Ui& u, float extra) : old(0, 0), ui(u) {
+        if (ImGuiWindow* w = ImGui::FindWindowByName("FC 27 LE Turbo")) {
+            old = w->Size;
+            ImGui::SetWindowSize("FC 27 LE Turbo", ImVec2(old.x, old.y + extra));
+            ui.frames(2);
+        }
+    }
+    ~ShellTallWindow() {
+        if (old.x > 0) {
+            ImGui::SetWindowSize("FC 27 LE Turbo", old);
+            ui.frames(2);
+        }
+    }
+};
+
 static int g_shell_calls = 0;
 static void shell_fake_page(turbo::App&) { ++g_shell_calls; }
 static void shell_other_page(turbo::App&) { g_shell_calls += 100; }
