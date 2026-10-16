@@ -3,6 +3,18 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## Unreleased
+
+Planned items from `turbo_dev\research_20261015\PLAN_tactics_settings.md`. **Everything below is UNPROVEN in game** until its gate in `turbo_dev\evidence\2026-10-15\TEST_31.md` passes. Nothing here is shipped or claimed as a feature.
+
+- **UNPROVEN:** tactics attribulator EBX patcher in the Oodle hook (attrib bytes patched before instantiation; arrays and curves). Gate G-T1b.
+- **UNPROVEN:** tactics sliders for team length and width (`shape.length_in`, `shape.width_in`). Gate G-T1 (PASS-live or PASS-setup needed). Vanilla baseline not yet measured.
+- **UNPROVEN:** the live attribulator dump and diff against the mod map (read-only). Gate Step 0.
+- **UNPROVEN:** game settings: the file slot map for Sprint Speed, Acceleration and CPU Sprint Speed, and any live store. Gate G-S1.
+- **UNPROVEN:** game settings presets that write to the game (display in the EA menu). Gate G-S2.
+- **UNPROVEN:** any effect of sprint speed settings on the pitch. Gate G-S3 (ratio >= 1.4).
+- **UNPROVEN:** the settings "Undo" refusal when a newer game-written `Settings*` file is not yet copied to evidence.
+
 ## 2.8.0 (2026-10-15)
 
 Seen in game 2026-10-15 on build 6AC07E31 (test career LEICESTER, never saved). Everything not listed as seen is offline-tested only. Offline suites: build 0 warnings, Lua 405/0, native 32,057/0, Python 40+22+488 ok, catalog all pass (kitswap 193, lualoader 168, faces3d 146).
