@@ -2776,6 +2776,9 @@ const char* ImGuiTestEngine_FindItemDebugLabel(ImGuiContext*, ImGuiID id) {
     return it == g_items.end() ? nullptr : it->second.label.c_str();
 }
 
+// 2026-10-16: a page test draws its own window after the app (test_club_page.h); null = nothing
+static void (*g_ui_extra)(turbo::App&) = nullptr;
+
 class Ui {
 public:
     App& app;
@@ -2788,6 +2791,7 @@ public:
         ++g_frame;
         app.tick(t);
         app.draw();
+        if (g_ui_extra) g_ui_extra(app);
         ImGui::Render();
         ImGui_ImplNullRender_RenderDrawData(ImGui::GetDrawData());
         t += 1.0 / 60.0;
@@ -3394,6 +3398,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_asset_app.h"    // 2.1: asset catalog wiring (pickers, lua_gate.txt session)
 #include "test_player_id.h"    // 2.3: Create player > Player ID (typed id checks, the head / callname of the id)
 #include "test_kit_import.h"   // 2.3: Teams > Kits, FIFA Kit Creator zips (test_kit_import, kit_import_ui_cases)
+#include "test_club_page.h"    // 2.13 T3: Club & Kits pages (club_page_test::ui_cases)
 #include "test_kit_fonts.h"    // 2.11 K1: named kit font / layout choices (test_kit_fonts, kit_fonts_ui_cases)
 // ================================================================ live team names (core/teamname_override.h)
 static void test_team_names_live() {
@@ -8910,6 +8915,7 @@ static void test_ui() {
 
         ui_cases_tactics_tab(app, ui, le);  // test_tactics_tab.h
         team_sheet_test::ui_cases(app, ui, le);  // test_team_sheet.h: the live tactic card (channel E)
+        club_page_test::ui_cases(app, ui, le);  // test_club_page.h: Club & Kits pages (before test_shell_app clears the registry)
         test_shell_app(app);  // test_shell.h: page registry
         tuning_test::ui_cases(app, ui, le);  // test_tuning.h: Competitions > Gameplay tuning
         gsettings_test::ui_cases(app, ui, le);  // test_game_settings.h: the Game settings tab (2.8)

@@ -81,17 +81,17 @@ void identity_page_fn(App& app) {
     if (!page_header(app)) return;
     // name + colours | crest side by side; one under the other when the window is narrow
     g_state.wide = ImGui::GetContentRegionAvail().x >= S(760.0f);
-    if (g_state.wide && ImGui::BeginTable("##idcols", 2, ImGuiTableFlags_SizingStretchProp)) {
-        ImGui::TableNextColumn();
+    if (g_state.wide) {
+        ImGui::Columns(2, "##idcols", false);
         theme::muted_text("Name");
         name_box(app);
         theme::muted_text("Colours");
         colours_box(app);
-        ImGui::TableNextColumn();
+        ImGui::NextColumn();
         theme::muted_text("Crest");
         crest_box(app);
-        ImGui::EndTable();
-    } else if (!g_state.wide) {
+        ImGui::Columns(1);
+    } else {
         theme::muted_text("Name");
         name_box(app);
         theme::muted_text("Colours");
@@ -108,6 +108,7 @@ void stadium_page_fn(App& app) {
     club_stadium_section(app);
     ImGui::Spacing();
     ImGui::SeparatorText("Customisation hub");
+    ImGui::SetNextItemOpen(true, ImGuiCond_Once);  // the hub's own header
     draw_club_tools(app);
     ImGui::EndChild();
 }
