@@ -48,7 +48,12 @@ struct TeamNameTabState {
 const TeamNameTabState& team_name_tab_state();
 
 // ---- colours
+// The club's three colours (teams.teamcolor1..3)
 void team_colours_editor(App& app, const Table& t, uint64_t rec, int64_t teamid);
+// The stadium colours and goal net (Club & Kits > Stadium & extras)
+void team_stadium_editor(App& app, const Table& t, uint64_t rec);
+// The kit colours, fonts and name layout of every kit of the club (Club & Kits > Kits, "Colours & numbers")
+void team_kit_colours_editor(App& app, int64_t teamid);
 // <prefix>r / <prefix>g / <prefix>b fields of a record (teams.teamcolor1, teamkits.teamcolorprim, ...)
 bool read_colour(App& app, const Table& t, uint64_t rec, const std::string& prefix, uint8_t rgb[3]);
 // Validated writes of the three fields (each through Database::set); false with a reason when a field is missing or refused

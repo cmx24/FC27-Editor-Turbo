@@ -557,12 +557,19 @@ void team_colours_editor(App& app, const Table& t, uint64_t rec, int64_t teamid)
     colour_editor(app, t, rec, "teamcolor1", "Team colour 1");
     colour_editor(app, t, rec, "teamcolor2", "Team colour 2");
     colour_editor(app, t, rec, "teamcolor3", "Team colour 3");
+}
+
+// 2.13 (GUI revamp, Club & Kits > Stadium & extras): the stadium colours and goal net, split out of team_colours_editor unchanged
+void team_stadium_editor(App& app, const Table& t, uint64_t rec) {
     ImGui::SeparatorText("Stadium");
     colour_editor(app, t, rec, "goalnetstanchioncolor1", "Goal net stanchion 1");
     colour_editor(app, t, rec, "goalnetstanchioncolor2", "Goal net stanchion 2");
     field_grid(app, t, rec, {"stadiumgoalnetstyle", "stadiumgoalnetpattern", "pitchcolor", "pitchlinecolor", "cornerflagpolecolor", "jerseytype"},
                "##stadcol", 3);
+}
 
+// 2.13 (Club & Kits > Kits, "Colours & numbers"): the kit colours, fonts and name layout, split out of team_colours_editor unchanged
+void team_kit_colours_editor(App& app, int64_t teamid) {
     ImGui::SeparatorText("Kits (teamkits)");
     const Table* kt = app.db.table("teamkits");
     if (!kt || !kt->has("teamtechid")) {
