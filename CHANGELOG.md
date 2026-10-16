@@ -26,7 +26,7 @@ Seen in game 2026-10-15 on build 6AC07E31 (test career LEICESTER, never saved). 
 - Only 6AC07E31 is supported; other game builds, other careers and long sessions were not tested.
 
 ### Version
-- Turbo and the GUI report 2.10.0 (2.9 was not released).
+- Turbo and the GUI report 2.10.0.
 
 ## 2.8.0 (2026-10-15)
 
