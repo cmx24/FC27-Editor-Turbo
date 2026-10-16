@@ -12,6 +12,7 @@
 #include "geo.h"
 #include "imgui.h"
 #include "table_sort.h"
+#include "ui_career_page.h"
 #include "ui_tactics_pages.h"
 #include "ui_team_filter.h"
 #include "ui_tuning.h"
@@ -414,8 +415,9 @@ bool recalc_league(App& app, int64_t league, bool positions, std::string* msg) {
     return true;
 }
 
-static void draw_database_copy(App& app);
-
+// Legacy Competitions tab: stays whole until the shell track retires the tab bar. Its Career database copy view is the body of
+// Career tools > Maintenance (draw_career_database_copy, ui_career_page.h, one call site on the page; the tab below calls the
+// same function until then). At integration the Tactics track drops standings / match setup / tuning from this tab.
 void draw_competitions(App& app) {
     if (!app.connected()) {
         not_connected_hint();
@@ -436,14 +438,14 @@ void draw_competitions(App& app) {
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Career database copy")) {
-            draw_database_copy(app);
+            draw_career_database_copy(app);
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
     }
 }
 
-static void draw_database_copy(App& app) {
+void draw_career_database_copy(App& app) {
     const Table* t = app.db.table("leagueteamlinks");
     if (!t) {
         ImGui::TextDisabled("This database has no leagueteamlinks table.");

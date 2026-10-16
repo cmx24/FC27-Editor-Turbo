@@ -6,6 +6,10 @@
 
 #include "app.h"
 #include "imgui.h"
+#include "ui_career_page.h"
+#include "ui_club_search.h"
+#include "ui_shell.h"
+#include "ui_theme.h"
 
 namespace turbo {
 
@@ -144,5 +148,68 @@ void draw_database(App& app) {
         ImGui::EndPopup();
     }
 }
+
+
+// ---------------------------------------------------------------- Advanced > Database page (GUI revamp 2.13)
+// The table browser above, unchanged, as the editor panel of the page frame (one call site of draw_database: this page; the
+// legacy Database tab calls it too until the shell track removes it). Advanced view only (ui_shell.h page_visible).
+namespace {
+void editor_database(App& app, void*) {
+    theme::muted_text("Raw tables of the live database. Every write is range-checked; the pages of the other areas are the safe way to edit.");
+    draw_database(app);
+}
+void page_database(App& app) { shell::page::frame(app, nullptr, editor_database, nullptr, nullptr); }
+
+// Advanced > Raw rows: every field of one player or one club row, by ID (the "All fields" panels of the Players and Teams tabs;
+// widgets.cpp all_fields, the same editors and range checks). A player by his ID, a club by name or ID.
+void editor_raw_rows(App& app, void*) {
+    if (!app.connected()) {
+        not_connected_hint();
+        return;
+    }
+    static int kind = 0;  // 0 player, 1 club
+    static long long player_id = 0;
+    static int64_t club_id = 0;
+    theme::muted_text("Every field of one row, as the game stores it. Edits are range-checked and written at once.");
+    ImGui::RadioButton("Player##rawkind", &kind, 0);
+    ImGui::SameLine();
+    ImGui::RadioButton("Club##rawkind", &kind, 1);
+    const Table* t = nullptr;
+    uint64_t rec = 0;
+    std::string who;
+    if (kind == 0) {
+        form_label("Player ID", "The playerid; the Squad pages show it next to the name");
+        ImGui::SetNextItemWidth(S(140.0f));
+        ImGui::InputScalar("##rawplayer", ImGuiDataType_S64, &player_id);
+        const PlayerRow* p = player_id > 0 ? app.model.player(player_id) : nullptr;
+        t = app.db.table("players");
+        if (p && t) {
+            rec = p->rec;
+            who = p->name + " (" + std::to_string(p->playerid) + ")";
+        } else if (player_id > 0) {
+            theme::warn_text("No player has ID %lld in this database.", player_id);
+        }
+    } else {
+        form_label("Club", "A club name or ID");
+        club_search_box(app, "##rawclub", club_id, S(240.0f), "club name or ID");
+        const TeamRow* tr = club_id > 0 ? app.model.team(club_id) : nullptr;
+        t = app.db.table("teams");
+        if (tr && t) {
+            rec = tr->rec;
+            who = app.model.team_name(club_id) + " (" + std::to_string(club_id) + ")";
+        }
+    }
+    if (!t || !rec) {
+        theme::muted_text("Pick a row to see its fields.");
+        return;
+    }
+    ImGui::SeparatorText(who.c_str());
+    all_fields(app, *t, rec, kind == 0 ? "##rawpall" : "##rawtall");
+}
+void page_raw_rows(App& app) { shell::page::frame(app, nullptr, editor_raw_rows, nullptr, nullptr); }
+}  // namespace
+
+TURBO_REGISTER_PAGE(shell::Page::AdvDatabase, page_database);
+TURBO_REGISTER_PAGE(shell::Page::AdvRawRows, page_raw_rows);
 
 }  // namespace turbo
