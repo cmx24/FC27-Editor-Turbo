@@ -669,7 +669,7 @@ void presets_select_panel(App& app, void*) {
         const tpreset::Preset& p = g.presets[i];
         if (g.filter[0] && !contains_nocase(p.name, g.filter)) continue;
         const std::string label = p.name + "  -  " + g_state.summaries[i] + "##tpsel" + std::to_string(i);
-        if (ImGui::Selectable(label.c_str(), g.sel == int(i))) {
+        if (ImGui::Selectable(label.c_str(), g.sel == int(i), 0, ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
             g.sel = int(i);
             g.delete_armed = false;
         }
@@ -812,7 +812,7 @@ void gameplay_select_panel(App& app, void*) {
         g_gp.names.push_back(p.name);
         if (g.sel == idx[k]) g_gp.selected = int(k);
         const std::string label = p.name + "  -  " + std::to_string(p.settings.values.size()) + " sliders##gpsel" + std::to_string(k);
-        if (ImGui::Selectable(label.c_str(), g.sel == idx[k])) {
+        if (ImGui::Selectable(label.c_str(), g.sel == idx[k], 0, ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
             g.sel = idx[k];
             g.delete_armed = false;
         }

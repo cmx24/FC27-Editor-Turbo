@@ -29,7 +29,6 @@ static void show_page(Ui& ui, void (*fn)(App&)) {
     ui.extra_draw = [app, fn]() {
         ImGui::SetNextWindowPos(ImVec2(0, 0));
         ImGui::SetNextWindowSize(ImVec2(1100, 700));
-        ImGui::SetNextWindowFocus();
         ImGui::Begin("T4 test page", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse);
         fn(*app);
         ImGui::End();
@@ -123,7 +122,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.click("Apply preset##gpload", "T4 test page"), "Apply preset");
         ui.frames(3);
         const TacticPresetsState& s = tactic_presets_state();
-        CHECK(s.confirm_open && has_text(s.confirm_lines, "sliders:"), "Apply asks first, through the same Load dialog (start_load)");
+        CHECK(s.confirm_open && has_text(s.confirm_lines, "sliders:"), "Apply asks first, through the same Load dialog (start_load): " + s.status + " | " + (s.confirm_lines.empty() ? std::string("-") : s.confirm_lines[0]));
         CHECK(ui.click("Cancel##tpno", "Load tactic preset"), "cancelled");
         ui.frames(3);
         CHECK(!s.confirm_open && !fs::exists(out / gsettings::pending_file(), ec), "Cancel stages nothing");
