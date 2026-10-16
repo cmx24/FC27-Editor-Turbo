@@ -439,6 +439,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         write_state();
         const bool was_advanced = app.prefs.advanced_mode;
         app.prefs.advanced_mode = false;  // the Simple view
+        ImGui::SetWindowSize("FC 27 LE Turbo", ImVec2(1900, 1000));  // 2.13: wide enough for the select panel (it is a rail under S(900))
+        ui.frames(2);
         // the tab
         app.request_tab = 1;
         ui.frames(2);
