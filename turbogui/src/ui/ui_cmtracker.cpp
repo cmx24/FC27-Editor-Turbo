@@ -23,7 +23,10 @@
 #include "imgui.h"
 #include "move_rules.h"
 #include "table_registry.h"
+#include "ui_career_page.h"
 #include "ui_presets.h"
+#include "ui_shell.h"
+#include "ui_theme.h"
 
 namespace turbo {
 
@@ -151,19 +154,30 @@ const char* kHowTo =
 
 }  // namespace
 
-void cmtracker_dialog(App& app) {
-    static CmtLibrary lib;
-    static bool loaded = false;
-    static char query[96] = "";
-    static int64_t selected = 0;
-    static int teamid = move_rules::kFreeAgents;
-    static int jersey = 0;
-    static bool want_face = true, want_real = true;
-    static FilePicker picker;
-    static std::shared_ptr<CmtJob> job;
-    static std::string status;
+namespace {
 
-    // a finished job: hand the preset to Lua's create_player
+// The CMTracker library UI state: one set for the "From CMTracker..." dialog of the player page and for Career tools > CMTracker
+struct CmtUi {
+    CmtLibrary lib;
+    bool loaded = false;
+    char query[96] = "";
+    int64_t selected = 0;
+    int teamid = move_rules::kFreeAgents;
+    int jersey = 0;
+    bool want_face = true, want_real = true;
+    FilePicker picker;
+    std::shared_ptr<CmtJob> job;
+    std::string status;
+};
+
+CmtUi& cmt_ui() {
+    static CmtUi u;
+    return u;
+}
+
+// a finished job: hand the preset to Lua's create_player
+void cmt_poll_job(App& app) {
+    std::shared_ptr<CmtJob>& job = cmt_ui().job;
     if (job && job->state == 2) {
         std::shared_ptr<CmtJob> j = job;
         job.reset();
@@ -177,16 +191,21 @@ void cmtracker_dialog(App& app) {
             app.log("CMTracker: " + j->label + " -> team " + std::to_string(j->teamid) + "; " + (j->note.empty() ? "no miniface requested" : j->note));
         }
     }
+}
 
-    // a window that always fits the screen: the body scrolls, the buttons stay in a footer
-    {
-        const ImVec2 disp = ImGui::GetIO().DisplaySize;
-        ImGui::SetNextWindowPos(ImVec2(disp.x * 0.5f, disp.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(std::min(S(640.0f), disp.x * 0.92f), std::min(S(690.0f), disp.y * 0.9f)), ImGuiCond_Appearing);
-    }
-    if (ImGui::BeginPopupModal("##pcmt", nullptr)) {
-        const float footer_h = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + S(4.0f);
-        ImGui::BeginChild("##cmtbody", ImVec2(0, -footer_h));
+// The library list, the search box and the selected player's details: the body of the dialog and of the page
+void cmt_body(App& app) {
+    CmtUi& u = cmt_ui();
+    CmtLibrary& lib = u.lib;
+    bool& loaded = u.loaded;
+    char(&query)[96] = u.query;
+    int64_t& selected = u.selected;
+    int& teamid = u.teamid;
+    int& jersey = u.jersey;
+    bool& want_face = u.want_face;
+    bool& want_real = u.want_real;
+    FilePicker& picker = u.picker;
+    std::string& status = u.status;
         fs::path dir = library_dir(app);
         if (!loaded) {
             std::error_code ec;
@@ -219,7 +238,7 @@ void cmtracker_dialog(App& app) {
             status = ec ? "Could not copy the file: " + ec.message() : "Added " + path_text(chosen.filename());
         }
         if (!status.empty()) ImGui::TextDisabled("%s", status.c_str());
-        for (const auto& pr : lib.problems()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "skipped %s", pr.c_str());
+        for (const auto& pr : lib.problems()) theme::warn_text("skipped %s", pr.c_str());
 
         if (lib.size() == 0) {
             ImGui::Separator();
@@ -271,26 +290,57 @@ void cmtracker_dialog(App& app) {
                 ImGui::TextDisabled("Hair style, facial hair, boots and tattoos are not in the CSV: change them in Players > Appearance.");
             }
         }
+}
+
+// "Create player" is possible: a player of the library is selected, the club exists and no job is running
+bool cmt_can_create(App& app) {
+    CmtUi& u = cmt_ui();
+    const CmtPlayer* sel = u.lib.size() ? u.lib.find(u.selected) : nullptr;
+    const bool running = u.job && u.job->state == 1;
+    return sel && app.model.team(u.teamid) != nullptr && !running;
+}
+
+// Starts the CMTracker job for the selected player (the picture request runs on its own thread; cmt_poll_job hands the
+// result to Lua). Call only when cmt_can_create.
+void cmt_create(App& app) {
+    CmtUi& u = cmt_ui();
+    const CmtPlayer* sel = u.lib.find(u.selected);
+    if (!sel) return;
+    CmtPresetOptions o;
+    o.teamid = u.teamid;
+    o.jersey = u.jersey;
+    o.real_face = u.want_real;
+    json preset = cmt_to_preset(*sel, o);
+    std::string base = preset_safe_name(sel->name) + "_" + std::to_string(sel->id) + "_cmt";
+    u.job = std::make_shared<CmtJob>();
+    u.job->state = 1;
+    u.job->label = sel->name;
+    u.job->teamid = u.teamid;
+    u.job->jersey = u.jersey;
+    std::thread(run_job, u.job, std::move(preset), players_dir(app), heads_cache(app), base, sel->id, sel->db_version, u.want_face).detach();
+}
+
+}  // namespace
+
+void cmtracker_dialog(App& app) {
+    cmt_poll_job(app);
+
+    // a window that always fits the screen: the body scrolls, the buttons stay in a footer
+    {
+        const ImVec2 disp = ImGui::GetIO().DisplaySize;
+        ImGui::SetNextWindowPos(ImVec2(disp.x * 0.5f, disp.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(std::min(S(640.0f), disp.x * 0.92f), std::min(S(690.0f), disp.y * 0.9f)), ImGuiCond_Appearing);
+    }
+    if (ImGui::BeginPopupModal("##pcmt", nullptr)) {
+        const float footer_h = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + S(4.0f);
+        ImGui::BeginChild("##cmtbody", ImVec2(0, -footer_h));
+        cmt_body(app);
         ImGui::EndChild();
         {
-            const CmtPlayer* sel = lib.size() ? lib.find(selected) : nullptr;
-            bool running = job && job->state == 1;
-            bool can = sel && app.model.team(teamid) != nullptr && !running;
+            const bool can = cmt_can_create(app);
             if (!can) ImGui::BeginDisabled();
             if (ImGui::Button("Create player")) {
-                CmtPresetOptions o;
-                o.teamid = teamid;
-                o.jersey = jersey;
-                o.real_face = want_real;
-                json preset = cmt_to_preset(*sel, o);
-                std::string base = preset_safe_name(sel->name) + "_" + std::to_string(sel->id) + "_cmt";
-                job = std::make_shared<CmtJob>();
-                job->state = 1;
-                job->label = sel->name;
-                job->teamid = teamid;
-                job->jersey = jersey;
-                std::thread(run_job, job, std::move(preset), players_dir(app), heads_cache(app), base, sel->id, sel->db_version, want_face)
-                    .detach();
+                cmt_create(app);
                 ImGui::CloseCurrentPopup();
             }
             if (!can) ImGui::EndDisabled();
@@ -598,5 +648,30 @@ void season_pack_dialog(App& app) {
     if (ImGui::Button("Close##packclose")) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 }
+
+
+// ---------------------------------------------------------------- Career tools > CMTracker page (GUI revamp 2.13)
+// The library body of the "From CMTracker..." dialog as a page: the same list, search and details, the same one-row-at-a-time
+// Create player (the 120-hit list and the CSV-library-only rule are unchanged: nothing here reaches the network except the
+// one picture request the checkbox already described). One primary action: Create player. Season pack... opens the importer.
+namespace {
+void editor_cmtracker(App& app, void*) { cmt_body(app); }
+}  // namespace
+
+void draw_cmtracker_page(App& app) {
+    cmt_poll_job(app);
+    if (ImGui::Button("Season pack...##page")) ImGui::OpenPopup("##pseasonpack");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Season update pack: transfers and manager changes from a folder, previewed row by row, applied in pages of 50, with Undo "
+                          "(not proven in game yet)");
+    season_pack_dialog(app);  // the importer is a popup: drawn here so the button above opens it
+    shell::page::Primary pr;
+    pr.label = "Create player";
+    pr.enabled = cmt_can_create(app);
+    shell::page::frame(app, nullptr, editor_cmtracker, nullptr, &pr);
+    if (pr.clicked) cmt_create(app);
+}
+
+TURBO_REGISTER_PAGE(shell::Page::CMTracker, draw_cmtracker_page);
 
 }  // namespace turbo

@@ -18,6 +18,9 @@
 #include "ui_club_tools.h"
 #include "ui_images.h"
 #include "ui_parity.h"
+#include "ui_career_page.h"
+#include "ui_shell.h"
+#include "ui_theme.h"
 
 namespace turbo {
 
@@ -27,13 +30,13 @@ namespace fs = std::filesystem;
 // need: tool key from Lua's core/caps.lua; the button is disabled (with the reason as tooltip) when this Live Editor
 // build cannot run that tool
 static bool run_button(App& app, const char* label, const char* module, const json& overrides, bool needs_cm,
-                       const char* need = nullptr) {
+                       const char* need = nullptr, bool primary = false) {
     const BridgeState& st = app.bridge.state();
     bool cm = st.in_cm;
     const std::string* missing = st.unavailable_reason(need);
     bool disabled = app.busy() || !app.mailbox || (needs_cm && !cm) || missing;
     if (disabled) ImGui::BeginDisabled();
-    bool clicked = ImGui::Button(label);
+    const bool clicked = primary ? theme::primary_button(label) : ImGui::Button(label);
     if (disabled) ImGui::EndDisabled();
     if (missing && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("%s", missing->c_str());
@@ -103,25 +106,39 @@ static void apply_auto(App& app, const char* label) {
     else app.notify("cannot write turbo_output\\gui_settings.json", true);
 }
 
-void draw_tools(App& app) {
-    hotkey_control(app, "tools");  // hotkey_setting.h: the show/hide key, first thing in the tab
+// ---------------------------------------------------------------- Career tools pages (GUI revamp 2.13, track T5)
+// The old Turbo Tools tab was one long column of headers. Each header is now a section function (the code inside is
+// unchanged: the same run_button / auto_cfg calls); the pages below (registered with the shell at the end of this
+// file) put them under Career tools / Advanced. Chrome only: no tool, no Lua command and no setting changed.
+
+// The legacy Tools tab (draw_tools below) draws the pages inside its own collapsing headers: no page frame, and the sections keep the
+// open / closed defaults they always had. On a page the section headers start open: the page is the section.
+static bool g_unframed = false;
+static bool section_header(const char* label, ImGuiTreeNodeFlags flags = 0) {
+    if (!g_unframed) flags |= ImGuiTreeNodeFlags_DefaultOpen;
+    return ImGui::CollapsingHeader(label, flags);
+}
+
+// The two lines every Lua-run tool page starts with. False when the command channel is missing (nothing can be sent).
+static bool tools_preamble(App& app) {
     if (!app.mailbox) {
-        ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "Command channel unavailable; Turbo Tools need it.");
-        return;
+        theme::err_text("Command channel unavailable; these tools need it.");
+        return false;
     }
     const BridgeState& st = app.bridge.state();
-    ImGui::TextDisabled("These run through Live Editor's Lua engine on the next career-mode event (usually within a second in career mode).");
+    theme::muted_text("These run through Live Editor's Lua engine on the next career-mode event (usually within a second in career mode).");
     if (!st.in_cm)
-        ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1),
-                           "No career loaded: Live Editor sends Lua no events here. After clicking a tool, run "
-                           "lua\\scripts\\turbo_exec.lua in Live Editor's Lua Engine to execute it.");
+        theme::warn_text("No career loaded: Live Editor sends Lua no events here. After clicking a tool, run "
+                         "lua\\scripts\\turbo_exec.lua in Live Editor's Lua Engine to execute it.");
     else if (!app.lua_alive())
-        ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "Turbo's Lua side has not answered yet: advance a day or open a menu.");
-    ImGui::BeginChild("##tools");
-    form_label_width(S(170.0f));  // label column of this tab's form rows; reset at the end
+        theme::warn_text("Turbo's Lua side has not answered yet: advance a day or open a menu.");
+    return true;
+}
 
-    // ---------------------------------------------------------------- squad
-    if (ImGui::CollapsingHeader("Your squad", ImGuiTreeNodeFlags_DefaultOpen)) {
+// ---- Scouting page: "Your squad" (form, morale, role, contracts), scouting / development / youth, Player Career
+static void section_squad(App& app) {
+    const BridgeState& st = app.bridge.state();
+    if (section_header("Your squad", ImGuiTreeNodeFlags_DefaultOpen)) {
         json& fm = auto_cfg(app, "form_morale");
         // Start from the GUI's saved values, else the effective config reported by Lua
         static bool init = false;
@@ -200,12 +217,11 @@ void draw_tools(App& app) {
         ImGui::SameLine();
         run_button(app, "Extend every other club's contracts", "extend_cpu_contracts", {{"years", cpu_years}}, false);
     }
+}
 
-    // ---------------------------------------------------------------- player edits kept for every career load (ui_reapply.cpp)
-    kept_player_edits_section(app);
-
-    // ---------------------------------------------------------------- scouting, development, youth academy
-    if (ImGui::CollapsingHeader("Scouting, development and youth academy")) {
+// ---------------------------------------------------------------- scouting, development, youth academy
+static void section_scouting(App& app) {
+    if (section_header("Scouting, development and youth academy")) {
         // reveal player data (features/reveal.lua -> Turbo.dll -> the game's PlayerDataRevealManager)
         static int reveal_team = 0, reveal_league = 0;
         static bool reveal_confirm = false;
@@ -273,12 +289,15 @@ void draw_tools(App& app) {
             run_button(app, "Set youth player##yt", "youth",
                        {{"mode", "set"}, {"playerid", yid}, {"potential", ypot}, {"position", ypos}, {"tier", ytier}, {"variance", yvar}}, true);
     }
+}
 
-    // ---------------------------------------------------------------- club budget
-    if (ImGui::CollapsingHeader("Your club: transfer budget", ImGuiTreeNodeFlags_DefaultOpen)) {
+// ---------------------------------------------------------------- club budget
+static void section_budget(App& app) {
+    const BridgeState& st = app.bridge.state();
+    if (section_header("Your club: transfer budget", ImGuiTreeNodeFlags_DefaultOpen)) {
         const std::string* no_budget = st.unavailable_reason("transfer_budget");
         if (no_budget)
-            ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "Not possible with this Live Editor build: %s", no_budget->c_str());
+            theme::warn_text("Not possible with this Live Editor build: %s", no_budget->c_str());
         else if (st.transfer_budget >= 0)
             ImGui::Text("Current budget: %lld", static_cast<long long>(st.transfer_budget));
         else
@@ -289,18 +308,20 @@ void draw_tools(App& app) {
         ImGui::InputScalar("##tbamount", ImGuiDataType_S64, &amount);
         amount = std::max(0LL, std::min(amount, 2000000000LL));
         ImGui::SameLine();
-        run_button(app, "Set budget", "transfer_budget", {{"mode", "set"}, {"amount", amount}}, true, "transfer_budget");
+        run_button(app, "Set budget", "transfer_budget", {{"mode", "set"}, {"amount", amount}}, true, "transfer_budget", true);
         ImGui::SameLine();
         run_button(app, "Add to budget", "transfer_budget", {{"mode", "add"}, {"amount", amount}}, true, "transfer_budget");
         ImGui::TextDisabled("FC 27 keeps the budget in the career, not in the teams table: set it here (Live Editor's "
                             "SetUserTransferBudget).");
     }
+}
 
-    // ---------------------------------------------------------------- club customisation hub (ui_club_tools.cpp)
-    draw_club_tools(app);
+// The club customisation hub (draw_club_tools, ui_club_tools.cpp) is drawn by Club & Kits > Stadium & extras (track T3)
 
-    // ---------------------------------------------------------------- player career
-    if (ImGui::CollapsingHeader("Player Career")) {
+// ---------------------------------------------------------------- player career
+static void section_player_career(App& app) {
+    const BridgeState& st = app.bridge.state();
+    if (section_header("Player Career")) {
         run_button(app, "Give my player every PlayStyle", "pap_playstyles", json::object(), true);
         ImGui::SameLine();
         json& ps = auto_cfg(app, "pap_playstyles");
@@ -310,9 +331,11 @@ void draw_tools(App& app) {
             apply_auto(app, "Auto PlayStyles");
         }
     }
+}
 
-    // ---------------------------------------------------------------- exports
-    if (ImGui::CollapsingHeader("Exports (CSV in turbo_output)")) {
+// ---------------------------------------------------------------- exports
+static void section_exports(App& app) {
+    if (section_header("Exports (CSV in turbo_output)")) {
         static bool only_mine = false;
         checkbox_right("Only my club", &only_mine, -1.0f);
         ImGui::SameLine();
@@ -347,9 +370,12 @@ void draw_tools(App& app) {
         run_button(app, "Export tables", "export_table", {{"tables", list}}, false);
         run_button(app, "Probe report", "probe", json::object(), false);
     }
+}
 
-    // ---------------------------------------------------------------- transfers
-    if (ImGui::CollapsingHeader("Transfer bans")) {
+// ---------------------------------------------------------------- transfer bans
+static void section_bans(App& app) {
+    const BridgeState& st = app.bridge.state();
+    if (section_header("Transfer bans")) {
         static int until = 20990101;
         static bool exclude_mine = false;
         form_label("Ban until", "The date the bans end, as YYYYMMDD");
@@ -358,7 +384,7 @@ void draw_tools(App& app) {
         ImGui::SameLine();
         checkbox_right("Exclude my club", &exclude_mine, -1.0f);
         if (const std::string* r = st.unavailable_reason("transfer_bans"))
-            ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "Not possible with this Live Editor build: %s", r->c_str());
+            theme::warn_text("Not possible with this Live Editor build: %s", r->c_str());
         run_button(app, "List bans", "transfer_bans", {{"mode", "list"}}, true, "transfer_bans");
         ImGui::SameLine();
         run_button(app, "Ban every team", "transfer_bans", {{"mode", "ban_all_teams"}, {"ban_until", until}, {"exclude_user_team", exclude_mine}}, true,
@@ -366,9 +392,12 @@ void draw_tools(App& app) {
         ImGui::SameLine();
         run_button(app, "Remove all team bans", "transfer_bans", {{"mode", "unban_all_teams"}}, true, "transfer_bans");
     }
+}
 
-    // ---------------------------------------------------------------- bulk edit (FC 26 LE v26.3.2 / v26.3.5)
-    if (ImGui::CollapsingHeader("Bulk edit players")) {
+// ---------------------------------------------------------------- bulk edit (FC 26 LE v26.3.2 / v26.3.5)
+static void section_bulk_edit(App& app) {
+    const BridgeState& st = app.bridge.state();
+    if (section_header("Bulk edit players")) {
         static int scope = 0;  // 0 my squad, 1 players shown in the Players list, 2 team IDs, 3 all players
         static char teams[128] = "";
         static bool confirm_all = false;
@@ -504,7 +533,7 @@ void draw_tools(App& app) {
         if (why.empty() && cmd.dump().size() > 3900)
             why = "too many players for one command: narrow the Players list (about 400 at most) or use All players";
         if (!why.empty()) ImGui::BeginDisabled();
-        run_button(app, "Apply bulk edit", "bulk_edit", overrides, false);
+        run_button(app, "Apply bulk edit", "bulk_edit", overrides, false, nullptr, true);
         if (!why.empty()) {
             ImGui::EndDisabled();
             ImGui::SameLine();
@@ -552,8 +581,12 @@ void draw_tools(App& app) {
         }
     }
 
-    // ---------------------------------------------------------------- maintenance
-    if (ImGui::CollapsingHeader("Database maintenance")) {
+}
+
+// ---------------------------------------------------------------- maintenance
+static void section_db_maintenance(App& app) {
+    const BridgeState& st = app.bridge.state();
+    if (section_header("Database maintenance")) {
         static int min_id = 460000;
         form_label("Generated from ID", "Players with this ID or higher count as generated");
         ImGui::SetNextItemWidth(S(120.0f));
@@ -586,8 +619,12 @@ void draw_tools(App& app) {
         run_button(app, "Apply real-face list", "headmodels", {{"mode", "apply"}, {"generic_for_others", generic}}, false);
     }
 
-    // ---------------------------------------------------------------- safety
-    if (ImGui::CollapsingHeader("Safety")) {
+}
+
+// ---------------------------------------------------------------- safety (Changes & undo page)
+static void section_safety(App& app) {
+    const BridgeState& st = app.bridge.state();
+    if (section_header("Safety")) {
         json& t = app.gui_settings["turbo"];
         if (!t.is_object()) t = json::object();
         bool dry = t.value("dry_run", st.dry_run);
@@ -595,10 +632,144 @@ void draw_tools(App& app) {
             t["dry_run"] = dry;
             if (!app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);
         }
-        ImGui::TextDisabled("Editors in the other tabs always write immediately, after range checks.");
+        ImGui::TextDisabled("Editors on the other pages always write immediately, after range checks.");
     }
+}
+
+// ---------------------------------------------------------------- the pages
+namespace {
+
+using shell::Page;
+
+// One page = one editor panel (the "##editor" child of page::frame) with its sections; no select panel, no footer
+// button (the pages' own primary buttons sit in the sections, drawn with the accent colour).
+void editor_scouting(App& app, void*) {
+    form_label_width(S(170.0f));
+    section_squad(app);
+    section_scouting(app);
+    section_player_career(app);
+    form_label_width(0.0f);
+}
+void editor_budget(App& app, void*) {
+    form_label_width(S(170.0f));
+    section_budget(app);
+    form_label_width(0.0f);
+}
+void editor_exports(App& app, void*) {
+    form_label_width(S(170.0f));
+    section_exports(app);
+    form_label_width(0.0f);
+}
+void editor_bans(App& app, void*) {
+    form_label_width(S(170.0f));
+    section_bans(app);
+    form_label_width(0.0f);
+}
+void editor_bulk(App& app, void*) {
+    form_label_width(S(170.0f));
+    section_bulk_edit(app);
+    form_label_width(0.0f);
+}
+void editor_maintenance(App& app, void*) {
+    form_label_width(S(170.0f));
+    section_db_maintenance(app);
+    form_label_width(0.0f);
+}
+void editor_changes(App& app, void*) {
+    form_label_width(S(170.0f));
+    changes_undo_summary(app);
+    section_safety(app);
+    // the list of kept player edits is a section of ui_reapply.cpp: open on this page (the user may still close it)
+    if (!g_unframed) ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+    kept_player_edits_section(app);
+    form_label_width(0.0f);
+}
+void editor_career_maintenance(App& app, void*) {
+    form_label_width(S(170.0f));
+    if (section_header("Career database copy")) draw_career_database_copy(app);
     draw_game_editors(app);  // "Game editors": FC 27's own edit screens unlocked (ui_edit_unlock.cpp)
     form_label_width(0.0f);
+}
+
+void show(App& app, shell::page::DrawFn editor) {
+    if (g_unframed) editor(app, nullptr);
+    else shell::page::frame(app, nullptr, editor, nullptr, nullptr);
+}
+// Pages that run Lua tools show the two-line preamble first
+void lua_tool_page(App& app, shell::page::DrawFn editor) {
+    if (!tools_preamble(app)) return;
+    show(app, editor);
+}
+
+void page_scouting(App& app) { lua_tool_page(app, editor_scouting); }
+void page_budget(App& app) { lua_tool_page(app, editor_budget); }
+void page_exports(App& app) { lua_tool_page(app, editor_exports); }
+void page_bans(App& app) { lua_tool_page(app, editor_bans); }
+void page_adv_bulk(App& app) { lua_tool_page(app, editor_bulk); }
+void page_adv_maintenance(App& app) { lua_tool_page(app, editor_maintenance); }
+// Transfers and Job offer: the panels are the Squad track's (draw_transfers / draw_job_offer, weak references: see ui_career_page.h)
+void editor_transfers(App& app, void*) {
+    if (draw_transfers) draw_transfers(app);
+    else theme::muted_text("The transfers panel is not part of this build.");
+}
+void editor_job_offer(App& app, void*) {
+    if (draw_job_offer) draw_job_offer(app);
+    else theme::muted_text("The job offer panel is not part of this build.");
+}
+void page_transfers(App& app) { show(app, editor_transfers); }
+void page_job_offer(App& app) { show(app, editor_job_offer); }
+// Changes & undo and Career maintenance need no command channel: they read and write Turbo's own files
+void page_changes(App& app) { show(app, editor_changes); }
+void page_career_maintenance(App& app) { show(app, editor_career_maintenance); }
+
+}  // namespace
+
+// The pages of this track that are drawn from this file, by page id (the shell registry holds the same functions; tests and
+// the legacy tab call this directly). False for a page of another file.
+bool draw_career_tools_page(App& app, shell::Page p) {
+    switch (p) {
+        case Page::Transfers: page_transfers(app); return true;
+        case Page::JobOffer: page_job_offer(app); return true;
+        case Page::Scouting: page_scouting(app); return true;
+        case Page::Budget: page_budget(app); return true;
+        case Page::Exports: page_exports(app); return true;
+        case Page::Bans: page_bans(app); return true;
+        case Page::ChangesUndo: page_changes(app); return true;
+        case Page::CareerMaintenance: page_career_maintenance(app); return true;
+        case Page::AdvBulkEdit: page_adv_bulk(app); return true;
+        case Page::AdvMaintenance: page_adv_maintenance(app); return true;
+        default: return false;
+    }
+}
+
+TURBO_REGISTER_PAGE(shell::Page::Transfers, page_transfers);
+TURBO_REGISTER_PAGE(shell::Page::JobOffer, page_job_offer);
+TURBO_REGISTER_PAGE(shell::Page::Scouting, page_scouting);
+TURBO_REGISTER_PAGE(shell::Page::Budget, page_budget);
+TURBO_REGISTER_PAGE(shell::Page::Exports, page_exports);
+TURBO_REGISTER_PAGE(shell::Page::Bans, page_bans);
+TURBO_REGISTER_PAGE(shell::Page::ChangesUndo, page_changes);
+TURBO_REGISTER_PAGE(shell::Page::CareerMaintenance, page_career_maintenance);
+TURBO_REGISTER_PAGE(shell::Page::AdvBulkEdit, page_adv_bulk);
+TURBO_REGISTER_PAGE(shell::Page::AdvMaintenance, page_adv_maintenance);
+
+// Legacy entry (the old Turbo Tools tab, until the shell track removes it from app.cpp): every page of this file as
+// a collapsing header, so nothing is unreachable while the tab bar still exists. No section is drawn twice: the pages
+// above are the only callers of the section functions.
+void draw_tools(App& app) {
+    static const Page kPages[] = {Page::Scouting, Page::Budget, Page::Exports, Page::Bans, Page::ChangesUndo,
+                                  Page::CareerMaintenance, Page::AdvBulkEdit, Page::AdvMaintenance};
+    hotkey_control(app, "tools");  // hotkey_setting.h: the show/hide key, first thing in the tab (the new status bar has it too)
+    ImGui::BeginChild("##tools");
+    g_unframed = true;
+    for (Page p : kPages) {
+        if (ImGui::CollapsingHeader(shell::page_label(p), ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::PushID(static_cast<int>(p));
+            draw_career_tools_page(app, p);
+            ImGui::PopID();
+        }
+    }
+    g_unframed = false;
     ImGui::EndChild();
 }
 

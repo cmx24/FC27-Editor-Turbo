@@ -37,7 +37,9 @@
 
 #include "app.h"
 #include "imgui.h"
+#include "ui_career_page.h"
 #include "ui_identity.h"
+#include "ui_theme.h"
 
 namespace turbo {
 
@@ -557,6 +559,25 @@ void reapply_player_line(App& app, const PlayerRow& p) {
             ImGui::SetTooltip("Your club's players have a development plan that outranks the players table when a career loads.\n"
                               "Attributes, work rates, skill moves and weak foot edited here go into his plan too, so the save keeps them.");
     }
+}
+
+// Career tools > Changes & undo (GUI revamp 2.13): the one "Undo (n)" number of the shell's status bar is the size of the re-apply log
+size_t changes_undo_count(const App& app) { return app.reapply.size(); }
+
+void changes_undo_summary(App& app) {
+    const size_t n = changes_undo_count(app);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Undo");
+    ImGui::SameLine();
+    ImGui::TextColored(n ? theme::accent() : theme::muted(), "(%zu)", n);
+    ImGui::SameLine();
+    theme::muted_text("kept kit edits %zu, kept callnames %zu, players with kept edits %zu", app.reapply.kits.size(), app.reapply.callnames.size(),
+                      app.reapply.players.size());
+    ImGui::PushTextWrapPos(0.0f);
+    theme::muted_text("Every edit FC 27 forgets at a career load is kept here and written again at the next load. Forget stops that for one edit; "
+                      "the value you see now stays until the career is loaded again. Kit edits are forgotten from Club & Kits, callnames from the "
+                      "player page; kept player edits are listed below.");
+    ImGui::PopTextWrapPos();
 }
 
 void kept_player_edits_section(App& app) {
