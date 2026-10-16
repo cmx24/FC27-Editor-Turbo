@@ -42,6 +42,7 @@ LE = os.environ.get("FC27_LE_DIR", r"C:\FC 27 Live Editor")
 OPS_TOOLS = os.environ.get("GATE_OPS_TOOLS", os.path.join(LE, "turbo_dev", "tools"))
 GAME_PROCS = ("FC27", "LauncherNoAuth")          # image names without .exe
 SCHEMA = "turbo-attrib-preset/1"
+LIVE = "[live] "
 SANDBOX_MAX_BYTES = 2 * 1024 * 1024               # dry run: only small real files are copied into the sandbox
 REQUIRED_OPS = ("gk.ps1", "launch_fc27.ps1", "rg_drive.py", "rg_screens.py", "v_l5.py")
 DUMP_ATTEMPTS_HUB, DUMP_ATTEMPTS_SAT, DUMP_GAP_S = 6, 4, 25.0
@@ -292,8 +293,8 @@ def parse_ebx_log(text, preset):
 
 
 # ------------------------------------------------------------------------------------------------------------------ preflight
-def preflight(env, preset_path, ev, tools_dir, baseline=None, game_fatal=True, procs=procs_running, need_pil=True):
-    """-> list of refusal strings (empty = go). Reads only."""
+def preflight(env, preset_path, ev, tools_dir, baseline=None, procs=procs_running, need_pil=True):
+    """-> list of refusal strings (empty = go). Reads only. Messages about the LIVE install start with LIVE (the dry run, which never touches it, only warns)."""
     r = []
     parent = os.path.basename(os.path.dirname(os.path.abspath(ev)))
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", parent):
@@ -306,24 +307,24 @@ def preflight(env, preset_path, ev, tools_dir, baseline=None, game_fatal=True, p
         _, errs = load_preset(preset_path)
         r.extend("preset invalid: " + e for e in errs)
     running = procs()
-    if running and game_fatal:
-        r.append("game / launcher is running: " + ", ".join(running))
+    if running:
+        r.append(LIVE + "game / launcher is running: " + ", ".join(running))
     for label, p in (("kits3d_on.txt", env.kits), ("attrib_ebx_off.txt", env.ebx_off), ("attrib_preset.json", env.preset),
                      ("settings_pending.json", env.pending), ("turbo_gui_start.flag", env.flag)):
         if os.path.exists(p):
             why = {"kits3d_on.txt": "the 3D kit swap owns the Oodle hook, the attrib patch would be off",
                    "attrib_ebx_off.txt": "the patch would be off", "attrib_preset.json": "a preset is installed already (another test?)",
                    "settings_pending.json": "a staged settings preset would be applied too", "turbo_gui_start.flag": "a crashed start is recorded"}[label]
-            r.append("%s exists in turbo_output (%s); remove it yourself: %s" % (label, why, p))
+            r.append(LIVE + "%s exists in turbo_output (%s); remove it yourself: %s" % (label, why, p))
     if not os.path.isfile(env.dll):
-        r.append("installed Turbo.dll not found: " + env.dll)
+        r.append(LIVE + "installed Turbo.dll not found: " + env.dll)
     if not os.path.isfile(env.le_cfg):
-        r.append("le_config.json not found: " + env.le_cfg)
+        r.append(LIVE + "le_config.json not found: " + env.le_cfg)
     sets = [f for f in (os.listdir(env.set_dir) if os.path.isdir(env.set_dir) else []) if f.startswith("Settings") and os.path.isfile(os.path.join(env.set_dir, f))]
     if len(sets) != 1:
-        r.append("expected exactly one Settings* file in %s, found %d: %s" % (env.set_dir, len(sets), ", ".join(sets)))
+        r.append(LIVE + "expected exactly one Settings* file in %s, found %d: %s" % (env.set_dir, len(sets), ", ".join(sets)))
     elif baseline and md5(os.path.join(env.set_dir, sets[0])).upper() != str(baseline.get("settings_md5", "")).upper():
-        r.append("Settings file %s md5 %s differs from tools\\baseline.json (%s %s): a settings write is installed or the baseline is stale" % (
+        r.append(LIVE + "Settings file %s md5 %s differs from tools\\baseline.json (%s %s): a settings write is installed or the baseline is stale" % (
             sets[0], md5(os.path.join(env.set_dir, sets[0]))[:8], baseline.get("settings_name"), str(baseline.get("settings_md5"))[:8]))
     for f in REQUIRED_OPS:
         if not os.path.isfile(os.path.join(tools_dir, f)):
@@ -491,13 +492,14 @@ class Ctx:
 
 def make_driver_class(G):
     class GateDriver(G.Driver):
-        """Driver that also keeps a few full-resolution frames of the match (a small frame misled the L6 first read)"""
-        fullres_left = 4
+        """Driver that also keeps a few full-resolution frames once the scoreboard clock is up (a small frame misled the L6 first read)"""
+        fullres_left = 6
 
         def save(self, label, img=None):
             p = super().save(label, img)
             try:
-                if label.startswith("match_") and self.fullres_left > 0 and self.last_img is not None:
+                on_clock = label == "match_clock" or (self.last_state == "match_clock" and (label.startswith("match_") or label == "MATCH_final"))
+                if on_clock and self.fullres_left > 0 and self.last_img is not None:
                     self.fullres_left -= 1
                     d = os.path.join(self.ev, "fullres")
                     os.makedirs(d, exist_ok=True)
@@ -620,7 +622,11 @@ def run(args):
             baseline = json.load(open(bp, encoding="utf-8"))
         except Exception:
             baseline = None
-    refusals = preflight(real, args.preset, ev, tools_dir, baseline, game_fatal=not dry, need_pil=True)
+    refusals = preflight(real, args.preset, ev, tools_dir, baseline, need_pil=True)
+    warnings = []
+    if dry:   # the dry run only reads the live install: its state is a warning, not a refusal (the refusals themselves are self-checked on a sandbox)
+        warnings = [x for x in refusals if x.startswith(LIVE)]
+        refusals = [x for x in refusals if not x.startswith(LIVE)]
     if dry:
         for f in ("test_run_gate.py",):
             if not os.path.isfile(os.path.join(tools_dir, f)):
@@ -643,6 +649,9 @@ def run(args):
     G = import_ops(tools_dir)
     ctx.G = G
     ctx.state_file = os.path.join(ev, "GAME_STATE.txt")
+    for x in warnings:
+        log("DRY RUN WARNING (live install, would REFUSE a real run): " + x[len(LIVE):])
+    ctx.warnings = warnings
     log("gate_runner start: tag %s%s preset %s md5 %s ev %s" % (tag, " (DRY RUN)" if dry else "", args.preset, md5(args.preset)[:8], ev))
     shutil.copyfile(args.preset, os.path.join(ev, "attrib_preset.deployed.json"))
     env = real
@@ -907,6 +916,8 @@ def dry_self_checks(ctx, env, ev, pre, real, tools_dir):
     tmp = tempfile.mkdtemp(prefix="gate_pf_")
     try:
         te = make_sandbox(real, os.path.join(tmp, "sb"))
+        for extra in sorted(f for f in os.listdir(te.set_dir) if f.startswith("Settings"))[1:]:
+            os.remove(os.path.join(te.set_dir, extra))      # a clean live install has exactly one
         dated = os.path.join(tmp, "2026-10-16", "x")
         none = lambda: []  # noqa: E731
         base = preflight(te, ctx.args.preset, dated, tools_dir, None, procs=none, need_pil=False)
