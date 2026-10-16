@@ -219,6 +219,16 @@ function W.build(sim, opts)
         end
         other["playerid" .. i] = (i < 4) and (2001 + i) or -1
     end
+    -- the set-piece columns (captain, takers, corner supports, pre-set substitutions): the user's sheet names its first two players
+    local SP = { "captainid", "penaltytakerid", "leftfreekicktakerid", "rightfreekicktakerid", "longkicktakerid", "leftcornerkicktakerid",
+        "rightcornerkicktakerid", "throwerleft", "throwerright", "cksupport1", "cksupport2", "cksupport3", "cksupport4", "cksupport5",
+        "cksupport6", "cksupport7", "cksupport8", "cksupport9", "customsub0in", "customsub0out", "customsub1in", "customsub1out",
+        "customsub2in", "customsub2out" }
+    for i, f in ipairs(SP) do
+        sheet_fields[#sheet_fields + 1] = { name = f, short = string.format("s%03d", i), depth = 19, min = -1 }
+        sheet[f] = (i <= 2) and (W.USER_PLAYERS[i] or -1) or -1
+        other[f] = -1
+    end
     sim:add_table({ name = "cm_teamsheets", short = "cmts", fields = sheet_fields, rows = { other, sheet } })
 
     if opts.career_playercontract then

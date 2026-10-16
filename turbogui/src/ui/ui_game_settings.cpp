@@ -278,7 +278,7 @@ void draw_values() {
             r.group = grp;
             auto it = g.snap.values.find(e->id);
             r.value = (e->index < 0 && e->custom_index < 0) ? "not mapped yet" : (it != g.snap.values.end() && g.snap.ok ? std::to_string(it->second) : "-");
-            r.state = (e->index < 0 && e->custom_index < 0) ? "not mapped yet" : e->verified ? "verified" : "not verified: read-only";
+            r.state = (e->index < 0 && e->custom_index < 0) ? "not mapped yet" : e->verified ? "verified" : e->inferred() ? "mapped (game table), not seen on the EA screen: read-only here" : "not verified: read-only";
             g_state.rows.push_back(r);
         }
         const std::string head = std::string(group_label(grp)) + " (" + std::to_string(es.size()) + ")##gs_" + grp;
@@ -481,9 +481,11 @@ bool game_settings_current(App& app, std::map<std::string, int>& values, std::st
     return true;
 }
 
-bool game_settings_plan(App& app, const std::map<std::string, int>& values, int& writable, std::vector<std::string>& skipped, std::string& why) {
+bool game_settings_plan(App& app, const std::map<std::string, int>& values, int& writable, std::vector<std::string>& skipped, std::string& why,
+                        bool include_unverified, int* unverified_n) {
     first_look(app);
     writable = 0;
+    if (unverified_n) *unverified_n = 0;
     skipped.clear();
     if (!g.map_ok) {
         why = "no slider map: " + g.map_err;
@@ -492,15 +494,17 @@ bool game_settings_plan(App& app, const std::map<std::string, int>& values, int&
     Preset p;
     p.name = "plan";
     p.values = values;
+    p.include_unverified = include_unverified;
     const Plan plan = plan_preset(p, g.map);
     writable = int(plan.values.size());
+    if (unverified_n) *unverified_n = int(plan.unverified.size());
     skipped = plan.skipped;
     why.clear();
     return true;
 }
 
 bool game_settings_stage(App& app, const std::string& name, const std::map<std::string, int>& values, std::string& msg, int& staged,
-                         std::vector<std::string>& skipped) {
+                         std::vector<std::string>& skipped, bool include_unverified) {
     first_look(app);
     staged = 0;
     skipped.clear();
@@ -511,6 +515,7 @@ bool game_settings_stage(App& app, const std::string& name, const std::map<std::
     Preset p;
     p.name = name;
     p.values = values;
+    p.include_unverified = include_unverified;
     const Plan plan = plan_preset(p, g.map);
     skipped = plan.skipped;
     const bool ok = stage_pending(out_dir(app), p, g.map, stamp("%Y-%m-%dT%H:%M:%S"), &msg);

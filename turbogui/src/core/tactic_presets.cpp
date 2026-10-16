@@ -177,10 +177,124 @@ std::string validate(const Preset& p) {
     if (!printable_text(p.note, 300) || !printable_text(p.created, 40)) return "note or created is not a short plain text";
     if (p.game_build != build())
         return "made for game build \"" + p.game_build + "\"; this Turbo knows only " + build() + " (the layouts it writes were verified on that build)";
-    if (!p.tactic.present && !p.settings.present) return "holds neither a tactic nor settings";
+    if (!p.tactic.present && !p.settings.present && !p.setpieces.present) return "holds neither a tactic, settings nor set pieces";
     std::string why = tactic_problem(p.tactic);
     if (why.empty()) why = settings_problem(p.settings);
+    if (why.empty()) why = setpiece_problem(p.setpieces);
     return why;
+}
+
+// ------------------------------------------------------------------------------------------------ set pieces
+const std::vector<SetPieceField>& setpiece_fields() {
+    static const std::vector<SetPieceField> f = {
+        {"captainid", "Captain"},
+        {"penaltytakerid", "Penalty taker"},
+        {"leftfreekicktakerid", "Free kick taker (left)"},
+        {"rightfreekicktakerid", "Free kick taker (right)"},
+        {"longkicktakerid", "Long free kick taker"},
+        {"leftcornerkicktakerid", "Corner taker (left)"},
+        {"rightcornerkicktakerid", "Corner taker (right)"},
+        {"throwerleft", "Throw-in taker (left)"},
+        {"throwerright", "Throw-in taker (right)"},
+        {"cksupport1", "Corner support 1"},
+        {"cksupport2", "Corner support 2"},
+        {"cksupport3", "Corner support 3"},
+        {"cksupport4", "Corner support 4"},
+        {"cksupport5", "Corner support 5"},
+        {"cksupport6", "Corner support 6"},
+        {"cksupport7", "Corner support 7"},
+        {"cksupport8", "Corner support 8"},
+        {"cksupport9", "Corner support 9"},
+        {"customsub0in", "Pre-set substitution 1: on"},
+        {"customsub0out", "Pre-set substitution 1: off"},
+        {"customsub1in", "Pre-set substitution 2: on"},
+        {"customsub1out", "Pre-set substitution 2: off"},
+        {"customsub2in", "Pre-set substitution 3: on"},
+        {"customsub2out", "Pre-set substitution 3: off"},
+    };
+    return f;
+}
+
+namespace {
+const SetPieceField* setpiece_field(const std::string& n) {
+    for (const SetPieceField& f : setpiece_fields())
+        if (n == f.name) return &f;
+    return nullptr;
+}
+constexpr int kMaxPlayerId = 500000;
+}  // namespace
+
+std::string setpiece_problem(const SetPieceBlock& s) {
+    if (!s.present) return "";
+    if (s.team < 1 || s.team > 200000) return "set pieces: team " + std::to_string(s.team) + " is outside 1..200000";
+    if (s.values.empty()) return "set pieces: no values";
+    for (const auto& kv : s.values) {
+        if (!setpiece_field(kv.first)) return "set pieces: \"" + kv.first + "\" is not one of the 24 team sheet columns Turbo writes";
+        if (kv.second < -1 || kv.second > kMaxPlayerId)
+            return "set pieces: " + kv.first + " = " + std::to_string(kv.second) + " is outside -1.." + std::to_string(kMaxPlayerId);
+    }
+    return "";
+}
+
+std::vector<std::string> setpiece_diff(const SetPieceBlock& want, const SetPieceBlock& now) {
+    std::vector<std::string> out;
+    for (const SetPieceField& f : setpiece_fields()) {
+        auto w = want.values.find(f.name);
+        if (w == want.values.end()) continue;
+        auto n = now.values.find(f.name);
+        const int cur = n == now.values.end() ? -2 : n->second;
+        if (cur != w->second)
+            out.push_back(std::string(f.label) + " " + (cur == -2 ? std::string("?") : std::to_string(cur)) + " -> " + std::to_string(w->second));
+    }
+    return out;
+}
+
+bool setpieces_parse_current(const std::string& text, SetPieceBlock& out, std::string* err) {
+    auto fail = [&](const std::string& m) {
+        if (err) *err = m;
+        return false;
+    };
+    if (text.size() > kMaxFileBytes) return fail("too large");
+    ojson j = ojson::parse(text, nullptr, false);
+    if (j.is_discarded() || !j.is_object()) return fail("not a JSON object");
+    auto mk = j.find("turbo_setpieces");
+    auto tm = j.find("team");
+    auto v = j.find("values");
+    if (mk == j.end() || !mk->is_number_integer() || tm == j.end() || !tm->is_number_integer() || v == j.end() || !v->is_object())
+        return fail("not a Turbo set-piece read-out");
+    SetPieceBlock b;
+    b.present = true;
+    b.team = int(std::min<long long>(std::max<long long>(tm->get<long long>(), 0), 1000000));
+    for (auto it = v->begin(); it != v->end(); ++it) {
+        if (!it.value().is_number_integer()) continue;  // a column the database did not give
+        const long long x = it.value().get<long long>();
+        b.values[it.key()] = int(std::min<long long>(std::max<long long>(x, -1000000), 1000000));
+    }
+    const std::string why = setpiece_problem(b);
+    if (!why.empty()) return fail(why);
+    out = b;
+    return true;
+}
+
+std::string setpieces_command_json(const std::string& mode, const SetPieceBlock& want, const std::string& preset) {
+    ojson o = ojson::object();
+    o["mode"] = mode;
+    o["confirm"] = true;
+    if (mode == "set") {
+        o["team"] = want.team;
+        o["preset"] = preset;
+        ojson v = ojson::object();
+        for (const SetPieceField& f : setpiece_fields()) {
+            auto it = want.values.find(f.name);
+            if (it != want.values.end()) v[f.name] = it->second;
+        }
+        o["values"] = v;
+    }
+    ojson c = ojson::object();
+    c["op"] = "run";
+    c["module"] = "tactic_setpieces";
+    c["overrides"] = o;
+    return c.dump();
 }
 
 std::string Preset::to_json() const {
@@ -198,7 +312,19 @@ std::string Preset::to_json() const {
         ojson v = ojson::object();
         for (const auto& kv : settings.values) v[kv.first] = kv.second;
         s["values"] = v;
+        if (settings.include_unverified) s["include_unverified"] = true;
         j["settings"] = s;
+    }
+    if (setpieces.present) {
+        ojson s = ojson::object();
+        s["team"] = setpieces.team;
+        ojson v = ojson::object();
+        for (const SetPieceField& f : setpiece_fields()) {
+            auto it = setpieces.values.find(f.name);
+            if (it != setpieces.values.end()) v[f.name] = it->second;
+        }
+        s["values"] = v;
+        j["setpieces"] = s;
     }
     return j.dump(2, ' ', false, ojson::error_handler_t::replace) + "\n";
 }
@@ -246,6 +372,23 @@ bool Preset::parse(const std::string& text, Preset& out, std::string* err) {
             if (x < -1000000 || x > 1000000) return fail("settings: " + it.key() + " is out of range");
             p.settings.values[it.key()] = int(x);
         }
+        auto iu = s->find("include_unverified");
+        p.settings.include_unverified = iu != s->end() && iu->is_boolean() && iu->get<bool>();
+    }
+    auto sp = j.find("setpieces");
+    if (sp != j.end()) {
+        if (!sp->is_object()) return fail("setpieces is not an object");
+        p.setpieces.present = true;
+        auto tm = sp->find("team");
+        auto v = sp->find("values");
+        if (tm == sp->end() || !tm->is_number_integer() || v == sp->end() || !v->is_object()) return fail("setpieces needs a whole-number team and an object values");
+        p.setpieces.team = int(std::min<long long>(std::max<long long>(tm->get<long long>(), -1000000), 1000000));
+        for (auto it = v->begin(); it != v->end(); ++it) {
+            if (!it.value().is_number_integer()) return fail("setpieces: " + it.key() + " is not a whole number");
+            const long long x = it.value().get<long long>();
+            if (x < -1000000 || x > 1000000) return fail("setpieces: " + it.key() + " is out of range");
+            p.setpieces.values[it.key()] = int(x);
+        }
     }
     const std::string why = validate(p);
     if (!why.empty()) return fail(why);
@@ -275,7 +418,8 @@ TacticBlock block_from_live(const tsheet::LiveTactic& lt) {
 }
 
 Preset make_preset(const std::string& name, const std::string& note, const std::string& created, const tsheet::LiveTactic* live,
-                   const std::map<std::string, int>* sliders, const std::string& layout, const std::string& map_build) {
+                   const std::map<std::string, int>* sliders, const std::string& layout, const std::string& map_build,
+                   const SetPieceBlock* setpieces, bool include_unverified) {
     Preset p;
     p.name = name;
     p.note = note;
@@ -287,7 +431,9 @@ Preset make_preset(const std::string& name, const std::string& note, const std::
         p.settings.layout = layout;
         p.settings.map_build = map_build;
         p.settings.values = *sliders;
+        p.settings.include_unverified = include_unverified;
     }
+    if (setpieces && setpieces->present && !setpieces->values.empty()) p.setpieces = *setpieces;
     return p;
 }
 
@@ -359,6 +505,7 @@ std::string summary(const Preset& p) {
              " roles";
     }
     if (p.settings.present) s += std::string(s.empty() ? "" : "; ") + std::to_string(p.settings.values.size()) + " sliders";
+    if (p.setpieces.present) s += std::string(s.empty() ? "" : "; ") + std::to_string(p.setpieces.values.size()) + " set-piece fields";
     return s;
 }
 
@@ -453,6 +600,7 @@ std::string LastLoad::to_json() const {
     s["preset"] = settings_preset;
     s["skipped"] = settings_skipped;
     j["settings"] = s;
+    j["setpieces_sent"] = setpieces_sent;
     return j.dump(2, ' ', false, ojson::error_handler_t::replace) + "\n";
 }
 
@@ -500,6 +648,8 @@ bool LastLoad::parse(const std::string& text, LastLoad& out, std::string* err) {
             for (const auto& x : *sk)
                 if (x.is_string()) l.settings_skipped.push_back(x.get<std::string>());
     }
+    auto ss = j.find("setpieces_sent");
+    if (ss != j.end() && ss->is_boolean()) l.setpieces_sent = ss->get<bool>();
     if (l.preset.empty()) return fail("no preset name");
     out = l;
     return true;

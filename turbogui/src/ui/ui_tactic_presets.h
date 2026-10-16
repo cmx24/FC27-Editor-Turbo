@@ -25,6 +25,9 @@ struct TacticPresetsState {
     bool live_ok = false;
     bool opt_in = false;                // channel E on (needed to load)
     bool include_settings = true;       // Save current also stores the Custom sliders block
+    bool include_unverified = true;     // 2.12.1: a saved preset also stages the table-mapped sliders the EA screen has not shown yet (test build default)
+    bool include_setpieces = true;      // 2.12.1: Save current also stores the captain / takers / corner supports / pre-set subs (read through Lua)
+    std::string setpieces_line;         // what the set-piece read-out holds now / why not
     std::vector<std::string> names;     // the presets, by name
     std::vector<std::string> summaries;
     int selected = -1;

@@ -16,6 +16,7 @@
 #include "core/game_settings.h"
 #include "core/tactic_presets.h"
 #include "imgui.h"
+#include "nlohmann/json.hpp"
 #include "ui_game_settings.h"
 #include "ui_live_tactic.h"
 
@@ -44,6 +45,13 @@ struct Pv {
     int sel = -1;
     char name[64] = "";
     bool include_settings = true;
+    bool include_unverified = true;  // 2.12.1 test build: the table-mapped sliders are staged too (flag saved in the preset)
+    bool include_setpieces = true;
+    tpreset::SetPieceBlock sp_current;  // turbo_output\tactic_setpieces_current.json (Lua's read-out)
+    bool sp_have = false;
+    double next_sp = -1.0;
+    std::string sp_why;
+    bool confirm_setpieces = false, job_setpieces = false;
     bool delete_armed = false;
     std::string status;
     // the live tactic
@@ -144,6 +152,37 @@ void say(App& app, const std::string& s, bool error = false) {
     if (error) app.notify(s, true);
 }
 
+// ------------------------------------------------------------------------------------------------ set pieces (through Lua: features/tactic_setpieces.lua)
+// Lua writes turbo_output\tactic_setpieces_current.json when it runs mode "get"; this reads it (never the database itself)
+void read_setpieces_current(App& app) {
+    g.sp_have = false;
+    g.sp_why.clear();
+    std::vector<uint8_t> b;
+    const fs::path f = out_dir(app) / tpreset::setpieces_current_file();
+    if (!gsettings::read_bytes(f, b, 256 * 1024)) {
+        g.sp_why = "not read yet: press \"Read set pieces\" (Turbo's Lua side reads them at its next career event)";
+        return;
+    }
+    tpreset::SetPieceBlock sp;
+    std::string err;
+    if (!tpreset::setpieces_parse_current(std::string(b.begin(), b.end()), sp, &err)) {
+        g.sp_why = std::string(tpreset::setpieces_current_file()) + " is not usable: " + err;
+        return;
+    }
+    if (g.have_live && g.live.at.user > 0 && sp.team != g.live.at.user) {
+        g.sp_why = "the read-out is of team " + std::to_string(sp.team) + ", your club is team " + std::to_string(g.live.at.user) + ": press \"Read set pieces\" again";
+        return;
+    }
+    g.sp_current = sp;
+    g.sp_have = true;
+}
+
+bool send_setpieces(App& app, const std::string& mode, const tpreset::SetPieceBlock& want, const std::string& preset, const std::string& label) {
+    const nlohmann::json cmd = nlohmann::json::parse(tpreset::setpieces_command_json(mode, want, preset), nullptr, false);
+    if (cmd.is_discarded()) return false;
+    return app.send(cmd, label);
+}
+
 // ------------------------------------------------------------------------------------------------ Save current
 void save_current(App& app) {
     const std::string wanted = trimmed_name();
@@ -156,12 +195,18 @@ void save_current(App& app) {
     std::string layout, map_build, swhy;
     bool have_sliders = false;
     if (g.include_settings) have_sliders = game_settings_current(app, sliders, layout, map_build, swhy);
-    if (!g.have_live && !have_sliders) {
+    bool have_sp = false;
+    if (g.include_setpieces) {
+        read_setpieces_current(app);
+        have_sp = g.sp_have;
+    }
+    if (!g.have_live && !have_sliders && !have_sp) {
         say(app, "Not saved: the live tactic cannot be read (" + g.live_why + ")" + (g.include_settings ? " and neither can the settings file (" + swhy + ")" : ""), true);
         return;
     }
     const std::string name = tpreset::unique_name(g.presets, wanted);
-    tpreset::Preset p = tpreset::make_preset(name, "", stamp(), g.have_live ? &g.live : nullptr, have_sliders ? &sliders : nullptr, layout, map_build);
+    tpreset::Preset p = tpreset::make_preset(name, "", stamp(), g.have_live ? &g.live : nullptr, have_sliders ? &sliders : nullptr, layout, map_build,
+                                             have_sp ? &g.sp_current : nullptr, g.include_unverified);
     std::string err;
     if (!tpreset::write_preset(tpreset::presets_dir(out_dir(app)), p, &err)) {
         say(app, "The preset could not be written: " + err, true);
@@ -170,6 +215,7 @@ void save_current(App& app) {
     std::string s = "Saved \"" + p.name + "\" to turbo_output\\" + tpreset::dir_name() + "\\" + p.file.filename().u8string() + ": " + tpreset::summary(p) + ".";
     if (!g.have_live) s += " The tactic part is missing: the live tactic could not be read (" + g.live_why + ").";
     if (g.include_settings && !have_sliders) s += " The settings part is missing: " + swhy + ".";
+    if (g.include_setpieces && !have_sp) s += " The set-piece part is missing: " + g.sp_why + ".";
     if (name != wanted) s += " (the name was taken: saved as \"" + name + "\")";
     say(app, s);
     load_presets_now(app);
@@ -222,22 +268,39 @@ void start_load(App& app) {
     bool settings = false;
     if (p->settings.present) {
         settings = true;
-        int writable = 0;
+        int writable = 0, unverified = 0;
         std::vector<std::string> skipped;
         std::string why;
-        if (!game_settings_plan(app, p->settings.values, writable, skipped, why)) {
+        if (!game_settings_plan(app, p->settings.values, writable, skipped, why, p->settings.include_unverified, &unverified)) {
             lines.push_back("sliders: cannot be staged now: " + why);
             settings = false;
         } else if (writable == 0) {
-            lines.push_back("sliders: none of the preset's " + std::to_string(p->settings.values.size()) + " is verified in game yet: nothing is staged");
+            lines.push_back("sliders: none of the preset's " + std::to_string(p->settings.values.size()) + " is mapped and allowed: nothing is staged");
             settings = false;
         } else {
-            lines.push_back("sliders: " + std::to_string(writable) + " verified slider(s) are staged in turbo_output\\" + gsettings::pending_file() + ", " +
-                            std::to_string(skipped.size()) + " not verified (left out); they take effect only after you close FC 27, run turbo\turbo_settings_apply.exe "
+            lines.push_back("sliders: " + std::to_string(writable - unverified) + " screen-proven + " + std::to_string(unverified) +
+                            " table-mapped (UNVERIFIED: not seen on the EA Custom screen yet) slider(s) are staged in turbo_output\\" + gsettings::pending_file() + ", " +
+                            std::to_string(skipped.size()) + " left out; they take effect only after you close FC 27, run turbo\\turbo_settings_apply.exe "
                             "--apply and start the game with Gameplay Type CUSTOM");
         }
     }
-    if (!tactic && !settings) {
+    bool setpieces = false;
+    if (p->setpieces.present) {
+        read_setpieces_current(app);
+        if (g.have_live && g.live.at.user > 0 && p->setpieces.team != g.live.at.user) {
+            lines.push_back("set pieces: the preset's players belong to team " + std::to_string(p->setpieces.team) + ", your club is team " + std::to_string(g.live.at.user) +
+                            ": not loaded");
+        } else {
+            setpieces = true;
+            std::vector<std::string> d = g.sp_have ? tpreset::setpiece_diff(p->setpieces, g.sp_current) : std::vector<std::string>();
+            lines.push_back("set pieces: " + std::to_string(p->setpieces.values.size()) + " team sheet column(s) are written through Turbo's Lua side (cm_teamsheets), read back, "
+                            "undo journal turbo_output\\tactic_setpieces_undo.json; players not on your sheet refuse the whole write; the running game may show them only "
+                            "after a career save and load" +
+                            (g.sp_have ? std::string() : std::string(" (current takers not read: press Read set pieces to see the differences)")));
+            for (size_t i = 0; i < d.size() && i < 12; ++i) lines.push_back("  " + d[i]);
+        }
+    }
+    if (!tactic && !settings && !setpieces) {
         say(app, "Nothing to load: " + (lines.empty() ? std::string("the preset holds nothing to write") : lines.front()));
         return;
     }
@@ -245,6 +308,7 @@ void start_load(App& app) {
     g.confirm_tactic = tactic;
     g.confirm_card_undo = false;
     g.confirm_settings = settings;
+    g.confirm_setpieces = setpieces;
     g.confirm_preset = *p;
     // what the Yes records: the values before, and the values the load asks for
     tpreset::LastLoad l;
@@ -315,6 +379,9 @@ void start_undo(App& app) {
     g.confirm_tactic = tactic;
     g.confirm_card_undo = card;
     g.confirm_settings = g.last.settings_staged;
+    g.confirm_setpieces = g.last.setpieces_sent;
+    if (g.last.setpieces_sent)
+        lines.push_back("set pieces: the old takers come back from turbo_output\\tactic_setpieces_undo.json (only fields that still hold what Turbo wrote)");
     g.confirm_last = g.last;
     ask(JobKind::Undo, "Undo the last preset load?##tpconfirm", lines);
 }
@@ -344,6 +411,7 @@ void start_reapply(App& app) {
     g.confirm_tactic = true;
     g.confirm_card_undo = false;
     g.confirm_settings = false;
+    g.confirm_setpieces = false;
     g.confirm_last = g.last;
     ask(JobKind::Reapply, "Re-apply preset \"" + g.last.preset + "\"?##tpconfirm", lines);
 }
@@ -354,6 +422,7 @@ void confirmed(App& app) {
     g.job_last = g.confirm_last;
     g.job_preset = g.confirm_preset;
     g.job_settings = g.confirm_settings;
+    g.job_setpieces = g.confirm_setpieces;
     g.job_tactic = g.confirm_tactic;
     g.job_t0 = app.now;
     if (g.confirm_tactic) {
@@ -401,11 +470,18 @@ void finish(App& app) {
             std::string msg;
             int staged = 0;
             std::vector<std::string> skipped;
-            const bool ok = game_settings_stage(app, g.job_preset.name, g.job_preset.settings.values, msg, staged, skipped);
+            const bool ok = game_settings_stage(app, g.job_preset.name, g.job_preset.settings.values, msg, staged, skipped, g.job_preset.settings.include_unverified);
             l.settings_staged = ok;
             l.settings_preset = ok ? g.job_preset.name : "";
             l.settings_skipped = skipped;
             smsg = " Sliders: " + msg;
+        }
+        if (g.job_setpieces) {
+            const bool sent = send_setpieces(app, "set", g.job_preset.setpieces, g.job_preset.name, "Tactic preset set pieces: " + g.job_preset.name);
+            l.setpieces_sent = sent;
+            smsg += sent ? " Set pieces: sent to Turbo's Lua side (it writes them at its next career event and reads them back: see turbo_output\\" +
+                               std::string(tpreset::setpieces_result_file()) + ")."
+                         : " Set pieces: NOT sent (the command channel refused).";
         }
         l.state = "loaded";
         l.when = stamp();
@@ -426,6 +502,11 @@ void finish(App& app) {
             game_settings_unstage(app, l.settings_preset, msg);
             smsg = " Sliders: " + msg + ".";
             l.settings_staged = false;
+        }
+        if (g.job_setpieces) {
+            const bool sent = send_setpieces(app, "undo", tpreset::SetPieceBlock(), l.preset, "Tactic preset set pieces: undo");
+            smsg += sent ? " Set pieces: undo sent to Turbo's Lua side." : " Set pieces: undo NOT sent (the command channel refused).";
+            l.setpieces_sent = !sent;
         }
         l.state = "undone";
         l.note = "";
@@ -558,7 +639,8 @@ void draw_body(App& app) {
     ImGui::Checkbox("with the Custom sliders block##tpwithsliders", &g.include_settings);
     g_state.include_settings = g.include_settings;
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Also stores the Game Settings sliders (read from the settings file the game saved last). Loading stages only the sliders verified in game.");
+        ImGui::SetTooltip("Also stores the Game Settings sliders (read from the settings file the game saved last). Loading stages the 3 screen-proven sliders, "
+                          "and the other table-mapped ones when 'unverified sliders' is ticked.");
     g_state.can_save = !trimmed_name().empty();
     ImGui::BeginDisabled(!g_state.can_save);
     ImGui::SameLine();
@@ -570,6 +652,30 @@ void draw_body(App& app) {
         load_last_now(app);
         g.status = "The presets folder was read again";
     }
+    ImGui::Checkbox("unverified sliders (test build)##tpunver", &g.include_unverified);
+    g_state.include_unverified = g.include_unverified;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("2.12.1 proof build: also stage the ~120 sliders the game's own slider table maps but the EA Custom screen has not shown yet. The flag is saved in the "
+                          "preset. Untick for the 3 screen-proven sliders only.");
+    ImGui::SameLine();
+    ImGui::Checkbox("with the set pieces##tpwithsp", &g.include_setpieces);
+    g_state.include_setpieces = g.include_setpieces;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Captain, penalty / free-kick / corner / throw-in takers, corner supports and pre-set substitutions of your club's team sheet. Read through "
+                          "Turbo's Lua side: press Read set pieces first. Loading writes the database columns (guarded, read back, undo); the running game may show "
+                          "them only after a career save and load.");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Read set pieces##tpreadsp")) {
+        send_setpieces(app, "get", tpreset::SetPieceBlock(), "", "Tactic preset: read set pieces");
+        g.status = "Asked Turbo's Lua side to read the set pieces (it runs at the next career event); press Save current afterwards";
+    }
+    if (app.now >= g.next_sp) {  // the small file is read at most once a second
+        g.next_sp = app.now + 1.0;
+        read_setpieces_current(app);
+    }
+    g_state.setpieces_line = g.sp_have ? "Set pieces read: team " + std::to_string(g.sp_current.team) + ", " + std::to_string(g.sp_current.values.size()) + " fields"
+                                       : "Set pieces: " + g.sp_why;
+    ImGui::TextDisabled("%s", g_state.setpieces_line.c_str());
 
     // the list
     ImGui::SeparatorText("Presets");

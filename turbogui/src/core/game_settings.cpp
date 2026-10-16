@@ -294,7 +294,7 @@ bool int_of(const json& v, long long& out) {
 
 // ------------------------------------------------------------------------------------------------ the slider map
 const std::vector<std::string>& groups() {
-    static const std::vector<std::string> g = {"match", "player", "user", "cpu"};
+    static const std::vector<std::string> g = {"match", "player", "user", "cpu", "meta"};
     return g;
 }
 const char* group_label(const std::string& group) {
@@ -302,6 +302,7 @@ const char* group_label(const std::string& group) {
     if (group == "player") return "Player";
     if (group == "user") return "Sliders: User";
     if (group == "cpu") return "Sliders: CPU";
+    if (group == "meta") return "Sliders: groups";
     return "Other";
 }
 
@@ -394,6 +395,10 @@ bool SliderMap::parse(const std::string& text, SliderMap& out, std::string* err)
         e.max = int(mx);
         e.verified = x.contains("verified") && x["verified"].is_boolean() && x["verified"].get<bool>();
         e.proof = str_of(x, "proof");
+        e.evidence = str_of(x, "evidence");
+        e.game_name = str_of(x, "game_name");
+        if (!e.evidence.empty() && e.evidence != "screen" && e.evidence != "table") return fail(e.id + ": evidence must be \"screen\" or \"table\"");
+        if (e.verified && e.evidence == "table") return fail(e.id + ": verified needs screen evidence, not the table");
         if (e.verified && e.index < 0 && e.custom_index < 0) return fail(e.id + ": verified without an index");
         if (e.verified && e.proof.empty()) return fail(e.id + ": verified needs its proof (where the in-game check is)");
         m.entries.push_back(e);
@@ -493,6 +498,7 @@ std::string Preset::to_json() const {
     ojson v = ojson::object();
     for (const auto& kv : values) v[kv.first] = kv.second;
     j["values"] = v;
+    if (include_unverified) j["include_unverified"] = true;
     return j.dump(1, ' ', false, ojson::error_handler_t::replace) + "\n";
 }
 
@@ -514,6 +520,7 @@ bool Preset::parse(const std::string& text, Preset& out, std::string* err) {
         p.src_layout = str_of(j["source"], "layout");
     }
     if (!j.contains("values") || !j["values"].is_object()) return fail("values is not an object");
+    p.include_unverified = j.contains("include_unverified") && j["include_unverified"].is_boolean() && j["include_unverified"].get<bool>();
     for (auto it = j["values"].begin(); it != j["values"].end(); ++it) {
         if (!valid_id(it.key())) return fail("\"" + it.key() + "\" is not a slider id");
         if (!it.value().is_number_integer()) return fail(it.key() + ": not a whole number");
@@ -622,8 +629,10 @@ Plan plan_preset(const Preset& p, const SliderMap& m) {
             out.skipped.push_back(e->label + ": not mapped yet");
             continue;
         }
-        if (!e->verified) {
-            out.skipped.push_back(e->label + ": not verified in game yet (read-only)");
+        const bool table_only = !e->verified && e->inferred() && p.include_unverified;
+        if (!e->verified && !table_only) {
+            out.skipped.push_back(e->label + (e->inferred() ? ": mapped from the game's table but not seen on the EA screen yet (the preset does not include unverified sliders)"
+                                                            : ": not verified in game yet (read-only)"));
             continue;
         }
         int v = kv.second;
@@ -633,6 +642,7 @@ Plan plan_preset(const Preset& p, const SliderMap& m) {
             v = to;
         }
         out.values[e->id] = v;
+        if (table_only) out.unverified.push_back(e->id);
     }
     return out;
 }
@@ -646,6 +656,11 @@ std::string Pending::to_json() const {
     ojson v = ojson::object();
     for (const auto& kv : values) v[kv.first] = kv.second;
     j["values"] = v;
+    if (!unverified.empty()) {
+        ojson u = ojson::array();
+        for (const std::string& id : unverified) u.push_back(id);
+        j["unverified"] = u;
+    }
     return j.dump(1, ' ', false, ojson::error_handler_t::replace) + "\n";
 }
 
@@ -666,6 +681,19 @@ bool Pending::parse(const std::string& text, Pending& out, std::string* err) {
         }
         p.values[it.key()] = int(std::max<long long>(-1, std::min<long long>(1000, it.value().get<long long>())));
     }
+    if (j.contains("unverified")) {
+        if (!j["unverified"].is_array()) {
+            if (err) *err = "unverified is not a list";
+            return false;
+        }
+        for (const auto& x : j["unverified"]) {
+            if (!x.is_string() || !valid_id(x.get<std::string>()) || p.values.find(x.get<std::string>()) == p.values.end()) {
+                if (err) *err = "unverified names an id that is not a staged slider";
+                return false;
+            }
+            p.unverified.push_back(x.get<std::string>());
+        }
+    }
     out = std::move(p);
     return true;
 }
@@ -683,14 +711,16 @@ bool stage_pending(const fs::path& out_dir, const Preset& p, const SliderMap& m,
     pd.staged = stamp;
     pd.src_md5 = p.src_md5;
     pd.values = plan.values;
+    pd.unverified = plan.unverified;
     std::string err;
     if (!write_text(out_dir / pending_file(), pd.to_json(), &err)) {
         if (msg) *msg = "Not staged: " + err;
         return false;
     }
     if (msg) {
-        *msg = "Staged \"" + p.name + "\": " + std::to_string(plan.values.size()) + " slider(s) in turbo_output\\" + pending_file() +
-               ". Close FC 27, run turbo\\turbo_settings_apply.exe --apply, then start the game.";
+        *msg = "Staged \"" + p.name + "\": " + std::to_string(plan.values.size()) + " slider(s)" +
+               (plan.unverified.empty() ? std::string() : " (" + std::to_string(plan.unverified.size()) + " of them mapped from the game's table, not yet seen on the EA screen)") +
+               " in turbo_output\\" + pending_file() + ". Close FC 27, run turbo\\turbo_settings_apply.exe --apply, then start the game.";
         if (!plan.skipped.empty()) *msg += " Not staged: " + std::to_string(plan.skipped.size()) + " (not verified / not mapped).";
     }
     return true;
@@ -891,7 +921,7 @@ Outcome patch(const Env& env, const SliderMap& m, const std::vector<Write>& writ
     rec["writes"] = list;
     if (!commit(env, o, file, before, after, rec)) return o;
     o.message = "Written: " + std::to_string(changed) + " value(s) in " + file.filename().u8string() + " (CRC checked; backup " + o.backup.u8string() +
-                "). The 3 verified sliders are in the Settings file; the in-game settings screen and the on-pitch effect are NOT yet confirmed. Undo: turbo_settings_apply.exe --undo";
+                "). The values are in the Settings file; the in-game settings screen (only 3 sliders seen so far) and the on-pitch effect are NOT yet confirmed. Undo: turbo_settings_apply.exe --undo";
     return o;
 }
 
@@ -913,7 +943,8 @@ Outcome apply_pending(const Env& env, const SliderMap& m) {
     std::vector<std::string> skipped;
     for (const auto& kv : pd.values) {
         const Entry* e = m.entry(kv.first);
-        if (!e || !e->writable()) {
+        const bool listed = std::find(pd.unverified.begin(), pd.unverified.end(), kv.first) != pd.unverified.end();
+        if (!e || !(e->writable() || (listed && e->inferred()))) {
             skipped.push_back(kv.first);
             continue;
         }

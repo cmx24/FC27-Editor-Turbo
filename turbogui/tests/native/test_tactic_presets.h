@@ -5,7 +5,10 @@
 // first and writes through the guarded job, the staged sliders, Undo last load, the Re-apply prompt after a career load, Delete, the refusals.
 // reapply_edits.json is checked byte for byte at the end. Included by test_main.cpp after test_team_sheet.h and test_game_settings.h.
 #pragma once
+#include <set>
+
 #include "core/tactic_presets.h"
+#include "nlohmann/json.hpp"
 #include "test_game_settings.h"
 #include "test_team_sheet.h"
 #include "ui/ui_tactic_presets.h"
@@ -99,7 +102,94 @@ static void run() {
         tp::Preset none = a;
         none.tactic = tp::TacticBlock();
         none.settings = tp::SettingsBlock();
-        CHECK(part(tp::validate(none), "neither a tactic nor settings"), "empty preset refused");
+        CHECK(part(tp::validate(none), "neither a tactic, settings nor set pieces"), "empty preset refused");
+    });
+
+    // ------------------------------------------------------------------------------------------------ 2.12.1: set pieces and the unverified-sliders flag
+    run_case("tactic presets 2.12.1: set-piece block - 24 columns, validation, JSON round trip, diff, Lua read-out and command", [] {
+        CHECK(tp::setpiece_fields().size() == 24, "24 columns");
+        std::set<std::string> names;
+        for (const auto& f : tp::setpiece_fields()) names.insert(f.name);
+        CHECK(names.size() == 24 && names.count("captainid") && names.count("penaltytakerid") && names.count("cksupport9") && names.count("customsub2out") &&
+                  names.count("throwerleft") && names.count("longkicktakerid"),
+              "unique names, the ones of cm_teamsheets");
+        tp::SetPieceBlock sp;
+        sp.present = true;
+        sp.team = 1;
+        sp.values = {{"captainid", 100001}, {"penaltytakerid", 100009}, {"leftcornerkicktakerid", -1}, {"cksupport3", 100004}, {"customsub0in", 100012}};
+        CHECK(tp::setpiece_problem(sp).empty(), tp::setpiece_problem(sp));
+        // refusals
+        auto refused = [&](tp::SetPieceBlock x, const std::string& want, const char* what) {
+            const std::string why = tp::setpiece_problem(x);
+            CHECK(part(why, want), std::string(what) + ": " + why);
+        };
+        { auto x = sp; x.values["notacolumn"] = 5; refused(x, "not one of the 24", "a column that is not one of the 24"); }
+        { auto x = sp; x.values["captainid"] = -2; refused(x, "outside -1", "below -1"); }
+        { auto x = sp; x.values["captainid"] = 500001; refused(x, "outside -1", "above the id range"); }
+        { auto x = sp; x.values.clear(); refused(x, "no values", "no values"); }
+        { auto x = sp; x.team = 0; refused(x, "team", "team 0"); }
+        // in a preset
+        tp::Preset a = sample();
+        a.setpieces = sp;
+        CHECK(tp::validate(a).empty(), tp::validate(a));
+        tp::Preset b;
+        std::string err;
+        const std::string text = a.to_json();
+        CHECK(tp::Preset::parse(text, b, &err), "parse: " + err);
+        CHECK(b.setpieces.present && b.setpieces.team == 1 && b.setpieces.values == sp.values && b.to_json() == text, "set pieces round-trip");
+        CHECK(part(tp::summary(b), "; 5 set-piece fields"), tp::summary(b));
+        tp::Preset only = a;
+        only.tactic = tp::TacticBlock();
+        only.settings = tp::SettingsBlock();
+        CHECK(tp::validate(only).empty() && tp::Preset::parse(only.to_json(), b, &err) && b.setpieces.present && !b.tactic.present && !b.settings.present, "set pieces alone is a preset");
+        // a bad file is refused whole
+        std::string bad = text;
+        const size_t at = bad.find("\"captainid\": 100001");
+        CHECK(at != std::string::npos, "the text holds the captain");
+        if (at != std::string::npos) bad.replace(at, 19, "\"captainid\": 999999");
+        CHECK(part(parse_err(bad), "outside -1"), "a player id above the range: " + parse_err(bad));
+        // the diff
+        tp::SetPieceBlock now = sp;
+        now.values["penaltytakerid"] = 100002;
+        now.values.erase("customsub0in");
+        const auto d = tp::setpiece_diff(sp, now);
+        CHECK(d.size() == 2 && has_line(d, "Penalty taker 100002 -> 100009") && has_line(d, "Pre-set substitution 1: on ? -> 100012"), "diff: " + (d.empty() ? std::string("none") : d[0]));
+        CHECK(tp::setpiece_diff(sp, sp).empty(), "no diff for equal values");
+        // Lua's read-out
+        tp::SetPieceBlock rd;
+        const std::string cur = R"({"turbo_setpieces":1,"team":1,"values":{"captainid":100001,"penaltytakerid":100002,"cksupport1":-1},"squad":25,"missing":[]})";
+        CHECK(tp::setpieces_parse_current(cur, rd, &err) && rd.present && rd.team == 1 && rd.values.size() == 3 && rd.values["penaltytakerid"] == 100002, "read-out: " + err);
+        CHECK(!tp::setpieces_parse_current("{\"turbo_setpieces\":1,\"team\":1}", rd, &err) && !tp::setpieces_parse_current("[1]", rd, &err), "bad read-outs refused");
+        CHECK(!tp::setpieces_parse_current(R"({"turbo_setpieces":1,"team":1,"values":{"bogus":4}})", rd, &err) && part(err, "not one of the 24"), "a foreign column refused: " + err);
+        // the command Lua gets
+        const nlohmann::json c = nlohmann::json::parse(tp::setpieces_command_json("set", sp, "Base"));
+        CHECK(c["op"] == "run" && c["module"] == "tactic_setpieces" && c["overrides"]["mode"] == "set" && c["overrides"]["confirm"] == true &&
+                  c["overrides"]["team"] == 1 && c["overrides"]["preset"] == "Base" && c["overrides"]["values"].size() == 5 && c["overrides"]["values"]["captainid"] == 100001 &&
+                  c["overrides"]["values"]["leftcornerkicktakerid"] == -1,
+              c.dump());
+        const nlohmann::json u = nlohmann::json::parse(tp::setpieces_command_json("undo", tp::SetPieceBlock(), ""));
+        CHECK(u["overrides"]["mode"] == "undo" && !u["overrides"].contains("values"), u.dump());
+    });
+
+    run_case("tactic presets 2.12.1: the unverified-sliders flag is saved (default on in this build), old files mean off; the last load remembers the set pieces", [] {
+        const tp::Preset a = sample();
+        CHECK(a.settings.include_unverified, "make_preset: on by default");
+        tp::Preset b;
+        std::string err;
+        CHECK(tp::Preset::parse(a.to_json(), b, &err) && b.settings.include_unverified, "round trip keeps it: " + err);
+        const tsheet::LiveTactic live = fake_live();
+        const std::map<std::string, int> sl = {{"cpu.sprint_speed", 50}};
+        const tp::Preset off = tp::make_preset("X", "", "2026-10-16T10:00", &live, &sl, gsettings::layout_name(), "6AC07E31", nullptr, false);
+        CHECK(!off.settings.include_unverified && off.to_json().find("include_unverified") == std::string::npos, "flag off: no key");
+        CHECK(tp::Preset::parse(off.to_json(), b, &err) && !b.settings.include_unverified, "no key = off");
+        tp::LastLoad l;
+        l.preset = "P";
+        l.state = "loaded";
+        l.setpieces_sent = true;
+        tp::LastLoad l2;
+        CHECK(tp::LastLoad::parse(l.to_json(), l2, &err) && l2.setpieces_sent, "last load: set pieces sent: " + err);
+        l.setpieces_sent = false;
+        CHECK(tp::LastLoad::parse(l.to_json(), l2, &err) && !l2.setpieces_sent, "last load: not sent");
     });
 
     run_case("tactic presets: validation refuses (never clamps): build, schema, ranges, slider ids, shapes", [] {
@@ -467,8 +557,13 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(3);
         CHECK(s.confirm_open && has_line(s.confirm_lines, "Defensive Approach Deep (0) -> High (2)") && has_line(s.confirm_lines, "Line Height 25 -> 90") &&
                   has_line(s.confirm_lines, "Build-Up Style Balanced (0) -> Counter (1)") && has_line(s.confirm_lines, "slot 9 role 21 / focus 5 -> role 21 / focus 6") &&
-                  has_line(s.confirm_lines, "sliders: 2 verified slider(s) are staged") && has_line(s.confirm_lines, "Gameplay Type CUSTOM"),
+                  has_line(s.confirm_lines, "sliders: 2 screen-proven + 0 table-mapped") && has_line(s.confirm_lines, "Gameplay Type CUSTOM"),
               "it asks first, with every value");
+        {
+            bool tab = false;  // 2.12.1: a path in the modal is written with a double backslash (a single one printed "\t" as a tab)
+            for (const std::string& l : s.confirm_lines) tab = tab || l.find('\t') != std::string::npos;
+            CHECK(!tab && has_line(s.confirm_lines, "run turbo\\turbo_settings_apply.exe --apply"), "no tab character in the modal; the apply tool's path is spelled out");
+        }
         CHECK(live_is(25, 0, 0, 38213, 5) && !fs::exists(out / gsettings::pending_file(), ec), "nothing written before the Yes");
         CHECK(ui.click("Load##tpyes", "Load tactic preset"), "confirmed");
         ui.frames(6);

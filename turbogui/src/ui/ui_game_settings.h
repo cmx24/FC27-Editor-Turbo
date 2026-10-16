@@ -46,11 +46,13 @@ void game_settings_set_paths(const std::filesystem::path& settings_dir, const st
 // Reads the settings file now: every mapped slider's value (0..100), the file's layout. false (with why) when the map or the file is not usable
 bool game_settings_current(App& app, std::map<std::string, int>& values, std::string& layout, std::string& map_build, std::string& why);
 // What staging `values` would do: how many are verified sliders (written), the others in `skipped`. false (with why) without a slider map
-bool game_settings_plan(App& app, const std::map<std::string, int>& values, int& writable, std::vector<std::string>& skipped, std::string& why);
+// 2.12.1: include_unverified also counts the sliders the game's table maps but the EA screen has not shown (they are in `unverified_n` of the total)
+bool game_settings_plan(App& app, const std::map<std::string, int>& values, int& writable, std::vector<std::string>& skipped, std::string& why,
+                        bool include_unverified = false, int* unverified_n = nullptr);
 // Stages the values of `name` (the VERIFIED sliders only) like this tab's Load: turbo_output\settings_pending.json, applied with FC 27 closed.
 // `staged` gets the count, `skipped` the sliders left out; false (with msg) when nothing could be staged
 bool game_settings_stage(App& app, const std::string& name, const std::map<std::string, int>& values, std::string& msg, int& staged,
-                         std::vector<std::string>& skipped);
+                         std::vector<std::string>& skipped, bool include_unverified = false);
 // Removes turbo_output\settings_pending.json when it is the staged preset `name`'s (before the apply tool ran); msg says what happened
 bool game_settings_unstage(App& app, const std::string& name, std::string& msg);
 

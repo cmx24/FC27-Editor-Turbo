@@ -59,7 +59,35 @@ struct SettingsBlock {
     std::string layout;            // gsettings::layout_name() when saved
     std::string map_build;         // the slider map's build ("6AC07E31")
     std::map<std::string, int> values;  // slider id -> 0..100
+    // 2.12.1: Load also stages the sliders the game's own table names but the EA Custom screen has not shown yet (core/game_settings.h
+    // Entry::inferred): the one-launch proof build. false = only the 3 screen-proven ones. A preset file without the key means false
+    bool include_unverified = false;
 };
+
+// 2.12.1: the captain, the set-piece takers, the corner supports and the pre-set substitutions of your club's team sheet (cm_teamsheets, 24
+// columns). Written by the Lua module features/tactic_setpieces.lua (guarded, read back, undo); this block is only the saved values.
+struct SetPieceField {
+    const char* name;   // the database column
+    const char* label;  // plain language
+};
+const std::vector<SetPieceField>& setpiece_fields();  // the 24, in the order Edit Tactic's Set Pieces screen lists them
+inline const char* setpieces_current_file() { return "tactic_setpieces_current.json"; }  // turbo_output: Lua's "get"
+inline const char* setpieces_result_file() { return "tactic_setpieces_result.json"; }    // turbo_output: Lua's last set / undo / get line
+struct SetPieceBlock {
+    bool present = false;
+    int team = 0;                       // the club the player ids belong to (a preset loads only into the same club)
+    std::map<std::string, int> values;  // column -> player id (-1 = nobody), only setpiece_fields()
+    bool same_values(const SetPieceBlock& o) const { return values == o.values; }
+};
+// "" = acceptable; else why not (a column that is not one of the 24, an id outside -1..500000, no values, a team outside 1..200000)
+std::string setpiece_problem(const SetPieceBlock& s);
+// One line per value that differs (now -> preset): "Penalty taker 12345 -> 23456"
+std::vector<std::string> setpiece_diff(const SetPieceBlock& want, const SetPieceBlock& now);
+// Reads Lua's tactic_setpieces_current.json ({"turbo_setpieces":1,"team":95,"values":{...}}); false (with err) for anything else
+bool setpieces_parse_current(const std::string& text, SetPieceBlock& out, std::string* err);
+// The Lua command for a Load: {"op":"run","module":"tactic_setpieces","overrides":{"mode":"set","confirm":true,"team":..,"preset":..,"values":{..}}}
+// (mode "undo" without values for Undo). Returned as compact JSON text; App::send parses it.
+std::string setpieces_command_json(const std::string& mode, const SetPieceBlock& want, const std::string& preset);
 
 struct Preset {
     int schema = kSchema;
@@ -67,6 +95,7 @@ struct Preset {
     std::string game_build;        // build()
     TacticBlock tactic;
     SettingsBlock settings;
+    SetPieceBlock setpieces;
     std::filesystem::path file;    // where it was read from / written to
     std::string to_json() const;
     // false (with err) for anything validate() refuses, and for text that is not a Turbo tactic preset
@@ -80,8 +109,11 @@ std::string validate(const Preset& p);
 // The tactic block of the live team sheet (the read-out of channel E)
 TacticBlock block_from_live(const tsheet::LiveTactic& lt);
 // A new preset of the live tactic (and the settings values, when given; empty map + settings_layout "" = no settings block)
+// 2.12.1: `setpieces` (when given and with values) is stored as the set-piece block; a settings block made here has include_unverified true (this
+// test build proves the table-mapped sliders on the EA screen in one launch)
 Preset make_preset(const std::string& name, const std::string& note, const std::string& created, const tsheet::LiveTactic* live,
-                   const std::map<std::string, int>* sliders, const std::string& layout, const std::string& map_build);
+                   const std::map<std::string, int>* sliders, const std::string& layout, const std::string& map_build,
+                   const SetPieceBlock* setpieces = nullptr, bool include_unverified = true);
 
 // ---- loading: the request channel E understands
 // The Request that puts `want` into the live tactic `now`: the formation is never written, so another formation (another source formation or
@@ -120,6 +152,7 @@ struct LastLoad {
     bool settings_staged = false;    // the settings block was staged (turbo_output\settings_pending.json)
     std::string settings_preset;     // the staged preset's name
     std::vector<std::string> settings_skipped;  // sliders left out (not verified)
+    bool setpieces_sent = false;                // the set-piece block was sent to Lua (mode set); Undo sends mode undo
     std::string to_json() const;
     static bool parse(const std::string& text, LastLoad& out, std::string* err);
 };

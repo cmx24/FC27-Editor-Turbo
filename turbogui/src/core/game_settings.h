@@ -91,7 +91,11 @@ struct Entry {
     int min = 0, max = 100;
     bool verified = false;               // proven in game (the marker launch); only then a preset writes it
     std::string proof;                   // where the proof is ("" = none)
+    std::string evidence;                // "screen" (seen on the EA Custom screen) / "table" (named by the game's own slider table, not seen on the screen) / ""
+    std::string game_name;               // the game's name of the slider ("SPRINT_SPEED_USER"); display only
     bool writable() const { return verified && (custom_index >= 0 || index >= 0); }
+    // 2.12.1: a Custom block byte named by the game's table but not yet seen on the screen. Staged only when the preset asks (include_unverified)
+    bool inferred() const { return !verified && custom_index >= 0 && evidence == "table"; }
 };
 struct SliderMap {
     std::string build, layout, note;
@@ -134,6 +138,9 @@ struct Preset {
     std::string name, note, created;
     std::string src_file, src_md5, src_layout;  // the file it was saved from
     std::map<std::string, int> values;          // slider id -> 0..100 (never a file offset)
+    // 2.12.1: also stage the sliders the game's table names but the EA screen has not shown yet (Entry::inferred): the one-launch proof build.
+    // false = only the screen-proven sliders (the 2.10 behaviour). Saved in the file; a preset without the key means false
+    bool include_unverified = false;
     std::filesystem::path file;                 // where it was read from
     std::string to_json() const;
     static bool parse(const std::string& text, Preset& out, std::string* err);
@@ -152,13 +159,15 @@ Preset preset_from_snapshot(const std::string& name, const Snapshot& s, const Sl
 struct Plan {
     std::map<std::string, int> values;
     std::vector<std::string> skipped, clamped;
+    std::vector<std::string> unverified;  // the staged ids that are NOT screen-proven (include_unverified); they are in `values` too
 };
 Plan plan_preset(const Preset& p, const SliderMap& m);
 
 // The staged preset (the view writes it; the tool applies it with the game closed, then renames it settings_pending.applied_<stamp>.json)
 struct Pending {
     std::string preset, staged, src_md5;
-    std::map<std::string, int> values;  // verified ids only
+    std::map<std::string, int> values;  // verified ids, plus the `unverified` ones
+    std::vector<std::string> unverified;  // ids of `values` that are only table-mapped: the tool writes such an id only when it is listed here
     std::string to_json() const;
     static bool parse(const std::string& text, Pending& out, std::string* err);
 };

@@ -888,6 +888,110 @@ static void run_custom() {
         for (const Entry& e : m.entries)
             if (e.group == "user" || e.group == "cpu") CHECK(e.index < 0, e.id + ": no u32 index");
     });
+
+    // ---------------------------------------------------------------- 2.12.1: all 125 Custom bytes, named from the game's own slider table
+    run_case("game settings 2.12.1: the shipped map names all 125 Custom bytes from the game's table; only 3 are screen-proven", [] {
+        SliderMap m;
+        std::string err;
+        CHECK(load_map(fs::path("..") / "turbo" / "package" / "turbo" / "settings" / map_file(), m, &err), err);
+        std::set<int> used;
+        std::set<std::string> names;
+        int screen = 0, table = 0;
+        for (const Entry& e : m.entries) {
+            if (e.custom_index < 0) continue;
+            CHECK(used.insert(e.custom_index).second, e.id + ": custom index used twice");
+            CHECK(!e.game_name.empty() && names.insert(e.game_name).second, e.id + ": the game's name is there and unique: " + e.game_name);
+            if (e.verified) {
+                ++screen;
+                CHECK(e.evidence == "screen" && !e.inferred() && e.writable(), e.id + ": screen-proven");
+            } else {
+                ++table;
+                CHECK(e.evidence == "table" && e.inferred() && !e.writable(), e.id + ": table-mapped, not writable without include_unverified");
+            }
+        }
+        CHECK(used.size() == 125 && *used.begin() == 0 && *used.rbegin() == 124, fmt("%zu distinct bytes 0..124", used.size()));
+        CHECK(screen == 3 && table == 122, fmt("%d screen-proven, %d table-mapped", screen, table));
+        auto at = [&](const char* id) {
+            const Entry* e = m.entry(id);
+            return e ? e->custom_index : -99;
+        };
+        CHECK(at("cpu.defending_aggression") == 0 && at("cpu.long_shot_frequency") == 15 && at("user.defending_aggression") == 16 && at("user.long_shot_frequency") == 31,
+              "CPU-AI: opponent 0..15, teammates 16..31");
+        CHECK(at("meta.all_pass_speed") == 32 && at("meta.all_shot_error") == 35, "the four group sliders");
+        CHECK(at("cpu.sprint_speed") == 36 && at("cpu.acceleration") == 37 && at("cpu.cross_error") == 36 + 20 && at("cpu.cross_speed") == 36 + 28 &&
+                  at("cpu.physicality_impact") == 36 + 36 && at("cpu.pos_marking") == 73 && at("cpu.gk_ability") == 79,
+              "CPU sliders 36..72, positioning 73..79");
+        CHECK(at("user.sprint_speed") == 80 && at("user.acceleration") == 81 && at("user.trap_error") == 86 && at("user.pass_speed") == 91 && at("user.injury_frequency") == 92 &&
+                  at("user.cross_error") == 100 && at("user.cross_speed") == 108 && at("user.physicality_impact") == 116 && at("user.pos_marking") == 117 &&
+                  at("user.gk_ability") == 123 && at("user.power_bar_speed") == 124,
+              "user sliders 80..116, positioning 117..123, power bar 124 (injury frequency 0xE8 = byte 0x5C is the code-verified anchor)");
+        CHECK(at("user.dribble_error") == -1 && at("cpu.pass_angle_error") == -1 && !m.entry("user.dribble_error")->inferred(), "dribble error / pass angle error have no slot");
+    });
+
+    run_case("game settings 2.12.1: include_unverified stages the table-mapped sliders; the flag is saved; apply writes only the listed bytes", [] {
+        Rig r("full_map");
+        std::string err;
+        const fs::path shipped = fs::path("..") / "turbo" / "package" / "turbo" / "settings" / map_file();
+        CHECK(load_map(shipped, r.map, &err), err);
+        Preset p;
+        p.name = "all sliders";
+        for (const Entry& e : r.map.entries)
+            if (e.custom_index >= 0) p.values[e.id] = 10 + e.custom_index % 80;
+        CHECK(p.values.size() == 125 && !p.include_unverified, "125 mapped values, the flag is off by default");
+        const Plan off = plan_preset(p, r.map);
+        CHECK(off.values.size() == 3 && off.unverified.empty() && off.skipped.size() == 122, fmt("flag off: %zu staged, %zu skipped", off.values.size(), off.skipped.size()));
+        CHECK(off.skipped.front().find("not seen on the EA screen") != std::string::npos, "the skip reason names the table mapping: " + off.skipped.front());
+        p.include_unverified = true;
+        const Plan on = plan_preset(p, r.map);
+        CHECK(on.values.size() == 125 && on.unverified.size() == 122 && on.skipped.empty(), fmt("flag on: %zu staged, %zu unverified", on.values.size(), on.unverified.size()));
+        Preset back;
+        CHECK(Preset::parse(p.to_json(), back, &err) && back.include_unverified && back.values == p.values, "the flag round-trips: " + err);
+        Preset noflag = p;
+        noflag.include_unverified = false;
+        CHECK(noflag.to_json().find("include_unverified") == std::string::npos && Preset::parse(noflag.to_json(), back, &err) && !back.include_unverified, "no key = false");
+        // Load stages, the tool applies
+        std::string msg;
+        CHECK(stage_pending(r.out, p, r.map, "20261016-000000-000", &msg) && msg.find("122 of them") != std::string::npos, msg);
+        std::vector<uint8_t> pb;
+        Pending pd;
+        CHECK(read_bytes(r.out / pending_file(), pb) && Pending::parse(std::string(pb.begin(), pb.end()), pd, &err) && pd.values.size() == 125 && pd.unverified.size() == 122,
+              "staged file: " + err);
+        const Outcome o = apply_pending(r.env, r.map);
+        CHECK(o.ok, o.message);
+        const auto b = r.bytes();
+        int wrong = 0;
+        for (int k = 0; k < 125; ++k)
+            if (b[kPayloadOff + 0xB8976 + size_t(k)] != uint8_t(10 + k % 80)) ++wrong;
+        CHECK(wrong == 0 && validate(b).ok, fmt("%d of 125 Custom bytes differ; CRC valid", wrong));
+        // a staged file without the unverified list writes the three proven bytes only (the tool does not trust the values alone)
+        Rig q("full_map_nolist");
+        CHECK(load_map(shipped, q.map, &err), err);
+        Pending nl = pd;
+        nl.unverified.clear();
+        CHECK(write_text(q.out / pending_file(), nl.to_json(), &err), err);
+        const Outcome o2 = apply_pending(q.env, q.map);
+        CHECK(o2.ok, o2.message);
+        const auto b2 = q.bytes();
+        int changed = 0;
+        for (int k = 0; k < 125; ++k)
+            if (b2[kPayloadOff + 0xB8976 + size_t(k)] != 50) ++changed;
+        CHECK(changed == 3, fmt("%d bytes changed without the list (only the 3 screen-proven may)", changed));
+        // a staged file naming a non-table id as unverified: that id is skipped, the verified byte is written
+        Rig z("full_map_badlist");
+        CHECK(load_map(shipped, z.map, &err), err);
+        const std::string bad =
+            "{\"turbo_settings_pending\": 1, \"preset\": \"x\", \"values\": {\"match.half_length\": 7, \"user.sprint_speed\": 44}, \"unverified\": [\"match.half_length\"]}";
+        CHECK(write_text(z.out / pending_file(), bad, &err), err);
+        const Outcome o3 = apply_pending(z.env, z.map);
+        const auto b3 = z.bytes();
+        CHECK(o3.ok && b3[kPayloadOff + 0xB8976 + 80] == 44, "the verified byte is written: " + o3.message);
+        bool skipped = false;
+        for (const std::string& l : o3.lines) skipped = skipped || l.find("match.half_length") != std::string::npos;
+        CHECK(skipped, "match.half_length (not a table-mapped Custom byte) is skipped");
+        const std::string badlist = "{\"turbo_settings_pending\": 1, \"preset\": \"x\", \"values\": {\"user.sprint_speed\": 44}, \"unverified\": [\"not.staged\"]}";
+        Pending px;
+        CHECK(!Pending::parse(badlist, px, &err) && err.find("unverified") != std::string::npos, "an unverified id that is not staged is refused: " + err);
+    });
 }
 
 }  // namespace gsettings_test
