@@ -589,6 +589,80 @@ def x1_decide(recs, perm=5000, seed=1, block_arg="auto", baseline=None, say=prin
     return out
 
 
+# ------------------------------------------------------------------ gate G-T1 (tactics, extreme values; PLAN_tactics_settings.md section 2)
+# Pre-registered reading (ONE reading, written here so TEST_31 can copy it): per team, the mean WITH-BALL team length (length_with) and
+# width (width_with) of window B (extreme values written) and window A (defaults restored), after the stoppage / max-dt filters, each
+# compared with the VANILLA with-ball means given explicitly (--gt1-vanilla; no default, a missing baseline is INCONCLUSIVE).
+#   B passes   : in BOTH teams length_B <= 0.60 x vanilla length AND width_B <= 0.70 x vanilla width
+#   A returns  : in BOTH teams length_A >= 0.85 x vanilla length AND width_A >= 0.85 x vanilla width
+#   PASS-live  : B passes and A returns            -> VERDICT PASS
+#   PASS-setup : B passes and A does not return    -> VERDICT PASS (the value is latched at setup: no mid-match moment)
+#   FAIL       : B does NOT compress in ANY team x metric (every B ratio >= 0.85)  -> VERDICT FAIL
+#   anything else (partial compression, one team only, fewer than --gt1-min-n with-ball samples in a window-team) -> INCONCLUSIVE,
+#   counted as FAIL for route (a) by the plan.
+GT1_LEN_MAX, GT1_WID_MAX, GT1_A_MIN, GT1_FAIL_MIN = 0.60, 0.70, 0.85, 0.85
+GT1_BRANCH = {"PASS-live": "(a) ships sliders for the two knobs (live: true); (b) still built for arrays/curves, gated by G-T1b",
+              "PASS-setup": "(a) sliders with hub / career-load / boot moments only, mid-match greyed; (b) as above",
+              "FAIL": "(a) sliders stay read-only for good; everything rides on (b) (G-T1b)",
+              "INCONCLUSIVE": "counted as FAIL for (a) (plan section 2)"}
+
+
+def parse_gt1_vanilla(text):
+    """'length=60,width=52' (both teams) or 'team0=60/52,team1=61/50' (length/width) -> {0: (L, W), 1: (L, W)}; ValueError otherwise"""
+    out = {}
+    parts = [x.strip() for x in text.split(",") if x.strip()]
+    kv = dict(x.split("=", 1) for x in parts if "=" in x)
+    if "length" in kv and "width" in kv:
+        out = {0: (float(kv["length"]), float(kv["width"])), 1: (float(kv["length"]), float(kv["width"]))}
+    else:
+        for tm in (0, 1):
+            if "team%d" % tm in kv:
+                a, b = kv["team%d" % tm].split("/")
+                out[tm] = (float(a), float(b))
+    if set(out) != {0, 1} or any(v <= 0 for t in out.values() for v in t):
+        raise ValueError("--gt1-vanilla needs length=M,width=M or team0=L/W,team1=L/W (positive metres)")
+    return out
+
+
+def gt1_decide(recs, vanilla, min_n=20, say=print):
+    """-> {outcome, verdict, branch, rows, notes}; recs = per_sample records after filters (win 'B' / 'A')"""
+    notes, rows = [], {}
+    if not vanilla:
+        return {"outcome": "INCONCLUSIVE", "verdict": "INCONCLUSIVE", "branch": GT1_BRANCH["INCONCLUSIVE"], "rows": rows,
+                "notes": ["no vanilla baseline given (--gt1-vanilla): the ratios cannot be computed"]}
+    for w in ("B", "A"):
+        for tm in (0, 1):
+            L = [r["length_with"] for r in recs if r["win"] == w and r["team"] == tm and r.get("length_with") is not None]
+            W = [r["width_with"] for r in recs if r["win"] == w and r["team"] == tm and r.get("width_with") is not None]
+            rows[(w, tm)] = {"n": len(L), "length": statistics.fmean(L) if L else None, "width": statistics.fmean(W) if W else None}
+            vl, vw = vanilla[tm]
+            if L:
+                rows[(w, tm)].update(len_ratio=rows[(w, tm)]["length"] / vl, wid_ratio=rows[(w, tm)]["width"] / vw)
+            say("G-T1 window %s team %d: n %d  length %s (%s of vanilla)  width %s (%s of vanilla)" % (
+                w, tm, len(L), "%.1f" % rows[(w, tm)]["length"] if L else "-", "%.0f%%" % (100 * rows[(w, tm)]["len_ratio"]) if L else "-",
+                "%.1f" % rows[(w, tm)]["width"] if W else "-", "%.0f%%" % (100 * rows[(w, tm)]["wid_ratio"]) if L else "-"))
+    short = ["%s/team %d (n %d)" % (w, tm, v["n"]) for (w, tm), v in rows.items() if v["n"] < min_n]
+    if short:
+        notes.append("fewer than %d with-ball samples in %s" % (min_n, ", ".join(short)))
+        return {"outcome": "INCONCLUSIVE", "verdict": "INCONCLUSIVE", "branch": GT1_BRANCH["INCONCLUSIVE"], "rows": rows, "notes": notes}
+    b_pass = all(rows[("B", t)]["len_ratio"] <= GT1_LEN_MAX and rows[("B", t)]["wid_ratio"] <= GT1_WID_MAX for t in (0, 1))
+    a_back = all(rows[("A", t)]["len_ratio"] >= GT1_A_MIN and rows[("A", t)]["wid_ratio"] >= GT1_A_MIN for t in (0, 1))
+    b_none = all(rows[("B", t)][k] >= GT1_FAIL_MIN for t in (0, 1) for k in ("len_ratio", "wid_ratio"))
+    if b_pass and a_back:
+        oc = "PASS-live"
+    elif b_pass:
+        oc = "PASS-setup"
+        notes.append("window A stayed compressed: the value is latched at setup (or the revert did not reach the table)")
+    elif b_none:
+        oc = "FAIL"
+    else:
+        oc = "INCONCLUSIVE"
+        notes.append("partial compression: B passes %s (length <= %.0f%% and width <= %.0f%% of vanilla in both teams needed)" % (
+            b_pass, 100 * GT1_LEN_MAX, 100 * GT1_WID_MAX))
+    verdict_ = "PASS" if oc.startswith("PASS") else ("FAIL" if oc == "FAIL" else "INCONCLUSIVE")
+    return {"outcome": oc, "verdict": verdict_, "branch": GT1_BRANCH[oc], "rows": rows, "notes": notes}
+
+
 def x1_deviations(args):
     """review minor 9: the analysis settings of --x1 that differ from the pre-registered ones (decision 4.1 + sweep T4 defaults)"""
     dev = []
@@ -626,6 +700,9 @@ def main(argv=None):
     ap.add_argument("--csv", default=None, help="one continuous positions.csv (or its run dir) with a 'win' column (match_measure --marker)")
     ap.add_argument("--x1", action="store_true", help="gate X1 decision (decision 4.1): windows B1 A1 B2 A2 -> OUTCOME 1/2/3")
     ap.add_argument("--x1-baseline", action="append", default=[], help="a 1.0 reference run (DIR or CSV) for the setup-latch advisory")
+    ap.add_argument("--gt1", action="store_true", help="gate G-T1 decision (windows B, A in --csv): see the GT1 block; needs --gt1-vanilla")
+    ap.add_argument("--gt1-vanilla", default="", help="vanilla with-ball means in metres: length=M,width=M or team0=L/W,team1=L/W (from TEST_24 control windows)")
+    ap.add_argument("--gt1-min-n", type=int, default=20, help="minimum with-ball samples per window and team (default 20)")
     ap.add_argument("--A", default="", help="comma list of A window labels")
     ap.add_argument("--B", default="", help="comma list of B window labels")
     ap.add_argument("--noise", default="", help="two A-like labels for the noise floor (default: the A windows)")
@@ -650,8 +727,10 @@ def main(argv=None):
         return self_test()
     if not args.win and not args.csv:
         ap.error("at least one --win or --csv")
-    if args.x1 and args.max_dt is None:
+    if (args.x1 or args.gt1) and args.max_dt is None:
         args.max_dt = 1.5
+    if args.gt1 and args.stoppage is None:
+        args.stoppage = 0.5  # G-T1: stoppages dropped (plan section 2)
     recs = load_recs(args.win, args.csv, args.length, args.width)
     strata = {}
     if args.stratum:
@@ -704,6 +783,20 @@ def main(argv=None):
                 neff = 2 * (1.96 + 0.84) ** 2 * (v["sd"] / d) ** 2
                 cells.append("%7.0f" % (neff * (v["tau"] or 1) / share))
             print("%-14s %-4d %6.2f %5.1f %5.2f | %s" % (w, tm, v["sd"], v["tau"] or 1, share, "  ".join(cells)))
+    if args.gt1:
+        try:
+            van = parse_gt1_vanilla(args.gt1_vanilla) if args.gt1_vanilla else None
+        except ValueError as e:
+            print(e)
+            van = None
+        res = gt1_decide(recs, van, args.gt1_min_n)
+        print("\nCRITERION  B: length <= %.0f%% and width <= %.0f%% of vanilla (both teams); A returns >= %.0f%%; FAIL = no B ratio < %.0f%%" % (
+            100 * GT1_LEN_MAX, 100 * GT1_WID_MAX, 100 * GT1_A_MIN, 100 * GT1_FAIL_MIN))
+        print("OUTCOME %s  - %s" % (res["outcome"], res["branch"]))
+        out["gt1"] = {k: (v if k != "rows" else {"%s|%d" % kk: vv for kk, vv in v.items()}) for k, v in res.items()}
+        if args.json:
+            json.dump(out, open(args.json, "w"), indent=1, default=str)
+        return finish(res["verdict"], res["notes"])
     if args.x1:
         base = []
         for b in args.x1_baseline:
@@ -883,6 +976,41 @@ def self_test():
             rc = main(["--csv", os.path.join(d, "live.csv"), "--A", "A1,A2", "--B", "B1,B2", "--perm", "400",
                        "--criterion", "width_with_ball pooled -8m 2x_noise p<0.05 without_half"])
         check(rc == 0 and "VERDICT    PASS" in buf.getvalue(), "plain A/B mode (T4 command form, pooled -8 m): PASS")
+        # ---- G-T1 (pre-registered reading, see the GT1 block)
+        def gt1(L_b, W_b, L_a, W_a, n=40, teams_b=None, vanilla=None):
+            recs = []
+            for w, (Lx, Wx) in (("B", (L_b, W_b)), ("A", (L_a, W_a))):
+                for tm in (0, 1):
+                    Lm, Wm = (teams_b[tm] if (teams_b and w == "B") else (Lx, Wx))
+                    recs += [{"win": w, "team": tm, "length_with": Lm + (k % 3), "width_with": Wm - (k % 3)} for k in range(n)]
+            return gt1_decide(recs, vanilla or {0: (50.0, 50.0), 1: (50.0, 50.0)}, say=lambda *a: None)
+        check(gt1(25, 30, 49, 49)["outcome"] == "PASS-live", "G-T1: B compressed (50%/60%), A back at 98%: PASS-live")
+        check(gt1(25, 30, 28, 33)["outcome"] == "PASS-setup", "G-T1: B compressed and A stays compressed: PASS-setup")
+        check(gt1(49, 49, 49, 49)["outcome"] == "FAIL", "G-T1: B at ~98%/98% everywhere: FAIL")
+        check(gt1(25, 30, 45, 42)["outcome"] == "PASS-setup", "G-T1: A at 90%/84% (width below 85%) is NOT 'returned': PASS-setup")
+        check(gt1(25, 49, 49, 49)["outcome"] == "INCONCLUSIVE", "G-T1: length compresses, width does not: INCONCLUSIVE")
+        check(gt1(25, 30, 49, 49, teams_b={0: (25, 30), 1: (49, 49)})["outcome"] == "INCONCLUSIVE", "G-T1: only one team compresses: INCONCLUSIVE")
+        check(gt1(28, 33, 49, 49)["outcome"] == "PASS-live", "G-T1: just inside the edges (length ~58%, width ~64%): PASS-live")
+        check(gt1(30, 33, 49, 49)["outcome"] == "INCONCLUSIVE", "G-T1: length ~62% (> 60%): not a pass, not a fail")
+        check(gt1(25, 30, 49, 49, n=5)["outcome"] == "INCONCLUSIVE", "G-T1: 5 samples per window: INCONCLUSIVE")
+        v = gt1_decide([], None, say=lambda *a: None)
+        check(v["verdict"] == "INCONCLUSIVE" and "baseline" in v["notes"][0], "G-T1: no vanilla baseline: INCONCLUSIVE")
+        check(parse_gt1_vanilla("length=60,width=52") == {0: (60.0, 52.0), 1: (60.0, 52.0)} and
+              parse_gt1_vanilla("team0=60/52,team1=61/50")[1] == (61.0, 50.0), "G-T1: --gt1-vanilla forms parse")
+        try:
+            parse_gt1_vanilla("length=60")
+            check(False, "G-T1: an incomplete --gt1-vanilla is refused")
+        except ValueError:
+            check(True, "G-T1: an incomplete --gt1-vanilla is refused")
+        p = synth_csv(os.path.join(d, "gt1.csv"), [("B", 80, 0.5, 1.0), ("x", 5, 1.0, 1.0), ("A", 80, 1.0, 1.0)], 11)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = main(["--gt1", "--csv", p, "--gt1-vanilla", "length=40,width=50", "--json", p + ".json"])
+        check(rc != 0 and "OUTCOME" in buf.getvalue(), "G-T1 CLI: synthetic width-only effect (length not compressed) is not a PASS (exit %d)" % rc)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = main(["--gt1", "--csv", p])
+        check(rc == 3 and "no vanilla baseline" in buf.getvalue(), "G-T1 CLI: no --gt1-vanilla: exit 3")
     print("SELF-TEST " + ("PASSED" if ok else "FAILED"))
     return 0 if ok else 1
 

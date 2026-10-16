@@ -5,6 +5,7 @@ Reuses toc_bundles (parse_toc/raw/manifest); never opens saves/settings."""
 import sys, os, re, json, struct, collections
 sys.path.insert(0, r"C:\FC 27 Live Editor\turbo_output\asset_research\scripts")
 
+MANIFEST_MAGIC = int("9D798ED6", 16)  # asset-manifest magic (not an address)
 KIND = {0x00: "raw", 0x11: "oodle", 0x15: "oodle", 0x19: "oodle"}
 
 
@@ -50,7 +51,7 @@ def scan_game(rx):
                 continue
             try:
                 blob = tb.raw(locs[0])
-                if struct.unpack_from("<I", blob, 4)[0] != 0x9D798ED6:
+                if struct.unpack_from("<I", blob, 4)[0] != MANIFEST_MAGIC:
                     blob = tb.read_blocks(blob)
                 _m, ebx, _r, _c = tb.manifest(blob)
             except Exception:
