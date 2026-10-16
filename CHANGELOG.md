@@ -7,9 +7,30 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
 Nothing here is shipped or claimed as a feature. Gates are in `turbo_dev\evidence6-10-15\TEST_31.md`.
 
-- **UNPROVEN (K1, offline tests only):** Teams > Colours kit font pickers (name font, number font, shorts number font, name layout, outline width). Labels are the game's own folder names from its bundle manifests (88 name fonts, 137 number fonts; the folder number being the database id is an inference) plus "worn by" clubs from the live teamkits. Kept for every career load like the colours. Not shown: any font sample. Not proven in game: that the names match the ids, and that a font change shows in a match.
 - **UNPROVEN:** tactics sliders for team length and width (`shape.length_in`, `shape.width_in`). Gate G-T1 was INCONCLUSIVE in game (counted as FAIL for the live write route).
 - **UNPROVEN:** any effect of the game settings sliders on match play. Gate G-S3 (ratio >= 1.4).
+
+## 2.11.0
+
+Integration build of the 2.10 side branches. Everything below is **offline-tested only** unless it says "Seen in game". Offline suites: build 0 warnings, Lua 405/0, native 32,920/0, Python 40+22+568 ok, catalog 840/0. Evidence for the blocked tactics route and the L6 delivery demo: `turbo_dev\evidence6-10-16\` (`BRANCH_A_RESULT.md`, `L6_RESULT.md`).
+
+### NOT in this release
+- **Tactics presets are NOT in this release.** There is no tactics preset UI and none is offered. The load-time tactics route is blocked: the game exits at the menu (about 5 s after Play Offline, no crash dump) when the defensive-line or pressing attribulator groups are patched (line length, line width, partial-team press; attacking line width exited the same way in L5). Hook delivery was fine each time, so the cause is the game, not delivery. No tactics knob reached a match, so nothing is proven to move the pitch and nothing is proven dead. See `BRANCH_A_RESULT.md`. The existing Tactics tab and live-tactic (channel E) controls are unchanged from 2.10.0: no on-pitch effect proven, do not rely on them.
+- **L6 (soccer ball radius) is a delivery demo only, not a user feature.** On 2026-10-16 (LEICESTER test career, never saved) the opt-in attrib preset made the ball about 3x its normal size on the pitch, so the load-time EBX patch route reaches a career match for the physics group. Turbo ships no ball-size preset and no UI for it.
+- Game settings sliders: effect on match play still NOT PROVEN (gate G-S3 failed in 2.10.0).
+
+### Added (offline-tested, not proven in game as a combination)
+- **Shared Oodle decompress hook.** The 3D kit swap and the attribulator EBX patch share one detour, so both can be on together. `kits3d_on.txt` no longer switches the attrib patch off. The combined kits3d + attrib path has NOT been run in game.
+- **Second copy ("also") per attrib preset entry** (for assets that also exist under databases/simulation) with a per-location write log.
+- **One-click installer with rollback** (`Install-Turbo.cmd/.ps1`, `Undo-Turbo.cmd/.ps1`); round-trip tested on a fake folder only, never on a real install.
+- **Simple / Advanced view** toggle (`gui.advanced_mode`); panels not proven in game sit under Advanced with a banner (`docs/GUI_AUDIT.md`).
+- **3D hair and beard picker** shows the game's own preview pictures.
+- **Season update pack importer** (CM Tracker CSV library only): preview with rejected rows, send in 50-row pages with confirmation, undo; players on loan are refused.
+- **UNPROVEN (K1, offline tests only):** Teams > Colours kit font pickers (name font, number font, shorts number font, name layout, outline width). Labels are the game's own folder names from its bundle manifests (88 name fonts, 137 number fonts; the folder number being the database id is an inference) plus "worn by" clubs from the live teamkits. Kept for every career load like the colours. Not shown: any font sample. Not proven in game: that the names match the ids, and that a font change shows in a match.
+- Tools: `tools/gate_runner.py` (one-command gameplay-preset gate; dry-run tested, live path unproven), `tools/g3_deploy.ps1` (no longer refuses when `kits3d_on.txt` exists), `tools/kit_fonts_manifest.py`.
+
+### Version
+- Turbo and the GUI report 2.11.0.
 
 ## 2.10.0 (2026-10-15)
 
