@@ -8079,7 +8079,7 @@ static void test_ui() {
             hooked.clear();
             app.request_tab = 0;
             ui.frames(2);
-            CHECK(ui.click("Refresh"), "Refresh");
+            app.request_tab = 6;  /* 2.16 step 2: Refresh moved to Settings */ ui.frames(2); CHECK(ui.click("###reload"), "Reload from game");
             CHECK(app.db.get_int(*KT(), k11, "teamcolorprimr") == 99 && hooked_line("re-apply").empty(), "no re-apply for the same career");
 
             // ---- the panels: the status line and Forget (Teams > Colours: Everton's home kit), Remove (Callname: 1006)

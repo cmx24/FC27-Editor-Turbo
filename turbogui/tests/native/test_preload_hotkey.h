@@ -97,7 +97,7 @@ static void ui_cases_preload_hotkey(App& app, Ui& ui, const fs::path& le) {
         app.toggle_mods = 0;
         app.load_gui_settings();
         CHECK(app.toggle_vk == 'K' && app.toggle_mods == kHotkeyCtrl, "loaded from gui_settings.json");
-        CHECK(ui.click(change, "FC 27 LE Turbo", "bar"), "Change... in the top bar");
+        CHECK(ui.click(change, "", "status"), "Change... in Settings");
         CHECK(ui.click("Reset to F8", "hkcap"), "Reset to F8");
         CHECK(app.toggle_vk == 0x77 && app.toggle_mods == 0 && !app.hotkey_capture, "F8 again");
         gs = read_json(le / "turbo_output" / "gui_settings.json");
@@ -127,19 +127,21 @@ static void ui_cases_preload_hotkey(App& app, Ui& ui, const fs::path& le) {
         CHECK(!app.hotkey_capture, "hidden: the wait ended");
     });
 
-    run_case("UI: show/hide key control on every tab from its first frame; picked from the list, saved, in effect", [&] {
+    run_case("UI: show/hide key control lives on Settings only (no copy in the top bar or Turbo Tools); picked from the list, saved, in effect", [&] {
         const char* tabs[] = {"Players", "Teams", "Managers", "Competitions", "Database", "Turbo Tools", "Status"};
         for (int i = 0; i < 7; ++i) {
             app.request_tab = i;
             ui.frame();
-            CHECK(ui.find("Change...##hotkey", "FC 27 LE Turbo", "bar") != nullptr && ui.find("##hkpick", "FC 27 LE Turbo", "bar") != nullptr,
-                  std::string("top bar control on the first frame of ") + tabs[i]);
+            CHECK(ui.find("Change...##hotkey", "FC 27 LE Turbo", "bar") == nullptr && ui.find("##hkpick", "FC 27 LE Turbo", "bar") == nullptr,
+                  std::string("no top bar copy of the key control on ") + tabs[i]);
         }
         app.request_tab = 5;
         ui.frames(2);
-        CHECK(ui.find("Change...##hotkey", "", "tools") != nullptr && ui.find("##hkpick", "", "tools") != nullptr,
-              "Turbo Tools: the control is in its first section");
-        CHECK(ui.click("##hkpick", "FC 27 LE Turbo", "bar"), "open the list");
+        CHECK(ui.find("Change...##hotkey", "", "tools") == nullptr && ui.find("##hkpick", "", "tools") == nullptr, "Turbo Tools: no copy of the control");
+        app.request_tab = 6;
+        ui.frames(2);
+        CHECK(ui.find("Change...##hotkey", "", "status") != nullptr && ui.find("##hkpick", "", "status") != nullptr, "Settings: the control, on its first frame");
+        CHECK(ui.click("##hkpick", "FC 27 LE Turbo", "status"), "open the list");
         CHECK(ui.find("F12", "##Combo") != nullptr && ui.find("Num 0", "##Combo") != nullptr, "F keys and Num keys listed");
         CHECK(ui.click("F9", "##Combo"), "pick F9");
         CHECK(app.toggle_vk == 0x78 && app.toggle_mods == 0 && !app.hotkey_capture, fmt("F9 in effect (%d)", app.toggle_vk));
@@ -149,18 +151,7 @@ static void ui_cases_preload_hotkey(App& app, Ui& ui, const fs::path& le) {
         app.toggle_vk = 0;
         app.load_gui_settings();
         CHECK(app.toggle_vk == 0x78, "read back");
-        // the narrow window: the control moves to a line of its own, still there
-        ImGuiWindow* win = ImGui::FindWindowByName("FC 27 LE Turbo");
-        CHECK(win != nullptr, "main window");
-        if (win) {
-            const ImVec2 size = win->Size;
-            ImGui::SetWindowSize("FC 27 LE Turbo", ImVec2(S(560.0f), size.y));
-            ui.frames(2);
-            CHECK(ui.find("##hkpick", "FC 27 LE Turbo", "bar") != nullptr, "narrow window: still shown");
-            ImGui::SetWindowSize("FC 27 LE Turbo", size);
-            ui.frames(2);
-        }
-        CHECK(ui.click("##hkpick", "FC 27 LE Turbo", "bar"), "open the list again");
+        CHECK(ui.click("##hkpick", "FC 27 LE Turbo", "status"), "open the list again");
         CHECK(ui.click("F8 (default)", "##Combo"), "back to F8");
         CHECK(app.toggle_vk == 0x77 && app.toggle_mods == 0, "F8");
         CHECK(ui.click("Status"), "Status tab");

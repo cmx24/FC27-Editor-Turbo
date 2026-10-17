@@ -3,11 +3,10 @@
 # The test fails when a line of this file is gone from the sources (the id changed or the widget was deleted). Renaming a
 # label: write it "Text###stable_id" first, then change the text. After an intended id change, regenerate with
 # TURBO_GUI_LABELS_UPDATE=1 and commit the diff of this file with the change that caused it.
+app.cpp	-	###changes	1
 app.cpp	Begin	##texture_test	1
 app.cpp	Begin	##turbo_toasts	1
 app.cpp	Begin	FC 27 LE Turbo	1
-app.cpp	Button	Refresh	1
-app.cpp	Checkbox	Advanced view	1
 app.cpp	PushID	##pages	1
 app.cpp	PushID	##shell	1
 app.cpp	SmallButton	Cancel	1
@@ -771,7 +770,8 @@ ui_role_rules.cpp	PushID	rolerules	1
 ui_role_rules.cpp	Selectable	Leave alone	1
 ui_role_rules.cpp	checkbox_right	Re-apply after season reset	1
 ui_settings.cpp	BeginChild	##settings_log	1
-ui_settings.cpp	Checkbox	Advanced view##settings	1
+ui_settings.cpp	Button	###reload	1
+ui_settings.cpp	Checkbox	###advview	1
 ui_shell.cpp	BeginChild	##editor	1
 ui_shell.cpp	BeginChild	##select	1
 ui_standings.cpp	-	##%s	1
@@ -1021,10 +1021,10 @@ ui_tools.cpp	Button	Cancel	2
 ui_tools.cpp	Button	Delete...	1
 ui_tools.cpp	Button	Open Squad & Players > Squad##squadgo	1
 ui_tools.cpp	Button	Put the overalls back...	1
-ui_tools.cpp	Checkbox	Load pictures in the background from the start (faces, 3D head renders, tattoos, galleries, crests)	1
+ui_tools.cpp	Checkbox	###preload	1
 ui_tools.cpp	CollapsingHeader	Technical details	1
+ui_tools.cpp	Combo	###rowdensity	1
 ui_tools.cpp	Combo	##squadrole	1
-ui_tools.cpp	Combo	Row density	1
 ui_tools.cpp	InputFloat	##bexpmult	1
 ui_tools.cpp	InputInt	##banuntil	1
 ui_tools.cpp	InputInt	##bebonusxp	1

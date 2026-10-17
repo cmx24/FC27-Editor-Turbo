@@ -11,13 +11,37 @@ namespace turbo {
 
 namespace {
 
+// 2.16 step 2: the game link, the version and Refresh moved here from the top bar
+void draw_game_link(App& app) {
+    if (app.connected()) {
+        const BridgeState& st = app.bridge.state();
+        const std::string club = st.in_cm && st.user_team > 0 ? app.model.team_name(st.user_team) : std::string();
+        ImGui::TextColored(ImVec4(0.45f, 0.9f, 0.45f, 1.0f), "Connected to your career%s%s.", club.empty() ? "" : ": ", club.c_str());
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Waiting for your career. Open it in the game; Turbo connects by itself.");
+    }
+    ImGui::TextDisabled("Turbo %s | Live Editor %s", kGuiVersion, app.bridge.state().le_version.empty() ? "?" : app.bridge.state().le_version.c_str());
+    ImGui::BeginDisabled(app.busy());
+    if (ImGui::Button("Reload from game###reload")) {
+        app.bridge.poll_files();
+        if (app.refresh()) app.notify("Lists reloaded from the game");
+        else app.notify(app.db_error, true);
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Read the lists from the game again");
+}
+
 void draw_settings_page(App& app) {
+    if (collapsing_section(app, "settings.link", "Game link", true)) {
+        draw_game_link(app);
+        ImGui::Spacing();
+    }
     if (collapsing_section(app, "settings.preferences", "Preferences", true)) {
-        if (ImGui::Checkbox("Advanced view##settings", &app.prefs.advanced_mode) && !app.save_gui_settings())
+        if (ImGui::Checkbox("Show advanced tools###advview", &app.prefs.advanced_mode) && !app.save_gui_settings())
             app.notify("cannot write gui_settings.json", true);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Off (Simple): only features proven to work in the game. On: also the Advanced area (raw rows, bulk edit, "
-                              "experimental tactics, match setup, gameplay tuning)");
+            ImGui::SetTooltip("Shows the Advanced section: raw tables, bulk edit, experimental tactics, match setup and gameplay tuning. "
+                              "Off keeps only what is proven to work in the game.");
         draw_preferences(app);
         ImGui::Spacing();
     }

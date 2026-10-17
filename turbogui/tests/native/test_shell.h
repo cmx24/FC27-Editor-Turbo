@@ -310,12 +310,12 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         settle();
         CHECK(app.place() == place_of(Page::Settings), "on the Settings page");
         CHECK(ui.find("Preferences") != nullptr && ui.find("Log") != nullptr, "sections drawn");
-        CHECK(ui.find("Change...##hotkey", "", "status") != nullptr && ui.find("Row density") != nullptr, "the preferences of the old Status tab");
-        CHECK(ui.click("Advanced view##settings", "FC 27 LE Turbo"), "click the toggle");
+        CHECK(ui.find("Change...##hotkey", "", "status") != nullptr && ui.find("###rowdensity") != nullptr, "the preferences of the old Status tab");
+        CHECK(ui.click("###advview", "FC 27 LE Turbo"), "click the toggle");
         ui.frames(3);
         CHECK(app.prefs.advanced_mode && read_gui()["gui"]["advanced_mode"] == true, "Advanced on, saved");
         CHECK(ui.find("Advanced", "FC 27 LE Turbo") != nullptr, "the Advanced tab appeared");
-        CHECK(ui.click("Advanced view##settings", "FC 27 LE Turbo"), "click again");
+        CHECK(ui.click("###advview", "FC 27 LE Turbo"), "click again");
         ui.frames(3);
         CHECK(!app.prefs.advanced_mode && read_gui()["gui"]["advanced_mode"] == false, "Advanced off, saved");
         CHECK(app.prefs.sections_open.empty(), "drawing alone stores no section state");
@@ -326,7 +326,7 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         ui.frames(3);
         CHECK(!app.prefs.section_open("settings.preferences", true) && read_gui()["gui"]["sections_open"]["settings.preferences"] == false,
               "Preferences closed, saved");
-        CHECK(ui.find("Row density") == nullptr, "the closed section is not drawn");
+        CHECK(ui.find("###rowdensity") == nullptr, "the closed section is not drawn");
         app.prefs.sections_open.clear();
         app.save_gui_settings();
     });

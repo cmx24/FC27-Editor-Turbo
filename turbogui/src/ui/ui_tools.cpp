@@ -774,7 +774,6 @@ TURBO_REGISTER_PAGE(shell::Page::AdvMaintenance, page_adv_maintenance);
 // Legacy entry (the old Turbo Tools tab, until the shell track removes it from app.cpp): every page of this file one after the other, so nothing is unreachable while the tab bar still exists. No section is drawn twice: the pages
 // both in one frame).
 void draw_tools(App& app) {
-    hotkey_control(app, "tools");  // hotkey_setting.h: the show/hide key, first thing in the tab (the new status bar has it too)
     if (!tools_preamble(app)) return;
     ImGui::BeginChild("##tools");
     form_label_width(S(170.0f));
@@ -1022,14 +1021,14 @@ void draw_preferences(App& app) {
         ImGui::SetNextItemWidth(S(140.0f));
         int d = static_cast<int>(app.prefs.row_density);
         const char* names[] = {row_density_label(RowDensity::Compact), row_density_label(RowDensity::Normal), row_density_label(RowDensity::Comfortable)};
-        if (ImGui::Combo("Row density", &d, names, 3)) {
+        if (ImGui::Combo("List spacing###rowdensity", &d, names, 3)) {
             app.prefs.row_density = static_cast<RowDensity>(d);
             if (!app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("How tall the rows of tables and lists are (gui_settings.json gui.row_density)");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("How tall the rows of tables and lists are");
     }
     // Background loading of pictures (ui/preload.h, gui.preload_images)
-    if (ImGui::Checkbox("Load pictures in the background from the start (faces, 3D head renders, tattoos, galleries, crests)", &app.prefs.preload_images)) {
+    if (ImGui::Checkbox("Preload pictures###preload", &app.prefs.preload_images)) {
         if (!app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);
     }
     if (ImGui::IsItemHovered())

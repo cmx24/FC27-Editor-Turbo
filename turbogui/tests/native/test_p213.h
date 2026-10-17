@@ -23,6 +23,31 @@ static void ui_cases(App& app, Ui& ui) {
     const bool was_advanced = app.prefs.advanced_mode;
     const int64_t was_team = app.sel_team;
 
+    run_case("chrome (2.16 step 2): slim status line and a Changes button; Refresh, the key, the version and the Advanced switch only on Settings", [&] {
+        app.prefs.advanced_mode = false;
+        app.go(Page::PlayerEdit);
+        ui.frames(3);
+        CHECK(ui.find("###changes", "FC 27 LE Turbo") != nullptr, "the Changes button is in the top bar");
+        CHECK(ui.find("Refresh", "FC 27 LE Turbo") == nullptr && ui.find("###advview", "FC 27 LE Turbo") == nullptr &&
+                  ui.find("##hkpick", "FC 27 LE Turbo", "bar") == nullptr && ui.find("###reload", "FC 27 LE Turbo") == nullptr,
+              "no Refresh, Advanced switch or key control in the top bar");
+        const std::string txt = logged_frame(ui);
+        CHECK(txt.find("Simple view:") == std::string::npos, "no Simple view banner");
+        CHECK(txt.find("Connected") != std::string::npos && txt.find("career loaded") != std::string::npos && txt.find(" players |") == std::string::npos &&
+                  txt.find(" teams |") == std::string::npos && txt.find(std::string("v") + kGuiVersion) == std::string::npos,
+              "the status line says Connected and career loaded, without counts or the version: " + txt.substr(0, 200));
+        CHECK(ui.click("###changes", "FC 27 LE Turbo"), "click Changes");
+        ui.frames(3);
+        CHECK(app.place() == shell::place_of(Page::ChangesUndo), "Changes opens Career tools > Changes & undo");
+        app.go(Page::Settings);
+        ui.frames(3);
+        CHECK(ui.find("###reload") != nullptr && ui.find("###advview") != nullptr && ui.find("##hkpick", "", "status") != nullptr,
+              "Settings has Reload from game, the Advanced switch and the show/hide key");
+        CHECK(logged_frame(ui).find(std::string("Turbo ") + kGuiVersion) != std::string::npos, "Settings shows the version");
+        app.go(Page::PlayerEdit);
+        ui.frames(3);
+    });
+
     run_case("P213: the proven panels are where a user clicks them (Simple view): area tab, then the page strip", [&] {
         app.prefs.advanced_mode = false;
         app.sel_team = 7;  // Everton: the club pages and the club panel show a club
