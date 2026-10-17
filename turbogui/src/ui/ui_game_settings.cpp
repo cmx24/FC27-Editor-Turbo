@@ -574,6 +574,9 @@ void draw_game_settings(App& app) {
             ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "%s", g_state.file_line.c_str());
         }
         ImGui::SameLine();
+        // 2.13: this view is a section of Tactics & Gameplay > Gameplay presets, narrower than the old tab: under the long file line when
+        // it does not fit after it (it was drawn past the right edge there, unclickable; P213 triage)
+        if (ImGui::GetContentRegionAvail().x < ImGui::CalcTextSize("Refresh").x + ImGui::GetStyle().FramePadding.x * 2.0f) ImGui::NewLine();
         if (ImGui::SmallButton("Refresh##gsrefresh")) {
             g.map_ok = load_map(map_path(app), g.map, &g.map_err);
             read_file_now(app);
