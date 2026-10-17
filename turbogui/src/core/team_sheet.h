@@ -478,6 +478,43 @@ private:
 // "; Edit Tactic copies svc+0xF80, svc+0x1170: the same" when copies were written
 std::string describe_writes(int user, int record_index, const std::vector<FieldWrite>& ws);
 
+// ------------------------------------------------------------------------------------------------ bench keep (2.15): the sheet's order
+// The write-back of your saved bench / reserves order (core/bench_probe.h: the Keeper decides when, Service::submit_bench queues it). ONE
+// game-thread job: L1-L4 and G5 again; the sheet is the plan's (team, sheet id); its 52 ids are exactly `before` (what the fresh read saw);
+// ids 0..10 are `saved`'s and, as a set, the 11 players of the active record's slots; `saved` is `before` with ids 11..51 in another order
+// (bench::shuffle_of: the same values, the empty places where they are, no player twice). Then: snapshot the 52 ids and the dirty flag,
+// write the differing ids among 11..51, dirty = 1 (as UpdateSheet does), read back all 52 ids and the flag; a mismatch puts every id and
+// the flag back from the snapshot and switches bench keep off for the session. Never ids 0..10, never a player added or removed, never
+// another sheet field, the record, the service cache or a game function.
+struct BenchPlan {
+    int user = 0;
+    long long load_gen = -1;  // the career load the plan was made in
+    int32_t sheet_id = 0;
+    std::array<int32_t, kSheetPidCount> saved{}, before{};
+};
+struct BenchResult {
+    bool ok = false;             // written and read back (or nothing to do)
+    bool written = false;        // ids were changed in game memory and stayed
+    bool undone = false;         // a read-back mismatched: everything was put back from the snapshot
+    bool restore_failed = false;
+    bool session_off = false;    // switch bench keep off for the session
+    std::string stage, message;
+    int moved = 0;               // places 11..51 written
+    uint8_t dirty_before = 0, dirty_after = 0;
+    std::array<int32_t, kSheetPidCount> after{};  // the 52 ids read back (written: the saved order)
+    // "bench keep: team 95 sheet -1: your saved order written back into places 11..51 (4 places), dirty 0 -> 1 (read back ok)"
+    std::string log_line;
+    double micros = 0.0;
+    int reads = 0;
+};
+// The plan against the live read-out (the sheet, the starters, the permutation). "" = it may be written
+std::string check_bench_plan(const LiveTactic& now, const BenchPlan& p);
+// The job (game thread). Never throws
+BenchResult apply_bench(Memory& game, uint64_t svc, const Anchors& a, const BenchPlan& p, const std::atomic<bool>* cancel = nullptr);
+// The switch that blocks a bench keep write, read from turbo_output ("" = none): no bench_keep_on.txt, bench_keep_off.txt, tactics_off.txt,
+// call_team_sheet_off.txt
+std::string bench_switch_block(const std::filesystem::path& turbo_output);
+
 // ------------------------------------------------------------------------------------------------ the undo record (channel_e_undo.json)
 struct MirrorField {
     std::string field;  // "defensivedepth", "buildupplay", "pos9role"
@@ -710,6 +747,19 @@ public:
     virtual std::string allow_status() = 0;
     // The UI's latest view (every frame): the jobs compare their plan's career load and the hub flag with it
     virtual void note_context(const Context& ctx) = 0;
+    // 2.15 bench keep (apply_bench on the game thread): one channel E job at a time with the tactic jobs (the same busy flag), its results
+    // in their own queue (never poll()'s: those are the tactic card's). false + why when it cannot be queued
+    virtual bool submit_bench(const Context& ctx, const BenchPlan& plan, std::string& why) {
+        (void)ctx;
+        (void)plan;
+        why = "this channel E service has no bench keep";
+        return false;
+    }
+    virtual bool poll_bench(BenchResult& out) {
+        (void)out;
+        return false;
+    }
+    virtual std::string bench_off() { return ""; }  // "" = on; else why bench keep is off for this session (a read-back mismatch)
 };
 
 // What the host gives the platform-independent service (src/win/team_sheet_win.cpp; tests give a simulated game)
@@ -751,6 +801,9 @@ public:
     std::shared_ptr<const RoleAllowList> role_allow(long long load_gen) override;
     std::string allow_status() override;
     void note_context(const Context& ctx) override;
+    bool submit_bench(const Context& ctx, const BenchPlan& plan, std::string& why) override;
+    bool poll_bench(BenchResult& out) override;
+    std::string bench_off() override;
 
     // tests / status
     uint64_t located() ;
@@ -780,6 +833,8 @@ private:
     double locating_since_ = 0.0, failed_at_ = 0.0;  // clock_us of the running locate / of the last failed one
     long long failed_gen_ = -1;                       // the career load the last failed locate was for
     std::vector<ApplyResult> results_;
+    std::vector<BenchResult> bench_results_;  // 2.15 bench keep: its own queue
+    std::string bench_off_;                   // a bench keep read-back mismatch switched it off for the session
     bool busy_ = false;
     double busy_since_ = 0.0;
     int job_seq_ = 0;  // the job busy_ waits for (a lost job's late result does not clear a newer one)

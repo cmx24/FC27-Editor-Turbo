@@ -1,6 +1,8 @@
 // FC 27 LE Turbo GUI - tactics channel E (see team_sheet.h)
 #include "team_sheet.h"
 
+#include "bench_probe.h"
+
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -1498,6 +1500,130 @@ ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan&
     }
 }
 
+// ------------------------------------------------------------------------------------------------ bench keep (2.15)
+static_assert(bench::kIds == kSheetPidCount, "the bench keeper's ids are the sheet's 52");
+
+std::string bench_switch_block(const fs::path& out) {
+    if (out.empty()) return "no turbo_output folder";
+    if (file_exists(out / master_switch_file())) return std::string("kill switch turbo_output\\") + master_switch_file() + " is present";
+    if (file_exists(out / bench::keep_off_file())) return std::string("kill switch turbo_output\\") + bench::keep_off_file() + " is present";
+    if (file_exists(out / kill_switch_file())) return std::string("kill switch turbo_output\\") + kill_switch_file() + " is present";
+    if (!file_exists(out / bench::keep_on_file())) return std::string("off until turbo_output\\") + bench::keep_on_file() + " exists (opt-in)";
+    return "";
+}
+
+std::string check_bench_plan(const LiveTactic& now, const BenchPlan& p) {
+    if (now.at.user != p.user) return "the sheet is club " + std::to_string(now.at.user) + "'s, not " + std::to_string(p.user) + "'s";
+    if (now.sheet_id != p.sheet_id) return "the sheet is " + std::to_string(now.sheet_id) + ", not " + std::to_string(p.sheet_id) + " as when the reorder was seen";
+    for (int k = 0; k < kSheetPidCount; ++k)
+        if (now.sheet_ids[size_t(k)] != p.before[size_t(k)])
+            return "the sheet's order changed since the read before the job (#" + std::to_string(k) + " holds " + std::to_string(now.sheet_ids[size_t(k)]) +
+                   ", not " + std::to_string(p.before[size_t(k)]) + ")";
+    // the layout check: ids 0..10 are the starting XI, i.e. the 11 players of the active tactic's slots (in any order)
+    std::multiset<int32_t> xi(now.sheet_ids.begin(), now.sheet_ids.begin() + bench::kStarters), slots;
+    for (const SlotView& v : now.slots) slots.insert(v.pid);
+    if (xi.count(-1) || xi != slots || std::set<int32_t>(xi.begin(), xi.end()).size() != size_t(bench::kStarters))
+        return "ids 0..10 are not the 11 players of the active tactic's slots (the layout is not the verified one)";
+    const std::string w = bench::shuffle_of(p.saved, p.before);
+    if (!w.empty()) return "the saved order is not the sheet's players in another order (" + w + ")";
+    return "";
+}
+
+BenchResult apply_bench(Memory& game, uint64_t svc, const Anchors& a, const BenchPlan& p, const std::atomic<bool>* cancel) {
+    BenchResult r;
+    Counting mem(game);
+    const std::string who = "team " + std::to_string(p.user) + " sheet " + std::to_string(p.sheet_id);
+    auto fail = [&](const char* stage, const std::string& msg) {
+        r.ok = false;
+        r.stage = stage;
+        r.message = msg;
+        r.log_line = "bench keep: refused (" + std::string(stage) + "): " + msg;
+        r.reads = mem.reads;
+        return r;
+    };
+    try {
+        // L1-L4 and G5 again (pointers can move between frames), then the plan against what the sheet holds now
+        PageCache walk(mem);
+        LiveTactic now;
+        std::string why = read_live(walk, svc, p.user, a, now);
+        if (!why.empty()) return fail("locate", why + ": nothing written");
+        why = check_g5(walk, now);
+        if (!why.empty()) return fail("G5", why + ": nothing written");
+        why = check_bench_plan(now, p);
+        if (!why.empty()) return fail("changed", why + ": nothing written");
+        // snapshot: the 52 ids and the dirty flag from the game itself
+        const uint64_t ids_at = now.at.sheet + kSheetPids, dirty_addr = now.at.sheet + kSheetDirty;
+        std::array<int32_t, kSheetPidCount> snap{};
+        for (int k = 0; k < kSheetPidCount; ++k)
+            if (!mem.rd(ids_at + 4 * uint64_t(k), snap[size_t(k)])) return fail("snapshot", "id #" + std::to_string(k) + " is not readable: nothing written");
+        if (snap != p.before) return fail("changed", "the sheet's order changed in the job: nothing written");
+        if (!mem.rd(dirty_addr, r.dirty_before)) return fail("snapshot", "the dirty flag is not readable: nothing written");
+        if (cancel && cancel->load()) return fail("cancelled", "the job was given up: nothing written");
+        // write: the differing ids among 11..51 (never 0..10), then the dirty flag as UpdateSheet does
+        bool write_failed = false;
+        int moved = 0;
+        for (int k = bench::kStarters; k < kSheetPidCount && !write_failed; ++k) {
+            if (p.saved[size_t(k)] == snap[size_t(k)]) continue;
+            ++moved;
+            if (!mem.wr(ids_at + 4 * uint64_t(k), p.saved[size_t(k)])) write_failed = true;
+        }
+        const uint8_t one = 1;
+        if (!write_failed && !mem.wr(dirty_addr, one)) write_failed = true;
+        // read back all 52 ids and the flag
+        std::string bad;
+        std::array<int32_t, kSheetPidCount> back{};
+        for (int k = 0; k < kSheetPidCount && bad.empty(); ++k) {
+            const int32_t want = k < bench::kStarters ? snap[size_t(k)] : p.saved[size_t(k)];
+            if (!mem.rd(ids_at + 4 * uint64_t(k), back[size_t(k)]) || back[size_t(k)] != want)
+                bad = "id #" + std::to_string(k) + " reads " + std::to_string(back[size_t(k)]) + ", not " + std::to_string(want);
+        }
+        uint8_t dirty_back = 0;
+        if (bad.empty() && (!mem.rd(dirty_addr, dirty_back) || dirty_back != 1)) bad = "the dirty flag reads " + std::to_string(int(dirty_back));
+        if (write_failed && bad.empty()) bad = "a write was refused by the memory layer";
+        r.moved = moved;
+        if (!bad.empty()) {
+            // put every id and the flag back from the snapshot (only what differs), then read them back
+            for (int k = 0; k < kSheetPidCount; ++k) {
+                int32_t cur = 0;
+                if (!mem.rd(ids_at + 4 * uint64_t(k), cur) || cur != snap[size_t(k)]) mem.wr(ids_at + 4 * uint64_t(k), snap[size_t(k)]);
+            }
+            uint8_t d = 0;
+            if (!mem.rd(dirty_addr, d) || d != r.dirty_before) mem.wr(dirty_addr, r.dirty_before);
+            bool restored = true;
+            for (int k = 0; k < kSheetPidCount; ++k) {
+                int32_t cur = 0;
+                if (!mem.rd(ids_at + 4 * uint64_t(k), cur) || cur != snap[size_t(k)]) restored = false;
+            }
+            if (!mem.rd(dirty_addr, d) || d != r.dirty_before) restored = false;
+            r.undone = restored;
+            r.restore_failed = !restored;
+            r.session_off = true;
+            r.ok = false;
+            r.stage = "readback";
+            r.message = "read-back mismatch (" + bad + "): " + (restored ? "every id and the dirty flag were put back" : "PUTTING BACK FAILED") +
+                        "; bench keep is off for this session";
+            r.log_line = "bench keep: " + who + ": READ-BACK MISMATCH (" + bad + "), " + (restored ? "undone from the snapshot" : "undo FAILED") +
+                         "; bench keep is off for this session";
+            r.reads = mem.reads;
+            return r;
+        }
+        r.after = back;
+        r.dirty_after = dirty_back;
+        r.ok = true;
+        r.written = moved > 0;
+        r.stage = "done";
+        r.message = "your saved order is back in places 11..51 (" + std::to_string(moved) + " places written, read back)";
+        r.log_line = "bench keep: " + who + ": your saved order written back into places 11..51 (" + std::to_string(moved) +
+                     " places; the starting XI untouched), dirty " + std::to_string(int(r.dirty_before)) + " -> 1 (read back ok)";
+        r.reads = mem.reads;
+        return r;
+    } catch (const std::exception& e) {
+        return fail("exception", e.what());
+    } catch (...) {
+        return fail("exception", "unknown error");
+    }
+}
+
 // ------------------------------------------------------------------------------------------------ the undo record
 UndoRecord UndoRecord::from_plan(const Plan& p) {
     UndoRecord u;
@@ -2908,6 +3034,181 @@ bool CoreService::poll(ApplyResult& out) {
     }
     out = r;
     return true;
+}
+
+// 2.15 bench keep: the same guards as a tactic job (dispatcher, career load, hub, one job at a time, the switches before queuing and again in
+// the job, G2 from the UI's latest view, the located service, the user through the PlayerStatusManager, the registry Find when it may be
+// called), then apply_bench. Never touches the tactic jobs' results, history or the kick-off arm.
+bool CoreService::submit_bench(const Context& ctx, const BenchPlan& plan_in, std::string& why) {
+    why.clear();
+    note_context(ctx);
+    if (!h_.run_on_game_thread) {
+        why = "no game-thread dispatcher";
+        return false;
+    }
+    BenchPlan plan = plan_in;
+    if (plan.load_gen < 0) plan.load_gen = ctx.load_gen;
+    if (plan.load_gen != ctx.load_gen) {
+        why = "the plan was made in career load " + std::to_string(plan.load_gen) + ", this is load " + std::to_string(ctx.load_gen);
+        return false;
+    }
+    if (!ctx.hub) {
+        why = "not in the career hub (G2: the hub, Team Management closed, no save in the last " + std::to_string(kSaveQuietSeconds) + " s)";
+        return false;
+    }
+    why = bench_switch_block(h_.out_dir);
+    if (!why.empty()) return false;
+    uint64_t svc = 0;
+    int seq = 0;
+    std::shared_ptr<std::atomic<bool>> cancel;
+    std::string given_up;
+    struct LogAfter {
+        CoreService* self;
+        std::string* line;
+        ~LogAfter() {
+            if (!line->empty()) self->log(*line);
+        }
+    } log_after{this, &given_up};
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        if (!bench_off_.empty()) {
+            why = "bench keep is off for this session: " + bench_off_;
+            return false;
+        }
+        if (!session_off_.empty()) {
+            why = "channel E is off for this session: " + session_off_;
+            return false;
+        }
+        if (busy_) {
+            if (h_.clock_us && now() - busy_since_ > kJobLostUs) {
+                if (cancel_) cancel_->store(true);
+                given_up = "channel E: the last job did not come back in " + std::to_string(int(kJobLostUs / 1e6)) +
+                           " s (dropped by the game-thread queue?): given up (cancelled: if it still runs it writes nothing)";
+                busy_ = false;
+            } else {
+                why = "a channel E job is still queued or running";
+                return false;
+            }
+        }
+        if (!svc_ || svc_gen_ != ctx.load_gen) {
+            why = "the team sheet service is not located for this career load";
+            return false;
+        }
+        svc = svc_;
+        busy_ = true;
+        busy_since_ = now();
+        seq = ++job_seq_;
+        cancel_ = std::make_shared<std::atomic<bool>>(false);
+        cancel = cancel_;
+    }
+    const Anchors a = h_.anchors;
+    const double queued = now();
+    const uint64_t managers = ctx.managers;
+    const bool find_ok = ctx.allow_find;
+    const std::string via = h_.run_on_game_thread([this, svc, a, plan, queued, seq, cancel, managers, find_ok]() {
+        BenchResult r;
+        const double t0 = now();
+        std::string stage, block;
+        if (cancel->load()) {
+            stage = "cancelled";
+            block = "the job was given up before the game thread ran it";
+        } else if (h_.clock_us && t0 - queued > kJobDeadlineUs) {
+            char b[96];
+            std::snprintf(b, sizeof(b), "the game thread ran the job %.1f s after it was queued", (t0 - queued) / 1e6);
+            stage = "late";
+            block = b;
+        } else if (!(block = bench_switch_block(h_.out_dir)).empty()) {
+            stage = "G1";  // a kill switch dropped (or the opt-in removed) after the job was queued
+            block += " (seen in the job)";
+        } else if (!cur_hub_.load()) {
+            stage = "G2";
+            block = "not in the career hub any more (Team Management open, a save started, a match, ...)";
+        } else if (cur_gen_.load() != plan.load_gen) {
+            stage = "G2";
+            block = "the career was reloaded since the job was queued (load " + std::to_string(cur_gen_.load()) + ", the plan's " +
+                    std::to_string(plan.load_gen) + ")";
+        } else {
+            std::lock_guard<std::mutex> lock(mu_);
+            if (svc_ != svc || svc_gen_ != plan.load_gen) {
+                stage = "locate";
+                block = "the located service changed since the job was queued";
+            } else if (!session_off_.empty()) {
+                stage = "session";
+                block = "channel E is off for this session: " + session_off_;
+            }
+        }
+        if (block.empty()) {
+            int u = 0;
+            const std::string w = user_from_psm(*h_.mem, managers, h_.psm_vtable, u);
+            if (!w.empty()) {
+                stage = "user";
+                block = "your club: " + w;
+            } else if (u != plan.user) {
+                stage = "user";
+                block = "the game's club is " + std::to_string(u) + ", the plan's " + std::to_string(plan.user);
+            }
+        }
+        if (block.empty() && find_ok && h_.call_find) {
+            std::string w;
+            const uint64_t fn = registry_find_fn(*h_.mem, a, w);
+            if (fn) {
+                ++finds_;
+                uint64_t again = 0;
+                try {
+                    const uint64_t returned = h_.call_find(fn, a.registry, kServiceId);
+                    w = accept_find_result(*h_.mem, returned, a, again);
+                } catch (...) {
+                    w = "the registry Find threw";
+                }
+                if (!w.empty() || again != svc) {
+                    stage = "locate";
+                    block = "the registry Find does not return the located service " + hex(svc) + " (" + (w.empty() ? hex(again) : w) + ")";
+                }
+            }
+        }
+        if (!block.empty()) {
+            r.stage = stage;
+            r.message = block + ": nothing written";
+            r.log_line = "bench keep: refused (" + stage + "): " + r.message;
+        } else {
+            r = apply_bench(*h_.mem, svc, a, plan, cancel.get());
+        }
+        r.micros = h_.clock_us ? h_.clock_us() - t0 : 0.0;
+        std::lock_guard<std::mutex> lock(mu_);
+        if (r.session_off) bench_off_ = r.message;
+        bench_results_.push_back(r);
+        if (seq == job_seq_) busy_ = false;
+    });
+    if (via.empty()) {
+        cancel->store(true);
+        std::lock_guard<std::mutex> lock(mu_);
+        if (seq == job_seq_) busy_ = false;
+        why = "no game-thread dispatcher (the game_tick hook is off and Turbo's Lua side does not pump)";
+        return false;
+    }
+    return true;
+}
+
+bool CoreService::poll_bench(BenchResult& out) {
+    BenchResult r;
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        if (bench_results_.empty()) return false;
+        r = bench_results_.front();
+        bench_results_.erase(bench_results_.begin());
+    }
+    if (!r.log_line.empty()) {
+        char t[64];
+        std::snprintf(t, sizeof(t), " [job %.0f us, %d reads]", r.micros, r.reads);
+        log(r.log_line + t);
+    }
+    out = r;
+    return true;
+}
+
+std::string CoreService::bench_off() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return bench_off_;
 }
 
 void CoreService::arm_from(const LiveTactic& lt, long long gen, const char* when) {

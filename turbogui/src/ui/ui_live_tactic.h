@@ -50,6 +50,8 @@ struct LiveTacticState {
     std::string match_status;             // 2.5: "The next match will use these values: Turbo's change is in place."
     bool details_open = false;            // 2.5: the "More" node (roles per slot, the live record, details) is open
     std::string edit_tactic_badge;        // WP-B2 branch (c) only: "Edit Tactic shows these values after the next career load" (off: "")
+    bool bench_keep_on = false;           // 2.15: turbo_output\bench_keep_on.txt is there (the toggle's state)
+    std::string bench_keep;               // 2.15: the bench keep line ("on: waiting for Team Management", "off (...)", "on: put back: ...")
 };
 const LiveTacticState& live_tactic_state();
 

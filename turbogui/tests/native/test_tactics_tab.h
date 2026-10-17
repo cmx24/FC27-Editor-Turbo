@@ -95,11 +95,30 @@ static ImGuiWindow* cards_window() {
     return nullptr;
 }
 
+// 2.15: the card list sits below your club's live tactic and the bench keep line (My team scope): when nothing of it is laid out in the
+// column's view, scroll the column so the list starts near its top (the legacy box and the preview strip above it stay in view), the way a
+// person scrolls down to the cards
+static bool cards_into_view(Ui& ui) {
+    ImGuiWindow* w = cards_window();
+    if (!w || !w->ParentWindow) return false;
+    ImGuiWindow* col = w->ParentWindow;
+    const float above = ImGui::GetFrameHeightWithSpacing() * 2.5f;
+    const float delta = w->Pos.y - col->InnerRect.Min.y - above;
+    if (delta <= 1.0f) return false;
+    ImGui::SetScrollY(col, std::min(col->ScrollMax.y, col->Scroll.y + delta));
+    ui.frames(2);
+    return true;
+}
+
 static const ItemRec* slider_item(Ui& ui, const char* label, const char* key) {
     ImGuiWindow* w = cards_window();
     if (!w) return nullptr;
-    for (int attempt = 0; attempt < 3; ++attempt) {
+    for (int attempt = 0; attempt < 4; ++attempt) {
         if (const ItemRec* r = ui.find(label, "##tacsliders", key)) return r;
+        if (attempt == 1 && cards_into_view(ui)) {  // the card list scrolled to it and still not in view: the column hides the list
+            if (!(w = cards_window())) return nullptr;
+            continue;
+        }
         const ItemRec* hit = nullptr;
         for (const auto& kv : g_items) {
             const ItemRec& r = kv.second;
@@ -107,6 +126,10 @@ static const ItemRec* slider_item(Ui& ui, const char* label, const char* key) {
             if (r.label != label && !(r.label.empty() && ImHashStr(label, 0, r.seed) == r.id)) continue;
             if (ImHashStr(key, 0, r.seed2) != r.seed) continue;
             hit = &r;
+        }
+        if (!hit && attempt == 0 && cards_into_view(ui)) {  // nothing of the list laid out: the column hides it
+            if (!(w = cards_window())) return nullptr;
+            continue;
         }
         if (!hit) return nullptr;
         const float mid = hit->rect.GetCenter().y, view = w->InnerRect.Min.y + w->InnerRect.GetHeight() * 0.5f;
