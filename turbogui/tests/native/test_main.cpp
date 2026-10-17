@@ -1969,6 +1969,221 @@ static void test_reapply_store() {
     });
 }
 
+// ================================================================ kept edits: 2.15 scopes and the career identity (core/reapply.h)
+// The pre-2.15 writer, copied from d8b6dd5 (core/reapply.cpp reapply_json): what an older Turbo wrote for a store without
+// scopes. A store of rows not assigned must come out of the 2.15 writer byte for byte the same.
+static std::string legacy_reapply_json(const ReapplyStore& s) {
+    json j = json::object();
+    j["turbo_reapply"] = 1;
+    j["note"] = "Edits FC 27 forgets when a career loads (it reloads teamkits and playernamemap from its base data; your players' "
+                "development plans outrank the players table). Turbo writes them again when it connects to a newly loaded career, "
+                "a player field only while it holds the value the edit replaced. Forget an entry in Teams > Colours, Players > "
+                "Callname, Teams > Kits or Turbo Tools > Kept player edits.";
+    json kits = json::array();
+    for (const auto& kv : s.kits) {
+        const KitEdit& k = kv.second;
+        json fields = json::object();
+        for (const auto& f : k.fields) fields[f.first] = f.second;
+        kits.push_back({{"teamtechid", k.teamtechid}, {"teamkittypetechid", k.kittype}, {"teamkitid", k.teamkitid},
+                        {"team", k.team}, {"when", k.when}, {"fields", fields}});
+    }
+    j["kits"] = kits;
+    json names = json::array();
+    for (const auto& kv : s.callnames) {
+        const CallnameEdit& c = kv.second;
+        names.push_back({{"playerid", c.playerid}, {"commentaryid", c.commentaryid}, {"player", c.player}, {"from", c.from}, {"when", c.when}});
+    }
+    j["playernamemap"] = names;
+    j["keep_players"] = s.keep_players;
+    json players = json::array();
+    for (const auto& kv : s.players) {
+        const PlayerEdit& p = kv.second;
+        json fields = json::object();
+        for (const auto& f : p.fields) fields[f.first] = {{"value", f.second.value}, {"was", f.second.was}};
+        players.push_back({{"playerid", p.playerid}, {"player", p.player}, {"when", p.when}, {"fields", fields}});
+    }
+    j["players"] = players;
+    return j.dump(2, ' ', false, json::error_handler_t::replace) + "\n";
+}
+
+static void test_reapply_scopes() {
+    run_case("2.15 kept edit scopes: kinds, ranks, the career identity (FNV-1a 64 of the manager row + career start)", [&] {
+        CHECK(scope_kind("") == ScopeKind::NotAssigned && scope_kind("global") == ScopeKind::Global && scope_kind("career:ab12") == ScopeKind::Career &&
+                  scope_kind("career:") == ScopeKind::Unknown && scope_kind("Global") == ScopeKind::Unknown && scope_kind("5") == ScopeKind::Unknown,
+              "scope kinds");
+        CHECK(career_scope("ab12") == "career:ab12" && career_scope("").empty() && scope_career("career:ab12") == "ab12" && scope_career("global").empty(),
+              "career scope <-> id");
+        CHECK(scope_rank("", "ab12") == 1 && scope_rank("global", "ab12") == 2 && scope_rank("career:ab12", "ab12") == 3 &&
+                  scope_rank("career:cd34", "ab12") == 0 && scope_rank("weird", "ab12") == 0,
+              "ranks in career ab12: not assigned 1, global 2, this career 3, another career / unknown 0");
+        CHECK(scope_rank("", "") == 1 && scope_rank("global", "") == 2 && scope_rank("career:ab12", "") == 0,
+              "no career identified: career rows never apply");
+        CHECK(fnv1a64("") == 0xcbf29ce484222325ULL && fnv1a64("a") == 0xaf63dc4c8601ec8cULL, "FNV-1a 64 reference values");
+        CareerManagerFacts m;
+        m.managerid = 501;
+        m.firstname = "Mikel";
+        m.surname = "Arteta";
+        m.birthdate = 150000;
+        m.nationality = 14;
+        CHECK(career_identity_text(m, true, 20260701) == "turbo-career-1|m=501|f=Mikel|s=Arteta|c=|b=150000|n=14|start=20260701" &&
+                  career_identity_text(m, false, 0) == "turbo-career-1|m=501|f=Mikel|s=Arteta|c=|b=150000|n=14|start=-",
+              "the hashed text: " + career_identity_text(m, true, 20260701));
+        const std::string id = career_identity_id(m, true, 20260701);
+        CHECK(id.size() == 16 && id.find_first_not_of("0123456789abcdef") == std::string::npos && id == career_identity_id(m, true, 20260701),
+              "16 lower-case hex digits, the same every time: " + id);
+        CareerManagerFacts other = m;
+        other.firstname = "Mikela";
+        CareerManagerFacts born = m;
+        born.birthdate = 150001;
+        CHECK(career_identity_id(other, true, 20260701) != id && career_identity_id(born, true, 20260701) != id &&
+                  career_identity_id(m, true, 20270701) != id && career_identity_id(m, false, 0) != id,
+              "another manager, birth date or career start: another career");
+    });
+    run_case("2.15 kept edit scopes: rows not assigned round-trip byte for byte; scopes, unknown scopes and career names survive", [&] {
+        // a store as an older Turbo kept it (rows not assigned): Everton's kits, a callname, a player
+        ReapplyStore old;
+        old.set_kit_field_in("", 7, 0, 70, "Everton", "2026-10-14 16:00", "teamcolorprimr", 11);
+        old.set_kit_field_in("", 7, 0, 70, "Everton", "2026-10-14 16:00", "jerseynamefonttype", 3);
+        old.set_kit_field_in("", 7, 3, 72, "Everton", "2026-10-14 16:01", "teamcolorsecg", 200);
+        old.set_callname_in("", 1003, 900010, "William Saliba", "Saliba", "2026-10-10 10:00");
+        old.note_player_edit(1002, "Martin Odegaard", "2026-10-05 22:40", "composure", 70, 80);  // no career: not assigned
+        const std::string legacy = legacy_reapply_json(old);
+        CHECK(legacy.find("scope") == std::string::npos && legacy.find("careers") == std::string::npos, "the legacy text has no scopes");
+        ReapplyStore back;
+        std::string err;
+        size_t dropped = 0;
+        CHECK(parse_reapply_json(legacy, back, &err, &dropped) && dropped == 0 && back.kits.size() == 2 && back.callnames.size() == 1 &&
+                  back.players.size() == 1,
+              "read: " + err);
+        bool all_plain = true;
+        for (const auto& kv : back.kits) all_plain = all_plain && kv.second.scope.empty();
+        for (const auto& kv : back.callnames) all_plain = all_plain && kv.second.scope.empty();
+        for (const auto& kv : back.players) all_plain = all_plain && kv.second.scope.empty();
+        CHECK(all_plain, "every row read as not assigned");
+        CHECK(reapply_json(back) == legacy, "written back byte for byte as the older Turbo wrote it");
+        // in a career, the rows not assigned are in effect; an edit there makes this career's own row, the old one stays
+        back.career = "ab12ab12ab12ab12";
+        CHECK(back.kit(7, 0, 70) && back.kit(7, 0, 70)->scope.empty() && back.callname(1003) && back.player(1002), "in effect in a career");
+        back.set_kit_field(7, 0, 70, "Everton", "2026-10-17 14:00", "teamcolorprimr", 99);
+        CHECK(back.kits.size() == 3 && back.kit_in("", 7, 0, 70)->fields.at("teamcolorprimr") == 11 &&
+                  back.kit_in("career:ab12ab12ab12ab12", 7, 0, 70)->fields.at("teamcolorprimr") == 99 && back.kit(7, 0, 70)->fields.at("teamcolorprimr") == 99,
+              "the edit made in the career: a row of its own; Everton's old row unchanged");
+        // the player: an edit continued from the unassigned row keeps its replaced value (70), in this career's row
+        CHECK(back.note_player_edit(1002, "Martin Odegaard", "w", "composure", 80, 85) &&
+                  back.players.at(ReapplyStore::RowKey{1002, "career:ab12ab12ab12ab12"}).fields.at("composure").was == 70 &&
+                  back.players.at(ReapplyStore::RowKey{1002, ""}).fields.at("composure").value == 80 &&
+                  back.player_in_effect(1002).fields.at("composure").value == 85,
+              "a continued edit: this career's row 85 (was 70), the old row still 80");
+        back.set_callname(1003, 900020, "William Saliba", "a test", "w");
+        CHECK(back.callnames.size() == 2 && back.callname(1003)->commentaryid == 900020, "this career's callname wins here");
+        // the old rows are still written as before; only the career rows carry a scope
+        back.careers["ab12ab12ab12ab12"] = ReapplyStore::CareerInfo{"Mikel Arteta, Arsenal", "2026-10-17 14:00"};
+        back.set_kit_field_in("global", 1, 1, 11, "Arsenal", "w", "teamcolorprimr", 5);
+        back.set_kit_field_in("weird", 1, 0, 10, "Arsenal", "w", "teamcolorprimr", 6);
+        const std::string text = reapply_json(back);
+        ReapplyStore again;
+        CHECK(parse_reapply_json(text, again, &err, &dropped) && dropped == 0 && again.kits.size() == 5 && again.callnames.size() == 2 &&
+                  again.players.size() == 2 && again.kit_in("global", 1, 1, 11) && again.kit_in("weird", 1, 0, 10) &&
+                  again.careers.at("ab12ab12ab12ab12").label == "Mikel Arteta, Arsenal",
+              "scopes, an unknown scope and the career's name read back: " + err);
+        json j = json::parse(text);
+        size_t plain = 0;
+        for (const auto& k : j["kits"])
+            if (!k.contains("scope")) {
+                ++plain;
+                const std::string row = k.dump();
+                CHECK(row.find("Everton") != std::string::npos, "only Everton's old rows have no scope: " + row);
+            }
+        CHECK(plain == 2, fmt("two rows without a scope key (%zu)", plain));
+        // a hand-written scope that is not a string: kept (as its JSON text), never applied, never dropped
+        CHECK(parse_reapply_json(R"({"turbo_reapply": 1, "kits": [{"teamtechid": 7, "teamkittypetechid": 0, "teamkitid": 70, "scope": 5,
+                                      "fields": {"teamcolorprimr": 1}}], "playernamemap": [{"playerid": 9, "commentaryid": 900003, "scope": null}]})",
+                                  again, &err, &dropped) &&
+                  dropped == 0 && again.kit_in("5", 7, 0, 70) && again.kit(7, 0, 70) == nullptr && again.callname(9) && again.callname(9)->scope.empty(),
+              "scope 5 kept, not in effect; scope null = not assigned");
+    });
+    run_case("2.15 kept edit scopes: what is in effect in which career; Forget and moves touch one row", [&] {
+        ReapplyStore s;
+        s.set_kit_field_in("", 7, 0, 70, "Everton", "", "teamcolorprimr", 11);           // not assigned
+        s.set_kit_field_in("global", 7, 0, 70, "Everton", "", "teamcolorsecr", 22);      // global
+        s.set_kit_field_in("career:aaaa", 7, 0, 70, "Everton", "", "teamcolorprimr", 33);  // career A
+        s.set_kit_field_in("career:bbbb", 1, 1, 11, "Arsenal", "", "teamcolorprimr", 44);  // career B only
+        s.career = "aaaa";
+        CHECK(s.kit(7, 0, 70) && s.kit(7, 0, 70)->scope == "career:aaaa" && !s.kit(1, 1, 11) && s.kits_of_type(7, 0) == 1 && s.kits_of_type(1, 1) == 0,
+              "career A: its own Everton row in effect, career B's Arsenal row not");
+        s.career = "bbbb";
+        CHECK(s.kit(7, 0, 70)->scope == "global" && s.kit(1, 1, 11) && s.kit(1, 1, 11)->fields.at("teamcolorprimr") == 44, "career B: the global row, its Arsenal row");
+        s.career.clear();
+        CHECK(s.kit(7, 0, 70)->scope == "global" && !s.kit(1, 1, 11) && s.edit_scope().empty(), "no career: global, no career row, edits not assigned");
+        // Forget acts on the row in effect only
+        s.career = "aaaa";
+        CHECK(s.forget_kit(7, 0, 70) && !s.kit_in("career:aaaa", 7, 0, 70) && s.kit_in("global", 7, 0, 70) && s.kit_in("", 7, 0, 70) && s.kits.size() == 3,
+              "Forget in career A: its row only");
+        // move: career B's Arsenal row to global; then the unassigned Everton row onto the global one (its fields over)
+        CHECK(s.move_kit(ReapplyStore::KitKey{1, 1, 11, "career:bbbb"}, "global") && s.kit(1, 1, 11) && s.kit(1, 1, 11)->scope == "global",
+              "Arsenal's row global: in effect in career A too");
+        CHECK(s.move_kit(ReapplyStore::KitKey{7, 0, 70, ""}, "global") && s.kits.size() == 2 && s.kit_in("global", 7, 0, 70)->fields.size() == 2 &&
+                  s.kit_in("global", 7, 0, 70)->fields.at("teamcolorprimr") == 11,
+              "merged into the global row");
+        CHECK(!s.move_kit(ReapplyStore::KitKey{7, 0, 70, "global"}, "global") && !s.move_kit(ReapplyStore::KitKey{7, 0, 70, "global"}, "bogus") &&
+                  !s.move_kit(ReapplyStore::KitKey{9, 0, 1, ""}, "global"),
+              "no move to the same scope, to an unknown one, or of a missing row");
+        // callnames and players
+        s.set_callname_in("career:bbbb", 1003, 900010, "W", "", "");
+        CHECK(!s.callname(1003) && !s.forget_callname(1003) && s.callnames.size() == 1, "career B's callname: not in effect, not forgotten from A");
+        CHECK(s.move_callname(ReapplyStore::RowKey{1003, "career:bbbb"}, "career:aaaa") && s.callname(1003), "moved to career A");
+        CHECK(s.note_player_edit(1002, "M", "", "composure", 70, 80) && s.players.count(ReapplyStore::RowKey{1002, "career:aaaa"}), "an edit in A: A's row");
+        s.players[ReapplyStore::RowKey{1002, "career:bbbb"}] = PlayerEdit{1002, "M", "", {{"vision", PlayerFieldEdit{90, 80}}}, "career:bbbb"};
+        CHECK(s.forget_player(1002) && s.players.size() == 1 && s.players.count(ReapplyStore::RowKey{1002, "career:bbbb"}), "Forget all of his in A: B's row stays");
+        s.careers["aaaa"] = ReapplyStore::CareerInfo{"Mikel Arteta, Arsenal", ""};
+        CHECK(s.scope_label("") == "not assigned yet (every career)" && s.scope_label("global") == "global (every career)" &&
+                  s.scope_label("career:aaaa") == "this career (Mikel Arteta, Arsenal)" && s.scope_label("career:bbbb") == "only career id bbbb" &&
+                  s.scope_label("x") == "unknown scope 'x' (not applied)",
+              "what the UI calls each scope");
+    });
+    run_case("2.15 club names by scope: a name of an older Turbo keeps no scope key; in effect: this career's, else global, else not assigned", [&] {
+        const auto npos = std::string::npos;
+        tnames::Store s;
+        tnames::Entry inter;
+        inter.teamid = 241;
+        inter.text[tnames::Full] = "Inter";
+        inter.when = "2026-10-14 10:00";
+        s.upsert(inter);
+        const std::string legacy = tnames::store_json(s);
+        tnames::Store back;
+        std::string err;
+        CHECK(legacy.find("scope") == npos && tnames::parse_store_json(legacy, back, &err) && back.entries.size() == 1 && back.entries[0].scope.empty() &&
+                  tnames::store_json(back) == legacy,
+              "an older Turbo's name: read and written back byte for byte: " + err);
+        tnames::Entry inter_a = inter;
+        inter_a.text[tnames::Full] = "Inter A";
+        inter_a.scope = "career:aaaa";
+        back.upsert(inter_a);
+        tnames::Entry everton_g;
+        everton_g.teamid = 7;
+        everton_g.text[tnames::Full] = "Everton G";
+        everton_g.scope = "global";
+        back.upsert(everton_g);
+        tnames::Entry everton_b = everton_g;
+        everton_b.text[tnames::Full] = "Everton B";
+        everton_b.scope = "career:bbbb";
+        back.upsert(everton_b);
+        CHECK(back.entries.size() == 4 && back.find(241, "") && back.find(241, "") ->text[tnames::Full] == "Inter", "one entry per club and scope; the old one kept");
+        const tnames::Store in_a = back.in_effect("aaaa"), in_b = back.in_effect("bbbb"), none = back.in_effect("");
+        CHECK(in_a.entries.size() == 2 && in_a.find(241)->text[tnames::Full] == "Inter A" && in_a.find(7)->text[tnames::Full] == "Everton G",
+              "career A: its Inter, the global Everton");
+        CHECK(in_b.entries.size() == 2 && in_b.find(241)->text[tnames::Full] == "Inter" && in_b.find(7)->text[tnames::Full] == "Everton B",
+              "career B: the old Inter, its Everton");
+        CHECK(none.entries.size() == 2 && none.find(241)->text[tnames::Full] == "Inter" && none.find(7)->text[tnames::Full] == "Everton G",
+              "no career: the old and the global names");
+        tnames::Store again;
+        CHECK(tnames::parse_store_json(tnames::store_json(back), again, &err) && again.entries.size() == 4 && again.find(7, "career:bbbb") &&
+                  again.find(241, "career:aaaa"),
+              "scopes read back: " + err);
+        CHECK(back.forget(241, "career:aaaa") && back.find(241) && back.forget(7) && !back.find(7) && back.entries.size() == 1, "forget one scope, then a club");
+    });
+}
+
 // ================================================================ kept edits: player fields (core/reapply.h, 1.2.5)
 static void test_reapply_players() {
     run_case("kept player edits: which fields, the edit rules, the career-load guard", [&] {
@@ -4454,6 +4669,14 @@ static void test_ui() {
                 App& a;
                 ~Unset() { a.team_names_service = nullptr; }
             } unset{app};
+            // 2.15: a name saved while no career is identified is "not assigned" (every career, as before 2.15), so Live Editor's file
+            // gets it; a name saved in a career (never written to that file) is covered by "UI: 2.15 kept edits by scope"
+            struct NoCareer {
+                App& a;
+                std::string was;
+                ~NoCareer() { a.reapply.career = was; }
+            } no_career{app, app.reapply.career};
+            app.reapply.career.clear();
             const fs::path store = tnames::store_path(le);
             fs::remove(store);
             app.team_names = tnames::Store{};
@@ -7697,7 +7920,7 @@ static void test_ui() {
             // an empty store to start with (the Callname case above kept callnames)
             {
                 std::vector<int64_t> pids;
-                for (const auto& kv : app.reapply.callnames) pids.push_back(kv.first);
+                for (const auto& kv : app.reapply.callnames) pids.push_back(kv.second.playerid);
                 for (int64_t pid : pids) app.forget_player_callname(pid);
                 std::vector<ReapplyStore::KitKey> keys;
                 for (const auto& kv : app.reapply.kits) keys.push_back(kv.first);
@@ -7776,6 +7999,7 @@ static void test_ui() {
             {
                 ReapplyStore disk;
                 std::string err;
+                disk.career = app.reapply.career;  // 2.15: a store read from the file has no career; the rows of this one are in effect
                 CHECK(load_reapply_store(reapply_store_path(le), disk, &err) && disk.kits.size() == 2 && disk.callnames.size() == 5 &&
                           disk.callname(3001)->commentaryid == 900017 && disk.kit(1, 1, 11)->fields.at("jerseynamecolorb") == 60,
                       "the store on disk: " + err);
@@ -7988,6 +8212,246 @@ static void test_ui() {
             app.log_hook = nullptr;
             ui.frames(2);
         });
+        run_case("UI: 2.15 kept edits by scope: not assigned and global rows in every career, a career's rows only in it (identity: the manager row)", [&] {
+            const auto npos = std::string::npos;
+            std::vector<std::string> hooked;  // turbo_gui.log
+            app.log_hook = [&](const std::string& s) { hooked.push_back(s); };
+            auto hooked_line = [&](const std::string& part) {
+                for (auto it = hooked.rbegin(); it != hooked.rend(); ++it)
+                    if (it->find(part) != std::string::npos) return *it;
+                return std::string();
+            };
+            CHECK(app.reapply.empty(), "an empty store to start with");
+            SimMemory base;
+            CHECK(base.load(g_out / "world.img"), "the game's base data");
+            auto KT = [&]() { return app.db.table("teamkits"); };
+            auto MG = [&]() { return app.db.table("manager"); };
+            auto reload_kits = [&]() {
+                const Table* t = KT();
+                std::vector<uint8_t> b(size_t(t->record_size) * t->written);
+                return base.read(t->first_record, b.data(), b.size()) && mem.write(t->first_record, b.data(), b.size());
+            };
+            const fs::path state_file = le / "turbo_output" / "bridge_state.json";
+            long long seq = 700, db_gen = 120, load_gen = 120;
+            auto career_load = [&](int64_t user_team) {
+                ++seq;
+                ++db_gen;
+                ++load_gen;
+                std::ofstream(state_file.string(), std::ios::binary | std::ios::trunc)
+                    << "{\"session\":\"S\",\"seq\":" << seq << ",\"db_gen\":" << db_gen << ",\"load_gen\":" << load_gen
+                    << ",\"in_cm\":true,\"user_team\":" << user_team << ",\"db_service\":\"" + hex_addr(app.bridge.state().db_service) +
+                           "\",\"date\":{\"year\":2027,\"month\":1,\"day\":16}}";
+                fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(seq - 640));
+                ui.frames(40);
+            };
+            auto prim_r = [&](uint64_t rec) { return app.db.get_int(*KT(), rec, "teamcolorprimr"); };
+            auto mgr_rec = [&](int64_t id) { return app.db.find(*MG(), "managerid", id); };
+            auto set_mgr = [&](int64_t id, const char* field, const Value& v) {
+                std::string err;
+                return app.db.set(*MG(), mgr_rec(id), *MG()->field(field), v, &err);
+            };
+            const uint64_t k10 = app.db.find(*KT(), "teamkitid", 10), k11 = app.db.find(*KT(), "teamkitid", 11), k70 = app.db.find(*KT(), "teamkitid", 70);
+
+            // ---- career A: Mikel Arteta (manager 501) at Arsenal (1). The fake world's manager table has no birthdate / commonname
+            // and there is no career_calendar: those parts are empty / 0 / "-"
+            hooked.clear();
+            career_load(1);
+            const std::string idA = app.reapply.career;
+            CareerManagerFacts arteta;
+            arteta.managerid = 501;
+            arteta.firstname = "Mikel";
+            arteta.surname = "Arteta";
+            arteta.nationality = 14;
+            CHECK(!idA.empty() && idA == career_identity_id(arteta, false, 0) && app.career_label == "Mikel Arteta, Arsenal",
+                  "career A identified: " + idA + " (" + app.career_label + ")");
+            const std::string idline = hooked_line("career identity: ");
+            CHECK(idline.find("career identity: " + idA + " (Mikel Arteta, Arsenal) from turbo-career-1|m=501|f=Mikel|s=Arteta|c=|b=0|n=14|start=-") == 0 &&
+                      idline.find("user team 1, 1 manager row") != npos,
+                  "one identity line in turbo_gui.log: " + idline);
+
+            // ---- the rows: Everton's home kit as an older Turbo kept it (not assigned), Arsenal's away kit 11 edited now (career A),
+            // Arsenal's home kit 10 bound to another career
+            app.reapply.set_kit_field_in("", 7, 0, 70, "Everton", "2026-10-14 16:00", "teamcolorprimr", 11);
+            std::string msg;
+            const uint8_t c1[3] = {21, 22, 23};
+            CHECK(write_colour(app, *KT(), k11, "teamcolorprim", c1, &msg), "an edit in career A: " + msg);
+            CHECK(app.reapply.kit_in(career_scope(idA), 1, 1, 11) && !app.reapply.kit_in("", 1, 1, 11), "the new edit belongs to career A");
+            app.reapply.set_kit_field_in("career:0123456789abcdef", 1, 0, 10, "Arsenal", "2026-10-17 12:00", "teamcolorprimr", 33);
+            CHECK(app.save_kept_edits(), "saved");
+            {
+                const std::string text = read_file(reapply_store_path(le));
+                const json j = json::parse(text);
+                bool everton_plain = false, arsenal_a = false;
+                for (const auto& k : j["kits"]) {
+                    if (k["teamtechid"] == 7) everton_plain = !k.contains("scope");
+                    if (k["teamtechid"] == 1 && k["teamkitid"] == 11) arsenal_a = k.value("scope", std::string()) == "career:" + idA;
+                }
+                CHECK(everton_plain && arsenal_a && j["careers"][idA]["label"] == "Mikel Arteta, Arsenal",
+                      "the file: the old row without a scope key, the new row career A's, career A named");
+            }
+
+            // ---- career A loads: the row not assigned and career A's row written; the other career's row left alone
+            CHECK(reload_kits(), "kits reloaded from the base data");
+            const int64_t base10 = prim_r(k10), base11 = prim_r(k11);
+            CHECK(prim_r(k70) != 11 && base11 != 21 && base10 != 33, "the edits are gone, as in the game");
+            hooked.clear();
+            career_load(1);
+            CHECK(app.reapply.career == idA, "the same career again: the same identity");
+            CHECK(prim_r(k70) == 11 && prim_r(k11) == 21 && prim_r(k10) == base10,
+                  fmt("written: Everton %lld, Arsenal away %lld; Arsenal home untouched %lld", static_cast<long long>(prim_r(k70)),
+                      static_cast<long long>(prim_r(k11)), static_cast<long long>(prim_r(k10))));
+            std::string line = hooked_line("re-apply at career load:");
+            CHECK(line.find("re-applied 2 kit colours") != npos &&
+                      line.find("; scopes (career " + idA + "): applied 1 not assigned, 0 global, 1 this career; left alone 1 row of another career") != npos,
+                  "summary: " + line);
+
+            // ---- a club change inside career A: the manager row moves with him (Arteta to Everton, Moyes to Arsenal): the same identity
+            CHECK(set_mgr(501, "teamid", Value::of_int(7)) && set_mgr(502, "teamid", Value::of_int(1)), "Arteta at Everton");
+            career_load(7);
+            CHECK(app.reapply.career == idA && app.career_label == "Mikel Arteta, Everton", "a job switch keeps the career: " + app.career_identity_line);
+            CHECK(set_mgr(501, "teamid", Value::of_int(1)) && set_mgr(502, "teamid", Value::of_int(7)), "back");
+
+            // ---- club names (turbo_output\team_names.json, the live hook) follow the same rule: Inter's name as an older Turbo kept it
+            // (every career), Everton's saved now in career A (only there, never in Live Editor's file)
+            struct NamesSpy : tnames::Service {
+                tnames::Store last;
+                int publishes = 0;
+                bool available() const override { return true; }
+                std::string why_off() const override { return ""; }
+                void publish(const tnames::Store& st) override {
+                    last = st;
+                    ++publishes;
+                }
+                tnames::StatsSnapshot stats() const override { return {}; }
+                void refresh_switches() override {}
+            };
+            NamesSpy spy;
+            const tnames::Store names_before = app.team_names;
+            const fs::path names_file = tnames::store_path(le);
+            const bool names_file_was = fs::exists(names_file);
+            const std::string names_text_before = names_file_was ? read_file(names_file) : std::string();
+            const Table* tt = app.db.table("teams");
+            const uint64_t t7 = app.db.find(*tt, "teamid", 7);
+            Value everton_db;
+            CHECK(app.db.get(*tt, t7, *tt->field("teamname"), everton_db), "Everton's database name read");
+            app.team_names = tnames::Store{};
+            {
+                tnames::Entry inter;
+                inter.teamid = 241;
+                inter.text[tnames::Full] = "Inter";
+                app.team_names.upsert(inter);
+            }
+            app.team_names_service = &spy;
+            const TeamNameSave ns = save_team_name(app, 7, "Everton A", "", "", "");
+            CHECK(ns.ok && app.team_names.find(7, career_scope(idA)) && !app.team_names.find(7, ""), "Everton's name belongs to career A: " + ns.line);
+            CHECK(ns.detail.find("custom_team_names.csv not written") != npos, "never in Live Editor's file: " + ns.detail);
+            {
+                TeamNamesCsv csv;
+                CHECK(!csv.load(team_names_file(le)) || csv.get("TeamName_7") != "Everton A", "Live Editor's file has no career name");
+            }
+            CHECK(spy.last.find(7) && spy.last.find(7)->text[tnames::Full] == "Everton A" && spy.last.find(241), "published in career A: Everton A and Inter");
+
+            // ---- two manager rows of your club: not identified; career rows left alone, the row not assigned still written
+            CHECK(set_mgr(502, "teamid", Value::of_int(1)), "Moyes at Arsenal too");
+            CHECK(reload_kits(), "kits reloaded");
+            hooked.clear();
+            career_load(1);
+            CHECK(app.reapply.career.empty() && hooked_line("career identity: not identified: 2 manager rows of your club") != std::string(),
+                  "not identified: " + hooked_line("career identity:"));
+            CHECK(prim_r(k70) == 11 && prim_r(k11) == base11 && prim_r(k10) == base10, "only the row not assigned written");
+            line = hooked_line("re-apply at career load:");
+            CHECK(line.find("scopes (career not identified): applied 1 not assigned, 0 global, 0 this career; left alone 2 rows of other careers") != npos,
+                  "summary: " + line);
+            const uint8_t c2[3] = {31, 32, 33};
+            CHECK(write_colour(app, *KT(), k70, "teamcolorsec", c2, &msg) && app.reapply.kit_in("", 7, 0, 70)->fields.count("teamcolorsecr"),
+                  "an edit while not identified: not assigned (the old row)");
+            CHECK(app.reapply.forget_kit_field(7, 0, 70, "teamcolorsecr") && app.reapply.forget_kit_field(7, 0, 70, "teamcolorsecg") &&
+                      app.reapply.forget_kit_field(7, 0, 70, "teamcolorsecb"),
+                  "taken out again");
+            CHECK(set_mgr(502, "teamid", Value::of_int(7)), "Moyes back at Everton");
+
+            // ---- career B: another manager at Arsenal. Career A's row left alone, the row not assigned written
+            CHECK(set_mgr(501, "firstname", Value::of_str("Mikela")), "career B's manager");
+            CHECK(reload_kits(), "kits reloaded");
+            hooked.clear();
+            career_load(1);
+            const std::string idB = app.reapply.career;
+            CHECK(!idB.empty() && idB != idA && app.career_label == "Mikela Arteta, Arsenal", "career B: " + idB);
+            CHECK(prim_r(k70) == 11 && prim_r(k11) == base11 && prim_r(k10) == base10, "B: only Everton's row (not assigned)");
+            line = hooked_line("re-apply at career load:");
+            CHECK(line.find("scopes (career " + idB + "): applied 1 not assigned, 0 global, 0 this career; left alone 2 rows of other careers") != npos,
+                  "summary: " + line);
+            CHECK(!app.reapply.kit(1, 1, 11) && app.reapply.kit(7, 0, 70), "in effect in B: Everton's row only");
+            CHECK(!spy.last.find(7) && spy.last.find(241), "club names in career B: Inter's (every career) only, not career A's Everton A");
+
+            // ---- the page (Career tools > Changes & undo): Global on Arsenal's career-A kit rows
+            CHECK(ui.open_page("Career tools", "Changes & undo") && ui.find("Where kept edits apply (careers)") != nullptr, "the page");
+            ui.frames(2);
+            CHECK(ui.click("Global", "", "k1|career:" + idA), "Global for Arsenal's career-A rows");
+            CHECK(app.reapply.kit_in("global", 1, 1, 11) && !app.reapply.kit_in(career_scope(idA), 1, 1, 11) && app.reapply.kit(1, 1, 11),
+                  "Arsenal's away kit now global: in effect in B too");
+            CHECK(ui.click("This career", "", "k7|"), "This career for Everton's row not assigned");
+            CHECK(app.reapply.kit_in(career_scope(idB), 7, 0, 70) && !app.reapply.kit_in("", 7, 0, 70) && app.reapply.careers.count(idB) &&
+                      app.reapply.careers.at(idB).label == "Mikela Arteta, Arsenal",
+                  "Everton's row bound to career B, career B named");
+            CHECK(reload_kits(), "kits reloaded");
+            hooked.clear();
+            career_load(1);
+            CHECK(prim_r(k11) == 21 && prim_r(k70) == 11 && prim_r(k10) == base10, "B: the global row and B's row written");
+            line = hooked_line("re-apply at career load:");
+            CHECK(line.find("applied 0 not assigned, 1 global, 1 this career; left alone 1 row of another career") != npos, "summary: " + line);
+
+            // ---- back to career A: the global row written, career B's Everton row left alone
+            CHECK(set_mgr(501, "firstname", Value::of_str("Mikel")), "career A's manager again");
+            CHECK(reload_kits(), "kits reloaded");
+            hooked.clear();
+            career_load(1);
+            CHECK(app.reapply.career == idA && prim_r(k11) == 21 && prim_r(k70) != 11, "A: global written, B's Everton row not");
+            CHECK(spy.last.find(7) && spy.last.find(7)->text[tnames::Full] == "Everton A", "career A again: Everton A served again");
+
+            // ---- a kit import made before 2.15 (its record has no scope; its kept field is in the row not assigned), undone in career A:
+            // the row not assigned is put back (here: the field forgotten, as before the import) and no career row appears
+            {
+                const fs::path dir = kits::slot_dir(le, 7, kits::Slot::Home);
+                fs::create_directories(dir);
+                const int64_t pct0 = app.db.get_int(*KT(), k70, "teamcolorprimpercent");
+                const int64_t pct1 = pct0 == 55 ? 56 : 55;
+                std::ofstream((dir / "import.json").string(), std::ios::binary | std::ios::trunc)
+                    << json({{"turbo_kit_import", 1}, {"teamid", 7}, {"team", "Everton"}, {"slot", "home"}, {"teamkittypetechid", 0}, {"teamkitid", 70},
+                             {"source", "old.zip"}, {"when", "2026-10-14 16:00"},
+                             {"db", json::array({json{{"field", "teamcolorprimpercent"}, {"before", pct0}, {"after", pct1}}})},
+                             {"kept_before", json{{"teamcolorprimpercent", nullptr}}},
+                             {"minikit", json{{"written", false}, {"had_custom", false}, {"backup", ""}}}})
+                           .dump();
+                CHECK(app.db.set_int(*KT(), k70, "teamcolorprimpercent", pct1), "the import's value in the row");
+                app.reapply.set_kit_field_in("", 7, 0, 70, "Everton", "2026-10-14 16:00", "teamcolorprimpercent", pct1);
+                const size_t rows_before = app.reapply.kits.size();
+                std::string umsg;
+                CHECK(undo_kit_import(app, 7, kits::Slot::Home, &umsg), "undone in career A: " + umsg);
+                CHECK(app.db.get_int(*KT(), k70, "teamcolorprimpercent") == pct0, "the game's value back");
+                CHECK(!app.reapply.kit_in("", 7, 0, 70) && !app.reapply.kit_in(career_scope(idA), 7, 0, 70) && app.reapply.kits.size() == rows_before - 1,
+                      "the row not assigned put back (its field forgotten), no career-A row made");
+            }
+
+            // club names back as they were
+            app.team_names_service = nullptr;
+            app.team_names = names_before;
+            if (names_file_was) std::ofstream(names_file.string(), std::ios::binary | std::ios::trunc) << names_text_before;
+            else fs::remove(names_file);
+            {
+                std::string err;
+                CHECK(app.db.set(*app.db.table("teams"), app.db.find(*app.db.table("teams"), "teamid", 7), *app.db.table("teams")->field("teamname"), everton_db, &err),
+                      "Everton's database name back: " + err);
+            }
+
+            // put the world back for the cases below: an empty store, the base kits, a load of the old session
+            app.reapply.kits.clear();
+            app.reapply.careers.clear();
+            CHECK(app.save_kept_edits() && app.reapply.empty(), "store emptied");
+            CHECK(reload_kits(), "kits back to the base data");
+            app.log_hook = nullptr;
+            ui.frames(2);
+        });
         run_case("UI: kept player edits are written again at every career load (only over the replaced value); your players' development plans follow", [&] {
             const auto npos = std::string::npos;
             std::vector<std::string> hooked;  // turbo_gui.log
@@ -8066,6 +8530,7 @@ static void test_ui() {
             {
                 ReapplyStore disk;
                 std::string err;
+                disk.career = app.reapply.career;  // 2.15: the rows of this career are in effect
                 CHECK(load_reapply_store(reapply_store_path(le), disk, &err) && disk.player(1003) && disk.player(1003)->fields.at("acceleration").was == acc0 &&
                           disk.keep_players,
                       "saved: " + err);
@@ -8186,7 +8651,13 @@ static void test_ui() {
             // ---- outside a career (main menu): nothing kept, nothing queued
             const int64_t agi0 = val(1003, "agility");
             publish(true, false, 40);
-            CHECK(edit(1003, "agility", val(1003, "agility") + 1) && !app.reapply.player(1003)->fields.count("agility") && app.plan_sync_waiting() == 0,
+            // 2.15: outside a career no career row is in effect (player() finds none): look at every row of his
+            auto kept_anywhere = [&](int64_t pid, const char* field) {
+                for (const auto& kv : app.reapply.players)
+                    if (kv.first.first == pid && kv.second.fields.count(field)) return true;
+                return false;
+            };
+            CHECK(edit(1003, "agility", val(1003, "agility") + 1) && !kept_anywhere(1003, "agility") && app.plan_sync_waiting() == 0,
                   "outside a career: not kept, no plan");
             publish(true, true, 40);
             CHECK(val(1003, "composure") == comp0 + 6, "the next career load writes the kept composure again");
@@ -14888,6 +15359,7 @@ int main(int argc, char** argv) {
     std::printf("native kept edits store\n");
     test_reapply_store();
     test_reapply_players();
+    test_reapply_scopes();
     std::printf("native show/hide key and background loading\n");
     test_hotkey_and_background();
     test_ux_resize();  // test_ux_resize.h

@@ -105,10 +105,14 @@ TeamNameSave save_team_name(App& app, int64_t teamid, const std::string& name, c
     e.text[tnames::Abbr3] = c3.empty() ? team_code_from(full) : c3;
     const std::string lng = tnames::clean_long_name(long_name);
     if (lng != full) e.long_name = lng;  // the same as the name = not set (it follows the name)
+    // 2.15: a name saved in an identified career belongs to it (core/reapply.h scopes); else not assigned (every career)
+    e.scope = app.reapply.edit_scope();
+    const bool career_only = !e.scope.empty();
 
     // 1. Turbo's names: published to the hook first (the game's next lookup shows them), then saved for the next starts
     std::string problems, err;
-    if (!app.team_names_keep(e, &err)) problems += "; " + err;
+    const bool kept = app.team_names_keep(e, &err);
+    if (!kept) problems += "; " + err;
     res.live = app.team_names_live();
     // 2. the database name (what Turbo's lists and other tools read)
     if (nf) {
@@ -117,11 +121,14 @@ TeamNameSave save_team_name(App& app, int64_t teamid, const std::string& name, c
     } else {
         res.detail = "teams.teamname not in this database";
     }
-    // 3. Live Editor's file: what the game shows after Live Editor's next start when Turbo's hook is off
+    // 3. Live Editor's file: what the game shows after Live Editor's next start when Turbo's hook is off. 2.15: never for a
+    // name of one career (Live Editor reads its file in every career)
     bool csv_ok = false;
     TeamNamesCsv csv;
     const fs::path file = team_names_file(app.bridge.root());
-    if (!csv.load(file, &err)) {
+    if (career_only) {
+        res.detail += "; custom_team_names.csv not written (a name of this career only: Live Editor's file is read in every career)";
+    } else if (!csv.load(file, &err)) {
         problems += "; custom_team_names.csv: " + err;
     } else {
         csv.set_team_names(teamid, e.text[tnames::Full], e.text[tnames::Abbr3], e.text[tnames::Abbr10], e.text[tnames::Abbr15]);
@@ -134,10 +141,13 @@ TeamNameSave save_team_name(App& app, int64_t teamid, const std::string& name, c
             problems += "; custom_team_names.csv: " + err;
         }
     }
-    res.ok = res.live || csv_ok;
+    res.ok = res.live || csv_ok || (career_only && kept);
     res.warning = !problems.empty();
     if (res.live) {
-        res.line = "Saved: shown in the game now.";
+        res.line = career_only ? "Saved for this career only (" + app.career_label + "): shown in the game now." : "Saved: shown in the game now.";
+        if (!problems.empty()) res.line += " Not written: " + problems.substr(2) + ".";
+    } else if (career_only && kept) {
+        res.line = "Saved for this career only. The game shows it while Turbo's live names are on (now off: " + app.team_names_why_off() + ").";
         if (!problems.empty()) res.line += " Not written: " + problems.substr(2) + ".";
     } else if (csv_ok) {
         res.line = "Saved. The game shows it after Live Editor's next start (live names are off: " + app.team_names_why_off() + ").";
@@ -172,7 +182,7 @@ static void load_name_form(App& app, const Table& t, uint64_t rec, int64_t teami
     g_name = NameForm();
     g_name.teamid = teamid;
     std::string name, long_name, short_name, code;
-    if (const tnames::Entry* e = app.team_names.find(teamid)) {
+    if (const tnames::Entry* e = app.team_names.find_in_effect(teamid, app.reapply.career)) {
         name = e->text[tnames::Full];
         long_name = e->long_name;
         short_name = e->text[tnames::Abbr15];
@@ -220,6 +230,26 @@ void team_name_editor(App& app, const Table& t, uint64_t rec, int64_t teamid) {
         ImGui::PushStyleColor(ImGuiCol_Text, kWarn);
         ImGui::TextWrapped("%s", st.mode_line.c_str());
         ImGui::PopStyleColor();
+    }
+    // 2.15: where the club's name applies (core/reapply.h scopes), with Global / This career
+    {
+        const tnames::Entry* cur = app.team_names.find_in_effect(teamid, app.reapply.career);
+        const std::string scope = cur ? cur->scope : std::string();
+        const std::string where = cur ? app.reapply.scope_label(scope) : "a name saved now: " + app.reapply.scope_label(app.reapply.edit_scope());
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("Applies: %s", where.c_str());
+        if (cur) {
+            std::string to;
+            ImGui::SameLine();
+            ImGui::BeginDisabled(scope == kScopeGlobal);
+            if (ImGui::SmallButton("Global##nscope")) to = kScopeGlobal;
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::BeginDisabled(app.reapply.career.empty() || scope == app.reapply.edit_scope());
+            if (ImGui::SmallButton("This career##nscope")) to = app.reapply.edit_scope();
+            ImGui::EndDisabled();
+            if (!to.empty() && app.move_team_name(teamid, scope, to)) app.notify("Team name: now " + app.reapply.scope_label(to));
+        }
     }
     ImGui::Spacing();
     const float label_w = S(120.0f);
@@ -1156,7 +1186,8 @@ void App::load_team_names() {
 
 void App::team_names_publish() {
     if (!team_names_service) return;
-    team_names_service->publish(team_names);
+    // 2.15: the names in effect in the loaded career (a career's names only in it); published again at every career load
+    team_names_service->publish(team_names.in_effect(reapply.career));
     team_names_published_to_ = team_names_service;
 }
 
@@ -1179,6 +1210,45 @@ bool App::team_names_keep(tnames::Entry e, std::string* err) {
     log(team_names_error);
     if (err) *err = why;
     return false;
+}
+
+bool App::move_team_name(int64_t teamid, const std::string& from, const std::string& to) {
+    const tnames::Entry* e = team_names.find(teamid, from);
+    if (!e || from == to || scope_kind(to) == ScopeKind::Unknown) return false;
+    tnames::Entry moved = *e;
+    team_names.forget(teamid, from);
+    moved.scope = to;
+    team_names.upsert(moved);  // over an entry already there for that scope
+    team_names_publish();
+    std::string why;
+    if (team_names_unreadable_) {
+        why = "turbo_output\\team_names.json could not be read at start-up (left as it is; the change lasts this session)";
+    } else if (!team_names.save(tnames::store_path(bridge.root()), &why)) {
+        why = "turbo_output\\team_names.json (" + why + ")";
+    }
+    if (!why.empty()) {
+        team_names_error = "team names not saved: " + why;
+        log(team_names_error);
+        return false;
+    }
+    // a name of every career goes into Live Editor's file too (shown after its next start when live names are off); a name
+    // of one career never does (a name the file already holds stays there)
+    std::string note;
+    if (scope_kind(to) != ScopeKind::Career) {
+        TeamNamesCsv csv;
+        std::string err;
+        const fs::path file = team_names_file(bridge.root());
+        if (csv.load(file, &err)) {
+            csv.set_team_names(teamid, moved.text[tnames::Full], moved.text[tnames::Abbr3], moved.text[tnames::Abbr10], moved.text[tnames::Abbr15]);
+            note = csv.save(file, team_names_backup_dir(bridge.root()), &err) ? "; custom_team_names.csv updated" : "; custom_team_names.csv: " + err;
+        } else {
+            note = "; custom_team_names.csv: " + err;
+        }
+    } else {
+        note = "; custom_team_names.csv not changed (a name it already holds is still shown there when live names are off)";
+    }
+    log("team names: " + model.team_name(teamid) + " (" + std::to_string(teamid) + "): now " + reapply.scope_label(to) + note);
+    return true;
 }
 
 std::string App::team_names_why_off() const {

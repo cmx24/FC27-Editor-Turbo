@@ -679,6 +679,9 @@ void editor_changes(App& app, void*) {
     form_label_width(S(170.0f));
     changes_undo_summary(app);
     section_safety(app);
+    // 2.15: where the kept rows apply (global / this career / not assigned yet), open on this page
+    if (!g_unframed) ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+    kept_edit_scopes_section(app);
     // the list of kept player edits is a section of ui_reapply.cpp: open on this page (the user may still close it)
     if (!g_unframed) ImGui::SetNextItemOpen(true, ImGuiCond_Once);
     kept_player_edits_section(app);

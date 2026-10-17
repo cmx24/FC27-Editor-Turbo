@@ -422,6 +422,21 @@ Every competition list of the Competitions tab (Live standings, Match setup filt
   `teamkits` (`teamtechid == teamid`, grouped by `teamkittypetechid`), `teamcolorprim/sec/tert`, `jerseynamecolor`,
   `jerseynameoutlinecolor`, `jerseynumbercolorprim/sec/ter`, `shortsnumbercolorprim/sec/ter` plus the percent / font / template
   ints. A picker's value is written once the mouse is up (or after 0.8 s), three validated `Database::set` calls (r, g, b).
+- **Kept edits by career (2.15, offline green, not proven in game)**: every row of `turbo_output\reapply_edits.json` (kits,
+  playernamemap, players) and every entry of `turbo_output\team_names.json` has a scope (`core/reapply.h` header): no
+  `"scope"` key = not assigned yet (rows of an older Turbo; written in every career as before, and written back without the key),
+  `"global"` = every career, `"career:<id>"` = only that career, anything else = kept, never applied. One kit / player / callname /
+  club may have one row per scope; an edit only touches the row of its own scope (new edits in an identified career:
+  `career:<that career>`), and a career load merges the rows in effect per field (this career over global over not assigned).
+  The career identity is FNV-1a 64 of `turbo-career-1|m=<managerid>|f=<firstname>|s=<surname>|c=<commonname>|b=<birthdate>|n=<nationality>|start=<career_calendar.startdate or ->`
+  over the ONE `manager` row whose `teamid` is the user's club (`career_users` is not in FC 27's database meta); never the club, the
+  save name or the date, so a renamed save or a job switch keeps it. 0 or 2+ such rows = not identified: career rows are left
+  alone and new edits are not assigned. `turbo_gui.log` gets `career identity: <id> (<manager>, <club>) from <text> | user team N,
+  1 manager row` at every career load, and the re-apply summary ends with `; scopes (career <id>): applied A not assigned, B
+  global, C this career[; left alone D rows of other careers]`. The live hook is published only the club names in effect in the
+  loaded career (again at every career load); a club name of one career is never written to Live Editor's CSV. Career tools >
+  Changes & undo > "Where kept edits apply (careers)" moves rows to Global / This career. Live check:
+  `turbo_dev\research_20261017\EDIT_SCOPES_LIVECHECK.md`.
 - **Kit colours across career loads (1.0.2)**: FC 27 reloads `teamkits` (and `playernamemap`) from its base data every
   time a career loads; `teams.teamcolor1..3` are kept by the save. So every `teamkits` colour a picker writes
   (`write_colour` -> `App::remember_kit_colour`) is also kept in `turbo_output\reapply_edits.json` (`core/reapply.*`):
