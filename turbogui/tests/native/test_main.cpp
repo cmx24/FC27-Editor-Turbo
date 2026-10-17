@@ -3428,6 +3428,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_club_page.h"    // 2.13 T3: Club & Kits pages (club_page_test::ui_cases)
 #include "test_p213.h"         // 2026-10-17 P213 triage: proven panels on the user's path, no dead-end page, no removed place named
 #include "test_kit_fonts.h"    // 2.11 K1: named kit font / layout choices (test_kit_fonts, kit_fonts_ui_cases)
+#include "test_kit_share.h"    // 2.13: 3D kits never half a kit, the opt-in for other clubs' shared textures (kit_share_test::run)
 // ================================================================ live team names (core/teamname_override.h)
 static void test_team_names_live() {
     run_case("live team names: the keys the game asks for (TeamName[_AbbrN]_<id>, IWL_, any case), nothing else", [&] {
@@ -14846,6 +14847,7 @@ int main(int argc, char** argv) {
     std::printf("native kit import\n");
     test_kit_import();
     test_kit_fonts();
+    kit_share_test::run();  // test_kit_share.h (2.13)
     std::printf("native dev service\n");
     test_devops();
     std::printf("native signature scanning\n");

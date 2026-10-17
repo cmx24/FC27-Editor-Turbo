@@ -232,6 +232,32 @@ private:
 };
 
 // ---------------------------------------------------------------- the plan for one (club, slot)
+// 2.13: why a texture (and with it maybe a whole kit folder) stays the game's
+enum class LeftBy {
+    None,
+    OtherClubs,    // another club's kit uses the same data: Options::share_other_clubs serves it (that club's kit then shows it too)
+    ThisClub,      // this club's other kit slot uses the same chunk: Options::share_within_club serves it
+    ThisClubData,  // a byte-identical block in another chunk of this club (no option serves a patched fragment of this club's kits)
+    Clash,         // another active kit wants the same game data with other bytes
+    Other,         // not in the zip, another size or format, uniform fill, unreadable...
+};
+// 2.13: never half a kit. The pictures that decide whether a kit folder is shown as the zip's: when one of them is not served, for any
+// reason, the whole folder (jersey, shorts, socks, brand, hotspots) stays the game's. The coefficient / normal / taa maps are shading
+// detail: one that cannot be served stays the game's and is counted (FolderVerdict::details_left). The game loads one kit folder at a
+// time (home_0_0, or its alternative version loc2_home_40_0), so each folder is judged on its own.
+bool kit_role(const std::string& role);
+// jersey / shorts / socks coefficient, normal and taa maps (counted, never decisive)
+bool detail_role(const std::string& role);
+struct FolderVerdict {
+    int team = -1, slot = -1;
+    std::string kind;             // the game's kit folder: goalie_home_2_0, loc2_goalie_home_42_0, ...
+    bool swapped = true;          // false: the whole folder stays the game's
+    LeftBy why = LeftBy::None;    // left: the kind of reason (OtherClubs: Options::share_other_clubs would serve it)
+    std::string role;             // left: the texture that decided it ("jersey_color")
+    std::string reason;           // left: that texture's reason (plain words, for the log)
+    std::vector<KitUser> shared;  // left: the kits that share the deciding texture; swapped: the other kits that change with it
+    int details_left = 0;         // swapped: coefficient / normal / taa maps that stay the game's
+};
 struct PlanItem {
     std::string res;      // game resource name
     std::string kind;     // game kit folder (home_0_0, loc2_home_40_0, ...)
@@ -242,6 +268,8 @@ struct PlanItem {
     int blocks = 0;
     uint64_t bytes = 0;   // raw bytes swapped
     uint32_t table_item = 0xFFFFFFFFu;  // the item number in the Table (hit counters), when swap
+    LeftBy left_by = LeftBy::None;      // 2.13: why it is not served
+    std::vector<KitUser> shared;        // 2.13: the other kits on the same data (same chunk or a byte-identical block): served, they change too
 };
 struct Options {
     bool include_decals = true;   // brand_* / crest_* textures of the zip
@@ -249,8 +277,13 @@ struct Options {
     // removes the game's dynamic badge). brand_* (sponsor) pictures follow include_decals. Default on: a blank zip decal never removes the badge.
     bool keep_game_crest = true;
     // 2.7: a texture the game shares between this club's kits (home / away / goalkeeper / third use one chunk) is served too and then shows in
-    // every kit that shares it. Off: such a texture stays the game's. Textures shared with ANOTHER club are never served.
+    // every kit that shares it. Off: such a texture stays the game's. Textures shared with ANOTHER club: share_other_clubs.
     bool share_within_club = false;
+    // 2.13: a texture whose data another CLUB's kit uses too (the same chunk, or a byte-identical compressed block in that club's chunk: EA
+    // reuses goalkeeper templates, e.g. Sevilla's and Aston Villa's goalie_home_2_0 jersey) is served as well, and that club's kit then shows
+    // it too (the plan names every such kit: "also changes team 2 goalie_home_2_0"). Off: it stays the game's, and so does its whole kit
+    // folder when it is a kit_role picture.
+    bool share_other_clubs = false;
     // 2.7: also register the game's own blocks of the club's other kit folders (watch only, never replaced) so one match shows which kit
     // folders (home_0_0, loc2_home_40_0, away_1_0, ...) it really loads
     bool watch_club = true;
@@ -292,7 +325,14 @@ struct Plan {
     std::vector<PlanItem> items;
     int swapped = 0, skipped = 0, probes = 0;
     std::vector<std::string> notes;
+    std::vector<FolderVerdict> folders;  // 2.13: every kit folder of the slot, the main ones first (loc2_* after)
 };
+// 2.13: the whole kit folder `kind` of `plan` stays the game's (by = the deciding item): every item of the folder that was served is not
+// any more (probes stay). Returns the item numbers in the table those items had (the caller leaves them out of the table).
+std::vector<uint32_t> leave_folder(Plan& plan, const std::string& kind, LeftBy why, const std::string& role, const std::string& reason,
+                                   const std::vector<KitUser>& shared);
+// "team 2 goalie_home_2_0, team 50 goalie_home_2_0"
+std::string users_text(const std::vector<KitUser>& users);
 // Builds the plan and appends the accepted blocks to `b` (see TableBuilder). Never throws.
 class TableBuilder {
 public:
@@ -302,8 +342,12 @@ public:
     // data == nullptr: a watch-only item (its blocks carry no replacement and never conflict with a real one)
     uint32_t add_item(std::shared_ptr<std::vector<uint8_t>> data, bool swap);
     bool add_block(uint32_t item, uint32_t csize, uint32_t dsize, uint64_t head, uint64_t fnv, const uint8_t* data, std::string* conflict);
-    // dropped_items: the items that lost every block (the same compressed block wanted with other bytes)
-    std::shared_ptr<Table> finish(std::vector<std::string>* dropped, std::set<uint32_t>* dropped_items = nullptr);
+    // 2.13: the item's blocks stay out of every later finish() (a kit folder left whole after a clash); finish() can run again
+    void exclude_item(uint32_t item);
+    // dropped_items: the items that lost every block (the same compressed block wanted with other bytes: every item of such a group);
+    // clash_with (2.13): for each dropped item, the other items that wanted the same block
+    std::shared_ptr<Table> finish(std::vector<std::string>* dropped, std::set<uint32_t>* dropped_items = nullptr,
+                                  std::map<uint32_t, std::set<uint32_t>>* clash_with = nullptr);
     uint32_t items() const;
 
 private:
@@ -324,6 +368,7 @@ struct SlotState {
     bool decals = true;       // serve the zip's brand_* / crest_* pictures at all
     bool keep_crest = true;   // ... but not the crest_* ones (the game's club badge stays)
     bool share_club = false;  // serve textures the game shares with this club's other kits
+    bool share_other = false; // 2.13: serve textures the game shares with other clubs' kits ("share_other_clubs"; a file without it: off)
 };
 struct ItemStatus {
     int team = -1, slot = -1;
@@ -335,6 +380,8 @@ struct ItemStatus {
     uint64_t hits = 0;
     uint64_t first_ms = 0, last_ms = 0;  // wall clock of the first / last recognised block (0 = never)
     uint32_t table_item = 0xFFFFFFFFu;
+    LeftBy left_by = LeftBy::None;  // 2.13
+    std::vector<KitUser> shared;    // 2.13: the other kits on the same data
 };
 // One kit folder of a club as the match used it: how many of its game textures (blocks) were decompressed so far
 struct KindSeen {
@@ -361,6 +408,7 @@ struct Status {
     std::vector<SlotState> slots;
     std::vector<ItemStatus> items;
     std::vector<KindSeen> kinds;  // per club and kit folder, from the items
+    std::vector<FolderVerdict> folders;  // 2.13: per active kit, every kit folder: shown whole as the zip's, or left whole to the game
     double index_seconds = 0;
     bool index_cached = false;    // the kit index came from turbo_output\kits\kit_index.cache (no scan of the game's tocs)
     int scan_done = 0, scan_total = 0;  // a running scan of the game's tocs (bundles)
@@ -385,9 +433,9 @@ public:
     // Activates a staged kit (turbo_output\kits\<team>\<slot>) in `mode`; async build. false + reason: nothing staged, unknown slot
     bool activate(int team, int slot, Mode mode, std::string* err);
     void deactivate(int team, int slot);
-    // Per-kit choices (decals, keep the game's badge, share within the club): saved, and the table is built again
-    bool set_slot_options(int team, int slot, bool decals, bool keep_crest, bool share_club);
-    bool slot_options(int team, int slot, bool* decals, bool* keep_crest, bool* share_club) const;
+    // Per-kit choices (decals, keep the game's badge, share within the club, share with other clubs): saved, and the table is built again
+    bool set_slot_options(int team, int slot, bool decals, bool keep_crest, bool share_club, bool share_other);
+    bool slot_options(int team, int slot, bool* decals, bool* keep_crest, bool* share_club, bool* share_other = nullptr) const;
     // The kit folders the game has for a club (empty until the kit index exists)
     std::set<std::string> kinds_of(int team) const;
     // Builds the table again (the staged textures of an active kit changed)
@@ -439,6 +487,7 @@ private:
     mutable std::mutex m_;
     std::vector<SlotState> slots_;
     std::vector<ItemStatus> items_;
+    std::vector<FolderVerdict> folders_;
     std::string state_ = "off", message_;
     bool hook_ = false;
     std::string hook_why_;

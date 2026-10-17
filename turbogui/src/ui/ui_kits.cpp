@@ -738,6 +738,91 @@ static void settings_table(App& app, int64_t teamid, const KitPanel::Item& it, s
     ImGui::EndTable();
 }
 
+// ---- 2.13: the 3D kit's status in plain words (one kit folder is shown whole: the zip's, or the game's own)
+static const char* kit_words(const std::string& kind) {
+    switch (kitswap::kind_slot(kind)) {
+        case 0: return "home kit";
+        case 1: return "away kit";
+        case 2: return "GK kit";
+        case 3: return "third kit";
+        case 4: return "fourth kit";
+        default: return "kit";
+    }
+}
+static std::string garment_of(const std::string& role) {
+    if (role.compare(0, 6, "jersey") == 0) return "shirt";
+    if (role.compare(0, 6, "shorts") == 0) return "shorts";
+    if (role.compare(0, 5, "socks") == 0) return "socks";
+    return "texture";
+}
+// "Aston Villa's GK kit and Team 50's GK kit", "this club's away kit"
+static std::string kits_words(const std::vector<kitswap::KitUser>& users, int64_t teamid, const std::function<std::string(int64_t)>& name) {
+    std::vector<std::string> parts;
+    for (const auto& u : users) {
+        const std::string w = (u.team == teamid ? std::string("this club's") : name(u.team) + "'s") + " " + kit_words(u.kind);
+        if (std::find(parts.begin(), parts.end(), w) == parts.end()) parts.push_back(w);
+    }
+    std::string s;
+    for (size_t i = 0; i < parts.size(); ++i) s += (i == 0 ? "" : i + 1 == parts.size() ? " and " : ", ") + parts[i];
+    return s;
+}
+static std::string verdict_words(const kitswap::FolderVerdict& f, int64_t teamid, const std::function<std::string(int64_t)>& name) {
+    std::vector<kitswap::KitUser> others, club;
+    for (const auto& u : f.shared) (u.team == teamid ? club : others).push_back(u);
+    if (f.swapped) {
+        std::string s = "swapped";
+        if (!others.empty()) s += " (also changes " + kits_words(others, teamid, name) + ")";
+        if (f.details_left) s += "; " + std::to_string(f.details_left) + (f.details_left == 1 ? " shading map stays" : " shading maps stay") + " the game's";
+        return s;
+    }
+    const std::string g = garment_of(f.role);
+    const std::string is = "the " + g + (g == "shirt" || g == "texture" ? " is" : " are");
+    switch (f.why) {
+        case kitswap::LeftBy::OtherClubs:
+            if (!others.empty())
+                return "not swapped: " + is + " shared with " + kits_words(others, teamid, name) + "; tick the box above to swap " + (others.size() == 1 ? "both" : "them all");
+            break;
+        case kitswap::LeftBy::ThisClub:
+            if (!club.empty()) return "not swapped: " + is + " shared with " + kits_words(club, teamid, name) + "; tick \"Also change this club's other kits\" above to swap both";
+            break;
+        case kitswap::LeftBy::ThisClubData:
+            if (!f.shared.empty()) return "not swapped: " + is + " made of the same data as " + kits_words(f.shared, teamid, name) + ", which Turbo cannot change on its own";
+            break;
+        case kitswap::LeftBy::Clash:
+            if (!others.empty() || !club.empty())
+                return "not swapped: " + is + " made of the same data as " + kits_words(f.shared, teamid, name) + ", which has its own imported kit with another picture";
+            break;
+        default:
+            break;
+    }
+    return "not swapped (" + g + "): " + f.reason;
+}
+
+std::string kit_swap_status_line(const kitswap::Status& st, int64_t teamid, int slot, const std::function<std::string(int64_t)>& name) {
+    std::vector<const kitswap::FolderVerdict*> fs;  // the main kit folder first, its alternative versions (loc2_*) after
+    for (const auto& f : st.folders)
+        if (f.team == teamid && f.slot == slot) fs.push_back(&f);
+    if (fs.empty()) return "";
+    std::string s = verdict_words(*fs[0], teamid, name);
+    for (size_t i = 1; i < fs.size(); ++i) {
+        if (fs[i]->swapped == fs[0]->swapped) continue;
+        std::string w = verdict_words(*fs[i], teamid, name);
+        if (w.compare(0, 13, "not swapped: ") == 0) w = w.substr(13);
+        s += "; the game's alternative version of this kit (" + fs[i]->kind + ") " + (fs[i]->swapped ? std::string("is swapped") : "stays the game's: " + w);
+    }
+    return s;
+}
+
+std::string kit_swap_shared_clubs(const kitswap::Status& st, int64_t teamid, int slot, const std::function<std::string(int64_t)>& name) {
+    std::vector<kitswap::KitUser> others;
+    for (const auto& it : st.items) {
+        if (it.team != teamid || it.slot != slot || it.probe) continue;
+        for (const auto& u : it.shared)
+            if (u.team != teamid && std::none_of(others.begin(), others.end(), [&](const kitswap::KitUser& o) { return o.team == u.team && o.kind == u.kind; })) others.push_back(u);
+    }
+    return kits_words(others, teamid, name);
+}
+
 // 3D kit on the pitch for one imported slot: off / watch only / show (core/kit_swap.h, win/kit_swap_win.cpp)
 static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
     kitswap::Runtime* rt = app.kit_swap;
@@ -843,8 +928,8 @@ static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
         ImGui::TreePop();
     }
     // per-kit choices (saved)
-    bool decals = true, keep_crest = true, share_club = false;
-    const bool have_opts = rt->slot_options(int(teamid), slot, &decals, &keep_crest, &share_club);
+    bool decals = true, keep_crest = true, share_club = false, share_other = false;
+    const bool have_opts = rt->slot_options(int(teamid), slot, &decals, &keep_crest, &share_club, &share_other);
     bool opt_changed = false;
     if (!have_opts) ImGui::BeginDisabled();
     opt_changed |= ImGui::Checkbox("Also use the zip's badge and brand pictures##kswap", &decals);
@@ -853,8 +938,23 @@ static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
     opt_changed |= ImGui::Checkbox("Do not use the zip's crest pictures##kswap", &keep_crest);
     if (!decals) ImGui::EndDisabled();
     opt_changed |= ImGui::Checkbox("Also change this club's other kits that share a texture with this one##kswap", &share_club);
+    // 2.13: EA reuses some kit pictures between clubs (goalkeeper templates): with this ticked they are replaced too, so the other club's
+    // kit shows them as well; unticked, a kit whose shirt, shorts or socks picture is shared stays the game's whole (never half a kit)
+    opt_changed |= ImGui::Checkbox("Also change other clubs' kits that share this texture##kswap", &share_other);
+    const auto club_name = [&](int64_t id) { return app.model.team_name(id); };
+    const std::string clubs = active ? kit_swap_shared_clubs(st, teamid, slot, club_name) : std::string();
+    if (!clubs.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(shared with %s)", clubs.c_str());
+    }
     if (!have_opts) ImGui::EndDisabled();
-    if (opt_changed && have_opts) rt->set_slot_options(int(teamid), slot, decals, keep_crest, share_club);
+    if (opt_changed && have_opts) rt->set_slot_options(int(teamid), slot, decals, keep_crest, share_club, share_other);
+    const std::string status = active ? kit_swap_status_line(st, teamid, slot, club_name) : std::string();
+    if (!status.empty()) {
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(status.compare(0, 7, "swapped") == 0 ? kGood : kWarn, "Status%s: %s", m == kitswap::Mode::Observe ? " (watch only, nothing is replaced)" : "", status.c_str());
+        ImGui::PopTextWrapPos();
+    }
     kitswap::Options kopt = rt->get_options();
     bool watch_club = kopt.watch_club;
     if (ImGui::Checkbox("Log which of this club's kit folders the match loads (watch only, all slots)##kswap", &watch_club)) {
@@ -872,7 +972,9 @@ static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
     ImGui::TextDisabled("Takes effect when the game next loads this kit (the next match load, or after a game restart when the kit was already loaded this session). "
                         "The zip's crest picture is usually blank and its badge is baked into the jersey picture: its hotspot 'team' is then 'not used' (-0.5), and with 'Also use the zip's badge and brand pictures' ticked (default) the game's own chest badge is switched off, so you see ONE badge (the baked one). "
                         "With that option unticked the game's badge is drawn as well and you may see two. "
-                        "A texture the game shares with another club is never replaced. turbo_output\\kits3d_off.txt switches the feature off at once (it also stops the reading of the game's kit data); "
+                        "A kit is never shown half: when its shirt, shorts or socks picture cannot be replaced, the game's whole kit stays. "
+                        "A texture the game shares with another club is replaced only with 'Also change other clubs' kits that share this texture' (that club's kit then changes too). "
+                        "turbo_output\\kits3d_off.txt switches the feature off at once (it also stops the reading of the game's kit data); "
                         "the log is turbo_output\\kit_swap_log.txt.");
     ImGui::PopTextWrapPos();
     ImGui::Unindent();

@@ -747,6 +747,14 @@ static void kit_import_ui_cases(App& app, Ui& ui, const fs::path& le) {
                 CHECK(rt.slot_options(7, 0, &d0, &k0, &s0) && !s0, "... and the home kit's own choice is untouched");
                 CHECK(ui.click("Do not use the zip's crest pictures##kswap", "##tkits", "away") && rt.slot_options(7, 1, &d, &k, &sc) && !k && sc, "away: untick keep the game's badge");
                 rt.wait_idle();
+                // 2.13: the opt-in for textures EA shares with other clubs' kits (default off, saved per kit, the other kits untouched)
+                bool so = true, so0 = true;
+                CHECK(ui.find("Also change other clubs' kits that share this texture##kswap", "##tkits", "away") && rt.slot_options(7, 1, nullptr, nullptr, nullptr, &so) && !so,
+                      "away: 'Also change other clubs' kits that share this texture' is offered, off by default");
+                CHECK(ui.click("Also change other clubs' kits that share this texture##kswap", "##tkits", "away") && rt.slot_options(7, 1, nullptr, nullptr, nullptr, &so) && so,
+                      "away: ticked and saved");
+                CHECK(rt.slot_options(7, 0, nullptr, nullptr, nullptr, &so0) && !so0 && rt.slot_options(7, 1, &d, &k, &sc) && sc && !k, "... the home kit's choice and the away kit's other choices are untouched");
+                rt.wait_idle();
             }
             CHECK(ui.click("Off##kswap", "##tkits", "away") && !rt.is_active(7, 1) && rt.is_active(7, 0), "away: Off leaves the home kit on");
             rt.wait_idle();
