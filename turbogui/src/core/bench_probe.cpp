@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <set>
 
 namespace turbo {
@@ -244,177 +245,130 @@ int moved_places(const Ids& a, const Ids& b) {
     return n;
 }
 
-void Keeper::reset(KeepPhase to) {
-    ph_ = to;
-    visit_save_t0_ = 0;
-    saw_save_ = have_opened_ = have_saved_ = saved_at_save_ = false;
-    opened_ = saved_ = expect_ = Ids{};
-    closed_at_ = next_try_ = queued_at_ = 0.0;
-    last_refusal_.clear();
-    moved_ = 0;
-}
-
-KeepTick Keeper::step(const Input& in, bool on, const std::string& off_why, long long save_age) {
-    KeepTick t;
-    now_ = in.now;
-    off_why_ = off_why;
-    const KeepPhase idle = on ? KeepPhase::Idle : KeepPhase::Off;
-    if (!in.career) {
-        if (ph_ == KeepPhase::Pending) t.log.push_back("bench keep: the career was left: the write-back is dropped (nothing written)");
-        if (ph_ != idle) reset(idle);
-        tm_ = false;
-        return t;
-    }
-    if (in.load_gen != gen_) {
-        if (ph_ == KeepPhase::Pending) t.log.push_back("bench keep: the career was (re)loaded: the write-back is dropped (nothing written)");
-        reset(idle);
-        gen_ = in.load_gen;
-        tm_ = in.team_mgmt;  // a visit starts only when Team Management opens from here on
-        return t;
-    }
-    if (!on) {
-        if (ph_ == KeepPhase::Pending)
-            t.log.push_back("bench keep: switched off (" + (off_why.empty() ? std::string("no turbo_output\\") + keep_on_file() : off_why) +
-                            "): the write-back is dropped (nothing written)");
-        if (ph_ == KeepPhase::Queued && in.now > queued_at_ + kKeepJobLostS) ph_ = KeepPhase::Done;
-        if (ph_ != KeepPhase::Queued && ph_ != KeepPhase::Off) reset(KeepPhase::Off);  // a queued job re-reads the switches itself
-        tm_ = in.team_mgmt;
-        return t;
-    }
-    if (ph_ == KeepPhase::Off) ph_ = KeepPhase::Idle;
-    if (in.team_mgmt && !tm_) {
-        tm_ = true;
-        if (ph_ == KeepPhase::Pending)
-            t.log.push_back("bench keep: Team Management opened again before the write-back: dropped (Turbo never writes while it is open)");
-        if (ph_ != KeepPhase::Queued) {  // a queued job refuses in the job (G2: Team Management open)
-            reset(KeepPhase::Open);
-            visit_save_t0_ = in.save_t;
-        }
-        return t;
-    }
-    if (!in.team_mgmt && tm_) {
-        tm_ = false;
-        if (ph_ == KeepPhase::Open) {
-            ph_ = KeepPhase::Watch;
-            closed_at_ = in.now;
-            if (in.save_t > visit_save_t0_) saw_save_ = true;
-        }
-        return t;
-    }
-    switch (ph_) {
-        case KeepPhase::Watch:
-            // a save seen together with the close (one bridge poll) or right after it counts for this visit
-            if (in.save_t > visit_save_t0_ && in.now <= closed_at_ + kSaveSlackS) saw_save_ = true;
-            if (in.now > closed_at_ + kAfterCloseS + 5.0) {  // the probe's last read did not come (failed reads)
-                t.log.push_back("bench keep: no reorder seen after Team Management closed: nothing to do");
-                ph_ = KeepPhase::Idle;
-            }
-            break;
-        case KeepPhase::Pending: {
-            std::string wait;
-            if (in.phase != "hub") wait = "Lua's phase is " + (in.phase.empty() ? std::string("not reported") : in.phase) + ", not the hub";
-            else if (save_age >= 0 && save_age < kKeepSaveQuietS) wait = "a save started " + std::to_string(save_age) + " s ago";
-            if (in.now > closed_at_ + kKeepDeadlineS) {
-                outcome_ = "not written back: " + std::to_string(int(kKeepDeadlineS)) + " s after Team Management closed the write-back was still waiting (" +
-                           (!wait.empty() ? wait : !last_refusal_.empty() ? last_refusal_ : std::string("not queued")) + ")";
-                t.log.push_back("bench keep: " + outcome_ + ": given up (nothing written)");
-                ph_ = KeepPhase::Done;
-            } else if (wait.empty() && in.now >= next_try_) {
-                next_try_ = in.now + kKeepRetryS;
-                t.submit = true;
-            }
-            break;
-        }
-        case KeepPhase::Queued:
-            if (in.now > queued_at_ + kKeepJobLostS) {
-                outcome_ = "not written back: the game thread did not run the job";
-                t.log.push_back("bench keep: " + outcome_ + " (nothing written by it)");
-                ph_ = KeepPhase::Done;
-            }
-            break;
-        default: break;
-    }
-    return t;
-}
-
-std::vector<std::string> Keeper::on_read(const Due& d, const Ids& ids, const Namer& name) {
+std::vector<std::string> Probe::on_copies(const Ids& map, const std::vector<CopyView>& copies, const Namer& name) {
     std::vector<std::string> out;
-    if (ph_ == KeepPhase::Open) {
-        if (d.kind == Kind::Opened) {
-            opened_ = ids;
-            have_opened_ = true;
-        } else if (d.kind == Kind::Save) {
-            saved_ = ids;
-            have_saved_ = saved_at_save_ = saw_save_ = true;
-            out.push_back("bench keep: your order at the save (Team Management open) is the one to keep: " + std::to_string(filled(ids).size()) + " players");
+    if (copies_.size() != copies.size()) copies_.assign(copies.size(), CopyView());
+    for (size_t i = 0; i < copies.size(); ++i) {
+        const CopyView& c = copies[i];
+        CopyView& was = copies_[i];
+        if (c.live && (!was.live || c.build != was.build)) {
+            char b[32];
+            std::snprintf(b, sizeof(b), "0x%llX", static_cast<unsigned long long>(c.build));
+            out.push_back("bench probe: Team Management's working copy " + c.label + " built [records " + b + "]: against your map sheet (your saved order): " +
+                          diff_text(map, c.ids, name) + " | " + order_text(c.ids, name));
+        } else if (c.live && was.live && c.ids != was.ids) {
+            out.push_back("bench probe: Team Management's working copy " + c.label + " changed: " + diff_text(was.ids, c.ids, name) +
+                          " | against your map sheet: " + diff_text(map, c.ids, name));
+        } else if (!c.live && was.live) {
+            out.push_back("bench probe: Team Management's working copy " + c.label + " is no longer your sheet's (Team Management closed?)");
         }
-        return out;
+        was = c;
     }
-    if (ph_ != KeepPhase::Watch) return out;
-    if (d.kind == Kind::Closed && !saved_at_save_) {
-        saved_ = ids;
-        have_saved_ = true;
-        out.push_back("bench keep: no save seen while Team Management was open: the order at the close is the one to keep: " + std::to_string(filled(ids).size()) +
-                      " players");
-        return out;
-    }
-    if (d.kind != Kind::Closed && d.kind != Kind::After && d.kind != Kind::Final && d.kind != Kind::Save) return out;
-    if (!have_saved_) return out;
-    const std::string w = shuffle_of(saved_, ids);
-    const std::string when = seconds(now_ - closed_at_) + " after Team Management closed";
-    if (w.empty()) {
-        if (!saw_save_ && have_opened_ && ids == opened_) {
-            outcome_ = "left alone: the order went back to the one Team Management opened with and no save was seen (a No?)";
-            out.push_back("bench keep: " + when + ": " + outcome_);
-            ph_ = KeepPhase::Done;
-            return out;
-        }
-        expect_ = ids;
-        moved_ = moved_places(saved_, ids);
-        ph_ = KeepPhase::Pending;
-        next_try_ = 0.0;
-        out.push_back("bench keep: the game reordered your bench / reserves " + when + " (" + std::to_string(moved_) + " places; the starting XI and the players " +
-                      "unchanged): " + diff_text(saved_, ids, name) + ". Your saved order goes back once the career hub is quiet (no save in the last " +
-                      std::to_string(kKeepSaveQuietS) + " s)");
-        return out;
-    }
-    if (w == "same order") {
-        if (d.kind == Kind::Final) {
-            out.push_back("bench keep: your order held for " + seconds(kAfterCloseS) + " after Team Management closed: nothing to do");
-            ph_ = KeepPhase::Idle;
-        }
-        return out;
-    }
-    outcome_ = "left alone: the sheet changed after Team Management closed, not only its order (" + w + ")";
-    out.push_back("bench keep: " + when + ": " + outcome_);
-    ph_ = KeepPhase::Done;
     return out;
 }
 
-std::string Keeper::prepare(const Ids& now, Ids& saved, Ids& before, std::vector<std::string>& log, const Namer& name) {
-    if (ph_ != KeepPhase::Pending) return "no write-back is waiting";
-    if (now == saved_) {
-        outcome_ = "nothing written: the sheet holds your saved order again (the game put it back itself)";
-        log.push_back("bench keep: " + outcome_);
+KeepOut Keeper::on_read(long long load_gen, const Ids& map, const CopyView& copy, bool on, const std::string& off_why, bool may_write,
+                        const std::string& wait, double now, const Namer& name) {
+    KeepOut o;
+    off_why_ = off_why;
+    if (load_gen != gen_) {
+        if (ph_ == KeepPhase::Pending) o.log.push_back("bench keep: the career was (re)loaded: the write is dropped (nothing written)");
+        gen_ = load_gen;
+        primed_ = false;
+        if (ph_ != KeepPhase::Off && ph_ != KeepPhase::Queued) ph_ = KeepPhase::Idle;
+    }
+    if (ph_ == KeepPhase::Queued && now > queued_at_ + kKeepJobLostS) {
+        outcome_ = "not written: the game thread did not run the job";
+        o.log.push_back("bench keep: " + outcome_ + " (nothing written by it)");
         ph_ = KeepPhase::Done;
-        return "already in place";
     }
-    const std::string w = shuffle_of(saved_, now);
-    if (!w.empty()) {
-        outcome_ = "nothing written: before the write-back the sheet changed, not only its order (" + w + ")";
-        log.push_back("bench keep: " + outcome_);
+    if (!on) {
+        if (ph_ == KeepPhase::Pending)
+            o.log.push_back("bench keep: switched off (" + (off_why.empty() ? std::string("no turbo_output\\") + keep_on_file() : off_why) +
+                            "): the write is dropped (nothing written)");
+        if (ph_ != KeepPhase::Queued) ph_ = KeepPhase::Off;  // a queued job re-reads the switches itself
+        primed_ = false;  // switched on later: the copy's state is learnt first
+        return o;
+    }
+    if (ph_ == KeepPhase::Off) ph_ = KeepPhase::Idle;
+    if (!primed_) {
+        primed_ = true;
+        was_live_ = copy.live;
+        build_ = copy.live ? copy.build : 0;
+        o.log.push_back(std::string("bench keep: watching Team Management's working copy ") + copy.label +
+                        (copy.live ? " (built already: left alone, the next build is written)" : " (not built: Team Management closed)"));
+        return o;
+    }
+    if (!copy.live) {
+        if (was_live_ && ph_ == KeepPhase::Pending) {
+            outcome_ = "not written: the working copy went away before the write (Team Management closed?)";
+            o.log.push_back("bench keep: " + outcome_);
+            ph_ = KeepPhase::Done;
+        }
+        was_live_ = false;
+        return o;
+    }
+    if (!was_live_ || copy.build != build_) {  // a new build
+        was_live_ = true;
+        build_ = copy.build;
+        built_at_ = now;
+        last_refusal_.clear();
+        last_wait_.clear();
+        const std::string w = shuffle_of(map, copy.ids);
+        if (w.empty()) {
+            saved_ = map;
+            expect_ = copy.ids;
+            moved_ = moved_places(map, copy.ids);
+            next_try_ = 0.0;
+            ph_ = KeepPhase::Pending;
+            o.log.push_back("bench keep: Team Management built its working copy " + copy.label + " in another order than your saved one (" +
+                            std::to_string(moved_) + " places of the bench / reserves; the starting XI and the players unchanged): " +
+                            diff_text(map, copy.ids, name) + ". Writing your saved order into it");
+        } else if (w == "same order") {
+            outcome_ = "Team Management's working copy holds your saved order: nothing to write";
+            o.log.push_back("bench keep: " + outcome_);
+            ph_ = KeepPhase::Done;
+        } else {
+            outcome_ = "left alone: Team Management's working copy is not your saved players in another order (" + w + ")";
+            o.log.push_back("bench keep: " + outcome_);
+            ph_ = KeepPhase::Done;
+        }
+    }
+    if (ph_ != KeepPhase::Pending) return o;
+    if (copy.ids != expect_) {
+        outcome_ = "left alone: the working copy changed before the write (a move on the screen?)";
+        o.log.push_back("bench keep: " + outcome_ + " (nothing written)");
         ph_ = KeepPhase::Done;
-        return w;
+        return o;
     }
-    if (now != expect_) {
-        log.push_back("bench keep: the order changed again since the reorder was seen (still your players in another order): " + diff_text(expect_, now, name) +
-                      "; the write-back starts from the latest");
-        expect_ = now;
-        moved_ = moved_places(saved_, now);
+    if (map != saved_) {
+        outcome_ = "left alone: your saved order (the map) changed before the write";
+        o.log.push_back("bench keep: " + outcome_ + " (nothing written)");
+        ph_ = KeepPhase::Done;
+        return o;
     }
-    saved = saved_;
-    before = now;
-    return "";
+    if (now > built_at_ + kKeepDeadlineS) {
+        outcome_ = "not written: " + seconds(kKeepDeadlineS) + " after the build the write was still waiting (" +
+                   (!may_write ? wait : !last_refusal_.empty() ? last_refusal_ : std::string("not queued")) + ")";
+        o.log.push_back("bench keep: " + outcome_ + ": given up (nothing written)");
+        ph_ = KeepPhase::Done;
+        return o;
+    }
+    if (!may_write) {
+        if (wait != last_wait_) {
+            last_wait_ = wait;
+            o.log.push_back("bench keep: the write waits (" + wait + "): until " + seconds(kKeepDeadlineS) + " after the build");
+        }
+        return o;
+    }
+    if (now >= next_try_) {
+        next_try_ = now + kKeepRetryS;
+        o.submit = true;
+        o.saved = saved_;
+        o.before = expect_;
+        o.build = build_;
+    }
+    return o;
 }
 
 void Keeper::queued(double now) {
@@ -425,12 +379,12 @@ void Keeper::queued(double now) {
 void Keeper::not_queued(const std::string& why, std::vector<std::string>& log) {
     if (why != last_refusal_) {
         last_refusal_ = why;
-        log.push_back("bench keep: the write-back is not queued yet (" + why + "): tried again until " + seconds(kKeepDeadlineS) + " after the close");
+        log.push_back("bench keep: the write is not queued yet (" + why + "): tried again until " + seconds(kKeepDeadlineS) + " after the build");
     }
 }
 
 void Keeper::on_result(bool written, const std::string& line) {
-    outcome_ = (written ? "put back: " : "not written back: ") + line;
+    outcome_ = (written ? "put back: " : "not written: ") + line;
     if (ph_ == KeepPhase::Queued) ph_ = KeepPhase::Done;
 }
 
@@ -439,12 +393,10 @@ std::string Keeper::state() const {
     switch (ph_) {
         case KeepPhase::Off:
             return off_why_.empty() ? std::string("off (no turbo_output\\") + keep_on_file() + ")" : "off: " + off_why_;
-        case KeepPhase::Idle: return "on: waiting for Team Management" + last;
-        case KeepPhase::Open: return "on: Team Management is open (your order is taken when the game saves, or when you leave)";
-        case KeepPhase::Watch: return "on: watching your order for " + seconds(kAfterCloseS) + " after Team Management closed";
+        case KeepPhase::Idle: return "on: waiting for Team Management to build its copy of your sheet" + last;
         case KeepPhase::Pending:
-            return "on: the game reordered your bench (" + std::to_string(moved_) + " places): your saved order goes back once the hub is quiet";
-        case KeepPhase::Queued: return "on: writing your saved order back ...";
+            return "on: Team Management's copy has another order (" + std::to_string(moved_) + " places): writing your saved order into it";
+        case KeepPhase::Queued: return "on: writing your saved order into Team Management's copy ...";
         case KeepPhase::Done: return "on: " + outcome_;
     }
     return "";

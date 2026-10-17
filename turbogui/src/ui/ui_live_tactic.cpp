@@ -84,6 +84,8 @@ struct Lt {
     bench::Keeper keeper;
     bool keep_on_file = false;   // turbo_output\bench_keep_on.txt
     std::string keep_block;      // tsheet::bench_switch_block ("" = on)
+    bool copy_live = false;      // Team Management's working copy (svc+0x550) was built at the last read
+    double copy_poll_at = -1.0;  // the next read of your sheet and the copies in the hub (wall seconds)
 };
 Lt g;
 LiveTacticState g_state;
@@ -147,6 +149,10 @@ Context ctx_of(App& app) {
     in.located_load_gen = st.load_gen;
     const Gates gs = evaluate(in);
     c.hub = gs.list.size() > 1 && gs.list[1].pass();
+    // 2.15 bench keep: G2 without its Team Management part (it writes Team Management's working copy, which exists only while it is open)
+    in.team_mgmt = false;
+    const Gates bg = evaluate(in);
+    c.bench_hub = bg.list.size() > 1 && bg.list[1].pass();
     return c;
 }
 
@@ -915,10 +921,11 @@ void draw_body(App& app) {
         bool keep = g.keep_on_file;
         if (checkbox_right("Keep my bench order after Team Management##ltbench", &keep)) set_bench_keep(app, keep);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Off by default. When the game reorders your bench and reserves right after you save Team Management (Yes) and leave, "
-                              "Turbo writes your saved order back once, in the career hub, 30 s after the save: the bench and reserves only, never the "
-                              "starting XI, never a player added or removed; read back, undone on a mismatch. On creates turbo_output\\bench_keep_on.txt; "
-                              "bench_keep_off.txt, tactics_off.txt or call_team_sheet_off.txt switch it off.");
+            ImGui::SetTooltip("Off by default. Team Management shows (and its Yes saves) its own copy of your team sheet, built in the game's order "
+                              "when it opens. With this on, Turbo writes your saved bench and reserves order into that copy right after it is built, "
+                              "once per opening: the bench and reserves only, never the starting XI, never a player added or removed; read back, "
+                              "undone on a mismatch. On creates turbo_output\\bench_keep_on.txt; bench_keep_off.txt, tactics_off.txt or "
+                              "call_team_sheet_off.txt switch it off.");
         g_state.bench_keep_on = g.keep_on_file;
         g_state.bench_keep = "Bench order: " + g.keeper.state();
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
@@ -1283,34 +1290,21 @@ void draw_live_tactic(App& app) {
     }
 }
 
-// 2.15 bench keep: the fresh read right before the write-back, then the service's guarded job (Service::submit_bench). Logs every decision
-void bench_keep_submit(App& app, const bench::Namer& name) {
-    std::vector<std::string> lines;
-    LiveTactic lt;
-    std::string why;
-    if (!app.team_sheet->read(ctx_of(app), lt, why)) {
-        g.keeper.not_queued("the sheet is not readable now: " + why, lines);
-    } else {
-        BenchPlan p;
-        if (g.keeper.prepare(lt.sheet_ids, p.saved, p.before, lines, name).empty()) {
-            p.user = lt.at.user;
-            p.sheet_id = lt.sheet_id;
-            p.load_gen = app.bridge.state().load_gen;
-            if (app.team_sheet->submit_bench(ctx_of(app), p, why)) {
-                g.keeper.queued(wall_now());
-                lines.push_back("bench keep: your saved order is queued for the game thread (" + std::to_string(bench::moved_places(p.saved, p.before)) +
-                                " places of the bench / reserves, sheet " + std::to_string(p.sheet_id) + ")");
-            } else {
-                g.keeper.not_queued(why, lines);
-            }
-        }
-    }
-    for (const std::string& s : lines) log_line(app, s);
+// 2.15 bench keep: why G2 for bench keep does not hold now ("" = it holds)
+std::string bench_wait(App& app) {
+    const BridgeState& st = app.bridge.state();
+    if (!st.loaded || !st.in_cm) return "not in a career";
+    if (st.match_phase != "hub") return "Lua's phase is " + (st.match_phase.empty() ? std::string("not reported") : st.match_phase) + ", not the hub";
+    const long long age = st.save_t > 0 ? (long long)(std::time(nullptr)) - st.save_t : -1;
+    if (age >= 0 && age < kSaveQuietSeconds) return "a save started " + std::to_string(age) + " s ago";
+    if (st.load_gen < 0) return "this Lua side does not report career loads";
+    return "G2";
 }
 
-// The bench probe (core/bench_probe.h): reads your club's sheet when the probe says so and logs what it returns; it never writes. 2.15: the
-// same reads feed bench keep (the Keeper), whose one write-back per Team Management visit is the service's guarded job. Either one alone
-// keeps the reads going (bench_probe_off.txt silences the probe's lines only)
+// The bench probe (core/bench_probe.h): reads your club's sheet when the probe says so and logs what it returns; it never writes. 2.15: in the
+// hub it also reads your sheet and Team Management's working copies every kCopyPollS (BENCH_FINDINGS: Lua's team_mgmt flag is blind on LE
+// 27.1.5; the copy at svc+0x550 being built is Team Management opening), logs the copies, and feeds bench keep (the Keeper), whose one write
+// per build is the service's guarded job. Either one alone keeps the reads going (bench_probe_off.txt silences the probe's lines only)
 void bench_probe_tick(App& app) {
     const double now = wall_now();
     if (now >= g.bench_sw_at) {
@@ -1328,40 +1322,76 @@ void bench_probe_tick(App& app) {
     const std::string session_off = app.team_sheet->bench_off();
     const bool keep = g.keep_block.empty() && session_off.empty();
     const std::string keep_why = !session_off.empty() ? "off for this session: " + session_off : g.keep_on_file ? g.keep_block : std::string();
+    if (g.bench_off && !keep) return;
     bench::Input in;
     in.career = st.loaded && st.in_cm && st.user_team > 0;
     in.load_gen = st.load_gen;
     in.phase = st.loaded ? st.match_phase : std::string();
-    in.team_mgmt = st.loaded && st.team_mgmt;
+    in.team_mgmt = st.loaded && (st.team_mgmt || g.copy_live);  // Lua's flag, or Team Management's working copy built
     in.save_t = st.save_t;
     in.now = now;
-    const long long save_age = st.save_t > 0 ? (long long)(std::time(nullptr)) - st.save_t : -1;  // as G2 counts it (ctx_of)
+    const bench::Due d = g.bench.step(in);
+    const bool poll = in.career && in.phase == "hub" && now >= g.copy_poll_at;
+    if (d.kind == bench::Kind::None && !poll) return;
+    if (poll) g.copy_poll_at = now + bench::kCopyPollS;
+    LiveTactic lt;
+    std::string why;
+    const Context ctx = ctx_of(app);
+    if (!app.team_sheet->read(ctx, lt, why)) {
+        if (d.kind != bench::Kind::None) {
+            const std::string s = g.bench.on_fail(d, why);
+            if (!s.empty() && !g.bench_off) log_line(app, s);
+        }
+        return;
+    }
     const bench::Namer name = [&app](int32_t pid) {
         const PlayerRow* p = app.model.player(pid);
         return (p && !p->name.empty() ? p->name : std::string("?")) + "/" + std::to_string(pid);
     };
-    const bench::KeepTick kt = g.keeper.step(in, keep, keep_why, save_age);
-    for (const std::string& s : kt.log) log_line(app, s);
-    if (kt.submit) bench_keep_submit(app, name);
-    if (g.bench_off && !keep) return;
-    const bench::Due d = g.bench.step(in);
-    if (d.kind == bench::Kind::None) return;
-    LiveTactic lt;
-    std::string why;
-    if (!app.team_sheet->read(ctx_of(app), lt, why)) {
-        const std::string s = g.bench.on_fail(d, why);
-        if (!s.empty() && !g.bench_off) log_line(app, s);
-        return;
+    std::vector<bench::CopyView> views;
+    bench::CopyView target;
+    target.label = "svc+0x550";
+    for (const TmCopy& c : lt.tm_copies) {
+        bench::CopyView v;
+        v.live = c.live(int(st.user_team));
+        v.build = c.rec_begin;
+        v.ids = c.ids;
+        v.label = c.label();
+        views.push_back(v);
+        if (c.offset == kTmCopyTarget) target = v;
     }
-    if (!g.bench_off) {
+    g.copy_live = target.live;
+    std::vector<std::string> lines;
+    if (d.kind != bench::Kind::None) {
         std::vector<int32_t> squad;
-        for (const LinkRow& l : app.model.links_of_team(st.user_team)) squad.push_back(int32_t(l.playerid));
+        if (!g.bench_off)
+            for (const LinkRow& l : app.model.links_of_team(st.user_team)) squad.push_back(int32_t(l.playerid));
         const std::string meta = "team " + std::to_string(st.user_team) + ", sheet " + std::to_string(lt.sheet_id) + ", dirty " + std::to_string(int(lt.dirty));
-        for (const std::string& s : g.bench.on_read(d, lt.sheet_ids, squad, name, meta)) log_line(app, s);
-    } else {
-        g.bench.on_read(d, lt.sheet_ids, {}, name);  // the schedule's own state (the lines are not logged)
+        for (const std::string& s : g.bench.on_read(d, lt.sheet_ids, squad, name, meta)) lines.push_back(s);
     }
-    for (const std::string& s : g.keeper.on_read(d, lt.sheet_ids, name)) log_line(app, s);
+    for (const std::string& s : g.bench.on_copies(lt.sheet_ids, views, name)) lines.push_back(s);
+    if (!g.bench_off)
+        for (const std::string& s : lines) log_line(app, s);
+    // bench keep
+    const std::string wait = ctx.bench_hub ? std::string() : bench_wait(app);
+    bench::KeepOut ko = g.keeper.on_read(st.load_gen, lt.sheet_ids, target, keep, keep_why, ctx.bench_hub, wait, now, name);
+    if (ko.submit) {
+        BenchPlan p;
+        p.user = lt.at.user;
+        p.load_gen = st.load_gen;
+        p.sheet_id = lt.sheet_id;
+        p.build = ko.build;
+        p.saved = ko.saved;
+        p.before = ko.before;
+        if (app.team_sheet->submit_bench(ctx, p, why)) {
+            g.keeper.queued(now);
+            ko.log.push_back("bench keep: your saved order is queued for the game thread (" + std::to_string(bench::moved_places(p.saved, p.before)) +
+                             " places of the bench / reserves, Team Management's working copy " + target.label + ")");
+        } else {
+            g.keeper.not_queued(why, ko.log);
+        }
+    }
+    for (const std::string& s : ko.log) log_line(app, s);
 }
 
 void live_tactic_tick(App& app) {

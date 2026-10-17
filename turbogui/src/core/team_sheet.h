@@ -258,6 +258,33 @@ struct WorkCopy {
     std::array<int32_t, kSlots> pids{}, roles{}, role_ids{}, focuses{};
     std::string label() const;  // "svc+0xF80"
 };
+// ------------------------------------------------------------------------------------------------ bench keep (2.15): the working copies
+// P214 (research_20261017\BENCH_FINDINGS.md, dump evidence\2026-10-17\P214\bench\, LEICESTER 15:17): your club's MAP sheet keeps the order
+// you saved; Team Management builds its own working copy when it OPENS, in the game's own order, shows that, and its Yes copies it into the
+// map (and autosaves). So bench keep writes the map's bench / reserves order into the working copy right after it is built.
+// The working copies: inline sheet elements of the service (each inside a 0x510-byte block starting 0x10 before it: i32 0 / 10 / 11 / 0),
+// at svc+0x550 and svc+0xA60, laid out as a map element (kSheet* offsets). With Team Management open both held teamsheetid -1, your team,
+// current 1, slot count 11, DIRTY 255, mode -1 and the screen's order; they differed only in their record vectors (+0x1B0 / +0x1B8 / +0x1C0,
+// freshly allocated: a new build has new ones). Which of the two the screen draws is not known; bench keep writes +0x550 (the first, as Edit
+// Tactic's edited copy is the first of its pair) and the probe logs both. Whether a copy stays "dirty 255" after Team Management closes is
+// not known either: a build is told by its record vector changing.
+constexpr std::array<uint64_t, 2> kTmCopyOffsets = {0x550, 0xA60};
+constexpr uint64_t kTmCopyTarget = 0x550;
+constexpr uint8_t kTmCopyDirty = 255;
+struct TmCopy {
+    uint64_t offset = 0;      // svc + offset
+    bool readable = false;
+    int32_t sheet_id = 0, team = 0, slot_count = 0, mode = 0;
+    uint8_t current = 0, dirty = 0;
+    uint64_t rec_begin = 0;   // its record vector: the build's identity
+    std::array<int32_t, kSheetPidCount> ids{};
+    // Team Management's working copy of club `user` is built: team == user, dirty 255, slot count 11, mode -1, current 1, readable
+    bool live(int user) const;
+    std::string label() const;  // "svc+0x550"
+};
+// Both working copies of the service, read-only (a copy that cannot be read is listed with readable = false)
+std::vector<TmCopy> read_tm_copies(Memory& mem, uint64_t svc);
+
 struct LiveTactic {
     Located at;
     std::string g5;  // CoreService::read: check_g5 of this read ("" = pass)
@@ -270,6 +297,7 @@ struct LiveTactic {
     std::vector<int32_t> squad;  // the sheet's player ids (not -1)
     std::array<int32_t, kSheetPidCount> sheet_ids{};  // the sheet's 52 player ids in the game's order (-1 = empty; the bench probe)
     std::vector<WorkCopy> copies;  // the four inline records of the service, in kWorkCopyOffsets order
+    std::vector<TmCopy> tm_copies;  // 2.15: Team Management's working copies of your sheet (CoreService::read only; read_live leaves it empty)
     const WorkCopy* copy(uint64_t offset) const;  // nullptr = no such offset
     int matching_copies() const;
 };
@@ -478,19 +506,21 @@ private:
 // "; Edit Tactic copies svc+0xF80, svc+0x1170: the same" when copies were written
 std::string describe_writes(int user, int record_index, const std::vector<FieldWrite>& ws);
 
-// ------------------------------------------------------------------------------------------------ bench keep (2.15): the sheet's order
-// The write-back of your saved bench / reserves order (core/bench_probe.h: the Keeper decides when, Service::submit_bench queues it). ONE
-// game-thread job: L1-L4 and G5 again; the sheet is the plan's (team, sheet id); its 52 ids are exactly `before` (what the fresh read saw);
-// ids 0..10 are `saved`'s and, as a set, the 11 players of the active record's slots; `saved` is `before` with ids 11..51 in another order
-// (bench::shuffle_of: the same values, the empty places where they are, no player twice). Then: snapshot the 52 ids and the dirty flag,
-// write the differing ids among 11..51, dirty = 1 (as UpdateSheet does), read back all 52 ids and the flag; a mismatch puts every id and
-// the flag back from the snapshot and switches bench keep off for the session. Never ids 0..10, never a player added or removed, never
-// another sheet field, the record, the service cache or a game function.
+// ------------------------------------------------------------------------------------------------ bench keep (2.15): the write
+// The write (Keeper decides when, Service::submit_bench queues it). ONE game-thread job: L1-L4 and G5 of the map again; the map still holds
+// exactly `saved` (your saved order) with ids 0..10 = the 11 players of the active record's slots; the working copy at svc+0x550 is still
+// the build the plan was made for (record vector `build`), live for your club with the map's sheet id, and holds exactly `before`; `saved`
+// is `before` with ids 11..51 in another order (bench::shuffle_of: the same values, the empty places where they are, no player twice). Then:
+// snapshot the copy's 52 ids, write the differing ids among 11..51, read all 52 back; a mismatch puts every id back from the snapshot and
+// switches bench keep off for the session. Never ids 0..10, never a player added or removed, never the copy's dirty flag (255 marks it as
+// Team Management's), never the map, the record, the service cache or a game function. Team Management is open by design (the copy is
+// built only then); G2's other parts hold: the hub, no save started in the last kSaveQuietSeconds, the career load.
 struct BenchPlan {
     int user = 0;
     long long load_gen = -1;  // the career load the plan was made in
     int32_t sheet_id = 0;
-    std::array<int32_t, kSheetPidCount> saved{}, before{};
+    uint64_t build = 0;       // the working copy's record vector begin when the plan was made
+    std::array<int32_t, kSheetPidCount> saved{}, before{};  // saved = the map's ids (the order to write), before = the copy's ids now
 };
 struct BenchResult {
     bool ok = false;             // written and read back (or nothing to do)
@@ -500,15 +530,16 @@ struct BenchResult {
     bool session_off = false;    // switch bench keep off for the session
     std::string stage, message;
     int moved = 0;               // places 11..51 written
-    uint8_t dirty_before = 0, dirty_after = 0;
-    std::array<int32_t, kSheetPidCount> after{};  // the 52 ids read back (written: the saved order)
-    // "bench keep: team 95 sheet -1: your saved order written back into places 11..51 (4 places), dirty 0 -> 1 (read back ok)"
+    std::array<int32_t, kSheetPidCount> after{};  // the copy's 52 ids read back (written: the saved order)
+    // "bench keep: team 95 sheet -1: your saved order written into Team Management's working copy svc+0x550, places 11..51 (2 places; the
+    // starting XI untouched) (read back ok)"
     std::string log_line;
     double micros = 0.0;
     int reads = 0;
 };
-// The plan against the live read-out (the sheet, the starters, the permutation). "" = it may be written
-std::string check_bench_plan(const LiveTactic& now, const BenchPlan& p);
+// The plan against the live read-out (the map, its starters) and the working copy (build, identity, ids, the permutation). "" = it may be
+// written
+std::string check_bench_plan(const LiveTactic& now, const TmCopy& copy, const BenchPlan& p);
 // The job (game thread). Never throws
 BenchResult apply_bench(Memory& game, uint64_t svc, const Anchors& a, const BenchPlan& p, const std::atomic<bool>* cancel = nullptr);
 // The switch that blocks a bench keep write, read from turbo_output ("" = none): no bench_keep_on.txt, bench_keep_off.txt, tactics_off.txt,
@@ -718,6 +749,7 @@ struct Context {
     bool in_cm = false;
     bool allow_find = false; // the registry Find may be called (opt-in present, no kill switch, no call_team_sheet_find_off.txt)
     bool hub = false;        // G2 passes now as the UI sees it (the jobs on the game thread check the latest value)
+    bool bench_hub = false;  // 2.15 bench keep: G2 without its Team Management part (bench keep writes while it is open): hub, no save in 30 s, load
     std::string phase;       // Lua's match phase as the UI sees it ("hub" / "prematch" / "match" / "unknown" / ""): the kick-off check
 };
 
@@ -870,6 +902,7 @@ private:
     int user_ = 0;
     std::atomic<long long> cur_gen_{-1};
     std::atomic<bool> cur_hub_{false};
+    std::atomic<bool> cur_bench_hub_{false};  // 2.15: Context::bench_hub
 };
 
 }  // namespace tsheet

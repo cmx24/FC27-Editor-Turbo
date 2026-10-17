@@ -1503,6 +1503,28 @@ ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan&
 // ------------------------------------------------------------------------------------------------ bench keep (2.15)
 static_assert(bench::kIds == kSheetPidCount, "the bench keeper's ids are the sheet's 52");
 
+bool TmCopy::live(int user) const {
+    return readable && user > 0 && team == user && dirty == kTmCopyDirty && slot_count == kSlots && mode == -1 && current == 1;
+}
+
+std::string TmCopy::label() const { return "svc+" + hex(offset); }
+
+std::vector<TmCopy> read_tm_copies(Memory& mem, uint64_t svc) {
+    std::vector<TmCopy> out;
+    for (uint64_t off : kTmCopyOffsets) {
+        TmCopy c;
+        c.offset = off;
+        const uint64_t e = svc + off;
+        bool ok = svc != 0 && mem.rd(e + kSheetId, c.sheet_id) && mem.rd(e + kSheetTeam, c.team) && mem.rd(e + kSheetCurrent, c.current) &&
+                  mem.rd(e + kSheetSlotCount, c.slot_count) && mem.rd(e + kSheetDirty, c.dirty) && mem.rd(e + kSheetMode, c.mode) &&
+                  mem.rd(e + kSheetRecBegin, c.rec_begin);
+        for (int k = 0; ok && k < kSheetPidCount; ++k) ok = mem.rd(e + kSheetPids + 4 * uint64_t(k), c.ids[size_t(k)]);
+        c.readable = ok;
+        out.push_back(c);
+    }
+    return out;
+}
+
 std::string bench_switch_block(const fs::path& out) {
     if (out.empty()) return "no turbo_output folder";
     if (file_exists(out / master_switch_file())) return std::string("kill switch turbo_output\\") + master_switch_file() + " is present";
@@ -1512,20 +1534,32 @@ std::string bench_switch_block(const fs::path& out) {
     return "";
 }
 
-std::string check_bench_plan(const LiveTactic& now, const BenchPlan& p) {
+std::string check_bench_plan(const LiveTactic& now, const TmCopy& copy, const BenchPlan& p) {
     if (now.at.user != p.user) return "the sheet is club " + std::to_string(now.at.user) + "'s, not " + std::to_string(p.user) + "'s";
-    if (now.sheet_id != p.sheet_id) return "the sheet is " + std::to_string(now.sheet_id) + ", not " + std::to_string(p.sheet_id) + " as when the reorder was seen";
+    if (now.sheet_id != p.sheet_id) return "your sheet is " + std::to_string(now.sheet_id) + ", not " + std::to_string(p.sheet_id) + " as when the copy was read";
     for (int k = 0; k < kSheetPidCount; ++k)
-        if (now.sheet_ids[size_t(k)] != p.before[size_t(k)])
-            return "the sheet's order changed since the read before the job (#" + std::to_string(k) + " holds " + std::to_string(now.sheet_ids[size_t(k)]) +
-                   ", not " + std::to_string(p.before[size_t(k)]) + ")";
-    // the layout check: ids 0..10 are the starting XI, i.e. the 11 players of the active tactic's slots (in any order)
+        if (now.sheet_ids[size_t(k)] != p.saved[size_t(k)])
+            return "your saved order (the map) changed since the read (#" + std::to_string(k) + " holds " + std::to_string(now.sheet_ids[size_t(k)]) + ", not " +
+                   std::to_string(p.saved[size_t(k)]) + ")";
+    // the layout check: the map's ids 0..10 are the starting XI, i.e. the 11 players of the active tactic's slots (in any order)
     std::multiset<int32_t> xi(now.sheet_ids.begin(), now.sheet_ids.begin() + bench::kStarters), slots;
     for (const SlotView& v : now.slots) slots.insert(v.pid);
     if (xi.count(-1) || xi != slots || std::set<int32_t>(xi.begin(), xi.end()).size() != size_t(bench::kStarters))
         return "ids 0..10 are not the 11 players of the active tactic's slots (the layout is not the verified one)";
+    if (!copy.readable) return "the working copy " + copy.label() + " is not readable";
+    if (!copy.live(p.user))
+        return "the working copy " + copy.label() + " is not Team Management's copy of your sheet now (team " + std::to_string(copy.team) + ", dirty " +
+               std::to_string(int(copy.dirty)) + ", slots " + std::to_string(copy.slot_count) + ", mode " + std::to_string(copy.mode) + ", current " +
+               std::to_string(int(copy.current)) + ")";
+    if (copy.sheet_id != now.sheet_id) return "the working copy is sheet " + std::to_string(copy.sheet_id) + ", yours is " + std::to_string(now.sheet_id);
+    if (copy.rec_begin != p.build)
+        return "the working copy was built again since the read (its records " + hex(copy.rec_begin) + ", not " + hex(p.build) + ")";
+    for (int k = 0; k < kSheetPidCount; ++k)
+        if (copy.ids[size_t(k)] != p.before[size_t(k)])
+            return "the working copy's order changed since the read (#" + std::to_string(k) + " holds " + std::to_string(copy.ids[size_t(k)]) + ", not " +
+                   std::to_string(p.before[size_t(k)]) + ": a move on the screen?)";
     const std::string w = bench::shuffle_of(p.saved, p.before);
-    if (!w.empty()) return "the saved order is not the sheet's players in another order (" + w + ")";
+    if (!w.empty()) return "the working copy is not your saved players in another order (" + w + ")";
     return "";
 }
 
@@ -1533,6 +1567,7 @@ BenchResult apply_bench(Memory& game, uint64_t svc, const Anchors& a, const Benc
     BenchResult r;
     Counting mem(game);
     const std::string who = "team " + std::to_string(p.user) + " sheet " + std::to_string(p.sheet_id);
+    const std::string target = "svc+" + hex(kTmCopyTarget);
     auto fail = [&](const char* stage, const std::string& msg) {
         r.ok = false;
         r.stage = stage;
@@ -1542,24 +1577,26 @@ BenchResult apply_bench(Memory& game, uint64_t svc, const Anchors& a, const Benc
         return r;
     };
     try {
-        // L1-L4 and G5 again (pointers can move between frames), then the plan against what the sheet holds now
+        // L1-L4 and G5 of your map sheet again (pointers can move between frames), the working copy, then the plan against both
         PageCache walk(mem);
         LiveTactic now;
         std::string why = read_live(walk, svc, p.user, a, now);
         if (!why.empty()) return fail("locate", why + ": nothing written");
         why = check_g5(walk, now);
         if (!why.empty()) return fail("G5", why + ": nothing written");
-        why = check_bench_plan(now, p);
+        TmCopy copy;
+        for (const TmCopy& c : read_tm_copies(mem, svc))
+            if (c.offset == kTmCopyTarget) copy = c;
+        why = check_bench_plan(now, copy, p);
         if (!why.empty()) return fail("changed", why + ": nothing written");
-        // snapshot: the 52 ids and the dirty flag from the game itself
-        const uint64_t ids_at = now.at.sheet + kSheetPids, dirty_addr = now.at.sheet + kSheetDirty;
+        // snapshot: the copy's 52 ids from the game itself
+        const uint64_t ids_at = svc + kTmCopyTarget + kSheetPids;
         std::array<int32_t, kSheetPidCount> snap{};
         for (int k = 0; k < kSheetPidCount; ++k)
             if (!mem.rd(ids_at + 4 * uint64_t(k), snap[size_t(k)])) return fail("snapshot", "id #" + std::to_string(k) + " is not readable: nothing written");
-        if (snap != p.before) return fail("changed", "the sheet's order changed in the job: nothing written");
-        if (!mem.rd(dirty_addr, r.dirty_before)) return fail("snapshot", "the dirty flag is not readable: nothing written");
+        if (snap != p.before) return fail("changed", "the working copy's order changed in the job: nothing written");
         if (cancel && cancel->load()) return fail("cancelled", "the job was given up: nothing written");
-        // write: the differing ids among 11..51 (never 0..10), then the dirty flag as UpdateSheet does
+        // write: the differing ids among 11..51 (never 0..10, never the dirty flag)
         bool write_failed = false;
         int moved = 0;
         for (int k = bench::kStarters; k < kSheetPidCount && !write_failed; ++k) {
@@ -1567,9 +1604,7 @@ BenchResult apply_bench(Memory& game, uint64_t svc, const Anchors& a, const Benc
             ++moved;
             if (!mem.wr(ids_at + 4 * uint64_t(k), p.saved[size_t(k)])) write_failed = true;
         }
-        const uint8_t one = 1;
-        if (!write_failed && !mem.wr(dirty_addr, one)) write_failed = true;
-        // read back all 52 ids and the flag
+        // read back all 52 ids
         std::string bad;
         std::array<int32_t, kSheetPidCount> back{};
         for (int k = 0; k < kSheetPidCount && bad.empty(); ++k) {
@@ -1577,44 +1612,38 @@ BenchResult apply_bench(Memory& game, uint64_t svc, const Anchors& a, const Benc
             if (!mem.rd(ids_at + 4 * uint64_t(k), back[size_t(k)]) || back[size_t(k)] != want)
                 bad = "id #" + std::to_string(k) + " reads " + std::to_string(back[size_t(k)]) + ", not " + std::to_string(want);
         }
-        uint8_t dirty_back = 0;
-        if (bad.empty() && (!mem.rd(dirty_addr, dirty_back) || dirty_back != 1)) bad = "the dirty flag reads " + std::to_string(int(dirty_back));
         if (write_failed && bad.empty()) bad = "a write was refused by the memory layer";
         r.moved = moved;
         if (!bad.empty()) {
-            // put every id and the flag back from the snapshot (only what differs), then read them back
+            // put every id back from the snapshot (only what differs), then read them back
             for (int k = 0; k < kSheetPidCount; ++k) {
                 int32_t cur = 0;
                 if (!mem.rd(ids_at + 4 * uint64_t(k), cur) || cur != snap[size_t(k)]) mem.wr(ids_at + 4 * uint64_t(k), snap[size_t(k)]);
             }
-            uint8_t d = 0;
-            if (!mem.rd(dirty_addr, d) || d != r.dirty_before) mem.wr(dirty_addr, r.dirty_before);
             bool restored = true;
             for (int k = 0; k < kSheetPidCount; ++k) {
                 int32_t cur = 0;
                 if (!mem.rd(ids_at + 4 * uint64_t(k), cur) || cur != snap[size_t(k)]) restored = false;
             }
-            if (!mem.rd(dirty_addr, d) || d != r.dirty_before) restored = false;
             r.undone = restored;
             r.restore_failed = !restored;
             r.session_off = true;
             r.ok = false;
             r.stage = "readback";
-            r.message = "read-back mismatch (" + bad + "): " + (restored ? "every id and the dirty flag were put back" : "PUTTING BACK FAILED") +
+            r.message = "read-back mismatch (" + bad + "): " + (restored ? "every id of the working copy was put back" : "PUTTING BACK FAILED") +
                         "; bench keep is off for this session";
-            r.log_line = "bench keep: " + who + ": READ-BACK MISMATCH (" + bad + "), " + (restored ? "undone from the snapshot" : "undo FAILED") +
-                         "; bench keep is off for this session";
+            r.log_line = "bench keep: " + who + " working copy " + target + ": READ-BACK MISMATCH (" + bad + "), " +
+                         (restored ? "undone from the snapshot" : "undo FAILED") + "; bench keep is off for this session";
             r.reads = mem.reads;
             return r;
         }
         r.after = back;
-        r.dirty_after = dirty_back;
         r.ok = true;
         r.written = moved > 0;
         r.stage = "done";
-        r.message = "your saved order is back in places 11..51 (" + std::to_string(moved) + " places written, read back)";
-        r.log_line = "bench keep: " + who + ": your saved order written back into places 11..51 (" + std::to_string(moved) +
-                     " places; the starting XI untouched), dirty " + std::to_string(int(r.dirty_before)) + " -> 1 (read back ok)";
+        r.message = "your saved order is in Team Management's working copy, places 11..51 (" + std::to_string(moved) + " places written, read back)";
+        r.log_line = "bench keep: " + who + ": your saved order written into Team Management's working copy " + target + ", places 11..51 (" +
+                     std::to_string(moved) + " places; the starting XI untouched) (read back ok)";
         r.reads = mem.reads;
         return r;
     } catch (const std::exception& e) {
@@ -2502,6 +2531,7 @@ bool CoreService::busy() {
 void CoreService::note_context(const Context& ctx) {
     cur_gen_.store(ctx.load_gen);
     cur_hub_.store(ctx.hub);
+    cur_bench_hub_.store(ctx.bench_hub);
     std::string line;
     {
         std::lock_guard<std::mutex> lock(mu_);
@@ -2801,6 +2831,7 @@ bool CoreService::read(const Context& ctx, LiveTactic& out, std::string& why) {
     }
     why = read_live(*h_.mem, svc, ctx.user, h_.anchors, out);
     if (why.empty()) out.g5 = check_g5(*h_.mem, out);
+    if (why.empty()) out.tm_copies = read_tm_copies(*h_.mem, svc);  // 2.15 bench keep: Team Management's working copies (read-only)
     if (why.empty() && ctx.hub) {
         // what the kick-off check of the next match looks for
         std::lock_guard<std::mutex> lock(mu_);
@@ -3052,8 +3083,8 @@ bool CoreService::submit_bench(const Context& ctx, const BenchPlan& plan_in, std
         why = "the plan was made in career load " + std::to_string(plan.load_gen) + ", this is load " + std::to_string(ctx.load_gen);
         return false;
     }
-    if (!ctx.hub) {
-        why = "not in the career hub (G2: the hub, Team Management closed, no save in the last " + std::to_string(kSaveQuietSeconds) + " s)";
+    if (!ctx.bench_hub) {
+        why = "not in the career hub (G2 for bench keep: the hub, no save in the last " + std::to_string(kSaveQuietSeconds) + " s, the career load)";
         return false;
     }
     why = bench_switch_block(h_.out_dir);
@@ -3120,9 +3151,9 @@ bool CoreService::submit_bench(const Context& ctx, const BenchPlan& plan_in, std
         } else if (!(block = bench_switch_block(h_.out_dir)).empty()) {
             stage = "G1";  // a kill switch dropped (or the opt-in removed) after the job was queued
             block += " (seen in the job)";
-        } else if (!cur_hub_.load()) {
+        } else if (!cur_bench_hub_.load()) {
             stage = "G2";
-            block = "not in the career hub any more (Team Management open, a save started, a match, ...)";
+            block = "not in the career hub any more (a save started, a match, ...)";
         } else if (cur_gen_.load() != plan.load_gen) {
             stage = "G2";
             block = "the career was reloaded since the job was queued (load " + std::to_string(cur_gen_.load()) + ", the plan's " +

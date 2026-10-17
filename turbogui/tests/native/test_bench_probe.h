@@ -3,371 +3,266 @@
 // the probe has no write path at all.
 #pragma once
 
-// 2.15 bench keep: the Keeper's decisions (core/bench_probe.h), driven by the probe's own schedule as the card's tick drives them. The write
-// itself (tsheet::apply_bench / submit_bench) is tested on the simulated sheet in test_team_sheet.h
+// 2.15 bench keep: the Keeper's decisions (core/bench_probe.h) on reads of your map sheet and Team Management's working copy (svc+0x550,
+// BENCH_FINDINGS), and the probe's lines about the copies. The write itself (tsheet::apply_bench / submit_bench) is tested on the simulated
+// sheet in test_team_sheet.h
 namespace bench_keep_test {
 using namespace turbo::bench;
-struct Rig {
-    Probe p;
-    Keeper k;
-    Input in;
-    Namer name = [](int32_t pid) { return "P" + std::to_string(pid); };
-    std::vector<std::string> log;
-    bool submit = false;
-    int reads = 0;
-    Rig() {
-        in.career = true;
-        in.load_gen = 1;
-        in.phase = "hub";
-        in.save_t = 1000;
-        in.now = 100.0;
-    }
-    // one tick of the card: the keeper's step, then the probe's read (if due) fed to both
-    void tick(const Ids& ids, bool on = true, const std::string& why = "", long long save_age = -1) {
-        const KeepTick t = k.step(in, on, why, save_age);
-        log.insert(log.end(), t.log.begin(), t.log.end());
-        submit = t.submit;
-        const Due d = p.step(in);
-        if (d.kind == Kind::None) return;
-        ++reads;
-        p.on_read(d, ids, {}, name);
-        const std::vector<std::string> l = k.on_read(d, ids, name);
-        log.insert(log.end(), l.begin(), l.end());
-    }
-    bool logged(const std::string& part) const {
-        for (const auto& l : log)
-            if (l.find(part) != std::string::npos) return true;
-        return false;
-    }
-    std::string last() const { return log.empty() ? std::string() : log.back(); }
-};
 inline Ids sheet(const std::vector<int32_t>& v) {
     Ids ids;
     ids.fill(-1);
     for (size_t k = 0; k < v.size() && k < ids.size(); ++k) ids[k] = v[k];
     return ids;
 }
+inline CopyView copy_of(const Ids& ids, uint64_t build, bool live = true) {
+    CopyView c;
+    c.live = live;
+    c.build = build;
+    c.ids = ids;
+    c.label = "svc+0x550";
+    return c;
+}
+struct Rig {
+    Keeper k;
+    Namer name = [](int32_t pid) { return "P" + std::to_string(pid); };
+    std::vector<std::string> log;
+    KeepOut last;
+    long long gen = 1;
+    double now = 100.0;
+    KeepOut read(const Ids& map, const CopyView& copy, bool on = true, const std::string& why = "", bool may = true, const std::string& wait = "") {
+        last = k.on_read(gen, map, copy, on, why, may, wait, now, name);
+        log.insert(log.end(), last.log.begin(), last.log.end());
+        return last;
+    }
+    bool logged(const std::string& part) const {
+        for (const auto& l : log)
+            if (l.find(part) != std::string::npos) return true;
+        return false;
+    }
+    std::string tail() const { return log.empty() ? std::string() : log.back(); }
+};
 }  // namespace bench_keep_test
 
 static void test_bench_keep() {
     using namespace turbo::bench;
+    using bench_keep_test::copy_of;
     using bench_keep_test::Rig;
     using bench_keep_test::sheet;
-    std::printf("-- bench keep: your saved bench order back after the game reorders it (2.15)\n");
+    std::printf("-- bench keep: your saved bench order into Team Management's working copy (2.15)\n");
     std::vector<int32_t> base;
     for (int i = 1; i <= 25; ++i) base.push_back(i);
-    const Ids U = sheet(base);  // the order the user saved: XI 1..11, bench 12..18, reserves 19..25
-    std::vector<int32_t> o = base, s = base, s2 = base;
-    std::swap(o[11], o[12]);  // the order Team Management opened with
-    std::swap(s[11], s[14]);  // the game's shuffle after the leaving: 4 places
+    const Ids M = sheet(base);  // your map sheet: the order you saved (XI 1..11, bench 12..18, reserves 19..25)
+    std::vector<int32_t> s = base, s2 = base;
+    std::swap(s[11], s[14]);  // the game's own order in the copy Team Management builds: 4 places
     std::swap(s[19], s[22]);
-    std::swap(s2[15], s2[16]);  // another shuffle
-    const Ids O = sheet(o), S = sheet(s), S2 = sheet(s2);
+    std::swap(s2[15], s2[16]);
+    const Ids S = sheet(s), S2 = sheet(s2);
+    const CopyView none = copy_of(Ids{}, 0, false);
 
     // shuffle_of: a permutation of 11..51 only
-    CHECK(shuffle_of(U, S).empty() && moved_places(U, S) == 4, "bench keep: the bench / reserves in another order is a shuffle (4 places)");
-    CHECK(shuffle_of(U, U) == "same order", "bench keep: the same order is not a shuffle");
+    CHECK(shuffle_of(M, S).empty() && moved_places(M, S) == 4, "bench keep: the bench / reserves in another order is a shuffle (4 places)");
+    CHECK(shuffle_of(M, M) == "same order", "bench keep: the same order is not a shuffle");
     {
         Ids x = S;
         std::swap(x[3], x[15]);
-        CHECK(shuffle_of(U, x).find("the starting XI changed (#3 4 -> 16)") == 0, "bench keep: a moved starter is refused: " + shuffle_of(U, x));
+        CHECK(shuffle_of(M, x).find("the starting XI changed (#3 4 -> 16)") == 0, "bench keep: a moved starter is refused: " + shuffle_of(M, x));
         Ids y = S;
         y[24] = 99;
-        const std::string w = shuffle_of(U, y);
+        const std::string w = shuffle_of(M, y);
         CHECK(w.find("other players on the sheet") == 0 && w.find("on now: 99") != std::string::npos && w.find("off now: 25") != std::string::npos,
-              "bench keep: another player on the sheet is refused: " + w);
-        Ids e = U;
+              "bench keep: another player is refused: " + w);
+        Ids e = M;
         e[25] = e[20];
         e[20] = -1;
-        CHECK(shuffle_of(U, e) == "the empty places moved (#20)", "bench keep: a moved empty place is refused: " + shuffle_of(U, e));
-        Ids d1 = U;
-        d1[12] = 12;  // 12 twice (13 gone) in both
+        CHECK(shuffle_of(M, e) == "the empty places moved (#20)", "bench keep: a moved empty place is refused: " + shuffle_of(M, e));
+        Ids d1 = M;
+        d1[12] = 12;
         Ids d2 = d1;
         std::swap(d2[11], d2[14]);
         CHECK(shuffle_of(d1, d2) == "player 12 is on the sheet twice", "bench keep: a player twice is refused: " + shuffle_of(d1, d2));
     }
 
-    // A: the Yes saves while Team Management is open; the game reorders 1 s after the close; the write waits for G2's 30 s after the save
+    // A: off by default; the first read learns the copy's state; Team Management opens = the copy is built in the game's order -> the write
+    // is due in the same read; one write per build
     {
         Rig r;
-        r.tick(O, false);
+        r.read(M, none, false);
         CHECK(r.k.phase() == KeepPhase::Off && r.k.state() == "off (no turbo_output\\bench_keep_on.txt)", "bench keep: off by default: " + r.k.state());
-        r.in.now = 101.0;
-        r.tick(O);
-        CHECK(r.k.phase() == KeepPhase::Idle && r.k.state() == "on: waiting for Team Management", "bench keep: on: " + r.k.state());
-        r.in.team_mgmt = true;
-        r.in.now = 110.0;
-        r.tick(O);
-        CHECK(r.k.phase() == KeepPhase::Open, "bench keep: Team Management open");
-        r.in.now = 111.0;
-        r.tick(U);  // the user reorders
-        r.in.save_t = 1050;
-        r.in.now = 112.2;
-        r.tick(U);
-        CHECK(r.logged("bench keep: your order at the save (Team Management open) is the one to keep: 25 players"), "bench keep: the order at the save is kept");
-        r.in.team_mgmt = false;
-        r.in.now = 113.0;
-        r.tick(U);
-        CHECK(r.k.phase() == KeepPhase::Watch && !r.logged("reordered"), "bench keep: watching after the close (the close read is the saved order)");
-        r.in.now = 114.0;
-        r.tick(S, true, "", 4);
-        CHECK(r.k.phase() == KeepPhase::Pending &&
-                  r.logged("bench keep: the game reordered your bench / reserves 1 s after Team Management closed (4 places; the starting XI and the players unchanged)") &&
-                  r.logged("P12 #11->#14"),
-              "bench keep: the shuffle 1 s after the close arms the write-back: " + r.last());
-        CHECK(r.k.state() == "on: the game reordered your bench (4 places): your saved order goes back once the hub is quiet", r.k.state());
-        CHECK(!r.submit, "bench keep: not in the same tick");
-        r.in.now = 115.0;
-        r.tick(S, true, "", 5);
-        CHECK(!r.submit, "bench keep: no write within 30 s of the save (G2)");
-        r.in.now = 128.0;
-        r.tick(S, true, "", 29);
-        CHECK(!r.submit, "bench keep: 29 s after the save: still not");
-        r.in.now = 129.0;
-        r.tick(S, true, "", 30);
-        CHECK(r.submit, "bench keep: 30 s after the save, in the hub, Team Management closed: the write-back is due");
-        Ids saved{}, before{};
-        std::vector<std::string> l;
-        CHECK(r.k.prepare(S, saved, before, l, r.name).empty() && saved == U && before == S && l.empty(), "bench keep: prepare gives the job's ids");
-        r.k.queued(129.0);
-        CHECK(r.k.phase() == KeepPhase::Queued && r.k.state() == "on: writing your saved order back ...", r.k.state());
-        r.in.now = 130.0;
-        r.tick(S, true, "", 31);
-        CHECK(!r.submit, "bench keep: one job: nothing more while it is queued");
-        r.k.on_result(true, "your saved order is back in places 11..51 (4 places written, read back)");
-        CHECK(r.k.phase() == KeepPhase::Done && r.k.state() == "on: put back: your saved order is back in places 11..51 (4 places written, read back)",
-              r.k.state());
-        for (double t = 131.0; t < 150.0; t += 1.0) {
-            r.in.now = t;
-            r.tick(S2, true, "", 40);
-            CHECK(!r.submit, "bench keep: ONE write-back per Team Management visit");
-        }
-        // the next visit starts over
-        r.in.team_mgmt = true;
-        r.in.now = 200.0;
-        r.tick(U);
-        CHECK(r.k.phase() == KeepPhase::Open, "bench keep: a new visit");
-        r.in.team_mgmt = false;
-        r.in.now = 205.0;
-        r.tick(U, true, "", 150);
-        CHECK(r.k.phase() == KeepPhase::Watch &&
-                  r.logged("bench keep: no save seen while Team Management was open: the order at the close is the one to keep: 25 players"),
-              "bench keep: no save in this visit: the order at the close");
-        for (double t = 206.0; t <= 220.0; t += 1.0) {
-            r.in.now = t;
-            r.tick(U, true, "", 160);
-        }
-        CHECK(r.k.phase() == KeepPhase::Idle && r.logged("bench keep: your order held for 15 s after Team Management closed: nothing to do"),
-              "bench keep: no reorder within 15 s: nothing to do");
-        CHECK(r.k.state().find("on: waiting for Team Management (last: put back:") == 0, r.k.state());
-    }
-
-    // B: the save and the close in one bridge poll: the order at the close is kept, the save still counts for the visit
-    {
-        Rig r;
-        r.tick(O);
-        r.in.team_mgmt = true;
-        r.in.now = 110.0;
-        r.tick(O);
-        r.in.now = 111.0;
-        r.tick(U);
-        r.in.team_mgmt = false;
-        r.in.save_t = 1050;
-        r.in.now = 113.0;
-        r.tick(U, true, "", 0);
-        r.in.now = 113.1;
-        r.tick(U, true, "", 0);  // the probe's save read (after the close)
-        r.in.now = 114.0;
-        r.tick(O, true, "", 1);  // the game's reorder is the opening order: with a save seen, it is still put back
-        CHECK(r.k.phase() == KeepPhase::Pending, "bench keep: save with the close: the reorder is put back: " + r.last());
-    }
-
-    // C: no save (a No) and the order after the close is the one Team Management opened with: the game discarding the edit, left alone
-    {
-        Rig r;
-        r.tick(O);
-        r.in.team_mgmt = true;
-        r.in.now = 110.0;
-        r.tick(O);
-        r.in.now = 111.0;
-        r.tick(U);
-        r.in.team_mgmt = false;
-        r.in.now = 113.0;
-        r.tick(U);
-        r.in.now = 114.0;
-        r.tick(O);
+        r.now = 101.0;
+        r.read(M, none);
+        CHECK(r.k.phase() == KeepPhase::Idle && r.logged("bench keep: watching Team Management's working copy svc+0x550 (not built: Team Management closed)") &&
+                  r.k.state() == "on: waiting for Team Management to build its copy of your sheet",
+              "bench keep: on, watching: " + r.k.state());
+        r.now = 102.0;
+        CHECK(!r.read(M, none).submit, "bench keep: nothing while the copy is not built");
+        r.now = 110.0;
+        const KeepOut o = r.read(M, copy_of(S, 0xB000));
+        CHECK(o.submit && o.saved == M && o.before == S && o.build == 0xB000, "bench keep: a new build in the game's order: the write is due at once");
+        CHECK(r.logged("bench keep: Team Management built its working copy svc+0x550 in another order than your saved one (4 places of the bench / reserves; "
+                       "the starting XI and the players unchanged)") &&
+                  r.logged("P12 #11->#14") && r.logged("Writing your saved order into it"),
+              "bench keep: the build is logged with the moves: " + r.tail());
+        CHECK(r.k.state() == "on: Team Management's copy has another order (4 places): writing your saved order into it", r.k.state());
+        r.k.queued(110.0);
+        CHECK(r.k.phase() == KeepPhase::Queued && r.k.state() == "on: writing your saved order into Team Management's copy ...", r.k.state());
+        r.now = 110.5;
+        CHECK(!r.read(M, copy_of(S, 0xB000)).submit, "bench keep: nothing more while the job is queued");
+        r.k.on_result(true, "your saved order is in Team Management's working copy, places 11..51 (4 places written, read back)");
         CHECK(r.k.phase() == KeepPhase::Done &&
-                  r.logged("bench keep: 1 s after Team Management closed: left alone: the order went back to the one Team Management opened with and no save "
-                           "was seen (a No?)"),
-              "bench keep: a No's revert is left alone: " + r.last());
-        for (double t = 115.0; t < 140.0; t += 1.0) {
-            r.in.now = t;
-            r.tick(O, true, "", -1);
-            CHECK(!r.submit, "bench keep: nothing written after a No");
+                  r.k.state() == "on: put back: your saved order is in Team Management's working copy, places 11..51 (4 places written, read back)",
+              r.k.state());
+        for (double t = 111.0; t < 140.0; t += 1.0) {
+            r.now = t;
+            CHECK(!r.read(M, copy_of(S2, 0xB000)).submit, "bench keep: ONE write per build (the same build reordered again: left alone)");
         }
-        // D: no save but another order than the opening one: the order at the close is put back (the brief's fallback)
-        Rig r2;
-        r2.tick(O);
-        r2.in.team_mgmt = true;
-        r2.in.now = 110.0;
-        r2.tick(O);
-        r2.in.team_mgmt = false;
-        r2.in.now = 113.0;
-        r2.tick(U);
-        r2.in.now = 114.0;
-        r2.tick(S);
-        CHECK(r2.k.phase() == KeepPhase::Pending, "bench keep: no save, another order than the opening one: armed");
-        r2.in.now = 115.0;
-        r2.tick(S);
-        CHECK(r2.submit, "bench keep: no save seen at all: due at once in the hub");
+        // Team Management closes (the copy is no longer your sheet's), opens again: a new build is written again
+        r.now = 150.0;
+        r.read(M, none);
+        r.now = 160.0;
+        const KeepOut o2 = r.read(M, copy_of(S, 0xC000));
+        CHECK(o2.submit && o2.build == 0xC000, "bench keep: the next opening (a new build) is written again");
+        // a new build without the copy going away first (its records were allocated again)
+        r.k.queued(160.0);
+        r.k.on_result(true, "ok");
+        r.now = 170.0;
+        CHECK(r.read(M, copy_of(S, 0xD000)).submit, "bench keep: a new record vector is a new build");
     }
-
-    // E: the sheet changed in more than its order after the close: left alone
+    // B: a copy already built at the first read is left alone; the next build is written
     {
         Rig r;
-        r.tick(O);
-        r.in.team_mgmt = true;
-        r.in.now = 110.0;
-        r.tick(O);
-        r.in.save_t = 1050;
-        r.in.now = 111.0;
-        r.tick(U);
-        r.in.team_mgmt = false;
-        r.in.now = 113.0;
-        r.tick(U);
+        r.read(M, copy_of(S, 0xB000));
+        CHECK(!r.last.submit && r.logged("(built already: left alone, the next build is written)"), "bench keep: a copy built before bench keep looked is left alone");
+        r.now = 101.0;
+        CHECK(!r.read(M, copy_of(S, 0xB000)).submit, "bench keep: still the same build");
+        r.now = 102.0;
+        r.read(M, none);
+        r.now = 103.0;
+        CHECK(r.read(M, copy_of(S, 0xB800)).submit, "bench keep: the next build is written");
+    }
+    // C: the copy already holds your order; the copy is not your players in another order
+    {
+        Rig r;
+        r.read(M, none);
+        r.now = 101.0;
+        CHECK(!r.read(M, copy_of(M, 0xB000)).submit && r.k.phase() == KeepPhase::Done &&
+                  r.logged("bench keep: Team Management's working copy holds your saved order: nothing to write"),
+              "bench keep: the copy in your order: nothing to write");
         Ids x = S;
         std::swap(x[3], x[15]);
-        r.in.now = 114.0;
-        r.tick(x);
-        CHECK(r.k.phase() == KeepPhase::Done && r.logged("left alone: the sheet changed after Team Management closed, not only its order (the starting XI changed"),
-              "bench keep: a moved starter after the close: left alone: " + r.last());
+        r.now = 102.0;
+        r.read(M, none);
+        r.now = 103.0;
+        CHECK(!r.read(M, copy_of(x, 0xC000)).submit && r.k.phase() == KeepPhase::Done &&
+                  r.logged("left alone: Team Management's working copy is not your saved players in another order (the starting XI changed"),
+              "bench keep: another starting XI: left alone");
     }
-
-    // F: the gates while the write-back waits: a match, the deadline, Team Management again, a reload, the kill switch, the career left
-    auto armed = [&]() {
-        Rig* r = new Rig();
-        r->tick(O);
-        r->in.team_mgmt = true;
-        r->in.now = 110.0;
-        r->tick(O);
-        r->in.save_t = 1050;
-        r->in.now = 111.0;
-        r->tick(U);
-        r->in.team_mgmt = false;
-        r->in.now = 113.0;
-        r->tick(U);
-        r->in.now = 114.0;
-        r->tick(S, true, "", 4);
-        return std::unique_ptr<Rig>(r);
-    };
-    {
-        auto r = armed();
-        CHECK(r->k.phase() == KeepPhase::Pending, "bench keep: armed");
-        r->in.phase = "prematch";
-        for (double t = 150.0; t < 203.0; t += 1.0) {
-            r->in.now = t;
-            r->tick(S, true, "", 60);
-            CHECK(!r->submit, "bench keep: never outside the hub");
-        }
-        r->in.now = 204.0;
-        r->tick(S, true, "", 60);
-        CHECK(r->k.phase() == KeepPhase::Done &&
-                  r->logged("bench keep: not written back: 90 s after Team Management closed the write-back was still waiting (Lua's phase is prematch, not the hub): "
-                            "given up (nothing written)"),
-              "bench keep: given up 90 s after the close: " + r->last());
-    }
-    {
-        auto r = armed();
-        r->in.team_mgmt = true;
-        r->in.now = 150.0;
-        r->tick(S, true, "", 40);
-        CHECK(r->k.phase() == KeepPhase::Open && !r->submit &&
-                  r->logged("bench keep: Team Management opened again before the write-back: dropped (Turbo never writes while it is open)"),
-              "bench keep: Team Management again: dropped");
-    }
-    {
-        auto r = armed();
-        r->in.load_gen = 2;
-        r->in.now = 150.0;
-        r->tick(S, true, "", 40);
-        CHECK(r->k.phase() == KeepPhase::Idle && !r->submit && r->logged("bench keep: the career was (re)loaded: the write-back is dropped"),
-              "bench keep: a reload drops it");
-    }
-    {
-        auto r = armed();
-        r->in.now = 150.0;
-        r->tick(S, false, "kill switch turbo_output\\bench_keep_off.txt is present", 40);
-        CHECK(r->k.phase() == KeepPhase::Off && !r->submit &&
-                  r->logged("bench keep: switched off (kill switch turbo_output\\bench_keep_off.txt is present): the write-back is dropped (nothing written)") &&
-                  r->k.state() == "off: kill switch turbo_output\\bench_keep_off.txt is present",
-              "bench keep: the kill switch drops it: " + r->k.state());
-    }
-    {
-        auto r = armed();
-        r->in.career = false;
-        r->in.now = 150.0;
-        r->tick(S, true, "", 40);
-        CHECK(r->k.phase() == KeepPhase::Idle && r->logged("bench keep: the career was left: the write-back is dropped"), "bench keep: the career left drops it");
-    }
-    // G: a refused submit is tried again every second and logged once per reason; a queued job that never comes back is given up
-    {
-        auto r = armed();
-        r->in.now = 150.0;
-        r->tick(S, true, "", 40);
-        CHECK(r->submit, "bench keep: due");
-        std::vector<std::string> l;
-        r->k.not_queued("a channel E job is still queued or running", l);
-        r->k.not_queued("a channel E job is still queued or running", l);
-        CHECK(l.size() == 1 && l[0].find("bench keep: the write-back is not queued yet (a channel E job is still queued or running): tried again") == 0,
-              "bench keep: a refusal is logged once");
-        r->in.now = 150.5;
-        r->tick(S, true, "", 40);
-        CHECK(!r->submit, "bench keep: not every frame");
-        r->in.now = 151.0;
-        r->tick(S, true, "", 41);
-        CHECK(r->submit, "bench keep: tried again a second later");
-        Ids saved{}, before{};
-        CHECK(r->k.prepare(S, saved, before, l, r->name).empty(), "prepare");
-        r->k.queued(151.0);
-        r->in.now = 167.0;
-        r->tick(S, true, "", 57);
-        CHECK(r->k.phase() == KeepPhase::Done && r->logged("bench keep: not written back: the game thread did not run the job (nothing written by it)"),
-              "bench keep: a lost job is given up");
-    }
-    // H: prepare: the game put the order back itself; a newer reorder; a sheet that changed in its players
-    {
-        Ids saved{}, before{};
-        std::vector<std::string> l;
-        auto r = armed();
-        CHECK(r->k.prepare(U, saved, before, l, r->name) == "already in place" && r->k.phase() == KeepPhase::Done &&
-                  l.back() == "bench keep: nothing written: the sheet holds your saved order again (the game put it back itself)",
-              "bench keep: the saved order is back by itself: nothing written");
-        auto r2 = armed();
-        l.clear();
-        CHECK(r2->k.prepare(S2, saved, before, l, r2->name).empty() && before == S2 && saved == U && l.size() == 1 &&
-                  l[0].find("the order changed again since the reorder was seen") != std::string::npos,
-              "bench keep: a newer reorder: the job starts from the latest");
-        auto r3 = armed();
-        l.clear();
-        Ids y = S;
-        y[24] = 99;
-        CHECK(r3->k.prepare(y, saved, before, l, r3->name).find("other players") == 0 && r3->k.phase() == KeepPhase::Done,
-              "bench keep: other players before the job: nothing written");
-    }
-    // I: switched on while Team Management is open: no visit until it opens again (the opening order is not known)
+    // D: G2 for bench keep does not hold (a save started 10 s ago): the write waits, logged once, then goes when it holds; or is given up
     {
         Rig r;
-        r.in.team_mgmt = true;
-        r.tick(O, false);
-        r.in.now = 101.0;
-        r.tick(O, true);
-        CHECK(r.k.phase() == KeepPhase::Idle, "bench keep: on while Team Management is open: waits for the next visit");
-        r.in.team_mgmt = false;
-        r.in.now = 102.0;
-        r.tick(U);
-        r.in.now = 103.0;
-        r.tick(S);
-        CHECK(r.k.phase() == KeepPhase::Idle, "bench keep: nothing armed without a visit");
+        r.read(M, none);
+        r.now = 110.0;
+        CHECK(!r.read(M, copy_of(S, 0xB000), true, "", false, "a save started 10 s ago").submit, "bench keep: waits while G2 does not hold");
+        r.now = 111.0;
+        r.read(M, copy_of(S, 0xB000), true, "", false, "a save started 11 s ago");
+        r.now = 111.5;
+        r.read(M, copy_of(S, 0xB000), true, "", false, "a save started 11 s ago");
+        int waits = 0;
+        for (const auto& l : r.log) waits += l.find("bench keep: the write waits (") == 0 ? 1 : 0;
+        CHECK(waits == 2 && r.logged("bench keep: the write waits (a save started 10 s ago): until 20 s after the build"), "bench keep: each new reason once");
+        r.now = 115.0;
+        CHECK(r.read(M, copy_of(S, 0xB000)).submit, "bench keep: G2 holds again within 20 s: the write goes");
+        Rig r2;
+        r2.read(M, none);
+        r2.now = 110.0;
+        r2.read(M, copy_of(S, 0xB000), true, "", false, "Lua's phase is prematch, not the hub");
+        r2.now = 131.0;
+        CHECK(!r2.read(M, copy_of(S, 0xB000), true, "", false, "Lua's phase is prematch, not the hub").submit && r2.k.phase() == KeepPhase::Done &&
+                  r2.logged("bench keep: not written: 20 s after the build the write was still waiting (Lua's phase is prematch, not the hub): given up "
+                            "(nothing written)"),
+              "bench keep: given up 20 s after the build: " + r2.tail());
+    }
+    // E: dropped before the write: the copy changed (a move on the screen), the copy went away, the switch, a reload
+    {
+        Rig r;
+        r.read(M, none);
+        r.now = 110.0;
+        r.read(M, copy_of(S, 0xB000), true, "", false, "a save started 5 s ago");
+        r.now = 111.0;
+        CHECK(!r.read(M, copy_of(S2, 0xB000), true, "", true).submit && r.k.phase() == KeepPhase::Done &&
+                  r.logged("bench keep: left alone: the working copy changed before the write (a move on the screen?) (nothing written)"),
+              "bench keep: the copy moved first: left alone");
+        Rig r2;
+        r2.read(M, none);
+        r2.now = 110.0;
+        r2.read(M, copy_of(S, 0xB000), true, "", false, "w");
+        r2.now = 111.0;
+        r2.read(M, none);
+        CHECK(r2.k.phase() == KeepPhase::Done && r2.logged("not written: the working copy went away before the write (Team Management closed?)"),
+              "bench keep: the copy gone: dropped");
+        Rig r3;
+        r3.read(M, none);
+        r3.now = 110.0;
+        r3.read(M, copy_of(S, 0xB000), true, "", false, "w");
+        r3.now = 111.0;
+        r3.read(M, copy_of(S, 0xB000), false, "kill switch turbo_output\\bench_keep_off.txt is present");
+        CHECK(r3.k.phase() == KeepPhase::Off && !r3.last.submit &&
+                  r3.logged("bench keep: switched off (kill switch turbo_output\\bench_keep_off.txt is present): the write is dropped (nothing written)") &&
+                  r3.k.state() == "off: kill switch turbo_output\\bench_keep_off.txt is present",
+              "bench keep: the kill switch drops it: " + r3.k.state());
+        r3.now = 112.0;
+        r3.read(M, copy_of(S, 0xB000));
+        CHECK(!r3.last.submit && r3.logged("(built already: left alone"), "bench keep: switched on again: the copy's state is learnt first");
+        Rig r4;
+        r4.read(M, none);
+        r4.now = 110.0;
+        r4.read(M, copy_of(S, 0xB000), true, "", false, "w");
+        r4.gen = 2;
+        r4.now = 111.0;
+        r4.read(M, copy_of(S, 0xB000));
+        CHECK(!r4.last.submit && r4.logged("bench keep: the career was (re)loaded: the write is dropped (nothing written)"), "bench keep: a reload drops it");
+    }
+    // F: a refused submit is tried again every second and logged once per reason; a queued job that never comes back is given up
+    {
+        Rig r;
+        r.read(M, none);
+        r.now = 110.0;
+        CHECK(r.read(M, copy_of(S, 0xB000)).submit, "due");
+        std::vector<std::string> l;
+        r.k.not_queued("a channel E job is still queued or running", l);
+        r.k.not_queued("a channel E job is still queued or running", l);
+        CHECK(l.size() == 1 && l[0].find("bench keep: the write is not queued yet (a channel E job is still queued or running): tried again until 20 s after") == 0,
+              "bench keep: a refusal is logged once");
+        r.now = 110.5;
+        CHECK(!r.read(M, copy_of(S, 0xB000)).submit, "bench keep: not every read");
+        r.now = 111.0;
+        CHECK(r.read(M, copy_of(S, 0xB000)).submit, "bench keep: tried again a second later");
+        r.k.queued(111.0);
+        r.now = 127.0;
+        r.read(M, copy_of(S, 0xB000));
+        CHECK(r.k.phase() == KeepPhase::Done && r.logged("bench keep: not written: the game thread did not run the job (nothing written by it)"),
+              "bench keep: a lost job is given up");
+    }
+    // G: the probe's lines about the copies: built (against your map sheet), changed while built, gone
+    {
+        Probe p;
+        const Namer name = [](int32_t pid) { return "P" + std::to_string(pid); };
+        CopyView other = copy_of(S, 0xA000);
+        other.label = "svc+0xA60";
+        std::vector<std::string> l = p.on_copies(M, {none, copy_of(Ids{}, 0, false)}, name);
+        CHECK(l.empty(), "bench probe: nothing while no copy is built");
+        l = p.on_copies(M, {copy_of(S, 0xB000), other}, name);
+        CHECK(l.size() == 2 && l[0].find("bench probe: Team Management's working copy svc+0x550 built [records 0xB000]: against your map sheet (your saved order): "
+                                         "4 of 25 places changed") == 0 &&
+                  l[0].find("| 25 players: #0 P1") != std::string::npos && l[1].find("svc+0xA60 built [records 0xA000]") != std::string::npos,
+              "bench probe: both copies' builds are logged with their order against the map: " + (l.empty() ? std::string() : l[0]));
+        CHECK(p.on_copies(M, {copy_of(S, 0xB000), other}, name).empty(), "bench probe: an unchanged copy logs nothing");
+        l = p.on_copies(M, {copy_of(M, 0xB000), other}, name);
+        CHECK(l.size() == 1 && l[0].find("bench probe: Team Management's working copy svc+0x550 changed: 4 of 25 places changed") == 0 &&
+                  l[0].find("against your map sheet: same order") != std::string::npos,
+              "bench probe: a change of the built copy (Turbo's write, a move on the screen) is logged: " + (l.empty() ? std::string() : l[0]));
+        l = p.on_copies(M, {none, other}, name);
+        CHECK(l.size() == 1 && l[0] == "bench probe: Team Management's working copy svc+0x550 is no longer your sheet's (Team Management closed?)",
+              "bench probe: the copy going away is logged");
     }
 }
 
