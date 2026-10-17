@@ -11,6 +11,7 @@
 #pragma once
 #include <atomic>
 #include <chrono>
+#include <thread>
 
 #include "core/frame_cost.h"
 
@@ -295,6 +296,10 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         app.prefs.advanced_mode = true;
         app.visible = true;
         const fs::path seeded = seed_cache(app);
+        // custom_file lists a mods\legacy folder again while it is under 2 s old (core/legacy.cpp); the cases before this one
+        // just wrote custom pictures and kits there. Measured once every folder is older, as in a game where they do not
+        // change every frame (120 frames here take a few ms of real time)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2100));
         CHECK(!seeded.empty() && app.legacy.cached_files() >= static_cast<size_t>(kSeedFiles), fmt("picture cache seeded (%zu files)", app.legacy.cached_files()));
         // the host's game-hook report (the Windows host builds it from ~25 kill-switch files and the game calls' locks): counted
         auto saved_report = app.hook_report;
@@ -360,10 +365,10 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         if (!counting) return;
         // Known and bounded, not fixed in 2.16 gui/perf (named in its report): Kits and Identity still look at each picture's and
         // kit import record's files every frame (LegacyImages::locate + TextureCache::file: about 6 calls per picture drawn;
-        // measured 8 and 13 per frame here) and Bulk edit one file a frame. They keep a per-frame ceiling instead of the
+        // measured 8 and 13 per frame here; Squad when the players shown have pictures) and Bulk edit one file a frame. They keep a per-frame ceiling instead of the
         // polls-only rule; the folder listing per picture (custom_file) is gone (no directory read on any page).
         auto per_item_page = [](const std::string& what) {
-            for (const char* p : {"Club & Kits > Kits", "Club & Kits > Identity", "Advanced > Bulk edit"})
+            for (const char* p : {"Squad & Players > Squad", "Club & Kits > Kits", "Club & Kits > Identity", "Advanced > Bulk edit"})
                 if (what == p) return true;
             return false;
         };
