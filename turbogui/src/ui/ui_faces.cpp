@@ -277,15 +277,16 @@ static std::vector<std::string> game_head_sources(const game_heads::HeadInfo& h)
     return s;
 }
 
-// Where the picture is now (asks the game when needed): Ready with its path and file, Loading, or None
+// Where the picture is now (asks the game when needed): Ready with its path and file, Loading, Stalled (asked and
+// nothing came for LegacyImages::kStallSeconds: never a dead end), or None
 static game_heads::PictureState find_source(App& app, const MinifaceMove& mv, std::string* path, fs::path* file) {
     if (mv.sources.empty()) return game_heads::PictureState::None;
     LegacyImages::State st = LegacyImages::State::Missing;
     const std::string p = app.legacy.first_present(mv.sources, file, &st);
     if (path) *path = p;
-    if (st == LegacyImages::State::Custom || st == LegacyImages::State::Game) return game_heads::PictureState::Ready;
-    if (st == LegacyImages::State::Waiting) return game_heads::PictureState::Loading;
-    return game_heads::PictureState::None;
+    const bool waiting = st == LegacyImages::State::Waiting;
+    return game_heads::settle_picture(st == LegacyImages::State::Custom || st == LegacyImages::State::Game, waiting,
+                                      waiting ? app.legacy.waiting_for(p) : 0.0, LegacyImages::kStallSeconds);
 }
 
 // The picture written as his miniface: a player's miniface onto a player byte for byte, anything else framed to the

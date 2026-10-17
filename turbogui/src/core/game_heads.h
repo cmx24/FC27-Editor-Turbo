@@ -226,7 +226,16 @@ enum class PictureState {
     Ready,    // the source picture is at hand (custom or game file): copied with the head
     Loading,  // asked from the game, not there yet: nothing is written now (the user clicks again in a moment)
     None,     // the game has no picture for this head: the head is written, the old picture stays, and the message says so
+    Stalled,  // asked, and nothing came for LegacyImages::kStallSeconds (no career loaded, Live Editor busy): as None, so
+              // a click is never a dead end, with the reason in the message
 };
+// What the picture loader says, as a PictureState: at hand = Ready; asked and not there = Loading, or Stalled once it
+// has waited `stall_s` seconds; neither = None
+inline PictureState settle_picture(bool at_hand, bool waiting, double waited_s, double stall_s) {
+    if (at_hand) return PictureState::Ready;
+    if (waiting) return waited_s >= stall_s ? PictureState::Stalled : PictureState::Loading;
+    return PictureState::None;
+}
 struct MinifacePlan {
     bool write_head = false;  // go ahead with the head fields
     bool copy = false;        // copy the source picture to the target's miniface
@@ -248,6 +257,11 @@ inline MinifacePlan miniface_plan(PictureState s, const std::string& target) {
             p.write_head = true;
             p.note = "the game ships no miniface for this head, so " + target + " still shows the old face: make one in the "
                      "Miniface tab (Generate from 3D model)";
+            break;
+        case PictureState::Stalled:
+            p.write_head = true;
+            p.note = "the game has sent no pictures for a while (no career loaded, or Live Editor busy), so " + target +
+                     " still shows the old face: give the head again once pictures load to bring its miniface";
             break;
     }
     return p;

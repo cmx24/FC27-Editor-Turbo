@@ -5805,6 +5805,48 @@ static void test_ui() {
             CHECK(ui.find("tattoo11") != nullptr, "now every tattoo");
             CHECK(ui.click("tattoo12"), "pick 12");
             CHECK(app.db.get_int(*t, rec, "tattoohead") == 12, "tattoohead = 12");
+
+            // never a mixed result: a head whose miniface the game lacks is given and the message says his old miniface
+            // stays; a head whose miniface has not arrived yet writes nothing (click again once it is there)
+            static const char* kHeadFields[] = {"headassetid", "headclasscode", "hashighqualityhead", "headtypecode", "headvariation"};
+            int64_t before[5];
+            for (int i = 0; i < 5; ++i) before[i] = app.db.get_int(*t, rec, kHeadFields[i]);
+            const fs::path cache_heads = le / "turbo_output" / "cache" / "legacy" / "data" / "ui" / "imgAssets" / "heads";
+            const fs::path missing_txt = le / "turbo_output" / "cache" / "legacy" / "missing.txt";
+            const std::vector<uint8_t> keep5 = file_bytes(cache_heads / "p1005.dds"), keep6 = file_bytes(cache_heads / "p1006.dds");
+            const std::vector<uint8_t> keep_missing = file_bytes(missing_txt);
+            fs::remove(cache_heads / "p1005.dds");
+            fs::remove(cache_heads / "p1006.dds");
+            {
+                std::ofstream m(missing_txt, std::ios::binary | std::ios::app);
+                m << legacy_path::player_miniface(1006) << "\n";
+            }
+            app.legacy.refresh_missing();
+            CHECK(ui.click("Choose a real face..."), "open the chooser again");
+            ui.frames(3);
+            CHECK(ui.click("face1006", "Choose a real face"), "pick head 1006 (the game has no miniface for it)");
+            CHECK(app.db.get_int(*t, rec, "headassetid") == 1006, "head 1006 given");
+            CHECK(ui.toast_contains("ships no miniface for this head, so his miniface p3001.dds still shows the old face"),
+                  "toast: his old miniface stays, said plainly");
+            CHECK(ui.click("Choose a real face..."), "open the chooser again");
+            ui.frames(3);
+            CHECK(ui.click("face1005", "Choose a real face"), "pick head 1005 (its miniface has not arrived)");
+            CHECK(app.db.get_int(*t, rec, "headassetid") == 1006, "nothing written while its miniface loads");
+            CHECK(ui.toast_contains("nothing written: the head's miniface is still loading"), "toast: click again in a moment");
+            CHECK(ui.click("Close##faces"), "close");
+            // put the pictures and his head back for the cases below
+            {
+                std::ofstream o5(cache_heads / "p1005.dds", std::ios::binary);
+                o5.write(reinterpret_cast<const char*>(keep5.data()), static_cast<std::streamsize>(keep5.size()));
+                std::ofstream o6(cache_heads / "p1006.dds", std::ios::binary);
+                o6.write(reinterpret_cast<const char*>(keep6.data()), static_cast<std::streamsize>(keep6.size()));
+                std::ofstream om(missing_txt, std::ios::binary | std::ios::trunc);
+                om.write(reinterpret_cast<const char*>(keep_missing.data()), static_cast<std::streamsize>(keep_missing.size()));
+            }
+            app.legacy.refresh_missing();
+            for (int i = 0; i < 5; ++i) CHECK(app.db.set_int(*t, rec, kHeadFields[i], before[i]), std::string("restored ") + kHeadFields[i]);
+            app.model.refresh_player(3001, app.today());
+            ui.frames(2);
         });
 
 

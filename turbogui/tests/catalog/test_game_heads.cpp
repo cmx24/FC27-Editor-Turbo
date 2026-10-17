@@ -156,6 +156,17 @@ static void test_miniface_plan() {
     check(n.write_head && !n.copy && !n.in_step && n.note.find("no miniface") != std::string::npos &&
               n.note.find("p7 still shows the old face") != std::string::npos,
           "no picture in the game: the head is written and the message says the old picture stays");
+    const game_heads::MinifacePlan st = game_heads::miniface_plan(game_heads::PictureState::Stalled, "his miniface p7");
+    check(st.write_head && !st.copy && !st.in_step && st.note.find("no pictures for a while") != std::string::npos &&
+              st.note.find("p7 still shows the old face") != std::string::npos,
+          "pictures stalled: never a dead end, the head is written and the message says why the miniface is not");
+    using game_heads::PictureState;
+    check(game_heads::settle_picture(true, false, 0, 20) == PictureState::Ready &&
+              game_heads::settle_picture(false, true, 3, 20) == PictureState::Loading &&
+              game_heads::settle_picture(false, true, 20, 20) == PictureState::Stalled &&
+              game_heads::settle_picture(false, true, -1, 20) == PictureState::Loading &&
+              game_heads::settle_picture(false, false, 0, 20) == PictureState::None,
+          "loader states: at hand, asked (Loading until the stall time), none");
 }
 
 static void test_five_per_menu() {
