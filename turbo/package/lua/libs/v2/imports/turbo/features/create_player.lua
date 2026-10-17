@@ -390,6 +390,8 @@ function M.run(ctx)
             "or 0 (the Turbo GUI's Create player > Player ID box gives a new player that head)", pid,
             typed_taken == "head3d" and "head" or typed_taken, gate.build or "?")
     end
+    -- never a mixed result (2026-10-17): a CMTracker photo miniface only comes with his real 3D head
+    local cm_generic_head = false
     if cm and db.has_field(players, "headassetid") and db.has_field(players, "headclasscode") then
         local real = real_id
         local okh, why, hidden = false, nil, false
@@ -400,6 +402,7 @@ function M.run(ctx)
             if hidden then head_log = real end
         else
             row.headassetid, row.headclasscode = pid, 1
+            cm_generic_head = true
             head_note = real and string.format(", generic head (the game has no real face for this player: %s)", why) or nil
         end
         if real and real > 0 then log_gate(pid, real, okh, why) end
@@ -511,6 +514,11 @@ function M.run(ctx)
 
     -- miniface from a Turbo JSON next to the file (both paths)
     local function miniface()
+        if cm_generic_head and parsed and type(parsed.miniface) == "string" and parsed.miniface ~= "" then
+            -- the photo next to a generic 3D head would be a mixed result: the game draws his generic head's own miniface
+            summary = summary .. ", CMTracker photo not used (the game has no real face for him, so his generic head shows its own miniface)"
+            return
+        end
         if parsed and parsed.kind == "turbo_json" and type(parsed.miniface) == "string" and parsed.miniface ~= "" then
             local pp = require 'imports/turbo/features/player_presets'
             local src = util.join(parsed.dir, parsed.miniface)

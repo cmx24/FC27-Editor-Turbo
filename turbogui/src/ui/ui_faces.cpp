@@ -291,7 +291,8 @@ static game_heads::PictureState find_source(App& app, const MinifaceMove& mv, st
 
 // The picture written as his miniface: a player's miniface onto a player byte for byte, anything else framed to the
 // target's size and encoded as DXT5 (save_custom keeps a backup of what it replaces)
-static bool write_miniface(App& app, const MinifaceMove& mv, const std::string& src, const fs::path& file, std::string* err) {
+static bool write_miniface(App& app, const MinifaceMove& mv, const std::string& src, const fs::path& file, std::string* err,
+                           fs::path* backup = nullptr) {
     std::vector<uint8_t> bytes;
     if (mv.size == kPlayerMinifaceSize && src.find("/heads/p") != std::string::npos) {
         std::ifstream in(file, std::ios::binary);
@@ -305,14 +306,15 @@ static bool write_miniface(App& app, const MinifaceMove& mv, const std::string& 
         if (err) *err = "empty picture";
         return false;
     }
-    if (!app.legacy.save_custom(mv.target, bytes, err)) return false;
+    if (!app.legacy.save_custom(mv.target, bytes, err, backup)) return false;
     app.textures.forget(app.legacy.custom_file(mv.target));
     return true;
 }
 
 // After the head fields are written: the miniface part of the plan, said in `note`
 static void finish_miniface(App& app, const MinifaceMove& mv, const game_heads::MinifacePlan& plan, const std::string& src,
-                            const fs::path& file, std::string& note, bool* in_step) {
+                            const fs::path& file, std::string& note, bool* in_step,
+                            std::vector<App::UndoStep::Picture>* written = nullptr) {
     if (in_step) *in_step = false;
     if (!plan.copy) {
         note += "; " + plan.note;
@@ -324,7 +326,9 @@ static void finish_miniface(App& app, const MinifaceMove& mv, const game_heads::
         return;
     }
     std::string err;
-    if (write_miniface(app, mv, src, file, &err)) {
+    fs::path backup;
+    if (write_miniface(app, mv, src, file, &err, &backup)) {
+        if (written) written->push_back({mv.target, backup});
         if (in_step) *in_step = true;
         note += "; " + mv.label + " now shows " + file_part(src);
     } else {
@@ -374,6 +378,7 @@ bool apply_game_head(App& app, int64_t head_id, int64_t target_id, bool target_i
     }
     if (writes.empty()) return fail("no head fields in the " + t->name + " table");
     const std::string target = (target_is_manager ? "manager " : "player ") + std::to_string(target_id);
+    const uint64_t pushes = app.undo_pushes;
     for (const auto& w : writes) {
         const int64_t old = app.db.get_int(*t, rec, w.first->name, 0);
         if (!app.edit(*t, rec, *w.first, w.second)) return fail("writing " + w.first->name + " failed");
@@ -387,7 +392,10 @@ bool apply_game_head(App& app, int64_t head_id, int64_t target_id, bool target_i
     }
     std::string note = "game head " + game_heads::display_name(*h) + " given to " + target_name + " (logged in asset_writes.log)";
     if (!target_is_manager) faces3d_forget_render(app, false, target_id);  // the chooser's render of him shows the old head
-    finish_miniface(app, mv, plan, src, src_file, note, in_step);
+    std::vector<App::UndoStep::Picture> written;
+    finish_miniface(app, mv, plan, src, src_file, note, in_step, &written);
+    // a player: one Undo puts the whole give back (head fields and miniface); managers have no per-row undo
+    if (!target_is_manager) app.group_undo(target_id, static_cast<size_t>(app.undo_pushes - pushes), std::move(written));
     (void)o;
     if (msg) *msg = note;
     return true;
@@ -471,10 +479,14 @@ bool apply_real_face(App& app, int64_t target_pid, int64_t owner_pid, const Real
         if (msg) *msg = plan.note;
         return false;
     }
+    const uint64_t pushes = app.undo_pushes;
     if (!copy_head(app, *t, owner->rec, *t, target->rec, o, msg)) return false;
     faces3d_forget_render(app, false, target_pid);  // the chooser's render of him shows the old head
     std::string note = "head of " + owner->name + " given to " + target->name;
-    finish_miniface(app, mv, plan, src, src_file, note, in_step);
+    std::vector<App::UndoStep::Picture> written;
+    finish_miniface(app, mv, plan, src, src_file, note, in_step, &written);
+    // one Undo puts the whole give back: every head field and the miniface (never a head undone without its picture)
+    app.group_undo(target_pid, static_cast<size_t>(app.undo_pushes - pushes), std::move(written));
     if (msg) *msg = note;
     return true;
 }

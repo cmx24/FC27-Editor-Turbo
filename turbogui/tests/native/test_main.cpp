@@ -6176,6 +6176,116 @@ static void test_ui() {
             ui.frames(2);
         });
 
+        run_case("UI: a head given through the chooser comes with its miniface, and ONE Undo puts both back (never a mixed result)", [&] {
+            const Table* pt = app.db.table("players");
+            const PlayerRow* pr = app.model.player(3001);
+            CHECK(pt && pr, "player 3001");
+            if (!pt || !pr) return;
+            const uint64_t prec = pr->rec;
+            const char* hf[] = {"headassetid", "headclasscode", "hashighqualityhead", "headtypecode", "headvariation"};
+            std::vector<int64_t> before;
+            for (const char* f : hf) before.push_back(app.db.get_int(*pt, prec, f, -1));
+            const std::string mpath = legacy_path::player_miniface(3001);
+            fs::path custom = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p3001.dds";
+            fs::remove(custom);
+            const size_t undo0 = app.undo_count(3001);
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.click("3001", "##plist"), "player 3001");
+            CHECK(ui.click("Appearance", "##pedit"), "Appearance tab");
+            CHECK(ui.click("Choose a real face..."), "open the chooser");
+            ui.frames(3);
+            CHECK(ui.click("face1004", "Choose a real face"), "pick 1004's head");
+            ui.frames(2);
+            CHECK(app.db.get_int(*pt, prec, "headassetid", -1) == app.db.get_int(*pt, app.model.player(1004)->rec, "headassetid", -2),
+                  "head of 1004 given to 3001");
+            CHECK(fs::exists(custom), "his miniface p3001.dds now shows 1004's picture (custom file written)");
+            CHECK(app.undo_count(3001) == undo0 + 1, "the whole give is ONE undo step (was one step per field): " +
+                                                       std::to_string(app.undo_count(3001) - undo0));
+            CHECK(app.undo(3001), "Undo");
+            for (size_t k = 0; k < before.size(); ++k)
+                CHECK(app.db.get_int(*pt, prec, hf[k], -1) == before[k], std::string(hf[k]) + " back as before");
+            CHECK(!fs::exists(custom), "his custom miniface removed again: the game's own p3001 shows (there was none before)");
+            CHECK(ui.toast_contains("and the miniface back as before"), "the toast names the miniface");
+            CHECK(app.undo_count(3001) == undo0, "nothing left over");
+            ui.click("Close##faces");
+            ui.frames(2);
+        });
+
+        run_case("UI: Undo of a head given over a CUSTOM miniface puts that custom picture back byte for byte", [&] {
+            const Table* pt = app.db.table("players");
+            const PlayerRow* pr = app.model.player(3001);
+            if (!pt || !pr) return;
+            fs::path custom = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p3001.dds";
+            fs::create_directories(custom.parent_path());
+            Rgba own;
+            own.w = own.h = 256;
+            own.px.assign(size_t(256) * 256 * 4, 0);
+            for (size_t k = 0; k < own.px.size(); k += 4) {
+                own.px[k] = 0x20;
+                own.px[k + 1] = 0x40;
+                own.px[k + 2] = 0xA0;
+                own.px[k + 3] = 0xFF;
+            }
+            const std::vector<uint8_t> own_bytes = encode_dds_dxt5(own);
+            CHECK(app.legacy.save_custom(legacy_path::player_miniface(3001), own_bytes), "his own custom picture");
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.click("3001", "##plist") && ui.click("Appearance", "##pedit") && ui.click("Choose a real face..."), "chooser");
+            ui.frames(3);
+            CHECK(ui.click("face1004", "Choose a real face"), "pick 1004's head");
+            ui.frames(2);
+            std::ifstream a(custom, std::ios::binary);
+            std::vector<uint8_t> mid((std::istreambuf_iterator<char>(a)), std::istreambuf_iterator<char>());
+            a.close();
+            CHECK(!mid.empty() && mid != own_bytes, "1004's picture replaced his custom one");
+            CHECK(app.undo(3001), "Undo");
+            std::ifstream b(custom, std::ios::binary);
+            std::vector<uint8_t> back((std::istreambuf_iterator<char>(b)), std::istreambuf_iterator<char>());
+            b.close();
+            CHECK(back == own_bytes, "his own custom picture is back byte for byte (from turbo_output\\miniface_backups)");
+            fs::remove(custom);
+            ui.click("Close##faces");
+            ui.frames(2);
+        });
+
+        run_case("UI: a TYPED head change offers the matching miniface; using it joins the head's undo step; a generic head offers nothing", [&] {
+            const Table* pt = app.db.table("players");
+            const PlayerRow* pr = app.model.player(3001);
+            const PlayerRow* owner = app.model.player(1004);
+            if (!pt || !pr || !owner) return;
+            const Field* fh = pt->field("headassetid");
+            const Field* fc = pt->field("headclasscode");
+            CHECK(fh && fc, "head fields");
+            if (!fh || !fc) return;
+            const int64_t h0 = app.db.get_int(*pt, pr->rec, "headassetid", -1), c0 = app.db.get_int(*pt, pr->rec, "headclasscode", -1);
+            fs::path custom = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p3001.dds";
+            fs::remove(custom);
+            app.head_miniface_kept.clear();
+            const int64_t owner_head = app.db.get_int(*pt, owner->rec, "headassetid", -1);
+            CHECK(app.edit_field(*pt, pr->rec, *fc, Value::of_int(0)) && app.edit_field(*pt, pr->rec, *fh, Value::of_int(owner_head)),
+                  "typed: head class 0, head " + std::to_string(owner_head));
+            CHECK(owner_head == 1004 && app.head_miniface_mismatch(3001) == 1004, "the editor sees 1004's head next to his old picture");
+            app.request_tab = 0;
+            ui.frames(2);
+            CHECK(ui.click("3001", "##plist"), "player 3001");
+            ui.frames(2);
+            CHECK(ui.find("Use the matching miniface##hmf") != nullptr, "the banner with its button");
+            CHECK(ui.click("Use the matching miniface##hmf"), "use it");
+            ui.frames(2);
+            CHECK(fs::exists(custom) && app.head_miniface_mismatch(3001) == 0, "p3001.dds written, nothing mixed any more");
+            CHECK(app.undo(3001), "Undo (the head id step, with the picture attached)");
+            CHECK(!fs::exists(custom), "the picture went back with the head id");
+            CHECK(app.undo(3001), "Undo the class step");
+            CHECK(app.db.get_int(*pt, pr->rec, "headassetid", -1) == h0 && app.db.get_int(*pt, pr->rec, "headclasscode", -1) == c0,
+                  "head as before");
+            // a generic head (class 1): the game draws it, no offer
+            CHECK(app.edit_field(*pt, pr->rec, *fc, Value::of_int(1)), "class 1");
+            CHECK(app.head_miniface_mismatch(3001) == 0, "a generic head is never mixed (the game draws it)");
+            app.undo(3001);
+            app.head_miniface_kept.clear();
+        });
+
         run_case("UI: real-face chooser with 3D looks: 3D facets, 'not classified yet', unsure values, Only heads with a 3D look", [&] {
             // a test table: 1001 .. 1004 classified from their 3D renders (1002 unsure of its hair type), 1005 / 1006 not yet
             static const face3d::Look looks[] = {
