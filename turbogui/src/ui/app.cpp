@@ -874,9 +874,9 @@ bool App::refresh() {
         if (!bridge.meta_error().empty())
             db_error = bridge.meta_error();
         else if (!bridge.state().meta_error.empty())
-            db_error = "Turbo's Lua side cannot read the game database: " + bridge.state().meta_error;
+            db_error = "Turbo cannot read the game database: " + bridge.state().meta_error;
         else
-            db_error = "waiting for Turbo's Lua side (turbo_output\\bridge_meta.json)";
+            db_error = "Open your career in the game; Turbo connects by itself.";
         return false;
     }
     const auto& st = bridge.state();
@@ -1726,14 +1726,14 @@ void App::draw() {
     if (connected()) {
         ImGui::TextColored(ImVec4(0.45f, 0.9f, 0.45f, 1.0f), "Connected");
     } else {
-        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Not connected");
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Waiting for your career");
     }
     ImGui::SameLine();
     if (connected()) {
         ImGui::TextDisabled("| %zu players | %zu teams | %s | %s", model.players().size(), model.teams().size(),
                             st.in_cm ? "career loaded" : "no career loaded", st.le_version.c_str());
     } else {
-        ImGui::TextDisabled("| %s", db_error.empty() ? "waiting for Turbo's Lua side (enter a career)" : db_error.c_str());
+        ImGui::TextDisabled("| %s", db_error.empty() ? "Open your career in the game; Turbo connects by itself." : db_error.c_str());
     }
     if (!lua_queue.empty()) {
         ImGui::SameLine();

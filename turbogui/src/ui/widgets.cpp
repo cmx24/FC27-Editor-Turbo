@@ -582,8 +582,7 @@ bool position_combo(const char* id, int& pos, float width, const char* none_labe
 
 void not_connected_hint() {
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::TextWrapped("Not connected to the game database yet. Turbo connects when you enter a career, or at once when you run "
-                       "lua\\scripts\\turbo_gui_load.lua in Live Editor's Lua Engine.");
+    ImGui::TextWrapped("Waiting for your career. Open it in the game; Turbo connects by itself.");
     ImGui::PopStyleColor();
 }
 

@@ -348,7 +348,7 @@ void draw_presets(App& app) {
     const bool have = g.preset_sel >= 0 && g.preset_sel < int(g.presets.size());
     ImGui::SameLine();
     ImGui::BeginDisabled(!have);
-    if (ImGui::Button("Load: apply when the game is closed (stage)##gsload")) load_preset(app);
+    if (ImGui::Button("Install when I close the game###gsload")) load_preset(app);
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("Apply at next launch: writes turbo_output\\%s (the verified sliders of the preset). Nothing changes in the game until you close it and run "

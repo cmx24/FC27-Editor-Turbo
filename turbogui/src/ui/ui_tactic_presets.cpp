@@ -699,13 +699,13 @@ void presets_editor_panel(App& app, void*) {
     if (ImGui::CollapsingHeader("Live now##tpsec_live", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::TextWrapped("%s", g_state.live_line.c_str());
         bool on = g_state.opt_in;
-        if (checkbox_right("Channel E on (turbo_output\\call_team_sheet_on.txt): needed to read and load the live tactic##tpopt", &on)) {
+        if (checkbox_right("Let Turbo change my tactic###tpopt", &on)) {
             live_tactic_set_opt_in(app, on);
             read_live(app, true);
             g_state.opt_in = on;
         }
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Off by default. On creates turbo_output\\call_team_sheet_on.txt; call_team_sheet_off.txt or tactics_off.txt switch every write off.");
+            ImGui::SetTooltip("Off by default. Turn it on so Turbo can read your club's tactic and apply presets to it.");
         if (ImGui::SmallButton("Read live##tpreadlive")) read_live(app, true);
     }
     if (ImGui::CollapsingHeader("Selected preset##tpsec_sel", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -718,20 +718,20 @@ void presets_editor_panel(App& app, void*) {
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.45f);
         ImGui::InputTextWithHint("##tpname", "Preset name", g.name, sizeof(g.name));
         ImGui::SameLine();
-        ImGui::Checkbox("with the Custom sliders block##tpwithsliders", &g.include_settings);
+        ImGui::Checkbox("Include gameplay sliders###tpwithsliders", &g.include_settings);
         g_state.include_settings = g.include_settings;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Also stores the Game Settings sliders (read from the settings file the game saved last). Loading stages the 3 screen-proven sliders, "
-                              "and the other table-mapped ones when 'unverified sliders' is ticked.");
+                              "and the other table-mapped ones when 'Extra sliders' is ticked.");
         g_state.can_save = !trimmed_name().empty();
         ImGui::BeginDisabled(!g_state.can_save);
         ImGui::SameLine();
         if (ImGui::Button("Save current##tpsave")) save_current(app);
         ImGui::EndDisabled();
-        ImGui::Checkbox("unverified sliders (test build)##tpunver", &g.include_unverified);
+        ImGui::Checkbox("Extra sliders (experimental)###tpunver", &g.include_unverified);
         g_state.include_unverified = g.include_unverified;
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("2.12.1 proof build: also stage the ~120 sliders the game's own slider table maps but the EA Custom screen has not shown yet. The flag is saved in the "
+            ImGui::SetTooltip("Also install about 120 more sliders that the game's own table lists but the EA Custom screen has not shown yet. Experimental. The choice is saved in the "
                               "preset. Untick for the 3 screen-proven sliders only.");
         ImGui::SameLine();
         ImGui::Checkbox("with the set pieces##tpwithsp", &g.include_setpieces);
@@ -835,7 +835,7 @@ void gameplay_editor_panel(App& app, void*) {
                            "(turbo_settings_apply.exe), then show on the EA Custom screen.",
                            p->settings.values.size(), p->settings.include_unverified ? ", including sliders the EA screen has not shown yet" : "");
         g_gp.read_back_ok = g.have_last && g.last.preset == p->name && g.last.state == "loaded";
-        if (g_gp.read_back_ok) theme::ok_text("Applied, read back OK (%s)", g.last.when.c_str());
+        if (g_gp.read_back_ok) theme::ok_text("Prepared (%s): close the game to install", g.last.when.c_str());
         else if (g.have_last && g.last.preset == p->name) theme::muted_text("Last apply: %s", g.last.state.c_str());
     } else {
         theme::muted_text("Pick a slider preset on the left.");

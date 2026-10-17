@@ -624,7 +624,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         const json pj = read_json(out / presets_dir() / "My_sliders.json");
         CHECK(pj["values"].size() == 2 && pj["source"].value("file", "") == kName, "the preset holds the two verified sliders");
         // Load = stage
-        CHECK(ui.click("Load: apply when the game is closed (stage)##gsload"), "Load");
+        CHECK(ui.click("###gsload"), "Load");
         ui.frames(2);
         CHECK(fs::exists(out / pending_file(), ec) && s.pending_line.find("\"My sliders\", 2 slider(s)") != std::string::npos, "staged: " + s.pending_line);
         CHECK(md5s(settings) == folder_before, "Load wrote nothing into the settings folder");
