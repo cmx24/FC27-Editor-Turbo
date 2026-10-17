@@ -1459,8 +1459,11 @@ static bool strip_button(const char* label, bool selected, bool first) {
     const ImGuiStyle& st = ImGui::GetStyle();
     const float w = ImGui::CalcTextSize(label).x + st.FramePadding.x * 2.0f;
     if (!first) {
-        const float room = ImGui::GetContentRegionAvail().x - st.ItemSpacing.x;
-        if (room >= w) ImGui::SameLine();  // else: the next line
+        // P213 triage: measured on the previous button's row. Measured before SameLine (as it was), the room is always the whole
+        // width (the cursor already sits at the next line's start), so the strip never wrapped: in a window narrower than the strip
+        // (Career tools needs about 1450 px at UI size 1; the default window is 1180 x 760) its last pages ran off the right edge
+        ImGui::SameLine();
+        if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();  // the next line
     }
     const ImVec4 fill = selected ? theme::accent() : ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
     ImGui::PushStyleColor(ImGuiCol_Button, fill);
