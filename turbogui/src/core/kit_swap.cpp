@@ -1588,7 +1588,7 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
                 ++plan.probes;
             }
         }
-        // the counts, and per served folder: the other kits that change with it, the shading maps that stay the game's
+        // the counts, and per served folder: the other kits that change with it, the detail maps that stay the game's
         plan.swapped = plan.skipped = 0;
         for (const PlanItem& it : plan.items)
             if (!it.probe) ++(it.swap ? plan.swapped : plan.skipped);
@@ -2217,7 +2217,7 @@ void Runtime::flush_log(bool force) {
         o << "  team " << f.team << " " << slot_folder_name(f.slot) << " " << f.kind << ": ";
         if (f.swapped) {
             o << "swapped";
-            if (f.details_left) o << " (" << f.details_left << " shading map(s) stay the game's)";
+            if (f.details_left) o << " (" << f.details_left << " detail map(s) stay the game's)";
             std::vector<KitUser> changed;
             for (const auto& u : f.shared)
                 if (u.team != f.team) changed.push_back(u);

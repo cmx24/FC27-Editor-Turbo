@@ -769,7 +769,7 @@ static std::string verdict_words(const kitswap::FolderVerdict& f, int64_t teamid
     if (f.swapped) {
         std::string s = "swapped";
         if (!others.empty()) s += " (also changes " + kits_words(others, teamid, name) + ")";
-        if (f.details_left) s += "; " + std::to_string(f.details_left) + (f.details_left == 1 ? " shading map stays" : " shading maps stay") + " the game's";
+        if (f.details_left) s += "; " + std::to_string(f.details_left) + (f.details_left == 1 ? " detail map stays" : " detail maps stay") + " the game's";
         return s;
     }
     const std::string g = garment_of(f.role);
@@ -777,10 +777,10 @@ static std::string verdict_words(const kitswap::FolderVerdict& f, int64_t teamid
     switch (f.why) {
         case kitswap::LeftBy::OtherClubs:
             if (!others.empty())
-                return "not swapped: " + is + " shared with " + kits_words(others, teamid, name) + "; tick the box above to swap " + (others.size() == 1 ? "both" : "them all");
+                return "not swapped: " + is + " shared with " + kits_words(others, teamid, name) + "; tick 'Also change other clubs' kits...' to swap " + (others.size() == 1 ? "both" : "them all");
             break;
         case kitswap::LeftBy::ThisClub:
-            if (!club.empty()) return "not swapped: " + is + " shared with " + kits_words(club, teamid, name) + "; tick \"Also change this club's other kits\" above to swap both";
+            if (!club.empty()) return "not swapped: " + is + " shared with " + kits_words(club, teamid, name) + "; tick 'Also change this club's other kits...' to swap both";
             break;
         case kitswap::LeftBy::ThisClubData:
             if (!f.shared.empty()) return "not swapped: " + is + " made of the same data as " + kits_words(f.shared, teamid, name) + ", which Turbo cannot change on its own";
