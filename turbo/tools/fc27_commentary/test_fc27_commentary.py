@@ -215,6 +215,24 @@ def main():
           and sorted(teams) == ["dr", "gm"])
     check("union: every set of every team", union["simple"] == [51, 777, 888, 239598] and union["link"] == [300]
           and union["high"] == [51, 52])
+    # An index without data over SEVERAL parameters is an identity when it has one row per key combination (FC 27 spa_es
+    # psimple_surname: cm_sim x surname_ID x player_intensity = 2 x 2841 x 1 rows): rows follow the prefix-sum order,
+    # last parameter fastest. A count that does not match stays an error (the eng_us gm HIGH fixture above).
+    ds = object.__new__(fc.DataSet)
+    ds.name, ds._d, ds.rows = fc.djb2x("Selection"), b"", 4
+    ds.indexes = [{"ptr": 0, "params": [{"name": "cm_sim", "values": [0, 1]},
+                                        {"name": "surname_ID", "values": [900002, 900762]},
+                                        {"name": "player_intensity", "values": [2]}]}]
+    keys = ds.row_keys()
+    check("an index without data over several parameters: one row per key, last parameter fastest",
+          [(keys[r]["cm_sim"], keys[r]["surname_ID"], keys[r]["player_intensity"]) for r in range(4)]
+          == [(0, 900002, 2), (0, 900762, 2), (1, 900002, 2), (1, 900762, 2)])
+    ds.rows = 5
+    try:
+        ds.row_keys()
+        check("an index without data whose key count is not the row count is refused", False)
+    except fc.FormatError as ex:
+        check("an index without data whose key count is not the row count is refused", "not an identity" in str(ex))
     ita = FakeBank("ita_it", {
         "sound/speech/loccommentary/ita_it/soundwaves/ita_it_full/pplayer_names_simple": sble("player_db_pID", (5, 6)),
         "sound/speech/loccommentary/ita_it/soundwaves/ita_it_demo/pplayer_names_simple": sble("player_db_pID", (6, 9)),

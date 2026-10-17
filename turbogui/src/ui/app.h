@@ -100,7 +100,25 @@ public:
         std::string field;
         Value before;
         std::vector<std::pair<std::string, Value>> also;  // other fields of the same change, same record (a typed overall's attributes)
+        // Pictures the same change wrote (a head given with its miniface): undo puts each back from its backup, or removes
+        // Turbo's custom file when there was none before (backup empty). Never a head undone without its miniface.
+        struct Picture {
+            std::string path;                 // legacy path, e.g. data/ui/imgAssets/heads/p1234.dds
+            std::filesystem::path backup;     // the custom file it replaced (turbo_output\miniface_backups\...); empty = none
+        };
+        std::vector<Picture> pictures;
     };
+    // Fold the last `n` undo steps of this player into one step (a multi-field change such as a head given through the
+    // real-face chooser) and attach the pictures it wrote. Fewer steps than `n` (the deque was capped): folds what is there.
+    void group_undo(int64_t playerid, size_t n, std::vector<UndoStep::Picture> pictures);
+    uint64_t undo_pushes = 0;  // every undo step pushed (any player): a caller measures how many its change pushed
+    // Never a mixed result (2026-10-17): a player whose head is ANOTHER existing player's real head (class 0, headassetid =
+    // that player's id) while no custom miniface of his own exists still shows his old face (the game's p<playerid>).
+    // Whatever wrote the head (field editors, a preset, a Lua feature, the Database window) the player editor sees it.
+    // Returns that head id, or 0 when head and miniface go together (or the user chose to keep his picture).
+    int64_t head_miniface_mismatch(int64_t playerid);
+    std::map<int64_t, int64_t> head_miniface_kept;  // playerid -> head id for which "Keep his old picture" was chosen
+    bool give_matching_miniface(int64_t playerid, std::string* msg);
     static constexpr size_t kUndoSteps = 20;
     std::map<int64_t, std::deque<UndoStep>> undo_;
     size_t undo_count(int64_t playerid) const;

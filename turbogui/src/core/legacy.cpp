@@ -21,6 +21,18 @@ namespace legacy_path {
 std::string player_miniface(int64_t id) { return "data/ui/imgAssets/heads/p" + std::to_string(id) + ".dds"; }
 std::string staff_miniface(int64_t id) { return "data/ui/imgAssets/heads_staff/heads_staff_" + std::to_string(id) + ".dds"; }
 std::string youth_face(int64_t id) { return "data/ui/imgAssets/youthheads/p" + std::to_string(id) + ".dds"; }
+std::string legend_picture(int64_t id) { return "data/ui/imgAssets/cmLegendaryPlayers/legend_" + std::to_string(id) + ".dds"; }
+std::string generic_manager_head(int64_t id) { return "data/ui/imgAssets/genericManagerHeads/gmh" + std::to_string(id) + ".dds"; }
+std::vector<std::string> staff_pictures(int64_t managerid, int64_t headassetid) {
+    std::vector<std::string> out;
+    if (managerid > 0) out.push_back(staff_miniface(managerid));
+    if (headassetid > 0 && headassetid != managerid) out.push_back(staff_miniface(headassetid));
+    if (headassetid > 0) out.push_back(generic_manager_head(headassetid));
+    return out;
+}
+std::string staff_miniface_for(int64_t managerid, int64_t headassetid) {
+    return staff_miniface(managerid > 0 ? managerid : headassetid);
+}
 std::string tattoo_preview(int64_t id) { return "data/ui/imgAssets/tattoo/item_" + std::to_string(id) + "_0.dds"; }
 std::string crest(int64_t teamid, int size, const char* folder) {
     std::string dir = size > 0 ? "crest" + std::to_string(size) + "x" + std::to_string(size) : std::string("crest");
@@ -241,6 +253,18 @@ LegacyImages::State LegacyImages::locate(const std::string& path, fs::path* file
     if (missing_.count(path)) return State::Missing;
     want(path, true);
     return State::Waiting;
+}
+
+std::string LegacyImages::first_present(const std::vector<std::string>& paths, fs::path* file, State* st) {
+    for (const std::string& p : paths) {
+        const State s = locate(p, file, true);
+        if (s == State::Custom || s == State::Game || s == State::Waiting) {
+            if (st) *st = s;
+            return p;
+        }
+    }
+    if (st) *st = State::Missing;
+    return std::string();
 }
 
 bool LegacyImages::flush() {

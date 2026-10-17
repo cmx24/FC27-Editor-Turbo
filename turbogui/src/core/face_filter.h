@@ -43,24 +43,40 @@ constexpr int64_t kAny = INT64_MIN;    // no filter on that facet
 constexpr int64_t kNoValue = -1;       // the table has no such field (the head never matches a filter on it)
 constexpr int64_t kUnclassified = 255;  // 3D facets: the head has no 3D look yet ("not classified yet"; sorts last)
 constexpr int64_t kUnsure = 254;        // 3D facets: the look's value of that trait is a guess ("unsure": never matched)
-constexpr size_t kOnly3dDefaultMin = 200;  // "Only heads with a 3D look" starts on when the list has this many looks
+// Chooser defaults (G1 2026-10-17, HEADS3D_CENSUS.md section 5): both optional filters start off, so every real face
+// shows: "Only heads with a 3D look" (it hid 140 real faces with no look yet) and "High-quality heads only"
+// (hashighqualityhead 1; 1,176 of the 4,023 real faces of a career have 0)
+constexpr bool kOnly3dDefaultOn = false;
+constexpr bool kHqOnlyDefaultOn = false;
 constexpr size_t kNoSample = static_cast<size_t>(-1);  // Count::sample of a value no head has
 
 struct Face {
     int64_t id = 0;           // playerid, or managerid for a manager head
     int64_t headassetid = 0;
     bool manager = false;     // a manager's head (heads_staff miniface)
-    bool real = false;        // real face: headclasscode 0 (and hashighqualityhead 1 for players)
+    bool real = false;        // real face: headclasscode 0 (any hashighqualityhead)
+    int hq = -1;              // hashighqualityhead: 1, 0, -1 when the table has none (a badge, and an optional filter)
     std::string name, lname;  // lname: lower case, for the search box
     int overall = 0;          // players: overall rating (sort)
     int64_t raw[kFacetCount];  // field values (database facets), look values or kUnclassified (3D facets); kNoValue: none
     const face3d::Look* look = nullptr;  // the head's 3D look (players only; set_look)
     bool game_head = false;   // a head of the game files no row of the save uses (asset catalog): id = headassetid
     std::string name_source;  // game heads: assets::Name::source of the name ("" = no name, "Head #id")
+    int64_t match_manager = 0;  // a game head whose name matches this manager of the save ("name match"; 0 = none)
+    std::string match_label;    // that manager's name
     Face() {
         for (auto& r : raw) r = kNoValue;
     }
 };
+
+// The chooser's own filters before the facets: "Real faces only" (headclasscode 0; game heads count as real), "High-quality
+// heads only" (hashighqualityhead 1; game heads pass, they have no row) and "Only heads with a 3D look" (game heads pass)
+struct PoolOptions {
+    bool real_only = true;
+    bool hq_only = kHqOnlyDefaultOn;
+    bool only3d = kOnly3dDefaultOn;
+};
+bool in_pool(const Face& f, const PoolOptions& o);
 
 // Gives a player or game head its 3D look (nullptr: not classified yet): the 3D facets take the look's values, kUnsure
 // for an unsure trait, or kUnclassified

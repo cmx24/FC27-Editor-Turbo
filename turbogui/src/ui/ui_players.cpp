@@ -1291,6 +1291,20 @@ static void player_editor(App& app) {
     }
     ImGui::Separator();
 
+    // never a mixed result: another player's real head next to his old miniface (App::head_miniface_mismatch)
+    if (const int64_t mh = app.head_miniface_mismatch(p->playerid)) {
+        const PlayerRow* owner = app.model.player(mh);
+        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.35f, 1.0f), "His head is %s's (head %lld), but his miniface still shows his old face.",
+                           owner ? owner->name.c_str() : "another player", static_cast<long long>(mh));
+        if (ImGui::Button("Use the matching miniface##hmf")) {
+            std::string m;
+            const bool ok = app.give_matching_miniface(p->playerid, &m);
+            app.notify(m, !ok);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Keep his old picture##hmfk")) app.head_miniface_kept[p->playerid] = mh;
+    }
+
     // undo of the last direct edits of this player (at most App::kUndoSteps)
     {
         size_t n = app.undo_count(p->playerid);
@@ -1399,6 +1413,7 @@ static void player_editor(App& app) {
             ImGui::SeparatorText("Hair, boots, gloves and accessories");
             item_galleries(app, *t, p->rec);
             ImGui::SeparatorText("Every appearance field");
+            ImGui::TextDisabled("Changing headassetid / headclasscode here leaves his miniface as it is: Choose a real face changes both together.");
             std::vector<std::string> names;
             for (const auto& n : t->field_names()) if (is_appearance_field(n)) names.push_back(n);
             field_grid(app, *t, p->rec, names, "##appgrid", 2);

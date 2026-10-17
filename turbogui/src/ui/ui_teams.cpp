@@ -818,7 +818,9 @@ void draw_managers(App& app) {
                     MinifaceTarget mt;
                     mt.manager = true;
                     mt.headassetid = app.db.get_int(*t, m.rec, "headassetid", 0);
-                    mt.path = legacy_path::staff_miniface(mt.headassetid);
+                    // written as heads_staff_<managerid>; "Now" is the picture shown (managerid, head id, generic head: G1 10-17)
+                    mt.path = legacy_path::staff_miniface_for(m.managerid, mt.headassetid);
+                    mt.shown = app.legacy.first_present(legacy_path::staff_pictures(m.managerid, mt.headassetid));
                     mt.id = m.managerid;
                     mt.teamid = m.teamid;
                     miniface_editor(app, mt);

@@ -32,16 +32,22 @@ void set_faces_catalog(std::shared_ptr<const assets::Catalog> catalog);
 const std::vector<faces::Face>& game_faces(App& app);
 // Give a game head to a player (players table) or a manager (manager table): gate, writes, write log, and for players
 // with o.miniface the game's miniface p<head> copied to the player's when the catalog lists it
-bool apply_game_head(App& app, int64_t head_id, int64_t target_id, bool target_is_manager, const RealFaceOptions& o, std::string* msg);
+// The head's picture (its miniface p<head>, else its legend picture) comes with it as his own miniface (players p<id>,
+// managers heads_staff_<managerid>): nothing is written while it is loading; *in_step false when it could not come.
+bool apply_game_head(App& app, int64_t head_id, int64_t target_id, bool target_is_manager, const RealFaceOptions& o, std::string* msg,
+                     bool* in_step = nullptr);
+// Name-matched game heads (managers' own heads shipped under another id) as chooser rows: Face::game_head with
+// match_manager / match_label set; rebuilt when the save or the catalog changes
+const std::vector<faces::Face>& manager_match_faces(App& app);
 
 // Managers > Appearance tab: current miniface and head, "Choose a real face...", the appearance fields
 void manager_appearance(App& app, const Table& t, const ManagerRow& m);
 void manager_real_face_picker(App& app, int64_t managerid);
 // Give a manager the head of a player (owner_is_manager false) or of another manager: the head fields (and hair, beard,
-// eyes, skin when asked) of the manager table; with o.miniface a player's miniface is copied into the head's
-// heads_staff picture (512 x 512), so the manager shows that face. Validated writes.
+// eyes, skin when asked) of the manager table, and the owner's picture as the manager's own heads_staff_<managerid>
+// (512 x 512): nothing is written while it is loading; *in_step false when it could not come. Validated writes.
 bool apply_real_face_to_manager(App& app, int64_t managerid, int64_t owner_id, bool owner_is_manager, const RealFaceOptions& o,
-                                std::string* msg);
+                                std::string* msg, bool* in_step = nullptr);
 
 // 3D heads of the chooser (the game renders them through app.capture, up to 6 per request, cached in
 // turbo_output/cache/faces3d): called every frame from App::draw, so "Render all filtered heads" goes on with the chooser

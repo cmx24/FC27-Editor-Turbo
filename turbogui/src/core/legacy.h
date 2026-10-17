@@ -19,8 +19,18 @@ namespace turbo {
 
 namespace legacy_path {
 std::string player_miniface(int64_t playerid);       // data/ui/imgAssets/heads/p<id>.dds
-std::string staff_miniface(int64_t headassetid);     // data/ui/imgAssets/heads_staff/heads_staff_<id>.dds
+std::string staff_miniface(int64_t id);              // data/ui/imgAssets/heads_staff/heads_staff_<id>.dds
+// A manager's pictures in the order Turbo shows them (G1 2026-10-17, HEADS3D_CENSUS.md MINIFACES): heads_staff_<managerid>
+// (the game ships its staff pictures under the managerid: of the 61 base managers whose head id differs, 11 have one under
+// the managerid, none under the head id), heads_staff_<headassetid> (Turbo's copies before 2.13), then the generic
+// manager heads' genericManagerHeads/gmh<headassetid>.dds (45 managers). Ids <= 0 and duplicates are left out.
+std::vector<std::string> staff_pictures(int64_t managerid, int64_t headassetid);
+// The file Turbo writes a manager's miniface to: the first of staff_pictures, heads_staff_<managerid> (the head id
+// only when the managerid is unknown, <= 0)
+std::string staff_miniface_for(int64_t managerid, int64_t headassetid);
+std::string generic_manager_head(int64_t headassetid);  // data/ui/imgAssets/genericManagerHeads/gmh<id>.dds
 std::string youth_face(int64_t headassetid);         // data/ui/imgAssets/youthheads/p<id>.dds
+std::string legend_picture(int64_t id);             // data/ui/imgAssets/cmLegendaryPlayers/legend_<id>.dds
 std::string tattoo_preview(int64_t tattooid);        // data/ui/imgAssets/tattoo/item_<id>_0.dds
 // Club crest: data/ui/imgAssets/crest<size>/<folder>/l<teamid>.dds; size 0 = the big "crest" folder (256 x 256),
 // otherwise 16, 32, 50, 512 or 1024 ("crest16x16", ...); folder "light", "dark" or "custom"
@@ -63,6 +73,9 @@ public:
     // Where the picture for `path` is. custom_first: a custom file under mods\legacy wins (what the game shows).
     // Game files not exported yet are asked for (want.txt) and reported as Waiting.
     State locate(const std::string& path, std::filesystem::path* file, bool custom_first = true);
+    // The first of `paths` (in order) that is there, custom or game file, or still asked for: a later path is looked at
+    // only when the earlier ones are known missing (or invalid). "" when none is there; `file` / `st` as locate's.
+    std::string first_present(const std::vector<std::string>& paths, std::filesystem::path* file = nullptr, State* st = nullptr);
     // Ask for a game file without looking (pre-loading a picker page); `front` puts it first
     void want(const std::string& path, bool front = true);
     // Background loading (ui/preload.h): asked after everything on screen, at most background_limit() paths waiting at

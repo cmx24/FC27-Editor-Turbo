@@ -150,6 +150,14 @@ static std::vector<std::string> validate_v1(const json& j) {
                     if (std::string(sub) == "toc" && !x.is_string()) err("head3d.toc." + id + ": string");
                 }
             }
+            // slug: optional (builder 2), one EBX folder slug per head id
+            if (v.contains("slug")) {
+                if (!v["slug"].is_object()) err("head3d.slug: not an object");
+                else
+                    for (const auto& [id, x] : v["slug"].items())
+                        if (!is_id_key(id) || !ids.count(std::stoll(id)) || !x.is_string() || x.get<std::string>().empty())
+                            err("head3d.slug." + id + ": head id -> folder slug");
+            }
             if (!v.contains("generic") || !is_id_array(v["generic"])) {
                 err("head3d.generic missing");
             } else {
@@ -205,6 +213,8 @@ static void test_fixture(const fs::path& fixture) {
         for (const auto& [id, n] : t.items()) synthetic = synthetic && n[0].get<std::string>().rfind("Test", 0) == 0;
     for (const auto& [id, t] : j["families"]["kit"]["teams"].items())
         synthetic = synthetic && t["slug"].get<std::string>().rfind("test_", 0) == 0;
+    for (const auto& [id, sl] : j["families"]["head3d"]["slug"].items())
+        synthetic = synthetic && (sl.get<std::string>().rfind("test_", 0) == 0 || sl.get<std::string>() == "generic");
     check(synthetic, "fixture names are synthetic (Test ... / test_...)");
     // What later packages rely on: model-only, preview-only, both; a generic head; a multi-team language
     const json& hair = j["families"]["hair"];
@@ -396,6 +406,7 @@ static void test_loader(const fs::path& fixture, const fs::path& scratch) {
     check(c.head_vars(90002) == std::vector<int>({0, 1}) && c.head_vars(90004) == std::vector<int>({2}) && c.head_vars(1).empty(), "head vars");
     check(c.head_toc(90002) == "LS" && c.head_toc(90003) == "S" && c.head_toc(1).empty(), "head toc");
     check(c.generic_head(90100) && !c.generic_head(90001), "generic head");
+    check(c.head_slug(90004) == "test_coach_one" && c.head_slug(90100) == "generic" && c.head_slug(1).empty(), "head slug (EBX folder)");
     check(c.kit_slug(9001) == "test_club_one" && c.kits(9001).size() == 2 && c.kit_slug(9002).empty() && c.kits(9002).empty(), "kits");
     check(c.callname_languages() == std::vector<std::string>({"eng_us", "ita_it"}), "callname languages");
     check(c.callname_teams("eng_us") == std::vector<std::string>({"dr", "gm"}) && c.callname_teams("ita_it") == std::vector<std::string>({""}) &&

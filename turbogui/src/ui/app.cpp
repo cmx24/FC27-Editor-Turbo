@@ -477,7 +477,8 @@ const assets::DbUse& App::asset_use() {
                            {"accessorycode3", {&set(F::Accessory)}},
                            {"accessorycode4", {&set(F::Accessory)}},
                        });
-    collect("manager", {{"headassetid", {&set(F::Head3d), &set(F::Staffface)}}});
+    // heads_staff pictures: the game ships them under the managerid (and Turbo's older copies under the head id)
+    collect("manager", {{"headassetid", {&set(F::Head3d), &set(F::Staffface)}}, {"managerid", {&set(F::Staffface)}}});
     collect("teams", {{"teamid", {&set(F::Crest)}}});
     collect("teamkits", {{"teamtechid", {&set(F::Kit)}}});
     collect("commentarynames", {{"commentaryid", {&u.commentary_ids}}});
@@ -624,6 +625,10 @@ bool App::spoken_ids(caudio::IdCache& out, std::string* why) {
         for (int64_t id : callnames.index.used_ids) ids.insert(id);
         for (const auto& kv : callnames.index.playernamemap)
             if (kv.second > kNoCallname && kv.second <= kCallnameMax) ids.insert(kv.second);
+        // plus every language bank's generic ids (core/callname_bank.h): a name only another language records is asked too
+        if (callnames.catalog)
+            for (int64_t id : catalog_generic_union(*callnames.catalog))
+                if (id > kNoCallname) ids.insert(id);
         out.names.assign(ids.begin(), ids.end());
         std::sort(out.names.begin(), out.names.end());
         if (const Table* t = db.table("commentarynames"); t && t->has("commentaryid") && t->has("commentarypreview")) {
@@ -1105,7 +1110,8 @@ bool App::edit_field(const Table& t, uint64_t rec, const Field& f, const Value& 
             model.refresh_player_name(pid);
         if (have_before && !(before == v) && undo_step) {
             auto& steps = undo_[pid];
-            steps.push_back({t.name, rec, f.name, before, {}});
+            steps.push_back({t.name, rec, f.name, before, {}, {}});
+            ++undo_pushes;
             while (steps.size() > kUndoSteps) steps.pop_front();
         }
         // kept for every career load, and into his development plan (ui_reapply.cpp, flush_plan_sync)
@@ -1194,11 +1200,112 @@ bool App::undo(int64_t playerid) {
     log("undo " + step.table + "." + step.field + " = " + step.before.to_string() +
         (step.also.empty() ? std::string() : " (and " + std::to_string(step.also.size()) + " more fields)"));
     if (!done) return false;
+    // the pictures of the same change (a head given with its miniface): back from the backup, or Turbo's file removed
+    size_t pics = 0;
+    for (const UndoStep::Picture& p : step.pictures) {
+        std::string err;
+        bool ok = false;
+        if (p.backup.empty()) {
+            ok = legacy.custom_file(p.path).empty() || legacy.remove_custom(p.path, &err);
+        } else {
+            std::ifstream in(p.backup, std::ios::binary);
+            std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            if (bytes.empty()) err = "the backup " + p.backup.string() + " is missing or empty";
+            else ok = legacy.save_custom(p.path, bytes, &err);
+        }
+        textures.forget(legacy.custom_file(p.path));
+        if (ok) {
+            ++pics;
+            log("undo picture " + p.path + (p.backup.empty() ? std::string(": Turbo's file removed (the game's own shows)")
+                                                              : ": back from " + p.backup.string()));
+        } else {
+            notify("undo of the picture " + p.path + " failed: " + err + " (the head fields are back)", true);
+        }
+    }
+    if (!step.pictures.empty()) {
+        notify("undone: the head (" + std::to_string(step.also.size() + 1) + " fields)" + (pics ? std::string(" and the miniface") : std::string()) +
+               " back as before");
+        return true;
+    }
     notify("undone: " + field_label(step.field) + " back to " + describe_value(*t, *t->field(step.field), step.before) +
            (step.also.empty() ? std::string()
             : step.also.size() == 1 && step.also[0].first == "overallrating" ? std::string(" (and the overall it moved)")
                                                                              : " (and " + std::to_string(step.also.size()) + " attributes)"));
     return true;
+}
+
+int64_t App::head_miniface_mismatch(int64_t playerid) {
+    const Table* t = db.table("players");
+    const PlayerRow* p = model.player(playerid);
+    if (!t || !p) return 0;
+    const int64_t head = db.get_int(*t, p->rec, "headassetid", 0);
+    if (db.get_int(*t, p->rec, "headclasscode", 1) != 0 || head <= 0 || head == playerid) return 0;
+    if (!model.player(head)) return 0;  // not another player's own head (a legend, an old id): nothing to compare
+    if (!legacy.custom_file(legacy_path::player_miniface(playerid)).empty()) return 0;  // his own picture was written
+    auto k = head_miniface_kept.find(playerid);
+    if (k != head_miniface_kept.end() && k->second == head) return 0;
+    return head;
+}
+
+bool App::give_matching_miniface(int64_t playerid, std::string* msg) {
+    auto say = [&](const std::string& m) {
+        if (msg) *msg = m;
+    };
+    const int64_t head = head_miniface_mismatch(playerid);
+    if (!head) {
+        say("nothing to do: his head and miniface already go together");
+        return false;
+    }
+    const std::string src = legacy_path::player_miniface(head), dst = legacy_path::player_miniface(playerid);
+    fs::path file;
+    const LegacyImages::State st = legacy.locate(src, &file);
+    if (st == LegacyImages::State::Waiting) {
+        say("the picture of head " + std::to_string(head) + " is still loading: click again in a moment (nothing was written)");
+        return false;
+    }
+    if (st != LegacyImages::State::Custom && st != LegacyImages::State::Game) {
+        head_miniface_kept[playerid] = head;
+        say("the game has no picture for head " + std::to_string(head) + ": his old miniface stays");
+        return false;
+    }
+    std::ifstream in(file, std::ios::binary);
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::string err;
+    fs::path backup;
+    if (bytes.empty() || !legacy.save_custom(dst, bytes, &err, &backup)) {
+        say("his miniface could not be written: " + (bytes.empty() ? std::string("empty picture") : err));
+        return false;
+    }
+    textures.forget(legacy.custom_file(dst));
+    // the picture joins the head change's undo step: one Undo puts both back
+    auto u = undo_.find(playerid);
+    if (u != undo_.end() && !u->second.empty()) u->second.back().pictures.push_back({dst, backup});
+    log("miniface " + dst + " now shows " + src + " (matches his head " + std::to_string(head) + ")");
+    say("his miniface now shows " + fs::path(src).filename().string() + ", the picture of his new head (Undo puts both back)");
+    return true;
+}
+
+void App::group_undo(int64_t playerid, size_t n, std::vector<UndoStep::Picture> pictures) {
+    auto it = undo_.find(playerid);
+    if (it == undo_.end() || it->second.empty()) {
+        if (pictures.empty()) return;
+        // no field step to hang them on (nothing changed in the table): the pictures alone would be an odd undo; keep none
+        return;
+    }
+    auto& steps = it->second;
+    n = std::min(n, steps.size());
+    if (n == 0) return;
+    // the oldest of the n steps becomes the step; the others go into `also` (all on the same record: one head, one player)
+    UndoStep merged = steps[steps.size() - n];
+    for (size_t k = steps.size() - n + 1; k < steps.size(); ++k) {
+        const UndoStep& s = steps[k];
+        if (s.table != merged.table || s.rec != merged.rec) continue;  // a different record never joins (defensive)
+        merged.also.push_back({s.field, s.before});
+        merged.also.insert(merged.also.end(), s.also.begin(), s.also.end());
+    }
+    for (auto& p : pictures) merged.pictures.push_back(std::move(p));
+    steps.erase(steps.end() - static_cast<std::ptrdiff_t>(n), steps.end());
+    steps.push_back(std::move(merged));
 }
 
 void App::push_bulk_undo(BulkUndo u) {
@@ -1230,7 +1337,7 @@ bool App::set_overall(const Table& t, uint64_t rec, int64_t target) {
         notify(msg, true);
         return false;
     }
-    UndoStep step{t.name, rec, "overallrating", Value::of_int(stored), {}};
+    UndoStep step{t.name, rec, "overallrating", Value::of_int(stored), {}, {}};
     BulkUndo bulk;
     bulk.playerid = pid;
     bulk.label = "overall " + std::to_string(stored) + " -> " + std::to_string(target);
@@ -1259,6 +1366,7 @@ bool App::set_overall(const Table& t, uint64_t rec, int64_t target) {
     if (!bulk.before.empty()) {
         auto& steps = undo_[pid];
         steps.push_back(std::move(step));
+        ++undo_pushes;
         while (steps.size() > kUndoSteps) steps.pop_front();
         push_bulk_undo(std::move(bulk));
     }

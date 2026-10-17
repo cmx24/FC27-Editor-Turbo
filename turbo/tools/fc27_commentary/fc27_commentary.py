@@ -527,14 +527,18 @@ class DataSet:
         for p in params:
             total *= len(p["values"])
         if index["ptr"] == 0:
-            if len(params) != 1 or total != self.rows:
+            # No prefix sum stored: the index is an identity, one row per key combination in the same order as the
+            # prefix-sum case (last parameter fastest). FC 27 spa_es psimple_surname (cm_sim x surname_ID x
+            # player_intensity = 2 x 2841 x 1 = 5682 rows) and eng_us gm pPLAYER_NAMES_HIGH use it with several parameters.
+            if total != self.rows:
                 raise FormatError("DSET %s: index without data is not an identity" % hname(self.name))
-            return {r: {params[0]["name"]: params[0]["values"][r]} for r in range(self.rows)}
-        width = 2 if self.rows <= 0xFFFF else 4
-        pref = _ints(self._d, index["ptr"], total + 1, width)
-        if self.rows <= 0xFF and (pref[0] != 0 or pref[-1] != self.rows):
-            # a data set of up to 255 rows (none of the name families): the prefix sum is stored in bytes
-            pref = _ints(self._d, index["ptr"], total + 1, 1)
+            pref = list(range(total + 1))
+        else:
+            width = 2 if self.rows <= 0xFFFF else 4
+            pref = _ints(self._d, index["ptr"], total + 1, width)
+            if self.rows <= 0xFF and (pref[0] != 0 or pref[-1] != self.rows):
+                # a data set of up to 255 rows (none of the name families): the prefix sum is stored in bytes
+                pref = _ints(self._d, index["ptr"], total + 1, 1)
         if pref[0] != 0 or pref[-1] != self.rows or any(b < a for a, b in zip(pref, pref[1:])):
             raise FormatError("DSET %s: index is not a prefix sum over %d rows" % (hname(self.name), self.rows))
         out = {}

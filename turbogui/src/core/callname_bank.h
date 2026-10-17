@@ -119,6 +119,18 @@ inline CatalogBank make_catalog_bank(const std::string& lang, const std::string&
     return b;
 }
 
+// The generic commentary ids of EVERY language bank in a loaded catalog (all teams). The game's audio-service check asks
+// these on top of the career's own ids, so a callname that only another language records is still probed (FC 27 spa_es has
+// generic ids the English bank lacks). Empty when the catalog is not loaded.
+inline std::unordered_set<int64_t> catalog_generic_union(const assets::Catalog& cat) {
+    std::unordered_set<int64_t> out;
+    if (!cat.loaded()) return out;
+    for (const std::string& l : cat.callname_languages())
+        for (const std::string& t : cat.callname_teams(l))
+            for (int64_t id : cat.callname_ids(l, t, assets::CallKind::Generic)) out.insert(id);
+    return out;
+}
+
 // The bank of a loaded catalog (current or stale); an empty bank when the catalog is not loaded (off, missing, refused)
 // or has no bank for `lang`.
 inline CatalogBank catalog_bank(const assets::Catalog& cat, const std::string& lang, const std::string& team) {

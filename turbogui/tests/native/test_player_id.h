@@ -57,6 +57,17 @@ static void test_player_id_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, co
         CHECK(!pid::check("300100", u, nullptr, "", false).ok, "nothing read yet: refused");
     });
 
+    run_case("callnames: the audio-service check asks the generic ids of every language bank (union over languages and teams)", [&] {
+        assets::Catalog cat;
+        std::string err;
+        CHECK(cat.load_file(fixture, key, &err), "fixture: " + err);
+        const std::unordered_set<int64_t> u = turbo::catalog_generic_union(cat);
+        // eng_us dr {990001, 990002} + gm {} + ita_it {990001}: the union, each id once
+        CHECK(u.size() == 2 && u.count(990001) && u.count(990002), "union of eng_us (two teams) and ita_it: " + std::to_string(u.size()));
+        assets::Catalog none;
+        CHECK(turbo::catalog_generic_union(none).empty(), "no catalog loaded: no ids");
+    });
+
     run_case("player id: what the game files hold for the id (head + callname + miniface, head only, other language, generic, stale, hidden off)", [&] {
         assets::Catalog cat;
         std::string err;

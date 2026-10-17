@@ -60,6 +60,10 @@ LEGACY_FAMILIES = [
     ("youthface", I + r"youthheads/p(\d+)\.dds$"),
     ("staffface", I + r"heads_staff/heads_staff_(\d+)\.dds$"),
     ("legendface", I + r"cmlegendaryplayers/(?:small/)?legend_(\d+)\.dds$"),
+    # manager pictures outside heads_staff (counted in the summary, not in schema v1): the generic manager heads'
+    # pictures (gmh<headassetid>) and the club-info manager pictures (manager_<teamid>)
+    ("staffgeneric", I + r"genericmanagerheads/gmh(\d+)\.dds$"),
+    ("clubmanager", I + r"clubinfo/manager/manager_(\d+)\.dds$"),
     ("hair", I + r"craniumhair/hair_(\d+)_(\d+)\.dds$"),
     ("hair_old", I + r"hairstyle/item_(\d+)_(\d+)\.dds$"),
     ("facialhair", I + r"craniumfacialhair/facial_hair_(\d+)_(\d+)\.dds$"),
