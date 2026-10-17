@@ -3632,6 +3632,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_gameplay_page.h"  // 2.13 T4: the Gameplay presets page, the page registrations, the amber line (gameplay_page_test::ui_cases)
 #include "test_season_pack.h"  // 2.10 B3: season update pack importer (season_pack_test::run)
 #include "test_attrib_ebx.h"  // 2.10 T1: attribulator EBX patch at load (attrib_ebx_test::run, real install fixtures)
+#include "test_minhook_reloc.h"  // 2.15 hooks/minhook-reloc: the trampoline relocation range check (minhook_reloc_test::run)
 #include "test_oodle_dispatch.h"  // 2.11: the shared Oodle decompress dispatcher: kits only, attrib only, both, neither (oodle_dispatch_test::run)
 #include "test_attrib_two_copies.h"  // 2.10 A0: second copy (databases/simulation) of an attrib asset, per-location write log (attrib_two_copies_test::run)
 #include "test_club_search.h"  // Players list Gender filter, the club box by name or ID (ui_cases_club_search)
@@ -15299,6 +15300,10 @@ static void test_match_setup() {
 void install_crash_report(const std::string* current_case);  // test_crash_report.cpp
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    // the MinHook relocation test runs this executable as a child that reproduces P7's layout (test_minhook_reloc.h)
+    if (argc >= 3 && std::strcmp(argv[1], "--minhook-child") == 0) return minhook_reloc_test::child_main(argv[2]);
+#endif
     // Unbuffered: on Windows stdout into a pipe or a file is fully buffered, so a crash or a killed run lost every line still
     // in the buffer (a run that "exited with no output"). The crash report names the case that was running.
     std::setvbuf(stdout, nullptr, _IONBF, 0);
@@ -15384,6 +15389,7 @@ int main(int argc, char** argv) {
     tactic_presets_test::run();  // test_tactic_presets.h (2.12)
     attrib_ebx_test::run();
     oodle_dispatch_test::run();  // test_oodle_dispatch.h (2.11)
+    minhook_reloc_test::run();  // test_minhook_reloc.h (2.15)
     attrib_two_copies_test::run();
     season_pack_test::run();  // test_season_pack.h (2.10 B3)
     std::printf("native voice swaps\n");

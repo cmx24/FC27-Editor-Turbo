@@ -80,6 +80,8 @@ mkdir -p "$OUT/tmp"
 DEFS="-DIMGUI_ENABLE_TEST_ENGINE -DIMGUI_USER_CONFIG=\"turbo_imconfig.h\""
 cd "$ROOT"   # relative include paths: ROOT may contain spaces
 INC="-Isrc -Isrc/ui -Ithird_party -Ithird_party/imgui -Ithird_party/imgui/backends"
+# 2.15 hooks/minhook-reloc: the MinHook relocation test needs the MinHook headers and its C sources (Windows only).
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) INC="$INC -Ithird_party/minhook/include";; esac
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) SANITIZE="${SANITIZE-}";; *) SANITIZE="${SANITIZE--fsanitize=address,undefined}";; esac
 LUA="${LUA:-lua5.4}"
 FLAGS="-std=c++17 -O1 -g -fno-omit-frame-pointer -pthread $SANITIZE -Wall -Wextra -Wno-unused-parameter $DEFS $INC"
@@ -120,6 +122,13 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
   pc_add "$o" "$s" g++ $f
   objs+=("$o")
 done
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*)
+  for s in third_party/minhook/src/trampoline.c third_party/minhook/src/buffer.c third_party/minhook/src/hook.c third_party/minhook/src/hde/hde64.c; do
+    o="$BIN/obj/$(echo "$s" | sed 's#[/.]#_#g').o"
+    pc_add "$o" "$s" gcc -O2 -Ithird_party/minhook/include
+    objs+=("$o")
+  done ;;
+esac
 pc_wait
 STEP="linking"
 TEST_BIN="$OUT/turbo_native_tests"

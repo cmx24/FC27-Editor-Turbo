@@ -49,6 +49,27 @@
 
 #include "trampoline.h"
 #include "buffer.h"
+#include <string.h>
+#include "../include/minhook_diag.h"
+
+// Turbo 2.15 (hooks/minhook-reloc): what the last CreateTrampolineFunction did, read by the host for logging (minhook_diag.h).
+static MH_RELOC_DIAG g_mhDiag;
+const MH_RELOC_DIAG* MH_LastReloc(void) { return &g_mhDiag; }
+
+BOOL MH_DispOutOfRange(LONGLONG d) { return d > 0x7FFFFFFFLL || d < -0x80000000LL; }
+
+UINT MH_EmitFarJmpStub(UINT8* out, void* absTarget)
+{
+    // 50  push rax | 48 B8 <abs64>  mov rax,absTarget | 48 8B 00  mov rax,[rax] | 48 87 04 24  xchg [rsp],rax | C3  ret
+    UINT k = 0;
+    out[k++] = 0x50;
+    out[k++] = 0x48; out[k++] = 0xB8;
+    memcpy(out + k, &absTarget, 8); k += 8;
+    out[k++] = 0x48; out[k++] = 0x8B; out[k++] = 0x00;
+    out[k++] = 0x48; out[k++] = 0x87; out[k++] = 0x04; out[k++] = 0x24;
+    out[k++] = 0xC3;
+    return k;
+}
 
 // Maximum size of a trampoline function.
 #if defined(_M_X64) || defined(__x86_64__)
@@ -111,11 +132,18 @@ BOOL CreateTrampolineFunction(PTRAMPOLINE ct)
     ULONG_PTR jmpDest  = 0;     // Destination address of an internal jump.
     BOOL      finished = FALSE; // Is the function completed?
 #if defined(_M_X64) || defined(__x86_64__)
-    UINT8     instBuf[16];
+    UINT8     instBuf[32];  // holds a copied instruction, or the 19-byte absolute read-and-jump stub (Turbo 2.15)
 #endif
 
     ct->patchAbove = FALSE;
     ct->nIP        = 0;
+
+    // Turbo 2.15: record what we do with this target (minhook_diag.h), for the host log.
+    memset(&g_mhDiag, 0, sizeof(g_mhDiag));
+    g_mhDiag.target     = ct->pTarget;
+    g_mhDiag.trampoline = ct->pTrampoline;
+    g_mhDiag.nFirstBytes = (UINT)sizeof(g_mhDiag.firstBytes);
+    memcpy(g_mhDiag.firstBytes, (LPBYTE)ct->pTarget, sizeof(g_mhDiag.firstBytes));
 
     do
     {
@@ -148,26 +176,57 @@ BOOL CreateTrampolineFunction(PTRAMPOLINE ct)
         else if ((hs.modrm & 0xC7) == 0x05)
         {
             // Instructions using RIP relative addressing. (ModR/M = 00???101B)
+            PUINT32   pRelAddr;
+            // The absolute address the operand points at, and the new displacement from the trampoline copy.
+            ULONG_PTR absTarget = pOldInst + hs.len + (INT32)hs.disp.disp32;
+            LONGLONG  newDisp   = (LONGLONG)absTarget - (LONGLONG)(pNewInst + hs.len);
+            BOOL      isJmp     = (hs.opcode == 0xFF && hs.modrm_reg == 4);
 
-            // Modify the RIP relative address.
-            PUINT32 pRelAddr;
+            // Turbo 2.15: record the relocation.
+            g_mhDiag.relocCount++;
+            g_mhDiag.lastAbsTarget = (LPVOID)absTarget;
+            g_mhDiag.lastDistance  = newDisp;
 
-            // Avoid using memcpy to reduce the footprint.
+            if (MH_DispOutOfRange(newDisp))
+            {
+                // Turbo 2.15: the copied operand would need a displacement that does not fit in 32 bits. Upstream MinHook truncates
+                // it and the trampoline jumps to a wrong (often unmapped) address - the P7 crash (another hook's `jmp [rip+x]` whose
+                // pointer slot is > 2 GB from our trampoline, e.g. Live Editor's slot vs our stub next to oo2core).
+                if (isJmp)
+                {
+                    // A far `jmp [rip+x]`: emit a register- and flag-preserving absolute form that reads the pointer slot at run time
+                    // and jumps there, so the previous hook (whoever owns that slot) stays intact.
+                    copySize = MH_EmitFarJmpStub(instBuf, (void*)absTarget);   // 19 bytes
+                    pCopySrc = instBuf;
+                    g_mhDiag.outOfRangeJumpHandled = 1;
+                    finished = TRUE;
+                }
+                else
+                {
+                    // Any other out-of-range RIP-relative operand: refuse the hook rather than write a wrong address. The caller gets
+                    // MH_ERROR_UNSUPPORTED_FUNCTION and the overlay stays off with a log line.
+                    g_mhDiag.refusedOutOfRange = 1;
+                    return FALSE;
+                }
+            }
+            else
+            {
+                // In range: the original relocation.
 #ifndef ALLOW_INTRINSICS
-            memcpy(instBuf, (LPBYTE)pOldInst, copySize);
+                memcpy(instBuf, (LPBYTE)pOldInst, copySize);
 #else
-            __movsb(instBuf, (LPBYTE)pOldInst, copySize);
+                __movsb(instBuf, (LPBYTE)pOldInst, copySize);
 #endif
-            pCopySrc = instBuf;
+                pCopySrc = instBuf;
 
-            // Relative address is stored at (instruction length - immediate value length - 4).
-            pRelAddr = (PUINT32)(instBuf + hs.len - ((hs.flags & 0x3C) >> 2) - 4);
-            *pRelAddr
-                = (UINT32)((pOldInst + hs.len + (INT32)hs.disp.disp32) - (pNewInst + hs.len));
+                // Relative address is stored at (instruction length - immediate value length - 4).
+                pRelAddr = (PUINT32)(instBuf + hs.len - ((hs.flags & 0x3C) >> 2) - 4);
+                *pRelAddr = (UINT32)newDisp;
 
-            // Complete the function if JMP (FF /4).
-            if (hs.opcode == 0xFF && hs.modrm_reg == 4)
-                finished = TRUE;
+                // Complete the function if JMP (FF /4).
+                if (isJmp)
+                    finished = TRUE;
+            }
         }
 #endif
         else if (hs.opcode == 0xE8)

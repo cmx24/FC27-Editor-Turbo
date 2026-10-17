@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "MinHook.h"
+#include "minhook_diag.h"  // Turbo 2.15 (hooks/minhook-reloc): what MinHook did with each target, for the log
 #include "nlohmann/json.hpp"
 #include "callname_audio_win.h"
 #include "callname_voice_win.h"
@@ -1074,8 +1075,27 @@ bool start_overlay(HMODULE) {
     };
     for (const auto& h : hooks) {
         MH_STATUS st = MH_CreateHook(h.target, h.detour, h.original);
+        // Turbo 2.15 (hooks/minhook-reloc): log what MinHook made of this target - the first bytes, the stub, and any out-of-range
+        // RIP-relative relocation (the P7 crash was a far `jmp [rip+x]` whose copy MinHook truncated; it is now an absolute stub).
+        if (const MH_RELOC_DIAG* d = MH_LastReloc()) {
+            char bytes[64] = {0};
+            int n = 0;
+            for (UINT i = 0; i < d->nFirstBytes && i < 8u; ++i) n += std::snprintf(bytes + n, sizeof(bytes) - n, "%02x ", d->firstBytes[i]);
+            if (d->outOfRangeJumpHandled)
+                log("hook %s: target %p [%s], stub %p; out-of-range jump handled (slot %p, %lld bytes = %.2f GiB away): absolute stub",
+                    h.name, d->target, bytes, d->trampoline, d->lastAbsTarget, (long long)d->lastDistance, double(d->lastDistance) / (1024.0 * 1024.0 * 1024.0));
+            else if (d->relocCount)
+                log("hook %s: target %p [%s], stub %p; %u RIP-relative reloc, last %.2f GiB",
+                    h.name, d->target, bytes, d->trampoline, d->relocCount, double(d->lastDistance) / (1024.0 * 1024.0 * 1024.0));
+            else
+                log("hook %s: target %p [%s], stub %p", h.name, d->target, bytes, d->trampoline);
+        }
         if (st != MH_OK) {
-            log("hooking %s failed: %s", h.name, MH_StatusToString(st));
+            // An out-of-range RIP-relative operand other than a jump makes MinHook refuse (MH_ERROR_UNSUPPORTED_FUNCTION): the overlay
+            // stays off rather than install a stub that would jump to a wrong address.
+            const MH_RELOC_DIAG* d = MH_LastReloc();
+            log("hooking %s failed: %s%s", h.name, MH_StatusToString(st),
+                (d && d->refusedOutOfRange) ? " (refused: an out-of-range RIP-relative operand; overlay stays off)" : "");
             undo_minhook();
             return false;
         }
