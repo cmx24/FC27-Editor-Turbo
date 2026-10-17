@@ -18,6 +18,17 @@ Nothing here is shipped or claimed as a feature. Gates are in `turbo_dev\evidenc
 - Every proven panel keeps its code path (kits, callnames, faces picker, club tools, tactic presets, standings, game settings, reapply log); only its place and chrome changed. The club-tools kit shortcut is now a link to Club & Kits > Kits.
 - Not in this build: the Squad & Players pages (Player edit sections, Squad, Staff): the 2.12.1 Players / Teams / Managers panels are drawn there unchanged (fallback). Not proven: anything in game (no launch yet); the in-match effect of slider presets and Tactics sliders (unchanged since 2.10).
 
+## 2.12.2
+
+Fix release on top of 2.12.1. Package FC27_LE_Turbo_2.12.2.zip (md5 0729184a41857317f216c60477377ba9). Turbo.dll md5 5657d8e51edd77fc338c2027b1f94345. Supported game build: 6AC07E31 only. Tested with Live Editor 27.1.5 on LEICESTER only.
+
+- **Folder picker:** a double-click opens a folder; two clicks within 0.8 s count as one double-click.
+- **Managers:** hair and facial hair galleries, as players have.
+- **Kits:** one-click 3D kit opt-in.
+
+Proven in game (test career LEICESTER, never saved, 2026-10-17, Live Editor 27.1.5): Turbo connects (141 game hooks); live standings edit (Pts +1) is written, the game's standings view re-reads it, and Undo puts it back; the manager hair and facial-hair galleries open with pictures; a double-click opens a folder in the picker.
+Not proven in game: the "two clicks within 0.8 s" fallback of the picker (synthetic clicks only highlighted the folder); the one-click 3D kit button (shown only while 3D kits are off). Not re-run, code unchanged: player editor, tactic presets, kits apply, faces picker, season pack, match.
+
 ## 2.12.1
 
 **More sliders and set pieces in tactic presets - offline-tested only, NOT seen in game** (one-launch checklist: `turbo_dev\research_20261016\P2121_PROOF.md`; the full table: `turbo_dev\research_20261016\SLIDER_MAP_FULL.md`; check_all green: build 0 warnings, Lua 418/0, native 33,591/0, catalog all 0 failed).

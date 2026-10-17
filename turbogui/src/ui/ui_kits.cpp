@@ -748,7 +748,19 @@ static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
         return;
     }
     if (!rt->opted_in()) {  // experimental, off by default: it adds a hook on the game's decompressor, so it needs an explicit opt-in file
-        ImGui::TextDisabled("3D kit on the pitch: experimental, off. To try it create the empty file turbo_output\\kits3d_on.txt and restart the game (no hook is installed without it).");
+        ImGui::TextWrapped("3D kit on the pitch is off, so an imported kit only changes the colours and the minikit, not the kit the players wear in a match.");
+        if (ImGui::Button("Turn on 3D kits (restart the game afterwards)##k3on")) {
+            // the opt-in is the empty file turbo_output\kits3d_on.txt (nothing is hooked without it); the button only creates it
+            std::error_code ec;
+            const fs::path f = app.bridge.root() / "turbo_output" / "kits3d_on.txt";
+            fs::create_directories(f.parent_path(), ec);
+            std::ofstream(f).put('\n');
+            const bool ok = fs::exists(f, ec);
+            app.notify(ok ? "3D kits are on from the next game start. Delete turbo_output\\kits3d_on.txt to turn them off."
+                          : "Could not create turbo_output\\kits3d_on.txt",
+                       !ok);
+        }
+        ImGui::TextDisabled("Experimental: one hook on the game's decompressor; proven in game for Leicester's home kit only. turbo_output\\kits3d_off.txt switches it off at once.");
         ImGui::Unindent();
         return;
     }
