@@ -114,7 +114,8 @@ static void test_bench_keep() {
               r.k.state());
         for (double t = 111.0; t < 140.0; t += 1.0) {
             r.now = t;
-            CHECK(!r.read(M, copy_of(S2, 0xB000)).submit, "bench keep: ONE write per build (the same build reordered again: left alone)");
+            CHECK(!r.read(M, copy_of(S2, 0xB000)).submit,
+                  "bench keep: ONE write per build (the same build reordered again, not into the game's order: left alone; see I for the game's order)");
         }
         // Team Management closes (the copy is no longer your sheet's), opens again: a new build is written again
         r.now = 150.0;
@@ -316,6 +317,197 @@ static void test_bench_keep() {
         CHECK(!r.read(M, copy_of(S, 0xB000)).submit, "bench keep: 4 s: still waiting");
         r.now = 115.0;
         CHECK(r.read(M, copy_of(S, 0xB000)).submit, "bench keep: 5 s after the map's last change: the write goes");
+    }
+    // I: the same build put back into the game's order IN PLACE after the write (P215c 19:00:33 written and read back, 19:01:08 the first
+    // Team Management entry: "working copy svc+0x550 changed", same record vector, exactly the order the game built). Written again like a
+    // new build; never after a commit or a save; never for your own move on the screen; at most kKeepMaxRewrites per build (no loop)
+    auto count = [](const bench_keep_test::Rig& r, const std::string& part) {
+        int n = 0;
+        for (const auto& l : r.log) n += l.find(part) != std::string::npos ? 1 : 0;
+        return n;
+    };
+    const std::string kPutBack = "bench keep: the game put its own order back into Team Management's working copy svc+0x550 in place";
+    // I1: the P215c flow: the copy built during the career load is written, holds; 44 s after the build Team Management is entered and the
+    // game puts its own order back: written again at once (the deadline counts from the re-sort, not from the build), once
+    {
+        Rig r;
+        r.read(M, copy_of(S, 0xB000));  // the career load: built already, waits for the map's quiet 5 s
+        r.now = 105.0;
+        const KeepOut o = r.read(M, copy_of(S, 0xB000));
+        CHECK(o.submit && o.before == S, "bench keep in place: the load-built copy is written");
+        r.k.queued(105.0);
+        r.k.on_result(true, "ok");
+        r.now = 105.5;
+        CHECK(!r.read(M, copy_of(M, 0xB000)).submit && r.k.phase() == KeepPhase::Done, "bench keep in place: the write held (the next read sees your order)");
+        const size_t logged0 = r.log.size();
+        for (double t = 106.0; t < 149.0; t += 0.5) {
+            r.now = t;
+            CHECK(!r.read(M, copy_of(M, 0xB000)).submit, "bench keep in place: nothing while the copy holds your order");
+        }
+        CHECK(r.log.size() == logged0, "bench keep in place: nothing logged while the copy holds your order");
+        r.now = 149.0;  // the first Team Management entry: the same build back in the game's order
+        const KeepOut o2 = r.read(M, copy_of(S, 0xB000));
+        CHECK(o2.submit && o2.saved == M && o2.before == S && o2.build == 0xB000,
+              "bench keep in place: the game's order put back into the same build: written again at once (44 s after the build): " + r.tail());
+        CHECK(r.logged(kPutBack + " (the same build; your map sheet unchanged since the write: no commit, no save): 4 of 25 places changed") &&
+                  r.logged("P12 #11->#14") && r.logged("Writing your saved order into it again (rewrite 1 of at most 2 for this build)"),
+              "bench keep in place: the re-sort is logged with the moves: " + r.tail());
+        CHECK(r.k.phase() == KeepPhase::Pending && r.k.state() == "on: Team Management's copy has another order (4 places): writing your saved order into it",
+              r.k.state());
+        r.k.queued(149.0);
+        r.now = 149.2;
+        CHECK(!r.read(M, copy_of(S, 0xB000)).submit, "bench keep in place: one write per change (nothing more while it is queued)");
+        r.k.on_result(true, "your saved order is in Team Management's working copy (again)");
+        for (double t = 149.5; t < 210.0; t += 0.5) {
+            r.now = t;
+            CHECK(!r.read(M, copy_of(M, 0xB000)).submit, "bench keep in place: the rewrite held: nothing more");
+        }
+        CHECK(count(r, kPutBack) == 1 && r.k.state() == "on: put back: your saved order is in Team Management's working copy (again)",
+              "bench keep in place: one rewrite for one re-sort: " + r.k.state());
+        // the same, but G2 does not hold at the re-sort: given up 20 s after the RE-SORT (not after the build, 44 s earlier)
+        Rig q;
+        q.read(M, copy_of(S, 0xB000));
+        q.now = 105.0;
+        q.read(M, copy_of(S, 0xB000));
+        q.k.queued(105.0);
+        q.k.on_result(true, "ok");
+        q.now = 105.5;
+        q.read(M, copy_of(M, 0xB000));
+        q.now = 149.0;
+        CHECK(!q.read(M, copy_of(S, 0xB000), true, "", false, "Lua's phase is prematch, not the hub").submit && q.k.phase() == KeepPhase::Pending &&
+                  q.logged("bench keep: the write waits (Lua's phase is prematch, not the hub): until 20 s after the build"),
+              "bench keep in place: the rewrite waits for G2: " + q.tail());
+        q.now = 160.0;
+        CHECK(!q.read(M, copy_of(S, 0xB000), true, "", false, "Lua's phase is prematch, not the hub").submit && q.k.phase() == KeepPhase::Pending,
+              "bench keep in place: 11 s after the re-sort (55 s after the build): still waiting");
+        q.now = 165.0;
+        CHECK(q.read(M, copy_of(S, 0xB000)).submit, "bench keep in place: G2 holds 16 s after the re-sort: the rewrite goes");
+        q.k.queued(165.0);
+        q.k.on_result(false, "refused (changed): ...");
+        q.now = 165.5;
+        q.read(M, copy_of(S, 0xB000));
+        q.now = 170.0;
+        CHECK(!q.read(M, copy_of(M, 0xB000)).submit && !q.read(M, copy_of(S, 0xB000)).submit && q.k.phase() == KeepPhase::Done,
+              "bench keep in place: a refused rewrite is not tried again in this build");
+    }
+    // I2: no rewrite when your map sheet changed since the write: a commit (the Yes put the game's order into the map), a save (dirty -> 0)
+    {
+        auto written = [&](Rig& r) {
+            r.read(M, none);
+            r.now = 110.0;
+            r.read(M, copy_of(S, 0xB000));
+            r.k.queued(110.0);
+            r.k.on_result(true, "ok");
+            r.now = 110.5;
+            r.read(M, copy_of(M, 0xB000));
+        };
+        Rig r;
+        written(r);
+        r.now = 140.0;  // the game put its order back and the Yes committed it, between two reads: map = copy = the game's order
+        CHECK(!r.read(S, copy_of(S, 0xB000)).submit &&
+                  r.logged(std::string("bench keep: the game put its own order back into Team Management's working copy svc+0x550, but your map sheet ") +
+                           "changed since the write (a commit or a save): left alone (nothing written)"),
+              "bench keep in place: a commit: no rewrite: " + r.tail());
+        for (double t = 140.5; t < 170.0; t += 0.5) {
+            r.now = t;
+            CHECK(!r.read(S, copy_of(S, 0xB000)).submit, "bench keep in place: after the commit: nothing");
+        }
+        CHECK(count(r, "your map sheet changed since the write") == 1 && count(r, kPutBack) == 0, "bench keep in place: the commit is logged once");
+        Rig r2;  // the map's ids changed (a commit of your own order with a move), then the game puts its order back in place
+        written(r2);
+        r2.now = 140.0;
+        r2.read(S2, copy_of(M, 0xB000));
+        r2.now = 150.0;
+        CHECK(!r2.read(S2, copy_of(S, 0xB000)).submit && r2.logged("your map sheet changed since the write (a commit or a save): left alone"),
+              "bench keep in place: the map's order changed since the write: no rewrite");
+        Rig r3;  // a save: the map's ids unchanged, its dirty flag 1 -> 0
+        written(r3);
+        r3.now = 140.0;
+        r3.dirty = 0;
+        r3.read(M, copy_of(M, 0xB000));
+        r3.now = 150.0;
+        CHECK(!r3.read(M, copy_of(S, 0xB000)).submit && r3.logged("your map sheet changed since the write (a commit or a save): left alone"),
+              "bench keep in place: a save since the write: no rewrite");
+    }
+    // I3: no ping-pong: the game puts its order back after every write: 2 rewrites (3 writes in all), then given up for this build; a new
+    // build starts again
+    {
+        Rig r;
+        r.read(M, none);
+        r.now = 110.0;
+        CHECK(r.read(M, copy_of(S, 0xB000)).submit, "bench keep loop: the build is written");
+        r.k.queued(r.now);
+        r.k.on_result(true, "ok");
+        int writes = 1;
+        for (int i = 0; i < 60; ++i) {
+            r.now += 0.5;
+            if (r.read(M, copy_of(M, 0xB000)).submit) ++writes;  // the write landed
+            r.now += 0.5;
+            if (r.read(M, copy_of(S, 0xB000)).submit) {  // the game puts its order back
+                ++writes;
+                r.k.queued(r.now);
+                r.k.on_result(true, "ok");
+            }
+        }
+        CHECK(writes == 1 + kKeepMaxRewrites && count(r, kPutBack) == kKeepMaxRewrites,
+              "bench keep loop: at most " + std::to_string(kKeepMaxRewrites) + " rewrites per build: " + std::to_string(writes) + " writes");
+        CHECK(count(r, "bench keep: given up for this build: the game put its own order back into Team Management's working copy again after 2 rewrites "
+                       "(no loop with the game) (nothing written)") == 1 &&
+                  r.k.state() == "on: given up for this build: the game put its own order back into Team Management's working copy again after 2 rewrites "
+                                 "(no loop with the game)",
+              "bench keep loop: given up once: " + r.k.state());
+        r.now += 1.0;
+        r.read(M, none);  // Team Management left: the next visit is a new build, written again, with its own rewrites
+        r.now += 1.0;
+        CHECK(r.read(M, copy_of(S, 0xC000)).submit, "bench keep loop: a new build is written again");
+        r.k.queued(r.now);
+        r.k.on_result(true, "ok");
+        r.now += 0.5;
+        r.read(M, copy_of(M, 0xC000));
+        r.now += 0.5;
+        CHECK(r.read(M, copy_of(S, 0xC000)).submit && count(r, "(rewrite 1 of at most 2 for this build)") == 2, "bench keep loop: a new build has its own rewrites");
+        // the game puts its order back before any read saw the write hold: left alone (no loop), logged once
+        Rig r2;
+        r2.read(M, none);
+        r2.now = 110.0;
+        r2.read(M, copy_of(S, 0xB000));
+        r2.k.queued(110.0);
+        r2.k.on_result(true, "ok");
+        for (double t = 110.5; t < 140.0; t += 0.5) {
+            r2.now = t;
+            CHECK(!r2.read(M, copy_of(S, 0xB000)).submit, "bench keep loop: the write did not hold until the next read: no rewrite");
+        }
+        CHECK(count(r2, "bench keep: left alone: Team Management's working copy svc+0x550 no longer held your saved order at the next read (changed right "
+                        "after the write: no loop with the game): 4 of 25 places changed") == 1 &&
+                  count(r2, kPutBack) == 0,
+              "bench keep loop: did not hold: logged once: " + r2.tail());
+    }
+    // I4: your own move on the screen after the write (two substitutes exchanged) is never undone; a later re-sort by the game still is
+    {
+        Rig r;
+        r.read(M, none);
+        r.now = 110.0;
+        r.read(M, copy_of(S, 0xB000));
+        r.k.queued(110.0);
+        r.k.on_result(true, "ok");
+        r.now = 110.5;
+        r.read(M, copy_of(M, 0xB000));
+        r.now = 130.0;
+        CHECK(!r.read(M, copy_of(S2, 0xB000)).submit &&
+                  r.logged("bench keep: Team Management's working copy svc+0x550 changed in place to an order that is not the game's own (a move on the "
+                           "screen?): left alone (nothing written): 2 of 25 places changed: P16 #15->#16, P17 #16->#15"),
+              "bench keep in place: your swap is left alone: " + r.tail());
+        for (double t = 130.5; t < 190.0; t += 0.5) {
+            r.now = t;
+            CHECK(!r.read(M, copy_of(S2, 0xB000)).submit, "bench keep in place: your swap stays");
+        }
+        CHECK(count(r, "a move on the screen?): left alone") == 1 && count(r, kPutBack) == 0, "bench keep in place: your swap is logged once, never undone");
+        std::vector<int32_t> s3 = s2;  // another move of yours on top
+        std::swap(s3[20], s3[21]);
+        r.now = 190.0;
+        CHECK(!r.read(M, copy_of(sheet(s3), 0xB000)).submit && count(r, "a move on the screen?): left alone") == 2, "bench keep in place: each move once");
+        r.now = 200.0;  // the game puts its own order back over your unsaved moves (map unchanged): your saved order is written
+        CHECK(r.read(M, copy_of(S, 0xB000)).submit && count(r, kPutBack) == 1, "bench keep in place: the game's order put back later: written again");
     }
 }
 

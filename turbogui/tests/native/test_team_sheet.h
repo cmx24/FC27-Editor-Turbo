@@ -2881,6 +2881,38 @@ static void run() {
         CHECK(!again.ok && !again.written && again.stage == "changed" && copy_ids(w) == p.saved, "the same plan again: refused: " + again.message);
     });
 
+    run_case("bench keep 2.15: the game puts its own order back into the SAME build in place (P215c) - the same plan is written again; after a commit refused", [&] {
+        SheetWorld w;
+        BenchPlan p;
+        tm_open_world(w, p);
+        const BenchResult r1 = apply_bench(w.mem, SheetWorld::kSvc, w.anchors(), p);
+        CHECK(r1.ok && r1.written && copy_ids(w) == p.saved, "the first write: " + r1.message);
+        // the first Team Management entry: the game re-sorts the same copy (same record vector, dirty 255) back to the order it built
+        put_tm_copy(w, p.before, p.build);
+        const std::vector<uint8_t> sheet0 = w.bytes(SheetWorld::kSheet, kSheetStride), recs0 = w.bytes(SheetWorld::kRecs, 5 * kRecStride);
+        const BenchResult r2 = apply_bench(w.mem, SheetWorld::kSvc, w.anchors(), p);
+        CHECK(r2.ok && r2.written && r2.moved == 4 && r2.stage == "done" && copy_ids(w) == p.saved && r2.after == p.saved,
+              "written again into the same build: " + r2.message);
+        CHECK(w.u8(SheetWorld::kSvc + kTmCopyTarget + kSheetDirty) == 255 && w.i32(SheetWorld::kSvc + kTmCopyTarget + kSheetPids) == p.before[0],
+              "the copy's dirty 255 and its starting XI untouched by the rewrite");
+        CHECK(w.bytes(SheetWorld::kSheet, kSheetStride) == sheet0 && w.bytes(SheetWorld::kRecs, 5 * kRecStride) == recs0, "the map and its records untouched");
+        CHECK(r2.log_line == r1.log_line, "the same write line (the live check's parser keys on it): " + r2.log_line);
+        // the game puts its order back again and the Yes commits it (the map takes the copy's order) before the rewrite runs: refused
+        put_tm_copy(w, p.before, p.build);
+        for (int k = 0; k < kSheetPidCount; ++k) w.mem.wr(SheetWorld::kSheet + kSheetPids + 4 * uint64_t(k), p.before[size_t(k)]);
+        const Ids52 map0 = ids_of(w), copy0 = copy_ids(w);
+        const BenchResult r3 = apply_bench(w.mem, SheetWorld::kSvc, w.anchors(), p);
+        CHECK(!r3.ok && !r3.written && r3.stage == "changed" && r3.message.find("your saved order (the map) changed since the read") != std::string::npos &&
+                  r3.message.find("nothing written") != std::string::npos,
+              "after a commit: refused: " + r3.message);
+        CHECK(ids_of(w) == map0 && copy_ids(w) == copy0, "after a commit: nothing written");
+        // a plan made from the committed map: the copy already holds that order
+        BenchPlan p2 = p;
+        p2.saved = ids_of(w);
+        const BenchResult r4 = apply_bench(w.mem, SheetWorld::kSvc, w.anchors(), p2);
+        CHECK(!r4.ok && !r4.written && r4.message.find("(same order)") != std::string::npos && copy_ids(w) == copy0, "the committed order: nothing to write: " + r4.message);
+    });
+
     run_case("bench keep 2.15: apply_bench refuses - the copy or the map changed, a starter, other players, empty places, the XI, the copy's identity, G5", [&] {
         struct Case {
             const char* name;
@@ -3701,8 +3733,10 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
 
     // 2.15 bench keep through the card's own code: the toggle writes the opt-in; Team Management opens = its working copy at svc+0x550 is built
     // in the game's order (Lua's team_mgmt stays false, as on LE 27.1.5) -> one guarded job writes your saved order (the map's) into it;
-    // the probe logs the copy; one write per build; channel E's undo file untouched; the toggle off
-    run_case("UI: bench keep - the toggle, Team Management's copy built in the game's order -> your saved order written into it once per build, logged", [&] {
+    // the probe logs the copy; one write per build, plus one per in-place put-back of the game's order (at most 2, P215c); channel E's undo
+    // file untouched; the toggle off
+    run_case("UI: bench keep - the toggle, Team Management's copy built in the game's order -> your saved order written into it once per build "
+             "(again when the game puts its order back in place, at most twice), logged", [&] {
         live_tactic_reset();
         const fs::path out = le / "turbo_output";
         std::error_code ec;
@@ -3783,10 +3817,25 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(s.bench_keep.find("Bench order: on: put back: your saved order is in Team Management's working copy, places 11..51 (4 places written") == 0,
               s.bench_keep);
         CHECK(!fs::exists(out / undo_file()) && s.last.empty(), "channel E's tactic card saw nothing of it (no undo file, no 'Last' line)");
-        // the same build in the game's order again: one write per build
+        // the same build put back into the game's order in place (P215c: the first Team Management entry after a career load): written
+        // again, one write per such change, at most kKeepMaxRewrites times per build; then left alone (no loop with the game)
+        for (int k = 1; k <= bench::kKeepMaxRewrites; ++k) {
+            put_tm_copy(w, game, 0x3BCE0000ULL);
+            step(4);
+            CHECK(copy_ids(w) == orig && ids_of(w) == orig,
+                  "the same build back in the game's order: your saved order written again (rewrite " + std::to_string(k) + "), the map untouched: " +
+                      s.bench_keep);
+        }
+        CHECK(app_logged("bench keep: the game put its own order back into Team Management's working copy svc+0x550 in place (the same build; your map "
+                         "sheet unchanged since the write: no commit, no save): 4 of 31 places changed") &&
+                  app_logged("Writing your saved order into it again (rewrite 2 of at most 2 for this build)"),
+              "the rewrites are logged");
         put_tm_copy(w, game, 0x3BCE0000ULL);
         step(10);
-        CHECK(copy_ids(w) == game, "ONE write per build: " + s.bench_keep);
+        CHECK(copy_ids(w) == game &&
+                  app_logged("bench keep: given up for this build: the game put its own order back into Team Management's working copy again after 2 rewrites "
+                             "(no loop with the game) (nothing written)"),
+              "no loop with the game: the third put-back of the same build is left alone: " + s.bench_keep);
         // Team Management closes (the copy is no longer your sheet's) and opens again: the new build is written
         put_tm_copy(w, game, 0x3BCE0000ULL, 1);
         step(2);
