@@ -12,11 +12,13 @@ Nothing here is shipped or claimed as a feature. Gates are in `turbo_dev\evidenc
 
 ## 2.13.0
 
-**GUI revamp, first cut - offline-tested only, NOT seen in game** (checklist: `turbo_devesearch_20261016\P213_PROOF.md`; spec: `GUI_REVAMP_SPEC.md`).
+**GUI revamp, first cut: five areas instead of eight tabs, proven in game** (2026-10-17, LEICESTER, never saved, Live Editor 27.1.5). Package FC27_LE_Turbo_2.13.0.zip (md5 890f1ae22d14522ed6ee63edd496b7ed). Turbo.dll md5 c9351a8a88a68a7bc1991e32af1ed0b2. Includes every 2.12.2 fix.
 
 - Eight top-level tabs become five areas with a page strip: **Squad & Players**, **Club & Kits** (Kits, Identity, Stadium & extras), **Tactics & Gameplay** (Tactic presets, Gameplay presets, Standings), **Career tools** (Transfers, Job offer, Scouting, Budget, Exports, Bans, CMTracker, Changes & undo, Maintenance), **Settings**; **Advanced** (Database, Raw rows, Bulk edit, Maintenance, Tactics, Match setup, Gameplay tuning) only with the Advanced view toggle. Old `request_tab` cross-links land on the new pages (`shell::area_for`).
 - Every proven panel keeps its code path (kits, callnames, faces picker, club tools, tactic presets, standings, game settings, reapply log); only its place and chrome changed. The club-tools kit shortcut is now a link to Club & Kits > Kits.
-- Not in this build: the Squad & Players pages (Player edit sections, Squad, Staff): the 2.12.1 Players / Teams / Managers panels are drawn there unchanged (fallback). Not proven: anything in game (no launch yet); the in-match effect of slider presets and Tactics sliders (unchanged since 2.10).
+- Fixed after the 10-16 integration build: live standings now sit at Tactics & Gameplay > Standings (the 10-16 build had no way to reach them); Career tools > Job offer and Transfers lead to the working panels; Maintenance links to the live table; long page strips wrap.
+- Proven in game (P213fix): live standings located (6000 rows, 6300 fixtures); Pts +1 written and re-read by the game's standings view, Reload keeps it, Undo restores it; Career tools > Transfers, Job offer and Maintenance show the right panels; manager Appearance keeps the 2.12.2 hair and facial-hair galleries.
+- Not proven in game: the Squad & Players pages are the 2.12 panels drawn unchanged (fallback); the in-match effect of slider presets and Tactics sliders (unchanged since 2.10).
 
 ## 2.12.2
 
