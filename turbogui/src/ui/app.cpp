@@ -622,6 +622,10 @@ bool App::spoken_ids(caudio::IdCache& out, std::string* why) {
         for (int64_t id : callnames.index.used_ids) ids.insert(id);
         for (const auto& kv : callnames.index.playernamemap)
             if (kv.second > kNoCallname && kv.second <= kCallnameMax) ids.insert(kv.second);
+        // plus every language bank's generic ids (core/callname_bank.h): a name only another language records is asked too
+        if (callnames.catalog)
+            for (int64_t id : catalog_generic_union(*callnames.catalog))
+                if (id > kNoCallname) ids.insert(id);
         out.names.assign(ids.begin(), ids.end());
         std::sort(out.names.begin(), out.names.end());
         if (const Table* t = db.table("commentarynames"); t && t->has("commentaryid") && t->has("commentarypreview")) {
