@@ -109,7 +109,7 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/ui/ui_zoom.cpp src/ui/ui_shell.cpp src/ui/ui_team_filter.cpp src/ui/ui_role_rules.cpp src/ui/ui_club_search.cpp src/ui/ui_settings.cpp src/ui/ui_club_page.cpp \
          src/core/edit_unlock.cpp src/ui/ui_edit_unlock.cpp \
          src/core/edit_unlock_rules.cpp src/core/edit_unlock_hook.cpp tests/native/test_edit_unlock_hook.cpp tests/native/test_http_stub.cpp \
-         src/ui/pitch_view.cpp src/ui/ui_tactics.cpp src/ui/ui_live_tactic.cpp src/ui/ui_tactic_presets.cpp src/core/tactic_presets.cpp src/core/team_sheet.cpp src/core/sliders.cpp src/core/tactic_profiles.cpp src/core/tactics.cpp src/core/tactics_db.cpp src/core/opp_rules.cpp src/core/opposition.cpp src/core/teamname_override.cpp \
+         src/ui/pitch_view.cpp src/ui/ui_tactics.cpp src/ui/ui_live_tactic.cpp src/ui/ui_tactic_presets.cpp src/core/tactic_presets.cpp src/core/team_sheet.cpp src/core/bench_probe.cpp src/core/sliders.cpp src/core/tactic_profiles.cpp src/core/tactics.cpp src/core/tactics_db.cpp src/core/opp_rules.cpp src/core/opposition.cpp src/core/teamname_override.cpp \
          src/core/tuning.cpp src/ui/ui_tuning.cpp \
          src/core/game_settings.cpp src/ui/ui_game_settings.cpp \
          tests/native/test_crash_report.cpp tests/native/test_main.cpp; do

@@ -637,6 +637,8 @@ static void run() {
                   !lt.copy(0x1078)->matches && lt.copy(0x1078)->why.find("empty template") != std::string::npos && !lt.copy(0x1268)->matches,
               "Edit Tactic's working copies: +0xF80 and +0x1170 hold this tactic, the templates do not");
         CHECK(lt.sheet_id == -1 && lt.mode == -1 && lt.dirty == 1 && lt.squad.size() == 31, "sheet -1, mode -1, dirty 1, 31 players");
+        CHECK(lt.sheet_ids[0] == 100001 && lt.sheet_ids[30] == 100031 && lt.sheet_ids[31] == -1 && lt.sheet_ids[51] == -1,
+              "the sheet's 52 ids in the game's order, -1 kept (the bench probe)");
         const SlotView& st = lt.slots[9];
         CHECK(st.role == 38213 && st.group() == 9 && st.role_id == 21 && st.focus == 5 && st.position == 25, "ST: 38213 = group 9 / role 21 / focus 5");
         CHECK(lt.slots[0].role == 4227 && lt.slots[0].group() == 1 && lt.slots[0].role_id == 2 && lt.slots[0].focus == 3, "GK: 4227 = 1 / 2 / 3");

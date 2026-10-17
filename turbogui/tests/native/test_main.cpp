@@ -27,6 +27,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "core/bench_probe.h"
 #include "core/bridge.h"
 #include "core/field_labels.h"
 #include <chrono>
@@ -11232,6 +11233,7 @@ struct FakeListGame : turbo::tl::Caller {
 #include "test_player_create.h"  // player_create: the game INSERT, event 0x3A, InsertTeamPlayer, the op 11 move on a synthetic career
 #include "test_player_morale.h"  // player_morale: very happy through the game's level function, SetTotalMorale, count-only paths
 #include "test_squad_role.h"     // squad_role: the PlayerStatusManager table through the game's Find / AddPlayer / Remove
+#include "test_bench_probe.h"     // the bench probe: your club's sheet order around Team Management (read-only)
 
 static void test_transfer_list() {
     using namespace turbo;
@@ -14867,6 +14869,7 @@ int main(int argc, char** argv) {
     test_player_morale();
     test_role_rules();
     test_squad_role();
+    test_bench_probe();
     std::printf("native Live Editor log\n");
     test_le_log();
     std::printf("native live standings\n");

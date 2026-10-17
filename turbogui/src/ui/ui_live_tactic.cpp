@@ -16,6 +16,7 @@
 #include <set>
 
 #include "app.h"
+#include "core/bench_probe.h"
 #include "core/tactics_db.h"
 #include "core/tactics_status.h"
 #include "core/team_sheet.h"
@@ -75,6 +76,10 @@ struct Lt {
     bool confirm_request = false;
     std::vector<std::string> confirm_lines;
     bool details_open = false;  // 2.5: the "More" node (roles per slot, the live record, details)
+    // the bench probe (core/bench_probe.h): read-only, your club's sheet order around Team Management; its kill switch every 5 s
+    bench::Probe bench;
+    double bench_sw_at = -1.0;
+    bool bench_off = false;
 };
 Lt g;
 LiveTacticState g_state;
@@ -1240,6 +1245,42 @@ void draw_live_tactic(App& app) {
     }
 }
 
+// The bench probe (core/bench_probe.h): reads your club's sheet when the probe says so and logs what it returns. Never writes
+void bench_probe_tick(App& app) {
+    const double now = wall_now();
+    if (now >= g.bench_sw_at) {
+        g.bench_sw_at = now + 5.0;
+        std::error_code ec;
+        g.bench_off = fs::exists(out_dir(app) / bench::off_file(), ec);
+    }
+    if (g.bench_off) return;
+    const BridgeState& st = app.bridge.state();
+    bench::Input in;
+    in.career = st.loaded && st.in_cm && st.user_team > 0;
+    in.load_gen = st.load_gen;
+    in.phase = st.loaded ? st.match_phase : std::string();
+    in.team_mgmt = st.loaded && st.team_mgmt;
+    in.save_t = st.save_t;
+    in.now = now;
+    const bench::Due d = g.bench.step(in);
+    if (d.kind == bench::Kind::None) return;
+    LiveTactic lt;
+    std::string why;
+    if (!app.team_sheet->read(ctx_of(app), lt, why)) {
+        const std::string s = g.bench.on_fail(d, why);
+        if (!s.empty()) log_line(app, s);
+        return;
+    }
+    std::vector<int32_t> squad;
+    for (const LinkRow& l : app.model.links_of_team(st.user_team)) squad.push_back(int32_t(l.playerid));
+    const bench::Namer name = [&app](int32_t pid) {
+        const PlayerRow* p = app.model.player(pid);
+        return (p && !p->name.empty() ? p->name : std::string("?")) + "/" + std::to_string(pid);
+    };
+    const std::string meta = "team " + std::to_string(st.user_team) + ", sheet " + std::to_string(lt.sheet_id) + ", dirty " + std::to_string(int(lt.dirty));
+    for (const std::string& s : g.bench.on_read(d, lt.sheet_ids, squad, name, meta)) log_line(app, s);
+}
+
 void live_tactic_tick(App& app) {
     try {
         if (!app.team_sheet) return;
@@ -1315,6 +1356,7 @@ void live_tactic_tick(App& app) {
                 }
             }
         }
+        bench_probe_tick(app);
         // the kick-off check (core/team_sheet.h): the game_tick listener runs it; this tick only stands in when the game thread is not hooked
         app.team_sheet->kickoff_tick();
     } catch (const std::exception& e) {

@@ -580,6 +580,7 @@ std::string read_live(Memory& mem, uint64_t svc, int user, const Anchors& a, Liv
     for (int k = 0; k < kSheetPidCount; ++k) {
         int32_t pid = -1;
         if (!mem.rd(e + kSheetPids + 4 * uint64_t(k), pid)) ok = false;
+        out.sheet_ids[size_t(k)] = pid;
         if (pid != -1) out.squad.push_back(pid);
     }
     if (!ok) return mismatch("record fields not readable");

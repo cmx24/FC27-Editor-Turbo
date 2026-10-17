@@ -268,6 +268,7 @@ struct LiveTactic {
     int32_t preset = 0, line_height = 0, build_up = 0, approach = 0, formation = 0, source_formation = 0, audio = 0;
     std::array<SlotView, kSlots> slots{};
     std::vector<int32_t> squad;  // the sheet's player ids (not -1)
+    std::array<int32_t, kSheetPidCount> sheet_ids{};  // the sheet's 52 player ids in the game's order (-1 = empty; the bench probe)
     std::vector<WorkCopy> copies;  // the four inline records of the service, in kWorkCopyOffsets order
     const WorkCopy* copy(uint64_t offset) const;  // nullptr = no such offset
     int matching_copies() const;
