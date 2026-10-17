@@ -773,6 +773,7 @@ struct TableBuilder::Impl {
     std::vector<Rec> recs;
     std::vector<std::shared_ptr<std::vector<uint8_t>>> storage;
     std::vector<uint8_t> swap;
+    std::set<uint32_t> excluded;  // 2.13: items left out of the table (a kit folder left whole after a clash)
 };
 TableBuilder::TableBuilder() : d_(new Impl) {}
 TableBuilder::~TableBuilder() = default;
@@ -795,6 +796,7 @@ bool TableBuilder::add_block(uint32_t item, uint32_t csize, uint32_t dsize, uint
     d_->recs.push_back(r);
     return true;
 }
+void TableBuilder::exclude_item(uint32_t item) { d_->excluded.insert(item); }
 
 static uint64_t mix(uint32_t cs, uint32_t ds, uint64_t head) {
     uint64_t h = head * 0x9E3779B97F4A7C15ULL;
@@ -803,14 +805,18 @@ static uint64_t mix(uint32_t cs, uint32_t ds, uint64_t head) {
     return h;
 }
 
-std::shared_ptr<Table> TableBuilder::finish(std::vector<std::string>* dropped, std::set<uint32_t>* dropped_items) {
+std::shared_ptr<Table> TableBuilder::finish(std::vector<std::string>* dropped, std::set<uint32_t>* dropped_items, std::map<uint32_t, std::set<uint32_t>>* clash_with) {
     auto& recs = d_->recs;
-    // identical key: the same replacement bytes = one entry serving both items; different bytes = a conflict: every block of both
-    // items goes (a half-swapped texture is worse than none)
+    const auto& excluded = d_->excluded;
+    // identical key: the same replacement bytes = one entry serving both items; different bytes = a conflict: every block of every item that
+    // wants that block goes (a half-swapped texture is worse than none). finish() may run again after exclude_item(): nothing is kept between runs.
+    for (auto& r : recs) r.dead = excluded.count(r.e.item) != 0;
     std::set<uint32_t> poisoned;
+    if (clash_with) clash_with->clear();
     std::map<size_t, std::vector<uint32_t>> aliases;  // survivor record -> items of its byte-identical duplicates
-    std::vector<size_t> order(recs.size());
-    for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+    std::vector<size_t> order;
+    for (size_t i = 0; i < recs.size(); ++i)
+        if (!recs[i].dead) order.push_back(i);
     auto key = [&](size_t i) { return std::make_tuple(recs[i].e.csize, recs[i].e.dsize, recs[i].e.head, recs[i].e.fnv); };
     std::sort(order.begin(), order.end(), [&](size_t a, size_t b) { return key(a) < key(b) || (key(a) == key(b) && a < b); });
     for (size_t i = 0; i < order.size();) {
@@ -820,16 +826,36 @@ std::shared_ptr<Table> TableBuilder::finish(std::vector<std::string>* dropped, s
         size_t first = order[i];
         for (size_t k = i; k < j; ++k)
             if (recs[order[k]].e.data) { first = order[k]; break; }
-        for (size_t k = i; k < j; ++k) {
-            const size_t oi = order[k];
-            if (oi == first) continue;
-            auto& other = recs[oi];
-            if (!other.e.data || !recs[first].e.data || std::memcmp(recs[first].e.data, other.e.data, other.e.dsize) == 0) {
-                other.dead = true;  // identical block, same replacement (or watch only): one entry, both counters
-                if (other.e.item != recs[first].e.item) aliases[first].push_back(other.e.item);
-            } else {
-                poisoned.insert(recs[first].e.item);
-                poisoned.insert(other.e.item);
+        bool conflict = false;
+        for (size_t k = i; k < j && !conflict; ++k) {
+            const auto& other = recs[order[k]];
+            conflict = other.e.data && recs[first].e.data && std::memcmp(recs[first].e.data, other.e.data, other.e.dsize) != 0;
+        }
+        if (conflict) {  // every real item of the group goes (also one whose bytes equal the survivor's: its block would be missing otherwise)
+            std::set<uint32_t> group;
+            for (size_t k = i; k < j; ++k)
+                if (recs[order[k]].e.data) group.insert(recs[order[k]].e.item);
+            for (uint32_t it : group) {
+                poisoned.insert(it);
+                if (clash_with)
+                    for (uint32_t o : group)
+                        if (o != it) (*clash_with)[it].insert(o);
+            }
+            size_t watch = order[i];  // the watch-only records of the group stay: one entry, every counter
+            bool have = false;
+            for (size_t k = i; k < j; ++k) {
+                const size_t oi = order[k];
+                if (recs[oi].e.data) continue;
+                if (!have) { watch = oi; have = true; continue; }
+                recs[oi].dead = true;
+                if (recs[oi].e.item != recs[watch].e.item) aliases[watch].push_back(recs[oi].e.item);
+            }
+        } else {
+            for (size_t k = i; k < j; ++k) {
+                const size_t oi = order[k];
+                if (oi == first) continue;
+                recs[oi].dead = true;  // identical block, same replacement (or watch only): one entry, both counters
+                if (recs[oi].e.item != recs[first].e.item) aliases[first].push_back(recs[oi].e.item);
             }
         }
         i = j;
@@ -1040,7 +1066,62 @@ struct Cand {
     size_t plan_index;
     std::string own_key;
 };
+void add_user(std::vector<KitUser>& v, const KitUser& u) {
+    for (const KitUser& x : v)
+        if (x.team == u.team && x.kind == u.kind) return;
+    v.push_back(u);
+}
+const char* kOtherClubsOption = "the option 'also change other clubs' kits that share this texture' serves it";
 }  // namespace
+
+bool kit_role(const std::string& role) { return role == "jersey_color" || role == "shorts_color" || role == "socks_color"; }
+bool detail_role(const std::string& role) {
+    for (const char* g : {"jersey_", "shorts_", "socks_"})
+        for (const char* m : {"coeff", "normal", "taa"})
+            if (role == std::string(g) + m) return true;
+    return false;
+}
+
+std::string users_text(const std::vector<KitUser>& users) {
+    std::string s;
+    for (const KitUser& u : users) s += (s.empty() ? "" : ", ") + ("team " + std::to_string(u.team) + " " + u.kind);
+    return s;
+}
+
+std::vector<uint32_t> leave_folder(Plan& plan, const std::string& kind, LeftBy why, const std::string& role, const std::string& reason,
+                                   const std::vector<KitUser>& shared) {
+    std::vector<uint32_t> ids;
+    FolderVerdict* v = nullptr;
+    for (auto& f : plan.folders)
+        if (f.kind == kind) v = &f;
+    if (!v) {
+        plan.folders.push_back({});
+        v = &plan.folders.back();
+        v->team = plan.team;
+        v->slot = plan.slot;
+        v->kind = kind;
+    }
+    if (!v->swapped) return ids;  // already left: the first reason stays
+    v->swapped = false;
+    v->why = why;
+    v->role = role;
+    v->reason = reason;
+    v->shared = shared;
+    v->details_left = 0;
+    const std::string with = "left with the rest of this kit (" + kind + "): its " + role + " stays the game's, never half a kit";
+    for (PlanItem& it : plan.items) {
+        if (it.probe || it.kind != kind || !it.swap) continue;
+        if (it.table_item != 0xFFFFFFFFu) ids.push_back(it.table_item);
+        it.swap = false;
+        it.table_item = 0xFFFFFFFFu;
+        it.left_by = why;
+        it.reason = with;
+    }
+    plan.swapped = plan.skipped = 0;
+    for (const PlanItem& it : plan.items)
+        if (!it.probe) ++(it.swap ? plan.swapped : plan.skipped);
+    return ids;
+}
 
 Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, const StagedKit& staged, const Options& opt, bool swap, TableBuilder& tb,
                 Progress* progress) {
@@ -1139,6 +1220,7 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
             auto skip = [&](const std::string& why) {
                 it.swap = false;
                 it.reason = why;
+                if (it.left_by == LeftBy::None) it.left_by = LeftBy::Other;
                 plan.items.push_back(it);
                 ++plan.skipped;
             };
@@ -1160,24 +1242,37 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
             uint64_t sum = 0;
             for (uint32_t x : expect) sum += x;
             if (expect != t.hdr.mip_sizes || sum != t.logical || st.bytes != kDdsHeader + sum) { skip("the mip chain size differs from the game's chunk"); continue; }
-            // sharing: every user of this physical chunk must be this club's same slot
+            // sharing: the users of this physical chunk. This club's same slot: fine; this club's other slots: share_within_club;
+            // other clubs: share_other_clubs (2.13); a kit folder of this club that is no slot: never
             const auto us = index.users.find(phys_key(t.loc));
-            bool shared = false;
-            std::string who;
+            std::string unknown;
             std::set<std::string> club_kinds;  // this club's OTHER kit slots that use the same chunk
+            std::vector<KitUser> others;       // other clubs' kits on the same chunk
             if (us != index.users.end())
                 for (const KitUser& u : us->second) {
-                    if (u.team != staged.team || u.slot < 0) { shared = true; who = "team " + std::to_string(u.team) + " " + u.kind; break; }
-                    if (u.slot != staged.slot) club_kinds.insert(u.kind);
+                    if (u.team != staged.team) add_user(others, u);
+                    else if (u.slot < 0) { if (unknown.empty()) unknown = "team " + std::to_string(u.team) + " " + u.kind; }
+                    else if (u.slot != staged.slot) { club_kinds.insert(u.kind); add_user(it.shared, u); }
                 }
-            if (shared) { skip("the chunk is also used by " + who + ": left to the game"); continue; }
+            for (const KitUser& u : others) add_user(it.shared, u);
+            if (!unknown.empty()) { skip("the chunk is also used by " + unknown + ": left to the game"); continue; }
+            if (!others.empty() && !opt.share_other_clubs) {
+                it.left_by = LeftBy::OtherClubs;
+                skip("the chunk is also used by " + users_text(others) + ": left to the game (" + kOtherClubsOption + ")");
+                continue;
+            }
             std::string club_note;
             if (!club_kinds.empty()) {
                 std::string list;
                 for (const auto& k : club_kinds) list += (list.empty() ? "" : ", ") + k;
-                if (!opt.share_within_club) { skip("the chunk is also used by this club's " + list + ": left to the game (the option 'also change this club's other kits that share a texture' serves it)"); continue; }
+                if (!opt.share_within_club) {
+                    it.left_by = LeftBy::ThisClub;
+                    skip("the chunk is also used by this club's " + list + ": left to the game (the option 'also change this club's other kits that share a texture' serves it)");
+                    continue;
+                }
                 club_note = "shared with this club's " + list + ": those kits show it too";
             }
+            if (!others.empty()) club_note += (club_note.empty() ? "" : "; ") + ("also changes " + users_text(others) + " (the same chunk)");
             // blocks
             std::vector<uint8_t> chunk;
             if (!files.read_loc(t.loc, chunk)) { skip("the chunk cannot be read"); continue; }
@@ -1227,7 +1322,10 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
             data_of[c.plan_index] = rd->second;
             cands.push_back(std::move(c));
         }
-        // 3. the block census: no OTHER kit chunk may hold a byte-identical compressed block
+        // 3. the block census: an OTHER kit chunk that holds a byte-identical compressed block would show the replacement too. Such a
+        //    texture stays the game's, except (2.13, share_other_clubs) when every such chunk belongs to other clubs: then it is served and
+        //    the note names every kit that changes with it ("also changes team 2 goalie_home_2_0 (byte-identical blocks: ...)").
+        std::set<size_t> bad;  // census: candidates that stay the game's
         if (opt.census && !cands.empty()) {
             std::map<std::pair<uint32_t, uint32_t>, std::vector<std::pair<size_t, size_t>>> want;  // (csize,dsize) -> (cand, block)
             std::set<std::string> own;
@@ -1237,8 +1335,8 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
             }
             uint32_t min_c = 0xFFFFFFFFu;
             for (const auto& w : want) min_c = std::min(min_c, w.first.first);
-            std::set<size_t> bad;
-            std::map<size_t, std::string> bad_why;
+            // per candidate: the other kit chunks holding one of its blocks -> which of its blocks they hold
+            std::map<size_t, std::map<std::string, std::set<size_t>>> hit;
             size_t scanned = 0;
             std::vector<uint8_t> hdr, pay;
             for (const auto& kv : index.users) {
@@ -1258,32 +1356,112 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
                     if (w != want.end() && files.read(l.cas, l.off + p + 8, cs, pay)) {
                         const uint64_t f = fnv1a64(pay.data(), pay.size());
                         for (const auto& cb : w->second)
-                            if (cands[cb.first].fnv[cb.second] == f) {
-                                bad.insert(cb.first);
-                                if (!bad_why.count(cb.first)) {
-                                    const KitUser* u = kv.second.empty() ? nullptr : &kv.second[0];
-                                    bad_why[cb.first] = "a byte-identical compressed block is also in another kit chunk" + (u ? " (team " + std::to_string(u->team) + " " + u->kind + ")" : std::string());
-                                }
-                            }
+                            if (cands[cb.first].fnv[cb.second] == f) hit[cb.first][kv.first].insert(cb.second);
                     }
                     p += 8 + cs;
                 }
             }
             plan.notes.push_back("block census: " + std::to_string(scanned) + " other kit chunks checked");
-            for (const Cand& c : cands)
-                if (!c.note.empty() && !bad.count(size_t(&c - cands.data()))) plan.items[c.plan_index].reason = c.note;
-            for (size_t ci : bad) {
+            for (const auto& h : hit) {
+                const size_t ci = h.first;
                 PlanItem& it = plan.items[cands[ci].plan_index];
+                std::vector<KitUser> others, club;
+                bool unknown = false;
+                std::string counts;
+                for (const auto& ch : h.second) {
+                    const auto us = index.users.find(ch.first);
+                    if (us == index.users.end() || us->second.empty()) {
+                        unknown = true;
+                        continue;
+                    }
+                    for (const KitUser& u : us->second) {
+                        if (u.team != staged.team) add_user(others, u);
+                        else add_user(club, u);
+                    }
+                    counts += (counts.empty() ? "" : ", ") + ("team " + std::to_string(us->second[0].team) + " " + us->second[0].kind + " " + std::to_string(ch.second.size()) +
+                                                              " of " + std::to_string(cands[ci].blocks.size()));
+                }
+                for (const KitUser& u : others) add_user(it.shared, u);
+                for (const KitUser& u : club) add_user(it.shared, u);
+                if (!club.empty() || unknown) {  // this club's own kit data: a patched fragment is never made (as before 2.13)
+                    std::vector<KitUser> all = club;
+                    for (const KitUser& u : others) add_user(all, u);
+                    bad.insert(ci);
+                    it.left_by = LeftBy::ThisClubData;
+                    it.reason = "a byte-identical compressed block is also in another kit chunk (" + (all.empty() ? std::string("a chunk the index does not name") : users_text(all)) + ")";
+                } else if (!opt.share_other_clubs) {
+                    bad.insert(ci);
+                    it.left_by = LeftBy::OtherClubs;
+                    it.reason = "a byte-identical compressed block is also in another club's kit chunk (" + users_text(others) + "): left to the game (" + kOtherClubsOption + ")";
+                } else {
+                    cands[ci].note += (cands[ci].note.empty() ? "" : "; ") + ("also changes " + users_text(others) + " (byte-identical blocks: " + counts + ")");
+                }
+            }
+            for (size_t ci : bad) plan.items[cands[ci].plan_index].swap = false;
+        }
+        for (size_t ci = 0; ci < cands.size(); ++ci)
+            if (!bad.count(ci)) plan.items[cands[ci].plan_index].reason = cands[ci].note;
+        // 3b. never half a kit (2.13): every kit folder of the slot is shown whole, the zip's or the game's. A folder whose jersey, shorts or
+        //     socks picture is not served stays the game's: jersey, shorts, socks, brand and hotspots. The deciding picture is the one with
+        //     the hardest reason (one no option fixes before one an option fixes), the first in jersey, shorts, socks order among equals.
+        auto hardness = [](LeftBy w) { return w == LeftBy::OtherClubs ? 1 : w == LeftBy::ThisClub ? 2 : 3; };
+        for (const PlanItem& it : plan.items) {
+            if (it.probe || std::any_of(plan.folders.begin(), plan.folders.end(), [&](const FolderVerdict& f) { return f.kind == it.kind; })) continue;
+            FolderVerdict v;
+            v.team = plan.team;
+            v.slot = plan.slot;
+            v.kind = it.kind;
+            plan.folders.push_back(v);
+        }
+        std::sort(plan.folders.begin(), plan.folders.end(), [](const FolderVerdict& a, const FolderVerdict& b) {
+            const bool la = a.kind.compare(0, 5, "loc2_") == 0, lb = b.kind.compare(0, 5, "loc2_") == 0;
+            return la != lb ? lb : a.kind < b.kind;
+        });
+        std::vector<std::string> kinds;
+        for (const auto& f : plan.folders) kinds.push_back(f.kind);
+        for (const std::string& kind : kinds) {
+            const PlanItem* by = nullptr;
+            for (const PlanItem& it : plan.items)
+                if (!it.probe && it.kind == kind && kit_role(it.role) && !it.swap && (!by || hardness(it.left_by) > hardness(by->left_by))) by = &it;
+            if (by) {
+                const PlanItem d = *by;  // leave_folder rewrites the items
+                leave_folder(plan, kind, d.left_by, d.role, d.reason, d.shared);
+            }
+        }
+        // ... and a served texture whose blocks are the same as a picture of a folder left whole would change that folder through the hook
+        // (it recognises blocks by content): it stays the game's too, and when it is a jersey / shorts / socks picture so does its folder
+        for (bool again = true; again;) {
+            again = false;
+            std::map<std::tuple<uint32_t, uint32_t, uint64_t>, std::string> guard;  // blocks of the pictures of left folders -> "folder role"
+            for (const Cand& c : cands) {
+                const PlanItem& it = plan.items[c.plan_index];
+                const bool left_folder = std::any_of(plan.folders.begin(), plan.folders.end(), [&](const FolderVerdict& f) { return f.kind == it.kind && !f.swapped; });
+                if (!left_folder || !kit_role(it.role)) continue;
+                for (size_t b = 0; b < c.blocks.size(); ++b) guard.emplace(std::make_tuple(c.blocks[b].csize, c.blocks[b].dsize, c.fnv[b]), it.kind + " " + it.role);
+            }
+            for (const Cand& c : cands) {
+                PlanItem& it = plan.items[c.plan_index];
+                if (!it.swap) continue;
+                std::string same;
+                for (size_t b = 0; b < c.blocks.size() && same.empty(); ++b) {
+                    auto g = guard.find(std::make_tuple(c.blocks[b].csize, c.blocks[b].dsize, c.fnv[b]));
+                    if (g != guard.end()) same = g->second;
+                }
+                if (same.empty()) continue;
                 it.swap = false;
-                it.reason = bad_why[ci];
-                ++plan.skipped;
-                cands[ci].blocks.clear();
+                it.left_by = LeftBy::ThisClubData;
+                it.reason = "its data is the same as " + same + ", which stays the game's (the hook would change that kit too)";
+                if (kit_role(it.role)) {
+                    const PlanItem d = it;
+                    leave_folder(plan, d.kind, d.left_by, d.role, d.reason, d.shared);
+                }
+                again = true;
             }
         }
         // 4. the table
         for (Cand& c : cands) {
-            if (c.blocks.empty()) continue;
             PlanItem& it = plan.items[c.plan_index];
+            if (!it.swap) continue;
             const uint32_t id = tb.add_item(data_of[c.plan_index], swap);
             uint64_t at = 0;
             const uint8_t* base = data_of[c.plan_index]->data();
@@ -1292,7 +1470,6 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
                 at += c.blocks[b].dsize;
             }
             it.table_item = id;
-            ++plan.swapped;
         }
         // 5. the hotspot asset(s): the zip's name / number / sleeve-badge placement
         if (!swap && opt.apply_hotspots && !staged.hotspots.empty()) {
@@ -1318,9 +1495,16 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
                     auto skip = [&](const std::string& why) {
                         it.swap = false;
                         it.reason = why;
+                        if (it.left_by == LeftBy::None) it.left_by = LeftBy::Other;
                         plan.items.push_back(it);
                         ++plan.skipped;
                     };
+                    const auto fv = std::find_if(plan.folders.begin(), plan.folders.end(), [&](const FolderVerdict& f) { return f.kind == h.kind; });
+                    if (fv != plan.folders.end() && !fv->swapped) {
+                        it.left_by = fv->why;
+                        skip("left with the rest of this kit (" + h.kind + "): its " + fv->role + " stays the game's, never half a kit");
+                        continue;
+                    }
                     std::vector<uint8_t> raw, dec;
                     std::vector<Block> bl;
                     if (!files.read_loc(h.loc, raw) || !block_headers(raw, bl)) { skip("the hotspot asset cannot be read"); continue; }
@@ -1404,6 +1588,20 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
                 ++plan.probes;
             }
         }
+        // the counts, and per served folder: the other kits that change with it, the shading maps that stay the game's
+        plan.swapped = plan.skipped = 0;
+        for (const PlanItem& it : plan.items)
+            if (!it.probe) ++(it.swap ? plan.swapped : plan.skipped);
+        for (FolderVerdict& f : plan.folders) {
+            if (!f.swapped) continue;
+            for (const PlanItem& it : plan.items) {
+                if (it.probe || it.kind != f.kind) continue;
+                if (it.swap)
+                    for (const KitUser& u : it.shared)
+                        if (u.team != plan.team || u.slot != plan.slot) add_user(f.shared, u);
+                if (!it.swap && detail_role(it.role)) ++f.details_left;
+            }
+        }
         // item ids are the builder's: keep the plan's own numbering out of the table (hits are looked up by the Runtime)
         plan.ok = true;
     } catch (const std::exception& e) {
@@ -1456,7 +1654,7 @@ void Runtime::save_state_locked() {
     json j = {{"version", 2}, {"kits", json::array()}, {"watch_club", options.watch_club}};
     for (const auto& s : slots_)
         j["kits"].push_back({{"team", s.team}, {"slot", slot_folder_name(s.slot)}, {"slot_type", s.slot}, {"mode", mode_name(s.mode)}, {"decals", s.decals},
-                             {"keep_game_crest", s.keep_crest}, {"share_within_club", s.share_club}});
+                             {"keep_game_crest", s.keep_crest}, {"share_within_club", s.share_club}, {"share_other_clubs", s.share_other}});
     std::error_code ec;
     fs::create_directories(state_path().parent_path(), ec);
     const fs::path tmp = state_path().string() + ".tmp";
@@ -1497,6 +1695,7 @@ void Runtime::start() {
                     s.decals = k.value("decals", true);  // a version 1 file has none of these: the defaults
                     s.keep_crest = k.value("keep_game_crest", true);
                     s.share_club = k.value("share_within_club", false);
+                    s.share_other = k.value("share_other_clubs", false);  // 2.13: a file written before has none: off
                     if (s.team >= 0 && s.slot >= 0 && s.slot <= 4) slots_.push_back(s);
                 }
             }
@@ -1520,7 +1719,7 @@ void Runtime::start() {
     rebuild_async();
 }
 
-bool Runtime::set_slot_options(int team, int slot, bool decals, bool keep_crest, bool share_club) {
+bool Runtime::set_slot_options(int team, int slot, bool decals, bool keep_crest, bool share_club, bool share_other) {
     {
         std::lock_guard<std::mutex> lk(m_);
         bool found = false;
@@ -1529,6 +1728,7 @@ bool Runtime::set_slot_options(int team, int slot, bool decals, bool keep_crest,
                 s.decals = decals;
                 s.keep_crest = keep_crest;
                 s.share_club = share_club;
+                s.share_other = share_other;
                 found = true;
             }
         if (!found) return false;
@@ -1538,13 +1738,14 @@ bool Runtime::set_slot_options(int team, int slot, bool decals, bool keep_crest,
     return true;
 }
 
-bool Runtime::slot_options(int team, int slot, bool* decals, bool* keep_crest, bool* share_club) const {
+bool Runtime::slot_options(int team, int slot, bool* decals, bool* keep_crest, bool* share_club, bool* share_other) const {
     std::lock_guard<std::mutex> lk(m_);
     for (const auto& s : slots_)
         if (s.team == team && s.slot == slot) {
             if (decals) *decals = s.decals;
             if (keep_crest) *keep_crest = s.keep_crest;
             if (share_club) *share_club = s.share_club;
+            if (share_other) *share_other = s.share_other;
             return true;
         }
     return false;
@@ -1685,6 +1886,7 @@ void Runtime::worker() {
         }
         std::string state, message;
         std::vector<ItemStatus> items;
+        std::vector<FolderVerdict> folders;
         std::shared_ptr<Table> table;
         double idx_s = 0;
         if (slots.empty()) {
@@ -1726,8 +1928,8 @@ void Runtime::worker() {
                     idx_s = index->seconds;
                     TableBuilder tb;
                     const Options base_opts = get_options();
-                    int swapped = 0, skipped = 0;
                     std::vector<std::string> msgs;
+                    std::vector<Plan> plans;
                     for (const SlotState& s : slots) {
                         if (progress_.cancel.load()) break;
                         StagedKit sk;
@@ -1740,51 +1942,102 @@ void Runtime::worker() {
                         opts.include_decals = s.decals;
                         opts.keep_game_crest = s.keep_crest;
                         opts.share_within_club = s.share_club;
+                        opts.share_other_clubs = s.share_other;
                         Plan pl = build_plan(files, oodle_, *index, sk, opts, s.mode == Mode::Swap, tb, &progress_);
                         if (!pl.ok) {
                             msgs.push_back("team " + std::to_string(s.team) + " " + slot_folder_name(s.slot) + ": " + pl.error);
                             continue;
                         }
-                        swapped += pl.swapped;
-                        skipped += pl.skipped;
-                        for (const auto& it : pl.items) {
-                            ItemStatus st;
-                            st.team = s.team;
-                            st.slot = s.slot;
-                            st.res = it.res;
-                            st.kind = it.kind;
-                            st.role = it.role;
-                            st.reason = it.reason;
-                            st.swap = it.swap;
-                            st.probe = it.probe;
-                            st.blocks = it.blocks;
-                            st.table_item = it.table_item;
-                            if (!it.swap && !it.probe) {  // the same resource left to the game at several places (big clubs): one line
-                                bool merged = false;
-                                for (auto& o : items)
-                                    if (!o.swap && !o.probe && o.team == st.team && o.slot == st.slot && o.res == st.res && o.reason == st.reason) { ++o.copies; merged = true; break; }
-                                if (merged) continue;
-                            }
-                            items.push_back(st);
-                        }
+                        plans.push_back(std::move(pl));
                     }
                     if (!progress_.cancel.load()) {
-                        std::vector<std::string> dropped;
-                        std::set<uint32_t> dropped_items;
-                        table = tb.finish(&dropped, &dropped_items);
-                        for (auto& it : items)
-                            if (it.table_item != 0xFFFFFFFFu && dropped_items.count(it.table_item)) {
+                        // The table. A clash (the same game block wanted with other bytes, by two of the zip's pictures or by two active kits)
+                        // takes those textures out; when one is a jersey / shorts / socks picture its whole kit folder goes too (2.13: never
+                        // half a kit), and the table is finished again without them.
+                        std::map<uint32_t, std::pair<size_t, size_t>> where;  // table item -> (plan, item)
+                        for (size_t pi = 0; pi < plans.size(); ++pi)
+                            for (size_t ii = 0; ii < plans[pi].items.size(); ++ii)
+                                if (plans[pi].items[ii].table_item != 0xFFFFFFFFu) where[plans[pi].items[ii].table_item] = {pi, ii};
+                        for (int pass = 0; pass < 8; ++pass) {
+                            std::set<uint32_t> dropped_items;
+                            std::map<uint32_t, std::set<uint32_t>> clash;
+                            table = tb.finish(nullptr, &dropped_items, &clash);
+                            if (dropped_items.empty()) break;
+                            struct Lost {
+                                size_t plan;
+                                PlanItem by;
+                            };
+                            std::vector<Lost> lost;
+                            for (uint32_t id : dropped_items) {
+                                tb.exclude_item(id);
+                                const auto w = where.find(id);
+                                if (w == where.end()) continue;
+                                Plan& pl = plans[w->second.first];
+                                PlanItem& it = pl.items[w->second.second];
+                                if (!it.swap) continue;
+                                std::vector<KitUser> with;  // the other kits that want the same game data
+                                bool other_kit = false;
+                                for (uint32_t o : clash[id]) {
+                                    const auto wo = where.find(o);
+                                    if (wo == where.end()) continue;
+                                    const Plan& op = plans[wo->second.first];
+                                    const PlanItem& oi = op.items[wo->second.second];
+                                    other_kit = other_kit || wo->second.first != w->second.first;
+                                    if (wo->second.first != w->second.first) add_user(with, KitUser{op.team, op.slot, oi.kind});
+                                }
                                 it.swap = false;
                                 it.table_item = 0xFFFFFFFFu;
-                                it.reason = "the game uses the same data for two of the zip's pictures (for example crest and crest_shorts): left to the game";
-                                --swapped;
-                                ++skipped;
+                                it.left_by = LeftBy::Clash;
+                                for (const KitUser& u : with) add_user(it.shared, u);
+                                it.reason = other_kit ? "the game uses the same data in " + users_text(with) + ", which another active kit wants with other bytes: left to the game"
+                                                      : "the game uses the same data for two of the zip's pictures (for example crest and crest_shorts): left to the game";
+                                if (kit_role(it.role)) lost.push_back({w->second.first, it});
                             }
-                        dropped.clear();
+                            for (const Lost& l : lost)
+                                for (uint32_t id : leave_folder(plans[l.plan], l.by.kind, l.by.left_by, l.by.role, l.by.reason, l.by.shared)) tb.exclude_item(id);
+                            for (Plan& pl : plans) {  // counts and verdicts after the clash
+                                pl.swapped = pl.skipped = 0;
+                                for (const PlanItem& it : pl.items)
+                                    if (!it.probe) ++(it.swap ? pl.swapped : pl.skipped);
+                                for (FolderVerdict& f : pl.folders) {
+                                    if (!f.swapped) continue;
+                                    f.details_left = 0;
+                                    for (const PlanItem& it : pl.items)
+                                        if (!it.probe && it.kind == f.kind && !it.swap && detail_role(it.role)) ++f.details_left;
+                                }
+                            }
+                        }
+                        int swapped = 0, skipped = 0;
+                        for (const Plan& pl : plans) {
+                            swapped += pl.swapped;
+                            skipped += pl.skipped;
+                            for (const auto& f : pl.folders) folders.push_back(f);
+                            for (const auto& it : pl.items) {
+                                ItemStatus st;
+                                st.team = pl.team;
+                                st.slot = pl.slot;
+                                st.res = it.res;
+                                st.kind = it.kind;
+                                st.role = it.role;
+                                st.reason = it.reason;
+                                st.swap = it.swap;
+                                st.probe = it.probe;
+                                st.blocks = it.blocks;
+                                st.table_item = it.table_item;
+                                st.left_by = it.left_by;
+                                st.shared = it.shared;
+                                if (!it.swap && !it.probe) {  // the same resource left to the game at several places (big clubs): one line
+                                    bool merged = false;
+                                    for (auto& o : items)
+                                        if (!o.swap && !o.probe && o.team == st.team && o.slot == st.slot && o.res == st.res && o.reason == st.reason) { ++o.copies; merged = true; break; }
+                                    if (merged) continue;
+                                }
+                                items.push_back(st);
+                            }
+                        }
                         state = "ready";
                         message = std::to_string(swapped) + " textures in the table, " + std::to_string(skipped) + " left to the game";
                         for (const auto& m : msgs) message += "; " + m;
-                        for (const auto& d : dropped) message += "; " + d;
                         if (table->size() == 0) message += " (nothing matchable)";
                     }
                 }
@@ -1798,6 +2051,7 @@ void Runtime::worker() {
             index_seconds_ = idx_s;
             build_skipped_ = false;
             items_ = items;
+            folders_ = folders;
             swap_any_ = false;
             for (const auto& s : slots_) swap_any_ = swap_any_.load() || s.mode == Mode::Swap;
         }
@@ -1877,6 +2131,7 @@ Status Runtime::status() const {
         s.bytes = t->bytes();
     }
     s.items = items_;
+    s.folders = folders_;
     for (auto& it : s.items) {
         const bool in = t && it.table_item != 0xFFFFFFFFu;
         it.hits = in ? t->hits(it.table_item) : 0;
@@ -1955,7 +2210,23 @@ void Runtime::flush_log(bool force) {
     }
     for (const auto& sl : s.slots)
         o << "kit team " << sl.team << " " << slot_folder_name(sl.slot) << " mode " << mode_name(sl.mode) << ", zip decals " << (sl.decals ? "on" : "off") << ", game's club badge "
-          << (sl.keep_crest ? "kept" : "replaced by the zip's") << ", share within club " << (sl.share_club ? "on" : "off") << "\n";
+          << (sl.keep_crest ? "kept" : "replaced by the zip's") << ", share within club " << (sl.share_club ? "on" : "off") << ", share with other clubs "
+          << (sl.share_other ? "on" : "off") << "\n";
+    o << "KITS (2.13: each kit folder is shown whole, the zip's or the game's own, never half a kit):\n";
+    for (const auto& f : s.folders) {
+        o << "  team " << f.team << " " << slot_folder_name(f.slot) << " " << f.kind << ": ";
+        if (f.swapped) {
+            o << "swapped";
+            if (f.details_left) o << " (" << f.details_left << " shading map(s) stay the game's)";
+            std::vector<KitUser> changed;
+            for (const auto& u : f.shared)
+                if (u.team != f.team) changed.push_back(u);
+            if (!changed.empty()) o << "; also changes " << users_text(changed);
+        } else {
+            o << "LEFT TO THE GAME: " << f.role << ": " << f.reason;
+        }
+        o << "\n";
+    }
     o << "kit index: " << (s.index_cached ? "from turbo_output\\kits\\kit_index.cache" : "scanned from the game's tocs") << "\n";
     o << "KIT FOLDERS THE GAME LOADED (per club and kit folder: textures seen / registered, blocks decompressed; 0 = that folder was not used):\n";
     for (const auto& k : s.kinds) o << "  team " << k.team << " " << k.kind << ": " << k.textures_seen << " of " << k.textures << " textures, " << k.blocks_seen << " blocks\n";

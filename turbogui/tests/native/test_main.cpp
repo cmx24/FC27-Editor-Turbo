@@ -3394,6 +3394,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_player_id.h"    // 2.3: Create player > Player ID (typed id checks, the head / callname of the id)
 #include "test_kit_import.h"   // 2.3: Teams > Kits, FIFA Kit Creator zips (test_kit_import, kit_import_ui_cases)
 #include "test_kit_fonts.h"    // 2.11 K1: named kit font / layout choices (test_kit_fonts, kit_fonts_ui_cases)
+#include "test_kit_share.h"    // 2.13: 3D kits never half a kit, the opt-in for other clubs' shared textures (kit_share_test::run)
 // ================================================================ live team names (core/teamname_override.h)
 static void test_team_names_live() {
     run_case("live team names: the keys the game asks for (TeamName[_AbbrN]_<id>, IWL_, any case), nothing else", [&] {
@@ -14588,6 +14589,7 @@ int main(int argc, char** argv) {
     std::printf("native kit import\n");
     test_kit_import();
     test_kit_fonts();
+    kit_share_test::run();  // test_kit_share.h (2.13)
     std::printf("native dev service\n");
     test_devops();
     std::printf("native signature scanning\n");

@@ -13,6 +13,7 @@
 #pragma once
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -20,6 +21,9 @@
 #include "core/legacy.h"
 
 namespace turbo {
+namespace kitswap {
+struct Status;
+}
 
 class App;
 
@@ -64,5 +68,12 @@ std::string kit_panel_status(size_t i);   // "ready", the refusal, "applied ..."
 std::string kit_panel_line();             // the last Apply / Undo / conversion summary
 // Textures of FC 27 (nullptr) or a smaller set the tests use; also what the conversion writes
 void kit_panel_spec(const std::vector<kits::TexSpec>* spec);
+
+// ---- 2.13: the 3D kit's status in plain words, from the runtime's per-kit-folder verdicts (core/kit_swap.h FolderVerdict).
+// name(team id) = a club name (the model's, "Team <id>" as the fallback). Both are "" while the runtime has nothing for the slot.
+// One line for a club's slot: "swapped", "not swapped: the shirt is shared with Aston Villa's GK kit; tick the box above to swap both", ...
+std::string kit_swap_status_line(const kitswap::Status& st, int64_t teamid, int slot, const std::function<std::string(int64_t)>& name);
+// The other clubs' kits that share a texture with the slot ("Aston Villa's GK kit")
+std::string kit_swap_shared_clubs(const kitswap::Status& st, int64_t teamid, int slot, const std::function<std::string(int64_t)>& name);
 
 }  // namespace turbo
