@@ -1066,7 +1066,8 @@ static void test_guards_and_cache(const fs::path& base) {
 
 // ---------------------------------------------------------------- optional: the real install (read only)
 static std::string g_real_hotspots;  // --hotspots FILE: the zip's hotspots.hotspot, staged beside the stand-in textures of the real-install smoke test
-static bool g_real_share = false, g_real_zip_crest = false, g_real_nowatch = false;
+static bool g_real_share = false, g_real_zip_crest = false, g_real_nowatch = false, g_real_share_other = false;
+static std::string g_real_index;  // --index FILE: a copy of turbo_output\kits\kit_index.cache (no scan of the game's tocs when it is valid)
 static int real_game(const std::string& game, int team, int slot) {
     OodleFn oodle;
 #ifdef _WIN32
@@ -1089,7 +1090,9 @@ static int real_game(const std::string& game, int team, int slot) {
     const auto t0 = std::chrono::steady_clock::now();
     KitIndex idx;
     Progress pg;
-    if (!scan_kits(files, oodle, idx, &pg, &err)) {
+    if (!g_real_index.empty() && load_index_cache(files, g_real_index, idx)) {
+        std::printf("kit index: from %s\n", g_real_index.c_str());
+    } else if (!scan_kits(files, oodle, idx, &pg, &err)) {
         std::printf("scan: %s\n", err.c_str());
         return 2;
     }
@@ -1126,6 +1129,7 @@ static int real_game(const std::string& game, int team, int slot) {
     }
     Options opt;
     opt.share_within_club = g_real_share;
+    opt.share_other_clubs = g_real_share_other;
     opt.keep_game_crest = !g_real_zip_crest;
     opt.watch_club = !g_real_nowatch;
     {
@@ -1153,10 +1157,28 @@ static int real_game(const std::string& game, int team, int slot) {
     for (const auto& i : plan.items)
         std::printf("  %-18s %-34s %-5s blocks %2d %s\n", i.kind.c_str(), i.res.substr(i.res.rfind('/') + 1).c_str(), i.swap ? "SWAP" : i.probe ? "watch" : "left", i.blocks, i.reason.c_str());
     std::printf("watch-only items: %d\n", plan.probes);
+    for (const auto& f : plan.folders) {  // 2.13: each kit folder whole, the zip's or the game's
+        std::string sh;
+        for (const auto& u : f.shared) sh += (sh.empty() ? "" : ", ") + ("team " + std::to_string(u.team) + " " + u.kind);
+        std::printf("  KIT %-24s %s %s%s%s\n", f.kind.c_str(), f.swapped ? "SWAPPED" : "LEFT", f.swapped ? "" : (f.role + ": " + f.reason).c_str(),
+                    f.details_left ? (" (" + std::to_string(f.details_left) + " shading maps stay the game's)").c_str() : "", sh.empty() ? "" : (" | shared: " + sh).c_str());
+    }
     for (const auto& n : plan.notes) std::printf("  note: %s\n", n.c_str());
     std::vector<std::string> dropped;
-    auto table = tb.finish(&dropped);
+    std::set<uint32_t> dropped_items;
+    auto table = tb.finish(&dropped, &dropped_items);
     std::printf("table: %zu blocks, %llu bytes, csize %u..%u, dropped %zu\n", table->size(), static_cast<unsigned long long>(table->bytes()), table->min_csize(), table->max_csize(), dropped.size());
+    for (const auto& i : plan.items)  // a clash (the Runtime then leaves the folder whole when the item is a kit_role picture)
+        if (i.table_item != 0xFFFFFFFFu && dropped_items.count(i.table_item))
+            std::printf("  dropped: %s %s (%s)%s\n", i.kind.c_str(), i.res.substr(i.res.rfind('/') + 1).c_str(), i.role.c_str(), kit_role(i.role) ? " -> folder left whole" : "");
+    std::set<int> other_teams, colour_teams;
+    for (const auto& i : plan.items)
+        if (i.swap)
+            for (const auto& u : i.shared)
+                if (u.team != team) (kit_role(i.role) ? colour_teams : other_teams).insert(u.team);
+    for (int t : colour_teams) other_teams.erase(t);
+    std::printf("other clubs whose kits change with the served textures: %zu through the jersey / shorts / socks pictures, %zu more through other textures\n", colour_teams.size(),
+                other_teams.size());
     fs::remove_all(tmp);
     return plan.ok ? 0 : 1;
 }
@@ -1171,6 +1193,8 @@ int main(int argc, char** argv) {
         else if (a == "--slot" && i + 1 < argc) slot = std::atoi(argv[++i]);
         else if (a == "--hotspots" && i + 1 < argc) g_real_hotspots = argv[++i];
         else if (a == "--share") g_real_share = true;
+        else if (a == "--share-other") g_real_share_other = true;
+        else if (a == "--index" && i + 1 < argc) g_real_index = argv[++i];
         else if (a == "--zip-crest") g_real_zip_crest = true;
         else if (a == "--no-watch") g_real_nowatch = true;
     }
