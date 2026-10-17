@@ -22,6 +22,7 @@ namespace {
 struct LiveState {
     fce::Located loc;
     std::string err;
+    std::string logged_err;  // the last failure written to turbo_gui.log (ensure_located retries every frame: logged once per reason)
     uint64_t located_ifce = 0;
     int located_gen = -1;
     std::vector<fce::StandingRow> rows;
@@ -269,6 +270,7 @@ void ensure_located(App& app) {
         g_live.undo = LiveState::Undo();
         g_live.typed_pts.clear();
         g_live.status.clear();
+        g_live.logged_err.clear();
     }
     g_live.cell = LiveState::CellEdit();
     g_live.pending = LiveState::Pending();
@@ -283,10 +285,19 @@ void ensure_located(App& app) {
                                      (g_live.loc.identity.empty() ? std::string() : " (" + g_live.loc.identity + ")");
             app.log(line);
             if (app.log_hook) app.log_hook(line);
+            g_live.logged_err.clear();
         }
     } else {
         g_live.rows.clear();
         g_live.groups.clear();
+    }
+    // 2.13: a failed locate (or read) goes to turbo_gui.log too, once per reason: the log then tells "the view was opened and the
+    // engine was not found" from "the view was never opened" (2026-10-16: neither line, so the in-game check could not tell)
+    if (!g_live.err.empty() && g_live.err != g_live.logged_err) {
+        g_live.logged_err = g_live.err;
+        const std::string line = "live standings not located: " + g_live.err;
+        app.log(line);
+        if (app.log_hook) app.log_hook(line);
     }
 }
 
