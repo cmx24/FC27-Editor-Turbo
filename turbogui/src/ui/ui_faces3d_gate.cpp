@@ -200,7 +200,7 @@ std::string status_line(App& app, bool& warn) {
     if (!app.faces3d_report) return "Hook status: not available here (no game hooks).";
     const lualoader::Faces3dStatus f = app.faces3d_report();
     if (!f.opted_in) return "Hook: off at this game start (faces3d_on.txt was not there when the game started).";
-    std::string s = f.installed ? "Hook: installed" : "Hook: opted in, not installed (see Status tab)";
+    std::string s = f.installed ? "Hook: installed" : "Hook: opted in, not installed (see Settings > Technical details)";
     if (f.killed) s += " | kill switch present", warn = true;
     if (f.legacy_refused) s += " | substitution REFUSED (mods\\legacy player_kit.lua)", warn = true;
     if (f.installed) {

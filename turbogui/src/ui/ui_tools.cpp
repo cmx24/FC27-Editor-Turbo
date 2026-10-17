@@ -708,6 +708,15 @@ void page_bans(App& app) { lua_tool_page(app, editor_bans); }
 void page_adv_bulk(App& app) { lua_tool_page(app, editor_bulk); }
 void page_adv_maintenance(App& app) { lua_tool_page(app, editor_maintenance); }
 // Transfers and Job offer: the panels are the Squad track's (draw_transfers / draw_job_offer, weak references: see ui_career_page.h)
+// Until it exports draw_job_offer, a club's job offer is a tab of the club panel under Squad & Players > Squad (the old Teams panel):
+// the page says where and opens it. P213 triage (2026-10-17): the installed 2.13.0 build said only "not part of this build" here (and
+// on Transfers), which read as broken
+void squad_pointer(App& app, const char* where) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextUnformatted(where);
+    ImGui::PopTextWrapPos();
+    if (ImGui::Button("Open Squad & Players > Squad##squadgo")) app.go(Page::Squad);
+}
 void editor_transfers(App& app, void*) {
     if (draw_transfers) {
         draw_transfers(app);
@@ -720,7 +729,7 @@ void editor_transfers(App& app, void*) {
 }
 void editor_job_offer(App& app, void*) {
     if (draw_job_offer) draw_job_offer(app);
-    else theme::muted_text("The job offer panel is not part of this build.");
+    else squad_pointer(app, "Job offers: Squad & Players > Squad, pick the club, then its Job offer tab.");
 }
 void page_transfers(App& app) { show(app, editor_transfers); }
 void page_job_offer(App& app) { show(app, editor_job_offer); }
@@ -837,7 +846,7 @@ void draw_hook_status(App& app) {
                     faces3d_status().c_str());
     }
     if (!r.calls.empty()) {
-        ImGui::Text("Game calls (Managers > Job offers, Competitions > Live standings, Players > Callname):");
+        ImGui::Text("Game calls (job offers, live standings, callnames):");
         for (const auto& c : r.calls) ImGui::TextWrapped("  %s", c.c_str());
     }
     // the commentary language the game loaded (core/callnames.h detect_commentary_language) and the callnames per source

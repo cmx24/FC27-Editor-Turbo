@@ -520,9 +520,12 @@ void draw_career_database_copy(App& app) {
         bool ok = recalc_league(app, league, true, &msg);
         app.notify("Table positions: " + msg, !ok);
     }
+    // 2.13 (P213 triage): the live table moved with the revamp; the hint names its page and opens it (it named the gone
+    // "Live standings (game)" view, and 2026-10-16 the live edit, reached from here, was reported broken)
     ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
                        "These are the career database's league numbers (kept in the save). FC 27's own Standings screen shows "
-                       "the 'Live standings (game)' view instead.");
+                       "the live table instead: Tactics & Gameplay > Standings.");
+    if (ImGui::SmallButton("Open the live table (Tactics & Gameplay > Standings)##dbcopylive")) app.go(shell::Page::Standings);
 
     std::vector<LeagueRow> rows = league >= 0 ? league_rows(app, *t, league) : std::vector<LeagueRow>();
     ImGui::BeginChild("##ltable", ImVec2(S(560.0f), 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
