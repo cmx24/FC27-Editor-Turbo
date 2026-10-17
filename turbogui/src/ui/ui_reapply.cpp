@@ -556,7 +556,7 @@ std::string App::reapply_stored_edits() {
         if (!mplayers.count(e.playerid)) mplayers[e.playerid] = reapply.player_in_effect(e.playerid);
     }
     if (!mplayers.empty() && !reapply.keep_players) {
-        leave(plural(mplayers.size(), "player's kept edits", "players' kept edits") + ": keeping is off (Career tools > Changes & undo > Kept player edits)");
+        leave(plural(mplayers.size(), "player's kept edits", "players' kept edits") + ": keeping is off (Career tools > Changes & undo)");
     } else if (!mplayers.empty()) {
         const Table* pt = db.table("players");
         if (!pt) {
@@ -752,7 +752,7 @@ void reapply_player_line(App& app, const PlayerRow& p) {
         ImGui::AlignTextToFramePadding();
         ImGui::PushTextWrapPos(ImGui::GetContentRegionAvail().x - S(90.0f));
         if (app.reapply.keep_players) ImGui::TextDisabled("Kept for %s: %s", kept_for(app, e->scope).c_str(), list.c_str());
-        else ImGui::TextColored(kWarnColour, "Kept, but keeping is off (Career tools > Changes & undo > Kept player edits): %s", list.c_str());
+        else ImGui::TextColored(kWarnColour, "Kept, but keeping is off (Career tools > Changes & undo): %s", list.c_str());
         ImGui::PopTextWrapPos();
         if (ImGui::IsItemHovered() && ImGui::BeginTooltip()) {
             ImGui::TextUnformatted("Written again whenever a career loads (whatever the save is called), but only while the field holds\n"
@@ -785,7 +785,7 @@ void reapply_player_line(App& app, const PlayerRow& p) {
                 app.notify(p.name + ": kept edits forgotten (the values stay until the career is loaded again)");
         }
     } else if (!app.reapply.keep_players) {
-        ImGui::TextDisabled("Player edits are not kept for career loads (Career tools > Changes & undo > Kept player edits).");
+        ImGui::TextDisabled("Player edits are not kept for career loads (Career tools > Changes & undo).");
     }
     // his edits on their way into his development plan (your club's players), and the last answer
     if (app.plan_sync_waiting() || !app.plan_sync_status.empty()) {
@@ -821,7 +821,7 @@ void changes_undo_summary(App& app) {
 }
 
 void kept_player_edits_section(App& app) {
-    if (!ImGui::CollapsingHeader("Kept player edits (every career load)###keptedits")) return;
+    if (!ImGui::CollapsingHeader("Changes Turbo puts back when you load your career###keptedits")) return;
     ImGui::PushID("keptplayers");
     bool on = app.reapply.keep_players;
     if (ImGui::Checkbox("Keep my player edits for every career load", &on)) app.set_keep_players(on);

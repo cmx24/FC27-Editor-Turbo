@@ -8,10 +8,10 @@ exempt	ui_match.cpp	Advanced > Match setup
 exempt	ui_tactics.cpp	Advanced > Tactics (experimental)
 exempt	ui_tuning.cpp	Advanced > Gameplay tuning
 app.cpp	channel	2
-app.cpp	json	3
-app.cpp	lua	8
-app.cpp	path	3
-app.cpp	turbo_output	2
+app.cpp	json	2
+app.cpp	lua	5
+app.cpp	path	2
+app.cpp	turbo_output	1
 app.cpp	txt	1
 file_picker.cpp	exe	1
 hotkey_setting.h	json	1
@@ -100,13 +100,12 @@ ui_standings.cpp	lua	1
 ui_standings.cpp	path	1
 ui_standings.cpp	turbo_output	1
 ui_standings.cpp	txt	1
-ui_tactic_presets.cpp	channel	6
+ui_tactic_presets.cpp	channel	5
 ui_tactic_presets.cpp	exe	4
 ui_tactic_presets.cpp	json	5
 ui_tactic_presets.cpp	lua	6
-ui_tactic_presets.cpp	path	11
-ui_tactic_presets.cpp	turbo_output	10
-ui_tactic_presets.cpp	txt	2
+ui_tactic_presets.cpp	path	9
+ui_tactic_presets.cpp	turbo_output	8
 ui_teams.cpp	dll	1
 ui_teams.cpp	json	1
 ui_teams.cpp	path	1
@@ -121,5 +120,3 @@ ui_tools.cpp	path	4
 ui_tools.cpp	turbo_output	4
 ui_tools.cpp	txt	4
 ui_zoom.cpp	json	1
-widgets.cpp	lua	1
-widgets.cpp	path	1

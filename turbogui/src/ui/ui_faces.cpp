@@ -1250,9 +1250,9 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
                     ImGui::BeginTooltip();
                     if (has3d) draw_file_picture(app, face3d_file(app, f->manager, rid), S(256.0f));  // big preview of the 3D render
                     ImGui::Text("%s, %s%s", f->name.c_str(), f->manager ? "manager's face" : f->real ? "real face" : "generic head", traits.c_str());
-                    ImGui::TextDisabled("%s ID %lld, head model %lld%s", f->manager ? "manager" : "player", static_cast<long long>(f->id),
+                    ImGui::TextDisabled("%s ID %lld, face #%lld%s", f->manager ? "manager" : "player", static_cast<long long>(f->id),
                                         static_cast<long long>(f->headassetid),
-                                        f->hq == 1 ? ", high-quality head (hashighqualityhead 1)" : f->hq == 0 ? ", hashighqualityhead 0" : "");
+                                        f->hq == 1 ? ", high quality" : "");
                     if (!has3d && use3d && rid > 0)
                         ImGui::TextDisabled(head3d_given_up(head3d_key(f->manager, rid))
                                                 ? "3D failed: the game could not render this head, so the flat picture stays."
@@ -1287,8 +1287,7 @@ static bool game_head_confirm(App& app, Chooser& ch, int64_t target_id, bool tar
     asset_badge(AssetBadge::Hidden);
     // wrapped: the modal is 880 wide and these lines are longer
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::TextWrapped("Writes headassetid %lld, headclasscode 0, hashighqualityhead 1, headvariation %d (headtypecode kept); logged in asset_writes.log.",
-                       static_cast<long long>(h->id), h->vars.empty() ? 0 : h->vars.front());
+    ImGui::TextWrapped("This replaces his face with this one. Build and skin tone stay.");
     ImGui::PopStyleColor();
     // the miniface that comes with it (asks the game for the picture now, so Apply finds it at hand)
     const MinifaceMove mv = target_is_manager ? to_manager(target_id, game_head_sources(*h)) : to_player(target_id, game_head_sources(*h));

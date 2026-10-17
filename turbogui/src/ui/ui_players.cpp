@@ -1236,9 +1236,9 @@ static void player_editor(App& app) {
     }
     ImGui::Text("%s", p->name.c_str());
     ImGui::SameLine();
-    ImGui::TextDisabled("ID %lld | %s | %s | OVR %d POT %d", static_cast<long long>(p->playerid),
-                        p->club_name.empty() ? "no club" : p->club_name.c_str(), position_name(p->position), p->overall,
-                        p->potential);
+    ImGui::TextDisabled("%s | %s | Overall %d, potential %d", p->club_name.empty() ? "no club" : p->club_name.c_str(), position_name(p->position),
+                        p->overall, p->potential);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Player ID %lld", static_cast<long long>(p->playerid));
 
     bool cm = app.bridge.state().in_cm;
     // every club, yours included: the same checks as Lua core/moves.lua (move_rules.h); a move that cannot run for
