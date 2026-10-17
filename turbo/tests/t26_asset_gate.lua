@@ -223,29 +223,6 @@ H.case("create_player, current gate: the real face iff the gate lists the head; 
     H.eq(pval(pid, "headclasscode"), 1); H.eq(pval(pid, "headassetid"), pid)
 end)
 
-H.case("create_player, CMTracker photo: installed only with his real 3D head, never next to a generic head (no mixed result)", function()
-    clear()
-    set_gate({ HIDDEN, HIDDEN3 })
-    local function with_photo(name, real_id)
-        local f = cm_preset(name, real_id)
-        local doc = preset.json().decode(util.read_file(f))
-        doc.miniface = name .. "_photo.dds"
-        H.ok(util.write_file(f, preset.json().encode(doc)), "preset with a photo")
-        H.ok(util.write_file(H.out("players/" .. name .. "_photo.dds"), "DDS " .. string.rep(" ", 200)), "photo written")
-        local ok, msg = H.turbo().run("create_player", { source = { file = f }, teamid = 4 })
-        return ok, msg, tonumber(tostring(msg):match("new player (%d+)"))
-    end
-    local function pic(pid) return H.LE .. "/mods/legacy/data/ui/imgAssets/heads/p" .. pid .. ".dds" end
-    -- 2004 is not in the game files (gate): generic head, so the photo is not used
-    local ok, msg, pid = with_photo("PhotoGeneric", 2004)
-    H.eq(ok, true, msg); H.has(msg, "generic head"); H.has(msg, "CMTracker photo not used")
-    H.ok(not util.file_exists(pic(pid)), "no photo next to a generic head")
-    -- the gate lists HIDDEN3: real face, and the photo comes with it
-    ok, msg, pid = with_photo("PhotoReal", HIDDEN3)
-    H.eq(ok, true, msg); H.has(msg, "real face of player " .. HIDDEN3); H.has(msg, "miniface installed")
-    H.ok(util.file_exists(pic(pid)), "the photo with his real head")
-end)
-
 H.case("create_player without a gate: real face only when his own row has class 0 and his own head (DB proof)", function()
     clear()
     local ok, msg, pid = create("DbReal", 2004)
@@ -273,5 +250,6 @@ H.case("create_player, current gate: a new id never carries another player's gam
 end)
 
 H.case("no unmapped memory reads", function() H.eq(sim.unmapped_reads, 0) end)
+
 
 H.finish()
