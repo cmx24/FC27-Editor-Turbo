@@ -185,12 +185,13 @@ bool has_kit_import(App& app, int64_t teamid, Slot s) {
     return s != Slot::Unknown && fs::exists(record_path(app, teamid, s), ec);
 }
 
-// The kept-edit value of a field now (null = not kept), for the exact kit entry
+// The kept-edit value of a field now (null = not kept), for the exact kit entry an edit made here goes to (2.15: the
+// row of this career's scope; restore_kept_kit_field puts it back in that same row)
 static json kept_now(App& app, int64_t teamid, int64_t type, int64_t kitid, const std::string& field) {
-    auto it = app.reapply.kits.find(ReapplyStore::KitKey{teamid, type, kitid < 0 ? -1 : kitid});
-    if (it == app.reapply.kits.end()) return json();
-    auto f = it->second.fields.find(field);
-    return f == it->second.fields.end() ? json() : json(f->second);
+    const KitEdit* k = app.reapply.kit_in(app.reapply.edit_scope(), teamid, type, kitid);
+    if (!k) return json();
+    auto f = k->fields.find(field);
+    return f == k->fields.end() ? json() : json(f->second);
 }
 
 // ================================================================ apply / undo

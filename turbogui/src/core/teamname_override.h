@@ -10,7 +10,10 @@
 // thread shows the new name; a screen that is already open shows it when it is built again. docs/turbo-reference.md.
 //
 // This header is the testable part (no Windows or game includes):
-//   * Store: turbo_output\team_names.json, every club renamed in Turbo (all careers, like Live Editor's CSV);
+//   * Store: turbo_output\team_names.json, every club renamed in Turbo. 2.15: each name has a scope (core/reapply.h): a name
+//     of an older Turbo (no "scope") is "not assigned" and shown in every career as before; "global" in every career;
+//     "career:<id>" only in that career. A name saved in an identified career belongs to it; the App publishes only the
+//     names in effect in the loaded career (Store::in_effect) and publishes again at every career load;
 //   * match_key: "TeamName[_AbbrN]_<id>" (and "IWL_" + that) -> team id and kind, allocation-free (the detour);
 //   * Snapshot / SnapshotSlot: the immutable table the detour reads, swapped through an atomic pointer; old tables
 //     are kept until the slot is destroyed (the host never destroys its slot);
@@ -45,26 +48,35 @@ std::string clean_long_name(const std::string& s);
 
 // ---------------------------------------------------------------- store (turbo_output\team_names.json)
 // {"turbo_team_names": 1, "teams": [{"teamid": 7, "name": "...", "long": "...", "abbr15": "...", "abbr10": "...",
-//   "abbr3": "...", "when": "YYYY-MM-DD HH:MM"}]}   ("long" since 1.1.4: files without it load, older Turbos ignore it)
+//   "abbr3": "...", "when": "YYYY-MM-DD HH:MM"}]}   ("long" since 1.1.4: files without it load, older Turbos ignore it;
+//   "scope" since 2.15, only on a name that has one)
 struct Entry {
     int64_t teamid = 0;
     std::string text[kKinds];  // empty = not changed by Turbo (the game / Live Editor answer)
     std::string long_name;     // Turbo's only (FC 27 has no string for it); empty = the same as the name
     std::string when;
+    std::string scope;         // 2.15: "" not assigned (every career), "global", "career:<id>" (core/reapply.h)
     const std::string& name() const { return text[Full]; }
     bool empty() const;
 };
 
 struct Store {
-    std::vector<Entry> entries;  // one per club, sorted by teamid
+    std::vector<Entry> entries;  // one per club and scope (2.15), sorted by teamid, then scope
     // A missing file is an empty store (true). A bad file is renamed to team_names.json.bad-<stamp> and gives an
     // empty store (true, *err says so). Bad entries are dropped with a note in *err. false (empty store, *err) only
     // when the file cannot be opened or a bad file cannot be set aside.
     bool load(const std::filesystem::path& file, std::string* err);
     bool save(const std::filesystem::path& file, std::string* err) const;  // atomic (tmp + rename)
-    void upsert(const Entry& e);  // replaces the club's entry; an entry with no text removes it
-    bool forget(int64_t teamid);
-    const Entry* find(int64_t teamid) const;
+    void upsert(const Entry& e);  // replaces the club's entry of the same scope; an entry with no text removes it
+    bool forget(int64_t teamid);  // every entry of the club
+    bool forget(int64_t teamid, const std::string& scope);
+    const Entry* find(int64_t teamid) const;  // the club's first entry, any scope (before 2.15 its only one)
+    const Entry* find(int64_t teamid, const std::string& scope) const;  // that exact entry
+    // 2.15: the club's entry in effect in the career identified as `career` ("" = none): this career's, else global, else
+    // not assigned; nullptr = none (an entry of another career only)
+    const Entry* find_in_effect(int64_t teamid, const std::string& career) const;
+    // 2.15: what the hook serves in that career: one entry per club, find_in_effect's
+    Store in_effect(const std::string& career) const;
 };
 
 std::filesystem::path store_path(const std::filesystem::path& le_root);  // <LE>\turbo_output\team_names.json

@@ -8,6 +8,7 @@
 #include <system_error>
 
 #include "nlohmann/json.hpp"
+#include "reapply.h"  // 2.15 scope_rank
 #include "teamnames.h"
 
 namespace turbo {
@@ -146,6 +147,9 @@ bool entry_of(const json& o, Entry& e) {
         e.long_name = clean_long_name(l->get<std::string>());
     }
     if (auto w = o.find("when"); w != o.end() && w->is_string()) e.when = w->get<std::string>();
+    // 2.15: kept as it is (an unknown scope is never in effect, never dropped)
+    if (auto sc = o.find("scope"); sc != o.end() && !sc->is_null())
+        e.scope = sc->is_string() ? sc->get<std::string>() : sc->dump(-1, ' ', false, json::error_handler_t::replace);
     return !e.empty();
 }
 
@@ -176,26 +180,63 @@ bool Entry::empty() const {
 }
 
 // ---------------------------------------------------------------- store
+static bool entry_before(const Entry& a, int64_t id, const std::string& scope) { return a.teamid < id || (a.teamid == id && a.scope < scope); }
+
 void Store::upsert(const Entry& e) {
     if (e.empty()) {
-        forget(e.teamid);
+        forget(e.teamid, e.scope);
         return;
     }
-    auto it = std::lower_bound(entries.begin(), entries.end(), e.teamid, [](const Entry& a, int64_t id) { return a.teamid < id; });
-    if (it != entries.end() && it->teamid == e.teamid) *it = e;
+    auto it = std::lower_bound(entries.begin(), entries.end(), e, [](const Entry& a, const Entry& b) { return entry_before(a, b.teamid, b.scope); });
+    if (it != entries.end() && it->teamid == e.teamid && it->scope == e.scope) *it = e;
     else entries.insert(it, e);
 }
 
 bool Store::forget(int64_t teamid) {
-    auto it = std::lower_bound(entries.begin(), entries.end(), teamid, [](const Entry& a, int64_t id) { return a.teamid < id; });
-    if (it == entries.end() || it->teamid != teamid) return false;
-    entries.erase(it);
-    return true;
+    const size_t n = entries.size();
+    entries.erase(std::remove_if(entries.begin(), entries.end(), [teamid](const Entry& a) { return a.teamid == teamid; }), entries.end());
+    return entries.size() != n;
+}
+
+bool Store::forget(int64_t teamid, const std::string& scope) {
+    for (auto it = entries.begin(); it != entries.end(); ++it)
+        if (it->teamid == teamid && it->scope == scope) {
+            entries.erase(it);
+            return true;
+        }
+    return false;
 }
 
 const Entry* Store::find(int64_t teamid) const {
     auto it = std::lower_bound(entries.begin(), entries.end(), teamid, [](const Entry& a, int64_t id) { return a.teamid < id; });
     return it != entries.end() && it->teamid == teamid ? &*it : nullptr;
+}
+
+const Entry* Store::find(int64_t teamid, const std::string& scope) const {
+    for (const Entry& e : entries)
+        if (e.teamid == teamid && e.scope == scope) return &e;
+    return nullptr;
+}
+
+const Entry* Store::find_in_effect(int64_t teamid, const std::string& career) const {
+    const Entry* best = nullptr;
+    int best_rank = 0;
+    for (auto it = std::lower_bound(entries.begin(), entries.end(), teamid, [](const Entry& a, int64_t id) { return a.teamid < id; });
+         it != entries.end() && it->teamid == teamid; ++it) {
+        const int r = scope_rank(it->scope, career);
+        if (r > best_rank) {
+            best_rank = r;
+            best = &*it;
+        }
+    }
+    return best;
+}
+
+Store Store::in_effect(const std::string& career) const {
+    Store out;
+    for (const Entry& e : entries)
+        if (const Entry* best = find_in_effect(e.teamid, career); best == &e) out.entries.push_back(e);
+    return out;
 }
 
 fs::path store_path(const fs::path& le_root) { return le_root / "turbo_output" / "team_names.json"; }
@@ -208,6 +249,7 @@ std::string store_json(const Store& s) {
         for (int k = 0; k < kKinds; ++k) o[kJsonKey[k]] = e.text[k];
         o[kJsonLong] = e.long_name;
         o["when"] = e.when;
+        if (!e.scope.empty()) o["scope"] = e.scope;  // a name not assigned is written as an older Turbo wrote it
         list.push_back(o);
     }
     json j = json::object();
@@ -243,7 +285,7 @@ bool parse_store_json(const std::string& text, Store& out, std::string* err) {
                     ++bad;
                     continue;
                 }
-                out.upsert(e);  // one per club: the last one wins
+                out.upsert(e);  // one per club and scope: the last one wins
             }
         }
     } catch (const std::exception& e) {

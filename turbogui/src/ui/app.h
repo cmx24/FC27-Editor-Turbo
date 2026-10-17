@@ -293,6 +293,18 @@ public:
     bool forget_player_edit(int64_t playerid, const std::string& field = std::string());
     bool forget_all_player_edits();
     bool set_keep_players(bool on);
+    // 2.15 (Career tools > Changes & undo, kept_edit_scopes_section): move a club's kit rows of scope `from`, a callname
+    // row or a player row to another scope ("global", "career:<id>"); forget one field of one exact player row. False =
+    // nothing changed (or not saved)
+    bool move_kept_kits(int64_t teamtechid, const std::string& from, const std::string& to);
+    bool move_kept_callname(const ReapplyStore::RowKey& key, const std::string& to);
+    bool move_kept_player(const ReapplyStore::RowKey& key, const std::string& to);
+    bool forget_kept_player_field(const ReapplyStore::RowKey& key, const std::string& field);
+    // 2.15: the loaded career's identity (core/reapply.h header; reapply.career holds the id), read once per career load
+    // before the kept edits are written: its name for the UI ("Mikel Arteta, Arsenal") and the line logged as
+    // "career identity: ..." in turbo_gui.log ("" before the first connect)
+    std::string career_label;
+    std::string career_identity_line;
     // Write every kept entry into the connected database: kit fields in place (Database::set, range-checked, no undo
     // step), callnames through write_player_callname (never adding a row). Not written, without an error: a player
     // with his own recording, a player or kit not in this career. Returns the summary line, which also goes to the GUI
@@ -333,6 +345,9 @@ public:
     // Keep a club's names (stamped now), publish them, save the store. false (*err) when the file was not written; the
     // names are published for this session anyway
     bool team_names_keep(tnames::Entry e, std::string* err);
+    // 2.15: a club's name of scope `from` moved to `to` ("global", "career:<id>"), published and saved; a name of every
+    // career also goes into Live Editor's custom_team_names.csv. False = no such name / not saved
+    bool move_team_name(int64_t teamid, const std::string& from, const std::string& to);
     std::string team_names_status_line() const;     // "Live team names: on | 2 renamed clubs | names given 57"
     // Managers > Manager rules (features/manager_rules.lua) and Manager market (features/manager_move.lua)
     std::string manager_rules_status;
@@ -444,6 +459,9 @@ private:
     void load_reapply();             // constructor: turbo_output\reapply_edits.json
     bool save_reapply();             // after every change of the store; false (reapply_error set) when not written
     void maybe_reapply();            // refresh(): re-apply once per newly loaded career
+    void update_career_identity();   // maybe_reapply(): once per career load (identity_key_), before any kept edit is written
+    void note_career_label();        // save_reapply(): this career's name kept in the store once a row is bound to it
+    std::string identity_key_;       // reapply_key() the career identity was last read for
     std::string reapply_key() const;  // "<Lua session>#<load_gen>" of the career Lua reports (db_gen from an older Lua)
     bool reapply_unreadable_ = false;  // the file on disk could not be read: set it aside at the next save
     std::string reapplied_key_;        // reapply_key() of the career the kept edits were last written to
@@ -603,6 +621,8 @@ void reapply_callname_line(App& app, const PlayerRow& p);
 // the whole list with the on / off switch and Forget per field (Turbo Tools > Kept player edits)
 void reapply_player_line(App& app, const PlayerRow& p);
 void kept_player_edits_section(App& app);
+// 2.15 (Career tools > Changes & undo): where each kept row applies, with Global / This career
+void kept_edit_scopes_section(App& app);
 // Slider over the field's whole range (attributes); a typed value outside it is refused by Database::set
 bool slider_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float width);
 // Same with the label column width and the number box width given (the Players > Attributes tab uses roomier values)

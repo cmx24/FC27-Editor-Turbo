@@ -72,6 +72,7 @@ inline const std::vector<Spec>& all() {
         // gameplay slider table of tactics channel A)
         {"##pfilters", "Players > filter grid (four blocks, no header row)", kGrid | ImGuiTableFlags_SizingStretchProp, false},
         {"##keptlist", "Turbo Tools > Kept player edits", kData | ImGuiTableFlags_ScrollY, true},
+        {"##scopelist", "Career tools > Changes & undo > Where kept edits apply (2.15)", kData | ImGuiTableFlags_ScrollY, true},
         {"##clubrows", "Club search dropdown (popup under the box)", ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV, true, true},
         {"##keptplayer", "Players > kept edits tooltip (auto-sizing, cannot be clicked)", ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg, false, true},
         {"##pidtable", "Players > Create player > Use a hidden player's id (auto-sizing modal)",

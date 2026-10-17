@@ -802,6 +802,7 @@ static void kit_import_ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(undo_kit_import(app, 7, kits::Slot::Away, &msg) && !fs::exists(away), "away undone: " + msg);
         CHECK(!undo_kit_import(app, 7, kits::Slot::Away, &msg) && msg.find("nothing imported") != std::string::npos, "nothing left to undo");
         ReapplyStore on_disk;
+        on_disk.career = app.reapply.career;  // 2.15: the rows of this career are the ones in effect here
         CHECK(load_reapply_store(reapply_store_path(le), on_disk, &err) && on_disk.kit(7, 0, 70) == nullptr, "the store on disk has no kit entry: " + err);
         CHECK(fs::exists(app.legacy.kit_backup_dir()), "minikit backups in turbo_output\\kit_backups");
 
