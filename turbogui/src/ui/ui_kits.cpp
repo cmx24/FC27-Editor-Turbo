@@ -119,6 +119,9 @@ struct ImportRecord {
     };
     std::vector<Db> db;
     std::vector<std::pair<std::string, json>> kept_before;  // field -> kept value before the import (null = not kept)
+    // 2.15: the scope of the kept-edit row the import wrote (core/reapply.h; "" = not assigned: also every record of an older
+    // Turbo). Undo puts kept_before back in THAT row, whatever career is loaded when it runs
+    std::string kept_scope;
     bool minikit = false;            // a custom minikit was written
     bool minikit_had_custom = false; // there was a custom minikit before the first import
     std::string minikit_backup;      // its copy (kit_backups), when there was one
@@ -148,6 +151,7 @@ static bool load_record(App& app, int64_t teamid, Slot s, ImportRecord& r) {
     r.team = j.value("team", std::string());
     r.source = j.value("source", std::string());
     r.when = j.value("when", std::string());
+    if (auto it = j.find("kept_scope"); it != j.end() && it->is_string()) r.kept_scope = it->get<std::string>();
     if (r.teamid != teamid || r.slot != s) return false;
     if (auto it = j.find("db"); it != j.end() && it->is_array())
         for (const json& e : *it)
@@ -177,6 +181,7 @@ static bool save_record(App& app, const ImportRecord& r, std::string* err) {
               {"teamkitid", r.teamkitid}, {"source", r.source}, {"when", r.when}, {"db", db}, {"kept_before", kept},
               {"minikit", {{"path", kits::minikit_path(r.teamid, r.slot)}, {"written", r.minikit}, {"had_custom", r.minikit_had_custom},
                            {"backup", r.minikit_backup}}}};
+    if (!r.kept_scope.empty()) j["kept_scope"] = r.kept_scope;
     return write_text_atomic(record_path(app, r.teamid, r.slot), j.dump(2, ' ', false, json::error_handler_t::replace) + "\n", err);
 }
 
@@ -185,10 +190,10 @@ bool has_kit_import(App& app, int64_t teamid, Slot s) {
     return s != Slot::Unknown && fs::exists(record_path(app, teamid, s), ec);
 }
 
-// The kept-edit value of a field now (null = not kept), for the exact kit entry an edit made here goes to (2.15: the
-// row of this career's scope; restore_kept_kit_field puts it back in that same row)
-static json kept_now(App& app, int64_t teamid, int64_t type, int64_t kitid, const std::string& field) {
-    const KitEdit* k = app.reapply.kit_in(app.reapply.edit_scope(), teamid, type, kitid);
+// The kept-edit value of a field now (null = not kept), for the exact kit entry of `scope` (2.15: the row an edit made
+// here goes to; Undo puts it back in that same row, ImportRecord::kept_scope)
+static json kept_now(App& app, const std::string& scope, int64_t teamid, int64_t type, int64_t kitid, const std::string& field) {
+    const KitEdit* k = app.reapply.kit_in(scope, teamid, type, kitid);
     if (!k) return json();
     auto f = k->fields.find(field);
     return f == k->fields.end() ? json() : json(f->second);
@@ -232,12 +237,16 @@ KitApply apply_kit_import(App& app, int64_t teamid, Slot s, const KitPackage& pk
     int64_t kitid = -1;
     const uint64_t row = kt ? kit_row(app, teamid, s, &kitid) : 0;
     rec.teamkitid = kitid;
+    // 2.15: the kept fields this import writes go to the row of this career's scope (App::remember_kit_field / write_colour)
+    rec.kept_scope = app.reapply.edit_scope();
+    // an earlier import's kept values count only for the same row (scope); one made in another career keeps its own row there
+    const bool same_kept_row = had_record && old.kept_scope == rec.kept_scope;
     // what a field held and was kept as before this import (a second import keeps the first one's: Undo goes back to the game)
     auto note_before = [&](const std::string& field, int64_t before) {
         const ImportRecord::Db* od = had_record ? old.field(field) : nullptr;
         rec.db.push_back({field, od ? od->before : before, 0});
-        const json* ok = had_record ? old.kept(field) : nullptr;
-        rec.kept_before.emplace_back(field, ok ? *ok : kept_now(app, teamid, type, kitid, field));
+        const json* ok = same_kept_row ? old.kept(field) : nullptr;
+        rec.kept_before.emplace_back(field, ok ? *ok : kept_now(app, rec.kept_scope, teamid, type, kitid, field));
     };
     if (!kt) {
         res.skipped.push_back("every setting: FC 27's teamkits table is not readable");
@@ -312,8 +321,8 @@ KitApply apply_kit_import(App& app, int64_t teamid, Slot s, const KitPackage& pk
         for (const auto& d : old.db)
             if (!rec.field(d.field)) {
                 rec.db.push_back(d);
-                const json* k = old.kept(d.field);
-                rec.kept_before.emplace_back(d.field, k ? *k : json());
+                const json* k = same_kept_row ? old.kept(d.field) : nullptr;
+                rec.kept_before.emplace_back(d.field, k ? *k : (same_kept_row ? json() : kept_now(app, rec.kept_scope, teamid, type, kitid, d.field)));
             }
 
     // ---- 2. the minikit, in the game file's own size / format / mips (the crest writer's way)
@@ -474,7 +483,7 @@ bool undo_kit_import(App& app, int64_t teamid, Slot s, std::string* msg) {
         int64_t v = 0;
         const bool kept = k.second.is_number_integer();
         if (kept) v = k.second.get<int64_t>();
-        app.restore_kept_kit_field(teamid, type, r.teamkitid, k.first, kept ? &v : nullptr, false);
+        app.restore_kept_kit_field_in(r.kept_scope, teamid, type, r.teamkitid, k.first, kept ? &v : nullptr, false);
     }
     if (!r.kept_before.empty()) app.save_kept_edits();
     // ---- the minikit as it was

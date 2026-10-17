@@ -277,6 +277,9 @@ public:
     bool remember_kit_field(int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& field, int64_t value, bool save = true);
     bool restore_kept_kit_field(int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& field, const int64_t* value,
                                 bool save = true);
+    // 2.15: the same in the row of `scope` (the kit import's Undo: the scope its import wrote, whatever career is loaded now)
+    bool restore_kept_kit_field_in(const std::string& scope, int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& field,
+                                   const int64_t* value, bool save = true);
     bool save_kept_edits();
     // Keep a player-specific callname the Callname tab just wrote (or queued); `from` = whose callname it is. A player
     // with his own recording (callnames.own_recording: the master list or the game's audio service) is never kept, and

@@ -150,7 +150,11 @@ bool ReapplyStore::forget_kit(int64_t teamtechid, int64_t kittype, int64_t teamk
 }
 
 bool ReapplyStore::forget_kit_field(int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& field) {
-    auto it = kits.find(KitKey{teamtechid, kittype, teamkitid < 0 ? -1 : teamkitid, edit_scope()});
+    return forget_kit_field_in(edit_scope(), teamtechid, kittype, teamkitid, field);
+}
+
+bool ReapplyStore::forget_kit_field_in(const std::string& scope, int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& field) {
+    auto it = kits.find(KitKey{teamtechid, kittype, teamkitid < 0 ? -1 : teamkitid, scope});
     if (it == kits.end() || !it->second.fields.erase(field)) return false;
     if (it->second.fields.empty()) kits.erase(it);
     return true;

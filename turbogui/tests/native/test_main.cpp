@@ -8409,6 +8409,30 @@ static void test_ui() {
             CHECK(app.reapply.career == idA && prim_r(k11) == 21 && prim_r(k70) != 11, "A: global written, B's Everton row not");
             CHECK(spy.last.find(7) && spy.last.find(7)->text[tnames::Full] == "Everton A", "career A again: Everton A served again");
 
+            // ---- a kit import made before 2.15 (its record has no scope; its kept field is in the row not assigned), undone in career A:
+            // the row not assigned is put back (here: the field forgotten, as before the import) and no career row appears
+            {
+                const fs::path dir = kits::slot_dir(le, 7, kits::Slot::Home);
+                fs::create_directories(dir);
+                const int64_t pct0 = app.db.get_int(*KT(), k70, "teamcolorprimpercent");
+                const int64_t pct1 = pct0 == 55 ? 56 : 55;
+                std::ofstream((dir / "import.json").string(), std::ios::binary | std::ios::trunc)
+                    << json({{"turbo_kit_import", 1}, {"teamid", 7}, {"team", "Everton"}, {"slot", "home"}, {"teamkittypetechid", 0}, {"teamkitid", 70},
+                             {"source", "old.zip"}, {"when", "2026-10-14 16:00"},
+                             {"db", json::array({json{{"field", "teamcolorprimpercent"}, {"before", pct0}, {"after", pct1}}})},
+                             {"kept_before", json{{"teamcolorprimpercent", nullptr}}},
+                             {"minikit", json{{"written", false}, {"had_custom", false}, {"backup", ""}}}})
+                           .dump();
+                CHECK(app.db.set_int(*KT(), k70, "teamcolorprimpercent", pct1), "the import's value in the row");
+                app.reapply.set_kit_field_in("", 7, 0, 70, "Everton", "2026-10-14 16:00", "teamcolorprimpercent", pct1);
+                const size_t rows_before = app.reapply.kits.size();
+                std::string umsg;
+                CHECK(undo_kit_import(app, 7, kits::Slot::Home, &umsg), "undone in career A: " + umsg);
+                CHECK(app.db.get_int(*KT(), k70, "teamcolorprimpercent") == pct0, "the game's value back");
+                CHECK(!app.reapply.kit_in("", 7, 0, 70) && !app.reapply.kit_in(career_scope(idA), 7, 0, 70) && app.reapply.kits.size() == rows_before - 1,
+                      "the row not assigned put back (its field forgotten), no career-A row made");
+            }
+
             // club names back as they were
             app.team_names_service = nullptr;
             app.team_names = names_before;

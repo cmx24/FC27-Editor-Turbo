@@ -193,6 +193,7 @@ public:
     // One field of the edit_scope() entry of that exact kit row (the entry goes when it was its last field); false when
     // it was not kept there (the kit import's Undo puts back what it changed in that row)
     bool forget_kit_field(int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& field);
+    bool forget_kit_field_in(const std::string& scope, int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& field);
     // The entry of that kit row in effect here (the highest rank); for a known teamkitid with no entry of its own, an
     // entry kept without a kit id
     const KitEdit* kit(int64_t teamtechid, int64_t kittype, int64_t teamkitid) const;

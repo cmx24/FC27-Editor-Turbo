@@ -132,9 +132,14 @@ bool App::remember_kit_field(int64_t teamtechid, int64_t kittype, int64_t teamki
 }
 
 bool App::restore_kept_kit_field(int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& field, const int64_t* value, bool save) {
+    return restore_kept_kit_field_in(reapply.edit_scope(), teamtechid, kittype, teamkitid, field, value, save);
+}
+
+bool App::restore_kept_kit_field_in(const std::string& scope, int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& field,
+                                    const int64_t* value, bool save) {
     if (teamtechid <= 0 || kittype < 0 || !kit_kept_field(field)) return false;
-    if (value) reapply.set_kit_field(teamtechid, kittype, teamkitid, model.team_name(teamtechid), time_stamp(), field, *value);
-    else reapply.forget_kit_field(teamtechid, kittype, teamkitid, field);
+    if (value) reapply.set_kit_field_in(scope, teamtechid, kittype, teamkitid, model.team_name(teamtechid), time_stamp(), field, *value);
+    else reapply.forget_kit_field_in(scope, teamtechid, kittype, teamkitid, field);
     return save ? save_reapply() : true;
 }
 
