@@ -12,15 +12,14 @@ Nothing here is shipped or claimed as a feature. Gates are in `turbo_dev\evidenc
 
 ## 2.12.2
 
-Fix release on top of 2.12.1 (commit 387e41e). Package FC27_LE_Turbo_2.12.2.zip (md5 [ZIP_MD5]). Installed Turbo.dll md5 [DLL_MD5]. Supported game build: 6AC07E31 only. Tested with Live Editor 27.1.4 on LEICESTER only.
+Fix release on top of 2.12.1. Package FC27_LE_Turbo_2.12.2.zip (md5 0729184a41857317f216c60477377ba9). Turbo.dll md5 5657d8e51edd77fc338c2027b1f94345. Supported game build: 6AC07E31 only. Tested with Live Editor 27.1.5 on LEICESTER only.
 
-- **Folder picker:** two clicks open a folder.
+- **Folder picker:** a double-click opens a folder; two clicks within 0.8 s count as one double-click.
 - **Managers:** hair and facial hair galleries, as players have.
 - **Kits:** one-click 3D kit opt-in.
 
-Proven in game (test career LEICESTER, never saved, [DATE]): [filled by the proof run].
-Regression list run: [filled by the proof run].
-Not proven: [filled by the proof run].
+Proven in game (test career LEICESTER, never saved, 2026-10-17, Live Editor 27.1.5): Turbo connects (141 game hooks); live standings edit (Pts +1) is written, the game's standings view re-reads it, and Undo puts it back; the manager hair and facial-hair galleries open with pictures; a double-click opens a folder in the picker.
+Not proven in game: the "two clicks within 0.8 s" fallback of the picker (synthetic clicks only highlighted the folder); the one-click 3D kit button (shown only while 3D kits are off). Not re-run, code unchanged: player editor, tactic presets, kits apply, faces picker, season pack, match.
 
 ## 2.12.1
 
