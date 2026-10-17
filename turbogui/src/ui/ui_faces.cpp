@@ -430,6 +430,11 @@ static bool copy_head(App& app, const Table& src, uint64_t src_rec, const Table&
     if (o.beard) fields.insert(fields.end(), std::begin(kBeardFields), std::end(kBeardFields));
     if (o.eyes) fields.insert(fields.end(), std::begin(kEyeFields), std::end(kEyeFields));
     if (o.skin) fields.insert(fields.end(), std::begin(kSkinFields), std::end(kSkinFields));
+    // a Turbo 3D hair / beard (band codes, core/faces3d.h) belongs to the old head: the new head takes the owner's own codes
+    if (!o.hair && dst.has("hairtypecode") && faces3d::hair_from_code(app.db.get_int(dst, dst_rec, "hairtypecode", 0)))
+        fields.push_back("hairtypecode");
+    if (!o.beard && dst.has("facialhairtypecode") && faces3d::beard_from_code(app.db.get_int(dst, dst_rec, "facialhairtypecode", 0)))
+        fields.push_back("facialhairtypecode");
     // read everything first, then write (validated per field)
     std::vector<std::pair<const Field*, Value>> writes;
     for (const char* n : fields) {
@@ -1387,6 +1392,8 @@ void manager_appearance(App& app, const Table& t, const ManagerRow& m) {
                         pic.empty() ? "none in the game files" : file_part(pic).c_str(), static_cast<long long>(m.managerid));
     ImGui::EndGroup();
     manager_real_face_picker(app, m.managerid);
+    ImGui::SeparatorText("Hair & beard (3D)");
+    faces3d_manager_section(app, t, m);  // ui_faces3d_gate.cpp
     ImGui::SeparatorText("Outfit");
     item_galleries(app, t, m.rec, true);  // the game's outfit pictures (ui_images.cpp)
     ImGui::SeparatorText("Appearance fields");

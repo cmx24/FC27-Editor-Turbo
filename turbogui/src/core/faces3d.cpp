@@ -198,12 +198,85 @@ const char* template_text() { return data::kTemplate; }
 const char* template_md5() { return data::kTemplateMd5; }
 const char* template_v3_text() { return data::kTemplateV3; }
 const char* template_v3_md5() { return data::kTemplateV3Md5; }
+const char* template_v4_text() { return data::kTemplateV4; }
+const char* template_v4_md5() { return data::kTemplateV4Md5; }
 bool has_follow(const Table& t) {
     for (const auto& kv : t)
         if (kv.second.follow) return true;
     return false;
 }
-const char* template_for(const Table& t) { return has_follow(t) ? template_v3_text() : template_text(); }
+const char* template_for(const Table&) { return template_v4_text(); }
+
+// ---------------------------------------------------------------- live looks (bands)
+const std::vector<int>& band_hair_ids() { return ok_hair_ids(); }    // frozen: test_faces3d pins its size and md5
+const std::vector<int>& band_beard_ids() { return ok_beard_ids(); }  // frozen: test_faces3d pins its size and md5
+static int64_t band_index(const std::vector<int>& ids, int64_t id) {
+    const auto it = std::lower_bound(ids.begin(), ids.end(), static_cast<int>(id));
+    return (id > 0 && it != ids.end() && *it == id) ? static_cast<int64_t>(it - ids.begin()) + 1 : 0;
+}
+int64_t hair_band_code(int64_t hair_id) {
+    const int64_t i = band_index(band_hair_ids(), hair_id);
+    return i ? kHairBandBase + i : 0;
+}
+int64_t beard_band_code(int64_t beard_id) {
+    const int64_t i = band_index(band_beard_ids(), beard_id);
+    return i ? kBeardBandBase + i : 0;
+}
+int64_t hair_from_code(int64_t code) {
+    const int64_t i = code - kHairBandBase;
+    return (i >= 1 && i <= static_cast<int64_t>(band_hair_ids().size())) ? band_hair_ids()[static_cast<size_t>(i - 1)] : 0;
+}
+int64_t beard_from_code(int64_t code) {
+    const int64_t i = code - kBeardBandBase;
+    return (i >= 1 && i <= static_cast<int64_t>(band_beard_ids().size())) ? band_beard_ids()[static_cast<size_t>(i - 1)] : 0;
+}
+const char* const kLookFields[2] = {"hairtypecode", "facialhairtypecode"};
+
+std::map<std::string, int64_t> look_writes(int64_t hair, int64_t beard, const std::map<std::string, int64_t>& cur,
+                                           const std::map<std::string, int64_t>& original) {
+    std::map<std::string, int64_t> w;
+    auto part = [&](const char* f, int64_t id, int64_t (*code_of)(int64_t), int64_t (*from)(int64_t)) {
+        const auto c = cur.find(f);
+        if (c == cur.end()) return;  // the table has no such field
+        int64_t want = c->second;
+        if (id > 0) {
+            want = code_of(id);
+            if (!want) return;  // not a listed id: nothing written for this part
+        } else if (from(c->second)) {
+            const auto o = original.find(f);
+            want = (o != original.end() && o->second >= 0 && !from(o->second)) ? o->second : 0;
+        }
+        if (want != c->second) w[f] = want;
+    };
+    part("hairtypecode", hair, hair_band_code, hair_from_code);
+    part("facialhairtypecode", beard, beard_band_code, beard_from_code);
+    return w;
+}
+
+LiveLooks live_looks(const lualoader::Faces3dStatus* st) {
+    LiveLooks l;
+    auto no = [&](bool restart, const std::string& w) {
+        l.restart_needed = restart;
+        l.why = w;
+        return l;
+    };
+    if (!st) return no(false, "Turbo is not running inside the game here.");
+    if (!st->opted_in) return no(true, "3D hair and beard are off at this game start.");
+    if (!st->installed) return no(false, "3D hair and beard could not start this session (see Settings > Technical details).");
+    if (st->killed) return no(false, "3D hair and beard are switched off (faces3d_off.txt or hook_lua_load_off.txt is present).");
+    if (st->legacy_refused)
+        return no(false, "Turned off: mods\\legacy\\data\\fifarna\\lua\\assets\\player_kit.lua exists. Remove it, then restart the game.");
+    if (!st->substitute || !st->header_ok) return no(true, "The game started without Turbo's player_kit.lua.");
+    if (!st->build_key_ok || (!st->stock_matches_header && !st->captured_md5.empty()))
+        return no(true, "Turbo's player_kit.lua was made for another game version.");
+    if (!st->live_looks) return no(true, "The game started with an older Turbo player_kit.lua.");
+    if (st->substituted <= 0)
+        return no(false, st->fallbacks > 0 ? "The game could not load Turbo's player_kit.lua (it uses its own)."
+                                           : "The game has not loaded player_kit.lua yet.");
+    l.active = true;
+    l.why = "Changes show straight away.";
+    return l;
+}
 
 namespace {
 
@@ -226,6 +299,7 @@ struct Spec {
     std::vector<Add> add;
     std::string gate;  // the gate block, LF, ends with '\n'
     bool v3 = false;   // the gate block has --@@OKHAIR@@ / --@@OKBEARD@@ (build_gated_v3.py)
+    bool v4 = false;   // ... and --@@BANDHAIR@@ / --@@BANDBEARD@@ (the 2.16 live band rule)
 };
 
 size_t count_of(const std::string& s, const std::string& what) {
@@ -373,6 +447,14 @@ bool parse_template(const std::string& text0, Spec& sp, std::string& err) {
         }
         sp.v3 = true;
     }
+    const size_t bh = count_of(sp.gate, "--@@BANDHAIR@@"), bb = count_of(sp.gate, "--@@BANDBEARD@@");
+    if (bh || bb) {
+        if (bh != 1 || bb != 1 || !sp.v3) {
+            err = "template: gate block needs exactly one --@@BANDHAIR@@ and one --@@BANDBEARD@@ marker (with the v3 markers)";
+            return false;
+        }
+        sp.v4 = true;
+    }
     return true;
 }
 
@@ -473,6 +555,18 @@ bool entries_lua_v3(const Table& t, std::string& out, std::string& err) {
     return true;
 }
 
+// v4 band lists: every id in list order (the index is what the DB code holds), 16 per line, "\t\t" + ", ".join + ","
+std::string list_lua(const std::vector<int>& ids) {
+    std::string out;
+    for (size_t i = 0; i < ids.size(); i += 16) {
+        if (i) out += "\n";
+        out += "\t\t";
+        for (size_t k = i; k < std::min(ids.size(), i + 16); ++k) out += (k > i ? ", " : "") + std::to_string(ids[k]);
+        out += ",";
+    }
+    return out;
+}
+
 // build_gated_v3.py ranges_lua(): sorted inclusive ranges "lo, hi", 12 per line, "\t\t" + ", ".join + ","
 std::string ranges_lua(const std::vector<int>& ids0) {
     std::vector<int> ids = ids0;
@@ -556,6 +650,10 @@ Built generate_body(const std::string& tmpl, const std::string& stock, const Tab
         gate = replace_all(gate, "--@@OKHAIR@@\n", ranges_lua(ok_hair_ids()) + "\n");
         gate = replace_all(gate, "--@@OKBEARD@@\n", ranges_lua(ok_beard_ids()) + "\n");
     }
+    if (sp.v4) {
+        gate = replace_all(gate, "--@@BANDHAIR@@\n", list_lua(band_hair_ids()) + "\n");
+        gate = replace_all(gate, "--@@BANDBEARD@@\n", list_lua(band_beard_ids()) + "\n");
+    }
     while (!gate.empty() && gate.back() == '\n') gate.pop_back();
     gate = replace_all(gate, "\n", nl);
 
@@ -631,15 +729,6 @@ ApplyResult apply(const std::string& turbo_output_utf8, const Table& t, const st
                   const std::function<int64_t(int64_t)>& headclass) {
     ApplyResult r;
     std::string err;
-    if (t.empty()) {
-        r.ok = remove(turbo_output_utf8, &err);
-        if (r.ok) {
-            const std::string js = players_json(t);
-            lualoader::write_file_atomic(rel_path(turbo_output_utf8, kPlayersRel).u8string(), js, &err);
-        }
-        r.message = r.ok ? "No player enrolled: the override and faces3d_on.txt were removed (restart the game)." : "Remove failed: " + err;
-        return r;
-    }
     const auto problems = validate(t, headclass ? headclass : std::function<int64_t(int64_t)>([](int64_t) { return int64_t(0); }));
     if (!problems.empty()) {
         r.message = "Nothing written: ";
@@ -686,9 +775,16 @@ ApplyResult apply(const std::string& turbo_output_utf8, const Table& t, const st
     r.ok = true;
     r.override_md5 = b.md5;
     r.table = table_hash(js);
-    r.message = "Applied for " + std::to_string(t.size()) + " player(s) (gate " + (has_follow(t) ? "v3" : "v2") + "): override md5 " +
-                b.md5 + ", table " + r.table + ". Restart the game to see it (player_kit.lua is read only at game start).";
+    r.message = "Turbo's player_kit.lua written (" + std::to_string(t.size()) + " saved list entr" + (t.size() == 1 ? "y" : "ies") +
+                ", live looks on): md5 " + b.md5 + ", table " + r.table + ". The game reads it at its next start.";
     return r;
+}
+
+bool override_has_live_looks(const std::string& turbo_output_utf8) {
+    std::string b;
+    if (!read_file(rel_path(turbo_output_utf8, kOverrideRel), b)) return false;
+    const lualoader::OverrideHeader h = lualoader::parse_override_header(b);
+    return h.ok && lualoader::has_live_looks(b.data(), b.size());
 }
 
 // ---------------------------------------------------------------- the running list

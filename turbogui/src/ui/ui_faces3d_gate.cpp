@@ -1,5 +1,6 @@
-// FC 27 LE Turbo GUI - Players > Appearance > "3D hair and beard" (ui_faces3d_gate.h). The draft list lives here until Apply;
-// the files and the generator are core/faces3d.h; the hook's state comes from App::faces3d_report (win/lua_loader_win.h).
+// FC 27 LE Turbo GUI - Players / Managers > Appearance > "Hair & beard (3D)" (ui_faces3d_gate.h). A look is two DB codes in the
+// Turbo bands (core/faces3d.h, template v4): written live, drawn by the game at its next model build, no restart. The saved list
+// of older versions (players.json) is still read at game start; the hook's state comes from App::faces3d_report.
 #include "ui_faces3d_gate.h"
 
 #include <algorithm>
@@ -59,6 +60,7 @@ struct GateUi {
     bool keep_follow = false;
 };
 GateUi g;
+std::map<int64_t, std::map<std::string, int64_t>> g_mgr_original;  // managers: their own codes, this Turbo session
 
 fs::path rel(const fs::path& base, const char* r) {
     fs::path p = base;
@@ -122,7 +124,7 @@ bool gallery_picker(App& app, const char* title, const char* field, int64_t& val
     else gallery_picture(app, field, 0, thumb, "");
     ImGui::SameLine();
     ImGui::BeginGroup();
-    ImGui::TextUnformatted(value > 0 ? name(static_cast<int>(value)).c_str() : "none (keep his own)");
+    ImGui::TextUnformatted(value > 0 ? name(static_cast<int>(value)).c_str() : "his own");
     if (ImGui::Button("Choose...##pick")) ImGui::OpenPopup("##f3pick");
     if (value > 0) {
         ImGui::SameLine();
@@ -134,7 +136,7 @@ bool gallery_picker(App& app, const char* title, const char* field, int64_t& val
     ImGui::EndGroup();
     ImGui::SetNextWindowSize(ImVec2(S(760.0f), S(560.0f)), ImGuiCond_Appearing);
     if (ImGui::BeginPopupModal("##f3pick", nullptr, ImGuiWindowFlags_NoSavedSettings)) {
-        ImGui::Text("%s: the verified ids (3D models on scanned heads), with the game's own previews", title);
+        ImGui::Text("%s: the 3D models that fit real faces, with the game's own previews", title);
         if (length) {
             const char* cur = *length < 0 ? "Any length" : hair::length_name(*length);
             ImGui::SetNextItemWidth(S(170.0f));
@@ -195,35 +197,13 @@ bool gallery_picker(App& app, const char* title, const char* field, int64_t& val
     return changed;
 }
 
-std::string status_line(App& app, bool& warn) {
-    warn = false;
-    if (!app.faces3d_report) return "Hook status: not available here (no game hooks).";
-    const lualoader::Faces3dStatus f = app.faces3d_report();
-    if (!f.opted_in) return "Hook: off at this game start (faces3d_on.txt was not there when the game started).";
-    std::string s = f.installed ? "Hook: installed" : "Hook: opted in, not installed (see Settings > Technical details)";
-    if (f.killed) s += " | kill switch present", warn = true;
-    if (f.legacy_refused) s += " | substitution REFUSED (mods\\legacy player_kit.lua)", warn = true;
-    if (f.installed) {
-        s += f.captured_md5.empty() ? std::string(" | stock not captured yet") : " | stock " + f.captured_md5.substr(0, 8);
-        if (f.substitute) {
-            s += std::string(" | override ") +
-                 (!f.header_ok ? "missing" : !f.build_key_ok ? "for another build" : (f.stock_matches_header || f.captured_md5.empty()) ? "ok" : "STALE");
-            if (f.header_ok && (!f.build_key_ok || (!f.stock_matches_header && !f.captured_md5.empty()))) warn = true;
-        }
-        s += " | substituted " + std::to_string(f.substituted) + " | fallbacks " + std::to_string(f.fallbacks);
-        if (f.fallbacks > 0) warn = true;
-        if (!f.last_error.empty()) s += " | last: " + f.last_error;
-    }
-    return s;
-}
-
 int64_t headclass_of(App& app, const Table& t, int64_t pid) {
     const PlayerRow* r = app.model.player(pid);
     if (!r || !t.has("headclasscode")) return -1;
     return app.db.get_int(t, r->rec, "headclasscode", -1);
 }
 
-// ---------------------------------------------------------------- live preview
+// ---------------------------------------------------------------- the game's picture of him
 std::string clock_now() {
     const std::time_t now = std::time(nullptr);
     char b[16] = "";
@@ -231,17 +211,21 @@ std::string clock_now() {
     return b;
 }
 
-// His preview fields as they are now (only fields the table has)
-std::map<std::string, int64_t> read_codes(App& app, const Table& t, uint64_t rec) {
+// His codes as they are now, for the given fields (only fields the table has)
+std::map<std::string, int64_t> read_fields(App& app, const Table& t, uint64_t rec, const char* const* fields, size_t n) {
     std::map<std::string, int64_t> m;
-    for (const char* f : faces3d::kPreviewFields)
-        if (t.has(f)) m[f] = app.db.get_int(t, rec, f, 0);
+    for (size_t i = 0; i < n; ++i)
+        if (t.has(fields[i])) m[fields[i]] = app.db.get_int(t, rec, fields[i], 0);
     return m;
 }
+std::map<std::string, int64_t> read_codes(App& app, const Table& t, uint64_t rec) {
+    return read_fields(app, t, rec, faces3d::kPreviewFields, 3);
+}
+std::map<std::string, int64_t> read_look(App& app, const Table& t, uint64_t rec) { return read_fields(app, t, rec, faces3d::kLookFields, 2); }
 
-// Raw writes (Database::set_int, range-checked): no undo step, no kept edit (reapply_edits.json), no development-plan sync, so a
-// preview never travels to another career. true when every field was written.
-bool raw_write(App& app, const Table& t, uint64_t rec, int64_t pid, const std::map<std::string, int64_t>& w, std::string& err) {
+// Raw writes (Database::set_int, range-checked): no undo step, no kept edit (reapply_edits.json), no development-plan sync. The
+// codes live in this career's database (saved with the career). true when every field was written.
+bool raw_write(App& app, const Table& t, uint64_t rec, int64_t id, bool manager, const std::map<std::string, int64_t>& w, std::string& err) {
     bool ok = true;
     std::string line;
     for (const auto& [f, v] : w) {
@@ -254,30 +238,12 @@ bool raw_write(App& app, const Table& t, uint64_t rec, int64_t pid, const std::m
         line += (line.empty() ? "" : ", ") + f + " = " + std::to_string(v);
     }
     if (!line.empty()) {
-        app.model.refresh_player(pid, app.today());
+        if (!manager) app.model.refresh_player(id, app.today());
         ++app.gen;
-        app.log("3D hair preview: player " + std::to_string(pid) + " " + line + " (preview write: no undo step, not kept for other careers)");
+        app.log(std::string("3D hair & beard: ") + (manager ? "manager " : "player ") + std::to_string(id) + " " + line +
+                " (this career only; no undo step)");
     }
     return ok;
-}
-
-// The list this game start runs, re-read when the running override's table changes (or after an Apply here)
-void refresh_running(App& app, const lualoader::Faces3dStatus* st) {
-    const std::string key = st ? st->header_table : std::string();
-    if (key == g.running_key) return;
-    g.running_key = key;
-    g.running.clear();
-    g.running_why.clear();
-    g.running_ok = !key.empty() && faces3d::running_table(app.turbo_output().u8string(), key, g.running, &g.running_why);
-}
-
-faces3d::LiveGate gate_for(App& app, int64_t pid) {
-    if (!app.faces3d_report) return faces3d::live_gate(nullptr, nullptr, pid);
-    const lualoader::Faces3dStatus st = app.faces3d_report();
-    refresh_running(app, &st);
-    faces3d::LiveGate lg = faces3d::live_gate(&st, g.running_ok ? &g.running : nullptr, pid);
-    if (!g.running_ok && st.substituted > 0 && !g.running_why.empty() && !lg.active) lg.why = g.running_why;
-    return lg;
 }
 
 void pv_say(const std::string& m, bool ok) {
@@ -289,16 +255,16 @@ void pv_say(const std::string& m, bool ok) {
 bool request_capture(App& app, const PlayerRow& p, std::string& err) {
     capture::CaptureService* svc = app.capture.get();
     if (!svc) {
-        err = "the game's 3D capture is not available here";
+        err = "the game's 3D picture is not available here";
         return false;
     }
     const capture::Status st = svc->status();
     if (!st.installed || !st.available) {
-        err = "the game cannot render now: " + (st.reason.empty() ? std::string("capture not available") : st.reason) + " (menus only, not in a match)";
+        err = "the game cannot draw him now: " + (st.reason.empty() ? std::string("not available") : st.reason) + " (menus only, not in a match)";
         return false;
     }
     if (st.busy) {
-        err = "another render is running (" + st.busy_label + "): try again in a moment";
+        err = "another picture is being drawn (" + st.busy_label + "): try again in a moment";
         return false;
     }
     capture::Request r;
@@ -306,7 +272,7 @@ bool request_capture(App& app, const PlayerRow& p, std::string& err) {
     r.second_id = p.club > 0 ? static_cast<int32_t>(p.club) : -1;
     r.camera = 0;
     r.use_template = true;
-    r.label = "3D hair preview " + p.name;
+    r.label = "3D hair & beard " + p.name;
     if (!svc->request(r, &err)) return false;
     g.pending = p.playerid;
     g.sent_at = ImGui::GetTime();
@@ -337,38 +303,6 @@ faces3d::PreviewRecord& record_for(int64_t pid, const std::string& name, const s
     return it->second;
 }
 
-void do_preview(App& app, const Table& t, const PlayerRow& p, const faces3d::Entry& e, const faces3d::LiveGate& lg) {
-    const std::map<std::string, int64_t> cur = read_codes(app, t, p.rec);
-    const auto w = faces3d::preview_writes(lg.follow_hair ? e.hair : 0, lg.follow_beard ? e.beard : 0, cur);
-    std::string err;
-    if (!w.empty()) {
-        faces3d::PreviewRecord& r = record_for(p.playerid, p.name, cur);
-        if (r.original.empty()) {  // record_for always records his originals; never write without them
-            pv_say("Nothing written: his original codes could not be recorded", false);
-            return;
-        }
-        std::map<std::string, int64_t> after = cur;
-        for (const auto& [f, v] : w) after[f] = v;
-        r.written.clear();
-        for (const auto& [f, v] : after)
-            if (r.original.count(f) && r.original.at(f) != v) r.written[f] = v;
-        // the backup reaches the disk before the database changes (a crash leaves the way back)
-        if (!faces3d::save_preview_backup(app.turbo_output().u8string(), g.backup, &err)) {
-            pv_say("Nothing written: the backup could not be saved (" + err + ")", false);
-            return;
-        }
-        if (!raw_write(app, t, p.rec, p.playerid, w, err)) {
-            pv_say("Writing his codes failed (" + err + "): press Revert", false);
-            return;
-        }
-    }
-    if (!request_capture(app, p, err)) {
-        pv_say(std::string(w.empty() ? "" : "His codes are written, but ") + "no picture: " + err, false);
-        return;
-    }
-    pv_say("Asked the game to render him" + std::string(w.empty() ? " (his codes already hold this choice)" : "") + "...", true);
-}
-
 // Write his originals back (only fields that differ). false and err when a write failed (the record is kept then)
 bool revert_codes(App& app, const Table& t, uint64_t rec, int64_t pid, std::string& err) {
     const auto it = g.backup.find(pid);
@@ -377,7 +311,7 @@ bool revert_codes(App& app, const Table& t, uint64_t rec, int64_t pid, std::stri
     std::map<std::string, int64_t> w;
     for (const auto& [f, v] : it->second.original)
         if (cur.count(f) && cur.at(f) != v) w[f] = v;
-    if (!raw_write(app, t, rec, pid, w, err)) return false;
+    if (!raw_write(app, t, rec, pid, false, w, err)) return false;
     g.backup.erase(pid);
     g.session_records.erase(pid);
     return faces3d::save_preview_backup(app.turbo_output().u8string(), g.backup, &err);
@@ -389,10 +323,10 @@ std::string codes_text(const std::map<std::string, int64_t>& m) {
     return s.empty() ? "nothing" : s;
 }
 
-// A record left by an earlier session (crash, Turbo closed mid-preview), shown only when it holds his originals and his codes
+// A record left by an earlier session (crash, Turbo closed mid-change), shown only when it holds his originals and his codes
 // are still the ones written (otherwise it belongs to another career, or there is nothing to put back: no banner). An empty
-// record (no originals) is dropped from memory and the file.
-void leftover_banner(App& app, const Table& t) {
+// record (no originals) is dropped from memory and the file. Band codes are a kept look, not a leftover: no banner for them.
+void leftover_banner(App& app, const Table& t, int64_t current) {
     bool dropped = false;
     for (auto it = g.backup.begin(); it != g.backup.end();)
         if (it->second.original.empty()) it = g.backup.erase(it), dropped = true;
@@ -402,22 +336,25 @@ void leftover_banner(App& app, const Table& t) {
         faces3d::save_preview_backup(app.turbo_output().u8string(), g.backup, &err);
     }
     for (const auto& [pid, r] : g.backup) {
-        if (g.session_records.count(pid) && g.draft.count(pid)) continue;  // his own panel has Revert
+        if (pid == current) continue;  // his own card has "His own hair & beard"
         const PlayerRow* p = app.model.player(pid);
         if (!p || r.written.empty()) continue;
         const auto cur = read_codes(app, t, p->rec);
-        bool still = true;
-        for (const auto& [f, v] : r.written) still = still && cur.count(f) && cur.at(f) == v;
-        if (!still) continue;
+        bool still = true, band = false;
+        for (const auto& [f, v] : r.written) {
+            still = still && cur.count(f) && cur.at(f) == v;
+            band = band || (f == "hairtypecode" && faces3d::hair_from_code(v)) || (f == "facialhairtypecode" && faces3d::beard_from_code(v));
+        }
+        if (!still || band) continue;
         const std::string name = r.name.empty() ? p->name : r.name;
         ImGui::PushID(static_cast<int>(pid & 0x7FFFFFFF));
-        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "A preview of %s (%lld) was not reverted: original %s.", name.c_str(),
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "An earlier hair preview of %s (%lld) was not put back: original %s.", name.c_str(),
                            static_cast<long long>(pid), codes_text(r.original).c_str());
         ImGui::SameLine();
-        if (ImGui::SmallButton("Revert it")) {
+        if (ImGui::SmallButton("Put it back")) {
             std::string err;
-            if (revert_codes(app, t, p->rec, pid, err)) pv_say("Reverted the earlier preview of " + name + ".", true);
-            else pv_say("Revert failed: " + err, false);
+            if (revert_codes(app, t, p->rec, pid, err)) pv_say("Put back the earlier preview of " + name + ".", true);
+            else pv_say("Putting it back failed: " + err, false);
             ImGui::PopID();
             return;  // the map changed
         }
@@ -425,101 +362,87 @@ void leftover_banner(App& app, const Table& t) {
     }
 }
 
-void preview_panel(App& app, const Table& t, const PlayerRow& p, faces3d::Entry& e) {
-    ImGui::Spacing();
-    ImGui::SeparatorText("Live preview (rendered by the game)");
-    ImGui::TextWrapped("Preview works only for players enrolled with 'Follow his database codes' when the game started. Enrolling a "
-                       "player the first time (or switching him to follow) needs Apply and a game restart. It renders in the menus "
-                       "(career hub, squad screens), not during a match. Colour switches take effect at the next game start.");
-    const faces3d::LiveGate lg = gate_for(app, p.playerid);
-    ImGui::TextColored(lg.active ? ImVec4(0.5f, 0.9f, 0.5f, 1.0f) : ImVec4(1.0f, 0.6f, 0.3f, 1.0f), "%s%s", lg.active ? "" : "Gate not active for him this session: ",
-                       lg.why.c_str());
-    const bool previewed = g.backup.count(p.playerid) != 0;
-    const capture::Status cst = app.capture ? app.capture->status() : capture::Status();
-    const bool can = lg.active && app.capture && cst.installed && cst.available && !cst.busy && g.pending == 0;
-    if (!can) ImGui::BeginDisabled();
-    if (ImGui::Button("Preview##f3pv")) do_preview(app, t, p, e, lg);
-    if (!can) ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Writes his hair / beard codes (and hair style 0) in this career, the originals kept in "
-                          "turbo_output\\faces3d\\preview_backup.json first, then asks the game for a picture. 'none' = his current code.");
-    ImGui::SameLine();
-    if (!previewed) ImGui::BeginDisabled();
-    if (ImGui::Button("Revert##f3pv")) {
+std::string build_key(App& app) {
+    std::string b;
+    if (app.faces3d_report) b = app.faces3d_report().running_build;
+    if (b.empty()) b = app.asset_running_key();
+    return b;
+}
+
+// Turns the feature on for the next game start: Turbo's player_kit.lua (template v4, the saved list kept) when the game's own file
+// was captured, otherwise faces3d_on.txt alone (the game start saves it, and the next Turbo start writes the file). true when done.
+bool turn_on(App& app, std::string& msg) {
+    const fs::path out = app.turbo_output();
+    std::error_code ec;
+    if (fs::exists(rel(out, lualoader::kStockCacheRel), ec)) {
+        faces3d::Table t;
         std::string err;
-        if (revert_codes(app, t, p.rec, p.playerid, err)) {
-            std::string cerr;
-            const bool again = lg.active && request_capture(app, p, cerr);
-            pv_say(std::string("His original codes are back") + (again ? "; rendering him again..." : "."), true);
-        } else {
-            pv_say("Revert failed: " + err, false);
+        if (!faces3d::load_players(out.u8string(), t, &err)) {
+            msg = "Not turned on: " + err;
+            return false;
         }
+        const faces3d::ApplyResult r = faces3d::apply(out.u8string(), t, build_key(app), nullptr);
+        app.log("3D hair & beard: turn on: " + r.message);
+        msg = r.ok ? "Turned on. Restart the game once to turn this on." : "Not turned on: " + r.message;
+        return r.ok;
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Keep##f3pv")) {
-        faces3d::Table next = g.draft;
-        faces3d::Entry& k = next[p.playerid];
-        k = e;
-        k.follow = g.keep_follow;
-        std::string build;
-        if (app.faces3d_report) build = app.faces3d_report().running_build;
-        if (build.empty()) build = app.asset_running_key();
-        if (!k.follow && k.hair <= 0 && k.beard <= 0) {
-            pv_say("Keep: choose a hair or a beard first (a fixed look needs one).", false);
-        } else {
-            const faces3d::ApplyResult r =
-                faces3d::apply(app.turbo_output().u8string(), next, build, [&](int64_t pid) { return headclass_of(app, t, pid); });
-            if (!r.ok) {
-                pv_say("Keep: nothing changed (" + r.message + ")", false);
-            } else {
-                g.draft = next;
-                g.applied = faces3d::players_json(next);
-                faces3d_forget_render(app, false, p.playerid);  // the chooser's cached head is the old look
-                std::string err;
-                if (k.follow) {
-                    g.backup.erase(p.playerid);
-                    g.session_records.erase(p.playerid);
-                    faces3d::save_preview_backup(app.turbo_output().u8string(), g.backup, &err);
-                    pv_say("Kept: he keeps following his codes; this career keeps the previewed codes, other careers show their own. " + r.message,
-                           true);
-                } else if (revert_codes(app, t, p.rec, p.playerid, err)) {
-                    pv_say("Kept as a fixed look (hair " + std::to_string(k.hair) + ", beard " + std::to_string(k.beard) +
-                               ") for the next game start, in every career. His original codes are back in this career, so until the restart "
-                               "the game shows his own look. " + r.message,
-                           true);
-                } else {
-                    pv_say("Kept as a fixed look, but putting his original codes back failed (" + err + "): press Revert. " + r.message, false);
-                }
-                app.log("3D hair preview: Keep " + std::to_string(p.playerid) + ": " + r.message);
-            }
+    std::string err;
+    const bool ok = lualoader::set_faces3d_opt_in(out.u8string(), true, &err);
+    app.log("3D hair & beard: turn on (first time: the game start saves its own player_kit.lua) " + std::string(ok ? "ok" : err));
+    msg = ok ? "Turned on. Restart the game once; Turbo then finishes the setup and asks for one more restart." : "Not turned on: " + err;
+    return ok;
+}
+
+struct Look {
+    int64_t hair = 0, beard = 0;  // generic ids his codes select now (0 = his own)
+};
+Look look_of(const std::map<std::string, int64_t>& codes) {
+    Look l;
+    if (const auto it = codes.find("hairtypecode"); it != codes.end()) l.hair = faces3d::hair_from_code(it->second);
+    if (const auto it = codes.find("facialhairtypecode"); it != codes.end()) l.beard = faces3d::beard_from_code(it->second);
+    return l;
+}
+
+// One amber line only when a restart is really needed; green when changes show at once
+void live_line(App& app) {
+    lualoader::Faces3dStatus st;
+    const lualoader::Faces3dStatus* sp = nullptr;
+    if (app.faces3d_report) st = app.faces3d_report(), sp = &st;
+    const faces3d::LiveLooks l = faces3d::live_looks(sp);
+    if (l.active) {
+        ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1.0f), "%s", l.why.c_str());
+        return;
+    }
+    std::error_code ec;
+    const bool prepared = fs::exists(rel(app.turbo_output(), faces3d::kOptInRel), ec) && faces3d::override_has_live_looks(app.turbo_output().u8string());
+    if (l.restart_needed && prepared) {
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "Restart the game once to turn this on.");
+    } else if (l.restart_needed) {
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "3D hair and beard are off.");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Turn on##f3on")) {
+            std::string msg;
+            const bool ok = turn_on(app, msg);
+            pv_say(msg, ok);
         }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Needs one game restart, once. After that every change shows straight away.");
+    } else {
+        ImGui::TextDisabled("%s", l.why.c_str());
     }
-    if (!previewed) ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Bakes this hair / beard into players.json as a fixed entry (the override is regenerated; restart the game): other "
-                          "careers are unaffected, and this career's codes are put back. Tick 'keep following' to keep the codes instead.");
-    ImGui::SameLine();
-    ImGui::Checkbox("keep following his codes##f3pv", &g.keep_follow);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Keep leaves him following the database: this career keeps the previewed codes; in other careers (TORINO, "
-                          "EVERTON...) he shows whatever hair / beard codes that career holds.");
-    // find, never operator[]: Revert / Keep above may have erased his record this frame ('previewed' is stale then), and
-    // operator[] would put back an empty one (in game: a bogus "not reverted: original nothing" banner, and the next Preview
-    // kept that empty record instead of recording his originals)
-    if (const auto bit = g.backup.find(p.playerid); bit != g.backup.end() && !bit->second.original.empty())
-        ImGui::TextDisabled("Original codes: %s", codes_text(bit->second.original).c_str());
-    if (g.pending == p.playerid) {
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "rendering... (%.0f s)", ImGui::GetTime() - g.sent_at);
+    if (ImGui::IsItemHovered() && !l.why.empty()) ImGui::SetTooltip("%s", l.why.c_str());
+}
+
+void draw_picture(App& app, int64_t pid) {
+    if (g.pending == pid) {
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "drawing... (%.0f s)", ImGui::GetTime() - g.sent_at);
         ImGui::SameLine();
         if (ImGui::SmallButton("Cancel##f3pv")) {
             if (app.capture) app.capture->cancel();
             g.pending = 0;
-            pv_say("Cancelled (his codes stay as previewed until Revert).", false);
+            pv_say("Cancelled (the new look stays).", false);
         }
-    } else if (!can && lg.active) {
-        ImGui::TextDisabled("%s", !app.capture ? "No 3D capture here." : cst.busy ? "Another render is running." : cst.reason.c_str());
     }
-    if (g.shown == p.playerid && !g.image.empty()) {
+    if (g.shown == pid && !g.image.empty()) {
         const float side = S(256.0f);
         TextureCache::Pic pic = app.textures.pixels("faces3d_preview", g.version, g.image);
         const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -531,15 +454,79 @@ void preview_panel(App& app, const Table& t, const PlayerRow& p, faces3d::Entry&
         }
         ImGui::TextDisabled("%s", g.caption.c_str());
     }
-    if (!g.pv_message.empty())
-        ImGui::TextColored(g.pv_message_ok ? ImVec4(0.5f, 0.9f, 0.5f, 1.0f) : ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "%s", g.pv_message.c_str());
+}
+
+// The saved list of older Turbo versions (players.json, read at game start): shown only for a player on it, so it can be removed
+void saved_list_line(App& app, const PlayerRow& p) {
+    const auto it = g.draft.find(p.playerid);
+    if (it == g.draft.end()) return;
+    ImGui::TextDisabled("He also has a look saved by an older Turbo (hair %s, beard %s), used when his codes hold no choice.",
+                        it->second.hair > 0 ? std::to_string(it->second.hair).c_str() : "own",
+                        it->second.beard > 0 ? std::to_string(it->second.beard).c_str() : "own");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Remove it##f3old")) {
+        faces3d::Table next = g.draft;
+        next.erase(p.playerid);
+        const faces3d::ApplyResult r = faces3d::apply(app.turbo_output().u8string(), next, build_key(app), nullptr);
+        app.log("3D hair & beard: removed the saved look of " + std::to_string(p.playerid) + ": " + r.message);
+        if (r.ok) {
+            g.draft = next;
+            g.applied = faces3d::players_json(next);
+            pv_say("Removed from the saved list. That list is read at game start, so the older look goes after a restart.", true);
+        } else {
+            pv_say("Not removed: " + r.message, false);
+        }
+    }
+}
+
+// Pickers: the choice being made (per person shown), reset when another person is shown
+struct Pick {
+    bool manager = false;
+    int64_t id = -1;
+    int64_t hair = 0, beard = 0;
+};
+Pick g_pick;
+
+void pickers(App& app, bool manager, int64_t id, const Look& now) {
+    if (g_pick.manager != manager || g_pick.id != id) g_pick = Pick{manager, id, now.hair, now.beard};
+    gallery_picker(app, "Hair", "hairtypecode", g_pick.hair, faces3d::band_hair_ids(), g.hair_search, sizeof(g.hair_search), &g.hair_length,
+                   hair_label);
+    gallery_picker(app, "Beard", "facialhairtypecode", g_pick.beard, faces3d::band_beard_ids(), g.beard_search, sizeof(g.beard_search), nullptr,
+                   beard_label);
 }
 
 }  // namespace
 
 bool faces3d_preview_pending() { return g.pending != 0; }
 
+void faces3d_set_choice(bool manager, int64_t id, int64_t hair, int64_t beard) { g_pick = Pick{manager, id, hair, beard}; }
+
 void tick_faces3d_preview(App& app) {
+    // once per Turbo start: a feature already turned on gets Turbo's player_kit.lua with live changes (template v4) for the next
+    // game start; nothing is turned on here
+    static bool upgrade_done = false;
+    if (!upgrade_done && app.faces3d_report) {
+        const std::string build = build_key(app);
+        if (!build.empty()) {
+            upgrade_done = true;
+            const fs::path out = app.turbo_output();
+            std::error_code ec;
+            const lualoader::Faces3dStatus st = app.faces3d_report();
+            const bool on = fs::exists(rel(out, faces3d::kOptInRel), ec);
+            const bool off = fs::exists(out / "faces3d_off.txt", ec) || fs::exists(out / "hook_lua_load_off.txt", ec) || fs::exists(out / "game_hooks_off.txt", ec);
+            if (on && !off && !st.legacy_refused && fs::exists(rel(out, lualoader::kStockCacheRel), ec) &&
+                !faces3d::override_has_live_looks(out.u8string())) {
+                faces3d::Table t;
+                std::string err;
+                if (faces3d::load_players(out.u8string(), t, &err)) {
+                    const faces3d::ApplyResult r = faces3d::apply(out.u8string(), t, build, nullptr);
+                    app.log("3D hair & beard: player_kit.lua updated for live changes (used from the next game start): " + r.message);
+                } else {
+                    app.log("3D hair & beard: player_kit.lua not updated (" + err + ")");
+                }
+            }
+        }
+    }
     if (g.pending == 0) return;
     if (!app.capture) {
         g.pending = 0;
@@ -548,31 +535,26 @@ void tick_faces3d_preview(App& app) {
     capture::Result r;
     if (app.capture->poll(r)) {
         if (r.id != g.pending) {
-            app.log("3D hair preview: an answer for id " + std::to_string(r.id) + " arrived while waiting for " + std::to_string(g.pending) + " (dropped)");
+            app.log("3D hair & beard: a picture for id " + std::to_string(r.id) + " arrived while waiting for " + std::to_string(g.pending) + " (dropped)");
             return;
         }
         const int64_t pid = g.pending;
         g.pending = 0;
         if (!r.ok) {
-            pv_say("The game did not render him: " + r.error, false);
+            pv_say("The game did not draw him: " + r.error, false);
             return;
         }
         g.shown = pid;
         g.image = std::move(r.image);
         ++g.version;
-        std::string codes;
-        if (const Table* t = app.db.table("players"))
-            if (const PlayerRow* p = app.model.player(pid)) codes = codes_text(read_codes(app, *t, p->rec));
-        g.caption = "Rendered by the game at " + clock_now() + " (" + r.format + "); his codes: " + codes;
-        pv_say("Rendered.", true);
+        g.caption = "Drawn by the game at " + clock_now();
+        pv_say("Done. The new hair and beard show here and in the game.", true);
         return;
     }
     if (ImGui::GetTime() - g.sent_at > kPreviewTimeout) {
         app.capture->cancel();
         g.pending = 0;
-        pv_say("No picture after " + std::to_string(int(kPreviewTimeout)) + " s: the game may be in a match or loading. His codes stay as "
-               "previewed until Revert.",
-               false);
+        pv_say("No picture after " + std::to_string(int(kPreviewTimeout)) + " s (the game may be in a match or loading). The new look is kept.", false);
     }
 }
 
@@ -584,127 +566,157 @@ const faces3d::Entry* faces3d_draft_entry(int64_t playerid) {
 void faces3d_gate_section(App& app, const Table& t, const PlayerRow& p) {
     if (!g.loaded) load(app);
     ImGui::PushID("faces3d_gate");
-    const fs::path out = app.turbo_output();
     std::error_code ec;
     if (fs::exists(rel(app.bridge.root(), lualoader::kLegacyKitRel), ec))
         ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
-                           "mods\\legacy\\data\\fifarna\\lua\\assets\\player_kit.lua exists: Live Editor serves that file and Turbo refuses "
-                           "the 3D hair / beard while it is there. Remove it to use this.");
-    if (!g.backup_error.empty()) ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "Preview backup unreadable: %s", g.backup_error.c_str());
-    leftover_banner(app, t);
+                           "mods\\legacy\\data\\fifarna\\lua\\assets\\player_kit.lua exists: Live Editor serves that file, so Turbo's 3D hair "
+                           "and beard stay off while it is there. Remove it to use this.");
+    if (!g.backup_error.empty()) ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "Hair backup unreadable: %s", g.backup_error.c_str());
+    leftover_banner(app, t, p.playerid);
 
     const int64_t hc = headclass_of(app, t, p.playerid);
-    auto it = g.draft.find(p.playerid);
-    bool enrolled = it != g.draft.end();
-    const bool can_enrol = hc == 0;
-    const bool locked = !can_enrol && !enrolled;  // a non-scanned player can be un-enrolled, never enrolled
-    if (locked) ImGui::BeginDisabled();
-    if (ImGui::Checkbox("Give him a generic 3D hair and/or beard", &enrolled)) {
-        if (enrolled) {
-            faces3d::Entry e;
-            e.name = p.name;
-            g.draft[p.playerid] = e;
-        } else {
-            g.draft.erase(p.playerid);
-        }
-        it = g.draft.find(p.playerid);
+    if (hc != 0) {
+        ImGui::TextDisabled("3D hair and beard are for real faces. %s", hc < 0 ? "" : "He has a generic head: use the hair and beard fields.");
+        saved_list_line(app, p);
+        ImGui::PopID();
+        return;
     }
-    if (locked) ImGui::EndDisabled();
-    if (!can_enrol) {
-        ImGui::SameLine();
-        if (hc < 0) ImGui::TextDisabled("(head class unknown)");
-        else ImGui::TextDisabled("(only scanned heads, head class 0: this one is %lld)", static_cast<long long>(hc));
-    }
-    if (it != g.draft.end()) {
-        faces3d::Entry& e = it->second;
-        ImGui::Indent();
-        gallery_picker(app, "Hair", "hairtypecode", e.hair, faces3d::ok_hair_ids(), g.hair_search, sizeof(g.hair_search), &g.hair_length,
-                       hair_label);
-        if (e.hair <= 0) ImGui::BeginDisabled();
-        ImGui::Checkbox("hair colours from the database##f3hc", &e.hair_colour);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Hair, eyebrow and facial-hair colours from his DB colour fields (otherwise the scan's colour mask)");
-        if (e.hair <= 0) ImGui::EndDisabled();
-        gallery_picker(app, "Beard", "facialhairtypecode", e.beard, faces3d::ok_beard_ids(), g.beard_search, sizeof(g.beard_search), nullptr,
-                       beard_label);
-        if (e.beard <= 0) ImGui::BeginDisabled();
-        ImGui::Checkbox("beard colour from the database##f3bc", &e.beard_colour);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("The generic beard takes his DB facial-hair colour (off: the scan's colour mask, which can render green)");
-        if (e.beard <= 0) ImGui::EndDisabled();
-        if (!e.follow && e.hair <= 0 && e.beard <= 0) ImGui::TextDisabled("Choose a hair or a beard (or untick to un-enrol him).");
-        ImGui::Checkbox("Follow his database codes (live preview)##f3follow", &e.follow);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Gate v3 'follow': the game draws his generic hair / beard from his hairtypecode / facialhairtypecode (verified "
-                              "ids, hair style 0), so Preview can show a choice without a restart. Needs Apply and one game restart. In other "
-                              "careers he shows whatever codes that career holds: Keep bakes a fixed look instead.");
-        if (e.follow) ImGui::TextDisabled("Following: the pickers above are what Preview writes and Keep bakes; players.json stores no ids for him.");
-        preview_panel(app, t, p, e);
-        ImGui::Unindent();
-    }
-
-    // the whole list + Apply / Remove
-    const bool pending = faces3d::players_json(g.draft) != g.applied;
-    ImGui::Spacing();
-    ImGui::Text("Enrolled: %zu player(s)%s", g.draft.size(), pending ? "  (changed, not applied)" : "");
-    if (!g.draft.empty() && ImGui::TreeNode("##f3list", "List")) {
-        int64_t drop = 0;
-        for (const auto& [pid, e] : g.draft) {
-            ImGui::PushID(static_cast<int>(pid & 0x7FFFFFFF));
-            if (ImGui::SmallButton("x")) drop = pid;
-            ImGui::SameLine();
-            if (e.follow)
-                ImGui::Text("%lld %s: follows his database codes (%s)", static_cast<long long>(pid), e.name.c_str(),
-                            e.follow_hair && e.follow_beard ? "hair and beard" : e.follow_hair ? "hair" : "beard");
-            else
-                ImGui::Text("%lld %s: hair %s, beard %s", static_cast<long long>(pid), e.name.c_str(),
-                            e.hair > 0 ? std::to_string(e.hair).c_str() : "own", e.beard > 0 ? std::to_string(e.beard).c_str() : "own");
-            ImGui::PopID();
-        }
-        if (drop) g.draft.erase(drop);
-        ImGui::TreePop();
-    }
-    const bool have_cache = fs::exists(rel(out, lualoader::kStockCacheRel), ec);
-    if (ImGui::Button("Apply##f3")) {
-        std::string build;
-        if (app.faces3d_report) build = app.faces3d_report().running_build;
-        if (build.empty()) build = app.asset_running_key();
-        const faces3d::ApplyResult r =
-            faces3d::apply(out.u8string(), g.draft, build, [&](int64_t pid) { return headclass_of(app, t, pid); });
-        g.message = r.message;
-        g.message_ok = r.ok;
-        if (r.ok) g.applied = faces3d::players_json(g.draft);
-        app.log("3D hair/beard: " + r.message);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Remove##f3")) {
+    const std::map<std::string, int64_t> cur = read_look(app, t, p.rec);
+    const Look now = look_of(cur);
+    pickers(app, false, p.playerid, now);
+    const bool changed = g_pick.hair != now.hair || g_pick.beard != now.beard;
+    if (!changed) ImGui::BeginDisabled();
+    if (ImGui::Button("Apply hair & beard")) {
+        faces3d::PreviewRecord& r = record_for(p.playerid, p.name, read_codes(app, t, p.rec));
+        const auto w = faces3d::look_writes(g_pick.hair, g_pick.beard, cur, r.original);
         std::string err;
-        g.message_ok = faces3d::remove(out.u8string(), &err);
-        g.message = g.message_ok ? "Removed lua_override\\player_kit.lua and faces3d_on.txt (your list is kept). Restart the game: every head is stock again."
-                                 : "Remove failed: " + err;
-        app.log("3D hair/beard: " + g.message);
-    }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Deletes the generated override and faces3d_on.txt; players.json (your list) stays");
-    if (!have_cache) {
-        ImGui::SameLine();
-        if (ImGui::Button("Enable capture##f3")) {
-            std::string err;
-            g.message_ok = lualoader::set_faces3d_opt_in(out.u8string(), true, &err);
-            g.message = g.message_ok ? "faces3d_on.txt written: restart the game once (Turbo saves the game's own player_kit.lua at start), then Apply."
-                                     : "Could not write faces3d_on.txt: " + err;
-            app.log("3D hair/beard: " + g.message);
+        if (w.empty()) {
+            pv_say("Nothing to write.", true);
+        } else {
+            std::map<std::string, int64_t> after = read_codes(app, t, p.rec);
+            for (const auto& [f, v] : w) after[f] = v;
+            r.written.clear();
+            for (const auto& [f, v] : after)
+                if (r.original.count(f) && r.original.at(f) != v) r.written[f] = v;
+            // his originals reach the disk before the database changes (a crash leaves the way back)
+            if (!faces3d::save_preview_backup(app.turbo_output().u8string(), g.backup, &err)) {
+                pv_say("Nothing written: his own codes could not be saved first (" + err + ")", false);
+            } else if (!raw_write(app, t, p.rec, p.playerid, false, w, err)) {
+                pv_say("Writing failed (" + err + "): press His own hair & beard", false);
+            } else {
+                faces3d_forget_render(app, false, p.playerid);  // the face chooser's picture of him is the old look
+                if (g_pick.hair == 0 && g_pick.beard == 0) {
+                    g.backup.erase(p.playerid);
+                    g.session_records.erase(p.playerid);
+                    faces3d::save_preview_backup(app.turbo_output().u8string(), g.backup, &err);
+                }
+                lualoader::Faces3dStatus st;
+                const bool live = app.faces3d_report && faces3d::live_looks(&(st = app.faces3d_report())).active;
+                std::string cerr;
+                if (live && request_capture(app, p, cerr)) pv_say("Applied. Asking the game for his picture...", true);
+                else if (live) pv_say("Applied. It shows in the game straight away (no picture here: " + cerr + ").", true);
+                else pv_say("Applied and kept in this career. It shows once 3D hair and beard are on (see below).", true);
+            }
         }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Turbo needs the game's own player_kit.lua (turbo_output\\faces3d\\stock_player_kit.cache), saved by the hook at a game start");
     }
-    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "Restart the game to apply: player_kit.lua is read only when the game starts.");
-    if (!g.message.empty())
-        ImGui::TextColored(g.message_ok ? ImVec4(0.5f, 0.9f, 0.5f, 1.0f) : ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "%s", g.message.c_str());
-    bool warn = false;
-    const std::string st = status_line(app, warn);
-    if (warn) ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f), "%s", st.c_str());
-    else ImGui::TextDisabled("%s", st.c_str());
-    if (!have_cache) ImGui::TextDisabled("Stock player_kit.lua not captured yet: Apply needs one game start with 'Enable capture'.");
+    if (!changed) ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Kept in this career's database (saved with the career). Other careers are not changed.");
+    ImGui::SameLine();
+    const bool has_look = now.hair > 0 || now.beard > 0;
+    if (!has_look) ImGui::BeginDisabled();
+    if (ImGui::Button("His own hair & beard")) {
+        std::string err;
+        bool ok = true;
+        // his record is used whole only when it belongs to this career (his codes are the ones it wrote); otherwise only its
+        // originals of the two look fields (or 0) replace the band codes
+        const auto it = g.backup.find(p.playerid);
+        bool mine = it != g.backup.end() && !it->second.written.empty();
+        if (mine) {
+            const std::map<std::string, int64_t> all = read_codes(app, t, p.rec);
+            for (const auto& [f, v] : it->second.written) mine = mine && all.count(f) && all.at(f) == v;
+        }
+        if (mine) {
+            ok = revert_codes(app, t, p.rec, p.playerid, err);
+        } else {
+            ok = raw_write(app, t, p.rec, p.playerid, false,
+                           faces3d::look_writes(0, 0, cur, it == g.backup.end() ? std::map<std::string, int64_t>{} : it->second.original), err);
+            if (ok && it != g.backup.end()) {
+                g.backup.erase(it);
+                g.session_records.erase(p.playerid);
+                ok = faces3d::save_preview_backup(app.turbo_output().u8string(), g.backup, &err);
+            }
+        }
+        if (ok) {
+            g_pick = Pick{false, p.playerid, 0, 0};
+            faces3d_forget_render(app, false, p.playerid);
+            lualoader::Faces3dStatus st;
+            const bool live = app.faces3d_report && faces3d::live_looks(&(st = app.faces3d_report())).active;
+            std::string cerr;
+            if (live && request_capture(app, p, cerr)) pv_say("His own hair and beard are back. Asking the game for his picture...", true);
+            else pv_say("His own hair and beard are back.", true);
+        } else {
+            pv_say("Not changed: " + err, false);
+        }
+    }
+    if (!has_look) ImGui::EndDisabled();
+    live_line(app);
+    draw_picture(app, p.playerid);
+    if (!g.pv_message.empty())
+        ImGui::TextColored(g.pv_message_ok ? ImVec4(0.5f, 0.9f, 0.5f, 1.0f) : ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "%s", g.pv_message.c_str());
+    saved_list_line(app, p);
+    ImGui::PopID();
+}
+
+void faces3d_manager_section(App& app, const Table& t, const ManagerRow& m) {
+    if (!g.loaded) load(app);
+    ImGui::PushID("faces3d_mgr");
+    const int64_t hc = t.has("headclasscode") ? app.db.get_int(t, m.rec, "headclasscode", -1) : -1;
+    if (hc != 0) {
+        ImGui::TextDisabled("3D hair and beard are for real faces. %s", hc < 0 ? "" : "He has a generic head: use the hair and beard fields.");
+        ImGui::PopID();
+        return;
+    }
+    const std::map<std::string, int64_t> cur = read_look(app, t, m.rec);
+    const Look now = look_of(cur);
+    pickers(app, true, m.managerid, now);
+    const bool changed = g_pick.hair != now.hair || g_pick.beard != now.beard;
+    if (!changed) ImGui::BeginDisabled();
+    if (ImGui::Button("Apply hair & beard")) {
+        // his own codes for "His own hair & beard", this Turbo session only (a code outside the bands is what the game ignores)
+        auto& orig = g_mgr_original[m.managerid];
+        for (const auto& [f, v] : cur)
+            if (!orig.count(f) && !faces3d::hair_from_code(v) && !faces3d::beard_from_code(v)) orig[f] = v;
+        std::string err;
+        const auto w = faces3d::look_writes(g_pick.hair, g_pick.beard, cur, orig);
+        if (raw_write(app, t, m.rec, m.managerid, true, w, err)) {
+            faces3d_forget_render(app, true, m.managerid);
+            pv_say("Applied for the manager. It shows the next time the game draws him (Turbo has no picture of managers).", true);
+        } else {
+            pv_say("Writing failed: " + err, false);
+        }
+    }
+    if (!changed) ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Kept in this career's database (saved with the career). Other careers are not changed.");
+    ImGui::SameLine();
+    const bool has_look = now.hair > 0 || now.beard > 0;
+    if (!has_look) ImGui::BeginDisabled();
+    if (ImGui::Button("His own hair & beard")) {
+        std::string err;
+        const auto it = g_mgr_original.find(m.managerid);
+        if (raw_write(app, t, m.rec, m.managerid, true, faces3d::look_writes(0, 0, cur, it == g_mgr_original.end() ? std::map<std::string, int64_t>{} : it->second), err)) {
+            g_pick = Pick{true, m.managerid, 0, 0};
+            faces3d_forget_render(app, true, m.managerid);
+            pv_say("His own hair and beard are back.", true);
+        } else {
+            pv_say("Not changed: " + err, false);
+        }
+    }
+    if (!has_look) ImGui::EndDisabled();
+    live_line(app);
+    if (!g.pv_message.empty())
+        ImGui::TextColored(g.pv_message_ok ? ImVec4(0.5f, 0.9f, 0.5f, 1.0f) : ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "%s", g.pv_message.c_str());
     ImGui::PopID();
 }
 

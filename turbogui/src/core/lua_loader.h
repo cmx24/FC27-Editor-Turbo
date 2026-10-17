@@ -151,6 +151,10 @@ extern const char* const kStockCacheRel;     // "faces3d\\stock_player_kit.cache
 // The legacy file whose presence refuses substitution, relative to the LE root
 extern const char* const kLegacyKitRel;      // "mods\\legacy\\data\\fifarna\\lua\\assets\\player_kit.lua"
 
+// Text only a gate v4 override holds (core/faces3d.h template v4): the hook reports it as Faces3dStatus::live_looks
+extern const char* const kLiveLooksMarker;  // "TURBO_GATE.band = function"
+bool has_live_looks(const char* data, size_t size);
+
 // Start decision from the switch files (all in turbo_output, the legacy file under the LE root)
 struct StartSwitches {
     bool lua_on = false, lua_substitute = false, faces_on = false, faces_off = false, hook_off = false, game_hooks_off = false,
@@ -183,6 +187,7 @@ struct Faces3dStatus {
     bool build_key_ok = false;   // ... naming the running build
     std::string header_stock;    // the stock md5 the override was made from
     std::string header_table;    // its table hash (md5(players.json)[:12]): which list this game start runs
+    bool live_looks = false;     // that override carries the 2.16 live band rule (kLiveLooksMarker): looks change without a restart
     long long captures = 0, served_stock = 0, substituted = 0, fallbacks = 0, capture_refused = 0, capture_mismatch = 0;
     uint64_t captured_size = 0;
     std::string captured_md5;    // "" until the first capture
@@ -299,6 +304,7 @@ private:
     std::unique_ptr<std::atomic<bool>[]> failed_;  // per row: its override failed to compile once (then: original directly)
     std::unique_ptr<std::atomic<bool>[]> published_;  // per row: save_capture was called
     std::vector<OverrideHeader> headers_;            // per row, parsed from the override at configure
+    std::vector<bool> live_;                         // per row: the override holds kLiveLooksMarker (set at configure)
     CaptureConfig capture_;
     std::atomic<bool> killed_{false};
     std::atomic<uint64_t> seq_{0};

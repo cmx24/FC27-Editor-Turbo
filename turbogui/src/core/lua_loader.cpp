@@ -274,6 +274,13 @@ const char* const kOtherReaderExpect =
     "80 7A 08 00 74 0A 49 C7 00 00 00 00 00 33 C0 C3 48 8B 02 C6 42 08 01 48 8B 48 20 49 89 08 48 8B 40 18 C3";
 const char* const kStockCacheRel = "faces3d\\stock_player_kit.cache";
 const char* const kLegacyKitRel = "mods\\legacy\\data\\fifarna\\lua\\assets\\player_kit.lua";
+const char* const kLiveLooksMarker = "TURBO_GATE.band = function";
+
+bool has_live_looks(const char* data, size_t size) {
+    if (!data || !size) return false;
+    const size_t m = std::strlen(kLiveLooksMarker);
+    return size >= m && std::search(data, data + size, kLiveLooksMarker, kLiveLooksMarker + m) != data + size;
+}
 
 namespace {
 bool is_md5_hex(const std::string& s) {
@@ -566,10 +573,15 @@ void Engine::configure(uint64_t gets, uint64_t blob_reader, bool substitute, std
         published_[i].store(false);
     }
     headers_.assign(rows_.size(), OverrideHeader());
+    live_.assign(rows_.size(), false);
     for (size_t i = 0; i < rows_.size(); ++i) {
         const Override& o = overrides_[i];
-        if (o.data && o.size && o.error.empty()) headers_[i] = parse_override_header(std::string(o.data, std::min<size_t>(o.size, 600)));
-        else headers_[i].error = o.error.empty() ? "override not loaded" : o.error;
+        if (o.data && o.size && o.error.empty()) {
+            headers_[i] = parse_override_header(std::string(o.data, std::min<size_t>(o.size, 600)));
+            live_[i] = has_live_looks(o.data, o.size);
+        } else {
+            headers_[i].error = o.error.empty() ? "override not loaded" : o.error;
+        }
     }
 }
 
@@ -606,6 +618,7 @@ void Engine::fill_status(Faces3dStatus& st) const {
         st.build_key_ok = headers_[0].ok && !build_.empty() && headers_[0].build == build_;
         st.header_stock = headers_[0].stock;
         st.header_table = headers_[0].table;
+        st.live_looks = headers_[0].ok && !live_.empty() && live_[0];
     }
     std::lock_guard<std::mutex> lk(st_m_);
     st.captured_md5 = captured_md5_;
