@@ -8730,6 +8730,13 @@ static void test_ui() {
             ui.frames(5);
             CHECK(located_fails >= 1 && not_located() == located_fails,
                   fmt("the failed locate is logged, once per reason over many frames (%zu, then %zu)", located_fails, not_located()));
+            // a reason that differs only in a number read from game memory (the interface's vtable, as while a career loads) is the
+            // same kind of reason: no new line
+            mem.wr(fw.ifce, uint64_t(kNewIfaceVt + 0x10));
+            ui.frames(3);
+            CHECK(not_located() == located_fails, fmt("another vtable value in the same reason: no new line (%zu)", not_located()));
+            mem.wr(fw.ifce, uint64_t(kNewIfaceVt));
+            ui.frames(2);
             // the host's anchors of 6AC07E31 while fce_iface_post is not resolved: still refused (fail closed)
             app.fce_anchors_hook = [kNewSize]() { return fce::anchors_for("6AC07E31-2145C000", FceWorld::kBase, kNewSize, 0, 0); };
             ui.frames(2);

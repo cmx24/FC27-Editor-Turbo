@@ -1,6 +1,7 @@
 // FC 27 LE Turbo GUI - Competitions tab, "Live standings" view: the rows of the game's competition engine
 // (FCE::DataManager StandingsDataList), which FC 27's own Standings screen shows. See core/fce_standings.h.
 #include <algorithm>
+#include <cctype>
 #include <cfloat>
 #include <cstdio>
 #include <map>
@@ -22,7 +23,7 @@ namespace {
 struct LiveState {
     fce::Located loc;
     std::string err;
-    std::string logged_err;  // the last failure written to turbo_gui.log (ensure_located retries every frame: logged once per reason)
+    std::string logged_err;  // the kind of the last failure written to turbo_gui.log (ensure_located retries every frame: once per kind)
     uint64_t located_ifce = 0;
     int located_gen = -1;
     std::vector<fce::StandingRow> rows;
@@ -257,6 +258,24 @@ bool reload(App& app) {
     return true;
 }
 
+// A failure reason with its numbers masked ("0x14B1838F8" and "42" become "#"): the vtables and addresses some reasons quote are
+// read from game memory and can differ from one frame to the next while a career loads, the kind of failure does not
+std::string reason_kind(const std::string& s) {
+    std::string k;
+    for (size_t i = 0; i < s.size(); ++i) {
+        const bool hex = s[i] == '0' && i + 1 < s.size() && (s[i + 1] == 'x' || s[i + 1] == 'X');
+        if (!hex && !std::isdigit(static_cast<unsigned char>(s[i]))) {
+            k += s[i];
+            continue;
+        }
+        if (hex) i += 2;
+        while (i < s.size() && (hex ? std::isxdigit(static_cast<unsigned char>(s[i])) : std::isdigit(static_cast<unsigned char>(s[i])))) ++i;
+        --i;
+        k += '#';
+    }
+    return k;
+}
+
 // Locate (again) when the career changed, the chain broke or nothing was located yet
 void ensure_located(App& app) {
     uint64_t ifce = app.bridge.state().ifce;
@@ -291,10 +310,11 @@ void ensure_located(App& app) {
         g_live.rows.clear();
         g_live.groups.clear();
     }
-    // 2.13: a failed locate (or read) goes to turbo_gui.log too, once per reason: the log then tells "the view was opened and the
-    // engine was not found" from "the view was never opened" (2026-10-16: neither line, so the in-game check could not tell)
-    if (!g_live.err.empty() && g_live.err != g_live.logged_err) {
-        g_live.logged_err = g_live.err;
+    // 2.13: a failed locate (or read) goes to turbo_gui.log too, once per kind of reason (reason_kind): the log then tells "the view
+    // was opened and the engine was not found" from "the view was never opened" (2026-10-16: neither line, so the in-game check could
+    // not tell)
+    if (!g_live.err.empty() && reason_kind(g_live.err) != g_live.logged_err) {
+        g_live.logged_err = reason_kind(g_live.err);
         const std::string line = "live standings not located: " + g_live.err;
         app.log(line);
         if (app.log_hook) app.log_hook(line);
