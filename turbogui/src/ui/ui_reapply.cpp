@@ -821,7 +821,7 @@ void changes_undo_summary(App& app) {
 }
 
 void kept_player_edits_section(App& app) {
-    if (!ImGui::CollapsingHeader("Kept player edits (every career load)")) return;
+    if (!ImGui::CollapsingHeader("Kept player edits (every career load)###keptedits")) return;
     ImGui::PushID("keptplayers");
     bool on = app.reapply.keep_players;
     if (ImGui::Checkbox("Keep my player edits for every career load", &on)) app.set_keep_players(on);

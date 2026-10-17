@@ -50,7 +50,7 @@ static void ui_cases(App& app, Ui& ui) {
         CHECK(ui.open_page("Club & Kits", "Kits") && ui.find("Apply kit") != nullptr, "Club & Kits > Kits");
         CHECK(ui.open_page("Tactics & Gameplay", "Tactic presets") && ui.find("Apply preset##tpload") != nullptr, "Tactics & Gameplay > Tactic presets");
         CHECK(ui.open_page("Tactics & Gameplay", "Gameplay presets") && ui.find("Apply preset##gpload") != nullptr, "Tactics & Gameplay > Gameplay presets");
-        CHECK(ui.open_page("Career tools", "Changes & undo") && ui.find("Kept player edits (every career load)") != nullptr, "Career tools > Changes & undo");
+        CHECK(ui.open_page("Career tools", "Changes & undo") && ui.find("###keptedits") != nullptr, "Career tools > Changes & undo");
         CHECK(ui.open_page("Career tools", "CMTracker") && ui.find("Season pack...##page") != nullptr, "Career tools > CMTracker: the season pack");
         CHECK(ui.click("Settings", "FC 27 LE Turbo", "##shell") && ui.find("Preferences") != nullptr, "Settings (one page, no strip)");
     });

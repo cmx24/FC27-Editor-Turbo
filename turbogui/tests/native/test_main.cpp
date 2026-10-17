@@ -3024,8 +3024,11 @@ public:
         for (const auto& kv : g_items) {
             const ItemRec& r = kv.second;
             if (r.frame != g_frame) continue;
+            // 2.16 GUI revamp step 0: a label written "Text###stable_id" is also found by "###stable_id" alone (the id outlives its wording)
+            const bool stable_id = label.size() > 3 && label.compare(0, 3, "###") == 0 && r.label.size() >= label.size() &&
+                                   r.label.compare(r.label.size() - label.size(), label.size(), label) == 0;
             // widgets that report no label (combos): match the ID the label hashes to
-            if (r.label != label && !(r.label.empty() && ImHashStr(label.c_str(), 0, r.seed) == r.id)) continue;
+            if (r.label != label && !stable_id && !(r.label.empty() && ImHashStr(label.c_str(), 0, r.seed) == r.id)) continue;
             if (!win.empty() && r.window.find(win) == std::string::npos) continue;
             if (!scope.empty() && ImHashStr(scope.c_str(), 0, r.seed2) != r.seed) continue;
             if (r.rect.GetWidth() <= 0 || r.rect.GetHeight() <= 0) continue;
@@ -3139,6 +3142,7 @@ static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_preload_hotkey.h"  // 1.1.1: show/hide key setting, background loading
 #include "test_ux_resize.h"  // 2026-10-11: table registry + resizable panes, preload order / cancellation, gui prefs
 #include "test_shell.h"  // 2026-10-16: GUI revamp contract (ui_shell.h areas/pages/registry, ui_theme.h palette)
+#include "test_gui_labels.h"  // 2.16 GUI revamp step 0: the id manifest of src/ui (R10) and the developer-word gate (R9), read from the source text
 #include "test_gear_pictures.h"  // 1.1.4: gear preview pictures from the hash list
 #include "test_hair_catalog.h"  // hair catalog: gallery filters and the face chooser Hair facet
 #include "test_bodytypes.h"  // body type catalogue (runtime-loaded probe + localize.json) and its gallery
@@ -8673,7 +8677,7 @@ static void test_ui() {
             // ---- the panels: Turbo Tools > Kept player edits (switch, Forget per field), Attributes > Forget
             app.request_tab = 5;
             ui.frames(2);
-            if (!ui.find("Keep my player edits for every career load")) CHECK(ui.click("Kept player edits (every career load)"), "open the list");
+            if (!ui.find("Keep my player edits for every career load")) CHECK(ui.click("###keptedits"), "open the list");
             ui.frames(2);
             CHECK(ui.find("Keep my player edits for every career load") != nullptr, "the switch is shown");
             const size_t fields_before = app.reapply.player_fields();
@@ -15369,6 +15373,7 @@ int main(int argc, char** argv) {
     test_hotkey_and_background();
     test_ux_resize();  // test_ux_resize.h
     test_shell();  // test_shell.h: shell contract (pure cases)
+    gui_labels_test::run();  // test_gui_labels.h: widget id manifest + developer-word gate (src/ui text, no frame)
     test_gear_pictures();
     test_hair_catalog();
     test_bodytype_catalog();

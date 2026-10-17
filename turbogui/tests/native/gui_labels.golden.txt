@@ -1,0 +1,1142 @@
+# GUI id manifest (tests/native/test_gui_labels.h). One line per id-bearing label of src/ui: file, ImGui call ("-" = a label
+# inside a longer expression), id key, count. The id key is the whole label as written, or "###x" when the label has "###".
+# The test fails when a line of this file is gone from the sources (the id changed or the widget was deleted). Renaming a
+# label: write it "Text###stable_id" first, then change the text. After an intended id change, regenerate with
+# TURBO_GUI_LABELS_UPDATE=1 and commit the diff of this file with the change that caused it.
+app.cpp	Begin	##texture_test	1
+app.cpp	Begin	##turbo_toasts	1
+app.cpp	Begin	FC 27 LE Turbo	1
+app.cpp	Button	Refresh	1
+app.cpp	Checkbox	Advanced view	1
+app.cpp	PushID	##pages	1
+app.cpp	PushID	##shell	1
+app.cpp	SmallButton	Cancel	1
+app.cpp	SmallButton	Stop##faces3d	1
+file_picker.cpp	-	##fpplace	1
+file_picker.cpp	BeginChild	##fpfiles	1
+file_picker.cpp	Button	Back##fp	1
+file_picker.cpp	Button	Cancel##fp	1
+file_picker.cpp	Button	Create##fpnewdir	1
+file_picker.cpp	Button	New folder##fp	1
+file_picker.cpp	Button	Replace##fp	1
+file_picker.cpp	Button	Save##fp	1
+file_picker.cpp	Button	Up##fp	1
+file_picker.cpp	Button	Use this folder##fp	1
+file_picker.cpp	InputText	##fppath	1
+file_picker.cpp	InputText	File name##fpname	1
+file_picker.cpp	InputTextWithHint	##fpnewdir	1
+file_picker.cpp	SmallButton	Open in Explorer##fp	1
+hotkey_setting.h	-	Show/hide key##hkcap	1
+hotkey_setting.h	BeginCombo	##hkpick	1
+hotkey_setting.h	Button	Cancel##hotkey	1
+hotkey_setting.h	Button	Reset to F8	1
+hotkey_setting.h	SmallButton	Change...##hotkey	1
+table_registry.h	-	##all	1
+table_registry.h	-	##bits	1
+table_registry.h	-	##btgen	1
+table_registry.h	-	##btspec	1
+table_registry.h	-	##chg	1
+table_registry.h	-	##clubrows	1
+table_registry.h	-	##clubs	1
+table_registry.h	-	##cnalltable	1
+table_registry.h	-	##cntable	1
+table_registry.h	-	##comptable	1
+table_registry.h	-	##cptable	1
+table_registry.h	-	##crestfiles	1
+table_registry.h	-	##dbt	1
+table_registry.h	-	##fsearch	1
+table_registry.h	-	##galleries	1
+table_registry.h	-	##gsvals	1
+table_registry.h	-	##gvars	1
+table_registry.h	-	##keptlist	1
+table_registry.h	-	##keptplayer	1
+table_registry.h	-	##kitset	1
+table_registry.h	-	##league	1
+table_registry.h	-	##live	1
+table_registry.h	-	##live_ha	1
+table_registry.h	-	##mgrs	1
+table_registry.h	-	##nmidtable	1
+table_registry.h	-	##packrows	1
+table_registry.h	-	##pfilters	1
+table_registry.h	-	##pidtable	1
+table_registry.h	-	##players	1
+table_registry.h	-	##rolepreview	1
+table_registry.h	-	##scopelist	1
+table_registry.h	-	##scouts	1
+table_registry.h	-	##sl	1
+table_registry.h	-	##squad	1
+table_registry.h	-	##tattoos	1
+table_registry.h	-	##teams	1
+table_registry.h	-	##teamsxf	1
+table_registry.h	-	##vstable	1
+table_registry.h	-	##xfrows	1
+ui_asset_browser.cpp	-	##scope	1
+ui_asset_browser.cpp	ArrowButton	##next	1
+ui_asset_browser.cpp	ArrowButton	##prev	1
+ui_asset_browser.cpp	BeginChild	##grid	1
+ui_asset_browser.cpp	InputTextWithHint	##search	1
+ui_asset_browser.cpp	InvisibleButton	##tile	1
+ui_bodytypes.cpp	-	##act	1
+ui_bodytypes.cpp	-	##btgen	1
+ui_bodytypes.cpp	-	##bthmax	1
+ui_bodytypes.cpp	-	##bthmin	1
+ui_bodytypes.cpp	-	##btspec	1
+ui_bodytypes.cpp	-	##btwmax	1
+ui_bodytypes.cpp	-	##btwmin	1
+ui_bodytypes.cpp	-	Copy##btcp	1
+ui_bodytypes.cpp	-	Use##bt	1
+ui_bodytypes.cpp	BeginChild	##btcopylist	1
+ui_bodytypes.cpp	BeginChild	##btlist	1
+ui_bodytypes.cpp	BeginPopupModal	Body types##bt	1
+ui_bodytypes.cpp	BeginPopupModal	Copy body type from player##btcopy	1
+ui_bodytypes.cpp	Button	Body types...##btopen	1
+ui_bodytypes.cpp	Button	Close##btclose	1
+ui_bodytypes.cpp	Button	Close##btcopyclose	1
+ui_bodytypes.cpp	Button	Copy body type from player...##btcopybtn	1
+ui_bodytypes.cpp	Button	Reload##btreload	1
+ui_bodytypes.cpp	Combo	##btgroup	1
+ui_bodytypes.cpp	InputTextWithHint	##btcopyflt	1
+ui_bodytypes.cpp	InputTextWithHint	##btflt	1
+ui_bodytypes.cpp	OpenPopup	Body types##bt	1
+ui_bodytypes.cpp	OpenPopup	Copy body type from player##btcopy	1
+ui_bodytypes.cpp	PushID	##bodytypes	1
+ui_bodytypes.cpp	checkbox_right	Allow a player-specific body on this head (untested)##btallow	1
+ui_bodytypes.cpp	checkbox_right	Used by players only##btused	1
+ui_callname_play.cpp	-	##play_%c%lld	1
+ui_callnames.cpp	-	##cnallscope	1
+ui_callnames.cpp	-	##row%lld	1
+ui_callnames.cpp	-	##vsconfirm	1
+ui_callnames.cpp	-	##vsp	1
+ui_callnames.cpp	-	%lld##%s	1
+ui_callnames.cpp	-	)##cnclub	1
+ui_callnames.cpp	-	Assign as common name##all	1
+ui_callnames.cpp	-	Assign as last name##all	1
+ui_callnames.cpp	-	Name lines only##vs	1
+ui_callnames.cpp	-	Remove##vs	1
+ui_callnames.cpp	BeginChild	##cnall	1
+ui_callnames.cpp	BeginChild	##cnames	1
+ui_callnames.cpp	BeginChild	##cnclublist	1
+ui_callnames.cpp	BeginChild	##cplayers	1
+ui_callnames.cpp	BeginChild	##vslist	1
+ui_callnames.cpp	BeginCombo	##cnlang	1
+ui_callnames.cpp	BeginCombo	##cnteam	1
+ui_callnames.cpp	BeginPopupModal	##cnown	1
+ui_callnames.cpp	BeginPopupModal	##rmcallname	1
+ui_callnames.cpp	BeginPopupModal	##vsconfirm	1
+ui_callnames.cpp	BeginPopupModal	##vsforgetall	1
+ui_callnames.cpp	BeginTabBar	##cnpick	1
+ui_callnames.cpp	BeginTabItem	All callnames	1
+ui_callnames.cpp	BeginTabItem	By name	1
+ui_callnames.cpp	BeginTabItem	By player	1
+ui_callnames.cpp	BeginTabItem	Players without own recording	1
+ui_callnames.cpp	BeginTabItem	Voice swaps	1
+ui_callnames.cpp	BeginTable	##cnalltable	1
+ui_callnames.cpp	BeginTable	##cntable	1
+ui_callnames.cpp	BeginTable	##cptable	1
+ui_callnames.cpp	BeginTable	##vstable	1
+ui_callnames.cpp	Button	Assign anyway##cnown	1
+ui_callnames.cpp	Button	Assign as common name	1
+ui_callnames.cpp	Button	Assign as last name	1
+ui_callnames.cpp	Button	Assign callname	1
+ui_callnames.cpp	Button	Assign callname##all	1
+ui_callnames.cpp	Button	Cancel##cnown	1
+ui_callnames.cpp	Button	Cancel##rmcallname	1
+ui_callnames.cpp	Button	Cancel##vsconfirm	1
+ui_callnames.cpp	Button	Cancel##vsforgetall	1
+ui_callnames.cpp	Button	Capture from the loaded bank##cn	1
+ui_callnames.cpp	Button	Forget all##vs	1
+ui_callnames.cpp	Button	Forget all##vsforgetall	1
+ui_callnames.cpp	Button	Rebuild from the game's audio service##cn	1
+ui_callnames.cpp	Button	Refresh##cn	1
+ui_callnames.cpp	Button	Remove	1
+ui_callnames.cpp	Button	Remove player-specific callname...	1
+ui_callnames.cpp	Button	Use his voice##all	1
+ui_callnames.cpp	Button	Use in matches##all	1
+ui_callnames.cpp	Button	Use this player's callname	1
+ui_callnames.cpp	Checkbox	Keep the shown name (editedplayernames)	1
+ui_callnames.cpp	Checkbox	Keep the shown name (editedplayernames)##all	1
+ui_callnames.cpp	Checkbox	Use his own recording##vs	1
+ui_callnames.cpp	InputTextWithHint	##cnallsearch	1
+ui_callnames.cpp	InputTextWithHint	##cnsearch	1
+ui_callnames.cpp	InputTextWithHint	##cpsearch	1
+ui_callnames.cpp	OpenPopup	##cnown	1
+ui_callnames.cpp	OpenPopup	##rmcallname	1
+ui_callnames.cpp	OpenPopup	##vsconfirm	1
+ui_callnames.cpp	OpenPopup	##vsforgetall	1
+ui_callnames.cpp	Selectable	Automatic (live capture, else dr)	1
+ui_callnames.cpp	Selectable	Every team	1
+ui_callnames.cpp	Selectable	detect automatically	1
+ui_club_page.cpp	-	##clubpick	1
+ui_club_page.cpp	-	##idcols	1
+ui_club_page.cpp	-	##tcrest	1
+ui_club_page.cpp	-	##tname	1
+ui_club_page.cpp	BeginChild	##stadium	1
+ui_club_page.cpp	BeginChild	##tcolours	1
+ui_club_page.cpp	Button	My club##clubmine	1
+ui_club_search.cpp	-	##clubdrop	2
+ui_club_search.cpp	-	%s##club%lld	1
+ui_club_search.cpp	BeginPopup	##clubdrop	1
+ui_club_search.cpp	BeginTable	##clubrows	1
+ui_club_search.cpp	OpenPopup	##clubdrop	1
+ui_club_tools.cpp	BeginPopupModal	Licensed stadium##clubcust	1
+ui_club_tools.cpp	Button	Back up my career saves now	1
+ui_club_tools.cpp	Button	Cancel	1
+ui_club_tools.cpp	Button	Licensed stadium too...	1
+ui_club_tools.cpp	Button	Reopen club customisation	1
+ui_club_tools.cpp	Button	Reopen, licensed stadium too	1
+ui_club_tools.cpp	CollapsingHeader	Your club: customisation hub (crest, stadium, the game's kit designer)	1
+ui_club_tools.cpp	OpenPopup	Licensed stadium##clubcust	1
+ui_club_tools.cpp	SmallButton	Open Kits##clubtoolskits	1
+ui_club_tools.cpp	checkbox_right	My save is backed up	1
+ui_cmtracker.cpp	-	##packbrowse	1
+ui_cmtracker.cpp	-	##pcmtbrowse	1
+ui_cmtracker.cpp	-	%-3d %-3d %-4s  %s  -  %s  (%lld)##c%lld	1
+ui_cmtracker.cpp	-	Undo this pack##packundo	1
+ui_cmtracker.cpp	BeginChild	##cmtbody	1
+ui_cmtracker.cpp	BeginChild	##cmtlist	1
+ui_cmtracker.cpp	BeginChild	##packbody	1
+ui_cmtracker.cpp	BeginPopupModal	##pcmt	1
+ui_cmtracker.cpp	BeginPopupModal	##pseasonpack	1
+ui_cmtracker.cpp	BeginPopupModal	Apply season pack page?	1
+ui_cmtracker.cpp	BeginPopupModal	Undo season pack?	1
+ui_cmtracker.cpp	BeginTable	##packrows	1
+ui_cmtracker.cpp	Button	Add CSV files...	1
+ui_cmtracker.cpp	Button	Apply next page##packapply	1
+ui_cmtracker.cpp	Button	Apply##packconfirm	1
+ui_cmtracker.cpp	Button	Cancel##packcancel	1
+ui_cmtracker.cpp	Button	Cancel##packundocancel	1
+ui_cmtracker.cpp	Button	Check again##packrecheck	1
+ui_cmtracker.cpp	Button	Choose pack folder...##packchoose	1
+ui_cmtracker.cpp	Button	Close##packclose	1
+ui_cmtracker.cpp	Button	Close##pcmt	1
+ui_cmtracker.cpp	Button	Create player	1
+ui_cmtracker.cpp	Button	Reload	1
+ui_cmtracker.cpp	Button	Season pack...	1
+ui_cmtracker.cpp	Button	Season pack...##page	1
+ui_cmtracker.cpp	Button	Undo##packundoconfirm	1
+ui_cmtracker.cpp	InputInt	##jersey	1
+ui_cmtracker.cpp	InputTextWithHint	##cmtq	1
+ui_cmtracker.cpp	OpenPopup	##packbrowse	1
+ui_cmtracker.cpp	OpenPopup	##pcmtbrowse	1
+ui_cmtracker.cpp	OpenPopup	##pseasonpack	2
+ui_cmtracker.cpp	OpenPopup	Apply season pack page?	1
+ui_cmtracker.cpp	OpenPopup	Undo season pack?	1
+ui_cmtracker.cpp	checkbox_right	Download the miniface from CMTracker	1
+ui_cmtracker.cpp	checkbox_right	Use the real face when the game has this player's head	1
+ui_competitions.cpp	-	##cc%lld	1
+ui_competitions.cpp	-	##compcontinent	1
+ui_competitions.cpp	-	##compcountry	1
+ui_competitions.cpp	-	##cp%lld	1
+ui_competitions.cpp	-	##ltgrid	1
+ui_competitions.cpp	-	%d##lt%lld	1
+ui_competitions.cpp	-	%s##op%d	1
+ui_competitions.cpp	BeginChild	##complist	1
+ui_competitions.cpp	BeginChild	##ltable	1
+ui_competitions.cpp	BeginChild	##lteam	1
+ui_competitions.cpp	BeginTabBar	##compviews	1
+ui_competitions.cpp	BeginTabItem	Career database copy	1
+ui_competitions.cpp	BeginTabItem	Gameplay tuning	1
+ui_competitions.cpp	BeginTabItem	Live standings (game)	1
+ui_competitions.cpp	BeginTabItem	Match setup	1
+ui_competitions.cpp	BeginTable	##comptable	1
+ui_competitions.cpp	BeginTable	##league	1
+ui_competitions.cpp	Button	Recalculate points	1
+ui_competitions.cpp	Button	Write table positions	1
+ui_competitions.cpp	InputTextWithHint	##compsearch	1
+ui_competitions.cpp	SmallButton	Open the live table (Tactics & Gameplay > Standings)##dbcopylive	1
+ui_competitions.cpp	checkbox_right	Leagues only	1
+ui_database.cpp	-	##rawclub	1
+ui_database.cpp	-	##rawpall	1
+ui_database.cpp	-	##rawplayer	1
+ui_database.cpp	-	##rawtall	1
+ui_database.cpp	BeginCombo	##dbtable	1
+ui_database.cpp	BeginPopup	##dbedit	1
+ui_database.cpp	BeginTable	##dbt	1
+ui_database.cpp	Button	Apply / Reload	1
+ui_database.cpp	InputTextWithHint	##ff	1
+ui_database.cpp	InputTextWithHint	##fv	1
+ui_database.cpp	OpenPopup	##dbedit	1
+ui_database.cpp	RadioButton	Club##rawkind	1
+ui_database.cpp	RadioButton	Player##rawkind	1
+ui_edit_unlock.cpp	Button	Re-read the game's files	1
+ui_edit_unlock.cpp	Button	Restore the game's originals	1
+ui_edit_unlock.cpp	Button	Write the unlocked files now	1
+ui_edit_unlock.cpp	Checkbox	##file	1
+ui_edit_unlock.cpp	CollapsingHeader	Game editors (unlock FC 27's own edit screens)	1
+ui_edit_unlock.cpp	PushID	gameeditors	1
+ui_edit_unlock.cpp	TreeNode	Details	1
+ui_edit_unlock.cpp	checkbox_right	Also patch the editors in memory (fallback when Live Editor ignores the files)	1
+ui_edit_unlock.cpp	checkbox_right	Career Edit Player	1
+ui_edit_unlock.cpp	checkbox_right	Career settings too (advanced)	1
+ui_edit_unlock.cpp	checkbox_right	Create-a-Club players	1
+ui_edit_unlock.cpp	checkbox_right	Main menu editors	1
+ui_edit_unlock.cpp	checkbox_right	Unlock everything (experimental)	1
+ui_edit_unlock.cpp	checkbox_right	Unlock the game's editors	1
+ui_edit_unlock.cpp	checkbox_right	Your manager	1
+ui_faces.cpp	-	##facescope	1
+ui_faces.cpp	-	##facet	1
+ui_faces.cpp	-	##facetpop	1
+ui_faces.cpp	-	##mappgrid	1
+ui_faces.cpp	-	%s (%d)##v%lld	1
+ui_faces.cpp	-	Any (%d)##vany	1
+ui_faces.cpp	-	Render all filtered heads (%zu)##r3dall	1
+ui_faces.cpp	BeginChild	##facegrid	1
+ui_faces.cpp	BeginChild	##fvals	1
+ui_faces.cpp	BeginChild	##mapp	1
+ui_faces.cpp	BeginCombo	Sort##facesort	1
+ui_faces.cpp	BeginPopupModal	Choose a real face	1
+ui_faces.cpp	Button	Apply##gamehead	1
+ui_faces.cpp	Button	Cancel##gamehead	1
+ui_faces.cpp	Button	Choose a real face...	1
+ui_faces.cpp	Button	Clear filters	1
+ui_faces.cpp	Button	Close##faces	1
+ui_faces.cpp	Button	Close##mfaces	1
+ui_faces.cpp	Button	Stop##r3d	1
+ui_faces.cpp	Checkbox	Beard	1
+ui_faces.cpp	Checkbox	Eyes	1
+ui_faces.cpp	Checkbox	Hair	1
+ui_faces.cpp	Checkbox	High-quality heads only	1
+ui_faces.cpp	Checkbox	Only heads with a 3D look	1
+ui_faces.cpp	Checkbox	Real faces only	1
+ui_faces.cpp	Checkbox	Skin	1
+ui_faces.cpp	InputTextWithHint	##facesearch	1
+ui_faces.cpp	RadioButton	Manager heads	1
+ui_faces.cpp	RadioButton	Player heads	1
+ui_faces.h	-	Choose a real face##mgr	1
+ui_faces3d_gate.cpp	BeginChild	##f3grid	1
+ui_faces3d_gate.cpp	BeginCombo	##f3len	1
+ui_faces3d_gate.cpp	BeginPopupModal	##f3pick	1
+ui_faces3d_gate.cpp	Button	Apply##f3	1
+ui_faces3d_gate.cpp	Button	Choose...##pick	1
+ui_faces3d_gate.cpp	Button	Close##f3pickclose	1
+ui_faces3d_gate.cpp	Button	Enable capture##f3	1
+ui_faces3d_gate.cpp	Button	Keep##f3pv	1
+ui_faces3d_gate.cpp	Button	None##pickclear	1
+ui_faces3d_gate.cpp	Button	Preview##f3pv	1
+ui_faces3d_gate.cpp	Button	Remove##f3	1
+ui_faces3d_gate.cpp	Button	Revert##f3pv	1
+ui_faces3d_gate.cpp	Checkbox	Follow his database codes (live preview)##f3follow	1
+ui_faces3d_gate.cpp	Checkbox	Give him a generic 3D hair and/or beard	1
+ui_faces3d_gate.cpp	Checkbox	beard colour from the database##f3bc	1
+ui_faces3d_gate.cpp	Checkbox	hair colours from the database##f3hc	1
+ui_faces3d_gate.cpp	Checkbox	keep following his codes##f3pv	1
+ui_faces3d_gate.cpp	InputTextWithHint	##f3search	1
+ui_faces3d_gate.cpp	OpenPopup	##f3pick	1
+ui_faces3d_gate.cpp	PushID	faces3d_gate	1
+ui_faces3d_gate.cpp	Selectable	Any length	1
+ui_faces3d_gate.cpp	SmallButton	Cancel##f3pv	1
+ui_faces3d_gate.cpp	SmallButton	Revert it	1
+ui_faces3d_gate.cpp	SmallButton	x	1
+ui_faces3d_gate.cpp	TreeNode	##f3list	1
+ui_game_settings.cpp	-	##gsexppick	1
+ui_game_settings.cpp	-	##gsimppick	1
+ui_game_settings.cpp	-	##gsp	1
+ui_game_settings.cpp	-	)##gs_	1
+ui_game_settings.cpp	BeginCombo	##gspreset	1
+ui_game_settings.cpp	BeginPopupModal	Delete preset?##gsdeletepop	1
+ui_game_settings.cpp	BeginPopupModal	Rename preset##gsrenamepop	1
+ui_game_settings.cpp	BeginTable	##gsvals	1
+ui_game_settings.cpp	Button	###gsload	1
+ui_game_settings.cpp	Button	Cancel##gsrenameno	1
+ui_game_settings.cpp	Button	Delete##gsdeleteok	1
+ui_game_settings.cpp	Button	Keep it##gsdeleteno	1
+ui_game_settings.cpp	Button	Rename##gsrenameok	1
+ui_game_settings.cpp	Button	Save current##gssave	1
+ui_game_settings.cpp	CollapsingHeader	Candidate slots (unidentified, read-only)##gs_slots	1
+ui_game_settings.cpp	InputText	##gsname	1
+ui_game_settings.cpp	InputText	##gsrenamebox	1
+ui_game_settings.cpp	OpenPopup	##gsexppick	1
+ui_game_settings.cpp	OpenPopup	##gsimppick	1
+ui_game_settings.cpp	OpenPopup	Delete preset?##gsdeletepop	1
+ui_game_settings.cpp	OpenPopup	Rename preset##gsrenamepop	1
+ui_game_settings.cpp	SmallButton	Delete...##gsdel	1
+ui_game_settings.cpp	SmallButton	Discard staged##gsdiscard	1
+ui_game_settings.cpp	SmallButton	Duplicate##gsdup	1
+ui_game_settings.cpp	SmallButton	Export...##gsexp	1
+ui_game_settings.cpp	SmallButton	Import...##gsimp	1
+ui_game_settings.cpp	SmallButton	Refresh##gsrefresh	1
+ui_game_settings.cpp	SmallButton	Rename...##gsren	1
+ui_identity.cpp	-	##c	1
+ui_identity.cpp	-	##crestassets	1
+ui_identity.cpp	-	##crestbrowser	1
+ui_identity.cpp	-	##kitgrid	1
+ui_identity.cpp	-	##ow	1
+ui_identity.cpp	-	##stadcol	1
+ui_identity.cpp	BeginChild	##crestfiles2	1
+ui_identity.cpp	BeginChild	##crestgrid	1
+ui_identity.cpp	BeginCombo	##kf	1
+ui_identity.cpp	BeginPopupModal	##rmcrest	1
+ui_identity.cpp	BeginTabBar	##crestsrc	1
+ui_identity.cpp	BeginTabItem	An image file	1
+ui_identity.cpp	BeginTabItem	Another club's crest	1
+ui_identity.cpp	BeginTable	##crestfiles	1
+ui_identity.cpp	Button	Cancel##rmcrest	1
+ui_identity.cpp	Button	Import crest image...	1
+ui_identity.cpp	Button	Remove	1
+ui_identity.cpp	Button	Remove custom crest	1
+ui_identity.cpp	Button	Save	1
+ui_identity.cpp	Button	Save crest	1
+ui_identity.cpp	Checkbox	Remove plain background	1
+ui_identity.cpp	Checkbox	Use as a picture to reframe instead of copying the files	1
+ui_identity.cpp	Checkbox	Use as a picture to reframe instead of copying the files##game	1
+ui_identity.cpp	ColorEdit3	##c	1
+ui_identity.cpp	InputTextWithHint	##crestsearch	1
+ui_identity.cpp	InputTextWithHint	##kff	1
+ui_identity.cpp	InputTextWithHint	##ncode	1
+ui_identity.cpp	InputTextWithHint	##nfull	1
+ui_identity.cpp	InputTextWithHint	##nlong	1
+ui_identity.cpp	InputTextWithHint	##nshort	1
+ui_identity.cpp	InvisibleButton	##crestdrag	1
+ui_identity.cpp	OpenPopup	##crestbrowser	1
+ui_identity.cpp	OpenPopup	##rmcrest	1
+ui_identity.cpp	SliderFloat	Left-right	1
+ui_identity.cpp	SliderFloat	Size	1
+ui_identity.cpp	SliderFloat	Up-down	1
+ui_identity.cpp	SliderInt	##ow	1
+ui_identity.cpp	SliderInt	Tolerance	1
+ui_identity.cpp	SmallButton	Global##nscope	1
+ui_identity.cpp	SmallButton	Reset framing	1
+ui_identity.cpp	SmallButton	This career##nscope	1
+ui_identity.cpp	TreeNodeEx	The game's crest files for this club	1
+ui_images.cpp	-	##asrc%d%d	1
+ui_images.cpp	-	##browser	1
+ui_images.cpp	-	##gscope	1
+ui_images.cpp	-	##hairacc	1
+ui_images.cpp	-	##hairlen	1
+ui_images.cpp	-	##hairtype	1
+ui_images.cpp	-	##mfplayer	1
+ui_images.cpp	-	##mfplayer2	1
+ui_images.cpp	-	##tscope	1
+ui_images.cpp	-	##tval	1
+ui_images.cpp	-	%s (%lld) %s##c%lld	1
+ui_images.cpp	BeginChild	##chooser	1
+ui_images.cpp	BeginChild	##ggrid	1
+ui_images.cpp	BeginChild	##mffiles	1
+ui_images.cpp	BeginChild	##tgrid	1
+ui_images.cpp	BeginCombo	Camera	1
+ui_images.cpp	BeginPopupModal	##gallerypick	1
+ui_images.cpp	BeginPopupModal	##rmminiface	1
+ui_images.cpp	BeginPopupModal	##tattoopick	1
+ui_images.cpp	BeginTabBar	##mfsrc	1
+ui_images.cpp	BeginTabItem	A player's miniface	2
+ui_images.cpp	BeginTabItem	An image file	1
+ui_images.cpp	BeginTabItem	Head model / youth face	1
+ui_images.cpp	BeginTabItem	The 3D model	1
+ui_images.cpp	BeginTabItem	The current one	1
+ui_images.cpp	BeginTable	##galleries	1
+ui_images.cpp	BeginTable	##tattoos	1
+ui_images.cpp	Button	Browse...	1
+ui_images.cpp	Button	Cancel##rmmf	1
+ui_images.cpp	Button	Choose...	1
+ui_images.cpp	Button	Choose...##gal	1
+ui_images.cpp	Button	Close##gallery	1
+ui_images.cpp	Button	Close##tattoos	1
+ui_images.cpp	Button	Empty the cache	1
+ui_images.cpp	Button	From his head model's miniface	1
+ui_images.cpp	Button	From his youth face	1
+ui_images.cpp	Button	Generate from 3D model	2
+ui_images.cpp	Button	Remove	1
+ui_images.cpp	Button	Remove custom miniface	1
+ui_images.cpp	Button	Save as miniface	1
+ui_images.cpp	Button	Start from the current miniface	1
+ui_images.cpp	Checkbox	Advanced	1
+ui_images.cpp	Checkbox	Favourites only	1
+ui_images.cpp	Checkbox	Remove plain background	1
+ui_images.cpp	Checkbox	Show tattoos made for other areas too	1
+ui_images.cpp	Checkbox	Start from the descriptor the game used itself	1
+ui_images.cpp	InputInt	Game id	1
+ui_images.cpp	InputInt	extra (-1 = preset)	1
+ui_images.cpp	InputInt	mode (-1 = preset)	1
+ui_images.cpp	InputTextWithHint	##hairsearch	1
+ui_images.cpp	InvisibleButton	##mfdrag	1
+ui_images.cpp	OpenPopup	##browser	1
+ui_images.cpp	OpenPopup	##gallerypick	1
+ui_images.cpp	OpenPopup	##rmminiface	1
+ui_images.cpp	OpenPopup	##tattoopick	1
+ui_images.cpp	Selectable	Learned from the game	1
+ui_images.cpp	SliderFloat	Left-right	1
+ui_images.cpp	SliderFloat	Size	1
+ui_images.cpp	SliderFloat	Up-down	1
+ui_images.cpp	SliderInt	Tolerance	1
+ui_images.cpp	SmallButton	Cancel##capture	1
+ui_images.cpp	SmallButton	Cancel##mfsrc	1
+ui_images.cpp	SmallButton	Clear##hairfilters	1
+ui_images.cpp	SmallButton	Reload##mfnow	1
+ui_images.cpp	SmallButton	Reload##mfsrc	1
+ui_images.cpp	SmallButton	Reset framing	1
+ui_kits.cpp	-	##kitfolder	1
+ui_kits.cpp	-	##kitsall	1
+ui_kits.cpp	-	##kitslot%zu	1
+ui_kits.cpp	-	##kitzip	1
+ui_kits.cpp	-	##kslot	1
+ui_kits.cpp	-	##n	1
+ui_kits.cpp	-	##z	1
+ui_kits.cpp	-	Apply##kit%zu	1
+ui_kits.cpp	-	Restore EA kit##kitundo	1
+ui_kits.cpp	-	Undo##kitundo	1
+ui_kits.cpp	BeginTable	##kitset	1
+ui_kits.cpp	Button	Import kit zip...	1
+ui_kits.cpp	Button	Import team folder...	1
+ui_kits.cpp	Button	Turn on 3D kits (restart the game afterwards)##k3on	1
+ui_kits.cpp	Checkbox	Also change other clubs' kits that share this texture##kswap	1
+ui_kits.cpp	Checkbox	Also change this club's other kits that share a texture with this one##kswap	1
+ui_kits.cpp	Checkbox	Also use the zip's badge and brand pictures##kswap	1
+ui_kits.cpp	Checkbox	Also use the zip's name and number placement (hotspots)##kswap	1
+ui_kits.cpp	Checkbox	Do not use the zip's crest pictures##kswap	1
+ui_kits.cpp	Checkbox	Log which of this club's kit folders the match loads (watch only, all slots)##kswap	1
+ui_kits.cpp	CollapsingHeader	Colours & numbers (kit colours, number fonts, outline)##kitcolours	1
+ui_kits.cpp	OpenPopup	##kitfolder	1
+ui_kits.cpp	OpenPopup	##kitzip	1
+ui_kits.cpp	RadioButton	Off##kswap	1
+ui_kits.cpp	RadioButton	Show it on the pitch##kswap	1
+ui_kits.cpp	RadioButton	Watch only (log what the game loads)##kswap	1
+ui_kits.cpp	TreeNode	##kitsettings	1
+ui_kits.cpp	TreeNode	Kit folders the match loaded##kswap	1
+ui_kits.cpp	TreeNode	Textures##kswap	1
+ui_live_tactic.cpp	-	##ltap	1
+ui_live_tactic.cpp	-	##ltbu	1
+ui_live_tactic.cpp	-	##ltfoc	1
+ui_live_tactic.cpp	-	##ltrole	1
+ui_live_tactic.cpp	-	##ltslot	1
+ui_live_tactic.cpp	BeginPopupModal	Apply to the live tactic?##ltconfirm	1
+ui_live_tactic.cpp	Button	Apply to the live tactic##ltapply	1
+ui_live_tactic.cpp	Button	Apply##ltyes	1
+ui_live_tactic.cpp	Button	Cancel##ltno	1
+ui_live_tactic.cpp	Button	Re-apply##ltreapply	1
+ui_live_tactic.cpp	Button	Undo Turbo's write##ltundo	1
+ui_live_tactic.cpp	CollapsingHeader	Edit the live tactic (channel E)##ltcard	1
+ui_live_tactic.cpp	InputInt	##ltlhbox	1
+ui_live_tactic.cpp	OpenPopup	Apply to the live tactic?##ltconfirm	1
+ui_live_tactic.cpp	PushID	ltcard	1
+ui_live_tactic.cpp	SliderInt	##ltlh	1
+ui_live_tactic.cpp	SmallButton	Dismiss##ltreplacedno	1
+ui_live_tactic.cpp	SmallButton	Locate again##ltreloc	1
+ui_live_tactic.cpp	SmallButton	Reset to the live values##ltreset	1
+ui_live_tactic.cpp	TreeNode	###ltmore	1
+ui_live_tactic.cpp	TreeNode	Slots (11)##ltslots	1
+ui_live_tactic.cpp	checkbox_right	Channel E on (turbo_output\\call_team_sheet_on.txt)##ltopt	1
+ui_live_tactic.cpp	checkbox_right	Keep my bench order after Team Management##ltbench	1
+ui_match.cpp	-	##mf%u	1
+ui_match.cpp	-	Competition##msc	1
+ui_match.cpp	BeginCombo	##newopp	1
+ui_match.cpp	BeginTable	##gvars	1
+ui_match.cpp	Button	Fix this result	1
+ui_match.cpp	Button	Play this opponent	1
+ui_match.cpp	Button	Reload	1
+ui_match.cpp	Button	Swap home and away	1
+ui_match.cpp	Button	Try again	1
+ui_match.cpp	Button	Undo##msundo	1
+ui_match.cpp	InputInt	##awaygoals	1
+ui_match.cpp	InputInt	##homegoals	1
+ui_match.cpp	InputInt	##val	1
+ui_match.cpp	PushID	##msel	1
+ui_match.cpp	SmallButton	Clear	1
+ui_match.cpp	SmallButton	Clear every switch	1
+ui_match.cpp	SmallButton	Remove	1
+ui_match.cpp	SmallButton	Remove every fixed result	1
+ui_match.cpp	SmallButton	Set	1
+ui_names.cpp	-	##nmcommon	1
+ui_names.cpp	-	##nmfirst	1
+ui_names.cpp	-	##nmjersey	1
+ui_names.cpp	-	##nmlast	1
+ui_names.cpp	BeginChild	##nmids	1
+ui_names.cpp	BeginTable	##nmidtable	1
+ui_names.cpp	Button	Restore database names##nm	1
+ui_names.cpp	Button	Save names##nm	1
+ui_names.cpp	InputTextWithHint	##nmidsearch	1
+ui_parity.cpp	-	##	2
+ui_parity.cpp	BeginTable	##scouts	1
+ui_parity.cpp	BeginTable	##xfrows	1
+ui_parity.cpp	Button	Restore originals##scoutrestore	1
+ui_parity.cpp	Button	Set every scout##scoutbest	1
+ui_parity.cpp	Checkbox	Transfers##xfon	1
+ui_parity.cpp	CollapsingHeader	Your scouts (career staff)	1
+ui_parity.cpp	SliderInt	##scoutlvl	1
+ui_parity.cpp	SmallButton	Export now##xfexp	1
+ui_parity.cpp	SmallButton	Reload##xfre	1
+ui_parity.cpp	SmallButton	Reload##xftre	1
+ui_players.cpp	-	##appgrid	1
+ui_players.cpp	-	##arch	1
+ui_players.cpp	-	##archpos	1
+ui_players.cpp	-	##congrid	1
+ui_players.cpp	-	##fcont	1
+ui_players.cpp	-	##fnat	1
+ui_players.cpp	-	##fpos	1
+ui_players.cpp	-	##fteam	1
+ui_players.cpp	-	##ovrgrid	1
+ui_players.cpp	-	##pall	1
+ui_players.cpp	-	##pos	1
+ui_players.cpp	-	##profgrid	1
+ui_players.cpp	-	##rolegrid	1
+ui_players.cpp	-	%s##%d	1
+ui_players.cpp	-	Add now##dvd	1
+ui_players.cpp	-	Make %s his main position (now %s)##archadopt	1
+ui_players.cpp	-	Set potential##dvp	1
+ui_players.cpp	-	Undo (%zu)##pundo	1
+ui_players.cpp	-	Undo bulk (%zu)##bulkundo	1
+ui_players.cpp	-	Unnamed bit %d##%d	1
+ui_players.cpp	-	Use %d##archclosest	1
+ui_players.cpp	BeginChild	##app	1
+ui_players.cpp	BeginChild	##archchg	1
+ui_players.cpp	BeginChild	##attr	1
+ui_players.cpp	BeginChild	##cname	1
+ui_players.cpp	BeginChild	##con	1
+ui_players.cpp	BeginChild	##mface	1
+ui_players.cpp	BeginChild	##pedit	1
+ui_players.cpp	BeginChild	##pgrowth	1
+ui_players.cpp	BeginChild	##plist	1
+ui_players.cpp	BeginChild	##pnames	1
+ui_players.cpp	BeginChild	##prof	1
+ui_players.cpp	BeginChild	##ps	1
+ui_players.cpp	BeginCombo	##fgender	1
+ui_players.cpp	BeginCombo	##floan	1
+ui_players.cpp	BeginCombo	##fstyle	1
+ui_players.cpp	BeginPopup	##moves	1
+ui_players.cpp	BeginPopupModal	##delplayer	1
+ui_players.cpp	BeginPopupModal	Apply archetype	1
+ui_players.cpp	BeginTabBar	##ptabs	1
+ui_players.cpp	BeginTabItem	All fields	1
+ui_players.cpp	BeginTabItem	Appearance	1
+ui_players.cpp	BeginTabItem	Attributes	1
+ui_players.cpp	BeginTabItem	Callname	1
+ui_players.cpp	BeginTabItem	Contract & Clubs	1
+ui_players.cpp	BeginTabItem	Growth	1
+ui_players.cpp	BeginTabItem	Miniface	1
+ui_players.cpp	BeginTabItem	Names	1
+ui_players.cpp	BeginTabItem	PlayStyles	1
+ui_players.cpp	BeginTabItem	Profile	1
+ui_players.cpp	BeginTable	##bits	1
+ui_players.cpp	BeginTable	##chg	1
+ui_players.cpp	BeginTable	##fsearch	1
+ui_players.cpp	BeginTable	##pfilters	1
+ui_players.cpp	BeginTable	##players	1
+ui_players.cpp	BeginTable	##sl	1
+ui_players.cpp	Button	Apply##arch	1
+ui_players.cpp	Button	Cancel##arch	1
+ui_players.cpp	Button	Cancel##delplayer	1
+ui_players.cpp	Button	Choose a real face...	1
+ui_players.cpp	Button	Delete player	1
+ui_players.cpp	Button	Keep his old picture##hmfk	1
+ui_players.cpp	Button	List bans	1
+ui_players.cpp	Button	Preview / apply...	1
+ui_players.cpp	Button	Read squad role	1
+ui_players.cpp	Button	Remove ban	1
+ui_players.cpp	Button	Set squad role	1
+ui_players.cpp	Button	Transfer / Loan...	1
+ui_players.cpp	Button	Undo archetype##archundo	1
+ui_players.cpp	Button	Use the matching miniface##hmf	1
+ui_players.cpp	Checkbox	Grow him every week while below his potential##dvw	1
+ui_players.cpp	Checkbox	No decline##dvw	1
+ui_players.cpp	Combo	##role	1
+ui_players.cpp	InputInt	##archtarget	1
+ui_players.cpp	InputInt	##loanm	1
+ui_players.cpp	InputInt	Banned until (YYYYMMDD)	1
+ui_players.cpp	InputInt	Contract months	1
+ui_players.cpp	InputInt	Fee	1
+ui_players.cpp	InputInt	New potential##dvp	1
+ui_players.cpp	InputInt	Points per attribute##dvd	1
+ui_players.cpp	InputInt	Wage	1
+ui_players.cpp	InputTextWithHint	##fieldsearch	1
+ui_players.cpp	InputTextWithHint	##psearch	1
+ui_players.cpp	OpenPopup	##delplayer	1
+ui_players.cpp	OpenPopup	##moves	1
+ui_players.cpp	OpenPopup	Apply archetype	1
+ui_players.cpp	OpenPopup	Choose a real face	1
+ui_players.cpp	PushID	conlists	1
+ui_players.cpp	PushID	sqrole	1
+ui_players.cpp	Selectable	Any PlayStyle	1
+ui_players.cpp	SliderInt	Points per week##dvw	1
+ui_players.cpp	SmallButton	All	1
+ui_players.cpp	SmallButton	Clear##filters	1
+ui_players.cpp	SmallButton	None	1
+ui_players.cpp	checkbox_right	+ only	1
+ui_players.cpp	checkbox_right	Free agent	1
+ui_players.cpp	checkbox_right	My club	1
+ui_players.cpp	checkbox_right	Retiring	1
+ui_presets.cpp	-	###carchchg	1
+ui_presets.cpp	-	##carch	1
+ui_presets.cpp	-	##pexcsvpick	1
+ui_presets.cpp	-	##pexjsonpick	1
+ui_presets.cpp	-	##pexnamepick	1
+ui_presets.cpp	-	##pfbrowser	1
+ui_presets.cpp	-	##position	1
+ui_presets.cpp	-	Use %d##cclosest	1
+ui_presets.cpp	-	Use##pid%lld	1
+ui_presets.cpp	BeginCombo	##foot	1
+ui_presets.cpp	BeginCombo	##pidwant	1
+ui_presets.cpp	BeginPopupModal	##pclone	1
+ui_presets.cpp	BeginPopupModal	##pcreate	1
+ui_presets.cpp	BeginPopupModal	##pexport	1
+ui_presets.cpp	BeginPopupModal	##pidpick	1
+ui_presets.cpp	BeginPopupModal	##pimport	1
+ui_presets.cpp	BeginPopupModal	##prepair	1
+ui_presets.cpp	BeginTable	##pidtable	1
+ui_presets.cpp	Button	Back##pexport	1
+ui_presets.cpp	Button	Browse...##pexname	1
+ui_presets.cpp	Button	Browse...##preset	1
+ui_presets.cpp	Button	Cancel##pclone	1
+ui_presets.cpp	Button	Cancel##pcreate	1
+ui_presets.cpp	Button	Cancel##pexport	1
+ui_presets.cpp	Button	Cancel##pidpick	1
+ui_presets.cpp	Button	Cancel##pimport	1
+ui_presets.cpp	Button	Cancel##prepair	1
+ui_presets.cpp	Button	Check##prepair	1
+ui_presets.cpp	Button	Clone player	1
+ui_presets.cpp	Button	Clone...	1
+ui_presets.cpp	Button	Create player	1
+ui_presets.cpp	Button	Create player...	1
+ui_presets.cpp	Button	Export...	1
+ui_presets.cpp	Button	From CMTracker...	1
+ui_presets.cpp	Button	Import...	1
+ui_presets.cpp	Button	Repair names##prepair	1
+ui_presets.cpp	Button	Replace and export	1
+ui_presets.cpp	Button	Use a hidden player's id...	1
+ui_presets.cpp	InputInt	##birthyear	1
+ui_presets.cpp	InputInt	##height	1
+ui_presets.cpp	InputInt	##jersey	1
+ui_presets.cpp	InputInt	##nationality	1
+ui_presets.cpp	InputInt	##overall	1
+ui_presets.cpp	InputInt	##potential	1
+ui_presets.cpp	InputInt	##weight	1
+ui_presets.cpp	InputText	##common	2
+ui_presets.cpp	InputText	##first	2
+ui_presets.cpp	InputText	##jname	2
+ui_presets.cpp	InputText	##last	2
+ui_presets.cpp	InputTextWithHint	##pfile	1
+ui_presets.cpp	InputTextWithHint	##pidsearch	1
+ui_presets.cpp	InputTextWithHint	##playerid	1
+ui_presets.cpp	InputTextWithHint	File name	1
+ui_presets.cpp	OpenPopup	##pclone	1
+ui_presets.cpp	OpenPopup	##pcmt	1
+ui_presets.cpp	OpenPopup	##pcreate	1
+ui_presets.cpp	OpenPopup	##pexnamepick	1
+ui_presets.cpp	OpenPopup	##pexport	1
+ui_presets.cpp	OpenPopup	##pfbrowser	1
+ui_presets.cpp	OpenPopup	##pidpick	1
+ui_presets.cpp	OpenPopup	##pimport	1
+ui_presets.cpp	OpenPopup	##prepair	1
+ui_presets.cpp	RadioButton	A new player in a club	1
+ui_presets.cpp	RadioButton	This player	1
+ui_presets.cpp	Selectable	Left	1
+ui_presets.cpp	Selectable	Right	1
+ui_presets.cpp	checkbox_right	Copy the miniface next to the JSON	1
+ui_presets.cpp	checkbox_right	Live Editor preset CSV (its Import from preset reads it)	1
+ui_presets.cpp	checkbox_right	Turbo player JSON (every field, names, club links, loan)	1
+ui_reapply.cpp	BeginPopup	##keptforgetall	1
+ui_reapply.cpp	BeginTable	##keptlist	1
+ui_reapply.cpp	BeginTable	##keptplayer	1
+ui_reapply.cpp	BeginTable	##scopelist	1
+ui_reapply.cpp	Button	Cancel##keptforgetall	1
+ui_reapply.cpp	Button	Forget all##keptforgetall	1
+ui_reapply.cpp	Checkbox	Keep my player edits for every career load	1
+ui_reapply.cpp	CollapsingHeader	###keptedits	1
+ui_reapply.cpp	CollapsingHeader	Where kept edits apply (careers)	1
+ui_reapply.cpp	OpenPopup	##keptforgetall	1
+ui_reapply.cpp	PushID	keptplayers	1
+ui_reapply.cpp	PushID	keptscopes	1
+ui_reapply.cpp	SmallButton	Forget	1
+ui_reapply.cpp	SmallButton	Forget all...##keptall	1
+ui_reapply.cpp	SmallButton	Forget##cnkeep	1
+ui_reapply.cpp	SmallButton	Forget##kitkeep	1
+ui_reapply.cpp	SmallButton	Forget##playerkeep	1
+ui_reapply.cpp	SmallButton	Global	1
+ui_reapply.cpp	SmallButton	This career	1
+ui_role_rules.cpp	-	##pickrole	1
+ui_role_rules.cpp	-	##pinrole	1
+ui_role_rules.cpp	-	##pp	1
+ui_role_rules.cpp	-	##role	1
+ui_role_rules.cpp	BeginCombo	##pinplayer	1
+ui_role_rules.cpp	BeginPopupModal	Apply squad roles?	1
+ui_role_rules.cpp	BeginTable	##rolepreview	1
+ui_role_rules.cpp	Button	Add pin	1
+ui_role_rules.cpp	Button	Add rule	1
+ui_role_rules.cpp	Button	Apply...	1
+ui_role_rules.cpp	Button	Cancel	1
+ui_role_rules.cpp	Button	Clear saved rule	1
+ui_role_rules.cpp	Button	Down	1
+ui_role_rules.cpp	Button	Preview	1
+ui_role_rules.cpp	Button	Remove	1
+ui_role_rules.cpp	Button	Remove pin	1
+ui_role_rules.cpp	Button	Reset to default rules	1
+ui_role_rules.cpp	Button	Run	1
+ui_role_rules.cpp	Button	Up	1
+ui_role_rules.cpp	CollapsingHeader	Squad roles	1
+ui_role_rules.cpp	InputInt	##a1	1
+ui_role_rules.cpp	InputInt	##a2	1
+ui_role_rules.cpp	InputInt	##r1	1
+ui_role_rules.cpp	InputInt	##r2	1
+ui_role_rules.cpp	InputText	##name	1
+ui_role_rules.cpp	OpenPopup	Apply squad roles?	2
+ui_role_rules.cpp	PushID	rolerules	1
+ui_role_rules.cpp	Selectable	Leave alone	1
+ui_role_rules.cpp	checkbox_right	Re-apply after season reset	1
+ui_settings.cpp	BeginChild	##settings_log	1
+ui_settings.cpp	Checkbox	Advanced view##settings	1
+ui_shell.cpp	BeginChild	##editor	1
+ui_shell.cpp	BeginChild	##select	1
+ui_standings.cpp	-	##%s	1
+ui_standings.cpp	-	##live	1
+ui_standings.cpp	-	##live_ha	1
+ui_standings.cpp	-	##lspoints	1
+ui_standings.cpp	-	%d##c%u_%s	1
+ui_standings.cpp	-	%d##ls%u	1
+ui_standings.cpp	-	%s##club%u	1
+ui_standings.cpp	-	%u  %s %d - %d %s##fx%u	1
+ui_standings.cpp	BeginChild	##lsedit	1
+ui_standings.cpp	BeginChild	##lsfix	1
+ui_standings.cpp	Button	Apply to the game	1
+ui_standings.cpp	Button	Change result	1
+ui_standings.cpp	Button	Discard	1
+ui_standings.cpp	Button	Points from W/D/L	1
+ui_standings.cpp	Button	Reload	1
+ui_standings.cpp	Button	Try again	1
+ui_standings.cpp	Button	Undo##lsundo	1
+ui_standings.cpp	CollapsingHeader	Advanced: home / away counters, points per result, played results##lsadv	1
+ui_standings.cpp	InputInt	##cell	1
+ui_standings.cpp	InputInt	##fxaway	1
+ui_standings.cpp	InputInt	##fxhome	1
+ui_standings.cpp	InputInt	##ptsdraw	1
+ui_standings.cpp	InputInt	##ptsloss	1
+ui_standings.cpp	InputInt	##ptswin	1
+ui_standings.cpp	PushID	##lsgrid	1
+ui_standings.cpp	checkbox_right	Home / away columns	1
+ui_tactic_presets.cpp	-	 sliders##gpsel	1
+ui_tactic_presets.cpp	-	##tpsel	1
+ui_tactic_presets.cpp	-	Apply preset##gpload	1
+ui_tactic_presets.cpp	-	Apply preset##tpload	1
+ui_tactic_presets.cpp	-	Delete##tpdel	1
+ui_tactic_presets.cpp	-	Load##tpyes	1
+ui_tactic_presets.cpp	-	Re-apply##tpyes	1
+ui_tactic_presets.cpp	-	Really delete?##tpdel	1
+ui_tactic_presets.cpp	-	Undo last load##gpundo	1
+ui_tactic_presets.cpp	-	Undo last load##tpundo	1
+ui_tactic_presets.cpp	-	Undo the last preset load?##tpconfirm	1
+ui_tactic_presets.cpp	-	Undo##tpyes	1
+ui_tactic_presets.cpp	-	\"?##tpconfirm	2
+ui_tactic_presets.cpp	Button	Cancel##tpno	1
+ui_tactic_presets.cpp	Button	Re-apply##gpreapply	1
+ui_tactic_presets.cpp	Button	Re-apply##tpreapply	1
+ui_tactic_presets.cpp	Button	Save current##tpsave	1
+ui_tactic_presets.cpp	Checkbox	###tpunver	1
+ui_tactic_presets.cpp	Checkbox	###tpwithsliders	1
+ui_tactic_presets.cpp	Checkbox	with the set pieces##tpwithsp	1
+ui_tactic_presets.cpp	CollapsingHeader	Game settings file and slider values (Advanced)##gpadv	1
+ui_tactic_presets.cpp	CollapsingHeader	Limits and safety##tpsec_limits	1
+ui_tactic_presets.cpp	CollapsingHeader	Live now##tpsec_live	1
+ui_tactic_presets.cpp	CollapsingHeader	More##tpmore	1
+ui_tactic_presets.cpp	CollapsingHeader	Save current as a new preset##tpsec_save	1
+ui_tactic_presets.cpp	CollapsingHeader	Selected preset##tpsec_sel	1
+ui_tactic_presets.cpp	InputTextWithHint	##tpfilter	1
+ui_tactic_presets.cpp	InputTextWithHint	##tpname	1
+ui_tactic_presets.cpp	SmallButton	Dismiss##gpdismiss	1
+ui_tactic_presets.cpp	SmallButton	Dismiss##tpdismiss	1
+ui_tactic_presets.cpp	SmallButton	Keep##tpkeep	1
+ui_tactic_presets.cpp	SmallButton	Read live##tpreadlive	1
+ui_tactic_presets.cpp	SmallButton	Read set pieces##tpreadsp	1
+ui_tactic_presets.cpp	SmallButton	Refresh##gprefresh	1
+ui_tactic_presets.cpp	SmallButton	Refresh##tprefresh	1
+ui_tactic_presets.cpp	checkbox_right	###tpopt	1
+ui_tactics.cpp	-	 (built-in shape)##tacfb	1
+ui_tactics.cpp	-	##	3
+ui_tactics.cpp	-	##scope	1
+ui_tactics.cpp	-	##tacexppick	1
+ui_tactics.cpp	-	##tacimppick	1
+ui_tactics.cpp	-	##tacown	1
+ui_tactics.cpp	-	##tacpitch	1
+ui_tactics.cpp	-	Overall##tacph2	1
+ui_tactics.cpp	-	With ball##tacph0	1
+ui_tactics.cpp	-	Without ball##tacph1	1
+ui_tactics.cpp	BeginChild	##taccentre	1
+ui_tactics.cpp	BeginChild	##tacleft	1
+ui_tactics.cpp	BeginChild	##tacright	1
+ui_tactics.cpp	BeginChild	##tacsliders	1
+ui_tactics.cpp	BeginChild	##ttac	1
+ui_tactics.cpp	BeginCombo	##tacimpact	1
+ui_tactics.cpp	BeginCombo	##v	1
+ui_tactics.cpp	BeginCombo	Formation (preview)##tacform	1
+ui_tactics.cpp	BeginPopupModal	Apply untested settings?##tacconfirm	1
+ui_tactics.cpp	BeginPopupModal	Delete preset?##tacdel	1
+ui_tactics.cpp	BeginPopupModal	Export presets##tacexp	1
+ui_tactics.cpp	BeginPopupModal	Import presets##tacimpplan	1
+ui_tactics.cpp	BeginPopupModal	Rename preset##tacren	1
+ui_tactics.cpp	Button	Apply anyway##tacconfirm	1
+ui_tactics.cpp	Button	Apply live offsets to the game##tacoppapply	1
+ui_tactics.cpp	Button	Apply##tac	1
+ui_tactics.cpp	Button	Cancel##tacconfirmno	1
+ui_tactics.cpp	Button	Cancel##tacdelno	1
+ui_tactics.cpp	Button	Cancel##tacimpno	1
+ui_tactics.cpp	Button	Cancel##tacrenno	1
+ui_tactics.cpp	Button	Close##tacexpclose	1
+ui_tactics.cpp	Button	Delete##tacdelok	1
+ui_tactics.cpp	Button	Import##tacimpok	1
+ui_tactics.cpp	Button	Re-roll##tacopproll	1
+ui_tactics.cpp	Button	Rename##tacrenok	1
+ui_tactics.cpp	Button	Revert##tac	1
+ui_tactics.cpp	Button	Save as preset##tac	1
+ui_tactics.cpp	Button	Save as...##tacexpsave	1
+ui_tactics.cpp	Checkbox	##on	1
+ui_tactics.cpp	Checkbox	##v	1
+ui_tactics.cpp	CollapsingHeader	###tacexp	1
+ui_tactics.cpp	CollapsingHeader	Explain##tacoppexp	1
+ui_tactics.cpp	InputInt	##typed	1
+ui_tactics.cpp	InputText	##tacrenname	1
+ui_tactics.cpp	InputTextWithHint	##tacname	1
+ui_tactics.cpp	OpenPopup	##tacexppick	1
+ui_tactics.cpp	OpenPopup	##tacimppick	1
+ui_tactics.cpp	OpenPopup	Apply untested settings?##tacconfirm	1
+ui_tactics.cpp	OpenPopup	Delete preset?##tacdel	1
+ui_tactics.cpp	OpenPopup	Export presets##tacexp	1
+ui_tactics.cpp	OpenPopup	Import presets##tacimpplan	1
+ui_tactics.cpp	OpenPopup	Rename preset##tacren	1
+ui_tactics.cpp	RadioButton	All my presets of this kind##tacexp1	1
+ui_tactics.cpp	RadioButton	All my presets##tacexp2	1
+ui_tactics.cpp	RadioButton	The loaded preset##tacexp0	1
+ui_tactics.cpp	SliderInt	##v	1
+ui_tactics.cpp	SmallButton	Clear overrides##tac	1
+ui_tactics.cpp	SmallButton	Delete##tacdel	1
+ui_tactics.cpp	SmallButton	Duplicate##tacdup	1
+ui_tactics.cpp	SmallButton	Export...##tacexp	1
+ui_tactics.cpp	SmallButton	Import...##tacimp	1
+ui_tactics.cpp	SmallButton	Rename##tacren	1
+ui_tactics.cpp	SmallButton	Reset##reset	1
+ui_tactics.cpp	checkbox_right	Compare with the loaded preset##taccmp	1
+ui_tactics.cpp	checkbox_right	Dry run##tacdry	1
+ui_tactics.cpp	checkbox_right	Exposure hint (hatched, off by default)##tace	1
+ui_tactics.cpp	checkbox_right	Modelled layer (hatched, off by default)##tach	1
+ui_tactics.cpp	checkbox_right	Opponent plays at home##tacopphome	1
+ui_tactics.cpp	checkbox_right	Opposition variety on##tacoppon	1
+ui_tactics.cpp	checkbox_right	Roaming range (stippled, off by default)##tacr	1
+ui_tactics.cpp	checkbox_right	Schematic layers (dashed)##tacd	1
+ui_tactics.cpp	checkbox_right	Show legacy fields##taclegacy	1
+ui_team_filter.cpp	-	##teamcountry	1
+ui_team_filter.cpp	-	##teamleague	1
+ui_team_filter.cpp	-	%s (%lld)##team%lld	1
+ui_team_filter.cpp	-	%s##geo%lld	1
+ui_team_filter.cpp	InputTextWithHint	##geoq	1
+ui_team_filter.cpp	InputTextWithHint	##teamq	1
+ui_team_filter.cpp	Selectable	Any club	1
+ui_teams.cpp	-	##country	1
+ui_teams.cpp	-	##league	1
+ui_teams.cpp	-	##mall	1
+ui_teams.cpp	-	##mgrid	1
+ui_teams.cpp	-	##tall	1
+ui_teams.cpp	-	##tcountry	1
+ui_teams.cpp	-	##teams	1
+ui_teams.cpp	-	##teamsxf	1
+ui_teams.cpp	-	##tgrid	1
+ui_teams.cpp	-	##tleague	1
+ui_teams.cpp	-	%lld##c	1
+ui_teams.cpp	-	%lld##m%zu	1
+ui_teams.cpp	BeginChild	##mdet	1
+ui_teams.cpp	BeginChild	##medit	1
+ui_teams.cpp	BeginChild	##mlist	1
+ui_teams.cpp	BeginChild	##mmface	1
+ui_teams.cpp	BeginChild	##tcolours	1
+ui_teams.cpp	BeginChild	##tcrest	1
+ui_teams.cpp	BeginChild	##tedit	1
+ui_teams.cpp	BeginChild	##tjoffer	1
+ui_teams.cpp	BeginChild	##tkits	1
+ui_teams.cpp	BeginChild	##tlist	1
+ui_teams.cpp	BeginChild	##tmass	1
+ui_teams.cpp	BeginChild	##tname	1
+ui_teams.cpp	BeginChild	##tov	1
+ui_teams.cpp	BeginChild	##tpresets	1
+ui_teams.cpp	BeginChild	##ttac	1
+ui_teams.cpp	BeginChild	##txfer	1
+ui_teams.cpp	BeginPopupModal	Create job offer?	1
+ui_teams.cpp	BeginPopupModal	Move manager?	1
+ui_teams.cpp	BeginPopupModal	Release manager?	1
+ui_teams.cpp	BeginPopupModal	Run mass action?	1
+ui_teams.cpp	BeginTabBar	##mtabs	1
+ui_teams.cpp	BeginTabBar	##ttabs	1
+ui_teams.cpp	BeginTabItem	All fields	1
+ui_teams.cpp	BeginTabItem	Appearance	1
+ui_teams.cpp	BeginTabItem	Colours	1
+ui_teams.cpp	BeginTabItem	Crest	1
+ui_teams.cpp	BeginTabItem	Details	1
+ui_teams.cpp	BeginTabItem	Job offer	1
+ui_teams.cpp	BeginTabItem	Kits	1
+ui_teams.cpp	BeginTabItem	Mass actions	1
+ui_teams.cpp	BeginTabItem	Miniface	1
+ui_teams.cpp	BeginTabItem	Name	1
+ui_teams.cpp	BeginTabItem	Overview	1
+ui_teams.cpp	BeginTabItem	Squad	1
+ui_teams.cpp	BeginTabItem	Tactic presets	1
+ui_teams.cpp	BeginTabItem	Tactics	1
+ui_teams.cpp	BeginTabItem	Transfers	1
+ui_teams.cpp	BeginTable	##clubs	1
+ui_teams.cpp	BeginTable	##mgrs	1
+ui_teams.cpp	BeginTable	##squad	1
+ui_teams.cpp	Button	Cancel	4
+ui_teams.cpp	Button	Create	1
+ui_teams.cpp	Button	Create job offer	1
+ui_teams.cpp	Button	Game's own	1
+ui_teams.cpp	Button	Make available	1
+ui_teams.cpp	Button	Make available (free agent)	1
+ui_teams.cpp	Button	Move	1
+ui_teams.cpp	Button	Move to the picked club	1
+ui_teams.cpp	Button	My club	1
+ui_teams.cpp	Button	OFF	1
+ui_teams.cpp	Button	ON (this session)	1
+ui_teams.cpp	Button	Run	1
+ui_teams.cpp	Button	Set score	1
+ui_teams.cpp	Button	Unsackable ON (keep)	1
+ui_teams.cpp	Button	Use the selected team again	1
+ui_teams.cpp	Checkbox	Squad roles again after each season reset (auto)##tmsrauto	1
+ui_teams.cpp	CollapsingHeader	Choose another club	1
+ui_teams.cpp	CollapsingHeader	Manager market: move a manager, make one available	1
+ui_teams.cpp	CollapsingHeader	Manager rules: job security, unsackable (Manager Career)	1
+ui_teams.cpp	InputInt	##jsscore	1
+ui_teams.cpp	InputInt	##tmbonus	1
+ui_teams.cpp	InputTextWithHint	##msearch	1
+ui_teams.cpp	InputTextWithHint	##q	1
+ui_teams.cpp	InputTextWithHint	##tsearch	1
+ui_teams.cpp	OpenPopup	Create job offer?	1
+ui_teams.cpp	OpenPopup	Move manager?	1
+ui_teams.cpp	OpenPopup	Release manager?	1
+ui_teams.cpp	OpenPopup	Run mass action?	1
+ui_teams.cpp	PushID	joboffers	1
+ui_teams.cpp	PushID	managermarket	1
+ui_teams.cpp	PushID	managerrules	1
+ui_teams.cpp	PushID	massactions	1
+ui_tools.cpp	-	##beaddteam	1
+ui_tools.cpp	-	##fn%d	1
+ui_tools.cpp	-	##fp%d	1
+ui_tools.cpp	-	##fv%d	1
+ui_tools.cpp	-	##jerseyteam	1
+ui_tools.cpp	-	##rvteam	1
+ui_tools.cpp	-	##tbamount	1
+ui_tools.cpp	-	Apply now##fm	1
+ui_tools.cpp	-	Develop my squad to potential now##dv	1
+ui_tools.cpp	-	List my youth academy##yt	1
+ui_tools.cpp	-	Reveal club##rv	1
+ui_tools.cpp	-	Reveal league ID##rv	1
+ui_tools.cpp	-	Reveal my club##rv	1
+ui_tools.cpp	-	Set youth player##yt	1
+ui_tools.cpp	BeginChild	##log	1
+ui_tools.cpp	BeginChild	##tools	1
+ui_tools.cpp	BeginPopupModal	##confirmdel	1
+ui_tools.cpp	BeginPopupModal	##overall_back_any_load	1
+ui_tools.cpp	Button	Cancel	2
+ui_tools.cpp	Button	Delete...	1
+ui_tools.cpp	Button	Open Squad & Players > Squad##squadgo	1
+ui_tools.cpp	Button	Put the overalls back...	1
+ui_tools.cpp	Checkbox	Load pictures in the background from the start (faces, 3D head renders, tattoos, galleries, crests)	1
+ui_tools.cpp	CollapsingHeader	Technical details	1
+ui_tools.cpp	Combo	##squadrole	1
+ui_tools.cpp	Combo	Row density	1
+ui_tools.cpp	InputFloat	##bexpmult	1
+ui_tools.cpp	InputInt	##banuntil	1
+ui_tools.cpp	InputInt	##bebonusxp	1
+ui_tools.cpp	InputInt	##genfromid	1
+ui_tools.cpp	InputInt	##rvleague	1
+ui_tools.cpp	InputInt	##yearsc	1
+ui_tools.cpp	InputInt	##yearsu	1
+ui_tools.cpp	InputInt	##ytid	1
+ui_tools.cpp	InputInt	##ytpos	1
+ui_tools.cpp	InputInt	##ytpot	1
+ui_tools.cpp	InputInt	##yttier	1
+ui_tools.cpp	InputInt	##ytvar	1
+ui_tools.cpp	InputText	##exptables	1
+ui_tools.cpp	InputTextWithHint	##beteams	1
+ui_tools.cpp	OpenPopup	##confirmdel	1
+ui_tools.cpp	OpenPopup	##overall_back_any_load	1
+ui_tools.cpp	RadioButton	All players##be	1
+ui_tools.cpp	RadioButton	My squad##be	1
+ui_tools.cpp	RadioButton	Players shown in the Players list##be	1
+ui_tools.cpp	RadioButton	Team IDs##be	1
+ui_tools.cpp	SliderFloat	##uisize	1
+ui_tools.cpp	SliderInt	##befit	1
+ui_tools.cpp	SliderInt	##beform	1
+ui_tools.cpp	SliderInt	##bemorale	1
+ui_tools.cpp	SliderInt	##dvweekly	1
+ui_tools.cpp	SliderInt	##fmfitness	1
+ui_tools.cpp	SliderInt	##fmform	1
+ui_tools.cpp	SliderInt	##fmmorale	1
+ui_tools.cpp	SmallButton	Copy rebuild command##asset	1
+ui_tools.cpp	SmallButton	Open folder##asset	1
+ui_tools.cpp	SmallButton	Reload catalog##asset	1
+ui_tools.cpp	SmallButton	Reset size	1
+ui_tools.cpp	checkbox_right	Development##be	1
+ui_tools.cpp	checkbox_right	Dry run (Turbo Tools report only, write nothing)	1
+ui_tools.cpp	checkbox_right	Exclude my club	1
+ui_tools.cpp	checkbox_right	Fitness##be	1
+ui_tools.cpp	checkbox_right	Form##be	1
+ui_tools.cpp	checkbox_right	Generic head for others	1
+ui_tools.cpp	checkbox_right	Grow my whole squad every week (auto)##dv	1
+ui_tools.cpp	checkbox_right	Include loaned-in	1
+ui_tools.cpp	checkbox_right	Keep every day (auto)##fm	1
+ui_tools.cpp	checkbox_right	Morale##be	1
+ui_tools.cpp	checkbox_right	No decline##be	1
+ui_tools.cpp	checkbox_right	No decline##dv	1
+ui_tools.cpp	checkbox_right	Only my club	1
+ui_tools.cpp	checkbox_right	Re-apply automatically##ps	1
+ui_tools.cpp	checkbox_right	Set it again after each season reset (auto)##srauto	1
+ui_tools.cpp	checkbox_right	Yes, every player in the database##be	1
+ui_tools.cpp	checkbox_right	every club of the league##rvc	1
+ui_tuning.cpp	-	###tvcand	1
+ui_tuning.cpp	-	###tvcc_	1
+ui_tuning.cpp	-	###tvdiffs	1
+ui_tuning.cpp	-	###tvg_	1
+ui_tuning.cpp	-	###tvprofdiffs	1
+ui_tuning.cpp	-	##tvbox_	1
+ui_tuning.cpp	-	##tvexppick	1
+ui_tuning.cpp	-	##tvimppick	1
+ui_tuning.cpp	-	##tvp	1
+ui_tuning.cpp	-	##tvs_	1
+ui_tuning.cpp	-	##tvsw_	1
+ui_tuning.cpp	-	)##tvnotyet	1
+ui_tuning.cpp	-	Apply now##tvnow_	1
+ui_tuning.cpp	-	Reset##tvreset_	1
+ui_tuning.cpp	BeginChild	##tuning	1
+ui_tuning.cpp	BeginCombo	##tvpreset	1
+ui_tuning.cpp	BeginPopupModal	Apply gameplay tuning?##tvconfirm	1
+ui_tuning.cpp	BeginPopupModal	Delete preset?##tvdeletepop	1
+ui_tuning.cpp	BeginPopupModal	Rename preset##tvrenamepop	1
+ui_tuning.cpp	Button	Apply now (live)##tvlive	1
+ui_tuning.cpp	Button	Apply##tvapply	1
+ui_tuning.cpp	Button	Apply##tvyes	1
+ui_tuning.cpp	Button	Cancel##tvno	1
+ui_tuning.cpp	Button	Cancel##tvrenameno	1
+ui_tuning.cpp	Button	Delete##tvdeleteok	1
+ui_tuning.cpp	Button	Discard edits##tvdiscard	1
+ui_tuning.cpp	Button	Keep it##tvdeleteno	1
+ui_tuning.cpp	Button	Rename##tvrenameok	1
+ui_tuning.cpp	Button	Restore FC 27 defaults##tvrestore	1
+ui_tuning.cpp	Button	Save preset##tvsave	1
+ui_tuning.cpp	Button	Undo last Apply##tvundo	1
+ui_tuning.cpp	Button	Use this preset##tvuse	1
+ui_tuning.cpp	InputText	##tvname	1
+ui_tuning.cpp	InputText	##tvrenamebox	1
+ui_tuning.cpp	InputTextWithHint	##tvsearch	1
+ui_tuning.cpp	OpenPopup	##tvexppick	1
+ui_tuning.cpp	OpenPopup	##tvimppick	1
+ui_tuning.cpp	OpenPopup	Apply gameplay tuning?##tvconfirm	1
+ui_tuning.cpp	OpenPopup	Delete preset?##tvdeletepop	1
+ui_tuning.cpp	OpenPopup	Rename preset##tvrenamepop	1
+ui_tuning.cpp	SmallButton	Delete...##tvdel	1
+ui_tuning.cpp	SmallButton	Duplicate##tvdup	1
+ui_tuning.cpp	SmallButton	Export...##tvexp	1
+ui_tuning.cpp	SmallButton	Import...##tvimp	1
+ui_tuning.cpp	SmallButton	Read the knobs file again##tvreload	1
+ui_tuning.cpp	SmallButton	Rename...##tvren	1
+ui_tuning.cpp	checkbox_right	Apply my tuning profile automatically (every career load, the hub)##tvprof	1
+ui_tuning.cpp	checkbox_right	Only changed##tvonlychanged	1
+ui_tuning.cpp	checkbox_right	Write in this game session (Apply, Reset)##tvsess	1
+widgets.cpp	-	##	4
+widgets.cpp	-	##%s_from	1
+widgets.cpp	-	##%s_to	1
+widgets.cpp	-	##date	2
+widgets.cpp	-	##s	1
+widgets.cpp	-	##v	2
+widgets.cpp	BeginCombo	##e	1
+widgets.cpp	BeginCombo	##ref	1
+widgets.cpp	BeginTable	##all	1
+widgets.cpp	Checkbox	##v	1
+widgets.cpp	Checkbox	Show all internal positions	1
+widgets.cpp	Checkbox	Show friendly names	1
+widgets.cpp	InputFloat	##v	1
+widgets.cpp	InputText	##v	1
+widgets.cpp	InputTextWithHint	##filter	1
+widgets.cpp	InputTextWithHint	##flt	2
+widgets.cpp	SliderInt	##s	1

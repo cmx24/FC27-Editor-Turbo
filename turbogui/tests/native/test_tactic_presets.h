@@ -455,7 +455,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
               "the honest banner: " + s.banner);
         CHECK(!s.opt_in && !s.live_ok, "channel E is off: nothing read yet");
         // channel E on, from the panel
-        CHECK(ui.click("Channel E on (turbo_output\\call_team_sheet_on.txt): needed to read and load the live tactic##tpopt", "##tpresets"), "opt-in clicked");
+        CHECK(ui.click("###tpopt", "##tpresets"), "opt-in clicked");
         ui.frames(2);
         CHECK(fs::exists(out / tsheet::opt_in_file(), ec) && s.opt_in, "opt-in file created");
         rig.clock += 6e6;
