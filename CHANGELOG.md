@@ -10,6 +10,18 @@ Nothing here is shipped or claimed as a feature. Gates are in `turbo_dev\evidenc
 - **UNPROVEN:** tactics sliders for team length and width (`shape.length_in`, `shape.width_in`). Gate G-T1 was INCONCLUSIVE in game (counted as FAIL for the live write route).
 - **UNPROVEN:** any effect of the game settings sliders on match play. Gate G-S3 (ratio >= 1.4).
 
+## 2.12.2
+
+Fix release on top of 2.12.1 (commit 387e41e). Package FC27_LE_Turbo_2.12.2.zip (md5 [ZIP_MD5]). Installed Turbo.dll md5 [DLL_MD5]. Supported game build: 6AC07E31 only. Tested with Live Editor 27.1.4 on LEICESTER only.
+
+- **Folder picker:** two clicks open a folder.
+- **Managers:** hair and facial hair galleries, as players have.
+- **Kits:** one-click 3D kit opt-in.
+
+Proven in game (test career LEICESTER, never saved, [DATE]): [filled by the proof run].
+Regression list run: [filled by the proof run].
+Not proven: [filled by the proof run].
+
 ## 2.12.1
 
 **More sliders and set pieces in tactic presets - offline-tested only, NOT seen in game** (one-launch checklist: `turbo_dev\research_20261016\P2121_PROOF.md`; the full table: `turbo_dev\research_20261016\SLIDER_MAP_FULL.md`; check_all green: build 0 warnings, Lua 418/0, native 33,591/0, catalog all 0 failed).
@@ -23,7 +35,8 @@ Nothing here is shipped or claimed as a feature. Gates are in `turbo_dev\evidenc
 
 ## 2.12.0
 
-**Tactic presets - offline-tested only, NOT yet seen in a played match** (checklist: `turbo_devesearch_20261016\TACTIC_PRESETS_PROOF.md`; native suite 33,097/0, Lua 408/0).
+**Tactic presets - offline-tested only, NOT yet seen in a played match** (checklist: `turbo_dev
+esearch_20261016\TACTIC_PRESETS_PROOF.md`; native suite 33,097/0, Lua 408/0).
 
 - **Tactic presets** (Teams > Tactic presets, also in the Simple view). Saves EA's OWN tactic of your club (Defensive Approach, Line Height = depth, Build-Up Style, role id and focus of the 11 slots; the formation is recorded) and the Custom sliders block of the Settings file as `turbo_output\tactic_presets\<name>.json` (schema 1, build 6AC07E31-2145C000 only, out-of-range values refused). Load asks first, writes the tactic through the Tactics card's guarded channel E job (live record + its cm_mentalities row, `channel_e_undo.json`) and stages only the sliders verified in game (`settings_pending.json`, applied with FC 27 closed by `turbo_settings_apply.exe`, needs Gameplay Type CUSTOM). Another formation is refused (no formation writer is proven). Width is not part of a preset (the game's team sheet carries none). Undo last load, and a one-click Re-apply prompt after a career load (never automatic; own file `tactic_preset_last_load.json`, `reapply_edits.json` is never touched). Proof checklist: `turbo_dev\research_20261016\TACTIC_PRESETS_PROOF.md`.
 
