@@ -29,8 +29,9 @@ struct Rig {
     KeepOut last;
     long long gen = 1;
     double now = 100.0;
+    int dirty = 1;
     KeepOut read(const Ids& map, const CopyView& copy, bool on = true, const std::string& why = "", bool may = true, const std::string& wait = "") {
-        last = k.on_read(gen, map, copy, on, why, may, wait, now, name);
+        last = k.on_read(gen, map, dirty, copy, on, why, may, wait, now, name);
         log.insert(log.end(), last.log.begin(), last.log.end());
         return last;
     }
@@ -136,7 +137,7 @@ static void test_bench_keep() {
         CHECK(!r.read(M, copy_of(S, 0xB000)).submit, "bench keep: still the same build");
         r.now = 102.0;
         r.read(M, none);
-        r.now = 103.0;
+        r.now = 106.0;
         CHECK(r.read(M, copy_of(S, 0xB800)).submit, "bench keep: the next build is written");
     }
     // C: the copy already holds your order; the copy is not your players in another order
@@ -248,21 +249,44 @@ static void test_bench_keep() {
         const Namer name = [](int32_t pid) { return "P" + std::to_string(pid); };
         CopyView other = copy_of(S, 0xA000);
         other.label = "svc+0xA60";
-        std::vector<std::string> l = p.on_copies(M, {none, copy_of(Ids{}, 0, false)}, name);
+        std::vector<std::string> l = p.on_copies(M, 1, {none, copy_of(Ids{}, 0, false)}, name);
         CHECK(l.empty(), "bench probe: nothing while no copy is built");
-        l = p.on_copies(M, {copy_of(S, 0xB000), other}, name);
+        l = p.on_copies(M, 1, {copy_of(S, 0xB000), other}, name);
         CHECK(l.size() == 2 && l[0].find("bench probe: Team Management's working copy svc+0x550 built [records 0xB000]: against your map sheet (your saved order): "
                                          "4 of 25 places changed") == 0 &&
                   l[0].find("| 25 players: #0 P1") != std::string::npos && l[1].find("svc+0xA60 built [records 0xA000]") != std::string::npos,
               "bench probe: both copies' builds are logged with their order against the map: " + (l.empty() ? std::string() : l[0]));
-        CHECK(p.on_copies(M, {copy_of(S, 0xB000), other}, name).empty(), "bench probe: an unchanged copy logs nothing");
-        l = p.on_copies(M, {copy_of(M, 0xB000), other}, name);
+        CHECK(p.on_copies(M, 1, {copy_of(S, 0xB000), other}, name).empty(), "bench probe: an unchanged copy logs nothing");
+        l = p.on_copies(M, 1, {copy_of(M, 0xB000), other}, name);
         CHECK(l.size() == 1 && l[0].find("bench probe: Team Management's working copy svc+0x550 changed: 4 of 25 places changed") == 0 &&
                   l[0].find("against your map sheet: same order") != std::string::npos,
               "bench probe: a change of the built copy (Turbo's write, a move on the screen) is logged: " + (l.empty() ? std::string() : l[0]));
-        l = p.on_copies(M, {none, other}, name);
+        l = p.on_copies(M, 1, {none, other}, name);
         CHECK(l.size() == 1 && l[0] == "bench probe: Team Management's working copy svc+0x550 is no longer your sheet's (Team Management closed?)",
               "bench probe: the copy going away is logged");
+        // your map sheet: a save clears its dirty flag, a commit changes its ids (Lua's save signal is blind on LE 27.1.5)
+        l = p.on_copies(M, 0, {none, other}, name);
+        CHECK(l.size() == 1 && l[0].find("bench probe: your map sheet changed [dirty 1 -> 0]: same order | 25 players: #0 P1") == 0,
+              "bench probe: the map's dirty flag cleared (a save) is logged: " + (l.empty() ? std::string() : l[0]));
+        l = p.on_copies(S, 1, {none, other}, name);
+        CHECK(l.size() == 1 && l[0].find("bench probe: your map sheet changed [dirty 0 -> 1]: 4 of 25 places changed") == 0,
+              "bench probe: the map's order changed (a commit) is logged: " + (l.empty() ? std::string() : l[0]));
+    }
+    // H: the write waits until your map sheet has been quiet for 5 s (a commit or a save may be running: Lua's save signal is blind)
+    {
+        Rig r;
+        r.read(M, none);
+        r.now = 110.0;
+        r.dirty = 0;  // the save after a Yes cleared the map's dirty flag
+        r.read(M, none);
+        r.now = 112.0;
+        CHECK(!r.read(M, copy_of(S, 0xB000)).submit &&
+                  r.logged("bench keep: the write waits (your map sheet changed less than 5 s ago (a commit or a save may be running)): until 20 s after the build"),
+              "bench keep: Team Management opened 2 s after the map changed: the write waits: " + r.tail());
+        r.now = 114.0;
+        CHECK(!r.read(M, copy_of(S, 0xB000)).submit, "bench keep: 4 s: still waiting");
+        r.now = 115.0;
+        CHECK(r.read(M, copy_of(S, 0xB000)).submit, "bench keep: 5 s after the map's last change: the write goes");
     }
 }
 

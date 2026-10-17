@@ -1369,12 +1369,12 @@ void bench_probe_tick(App& app) {
         const std::string meta = "team " + std::to_string(st.user_team) + ", sheet " + std::to_string(lt.sheet_id) + ", dirty " + std::to_string(int(lt.dirty));
         for (const std::string& s : g.bench.on_read(d, lt.sheet_ids, squad, name, meta)) lines.push_back(s);
     }
-    for (const std::string& s : g.bench.on_copies(lt.sheet_ids, views, name)) lines.push_back(s);
+    for (const std::string& s : g.bench.on_copies(lt.sheet_ids, int(lt.dirty), views, name)) lines.push_back(s);
     if (!g.bench_off)
         for (const std::string& s : lines) log_line(app, s);
     // bench keep
     const std::string wait = ctx.bench_hub ? std::string() : bench_wait(app);
-    bench::KeepOut ko = g.keeper.on_read(st.load_gen, lt.sheet_ids, target, keep, keep_why, ctx.bench_hub, wait, now, name);
+    bench::KeepOut ko = g.keeper.on_read(st.load_gen, lt.sheet_ids, int(lt.dirty), target, keep, keep_why, ctx.bench_hub, wait, now, name);
     if (ko.submit) {
         BenchPlan p;
         p.user = lt.at.user;

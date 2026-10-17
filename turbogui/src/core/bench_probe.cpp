@@ -245,8 +245,15 @@ int moved_places(const Ids& a, const Ids& b) {
     return n;
 }
 
-std::vector<std::string> Probe::on_copies(const Ids& map, const std::vector<CopyView>& copies, const Namer& name) {
+std::vector<std::string> Probe::on_copies(const Ids& map, int map_dirty, const std::vector<CopyView>& copies, const Namer& name) {
     std::vector<std::string> out;
+    // your map sheet: a commit changes its ids, a save clears its dirty flag (Lua's save signal is blind on LE 27.1.5)
+    if (have_map_ && (map != map_ || map_dirty != map_dirty_))
+        out.push_back("bench probe: your map sheet changed [dirty " + std::to_string(map_dirty_) + " -> " + std::to_string(map_dirty) + "]: " +
+                      diff_text(map_, map, name) + " | " + order_text(map, name));
+    have_map_ = true;
+    map_ = map;
+    map_dirty_ = map_dirty;
     if (copies_.size() != copies.size()) copies_.assign(copies.size(), CopyView());
     for (size_t i = 0; i < copies.size(); ++i) {
         const CopyView& c = copies[i];
@@ -267,10 +274,21 @@ std::vector<std::string> Probe::on_copies(const Ids& map, const std::vector<Copy
     return out;
 }
 
-KeepOut Keeper::on_read(long long load_gen, const Ids& map, const CopyView& copy, bool on, const std::string& off_why, bool may_write,
-                        const std::string& wait, double now, const Namer& name) {
+KeepOut Keeper::on_read(long long load_gen, const Ids& map, int map_dirty, const CopyView& copy, bool on, const std::string& off_why, bool may_write,
+                        const std::string& wait_in, double now, const Namer& name) {
     KeepOut o;
     off_why_ = off_why;
+    // your map sheet's last change (ids or dirty flag): the write waits kMapQuietS after it (a commit or a save may be running)
+    if (map_dirty_seen_ == -2 || map != map_seen_ || map_dirty != map_dirty_seen_) {
+        map_seen_ = map;
+        map_dirty_seen_ = map_dirty;
+        map_changed_at_ = now;
+    }
+    std::string wait = wait_in;
+    if (may_write && now - map_changed_at_ < kMapQuietS) {
+        may_write = false;
+        wait = "your map sheet changed less than " + seconds(kMapQuietS) + " ago (a commit or a save may be running)";
+    }
     if (load_gen != gen_) {
         if (ph_ == KeepPhase::Pending) o.log.push_back("bench keep: the career was (re)loaded: the write is dropped (nothing written)");
         gen_ = load_gen;

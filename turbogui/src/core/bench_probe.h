@@ -58,8 +58,10 @@ class Probe {
 public:
     // 2.15: Team Management's working copies (BENCH_FINDINGS: built when it opens, in the game's own order): a line when one is built (its
     // order against your map sheet's), when it changes while built (a move on the screen) and when it goes away. Lua's team_mgmt flag is
-    // blind on LE 27.1.5: the card's tick feeds Input::team_mgmt from the copy at svc+0x550 too
-    std::vector<std::string> on_copies(const Ids& map, const std::vector<CopyView>& copies, const Namer& name);
+    // blind on LE 27.1.5: the card's tick feeds Input::team_mgmt from the copy at svc+0x550 too. Also a line when your MAP sheet changes
+    // (its ids or its dirty flag; map_dirty = the flag): Lua's save signal is blind too (BENCH_FINDINGS addendum), and a save clears the
+    // map's dirty flag (1 -> 0 after the Yes's autosave, 2026-10-12 evidence 1014/1015), a commit changes its ids
+    std::vector<std::string> on_copies(const Ids& map, int map_dirty, const std::vector<CopyView>& copies, const Namer& name);
     // Called every frame: what to read now
     Due step(const Input& in);
     // A good read: the log lines (empty = nothing to log). squad = your club's players (teamplayerlinks); meta = "sheet 3, dirty 1"
@@ -79,6 +81,9 @@ private:
     bool have_last_ = false, have_open_ = false, have_close_ = false;
     Ids last_{}, open_{}, close_{};
     std::vector<CopyView> copies_;  // the copies as the last read saw them (on_copies)
+    bool have_map_ = false;         // on_copies: your map sheet as the last poll saw it
+    Ids map_{};
+    int map_dirty_ = -1;
 };
 
 // The player ids of the sheet in order (the -1 slots left out)
@@ -114,6 +119,9 @@ constexpr long long kKeepSaveQuietS = 30;    // = tsheet::kSaveQuietSeconds (G2;
 constexpr double kKeepRetryS = 1.0;          // a refused submit is tried again this much later (until the deadline)
 constexpr double kKeepJobLostS = 15.0;       // a queued job not back after this long: given up (the service's own limit is 10 s)
 constexpr double kCopyPollS = 0.5;           // the card's tick reads your sheet and the copies this often in the hub (probe or bench keep on)
+// Lua's save signal is blind on LE 27.1.5 (BENCH_FINDINGS addendum): the write also waits until your map sheet (its 52 ids and its dirty
+// flag) has not changed for this long - a commit changes its ids, a save clears its dirty flag. Counted from the first read too
+constexpr double kMapQuietS = 5.0;
 
 // "" when `now` is `saved` with the bench and reserves (ids 11..51) in another order: the same 52 values (players and empty places), the
 // same ids 0..10, no player twice. Else why not: "same order", "the starting XI changed (#3 ...)", "other players on the sheet (...)", ...
@@ -133,7 +141,7 @@ public:
     // Every read (a poll about twice a second in the hub). map = your map sheet's 52 ids (your saved order); copy = svc+0x550; on = opted in,
     // no kill switch, not off for the session; off_why = what holds it off ("" = nothing but the missing opt-in); may_write = G2 for bench
     // keep holds now (wait = why not); now = wall seconds
-    KeepOut on_read(long long load_gen, const Ids& map, const CopyView& copy, bool on, const std::string& off_why, bool may_write,
+    KeepOut on_read(long long load_gen, const Ids& map, int map_dirty, const CopyView& copy, bool on, const std::string& off_why, bool may_write,
                     const std::string& wait, double now, const Namer& name);
     // The submit's outcome: queued, or refused (tried again every kKeepRetryS until the deadline; a new reason is logged once)
     void queued(double now);
@@ -148,6 +156,9 @@ private:
     KeepPhase ph_ = KeepPhase::Off;
     long long gen_ = -2;
     bool primed_ = false, was_live_ = false;
+    Ids map_seen_{};
+    int map_dirty_seen_ = -2;
+    double map_changed_at_ = 0.0;  // the last change of your map sheet (ids or dirty) the reads saw
     uint64_t build_ = 0;
     Ids saved_{}, expect_{};
     double built_at_ = 0.0, next_try_ = 0.0, queued_at_ = 0.0;

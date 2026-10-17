@@ -3753,7 +3753,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
                 ui.frames(2);
             }
         };
-        step(3);
+        step(10);  // the write also waits until the map has been quiet for 5 s (counted from the first read)
         CHECK(fs::exists(out / bench::keep_on_file()) && s.bench_keep_on &&
                   s.bench_keep == "Bench order: on: waiting for Team Management to build its copy of your sheet",
               "on: the opt-in file written: " + s.bench_keep);
