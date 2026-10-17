@@ -16,6 +16,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cwctype>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -51,6 +52,8 @@ bool attrib_ebx_uses_minhook();  // attrib_ebx_win.cpp
 #include "ui/app.h"
 #include "core/hotkey.h"
 #include "core/wheel.h"
+#include "core/frame_cost.h"
+#include "ui/ui_shell.h"
 #include "core/edit_unlock.h"
 #include "core/hub_customise.h"
 
@@ -242,11 +245,23 @@ static WORD wheel_keys();  // Ctrl at a wheel notch (below)
 // changes are taken from WM_INPUT itself and queued as the equivalent window messages. Once a legacy mouse message
 // arrives the game delivers them and this stops, so nothing is counted twice.
 static std::atomic<bool> g_legacy_mouse_seen{false};
-static std::atomic<bool> g_ll_wheel{false};          // set once the low-level mouse hook (wheel) is installed
+static std::atomic<bool> g_ll_wheel{false};          // the low-level mouse hook (wheel) is installed right now
+static std::atomic<bool> g_ll_failed{false};         // SetWindowsHookEx refused: raw input carries the wheel from then on
 static std::atomic<double> g_ll_last_call{-1.0};     // now_seconds() of the hook's last call (any mouse event)
-static std::atomic<DWORD> g_ll_thread{0};            // the hook's thread (reinstall requests)
+static std::atomic<DWORD> g_ll_thread{0};            // the hook's thread (install / remove / reinstall requests)
 static std::atomic<long> g_wheel_ll{0}, g_wheel_raw{0}, g_wheel_msg{0}, g_ll_reinstalls{0};  // stats line
+static std::atomic<long> g_ll_installs{0}, g_ll_removals{0};  // 2.16: installed when Turbo is shown, removed when hidden
+static std::atomic<bool> g_game_fg{false};           // the game window is the foreground window (render thread, each frame)
+static turbo::WheelSums g_ll_sums;                   // notches from the hook, taken by poll_input (core/wheel.h)
+static turbo::HookLateness g_ll_late;                // how late the hook's thread ran each event (core/wheel.h)
+// What the hook's thread did, for the log: written by the render thread (poll_input), so the hook's thread never waits on
+// a file while a hook is in (every mouse event of the desktop waits for that thread)
+enum : unsigned { kLlNoteInstalled = 1, kLlNoteRemoved = 2, kLlNoteReinstalled = 4, kLlNoteRefused = 8 };
+static std::atomic<unsigned> g_ll_notes{0};
+static std::atomic<unsigned long> g_ll_error{0};      // GetLastError of a refused SetWindowsHookEx
 constexpr UINT kLlReinstallMsg = WM_APP + 1;
+constexpr UINT kLlInstallMsg = WM_APP + 2;  // 2.16: Turbo shown
+constexpr UINT kLlRemoveMsg = WM_APP + 3;   // 2.16: Turbo hidden
 
 // The wheel comes from exactly one source (core/wheel.h): the low-level hook while it is alive
 static bool ll_wheel_alive() { return turbo::wheel_hook_alive(g_ll_wheel.load(), now_seconds(), g_ll_last_call.load()); }
@@ -292,54 +307,105 @@ static WORD wheel_keys() {
 
 // Mouse wheel: FC 27 registers the mouse for raw input and reads it by polling, so while Turbo is shown no legacy
 // WM_MOUSEWHEEL and no WM_INPUT reaches the window procedure (seen in game, 03-10-2026: nothing scrolled). A low-level
-// mouse hook on its own thread sees every wheel notch regardless and queues it for ImGui while Turbo is visible and the
+// mouse hook on its own thread sees every wheel notch regardless and hands it to ImGui while Turbo is visible and the
 // game is the foreground window. Buttons stay on the per-frame poll and the raw-input path.
 // Windows removes a low-level hook without a word once one call is late; poll_input notices the hook has gone quiet
 // while the mouse moves and has this thread install it again (core/wheel.h). Until then raw input carries the wheel.
+// 2.16 gui/perf: Windows passes every mouse event of the desktop through this thread and waits for it, so a late thread
+// lags the pointer everywhere (Cassio's logs: the hook dropped and installed again 28 to 82 times in 10 minutes). The hook
+// is installed only while Turbo is shown, the thread runs time-critical (it sleeps in GetMessage between events), and the
+// procedure does O(1) lock-free work: a time stamp, the event's lateness, one atomic add per notch (the foreground check
+// is the render thread's flag of the last frame, not a GetForegroundWindow call here).
 static LRESULT CALLBACK ll_mouse_proc(int code, WPARAM wp, LPARAM lp) {
-    if (code == HC_ACTION) g_ll_last_call = now_seconds();
-    if (code == HC_ACTION && wp == WM_MOUSEWHEEL && g_ready && g_visible) {
+    if (code == HC_ACTION) {
+        g_ll_last_call = now_seconds();
         const auto* m = reinterpret_cast<const MSLLHOOKSTRUCT*>(lp);
-        HWND root = g_hwnd ? GetAncestor(g_hwnd, GA_ROOT) : nullptr;
-        if (g_hwnd && GetForegroundWindow() == (root ? root : g_hwnd)) {
-            const short delta = static_cast<short>(HIWORD(m->mouseData));
+        if (m->time != 0) g_ll_late.record(turbo::hook_late_ms(GetTickCount(), m->time));  // injected input too (SendInput stamps it)
+        if (wp == WM_MOUSEWHEEL && g_ready && g_visible && g_game_fg.load(std::memory_order_relaxed)) {
             ++g_wheel_ll;
-            std::lock_guard<std::mutex> lock(g_msg_mutex);
-            if (g_msgs.size() < 1024)
-                g_msgs.push_back({WM_MOUSEWHEEL, MAKEWPARAM(wheel_keys(), static_cast<WORD>(delta)),
-                                  MAKELPARAM(static_cast<short>(m->pt.x), static_cast<short>(m->pt.y))});
+            g_ll_sums.add(static_cast<short>(HIWORD(m->mouseData)), wheel_keys() != 0, m->pt.x, m->pt.y);
         }
     }
     return CallNextHookEx(nullptr, code, wp, lp);
 }
 static DWORD WINAPI ll_mouse_thread(LPVOID) {
     MSG msg;
-    PeekMessageW(&msg, nullptr, WM_USER, WM_USER, PM_NOREMOVE);  // this thread's message queue (reinstall requests)
+    PeekMessageW(&msg, nullptr, WM_USER, WM_USER, PM_NOREMOVE);  // this thread's message queue (install / remove requests)
+    // Every mouse event of the desktop waits for this thread while the hook is in: it must win the CPU from the game's
+    // threads at once. It runs only for those events (microseconds each) and sleeps in GetMessage otherwise.
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
     g_ll_thread = GetCurrentThreadId();
-    HHOOK h = SetWindowsHookExW(WH_MOUSE_LL, ll_mouse_proc, GetModuleHandleW(nullptr), 0);
-    if (!h) {
-        log("mouse wheel hook not installed (error %lu): the wheel will not scroll Turbo", static_cast<unsigned long>(GetLastError()));
-        return 0;
-    }
-    g_ll_wheel = true;
-    log("mouse wheel hook installed (low-level mouse hook on its own thread)");
+    log("mouse wheel hook ready (low-level mouse hook on its own time-critical thread, installed only while Turbo is shown)");
+    HHOOK h = nullptr;
+    auto install = [&h]() {
+        h = SetWindowsHookExW(WH_MOUSE_LL, ll_mouse_proc, GetModuleHandleW(nullptr), 0);
+        if (!h) {
+            g_ll_error = GetLastError();
+            g_ll_failed = true;  // raw input carries the wheel from now on
+            g_ll_notes.fetch_or(kLlNoteRefused);
+        }
+        // a fresh hook counts as just called: the watchdog (poll_input) must not take it for a quiet one and reinstall it
+        if (h) g_ll_last_call = now_seconds();
+        g_ll_wheel = h != nullptr;
+    };
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
-        if (msg.message == kLlReinstallMsg && !msg.hwnd) {
-            UnhookWindowsHookEx(h);  // already gone when Windows removed it; harmless then
-            h = SetWindowsHookExW(WH_MOUSE_LL, ll_mouse_proc, GetModuleHandleW(nullptr), 0);
-            if (++g_ll_reinstalls <= 3)
-                log("mouse wheel hook went quiet while the mouse moved: installed again (%s)", h ? "ok" : "failed");
-            if (!h) {
-                g_ll_wheel = false;  // raw input carries the wheel from now on
-                return 0;
-            }
+        if (msg.hwnd) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
             continue;
         }
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
+        if (msg.message == kLlInstallMsg) {
+            if (!h && !g_ll_failed.load()) {
+                install();
+                if (h) {
+                    ++g_ll_installs;
+                    g_ll_notes.fetch_or(kLlNoteInstalled);
+                }
+            }
+        } else if (msg.message == kLlRemoveMsg) {
+            if (h) {
+                UnhookWindowsHookEx(h);
+                h = nullptr;
+                g_ll_wheel = false;
+                ++g_ll_removals;
+                g_ll_notes.fetch_or(kLlNoteRemoved);
+            }
+        } else if (msg.message == kLlReinstallMsg) {
+            if (!h) continue;  // removed in the meantime (Turbo hidden)
+            UnhookWindowsHookEx(h);  // already gone when Windows removed it; harmless then
+            install();
+            ++g_ll_reinstalls;
+            if (h) g_ll_notes.fetch_or(kLlNoteReinstalled);
+            if (!h) return 0;  // raw input carries the wheel from now on
+        } else {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
     }
-    UnhookWindowsHookEx(h);
+    if (h) UnhookWindowsHookEx(h);
     return 0;
+}
+// The hook thread's notes (render thread): the first three installs / removals / reinstalls, and a refusal
+static void log_wheel_notes() {
+    const unsigned notes = g_ll_notes.exchange(0);
+    if (!notes) return;
+    static int installs = 0, removals = 0, reinstalls = 0;
+    if ((notes & kLlNoteInstalled) && ++installs <= 3) log("mouse wheel hook installed (Turbo shown)");
+    if ((notes & kLlNoteReinstalled) && ++reinstalls <= 3) log("mouse wheel hook went quiet while the mouse moved: installed again (ok)");
+    if ((notes & kLlNoteRefused) != 0)
+        log("mouse wheel hook not installed (error %lu): raw input carries the wheel", static_cast<unsigned long>(g_ll_error.load()));
+    if ((notes & kLlNoteRemoved) && ++removals <= 3) log("mouse wheel hook removed (Turbo hidden: no hook while Turbo is not shown)");
+}
+// One line for the log: notches per source, the hook's state and how late its thread ran the events
+static void log_wheel_stats(const char* when) {
+    const long long calls = g_ll_late.calls.load();
+    log("mouse wheel%s: %ld notches from the low-level hook, %ld from raw input, %ld from window messages; hook %s, installed %ld "
+        "times (Turbo shown), removed %ld times (hidden), installed again %ld times (went quiet); hook events %lld, average lateness "
+        "%.1f ms, %lld at %lld ms or more, %lld at %lld ms or more, max %lld ms",
+        when, g_wheel_ll.load(), g_wheel_raw.load(), g_wheel_msg.load(), g_ll_failed.load() ? "refused" : ll_wheel_alive() ? "alive" : "quiet",
+        g_ll_installs.load(), g_ll_removals.load(), g_ll_reinstalls.load(), calls,
+        calls ? static_cast<double>(g_ll_late.sum_ms.load()) / static_cast<double>(calls) : 0.0, g_ll_late.late.load(),
+        turbo::kHookLateMs, g_ll_late.very_late.load(), turbo::kHookVeryLateMs, g_ll_late.max_ms.load());
 }
 
 void input_raw_wheel(unsigned short delta) {
@@ -395,6 +461,8 @@ static void poll_input() {
     DWORD fg_pid = 0;
     if (fg_hwnd) GetWindowThreadProcessId(fg_hwnd, &fg_pid);
     const bool fg = (fg_hwnd == nullptr) || (fg_pid == GetCurrentProcessId()) || (fg_hwnd == g_hwnd) || (root && fg_hwnd == root);
+    // the low-level hook takes a notch only while the game window itself is in front (its own check before 2.16)
+    g_game_fg.store(fg_hwnd != nullptr && (fg_hwnd == g_hwnd || (root && fg_hwnd == root)), std::memory_order_relaxed);
     // Two sources for the show/hide key: the window message (catches even a very short tap) and polling (games that
     // only read raw input send no key message). One press seen by both counts once.
     static bool was_down = false;
@@ -428,6 +496,26 @@ static void poll_input() {
     {
         std::lock_guard<std::mutex> lock(g_msg_mutex);
         msgs.swap(g_msgs);
+    }
+    // 2.16 gui/perf: the low-level hook is in only while Turbo is shown; the hook's thread installs / removes it on the edges
+    log_wheel_notes();
+    static bool hook_wanted = false;
+    if (g_app->visible != hook_wanted && g_ll_thread.load()) {
+        hook_wanted = g_app->visible;
+        PostThreadMessageW(g_ll_thread.load(), hook_wanted ? kLlInstallMsg : kLlRemoveMsg, 0, 0);
+        static int hides_logged = 0;
+        if (!hook_wanted && hides_logged < 5) {  // the live check reads this line (tools/gui_perf_livecheck.py)
+            ++hides_logged;
+            log_wheel_stats(" (Turbo hidden)");
+        }
+    }
+    // the notches the hook summed since the last frame (core/wheel.h WheelSums), after the queued messages
+    {
+        int plain = 0, ctrl = 0, x = 0, y = 0;
+        g_ll_sums.take(plain, ctrl, x, y);
+        const LPARAM at = MAKELPARAM(static_cast<short>(x), static_cast<short>(y));
+        if (plain) msgs.push_back({WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(static_cast<short>(plain))), at});
+        if (ctrl) msgs.push_back({WM_MOUSEWHEEL, MAKEWPARAM(MK_CONTROL, static_cast<WORD>(static_cast<short>(ctrl))), at});
     }
     if (g_app->visible) {
         // Ctrl + wheel zooms Turbo (ui_zoom.h). Ctrl is polled here: the game may send no key messages, and the backend
@@ -619,7 +707,10 @@ static void render_frame_impl(IDXGISwapChain3* sc) {
 
     try {
         TurboInputScope own_input;  // Turbo's own key / mouse reads see the real state (the input shield is for the game)
-        g_app->tick(now_seconds());
+        const bool was_visible = g_app->visible;
+        const double t_start = now_seconds();
+        g_app->tick(t_start);
+        const double t_ticked = now_seconds();
         // a mailbox command is waiting, or pictures for the background loading (ui/preload.h) while Turbo is shown: the
         // game tick nudges Live Editor's Lua (game_hooks.cpp)
         want_lua_pump(g_app->busy() || g_app->lua_images_wanted());
@@ -634,6 +725,15 @@ static void render_frame_impl(IDXGISwapChain3* sc) {
         // a Turbo box opened by a double-click asks for the keyboard before Dear ImGui marks it active: until then its keys
         // would still go to the game (the cell box never saw a digit, and Enter pressed the game's selected button)
         g_want_keyboard = g_app->visible && (ImGui::GetIO().WantCaptureKeyboard || turbo::live_standings_wants_keyboard());
+        // 2.16 gui/perf: what this frame of Turbo cost the game, per page (core/frame_cost.h): a line in the log every 30 s on
+        // the same page, when the page changes, every 10 minutes while hidden, and at once for a frame over 50 ms
+        {
+            static turbo::FrameCost cost;
+            const double t_end = now_seconds();
+            const std::string page = was_visible ? turbo::shell::page_label(g_app->place().page) : "hidden";
+            for (const auto& line : cost.add(page, t_end, (t_ticked - t_start) * 1000.0, (t_end - t_ticked) * 1000.0))
+                log("%s", line.c_str());
+        }
         if (!g_start_proven && ++g_frames_run >= kStartFrames) {
             g_start_proven = true;
             log("overlay proven: %d frames ran without problems", kStartFrames);
@@ -643,9 +743,7 @@ static void render_frame_impl(IDXGISwapChain3* sc) {
         static long frames_total = 0;
         if (++frames_total == 3600 || frames_total == 36000) {
             input_shield_report();
-            log("mouse wheel: %ld notches from the low-level hook, %ld from raw input, %ld from window messages; hook %s, "
-                "installed again %ld times", g_wheel_ll.load(), g_wheel_raw.load(), g_wheel_msg.load(),
-                ll_wheel_alive() ? "alive" : "quiet", g_ll_reinstalls.load());
+            log_wheel_stats("");
         }
     } catch (const std::exception& e) {
         log("frame error: %s", e.what());
@@ -845,6 +943,52 @@ static bool find_targets() {
     UnregisterClassW(wc.lpszClassName, wc.hInstance);
     if (!ok) log("could not create the probe swap chain (D3D12 unavailable?)");
     return ok;
+}
+
+// ---------------------------------------------------------------- game-hook report (Settings page, Job offers, Manager rules)
+// 2.16 gui/perf: building the report reads about 25 kill-switch files (the game calls' *_status lines) and takes locks the
+// game's own threads take in Turbo's detours (game_hooks' refresh_switches holds its mutex over ~20 file checks every 2 s).
+// The Settings page asked for it inside Present every frame, twice with Technical details open, so the game's frame
+// waited for Turbo's file checks and for its own threads. It is built on this thread instead, once a second while Turbo is
+// shown (and once at start), and the pages read the last one (App::hook_report_cached on top: at most once a second).
+static turbo::HookReport build_hook_report() {
+    turbo::HookReport r = game_hooks_report();
+    r.calls = game_calls_status();
+    for (const auto& line : commentary_audio_status()) r.calls.push_back(line);
+    for (const auto& line : callname_voice_status()) r.calls.push_back(line);
+    for (const auto& line : edit_unlock_hook_status()) r.calls.push_back(line);
+    for (const auto& line : team_names_status()) r.calls.push_back(line);
+    for (const auto& line : team_sheet_status()) r.calls.push_back(line);
+    for (const auto& line : tuning_status()) r.calls.push_back(line);
+    for (const auto& line : kit_swap_status()) r.calls.push_back(line);
+    for (const auto& line : lua_loader_status()) r.calls.push_back(line);  // empty without turbo_output\lua_loader_on.txt
+    return r;
+}
+static std::mutex g_report_mutex;
+static std::shared_ptr<const turbo::HookReport> g_report;  // the last report built by hook_report_thread
+static turbo::HookReport hook_report_snapshot() {
+    {
+        std::lock_guard<std::mutex> lock(g_report_mutex);
+        if (g_report) return *g_report;
+    }
+    return build_hook_report();  // before the thread's first report (start-up): built here, as before 2.16
+}
+static DWORD WINAPI hook_report_thread(LPVOID) {
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+    for (bool first = true;; first = false) {
+        if (first || g_visible.load()) {
+            try {
+                auto r = std::make_shared<const turbo::HookReport>(build_hook_report());
+                std::lock_guard<std::mutex> lock(g_report_mutex);
+                g_report = std::move(r);
+            } catch (const std::exception& e) {
+                static int logged = 0;
+                if (++logged <= 3) log("game-hook report not built: %s", e.what());
+            } catch (...) {
+            }
+        }
+        Sleep(1000);
+    }
 }
 
 // ---------------------------------------------------------------- hook targets from TurboProbe.exe
@@ -1154,19 +1298,8 @@ bool start_overlay(HMODULE) {
     install_team_names();
     g_app->team_names_service = team_names_service();
     g_app->faces3d_report = []() { return faces3d_status(); };  // Players > Appearance > 3D hair and beard
-    g_app->hook_report = []() {
-        turbo::HookReport r = game_hooks_report();
-        r.calls = game_calls_status();
-        for (const auto& line : commentary_audio_status()) r.calls.push_back(line);
-        for (const auto& line : callname_voice_status()) r.calls.push_back(line);
-        for (const auto& line : edit_unlock_hook_status()) r.calls.push_back(line);
-        for (const auto& line : team_names_status()) r.calls.push_back(line);
-        for (const auto& line : team_sheet_status()) r.calls.push_back(line);
-        for (const auto& line : tuning_status()) r.calls.push_back(line);
-        for (const auto& line : kit_swap_status()) r.calls.push_back(line);
-        for (const auto& line : lua_loader_status()) r.calls.push_back(line);  // empty without turbo_output\lua_loader_on.txt
-        return r;
-    };
+    g_app->hook_report = []() { return hook_report_snapshot(); };  // the last report of hook_report_thread (above)
+    if (HANDLE th = CreateThread(nullptr, 0, hook_report_thread, nullptr, 0, nullptr)) CloseHandle(th);
     install_player_capture(*g_app);  // miniface from the 3D model (player_capture_win.cpp): needs the game hooks above
     start_devtools();
     return true;

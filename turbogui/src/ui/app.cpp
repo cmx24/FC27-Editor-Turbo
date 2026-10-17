@@ -187,6 +187,17 @@ void App::notify(const std::string& text, bool error) {
     if (toasts.size() > 5) toasts.erase(toasts.begin());
 }
 
+const HookReport& App::hook_report_cached() {
+    if (!hook_report) {
+        hook_report_cache_ = HookReport{};
+        hook_report_cache_at_ = -1.0;
+    } else if (hook_report_cache_at_ < 0.0 || now < hook_report_cache_at_ || now - hook_report_cache_at_ >= 1.0) {
+        hook_report_cache_ = hook_report();
+        hook_report_cache_at_ = now;
+    }
+    return hook_report_cache_;
+}
+
 bool App::lua_alive() const { return lua_heartbeat_seen_at >= 0.0 && (now - lua_heartbeat_seen_at) < 600.0; }
 
 std::unordered_set<int64_t> App::commentary_ids() {

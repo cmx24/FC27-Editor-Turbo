@@ -194,6 +194,9 @@ static void ui_cases_preload_hotkey(App& app, Ui& ui, const fs::path& le) {
             std::ofstream(cached, std::ios::binary).write(reinterpret_cast<const char*>(dds.data()), std::streamsize(dds.size()));
         }
         const size_t settled0 = app.preloader->settled();
+        // 2.16 gui/perf: an asked picture is not looked for on disk every round any more: LegacyImages' arrival check (once a
+        // second on screen, a quarter-second slice in the background) takes it off the list first, then one look settles it
+        app.legacy.tick(app.now + 2.0);
         ui.frames(int(app.preloader->total() / Preloader::kChecksPerFrame) + 3);
         CHECK(app.preloader->settled() > settled0 || had, "the arrived picture counts");
         CHECK(app.textures.preload_wait(5.0), "worker idle");
@@ -253,12 +256,14 @@ static void ui_cases_preload_hotkey(App& app, Ui& ui, const fs::path& le) {
             std::vector<uint8_t> dds = encode_dds_dxt5(solid(64, 64, 30, 60, uint8_t(pid % 200)));
             std::ofstream(heads / ("p" + std::to_string(pid) + ".dds"), std::ios::binary).write(reinterpret_cast<const char*>(dds.data()), std::streamsize(dds.size()));
         }
+        // 2.16 gui/perf: LegacyImages' arrival check takes them off Lua's list first (the loader no longer looks for asked
+        // pictures on disk every round), then the round settles them
+        app.legacy.tick(app.now + 2.0);
+        CHECK(app.legacy.waiting_background() == waiting0, fmt("the arrived ones left Lua's list (%zu waiting)", app.legacy.waiting_background()));
         round();
         CHECK(pre.settled() == settled0 + 2, fmt("both loaded (%zu of %zu)", pre.settled(), pre.total()));
         CHECK(pre.total() - pre.settled() == total0 - settled0, "only the pictures that waited before still wait");
         CHECK(pre.queue().done() == (total0 == settled0), "the queue completes when nothing else waits");
-        app.legacy.tick(app.now + 2.0);
-        CHECK(app.legacy.waiting_background() == waiting0, fmt("the arrived ones left Lua's list (%zu waiting)", app.legacy.waiting_background()));
         CHECK(app.textures.preload_wait(5.0), "worker idle");
         for (int64_t pid : {p1, p2}) {
             const fs::path f = heads / ("p" + std::to_string(pid) + ".dds");

@@ -189,6 +189,9 @@ public:
     bool texture_test = false;
     std::function<void(const std::string&)> log_hook;  // writes to turbo_gui.log (set by the Windows host)
     std::function<HookReport()> hook_report;           // game-code hook status for the Status tab (Windows host)
+    // 2.16 gui/perf: hook_report() asked at most once a second; the pages that show it (Settings > Health and Technical
+    // details, Job offers, Manager rules) read this every frame. An empty report while hook_report is unset.
+    const HookReport& hook_report_cached();
     std::function<lualoader::Faces3dStatus()> faces3d_report;  // Lua loader / 3D hair+beard hook state (Windows host; unset = none)
     std::shared_ptr<capture::CaptureService> capture;   // miniface from the game's 3D model (Windows host; tests use a fake)
     // Standings refresh after a live table edit (core/standings_refresh.h; Windows host; tests use a fake; null = none)
@@ -447,6 +450,8 @@ public:
 
 private:
     shell::Place place_{shell::Area::Squad, shell::Page::PlayerEdit};
+    HookReport hook_report_cache_;      // hook_report_cached()
+    double hook_report_cache_at_ = -1.0;  // App time of that report (< 0 = none)
     shell::Place go_to_;                                    // a go() waiting for the next draw_pages()
     shell::Page area_page_[shell::kAreaCount] = {};         // the page last shown per area (None = the area's default)
     bool legacy_repaired_ = false;  // repair_dds_files ran (first tick)

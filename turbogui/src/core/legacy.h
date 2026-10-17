@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -135,6 +136,12 @@ public:
     std::filesystem::path cache_file(const std::string& path) const;
     const std::string& lua_status() const { return status_; }
     size_t cached_files() const;
+    // 2.16 gui/perf: the same count for any folder, touching no LegacyImages state (the Settings page runs it on a worker:
+    // it walks every file of the cache, 24,675 in a played career, and froze the page when drawn every frame)
+    static size_t count_cached_files(const std::filesystem::path& dir);
+    // 2.16 gui/perf: the path is asked right now (Lua's background list or on screen): the background loader does not look
+    // for it on disk again until it leaves the list (tick notices it arriving, read_missing notices it missing)
+    bool asked_now(const std::string& path) const { return bg_set_.count(path) > 0 || want_set_.count(path) > 0; }
     // Empty the cache folder and start a new generation (Lua looks at everything again)
     bool clear_cache(std::string* err = nullptr);
 
@@ -164,6 +171,7 @@ private:
     std::unordered_set<std::string> bg_set_;
     size_t bg_limit_ = kMaxBackground;         // ask_background says Full beyond it
     size_t bg_check_ = 0;                      // round-robin position of the arrival check (tick)
+    double next_bg_check_ = 0.0;               // 2.16: the arrival check runs every quarter second (100 paths), not 400 at once
     void drop_background(const std::function<bool(const std::string&)>& gone);
     void drop_wanted(const std::function<bool(const std::string&)>& gone);  // arrived / refused: out of want_ (progress)
     std::unordered_set<std::string> missing_;
@@ -171,6 +179,16 @@ private:
     std::unordered_map<std::string, int> missing_set_aside_;  // reload(): the path's lines in missing.txt then
     std::unordered_map<std::string, double> asked_at_;        // want_ path -> when it was first asked (waiting_for)
     double now_ = 0.0;                                        // last tick
+    // 2.16 gui/perf: custom_file's case-insensitive match lists a folder of mods\legacy; the listing is kept per folder and
+    // read again only when the folder's last-write time changes (a file added, removed or renamed in it). Before, every
+    // picture drawn listed its folder in every frame. Under a mutex: custom_file is const and may be asked from a worker.
+    struct CustomDir {
+        bool listed = false;
+        std::filesystem::file_time_type mtime{};
+        std::unordered_map<std::string, std::filesystem::path> by_lower;  // lower-case file name -> the file
+    };
+    mutable std::mutex custom_dirs_m_;
+    mutable std::unordered_map<std::string, CustomDir> custom_dirs_;
     double last_progress_ = 0.0;  // a wanted picture arrived or was refused, Lua's status changed, or one was newly asked
     std::string status_;
     uint64_t gen_ = 0;
