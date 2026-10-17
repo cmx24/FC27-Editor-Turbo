@@ -70,7 +70,7 @@ static void test_asset_app_ui(App& app, Ui& ui, const fs::path& le) {
             j["families"]["hair"]["model"] = nlohmann::json::array({1, 2, 3});                     // hair 4 dropped
             j["families"]["head3d"]["ids"] = nlohmann::json::array({90001, 90002, 90003, 90100});  // head 90004 dropped
             j["families"]["head3d"]["slug"].erase("90004");
-            j["families"]["head3d"]["slug"]["90003"] = "david_moyes";  // the fake world's manager 502 (head 7502)
+            j["families"]["head3d"]["slug"]["90003"] = "thomas_tuchel";  // the fake world's manager 504 (head 7504)
             std::ofstream out_f(dir / ("catalog_" + key + ".json"), std::ios::binary | std::ios::trunc);
             out_f << j.dump();
         }
@@ -86,8 +86,8 @@ static void test_asset_app_ui(App& app, Ui& ui, const fs::path& le) {
         CHECK(hidden_heads2 == 3, fmt("real-face chooser: the dropped head is gone (%zu)", hidden_heads2));
         // "Manager heads": a game head whose EBX slug is a manager's name is listed for him as a "name match"
         const std::vector<faces::Face>& nm = manager_match_faces(app);
-        CHECK(nm.size() == 1 && nm[0].id == 90003 && nm[0].game_head && nm[0].match_manager == 502 && nm[0].match_label.find("Moyes") != std::string::npos,
-              fmt("name match: head 90003 (slug david_moyes) for manager 502 (%zu matches)", nm.size()));
+        CHECK(nm.size() == 1 && nm[0].id == 90003 && nm[0].game_head && nm[0].match_manager == 504 && nm[0].match_label.find("Tuchel") != std::string::npos,
+              fmt("name match: head 90003 (slug thomas_tuchel) for manager 504 (%zu matches)", nm.size()));
 
         // the catalog goes away: every picker is back on its 2.0 source
         fs::remove(dir / ("catalog_" + key + ".json"), ec);
