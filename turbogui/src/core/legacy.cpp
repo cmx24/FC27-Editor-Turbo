@@ -3,6 +3,7 @@
 #include "image.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <cstdio>
 #include <ctime>
@@ -129,14 +130,29 @@ fs::path LegacyImages::custom_file(const std::string& path) const {
     fs::path p = under(mods_dir(), path);
     std::error_code ec;
     if (fs::is_regular_file(p, ec)) return p;
-    // other tools write P123.DDS / p123.DDS: match the name in any letter case
+    // other tools write P123.DDS / p123.DDS: match the name in any letter case. 2.16 gui/perf: the folder's listing is kept
+    // until its last-write time changes (one time stamp read instead of a listing per picture drawn per frame)
     fs::path dir = p.parent_path();
-    if (!fs::is_directory(dir, ec)) return {};
-    std::string want = lower(p.filename().string());
-    for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
-        if (it->is_regular_file(ec) && lower(it->path().filename().string()) == want) return it->path();
+    const auto mtime = fs::last_write_time(dir, ec);
+    if (ec) return {};  // no such folder
+    const std::string want = lower(p.filename().string());
+    std::lock_guard<std::mutex> lock(custom_dirs_m_);
+    CustomDir& d = custom_dirs_[dir.string()];
+    // a folder changed in the last 2 s is listed again every time (its time stamp may not move for a second change within
+    // the file system clock's tick)
+    const bool recent = fs::file_time_type::clock::now() - mtime < std::chrono::seconds(2);
+    if (!d.listed || d.mtime != mtime || recent) {
+        d.listed = true;
+        d.mtime = mtime;
+        d.by_lower.clear();
+        std::error_code le;
+        for (fs::directory_iterator it(dir, le), end; !le && it != end; it.increment(le)) {
+            std::error_code e2;
+            if (it->is_regular_file(e2)) d.by_lower.emplace(lower(it->path().filename().string()), it->path());
+        }
     }
-    return {};
+    auto it = d.by_lower.find(want);
+    return it == d.by_lower.end() ? fs::path() : it->second;
 }
 
 fs::path LegacyImages::cache_file(const std::string& path) const {
@@ -308,6 +324,7 @@ void LegacyImages::read_missing() {
 }
 
 void LegacyImages::tick(double now) {
+    if (now < now_) next_bg_check_ = now;  // the clock went back (a tick ahead of the frames, the tests do that): no old schedule
     now_ = now;
     if (now >= next_read_) {
         next_read_ = now + 1.0;
@@ -317,17 +334,20 @@ void LegacyImages::tick(double now) {
         drop_wanted([&](const std::string& p) { return fs::is_regular_file(under(cache_dir(), p), ec); });
         for (auto it = asked_at_.begin(); it != asked_at_.end();)  // cut from the list (kMaxWanted): no longer waiting
             it = want_set_.count(it->first) ? std::next(it) : asked_at_.erase(it);
-        // background list: a slice per second (thousands of paths), round robin
-        if (!bg_.empty()) {
-            constexpr size_t kSlice = 400;
-            if (bg_check_ >= bg_.size()) bg_check_ = 0;
-            const size_t from = bg_check_, to = std::min(bg_.size(), from + kSlice);
-            std::unordered_set<std::string> arrived;
-            for (size_t i = from; i < to; ++i)
-                if (fs::is_regular_file(under(cache_dir(), bg_[i]), ec)) arrived.insert(bg_[i]);
-            bg_check_ = to - arrived.size();
-            if (!arrived.empty()) drop_background([&](const std::string& p) { return arrived.count(p) > 0; });
-        }
+    }
+    // background list: a slice every quarter second (thousands of paths), round robin. 2.16 gui/perf: 100 paths every 0.25 s
+    // (the same 400 a second as before) so that no single frame looks at 400 files (this runs in the game's Present)
+    if (!bg_.empty() && now >= next_bg_check_) {
+        next_bg_check_ = now + 0.25;
+        constexpr size_t kSlice = 100;
+        std::error_code ec;
+        if (bg_check_ >= bg_.size()) bg_check_ = 0;
+        const size_t from = bg_check_, to = std::min(bg_.size(), from + kSlice);
+        std::unordered_set<std::string> arrived;
+        for (size_t i = from; i < to; ++i)
+            if (fs::is_regular_file(under(cache_dir(), bg_[i]), ec)) arrived.insert(bg_[i]);
+        bg_check_ = to - arrived.size();
+        if (!arrived.empty()) drop_background([&](const std::string& p) { return arrived.count(p) > 0; });
     }
     if (dirty_ && (last_write_ < 0.0 || now - last_write_ >= 0.5)) {
         last_write_ = now;
@@ -335,11 +355,13 @@ void LegacyImages::tick(double now) {
     }
 }
 
-size_t LegacyImages::cached_files() const {
+size_t LegacyImages::cached_files() const { return count_cached_files(cache_dir()); }
+
+size_t LegacyImages::count_cached_files(const fs::path& dir) {
     size_t n = 0;
     std::error_code ec;
-    if (!fs::is_directory(cache_dir(), ec)) return 0;
-    for (fs::recursive_directory_iterator it(cache_dir(), ec), end; !ec && it != end; it.increment(ec)) {
+    if (!fs::is_directory(dir, ec)) return 0;
+    for (fs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
         if (it->is_regular_file(ec) && lower(it->path().extension().string()) == ".dds") ++n;
     }
     return n;

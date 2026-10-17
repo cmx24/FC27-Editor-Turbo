@@ -810,7 +810,7 @@ void draw_hook_status(App& app) {
         ImGui::TextDisabled("not available in this build");
         return;
     }
-    const HookReport r = app.hook_report();
+    const HookReport& r = app.hook_report_cached();  // 2.16: at most once a second, built on the host's report thread
     ImGui::Text("Game build: %s | signature table: %s | hooks: %s", r.build.empty() ? "unknown" : r.build.c_str(),
                 r.table_source.empty() ? "none" : r.table_source.c_str(), r.enabled ? "allowed" : "off");
     if (!r.note.empty()) ImGui::TextWrapped("  %s", r.note.c_str());
@@ -882,9 +882,22 @@ static void asset_catalog_status(App& app) {
     if (s == assets::State::Stale)
         ImGui::TextColored(warn, "  Hidden ids cannot be written until the catalog is rebuilt for this game build.");
     const fs::path out = app.turbo_output();
-    const assets::Switches sw = assets::read_switches(out);
+    // 2.16 gui/perf: the three switch files are looked at once a second, not in every frame this row is drawn
+    static struct {
+        assets::Switches sw;
+        bool gate = false;
+        double at = -1.0;
+        std::string out;
+    } seen;
     std::error_code ec;
-    const bool gate = fs::exists(assets::lua_gate_path(out), ec);
+    if (seen.at < 0.0 || app.now < seen.at || app.now - seen.at >= 1.0 || seen.out != out.string()) {
+        seen.sw = assets::read_switches(out);
+        seen.gate = fs::exists(assets::lua_gate_path(out), ec);
+        seen.at = app.now;
+        seen.out = out.string();
+    }
+    const assets::Switches sw = seen.sw;
+    const bool gate = seen.gate;
     ImGui::TextDisabled("  asset_catalog_off.txt: %s | asset_hidden_off.txt: %s | lua_gate.txt: %s", sw.catalog_off ? "present (catalog off)" : "absent",
                         sw.hidden_off ? "present (hidden ids off)" : "absent", gate ? "written" : "none");
     ImGui::BeginDisabled(app.asset_loading());
@@ -927,7 +940,7 @@ void draw_status_health(App& app) {
         std::string line;
         bool good = true;
         if (app.hook_report) {
-            const HookReport r = app.hook_report();
+            const HookReport& r = app.hook_report_cached();  // 2.16: not every frame (it read ~25 files and the game's locks)
             int found = 0, active = 0, killed = 0;
             for (const auto& s : r.signatures)
                 if (s.state == SigState::Found) ++found;
@@ -1028,7 +1041,11 @@ void draw_preferences(App& app) {
 // The log lines (a bordered child filling the rest of the window)
 void draw_status_log(App& app) {
     ImGui::BeginChild("##log", ImVec2(0, 0), ImGuiChildFlags_Borders);
-    for (const auto& l : app.log_lines) ImGui::TextUnformatted(l.c_str());
+    // 2.16 gui/perf: only the lines in view are laid out (ImGuiListClipper; at most 300 lines are kept)
+    ImGuiListClipper clip;
+    clip.Begin(static_cast<int>(app.log_lines.size()));
+    while (clip.Step())
+        for (int i = clip.DisplayStart; i < clip.DisplayEnd; ++i) ImGui::TextUnformatted(app.log_lines[static_cast<size_t>(i)].c_str());
     if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) ImGui::SetScrollHereY(1.0f);
     ImGui::EndChild();
 }
