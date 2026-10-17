@@ -1161,7 +1161,7 @@ static int real_game(const std::string& game, int team, int slot) {
         std::string sh;
         for (const auto& u : f.shared) sh += (sh.empty() ? "" : ", ") + ("team " + std::to_string(u.team) + " " + u.kind);
         std::printf("  KIT %-24s %s %s%s%s\n", f.kind.c_str(), f.swapped ? "SWAPPED" : "LEFT", f.swapped ? "" : (f.role + ": " + f.reason).c_str(),
-                    f.details_left ? (" (" + std::to_string(f.details_left) + " shading maps stay the game's)").c_str() : "", sh.empty() ? "" : (" | shared: " + sh).c_str());
+                    f.details_left ? (" (" + std::to_string(f.details_left) + " detail maps stay the game's)").c_str() : "", sh.empty() ? "" : (" | shared: " + sh).c_str());
     }
     for (const auto& n : plan.notes) std::printf("  note: %s\n", n.c_str());
     std::vector<std::string> dropped;

@@ -242,8 +242,8 @@ enum class LeftBy {
     Other,         // not in the zip, another size or format, uniform fill, unreadable...
 };
 // 2.13: never half a kit. The pictures that decide whether a kit folder is shown as the zip's: when one of them is not served, for any
-// reason, the whole folder (jersey, shorts, socks, brand, hotspots) stays the game's. The coefficient / normal / taa maps are shading
-// detail: one that cannot be served stays the game's and is counted (FolderVerdict::details_left). The game loads one kit folder at a
+// reason, the whole folder (jersey, shorts, socks, brand, hotspots) stays the game's. The coefficient / normal / taa maps are detail
+// maps: one that cannot be served stays the game's and is counted (FolderVerdict::details_left). The game loads one kit folder at a
 // time (home_0_0, or its alternative version loc2_home_40_0), so each folder is judged on its own.
 bool kit_role(const std::string& role);
 // jersey / shorts / socks coefficient, normal and taa maps (counted, never decisive)

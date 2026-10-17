@@ -143,10 +143,20 @@ static void run() {
         ks::Status st;
         st.folders = p.folders;
         const std::string line = turbo::kit_swap_status_line(st, kSev, 2, names);
-        CHECK(line == "not swapped: the shirt is shared with Aston Villa's GK kit; tick the box above to swap both", "the slot's status in plain words: " + line);
+        CHECK(line == "not swapped: the shirt is shared with Aston Villa's GK kit; tick 'Also change other clubs' kits...' to swap both", "the slot's status names the box: " + line);
         CHECK(turbo::kit_swap_status_line(st, kSev, 2, [](int64_t id) { return "Team " + std::to_string(id); }).find("Team 2's GK kit") != std::string::npos,
               "a club without a name in the model: its id");
         CHECK(turbo::kit_swap_status_line(st, kSev, 0, names).empty(), "another slot: no line");
+        ks::Status st2;  // the other boxes and the detail maps, in plain words (Architect 2026-10-17: the line names the box that unblocks it)
+        ks::FolderVerdict club;
+        club.team = kSev, club.slot = 0, club.kind = "home_0_0", club.swapped = false, club.why = ks::LeftBy::ThisClub, club.role = "socks_color";
+        club.shared = {{kSev, 1, "away_1_0"}};
+        ks::FolderVerdict detail;
+        detail.team = kSev, detail.slot = 1, detail.kind = "away_1_0", detail.details_left = 2;
+        st2.folders = {club, detail};
+        CHECK(turbo::kit_swap_status_line(st2, kSev, 0, names) == "not swapped: the socks are shared with this club's away kit; tick 'Also change this club's other kits...' to swap both",
+              "within the club: names the club box: " + turbo::kit_swap_status_line(st2, kSev, 0, names));
+        CHECK(turbo::kit_swap_status_line(st2, kSev, 1, names) == "swapped; 2 detail maps stay the game's", "swapped with detail maps left: " + turbo::kit_swap_status_line(st2, kSev, 1, names));
     });
 
     run_case("kit share: the option on: every texture served, the notes name club 2's kit that changes too, the table serves club 2's blocks", [&] {
