@@ -144,14 +144,20 @@ whole-second resolution with this toolchain and a stamp alone missed a rewrite l
   this session's `Initial setup done`).
 - `ui/`: `app.*` (tick/draw, settings), `widgets.cpp` (validated field editors), `ui_players/teams/database/tools.cpp`, `playstyles.h`.
 - Real-face chooser (Players > Appearance and Managers > Appearance, `ui/ui_faces.*`, filters in `core/face_filter.*`): heads
-  from `players` (headclasscode 0 + hashighqualityhead 1) or `manager` (headclasscode 0); filters on headtypecode (ethnicity:
+  from `players` or `manager` with headclasscode 0 ("Real faces only"; hashighqualityhead is an HQ badge and the optional
+  "High-quality heads only" filter, off by default, as is "Only heads with a 3D look"); under "Manager heads" also the game
+  heads whose EBX slug or catalog name matches a manager of the save ("name match", core/game_heads.h); filters on headtypecode (ethnicity:
   ranges of 500 grouped as European / Mediterranean / Latin / African / Asian / Mixed, named from the skin tones and nations
   of the FC 27 players in each range - FC 27 players and managers have no ethnicity field), skintonecode (10..100, Live
   Editor's labels Caucasian 1..African 3), haircolorcode / facialhaircolorcode (Live Editor's haircolor_0..14), hairtypecode
   and facialhairtypecode (the game's `imgAssets/hairstyle` / `facialhairstyle` previews), eyecolorcode. Giving a head copies
   headassetid, headclasscode, hashighqualityhead, headtypecode, headvariation (+ hair / beard / eyes / skin fields on request)
-  into the target's own table; for a manager given a player's head, the player's miniface is written (512 x 512 DXT5) to
-  `mods\legacy\data\ui\imgAssets\heads_staff\heads_staff_<headassetid>.dds`.
+  into the target's own table, and the head's picture always comes with it (never a mixed result, `game_heads::miniface_plan`):
+  a player gets the owner's miniface (a game head: its p<head>, else its legend picture) as his own p<playerid>; a manager
+  gets it (512 x 512 DXT5) as his own `mods\legacy\data\ui\imgAssets\heads_staff\heads_staff_<managerid>.dds`. While the
+  picture is still loading nothing is written; when the game has none, the message says his old picture stays. Managers'
+  pictures are shown in the order heads_staff_<managerid>, heads_staff_<headassetid>, genericManagerHeads/gmh<headassetid>
+  (`legacy_path::staff_pictures`).
 - Callnames (Players > Callname tab, `core/callnames.*`, `ui/ui_callnames.cpp`, Lua `features/callnames.lua`): the name the
   commentary speaks for the loaded commentary language (packs found in the game folder; spoken ids asked from the game's
   own audio service on the game thread - `core/commentary_audio.*`, `win/commentary_audio_win.cpp`, the Create Player

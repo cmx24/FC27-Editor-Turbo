@@ -45,8 +45,11 @@ static HeadCatalog load_fixture(const std::string& path, assets::State state) {
         const std::string k = std::to_string(id);
         if (h.at("vars").contains(k)) i.vars = h.at("vars").at(k).get<std::vector<int>>();
         if (h.at("toc").contains(k)) i.toc = h.at("toc").at(k).get<std::string>();
+        if (h.contains("slug") && h.at("slug").contains(k)) i.slug = h.at("slug").at(k).get<std::string>();
         i.generic = std::find(generic.begin(), generic.end(), id) != generic.end();
         i.miniface = std::find(minis.begin(), minis.end(), id) != minis.end();
+        const std::vector<int64_t> legends = f.at("legendface").at("ids").get<std::vector<int64_t>>();
+        i.legend = std::find(legends.begin(), legends.end(), id) != legends.end();
         const json& names = j.at("names").at("player");
         if (names.contains(k)) {
             i.name = names.at(k).at(0).get<std::string>();
@@ -64,6 +67,7 @@ static void test_game_heads(const std::string& fixture) {
     check(cur.heads.size() == 5 && cur.find(90002) && cur.find(90002)->vars.size() == 2 && cur.find(90100)->generic &&
               cur.find(90001)->miniface && !cur.find(90003)->miniface && !cur.find(41),
           "fixture heads");
+    check(cur.find(90002)->legend && !cur.find(90001)->legend, "legend picture flag (fixture: 90002)");
     // synthetic DB: 90002 is a player's head, 90004 a manager's (any class counts as used)
     const game_heads::UsedHeads used = {90002, 90004, 123};
     std::vector<const HeadInfo*> hid = game_heads::hidden_heads(cur, used);
@@ -106,6 +110,52 @@ static void test_game_heads(const std::string& fixture) {
     assets::Catalog empty;
     HeadCatalog fc = game_heads::from_catalog(empty);
     check(!fc.loaded() && fc.heads.empty() && game_heads::hidden_heads(fc, used).empty(), "from_catalog: not loaded");
+}
+
+static void test_name_match(const std::string& fixture) {
+    std::printf("game heads: managers' own heads by name (\"name match\")\n");
+    using game_heads::name_key;
+    check(name_key("R\xc3\xb6" "hl") == "rohl" && name_key("Doe_John") == "doejohn" &&
+              name_key("\xc3\x9e" "orsteinn") == "thorsteinn" && name_key("F\xc3\xa0" "bregas Soler") == "fabregassoler" &&
+              name_key("\xc5\x81" "ukasz") == "lukasz" && name_key("\xc3\x9f\xc3\x86") == "ssae" &&
+              name_key("Ab-c d.e") == "abcde" && name_key("\xe4\xb8\x80" "x") == "x",
+          "name keys: letters only, accents folded, other scripts dropped");
+    HeadCatalog cur = load_fixture(fixture, assets::State::Current);
+    check(cur.find(90004) && cur.find(90004)->slug == "test_coach_one", "fixture slug loaded");
+    std::vector<game_heads::ManagerName> ms(3);
+    ms[0].managerid = 92001, ms[0].headassetid = 92001, ms[0].first = "Test", ms[0].last = "Coach One", ms[0].label = "Test Coach One";
+    ms[1].managerid = 92002, ms[1].headassetid = 90004, ms[1].first = "Test", ms[1].last = "Coach One", ms[1].label = "Test Coach One B";
+    // digits never count: "Test Head" has the name key of the catalog names "Test Head 90001" and "Test Head 90003"
+    ms[2].managerid = 92003, ms[2].headassetid = 92003, ms[2].common = "Test Head", ms[2].label = "Test Head";
+    const game_heads::UsedHeads used = {90002};
+    std::vector<game_heads::NameMatch> m = game_heads::manager_name_matches(cur, ms, used);
+    check(m.size() == 3 && m[0].manager->managerid == 92001 && m[0].head->id == 90004 && m[1].manager->managerid == 92003 &&
+              m[1].head->id == 90001 && m[2].head->id == 90003,
+          "slug (first + last) and catalog name (common name) match; his own head is never offered back");
+    const game_heads::UsedHeads used2 = {90002, 90004, 90001, 90003};
+    check(game_heads::manager_name_matches(cur, ms, used2).empty(), "a head some row uses is someone else's: no match");
+    std::vector<game_heads::ManagerName> generic(1);
+    generic[0].first = "Gen", generic[0].last = "Eric", generic[0].label = "x";
+    check(game_heads::manager_name_matches(cur, generic, used).empty(), "a generic head never matches");
+    HeadCatalog hoff = cur;
+    hoff.hidden_off = true;
+    check(game_heads::manager_name_matches(hoff, ms, used).empty(), "asset_hidden_off.txt: no match offered");
+    std::vector<game_heads::ManagerName> shortn(1);
+    shortn[0].common = "Te", shortn[0].label = "Te";
+    check(game_heads::manager_name_matches(cur, shortn, used).empty(), "name keys under 4 letters never match");
+}
+
+static void test_miniface_plan() {
+    std::printf("game heads: the miniface comes with the head (never a mixed result)\n");
+    const game_heads::MinifacePlan r = game_heads::miniface_plan(game_heads::PictureState::Ready, "his miniface p7");
+    check(r.write_head && r.copy && r.in_step && r.note.empty(), "picture at hand: head and miniface together");
+    const game_heads::MinifacePlan l = game_heads::miniface_plan(game_heads::PictureState::Loading, "his miniface p7");
+    check(!l.write_head && !l.copy && !l.in_step && l.note.find("nothing written") == 0 && l.note.find("p7") != std::string::npos,
+          "picture still loading: nothing written, click again");
+    const game_heads::MinifacePlan n = game_heads::miniface_plan(game_heads::PictureState::None, "his miniface p7");
+    check(n.write_head && !n.copy && !n.in_step && n.note.find("no miniface") != std::string::npos &&
+              n.note.find("p7 still shows the old face") != std::string::npos,
+          "no picture in the game: the head is written and the message says the old picture stays");
 }
 
 static void test_five_per_menu() {
@@ -198,6 +248,8 @@ int main(int argc, char** argv) {
     }
     try {
         test_game_heads(argv[1]);
+        test_name_match(argv[1]);
+        test_miniface_plan();
         test_five_per_menu();
     } catch (const std::exception& e) {
         std::printf("  FAIL exception: %s\n", e.what());

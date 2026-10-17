@@ -5631,9 +5631,12 @@ static void test_ui() {
             CHECK(ui.click("face.png", "##mffiles"), "picture");
             ui.frames(2);
             CHECK(ui.click("Save as miniface"), "save");
-            fs::path out = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads_staff" / "heads_staff_7501.dds";
+            // his own picture: heads_staff_<managerid> (the game ships staff pictures under the managerid), not the head id
+            fs::path out = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads_staff" / "heads_staff_501.dds";
             Rgba img;
-            CHECK(load_image_file(out, img) && img.w == 512 && img.h == 512, "512 x 512 heads_staff_7501.dds");
+            CHECK(load_image_file(out, img) && img.w == 512 && img.h == 512, "512 x 512 heads_staff_501.dds (managerid)");
+            CHECK(!fs::exists(le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads_staff" / "heads_staff_7501.dds"),
+                  "nothing under the head id");
         });
 
         run_case("UI: Players > Miniface > The 3D model: no service, unavailable, generate, picture, save, failure", [&] {
@@ -5746,11 +5749,11 @@ static void test_ui() {
             fake->deliver = true;
             ui.frames(3);
             CHECK(ui.toast_contains("3D model rendered for manager head 7501"), "toast names the manager head");
-            fs::path out = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads_staff" / "heads_staff_7501.dds";
+            fs::path out = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads_staff" / "heads_staff_501.dds";
             fs::remove(out);
             CHECK(ui.click("Save as miniface"), "save");
             Rgba img;
-            CHECK(load_image_file(out, img) && img.w == 512 && img.h == 512, "512 x 512 heads_staff_7501.dds from the capture");
+            CHECK(load_image_file(out, img) && img.w == 512 && img.h == 512, "512 x 512 heads_staff_501.dds (managerid) from the capture");
             app.capture.reset();
         });
 
@@ -5791,8 +5794,8 @@ static void test_ui() {
             CHECK(app.db.get_int(*t, rec, "headtypecode") == 103, "head type copied");
             CHECK(app.db.get_int(*t, rec, "skintonecode") == 9, "skin not copied unless asked");
             fs::path copied = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p3001.dds";
-            CHECK(fs::exists(copied) && file_bytes(copied) == file_bytes(cached), "his miniface copied too");
-            CHECK(ui.toast_contains("his miniface is copied too"), "toast");
+            CHECK(fs::exists(copied) && file_bytes(copied) == file_bytes(cached), "his miniface comes with the head");
+            CHECK(ui.toast_contains("his miniface p3001.dds now shows p1003.dds"), "toast names both pictures");
             // tattoos: the first Choose... is the head (FC 27 area order)
             ui.frames(2);
             CHECK(ui.click("Choose..."), "Choose head tattoo");
@@ -6090,15 +6093,15 @@ static void test_ui() {
             CHECK(ui.find("face1004", "Choose a real face##mgr") != nullptr, "player heads listed for managers");
             const Table* mt = app.db.table("manager");
             const uint64_t mrec = app.db.find(*mt, "managerid", 503);
-            fs::path staff = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads_staff" / "heads_staff_1004.dds";
+            fs::path staff = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads_staff" / "heads_staff_503.dds";
             fs::remove(staff);
             CHECK(ui.click("face1004", "Choose a real face##mgr"), "pick 1004's head");
             CHECK(app.db.get_int(*mt, mrec, "headassetid") == 1004 && app.db.get_int(*mt, mrec, "headclasscode") == 0 &&
                       app.db.get_int(*mt, mrec, "headtypecode") == 104, "manager head fields written");
             CHECK(app.db.get_int(*mt, mrec, "skintonecode") == 20, "skin not copied unless asked");
             Rgba img;
-            CHECK(load_image_file(staff, img) && img.w == 512 && img.h == 512, "the player's miniface as heads_staff_1004.dds, 512 x 512");
-            CHECK(ui.toast_contains("his miniface is copied to heads_staff_1004"), "toast");
+            CHECK(load_image_file(staff, img) && img.w == 512 && img.h == 512, "the player's miniface as his own heads_staff_503.dds, 512 x 512");
+            CHECK(ui.toast_contains("the manager's picture heads_staff_503.dds now shows p1004.dds"), "toast");
             // manager heads: another manager's real face (heads_staff shows the same picture, nothing copied)
             CHECK(ui.click("Choose a real face...", "##mapp"), "reopen");
             ui.frames(2);
@@ -6123,7 +6126,8 @@ static void test_ui() {
             CHECK(ui.find("mface501", "Choose a real face##mgr") && (ui.find("mface502", "Choose a real face##mgr") != nullptr) == light502, "filtered");
             CHECK(ui.click("mface501", "Choose a real face##mgr"), "pick the head of Arteta");
             CHECK(app.db.get_int(*mt, mrec, "headassetid") == 7501 && app.db.get_int(*mt, mrec, "headtypecode") == 1501, "head of Arteta given");
-            CHECK(ui.toast_contains("he shows that head"), "toast");
+            CHECK(ui.toast_contains("the manager's picture heads_staff_503.dds now shows heads_staff_501.dds"),
+                  "toast: Arteta's own picture comes with his head");
             CHECK(app.db.set_int(*mt, mrec, "headassetid", 7503) && app.db.set_int(*mt, mrec, "headclasscode", 1) &&
                       app.db.set_int(*mt, mrec, "headtypecode", 7), "Chivu restored");
             app.request_tab = 0;
@@ -9090,6 +9094,39 @@ static void test_images() {
         const std::string a = legacy_path::player_miniface(123), b = legacy_path::tattoo_preview(7);
         CHECK(a == "data/ui/imgAssets/heads/p123.dds" && b == "data/ui/imgAssets/tattoo/item_7_0.dds", "paths");
         CHECK(legacy_path::staff_miniface(9) == "data/ui/imgAssets/heads_staff/heads_staff_9.dds", "staff path");
+        {
+            // manager pictures: heads_staff_<managerid>, heads_staff_<headassetid>, genericManagerHeads/gmh<headassetid>
+            const std::vector<std::string> sp = legacy_path::staff_pictures(254, 45);
+            CHECK(sp.size() == 3 && sp[0] == legacy_path::staff_miniface(254) && sp[1] == legacy_path::staff_miniface(45) &&
+                      sp[2] == "data/ui/imgAssets/genericManagerHeads/gmh45.dds",
+                  "staff pictures: managerid first, then the head id, then the generic manager head");
+            CHECK(legacy_path::staff_pictures(7, 7).size() == 2 && legacy_path::staff_pictures(0, 7)[0] == legacy_path::staff_miniface(7) &&
+                      legacy_path::staff_pictures(0, 0).empty(),
+                  "same ids once; unknown ids left out");
+            CHECK(legacy_path::staff_miniface_for(254, 45) == legacy_path::staff_miniface(254) &&
+                      legacy_path::staff_miniface_for(0, 45) == legacy_path::staff_miniface(45),
+                  "a manager's miniface is written under the managerid");
+            fs::path sle = g_out / "legacy_staff_le";
+            fs::remove_all(sle);
+            LegacyImages S(sle);
+            fs::path sf;
+            LegacyImages::State sst = LegacyImages::State::Invalid;
+            CHECK(S.first_present(sp, &sf, &sst) == sp[0] && sst == LegacyImages::State::Waiting,
+                  "first picture not known yet: it is asked for, the later ones are not");
+            S.tick(0.0);
+            CHECK(read_file(S.cache_dir() / "want.txt").find(sp[1]) == std::string::npos, "the head-id picture is not asked yet");
+            std::ofstream(S.cache_dir() / "missing.txt") << sp[0] << "\n";
+            S.tick(2.0);
+            CHECK(S.first_present(sp, &sf, &sst) == sp[1] && sst == LegacyImages::State::Waiting, "managerid missing: the head id next");
+            fs::create_directories(S.mods_dir() / "data" / "ui" / "imgAssets" / "heads_staff");
+            std::ofstream(S.mods_dir() / "data" / "ui" / "imgAssets" / "heads_staff" / "heads_staff_45.dds") << "c";
+            CHECK(S.first_present(sp, &sf, &sst) == sp[1] && sst == LegacyImages::State::Custom && read_file(sf) == "c",
+                  "an older Turbo copy under the head id shows when the game has none under the managerid");
+            fs::remove(S.mods_dir() / "data" / "ui" / "imgAssets" / "heads_staff" / "heads_staff_45.dds");
+            std::ofstream(S.cache_dir() / "missing.txt") << sp[0] << "\n" << sp[1] << "\n" << sp[2] << "\n";
+            S.tick(6.0);
+            CHECK(S.first_present(sp, &sf, &sst).empty() && sst == LegacyImages::State::Missing, "none there: no picture");
+        }
         CHECK(!legacy_path::valid("data/../x.dds") && !legacy_path::valid("C:/x.dds") && !legacy_path::valid("data/a b.dds"), "bad paths");
         fs::path f;
         CHECK(L.locate(a, &f) == LegacyImages::State::Waiting, "not cached: waiting");

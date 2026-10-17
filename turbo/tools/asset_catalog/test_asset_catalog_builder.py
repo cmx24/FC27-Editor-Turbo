@@ -2,6 +2,7 @@
 usage: python -I test_asset_catalog_builder.py   (a few seconds)"""
 import json
 import os
+import re
 import struct
 import sys
 import tempfile
@@ -319,6 +320,10 @@ def validate_v1(cat):
     hs = set(h["ids"])
     if not all(int(i) in hs for i in list(h["vars"]) + list(h["toc"])) or not set(h["generic"]) <= hs:
         errs.append("head3d keys")
+    # slug (optional, builder 2): one EBX folder slug per head id, lower-case letters, digits and "_"
+    for i, s in (h.get("slug") or {}).items():
+        if not (i.isdigit() and int(i) in hs and isinstance(s, str) and re.fullmatch(r"[a-z0-9_]{1,64}", s)):
+            errs.append("head3d.slug")
     for table, t in cat["names"].items():
         for i, n in t.items():
             if not (i.isdigit() and len(n) == 2 and n[0] and (n[1] in ("workbook", "extra_names", "slug", "kit_slug", "managers", "kind",
@@ -345,6 +350,8 @@ def test_assemble_schema():
     F = cat["families"]
     check(F["head3d"]["ids"] == [90001, 90100] and F["head3d"]["unproven"] == [90002], "only proven heads are head3d ids")
     check(F["head3d"]["toc"]["90001"] == "LS" and F["head3d"]["generic"] == [90100], "head toc letters and generic")
+    check(F["head3d"]["slug"] == {"90001": "test_head", "90100": "generic"} and "90002" not in F["head3d"]["slug"],
+          "one EBX slug per proven head")
     check(F["hair"]["preview"] == {"4": "data/ui/imgAssets/craniumhair/hair_4_0.dds", "5": "data/ui/imgAssets/hairstyle/item_5_0.dds"},
           "new preview folder preferred, older one fills gaps")
     check(F["boots"]["model"] == [10] and F["boots"]["model_ts_only"] == [2200], "boots gate = content/ ids")
@@ -364,6 +371,10 @@ def test_classify_path():
     check(legacy.classify_path("data/ui/imgAssets/heads/p250.dds")[:2] == ("miniface", 250), "miniface path")
     check(legacy.classify_path("data/ui/imgAssets/cmLegendaryPlayers/small/legend_7.dds")[:2] == ("legendface", 7), "legend path")
     check(legacy.classify_path("data/ui/imgAssets/gkglove/gkglove_20.dds")[:2] == ("gkglove", 20), "gk glove path")
+    check(legacy.classify_path("data/ui/imgAssets/genericManagerHeads/gmh90200.dds")[:2] == ("staffgeneric", 90200),
+          "generic manager head picture (counted only)")
+    check(legacy.classify_path("data/ui/imgAssets/clubInfo/manager/manager_9001.dds")[:2] == ("clubmanager", 9001),
+          "club-info manager picture (counted only)")
     check(legacy.classify_path("data/ui/other/p1.dds") is None, "unrelated path")
 
 

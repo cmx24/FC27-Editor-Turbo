@@ -9,6 +9,7 @@ Nothing here is shipped or claimed as a feature. Gates are in `turbo_dev\evidenc
 
 - **UNPROVEN:** tactics sliders for team length and width (`shape.length_in`, `shape.width_in`). Gate G-T1 was INCONCLUSIVE in game (counted as FAIL for the live write route).
 - **UNPROVEN:** any effect of the game settings sliders on match play. Gate G-S3 (ratio >= 1.4).
+- **UNPROVEN (offline green, branch `assets/heads3d-coverage`):** real-face chooser. "Real faces only" is headclasscode 0 again (1,176 real faces of a career had hashighqualityhead 0 and were hidden); hashighqualityhead is an HQ badge and an optional filter, off by default, as is "Only heads with a 3D look". "Manager heads" lists the game heads whose name matches a manager of the save (marked "name match", given only after the confirmation). A head always comes with its picture as the target's own miniface (players p<playerid>, managers heads_staff_<managerid>), or nothing is written while the picture loads, or the message says the game has none. Manager pictures are shown in the order heads_staff_<managerid>, heads_staff_<headassetid>, genericManagerHeads/gmh<headassetid>. Hidden game heads without a miniface show their legend picture. Catalog builder 2 adds `head3d.slug` (`turbo_dev\research_20261017\HEADS3D_CENSUS.md`).
 
 ## 2.12.2
 

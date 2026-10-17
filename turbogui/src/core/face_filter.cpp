@@ -41,6 +41,13 @@ bool facet_shown(Facet f, bool looks3d) {
     return std::find(o, o + facet_order_size(looks3d), f) != o + facet_order_size(looks3d);
 }
 
+bool in_pool(const Face& f, const PoolOptions& o) {
+    if (o.real_only && !f.real) return false;
+    if (o.hq_only && !f.game_head && f.hq != 1) return false;
+    if (o.only3d && !f.look && !f.game_head) return false;
+    return true;
+}
+
 void set_look(Face& f, const face3d::Look* look) {
     f.look = look;
     for (int t = 0; t < face3d::kTraitCount; ++t)

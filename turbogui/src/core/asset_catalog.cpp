@@ -327,6 +327,7 @@ struct Catalog::Impl {
     std::array<std::unordered_map<int64_t, std::string>, kFamilyCount> paths;  // gear "preview", crest "paths"
     std::unordered_map<int64_t, std::vector<int>> head_vars;
     std::unordered_map<int64_t, std::string> head_toc;
+    std::unordered_map<int64_t, std::string> head_slug;
     std::vector<int64_t> head_generic;
     std::unordered_map<int64_t, KitTeam> kit_teams;
     std::map<std::string, std::map<std::string, Bank>> banks;  // language -> commentary team -> recordings
@@ -341,6 +342,7 @@ struct Catalog::Impl {
         for (auto& m : paths) m.clear();
         head_vars.clear();
         head_toc.clear();
+        head_slug.clear();
         head_generic.clear();
         kit_teams.clear();
         banks.clear();
@@ -472,6 +474,12 @@ void Catalog::Impl::parse(const json& j) {
                     head_toc.reserve(tv->size());
                     for (auto e = tv->begin(); e != tv->end(); ++e)
                         if (e.value().is_string()) head_toc[id_key(e.key(), where + ".toc")] = e.value().get<std::string>();
+                }
+                // optional (builder 2): one EBX folder slug per head; a non-string value is skipped like "toc"
+                if (auto sv = v.find("slug"); sv != v.end() && sv->is_object()) {
+                    head_slug.reserve(sv->size());
+                    for (auto e = sv->begin(); e != sv->end(); ++e)
+                        if (e.value().is_string()) head_slug[id_key(e.key(), where + ".slug")] = e.value().get<std::string>();
                 }
                 head_generic = id_list(v, "generic", where, false);
             }
@@ -680,6 +688,11 @@ std::string Catalog::head_toc(int64_t headassetid) const {
     if (!loaded()) return "";
     auto it = d_->head_toc.find(headassetid);
     return it == d_->head_toc.end() ? std::string() : it->second;
+}
+std::string Catalog::head_slug(int64_t headassetid) const {
+    if (!loaded()) return std::string();
+    auto it = d_->head_slug.find(headassetid);
+    return it == d_->head_slug.end() ? std::string() : it->second;
 }
 bool Catalog::generic_head(int64_t headassetid) const { return loaded() && sorted_has(d_->head_generic, headassetid); }
 

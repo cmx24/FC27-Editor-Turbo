@@ -475,7 +475,8 @@ const assets::DbUse& App::asset_use() {
                            {"accessorycode3", {&set(F::Accessory)}},
                            {"accessorycode4", {&set(F::Accessory)}},
                        });
-    collect("manager", {{"headassetid", {&set(F::Head3d), &set(F::Staffface)}}});
+    // heads_staff pictures: the game ships them under the managerid (and Turbo's older copies under the head id)
+    collect("manager", {{"headassetid", {&set(F::Head3d), &set(F::Staffface)}}, {"managerid", {&set(F::Staffface)}}});
     collect("teams", {{"teamid", {&set(F::Crest)}}});
     collect("teamkits", {{"teamtechid", {&set(F::Kit)}}});
     collect("commentarynames", {{"commentaryid", {&u.commentary_ids}}});

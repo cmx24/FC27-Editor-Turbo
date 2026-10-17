@@ -25,7 +25,7 @@ import frostbite as fb  # noqa: E402
 import legacy  # noqa: E402
 import names as namesmod  # noqa: E402
 
-BUILDER = "build_asset_catalog.py 1"
+BUILDER = "build_asset_catalog.py 2"
 SCHEMA = "turbo-asset-catalog/1"
 CACHE_VERSION = 1
 DEFAULT_GAME = r"C:\Program Files\EA Games\EA SPORTS FC 27"
@@ -166,7 +166,8 @@ def legacy_census(game, le, game_io, cache_dir, log):
     inputs = [os.path.join(game, l, "Win32", s + ".toc") for l in ("Data", "Patch") for s in ("globals", "globalsfull")]
     key = {"inputs": {rel(game, p): stat_key(p) for p in inputs if os.path.isfile(p)},
            "csv": {os.path.basename(os.path.dirname(p)) + "/" + os.path.basename(p): stat_key(p) for p in csvs},
-           "brute": hashlib.sha1(json.dumps(legacy.BRUTE).encode()).hexdigest()}
+           "brute": hashlib.sha1(json.dumps(legacy.BRUTE).encode()).hexdigest(),
+           "families": hashlib.sha1(json.dumps(legacy.LEGACY_FAMILIES).encode()).hexdigest()}
     cp = os.path.join(cache_dir, "legacy.json")
     c = read_cache(cp, key)
     if c is not None:
@@ -382,9 +383,12 @@ def assemble(game_key, game_version, built_at, sources, census, leg, banks):
     fams = {k: {} for k in FAMILY_KEYS}
     heads = census.get("head3d", {})
     proven = {i: h for i, h in heads.items() if families.head_proven(h)}
+    # slug: the head's EBX folder name ("doe_john" of player_#/doe_john_<id>/), one per head; the GUI matches manager
+    # names against it (a manager's own head shipped under a player or legend id)
     fams["head3d"] = {"ids": sorted(proven),
                       "vars": {str(i): sorted(h["vars"]) for i, h in sorted(proven.items())},
                       "toc": {str(i): "".join(sorted(h["toc"])) for i, h in sorted(proven.items()) if h["toc"]},
+                      "slug": {str(i): sorted(h["slugs"])[0] for i, h in sorted(proven.items()) if h["slugs"]},
                       "generic": sorted(i for i, h in proven.items() if families.head_is_generic(h)),
                       "unproven": sorted(i for i in heads if i not in proven)}
     lf = leg["families"]
@@ -486,6 +490,12 @@ def summary_text(cat, timings, stats, leg, extra):
     L.append("EBX census: %d tocs scanned, %d from cache, %d unreadable bundles" % (stats["scanned"], stats["cached"], stats["errors"]))
     if extra.get("glove"):
         L.append("Not in schema v1 (counted only): outfield glove models %d" % extra["glove"])
+    lf = leg["families"]
+    L.append("Not in schema v1 (counted only): generic manager head pictures (genericManagerHeads/gmh<headassetid>) %d, "
+             "club-info manager pictures (clubInfo/manager/manager_<id>) %d" % (len(lf.get("staffgeneric", {})),
+                                                                             len(lf.get("clubmanager", {}))))
+    h = F["head3d"]
+    L.append("head3d slugs: %d of %d heads" % (len(h.get("slug", {})), len(h["ids"])))
     for k, v in extra.get("checks", {}).items():
         L.append("Check %s: %s" % (k, v))
     for lang, note in sorted((extra.get("banks") or {}).items()):

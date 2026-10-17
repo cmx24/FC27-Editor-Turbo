@@ -256,7 +256,7 @@ private:
         for (const auto& tr : app.model.teams()) add(PreloadKind::Crest, crest_main_path(tr.teamid));
         // 7. Managers > Appearance > Choose a real face, "Manager heads" (ui_faces.cpp): their heads_staff pictures
         for (const auto& f : manager_faces(app))
-            if (f.real) add(PreloadKind::ManagerHead, legacy_path::staff_miniface(f.headassetid));
+            if (f.real) add(PreloadKind::ManagerHead, legacy_path::staff_pictures(f.id, f.headassetid).front());
     }
 
     bool started_ = false, collected_ = false, callnames_done_ = false;

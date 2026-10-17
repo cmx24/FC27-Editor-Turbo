@@ -47,7 +47,8 @@ Copy rebuild command say so.
   "builder": "build_asset_catalog.py 1",
   "sources": { "Data/Win32/contentsb.toc": {"size": 23025479, "mtime": 0}, "commentary/eng_us": {"size": 0, "mtime": 0} },
   "families": {
-    "head3d":     { "ids": [41, 250], "vars": {"250": [0, 1]}, "toc": {"41": "L", "250": "LS"}, "generic": [26642] },
+    "head3d":     { "ids": [41, 250], "vars": {"250": [0, 1]}, "toc": {"41": "L", "250": "LS"},
+                    "slug": {"41": "test_slug_name", "250": "test_player"}, "generic": [26642] },
     "miniface":   { "ids": [250, 488] },
     "youthface":  { "ids": [] }, "staffface": { "ids": [] }, "legendface": { "ids": [] },
     "hair":       { "model": [1, 2], "preview": { "1": "data/ui/imgAssets/craniumhair/hair_1_0.dds" } },
@@ -77,8 +78,12 @@ Rules (checked by `turbogui/tests/catalog/test_asset_catalog.cpp`, `validate_v1`
 - Id lists are JSON integers, **sorted ascending, no duplicates**. Object keys that are ids are decimal strings.
 - Preview and crest paths are game paths exactly as listed in the manifests (letter case kept): `data/...`,
   `[A-Za-z0-9_/.-]` only, no `..`, at most 200 bytes (the rule of `legacy_path::valid`).
-- `head3d.vars` / `head3d.toc` keys and `head3d.generic` ids are head ids. `toc` letters: `L` = launch bundle,
-  `S` = contentsb, combined when the head is in both (e.g. `LS`).
+- `head3d.vars` / `head3d.toc` / `head3d.slug` keys and `head3d.generic` ids are head ids. `toc` letters: `L` = launch
+  bundle, `S` = contentsb, combined when the head is in both (e.g. `LS`).
+- `head3d.slug` (optional, builder 2, 2026-10-17): the head's EBX folder slug (`doe_john` of
+  `content/character/player/player_#/doe_john_<id>/`), one per head. The managers' chooser matches manager names against
+  it ("name match": a manager's own head shipped under a player or legend id). A builder-1 catalog has none; nothing
+  else changes, so the schema stays `turbo-asset-catalog/1`.
 - `callnames.<lang>.teams.<team>`: `<team>` is the commentary team (`dr`, `gm`, ...) or `""` for single-team packs; its
   keys are among `generic`, `simple`, `link`, `high` (missing key = empty).
 - `names.<table>.<id>` = `[name, source]`, name not empty, source one of `master:<lang>`, `workbook`, `extra_names`,
@@ -91,7 +96,7 @@ Rules (checked by `turbogui/tests/catalog/test_asset_catalog.cpp`, `validate_v1`
 | `head3d` | headassetid | 3D model (face texture + morph preset + starhead bundle); optional `unproven`: heads missing a part (not writable) | `headassetid` with `headclasscode` 0 |
 | `miniface` | playerid / headassetid | legacy file `data/ui/imgAssets/heads/p<id>.dds` | picture copies |
 | `youthface` | headassetid | `data/ui/imgAssets/youthheads/p<id>.dds` | picture copies |
-| `staffface` | headassetid | `data/ui/imgAssets/heads_staff/heads_staff_<id>.dds` | picture copies |
+| `staffface` | managerid (the game's key; also Turbo's older copies under the head id) | `data/ui/imgAssets/heads_staff/heads_staff_<id>.dds` | picture copies |
 | `legendface` | id | legend pictures | picture copies |
 | `hair` | hairtypecode | `model` (EBX) and/or `preview` | `hairtypecode` |
 | `facialhair` | facialhairtypecode | model / preview | `facialhairtypecode` |
@@ -139,7 +144,7 @@ The catalog never stores "hidden": it depends on the loaded save. The GUI rebuil
 |---|---|
 | head3d | `players.headassetid` (any class) and `manager.headassetid` |
 | miniface | `players.playerid` and `players.headassetid` |
-| staffface | `manager.headassetid` |
+| staffface | `manager.managerid` and `manager.headassetid` |
 | youthface | `players.headassetid` |
 | hair / facialhair / boots / gkglove / eyebrow / skinsurface | the matching `players.*code` field |
 | tattoo | all 7 `players.tattoo*` fields; the badge adds "not in the tattoo table" when the DB `tattoo` table lacks the id |

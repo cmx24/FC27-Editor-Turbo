@@ -288,7 +288,27 @@ static void test_face3d_looks() {
               t1);
         CHECK(t4.find("\n3D look: not classified yet") == 0, t4);
         CHECK(tdb.find("3D look") == std::string::npos && tdb.find("\nSkin tone: Caucasian 2") != std::string::npos, tdb);
-        CHECK(kOnly3dDefaultMin == 200, "'Only heads with a 3D look' starts on from 200 looks");
+        CHECK(!kOnly3dDefaultOn && !kHqOnlyDefaultOn, "'Only heads with a 3D look' and 'High-quality heads only' start off (G1 10-17)");
+        {
+            // the chooser's pool: real faces of any quality; the optional filters keep game heads (no row, no look)
+            Face hq0, hq1, generic, game;
+            hq0.real = true, hq0.hq = 0;
+            hq1.real = true, hq1.hq = 1, hq1.look = heads[0].look;
+            generic.real = false, generic.hq = 0;
+            game.real = true, game.game_head = true;
+            PoolOptions d;
+            CHECK(in_pool(hq0, d) && in_pool(hq1, d) && !in_pool(generic, d) && in_pool(game, d),
+                  "default pool: every real face (hashighqualityhead 0 too), no generic head");
+            PoolOptions q = d;
+            q.hq_only = true;
+            CHECK(!in_pool(hq0, q) && in_pool(hq1, q) && in_pool(game, q), "High-quality heads only: hashighqualityhead 1 (game heads pass)");
+            PoolOptions l = d;
+            l.only3d = true;
+            CHECK(!in_pool(hq0, l) == (hq0.look == nullptr) && in_pool(game, l), "Only heads with a 3D look: game heads pass");
+            PoolOptions all = d;
+            all.real_only = false;
+            CHECK(in_pool(generic, all), "Real faces only off: generic heads too");
+        }
         // managers (no looks, never set_look): 3D facets have no value, database filters as before
         Face m;
         m.manager = true;

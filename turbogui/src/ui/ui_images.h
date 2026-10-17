@@ -21,11 +21,12 @@ struct MinifaceTarget {
     int64_t headassetid = 0;  // players: head model (head model / youth face sources); managers: heads_staff id
     int64_t id = 0;           // players: playerid; managers: managerid (the 3D-model capture renders the head id for managers)
     int64_t teamid = 0;       // players: club (0 = none); passed to the 3D-model capture as the second id
+    std::string shown;        // managers: the picture shown now (first of legacy_path::staff_pictures; "" = path)
 };
 
+// What the real-face chooser copies besides the head; the miniface always comes with the head (never a mixed result)
 struct RealFaceOptions {
     bool hair = false, beard = false, eyes = false, skin = false;
-    bool miniface = true;
 };
 
 // One clickable cell of a picture grid (game picture, caption under it); true when clicked
@@ -65,7 +66,7 @@ void miniface_editor(App& app, const MinifaceTarget& t);
 void real_face_picker(App& app, int64_t target_pid);
 size_t real_face_count(App& app);
 // Give target the head model of owner (validated writes); used by the picker and by tests
-bool apply_real_face(App& app, int64_t target_pid, int64_t owner_pid, const RealFaceOptions& o, std::string* msg);
+bool apply_real_face(App& app, int64_t target_pid, int64_t owner_pid, const RealFaceOptions& o, std::string* msg, bool* in_step = nullptr);
 // Tattoo per body area with preview and picker
 void tattoo_editor(App& app, const Table& t, uint64_t rec);
 // Hair, facial hair, boots, GK gloves and accessories (players) or the outfit (managers: manager = true) with the game's

@@ -1399,6 +1399,7 @@ static void player_editor(App& app) {
             ImGui::SeparatorText("Hair, boots, gloves and accessories");
             item_galleries(app, *t, p->rec);
             ImGui::SeparatorText("Every appearance field");
+            ImGui::TextDisabled("Changing headassetid / headclasscode here leaves his miniface as it is: Choose a real face changes both together.");
             std::vector<std::string> names;
             for (const auto& n : t->field_names()) if (is_appearance_field(n)) names.push_back(n);
             field_grid(app, *t, p->rec, names, "##appgrid", 2);

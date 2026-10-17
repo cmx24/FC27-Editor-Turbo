@@ -188,6 +188,8 @@ public:
     // ---- head3d extras
     std::vector<int> head_vars(int64_t headassetid) const;  // shipped variations, sorted ({} when none / not a head)
     std::string head_toc(int64_t headassetid) const;        // "L" launch, "S" contentsb, "LS" both ... ("" when unknown)
+    // The head's EBX folder slug ("doe_john" of player_#/doe_john_<id>/), "" when unknown (catalogs of builder 1 have none)
+    std::string head_slug(int64_t headassetid) const;
     bool generic_head(int64_t headassetid) const;
 
     // ---- kit extras

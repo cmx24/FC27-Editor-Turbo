@@ -596,7 +596,8 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
     ImGui::BeginGroup();
     ImGui::TextUnformatted("Now");
     PictureInfo now;
-    LegacyImages::State now_state = draw_legacy_picture(app, t.path, big, true, &now);
+    const std::string& now_path = t.shown.empty() ? t.path : t.shown;  // managers: the picture shown now
+    LegacyImages::State now_state = draw_legacy_picture(app, now_path, big, true, &now);
     {
         bool warn = false;
         const std::string line = picture_status_line(app, now, "miniface", &warn);
@@ -606,7 +607,7 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
         else ImGui::TextDisabled("%s", line.c_str());
         ImGui::PopTextWrapPos();
     }
-    if (ImGui::SmallButton("Reload##mfnow")) reload_picture(app, t.path, now);
+    if (ImGui::SmallButton("Reload##mfnow")) reload_picture(app, now_path, now);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("%s", now_state == LegacyImages::State::Custom
                                     ? "Read the custom file again"
@@ -685,7 +686,8 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
         }
     }
     if (!can_save) ImGui::EndDisabled();
-    bool has_custom = now_state == LegacyImages::State::Custom;
+    // a custom file under the path this editor writes (a manager's "Now" can be another of his pictures)
+    bool has_custom = now_state == LegacyImages::State::Custom && now_path == t.path;
     if (!has_custom) ImGui::BeginDisabled();
     if (ImGui::Button("Remove custom miniface")) ImGui::OpenPopup("##rmminiface");
     if (!has_custom) ImGui::EndDisabled();
@@ -780,7 +782,7 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
             ImGui::EndTabItem();
         }
         if (t.manager && ImGui::BeginTabItem("The current one")) {
-            if (ImGui::Button("Start from the current miniface")) source_from_legacy(app, ed, t.path, "current miniface", true);
+            if (ImGui::Button("Start from the current miniface")) source_from_legacy(app, ed, now_path, "current miniface", true);
             ImGui::EndTabItem();
         }
         // catalog sources (none when the catalog is off or not loaded: the tabs are exactly 2.0's)
@@ -798,8 +800,9 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
         ImGui::EndTabBar();
     }
     if (t.manager)
-        ImGui::TextDisabled("manager miniface (heads_staff, 512x512): every manager with head asset %lld shows it",
-                            static_cast<long long>(t.headassetid));
+        ImGui::TextDisabled("manager miniface (512 x 512): saved as %s, his own picture (the game ships its staff pictures under "
+                            "the managerid); now showing %s",
+                            t.path.c_str(), now_path.c_str());
     else
         ImGui::TextDisabled("Saved to <Live Editor>\\mods\\legacy\\%s (256 x 256 DXT5). The game shows it the next time the screen is drawn.",
                             t.path.c_str());
