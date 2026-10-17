@@ -3758,7 +3758,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
                   s.bench_keep == "Bench order: on: waiting for Team Management to build its copy of your sheet",
               "on: the opt-in file written: " + s.bench_keep);
         CHECK(app_logged("bench keep: switched on in the Turbo window (turbo_output\\bench_keep_on.txt)") &&
-                  app_logged("bench keep: watching Team Management's working copy svc+0x550 (not built: Team Management closed)"),
+                  app_logged("bench keep: watching Team Management's working copy svc+0x550 (not built yet)"),
               "the toggle and the watch are logged");
         // Team Management opens: its copy is built in the game's order (4 places of the bench / reserves); Lua's team_mgmt stays false
         const Ids52 orig = ids_of(w);
@@ -3803,6 +3803,17 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         put_tm_copy(w, game, 0x3BD10000ULL);
         step(4);
         CHECK(copy_ids(w) == game, "off: nothing written");
+        // on again with the copy already built (as after a career load: the game builds it during the load and the first visit shows it):
+        // written once the map has been quiet for 5 s
+        lt_scroll_top(ui);
+        CHECK(ui.click("Keep my bench order after Team Management##ltbench", "##tacright"), "the toggle clicked: on again");
+        step(3);
+        CHECK(copy_ids(w) == game && app_logged("(built already, e.g. during the career load: handled as a new build)"), "first sight: armed, waiting");
+        step(8);
+        CHECK(copy_ids(w) == orig, "first sight: the copy built before bench keep looked is written: " + s.bench_keep);
+        lt_scroll_top(ui);
+        CHECK(ui.click("Keep my bench order after Team Management##ltbench", "##tacright"), "the toggle clicked: off");
+        step(2);
         // clean up
         app.log_hook = nullptr;
         live_tactic_test_wall_clock(nullptr);

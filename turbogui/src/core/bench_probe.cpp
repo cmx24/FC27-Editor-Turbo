@@ -137,6 +137,12 @@ Due Probe::step(const Input& in) {
         save_t_ = in.save_t;
         return {Kind::Save, std::string("save started") + (tm_ ? " (Team Management open)" : ""), true};
     }
+    // the career load's read comes before the Team Management polls: the game builds Team Management's copy DURING the load (P_BENCHWB
+    // 16:20), so the card's tick may report Team Management "open" from the first read of a load on
+    if (!load_done_ && in.phase == "hub" && in.now >= load_retry_) {
+        load_done_ = true;
+        return {Kind::Load, "career hub (the sheet as loaded)", true};
+    }
     if (tm_) {
         if (in.now >= next_poll_) {
             next_poll_ = in.now + kPollS;
@@ -154,10 +160,6 @@ Due Probe::step(const Input& in) {
             return {Kind::After, seconds(in.now - closed_at_) + " after Team Management closed", false};
         }
         return d;
-    }
-    if (!load_done_ && in.phase == "hub" && in.now >= load_retry_) {
-        load_done_ = true;
-        return {Kind::Load, "career hub (the sheet as loaded)", true};
     }
     return d;
 }
@@ -284,11 +286,6 @@ KeepOut Keeper::on_read(long long load_gen, const Ids& map, int map_dirty, const
         map_dirty_seen_ = map_dirty;
         map_changed_at_ = now;
     }
-    std::string wait = wait_in;
-    if (may_write && now - map_changed_at_ < kMapQuietS) {
-        may_write = false;
-        wait = "your map sheet changed less than " + seconds(kMapQuietS) + " ago (a commit or a save may be running)";
-    }
     if (load_gen != gen_) {
         if (ph_ == KeepPhase::Pending) o.log.push_back("bench keep: the career was (re)loaded: the write is dropped (nothing written)");
         gen_ = load_gen;
@@ -310,12 +307,15 @@ KeepOut Keeper::on_read(long long load_gen, const Ids& map, int map_dirty, const
     }
     if (ph_ == KeepPhase::Off) ph_ = KeepPhase::Idle;
     if (!primed_) {
+        // the first read of a career load, or after bench keep was switched on: a copy that is already your sheet's is handled like a new
+        // build (P_BENCHWB 16:20: the game builds both copies DURING the career load and the first Team Management visit shows that copy
+        // without building it again). The map's quiet gate starts here too: the write waits kMapQuietS
         primed_ = true;
-        was_live_ = copy.live;
-        build_ = copy.live ? copy.build : 0;
+        was_live_ = false;
+        build_ = 0;
+        map_changed_at_ = now;
         o.log.push_back(std::string("bench keep: watching Team Management's working copy ") + copy.label +
-                        (copy.live ? " (built already: left alone, the next build is written)" : " (not built: Team Management closed)"));
-        return o;
+                        (copy.live ? " (built already, e.g. during the career load: handled as a new build)" : " (not built yet)"));
     }
     if (!copy.live) {
         if (was_live_ && ph_ == KeepPhase::Pending) {
@@ -359,11 +359,23 @@ KeepOut Keeper::on_read(long long load_gen, const Ids& map, int map_dirty, const
         ph_ = KeepPhase::Done;
         return o;
     }
-    if (map != saved_) {
-        outcome_ = "left alone: your saved order (the map) changed before the write";
-        o.log.push_back("bench keep: " + outcome_ + " (nothing written)");
-        ph_ = KeepPhase::Done;
-        return o;
+    if (map != saved_) {  // your map sheet changed while the write waited (a load still settling): judged again against the new map
+        const std::string w = shuffle_of(map, copy.ids);
+        if (!w.empty()) {
+            outcome_ = "left alone: your map sheet changed before the write and the copy is no longer your players in another order (" + w + ")";
+            o.log.push_back("bench keep: " + outcome_ + " (nothing written)");
+            ph_ = KeepPhase::Done;
+            return o;
+        }
+        saved_ = map;
+        moved_ = moved_places(map, copy.ids);
+        o.log.push_back("bench keep: your map sheet changed before the write: the write now uses its order (" + std::to_string(moved_) + " places)");
+    }
+    // the map's quiet gate (after the priming above, which starts it again)
+    std::string wait = wait_in;
+    if (may_write && now - map_changed_at_ < kMapQuietS) {
+        may_write = false;
+        wait = "your map sheet has not been quiet for " + seconds(kMapQuietS) + " yet (a load, a commit or a save may be running)";
     }
     if (now > built_at_ + kKeepDeadlineS) {
         outcome_ = "not written: " + seconds(kKeepDeadlineS) + " after the build the write was still waiting (" +

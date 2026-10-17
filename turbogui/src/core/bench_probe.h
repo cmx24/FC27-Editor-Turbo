@@ -103,7 +103,9 @@ std::vector<int32_t> extra(const std::vector<int32_t>& squad, const Ids& ids);
 // built (tsheet::apply_bench: one guarded game-thread job, read back, rolled back on a mismatch). Rules:
 //  - a build: the copy is Team Management's copy of your sheet (tsheet::TmCopy::live: your team, dirty 255, ...) and was not before, or
 //    its record vector changed (a new build allocates new records). The first read of a career load, or after bench keep is switched on,
-//    only learns the copy's state (a copy already built then is left alone);
+//    handles a copy that is already your sheet's as a new build: the game builds both copies DURING the career load and the first Team
+//    Management visit shows that copy without building it again (P_BENCHWB 16:20). Leaving Team Management tears the copy down, the next
+//    visit builds a new one. Switched on while Team Management is open with your own unsaved moves: they are overwritten (said in the log);
 //  - the copy is your saved players (the map's 52 values) with the same starting XI (ids 0..10) and empty places in another order: ONE
 //    write for this build, queued at once while G2 for bench keep holds (the hub, no save started in the last kKeepSaveQuietS, the career
 //    load: Team Management is open by design), given up kKeepDeadlineS after the build; dropped when the copy changes first (a move on the

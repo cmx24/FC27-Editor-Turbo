@@ -91,7 +91,7 @@ static void test_bench_keep() {
         CHECK(r.k.phase() == KeepPhase::Off && r.k.state() == "off (no turbo_output\\bench_keep_on.txt)", "bench keep: off by default: " + r.k.state());
         r.now = 101.0;
         r.read(M, none);
-        CHECK(r.k.phase() == KeepPhase::Idle && r.logged("bench keep: watching Team Management's working copy svc+0x550 (not built: Team Management closed)") &&
+        CHECK(r.k.phase() == KeepPhase::Idle && r.logged("bench keep: watching Team Management's working copy svc+0x550 (not built yet)") &&
                   r.k.state() == "on: waiting for Team Management to build its copy of your sheet",
               "bench keep: on, watching: " + r.k.state());
         r.now = 102.0;
@@ -128,17 +128,42 @@ static void test_bench_keep() {
         r.now = 170.0;
         CHECK(r.read(M, copy_of(S, 0xD000)).submit, "bench keep: a new record vector is a new build");
     }
-    // B: a copy already built at the first read is left alone; the next build is written
+    // B: the copy exists at first sight (P_BENCHWB 16:20: the game builds it DURING the career load and the first Team Management visit
+    // shows it without building it again): handled as a new build, written once the map has been quiet for 5 s; then the next build too
     {
         Rig r;
         r.read(M, copy_of(S, 0xB000));
-        CHECK(!r.last.submit && r.logged("(built already: left alone, the next build is written)"), "bench keep: a copy built before bench keep looked is left alone");
-        r.now = 101.0;
-        CHECK(!r.read(M, copy_of(S, 0xB000)).submit, "bench keep: still the same build");
-        r.now = 102.0;
-        r.read(M, none);
+        CHECK(!r.last.submit && r.k.phase() == KeepPhase::Pending &&
+                  r.logged("bench keep: watching Team Management's working copy svc+0x550 (built already, e.g. during the career load: handled as a new build)") &&
+                  r.logged("bench keep: Team Management built its working copy svc+0x550 in another order than your saved one (4 places") &&
+                  r.logged("bench keep: the write waits (your map sheet has not been quiet for 5 s yet (a load, a commit or a save may be running))"),
+              "bench keep: a copy built before bench keep looked: armed, waiting for the map's quiet 5 s: " + r.tail());
+        r.now = 104.0;
+        CHECK(!r.read(M, copy_of(S, 0xB000)).submit, "bench keep: 4 s: still waiting");
+        r.now = 105.0;
+        const KeepOut o = r.read(M, copy_of(S, 0xB000));
+        CHECK(o.submit && o.saved == M && o.before == S && o.build == 0xB000, "bench keep: 5 s after the first read: the copy built at the load is written");
+        r.k.queued(105.0);
+        r.k.on_result(true, "ok");
         r.now = 106.0;
+        CHECK(!r.read(M, copy_of(S2, 0xB000)).submit, "bench keep: still one write per build");
+        r.now = 107.0;
+        r.read(M, none);
+        r.now = 108.0;
         CHECK(r.read(M, copy_of(S, 0xB800)).submit, "bench keep: the next build is written");
+        // the map changes while the first-sight write waits (a load still settling): judged again, the write uses the new map
+        Rig r3;
+        r3.read(M, copy_of(S, 0xB000));
+        r3.now = 102.0;
+        CHECK(!r3.read(S2, copy_of(S, 0xB000)).submit && r3.logged("bench keep: your map sheet changed before the write: the write now uses its order"),
+              "bench keep: the map changed while waiting: re-judged");
+        r3.now = 107.0;
+        const KeepOut o3 = r3.read(S2, copy_of(S, 0xB000));
+        CHECK(o3.submit && o3.saved == S2 && o3.before == S, "bench keep: written with the new map's order once it has been quiet 5 s");
+        // a copy at first sight that already holds your order: nothing to write
+        Rig r2;
+        r2.read(M, copy_of(M, 0xB000));
+        CHECK(!r2.last.submit && r2.k.phase() == KeepPhase::Done && r2.logged("holds your saved order: nothing to write"), "bench keep: first sight, your order");
     }
     // C: the copy already holds your order; the copy is not your players in another order
     {
@@ -212,7 +237,10 @@ static void test_bench_keep() {
               "bench keep: the kill switch drops it: " + r3.k.state());
         r3.now = 112.0;
         r3.read(M, copy_of(S, 0xB000));
-        CHECK(!r3.last.submit && r3.logged("(built already: left alone"), "bench keep: switched on again: the copy's state is learnt first");
+        CHECK(!r3.last.submit && r3.k.phase() == KeepPhase::Pending && r3.logged("(built already, e.g. during the career load: handled as a new build)"),
+              "bench keep: switched on again with the copy built: armed, the map's quiet gate starts again");
+        r3.now = 117.0;
+        CHECK(r3.read(M, copy_of(S, 0xB000)).submit, "bench keep: switched on again: written 5 s later");
         Rig r4;
         r4.read(M, none);
         r4.now = 110.0;
@@ -281,7 +309,8 @@ static void test_bench_keep() {
         r.read(M, none);
         r.now = 112.0;
         CHECK(!r.read(M, copy_of(S, 0xB000)).submit &&
-                  r.logged("bench keep: the write waits (your map sheet changed less than 5 s ago (a commit or a save may be running)): until 20 s after the build"),
+                  r.logged("bench keep: the write waits (your map sheet has not been quiet for 5 s yet (a load, a commit or a save may be running)): until 20 s after "
+                           "the build"),
               "bench keep: Team Management opened 2 s after the map changed: the write waits: " + r.tail());
         r.now = 114.0;
         CHECK(!r.read(M, copy_of(S, 0xB000)).submit, "bench keep: 4 s: still waiting");
@@ -415,5 +444,25 @@ static void test_bench_probe() {
     // leaving the career mid-watch
     in.career = false;
     CHECK(p.step(in).kind == Kind::None, "bench probe: nothing once the career is left");
+    // P_BENCHWB 16:20: Team Management's copy is built DURING the load, so Team Management looks "open" from the first read of a load on;
+    // the career load's read still comes (it logs the map's order, the live check's C' reference)
+    {
+        Probe q;
+        Input l;
+        l.career = true;
+        l.load_gen = 7;
+        l.phase = "hub";
+        l.team_mgmt = true;
+        l.now = 300.0;
+        Due e = q.step(l);
+        CHECK(e.kind == Kind::Opened, "bench probe: the copy built at the load reads as Team Management opened");
+        q.on_fail(e, "locating ...");
+        l.now = 300.5;
+        e = q.step(l);
+        CHECK(e.kind == Kind::Load && e.label == "career hub (the sheet as loaded)", "bench probe: the career load's read comes while the copy is built");
+        q.on_fail(e, "locating ...");
+        l.now = 306.0;
+        CHECK(q.step(l).kind == Kind::Load, "bench probe: a failed load read is tried again 5 s later, Team Management open or not");
+    }
     test_bench_keep();
 }
