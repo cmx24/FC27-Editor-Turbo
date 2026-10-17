@@ -75,7 +75,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(club_take_page_request() == shell::Page::None, "no page asked yet");
         CHECK(ui.find("Open Kits##clubtoolskits", "##stadium") != nullptr, "the club tools carry a link to Kits, not a second kit entry");
         CHECK(ui.click("Open Kits##clubtoolskits", "##stadium"), "click the link");
-        CHECK(club_take_page_request() == shell::Page::Kits && club_take_page_request() == shell::Page::None, "the link asks for Club & Kits > Kits once");
+        // integration (245e271): App::draw_pages takes the request on the next frame and opens the page, so the click lands on Kits
+        CHECK(app.place() == shell::place_of(shell::Page::Kits) && club_take_page_request() == shell::Page::None, "the link asks for Club & Kits > Kits once");
         CHECK(ui.find("Reopen club customisation", "##stadium") != nullptr, "the hub is still there");
         hide(ui);
     });

@@ -135,7 +135,12 @@ static void test_bodytypes_ui(App& app, Ui& ui, const fs::path& le) {
         CHECK(p && p->has("bodytypecode"), "the test world has bodytypecode");
         app.request_tab = 0;
         ui.frames(2);
+        // 2.13: in this small window (the zoom cases before leave it about 760 x 420) the shell's page strip takes a second row since it
+        // wraps (P213 triage), so the list shows a row less and 2002 can sit just under its edge: narrow the list to him, pick him, clear
+        // the search again (he stays selected)
+        const bool narrowed = !ui.find("2002", "##plist") && ui.type_into(ui.find("##psearch", "##plist"), "2002");
         CHECK(ui.click("2002", "##plist"), "player 2002 (generic head, Short and Stocky)");
+        if (narrowed) ui.type_into(ui.find("##psearch", "##plist"), "");
         for (int k = 0; k < 8 && !ui.find("Profile", "##pedit"); ++k) { ui.click("##<", "##pedit"); ui.frames(2); }  // the tab bar scrolls in the small test window
         CHECK(ui.click("Profile", "##pedit"), "Profile tab");
         ui.frames(2);

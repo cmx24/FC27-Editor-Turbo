@@ -592,6 +592,12 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         game_settings_reset();
         app.request_tab = 7;
         ui.frames(3);
+        // 2.13: request_tab 7 lands on Tactics & Gameplay > Gameplay presets; the old tab is that page's Advanced section, closed at first
+        if (!game_settings_view_state().drawn) {
+            parity_test::scroll_into_view(ui, "Game settings file and slider values (Advanced)##gpadv");
+            CHECK(ui.click("Game settings file and slider values (Advanced)##gpadv"), "open the Game settings section of Gameplay presets");
+            ui.frames(3);
+        }
         const GameSettingsViewState& s = game_settings_view_state();
         CHECK(s.drawn && s.closed_note && s.file_ok && s.file_line.find(kName) != std::string::npos && s.file_line.find("CRC ok") != std::string::npos,
               "file: " + s.file_line);
@@ -642,7 +648,9 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.click("Discard staged##gsdiscard"), "Discard staged");
         ui.frames(2);
         CHECK(!fs::exists(out / pending_file(), ec) && s.pending_line.empty(), "discarded");
-        // Refresh reads the file again; nothing in the settings folder changed through all of it
+        // Refresh reads the file again; nothing in the settings folder changed through all of it (2.13: the view is a section of the
+        // Gameplay presets page, scrolled by the boxes typed into above)
+        parity_test::scroll_into_view(ui, "Refresh##gsrefresh");
         CHECK(ui.click("Refresh##gsrefresh"), "Refresh");
         ui.frames(2);
         CHECK(s.file_reads > reads && md5s(settings) == folder_before, "the settings folder is unchanged after every flow");

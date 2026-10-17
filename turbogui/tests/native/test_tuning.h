@@ -2437,7 +2437,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         st["seq"] = saved.value("seq", 0LL) + 50;
         write_state();
         tuning_reset();
-        ui.click("Live standings (game)");
+        app.go(turbo::shell::Page::Standings);  // leave Advanced > Gameplay tuning (was: the Competitions tab's live view)
         ui.frames(2);
     });
     run_case("UI: Gameplay tuning 2.6 pagefix - the search matches label/id/group/category/field only, the differences count the game and the sliders (never an "
@@ -2778,7 +2778,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         st["seq"] = saved.value("seq", 0LL) + 50;
         write_state();
         tuning_reset();
-        ui.click("Live standings (game)");
+        app.go(turbo::shell::Page::Standings);  // leave Advanced > Gameplay tuning (was: the Competitions tab's live view)
         ui.frames(2);
     });
 
@@ -2948,7 +2948,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         st["seq"] = saved.value("seq", 0LL) + 50;
         write_state();
         tuning_reset();
-        ui.click("Live standings (game)");
+        app.go(turbo::shell::Page::Standings);  // leave Advanced > Gameplay tuning (was: the Competitions tab's live view)
         ui.frames(2);
     });
 }

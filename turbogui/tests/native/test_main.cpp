@@ -2864,6 +2864,16 @@ public:
         if (!r) dump("click target not found: '" + label + "' in '" + win + "'");
         return click(r);
     }
+    // The way a user reaches a page (GUI revamp 2.13): the area tab, then the page in that area's strip (App::draw_pages pushes
+    // "##shell" and "##pages"). False when either button is not on screen: the page moved to another area, its label changed, or
+    // the view hides it. 2026-10-17: the tests reached the live standings through request_tab only, so nothing checked the path.
+    bool open_page(const std::string& area, const std::string& page) {
+        if (!click(area, "FC 27 LE Turbo", "##shell")) return false;
+        frames(2);
+        if (!click(page, "FC 27 LE Turbo", "##pages")) return false;
+        frames(2);
+        return true;
+    }
     void dump(const std::string& why) {
         if (!std::getenv("TURBO_TEST_DEBUG")) return;
         std::printf("    DEBUG %s; items in frame %d:\n", why.c_str(), g_frame);
@@ -3416,6 +3426,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_player_id.h"    // 2.3: Create player > Player ID (typed id checks, the head / callname of the id)
 #include "test_kit_import.h"   // 2.3: Teams > Kits, FIFA Kit Creator zips (test_kit_import, kit_import_ui_cases)
 #include "test_club_page.h"    // 2.13 T3: Club & Kits pages (club_page_test::ui_cases)
+#include "test_p213.h"         // 2026-10-17 P213 triage: proven panels on the user's path, no dead-end page, no removed place named
 #include "test_kit_fonts.h"    // 2.11 K1: named kit font / layout choices (test_kit_fonts, kit_fonts_ui_cases)
 // ================================================================ live team names (core/teamname_override.h)
 static void test_team_names_live() {
@@ -5586,10 +5597,13 @@ static void test_ui() {
         run_case("UI: Competitions tab: league table, points and table positions", [&] {
             app.request_tab = 3;
             ui.frames(3);
-            // the live view comes first; without a career the engine is not reachable and says so
-            CHECK(ui.find("Live standings (game)") != nullptr && ui.find("Career database copy") != nullptr, "two views");
+            // the live view comes first; without a career the engine is not reachable and says so. 2.13: the old tab's two views are
+            // two pages, the live table (Tactics & Gameplay > Standings, where request_tab 3 lands) and the database copy (Career tools >
+            // Maintenance)
+            CHECK(app.place() == turbo::shell::place_of(turbo::shell::Page::Standings) && ui.find("Career tools", "FC 27 LE Turbo", "##shell") != nullptr,
+                  "two views");
             CHECK(ui.find("Try again") != nullptr, "live view: not reachable without the FCE interface");
-            CHECK(ui.click("Career database copy"), "database view");
+            CHECK(ui.open_page("Career tools", "Maintenance") && ui.find("Career database copy") != nullptr, "database view");
             ui.frames(2);
             const Table* lt = app.db.table("leagueteamlinks");
             CHECK(lt != nullptr, "leagueteamlinks");
@@ -8092,7 +8106,7 @@ static void test_ui() {
             CHECK(app.bridge.state().svm == SvmWorld::kSvm && app.bridge.state().managers == SvmWorld::kManagers &&
                       app.bridge.state().ifce == fw.ifce,
                   "bridge_state carries ifce / svm / managers");
-            CHECK(ui.click("Live standings (game)"), "live view tab (the earlier case left the database view)");
+            CHECK(ui.open_page("Tactics & Gameplay", "Standings"), "live view page (the earlier case left the database view)");
             ui.frames(2);
             CHECK(ui.find("Try again") == nullptr && ui.find("Reload") != nullptr, "live view reachable through the published ifce");
             // the precise home / away counters are under Advanced, closed by default (the table cells are the main way)
@@ -8251,7 +8265,7 @@ static void test_ui() {
             app.next_poll = 0.0;
             app.request_tab = 3;
             ui.frames(3);
-            CHECK(ui.click("Live standings (game)"), "live view tab");
+            CHECK(ui.open_page("Tactics & Gameplay", "Standings"), "live view page (Tactics & Gameplay > Standings)");
             ui.frames(2);
             CHECK(ui.find("Try again") == nullptr, "live view reachable");
             auto row0 = [&]() {
@@ -8475,7 +8489,7 @@ static void test_ui() {
             app.next_poll = 0.0;
             app.request_tab = 3;
             ui.frames(3);
-            CHECK(ui.click("Live standings (game)"), "live view tab");
+            CHECK(ui.open_page("Tactics & Gameplay", "Standings"), "live view page (Tactics & Gameplay > Standings)");
             ui.frames(2);
             CHECK(ui.click("Reload"), "Reload (the located chain is the same, the rows grew)");
             ui.frames(2);
@@ -8609,7 +8623,7 @@ static void test_ui() {
             app.next_poll = 0.0;
             app.request_tab = 3;
             ui.frames(3);
-            CHECK(ui.click("Live standings (game)"), "live view tab");
+            CHECK(ui.open_page("Tactics & Gameplay", "Standings"), "live view page (Tactics & Gameplay > Standings)");
             ui.frames(2);
             CHECK(ui.click("Reload"), "Reload");
             ui.frames(2);
@@ -8703,9 +8717,19 @@ static void test_ui() {
             app.request_tab = 3;
             ui.frames(3);
             CHECK(app.bridge.state().ifce == fw.ifce, "bridge_state carries the ifce");
-            CHECK(ui.click("Live standings (game)"), "live view tab");
+            CHECK(ui.open_page("Tactics & Gameplay", "Standings"), "live view page (Tactics & Gameplay > Standings)");
             ui.frames(2);
             CHECK(ui.find("Try again") != nullptr && ui.find("Reload") == nullptr, "6AB9813C vtables on the 6AC07E31 objects: not reachable");
+            // 2.13 (P213 triage): the failed locate is in turbo_gui.log too (log_hook), once per reason although it is retried every frame
+            auto not_located = [&logs]() {
+                size_t n = 0;
+                for (const auto& l : logs) n += l.rfind("live standings not located: ", 0) == 0 ? 1 : 0;
+                return n;
+            };
+            const size_t located_fails = not_located();  // 1 or 2: the career's ifce may arrive one frame after the page opened
+            ui.frames(5);
+            CHECK(located_fails >= 1 && not_located() == located_fails,
+                  fmt("the failed locate is logged, once per reason over many frames (%zu, then %zu)", located_fails, not_located()));
             // the host's anchors of 6AC07E31 while fce_iface_post is not resolved: still refused (fail closed)
             app.fce_anchors_hook = [kNewSize]() { return fce::anchors_for("6AC07E31-2145C000", FceWorld::kBase, kNewSize, 0, 0); };
             ui.frames(2);
@@ -8719,6 +8743,14 @@ static void test_ui() {
                 logged = logged || (l.find("live standings located: 4 rows") != std::string::npos && l.find("Post in vtable slot 4") != std::string::npos &&
                                     l.find("vtable 0x14B1837B0 (signature)") != std::string::npos);
             CHECK(logged, "the located line names the identities");
+            // a failure after a located view is written again (the located line resets the once-per-reason memory)
+            const size_t fails_before = not_located();
+            app.fce_anchors_hook = []() { return FceWorld::documented(); };
+            ui.frames(4);
+            CHECK(ui.find("Try again") != nullptr && not_located() == fails_before + 1, fmt("lost again: one more 'not located' line (%zu)", not_located()));
+            app.fce_anchors_hook = [=]() { return fce::anchors_for("6AC07E31-2145C000", FceWorld::kBase, kNewSize, kNewPost, kNewDmVt); };
+            ui.frames(2);
+            CHECK(ui.find("Try again") == nullptr && ui.find("Reload") != nullptr, "reachable again with the build's signatures");
             // the view's map values: their vtable comes from svm_live_vtable (6AC07E31 moved it like the others)
             fake->anchors.live_vtable = SvmWorld::kLiveVtable + 0x40;
             CHECK(ui.click("Reload"), "Reload with another LiveStandings vtable");
@@ -8744,7 +8776,7 @@ static void test_ui() {
             ui.frames(2);
             CHECK(logged_frame(ui).find("Read-only:") == std::string::npos, "editable again with the signature");
             // Match setup reads the same objects with the same anchors
-            CHECK(ui.click("Match setup"), "Match setup view");
+            CHECK(ui.open_page("Advanced", "Match setup"), "Match setup view (Advanced > Match setup)");
             ui.frames(2);
             CHECK(ui.find("Try again") == nullptr && ui.find("Reload") != nullptr, "fixtures reachable with the build's signatures");
             app.fce_anchors_hook = [=]() { return fce::anchors_for("6AC07E31-2145C000", FceWorld::kBase, kNewSize, kNewPost, 0); };
@@ -8775,7 +8807,7 @@ static void test_ui() {
             app.next_poll = 0.0;
             ui.frames(3);
             CHECK(ui.find("Try again") != nullptr, "fixtures unreachable again without the ifce");
-            CHECK(ui.click("Live standings (game)"), "back to the live view");
+            CHECK(ui.open_page("Tactics & Gameplay", "Standings"), "back to the live view");
             ui.frames(2);
             CHECK(ui.find("Try again") != nullptr, "live view unreachable again without the ifce");
         });
@@ -8810,7 +8842,7 @@ static void test_ui() {
             app.next_poll = 0.0;
             app.request_tab = 3;
             ui.frames(3);
-            CHECK(ui.click("Match setup"), "Match setup view");
+            CHECK(ui.open_page("Advanced", "Match setup"), "Match setup view (Advanced > Match setup)");
             ui.frames(2);
             {   // the Value column says in words what the number in each box means, for every variable that has words (2.0/ux-descriptors
                 // fix 2): the boxes start at 0 (difficulty: Beginner; time of day: its setting text) and 1 for a switch (on)
@@ -8937,6 +8969,7 @@ static void test_ui() {
         club_page_test::ui_cases(app, ui, le);  // test_club_page.h: Club & Kits pages (before test_shell_app clears the registry)
         test_shell_app(app);  // test_shell.h: page registry
         test_shell_ui(app, ui);  // test_shell.h: area tabs, request_tab / go(), Settings page
+        p213_test::ui_cases(app, ui);  // test_p213.h: the proven panels by clicks, no dead-end page, no removed place named
         tuning_test::ui_cases(app, ui, le);  // test_tuning.h: Competitions > Gameplay tuning
         gsettings_test::ui_cases(app, ui, le);  // test_game_settings.h: the Game settings tab (2.8)
         tactic_presets_test::ui_cases(app, ui, le);  // test_tactic_presets.h: Teams > Tactic presets (2.12)
