@@ -298,7 +298,15 @@ bool file_picker_modal(const char* popup_id, FilePicker& fp, fs::path& out) {
     fs::path open_dir;
     for (const auto& d : fp.dirs) {
         std::string lbl = "[" + path_text(d.filename()) + "]";
-        if (ImGui::Selectable(lbl.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) && ImGui::IsMouseDoubleClicked(0)) open_dir = d;
+        // The game feeds the overlay its mouse by polling, so Dear ImGui does not always see a double-click: two clicks on the same
+        // folder within 0.8 s count as one too (the first click highlights it).
+        if (ImGui::Selectable(lbl.c_str(), d == fp.sel_dir, ImGuiSelectableFlags_AllowDoubleClick)) {
+            if (ImGui::IsMouseDoubleClicked(0) || (d == fp.sel_dir && now - fp.sel_at < 0.8)) open_dir = d;
+            else {
+                fp.sel_dir = d;
+                fp.sel_at = now;
+            }
+        }
     }
     fs::path sel = fp.mode == PickMode::Save ? fp.dir / text_path(fp.name) : fs::path();
     for (const auto& f : fp.files) {
@@ -387,7 +395,7 @@ bool file_picker_modal(const char* popup_id, FilePicker& fp, fs::path& out) {
     if (ImGui::SmallButton("Open in Explorer##fp") && !open_in_explorer(fp.dir)) fp.error = "Explorer did not start.";
     ImGui::SameLine();
     ImGui::TextDisabled("(leaves full screen)");
-    ImGui::TextDisabled("Double-click a folder to open it.");
+    ImGui::TextDisabled("Double-click a folder to open it (or click it twice).");
 
     if (done) {
         remember_folder(fp.key, fp.mode == PickMode::Folder ? out : out.parent_path());

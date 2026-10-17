@@ -1039,6 +1039,9 @@ static const GalleryDef kGalleries[] = {
     {"accessorycode4", "Accessory 4", {{"accessories", "item_", "_0"}, {nullptr, nullptr, nullptr}}, "accessorycolourcode4"},
 };
 static const GalleryDef kManagerGalleries[] = {
+    // managers carry the same hairtypecode / facialhairtypecode fields as players and the game draws them from the same hair pictures
+    {"hairtypecode", "Hair", {{"craniumhair", "hair_", "_0"}, {"hairstyle", "item_", "_0"}}, nullptr},
+    {"facialhairtypecode", "Facial hair", {{"craniumfacialhair", "Facial_hair_", "_0"}, {"facialhairstyle", "item_", "_0"}}, nullptr},
     {"outfitid", "Outfit", {{"outfit", "item_", "_0"}, {"genericManagerOutfits", "gmo_", "_0"}}, nullptr},
 };
 

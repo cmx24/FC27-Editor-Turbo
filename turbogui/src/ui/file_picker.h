@@ -27,6 +27,8 @@ struct FilePicker {
     std::string error;
     bool confirm = false;                   // Save: "replace it?" shown
     bool new_folder_open = false;
+    std::filesystem::path sel_dir;  // the folder last clicked (highlighted); a second click within 0.8 s opens it
+    double sel_at = 0;
     char new_folder[128] = "";
     char path_buf[1024] = "";
     std::filesystem::path shown;            // folder path_buf was filled from
