@@ -334,7 +334,7 @@ static void job_offer_tab(App& app, const TeamRow& tr) {
         ImGui::TextWrapped("%s", app.job_offer_status.c_str());
     }
     if (app.hook_report) {  // the native side: functions resolved, JobMarketManager seen, last outcome
-        HookReport r = app.hook_report();
+        const HookReport& r = app.hook_report_cached();  // 2.16 gui/perf: at most once a second
         for (const auto& c : r.calls) ImGui::TextDisabled("%s", c.c_str());
     }
     ImGui::PopID();
@@ -636,7 +636,7 @@ static void manager_rules_section(App& app) {
         ImGui::TextDisabled("Endless career: FC 27 has no season limit or forced end for your manager to switch off (docs/re/manager_rules.md).");
         if (!app.manager_rules_status.empty()) ImGui::TextWrapped("%s", app.manager_rules_status.c_str());
         if (app.hook_report) {  // the native side: entries resolved, managers seen, unsackable state, last outcome
-            HookReport r = app.hook_report();
+            const HookReport& r = app.hook_report_cached();  // 2.16 gui/perf: at most once a second
             bool mine = false;  // the "  last:" line that follows the manager_rules line belongs to it
             for (const auto& c : r.calls) {
                 if (c.rfind("manager_rules", 0) == 0) mine = true;

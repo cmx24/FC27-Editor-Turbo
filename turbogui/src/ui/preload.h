@@ -98,6 +98,11 @@ public:
         for (size_t checks = 0; checks < kChecksPerFrame && refused_now < kRefusedPerFrame; ++checks) {
             PreloadQueue::Item* it = queue_.next_pending();
             if (!it) break;
+            // 2.16 gui/perf: a picture already asked (Lua's background list, or on screen) is not looked for on disk again every
+            // round: LegacyImages notices it arriving (its quarter-second check) or missing and takes it off the list; one look
+            // then settles it. While pictures waited for Lua (for minutes while Turbo is hidden: Lua is nudged only while it is
+            // shown) this loop looked at 64 files every frame, inside the game's Present. The visit still counts as a check.
+            if (!it->file && it->asked && app.legacy.asked_now(it->path)) continue;
             if (it->file) {  // a cache file at hand (3D head renders): decode it
                 app.textures.preload(std::filesystem::path(it->path), side);
                 queue_.settle(*it);

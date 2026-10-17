@@ -123,6 +123,12 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
   objs+=("$o")
 done
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*)
+  # 2.16 gui/perf: the input shield's detours, timed in the test process (test_gui_perf.h; host stubs in test_input_shield_stubs.cpp)
+  for s in src/win/input_shield.cpp tests/native/test_input_shield_stubs.cpp; do
+    o="$BIN/obj/$(echo "$s" | sed 's#[/.]#_#g').o"
+    pc_add "$o" "$s" g++ $FLAGS
+    objs+=("$o")
+  done
   for s in third_party/minhook/src/trampoline.c third_party/minhook/src/buffer.c third_party/minhook/src/hook.c third_party/minhook/src/hde/hde64.c; do
     o="$BIN/obj/$(echo "$s" | sed 's#[/.]#_#g').o"
     pc_add "$o" "$s" gcc -O2 -Ithird_party/minhook/include

@@ -2,6 +2,7 @@
 // picker, and a file browser for pictures on the PC.
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -12,6 +13,7 @@
 #include <map>
 #include <memory>
 #include <system_error>
+#include <thread>
 #include <unordered_set>
 
 #include "app.h"
@@ -1701,9 +1703,46 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
 }
 
 // ---------------------------------------------------------------- Status tab section
+// 2.16 gui/perf: how many pictures the cache holds. Counting walks every file under it (24,675 in Cassio's cache, 2026-10-17):
+// done in the frame, every frame, it froze the Settings page ("the status screen lags so bad it seems to freeze"). Counted on a
+// worker thread now, at most every 10 s while the line is drawn (at once after "Empty the cache"); the line shows the last count.
+namespace {
+struct CacheCount {
+    std::atomic<long long> n{-1};  // -1 = not counted yet
+    std::atomic<bool> running{false};
+};
+std::shared_ptr<CacheCount> g_cache_count = std::make_shared<CacheCount>();
+double g_cache_count_at = -1e9;
+std::string g_cache_count_dir;
+}  // namespace
+
+static std::string cache_count_text(App& app) {
+    const fs::path dir = app.legacy.cache_dir();
+    const std::string key = dir.string();
+    if (!g_cache_count->running.load() && (app.now - g_cache_count_at >= 10.0 || app.now < g_cache_count_at || key != g_cache_count_dir)) {
+        if (key != g_cache_count_dir) g_cache_count->n = -1;
+        g_cache_count_at = app.now;
+        g_cache_count_dir = key;
+        g_cache_count->running = true;
+        std::shared_ptr<CacheCount> c = g_cache_count;  // the worker keeps its own reference (detached: never joined in DllMain)
+        std::thread([c, dir]() {
+            long long n = 0;
+            try {
+                n = static_cast<long long>(LegacyImages::count_cached_files(dir));
+            } catch (...) {
+                n = 0;
+            }
+            c->n = n;
+            c->running = false;
+        }).detach();
+    }
+    const long long n = g_cache_count->n.load();
+    return n < 0 ? std::string("(counting)") : std::to_string(n);
+}
+
 void images_status(App& app) {
     ImGui::SeparatorText("Game images (minifaces, tattoo previews)");
-    ImGui::Text("Cached: %zu pictures in %s", app.legacy.cached_files(), app.legacy.cache_dir().string().c_str());
+    ImGui::Text("Cached: %s pictures in %s", cache_count_text(app).c_str(), app.legacy.cache_dir().string().c_str());
     ImGui::Text("Waiting: %zu   Not in the game: %zu   Shown now: %zu", app.legacy.waiting(), app.legacy.missing_count(), app.textures.size());
     if (!app.legacy.lua_status().empty()) ImGui::TextDisabled("Turbo's Lua side: %s", app.legacy.lua_status().c_str());
     if (app.legacy.stalled())
@@ -1712,6 +1751,7 @@ void images_status(App& app) {
     if (ImGui::Button("Empty the cache")) {
         std::string err;
         app.textures.clear();
+        g_cache_count_at = -1e9;  // counted again at once
         if (app.legacy.clear_cache(&err)) app.notify("Picture cache emptied; pictures load again from the game");
         else app.notify("cache: " + err, true);
     }
