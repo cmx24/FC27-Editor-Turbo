@@ -110,6 +110,15 @@ std::vector<int32_t> extra(const std::vector<int32_t>& squad, const Ids& ids);
 //    write for this build, queued at once while G2 for bench keep holds (the hub, no save started in the last kKeepSaveQuietS, the career
 //    load: Team Management is open by design), given up kKeepDeadlineS after the build; dropped when the copy changes first (a move on the
 //    screen), goes away, the career is reloaded or a switch turns bench keep off;
+//  - the same build put back into the game's order IN PLACE (P215c 19:00-19:01, LEICESTER: the copy built during the career load was
+//    written and read back; when Team Management was first entered the game re-sorted that SAME copy, same record vector, back to exactly
+//    the order it had built, and the screen showed the game's order): written again like a new build when ALL of these hold: the last write
+//    of this build came back written and the next read saw your order in the copy (the write held); the copy now holds exactly the order the
+//    game built it in (the order that write replaced); your map sheet is what the write used, its ids and its dirty flag (no commit, no save
+//    since); fewer than kKeepMaxRewrites such rewrites of this build so far. One write per such change, its deadline counted from the
+//    re-sort, the same G2, quiet gate and guarded job (players, starting XI and empty places unchanged, read back, rolled back). Any other
+//    in-place change (a move on the screen: your own swap) is logged and left alone, never undone; the cap reached = given up for this
+//    build (no loop with the game);
 //  - Lua's team_mgmt flag is not used (LE 27.1.5 never sets it, BENCH_FINDINGS).
 // Switches: opt-in turbo_output\bench_keep_on.txt; kill switches bench_keep_off.txt, tactics_off.txt (every tactics write) and
 // call_team_sheet_off.txt (channel E's writes). Every decision is logged as "bench keep: ...".
@@ -121,6 +130,7 @@ constexpr long long kKeepSaveQuietS = 30;    // = tsheet::kSaveQuietSeconds (G2;
 constexpr double kKeepRetryS = 1.0;          // a refused submit is tried again this much later (until the deadline)
 constexpr double kKeepJobLostS = 15.0;       // a queued job not back after this long: given up (the service's own limit is 10 s)
 constexpr double kCopyPollS = 0.5;           // the card's tick reads your sheet and the copies this often in the hub (probe or bench keep on)
+constexpr int kKeepMaxRewrites = 2;          // rewrites of one build after the game put its own order back in place, at most (no loop)
 // Lua's save signal is blind on LE 27.1.5 (BENCH_FINDINGS addendum): the write also waits until your map sheet (its 52 ids and its dirty
 // flag) has not changed for this long - a commit changes its ids, a save clears its dirty flag. Counted from the first read too
 constexpr double kMapQuietS = 5.0;
@@ -166,6 +176,13 @@ private:
     double built_at_ = 0.0, next_try_ = 0.0, queued_at_ = 0.0;
     std::string off_why_, last_refusal_, last_wait_, outcome_;
     int moved_ = 0;
+    // the same build put back into the game's order in place after a write (P215c): wrote_ = the last job of this build came back written
+    // and (once hold_check_ is cleared) the next read saw your order in the copy, i.e. the write held; hold_check_ = the next read checks
+    // that; submit_dirty_ / wrote_dirty_ = your map sheet's dirty flag when the job was submitted / when it came back written; rewrites_ =
+    // such rewrites of this build; last_ids_ = the copy at the last read (a difference = an in-place change)
+    bool wrote_ = false, hold_check_ = false;
+    int submit_dirty_ = -2, wrote_dirty_ = -2, rewrites_ = 0;
+    Ids last_ids_{};
 };
 
 }  // namespace bench
