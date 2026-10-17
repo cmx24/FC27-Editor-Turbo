@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <set>
 
 namespace turbo {
@@ -136,6 +137,12 @@ Due Probe::step(const Input& in) {
         save_t_ = in.save_t;
         return {Kind::Save, std::string("save started") + (tm_ ? " (Team Management open)" : ""), true};
     }
+    // the career load's read comes before the Team Management polls: the game builds Team Management's copy DURING the load (P_BENCHWB
+    // 16:20), so the card's tick may report Team Management "open" from the first read of a load on
+    if (!load_done_ && in.phase == "hub" && in.now >= load_retry_) {
+        load_done_ = true;
+        return {Kind::Load, "career hub (the sheet as loaded)", true};
+    }
     if (tm_) {
         if (in.now >= next_poll_) {
             next_poll_ = in.now + kPollS;
@@ -153,10 +160,6 @@ Due Probe::step(const Input& in) {
             return {Kind::After, seconds(in.now - closed_at_) + " after Team Management closed", false};
         }
         return d;
-    }
-    if (!load_done_ && in.phase == "hub" && in.now >= load_retry_) {
-        load_done_ = true;
-        return {Kind::Load, "career hub (the sheet as loaded)", true};
     }
     return d;
 }
@@ -203,6 +206,230 @@ std::string Probe::on_fail(const Due& d, const std::string& why) {
     }
     if (++fails_ > kMaxFailLogs) return "";
     return "bench probe: " + d.label + ": not read: " + why + (fails_ == kMaxFailLogs ? " (further failures in this career load are not logged)" : "");
+}
+
+// ------------------------------------------------------------------------------------------------ bench keep (2.15)
+std::string shuffle_of(const Ids& saved, const Ids& now) {
+    if (saved == now) return "same order";
+    for (int k = 0; k < kStarters; ++k)
+        if (saved[size_t(k)] != now[size_t(k)])
+            return "the starting XI changed (#" + std::to_string(k) + " " + std::to_string(saved[size_t(k)]) + " -> " + std::to_string(now[size_t(k)]) + ")";
+    for (int k = kStarters; k < kIds; ++k)
+        if ((saved[size_t(k)] == -1) != (now[size_t(k)] == -1)) return "the empty places moved (#" + std::to_string(k) + ")";
+    std::vector<int32_t> a(saved.begin() + kStarters, saved.end()), b(now.begin() + kStarters, now.end());
+    std::sort(a.begin(), a.end());
+    std::sort(b.begin(), b.end());
+    if (a != b) {
+        std::string s = "other players on the sheet";
+        const std::vector<int32_t> fa = filled(saved), fb = filled(now);
+        std::set<int32_t> sa(fa.begin(), fa.end()), sb(fb.begin(), fb.end());
+        std::string on, off;
+        for (int32_t pid : fb)
+            if (!sa.count(pid)) on += (on.empty() ? "" : ", ") + std::to_string(pid);
+        for (int32_t pid : fa)
+            if (!sb.count(pid)) off += (off.empty() ? "" : ", ") + std::to_string(pid);
+        if (!on.empty()) s += " (on now: " + on + ")";
+        if (!off.empty()) s += " (off now: " + off + ")";
+        return s;
+    }
+    for (const Ids* ids : {&saved, &now}) {
+        std::set<int32_t> seen;
+        for (int32_t pid : *ids)
+            if (pid != -1 && !seen.insert(pid).second) return "player " + std::to_string(pid) + " is on the sheet twice";
+    }
+    return "";
+}
+
+int moved_places(const Ids& a, const Ids& b) {
+    int n = 0;
+    for (int k = kStarters; k < kIds; ++k)
+        if (a[size_t(k)] != b[size_t(k)]) ++n;
+    return n;
+}
+
+std::vector<std::string> Probe::on_copies(const Ids& map, int map_dirty, const std::vector<CopyView>& copies, const Namer& name) {
+    std::vector<std::string> out;
+    // your map sheet: a commit changes its ids, a save clears its dirty flag (Lua's save signal is blind on LE 27.1.5)
+    if (have_map_ && (map != map_ || map_dirty != map_dirty_))
+        out.push_back("bench probe: your map sheet changed [dirty " + std::to_string(map_dirty_) + " -> " + std::to_string(map_dirty) + "]: " +
+                      diff_text(map_, map, name) + " | " + order_text(map, name));
+    have_map_ = true;
+    map_ = map;
+    map_dirty_ = map_dirty;
+    if (copies_.size() != copies.size()) copies_.assign(copies.size(), CopyView());
+    for (size_t i = 0; i < copies.size(); ++i) {
+        const CopyView& c = copies[i];
+        CopyView& was = copies_[i];
+        if (c.live && (!was.live || c.build != was.build)) {
+            char b[32];
+            std::snprintf(b, sizeof(b), "0x%llX", static_cast<unsigned long long>(c.build));
+            out.push_back("bench probe: Team Management's working copy " + c.label + " built [records " + b + "]: against your map sheet (your saved order): " +
+                          diff_text(map, c.ids, name) + " | " + order_text(c.ids, name));
+        } else if (c.live && was.live && c.ids != was.ids) {
+            out.push_back("bench probe: Team Management's working copy " + c.label + " changed: " + diff_text(was.ids, c.ids, name) +
+                          " | against your map sheet: " + diff_text(map, c.ids, name));
+        } else if (!c.live && was.live) {
+            out.push_back("bench probe: Team Management's working copy " + c.label + " is no longer your sheet's (Team Management closed?)");
+        }
+        was = c;
+    }
+    return out;
+}
+
+KeepOut Keeper::on_read(long long load_gen, const Ids& map, int map_dirty, const CopyView& copy, bool on, const std::string& off_why, bool may_write,
+                        const std::string& wait_in, double now, const Namer& name) {
+    KeepOut o;
+    off_why_ = off_why;
+    // your map sheet's last change (ids or dirty flag): the write waits kMapQuietS after it (a commit or a save may be running)
+    if (map_dirty_seen_ == -2 || map != map_seen_ || map_dirty != map_dirty_seen_) {
+        map_seen_ = map;
+        map_dirty_seen_ = map_dirty;
+        map_changed_at_ = now;
+    }
+    if (load_gen != gen_) {
+        if (ph_ == KeepPhase::Pending) o.log.push_back("bench keep: the career was (re)loaded: the write is dropped (nothing written)");
+        gen_ = load_gen;
+        primed_ = false;
+        if (ph_ != KeepPhase::Off && ph_ != KeepPhase::Queued) ph_ = KeepPhase::Idle;
+    }
+    if (ph_ == KeepPhase::Queued && now > queued_at_ + kKeepJobLostS) {
+        outcome_ = "not written: the game thread did not run the job";
+        o.log.push_back("bench keep: " + outcome_ + " (nothing written by it)");
+        ph_ = KeepPhase::Done;
+    }
+    if (!on) {
+        if (ph_ == KeepPhase::Pending)
+            o.log.push_back("bench keep: switched off (" + (off_why.empty() ? std::string("no turbo_output\\") + keep_on_file() : off_why) +
+                            "): the write is dropped (nothing written)");
+        if (ph_ != KeepPhase::Queued) ph_ = KeepPhase::Off;  // a queued job re-reads the switches itself
+        primed_ = false;  // switched on later: the copy's state is learnt first
+        return o;
+    }
+    if (ph_ == KeepPhase::Off) ph_ = KeepPhase::Idle;
+    if (!primed_) {
+        // the first read of a career load, or after bench keep was switched on: a copy that is already your sheet's is handled like a new
+        // build (P_BENCHWB 16:20: the game builds both copies DURING the career load and the first Team Management visit shows that copy
+        // without building it again). The map's quiet gate starts here too: the write waits kMapQuietS
+        primed_ = true;
+        was_live_ = false;
+        build_ = 0;
+        map_changed_at_ = now;
+        o.log.push_back(std::string("bench keep: watching Team Management's working copy ") + copy.label +
+                        (copy.live ? " (built already, e.g. during the career load: handled as a new build)" : " (not built yet)"));
+    }
+    if (!copy.live) {
+        if (was_live_ && ph_ == KeepPhase::Pending) {
+            outcome_ = "not written: the working copy went away before the write (Team Management closed?)";
+            o.log.push_back("bench keep: " + outcome_);
+            ph_ = KeepPhase::Done;
+        }
+        was_live_ = false;
+        return o;
+    }
+    if (!was_live_ || copy.build != build_) {  // a new build
+        was_live_ = true;
+        build_ = copy.build;
+        built_at_ = now;
+        last_refusal_.clear();
+        last_wait_.clear();
+        const std::string w = shuffle_of(map, copy.ids);
+        if (w.empty()) {
+            saved_ = map;
+            expect_ = copy.ids;
+            moved_ = moved_places(map, copy.ids);
+            next_try_ = 0.0;
+            ph_ = KeepPhase::Pending;
+            o.log.push_back("bench keep: Team Management built its working copy " + copy.label + " in another order than your saved one (" +
+                            std::to_string(moved_) + " places of the bench / reserves; the starting XI and the players unchanged): " +
+                            diff_text(map, copy.ids, name) + ". Writing your saved order into it");
+        } else if (w == "same order") {
+            outcome_ = "Team Management's working copy holds your saved order: nothing to write";
+            o.log.push_back("bench keep: " + outcome_);
+            ph_ = KeepPhase::Done;
+        } else {
+            outcome_ = "left alone: Team Management's working copy is not your saved players in another order (" + w + ")";
+            o.log.push_back("bench keep: " + outcome_);
+            ph_ = KeepPhase::Done;
+        }
+    }
+    if (ph_ != KeepPhase::Pending) return o;
+    if (copy.ids != expect_) {
+        outcome_ = "left alone: the working copy changed before the write (a move on the screen?)";
+        o.log.push_back("bench keep: " + outcome_ + " (nothing written)");
+        ph_ = KeepPhase::Done;
+        return o;
+    }
+    if (map != saved_) {  // your map sheet changed while the write waited (a load still settling): judged again against the new map
+        const std::string w = shuffle_of(map, copy.ids);
+        if (!w.empty()) {
+            outcome_ = "left alone: your map sheet changed before the write and the copy is no longer your players in another order (" + w + ")";
+            o.log.push_back("bench keep: " + outcome_ + " (nothing written)");
+            ph_ = KeepPhase::Done;
+            return o;
+        }
+        saved_ = map;
+        moved_ = moved_places(map, copy.ids);
+        o.log.push_back("bench keep: your map sheet changed before the write: the write now uses its order (" + std::to_string(moved_) + " places)");
+    }
+    // the map's quiet gate (after the priming above, which starts it again)
+    std::string wait = wait_in;
+    if (may_write && now - map_changed_at_ < kMapQuietS) {
+        may_write = false;
+        wait = "your map sheet has not been quiet for " + seconds(kMapQuietS) + " yet (a load, a commit or a save may be running)";
+    }
+    if (now > built_at_ + kKeepDeadlineS) {
+        outcome_ = "not written: " + seconds(kKeepDeadlineS) + " after the build the write was still waiting (" +
+                   (!may_write ? wait : !last_refusal_.empty() ? last_refusal_ : std::string("not queued")) + ")";
+        o.log.push_back("bench keep: " + outcome_ + ": given up (nothing written)");
+        ph_ = KeepPhase::Done;
+        return o;
+    }
+    if (!may_write) {
+        if (wait != last_wait_) {
+            last_wait_ = wait;
+            o.log.push_back("bench keep: the write waits (" + wait + "): until " + seconds(kKeepDeadlineS) + " after the build");
+        }
+        return o;
+    }
+    if (now >= next_try_) {
+        next_try_ = now + kKeepRetryS;
+        o.submit = true;
+        o.saved = saved_;
+        o.before = expect_;
+        o.build = build_;
+    }
+    return o;
+}
+
+void Keeper::queued(double now) {
+    ph_ = KeepPhase::Queued;
+    queued_at_ = now;
+}
+
+void Keeper::not_queued(const std::string& why, std::vector<std::string>& log) {
+    if (why != last_refusal_) {
+        last_refusal_ = why;
+        log.push_back("bench keep: the write is not queued yet (" + why + "): tried again until " + seconds(kKeepDeadlineS) + " after the build");
+    }
+}
+
+void Keeper::on_result(bool written, const std::string& line) {
+    outcome_ = (written ? "put back: " : "not written: ") + line;
+    if (ph_ == KeepPhase::Queued) ph_ = KeepPhase::Done;
+}
+
+std::string Keeper::state() const {
+    const std::string last = outcome_.empty() ? std::string() : " (last: " + outcome_ + ")";
+    switch (ph_) {
+        case KeepPhase::Off:
+            return off_why_.empty() ? std::string("off (no turbo_output\\") + keep_on_file() + ")" : "off: " + off_why_;
+        case KeepPhase::Idle: return "on: waiting for Team Management to build its copy of your sheet" + last;
+        case KeepPhase::Pending:
+            return "on: Team Management's copy has another order (" + std::to_string(moved_) + " places): writing your saved order into it";
+        case KeepPhase::Queued: return "on: writing your saved order into Team Management's copy ...";
+        case KeepPhase::Done: return "on: " + outcome_;
+    }
+    return "";
 }
 
 }  // namespace bench

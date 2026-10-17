@@ -505,6 +505,7 @@ struct ServiceRig {
         c.in_cm = true;
         c.allow_find = allow_find;
         c.hub = true;
+        c.bench_hub = true;
         return c;
     }
     bool logged(const std::string& part) const {
@@ -523,6 +524,50 @@ static bool has_part(const std::vector<std::string>& v, const std::string& s) {
     for (const auto& x : v)
         if (x.find(s) != std::string::npos) return true;
     return false;
+}
+
+// 2.15 bench keep: the world's sheet holds 31 players (100001..100031) at #0..#30, the XI = the record's 11 slot players, -1 from #31
+using Ids52 = std::array<int32_t, kSheetPidCount>;
+static Ids52 ids_of(SheetWorld& w) {
+    Ids52 ids{};
+    for (int k = 0; k < kSheetPidCount; ++k) ids[size_t(k)] = w.i32(SheetWorld::kSheet + kSheetPids + 4 * uint64_t(k));
+    return ids;
+}
+// Team Management's working copy at svc+0x550 (P214 layout, BENCH_FINDINGS: teamsheetid -1, your team, current 1, slots 11, dirty 255,
+// mode -1, its own record vector) holding `ids`
+static void put_tm_copy(SheetWorld& w, const Ids52& ids, uint64_t build = 0x3BCE0000ULL, uint8_t dirty = 255, int team = 0) {
+    const uint64_t e = SheetWorld::kSvc + kTmCopyTarget;
+    w.mem.wr(e + kSheetId, int32_t(-1));
+    w.mem.wr(e + kSheetTeam, int32_t(team ? team : w.team));
+    w.mem.wr(e + 8, int32_t(-1));
+    w.mem.wr(e + kSheetCurrent, uint8_t(1));
+    for (int k = 0; k < kSheetPidCount; ++k) w.mem.wr(e + kSheetPids + 4 * uint64_t(k), ids[size_t(k)]);
+    w.mem.wr(e + kSheetRecBegin, build);
+    w.mem.wr(e + kSheetRecEnd, build + 5 * kRecStride);
+    w.mem.wr(e + kSheetSlotCount, int32_t(11));
+    w.mem.wr(e + kSheetDirty, dirty);
+    w.mem.wr(e + kSheetMode, int32_t(-1));
+}
+static Ids52 copy_ids(SheetWorld& w) {
+    Ids52 ids{};
+    for (int k = 0; k < kSheetPidCount; ++k) ids[size_t(k)] = w.i32(SheetWorld::kSvc + kTmCopyTarget + kSheetPids + 4 * uint64_t(k));
+    return ids;
+}
+static uint64_t copy_id_at(int k) { return SheetWorld::kSvc + kTmCopyTarget + kSheetPids + 4 * uint64_t(k); }
+// Team Management opened: its copy holds the game's order (4 places of the bench / reserves moved), the map keeps the world's order (your
+// saved one); the plan writes the map's order into the copy
+static void tm_open_world(SheetWorld& w, BenchPlan& p) {
+    const LiveTactic lt = live(w);
+    p.user = w.team;
+    p.sheet_id = lt.sheet_id;
+    p.load_gen = 3;
+    p.build = 0x3BCE0000ULL;
+    p.saved = lt.sheet_ids;
+    Ids52 s = lt.sheet_ids;
+    std::swap(s[11], s[15]);
+    std::swap(s[20], s[29]);
+    put_tm_copy(w, s, p.build);
+    p.before = s;
 }
 
 // --------------------------------------------------------------------------------------------------------------------------- core
@@ -2777,6 +2822,284 @@ static void run() {
         in.undo = true;
         CHECK(!evaluate(in).pass(), "an undo too");
     });
+
+    // ------------------------------------------------------------------------------------------------ 2.15 bench keep (Team Management's copy)
+    run_case("bench keep 2.15: the working copies - read-only, live only for your team with dirty 255, slots 11, mode -1, current 1", [&] {
+        SheetWorld w;
+        std::vector<TmCopy> cs = read_tm_copies(w.mem, SheetWorld::kSvc);
+        CHECK(cs.size() == 2 && cs[0].offset == 0x550 && cs[1].offset == 0xA60 && cs[0].readable && !cs[0].live(w.team) && !cs[1].live(w.team),
+              "two copies read, none built while Team Management is closed (zeros)");
+        BenchPlan p;
+        tm_open_world(w, p);
+        cs = read_tm_copies(w.mem, SheetWorld::kSvc);
+        CHECK(cs[0].live(w.team) && cs[0].ids == p.before && cs[0].rec_begin == p.build && cs[0].label() == "svc+0x550" && !cs[0].live(96), "built for team 95");
+        for (auto mutate : std::vector<std::function<void()>>{
+                 [&] { w.mem.wr(SheetWorld::kSvc + 0x550 + kSheetDirty, uint8_t(1)); }, [&] { w.mem.wr(SheetWorld::kSvc + 0x550 + kSheetMode, int32_t(0)); },
+                 [&] { w.mem.wr(SheetWorld::kSvc + 0x550 + kSheetSlotCount, int32_t(10)); },
+                 [&] { w.mem.wr(SheetWorld::kSvc + 0x550 + kSheetCurrent, uint8_t(0)); }}) {
+            put_tm_copy(w, p.before, p.build);
+            mutate();
+            CHECK(!read_tm_copies(w.mem, SheetWorld::kSvc)[0].live(w.team), "one field off: not Team Management's copy");
+        }
+        // the service's read carries them (read_live alone does not)
+        const fs::path out = test_tmp_dir("bench_keep_copies");
+        std::error_code ec;
+        fs::remove_all(out, ec);
+        put_tm_copy(w, p.before, p.build);
+        ServiceRig rig(w, out);
+        rig.find_returns = SheetWorld::kSvc;
+        rig.jobs.inline_run = true;
+        LiveTactic lt;
+        std::string why;
+        CHECK(rig.svc->read(rig.ctx(), lt, why) && lt.tm_copies.size() == 2 && lt.tm_copies[0].live(w.team) && lt.tm_copies[0].ids == p.before,
+              "CoreService::read fills tm_copies: " + why);
+        CHECK(live(w).tm_copies.empty(), "read_live leaves them out (the tactic job reads nothing more)");
+    });
+
+    run_case("bench keep 2.15: apply_bench - your saved order (the map) into Team Management's copy, ids 11..51 only, the XI untouched, read back", [&] {
+        CHECK(bench::kKeepSaveQuietS == kSaveQuietSeconds, "bench keep waits as long after a save as G2 does");
+        SheetWorld w;
+        BenchPlan p;
+        tm_open_world(w, p);
+        const std::vector<uint8_t> sheet0 = w.bytes(SheetWorld::kSheet, kSheetStride), recs0 = w.bytes(SheetWorld::kRecs, 5 * kRecStride),
+                                   svc0 = w.bytes(SheetWorld::kSvc, kSvcSize);
+        const BenchResult r = apply_bench(w.mem, SheetWorld::kSvc, w.anchors(), p);
+        CHECK(r.ok && r.written && r.moved == 4 && r.stage == "done", "written: " + r.message);
+        CHECK(copy_ids(w) == p.saved && r.after == p.saved, "the copy holds your saved order");
+        CHECK(w.bytes(SheetWorld::kSheet, kSheetStride) == sheet0 && w.bytes(SheetWorld::kRecs, 5 * kRecStride) == recs0, "the map and its records untouched");
+        const std::vector<uint8_t> svc1 = w.bytes(SheetWorld::kSvc, kSvcSize);
+        bool rest_same = true;
+        const size_t ids0 = kTmCopyTarget + kSheetPids + 4 * bench::kStarters, ids1 = kTmCopyTarget + kSheetPids + 4 * kSheetPidCount;
+        for (size_t i = 0; i < svc0.size(); ++i)
+            if ((i < ids0 || i >= ids1) && svc0[i] != svc1[i]) rest_same = false;
+        CHECK(rest_same && w.u8(SheetWorld::kSvc + kTmCopyTarget + kSheetDirty) == 255,
+              "nothing else in the service: the copy's ids 0..10, its dirty 255, the other copy, the header byte-identical");
+        CHECK(r.log_line == "bench keep: team 95 sheet -1: your saved order written into Team Management's working copy svc+0x550, places 11..51 (4 places; the "
+                            "starting XI untouched) (read back ok)",
+              r.log_line);
+        const BenchResult again = apply_bench(w.mem, SheetWorld::kSvc, w.anchors(), p);
+        CHECK(!again.ok && !again.written && again.stage == "changed" && copy_ids(w) == p.saved, "the same plan again: refused: " + again.message);
+    });
+
+    run_case("bench keep 2.15: apply_bench refuses - the copy or the map changed, a starter, other players, empty places, the XI, the copy's identity, G5", [&] {
+        struct Case {
+            const char* name;
+            std::function<void(SheetWorld&, BenchPlan&)> tweak;
+            const char* stage;
+            const char* why;
+        };
+        auto both = [](SheetWorld& w, BenchPlan& p, const std::function<void(Ids52&)>& f) {  // the copy in memory and the plan's "before" alike
+            f(p.before);
+            put_tm_copy(w, p.before, p.build);
+        };
+        const std::vector<Case> cases = {
+            {"the copy's order changed since the read (a move on the screen)", [](SheetWorld& w, BenchPlan&) {
+                 w.mem.wr(copy_id_at(12), int32_t(100014));
+                 w.mem.wr(copy_id_at(13), int32_t(100013)); }, "changed", "the working copy's order changed since the read (#12"},
+            {"your saved order (the map) changed since the read", [](SheetWorld& w, BenchPlan&) {
+                 w.mem.wr(SheetWorld::kSheet + kSheetPids + 4 * 12, int32_t(100014));
+                 w.mem.wr(SheetWorld::kSheet + kSheetPids + 4 * 13, int32_t(100013)); }, "changed", "your saved order (the map) changed since the read (#12"},
+            {"a starter moved in the copy", [&](SheetWorld& w, BenchPlan& p) { both(w, p, [](Ids52& x) { std::swap(x[3], x[15]); }); }, "changed",
+             "(the starting XI changed (#3"},
+            {"another player in the copy", [&](SheetWorld& w, BenchPlan& p) { both(w, p, [](Ids52& x) { x[25] = 999999; }); }, "changed",
+             "(other players on the sheet"},
+            {"an empty place moved in the copy", [&](SheetWorld& w, BenchPlan& p) { both(w, p, [](Ids52& x) { std::swap(x[30], x[31]); }); }, "changed",
+             "(the empty places moved (#30)"},
+            {"the copy already holds your order", [&](SheetWorld& w, BenchPlan& p) { both(w, p, [&](Ids52& x) { x = p.saved; }); }, "changed", "(same order)"},
+            // slot 9 holds a bench player (still on the sheet: L4 passes)
+            {"the map's ids 0..10 are not the slots' players", [](SheetWorld& w, BenchPlan&) { w.mem.wr(w.slot(9) + kSlotPid, int32_t(100020)); }, "changed",
+             "ids 0..10 are not the 11 players of the active tactic's slots"},
+            {"the copy is not built (dirty 1)", [](SheetWorld& w, BenchPlan& p) { put_tm_copy(w, p.before, p.build, 1); }, "changed",
+             "is not Team Management's copy of your sheet now (team 95, dirty 1"},
+            {"the copy is another club's", [](SheetWorld& w, BenchPlan& p) { put_tm_copy(w, p.before, p.build, 255, 96); }, "changed", "(team 96, dirty 255"},
+            {"the copy was built again", [](SheetWorld&, BenchPlan& p) { p.build = 0x3BCF0000ULL; }, "changed", "the working copy was built again since the read"},
+            {"the copy is another sheet", [](SheetWorld& w, BenchPlan&) { w.mem.wr(SheetWorld::kSvc + kTmCopyTarget + kSheetId, int32_t(5)); }, "changed",
+             "the working copy is sheet 5, yours is -1"},
+            {"another sheet id in the plan", [](SheetWorld&, BenchPlan& p) { p.sheet_id = 7; }, "changed", "your sheet is -1, not 7"},
+            {"another club", [](SheetWorld&, BenchPlan& p) { p.user = 96; }, "locate", "layout mismatch"},
+            {"G5: a sheet of mode 0", [](SheetWorld& w, BenchPlan&) { w.mem.wr(SheetWorld::kSheet + kSheetMode, int32_t(0)); }, "G5", ""},
+        };
+        for (const Case& c : cases) {
+            SheetWorld w;
+            BenchPlan p;
+            tm_open_world(w, p);
+            c.tweak(w, p);
+            const Ids52 map0 = ids_of(w), copy0 = copy_ids(w);
+            const BenchResult r = apply_bench(w.mem, SheetWorld::kSvc, w.anchors(), p);
+            CHECK(!r.ok && !r.written && r.stage == c.stage && r.message.find(c.why) != std::string::npos && r.message.find("nothing written") != std::string::npos,
+                  std::string(c.name) + ": " + r.stage + ": " + r.message);
+            CHECK(ids_of(w) == map0 && copy_ids(w) == copy0, std::string(c.name) + ": nothing written");
+            CHECK(r.log_line.find("bench keep: refused (") == 0, r.log_line);
+        }
+        SheetWorld w;
+        BenchPlan p;
+        tm_open_world(w, p);
+        const std::atomic<bool> cancel{true};
+        const BenchResult r = apply_bench(w.mem, SheetWorld::kSvc, w.anchors(), p, &cancel);
+        CHECK(!r.ok && r.stage == "cancelled" && copy_ids(w) == p.before, "a cancelled job writes nothing");
+    });
+
+    run_case("bench keep 2.15: a read-back mismatch puts every id of the copy back; putting back that fails is said", [&] {
+        SheetWorld w;
+        BenchPlan p;
+        tm_open_world(w, p);
+        FlakyMemory fm(w.mem);
+        fm.drop = copy_id_at(29);  // this write silently does not land
+        const BenchResult r = apply_bench(fm, SheetWorld::kSvc, w.anchors(), p);
+        CHECK(!r.ok && !r.written && r.undone && !r.restore_failed && r.session_off && r.stage == "readback", "undone: " + r.message);
+        CHECK(r.message.find("id #29 reads 100021, not 100030") != std::string::npos && r.message.find("bench keep is off for this session") != std::string::npos,
+              r.message);
+        CHECK(copy_ids(w) == p.before && ids_of(w) == p.saved, "the copy as before the job, the map untouched");
+        CHECK(r.log_line.find("working copy svc+0x550: READ-BACK MISMATCH") != std::string::npos && r.log_line.find("undone from the snapshot") != std::string::npos,
+              r.log_line);
+        SheetWorld w2;
+        BenchPlan p2;
+        tm_open_world(w2, p2);
+        FlakyMemory fm2(w2.mem);
+        fm2.drop = copy_id_at(15);
+        fm2.refuse = true;
+        const BenchResult r2 = apply_bench(fm2, SheetWorld::kSvc, w2.anchors(), p2);
+        CHECK(!r2.ok && r2.undone && copy_ids(w2) == p2.before, "a refused write: undone: " + r2.message);
+        SheetWorld w4;
+        BenchPlan p4;
+        tm_open_world(w4, p4);
+        StickyMemory sm(w4.mem);
+        sm.on = true;
+        sm.drop = copy_id_at(29);
+        sm.once = copy_id_at(11);
+        const BenchResult r4 = apply_bench(sm, SheetWorld::kSvc, w4.anchors(), p4);
+        CHECK(!r4.ok && !r4.undone && r4.restore_failed && r4.session_off && r4.message.find("PUTTING BACK FAILED") != std::string::npos &&
+                  r4.log_line.find("undo FAILED") != std::string::npos,
+              "restore failed: " + r4.message);
+    });
+
+    run_case("bench keep 2.15: the service - switches before queuing and in the job, G2 without Team Management, one channel E job at a time, its own results", [&] {
+        const fs::path out = test_tmp_dir("bench_keep_service");
+        std::error_code ec;
+        fs::remove_all(out, ec);
+        SheetWorld w;
+        ServiceRig rig(w, out);
+        rig.find_returns = SheetWorld::kSvc;
+        LiveTactic lt;
+        std::string why, why2;
+        rig.svc->read(rig.ctx(), lt, why);
+        rig.jobs.pump();
+        CHECK(rig.svc->read(rig.ctx(), lt, why), "located and read: " + why);
+        BenchPlan p;
+        tm_open_world(w, p);
+        // refused before queuing: no opt-in, each kill switch, G2 for bench keep, another career load
+        CHECK(!rig.svc->submit_bench(rig.ctx(), p, why) && why == "off until turbo_output\\bench_keep_on.txt exists (opt-in)" && rig.jobs.q.empty(), "no opt-in: " + why);
+        rig.touch(bench::keep_on_file());
+        for (const char* f : {bench::keep_off_file(), master_switch_file(), kill_switch_file()}) {
+            rig.touch(f);
+            CHECK(!rig.svc->submit_bench(rig.ctx(), p, why) && why.find(std::string("kill switch turbo_output\\") + f) == 0 && rig.jobs.q.empty(),
+                  std::string(f) + ": " + why);
+            rig.remove(f);
+        }
+        Context nohub = rig.ctx();
+        nohub.hub = false;
+        nohub.bench_hub = false;
+        CHECK(!rig.svc->submit_bench(nohub, p, why) && why.find("not in the career hub (G2 for bench keep") == 0, "not in the hub: " + why);
+        rig.svc->note_context(rig.ctx());
+        BenchPlan p4 = p;
+        p4.load_gen = 4;
+        CHECK(!rig.svc->submit_bench(rig.ctx(), p4, why) && why.find("career load 4") != std::string::npos, "another career load: " + why);
+        CHECK(copy_ids(w) == p.before, "nothing written so far");
+        // queued; a tactic Apply waits for it; bench_keep_off.txt dropped after queuing: refused in the job
+        CHECK(rig.svc->submit_bench(rig.ctx(), p, why) && rig.jobs.q.size() == 1 && rig.svc->busy(), "queued: " + why);
+        CHECK(!rig.svc->submit_bench(rig.ctx(), p, why2) && why2 == "a channel E job is still queued or running", "one job at a time: " + why2);
+        Plan tp;
+        Request rq;
+        rq.line_height = 70;
+        rq.approach = 2;
+        CHECK(make_plan(lt, rq, tp, nullptr).empty(), "a tactic plan");
+        CHECK(!rig.svc->submit(rig.ctx(), tp, why2) && why2.find("still queued") != std::string::npos, "the tactic Apply waits: " + why2);
+        rig.touch(bench::keep_off_file());
+        rig.jobs.pump();
+        BenchResult br;
+        ApplyResult ar;
+        CHECK(!rig.svc->poll(ar), "the tactic card's queue never sees a bench result");
+        CHECK(rig.svc->poll_bench(br) && !br.ok && br.stage == "G1" && br.message.find("bench_keep_off.txt is present (seen in the job): nothing written") != std::string::npos,
+              "kill switch in the job: " + br.message);
+        CHECK(!rig.svc->busy() && copy_ids(w) == p.before, "nothing written, not busy");
+        rig.remove(bench::keep_off_file());
+        // G2 for bench keep in the job: a save started (or the hub was left) between queuing and the game thread
+        CHECK(rig.svc->submit_bench(rig.ctx(), p, why), "queued: " + why);
+        rig.svc->note_context(nohub);
+        rig.jobs.pump();
+        CHECK(rig.svc->poll_bench(br) && !br.ok && br.stage == "G2" && br.message.find("not in the career hub any more") == 0 && copy_ids(w) == p.before,
+              "G2 in the job: " + br.message);
+        CHECK(rig.svc->submit_bench(rig.ctx(), p, why), "queued: " + why);
+        rig.svc->note_context(rig.ctx(4));
+        rig.jobs.pump();
+        CHECK(rig.svc->poll_bench(br) && !br.ok && br.stage == "G2" && br.message.find("reloaded") != std::string::npos && copy_ids(w) == p.before,
+              "a reload in between: " + br.message);
+        rig.svc->note_context(rig.ctx());
+        CHECK(rig.svc->submit_bench(rig.ctx(), p, why), "queued: " + why);
+        rig.clock += 2.5e6;
+        rig.jobs.pump();
+        CHECK(rig.svc->poll_bench(br) && !br.ok && br.stage == "late" && copy_ids(w) == p.before, "late: " + br.message);
+        CHECK(rig.svc->submit_bench(rig.ctx(), p, why), "queued: " + why);
+        w.mem.wr(SheetWorld::kPsm + 0x10, int32_t(96));
+        rig.jobs.pump();
+        CHECK(rig.svc->poll_bench(br) && !br.ok && br.stage == "user" && copy_ids(w) == p.before, "the game's club: " + br.message);
+        w.mem.wr(SheetWorld::kPsm + 0x10, int32_t(w.team));
+        // Team Management open (channel E's G2 fails: hub false), G2 for bench keep holds: written (the copy exists only while it is open)
+        Context tm_open = rig.ctx();
+        tm_open.hub = false;
+        const int finds = rig.find_calls;
+        CHECK(rig.svc->submit_bench(tm_open, p, why), "queued while Team Management is open: " + why);
+        rig.jobs.pump();
+        CHECK(rig.svc->poll_bench(br) && br.ok && br.written && br.moved == 4 && copy_ids(w) == p.saved && ids_of(w) == p.saved, "written: " + br.message);
+        CHECK(rig.find_calls == finds + 1, "the registry Find re-checked in the job (opt-in context)");
+        CHECK(rig.logged("bench keep: team 95 sheet -1: your saved order written into Team Management's working copy svc+0x550, places 11..51 (4 places; the "
+                         "starting XI untouched) (read back ok) [job"),
+              "logged with the job's time");
+        CHECK(!rig.svc->poll(ar) && w.i32(SheetWorld::kRecs + kRecLineHeight) == 25 && rig.svc->bench_off().empty() && rig.svc->session_off().empty(),
+              "the tactic side untouched");
+        // a bench read-back mismatch: bench keep off for the session; channel E's tactic writes stay on
+        SheetWorld w2;
+        BenchPlan q;
+        tm_open_world(w2, q);
+        FlakyMemory fm(w2.mem);
+        fm.drop = copy_id_at(29);
+        const fs::path out2 = test_tmp_dir("bench_keep_service2");
+        fs::remove_all(out2, ec);
+        ServiceRig rig2(w2, out2, &fm);
+        rig2.find_returns = SheetWorld::kSvc;
+        rig2.jobs.inline_run = true;
+        rig2.touch(bench::keep_on_file());
+        rig2.touch(opt_in_file());
+        CHECK(rig2.svc->read(rig2.ctx(), lt, why), "rig 2: " + why);
+        CHECK(rig2.svc->submit_bench(rig2.ctx(), q, why), "queued: " + why);
+        CHECK(rig2.svc->poll_bench(br) && br.undone && br.session_off && copy_ids(w2) == q.before, "mismatch: " + br.message);
+        CHECK(!rig2.svc->bench_off().empty() && !rig2.svc->submit_bench(rig2.ctx(), q, why) && why.find("bench keep is off for this session") == 0,
+              "no further bench write: " + why);
+        CHECK(rig2.svc->session_off().empty(), "channel E's tactic writes are not switched off by bench keep");
+        // channel E off for the session (a tactic read-back mismatch) stops bench keep too
+        SheetWorld w3;
+        BenchPlan q3;
+        tm_open_world(w3, q3);
+        FlakyMemory fm3(w3.mem);
+        fm3.drop = SheetWorld::kRecs + kRecLineHeight;
+        const fs::path out3 = test_tmp_dir("bench_keep_service3");
+        fs::remove_all(out3, ec);
+        ServiceRig rig3(w3, out3, &fm3);
+        rig3.find_returns = SheetWorld::kSvc;
+        rig3.jobs.inline_run = true;
+        rig3.touch(bench::keep_on_file());
+        rig3.touch(opt_in_file());
+        CHECK(rig3.svc->read(rig3.ctx(), lt, why), "rig 3: " + why);
+        Plan tp3;
+        CHECK(make_plan(lt, rq, tp3, nullptr).empty() && rig3.svc->submit(rig3.ctx(), tp3, why) && rig3.svc->poll(ar) && ar.undone, "a tactic mismatch");
+        CHECK(!rig3.svc->submit_bench(rig3.ctx(), q3, why) && why.find("channel E is off for this session") == 0 && copy_ids(w3) == q3.before,
+              "bench keep refused while channel E is off: " + why);
+        Host h;
+        h.mem = &w.mem;
+        h.anchors = w.anchors();
+        CoreService none(h);
+        CHECK(!none.submit_bench(rig.ctx(), p, why) && why.find("dispatcher") != std::string::npos, "no dispatcher: " + why);
+    });
 }
 // --------------------------------------------------------------------------------------------------------------------------- UI
 // The Tactics tab's right column is short in the test window: scroll it so the item is at its top (a widget out of view has no label for
@@ -3372,6 +3695,132 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         for (const char* f : {opt_in_file(), undo_file()}) fs::remove(out / f, ec);
         st = saved;
         st["seq"] = saved.value("seq", 0LL) + 60;
+        write_state();
+        live_tactic_reset();
+    });
+
+    // 2.15 bench keep through the card's own code: the toggle writes the opt-in; Team Management opens = its working copy at svc+0x550 is built
+    // in the game's order (Lua's team_mgmt stays false, as on LE 27.1.5) -> one guarded job writes your saved order (the map's) into it;
+    // the probe logs the copy; one write per build; channel E's undo file untouched; the toggle off
+    run_case("UI: bench keep - the toggle, Team Management's copy built in the game's order -> your saved order written into it once per build, logged", [&] {
+        live_tactic_reset();
+        const fs::path out = le / "turbo_output";
+        std::error_code ec;
+        for (const char* f : {opt_in_file(), kill_switch_file(), master_switch_file(), undo_file(), bench::keep_on_file(), bench::keep_off_file()})
+            fs::remove(out / f, ec);
+        SheetWorld w(1, 10);
+        ServiceRig rig(w, out);
+        rig.find_returns = SheetWorld::kSvc;
+        rig.jobs.inline_run = true;
+        app.team_sheet = rig.svc;
+        double wall = 2.0e9;
+        live_tactic_test_wall_clock([&wall]() { return wall; });
+        std::vector<std::string> hooked;
+        app.log_hook = [&hooked](const std::string& x) { hooked.push_back(x); };
+        auto app_logged = [&hooked](const std::string& part) { return has_part(hooked, part); };
+        const fs::path state_file = out / "bridge_state.json";
+        json st = read_json(state_file);
+        const json saved = st;
+        int bumps = 900;
+        auto write_state = [&]() {
+            {
+                std::ofstream f(state_file.string(), std::ios::binary | std::ios::trunc);
+                f << st.dump();
+            }
+            fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(2 * ++bumps));
+            app.next_poll = 0.0;
+            ui.frames(3);
+        };
+        st["match_phase"] = "hub";
+        st["team_mgmt"] = false;
+        st["save_t"] = (long long)(std::time(nullptr)) - 3600;
+        st["managers"] = hex_addr(SheetWorld::kManagers);
+        st["seq"] = st.value("seq", 0LL) + 1;
+        write_state();
+        tactics_tab_test::select_team(app, ui, 7);
+        tactics_tab_test::go_scope(ui, "My team");
+        ui.frames(3);
+        const LiveTacticState& s = live_tactic_state();
+        rig.clock += 6e6;
+        ui.frames(70);
+        CHECK(s.read_ok, "read: " + s.summary);
+        lt_scroll_top(ui);
+        CHECK(!s.bench_keep_on && s.bench_keep == "Bench order: off (no turbo_output\\bench_keep_on.txt)", "off by default: " + s.bench_keep);
+        CHECK(ui.click("Keep my bench order after Team Management##ltbench", "##tacright"), "the toggle clicked");
+        auto step = [&](int n) {
+            for (int i = 0; i < n; ++i) {
+                wall += 0.6;
+                ui.frames(2);
+            }
+        };
+        step(10);  // the write also waits until the map has been quiet for 5 s (counted from the first read)
+        CHECK(fs::exists(out / bench::keep_on_file()) && s.bench_keep_on &&
+                  s.bench_keep == "Bench order: on: waiting for Team Management to build its copy of your sheet",
+              "on: the opt-in file written: " + s.bench_keep);
+        CHECK(app_logged("bench keep: switched on in the Turbo window (turbo_output\\bench_keep_on.txt)") &&
+                  app_logged("bench keep: watching Team Management's working copy svc+0x550 (not built yet)"),
+              "the toggle and the watch are logged");
+        // Team Management opens: its copy is built in the game's order (4 places of the bench / reserves); Lua's team_mgmt stays false
+        const Ids52 orig = ids_of(w);
+        Ids52 game = orig;
+        std::swap(game[11], game[15]);
+        std::swap(game[20], game[29]);
+        put_tm_copy(w, game, 0x3BCE0000ULL);
+        step(2);
+        CHECK(copy_ids(w) == orig && ids_of(w) == orig, "your saved order is in Team Management's copy, the map untouched: " + s.bench_keep);
+        CHECK(app_logged("bench keep: Team Management built its working copy svc+0x550 in another order than your saved one (4 places of the bench / reserves"),
+              "the build is logged");
+        CHECK(app_logged("bench keep: your saved order is queued for the game thread (4 places of the bench / reserves, Team Management's working copy svc+0x550)"),
+              "queued line");
+        CHECK(rig.logged("bench keep: team 1 sheet -1: your saved order written into Team Management's working copy svc+0x550, places 11..51 (4 places; the "
+                         "starting XI untouched) (read back ok) [job"),
+              "the job's line");
+        CHECK(app_logged("bench probe: Team Management's working copy svc+0x550 built [records 0x3BCE0000]: against your map sheet (your saved order): 4 of 31 places "
+                         "changed"),
+              "the probe logs the copy's build");
+        CHECK(app_logged("bench probe: Team Management opened"), "the probe sees Team Management open by the copy (Lua's flag stays false)");
+        step(2);
+        CHECK(s.bench_keep.find("Bench order: on: put back: your saved order is in Team Management's working copy, places 11..51 (4 places written") == 0,
+              s.bench_keep);
+        CHECK(!fs::exists(out / undo_file()) && s.last.empty(), "channel E's tactic card saw nothing of it (no undo file, no 'Last' line)");
+        // the same build in the game's order again: one write per build
+        put_tm_copy(w, game, 0x3BCE0000ULL);
+        step(10);
+        CHECK(copy_ids(w) == game, "ONE write per build: " + s.bench_keep);
+        // Team Management closes (the copy is no longer your sheet's) and opens again: the new build is written
+        put_tm_copy(w, game, 0x3BCE0000ULL, 1);
+        step(2);
+        CHECK(app_logged("bench probe: Team Management's working copy svc+0x550 is no longer your sheet's (Team Management closed?)"), "the copy gone is logged");
+        put_tm_copy(w, game, 0x3BD00000ULL);
+        step(2);
+        CHECK(copy_ids(w) == orig, "the next opening is written again");
+        // the toggle off: the file removed
+        lt_scroll_top(ui);
+        CHECK(ui.click("Keep my bench order after Team Management##ltbench", "##tacright"), "the toggle clicked again");
+        step(2);
+        CHECK(!fs::exists(out / bench::keep_on_file()) && !s.bench_keep_on && s.bench_keep == "Bench order: off (no turbo_output\\bench_keep_on.txt)",
+              "off: " + s.bench_keep);
+        put_tm_copy(w, game, 0x3BD10000ULL);
+        step(4);
+        CHECK(copy_ids(w) == game, "off: nothing written");
+        // on again with the copy already built (as after a career load: the game builds it during the load and the first visit shows it):
+        // written once the map has been quiet for 5 s
+        lt_scroll_top(ui);
+        CHECK(ui.click("Keep my bench order after Team Management##ltbench", "##tacright"), "the toggle clicked: on again");
+        step(3);
+        CHECK(copy_ids(w) == game && app_logged("(built already, e.g. during the career load: handled as a new build)"), "first sight: armed, waiting");
+        step(8);
+        CHECK(copy_ids(w) == orig, "first sight: the copy built before bench keep looked is written: " + s.bench_keep);
+        lt_scroll_top(ui);
+        CHECK(ui.click("Keep my bench order after Team Management##ltbench", "##tacright"), "the toggle clicked: off");
+        step(2);
+        // clean up
+        app.log_hook = nullptr;
+        live_tactic_test_wall_clock(nullptr);
+        app.team_sheet = nullptr;
+        for (const char* f : {opt_in_file(), undo_file(), bench::keep_on_file()}) fs::remove(out / f, ec);
+        st = saved;
+        st["seq"] = saved.value("seq", 0LL) + 90;
         write_state();
         live_tactic_reset();
     });
