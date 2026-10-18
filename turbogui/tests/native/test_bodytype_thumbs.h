@@ -342,6 +342,10 @@ static void test_bodytype_thumbs() {
         CHECK(!bt::parse_request(R"({"source": "camera", "camera": -1})", rq, &err), "camera -1 without a mode refused");
         CHECK(!bt::parse_request(R"({"source": "mirror"})", rq, &err), "an unknown source refused");
         CHECK(!bt::parse_request(R"({"source": "camera", "camera": 99})", rq, &err), "a camera this build lacks refused");
+        // 2.17.0 (G4 blocker C2): the window never starts a run from a file; only the button, after a confirmation
+        const std::string ui = slurp(fs::path(g_lua).parent_path().parent_path().parent_path() / "src" / "ui" / "ui_bodytype_thumbs.cpp");
+        CHECK(!ui.empty() && ui.find("take_request") == std::string::npos && ui.find("BeginPopupModal") != std::string::npos,
+              "no request file starts a run in the window; the button asks for a confirmation first");
         CHECK(!bt::parse_request(R"({"source": "camera", "camera": -3})", rq, &err), "camera -3 refused");
         CHECK(bt::parse_request(R"({"source": "camera", "camera": -2})", rq, &err) && rq.source.camera == -2 && rq.source.mode == -1,
               "camera -2 (track C's kCameraBodyFull) accepted: " + err);

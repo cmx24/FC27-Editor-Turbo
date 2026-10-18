@@ -21,7 +21,6 @@ namespace {
 
 struct Maker {
     std::unique_ptr<bt::Generator> gen;
-    double next_request_check = 0.0;
     std::string message;  // last refusal or note for the section
     bool message_error = false;
     int source = 0;  // 0 the full-body camera (or source.json when there is one), 1 another game camera
@@ -148,22 +147,11 @@ void start_run(App& app, const bt::StartRequest& rq, const char* from) {
 
 const char* bodytype_thumbs_busy_text() { return bt::generator_running() ? "Making body-type pictures..." : ""; }
 
+// 2.17.0 (G4 blocker C2): a run starts ONLY from the section's button, after a confirmation that names the career and the player.
+// No file starts it (a request file left behind could have started the writes in another career).
 void tick_bodytype_thumbs(App& app) {
     bt::configure(app.turbo_output());
-    if (g.gen && g.gen->running()) {
-        g.gen->tick();
-        return;
-    }
-    if (app.now < g.next_request_check) return;
-    g.next_request_check = app.now + 2.0;
-    bt::StartRequest rq;
-    std::string err;
-    if (bt::take_request(app.turbo_output(), rq, &err)) start_run(app, rq, "request");
-    else if (!err.empty()) {
-        g.message = "The request was not readable: " + err;
-        g.message_error = true;
-        bt::append_log(app.turbo_output(), stamp_now(), "request refused: " + err);
-    }
+    if (g.gen && g.gen->running()) g.gen->tick();
 }
 
 void bodytype_thumbs_section(App& app) {
@@ -199,18 +187,33 @@ void bodytype_thumbs_section(App& app) {
         ImGui::InputInt("Only the first (0 = all)##btthumbmax", &g.max_steps, 0, 0);
         if (g.max_steps < 0) g.max_steps = 0;
         ImGui::BeginDisabled(!p);
-        if (ImGui::Button("Make the pictures##btthumbgo")) {
-            bt::StartRequest rq;
-            rq.player = p ? static_cast<int32_t>(p->playerid) : 0;
-            if (g.source == 1) {
-                rq.source_given = true;
-                rq.source.kind = bt::SourceKind::Camera;
-                rq.source.camera = g.camera;
-            }
-            rq.max_steps = static_cast<size_t>(g.max_steps);
-            start_run(app, rq, "button");
-        }
+        if (ImGui::Button("Make the pictures...##btthumbgo")) ImGui::OpenPopup("Make body-type pictures?###btthumbconfirm");
         ImGui::EndDisabled();
+        if (ImGui::BeginPopupModal("Make body-type pictures?###btthumbconfirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            const std::string career = !app.career_label.empty() ? app.career_label
+                                       : (!app.reapply.career.empty() ? app.reapply.career : std::string("no career identified"));
+            ImGui::Text("Career: %s", career.c_str());
+            ImGui::Text("Player: %s", p ? p->name.c_str() : "none picked");
+            ImGui::TextWrapped("His body type is changed once per body type while the game draws him, and put back at the end. Do this "
+                               "only in a throwaway career that you will not save.");
+            ImGui::BeginDisabled(!p || app.reapply.career.empty());
+            if (ImGui::Button("Yes, make them##btthumbyes")) {
+                bt::StartRequest rq;
+                rq.player = p ? static_cast<int32_t>(p->playerid) : 0;
+                if (g.source == 1) {
+                    rq.source_given = true;
+                    rq.source.kind = bt::SourceKind::Camera;
+                    rq.source.camera = g.camera;
+                }
+                rq.max_steps = static_cast<size_t>(g.max_steps);
+                start_run(app, rq, "button");
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel##btthumbno")) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
         ImGui::SameLine();
         if (ImGui::Button("Put his own body type back##btthumbback")) {
             std::string err;
