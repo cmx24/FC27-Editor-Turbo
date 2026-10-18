@@ -7,10 +7,124 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
 Nothing here is shipped or claimed as a feature. Gates are in `turbo_dev\evidence6-10-15\TEST_31.md`.
 
-- **UNPROVEN (offline green, branch `reapply/edit-scopes`):** kept edits by career. Every row of `turbo_output\reapply_edits.json` (kit colours / settings / fonts, player callnames, player edits) and every club name of `turbo_output\team_names.json` has a scope: rows kept by an older Turbo are "not assigned yet" and are still written in every career, exactly as before (written back without a scope key); "global" rows in every career; a career's rows only when that career loads. New edits made in a career belong to it. The career is recognised by its user manager's row (manager id, names, birth date, nationality) and the career start date, so a renamed save (CmMgrC<timestamp>) or a job switch keeps it; 0 or 2+ manager rows of your club = not identified (career rows left alone, new edits not assigned). Career tools > Changes & undo > "Where kept edits apply (careers)" moves a club's kit rows, a callname, a player's edits or a club name to Global or This career. A club name of one career is never written to Live Editor's custom_team_names.csv. turbo_gui.log gets one "career identity:" line per career load and a scopes suffix on the re-apply summary. Live check: `turbo_dev\research_20261017\EDIT_SCOPES_LIVECHECK.md`.
 - **UNPROVEN:** tactics sliders for team length and width (`shape.length_in`, `shape.width_in`). Gate G-T1 was INCONCLUSIVE in game (counted as FAIL for the live write route).
 - **UNPROVEN:** any effect of the game settings sliders on match play. Gate G-S3 (ratio >= 1.4).
-- **UNPROVEN (offline green, branch `assets/heads3d-coverage`):** real-face chooser. "Real faces only" is headclasscode 0 again (1,176 real faces of a career had hashighqualityhead 0 and were hidden); hashighqualityhead is an HQ badge and an optional filter, off by default, as is "Only heads with a 3D look". "Manager heads" lists the game heads whose name matches a manager of the save (marked "name match", given only after the confirmation). A head always comes with its picture as the target's own miniface (players p<playerid>, managers heads_staff_<managerid>), or nothing is written while the picture loads (after 20 s without pictures the head is given and the message says why the miniface is not), or the message says the game has none. Manager pictures are shown in the order heads_staff_<managerid>, heads_staff_<headassetid>, genericManagerHeads/gmh<headassetid>. **Separately UNPROVEN: the write key heads_staff_<managerid>.** The game files support it (the game ships staff pictures under the managerid), but no game screen has yet shown which key the game reads (probe in `HEADS3D_LIVECHECK.md`). Hidden game heads without a miniface show their legend picture. Catalog builder 2 adds `head3d.slug` (`turbo_dev\research_20261017\HEADS3D_CENSUS.md`).
+
+## 2.17.2 (built 2026-10-18)
+
+Hotfix on top of 2.17.1. Package FC27_LE_Turbo_2.17.2.zip (sha256 12bc6d3a706221ca72676196d37f9056611b6ef795bc231051958441cee7b849). Turbo.dll md5 93ee363f917feab0bfaf2ccae207c0d3. Built for FC 27 build 6AC07E31-2145C000 and Live Editor 27.1.5. 2.17.1 was a test build and was never published; this release carries everything in the 2.17.1, 2.17.0, 2.16.0 and 2.15.0 sections below, so a player coming from 2.14.0 gets all of it at once.
+
+In-game check of this package: 2026-10-18, one boot on the throwaway LEICESTER career (never saved; every save restored afterwards, 20 of 20 files md5-identical): Turbo 2.17.2 connected (141 hooks found, 0 missing, 0 refusals); live standings edit and its Undo, the player edit and its Undo with the file check below, three callnames assigned and removed, the faces picker, the manager hair and beard galleries and the folder picker all passed. Not run on this package: a real-time transfer (no Undo exists), a match load, an Advance, kits, settings and tactic presets, a career save and reload. Callname commentary on the pitch is not proven.
+
+- **Fix: a kept player edit and its Undo no longer leave an empty careers block in `turbo_output\reapply_edits.json`.** Proven in game: Jamie Vardy's Penalties 83 -> 84 written and read back, then Undo -> 83, and turbo_output\reapply_edits.json was md5-identical (bb3b5361) before the edit and after the Undo, with no empty careers entry left. Cause: the file's careers list (the careers that kept edits are bound to) was only ever added to. When the last edit of a career went (Undo, Forget, or moved to Global), the career's entry stayed, so the file changed although no edit was left. Turbo now drops, at every save, each careers entry that no kit, callname or player edit is bound to. The block was only a display name for a career; the kept edits are applied from their own scope, so no game data and no player edit was ever affected. A file written by 2.17.0 or 2.17.1 that holds such an empty entry is cleaned at the first save by 2.17.2 (one change of the file's bytes, no edit touched). Offline: new native tests for the store and for the UI path, including edit + Undo with and without an existing careers block.
+
+Known limits (2.17.2):
+- A manager's full-body picture shows his face on a player in a kit, with a ball, not his manager outfit (David Moyes). Parked, not in this release.
+- Everything listed as not proven in the 2.17.0 and 2.16.0 sections below is still not proven.
+
+## 2.17.1 (built 2026-10-17, test build, never published; included in 2.17.2)
+
+Fix build on top of 2.17.0. Package FC27_LE_Turbo_2.17.1.zip (sha256 5ccd94c174f1c6c68f8741ee3c99bf5ba7e73a911c991a100d0c3917fbaac60b). Turbo.dll md5 c32dc7384dad49c9e3a2d68aa91cdff4. Built for FC 27 build 6AC07E31-2145C000 and Live Editor 27.1.5. It was never published: its regression run (below) found the defect that 2.17.2 fixes.
+
+In-game check of this package: 2026-10-17, one boot on the throwaway LEICESTER career (never saved; every save restored afterwards): the body-type and settings items below passed. The first regression run on it (R1, 2026-10-17 23:41) passed the standings edit, the connection to Live Editor and the season pack, and failed the edit-path file check: a player edit and its Undo left an empty careers block in turbo_output\reapply_edits.json. That is fixed in 2.17.2.
+
+- **Body-type pictures in the Looks studio.** Proven in game. The body-type grid now shows a picture for each of the 10 generic body types. The pictures are made by Advanced > Diagnostics & logs > Body-type pictures, which you start yourself with a button; until it has run, and for the player-specific "Like ..." bodies, the tiles show names. Not tried on a clean install: the test machine already held the pictures from an earlier run.
+- **Body-type changes and their Undo are written to Turbo's log file** as well as the in-game Log. Proven in game: Luke Thomas to "Tall, stocky" and back; the full-body picture got wider and returned.
+- **Settings page.** Proven in game: 1.06 ms per frame on this package (target 3.0 ms).
+
+Known limits (2.17.1):
+- A manager's full-body picture shows his face on a player in a kit, with a ball, not his manager outfit. Tried again on this package with the game's outfit flag: still a kit. Not fixed.
+- Everything listed as not proven in the 2.17.0 and 2.16.0 sections below is still not proven.
+
+## 2.17.0 (built 2026-10-17, test build, never published; included in 2.17.2)
+
+Package FC27_LE_Turbo_2.17.0.zip (sha256 8fe9fada61c651be42a830bf6f427ce8982a382aaea3e008e709e3863e064746). Includes everything in 2.16.0, and 2.16.1, which was never released. In-game check of this package: 2026-10-17, one boot on LEICESTER (never saved): pass, no regression. Each "proven" below was seen in that run unless it says otherwise.
+
+- **Looks studio (Faces & looks > Looks studio), a new page for faces and looks.**
+  - Full-body picture of a player, drawn by the game: proven in game (Luke Thomas, head to boots in the Leicester kit). A free agent (Alex Sandro) also draws, in a plain generic kit; no crash.
+  - Full-body picture of a manager: it draws, but as the manager's face on a player in a kit, not his manager outfit (David Moyes). A known limit, see 2.17.2.
+  - Hair and beard: proven in game (hair 155 and beard 46 on Luke Thomas; the new full-body picture shows both). "His own" brings back his own look. Hair and beard changes have no Undo step; "His own" is the way back.
+  - Body type: proven in game ("Tall, stocky" made the full-body picture wider; Undo put it back). In this version the grid showed names only; the pictures came in 2.17.1.
+  - Body-type picture generator (Advanced > Diagnostics & logs > Body-type pictures): proven in game. It asks first, naming the career and the player it uses as the reference, and puts his own body type back at the end. A limited run drew 10 pictures, 0 failed.
+  - Face picker, accessories and kit fit pickers in the studio: not yet proven in game.
+- **Hair and beard changes also go to Turbo's log file.** Proven in game.
+- **Player page, Changes & Undo page and Kits & club pages in the menu.** Not yet proven in game (checked offline only). The top bar has an Undo button (seen with "Nothing to undo" while there is nothing). The older screens stay under Settings > Show advanced tools > "Use the old pages".
+- **Faster pages.**
+  - Settings and the other pages measured: Settings about 1.0 ms per frame, Looks studio about 1.1 ms, Diagnostics & logs about 1.1 ms. Proven in game.
+  - Picture files checked on disk far less often; the face chooser no longer freezes the game when it opens (its list fills in with a progress line); the older Managers & staff screen no longer checks files on every frame. Not yet measured in game.
+- **Automatic "his own look" restore (off by default).** When a career loads, Turbo can note which players it would give their own look back. For now it only writes a line to the log, and there is no menu switch. Not yet proven in game.
+
+Known limits (2.17.0):
+- Mouse pointer: while Turbo's panel is open, the pointer is drawn by Turbo and follows the game's frame rate. A follow-up.
+- The face chooser's list fills in over a few frames after it opens; not timed in game.
+
+## 2.16.0 (built 2026-10-17, test build, never published; included in 2.17.2)
+
+Package FC27_LE_Turbo_2.16.0.zip (sha256 a6510aab25ec2e8c1230d6921cbc3b1b0b4b0570aaac427ec03c852402229bd3). Includes 2.15.1, which was never shipped. In-game check of this package: 2026-10-17, about 5 minutes on LEICESTER (never saved): no crash, the overlay opened and every area that was checked opened. Where a line says "earlier build", the proof comes from an in-game run of an earlier test build of the same feature.
+
+- **Bench order kept after Team Management (off by default).** Proven in game on earlier builds: the first Team Management visit after a career loads shows your saved bench order, and the starting XI is untouched. Not run on this package. Not yet proven: the same after you save and reload; the menu switch itself (the tests turned it on with a file). The switch "Keep my bench order after Team Management" is on Tactics > Team sheet & bench.
+- **Settings page no longer freezes (it was the Status page).** Proven in game on this package: about 1.6 to 2.0 ms per frame with builds running on the same PC (the 2.15.1 test build measured 5.5 ms; the target is 3.0 ms). Its counts now update in the background, not on every frame.
+- **Mouse wheel.** Proven in game on an earlier build: one wheel notch scrolls one step, and the face and manager hair galleries scroll smoothly. Proven on this package: in one session the wheel handling did not need to be set up again (the earlier build needed it 4 to 11 times).
+- **Plainer wording.** Proven in game on an earlier build, seen on screen: the player header no longer shows the internal code; the face chooser text; the tactic presets option "Let Turbo change my tactic"; the header "Changes Turbo puts back when you load your career". Not yet proven: "Waiting for your career" (it shows only while Turbo is not connected), and the wording on the new pages.
+- **New top bar and a seven-area menu.** Proven in game on this package: the overlay opens with the areas Players, Faces & looks, Kits & club, Tactics, Career, Settings and Advanced, and each area that was checked opens. Not yet proven: the "Use the old pages" switch.
+- **New Tactics pages.**
+  - Presets: opens and shows your live tactic (proven in game). Save, Load and Undo not yet run.
+  - Team sheet & bench: opens (proven in game). Holds the bench order switch above.
+  - Game sliders: Prepare and Discard buttons. Not yet proven in game. What a prepared preset does in the game is not yet proven.
+- **New Career pages.**
+  - Standings: opens and shows the league table (read only, proven in game).
+  - Managers & staff (under Players): opens, about 1 ms per frame with a manager selected (proven in game).
+  - Transfers & money, Manager jobs, My squad: not yet proven in game. Their actions ask for confirmation first; that confirmation has not been checked in game.
+- **New Advanced pages.** Diagnostics & logs: opens, with the game link, switches, game hooks and the log (proven in game). Data export: not yet proven in game.
+- **3D hair and beard on real faces, live, without a restart.** Proven in game on players, on the Squad Hub: changing a real-face player's hair and beard works at once (the new look shows the next time his head is drawn: leave him and come back); "His own" brings back his own look; an untouched player stays as he was; picking another real face works and one Undo puts back the previous head and hair; with the switch-off file present, a player shows his own face with no Turbo beard. Now on by default for everyone (it was opt-in). One exception: if the game was started before Turbo's face support loaded, Turbo shows an amber line and the game needs one restart (not seen in the tests). Not yet proven: 3D hair and beard on managers.
+
+Known limits (2.16.0):
+- Tactic presets and Game sliders: their effect on matches is not proven.
+- Bench order kept: off by default; see above.
+- Mouse pointer: while Turbo's panel is open, the pointer is drawn by Turbo and follows the game's frame rate. A follow-up.
+
+## 2.15.0 (built 2026-10-17, test build, never published; included in 2.17.2)
+
+Built for FC 27 build 6AC07E31-2145C000 and Live Editor 27.1.5. Everything from 2.14.0 is unchanged.
+
+- **Keep my bench order (opt-in, off by default). Did not work in this build.** With "Keep my bench order after Team Management" ticked, Turbo puts your saved bench and reserves order back when Team Management is built. The starting XI is never touched. In the LEICESTER test the game re-sorted the bench as the screen opened, so the game's order showed. Fixed in 2.16.0 (see above).
+- **Kept edits by career (kit colours, callnames, player edits, club names).** Each kept edit now has a scope:
+  - edits kept by older Turbo versions still apply in every career, as before;
+  - "global" edits apply in every career;
+  - "this career" edits apply only in their own career.
+  Move an edit between scopes with Career tools > Changes & undo > "Where kept edits apply (careers)".
+  - Proven in game on LEICESTER: Turbo recognised the career from its manager and start date, and the kept edits were re-applied at load (seen again on the later builds).
+  - Not proven yet: the scope check itself (a global edit in another career, a career edit left alone there) and moving an edit with the new menu.
+  - Undo of a kit import puts the kept fields back in the scope the import wrote. Not yet tested in game.
+  - Two careers that are copies of each other, with the same manager and start date, count as one career. This is intended.
+- **Crash fix for Turbo's hooks.** In some memory layouts, Turbo's hook library copied a jump from Live Editor's own DirectX hook the wrong way, and the game crashed when the overlay started (with the tactic presets' attribute patch on). Turbo now checks the jump distance and uses a safe form when it must.
+  - Proven in game on a 2.10-based test build: the fix engaged and the game stayed alive.
+  - Not re-run on 2.15.0 or later: the crash setup itself. On these builds the overlay hooks install normally.
+
+Known limits (2.15.0):
+- Tactics: no on-pitch effect is claimed.
+
+## 2.14.0 (2026-10-17)
+
+Tested in game on 2026-10-17 on FC 27 build 6AC07E31-2145C000 and Live Editor 27.1.5, on the throwaway LEICESTER career (never saved), with every save restored afterwards. Published 16:01.
+
+- **Goalkeeper kits are never mixed.** Proven in game. In 2.13, a goalkeeper shirt shared with other clubs could come with your own shorts and socks. Now a kit that cannot be swapped completely stays fully EA's, and the status line says why. Tested: Man City's goalkeeper kit with the option off stayed fully EA's.
+- **"Also change other clubs' kits" (per kit).** Proven in game (Sevilla). It swaps a shared shirt anyway, and the other clubs that use the same EA template change too. Tested: Sevilla's goalkeeper kit with the option on showed the full zip kit. Not proven: changing only your own club's kit (the per-club route) is still research.
+- **A face comes with its miniface.** Proven in game. Giving a player a real face also gives him that face's small picture, and one Undo puts back both.
+- **Warning when a head and its picture do not match.** Proven in game. If you type a head in by hand, Turbo warns that the small picture still shows the old face, and offers "Use the matching miniface" or "Keep his old picture". A generic head shows no warning.
+- **Real faces that were hidden now show.** Proven in game (checked on Mbappé and Pedri). The high-quality filter still hides them when it is ticked.
+- **Manager heads and pictures.** Proven in game. Managers show their game picture (checked on Arteta), and manager heads are matched by name (checked on Kompany).
+- **Callnames from the game's own commentary files.** Proven in game for Spanish: 2,841 generic and 4,903 own names. Other languages need their commentary packs installed in the game; not checked in game yet.
+- **Bench probe (investigation only).** Proven in game. Turbo logs your club's bench order at each career load. It changes nothing; it is there to study the reordering problem below.
+
+Checked again on 2.14.0, passed: live standings edit and Undo, manager hair and facial-hair galleries, the Chilwell hair grid in the faces picker, a career match past kick-off, folder picker double-click, season pack apply and undo, live tactic Apply (Edit Tactic shows the new values), Turbo connecting on Live Editor 27.1.5.
+
+Not proven / known limits (2.14.0):
+- Not re-run on 2.14: the EA Custom slider screen and the tactic presets save and load. Their code is unchanged since 2.13.0.
+- Team Management re-sorts your bench every time the screen opens. 2.14 does not fix it (the bench probe only observes it). See 2.15.0.
+- Turbo does not yet notice when Team Management opens on Live Editor 27.1.5, so the probe's open and close lines do not appear.
+- Tactics: no on-pitch effect is claimed.
+- Cosmetic: in the face chooser the "Hidden" and "name match" badges overlap.
 
 ## 2.13.0
 
