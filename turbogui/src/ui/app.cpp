@@ -24,6 +24,7 @@
 #include "ui_asset_browser.h"
 #include "ui_faces.h"
 #include "ui_faces3d_gate.h"
+#include "ui_bodytype_thumbs.h"
 #include "ui_images.h"
 
 #include "ui_edit_unlock.h"
@@ -1709,6 +1710,7 @@ void App::draw() {
     // the face chooser's 3D heads: renders go on with the chooser (or Turbo) closed; never waits
     tick_faces3d(*this);
     tick_faces3d_preview(*this);  // Players > Appearance > 3D hair: the live preview's own picture (ui_faces3d_gate.cpp)
+    tick_bodytype_thumbs(*this);  // 2.17 looks T: the body-type picture maker (ui_bodytype_thumbs.cpp), also while the window is hidden
 
     if (!visible) return;
 

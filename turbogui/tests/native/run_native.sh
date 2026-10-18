@@ -107,6 +107,7 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/ui/ui_career_page.cpp src/ui/ui_diagnostics_page.cpp src/ui/ui_kits_page.cpp \
          src/core/asset_catalog.cpp src/ui/ui_asset_browser.cpp \
          src/core/hub_customise.cpp src/ui/ui_club_tools.cpp \
+         src/core/bodytype_thumbs.cpp src/ui/ui_bodytype_thumbs.cpp \
          src/core/transfer_stats.cpp src/core/scouts.cpp src/ui/ui_parity.cpp \
          src/core/callname_audio.cpp src/ui/ui_callname_play.cpp src/core/callname_voice.cpp src/core/callname_voice_host.cpp \
          src/ui/ui_zoom.cpp src/ui/ui_shell.cpp src/ui/ui_team_filter.cpp src/ui/ui_role_rules.cpp src/ui/ui_club_search.cpp src/ui/ui_settings.cpp src/ui/ui_club_page.cpp src/ui/ui_nav_pages.cpp src/ui/ui_pages_216.cpp \

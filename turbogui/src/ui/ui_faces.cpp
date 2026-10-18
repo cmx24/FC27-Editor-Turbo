@@ -18,6 +18,7 @@
 #include "imgui.h"
 #include "ui_asset_browser.h"
 #include "ui_faces.h"
+#include "ui_bodytype_thumbs.h"
 #include "ui_faces3d_gate.h"
 
 namespace turbo {
@@ -877,6 +878,7 @@ void tick_faces3d(App& app) {
     if (!svc) return;
     // the 3D hair preview (ui_faces3d_gate.cpp) waits for its own picture: send nothing meanwhile, or its answer could be taken here
     if (g_r3d.inflight.empty() && faces3d_preview_pending()) return;
+    if (g_r3d.inflight.empty() && *bodytype_thumbs_busy_text()) return;  // 2.17 looks T: the body-type picture maker owns the service
     const double now = ImGui::GetTime();
     if (!g_r3d.inflight.empty()) {
         for (int n = 0; n < kResultsPerFrame && !g_r3d.inflight.empty(); ++n) {
