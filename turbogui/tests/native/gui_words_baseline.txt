@@ -4,6 +4,7 @@
 # "exempt" = a file that only draws Advanced pages (raw tables, experiments): not counted.
 exempt	ui_competitions.cpp	legacy Competitions panel, reachable from Advanced only
 exempt	ui_database.cpp	Advanced > Database, Raw rows
+exempt	ui_diagnostics_page.cpp	Advanced > Diagnostics & logs, Data export
 exempt	ui_match.cpp	Advanced > Match setup
 exempt	ui_tactics.cpp	Advanced > Tactics (experimental)
 exempt	ui_tuning.cpp	Advanced > Gameplay tuning
