@@ -3645,6 +3645,7 @@ struct FakeMatchSetup : msetup::Service {
 
 #include "test_edit_unlock.h"  // game editors unlock: core and UI cases (synthetic fixtures)
 #include "test_asset_app.h"    // 2.1: asset catalog wiring (pickers, lua_gate.txt session)
+#include "test_page_career.h"  // 2.16 gui/page-career: the Career pages (page_career_test::ui_cases)
 #include "test_player_id.h"    // 2.3: Create player > Player ID (typed id checks, the head / callname of the id)
 #include "test_kit_import.h"   // 2.3: Teams > Kits, FIFA Kit Creator zips (test_kit_import, kit_import_ui_cases)
 #include "test_club_page.h"    // 2.13 T3: Club & Kits pages (club_page_test::ui_cases)
@@ -9629,6 +9630,7 @@ static void test_ui() {
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
         test_asset_app_ui(app, ui, le);    // test_asset_app.h
+        page_career_test::ui_cases(app, ui, mem, kMb, le);  // test_page_career.h: the Career pages (drawn by function, not through the registry)
         test_player_id_ui(app, ui, mem, kMb, le);  // test_player_id.h
 
         parity_test::run_ui(app, ui, le);  // test_parity.h
