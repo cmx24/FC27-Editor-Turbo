@@ -1057,8 +1057,8 @@ ui_tools.cpp	SmallButton	Copy rebuild command##asset	1
 ui_tools.cpp	SmallButton	Open folder##asset	1
 ui_tools.cpp	SmallButton	Reload catalog##asset	1
 ui_tools.cpp	SmallButton	Reset size	1
+ui_tools.cpp	checkbox_right	###dryrun	1
 ui_tools.cpp	checkbox_right	Development##be	1
-ui_tools.cpp	checkbox_right	Dry run (Turbo Tools report only, write nothing)	1
 ui_tools.cpp	checkbox_right	Exclude my club	1
 ui_tools.cpp	checkbox_right	Fitness##be	1
 ui_tools.cpp	checkbox_right	Form##be	1

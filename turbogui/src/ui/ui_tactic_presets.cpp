@@ -685,7 +685,7 @@ void presets_editor_panel(App& app, void*) {
     ImGui::PopFont();
     undo_button_right(app, "Undo last load##tpundo", "Undo last load");
     if (p && g.sel >= 0 && size_t(g.sel) < g_state.summaries.size()) theme::muted_text("%s", g_state.summaries[size_t(g.sel)].c_str());
-    theme::muted_text("The game applies the values itself. The effect in a played match is not measured yet; limits are listed below.");
+    theme::muted_text("Saved to your club's tactic and read back. Its effect in matches is not tested yet.");
     if (!g.status.empty()) ImGui::TextWrapped("%s", g.status.c_str());
     if (g_state.last_line.empty() && !g.last_err.empty())
         theme::muted_text("turbo_output\\%s is not used: %s", tpreset::last_load_file(), g.last_err.c_str());

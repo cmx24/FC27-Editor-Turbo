@@ -5503,7 +5503,7 @@ static void test_ui() {
 
         run_case("UI: dry run and show/hide key settings", [&] {
             CHECK(ui.click("Safety"), "Safety header");
-            CHECK(ui.click("Dry run (Turbo Tools report only, write nothing)"), "dry run checkbox");
+            CHECK(ui.click("###dryrun"), "dry run checkbox");
             CHECK(read_json(le / "turbo_output" / "gui_settings.json")["turbo"]["dry_run"].get<bool>(), "dry run saved");
             CHECK(ui.click("Status"), "Status tab");
             CHECK(ui.click("Change...##hotkey", "", "status"), "Change the show/hide key");

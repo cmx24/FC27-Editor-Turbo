@@ -48,6 +48,32 @@ static void ui_cases(App& app, Ui& ui) {
         ui.frames(3);
     });
 
+    run_case("honest Simple view (2.16 step 3): no Bulk edit / Delete / Exports on the Transfers fallback in Simple; the tags and notes say what is not tested", [&] {
+        auto drawn = [&](const char* label) {  // an item submitted in the last frame, on screen or scrolled out of view
+            for (const auto& kv : g_items)
+                if (kv.second.frame == g_frame && kv.second.label == label) return true;
+            return false;
+        };
+        app.prefs.advanced_mode = false;
+        CHECK(ui.open_page("Career tools", "Transfers"), "Career tools > Transfers");
+        ui.frames(3);
+        CHECK(drawn("Safety") && drawn("Your squad"), "the Transfers fallback still has its own tools");
+        CHECK(!drawn("Bulk edit players") && !drawn("Database maintenance") && !drawn("Exports (CSV in turbo_output)"),
+              "Simple view: no Bulk edit, no Delete (Database maintenance), no Exports on the Transfers fallback");
+        app.prefs.advanced_mode = true;
+        ui.frames(3);
+        CHECK(drawn("Bulk edit players") && drawn("Database maintenance") && drawn("Exports (CSV in turbo_output)"),
+              "Advanced view: the sections are there");
+        app.prefs.advanced_mode = false;
+        CHECK(ui.open_page("Career tools", "CMTracker"), "Career tools > CMTracker");
+        ui.frames(2);
+        CHECK(ui.find("Season pack...##page") != nullptr && logged_frame(ui).find("Not tested yet") != std::string::npos, "the Season pack carries the tag: Not tested yet");
+        CHECK(ui.open_page("Tactics & Gameplay", "Tactic presets"), "Tactics & Gameplay > Tactic presets");
+        ui.frames(2);
+        CHECK(logged_frame(ui).find("Saved to your club's tactic and read back. Its effect in matches is not tested yet.") != std::string::npos,
+              "the one-line proof note");
+    });
+
     run_case("P213: the proven panels are where a user clicks them (Simple view): area tab, then the page strip", [&] {
         app.prefs.advanced_mode = false;
         app.sel_team = 7;  // Everton: the club pages and the club panel show a club

@@ -122,16 +122,14 @@ static bool section_header(const char* label, ImGuiTreeNodeFlags flags = 0) {
 // The two lines every Lua-run tool page starts with. False when the command channel is missing (nothing can be sent).
 static bool tools_preamble(App& app) {
     if (!app.mailbox) {
-        theme::err_text("Command channel unavailable; these tools need it.");
+        theme::err_text("These tools cannot reach the game right now.");
         return false;
     }
     const BridgeState& st = app.bridge.state();
-    theme::muted_text("These run through Live Editor's Lua engine on the next career-mode event (usually within a second in career mode).");
     if (!st.in_cm)
-        theme::warn_text("No career loaded: Live Editor sends Lua no events here. After clicking a tool, run "
-                         "lua\\scripts\\turbo_exec.lua in Live Editor's Lua Engine to execute it.");
+        theme::warn_text("Open a career first. These tools only work inside one.");
     else if (!app.lua_alive())
-        theme::warn_text("Turbo's Lua side has not answered yet: advance a day or open a menu.");
+        theme::warn_text("Turbo is waiting for the game. Open any career menu.");
     return true;
 }
 
@@ -628,7 +626,7 @@ static void section_safety(App& app) {
         json& t = app.gui_settings["turbo"];
         if (!t.is_object()) t = json::object();
         bool dry = t.value("dry_run", st.dry_run);
-        if (checkbox_right("Dry run (Turbo Tools report only, write nothing)", &dry)) {
+        if (checkbox_right("Test only (change nothing)###dryrun", &dry)) {
             t["dry_run"] = dry;
             if (!app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);
         }
@@ -784,10 +782,13 @@ void draw_tools(App& app) {
     section_scouting(app);
     section_budget(app);
     section_player_career(app);
-    section_exports(app);
+    // Honest Simple view (2.16 step 3): the Advanced content of this old panel (exports, bulk edit, deleting generated players) is on the
+    // Advanced pages; the Simple view does not show it here
+    const bool adv = app.prefs.advanced_mode;
+    if (adv) section_exports(app);
     section_bans(app);
-    section_bulk_edit(app);
-    section_db_maintenance(app);
+    if (adv) section_bulk_edit(app);
+    if (adv) section_db_maintenance(app);
     section_safety(app);
     draw_game_editors(app);
     g_unframed = false;

@@ -78,7 +78,7 @@ void draw_hub(App& app) {
     wrapped(nullptr,
             "After pressing, leave the hub (for example open Squad) and come back. Your created club gets the kits, crest and "
             "stadium designer at any time; other clubs get the stadium hub. A new season locks it again: press again then. "
-            "The Create a Club setup steps (name, rival, squad, budget) cannot be reopened: the Teams and Database tabs cover them.");
+            "The Create a Club setup steps (name, rival, squad, budget) cannot be reopened: change the club's name, colours and kits under Club & Kits.");
 
     if (ImGui::BeginPopupModal("Licensed stadium##clubcust", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::PushTextWrapPos(S(520.0f));

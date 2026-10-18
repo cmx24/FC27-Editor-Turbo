@@ -110,13 +110,13 @@ ui_teams.cpp	dll	1
 ui_teams.cpp	json	1
 ui_teams.cpp	path	1
 ui_teams.cpp	turbo_output	1
-ui_tools.cpp	channel	3
+ui_tools.cpp	channel	2
 ui_tools.cpp	dll	1
 ui_tools.cpp	hex	2
 ui_tools.cpp	hook	6
 ui_tools.cpp	json	6
-ui_tools.cpp	lua	12
-ui_tools.cpp	path	4
+ui_tools.cpp	lua	9
+ui_tools.cpp	path	3
 ui_tools.cpp	turbo_output	4
 ui_tools.cpp	txt	4
 ui_zoom.cpp	json	1
