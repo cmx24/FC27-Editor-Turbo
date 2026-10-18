@@ -376,6 +376,28 @@ bool apply_game_head(App& app, int64_t head_id, int64_t target_id, bool target_i
         if (!verr.empty()) return fail(std::string(w.field) + ": " + verr);
         writes.emplace_back(f, v);
     }
+    // 2.16: a Turbo 3D hair / beard (band codes, core/faces3d.h) belongs to the old head: the new head leaves the band (a player's
+    // own codes recorded in turbo_output\faces3d\preview_backup.json, else 0; a real face ignores these codes)
+    {
+        std::map<std::string, int64_t> cur, own;
+        for (const char* f : faces3d::kLookFields)
+            if (t->has(f)) cur[f] = app.db.get_int(*t, rec, f, 0);
+        if (!target_is_manager) {
+            faces3d::PreviewBackup backup;
+            if (faces3d::load_preview_backup(app.turbo_output().u8string(), backup, nullptr)) {
+                const auto r = backup.find(target_id);
+                if (r != backup.end()) own = r->second.original;
+            }
+        }
+        for (const auto& [name, value] : faces3d::look_writes(0, 0, cur, own)) {
+            const Field* f = t->field(name);
+            if (!f) continue;
+            const Value v = Value::of_int(value);
+            const std::string verr = Database::validate(*f, v);
+            if (!verr.empty()) return fail(name + ": " + verr);
+            writes.emplace_back(f, v);
+        }
+    }
     if (writes.empty()) return fail("no head fields in the " + t->name + " table");
     const std::string target = (target_is_manager ? "manager " : "player ") + std::to_string(target_id);
     const uint64_t pushes = app.undo_pushes;
