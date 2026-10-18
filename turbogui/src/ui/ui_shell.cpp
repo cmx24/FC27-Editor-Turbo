@@ -70,6 +70,11 @@ std::map<int, PageFn>& registry() {
     return r;
 }
 
+std::map<int, PageFn>& new_registry() {
+    static std::map<int, PageFn> r;
+    return r;
+}
+
 }  // namespace
 
 const char* area_label(Area a) {
@@ -169,6 +174,24 @@ bool draw_page(App& app, Page p, bool advanced) {
 }
 
 void clear_registry_for_tests() { registry().clear(); }
+
+bool register_new_page(Page p, PageFn fn) {
+    if (fn == nullptr || info_of(p) == nullptr) return false;
+    return new_registry().emplace(static_cast<int>(p), fn).second;
+}
+
+PageFn registered_new_page(Page p) {
+    auto it = new_registry().find(static_cast<int>(p));
+    return it == new_registry().end() ? nullptr : it->second;
+}
+
+bool draw_new_page(App& app, Page p, bool advanced) {
+    if (!page_visible(p, advanced)) return false;
+    const PageFn fn = registered_new_page(p);
+    if (fn == nullptr) return false;
+    fn(app);
+    return true;
+}
 
 namespace page {
 
