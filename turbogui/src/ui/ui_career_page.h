@@ -10,7 +10,7 @@ namespace turbo {
 
 class App;
 
-// Draws one of the pages that live in ui_tools.cpp (Scouting, Budget, Exports, Bans, ChangesUndo, CareerMaintenance,
+// Draws one of the pages that live in ui_tools.cpp (Transfers, JobOffer, AdvExport, ChangesUndo,
 // AdvBulkEdit, AdvMaintenance) exactly as the shell does. False for any other page.
 bool draw_career_tools_page(App& app, shell::Page p);
 

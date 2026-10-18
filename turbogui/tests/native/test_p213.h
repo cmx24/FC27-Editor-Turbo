@@ -23,35 +23,156 @@ static void ui_cases(App& app, Ui& ui) {
     const bool was_advanced = app.prefs.advanced_mode;
     const int64_t was_team = app.sel_team;
 
+    run_case("chrome (2.16 step 2): slim status line and a Changes button; Refresh, the key, the version and the Advanced switch only on Settings", [&] {
+        app.prefs.advanced_mode = false;
+        app.go(Page::PlayerEdit);
+        ui.frames(3);
+        CHECK(ui.find("###changes", "FC 27 LE Turbo") != nullptr, "the Changes button is in the top bar");
+        CHECK(ui.find("Refresh", "FC 27 LE Turbo") == nullptr && ui.find("###advview", "FC 27 LE Turbo") == nullptr &&
+                  ui.find("##hkpick", "FC 27 LE Turbo", "bar") == nullptr && ui.find("###reload", "FC 27 LE Turbo") == nullptr,
+              "no Refresh, Advanced switch or key control in the top bar");
+        const std::string txt = logged_frame(ui);
+        CHECK(txt.find("Simple view:") == std::string::npos, "no Simple view banner");
+        CHECK(txt.find("Connected") != std::string::npos && txt.find("career loaded") != std::string::npos && txt.find(" players |") == std::string::npos &&
+                  txt.find(" teams |") == std::string::npos && txt.find(std::string("v") + kGuiVersion) == std::string::npos,
+              "the status line says Connected and career loaded, without counts or the version: " + txt.substr(0, 200));
+        CHECK(ui.click("###changes", "FC 27 LE Turbo"), "click Changes");
+        ui.frames(3);
+        CHECK(app.place() == shell::place_of(Page::ChangesUndo), "Changes opens Career tools > Changes & undo");
+        app.go(Page::Settings);
+        ui.frames(3);
+        CHECK(ui.find("###reload") != nullptr && ui.find("###advview") != nullptr && ui.find("##hkpick", "", "status") != nullptr,
+              "Settings has Reload from game, the Advanced switch and the show/hide key");
+        CHECK(logged_frame(ui).find(std::string("Turbo ") + kGuiVersion) != std::string::npos, "Settings shows the version");
+        app.go(Page::PlayerEdit);
+        ui.frames(3);
+    });
+
+    run_case("honest Simple view (2.16 step 3): no Bulk edit / Delete / Exports on the Transfers fallback in Simple; the tags and notes say what is not tested", [&] {
+        auto drawn = [&](const char* label) {  // an item submitted in the last frame, on screen or scrolled out of view
+            for (const auto& kv : g_items)
+                if (kv.second.frame == g_frame && kv.second.label == label) return true;
+            return false;
+        };
+        app.prefs.advanced_mode = false;
+        CHECK(ui.open_page("Career", "Transfers & money"), "Career tools > Transfers");
+        ui.frames(3);
+        CHECK(drawn("Safety") && drawn("Your squad"), "the Transfers fallback still has its own tools");
+        CHECK(!drawn("Bulk edit players") && !drawn("Database maintenance") && !drawn("Exports (CSV in turbo_output)"),
+              "Simple view: no Bulk edit, no Delete (Database maintenance), no Exports on the Transfers fallback");
+        app.prefs.advanced_mode = true;
+        ui.frames(3);
+        CHECK(drawn("Bulk edit players") && drawn("Database maintenance") && drawn("Exports (CSV in turbo_output)"),
+              "Advanced view: the sections are there");
+        app.prefs.advanced_mode = false;
+        CHECK(ui.open_page("Career", "Season pack"), "Career tools > CMTracker");
+        ui.frames(2);
+        CHECK(ui.find("Season pack...##page") != nullptr && logged_frame(ui).find("Not tested yet") != std::string::npos, "the Season pack carries the tag: Not tested yet");
+        CHECK(ui.open_page("Tactics", "Tactic presets"), "Tactics & Gameplay > Tactic presets");
+        ui.frames(2);
+        CHECK(logged_frame(ui).find("Saved to your club's tactic and read back. Its effect in matches is not tested yet.") != std::string::npos,
+              "the one-line proof note");
+    });
+
+    run_case("navigation (2.16 step 4): six areas and Advanced; the new pages are signposts to where the feature is; Standings leads Career; nothing was dropped", [&] {
+        auto drawn = [&](const char* label) {  // an item submitted in the last frame, on screen or scrolled out of view
+            for (const auto& kv : g_items)
+                if (kv.second.frame == g_frame && kv.second.label == label) return true;
+            return false;
+        };
+        app.prefs.advanced_mode = false;
+        app.go(Page::PlayerEdit);
+        ui.frames(3);
+        for (const char* area : {"Players", "Faces & looks", "Kits & club", "Tactics", "Career", "Settings"})
+            CHECK(ui.find(area, "FC 27 LE Turbo", "##shell") != nullptr, std::string("area tab: ") + area);
+        CHECK(ui.find("Advanced", "FC 27 LE Turbo", "##shell") == nullptr, "no Advanced tab in Simple");
+        struct Sign { const char* area; const char* page; Page want; };
+        for (const Sign& s : {Sign{"Players", "Create a player", Page::CreatePlayer}, Sign{"Players", "Commentary names", Page::CommentaryNames},
+                              Sign{"Faces & looks", "Faces & hair", Page::FacesHair}, Sign{"Faces & looks", "Body, tattoos & gear", Page::BodyGear}}) {
+            CHECK(ui.open_page(s.area, s.page) && app.place() == shell::place_of(s.want), std::string("opens: ") + s.area + " > " + s.page);
+            CHECK(ui.find("###navgo") != nullptr, std::string("a button that goes to the feature: ") + s.page);
+            CHECK(ui.click("###navgo") && (ui.frames(2), app.place() == shell::place_of(Page::PlayerEdit)), std::string("it opens Edit a player: ") + s.page);
+        }
+        // Team sheet & bench: Simple goes to Settings (where the Advanced switch is), Advanced to the experimental tactics
+        CHECK(ui.open_page("Tactics", "Team sheet & bench"), "Tactics > Team sheet & bench");
+        CHECK(ui.click("###navgo") && (ui.frames(2), app.place() == shell::place_of(Page::Settings)), "Simple: it opens Settings");
+        app.prefs.advanced_mode = true;
+        CHECK(ui.open_page("Tactics", "Team sheet & bench"), "Tactics > Team sheet & bench (Advanced)");
+        CHECK(ui.click("###navgo") && (ui.frames(2), app.place() == shell::place_of(Page::AdvTactics)), "Advanced: it opens Advanced > Tactics");
+        app.prefs.advanced_mode = false;
+        // Career opens on Standings; the old Scouting / Budget / Bans pages are sections of Transfers & money
+        CHECK(shell::default_page(shell::Area::Career) == Page::Standings && shell::pages_of(shell::Area::Career).size() == 5, "Career: five pages, Standings first");
+        CHECK(ui.open_page("Career", "Transfers & money"), "Career > Transfers & money");
+        ui.frames(3);
+        CHECK(drawn("Scouting, development and youth academy") && drawn("Your club: transfer budget") && drawn("Transfer bans"), "the scouting, budget and bans sections are on Transfers & money");
+        // Advanced: Data export and the database copy
+        app.prefs.advanced_mode = true;
+        ui.frames(3);  // the Advanced tab is drawn from the next frame on
+        CHECK(ui.open_page("Advanced", "Data export") && app.place() == shell::place_of(Page::AdvExport), "Advanced > Data export");
+        CHECK(ui.open_page("Advanced", "Maintenance") && drawn("Career database copy"), "Advanced > Maintenance has the database copy");
+        app.prefs.advanced_mode = false;
+        app.go(Page::PlayerEdit);
+        ui.frames(3);
+    });
+
+    run_case("wiring (2.16): every page registered as a new page draws in its place; legacy_pages brings the old panels back", [&] {
+        const bool was_legacy = app.legacy_pages, was_adv = app.prefs.advanced_mode;
+        int drawn = 0;
+        for (bool adv : {false, true}) {
+            app.prefs.advanced_mode = adv;
+            ui.frames(3);
+            for (int i = 1; i < shell::kPageCount; ++i) {
+                const Page p = static_cast<Page>(i);
+                if (!shell::registered_new_page(p) || !shell::page_visible(p, adv)) continue;
+                for (bool legacy : {false, true}) {
+                    app.legacy_pages = legacy;
+                    app.go(shell::area_of(p), p);
+                    ui.frames(4);  // a frame that asserts in ImGui throws and fails the case
+                    CHECK(app.place() == shell::place_of(p), std::string("opens: ") + shell::area_label(shell::area_of(p)) + " > " + shell::page_label(p) +
+                                                                 (legacy ? " (old panel)" : " (new page)"));
+                    ++drawn;
+                }
+            }
+        }
+        CHECK(drawn >= 20, "the new pages are wired: " + std::to_string(drawn) + " page draws");
+        app.legacy_pages = was_legacy;
+        app.prefs.advanced_mode = was_adv;
+        app.go(Page::PlayerEdit);
+        ui.frames(3);
+    });
+
     run_case("P213: the proven panels are where a user clicks them (Simple view): area tab, then the page strip", [&] {
         app.prefs.advanced_mode = false;
         app.sel_team = 7;  // Everton: the club pages and the club panel show a club
         app.go(Page::PlayerEdit);
         ui.frames(3);
-        // the live league table (proven 2.2): Tactics & Gameplay > Standings draws the live view (no FCE here: it says so)
-        CHECK(ui.open_page("Tactics & Gameplay", "Standings") && app.place() == shell::place_of(Page::Standings), "Tactics & Gameplay > Standings");
+        // the live league table (proven 2.2): Career > Standings draws the live view (no FCE here: it says so)
+        CHECK(ui.open_page("Career", "Standings") && app.place() == shell::place_of(Page::Standings), "Career > Standings");
         CHECK(ui.find("Try again") != nullptr || ui.find("Reload") != nullptr, "the live standings view is drawn there");
         // the database copy (the old tab's other table) names the live table's page and opens it
-        CHECK(ui.open_page("Career tools", "Maintenance") && ui.find("Recalculate points") != nullptr, "Career tools > Maintenance: the database copy");
-        CHECK(logged_frame(ui).find("Tactics & Gameplay > Standings") != std::string::npos, "its hint names the live table's page");
-        CHECK(ui.click("Open the live table (Tactics & Gameplay > Standings)##dbcopylive"), "the link to the live table");
+        app.prefs.advanced_mode = true;  // 2.16 step 4: the database copy is a section of Advanced > Maintenance
+        ui.frames(3);
+        CHECK(ui.open_page("Advanced", "Maintenance") && ui.find("Recalculate points") != nullptr, "Advanced > Maintenance: the database copy");
+        CHECK(logged_frame(ui).find("Career > Standings") != std::string::npos, "its hint names the live table's page");
+        CHECK(ui.click("###dbcopylive"), "the link to the live table");
+        app.prefs.advanced_mode = false;
         ui.frames(2);
         CHECK(app.place() == shell::place_of(Page::Standings) && (ui.find("Try again") || ui.find("Reload")), "the link lands on the live view");
         // Job offer: until the Squad track exports its panel, the page says where it is and opens it
-        CHECK(ui.open_page("Career tools", "Job offer"), "Career tools > Job offer");
-        CHECK(ui.click("Open Squad & Players > Squad##squadgo"), "Job offer: the way to the club panel");
+        CHECK(ui.open_page("Career", "Manager jobs"), "Career > Manager jobs");
+        CHECK(ui.click("###squadgo"), "Manager jobs: the way to the club panel");
         ui.frames(2);
         CHECK(app.place() == shell::place_of(Page::Squad) && ui.find("Job offer") != nullptr && ui.find("Mass actions") != nullptr,
-              "Job offer: Squad & Players > Squad, the club panel with its Job offer / Transfers / Mass actions tabs");
+              "Manager jobs: Players > My squad, the club panel with its Job offer / Transfers / Mass actions tabs");
         // Transfers: until then the old Turbo Tools panel (integration 721bf59), not a dead end
-        CHECK(ui.open_page("Career tools", "Transfers") && ui.find("Your squad") != nullptr, "Career tools > Transfers: the old Turbo Tools panel");
+        CHECK(ui.open_page("Career", "Transfers & money") && ui.find("Your squad") != nullptr, "Career > Transfers & money: the old Turbo Tools panel");
         // the other proven panels, each by its own primary control
-        CHECK(ui.open_page("Squad & Players", "Player edit") && ui.find("##psearch") != nullptr, "Squad & Players > Player edit: the players list");
-        CHECK(ui.open_page("Club & Kits", "Kits") && ui.find("Apply kit") != nullptr, "Club & Kits > Kits");
-        CHECK(ui.open_page("Tactics & Gameplay", "Tactic presets") && ui.find("Apply preset##tpload") != nullptr, "Tactics & Gameplay > Tactic presets");
-        CHECK(ui.open_page("Tactics & Gameplay", "Gameplay presets") && ui.find("Apply preset##gpload") != nullptr, "Tactics & Gameplay > Gameplay presets");
-        CHECK(ui.open_page("Career tools", "Changes & undo") && ui.find("Kept player edits (every career load)") != nullptr, "Career tools > Changes & undo");
-        CHECK(ui.open_page("Career tools", "CMTracker") && ui.find("Season pack...##page") != nullptr, "Career tools > CMTracker: the season pack");
+        CHECK(ui.open_page("Players", "Edit a player") && ui.find("##psearch") != nullptr, "Squad & Players > Player edit: the players list");
+        CHECK(ui.open_page("Kits & club", "Kits") && ui.find("Apply kit") != nullptr, "Club & Kits > Kits");
+        CHECK(ui.open_page("Tactics", "Tactic presets") && ui.find("Apply preset##tpload") != nullptr, "Tactics & Gameplay > Tactic presets");
+        CHECK(ui.open_page("Tactics", "Game sliders") && ui.find("Apply preset##gpload") != nullptr, "Tactics & Gameplay > Gameplay presets");
+        CHECK(ui.open_page("Career", "Changes & undo") && ui.find("###keptedits") != nullptr, "Career tools > Changes & undo");
+        CHECK(ui.open_page("Career", "Season pack") && ui.find("Season pack...##page") != nullptr, "Career tools > CMTracker: the season pack");
         CHECK(ui.click("Settings", "FC 27 LE Turbo", "##shell") && ui.find("Preferences") != nullptr, "Settings (one page, no strip)");
     });
 

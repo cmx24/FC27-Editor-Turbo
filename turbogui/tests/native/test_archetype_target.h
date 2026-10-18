@@ -303,14 +303,14 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         const turbo::ArchetypeUiState& st = turbo::archetype_ui_state();
         CHECK(st.playerid == pid && st.position == st_pos && st.target == formula + 1 && !st.target_typed,
               fmt("defaults: his position, his stored overall (%d, position %d)", st.target, st.position));
-        CHECK(ui.find("##archtarget", "##attr") && ui.find("##archpos", "##attr") && ui.find("Preview / apply...", "##attr"),
+        CHECK(ui.find("##archtarget", "##attr") && ui.find("##archpos", "##attr") && ui.find("###archpreview", "##attr"),
               "role, position, target box and the preview button");
 
         // Poacher at 80
         CHECK(ui.click("##arch", "##attr") && ui.click("Poacher", "##Combo"), "pick Poacher");
         CHECK(st.arch == index_of("Poacher"), "Poacher chosen");
         CHECK(ui.type_into(ui.find("##archtarget", "##attr"), "80") && st.target == 80 && st.target_typed, "target 80 typed");
-        CHECK(ui.click("Preview / apply...", "##attr"), "preview");
+        CHECK(ui.click("###archpreview", "##attr"), "preview");
         ui.frames(2);
         CHECK(st.pend_playerid == pid && st.pend.ok && st.pend.target == 80 && ov::compute_overall(st_pos, st.pend.attrs) == 80 &&
                   ar::keeps_shape(ar::all()[ix(st.pend_arch)], st.pend.attrs) && st.pend_stored == formula + 1 && st.pend.overall_before == formula,
@@ -330,20 +330,20 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
               fmt("written: the attributes, the stored overall 80 (%lld), the position unchanged", static_cast<long long>(app.db.get_int(*pt, rec, "overallrating"))));
         CHECK(ov::compute_overall(st_pos, db_attrs(app, *pt, rec)) == 80, "the formula gives 80 from what is in the database");
         CHECK(app.model.player(pid) && app.model.player(pid)->overall == 80, "the list row shows 80");
-        CHECK(ui.toast_contains("Archetype Poacher at overall 80") && ui.toast_contains("read back"), "toast: applied and read back");
+        CHECK(ui.toast_contains("Player type Poacher at overall 80") && ui.toast_contains("read back"), "toast: applied and read back");
         CHECK(app.bulk_undo.size() == bulk0 + 1 && app.bulk_undo.back().playerid == pid && app.bulk_undo.back().label == st.applied_label,
               "one bulk undo entry: " + st.applied_label);
-        CHECK(ui.find("Undo archetype##archundo", "##attr") != nullptr, "Undo shown after Apply");
-        CHECK(ui.click("Undo archetype##archundo", "##attr"), "Undo");
+        CHECK(ui.find("###archundo", "##attr") != nullptr, "Undo shown after Apply");
+        CHECK(ui.click("###archundo", "##attr"), "Undo");
         ui.frames(2);
         CHECK(db_attrs(app, *pt, rec) == orig && app.db.get_int(*pt, rec, "overallrating") == formula + 1, "Undo: attributes and overall back");
-        CHECK(ui.find("Undo archetype##archundo", "##attr") == nullptr, "Undo gone once used");
+        CHECK(ui.find("###archundo", "##attr") == nullptr, "Undo gone once used");
 
         // unreachable: a full-back's overall cannot be 1 (his formula's bonus): refused, the closest offered
         CHECK(ui.click("##archpos", "##attr") && ui.click("RB", "##Combo") && st.position == 3 && st.position_picked, "position RB");
         CHECK(ui.click("##arch", "##attr") && ui.click("Defensive Full-back", "##Combo"), "pick Defensive Full-back");
         CHECK(ui.type_into(ui.find("##archtarget", "##attr"), "1") && st.target == 1, "target 1");
-        CHECK(ui.click("Preview / apply...", "##attr"), "preview");
+        CHECK(ui.click("###archpreview", "##attr"), "preview");
         ui.frames(2);
         CHECK(!st.pend.ok && st.pend.closest == 3 && !st.pend.why.empty(), fmt("refused, closest %d: %s", st.pend.closest, st.pend.why.c_str()));
         CHECK(ui.click("Apply##arch", "Apply archetype"), "click the disabled Apply");
@@ -358,7 +358,7 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         CHECK(ui.click("##archpos", "##attr") && ui.click("CB", "##Combo") && st.position == 5, "position CB");
         CHECK(ui.click("##arch", "##attr") && ui.click("Stopper", "##Combo"), "pick Stopper");
         CHECK(ui.type_into(ui.find("##archtarget", "##attr"), "70"), "target 70");
-        CHECK(ui.click("Preview / apply...", "##attr"), "preview");
+        CHECK(ui.click("###archpreview", "##attr"), "preview");
         ui.frames(2);
         CHECK(st.pend.ok && st.pend_position == 5 && st.pend_his_position == st_pos && st.adopt_position, "preview for CB, adopt on by default");
         CHECK(ui.find("Make CB his main position (now ST)##archadopt", "Apply archetype") != nullptr, "the adopt checkbox");
@@ -367,13 +367,13 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         CHECK(app.db.get_int(*pt, rec, "preferredposition1") == 5 && app.db.get_int(*pt, rec, "overallrating") == 70 &&
                   ov::compute_overall(5, db_attrs(app, *pt, rec)) == 70,
               "now a CB with overall 70 by the CB formula");
-        CHECK(ui.click("Undo archetype##archundo", "##attr"), "Undo");
+        CHECK(ui.click("###archundo", "##attr"), "Undo");
         CHECK(db_attrs(app, *pt, rec) == orig && app.db.get_int(*pt, rec, "preferredposition1") == st_pos &&
                   app.db.get_int(*pt, rec, "overallrating") == formula + 1,
               "Undo: attributes, position and overall back");
 
         // the same, his position kept: his stored overall follows what the ST formula moved (the 2.1 follow rule)
-        CHECK(ui.click("Preview / apply...", "##attr"), "preview again");
+        CHECK(ui.click("###archpreview", "##attr"), "preview again");
         ui.frames(2);
         CHECK(ui.click("Make CB his main position (now ST)##archadopt", "Apply archetype") && !st.adopt_position, "adopt off");
         const int follow_want = ov::follow(st_pos, orig, st_pos, st.pend.attrs, formula + 1);
@@ -382,7 +382,7 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         CHECK(app.db.get_int(*pt, rec, "preferredposition1") == st_pos && app.db.get_int(*pt, rec, "overallrating") == follow_want &&
                   ov::compute_overall(5, db_attrs(app, *pt, rec)) == 70,
               fmt("still a ST, stored overall %lld (follow %d), the CB formula 70", static_cast<long long>(app.db.get_int(*pt, rec, "overallrating")), follow_want));
-        CHECK(ui.click("Undo archetype##archundo", "##attr") && db_attrs(app, *pt, rec) == orig &&
+        CHECK(ui.click("###archundo", "##attr") && db_attrs(app, *pt, rec) == orig &&
                   app.db.get_int(*pt, rec, "overallrating") == formula + 1, "Undo");
         // a broken stored overall (OVR-1): the default target is the formula's value
         CHECK(ui.click("##archpos", "##attr") && ui.click("ST", "##Combo") && st.position == st_pos && !st.position_picked, "his position again");

@@ -727,7 +727,7 @@ void draw_managers(App& app) {
     }
     const Table* t = app.db.table("manager");
     if (!t) {
-        ImGui::TextDisabled("FC 27's database has no \"manager\" table under that name. Use the Database tab.");
+        ImGui::TextDisabled("FC 27's database has no \"manager\" table under that name. Advanced > Database shows every table (Settings > Show advanced tools).");
         return;
     }
     const auto& mgrs = app.model.managers();

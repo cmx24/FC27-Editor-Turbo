@@ -287,7 +287,7 @@ void cmt_body(App& app) {
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("One picture request to cmtracker.fra1.cdn.digitaloceanspaces.com for this player; kept in turbo_output\\cmtracker");
                 checkbox_right("Use the real face when the game has this player's head", &want_real);
-                ImGui::TextDisabled("Hair style, facial hair, boots and tattoos are not in the CSV: change them in Players > Appearance.");
+                ImGui::TextDisabled("Hair style, facial hair, boots and tattoos are not in the CSV: change them on Edit a player > Appearance.");
             }
         }
 }
@@ -663,7 +663,9 @@ void draw_cmtracker_page(App& app) {
     if (ImGui::Button("Season pack...##page")) ImGui::OpenPopup("##pseasonpack");
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Season update pack: transfers and manager changes from a folder, previewed row by row, applied in pages of 50, with Undo "
-                          "(not proven in game yet)");
+                          "(not tested in a game yet)");
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "Not tested yet");  // 2.16 step 3: the honest tag (plan R8)
     season_pack_dialog(app);  // the importer is a popup: drawn here so the button above opens it
     shell::page::Primary pr;
     pr.label = "Create player";

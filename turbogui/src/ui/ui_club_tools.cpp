@@ -78,7 +78,7 @@ void draw_hub(App& app) {
     wrapped(nullptr,
             "After pressing, leave the hub (for example open Squad) and come back. Your created club gets the kits, crest and "
             "stadium designer at any time; other clubs get the stadium hub. A new season locks it again: press again then. "
-            "The Create a Club setup steps (name, rival, squad, budget) cannot be reopened: the Teams and Database tabs cover them.");
+            "The Create a Club setup steps (name, rival, squad, budget) cannot be reopened: change the club's name, colours and kits under Kits & club.");
 
     if (ImGui::BeginPopupModal("Licensed stadium##clubcust", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::PushTextWrapPos(S(520.0f));
@@ -126,7 +126,7 @@ void draw_club_tools(App& app) {
     if (ImGui::CollapsingHeader("Your club: customisation hub (crest, stadium, the game's kit designer)")) {
         // 2.13: Turbo's own kit import has one home, Club & Kits > Kits: this is a link, not a second entry point
         ImGui::AlignTextToFramePadding();
-        theme::muted_text("Turbo's kit import (zips, colours, fonts, 3D kit): Club & Kits > Kits.");
+        theme::muted_text("Turbo's kit import (zips, colours, fonts, 3D kit): Kits & club > Kits.");
         ImGui::SameLine();
         if (ImGui::SmallButton("Open Kits##clubtoolskits")) club_request_page(shell::Page::Kits);
         draw_hub(app);

@@ -151,19 +151,27 @@ extern const char* const kStockCacheRel;     // "faces3d\\stock_player_kit.cache
 // The legacy file whose presence refuses substitution, relative to the LE root
 extern const char* const kLegacyKitRel;      // "mods\\legacy\\data\\fifarna\\lua\\assets\\player_kit.lua"
 
+// Text only a gate v4 override holds (core/faces3d.h template v4): the hook reports it as Faces3dStatus::live_looks
+extern const char* const kLiveLooksMarker;  // "TURBO_GATE.band = function"
+bool has_live_looks(const char* data, size_t size);
+
 // Start decision from the switch files (all in turbo_output, the legacy file under the LE root)
 struct StartSwitches {
     bool lua_on = false, lua_substitute = false, faces_on = false, faces_off = false, hook_off = false, game_hooks_off = false,
          legacy_present = false;
 };
 struct StartDecision {
-    bool opted_in = false;      // scan + hook at all
-    bool refused = false;       // opted in, but a kill switch is present: nothing installed
+    bool opted_in = false;      // scan + hook at all (2.16: always, unless a kill switch refuses)
+    bool refused = false;       // a kill switch is present: nothing installed
     bool substitute = false;    // SUBSTITUTE mode (after the legacy refusal)
+    bool in_memory = false;     // 2.16 product mode: the override is built from the captured stock in the same lua_load call (no file)
     bool capture_mode = false;  // LOG-ONLY: the first capture is cached whatever its md5
     bool legacy_refused = false;  // substitution wanted but refused (legacy player_kit.lua present)
     std::string why;            // for refused / legacy_refused
 };
+// 2.16: the hook is ON whenever Turbo is installed (no opt-in file). Kill switches (game_hooks_off.txt, hook_lua_load_off.txt,
+// faces3d_off.txt) refuse it. lua_loader_on.txt + lua_loader_substitute.txt = the research file mode (the override file, as 2.8-2.15);
+// anything else = product mode (in_memory). A mods\legacy player_kit.lua refuses substitution (capture only, nothing cached).
 StartDecision decide_start(const StartSwitches& s);
 
 // Writes (on) or removes (off) turbo_output\faces3d_on.txt. Writing goes through `<file>.tmp` + rename. For the GUI.
@@ -183,6 +191,10 @@ struct Faces3dStatus {
     bool build_key_ok = false;   // ... naming the running build
     std::string header_stock;    // the stock md5 the override was made from
     std::string header_table;    // its table hash (md5(players.json)[:12]): which list this game start runs
+    bool live_looks = false;     // that override carries the 2.16 live band rule (kLiveLooksMarker): looks change without a restart
+    bool in_memory = false;      // 2.16 product mode: the override is built from the captured stock at the boot compile
+    bool built = false;          // ... and that build succeeded (served to every compile)
+    std::string built_error;     // ... or why stock is served ("" before the first capture)
     long long captures = 0, served_stock = 0, substituted = 0, fallbacks = 0, capture_refused = 0, capture_mismatch = 0;
     uint64_t captured_size = 0;
     std::string captured_md5;    // "" until the first capture
@@ -247,6 +259,11 @@ struct Env {
     // Called at most once per row per process with the first publishable capture (the host hands it to its watcher thread; it
     // must not do file I/O on the calling game thread)
     std::function<void(const std::string& row, std::shared_ptr<const std::string> bytes, const std::string& md5)> save_capture;
+    // 2.16 product mode (CaptureConfig::build_in_memory): build the override from the captured stock, once per row per process, on
+    // the game thread of the first capture (pure computation, no I/O). Returns the bytes (nullptr + why = serve stock); `note` is
+    // logged ("N players on the saved list").
+    std::function<std::shared_ptr<const std::string>(const std::string& row, const std::string& stock, std::string& note, std::string& why)>
+        build_override;
 };
 
 // The capture settings (set once before the hooks are enabled)
@@ -254,6 +271,7 @@ struct CaptureConfig {
     bool enabled = false;         // drain + md5 chunkname rows on a verified reader
     bool capture_mode = false;    // LOG-ONLY: publish the first capture whatever its md5
     bool legacy_present = false;  // never substitute, never publish
+    bool build_in_memory = false;  // 2.16 product mode: the override is Env::build_override(captured stock), not the file
 };
 
 class Engine {
@@ -289,6 +307,15 @@ private:
     const Override* override_for(uint64_t size, const std::string& md5, int* row_out) const;
     void set_error(const std::string& e);
     void note_capture(uint64_t size, const std::string& md5);
+    // product mode: the row's in-memory override, built once (every thread of the boot compile waits for the first); nullptr = stock
+    const Override* built_for(size_t row, const std::string& stock, const std::string& md5, std::string& why);
+    struct BuiltRow {
+        std::mutex m;
+        bool tried = false;
+        std::shared_ptr<const std::string> bytes;  // never freed while the engine lives (the parser may read it at any time)
+        Override o;
+        std::string error;
+    };
 
     Env env_;
     uint64_t gets_ = 0, blob_ = 0;
@@ -299,6 +326,8 @@ private:
     std::unique_ptr<std::atomic<bool>[]> failed_;  // per row: its override failed to compile once (then: original directly)
     std::unique_ptr<std::atomic<bool>[]> published_;  // per row: save_capture was called
     std::vector<OverrideHeader> headers_;            // per row, parsed from the override at configure
+    std::vector<bool> live_;                         // per row: the override holds kLiveLooksMarker (set at configure)
+    std::unique_ptr<BuiltRow[]> built_;              // per row: product mode build
     CaptureConfig capture_;
     std::atomic<bool> killed_{false};
     std::atomic<uint64_t> seq_{0};

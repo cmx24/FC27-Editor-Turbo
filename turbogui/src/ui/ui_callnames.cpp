@@ -480,22 +480,22 @@ static void language_line(App& app) {
     if (app.commentary_audio) st = app.commentary_audio->status();
     const bool can_build = app.commentary_audio && st.available;
     if (!can_build) ImGui::BeginDisabled();
-    if (ImGui::Button("Rebuild from the game's audio service##cn")) app.start_spoken_build(false);
+    if (ImGui::Button("Refresh the list###cnrebuild")) app.start_spoken_build(false);
     if (!can_build) ImGui::EndDisabled();
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Asks the game's own audio service, id by id, whether the loaded commentary bank has a recording: the same\n"
-                          "check the Create Player screen runs on its name list (PLAYER_NAME_FE / surname_ID), plus the in-match check\n"
-                          "for players with their own recordings (PLAYER_LOW_SIMPLE / PLAYER_LOW_LINK with player_db_pID). Runs on the\n"
-                          "game thread in small batches, one per frame; cached as turbo_output\\callnames\\spoken_<lang>.json.");
-    ImGui::SameLine();
+        ImGui::SetTooltip("Asks the game which names the commentators recorded, so the lists offer only names you can hear.\n"
+                          "It runs in small steps while you keep using Turbo.");
     const bool running = app.bank_capture_running();
-    if (running) ImGui::BeginDisabled();
-    if (ImGui::Button("Capture from the loaded bank##cn")) app.start_bank_capture(false);
-    if (running) ImGui::EndDisabled();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Diagnostic: scans the game's memory for the loaded bank's selection tables and caches what it finds as\n"
-                          "turbo_output\\callnames\\spoken_<lang>.json (the audio-service build is the normal way). A hand-made\n"
-                          "spoken_<lang>.txt under turbo\\callnames overrides either.");
+    if (app.prefs.advanced_mode) {  // 2.16: a developer diagnostic, shown in the Advanced view only
+        ImGui::SameLine();
+        if (running) ImGui::BeginDisabled();
+        if (ImGui::Button("Capture from the loaded bank###cncapture")) app.start_bank_capture(false);
+        if (running) ImGui::EndDisabled();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Diagnostic: scans the game's memory for the loaded bank's selection tables and caches what it finds as\n"
+                              "turbo_output\\callnames\\spoken_<lang>.json (the audio-service build is the normal way). A hand-made\n"
+                              "spoken_<lang>.txt under turbo\\callnames overrides either.");
+    }
     ImGui::SameLine();
     if (st.busy) ImGui::TextDisabled("building: %s", st.progress.c_str());
     else if (running) ImGui::TextDisabled("%s", app.bank_capture_status.c_str());

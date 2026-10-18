@@ -53,7 +53,7 @@ namespace labels {
 struct CodeUsers;  // core/field_labels.h
 }
 
-constexpr const char* kGuiVersion = "2.15.0";
+constexpr const char* kGuiVersion = "2.16.0";
 
 // UI scale (window height and the user's "UI size" setting): every fixed size in the panels goes through S()
 extern float g_ui_scale;
@@ -148,6 +148,7 @@ public:
     std::string preload_line() const;     // "Loading pictures: 812 of 4120" ("" when nothing is loading)
     std::vector<std::string> preload_status() const;  // Status tab: one line per kind of picture (ui/preload.h)
     GuiPrefs prefs;                                   // gui.preload_images, gui.row_density (ui/gui_prefs.h)
+    bool legacy_pages = false;  // 2.16: draw the pre-2.16 panels instead of the new pages (gui.legacy_pages; Settings, Advanced view; the tests set it)
     RowDensity density_applied = RowDensity::Normal;  // the row density the style was last built for
     bool lua_images_wanted() const;       // pictures are waiting and Turbo is shown: the host nudges Lua (synthetic event)
     float ui_scale_user = 1.0f;     // "UI size" setting (gui_settings.json gui.ui_scale), 0.6 .. 2.5
@@ -561,6 +562,7 @@ void draw_status(App& app);
 void draw_status_health(App& app);  // pictures, health, collapsed technical details
 void draw_preferences(App& app);    // show/hide key, UI size, row density, background loading
 void draw_status_log(App& app);     // the log, filling the window
+void draw_log_section(App& app, const char* key);  // ui_settings.cpp: a collapsing "Log" section (closed at first; `key` keeps its state)
 // Game-code hook status (part of the Status tab; App::hook_report supplies the data)
 void draw_hook_status(App& app);
 

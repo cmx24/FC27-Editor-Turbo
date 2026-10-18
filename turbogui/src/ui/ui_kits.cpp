@@ -588,7 +588,7 @@ bool kit_panel_open(App& app, const fs::path& zip_or_folder) {
     return true;
 }
 
-static void poll_jobs(App& app) {
+void poll_jobs(App& app) {
     KitPanel& p = g_panel;
     if (p.load && p.load->done.load()) {
         std::vector<KitPackage> got;
@@ -642,7 +642,7 @@ static void poll_jobs(App& app) {
 }
 
 // Apply the panel's items `which` to the club: parts 1-2 now, the textures on one worker thread
-static void apply_items(App& app, int64_t teamid, const std::vector<size_t>& which) {
+void apply_items(App& app, int64_t teamid, const std::vector<size_t>& which) {
     auto job = std::make_shared<StageJob>();
     job->spec = panel_spec();
     std::string summary;
@@ -869,8 +869,10 @@ static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
     ImGui::TextUnformatted("3D kit on the pitch:");
     ImGui::SameLine();
     changed |= ImGui::RadioButton("Off##kswap", &sel, 0);
-    ImGui::SameLine();
-    changed |= ImGui::RadioButton("Watch only (log what the game loads)##kswap", &sel, 1);
+    if (app.prefs.advanced_mode || sel == 1) {  // 2.16: a developer mode, offered in the Advanced view (or while it is the active one)
+        ImGui::SameLine();
+        changed |= ImGui::RadioButton("Watch only (changes nothing)###kswapwatch", &sel, 1);
+    }
     ImGui::SameLine();
     changed |= ImGui::RadioButton("Show it on the pitch##kswap", &sel, 2);
     if (!staged) ImGui::EndDisabled();
@@ -892,11 +894,11 @@ static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
                 if (!it.probe) seen += it.hits;
             }
         ImGui::PushTextWrapPos(0.0f);
-        ImGui::TextColored(st.state == "error" ? kWarn : kGood, "%s%s", st.state.c_str(), st.killed ? " (kill switch kits3d_off.txt is present: nothing is swapped)" : "");
+        ImGui::TextColored(st.state == "error" ? kWarn : kGood, "%s%s", st.state.c_str(), st.killed ? " (3D kits are switched off: nothing is swapped)" : "");
         ImGui::SameLine();
         if (st.scanning)
-            ImGui::TextDisabled("reading the game's kit data (%d of %d bundles; once per game update, then it is kept in turbo_output\\kits\\kit_index.cache)", st.scan_done, st.scan_total);
-        else
+            ImGui::TextDisabled("reading the game's kit data (%d of %d); once per game update", st.scan_done, st.scan_total);
+        else if (app.prefs.advanced_mode)  // 2.16: counters and the hook state are for the Advanced view
             ImGui::TextDisabled("%s | %d textures in the table, %d left to the game, %d more watched | blocks of this kit seen in the game so far: %llu | %s | kit index %s",
                                 st.message.c_str(), in_table, left, watch, static_cast<unsigned long long>(seen), st.hook ? "hook installed" : "HOOK NOT INSTALLED",
                                 st.index_cached ? "from the saved copy" : "scanned this session");
@@ -942,15 +944,15 @@ static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
     const bool have_opts = rt->slot_options(int(teamid), slot, &decals, &keep_crest, &share_club, &share_other);
     bool opt_changed = false;
     if (!have_opts) ImGui::BeginDisabled();
-    opt_changed |= ImGui::Checkbox("Also use the zip's badge and brand pictures##kswap", &decals);
+    opt_changed |= ImGui::Checkbox("Keep the kit maker's badge and sponsors###kswapdecals", &decals);
     if (!decals) ImGui::BeginDisabled();
     ImGui::SameLine();
-    opt_changed |= ImGui::Checkbox("Do not use the zip's crest pictures##kswap", &keep_crest);
+    opt_changed |= ImGui::Checkbox("Ignore the crest in the zip###kswapcrest", &keep_crest);
     if (!decals) ImGui::EndDisabled();
-    opt_changed |= ImGui::Checkbox("Also change this club's other kits that share a texture with this one##kswap", &share_club);
+    opt_changed |= ImGui::Checkbox("Also change my club's other kits that use the same pictures###kswapclub", &share_club);
     // 2.13: EA reuses some kit pictures between clubs (goalkeeper templates): with this ticked they are replaced too, so the other club's
     // kit shows them as well; unticked, a kit whose shirt, shorts or socks picture is shared stays the game's whole (never half a kit)
-    opt_changed |= ImGui::Checkbox("Also change other clubs' kits that share this texture##kswap", &share_other);
+    opt_changed |= ImGui::Checkbox("Change other clubs' kits too (they use the same picture)###kswapother", &share_other);
     const auto club_name = [&](int64_t id) { return app.model.team_name(id); };
     const std::string clubs = active ? kit_swap_shared_clubs(st, teamid, slot, club_name) : std::string();
     if (!clubs.empty()) {
@@ -967,25 +969,26 @@ static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
     }
     kitswap::Options kopt = rt->get_options();
     bool watch_club = kopt.watch_club;
-    if (ImGui::Checkbox("Log which of this club's kit folders the match loads (watch only, all slots)##kswap", &watch_club)) {
+    if (app.prefs.advanced_mode && ImGui::Checkbox("Log which of this club's kit folders the match loads (watch only, all slots)###kswapwatchclub", &watch_club)) {
         kopt.watch_club = watch_club;
         rt->set_options(kopt);
         if (!rt->status().slots.empty()) rt->rebuild();
     }
     bool hot = kopt.apply_hotspots;
-    if (ImGui::Checkbox("Also use the zip's name and number placement (hotspots)##kswap", &hot)) {
+    if (ImGui::Checkbox("Use the kit maker's name and number positions###kswaphot", &hot)) {
         kopt.apply_hotspots = hot;
         rt->set_options(kopt);
         if (!rt->status().slots.empty()) rt->rebuild();
     }
     ImGui::PushTextWrapPos(0.0f);
-    ImGui::TextDisabled("Takes effect when the game next loads this kit (the next match load, or after a game restart when the kit was already loaded this session). "
-                        "The zip's crest picture is usually blank and its badge is baked into the jersey picture: its hotspot 'team' is then 'not used' (-0.5), and with 'Also use the zip's badge and brand pictures' ticked (default) the game's own chest badge is switched off, so you see ONE badge (the baked one). "
+    if (app.prefs.advanced_mode) ImGui::TextDisabled("Takes effect when the game next loads this kit (the next match load, or after a game restart when the kit was already loaded this session). "
+                        "The zip's crest picture is usually blank and its badge is baked into the jersey picture: its hotspot 'team' is then 'not used' (-0.5), and with 'Keep the kit maker's badge and sponsors' ticked (default) the game's own chest badge is switched off, so you see ONE badge (the baked one). "
                         "With that option unticked the game's badge is drawn as well and you may see two. "
                         "A kit is never shown half: when its shirt, shorts or socks picture cannot be replaced, the game's whole kit stays. "
-                        "A texture the game shares with another club is replaced only with 'Also change other clubs' kits that share this texture' (that club's kit then changes too). "
+                        "A texture the game shares with another club is replaced only with 'Change other clubs' kits too' (that club's kit then changes too). "
                         "turbo_output\\kits3d_off.txt switches the feature off at once (it also stops the reading of the game's kit data); "
                         "the log is turbo_output\\kit_swap_log.txt.");
+    else ImGui::TextDisabled("Takes effect when the game next loads this kit: the next match, or after a game restart. A kit is never shown half: if a picture cannot be replaced, the game's whole kit stays.");
     ImGui::PopTextWrapPos();
     ImGui::Unindent();
 }

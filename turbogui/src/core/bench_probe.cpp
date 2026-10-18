@@ -332,6 +332,9 @@ KeepOut Keeper::on_read(long long load_gen, const Ids& map, int map_dirty, const
         built_at_ = now;
         last_refusal_.clear();
         last_wait_.clear();
+        wrote_ = false;
+        hold_check_ = false;
+        rewrites_ = 0;
         const std::string w = shuffle_of(map, copy.ids);
         if (w.empty()) {
             saved_ = map;
@@ -352,6 +355,57 @@ KeepOut Keeper::on_read(long long load_gen, const Ids& map, int map_dirty, const
             ph_ = KeepPhase::Done;
         }
     }
+    // the same build changed in place after a write of it (P215c 19:01:08: when Team Management was first entered the game put its own
+    // order back into the copy built during the career load, same record vector). Only that exact order, with your map sheet unchanged since
+    // the write, is written again (like a new build); any other change (your own move on the screen) is left alone
+    if (ph_ == KeepPhase::Done && wrote_) {
+        if (hold_check_) {  // the first read after the job came back written: did the write hold?
+            hold_check_ = false;
+            if (copy.ids != saved_) {
+                wrote_ = false;
+                outcome_ = "left alone: Team Management's working copy " + copy.label +
+                           " no longer held your saved order at the next read (changed right after the write: no loop with the game)";
+                o.log.push_back("bench keep: " + outcome_ + ": " + diff_text(saved_, copy.ids, name) + " (nothing written)");
+            }
+        } else if (copy.ids != last_ids_ && copy.ids != saved_) {  // changed in place, away from your saved order
+            if (copy.ids != expect_) {
+                o.log.push_back("bench keep: Team Management's working copy " + copy.label +
+                                " changed in place to an order that is not the game's own (a move on the screen?): left alone (nothing written): " +
+                                diff_text(last_ids_, copy.ids, name));
+            } else if (map != saved_ || map_dirty != wrote_dirty_) {
+                o.log.push_back("bench keep: the game put its own order back into Team Management's working copy " + copy.label +
+                                ", but your map sheet changed since the write (a commit or a save): left alone (nothing written)");
+            } else if (rewrites_ >= kKeepMaxRewrites) {
+                wrote_ = false;
+                outcome_ = "given up for this build: the game put its own order back into Team Management's working copy again after " +
+                           std::to_string(rewrites_) + " rewrites (no loop with the game)";
+                o.log.push_back("bench keep: " + outcome_ + " (nothing written)");
+            } else {
+                const std::string w = shuffle_of(map, copy.ids);
+                if (!w.empty()) {
+                    wrote_ = false;
+                    outcome_ = "left alone: Team Management's working copy is not your saved players in another order (" + w + ")";
+                    o.log.push_back("bench keep: " + outcome_);
+                } else {  // handled like a new build: one write for this change, its deadline counted from now
+                    ++rewrites_;
+                    wrote_ = false;
+                    built_at_ = now;
+                    last_refusal_.clear();
+                    last_wait_.clear();
+                    saved_ = map;
+                    expect_ = copy.ids;
+                    moved_ = moved_places(map, copy.ids);
+                    next_try_ = 0.0;
+                    ph_ = KeepPhase::Pending;
+                    o.log.push_back("bench keep: the game put its own order back into Team Management's working copy " + copy.label +
+                                    " in place (the same build; your map sheet unchanged since the write: no commit, no save): " +
+                                    diff_text(map, copy.ids, name) + ". Writing your saved order into it again (rewrite " + std::to_string(rewrites_) +
+                                    " of at most " + std::to_string(kKeepMaxRewrites) + " for this build)");
+                }
+            }
+        }
+    }
+    last_ids_ = copy.ids;
     if (ph_ != KeepPhase::Pending) return o;
     if (copy.ids != expect_) {
         outcome_ = "left alone: the working copy changed before the write (a move on the screen?)";
@@ -397,6 +451,7 @@ KeepOut Keeper::on_read(long long load_gen, const Ids& map, int map_dirty, const
         o.saved = saved_;
         o.before = expect_;
         o.build = build_;
+        submit_dirty_ = map_dirty;
     }
     return o;
 }
@@ -415,7 +470,13 @@ void Keeper::not_queued(const std::string& why, std::vector<std::string>& log) {
 
 void Keeper::on_result(bool written, const std::string& line) {
     outcome_ = (written ? "put back: " : "not written: ") + line;
-    if (ph_ == KeepPhase::Queued) ph_ = KeepPhase::Done;
+    if (ph_ == KeepPhase::Queued) {
+        ph_ = KeepPhase::Done;
+        // a write of this build: the next read checks it held, then the build is watched for the game putting its own order back
+        wrote_ = written;
+        hold_check_ = written;
+        wrote_dirty_ = submit_dirty_;
+    }
 }
 
 std::string Keeper::state() const {

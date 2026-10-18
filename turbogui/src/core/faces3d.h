@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -74,9 +75,52 @@ const char* template_text();  // the embedded TEMPLATE v2 (LF)
 const char* template_md5();
 const char* template_v3_text();  // the embedded TEMPLATE v3 (LF): gate block with follow entries + the verified id ranges
 const char* template_v3_md5();
+const char* template_v4_text();  // the embedded TEMPLATE v4 (LF): v3 + the live band rule (2.16), splices identical to v3
+const char* template_v4_md5();
 bool has_follow(const Table& t);
-// What apply builds from: v2 for a table of fixed entries only (byte-identical to 2.8 / F2), v3 when any entry follows
+// What apply builds from: always v4 since 2.16 (v3 + the band rule, so looks change without a restart). v2 / v3 stay for tests
 const char* template_for(const Table& t);
+
+// ---- live looks (2.16, template v4): a reserved band in the two DB codes the game's 3D model build reads per call
+// A real face (HeadClass 0, HairStyle 0) whose hairtypecode is kHairBandBase + i takes generic hair band_hair_ids()[i - 1], whose
+// facialhairtypecode is kBeardBandBase + i takes generic beard band_beard_ids()[i - 1]; for players and managers alike, with no
+// list and no restart. EA's own data never uses the bands (base tables: hairtypecode max 3022, facialhairtypecode max 304; both
+// fields are range-checked to 10000 / 512). The lists are FROZEN and append-only (the index is what the save holds).
+constexpr int64_t kHairBandBase = 8039;   // hairtypecode 8040 .. 8039 + 1371
+constexpr int64_t kBeardBandBase = 335;   // facialhairtypecode 336 .. 335 + 105
+// "His own, live" (9999 / 511): no generic part and the saved list (players.json) is skipped for him, so a look of the saved list is
+// dropped without a restart. No model id (hair ids end at 8039, beard ids at 335), on no allow-list, in no EA row; inside 10000 / 512.
+// Like a band code it is ignored by the game's own file on a real face.
+constexpr int64_t kHairOwnCode = 9999, kBeardOwnCode = 511;
+// preview_backup.json key of a manager's own codes: kManagerBackupKey + managerid (player ids stay far below)
+constexpr int64_t kManagerBackupKey = 1000000000000LL;
+// A Turbo code of that field (a band code or the "his own, live" code): never recorded as his own, replaced when he gets a new head
+bool is_turbo_hair_code(int64_t hairtypecode);
+bool is_turbo_beard_code(int64_t facialhairtypecode);
+// The in-memory player_kit.lua of 2.16 (the hook calls exactly this at the boot capture): template v4 over the captured stock with the
+// saved list. nullptr + why when refused (stock md5, an anchor); a saved list the generator refuses falls back to the bands alone
+// (note "saved list refused (...): bands only"), else note = "<N> players on the saved list".
+std::shared_ptr<const std::string> build_live_override(const std::string& stock, const Table& saved, std::string& note, std::string& why);
+const std::vector<int>& band_hair_ids();
+const std::vector<int>& band_beard_ids();
+int64_t hair_band_code(int64_t hair_id);    // 0 when the id is not on the list
+int64_t beard_band_code(int64_t beard_id);  // 0 when the id is not on the list
+int64_t hair_from_code(int64_t hairtypecode);          // the generic hair a band code selects, 0 = not a band code
+int64_t beard_from_code(int64_t facialhairtypecode);   // the generic beard a band code selects, 0 = not a band code
+// The two fields a look writes (never hairstylecode: stock uses it in a real face's own asset names)
+extern const char* const kLookFields[2];  // hairtypecode, facialhairtypecode
+// What applying `hair` / `beard` (generic ids, 0 = his own) writes given his current codes and his recorded originals (field ->
+// value; only fields that change). A part set to his own leaves the band: his recorded original when it is not a band code, else 0
+// (a real face ignores that code; it only matters if the head ever becomes generic).
+std::map<std::string, int64_t> look_writes(int64_t hair, int64_t beard, const std::map<std::string, int64_t>& current,
+                                           const std::map<std::string, int64_t>& original);
+// Can a look change show now (this game start)? st = the hook state (nullptr: no game hooks)
+struct LiveLooks {
+    bool active = false;
+    bool restart_needed = false;  // the hook or the right file is not running yet: one game restart turns it on
+    std::string why;              // plain words for the panel
+};
+LiveLooks live_looks(const lualoader::Faces3dStatus* st);
 std::string template_stock_md5(const std::string& tmpl);  // the template's @stock_md5 ("" when unreadable)
 
 struct Built {
@@ -144,11 +188,14 @@ struct ApplyResult {
     std::string message;  // what was written, or why nothing was
     std::string override_md5, table;
 };
-// validate (when headclass is set) -> players.json -> override from the stock cache -> faces3d_on.txt, each atomic; any failure
-// before the opt-in leaves faces3d_on.txt untouched. An empty table = remove(). build_key "" refuses (game build unknown).
+// validate (when headclass is set) -> players.json -> override (template v4) from the stock cache -> faces3d_on.txt, each atomic;
+// any failure before the opt-in leaves faces3d_on.txt untouched. An empty table still writes the override (since 2.16 the live
+// band rule needs it; remove() turns the feature off). build_key "" refuses (game build unknown).
 ApplyResult apply(const std::string& turbo_output_utf8, const Table& t, const std::string& build_key,
                   const std::function<int64_t(int64_t)>& headclass);
 // Deletes the override and faces3d_on.txt (players.json is kept, so the choices come back)
 bool remove(const std::string& turbo_output_utf8, std::string* err);
+// The override on disk holds the live band rule (template v4)
+bool override_has_live_looks(const std::string& turbo_output_utf8);
 
 }  // namespace turbo::faces3d

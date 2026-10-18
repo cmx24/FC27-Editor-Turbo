@@ -956,7 +956,7 @@ static void archetype_apply(App& app, const Table& t, const PlayerRow& p, Archet
     if (!read_attrs(app, t, p.rec, now) || now != st.pend_before ||
         app.db.get_int(t, p.rec, "preferredposition1", 14) != st.pend_his_position ||
         app.db.get_int(t, p.rec, "overallrating", 0) != st.pend_stored) {
-        app.notify("Archetype not applied: his attributes changed since the preview (preview again)", true);
+        app.notify("Player type not applied: his attributes changed since the preview (see the changes again)", true);
         return;
     }
     const bool adopt = st.pend_position != st.pend_his_position && st.adopt_position;
@@ -965,7 +965,7 @@ static void archetype_apply(App& app, const Table& t, const PlayerRow& p, Archet
     std::snprintf(label, sizeof(label), "archetype %s at overall %d (%s)", arch.name, st.pend.target, position_name(st.pend_position));
     const int n = write_bulk(app, t, p, now, st.pend.attrs, ovr_to, label, adopt ? st.pend_position : -1);
     if (n < 0) {
-        app.notify(std::string("Archetype ") + arch.name + ": nothing written (a field was refused; what was written is back)", true);
+        app.notify(std::string("Player type ") + arch.name + ": nothing written (a field was refused; what was written is back)", true);
         return;
     }
     // read-back: the attributes, the position and the overall as written, and the formula gives the target
@@ -977,12 +977,12 @@ static void archetype_apply(App& app, const Table& t, const PlayerRow& p, Archet
     const bool formula_ok = compute_overall(st.pend_position, back) == st.pend.target;
     char msg[320];
     if (!attrs_ok || ovr_back != ovr_to || !pos_ok || !formula_ok) {
-        std::snprintf(msg, sizeof(msg), "Archetype %s: the read-back differs (attributes %s, overall %lld for %d, position %s): Undo puts it back",
+        std::snprintf(msg, sizeof(msg), "Player type %s: the read-back differs (attributes %s, overall %lld for %d, position %s): Undo puts it back",
                       arch.name, attrs_ok ? "ok" : "differ", static_cast<long long>(ovr_back), ovr_to, pos_ok ? "ok" : "differs");
         app.notify(msg, true);
     } else {
         const std::string now_pos = adopt ? std::string(", now a ") + position_name(st.pend_position) : std::string();
-        std::snprintf(msg, sizeof(msg), "Archetype %s at overall %d: %d fields written, overall %lld -> %d%s (read back; Undo puts them back)",
+        std::snprintf(msg, sizeof(msg), "Player type %s at overall %d: %d fields written, overall %lld -> %d%s (read back; Undo puts them back)",
                       arch.name, st.pend.target, n, static_cast<long long>(st.pend_stored), ovr_to, now_pos.c_str());
         app.notify(msg);
     }
@@ -999,7 +999,7 @@ static void archetype_bar(App& app, const Table& t, const PlayerRow& p) {
     Attrs cur{};
     ImGui::AlignTextToFramePadding();
     if (!read_attrs(app, t, p.rec, cur)) {
-        ImGui::TextDisabled("Archetypes and Overall +1 / -1 need all 34 attribute fields; this database lacks some.");
+        ImGui::TextDisabled("Player types and Overall +1 / -1 need all 34 attribute fields; this database lacks some.");
         return;
     }
     const int pos = p.position;
@@ -1009,7 +1009,7 @@ static void archetype_bar(App& app, const Table& t, const PlayerRow& p) {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("FC 27 works the overall out from the attributes (the player card, its own growth): a bare overall does not last.\n"
                           "So Overall +1 / -1 and an overall typed into the Overall box (Profile, All fields) move the attributes that\n"
-                          "weigh most for his position until the formula gives it; Undo / Undo bulk put them back.\n"
+                          "weigh most for his position until the formula gives it; Undo / Undo last big change put them back.\n"
                           "The other way round too: an attribute (or his position) you edit moves the stored overall by what the\n"
                           "formula moves, so the game shows it at once; one Undo puts both back. %s",
                           overall_follow_off(app) ? "OFF now: turbo_output\\overall_follow_off.txt exists."
@@ -1049,8 +1049,8 @@ static void archetype_bar(App& app, const Table& t, const PlayerRow& p) {
     for (const auto& u : app.bulk_undo) mine += u.playerid == p.playerid;
     ImGui::SameLine();
     if (!mine) ImGui::BeginDisabled();
-    char ulbl[48];
-    std::snprintf(ulbl, sizeof(ulbl), "Undo bulk (%zu)##bulkundo", mine);
+    char ulbl[64];
+    std::snprintf(ulbl, sizeof(ulbl), "Undo last big change (%zu)###bulkundo", mine);
     if (ImGui::Button(ulbl)) undo_bulk(app, t, p);
     if (!mine) ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -1069,7 +1069,7 @@ static void archetype_bar(App& app, const Table& t, const PlayerRow& p) {
     const int formula_at = compute_overall(st.position, cur);
     if (!st.target_typed) st.target = st.position == pos ? archetypes::default_target(static_cast<int>(stored), formula_at) : formula_at;
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted("Archetype");
+    ImGui::TextUnformatted("Player type");
     ImGui::SameLine();
     archetype_combo("##arch", st.arch, st.position, S(220.0f));
     ImGui::SameLine();
@@ -1083,7 +1083,7 @@ static void archetype_bar(App& app, const Table& t, const PlayerRow& p) {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("The position whose overall formula the target is for (his own: %s)", position_name(pos));
     // second row (the pane is often narrow): the target and the preview
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted("Target overall");
+    ImGui::TextUnformatted("Wanted overall");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(S(70.0f));
     int tv = st.target;
@@ -1097,7 +1097,7 @@ static void archetype_bar(App& app, const Table& t, const PlayerRow& p) {
     ImGui::SameLine();
     const bool can_preview = st.arch >= 0;
     if (!can_preview) ImGui::BeginDisabled();
-    if (ImGui::Button("Preview / apply...") && can_preview) {
+    if (ImGui::Button("See changes...###archpreview") && can_preview) {
         st.pend_playerid = p.playerid;
         st.pend_arch = st.arch;
         st.pend_before = cur;
@@ -1120,7 +1120,7 @@ static void archetype_bar(App& app, const Table& t, const PlayerRow& p) {
             ImGui::AlignTextToFramePadding();
             ImGui::TextDisabled("Applied: %s.", st.applied_label.c_str());
             ImGui::SameLine();
-            if (ImGui::Button("Undo archetype##archundo")) undo_bulk(app, t, p);
+            if (ImGui::Button("Undo last big change###archundo")) undo_bulk(app, t, p);
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", st.applied_note.c_str());
         }
     }
@@ -1236,9 +1236,9 @@ static void player_editor(App& app) {
     }
     ImGui::Text("%s", p->name.c_str());
     ImGui::SameLine();
-    ImGui::TextDisabled("ID %lld | %s | %s | OVR %d POT %d", static_cast<long long>(p->playerid),
-                        p->club_name.empty() ? "no club" : p->club_name.c_str(), position_name(p->position), p->overall,
-                        p->potential);
+    ImGui::TextDisabled("%s | %s | Overall %d, potential %d", p->club_name.empty() ? "no club" : p->club_name.c_str(), position_name(p->position),
+                        p->overall, p->potential);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Player ID %lld", static_cast<long long>(p->playerid));
 
     bool cm = app.bridge.state().in_cm;
     // every club, yours included: the same checks as Lua core/moves.lua (move_rules.h); a move that cannot run for
@@ -1406,7 +1406,7 @@ static void player_editor(App& app) {
             ImGui::TextDisabled("head asset %lld, head class %s", static_cast<long long>(app.db.get_int(*t, p->rec, "headassetid", 0)),
                                 code_value_text("headclasscode", app.db.get_int(*t, p->rec, "headclasscode", 0)).c_str());
             real_face_picker(app, p->playerid);
-            ImGui::SeparatorText("3D hair and beard (scanned heads, next game start)");
+            ImGui::SeparatorText("Hair & beard (3D)");
             faces3d_gate_section(app, *t, *p);  // ui_faces3d_gate.cpp
             ImGui::SeparatorText("Tattoos");
             tattoo_editor(app, *t, p->rec);

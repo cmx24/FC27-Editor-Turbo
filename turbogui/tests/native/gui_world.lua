@@ -354,7 +354,8 @@ local function build_world(sim)
     local mrows = {}
     for _, m in ipairs(MANAGERS) do
         mrows[#mrows + 1] = { managerid = m[1], firstname = m[2], surname = m[3], teamid = m[4], nationality = 14, headassetid = 7000 + m[1],
-                              headclasscode = m[5], headtypecode = m[6], skintonecode = m[7], haircolorcode = m[8], bodytypecode = 5 }
+                              headclasscode = m[5], headtypecode = m[6], skintonecode = m[7], haircolorcode = m[8], bodytypecode = 5,
+                              hairtypecode = 100 + (m[1] - 500), facialhairtypecode = 0 }  -- 2.16: hair & beard (3D) on the manager row
     end
     sim:add_table({
         name = "manager", short = "mngr",
@@ -370,6 +371,8 @@ local function build_world(sim)
             { name = "skintonecode", short = "stc_", depth = 7 },
             { name = "haircolorcode", short = "hcol", depth = 4 },
             { name = "bodytypecode", short = "btc_", depth = 5 },
+            { name = "hairtypecode", short = "htyp", depth = 14 },
+            { name = "facialhairtypecode", short = "fhty", depth = 10 },
         },
         rows = mrows,
     })

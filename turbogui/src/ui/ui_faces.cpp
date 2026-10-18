@@ -376,6 +376,28 @@ bool apply_game_head(App& app, int64_t head_id, int64_t target_id, bool target_i
         if (!verr.empty()) return fail(std::string(w.field) + ": " + verr);
         writes.emplace_back(f, v);
     }
+    // 2.16: a Turbo 3D hair / beard (band codes, core/faces3d.h) belongs to the old head: the new head leaves the band (a player's
+    // own codes recorded in turbo_output\faces3d\preview_backup.json, else 0; a real face ignores these codes)
+    {
+        std::map<std::string, int64_t> cur, own;
+        for (const char* f : faces3d::kLookFields)
+            if (t->has(f)) cur[f] = app.db.get_int(*t, rec, f, 0);
+        {
+            faces3d::PreviewBackup backup;  // a manager's own codes sit under faces3d::kManagerBackupKey + managerid
+            if (faces3d::load_preview_backup(app.turbo_output().u8string(), backup, nullptr)) {
+                const auto r = backup.find(target_is_manager ? faces3d::kManagerBackupKey + target_id : target_id);
+                if (r != backup.end()) own = r->second.original;
+            }
+        }
+        for (const auto& [name, value] : faces3d::look_writes(0, 0, cur, own)) {
+            const Field* f = t->field(name);
+            if (!f) continue;
+            const Value v = Value::of_int(value);
+            const std::string verr = Database::validate(*f, v);
+            if (!verr.empty()) return fail(name + ": " + verr);
+            writes.emplace_back(f, v);
+        }
+    }
     if (writes.empty()) return fail("no head fields in the " + t->name + " table");
     const std::string target = (target_is_manager ? "manager " : "player ") + std::to_string(target_id);
     const uint64_t pushes = app.undo_pushes;
@@ -430,6 +452,11 @@ static bool copy_head(App& app, const Table& src, uint64_t src_rec, const Table&
     if (o.beard) fields.insert(fields.end(), std::begin(kBeardFields), std::end(kBeardFields));
     if (o.eyes) fields.insert(fields.end(), std::begin(kEyeFields), std::end(kEyeFields));
     if (o.skin) fields.insert(fields.end(), std::begin(kSkinFields), std::end(kSkinFields));
+    // a Turbo 3D hair / beard (band codes, core/faces3d.h) belongs to the old head: the new head takes the owner's own codes
+    if (!o.hair && dst.has("hairtypecode") && faces3d::is_turbo_hair_code(app.db.get_int(dst, dst_rec, "hairtypecode", 0)))
+        fields.push_back("hairtypecode");
+    if (!o.beard && dst.has("facialhairtypecode") && faces3d::is_turbo_beard_code(app.db.get_int(dst, dst_rec, "facialhairtypecode", 0)))
+        fields.push_back("facialhairtypecode");
     // read everything first, then write (validated per field)
     std::vector<std::pair<const Field*, Value>> writes;
     for (const char* n : fields) {
@@ -1250,9 +1277,9 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
                     ImGui::BeginTooltip();
                     if (has3d) draw_file_picture(app, face3d_file(app, f->manager, rid), S(256.0f));  // big preview of the 3D render
                     ImGui::Text("%s, %s%s", f->name.c_str(), f->manager ? "manager's face" : f->real ? "real face" : "generic head", traits.c_str());
-                    ImGui::TextDisabled("%s ID %lld, head model %lld%s", f->manager ? "manager" : "player", static_cast<long long>(f->id),
+                    ImGui::TextDisabled("%s ID %lld, face #%lld%s", f->manager ? "manager" : "player", static_cast<long long>(f->id),
                                         static_cast<long long>(f->headassetid),
-                                        f->hq == 1 ? ", high-quality head (hashighqualityhead 1)" : f->hq == 0 ? ", hashighqualityhead 0" : "");
+                                        f->hq == 1 ? ", high quality" : "");
                     if (!has3d && use3d && rid > 0)
                         ImGui::TextDisabled(head3d_given_up(head3d_key(f->manager, rid))
                                                 ? "3D failed: the game could not render this head, so the flat picture stays."
@@ -1287,8 +1314,7 @@ static bool game_head_confirm(App& app, Chooser& ch, int64_t target_id, bool tar
     asset_badge(AssetBadge::Hidden);
     // wrapped: the modal is 880 wide and these lines are longer
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::TextWrapped("Writes headassetid %lld, headclasscode 0, hashighqualityhead 1, headvariation %d (headtypecode kept); logged in asset_writes.log.",
-                       static_cast<long long>(h->id), h->vars.empty() ? 0 : h->vars.front());
+    ImGui::TextWrapped("This replaces his face with this one. Build and skin tone stay.");
     ImGui::PopStyleColor();
     // the miniface that comes with it (asks the game for the picture now, so Apply finds it at hand)
     const MinifaceMove mv = target_is_manager ? to_manager(target_id, game_head_sources(*h)) : to_player(target_id, game_head_sources(*h));
@@ -1387,6 +1413,8 @@ void manager_appearance(App& app, const Table& t, const ManagerRow& m) {
                         pic.empty() ? "none in the game files" : file_part(pic).c_str(), static_cast<long long>(m.managerid));
     ImGui::EndGroup();
     manager_real_face_picker(app, m.managerid);
+    ImGui::SeparatorText("Hair & beard (3D)");
+    faces3d_manager_section(app, t, m);  // ui_faces3d_gate.cpp
     ImGui::SeparatorText("Outfit");
     item_galleries(app, t, m.rec, true);  // the game's outfit pictures (ui_images.cpp)
     ImGui::SeparatorText("Appearance fields");

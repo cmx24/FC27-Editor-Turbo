@@ -606,7 +606,10 @@ struct ChunkOpts {
     bool with_fallback = true;
     CaptureConfig cap{true, false, false};
     std::string row_md5;              // the row's expected stock md5 ("" = the default row's)
+    std::string built;                // product mode (cap.build_in_memory): what Env::build_override returns ("" = refuses)
+    bool build_throws = false;
 };
+static std::atomic<int> g_builds{0};
 
 static Engine* make_chunk_engine(const ChunkOpts& o) {
     Env env;
@@ -650,6 +653,22 @@ static Engine* make_chunk_engine(const ChunkOpts& o) {
         g_saved.md5 = md5;
         g_saved.bytes = *bytes;
     };
+    if (o.cap.build_in_memory) {
+        const std::string built = o.built;
+        const bool throws = o.build_throws;
+        env.build_override = [built, throws](const std::string& row, const std::string& stock, std::string& note,
+                                             std::string& why) -> std::shared_ptr<const std::string> {
+            ++g_builds;
+            if (throws) throw std::runtime_error("boom");
+            if (built.empty() || row != "player_kit" || stock.empty()) {
+                why = "the v4 build refused: test";
+                return nullptr;
+            }
+            note = "2 players on the saved list";
+            return std::make_shared<const std::string>(built);
+        };
+    }
+    g_builds = 0;
     {
         std::lock_guard<std::mutex> lk(g_saved.m);
         g_saved.count = 0;
@@ -707,25 +726,25 @@ static void test_header_and_switches() {
 
     StartSwitches s;
     StartDecision d = decide_start(s);
-    check(!d.opted_in && !d.substitute, "start: nothing opted in");
+    check(d.opted_in && !d.refused && d.substitute && d.in_memory && !d.capture_mode, "start 2.16: no file at all = on, product mode (in memory)");
+    s.faces_on = true;
+    d = decide_start(s);
+    check(d.opted_in && d.substitute && d.in_memory, "start: faces3d_on.txt changes nothing (product mode)");
+    s = StartSwitches();
     s.lua_on = true;
     d = decide_start(s);
-    check(d.opted_in && !d.refused && !d.substitute && d.capture_mode, "start: lua_loader_on = LOG-ONLY capture mode");
+    check(d.opted_in && d.substitute && d.in_memory, "start: lua_loader_on.txt alone = product mode (a 2.8 leftover never turns it off)");
     s.lua_substitute = true;
     d = decide_start(s);
-    check(d.substitute && !d.capture_mode, "start: dev substitute");
+    check(d.substitute && !d.in_memory && !d.capture_mode, "start: lua_loader_on + lua_loader_substitute = the research file mode");
     s = StartSwitches();
-    s.faces_on = true;
-    d = decide_start(s);
-    check(d.opted_in && d.substitute && !d.capture_mode, "start: faces3d_on = substitute");
     s.lua_substitute = true;  // without lua_on: no effect on its own
-    s.faces_on = false;
-    check(!decide_start(s).opted_in, "start: substitute file alone is not an opt-in");
+    d = decide_start(s);
+    check(d.in_memory, "start: substitute file alone = product mode");
     s = StartSwitches();
-    s.faces_on = true;
     s.legacy_present = true;
     d = decide_start(s);
-    check(d.opted_in && !d.refused && !d.substitute && !d.capture_mode && d.legacy_refused && has(d.why, "player_kit.lua is present"),
+    check(d.opted_in && !d.refused && !d.substitute && !d.in_memory && !d.capture_mode && d.legacy_refused && has(d.why, "player_kit.lua is present"),
           "start: legacy player_kit.lua refuses substitution and caching: " + d.why);
     for (int k = 0; k < 3; ++k) {
         s = StartSwitches();
@@ -1092,6 +1111,123 @@ static void test_capture() {
     }
 }
 
+// 2.16 product mode: the override is built from the captured stock in the same lua_load call, once, for every compile
+static void test_in_memory() {
+    const std::string pk = "data/fifarna/lua/assets/player_kit.lua";
+    const std::string stock = "-- stock kit (captured by Turbo)\nreturn 1\n";
+    const std::string sm = md5s(stock);
+    const std::string v4 = "-- v4 built in memory\nTURBO_GATE.band = function(initData) end\nreturn 4\n";
+    auto any_line = [](const std::string& needle) {
+        std::lock_guard<std::mutex> lk(g_lines_m);
+        for (const auto& l : g_lines)
+            if (has(l, needle)) return true;
+        return false;
+    };
+    ChunkOpts o;
+    o.cap = CaptureConfig{true, false, false, true};
+    o.row_md5 = sm;
+    o.built = v4;
+    g_eng = make_chunk_engine(o);
+    g_lines.clear();
+    {
+        Faces3dStatus st0;
+        g_eng->fill_status(st0);
+        check(st0.in_memory && !st0.built && st0.built_error.empty() && !st0.live_looks, "in memory: before the boot compile nothing is built");
+        OneCall c;
+        run_other(c, stock, pk);
+        check(c.rc == 0 && c.L.out == v4 && c.ob.calls == 1 && c.od.done && g_builds == 1, "in memory: v4 built from the captured stock and served in the same call");
+        check(any_line("lua_loader: player_kit served: v4 built in memory (stock md5 " + sm + ", 2 players on the saved list, " +
+                       std::to_string(v4.size()) + " B, md5 " + md5s(v4) + ")"),
+              "one line per boot: what was served (v4 built)");
+        check(any_line("SUBSTITUTED"), "the compile line says SUBSTITUTED");
+    }
+    for (int k = 0; k < 3; ++k) {
+        OneCall c;
+        run_other(c, stock, pk);
+        check(c.L.out == v4, "in memory: every compile gets the same build");
+    }
+    check(g_builds == 1, "in memory: built once per process");
+    {
+        Faces3dStatus st;
+        g_eng->fill_status(st);
+        check(st.in_memory && st.built && st.built_error.empty() && st.header_ok && st.build_key_ok && st.live_looks && st.substituted == 4 &&
+                  st.captures == 4 && g_saved.count == 1 && g_saved.bytes == stock,
+              "in memory: status built, live, 4 substituted; the stock capture still published once");
+    }
+    // the game's file is not the known one: stock served, the builder is never called, one line says why
+    {
+        ChunkOpts m = o;
+        m.row_md5 = "00000000000000000000000000000000";
+        g_eng = make_chunk_engine(m);
+        g_lines.clear();
+        OneCall c;
+        run_other(c, stock, pk);
+        Faces3dStatus st;
+        g_eng->fill_status(st);
+        check(c.rc == 0 && c.L.out == stock && g_builds == 0 && !st.built && has(st.built_error, "not the one Turbo knows") && !st.live_looks,
+              "in memory: unknown stock md5 -> stock served, no build");
+        check(any_line("lua_loader: player_kit served: stock (the game's player_kit.lua (md5 " + sm + ") is not the one Turbo knows"),
+              "one line per boot: stock (reason)");
+    }
+    // the builder refuses / throws: stock served
+    for (int k = 0; k < 2; ++k) {
+        ChunkOpts r = o;
+        if (k == 0) r.built.clear();
+        else r.build_throws = true;
+        g_eng = make_chunk_engine(r);
+        g_lines.clear();
+        OneCall c;
+        run_other(c, stock, pk);
+        OneCall c2;
+        run_other(c2, stock, pk);
+        check(c.rc == 0 && c.L.out == stock && c2.L.out == stock && g_builds == 1 && any_line("served: stock ("),
+              std::string("in memory: the builder ") + (k ? "throws" : "refuses") + " -> stock, tried once");
+    }
+    // another running build: stock served
+    {
+        ChunkOpts b = o;
+        b.running = "6AB9813C-0000";
+        g_eng = make_chunk_engine(b);
+        OneCall c;
+        run_other(c, stock, pk);
+        check(c.L.out == stock && g_builds == 0, "in memory: another game build -> stock, no build");
+    }
+    // the build does not compile: the captured stock is replayed, then served directly (latched)
+    {
+        ChunkOpts f = o;
+        f.built = "-- v4 broken\nERR does not compile\n";
+        g_eng = make_chunk_engine(f);
+        OneCall c;
+        run_other(c, stock, pk);
+        OneCall c2;
+        run_other(c2, stock, pk);
+        Faces3dStatus st;
+        g_eng->fill_status(st);
+        check(c.rc == 0 && c.L.out == stock && c2.rc == 0 && c2.L.out == stock && st.fallbacks == 1 && st.substituted == 0,
+              "in memory: a build that does not compile -> stock replayed, then latched (rc " + std::to_string(c.rc) + "/" + std::to_string(c2.rc) +
+                  ", out " + c.L.out.substr(0, 20) + " / " + c2.L.out.substr(0, 20) + ", fallbacks " + std::to_string(st.fallbacks) + ", substituted " +
+                  std::to_string(st.substituted) + ")");
+    }
+    // the legacy file present: never substituted (capture only)
+    {
+        ChunkOpts l = o;
+        l.substitute = false;
+        l.cap.legacy_present = true;
+        g_eng = make_chunk_engine(l);
+        OneCall c;
+        run_other(c, stock, pk);
+        check(c.L.out == stock && g_builds == 0, "in memory + legacy file: stock, no build");
+    }
+    // killed: pure pass-through, nothing built
+    {
+        g_eng = make_chunk_engine(o);
+        g_eng->set_killed(true);
+        OneCall c;
+        run_other(c, stock, pk);
+        check(c.L.out == stock && g_builds == 0, "in memory + kill switch: pass-through, no build");
+    }
+}
+
 int main() {
     test_md5();
     test_signatures();
@@ -1099,6 +1235,7 @@ int main() {
     test_engine();
     test_header_and_switches();
     test_capture();
+    test_in_memory();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

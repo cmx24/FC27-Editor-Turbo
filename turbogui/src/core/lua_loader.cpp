@@ -274,6 +274,13 @@ const char* const kOtherReaderExpect =
     "80 7A 08 00 74 0A 49 C7 00 00 00 00 00 33 C0 C3 48 8B 02 C6 42 08 01 48 8B 48 20 49 89 08 48 8B 40 18 C3";
 const char* const kStockCacheRel = "faces3d\\stock_player_kit.cache";
 const char* const kLegacyKitRel = "mods\\legacy\\data\\fifarna\\lua\\assets\\player_kit.lua";
+const char* const kLiveLooksMarker = "TURBO_GATE.band = function";
+
+bool has_live_looks(const char* data, size_t size) {
+    if (!data || !size) return false;
+    const size_t m = std::strlen(kLiveLooksMarker);
+    return size >= m && std::search(data, data + size, kLiveLooksMarker, kLiveLooksMarker + m) != data + size;
+}
 
 namespace {
 bool is_md5_hex(const std::string& s) {
@@ -328,8 +335,7 @@ std::string make_override_header(const std::string& build, const std::string& st
 
 StartDecision decide_start(const StartSwitches& s) {
     StartDecision d;
-    d.opted_in = s.lua_on || s.faces_on;
-    if (!d.opted_in) return d;
+    d.opted_in = true;  // 2.16: on whenever Turbo is installed (faces3d_on.txt no longer matters)
     if (s.game_hooks_off) d.why = "turbo_output\\game_hooks_off.txt present";
     else if (s.hook_off) d.why = "kill switch turbo_output\\hook_lua_load_off.txt present";
     else if (s.faces_off) d.why = "kill switch turbo_output\\faces3d_off.txt present";
@@ -337,7 +343,8 @@ StartDecision decide_start(const StartSwitches& s) {
         d.refused = true;
         return d;
     }
-    const bool want_sub = s.faces_on || (s.lua_on && s.lua_substitute);
+    const bool research = s.lua_on && s.lua_substitute;  // the override file (test lane), as 2.8-2.15
+    const bool want_sub = true;
     if (want_sub && s.legacy_present) {
         d.legacy_refused = true;
         d.why = std::string(kLegacyKitRel) +
@@ -345,6 +352,7 @@ StartDecision decide_start(const StartSwitches& s) {
                 "runs LOG-ONLY and caches nothing.";
     }
     d.substitute = want_sub && !s.legacy_present;
+    d.in_memory = d.substitute && !research;
     d.capture_mode = !d.substitute && !s.legacy_present;
     return d;
 }
@@ -566,10 +574,16 @@ void Engine::configure(uint64_t gets, uint64_t blob_reader, bool substitute, std
         published_[i].store(false);
     }
     headers_.assign(rows_.size(), OverrideHeader());
+    live_.assign(rows_.size(), false);
+    built_.reset(new BuiltRow[rows_.size() + 1]);
     for (size_t i = 0; i < rows_.size(); ++i) {
         const Override& o = overrides_[i];
-        if (o.data && o.size && o.error.empty()) headers_[i] = parse_override_header(std::string(o.data, std::min<size_t>(o.size, 600)));
-        else headers_[i].error = o.error.empty() ? "override not loaded" : o.error;
+        if (o.data && o.size && o.error.empty()) {
+            headers_[i] = parse_override_header(std::string(o.data, std::min<size_t>(o.size, 600)));
+            live_[i] = has_live_looks(o.data, o.size);
+        } else {
+            headers_[i].error = o.error.empty() ? "override not loaded" : o.error;
+        }
     }
 }
 
@@ -606,12 +620,69 @@ void Engine::fill_status(Faces3dStatus& st) const {
         st.build_key_ok = headers_[0].ok && !build_.empty() && headers_[0].build == build_;
         st.header_stock = headers_[0].stock;
         st.header_table = headers_[0].table;
+        st.live_looks = headers_[0].ok && !live_.empty() && live_[0];
+    }
+    st.in_memory = capture_.build_in_memory;
+    if (st.in_memory && !rows_.empty()) {
+        // product mode: the in-memory build stands for the file header (same gates: running build, captured stock)
+        BuiltRow& b = built_[0];
+        std::lock_guard<std::mutex> lk(b.m);
+        st.built = b.bytes != nullptr;
+        st.built_error = b.error;
+        st.header_ok = st.built;
+        st.build_key_ok = st.built && !build_.empty() && rows_[0].build == build_;
+        st.header_stock = st.built ? rows_[0].md5 : std::string();
+        st.header_table.clear();
+        st.live_looks = st.built && has_live_looks(b.o.data, b.o.size);
     }
     std::lock_guard<std::mutex> lk(st_m_);
     st.captured_md5 = captured_md5_;
     st.captured_size = captured_size_;
     st.stock_matches_header = st.header_ok && !captured_md5_.empty() && captured_md5_ == st.header_stock;
     if (!last_error_.empty()) st.last_error = last_error_;
+}
+
+const Override* Engine::built_for(size_t row, const std::string& stock, const std::string& md5, std::string& why) {
+    BuiltRow& b = built_[row];
+    std::lock_guard<std::mutex> lk(b.m);
+    if (!b.tried) {
+        b.tried = true;
+        std::string note;
+        const Row& rw = rows_[row];
+        if (md5 != rw.md5) {
+            b.error = "the game's player_kit.lua (md5 " + md5 + ") is not the one Turbo knows (" + rw.md5 + "): game update?";
+        } else if (build_.empty() || rw.build != build_) {
+            b.error = "game build " + (build_.empty() ? std::string("unknown") : build_) + " is not " + rw.build;
+        } else if (!env_.build_override) {
+            b.error = "no builder";
+        } else {
+            try {
+                b.bytes = env_.build_override(rw.name, stock, note, b.error);
+            } catch (...) {
+                b.bytes.reset();
+                b.error = "the build threw";
+            }
+            if (b.bytes && b.error.empty()) b.error = override_refusal(*b.bytes);
+            if (!b.error.empty() || !b.bytes || b.bytes->empty()) {
+                if (b.error.empty()) b.error = "the build returned nothing";
+                b.bytes.reset();
+            }
+        }
+        if (b.bytes) {
+            b.o.data = b.bytes->data();
+            b.o.size = b.bytes->size();
+            b.o.md5 = md5_hex(reinterpret_cast<const uint8_t*>(b.o.data), b.o.size);
+        }
+        if (env_.emit) {
+            char sz[32];
+            std::snprintf(sz, sizeof(sz), "%llu", static_cast<unsigned long long>(b.o.size));
+            env_.emit(b.bytes ? "lua_loader: " + rw.name + " served: v4 built in memory (stock md5 " + md5 + ", " + note + ", " + sz + " B, md5 " + b.o.md5 + ")"
+                              : "lua_loader: " + rw.name + " served: stock (" + b.error + ")");
+        }
+        if (!b.bytes) set_error(b.error);
+    }
+    why = b.error;
+    return b.bytes ? &b.o : nullptr;
 }
 
 Engine::Stats Engine::stats() const {
@@ -827,10 +898,25 @@ int Engine::on_lua_load(LuaLoadFn orig, void* L, Reader reader, void* data, cons
                     }
                     // 4. what lua_load gets: the override only behind every gate, else the captured stock (replay)
                     if (substitute_) {
-                        const Override& o = overrides_[size_t(row)];
-                        const OverrideHeader& h = headers_[size_t(row)];
+                        const Override* op = &overrides_[size_t(row)];
+                        const OverrideHeader* hp = &headers_[size_t(row)];
+                        OverrideHeader mem_h;  // product mode: the in-memory build passes the header gates by construction
                         std::string why;
-                        if (!rec.captured) why = "stock not measured";
+                        if (capture_.build_in_memory) {
+                            if (!rec.captured) {
+                                why = "stock not measured";
+                            } else if (const Override* b = built_for(size_t(row), copy, rec.md5, why)) {
+                                op = b;
+                                mem_h.ok = true;
+                                mem_h.build = build_;
+                                mem_h.stock = rec.md5;
+                                hp = &mem_h;
+                            }
+                        }
+                        const Override& o = *op;
+                        const OverrideHeader& h = *hp;
+                        if (!why.empty()) {
+                        } else if (!rec.captured) why = "stock not measured";
                         else if (!(o.data && o.size && o.error.empty())) why = "override not loaded (" + (o.error.empty() ? std::string("missing") : o.error) + ")";
                         else if (!h.ok) why = "override refused: " + h.error;
                         else if (build_.empty() || h.build != build_)

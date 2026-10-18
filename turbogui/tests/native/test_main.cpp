@@ -3024,8 +3024,11 @@ public:
         for (const auto& kv : g_items) {
             const ItemRec& r = kv.second;
             if (r.frame != g_frame) continue;
+            // 2.16 GUI revamp step 0: a label written "Text###stable_id" is also found by "###stable_id" alone (the id outlives its wording)
+            const bool stable_id = label.size() > 3 && label.compare(0, 3, "###") == 0 && r.label.size() >= label.size() &&
+                                   r.label.compare(r.label.size() - label.size(), label.size(), label) == 0;
             // widgets that report no label (combos): match the ID the label hashes to
-            if (r.label != label && !(r.label.empty() && ImHashStr(label.c_str(), 0, r.seed) == r.id)) continue;
+            if (r.label != label && !stable_id && !(r.label.empty() && ImHashStr(label.c_str(), 0, r.seed) == r.id)) continue;
             if (!win.empty() && r.window.find(win) == std::string::npos) continue;
             if (!scope.empty() && ImHashStr(scope.c_str(), 0, r.seed2) != r.seed) continue;
             if (r.rect.GetWidth() <= 0 || r.rect.GetHeight() <= 0) continue;
@@ -3139,6 +3142,7 @@ static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_preload_hotkey.h"  // 1.1.1: show/hide key setting, background loading
 #include "test_ux_resize.h"  // 2026-10-11: table registry + resizable panes, preload order / cancellation, gui prefs
 #include "test_shell.h"  // 2026-10-16: GUI revamp contract (ui_shell.h areas/pages/registry, ui_theme.h palette)
+#include "test_gui_labels.h"  // 2.16 GUI revamp step 0: the id manifest of src/ui (R10) and the developer-word gate (R9), read from the source text
 #include "test_gear_pictures.h"  // 1.1.4: gear preview pictures from the hash list
 #include "test_hair_catalog.h"  // hair catalog: gallery filters and the face chooser Hair facet
 #include "test_bodytypes.h"  // body type catalogue (runtime-loaded probe + localize.json) and its gallery
@@ -3630,6 +3634,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_game_settings.h"  // 2.8: the game's own settings file, presets, the apply tool's core (gsettings_test::run, ::ui_cases)
 #include "test_tactic_presets.h"  // 2.12: tactic presets (tactic_presets_test::run, ::ui_cases)
 #include "test_gameplay_page.h"  // 2.13 T4: the Gameplay presets page, the page registrations, the amber line (gameplay_page_test::ui_cases)
+#include "test_page_tactics.h"  // 2.16 gui/page-tactics: the Tactics section pages (page_tactics_test::ui_cases)
 #include "test_season_pack.h"  // 2.10 B3: season update pack importer (season_pack_test::run)
 #include "test_attrib_ebx.h"  // 2.10 T1: attribulator EBX patch at load (attrib_ebx_test::run, real install fixtures)
 #include "test_minhook_reloc.h"  // 2.15 hooks/minhook-reloc: the trampoline relocation range check (minhook_reloc_test::run)
@@ -3640,13 +3645,18 @@ struct FakeMatchSetup : msetup::Service {
 
 #include "test_edit_unlock.h"  // game editors unlock: core and UI cases (synthetic fixtures)
 #include "test_asset_app.h"    // 2.1: asset catalog wiring (pickers, lua_gate.txt session)
+#include "test_page_career.h"  // 2.16 gui/page-career: the Career pages (page_career_test::ui_cases)
+#include "test_faces_band_newhead.h"  // 2.16: a new head never keeps a Turbo 3D hair / beard (band codes)
 #include "test_player_id.h"    // 2.3: Create player > Player ID (typed id checks, the head / callname of the id)
 #include "test_kit_import.h"   // 2.3: Teams > Kits, FIFA Kit Creator zips (test_kit_import, kit_import_ui_cases)
 #include "test_club_page.h"    // 2.13 T3: Club & Kits pages (club_page_test::ui_cases)
+#include "test_page_kits.h"    // 2.16 GUI pages, track kits: the tidy Kits & club pages (page_kits_test::ui_cases)
+#include "test_page_changes.h"  // 2.16 gui/page-changes: Career > Changes and undo (changes_page_test::ui_cases)
 #include "test_p213.h"         // 2026-10-17 P213 triage: proven panels on the user's path, no dead-end page, no removed place named
 #include "test_gui_perf.h"     // 2.16 gui/perf: per-frame cost of every page, shown and hidden (gui_perf_test::ui_cases)
 #include "test_kit_fonts.h"    // 2.11 K1: named kit font / layout choices (test_kit_fonts, kit_fonts_ui_cases)
 #include "test_kit_share.h"    // 2.13: 3D kits never half a kit, the opt-in for other clubs' shared textures (kit_share_test::run)
+#include "test_page_advanced.h"  // 2.16 gui/page-advanced: Advanced > Diagnostics & logs and Data export (page_advanced_test::ui_cases)
 // ================================================================ live team names (core/teamname_override.h)
 static void test_team_names_live() {
     run_case("live team names: the keys the game asks for (TeamName[_AbbrN]_<id>, IWL_, any case), nothing else", [&] {
@@ -3948,6 +3958,7 @@ static void test_ui() {
         Ui ui(app);
         app.visible = true;
         app.prefs.advanced_mode = true;  // the cases below drive Tactics, Gameplay tuning, Match setup, Database: Advanced view (default is Simple)
+        app.legacy_pages = true;  // 2.16 wiring: the cases below drive the pre-2.16 panels (the new pages have their own cases, test_page_*.h)
         // 1.2.5: keeping player edits for every career load and syncing your players' development plans have their own
         // case ("UI: kept player edits ..."); off for the cases before it, which edit your club's players with nobody
         // answering the mailbox
@@ -3978,7 +3989,7 @@ static void test_ui() {
                 app.request_tab = tab;
                 ui.frames(3);
             }
-            CHECK(ui.find("Squad & Players") && ui.find("Club & Kits") && ui.find("Tactics & Gameplay") && ui.find("Career tools") && ui.find("Settings"), "area tabs present");
+            CHECK(ui.find("Players") && ui.find("Faces & looks") && ui.find("Kits & club") && ui.find("Tactics") && ui.find("Career") && ui.find("Settings"), "area tabs present");
             // Status tab: the game-hook report (filled by the Windows host) renders in every state
             int reports = 0;
             app.hook_report = [&]() {
@@ -4326,51 +4337,12 @@ static void test_ui() {
             CHECK(want.find("data/ui/imgAssets/hairstyle/item_3261_0.dds") != std::string::npos, "previews asked from the game: " + want);
         });
 
-        // 2.8 picker v1 (ui_faces3d_gate.cpp, core/faces3d.h): enrol a scanned head, Apply refuses without the stock cache and
-        // writes nothing, Enable capture writes faces3d_on.txt, Remove deletes it; a non-scanned head cannot be enrolled
-        run_case("UI: Players > Appearance > 3D hair and beard: enrol, Apply without the stock cache, Enable capture, Remove", [&] {
-            const Table* t = app.db.table("players");
-            CHECK(t && t->has("headclasscode"), "headclasscode in the test players table");
-            if (!t || !t->has("headclasscode")) return;
-            const uint64_t rec = app.db.find(*t, "playerid", 3001);
-            const int64_t hc0 = app.db.get_int(*t, rec, "headclasscode", 0);
-            const fs::path out = le / "turbo_output";
-            CHECK(app.db.set_int(*t, rec, "headclasscode", 0), "3001 scanned");
-            app.request_tab = 0;
-            ui.frames(2);
-            CHECK(ui.click("3001", "##plist"), "player 3001");
-            CHECK(ui.click("Appearance", "##pedit"), "Appearance tab");
-            ui.frames(2);
-            CHECK(ui.click("Give him a generic 3D hair and/or beard", "##app"), "enrol");
-            ui.frames(2);
-            const faces3d::Entry* e = faces3d_draft_entry(3001);
-            CHECK(e != nullptr && e->hair == 0 && e->beard == 0, "draft entry, nothing chosen yet");
-            if (e) const_cast<faces3d::Entry*>(e)->beard = 46;
-            ui.frames(1);
-            CHECK(ui.click("Apply##f3", "##app"), "Apply");
-            ui.frames(1);
-            CHECK(!fs::exists(out / "faces3d_on.txt") && !fs::exists(out / "lua_override" / "player_kit.lua") &&
-                      !fs::exists(out / "faces3d" / "players.json"),
-                  "no stock cache: Apply writes nothing");
-            CHECK(ui.click("Enable capture##f3", "##app"), "Enable capture");
-            CHECK(fs::exists(out / "faces3d_on.txt"), "faces3d_on.txt written");
-            CHECK(ui.click("Remove##f3", "##app"), "Remove");
-            CHECK(!fs::exists(out / "faces3d_on.txt"), "faces3d_on.txt removed");
-            // un-enrol, then a generic head cannot be enrolled
-            CHECK(ui.click("Give him a generic 3D hair and/or beard", "##app") && faces3d_draft_entry(3001) == nullptr, "un-enrol");
-            CHECK(app.db.set_int(*t, rec, "headclasscode", 1), "3001 generic");
-            ui.frames(2);
-            ui.click("Give him a generic 3D hair and/or beard", "##app");
-            ui.frames(1);
-            CHECK(faces3d_draft_entry(3001) == nullptr, "generic head: the checkbox is disabled");
-            app.db.set_int(*t, rec, "headclasscode", hc0);
-        });
-
-        // 2.9 live preview (ui_faces3d_gate.cpp): only for a player who follows his DB codes in the list THIS game start runs
-        // (faces3d\applied\<table>.json named by the running header); Preview = raw writes (no undo step, no kept edit) after the
-        // backup file, then a capture of him; the picture is shown; Revert puts the originals back; Keep without the stock cache
-        // refuses cleanly and changes nothing
-        run_case("UI: Players > Appearance > 3D hair: live preview (gate status, Preview, picture, Revert, Keep refusal)", [&] {
+        // 2.16 live looks (ui_faces3d_gate.cpp, core/faces3d.h template v4): on a real face, "Apply hair & beard" writes his two codes
+        // as Turbo band codes (raw: no undo step, no kept edit; his own codes in preview_backup.json first) and asks the game for his
+        // picture when the running player_kit.lua has the live rule; a change of choice writes the new codes, "His own hair & beard"
+        // puts his own codes back; without the live rule the codes are still written and nothing is asked; a generic head has no
+        // card; "Turn on" without the game's own file writes faces3d_on.txt only
+        run_case("UI: Players > Appearance > Hair & beard (3D): Apply live, picture, change, His own hair & beard, not live, generic head, Turn on", [&] {
             const Table* t = app.db.table("players");
             if (!t || !t->has("headclasscode") || !t->has("hairtypecode") || !t->has("facialhairtypecode")) {
                 CHECK(false, "test players table lacks the appearance fields");
@@ -4382,49 +4354,36 @@ static void test_ui() {
             const bool has_style = t->has("hairstylecode");
             const int64_t s0 = has_style ? app.db.get_int(*t, rec, "hairstylecode", 0) : 0;
             const fs::path out = le / "turbo_output";
-            CHECK(app.db.set_int(*t, rec, "headclasscode", 0), "3001 scanned");
-            if (has_style) app.db.set_int(*t, rec, "hairstylecode", 2);
+            CHECK(app.db.set_int(*t, rec, "headclasscode", 0), "3001 real face");
+            if (has_style) app.db.set_int(*t, rec, "hairstylecode", 0);
             const size_t undo0 = app.undo_count(3001);
+            auto fake = std::make_shared<FakeCapture>();
+            app.capture = fake;
+            fake->st.installed = fake->st.available = true;
+            fake->st.reason = "ready";
+            // 2.16 product mode: player_kit.lua v4 built in memory at the game's start, served to every compile
+            lualoader::Faces3dStatus st;
+            st.opted_in = st.installed = st.substitute = st.in_memory = st.built = true;
+            st.header_ok = st.build_key_ok = st.stock_matches_header = st.live_looks = true;
+            st.substituted = 18;
+            st.running_build = "6AC07E31-2145C000";
+            app.faces3d_report = [st]() { return st; };
             app.request_tab = 0;
             ui.frames(2);
             CHECK(ui.click("3001", "##plist"), "player 3001");
             CHECK(ui.click("Appearance", "##pedit"), "Appearance tab");
             ui.frames(2);
-            if (!faces3d_draft_entry(3001)) ui.click("Give him a generic 3D hair and/or beard", "##app");
+            CHECK(faces3d::live_looks(&st).active && ui.find("His own hair & beard", "##app") != nullptr, "live state; the card is drawn");
+            CHECK(!ui.click("Apply hair & beard", "##app") || app.db.get_int(*t, rec, "hairtypecode", 0) == h0, "nothing chosen: Apply is off");
+            faces3d_set_choice(false, 3001, 155, 46);
             ui.frames(1);
-            faces3d::Entry* e = const_cast<faces3d::Entry*>(faces3d_draft_entry(3001));
-            CHECK(e != nullptr, "enrolled");
-            if (!e) return;
-            e->hair = 155;
-            e->beard = 46;
-            e->follow = true;
-            auto fake = std::make_shared<FakeCapture>();
-            app.capture = fake;
-            fake->st.installed = fake->st.available = true;
-            fake->st.reason = "ready";
-            // no hooks: Preview disabled, says why
-            app.faces3d_report = nullptr;
-            ui.frames(2);
-            ui.click("Preview##f3pv", "##app");
-            CHECK(fake->requests.empty() && app.db.get_int(*t, rec, "hairtypecode", 0) == h0, "no hooks: nothing asked, nothing written");
-            // the running game: override served, header table T; the list of that start has 3001 following
-            const std::string js = "{\n  \"3001\": {\"mode\": \"follow\", \"hair_colour\": true, \"beard_colour\": true}\n}\n";
-            const std::string T = faces3d::table_hash(js);
-            fs::create_directories(out / "faces3d" / "applied");
-            std::ofstream(out / "faces3d" / "applied" / (T + ".json"), std::ios::binary) << js;
-            lualoader::Faces3dStatus st;
-            st.opted_in = st.installed = st.substitute = st.header_ok = st.build_key_ok = st.stock_matches_header = true;
-            st.substituted = 18;
-            st.header_table = T;
-            st.running_build = "6AC07E31-2145C000";
-            app.faces3d_report = [st]() { return st; };
-            ui.frames(2);
-            CHECK(ui.click("Preview##f3pv", "##app"), "Preview");
-            ui.frames(2);
-            CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == 155 && app.db.get_int(*t, rec, "facialhairtypecode", 0) == 46 &&
-                      (!has_style || app.db.get_int(*t, rec, "hairstylecode", -1) == 0),
-                  "Preview wrote hair 155, beard 46, hair style 0");
-            CHECK(app.undo_count(3001) == undo0, "no undo step from a preview");
+            CHECK(ui.click("Apply hair & beard", "##app"), "Apply hair & beard");
+            ui.frames(1);
+            CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == faces3d::hair_band_code(155) &&
+                      app.db.get_int(*t, rec, "facialhairtypecode", 0) == faces3d::beard_band_code(46),
+                  "the band codes of hair 155 / beard 46 are written");
+            CHECK(!has_style || app.db.get_int(*t, rec, "hairstylecode", -1) == 0, "hairstylecode untouched");
+            CHECK(app.undo_count(3001) == undo0, "no undo step");
             std::string kept;
             {
                 std::ifstream f(out / "reapply_edits.json", std::ios::binary);
@@ -4434,152 +4393,134 @@ static void test_ui() {
             faces3d::PreviewBackup bk;
             std::string err;
             CHECK(faces3d::load_preview_backup(out.u8string(), bk, &err) && bk.count(3001) && bk[3001].original.at("hairtypecode") == h0 &&
-                      bk[3001].original.at("facialhairtypecode") == b0 && bk[3001].written.at("hairtypecode") == 155,
-                  "preview_backup.json holds the originals and what was written");
-            CHECK(fake->requests.size() == 1 && fake->requests.back().id == 3001 && faces3d_preview_pending(), "one capture asked for 3001");
-            // a second Preview while waiting: refused (the service is busy)
-            ui.click("Preview##f3pv", "##app");
-            CHECK(fake->requests.size() == 1, "no second request while one is in flight");
+                      bk[3001].original.at("facialhairtypecode") == b0,
+                  "his own codes are in preview_backup.json");
+            CHECK(fake->requests.size() == 1 && fake->requests.back().id == 3001 && faces3d_preview_pending(), "one picture asked for 3001");
             fake->next = capture::Result();
             fake->next.ok = true;
             fake->next.format = "DDS DXT5 256x256";
             fake->next.image = solid(256, 256, 10, 200, 40);
             fake->deliver = true;
             ui.frames(3);
-            CHECK(!faces3d_preview_pending() && !fake->pending, "picture consumed by the preview");
-            // a second preview keeps the first originals
-            e->hair = 250;
+            CHECK(!faces3d_preview_pending() && !fake->pending, "picture consumed");
+            // a change of choice: new band codes, his own codes kept
+            faces3d_set_choice(false, 3001, 250, 47);
             ui.frames(1);
-            CHECK(ui.click("Preview##f3pv", "##app"), "Preview again");
-            CHECK(faces3d::load_preview_backup(out.u8string(), bk, &err) && bk[3001].original.at("hairtypecode") == h0 &&
-                      app.db.get_int(*t, rec, "hairtypecode", 0) == 250,
-                  "second preview: originals unchanged, hair 250 written");
+            CHECK(ui.click("Apply hair & beard", "##app"), "Apply again");
+            CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == faces3d::hair_band_code(250) &&
+                      app.db.get_int(*t, rec, "facialhairtypecode", 0) == faces3d::beard_band_code(47) &&
+                      faces3d::load_preview_backup(out.u8string(), bk, &err) && bk[3001].original.at("hairtypecode") == h0,
+                  "250 / 47 written, his own codes unchanged in the backup");
             fake->deliver = true;
             ui.frames(3);
-            // Keep (fixed) without the stock cache: refused, nothing changes
-            CHECK(ui.click("Keep##f3pv", "##app"), "Keep");
-            CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == 250 && fs::exists(out / "faces3d" / "preview_backup.json") &&
-                      !fs::exists(out / "lua_override" / "player_kit.lua"),
-                  "Keep without the stock cache: refused, the preview stays");
-            // Revert: originals back, backup gone, one more capture asked
+            // his own look back
             const size_t nreq = fake->requests.size();
-            CHECK(ui.click("Revert##f3pv", "##app"), "Revert");
-            CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == h0 && app.db.get_int(*t, rec, "facialhairtypecode", 0) == b0 &&
-                      (!has_style || app.db.get_int(*t, rec, "hairstylecode", -1) == 2),
-                  "Revert wrote the originals back");
-            CHECK(!fs::exists(out / "faces3d" / "preview_backup.json") && fake->requests.size() == nreq + 1, "backup removed; rendered again");
-            CHECK(app.undo_count(3001) == undo0, "still no undo step");
+            CHECK(ui.click("His own hair & beard", "##app"), "His own hair & beard");
+            CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == h0 && app.db.get_int(*t, rec, "facialhairtypecode", 0) == b0, "his own codes back");
+            CHECK(!fs::exists(out / "faces3d" / "preview_backup.json") && fake->requests.size() == nreq + 1, "backup gone; drawn again");
             fake->deliver = true;
             ui.frames(3);
-            // 2.8 in-game bug: after Revert the panel put back an empty record (bogus "not reverted: original nothing" banner) and
-            // the next Preview kept it, so preview_backup.json held {"name": "", "original": {}, "written": {}}
+            CHECK(!ui.click("His own hair & beard", "##app") || app.db.get_int(*t, rec, "hairtypecode", 0) == h0, "own look: the button is off");
+            // not live this session (another game version's player_kit.lua: stock served): the codes are still written (kept in the
+            // career), no picture is asked, no restart is offered, no file is written
+            lualoader::Faces3dStatus st_off = st;
+            st_off.built = st_off.live_looks = false;
+            st_off.built_error = "the game's player_kit.lua (md5 x) is not the one Turbo knows";
+            app.faces3d_report = [st_off]() { return st_off; };
+            faces3d_set_choice(false, 3001, 155, 0);
             ui.frames(2);
-            CHECK(!ui.click("Revert it", "##app"), "after Revert: no leftover banner");
-            CHECK(!fs::exists(out / "faces3d" / "preview_backup.json"), "after Revert + frames: still no backup file");
-            auto backup_ok = [&](const char* what) {
-                faces3d::PreviewBackup b;
-                std::string e2;
-                const bool ok = faces3d::load_preview_backup(out.u8string(), b, &e2) && b.size() == 1 && b.count(3001) && !b[3001].name.empty() &&
-                                b[3001].original.count("hairtypecode") && b[3001].original.at("hairtypecode") == h0 &&
-                                b[3001].original.at("facialhairtypecode") == b0 && (!has_style || b[3001].original.at("hairstylecode") == 2) &&
-                                b[3001].written.count("hairtypecode") && b[3001].written.at("hairtypecode") == 155 && b[3001].written.at("facialhairtypecode") == 46;
-                CHECK(ok, std::string(what) + ": preview_backup.json holds his name, originals and the written codes");
-            };
-            e->hair = 155;
-            for (int round = 1; round <= 2; ++round) {
-                ui.frames(1);
-                CHECK(ui.click("Preview##f3pv", "##app"), "Preview after Revert, round " + std::to_string(round));
-                CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == 155 && app.db.get_int(*t, rec, "facialhairtypecode", 0) == 46, "preview written");
-                backup_ok(("Preview after Revert, round " + std::to_string(round)).c_str());
-                fake->deliver = true;
-                ui.frames(3);
-                backup_ok("after the picture");
-                CHECK(!ui.click("Revert it", "##app"), "his own preview: no leftover banner");
-                CHECK(ui.click("Revert##f3pv", "##app"), "Revert, round " + std::to_string(round));
-                CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == h0 && app.db.get_int(*t, rec, "facialhairtypecode", 0) == b0 &&
-                          (!has_style || app.db.get_int(*t, rec, "hairstylecode", -1) == 2),
-                      "Revert restored 696/259-style originals, round " + std::to_string(round));
-                fake->deliver = true;
-                ui.frames(3);
-                CHECK(!fs::exists(out / "faces3d" / "preview_backup.json") && !ui.click("Revert it", "##app"), "backup file gone, no banner");
-            }
-            // Preview -> Keep (fixed, then following): needs the game's stock player_kit.lua as the cache (the evidence copy)
-            {
-                std::vector<fs::path> cands;
-                if (const char* rd = std::getenv("TURBO_RESEARCH_DIR")) cands.push_back(fs::u8path(rd) / ".." / "evidence" / "2026-10-15" / "bisect" / "stock_copy.lua");
-                const fs::path here = fs::path(__FILE__).parent_path();  // turbogui/tests/native
-                cands.push_back(here / ".." / ".." / ".." / ".." / ".." / "evidence" / "2026-10-15" / "bisect" / "stock_copy.lua");
-                cands.push_back(fs::current_path() / ".." / ".." / ".." / ".." / ".." / "evidence" / "2026-10-15" / "bisect" / "stock_copy.lua");
-                std::string stock;
-                for (const auto& c : cands) {
-                    std::ifstream f(c, std::ios::binary);
-                    if (f) {
-                        stock.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
-                        if (!stock.empty()) break;
-                    }
-                }
-                if (stock.empty()) {
-                    std::printf("  SKIP Preview -> Keep (evidence stock_copy.lua not here)\n");
-                } else {
-                    fs::create_directories(out / "faces3d");
-                    std::ofstream(out / "faces3d" / "stock_player_kit.cache", std::ios::binary) << stock;
-                    // fixed Keep: players.json gets the fixed look, his originals come back, the backup file goes
-                    ui.frames(1);
-                    CHECK(ui.click("Preview##f3pv", "##app"), "Preview before Keep");
-                    backup_ok("Preview before Keep");
-                    fake->deliver = true;
-                    ui.frames(3);
-                    CHECK(ui.click("Keep##f3pv", "##app"), "Keep (fixed)");
-                    ui.frames(2);
-                    CHECK(fs::exists(out / "lua_override" / "player_kit.lua") && app.db.get_int(*t, rec, "hairtypecode", 0) == h0 &&
-                              app.db.get_int(*t, rec, "facialhairtypecode", 0) == b0 && (!has_style || app.db.get_int(*t, rec, "hairstylecode", -1) == 2),
-                          "Keep (fixed): override written, his originals back");
-                    CHECK(!fs::exists(out / "faces3d" / "preview_backup.json") && !ui.click("Revert it", "##app"), "Keep (fixed): backup file gone, no banner");
-                    ui.frames(2);
-                    e = const_cast<faces3d::Entry*>(faces3d_draft_entry(3001));  // Keep replaced the draft
-                    CHECK(e && !e->follow && e->hair == 155, "the draft holds the fixed look");
-                    if (e) {
-                        // and a Preview after that Keep records the originals again
-                        e->follow = true;
-                        ui.frames(1);
-                        CHECK(ui.click("Preview##f3pv", "##app"), "Preview after Keep");
-                        backup_ok("Preview after Keep");
-                        fake->deliver = true;
-                        ui.frames(3);
-                        CHECK(ui.click("Revert##f3pv", "##app") && app.db.get_int(*t, rec, "hairtypecode", 0) == h0 &&
-                                  !fs::exists(out / "faces3d" / "preview_backup.json"),
-                              "Revert after Keep: originals back, file gone");
-                        fake->deliver = true;
-                        ui.frames(3);
-                    }
-                    fs::remove(out / "lua_override" / "player_kit.lua");
-                    fs::remove(out / "faces3d" / "players.json");
-                    fs::remove(out / "faces3d" / "stock_player_kit.cache");
-                    fs::remove(out / "faces3d_on.txt");
-                }
-                e = const_cast<faces3d::Entry*>(faces3d_draft_entry(3001));
-                if (!e) return;
-            }
-            // a player not in the running list: the gate says so, Preview does nothing
-            e->follow = true;
-            lualoader::Faces3dStatus st2 = st;
-            st2.header_table = "000000000000";
-            app.faces3d_report = [st2]() { return st2; };
-            ui.frames(2);
+            CHECK(!faces3d::live_looks(&st_off).active && !faces3d::live_looks(&st_off).restart_needed, "not live: no restart advice");
+            CHECK(ui.find("Turn on##f3on", "##app") == nullptr && ui.find("Enable capture##f3", "##app") == nullptr, "no Turn on / Enable capture");
             const size_t nreq2 = fake->requests.size();
-            ui.click("Preview##f3pv", "##app");
-            CHECK(fake->requests.size() == nreq2 && app.db.get_int(*t, rec, "hairtypecode", 0) == h0, "unknown running list: nothing asked");
+            CHECK(ui.click("Apply hair & beard", "##app"), "Apply (not live)");
+            CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == faces3d::hair_band_code(155) && app.db.get_int(*t, rec, "facialhairtypecode", 0) == b0 &&
+                      fake->requests.size() == nreq2,
+                  "hair written, beard untouched, no picture asked");
+            CHECK(ui.click("His own hair & beard", "##app") && app.db.get_int(*t, rec, "hairtypecode", 0) == h0, "own look back (not live)");
+            CHECK(!fs::exists(out / "faces3d_on.txt") && !fs::exists(out / "lua_override" / "player_kit.lua"), "no file written by the card");
+            // a look on the saved list of an older Turbo: "His own" writes the "his own, live" codes (no restart), takes him off the
+            // list and keeps his originals; off the list the button stays on and one more click puts his originals back
             app.faces3d_report = [st]() { return st; };
-            CHECK(ui.click("Give him a generic 3D hair and/or beard", "##app") && faces3d_draft_entry(3001) == nullptr, "un-enrol");
-            ui.frames(1);
+            fs::create_directories(out / "faces3d");
+            std::ofstream(out / "faces3d" / "players.json", std::ios::binary) << "{\n  \"3001\": {\"hair\": 155, \"beard\": 46}\n}\n";
+            faces3d_reload(app);
+            ui.frames(2);
+            CHECK(ui.click("His own hair & beard", "##app"), "His own (on the saved list)");
+            CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == faces3d::kHairOwnCode && app.db.get_int(*t, rec, "facialhairtypecode", 0) == faces3d::kBeardOwnCode,
+                  "the his-own-live codes 9999 / 511 are written");
+            {
+                std::ifstream f(out / "faces3d" / "players.json", std::ios::binary);
+                const std::string pj((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+                CHECK(pj.find("3001") == std::string::npos && faces3d_draft_entry(3001) == nullptr, "off the saved list");
+            }
+            CHECK(faces3d::load_preview_backup(out.u8string(), bk, &err) && bk.count(3001) && bk[3001].original.at("hairtypecode") == h0 &&
+                      bk[3001].original.at("facialhairtypecode") == b0,
+                  "his originals are kept");
+            ui.frames(2);
+            CHECK(ui.click("His own hair & beard", "##app"), "His own again (off the list, own codes)");
+            CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == h0 && app.db.get_int(*t, rec, "facialhairtypecode", 0) == b0 &&
+                      !fs::exists(out / "faces3d" / "preview_backup.json"),
+                  "his originals are back, the record gone");
+            fs::remove(out / "faces3d" / "players.json");
+            faces3d_reload(app);
+            // a generic head: no card
+            CHECK(app.db.set_int(*t, rec, "headclasscode", 1), "3001 generic");
+            faces3d_set_choice(false, 3001, 155, 46);
+            ui.frames(2);
+            CHECK(ui.find("Apply hair & beard", "##app") == nullptr, "generic head: no Apply button");
             app.capture.reset();
             app.faces3d_report = nullptr;
-            fs::remove_all(out / "faces3d" / "applied");
             fs::remove(out / "faces3d" / "preview_backup.json");
             app.db.set_int(*t, rec, "hairtypecode", h0);
             app.db.set_int(*t, rec, "facialhairtypecode", b0);
             if (has_style) app.db.set_int(*t, rec, "hairstylecode", s0);
             app.db.set_int(*t, rec, "headclasscode", hc0);
+            ui.frames(1);
+        });
+
+        // 2.16: managers take the same band on the manager row (no picture: the game's 3D capture is for players)
+        run_case("UI: Managers > Appearance > Hair & beard (3D): Apply writes the band codes on the manager row, His own hair & beard", [&] {
+            const Table* mt = app.db.table("manager");
+            if (!mt || !mt->has("headclasscode") || !mt->has("hairtypecode") || !mt->has("facialhairtypecode")) {
+                std::printf("  SKIP manager Hair & beard (3D): the test manager table has no headclasscode / hairtypecode / facialhairtypecode "
+                            "(gui_world.lua; added by faces/live-hair-2)\n");
+                return;
+            }
+            const uint64_t mrec = app.db.find(*mt, "managerid", 502);
+            const int64_t hc0 = app.db.get_int(*mt, mrec, "headclasscode", 0);
+            const int64_t h0 = app.db.get_int(*mt, mrec, "hairtypecode", 0), b0 = app.db.get_int(*mt, mrec, "facialhairtypecode", 0);
+            CHECK(app.db.set_int(*mt, mrec, "headclasscode", 0), "502 real face");
+            lualoader::Faces3dStatus st;
+            st.opted_in = st.installed = st.substitute = st.in_memory = st.built = true;
+            st.header_ok = st.build_key_ok = st.stock_matches_header = st.live_looks = true;
+            st.substituted = 18;
+            st.running_build = "6AC07E31-2145C000";
+            app.faces3d_report = [st]() { return st; };
+            app.request_tab = 2;
+            ui.frames(2);
+            bool picked = false;  // the list labels are "<managerid>##m<row>"
+            for (int i = 0; i < 64 && !picked; ++i)
+                if (ui.find("502##m" + std::to_string(i), "##mlist")) picked = ui.click("502##m" + std::to_string(i), "##mlist");
+            CHECK(picked, "manager 502");
+            CHECK(ui.click("Appearance", "##medit"), "manager Appearance tab");
+            ui.frames(2);
+            faces3d_set_choice(true, 502, 155, 46);
+            ui.frames(1);
+            CHECK(ui.click("Apply hair & beard", "##mapp"), "Apply hair & beard (manager)");
+            CHECK(app.db.get_int(*mt, mrec, "hairtypecode", 0) == faces3d::hair_band_code(155) &&
+                      app.db.get_int(*mt, mrec, "facialhairtypecode", 0) == faces3d::beard_band_code(46),
+                  "manager row: band codes of 155 / 46");
+            ui.frames(1);
+            CHECK(ui.click("His own hair & beard", "##mapp"), "His own hair & beard (manager)");
+            CHECK(app.db.get_int(*mt, mrec, "hairtypecode", 0) == h0 && app.db.get_int(*mt, mrec, "facialhairtypecode", 0) == b0,
+                  "manager row: his own codes back");
+            app.faces3d_report = nullptr;
+            ui.click("Details", "##medit");  // the next cases expect the Details tab of the manager
+            ui.frames(1);
+            app.db.set_int(*mt, mrec, "hairtypecode", h0);
+            app.db.set_int(*mt, mrec, "facialhairtypecode", b0);
+            app.db.set_int(*mt, mrec, "headclasscode", hc0);
+            app.request_tab = 0;
             ui.frames(1);
         });
 
@@ -5499,7 +5440,7 @@ static void test_ui() {
 
         run_case("UI: dry run and show/hide key settings", [&] {
             CHECK(ui.click("Safety"), "Safety header");
-            CHECK(ui.click("Dry run (Turbo Tools report only, write nothing)"), "dry run checkbox");
+            CHECK(ui.click("###dryrun"), "dry run checkbox");
             CHECK(read_json(le / "turbo_output" / "gui_settings.json")["turbo"]["dry_run"].get<bool>(), "dry run saved");
             CHECK(ui.click("Status"), "Status tab");
             CHECK(ui.click("Change...##hotkey", "", "status"), "Change the show/hide key");
@@ -5827,10 +5768,11 @@ static void test_ui() {
             // the live view comes first; without a career the engine is not reachable and says so. 2.13: the old tab's two views are
             // two pages, the live table (Tactics & Gameplay > Standings, where request_tab 3 lands) and the database copy (Career tools >
             // Maintenance)
-            CHECK(app.place() == turbo::shell::place_of(turbo::shell::Page::Standings) && ui.find("Career tools", "FC 27 LE Turbo", "##shell") != nullptr,
+            CHECK(app.place() == turbo::shell::place_of(turbo::shell::Page::Standings) && ui.find("Career", "FC 27 LE Turbo", "##shell") != nullptr,
                   "two views");
             CHECK(ui.find("Try again") != nullptr, "live view: not reachable without the FCE interface");
-            CHECK(ui.open_page("Career tools", "Maintenance") && ui.find("Career database copy") != nullptr, "database view");
+            app.prefs.advanced_mode = true;  /* 2.16 step 4: the database copy is a section of Advanced > Maintenance */
+            CHECK(ui.open_page("Advanced", "Maintenance") && ui.find("Career database copy") != nullptr, "database view");
             ui.frames(2);
             const Table* lt = app.db.table("leagueteamlinks");
             CHECK(lt != nullptr, "leagueteamlinks");
@@ -6062,8 +6004,20 @@ static void test_ui() {
             fs::path copied = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p3001.dds";
             CHECK(fs::exists(copied) && file_bytes(copied) == file_bytes(cached), "his miniface comes with the head");
             CHECK(ui.toast_contains("his miniface p3001.dds now shows p1003.dds"), "toast names both pictures");
-            // tattoos: the first Choose... is the head (FC 27 area order)
+            // tattoos: the first Choose... is the head (FC 27 area order); a real face now has the Hair & beard (3D) card above the
+            // tattoos, so the view is scrolled down to them first
             ui.frames(2);
+            for (int tries = 0; tries < 12 && !ui.find("Choose..."); ++tries) {
+                // the wheel over an item that is surely on screen (the top of the Appearance view) scrolls the view down
+                const ItemRec* p = ui.find("Choose a real face...", "##app");
+                if (!p) p = ui.find("Tattoos");
+                if (!p) break;
+                ImGuiIO& io = ImGui::GetIO();
+                io.AddMousePosEvent(p->rect.GetCenter().x, p->rect.GetCenter().y);
+                ui.frame();
+                io.AddMouseWheelEvent(0.0f, -3.0f);
+                ui.frames(2);
+            }
             CHECK(ui.click("Choose..."), "Choose head tattoo");
             ui.frames(3);
             CHECK(ui.find("tattoo12") != nullptr && ui.find("tattoo11") == nullptr, "only head tattoos");
@@ -6071,6 +6025,18 @@ static void test_ui() {
             CHECK(ui.find("tattoo11") != nullptr, "now every tattoo");
             CHECK(ui.click("tattoo12"), "pick 12");
             CHECK(app.db.get_int(*t, rec, "tattoohead") == 12, "tattoohead = 12");
+            // back to the top of the Appearance view: the chooser steps below (and the next cases) click "Choose a real face..."
+            for (int tries = 0; tries < 24 && !ui.find("Choose a real face..."); ++tries) {
+                const ItemRec* p = ui.find("Choose...");
+                if (!p) p = ui.find("Apply hair & beard", "##app");
+                if (!p) p = ui.find("His own hair & beard", "##app");
+                if (!p) break;
+                ImGuiIO& io = ImGui::GetIO();
+                io.AddMousePosEvent(p->rect.GetCenter().x, p->rect.GetCenter().y);
+                ui.frame();
+                io.AddMouseWheelEvent(0.0f, 3.0f);
+                ui.frames(2);
+            }
 
             // never a mixed result: a head whose miniface the game lacks is given and the message says his old miniface
             // stays; a head whose miniface has not arrived yet writes nothing (click again once it is there)
@@ -6416,8 +6382,8 @@ static void test_ui() {
             CHECK(ui.click("Manager heads", "Choose a real face##mgr"), "manager heads");
             ui.frames(2);
             CHECK(ui.find("mface502", "Choose a real face##mgr") && ui.find("mface504", "Choose a real face##mgr"), "real-face managers listed");
-            CHECK(ui.find("Hair: Any##facet3", "Choose a real face##mgr") == nullptr && ui.find("Skin tone: Any##facet1", "Choose a real face##mgr"),
-                  "filters of the fields the manager table has");
+            CHECK(ui.find("Hair: Any##facet3", "Choose a real face##mgr") != nullptr && ui.find("Skin tone: Any##facet1", "Choose a real face##mgr"),
+                  "filters of the fields the manager table has (hair since 2.16: the fake manager table has hairtypecode, as FC 27's)");
             CHECK(ui.click("Skin tone: Any##facet1", "Choose a real face##mgr"), "skin filter");
             ui.frames(2);
             // skin 30 (Caucasian 3) is in the group Light (key 2) with Latin Asian 1
@@ -6829,7 +6795,7 @@ static void test_ui() {
             CHECK(ui.click("1001", "##plist"), "row 1001 (Saka)");
             CHECK(ui.click("Callname", "##pedit"), "Callname tab");
             ui.frames(2);
-            CHECK(ui.click("Capture from the loaded bank##cn"), "the memory scan is manual now (the audio service is the automatic path)");
+            CHECK(ui.click("###cncapture"), "the memory scan is manual now (the audio service is the automatic path)");
             for (int i = 0; i < 500 && app.bank_capture_running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
             CHECK(!app.bank_capture_running(), "capture thread finished");
             ui.frames(2);
@@ -6840,9 +6806,9 @@ static void test_ui() {
             CHECK(app.callnames.index.built && app.callnames.index.names.size() == 5, fmt("pickers rebuilt from the capture: %zu names", app.callnames.index.names.size()));
             CallnameInfo r = app.callnames.resolve(*app.model.player(1001), app.db);
             CHECK(r.real && r.commentaryid == 900002, "Saka: recorded by name");
-            CHECK(ui.find("Capture from the loaded bank##cn") != nullptr, "capture button");
+            CHECK(ui.find("###cncapture") != nullptr, "capture button");
             // a manual capture while nothing changed gives the same set
-            CHECK(ui.click("Capture from the loaded bank##cn"), "manual capture");
+            CHECK(ui.click("###cncapture"), "manual capture");
             for (int i = 0; i < 500 && app.bank_capture_running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
             ui.frames(2);
             CHECK(app.callnames.spoken.from == SpokenSet::From::BankCapture && app.callnames.spoken.ids.size() == 5, "manual capture applied");
@@ -6942,16 +6908,16 @@ static void test_ui() {
             CHECK(app.callnames.index.built && app.callnames.index.names.size() == 3, fmt("pickers from the set: %zu names", app.callnames.index.names.size()));
             CallnameInfo r = app.callnames.resolve(*app.model.player(1001), app.db);
             CHECK(r.real && r.commentaryid == 900002, "Saka: recorded by name");
-            CHECK(ui.find("Rebuild from the game's audio service##cn") != nullptr && ui.find("Capture from the loaded bank##cn") != nullptr,
+            CHECK(ui.find("###cnrebuild") != nullptr && ui.find("###cncapture") != nullptr,
                   "rebuild button (default) and the capture button (diagnostic)");
-            CHECK(ui.click("Rebuild from the game's audio service##cn"), "rebuild");
+            CHECK(ui.click("###cnrebuild"), "rebuild");
             ui.frames(3);
             CHECK(svc->requests == 2 && app.callnames.spoken.from == SpokenSet::From::GameAudio && app.callnames.spoken.ids.size() == 3, "rebuilt");
             // the service off: no request goes out; the cache still serves the set
             svc->installed = false;
             app.callnames.refreshed = false;
             ui.frames(2);
-            ui.click("Rebuild from the game's audio service##cn");
+            ui.click("###cnrebuild");
             ui.frames(2);
             CHECK(svc->requests == 2 && app.callnames.spoken.from == SpokenSet::From::GameAudio, "no request while unavailable, cache still in use");
             fs::remove(cache);
@@ -7035,7 +7001,7 @@ static void test_ui() {
             ui.frames(2);
             CHECK(svc->probes == 2 && svc->requests == 0 && !fs::exists(cache), fmt("probed again after the interval (probes %d), still nothing cached", svc->probes));
             // a manual Rebuild in the hub: the full build answers 'no' for every id: failed, not cached, the watcher keeps waiting
-            CHECK(ui.click("Rebuild from the game's audio service##cn"), "manual rebuild while unbound");
+            CHECK(ui.click("###cnrebuild"), "manual rebuild while unbound");
             ui.frames(3);
             CHECK(svc->requests == 1 && !fs::exists(cache) && !app.callnames.spoken.verified && app.spoken_build_status.find("not bound") != std::string::npos &&
                       app.spoken_watch.state() == caudio::SpokenWatch::State::Waiting,
@@ -8075,7 +8041,7 @@ static void test_ui() {
             hooked.clear();
             app.request_tab = 0;
             ui.frames(2);
-            CHECK(ui.click("Refresh"), "Refresh");
+            app.request_tab = 6;  /* 2.16 step 2: Refresh moved to Settings */ ui.frames(2); CHECK(ui.click("###reload"), "Reload from game");
             CHECK(app.db.get_int(*KT(), k11, "teamcolorprimr") == 99 && hooked_line("re-apply").empty(), "no re-apply for the same career");
 
             // ---- the panels: the status line and Forget (Teams > Colours: Everton's home kit), Remove (Callname: 1006)
@@ -8387,7 +8353,7 @@ static void test_ui() {
             CHECK(!spy.last.find(7) && spy.last.find(241), "club names in career B: Inter's (every career) only, not career A's Everton A");
 
             // ---- the page (Career tools > Changes & undo): Global on Arsenal's career-A kit rows
-            CHECK(ui.open_page("Career tools", "Changes & undo") && ui.find("Where kept edits apply (careers)") != nullptr, "the page");
+            CHECK(ui.open_page("Career", "Changes & undo") && ui.find("Where kept edits apply (careers)") != nullptr, "the page");
             ui.frames(2);
             CHECK(ui.click("Global", "", "k1|career:" + idA), "Global for Arsenal's career-A rows");
             CHECK(app.reapply.kit_in("global", 1, 1, 11) && !app.reapply.kit_in(career_scope(idA), 1, 1, 11) && app.reapply.kit(1, 1, 11),
@@ -8674,7 +8640,7 @@ static void test_ui() {
             // ---- the panels: Turbo Tools > Kept player edits (switch, Forget per field), Attributes > Forget
             app.request_tab = 5;
             ui.frames(2);
-            if (!ui.find("Keep my player edits for every career load")) CHECK(ui.click("Kept player edits (every career load)"), "open the list");
+            if (!ui.find("Keep my player edits for every career load")) CHECK(ui.click("###keptedits"), "open the list");
             ui.frames(2);
             CHECK(ui.find("Keep my player edits for every career load") != nullptr, "the switch is shown");
             const size_t fields_before = app.reapply.player_fields();
@@ -8737,7 +8703,7 @@ static void test_ui() {
             CHECK(app.bridge.state().svm == SvmWorld::kSvm && app.bridge.state().managers == SvmWorld::kManagers &&
                       app.bridge.state().ifce == fw.ifce,
                   "bridge_state carries ifce / svm / managers");
-            CHECK(ui.open_page("Tactics & Gameplay", "Standings"), "live view page (the earlier case left the database view)");
+            CHECK(ui.open_page("Career", "Standings"), "live view page (the earlier case left the database view)");
             ui.frames(2);
             CHECK(ui.find("Try again") == nullptr && ui.find("Reload") != nullptr, "live view reachable through the published ifce");
             // the precise home / away counters are under Advanced, closed by default (the table cells are the main way)
@@ -8896,7 +8862,7 @@ static void test_ui() {
             app.next_poll = 0.0;
             app.request_tab = 3;
             ui.frames(3);
-            CHECK(ui.open_page("Tactics & Gameplay", "Standings"), "live view page (Tactics & Gameplay > Standings)");
+            CHECK(ui.open_page("Career", "Standings"), "live view page (Tactics & Gameplay > Standings)");
             ui.frames(2);
             CHECK(ui.find("Try again") == nullptr, "live view reachable");
             auto row0 = [&]() {
@@ -9120,7 +9086,7 @@ static void test_ui() {
             app.next_poll = 0.0;
             app.request_tab = 3;
             ui.frames(3);
-            CHECK(ui.open_page("Tactics & Gameplay", "Standings"), "live view page (Tactics & Gameplay > Standings)");
+            CHECK(ui.open_page("Career", "Standings"), "live view page (Tactics & Gameplay > Standings)");
             ui.frames(2);
             CHECK(ui.click("Reload"), "Reload (the located chain is the same, the rows grew)");
             ui.frames(2);
@@ -9254,7 +9220,7 @@ static void test_ui() {
             app.next_poll = 0.0;
             app.request_tab = 3;
             ui.frames(3);
-            CHECK(ui.open_page("Tactics & Gameplay", "Standings"), "live view page (Tactics & Gameplay > Standings)");
+            CHECK(ui.open_page("Career", "Standings"), "live view page (Tactics & Gameplay > Standings)");
             ui.frames(2);
             CHECK(ui.click("Reload"), "Reload");
             ui.frames(2);
@@ -9348,7 +9314,7 @@ static void test_ui() {
             app.request_tab = 3;
             ui.frames(3);
             CHECK(app.bridge.state().ifce == fw.ifce, "bridge_state carries the ifce");
-            CHECK(ui.open_page("Tactics & Gameplay", "Standings"), "live view page (Tactics & Gameplay > Standings)");
+            CHECK(ui.open_page("Career", "Standings"), "live view page (Tactics & Gameplay > Standings)");
             ui.frames(2);
             CHECK(ui.find("Try again") != nullptr && ui.find("Reload") == nullptr, "6AB9813C vtables on the 6AC07E31 objects: not reachable");
             // 2.13 (P213 triage): the failed locate is in turbo_gui.log too (log_hook), once per reason although it is retried every frame
@@ -9445,7 +9411,7 @@ static void test_ui() {
             app.next_poll = 0.0;
             ui.frames(3);
             CHECK(ui.find("Try again") != nullptr, "fixtures unreachable again without the ifce");
-            CHECK(ui.open_page("Tactics & Gameplay", "Standings"), "back to the live view");
+            CHECK(ui.open_page("Career", "Standings"), "back to the live view");
             ui.frames(2);
             CHECK(ui.find("Try again") != nullptr, "live view unreachable again without the ifce");
         });
@@ -9606,13 +9572,17 @@ static void test_ui() {
         team_sheet_test::ui_cases(app, ui, le);  // test_team_sheet.h: the live tactic card (channel E)
         gui_perf_test::ui_cases(app, ui, le);  // test_gui_perf.h: per-frame cost of every page (before test_shell_app clears the registry)
         club_page_test::ui_cases(app, ui, le);  // test_club_page.h: Club & Kits pages (before test_shell_app clears the registry)
+        page_kits_test::ui_cases(app, ui, le);  // test_page_kits.h: the tidy Kits & club pages (ui_kits_page.cpp)
+        changes_page_test::ui_cases(app, ui, le);  // test_page_changes.h: Career > Changes and undo (2.16 gui/page-changes)
         test_shell_app(app);  // test_shell.h: page registry
         test_shell_ui(app, ui);  // test_shell.h: area tabs, request_tab / go(), Settings page
         p213_test::ui_cases(app, ui);  // test_p213.h: the proven panels by clicks, no dead-end page, no removed place named
+        page_advanced_test::ui_cases(app, ui, le);  // test_page_advanced.h: Advanced > Diagnostics & logs, Data export
         tuning_test::ui_cases(app, ui, le);  // test_tuning.h: Competitions > Gameplay tuning
         gsettings_test::ui_cases(app, ui, le);  // test_game_settings.h: the Game settings tab (2.8)
         tactic_presets_test::ui_cases(app, ui, le);  // test_tactic_presets.h: Teams > Tactic presets (2.12)
         gameplay_page_test::ui_cases(app, ui, le);  // test_gameplay_page.h: Gameplay presets page (2.13 T4)
+        page_tactics_test::ui_cases(app, ui, le);  // test_page_tactics.h: Tactic presets frame, Team sheet & bench, Game sliders (2.16)
         describe_ui_cases(app, ui);  // test_describe.h: edit log, undo toast, pickers, Technical details, the "no code N" walk
         ui_cases_names_tab(app, ui, mem, kMb);  // test_names_tab.h
         archetype_target_test::run_ui(app, ui, mem, kMb);  // test_archetype_target.h
@@ -9622,6 +9592,8 @@ static void test_ui() {
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
         test_asset_app_ui(app, ui, le);    // test_asset_app.h
+        page_career_test::ui_cases(app, ui, mem, kMb, le);  // test_page_career.h: the Career pages (drawn by function, not through the registry)
+        test_band_new_head_ui(app, ui, le);  // test_faces_band_newhead.h (2.16)
         test_player_id_ui(app, ui, mem, kMb, le);  // test_player_id.h
 
         parity_test::run_ui(app, ui, le);  // test_parity.h
@@ -15371,6 +15343,7 @@ int main(int argc, char** argv) {
     test_hotkey_and_background();
     test_ux_resize();  // test_ux_resize.h
     test_shell();  // test_shell.h: shell contract (pure cases)
+    gui_labels_test::run();  // test_gui_labels.h: widget id manifest + developer-word gate (src/ui text, no frame)
     test_gear_pictures();
     test_hair_catalog();
     test_bodytype_catalog();
