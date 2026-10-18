@@ -390,24 +390,21 @@ void card_switches(App& app) {
     } else if (g_snap.switches.empty()) {
         theme::ok_text("No switch file is set: everything runs as normal.");
     } else {
-        constexpr ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp;
-        if (ImGui::BeginTable("##diag_switches", 3, flags)) {
-            ImGui::TableSetupColumn("Switch file", ImGuiTableColumnFlags_WidthStretch, 1.2f);
-            ImGui::TableSetupColumn("What it does", ImGuiTableColumnFlags_WidthStretch, 2.6f);
-            ImGui::TableSetupColumn("Now", ImGuiTableColumnFlags_WidthFixed, S(70.0f));
-            ImGui::TableHeadersRow();
-            for (const DiagSwitch& sw : g_snap.switches) {
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(sw.file.c_str());
-                ImGui::TableNextColumn();
-                if (sw.what.empty()) theme::muted_text("No description for this file");
-                else ImGui::TextUnformatted(sw.what.c_str());
-                ImGui::TableNextColumn();
-                if (sw.opt_in) theme::ok_text("on");
-                else theme::warn_text("off");
-            }
-            ImGui::EndTable();
+        // plain rows (no ImGui table: the table registry of src/ui is for resizable tables): state, file, what it does
+        const float x_file = S(52.0f), x_what = S(330.0f);
+        theme::muted_text("Now");
+        ImGui::SameLine(x_file);
+        theme::muted_text("Switch file");
+        ImGui::SameLine(x_what);
+        theme::muted_text("What it does");
+        for (const DiagSwitch& sw : g_snap.switches) {
+            if (sw.opt_in) theme::ok_text("on");
+            else theme::warn_text("off");
+            ImGui::SameLine(x_file);
+            ImGui::TextUnformatted(sw.file.c_str());
+            ImGui::SameLine(x_what);
+            if (sw.what.empty()) theme::muted_text("No description for this file");
+            else ImGui::TextUnformatted(sw.what.c_str());
         }
     }
     if (ImGui::SmallButton("Open the folder##diagswitch")) {
