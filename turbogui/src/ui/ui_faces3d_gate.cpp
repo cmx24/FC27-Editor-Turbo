@@ -61,7 +61,8 @@ struct GateUi {
     bool keep_follow = false;
 };
 GateUi g;
-constexpr int64_t kMgrKey = faces3d::kManagerBackupKey;  // preview_backup.json key of a manager: kMgrKey + managerid
+constexpr int64_t kMgrKey = faces3d::kManagerBackupKey;
+const char* const kAutoRestoreSwitch = "faces3d_auto_restore_on.txt";  // turbo_output: the marker restore writes (else LOG-ONLY)  // preview_backup.json key of a manager: kMgrKey + managerid
 
 // A Turbo code of a look field (a band code or the "his own, live" code): never recorded as his own
 bool turbo_code(const std::string& f, int64_t v) {
@@ -467,6 +468,11 @@ int faces3d_restore_markers(App& app) {
     if (hook_bakes && !(st.in_memory && (!st.built || st.saved_known))) return 0;
     int restored = 0;
     bool changed = false;
+    // Pit wall 2.17.0: LOG-ONLY unless turbo_output\faces3d_auto_restore_on.txt exists (a career that connects could be any of
+    // Cassio's careers; the manual second press of "His own hair & beard" is the default way back)
+    std::error_code sec;
+    const bool auto_on = fs::exists(rel(app.turbo_output(), kAutoRestoreSwitch), sec);
+    std::vector<int64_t> would;
     for (auto it = g.backup.begin(); it != g.backup.end();) {
         const int64_t pid = it->first;
         const faces3d::PreviewRecord& r = it->second;
@@ -493,6 +499,11 @@ int faces3d_restore_markers(App& app) {
             ++it;
             continue;
         }
+        if (!auto_on) {
+            would.push_back(pid);
+            ++it;
+            continue;
+        }
         std::string err;
         if (raw_write(app, *t, p->rec, pid, false, w, err)) {
             flog(app, "3D hair & beard: player " + std::to_string(pid) + " is off the saved list since the last game start: his own codes are back "
@@ -508,6 +519,12 @@ int faces3d_restore_markers(App& app) {
     if (changed) {
         std::string err;
         faces3d::save_preview_backup(app.turbo_output().u8string(), g.backup, &err);
+    }
+    if (!would.empty()) {
+        std::string ids;
+        for (int64_t id : would) ids += (ids.empty() ? "" : ", ") + std::to_string(id);
+        flog(app, "3D hair & beard: would put his own look back for " + std::to_string(would.size()) + " players: " + ids +
+                      " (nothing written: turbo_output\\" + kAutoRestoreSwitch + " is absent; \"His own hair & beard\" puts it back)");
     }
     return restored;
 }

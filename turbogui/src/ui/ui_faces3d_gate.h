@@ -29,7 +29,8 @@ void faces3d_set_choice(bool manager, int64_t id, int64_t hair, int64_t beard);
 // 2.17, at every career connect (App::refresh): a player who got the "his own, live" marker (9999 / 511) while he was on the saved
 // list and is off it since this game start gets his recorded own codes back, when that is safe (no baked look of this game start
 // can return: the hook is off, serves stock, or built a saved list that does not hold him; his codes still the marker this record
-// wrote). Returns how many players were restored.
+// wrote). 2.17.0: LOG-ONLY by default ("would put his own look back for N players: <ids>", nothing written) unless
+// turbo_output\faces3d_auto_restore_on.txt exists. Returns how many players were restored (written).
 int faces3d_restore_markers(App& app);
 // Re-reads players.json and preview_backup.json (tests; the card reads them once per Turbo start)
 void faces3d_reload(App& app);
