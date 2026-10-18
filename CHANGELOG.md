@@ -12,7 +12,22 @@ Nothing here is shipped or claimed as a feature. Gates are in `turbo_dev\evidenc
 
 ## 2.18.0 (built 2026-10-18)
 
+Package FC27_LE_Turbo_2.18.0.zip (md5 609b77396c131c92918731d50ff0c03e, sha256 cffff28dc23dad6bddcf512288c111a18e7ddea13062a2ad16bb08c990c7b11c). Turbo.dll md5 9db316f476bcd7f747f6d64519f1a0f8. Built for FC 27 build 6AC07E31-2145C000 and Live Editor 27.1.5. Includes everything in 2.17.2.
+
 - 2.18.0: large modded crests (crest/dark|light|custom l<id>.dds from mods\legacy) are served by Turbo, fixing the new-career hang at 37% (InitPlayerCaptures) and match-load hangs caused by Live Editor's async descriptor for modded files; kill switch turbo_output\crest_serve_off.txt
+
+In-game check: 2026-10-18, throwaway careers and Kick Off, never saved, every save restored afterwards (evidence `turbo_dev\evidence\2026-10-18\crest-serve\g3\RESULTS.md`). Boots A, B and C ran on the test build of the same code (Turbo.dll 7b96c046); boots CS218V and CS218W ran on this release Turbo.dll (9db316f4) itself.
+
+Proven in game:
+- A (test build): Ajax new career, control case: no crest is served for a native club, 0 failures, hub reached.
+- B (test build): new FC Den Bosch career (Eerste Divisie): the large crest is served from mods\legacy, no 37% hang (Live Editor captures to PrepareSeason 7.0 s); the contract screen and the hub show the large crest.
+- C (test build): Den Bosch v Roda JC, Matchday 1, Play Match: kick-off reached, no crash; large crests on the scoreboard and the player cards.
+- CS218V (release DLL): Kick Off, FC Eindhoven v FC Emmen: no crash; large crests on the Match Preview, the scoreboard and the player cards; the custom kits on the Select Kits screen and on the pitch; the Keuken Kampioen Divisie league logo.
+- CS218W (release DLL): new FC Eindhoven career: no hang, hub reached; then Matchday 1 kick-off (Eindhoven v TOP Oss), crest served, no crash.
+
+Not proven:
+- Audio: no commentary was heard (the commentator card at kick-off was seen only).
+- Modded crests on any path other than data/ui/imgAssets/crest/ (the only path Turbo serves in this release).
 
 ## 2.17.2 (built 2026-10-18)
 
