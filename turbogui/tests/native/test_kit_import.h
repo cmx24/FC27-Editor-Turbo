@@ -751,7 +751,9 @@ static void kit_import_ui_cases(App& app, Ui& ui, const fs::path& le) {
                 bool so = true, so0 = true;
                 CHECK(ui.find("###kswapother", "##tkits", "away") && rt.slot_options(7, 1, nullptr, nullptr, nullptr, &so) && !so,
                       "away: 'Also change other clubs' kits that share this texture' is offered, off by default");
-                CHECK(ui.click("###kswapother", "##tkits", "away") && rt.slot_options(7, 1, nullptr, nullptr, nullptr, &so) && so,
+                CHECK(ui.click("###kswapother", "##tkits", "away"), "away: click the other clubs' kits option");
+                rt.wait_idle();  // 2.17 integration: the option save runs on the kit runtime (a race under load before this wait)
+                CHECK(rt.slot_options(7, 1, nullptr, nullptr, nullptr, &so) && so,
                       "away: ticked and saved");
                 CHECK(rt.slot_options(7, 0, nullptr, nullptr, nullptr, &so0) && !so0 && rt.slot_options(7, 1, &d, &k, &sc) && sc && !k, "... the home kit's choice and the away kit's other choices are untouched");
                 rt.wait_idle();

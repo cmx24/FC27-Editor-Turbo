@@ -25,6 +25,7 @@
 #include "ui_faces.h"
 #include "ui_faces3d_gate.h"
 #include "ui_bodytype_thumbs.h"
+#include "ui_looks_studio.h"
 #include "ui_images.h"
 
 #include "ui_edit_unlock.h"
@@ -1715,6 +1716,7 @@ void App::draw() {
     tick_faces3d(*this);
     tick_faces3d_preview(*this);  // Players > Appearance > 3D hair: the live preview's own picture (ui_faces3d_gate.cpp)
     tick_bodytype_thumbs(*this);  // 2.17 looks T: the body-type picture maker (ui_bodytype_thumbs.cpp), also while the window is hidden
+    looks::tick_looks_studio(*this);  // 2.17 looks U: a picture answer that arrives after the person left the page frees the capture service
 
     if (!visible) return;
 
