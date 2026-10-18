@@ -443,7 +443,6 @@ bool move_button(App& app, const char* label, const char* key, const std::string
 
 enum class Confirm { None, Release, EndLoan, Delete };
 Confirm g_confirm = Confirm::None;
-bool g_cancel_requested = false;
 int g_to_team = 0, g_fee = 0, g_wage = 0, g_months = 60, g_loan_months = 12;
 
 void more_section(App& app, const Table& t, const PlayerRow& p) {
@@ -455,10 +454,16 @@ void more_section(App& app, const Table& t, const PlayerRow& p) {
     theme::muted_text("Moves and lists. They run in the game and cannot be undone from here.");
     if (ImGui::Button("Move to another club...###pp_move")) ImGui::OpenPopup("Move to another club###pp_movedlg");
     ImGui::SameLine();
-    if (move_button(app, "Release...###pp_release", "move_release", move_rules::why_not("release", facts), nobody_undoes)) g_confirm = Confirm::Release;
+    if (move_button(app, "Release...###pp_release", "move_release", move_rules::why_not("release", facts), nobody_undoes)) {
+        g_confirm = Confirm::Release;
+        ImGui::OpenPopup("Are you sure?###pp_confirm");
+    }
     ImGui::SameLine();
     if (move_button(app, "End loan...###pp_endloan", "move_terminate_loan", move_rules::why_not("terminate_loan", facts), nobody_undoes))
+    {
         g_confirm = Confirm::EndLoan;
+        ImGui::OpenPopup("Are you sure?###pp_confirm");
+    }
     struct B { const char* label; const char* action; const char* key; const char* tip; };
     const B lists[] = {
         {"Transfer list###pp_tlist", "transfer_list", "move_transfer_list", "Adds him to your club's transfer list; other clubs then make offers"},
@@ -469,7 +474,10 @@ void more_section(App& app, const Table& t, const PlayerRow& p) {
         if (move_button(app, b.label, b.key, move_rules::why_not(b.action, facts), b.tip)) send_move(app, b.action, p.playerid, b.label);
         ImGui::SameLine();
     }
-    if (move_button(app, "Delete player...###pp_delete", "delete_players", move_rules::why_not("delete", facts), nobody_undoes)) g_confirm = Confirm::Delete;
+    if (move_button(app, "Delete player...###pp_delete", "delete_players", move_rules::why_not("delete", facts), nobody_undoes)) {
+        g_confirm = Confirm::Delete;
+        ImGui::OpenPopup("Are you sure?###pp_confirm");
+    }
     if (!cm) {
         ImGui::EndDisabled();
         theme::muted_text("Open a career first: moves only work inside one.");
@@ -516,17 +524,11 @@ void more_section(App& app, const Table& t, const PlayerRow& p) {
     }
 
     // one confirmation for the three moves nothing can bring back
-    if (g_confirm != Confirm::None && !ImGui::IsPopupOpen("Are you sure?###pp_confirm")) ImGui::OpenPopup("Are you sure?###pp_confirm");
     if (ImGui::BeginPopupModal("Are you sure?###pp_confirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         const char* verb = g_confirm == Confirm::Release ? "Release" : g_confirm == Confirm::EndLoan ? "End the loan of" : "Delete";
         const char* what = g_confirm == Confirm::Release   ? "He becomes a free agent."
                            : g_confirm == Confirm::EndLoan ? "He goes back to the club that lent him."
                                                            : "Turbo releases him first, then removes him and his loan records.";
-        if (g_cancel_requested) {
-            g_cancel_requested = false;
-            g_confirm = Confirm::None;
-            ImGui::CloseCurrentPopup();
-        }
         char title[200];
         std::snprintf(title, sizeof(title), "%s %s?", verb, p.name.c_str());
         g_state.confirm_text = std::string(title) + " " + what + " The Undo button cannot bring this back.";
@@ -640,7 +642,6 @@ bool player_page_matches(const PlayerRow& p, const PlayerPageFilter& f, int64_t 
 
 const PlayerPageState& player_page_state() { return g_state; }
 
-void player_page_cancel_dialog() { g_cancel_requested = true; }
 
 void draw_player_page(App& app) {
     if (!app.connected()) {

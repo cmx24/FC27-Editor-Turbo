@@ -12,7 +12,7 @@ using namespace turbo;
 
 static void draw_extra(App& app) {
     const ImVec2 ds = ImGui::GetIO().DisplaySize;
-    ImGui::SetNextWindowFocus();
+    if (!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) ImGui::SetNextWindowFocus();  // a modal keeps the focus it needs
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ds);
     if (ImGui::Begin("##playerpage_test", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) draw_player_page(app);
@@ -160,8 +160,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             if (!c.empty()) {
                 CHECK(c.find("Release") != std::string::npos && c.find("cannot bring this back") != std::string::npos, "the dialog says it cannot be undone: " + c);
                 CHECK(!app.busy(), "nothing sent before the answer");
-                // the dialog is a self-sizing modal: the harness lays its buttons outside the window (clip rect), so the Cancel press goes through the test hook
-                player_page_cancel_dialog();
+                CHECK(ui.click("Cancel###pp_confirm_no"), "Cancel");
                 ui.frames(2);
                 CHECK(!app.busy() && player_page_state().confirm_text.empty(), "cancelled: nothing sent, dialog gone");
             } else {
