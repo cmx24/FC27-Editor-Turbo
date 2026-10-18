@@ -3634,6 +3634,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_game_settings.h"  // 2.8: the game's own settings file, presets, the apply tool's core (gsettings_test::run, ::ui_cases)
 #include "test_tactic_presets.h"  // 2.12: tactic presets (tactic_presets_test::run, ::ui_cases)
 #include "test_gameplay_page.h"  // 2.13 T4: the Gameplay presets page, the page registrations, the amber line (gameplay_page_test::ui_cases)
+#include "test_page_tactics.h"  // 2.16 gui/page-tactics: the Tactics section pages (page_tactics_test::ui_cases)
 #include "test_season_pack.h"  // 2.10 B3: season update pack importer (season_pack_test::run)
 #include "test_attrib_ebx.h"  // 2.10 T1: attribulator EBX patch at load (attrib_ebx_test::run, real install fixtures)
 #include "test_minhook_reloc.h"  // 2.15 hooks/minhook-reloc: the trampoline relocation range check (minhook_reloc_test::run)
@@ -9615,6 +9616,7 @@ static void test_ui() {
         gsettings_test::ui_cases(app, ui, le);  // test_game_settings.h: the Game settings tab (2.8)
         tactic_presets_test::ui_cases(app, ui, le);  // test_tactic_presets.h: Teams > Tactic presets (2.12)
         gameplay_page_test::ui_cases(app, ui, le);  // test_gameplay_page.h: Gameplay presets page (2.13 T4)
+        page_tactics_test::ui_cases(app, ui, le);  // test_page_tactics.h: Tactic presets frame, Team sheet & bench, Game sliders (2.16)
         describe_ui_cases(app, ui);  // test_describe.h: edit log, undo toast, pickers, Technical details, the "no code N" walk
         ui_cases_names_tab(app, ui, mem, kMb);  // test_names_tab.h
         archetype_target_test::run_ui(app, ui, mem, kMb);  // test_archetype_target.h
